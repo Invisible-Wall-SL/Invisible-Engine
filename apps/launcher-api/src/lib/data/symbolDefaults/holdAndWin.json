@@ -917,6 +917,60 @@
 				}
 			}
 		},
-		"BLANK": {}
+		"BLANK": {},
+		"UNLOCK": {
+			"explosion": {
+				"type": "spine",
+				"assetKey": "explosion",
+				"animationName": "explosion",
+				"sizeRatios": {
+					"width": 1,
+					"height": 1
+				}
+			},
+			"postWinStatic": {
+				"type": "sprite",
+				"assetKey": "s.png",
+				"sizeRatios": {
+					"width": 1.243,
+					"height": 1.243
+				}
+			},
+			"static": {
+				"type": "sprite",
+				"assetKey": "s.png",
+				"sizeRatios": {
+					"width": 1.243,
+					"height": 1.243
+				}
+			},
+			"spin": {
+				"type": "spine",
+				"assetKey": "S",
+				"animationName": "scatter_spin",
+				"sizeRatios": {
+					"width": 2.5,
+					"height": 2.3
+				}
+			},
+			"win": {
+				"type": "spine",
+				"assetKey": "S",
+				"animationName": "scatter_win",
+				"sizeRatios": {
+					"width": 2.5,
+					"height": 2.3
+				}
+			},
+			"land": {
+				"type": "spine",
+				"assetKey": "S",
+				"animationName": "scatter_land",
+				"sizeRatios": {
+					"width": 2.5,
+					"height": 2.3
+				}
+			}
+		}
 	}
 }

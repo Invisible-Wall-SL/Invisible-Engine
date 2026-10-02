@@ -93,14 +93,7 @@
 		// `effect` carries an authored FX id in `key` (the Library's Effects section);
 		// `flipbook` an authored clip id (the Library's Flipbooks section).
 		kind:
-			| 'atlas-page'
-			| 'atlas-manifest'
-			| 'sheet'
-			| 'spine'
-			| 'text'
-			| 'rect'
-			| 'effect'
-			| 'flipbook';
+			'atlas-page' | 'atlas-manifest' | 'sheet' | 'spine' | 'text' | 'rect' | 'effect' | 'flipbook';
 		key: string;
 		name: string;
 	}
@@ -2951,6 +2944,7 @@
 		}
 
 		drawRespinCellTilesPreview(ctx, geo.seats);
+		drawLockedRowPreview(ctx, geo.seats);
 
 		ctx.lineWidth = 2;
 		ctx.strokeStyle = '#5db0ff';
@@ -3023,6 +3017,55 @@
 				tint !== undefined && tint !== 0xffffff ? tint : undefined,
 			);
 			ctx.restore();
+		}
+	}
+
+	/**
+	 * The `lockedRow` component's look, while one is SELECTED: an expanding respin board draws it over
+	 * every locked cell — the rows that grow BELOW the base grid, which no editor screen shows — so one
+	 * sample row is drawn under the reel grid, each cell as the game draws a locked cell: the authored
+	 * art (tinted), else the coded dark panel marked LOCKED. Nothing selected ⇒ nothing drawn.
+	 */
+	function drawLockedRowPreview(
+		ctx: CanvasRenderingContext2D,
+		seats: readonly ReelGridSeat[],
+	): void {
+		const selected = selectedId ? findNodeById(selectedId) : null;
+		if (selected?.kind !== 'componentInstance' || selected.componentId !== 'lockedRow') return;
+		if (!seats.length) return;
+		const params: Record<string, unknown> = selected.params ?? {};
+		const image = typeof params.lockedImage === 'string' ? params.lockedImage : '';
+		const tintText = typeof params.lockedTint === 'string' ? params.lockedTint : '';
+		const tint = /^#[0-9a-f]{6}$/i.test(tintText) ? parseInt(tintText.slice(1), 16) : undefined;
+		const scoped = image ? parseScopedFrameRef(image) : null;
+		const bottom = Math.max(...seats.map((seat) => seat.y + seat.h));
+		const lastRow = seats.filter((seat) => seat.y + seat.h === bottom);
+		const pitch = Math.max(...seats.map((seat) => seat.h));
+		for (const seat of lastRow) {
+			const y = seat.y + pitch;
+			if (scoped) {
+				ctx.save();
+				ctx.translate(seat.x + seat.w / 2, y + seat.h / 2);
+				drawArtRegionSprite(
+					ctx,
+					scoped.assetKey ?? '',
+					scoped.region,
+					{ x: 0, y: 0, anchor: { x: 0.5, y: 0.5 }, width: seat.w, height: seat.h, visible: true },
+					undefined,
+					tint !== undefined && tint !== 0xffffff ? tint : undefined,
+				);
+				ctx.restore();
+				continue;
+			}
+			ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+			ctx.fillRect(seat.x + seat.w * 0.03, y + seat.h * 0.03, seat.w * 0.94, seat.h * 0.94);
+			ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+			ctx.strokeRect(seat.x + seat.w * 0.03, y + seat.h * 0.03, seat.w * 0.94, seat.h * 0.94);
+			ctx.fillStyle = '#ffffff';
+			ctx.font = `bold ${Math.round(seat.h * 0.15)}px Arial`;
+			ctx.textAlign = 'center';
+			ctx.textBaseline = 'middle';
+			ctx.fillText('LOCKED', seat.x + seat.w / 2, y + seat.h / 2);
 		}
 	}
 

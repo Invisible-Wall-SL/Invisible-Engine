@@ -204,6 +204,7 @@ const PLACED = [
 	'lettersStrip',
 	'wheel',
 	'respinCells',
+	'lockedRow',
 ];
 for (const id of PLACED) {
 	assert(
@@ -256,19 +257,38 @@ const SIZE = {
 	infoBar: [504, 86],
 	textBox: [260, 30],
 };
-for (const board of [mod.HOLD_AND_WIN_BOARD, mod.HOLD_AND_WIN_HOTFIRE_BOARD]) {
-	const layout = mod.holdAndWinReferenceLayout(board);
+// An expanding board (11b) reserves its maxRows area: the grid moves up, its cells shrink, and the
+// pieces around it clear the whole grown block.
+for (const [board, options] of [
+	[mod.HOLD_AND_WIN_BOARD, {}],
+	[mod.HOLD_AND_WIN_HOTFIRE_BOARD, {}],
+	[mod.HOLD_AND_WIN_BOARD, { maxRows: 6 }],
+	[mod.HOLD_AND_WIN_HOTFIRE_BOARD, { maxRows: 5 }],
+]) {
+	const layout = mod.holdAndWinReferenceLayout(board, options);
 	const basegame = layout.scenes.find((s) => s.id === 'basegame');
 	const grid = walk(basegame.nodes).find((n) => n.kind === 'reelGrid');
 	assert(
 		grid.reels === board.reels && grid.rows === board.rows,
 		`the reel grid is ${board.reels}×${board.rows}`,
 	);
+	const maxRows = options.maxRows ?? board.rows;
+	if (!options.maxRows)
+		assert(grid.cellSize === board.cellSize, 'an unexpanding board keeps its cells');
 	for (const [type, size] of Object.entries(layout.mainSizesMap)) {
-		const cx = size.width / 2;
-		const cy = size.height / 2;
-		const bw = (board.reels * board.cellSize) / 2;
-		const bh = (board.rows * board.cellSize) / 2;
+		const g = type === 'desktop' ? {} : (grid.overrides?.[type] ?? {});
+		const gx = g.x ?? grid.x;
+		const gy = g.y ?? grid.y;
+		// The base board is centred on the grid node; the reserved rows hang below it.
+		const cx = gx;
+		const top = gy - (board.rows * grid.cellSize) / 2;
+		const bottomEdge = top + maxRows * grid.cellSize;
+		const cy = (top + bottomEdge) / 2;
+		const bw = (board.reels * grid.cellSize) / 2;
+		const bh = (bottomEdge - top) / 2;
+		assert(top >= 0 && bottomEdge <= size.height, `${type}: the ${maxRows}-row block fits the box`);
+		if (options.maxRows)
+			assert(Math.abs(cy - size.height / 2) < 1, `${type}: the grown block is centred`);
 		for (const id of [
 			'basegame',
 			'jackpotBar',
@@ -290,7 +310,7 @@ for (const board of [mod.HOLD_AND_WIN_BOARD, mod.HOLD_AND_WIN_HOTFIRE_BOARD]) {
 				const right = x + (w * scale) / 2;
 				const top = y - (h * scale) / 2;
 				const bottom = y + (h * scale) / 2;
-				const where = `${board.reels}×${board.rows} ${type} ${id}/${node.id}`;
+				const where = `${board.reels}×${maxRows} ${type} ${id}/${node.id}`;
 				assert(
 					left >= 0 && right <= size.width && top >= 0 && bottom <= size.height,
 					`${where} leaves the main box`,

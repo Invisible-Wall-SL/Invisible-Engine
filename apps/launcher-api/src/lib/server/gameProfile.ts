@@ -351,6 +351,19 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		text: (ctx) => (ctx.config?.holdAndWin?.specials.upgrade ? 'Coin upgrade' : null),
 	},
 	{
+		id: 'expansion',
+		title:
+			'Board expansion: the respin board unlocks rows below the base grid as the feature plays.',
+		text: (ctx) => {
+			const e = ctx.config?.holdAndWin?.expansion;
+			if (!e) return null;
+			const rule = { fullRow: 'full row', unlockSymbol: 'unlock symbol', coinCount: 'coin count' }[
+				e.rule
+			];
+			return `Rows ${e.startRows}→${e.maxRows} (${rule})`;
+		},
+	},
+	{
 		id: 'pots',
 		title:
 			'Persistent per-player meters: each fills from its own special and, when full, starts the feature with a modifier active.',

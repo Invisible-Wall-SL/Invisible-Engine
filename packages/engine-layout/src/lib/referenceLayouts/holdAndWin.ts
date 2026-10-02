@@ -38,7 +38,8 @@ import { engineSkeletonLayout, type EngineSkeletonBoard } from './engineSkeleton
  *
  * Everything is placed AROUND the board, never on it, and the board's rows (3) are the same in
  * every preset — so the 3×3 Hotfire board (narrower) fits the same layout as 5×3; pass its shape as
- * `board`. Two arrangements: wide (desktop/landscape) puts the counter and the total either side of
+ * `board`. An EXPANDING board (design §7 11b) passes its `maxRows`: the template then reserves the
+ * grown board's area ({@link EXPANDING_BLOCK_GROWTH}) and places the `lockedRow` handle over it. Two arrangements: wide (desktop/landscape) puts the counter and the total either side of
  * the board, tall (tablet/portrait) stacks them above and below.
  */
 
@@ -52,6 +53,18 @@ export const HOLD_AND_WIN_BOARD: EngineSkeletonBoard = {
 
 /** Super Hotfire Diamonds' 3×3 board — the `collector` preset. */
 export const HOLD_AND_WIN_HOTFIRE_BOARD: EngineSkeletonBoard = { ...HOLD_AND_WIN_BOARD, reels: 3 };
+
+/**
+ * How the template RESERVES an expanding board's area (design §7 11b): the respin board grows rows
+ * below the base grid, so the reel grid moves up by half the extra rows (the whole `maxRows` block
+ * centres where the 3-row board did) and its cells shrink until that block is at most this many
+ * times the base board's height — so the pieces above and below, pushed out by the same amount,
+ * still fit the desktop box.
+ */
+export const EXPANDING_BLOCK_GROWTH = 1.1;
+
+/** Template options: an expanding board's `maxRows` (absent ⇒ the board never grows). */
+export type HoldAndWinTemplateOptions = { maxRows?: number };
 
 export const HOLD_AND_WIN_MODE = 'holdAndWin';
 
@@ -135,6 +148,28 @@ const tap = (id: string, armAfterSignal?: string): LayoutNode => ({
 	},
 });
 
+/** Move the skeleton's reel grid up by `lift` in every layout type (desktop and each override). */
+const liftReelGrid = (doc: LayoutDoc, lift: number): LayoutDoc => ({
+	...doc,
+	scenes: doc.scenes.map((scene) => ({
+		...scene,
+		nodes: scene.nodes.map((node) =>
+			node.kind !== 'reelGrid'
+				? node
+				: {
+						...node,
+						y: node.y - lift,
+						overrides: Object.fromEntries(
+							Object.entries(node.overrides ?? {}).map(([type, o]) => [
+								type,
+								o && typeof o.y === 'number' ? { ...o, y: o.y - lift } : o,
+							]),
+						),
+					},
+		),
+	})),
+});
+
 const modeScene = (scene: Omit<Scene, 'role' | 'modeId'>): Scene => ({
 	...scene,
 	role: 'mode',
@@ -145,14 +180,39 @@ const modeScene = (scene: Omit<Scene, 'role' | 'modeId'>): Scene => ({
 const FREE_SPIN_SCENES = new Set(['freeSpinIntro', 'freeSpinCounter', 'freeSpinOutro']);
 
 export function holdAndWinReferenceLayout(
-	board: EngineSkeletonBoard = HOLD_AND_WIN_BOARD,
+	baseBoard: EngineSkeletonBoard = HOLD_AND_WIN_BOARD,
+	{ maxRows }: HoldAndWinTemplateOptions = {},
 ): LayoutDoc {
-	const skeleton = engineSkeletonLayout({
+	const extraRows = Math.max(0, (maxRows ?? baseBoard.rows) - baseBoard.rows);
+	const cellSize = extraRows
+		? Math.floor(
+				Math.min(
+					baseBoard.cellSize,
+					(baseBoard.cellSize * baseBoard.rows * EXPANDING_BLOCK_GROWTH) /
+						(baseBoard.rows + extraRows),
+				),
+			)
+		: baseBoard.cellSize;
+	const board: EngineSkeletonBoard = { ...baseBoard, cellSize };
+	/** How far the reserved block's edges sit past the base board's, and how far up the grid moves. */
+	const blockGrowth =
+		((baseBoard.rows + extraRows) * cellSize - baseBoard.rows * baseBoard.cellSize) / 2;
+	const gridLift = (extraRows * cellSize) / 2;
+	/** A piece at least this far above or below the centre sits above or below the board. */
+	const baseHalf = (baseBoard.rows * baseBoard.cellSize) / 2;
+	const raw = engineSkeletonLayout({
 		gameType: 'holdAndWin',
 		projectKey: 'holdAndWin',
 		board,
 	});
-	const place = placeIn(skeleton.mainSizesMap);
+	const skeleton = extraRows ? liftReelGrid(raw, gridLift) : raw;
+	/** A piece above the board moves up with the block's top edge, one below with its bottom. */
+	const clear = (spot: Spot): Spot =>
+		extraRows && Math.abs(spot.dy) >= baseHalf
+			? { ...spot, dy: spot.dy + Math.sign(spot.dy) * blockGrowth }
+			: spot;
+	const placeAround = placeIn(skeleton.mainSizesMap);
+	const place = (wide: Spot, tall: Spot = wide) => placeAround(clear(wide), clear(tall));
 	// The intro/outro are `canvas` screens (their tap dim covers the window), so their text is
 	// pinned to the window centre rather than placed in the main box.
 	const centred = (id: string, label: string, dy: number, params: Record<string, unknown>) =>
@@ -204,6 +264,14 @@ export function holdAndWinReferenceLayout(
 			// editor shows its handle; with no tile image it draws nothing.
 			nodes: [
 				instance('respin-cell-tiles', 'Respin cell tiles', 'respinCells', place({ dx: 0, dy: 0 })),
+				// An expanding board's locked cells (draws nothing on a board that never grows). Its
+				// handle sits over the reserved rows below the base grid.
+				instance(
+					'locked-rows',
+					'Locked rows',
+					'lockedRow',
+					placeAround({ dx: 0, dy: (baseBoard.rows * cellSize) / 2 }),
+				),
 			],
 		}),
 		modeScene({
