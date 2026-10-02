@@ -54,7 +54,7 @@ titled **"Hold and win game pipeline"**.
 | 11c | Progressive + operator platform jackpots (design §7) | merged, live (`lines@2342c815d074`) — owed: the live Borut round and the partner's platform-jackpot confirmation (Owner checklist 10–11) | Hold and Win Phase 11c — progressive + platform jackpots | part 1: #991 · part 2: #999 |
 | 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | not started | — | — |
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | not started | — | — |
-| 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | not started | — | — |
+| 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — Pot art params + coded-part plumbing first; signals and bindings wired after 12a (#1003) and 12b (#1005) merge | Hold and Win Phase 12c skinnable parts | — |
 
 ## Current state
 
