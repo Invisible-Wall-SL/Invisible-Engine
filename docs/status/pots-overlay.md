@@ -565,10 +565,9 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
    - **4b — lift-off vs the flight stagger:** a fill's tokens leave at once, but each flight starts
      one stagger (70 ms coded) after the last, so the Nth cell sits empty for (N−1)×70 ms. Goes with
      the token as the flight head.
-   - **4b — owner decision pending: frame over coin, or coin over frame.** Win frames are drawn per
-     cell inside `Symbol.svelte`, under the overlay layer, so a token on a paying cell covers its
-     frame; §3.4 says the layer sits "below the win frames". The hub is asking the owner; nothing is
-     restructured in 4a.
+   - **Coin over the win frame — decided 2026-10-02** (owner, design §7 #9). The overlay layer
+     stays above the per-cell frames drawn in `Symbol.svelte`, as 4a built it. Design §3.4 now
+     says so, and 4b does not restructure it.
    - **Human eyes** on token pop-in, lift-off, the flight and the drain with REAL token art (the
      runs below had none, so a token drew nothing and its beat ended on its cap), at full frame
      rate (the container renders at ~4 fps).
@@ -583,9 +582,9 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
      - on a pots-only host, the `/symbols` flight rows say "meter" where the rest says "pot";
      - the `gameProfile` "Pots overlay" chip doesn't show for a block with drops but zero pots;
      - `win-text/+page.server.ts` calls `projectAddOns` twice.
-2. **Owner decisions pending** (asked 2026-10-02):
-   - **(a)** On a paying cell, does the win frame draw over the coin or the coin over the frame? The
-     hub recommends the frame over the coin. 4b builds whichever is chosen.
+2. **Owner decisions** (asked and answered 2026-10-02):
+   - **(a) Decided 2026-10-02: the coin draws over the win frame** (design §7 #9). This is 4a's
+     layering, so nothing is to build.
    - **(b) Decided 2026-10-02: pots and coins are each optional** (design §7 #8). An overlay may be
      coins-only (no pots: value coins over the host's symbols, N+ start a classic Hold and Win) or
      pots-only, but needs at least one. Phase 6 builds it:
@@ -630,7 +629,7 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 ## Owner checklist
 
 1. **Confirm or change the defaults** in the design's §7, especially #5 (import vs live link) and #4
-   (host feature and pot bonus in one round). Also answer Open items 2 (a) and (b).
+   (host feature and pot bonus in one round). Open items 2 (a) and (b) are answered.
 2. **Phase 6:** duplicate Book of Borut as `borut-pots-sample` (Game Maker → Duplicate, setup
    scope), then publish it once Phase 6 lands. A session cannot sign in.
 3. **Phase 8:** ask the partner whether their RGS can deal per-player pots, drops on top of symbols,
