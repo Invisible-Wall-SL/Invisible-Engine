@@ -22,6 +22,9 @@ export type GameModeBoard = (typeof GAME_MODE_BOARDS)[number];
 /** The base game's id — the bottom of every mode stack, and the mode a round returns to. */
 export const BASE_GAME_MODE = 'basegame';
 
+/** The respin feature's id — built in whenever the config carries a `holdAndWin` block. */
+export const HOLD_AND_WIN_MODE = 'holdAndWin';
+
 export type GameModeDecl = {
 	/** The mode id the engine, the flow and the scenes name it by (`freeSpins`, `holdAndWin`, …). */
 	id: string;
@@ -68,7 +71,7 @@ export function builtinGameModes(
 	];
 	if (doc?.holdAndWin) {
 		modes.push({
-			id: 'holdAndWin',
+			id: HOLD_AND_WIN_MODE,
 			board: 'respinBoard',
 			gameType: 'respin',
 			counter: 'respins',
@@ -131,7 +134,8 @@ const isObject = (v: unknown): v is Record<string, unknown> =>
 const text = (v: unknown): string | undefined =>
 	typeof v === 'string' && v.trim() ? v.trim() : undefined;
 
-const MODE_ID = /^[A-Za-z][A-Za-z0-9_-]*$/;
+/** A mode id's shape — also a pot's, since both become anchors and value-source path segments. */
+export const GAME_MODE_ID = /^[A-Za-z][A-Za-z0-9_-]*$/;
 
 /**
  * Normalize authored modes, or `undefined` when nothing departs from the built-ins.
@@ -152,7 +156,7 @@ export function normalizeGameModes(
 	for (const entry of raw) {
 		if (!isObject(entry)) continue;
 		const id = text(entry.id);
-		if (!id || !MODE_ID.test(id) || seen.has(id)) continue;
+		if (!id || !GAME_MODE_ID.test(id) || seen.has(id)) continue;
 		const builtin = builtins.find((mode) => mode.id === id);
 		const board = GAME_MODE_BOARDS.find((b) => b === entry.board) ?? builtin?.board;
 		if (!board) continue;
