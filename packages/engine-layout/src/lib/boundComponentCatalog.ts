@@ -81,6 +81,27 @@ export interface TileImageBinding {
 	height: number;
 }
 
+/**
+ * A coded part an author can SKIN (Phase 12c, design `hold-and-win.md` §8). The part draws the
+ * picked art in place of its coded drawing, and the author's own nodes INSIDE it — its `bind`
+ * node's children, which the game hands the part as its `skin` — draw over that art, while the
+ * part keeps its behaviour. Declaring this is what lets the editors draw those children and the
+ * art instead of the stand-in chip, and lets the Component Editor step inside the part to author
+ * them. Keyed off `bind.component`, naming the ENCLOSING instance's param keys like
+ * {@link TileImageBinding}; never written to the layout doc.
+ */
+export interface PartSkinBinding {
+	/**
+	 * Instance params (kind `image`) drawn bottom → top, centred on the part. A layer with a
+	 * `directionParam` is a FILL: the game reveals it by a value from the edge that param names
+	 * (`potFillRect`); the editor previews it at `POT_PREVIEW_FILL_SHARE`.
+	 */
+	layers: { imageParam: string; directionParam?: string }[];
+	/** Instance params (kind `number`) overriding every layer's box; blank ⇒ each image's own. */
+	widthParam?: string;
+	heightParam?: string;
+}
+
 export interface BoundComponentPreview {
 	kind: 'spine' | 'sprite';
 	/** Convention spine-bundle name (kind `spine`), resolved against project spines. */
@@ -116,6 +137,8 @@ export interface BoundComponentDefault {
 	ridesBone?: BoneRiderBinding;
 	/** Editor-only per-instance tile skin (see {@link TileImageBinding}). */
 	tileImage?: TileImageBinding;
+	/** A part the author can skin with art and their own nodes (see {@link PartSkinBinding}). */
+	skin?: PartSkinBinding;
 	/** Where the editor places the preview (see {@link OverlayPlacement}). */
 	placement?: OverlayPlacement;
 	/** Default render order when the component is dropped as an anchor. */
@@ -140,6 +163,19 @@ export const BOUND_COMPONENT_DEFAULTS: Record<string, BoundComponentDefault> = {
 			heightParam: 'backgroundHeight',
 			width: HUD_TILE_WIDTH,
 			height: HUD_TILE_HEIGHT,
+		},
+	},
+	// The Pot Meter's coded pot. A part inside the `potMeter` def, never a droppable anchor, so —
+	// like `HudTicker` — no `space`/`preview`/`placement`. Its art params are `POT_SKIN_PARAMS`.
+	PotMeter: {
+		skin: {
+			layers: [
+				{ imageParam: 'backgroundImage' },
+				{ imageParam: 'fillImage', directionParam: 'fillDirection' },
+				{ imageParam: 'frameImage' },
+			],
+			widthParam: 'artWidth',
+			heightParam: 'artHeight',
 		},
 	},
 	LoadingScreen: {
@@ -307,6 +343,14 @@ export function boundComponentRidesBone(name: string): BoneRiderBinding | undefi
  */
 export function boundComponentTileImage(name: string | undefined): TileImageBinding | undefined {
 	return name ? BOUND_COMPONENT_DEFAULTS[name]?.tileImage : undefined;
+}
+
+/**
+ * The skin a coded part declares (see {@link PartSkinBinding}), or `undefined` for a part whose
+ * drawing is fixed. Keyed off the `bind.component` name, so the editor never hardcodes `PotMeter`.
+ */
+export function boundComponentSkin(name: string | undefined): PartSkinBinding | undefined {
+	return name ? BOUND_COMPONENT_DEFAULTS[name]?.skin : undefined;
 }
 
 /**

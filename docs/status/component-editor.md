@@ -16,6 +16,12 @@ Shipped capabilities on `main`:
 - **Button-state-driven spine animations** (2026-06-25) — `SpineNode.stateAnimations` (hover/pressed/selected/disabled/spinning cascade), authored via "Plays on button state"; blank-default spine = a state-only overlay over a resting button image.
 - **Versioning** — pin-by-default with a **true multi-version store** (v2): a changed save bumps `version` AND retains every historical `<id>.v<N>.json` snapshot, so an instance resolves the EXACT def it pinned (editor preview, bake, and shipped game); a missing pin renders latest + a `versionMismatch` warning, never a silent upgrade. Outdated instances are **flagged** in the Scene Editor and updated per instance (never bulk). A **version browser** (top-bar `Version` dropdown + **Inspect** read-only + **Back to latest**) browses retained snapshots non-destructively.
 - **Promote to shared** (2026-06-24) — holders of the `componentPublish` capability (admin by default) get a top-bar button writing a `_shared/editor-components/<id>.json` snapshot; enforced server-side. The kept draft stays project-scoped and still shadows the shared copy.
+- **Skinnable coded parts** (2026-10-02, Hold and Win 12c, #1006). A coded part whose catalog entry
+  declares a `skin` (the Pot Meter's `Pot` today) takes art params, and it takes the author's own
+  nodes inside it. Those nodes draw in place of the coded drawing, and the part keeps its
+  behaviour. The bar's **Edit inside ‹part› ›** edits the part's children. The canvas previews the
+  art and the children. The create type **Pot Meter (Hold and Win)** makes a project copy.
+  Contract: [hold-and-win](hold-and-win.md) Decisions.
 - **"This game's defaults"** (2026-09-17, design Phase B3) — a second panel under *Component variables* setting the open def's params for the ACTIVE PROJECT only, stored in the §13.3 sidecar (`editor/<project>/component-defaults/<id>.json`) so a SHARED def can look different per game without being forked. Lists every `!engineProvided` param with the instance panel's widgets; empty = inherit (the key stays absent, `×` restores it); its own `SaveState` + **Save for this game** + conflict badge, separate from the def's versioned save. Each save backs up the version it replaces (newest 20 per component, under `component-defaults-backups/`); **History…** beside it opens the shared version-history modal (#857). Both editor canvases resolve it (see [editor status](./editor.md)).
 
 ## Open items / next
@@ -28,6 +34,15 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-02 — **Skinnable coded parts, Pot first** (Hold and Win 12c part 1, #1006).
+  - `/components` gains **Edit inside ‹part› ›** / **↩ Back**: an `insidePartId` re-points the
+    synthetic scene, spawns and deletes at the part's children.
+  - New create type **Pot Meter (Hold and Win)**.
+  - `EditorCanvas` draws a skinned part's art layers and children instead of its chip
+    (`boundComponentSkin`).
+  - Not browser-verified (auth-gated launcher); it type-checks and builds. Detail:
+    [hold-and-win](hold-and-win.md).
+
 - 2026-10-02 — **`respinCells` built-in** ("Respin Cell Tiles", Hold and Win, kind-gated): a coded part that hands `tileImage` / `tileTint` / `gap` to the respin board rather than drawing at its own spot. Detail: [hold-and-win](hold-and-win.md).
 
 - 2026-10-01 — **Kind-gated built-ins** (#951): `ComponentDef.capability` (a `KindCapabilities` flag) gates where the Scene Editor offers a def; seven new Hold and Win built-ins carry `capability: 'holdAndWin'` (respinCounter, jackpotTile, jackpotBar — four nested tiles, totalWinBar, potMeter, lettersStrip, wheel). `componentStorage` does not persist `capability`, so a saved fork falls back to the built-in's gate by id; a copy saved under a NEW id is offered to every kind. New `engine-layout` mount registry (`isComponentMounted`, counted by `<ComponentInstance>` and `<LayoutScene>`) lets a coded default step aside for a mounted authored twin.

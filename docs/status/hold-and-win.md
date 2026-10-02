@@ -54,7 +54,7 @@ titled **"Hold and win game pipeline"**.
 | 11c | Progressive + operator platform jackpots (design §7) | merged, live (`lines@2342c815d074`) — owed: the live Borut round and the partner's platform-jackpot confirmation (Owner checklist 10–11) | Hold and Win Phase 11c — progressive + platform jackpots | part 1: #991 · part 2: #999 |
 | 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | not started | — | — |
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | not started | — | — |
-| 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — Pot art params + coded-part plumbing first; signals and bindings wired after 12a (#1003) and 12b (#1005) merge | Hold and Win Phase 12c skinnable parts | #1006 |
+| 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — part 1 built (#1006): Pot art params, authored children inside the coded part, editor preview + **Edit inside**; next: rebase on 12a/12b, wire the Pot's fill and signals through them, the deleted-part trap, then the other parts | Hold and Win Phase 12c skinnable parts | #1006 |
 
 ## Current state
 
@@ -77,6 +77,37 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
 5 registered its own vocab + seed.
 
 ## Decisions & findings
+
+- 2026-10-02 — **Phase 12c: how a coded part is skinned** (session "Hold and Win Phase 12c
+  skinnable parts", #1006). Pinned by `packages/engine-layout/scripts/test-pot-skin.mjs`.
+  - **Authored children reach the part, not the scene.** A `bind` container's children are handed
+    to its coded component as a `skin` snippet (`<LayoutNodeView>`; the prop is absent when there
+    are no children, so every existing part is byte-identical). The PART decides where they draw.
+    A part that ignores `skin` draws exactly as before, which is also today's behaviour, since a
+    `bind` never rendered its children.
+  - **The Pot draws the skin inside its own scaled container**, under its `meter:<id>` anchor.
+    The children grow at each size stage and pulse with the pot. The anchor centres on whatever
+    is drawn, so flights land on the author's art. Measured in Storybook: the anchor sits at the
+    centre of the frog pot's nodes. `PotMeter` still counts itself in as `potMeter:<id>`. Children
+    replace the coded bar AND both labels. Art params still draw under them.
+  - **Art params, not def nodes.** The Pot's art lives in per-instance `image` params
+    (`POT_SKIN_PARAMS`): `backgroundImage`, `fillImage` + `fillDirection`, `frameImage`,
+    `stageImage1..3`, `artWidth` / `artHeight`. A label group (`showLevel`, `showActivates`,
+    `labelFontFamily`, `labelFill`, `labelScale`) and a motion group (`stageGrowth`, `pulseScale`)
+    complete it. The coded part draws them. They are not sprite nodes in the def, so a Pot Meter saved
+    before 12c gains them through `mergeBuiltinCodedParams`. A def node would never reach a saved
+    copy. Any pot image swaps the whole coded bar. Unset, the pot draws the coded bar exactly. The
+    art ships through the existing image-param export.
+  - **The fill reveal is coded for now** (`potFillRect`, the same edge rule as 12b's
+    `fillMaskRect`). After the 12b rebase it becomes 12b's helper. The editor previews the fill at
+    `POT_PREVIEW_FILL_SHARE` (0.6).
+  - **A skinnable part is declared in the bound catalog** (`BOUND_COMPONENT_DEFAULTS.PotMeter.skin`:
+    its layer params, box params). The editor canvas draws a skinned part's art and children instead
+    of its stand-in chip. The Component Editor's bar offers **Edit inside ‹part› ›**, which points
+    the canvas, outline and spawns at the part's children (`/components` `insidePartId`).
+  - **A game skins its pots through a project copy, not the built-in.** Saving the built-in Pot
+    Meter writes the SHARED library. The create type **Pot Meter (Hold and Win)** clones it for the
+    project, the way the Free-Spin Counter does. Per-instance art params need no copy.
 
 - 2026-10-02 — **Phase 11b contract (board expansion)** (session "H&W Phase 11b — board expansion").
   - **Config:** `holdAndWin.expansion {startRows, maxRows, rule, thresholds?, unlockReels?,
@@ -618,6 +649,28 @@ Hold and Win beats prints copy.
 
 ## Open items / next
 
+- **Phase 12c next (part 1 is #1006):**
+  - **Rebase on 12a (#1003) and 12b (#1005) when they merge.** Both edit `HoldAndWinPot` (one shared
+    line), `LayoutNodeView`, `componentCatalog` and the two editor guides. Adopt their shared
+    `meterStage` helper in the coded pot, and swap `potFillRect` for 12b's `fillMaskRect`.
+  - **Then the done-when on `hw-3pots-sample`:** a project Pot Meter copy with the frog spine
+    inside the part. Its cue on **Pot — activate** comes from 12a. The pot's scope comes from the
+    `meter` param. Its belly bone is a 12b `bone` binding on `meter.{meter}.level`. Its art is
+    the art params. Check it on all three pots with no Flow branch.
+  - **The deleted-part trap.** A copy whose `Pot` part was deleted still leaves the coded pot drawn
+    and the anchor on it. After 12a, the plan is: an instance scoped as a meter whose def has no
+    `PotMeter` part registers `meter:<id>` and counts itself in. 12a's typed scope key IS the anchor
+    name.
+  - **Kind-gate the create type.** **Pot Meter (Hold and Win)** is offered to every kind until
+    `/components` knows the project's kind (12a loads it).
+  - **The other parts, same pattern:** respin counter, jackpot bar/tile, total win bar, letters
+    strip, wheel, respin cell tiles.
+  - **Editor limits:** inside a part, positions are the part's own (fine while the part sits at
+    the component's origin, as the Pot does). The canvas previews neither the coded labels, the
+    size-stage images nor the pot's `scale` param.
+  - **Not verified in a browser:** the editor side (the launcher is auth-gated). It type-checks and
+    builds. The runtime was verified in Storybook (`MODE_HOLD_AND_WIN/skinned pot (12c)`).
+
 - **Phase 11b follow-ups** — both ruled by the hub (2026-10-02) and closed:
   - **Reserving an expanding board's area** — the scaffold and "Add missing screens" build the
     template with the stored config's `maxRows`, and the Scene Editor offers **⇕ Reserve rows for
@@ -745,6 +798,35 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-02 — **Phase 12c part 1: a skinnable Pot** (session "Hold and Win Phase 12c skinnable
+  parts", #1006). Design §8; contract in Decisions above. Built before 12a/12b merged, as the
+  brief allows: the art params and the coded-part plumbing.
+  - **Engine (`engine-layout`):**
+    - `potSkin.ts` holds the params, `readPotSkin`, the stage body, the fill share and rect.
+    - The Pot Meter gains `POT_SKIN_PARAMS`.
+    - `<LayoutNodeView>` hands a `bind` container's children to its part as `skin`.
+    - The bound catalog's `skin` declaration and `boundComponentSkin`.
+  - **Game (`apps/lines`):** `HoldAndWinPot` draws the art (body per stage, the masked fill, the
+    frame). It also draws the label style, the motion knobs and the `skin`. `PotMeter` reads the
+    skin off its params. Labels go through `CatalogText`, so a bitmap font works.
+  - **Editors:**
+    - The canvas draws a skinned part's art (fill part-full) and the nodes inside it.
+    - `/components` offers **Edit inside ‹part› ›** and **↩ Back**.
+    - New create type **Pot Meter (Hold and Win)**.
+  - **Guides:** [Component Editor → Skin a coded part](../tools/component-editor.md#skin-a-coded-part--the-pot-meter)
+    and the Scene Editor's Pots paragraph.
+  - **Verified:**
+    - `test-pot-skin.mjs` passes (42 assertions).
+    - Storybook `MODE_HOLD_AND_WIN/skinned pot (12c)`, screenshot through Playwright:
+      - The coded red pot is unchanged.
+      - The blue pot draws the progress-bar art as its body, fill and frame. The fill tracks the
+        level (6/12, then 11/12), the labels are gold, and it grows with its stages.
+      - The green frog pot draws only the author's glass, rig and caption, and pulses full.
+      - `resolveAnchorPoint('meter:<id>')` lands on each pot's centre.
+    - `check:svelte` stays at baseline for engine-layout, lines and the launcher. Lint is clean. The
+      launcher builds.
+  - **Left:** the 12c items in Open items.
 
 - 2026-10-02 — **Phase 11b follow-ups (ruled by the hub)** (session "H&W Phase 11b — board
   expansion"). Reserving an expanding board's area is one helper in `engine-layout`

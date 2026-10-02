@@ -70,6 +70,9 @@ Open **Invisible Component Editor** from the launcher home. The home state shows
   - **Free-Spin Counter** — a project copy of the built-in counter (frame, **FREE SPIN**
     caption and **X OF Y** value), already wired to the engine. Swap the frame art,
     restyle the text or edit the label, then save.
+  - **Pot Meter (Hold and Win)** — a project copy of the built-in Pot Meter, with its coded
+    **Pot** part. Put your own nodes inside the part (see
+    [Skin a coded part](#skin-a-coded-part--the-pot-meter)).
 - **Library** — existing components grouped by category. Click a row to open it for
   editing; the `✕` button deletes it from R2 and the list. The confirm asks you to type the
   component's name, and every saved version goes with it.
@@ -327,6 +330,45 @@ Every per-tier field is empty by default, so an un-authored Win Overlay renders
 byte-identically to the built-in table. The animation + spine are consumed inside the
 overlay; the duration + sound are bridged to the out-of-tree consumers (the win gate's
 hold time and the win-level sound cues) at boot.
+
+## Skin a coded part — the Pot Meter
+
+Some built-ins draw a **coded part**: the game draws it, and the canvas shows a grey stand-in box.
+The Hold and Win **Pot Meter** is the first such part you can skin, in two ways. You can use both
+together.
+
+**1. Pick art on the placed pot.** Select a Pot Meter instance in the Scene Editor. Its
+**Pot art** group sets that one pot's look, so red, blue and green can each have their own art:
+
+- **pot**: the pot body.
+- **fill**: revealed by the meter's level. **fill grows towards** picks the edge it grows to:
+  **up** for liquid rising in a pot, **right** for a bar.
+- **frame**: drawn over the fill.
+- **pot from size stage 1–3**: the body from that size stage on. A stage with no image keeps the
+  one below it.
+- **width / height**: a box for every layer. Blank means each image's own size.
+
+Any pot image replaces the coded bar as a whole. The **Label** group shows or hides the level
+(`RED 3/12`) and what a full pot activates, and sets their font, colour and size. The **Motion**
+group sets the growth per size stage (0 = none) and the pulse when the pot fills (1 = none). With
+nothing set, the pot draws exactly the coded bar. The canvas shows the art, with the fill drawn
+part-full so you can see which way it grows. The labels and the size stages show only in the game.
+
+**2. Put your own nodes inside the part.** Create a component of type **Pot Meter (Hold and Win)**,
+a copy of the Pot Meter for this project. Click **Edit inside Pot ›** in the editor bar. The canvas,
+Outline and Library now work on the part's own nodes. Drop a spine, an effect, sprites or text
+there, at positions relative to the pot's centre. In the game, your nodes replace the coded bar and
+both labels. Any art picked on the instance still draws under them. The part keeps its behaviour:
+
+- It follows its meter's level.
+- It grows at each size stage and pulses when the pot fills.
+- The specials still fly into it.
+- It still counts as that meter's pot, so the game does not draw its own pot for that meter.
+
+**↩ Back to …** returns to the component. Save it, then in the Scene Editor replace each Pot Meter
+on the **Pots** screen with your component and set its **meter** param (`red`, `blue`, `green`).
+Do not skin the built-in **Pot Meter** itself: saving it writes the shared library (see
+[Traps](#traps)).
 
 ## Traps
 

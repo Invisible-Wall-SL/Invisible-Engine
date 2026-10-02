@@ -59,6 +59,11 @@ Mirror the existing built-ins; don't invent a third pattern without reason:
   render needs live behaviour the static node model can't express (count-up currency,
   masked progress fill, interaction state, spine choreography). Pass `boundToInstance:
   true` so the coded part renders at the instance's local origin (parity).
+  A coded part can be made **skinnable** (Hold and Win 12c, Pot first). It takes a `skin` snippet
+  prop, the author's nodes inside its `bind` node, and draws them in place of its coded drawing
+  while keeping its behaviour. Per-instance art comes from `image` params. Declare it in
+  `BOUND_COMPONENT_DEFAULTS.<Part>.skin` so the editors preview it and offer **Edit inside**.
+  Mirror `HoldAndWinPot` / `POT_SKIN_PARAMS`; the contract is in `docs/status/hold-and-win.md`.
 
 ## The precedence stack — how reuse works
 `componentStorage.ts` (`loadComponent` / `listComponents`) resolves a def

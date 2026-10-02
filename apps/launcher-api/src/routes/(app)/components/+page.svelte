@@ -8,12 +8,14 @@
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import { pickSheetsFrom } from '$lib/pickSheets';
 	import {
+		boundComponentSkin,
 		BUTTON_STATE_PARAMS,
 		ENGINE_ACTION_CATALOG,
 		fontParamKeysOf,
 		FREE_SPIN_COUNTER_DEF,
 		HUD_READOUT_DEF,
 		isManifestAssetKey,
+		POT_METER_DEF,
 		parseScopedFrameRef,
 		pruneOrphanParamBindings,
 		resolveComponentParams,
@@ -412,15 +414,50 @@
 		return m;
 	});
 
-	/** Synthetic scene wrapping the open draft's `root.children`, so the reused
-	 * editor canvas/outline/properties machinery edits the sub-tree in place (the
-	 * array IS `root.children`). The exact pattern from `/editor`'s component mode. */
+	/**
+	 * The coded parts of the open draft an author can skin (Phase 12c — a `bind` container whose
+	 * catalog entry declares a `skin`, e.g. the Pot Meter's `Pot`): the parts the editor bar offers
+	 * to step inside.
+	 */
+	const skinnableParts = $derived.by<ContainerNode[]>(() => {
+		const out: ContainerNode[] = [];
+		const walk = (nodes: LayoutNode[]): void => {
+			for (const n of nodes) {
+				if (n.kind !== 'container') continue;
+				if (n.bind && boundComponentSkin(n.bind.component)) out.push(n);
+				else walk(n.children);
+			}
+		};
+		if (componentDraft) walk(componentDraft.root.children);
+		return out;
+	});
+	/**
+	 * The skinnable part the author stepped inside, by node id. The canvas, outline and spawns then
+	 * edit ITS children — the nodes the game draws in place of the part's coded drawing, in the
+	 * part's own space. `null` (or a part this draft no longer has) = the component's root.
+	 */
+	let insidePartId = $state<string | null>(null);
+	const insidePart = $derived(skinnableParts.find((part) => part.id === insidePartId) ?? null);
+	/** The node list the editor is editing: the open part's children, else the root's. */
+	const editedNodes = $derived(insidePart?.children ?? componentDraft?.root.children ?? []);
+	function setEditedNodes(nodes: LayoutNode[]): void {
+		if (insidePart) insidePart.children = nodes;
+		else if (componentDraft) componentDraft.root.children = nodes;
+	}
+	function enterPart(id: string | null): void {
+		insidePartId = id;
+		selectedIds = [];
+	}
+
+	/** Synthetic scene wrapping the edited node list (the draft's `root.children`, or a skinnable
+	 * part's children), so the reused editor canvas/outline/properties machinery edits the sub-tree
+	 * in place (the array IS that list). The exact pattern from `/editor`'s component mode. */
 	const componentScene = $derived.by<Scene | undefined>(() =>
 		componentDraft
 			? {
-					id: 's_component',
+					id: insidePart ? `s_part_${insidePart.id}` : 's_component',
 					name: componentDraft.name,
-					nodes: componentDraft.root.children,
+					nodes: editedNodes,
 					// Preview in the component's authoring space (default 'game' → mapped
 					// through the project's MAIN box like the runtime; 'canvas' → full-window
 					// overlay). This is what makes the Component Editor WYSIWYG with the game.
@@ -496,6 +533,7 @@
 			? JSON.stringify($state.snapshot(componentDraft))
 			: null;
 		selectedIds = [];
+		insidePartId = null;
 		saveStatus = null;
 		leftTab = 'outline';
 		// Seed this project's defaults from the page load so the panel + canvas paint without a
@@ -649,7 +687,7 @@
 	 * instance picks its action from the registered-action dropdown, and the engine
 	 * provides the hit surface for an action-bound def with no coded part (§18.4) —
 	 * the authored art becomes clickable with zero extra wiring. */
-	let newType = $state<'blank' | 'button' | 'readout' | 'counter'>('blank');
+	let newType = $state<'blank' | 'button' | 'readout' | 'counter' | 'pot'>('blank');
 
 	/**
 	 * Create a component + open it. `blank` = empty root; `button` = empty root pre-wired
@@ -685,13 +723,15 @@
 				root,
 				params,
 			};
-		} else if (newType === 'counter') {
-			// Project-scoped clone of the built-in Free-Spin Counter: the full frame +
-			// "FREE SPIN" caption + "X OF Y" value structure, pre-wired with `source`
-			// (the engine value feed) + the engine-fed string `value` + `visibleSource` +
-			// `label` + font/fill params, so the author only swaps the art + text. Fresh
-			// node ids so two copies never collide.
-			const clone = structuredClone(FREE_SPIN_COUNTER_DEF);
+		} else if (newType === 'counter' || newType === 'pot') {
+			// Project-scoped clone of a built-in, fresh node ids so two copies never collide.
+			// The Free-Spin Counter: the full frame + "FREE SPIN" caption + "X OF Y" value
+			// structure, pre-wired with `source` (the engine value feed) + the engine-fed string
+			// `value` + `visibleSource` + `label` + font/fill params, so the author only swaps the
+			// art + text. The Pot Meter (Hold and Win 12c): its coded `Pot` part + the meter and
+			// skin params, so a game skins its pots with its own nodes without changing the
+			// shared built-in every other project draws.
+			const clone = structuredClone(newType === 'pot' ? POT_METER_DEF : FREE_SPIN_COUNTER_DEF);
 			const root = clone.root;
 			const reid = (n: LayoutNode): void => {
 				n.id = genComponentId();
@@ -756,6 +796,7 @@
 		projectDefaultsBaseline = defaultsSignature({});
 		defaultsSave.adoptEtag(null);
 		selectedIds = [];
+		insidePartId = null;
 		saveStatus = null;
 		inspectingVersion = null;
 		pickVersion = '';
@@ -784,19 +825,19 @@
 		if (componentDraft?.id === def.id) await closeComponent();
 	}
 
-	/** Spawn a node into the open draft's `root.children` (the array the synthetic
-	 * scene exposes). The component has its own save — no autosave here. Blocked while
-	 * inspecting a historical version (read-only). */
+	/** Spawn a node into the edited list (the array the synthetic scene exposes). The
+	 * component has its own save — no autosave here. Blocked while inspecting a historical
+	 * version (read-only). */
 	function onSpawn(node: LayoutNode): void {
 		if (!componentDraft || isInspecting) return;
-		componentDraft.root.children = [...componentDraft.root.children, node];
+		setEditedNodes([...editedNodes, node]);
 	}
 
 	function onDeleteNode(id: string): void {
 		if (!componentDraft || isInspecting) return;
-		const nodes = componentDraft.root.children.slice();
+		const nodes = editedNodes.slice();
 		if (!removeNode(nodes, id)) return;
-		componentDraft.root.children = nodes;
+		setEditedNodes(nodes);
 		if (selectedIds.includes(id)) selectedIds = selectedIds.filter((x) => x !== id);
 	}
 
@@ -1383,8 +1424,30 @@
 		<div class="editor-bar">
 			<div class="eb-group">
 				<span class="open-pill" title="The component currently open for editing">
-					◇ {componentDraft.name}
+					◇ {componentDraft.name}{#if insidePart}
+						› {insidePart.label ?? insidePart.id}{/if}
 				</span>
+				{#if insidePart}
+					<button
+						class="save-btn"
+						type="button"
+						title="Back to the component's own nodes"
+						onclick={() => enterPart(null)}
+					>
+						↩ Back to {componentDraft.name}
+					</button>
+				{:else}
+					{#each skinnableParts as part (part.id)}
+						<button
+							class="save-btn"
+							type="button"
+							title="Put your own nodes inside this coded part. They draw in place of its coded drawing, and the part keeps its behaviour — its value, size steps, pulse and the anchor its flights aim at."
+							onclick={() => enterPart(part.id)}
+						>
+							Edit inside {part.label ?? part.id} ›
+						</button>
+					{/each}
+				{/if}
 				<label
 					class="space-toggle"
 					title="Game = positioned in the game's main box (board-relative; WYSIWYG against this project's layout). Canvas = a full-window overlay (free-spin intro dim, modal scrim) authored in raw window pixels. A Canvas component must be mounted in a Canvas-space screen for editor↔game parity."
@@ -1514,6 +1577,7 @@
 									<option value="button">Button</option>
 									<option value="readout">HUD readout</option>
 									<option value="counter">Free-Spin Counter</option>
+									<option value="pot">Pot Meter (Hold and Win)</option>
 								</select>
 								{#if newType === 'blank'}
 									<select bind:value={newCategory} aria-label="Component category">
@@ -1556,6 +1620,15 @@
 									or edit the <strong>label</strong> — then <strong>Save component</strong>. Listed
 									under
 									<strong>UI</strong>.
+								</p>
+							{:else if newType === 'pot'}
+								<p class="muted small">
+									A project copy of the built-in <strong>Pot Meter</strong>: the coded pot of the
+									meter its <strong>meter</strong> param names. Click
+									<strong>Edit inside Pot</strong> and drop your own nodes (a spine, an effect,
+									art): they replace the coded drawing, and the pot still follows its level, grows,
+									pulses and catches its flights. Place it on the <strong>Pots</strong> screen in
+									place of the Pot Meter. Listed under <strong>UI</strong>.
 								</p>
 							{/if}
 						</div>
@@ -1752,7 +1825,12 @@
 			{#if componentDraft}
 				<p class="muted hint foot">
 					Component: <strong>{componentDraft.name}</strong> ·
-					{componentDraft.root.children.length} nodes
+					{#if insidePart}
+						{insidePart.children.length} nodes inside {insidePart.label ?? insidePart.id} — they replace
+						its coded drawing
+					{:else}
+						{componentDraft.root.children.length} nodes
+					{/if}
 				</p>
 			{/if}
 		</aside>

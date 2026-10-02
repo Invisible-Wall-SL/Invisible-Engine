@@ -6,6 +6,7 @@
 		backgroundFit,
 		boundComponentDefault,
 		boundComponentRidesBone,
+		boundComponentSkin,
 		boundComponentTileImage,
 		builtinSheetIdForRegion,
 		builtinSheetKey,
@@ -20,6 +21,9 @@
 		isHudScene,
 		MAX_COMPONENT_DEPTH,
 		parseScopedFrameRef,
+		POT_FILL_DIRECTIONS,
+		POT_PREVIEW_FILL_SHARE,
+		potFillRect,
 		resolveAnchorPreviewArt,
 		resolveBoundValue,
 		resolveComponentParams,
@@ -32,7 +36,9 @@
 		type LayoutNode,
 		type LayoutType,
 		type OverlayPlacement,
+		type PartSkinBinding,
 		type PlacementGeometry,
+		type PotFillDirection,
 		type ResolvedPreviewArt,
 		type ResolvedTransform,
 		type Scene,
@@ -2369,7 +2375,25 @@
 			if (op !== 'source-over') ctx.globalCompositeOperation = op;
 		}
 
-		if (node.bind) {
+		const skin = node.bind ? boundComponentSkin(node.bind.component) : undefined;
+		const skinParams = instanceParams ?? componentParams;
+		if (skin && isPartSkinned(node, skin, skinParams)) {
+			// A skinned coded part (Phase 12c): its picked art, then the author's own nodes inside
+			// it — what the game draws in place of the coded drawing — instead of the stand-in chip.
+			drawPartSkin(ctx, skin, skinParams, t);
+			if (node.kind === 'container')
+				for (const child of node.children)
+					drawNode(
+						ctx,
+						child,
+						sceneCtx,
+						componentDepth,
+						componentStack,
+						instanceParams,
+						true,
+						instanceSpineBundle,
+					);
+		} else if (node.bind) {
 			// Bound nodes (HUD elements, Win/Transition anchors, mount slots) have no
 			// editor-renderable art — the game mounts the real component at runtime.
 			// A `preview.art` anchor (e.g. the animated Background) gets a real spine/
@@ -3151,6 +3175,81 @@
 	 * resolved transform's anchor + explicit width/height (else the region's native
 	 * size). Falls back to a placeholder until the page image + rect resolve. `tint`
 	 * multiplies the drawn frame (absent / 0xffffff = untinted — parity). */
+	/** A skinnable part's layer images, picked on the enclosing instance (or the open component). */
+	function partSkinImage(params: Record<string, unknown>, key: string | undefined): string {
+		const value = key ? params[key] : undefined;
+		return typeof value === 'string' ? value : '';
+	}
+
+	/** Whether a skinnable part shows its skin: any layer image picked, or nodes inside it. */
+	function isPartSkinned(
+		node: LayoutNode,
+		skin: PartSkinBinding,
+		params: Record<string, unknown>,
+	): boolean {
+		if (node.kind === 'container' && node.children.length > 0) return true;
+		return skin.layers.some((layer) => partSkinImage(params, layer.imageParam) !== '');
+	}
+
+	/**
+	 * Draw a skinned part's art layers centred on the part, bottom → top — the same layers, box and
+	 * fill reveal the game's coded part draws (`HoldAndWinPot`), with a fill shown at
+	 * {@link POT_PREVIEW_FILL_SHARE} so the author sees which way it grows.
+	 */
+	function drawPartSkin(
+		ctx: CanvasRenderingContext2D,
+		skin: PartSkinBinding,
+		params: Record<string, unknown>,
+		t: ResolvedTransform,
+	): void {
+		const size = (key: string | undefined): number | undefined => {
+			const value = key ? params[key] : undefined;
+			return typeof value === 'number' && value > 0 ? value : undefined;
+		};
+		const width = size(skin.widthParam);
+		const height = size(skin.heightParam);
+		for (const layer of skin.layers) {
+			const image = partSkinImage(params, layer.imageParam);
+			if (!image) continue;
+			const { assetKey, region } = parseScopedFrameRef(image);
+			const layerT = { ...t, anchor: { x: 0.5, y: 0.5 }, width, height };
+			if (!layer.directionParam) {
+				drawArtRegionSprite(ctx, assetKey ?? '', region, layerT);
+				continue;
+			}
+			const found = findRegion(assetKey ?? '', region);
+			const boxed = found
+				? artBoxGeometry(found.set.assetKey, found.region.name, found.region)
+				: null;
+			const natural = boxed
+				? { w: boxed.origW, h: boxed.origH }
+				: found
+					? regionNaturalSize(found.region)
+					: null;
+			const w = width ?? natural?.w;
+			const h = height ?? natural?.h;
+			if (!w || !h) {
+				drawArtRegionSprite(ctx, assetKey ?? '', region, layerT);
+				continue;
+			}
+			const direction = params[layer.directionParam];
+			const reveal = potFillRect(
+				w,
+				h,
+				POT_PREVIEW_FILL_SHARE,
+				(POT_FILL_DIRECTIONS as readonly unknown[]).includes(direction)
+					? (direction as PotFillDirection)
+					: 'right',
+			);
+			ctx.save();
+			ctx.beginPath();
+			ctx.rect(reveal.x, reveal.y, reveal.width, reveal.height);
+			ctx.clip();
+			drawArtRegionSprite(ctx, assetKey ?? '', region, layerT);
+			ctx.restore();
+		}
+	}
+
 	function drawArtRegionSprite(
 		ctx: CanvasRenderingContext2D,
 		assetKey: string,
