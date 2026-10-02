@@ -3007,11 +3007,13 @@
 			const th = seat.h * (1 - gap);
 			if (!scoped) {
 				ctx.strokeStyle = 'rgba(255, 196, 93, 0.6)';
-				ctx.strokeRect(seat.cx - tw / 2, seat.cy - th / 2, tw, th);
+				ctx.strokeRect(seat.x + (seat.w - tw) / 2, seat.y + (seat.h - th) / 2, tw, th);
 				continue;
 			}
 			ctx.save();
-			ctx.translate(seat.cx, seat.cy);
+			// The cell BOX centre — the coded respin board stamps its tile on the cell, not on the
+			// symbol's aligned seat.
+			ctx.translate(seat.x + seat.w / 2, seat.y + seat.h / 2);
 			drawArtRegionSprite(
 				ctx,
 				scoped.assetKey ?? '',

@@ -28,6 +28,13 @@ Shipped capabilities on `main`:
 
 ## Open items / next
 
+- **Cross-project art the editor still cannot preview** (same class as the 2026-10-02 atlas fix,
+  failing closed): a shared def's SPINE authored in another project (`resolveEditorSpine` looks only
+  in the project's and `_shared`'s skeleton indexes), a FONT from another project
+  (`/api/fonts/asset`), a FLIPBOOK clip from another project (`/api/flipbook/source-url`). Fix the
+  same way — a narrow, shape-checked allowance from `referencedArtRefs` — or move shared defs' art
+  into the `_shared` library.
+
 1. **HUD parity gap** — the corner logo/game-name containers still ignore `scale` in-game, so scaling those two corner texts in the editor won't ship.
 2. **Animated / book-event content stays coded** — symbols, win-line draws and count-ups mount via the engine `mount`/`bind` escape hatch; the editor only places their anchor and has no book-event playback.
 3. **HUD Readout background size** — a width/height override moves the draw but not the instance's selection frame (`nodeBox` doesn't read instance params).
@@ -45,13 +52,15 @@ Shipped capabilities on `main`:
   in `bookofborutremake`'s `S_Game_UI2`, so every project placing them — new or old — drew grey
   "UI_0005_WidgetBig" placeholders: `/api/editor/regions` and `/api/editor/asset` read only the
   project's own prefix + the shared library and 403'd those sheets (the game was fine — the export
-  copies them into the project). Both gates now also allow what the project's doc and its resolved
-  component defs reference (`projectArtScope.ts`, built on the export's own walk,
-  `referencedArtRefs`): the atlases, their pages, plain images and spine bundle folders — exactly
-  what the game ships, held to the project's CLIENT (another client's key gains nothing), cached
-  60 s and re-checked once before a refusal so freshly bound art is not refused.
+  copies them into the project). Both gates now also allow the ATLASES the project's doc and its
+  resolved component defs reference (`projectArtScope.ts`, built on the export's own walk,
+  `referencedArtRefs`) — only keys shaped like `…/manifests/atlas_manifest_*.json` that load as a
+  region set, plus that atlas's page; never an arbitrary `.json`, image or folder a doc names. Held
+  to the project's own client, and off for the shared `unassigned` pseudo-client and the default
+  project. A scope that cannot be built refuses (403) and is remembered; cached 60 s, re-checked
+  at most every 10 s before a refusal so freshly bound art is not refused for long.
   `check:art-scope`. Verified against R2 for `hw-3pots-sample`: `test6`'s `S_UI` + its page and
-  `S_Game_UI2` allowed, an unreferenced sibling atlas refused.
+  `S_Game_UI2` allowed; an unreferenced atlas and another project's `editor/scenes.json` refused.
 - 2026-10-02 — **Respin Cell Tiles preview:** selecting a `respinCells` instance draws every reel
   cell as an empty respin cell with the tile (tint, gap) over it (`drawRespinCellTilesPreview`), since
   the respin board exists only in the game.

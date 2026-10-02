@@ -3,75 +3,83 @@ import { error } from '@sveltejs/kit';
 import { referencedArtRefs } from './editorArtExport';
 import { loadRegionSet } from './editorRegions';
 import { loadDoc } from './editorStorage';
-import { r2Slug } from './projectPaths';
+import { DEFAULT_PROJECT_KEY } from './projects';
+import { r2Slug, UNASSIGNED_CLIENT } from './projectPaths';
 import { isKeyAllowed } from './toolScope';
 
 /**
- * THE ART A PROJECT REFERENCES, as a read allowance for the Scene Editor.
+ * THE ATLASES A PROJECT REFERENCES, as a read allowance for the Scene Editor.
  *
  * The editor's art endpoints read only under the project's own prefix and the shared library. But a
  * project's doc — and above all the SHARED component defs it places (`hudReadout`, `featureCard`) —
  * can name an atlas that lives in ANOTHER project of the same client: the defs were authored there.
- * The game is fine (the export copies that art into the project's own `deploy/editor-art/`), while
+ * The game is fine (the export copies that atlas into the project's own `deploy/editor-art/`), while
  * the editor 403'd the same sheet and drew every such frame as a grey placeholder, in every project
  * that placed the def, new or old.
  *
- * This set is the export's own reference walk (`referencedArtRefs`), so the editor may read exactly
- * the art the game ships — never anything the project does not reference. It is held to the
- * project's CLIENT: a doc that names another client's key gains nothing here.
+ * Deliberately narrow, because `/api/editor/asset` streams whatever it allows byte for byte:
+ * - only keys SHAPED like an atlas manifest (`…/manifests/atlas_manifest_*.json`) that LOAD as one
+ *   (regions and all), plus that atlas's own page — never an arbitrary `.json`, image or folder a
+ *   doc happens to name;
+ * - only within the project's own CLIENT, and never for the shared `unassigned` pseudo-client or
+ *   the default project every user lands in, where "the client" is not one customer;
+ * - a scope that cannot be built allows nothing (a refusal, never a 500), and is remembered.
  */
-export type ArtScope = {
-	/** Exact keys: atlas manifests, their atlas pages, plain images. */
-	keys: Set<string>;
-	/** Spine bundle folders — any file under one is allowed. */
-	prefixes: string[];
-};
+export type ArtScope = { keys: Set<string> };
 
 const TTL_MS = 60_000;
-/** A denial recomputes the set first — unless it was computed this recently. */
-const RECHECK_MS = 2_000;
+/** A refusal recomputes the scope first — unless it was computed this recently. */
+const RECHECK_MS = 10_000;
 const cache = new Map<string, { at: number; scope: Promise<ArtScope> }>();
 
-/** Keep only keys under the client's own prefix. Pure, for the fixture. */
-export const withinClient = (keys: Iterable<string>, client: string): string[] => {
+const ATLAS_MANIFEST = /\/manifests\/atlas_manifest_[^/]+\.json$/;
+
+/** May this project borrow its client's art at all? Pure, for the fixture. */
+export const borrowsClientArt = (client: string, project: string): boolean =>
+	r2Slug(client) !== UNASSIGNED_CLIENT && project !== DEFAULT_PROJECT_KEY;
+
+/** The referenced keys that may be atlases of this client. Pure, for the fixture. */
+export const candidateAtlases = (keys: Iterable<string>, client: string): string[] => {
 	const own = `${r2Slug(client)}/`;
-	return [...keys].filter((key) => key.startsWith(own) && !key.includes('..'));
+	return [...keys].filter(
+		(key) => key.startsWith(own) && !key.includes('..') && ATLAS_MANIFEST.test(key),
+	);
 };
 
 /** Does the scope allow this key? Pure, for the fixture. */
 export const artScopeAllows = (scope: ArtScope, key: string): boolean =>
-	!key.includes('..') && (scope.keys.has(key) || scope.prefixes.some((p) => key.startsWith(p)));
+	!key.includes('..') && scope.keys.has(key);
 
 const computeArtScope = async (client: string, project: string): Promise<ArtScope> => {
+	const keys = new Set<string>();
 	const refs = await referencedArtRefs(await loadDoc(client, project), project);
-	const manifests = withinClient(refs.manifestKeys, client);
-	const pages = await Promise.all(
-		manifests.map(async (key) => (await loadRegionSet(key, client, project)).pageKey),
-	);
-	return {
-		keys: new Set([
-			...manifests,
-			...withinClient(pages.filter(Boolean), client),
-			...withinClient(refs.imageKeys, client),
-		]),
-		prefixes: withinClient([...refs.spineKeys, ...refs.spineFallbackKeys], client).map((key) =>
-			key.endsWith('/') ? key : `${key}/`,
-		),
-	};
+	const own = `${r2Slug(client)}/`;
+	const atlases = candidateAtlases(refs.manifestKeys, client);
+	const sets = await Promise.allSettled(atlases.map((key) => loadRegionSet(key, client, project)));
+	for (const [index, settled] of sets.entries()) {
+		if (settled.status !== 'fulfilled' || settled.value.regions.length === 0) continue;
+		keys.add(atlases[index]);
+		const page = settled.value.pageKey;
+		if (page && page.startsWith(own) && !page.includes('..')) keys.add(page);
+	}
+	return { keys };
 };
 
 const artScope = (client: string, project: string, fresh: boolean): Promise<ArtScope> => {
+	const now = Date.now();
+	for (const [id, entry] of cache) if (now - entry.at > TTL_MS) cache.delete(id);
 	const id = `${client}\u0000${project}`;
 	const hit = cache.get(id);
-	const age = hit ? Date.now() - hit.at : Infinity;
-	if (hit && age < (fresh ? RECHECK_MS : TTL_MS)) return hit.scope;
-	const scope = computeArtScope(client, project);
-	cache.set(id, { at: Date.now(), scope });
-	scope.catch(() => cache.delete(id));
+	if (hit && now - hit.at < (fresh ? RECHECK_MS : TTL_MS)) return hit.scope;
+	const scope = computeArtScope(client, project).catch((e) => {
+		console.warn('[projectArtScope] could not build the art scope', client, project, e);
+		return { keys: new Set<string>() };
+	});
+	cache.set(id, { at: now, scope });
 	return scope;
 };
 
-/** Is `key` readable: inside the scope's prefixes, or art the project references? */
+/** Is `key` readable: inside the scope's prefixes, or an atlas the project references? */
 export async function isProjectArtAllowed(
 	key: string,
 	prefixes: string[],
@@ -80,6 +88,7 @@ export async function isProjectArtAllowed(
 ): Promise<boolean> {
 	if (isKeyAllowed(key, prefixes)) return true;
 	if (!key || key.includes('..') || key.startsWith('/')) return false;
+	if (!borrowsClientArt(client, project)) return false;
 	if (artScopeAllows(await artScope(client, project, false), key)) return true;
 	// The author may just have bound this art: look again before refusing.
 	return artScopeAllows(await artScope(client, project, true), key);
