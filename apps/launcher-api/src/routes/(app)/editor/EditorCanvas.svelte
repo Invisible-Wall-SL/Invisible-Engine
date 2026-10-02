@@ -27,7 +27,6 @@
 		parseScopedFrameRef,
 		POT_FILL_DIRECTIONS,
 		POT_PREVIEW_FILL_SHARE,
-		potFillRect,
 		resolveAnchorPreviewArt,
 		resolveBoundValue,
 		resolveComponentParams,
@@ -42,7 +41,6 @@
 		type OverlayPlacement,
 		type PartSkinBinding,
 		type PlacementGeometry,
-		type PotFillDirection,
 		type ResolvedPreviewArt,
 		type ResolvedTransform,
 		type Scene,
@@ -3295,14 +3293,14 @@
 				drawArtRegionSprite(ctx, assetKey ?? '', region, layerT);
 				continue;
 			}
-			const direction = params[layer.directionParam];
-			const reveal = potFillRect(
+			const picked = params[layer.directionParam];
+			const direction = POT_FILL_DIRECTIONS.find((d) => d === picked);
+			const reveal = fillMaskRect(
 				w,
 				h,
+				{ x: 0.5, y: 0.5 },
 				POT_PREVIEW_FILL_SHARE,
-				(POT_FILL_DIRECTIONS as readonly unknown[]).includes(direction)
-					? (direction as PotFillDirection)
-					: 'right',
+				direction ?? 'right',
 			);
 			ctx.save();
 			ctx.beginPath();

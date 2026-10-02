@@ -2,8 +2,9 @@
 // types or top-level await, so checking it only adds noise to the package's svelte-check.
 // Verify the Pot Meter's skin (Hold and Win Phase 12c): an unskinned pot reads as exactly the coded
 // pot (parity), each art param reads off the instance's params, the pot body follows the size
-// stages, the fill reveal grows from the right edge, a Pot Meter saved before 12c gains the skin
-// params on load, and a copy whose `Pot` part was deleted mounts the part as a stand-in.
+// stages, the fill reveal (12b's `fillMaskRect`) grows from the chosen edge, a Pot Meter saved
+// before 12c gains the skin params on load, and a copy whose `Pot` part was deleted mounts the part
+// as a stand-in.
 //
 //   node scripts/test-pot-skin.mjs
 //
@@ -28,7 +29,7 @@ const bundled = await esbuild.build({
 			mergeBuiltinCodedParams,
 			partStandIn,
 			potBodyImage,
-			potFillRect,
+			fillMaskRect,
 			potFillShare,
 			potHasArt,
 			readPotSkin,
@@ -136,29 +137,30 @@ assert(mod.potBodyImage(staged, 3) === 's3', 'stage 3: its image');
 assert(mod.potBodyImage(staged, 7) === 's3', 'past the last stage image: the last one');
 assert(mod.potBodyImage(skinOf({ stageImage2: 's2' }), 1) === undefined, 'no body below stage 2');
 
-// --- the fill reveal ----------------------------------------------------------
+const C = { x: 0.5, y: 0.5 };
+// --- the fill reveal: 12b's `fillMaskRect` on the pot's centred art -------------------------
 console.info('fill');
 assert(mod.potFillShare(3, 12) === 0.25, 'share = level / max');
 assert(mod.potFillShare(20, 12) === 1 && mod.potFillShare(-1, 12) === 0, 'share is clamped');
 assert(mod.potFillShare(3, 0) === 0 && mod.potFillShare(NaN, 12) === 0, 'no max / NaN ⇒ 0');
 assert(
-	same(mod.potFillRect(100, 200, 0.25, 'right'), { x: -50, y: -100, width: 25, height: 200 }),
+	same(mod.fillMaskRect(100, 200, C, 0.25, 'right'), { x: -50, y: -100, width: 25, height: 200 }),
 	'right: the left quarter',
 );
 assert(
-	same(mod.potFillRect(100, 200, 0.25, 'left'), { x: 25, y: -100, width: 25, height: 200 }),
+	same(mod.fillMaskRect(100, 200, C, 0.25, 'left'), { x: 25, y: -100, width: 25, height: 200 }),
 	'left: the right quarter',
 );
 assert(
-	same(mod.potFillRect(100, 200, 0.25, 'up'), { x: -50, y: 50, width: 100, height: 50 }),
+	same(mod.fillMaskRect(100, 200, C, 0.25, 'up'), { x: -50, y: 50, width: 100, height: 50 }),
 	'up: the bottom quarter (a pot rises)',
 );
 assert(
-	same(mod.potFillRect(100, 200, 0.25, 'down'), { x: -50, y: -100, width: 100, height: 50 }),
+	same(mod.fillMaskRect(100, 200, C, 0.25, 'down'), { x: -50, y: -100, width: 100, height: 50 }),
 	'down: the top quarter',
 );
 assert(
-	same(mod.potFillRect(100, 200, 1.5, 'up'), { x: -50, y: -100, width: 100, height: 200 }),
+	same(mod.fillMaskRect(100, 200, C, 1.5, 'up'), { x: -50, y: -100, width: 100, height: 200 }),
 	'a full pot shows the whole fill',
 );
 

@@ -6,9 +6,9 @@
 	import { Anchor, Container, getContextApp, Rectangle, Sprite } from 'pixi-svelte';
 	import { SYMBOL_SIZE } from 'engine-game';
 	import {
+		fillMaskRect,
 		parseScopedFrameRef,
 		potBodyImage,
-		potFillRect,
 		potFillShare,
 		potHasArt,
 		readPotSkin,
@@ -52,6 +52,7 @@
 	const WIDTH = SYMBOL_SIZE * 0.8;
 	const HEIGHT = SYMBOL_SIZE * 0.16;
 	const LABEL_GAP = HEIGHT * 0.15;
+	const CENTRE = { x: 0.5, y: 0.5 };
 	const CODED_LOOK = readPotSkin(() => undefined);
 	const PALETTE = [0xe0b030, 0x30b0e0, 0xb060e0, 0x60c070];
 	const NAMED: Record<string, number> = {
@@ -96,7 +97,7 @@
 	const fillBox = $derived(layerBox(look.fill));
 	const fillRect = $derived(
 		fillBox && fillShare > 0
-			? potFillRect(fillBox.width, fillBox.height, fillShare, look.fillDirection)
+			? fillMaskRect(fillBox.width, fillBox.height, CENTRE, fillShare, look.fillDirection)
 			: undefined,
 	);
 	// The labels clear the art's box as they clear the coded bar.

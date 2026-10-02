@@ -94,7 +94,7 @@ export interface PartSkinBinding {
 	/**
 	 * Instance params (kind `image`) drawn bottom → top, centred on the part. A layer with a
 	 * `directionParam` is a FILL: the game reveals it by a value from the edge that param names
-	 * (`potFillRect`); the editor previews it at `POT_PREVIEW_FILL_SHARE`.
+	 * (12b's `fillMaskRect`); the editor previews it at `POT_PREVIEW_FILL_SHARE`.
 	 */
 	layers: { imageParam: string; directionParam?: string }[];
 	/** Instance params (kind `number`) overriding every layer's box; blank ⇒ each image's own. */

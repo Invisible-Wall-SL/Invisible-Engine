@@ -1,4 +1,4 @@
-import type { ComponentParam } from './types';
+import type { ComponentParam, ValueBindingFillDirection } from './types';
 
 /**
  * THE POT METER'S SKIN (Hold and Win Phase 12c, design `hold-and-win.md` §8) — the art params that
@@ -13,9 +13,14 @@ import type { ComponentParam } from './types';
  * No value import here: `scripts/verify-pot-meter-mount.mjs` loads this file on its own.
  */
 
-/** The edge a fill image grows from, named as the value bindings name a `fill` reveal. */
-export const POT_FILL_DIRECTIONS = ['right', 'left', 'up', 'down'] as const;
-export type PotFillDirection = (typeof POT_FILL_DIRECTIONS)[number];
+/** The edge a fill image grows towards — a value binding's `fill` directions, revealed by the same
+ * `fillMaskRect`. */
+export const POT_FILL_DIRECTIONS: readonly ValueBindingFillDirection[] = [
+	'right',
+	'left',
+	'up',
+	'down',
+];
 
 /** The pot-body image per size stage: stage N shows the highest stage image at or below N. */
 export const POT_STAGE_IMAGE_KEYS = ['stageImage1', 'stageImage2', 'stageImage3'] as const;
@@ -84,7 +89,7 @@ export interface PotSkin {
 	/** {@link POT_STAGE_IMAGE_KEYS} in order; a gap falls back to the stage below it. */
 	stages: (string | undefined)[];
 	fill?: string;
-	fillDirection: PotFillDirection;
+	fillDirection: ValueBindingFillDirection;
 	frame?: string;
 	width?: number;
 	height?: number;
@@ -116,9 +121,7 @@ export function readPotSkin(param: (key: string) => unknown): PotSkin {
 		background: str('backgroundImage'),
 		stages: POT_STAGE_IMAGE_KEYS.map(str),
 		fill: str('fillImage'),
-		fillDirection: (POT_FILL_DIRECTIONS as readonly string[]).includes(direction ?? '')
-			? (direction as PotFillDirection)
-			: 'right',
+		fillDirection: POT_FILL_DIRECTIONS.find((d) => d === direction) ?? 'right',
 		frame: str('frameImage'),
 		width: positive(num('artWidth')),
 		height: positive(num('artHeight')),
@@ -153,29 +156,4 @@ export function potBodyImage(skin: PotSkin, stage: number): string | undefined {
 export function potFillShare(level: number, max: number): number {
 	if (!(max > 0) || !Number.isFinite(level)) return 0;
 	return Math.min(1, Math.max(0, level / max));
-}
-
-/**
- * The rect a centred `width` × `height` fill image shows at `share`, grown from the edge opposite
- * `direction` — `up` grows from the bottom, so a pot of liquid rises.
- */
-export function potFillRect(
-	width: number,
-	height: number,
-	share: number,
-	direction: PotFillDirection,
-): { x: number; y: number; width: number; height: number } {
-	const left = -width / 2;
-	const top = -height / 2;
-	const s = Math.min(1, Math.max(0, share));
-	switch (direction) {
-		case 'left':
-			return { x: left + width * (1 - s), y: top, width: width * s, height };
-		case 'up':
-			return { x: left, y: top + height * (1 - s), width, height: height * s };
-		case 'down':
-			return { x: left, y: top, width, height: height * s };
-		default:
-			return { x: left, y: top, width: width * s, height };
-	}
 }

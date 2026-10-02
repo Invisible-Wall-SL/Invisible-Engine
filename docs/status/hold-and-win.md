@@ -98,8 +98,8 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
     before 12c gains them through `mergeBuiltinCodedParams`. A def node would never reach a saved
     copy. Any pot image swaps the whole coded bar. Unset, the pot draws the coded bar exactly. The
     art ships through the existing image-param export.
-  - **The fill reveal is coded for now** (`potFillRect`, the same edge rule as 12b's
-    `fillMaskRect`). After the 12b rebase it becomes 12b's helper. The editor previews the fill at
+  - **The fill reveal is 12b's `fillMaskRect`**, anchored at the art's centre. One edge rule
+    serves the Pot's fill image and a value binding's `fill`. The editor previews the fill at
     `POT_PREVIEW_FILL_SHARE` (0.6).
   - **A skinnable part is declared in the bound catalog** (`BOUND_COMPONENT_DEFAULTS.PotMeter.skin`:
     its layer params, box params). The editor canvas draws a skinned part's art and children instead
@@ -733,7 +733,8 @@ Hold and Win beats prints copy.
     Meter's `signalScope` / `signalScopeKind` and is offered only to a Hold and Win project. The
     story's two frog pots show that a node inside the part hears only its own pot's
     **Pot — activate**.
-  - **12b is merged in.** Swap `potFillRect` for its `fillMaskRect` (one edge rule, one home).
+  - **12b is merged in.** The Pot's fill reveal is its `fillMaskRect`; the coded `potFillRect` is
+    gone.
   - **Then the done-when on `hw-3pots-sample`:** a project Pot Meter copy with the frog spine
     inside the part. Its cue on **Pot — activate** comes from 12a. The pot's scope comes from the
     `meter` param. Its belly bone is a 12b `bone` binding on `meter.{meter}.level`. Its art is
@@ -898,6 +899,10 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 
 ## Recent changes
 
+- 2026-10-02 — **Phase 12c: one fill rule** (#1006). The Pot's fill image is revealed by 12b's
+  `fillMaskRect` (game and editor preview). The coded `potFillRect` and `PotFillDirection` are
+  deleted; `POT_FILL_DIRECTIONS` is typed as 12b's `ValueBindingFillDirection`. The fixture pins
+  the pot's centred use (50 assertions).
 - 2026-10-02 — **Phase 12c: the deleted-part trap** (session "Hold and Win Phase 12c skinnable
   parts", #1006, on top of 12a and 12b, both merged in). Contract: Decisions, `standsFor`.
   - **Engine:**
