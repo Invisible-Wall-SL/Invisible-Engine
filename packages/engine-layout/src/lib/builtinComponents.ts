@@ -12,6 +12,7 @@ import {
 } from './componentCatalog';
 import { kindCapabilities, type KindCapabilityConfig } from './kindCapabilities';
 import { POT_SKIN_PARAMS } from './potSkin';
+import { WHEEL_SKIN_PARAMS } from './wheelSkin';
 import type { ComponentDef, ComponentParam, LayoutNode } from './types';
 
 /**
@@ -2502,10 +2503,20 @@ export const LETTERS_STRIP_DEF: ComponentDef = {
 	standsFor: 'LettersStrip',
 };
 
+/** What a mounted Wheel counts in under, whatever its id, so the coded wheel steps aside. */
+export const WHEEL_MOUNT = 'wheel';
+
 /**
  * The pre-feature wheel (Super Hotfire Diamonds) at the instance's position: the coded
- * `HoldAndWinWheelPart` draws the same art and spin as the coded board-centred wheel, which steps
- * aside while this is mounted. Draws nothing until the wheel beat puts a wheel up.
+ * `HoldAndWinWheelPart` draws the same art and spin as the coded board-centred wheel, and counts
+ * itself in as the wheel, so that one steps aside for a copy of any id. Draws nothing until the
+ * wheel beat puts a wheel up.
+ *
+ * SKINNABLE (Phase 12c), the Pot's pattern: art params (`WHEEL_SKIN_PARAMS`) swap the turning face,
+ * the fixed rim and the pointer, and nodes the author puts inside the `Wheel` part turn with the
+ * face, in place of the coded segments. The prize labels and the landed outline stay coded, each
+ * behind a switch. Fixed decoration goes beside the part. It `standsFor` the part, so a wheel drawn
+ * without it still steps the coded wheel aside.
  */
 export const WHEEL_DEF: ComponentDef = {
 	id: 'wheel',
@@ -2521,7 +2532,8 @@ export const WHEEL_DEF: ComponentDef = {
 		y: 0,
 		children: [codedPart('wheel-art', 'Wheel', 'HoldAndWinWheelPart', 440, 440)],
 	},
-	params: [{ key: 'radius', kind: 'number', default: 220 }],
+	params: [{ key: 'radius', kind: 'number', default: 220 }, ...WHEEL_SKIN_PARAMS],
+	standsFor: 'HoldAndWinWheelPart',
 };
 
 /**

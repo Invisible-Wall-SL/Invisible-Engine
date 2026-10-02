@@ -100,6 +100,9 @@ export interface PartSkinBinding {
 	/** Instance params (kind `number`) overriding every layer's box; blank ⇒ each image's own. */
 	widthParam?: string;
 	heightParam?: string;
+	/** A round part (the wheel): with width and height blank, every layer's box is twice this
+	 *  instance param, its radius. */
+	radiusParam?: string;
 }
 
 export interface BoundComponentPreview {
@@ -187,6 +190,16 @@ export const BOUND_COMPONENT_DEFAULTS: Record<string, BoundComponentDefault> = {
 	TotalWinBarPart: { skin: { layers: [] } },
 	// A Letter Tile's coded part: the dim and lit art and letter, inside it.
 	LetterTilePart: { skin: { layers: [] } },
+	// The Wheel's coded part: the turning face under the fixed rim, at the wheel's size. The pointer
+	// sits off-centre at the rim, so only the game draws it.
+	HoldAndWinWheelPart: {
+		skin: {
+			layers: [{ imageParam: 'faceImage' }, { imageParam: 'rimImage' }],
+			widthParam: 'artSize',
+			heightParam: 'artSize',
+			radiusParam: 'radius',
+		},
+	},
 	LoadingScreen: {
 		// The startup splash: the game's `loader` spine (the `title_screen`
 		// animation = the logo) over the progress bar, self-centred in

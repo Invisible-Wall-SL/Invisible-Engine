@@ -827,6 +827,8 @@ game on the next **Publish** — the same trip as the rest of your art.
   A **Total Win Bar** draws the feature total. Turn on its **catchesCoins** and the feature end's
   coins fly into it instead of the win meter; **landPulseScale** pulses it on each one. Both are
   off by default.
+  A **Wheel**'s **Wheel art** group swaps its face (it turns), rim and pointer for your art. Its
+  **Labels** group restyles or hides the prize labels and the landed outline.
   A **Letters Strip** draws Grand's letters. Its **tile** picks a component, usually your Letter
   Tile copy, for every letter to draw as. Blank keeps the game's own letters. A param that names a
   component is a list of your project's components that fit it: the **tile** lists those with a

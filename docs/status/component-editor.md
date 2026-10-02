@@ -18,10 +18,10 @@ Shipped capabilities on `main`:
 - **Promote to shared** (2026-06-24) — holders of the `componentPublish` capability (admin by default) get a top-bar button writing a `_shared/editor-components/<id>.json` snapshot; enforced server-side. The kept draft stays project-scoped and still shadows the shared copy.
 - **Skinnable coded parts** (2026-10-02, Hold and Win 12c, #1006). A coded part whose catalog entry
   declares a `skin` takes the author's own nodes inside it: the Pot, the Respin Counter, the Jackpot
-  Tile, the Total Win Bar and the Letter Tile. Those nodes draw in place of the coded drawing, and
-  the part keeps its behaviour. The Pot also takes art params. The bar's **Edit inside ‹part› ›** edits the part's
-  children, and the canvas previews the art and the children. A **(Hold and Win)** create type per
-  part makes a project copy.
+  Tile, the Total Win Bar, the Letter Tile and the Wheel. Those nodes draw in place of the coded
+  drawing, and the part keeps its behaviour. The Pot and the Wheel also take art params. The bar's
+  **Edit inside ‹part› ›** edits the part's children, and the canvas previews the art and the
+  children. A **(Hold and Win)** create type per part makes a project copy.
   Contract: [hold-and-win](hold-and-win.md) Decisions.
 - **Bind to value** (2026-10-02, Hold and Win Phase 12b) — a node's `valueBindings`: a number (a component param, an engine source, or the instance's own pot via `meter.{meter}.*`) mapped in → out onto a transform offset, a show/hide threshold, a fill reveal (sprite / flipbook / rect), a held clip frame, a spine animation scrub or a spine bone. Authored in the shared Properties section (`EditorValueBindings.svelte`) with a test-value scrub previewed on the canvas and overlays (`valuePreview.client.svelte.ts`). Guide §3b; contract in [hold-and-win](hold-and-win.md).
 - **"This game's defaults"** (2026-09-17, design Phase B3) — a second panel under *Component variables* setting the open def's params for the ACTIVE PROJECT only, stored in the §13.3 sidecar (`editor/<project>/component-defaults/<id>.json`) so a SHARED def can look different per game without being forked. Lists every `!engineProvided` param with the instance panel's widgets; empty = inherit (the key stays absent, `×` restores it); its own `SaveState` + **Save for this game** + conflict badge, separate from the def's versioned save. Each save backs up the version it replaces (newest 20 per component, under `component-defaults-backups/`); **History…** beside it opens the shared version-history modal (#857). Both editor canvases resolve it (see [editor status](./editor.md)).
@@ -36,6 +36,9 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-02 — **The Wheel is skinnable** (Hold and Win 12c, #1006). Art params turn its face and
+  swap its rim and pointer. Nodes inside its `Wheel` part (**Edit inside Wheel ›**) turn with the
+  face. There is a new **Wheel (Hold and Win)** create type. Detail: [hold-and-win](hold-and-win.md).
 - 2026-10-02 — **The Letters Strip is skinnable** (Hold and Win 12c, #1006).
   - New **Letter Tile** built-in: its art and letter for each state sit inside a `Letter` part
     (**Edit inside Letter ›**).

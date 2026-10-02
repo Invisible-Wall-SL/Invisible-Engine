@@ -3267,8 +3267,9 @@
 			const value = key ? params[key] : undefined;
 			return typeof value === 'number' && value > 0 ? value : undefined;
 		};
-		const width = size(skin.widthParam);
-		const height = size(skin.heightParam);
+		const radius = size(skin.radiusParam);
+		const width = size(skin.widthParam) ?? (radius ? radius * 2 : undefined);
+		const height = size(skin.heightParam) ?? (radius ? radius * 2 : undefined);
 		for (const layer of skin.layers) {
 			const image = partSkinImage(params, layer.imageParam);
 			if (!image) continue;

@@ -28,6 +28,7 @@
 		scopedFrameRef,
 		STANDARD_MAIN_SIZES_MAP,
 		TOTAL_WIN_BAR_DEF,
+		WHEEL_DEF,
 	} from 'engine-layout';
 	import type {
 		ComponentCategory,
@@ -710,6 +711,7 @@
 		totalWinBar: TOTAL_WIN_BAR_DEF,
 		lettersStrip: LETTERS_STRIP_DEF,
 		letterTile: LETTER_TILE_DEF,
+		wheel: WHEEL_DEF,
 	} satisfies Record<string, ComponentDef>;
 	type CopyType = keyof typeof COPY_TYPES;
 	const isCopyType = (type: string): type is CopyType => type in COPY_TYPES;
@@ -1632,6 +1634,7 @@
 										<option value="totalWinBar">Total Win Bar (Hold and Win)</option>
 										<option value="lettersStrip">Letters Strip (Hold and Win)</option>
 										<option value="letterTile">Letter Tile (Hold and Win)</option>
+										<option value="wheel">Wheel (Hold and Win)</option>
 									{/if}
 								</select>
 								{#if newType === 'blank'}
@@ -1739,6 +1742,18 @@
 									<strong>letter.{'{reel}'}.lit</strong>. The part pulses them as the letter lights.
 									Pick it as a Letters Strip's
 									<strong>tile</strong>. Listed under <strong>UI</strong>.
+								</p>
+							{:else if newType === 'wheel'}
+								<p class="muted small">
+									A project copy of the built-in <strong>Wheel</strong>. Pick its art on the
+									placement: a <strong>faceImage</strong> that turns, a <strong>rimImage</strong>
+									and a
+									<strong>pointerImage</strong> that stay put. Click
+									<strong>Edit inside Wheel</strong>
+									to add nodes that turn with the face. The prize labels and the landed outline stay the
+									game's (switch them off with <strong>showLabels</strong> /
+									<strong>showLanded</strong>). Place it on the <strong>Wheel</strong> screen in
+									place of the Wheel. Listed under <strong>Overlay</strong>.
 								</p>
 							{/if}
 						</div>

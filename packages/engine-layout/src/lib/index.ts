@@ -100,6 +100,7 @@ export * from './winText';
 export * from './uiText';
 export * from './builtinComponents';
 export * from './potSkin';
+export * from './wheelSkin';
 export * from './partStandIn';
 export * from './boundComponentCatalog';
 export * from './componentCatalog';

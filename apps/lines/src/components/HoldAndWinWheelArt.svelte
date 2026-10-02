@@ -1,6 +1,8 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import { wheelSegmentAngle, wheelSegmentCentre, type HoldAndWinWheelPrize } from 'engine-game';
-	import { Container, Graphics, Text, type GraphicsProps } from 'pixi-svelte';
+	import { parseScopedFrameRef, readWheelSkin, type WheelSkin } from 'engine-layout';
+	import { Container, Graphics, Sprite, Text, type GraphicsProps } from 'pixi-svelte';
 
 	import { wheelPrizeText } from '../game/holdAndWinText';
 	import { stateWheel, wheelRotation } from '../game/holdAndWinWheel.svelte';
@@ -11,15 +13,36 @@
 	 * a pointer at the top and the landed segment outlined. Drawn by the coded wheel (board-centred,
 	 * `HoldAndWinWheel`) and by an authored `wheel` component (`HoldAndWinWheelPart`), so both show the
 	 * same beat. Draws nothing until a wheel is up.
+	 *
+	 * An authored wheel (Phase 12c) swaps in its art — a face that turns, a rim and a pointer that
+	 * stay put — and its own nodes turn with the face in place of the coded segments. The labels and
+	 * the landed outline keep their coded drawing unless switched off. The spin stays here either way.
 	 */
 	type PixiGraphics = Parameters<GraphicsProps['draw']>[0];
 
-	const { radius }: { radius: number } = $props();
+	const CODED_LOOK = readWheelSkin(() => undefined);
+	const {
+		radius,
+		look = CODED_LOOK,
+		skin,
+	}: {
+		radius: number;
+		/** An authored wheel's art and label params; absent ⇒ the coded wheel. */
+		look?: WheelSkin;
+		/** The author's own nodes inside the part: they turn with the face, over its art. */
+		skin?: Snippet;
+	} = $props();
 
 	const wheel = $derived(stateWheel.current);
+	const artSize = $derived(look.artSize ?? radius * 2);
+	const fallbackKey = (key: string) => parseScopedFrameRef(key).region || undefined;
 
 	/** Screen angle of the pointer: straight up. */
 	const POINTER = -Math.PI / 2;
+	/** The coded pointer's size, and where its tip sits (in radii, up from the centre) — where an
+	 *  authored pointer image's bottom edge goes. */
+	const POINTER_SIZE = 0.14;
+	const POINTER_TIP = -1 + POINTER_SIZE / 2;
 	const JACKPOT_COLOURS: Record<string, number> = {
 		MINI: 0x3fbf5a,
 		MINOR: 0x2f7be0,
@@ -63,7 +86,7 @@
 	};
 
 	const drawPointer = (g: PixiGraphics) => {
-		const size = radius * 0.14;
+		const size = radius * POINTER_SIZE;
 		g.moveTo(-size * 0.7, -radius - size * 0.9)
 			.lineTo(size * 0.7, -radius - size * 0.9)
 			.lineTo(0, -radius + size * 0.5)
@@ -72,7 +95,7 @@
 			.stroke({ color: 0x1a1a1a, width: 4 });
 	};
 
-	const labelSize = $derived(radius * 0.09);
+	const labelSize = $derived(radius * 0.09 * look.labelScale);
 	/** Labels run along the rim (upright on the landed segment, which ends under the pointer), so a
 	 *  long one breaks at its last space: "COIN BOOST / ×2". */
 	const twoLines = (label: string) => {
@@ -81,28 +104,77 @@
 	};
 </script>
 
+<!-- One always-mounted container per layer: pixi-svelte appends a child when it MOUNTS, so a layer
+     that appears later must not land above the ones drawn over it. -->
 {#if wheel}
 	<Container rotation={wheelRotation.current}>
-		<Graphics draw={drawSegments} />
-		{#each wheel.prizes as prize, index (index)}
-			{@const angle = POINTER + wheelSegmentCentre(index, wheel.prizes.length)}
-			<Text
-				x={Math.cos(angle) * radius * 0.58}
-				y={Math.sin(angle) * radius * 0.58}
-				rotation={angle + Math.PI / 2}
-				anchor={0.5}
-				text={twoLines(wheelPrizeText(prize))}
-				style={{
-					align: 'center',
-					fontFamily: 'Arial',
-					fontWeight: 'bold',
-					fontSize: labelSize,
-					fill: 0xffffff,
-					stroke: { color: 0x000000, width: 4 },
-				}}
-			/>
-		{/each}
-		<Graphics draw={drawLanded} />
+		<Container>
+			{#if look.face}
+				<Sprite
+					key={look.face}
+					fallbackKey={fallbackKey(look.face)}
+					anchor={0.5}
+					width={artSize}
+					height={artSize}
+				/>
+			{:else if !skin}
+				<Graphics draw={drawSegments} />
+			{/if}
+		</Container>
+		<Container>
+			{#if skin}
+				{@render skin()}
+			{/if}
+		</Container>
+		<Container>
+			{#if look.showLabels}
+				{#each wheel.prizes as prize, index (index)}
+					{@const angle = POINTER + wheelSegmentCentre(index, wheel.prizes.length)}
+					<Text
+						x={Math.cos(angle) * radius * 0.58}
+						y={Math.sin(angle) * radius * 0.58}
+						rotation={angle + Math.PI / 2}
+						anchor={0.5}
+						text={twoLines(wheelPrizeText(prize))}
+						style={{
+							align: 'center',
+							fontFamily: look.labelFontFamily ?? 'Arial',
+							fontWeight: 'bold',
+							fontSize: labelSize,
+							fill: look.labelFill ?? 0xffffff,
+							stroke: { color: 0x000000, width: 4 },
+						}}
+					/>
+				{/each}
+			{/if}
+		</Container>
+		<Container>
+			{#if look.showLanded}
+				<Graphics draw={drawLanded} />
+			{/if}
+		</Container>
 	</Container>
-	<Graphics draw={drawPointer} />
+	<Container>
+		{#if look.rim}
+			<Sprite
+				key={look.rim}
+				fallbackKey={fallbackKey(look.rim)}
+				anchor={0.5}
+				width={artSize}
+				height={artSize}
+			/>
+		{/if}
+	</Container>
+	<Container>
+		{#if look.pointer}
+			<Sprite
+				key={look.pointer}
+				fallbackKey={fallbackKey(look.pointer)}
+				anchor={{ x: 0.5, y: 1 }}
+				y={POINTER_TIP * radius}
+			/>
+		{:else}
+			<Graphics draw={drawPointer} />
+		{/if}
+	</Container>
 {/if}

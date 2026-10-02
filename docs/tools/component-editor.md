@@ -71,9 +71,9 @@ Open **Invisible Component Editor** from the launcher home. The home state shows
     caption and **X OF Y** value), already wired to the engine. Swap the frame art,
     restyle the text or edit the label, then save.
   - **Pot Meter**, **Respin Counter**, **Jackpot Tile**, **Jackpot Bar**, **Total Win Bar**,
-    **Letters Strip** and **Letter Tile (Hold and Win)** — project copies of those built-ins. Put
-    your own nodes inside the coded part of the Pot Meter, Respin Counter, Jackpot Tile, Total Win
-    Bar or Letter Tile (see
+    **Letters Strip**, **Letter Tile** and **Wheel (Hold and Win)** — project copies of those
+    built-ins. Put your own nodes inside the coded part of the Pot Meter, Respin Counter, Jackpot
+    Tile, Total Win Bar, Letter Tile or Wheel (see
     [Skin a coded part](#skin-a-coded-part)). Offered in a Hold and Win project, or one whose
     Game Config has a Hold and Win bonus; the Pot Meter also with the pots overlay.
 - **Library** — existing components grouped by category. Click a row to open it for
@@ -430,7 +430,7 @@ hold time and the win-level sound cues) at boot.
 
 Some built-ins draw a **coded part**: the game draws it, and the canvas shows a grey stand-in box.
 The Hold and Win **Pot Meter**, **Respin Counter**, **Jackpot Tile**, **Total Win Bar** and
-**Letter Tile** have parts you can skin.
+**Letter Tile** have parts you can skin, and so does the **Wheel**.
 
 The Pot takes two ways, which you can use together.
 
@@ -527,6 +527,25 @@ Give your own nodes the same binding. The part pulses the tile as its letter lig
 Then create a **Letters Strip (Hold and Win)**, or select the strip on the **Letters** screen, and
 set its **tile** to your Letter Tile. Every letter then draws as your tile. Blank keeps the game's
 own letters. Swap the strip's **component** to your copy if you made one.
+
+**The Wheel.** It works like the Pot: art on the placement, nodes inside its part, or both. Pick
+the art in the **Wheel art** group of the placed Wheel's Properties:
+
+- **faceImage** turns with the spin, in place of the coloured segments.
+- **rimImage** stays put over the face.
+- **pointerImage** stays put at the top. Its bottom edge is the tip that points at the prize.
+- **artSize** sizes the face and the rim. Blank, they fill the wheel (twice its **radius**), which
+  keeps them lined up with the prize labels.
+
+Create a **Wheel (Hold and Win)** and click **Edit inside Wheel ›**. Nodes inside turn with the
+face, in place of the coloured segments. Place them relative to the wheel's centre. The canvas
+shows them still; only the game turns them.
+
+The prize labels come from the Game Config and the outline from the server's result, so they stay
+the game's. Switch them off with **showLabels** and **showLanded**, or restyle the labels in the
+**Labels** group. Decoration that should not turn, such as lights or a stand, goes beside the part
+in the component, not inside it. A cue on **Wheel — spin** or **Wheel — land** can drive it. On
+the **Wheel** screen, switch the Wheel's **component** to yours.
 
 ## Traps
 

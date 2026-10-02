@@ -54,7 +54,7 @@ titled **"Hold and win game pipeline"**.
 | 11c | Progressive + operator platform jackpots (design §7) | merged, live (`lines@2342c815d074`) — owed: the live Borut round and the partner's platform-jackpot confirmation (Owner checklist 10–11) | Hold and Win Phase 11c — progressive + platform jackpots | part 1: #991 · part 2: #999 |
 | 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | merged (`97652ca9`; the runtime release passed) — owed: a live check on `hw-3pots-sample` (Open items) | Hold and Win Phase 12a | #1003 |
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | merged — whole pipeline (engine → sources → Scene + Component Editor → guides); owed: the live check (Open items) | Hold and Win Phase 12b value bindings | #1005 |
-| 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — built on #1006: the Pot (art params, nodes inside, `standsFor`, fill on 12b's `fillMaskRect`), the Respin Counter and the Jackpot Tile (their panels inside a coded part), a Jackpot Bar copy, a **component** swap on instances, the Total Win Bar (its part can catch the coins), and the Letters Strip (each letter a Letter Tile instance). Next: the done-when on `hw-3pots-sample`, then the wheel and cell tiles | Hold and Win Phase 12c skinnable parts | #1006 |
+| 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — built on #1006: the Pot (art params, nodes inside, `standsFor`, fill on 12b's `fillMaskRect`), the Respin Counter and the Jackpot Tile (their panels inside a coded part), a Jackpot Bar copy, a **component** swap on instances, the Total Win Bar (its part can catch the coins), the Letters Strip (each letter a Letter Tile instance), and the Wheel (art params, nodes on its turning face). Next: the done-when on `hw-3pots-sample`, then the cell tiles | Hold and Win Phase 12c skinnable parts | #1006 |
 
 ## Current state
 
@@ -219,6 +219,31 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
         second-level instance. The Jackpot Bar has the same limit.
       - A tile's nodes render without the screen's `space`, because a bound part is not handed it.
         So `screenAnchor` / cover fit on a node inside a tile does nothing.
+  - **The Wheel follows the Pot: art params, and nodes inside its part.** The wheel was a pure coded
+    part (`HoldAndWinWheelPart` → `HoldAndWinWheelArt`). The coded wheel stepped aside only for an
+    instance whose id was `wheel`.
+    - **Art params** (`WHEEL_SKIN_PARAMS`, `wheelSkin.ts`):
+      - `faceImage` turns with the spin and replaces the coded segments, rim stroke and hub.
+      - `rimImage` stays put over the face.
+      - Both draw at `artSize`, else the wheel's diameter, so the labels and the landed outline
+        stay aligned.
+      - `pointerImage` stays put at its own size, its bottom edge at the coded pointer's tip.
+    - **Nodes inside the `Wheel` part** turn with the face, in place of the coded segments. The face
+      art still draws under them.
+    - **Labels and outline stay coded:** the prize labels and the landed outline come from the Game
+      Config and the server's segment, which no authored node can know. So `showLabels` /
+      `showLanded` switch them, with a label font, colour and size. Unlike the Pot's labels, nodes
+      inside do not hide them.
+    - **Fixed decoration** (lights, a stand) goes beside the part in the component root. It shows
+      with the wheel screen, which a Flow holds around the beat. A cue on **Wheel — spin** /
+      **Wheel — land** can drive it.
+    - **Paint order:** every layer has an always-mounted slot, the Pot's fix.
+    - **Parity:** unset, the drawing is the coded wheel's.
+    - **Step-aside:** the part counts in under `WHEEL_MOUNT`, so the coded wheel steps aside for a
+      copy of any id. The def `standsFor` the part, and a stand-in draws nothing and counts in.
+    - **Editor:** the canvas previews the face under the rim. `PartSkinBinding.radiusParam` sizes
+      them at twice `radius` when `artSize` is blank, the box the game uses. The pointer sits off
+      centre at the rim, so only the game draws it.
 
 - 2026-10-02 — **Owner: the pots as an overlay on any kind** (session "3 pots overlay mechanic").
   Its own plan and hub: [design/pots-overlay](../design/pots-overlay.md),
@@ -848,7 +873,9 @@ Hold and Win beats prints copy.
     off today, so every game keeps flying them to the win meter.
   - **The letters strip is done** (Decisions). Open on it: the editor shows the strip as its grey
     part box, not the letters or tiles, because the editor does not know the config's letters.
-  - **The other parts, same pattern:** wheel, respin cell tiles.
+  - **The wheel is done** (Decisions). Open on it: nodes inside the part draw static in the editor;
+    only the game turns them.
+  - **The other parts, same pattern:** respin cell tiles.
   - **A Platform Jackpot Bar copy** has no create type. Its tiles already get the part, and the
     component swap works on any bar copy.
   - **Editor limits:**
@@ -1006,6 +1033,34 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 
 ## Recent changes
 
+- 2026-10-02 — **Phase 12c: the Wheel skinned** (#1006). Contract: Decisions, "The Wheel follows
+  the Pot".
+  - **Engine:**
+    - `wheelSkin.ts` (`WHEEL_SKIN_PARAMS`, `readWheelSkin`).
+    - `WHEEL_DEF` carries them, `standsFor` its part, and adds `WHEEL_MOUNT`.
+    - The `HoldAndWinWheelPart` catalog entry (face under rim).
+    - `PartSkinBinding.radiusParam`.
+  - **Game:**
+    - `HoldAndWinWheelArt` draws the art params and the skin in always-mounted layer slots.
+    - `HoldAndWinWheelPart` reads the skin, counts in under `WHEEL_MOUNT` and stands in.
+    - `HoldAndWinWheel` steps aside on the mount key.
+  - **Editors:**
+    - The canvas previews the face and rim at twice `radius`.
+    - A **Wheel (Hold and Win)** create type.
+  - **Verified:**
+    - `test-wheel-skin.mjs` (20 assertions): the params beside an unchanged `radius`, the
+      parity read, fallbacks for cleared or bad values, `standsFor`, the mount key, the editor box,
+      and an old wheel's upgrade.
+    - Every engine-layout fixture plus the launcher's `check:*` gates pass.
+    - Storybook `MODE_HOLD_AND_WIN/skinned wheel (12c)`, seven prizes, spun onto segment 3:
+      - **As shipped:** the built-in draws the coded wheel. The segments are 380 px across, and the
+        pointer tip sits at y = 157.
+      - **Art params on a renamed copy:**
+        - The face and rim draw 371 px square (the wheel's diameter), and the labels are off.
+        - The pointer image's bottom-centre sits at (506, 154), the coded tip.
+        - The copy counts in as the wheel.
+      - **A "★" node inside the part:** it turns with the face, from (506, 200) to (451, 440), 127 px
+        from the centre on both sides of a 205.7° turn.
 - 2026-10-02 — **Phase 12c: the Letters Strip skinned** (#1006). Contract: Decisions, "The Letters
   Strip draws each letter as a Letter Tile instance".
   - **Engine:**
