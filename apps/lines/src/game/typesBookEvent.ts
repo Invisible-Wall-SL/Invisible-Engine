@@ -169,6 +169,14 @@ type BookEventHwMeterLevels = {
 	index: number;
 	type: 'meterLevels';
 } & HoldAndWinEventFields['meterLevels'];
+/** The operator platform jackpot hit this round (any kind) — the facade places it after the round's
+ *  own wins. `amount` is book units like every win; `tier` is the platform's own name. */
+type BookEventPlatformJackpotWin = {
+	index: number;
+	type: 'platformJackpotWin';
+	tier: string;
+	amount: number;
+};
 type BookEventHwJackpotLevels = {
 	index: number;
 	type: 'jackpotLevels';
@@ -295,6 +303,7 @@ export type BookEvent =
 	| BookEventHwMeterUpdate
 	| BookEventHwMeterLevels
 	| BookEventHwJackpotLevels
+	| BookEventPlatformJackpotWin
 	| BookEventHwCoinInstantCollect
 	| BookEventHwRandomMetreTrigger
 	| BookEventHwHoldAndWinTrigger

@@ -176,6 +176,11 @@ when the game's config has the pre-feature wheel.
   (`FULL BOARD  {amount}`), the small banner over a jackpot coin (`{jackpot}`) and the line
   when an upgrade steps a jackpot coin up a tier (`{jackpot} UPGRADE`). For a progressive tier
   `{amount}` is the live pool the server paid, not its seed.
+- **Platform jackpot** (every kind). The casino platform's own jackpot, shown only where the
+  platform runs one. There is one box per platform tier (`Mini` … `Grand`, the platform's names;
+  blank ⇒ the name in capitals), plus the celebration banner's title (`{jackpot} JACKPOT`) and the
+  amount under it (`{amount}`, what the platform paid). Only what you write here is offered to
+  Invisible Localization.
 - **Respins.** The counter (`RESPINS {count}`), the award when the feature starts
   (`{count} RESPINS`), the reset (`RESPINS RESET`), the last respin (`LAST RESPIN`) and
   the respins an add-respins special adds (`+{count} RESPINS`).

@@ -26,6 +26,7 @@ import { bakedWinLineConfig } from '../editor-scenes';
 import { clearSpinHold, holdAfterBigWin } from './freeSpinHold';
 import { stateModes } from './stateModes.svelte';
 import { recordHoldAndWinEvent } from './stateHoldAndWin.svelte';
+import { releaseHeldPlatformJackpotWin } from './platformJackpot.svelte';
 
 /**
  * THE SYMBOL RESOLVER, built on this game's symbol map. The resolution itself — the memo, the
@@ -67,6 +68,9 @@ export const { playBookEvent, playBookEvents, playBet, convertTorResumableBet } 
 	trackCascadeStep,
 	recordBookEvent: (bookEvent) => {
 		if (isHoldAndWinEvent(bookEvent)) recordHoldAndWinEvent(bookEvent);
+		// A platform jackpot win a flow presented itself (owning `platformJackpotWin`) is let into
+		// the balance at the latest as the round closes; the coded celebration already did.
+		if (bookEvent.type === 'finalWin') releaseHeldPlatformJackpotWin();
 	},
 	modes: stateModes,
 });

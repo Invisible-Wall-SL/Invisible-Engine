@@ -302,6 +302,12 @@ A **Hold and Win** project has no free-spin values (the kind has no free spins) 
 | `activeModifiers` | list | The specials active in the feature (`payer`, `multiplier`, `collector`, `mystery`). |
 | `jackpot.mini` … `jackpot.grand` | number | Each jackpot's prize in the same units as `win`; `0` when the game has no such tier. A progressive tier reads its live pool (the server's). A screen's `jackpot.<tier>` source shows the same prize in currency. |
 
+Every project, whatever its kind, also reads the **operator platform jackpot**:
+
+| Value | Type | What it reads |
+|---|---|---|
+| `platformJackpot.mini` … `platformJackpot.grand` | number | Each tier of the casino platform's own jackpot, in money like `balance`, refreshed by the server. `0` when the operator runs none. |
+
 Then the **collections** (`reels`) — the iterables a **ForEach** walks, rather than things
 to compare. You pick a name from the list instead of typing it, so there is nothing to
 mis-spell, and each value carries its type, so where an `$engine` read feeds a node's
@@ -680,6 +686,18 @@ for the length of their beat only: while one of them is up, the engine's own ban
 steps aside, so nothing draws twice. `featureIntro` and `featureOutro` are not wired, because the
 engine's feature has no tap at its start or end. Show them around `holdAndWinTrigger` /
 `holdAndWinEnd` with a held Show, as the free-spin intro and outro are.
+
+### The operator platform jackpot — any kind
+
+Some casino platforms run their own jackpot above every game. When the server reports a hit, the
+round's book carries **`platformJackpotWin`** (`tier`, `amount`) after everything the round itself
+presents: after the free spins or the Hold and Win feature, before the round closes. Left unwired,
+the engine celebrates it: the large jackpot banner (the same one, and the same authored
+`jackpotWin` screen, a Hold and Win jackpot uses) with the Win Text **Platform jackpot** copy. Then
+the win, which the balance held back until now, is added in. The **`platformJackpotCelebration`**
+cue (`tier`, `amount`) fires as it starts, for your sound or FX. A flow that wires the event takes
+the presentation over. The engine then adds the held win as the round closes (its `finalWin`), or
+at the next spin on a round the server leaves open.
 
 ### Validation
 

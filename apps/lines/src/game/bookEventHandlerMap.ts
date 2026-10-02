@@ -38,6 +38,7 @@ import {
 	presentWheel,
 	syncHoldAndWin,
 } from './holdAndWinPresentation';
+import { presentPlatformJackpotWin } from './platformJackpot.svelte';
 import {
 	presentReveal,
 	winLevelSoundsPlay,
@@ -426,6 +427,9 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 	respinUpdate: presentRespinUpdate,
 	holdAndWinState: presentHoldAndWinState,
 	holdAndWinEnd: presentHoldAndWinEnd,
+
+	// The operator platform jackpot (any kind): the coded celebration, then the held win released.
+	platformJackpotWin: presentPlatformJackpotWin,
 
 	finalWin: async (bookEvent: BookEventOfType<'finalWin'>) => {
 		// Do nothing

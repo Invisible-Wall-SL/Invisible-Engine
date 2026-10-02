@@ -11,6 +11,8 @@
 		WIN_TEXT_FEATURE_LABELS,
 		WIN_TEXT_JACKPOT_FIELDS,
 		WIN_TEXT_JACKPOT_LABELS,
+		WIN_TEXT_PLATFORM_JACKPOT_FIELDS,
+		WIN_TEXT_PLATFORM_JACKPOT_LABELS,
 		WIN_TEXT_RESPIN_FIELDS,
 		WIN_TEXT_RESPIN_LABELS,
 		WIN_TEXT_WHEEL_FIELDS,
@@ -19,6 +21,7 @@
 		potCaption,
 		formatWinText,
 		jackpotCaption,
+		platformJackpotCaption,
 		resolveSymbolName,
 		resolveToastTemplate,
 		resolveWinText,
@@ -32,6 +35,7 @@
 		WinTextFeatureField,
 		WinTextJackpotField,
 		WinTextFeatureMap,
+		WinTextPlatformJackpotField,
 		WinTextRespinField,
 		WinTextWheelField,
 	} from 'engine-layout';
@@ -172,6 +176,26 @@
 		if (value.trim()) captions[tier] = value;
 		else delete captions[tier];
 	}
+
+	function setPlatformJackpot(field: WinTextPlatformJackpotField, value: string) {
+		const platformJackpot = (doc.platformJackpot ??= {});
+		if (value.trim()) platformJackpot[field] = value;
+		else delete platformJackpot[field];
+	}
+
+	function setPlatformJackpotCaption(tier: string, value: string) {
+		const captions = ((doc.platformJackpot ??= {}).captions ??= {});
+		if (value.trim()) captions[tier] = value;
+		else delete captions[tier];
+	}
+
+	/** The operator platform's tiers as the partner's platform names them (any kind). */
+	const PLATFORM_TIERS = ['Mini', 'Minor', 'Major', 'Grand'];
+	const platformJackpotPreview = (template: string): string =>
+		formatWinText(template, {
+			amount: '$5,000.00',
+			jackpot: platformJackpotCaption(resolved, PLATFORM_TIERS[3]),
+		});
 
 	function setRespins(field: WinTextRespinField, value: string) {
 		const respins = (doc.respins ??= {});
@@ -728,6 +752,39 @@
 				</section>
 			{/if}
 		{/if}
+
+		<section>
+			<h2>Platform jackpot</h2>
+			<p class="hint">
+				The operator's own jackpot, which runs above the game in any kind of game. It shows only
+				where the casino's platform runs one. Its tiers are the platform's names. Leave one blank
+				and it is written in capitals. <code>{'{jackpot}'}</code> is the tier's caption and
+				<code>{'{amount}'}</code> is what the platform paid.
+			</p>
+			{#each PLATFORM_TIERS as tier (tier)}
+				<label class="single">
+					<span>{tier}</span>
+					<input
+						value={doc.platformJackpot?.captions?.[tier] ?? ''}
+						placeholder={tier.toUpperCase()}
+						oninput={(e) => setPlatformJackpotCaption(tier, e.currentTarget.value)}
+					/>
+				</label>
+			{/each}
+			{#each WIN_TEXT_PLATFORM_JACKPOT_FIELDS as field (field)}
+				<label class="single">
+					<span>{WIN_TEXT_PLATFORM_JACKPOT_LABELS[field]}</span>
+					<input
+						value={doc.platformJackpot?.[field] ?? ''}
+						placeholder={resolved.platformJackpot[field]}
+						oninput={(e) => setPlatformJackpot(field, e.currentTarget.value)}
+					/>
+					<em class="row-preview"
+						>{platformJackpotPreview(resolved.platformJackpot[field]) || '—'}</em
+					>
+				</label>
+			{/each}
+		</section>
 
 		<section>
 			<h2>Win-level captions</h2>

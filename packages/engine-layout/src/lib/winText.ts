@@ -67,7 +67,24 @@ export type WinTextDoc = {
 	feature?: WinTextFeature;
 	/** Hold and Win: the pre-feature wheel's segment labels and prize banners. */
 	wheel?: WinTextWheel;
+	/** The operator's platform jackpot — any game kind. */
+	platformJackpot?: WinTextPlatformJackpot;
 	updatedAt?: string;
+};
+
+/**
+ * The OPERATOR PLATFORM JACKPOT's copy — any game kind can carry one (design `hold-and-win.md` §7
+ * 11c). Its tiers are the PLATFORM's (`Mini`, `Grand`, … as the server names them), not the game's,
+ * so `captions` is keyed by that name and an unset tier speaks it in capitals
+ * ({@link platformJackpotCaption}).
+ */
+export type WinTextPlatformJackpot = {
+	/** Tier name (as the server names it) → the word the player sees. */
+	captions?: Record<string, string>;
+	/** The celebration banner's title — "{jackpot} JACKPOT". */
+	award?: string;
+	/** Under it, what the platform paid — "{amount}". */
+	awardDetail?: string;
 };
 
 /**
@@ -219,6 +236,7 @@ export type ResolvedWinText = {
 	respins: Required<WinTextRespins>;
 	feature: Required<WinTextFeature>;
 	wheel: Required<WinTextWheel>;
+	platformJackpot: Required<WinTextPlatformJackpot>;
 };
 
 /**
@@ -310,6 +328,11 @@ export const WIN_TEXT_DEFAULTS: ResolvedWinText = {
 		coinBoostDetail: 'EVERY COIN ×{count}',
 		extraCollectDetail: '{level} COLLECT',
 	},
+	platformJackpot: {
+		captions: {},
+		award: '{jackpot} JACKPOT',
+		awardDetail: '{amount}',
+	},
 };
 
 /** The Hold and Win template fields that are plain strings — what the tool lists, the storage
@@ -344,12 +367,14 @@ export const WIN_TEXT_WHEEL_FIELDS = [
 	'coinBoostDetail',
 	'extraCollectDetail',
 ] as const;
+export const WIN_TEXT_PLATFORM_JACKPOT_FIELDS = ['award', 'awardDetail'] as const;
 
 export type WinTextJackpotField = (typeof WIN_TEXT_JACKPOT_FIELDS)[number];
 export type WinTextRespinField = (typeof WIN_TEXT_RESPIN_FIELDS)[number];
 export type WinTextFeatureField = (typeof WIN_TEXT_FEATURE_FIELDS)[number];
 export type WinTextFeatureMap = (typeof WIN_TEXT_FEATURE_MAPS)[number];
 export type WinTextWheelField = (typeof WIN_TEXT_WHEEL_FIELDS)[number];
+export type WinTextPlatformJackpotField = (typeof WIN_TEXT_PLATFORM_JACKPOT_FIELDS)[number];
 
 /** Each field's label — the tool's row and the Localization hint say the same thing. */
 export const WIN_TEXT_JACKPOT_LABELS: Record<WinTextJackpotField, string> = {
@@ -389,6 +414,10 @@ export const WIN_TEXT_WHEEL_LABELS: Record<WinTextWheelField, string> = {
 	extraCollect: 'Wheel — extra collect',
 	coinBoostDetail: 'Wheel prize — coin boost',
 	extraCollectDetail: 'Wheel prize — extra collect',
+};
+export const WIN_TEXT_PLATFORM_JACKPOT_LABELS: Record<WinTextPlatformJackpotField, string> = {
+	award: 'Platform jackpot banner',
+	awardDetail: 'Platform jackpot banner — amount',
 };
 
 /** The key a `byCell` override is stored under. */
@@ -441,6 +470,17 @@ export function resolveWinText(doc: WinTextDoc | undefined): ResolvedWinText {
 			...pickMaps(WIN_TEXT_FEATURE_MAPS, WIN_TEXT_DEFAULTS.feature, doc?.feature),
 		},
 		wheel: pick(WIN_TEXT_WHEEL_FIELDS, WIN_TEXT_DEFAULTS.wheel, doc?.wheel),
+		platformJackpot: {
+			captions: {
+				...WIN_TEXT_DEFAULTS.platformJackpot.captions,
+				...(doc?.platformJackpot?.captions ?? {}),
+			},
+			...pick(
+				WIN_TEXT_PLATFORM_JACKPOT_FIELDS,
+				WIN_TEXT_DEFAULTS.platformJackpot,
+				doc?.platformJackpot,
+			),
+		},
 	};
 }
 
@@ -473,6 +513,14 @@ function pick<F extends string>(
  */
 export function jackpotCaption(resolved: ResolvedWinText, tier: string): string {
 	return resolveLocalizedText(own(resolved.jackpots.captions, tier) || tier);
+}
+
+/**
+ * What the player reads for a PLATFORM jackpot tier: the authored caption, else the server's tier
+ * name in capitals. Localized at its source, like {@link jackpotCaption}.
+ */
+export function platformJackpotCaption(resolved: ResolvedWinText, tier: string): string {
+	return resolveLocalizedText(own(resolved.platformJackpot.captions, tier) || tier.toUpperCase());
 }
 
 /** A special kind's name in the Hold and Win lines (localized at its source, like a caption); an
@@ -693,6 +741,14 @@ export function collectWinTextTemplates(
 	}
 	for (const field of WIN_TEXT_WHEEL_FIELDS) {
 		addWords(source?.wheel?.[field], WIN_TEXT_WHEEL_LABELS[field]);
+	}
+	// The platform jackpot belongs to no kind and no project knows whether its operator runs one, so
+	// only what an author wrote is harvested — every project's list stays what it was until then.
+	for (const field of WIN_TEXT_PLATFORM_JACKPOT_FIELDS) {
+		addWords(doc?.platformJackpot?.[field], WIN_TEXT_PLATFORM_JACKPOT_LABELS[field]);
+	}
+	for (const [tier, caption] of Object.entries(doc?.platformJackpot?.captions ?? {})) {
+		add(caption, `Platform jackpot — ${tier}`);
 	}
 	return out;
 }

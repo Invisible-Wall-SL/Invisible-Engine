@@ -96,7 +96,12 @@ export const UNSKIPPABLE_BOOK_EVENTS: ReadonlySet<string> = new Set([
  * button inert for their length. Neither holds on a player press, so THE HANG RULE is met: every wait
  * in them is a timer, a flight or a bounded symbol beat.
  */
-const HOLD_AND_WIN_CELEBRATIONS: ReadonlySet<string> = new Set(['jackpotWin', 'holdAndWinEnd']);
+const HOLD_AND_WIN_CELEBRATIONS: ReadonlySet<string> = new Set([
+	'jackpotWin',
+	'holdAndWinEnd',
+	// The operator platform jackpot's banner (any kind) — the same kind of celebration.
+	'platformJackpotWin',
+]);
 
 /** Does this dispatch run unskippable (and lock the spin button for its length)? */
 const ownsUnskippablePresentation = (bookEventType: string, opensCelebration: boolean): boolean =>
@@ -158,6 +163,7 @@ export const startsCelebration = (bookEvent: BookEvent): boolean => {
 		case 'freeSpinEnd':
 		case 'freeSpinRetrigger':
 		case 'holdAndWinEnd':
+		case 'platformJackpotWin':
 			return true;
 		// Not a celebration, but re-armed for the free-spin intro's reason: a press made while the
 		// round was being requested must not trip the token the unskippable intro then plays under.

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 
 	import { EnablePixiExtension, DebugStage } from 'components-pixi';
 	import { EnableHotkey, EnableSpaceHold, OnHotkey } from 'components-shared';
@@ -208,6 +208,13 @@
 		seedHoldAndWinMeters,
 	} from '../game/holdAndWinMeters.svelte';
 	import { jackpotMultiplier, seedHoldAndWinJackpots } from '../game/holdAndWinJackpots.svelte';
+	import {
+		PLATFORM_JACKPOT_TIERS,
+		platformJackpotValue,
+		platformJackpotsLive,
+		seedPlatformJackpots,
+		statePlatformJackpots,
+	} from '../game/platformJackpot.svelte';
 	import { HUD_BUTTON_INSTANCES } from '../game/editorFlags';
 	import {
 		bakedEditorArtAssets,
@@ -357,6 +364,9 @@
 	seedHoldAndWinMeters();
 	// …and its progressive jackpot pools, followed on every heartbeat refresh from here on.
 	onMount(seedHoldAndWinJackpots);
+	// The operator platform jackpot's tiers (any kind): seeded now, so a tier the platform names at
+	// boot registers its value source below, and followed on every answer from here on.
+	onDestroy(seedPlatformJackpots());
 
 	// And say out loud when the RGS is dealing a DIFFERENT board than the one the project authored.
 	// The board follows the server now (above); this is what stops it doing so SILENTLY. An online
@@ -750,6 +760,19 @@
 				),
 			]),
 		),
+		// The operator platform jackpot (any kind): each tier's value in money (`platformJackpot.<tier>`),
+		// the four standard tiers always and any other the platform names at boot. 0 until it reports.
+		...Object.fromEntries(
+			[
+				...new Set([
+					...PLATFORM_JACKPOT_TIERS,
+					...statePlatformJackpots.tiers.map(({ name }) => name.toLowerCase()),
+				]),
+			].map((tier) => [
+				`platformJackpot.${tier}`,
+				valueSource(() => platformJackpotValue(tier), numberToCurrencyString),
+			]),
+		),
 		// The coded banner's headline and detail line ("GRAND JACKPOT", the amount), what the authored
 		// `luckySpin` / `jackpotWin` screens show — one beat sets them for both paths.
 		holdAndWinBanner: textSource(() => stateHoldAndWinBanner.current?.title ?? ''),
@@ -852,6 +875,8 @@
 		// …and the two banner beats the authored `luckySpin` / `jackpotWin` screens gate on.
 		luckySpinShow: boolSource(() => stateHoldAndWinBanner.current?.kind === 'luckySpin'),
 		jackpotWinShow: boolSource(() => stateHoldAndWinBanner.current?.kind === 'jackpot'),
+		// True once the operator's platform reports a jackpot — the Platform Jackpot Bar's gate.
+		platformJackpotShow: boolSource(platformJackpotsLive),
 		// Gates the `infoBar` componentInstance: true while a transient `showMessage` toast
 		// is active, so the bar shows only when there's a message and hides on the existing
 		// auto-clear — the engine-layout equivalent of the coded HTML `MessageToast`.

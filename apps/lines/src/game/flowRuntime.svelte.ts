@@ -50,6 +50,7 @@ import { boardDimensions } from './gameConfig';
 import type { LinesEngineKey } from './flowEngineKeys';
 import { stateHoldAndWin } from './stateHoldAndWin.svelte';
 import { jackpotMultiplier } from './holdAndWinJackpots.svelte';
+import { platformJackpotValue } from './platformJackpot.svelte';
 import { eventEmitter } from './eventEmitter';
 import { getFlowInterpreter } from './flowInterpreterHolder';
 import { stateGame } from './stateGame.svelte';
@@ -190,6 +191,11 @@ const ENGINE_READS: Record<LinesEngineKey, () => unknown> = {
 	'jackpot.minor': () => jackpotAmount('minor'),
 	'jackpot.major': () => jackpotAmount('major'),
 	'jackpot.grand': () => jackpotAmount('grand'),
+	// The operator platform jackpot (any kind): money, like `balance`.
+	'platformJackpot.mini': () => platformJackpotValue('mini'),
+	'platformJackpot.minor': () => platformJackpotValue('minor'),
+	'platformJackpot.major': () => platformJackpotValue('major'),
+	'platformJackpot.grand': () => platformJackpotValue('grand'),
 };
 
 export const linesEngineReader = (key: string): unknown =>

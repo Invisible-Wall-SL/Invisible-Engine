@@ -247,6 +247,12 @@ envelope, never dealt as a normal round.
 
 Every beat is exercised by `pnpm check:holdandwin` (`scripts/check-holdandwin-protocol.mjs`).
 
+**The operator platform jackpot is not a Hold and Win beat.** It is the partner's own platform field,
+kind-independent, on any mock wrapped by `scripts/mock-platform-jackpot.mjs`. Force it with
+`force:platformJackpot:<tier>` (alone in `play.context`), or hold it with
+`…/platformJackpot?sid=&hit=<tier>&when=feature`. See `play4fun-protocol.md`
+§ "The operator platform jackpot".
+
 ## Running it
 
 ```bash

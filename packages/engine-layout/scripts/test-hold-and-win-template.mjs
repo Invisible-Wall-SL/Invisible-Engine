@@ -101,6 +101,9 @@ const PINNED = {
 		featureCard: 'da9437173836ece3',
 		confirmDialog: '7d44a35a92e64c1e',
 		optionCard: '7e7ba516c11653f5',
+		// Phase 11c: the operator platform jackpot belongs to every kind, so its bar is offered to all
+		// of them on purpose — a new library entry, not a change to any existing screen or component.
+		platformJackpotBar: '76fce9d675bc4c8f',
 	},
 };
 

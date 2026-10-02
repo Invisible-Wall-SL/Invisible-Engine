@@ -782,6 +782,10 @@ game on the next **Publish** — the same trip as the rest of your art.
   Tiles) appear only in a Hold and Win project. A screen that already holds one keeps drawing it.
   A **Jackpot Tile** reads `jackpot.<tier>`: the tier's prize at the current bet — for a
   progressive tier, the server's live pool, which moves with every round and balance refresh.
+  The **Platform Jackpot Bar** is offered to every kind. It holds four Jackpot Tiles fed
+  `platformJackpot.<tier>`, the casino platform's own jackpot in money, live. It is gated by
+  `platformJackpotShow`, so it stays hidden where the operator runs none. A Jackpot Tile's
+  **source** and **visibleSource** lists offer the same platform values.
   **Respin Cell Tiles** sets the tile drawn under every respin cell (**tileImage**, **tileTint**) and
   a **gap** between cells (a share of a cell, 0–0.45, which also insets each cell's rolling
   window). Where you drop it doesn't matter: the tiles draw at the respin board's own cells. The

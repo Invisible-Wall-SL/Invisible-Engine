@@ -1,3 +1,15 @@
+<script lang="ts" module>
+	/**
+	 * The operator platform jackpot's cue (any kind) — a NOTIFICATION, for authored sound and FX, that
+	 * its celebration has started (`presentPlatformJackpotWin`); this banner draws its coded default.
+	 */
+	export type EmitterEventPlatformJackpot = {
+		type: 'platformJackpotCelebration';
+		tier: string;
+		amount: number;
+	};
+</script>
+
 <script lang="ts">
 	import { Tween } from 'svelte/motion';
 	import { backOut } from 'svelte/easing';

@@ -42,6 +42,8 @@
 import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
 
+import { createPlatformJackpot } from './mock-platform-jackpot.mjs';
+
 // ---------- pure game data (read-only, shared across instances) ----------
 
 // Symbol vocabulary mirrors what the live Hot Fruits server sends. Translation
@@ -1938,9 +1940,13 @@ if (isMainModule) {
 				}
 			: {}),
 	});
+	// PLATFORM_JACKPOT=1 adds the operator platform jackpot on top (`mock-platform-jackpot.mjs`).
+	const platform = process.env.PLATFORM_JACKPOT === '1' ? createPlatformJackpot() : null;
+	const serve = (req, res, url) =>
+		platform ? platform.handle(req, res, url, mock.handle) : mock.handle(req, res, url);
 	const server = createServer((req, res) => {
 		const url = new URL(req.url, `http://${req.headers.host}`);
-		return mock.handle(req, res, url);
+		return serve(req, res, url);
 	});
 	server.listen(PORT, () => {
 		// Standard Invisible Wall startup banner (compact corner bracket).

@@ -27,6 +27,10 @@ export const LINES_ENGINE_KEYS = [
 	'jackpot.minor',
 	'jackpot.major',
 	'jackpot.grand',
+	'platformJackpot.mini',
+	'platformJackpot.minor',
+	'platformJackpot.major',
+	'platformJackpot.grand',
 ] as const;
 
 export type LinesEngineKey = (typeof LINES_ENGINE_KEYS)[number];

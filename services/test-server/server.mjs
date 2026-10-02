@@ -42,6 +42,7 @@ import { fileURLToPath } from 'node:url';
 import { carrySession, createMockRgs as createLinesMock } from '../../scripts/mock-rgs-server.mjs';
 import { createMockRgs as createBookMock } from '../../scripts/mock-rgs-server-book.mjs';
 import { createMockRgs as createHoldAndWinMock } from '../../scripts/mock-rgs-server-holdandwin.mjs';
+import { createPlatformJackpot } from '../../scripts/mock-platform-jackpot.mjs';
 import { holdOpenRounds, mockForSession } from './openRounds.mjs';
 import { hostConfigFor, injectHostSettings, validHostSettings } from './hostSettings.mjs';
 
@@ -284,6 +285,28 @@ const makeHoldAndWinMock = (label, grid, gameKey, runtime, twin) => {
 		}
 		return null;
 	}
+};
+
+/**
+ * The OPERATOR PLATFORM JACKPOT over a game's mock (`scripts/mock-platform-jackpot.mjs`), for a game
+ * whose `hostSettings` carry our own test switch `mockPlatformJackpot: true` — never the operator's
+ * `jackpot` field, which a copied set of real operator settings may hold. Kind-independent: it
+ * wraps whichever mock deals the game. One per game and channel, outside the mock, so a contract
+ * swap keeps its pools. Off (null) for every other game, which is
+ * answered byte-identically. Forcing a hit follows the mocks' rule: a runtime game's players never
+ * get it, its authoring twin and a standalone build do.
+ */
+const platformJackpots = new Map();
+const platformJackpotFor = (gameKey, meta, channel) => {
+	if (meta.hostSettings?.mockPlatformJackpot !== true) return null;
+	const key = channel ? `${gameKey}/${channel}` : gameKey;
+	if (!platformJackpots.has(key)) {
+		platformJackpots.set(
+			key,
+			createPlatformJackpot({ allowForce: channel === AUTHORING || !meta.runtime }),
+		);
+	}
+	return platformJackpots.get(key);
 };
 
 const makeMock = (protocol, label, grid, gameKey, cascade, runtime, twin = false) => {
@@ -1200,7 +1223,10 @@ const handleRequest = async (req, res) => {
 			url.searchParams.get('sid'),
 			url.searchParams.get('gid'),
 		);
-		return answering.handle(req, res, url);
+		const platform = platformJackpotFor(gameKey, meta, channel);
+		return platform
+			? platform.handle(req, res, url, answering.handle)
+			: answering.handle(req, res, url);
 	}
 
 	// root index

@@ -3,6 +3,7 @@ import {
 	WIN_TEXT_FEATURE_FIELDS,
 	WIN_TEXT_FEATURE_MAPS,
 	WIN_TEXT_JACKPOT_FIELDS,
+	WIN_TEXT_PLATFORM_JACKPOT_FIELDS,
 	WIN_TEXT_RESPIN_FIELDS,
 	WIN_TEXT_WHEEL_FIELDS,
 	type WinTextDoc,
@@ -79,6 +80,10 @@ const jackpotsSchema = familySchema(WIN_TEXT_JACKPOT_FIELDS)
 
 const respinsSchema = familySchema(WIN_TEXT_RESPIN_FIELDS).strict();
 
+const platformJackpotSchema = familySchema(WIN_TEXT_PLATFORM_JACKPOT_FIELDS)
+	.extend({ captions: templateMapSchema.optional() })
+	.strict();
+
 const featureSchema = familySchema(WIN_TEXT_FEATURE_FIELDS)
 	.extend(
 		Object.fromEntries(
@@ -99,6 +104,7 @@ export const winTextDocSchema = z
 		respins: respinsSchema.optional(),
 		feature: featureSchema.optional(),
 		wheel: familySchema(WIN_TEXT_WHEEL_FIELDS).strict().optional(),
+		platformJackpot: platformJackpotSchema.optional(),
 		updatedAt: z.string().optional(),
 	})
 	.strip();
@@ -175,6 +181,16 @@ function pruneJackpots(input: WinTextDoc['jackpots']): WinTextDoc['jackpots'] {
 	return Object.keys(next).length ? next : undefined;
 }
 
+function prunePlatformJackpot(input: WinTextDoc['platformJackpot']): WinTextDoc['platformJackpot'] {
+	if (!input) return undefined;
+	const captions = pruneMap(input.captions);
+	const next: NonNullable<WinTextDoc['platformJackpot']> = {
+		...(captions ? { captions } : {}),
+		...pruneFamily(WIN_TEXT_PLATFORM_JACKPOT_FIELDS, input),
+	};
+	return Object.keys(next).length ? next : undefined;
+}
+
 function pruneFeature(input: WinTextDoc['feature']): WinTextDoc['feature'] {
 	if (!input) return undefined;
 	const next: NonNullable<WinTextDoc['feature']> = {
@@ -224,6 +240,8 @@ export function normalizeWinTextDoc(
 	if (feature) next.feature = feature;
 	const wheel = pruneFamily(WIN_TEXT_WHEEL_FIELDS, doc.wheel);
 	if (wheel) next.wheel = wheel;
+	const platformJackpot = prunePlatformJackpot(doc.platformJackpot);
+	if (platformJackpot) next.platformJackpot = platformJackpot;
 	return next;
 }
 
