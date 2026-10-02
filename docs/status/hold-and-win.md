@@ -50,7 +50,7 @@ titled **"Hold and win game pipeline"**.
 | 9 | Game Maker presets + docs + playtest, sample games (3 Pots first) | in progress — 9a preset picker + config seed + guides + playbooks merged; 9b symbols seed at scaffold merged + launcher deployed; owed (owner login): create, publish and play the Classic + Collector samples — see **Owner checklist** | H&W Phase 9 — Game Maker presets, 3 samples, docs · 9b: H&W Phase 9b — symbols seed + samples | 9a: #968 · 9b: #969 |
 | 10 | Partner wire (facade + mock brought in line) | blocked on partner | — | — |
 | 11a | Extra specials: add-respins + upgrade (design §7) | merged — whole pipeline (config → mock → facade → beats → flow → Symbols → Win Text → docs); live-checked on the `pots-extra` test fixture | H&W Phase 11a — add-respins + upgrade specials | #995 |
-| 11b | Board expansion — rows unlock (design §7; after 11a) | in progress — contract (config + validator + `/config` + events) on branch `claude/hw-11b-board-expansion`; respin beats + mock wait for 11a | H&W Phase 11b — board expansion | — |
+| 11b | Board expansion — rows unlock (design §7; after 11a) | built — whole pipeline on branch `claude/hw-11b-board-expansion` (PR pending merge); follow-ups in Open items | H&W Phase 11b — board expansion | — |
 | 11c | Progressive + operator platform jackpots (design §7) | merged, live (`lines@2342c815d074`) — owed: the live Borut round and the partner's platform-jackpot confirmation (Owner checklist 10–11) | Hold and Win Phase 11c — progressive + platform jackpots | part 1: #991 · part 2: #999 |
 | 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | not started | — | — |
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | not started | — | — |
@@ -618,6 +618,20 @@ Hold and Win beats prints copy.
 
 ## Open items / next
 
+- **Phase 11b follow-ups** (none blocks authoring):
+  - **The template reserves an expanding board's area only when asked.** `holdAndWinReferenceLayout(
+    board, { maxRows })` lifts and shrinks the reel grid so the grown block is centred, but the Game
+    Maker scaffolds from a preset (none expands), so a project that turns expansion on later keeps
+    its 3-row layout: its extra rows hang below the board, over whatever sits there. Wire the
+    scaffold / "Add missing screens" to pass the config's `maxRows`, or tell authors to move the
+    reel grid (the `/config` panel and the Scene Editor guide say so).
+  - **The base board after the feature shows only the base rows.** `settleReelsOnHeldCells` settles
+    the reel board on the held coins of the grid's rows; coins in unlocked rows are not drawn once
+    the board swaps back (the win presentation that follows is unaffected).
+  - **No art for an unlock symbol until it is bound.** The tool defaults now carry an `UNLOCK` entry
+    (the scatter art) so a scaffold that names one seeds it; an existing project binds its own in
+    `/symbols`. Without art the beat still plays (state, flight, fade, banner).
+
 - **Phase 11a follow-ups** (none blocks authoring):
   - **The active-modifiers line overflows** on the reference layout's wide arrangement once five
     specials are active ("MYSTERY · ADD RESPINS · UPGRADE · PAYER · COLLECTOR" runs off the left
@@ -731,6 +745,38 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 
 ## Recent changes
 
+- 2026-10-02 — **Phase 11b: board expansion (rows unlock), through the whole pipeline** (branch
+  `claude/hw-11b-board-expansion`; session "H&W Phase 11b — board expansion"; contract in
+  Decisions above). A runtime release on merge; nothing new runs unless a config has `expansion`
+  (no preset does).
+  - **Game Config:** `holdAndWin.expansion` + validator + the `/config` Board expansion panel; role
+    `unlock`; fixtures `pots-expansion-fullrow` (MAJOR at 5 rows), `-unlock` (`UNLOCK` symbol),
+    `-count` (thresholds 8/12/16, no reset); `respinBoardMaxRows()`.
+  - **Mock + wire + facade:** the board grows below the grid per rule (fullRow / unlock symbols /
+    held count), `rowsUnlocked` then the unlock symbols' `applied` clear, banked row jackpots, an
+    unlock resets the counter (`max(start, left)`) when `resetsRespins`, a full board needs every row
+    of `maxRows`, `playedSpin` boards as tall as the open rows, `rows` on the snapshot and
+    `expansion {rows, maxRows}` on the trigger and the boot config. Forced beats `unlock:<n>`
+    (numeric; `unlock:<special>` is unchanged) and `expandFull`. `check:holdandwin` re-derives every
+    expanded round (rows, rule, thresholds, row jackpots, reset) and the preset digests are unchanged.
+    The facade clamps a respin board to `maxRows` instead of the grid.
+  - **Engine:** `RespinBoard` builds every cell of `maxRows` and spins only the open rows; locked
+    cells draw `RespinLockedCell` (coded dark LOCKED panel, or the authored `lockedRow` art);
+    `presentRowsUnlocked` — the unlock symbol plays `rowUnlock`, flies into its row (`unlockRow`),
+    the locked cells fade under "ROW UNLOCKED · {rows} ROWS", the rows open; a resume's
+    `holdAndWinState` reopens the server's rows. **Flow:** event `rowsUnlocked`, action `unlockRows`,
+    cue `respinRowsUnlocked`, the seed owns it in the Hold and Win tab. **Symbols:** state
+    `rowUnlock` (fallback `win`), flight `unlockRow`. **Win Text:** `feature.rowUnlocked`,
+    `feature.rows` — two more strings in every Hold and Win project's /localization (play
+    unchanged). **Scene Editor:** kind-gated `lockedRow` component (+ selected preview); the template
+    takes `{ maxRows }` and reserves the grown area in every layout. **Game Maker:** "Rows 3→6" chip.
+    Storybook `MODE_HOLD_AND_WIN/board expansion` (books generated from the real mock + facade);
+    playbook S9.
+  - **Verified live, real clock (60 fps, headless shell), desktop + portrait, all three fixtures:**
+    80/80 — the board opens 6 rows tall with 15 locked cells, grows by the right rule, never shows
+    more rows than the server opened, coins land in the new rows, `expandFull` pays the 6-row GRAND,
+    the shown win equals the server's `gameEnd.win`, and a reload with respin 3's answer lost
+    reopens the server's 5 rows with 5 cells locked.
 - 2026-10-02 — **Phase 11c part 2: the operator platform jackpot** (session "Hold and Win Phase 11c —
   progressive + platform jackpots"). Kind-independent: any game carries it. The contract was read
   off the partner's client and recorded in `play4fun-protocol.md` § "The operator platform jackpot",
