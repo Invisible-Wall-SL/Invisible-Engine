@@ -390,6 +390,9 @@ type BakedBundle = {
 			 * replay above (which narrates the paying lines during the hold) but is independent of it:
 			 * with the replay off the hold still holds, on a static board. */
 			holdAfterBigWin?: boolean;
+			/** Holding the spin button keeps spinning, like holding Space (`utils-shared/spinHold`).
+			 * Absent ⇒ off: the button is a plain click. */
+			spinButtonHold?: boolean;
 		};
 		/** "A winning symbol POPS at the end of its win" (Invisible Symbols State Machine output,
 		 * consumed by `components/Board.svelte`): after a paying cell's `win` beat completes, it plays
@@ -1146,6 +1149,7 @@ export function bakedWinCycleConfig(): {
 	showMessage: boolean;
 	dimNonWinning: boolean;
 	holdAfterBigWin: boolean;
+	spinButtonHold: boolean;
 } {
 	const c = hasRuntimeBundle()
 		? runtimeBundle!.symbols?.winCycle
@@ -1160,6 +1164,7 @@ export function bakedWinCycleConfig(): {
 		showMessage: c?.showMessage ?? false,
 		dimNonWinning: c?.dimNonWinning ?? false,
 		holdAfterBigWin: c?.holdAfterBigWin ?? false,
+		spinButtonHold: c?.spinButtonHold ?? false,
 	};
 }
 

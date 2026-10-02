@@ -41,6 +41,7 @@ import {
 	setWinCycleDimNonWinning,
 	setWinCycleEnabled,
 	setWinCycleHoldAfterBigWin,
+	setWinCycleSpinButtonHold,
 	setWinCycleShowLine,
 	setWinCycleShowMessage,
 	setWinCycleShowText,
@@ -48,6 +49,7 @@ import {
 	winCycleDimNonWinning,
 	winCycleEnabled,
 	winCycleHoldAfterBigWin,
+	winCycleSpinButtonHold,
 	winCycleShowLine,
 	winCycleShowMessage,
 	winCycleShowText,
@@ -144,6 +146,12 @@ const CONTROLS: Record<
 		value: true,
 		fallback: false,
 		read: winCycleHoldAfterBigWin,
+	},
+	spinButtonHold: {
+		set: setWinCycleSpinButtonHold,
+		value: true,
+		fallback: false,
+		read: winCycleSpinButtonHold,
 	},
 };
 

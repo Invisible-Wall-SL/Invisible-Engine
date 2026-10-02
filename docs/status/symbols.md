@@ -143,6 +143,16 @@ AND `bake-editor-doc.mjs`, or the effect is pruned as an orphan.
 
 ## Recent changes
 
+- 2026-10-02 — **Hold the spin button to keep spinning — a per-project switch, off by default**
+  (`winCycle.spinButtonHold`, in the "Winning symbols after the spin" section beside **Wait for a
+  spin press after a big win**). It gates the hold-to-spin added to the spin button in #975, which
+  had shipped always on. Wired like `holdAfterBigWin` everywhere: the `.strict` schema plus sparse
+  rebuild in `symbolsStorage`, the client getter/setter and the dirty signature (`check:win-cycle`
+  covers it: 91 checks), the bake whitelist in `bake-editor-doc.mjs`, and a `gameProfile` chip. The
+  runtime path forwards `winCycle` whole. The game reads it through `bakedWinCycleConfig()` and
+  hands it to `utils-shared/spinHold` (`setSpinButtonHoldSource`), read at each press. Space-hold
+  is unaffected.
+
 - 2026-10-01 — **Flights: an Arc knob** (Hold and Win Phase 4 polish, item 9). `flights.<kind>.path.arc`
   (−1…1, a share of the straight distance; + bows up on screen, − down; absent/0 = straight, so every
   existing route is unchanged) shapes the PREFERRED route in `planFlight`; avoidance still detours

@@ -718,6 +718,15 @@ replay toggle: with the replay off it still holds, on a static board. Stored as
 `winCycle.holdAfterBigWin` (only the on-state persists); the hold itself is
 `apps/lines/src/game/freeSpinHold.ts`.
 
+**Hold the spin button to keep spinning** (**off** by default). Turn it on and pressing and
+holding the spin button plays like holding Space. After a moment (400 ms) the button spins, or
+stops a spin already rolling, then rounds keep coming in turbo until the player lets go, and the
+player's own turbo setting comes back on release. A quick press stays an ordinary spin. Off, the
+button only takes a click. Holding Space works either way, and neither is offered where the
+jurisdiction forbids autoplay. It covers the authored HUD's spin button and the coded one. Stored as
+`winCycle.spinButtonHold` (only the on-state persists); the hold itself is
+`packages/utils-shared/spinHold.ts`.
+
 **Darken the non-winning symbols** (**off** by default) darkens every cell that is _not_ part of
 the round's paying lines, from the win celebration until the next spin, so the winning line stands
 out. It is a property of the whole board rather than of the replay, so it applies even with the

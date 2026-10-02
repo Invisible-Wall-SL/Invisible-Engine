@@ -449,6 +449,9 @@ const winCycleSchema = z
 		 *  (byte-parity). Independent of `enabled`, which only decides whether the held board also
 		 *  replays its paying lines. */
 		holdAfterBigWin: z.boolean().optional(),
+		/** Pressing and HOLDING the spin button keeps spinning, exactly like holding Space: rounds chain
+		 *  in turbo until release. Absent ⇒ OFF — the button is a plain click, as before the switch. */
+		spinButtonHold: z.boolean().optional(),
 	})
 	.strict();
 
@@ -1003,6 +1006,7 @@ export function normalizeSymbolsDoc(
 	if (doc.winCycle?.dimNonWinning === true) winCycle.dimNonWinning = true;
 	// Same inverse-of-default persistence again: `holdAfterBigWin` defaults OFF.
 	if (doc.winCycle?.holdAfterBigWin === true) winCycle.holdAfterBigWin = true;
+	if (doc.winCycle?.spinButtonHold === true) winCycle.spinButtonHold = true;
 	if (Object.keys(winCycle).length) next.winCycle = winCycle;
 	// Default-OFF, so ONLY the ON state persists and an untouched project round-trips to no key —
 	// the same inversion `showMessage`/`dimNonWinning`/`holdAfterBigWin` use above.

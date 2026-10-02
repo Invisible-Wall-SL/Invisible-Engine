@@ -38,6 +38,15 @@ export const endSpinHold = (holder: symbol): void => {
 	stateBetDerived.updateIsTurbo(turboBeforeHold, { persistent: true });
 };
 
+// Whether this game offers hold-to-spin on its spin BUTTON (Space always has it). Installed by the
+// game from its authored settings; read at each press. Off until a game turns it on.
+let readSpinButtonHold = (): boolean => false;
+
+/** The game says whether holding its spin button keeps spinning (a per-project setting). */
+export const setSpinButtonHoldSource = (read: () => boolean): void => {
+	readSpinButtonHold = read;
+};
+
 /**
  * A spin BUTTON's hold (the `PressHold` shape `pixi-svelte`'s `createPressHold` takes): a press held
  * past `HOLD_TO_SPIN_MS` joins the hold as its own holder, then fires the button's own press — the
@@ -45,7 +54,7 @@ export const endSpinHold = (holder: symbol): void => {
  */
 export const spinButtonHold = {
 	holdMs: HOLD_TO_SPIN_MS,
-	enabled: isHoldToSpinEnabled,
+	enabled: () => readSpinButtonHold() && isHoldToSpinEnabled(),
 	start: (owner: symbol) => {
 		startSpinHold(owner);
 	},
