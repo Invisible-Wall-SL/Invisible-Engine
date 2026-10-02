@@ -1,3 +1,4 @@
+import { untrack } from 'svelte';
 import { Tween } from 'svelte/motion';
 import {
 	createRespinBoard,
@@ -11,7 +12,7 @@ import {
 	type RespinBoard,
 	type SymbolState,
 } from 'engine-game';
-import { TERMINAL_SYMBOL_STATES } from 'engine-layout';
+import { TERMINAL_SYMBOL_STATES, type ReelGridTileArt } from 'engine-layout';
 import { symbolsWithRole } from 'game-config';
 import { stateBet } from 'state-shared';
 
@@ -60,6 +61,35 @@ export const stateRespinBoard = $state({
 	/** `note`: the beat the counter is announcing instead of the count (`respinCounterText`). */
 	counter: { show: false, left: 0, start: 0, resets: 0, note: null as 'award' | 'reset' | null },
 });
+
+/**
+ * The authored look of every respin cell — a tile under it and a gap between cells — handed over by
+ * a mounted `respinCells` component (`RespinCellTiles`). No component mounted ⇒ the coded look: no
+ * tile, no gap. Each mounted instance holds its own entry, by id; the most recently published one
+ * is drawn, and unmounting one hands the board back to the one before it.
+ */
+export type RespinCellLook = { art?: ReelGridTileArt; tint?: string; gap: number };
+let cellLooks = $state.raw<{ id: number; look: RespinCellLook }[]>([]);
+let nextLookId = 1;
+
+/** The look the respin board draws, or `null` for the coded one. */
+export const respinCellLook = (): RespinCellLook | null => cellLooks.at(-1)?.look ?? null;
+
+/** Start publishing a look; returns its setter and its release. */
+export const claimRespinCellLook = () => {
+	const id = nextLookId++;
+	return {
+		// `untrack`: a component calls these from its effects, which must not come to depend on the
+		// list they write.
+		set: (look: RespinCellLook) => {
+			const others = untrack(() => cellLooks.filter((entry) => entry.id !== id));
+			cellLooks = [...others, { id, look }];
+		},
+		release: () => {
+			cellLooks = untrack(() => cellLooks.filter((entry) => entry.id !== id));
+		},
+	};
+};
 
 let board = $state.raw<RespinBoard | null>(null);
 

@@ -123,16 +123,21 @@
 	import HoldAndWinLetters from './HoldAndWinLetters.svelte';
 	import HoldAndWinPots from './HoldAndWinPots.svelte';
 	import RespinCell from './RespinCell.svelte';
+	import RespinCellTile from './RespinCellTile.svelte';
 	import RespinCounter from './RespinCounter.svelte';
 	import RespinHeldSymbol from './RespinHeldSymbol.svelte';
 	import { getContext } from '../game/context';
-	import { currentRespinBoard, stateRespinBoard } from '../game/stateRespinBoard.svelte';
+	import {
+		currentRespinBoard,
+		respinCellLook,
+		stateRespinBoard,
+	} from '../game/stateRespinBoard.svelte';
 
 	/**
 	 * THE RESPIN BOARD (design §4.2 of `docs/design/hold-and-win.md`) — the per-cell board a Hold and
 	 * Win feature plays on, drawn over the SAME seats as the reel board, which it replaces while the
-	 * feature runs (`boardHide` / `boardShow`). Three layers, bottom to top: the one-cell reels, the
-	 * held coins, the counter.
+	 * feature runs (`boardHide` / `boardShow`). Four layers, bottom to top: the authored cell tiles,
+	 * the one-cell reels, the held coins, the counter.
 	 *
 	 * MOUNTED FOR EVERY GAME, DRAWS NOTHING UNTIL A FEATURE. The outer `Container` is unconditional so
 	 * its seat in the board stack is fixed at mount — pixi-svelte freezes child order then, and an
@@ -150,6 +155,8 @@
 	const context = getContext();
 
 	const board = $derived(stateRespinBoard.shown ? currentRespinBoard() : null);
+	const look = $derived(respinCellLook());
+	const tileArt = $derived(look?.art);
 	const heldKeys = $derived(
 		stateRespinBoard.held.map((cell) => respinCellKey(cell.reel, cell.row)),
 	);
@@ -162,6 +169,21 @@
 <Container>
 	{#if board}
 		<BoardContainer>
+			<!-- The authored cell tiles (`respinCells`), under everything. An unconditional container, so
+				 tiles that arrive after the board mounted still draw beneath the cells. -->
+			<Container>
+				{#if tileArt}
+					{#each board.cells.flat() as cell (cell)}
+						<RespinCellTile
+							reel={cell.reel}
+							row={cell.row}
+							art={tileArt}
+							tint={look?.tint}
+							gap={look?.gap ?? 0}
+						/>
+					{/each}
+				{/if}
+			</Container>
 			<Container>
 				{#each board.cells.flat() as cell (cell)}
 					<RespinCell {cell} held={heldKeys.includes(respinCellKey(cell.reel, cell.row))} />

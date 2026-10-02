@@ -597,14 +597,9 @@ Hold and Win beats prints copy.
      upload as the respin layers mount. Next: trace it on the sample itself (`?runtime=1` with its
      read token, which the polish-2 session could not read), then pre-warm
      (`renderer.prepare`) only what that trace names.
-   - **Authorable respin cell tile / frame + cell gap** (hub decision, 2026-10-01; follow-up, not
-     built): the references draw each respin cell on a tile, blank cells as empty tiles. Make it
-     AUTHORED, never coded: an optional per-cell background/frame art under each respin cell (a
-     cell-frame art key on the Phase 6 `respinBoard` scene/component is the natural home — today the
-     scene has no nodes and no component carries it) and an optional cell gap. Unauthored = today's
-     look. Not small: it needs a component property, a per-cell draw in `RespinBoard`, the Scene
-     Editor field and the art's export/bake chain (CLAUDE.md rule 8). The roll already plays an
-     authored `spin` state (blur) when the symbol has one, else the static art.
+   - ~~Authorable respin cell tile / frame + cell gap~~ — built 2026-10-02 (Recent changes). A
+     project scaffolded before then adds the **Respin Cell Tiles** component to its Respin board
+     screen from the palette.
    - **Accepted on purpose:** `holdAndWinEnd` and banked jackpots run inside the unskippable window,
      so the end volley plays at full length even under turbo/autoplay.
    - **Grids:** stepped grids are refused by `/config`; perspective follows the reel board
@@ -655,6 +650,24 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-02 — **Authorable respin cell tiles + gap** (session "Hold and Win Phase 4 — polish";
+  the hub's item 3 follow-up). New built-in component **`respinCells`** ("Respin Cell Tiles",
+  `capability: 'holdAndWin'`): params `tileImage` (image), `tileTint`, `gap` (0–0.45 of a cell). Its
+  coded part `RespinCellTiles` draws nothing where it is placed; it hands the params to the respin
+  board (`respinCellLook`), which stamps the tile under every respin cell at the cell's seat (row
+  scale included), shrunk by the gap, and insets each ROLLING window by the gap (a resting cell
+  still draws whole); a gap with no tile image parts the windows over the background. Not placed ⇒
+  the coded look. Several instances stack (the newest draws; removing it hands back to the one
+  before). The art
+  ships through the existing component image-param export (`editorArtExport` collects every
+  `image` param of a referenced def — CLAUDE.md rule 8). The Hold and Win template places one on
+  the `respinBoard` scene; `test-hold-and-win-template` counts it as a placed, kind-gated piece.
+  `resolveFrameArt` (engine-layout) is the shared frame-ref → texture-key resolver (the reel grid's
+  tile uses it too). Verified on a real clock with looks claimed in the page (tiles under every
+  cell incl. held coins, tint, gap, inset rolling windows; two claims handing over on release, none
+  left after both; 0 exceptions); a project-authored
+  instance is not yet seen live (no project places one).
 
 - 2026-10-02 — **Polish 2** (session "H&W polish 2 — spin profile, jackpot beat, boost beam"; #980,
   launcher + docs, not a runtime release). Items 1–3 of its handoff had already shipped as #979

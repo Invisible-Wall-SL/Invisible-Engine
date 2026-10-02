@@ -2250,6 +2250,40 @@ export const WHEEL_DEF: ComponentDef = {
 	params: [{ key: 'radius', kind: 'number', default: 220 }],
 };
 
+/**
+ * The respin board's per-cell TILE and the gap between cells (the references draw every respin cell
+ * on a tile, an empty cell as a bare tile). Placed in the `respinBoard` scene; WHERE it sits does not
+ * matter — the coded `RespinCellTiles` hands its params to the respin board, which stamps the tile
+ * under each cell at that cell's seat and insets each cell's rolling window by `gap` (a share of a
+ * cell; a gap with no tile parts the windows over the background). Not placed ⇒ no tiles and no gap,
+ * the coded look. In the Scene Editor it shows as a handle only — the tiles draw in the game.
+ */
+export const RESPIN_CELLS_DEF: ComponentDef = {
+	id: 'respinCells',
+	name: 'Respin Cell Tiles',
+	version: 1,
+	scope: 'shared',
+	category: 'ui',
+	capability: 'holdAndWin',
+	root: {
+		id: 'respinCells-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [codedPart('respinCells-tiles', 'Cell tiles', 'RespinCellTiles', 120, 120)],
+	},
+	params: [
+		{ key: 'tileImage', kind: 'image', label: 'tile under every respin cell' },
+		{ key: 'tileTint', kind: 'color' },
+		{
+			key: 'gap',
+			kind: 'number',
+			default: 0,
+			label: 'gap between cells (share of a cell, 0–0.45)',
+		},
+	],
+};
+
 /** The Hold and Win components, in palette order. */
 export const HOLD_AND_WIN_COMPONENTS: ComponentDef[] = [
 	RESPIN_COUNTER_DEF,
@@ -2259,6 +2293,7 @@ export const HOLD_AND_WIN_COMPONENTS: ComponentDef[] = [
 	POT_METER_DEF,
 	LETTERS_STRIP_DEF,
 	WHEEL_DEF,
+	RESPIN_CELLS_DEF,
 ];
 
 /** Every built-in component def — the launcher's lowest-precedence layer. */
