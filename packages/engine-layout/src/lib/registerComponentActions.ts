@@ -28,6 +28,8 @@
  * then fires the registered `onpress` and reflects its live flags.
  */
 
+import type { PressHold } from 'pixi-svelte';
+
 /**
  * Minimal Svelte-store contract a boolean source must satisfy — the boolean
  * sibling of {@link ValueSource}, kept to bare `subscribe` so this module stays
@@ -68,9 +70,13 @@ export interface TextSource {
  * same parity discipline as `disabled`/`active`. When present it OVERRIDES the
  * static `label` param (see `ComponentInstance`), so `ButtonLabel` renders the live
  * caption (it reads `label` when no `icon` is set — which a spin instance has none).
+ * `hold` is OPTIONAL press-and-hold behaviour (the spin button's hold-to-spin): whichever surface
+ * owns the press (`ButtonFrame`, or the instance's art hit surface) runs it through `createPressHold`;
+ * omitted ⇒ every press is a plain click.
  */
 export interface ActionSource {
 	onpress: () => void;
+	hold?: PressHold;
 	disabled?: BoolSource;
 	active?: BoolSource;
 	spinning?: BoolSource;

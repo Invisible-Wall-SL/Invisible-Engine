@@ -14,10 +14,10 @@
 </script>
 
 <ButtonBetProvider>
-	{#snippet children({ key, onpress, disabled, hotkeyDisabled })}
+	{#snippet children({ key, onpress, hold, disabled, hotkeyDisabled })}
 		<!-- A bet needs a fresh press: a Space held while this stood down must not bet on repeat. -->
 		<OnHotkey hotkey="Space" disabled={hotkeyDisabled} ignorePressInProgress {onpress} />
-		<Button {...props} {sizes} {onpress} {disabled}>
+		<Button {...props} {sizes} {onpress} {hold} {disabled}>
 			{#snippet children({ center, hovered })}
 				<Container {...center} tint={tint ?? 0xffffff}>
 					<UiSprite

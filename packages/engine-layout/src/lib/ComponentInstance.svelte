@@ -8,7 +8,7 @@
 		SpineCue,
 	} from './types';
 
-	import { untrack, type Snippet } from 'svelte';
+	import { onDestroy, untrack, type Snippet } from 'svelte';
 
 	export type Props = {
 		node: ComponentInstanceNode;
@@ -42,7 +42,7 @@
 </script>
 
 <script lang="ts">
-	import { Container } from 'pixi-svelte';
+	import { Container, createPressHold } from 'pixi-svelte';
 	import { CanvasSizeRectangle } from 'components-layout';
 	import { getContextLayout } from 'utils-layout';
 
@@ -772,6 +772,13 @@
 			get: () => firePress,
 		});
 	}
+	// Press-and-hold, for a coded press owner (`ButtonFrame`) — only when the action provides it.
+	if (actionSource?.hold) {
+		Object.defineProperty(providedParams, 'hold', {
+			enumerable: true,
+			get: () => actionSource.hold,
+		});
+	}
 	// The live FLAGS, and only the ones the actionSource actually provides — same parity discipline
 	// as `value`: an action without an `active` flag (e.g. `menu`) leaves the param to fall back to
 	// the static map. No actionSource ⇒ none of these appear.
@@ -962,6 +969,14 @@
 		if (liveDisabled) return;
 		firePress();
 	};
+	// Only the art-button path presses here (`ButtonFrame` owns a bound part's press).
+	const pressHold = interactive
+		? createPressHold({ hold: () => actionSource?.hold, press: onpress })
+		: undefined;
+	$effect(() => {
+		if (liveDisabled) pressHold?.disarm();
+	});
+	onDestroy(() => pressHold?.cancel());
 
 	// Hoist the tap-to-continue surface to the CANVAS frame. The surface is conceptually
 	// full-window (dim + hit area + prompt), so it must escape BOTH this instance's
@@ -1052,12 +1067,14 @@
 				hovered = false;
 				pressed = false;
 			}}
-			onpointerdown={() => {
-				if (!liveDisabled) pressed = true;
+			onpointerdown={(e) => {
+				if (liveDisabled) return;
+				pressed = true;
+				pressHold?.down(e);
 			}}
-			onpointerup={() => {
+			onpointerup={(e) => {
 				pressed = false;
-				onpress();
+				pressHold?.up(e.pointerId);
 			}}
 		>
 			<LayoutNodeView node={root} space={childSpace} />

@@ -21,6 +21,7 @@ export const stateBet = $state({
 	autoSpinsCounter: 0,
 	autoSpinsLossLimitAmount: Infinity,
 	autoSpinsSingleWinLimitAmount: Infinity,
+	// Hold-to-spin is on — Space OR a held spin button (owned by `utils-shared/spinHold`).
 	isSpaceHold: false,
 	isTurbo: false,
 });

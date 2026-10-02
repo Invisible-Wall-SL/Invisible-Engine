@@ -14,6 +14,8 @@
 		runSpinOrSlamStop,
 		type SpinButtonKey,
 	} from 'utils-shared/spinStop';
+	import { spinButtonHold as hold } from 'utils-shared/spinHold';
+	import type { PressHold } from 'pixi-svelte';
 
 	import { getContext } from '../context';
 
@@ -23,6 +25,7 @@
 				{
 					key: SpinButtonKey;
 					onpress: () => void;
+					hold: PressHold;
 					disabled: boolean;
 					spinning: boolean;
 					hotkeyDisabled: boolean;
@@ -61,4 +64,4 @@
 	const hotkeyDisabled = $derived(disabled || hasContinuePress());
 </script>
 
-{@render props.children({ key, onpress, disabled, spinning, hotkeyDisabled })}
+{@render props.children({ key, onpress, hold, disabled, spinning, hotkeyDisabled })}

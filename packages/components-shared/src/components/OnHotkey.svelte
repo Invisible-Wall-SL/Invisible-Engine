@@ -10,6 +10,8 @@
 	type Props = {
 		hotkey: string;
 		disabled?: boolean;
+		/** How long a press must last to become a hold (default 400 ms). */
+		holdMs?: number;
 		onpress?: () => void;
 		onpressend?: () => void;
 		onhold?: () => void;
@@ -32,7 +34,9 @@
 
 	const holdTimeoutStart = async () => {
 		isWaitingToHold = true;
-		const { interrupted } = await interruptible.add(() => waitForTimeout(WAIT_TO_HOLD_TIMEOUT));
+		const { interrupted } = await interruptible.add(() =>
+			waitForTimeout(props.holdMs ?? WAIT_TO_HOLD_TIMEOUT),
+		);
 		if (!interrupted) {
 			isHolding = true;
 			props.onhold?.();
