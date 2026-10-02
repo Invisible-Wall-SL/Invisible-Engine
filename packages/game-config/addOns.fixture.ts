@@ -225,6 +225,23 @@ check(
 	[classicFirst.holdAndWin, true],
 );
 
+const waysHost = normalize({
+	...clone(BOOK_HOST),
+	winModel: { type: 'ways', direction: 'ltr', minKind: 3 },
+});
+const waysBonus = added(
+	addHoldAndWinBonus(added(addPotsOverlay(waysHost, 'potsToFreeSpins')), 'classic'),
+);
+check(
+	"a bonus beside an overlay on a ways host is the overlay's: the win model stays ways, no winModel issue",
+	[
+		holdAndWinIsOverlayBonus(waysBonus),
+		waysBonus.winModel?.type,
+		issues(waysBonus).filter((i) => i.includes('winModel')),
+	],
+	[true, 'ways', []],
+);
+
 console.log('\n5. remove gives back the doc it was added to');
 for (const id of POTS_OVERLAY_PRESET_IDS) {
 	check(`${id} on the book host`, removePotsOverlay(added(addPotsOverlay(host, id))), host);
@@ -247,6 +264,13 @@ check(
 			modes: [{ id: 'holdAndWin', board: 'respinBoard', label: 'Pot bonus' }],
 		}),
 	false,
+);
+const repointed = clone(three);
+repointed.modes = [{ id: 'holdAndWin', board: 'respinBoard', gameType: 'freegame' }];
+check(
+	'strips another mode pads from are never removed with the bonus',
+	removePotsOverlay(repointed).paddingReels.freegame,
+	host.paddingReels.freegame,
 );
 const tokenEdited = clone(three);
 tokenEdited.symbols.POT_RED.paytable = [{ '3': 1 }];

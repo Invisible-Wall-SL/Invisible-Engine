@@ -7,8 +7,12 @@
  * NAME CLASHES ARE RENAMED, never merged: a preset symbol or pot id the project already uses takes
  * the first free `_2`, `_3`… suffix everywhere the add-on names it (its respin strips, its pot
  * tokens, its drop table), and the result lists each rename so the tool can say so. A host symbol is
- * never shared or redefined, which is what lets {@link removePotsOverlay} take back only what was
- * added.
+ * never shared or redefined, so {@link removePotsOverlay} never takes one.
+ *
+ * A Hold and Win block beside an overlay whose base strips deal no Hold and Win symbol is the
+ * overlay's BONUS ({@link holdAndWinIsOverlayBonus}), however it was added: it belongs to the
+ * overlay, and removing the overlay removes it. Without an overlay the same block is the base game's
+ * feature, which is why `/config` offers a bonus only beside an overlay.
  *
  * Pure: the input is never mutated. The result is NOT normalized, so a half-typed field elsewhere in
  * an editor's live doc survives an add.
@@ -17,7 +21,7 @@
 import { holdAndWinIsOverlayBonus, isHoldAndWinSymbol } from './holdAndWin';
 import type { HoldAndWinPresetId } from './holdAndWinPresets';
 import { symbolsInPlay, symbolsInPlayForGameType } from './inPlay';
-import { HOLD_AND_WIN_MODE, gameModeById, gameTypeForMode } from './modes';
+import { HOLD_AND_WIN_MODE, gameModeById, gameTypeForMode, resolveGameModes } from './modes';
 import type { PotsOverlay } from './potsOverlay';
 import { holdAndWinBonus, potsOverlayPreset, type PotsOverlayPresetId } from './potsOverlayPresets';
 import type { GameConfigDoc, GameConfigSymbol } from './types';
@@ -147,7 +151,7 @@ const isBareToken = (symbol: GameConfigSymbol | undefined): boolean =>
 /**
  * Take the pots overlay out of `doc`. When the `holdAndWin` block is the overlay's BONUS
  * ({@link holdAndWinIsOverlayBonus}) it goes too — without the overlay nothing could start it — with
- * its respin strips and its mode override. A symbol the removed parts named is dropped only when no
+ * its mode override and its respin strips, unless another mode pads from those strips. A symbol the removed parts named is dropped only when no
  * strip deals it any more and it is one an add-on makes (a bare token, or a Hold and Win role
  * symbol); everything else the project has is left exactly as it was.
  */
@@ -159,8 +163,13 @@ export function removePotsOverlay(doc: GameConfigDoc): GameConfigDoc {
 	const bonusSymbols = new Set<string>();
 	if (holdAndWinIsOverlayBonus(next)) {
 		const gameType = holdAndWinGameType(next);
-		for (const name of symbolsInPlayForGameType(next, gameType)) bonusSymbols.add(name);
-		delete next.paddingReels[gameType];
+		const shared = resolveGameModes(next).some(
+			(m) => m.id !== HOLD_AND_WIN_MODE && gameTypeForMode(m) === gameType,
+		);
+		if (!shared) {
+			for (const name of symbolsInPlayForGameType(next, gameType)) bonusSymbols.add(name);
+			delete next.paddingReels[gameType];
+		}
 		delete next.holdAndWin;
 		const modes = next.modes?.filter((m) => m.id !== HOLD_AND_WIN_MODE);
 		if (modes?.length) next.modes = modes;

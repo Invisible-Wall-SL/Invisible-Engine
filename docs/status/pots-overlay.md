@@ -109,15 +109,18 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
     project already has a block (a Hold and Win game, or a bonus added first), the project's block is
     kept and the preset adds only the overlay.
   - **＋ Hold and Win bonus inserts the whole bonus** — the block, its respin-board symbols and its
-    respin strips — not the bare block: a block with no respin strips deals nothing. Without an
-    overlay the block is the base game (`holdAndWinIsOverlayBonus` is false), so its base-game rules
-    apply until an overlay is added. That is the Phase 1 rule, unchanged.
+    respin strips — not the bare block: a block with no respin strips deals nothing. `/config`
+    offers it ONLY beside an overlay. Without one the block is the base game
+    (`holdAndWinIsOverlayBonus` is false, the Phase 1 rule, unchanged), which would lock a ways or
+    Book host's win model to lines. The code review caught that. A bonus added beside an overlay is
+    the overlay's bonus however it was added, so removing the overlay removes it.
   - **Remove** takes out the overlay. When the block is the overlay's bonus, it also takes the block,
     its respin strips and a `holdAndWin` mode override, because without the overlay nothing could start
     it. It deletes only symbols no strip deals any more that an add-on makes: a bare token (exactly
     `meterSpecial`, no paytable) or a Hold and Win role symbol. A token the author has since given a
-    payout or another role is kept. Add then remove gives back the original doc (fixture: both
-    presets, with renames, and on all three Hold and Win games).
+    payout or another role is kept. Strips another mode pads from are never removed. Add then remove
+    gives back the original doc (fixture: both presets, with renames, and on all three Hold and Win
+    games).
   - **`/config`:** the Add-ons section shows for every kind, between Bet modes and Hold and Win. A
     new pot row stays a client-side DRAFT until it has a token and a bonus ("Add pot"), so a save never
     drops a half-typed pot. The page passes `{holdAndWin, potsOverlay}` presence into

@@ -24,6 +24,7 @@
 		type PotsOverlay,
 		type PotsOverlayPresetId,
 	} from 'game-config';
+	import { SvelteSet } from 'svelte/reactivity';
 	import { askConfirm } from '$lib/dialogs.svelte';
 
 	/**
@@ -79,7 +80,7 @@
 	}
 
 	const issuesAt = (path: string) => issuesFor(path).filter((i) => i.path === path);
-	const errorAt = (path: string) => issuesFor(path).some((i) => i.severity === 'error');
+	const errorAt = (path: string) => issuesAt(path).some((i) => i.severity === 'error');
 
 	// ── add / remove ───────────────────────────────────────────────────────────────────────────
 	let overlayPreset = $state<PotsOverlayPresetId>(POTS_OVERLAY_PRESET_IDS[0]);
@@ -163,7 +164,8 @@
 		drafts.splice(i, 1);
 	}
 
-	/** Renaming a pot carries the drop table's references along. */
+	/** Renaming a pot carries the drop table's references along. On `change`, never per keystroke:
+	 *  a half-typed id passing through another pot's id would hand that pot this one's drops. */
 	function renamePot(overlay: PotsOverlay, pot: OverlayPot, next: string) {
 		const old = pot.id;
 		pot.id = next;
@@ -179,14 +181,51 @@
 		overlay.drops.table = overlay.drops.table.filter((e) => isCoinDrop(e) || e.pot !== gone.id);
 	}
 
-	/** A fresh token symbol for a pot: in the dictionary, tagged `meterSpecial`, on no strip. */
+	/** Token symbols "＋ new" made in this visit, so a discarded draft takes its token with it. */
+	const madeTokens = new SvelteSet<string>();
+
+	const tokenInUse = (name: string) =>
+		(doc.potsOverlay?.pots ?? []).some((p) => p.token === name) ||
+		drafts.some((d) => d.token === name);
+
+	/** A token symbol for a pot: in the dictionary, tagged `meterSpecial`, on no strip. A token this
+	 *  visit made that nothing uses is reused, so repeated clicks leave no orphans. */
 	function newToken(id: string): string {
 		const base = `POT_${(id.trim() || 'NEW').toUpperCase().replace(/[^A-Z0-9_]/g, '_')}`;
+		const free = (name: string) =>
+			!doc.symbols[name] || (madeTokens.has(name) && !tokenInUse(name));
 		let name = base;
-		for (let n = 2; doc.symbols[name]; n += 1) name = `${base}_${n}`;
+		for (let n = 2; !free(name); n += 1) name = `${base}_${n}`;
 		doc.symbols[name] = { special_properties: ['meterSpecial'] };
+		madeTokens.add(name);
 		return name;
 	}
+
+	/** Drop a token "＋ new" made once nothing uses it any more. */
+	function dropOrphanToken(name: string) {
+		if (madeTokens.has(name) && !tokenInUse(name)) {
+			delete doc.symbols[name];
+			madeTokens.delete(name);
+		}
+	}
+
+	/** Give a pot or a draft a new token; the one it replaces goes if this visit made it and nothing
+	 *  else uses it. */
+	function assignNewToken(target: { token: string }, id: string) {
+		const old = target.token;
+		target.token = '';
+		target.token = newToken(id);
+		if (old !== target.token) dropOrphanToken(old);
+	}
+
+	function discardDraft(i: number) {
+		const [gone] = drafts.splice(i, 1);
+		dropOrphanToken(gone.token);
+	}
+
+	$effect(() => {
+		if (!doc.potsOverlay && drafts.length) drafts = [];
+	});
 
 	function setSizeStages(stages: number[], raw: string) {
 		const next = [
@@ -197,6 +236,7 @@
 					.filter((n) => Number.isInteger(n) && n >= 1),
 			),
 		].sort((a, b) => a - b);
+		if (!next.length && raw.trim()) return;
 		stages.splice(0, stages.length, ...next);
 	}
 
@@ -265,7 +305,7 @@
 {#snippet overlayEditor(overlay: PotsOverlay)}
 	{@const drops = overlay.drops}
 	{@const dropTotal = drops.table.reduce((sum, e) => sum + e.weight, 0)}
-	<div class="panel">
+	<fieldset class="panel" disabled={readOnly}>
 		<div class="row tight">
 			<h3>
 				Pots overlay <em
@@ -276,7 +316,6 @@
 				>Remove overlay</button
 			>
 		</div>
-		{@render issueLines(issuesAt('potsOverlay'))}
 
 		<span class="legend">Pots <em>the server keeps each player's level</em></span>
 		<table class="tbl">
@@ -296,7 +335,7 @@
 								class="id"
 								class:bad={errorAt(`${at}.id`)}
 								value={pot.id}
-								oninput={(e) => renamePot(overlay, pot, e.currentTarget.value)}
+								onchange={(e) => renamePot(overlay, pot, e.currentTarget.value.trim())}
 							/></td
 						>
 						<td class="nowrap"
@@ -317,7 +356,7 @@
 							<button
 								class="small"
 								title="A new token symbol for this pot, tagged meterSpecial"
-								onclick={() => (pot.token = newToken(pot.id))}>＋ new</button
+								onclick={() => assignNewToken(pot, pot.id)}>＋ new</button
 							></td
 						>
 						<td
@@ -326,7 +365,9 @@
 								min="1"
 								class:bad={errorAt(`${at}.maxLevel`)}
 								value={pot.maxLevel}
-								oninput={num((n) => n >= 1 && (pot.maxLevel = n), true)}
+								oninput={num((n) => {
+									if (n >= 1) pot.maxLevel = n;
+								}, true)}
 							/></td
 						>
 						<td
@@ -401,7 +442,7 @@
 									<option value={name}>{name}{inPlay.has(name) ? ' (on a strip)' : ''}</option>
 								{/each}
 							</select>
-							<button class="small" onclick={() => (d.token = newToken(d.id))}>＋ new</button></td
+							<button class="small" onclick={() => assignNewToken(d, d.id)}>＋ new</button></td
 						>
 						<td colspan="2" class="note">new pot — pick its token and bonus, then add it</td>
 						<td
@@ -419,10 +460,7 @@
 								onclick={() => commitDraft(overlay, i)}>Add pot</button
 							></td
 						>
-						<td
-							><button class="del" title="Discard" onclick={() => drafts.splice(i, 1)}>×</button
-							></td
-						>
+						<td><button class="del" title="Discard" onclick={() => discardDraft(i)}>×</button></td>
 					</tr>
 				{/each}
 			</tbody>
@@ -468,7 +506,7 @@
 					<tr>
 						<td
 							><select
-								class:bad={errorAt(at)}
+								class:bad={errorAt(at) || errorAt(`${at}.pot`)}
 								value={isCoinDrop(entry) ? COIN : entry.pot}
 								onchange={(e) => setDropKind(drops, i, e.currentTarget.value)}
 							>
@@ -487,6 +525,7 @@
 								min="0"
 								step="any"
 								value={entry.weight}
+								class:bad={errorAt(`${at}.weight`)}
 								oninput={num((n) => (entry.weight = n))}
 							/><span class="note">{share(entry.weight, dropTotal)}</span></td
 						>
@@ -537,7 +576,7 @@
 			</div>
 			{@render issueLines(issuesAt('potsOverlay.drops.modes'))}
 		</div>
-	</div>
+	</fieldset>
 {/snippet}
 
 <section class="addons">
@@ -564,7 +603,7 @@
 		</div>
 	{/if}
 
-	{#if !doc.holdAndWin}
+	{#if doc.potsOverlay && !doc.holdAndWin}
 		<div class="row tight">
 			<select bind:value={bonusPreset} disabled={readOnly}>
 				{#each HOLD_AND_WIN_PRESET_IDS as id (id)}
@@ -573,7 +612,8 @@
 			</select>
 			<button class="small" onclick={addBonus} disabled={readOnly}>＋ Hold and Win bonus</button>
 			<span class="note"
-				>its respin rules, coins and jackpots — edited in the Hold and Win section</span
+				>the bonus a full pot or value coins start; its respin rules, coins and jackpots are edited
+				in the Hold and Win section</span
 			>
 		</div>
 	{/if}
@@ -620,12 +660,13 @@
 		color: #6f6f7d;
 	}
 	.panel {
+		min-width: 0;
+		margin: 0 0 12px;
 		border: 1px solid #1c1c24;
 		border-left: 3px solid #e0b878;
 		border-radius: 10px;
 		padding: 12px;
 		background: #0e0e14;
-		margin-bottom: 12px;
 	}
 	.sub {
 		margin-top: 10px;

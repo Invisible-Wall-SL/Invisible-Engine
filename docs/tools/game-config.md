@@ -152,18 +152,15 @@ its respin strips and symbols. Everything else in the config is kept.
 
 ### Hold and Win bonus
 
-While the project has no Hold and Win block, pick a Hold and Win preset (the same three as
-in _Hold and Win_ below) and press **＋ Hold and Win bonus**. This works on any kind: it
-adds the block, its symbols and its respin strips. From then on you edit it in the **Hold
-and Win** section.
+Once the project has a pots overlay and no Hold and Win block yet, pick a Hold and Win
+preset (the same three as in _Hold and Win_ below) and press **＋ Hold and Win bonus**. This
+works on any kind: it adds the block, its symbols and its respin strips, and the overlay's
+pots and value coins can then start it. From then on you edit it in the **Hold and Win**
+section. While the base strips deal no Hold and Win symbol, the block is the **overlay's
+bonus**: the game keeps its own win model, and removing the overlay removes the bonus too.
 
-What the block counts as depends on the overlay:
-
-- **No pots overlay** — the block is the **base game**'s feature: it starts from its own
-  triggers, and the win model is locked to lines.
-- **With a pots overlay, and base strips that deal no Hold and Win symbol** — the block is
-  the **overlay's bonus**, reached only through a pot or a value coin. The game keeps its
-  own win model.
+The button is offered only beside an overlay: without one, a Hold and Win block counts as the
+base game's own feature, with the lines-only win model — that is a Hold and Win game.
 
 ## Hold and Win
 
