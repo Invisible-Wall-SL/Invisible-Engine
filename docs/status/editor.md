@@ -28,12 +28,6 @@ Shipped capabilities on `main`:
 
 ## Open items / next
 
-- **Shared defs pinned to an OLD version still name Borut's spines by full prefix**
-  (`featurecard` v1–v8, `c_kzdbwen7` v11 store `invisible_wall/bookofborutremake/spines/R_…/` on a
-  node). Latest versions use bare param names, which now resolve to the `_shared` copies; a project
-  pinned to an old version keeps the stranded node until it moves to latest (the export reports it
-  as a stranded spine). Not measured which projects pin them.
-
 1. **HUD parity gap** — the corner logo/game-name containers still ignore `scale` in-game, so scaling those two corner texts in the editor won't ship.
 2. **Animated / book-event content stays coded** — symbols, win-line draws and count-ups mount via the engine `mount`/`bind` escape hatch; the editor only places their anchor and has no book-event playback.
 3. **HUD Readout background size** — a width/height override moves the draw but not the instance's selection frame (`nodeBox` doesn't read instance params).
@@ -45,6 +39,15 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+
+- 2026-10-02 — **Measured: no project is broken by an old shared-def pin.** No live doc or
+  published snapshot pins `featurecard` (the card arrives at latest). `c_kzdbwen7@11` is pinned by
+  `test2`, `test6` and `bookofborutremake`, and its node does still carry Borut's full spine prefix,
+  but the node binds `assetKey` to the `rspinbuttonnewSpine` param (non-empty default), so the static
+  prefix is unreachable (`staticSpineKeyIsReachable`), and every instance sets that param to the
+  project's own spine (`R_spinbutton` in test2, `R_Plus`/`R_Minus`/… in test6), which their
+  published snapshots ship with no stranded-spine warning. The open item that said otherwise is
+  withdrawn.
 
 - 2026-10-02 — **The shared `featureCard` and spin button draw their spine + font in every
   project.** The open item "cross-project spine/font/flipbook the editor cannot preview" was
