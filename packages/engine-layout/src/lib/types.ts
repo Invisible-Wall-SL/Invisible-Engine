@@ -1380,10 +1380,10 @@ export interface ComponentDef {
 	/** A component may expose its own slots. */
 	slots?: TemplateSlot[];
 	/**
-	 * The {@link KindCapabilities} flag a project's kind must have for the Scene Editor's palette to
-	 * OFFER this component (`componentOfferedForKind`) — the Hold and Win respin counter, jackpot bar
-	 * and pots are `'holdAndWin'`. Palette filtering only: a doc that already places it still renders
-	 * it, whatever its kind. Absent ⇒ offered to every kind.
+	 * The {@link KindCapabilities} flag a project must have for the Scene Editor's palette to OFFER
+	 * this component (`componentOfferedForKind`) — the Hold and Win respin counter and jackpot bar
+	 * are `'holdAndWin'`, the Pot Meter `'pots'`. Palette filtering only: a doc that already places
+	 * it still renders it, whatever its kind. Absent ⇒ offered to every kind.
 	 */
 	capability?: keyof KindCapabilities;
 	// tracks?: BehaviorTrack[]  // RESERVED for v2 authored-behavior timeline (§8.5) — NOT in v1

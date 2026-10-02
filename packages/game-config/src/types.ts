@@ -18,6 +18,7 @@
 
 import type { PartnerPaytable } from './serverPaytable';
 import type { HoldAndWin } from './holdAndWin';
+import type { PotsOverlay } from './potsOverlay';
 import type { GameSounds } from './sounds';
 import type { GameModeDecl } from './modes';
 
@@ -457,6 +458,13 @@ export type GameConfigDoc = {
 	 * feature. Absent ⇒ no feature, byte-identical to every config authored before it existed.
 	 */
 	holdAndWin?: HoldAndWin;
+	/**
+	 * OPTIONAL pots overlay add-on (see `./potsOverlay`, `docs/design/pots-overlay.md`) — tokens dropped
+	 * over any kind's board fill pots, and a full pot starts a bonus mode. Its presence is what makes a
+	 * project an overlay host, and a `holdAndWin` block beside it is the overlay's bonus rather than
+	 * the base game. Absent ⇒ no overlay, byte-identical to every config authored before it existed.
+	 */
+	potsOverlay?: PotsOverlay;
 	/**
 	 * OPTIONAL game MODES (see `./modes`, `docs/design/hold-and-win.md` §4.5) — overrides of the
 	 * built-in modes and the project's own. SPARSE: absent ⇒ the built-ins (`basegame`, `freeSpins`,

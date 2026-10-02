@@ -10,7 +10,7 @@ import {
 	VISIBILITY_SOURCE_KEYS,
 	type SignalScopeKind,
 } from './componentCatalog';
-import { kindCapabilities } from './kindCapabilities';
+import { kindCapabilities, type KindCapabilityConfig } from './kindCapabilities';
 import { POT_SKIN_PARAMS } from './potSkin';
 import type { ComponentDef, ComponentParam, LayoutNode } from './types';
 
@@ -1985,9 +1985,10 @@ export const OPTION_CARD_DEF: ComponentDef = {
 
 // ─── Hold and Win (design `docs/design/hold-and-win.md` §5, Phase 6) ─────────────────────────────
 //
-// Kind-gated (`capability: 'holdAndWin'`): the Scene Editor offers them only to a Hold and Win
-// project. Each one's moving parts are engine-fed — the counter, jackpot tiles and total bar through
-// the {@link HOLD_AND_WIN_VALUE_SOURCE_KEYS} feeds, the pot / letters / wheel through coded parts
+// Kind-gated (`capability: 'holdAndWin'`): the Scene Editor offers them only to a project with the
+// Hold and Win feature — the Pot Meter (`'pots'`) also to one with the pots overlay add-on. Each
+// one's moving parts are engine-fed — the counter, jackpot tiles and total bar through the
+// {@link HOLD_AND_WIN_VALUE_SOURCE_KEYS} feeds, the pot / letters / wheel through coded parts
 // (`apps/lines`) that read the same state. Sizes are in the shared runtime's cell units
 // (`SYMBOL_SIZE = 120`).
 
@@ -2275,7 +2276,7 @@ export const POT_METER_DEF: ComponentDef = {
 	version: 1,
 	scope: 'shared',
 	category: 'ui',
-	capability: 'holdAndWin',
+	capability: 'pots',
 	// Each placed pot hears its own meter's signals only (`potFill`, `potActivate`, …).
 	signalScope: 'meter',
 	signalScopeKind: 'meter',
@@ -2437,14 +2438,19 @@ export const BUILTIN_COMPONENTS: ComponentDef[] = [
 ];
 
 /**
- * Whether the Scene Editor's palette offers `def` to a project of kind `gameType`: a def gated on a
- * capability (`ComponentDef.capability`) only where `kindCapabilities` grants it. A saved snapshot of
- * a built-in keeps the built-in's gate, so forking the respin counter does not offer it to a lines
- * project. Palette only — never consulted when rendering a doc.
+ * Whether the Scene Editor's palette offers `def` to a project of kind `gameType` (with the add-ons
+ * its `config` carries): a def gated on a capability (`ComponentDef.capability`) only where
+ * `kindCapabilities` grants it. A saved snapshot of a built-in keeps the built-in's gate, so
+ * forking the respin counter does not offer it to a lines project. Palette only — never consulted
+ * when rendering a doc.
  */
-export function componentOfferedForKind(def: ComponentDef, gameType: string | undefined): boolean {
+export function componentOfferedForKind(
+	def: ComponentDef,
+	gameType: string | undefined,
+	config?: KindCapabilityConfig,
+): boolean {
 	const capability = def.capability ?? BUILTIN_COMPONENTS.find((b) => b.id === def.id)?.capability;
-	return capability === undefined || kindCapabilities(gameType)[capability];
+	return capability === undefined || kindCapabilities(gameType, config)[capability];
 }
 
 /**

@@ -39,6 +39,7 @@ import {
 	type WinTierType,
 } from './types';
 import { normalizeHoldAndWin } from './holdAndWin';
+import { normalizePotsOverlay } from './potsOverlay';
 import { normalizeGameModes } from './modes';
 import { normalizeReelBehaviour } from './reelBehaviour';
 import { normalizeSounds } from './sounds';
@@ -436,6 +437,9 @@ export const normalizeGameConfigDoc = (raw: unknown): GameConfigDoc | undefined 
 
 	const holdAndWin = normalizeHoldAndWin(raw.holdAndWin);
 	if (holdAndWin) doc.holdAndWin = holdAndWin;
+
+	const potsOverlay = normalizePotsOverlay(raw.potsOverlay);
+	if (potsOverlay) doc.potsOverlay = potsOverlay;
 
 	// Game modes: only overrides of a built-in and the project's own modes, so a config that keeps the
 	// built-in base game and free spins stores no block.

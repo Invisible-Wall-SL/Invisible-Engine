@@ -6,7 +6,8 @@
 > [invisible-game-config.md](invisible-game-config.md), [invisible-flow-v2.md](invisible-flow-v2.md),
 > [invisible-symbols-state-machine.md](invisible-symbols-state-machine.md),
 > [invisible-win-text.md](invisible-win-text.md), [live-assets.md](live-assets.md),
-> [play4fun-protocol](../reference/play4fun-protocol.md).
+> [play4fun-protocol](../reference/play4fun-protocol.md). The pots as an add-on on any other kind:
+> [pots-overlay.md](pots-overlay.md).
 
 ## Why this exists
 

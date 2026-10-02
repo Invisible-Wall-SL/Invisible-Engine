@@ -52,7 +52,7 @@ titled **"Hold and win game pipeline"**.
 | 11a | Extra specials: add-respins + upgrade (design §7) | merged — whole pipeline (config → mock → facade → beats → flow → Symbols → Win Text → docs); live-checked on the `pots-extra` test fixture | H&W Phase 11a — add-respins + upgrade specials | #995 |
 | 11b | Board expansion — rows unlock (design §7; after 11a) | merged, live (`lines@8fe81dbefddc`); follow-ups (reserve rows at scaffold / in the editor, end-state doc) in a follow-up PR | H&W Phase 11b — board expansion | #1002 |
 | 11c | Progressive + operator platform jackpots (design §7) | merged, live (`lines@2342c815d074`) — owed: the live Borut round and the partner's platform-jackpot confirmation (Owner checklist 10–11) | Hold and Win Phase 11c — progressive + platform jackpots | part 1: #991 · part 2: #999 |
-| 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | merged — owed: a live check on `hw-3pots-sample` (Open items) | Hold and Win Phase 12a | #1003 |
+| 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | merged (`97652ca9`; the runtime release passed) — owed: a live check on `hw-3pots-sample` (Open items) | Hold and Win Phase 12a | #1003 |
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | merged — whole pipeline (engine → sources → Scene + Component Editor → guides); owed: the live check (Open items) | Hold and Win Phase 12b value bindings | #1005 |
 | 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — part 1 built (#1006): Pot art params, authored children inside the coded part, editor preview + **Edit inside**; 12a and 12b merged in, so nodes inside a pot hear only their pot's signals; the deleted-part trap fixed (`standsFor`); the fill on 12b's `fillMaskRect`; the **Respin Counter** skinned (its panel inside a `Counter` part). Next: the done-when on `hw-3pots-sample`, then the jackpot bar/tile, total win bar, letters, wheel, cell tiles | Hold and Win Phase 12c skinnable parts | #1006 |
 
@@ -142,6 +142,12 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
     - **Not on an authored counter:** the active-modifiers line (`PAYER · MULTIPLIER`). It is drawn
       only by the coded look, because no source an authored text could bind carries it.
 
+- 2026-10-02 — **Owner: the pots as an overlay on any kind** (session "3 pots overlay mechanic").
+  Its own plan and hub: [design/pots-overlay](../design/pots-overlay.md),
+  [status/pots-overlay](pots-overlay.md). It reuses this kind's pots, flights, respin feature and game
+  modes. Its Phases 2–4 touch the Hold and Win mock (the feature generator becomes reusable), the facade
+  (per-bonus routing, only under a captured `potsOverlay` block) and the runtime. This file's parity
+  digests are their gate.
 - 2026-10-02 — **Phase 12b contract (value bindings)** (session "Hold and Win Phase 12b value
   bindings"). Pinned by `packages/engine-layout/scripts/test-value-bindings.mjs`.
   - **Schema:** `BaseNode.valueBindings: ValueBinding[]`, a field of its own beside `paramBindings`
@@ -1026,6 +1032,9 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
   - **Left:** the follow-ups in Open items; 12c consumes this (the Pot's fill art through a `fill`
     binding, a frog's bone through `bone`).
 
+- 2026-10-02 — **Phase 12a merged** (#1003, squash `97652ca9`). CI was green on the final head,
+  and the Runtime release workflow passed on the merge commit. Not yet checked: the served bundle,
+  and the `hw-3pots-sample` live check (Open items).
 - 2026-10-02 — **Phase 12a: scoped signals into components** (session "Hold and Win Phase 12a",
   #1003). Design §8.
   - **Engine.** `featureSignals.ts` registers 19 component signals off the beats' existing cues

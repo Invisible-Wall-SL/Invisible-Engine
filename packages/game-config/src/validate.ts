@@ -17,6 +17,7 @@
 
 import { validateHoldAndWin } from './holdAndWin';
 import { validateGameModes } from './modes';
+import { validatePotsOverlay } from './potsOverlay';
 import { symbolsInPlay } from './inPlay';
 import { resolveWinLevels } from './winLevels';
 import type { GameConfigDoc } from './types';
@@ -194,7 +195,9 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 		});
 	}
 
-	// The `W` bug, generalized: a payout advertised for a symbol the game never deals.
+	// The `W` bug, generalized: a payout advertised for a symbol the game never deals. A pot token is
+	// off the strips by design — it drops over a cell — so only a payout on one is worth saying.
+	const tokens = new Set(doc.potsOverlay?.pots.map((p) => p.token));
 	for (const [name, symbol] of Object.entries(doc.symbols)) {
 		if (inPlay.has(name)) continue;
 		if (symbol.paytable?.length) {
@@ -203,7 +206,7 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 				path: `symbols.${name}.paytable`,
 				message: `${name} pays in the paytable but appears on no reel strip, so the payout can never be won.`,
 			});
-		} else {
+		} else if (!tokens.has(name)) {
 			issues.push({
 				severity: 'warning',
 				path: `symbols.${name}`,
@@ -300,6 +303,7 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 	}
 
 	issues.push(...validateHoldAndWin(doc));
+	issues.push(...validatePotsOverlay(doc));
 	issues.push(...validateGameModes(doc));
 
 	return issues;

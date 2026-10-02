@@ -1608,8 +1608,10 @@
 									<option value="button">Button</option>
 									<option value="readout">HUD readout</option>
 									<option value="counter">Free-Spin Counter</option>
-									{#if kindCapabilities(data.gameType).holdAndWin}
+									{#if kindCapabilities(data.gameType).pots}
 										<option value="pot">Pot Meter (Hold and Win)</option>
+									{/if}
+									{#if kindCapabilities(data.gameType).holdAndWin}
 										<option value="respin">Respin Counter (Hold and Win)</option>
 									{/if}
 								</select>

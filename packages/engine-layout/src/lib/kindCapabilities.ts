@@ -8,6 +8,10 @@
  * without it: a flag that nothing gated on is `true` for them, never a new restriction. An id that is
  * not a built-in kind (an author-created custom kind) gets the same answers as `lines`, which is what
  * every tool gave it before.
+ *
+ * ADD-ONS are additive (design `docs/design/pots-overlay.md` §4): a config block lights up only the
+ * add-on's own parts, and everything else stays on the kind — a `bookOf` project with a Hold and
+ * Win bonus keeps its free spins and book reveal. Without a block every answer is the kind's alone.
  */
 
 import { HOLD_AND_WIN_SYMBOL_STATES, SYMBOL_STATES, type SymbolStateName } from './symbolStates';
@@ -20,10 +24,15 @@ export interface KindCapabilityConfig {
 	cascade?: boolean;
 	/** `resolveWinModel(doc).type`. */
 	winModel?: string;
+	/** The project's config carries a `holdAndWin` block (a Hold and Win bonus on any kind). */
+	holdAndWin?: boolean;
+	/** The project's config carries a `potsOverlay` block (the pots overlay add-on). */
+	potsOverlay?: boolean;
 }
 
 export interface KindCapabilities {
-	/** Free-spin scenes, counter and states. Off for Hold and Win, whose feature is the respins. */
+	/** Free-spin scenes, counter and states. Off for the Hold and Win kind, whose feature is the
+	 *  respins; another kind keeps them with a `holdAndWin` block. */
 	freeSpins: boolean;
 	/** The Book-of special symbol: its reveal/expand beats and the `bookIntro`/`bookIdle` states. */
 	bookReveal: boolean;
@@ -33,10 +42,15 @@ export interface KindCapabilities {
 	cascade: boolean;
 	/** The scatter kind's multiplier-collect beat. */
 	multiplierCollect: boolean;
-	/** The Hold and Win respin feature. */
+	/** The Hold and Win respin feature: the kind's own, or a `holdAndWin` block's. */
 	holdAndWin: boolean;
-	/** Coin symbols carrying a cash value or a jackpot label. */
+	/** Coin symbols carrying a cash value or a jackpot label. Follows {@link holdAndWin}. */
 	coinSymbols: boolean;
+	/** The pot parts a Hold and Win feature and the pots overlay share: the Pot Meter, the pot
+	 *  signals, the `toMeter:<id>` flights. */
+	pots: boolean;
+	/** The pots overlay add-on's own parts — on only while the config carries its block. */
+	potsOverlay: boolean;
 	/** Paylines pay: the config's win model when given, else the kind's default. */
 	winLines: boolean;
 	/** The Symbols tool's "Book symbol VFX" section — the layers drawn behind/in front of the book
@@ -60,29 +74,36 @@ export function kindCapabilities(
 	config: KindCapabilityConfig = {},
 ): KindCapabilities {
 	const kind = gameType ?? '';
-	const holdAndWin = kind === 'holdAndWin';
+	const holdAndWinKind = kind === 'holdAndWin';
+	const holdAndWin = holdAndWinKind || !!config.holdAndWin;
+	const potsOverlay = !!config.potsOverlay;
 	return {
-		freeSpins: !holdAndWin,
+		freeSpins: !holdAndWinKind,
 		bookReveal: kind === 'bookOf',
-		stackedPictures: !holdAndWin,
+		stackedPictures: !holdAndWinKind,
 		cascade: config.cascade ?? CASCADE_KINDS.has(kind),
 		multiplierCollect: kind === 'scatter',
 		holdAndWin,
 		coinSymbols: holdAndWin,
+		pots: holdAndWin || potsOverlay,
+		potsOverlay,
 		winLines: config.winModel ? config.winModel === 'lines' : !NON_LINE_KINDS.has(kind),
-		bookSymbolVfx: !holdAndWin,
-		tumblePattern: !holdAndWin,
-		symbolTransition: !holdAndWin,
+		bookSymbolVfx: !holdAndWinKind,
+		tumblePattern: !holdAndWinKind,
+		symbolTransition: !holdAndWinKind,
 	};
 }
 
 /**
  * The symbol states a kind's authoring surfaces offer: every state, minus the Hold and Win ones for
- * a kind without the respin feature. The doc schema still accepts every state, so a binding never
- * fails to round-trip; this only decides what a picker lists.
+ * a project without the respin feature. The doc schema still accepts every state, so a binding
+ * never fails to round-trip; this only decides what a picker lists.
  */
-export function symbolStatesForKind(gameType: string | undefined): readonly SymbolStateName[] {
-	if (kindCapabilities(gameType).holdAndWin) return SYMBOL_STATES;
+export function symbolStatesForKind(
+	gameType: string | undefined,
+	config?: KindCapabilityConfig,
+): readonly SymbolStateName[] {
+	if (kindCapabilities(gameType, config).holdAndWin) return SYMBOL_STATES;
 	const holdAndWin: ReadonlySet<string> = new Set(HOLD_AND_WIN_SYMBOL_STATES);
 	return SYMBOL_STATES.filter((state) => !holdAndWin.has(state));
 }
