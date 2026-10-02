@@ -112,6 +112,9 @@ const withBlock = (base: GameConfigDoc, edit: (doc: GameConfigDoc) => void): Gam
 	return normalize(doc);
 };
 
+check('a stepped grid', issuePaths(withBlock(collector, (d) => (d.numRows = [3, 4, 3]))), [
+	'holdAndWin.grid',
+]);
 check(
 	'a pattern needing a reel that does not exist',
 	issuePaths(

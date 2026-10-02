@@ -72,6 +72,26 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
 
 ## Decisions & findings
 
+- 2026-10-01 — **Phase 4 polish: three decisions** (session "Hold and Win Phase 4 — polish").
+  - **Stepped grids are REFUSED for Hold and Win** (item 8). `validateHoldAndWin` errors at
+    `holdAndWin.grid` when the reels' row counts differ, so `/config` will not save one and Publish
+    flags it. The respin board is one one-cell reel per row of a rectangle, and no reference game is
+    stepped. Supporting it later means per-reel row counts in `respinSpins` / `respinSeedBoard` /
+    `createRespinBoard` (the end board already uses `rowsForReel`). **Perspective boards are
+    supported as the reel board is:** a resting cell sits exactly on its perspective seat, and a
+    rolling strip moves at the flat row pitch — the same rule `ReelSymbol` uses — so nothing to
+    refuse.
+  - **Coin label colour stays a MULTIPLY; no new tint mode** (item 10). A neutral font already
+    ships: the builtin **`silver`** (near-white, with its shading), offered in `/symbols` beside
+    `gold`. Over it an authored cyan reads cyan. A "replace" tint would need a colour filter per label
+    (one per held coin) to keep the shading, which is not worth it when the neutral font exists. The
+    `/symbols` hint now names `silver`; a white Font Maker font still works.
+  - **Flight arc (item 9) — the field:** `flights.<kind>.path.arc`, a signed curvature as a fraction
+    of the straight distance (−1…1). Positive bows the route UP on screen, negative bows it down;
+    absent or 0 keeps today's straight-first routes. It shapes the PREFERRED route only: avoidance
+    still detours around win cells (`bend`, "Max detour") when the arc would cross one. Owner of
+    the Phase 7 `flights` block: this is additive (an older launcher drops the unknown field, #961).
+
 - 2026-10-01 — **Phase 7 (Symbols SM): things a later phase must know.**
   - **The holdAndWin symbol defaults are TOOL-SIDE only.** `symbolDefaults/holdAndWin.json` feeds the
     `/symbols`, `/editor` and `/win-text` previews; no publish, bake or runtime path reads it. The game's
@@ -568,8 +588,9 @@ Hold and Win beats prints copy.
      (non-JS) frame at the feature's entry, before the board shows.
    - **Accepted on purpose:** `holdAndWinEnd` and banked jackpots run inside the unskippable window,
      so the end volley plays at full length even under turbo/autoplay.
-   - **Not covered:** stepped grids; perspective boards roll at the flat row pitch; the respin cells
-     use the coded spin profile, not the editor's `resolveReelSpinProfile`.
+   - **Not covered:** the respin cells use the coded spin profile, not the editor's
+     `resolveReelSpinProfile`. (Stepped grids are refused by `/config`; perspective follows the reel
+     board — Decisions, Phase 4 polish.)
    - **`hw-3pots-sample` draws no toasts** ("UNLOCKED", "PAYER ACTIVE", "Good luck" are set, never
      drawn): its layout has no message host — Phase 6's template should carry one.
 3. **Ask the partner** for a Hold and Win sample round or their handler subclass (design §3.2).
