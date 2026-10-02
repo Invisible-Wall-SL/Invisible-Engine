@@ -42,6 +42,7 @@ import { fileURLToPath } from 'node:url';
 import { carrySession, createMockRgs as createLinesMock } from '../../scripts/mock-rgs-server.mjs';
 import { createMockRgs as createBookMock } from '../../scripts/mock-rgs-server-book.mjs';
 import { createMockRgs as createHoldAndWinMock } from '../../scripts/mock-rgs-server-holdandwin.mjs';
+import { holdOpenRounds, mockForSession } from './openRounds.mjs';
 import { hostConfigFor, injectHostSettings, validHostSettings } from './hostSettings.mjs';
 
 // Invisible Wall favicon — served for EVERY favicon request (the root page and every
@@ -550,8 +551,9 @@ const fingerprintOf = (c) => JSON.stringify([c.protocol, c.cascade ?? null, c.gr
 
 /**
  * Replace a game's mock with one built from `contract`, carrying player BALANCES across (the board
- * changed, the wallet did not). Open rounds are deliberately dropped: a round dealt on the previous
- * grid cannot be settled on the new one.
+ * changed, the wallet did not). An open round stays with the instance that dealt it until it closes
+ * (`holdOpenRounds`): a round dealt on the previous grid cannot be settled on the new one, and
+ * dropping it strands the player inside the feature.
  *
  * A runtime game's sessions also keep the bet table they were told about (`carrySession`): its
  * client keeps the config it booted with, and a tab open when the project gains or loses a buy would
@@ -577,6 +579,7 @@ const swapMock = (key, contract, channel) => {
 			next.sessions.set(sid, carrySession(session, { keepBetShape: Boolean(runtime) }));
 		}
 	}
+	holdOpenRounds(previous, next, { keepBetShape: Boolean(runtime) });
 	pool[key] = next;
 	const fingerprint = fingerprintOf(contract);
 	// The registry's protocol/grid/cascade describe the PLAYER mock (the index page, and the contract
@@ -592,14 +595,17 @@ const swapMock = (key, contract, channel) => {
  * the sessions let a stale tab's next request be priced by a table it never saw: measured, a $1 base
  * spin on a ways game that had gained a buy was charged 10000 as the buy. A desktop build's sessions
  * are reset as before. A process restart still loses everything; a table game then refuses the stale
- * tab's bet rather than guess (see the mock's `bet`).
+ * tab's bet rather than guess (see the mock's `bet`). A round still open — a free-spin feature
+ * mid-way — is answered by the instance that dealt it until it closes, for every game (`holdOpenRounds`).
  */
 const carryPins = (previous, next, runtime) => {
-	if (!runtime || !previous?.sessions || !next.sessions) return;
-	for (const [sid, session] of previous.sessions) {
-		const fresh = { ...session, balance: next.startBalance };
-		next.sessions.set(sid, carrySession(fresh, { keepBetShape: true }));
+	if (runtime && previous?.sessions && next.sessions) {
+		for (const [sid, session] of previous.sessions) {
+			const fresh = { ...session, balance: next.startBalance };
+			next.sessions.set(sid, carrySession(fresh, { keepBetShape: true }));
+		}
 	}
+	holdOpenRounds(previous, next, { keepBetShape: Boolean(runtime) });
 };
 
 /** Games already told about below, so the warning is one line per game per process — not one per
@@ -1188,7 +1194,13 @@ const handleRequest = async (req, res) => {
 		// publish — or, for the twin, a board resized in `/config` — is dealt on THIS spin. May replace
 		// the channel's mock.
 		await refreshContract(gameKey, channel);
-		return own(channel ? authoringMocks : mocks, gameKey).handle(req, res, url);
+		const mock = own(channel ? authoringMocks : mocks, gameKey);
+		const answering = mockForSession(
+			mock,
+			url.searchParams.get('sid'),
+			url.searchParams.get('gid'),
+		);
+		return answering.handle(req, res, url);
 	}
 
 	// root index
