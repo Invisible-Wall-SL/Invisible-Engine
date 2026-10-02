@@ -1,6 +1,7 @@
 <script lang="ts">
 	import {
 		BOARD_END_TYPES,
+		EXPANSION_RULES,
 		HOLD_AND_WIN_SPECIALS,
 		HOLD_AND_WIN_SYMBOL_ROLES,
 		RESPIN_RESETS,
@@ -13,11 +14,13 @@
 		symbolsWithRole,
 		type BoardEnd,
 		type CoinValueEntry,
+		type ExpansionRule,
 		type GameConfigDoc,
 		type GameConfigIssue,
 		type HoldAndWin,
 		type HoldAndWinJackpot,
 		type HoldAndWinProgressive,
+		type HoldAndWinExpansion,
 		type HoldAndWinSpecial,
 		type HoldAndWinSymbolRole,
 		type MysteryReveal,
@@ -68,6 +71,7 @@
 		blank: 'blank',
 		addRespins: 'add respins',
 		upgrade: 'upgrade',
+		unlock: 'unlock (opens a row)',
 	};
 	const STICKINESS_LABELS: Record<Stickiness, string> = {
 		allCoins: 'Every coin sticks',
@@ -81,6 +85,11 @@
 		none: 'Nothing — the feature ends on 0 respins',
 		fullBoardJackpot: 'A full board awards a jackpot',
 		columnLetters: 'Column letters — a full column lights a letter',
+	};
+	const EXPANSION_RULE_LABELS: Record<ExpansionRule, string> = {
+		fullRow: 'Filling the bottom open row opens the next',
+		unlockSymbol: 'An unlock symbol landing opens a row',
+		coinCount: 'Enough held symbols open a row',
 	};
 	const SPECIAL_LABELS: Record<HoldAndWinSpecial, string> = {
 		collector: 'Collector',
@@ -231,6 +240,7 @@
 		for (const p of hw.wheel?.prizes ?? []) {
 			if (p.type === 'jackpot' && p.jackpot === old) p.jackpot = next;
 		}
+		for (const rj of hw.expansion?.rowJackpots ?? []) if (rj.jackpot === old) rj.jackpot = next;
 	}
 	/** A tier turned progressive starts as a pool at its multiplier that nothing grows yet; a tier
 	 *  turned fixed drops its pool, so the saved doc carries no field nothing reads. */
@@ -404,6 +414,54 @@
 		const special = HOLD_AND_WIN_SPECIALS.find((s) => s === value);
 		const meter = hw.meters?.[i];
 		if (meter && special) meter.activates = special;
+	}
+
+	// ── board expansion ────────────────────────────────────────────────────────────────────────
+	const gridRows = $derived(doc.numRows[0] ?? 3);
+	/** A default threshold per unlockable row: 60% of the cells open before it. */
+	const defaultThresholds = (grow: HoldAndWinExpansion): number[] =>
+		Array.from({ length: Math.max(0, grow.maxRows - grow.startRows) }, (_, i) =>
+			Math.ceil(doc.numReels * (grow.startRows + i) * 0.6),
+		);
+	function setExpansion(hw: HoldAndWin, on: boolean) {
+		if (on) {
+			hw.expansion = {
+				startRows: gridRows,
+				maxRows: gridRows + 3,
+				rule: 'fullRow',
+				resetsRespins: true,
+			};
+		} else delete hw.expansion;
+	}
+	/** Only the chosen rule's own field is stored, exactly as the normalizer keeps it. */
+	function setExpansionRule(grow: HoldAndWinExpansion, value: string) {
+		const rule = EXPANSION_RULES.find((r) => r === value);
+		if (!rule) return;
+		grow.rule = rule;
+		if (rule === 'coinCount') grow.thresholds = defaultThresholds(grow);
+		else delete grow.thresholds;
+		if (rule !== 'unlockSymbol') delete grow.unlockReels;
+	}
+	/** Growing or shrinking the board keeps one threshold per unlockable row. */
+	function setMaxRows(grow: HoldAndWinExpansion, n: number) {
+		grow.maxRows = n;
+		if (grow.rule !== 'coinCount') return;
+		const fill = defaultThresholds(grow);
+		grow.thresholds = fill.map((t, i) => grow.thresholds?.[i] ?? t);
+	}
+	/** `unlockReels` is stored only while one is ticked, like a special's `reels`. */
+	function toggleUnlockReel(grow: HoldAndWinExpansion, reel: number, on: boolean) {
+		const target = { reels: grow.unlockReels };
+		toggleReel(target, reel, on);
+		if (target.reels) grow.unlockReels = target.reels;
+		else delete grow.unlockReels;
+	}
+	function addRowJackpot(hw: HoldAndWin, grow: HoldAndWinExpansion) {
+		(grow.rowJackpots ??= []).push({ rows: grow.maxRows, jackpot: lastJackpot(hw) });
+	}
+	function removeRowJackpot(grow: HoldAndWinExpansion, i: number) {
+		grow.rowJackpots?.splice(i, 1);
+		if (!grow.rowJackpots?.length) delete grow.rowJackpots;
 	}
 
 	// ── wheel ──────────────────────────────────────────────────────────────────────────────────
@@ -1008,6 +1066,122 @@
 			{/if}
 		</div>
 
+		<!-- Board expansion ------------------------------------------------------------------->
+		<div class="panel">
+			<h3>Board expansion <em>the respin board unlocks rows below the base grid</em></h3>
+			<label class="check"
+				><input
+					type="checkbox"
+					checked={Boolean(hw.expansion)}
+					onchange={(e) => setExpansion(hw, e.currentTarget.checked)}
+				/><span>Rows unlock during the feature</span></label
+			>
+			{#if hw.expansion}
+				{@const grow = hw.expansion}
+				<div class="sub">
+					<div class="row">
+						<label
+							><span>Starts at <em>the grid's rows</em></span><input
+								type="number"
+								min="1"
+								value={grow.startRows}
+								oninput={num((n) => n >= 1 && (grow.startRows = n), true)}
+							/></label
+						>
+						<label
+							><span>Grows to</span><input
+								type="number"
+								min="1"
+								value={grow.maxRows}
+								oninput={num((n) => n >= 1 && setMaxRows(grow, n), true)}
+							/></label
+						>
+						<label
+							><span>A row opens when</span><select
+								value={grow.rule}
+								onchange={(e) => setExpansionRule(grow, e.currentTarget.value)}
+							>
+								{#each EXPANSION_RULES as r (r)}
+									<option value={r}>{EXPANSION_RULE_LABELS[r]}</option>
+								{/each}
+							</select></label
+						>
+						<label class="check"
+							><input type="checkbox" bind:checked={grow.resetsRespins} /><span
+								>An unlock resets the respins</span
+							></label
+						>
+					</div>
+					{#if grow.rule === 'coinCount' && grow.thresholds}
+						{@const thresholds = grow.thresholds}
+						<span class="legend">Held symbols that open each row</span>
+						<div class="row">
+							{#each thresholds as t, i (i)}
+								<label
+									><span>Row {grow.startRows + i + 1}</span><input
+										type="number"
+										min="1"
+										value={t}
+										oninput={num((n) => n >= 1 && (thresholds[i] = n), true)}
+									/></label
+								>
+							{/each}
+						</div>
+					{:else if grow.rule === 'unlockSymbol'}
+						<p class="note">
+							Lands on symbols tagged <code>unlock</code> during the respins, opens one row, then clears.
+						</p>
+						<span class="legend">Reels</span>
+						<div class="checks reels">
+							{#each reelIndices as reel (reel)}
+								<label class="check"
+									><input
+										type="checkbox"
+										checked={grow.unlockReels?.includes(reel) ?? false}
+										onchange={(e) => toggleUnlockReel(grow, reel, e.currentTarget.checked)}
+									/><span>{reel + 1}</span></label
+								>
+							{/each}
+							<span class="note">{grow.unlockReels?.length ? '' : 'none ticked = every reel'}</span>
+						</div>
+					{/if}
+					<span class="legend"
+						>Row jackpots <em>reaching that many rows pays the jackpot once</em></span
+					>
+					{#if grow.rowJackpots?.length}
+						{@const rowJackpots = grow.rowJackpots}
+						<table class="tbl">
+							<thead><tr><th>Rows reached</th><th>Pays</th><th></th></tr></thead>
+							<tbody>
+								{#each rowJackpots as rj, i (i)}
+									<tr>
+										<td
+											><input
+												type="number"
+												min="1"
+												value={rj.rows}
+												oninput={num((n) => n >= 1 && (rj.rows = n), true)}
+											/></td
+										>
+										<td>{@render jackpotPick(hw, rj.jackpot, (n) => (rj.jackpot = n))}</td>
+										<td
+											><button class="del" title="Remove" onclick={() => removeRowJackpot(grow, i)}
+												>×</button
+											></td
+										>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					{/if}
+					<button class="small" onclick={() => addRowJackpot(hw, grow)}>+ row jackpot</button>
+					{#if hw.boardEnd.type === 'fullBoardJackpot'}
+						<p class="note">The full-board jackpot needs every cell of all {grow.maxRows} rows.</p>
+					{/if}
+				</div>
+			{/if}
+		</div>
+
 		<!-- Coins ------------------------------------------------------------------------------->
 		<div class="panel">
 			<h3>Coin values <em>what a coin shows when it lands — × total bet, or a jackpot</em></h3>
@@ -1409,8 +1583,9 @@
 			>coin</code
 		>, <code>jackpot</code>, <code>collector</code>, <code>coinMultiplier</code>,
 		<code>payer</code>, <code>mystery</code>, <code>addRespins</code>, <code>upgrade</code>,
-		<code>meterSpecial</code>, <code>blank</code>); this section holds their tables. The server
-		stays the authority on outcomes — these weights drive the test mock and the readouts.
+		<code>meterSpecial</code>, <code>blank</code>, <code>unlock</code>); this section holds their
+		tables. The server stays the authority on outcomes — these weights drive the test mock and the
+		readouts.
 	</p>
 	{#each blockIssues as issue (issue.path + issue.message)}
 		<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>

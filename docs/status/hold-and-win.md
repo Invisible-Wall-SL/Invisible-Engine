@@ -50,7 +50,7 @@ titled **"Hold and win game pipeline"**.
 | 9 | Game Maker presets + docs + playtest, sample games (3 Pots first) | in progress — 9a preset picker + config seed + guides + playbooks merged; 9b symbols seed at scaffold merged + launcher deployed; owed (owner login): create, publish and play the Classic + Collector samples — see **Owner checklist** | H&W Phase 9 — Game Maker presets, 3 samples, docs · 9b: H&W Phase 9b — symbols seed + samples | 9a: #968 · 9b: #969 |
 | 10 | Partner wire (facade + mock brought in line) | blocked on partner | — | — |
 | 11a | Extra specials: add-respins + upgrade (design §7) | merged — whole pipeline (config → mock → facade → beats → flow → Symbols → Win Text → docs); live-checked on the `pots-extra` test fixture | H&W Phase 11a — add-respins + upgrade specials | #995 |
-| 11b | Board expansion — rows unlock (design §7; after 11a) | not started | — | — |
+| 11b | Board expansion — rows unlock (design §7; after 11a) | in progress — contract (config + validator + `/config` + events) on branch `claude/hw-11b-board-expansion`; respin beats + mock wait for 11a | H&W Phase 11b — board expansion | — |
 | 11c | Progressive + operator platform jackpots (design §7) | merged, live (`lines@2342c815d074`) — owed: the live Borut round and the partner's platform-jackpot confirmation (Owner checklist 10–11) | Hold and Win Phase 11c — progressive + platform jackpots | part 1: #991 · part 2: #999 |
 | 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | not started | — | — |
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | not started | — | — |
@@ -78,6 +78,23 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
 
 ## Decisions & findings
 
+- 2026-10-02 — **Phase 11b contract (board expansion)** (session "H&W Phase 11b — board expansion").
+  - **Config:** `holdAndWin.expansion {startRows, maxRows, rule, thresholds?, unlockReels?,
+    resetsRespins, rowJackpots?}`, rule `fullRow` | `unlockSymbol` | `coinCount`. `startRows` must
+    equal the grid's rows (the base game plays them); rows unlock BELOW the base grid, so a held
+    cell's row index never changes. Only the chosen rule's own field is stored. `resetsRespins`
+    defaults on. A row jackpot pays once when that many rows are open (banked).
+  - **Refused combinations:** column letters + expansion (a letter needs a fixed column height);
+    `fullRow` under `collectorsOnly` (a row can never fill). `coinCount` needs one ascending
+    threshold per unlockable row, each reachable on the rows open before it. An `unlock` symbol
+    cannot be a buy guarantee.
+  - **Events:** `rowsUnlocked {from, rows, cause, unlockers}` (unlockers = the unlock symbols, then a
+    `cellsCleared {reason: 'applied'}` — the same reason 11a's non-sticky add-respins uses); the
+    counter reset is the respin's own `respinUpdate`; a row jackpot is `jackpotWin {source: 'row',
+    banked: true}`. The entry payload gains `expansion {rows, maxRows}` and the snapshot `rows`, both
+    absent on a board that never grows (parity). A full board = every cell of `maxRows`.
+  - **Fixtures:** `HOLD_AND_WIN_TEST_FIXTURES['pots-expansion-fullrow' | 'pots-expansion-unlock' |
+    'pots-expansion-count']`; no preset gains the option.
 - 2026-10-02 — **Owner: Phase 12, authorable feature parts.** The Pot Meter is a hard-coded shape: no bitmap art, no per-pot signals into components (catalog-only cue names; the engine's pot broadcasts never reach spine cues; FX can't filter per pot), and numbers drive only text (no bone, fill, frame or animation binding). Plan, design §8: 12a scoped signals ∥ 12b value bindings → 12c skinnable parts, Pot first. Generic across kinds.
 - 2026-10-02 — **Phase 11a: the rules add-respins and upgrade settled** (session "H&W Phase 11a —
   add-respins + upgrade specials"). Each is one fact the mock, the facade, `applyHoldAndWinEvent`

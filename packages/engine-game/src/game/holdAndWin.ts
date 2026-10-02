@@ -1,4 +1,4 @@
-import type { HoldAndWinSpecial, Stickiness, UpgradeTarget } from 'game-config';
+import type { ExpansionRule, HoldAndWinSpecial, Stickiness, UpgradeTarget } from 'game-config';
 
 import type { Position, RawSymbol, SymbolName } from './types';
 
@@ -35,7 +35,7 @@ export type HoldAndWinCause = 'count' | 'pattern' | 'meter' | 'luckySpin' | 'ran
 
 /** Where a jackpot came from. `banked` sources add money; the rest present money already counted. */
 export type HoldAndWinJackpotSource =
-	'coin' | 'collect' | 'column' | 'instantCollect' | 'wheel' | 'letters' | 'fullBoard';
+	'coin' | 'collect' | 'column' | 'instantCollect' | 'wheel' | 'letters' | 'fullBoard' | 'row';
 
 export type HoldAndWinWheelPrize =
 	| { type: 'coinBoost'; multiplier: number }
@@ -56,6 +56,9 @@ export type HoldAndWinEntry = {
 	stickiness: Stickiness;
 	activeModifiers: HoldAndWinSpecial[];
 	meters?: string[];
+	/** An expanding board (design §7 11b): the rows open at entry and the most it can reach. Absent
+	 *  ⇒ the board never grows. */
+	expansion?: { rows: number; maxRows: number };
 };
 
 /** What `holdAndWinEnd` carries as its mode payload (§4.5 `modeExit`): the per-coin tally. */
@@ -79,6 +82,8 @@ export type HoldAndWinSnapshot = {
 	coinBoost: number;
 	/** Reels whose column letter is lit. */
 	lettersLit: number[];
+	/** Open rows of an expanding board; absent ⇒ it never grows (the grid's rows). */
+	rows?: number;
 };
 
 /**
@@ -148,9 +153,16 @@ export type HoldAndWinEventFields = {
 		/** The collector's value after collecting, × total bet. */
 		value: number;
 	};
-	/** `collected` — a streak's collect swept them; `applied` — a non-sticky special left after
-	 *  applying (an add-respins that clears). */
+	/** `collected` — a streak's collect swept them; `applied` — a special left after applying (an
+	 *  unlock symbol that opened its row). */
 	cellsCleared: { reason: 'collected' | 'applied'; cells: Position[] };
+	/**
+	 * An expanding board opened rows: `from` → `rows` open rows, the new ones BELOW the old (a held
+	 * cell's row never changes). `unlockers` are the unlock symbols that opened them (`unlockSymbol`
+	 * only; a `cellsCleared {reason: 'applied'}` follows for them). Any counter reset is the respin's
+	 * own `respinUpdate`; a row jackpot is a `jackpotWin {source: 'row'}`.
+	 */
+	rowsUnlocked: { from: number; rows: number; cause: ExpansionRule; unlockers: HoldAndWinCell[] };
 	columnComplete: {
 		reel: number;
 		letter: string;
@@ -197,6 +209,7 @@ const HOLD_AND_WIN_EVENT_TYPES: Record<HoldAndWinEventType, true> = {
 	specialBecomesCoin: true,
 	coinCollect: true,
 	cellsCleared: true,
+	rowsUnlocked: true,
 	columnComplete: true,
 	jackpotWin: true,
 	respinUpdate: true,
@@ -338,6 +351,7 @@ export const applyHoldAndWinEvent = (
 				left: event.payload.respins,
 				stickiness: event.payload.stickiness,
 				activeModifiers: event.payload.activeModifiers,
+				...(event.payload.expansion && { rows: event.payload.expansion.rows }),
 			};
 		case 'holdAndWinWheel': {
 			const { prize } = event;
@@ -377,6 +391,8 @@ export const applyHoldAndWinEvent = (
 				...state,
 				cells: state.cells.filter((cell) => !event.cells.some(samePosition(cell))),
 			};
+		case 'rowsUnlocked':
+			return { ...state, rows: event.rows };
 		case 'columnComplete':
 			return {
 				...state,

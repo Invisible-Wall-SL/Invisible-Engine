@@ -217,7 +217,7 @@ const engineEvents = checker
 	}));
 check(
 	'3. the checker read the engine contract',
-	engineEvents.length === 23,
+	engineEvents.length === 24,
 	`${engineEvents.length}`,
 );
 for (const { name, fields } of engineEvents) {
