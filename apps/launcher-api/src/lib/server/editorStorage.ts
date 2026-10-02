@@ -71,19 +71,21 @@ export async function loadDoc(
  * came back", a corrupt-but-present doc would save with `ifNoneMatch: '*'` and 412
  * FOREVER, with no way out of the UI. Here a corrupt doc still reports its etag, so it
  * gets `ifMatch` and is overwritten deliberately. `etag === null` means — and only
- * means — the object was absent. See `docs/design/multi-user-concurrency.md` Phase 1.
+ * means — the object was absent. `corrupt` flags the fallback so a merge that would
+ * write the fallback back (the Game Maker add-on) can refuse instead. See
+ * `docs/design/multi-user-concurrency.md` Phase 1.
  */
 export async function loadDocWithEtag(
 	clientKey: string,
 	projectKey: string,
 	gameType?: string,
-): Promise<{ doc: LayoutDoc; etag: string | null }> {
+): Promise<{ doc: LayoutDoc; etag: string | null; corrupt?: true }> {
 	const obj = await getObjectTextWithEtag(editorDocKey(clientKey, projectKey));
 	if (!obj) return { doc: seedFreshDoc(projectKey, gameType), etag: null };
 	try {
 		return { doc: normalizeDoc(JSON.parse(obj.text), projectKey), etag: obj.etag };
 	} catch {
-		return { doc: normalizeDoc(undefined, projectKey), etag: obj.etag };
+		return { doc: normalizeDoc(undefined, projectKey), etag: obj.etag, corrupt: true };
 	}
 }
 

@@ -104,7 +104,9 @@ export function mergeAddOnScreens(
 }
 
 async function seedSymbols(client: string, project: string, config: GameConfigDoc) {
-	const { doc, etag } = await loadSymbolsDocWithEtag(client, project);
+	const { doc, etag, corrupt } = await loadSymbolsDocWithEtag(client, project);
+	if (corrupt)
+		return part('skipped', [], 'The Symbols doc could not be read. Open it in /symbols.');
 	const seed = potsOverlaySymbolsSeed(config, doc);
 	const note = seed.missingArt.length
 		? `No placeholder art for ${seed.missingArt.join(', ')}: bind it in /symbols.`
@@ -116,7 +118,8 @@ async function seedSymbols(client: string, project: string, config: GameConfigDo
 
 async function seedLayout(client: string, project: string, config: GameConfigDoc) {
 	const kind = await projectGameType(project);
-	const { doc, etag } = await loadDocWithEtag(client, project, kind);
+	const { doc, etag, corrupt } = await loadDocWithEtag(client, project, kind);
+	if (corrupt) return part('skipped', [], 'The layout could not be read. Open it in /editor.');
 	const gameType = doc.gameType ?? kind;
 	const options = sceneSetOptionsFor(gameType, config);
 	if (!addOnSceneIds(gameType, options).length) {
@@ -202,6 +205,15 @@ export async function applyPotsOverlayAddOn(
 	const resolved = await resolveGameConfig(client, project, gameType);
 	if (!resolved.doc) {
 		return { ok: false, status: 400, error: 'This project has no Game Config to add to.' };
+	}
+	// A stored config that does not parse resolves to the TEMPLATE with the stored object's ETag, so
+	// its `If-Match` would pass and replace the author's config with the template. Never unasked.
+	if (resolved.source === 'template' && resolved.etag !== null) {
+		return {
+			ok: false,
+			status: 409,
+			error: 'The stored Game Config could not be read. Open it in /config first.',
+		};
 	}
 	const none: AddOnRenames = { symbols: {}, pots: {} };
 	if (!opts.preset) {

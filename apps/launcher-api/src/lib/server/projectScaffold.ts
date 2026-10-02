@@ -1,7 +1,7 @@
 /**
  * Writes the canonical per-project R2 skeleton for a `(client, project)` pair.
- * Idempotent: every key is `HEAD`-checked first and only written when missing,
- * so calling `scaffoldProject` repeatedly safely backfills new seed files
+ * Idempotent: every key is `HEAD`-checked first and only created when missing
+ * (`If-None-Match: *`), so calling `scaffoldProject` repeatedly safely backfills new seed files
  * without trampling existing data.
  */
 import { freshDrivenSeedDoc } from 'engine-flow-v2';
@@ -125,9 +125,15 @@ export async function scaffoldProject(
 	const reference =
 		getFullSceneSet(gameType, sceneSetOptionsFor(gameType, stored)) ??
 		(await loadKind(gameType))?.doc;
+	// The HEAD skips the PUT in the common case; `If-None-Match: *` closes the window between the two,
+	// so an author's first save that lands in it (a re-scaffold of a live project) is never replaced.
 	for (const seed of buildSeeds(client, project, gameType, reference)) {
 		if (await objectExists(seed.key)) continue;
-		await putObjectText(seed.key, seed.body, seed.contentType);
+		try {
+			await putObjectText(seed.key, seed.body, seed.contentType, { ifNoneMatch: '*' });
+		} catch (e) {
+			if (!(e instanceof ConflictError)) throw e;
+		}
 	}
 	// The kind's default Game Config, written through the config store (validated, backed up,
 	// `If-None-Match: *`) so a concurrent first save in `/config` wins rather than being clobbered.

@@ -1115,19 +1115,20 @@ export async function loadSymbolsDoc(clientKey: string, projectKey: string): Pro
  *
  * `etag` comes off the READ, independent of whether the body parsed — a corrupt doc
  * also falls back to `emptySymbolsDoc()`, so inferring "create" from "empty doc" would
- * make it 412 forever. `etag === null` means, and only means, no object.
+ * make it 412 forever. `etag === null` means, and only means, no object. `corrupt` flags the
+ * fallback so a merge that would write it back can refuse instead.
  * See `docs/design/multi-user-concurrency.md` Phase 1.
  */
 export async function loadSymbolsDocWithEtag(
 	clientKey: string,
 	projectKey: string,
-): Promise<{ doc: SymbolsDoc; etag: string | null }> {
+): Promise<{ doc: SymbolsDoc; etag: string | null; corrupt?: true }> {
 	const obj = await getObjectTextWithEtag(symbolsDocKey(clientKey, projectKey));
 	if (!obj) return { doc: emptySymbolsDoc(), etag: null };
 	try {
 		return { doc: normalizeSymbolsDoc(JSON.parse(obj.text)), etag: obj.etag };
 	} catch {
-		return { doc: emptySymbolsDoc(), etag: obj.etag };
+		return { doc: emptySymbolsDoc(), etag: obj.etag, corrupt: true };
 	}
 }
 
