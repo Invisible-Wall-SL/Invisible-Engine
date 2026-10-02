@@ -1,4 +1,10 @@
-import { HOLD_AND_WIN_SYMBOL_ROLES, type GameConfigDoc } from 'game-config';
+import {
+	HOLD_AND_WIN_PRESETS,
+	HOLD_AND_WIN_SYMBOL_ROLES,
+	holdAndWinIsOverlayBonus,
+	resolveMeters,
+	type GameConfigDoc,
+} from 'game-config';
 import { z } from 'zod';
 import { symbolDefaultsKey } from './projectPaths';
 import { getObjectText, putObjectText } from './r2';
@@ -136,17 +142,84 @@ export function holdAndWinSymbolsSeed(config: GameConfigDoc | null): SymbolsDoc 
 			);
 			continue;
 		}
-		const states: SymbolsDoc['symbols'][string] = {};
-		for (const [state, cell] of Object.entries(cells) as [SymbolState, DefaultCell][]) {
-			states[state] = {
-				type: cell.type,
-				assetKey: cell.assetKey,
-				...(cell.animationName ? { animationName: cell.animationName } : {}),
-			};
-		}
+		const states = bindingsOf(cells);
 		if (Object.keys(states).length) symbols[name] = states;
 	}
 	return Object.keys(symbols).length ? { version: 1, symbols } : null;
+}
+
+/** A default's cells as a symbols-doc binding: type / assetKey / animationName only, since they
+ *  bind coded game assets the exporter leaves alone. */
+function bindingsOf(cells: SymbolDefaults['symbols'][string]): SymbolsDoc['symbols'][string] {
+	const states: SymbolsDoc['symbols'][string] = {};
+	for (const [state, cell] of Object.entries(cells) as [SymbolState, DefaultCell][]) {
+		states[state] = {
+			type: cell.type,
+			assetKey: cell.assetKey,
+			...(cell.animationName ? { animationName: cell.animationName } : {}),
+		};
+	}
+	return states;
+}
+
+/** An add-on renames a clashing name with a `_2`, `_3`… suffix (`game-config` `addOns.ts`), so a
+ *  renamed symbol or pot finds its placeholder under the name it was added as. */
+const unsuffixed = (name: string): string => name.replace(/_\d+$/, '');
+
+/** The symbol a token without art of its own borrows: the coin. */
+const TOKEN_FALLBACK_ART = 'BONUS';
+
+/** A pots overlay token's placeholder art: the 3 Pots special that fills the pot it was named after
+ *  (red → BOOST, blue → COLLECT, green → MULTI), else the coin's. */
+function tokenArtSymbol(potId: string): string {
+	const meters = HOLD_AND_WIN_PRESETS.pots.holdAndWin?.meters ?? [];
+	return meters.find((m) => m.id === unsuffixed(potId))?.symbol ?? TOKEN_FALLBACK_ART;
+}
+
+/**
+ * The pots overlay add-on's symbol bindings merged into `current` (docs/design/pots-overlay.md §4,
+ * Game Maker row) — CREATE-ONLY: a symbol the doc already binds keeps every cell it has.
+ *
+ * A token is never on a strip and draws nothing without art, so every overlay token is bound to the
+ * placeholder of its pot. When the Hold and Win block is the overlay's BONUS, its role symbols are
+ * bound as {@link holdAndWinSymbolsSeed} binds a Hold and Win project's (a `blank` draws nothing by
+ * design); a Hold and Win game's own block is its base game, whose symbols are not the add-on's. A
+ * renamed symbol (`BONUS_2`) takes the art of the name it was added as.
+ *
+ * Pure: `current` is not mutated. `added` lists the names bound; `missingArt` the ones no default
+ * covers, left for the author to bind in `/symbols`.
+ */
+export function potsOverlaySymbolsSeed(
+	config: GameConfigDoc,
+	current: SymbolsDoc,
+): { doc: SymbolsDoc; added: string[]; missingArt: string[] } {
+	const defaults = DEFAULTS_BY_GAME.holdAndWin.symbols;
+	const wanted = new Map<string, string>();
+	for (const meter of resolveMeters(config)) {
+		if (meter.source === 'overlay') wanted.set(meter.symbol, tokenArtSymbol(meter.id));
+	}
+	if (holdAndWinIsOverlayBonus(config)) {
+		for (const [name, symbol] of Object.entries(config.symbols)) {
+			if (hasSeededRole(symbol.special_properties) && !wanted.has(name)) {
+				wanted.set(name, defaults[name] ? name : unsuffixed(name));
+			}
+		}
+	}
+	const symbols = { ...current.symbols };
+	const added: string[] = [];
+	const missingArt: string[] = [];
+	for (const [name, source] of wanted) {
+		if (Object.keys(symbols[name] ?? {}).length) continue;
+		const cells = defaults[source];
+		const states = cells ? bindingsOf(cells) : {};
+		if (!Object.keys(states).length) {
+			missingArt.push(name);
+			continue;
+		}
+		symbols[name] = states;
+		added.push(name);
+	}
+	return { doc: added.length ? { ...current, symbols } : current, added, missingArt };
 }
 
 /**

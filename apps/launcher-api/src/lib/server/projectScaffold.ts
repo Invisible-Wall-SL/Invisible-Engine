@@ -5,6 +5,7 @@
  * without trampling existing data.
  */
 import { freshDrivenSeedDoc } from 'engine-flow-v2';
+import { sceneSetOptionsFor } from '$lib/addOns';
 import type { HoldAndWinPresetId } from 'game-config';
 import type { LayoutDoc } from 'engine-layout';
 import { engineOwnedOnly, getFullSceneSet } from 'engine-layout';
@@ -33,6 +34,25 @@ interface Seed {
 	contentType: string;
 }
 
+/**
+ * §19.3 / §21.6: the editor doc a project is seeded with — the engine-owned projection of the kind's
+ * full scene set (correct screens + engine pieces, no artist art). The `reference` is resolved by the
+ * caller from the built-in registry first, then the custom-kind store; no reference (an unknown or
+ * legacy type that resolves to neither) seeds no screens.
+ */
+export function scaffoldLayoutDoc(
+	project: string,
+	gameType: string,
+	reference: LayoutDoc | undefined,
+): Pick<LayoutDoc, 'version' | 'projectKey' | 'gameType' | 'scenes'> {
+	return {
+		version: 1,
+		projectKey: project,
+		gameType,
+		scenes: reference ? engineOwnedOnly(reference).scenes : [],
+	};
+}
+
 function buildSeeds(
 	client: string,
 	project: string,
@@ -42,17 +62,7 @@ function buildSeeds(
 	const atlasConfig = { version: 1, output_prefix: project };
 	const sheetConfig = { version: 1 };
 	const strings = normalizeDoc({});
-	// §19.3 / §21.6: seed the editor doc from the engine-owned projection of the
-	// kind's full scene set (correct screens + engine pieces, no artist art). The
-	// `reference` is resolved by the caller from the built-in registry first, then
-	// the custom-kind store; the `?? []` is a defensive default for an unknown /
-	// legacy type that resolves to neither.
-	const scenes = {
-		version: 1,
-		projectKey: project,
-		gameType,
-		scenes: reference ? engineOwnedOnly(reference).scenes : [],
-	};
+	const scenes = scaffoldLayoutDoc(project, gameType, reference);
 
 	return [
 		{
@@ -109,14 +119,12 @@ export async function scaffoldProject(
 	// Resolve the reference `LayoutDoc` from the built-in registry first, then the
 	// custom-kind store (§21.6). `loadKind` is async, so resolve here (already async)
 	// and hand the result to the sync `buildSeeds`.
-	// A Hold and Win project whose stored Game Config already expands its respin board (a re-scaffold,
-	// or a config written before the layout) gets the template that reserves the grown board's area.
-	const maxRows =
-		gameType === 'holdAndWin'
-			? (await loadGameConfigDocWithEtag(client, project)).doc?.holdAndWin?.expansion?.maxRows
-			: undefined;
+	// The STORED Game Config shapes the set (a re-scaffold, or a config written before the layout): a
+	// respin board that expands reserves the grown area, and an add-on merges in its screens.
+	const { doc: stored } = await loadGameConfigDocWithEtag(client, project);
 	const reference =
-		getFullSceneSet(gameType, maxRows ? { maxRows } : {}) ?? (await loadKind(gameType))?.doc;
+		getFullSceneSet(gameType, sceneSetOptionsFor(gameType, stored)) ??
+		(await loadKind(gameType))?.doc;
 	for (const seed of buildSeeds(client, project, gameType, reference)) {
 		if (await objectExists(seed.key)) continue;
 		await putObjectText(seed.key, seed.body, seed.contentType);

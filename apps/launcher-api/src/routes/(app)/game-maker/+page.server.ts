@@ -1,5 +1,5 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import { HOLD_AND_WIN_PRESET_IDS } from 'game-config';
+import { HOLD_AND_WIN_PRESET_IDS, POTS_OVERLAY_PRESET_IDS } from 'game-config';
 import { ADMIN_PANEL_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import { mayTargetClient } from '$lib/accessRules';
 import { OWNER_ROLE } from '$lib/launcherGates';
@@ -15,6 +15,7 @@ import { buildGameProfile } from '$lib/server/gameProfile';
 import { listGames } from '$lib/server/games';
 import { currentPointer } from '$lib/server/publishedRuntime';
 import { UNASSIGNED_CLIENT, editorDocKey } from '$lib/server/projectPaths';
+import { applyPotsOverlayAddOn } from '$lib/server/projectAddOn';
 import { scaffoldProject } from '$lib/server/projectScaffold';
 import {
 	accessibleProjectsWithClient,
@@ -146,6 +147,8 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 				clientName: p.clientName,
 				gameType: p.gameType,
 				profile,
+				// The card offers "＋ Pots overlay" without one, and "fill in its parts" with one.
+				hasPotsOverlay: Boolean(config.doc?.potsOverlay),
 				published: Boolean(game),
 				url: game?.url ?? null,
 				// Publish-confirmation signal: when the project's scenes were last edited.
@@ -188,6 +191,7 @@ export const actions: Actions = {
 		const clientKey = rawClient === '' ? null : rawClient;
 		const rawGameType = String(data.get('gameType') ?? '').trim();
 		const rawPreset = String(data.get('holdAndWinPreset') ?? '').trim();
+		const rawOverlay = String(data.get('potsOverlayPreset') ?? '').trim();
 
 		if (!isValidProjectKey(key)) {
 			return fail(400, { action: 'create', error: 'Key must match a-z, 0-9, _ or - (max 64).' });
@@ -200,6 +204,10 @@ export const actions: Actions = {
 		const holdAndWinPreset = HOLD_AND_WIN_PRESET_IDS.find((id) => id === rawPreset);
 		if (rawGameType === 'holdAndWin' && rawPreset !== '' && !holdAndWinPreset) {
 			return fail(400, { action: 'create', error: 'Unknown Hold and Win preset.' });
+		}
+		const potsOverlayPreset = POTS_OVERLAY_PRESET_IDS.find((id) => id === rawOverlay);
+		if (rawOverlay !== '' && !potsOverlayPreset) {
+			return fail(400, { action: 'create', error: 'Unknown pots overlay preset.' });
 		}
 		if (await projectExists(key)) {
 			return fail(400, { action: 'create', error: 'A project with that key exists.' });
@@ -222,6 +230,18 @@ export const actions: Actions = {
 		await scaffoldProject(clientKey ?? UNASSIGNED_CLIENT, key, {
 			holdAndWinPreset: rawGameType === 'holdAndWin' ? holdAndWinPreset : undefined,
 		});
-		return { action: 'create', ok: `Created project ${key}.`, createdKey: key };
+		// The add-on runs on the scaffolded project exactly as the card's "＋ Pots overlay" does, so a
+		// new game and an existing one get the same parts.
+		const addOn = potsOverlayPreset
+			? await applyPotsOverlayAddOn(clientKey ?? UNASSIGNED_CLIENT, key, {
+					preset: potsOverlayPreset,
+				})
+			: null;
+		return {
+			action: 'create',
+			ok: `Created project ${key}${addOn?.ok ? ' with the pots overlay' : ''}.`,
+			createdKey: key,
+			addOn,
+		};
 	},
 };

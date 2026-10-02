@@ -1,4 +1,5 @@
-import { resolveMeters, type GameConfigDoc } from 'game-config';
+import type { SceneSetOptions } from 'engine-layout';
+import { flowAddOnsOf, resolveMeters, type GameConfigDoc } from 'game-config';
 
 /** The add-on blocks a project's Game Config carries (docs/design/pots-overlay.md §4) — the
  *  `KindCapabilityConfig` flags the kind-gated editor surfaces read. All `false` without a config,
@@ -9,16 +10,32 @@ type AddOnDoc = Pick<GameConfigDoc, 'holdAndWin' | 'potsOverlay'> | null | undef
 
 /**
  * The project's add-ons, plus the pot ids its pots screen shows: every resolved meter, the Hold
- * and Win block's first. `potIds` is null when no config resolves, so the scene set keeps its
- * built-in pots.
+ * and Win block's first. Read through game-config's `flowAddOnsOf`, the one reader Invisible Flow
+ * composes from too. `potIds` is null when no config resolves, so the scene set keeps its built-in
+ * pots.
  */
 export function projectAddOns(doc: AddOnDoc): {
 	addOns: ProjectAddOns;
 	potIds: string[] | null;
 } {
+	const { holdAndWin, potsOverlay, meters } = flowAddOnsOf(doc);
+	return { addOns: { holdAndWin, potsOverlay }, potIds: doc ? meters : null };
+}
+
+/**
+ * The scene-set options a project's layout is seeded from. A Hold and Win kind's own block is its
+ * base game, so only an overlay names its pots there; every other kind gets the add-on screens
+ * whenever its config carries either block. Without an add-on the result is what the scaffold has
+ * always passed (`maxRows` alone, read by the Hold and Win kind only), so its layout is unchanged.
+ */
+export function sceneSetOptionsFor(gameType: string, doc: AddOnDoc): SceneSetOptions {
+	const { addOns, potIds } = projectAddOns(doc);
+	const maxRows = doc?.holdAndWin?.expansion?.maxRows;
+	const addOn =
+		gameType === 'holdAndWin' ? addOns.potsOverlay : addOns.holdAndWin || addOns.potsOverlay;
 	return {
-		addOns: { holdAndWin: !!doc?.holdAndWin, potsOverlay: !!doc?.potsOverlay },
-		potIds: doc ? resolveMeters(doc).map((meter) => meter.id) : null,
+		...(maxRows ? { maxRows } : {}),
+		...(addOn ? { ...addOns, ...(potIds ? { potIds } : {}) } : {}),
 	};
 }
 

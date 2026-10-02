@@ -1248,6 +1248,12 @@
 		'none',
 	];
 
+	/** A pots-only host's meters are all pots, so its rows say "pot"; a Hold and Win game keeps
+	 *  "meter". */
+	const toMeterLabel = $derived(potsOnly ? 'Into a pot (every pot)' : FLIGHT_KIND_LABELS.toMeter);
+	const intoMeterLabel = (id: string): string =>
+		potsOnly ? `Into pot “${id}”` : `Into meter “${id}”`;
+
 	/** The kinds, then one row per Game Config meter, then any authored meter the config no longer
 	 *  declares (kept visible so it can be cleared). */
 	const flightRows = $derived.by(() => {
@@ -1258,22 +1264,22 @@
 			: FLIGHT_KINDS;
 		const rows: { key: string; label: string; orphan: boolean }[] = kinds.map((kind) => ({
 			key: kind,
-			label: potsOnly && kind === 'toMeter' ? 'Into a pot (every pot)' : FLIGHT_KIND_LABELS[kind],
+			label: kind === 'toMeter' ? toMeterLabel : FLIGHT_KIND_LABELS[kind],
 			orphan: false,
 		}));
 		const meters = new Set(data.meterIds);
 		for (const id of data.meterIds) {
-			rows.push({ key: meterFlightKey(id), label: `Into meter “${id}”`, orphan: false });
+			rows.push({ key: meterFlightKey(id), label: intoMeterLabel(id), orphan: false });
 		}
 		for (const key of Object.keys(doc.flights ?? {})) {
 			const id = key.startsWith(FLIGHT_METER_PREFIX) ? key.slice(FLIGHT_METER_PREFIX.length) : '';
-			if (id && !meters.has(id)) rows.push({ key, label: `Into meter “${id}”`, orphan: true });
+			if (id && !meters.has(id)) rows.push({ key, label: intoMeterLabel(id), orphan: true });
 		}
 		// A pots-only host lists only what it authors, so the picked row stays listed while it is
 		// picked: clearing its last field must not move the panel (and a pending head draft) elsewhere.
 		if (potsOnly && flightPick && !rows.some((row) => row.key === flightPick)) {
 			const id = flightPick.slice(FLIGHT_METER_PREFIX.length);
-			rows.push({ key: flightPick, label: `Into meter “${id}”`, orphan: true });
+			rows.push({ key: flightPick, label: intoMeterLabel(id), orphan: true });
 		}
 		return rows;
 	});
@@ -1296,9 +1302,7 @@
 	});
 	const flightHead = $derived<FlightHead | undefined>(flightHeadDraft ?? flightOwn.head);
 	const flightInheritLabel = $derived(
-		flightKey.startsWith(FLIGHT_METER_PREFIX) && doc.flights?.toMeter
-			? FLIGHT_KIND_LABELS.toMeter
-			: 'coded',
+		flightKey.startsWith(FLIGHT_METER_PREFIX) && doc.flights?.toMeter ? toMeterLabel : 'coded',
 	);
 
 	function selectFlight(key: string): void {
@@ -3134,7 +3138,7 @@
 										How a pots overlay token flies into its pot. Per pot (or every pot at once): the
 										head that travels, the trail it leaves (an Invisible FX effect), the effect on
 										impact, the shape of the route and the timing. Anything left unset flies the
-										built-in gold glow; a single pot falls back to “every meter” first.
+										built-in gold glow; a single pot falls back to “every pot” first.
 									{:else}
 										How things fly in Hold and Win — a coin into the total win, a coin into a
 										collector, a special into its meter, a boost beam, an add-respins' "+N" into the
