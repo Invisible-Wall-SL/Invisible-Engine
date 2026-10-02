@@ -38,7 +38,7 @@ session is the Claude Code session titled **"3 pots overlay mechanic"**.
 | 5a | `/config` Add-ons section | not started (needs 1) | — | — |
 | 5b | Scene Editor overlay screens + palette/pickers through the capability | not started (needs 1) | — | — |
 | 5c | Flow vocabulary composition (editor, publish gate, runtime) + graft | not started (needs 1) | — | — |
-| 5d | `/symbols` + `/win-text` + Localization through the capability | not started (needs 1) | — | — |
+| 5d | `/symbols` + `/win-text` + Localization through the capability | in progress | Pots overlay Phase 5d — Symbols + Win Text | — |
 | 6 | Game Maker add-on action + guides + playbook + `borut-pots-sample` played end to end | not started (needs 2–5) | — | — |
 | 7 | Bonus import from another project (provenance, re-sync, pot → imported mode) | not started (needs 6) | — | — |
 | 8 | Partner wire | blocked on partner | — | — |
