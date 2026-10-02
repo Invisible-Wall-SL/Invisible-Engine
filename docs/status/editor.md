@@ -28,12 +28,11 @@ Shipped capabilities on `main`:
 
 ## Open items / next
 
-- **Cross-project art the editor still cannot preview** (same class as the 2026-10-02 atlas fix,
-  failing closed): a shared def's SPINE authored in another project (`resolveEditorSpine` looks only
-  in the project's and `_shared`'s skeleton indexes), a FONT from another project
-  (`/api/fonts/asset`), a FLIPBOOK clip from another project (`/api/flipbook/source-url`). Fix the
-  same way — a narrow, shape-checked allowance from `referencedArtRefs` — or move shared defs' art
-  into the `_shared` library.
+- **Shared defs pinned to an OLD version still name Borut's spines by full prefix**
+  (`featurecard` v1–v8, `c_kzdbwen7` v11 store `invisible_wall/bookofborutremake/spines/R_…/` on a
+  node). Latest versions use bare param names, which now resolve to the `_shared` copies; a project
+  pinned to an old version keeps the stranded node until it moves to latest (the export reports it
+  as a stranded spine). Not measured which projects pin them.
 
 1. **HUD parity gap** — the corner logo/game-name containers still ignore `scale` in-game, so scaling those two corner texts in the editor won't ship.
 2. **Animated / book-event content stays coded** — symbols, win-line draws and count-ups mount via the engine `mount`/`bind` escape hatch; the editor only places their anchor and has no book-event playback.
@@ -46,6 +45,25 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+
+- 2026-10-02 — **The shared `featureCard` and spin button draw their spine + font in every
+  project.** The open item "cross-project spine/font/flipbook the editor cannot preview" was
+  mis-framed: unlike an atlas (which the export copies in), the EXPORT does not ship another
+  project's spine, font or clip either, so a preview allowance would have shown art that never ships
+  (rule 8). Measured on R2: no shared def names a flipbook clip; the latest `featurecard` names spine
+  `R_BuyBonus` + bitmap font `Tungsten-Bold`, and `c_kzdbwen7` (spin button) names
+  `R_SpinButtonNew` — all owned only by `bookofborutremake`, so every other project drew them
+  missing in the editor AND the game. Fix = put the art in the shared library, which both chains
+  already fall back to: the two bundles promoted to `_shared/spines/` and the font to
+  `_shared/fonts/` (+ the library's first `fonts.json`). Two code changes make that land:
+  **fonts** — a project's renderable fonts are now its catalog MERGED with the library
+  (`loadRenderableFonts`, project wins by id/folder) in the editor, Symbols and the export; before,
+  the library was read only by a project with NO catalog, the spine bug `loadSkeletonIndexWithShared`
+  fixed. The Font Maker keeps its project-else-library catalog (where its writes/deletes land).
+  **promote** — `/admin` → promote spine no longer copies `source.json`, which re-linked the
+  "snapshot" to the authoring project's sheet (a re-pack there would rewrite the shared copy).
+  Fixtures: `check:renderable-fonts`, `check:shared-spine-promote` (mutant-checked). A project picks
+  the art up on its next export / publish.
 
 - 2026-10-02 — **A manifest's own fields read R2 only inside its own project (#990 review
   follow-up).** `loadRegionSet` drove R2 reads off author-writable manifest fields with no scope:

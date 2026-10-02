@@ -56,6 +56,7 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+- 2026-10-02 — **`/admin` → promote spine no longer copies the bundle's `source.json`** into `_shared/spines/`, so a shared bundle is a real snapshot (the sidecar let a re-pack in the authoring project rewrite it). Detail: [editor status](editor.md).
 - 2026-09-30 — **Build uploads client source maps to Sentry when `SENTRY_AUTH_TOKEN` is set** (`vite.config.js` hidden maps → `build` script runs `scripts/sentry-sourcemaps.mjs launcher build`: inject debug IDs, upload for `RAILWAY_GIT_COMMIT_SHA`, delete every `.map`, fail if one is left in `client/_app`). Without the token the build is unchanged. Owner steps: docs/INFRA.md "Readable stack traces — source maps".
 
 ### 2026-10-01 — self-service password change; 12-character minimum

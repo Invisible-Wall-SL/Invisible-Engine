@@ -23,9 +23,9 @@
  * `static/assets/editor-fonts/<folder>/`.
  */
 import type { FontCatalog, FontEntry } from 'engine-layout';
-import { resolveFontBundlePrefix, resolveFontCatalogRoot } from './fonts';
+import { catalogFontPrefix, loadRenderableFonts } from './fonts';
 import { SUB } from './projectPaths';
-import { copyObject, deleteObjects, getObjectText, listAllKeys, putObjectText } from './r2';
+import { copyObject, deleteObjects, listAllKeys, putObjectText } from './r2';
 
 export interface FontExportIndex {
 	/** The catalog of fonts actually exported. `prefix` is the `static/assets/`
@@ -61,27 +61,22 @@ export async function exportEditorFonts(
 		return { catalog };
 	};
 
-	const root = await resolveFontCatalogRoot(clientKey, projectKey);
-	if (!root) return pruneAndReturn(empty);
-	const text = await getObjectText(root.key);
-	if (!text) return pruneAndReturn(empty);
-	let catalog: FontCatalog;
-	try {
-		catalog = JSON.parse(text) as FontCatalog;
-	} catch {
-		return pruneAndReturn(empty);
-	}
+	// The project's catalog plus the shared library — what the editor draws, so a library font a
+	// shared component def names ships too (`loadRenderableFonts`).
+	const catalog = await loadRenderableFonts(clientKey, projectKey);
+	if (!catalog) return pruneAndReturn(empty);
 
 	const written = new Set<string>();
 	const exported: FontEntry[] = [];
 
-	for (const f of catalog.fonts ?? []) {
+	for (const entry of catalog) {
+		const f = entry.font;
 		const files = entryFiles(f);
 		// Probe the descriptor (bitmap) / first file (web) to pick the per-project
 		// vs shared `_shared/fonts/` folder — same resolution the editor uses.
 		const probe = f.kind === 'bitmap' ? f.descriptorFile : f.files?.[0]?.file;
 		if (!probe || files.length === 0) continue;
-		const srcPrefix = await resolveFontBundlePrefix(clientKey, projectKey, f.folder, probe);
+		const srcPrefix = await catalogFontPrefix(clientKey, projectKey, entry, probe);
 		if (!srcPrefix) continue;
 
 		let copied = 0;

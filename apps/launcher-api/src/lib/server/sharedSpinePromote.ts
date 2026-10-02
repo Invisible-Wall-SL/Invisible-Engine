@@ -39,6 +39,7 @@ export class PromoteError extends Error {
 }
 
 const SHARED_INDEX_KEY = '_shared/spines/skeletons.json';
+const BUNDLE_SOURCE_SIDECAR = 'source.json';
 
 /**
  * Copy `<client>/<project>/spines/<bundle>` → `_shared/spines/<bundle>` and merge its entry
@@ -78,8 +79,12 @@ export async function promoteSpineToShared(
 	const replaced = await objectExists(`${destPrefix}/${entry.atlas_file}`);
 
 	// R2-side copies: the page textures are the heavy objects and never enter this process.
+	// Never the `source.json` sidecar: it names the authoring project's sheet, and every read of
+	// a bundle re-derives it from that sheet when it drifts (`ensureBundleAtlasFresh`) — so a
+	// re-pack in that project would rewrite the shared copy, the reference this module refuses.
 	const written = new Set<string>();
 	for (const key of srcKeys) {
+		if (key === `${srcPrefix}/${BUNDLE_SOURCE_SIDECAR}`) continue;
 		const destKey = `${destPrefix}${key.slice(srcPrefix.length)}`;
 		await copyObject(key, destKey);
 		written.add(destKey);
