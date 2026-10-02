@@ -1461,8 +1461,8 @@ const effects: Record<string, FlowEffect> = {
 
 	/** Awaited free-spin outro count-up (`freeSpinEnd`). Carries the win-level data the engine's
 	 *  `FreeSpinOutroDriver` counts from; the driver releases it when the count finishes. Raced (see
-	 *  `awaitPresentation`), so a slam releases it — including a count-up that never mounts (a win
-	 *  level with no data), which otherwise holds until the player slams. */
+	 *  `awaitPresentation`), so a slam releases it — including a count-up that never mounts (no win
+	 *  level wired; a level off the ladder still presents, on its nearest tier). */
 	freeSpinOutroCountUp: async (payload) => {
 		await awaitPresentation({
 			type: 'freeSpinOutroCountUp',

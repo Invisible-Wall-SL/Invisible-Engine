@@ -233,13 +233,12 @@
 		}
 	},
 	"apps/lines": {
-		"errors": 165,
+		"errors": 164,
 		"byFile": {
 			"apps/lines/src/components/FlowV2Cinematics.svelte": {
 				"ts:2339": 2
 			},
 			"apps/lines/src/components/Game.svelte": {
-				"ts:18048": 1,
 				"ts:2322": 4,
 				"ts:2352": 2,
 				"ts:2448": 4,

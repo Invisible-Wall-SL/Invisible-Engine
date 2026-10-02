@@ -15,7 +15,6 @@ import {
 	resolveWinModel,
 	symbolsInPlay,
 	validateGameConfigDoc,
-	winLevelType,
 	type GameConfigDoc,
 	type GameSounds,
 	type PayEntry,
@@ -68,8 +67,8 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	 * Maker) fetches asynchronously in `+layout.ts`'s `load()`, which resolves AFTER module evaluation.
 	 * Anything that reads a config value at import time would therefore freeze to the compiled
 	 * template. {@link resetGameConfigCache} drops the memo once the runtime bundle is applied
-	 * (`+layout.ts`, then `Game.svelte`) — miss that call and an online game silently runs the sample config forever,
-	 * which is the bug this whole tool exists to kill.
+	 * (`+layout.ts`, then `Game.svelte`) — miss that call and an online game silently runs the sample
+	 * config forever, which is the bug this whole tool exists to kill.
 	 *
 	 * A never-authored project resolves to `normalizeGameConfigDoc(deps.compiledConfig)`, so it renders
 	 * byte-identically to before. That parity is the contract every doc in this pipeline holds to.
@@ -107,13 +106,14 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 
 	/**
 	 * Drop the {@link getActiveGameConfig} memo so the next read re-resolves. Called once the live
-	 * runtime bundle is fetched (`+layout.ts`) and again once applied (`Game.svelte`), to discard a config memoised at import
-	 * time — before the async doc arrived. A no-op for the baked path (that memo was already
-	 * correct), preserving dev parity.
+	 * runtime bundle is fetched (`+layout.ts`) and again once applied (`Game.svelte`), to discard a
+	 * config memoised at import time — before the async doc arrived. A no-op for the baked path (that
+	 * memo was already correct), preserving dev parity.
 	 */
 	function resetGameConfigCache(): void {
 		cached = null;
 		warned = false;
+		warnedOffLadder.clear();
 		// A verdict reached before the live bundle landed was reached against the COMPILED template's
 		// board, not the authored one — re-decide it against the config the game will actually run.
 		gridChecked = false;
@@ -774,19 +774,53 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		};
 	}
 
+	/** Each win level already reported off the ladder, so the warning is said once per level. */
+	const warnedOffLadder = new Set<number>();
+
+	/**
+	 * The level a book event's `winLevel` PRESENTS at on the active ladder (the authored tiers, else the
+	 * coded `winLevelMap`). A level the ladder has is itself. One it lacks was stamped from another
+	 * ladder — a server on the coded ten against a shorter authored list, or a ladder that changed after
+	 * the book was translated — and takes the highest tier at or below it, or the first tier when it is
+	 * below them all, so a win above the top tier celebrates on the top one. Said once per level.
+	 *
+	 * No number resolves to no tier: a win with no tier mounts no count-up, so the free-spin outro and
+	 * the big win would wait forever for a tap that never arms, the button inert under the celebration
+	 * lock. A non-number is not a level and stays unresolved.
+	 */
+	function ladderLevel(level: number): number | undefined {
+		if (!Number.isFinite(level)) return undefined;
+		const tiers = activeWinLevels();
+		const levels = (
+			tiers ? tiers.map((tier) => tier.level) : Object.values(winLevelMap).map((data) => data.level)
+		).sort((a, b) => a - b);
+		if (levels.includes(level)) return level;
+		const at = levels.filter((l) => l <= level).at(-1) ?? levels[0];
+		if (!warnedOffLadder.has(level)) {
+			warnedOffLadder.add(level);
+			console.warn(
+				`[game-config] win level ${level} is not on this game's ${levels.length}-tier ladder, so it ` +
+					`presents at level ${at}. The RGS and the game disagree about the win tiers.`,
+			);
+		}
+		return at;
+	}
+
 	/**
 	 * The `WinLevelData` for a book event's `winLevel` NUMBER — from the authored tiers when present,
-	 * else the coded `winLevelMap`. The ONE lookup every win consumer now routes through
-	 * (`bookEventHandlerMap`, `flowEffects`, `unskippablePresentation`), replacing the direct
-	 * `winLevelMap[winLevel as WinLevel]` so an authored config's tiers drive the presentation.
+	 * else the coded `winLevelMap`, at the level {@link ladderLevel} places it. The ONE lookup every win
+	 * consumer routes through (`bookEventHandlerMap`, `flowEffects`, `playBook`), so an authored config's
+	 * tiers drive the presentation.
 	 */
 	function activeWinLevelData(level: number): WinLevelData | undefined {
+		const at = ladderLevel(level);
+		if (at === undefined) return undefined;
 		const tiers = activeWinLevels();
 		if (tiers) {
-			const tier = tiers.find((t) => t.level === level);
+			const tier = tiers.find((t) => t.level === at);
 			return tier ? withWinPresentation(tierToWinLevelData(tier)) : undefined;
 		}
-		const coded = winLevelMap[level as WinLevel];
+		const coded = winLevelMap[at as WinLevel];
 		return coded ? withWinPresentation(coded) : undefined;
 	}
 
@@ -802,12 +836,11 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		return coded ? withWinPresentation(coded) : undefined;
 	}
 
-	/** Whether a `winLevel` NUMBER is a big-win tier — authored `type === 'big'`, else the coded table's
-	 *  `type`. The big-win GATE, so a 3-tier config triggers big-win on its own big tier, not a magic 6. */
+	/** Whether a `winLevel` NUMBER is a big-win tier — the type of the tier {@link activeWinLevelData}
+	 *  presents it at. The big-win GATE (the celebration re-arm, the between-spins hold), so a 3-tier
+	 *  config triggers big-win on its own big tier, not a magic 6, and agrees with what is shown. */
 	function activeWinLevelIsBig(level: number): boolean {
-		const type = winLevelType(getActiveGameConfig(), level);
-		if (type !== undefined) return type === 'big';
-		return winLevelMap[level as WinLevel]?.type === 'big';
+		return activeWinLevelData(level)?.type === 'big';
 	}
 
 	/**
@@ -853,7 +886,9 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	/** The escalation chain (as `WinLevelData`) for a winning `level`, or `undefined` when escalation is
 	 *  off / un-authored — the big-win component plays only the single winning tier in that case. */
 	function activeWinLevelChain(level: number): WinLevelData[] | undefined {
-		const chain = resolveWinLevelChain(getActiveGameConfig(), level);
+		const at = ladderLevel(level);
+		if (at === undefined) return undefined;
+		const chain = resolveWinLevelChain(getActiveGameConfig(), at);
 		return chain?.map((tier) => withWinPresentation(tierToWinLevelData(tier)));
 	}
 
