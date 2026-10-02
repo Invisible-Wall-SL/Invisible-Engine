@@ -586,10 +586,15 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 2. **Owner decisions pending** (asked 2026-10-02):
    - **(a)** On a paying cell, does the win frame draw over the coin or the coin over the frame? The
      hub recommends the frame over the coin. 4b builds whichever is chosen.
-   - **(b)** Should a **coins-only** overlay be allowed: value coins with no pots, N+ starting a
-     classic Hold and Win? Today the validator requires at least one pot, and the bonus-or-base rule
-     needs a pot routed to Hold and Win or a coin drop. Allowing it is a small Phase 1 rule change
-     (allow zero pots when the table has coin drops) plus the matching `/config` UI.
+   - **(b) Decided 2026-10-02: pots and coins are each optional** (design §7 #8). An overlay may be
+     coins-only (no pots: value coins over the host's symbols, N+ start a classic Hold and Win) or
+     pots-only, but needs at least one. Phase 6 builds it:
+     - the validator allows zero pots when the drop table has a coin row, and errors only when there
+       are neither pots nor coin drops;
+     - a `coinsOnly` preset paired with the Classic Hold and Win bonus;
+     - `/config` lets the last pot be removed and offers the preset;
+     - the mock and runtime are checked with zero pots (no Pots screen, no pot flights);
+     - the Game Maker action offers it.
 3. **Carried into later phases (found in Phase 1):**
    - **Phase 4 (from 5c):** the overlay-only flow actions (show / lift tokens) are not in the
      vocabulary yet: they arrive with their runtime effects. Add them to the overlay fragment in

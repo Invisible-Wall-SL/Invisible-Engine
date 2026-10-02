@@ -371,3 +371,9 @@ an edit made in the source project.
    routing before a real-money release (Phase 8).
 7. **Never test on live Borut:** the sample is a duplicate (`borut-pots-sample`), so the live remake
    is never touched.
+8. **Pots and coins are each optional** (owner, 2026-10-02). An overlay has pots, value coins or
+   both, but at least one of them:
+   - **pots only:** tokens fill pots, and each full pot starts its bonus;
+   - **coins only:** value coins drop over the host's symbols with no pots on screen, N+ on one spin
+     start a classic Hold and Win with those coins held, and fewer simply clear;
+   - **both:** the 3 Pots shape.
