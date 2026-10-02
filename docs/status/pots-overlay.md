@@ -5,7 +5,7 @@
 > design's build plan.
 
 **One-line state:** Phases 0–1 merged (#1008): the `potsOverlay` Game Config block and the
-additive `kindCapabilities`. Phase 3 built (2026-10-02, #PR3 in review): `overlayDrop` and the
+additive `kindCapabilities`. Phase 3 built (2026-10-02, #1012 in review): `overlayDrop` and the
 mode-entry `cause` / `meters` are in the engine contract, and the facade routes each bonus of an
 overlay host by its key. Nothing draws a token yet (Phase 4), and no mock deals one yet (Phase 2).
 A project without the block, which is every project today, plays exactly as before. Next: Phases 2,
@@ -35,7 +35,7 @@ session is the Claude Code session titled **"3 pots overlay mechanic"**.
 | 0 | Plan + hub | in review | 3 pots overlay mechanic | #1008 |
 | 1 | Contract: `potsOverlay` config block + validator + presets + `resolveMeters` + additive `kindCapabilities` inputs | built, in review | 3 pots overlay mechanic | #1008 |
 | 2 | Mock — composed protocol (`withPotsOverlay` over book, reusable H&W feature generator, free-spin hook, forced beats, wire doc, `check:pots-overlay`) | not started (needs 1) | — | — |
-| 3 | Facade + engine event contract (`overlayDrop`, mode-entry `cause`/`meters`, per-bonus routing, pots at boot for any kind) | built, in review | Pots overlay Phase 3 — facade + event contract | #PR3 |
+| 3 | Facade + engine event contract (`overlayDrop`, mode-entry `cause`/`meters`, per-bonus routing, pots at boot for any kind) | built, in review | Pots overlay Phase 3 — facade + event contract | #1012 |
 | 4 | Engine runtime (overlay layer, timing, lift-off flights, drain on any mode entry, H&W from an overlay host, resume) | not started (needs 3) | — | — |
 | 5a | `/config` Add-ons section | not started (needs 1) | — | — |
 | 5b | Scene Editor overlay screens + palette/pickers through the capability | not started (needs 1) | — | — |
@@ -93,7 +93,7 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 ## Decisions & findings
 
 - 2026-10-02 — **Phase 3 contract, as built** (session "Pots overlay Phase 3 — facade + event
-  contract", #PR3). Pinned by `packages/rgs-translator-eagaming/potsOverlay.fixture.ts` (54 checks,
+  contract", #1012). Pinned by `packages/rgs-translator-eagaming/potsOverlay.fixture.ts` (54 checks,
   hand-built wire, auto-discovered by `check:all`) and new `modeStack.fixture.ts` cases.
   - **The engine events** (`engine-game` `potsOverlay.ts`):
     - `overlayDrop {cells: [{reel, row, token, pot?, value?, jackpot?}]}`. Positions are VISIBLE
@@ -282,7 +282,7 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Recent changes
 
-- 2026-10-02 — **Phase 3: facade + event contract (#PR3).** `overlayDrop` and the mode-entry
+- 2026-10-02 — **Phase 3: facade + event contract (#1012).** `overlayDrop` and the mode-entry
   `cause` / `meters` in `engine-game`. The facade under a captured `potsOverlay`: pots seeded at boot
   for any kind, drops and pot meters translated, each bonus routed by its key, a pot's free spins
   marked `cause: 'meter'`, a second bonus in one round, and the resume point. The fixture
