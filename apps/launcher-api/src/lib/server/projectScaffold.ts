@@ -5,10 +5,10 @@
  * without trampling existing data.
  */
 import { freshDrivenSeedDoc } from 'engine-flow-v2';
-import { sceneSetOptionsFor } from '$lib/addOns';
 import type { HoldAndWinPresetId } from 'game-config';
 import type { LayoutDoc } from 'engine-layout';
 import { engineOwnedOnly, getFullSceneSet } from 'engine-layout';
+import { sceneSetOptionsFor } from '$lib/addOns';
 import { gameConfigSeedFor } from './gameConfigDefaults';
 import { ConflictError, loadGameConfigDocWithEtag, saveGameConfigDoc } from './gameConfigStorage';
 import { normalizeDoc } from './localization';

@@ -258,6 +258,11 @@ export function validatePotsOverlay(doc: GameConfigDoc): GameConfigIssue[] {
 			'pots',
 			'The overlay has no pots and drops no value coins — it needs at least one of them.',
 		);
+	} else if (!overlay.pots.length && block && !coinsCount) {
+		error(
+			'pots',
+			"This game's own Hold and Win is its base game, started by coins landing on its reels, so an overlay of value coins alone starts nothing. It needs at least one pot.",
+		);
 	}
 
 	const potIds = new Set<string>();

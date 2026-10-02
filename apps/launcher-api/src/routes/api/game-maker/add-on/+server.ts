@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { POTS_OVERLAY_PRESET_IDS } from 'game-config';
 import { roleHasTool } from '$lib/roles';
-import { applyPotsOverlayAddOn } from '$lib/server/projectAddOn';
+import { addOnToolsMissing, applyPotsOverlayAddOn } from '$lib/server/projectAddOn';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { canAccessProject, projectClientKey } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
@@ -23,21 +23,38 @@ const NO_STORE = { 'cache-control': 'no-store' };
  * its missing parts are seeded — the re-run after a part lost a race. `flow` also grafts the overlay
  * steps into a stored flow. Every write is create-only and conditional; see `projectAddOn.ts`.
  *
- * Gated like the duplicate endpoint: the `gameMaker` tool, plus a project the caller can access.
+ * Gated like the duplicate endpoint (the `gameMaker` tool, plus a project the caller can access),
+ * and by the tools that own the docs it writes ({@link addOnToolsMissing}).
  */
 export const POST: RequestHandler = async ({ request, locals }) => {
 	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE });
-	const roleOverrides = await getRoleOverrides(locals.user.role);
+	const { role } = locals.user;
+	const roleOverrides = await getRoleOverrides(role);
 	const toolOverrides = await getToolOverrides(locals.user.id);
-	if (!roleHasTool(locals.user.role, 'gameMaker', roleOverrides, toolOverrides)) {
+	if (!roleHasTool(role, 'gameMaker', roleOverrides, toolOverrides)) {
 		return json({ error: 'Forbidden' }, { status: 403, headers: NO_STORE });
 	}
 
-	let body: { project?: unknown; preset?: unknown; flow?: unknown };
+	let raw: unknown;
 	try {
-		body = await request.json();
+		raw = await request.json();
 	} catch {
 		return json({ error: 'Invalid JSON' }, { status: 400, headers: NO_STORE });
+	}
+	if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+		return json({ error: 'Expected a JSON object' }, { status: 400, headers: NO_STORE });
+	}
+	const body: { project?: unknown; preset?: unknown; flow?: unknown } = raw;
+	const flow = body.flow === true;
+	const missing = addOnToolsMissing(
+		(tool) => roleHasTool(role, tool, roleOverrides, toolOverrides),
+		flow,
+	);
+	if (missing.length) {
+		return json(
+			{ error: `The add-on writes docs your role cannot edit: ${missing.join(', ')}.` },
+			{ status: 403, headers: NO_STORE },
+		);
 	}
 
 	const project = typeof body.project === 'string' ? body.project.trim() : '';
@@ -51,7 +68,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	}
 
 	const client = (await projectClientKey(project)) ?? UNASSIGNED_CLIENT;
-	const result = await applyPotsOverlayAddOn(client, project, { preset, flow: body.flow === true });
+	const result = await applyPotsOverlayAddOn(client, project, { preset, flow });
 	if (!result.ok) {
 		return json({ error: result.error }, { status: result.status, headers: NO_STORE });
 	}

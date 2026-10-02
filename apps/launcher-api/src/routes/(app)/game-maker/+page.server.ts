@@ -1,7 +1,12 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import { HOLD_AND_WIN_PRESET_IDS, POTS_OVERLAY_PRESET_IDS } from 'game-config';
+import {
+	HOLD_AND_WIN_PRESET_IDS,
+	POTS_OVERLAY_PRESET_IDS,
+	type PotsOverlayPresetId,
+} from 'game-config';
 import { ADMIN_PANEL_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import { mayTargetClient } from '$lib/accessRules';
+import type { AddOnOutcome } from '$lib/potsOverlayAddOn';
 import { OWNER_ROLE } from '$lib/launcherGates';
 import {
 	clientExists,
@@ -15,7 +20,7 @@ import { buildGameProfile } from '$lib/server/gameProfile';
 import { listGames } from '$lib/server/games';
 import { currentPointer } from '$lib/server/publishedRuntime';
 import { UNASSIGNED_CLIENT, editorDocKey } from '$lib/server/projectPaths';
-import { applyPotsOverlayAddOn } from '$lib/server/projectAddOn';
+import { addOnToolsMissing, applyPotsOverlayAddOn } from '$lib/server/projectAddOn';
 import { scaffoldProject } from '$lib/server/projectScaffold';
 import {
 	accessibleProjectsWithClient,
@@ -59,6 +64,39 @@ async function gate(locals: App.Locals): Promise<NonNullable<App.Locals['user']>
 		throw error(403, 'Your role does not have access to Invisible Game Maker.');
 	}
 	return locals.user;
+}
+
+/** The create action's pots overlay add-on, with the endpoint's tool gate. */
+async function createAddOn(
+	user: NonNullable<App.Locals['user']>,
+	client: string,
+	project: string,
+	preset: PotsOverlayPresetId,
+): Promise<AddOnOutcome> {
+	const roleOverrides = await getRoleOverrides(user.role);
+	const toolOverrides = await getToolOverrides(user.id);
+	const missing = addOnToolsMissing(
+		(tool) => roleHasTool(user.role, tool, roleOverrides, toolOverrides),
+		false,
+	);
+	if (missing.length) {
+		return {
+			ok: false,
+			status: 403,
+			error: `The pots overlay was not added: it writes docs your role cannot edit (${missing.join(', ')}).`,
+		};
+	}
+	try {
+		return await applyPotsOverlayAddOn(client, project, { preset });
+	} catch (e) {
+		console.error('pots overlay add-on on create failed:', e);
+		const detail = e instanceof Error ? e.message : String(e);
+		return {
+			ok: false,
+			status: 500,
+			error: `The game was created, but the pots overlay was not added: ${detail}`,
+		};
+	}
 }
 
 export const load: PageServerLoad = async ({ locals, parent }) => {
@@ -231,11 +269,10 @@ export const actions: Actions = {
 			holdAndWinPreset: rawGameType === 'holdAndWin' ? holdAndWinPreset : undefined,
 		});
 		// The add-on runs on the scaffolded project exactly as the card's "＋ Pots overlay" does, so a
-		// new game and an existing one get the same parts.
+		// new game and an existing one get the same parts. The game exists by now, so a refusal or a
+		// failure is reported beside it rather than failing the create.
 		const addOn = potsOverlayPreset
-			? await applyPotsOverlayAddOn(clientKey ?? UNASSIGNED_CLIENT, key, {
-					preset: potsOverlayPreset,
-				})
+			? await createAddOn(user, clientKey ?? UNASSIGNED_CLIENT, key, potsOverlayPreset)
 			: null;
 		return {
 			action: 'create',

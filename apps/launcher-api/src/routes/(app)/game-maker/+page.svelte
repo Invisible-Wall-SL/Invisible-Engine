@@ -8,6 +8,7 @@
 		POTS_OVERLAY_PRESET_IDS,
 		POTS_OVERLAY_PRESET_LABELS,
 		type HoldAndWinPresetId,
+		potsOverlayPreset,
 		type PotsOverlayPresetId,
 	} from 'game-config';
 	import { invalidateAll } from '$app/navigation';
@@ -27,6 +28,7 @@
 		withCurrency,
 		asAuthoringLaunch,
 	} from '$lib/gameLaunch';
+	import type { AddOnOutcome, AddOnPartStatus, AddOnSeedReport } from '$lib/potsOverlayAddOn';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -282,24 +284,27 @@
 	// ---------------------------------------------------------------------------------------------
 	// Pots overlay add-on (docs/design/pots-overlay.md §4) — `POST /api/game-maker/add-on`.
 	// ---------------------------------------------------------------------------------------------
-	type AddOnPart = { status: string; added: string[]; note?: string };
-	type AddOnSeeds = { symbols: AddOnPart; layout: AddOnPart; winText: AddOnPart; flow?: AddOnPart };
-	type AddOnOutcome =
-		| {
-				ok: true;
-				configAdded: boolean;
-				renamed: { symbols: Record<string, string>; pots: Record<string, string> };
-				seeds: AddOnSeeds;
-		  }
-		| { ok: false; error: string };
+	/** Presets with no pot (value coins only): their Hold and Win bonus cannot join a Hold and Win
+	 *  game, which already has a block, so its pickers leave them out. */
+	const COINS_ONLY_PRESETS = new Set(
+		POTS_OVERLAY_PRESET_IDS.filter((id) => !potsOverlayPreset(id).potsOverlay.pots.length),
+	);
+	const overlayPresetsFor = (kind: string): PotsOverlayPresetId[] =>
+		POTS_OVERLAY_PRESET_IDS.filter((id) => kind !== 'holdAndWin' || !COINS_ONLY_PRESETS.has(id));
+	/** The picked overlay preset, or the kind's first when the picked one is not offered for it. */
+	const createPreset = $derived(
+		overlayPresetsFor(gameType).includes(createOverlayPreset)
+			? createOverlayPreset
+			: overlayPresetsFor(gameType)[0],
+	);
 
-	const ADD_ON_PARTS: { key: keyof AddOnSeeds; label: string }[] = [
+	const ADD_ON_PARTS: { key: keyof AddOnSeedReport; label: string }[] = [
 		{ key: 'symbols', label: 'Symbols' },
 		{ key: 'layout', label: 'Screens' },
 		{ key: 'winText', label: 'Win Text' },
 		{ key: 'flow', label: 'Flow' },
 	];
-	const ADD_ON_STATUS: Record<string, string> = {
+	const ADD_ON_STATUS: Record<AddOnPartStatus, string> = {
 		added: 'added',
 		present: 'nothing to add',
 		conflict: 'changed meanwhile',
@@ -323,7 +328,7 @@
 
 	function openAddOn(p: Project) {
 		addOnProject = p;
-		addOnPreset = POTS_OVERLAY_PRESET_IDS[0];
+		addOnPreset = overlayPresetsFor(p.gameType)[0];
 		addOnFlow = false;
 		addOnErr = '';
 		addOnResult = null;
@@ -762,6 +767,8 @@
 							key = '';
 							name = '';
 							keyTouched = false;
+							createWithOverlay = false;
+							createOverlayPreset = POTS_OVERLAY_PRESET_IDS[0];
 							await update({ reset: false });
 						} else if (result.type === 'failure') {
 							createErr = String(result.data?.error ?? 'Create failed.');
@@ -833,12 +840,16 @@
 						Add the pots overlay
 					</label>
 					{#if createWithOverlay}
-						<select bind:value={createOverlayPreset} title="Pots overlay preset">
-							{#each POTS_OVERLAY_PRESET_IDS as id (id)}
+						<select
+							value={createPreset}
+							onchange={(e) => (createOverlayPreset = e.currentTarget.value as PotsOverlayPresetId)}
+							title="Pots overlay preset"
+						>
+							{#each overlayPresetsFor(gameType) as id (id)}
 								<option value={id}>{POTS_OVERLAY_PRESET_LABELS[id]}</option>
 							{/each}
 						</select>
-						<input type="hidden" name="potsOverlayPreset" value={createOverlayPreset} />
+						<input type="hidden" name="potsOverlayPreset" value={createPreset} />
 					{/if}
 				</div>
 				<div class="actions">
@@ -1340,7 +1351,7 @@
 						<label>
 							Preset
 							<select bind:value={addOnPreset} disabled={Boolean(addOnResult?.ok)}>
-								{#each POTS_OVERLAY_PRESET_IDS as id (id)}
+								{#each overlayPresetsFor(addOnProject.gameType) as id (id)}
 									<option value={id}>{POTS_OVERLAY_PRESET_LABELS[id]}</option>
 								{/each}
 							</select>

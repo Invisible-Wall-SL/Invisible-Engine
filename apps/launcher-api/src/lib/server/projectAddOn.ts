@@ -21,7 +21,13 @@
  *    defaults in would freeze them as authored copy.
  */
 import { graftAddOnSteps } from 'engine-flow-v2';
-import { addOnSceneIds, getFullSceneSet, mergeMissingScreens, type LayoutDoc } from 'engine-layout';
+import {
+	addOnSceneIds,
+	getFullSceneSet,
+	mergeMissingScreens,
+	type LayoutDoc,
+	type LayoutNode,
+} from 'engine-layout';
 import {
 	addPotsOverlay,
 	flowAddOnsOf,
@@ -30,6 +36,13 @@ import {
 	type PotsOverlayPresetId,
 } from 'game-config';
 import { sceneSetOptionsFor } from '$lib/addOns';
+import { TOOLS } from '$lib/roles';
+import type {
+	AddOnOutcome,
+	AddOnPart,
+	AddOnPartStatus,
+	AddOnSeedReport,
+} from '$lib/potsOverlayAddOn';
 import { loadDocWithEtag, saveDoc } from './editorStorage';
 import { loadFlowV2DocWithEtag, saveFlowV2Doc } from './flowV2Storage';
 import { resolveGameConfig } from './gameConfigDefaults';
@@ -40,28 +53,17 @@ import { ConflictError } from './r2';
 import { potsOverlaySymbolsSeed } from './symbolDefaults';
 import { loadSymbolsDocWithEtag, saveSymbolsDoc } from './symbolsStorage';
 
+export type { AddOnOutcome, AddOnPart, AddOnPartStatus, AddOnSeedReport };
+
 /**
- * - `added`: written now (`added` names what);
- * - `present`: the doc already had every part;
- * - `conflict`: someone saved the doc between this read and its write — run the action again;
- * - `skipped`: nothing could be written (`note` says why);
- * - `failed`: the write threw (`note` carries the error).
+ * The tools that own the docs the add-on writes — the Game Config, Symbols and the Scene Editor,
+ * plus Flow when the graft is asked for — that `hasTool` does not grant, by name. The Game Maker
+ * grant alone must not reach a doc its own tool would refuse.
  */
-export type AddOnPartStatus = 'added' | 'present' | 'conflict' | 'skipped' | 'failed';
-
-export type AddOnPart = { status: AddOnPartStatus; added: string[]; note?: string };
-
-export type AddOnSeedReport = {
-	symbols: AddOnPart;
-	layout: AddOnPart;
-	winText: AddOnPart;
-	/** Present only when the graft was asked for. */
-	flow?: AddOnPart;
-};
-
-export type AddOnOutcome =
-	| { ok: true; configAdded: boolean; renamed: AddOnRenames; seeds: AddOnSeedReport }
-	| { ok: false; status: 400 | 409; error: string };
+export function addOnToolsMissing(hasTool: (tool: string) => boolean, flow: boolean): string[] {
+	const needed = ['gameConfig', 'symbols', 'editor', ...(flow ? ['flow'] : [])];
+	return needed.filter((tool) => !hasTool(tool)).map((tool) => TOOLS[tool]?.name ?? tool);
+}
 
 const part = (status: AddOnPartStatus, added: string[] = [], note?: string): AddOnPart => ({
 	status,
@@ -85,9 +87,57 @@ async function guarded(write: () => Promise<AddOnPart>): Promise<AddOnPart> {
 	}
 }
 
+const POTS_SCREEN = 'pots';
+
+/** The pot a node draws, if it is a Pot Meter. */
+const meterOf = (node: LayoutNode): unknown =>
+	node.kind === 'componentInstance' && node.componentId === 'potMeter'
+		? node.params?.meter
+		: undefined;
+
+const meters = (nodes: readonly LayoutNode[], into = new Set<unknown>()): Set<unknown> => {
+	for (const node of nodes) {
+		into.add(meterOf(node));
+		if (node.kind === 'container') meters(node.children, into);
+	}
+	return into;
+};
+
+/**
+ * A Hold and Win game already has the overlay's screens; what it lacks is a Pot Meter for each
+ * overlay pot beside its own meters. Each missing one is appended to its Pots screen as the
+ * reference places it (the screen itself, when the layout has none). Existing nodes are never moved
+ * or edited; `added` names each new node.
+ */
+function mergeMissingPotMeters(
+	current: LayoutDoc,
+	reference: LayoutDoc,
+): { doc: LayoutDoc; added: string[] } {
+	const ref = reference.scenes.find((s) => s.id === POTS_SCREEN);
+	if (!ref) return { doc: current, added: [] };
+	const screen = current.scenes.find((s) => s.id === POTS_SCREEN);
+	if (!screen) {
+		const scenes = mergeMissingScreens(current.scenes, reference.scenes, [POTS_SCREEN]);
+		return { doc: { ...current, scenes }, added: [POTS_SCREEN] };
+	}
+	const present = meters(screen.nodes);
+	const ids = new Set(screen.nodes.map((n) => n.id));
+	const missing = ref.nodes.filter((n) => !present.has(meterOf(n)) && !ids.has(n.id));
+	if (!missing.length) return { doc: current, added: [] };
+	const nodes = [...screen.nodes, ...structuredClone(missing)];
+	return {
+		doc: {
+			...current,
+			scenes: current.scenes.map((s) => (s === screen ? { ...screen, nodes } : s)),
+		},
+		added: missing.map((n) => n.id),
+	};
+}
+
 /**
  * The layout with the add-on screens it lacks merged in — the Scene Editor's "＋ Add overlay
- * screens", applied to a stored doc. `current` is not mutated; `added` names the merged screens.
+ * screens", applied to a stored doc; on a Hold and Win game, the Pot Meters its Pots screen lacks
+ * ({@link mergeMissingPotMeters}). `current` is not mutated; `added` names what was merged.
  */
 export function mergeAddOnScreens(
 	current: LayoutDoc,
@@ -96,8 +146,12 @@ export function mergeAddOnScreens(
 ): { doc: LayoutDoc; added: string[] } {
 	const options = sceneSetOptionsFor(gameType, config);
 	const reference = getFullSceneSet(gameType, options);
+	if (!reference) return { doc: current, added: [] };
+	if (gameType === 'holdAndWin') {
+		return options.potIds ? mergeMissingPotMeters(current, reference) : { doc: current, added: [] };
+	}
 	const ids = addOnSceneIds(gameType, options);
-	if (!reference || !ids.length) return { doc: current, added: [] };
+	if (!ids.length) return { doc: current, added: [] };
 	const scenes = mergeMissingScreens(current.scenes, reference.scenes, ids);
 	const added = scenes.filter((s) => !current.scenes.some((c) => c.id === s.id)).map((s) => s.id);
 	return { doc: added.length ? { ...current, scenes } : current, added };
@@ -122,21 +176,15 @@ async function seedLayout(client: string, project: string, config: GameConfigDoc
 	if (corrupt) return part('skipped', [], 'The layout could not be read. Open it in /editor.');
 	const gameType = doc.gameType ?? kind;
 	const options = sceneSetOptionsFor(gameType, config);
-	if (!addOnSceneIds(gameType, options).length) {
-		return gameType === 'holdAndWin'
-			? part(
-					'present',
-					[],
-					'A Hold and Win game has the Pots screen already: add a Pot Meter for each new pot in /editor.',
-				)
-			: part(
-					'skipped',
-					[],
-					'This kind has no built-in scene set: add the overlay screens in /editor.',
-				);
+	const reference = getFullSceneSet(gameType, options);
+	if (!reference) {
+		return part(
+			'skipped',
+			[],
+			'This kind has no built-in scene set: add the overlay screens in /editor.',
+		);
 	}
 	if (etag === null) {
-		const reference = getFullSceneSet(gameType, options);
 		const seeded = { ...doc, ...scaffoldLayoutDoc(project, gameType, reference) };
 		await saveDoc(client, project, seeded, null);
 		return part(
@@ -145,8 +193,11 @@ async function seedLayout(client: string, project: string, config: GameConfigDoc
 		);
 	}
 	const merged = mergeAddOnScreens(doc, gameType, config);
-	if (merged.added.length) await saveDoc(client, project, merged.doc, etag);
-	return outcome(merged.added);
+	if (!merged.added.length) return outcome([]);
+	await saveDoc(client, project, merged.doc, etag);
+	return gameType === 'holdAndWin' && !merged.added.includes(POTS_SCREEN)
+		? part('added', merged.added, 'Placed beside the existing pots: arrange them in /editor.')
+		: outcome(merged.added);
 }
 
 async function graftFlow(client: string, project: string, config: GameConfigDoc) {

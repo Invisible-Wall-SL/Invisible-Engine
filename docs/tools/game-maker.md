@@ -178,7 +178,9 @@ spin) starts a bonus. The game keeps its own kind, lines and features. A walkthr
 to playtest is in [Add a pots overlay to an existing game](../guides/add-pots-overlay.md).
 
 Try it on a **duplicate**, never on a live game: the add-on writes to the project's Game Config at
-once, and the next Publish ships it.
+once, and the next Publish ships it. It needs the tools whose docs it writes, beside the Game Maker:
+Game Config, Symbols and the Scene Editor (and Invisible Flow for the Flow steps). Without one, the
+dialog says which, and the new-game checkbox creates the game without the overlay.
 
 1. On the project's card, click **＋ Pots overlay…**. (On a project that already has the overlay the
    button reads **Pots overlay parts…**; see _Running it again_ below.)
@@ -233,6 +235,8 @@ offers **Run again for the rest**. Running again is safe: it adds only what is s
 never duplicates a part. The same goes for **Pots overlay parts…** on the card later: it has no
 preset, only the Flow checkbox and **Seed missing parts**. If the Game Config itself was saved by
 someone else meanwhile, the dialog says so and nothing was added; click **Add** again.
+**Seed missing parts** binds placeholder art to every token or bonus symbol that has no binding,
+including one you cleared on purpose.
 
 To tune the pots, the drops and each pot's bonus, or to remove the overlay, use
 [Game Config → Add-ons](game-config.md#add-ons). The Game Maker only adds it.
@@ -501,8 +505,10 @@ graduate later; its R2 authoring data carries over.
 - **The pots overlay is dealt on Book of hosts only.** The test server's mock deals the overlay
   over a `book` game; a lines or ways host with the overlay is dealt its own game with no drops yet.
   A Hold and Win game that adds the overlay is likewise dealt without pots.
-- **Pots overlay on a Hold and Win game:** the add-on adds no screens, because the project already
-  has its Pots screen. Add a Pot Meter for each new pot in the [Scene Editor](invisible-editor.md).
+- **Pots overlay on a Hold and Win game:** the project already has its Pots screen, so the add-on
+  only appends a Pot Meter for each new pot (`red_2`…) beside the existing ones. Arrange them in the
+  [Scene Editor](invisible-editor.md). **Coins only** is not offered there: the game's own Hold and
+  Win starts from its reels, so dropped coins alone would start nothing.
 - **The pots overlay can only be added here.** Tuning and removing it are in
   [Game Config → Add-ons](game-config.md#add-ons). The new-game checkbox never grafts the Flow; use
   **Pots overlay parts…** with the checkbox, or **＋ Add overlay steps** in Invisible Flow.

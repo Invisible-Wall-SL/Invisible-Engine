@@ -506,11 +506,43 @@ await check(
 	async () => {
 		await scaffoldProject(CLIENT, 'hwNew');
 		const symbolsBefore = stored(symbolsDocKey(CLIENT, 'hwNew'));
+		const layoutBefore = normalizeDoc(
+			storedJson<LayoutDoc>(editorDocKey(CLIENT, 'hwNew')),
+			'hwNew',
+		);
 		const out = await applyPotsOverlayAddOn(CLIENT, 'hwNew', { preset: 'threePots' });
 		assert(out.ok, 'refused');
 		same(out.renamed.pots, { red: 'red_2', blue: 'blue_2', green: 'green_2' }, 'renames');
 		same([...out.seeds.symbols.added].sort(), ['POT_BLUE', 'POT_GREEN', 'POT_RED'], 'symbols');
-		same(out.seeds.layout.status, 'present', 'a Hold and Win layout has the screens');
+		same(
+			[out.seeds.layout.status, out.seeds.layout.added],
+			['added', ['pot-red_2', 'pot-blue_2', 'pot-green_2']],
+			'a Pot Meter for each overlay pot',
+		);
+		const layout = storedJson<LayoutDoc>(editorDocKey(CLIENT, 'hwNew'));
+		const potsBefore = layoutBefore.scenes.find((s) => s.id === 'pots');
+		const potsAfter = layout.scenes.find((s) => s.id === 'pots');
+		assert(potsBefore && potsAfter, 'no Pots screen');
+		same(
+			potsAfter.nodes.slice(0, potsBefore.nodes.length),
+			potsBefore.nodes,
+			'the existing Pot Meters',
+		);
+		same(
+			potsAfter.nodes.map((n) => n.id),
+			['pot-red', 'pot-blue', 'pot-green', 'pot-red_2', 'pot-blue_2', 'pot-green_2'],
+			'the Pots screen',
+		);
+		for (const scene of layoutBefore.scenes.filter((s) => s.id !== 'pots')) {
+			same(
+				layout.scenes.find((s) => s.id === scene.id),
+				scene,
+				`screen ${scene.id}`,
+			);
+		}
+		const again = await applyPotsOverlayAddOn(CLIENT, 'hwNew');
+		assert(again.ok, 'the re-run');
+		same(again.seeds.layout.status, 'present', 'a second run adds no meter');
 		const symbols = storedJson<{ symbols: Record<string, unknown> }>(
 			symbolsDocKey(CLIENT, 'hwNew'),
 		);

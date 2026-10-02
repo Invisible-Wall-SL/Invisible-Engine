@@ -1006,13 +1006,31 @@ const coinsOnGame = normalize({
 	potsOverlay: { ...coinsBlock, drops: { ...coinsBlock.drops, maxPerSpin: 1 } },
 });
 check(
-	"on a Hold and Win game the block stays its base game, and dropped coins warn that they start nothing (the trigger's count is not compared)",
+	"on a Hold and Win game the block stays its base game: coins alone are an error (as the add refuses), and each coin warns it starts nothing (the trigger's count is not compared)",
 	[
 		holdAndWinIsOverlayBonus(coinsOnGame),
 		overlayIssues(coinsOnGame),
 		holdAndWinIssues(coinsOnGame),
 	],
-	[false, ['warning:potsOverlay.drops.table.0'], []],
+	[false, ['error:potsOverlay.pots', 'warning:potsOverlay.drops.table.0'], []],
+);
+check(
+	'...and one pot beside the coins clears the error',
+	overlayIssues(
+		edit(coinsOnGame, (d) => {
+			d.symbols.POT_GOLD = { special_properties: ['meterSpecial'] };
+			d.potsOverlay!.pots = [
+				{
+					id: 'gold',
+					token: 'POT_GOLD',
+					maxLevel: 12,
+					sizeStages: [5, 9],
+					bonus: { mode: 'freeSpins' },
+				},
+			];
+		}),
+	).filter((issue) => issue === 'error:potsOverlay.pots'),
+	[],
 );
 
 console.log('\n7. parity — without the block, Hold and Win validates exactly as before');

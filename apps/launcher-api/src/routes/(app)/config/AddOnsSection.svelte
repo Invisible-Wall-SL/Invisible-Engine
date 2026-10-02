@@ -180,11 +180,17 @@
 	 * while the other is absent — removing the overlay is its own button.
 	 */
 	const hasCoinDrop = (overlay: PotsOverlay) => overlay.drops.table.some(isCoinDrop);
-	const potRemovable = (overlay: PotsOverlay) => overlay.pots.length > 1 || hasCoinDrop(overlay);
+	/** On a Hold and Win game the block is its base game, started by its own reels, so dropped coins
+	 *  alone start nothing and the last pot must stay (the validator's error, the add's refusal). */
+	const coinsAloneStart = $derived(!doc.holdAndWin || holdAndWinIsOverlayBonus(doc));
+	const potRemovable = (overlay: PotsOverlay) =>
+		overlay.pots.length > 1 || (hasCoinDrop(overlay) && coinsAloneStart);
 	const dropRemovable = (overlay: PotsOverlay, i: number) =>
 		overlay.pots.length > 0 || overlay.drops.table.some((e, k) => k !== i && isCoinDrop(e));
 	const KEEP_ONE =
 		'An overlay needs at least one pot or one value-coin drop. Add the other first, or remove the overlay.';
+	const KEEP_POT =
+		"This game's own Hold and Win starts from its reels, so value coins alone start nothing: keep at least one pot, or remove the overlay.";
 
 	function removePot(overlay: PotsOverlay, i: number) {
 		const [gone] = overlay.pots.splice(i, 1);
@@ -439,7 +445,7 @@
 						<td
 							><button
 								class="del"
-								title={potRemovable(overlay) ? 'Remove' : KEEP_ONE}
+								title={potRemovable(overlay) ? 'Remove' : coinsAloneStart ? KEEP_ONE : KEEP_POT}
 								disabled={!potRemovable(overlay)}
 								onclick={() => removePot(overlay, i)}>×</button
 							></td
