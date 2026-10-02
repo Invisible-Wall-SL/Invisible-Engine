@@ -32,6 +32,7 @@ export const GET: RequestHandler = async ({ locals, cookies }) => {
 			clientKey,
 			projectKey,
 			(key) => '/api/fonts/asset?key=' + encodeURIComponent(key),
+			'fontMaker',
 		);
 	} catch (e) {
 		console.error('[fonts/catalog] resolve failed', e);
