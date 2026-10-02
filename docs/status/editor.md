@@ -47,6 +47,15 @@ Shipped capabilities on `main`:
 
 ## Recent changes
 
+- 2026-10-02 — **Art scope hotfix (#987 follow-up, security).** An atlas PAGE is built from the
+  manifest's own fields (`resolvePageKey`), which anyone who can write that project can set: an
+  author could plant `<own project>/manifests/atlas_manifest_x.json` whose page named ANY file of
+  another project in the client (e.g. its `editor/scenes.json`) and stream it through
+  `/api/editor/asset`. A page is now trusted only inside its manifest's own project and only as an
+  image (`pageAllowed`), and a manifest only at the producer path
+  `<client>/<project>/manifests/atlas_manifest_*.json`. A failed scope rebuild keeps the last good
+  scope instead of emptying it. Fixture cases for the planted page.
+
 - 2026-10-02 — **The editor draws art a shared component def brings from another project.** The
   shared `hudReadout` def's frame lives in `invisible_wall/test6`'s `S_UI` atlas and `featureCard`'s
   in `bookofborutremake`'s `S_Game_UI2`, so every project placing them — new or old — drew grey

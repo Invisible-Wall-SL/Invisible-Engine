@@ -6,6 +6,8 @@
  *   1. `candidateAtlases` keeps only this client's keys SHAPED like an atlas manifest: another
  *      client's key, a traversal, an arbitrary `.json` (a doc, a config), an image, a folder are
  *      dropped.
+ *      An atlas PAGE (built from the manifest's own, writable fields) is trusted only inside the
+ *      manifest's project and only as an image (`pageAllowed`).
  *   2. `borrowsClientArt` refuses the shared `unassigned` pseudo-client and the default project.
  *   3. `artScopeAllows` allows exactly the scope's keys — no prefix matching, no traversal.
  *   4. Both editor art gates (regions + asset) go through `assertProjectArt`, so a referenced atlas
@@ -22,6 +24,7 @@ import {
 	artScopeAllows,
 	borrowsClientArt,
 	candidateAtlases,
+	pageAllowed,
 } from '../src/lib/server/projectArtScope.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -45,11 +48,31 @@ const kept = candidateAtlases(
 		'invisible_wall/test6/sheets/S_UI/S_UI.png',
 		'invisible_wall/',
 		'invisible_wall/test6/spines/star/',
+		'invisible_wall/test6/deep/manifests/atlas_manifest_S_UI.json',
 	],
 	'Invisible_Wall',
 );
 check('a sibling project’s atlas manifest is kept', kept.includes(SHARED_DEF_ATLAS));
 check('everything else is dropped', kept.length === 1);
+
+console.log('1b. an atlas page is trusted only in its manifest’s project, and only as an image');
+check('the atlas’s own page', pageAllowed(SHARED_DEF_ATLAS, PAGE));
+check(
+	'NOT a page a planted manifest points at another project’s editor doc',
+	!pageAllowed(
+		'invisible_wall/attacker/manifests/atlas_manifest_x.json',
+		'invisible_wall/victim/editor/scenes.json',
+	),
+);
+check(
+	'NOT an image page in another project',
+	!pageAllowed('invisible_wall/attacker/manifests/atlas_manifest_x.json', PAGE),
+);
+check(
+	'NOT a non-image file in the same project',
+	!pageAllowed(SHARED_DEF_ATLAS, 'invisible_wall/test6/config/config.json'),
+);
+check('NOT a traversal', !pageAllowed(SHARED_DEF_ATLAS, 'invisible_wall/test6/../victim/a.png'));
 
 console.log('2. who may borrow client art');
 check('a named client’s project may', borrowsClientArt('Invisible_Wall', 'hw-3pots-sample'));
