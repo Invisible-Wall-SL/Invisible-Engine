@@ -188,7 +188,8 @@ rewritten when the partner delivers theirs. Its shape:
 
 - the boot `config` carries `potsOverlay {wire, pots: [{id, token, level, max, sizeStages, bonus}],
   bonuses: {<spinTrigger.bonus key>: <mode id>}}`;
-- `overlayDrop` follows `playedSpin`, with `meterUpdate` / `meterLevels` as today;
+- `overlayDrop` sits right after `spinStart` (the facade presents it with its board's `reveal`),
+  with `meterUpdate` / `meterLevels` as today;
 - the bonus a round enters is named by `spinTrigger.bonus` (the partner's own field), and a pot's
   bonus carries `cause: "meter", meters` there;
 - a second bonus in one round arrives as its `spinTrigger` + `enterBonus` where `gameEnd` would

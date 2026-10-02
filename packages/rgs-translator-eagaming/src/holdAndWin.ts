@@ -11,7 +11,9 @@
  * Units: positions stay the wire's VISIBLE 0-based ones (the engine contract uses them too); a
  * wire `amount` is credits and becomes book-event units through `toAmount`; a `value` stays × the
  * base total bet. Symbol names pass through unmapped: a Hold and Win server maps by identity
- * (`pickMappingForConfig`), so they agree with the mapped `reveal` board.
+ * (`pickMappingForConfig`), so they agree with the mapped `reveal` board. A pots-overlay host keeps
+ * its host's mapping instead, whose table names none of these symbols, so they pass through there
+ * too.
  */
 
 import { BOOK_AMOUNT_MULTIPLIER } from 'constants-shared/bet';
@@ -19,6 +21,8 @@ import { BOOK_AMOUNT_MULTIPLIER } from 'constants-shared/bet';
 /** The `holdAndWin` block of the boot `config` — the fields the translation reads. */
 export type HoldAndWinWireConfig = {
 	wire: number;
+	/** The `spinTrigger.bonus` key its feature arrives under. */
+	bonus: string;
 	roles: Record<string, string[]>;
 	/** A progressive tier says so and carries its pool (`value`, × base total bet), which
 	 *  `jackpotLevels` moves; a fixed tier pays its `multiplier`. */
@@ -42,6 +46,7 @@ export const readHoldAndWinConfig = (cfg: unknown): HoldAndWinWireConfig | null 
 	}
 	return {
 		wire: block.wire,
+		bonus: typeof block.bonus === 'string' && block.bonus ? block.bonus : 'respin',
 		roles: block.roles ?? {},
 		jackpots: (block.jackpots ?? []).map((j) => ({ ...j })),
 		...(block.stickiness ? { stickiness: block.stickiness } : {}),
@@ -231,6 +236,30 @@ export const meterUpdateEvent = (ctx: Ctx) => ({
 	from: cellsOf(ctx.from),
 	...(ctx.forced ? { forced: true } : {}),
 });
+
+/** A mode the server announces by name. `meters` (the full pots that started it) travel only on a
+ *  pots-overlay host's wire, so only its translation asks for them. */
+export const modeEnterEvent = (ctx: Ctx, withMeters = false) =>
+	typeof ctx.mode === 'string' && ctx.mode
+		? {
+				type: 'modeEnter',
+				mode: ctx.mode,
+				...(typeof ctx.cause === 'string' ? { cause: ctx.cause } : {}),
+				...(withMeters && Array.isArray(ctx.meters) ? { meters: ctx.meters } : {}),
+				...(ctx.policy === 'queue' || ctx.policy === 'nest' ? { policy: ctx.policy } : {}),
+				...(ctx.payload && typeof ctx.payload === 'object' ? { payload: ctx.payload } : {}),
+			}
+		: null;
+
+/** That mode is over; its `total` is credits on the wire. */
+export const modeExitEvent = (ctx: Ctx, toAmount: (credits: number) => number) =>
+	typeof ctx.mode === 'string' && ctx.mode
+		? {
+				type: 'modeExit',
+				mode: ctx.mode,
+				...(typeof ctx.total === 'number' ? { total: toAmount(ctx.total) } : {}),
+			}
+		: null;
 
 /** Every meter's level, restated after a play. */
 export const meterLevelsEvent = (ctx: Ctx) => ({
@@ -456,23 +485,9 @@ export const translateHoldAndWinEvent = (
 		// A second game mode the server announces (queued behind the feature, or nested). The Hold
 		// and Win feature itself only ever arrives as holdAndWinTrigger / holdAndWinEnd.
 		case 'modeEnter':
-			return typeof ctx.mode === 'string' && ctx.mode
-				? {
-						type: 'modeEnter',
-						mode: ctx.mode,
-						...(typeof ctx.cause === 'string' ? { cause: ctx.cause } : {}),
-						...(ctx.policy === 'queue' || ctx.policy === 'nest' ? { policy: ctx.policy } : {}),
-						...(ctx.payload && typeof ctx.payload === 'object' ? { payload: ctx.payload } : {}),
-					}
-				: null;
+			return modeEnterEvent(ctx);
 		case 'modeExit':
-			return typeof ctx.mode === 'string' && ctx.mode
-				? {
-						type: 'modeExit',
-						mode: ctx.mode,
-						...(typeof ctx.total === 'number' ? { total: t.toAmount(ctx.total) } : {}),
-					}
-				: null;
+			return modeExitEvent(ctx, t.toAmount);
 		default:
 			return null;
 	}

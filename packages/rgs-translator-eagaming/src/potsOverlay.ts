@@ -13,7 +13,8 @@
 
 import type { HoldAndWinMeterLevel } from './holdAndWin';
 
-/** The engine mode a Hold and Win bonus is (`game-config` `HOLD_AND_WIN_MODE`). */
+/** The engine mode a Hold and Win bonus is — `game-config`'s `HOLD_AND_WIN_MODE`, restated because
+ *  this package takes no engine dependency. */
 export const HOLD_AND_WIN_MODE = 'holdAndWin';
 
 /** The only wire this module was written for — `config.potsOverlay.wire`. */

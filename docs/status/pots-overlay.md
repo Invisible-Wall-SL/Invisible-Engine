@@ -93,8 +93,11 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 ## Decisions & findings
 
 - 2026-10-02 — **Phase 3 contract, as built** (session "Pots overlay Phase 3 — facade + event
-  contract", #1012). Pinned by `packages/rgs-translator-eagaming/potsOverlay.fixture.ts` (54 checks,
-  hand-built wire, auto-discovered by `check:all`) and new `modeStack.fixture.ts` cases.
+  contract", #1012). Pinned by `packages/rgs-translator-eagaming/potsOverlay.fixture.ts` (65 checks
+  on hand-built wire that follows Phase 2's wire doc; it runs in `check:holdandwin`) and new
+  `modeStack.fixture.ts` cases. A throwaway driver also played the facade against Phase 2's real
+  `withPotsOverlay` book mock (branch `claude/pots-overlay-phase2`): every forced beat plus 80
+  random rounds, 641 checks, 0 failures.
   - **The engine events** (`engine-game` `potsOverlay.ts`):
     - `overlayDrop {cells: [{reel, row, token, pot?, value?, jackpot?}]}`. Positions are VISIBLE
       0-based, like every Hold and Win position. `token` is the symbol name, mapped through the
@@ -112,33 +115,47 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
     - **Boot:** pot levels go out on the existing `__IE_HOLD_AND_WIN_METERS__` global, in
       `resolveMeters` order (the Hold and Win block's own meters first, then the pots), for any
       kind.
-    - **Mapping:** with the block, `pickMappingForConfig` keeps the HOST's mapping (book / lines)
+    - **Mapping:** with the block (wire 1, the facade's own gate), `pickMappingForConfig` keeps the HOST's mapping (book / lines)
       even when a `holdAndWin` block is present. Without it, a Hold and Win block still means
       identity names. The Hold and Win bonus names and token names are in no host's table, so they
       pass through.
-    - **Order:** the `overlayDrop` of a spin is emitted right after that spin's `reveal`, before its
-      `winInfo`s, wherever the wire put it in that spin. Without a Hold and Win block, `meterUpdate`
-      / `meterLevels` are translated by the overlay path (shared builders in `holdAndWin.ts`).
+    - **Order:** the wire puts `overlayDrop` right after `spinStart`. The facade binds each drop to
+      the next `playedSpin` and emits it right after that board's `reveal`, before its `winInfo`s.
+      Under an overlay, the overlay translation runs first, ahead of the Hold and Win one, for
+      `overlayDrop`, `meterUpdate`, `meterLevels`, `modeEnter` and `modeExit`. The builders are
+      shared, so the pot meters translate the same with or without a Hold and Win block. Only the
+      overlay's `modeEnter` keeps `meters`, so a Hold and Win wire without the block is unchanged.
+    - **A pot routed to any other mode** arrives as the `modeEnter {cause: 'meter', meters}` +
+      `modeExit {total: 0}` stub. It passes through even on a host with no Hold and Win block.
     - **Routing:** `spinTrigger.bonus` → `potsOverlay.bonuses[key]` → `holdAndWin` plays on the
       respin board (`enterBonus` / `playedBonusSpin` → `holdAndWinState`), and anything else plays
       on the reels (free spins). A key the block does not list falls back to the Hold and Win
       block's own key (`config.holdAndWin.bonus`, default `respin`). The route holds from one
       `spinTrigger` to the next, so the free-spin counter only counts reels bonus spins. The
       facade has no Game Config doc, so it reads the route off the wire and never re-derives
-      `holdAndWinIsOverlayBonus`.
+      `holdAndWinIsOverlayBonus`. A route to Hold and Win with no Hold and Win block captured plays
+      on the reels: there is no respin board to play it on.
     - **A pot's free spins:** `spinTrigger {cause, meters}` → `freeSpinTrigger {cause, meters}`
       with `positions: []` (no scatter caused it). The base spin's wins are banked at entry
       (`setTotalWin`), because a pot's trigger arrives after the reveal.
-    - **A second bonus in one round:** a `spinTrigger` while free spins are playing ends them with
-      a synthesized `freeSpinEnd {amount: round win so far, winLevel}`. That is the `gameEnd` they
-      would have had; the round's own `gameEnd` then closes it as a base round. `playOutRound`
-      needed no change: it already plays to the `gameEnd` after the LAST `enterBonus`.
+    - **Several bonuses in one round**, in whatever order the server sends them. Each later
+      `spinTrigger` closes the bonus before it.
+      - Free spins end with a synthesized `freeSpinEnd`. Its `amount` and its `winLevel` both come
+        from the round's win so far, so they always agree. It is the `gameEnd` they would have had.
+      - A Hold and Win feature leaves the respin board, and its `holdAndWinEnd` total joins the
+        round's win, so the meter never steps back.
+      - The round's own `gameEnd` then closes it as a base round, and a big round total gets its
+        `setWin` there, as a Hold and Win round's does.
+      - `playOutRound` needed no change: it already plays to the `gameEnd` after the LAST
+        `enterBonus`.
+    - **The coded free-spin intro** reads "A full pot awards N Free Spins" for `cause: 'meter'`,
+      instead of "0 Scatters award…". A flow that owns `freeSpinTrigger` never reaches this text.
     - **Resume:** an overlay host resumes mid-respins at the next respin (as a Hold and Win game
       does) only when the open bonus is respins. A pot's free spins replay whole, as every
       free-spin round does.
   - **Parity:** with no block, the facade is byte-identical to `main`. A throwaway harness ran the
     old facade and this one against 36 seeded rounds (book, book free spins, lines, the three Hold
-    and Win presets): 3,905 book events, 0 differences. `check:holdandwin` (1892), `check:resume`,
+    and Win presets, a queued second mode): 4,199 book events, 0 differences. `check:holdandwin` (1892), `check:resume`,
     `check:freespins`, `check:rgs` and `check:engine-game` pass unchanged. The svelte-check ratchet
     holds (lines 164, engine-game 37, launcher 53). `apps/lines` booted on the local book mock
     (`FORCE_TRIGGER=1`) deals and drives the whole free-spin round exactly as `main` does. In this

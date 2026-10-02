@@ -1,8 +1,8 @@
 /**
  * The pots-overlay translation (design `docs/design/pots-overlay.md` §3.2–3.3), driven through the
  * REAL facade against a scripted server that answers with HAND-BUILT wire — the "Pots overlay"
- * section of `docs/reference/hold-and-win-wire.md`, written down here before the mock that speaks
- * it (Phase 2) exists. Every book is folded through the engine's own readers (`modeOpOf`, the mode
+ * section of `docs/reference/hold-and-win-wire.md`, in the array order Phase 2's mock deals it
+ * (`overlayDrop` right after `spinStart`, `meterLevels` last). Every book is folded through the engine's own readers (`modeOpOf`, the mode
  * stack, `applyHoldAndWinEvent`), so the facade and the engine contract cannot drift apart.
  *
  *   node --experimental-strip-types --import ./scripts/ts-loader.mjs packages/rgs-translator-eagaming/potsOverlay.fixture.ts
@@ -15,8 +15,10 @@
  *     `cause: 'meter'` and the pots, which the mode layer keeps.
  *  3. A BOOK HOST + A POT → HOLD AND WIN: the bonus key routes the round to the respin board, value
  *     coins dropped on the base board are held, and the book's own symbols still map.
- *  4. BOTH BONUSES IN ONE ROUND: the host's free spins play, end when the pot's bonus is triggered
- *     (there is no `gameEnd` between them), then the respins play; the mode stack ends at base.
+ *     A pot routed to a mode the client does not play yet passes through as its `modeEnter` /
+ *     `modeExit` stub, with no Hold and Win block captured.
+ *  4. BOTH BONUSES IN ONE ROUND, in either order: each ends when the next is triggered (there is no
+ *     `gameEnd` between them), the win meter never steps back, and the mode stack ends at base.
  *  5. RESUME: a round left open mid-respins resumes after the respins already played; one left open
  *     in a pot's free spins replays whole, as every free-spin round does.
  *  6. PARITY: without the block, a Hold and Win block still takes every bonus and a book round
@@ -103,7 +105,7 @@ const BOOK_SYMBOLS = [
 	'TEN',
 	'SCAT',
 ];
-const OVERLAY_SYMBOLS = ['RED', 'GREEN', 'COIN', 'BONUS', 'BLANK'];
+const OVERLAY_SYMBOLS = ['RED', 'GREEN', 'BLUE', 'COIN', 'BONUS', 'BLANK'];
 
 const bookConfig = (extra: Record<string, unknown> = {}) => ({
 	symbols: [...BOOK_SYMBOLS, ...OVERLAY_SYMBOLS],
@@ -513,13 +515,13 @@ console.log('\n1. boot: the pots seed for any kind');
 console.log('\n2. a book host: a full pot starts its own free spins');
 const potFreeSpinsBase = (): Wire[] => [
 	...opening(),
+	drop([{ reel: 1, row: 0, symbol: 'GREEN', pot: 'green' }]),
 	lineWin(20),
 	{ event: 'playedSpin', context: BOARD },
-	drop([{ reel: 1, row: 0, symbol: 'GREEN', pot: 'green' }]),
 	meterUpdate('green', 5, [{ reel: 1, row: 0 }]),
-	meterLevels({ green: 0 }),
 	featureTrigger(2, { cause: 'meter', meters: ['green'] }),
 	...enterFreeSpins(2),
+	meterLevels({ green: 0 }),
 ];
 const freeSpinsScript = (): Script => ({
 	config: bookConfig({
@@ -545,10 +547,10 @@ const freeSpinsScript = (): Script => ({
 		'overlayDrop',
 		'winInfo',
 		'meterUpdate',
-		'meterLevels',
 		'setTotalWin',
 		'freeSpinTrigger',
 		'setExpandingSymbol',
+		'meterLevels',
 		'updateFreeSpin',
 		'reveal',
 		'setTotalWin',
@@ -613,18 +615,62 @@ const freeSpinsScript = (): Script => ({
 	]);
 }
 
+console.log('\n2b. a pot routed to a mode the client does not play yet');
+{
+	const { book } = await play('S-pot-mode', {
+		config: bookConfig({
+			potsOverlay: overlayBlock([{ id: 'blue', level: 4, bonus: 'wheel' }]),
+		}),
+		answers: [
+			[
+				...opening(),
+				drop([{ reel: 2, row: 1, symbol: 'BLUE', pot: 'blue' }]),
+				{ event: 'playedSpin', context: BOARD },
+				meterUpdate('blue', 5, [{ reel: 2, row: 1 }]),
+				{ event: 'modeEnter', context: { mode: 'wheel', cause: 'meter', meters: ['blue'] } },
+				{ event: 'modeExit', context: { mode: 'wheel', total: 0 } },
+				{ event: 'gameEnd', context: { win: 0 } },
+				{ event: 'gameRoundOver', context: { win: 0 } },
+				meterLevels({ blue: 0 }),
+			],
+		],
+	});
+	wellFormed('pot → another mode', book);
+	check('the stub mode passes through, with no Hold and Win block captured', types(book), [
+		'reveal',
+		'overlayDrop',
+		'meterUpdate',
+		'modeEnter',
+		'modeExit',
+		'setTotalWin',
+		'finalWin',
+		'meterLevels',
+	]);
+	const op = modeOpOf(first(book, 'modeEnter') ?? { type: '' });
+	check(
+		'…naming the pot that started it',
+		op?.op === 'enter' ? [op.id, op.cause, modeEntryMeters(op)] : null,
+		['wheel', 'meter', ['blue']],
+	);
+	check('the mode stack enters and leaves it', modesOf(book).moves, [
+		'enter:wheel',
+		'exit:wheel',
+		'allFinished',
+	]);
+}
+
 // ---------- 3. book host + pot → Hold and Win ----------
 
 console.log('\n3. a book host: a full pot starts Hold and Win, holding the dropped coins');
 const potRespinBase = (): Wire[] => [
 	...opening(),
-	lineWin(20),
-	{ event: 'playedSpin', context: BOARD },
 	drop([
 		{ reel: 0, row: 1, symbol: 'RED', pot: 'red' },
 		{ reel: 2, row: 2, symbol: 'COIN', value: 2 },
 		{ reel: 4, row: 0, symbol: 'COIN', jackpot: 'MINI' },
 	]),
+	lineWin(20),
+	{ event: 'playedSpin', context: BOARD },
 	meterUpdate('red', 5, [{ reel: 0, row: 1 }]),
 	...respinEntry(),
 	meterLevels({ red: 0 }),
@@ -725,17 +771,17 @@ console.log('\n4. both: the host’s free spins, then the pot’s Hold and Win, 
 {
 	const base: Wire[] = [
 		...opening(),
-		lineWin(20),
-		scatterWin(40),
-		featureTrigger(2),
-		{ event: 'playedSpin', context: SCATTER_BOARD },
 		drop([
 			{ reel: 3, row: 0, symbol: 'RED', pot: 'red' },
 			{ reel: 4, row: 2, symbol: 'COIN', value: 2 },
 		]),
+		lineWin(20),
+		scatterWin(40),
+		featureTrigger(2),
+		{ event: 'playedSpin', context: SCATTER_BOARD },
 		meterUpdate('red', 5, [{ reel: 3, row: 0 }]),
-		meterLevels({ red: 5, green: 0 }),
 		...enterFreeSpins(2),
+		meterLevels({ red: 5, green: 0 }),
 	];
 	const lastFreeSpin: Wire[] = [
 		{ event: 'spinStart', context: {} },
@@ -772,9 +818,9 @@ console.log('\n4. both: the host’s free spins, then the pot’s Hold and Win, 
 		'winInfo',
 		'setTotalWin',
 		'meterUpdate',
-		'meterLevels',
 		'freeSpinTrigger',
 		'setExpandingSymbol',
+		'meterLevels',
 		'updateFreeSpin',
 		'reveal',
 		'setTotalWin',
@@ -832,6 +878,69 @@ console.log('\n4. both: the host’s free spins, then the pot’s Hold and Win, 
 		'allFinished',
 	]);
 	check('…and ends at base', activeModeId(modes.state), 'basegame');
+}
+
+console.log('\n4b. both pots full: Hold and Win, then the other pot’s free spins');
+{
+	const lastRespin = respinLast(0).slice(0, -1); // its `gameEnd` gives way to the next bonus
+	const { book } = await play('S-hw-then-fs', {
+		config: respinScript().config,
+		answers: [
+			[
+				...opening(),
+				drop([
+					{ reel: 0, row: 1, symbol: 'RED', pot: 'red' },
+					{ reel: 1, row: 0, symbol: 'GREEN', pot: 'green' },
+				]),
+				lineWin(20),
+				{ event: 'playedSpin', context: BOARD },
+				meterUpdate('red', 5, [{ reel: 0, row: 1 }]),
+				meterUpdate('green', 5, [{ reel: 1, row: 0 }]),
+				...respinEntry(),
+				meterLevels({ red: 0, green: 0 }),
+			],
+			respinOne(),
+			[
+				...lastRespin,
+				featureTrigger(2, { cause: 'meter', meters: ['green'] }),
+				...enterFreeSpins(2),
+				meterLevels({ red: 0, green: 0 }),
+			],
+			freeSpin(1, 1, null),
+			[...freeSpin(2, 0, { win: 340 }), meterLevels({ red: 0, green: 0 })],
+		],
+	});
+	wellFormed('Hold and Win then free spins', book);
+	const after = types(book).slice(types(book).indexOf('freeSpinTrigger'));
+	check(
+		'the free spins play on the reels, not the respin board',
+		[
+			after.filter((t) => t === 'respinReveal').length,
+			only(book, 'reveal').filter((e) => e.gameType === 'freegame').length,
+			only(book, 'updateFreeSpin').length,
+		],
+		[0, 2, 2],
+	);
+	const meter = only(book, 'setTotalWin').map((e) => e.amount as number);
+	check(
+		'the win meter never steps back: the feature’s total is in it before the free spins',
+		meter.every((amount, i) => i === 0 || amount >= meter[i - 1]),
+		true,
+	);
+	const end = first(book, 'holdAndWinEnd') as { total: number } | undefined;
+	check(
+		'…from the first bank, at the free spins’ entry',
+		meter[0] >= (end?.total ?? Infinity),
+		true,
+	);
+	check('the mode stack plays Hold and Win, then the free spins', modesOf(book).moves, [
+		'enter:holdAndWin',
+		'exit:holdAndWin',
+		'allFinished',
+		'enter:freeSpins',
+		'exit:freeSpins',
+		'allFinished',
+	]);
 }
 
 // ---------- 5. resume ----------

@@ -161,7 +161,9 @@ export const pickMappingForConfig = (cfg: {
 	holdAndWin?: unknown;
 	potsOverlay?: unknown;
 }): GameMapping | null => {
-	if (cfg.holdAndWin && !cfg.potsOverlay) return identityMapping;
+	// The facade's own gate: only a block on the wire this client reads is an overlay host.
+	const overlayHost = (cfg.potsOverlay as { wire?: unknown } | undefined)?.wire === 1;
+	if (cfg.holdAndWin && !overlayHost) return identityMapping;
 	const syms = new Set(cfg.symbols ?? []);
 	if (syms.has('ACE') || syms.has('KING') || syms.has('QUEEN')) return bookMapping;
 	if (syms.has('PIC5') || syms.has('PIC6') || syms.has('PIC7')) return linesMapping;
