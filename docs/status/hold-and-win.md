@@ -53,7 +53,7 @@ titled **"Hold and win game pipeline"**.
 | 11b | Board expansion — rows unlock (design §7; after 11a) | built — whole pipeline on branch `claude/hw-11b-board-expansion` (PR pending merge); follow-ups in Open items | H&W Phase 11b — board expansion | — |
 | 11c | Progressive + operator platform jackpots (design §7) | merged, live (`lines@2342c815d074`) — owed: the live Borut round and the partner's platform-jackpot confirmation (Owner checklist 10–11) | Hold and Win Phase 11c — progressive + platform jackpots | part 1: #991 · part 2: #999 |
 | 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | not started | — | — |
-| 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | not started | — | — |
+| 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | in progress | Hold and Win Phase 12b value bindings | — |
 | 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | not started | — | — |
 
 ## Current state
