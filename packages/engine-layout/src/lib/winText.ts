@@ -126,7 +126,9 @@ export type WinTextRespins = {
 
 /**
  * Hold and Win feature copy. `{modifiers}` is the special names ({@link WinTextFeature.specialNames})
- * joined with ", "; `{meter}` is the name of the special a full pot activates; `{pot}` is a pot's
+ * joined with ", "; `{meter}` is the name of the special a full pot activates — or, for a pots
+ * overlay's pot that activates none (it starts free spins or another mode), the pot's own name
+ * ({@link potCaption}); `{pot}` is a pot's
  * name ({@link potCaption}); `{level}` is a collector level's name ({@link collectorLevelCaption}) or,
  * on a pot, its fill level.
  */

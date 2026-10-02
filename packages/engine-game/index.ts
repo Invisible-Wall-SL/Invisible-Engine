@@ -76,8 +76,14 @@ export {
 	type ModeOp,
 } from './src/game/modeEvents';
 export {
+	applyOverlayEvent,
+	drainedMeters,
+	drainMeters,
+	emptyOverlayState,
+	freeSpinsGaveWay,
 	type ModeEntryCause,
 	type OverlayDropCell,
+	type OverlayState,
 	type PotsOverlayEventFields,
 } from './src/game/potsOverlay';
 export {
