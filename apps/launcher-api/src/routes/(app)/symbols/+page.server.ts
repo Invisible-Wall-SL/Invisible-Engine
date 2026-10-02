@@ -6,6 +6,7 @@ import {
 	symbolHoldAndWinRoles,
 	symbolsInPlay,
 } from 'game-config';
+import { configAddOns, configMeterRows } from '$lib/configAddOns';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listClips } from '$lib/server/flipbookStorage';
@@ -86,7 +87,13 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	// in-play set (the strips, the same gate the paytable/roll use) into the grid list; a symbol with
 	// no baked state map gets an empty one (blank, authorable cells). Never REMOVES a baked symbol —
 	// purely additive, so a symbol mid-authoring can't vanish.
-	const inPlayNames = configDoc ? symbolsInPlay(configDoc) : [];
+	// A pots overlay's tokens are drawn over a cell, never dealt by a strip, so they join the in-play
+	// list here — rows to bind their art to.
+	const addOns = configAddOns(configDoc);
+	const meterRows = configMeterRows(configDoc);
+	const inPlayNames = configDoc
+		? [...new Set([...symbolsInPlay(configDoc), ...Object.keys(meterRows.tokens)])]
+		: [];
 	const mergedSymbols = { ...baseDefaults.symbols };
 	for (const name of inPlayNames) {
 		if (!mergedSymbols[name]) mergedSymbols[name] = {} as (typeof mergedSymbols)[string];
@@ -109,7 +116,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	// grid's row heads, so the author sees which row is the coin, the collector, the mystery. Only
 	// for a kind with coin symbols; every other kind gets an empty map and renders as before.
 	const holdAndWinRoles: Record<string, string[]> = {};
-	if (configDoc && kindCapabilities(gameType).coinSymbols) {
+	if (configDoc && kindCapabilities(gameType, addOns).coinSymbols) {
 		for (const [name, symbol] of Object.entries(configDoc.symbols)) {
 			const roles = symbolHoldAndWinRoles(symbol);
 			if (roles.length) holdAndWinRoles[name] = roles;
@@ -158,6 +165,11 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		defaults,
 		inPlaySymbols,
 		holdAndWinRoles,
+		// Each pots overlay token → the pots it fills: a chip on its row head. Empty without the block.
+		tokenPots: meterRows.tokens,
+		// The add-on blocks the config carries — passed with the kind to `kindCapabilities`, so a
+		// Hold and Win bonus or a pots overlay lights its own parts on any kind.
+		addOns,
 		// The Hold and Win jackpot tiers the Game Config declares — the rows of the coin label's
 		// per-tier jackpot text. Empty ⇒ the page offers the four tiers the presets use.
 		jackpotTiers: (configDoc?.holdAndWin?.jackpots ?? []).map((jackpot) => jackpot.name),
@@ -166,8 +178,9 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		clips,
 		// id + name only — the Book-VFX FX picker is a plain select; the effect's layers live in /fx.
 		effects: effects.map((e) => ({ id: e.id, name: e.name })),
-		// The Hold and Win meters the Game Config declares — one `toMeter:<id>` row each in the
-		// Flights section, so a single pot can fly differently from the rest.
-		meterIds: (configDoc?.holdAndWin?.meters ?? []).map((meter) => meter.id),
+		// Every meter the Game Config declares (`resolveMeters`: Hold and Win meters, then overlay
+		// pots) — one `toMeter:<id>` row each in the Flights section, so a single pot can fly
+		// differently from the rest.
+		meterIds: meterRows.meterIds,
 	};
 };

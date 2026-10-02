@@ -48,6 +48,7 @@
 	import SymbolSpineStage from './SymbolSpineStage.svelte';
 	import SymbolSpritePreview from './SymbolSpritePreview.svelte';
 	import {
+		POTS_TOKEN_STATE_HINTS,
 		STATE_HINTS,
 		STATE_LABELS,
 		visibleStatesFor,
@@ -226,17 +227,23 @@
 	// `stacked` state is never a grid column — its tall art lives in the "Stacked pictures" section.
 	// Every gate comes from the server, RESOLVED (`resolveCascade` / `resolveReelBehaviour`), so
 	// /config's own switches drive the columns rather than the game kind.
-	// What this project's kind offers. The four sections below that a Hold and Win game has no use for
-	// (Book symbol VFX, Stacked pictures, Explosion pattern, Transition) hide on its flags — but each
-	// stays while the doc still authors it, so an author can always reach the switch that turns it off.
-	const caps = $derived(kindCapabilities(data.gameType));
+	// What this project's kind offers, with its config's add-ons (a Hold and Win bonus, a pots
+	// overlay). The four sections below that a Hold and Win game has no use for (Book symbol VFX,
+	// Stacked pictures, Explosion pattern, Transition) hide on its flags — but each stays while the
+	// doc still authors it, so an author can always reach the switch that turns it off.
+	const caps = $derived(kindCapabilities(data.gameType, data.addOns));
 	const visibleStates = $derived(
 		visibleStatesFor(data.gameType, {
 			cascade: data.cascade,
 			emerge: data.reelBehaviour.emerge,
 			clears: data.reelBehaviour.clears,
+			...data.addOns,
 		}),
 	);
+	/** A column's tooltip — a pots host without the respin feature reads its token states as a token's. */
+	const stateHint = (state: SymbolState): string | undefined =>
+		(!caps.holdAndWin && caps.pots ? POTS_TOKEN_STATE_HINTS[state] : undefined) ??
+		STATE_HINTS[state];
 
 	// ── Explosion pattern ──────────────────────────────────────────────────────
 	// The order the winning seats pop in. Shown on exactly the projects that have an explosion step
@@ -1217,10 +1224,13 @@
 
 	// ── Hold and Win FLIGHTS ────────────────────────────────────────────────────────────────────
 	// One style per flight kind, edited in place (every change goes straight through
-	// `setFlightStyle`, which runs the server's own `normalizeFlights`). Shown for a Hold and Win
-	// project, or for any project that already authored the block — hiding authored data would make
-	// it impossible to clear.
-	const flightsShown = $derived(kindCapabilities(data.gameType).holdAndWin || !!doc.flights);
+	// `setFlightStyle`, which runs the server's own `normalizeFlights`). Shown for a project with pots
+	// (a Hold and Win feature or a pots overlay), or for any project that already authored the block
+	// — hiding authored data would make it impossible to clear.
+	const flightsShown = $derived(caps.pots || !!doc.flights);
+	/** A pots host without the respin feature flies only into its pots; a respin kind it still
+	 *  authors stays listed so it can be cleared. */
+	const potsOnly = $derived(caps.pots && !caps.holdAndWin);
 
 	const FLIGHT_HEAD_LABELS: Record<FlightHeadKind, string> = {
 		glow: 'Glow',
@@ -1241,7 +1251,10 @@
 	/** The kinds, then one row per Game Config meter, then any authored meter the config no longer
 	 *  declares (kept visible so it can be cleared). */
 	const flightRows = $derived.by(() => {
-		const rows: { key: string; label: string; orphan: boolean }[] = FLIGHT_KINDS.map((kind) => ({
+		const kinds = potsOnly
+			? FLIGHT_KINDS.filter((kind) => kind === 'toMeter' || doc.flights?.[kind])
+			: FLIGHT_KINDS;
+		const rows: { key: string; label: string; orphan: boolean }[] = kinds.map((kind) => ({
 			key: kind,
 			label: FLIGHT_KIND_LABELS[kind],
 			orphan: false,
@@ -1257,7 +1270,12 @@
 		return rows;
 	});
 
-	let flightKey = $state<string>('toTotal');
+	let flightPick = $state<string>('toTotal');
+	/** The picked flight, or the first row when the pick is not listed (a pots-only host has no
+	 *  `toTotal`). */
+	const flightKey = $derived(
+		flightRows.some((row) => row.key === flightPick) ? flightPick : flightRows[0].key,
+	);
 	/** A head whose kind needs an asset that is not picked yet — held here until it is complete,
 	 *  because the normalizer drops an incomplete head and the choice would vanish. */
 	let flightHeadDraft = $state<FlightHead | null>(null);
@@ -1279,7 +1297,7 @@
 	);
 
 	function selectFlight(key: string): void {
-		flightKey = key;
+		flightPick = key;
 		flightHeadDraft = null;
 		flightHeadAnimations = [];
 	}
@@ -1642,7 +1660,7 @@
 	// How a Hold and Win coin prints its value or jackpot tier on itself. Shown for a kind with coin
 	// symbols (`kindCapabilities().coinSymbols`) — or wherever a label is already authored, so a
 	// project whose kind changed can still see and clear what it ships.
-	const coinLabelShown = $derived(kindCapabilities(data.gameType).coinSymbols || !!doc.coinLabel);
+	const coinLabelShown = $derived(caps.coinSymbols || !!doc.coinLabel);
 	const cl = $derived(doc.coinLabel ?? {});
 	const clTiers = $derived(coinLabelTiers(data.jackpotTiers));
 	const CL_POPS = [
@@ -3107,13 +3125,20 @@
 							<div class="hl-title">
 								<h2>Flights</h2>
 								<p class="hl-sub">
-									How things fly in Hold and Win — a coin into the total win, a coin into a
-									collector, a special into its meter, a boost beam, an add-respins' "+N" into the
-									respin counter, an upgrade's beam at each coin it raises, an unlock symbol into
-									the row it opens. Per kind: the head that travels, the trail it leaves (an
-									Invisible FX effect), the effect on impact, the shape of the route around the
-									winning cells, and the timing. Anything left unset flies the built-in gold glow; a
-									single meter falls back to “every meter” first.
+									{#if potsOnly}
+										How a pots overlay token flies into its pot. Per pot (or every pot at once): the
+										head that travels, the trail it leaves (an Invisible FX effect), the effect on
+										impact, the shape of the route and the timing. Anything left unset flies the
+										built-in gold glow; a single pot falls back to “every meter” first.
+									{:else}
+										How things fly in Hold and Win — a coin into the total win, a coin into a
+										collector, a special into its meter, a boost beam, an add-respins' "+N" into the
+										respin counter, an upgrade's beam at each coin it raises, an unlock symbol into
+										the row it opens. Per kind: the head that travels, the trail it leaves (an
+										Invisible FX effect), the effect on impact, the shape of the route around the
+										winning cells, and the timing. Anything left unset flies the built-in gold glow;
+										a single meter falls back to “every meter” first.
+									{/if}
 								</p>
 							</div>
 						</div>
@@ -5011,7 +5036,7 @@
 							<tr>
 								<th class="corner">Symbol</th>
 								{#each visibleStates as state (state)}
-									<th title={STATE_HINTS[state]}>{STATE_LABELS[state]}</th>
+									<th title={stateHint(state)}>{STATE_LABELS[state]}</th>
 								{/each}
 							</tr>
 						</thead>
@@ -5025,6 +5050,16 @@
 											<span class="roles" title="Hold and Win role, from Invisible Game Config">
 												{#each data.holdAndWinRoles[symbol] as role (role)}
 													<span class="role">{role}</span>
+												{/each}
+											</span>
+										{/if}
+										{#if caps.pots && data.tokenPots[symbol]}
+											<span
+												class="roles"
+												title="Pots overlay token, from Invisible Game Config — drawn over a cell, never dealt by a reel"
+											>
+												{#each data.tokenPots[symbol] as pot (pot)}
+													<span class="role">token → {pot}</span>
 												{/each}
 											</span>
 										{/if}

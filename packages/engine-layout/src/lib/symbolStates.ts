@@ -132,6 +132,17 @@ export const HOLD_AND_WIN_SYMBOL_STATES = [
 ] as const;
 
 /**
+ * The Hold and Win states a POTS OVERLAY token plays (`docs/design/pots-overlay.md` §3.4): it lands
+ * over its cell, rests there, then lights as it flies into its pot. A host with the overlay but no
+ * respin feature offers only these; one with the feature offers every {@link HOLD_AND_WIN_SYMBOL_STATES}.
+ */
+export const POTS_TOKEN_SYMBOL_STATES = [
+	'coinLand',
+	'coinIdle',
+	'flyToMeter',
+] as const satisfies readonly (typeof HOLD_AND_WIN_SYMBOL_STATES)[number][];
+
+/**
  * The states that are a WIN HIGHLIGHT — `win` and the Hold and Win beats that played `win` before
  * they had names of their own. The authored win frame (`highlight`) draws over all of them, as it did
  * when each of these beats requested `win`.

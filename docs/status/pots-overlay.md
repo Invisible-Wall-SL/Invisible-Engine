@@ -38,7 +38,7 @@ session is the Claude Code session titled **"3 pots overlay mechanic"**.
 | 5a | `/config` Add-ons section | not started (needs 1) | — | — |
 | 5b | Scene Editor overlay screens + palette/pickers through the capability | not started (needs 1) | — | — |
 | 5c | Flow vocabulary composition (editor, publish gate, runtime) + graft | not started (needs 1) | — | — |
-| 5d | `/symbols` + `/win-text` + Localization through the capability | in progress | Pots overlay Phase 5d — Symbols + Win Text | — |
+| 5d | `/symbols` + `/win-text` + Localization through the capability | built, in review | Pots overlay Phase 5d — Symbols + Win Text | (this PR) |
 | 6 | Game Maker add-on action + guides + playbook + `borut-pots-sample` played end to end | not started (needs 2–5) | — | — |
 | 7 | Bonus import from another project (provenance, re-sync, pot → imported mode) | not started (needs 6) | — | — |
 | 8 | Partner wire | blocked on partner | — | — |
@@ -89,6 +89,27 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
   - The runtime holds one `RuntimeBundle` (`apps/lines/src/editor-scenes.ts:496-497`).
 
 ## Decisions & findings
+
+- 2026-10-02 — **Phase 5d: symbols and copy, as built** (session "Pots overlay Phase 5d — Symbols +
+  Win Text"). Pinned by `check:symbols-kind-gating` (265 checks) and `check:win-text-doc` §5.
+  - **One reader of the add-ons for the tools:** `apps/launcher-api/src/lib/configAddOns.ts`.
+    `configAddOns(doc)` gives the `{holdAndWin, potsOverlay}` flags every `kindCapabilities` call in
+    `/symbols`, `/win-text`, Localization and `gameProfile` now passes. `configMeterRows(doc)` gives
+    the meter ids (`resolveMeters` order) and each overlay token's pots.
+  - **States:** `symbolStatesForKind` and `visibleStatesFor` have three answers. With `holdAndWin`,
+    every Hold and Win state. With `pots` alone, only `POTS_TOKEN_SYMBOL_STATES` (`coinLand`,
+    `coinIdle`, `flyToMeter`, in `engine-layout`'s `symbolStates.ts`). Otherwise none, as before.
+    The Scene Editor's picker passes no config yet (Phase 5b), so it is unchanged.
+  - **Tokens in `/symbols`:** only `source: 'overlay'` symbols join the rows, never a Hold and Win
+    meter's symbol, so a project without the overlay gets no new row. A token row carries a
+    `token → <pot>` chip.
+  - **Flights:** shown on `pots`. A pots-only host lists `toMeter` and one `toMeter:<id>` row per
+    pot, and the default selection falls back to the first row (it has no `toTotal`).
+  - **Win Text:** Jackpots, Respins, Hold and Win feature and Wheel stay on `holdAndWin` (the kind
+    OR the block). A pots-only host gets a "Pots" section instead: `WIN_TEXT_POT_FIELDS` (Pot full,
+    Pot label) and one name per pot. `collectWinTextTemplates` takes `pots`. Without an overlay,
+    `pots` equals `holdAndWin`, and 120 side-by-side harvests matched `main`.
+  - **Profile chip:** "Pots overlay (N pots)" when the block has pots.
 
 - 2026-10-02 — **Phase 1 contract, as built** (session "3 pots overlay mechanic", #1008). Pinned by
   `packages/game-config/potsOverlay.fixture.ts` (115 assertions) and the kind-gating /
@@ -190,10 +211,13 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
      overlay) also counts dropped value coins, or only landed coin symbols. Record it here.
    - **Phase 5a:** a new pot row without its token or bonus is dropped on save (normalizer rule), so
      keep draft rows client-side until they are complete.
-   - **Phase 5d:** tokens are off the strips, so `symbolsInPlay` leaves them out. `/symbols` and the
-     published symbol defaults must add them through `resolveMeters`. `symbolStatesForKind` (pinned
-     by `check-symbols-kind-gating.ts`) hides `coinLand` / `coinIdle` / `flyToMeter` from a pots-only
-     host, but design §4 wants those states for the tokens. Gate them on `pots` there.
+   - **Phase 4 / 6 (found in 5d):** `scripts/publish-symbol-defaults.mjs` keeps only symbols on a
+     game's reels, so published defaults drop tokens. `/symbols` lists them from the live config,
+     and their cells live in the symbols doc, but the bake must carry them (rule 8).
+   - **Phase 4 (found in 5d):** "Pot full" (`meterFull`) names `{meter}` as the special a pot
+     activates. For a pot routed to free spins there is none. Decide what it says there.
+   - **Phase 5b:** the Scene Editor's state picker (`EditorProperties.svelte`) calls
+     `symbolStatesForKind` without the config. Pass `configAddOns` so it offers the token states.
    - **Phase 6:** merging `holdAndWinBonus()` symbols into a host's dictionary can clash with the
      host's own names (a host that already has a `BONUS` or a `BLANK`). The add-on needs a rename
      map, or must refuse with a clear message.
@@ -215,6 +239,12 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 - **The partner's RGS** for production play (Phase 8). Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-02 — **Phase 5d: `/symbols`, `/win-text` and Localization read the add-ons** (session
+  "Pots overlay Phase 5d — Symbols + Win Text", agent `invisible-symbols`). Tokens get rows, the
+  three token states, a chip and `toMeter:<id>` flights. Win Text gets a Pots section, and
+  Localization harvests it. A Hold and Win bonus on any kind gets the full coin sections. The
+  symbols and Win Text guides were updated. Rules under Decisions; follow-ups under Open items.
 
 - 2026-10-02 — **Phase 1: the contract (#1008).** The `potsOverlay` Game Config block with its
   normalizer, validator, `resolveMeters` and two presets (Phase 1a, agent `invisible-game-config`).

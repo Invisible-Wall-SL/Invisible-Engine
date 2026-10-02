@@ -13,6 +13,7 @@
 		WIN_TEXT_JACKPOT_LABELS,
 		WIN_TEXT_PLATFORM_JACKPOT_FIELDS,
 		WIN_TEXT_PLATFORM_JACKPOT_LABELS,
+		WIN_TEXT_POT_FIELDS,
 		WIN_TEXT_RESPIN_FIELDS,
 		WIN_TEXT_RESPIN_LABELS,
 		WIN_TEXT_WHEEL_FIELDS,
@@ -243,6 +244,9 @@
 			placeholder: potCaption(resolved, key),
 		})),
 	]);
+
+	/** The pot name rows alone — what a pots overlay host without the respin feature names. */
+	const potNameRows = $derived(nameRows.filter((row) => row.map === 'potNames'));
 
 	/**
 	 * The Hold and Win preview values: the config's first jackpot tier, three respins, and the
@@ -753,6 +757,45 @@
 					{/each}
 				</section>
 			{/if}
+		{:else if data.capabilities.pots}
+			<section>
+				<h2>Pots</h2>
+				<p class="hint">
+					The pots overlay's lines. <code>{'{pot}'}</code> is a pot's name (below),
+					<code>{'{level}'}</code> its fill and <code>{'{max}'}</code> the level that fills it;
+					<code>{'{meter}'}</code> is what a full pot activates. <em>Pot full</em> is saved and translated,
+					and shows once a beat uses it.
+				</p>
+				{#each WIN_TEXT_POT_FIELDS as field (field)}
+					<label class="single">
+						<span>{WIN_TEXT_FEATURE_LABELS[field]}</span>
+						<input
+							value={doc.feature?.[field] ?? ''}
+							placeholder={resolved.feature[field] || 'not drawn'}
+							oninput={(e) => setFeature(field, e.currentTarget.value)}
+						/>
+						<em class="row-preview"
+							>{(field === 'potLabel' ? potPreview : holdAndWinPreview(resolved.feature[field])) ||
+								'—'}</em
+						>
+					</label>
+				{/each}
+				<p class="hint">
+					This game's pots, from <a href={resolve('/config')}>Invisible Game Config</a> (<code
+						>{'{pot}'}</code
+					>; an unnamed pot reads its id in capitals):
+				</p>
+				{#each potNameRows as row (row.key)}
+					<label class="single">
+						<span>{row.label}</span>
+						<input
+							value={doc.feature?.potNames?.[row.key] ?? ''}
+							placeholder={row.placeholder}
+							oninput={(e) => setFeatureName('potNames', row.key, e.currentTarget.value)}
+						/>
+					</label>
+				{/each}
+			</section>
 		{/if}
 
 		<section>
