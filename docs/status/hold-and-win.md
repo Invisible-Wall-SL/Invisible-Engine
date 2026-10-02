@@ -857,7 +857,7 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
   - **Guides:** [Component Editor → Skin a coded part](../tools/component-editor.md#skin-a-coded-part--the-pot-meter)
     and the Scene Editor's Pots paragraph.
   - **Verified:**
-    - `test-pot-skin.mjs` passes (42 assertions).
+    - `test-pot-skin.mjs` passes (43 assertions).
     - Storybook `MODE_HOLD_AND_WIN/skinned pot (12c)`, screenshot through Playwright:
       - The coded red pot is unchanged.
       - The blue pot draws the progress-bar art as its body, fill and frame. The fill tracks the
