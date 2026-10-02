@@ -953,8 +953,8 @@ On the left is the list of **flight kinds**:
   step), and the base game's instant win: each coin flies into its nearest special (Grand's BOOST
   star, Hotfire's COLLECT diamond). Those flights are styled by this row too.
 - **Into a meter (every meter)** (`toMeter`) — specials into their pots.
-- **Boost beam** (`boostBeam`) is not listed: beams are not built yet, so nothing flies one. The doc
-  still accepts it, and a project that already authored it sees the row so it can reset it.
+- **Boost beam** (`boostBeam`) — a multiplier (Grand's BOOST star) firing at each coin it boosts,
+  during a respin. The coin's value starts counting up when its beam lands.
 - One row **per meter** your Game Config declares (`toMeter:<id>`). A single meter uses its own row
   for whatever you set there and falls back to **every meter** for the rest, field by field — so you
   can give the gold pot its own head and keep the shared timing. A meter you authored that the Game

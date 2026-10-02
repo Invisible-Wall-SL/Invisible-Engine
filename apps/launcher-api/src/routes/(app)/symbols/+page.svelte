@@ -1241,10 +1241,11 @@
 	/** The kinds, then one row per Game Config meter, then any authored meter the config no longer
 	 *  declares (kept visible so it can be cleared). */
 	const flightRows = $derived.by(() => {
-		// Nothing flies a boost beam yet (beams are not built), so its row shows only once authored.
-		const rows: { key: string; label: string; orphan: boolean }[] = FLIGHT_KINDS.filter(
-			(kind) => kind !== 'boostBeam' || !!doc.flights?.boostBeam,
-		).map((kind) => ({ key: kind, label: FLIGHT_KIND_LABELS[kind], orphan: false }));
+		const rows: { key: string; label: string; orphan: boolean }[] = FLIGHT_KINDS.map((kind) => ({
+			key: kind,
+			label: FLIGHT_KIND_LABELS[kind],
+			orphan: false,
+		}));
 		const meters = new Set(data.meterIds);
 		for (const id of data.meterIds) {
 			rows.push({ key: meterFlightKey(id), label: `Into meter “${id}”`, orphan: false });

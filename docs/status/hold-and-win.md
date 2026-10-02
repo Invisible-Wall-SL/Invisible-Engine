@@ -41,6 +41,7 @@ titled **"Hold and win game pipeline"**.
 | 3 | Mock RGS `holdAndWin` protocol + wire contract (swap seam) | merged | Hold and Win Phase 3 — mock RGS + wire | #924 |
 | 4 | Engine runtime (RespinBoard, coin labels, events, facade, resume) | merged — build complete (follow-ups in Open items) | Hold and Win Phase 4 — engine runtime | 4a #928 · 4b #931 · 4c #934 · resume #938 · 4d #939 · flights #942 · 4e #943 · 4f #945 |
 | 4P | Phase 4 polish (counter timing, respin hitch, cell crop, end board, tally order, random metre, undrawn Win Text, stepped/perspective, flight arc, label tint) | merged — all 10 items (live check owed: an authored arc, see Open items) | Hold and Win Phase 4 — polish | 1–5: #973 · 8+10: #974 · 6–7: #976 · 9: #977 |
+| 4P2 | Polish 2 (respin spin profile, banked-jackpot beat, boost beam, feature-entry idle frame) | items 1–3 shipped by #979 (session "Hold and Win Phase 4 — polish", built in parallel); this session: the `/symbols` Boost beam row, a Classic-mock check of #979, and the item 4 finding (Open items) | H&W polish 2 — spin profile, jackpot beat, boost beam | #980 |
 | 4M | Game modes: registry, mode stack + queue, per-mode flow graphs, resume | merged | Hold and Win Phase 4M — Game modes | #930, #933 |
 | 5 | Flow vocabulary + driven seed | merged, live (`lines@ef2ca06bed2a`) | Hold and Win Phase 5 — flow vocabulary + driven seed | #960 |
 | 6 | Scene Editor template + components | merged | Hold and Win Phase 6 — Scene Editor template | #951 |
@@ -578,16 +579,24 @@ Hold and Win beats prints copy.
      in `/symbols`.
    - Prove an authored `/fx` trail and arrival effect live (author one in the sample); measure
      `countMs` live; author an `arc` on a flight (the knob shipped in #977; nothing authors one yet); author a
-     `boostBeam` (the coded multiplier beat flies one since Phase 4 polish — a coded glow until then).
+     `boostBeam` (the coded multiplier beat flies one since Phase 4 polish — a coded glow until then;
+     its `/symbols` row is listed since #980).
 2. **Phase 4 follow-ups** (the build is complete; none blocks authoring):
    - **Grand and Hotfire are verified in Storybook only** (facade-recorded books, every bar = the
      feature total). Create a Classic and a Collector sample project with the Game Maker preset
      picker (Phase 9a seeds their config; no `/config` save needed), publish, and play their
      letters, instant collect, streak flights and wheel live through their playbooks.
    - **From the live checks (not regressions):** a ~170 ms idle (non-JS) frame at the feature's
-     entry, before the board shows. (Counter timing, the per-respin hitch, the cropped rolling cells,
-     the end board, the tally/hide order and the hidden banked-jackpot beat were fixed by Phase 4
-     polish — Recent changes.)
+     entry, before the board shows, on `hw-3pots-sample`. (Counter timing, the per-respin hitch, the
+     cropped rolling cells, the end board, the tally/hide order and the hidden banked-jackpot beat
+     were fixed by Phase 4 polish — Recent changes.) **Not reproduced off the sample's art**
+     (Polish 2, 2026-10-02): on the engine's fallback layout with the Pots and Classic presets
+     (60 fps GPU headless shell, local mocks, three features in a row) no entry frame went over
+     40 ms. The one first-use cost found is a ~58 ms WebGL program link (`getProgramParameter`) on a
+     session's FIRST spin, not at entry. So the sample's frame is most likely its own art's first
+     upload as the respin layers mount. Next: trace it on the sample itself (`?runtime=1` with its
+     read token, which the polish-2 session could not read), then pre-warm
+     (`renderer.prepare`) only what that trace names.
    - **Authorable respin cell tile / frame + cell gap** (hub decision, 2026-10-01; follow-up, not
      built): the references draw each respin cell on a tile, blank cells as empty tiles. Make it
      AUTHORED, never coded: an optional per-cell background/frame art under each respin cell (a
@@ -646,6 +655,20 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-02 — **Polish 2** (session "H&W polish 2 — spin profile, jackpot beat, boost beam"; #980,
+  launcher + docs, not a runtime release). Items 1–3 of its handoff had already shipped as #979
+  (built in parallel). What this session added:
+  - **`/symbols` lists the Boost beam row.** It was hidden until authored because nothing flew it.
+  - **#979 confirmed on a CLASSIC mock**, real clock (GPU headless shell, 60 fps, local mocks, the
+    engine's fallback layout plus a preset config from a local runtime stub — no project data).
+    `trigger,special:multiplier`: two BOOSTs fired 3 and then 4 `boostBeam` flights, each landing with
+    its `flightArrive`. An authored slow spin profile (speed 1, padding 2) made each respin roll
+    take 3.79–3.80 s, against 1.10 s before #979, when only the base spin slowed. Pots
+    `trigger,fullBoard`: the banked GRAND was written 856 ms after the last coin (the bar's 500 ms
+    count plus the 350 ms beat).
+  - **Item 4 (the feature-entry idle frame): not reproduced** off the sample's art — finding in
+    Open items.
 
 - 2026-10-02 — **Phase 4 polish, hub extras (a)–(c)** (session "Hold and Win Phase 4 — polish"):
   (a) the respin cells merge the editor's authored reel spin feel (`resolveReelSpinProfile`, now one
