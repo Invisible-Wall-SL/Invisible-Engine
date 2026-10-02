@@ -209,6 +209,14 @@ check(
 	boardDropCells([reveal1, ev({ type: 'tumbleBoard' }), drop2], reveal1),
 	[],
 );
+check(
+	'a cell the drop names twice is one token, the last named',
+	boardDropCells(
+		[reveal1, ev({ type: 'overlayDrop', cells: [RED, { ...COIN, reel: 0, row: 1 }] })],
+		reveal1,
+	),
+	[{ ...COIN, reel: 0, row: 1 }],
+);
 check('a reveal not in the book finds nothing', boardDropCells([reveal1, drop2], reveal2), []);
 
 if (failures > 0) throw new Error(`${failures} pots-overlay assertion(s) failed.`);

@@ -71,8 +71,6 @@ export type OverlayDrops = {
  *  reel's as that reel stops. A board with no reel roll (a swap in place) always shows them together. */
 export type OverlayTiming = 'afterStop' | 'perReel';
 
-export const OVERLAY_TIMINGS: readonly OverlayTiming[] = ['afterStop', 'perReel'];
-
 export type PotsOverlay = {
 	pots: OverlayPot[];
 	drops: OverlayDrops;
@@ -171,8 +169,8 @@ const drops = (raw: unknown): OverlayDrops => {
  * Canonicalize a `potsOverlay` block, or `undefined` when there is none. SPARSE: a block with no pot
  * and no drop is no block, so a config that never had one normalizes byte-identically. Only the
  * defaults — the dropping modes (the base game alone) and the timing (after the stop) — are not
- * stored; an authored `reels` or `modes` list is
- * kept as written — every reel, or none, which the validator names.
+ * stored; an authored `reels` or `modes` list is kept as written — every reel, or none, which the
+ * validator names.
  */
 export function normalizePotsOverlay(raw: unknown): PotsOverlay | undefined {
 	if (!isObject(raw)) return undefined;

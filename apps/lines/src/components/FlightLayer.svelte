@@ -30,8 +30,9 @@
 	 * `SymbolLayer` — the path a symbol layer takes — sized to a board cell × its `scale`, inside a
 	 * container at the board's scale; a glow head is `FlightView`'s coded glow re-tinted; `none` draws
 	 * no head. A flight that carries a symbol (a pots overlay's token) draws that symbol as its head
-	 * instead, in its `flyToMeter` state, at the board's scale. The trail is `FlightView`'s. The arrival effect plays ONCE at the target when the head
-	 * lands, and the flight stays mounted until it has played out.
+	 * instead, in its `flyToMeter` state, at the board's scale. The trail is `FlightView`'s. The
+	 * arrival effect plays ONCE at the target when the head lands, and the flight stays mounted until
+	 * it has played out.
 	 */
 
 	const app = getContextApp();

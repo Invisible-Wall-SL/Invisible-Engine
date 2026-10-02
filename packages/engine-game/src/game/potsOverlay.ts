@@ -105,8 +105,7 @@ export const boardDropCells = (
 	if (at < 0) return [];
 	for (const event of bookEvents.slice(at + 1)) {
 		if (event.type === 'reveal' || event.type === 'tumbleBoard') return [];
-		if (event.type === 'overlayDrop')
-			return ((event as LooseEvent).cells as OverlayDropCell[] | undefined) ?? [];
+		if (event.type === 'overlayDrop') return applyOverlayEvent(emptyOverlayState(), event).tokens;
 	}
 	return [];
 };

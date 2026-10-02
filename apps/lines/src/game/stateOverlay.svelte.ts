@@ -9,7 +9,8 @@ import type { FlightSymbol } from './flights.svelte';
 
 /**
  * The tokens on the base board (`docs/design/pots-overlay.md` §3.4) — what the overlay layer draws.
- * Written ONLY by {@link recordOverlayEvent}, from the book, at the play seam; a game whose RGS
+ * Written only from the book: by {@link recordOverlayEvent} at the play seam, and, under per-reel
+ * timing, by {@link showReelTokens} as a reel stops (its board's drop, read ahead). A game whose RGS
  * never drops one keeps the empty picture forever.
  *
  * The record IS the timing: an event is recorded the moment its beat starts. So a drop's tokens
@@ -83,6 +84,8 @@ export const showReelTokens = (reel: number): OverlayDropCell[] => {
 	const cells = reelDrop.filter((cell) => cell.reel === reel);
 	if (!cells.length) return cells;
 	reelDrop = reelDrop.filter((cell) => cell.reel !== reel);
+	const leaving = stateOverlayLeaving.tokens.filter((token) => !cells.some(samePlace(token)));
+	if (leaving.length !== stateOverlayLeaving.tokens.length) stateOverlayLeaving.tokens = leaving;
 	for (const { reel: r, row } of cells) {
 		const key = overlayTokenKey(r, row);
 		shownWithReel[key] = true;
@@ -120,7 +123,9 @@ export const leavingToken = (reel: number, row: number, pot: string) =>
 
 /** Take a lifted token off its cell — its flight has left, carrying it as its head. */
 export const liftToken = (token: OverlayDropCell) => {
-	const remaining = stateOverlayLeaving.tokens.filter((t) => !samePlace(token)(t));
+	const remaining = stateOverlayLeaving.tokens.filter(
+		(t) => !(samePlace(token)(t) && t.pot === token.pot),
+	);
 	if (remaining.length !== stateOverlayLeaving.tokens.length)
 		stateOverlayLeaving.tokens = remaining;
 };
