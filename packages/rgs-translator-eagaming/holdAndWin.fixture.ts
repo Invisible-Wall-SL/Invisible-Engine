@@ -289,6 +289,56 @@ for (const type of HW_TYPES) {
 	await new Promise<void>((resolve) => server.close(() => resolve()));
 }
 
+// A QUEUED second mode (`queuedMode`, wire doc "Modes"): it enters right after the feature's own
+// trigger and exits right after its end, as the engine's generic pair — `total` in book units, the
+// feature itself never doubled as a mode event.
+{
+	const { server, rgsUrl } = await hush(() => startMock('pots', 'queuedMode'));
+	const facade = await openTab();
+	const events = await hush(async () => {
+		await facade.requestAuthenticate({ sessionID: 'fx-queued', rgsUrl, language: 'en' });
+		const bet = (await facade.requestBet({
+			sessionID: 'fx-queued',
+			currency: 'EUR',
+			amount: 1,
+			mode: 'BASE',
+			rgsUrl,
+		})) as Answer;
+		return bet.round?.state ?? [];
+	});
+	verifyRound('queuedMode', events);
+	const types = events.map((e) => e.type);
+	const enter = events.find((e) => e.type === 'modeEnter');
+	const exit = events.find((e) => e.type === 'modeExit');
+	check('queuedMode: the queued mode enters', enter && [enter.mode, enter.cause, enter.policy], [
+		'queuedFixture',
+		'forced',
+		'queue',
+	]);
+	check(
+		'queuedMode: ...right after the feature opens',
+		types.indexOf('modeEnter') > types.indexOf('holdAndWinTrigger'),
+		true,
+	);
+	check('queuedMode: it exits with a total in book units', exit && [exit.mode, exit.total], [
+		'queuedFixture',
+		0,
+	]);
+	check(
+		'queuedMode: ...right after the feature ends',
+		types.indexOf('modeExit') > types.indexOf('holdAndWinEnd'),
+		true,
+	);
+	check(
+		'queuedMode: the feature itself is never a mode event',
+		events.filter(
+			(e) => (e.type === 'modeEnter' || e.type === 'modeExit') && e.mode === 'holdAndWin',
+		).length,
+		0,
+	);
+	await new Promise<void>((resolve) => server.close(() => resolve()));
+}
+
 // RESUME: a feature left open after two respins, picked up by a fresh tab. The replayed `bet` sets
 // the base before any amount converts, and the book rebuilds the feature to its end.
 {
