@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Tween } from 'svelte/motion';
 	import { backOut } from 'svelte/easing';
-	import type { HoldAndWinMeter } from 'game-config';
+	import type { ResolvedMeter } from 'game-config';
 	import { Anchor, Container, Rectangle, Text } from 'pixi-svelte';
 	import { SYMBOL_SIZE } from 'engine-game';
 
@@ -14,7 +14,7 @@
 		stateMeterDisplay,
 	} from '../game/holdAndWinMeters.svelte';
 
-	type Props = { meter: HoldAndWinMeter; index: number; x: number; y: number };
+	type Props = { meter: ResolvedMeter; index: number; x: number; y: number };
 
 	const props: Props = $props();
 
@@ -93,7 +93,7 @@
 	<Text
 		anchor={{ x: 0.5, y: 0 }}
 		y={HEIGHT * 0.65}
-		text={potActivatesText(props.meter.activates)}
+		text={props.meter.bonus.activates ? potActivatesText(props.meter.bonus.activates) : ''}
 		style={textStyle(SYMBOL_SIZE * 0.1)}
 	/>
 </Container>

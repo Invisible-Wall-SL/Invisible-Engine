@@ -9,6 +9,7 @@ import { stateXstateDerived } from './stateXstate';
 import { playBet, convertTorResumableBet } from './utils';
 import { clearWinPresentation } from './winSymbolCycle';
 import { resetLuckySpinReveal } from './luckySpin';
+import { clearOverlay } from './stateOverlay.svelte';
 import { stateGame, stateGameDerived } from './stateGame.svelte';
 import { paddingReels } from './gameConfig';
 
@@ -28,6 +29,7 @@ const primaryMachines = createPrimaryMachines<Bet>({
 		// instant the spin starts. Runs BEFORE the continuous-bet guard below so autoplay/space-hold
 		// rounds clean up too.
 		clearWinPresentation();
+		clearOverlay();
 		resetLuckySpinReveal();
 		if ((stateBet.isTurbo && stateXstateDerived.isAutoBetting()) || stateBet.isSpaceHold) return;
 		stateBet.winBookEventAmount = 0;

@@ -352,26 +352,30 @@ export const presentMeterUpdate = async (event: Beat<'meterUpdate'>) => {
 	if (!event.full) return;
 	pulseMeter(event.meter);
 	eventEmitter.broadcast({ type: 'potFull', meter: event.meter, scope });
-	const activates = configuredMeters().find((meter) => meter.id === event.meter)?.activates;
-	const title = activates ? meterFullText(activates) : '';
+	const meter = configuredMeters().find((m) => m.id === event.meter);
+	const title = meter ? meterFullText(meter.id, meter.bonus.activates) : '';
 	const banner = title ? showHoldAndWinBanner({ kind: 'meterFull', title, size: 'small' }) : 0;
 	await (banner ? holdBanner(METER_FULL_MS) : waitPresentation(METER_FULL_MS));
 	hideHoldAndWinBanner(banner);
 };
 
 /**
- * The FULL meters a `meter` trigger consumed drain to empty, and the modifier each one buys is
- * announced ("PAYER ACTIVE") before the board swaps. What each pot activates is the Game Config's
- * (`meters[].activates`); the server already emptied the meters (recorded at the play seam), so the
+ * The FULL meters a `meter` cause consumed drain to empty, and the modifier each one buys is
+ * announced ("PAYER ACTIVE"). Any mode a pot starts plays it (`docs/design/pots-overlay.md` §3.4):
+ * Hold and Win before its board swaps; free spins and another mode at the start of their coded
+ * entry beat. The mode layer has already entered the mode by then (`modes.before`), so its tagged
+ * screens and music are up while the pots drain. What each pot activates is the Game Config's (`resolveMeters` — a meter's or a pot's
+ * `bonus.activates`); the server already emptied the meters (recorded at the play seam), so the
  * drain runs from each pot's maximum down to the recorded 0.
  */
-const presentMeterConsume = async (event: Beat<'holdAndWinTrigger'>) => {
-	const ids = event.payload.meters ?? [];
+export const presentMeterConsume = async (ids: readonly string[]) => {
 	if (ids.length === 0) return;
 	const declared = configuredMeters();
-	const activates = ids.flatMap((id) => declared.find((meter) => meter.id === id)?.activates ?? []);
+	const activates = ids.flatMap(
+		(id) => declared.find((meter) => meter.id === id)?.bonus.activates ?? [],
+	);
 	const scope = ids.flatMap((id) => scopeOf('meter', id) ?? []);
-	eventEmitter.broadcast({ type: 'potsConsume', meters: ids, activates, scope });
+	eventEmitter.broadcast({ type: 'potsConsume', meters: [...ids], activates, scope });
 	await Promise.all(
 		ids.map(async (id) => {
 			const shown = holdMeterDisplay(id, meterMax(id));
@@ -409,7 +413,7 @@ export const presentLuckySpin = async () => {
  * meters it consumed and announces what they activated.
  */
 export const presentHoldAndWinTrigger = async (event: Beat<'holdAndWinTrigger'>) => {
-	if (event.cause === 'meter') await presentMeterConsume(event);
+	if (event.cause === 'meter') await presentMeterConsume(event.payload.meters ?? []);
 	featureCountedIntoBar = 0;
 	showRespinBoard();
 	syncLetters();

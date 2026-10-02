@@ -6,7 +6,8 @@
 // `lines` set when un-published). Mirrors bake-editor-doc.mjs's transport.
 //
 // The published set is filtered to the symbols the game actually PLAYS: a symbol
-// must be in the `symbols` dictionary AND appear on the `paddingReels` strips.
+// must be in the `symbols` dictionary AND appear on the `paddingReels` strips — or be a
+// pots overlay's token, which drops over a cell and is never on a strip.
 // `SYMBOL_INFO_MAP` holds visual defaults for every symbol the engine *can*
 // render (e.g. an unused H5); the dictionary alone is not enough either, since it
 // legitimately describes symbols a given game never deals (the upstream sample's `W`
@@ -356,7 +357,30 @@ async function filterToGameConfig(symbols) {
 				' for a symbol the game never deals.',
 		);
 	}
-	const inPlay = new Set(Object.keys(used).filter((name) => !onReels || onReels.has(name)));
+	// A pots overlay's tokens are never on a strip (they drop OVER a cell), yet the game draws them:
+	// they are in play through the overlay (`resolveMeters`), so their rows ship too. Imported here,
+	// after the resolve hook above is registered: game-config's own imports have no extension.
+	// The fallback gate is the RAW compiled module, which `resolveMeters` cannot read as is (a hand-
+	// written meter may lack `sizeStages`), so it reads the normalized doc; a config that does not
+	// normalize has no tokens to add.
+	const { normalizeGameConfigDoc } = await import('../../../packages/game-config/src/normalize.ts');
+	const { resolveMeters } = await import('../../../packages/game-config/src/potsOverlay.ts');
+	let tokens = new Set();
+	try {
+		const doc = normalizeGameConfigDoc(cfg);
+		tokens = new Set(
+			resolveMeters(doc)
+				.filter((meter) => meter.source === 'overlay')
+				.map((meter) => meter.symbol),
+		);
+	} catch (err) {
+		console.warn(
+			`⚠ publish-symbols: could not read the ${source}'s pots (${err instanceof Error ? err.message : err}) — publishing no pot tokens.`,
+		);
+	}
+	const inPlay = new Set(
+		Object.keys(used).filter((name) => !onReels || onReels.has(name) || tokens.has(name)),
+	);
 	const dropped = Object.keys(symbols).filter((name) => !inPlay.has(name));
 	for (const name of dropped) delete symbols[name];
 
