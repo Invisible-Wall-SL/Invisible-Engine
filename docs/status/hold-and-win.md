@@ -605,10 +605,6 @@ Hold and Win beats prints copy.
   - **An upgrade cell shows its cash step ("+$1.00") even when it then applies `jackpotTier`**
     (the rule is drawn when it applies, per the rules). If that reads wrong, draw the rule when the
     cell is DEALT instead and print the tier rule as "UP" — a wire change (the cell would carry it).
-  - **`PotMeter.svelte:30` effect loop (found by the 11a live check, not from 11a):**
-    `trackComponentMount` inside a tracked `$effect` raises 2 `effect_update_depth_exceeded` at boot
-    on any Pots project using the template's `pots` scene; without a flow the game then crawls.
-    `ComponentInstance.svelte` wraps the same call in `untrack` — do the same.
   - Not verified live: the sticky add-respins variant (gate-covered only), any project art for
     `ADD` / `UPG` (labels only), an authored `toCounter` / `upgradeBeam` flight.
 
@@ -702,6 +698,25 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-02 — **Phase 11a follow-up 3 closed: an authored pot no longer loops at boot** (session
+  "PotMeter effect loop fix"; a runtime release on merge). `PotMeter.svelte` counted its pot in
+  (`trackComponentMount`) from a tracked `$effect`; counting in reads the mount count it writes, so
+  every Pots project on the template's `pots` scene raised `effect_update_depth_exceeded` at boot
+  and crawled. The call now runs under `untrack`, as `ComponentInstance` and `LayoutScene` do; the
+  meter id stays tracked, so a changed `meter` param re-counts. Audited the other authored parts
+  (LettersStrip, the wheel part, RespinCellTiles, the `respinCounter` / `jackpotTile` /
+  `jackpotBar` builtins) and the coded pots, letters, banner and held cells: none reads state it
+  writes. **Guard:** `scripts/verify-pot-meter-mount.mjs` (in `check:all`) compiles the real
+  component, mounts it through Svelte's client scheduler on a DOM shim and asserts one count-in,
+  re-counts on a meter change (including one at the same index), count-out when the config drops
+  the meter or on unmount, and no loop; the old line fails it 6 ways. **Live** (local runtime stub:
+  the reference layout + Pots preset config, no project data; Pots mock on a free port; headless
+  shell, software GL): before the fix the no-flow boot raised the error and the flow boot crawled
+  after tap-to-start; after it, 0 errors either way, and a forced `meter:red` pinned the authored red
+  pot, filled it toward the server's 12 (sampled at 12/12 under the flow) and emptied it as the
+  feature took it (other pots matched the server). Borut-style parity on the local book mock: a
+  spin after a forced big win plays, balances match, 0 exceptions.
 
 - 2026-10-02 — **Phase 11a: add-respins + upgrade specials, through the whole pipeline** (#995;
   session "H&W Phase 11a — add-respins + upgrade specials"; rules in Decisions above). A runtime
