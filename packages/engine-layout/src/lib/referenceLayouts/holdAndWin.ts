@@ -3,7 +3,14 @@ import {
 	TAP_DIM_ALPHA_PARAM,
 	TAP_TO_CONTINUE_PARAM,
 } from '../tapToContinue';
-import type { LayoutDoc, LayoutNode, LayoutType, NodeOverride, Scene } from '../types';
+import type {
+	LayoutDoc,
+	LayoutNode,
+	LayoutType,
+	NodeOverride,
+	ReelGridNode,
+	Scene,
+} from '../types';
 import { engineSkeletonLayout, type EngineSkeletonBoard } from './engineSkeleton';
 
 /**
@@ -39,7 +46,7 @@ import { engineSkeletonLayout, type EngineSkeletonBoard } from './engineSkeleton
  * Everything is placed AROUND the board, never on it, and the board's rows (3) are the same in
  * every preset — so the 3×3 Hotfire board (narrower) fits the same layout as 5×3; pass its shape as
  * `board`. An EXPANDING board (design §7 11b) passes its `maxRows`: the template then reserves the
- * grown board's area ({@link EXPANDING_BLOCK_GROWTH}) and places the `lockedRow` handle over it. Two arrangements: wide (desktop/landscape) puts the counter and the total either side of
+ * grown board's area ({@link reserveExpandingBoard}) and places the `lockedRow` handle over it. Two arrangements: wide (desktop/landscape) puts the counter and the total either side of
  * the board, tall (tablet/portrait) stacks them above and below.
  */
 
@@ -55,13 +62,53 @@ export const HOLD_AND_WIN_BOARD: EngineSkeletonBoard = {
 export const HOLD_AND_WIN_HOTFIRE_BOARD: EngineSkeletonBoard = { ...HOLD_AND_WIN_BOARD, reels: 3 };
 
 /**
- * How the template RESERVES an expanding board's area (design §7 11b): the respin board grows rows
- * below the base grid, so the reel grid moves up by half the extra rows (the whole `maxRows` block
- * centres where the 3-row board did) and its cells shrink until that block is at most this many
- * times the base board's height — so the pieces above and below, pushed out by the same amount,
- * still fit the desktop box.
+ * How an EXPANDING board's area is reserved (design §7 11b). Its rows grow below the base grid, so
+ * the board's cells shrink until the grown block takes at most this share of the SHORTEST layout
+ * box's height, and the reel grid's row lead (`rowPadding`) lifts the base rows by half the extra
+ * rows — the whole `maxRows` block then sits where the base board's centre was, in every layout,
+ * without moving the node. Both are absolute, so reserving twice changes nothing.
  */
-export const EXPANDING_BLOCK_GROWTH = 1.1;
+export const EXPANDING_BLOCK_SHARE = 0.495;
+
+/** The cell size and row lead that reserve `maxRows` for a grid of `rows` rows at `cellSize`. */
+export const expandingBoardReserve = (
+	grid: Pick<ReelGridNode, 'rows' | 'cellSize'>,
+	maxRows: number,
+	mainSizes: LayoutDoc['mainSizesMap'],
+): { cellSize: number; rowPadding: number } => {
+	const extra = Math.max(0, maxRows - grid.rows);
+	if (!extra) return { cellSize: grid.cellSize, rowPadding: 0.5 };
+	const shortest = Math.min(...Object.values(mainSizes).map((size) => size.height));
+	return {
+		cellSize: Math.min(grid.cellSize, Math.floor((shortest * EXPANDING_BLOCK_SHARE) / maxRows)),
+		rowPadding: 0.5 - extra / 2,
+	};
+};
+
+/** Does every reel grid of `doc` already reserve `maxRows`? */
+export const expandingBoardReserved = (doc: LayoutDoc, maxRows: number): boolean =>
+	reelGridsOf(doc).every((grid) => {
+		const want = expandingBoardReserve(grid, maxRows, doc.mainSizesMap);
+		return grid.cellSize === want.cellSize && (grid.rowPadding ?? 0.5) === want.rowPadding;
+	});
+
+/** `doc` with every reel grid reserving `maxRows` (cell size + row lead; nothing else moves). */
+export const reserveExpandingBoard = (doc: LayoutDoc, maxRows: number): LayoutDoc => ({
+	...doc,
+	scenes: doc.scenes.map((scene) => ({
+		...scene,
+		nodes: scene.nodes.map((node) =>
+			node.kind === 'reelGrid'
+				? { ...node, ...expandingBoardReserve(node, maxRows, doc.mainSizesMap) }
+				: node,
+		),
+	})),
+});
+
+const reelGridsOf = (doc: LayoutDoc): ReelGridNode[] =>
+	doc.scenes.flatMap((scene) =>
+		scene.nodes.filter((node): node is ReelGridNode => node.kind === 'reelGrid'),
+	);
 
 /** Template options: an expanding board's `maxRows` (absent ⇒ the board never grows). */
 export type HoldAndWinTemplateOptions = { maxRows?: number };
@@ -148,28 +195,6 @@ const tap = (id: string, armAfterSignal?: string): LayoutNode => ({
 	},
 });
 
-/** Move the skeleton's reel grid up by `lift` in every layout type (desktop and each override). */
-const liftReelGrid = (doc: LayoutDoc, lift: number): LayoutDoc => ({
-	...doc,
-	scenes: doc.scenes.map((scene) => ({
-		...scene,
-		nodes: scene.nodes.map((node) =>
-			node.kind !== 'reelGrid'
-				? node
-				: {
-						...node,
-						y: node.y - lift,
-						overrides: Object.fromEntries(
-							Object.entries(node.overrides ?? {}).map(([type, o]) => [
-								type,
-								o && typeof o.y === 'number' ? { ...o, y: o.y - lift } : o,
-							]),
-						),
-					},
-		),
-	})),
-});
-
 const modeScene = (scene: Omit<Scene, 'role' | 'modeId'>): Scene => ({
 	...scene,
 	role: 'mode',
@@ -184,28 +209,22 @@ export function holdAndWinReferenceLayout(
 	{ maxRows }: HoldAndWinTemplateOptions = {},
 ): LayoutDoc {
 	const extraRows = Math.max(0, (maxRows ?? baseBoard.rows) - baseBoard.rows);
-	const cellSize = extraRows
-		? Math.floor(
-				Math.min(
-					baseBoard.cellSize,
-					(baseBoard.cellSize * baseBoard.rows * EXPANDING_BLOCK_GROWTH) /
-						(baseBoard.rows + extraRows),
-				),
-			)
-		: baseBoard.cellSize;
-	const board: EngineSkeletonBoard = { ...baseBoard, cellSize };
-	/** How far the reserved block's edges sit past the base board's, and how far up the grid moves. */
-	const blockGrowth =
-		((baseBoard.rows + extraRows) * cellSize - baseBoard.rows * baseBoard.cellSize) / 2;
-	const gridLift = (extraRows * cellSize) / 2;
-	/** A piece at least this far above or below the centre sits above or below the board. */
-	const baseHalf = (baseBoard.rows * baseBoard.cellSize) / 2;
 	const raw = engineSkeletonLayout({
 		gameType: 'holdAndWin',
 		projectKey: 'holdAndWin',
-		board,
+		board: baseBoard,
 	});
-	const skeleton = extraRows ? liftReelGrid(raw, gridLift) : raw;
+	const skeleton = extraRows ? reserveExpandingBoard(raw, baseBoard.rows + extraRows) : raw;
+	const { cellSize } = expandingBoardReserve(
+		baseBoard,
+		baseBoard.rows + extraRows,
+		raw.mainSizesMap,
+	);
+	/** How far the reserved block's edges sit past the base board's. */
+	const blockGrowth =
+		((baseBoard.rows + extraRows) * cellSize - baseBoard.rows * baseBoard.cellSize) / 2;
+	/** A piece at least this far above or below the centre sits above or below the board. */
+	const baseHalf = (baseBoard.rows * baseBoard.cellSize) / 2;
 	/** A piece above the board moves up with the block's top edge, one below with its bottom. */
 	const clear = (spot: Spot): Spot =>
 		extraRows && Math.abs(spot.dy) >= baseHalf
@@ -314,7 +333,7 @@ export function holdAndWinReferenceLayout(
 					'Letters',
 					'lettersStrip',
 					place({ dx: 0, dy: -235 }, { dx: 0, dy: -300 }),
-					{ spacing: board.cellSize },
+					{ spacing: cellSize },
 				),
 			],
 		}),

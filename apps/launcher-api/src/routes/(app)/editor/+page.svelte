@@ -14,6 +14,8 @@
 		engineOwnedOnly,
 		findUnfilledRequiredSlots,
 		getFullSceneSet,
+		expandingBoardReserved,
+		reserveExpandingBoard,
 		hudScenes,
 		isCoverFitKind,
 		isHudScene,
@@ -1255,7 +1257,7 @@
 		// Scaffold reads the full scene set (covers bookOf); import fetches the
 		// project-aware FILLED reference layout (lines + bookOf, §19.6).
 		if (kind === 'scaffold') {
-			const full = getFullSceneSet(gameType);
+			const full = getFullSceneSet(gameType, gameType === projectGameType ? sceneSetOptions : {});
 			if (full) await adoptScenes(engineOwnedOnly(full), gameType);
 		} else if (kind === 'kind') {
 			try {
@@ -1438,7 +1440,7 @@
 	 * id, OR (when the ref carries a `role`) when a scene fills that same role — so a
 	 * role-tagged, custom-id loading/base scene is NOT falsely flagged as missing. */
 	const missingScreens = $derived.by(() => {
-		const full = getFullSceneSet(projectGameType);
+		const full = getFullSceneSet(projectGameType, sceneSetOptions);
 		if (!full) return [] as Scene[];
 		// `mode` is the one role with many screens per doc, so a mode screen is matched by id only.
 		return full.scenes.filter(
@@ -1448,12 +1450,33 @@
 		);
 	});
 
+	/** The project's Game Config expands its respin board ⇒ the scene set reserves the grown area. */
+	const sceneSetOptions = $derived(data.expansionMaxRows ? { maxRows: data.expansionMaxRows } : {});
+	/**
+	 * Does the reel grid still lack room for the rows an expanding respin board grows into? (The
+	 * scaffold reserves them only for a config that expanded when the layout was seeded.)
+	 */
+	const needsExpansionReserve = $derived(
+		Boolean(data.expansionMaxRows) &&
+			!expandingBoardReserved({ ...data.doc, scenes, mainSizesMap }, data.expansionMaxRows ?? 0),
+	);
+	/** Shrink the reel grid's cells and lift its rows (its row lead) so the respin board's extra rows
+	 *  fit below the base grid — the node does not move; nothing else changes; undoable. */
+	function reserveExpansionRows(): void {
+		if (!data.expansionMaxRows) return;
+		scenes = reserveExpandingBoard(
+			{ ...data.doc, scenes, mainSizesMap },
+			data.expansionMaxRows,
+		).scenes;
+		markDirty();
+	}
+
 	/** Append every screen the game has that this doc lacks (e.g. the logo/loading
 	 * scene) — non-destructive: existing scenes + their edits are left untouched, so
 	 * the author tops up the screen list without re-running the console seed. */
 	function addMissingScreens(): void {
 		const toAdd = missingScreens;
-		const full = getFullSceneSet(projectGameType);
+		const full = getFullSceneSet(projectGameType, sceneSetOptions);
 		if (toAdd.length === 0 || !full) return;
 		// Each lands right after the screen that precedes it in the game's own set (the list order is
 		// the layer order), so a pot goes under the HUD rather than on top of every other screen.
@@ -3037,6 +3060,17 @@
 							onclick={addMissingScreens}
 						>
 							＋ Add missing screens ({missingScreens.length})
+						</button>
+					{/if}
+
+					{#if needsExpansionReserve}
+						<button
+							class="add-hud-btn"
+							type="button"
+							title={`This game's respin board grows to ${data.expansionMaxRows} rows below the base grid (Game Config → Board expansion). Shrinks the reel grid's cells and lifts its rows so the grown board fits where the base board was — the grid does not move; move the pieces below it if they still overlap.`}
+							onclick={reserveExpansionRows}
+						>
+							⇕ Reserve rows for board expansion ({data.expansionMaxRows})
 						</button>
 					{/if}
 

@@ -28,7 +28,7 @@ const bundled = await esbuild.build({
 			`export { getTemplate } from '../src/lib/templates/index.ts';`,
 			`export { BUILTIN_COMPONENTS, componentOfferedForKind } from '../src/lib/builtinComponents.ts';`,
 			`export { isComponentMounted, sceneMountKey, trackComponentMount } from '../src/lib/mountedComponents.ts';`,
-			`export { HOLD_AND_WIN_BANNER_SCREENS } from '../src/lib/referenceLayouts/holdAndWin.ts';`,
+			`export { HOLD_AND_WIN_BANNER_SCREENS, reserveExpandingBoard, expandingBoardReserved } from '../src/lib/referenceLayouts/holdAndWin.ts';`,
 			`export { engineOwnedOnly } from '../src/lib/engineOwnedOnly.ts';`,
 		].join('\n'),
 		resolveDir: HERE,
@@ -257,6 +257,40 @@ const SIZE = {
 	infoBar: [504, 86],
 	textBox: [260, 30],
 };
+// Reserving an expanding board's area (11b follow-up): the scaffold path and the editor action share
+// one helper; it is absolute (reserving twice changes nothing) and touches only the reel grid.
+{
+	const plain = mod.getFullSceneSet('holdAndWin');
+	assert(!mod.expandingBoardReserved(plain, 6), 'an unexpanded scaffold does not reserve 6 rows');
+	const once = mod.reserveExpandingBoard(plain, 6);
+	const twice = mod.reserveExpandingBoard(once, 6);
+	assert(JSON.stringify(once) === JSON.stringify(twice), 'reserving twice changes nothing');
+	assert(mod.expandingBoardReserved(once, 6), 'a reserved doc reads as reserved');
+	const gridOf = (d) =>
+		walk(d.scenes.find((sc) => sc.id === 'basegame').nodes).find((n) => n.kind === 'reelGrid');
+	const g0 = gridOf(plain);
+	const g1 = gridOf(once);
+	assert(
+		g1.x === g0.x && g1.y === g0.y && JSON.stringify(g1.overrides) === JSON.stringify(g0.overrides),
+		'the grid node does not move',
+	);
+	assert(
+		g1.cellSize === 66 && g1.rowPadding === -1,
+		`6 rows reserve 66 px cells lifted 1.5 rows (got ${g1.cellSize}, ${g1.rowPadding})`,
+	);
+	const withOption = mod.getFullSceneSet('holdAndWin', { maxRows: 6 });
+	assert(
+		gridOf(withOption).cellSize === 66 && gridOf(withOption).rowPadding === -1,
+		'getFullSceneSet takes maxRows',
+	);
+	assert(
+		JSON.stringify(mod.getFullSceneSet('lines', { maxRows: 6 })) ===
+			JSON.stringify(mod.getFullSceneSet('lines')),
+		'other kinds ignore maxRows',
+	);
+	assert(mod.expandingBoardReserved(plain, 3), 'a board that never grows is always reserved');
+}
+
 // An expanding board (11b) reserves its maxRows area: the grid moves up, its cells shrink, and the
 // pieces around it clear the whole grown block.
 for (const [board, options] of [
@@ -279,9 +313,11 @@ for (const [board, options] of [
 		const g = type === 'desktop' ? {} : (grid.overrides?.[type] ?? {});
 		const gx = g.x ?? grid.x;
 		const gy = g.y ?? grid.y;
-		// The base board is centred on the grid node; the reserved rows hang below it.
+		// The base board is centred on the grid node, lifted by its row lead; the reserved rows hang
+		// below it.
 		const cx = gx;
-		const top = gy - (board.rows * grid.cellSize) / 2;
+		const lead = (grid.rowPadding ?? 0.5) - 0.5;
+		const top = gy - (board.rows * grid.cellSize) / 2 + lead * grid.cellSize;
 		const bottomEdge = top + maxRows * grid.cellSize;
 		const cy = (top + bottomEdge) / 2;
 		const bw = (board.reels * grid.cellSize) / 2;

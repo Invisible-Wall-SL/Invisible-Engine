@@ -109,7 +109,14 @@ export async function scaffoldProject(
 	// Resolve the reference `LayoutDoc` from the built-in registry first, then the
 	// custom-kind store (§21.6). `loadKind` is async, so resolve here (already async)
 	// and hand the result to the sync `buildSeeds`.
-	const reference = getFullSceneSet(gameType) ?? (await loadKind(gameType))?.doc;
+	// A Hold and Win project whose stored Game Config already expands its respin board (a re-scaffold,
+	// or a config written before the layout) gets the template that reserves the grown board's area.
+	const maxRows =
+		gameType === 'holdAndWin'
+			? (await loadGameConfigDocWithEtag(client, project)).doc?.holdAndWin?.expansion?.maxRows
+			: undefined;
+	const reference =
+		getFullSceneSet(gameType, maxRows ? { maxRows } : {}) ?? (await loadKind(gameType))?.doc;
 	for (const seed of buildSeeds(client, project, gameType, reference)) {
 		if (await objectExists(seed.key)) continue;
 		await putObjectText(seed.key, seed.body, seed.contentType);
