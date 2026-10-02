@@ -9,11 +9,13 @@
 	import { pickSheetsFrom } from '$lib/pickSheets';
 	import { askConfirm, askMessage, askText } from '$lib/dialogs.svelte';
 	import {
+		addOnSceneIds,
 		buttonBindToInstance,
 		componentOfferedForKind,
 		engineOwnedOnly,
 		findUnfilledRequiredSlots,
 		getFullSceneSet,
+		mergeMissingScreens,
 		expandingBoardReserved,
 		reserveExpandingBoard,
 		hudScenes,
@@ -60,6 +62,7 @@
 		LayoutNode,
 		LayoutType,
 		Scene,
+		SceneSetOptions,
 		SlotKind,
 		SpineRestOverride,
 		TemplateSlot,
@@ -1450,8 +1453,18 @@
 		);
 	});
 
-	/** The project's Game Config expands its respin board ⇒ the scene set reserves the grown area. */
-	const sceneSetOptions = $derived(data.expansionMaxRows ? { maxRows: data.expansionMaxRows } : {});
+	/** The project's Game Config expands its respin board ⇒ the scene set reserves the grown area; its
+	 *  add-on blocks merge their screens in, with the config's pots on the pots screen. */
+	const sceneSetOptions = $derived<SceneSetOptions>({
+		...(data.expansionMaxRows ? { maxRows: data.expansionMaxRows } : {}),
+		...data.addOns,
+		...(data.potIds ? { potIds: data.potIds } : {}),
+	});
+	/** The missing screens an add-on brings (the Pots screen, + the Hold and Win bonus screens). */
+	const missingOverlayScreens = $derived.by(() => {
+		const ids = addOnSceneIds(projectGameType, sceneSetOptions);
+		return missingScreens.filter((scene) => ids.includes(scene.id));
+	});
 	/**
 	 * Does the reel grid still lack room for the rows an expanding respin board grows into? (The
 	 * scaffold reserves them only for a config that expanded when the layout was seeded.)
@@ -1474,25 +1487,16 @@
 	/** Append every screen the game has that this doc lacks (e.g. the logo/loading
 	 * scene) — non-destructive: existing scenes + their edits are left untouched, so
 	 * the author tops up the screen list without re-running the console seed. */
-	function addMissingScreens(): void {
-		const toAdd = missingScreens;
+	function addMissingScreens(toAdd: Scene[] = missingScreens): void {
 		const full = getFullSceneSet(projectGameType, sceneSetOptions);
 		if (toAdd.length === 0 || !full) return;
 		// Each lands right after the screen that precedes it in the game's own set (the list order is
 		// the layer order), so a pot goes under the HUD rather than on top of every other screen.
-		const next = [...scenes];
-		for (const ref of structuredClone(toAdd)) {
-			const refIdx = full.scenes.findIndex((s) => s.id === ref.id);
-			let at = 0;
-			for (let i = refIdx - 1; i >= 0; i--) {
-				const prev = next.findIndex((s) => s.id === full.scenes[i].id);
-				if (prev !== -1) {
-					at = prev + 1;
-					break;
-				}
-			}
-			next.splice(at, 0, ref);
-		}
+		const next = mergeMissingScreens(
+			scenes,
+			full.scenes,
+			toAdd.map((s) => s.id),
+		);
 		scenes = next;
 		activeSceneIdx = next.findIndex((s) => s.id === toAdd[0].id); // focus the first added screen
 		clearSelection();
@@ -1835,10 +1839,11 @@
 	 * from another kind's reference keeps that kind in `doc.gameType`, which must not hide this
 	 * kind's components and screens. Also flags a cross-type reference load. */
 	const projectGameType = data.projectKind ?? data.doc.gameType ?? data.template?.gameType ?? '';
-	// The palette offers only what this project's kind uses (`ComponentDef.capability` — the Hold and
-	// Win counter, jackpot bar and pots); every placed instance still resolves from `components`.
+	// The palette offers only what this project's kind and add-ons use (`ComponentDef.capability` —
+	// the Hold and Win counter, jackpot bar and pots); every placed instance still resolves from
+	// `components`.
 	const paletteComponents = $derived(
-		components.filter((def) => componentOfferedForKind(def, projectGameType)),
+		components.filter((def) => componentOfferedForKind(def, projectGameType, data.addOns)),
 	);
 	/** True after loading a reference/blank layout whose game type ≠ this project's.
 	 * While set, AUTOSAVE is suppressed so an edit can't silently overwrite the
@@ -3057,9 +3062,22 @@
 							title={`Add ${missingScreens.length} screen(s) this game has but the layout is missing (e.g. the logo/loading screen) — non-destructive, keeps your edits: ${missingScreens
 								.map((s) => s.name || s.id)
 								.join(', ')}`}
-							onclick={addMissingScreens}
+							onclick={() => addMissingScreens()}
 						>
 							＋ Add missing screens ({missingScreens.length})
+						</button>
+					{/if}
+
+					{#if missingOverlayScreens.length > 0}
+						<button
+							class="add-hud-btn"
+							type="button"
+							title={`Add the screens this game's add-ons bring — the overlay's Pots screen (its pots from Game Config), plus the Jackpot bar and the respin screens of a Hold and Win bonus — each next to the screen it follows. Never touches an existing screen: ${missingOverlayScreens
+								.map((s) => s.name || s.id)
+								.join(', ')}`}
+							onclick={() => addMissingScreens(missingOverlayScreens)}
+						>
+							＋ Add overlay screens ({missingOverlayScreens.length})
 						</button>
 					{/if}
 
@@ -3360,6 +3378,7 @@
 					<EditorProperties
 						node={selectedNode}
 						gameType={projectGameType}
+						addOns={data.addOns}
 						componentDefaults={data.componentDefaults}
 						layoutType={currentLayoutType}
 						{baseLayoutType}

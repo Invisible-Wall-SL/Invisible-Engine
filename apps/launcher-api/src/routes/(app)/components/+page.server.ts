@@ -1,4 +1,5 @@
 import { error, redirect } from '@sveltejs/kit';
+import { projectAddOns } from '$lib/addOns';
 import { COMPONENT_PUBLISH_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import {
 	keyComponentDefaultsById,
@@ -6,6 +7,7 @@ import {
 } from '$lib/server/componentDefaultsStorage';
 import { listComponentsWithEtags } from '$lib/server/componentStorage';
 import { loadDoc } from '$lib/server/editorStorage';
+import { resolveGameConfig } from '$lib/server/gameConfigDefaults';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listProjectAssets } from '$lib/server/projectAssets';
 import { projectName, storedProjectGameType } from '$lib/server/projects';
@@ -75,6 +77,10 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 	// honoured by `resolveToolScope` above (project-explicit scoping), so the page
 	// binds to the editor's project; here we only need to read the id.
 	const openId = url.searchParams.get('id') || null;
+	const gameType = projectKind ?? doc.gameType ?? '';
+	// The config's add-on blocks widen the kind's signal and symbol-state pickers (a pots overlay or
+	// a Hold and Win bonus on another kind); all false without a config ⇒ the kind's own lists.
+	const { addOns } = projectAddOns((await resolveGameConfig(clientKey, projectKey, gameType)).doc);
 	const components = componentEntries.map((e) => e.def);
 	// id → the ETag its next save must match (`null` = built-in / never stored ⇒ create). The
 	// page holds this so `openComponent` can stamp the draft's `baseEtag` and the save CASes.
@@ -93,7 +99,8 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 			components.map((c) => c.id),
 		),
 		gameName,
-		gameType: projectKind ?? doc.gameType ?? '',
+		gameType,
+		addOns,
 		openId,
 		mainSizesMap: doc.mainSizesMap,
 		canPublishShared,

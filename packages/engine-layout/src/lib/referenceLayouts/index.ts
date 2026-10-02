@@ -1,7 +1,12 @@
-import type { LayoutDoc } from '../types';
+import type { LayoutDoc, Scene } from '../types';
 import { bookofReferenceLayout } from './bookof';
 import { clusterReferenceLayout } from './cluster';
-import { holdAndWinReferenceLayout, type HoldAndWinTemplateOptions } from './holdAndWin';
+import {
+	HOLD_AND_WIN_BOARD,
+	HOLD_AND_WIN_MODE,
+	holdAndWinReferenceLayout,
+	type HoldAndWinTemplateOptions,
+} from './holdAndWin';
 import { defaultLayout } from './lines';
 import { scatterReferenceLayout } from './scatter';
 import { waysReferenceLayout } from './ways';
@@ -77,14 +82,86 @@ const FULL_SCENE_SOURCES: Record<
 };
 
 /**
+ * Scene-set options: the Hold and Win template's (`maxRows`, `potIds`) plus the project's add-on
+ * capabilities (docs/design/pots-overlay.md §4). On any kind but `holdAndWin`, `potsOverlay` or
+ * `holdAndWin` merges the add-on screens into the kind's set; the `holdAndWin` kind already has
+ * them, so there the flags change nothing.
+ */
+export type SceneSetOptions = HoldAndWinTemplateOptions & {
+	holdAndWin?: boolean;
+	potsOverlay?: boolean;
+};
+
+/**
+ * The add-on screens, in the Hold and Win reference's order: the Pots screen for either add-on;
+ * with a Hold and Win bonus also the Jackpot bar and every `holdAndWin` mode screen. Lucky Spin
+ * is left out — it is an error on an overlay host's bonus.
+ */
+function addOnScenes(options: SceneSetOptions): { reference: Scene[]; ids: string[] } {
+	const { potIds, maxRows, holdAndWin } = options;
+	const reference = holdAndWinReferenceLayout(HOLD_AND_WIN_BOARD, { potIds, maxRows }).scenes;
+	const ids = reference
+		.filter(
+			(scene) =>
+				scene.id === 'pots' ||
+				(holdAndWin &&
+					(scene.id === 'jackpotBar' ||
+						(scene.role === 'mode' && scene.modeId === HOLD_AND_WIN_MODE))),
+		)
+		.map((scene) => scene.id);
+	return { reference, ids };
+}
+
+const hasAddOn = (gameType: string, options: SceneSetOptions): boolean =>
+	gameType !== 'holdAndWin' && Boolean(options.holdAndWin || options.potsOverlay);
+
+/**
+ * `current` with the `reference` scenes named by `ids` merged in — each right after the nearest
+ * scene that precedes it in `reference` and is already present (else first), in `reference` order,
+ * so the layer order follows the game's own set. A scene whose id `current` already has is skipped;
+ * the existing scenes are never edited, so a second merge adds nothing.
+ */
+export function mergeMissingScreens(
+	current: readonly Scene[],
+	reference: readonly Scene[],
+	ids: readonly string[],
+): Scene[] {
+	const next = [...current];
+	reference.forEach((ref, refIdx) => {
+		if (!ids.includes(ref.id) || next.some((scene) => scene.id === ref.id)) return;
+		let at = 0;
+		for (let i = refIdx - 1; i >= 0; i--) {
+			const prev = next.findIndex((scene) => scene.id === reference[i].id);
+			if (prev !== -1) {
+				at = prev + 1;
+				break;
+			}
+		}
+		next.splice(at, 0, structuredClone(ref));
+	});
+	return next;
+}
+
+/** The ids of the add-on screens `getFullSceneSet(gameType, options)` merges into the kind's set. */
+export function addOnSceneIds(gameType: string, options: SceneSetOptions = {}): string[] {
+	if (!FULL_SCENE_SOURCES[gameType] || !hasAddOn(gameType, options)) return [];
+	return addOnScenes(options).ids;
+}
+
+/**
  * The full scene set for `gameType`. `options.maxRows` — a Hold and Win project whose Game Config
- * expands its respin board — reserves the grown board's area (the other kinds ignore it).
+ * expands its respin board — reserves the grown board's area (the other kinds ignore it);
+ * `options.potIds` names the pots screen's pots. The add-on flags merge the add-on screens into
+ * any other kind's set ({@link SceneSetOptions}); with none set the set is the kind's own.
  */
 export function getFullSceneSet(
 	gameType: string,
-	options: HoldAndWinTemplateOptions = {},
+	options: SceneSetOptions = {},
 ): LayoutDoc | undefined {
-	return FULL_SCENE_SOURCES[gameType]?.build(options);
+	const doc = FULL_SCENE_SOURCES[gameType]?.build(options);
+	if (!doc || !hasAddOn(gameType, options)) return doc;
+	const { reference, ids } = addOnScenes(options);
+	return { ...doc, scenes: mergeMissingScreens(doc.scenes, reference, ids) };
 }
 
 /**

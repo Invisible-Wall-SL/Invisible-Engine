@@ -24,7 +24,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const bundled = await esbuild.build({
 	stdin: {
 		contents: [
-			`export { getFullSceneSet, holdAndWinReferenceLayout, HOLD_AND_WIN_BOARD, HOLD_AND_WIN_HOTFIRE_BOARD } from '../src/lib/referenceLayouts/index.ts';`,
+			`export { getFullSceneSet, holdAndWinReferenceLayout, HOLD_AND_WIN_BOARD, HOLD_AND_WIN_HOTFIRE_BOARD, addOnSceneIds, mergeMissingScreens } from '../src/lib/referenceLayouts/index.ts';`,
 			`export { getTemplate } from '../src/lib/templates/index.ts';`,
 			`export { BUILTIN_COMPONENTS, componentOfferedForKind } from '../src/lib/builtinComponents.ts';`,
 			`export { isComponentMounted, sceneMountKey, trackComponentMount } from '../src/lib/mountedComponents.ts';`,
@@ -422,6 +422,167 @@ assert(
 	instancesIn(sceneById.get('wheel')).some((n) => n.componentId === 'wheel'),
 	'the wheel screen holds no wheel component',
 );
+
+// ─── Add-on screens (pots overlay Phase 5b, docs/design/pots-overlay.md §4) ───────────────────
+// The add-on flags merge the overlay's screens into another kind's set; with none set every set is
+// the kind's own. The Hold and Win set itself, before `potIds` existed, hashed as pinned here.
+{
+	const json = (value) => JSON.stringify(value);
+	const ids = (d) => d.scenes.map((sc) => sc.id);
+	const MODE_SCREENS = [
+		'respinBackground',
+		'respinBoard',
+		'respinCounter',
+		'totalWinBar',
+		'letters',
+		'wheel',
+		'featureIntro',
+		'jackpotWin',
+		'featureOutro',
+	];
+	const HW_PINNED = {
+		plain: '3f585158f5da883f',
+		maxRows6: '1e65875ac8b7fa53',
+		hotfire: '1c148ee2579db66a',
+	};
+	assert(
+		hash(mod.getFullSceneSet('holdAndWin')) === HW_PINNED.plain,
+		'the Hold and Win set changed',
+	);
+	assert(
+		hash(mod.getFullSceneSet('holdAndWin', { maxRows: 6 })) === HW_PINNED.maxRows6,
+		'the expanded Hold and Win set changed',
+	);
+	assert(
+		hash(mod.holdAndWinReferenceLayout(mod.HOLD_AND_WIN_BOARD)) === HW_PINNED.plain,
+		'the Hold and Win reference changed',
+	);
+	assert(
+		hash(mod.holdAndWinReferenceLayout(mod.HOLD_AND_WIN_HOTFIRE_BOARD)) === HW_PINNED.hotfire,
+		'the Super Hotfire reference changed',
+	);
+	const hwDefault = json(mod.getFullSceneSet('holdAndWin'));
+	assert(
+		json(mod.getFullSceneSet('holdAndWin', { potIds: ['red', 'blue', 'green'] })) === hwDefault,
+		'the default pot ids are red, blue, green',
+	);
+	assert(
+		json(mod.getFullSceneSet('holdAndWin', { potsOverlay: true, holdAndWin: true })) === hwDefault,
+		'the add-on flags change nothing on the holdAndWin kind',
+	);
+	assert(
+		!ids(mod.getFullSceneSet('holdAndWin', { potIds: [] })).includes('pots'),
+		'an empty pot list drops the pots screen',
+	);
+	assert(
+		mod.addOnSceneIds('holdAndWin', { potsOverlay: true, holdAndWin: true }).length === 0,
+		'the holdAndWin kind has no add-on screens',
+	);
+
+	for (const kind of EXISTING_KINDS) {
+		assert(
+			hash(mod.getFullSceneSet(kind, { holdAndWin: false, potsOverlay: false })) ===
+				PINNED.sceneSets[kind],
+			`${kind}: flags off changed the set`,
+		);
+		assert(mod.addOnSceneIds(kind).length === 0, `${kind}: no flag, no add-on screens`);
+		const plainIds = ids(mod.getFullSceneSet(kind));
+		for (const options of [{ potsOverlay: true }, { holdAndWin: true, potsOverlay: true }]) {
+			const added = mod.addOnSceneIds(kind, options);
+			const merged = mod.getFullSceneSet(kind, options);
+			for (const id of added) {
+				const at = merged.scenes.findIndex((sc) => sc.id === id);
+				assert(at > 0, `${kind}: add-on ${id} found a preceding screen`);
+			}
+			assert(
+				json(ids(merged).filter((id) => !added.includes(id))) === json(plainIds),
+				`${kind}: the kind's own screens keep their order`,
+			);
+		}
+	}
+
+	const bookOf = mod.getFullSceneSet('bookOf');
+	const byId = (d) => new Map(d.scenes.map((sc) => [sc.id, json(sc)]));
+	const keepsOwn = (merged, label) => {
+		const own = byId(merged);
+		for (const scene of bookOf.scenes)
+			assert(own.get(scene.id) === json(scene), `${label}: ${scene.id} changed`);
+	};
+
+	const potsOnly = { potsOverlay: true, potIds: ['gold', 'jade'] };
+	const withPots = mod.getFullSceneSet('bookOf', potsOnly);
+	assert(json(mod.addOnSceneIds('bookOf', potsOnly)) === json(['pots']), 'pots overlay adds pots');
+	assert(withPots.scenes.length === bookOf.scenes.length + 1, 'pots overlay adds one screen');
+	const potsAt = ids(withPots).indexOf('pots');
+	assert(ids(withPots)[potsAt - 1] === 'basegame', 'the pots screen sits right after basegame');
+	const pots = withPots.scenes[potsAt];
+	assert(
+		json(pots.nodes.filter((n) => n.componentId === 'potMeter').map((n) => n.params.meter)) ===
+			json(['gold', 'jade']),
+		'the pots screen holds the config pots in order',
+	);
+	assert(
+		json(pots.nodes.map((n) => n.x - withPots.mainSizesMap.desktop.width / 2)) === json([-80, 80]),
+		'two pots stay centred on the board',
+	);
+	keepsOwn(withPots, 'pots overlay');
+	assert(
+		json(withPots.mainSizesMap) === json(bookOf.mainSizesMap),
+		'the merge keeps the kind’s main sizes',
+	);
+
+	const bonus = { potsOverlay: true, holdAndWin: true, potIds: ['gold', 'jade'] };
+	const withBonus = mod.getFullSceneSet('bookOf', bonus);
+	const expected = ['jackpotBar', 'pots', ...MODE_SCREENS];
+	const addedIds = ids(withBonus).filter((id) => !ids(bookOf).includes(id));
+	assert(
+		json([...addedIds].sort()) === json([...expected].sort()),
+		`a Hold and Win bonus adds pots, the jackpot bar and the mode screens (got ${addedIds})`,
+	);
+	assert(
+		json([...mod.addOnSceneIds('bookOf', bonus)].sort()) === json([...expected].sort()),
+		'addOnSceneIds names the same screens',
+	);
+	assert(!ids(withBonus).includes('luckySpin'), 'Lucky Spin is never an add-on');
+	for (const id of ['freeSpinIntro', 'freeSpinCounter', 'freeSpinOutro'])
+		assert(ids(withBonus).includes(id), `the free-spin screen ${id} survives`);
+	keepsOwn(withBonus, 'Hold and Win bonus');
+	assert(
+		ids(withBonus)[ids(withBonus).indexOf('wheel') - 1] === 'basegameOverlays',
+		'the beat screens follow basegameOverlays',
+	);
+
+	// The editor's merge: an authored doc keeps every scene byte-identical; only the missing add-on
+	// screens are inserted, and a second merge adds nothing.
+	const authored = structuredClone(bookOf.scenes);
+	const base = authored.find((sc) => sc.id === 'basegame');
+	base.name = 'My base game';
+	base.nodes[0] = { ...base.nodes[0], x: base.nodes[0].x + 37 };
+	const before = json(authored);
+	const addOns = mod.addOnSceneIds('bookOf', bonus);
+	const once = mod.mergeMissingScreens(authored, withBonus.scenes, addOns);
+	assert(json(authored) === before, 'the merge does not mutate its input');
+	const onceById = new Map(once.map((sc) => [sc.id, json(sc)]));
+	for (const scene of authored)
+		assert(onceById.get(scene.id) === json(scene), `merge: authored ${scene.id} changed`);
+	assert(
+		json(once.map((sc) => sc.id).filter((id) => !addOns.includes(id))) ===
+			json(authored.map((sc) => sc.id)),
+		'merge: authored screens keep their order',
+	);
+	assert(once.length === authored.length + addOns.length, 'merge adds every add-on screen');
+	const twice = mod.mergeMissingScreens(once, withBonus.scenes, addOns);
+	assert(json(twice) === json(once), 'a second merge adds nothing');
+
+	const ownPots = { id: 'pots', name: 'My pots', nodes: [] };
+	const hasPots = [...authored.slice(0, 3), ownPots, ...authored.slice(3)];
+	const kept = mod.mergeMissingScreens(hasPots, withBonus.scenes, addOns);
+	assert(
+		kept.filter((sc) => sc.id === 'pots').length === 1 &&
+			json(kept.find((sc) => sc.id === 'pots')) === json(ownPots),
+		'a doc with its own pots screen keeps it',
+	);
+}
 
 if (failures) {
 	console.error(`\n${failures} failure(s).`);
