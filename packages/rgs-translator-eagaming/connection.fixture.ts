@@ -24,6 +24,8 @@
  * 10. A REFUSAL MID-FEATURE is not presented as a feature with no end — the player was left parked
  *     inside it (bookofborutremake, 2026-10-02). The session is given up for a reload, nothing more
  *     is sent, and the reload resumes the round the server still holds and settles it, to the cent.
+ *     A feature played to its end whose closing `collect` alone is refused is NOT cut short: it is
+ *     presented, and `requestEndRound` collects it.
  */
 
 import { createServer, type Server } from 'node:http';
@@ -624,7 +626,42 @@ console.log('\n10. a refusal mid-feature asks for a reload, and the reload settl
 		end.balance?.amount,
 		feature.held(sid).balance * 10_000,
 	);
-	Reflect.deleteProperty(globalThis, 'window');
+	for (const key of ['window', 'dispatchEvent', '__IE_RGS_CONNECTION__'])
+		Reflect.deleteProperty(globalThis, key);
+}
+
+console.log('\n10b. a feature played to its end whose collect alone is refused is presented');
+{
+	const sid = 'S-refused-collect';
+	const url = rgsUrl(feature.base);
+	const realFetch = globalThis.fetch;
+	let refuse = true;
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		const body = JSON.parse(String(init?.body ?? '[]')) as { action: string }[];
+		if (refuse && body.length === 1 && body[0].action === 'collect') {
+			refuse = false;
+			return new Response(
+				JSON.stringify({ result: 0, error: 'busy', errorCode: 110, platform: {} }),
+				{ status: 200 },
+			);
+		}
+		return realFetch(input, init);
+	}) as typeof fetch;
+	const tab = await openTab();
+	await tab.requestAuthenticate({ sessionID: sid, rgsUrl: url, language: 'en' });
+	const bet = (await tab.requestBet({
+		sessionID: sid,
+		rgsUrl: url,
+		currency: 'USD',
+		amount: 1,
+		mode: 'BASE',
+	})) as Answer;
+	check('the whole feature is presented', (bet.round?.state ?? []).length > 0, true);
+	check('…its round still open on the server', !!feature.held(sid).round, true);
+	const end = (await tab.requestEndRound({ sessionID: sid, rgsUrl: url })) as Answer;
+	globalThis.fetch = realFetch;
+	check('the end of the round collects it', feature.held(sid).round, null);
+	check('…on the server’s wallet', end.balance?.amount, feature.held(sid).balance * 10_000);
 }
 
 partner.server.close();

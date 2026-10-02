@@ -1557,8 +1557,9 @@ export const requestBet = async (options: {
 	const round = await playOutRound(fetcher, eventsOf(first.response), first.response);
 	// A feature cut short has no `gameEnd`, so presenting it parks the player inside it for good. The
 	// reload this asks for boots on the server's truth: the round resumed where it stands, or — if the
-	// server no longer holds it — its balance.
-	if (round.refused) {
+	// server no longer holds it — its balance. A feature played to its end whose `collect` alone was
+	// refused is presented as before, and `requestEndRound` collects it.
+	if (round.refused && !featureEnded(round.events)) {
 		console.error(
 			`[engine-facade] the server refused a step of round ${session.gid ?? '(unbound)'} mid-feature: ${round.refusal} — asking the player to reload`,
 		);
@@ -1579,6 +1580,13 @@ interface PlayedRound {
 	refusal?: string;
 }
 
+/** The FEATURE's `gameEnd` — one after the bonus began, so a base-spin `gameEnd` ahead of it
+ *  cannot end the free spins before they are played. */
+const featureEnded = (events: Play4FunBookEvent[]) => {
+	const names = events.map((e) => e.event);
+	return names.slice(names.lastIndexOf('enterBonus')).includes('gameEnd');
+};
+
 /**
  * Drive a round to the end of what the player sees, and aggregate it into one event stream.
  *
@@ -1597,9 +1605,6 @@ const playOutRound = async (
 ): Promise<PlayedRound> => {
 	const round: PlayedRound = { events: [...events], last, refused: false };
 	const names = () => round.events.map((e) => e.event);
-	// The FEATURE's `gameEnd` — one after the bonus began, so a base-spin `gameEnd` ahead of it
-	// cannot end the free spins before they are played.
-	const featureEnded = () => names().slice(names().lastIndexOf('enterBonus')).includes('gameEnd');
 	const post = async (body: Play4FunRequestBody) => {
 		const r = await fetcher.post({ body });
 		// An error envelope carries an empty `platform`, so keeping it as `last` would settle the
@@ -1617,7 +1622,8 @@ const playOutRound = async (
 
 	if (!names().includes('enterBonus')) return round;
 	let guard = 0;
-	while (!featureEnded() && !round.refused && guard++ < 200) await post([{ action: 'play' }]);
+	while (!featureEnded(round.events) && !round.refused && guard++ < 200)
+		await post([{ action: 'play' }]);
 	if (!round.refused && !names().includes('gameRoundOver')) await post(buildCollectAction());
 	return round;
 };
