@@ -15,11 +15,12 @@ import {
 	type FlowIssue,
 	type FunctionLibraryDoc,
 } from 'engine-flow-v2';
-import type { Scene, SoundsDoc } from 'engine-layout';
+import type { ComponentDef, Scene, SoundsDoc } from 'engine-layout';
 import { collectContainerTaps } from '$lib/containerTaps';
 import { projectContainerEvents, syncFlowContainers } from '$lib/flowV2Projection';
 import { collectSceneCueNames, withSceneCues } from '$lib/sceneCues';
 import { soundOptionsFor, withProjectSounds } from '$lib/soundOptions';
+import { listComponents } from './componentStorage';
 import { loadDoc } from './editorStorage';
 import { isAuthoredFlowV2 } from './flowV2Export';
 import { loadFlowV2Library } from './flowV2LibraryStorage';
@@ -34,18 +35,20 @@ export type FlowPublishCheck =
 /**
  * Validate a v2 FlowDoc against a project's scenes, sound library and function library — pure, so
  * an offline check can run it over scaffold scenes. The doc is cloned before the container sync.
+ * `components` are the defs the scenes place, whose own cue names a flow may fire too.
  */
 export function validateFlowV2Against(
 	stored: FlowDoc,
 	scenes: readonly Scene[],
 	sounds: SoundsDoc | null,
 	library: FunctionLibraryDoc,
+	components: readonly ComponentDef[] = [],
 ): FlowIssue[] {
 	const doc = JSON.parse(JSON.stringify(stored)) as FlowDoc;
 	syncFlowContainers(doc, scenes);
 	const vocab = withSceneCues(
 		withProjectSounds(templateVocabulary(doc.templateId), soundOptionsFor(sounds)),
-		collectSceneCueNames(scenes),
+		collectSceneCueNames(scenes, components),
 	);
 	return validateFlowDoc(
 		doc,
@@ -62,16 +65,18 @@ export async function validateFlowV2ForProject(
 	projectKey: string,
 	doc: FlowDoc,
 ): Promise<FlowIssue[]> {
-	const [layout, sounds, library] = await Promise.all([
+	const [layout, sounds, library, components] = await Promise.all([
 		loadDoc(clientKey, projectKey),
 		loadSoundsDoc(clientKey, projectKey),
 		loadFlowV2Library(),
+		listComponents({ projectKey }),
 	]);
 	return validateFlowV2Against(
 		doc,
 		layout.scenes ?? [],
 		sounds,
 		library ?? { version: 2, functions: [] },
+		components,
 	);
 }
 
@@ -97,7 +102,12 @@ export async function checkFlowV2ForPublish(
 export async function checkShippedFlowV2(
 	clientKey: string,
 	projectKey: string,
-	shipped: { flowV2?: FlowDoc; flowV2Library?: FunctionLibraryDoc; scenes: readonly Scene[] },
+	shipped: {
+		flowV2?: FlowDoc;
+		flowV2Library?: FunctionLibraryDoc;
+		scenes: readonly Scene[];
+		components?: readonly ComponentDef[];
+	},
 ): Promise<FlowPublishCheck> {
 	if (!shipped.flowV2) return { status: 'absent' };
 	const errors = validateFlowV2Against(
@@ -105,6 +115,7 @@ export async function checkShippedFlowV2(
 		shipped.scenes,
 		await loadSoundsDoc(clientKey, projectKey),
 		shipped.flowV2Library ?? { version: 2, functions: [] },
+		shipped.components,
 	).filter((i) => i.severity === 'error');
 	return errors.length ? { status: 'invalid', errors } : { status: 'valid' };
 }

@@ -1256,6 +1256,17 @@ export interface ComponentDef {
 	defaultInstanceParams?: Record<string, unknown>;
 	/** Named triggers the engine fires (enter/exit/win/…). */
 	signals?: ComponentSignal[];
+	/**
+	 * The key of the param an instance takes its SIGNAL SCOPE from (Phase 12a,
+	 * `docs/design/hold-and-win.md` §8) — the pot's `meter`, a jackpot tile's `source`. A scoped
+	 * instance hears only the fires for its scope (the red pot's `potActivate`, not the blue pot's),
+	 * and so does everything inside it: its cues, its `hiddenUntilSignal` gates, a nested instance
+	 * without a scope of its own, an effect's event layers. A fire with no scope (`win`,
+	 * `featureEnter`) still reaches it. The value scopes by `scopeKey` (`utils-event-emitter`): a
+	 * dotted source key by its last part (`jackpot.grand` ⇒ `grand`). Absent, or the param blank ⇒
+	 * the enclosing instance's scope, else every fire (parity).
+	 */
+	signalScope?: string;
 	/** A component may expose its own slots. */
 	slots?: TemplateSlot[];
 	/**

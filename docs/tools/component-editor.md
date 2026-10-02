@@ -130,11 +130,35 @@ signals. It has two lists, each with its own add button:
   A component that already carries a live-value **source** (a Text Box, a HUD Readout) has
   no **+ Add variable** — the block says it is *Engine-fed* and names the source options
   instead.
-- **Signals in use** — click **+ Add signal** and pick from the engine's signals: Enter,
-  Win, Big Win, Win — count-up complete, Free-spin start / end, the Free-spin outro signals,
-  Book reveal / hide, Board glow show / hide. These are the names a spine or flipbook inside
-  the component can react to under **Plays on signal** (and that a Tap to Continue can arm
-  on). **×** removes one.
+- **Signals in use** — click **+ Add signal** to open a searchable picker of the signals this
+  project's kind fires, grouped by family. Every kind gets Enter, Win, Big Win, Win —
+  count-up complete, Free-spin start / end, the Free-spin outro signals, Book reveal / hide,
+  Board glow show / hide and **Platform jackpot won**. A Hold and Win project also gets:
+  - **Pots**: specials take off, special lands, level up, size stage up, full, activate.
+  - **Respins**: counter reset, last respin.
+  - **Coins**: land, collected, boosted, upgraded.
+  - **Jackpots**: jackpot won.
+  - **Letters**: letter lit.
+  - **Wheel**: spin, land.
+  - **Feature**: enter, exit.
+
+  The game fires all of these from its own beats; no Flow wiring is needed. Under **Flow cue**
+  you can type any name a Flow **Fire Cue** node broadcasts (e.g. `frogCheer`) and click
+  **Add**. A row marked *per meter*, *per tier* or *per reel* is a scoped signal (see
+  **scoped by** below). **×** removes a signal.
+
+  A declared signal is a suggestion, not a requirement. The **signal** field of a spine's or a
+  flipbook's **Plays on signal** cue, a node's **hidden until signal** and a Tap to Continue's
+  arming signal are all free text, and they suggest the declared names first. Any name works.
+- **scoped by** — the param that says which part of a repeated feature a placement stands
+  for: a pot's `meter`, a jackpot tile's tier. A placement then hears only its own part's
+  scoped signals. Put the component on the red pot (`meter` = `red`), give its frog spine a cue
+  on **Pot — activate**, and it plays when the red pot activates and stays idle when the blue
+  one does. Everything inside it is scoped the same way: its cues, its reveal gates, a
+  component nested in it, and an Invisible FX effect placed in it. Signals that concern no
+  single part (Win, Feature — enter) still reach every placement. **(none)** means every
+  placement hears every fire. The built-in **Pot Meter** is scoped by `meter`, and the
+  **Jackpot Tile** by its `source` (`jackpot.grand` scopes to `grand`).
 
 Between the two lists, **Show button images** opens the per-state image set for a button:
 tick the interaction states you need and pick each state's art (bind your background

@@ -1,4 +1,5 @@
 import type { HoldAndWinMeterLevel } from 'engine-game';
+import { FLIGHT_METER_PREFIX } from 'engine-layout';
 import type { HoldAndWinMeter } from 'game-config';
 import { Tween } from 'svelte/motion';
 
@@ -41,12 +42,16 @@ export const meterLevelShown = (id: string): number =>
 export const meterMax = (id: string): number =>
 	recorded(id)?.max ?? configuredMeters().find((meter) => meter.id === id)?.maxLevel ?? 0;
 
+/** How many of `meter`'s size stages a pot at `level` has reached — the step it is drawn at. */
+export const meterStage = (meter: HoldAndWinMeter, level: number): number =>
+	meter.sizeStages.filter((stage) => level >= stage).length;
+
 /** What an authored pot drawing meter `id` counts itself in as (`trackComponentMount`). */
 export const potMeterMountKey = (id: string): string => `potMeter:${id}`;
 
 /** The flight target a meter's pot anchors (`<Anchor name>`), and the kind its specials fly as. */
 export const meterAnchor = (id: string): string => `meter:${id}`;
-export const meterFlight = (id: string): string => `toMeter:${id}`;
+export const meterFlight = (id: string): string => `${FLIGHT_METER_PREFIX}${id}`;
 
 /** Pin a pot's drawn level at `level` for the length of a beat; returns the tween that moves it. */
 export const holdMeterDisplay = (id: string, level: number): Tween<number> => {

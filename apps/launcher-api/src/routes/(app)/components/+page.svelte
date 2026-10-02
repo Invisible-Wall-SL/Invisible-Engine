@@ -989,6 +989,7 @@
 		if (!componentDraft?.params) return;
 		componentDraft.params = componentDraft.params.filter((p) => p.key !== key);
 		if (componentDraft.params.length === 0) delete componentDraft.params;
+		if (componentDraft.signalScope === key) delete componentDraft.signalScope;
 		pruneOrphanParamBindings(componentDraft);
 	}
 
@@ -1320,6 +1321,14 @@
 		const has = signals.some((s) => s.key === key);
 		componentDraft.signals = has ? signals.filter((s) => s.key !== key) : [...signals, { key }];
 		if (componentDraft.signals.length === 0) delete componentDraft.signals;
+	}
+
+	/** Name the param each placed instance takes its SIGNAL SCOPE from (Phase 12a) — the pot's
+	 * `meter`, a tile's tier — or `undefined` for none (every instance hears every fire). */
+	function setComponentSignalScope(key: string | undefined): void {
+		if (!componentDraft) return;
+		if (key) componentDraft.signalScope = key;
+		else delete componentDraft.signalScope;
 	}
 
 	/** Set the component's authoring/preview SPACE. 'game' is the default → store it
@@ -1678,6 +1687,8 @@
 						{pickSheets}
 						componentParams={componentDraft.params ?? []}
 						componentSignals={componentDraft.signals ?? []}
+						componentSignalScope={componentDraft.signalScope}
+						gameType={data.gameType}
 						instanceComponent={selectedNode?.kind === 'componentInstance'
 							? (componentMap.get(selectedNode.componentId) ?? null)
 							: null}
@@ -1695,6 +1706,7 @@
 						onExposeImageParam={exposeImageParam}
 						onUnexposeImageParam={unexposeImageParam}
 						onToggleSignal={toggleComponentSignal}
+						onSetSignalScope={setComponentSignalScope}
 						projectParamDefaults={projectDefaults}
 						onSetProjectParamDefault={setProjectParamDefault}
 						projectLabel={defaultsPanelLabel}

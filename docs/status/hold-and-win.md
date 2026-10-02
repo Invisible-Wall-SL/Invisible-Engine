@@ -52,7 +52,7 @@ titled **"Hold and win game pipeline"**.
 | 11a | Extra specials: add-respins + upgrade (design §7) | merged — whole pipeline (config → mock → facade → beats → flow → Symbols → Win Text → docs); live-checked on the `pots-extra` test fixture | H&W Phase 11a — add-respins + upgrade specials | #995 |
 | 11b | Board expansion — rows unlock (design §7; after 11a) | not started | — | — |
 | 11c | Progressive + operator platform jackpots (design §7) | merged, live (`lines@2342c815d074`) — owed: the live Borut round and the partner's platform-jackpot confirmation (Owner checklist 10–11) | Hold and Win Phase 11c — progressive + platform jackpots | part 1: #991 · part 2: #999 |
-| 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | in progress | Hold and Win Phase 12a | — |
+| 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | built, PR open — owed: a live check on `hw-3pots-sample` (Open items) | Hold and Win Phase 12a | #1003 |
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | not started | — | — |
 | 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | not started | — | — |
 
@@ -78,6 +78,25 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
 
 ## Decisions & findings
 
+- 2026-10-02 — **Phase 12a: how a signal is scoped** (session "Hold and Win Phase 12a"). One rule
+  serves component cues, reveal gates, FX layers and Flow cues: `scopeKey` / `eventScope` /
+  `scopeMatches` in `utils-event-emitter`.
+  - **The fire.** A scoped beat carries `scope` on its emitter event (the meter id, the jackpot
+    tier, the reel as digits), a string or a list.
+  - **The listener.** A component def names the param its scope comes from
+    (`ComponentDef.signalScope`): the Pot Meter `meter`, the Jackpot Tile `source`, whose dotted
+    `jackpot.grand` scopes by `grand`.
+  - **Matching.** Keys compare lower-cased, because the operator platform names its tiers `Grand`.
+  - **Inheritance.** A nested instance with no scope of its own inherits its parent's, and so does
+    an effect node inside it.
+  - **Who hears what.** An unscoped listener hears every fire, and an unscoped fire reaches every
+    listener, so nothing authored before 12a changes.
+  - **Flow.** The Fire Cue's scope pin is generic (every cue has it), not a per-cue payload field.
+    The flow spike's cue ↔ emitter field comparison therefore skips `scope`.
+  - **Signal names.** The respin and coin signals use new names (`respinReset`, `respinLast`,
+    `coinLand`, `coinCollect`, `coinBoost`, `coinUpgrade`, `featureEnter`, `featureExit`) rather
+    than the emitter cue names, because a cue like `respinCounterUpdate` means two moments (reset,
+    last). `wheelSpin` / `wheelLand` keep the cue names, as `specialBookReveal` does.
 - 2026-10-02 — **Owner: Phase 12, authorable feature parts.** The Pot Meter is a hard-coded shape: no bitmap art, no per-pot signals into components (catalog-only cue names; the engine's pot broadcasts never reach spine cues; FX can't filter per pot), and numbers drive only text (no bone, fill, frame or animation binding). Plan, design §8: 12a scoped signals ∥ 12b value bindings → 12c skinnable parts, Pot first. Generic across kinds.
 - 2026-10-02 — **Phase 11a: the rules add-respins and upgrade settled** (session "H&W Phase 11a —
   add-respins + upgrade specials"). Each is one fact the mock, the facade, `applyHoldAndWinEvent`
@@ -601,6 +620,15 @@ Hold and Win beats prints copy.
 
 ## Open items / next
 
+- **Phase 12a owed:**
+  - **A live check on `hw-3pots-sample`.** Author a component scoped by `meter` with a spine cue on
+    **Pot — activate** (or an FX on `potFull`), place it on each pot, and confirm only the pot that
+    activates plays. Everything up to that point is gate-covered (`check:signal-scope`), but the
+    instance filter itself is Svelte and runs only in a browser.
+  - **Coins are not scoped.** A coin signal has no part a placed component stands for: the respin
+    cells are one coded board, not per-cell instances. Revisit with 12c's skinnable respin cell
+    tiles if a per-cell component appears.
+
 - **Phase 11a follow-ups** (none blocks authoring):
   - **The active-modifiers line overflows** on the reference layout's wide arrangement once five
     specials are active ("MYSTERY · ADD RESPINS · UPGRADE · PAYER · COLLECTOR" runs off the left
@@ -714,6 +742,44 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 
 ## Recent changes
 
+- 2026-10-02 — **Phase 12a: scoped signals into components** (session "Hold and Win Phase 12a",
+  #1003). Design §8.
+  - **Engine.** `featureSignals.ts` registers 19 component signals off the beats' existing cues:
+    - **Pots:** `potFill`, `potLand` (a `toMeter:<id>` flight's arrival), `potLevelUp`,
+      `potStageUp`, `potFull`, `potActivate` (`potsConsume`).
+    - **Respins and coins:** `respinReset`, `respinLast`, `coinLand`, `coinCollect`, `coinBoost`,
+      `coinUpgrade`.
+    - **Jackpots, letters, wheel, feature:** `jackpotWin`, `platformJackpotWin` (any kind),
+      `letterLit` (newly lit only), `wheelSpin`, `wheelLand`, `featureEnter`, `featureExit`.
+
+    `potLevelUp {meter, level, max}` and `potStageUp {meter, stage, level}` are new cues. They come
+    from `presentMeterUpdate`, one per landing, and a stage-up whenever a rise crosses a size stage
+    (`meterStage`, shared with the coded pot). These beats stamp `scope`: the pot cues, the meter
+    flight's `flightArrive`, `respinJackpotWin` / `jackpotCelebration`,
+    `platformJackpotCelebration` and `respinColumnComplete`. `<ComponentInstance>` filters every cue
+    and gate fire by its scope and hands the scope down (`componentSignalScopeContext`).
+    `<LayoutNodeView>` passes it to effect players.
+  - **Catalog.** `ENGINE_SIGNAL_CATALOG` entries gain `group` / `scope` / `capability`, and
+    `engineSignalsForKind` filters them. The Hold and Win families are offered to a Hold and Win
+    project only. The builtin Pot Meter is scoped by `meter`, the Jackpot Tile by `source`.
+  - **Component Editor.**
+    - The signal picker is grouped by family and kind-filtered, and takes any Flow cue name.
+    - Cue signals, **hidden until signal** and the per-placement **Driven by signal** overrides
+      are free text with suggestions.
+    - A new **scoped by** param picker. `/components` now loads the project's kind.
+    - `componentStorage` keeps `signalScope` while its param exists.
+  - **FX.** `EmitterTrigger.scope`, kept by the normalizer and the plan, with a **Scope** field in
+    `/fx`. A layer with no scope takes its component's scope.
+  - **Flow.**
+    - Every Fire Cue has an optional `scope` pin. A set pin rides the payload; an unset one leaves
+      the payload byte-identical.
+    - The game forwards the scope to the open component bus.
+    - The Hold and Win vocabulary has the two new cues.
+    - The cue harvest walks placed component defs and per-placement overrides, so a cue named
+      inside a component is in the Cues palette and passes validation, at publish too.
+  - **Gates.** New `check:signal-scope` (the rule, catalog ↔ registry parity, each signal's beat
+    and scope, the builtins, the Flow pin, both normalizers). `check:scene-cues` gained the
+    component harvest. All 58 flow spikes pass.
 - 2026-10-02 — **Phase 11c part 2: the operator platform jackpot** (session "Hold and Win Phase 11c —
   progressive + platform jackpots"). Kind-independent: any game carries it. The contract was read
   off the partner's client and recorded in `play4fun-protocol.md` § "The operator platform jackpot",

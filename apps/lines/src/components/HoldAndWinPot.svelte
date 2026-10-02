@@ -10,6 +10,7 @@
 		meterAnchor,
 		meterLevelShown,
 		meterMax,
+		meterStage,
 		stateMeterDisplay,
 	} from '../game/holdAndWinMeters.svelte';
 
@@ -39,7 +40,7 @@
 	const colour = $derived(NAMED[props.meter.id] ?? PALETTE[props.index % PALETTE.length]);
 	const max = $derived(meterMax(props.meter.id) || props.meter.maxLevel);
 	const level = $derived(Math.max(0, Math.min(max, meterLevelShown(props.meter.id))));
-	const stage = $derived(props.meter.sizeStages.filter((s) => level >= s).length);
+	const stage = $derived(meterStage(props.meter, level));
 
 	const pulse = new Tween(1);
 	let seenPulses = stateMeterDisplay.pulses[props.meter.id] ?? 0;

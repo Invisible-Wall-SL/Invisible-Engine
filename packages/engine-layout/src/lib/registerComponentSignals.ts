@@ -24,7 +24,13 @@
  * The `open` bus below is the author-named half: a name the game never registered is
  * still subscribable, and the flow runtime fires every `fireCue` name into it — so a
  * cue signal an author types in the Scene Editor reaches the spine with no coded entry.
+ *
+ * SCOPE (Phase 12a, `docs/design/hold-and-win.md` §8): a fire may name the instance of a
+ * repeated part it concerns — the pot, the jackpot tier, the letter's reel — and passes that
+ * scope to `run`. The bus only carries it; each listener decides (`scopeMatches` in
+ * `utils-event-emitter`), so a component placed on the red pot hears only the red pot's fires.
  */
+import type { EventScope } from 'utils-event-emitter';
 
 /**
  * Minimal event-notifier contract a signal source must satisfy — kept to bare
@@ -35,10 +41,13 @@
  */
 export interface SignalSource {
 	/** Subscribe to the signal. `run` is invoked each time the signal fires (the
-	 * game maps a book event → this). Returns an unsubscribe fn. Unlike a value
-	 * source it need NOT fire synchronously on subscribe — it's an event, not state. */
-	subscribe(run: () => void): () => void;
+	 * game maps a book event → this), with the fire's scope when it has one. Returns an
+	 * unsubscribe fn. Unlike a value source it need NOT fire synchronously on subscribe —
+	 * it's an event, not state. */
+	subscribe(run: (scope?: EventScope) => void): () => void;
 }
+
+type SignalRun = (scope?: EventScope) => void;
 
 const registry = new Map<string, SignalSource>();
 
@@ -55,7 +64,7 @@ const registry = new Map<string, SignalSource>();
  * a vocab cue and a catalog signal (`specialBookReveal` / `specialBookHide`) resolve exactly as
  * before through their emitter subscription and cannot double-fire.
  */
-const open = new Map<string, Set<() => void>>();
+const open = new Map<string, Set<SignalRun>>();
 
 const openSource = (key: string): SignalSource => ({
 	subscribe(run) {
@@ -81,16 +90,16 @@ export function registerComponentSignals(sources: Record<string, SignalSource>):
 }
 
 /**
- * Fire an OPEN-bus signal by name. A no-op when nothing subscribes that name — which is the
- * common case (the game broadcasts every flow cue through here, and only a handful are named by
- * a spine cue). Iterates a COPY so a subscriber that unsubscribes during the fire (a spine whose
+ * Fire an OPEN-bus signal by name, scoped when the fire names one (a Flow `fireCue`'s scope
+ * pin). A no-op when nothing subscribes that name — which is the common case (the game
+ * broadcasts every flow cue through here, and only a handful are named by a spine cue). Iterates a COPY so a subscriber that unsubscribes during the fire (a spine whose
  * cue swaps the mounted tree) can't corrupt the walk. Never touches the registry, so a
  * game-registered signal is unaffected.
  */
-export function emitComponentSignal(key: string): void {
+export function emitComponentSignal(key: string, scope?: EventScope): void {
 	const subs = open.get(key);
 	if (!subs) return;
-	for (const run of [...subs]) run();
+	for (const run of [...subs]) run(scope);
 }
 
 /**

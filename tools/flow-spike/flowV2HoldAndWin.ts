@@ -46,6 +46,7 @@ import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import {
 	BOOK_OF_DRIVEN_SEED_CONTAINER_EVENTS,
+	CUE_SCOPE_PIN,
 	BOOK_OF_DRIVEN_SEED_LIBRARY,
 	HOLD_AND_WIN_CAUSES,
 	HOLD_AND_WIN_DRIVEN_SEED_DOC,
@@ -293,8 +294,11 @@ check(
 	same(OWN_CUES.map((c) => c.name).sort(), [...hwEmitter].sort()),
 	`${OWN_CUES.map((c) => c.name)}`,
 );
+// `scope` is no cue's own field: EVERY Fire cue node carries it, as the optional scope pin (Phase 12a),
+// so the beats that concern one pot, tier or column stamp it without each cue declaring it.
 for (const cue of OWN_CUES) {
 	const fields = (emitter.get(cue.name) ?? [])
+		.filter((f) => f.key !== CUE_SCOPE_PIN)
 		.map((f) => `${f.key}${f.required ? '' : '?'}`)
 		.sort();
 	const declared = cue.payload.map((p) => `${p.name}${p.optional ? '?' : ''}`).sort();

@@ -10,7 +10,7 @@
  * build — the launcher's `build` is not a typecheck (see apps/launcher-api/CLAUDE.md) — and neither
  * is visible in the editor, which happily saves a cue whose name never reaches the palette.
  *
- * Four rules here are load-bearing:
+ * Five rules here are load-bearing:
  *
  *  1. **Both cued kinds are harvested.** A spine cue swaps animation, a flipbook cue swaps clip;
  *     they ride the same bus and differ only in payload field. Harvesting spines alone would leave
@@ -27,8 +27,11 @@
  *  4. **Nothing to add ⇒ the SAME object back.** `withSceneCues` mirrors `withProjectSounds`, and
  *     the editor's `vocab` is a `$derived` — returning a fresh object for an unaffected project
  *     would re-derive every downstream consumer on every read.
+ *  5. **Components count** (Phase 12a). A cue authored inside a placed component — or a placement's
+ *     own signal override — reaches the instance on the same open bus, so its name must be fireable
+ *     too. Each def is walked once, so a component that places itself cannot loop the walk.
  */
-import type { Scene } from 'engine-layout';
+import type { ComponentDef, Scene } from 'engine-layout';
 import type { TemplateVocabulary } from 'engine-flow-v2';
 
 import { collectSceneCueNames, withSceneCues } from '../src/lib/sceneCues';
@@ -132,6 +135,62 @@ check(
 	withSceneCues(vocab, ['winShow']) === vocab,
 );
 eq('no scenes ⇒ no names', collectSceneCueNames([]), []);
+
+// --- Phase 12a: cues INSIDE a placed component are fireable too ---
+// A frog authored in the Pot plays on a Flow cue the scene itself never names; a placement may rebind
+// a cue to its own name; a component nested in another is reached; a def that places itself cannot
+// loop the walk; and a component's game-driven cue (the pot's `potActivate`) stays excluded.
+const pot = {
+	id: 'myPot',
+	root: {
+		kind: 'container',
+		id: 'pot-root',
+		children: [
+			{
+				kind: 'spine',
+				id: 'frog',
+				assetKey: 'frog',
+				cues: [
+					{ signal: 'frogCheer', animation: 'cheer' },
+					{ signal: 'potActivate', animation: 'celebrate' }, // game-driven ⇒ excluded
+				],
+			},
+			{ kind: 'componentInstance', id: 'badge', componentId: 'potBadge' },
+			{ kind: 'componentInstance', id: 'self', componentId: 'myPot' }, // a cycle ⇒ walked once
+		],
+	},
+} as unknown as ComponentDef;
+const badge = {
+	id: 'potBadge',
+	root: {
+		kind: 'container',
+		id: 'badge-root',
+		children: [
+			{ kind: 'flipbook', id: 'shine', clipId: 'a', cues: [{ signal: 'badgeShine', clipId: 'b' }] },
+		],
+	},
+} as unknown as ComponentDef;
+const potScene = [
+	{
+		id: 'basegame',
+		nodes: [
+			{
+				kind: 'componentInstance',
+				id: 'red',
+				componentId: 'myPot',
+				cueSignalOverrides: { frog: { frogCheer: 'redFrogCheer' } },
+			},
+		],
+	},
+] as unknown as Scene[];
+eq(
+	"a placed component's cues, a nested one's and a placement override are harvested",
+	collectSceneCueNames(potScene, [pot, badge]),
+	['badgeShine', 'frogCheer', 'redFrogCheer'],
+);
+eq('without the defs, only the placement override counts', collectSceneCueNames(potScene), [
+	'redFrogCheer',
+]);
 
 // --- RULE 8: a clip a cue swaps TO must reach the game, or the cue is a silent no-op ---
 // `collectClipIds` gates BOTH exporters — the clip registry and the clip's atlas pages — and main

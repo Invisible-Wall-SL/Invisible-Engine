@@ -6,6 +6,7 @@ import { error, redirect } from '@sveltejs/kit';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { loadFlowV2DocForEditor } from '$lib/server/flowV2Storage';
 import { loadFlowV2LibraryWithEtag } from '$lib/server/flowV2LibraryStorage';
+import { listComponents } from '$lib/server/componentStorage';
 import { loadDoc } from '$lib/server/editorStorage';
 import { loadGameConfigDocWithEtag } from '$lib/server/gameConfigStorage';
 import { resolveGameModes } from 'game-config';
@@ -79,7 +80,8 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 	// turns each into a payload-less CueDecl, so the palette, the inspector's ref dropdown,
 	// `derivePins` and the validator all accept it. Best-effort: a project whose scenes name no cue
 	// yields an empty list and the vocabulary is returned untouched.
-	const sceneCues = collectSceneCueNames(layout.scenes ?? []);
+	// Inside COMPONENTS too: a cue authored in a placed component, or a placement's signal override.
+	const sceneCues = collectSceneCueNames(layout.scenes ?? [], await listComponents({ projectKey }));
 
 	// CONTAINER SYNC (`syncFlowContainers`): every Scene-Editor screen is offered as a container.
 	// Returning the merged doc means the palette offers every screen immediately, and a Save persists

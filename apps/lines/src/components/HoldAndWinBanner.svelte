@@ -2,11 +2,13 @@
 	/**
 	 * The operator platform jackpot's cue (any kind) — a NOTIFICATION, for authored sound and FX, that
 	 * its celebration has started (`presentPlatformJackpotWin`); this banner draws its coded default.
+	 * `scope` is the tier again, the key a jackpot tile listens on (Phase 12a).
 	 */
 	export type EmitterEventPlatformJackpot = {
 		type: 'platformJackpotCelebration';
 		tier: string;
 		amount: number;
+		scope?: string;
 	};
 </script>
 

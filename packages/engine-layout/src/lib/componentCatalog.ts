@@ -1,4 +1,5 @@
 import { BUTTON_STATE_IMAGE_PARAMS } from './buttonStateImage';
+import { kindCapabilities, type KindCapabilities } from './kindCapabilities';
 import type { ComponentParam } from './types';
 
 /**
@@ -24,6 +25,17 @@ export interface EngineSignalEntry {
 	key: string;
 	label: string;
 	note?: string;
+	/** The family the editor's picker files it under ("Pots", "Jackpots"). Absent ⇒ the core set. */
+	group?: string;
+	/**
+	 * What its fires are SCOPED by (Phase 12a) — `meter`, `tier`, `reel`. A component instance whose
+	 * def names a matching scope param (`ComponentDef.signalScope`) hears only its own. Absent ⇒
+	 * unscoped: every listener hears every fire.
+	 */
+	scope?: string;
+	/** The {@link KindCapabilities} flag a project's kind must have for the editor to offer it — the
+	 *  Hold and Win families are `'holdAndWin'`. Absent ⇒ offered to every kind. */
+	capability?: keyof KindCapabilities;
 }
 
 /** Engine-provided values an author can bind a component param to. */
@@ -457,6 +469,95 @@ export const BUTTON_STATE_PARAMS: ComponentParam[] = BUTTON_STATE_IMAGE_PARAMS.m
 );
 
 /**
+ * The Hold and Win feature's signals (`docs/design/hold-and-win.md` §8, Phase 12a) — the engine's own
+ * beats, reaching component cues and gates with no Flow wiring. Offered to a Hold and Win project
+ * only. The pot signals are scoped by meter, the jackpot win by tier and the lit letter by reel, so
+ * a celebration authored once inside the Pot component plays on the pot it sits on.
+ */
+const holdAndWinFamily = (
+	group: string,
+	entries: { key: string; label: string; note: string; scope?: string }[],
+): EngineSignalEntry[] => entries.map((entry) => ({ ...entry, group, capability: 'holdAndWin' }));
+
+const HOLD_AND_WIN_SIGNALS: EngineSignalEntry[] = [
+	...holdAndWinFamily('Pots', [
+		{
+			key: 'potFill',
+			label: 'Pot — specials take off',
+			note: 'Specials take off for a pot (its level is about to rise).',
+			scope: 'meter',
+		},
+		{
+			key: 'potLand',
+			label: 'Pot — special lands',
+			note: 'A special flying into a pot arrives.',
+			scope: 'meter',
+		},
+		{
+			key: 'potLevelUp',
+			label: 'Pot — level up',
+			note: "A pot's level rose by one (one per landing special).",
+			scope: 'meter',
+		},
+		{
+			key: 'potStageUp',
+			label: 'Pot — size stage up',
+			note: "A pot's level reached one of its meter's size stages.",
+			scope: 'meter',
+		},
+		{ key: 'potFull', label: 'Pot — full', note: 'A pot filled.', scope: 'meter' },
+		{
+			key: 'potActivate',
+			label: 'Pot — activate',
+			note: 'A full pot is consumed by the feature trigger and its modifier activates.',
+			scope: 'meter',
+		},
+	]),
+	...holdAndWinFamily('Respins', [
+		{
+			key: 'respinReset',
+			label: 'Respin counter — reset',
+			note: 'A coin landed and the counter went back to its start.',
+		},
+		{
+			key: 'respinLast',
+			label: 'Respin counter — last respin',
+			note: 'The counter reached its last respin.',
+		},
+	]),
+	...holdAndWinFamily('Coins', [
+		{ key: 'coinLand', label: 'Coins land', note: 'Coins land and stick on the respin board.' },
+		{ key: 'coinCollect', label: 'Coins collected', note: 'A collector gathers coins.' },
+		{ key: 'coinBoost', label: 'Coins boosted', note: 'Coin values are multiplied.' },
+		{ key: 'coinUpgrade', label: 'Coins upgraded', note: 'An upgrade raises coin values.' },
+	]),
+	...holdAndWinFamily('Jackpots', [
+		{
+			key: 'jackpotWin',
+			label: 'Jackpot won',
+			note: 'A feature jackpot was won. Scoped by tier: a jackpot tile hears its own tier.',
+			scope: 'tier',
+		},
+	]),
+	...holdAndWinFamily('Letters', [
+		{
+			key: 'letterLit',
+			label: 'Letter lit',
+			note: 'A full column lights its letter. Scoped by reel (0 = the first column).',
+			scope: 'reel',
+		},
+	]),
+	...holdAndWinFamily('Wheel', [
+		{ key: 'wheelSpin', label: 'Wheel — spin', note: 'The wheel starts turning.' },
+		{ key: 'wheelLand', label: 'Wheel — land', note: "The wheel stops on the server's prize." },
+	]),
+	...holdAndWinFamily('Feature', [
+		{ key: 'featureEnter', label: 'Feature — enter', note: 'The respin board appears.' },
+		{ key: 'featureExit', label: 'Feature — exit', note: 'The respin board leaves.' },
+	]),
+];
+
+/**
  * Signals a component's spine can play a cue on. Tick one here, then on a spine node add
  * a "Plays on signal" cue (signal → animation). `enter` is fired by the component itself
  * when it becomes visible (mount, or a `visibleSource` gate opening) — the intro-on-appear
@@ -525,4 +626,20 @@ export const ENGINE_SIGNAL_CATALOG: EngineSignalEntry[] = [
 		label: 'Board glow hide',
 		note: 'The free-spin board glow fades out (free spins finish).',
 	},
+	{
+		key: 'platformJackpotWin',
+		label: 'Platform jackpot won',
+		group: 'Jackpots',
+		scope: 'tier',
+		note: "The operator platform's jackpot was won, any kind. Scoped by tier: a jackpot tile hears its own tier's win.",
+	},
+	...HOLD_AND_WIN_SIGNALS,
 ];
+
+/** The signals the editor offers a project of `gameType`: every catalog entry its kind can fire. */
+export function engineSignalsForKind(gameType: string | undefined): EngineSignalEntry[] {
+	const capabilities = kindCapabilities(gameType);
+	return ENGINE_SIGNAL_CATALOG.filter(
+		(entry) => entry.capability === undefined || capabilities[entry.capability],
+	);
+}

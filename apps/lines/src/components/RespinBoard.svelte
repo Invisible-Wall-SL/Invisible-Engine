@@ -27,13 +27,17 @@
 	 *
 	 * The pots and the Lucky Spin (base game) and the feature's celebrations:
 	 * - `potFill` as a meter's specials take off (each landing is a `flightArrive` with flight
-	 *   `toMeter:<id>`), `potFull` when the update filled it;
+	 *   `toMeter:<id>`), `potLevelUp` as each landing raises its level, `potStageUp` when a rise
+	 *   reaches one of its size stages, `potFull` when the update filled it;
 	 * - `potsConsume` as a `meter` trigger drains the meters it consumed, with what they activate;
 	 * - `luckySpinIntro` as the Lucky Spin banner goes up;
 	 * - `randomMetreFire` as the random metre's banner goes up, with the coins it added;
 	 * - `jackpotCelebration` for a banked jackpot (full board, letters, the wheel);
 	 * - `respinTallyStep` each time the Total Win bar steps in the feature end's tally — `total` is
 	 *   what the bar now reads; the last step (`index` = the coin count) adds the banked part.
+	 *
+	 * SCOPE (Phase 12a): the cues about ONE pot, tier or column carry it as `scope` — the meter id,
+	 * the jackpot tier, the reel — so a component or effect placed on that part hears its own only.
 	 *
 	 * Grand's letters, Hotfire's wheel and the base-game instant collect:
 	 * - `respinColumnComplete` as a full column's letter lights (`lightLetter`), and
@@ -87,6 +91,7 @@
 				amount: number;
 				source: HoldAndWinJackpotSource;
 				banked: boolean;
+				scope?: string;
 		  }
 		| {
 				type: 'potFill';
@@ -95,9 +100,17 @@
 				max: number;
 				full: boolean;
 				cells: HoldAndWinCell[];
+				scope?: string;
 		  }
-		| { type: 'potFull'; meter: string }
-		| { type: 'potsConsume'; meters: string[]; activates: HoldAndWinSpecial[] }
+		| { type: 'potLevelUp'; meter: string; level: number; max: number; scope?: string }
+		| { type: 'potStageUp'; meter: string; stage: number; level: number; scope?: string }
+		| { type: 'potFull'; meter: string; scope?: string }
+		| {
+				type: 'potsConsume';
+				meters: string[];
+				activates: HoldAndWinSpecial[];
+				scope?: string[];
+		  }
 		| { type: 'luckySpinIntro' }
 		| { type: 'randomMetreFire'; name: string; cells: HoldAndWinCell[] }
 		| {
@@ -105,6 +118,7 @@
 				tier: string;
 				amount: number;
 				source: HoldAndWinJackpotSource;
+				scope?: string;
 		  }
 		| { type: 'respinTallyStep'; index: number; amount: number; total: number }
 		| {
@@ -115,6 +129,7 @@
 				cleared: boolean;
 				amount: number;
 				cells: Position[];
+				scope?: string;
 		  }
 		| { type: 'respinColumnStep'; reel: number; index: number; total: number }
 		| { type: 'wheelShow'; prizes: HoldAndWinWheelPrize[] }

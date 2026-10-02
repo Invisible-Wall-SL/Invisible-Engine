@@ -12,6 +12,7 @@ import {
 } from 'engine-game';
 import { emitterSecondsToWallMs, type EffectDoc } from 'engine-fx';
 import {
+	FLIGHT_METER_PREFIX,
 	flightEaseOf,
 	flightPlanOptions,
 	resolveFlightStyle,
@@ -86,6 +87,8 @@ export type ActiveFlight = {
 	flight: string;
 	target: string;
 	index: number;
+	/** The meter a `toMeter:<id>` flight lands in — its `flightArrive`'s scope (Phase 12a). */
+	scope?: string;
 	curve: FlightCurve;
 	/** Layer-local units per board unit, so heads and trails are cell-sized. */
 	scale: number;
@@ -228,7 +231,7 @@ const toLocalRect = (target: Layer, rect: FlightRect): FlightRect => {
 	};
 };
 
-function arrive(flight: Pick<ActiveFlight, 'id' | 'flight' | 'target' | 'index'>) {
+function arrive(flight: Pick<ActiveFlight, 'id' | 'flight' | 'target' | 'index' | 'scope'>) {
 	const resolve = arrivals[flight.id];
 	if (!resolve) return;
 	delete arrivals[flight.id];
@@ -237,9 +240,14 @@ function arrive(flight: Pick<ActiveFlight, 'id' | 'flight' | 'target' | 'index'>
 		flight: flight.flight,
 		target: flight.target,
 		index: flight.index,
+		...(flight.scope ? { scope: flight.scope } : {}),
 	});
 	resolve();
 }
+
+/** The meter a `toMeter:<id>` flight flies into; `undefined` for every other kind. */
+const meterOfFlight = (flight: string): string | undefined =>
+	flight.startsWith(FLIGHT_METER_PREFIX) ? flight.slice(FLIGHT_METER_PREFIX.length) : undefined;
 
 /**
  * Fly `flight` (its kind: `toTotal`, `toMeter:<id>`, `toCollector`…) from `from` to `to`. Resolves
@@ -257,7 +265,7 @@ export const flyTo = (
 	const target = targetName(to);
 	return new Promise<void>((resolve) => {
 		const id = nextId++;
-		const record = { id, flight, target, index };
+		const record = { id, flight, target, index, scope: meterOfFlight(flight) };
 		arrivals[id] = resolve;
 		const current = layer;
 		const start = resolveEnd(from);

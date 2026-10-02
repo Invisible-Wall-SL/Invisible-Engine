@@ -101,6 +101,13 @@ export interface EmitterTrigger {
 	 * A `stopEventType` equal to `eventType` is ignored (a cue can't both start and stop).
 	 */
 	stopEventType?: string;
+	/**
+	 * Optional SCOPE filter (`on: 'event'` only; Phase 12a, `docs/design/hold-and-win.md` §8): fire
+	 * only on events about this one part — a meter id (`red`), a jackpot tier (`grand`), a reel —
+	 * matched against the event's `scope`. An event that carries no scope still fires the layer.
+	 * Omitted ⇒ the scope of the component the effect is placed in, else every event.
+	 */
+	scope?: string;
 }
 
 /** One emitter layer of an effect (sparks, smoke, glow — stacked into one named effect). */

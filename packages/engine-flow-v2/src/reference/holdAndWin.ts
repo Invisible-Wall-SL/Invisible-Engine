@@ -761,6 +761,22 @@ const CUES: TemplateVocabulary['cues'] = [
 			{ name: 'cells', type: list(CELL) },
 		],
 	},
+	{
+		name: 'potLevelUp',
+		payload: [
+			{ name: 'meter', type: STRING },
+			{ name: 'level', type: INT },
+			{ name: 'max', type: INT },
+		],
+	},
+	{
+		name: 'potStageUp',
+		payload: [
+			{ name: 'meter', type: STRING },
+			{ name: 'stage', type: INT },
+			{ name: 'level', type: INT },
+		],
+	},
 	{ name: 'potFull', payload: [{ name: 'meter', type: STRING }] },
 	{
 		name: 'potsConsume',

@@ -176,6 +176,7 @@
 		resolveFlowV2Press,
 	} from '../game/flowV2InterpreterHolder';
 	import { resolveCelebrationLock } from '../game/celebrationLock';
+	import { featureComponentSignals } from '../game/featureSignals';
 	import {
 		boolSource,
 		eventSignal,
@@ -1601,6 +1602,9 @@
 		boardGlowHide: eventSignal((run) =>
 			context.eventEmitter.subscribe({ boardFrameGlowHide: () => run() }),
 		),
+		// Hold and Win's feature parts (pots, respins, coins, jackpots, letters, wheel) and the operator
+		// platform's jackpot — scoped where the beat concerns one pot, tier or column (Phase 12a).
+		...featureComponentSignals(context.eventEmitter),
 	});
 
 	// The board glow is a STATE — lit for the whole free-spin feature — but it arrives as one-shot

@@ -1,6 +1,6 @@
 import type { CueDecl, TemplateVocabulary } from 'engine-flow-v2';
 import { ENGINE_SIGNAL_CATALOG } from 'engine-layout';
-import type { LayoutNode, Scene } from 'engine-layout';
+import type { ComponentDef, LayoutNode, Scene } from 'engine-layout';
 
 /**
  * Signal names the GAME drives, so a flow must not offer to fire them.
@@ -41,26 +41,44 @@ const GAME_DRIVEN_SIGNALS = new Set(ENGINE_SIGNAL_CATALOG.map((s) => s.key));
  * Walks RECURSIVELY: a cued node is very often nested inside a `container` (the only layout node
  * kind with `children`), and a top-level-only scan would miss most of a real scene.
  *
- * A `componentInstance`'s own nodes are NOT harvested — its def lives in R2 component storage,
- * which this pure helper does not read (the same limit the loader's container-event projection
- * already carries for custom components' signals).
+ * Walks INTO COMPONENTS too, given their defs (Phase 12a): a cue authored inside a component (a frog
+ * in the Pot that plays on a Flow cue `frogCheer`) and a placement's per-instance signal override
+ * are as fireable as a scene's own — the open bus reaches the instance either way. Each def is walked
+ * once, nested instances included, so a component that contains itself cannot loop. Without the defs
+ * (they live in R2, which this pure helper does not read) only the scenes' own nodes count.
  *
  * Names the game drives ({@link GAME_DRIVEN_SIGNALS}) are excluded: they work on the node but are
  * not flow-fireable, so offering them in the palette would author a dead node.
  */
-export function collectSceneCueNames(scenes: readonly Scene[]): string[] {
+export function collectSceneCueNames(
+	scenes: readonly Scene[],
+	components: readonly ComponentDef[] = [],
+): string[] {
+	const defs = new Map<string, ComponentDef[]>();
+	for (const def of components) defs.set(def.id, [...(defs.get(def.id) ?? []), def]);
 	const names = new Set<string>();
+	const add = (signal: string | undefined): void => {
+		const name = signal?.trim();
+		if (name && !GAME_DRIVEN_SIGNALS.has(name)) names.add(name);
+	};
+	const entered = new Set<string>();
 	const walk = (nodes: readonly LayoutNode[]): void => {
 		for (const node of nodes) {
 			if (node.kind === 'container') {
 				walk(node.children ?? []);
 				continue;
 			}
-			if (node.kind !== 'spine' && node.kind !== 'flipbook') continue;
-			for (const cue of node.cues ?? []) {
-				const name = cue.signal?.trim();
-				if (name && !GAME_DRIVEN_SIGNALS.has(name)) names.add(name);
+			if (node.kind === 'componentInstance') {
+				for (const rebinds of Object.values(node.cueSignalOverrides ?? {})) {
+					for (const signal of Object.values(rebinds)) add(signal);
+				}
+				if (entered.has(node.componentId)) continue;
+				entered.add(node.componentId);
+				for (const def of defs.get(node.componentId) ?? []) walk([def.root]);
+				continue;
 			}
+			if (node.kind !== 'spine' && node.kind !== 'flipbook') continue;
+			for (const cue of node.cues ?? []) add(cue.signal);
 		}
 	};
 	for (const scene of scenes) walk(scene.nodes ?? []);

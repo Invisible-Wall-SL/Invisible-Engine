@@ -30,6 +30,13 @@
 		 * bone layer rides its bone by moving the container, so it ignores this.
 		 */
 		ownerPos?: () => { x: number; y: number };
+		/**
+		 * The scope of the component instance the effect sits in (Phase 12a — the pot's meter, a
+		 * jackpot tile's tier). An `event` layer then fires only on events about that part (or events
+		 * with no scope at all). The layer's own authored `trigger.scope` wins over it. Absent ⇒ every
+		 * event, as before scopes existed.
+		 */
+		scope?: string;
 	};
 </script>
 
@@ -51,7 +58,13 @@
 	import * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
 	import type { Texture } from 'pixi.js';
 	import { planLayer } from 'engine-fx';
-	import { getContextEventEmitter, type EmitterEventBase } from 'utils-event-emitter';
+	import {
+		eventScope,
+		getContextEventEmitter,
+		scopeKey,
+		scopeMatches,
+		type EmitterEventBase,
+	} from 'utils-event-emitter';
 
 	import Container from './Container.svelte';
 	import ParticleEmitter from './ParticleEmitter.svelte';
@@ -188,8 +201,11 @@
 		const eventType = trigger.eventType;
 		const duration = trigger.duration;
 		const stopEventType = trigger.stopEventType;
-		const handlers: Record<string, () => void> = {
-			[eventType]: () => {
+		const listening = scopeKey(trigger.scope) ?? props.scope;
+		const hears = (event: EmitterEventBase): boolean => scopeMatches(listening, eventScope(event));
+		const handlers: Record<string, (event: EmitterEventBase) => void> = {
+			[eventType]: (event) => {
+				if (!hears(event)) return;
 				emitting = true;
 				clearStop();
 				if (typeof duration === 'number' && duration >= 0) {
@@ -203,7 +219,8 @@
 		// Optional SECOND cue that STOPS emission (a continuous effect Flow switches off). Cancels any
 		// pending duration-timer. Ignored when equal to the fire cue (`layerTrigger` already drops that).
 		if (stopEventType && stopEventType !== eventType) {
-			handlers[stopEventType] = () => {
+			handlers[stopEventType] = (event) => {
+				if (!hears(event)) return;
 				clearStop();
 				emitting = false;
 			};

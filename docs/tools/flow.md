@@ -94,8 +94,9 @@ function library:
 - **Cues** — presentation signals to broadcast (`boardShow`, `specialBookReveal`,
   `freeSpinIntroShow`, `soundMusic`, …). Adds a **fireCue** node. The list is the engine's
   own cues **plus every signal name authored on a spine or a flipbook in this project's
-  screens**, so a cue you invented in the Scene Editor is waiting here to be dragged out
-  (see below). The two sound cues — `soundMusic` and `soundOnce` — also take an optional
+  screens**, including the ones inside a component placed on them and a placement's own
+  signal override. A cue you invented in the Scene Editor or the Component Editor is waiting
+  here to be dragged out (see below). The two sound cues — `soundMusic` and `soundOnce` — also take an optional
   **volume** (`0`–`1`) for that one firing; leave it unfed and the sound plays at the level
   set on its row in [Invisible Sound](./sound.md), which is where a track's mix belongs. It
   multiplies with that row's level, so it can only ever make a sound quieter.
@@ -261,6 +262,13 @@ palette). It shows the node's derived pins and a kind-specific editor:
   animating). What "finishes" means depends on the cue: an **engine** cue waits for its
   listeners, while a **scene cue you named** waits for the animation it starts — see
   [Scene cues](#scene-cues--animate-a-placed-character).
+  Every Fire Cue also has an optional **scope** data-in. Leave it unfed and every listener
+  reacts, as before. Feed it a part of a repeated feature — a meter id (`red`), a jackpot
+  tier (`grand`), a reel — and only the components **scoped by** that part (the red pot's
+  Pot Meter, your own component scoped by `meter`) and the effects inside them react. It
+  rides the cue as its `scope` field, so an Invisible FX layer with a **Scope** filter
+  matches it too. Wire it from the event that started the chain, e.g. a `meterUpdate`'s
+  `meter`.
 - **ForEach** — a **Mode** toggle (**sequence** = one item at a time, **parallel** = all
   at once).
 - **Sequence / Parallel** — a **Count** (how many ordered / concurrent exec-outs to
@@ -666,8 +674,12 @@ an error to the browser console.
 | `holdAndWinEnd` | `hideRespinBoard` (the coins fly into the Total Win bar, then the reels return) | Hold and Win tab |
 
 `meterLevels` and `randomMetreTrigger` have no beat; left unwired, the engine records them. Each
-beat fires its own cues (`respinCoinsLand`, `potFill`, `wheelSpin`, `flightArrive`, …), so a
-**Fire cue** of one of them only notifies your sound or FX; it does not move the board. To fly
+beat fires its own cues (`respinCoinsLand`, `potFill`, `potLevelUp` and `potStageUp` as a pot
+rises, `wheelSpin`, `flightArrive`, …), so a **Fire cue** of one of them only notifies your sound
+or FX; it does not move the board. The cues about one pot, tier or column carry it as `scope`.
+The same beats also reach components with no Flow at all: a cue on **Pot — activate**, **Coins
+land**, **Jackpot won**… authored in the Component Editor plays on the beat, and on the pot or
+tile it sits on only (see the Component Editor guide's **scoped by**). To fly
 something yourself, use **flyTo**. Its sources come on three pins, one per kind of cell list a book
 event carries: `cells` (e.g. `coinsLand`), `cellAmounts` (a collect, an instant collect, the
 feature tally) and `positions` (a column, cleared cells); or one `reel` + `row`. Then a `target`

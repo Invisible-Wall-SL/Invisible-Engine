@@ -84,6 +84,7 @@ export const presentPlatformJackpotWin = async (event: { tier: string; amount: n
 			type: 'platformJackpotCelebration',
 			tier: event.tier,
 			amount: event.amount,
+			scope: event.tier,
 		});
 		const resolved = bakedWinText();
 		const banner = showHoldAndWinBanner({
