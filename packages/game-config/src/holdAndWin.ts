@@ -55,9 +55,19 @@ export const SPECIAL_SYMBOL_ROLE: Record<HoldAndWinSpecial, HoldAndWinSymbolRole
  *  multiple of the TOTAL bet unless the table says otherwise (a multiplier's values are factors). */
 export type WeightedValue = { value: number; weight: number };
 
-/** One fixed jackpot tier. `multiplier` is × total bet. `fixed: false` names a progressive tier,
- *  which the first build does not support (design §3.3) — the validator says so. */
-export type HoldAndWinJackpot = { name: string; multiplier: number; fixed: boolean };
+/** A progressive tier's pool, × total bet like `multiplier`: it starts at `seed`, grows by
+ *  `contribution` with every bet, stops at `cap` (absent ⇒ no cap) and goes back to `seed` when won.
+ *  The pool is SERVER state (per player on the mock); the client only shows what the server says. */
+export type HoldAndWinProgressive = { seed: number; contribution: number; cap?: number };
+
+/** One jackpot tier. `multiplier` is × total bet. `fixed: false` names a progressive tier, whose
+ *  `progressive` pool the server grows and pays (design §7 11c); `multiplier` stays its fallback. */
+export type HoldAndWinJackpot = {
+	name: string;
+	multiplier: number;
+	fixed: boolean;
+	progressive?: HoldAndWinProgressive;
+};
 
 /** One row of the coin value table: a cash coin (× total bet, decimals allowed) or a jackpot label.
  *  `reels` are 0-based reel indices the entry may land on; absent ⇒ every reel. A cash entry is
@@ -294,7 +304,21 @@ const jackpot = (raw: unknown): HoldAndWinJackpot | undefined => {
 	const name = text(raw.name);
 	const multiplier = positive(raw.multiplier);
 	if (!name || multiplier === undefined) return undefined;
-	return { name, multiplier, fixed: raw.fixed !== false };
+	if (raw.fixed !== false) return { name, multiplier, fixed: true };
+	return { name, multiplier, fixed: false, progressive: progressive(raw.progressive, multiplier) };
+};
+
+/** A progressive tier's pool; an absent or partial one falls back to a pool that starts at the
+ *  tier's `multiplier` and never grows — exactly what a `fixed: false` tier paid before 11c. */
+const progressive = (raw: unknown, multiplier: number): HoldAndWinProgressive => {
+	const r = isObject(raw) ? raw : {};
+	const contribution = num(r.contribution);
+	const cap = positive(r.cap);
+	return {
+		seed: positive(r.seed) ?? multiplier,
+		contribution: contribution !== undefined && contribution >= 0 ? contribution : 0,
+		...(cap !== undefined ? { cap } : {}),
+	};
 };
 
 const coin = (raw: unknown): CoinValueEntry | undefined => {
@@ -624,11 +648,20 @@ export function validateHoldAndWin(doc: GameConfigDoc): GameConfigIssue[] {
 	block.jackpots.forEach((j, i) => {
 		if (seen.has(j.name)) error(`jackpots.${i}.name`, `Jackpot "${j.name}" is listed twice.`);
 		seen.add(j.name);
-		if (!j.fixed) {
-			warning(
-				`jackpots.${i}.fixed`,
-				`"${j.name}" is progressive; the first build pays only fixed jackpots, so it pays ${j.multiplier}× total bet.`,
-			);
+		const pool = j.progressive;
+		if (!j.fixed && pool) {
+			if (pool.cap !== undefined && pool.cap < pool.seed) {
+				error(
+					`jackpots.${i}.progressive.cap`,
+					`"${j.name}" caps its pool at ${pool.cap}×, below its ${pool.seed}× seed.`,
+				);
+			}
+			if (pool.contribution === 0) {
+				warning(
+					`jackpots.${i}.progressive.contribution`,
+					`"${j.name}" is progressive but no bet contributes to it, so it always pays its ${pool.seed}× seed.`,
+				);
+			}
 		}
 	});
 

@@ -76,12 +76,16 @@ import {
 } from './gameMappings';
 import { engineToPlay4Fun, play4FunAmountMultiplier, play4FunToEngine } from './amounts';
 import {
+	applyJackpotLevels,
 	boardCells,
 	holdAndWinState,
 	parseHoldAndWinCell,
+	readBootJackpotLevels,
 	readBootMeterLevels,
 	readHoldAndWinConfig,
+	readJackpotLevels,
 	translateHoldAndWinEvent,
+	type HoldAndWinJackpotLevel,
 	type HoldAndWinMeterLevel,
 	type HoldAndWinTranslation,
 	type HoldAndWinWireConfig,
@@ -197,6 +201,33 @@ const publishHoldAndWinMeters = (meters: HoldAndWinMeterLevel[]): void => {
 	).__IE_HOLD_AND_WIN_METERS__ = meters;
 };
 
+/**
+ * Publish the progressive pools to the GAME (`apps/lines` `holdAndWinJackpots.svelte.ts`): the boot
+ * levels, and every refresh a balance heartbeat brings between rounds — the same decoupled-global
+ * bridge as the meters, plus an `ie:holdAndWinJackpots` event so a jackpot bar already on screen
+ * moves. Inside a round the pools travel as the `jackpotLevels` book event instead. A server with no
+ * progressive tier never calls it, so every other game leaves the global undefined.
+ */
+const publishHoldAndWinJackpots = (levels: HoldAndWinJackpotLevel[]): void => {
+	if (levels.length === 0) return;
+	(
+		globalThis as { __IE_HOLD_AND_WIN_JACKPOTS__?: HoldAndWinJackpotLevel[] }
+	).__IE_HOLD_AND_WIN_JACKPOTS__ = levels;
+	globalThis.dispatchEvent?.(new CustomEvent('ie:holdAndWinJackpots', { detail: levels }));
+};
+
+/** A heartbeat's progressive pools: moved into the captured tiers and handed to the game. */
+const refreshHoldAndWinJackpots = (sid: string, response: unknown): void => {
+	const hw = capturedHoldAndWin.get(sid);
+	const event = (response as { events?: Play4FunBookEvent[] } | null)?.events?.findLast(
+		(e) => e.event === 'jackpotLevels',
+	);
+	if (!hw || !event) return;
+	const levels = readJackpotLevels(event.context);
+	applyJackpotLevels(hw, levels);
+	publishHoldAndWinJackpots(levels);
+};
+
 /** Capture the boot config (first one wins). Returns the captured config so
  *  callers can immediately run the cross-check on the same data. */
 const captureConfig = (
@@ -214,6 +245,7 @@ const captureConfig = (
 	if (holdAndWin) {
 		capturedHoldAndWin.set(sid, holdAndWin);
 		publishHoldAndWinMeters(readBootMeterLevels(cfg));
+		publishHoldAndWinJackpots(readBootJackpotLevels(cfg));
 	}
 	// Bridge the server's declaration to the engine so paylines/in-play/strips/colours follow it.
 	publishServerConfig(cfg);
@@ -315,8 +347,7 @@ const betModesFromOptions = (
  */
 const declaredPayLines = (sid: string): number[][] | null => {
 	const cfg = capturedConfig.get(sid) as
-		| { availablePayLines?: number[][]; paylines?: number[][] }
-		| undefined;
+		{ availablePayLines?: number[][]; paylines?: number[][] } | undefined;
 	const lines = cfg?.availablePayLines ?? cfg?.paylines;
 	return Array.isArray(lines) ? lines : null;
 };
@@ -1027,6 +1058,7 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 				break;
 			default: {
 				const context = (e as { context?: unknown }).context;
+				if (hw && e.event === 'jackpotLevels') applyJackpotLevels(hw, readJackpotLevels(context));
 				const translated =
 					holdAndWin &&
 					translateHoldAndWinEvent(holdAndWin, e.event, (context ?? {}) as Record<string, unknown>);
@@ -1598,8 +1630,7 @@ const settleRound = (sid: string, round: PlayedRound, currency: string) => {
 	const winCents =
 		(
 			[...allEvents].reverse().find((e) => e.event === 'gameEnd')?.context as
-				| { win?: number }
-				| undefined
+				{ win?: number } | undefined
 		)?.win ?? 0;
 	// Whether the reported balance ALREADY includes the win depends on whether the round closed.
 	//
@@ -1659,6 +1690,7 @@ export const requestBalance = async (options: { sessionID: string; rgsUrl: strin
 		if (isPlay4FunError(result.response)) {
 			return { status: { statusCode: 'SKIPPED' as const }, balance: undefined };
 		}
+		refreshHoldAndWinJackpots(options.sessionID, result.response);
 		const balance = balanceOf(result.response);
 		return {
 			status: { statusCode: 'SUCCESS' as const },

@@ -102,6 +102,7 @@ export {
 	type HoldAndWinEvent,
 	type HoldAndWinEventFields,
 	type HoldAndWinEventType,
+	type HoldAndWinJackpotLevel,
 	type HoldAndWinJackpotSource,
 	type HoldAndWinMeterLevel,
 	type HoldAndWinSnapshot,

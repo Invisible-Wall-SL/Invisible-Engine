@@ -1278,6 +1278,9 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			type: 'meterLevels',
 		},
 		{
+			type: 'jackpotLevels',
+		},
+		{
 			type: 'coinInstantCollect',
 		},
 		{

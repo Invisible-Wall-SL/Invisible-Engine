@@ -718,8 +718,10 @@ export const carrySession = (session, { keepBetShape }) => ({
 	round: null,
 	configSent: keepBetShape ? Boolean(session.configSent) : false,
 	...(keepBetShape && 'betTable' in session ? { betTable: session.betTable } : {}),
-	// A Hold and Win player's persistent meters are theirs, not the board's, so they survive too.
+	// A Hold and Win player's persistent meters are theirs, not the board's, so they survive too…
 	...(session.meters ? { meters: session.meters } : {}),
+	// …and so are their progressive jackpot pools.
+	...(session.jackpots ? { jackpots: session.jackpots } : {}),
 });
 
 // ---------- factory: one stateful mock instance ----------
@@ -1193,7 +1195,7 @@ export function createMockRgs(opts = {}) {
 			}
 			let target = null;
 			let best = 0;
-			for (const [name, n] of counts) if (n > best) (best = n), (target = name);
+			for (const [name, n] of counts) if (n > best) ((best = n), (target = name));
 			if (target) {
 				for (let step = 0; step < 2; step++) {
 					const exploding = [];

@@ -62,7 +62,8 @@ sells a buy) plus:
   "bonus": "respin",
   "roles": { "BONUS": ["coin"], "BOOST": ["payer", "meterSpecial"], … },
   "blank": "BLANK",
-  "jackpots": [{ "name": "MINI", "multiplier": 15 }, …],   // × total stake
+  "jackpots": [{ "name": "MINI", "multiplier": 15 }, …,    // × total stake
+               { "name": "GRAND", "multiplier": 2000, "progressive": true, "value": 2003.5 }],
   "respins": 3,
   "stickiness": "allCoins",        // | "collectorsOnly"
   "boardEnd": { "type": "fullBoardJackpot", "jackpot": "GRAND" },  // | columnLetters {letters, jackpot} | none
@@ -75,6 +76,14 @@ sells a buy) plus:
 **Meter levels are server state.** They are per player (per session on the mock), survive rounds,
 arrive at boot here, change only by `meterUpdate`, and are restated after every `play` by
 `meterLevels`. The client never computes one.
+
+**Progressive pools are server state too** (design §7 11c). A tier the Game Config marks
+`fixed: false` is flagged `progressive` and carries its pool as `value` (× total stake, like
+`multiplier`, which stays its fallback). The pool is per player (per session on the mock): every
+`bet` adds the tier's `contribution`, it stops at its `cap`, a win pays the pool and puts it back to
+its `seed`. It arrives at boot here, is restated after every `play` by `jackpotLevels` and on every
+balance heartbeat (`[]`), and a `jackpotWin` of the tier pays it. A game with no progressive tier
+sends exactly what it did before — no `progressive`, no `value`, no `jackpotLevels`.
 
 ## A base spin — `[bet, play]` at `seq=0`
 
@@ -96,6 +105,7 @@ In order (pass 1: `bet`, `playedSpin`; pass 2: the rest as listed):
 | `enterBonus`                                                                                          | partner snapshot + `holdAndWin` state                                   | the round STAYS OPEN                                                                                                                                                                                                                                                                           |
 | `gameEnd`, `gameRoundOver`                                                                            | `{win}`                                                                 | no feature: the lines mock's close rules (a losing spin closes itself; `play: null` with a win waits for `collect`)                                                                                                                                                                            |
 | `meterLevels`                                                                                         | `{meters: [{id, level, max}]}`                                          | after every `play`, when the game has meters                                                                                                                                                                                                                                                   |
+| `jackpotLevels`                                                                                       | `{jackpots: [{name, value}]}`                                           | after every `play` (and in the heartbeat's `events`), when the game has a progressive tier — each pool × total stake, after any this play won went back to its seed                                                                                                                         |
 
 **What sticks at entry:** `allCoins` — every coin and jackpot coin (specials on the triggering board
 do not stick; with `activeModifiers.fromTriggeringSpecials` they activate their kind instead).
@@ -171,6 +181,9 @@ the facade has a fixture for the shape.
 - A `jackpotWin` with `banked: false` (sources `coin`, `collect`, `column`, `instantCollect`) is
   **presentation only**: its amount is already inside a tally cell, a collector's value, a column or
   an instant collect. **No `jackpotWin` is ever added on top.**
+- A progressive tier's `jackpotWin.amount` (and a jackpot coin's tally `amount`) is its pool as it
+  stood when the play was dealt, × the round's stake; two wins of one tier in one play both pay that
+  pool, and it resets once, after the play.
 - `gameEnd.win = Σ spinWin.pay + coinInstantCollect.amount + holdAndWinEnd.total`, and the balance
   moves by `win − stake` once the round closes.
 
@@ -231,7 +244,8 @@ Every beat is exercised by `pnpm check:holdandwin` (`scripts/check-holdandwin-pr
 node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/mock-rgs-server-holdandwin.mjs
 ```
 
-`PRESET=pots|classic|collector` (default `pots`), `PORT=7799`, `SEED`, `START_BALANCE`, `FORCE`. On the
+`PRESET=pots|classic|collector` (default `pots`; `pots-progressive` is the 11c test fixture — 3 Pots
+with MINOR, MAJOR and GRAND progressive), `PORT=7799`, `SEED`, `START_BALANCE`, `FORCE`. On the
 Invisible Test Server a `holdAndWin` project is dealt by it automatically from its (published or
 authoring) Game Config; a project with no `holdAndWin` block is dealt its base game as lines, with a
 warning in the log. The Game Maker scaffold seeds a new `holdAndWin` project with the kind's default
@@ -248,4 +262,5 @@ None of it is RTP.
 
 How coin values, jackpot labels, held cells, the counter and its reset, collectors, persistent meters,
 the Lucky Spin flag and the feature total really travel; whether fixed coin jackpots ever use
-`platform.gameRound.jackpot`; whether a respin board is sent whole (as here) or as a delta.
+`platform.gameRound.jackpot`; how a game's own progressive tier reports its pool (ours:
+`jackpotLevels` and the boot `value`) and whether it is per player or shared; whether a respin board is sent whole (as here) or as a delta.

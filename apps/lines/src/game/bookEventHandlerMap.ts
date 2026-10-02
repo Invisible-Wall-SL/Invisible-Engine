@@ -399,10 +399,12 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 	},
 
 	// Hold and Win (design §4.3). Every beat is presented (`holdAndWinPresentation.ts`, shared with
-	// its flow effect); `meterLevels` only re-syncs the held layer.
+	// its flow effect); `meterLevels` only re-syncs the held layer, and `jackpotLevels` (the
+	// progressive pools) is recorded at the play seam and drawn by whatever reads them.
 	luckySpin: presentLuckySpin,
 	meterUpdate: presentMeterUpdate,
 	meterLevels: syncHoldAndWin,
+	jackpotLevels: async () => {},
 	coinInstantCollect: presentInstantCollect,
 	randomMetreTrigger: presentRandomMetreTrigger,
 	holdAndWinTrigger: presentHoldAndWinTrigger,
@@ -450,10 +452,12 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		// rebuilt from it, so no intro replays. A feature that already ENDED before the resume point
 		// stays closed: its last snapshot is older than its `holdAndWinEnd`.
 		const lastMeterLevelsEvent = findLastBookEvent('meterLevels' as const);
+		const lastJackpotLevelsEvent = findLastBookEvent('jackpotLevels' as const);
 		const lastHoldAndWinStateEvent = findLastBookEvent('holdAndWinState' as const);
 		const lastHoldAndWinEndEvent = findLastBookEvent('holdAndWinEnd' as const);
 		const endedAt = lastHoldAndWinEndEvent ? bookEvents.indexOf(lastHoldAndWinEndEvent) : -1;
 		if (lastMeterLevelsEvent) await playBookEvent(lastMeterLevelsEvent, { bookEvents });
+		if (lastJackpotLevelsEvent) await playBookEvent(lastJackpotLevelsEvent, { bookEvents });
 		if (lastHoldAndWinStateEvent && bookEvents.indexOf(lastHoldAndWinStateEvent) > endedAt) {
 			await playBookEvent(lastHoldAndWinStateEvent, { bookEvents });
 		}

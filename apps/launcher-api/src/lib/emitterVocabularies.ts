@@ -1282,6 +1282,9 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				type: 'meterLevels',
 			},
 			{
+				type: 'jackpotLevels',
+			},
+			{
 				type: 'coinInstantCollect',
 			},
 			{
@@ -2604,6 +2607,9 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'meterLevels',
+			},
+			{
+				type: 'jackpotLevels',
 			},
 			{
 				type: 'coinInstantCollect',
@@ -3930,6 +3936,9 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				type: 'meterLevels',
 			},
 			{
+				type: 'jackpotLevels',
+			},
+			{
 				type: 'coinInstantCollect',
 			},
 			{
@@ -5252,6 +5261,9 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'meterLevels',
+			},
+			{
+				type: 'jackpotLevels',
 			},
 			{
 				type: 'coinInstantCollect',

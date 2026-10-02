@@ -24,7 +24,8 @@
  *
  * CLI (the presets are TypeScript, so through the repo's loader):
  *   node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/mock-rgs-server-holdandwin.mjs
- *   PORT=7799 · PRESET=pots|classic|collector · SEED=… · START_BALANCE=10000 · FORCE=<spec>
+ *   PORT=7799 · PRESET=pots|classic|collector|pots-progressive (a test fixture) · SEED=…
+ *   START_BALANCE=10000 · FORCE=<spec>
  */
 
 import { createServer } from 'node:http';
@@ -189,6 +190,20 @@ export function createMockRgs(opts = {}) {
 	const applyOrder = list(block.applyOrder);
 	const meters = list(block.meters);
 	const jackpotTable = Object.fromEntries(list(block.jackpots).map((j) => [j.name, j.multiplier]));
+	/** The progressive tiers (`fixed: false`) and their pools' rules, × base total bet. */
+	const progressiveTiers = list(block.jackpots)
+		.filter((j) => j.fixed === false)
+		.map((j) => ({
+			name: j.name,
+			seed: Number(j.progressive?.seed ?? j.multiplier),
+			contribution: Math.max(0, Number(j.progressive?.contribution ?? 0)),
+			cap: j.progressive?.cap === undefined ? Infinity : Number(j.progressive.cap),
+		}));
+	/** The pools of the session being dealt (set per request — one runs at a time), so a jackpot's
+	 *  worth anywhere in the deal is the pool as it stands; tiers won in an action reset after it. */
+	let livePools = null;
+	const wonProgressive = new Set();
+	const tierMultiplier = (tier) => livePools?.[tier] ?? jackpotTable[tier] ?? 0;
 
 	const reelCount = Math.max(1, Math.round(Number(opts.reels ?? 5)));
 	const rowHeights = Array.from({ length: reelCount }, (_u, reel) => {
@@ -285,7 +300,7 @@ export function createMockRgs(opts = {}) {
 		const cfg = specialsCfg[kind];
 		return Boolean(cfg && specialSymbol[kind] && onReel(cfg, reel));
 	};
-	const jackpotWorth = (cell) => (jackpotTable[cell.jackpot] ?? 0) * (cell.factor ?? 1);
+	const jackpotWorth = (cell) => tierMultiplier(cell.jackpot) * (cell.factor ?? 1);
 	/** What a cell pays at the end, × base total stake. */
 	const worth = (cell) =>
 		!cell
@@ -644,10 +659,42 @@ export function createMockRgs(opts = {}) {
 		session.meters = Object.fromEntries(
 			meters.map((m) => [m.id, Math.min(m.maxLevel, Math.max(0, Number(levels[m.id]) || 0))]),
 		);
+		// Progressive pools: per session, across rounds and contract swaps like the meters. A tier
+		// that became progressive starts at its seed; a pool above a lowered cap is clamped.
+		const pools = session.jackpots ?? {};
+		session.jackpots = Object.fromEntries(
+			progressiveTiers.map((t) => {
+				const level = Number(pools[t.name]);
+				return [t.name, Math.min(t.cap, Number.isFinite(level) && level > 0 ? level : t.seed)];
+			}),
+		);
 		return session;
 	};
 	const meterList = (session) =>
 		meters.map((m) => ({ id: m.id, level: session.meters[m.id], max: m.maxLevel }));
+	/** `jackpotLevels` — every progressive pool as it stands, × base total bet. Null without one. */
+	const jackpotLevels = (session) =>
+		progressiveTiers.length
+			? {
+					event: 'jackpotLevels',
+					context: {
+						jackpots: progressiveTiers.map((t) => ({
+							name: t.name,
+							value: tidy(session.jackpots[t.name]),
+						})),
+					},
+				}
+			: null;
+	const growPools = (session) => {
+		for (const t of progressiveTiers) {
+			session.jackpots[t.name] = tidy(Math.min(t.cap, session.jackpots[t.name] + t.contribution));
+		}
+	};
+	const resetWonPools = (session) => {
+		for (const t of progressiveTiers)
+			if (wonProgressive.has(t.name)) session.jackpots[t.name] = t.seed;
+		wonProgressive.clear();
+	};
 
 	// ---- the boot config ----
 	const configContext = (session) => ({
@@ -682,7 +729,16 @@ export function createMockRgs(opts = {}) {
 				names.filter((n) => list(symbols[n].roles).length).map((n) => [n, symbols[n].roles]),
 			),
 			blank: blankSymbol,
-			jackpots: list(block.jackpots).map((j) => ({ name: j.name, multiplier: j.multiplier })),
+			jackpots: list(block.jackpots).map((j) =>
+				j.fixed === false
+					? {
+							name: j.name,
+							multiplier: j.multiplier,
+							progressive: true,
+							value: tidy(session.jackpots[j.name]),
+						}
+					: { name: j.name, multiplier: j.multiplier },
+			),
 			respins: respinRules.start,
 			stickiness,
 			boardEnd:
@@ -745,7 +801,8 @@ export function createMockRgs(opts = {}) {
 	};
 
 	const jackpotWin = (events, round, tier, source, banked, cell, factor = 1) => {
-		const amount = credits((jackpotTable[tier] ?? 0) * factor, round);
+		const amount = credits(tierMultiplier(tier) * factor, round);
+		if (progressiveTiers.some((t) => t.name === tier)) wonProgressive.add(tier);
 		events.push({
 			event: 'jackpotWin',
 			context: {
@@ -1506,6 +1563,8 @@ export function createMockRgs(opts = {}) {
 		if (!sid)
 			return sendJson(req, res, 400, { error: { code: 'ERR_VAL', message: 'missing sid' } });
 		const session = getSession(sid);
+		livePools = session.jackpots;
+		wonProgressive.clear();
 		let actions;
 		try {
 			const text = await readBody(req);
@@ -1542,6 +1601,9 @@ export function createMockRgs(opts = {}) {
 		// so a stale tab is never pinned to a table it did not see (the lines mock's rule).
 		if (!session.configSent && !betTable) sendConfig();
 		if (actions.length === 0) {
+			// The heartbeat restates the progressive pools, so a bar open between rounds stays current.
+			const levels = jackpotLevels(session);
+			if (levels) events.push(levels);
 			const platform = { balance: session.balance };
 			if (session.round) platform.gameRound = openRound(session.round);
 			return sendJson(req, res, 200, { events, platform });
@@ -1552,6 +1614,7 @@ export function createMockRgs(opts = {}) {
 		const saved = {
 			balance: session.balance,
 			meters: { ...session.meters },
+			jackpots: { ...session.jackpots },
 			force: session.force,
 			round: session.round ? structuredClone(session.round) : session.round,
 		};
@@ -1559,6 +1622,9 @@ export function createMockRgs(opts = {}) {
 		const rollback = () => {
 			session.balance = saved.balance;
 			session.meters = saved.meters;
+			session.jackpots = saved.jackpots;
+			livePools = session.jackpots;
+			wonProgressive.clear();
 			session.force = saved.force;
 			session.round = saved.round;
 			for (const k of settledRounds.keys()) if (!settledBefore.has(k)) settledRounds.delete(k);
@@ -1634,6 +1700,7 @@ export function createMockRgs(opts = {}) {
 						if (round && !round.closed) settleAbandoned(sid, session, round);
 						if (session.balance < total) return fail('insufficient balance', 200);
 						session.balance -= total;
+						growPools(session);
 						round = {
 							id: makeRoundId(),
 							betPerLine,
@@ -1702,11 +1769,18 @@ export function createMockRgs(opts = {}) {
 						return fail(`error executing requested actions: unknown action: ${a.action}`);
 				}
 				round.stored[position] = { action: a, events: events.slice(dealtFrom) };
+				resetWonPools(session);
 				if (a.action === 'play' && meters.length) {
 					// Every play answer reports the meters as they stand — the client never computes one.
 					const levels = { event: 'meterLevels', context: { meters: meterList(session) } };
 					events.push(levels);
 					round.stored[position].events.push(levels);
+				}
+				// …and the progressive pools, after any this play won went back to their seed.
+				const pools = a.action === 'play' ? jackpotLevels(session) : null;
+				if (pools) {
+					events.push(pools);
+					round.stored[position].events.push(pools);
 				}
 				position += 1;
 			}
@@ -1783,11 +1857,14 @@ const isMainModule = import.meta.url === pathToFileURL(process.argv[1] ?? '').hr
 if (isMainModule) {
 	const gameConfig = await import('../packages/game-config/index.ts');
 	const preset = process.env.PRESET ?? gameConfig.DEFAULT_HOLD_AND_WIN_PRESET;
-	const raw = gameConfig.HOLD_AND_WIN_PRESETS[preset];
+	const raw =
+		gameConfig.HOLD_AND_WIN_PRESETS[preset] ?? gameConfig.HOLD_AND_WIN_TEST_FIXTURES[preset];
 	if (!raw) {
-		console.error(
-			`[mock-hnw] PRESET="${preset}" — use ${gameConfig.HOLD_AND_WIN_PRESET_IDS.join(' | ')}`,
-		);
+		const ids = [
+			...gameConfig.HOLD_AND_WIN_PRESET_IDS,
+			...Object.keys(gameConfig.HOLD_AND_WIN_TEST_FIXTURES),
+		];
+		console.error(`[mock-hnw] PRESET="${preset}" — use ${ids.join(' | ')}`);
 		process.exit(1);
 	}
 	const doc = gameConfig.normalizeGameConfigDoc(raw);

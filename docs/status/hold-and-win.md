@@ -51,7 +51,7 @@ titled **"Hold and win game pipeline"**.
 | 10 | Partner wire (facade + mock brought in line) | blocked on partner | — | — |
 | 11a | Extra specials: add-respins + upgrade (design §7) | not started | — | — |
 | 11b | Board expansion — rows unlock (design §7; after 11a) | not started | — | — |
-| 11c | Progressive + operator platform jackpots (design §7) | not started | — | — |
+| 11c | Progressive + operator platform jackpots (design §7) | in progress — part 1 progressive game jackpots, then part 2 operator platform jackpot | Hold and Win Phase 11c — progressive + platform jackpots | — |
 
 ## Current state
 
@@ -74,6 +74,13 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
 5 registered its own vocab + seed.
 
 ## Decisions & findings
+
+- 2026-10-02 — **Phase 11c: a progressive pool is a multiple of the total bet, per player** (session
+  "Hold and Win Phase 11c — progressive + platform jackpots"). A pool is in × total bet like a fixed
+  tier's `multiplier`, so the bar follows the bet selector without a server round trip. Each bet adds
+  `contribution` × bet units, whatever its stake, and the server sends the multiplier (`value`), not
+  money. Wins pay `value × the round's stake`. The real partner progressive is owed as a Phase 10
+  question: per-player or shared, multiplier or money (wire doc "Open questions").
 
 - 2026-10-02 — **Owner: start Phase 11 now** (Phase 10 waits on the partner). Split into 11a extra specials (add-respins, upgrade), 11b board expansion (after 11a) and 11c progressive + operator platform jackpots (parallel with 11a); each slice ships through the whole pipeline, unconfigured games byte-identical. Plan: design §7.
 - 2026-10-01 — **Phase 4 polish: three decisions** (session "Hold and Win Phase 4 — polish").
@@ -649,6 +656,29 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-02 — **Phase 11c part 1: progressive game jackpots** (session "Hold and Win Phase 11c —
+  progressive + platform jackpots"). A `fixed: false` tier is now real instead of paid as fixed with
+  a warning. Through the pipeline:
+  - **Config** — `jackpots[].progressive {seed, contribution, cap?}` (× total bet). A bare
+    `fixed: false` tier normalizes to `{seed: multiplier, contribution: 0}`, which pays exactly what
+    it paid before. The validator errors on a cap under the seed and warns on a zero contribution.
+    `/config` gets Pool seed / + per bet / Cap columns. No preset gains it: the dev/test fixture
+    `HOLD_AND_WIN_TEST_FIXTURES['pots-progressive']` (MINOR/MAJOR/GRAND progressive) exercises it.
+  - **Mock** — a pool per tier per session that grows with every bet, caps, pays when won and resets
+    to its seed after the play. It is reported in the boot config (`progressive: true, value`), after
+    every play and in the heartbeat (`jackpotLevels`), and survives a contract swap.
+    `check:holdandwin` §3b pins all of it, plus parity (no pools without a progressive tier).
+  - **Facade / engine** — `jackpotLevels` → engine event, recorded into `stateHoldAndWin.jackpots`.
+    The boot pools are published (`__IE_HOLD_AND_WIN_JACKPOTS__`), a heartbeat republishes them
+    (`ie:holdAndWinJackpots`), and a held jackpot coin is worth the live pool. `jackpot.<tier>` (the
+    HUD value source and `$engine` key) reads the live pool via `holdAndWinJackpots.svelte.ts`.
+  - **Flow** — `jackpotLevels` is in the vocabulary (no beat).
+  - **Docs** — wire doc, guides (Game Config, Flow, Win Text, Invisible Editor).
+  - **Verified live** on `pots-progressive` (local runtime stub + mock): the bar moved
+    $31 / $100.20 / $2,001 after one bet, a heartbeat refresh moved it, and a forced GRAND paid
+    **$2,002.00** (the grown pool, banner `coinJackpot`). After the round the bar read $2,000 and
+    the balance matched the server.
 
 - 2026-10-02 — **An undeclared mode plays on the base game type** (session "Hold and Win Phase 4 —
   engine runtime"; follow-up from #965's parity run). While a mode the Game Config does not declare
