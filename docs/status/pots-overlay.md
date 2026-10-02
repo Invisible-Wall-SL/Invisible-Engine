@@ -4,11 +4,10 @@
 > [status/hold-and-win](hold-and-win.md) · Guide: _none yet (Phase 6)_ · Agents: per phase — see the
 > design's build plan.
 
-**One-line state:** Phases 0–3 merged: the `potsOverlay` Game Config block and the additive
-`kindCapabilities` (#1008), the composed mock (#1013), and the facade plus the engine event contract
-(#1012). Phase 4a built (#1015 in review): the runtime draws dropped tokens over the board, flies them
-into the pots, and drains a pot as any bonus it starts begins. A project without the block, which is
-every project today, plays exactly as before. Next: 4b, 5a, 5c, 5d, then 6.
+**One-line state:** Phases 0–3, 4a, 5a, 5b and 5c are merged. Phase 4b is built and in review: each
+token is the head of its own flight, a per-reel timing option, and the overlay's Flow actions
+(`showTokens`, `liftTokens`, `drainPots`) with the `overlayDrop` graft. A project without the block,
+which is every project today, plays exactly as before. Next: 5d, then 6.
 
 ## How sessions use this file (the hub)
 
@@ -35,7 +34,7 @@ session is the Claude Code session titled **"3 pots overlay mechanic"**.
 | 1 | Contract: `potsOverlay` config block + validator + presets + `resolveMeters` + additive `kindCapabilities` inputs | built, in review | 3 pots overlay mechanic | #1008 |
 | 2 | Mock — composed protocol (`withPotsOverlay` over book, reusable H&W feature generator, free-spin hook, forced beats, wire doc, `check:pots-overlay`) | merged | Pots overlay Phase 2 — composed mock | #1013 |
 | 3 | Facade + engine event contract (`overlayDrop`, mode-entry `cause`/`meters`, per-bonus routing, pots at boot for any kind) | merged | Pots overlay Phase 3 — facade + event contract | #1012 |
-| 4 | Engine runtime (overlay layer, timing, lift-off flights, drain on any mode entry, H&W from an overlay host, resume) | 4a built, in review (the per-reel timing option is 4b) | Pots overlay Phase 3 — facade + event contract | #1015 |
+| 4 | Engine runtime (overlay layer, timing, lift-off flights, drain on any mode entry, H&W from an overlay host, resume) | 4a merged; 4b built, in review | Pots overlay Phase 3 — facade + event contract | #1015, 4b: PR pending |
 | 5a | `/config` Add-ons section | built, in review | Pots overlay Phase 5a — /config Add-ons | #1010 |
 | 5b | Scene Editor overlay screens + palette/pickers through the capability | merged | Pots overlay Phase 5b — Scene Editor overlay screens | #1009 |
 | 5c | Flow vocabulary composition (editor, publish gate, runtime) + graft | merged | Pots overlay Phase 5c — Flow vocabulary composition | #1014 |
@@ -91,6 +90,36 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Decisions & findings
 
+- 2026-10-02 — **Phase 4b runtime, as built** (the session that built Phases 3 and 4a). Pinned by
+  new cases in `engine-game`'s `potsOverlay.fixture.ts` (`boardDropCells`) and game-config's
+  (`timing`), and by `check:flow-publish-gate` §11 (the graft).
+  - **The token is its flight's head.** `flyTo` takes a `symbol` (drawn as the head in its
+    `flyToMeter` state, in place of the kind's authored or coded head; the trail stays the kind's)
+    and an `onStart` hook, fired as the head leaves after its stagger. A fill's `meterUpdate` moves
+    its tokens into `stateOverlayLeaving`: they stay drawn at rest until `liftToken` takes each off
+    as its own flight leaves. This removes the (N−1)×70 ms empty cell. The next event recorded (or
+    the next spin) clears any token nothing flew, so a flow that owns `meterUpdate` without
+    `fillMeter` leaves none behind. The cell under a token is not lit (`lightBaseCell` already
+    skipped a host symbol).
+  - **Per-reel timing:** `potsOverlay.timing: 'perReel'` (sparse; absent ⇒ after the stop, the
+    default). `/config` → Add-ons → Presentation → "Tokens appear". `presentReveal`, the reveal both
+    drivers call, reads the board's drop ahead in the book (`boardDropCells`: the `overlayDrop` after
+    this reveal, before the next `reveal` or `tumbleBoard`). engine-game's new `onReelStopping(reel)`
+    dep then puts each reel's tokens down as it stops, landing, with their sound. The drop later
+    finds them down and neither restarts their landing nor replays their sound. Tokens a reel did not
+    show (a board that swaps in place has no reel stop) appear with the drop, as after the stop.
+  - **Flow actions** (overlay fragment, `addOns.ts`; effects in `flowEffects.ts`):
+    - `showTokens` (`overlayDrop`) — the coded drop beat.
+    - `liftTokens` (`meterUpdate`) — takes a fill's tokens off their cells without flying, for a
+      flow that presents the fill its own way (`fillMeter` already flies each off as its head).
+    - `drainPots` (`freeSpinTrigger` / `modeEnter`) — the coded drain of the pots that started the
+      mode; an entry no pot started drains nothing. Hold and Win's `showRespinBoard` drains its own.
+  - **The graft** now adds `overlayDrop` → `showTokens` beside `meterUpdate` → `fillMeter`. It is
+    still idempotent and never touches an authored node. The Hold and Win starter flow with an
+    overlay gains only the `overlayDrop` chain.
+  - **Not done, on purpose:** the mode-entry `cause` / `meters` fields are still not in the
+    standard Flow payloads. `drainPots` reads the whole entry event, so an author needs no pin for
+    them, and adding them would change every kind's vocabulary.
 - 2026-10-02 — **Phase 5c, as built** (session "Pots overlay Phase 5c — Flow vocabulary
   composition").
   - **`withAddOns(kindVocab, addOns)`** (`engine-flow-v2/src/reference/addOns.ts`). `addOns` is
@@ -521,44 +550,29 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Open items / next
 
-0. **Left after Phase 4a (#1015):**
-   - **4b — timing:** tokens pop in after the last reel stops (the default). The authorable
-     "each reel's tokens as it lands" option is not built. It needs a config field (none in the
-     block yet) and a hook on the reel-stop beat.
-   - **4b — the token as the flight head:** a token leaves its cell as its fill's beat starts, and
-     the coded head (or the `toMeter:<id>` style authored in `/symbols`) flies. Drawing the token's
-     own art as the head is not built.
-   - **Phase 4b (with the overlay actions, found in 4a):** a flow that OWNS `freeSpinTrigger` or
-     `modeEnter` skips the coded handler, so a pot drained by them snaps to empty with no drain beat.
-     #1014 has no drain action. Add one (the coded `presentMeterConsume`) to the overlay fragment in
-     `engine-flow-v2/src/reference/addOns.ts` together with the show / lift-token actions.
-   - **Phase 6:** a token with no art in `/symbols` draws nothing (`Symbol`'s missing-art rule). The
-     add-on seeds placeholder art, so this only bites a hand-made config.
+0. **Left after Phase 4b:**
+   - **Owner decision pending: frame over coin, or coin over frame.** Win frames are drawn per
+     cell inside `Symbol.svelte`, under the overlay layer, so a token on a paying cell covers its
+     frame; §3.4 says the layer sits "below the win frames". Not built either way.
+   - **Phase 6:** a token with no art in `/symbols` draws nothing (`Symbol`'s missing-art rule),
+     on its cell and as a flight head. The add-on seeds placeholder art, so this only bites a
+     hand-made config.
    - **Resume between a drop and its fills** shows no tokens: neither `overlayDrop` nor `reveal` is
-     in the resume snapshot. The following `meterUpdate` still flies from the cell.
+     in the resume snapshot. The following `meterUpdate` still flies from the cell (with the coded
+     head, as no token is there to carry).
    - **Order:** the drain plays inside the free-spin / mode entry beat, after the mode layer has
      entered the mode (`modes.before`), so the new mode's screens and music are already up. Hold
      and Win's drain has always worked this way. Moving the drain into a mode hook would put it
      first. Inside `freeSpinTrigger` it is also unskippable, which Hold and Win's drain is not.
-   - **4b — lift-off vs the flight stagger:** a fill's tokens leave at once, but each flight starts
-     one stagger (70 ms coded) after the last, so the Nth cell sits empty for (N−1)×70 ms. Goes with
-     the token as the flight head.
-   - **4b — owner decision pending: frame over coin, or coin over frame.** Win frames are drawn per
-     cell inside `Symbol.svelte`, under the overlay layer, so a token on a paying cell covers its
-     frame; §3.4 says the layer sits "below the win frames". The hub is asking the owner; nothing is
-     restructured in 4a.
-   - **Human eyes** on token pop-in, lift-off, the flight and the drain with REAL token art (the
-     runs below had none, so a token drew nothing and its beat ended on its cap), at full frame
-     rate (the container renders at ~4 fps).
+   - **Per-reel timing reads the book ahead**, so it needs the drop in the same book as its board.
+     The facade emits it there; a partner wire that sends drops in a later request would show them
+     after the stop.
+   - **Human eyes** on token pop-in (both timings), the token flights and the drain with REAL token
+     art, at full frame rate (the container renders at ~4 fps).
 
 1. **Phases 5a, 5c and 5d** run in parallel; Phase 6 needs them and Phase 4. See the Phase board.
 2. **Carried into later phases (found in Phase 1):**
-   - **Phase 4 (from 5c):** the overlay-only flow actions (show / lift tokens) are not in the
-     vocabulary yet: they arrive with their runtime effects. Add them to the overlay fragment in
-     `engine-flow-v2/src/reference/addOns.ts`, and give the graft their chain once a coded beat
-     exists. Until then the graft adds no `overlayDrop` handler, because owning the event would
-     suppress the coded default.
-     Phase 3's mode-entry `cause` / `meters` fields are not in the Flow payloads yet: the kind's own
+   - Phase 3's mode-entry `cause` / `meters` fields are not in the Flow payloads yet: the kind's own
      `freeSpinTrigger` / `modeEnter` decls win over a fragment's (de-duplication keeps the kind's), so
      adding them is an edit to `standardVocab.ts` that every kind's vocabulary picks up.
    - **After Phase 2 (mock):**
@@ -603,6 +617,10 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Recent changes
 
+- 2026-10-02 — **Phase 4b: the token flies as its own head, per-reel timing, overlay Flow actions
+  (PR pending).** Details under Decisions. Agent rule 7: built in this session on the
+  `engine-pixi-svelte` patterns, reviewed by `code-reviewer`. `/config` gains "Tokens appear"
+  (`docs/tools/game-config.md`). A project without the block is unchanged.
 - 2026-10-02 — **Phase 5c: Flow vocabulary composition (#1014, merged).** A Book-of (or any) flow can
   now reference the pots overlay and Hold and Win vocabulary when the config carries the block,
   and still publishes. The editor's "＋ Add overlay steps" grafts the pot chain and the Hold and Win

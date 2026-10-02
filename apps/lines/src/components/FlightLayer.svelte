@@ -13,6 +13,7 @@
 		tickFlights,
 		type ActiveFlight,
 	} from '../game/flights.svelte';
+	import Symbol from './Symbol.svelte';
 	import SymbolLayer from './SymbolLayer.svelte';
 
 	/**
@@ -28,7 +29,8 @@
 	 * AUTHORED LOOK (Invisible Symbols → Flights): a sprite / spine / flipbook head draws through
 	 * `SymbolLayer` — the path a symbol layer takes — sized to a board cell × its `scale`, inside a
 	 * container at the board's scale; a glow head is `FlightView`'s coded glow re-tinted; `none` draws
-	 * no head. The trail is `FlightView`'s. The arrival effect plays ONCE at the target when the head
+	 * no head. A flight that carries a symbol (a pots overlay's token) draws that symbol as its head
+	 * instead, in its `flyToMeter` state, at the board's scale. The trail is `FlightView`'s. The arrival effect plays ONCE at the target when the head
 	 * lands, and the flight stays mounted until it has played out.
 	 */
 
@@ -61,6 +63,7 @@
 
 	/** A sprite / spine / flipbook head as the symbol layer that draws it. */
 	const artLayer = (flight: ActiveFlight): BookVfxLayer | undefined => {
+		if (flight.symbol) return undefined;
 		const head = flight.headStyle;
 		if (head?.kind !== 'sprite' && head?.kind !== 'spine' && head?.kind !== 'flipbook')
 			return undefined;
@@ -93,6 +96,7 @@
 				scale={flight.scale}
 				emit={flight.phase === 'flying'}
 				headShown={flight.phase === 'flying' &&
+					!flight.symbol &&
 					(!flight.headStyle || flight.headStyle.kind === 'glow')}
 				headTint={hexTint(flight.headStyle?.tint)}
 				headScale={flight.headStyle?.scale}
@@ -106,6 +110,11 @@
 				scale={flight.scale * (flight.headStyle?.scale ?? 1)}
 			>
 				<SymbolLayer layer={art} x={0} y={0} tint={hexTint(flight.headStyle?.tint)} />
+			</Container>
+		{/if}
+		{#if flight.phase === 'flying' && flight.symbol}
+			<Container x={flight.head.x} y={flight.head.y} scale={flight.scale}>
+				<Symbol state="flyToMeter" rawSymbol={flight.symbol} />
 			</Container>
 		{/if}
 		{#if flight.phase === 'flying' && flight.label}

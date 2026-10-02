@@ -66,7 +66,16 @@ export type FlyToOptions = {
 	padding?: number;
 	/** Text carried on the head (an add-respins special's "+2"). Absent ⇒ the head alone. */
 	label?: string;
+	/** A symbol that IS the head, in place of the kind's authored or coded one (a pots overlay's
+	 *  token flying into its pot), drawn in its `flyToMeter` state. The trail stays the kind's. */
+	symbol?: FlightSymbol;
+	/** Called once, as the head leaves its start (after its stagger), or at once when it cannot fly —
+	 *  so the thing it carries leaves its cell then, not when the volley is set up. */
+	onStart?: () => void;
 };
+
+/** The symbol a flight carries as its head ({@link FlyToOptions.symbol}). */
+export type FlightSymbol = { name: string; value?: number; jackpot?: string };
 
 /** The win meter — `'total'` in a flight's target. */
 export const FLIGHT_TARGET_TOTAL = 'total';
@@ -105,6 +114,8 @@ export type ActiveFlight = {
 	headStyle?: FlightHead;
 	/** Text riding on the head ({@link FlyToOptions.label}). */
 	label?: string;
+	/** The symbol that is the head ({@link FlyToOptions.symbol}). */
+	symbol?: FlightSymbol;
 	/** The trail: `'coded'` (the gold glow), the id of an authored effect the bundle carries, or
 	 *  `null` (none). An id, not the doc: this list is deep `$state`, and an emitter config must not
 	 *  be proxied. */
@@ -124,13 +135,25 @@ let layer: Layer | null = null;
 let nextId = 1;
 /** Each flight's resolver, until it lands. Bookkeeping, not state — nothing draws from it. */
 const arrivals: Record<number, () => void> = {};
+/** Each flight's {@link FlyToOptions.onStart}, until its head leaves. Bookkeeping, like `arrivals`. */
+const starts: Record<number, () => void> = {};
+
+const start = (id: number) => {
+	const onStart = starts[id];
+	if (!onStart) return;
+	delete starts[id];
+	onStart();
+};
 
 /** `FlightLayer` attaches its container while mounted. Without one a flight lands at once. */
 export const attachFlightLayer = (container: Layer): (() => void) => {
 	layer = container;
 	return () => {
 		if (layer === container) layer = null;
-		stateFlights.list.forEach(arrive);
+		stateFlights.list.forEach((flight) => {
+			start(flight.id);
+			arrive(flight);
+		});
 		stateFlights.list = [];
 	};
 };
@@ -268,10 +291,12 @@ export const flyTo = (
 		const id = nextId++;
 		const record = { id, flight, target, index, scope: scopeOf('meter', meterOfFlight(flight)) };
 		arrivals[id] = resolve;
+		if (options.onStart) starts[id] = options.onStart;
 		const current = layer;
-		const start = resolveEnd(from);
+		const origin = resolveEnd(from);
 		const end = resolveEnd(to);
-		if (!current || !start || !end) {
+		if (!current || !origin || !end) {
+			start(id);
 			arrive(record);
 			return;
 		}
@@ -283,7 +308,7 @@ export const flyTo = (
 			.map((rect) => toLocalRect(current, rect));
 		const plan = flightPlanOptions(style, SYMBOL_SIZE * scale, avoid);
 		if (options.padding !== undefined) plan.padding = options.padding * scale;
-		const route = planFlight(current.toLocal(start), current.toLocal(end), plan);
+		const route = planFlight(current.toLocal(origin), current.toLocal(end), plan);
 		const durationMs = flightDuration(curveLength(route.curve) / scale, style);
 		stateFlights.list.push({
 			...record,
@@ -298,6 +323,7 @@ export const flyTo = (
 			ease: style.ease,
 			...(style.head ? { headStyle: style.head } : {}),
 			...(options.label ? { label: options.label } : {}),
+			...(options.symbol ? { symbol: { ...options.symbol } } : {}),
 			...trailOf(style),
 			...(style.arrival ? { arrivalEffectId: style.arrival.effectId } : {}),
 			arrivalDone: !style.arrival,
@@ -330,7 +356,10 @@ export const tickFlights = (deltaMs: number) => {
 		const point = pointOnCurve(flight.curve, flightEaseOf(flight.ease)(t));
 		flight.head.x = point.x;
 		flight.head.y = point.y;
-		if (flight.phase === 'waiting') flight.phase = 'flying';
+		if (flight.phase === 'waiting') {
+			flight.phase = 'flying';
+			start(flight.id);
+		}
 		if (t >= 1) {
 			flight.phase = 'trailing';
 			arrive(flight);

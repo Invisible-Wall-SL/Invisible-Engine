@@ -68,6 +68,7 @@ import { armLuckySpinReveal } from './luckySpin';
 import { playSymbolLandSound } from './soundBindings';
 import { stateGame } from './stateGame.svelte';
 import { meterLevelBefore, stateHoldAndWin, stateHoldAndWinShown } from './stateHoldAndWin.svelte';
+import { leavingToken, liftToken, overlayTokenSymbol } from './stateOverlay.svelte';
 import {
 	armHeldBeat,
 	hideRespinBoard,
@@ -304,7 +305,9 @@ const announceMeterRise = (event: Beat<'meterUpdate'>, from: number, to: number)
  * the pot's level ticks up by one on each arrival, from the level before (`level − from.length`) to
  * the server's `level`, and a meter the update FILLED pulses. The level is the server's: the beat
  * only shows it arriving, never computes it (the play seam recorded it before the beat started).
- * Every cue it sends is scoped by the meter (Phase 12a), arrivals included.
+ * Every cue it sends is scoped by the meter (Phase 12a), arrivals included. A pots overlay's token
+ * is its own flight's head: it waits in its cell, lifts as its flight leaves, and the cell under it
+ * (the host's symbol) is not lit.
  *
  * No avoidance: the update comes straight after the reveal, before any win is shown. A slam
  * compresses the flights (`flights.svelte.ts`) and never skips an arrival or the final level.
@@ -328,12 +331,18 @@ export const presentMeterUpdate = async (event: Beat<'meterUpdate'>) => {
 	let reached = before;
 	await Promise.all(
 		event.from.map(async (cell, index) => {
-			const unlight = stateRespinBoard.shown ? () => {} : lightBaseCell(cell, 'flyToMeter');
+			const token = stateRespinBoard.shown
+				? undefined
+				: leavingToken(cell.reel, cell.row, event.meter);
+			const unlight =
+				stateRespinBoard.shown || token ? () => {} : lightBaseCell(cell, 'flyToMeter');
 			await flyTo(
 				{ reel: cell.reel, row: cell.row },
 				meterAnchor(event.meter),
 				meterFlight(event.meter),
-				{ index },
+				token
+					? { index, symbol: overlayTokenSymbol(token), onStart: () => liftToken(token) }
+					: { index },
 			);
 			unlight();
 			const from = reached;

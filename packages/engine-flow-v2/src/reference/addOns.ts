@@ -16,6 +16,7 @@ import { flowGraphs, graphHandlesSignal } from '../runtime';
 import type { FlowDoc, Graph, TemplateVocabulary, TypeRef } from '../types';
 import { buildEntryGraph, holdAndWinModeGraph, seedContainerRefs } from './drivenSeed';
 import { HOLD_AND_WIN_FRAGMENT } from './holdAndWin';
+import { trig, type ChoreoStep } from './bookOfChoreo';
 import { HOLD_AND_WIN_BASE_CHOREO } from './holdAndWinChoreo';
 import { INT, SYMBOL, insertAfter, type VocabFragment } from './standardVocab';
 
@@ -38,11 +39,39 @@ const pick = <T extends { name: string }>(entries: readonly T[], names: readonly
 		return entry;
 	});
 
+const BOOK_EVENT: TypeRef = { t: 'struct', name: 'BookEvent' };
+
+/** An overlay beat fed the event it presents — the Hold and Win beats' shape. */
+const overlayBeat = (name: string, events: string): TemplateVocabulary['actions'][number] => ({
+	name,
+	params: [
+		{
+			name: 'bookEvent',
+			type: BOOK_EVENT,
+			description: `The ${events} event this beat presents: on its chain, set accessor $trigger with no field. Any other event is refused.`,
+		},
+	],
+	category: 'command',
+});
+
+/**
+ * The overlay's own beats, each the coded presentation `apps/lines` plays:
+ * - `showTokens` — the dropped tokens land over their cells and settle (`overlayDrop`'s default);
+ * - `liftTokens` — a pot's tokens leave their cells at once, without flying, for a fill presented
+ *   another way (`fillMeter` flies each off as its own flight leaves);
+ * - `drainPots` — the pots that started a free-spin or generic mode drain, as the coded entry does
+ *   (Hold and Win's `showRespinBoard` drains its own).
+ */
+const OVERLAY_ACTIONS: TemplateVocabulary['actions'] = [
+	overlayBeat('showTokens', '`overlayDrop`'),
+	overlayBeat('liftTokens', '`meterUpdate`'),
+	overlayBeat('drainPots', '`freeSpinTrigger` or `modeEnter`'),
+];
+
 /**
  * The pots overlay's surfaces: its `overlayDrop` event, the pots it shares with Hold and Win (the
- * filling event, the restatement, the pot cues and the two effects that already present them) and
- * the types those name. The token and coin beats of the overlay layer are not here: no effect backs
- * them yet.
+ * filling event, the restatement, the pot cues and the two effects that already present them), the
+ * overlay's own beats and the types those name.
  */
 const POTS_OVERLAY_FRAGMENT: VocabFragment = {
 	structs: [
@@ -85,7 +114,7 @@ const POTS_OVERLAY_FRAGMENT: VocabFragment = {
 		...pick(HOLD_AND_WIN_FRAGMENT.baseEvents, ['meterUpdate', 'meterLevels']),
 	],
 	featureEvents: [],
-	actions: pick(HOLD_AND_WIN_FRAGMENT.actions, ['flyTo', 'fillMeter']),
+	actions: [...pick(HOLD_AND_WIN_FRAGMENT.actions, ['flyTo', 'fillMeter']), ...OVERLAY_ACTIONS],
 	cues: pick(HOLD_AND_WIN_FRAGMENT.cues, [
 		'potFill',
 		'potLevelUp',
@@ -178,11 +207,13 @@ export function withAddOns(
 // ---------------------------------------------------------------------------
 
 /**
- * The base-game beats the overlay grafts, each the coded beat of its event (`fillMeter` flies the
- * tokens into their pot). `overlayDrop` is deliberately absent: no effect presents it yet, and a
- * handler would own the event and so suppress its coded default.
+ * The base-game beats the overlay grafts, each the coded beat of its event: `showTokens` lands the
+ * dropped tokens, `fillMeter` flies them into their pot.
  */
-const OVERLAY_BASE_CHOREO = { meterUpdate: HOLD_AND_WIN_BASE_CHOREO.meterUpdate };
+const OVERLAY_BASE_CHOREO = {
+	overlayDrop: [{ k: 'action', ref: 'showTokens', inputs: { bookEvent: trig() } }] as ChoreoStep[],
+	meterUpdate: HOLD_AND_WIN_BASE_CHOREO.meterUpdate,
+};
 
 const HOLD_AND_WIN_MODE = 'holdAndWin';
 

@@ -144,6 +144,10 @@ then does it join the config, because a pot missing either would be dropped on s
 - **Modes that drop** — the base game by default; only modes on the reels are offered,
   since only they have a cell to drop on.
 
+**Presentation → Tokens appear** — _after the last reel stops_ (the default) or _as each
+reel stops_. It changes only how the game shows a drop; the server never sees it. A board
+that swaps in place instead of rolling always shows its tokens together.
+
 Problems show under the row or field they belong to, and that field gets a red border.
 
 **Remove overlay** asks first, then takes out the pots, the drop table and their token

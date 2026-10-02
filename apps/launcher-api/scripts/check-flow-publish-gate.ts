@@ -502,11 +502,18 @@ const twice = graftAddOnSteps(once.doc, bonusAddOns);
 check('11. grafting twice = grafting once', twice.doc === once.doc && !twice.added.length);
 const ids = docIds(once.doc);
 check('11. no id collides', new Set(ids).size === ids.length);
+const graftedOn = (doc: FlowDoc, event: string, action: string): boolean => {
+	const node = doc.graph.nodes.find((n) => n.kind === 'event' && n.ref === event);
+	const next = doc.graph.exec.find((e) => e.from.node === node?.id);
+	return doc.graph.nodes.some(
+		(n) => n.id === next?.to.node && n.kind === 'action' && n.ref === action,
+	);
+};
 check(
-	'11. no overlayDrop handler is added',
-	![...once.doc.graph.nodes, ...(once.doc.modes?.holdAndWin?.graph.nodes ?? [])].some(
-		(n) => (n.kind === 'event' && n.ref === 'overlayDrop') || n.id.includes('overlayDrop'),
-	),
+	'11. overlayDrop is grafted onto its coded beat, showTokens; meterUpdate onto fillMeter',
+	graftedOn(once.doc, 'overlayDrop', 'showTokens') &&
+		graftedOn(once.doc, 'meterUpdate', 'fillMeter'),
+	json(once.added),
 );
 check(
 	'11. the grafted Hold and Win tab is the Hold and Win starter flow’s',
@@ -571,11 +578,16 @@ for (const kind of Object.keys(RESOLVES_TO)) {
 	);
 }
 const holdAndWinSeed = freshDrivenSeedDoc('holdAndWin');
+const holdAndWinOverlay = graftAddOnSteps(holdAndWinSeed, {
+	...holdAndWinAddOns,
+	potsOverlay: true,
+});
 check(
-	'11. the Hold and Win starter flow has nothing to graft, with or without the overlay',
+	'11. the Hold and Win starter flow has nothing to graft but, with the overlay, the drop’s beat',
 	graftAddOnSteps(holdAndWinSeed, holdAndWinAddOns).doc === holdAndWinSeed &&
-		graftAddOnSteps(holdAndWinSeed, { ...holdAndWinAddOns, potsOverlay: true }).doc ===
-			holdAndWinSeed,
+		json(holdAndWinOverlay.added) === json(['overlayDrop']) &&
+		graftedOn(holdAndWinOverlay.doc, 'overlayDrop', 'showTokens'),
+	json(holdAndWinOverlay.added),
 );
 
 const named = (t: TypeRef, into: { structs: Set<string>; enums: Set<string> }): void => {

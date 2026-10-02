@@ -93,6 +93,25 @@ export const applyOverlayEvent = (
 };
 
 /**
+ * The tokens that will drop on the board `reveal` shows: the `overlayDrop` that follows it in the
+ * book, before the next board (`reveal` or `tumbleBoard`). `[]` when none does, or when `reveal` is
+ * not in `bookEvents`. What lets the reels show each reel's tokens as it stops, ahead of the drop.
+ */
+export const boardDropCells = (
+	bookEvents: readonly { type: string }[],
+	reveal: { type: string },
+): OverlayDropCell[] => {
+	const at = bookEvents.indexOf(reveal);
+	if (at < 0) return [];
+	for (const event of bookEvents.slice(at + 1)) {
+		if (event.type === 'reveal' || event.type === 'tumbleBoard') return [];
+		if (event.type === 'overlayDrop')
+			return ((event as LooseEvent).cells as OverlayDropCell[] | undefined) ?? [];
+	}
+	return [];
+};
+
+/**
  * The full pots a mode entry DRAINS: any entry with `cause: 'meter'` (a pot started it) names them,
  * and the server emptied them as it started the mode. `holdAndWinTrigger` is left out: the Hold and
  * Win reducer already empties its pots (`applyHoldAndWinEvent`). `[]` for every other event.

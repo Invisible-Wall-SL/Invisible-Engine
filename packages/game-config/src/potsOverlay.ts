@@ -67,9 +67,17 @@ export type OverlayDrops = {
 	modes?: string[];
 };
 
+/** When a board's tokens appear: all together once the last reel has stopped (the default), or each
+ *  reel's as that reel stops. A board with no reel roll (a swap in place) always shows them together. */
+export type OverlayTiming = 'afterStop' | 'perReel';
+
+export const OVERLAY_TIMINGS: readonly OverlayTiming[] = ['afterStop', 'perReel'];
+
 export type PotsOverlay = {
 	pots: OverlayPot[];
 	drops: OverlayDrops;
+	/** Absent ⇒ `afterStop`, which is not stored. Presentation only: the server never sees it. */
+	timing?: OverlayTiming;
 };
 
 export const isCoinDrop = (
@@ -162,7 +170,8 @@ const drops = (raw: unknown): OverlayDrops => {
 /**
  * Canonicalize a `potsOverlay` block, or `undefined` when there is none. SPARSE: a block with no pot
  * and no drop is no block, so a config that never had one normalizes byte-identically. Only the
- * default dropping modes (the base game alone) are not stored; an authored `reels` or `modes` list is
+ * defaults — the dropping modes (the base game alone) and the timing (after the stop) — are not
+ * stored; an authored `reels` or `modes` list is
  * kept as written — every reel, or none, which the validator names.
  */
 export function normalizePotsOverlay(raw: unknown): PotsOverlay | undefined {
@@ -170,7 +179,7 @@ export function normalizePotsOverlay(raw: unknown): PotsOverlay | undefined {
 	const pots = list(raw.pots, pot);
 	const dropped = drops(raw.drops);
 	if (!pots.length && !dropped.table.length) return undefined;
-	return { pots, drops: dropped };
+	return { pots, drops: dropped, ...(raw.timing === 'perReel' ? { timing: 'perReel' } : {}) };
 }
 
 // ─── meters ───────────────────────────────────────────────────────────────────────────────────
