@@ -129,6 +129,11 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		boardOverride.node = node;
 	};
 
+	/** The editor's authored spin FEEL for a profile, merged over the coded options by every reel —
+	 *  the board's and the Hold and Win respin cells'. Undefined ⇒ the coded constants (parity). */
+	const reelSpinProfile = (which: 'normal' | 'fast') =>
+		resolveReelSpinProfile(boardOverride.node ?? undefined, which);
+
 	/**
 	 * Board LATTICE derived from the override, in board-LOCAL space (before the
 	 * container `scale`). `columnExtraLocal` = extra x added per reel index for
@@ -374,11 +379,6 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	 * chain and (later) the editor preview all read the same value the same way.
 	 */
 	const boardTileArt = () => resolveReelGridTileArt(boardOverride.node ?? undefined);
-
-	/** The editor's authored spin FEEL for a profile, merged over the coded options by every reel —
-	 *  the board's and the Hold and Win respin cells'. Undefined ⇒ the coded constants (parity). */
-	const reelSpinProfile = (which: 'normal' | 'fast') =>
-		resolveReelSpinProfile(boardOverride.node ?? undefined, which);
 
 	/**
 	 * The scale ONE row draws at: `farScale` at the back, exactly `1` at the front, linear between.
