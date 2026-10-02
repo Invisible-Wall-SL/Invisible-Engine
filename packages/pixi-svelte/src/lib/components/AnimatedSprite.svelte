@@ -11,6 +11,9 @@
 		 * `scale`, never as a `scale` prop — see the effect below. */
 		flipX?: boolean;
 		flipY?: boolean;
+		/** Hold this frame instead of playing (a layout `frame` value binding). Rounded and kept
+		 * inside the frame list. Absent ⇒ `play` decides, as before. */
+		frame?: number;
 	};
 </script>
 
@@ -23,6 +26,14 @@
 
 	const parentContext = getContextParent();
 	const animatedSprite = new PIXI.AnimatedSprite(props.textures ?? []);
+
+	/** The held frame, kept inside the CURRENT frame list; `undefined` ⇒ not holding. */
+	const heldFrame = (): number | undefined => {
+		const frame = props.frame;
+		if (frame === undefined || !Number.isFinite(frame)) return undefined;
+		const last = Math.max(0, animatedSprite.totalFrames - 1);
+		return Math.min(last, Math.max(0, Math.round(frame)));
+	};
 
 	/**
 	 * `textures` is assigned OUTSIDE `propsSyncEffect`, and only when the frame list actually
@@ -47,13 +58,16 @@
 		const resume = animatedSprite.playing || props.play === true;
 		appliedTextures = next;
 		animatedSprite.textures = next;
-		if (resume) animatedSprite.gotoAndPlay(0);
+		// Clamped against the NEW list, so a shorter clip never holds past its end.
+		const held = heldFrame();
+		if (held !== undefined) animatedSprite.gotoAndStop(held);
+		else if (resume) animatedSprite.gotoAndPlay(0);
 	});
 
 	propsSyncEffect({
 		props,
 		target: animatedSprite,
-		ignore: ['play', 'textures', 'flipX', 'flipY'],
+		ignore: ['play', 'textures', 'flipX', 'flipY', 'frame'],
 	});
 
 	/**
@@ -79,7 +93,10 @@
 	});
 
 	$effect(() => {
-		if (props.play) {
+		const held = heldFrame();
+		if (held !== undefined) {
+			animatedSprite.gotoAndStop(held);
+		} else if (props.play) {
 			animatedSprite.gotoAndPlay(0);
 		} else {
 			animatedSprite.gotoAndStop(0);

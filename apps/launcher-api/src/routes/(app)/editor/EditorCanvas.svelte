@@ -4,10 +4,13 @@
 		backgroundCoverScale,
 		backgroundCoverStretch,
 		backgroundFit,
+		bindingFrameIndex,
 		boundComponentDefault,
 		boundComponentRidesBone,
 		boundComponentSkin,
 		boundComponentTileImage,
+		boundFillShare,
+		boundFrameOutput,
 		builtinSheetIdForRegion,
 		builtinSheetKey,
 		canBlendKind,
@@ -15,6 +18,7 @@
 		cssBlendMode,
 		computeOverlayPlacement,
 		coverTransform,
+		fillMaskRect,
 		hostedComponentSpace,
 		instancePreviewSpineBundle,
 		isCoverFitKind,
@@ -84,6 +88,11 @@
 		clearArtBoundsCache,
 		loadArtBounds,
 	} from './editorArtBounds.client.svelte';
+	import {
+		previewOutputs,
+		previewResolveTransform,
+		previewVersion,
+	} from './valuePreview.client.svelte';
 	import BusyOverlay from '$lib/BusyOverlay.svelte';
 	import EditorItemOverlay from './EditorItemOverlay.svelte';
 	import EditorEffectLayer from './EditorEffectLayer.svelte';
@@ -396,9 +405,13 @@
 	 * - `standard`: fit the STANDARD box into the window (identity now the window IS
 	 *   the standard box; still honours bottom-align).
 	 */
-	function nodeTransform(node: LayoutNode, sceneCtx: Scene = scene): ResolvedTransform {
+	function nodeTransform(
+		node: LayoutNode,
+		sceneCtx: Scene = scene,
+		resolve: typeof resolveTransform = resolveTransform,
+	): ResolvedTransform {
 		const space = sceneCtx.space;
-		const t = resolveTransform(node, layoutType);
+		const t = resolve(node, layoutType);
 		// A preview-art bind anchor (e.g. the animated Background, the Win animation, or
 		// the free-spin counter) is placed by its catalog `placement`, resolved against
 		// the game's geometry: cover/contain size to the frame; board-relative ones land
@@ -484,6 +497,12 @@
 			y: world.y,
 			scale: { x: (t.scale?.x ?? 1) * s, y: (t.scale?.y ?? 1) * s },
 		};
+	}
+
+	/** {@link nodeTransform} with the value-binding preview folded on — what the draw-only overlays
+	 *  (spine, text, effects) place a top-level node by. Never used for a geometry edit. */
+	function drawTransform(node: LayoutNode, sceneCtx: Scene = scene): ResolvedTransform {
+		return nodeTransform(node, sceneCtx, previewResolveTransform);
 	}
 
 	/**
@@ -2355,9 +2374,19 @@
 		 */
 		instanceSpineBundle?: string,
 	): void {
+		// DRAWN with the value-binding preview folded on (a scrubbed test value in "Bind to value") —
+		// here only: drags, hit-tests and the selection read the authored transform, so a preview
+		// can never be written into the doc.
 		const t = nested
-			? childLocalTransform(node, layoutType, sceneCtx.space, frameWidth, frameHeight)
-			: nodeTransform(node, sceneCtx);
+			? childLocalTransform(
+					node,
+					layoutType,
+					sceneCtx.space,
+					frameWidth,
+					frameHeight,
+					previewResolveTransform,
+				)
+			: nodeTransform(node, sceneCtx, previewResolveTransform);
 		if (!t.visible) return;
 
 		ctx.save();
@@ -2373,6 +2402,33 @@
 		if (nested || !elementCarriesBlend) {
 			const op = canvasCompositeOp(t.blendMode);
 			if (op !== 'source-over') ctx.globalCompositeOperation = op;
+		}
+		// The value-binding preview's other outputs: a `fill` reveal clips the art to its rect in the
+		// node's local box (the runtime's mask), a `frame` holds a clip frame (below).
+		const previewed = node.valueBindings
+			? previewOutputs(
+					node,
+					node.kind === 'flipbook' ? clipsById.get(node.clipId)?.frames.length : undefined,
+				)
+			: [];
+		const previewFill = boundFillShare(node.valueBindings, previewed);
+		if (
+			previewFill &&
+			(node.kind === 'sprite' || node.kind === 'rect' || node.kind === 'flipbook')
+		) {
+			const box = boxOf(node, t);
+			// A mirrored clip spans its anchor the other way (the draw flips about the anchor).
+			const mirror = node.kind === 'flipbook' ? flipbookMirror(node) : undefined;
+			const r = fillMaskRect(
+				box.w,
+				box.h,
+				{ x: mirror?.x ? 1 - box.ax : box.ax, y: mirror?.y ? 1 - box.ay : box.ay },
+				previewFill.share,
+				previewFill.direction,
+			);
+			ctx.beginPath();
+			ctx.rect(r.x, r.y, r.width, r.height);
+			ctx.clip();
 		}
 
 		const skin = node.bind ? boundComponentSkin(node.bind.component) : undefined;
@@ -2650,7 +2706,19 @@
 			// path a sprite uses, so trim, rotation and cross-atlas resolution all behave identically.
 			// A dangling / un-baked clipId has no frames to draw: the labelled chip says so, and the
 			// node stays selectable and movable so the reference can be re-pointed in Properties.
-			const frame = flipbookFrame(node.clipId, { fps: node.fps, direction: node.direction });
+			const heldClip = clipsById.get(node.clipId);
+			const held = boundFrameOutput(node.valueBindings, previewed);
+			const frame =
+				held !== undefined && heldClip?.frames.length
+					? clipFrameAt(heldClip, bindingFrameIndex(held, heldClip.frames.length))
+					: flipbookFrame(node.clipId, {
+							fps: node.fps,
+							// A frame-bound clip walks forward in the game (its frame counts the clip as
+							// authored), so it previews that way while no test value holds it.
+							direction: node.valueBindings?.some((b) => b.target === 'frame')
+								? 'forward'
+								: node.direction,
+						});
 			if (frame) {
 				drawArtRegionSprite(
 					ctx,
@@ -4396,6 +4464,8 @@
 		// Forced repaint signal (undo/redo): a position-only restore reassigns `scenes`
 		// but changes no node count, so without this the composite can stay stale.
 		void redrawNonce;
+		// A scrubbed value-binding test value ("Bind to value") repaints the preview.
+		void previewVersion();
 		// A region's declared BOX lives outside the layout doc (it describes the ART, not a
 		// placement), so no doc field changes when one is dragged — this counter is the signal.
 		// ONE cheap dependency that changes only when a box does; the boxes themselves stay in a
@@ -4685,7 +4755,7 @@
 					{spinePreviewNodeId}
 					{symbolStatics}
 					{gridDimensions}
-					worldTransformOf={nodeTransform}
+					worldTransformOf={drawTransform}
 					reloadToken={spineReload}
 					{hiddenSceneIds}
 					sceneFilter={sceneFilterFor(s.id)}
@@ -4717,7 +4787,7 @@
 					{panX}
 					{panY}
 					{zoom}
-					worldTransformOf={nodeTransform}
+					worldTransformOf={drawTransform}
 					{hiddenSceneIds}
 					sceneFilter={sceneFilterFor(s.id)}
 					{projectGameName}
@@ -4752,7 +4822,7 @@
 					{panY}
 					{zoom}
 					{componentMap}
-					worldTransformOf={nodeTransform}
+					worldTransformOf={drawTransform}
 					{hiddenSceneIds}
 					sceneFilter={sceneFilterFor(s.id)}
 					nodeFilter={normalOverlayFilter(s)}
@@ -4788,7 +4858,7 @@
 						{panY}
 						{zoom}
 						{componentMap}
-						worldTransformOf={nodeTransform}
+						worldTransformOf={drawTransform}
 						{hiddenSceneIds}
 						sceneFilter={sceneFilterFor(s.id)}
 						nodeFilter={g.ids}
@@ -4835,7 +4905,7 @@
 				{componentDefaults}
 				{spinePreview}
 				{spinePreviewNodeId}
-				worldTransformOf={nodeTransform}
+				worldTransformOf={drawTransform}
 				reloadToken={spineReload}
 				{hiddenSceneIds}
 				sceneFilter={hudSpineSceneFilter()}
@@ -4871,7 +4941,7 @@
 				{panX}
 				{panY}
 				{zoom}
-				worldTransformOf={nodeTransform}
+				worldTransformOf={drawTransform}
 				{hiddenSceneIds}
 				sceneFilter={hudTextSceneFilter()}
 				{projectGameName}
@@ -4907,7 +4977,7 @@
 				{panY}
 				{zoom}
 				{componentMap}
-				worldTransformOf={nodeTransform}
+				worldTransformOf={drawTransform}
 				{hiddenSceneIds}
 				sceneFilter={hudEffectSceneFilter()}
 				playing={playingEffects}

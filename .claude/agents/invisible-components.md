@@ -53,6 +53,9 @@ Mirror the existing built-ins; don't invent a third pattern without reason:
   children are real `text`/`sprite`/`container` nodes the editor draws and the author
   drags/restyles directly, with `paramBindings` wiring fields (text/region/tint/font)
   to params. Preferred when the render can be expressed statically — most reusable.
+  A LIVE number drives such a node through `valueBindings` (transform offsets,
+  show/hide threshold, fill mask, clip frame, spine scrub, spine bone — `valueBindings.ts`,
+  Hold and Win Phase 12b), so a masked fill or a growing bone no longer needs a coded part.
 - **Bound coded parts** (`hudReadout`, `button`, `loadingIntro` bar, the transitions
   and FS visuals): a child carries `bind: { component: '<RegisteredName>' }` mounting
   a small coded part registered via `registerBoundComponents`. Use ONLY when the

@@ -20,6 +20,11 @@ import SpineEventEmitterProvider, {
 import SpineTrack, { type Props as SpineTrackProps } from './SpineTrack.svelte';
 import SpineBone, { type Props as SpineBoneProps } from './SpineBone.svelte';
 import SpineBoneAttach, { type Props as SpineBoneAttachProps } from './SpineBoneAttach.svelte';
+import SpinePose, {
+	type Props as SpinePoseProps,
+	type SpinePoseBone,
+	type SpinePoseScrub,
+} from './SpinePose.svelte';
 import SpineSlot, { type Props as SpineSlotProps } from './SpineSlot.svelte';
 import ParticleContainer, {
 	type Props as ParticleContainerProps,
@@ -50,6 +55,7 @@ export {
 	SpineTrack,
 	SpineBone,
 	SpineBoneAttach,
+	SpinePose,
 	SpineSlot,
 	ParticleContainer,
 	Particles,
@@ -79,6 +85,9 @@ export type {
 	SpineTrackProps,
 	SpineBoneProps,
 	SpineBoneAttachProps,
+	SpinePoseProps,
+	SpinePoseBone,
+	SpinePoseScrub,
 	SpineSlotProps,
 	ParticleContainerProps,
 	ParticlesProps,

@@ -27,7 +27,6 @@
 	import { bindArt, type EffectDoc, type EmitterLayer } from 'engine-fx';
 	import {
 		MAX_COMPONENT_DEPTH,
-		resolveTransform,
 		type ComponentDef,
 		type LayoutNode,
 		type LayoutType,
@@ -38,6 +37,7 @@
 	import { framesToTextures, type ResolvedArt } from '$lib/fx/effectEmitter.client';
 	import { onMount } from 'svelte';
 	import { childLocalTransform, composeWorldMatrix } from './editorCanvas.helpers';
+	import { previewResolveTransform, previewVersion } from './valuePreview.client.svelte';
 
 	interface Props {
 		/** All doc scenes — the live emitters are driven by these (filtered by
@@ -209,8 +209,7 @@
 			if (sceneFilter && !sceneFilter.has(sc.id)) continue;
 			for (const n of sc.nodes) {
 				if (nodeFilter && !nodeFilter.has(n.id)) continue;
-				const t = resolveTransform(n, layoutType);
-				if (!t.visible) continue;
+				if (!previewResolveTransform(n, layoutType).visible) continue;
 				if (n.kind === 'effect') {
 					const wt = worldTransformOf(n, sc);
 					out.push({
@@ -251,7 +250,7 @@
 		stack: string[],
 	): void {
 		for (const n of nodes) {
-			if (!resolveTransform(n, layoutType).visible) continue;
+			if (!previewResolveTransform(n, layoutType).visible) continue;
 			const nextChain = [...chain, n];
 			if (n.kind === 'effect') {
 				out.push(nestedTarget(n, sc, nextChain));
@@ -277,7 +276,15 @@
 		const [a, b, c, d, tx, ty] = composeWorldMatrix(
 			chain,
 			(top) => worldTransformOf(top, sc),
-			(child) => childLocalTransform(child, layoutType, sc.space, frameWidth, frameHeight),
+			(child) =>
+				childLocalTransform(
+					child,
+					layoutType,
+					sc.space,
+					frameWidth,
+					frameHeight,
+					previewResolveTransform,
+				),
 		);
 		const sx = Math.hypot(a, b) || 1;
 		const sy = Math.hypot(c, d) || 1;
@@ -632,6 +639,8 @@
 		void frameWidth;
 		void frameHeight;
 		void componentMap;
+		// A scrubbed value-binding test value moves / hides an effect like any other node.
+		void previewVersion();
 		if (ready) void requestRebuild();
 	});
 

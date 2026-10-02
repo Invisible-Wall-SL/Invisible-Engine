@@ -204,6 +204,62 @@ adds them to every saved copy of a built-in — but nothing in *your* copy reads
 them until you bind a node to one. Expose or bind the node and the control comes
 alive.
 
+### 3b. Drive a node from a number (Bind to value)
+
+**Bind to param** sets a field once per placement. **Bind to value** makes a node follow a
+number while the game runs: a pot's liquid fills with its level, a character's belly bone
+grows, a badge shows once the pot is full, a bar drains as the respins run down. Select a
+node and use the **Bind to value** section at the bottom of Properties. **+ drive…** adds a
+binding; a node can carry several. Each binding has these parts:
+
+- **drives** — what the number changes:
+  - **Move x / Move y** — pixels added to the node's position (y positive moves down).
+  - **Scale / Scale x / Scale y** — multiplies the size; 1 is the size as drawn.
+  - **Rotate** — degrees added, clockwise.
+  - **Opacity** — multiplies the node's alpha.
+  - **Show / hide** — shows the node while the number is at or above a **threshold**, or
+    below it with **show below instead**. Pot size stage ≥ 2 and pot full ≥ 1 are typical. A
+    hidden node is taken out like any hidden node, so when it shows again a spine starts its
+    animation from the top and a component plays its *enter*.
+  - **Fill (reveal)** — sprite, flipbook and rect only. Shows the node from one edge
+    (**left → right**, **bottom → top**, …): 0 is hidden, 1 is whole. This is how a bar or a
+    pot's liquid fills.
+  - **Clip frame** — flipbook only. Holds the clip on one frame instead of playing it; the
+    frame counts the clip as authored, first frame = 0.
+  - **Scrub animation** — spine only. Holds one of the rig's animations at a point: 0 is its
+    first frame, 1 its last. It sits over whatever the rig is playing (only the parts that
+    animation moves are held, so the rest keeps moving), and it fires none of that animation's
+    events.
+  - **Spine bone** — spine only. Offsets one **bone**'s scale, rotation or position on top of
+    whatever the rig is playing.
+- **from** — where the number comes from:
+  - **This component's params** — a number or boolean param of the component.
+  - **Pot (this instance's meter)** — offered when the component has a `meter` param (the Pot
+    Meter, or your own pot). The level, maximum, size stage and full flag are each read for the
+    meter the placed instance names, so one pot design serves every pot.
+  - **Hold and Win** — respins left and the respins cap, cells held and cells open, rows open
+    and rows at most (an expanding board), collector level, letters lit, feature total.
+  - **Game values** — the readout feeds: bet, win, balance, free-spin counts, jackpots…
+  - **Custom source…** — any engine source by name. `{key}` reads one of the component's
+    params, so `meter.{meter}.level` is the level of the instance's own meter.
+- **divide by (normalise)** — a second source to divide by. It is filled in when the
+  source has a known maximum (pot level ÷ pot maximum, respins left ÷ cap), so the number
+  runs 0..1. Clear it to read the raw number.
+- **in from / in to → out from / out to** — the input range maps onto the output range, in
+  the unit the line under it names. By default the input stops at its ends (**stop at the
+  ends of the in range**). **curve** shapes the mapping (ease in / out, overshoot, five
+  steps). **glide (s)** makes the output travel to each new value over that many seconds
+  instead of jumping.
+- **test value** — drag it to preview the binding on the canvas: the input it stands for,
+  and what it turns into. It is never saved, and it clears when you select another node.
+  **Stop preview** puts the node back as authored. Selection handles and dragging always use
+  the authored position. A binding that still lacks a number (or its animation / bone) says
+  *Does nothing yet*.
+
+The node is drawn as authored until its source reports, and in a game that doesn't
+register the source at all (a pot source with no meter of that id in the Game Config).
+A binding changes nothing you save but the binding itself.
+
 ### 4. Set this game's defaults
 
 A **shared** component is one design used by several games, and a game usually needs
@@ -420,17 +476,23 @@ Do not skin the built-in **Pot Meter** itself: saving it writes the shared libra
   you create it — a Button is always UI. Create it as **Blank** with category **Overlay**.
 - **An instance control does nothing.** The node it should drive isn't bound — see the note at the
   end of [Bind the engine variables](#3-bind-the-engine-variables).
+- **A value-bound node never moves in the game.** Its source isn't registered there. A pot source
+  needs a meter with that id in the project's Game Config, and the Hold and Win sources exist only in
+  a Hold and Win game. Check the instance's `meter` param, or pick the source from the list rather
+  than typing it.
+- **A Fill binding shows the whole sprite in the game.** The fill is measured from the art's size,
+  so it waits until the art has loaded. A cover node (a full-bleed background) never fills.
 
 ## Known limitations / TODOs
 
 These reflect the registered editor design (`docs/design/invisible-editor.md`
 §8.5–§8.10) and the current build:
 
-- **Authoring is static + metadata only.** You can place elements and declare
-  params/signals, but the **behaviour/timeline** layer (signal-triggered tweens,
-  spine playback, particle bursts, count-up text from an engine param) is the
-  next, large phase and is **not authored here yet**. The `Component variables`
-  block is purely the *declare* half.
+- **The behaviour/timeline layer is not authored here yet.** Numbers can drive a node
+  ([Bind to value](#3b-drive-a-node-from-a-number-bind-to-value)), and a spine or
+  flipbook can play on a signal. Signal-triggered tweens and particle bursts are
+  the next, large phase. The `Component variables` block is purely the *declare*
+  half.
 - **The behaviour ceiling is intentionally low (v1).** Even once timelines land,
   the design caps v1 at node-prop tweens + spine playback + signal-triggered
   tracks + a single count-up data binding. Anything needing branching, RGS math,

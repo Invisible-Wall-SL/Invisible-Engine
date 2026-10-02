@@ -22,6 +22,7 @@ Shipped capabilities on `main`:
   behaviour. The bar's **Edit inside ‹part› ›** edits the part's children. The canvas previews the
   art and the children. The create type **Pot Meter (Hold and Win)** makes a project copy.
   Contract: [hold-and-win](hold-and-win.md) Decisions.
+- **Bind to value** (2026-10-02, Hold and Win Phase 12b) — a node's `valueBindings`: a number (a component param, an engine source, or the instance's own pot via `meter.{meter}.*`) mapped in → out onto a transform offset, a show/hide threshold, a fill reveal (sprite / flipbook / rect), a held clip frame, a spine animation scrub or a spine bone. Authored in the shared Properties section (`EditorValueBindings.svelte`) with a test-value scrub previewed on the canvas and overlays (`valuePreview.client.svelte.ts`). Guide §3b; contract in [hold-and-win](hold-and-win.md).
 - **"This game's defaults"** (2026-09-17, design Phase B3) — a second panel under *Component variables* setting the open def's params for the ACTIVE PROJECT only, stored in the §13.3 sidecar (`editor/<project>/component-defaults/<id>.json`) so a SHARED def can look different per game without being forked. Lists every `!engineProvided` param with the instance panel's widgets; empty = inherit (the key stays absent, `×` restores it); its own `SaveState` + **Save for this game** + conflict badge, separate from the def's versioned save. Each save backs up the version it replaces (newest 20 per component, under `component-defaults-backups/`); **History…** beside it opens the shared version-history modal (#857). Both editor canvases resolve it (see [editor status](./editor.md)).
 
 ## Open items / next
@@ -43,6 +44,7 @@ Shipped capabilities on `main`:
   - Not browser-verified (auth-gated launcher); it type-checks and builds. Detail:
     [hold-and-win](hold-and-win.md).
 
+- 2026-10-02 — **Bind to value** (Hold and Win Phase 12b): numbers drive a node's transform, visibility, fill, clip frame, spine scrub and spine bones — engine, sources, the Properties section with a test-value preview, guide §3b. Live check in the tool owed (the auth-gated canvas). Detail: [hold-and-win](hold-and-win.md).
 - 2026-10-02 — **Scoped signals (Hold and Win Phase 12a, #1003).**
   - The signal picker is grouped by family and filtered by the project's kind, and takes any Flow
     cue name.
