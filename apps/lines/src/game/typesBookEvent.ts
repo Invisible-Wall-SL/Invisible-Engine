@@ -1,4 +1,9 @@
-import type { HoldAndWinEventFields, ImplementsEngineBookEvents } from 'engine-game';
+import type {
+	HoldAndWinEventFields,
+	ImplementsEngineBookEvents,
+	ModeEntryCause,
+	PotsOverlayEventFields,
+} from 'engine-game';
 import type { BetType } from 'rgs-requests';
 
 import type { SymbolName, RawSymbol, GameType, Position } from './types';
@@ -29,7 +34,7 @@ type BookEventFreeSpinTrigger = {
 	type: 'freeSpinTrigger';
 	totalFs: number;
 	positions: Position[];
-};
+} & ModeEntryCause;
 
 type BookEventUpdateFreeSpin = {
 	index: number;
@@ -259,6 +264,16 @@ type BookEventHwHoldAndWinEnd = {
 	type: 'holdAndWinEnd';
 } & HoldAndWinEventFields['holdAndWinEnd'];
 
+// --- pots overlay ------------------------------------------------------------------------------
+// Design §3.2 of `docs/design/pots-overlay.md`: tokens dropped over the host's own symbols. The pots
+// they fill are the Hold and Win meter events above; the payload lives in `engine-game`
+// (`potsOverlay.ts`). Declared here for the cascade's reason: the shared runtime's union is the only
+// way a mechanic reaches a published project.
+type BookEventOverlayDrop = {
+	index: number;
+	type: 'overlayDrop';
+} & PotsOverlayEventFields['overlayDrop'];
+
 // GAME MODES (`docs/design/hold-and-win.md` §4.5): a bonus that switches to a different game mode,
 // and back. The mode stack moves at the play seam (`engine-game` `modeController`), so the coded
 // handlers have nothing left to do; `freeSpinTrigger` / `freeSpinEnd` and the Hold and Win
@@ -267,10 +282,9 @@ type BookEventModeEnter = {
 	index: number;
 	type: 'modeEnter';
 	mode: string;
-	cause?: string;
 	policy?: 'nest' | 'queue';
 	payload?: Record<string, unknown>;
-};
+} & ModeEntryCause;
 
 type BookEventModeExit = {
 	index: number;
@@ -328,6 +342,7 @@ export type BookEvent =
 	| BookEventHwRespinUpdate
 	| BookEventHwHoldAndWinState
 	| BookEventHwHoldAndWinEnd
+	| BookEventOverlayDrop
 	| BookEventModeEnter
 	| BookEventModeExit
 	// customised
