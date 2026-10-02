@@ -1,4 +1,4 @@
-import { createPlayBook, createSymbolInfo, isHoldAndWinEvent } from 'engine-game';
+import { createPlayBook, createSymbolInfo, drainedMeters, isHoldAndWinEvent } from 'engine-game';
 
 import { activeWinLevelData } from './gameConfig';
 import { symbolMap } from './symbolMap';
@@ -25,7 +25,8 @@ import {
 import { bakedWinLineConfig } from '../editor-scenes';
 import { clearSpinHold, holdAfterBigWin } from './freeSpinHold';
 import { stateModes } from './stateModes.svelte';
-import { recordHoldAndWinEvent } from './stateHoldAndWin.svelte';
+import { drainHoldAndWinMeters, recordHoldAndWinEvent } from './stateHoldAndWin.svelte';
+import { recordOverlayEvent } from './stateOverlay.svelte';
 import { releaseHeldPlatformJackpotWin } from './platformJackpot.svelte';
 
 /**
@@ -68,6 +69,8 @@ export const { playBookEvent, playBookEvents, playBet, convertTorResumableBet } 
 	trackCascadeStep,
 	recordBookEvent: (bookEvent) => {
 		if (isHoldAndWinEvent(bookEvent)) recordHoldAndWinEvent(bookEvent);
+		drainHoldAndWinMeters(drainedMeters(bookEvent));
+		recordOverlayEvent(bookEvent);
 		// A platform jackpot win a flow presented itself (owning `platformJackpotWin`) is let into
 		// the balance at the latest as the round closes; the coded celebration already did.
 		if (bookEvent.type === 'finalWin') releaseHeldPlatformJackpotWin();

@@ -1,6 +1,6 @@
 import type { HoldAndWinMeterLevel } from 'engine-game';
 import { meterFlightKey } from 'engine-layout';
-import type { HoldAndWinMeter } from 'game-config';
+import { resolveMeters, type ResolvedMeter } from 'game-config';
 import { Tween } from 'svelte/motion';
 
 import { getActiveGameConfig } from './gameConfig';
@@ -16,13 +16,14 @@ import { recordHoldAndWinEvent, stateHoldAndWin } from './stateHoldAndWin.svelte
  * flight, a full meter emptying): {@link holdMeterDisplay} pins the drawn level and lets go when the
  * beat ends, exactly as the respin board's labels do (`stateRespinBoard.heldDisplay`).
  *
- * Which pots exist, their size stages and what a full one activates come from the Game Config
- * (`holdAndWin.meters`); a game with none draws nothing and registers nothing.
+ * Which pots exist, their size stages and the bonus a full one starts come from the Game Config,
+ * through `resolveMeters`: a Hold and Win game's symbol-filled meters, then a pots overlay's
+ * token-filled pots (`docs/design/pots-overlay.md` §3.1). A game with neither draws nothing and
+ * registers nothing.
  */
 
 /** The meters the Game Config declares — what the coded pots draw, in order. */
-export const configuredMeters = (): HoldAndWinMeter[] =>
-	getActiveGameConfig().holdAndWin?.meters ?? [];
+export const configuredMeters = (): ResolvedMeter[] => resolveMeters(getActiveGameConfig());
 
 export const stateMeterDisplay = $state({
 	/** A pot's drawn level while a beat runs, by meter id. */
@@ -43,7 +44,7 @@ export const meterMax = (id: string): number =>
 	recorded(id)?.max ?? configuredMeters().find((meter) => meter.id === id)?.maxLevel ?? 0;
 
 /** How many of `meter`'s size stages a pot at `level` has reached — the step it is drawn at. */
-export const meterStage = (meter: HoldAndWinMeter, level: number): number =>
+export const meterStage = (meter: ResolvedMeter, level: number): number =>
 	meter.sizeStages.filter((stage) => level >= stage).length;
 
 /** What an authored pot drawing meter `id` counts itself in as (`trackComponentMount`). */

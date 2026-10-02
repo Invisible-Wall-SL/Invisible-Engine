@@ -1,4 +1,5 @@
 import _ from 'lodash';
+import { drainedMeters } from 'engine-game';
 
 import { type BookEventHandlerMap } from 'utils-book';
 import { stateBet, stateUi, showMessage } from 'state-shared';
@@ -28,6 +29,7 @@ import {
 	presentHoldAndWinTrigger,
 	presentInstantCollect,
 	presentJackpotWin,
+	presentMeterConsume,
 	presentLuckySpin,
 	presentMeterUpdate,
 	presentMysteryReveal,
@@ -39,6 +41,7 @@ import {
 	presentWheel,
 	syncHoldAndWin,
 } from './holdAndWinPresentation';
+import { presentOverlayDrop } from './overlayPresentation';
 import { presentPlatformJackpotWin } from './platformJackpot.svelte';
 import {
 	presentReveal,
@@ -201,6 +204,8 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		}
 	},
 	freeSpinTrigger: async (bookEvent: BookEventOfType<'freeSpinTrigger'>) => {
+		// A full pot started them (pots overlay): it drains first, as before any mode a pot starts.
+		await presentMeterConsume(drainedMeters(bookEvent));
 		// STATE-ONLY. The free-spin intro is a flow screen (the flow's `freeSpinIntro` container, its
 		// tap-to-continue and a `showContainer{awaitComplete}` hold); the engine has no coded intro to
 		// fall back to. A flow that owns `freeSpinTrigger` never reaches this handler (`playBook.ts`);
@@ -432,9 +437,9 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 	holdAndWinState: presentHoldAndWinState,
 	holdAndWinEnd: presentHoldAndWinEnd,
 
-	// Pots overlay (design §3.2): recorded at the play seam like every event; the tokens are drawn
-	// by the overlay layer (Phase 4), so the coded path has nothing to present yet.
-	overlayDrop: async () => {},
+	// Pots overlay (design §3.4): the tokens pop in over their cells (`overlayPresentation.ts`); the
+	// play seam has recorded them for the overlay layer already.
+	overlayDrop: presentOverlayDrop,
 
 	// The operator platform jackpot (any kind): the coded celebration, then the held win released.
 	platformJackpotWin: presentPlatformJackpotWin,
@@ -443,8 +448,11 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		// Do nothing
 	},
 	// The mode stack moves at the play seam (`stateModes`), on every dispatch path; the coded path has
-	// nothing to add — a mode's presentation is its flow graph and its mode-tagged screens.
-	modeEnter: async () => {},
+	// nothing to add — a mode's presentation is its flow graph and its mode-tagged screens — beyond
+	// the drain of the full pots that started it (pots overlay).
+	modeEnter: async (bookEvent: BookEventOfType<'modeEnter'>) => {
+		await presentMeterConsume(drainedMeters(bookEvent));
+	},
 	modeExit: async () => {},
 	// customised
 	createBonusSnapshot: async (bookEvent: BookEventOfType<'createBonusSnapshot'>) => {
@@ -460,8 +468,20 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		const lastSetTotalWinEvent = findLastBookEvent('setTotalWin' as const);
 		const lastUpdateGlobalMultEvent = findLastBookEvent('updateGlobalMult' as const);
 
-		if (lastFreeSpinTriggerEvent) await playBookEvent(lastFreeSpinTriggerEvent, { bookEvents });
-		if (lastUpdateFreeSpinEvent) playBookEvent(lastUpdateFreeSpinEvent, { bookEvents });
+		// Free spins that already ENDED before the resume point stay closed — a round whose pot then
+		// started Hold and Win (pots overlay) resumes on the respin board, not the free-spin intro. The
+		// pots they drained are restated below (`meterLevels`), so the replay drains nothing.
+		const lastFreeSpinEndEvent = findLastBookEvent('freeSpinEnd' as const);
+		const freeSpinsEnded =
+			!!lastFreeSpinTriggerEvent &&
+			!!lastFreeSpinEndEvent &&
+			bookEvents.indexOf(lastFreeSpinEndEvent) > bookEvents.indexOf(lastFreeSpinTriggerEvent);
+		if (lastFreeSpinTriggerEvent && !freeSpinsEnded) {
+			const { meters: _drained, ...trigger } = lastFreeSpinTriggerEvent;
+			await playBookEvent(trigger, { bookEvents });
+		}
+		if (lastUpdateFreeSpinEvent && !freeSpinsEnded)
+			playBookEvent(lastUpdateFreeSpinEvent, { bookEvents });
 		if (lastSetTotalWinEvent) playBookEvent(lastSetTotalWinEvent, { bookEvents });
 		if (lastUpdateGlobalMultEvent) playBookEvent(lastUpdateGlobalMultEvent, { bookEvents });
 		// Hold and Win: the server's last picture of the open feature and of the meters — the board is
