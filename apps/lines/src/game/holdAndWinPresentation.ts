@@ -37,7 +37,12 @@ import {
 	wheelPrizeDetailText,
 	wheelPrizeText,
 } from './holdAndWinText';
-import { FLIGHT_TO_COLLECTOR, FLIGHT_TO_TOTAL, flyCoinsToTotal } from './holdAndWinFlights';
+import {
+	FLIGHT_BOOST_BEAM,
+	FLIGHT_TO_COLLECTOR,
+	FLIGHT_TO_TOTAL,
+	flyCoinsToTotal,
+} from './holdAndWinFlights';
 import { lightLetter, syncLetters } from './holdAndWinLetters.svelte';
 import {
 	configuredMeters,
@@ -130,7 +135,7 @@ const LUCKY_INTRO_MS = 1_600;
 const JACKPOT_HOLD_MS = 2_600;
 /** A coin jackpot's highlight during the tally. */
 const COIN_JACKPOT_MS = 900;
-/** The beat between the last coin landing and the banked jackpots joining the Total Win bar. */
+/** The beat between the bar landing on the last coin and the banked jackpots joining it. */
 const BANKED_BEAT_MS = 350;
 /**
  * The Total Win bar's last step landing, then holding, before the respin board goes. The bar COUNTS
@@ -431,7 +436,9 @@ export const presentCoinPay = async (event: Beat<'coinPay'>) => {
 /**
  * `coinBoost` — a MULTIPLIER applies (`source: 'special'`, the booster plays `coinBoost` first) or
  * the pre-feature wheel's boost does (`'wheel'`, no cell of its own): every coin's label counts up
- * from `from` to `to`, and a jackpot coin's factor steps (`MINI` → `MINI ×2`).
+ * from `from` to `to`, and a jackpot coin's factor steps (`MINI` → `MINI ×2`). A booster first
+ * fires a beam to each coin it boosts (`flyTo` kind `boostBeam` — the coded glow unless the Symbols
+ * doc authors one), and the counts start once every beam has landed.
  */
 export const presentCoinBoost = async (event: Beat<'coinBoost'>) => {
 	if (!stateRespinBoard.shown) return;
@@ -444,7 +451,20 @@ export const presentCoinBoost = async (event: Beat<'coinBoost'>) => {
 		multiplier: event.multiplier,
 		cells: event.cells,
 	});
-	if (event.booster) await playHeldBeat([event.booster], 'coinBoost', { minMs: HIGHLIGHT_MIN_MS });
+	const booster = event.booster;
+	if (booster) {
+		await playHeldBeat([booster], 'coinBoost', { minMs: HIGHLIGHT_MIN_MS });
+		await Promise.all(
+			event.cells.map((cell, index) =>
+				flyTo(
+					{ reel: booster.reel, row: booster.row },
+					{ reel: cell.reel, row: cell.row },
+					FLIGHT_BOOST_BEAM,
+					{ index },
+				),
+			),
+		);
+	}
 	await runCounts(counts);
 };
 
@@ -890,7 +910,9 @@ export const presentHoldAndWinEnd = async (event: Beat<'holdAndWinEnd'>) => {
 	};
 	await flyCoinsToTotal(order, (index) => step(index, order[index].amount, tally.arrive(index)));
 	if (stateBet.winBookEventAmount !== tally.final) {
-		if (banked > 0) await waitPresentation(BANKED_BEAT_MS);
+		// The bar is still counting to the last coin's value: let it land, THEN hold the beat, or the
+		// banked part joins mid-count and the beat is never seen.
+		if (banked > 0) await waitPresentation(TALLY_LAND_MS + BANKED_BEAT_MS);
 		step(order.length, tally.final - stateBet.winBookEventAmount, tally.final);
 	}
 	const amount = bookEventAmountToCurrencyString(event.total);

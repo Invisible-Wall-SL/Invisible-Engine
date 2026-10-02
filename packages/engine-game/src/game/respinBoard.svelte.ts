@@ -1,3 +1,4 @@
+import type { ReelSpinProfile } from 'engine-layout';
 import { stateBet } from 'state-shared';
 import { createReelForSpinning } from 'utils-slots';
 
@@ -22,6 +23,8 @@ export type RespinBoardDeps = {
 	blank: () => string;
 	/** One cell's strip settled — the board's per-cell stop cue. */
 	onCellStopping?: (reel: number, row: number) => void;
+	/** The authored spin feel merged over the coded options, as the board's reels merge it. */
+	spinProfile?: (which: 'normal' | 'fast') => ReelSpinProfile | undefined;
 };
 
 /**
@@ -50,8 +53,12 @@ export function createRespinBoard(deps: RespinBoardDeps) {
 				onReelStopping: () => deps.onCellStopping?.(reel, row),
 				onSymbolLand: () => {},
 			});
-			cellReel.reelState.spinOptions = () =>
-				cellReel.reelState.spinType === 'fast' ? SPIN_OPTIONS_FAST : SPIN_OPTIONS_DEFAULT;
+			cellReel.reelState.spinOptions = () => {
+				const isFast = cellReel.reelState.spinType === 'fast';
+				const base = isFast ? SPIN_OPTIONS_FAST : SPIN_OPTIONS_DEFAULT;
+				const override = deps.spinProfile?.(isFast ? 'fast' : 'normal');
+				return override ? { ...base, ...override } : base;
+			};
 			return { reel, row, cellReel };
 		}),
 	);

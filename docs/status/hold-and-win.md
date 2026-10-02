@@ -574,17 +574,17 @@ Hold and Win beats prints copy.
      label, flights and seeded symbol art — and replace the seeded placeholder art with real 3 Pots art
      in `/symbols`.
    - Prove an authored `/fx` trail and arrival effect live (author one in the sample); measure
-     `countMs` live; author an `arc` on a flight (the knob shipped in #977; nothing authors one yet); beams (`boostBeam`) are authorable but nothing
-     flies them yet.
+     `countMs` live; author an `arc` on a flight (the knob shipped in #977; nothing authors one yet); author a
+     `boostBeam` (the coded multiplier beat flies one since Phase 4 polish — a coded glow until then).
 2. **Phase 4 follow-ups** (the build is complete; none blocks authoring):
    - **Grand and Hotfire are verified in Storybook only** (facade-recorded books, every bar = the
      feature total). Create a Classic and a Collector sample project with the Game Maker preset
      picker (Phase 9a seeds their config; no `/config` save needed), publish, and play their
      letters, instant collect, streak flights and wheel live through their playbooks.
-   - **From the live checks (not regressions):** a banked jackpot's 350 ms beat is hidden while
-     coins are still counting. (Counter timing, the per-respin hitch, the cropped rolling cells, the
-     end board and the tally/hide order were fixed by Phase 4 polish — Recent changes.) Also seen: a ~170 ms
-     idle (non-JS) frame at the feature's entry, before the board shows.
+   - **From the live checks (not regressions):** a ~170 ms idle (non-JS) frame at the feature's
+     entry, before the board shows. (Counter timing, the per-respin hitch, the cropped rolling cells,
+     the end board, the tally/hide order and the hidden banked-jackpot beat were fixed by Phase 4
+     polish — Recent changes.)
    - **Authorable respin cell tile / frame + cell gap** (hub decision, 2026-10-01; follow-up, not
      built): the references draw each respin cell on a tile, blank cells as empty tiles. Make it
      AUTHORED, never coded: an optional per-cell background/frame art under each respin cell (a
@@ -595,9 +595,8 @@ Hold and Win beats prints copy.
      authored `spin` state (blur) when the symbol has one, else the static art.
    - **Accepted on purpose:** `holdAndWinEnd` and banked jackpots run inside the unskippable window,
      so the end volley plays at full length even under turbo/autoplay.
-   - **Not covered:** the respin cells use the coded spin profile, not the editor's
-     `resolveReelSpinProfile`. (Stepped grids are refused by `/config`; perspective follows the reel
-     board — Decisions, Phase 4 polish.)
+   - **Grids:** stepped grids are refused by `/config`; perspective follows the reel board
+     (Decisions, Phase 4 polish).
    - **`hw-3pots-sample` draws no toasts** ("UNLOCKED", "PAYER ACTIVE", "Good luck" are set, never
      drawn): its layout has no message host — Phase 6's template should carry one.
 3. **Ask the partner** for a Hold and Win sample round or their handler subclass (design §3.2).
@@ -644,6 +643,15 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-02 — **Phase 4 polish, hub extras (a)–(c)** (session "Hold and Win Phase 4 — polish"):
+  (a) the respin cells merge the editor's authored reel spin feel (`resolveReelSpinProfile`, now one
+  accessor `stateGameDerived.reelSpinProfile` that the base reels use too) over the coded options —
+  unauthored = the coded constants, as before; (b) the banked jackpots' 350 ms beat in the feature
+  end now starts after the last coin's 500 ms bar count has landed, so it is seen; (c) a multiplier
+  (`coinBoost` with a booster) fires a `boostBeam` flight to each coin it boosts — the coded glow
+  unless `/symbols` authors one — and the counts start once the beams land (seen live on
+  `hw-3pots-sample`, `special:multiplier`).
 
 - 2026-10-02 — **Phase 4 polish, hub follow-ups on item 3** (session "Hold and Win Phase 4 —
   polish"): a RESTING respin cell's mask opens to three cells, so landed art draws whole like the

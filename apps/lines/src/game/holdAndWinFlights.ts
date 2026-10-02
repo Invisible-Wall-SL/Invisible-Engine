@@ -6,6 +6,8 @@ import { FLIGHT_TARGET_TOTAL, flyTo } from './flights.svelte';
 export const FLIGHT_TO_TOTAL = 'toTotal';
 /** The flight kind a coin flying into a collector (or a base-game instant-collect special) reports. */
 export const FLIGHT_TO_COLLECTOR = 'toCollector';
+/** The flight kind a multiplier's beam to each coin it boosts reports (design §4.4 "Beams"). */
+export const FLIGHT_BOOST_BEAM = 'boostBeam';
 
 /**
  * THE FEATURE END'S COLLECTION (design §4.3 `holdAndWinEnd` / §4.4) — every tallied coin flies from

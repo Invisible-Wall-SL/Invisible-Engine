@@ -104,6 +104,7 @@ const ensureBoard = (): RespinBoard => {
 		initial: respinSeedBoard({ reels, rows, blank: respinBlank() }),
 		blank: respinBlank,
 		onCellStopping: (reel) => onCellStopping(reel),
+		spinProfile: stateGameDerived.reelSpinProfile,
 	});
 	return board;
 };

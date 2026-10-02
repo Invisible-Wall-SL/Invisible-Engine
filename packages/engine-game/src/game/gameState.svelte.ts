@@ -129,6 +129,11 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		boardOverride.node = node;
 	};
 
+	/** The editor's authored spin FEEL for a profile, merged over the coded options by every reel —
+	 *  the board's and the Hold and Win respin cells'. Undefined ⇒ the coded constants (parity). */
+	const reelSpinProfile = (which: 'normal' | 'fast') =>
+		resolveReelSpinProfile(boardOverride.node ?? undefined, which);
+
 	/**
 	 * Board LATTICE derived from the override, in board-LOCAL space (before the
 	 * container `scale`). `columnExtraLocal` = extra x added per reel index for
@@ -819,10 +824,7 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 				const base = isFast ? SPIN_OPTIONS_FAST : SPIN_OPTIONS_DEFAULT;
 				// Editor spin-FEEL override (reactive): merge the authored profile over the
 				// coded options. No node / no spin ⇒ undefined ⇒ coded constants (parity).
-				const override = resolveReelSpinProfile(
-					boardOverride.node ?? undefined,
-					isFast ? 'fast' : 'normal',
-				);
+				const override = reelSpinProfile(isFast ? 'fast' : 'normal');
 				const merged = override ? { ...base, ...override } : base;
 				// Flow-authored PER-REEL sequential-stop knobs (from the `enableSequentialReelStop` effect
 				// payload) win for this reel's two sequential fields. The getter closes over `reelIndex`, so
@@ -1366,6 +1368,7 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		boardColumnStaggerMs,
 		boardClearsOutgoing,
 		boardTileArt,
+		reelSpinProfile,
 		anticipationActive,
 		sequentialStopActive,
 		boardWindowHeight,
