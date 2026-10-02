@@ -52,7 +52,7 @@ import { inUnskippablePresentation } from './unskippablePresentation';
  * and gold trail), so an unauthored game flies exactly as it did.
  */
 
-/** Where a flight starts or ends: a global point, a board cell, or a layout node id / `'total'`. */
+/** Where a flight starts or ends: a global point, a board cell, a layout node id, or `'total'`. */
 export type FlightEnd = FlightPoint | { reel: number; row: number } | string;
 
 export type FlyToOptions = {
@@ -69,7 +69,8 @@ export type FlyToOptions = {
 	label?: string;
 };
 
-/** The win meter — `'total'` in a flight's target. */
+/** The total win — `'total'` in a flight's target: a Total Win Bar that catches the coins, else the
+ *  win meter ({@link totalTargetPoint}). */
 export const FLIGHT_TARGET_TOTAL = 'total';
 /** The `hud-win` node is the reference layout's win meter; `LabelWin`/`HudReadout` anchor it too. */
 const TOTAL_ANCHOR = 'hud-win';

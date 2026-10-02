@@ -13,11 +13,13 @@
 	 * The `totalWinBar` component's coded part (Hold and Win Phase 12c). The author's own nodes inside
 	 * it — the built-in's frame, caption and value — arrive as `skin` and draw at its origin, pulsed on
 	 * every head that lands in the total (`landPulseScale`; 1, the default, keeps the bar still, as it
-	 * always was). With `catchesCoins` on it registers the `totalWinBar` anchor, so those heads land
-	 * on this bar instead of the HUD's win meter; off, the default, they fly where they always did.
+	 * always was). With `catchesCoins` on it registers `TOTAL_WIN_BAR_ANCHOR`, so those heads land on
+	 * this bar instead of the HUD's win meter; off, the default, they fly where they always did. With
+	 * nothing inside, it draws nothing and a catch lands on its origin.
 	 *
 	 * A STAND-IN (`standIn`, mounted by `<ComponentInstance>` for a def that `standsFor` this part but
-	 * no longer binds it) draws nothing and still catches the coins on the instance when asked to.
+	 * no longer binds it) draws nothing and still catches the coins on the instance when asked to. It
+	 * does not pulse: the def's own nodes are not inside it.
 	 */
 	const { skin, standIn = false }: { skin?: Snippet; standIn?: boolean } = $props();
 	const params = getComponentParams();

@@ -684,7 +684,8 @@ tile it sits on only (see the Component Editor guide's **scoped by**). To fly
 something yourself, use **flyTo**. Its sources come on three pins, one per kind of cell list a book
 event carries: `cells` (e.g. `coinsLand`), `cellAmounts` (a collect, an instant collect, the
 feature tally) and `positions` (a column, cleared cells); or one `reel` + `row`. Then a `target`
-layout node id or `total` (the win meter), a `flight` name reported in each `flightArrive`,
+layout node id or `total` (a Total Win Bar with **catchesCoins** on, else the win meter), a
+`flight` name reported in each `flightArrive`,
 `avoid` positions the routes bend around, and `await`.
 
 **The tabs and screens.** The Global graph shows `jackpotBar` and `pots` with the game. The

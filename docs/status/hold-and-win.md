@@ -165,8 +165,10 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
     authored bar never caught anything.
     - **The shape:** `TOTAL_WIN_BAR_DEF`'s frame, caption and value (ids unchanged) sit inside a
       `Bar` part (`TotalWinBarPart`), built with `panelInPart`.
-    - **The catch:** with `catchesCoins` on, the part registers the `totalWinBar` anchor
-      (`TOTAL_WIN_BAR_ANCHOR`). `'total'` then resolves to that anchor first, then to `hud-win`
+    - **The catch:** with `catchesCoins` on, the part registers the `flights:totalWinBar` anchor
+      (`TOTAL_WIN_BAR_ANCHOR`). It is prefixed because every layout node anchors its own id, and a
+      node named `totalWinBar` would otherwise take the coins whatever `catchesCoins` says.
+      `'total'` then resolves to that anchor first, then to `hud-win`
       (`totalTargetPoint()` in `flights.svelte.ts`). That covers the feature-end volley, a swept
       Grand column, and a flow that flies to the total.
     - **The pulse:** `landPulseScale` pulses the bar on every head that lands in the total. It does
@@ -176,7 +178,9 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
     - **When the bar is hidden:** its anchor is not shown while the bar is hidden
       (`respinCounterShow`), so the coins fall back to the win meter instead of flying at nothing.
     - **Stand-in:** the bar `standsFor` its part, so a bar drawn without it still catches through a
-      stand-in. A bar saved before the part gets both params back by id, off.
+      stand-in. A bar saved before the part gets both params back by id, off. The stand-in catches
+      but never pulses, because the def's own nodes are not inside it, so `landPulseScale` does
+      nothing there (the counter's stand-in is the same).
 
 - 2026-10-02 — **Owner: the pots as an overlay on any kind** (session "3 pots overlay mechanic").
   Its own plan and hub: [design/pots-overlay](../design/pots-overlay.md),
@@ -984,7 +988,8 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
       (150, 600):
       - As it ships, the next head lands on the win meter and the bar registers no anchor.
       - With `catchesCoins`, it lands on the bar's centre. One landing at `landPulseScale` 1.3
-        widens the bar 304 → 347 px, and it settles back.
+        widens the bar 304 → 347 px, sampled 60 ms in (on its way back from the 1.3 peak), and it
+        settles back to 304 px.
       - A bar saved before the part catches through the stand-in, on the same point.
 - 2026-10-02 — **Phase 12c: the Jackpot Tile and Bar** (#1006). Contract: Decisions, "The
   Jackpot Tile follows the counter".

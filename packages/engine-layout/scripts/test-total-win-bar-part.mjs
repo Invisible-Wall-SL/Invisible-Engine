@@ -78,7 +78,10 @@ assert(params.landPulseScale === 1, 'still by default (parity)');
 assert(params.source === 'featureTotal', 'the source default is unchanged');
 assert(def.standsFor === 'TotalWinBarPart', 'the bar stands for its part');
 assert(mod.partStandIn(def) === undefined, 'the built-in binds its part: no stand-in');
-assert(mod.TOTAL_WIN_BAR_ANCHOR === 'totalWinBar', 'the anchor the coins fly into');
+assert(
+	mod.TOTAL_WIN_BAR_ANCHOR.startsWith('flights:'),
+	'its anchor is out of the layout-node-id namespace',
+);
 assert(same(mod.boundComponentSkin('TotalWinBarPart'), { layers: [] }), 'skinnable in the editors');
 
 console.info('a bar saved before the part existed');

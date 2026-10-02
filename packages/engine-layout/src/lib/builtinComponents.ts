@@ -2127,7 +2127,8 @@ const codedPart = (id: string, label: string, component: string, w: number, h: n
 	}) satisfies LayoutNode;
 
 /**
- * A plain-node panel moved INSIDE a coded part (Phase 12c — the Respin Counter, the Jackpot Tile):
+ * A plain-node panel moved INSIDE a coded part (Phase 12c — the Respin Counter, the Jackpot Tile,
+ * the Total Win Bar):
  * the panel's nodes keep their ids (so a saved copy's bindings merge by id) and become the part's
  * `skin`; the part adds the behaviour the static node model can't express. The part sits at the
  * panel's origin with the panel's box, so placements and the editor's selection box are unchanged.
@@ -2243,7 +2244,7 @@ const TOTAL_WIN_BAR_PANEL = holdAndWinPanel({
 /**
  * "TOTAL WIN" — what the feature has won (`featureTotal`, the same figure as the HUD's win meter).
  * SKINNABLE (Phase 12c): the panel's frame, caption and value sit INSIDE the coded `Bar` part. With
- * `catchesCoins` on, the part registers the `totalWinBar` anchor, so the feature end's coins (and a
+ * `catchesCoins` on, the part registers `TOTAL_WIN_BAR_ANCHOR`, so the feature end's coins (and a
  * swept Grand column's) fly into this bar instead of the HUD's win meter. It pulses on each coin that
  * lands (`landPulseScale`). Both are off by default: the bar never caught the coins, so every
  * existing game flies them where it always did. It `standsFor` the part, so a bar drawn without it

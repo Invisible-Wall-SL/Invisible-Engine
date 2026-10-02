@@ -428,7 +428,8 @@ hold time and the win-level sound cues) at boot.
 ## Skin a coded part
 
 Some built-ins draw a **coded part**: the game draws it, and the canvas shows a grey stand-in box.
-The Hold and Win **Pot Meter**, **Respin Counter** and **Jackpot Tile** have parts you can skin.
+The Hold and Win **Pot Meter**, **Respin Counter**, **Jackpot Tile** and **Total Win Bar** have
+parts you can skin.
 The Pot takes two ways, which you can use together.
 
 **1. Pick art on the placed pot.** Select a Pot Meter instance in the Scene Editor. Its
