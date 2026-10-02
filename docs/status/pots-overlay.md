@@ -35,7 +35,7 @@ session is the Claude Code session titled **"3 pots overlay mechanic"**.
 | 2 | Mock — composed protocol (`withPotsOverlay` over book, reusable H&W feature generator, free-spin hook, forced beats, wire doc, `check:pots-overlay`) | not started (needs 1) | — | — |
 | 3 | Facade + engine event contract (`overlayDrop`, mode-entry `cause`/`meters`, per-bonus routing, pots at boot for any kind) | not started (needs 1; parallel with 2) | — | — |
 | 4 | Engine runtime (overlay layer, timing, lift-off flights, drain on any mode entry, H&W from an overlay host, resume) | not started (needs 3) | — | — |
-| 5a | `/config` Add-ons section | built, in review | Pots overlay Phase 5a — /config Add-ons | _PR_ |
+| 5a | `/config` Add-ons section | built, in review | Pots overlay Phase 5a — /config Add-ons | #1010 |
 | 5b | Scene Editor overlay screens + palette/pickers through the capability | not started (needs 1) | — | — |
 | 5c | Flow vocabulary composition (editor, publish gate, runtime) + graft | not started (needs 1) | — | — |
 | 5d | `/symbols` + `/win-text` + Localization through the capability | not started (needs 1) | — | — |
@@ -248,7 +248,7 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Recent changes
 
-- 2026-10-02 — **Phase 5a: `/config` Add-ons (_PR_).** The pure merge helpers `addPotsOverlay`,
+- 2026-10-02 — **Phase 5a: `/config` Add-ons (#1010).** The pure merge helpers `addPotsOverlay`,
   `addHoldAndWinBonus` and `removePotsOverlay` (`packages/game-config/src/addOns.ts`), with
   `addOns.fixture.ts`. The kind-independent Add-ons section in `/config` (`AddOnsSection.svelte`)
   adds, edits and removes the overlay, and adds a Hold and Win bonus. Capabilities take the config's
