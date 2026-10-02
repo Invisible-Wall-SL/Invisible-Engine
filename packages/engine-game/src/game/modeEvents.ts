@@ -119,3 +119,30 @@ export function modeOpOf(bookEvent: { type: string }): ModeOp | undefined {
 			return undefined;
 	}
 }
+
+/** The game type the base game runs on — what a mode the Game Config does not declare falls back to. */
+export const BASE_GAME_TYPE = 'basegame';
+
+/**
+ * The game type a mode puts on screen: its declared one (`declared(modeId)`, from the Game Config's
+ * mode registry), else the BASE game type. A mode id is not a game type — falling back to it left
+ * every game-type-keyed screen with no match while an undeclared (queued) mode was on top. An
+ * undeclared mode is warned about once, by id, so the missing declaration is visible.
+ */
+export function createModeGameTypeResolver(
+	declared: (modeId: string) => string | undefined,
+	warn: (message: string) => void,
+): (modeId: string) => string {
+	const warned = new Set<string>();
+	return (modeId) => {
+		const gameType = declared(modeId);
+		if (gameType !== undefined) return gameType;
+		if (!warned.has(modeId)) {
+			warned.add(modeId);
+			warn(
+				`[modes] mode "${modeId}" is not declared in the Game Config — it plays on the base game type`,
+			);
+		}
+		return BASE_GAME_TYPE;
+	};
+}

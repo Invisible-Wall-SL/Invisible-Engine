@@ -67,7 +67,13 @@ export {
 	type ModeStep,
 	type ModeTransition,
 } from './src/game/modeStack';
-export { MODE_EVENT_TYPES, modeOpOf, type ModeOp } from './src/game/modeEvents';
+export {
+	BASE_GAME_TYPE,
+	createModeGameTypeResolver,
+	MODE_EVENT_TYPES,
+	modeOpOf,
+	type ModeOp,
+} from './src/game/modeEvents';
 export {
 	createModeController,
 	type ModeController,
