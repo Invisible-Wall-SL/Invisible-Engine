@@ -6,7 +6,7 @@
 
 **One-line state:** Phases 0–3 merged: the `potsOverlay` Game Config block and the additive
 `kindCapabilities` (#1008), the composed mock (#1013), and the facade plus the engine event contract
-(#1012). Phase 4a built (#PR4 in review): the runtime draws dropped tokens over the board, flies them
+(#1012). Phase 4a built (#1015 in review): the runtime draws dropped tokens over the board, flies them
 into the pots, and drains a pot as any bonus it starts begins. A project without the block, which is
 every project today, plays exactly as before. Next: 4b, 5a, 5c, 5d, then 6.
 
@@ -35,7 +35,7 @@ session is the Claude Code session titled **"3 pots overlay mechanic"**.
 | 1 | Contract: `potsOverlay` config block + validator + presets + `resolveMeters` + additive `kindCapabilities` inputs | built, in review | 3 pots overlay mechanic | #1008 |
 | 2 | Mock — composed protocol (`withPotsOverlay` over book, reusable H&W feature generator, free-spin hook, forced beats, wire doc, `check:pots-overlay`) | merged | Pots overlay Phase 2 — composed mock | #1013 |
 | 3 | Facade + engine event contract (`overlayDrop`, mode-entry `cause`/`meters`, per-bonus routing, pots at boot for any kind) | merged | Pots overlay Phase 3 — facade + event contract | #1012 |
-| 4 | Engine runtime (overlay layer, timing, lift-off flights, drain on any mode entry, H&W from an overlay host, resume) | 4a built, in review (the per-reel timing option is 4b) | Pots overlay Phase 3 — facade + event contract | #PR4 |
+| 4 | Engine runtime (overlay layer, timing, lift-off flights, drain on any mode entry, H&W from an overlay host, resume) | 4a built, in review (the per-reel timing option is 4b) | Pots overlay Phase 3 — facade + event contract | #1015 |
 | 5a | `/config` Add-ons section | not started (needs 1) | — | — |
 | 5b | Scene Editor overlay screens + palette/pickers through the capability | merged | Pots overlay Phase 5b — Scene Editor overlay screens | #1009 |
 | 5c | Flow vocabulary composition (editor, publish gate, runtime) + graft | not started (needs 1) | — | — |
@@ -91,7 +91,7 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Decisions & findings
 
-- 2026-10-02 — **Phase 4a runtime, as built** (#PR4; the session that built Phase 3). Pinned by
+- 2026-10-02 — **Phase 4a runtime, as built** (#1015; the session that built Phase 3). Pinned by
   `packages/engine-game/src/game/potsOverlay.fixture.ts` and `check:signal-scope`'s new pots-only
   case.
   - **The token picture** (`engine-game` `applyOverlayEvent`, recorded at the play seam into
@@ -378,7 +378,7 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Open items / next
 
-0. **Left after Phase 4a (#PR4):**
+0. **Left after Phase 4a (#1015):**
    - **4b — timing:** tokens pop in after the last reel stops (the default). The authorable
      "each reel's tokens as it lands" option is not built. It needs a config field (none in the
      block yet) and a hook on the reel-stop beat.
@@ -439,7 +439,7 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Recent changes
 
-- 2026-10-02 — **Phase 4a: the runtime (#PR4).** The token picture and the overlay layer, the drop
+- 2026-10-02 — **Phase 4a: the runtime (#1015).** The token picture and the overlay layer, the drop
   beat, lift-off as a pot fills, meters through `resolveMeters` and the pot signals for overlay
   hosts, the drain on any meter-caused mode entry, and the two-bonus resume. 4b (the per-reel
   timing option, the token as the flight head) and the 5c flow action are under Open items.
