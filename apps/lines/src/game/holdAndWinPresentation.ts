@@ -135,7 +135,7 @@ const LUCKY_INTRO_MS = 1_600;
 const JACKPOT_HOLD_MS = 2_600;
 /** A coin jackpot's highlight during the tally. */
 const COIN_JACKPOT_MS = 900;
-/** The beat between the last coin landing and the banked jackpots joining the Total Win bar. */
+/** The beat between the bar landing on the last coin and the banked jackpots joining it. */
 const BANKED_BEAT_MS = 350;
 /**
  * The Total Win bar's last step landing, then holding, before the respin board goes. The bar COUNTS
