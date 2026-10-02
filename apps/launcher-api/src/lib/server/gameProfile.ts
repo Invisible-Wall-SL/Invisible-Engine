@@ -443,6 +443,12 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		text: (ctx) => (ctx.symbols.winCycle?.holdAfterBigWin === true ? 'Hold after big win' : null),
 	},
 	{
+		id: 'spinButtonHold',
+		title: 'Holding the spin button keeps spinning, like holding Space.',
+		text: (ctx) =>
+			ctx.symbols.winCycle?.spinButtonHold === true ? 'Hold spin button to keep spinning' : null,
+	},
+	{
 		id: 'winExplode',
 		title:
 			'Each winning symbol plays its Explosion animation at the end of its win, before settling back to its post-win art.',

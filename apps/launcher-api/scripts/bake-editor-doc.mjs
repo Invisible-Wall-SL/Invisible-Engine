@@ -533,6 +533,8 @@ async function main() {
 				// between-spins hold would ship WITHOUT it through the bake path while the runtime
 				// bundle carried it — the exact "must reach BOTH bundle paths" bug fixed above.
 				if (c.holdAfterBigWin === true) out.holdAfterBigWin = true;
+				// `spinButtonHold` — default OFF too, and the same both-paths rule.
+				if (c.spinButtonHold === true) out.spinButtonHold = true;
 				return Object.keys(out).length ? out : undefined;
 			})();
 			// The win-explosion pop — one switch that defaults OFF, so ONLY the ON state persists. Must

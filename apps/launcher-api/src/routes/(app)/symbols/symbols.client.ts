@@ -600,6 +600,7 @@ export interface SymbolsDoc {
 		showMessage?: boolean;
 		dimNonWinning?: boolean;
 		holdAfterBigWin?: boolean;
+		spinButtonHold?: boolean;
 	};
 	/** "A winning symbol POPS at the end of its win" — plays the symbol's Explosion state after its
 	 *  Win beat, before it settles back to Post-win. Sparse and default OFF: only the ON state is
@@ -1129,6 +1130,12 @@ export function winCycleHoldAfterBigWin(doc: SymbolsDoc): boolean {
 	return doc.winCycle?.holdAfterBigWin ?? false;
 }
 
+/** The effective "holding the spin button keeps spinning, like holding Space" flag. Defaults to
+ *  `false`: the button is a plain click unless the project turns this on. */
+export function winCycleSpinButtonHold(doc: SymbolsDoc): boolean {
+	return doc.winCycle?.spinButtonHold ?? false;
+}
+
 /** The effective "a winning symbol explodes at the end of its win" flag. Defaults to `false`
  *  (byte-parity — a winner went straight from `win` to `postWinStatic` before this switch), and
  *  the symbol is NOT removed from the board: it still settles into its Post-win art. */
@@ -1485,6 +1492,15 @@ export function setWinCycleHoldAfterBigWin(doc: SymbolsDoc, hold: boolean): Symb
 	return withWinCycle(doc, winCycle);
 }
 
+/** Toggle hold-the-spin-button-to-keep-spinning. Same INVERSE persistence — defaults OFF, so ON
+ *  persists `spinButtonHold: true` and OFF drops the field (sparse). New doc. */
+export function setWinCycleSpinButtonHold(doc: SymbolsDoc, hold: boolean): SymbolsDoc {
+	const winCycle = { ...(doc.winCycle ?? {}) };
+	if (hold) winCycle.spinButtonHold = true;
+	else delete winCycle.spinButtonHold;
+	return withWinCycle(doc, winCycle);
+}
+
 /**
  * Set one form of a symbol's display name. Blank clears that form, and an entry left with no
  * forms is dropped entirely — so clearing the boxes returns the symbol to speaking as its id
@@ -1612,6 +1628,7 @@ export function docSignature(doc: SymbolsDoc): string {
 				showMessage: doc.winCycle.showMessage ?? null,
 				dimNonWinning: doc.winCycle.dimNonWinning ?? null,
 				holdAfterBigWin: doc.winCycle.holdAfterBigWin ?? null,
+				spinButtonHold: doc.winCycle.spinButtonHold ?? null,
 			}
 		: null;
 	// Listed here or an edit never marks the page dirty and Save stays disabled.

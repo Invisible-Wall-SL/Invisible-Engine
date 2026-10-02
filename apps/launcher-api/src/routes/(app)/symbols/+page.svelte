@@ -78,6 +78,7 @@
 		setWinCycleDimNonWinning,
 		setWinCycleEnabled,
 		setWinCycleHoldAfterBigWin,
+		setWinCycleSpinButtonHold,
 		setWinExplodeEnabled,
 		setWinBeatMaxMs,
 		setArrivalReleaseEnabled,
@@ -103,6 +104,7 @@
 		winCycleDimNonWinning,
 		winCycleEnabled,
 		winCycleHoldAfterBigWin,
+		winCycleSpinButtonHold,
 		winExplodeEnabled,
 		winBeatMaxMs,
 		arrivalReleaseEnabled,
@@ -1821,6 +1823,7 @@
 	const wcShowMessage = $derived(winCycleShowMessage(doc));
 	const wcDim = $derived(winCycleDimNonWinning(doc));
 	const wcHold = $derived(winCycleHoldAfterBigWin(doc));
+	const wcSpinHold = $derived(winCycleSpinButtonHold(doc));
 	// "Winning symbols explode" — its OWN section, not a `winCycle` field: the pop belongs to the
 	// round's win presentation, while `winCycle` is what happens on the resting board afterwards.
 	const weOn = $derived(winExplodeEnabled(doc));
@@ -4514,6 +4517,31 @@
 								reads SPIN for as long as the game waits. The last free spin's big win is not held
 								(the free-spin outro follows it, and that already waits for a press), and autoplay
 								or space-hold skips the wait, since the player has asked for hands-off play.
+							</p>
+						</div>
+
+						<div class="wl-group">
+							<div class="wl-fields">
+								<div class="field">
+									<span class="label">Hold the spin button to keep spinning</span>
+									<label class="switch sm" class:on={wcSpinHold}>
+										<input
+											type="checkbox"
+											checked={wcSpinHold}
+											onchange={(e) =>
+												(doc = setWinCycleSpinButtonHold(doc, e.currentTarget.checked))}
+										/>
+										<span class="track"><span class="knob"></span></span>
+										<span class="switch-label">{wcSpinHold ? 'On' : 'Off'}</span>
+									</label>
+								</div>
+							</div>
+							<p class="wl-note">
+								Turn this on and pressing and holding the spin button plays like holding Space: after
+								a moment the button spins (or stops a spin already rolling), then rounds keep coming
+								in turbo until the player lets go. A quick press stays an ordinary spin. Off, the
+								button only takes a click. Holding Space works either way, and neither is offered
+								where the jurisdiction forbids autoplay.
 							</p>
 						</div>
 					</div>

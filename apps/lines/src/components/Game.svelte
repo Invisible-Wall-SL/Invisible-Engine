@@ -32,7 +32,7 @@
 		runSpinOrSlamStop,
 		type SpinButtonKey,
 	} from 'utils-shared/spinStop';
-	import { spinButtonHold } from 'utils-shared/spinHold';
+	import { setSpinButtonHoldSource, spinButtonHold } from 'utils-shared/spinHold';
 
 	import {
 		UI,
@@ -218,6 +218,7 @@
 		bakedRigFlipbooks,
 		bakedRigFx,
 		bakedSymbolAssets,
+		bakedWinCycleConfig,
 		bakedWinText,
 		bakedSoundBindings,
 		bakedWinPresentationParams,
@@ -1764,6 +1765,9 @@
 		coded();
 	};
 
+	// Hold-to-spin on the spin button is a per-project switch (Symbols → `winCycle.spinButtonHold`),
+	// read at each press so a late-arriving runtime bundle still counts. Covers the coded button too.
+	setSpinButtonHoldSource(() => bakedWinCycleConfig().spinButtonHold);
 	registerComponentActions({
 		// ButtonMenu — open the menu overlay. No disabled/active.
 		menu: {
@@ -1916,8 +1920,8 @@
 				// exactly as today (parity §8.8). Same shared helper the other HUD actions use.
 				routeActionThroughFlow('spin', doSpinBetOrStop);
 			},
-			// Holding the button is holding Space: the press fires at the hold threshold, then rounds
-			// chain in turbo until release (`utils-shared/spinHold`, shared with `<EnableSpaceHold>`).
+			// When the project turns it on, holding the button is holding Space: the press fires at the
+			// hold threshold, then rounds chain in turbo until release (`utils-shared/spinHold`).
 			hold: spinButtonHold,
 			disabled: boolSource(() => isSpinButtonDisabled(getSpinKey())),
 			spinning: boolSource(isSpinning),
