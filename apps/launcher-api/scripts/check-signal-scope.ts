@@ -33,6 +33,7 @@ import {
 	JACKPOT_BAR_DEF,
 	JACKPOT_TILE_DEF,
 	POT_METER_DEF,
+	SIGNAL_SCOPE_KINDS,
 	registerComponentSignals,
 	RESPIN_COUNTER_DEF,
 	type ComponentDef,
@@ -49,10 +50,12 @@ import {
 import { layerTrigger, normalizeEffectDoc, type EmitterLayer } from 'engine-fx';
 
 import {
+	ANY_SCOPE,
 	createEventEmitter,
 	eventScope,
 	scopeKey,
 	scopeMatches,
+	scopeOf,
 	type EmitterEventBase,
 	type EventScope,
 } from '../../../packages/utils-event-emitter/index.ts';
@@ -81,13 +84,21 @@ type FeatureEmitter = Parameters<typeof featureComponentSignals>[0];
 // --- 1. the rule ---
 eq('a meter id scopes as itself', scopeKey('red'), 'red');
 eq('…trimmed and lower-cased', scopeKey('  Red '), 'red');
-eq('a dotted source scopes by its last part', scopeKey('jackpot.grand'), 'grand');
+eq('a value-source key scopes by its id', scopeKey('jackpot.grand'), 'grand');
 eq('…the platform one too', scopeKey('platformJackpot.GRAND'), 'grand');
+eq('…and a pot field by its meter, not the field', scopeKey('meter.red.level'), 'red');
+eq('a part of a kind', scopeOf('Meter', 'Red'), 'meter:red');
+eq('…no kind ⇒ the bare key', scopeOf(undefined, 'red'), 'red');
+eq('…no value ⇒ none', scopeOf('meter', ''), undefined);
 eq('a reel index scopes as its digits', scopeKey(2), '2');
 eq('blank ⇒ no scope', scopeKey('  '), undefined);
 eq('not a number ⇒ no scope', scopeKey(Number.NaN), undefined);
 eq('an object ⇒ no scope', scopeKey({ id: 'red' }), undefined);
-eq('an event carries its `scope`', eventScope({ type: 'potFull', scope: 'Red' }), 'red');
+eq(
+	'an event carries its `scope`',
+	eventScope({ type: 'potFull', scope: 'Meter:Red' }),
+	'meter:red',
+);
 eq('…a list, blanks dropped', eventScope({ type: 'x', scope: ['red', ' ', 3] }), ['red', '3']);
 eq('…an empty list is none', eventScope({ type: 'x', scope: [] }), undefined);
 eq('…no field is none', eventScope({ type: 'x', meter: 'red' }), undefined);
@@ -97,6 +108,13 @@ check('a scoped listener hears its own', scopeMatches('red', 'red'));
 check('…not another', !scopeMatches('red', 'blue'));
 check('…its own among several', scopeMatches('red', ['blue', 'red']));
 check('…not when it is not among them', !scopeMatches('green', ['blue', 'red']));
+check('the red pot skips the blue pot', !scopeMatches('meter:red', 'meter:blue'));
+check('…but hears a jackpot tier, another kind of part', scopeMatches('meter:red', 'tier:grand'));
+check('…and a consume that drained it', scopeMatches('meter:red', ['meter:blue', 'meter:red']));
+check('a bare key matches any kind’s key', scopeMatches('red', 'meter:red'));
+check('…and a kind matches a bare key', scopeMatches('meter:red', 'red'));
+check('a listener normalises', scopeMatches('Meter:Red', 'meter:red'));
+check('`*` hears every part', scopeMatches(ANY_SCOPE, 'meter:blue'));
 
 // --- 2. catalog ↔ registry ---
 const spyTypes = new Map<string, string[]>();
@@ -107,7 +125,7 @@ const spy = {
 		return () => true;
 	},
 } as unknown as FeatureEmitter;
-const registered = featureComponentSignals(spy);
+const registered = featureComponentSignals(spy, true);
 for (const [name, source] of Object.entries(registered)) {
 	subscribing = name;
 	source.subscribe(() => {});
@@ -148,16 +166,21 @@ check(
 		engineSignalsForKind('bookOf').some((s) => s.key === key),
 	),
 );
+eq(
+	'any other kind registers only the platform jackpot, so a Hold and Win name stays an author cue',
+	Object.keys(featureComponentSignals(spy, false)),
+	['platformJackpotWin'],
+);
 check(
-	'the game registers the feature signals',
-	/\.\.\.featureComponentSignals\(context\.eventEmitter\)/.test(
+	'the game registers the feature signals, the Hold and Win family by its config',
+	/\.\.\.featureComponentSignals\(\s*context\.eventEmitter,\s*!!getActiveGameConfig\(\)\.holdAndWin,?\s*\)/.test(
 		read('apps/lines/src/components/Game.svelte'),
 	),
 );
 
 // --- 3. the registry fires right ---
 const { eventEmitter } = createEventEmitter<EmitterEventBase & Record<string, unknown>>();
-const live = featureComponentSignals(eventEmitter as unknown as FeatureEmitter);
+const live = featureComponentSignals(eventEmitter as unknown as FeatureEmitter, true);
 const fired: { signal: string; scope: EventScope | undefined }[] = [];
 const unsubs = Object.entries(live).map(([signal, source]) =>
 	source.subscribe((scope) => fired.push({ signal, scope })),
@@ -169,8 +192,13 @@ const fire = (event: EmitterEventBase & Record<string, unknown>) => {
 };
 eq(
 	'a consume activates every pot it drained',
-	fire({ type: 'potsConsume', meters: ['red', 'blue'], activates: [], scope: ['red', 'blue'] }),
-	[{ signal: 'potActivate', scope: ['red', 'blue'] }],
+	fire({
+		type: 'potsConsume',
+		meters: ['red', 'blue'],
+		activates: [],
+		scope: ['meter:red', 'meter:blue'],
+	}),
+	[{ signal: 'potActivate', scope: ['meter:red', 'meter:blue'] }],
 );
 eq(
 	'a special landing in a meter is that pot’s potLand',
@@ -179,9 +207,9 @@ eq(
 		flight: 'toMeter:red',
 		target: 'meter:red',
 		index: 0,
-		scope: 'red',
+		scope: 'meter:red',
 	}),
-	[{ signal: 'potLand', scope: 'red' }],
+	[{ signal: 'potLand', scope: 'meter:red' }],
 );
 eq(
 	'a coin landing in the Total Win bar is no potLand',
@@ -205,32 +233,32 @@ eq(
 );
 eq(
 	'a column whose letter was already lit lights nothing',
-	fire({ type: 'respinColumnComplete', reel: 2, newlyLit: false, scope: '2' }),
+	fire({ type: 'respinColumnComplete', reel: 2, newlyLit: false, scope: 'reel:2' }),
 	[],
 );
 eq(
 	'a newly lit letter is its reel’s letterLit',
-	fire({ type: 'respinColumnComplete', reel: 2, newlyLit: true, scope: '2' }),
-	[{ signal: 'letterLit', scope: '2' }],
+	fire({ type: 'respinColumnComplete', reel: 2, newlyLit: true, scope: 'reel:2' }),
+	[{ signal: 'letterLit', scope: 'reel:2' }],
 );
 eq(
 	'the platform’s jackpot scopes by its tier, whatever its case',
-	fire({ type: 'platformJackpotCelebration', tier: 'Grand', amount: 5, scope: 'Grand' }),
-	[{ signal: 'platformJackpotWin', scope: 'grand' }],
+	fire({ type: 'platformJackpotCelebration', tier: 'Grand', amount: 5, scope: 'tier:Grand' }),
+	[{ signal: 'platformJackpotWin', scope: 'tier:grand' }],
 );
 eq(
 	'a level up is scoped by its meter',
-	fire({ type: 'potLevelUp', meter: 'blue', level: 4, max: 12, scope: 'blue' }),
-	[{ signal: 'potLevelUp', scope: 'blue' }],
+	fire({ type: 'potLevelUp', meter: 'blue', level: 4, max: 12, scope: 'meter:blue' }),
+	[{ signal: 'potLevelUp', scope: 'meter:blue' }],
 );
 for (const unsub of unsubs) unsub();
 
 registerComponentSignals(live);
 const heard: (EventScope | undefined)[] = [];
 const off = getComponentSignal('potFull').subscribe((scope) => heard.push(scope));
-eventEmitter.broadcast({ type: 'potFull', meter: 'green', scope: 'green' });
+eventEmitter.broadcast({ type: 'potFull', meter: 'green', scope: 'meter:green' });
 off();
-eq('a registered signal reaches a component with its scope', heard, ['green']);
+eq('a registered signal reaches a component with its scope', heard, ['meter:green']);
 const cheered: (EventScope | undefined)[] = [];
 const offCue = getComponentSignal('frogCheer').subscribe((scope) => cheered.push(scope));
 emitComponentSignal('frogCheer', 'red');
@@ -242,16 +270,32 @@ clearComponentSignals();
 // --- 4. instances and effects ---
 const paramDefault = (def: ComponentDef, key: string): unknown =>
 	def.params?.find((p) => p.key === key)?.default;
-eq('the Pot scopes by its meter', POT_METER_DEF.signalScope, 'meter');
+eq(
+	'the Pot scopes by its meter, as a meter',
+	[POT_METER_DEF.signalScope, POT_METER_DEF.signalScopeKind],
+	['meter', 'meter'],
+);
 check(
 	'…a param it declares',
 	(POT_METER_DEF.params ?? []).some((p) => p.key === POT_METER_DEF.signalScope),
 );
-eq('the jackpot tile scopes by its source', JACKPOT_TILE_DEF.signalScope, 'source');
 eq(
-	'…so a default tile hears the GRAND tier',
-	scopeKey(paramDefault(JACKPOT_TILE_DEF, 'source')),
-	'grand',
+	'the jackpot tile scopes by its source, as a tier',
+	[JACKPOT_TILE_DEF.signalScope, JACKPOT_TILE_DEF.signalScopeKind],
+	['source', 'tier'],
+);
+const defaultTile = scopeOf(
+	JACKPOT_TILE_DEF.signalScopeKind,
+	paramDefault(JACKPOT_TILE_DEF, 'source'),
+);
+eq('…so a default tile hears the GRAND tier', defaultTile, 'tier:grand');
+check('…the platform’s GRAND too', scopeMatches(defaultTile, eventScope({ scope: 'tier:Grand' })));
+check('…but not MAJOR', !scopeMatches(defaultTile, 'tier:major'));
+check('…and still a pot’s activation, another kind', scopeMatches(defaultTile, 'meter:red'));
+const kinds: readonly string[] = SIGNAL_SCOPE_KINDS;
+check(
+	'every scoped catalog signal names a kind a def can be scoped as',
+	ENGINE_SIGNAL_CATALOG.every((s) => !s.scope || kinds.includes(s.scope)),
 );
 eq(
 	'…and each tile of the bar its own',
@@ -267,18 +311,18 @@ check(
 const instance = read('packages/engine-layout/src/lib/ComponentInstance.svelte');
 check(
 	'a cue and a gate both filter by the instance scope',
-	(instance.match(/hears\(scope\)/g) ?? []).length === 2,
+	(instance.match(/hears\(scope\)/g) ?? []).length >= 2,
 );
 check(
 	'a nested instance inherits the scope it is placed in',
-	/def\?\.signalScope[\s\S]{0,120}\?\?\s*getComponentSignalScope\(\)/.test(instance),
+	/scopeOf\(def\.signalScopeKind[\s\S]{0,160}\?\?\s*getComponentSignalScope\(\)/.test(instance),
 );
 check(
 	'every effect node passes its instance scope',
 	(
 		read('packages/engine-layout/src/lib/LayoutNodeView.svelte').match(/scope=\{signalScope\}/g) ??
 		[]
-	).length === 2,
+	).length >= 2,
 );
 
 // --- 5. Flow ---
@@ -323,10 +367,18 @@ const flow: FlowDoc = {
 				ref: 'potFull',
 				inputs: { meter: literal('blue') },
 			},
+			{
+				id: 'cleared',
+				kind: 'fireCue',
+				pos: { x: 600, y: 0 },
+				ref: 'potFull',
+				inputs: { meter: literal('green'), scope: literal('') },
+			},
 		],
 		exec: [
 			{ from: { node: 'on', pin: 'exec' }, to: { node: 'red', pin: 'exec' } },
 			{ from: { node: 'red', pin: 'exec' }, to: { node: 'any', pin: 'exec' } },
+			{ from: { node: 'any', pin: 'exec' }, to: { node: 'cleared', pin: 'exec' } },
 		],
 		data: [],
 	},
@@ -350,9 +402,10 @@ await runFlowEvent(
 	'luckySpin',
 	{},
 );
-eq('a set scope pin rides the payload; an unset one adds nothing', broadcasts, [
+eq('a set scope pin rides the payload; an unset or cleared one adds nothing', broadcasts, [
 	{ meter: 'red', scope: 'red' },
 	{ meter: 'blue' },
+	{ meter: 'green' },
 ]);
 check(
 	'an unwired scope pin is never a validation error',
@@ -378,9 +431,18 @@ const saved = (signalScope: string): ComponentDef =>
 		root: { id: 'root', kind: 'container', x: 0, y: 0, children: [] },
 		params: [{ key: 'meter', kind: 'string', default: 'red', author: true }],
 		signalScope,
+		signalScopeKind: 'meter',
 	} as ComponentDef);
-eq('a def keeps the param its scope comes from', saved('meter').signalScope, 'meter');
-eq('…and drops a scope whose param is gone', saved('nope').signalScope, undefined);
+eq(
+	'a def keeps the param its scope comes from, and its kind',
+	[saved('meter').signalScope, saved('meter').signalScopeKind],
+	['meter', 'meter'],
+);
+eq(
+	'…and drops both when the param is gone',
+	[saved('nope').signalScope, saved('nope').signalScopeKind],
+	[undefined, undefined],
+);
 const effect = normalizeEffectDoc({
 	version: 1,
 	id: 'sparks',

@@ -1,6 +1,7 @@
 import { API_AMOUNT_MULTIPLIER } from 'constants-shared/bet';
 import { formatWinText, platformJackpotCaption } from 'engine-layout';
 import { stateBet } from 'state-shared';
+import { scopeOf } from 'utils-event-emitter';
 import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
 
 import { bakedWinText } from '../editor-scenes';
@@ -84,7 +85,7 @@ export const presentPlatformJackpotWin = async (event: { tier: string; amount: n
 			type: 'platformJackpotCelebration',
 			tier: event.tier,
 			amount: event.amount,
-			scope: event.tier,
+			scope: scopeOf('tier', event.tier),
 		});
 		const resolved = bakedWinText();
 		const banner = showHoldAndWinBanner({

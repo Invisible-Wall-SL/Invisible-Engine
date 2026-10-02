@@ -264,11 +264,11 @@ palette). It shows the node's derived pins and a kind-specific editor:
   [Scene cues](#scene-cues--animate-a-placed-character).
   Every Fire Cue also has an optional **scope** data-in. Leave it unfed and every listener
   reacts, as before. Feed it a part of a repeated feature — a meter id (`red`), a jackpot
-  tier (`grand`), a reel — and only the components **scoped by** that part (the red pot's
-  Pot Meter, your own component scoped by `meter`) and the effects inside them react. It
-  rides the cue as its `scope` field, so an Invisible FX layer with a **Scope** filter
-  matches it too. Wire it from the event that started the chain, e.g. a `meterUpdate`'s
-  `meter`.
+  tier (`grand`), a reel — and only the components **scoped by** that part react (the red
+  pot's Pot Meter, your own component scoped by `meter`), plus the effects inside them. Prefix
+  the kind (`meter:red`) to leave components scoped by another kind of part alone. It rides
+  the cue as its `scope` field, so an Invisible FX layer with a **Scope** filter matches it
+  too. Wire it from the event that started the chain, e.g. a `meterUpdate`'s `meter`.
 - **ForEach** — a **Mode** toggle (**sequence** = one item at a time, **parallel** = all
   at once).
 - **Sequence / Parallel** — a **Count** (how many ordered / concurrent exec-outs to

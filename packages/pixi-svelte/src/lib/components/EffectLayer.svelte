@@ -31,10 +31,10 @@
 		 */
 		ownerPos?: () => { x: number; y: number };
 		/**
-		 * The scope of the component instance the effect sits in (Phase 12a — the pot's meter, a
-		 * jackpot tile's tier). An `event` layer then fires only on events about that part (or events
-		 * with no scope at all). The layer's own authored `trigger.scope` wins over it. Absent ⇒ every
-		 * event, as before scopes existed.
+		 * The scope of the component instance the effect sits in (Phase 12a — `meter:red`,
+		 * `tier:grand`). An `event` layer then skips events about ANOTHER part of that kind; events
+		 * about another kind of part, or none, still fire it. The layer's own authored `trigger.scope`
+		 * wins over it (`*` = every part). Absent ⇒ every event, as before scopes existed.
 		 */
 		scope?: string;
 	};
@@ -61,7 +61,6 @@
 	import {
 		eventScope,
 		getContextEventEmitter,
-		scopeKey,
 		scopeMatches,
 		type EmitterEventBase,
 	} from 'utils-event-emitter';
@@ -201,7 +200,7 @@
 		const eventType = trigger.eventType;
 		const duration = trigger.duration;
 		const stopEventType = trigger.stopEventType;
-		const listening = scopeKey(trigger.scope) ?? props.scope;
+		const listening = trigger.scope?.trim() ? trigger.scope : props.scope;
 		const hears = (event: EmitterEventBase): boolean => scopeMatches(listening, eventScope(event));
 		const handlers: Record<string, (event: EmitterEventBase) => void> = {
 			[eventType]: (event) => {

@@ -184,13 +184,16 @@ With a layer selected, the right **Inspector** edits it:
     Leave it blank to stop by **Duration** / `emitterLifetime` instead (a burst). A stop
     cue equal to the fire cue is ignored (a cue can't both start and stop).
   - **Scope** — *optional*: fire only on events about one part of a repeated feature, such
-    as a pot's meter id (`red`), a jackpot tier (`grand`) or a reel. It is matched against the
-    event's `scope`, which the game sets on its pot, jackpot and letter events and a Flow
-    **Fire Cue** sets with its scope pin. An event with no scope still fires the layer. Leave
-    it **blank** in the usual case. An effect placed inside a scoped component (a Pot Meter,
-    a jackpot tile, or your own component **scoped by** a param) takes that component's
-    scope, so one "pot full" effect authored into the Pot fires only on the pot that filled.
-    Placed anywhere else, a blank scope fires on every event.
+    as a pot's meter id (`red`, or `meter:red`), a jackpot tier (`grand`) or a reel. It is
+    matched against the event's `scope`. The game sets that on its pot, jackpot and letter
+    events (`meter:red`, `tier:grand`, `reel:2`), and a Flow **Fire Cue** sets it with its
+    scope pin. An event with no scope still fires the layer, and `*` fires on every part.
+    Leave it **blank** in the usual case:
+    - Placed inside a scoped component (a Pot Meter, a jackpot tile, or your own component
+      **scoped by** a param), the effect takes that component's scope. It skips the other
+      parts of that kind, so one "pot full" effect authored into the Pot fires only on the
+      pot that filled. Events about another kind of part still fire it.
+    - Placed anywhere else, a blank scope fires on every event.
   - **Duration (ms)** — how long the burst emits after the event arrives, then stops.
     Leave it **blank** to let the emitter's own lifetime (`emitterLifetime` in the
     config) — or the **Stop event** — govern how long it runs instead.

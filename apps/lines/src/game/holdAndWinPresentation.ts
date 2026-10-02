@@ -17,6 +17,7 @@ import { RESPIN_COUNTER_ANCHOR } from 'engine-layout';
 import { showMessage, stateBet } from 'state-shared';
 import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
 import { roundSkip } from 'utils-shared/skipToken';
+import { scopeOf } from 'utils-event-emitter';
 import { waitForTimeout } from 'utils-shared/wait';
 
 import { coinLabelCountMs } from './coinLabel';
@@ -273,7 +274,7 @@ const lightBaseCell = (cell: HoldAndWinCell, state: SymbolState) => {
  */
 const announceMeterRise = (event: Beat<'meterUpdate'>, from: number, to: number) => {
 	if (to <= from) return;
-	const scope = event.meter;
+	const scope = scopeOf('meter', event.meter);
 	eventEmitter.broadcast({
 		type: 'potLevelUp',
 		meter: event.meter,
@@ -306,7 +307,7 @@ export const presentMeterUpdate = async (event: Beat<'meterUpdate'>) => {
 		meterLevelBefore(event.meter) ?? Math.max(0, event.level - event.from.length),
 	);
 	const shown = holdMeterDisplay(event.meter, before);
-	const scope = event.meter;
+	const scope = scopeOf('meter', event.meter);
 	eventEmitter.broadcast({
 		type: 'potFill',
 		meter: event.meter,
@@ -361,7 +362,8 @@ const presentMeterConsume = async (event: Beat<'holdAndWinTrigger'>) => {
 	if (ids.length === 0) return;
 	const declared = configuredMeters();
 	const activates = ids.flatMap((id) => declared.find((meter) => meter.id === id)?.activates ?? []);
-	eventEmitter.broadcast({ type: 'potsConsume', meters: ids, activates, scope: ids });
+	const scope = ids.flatMap((id) => scopeOf('meter', id) ?? []);
+	eventEmitter.broadcast({ type: 'potsConsume', meters: ids, activates, scope });
 	await Promise.all(
 		ids.map(async (id) => {
 			const shown = holdMeterDisplay(id, meterMax(id));
@@ -756,7 +758,7 @@ export const presentColumnComplete = async (event: Beat<'columnComplete'>) => {
 		cleared: event.cleared,
 		amount: event.amount,
 		cells: event.cells,
-		scope: String(event.reel),
+		scope: scopeOf('reel', event.reel),
 	});
 	lightLetter(event.reel);
 	await playHeldBeat(event.cells, 'coinCollect', { minMs: HIGHLIGHT_MIN_MS });
@@ -931,7 +933,7 @@ export const presentJackpotWin = async (event: Beat<'jackpotWin'>) => {
 		amount: event.amount,
 		source: event.source,
 		banked: event.banked,
-		scope: event.tier,
+		scope: scopeOf('tier', event.tier),
 	});
 	const amount = bookEventAmountToCurrencyString(event.amount);
 	if (event.banked) {
@@ -940,7 +942,7 @@ export const presentJackpotWin = async (event: Beat<'jackpotWin'>) => {
 			tier: event.tier,
 			amount: event.amount,
 			source: event.source,
-			scope: event.tier,
+			scope: scopeOf('tier', event.tier),
 		});
 		const banner = showHoldAndWinBanner({
 			kind: 'jackpot',

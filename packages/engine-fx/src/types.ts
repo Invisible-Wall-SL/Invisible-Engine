@@ -103,9 +103,10 @@ export interface EmitterTrigger {
 	stopEventType?: string;
 	/**
 	 * Optional SCOPE filter (`on: 'event'` only; Phase 12a, `docs/design/hold-and-win.md` §8): fire
-	 * only on events about this one part — a meter id (`red`), a jackpot tier (`grand`), a reel —
-	 * matched against the event's `scope`. An event that carries no scope still fires the layer.
-	 * Omitted ⇒ the scope of the component the effect is placed in, else every event.
+	 * only on events about this one part — a meter id (`red`, or `meter:red`), a jackpot tier
+	 * (`grand`), a reel — matched against the event's `scope`. An event that carries no scope still
+	 * fires the layer; `*` fires on every part. Omitted ⇒ the scope of the component the effect is
+	 * placed in, else every event.
 	 */
 	scope?: string;
 }

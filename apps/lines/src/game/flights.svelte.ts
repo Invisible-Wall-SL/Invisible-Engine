@@ -21,6 +21,7 @@ import {
 	type ResolvedFlightStyle,
 } from 'engine-layout';
 import { resolveAnchor, resolveAnchorPoint } from 'pixi-svelte';
+import { scopeOf } from 'utils-event-emitter';
 import { roundSkip } from 'utils-shared/skipToken';
 
 import { bakedEffects, bakedFlights } from '../editor-scenes';
@@ -87,7 +88,7 @@ export type ActiveFlight = {
 	flight: string;
 	target: string;
 	index: number;
-	/** The meter a `toMeter:<id>` flight lands in — its `flightArrive`'s scope (Phase 12a). */
+	/** `meter:<id>` for a `toMeter:<id>` flight — its `flightArrive`'s scope (Phase 12a). */
 	scope?: string;
 	curve: FlightCurve;
 	/** Layer-local units per board unit, so heads and trails are cell-sized. */
@@ -265,7 +266,7 @@ export const flyTo = (
 	const target = targetName(to);
 	return new Promise<void>((resolve) => {
 		const id = nextId++;
-		const record = { id, flight, target, index, scope: meterOfFlight(flight) };
+		const record = { id, flight, target, index, scope: scopeOf('meter', meterOfFlight(flight)) };
 		arrivals[id] = resolve;
 		const current = layer;
 		const start = resolveEnd(from);

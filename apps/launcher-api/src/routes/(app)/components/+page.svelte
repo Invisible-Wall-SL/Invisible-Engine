@@ -989,7 +989,7 @@
 		if (!componentDraft?.params) return;
 		componentDraft.params = componentDraft.params.filter((p) => p.key !== key);
 		if (componentDraft.params.length === 0) delete componentDraft.params;
-		if (componentDraft.signalScope === key) delete componentDraft.signalScope;
+		if (componentDraft.signalScope === key) setComponentSignalScope(undefined);
 		pruneOrphanParamBindings(componentDraft);
 	}
 
@@ -1323,12 +1323,18 @@
 		if (componentDraft.signals.length === 0) delete componentDraft.signals;
 	}
 
-	/** Name the param each placed instance takes its SIGNAL SCOPE from (Phase 12a) — the pot's
-	 * `meter`, a tile's tier — or `undefined` for none (every instance hears every fire). */
-	function setComponentSignalScope(key: string | undefined): void {
+	/** Name the param each placed instance takes its SIGNAL SCOPE from, and the kind of part it
+	 * names (Phase 12a) — the pot's `meter` as a meter, a tile's `source` as a tier — or `undefined`
+	 * for none (every instance hears every fire). */
+	function setComponentSignalScope(scope: { param: string; kind: string } | undefined): void {
 		if (!componentDraft) return;
-		if (key) componentDraft.signalScope = key;
-		else delete componentDraft.signalScope;
+		if (scope) {
+			componentDraft.signalScope = scope.param;
+			componentDraft.signalScopeKind = scope.kind;
+		} else {
+			delete componentDraft.signalScope;
+			delete componentDraft.signalScopeKind;
+		}
 	}
 
 	/** Set the component's authoring/preview SPACE. 'game' is the default → store it
@@ -1688,6 +1694,7 @@
 						componentParams={componentDraft.params ?? []}
 						componentSignals={componentDraft.signals ?? []}
 						componentSignalScope={componentDraft.signalScope}
+						componentSignalScopeKind={componentDraft.signalScopeKind}
 						gameType={data.gameType}
 						instanceComponent={selectedNode?.kind === 'componentInstance'
 							? (componentMap.get(selectedNode.componentId) ?? null)

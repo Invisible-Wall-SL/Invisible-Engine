@@ -32,9 +32,9 @@ Shipped capabilities on `main`:
   - The signal picker is grouped by family and filtered by the project's kind, and takes any Flow
     cue name.
   - Cue signals, **hidden until signal** and per-placement overrides are free text.
-  - **scoped by** (`ComponentDef.signalScope`) makes a placement hear only its own pot / tier /
-    reel. Nested instances and effects inherit it. `componentStorage` keeps it while its param
-    exists.
+  - **scoped by … as a …** (`ComponentDef.signalScope` + `signalScopeKind`) makes a placement hear
+    only its own pot / tier / reel among the fires of that kind. Nested instances and effects
+    inherit it. `componentStorage` keeps both while the param exists.
 
   Detail: [hold-and-win](hold-and-win.md).
 - 2026-10-02 — **`respinCells` built-in** ("Respin Cell Tiles", Hold and Win, kind-gated): a coded part that hands `tileImage` / `tileTint` / `gap` to the respin board rather than drawing at its own spot. Detail: [hold-and-win](hold-and-win.md).

@@ -13,12 +13,16 @@ type Handlers = Parameters<typeof eventEmitter.subscribe>[0];
  * `HoldAndWinBanner.svelte`, the flights) and passes on the cue's `scope`: a fire about ONE pot, tier
  * or column reaches only the component instances scoped to it, so a frog authored once inside the Pot
  * component celebrates on the pot that activated. The catalog side (names, labels, what each is scoped
- * by) is `engine-layout`'s `ENGINE_SIGNAL_CATALOG`. A game that never runs the feature never fires
- * them, and nothing subscribes a name no cue mentions (parity). Svelte-free, so the launcher's
- * `check:signal-scope` drives it with a real emitter.
+ * by) is `engine-layout`'s `ENGINE_SIGNAL_CATALOG`.
+ *
+ * The Hold and Win family is registered only for a Hold and Win game (`holdAndWin`): a registered
+ * name always beats the open bus, so registering `featureEnter` or `coinLand` in a lines game would
+ * silently take the name away from a scene cue an author fires from a Flow. The platform jackpot is
+ * any kind's. Svelte-free, so the launcher's `check:signal-scope` drives it with a real emitter.
  */
 export const featureComponentSignals = (
 	emitter: typeof eventEmitter,
+	holdAndWin: boolean,
 ): Record<string, SignalSource> => {
 	const on = <T extends EmitterEvent['type']>(
 		type: T,
@@ -31,7 +35,10 @@ export const featureComponentSignals = (
 				},
 			} as Handlers),
 	});
+	const platform = { platformJackpotWin: on('platformJackpotCelebration') };
+	if (!holdAndWin) return platform;
 	return {
+		...platform,
 		potFill: on('potFill'),
 		potLand: on('flightArrive', (event) => event.flight.startsWith(FLIGHT_METER_PREFIX)),
 		potLevelUp: on('potLevelUp'),
@@ -45,7 +52,6 @@ export const featureComponentSignals = (
 		coinBoost: on('respinCoinBoost'),
 		coinUpgrade: on('respinCoinUpgrade'),
 		jackpotWin: on('respinJackpotWin'),
-		platformJackpotWin: on('platformJackpotCelebration'),
 		letterLit: on('respinColumnComplete', (event) => event.newlyLit),
 		wheelSpin: on('wheelSpin'),
 		wheelLand: on('wheelLand'),

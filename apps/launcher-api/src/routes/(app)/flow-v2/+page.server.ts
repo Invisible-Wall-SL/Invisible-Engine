@@ -60,7 +60,11 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 	// (`hud_kv04zk3j`). Best-effort: an unsaved / standalone project just yields an empty map.
 	// Loaded BEFORE the flow doc because its `gameType` selects which starter an un-seeded project
 	// opens on (a ways project must not be handed the Book-of flow).
-	const layout = await loadDoc(clientKey, projectKey);
+	// The project's component defs load alongside: the cue harvest below walks the placed ones.
+	const [layout, components] = await Promise.all([
+		loadDoc(clientKey, projectKey),
+		listComponents({ projectKey }),
+	]);
 	const {
 		doc,
 		etag: docEtag,
@@ -81,7 +85,11 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 	// `derivePins` and the validator all accept it. Best-effort: a project whose scenes name no cue
 	// yields an empty list and the vocabulary is returned untouched.
 	// Inside COMPONENTS too: a cue authored in a placed component, or a placement's signal override.
-	const sceneCues = collectSceneCueNames(layout.scenes ?? [], await listComponents({ projectKey }));
+	const sceneCues = collectSceneCueNames(
+		layout.scenes ?? [],
+		components,
+		layout.gameType ?? doc.templateId,
+	);
 
 	// CONTAINER SYNC (`syncFlowContainers`): every Scene-Editor screen is offered as a container.
 	// Returning the merged doc means the palette offers every screen immediately, and a Save persists

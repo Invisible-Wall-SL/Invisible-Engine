@@ -185,12 +185,33 @@ const potScene = [
 ] as unknown as Scene[];
 eq(
 	"a placed component's cues, a nested one's and a placement override are harvested",
-	collectSceneCueNames(potScene, [pot, badge]),
+	collectSceneCueNames(potScene, [pot, badge], 'holdAndWin'),
 	['badgeShine', 'frogCheer', 'redFrogCheer'],
 );
 eq('without the defs, only the placement override counts', collectSceneCueNames(potScene), [
 	'redFrogCheer',
 ]);
+// Per KIND: the game registers the Hold and Win family only in a Hold and Win game, so elsewhere a
+// cue an author named `featureEnter` is theirs to fire, and a Hold and Win game keeps it.
+const featureScene = [
+	{
+		id: 'basegame',
+		nodes: [
+			{
+				kind: 'spine',
+				id: 'hero',
+				assetKey: 'h',
+				cues: [{ signal: 'featureEnter', animation: 'cheer' }],
+			},
+		],
+	},
+] as unknown as Scene[];
+eq(
+	'a lines project may fire its own `featureEnter`',
+	collectSceneCueNames(featureScene, [], 'lines'),
+	['featureEnter'],
+);
+eq('a Hold and Win project may not', collectSceneCueNames(featureScene, [], 'holdAndWin'), []);
 
 // --- RULE 8: a clip a cue swaps TO must reach the game, or the cue is a silent no-op ---
 // `collectClipIds` gates BOTH exporters — the clip registry and the clip's atlas pages — and main

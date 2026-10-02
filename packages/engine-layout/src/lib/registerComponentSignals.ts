@@ -92,9 +92,10 @@ export function registerComponentSignals(sources: Record<string, SignalSource>):
 /**
  * Fire an OPEN-bus signal by name, scoped when the fire names one (a Flow `fireCue`'s scope
  * pin). A no-op when nothing subscribes that name — which is the common case (the game
- * broadcasts every flow cue through here, and only a handful are named by a spine cue). Iterates a COPY so a subscriber that unsubscribes during the fire (a spine whose
- * cue swaps the mounted tree) can't corrupt the walk. Never touches the registry, so a
- * game-registered signal is unaffected.
+ * broadcasts every flow cue through here, and only a handful are named by a spine cue).
+ * Iterates a COPY so a subscriber that unsubscribes during the fire (a spine whose cue swaps the
+ * mounted tree) can't corrupt the walk. Never touches the registry, so a game-registered signal
+ * is unaffected.
  */
 export function emitComponentSignal(key: string, scope?: EventScope): void {
 	const subs = open.get(key);

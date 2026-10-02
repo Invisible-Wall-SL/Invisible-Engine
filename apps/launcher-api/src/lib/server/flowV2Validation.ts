@@ -48,7 +48,7 @@ export function validateFlowV2Against(
 	syncFlowContainers(doc, scenes);
 	const vocab = withSceneCues(
 		withProjectSounds(templateVocabulary(doc.templateId), soundOptionsFor(sounds)),
-		collectSceneCueNames(scenes, components),
+		collectSceneCueNames(scenes, components, doc.templateId),
 	);
 	return validateFlowDoc(
 		doc,

@@ -764,10 +764,13 @@ export function normalizeComponent(raw: ComponentDef): ComponentDef {
 	if (params.length) def.params = params;
 	const signals = normalizeSignals(raw.signals);
 	if (signals.length) def.signals = signals;
-	// The param an instance's signal scope comes from — kept only while that param exists, so a
-	// deleted param can't leave the def scoped by nothing.
+	// The param an instance's signal scope comes from, and the kind of part it names — kept only
+	// while that param exists, so a deleted param can't leave the def scoped by nothing.
 	if (typeof raw.signalScope === 'string' && params.some((p) => p.key === raw.signalScope)) {
 		def.signalScope = raw.signalScope;
+		if (typeof raw.signalScopeKind === 'string' && raw.signalScopeKind) {
+			def.signalScopeKind = raw.signalScopeKind;
+		}
 	}
 	const slots = normalizeSlots(raw.slots);
 	if (slots.length) def.slots = slots;

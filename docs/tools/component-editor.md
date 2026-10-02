@@ -142,7 +142,9 @@ signals. It has two lists, each with its own add button:
   - **Wheel**: spin, land.
   - **Feature**: enter, exit.
 
-  The game fires all of these from its own beats; no Flow wiring is needed. Under **Flow cue**
+  The game fires all of these from its own beats; no Flow wiring is needed. The Hold and Win
+  ones are fired only in a Hold and Win game, so in any other kind those names stay free for
+  your own Flow cues. Under **Flow cue**
   you can type any name a Flow **Fire Cue** node broadcasts (e.g. `frogCheer`) and click
   **Add**. A row marked *per meter*, *per tier* or *per reel* is a scoped signal (see
   **scoped by** below). **×** removes a signal.
@@ -150,15 +152,22 @@ signals. It has two lists, each with its own add button:
   A declared signal is a suggestion, not a requirement. The **signal** field of a spine's or a
   flipbook's **Plays on signal** cue, a node's **hidden until signal** and a Tap to Continue's
   arming signal are all free text, and they suggest the declared names first. Any name works.
-- **scoped by** — the param that says which part of a repeated feature a placement stands
-  for: a pot's `meter`, a jackpot tile's tier. A placement then hears only its own part's
-  scoped signals. Put the component on the red pot (`meter` = `red`), give its frog spine a cue
-  on **Pot — activate**, and it plays when the red pot activates and stays idle when the blue
-  one does. Everything inside it is scoped the same way: its cues, its reveal gates, a
-  component nested in it, and an Invisible FX effect placed in it. Signals that concern no
-  single part (Win, Feature — enter) still reach every placement. **(none)** means every
-  placement hears every fire. The built-in **Pot Meter** is scoped by `meter`, and the
-  **Jackpot Tile** by its `source` (`jackpot.grand` scopes to `grand`).
+- **scoped by** … **as a** — the param that says which part of a repeated feature a placement
+  stands for, and what kind of part it is (**meter**, **tier** or **reel**). Picking a param
+  named `meter`, `tier` or `reel` fills in the kind for you.
+
+  A placement then hears only its own part's signals of that kind. Put the component on the red
+  pot (`meter` = `red`, as a meter), give its frog spine a cue on **Pot — activate**, and it
+  plays when the red pot activates and stays idle when the blue one does.
+
+  Everything inside it is scoped the same way: its cues, its reveal gates, a component nested in
+  it, and an Invisible FX effect placed in it. Two kinds of signal still reach every placement:
+  those about another kind of part (the red pot still hears **Jackpot won** on GRAND) and those
+  about no part (Win, Feature — enter). **(none)** means every placement hears every fire.
+
+  A source key scopes by its id: `jackpot.grand` is `grand`, `meter.red.level` is `red`. The
+  built-in **Pot Meter** is scoped by `meter` as a meter, and the **Jackpot Tile** by its
+  `source` as a tier.
 
 Between the two lists, **Show button images** opens the per-state image set for a button:
 tick the interaction states you need and pick each state's art (bind your background

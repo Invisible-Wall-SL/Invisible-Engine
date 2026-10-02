@@ -35,7 +35,7 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
     matched against the event's `scope`.
   - A layer with no scope takes the scope of the component it is placed in, so a "pot full" effect
     in the Pot fires on its own pot.
-  - **Scope** field in `/fx`; kept by `normalizeEffectDoc` and `layerTrigger`.
+  - **Scope** field in `/fx` (`*` = every part); kept by `normalizeEffectDoc` and `layerTrigger`.
 
   Detail: [hold-and-win](hold-and-win.md).
 - 2026-09-30 — **Leaving with unsaved edits asks in-app too.** The page's own `beforeunload` (reload / tab close only) is replaced by the shared `guardUnsavedWork` (`src/lib/unsavedGuard.ts`), so a tool-bar switch or Back with an unsaved effect now raises the app's confirm dialog (Cancel / Leave anyway) instead of discarding it silently. The pagehide lease release is unchanged; opening another effect is still guarded by `confirmDiscard`.

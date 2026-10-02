@@ -20,6 +20,10 @@ export interface EngineParamEntry {
 	note?: string;
 }
 
+/** The kinds of part a scoped engine signal can name (`ComponentDef.signalScopeKind`). */
+export const SIGNAL_SCOPE_KINDS = ['meter', 'tier', 'reel'] as const;
+export type SignalScopeKind = (typeof SIGNAL_SCOPE_KINDS)[number];
+
 /** A core signal name the engine fires at a component. */
 export interface EngineSignalEntry {
 	key: string;
@@ -28,11 +32,11 @@ export interface EngineSignalEntry {
 	/** The family the editor's picker files it under ("Pots", "Jackpots"). Absent ⇒ the core set. */
 	group?: string;
 	/**
-	 * What its fires are SCOPED by (Phase 12a) — `meter`, `tier`, `reel`. A component instance whose
-	 * def names a matching scope param (`ComponentDef.signalScope`) hears only its own. Absent ⇒
-	 * unscoped: every listener hears every fire.
+	 * What its fires are SCOPED by (Phase 12a). A component instance scoped to a part of this kind
+	 * (`ComponentDef.signalScope` + `signalScopeKind`) hears only its own part's. Absent ⇒ unscoped:
+	 * every listener hears every fire.
 	 */
-	scope?: string;
+	scope?: SignalScopeKind;
 	/** The {@link KindCapabilities} flag a project's kind must have for the editor to offer it — the
 	 *  Hold and Win families are `'holdAndWin'`. Absent ⇒ offered to every kind. */
 	capability?: keyof KindCapabilities;
@@ -476,7 +480,7 @@ export const BUTTON_STATE_PARAMS: ComponentParam[] = BUTTON_STATE_IMAGE_PARAMS.m
  */
 const holdAndWinFamily = (
 	group: string,
-	entries: { key: string; label: string; note: string; scope?: string }[],
+	entries: { key: string; label: string; note: string; scope?: SignalScopeKind }[],
 ): EngineSignalEntry[] => entries.map((entry) => ({ ...entry, group, capability: 'holdAndWin' }));
 
 const HOLD_AND_WIN_SIGNALS: EngineSignalEntry[] = [

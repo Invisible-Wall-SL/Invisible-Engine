@@ -1602,9 +1602,10 @@
 		boardGlowHide: eventSignal((run) =>
 			context.eventEmitter.subscribe({ boardFrameGlowHide: () => run() }),
 		),
-		// Hold and Win's feature parts (pots, respins, coins, jackpots, letters, wheel) and the operator
-		// platform's jackpot — scoped where the beat concerns one pot, tier or column (Phase 12a).
-		...featureComponentSignals(context.eventEmitter),
+		// Hold and Win's feature parts (pots, respins, coins, jackpots, letters, wheel) — in a Hold and
+		// Win game only — and the operator platform's jackpot, scoped where the beat concerns one pot,
+		// tier or column (Phase 12a).
+		...featureComponentSignals(context.eventEmitter, !!getActiveGameConfig().holdAndWin),
 	});
 
 	// The board glow is a STATE — lit for the whole free-spin feature — but it arrives as one-shot

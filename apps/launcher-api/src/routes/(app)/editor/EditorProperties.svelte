@@ -19,6 +19,7 @@
 		ENGINE_PARAM_CATALOG,
 		ENGINE_SIGNAL_CATALOG,
 		engineSignalsForKind,
+		SIGNAL_SCOPE_KINDS,
 		REPEATER_SOURCE_CATALOG,
 		REPEATER_SOURCE_LABELS,
 		fontParamKeysOf,
@@ -184,8 +185,10 @@
 		onToggleSignal?: (key: string) => void;
 		/** The param the draft component's signal scope comes from (`ComponentDef.signalScope`). */
 		componentSignalScope?: string;
-		/** Set (or clear, `undefined`) the draft component's signal-scope param (component mode). */
-		onSetSignalScope?: (key: string | undefined) => void;
+		/** The kind of part that param names (`ComponentDef.signalScopeKind`). */
+		componentSignalScopeKind?: string;
+		/** Set (or clear, `undefined`) the draft component's signal scope (component mode). */
+		onSetSignalScope?: (scope: { param: string; kind: string } | undefined) => void;
 		/**
 		 * Per-project param DEFAULTS for the OPEN component (component mode, §13.3) — the
 		 * `component-defaults` sidecar's `params` map. A key PRESENT here overrides the def's own
@@ -283,6 +286,7 @@
 		onUnexposeImageParam,
 		onToggleSignal,
 		componentSignalScope,
+		componentSignalScopeKind,
 		onSetSignalScope,
 		projectParamDefaults = {},
 		componentDefaults = {},
@@ -313,6 +317,16 @@
 	const scopeParamChoices = $derived(
 		componentParams.filter((p) => p.kind === 'string' || p.kind === 'number'),
 	);
+	/** The scope param still declared — a param removed since reads as none, as the save does. */
+	const scopeParam = $derived(
+		scopeParamChoices.some((p) => p.key === componentSignalScope) ? componentSignalScope : '',
+	);
+	/** Scope by `param` as a part of `kind`; a fresh pick guesses the kind from the param's name. */
+	function setSignalScope(param: string, kind: string | undefined): void {
+		if (!param) return onSetSignalScope?.(undefined);
+		const named = SIGNAL_SCOPE_KINDS.find((k) => k === param);
+		onSetSignalScope?.({ param, kind: kind || named || SIGNAL_SCOPE_KINDS[0] });
+	}
 
 	/** Author-settable (non-engineProvided) params an instance may override. */
 	const authorParams = $derived((instanceComponent?.params ?? []).filter((p) => !p.engineProvided));
@@ -2227,24 +2241,38 @@
 			</ul>
 		{/if}
 		<div class="row">
-			<label class="field wide">
+			<label class="field">
 				<span>scoped by</span>
 				<select
-					value={componentSignalScope ?? ''}
-					onchange={(e) => onSetSignalScope?.(e.currentTarget.value || undefined)}
+					value={scopeParam}
+					onchange={(e) => setSignalScope(e.currentTarget.value, componentSignalScopeKind)}
 				>
-					<option value="">(none — hears every pot, tier and reel)</option>
+					<option value="">(none — hears every part)</option>
 					{#each scopeParamChoices as p (p.key)}
 						<option value={p.key}>{p.label ?? p.key}</option>
 					{/each}
 				</select>
 			</label>
+			{#if scopeParam}
+				<label class="field">
+					<span>as a</span>
+					<select
+						value={componentSignalScopeKind ?? ''}
+						onchange={(e) => setSignalScope(scopeParam, e.currentTarget.value)}
+					>
+						{#each SIGNAL_SCOPE_KINDS as kind (kind)}
+							<option value={kind}>{kind}</option>
+						{/each}
+					</select>
+				</label>
+			{/if}
 		</div>
 		<p class="muted small">
-			The param that says which part a placement stands for — a pot's <strong>meter</strong>, a
-			jackpot tile's tier. A placement then hears only its own part's signals (<em>per meter</em>
-			above): put the component on the red pot and a cue on <strong>Pot — activate</strong> plays when
-			the red pot activates. Signals with no part (Win, Feature — enter) still reach it.
+			The param that says which part a placement stands for, and what kind of part it is — a pot's
+			<strong>meter</strong> as a meter, a jackpot tile's source as a tier. A placement then hears
+			only its own part's signals of that kind (<em>per meter</em> above): put the component on the
+			red pot and a cue on <strong>Pot — activate</strong> plays when the red pot activates. Signals about
+			another kind of part (a jackpot tier's win) or no part (Win, Feature — enter) still reach it.
 		</p>
 	</section>
 
@@ -3911,7 +3939,8 @@
 							list={SIGNAL_SUGGESTIONS_ID}
 							placeholder={cueSceneMode ? 'e.g. characterSpin' : 'e.g. potActivate'}
 							value={cue.signal}
-							oninput={(e) => updateCue(node as SpineNode, i, { signal: e.currentTarget.value })}
+							oninput={(e) =>
+								updateCue(node as SpineNode, i, { signal: e.currentTarget.value.trim() })}
 						/>
 					</label>
 					<label class="field">
@@ -5113,7 +5142,7 @@
 							list={SIGNAL_SUGGESTIONS_ID}
 							placeholder={cueSceneMode ? 'e.g. reelsSpinning' : 'e.g. potActivate'}
 							value={cue.signal}
-							oninput={(e) => updateFlipbookCue(node, i, { signal: e.currentTarget.value })}
+							oninput={(e) => updateFlipbookCue(node, i, { signal: e.currentTarget.value.trim() })}
 						/>
 					</label>
 					<label class="field">

@@ -45,7 +45,7 @@
 	import { Anchor, Container, createPressHold } from 'pixi-svelte';
 	import { CanvasSizeRectangle } from 'components-layout';
 	import { getContextLayout } from 'utils-layout';
-	import { scopeKey, scopeMatches, type EventScope } from 'utils-event-emitter';
+	import { scopeMatches, scopeOf, type EventScope } from 'utils-event-emitter';
 
 	import LayoutNodeView from './LayoutNodeView.svelte';
 	import { resolveComponent } from './registerComponents';
@@ -201,14 +201,15 @@
 			? resolveComponentParams(def, node.params, getComponentDefaults(node.componentId))
 			: {};
 
-	// Signal scope (Phase 12a, `docs/design/hold-and-win.md` §8): the value of the param the def
-	// names as its scope (`signalScope` — the pot's `meter`, a jackpot tile's `source`). The instance
-	// hears only the fires for that scope, and hands it down, so a spine, a nested instance or an
-	// effect inside the red pot reacts to the red pot only. No scope of its own ⇒ the enclosing
-	// instance's; none at all ⇒ every fire (parity). Read before it is set: `getContext` after
-	// `setContext` would return this instance's own value.
+	// Signal scope (Phase 12a, `docs/design/hold-and-win.md` §8): the part this instance stands for —
+	// the value of the param the def names (`signalScope`: the pot's `meter`, a jackpot tile's
+	// `source`) as a part of its kind (`meter:red`). The instance hears only its own part's fires of
+	// that kind, and hands the scope down, so a spine, a nested instance or an effect inside the red
+	// pot reacts to the red pot only. No scope of its own ⇒ the enclosing instance's; none at all ⇒
+	// every fire (parity). Read before it is set: `getContext` after `setContext` would return this
+	// instance's own value.
 	const signalScope =
-		(def?.signalScope ? scopeKey(staticParams[def.signalScope]) : undefined) ??
+		(def?.signalScope ? scopeOf(def.signalScopeKind, staticParams[def.signalScope]) : undefined) ??
 		getComponentSignalScope();
 	setComponentSignalScope(signalScope);
 	const hears = (scope?: EventScope): boolean => scopeMatches(signalScope, scope);
