@@ -62,6 +62,7 @@
 	import { getComponentStateAnims } from './componentStateAnimContext';
 	import { getComponentSpineRest } from './componentSpineRestContext';
 	import { getComponentFiredSignals } from './componentFiredSignalsContext';
+	import { getComponentSignalScope } from './componentSignalScopeContext';
 	import { handsOffToIdle, isNodeRevealed } from './signalGates';
 	import { resolveBoundValue } from './componentParams';
 	import { editorArtTextureKey, isManifestAssetKey, parseScopedFrameRef } from './editorArtKey';
@@ -158,6 +159,9 @@
 	// sequencing). `undefined` for a top-level scene node with no instance ancestor ⇒ the reveal
 	// gate below stays OPEN and a spine `completeSignal` fires nothing (byte-identical parity).
 	const firedSignals = getComponentFiredSignals();
+	// The owning instance's signal scope (Phase 12a): an effect inside the red pot fires its event
+	// layers on the red pot's events only. `undefined` outside a scoped instance ⇒ every event.
+	const signalScope = getComponentSignalScope();
 	// Reveal gate: a node with `hiddenUntilSignal` renders only once that component-scoped signal has
 	// fired for the instance (e.g. show the free-spin amount + tap only AFTER a sibling spine's intro
 	// completes). Reactive read of the instance's `counts` proxy, so it flips when the signal fires;
@@ -463,8 +467,7 @@
 			const fallback = region && isManifestAssetKey(assetKey) ? region : undefined;
 			const tex = ((key ? assets?.[key] : undefined) ??
 				(fallback ? assets?.[fallback] : undefined)) as
-				| { width?: number; height?: number }
-				| undefined;
+				{ width?: number; height?: number } | undefined;
 			if (!tex || !(tex.width && tex.width > 0) || !(tex.height && tex.height > 0)) return null;
 			return { w: tex.width, h: tex.height };
 		};
@@ -1116,7 +1119,7 @@
 			{#each attachedEffects ?? [] as fx (fx.id)}
 				{@const fxDoc = resolveEffect(fx.effectId)}
 				{#if fxDoc}
-					<EffectPlayer doc={fxDoc} />
+					<EffectPlayer doc={fxDoc} scope={signalScope} />
 				{/if}
 			{/each}
 			<!--
@@ -1269,7 +1272,7 @@
 				zIndex={transform.zIndex}
 				{blendMode}
 			>
-				<EffectPlayer doc={effectDoc} />
+				<EffectPlayer doc={effectDoc} scope={signalScope} />
 			</Container>
 		{/if}
 	{:else if node.kind === 'flipbook'}

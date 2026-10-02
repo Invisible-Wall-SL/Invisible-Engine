@@ -22,6 +22,7 @@
 
 import { flattenGroups } from './collapse';
 import { containerEventDeclId } from './containerEvents';
+import { CUE_SCOPE_PIN } from './pins';
 import type {
 	Accessor,
 	BranchNode,
@@ -363,9 +364,19 @@ class FlowInterpreter {
 				// AWAIT the cue's subscribers only when the node opts in (`await: true`), matching the
 				// coded handlers' `broadcast` (fire-and-forget) vs `broadcastAsync` (awaited) split. A
 				// fire-and-forget cue still triggers its subscribers; the flow just doesn't block.
-				const done = this.ctx.env.broadcast(node.ref, this.resolvePayload(graph, node, scope), {
-					await: !!node.await,
-				});
+				const payload = this.resolvePayload(graph, node, scope);
+				// The optional scope pin (Phase 12a) joins the payload only when it resolves to a scope,
+				// so an unscoped cue — a cleared literal included — broadcasts exactly what it did before
+				// the pin existed. A cue that declares a `scope` of its own keeps its own field.
+				const declared = this.ctx.vocab.cues
+					.find((c) => c.name === node.ref)
+					?.payload.some((p) => p.name === CUE_SCOPE_PIN);
+				if (!declared) {
+					const cueScope = this.resolveDataIn(graph, node.id, CUE_SCOPE_PIN, scope);
+					if (cueScope === undefined || cueScope === '') delete payload[CUE_SCOPE_PIN];
+					else payload[CUE_SCOPE_PIN] = cueScope;
+				}
+				const done = this.ctx.env.broadcast(node.ref, payload, { await: !!node.await });
 				if (node.await) await done;
 				return this.nextExec(graph, node.id, 'exec');
 			}

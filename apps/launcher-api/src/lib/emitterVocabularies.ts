@@ -749,6 +749,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						kind: 'boolean',
 						required: true,
 					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
 				],
 			},
 			{
@@ -780,6 +785,63 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						kind: 'list',
 						required: true,
 					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 'potLevelUp',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'meter',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'level',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'max',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 'potStageUp',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'meter',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'stage',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'level',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
 				],
 			},
 			{
@@ -790,6 +852,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						key: 'meter',
 						kind: 'string',
 						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
 					},
 				],
 			},
@@ -806,6 +873,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						key: 'activates',
 						kind: 'list',
 						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'list',
+						required: false,
 					},
 				],
 			},
@@ -847,6 +919,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						key: 'source',
 						kind: 'object',
 						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
 					},
 				],
 			},
@@ -904,6 +981,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						key: 'cells',
 						kind: 'list',
 						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
 					},
 				],
 			},
@@ -1016,6 +1098,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						kind: 'number',
 						required: true,
 					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
 				],
 			},
 			{
@@ -1040,6 +1127,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						key: 'index',
 						kind: 'number',
 						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
 					},
 				],
 			},
@@ -2199,6 +2291,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						kind: 'boolean',
 						required: true,
 					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
 				],
 			},
 			{
@@ -2230,6 +2327,63 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						kind: 'list',
 						required: true,
 					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 'potLevelUp',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'meter',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'level',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'max',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 'potStageUp',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'meter',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'stage',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'level',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
 				],
 			},
 			{
@@ -2240,6 +2394,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						key: 'meter',
 						kind: 'string',
 						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
 					},
 				],
 			},
@@ -2256,6 +2415,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						key: 'activates',
 						kind: 'list',
 						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'list',
+						required: false,
 					},
 				],
 			},
@@ -2297,6 +2461,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						key: 'source',
 						kind: 'object',
 						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
 					},
 				],
 			},
@@ -2354,6 +2523,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						key: 'cells',
 						kind: 'list',
 						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
 					},
 				],
 			},
@@ -2466,6 +2640,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						kind: 'number',
 						required: true,
 					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
 				],
 			},
 			{
@@ -2490,6 +2669,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						key: 'index',
 						kind: 'number',
 						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
 					},
 				],
 			},
@@ -3649,6 +3833,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						kind: 'boolean',
 						required: true,
 					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
 				],
 			},
 			{
@@ -3680,6 +3869,63 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						kind: 'list',
 						required: true,
 					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 'potLevelUp',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'meter',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'level',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'max',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 'potStageUp',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'meter',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'stage',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'level',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
 				],
 			},
 			{
@@ -3690,6 +3936,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						key: 'meter',
 						kind: 'string',
 						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
 					},
 				],
 			},
@@ -3706,6 +3957,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						key: 'activates',
 						kind: 'list',
 						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'list',
+						required: false,
 					},
 				],
 			},
@@ -3747,6 +4003,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						key: 'source',
 						kind: 'object',
 						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
 					},
 				],
 			},
@@ -3804,6 +4065,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						key: 'cells',
 						kind: 'list',
 						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
 					},
 				],
 			},
@@ -3916,6 +4182,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						kind: 'number',
 						required: true,
 					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
 				],
 			},
 			{
@@ -3940,6 +4211,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						key: 'index',
 						kind: 'number',
 						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
 					},
 				],
 			},
@@ -5099,6 +5375,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						kind: 'boolean',
 						required: true,
 					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
 				],
 			},
 			{
@@ -5130,6 +5411,63 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						kind: 'list',
 						required: true,
 					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 'potLevelUp',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'meter',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'level',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'max',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 'potStageUp',
+				group: 'Hold and Win',
+				fields: [
+					{
+						key: 'meter',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'stage',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'level',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
 				],
 			},
 			{
@@ -5140,6 +5478,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						key: 'meter',
 						kind: 'string',
 						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
 					},
 				],
 			},
@@ -5156,6 +5499,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						key: 'activates',
 						kind: 'list',
 						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'list',
+						required: false,
 					},
 				],
 			},
@@ -5197,6 +5545,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						key: 'source',
 						kind: 'object',
 						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
 					},
 				],
 			},
@@ -5254,6 +5607,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						key: 'cells',
 						kind: 'list',
 						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
 					},
 				],
 			},
@@ -5366,6 +5724,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						kind: 'number',
 						required: true,
 					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
+					},
 				],
 			},
 			{
@@ -5390,6 +5753,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						key: 'index',
 						kind: 'number',
 						required: true,
+					},
+					{
+						key: 'scope',
+						kind: 'string',
+						required: false,
 					},
 				],
 			},

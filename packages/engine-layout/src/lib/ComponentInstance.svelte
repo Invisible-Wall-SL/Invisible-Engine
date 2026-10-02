@@ -45,6 +45,7 @@
 	import { Anchor, Container, createPressHold } from 'pixi-svelte';
 	import { CanvasSizeRectangle } from 'components-layout';
 	import { getContextLayout } from 'utils-layout';
+	import { scopeMatches, scopeOf, type EventScope } from 'utils-event-emitter';
 
 	import LayoutNodeView from './LayoutNodeView.svelte';
 	import { resolveComponent } from './registerComponents';
@@ -88,6 +89,7 @@
 		TAP_TO_CONTINUE_COMPONENT,
 	} from './tapToContinue';
 	import { setComponentFiredSignals } from './componentFiredSignalsContext';
+	import { getComponentSignalScope, setComponentSignalScope } from './componentSignalScopeContext';
 	import { isTapArmed } from './signalGates';
 	import { isCompleteOnLoadedEnabled, loadedSignalOf } from './completeOnLoaded';
 	import { getFlowComplete } from './registerFlowComplete';
@@ -198,6 +200,19 @@
 		allowed && def
 			? resolveComponentParams(def, node.params, getComponentDefaults(node.componentId))
 			: {};
+
+	// Signal scope (Phase 12a, `docs/design/hold-and-win.md` §8): the part this instance stands for —
+	// the value of the param the def names (`signalScope`: the pot's `meter`, a jackpot tile's
+	// `source`) as a part of its kind (`meter:red`). The instance hears only its own part's fires of
+	// that kind, and hands the scope down, so a spine, a nested instance or an effect inside the red
+	// pot reacts to the red pot only. No scope of its own ⇒ the enclosing instance's; none at all ⇒
+	// every fire (parity). Read before it is set: `getContext` after `setContext` would return this
+	// instance's own value.
+	const signalScope =
+		(def?.signalScope ? scopeOf(def.signalScopeKind, staticParams[def.signalScope]) : undefined) ??
+		getComponentSignalScope();
+	setComponentSignalScope(signalScope);
+	const hears = (scope?: EventScope): boolean => scopeMatches(signalScope, scope);
 
 	// Tap-to-continue (Invisible Flow §6.2): a SHARED per-instance toggle any
 	// `overlay`-category instance can switch on (no def declaration — the param lives
@@ -619,7 +634,8 @@
 				if (signalKey === ENTER_SIGNAL) continue;
 				const source = getComponentSignal(signalKey);
 				unsubs.push(
-					source.subscribe(() => {
+					source.subscribe((scope) => {
+						if (!hears(scope)) return;
 						fireCue(targets);
 						// Also record the fire on the per-instance bus so a `hiddenUntilSignal`/`tapArmAfterSignal`
 						// gate can key on a game signal (e.g. `win`), not only a spine `completeSignal`.
@@ -634,7 +650,11 @@
 				if (signalKey === ENTER_SIGNAL) continue; // instance-fired — same reason as above.
 				if (signalToTargets.has(signalKey)) continue;
 				const source = getComponentSignal(signalKey);
-				unsubs.push(source.subscribe(() => fireComponentSignal(signalKey)));
+				unsubs.push(
+					source.subscribe((scope) => {
+						if (hears(scope)) fireComponentSignal(signalKey);
+					}),
+				);
 			}
 			return () => {
 				for (const unsub of unsubs) unsub();

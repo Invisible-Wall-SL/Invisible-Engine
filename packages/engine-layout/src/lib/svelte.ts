@@ -59,6 +59,7 @@ export { setComponentParams, getComponentParams } from './componentParamsContext
 // Signal-anim context (§8.5, spine-only) — the signal sibling of the param
 // context, likewise Svelte-dependent so it lives on the component entry.
 export { setComponentSignalAnims, getComponentSignalAnims } from './componentSignalContext';
+export { setComponentSignalScope, getComponentSignalScope } from './componentSignalScopeContext';
 // Which component defs have an instance on screen (reactive) — how a coded default steps aside for
 // an authored twin while it is mounted.
 export { isComponentMounted, sceneMountKey, trackComponentMount } from './mountedComponents';

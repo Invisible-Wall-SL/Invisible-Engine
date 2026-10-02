@@ -18,6 +18,8 @@
 		ENGINE_BINDING_PARAMS,
 		ENGINE_PARAM_CATALOG,
 		ENGINE_SIGNAL_CATALOG,
+		engineSignalsForKind,
+		SIGNAL_SCOPE_KINDS,
 		REPEATER_SOURCE_CATALOG,
 		REPEATER_SOURCE_LABELS,
 		fontParamKeysOf,
@@ -179,8 +181,14 @@
 		/** "Remove exposed image": un-expose the selected sprite node — drop the `region`
 		 * binding + the param it created, restoring the static frame. */
 		onUnexposeImageParam?: (node: LayoutNode) => void;
-		/** Toggle an engine-catalog signal on the draft component (component mode). */
+		/** Toggle a signal on the draft component — an engine one or a Flow cue name (component mode). */
 		onToggleSignal?: (key: string) => void;
+		/** The param the draft component's signal scope comes from (`ComponentDef.signalScope`). */
+		componentSignalScope?: string;
+		/** The kind of part that param names (`ComponentDef.signalScopeKind`). */
+		componentSignalScopeKind?: string;
+		/** Set (or clear, `undefined`) the draft component's signal scope (component mode). */
+		onSetSignalScope?: (scope: { param: string; kind: string } | undefined) => void;
 		/**
 		 * Per-project param DEFAULTS for the OPEN component (component mode, §13.3) — the
 		 * `component-defaults` sidecar's `params` map. A key PRESENT here overrides the def's own
@@ -277,6 +285,9 @@
 		onExposeImageParam,
 		onUnexposeImageParam,
 		onToggleSignal,
+		componentSignalScope,
+		componentSignalScopeKind,
+		onSetSignalScope,
 		projectParamDefaults = {},
 		componentDefaults = {},
 		onSetProjectParamDefault,
@@ -294,6 +305,28 @@
 	}: Props = $props();
 
 	const offeredSymbolStates = $derived(symbolStatesForKind(gameType));
+	/** The engine signals this project's kind fires — what the signal pickers offer (Phase 12a). */
+	const offeredSignals = $derived(engineSignalsForKind(gameType));
+	/** The names a free-text signal field suggests: this component's own, then the kind's engine
+	 *  signals. Any other name still works — a Flow Fire Cue broadcasts whatever it is given. */
+	const signalSuggestions = $derived([
+		...new Set([...componentSignals.map((s) => s.key), ...offeredSignals.map((s) => s.key)]),
+	]);
+	const SIGNAL_SUGGESTIONS_ID = 'editor-signal-suggestions';
+	/** The params a placed instance can take its signal scope from — a text or number value. */
+	const scopeParamChoices = $derived(
+		componentParams.filter((p) => p.kind === 'string' || p.kind === 'number'),
+	);
+	/** The scope param still declared — a param removed since reads as none, as the save does. */
+	const scopeParam = $derived(
+		scopeParamChoices.some((p) => p.key === componentSignalScope) ? componentSignalScope : '',
+	);
+	/** Scope by `param` as a part of `kind`; a fresh pick guesses the kind from the param's name. */
+	function setSignalScope(param: string, kind: string | undefined): void {
+		if (!param) return onSetSignalScope?.(undefined);
+		const named = SIGNAL_SCOPE_KINDS.find((k) => k === param);
+		onSetSignalScope?.({ param, kind: kind || named || SIGNAL_SCOPE_KINDS[0] });
+	}
 
 	/** Author-settable (non-engineProvided) params an instance may override. */
 	const authorParams = $derived((instanceComponent?.params ?? []).filter((p) => !p.engineProvided));
@@ -770,7 +803,12 @@
 	const signalRows = $derived(
 		componentSignals.map((s) => {
 			const entry = ENGINE_SIGNAL_CATALOG.find((c) => c.key === s.key);
-			return { key: s.key, label: entry?.label ?? s.key, note: entry?.note };
+			return {
+				key: s.key,
+				label: entry?.label ?? s.key,
+				note: entry?.note ?? 'A Flow cue name — fired by a Flow Fire Cue node.',
+				scope: entry?.scope,
+			};
 		}),
 	);
 
@@ -808,16 +846,35 @@
 	let signalAnchorEl = $state<HTMLDivElement | null>(null);
 	const signalPickerMatches = $derived.by(() => {
 		const q = signalSearch.trim().toLowerCase();
-		return ENGINE_SIGNAL_CATALOG.filter(
-			(s) => !q || s.label.toLowerCase().includes(q) || s.key.toLowerCase().includes(q),
-		).map((s) => ({ entry: s, inUse: signalHas(s.key) }));
+		return offeredSignals
+			.filter((s) => !q || s.label.toLowerCase().includes(q) || s.key.toLowerCase().includes(q))
+			.map((s) => ({ entry: s, inUse: signalHas(s.key) }));
+	});
+	/** The matches by family, in catalog order — the core signals first, under no heading. */
+	const signalPickerGroups = $derived.by(() => {
+		const groups: { group: string; matches: typeof signalPickerMatches }[] = [];
+		for (const m of signalPickerMatches) {
+			const group = m.entry.group ?? '';
+			const into = groups.find((g) => g.group === group);
+			if (into) into.matches.push(m);
+			else groups.push({ group, matches: [m] });
+		}
+		return groups;
 	});
 	function addSignal(key: string): void {
 		if (!signalHas(key)) onToggleSignal?.(key);
 	}
+	let customSignal = $state('');
+	function addCustomSignal(): void {
+		const key = customSignal.trim();
+		if (!key) return;
+		addSignal(key);
+		closeSignalPicker();
+	}
 	function closeSignalPicker(): void {
 		signalPickerOpen = false;
 		signalSearch = '';
+		customSignal = '';
 	}
 	/** Dismiss an open picker when the pointer goes down outside its anchor. */
 	function onWindowPointerDown(e: PointerEvent): void {
@@ -1689,14 +1746,14 @@
 	// When the named signal fires, this spine plays the chosen animation. Authored as
 	// `node.cues`; the array is reassigned on every edit so Svelte 5 reactivity fires.
 
-	/** Cues are authored in BOTH editors, but the signal name means different things.
-	 * In the Component Editor the component DECLARES its signals, so the name is a
-	 * closed list (`componentSignals`, wired to a book event by `registerComponentSignals`)
-	 * and a finished cue can fire `completeSignal` back on the instance's own bus. A
-	 * spine placed straight in a screen has no declaring component: the name is free
-	 * text, matched at runtime on the open bus every Flow `Fire Cue` broadcasts to — and
-	 * there is no per-instance bus to fire `completeSignal` on, so that sub-field is
-	 * hidden here. `componentMode` is the discriminator (only `/components` passes it). */
+	/** Cues are authored in BOTH editors, and the signal name is free text in both (Phase 12a):
+	 * an engine signal the game fires from its own beats (`registerComponentSignals`), or any
+	 * name a Flow `Fire Cue` broadcasts on the open bus — the datalist suggests the component's
+	 * declared signals and the kind's engine ones. What differs is the bus: inside a component a
+	 * finished cue can fire `completeSignal` back on the instance's own bus, and a scoped
+	 * instance hears only its own part's fires. A spine placed straight in a screen has no
+	 * instance bus to fire `completeSignal` on, so that sub-field is hidden there.
+	 * `componentMode` is the discriminator (only `/components` passes it). */
 	const cueSceneMode = $derived(!componentMode);
 
 	function addCue(n: SpineNode): void {
@@ -1819,6 +1876,13 @@
 <!-- Dismiss an open variable/signal picker on an outside pointer-down. The handler
      no-ops unless a picker is open (component mode only). -->
 <svelte:window onpointerdown={onWindowPointerDown} />
+
+<!-- What every free-text signal field suggests: cues, reveal gates, per-placement overrides. -->
+<datalist id={SIGNAL_SUGGESTIONS_ID}>
+	{#each signalSuggestions as key (key)}
+		<option value={key}>{offeredSignals.find((s) => s.key === key)?.label ?? key}</option>
+	{/each}
+</datalist>
 
 {#if componentMode}
 	<!-- Component-level metadata (§8.4 / §8.5): declare the params the ENGINE feeds +
@@ -2110,23 +2174,44 @@
 							{#if signalPickerMatches.length === 0}
 								<p class="muted small picker-empty">No matching signals.</p>
 							{:else}
-								{#each signalPickerMatches as m (m.entry.key)}
-									<button
-										type="button"
-										class="picker-option"
-										disabled={m.inUse}
-										title={m.entry.note ?? undefined}
-										onclick={() => {
-											addSignal(m.entry.key);
-											closeSignalPicker();
-										}}
-									>
-										<span class="opt-label">{m.entry.label}</span>
-										{#if m.entry.note}<span class="opt-note">{m.entry.note}</span>{/if}
-										{#if m.inUse}<span class="opt-inuse">in use</span>{/if}
-									</button>
+								{#each signalPickerGroups as g (g.group)}
+									{#if g.group}<p class="picker-group-title">{g.group}</p>{/if}
+									{#each g.matches as m (m.entry.key)}
+										<button
+											type="button"
+											class="picker-option"
+											disabled={m.inUse}
+											title={m.entry.note ?? undefined}
+											onclick={() => {
+												addSignal(m.entry.key);
+												closeSignalPicker();
+											}}
+										>
+											<span class="opt-label">{m.entry.label}</span>
+											{#if m.entry.note}<span class="opt-note">{m.entry.note}</span>{/if}
+											{#if m.inUse}<span class="opt-inuse">in use</span>{/if}
+										</button>
+									{/each}
 								{/each}
 							{/if}
+							<p class="picker-group-title">Flow cue</p>
+							<p class="muted small picker-hint">
+								Any name a Flow <strong>Fire Cue</strong> node broadcasts — it needs no declaring anywhere
+								else.
+							</p>
+							<div class="add-param">
+								<input
+									type="text"
+									placeholder="cue name, e.g. frogCheer"
+									bind:value={customSignal}
+									onkeydown={(e) => {
+										if (e.key === 'Enter') addCustomSignal();
+									}}
+								/>
+								<button type="button" disabled={!customSignal.trim()} onclick={addCustomSignal}
+									>Add</button
+								>
+							</div>
 						</div>
 					</div>
 				{/if}
@@ -2143,6 +2228,7 @@
 						<div class="var-row-head">
 							<span class="var-icon" aria-hidden="true">⚡</span>
 							<span class="var-name" title={s.note ?? undefined}>{s.label}</span>
+							{#if s.scope}<span class="opt-note">per {s.scope}</span>{/if}
 							<button
 								type="button"
 								class="param-remove"
@@ -2154,6 +2240,40 @@
 				{/each}
 			</ul>
 		{/if}
+		<div class="row">
+			<label class="field">
+				<span>scoped by</span>
+				<select
+					value={scopeParam}
+					onchange={(e) => setSignalScope(e.currentTarget.value, componentSignalScopeKind)}
+				>
+					<option value="">(none — hears every part)</option>
+					{#each scopeParamChoices as p (p.key)}
+						<option value={p.key}>{p.label ?? p.key}</option>
+					{/each}
+				</select>
+			</label>
+			{#if scopeParam}
+				<label class="field">
+					<span>as a</span>
+					<select
+						value={componentSignalScopeKind ?? ''}
+						onchange={(e) => setSignalScope(scopeParam, e.currentTarget.value)}
+					>
+						{#each SIGNAL_SCOPE_KINDS as kind (kind)}
+							<option value={kind}>{kind}</option>
+						{/each}
+					</select>
+				</label>
+			{/if}
+		</div>
+		<p class="muted small">
+			The param that says which part a placement stands for, and what kind of part it is — a pot's
+			<strong>meter</strong> as a meter, a jackpot tile's source as a tier. A placement then hears
+			only its own part's signals of that kind (<em>per meter</em> above): put the component on the
+			red pot and a cue on <strong>Pot — activate</strong> plays when the red pot activates. Signals about
+			another kind of part (a jackpot tier's win) or no part (Win, Feature — enter) still reach it.
+		</p>
 	</section>
 
 	{#if projectLabel}
@@ -2668,9 +2788,10 @@
 					<details class="param-group" open>
 						<summary>Spine (this placement)</summary>
 						<p class="muted small">
-							Override what THIS placement's spine plays — its resting animation / loop / skin and,
-							for an interactive button, the per-state animations. Leave a field on
-							<em>(inherit)</em> to keep the component's default, so two copies can look different.
+							Override what THIS placement's spine plays — its resting animation / loop / skin, the
+							signal each cue plays on (any signal or Flow cue name) and, for an interactive button,
+							the per-state animations. Leave a field on <em>(inherit)</em> (a signal blank) to keep the
+							component's default, so two copies can look different.
 						</p>
 						{#each instanceSpineNodes as sp (sp.id)}
 							{@const meta = spineMetaFor(instanceSpineAssetKey(sp))}
@@ -2749,19 +2870,14 @@
 										<div class="bind-grid cue-row">
 											<label class="field">
 												<span>{cue.animation || cue.signal}</span>
-												<select
+												<input
+													type="text"
+													list={SIGNAL_SUGGESTIONS_ID}
+													placeholder="inherit: {cue.signal}"
 													value={ov ?? ''}
 													onchange={(e) =>
 														onSetInstanceCueSignal?.(sp.id, cue.signal, e.currentTarget.value)}
-												>
-													<option value="">(inherit: {cue.signal})</option>
-													{#each ENGINE_SIGNAL_CATALOG as s (s.key)}
-														<option value={s.key}>{s.label}</option>
-													{/each}
-													{#if ov && !ENGINE_SIGNAL_CATALOG.some((s) => s.key === ov)}
-														<option value={ov}>{ov} (custom)</option>
-													{/if}
-												</select>
+												/>
 											</label>
 										</div>
 									{/each}
@@ -2819,9 +2935,8 @@
 						<summary>Flipbook (this placement)</summary>
 						<p class="muted small">
 							Drive THIS placement's flipbook cues from different signals than the component named —
-							so two copies of one component can react to different moments. Leave a row on <em
-								>(inherit)</em
-							> to keep the component's own signal.
+							so two copies of one component can react to different moments. Any signal or Flow cue
+							name works; leave a row blank to keep the component's own signal.
 						</p>
 						{#each instanceFlipbookCueNodes as fb (fb.id)}
 							<div class="state-anim-node">
@@ -2834,19 +2949,14 @@
 											<!-- The clip the cue swaps to names the row, exactly as the animation
 											     names a spine's; the signal itself is the fallback when it is blank. -->
 											<span>{cue.clipId || cue.signal}</span>
-											<select
+											<input
+												type="text"
+												list={SIGNAL_SUGGESTIONS_ID}
+												placeholder="inherit: {cue.signal}"
 												value={ov ?? ''}
 												onchange={(e) =>
 													onSetInstanceCueSignal?.(fb.id, cue.signal, e.currentTarget.value)}
-											>
-												<option value="">(inherit: {cue.signal})</option>
-												{#each ENGINE_SIGNAL_CATALOG as s (s.key)}
-													<option value={s.key}>{s.label}</option>
-												{/each}
-												{#if ov && !ENGINE_SIGNAL_CATALOG.some((s) => s.key === ov)}
-													<option value={ov}>{ov} (custom)</option>
-												{/if}
-											</select>
+											/>
 										</label>
 									</div>
 								{/each}
@@ -2954,6 +3064,7 @@
 				<span>hidden until signal</span>
 				<input
 					type="text"
+					list={SIGNAL_SUGGESTIONS_ID}
 					placeholder="e.g. introDone (blank = always shown)"
 					value={node.hiddenUntilSignal ?? ''}
 					oninput={(e) => setHiddenUntilSignal(node, e.currentTarget.value)}
@@ -3806,104 +3917,90 @@
 					</label>
 				</div>
 			{/if}
-			{#if componentSignals.length > 0 || cueSceneMode}
-				<h4 class="sub-h">Plays on signal</h4>
-				{#if cueSceneMode}
-					<p class="muted small">
-						When the named signal fires, this spine plays the chosen animation. The name is whatever
-						a Flow <strong>Fire Cue</strong> node broadcasts — it doesn't have to be declared anywhere.
-					</p>
-				{:else}
-					<p class="muted small">
-						When the component's signal fires (the game wires it to a book event), this spine plays
-						the chosen animation.
-					</p>
-				{/if}
-				{#each node.cues ?? [] as cue, i (i)}
-					<div class="bind-grid cue-row">
-						<label class="field">
-							<span>signal</span>
-							{#if cueSceneMode}
-								<input
-									type="text"
-									placeholder="e.g. characterSpin"
-									value={cue.signal}
-									oninput={(e) =>
-										updateCue(node as SpineNode, i, { signal: e.currentTarget.value })}
-								/>
-							{:else}
-								<select
-									value={cue.signal}
-									onchange={(e) =>
-										updateCue(node as SpineNode, i, { signal: e.currentTarget.value })}
-								>
-									{#each componentSignals as s (s.key)}
-										<option value={s.key} title={s.note ?? undefined}>{s.key}</option>
-									{/each}
-								</select>
-							{/if}
-						</label>
-						<label class="field">
-							<span>animation</span>
-							{#if meta?.animations?.length}
-								<select
-									value={cue.animation}
-									onchange={(e) =>
-										updateCue(node as SpineNode, i, { animation: e.currentTarget.value })}
-								>
-									<option value="">(choose animation)</option>
-									{#each meta.animations as anim (anim)}
-										<option value={anim}>{anim}</option>
-									{/each}
-								</select>
-							{:else}
-								<input
-									type="text"
-									value={cue.animation}
-									oninput={(e) =>
-										updateCue(node as SpineNode, i, { animation: e.currentTarget.value })}
-								/>
-							{/if}
-						</label>
-						<label class="field check">
-							<input
-								type="checkbox"
-								checked={cue.loop ?? false}
+			<h4 class="sub-h">Plays on signal</h4>
+			{#if cueSceneMode}
+				<p class="muted small">
+					When the named signal fires, this spine plays the chosen animation. The name is whatever a
+					Flow <strong>Fire Cue</strong> node broadcasts — it doesn't have to be declared anywhere.
+				</p>
+			{:else}
+				<p class="muted small">
+					When the signal fires, this spine plays the chosen animation. Pick one the game fires from
+					its own beats, or type any Flow <strong>Fire Cue</strong> name. In a component scoped by a param,
+					a per-pot (per-tier, per-reel) signal plays only for that placement's part.
+				</p>
+			{/if}
+			{#each node.cues ?? [] as cue, i (i)}
+				<div class="bind-grid cue-row">
+					<label class="field">
+						<span>signal</span>
+						<input
+							type="text"
+							list={SIGNAL_SUGGESTIONS_ID}
+							placeholder={cueSceneMode ? 'e.g. characterSpin' : 'e.g. potActivate'}
+							value={cue.signal}
+							oninput={(e) =>
+								updateCue(node as SpineNode, i, { signal: e.currentTarget.value.trim() })}
+						/>
+					</label>
+					<label class="field">
+						<span>animation</span>
+						{#if meta?.animations?.length}
+							<select
+								value={cue.animation}
 								onchange={(e) =>
+									updateCue(node as SpineNode, i, { animation: e.currentTarget.value })}
+							>
+								<option value="">(choose animation)</option>
+								{#each meta.animations as anim (anim)}
+									<option value={anim}>{anim}</option>
+								{/each}
+							</select>
+						{:else}
+							<input
+								type="text"
+								value={cue.animation}
+								oninput={(e) =>
+									updateCue(node as SpineNode, i, { animation: e.currentTarget.value })}
+							/>
+						{/if}
+					</label>
+					<label class="field check">
+						<input
+							type="checkbox"
+							checked={cue.loop ?? false}
+							onchange={(e) =>
+								updateCue(node as SpineNode, i, {
+									loop: e.currentTarget.checked || undefined,
+								})}
+						/>
+						<span>loop</span>
+						<button
+							type="button"
+							class="param-remove"
+							title="Remove cue"
+							onclick={() => removeCue(node as SpineNode, i)}>×</button
+						>
+					</label>
+					{#if !(cue.loop ?? false) && !cueSceneMode}
+						<label class="field wide">
+							<span>fire signal on complete</span>
+							<input
+								type="text"
+								placeholder="e.g. introDone"
+								value={cue.completeSignal ?? ''}
+								oninput={(e) =>
 									updateCue(node as SpineNode, i, {
-										loop: e.currentTarget.checked || undefined,
+										completeSignal: e.currentTarget.value.trim() || undefined,
 									})}
 							/>
-							<span>loop</span>
-							<button
-								type="button"
-								class="param-remove"
-								title="Remove cue"
-								onclick={() => removeCue(node as SpineNode, i)}>×</button
-							>
 						</label>
-						{#if !(cue.loop ?? false) && !cueSceneMode}
-							<label class="field wide">
-								<span>fire signal on complete</span>
-								<input
-									type="text"
-									placeholder="e.g. introDone"
-									value={cue.completeSignal ?? ''}
-									oninput={(e) =>
-										updateCue(node as SpineNode, i, {
-											completeSignal: e.currentTarget.value.trim() || undefined,
-										})}
-								/>
-							</label>
-						{/if}
-					</div>
-				{/each}
-				<button type="button" class="ghost-sm" onclick={() => addCue(node as SpineNode)}>
-					+ add cue
-				</button>
-			{:else if componentMode}
-				<p class="muted small">Declare a signal on this component to add playback cues.</p>
-			{/if}
+					{/if}
+				</div>
+			{/each}
+			<button type="button" class="ghost-sm" onclick={() => addCue(node as SpineNode)}>
+				+ add cue
+			</button>
 			{#if componentMode}
 				<h4 class="sub-h">Plays on button state</h4>
 				{#if isInteractiveComponent}
@@ -3958,8 +4055,8 @@
 					{/each}
 				{:else}
 					<p class="muted small">
-						Add an <strong>action</strong> variable above (which makes this component an interactive
-						button) to drive this spine by hover / press / selected / state.
+						Add an <strong>action</strong> variable above (which makes this component an interactive button)
+						to drive this spine by hover / press / selected / state.
 					</p>
 				{/if}
 			{/if}
@@ -4199,8 +4296,8 @@
 				<strong>Symbol overflow</strong> — extra px of room outside the reels, so art drawn bigger
 				than its cell isn't cut off at the board edge. It grows the clip only: no cell moves and the
 				board keeps its size. In game it applies
-				<strong>only once every reel has stopped</strong> — a spinning strip still ends at the board
-				edge. Blank = 0 = no spill (today's behaviour).
+				<strong>only once every reel has stopped</strong> — a spinning strip still ends at the board edge.
+				Blank = 0 = no spill (today's behaviour).
 			</p>
 			<div class="row">
 				<label class="field">
@@ -4302,8 +4399,8 @@
 				<summary>Perspective (advanced)</summary>
 				<p class="muted small">
 					Lays the SAME lattice on a converging ground plane instead of a flat rectangle — cells
-					further back sit closer together and draw smaller. Blank <strong>far scale</strong> (or 1)
-					= the flat board, unchanged. Every other knob above keeps meaning what it means; it is contracted
+					further back sit closer together and draw smaller. Blank <strong>far scale</strong> (or 1) =
+					the flat board, unchanged. Every other knob above keeps meaning what it means; it is contracted
 					toward the vanishing point by its row's scale.
 				</p>
 				<div class="spin-grid">
@@ -4343,8 +4440,8 @@
 			{#if isOverrideMode}
 				<p class="muted small override-hint">
 					Editing the <strong>{layoutType}</strong> ratio — font size / colour / alignment set here
-					are saved as a per-ratio override on top of the base. Switch to <em>desktop</em> to change
-					the base for all ratios.
+					are saved as a per-ratio override on top of the base. Switch to <em>desktop</em> to change the
+					base for all ratios.
 				</p>
 			{/if}
 			{#if isTextExposed}
@@ -5020,100 +5117,87 @@
 				The canvas plays every clip on a loop so you can see it — a <em>play once</em> clip still stops
 				on its last frame in the game.
 			</p>
-			{#if componentSignals.length > 0 || cueSceneMode}
-				<h4 class="sub-h">Plays on signal</h4>
-				{#if cueSceneMode}
-					<p class="muted small">
-						When the named signal fires, this flipbook swaps to the chosen clip. The name is
-						whatever a Flow <strong>Fire Cue</strong> node broadcasts — it doesn't have to be
-						declared anywhere. A cue is never <em>cleared</em>: going back to the resting clip above
-						means firing a second cue that names it.
-					</p>
-				{:else}
-					<p class="muted small">
-						When the component's signal fires (the game wires it to a book event), this flipbook
-						swaps to the chosen clip. A cue is never <em>cleared</em>: going back to the resting
-						clip above means firing a second cue that names it.
-					</p>
-				{/if}
-				{#each node.cues ?? [] as cue, i (i)}
-					<div class="bind-grid cue-row">
-						<label class="field">
-							<span>signal</span>
-							{#if cueSceneMode}
-								<input
-									type="text"
-									placeholder="e.g. reelsSpinning"
-									value={cue.signal}
-									oninput={(e) => updateFlipbookCue(node, i, { signal: e.currentTarget.value })}
-								/>
-							{:else}
-								<select
-									value={cue.signal}
-									onchange={(e) => updateFlipbookCue(node, i, { signal: e.currentTarget.value })}
-								>
-									{#each componentSignals as s (s.key)}
-										<option value={s.key} title={s.note ?? undefined}>{s.key}</option>
-									{/each}
-								</select>
-							{/if}
-						</label>
-						<label class="field">
-							<span>clip</span>
-							<select
-								value={cue.clipId}
-								onchange={(e) => updateFlipbookCue(node, i, { clipId: e.currentTarget.value })}
-							>
-								<option value="">(choose clip)</option>
-								{#if cue.clipId && !clipOf(cue.clipId)}
-									<option value={cue.clipId}>{cue.clipId} (missing)</option>
-								{/if}
-								{#each clipList as c (c.id)}
-									<option value={c.id}>{c.name} · {c.frames.length}f</option>
-								{/each}
-							</select>
-						</label>
-						<label class="field">
-							<!--
-								A tri-state select, NOT a checkbox — mirroring this node's own `loop` control
-								above. An unset cue `loop` means "inherit the target clip's own answer", which
-								an unchecked box would draw as the phantom default "off": ticking then
-								un-ticking could never get back to inherit, and "play once" over a clip
-								authored looping would be unauthorable.
-							-->
-							<span>loop</span>
-							<select
-								value={cue.loop === undefined ? '' : cue.loop ? 'yes' : 'no'}
-								onchange={(e) => {
-									const v = e.currentTarget.value;
-									updateFlipbookCue(node, i, {
-										loop: v === 'yes' ? true : v === 'no' ? false : undefined,
-									});
-								}}
-							>
-								<option value=""
-									>clip default ({clipOf(cue.clipId)?.loop === false ? 'once' : 'loop'})</option
-								>
-								<option value="yes">loop</option>
-								<option value="no">play once</option>
-							</select>
-						</label>
-						<label class="field check">
-							<button
-								type="button"
-								class="param-remove"
-								title="Remove cue"
-								onclick={() => removeFlipbookCue(node, i)}>×</button
-							>
-						</label>
-					</div>
-				{/each}
-				<button type="button" class="ghost-sm" onclick={() => addFlipbookCue(node)}>
-					+ add cue
-				</button>
-			{:else if componentMode}
-				<p class="muted small">Declare a signal on this component to add playback cues.</p>
+			<h4 class="sub-h">Plays on signal</h4>
+			{#if cueSceneMode}
+				<p class="muted small">
+					When the named signal fires, this flipbook swaps to the chosen clip. The name is whatever
+					a Flow <strong>Fire Cue</strong> node broadcasts — it doesn't have to be declared
+					anywhere. A cue is never <em>cleared</em>: going back to the resting clip above means
+					firing a second cue that names it.
+				</p>
+			{:else}
+				<p class="muted small">
+					When the signal fires, this flipbook swaps to the chosen clip. Pick one the game fires
+					from its own beats, or type any Flow <strong>Fire Cue</strong> name. A cue is never
+					<em>cleared</em>: going back to the resting clip above means firing a second cue that
+					names it.
+				</p>
 			{/if}
+			{#each node.cues ?? [] as cue, i (i)}
+				<div class="bind-grid cue-row">
+					<label class="field">
+						<span>signal</span>
+						<input
+							type="text"
+							list={SIGNAL_SUGGESTIONS_ID}
+							placeholder={cueSceneMode ? 'e.g. reelsSpinning' : 'e.g. potActivate'}
+							value={cue.signal}
+							oninput={(e) => updateFlipbookCue(node, i, { signal: e.currentTarget.value.trim() })}
+						/>
+					</label>
+					<label class="field">
+						<span>clip</span>
+						<select
+							value={cue.clipId}
+							onchange={(e) => updateFlipbookCue(node, i, { clipId: e.currentTarget.value })}
+						>
+							<option value="">(choose clip)</option>
+							{#if cue.clipId && !clipOf(cue.clipId)}
+								<option value={cue.clipId}>{cue.clipId} (missing)</option>
+							{/if}
+							{#each clipList as c (c.id)}
+								<option value={c.id}>{c.name} · {c.frames.length}f</option>
+							{/each}
+						</select>
+					</label>
+					<label class="field">
+						<!--
+							A tri-state select, NOT a checkbox — mirroring this node's own `loop` control
+							above. An unset cue `loop` means "inherit the target clip's own answer", which
+							an unchecked box would draw as the phantom default "off": ticking then
+							un-ticking could never get back to inherit, and "play once" over a clip
+							authored looping would be unauthorable.
+						-->
+						<span>loop</span>
+						<select
+							value={cue.loop === undefined ? '' : cue.loop ? 'yes' : 'no'}
+							onchange={(e) => {
+								const v = e.currentTarget.value;
+								updateFlipbookCue(node, i, {
+									loop: v === 'yes' ? true : v === 'no' ? false : undefined,
+								});
+							}}
+						>
+							<option value=""
+								>clip default ({clipOf(cue.clipId)?.loop === false ? 'once' : 'loop'})</option
+							>
+							<option value="yes">loop</option>
+							<option value="no">play once</option>
+						</select>
+					</label>
+					<label class="field check">
+						<button
+							type="button"
+							class="param-remove"
+							title="Remove cue"
+							onclick={() => removeFlipbookCue(node, i)}>×</button
+						>
+					</label>
+				</div>
+			{/each}
+			<button type="button" class="ghost-sm" onclick={() => addFlipbookCue(node)}>
+				+ add cue
+			</button>
 		</section>
 	{:else if node.kind === 'repeater'}
 		<section>

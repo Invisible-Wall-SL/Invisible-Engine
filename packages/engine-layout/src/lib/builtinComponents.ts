@@ -8,6 +8,7 @@ import {
 	TEXT_SOURCE_KEYS,
 	VALUE_SOURCE_KEYS,
 	VISIBILITY_SOURCE_KEYS,
+	type SignalScopeKind,
 } from './componentCatalog';
 import { kindCapabilities } from './kindCapabilities';
 import { POT_SKIN_PARAMS } from './potSkin';
@@ -2016,6 +2017,8 @@ type HoldAndWinPanel = {
 	height: number;
 	visibleSource?: string;
 	note: string;
+	/** The param the panel's signal scope comes from, and its kind (`ComponentDef.signalScope`). */
+	signalScope?: { param: string; kind: SignalScopeKind };
 };
 
 /**
@@ -2032,6 +2035,9 @@ const holdAndWinPanel = (panel: HoldAndWinPanel): ComponentDef => ({
 	scope: 'shared',
 	category: 'ui',
 	capability: 'holdAndWin',
+	...(panel.signalScope
+		? { signalScope: panel.signalScope.param, signalScopeKind: panel.signalScope.kind }
+		: {}),
 	root: {
 		id: `${panel.id}-root`,
 		kind: 'container',
@@ -2129,6 +2135,9 @@ export const JACKPOT_TILE_DEF: ComponentDef = holdAndWinPanel({
 	width: 240,
 	height: 96,
 	note: 'jackpot × total bet (engine)',
+	// `jackpot.grand` scopes the tile to the GRAND tier's signals (`jackpotWin`), so a celebration
+	// authored inside the tile plays on the tile whose tier was won.
+	signalScope: { param: 'source', kind: 'tier' },
 });
 
 /** "TOTAL WIN" — what the feature has won; the feature end counts every coin into it. */
@@ -2240,6 +2249,9 @@ export const POT_METER_DEF: ComponentDef = {
 	scope: 'shared',
 	category: 'ui',
 	capability: 'holdAndWin',
+	// Each placed pot hears its own meter's signals only (`potFill`, `potActivate`, …).
+	signalScope: 'meter',
+	signalScopeKind: 'meter',
 	root: {
 		id: 'potMeter-root',
 		kind: 'container',

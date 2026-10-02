@@ -30,6 +30,14 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-10-02 — **Trigger scope (Hold and Win Phase 12a, #1003).**
+  - `EmitterTrigger.scope` fires a layer only on events about one part (a meter, a tier, a reel),
+    matched against the event's `scope`.
+  - A layer with no scope takes the scope of the component it is placed in, so a "pot full" effect
+    in the Pot fires on its own pot.
+  - **Scope** field in `/fx` (`*` = every part); kept by `normalizeEffectDoc` and `layerTrigger`.
+
+  Detail: [hold-and-win](hold-and-win.md).
 - 2026-09-30 — **Leaving with unsaved edits asks in-app too.** The page's own `beforeunload` (reload / tab close only) is replaced by the shared `guardUnsavedWork` (`src/lib/unsavedGuard.ts`), so a tool-bar switch or Back with an unsaved effect now raises the app's confirm dialog (Cancel / Leave anyway) instead of discarding it silently. The pagehide lease release is unchanged; opening another effect is still guarded by `confirmDiscard`.
 - 2026-09-29 — **Guide refreshed to match the UI** ([tools/fx.md](../tools/fx.md)): Particle → Kind, and the force-save overwrite prompt.
 - 2026-09-28 — **A manual Save asks before overwriting a colleague's newer save again.** The Save button was bound `onclick={saveEffect}` where `saveEffect(force = false)`, so the click event arrived as a truthy `force`: the transport sent `force` instead of the base ETag, `writeGuard` skipped its conflict check, and every manual Save was an unconditional overwrite. Now `onclick={() => saveEffect()}`. Same fix in /symbols and /localization (one change). New guard `pnpm --filter launcher-api check:event-bound-flags` (wired into the Lint workflow's *launcher gates hold* step) fails on any function whose first parameter is a boolean bound straight to an `on…` attribute or `addEventListener`; it carries a self-test so a regex drift fails loudly, and it flags all three pre-fix pages. Verified by running the real `SaveState` (Svelte-compiled) against a stub server holding a newer ETag: the old binding sent `{force:true}` with no prompt, the new one sends the stale `baseEtag`, gets the conflict and reaches the overwrite prompt; the three pages compile to `(event, saveEffect) => saveEffect()`. Not driven in a browser (the tools are auth + Postgres + R2 gated). **SHIPPED 2026-09-28** — merged as `3354b50e` (#821); verified live by reading the served client chunks for all three pages: before the deploy each Save button compiled to a direct `__click=<save>`, after it to the wrapped `__click=[handler, <save>]`.

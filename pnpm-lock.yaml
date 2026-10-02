@@ -1613,6 +1613,9 @@ importers:
       svelte:
         specifier: 5.57.1
         version: 5.57.1(@typescript-eslint/types@8.70.1)
+      utils-event-emitter:
+        specifier: workspace:*
+        version: link:../utils-event-emitter
       utils-layout:
         specifier: workspace:*
         version: link:../utils-layout

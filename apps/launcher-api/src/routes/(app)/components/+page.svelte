@@ -15,6 +15,7 @@
 		FREE_SPIN_COUNTER_DEF,
 		HUD_READOUT_DEF,
 		isManifestAssetKey,
+		kindCapabilities,
 		POT_METER_DEF,
 		parseScopedFrameRef,
 		pruneOrphanParamBindings,
@@ -747,6 +748,10 @@
 				category: 'ui',
 				root,
 				params: clone.params,
+				// The Pot Meter hears only its own pot's signals (Phase 12a), so its copy does too.
+				...(clone.signalScope
+					? { signalScope: clone.signalScope, signalScopeKind: clone.signalScopeKind }
+					: {}),
 			};
 		} else {
 			const root: ContainerNode = {
@@ -1030,6 +1035,7 @@
 		if (!componentDraft?.params) return;
 		componentDraft.params = componentDraft.params.filter((p) => p.key !== key);
 		if (componentDraft.params.length === 0) delete componentDraft.params;
+		if (componentDraft.signalScope === key) setComponentSignalScope(undefined);
 		pruneOrphanParamBindings(componentDraft);
 	}
 
@@ -1363,6 +1369,20 @@
 		if (componentDraft.signals.length === 0) delete componentDraft.signals;
 	}
 
+	/** Name the param each placed instance takes its SIGNAL SCOPE from, and the kind of part it
+	 * names (Phase 12a) — the pot's `meter` as a meter, a tile's `source` as a tier — or `undefined`
+	 * for none (every instance hears every fire). */
+	function setComponentSignalScope(scope: { param: string; kind: string } | undefined): void {
+		if (!componentDraft) return;
+		if (scope) {
+			componentDraft.signalScope = scope.param;
+			componentDraft.signalScopeKind = scope.kind;
+		} else {
+			delete componentDraft.signalScope;
+			delete componentDraft.signalScopeKind;
+		}
+	}
+
 	/** Set the component's authoring/preview SPACE. 'game' is the default → store it
 	 * as absent (cleaner doc); 'canvas' marks a full-window overlay. Changes the
 	 * preview frame immediately and is persisted on the next Save. */
@@ -1577,7 +1597,9 @@
 									<option value="button">Button</option>
 									<option value="readout">HUD readout</option>
 									<option value="counter">Free-Spin Counter</option>
-									<option value="pot">Pot Meter (Hold and Win)</option>
+									{#if kindCapabilities(data.gameType).holdAndWin}
+										<option value="pot">Pot Meter (Hold and Win)</option>
+									{/if}
 								</select>
 								{#if newType === 'blank'}
 									<select bind:value={newCategory} aria-label="Component category">
@@ -1751,6 +1773,9 @@
 						{pickSheets}
 						componentParams={componentDraft.params ?? []}
 						componentSignals={componentDraft.signals ?? []}
+						componentSignalScope={componentDraft.signalScope}
+						componentSignalScopeKind={componentDraft.signalScopeKind}
+						gameType={data.gameType}
 						instanceComponent={selectedNode?.kind === 'componentInstance'
 							? (componentMap.get(selectedNode.componentId) ?? null)
 							: null}
@@ -1768,6 +1793,7 @@
 						onExposeImageParam={exposeImageParam}
 						onUnexposeImageParam={unexposeImageParam}
 						onToggleSignal={toggleComponentSignal}
+						onSetSignalScope={setComponentSignalScope}
 						projectParamDefaults={projectDefaults}
 						onSetProjectParamDefault={setProjectParamDefault}
 						projectLabel={defaultsPanelLabel}

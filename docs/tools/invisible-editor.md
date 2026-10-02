@@ -482,10 +482,12 @@ playback overrides beside it.
 
 Each row is:
 
-- **signal** — the cue name, typed as **free text** (e.g. `characterSpin`). A node dropped
-  straight onto a screen belongs to no component, so there is no list to pick from: you
-  invent the name here, and Invisible Flow offers it back to you in its **Cues** palette.
-  The match is exact — a name spelled differently on the two sides simply never fires.
+- **signal** — the cue name, typed as **free text** (e.g. `characterSpin`). You invent the
+  name here, and Invisible Flow offers it back to you in its **Cues** palette. The field also
+  suggests the signals the game fires from its own beats for this project's kind (Win, Big
+  Win, and in a Hold and Win project the pot, coin, jackpot, wheel and feature signals). Those
+  need no Flow at all, which is why the **Cues** palette does not offer them. The match is
+  exact: a name spelled differently on the two sides never fires.
 - **animation** (spine) — the clip to play. A dropdown of the rig's animations when the editor
   can read the bundle, a text field when it can't.
 - **clip** (flipbook) — the clip to swap to, picked from the project's clips (each listed with
@@ -522,20 +524,26 @@ spins a "spinning" cue fires once per spin while the "idle" one fires only at th
 round, and a rewind on every spin would read as a stutter. A one-shot cue, on the other hand,
 plays again — firing a burst twice is asking to see it twice.
 
-> The same block appears in the **Invisible Component Editor** with two differences: there
-> the **signal** is a **dropdown** of the signals that component declares (a component has a
-> declared list; a node dropped loose on a screen does not), and a one-shot **spine** cue can
-> additionally **fire a signal on complete** to sequence a sibling. A flipbook cue has no
-> complete signal in either editor — a clip reports no finish, it just stops on its last
-> frame.
+> The same block appears in the **Invisible Component Editor**, also as free text. There are
+> three differences:
+>
+> - The field suggests the component's own declared signals first.
+> - A one-shot **spine** cue can also **fire a signal on complete** to sequence a sibling. A
+>   flipbook cue has no complete signal in either editor: a clip reports no finish, it just
+>   stops on its last frame.
+> - A component can be **scoped by** a param (Phase 12a). Its cues then play only on the
+>   signals of the part a placement stands for, such as the red pot's **Pot — activate** and
+>   not the blue pot's. See the Component Editor guide.
 
 **One component, two placements, different signals.** When you select a placed **component
 instance** — the instance itself, not a node inside it — its properties carry a
 **(this placement)** panel for each cued spine and flipbook the component contains, listing
-that node's cues under **Driven by signal**. Point a row at a different signal and only
-_this_ copy follows it; leave it on _(inherit)_ and it keeps the component's own. That is how
-one character component can idle on the base game and react to something else entirely on the
-free-spin screen, without forking the component.
+that node's cues under **Driven by signal**. Type or pick a different signal in a row (any
+engine signal or Flow cue name) and only _this_ copy follows it. Leave the row blank and it
+keeps the component's own. That is how one character component can idle on the base game and
+react to something else entirely on the free-spin screen, without forking the component. A
+cue name typed here, or on a node inside a placed component, is offered in Invisible Flow's
+**Cues** palette like a screen's own.
 
 > **Firing the cues is the Flow's job.** The end-to-end recipe — name them here, then wire
 > them to the spin and to the end of the round, and the two traps that bite — is in the

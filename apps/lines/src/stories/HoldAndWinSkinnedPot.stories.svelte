@@ -16,6 +16,7 @@
 	import {
 		POT_METER_DEF,
 		registerBoundComponents,
+		registerComponentSignals,
 		registerComponents,
 		type ComponentDef,
 		type LayoutNode,
@@ -24,6 +25,8 @@
 
 	import PotMeter from '../components/PotMeter.svelte';
 	import { setContext } from '../game/context';
+	import { eventEmitter } from '../game/eventEmitter';
+	import { featureComponentSignals } from '../game/featureSignals';
 	import { getActiveGameConfig } from '../game/gameConfig';
 	import { meterAnchor, pulseMeter } from '../game/holdAndWinMeters.svelte';
 	import { recordHoldAndWinEvent } from '../game/stateHoldAndWin.svelte';
@@ -36,6 +39,8 @@
 	 * and frame as the pot, its fill and its frame; a gold label), and GREEN as a project copy of
 	 * the Pot Meter with the author's own nodes inside its `Pot` part (a glass, the H1 rig and a
 	 * caption) — the coded drawing gives way, while the part still grows with its stages and pulses.
+	 * A second frog pot sits on RED: each frog pot's ACTIVE badge waits for **Pot — activate**, and the
+	 * copy keeps the Pot Meter's scope, so `window.__activatePot('green')` reveals green's badge only.
 	 * The levels step on their own; a test can set one with `window.__setPotLevel(id, level)` and read
 	 * where a pot's flights land with `window.__potAnchor(id)`.
 	 */
@@ -90,6 +95,16 @@
 							text: 'FROG POT',
 							style: { fontFamily: 'Arial', fontSize: 22, fill: 0x9fffa0, fontWeight: 'bold' },
 						},
+						{
+							id: 'active',
+							kind: 'rect',
+							x: 0,
+							y: 75,
+							width: 130,
+							height: 24,
+							color: 0xffd54a,
+							hiddenUntilSignal: 'potActivate',
+						},
 					],
 				},
 			],
@@ -97,6 +112,14 @@
 	};
 	registerComponents({ potMeter: POT_METER_DEF, frogPot });
 	registerBoundComponents({ PotMeter });
+	registerComponentSignals(featureComponentSignals(eventEmitter, true));
+	const activatePot = (id: string) =>
+		eventEmitter.broadcast({
+			type: 'potsConsume',
+			meters: [id],
+			activates: [],
+			scope: [`meter:${id}`],
+		});
 
 	const scene: Scene = {
 		id: 'skinned-pot',
@@ -135,6 +158,14 @@
 				y: 300,
 				params: { meter: 'green' },
 			},
+			{
+				id: 'pot-red-frog',
+				kind: 'componentInstance',
+				componentId: 'frogPot',
+				x: 900,
+				y: 560,
+				params: { meter: 'red' },
+			},
 		],
 	};
 
@@ -142,6 +173,7 @@
 		Object.assign(window, {
 			__setPotLevel: setLevel,
 			__potAnchor: (id: string) => resolveAnchorPoint(meterAnchor(id)),
+			__activatePot: activatePot,
 		});
 		if (new URLSearchParams(window.location.search).has('still')) return;
 		const tick = setInterval(() => {

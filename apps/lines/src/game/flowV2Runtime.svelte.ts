@@ -66,6 +66,7 @@ import {
 } from 'engine-flow-v2';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { stateBetDerived } from 'state-shared';
+import { eventScope } from 'utils-event-emitter';
 import { roundSkip } from 'utils-shared/skipToken';
 
 import { bakedFlowV2Doc, bakedFlowV2Library } from '../editor-scenes';
@@ -577,10 +578,10 @@ export const createLinesFlowV2 = (
 		// `broadcastAsync`. Sync subscribers resolve immediately, so fire-and-forget cues are unaffected.
 		broadcast: (cue, payload, opts) => {
 			// The author-named half: fire the cue NAME on the open component-signal bus too, so a
-			// spine whose `cues[]` names it plays its animation. Synchronous and payload-less (a
-			// `SignalSource` carries no payload) — the bus is a bare `subscribe(run)` event contract,
-			// so a spine it drives can never report back that it finished.
-			emitComponentSignal(cue);
+			// spine whose `cues[]` names it plays its animation. Synchronous, and carrying only the
+			// node's `scope` pin (a `SignalSource` passes no other payload) — so only the instances
+			// scoped to it react, and a spine it drives can never report back that it finished.
+			emitComponentSignal(cue, eventScope(payload));
 			// …which is exactly why "Wait for this cue to finish" is MEASURED for a scene cue rather
 			// than listened for. Awaiting the emitter alone returned in the same microtask (nothing
 			// subscribes an author-named cue there), so the tick was a silent no-op and the next node
