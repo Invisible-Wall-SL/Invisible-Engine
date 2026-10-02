@@ -2,8 +2,8 @@
 // types or top-level await, so checking it only adds noise to the package's svelte-check.
 // Verify the Pot Meter's skin (Hold and Win Phase 12c): an unskinned pot reads as exactly the coded
 // pot (parity), each art param reads off the instance's params, the pot body follows the size
-// stages, the fill reveal grows from the right edge, and a Pot Meter saved before 12c gains the
-// skin params on load.
+// stages, the fill reveal grows from the right edge, a Pot Meter saved before 12c gains the skin
+// params on load, and a copy whose `Pot` part was deleted mounts the part as a stand-in.
 //
 //   node scripts/test-pot-skin.mjs
 //
@@ -26,6 +26,7 @@ const bundled = await esbuild.build({
 			POT_PULSE_SCALE,
 			fontParamKeysOf,
 			mergeBuiltinCodedParams,
+			partStandIn,
 			potBodyImage,
 			potFillRect,
 			potFillShare,
@@ -190,6 +191,43 @@ assert(
 assert(
 	merged.params[0].default === 'blue' && merged.params[1].default === 2,
 	'its own values stay',
+);
+
+// --- the deleted-part trap: a pot drawn only with the author's own nodes ------------------------
+console.info('stand-in');
+const frog = { id: 'frog', kind: 'spine', assetKey: 'frog', x: 0, y: 0 };
+const withPart = (children) => ({
+	...mod.POT_METER_DEF,
+	id: 'frogPot',
+	root: { ...mod.POT_METER_DEF.root, children },
+});
+const part = mod.POT_METER_DEF.root.children[0];
+assert(mod.POT_METER_DEF.standsFor === 'PotMeter', 'the Pot Meter stands for its coded part');
+assert(
+	mod.partStandIn(mod.POT_METER_DEF) === undefined,
+	'the built-in binds its part: no stand-in',
+);
+assert(
+	mod.partStandIn(withPart([{ ...part, children: [frog] }])) === undefined,
+	'a skinned part (nodes inside it) is still the part: no stand-in',
+);
+assert(
+	mod.partStandIn(withPart([{ id: 'g', kind: 'container', x: 0, y: 0, children: [part] }])) ===
+		undefined,
+	'a part nested in a group is found',
+);
+assert(mod.partStandIn(withPart([frog])) === 'PotMeter', 'the part deleted ⇒ it stands in');
+const decoration = withPart([frog]);
+delete decoration.standsFor;
+assert(
+	mod.partStandIn(decoration) === undefined,
+	'a meter-scoped component that is not a pot never stands in (it would hide the coded pot)',
+);
+const savedBefore = { ...withPart([frog]), id: 'potMeter' };
+delete savedBefore.standsFor;
+assert(
+	mod.mergeBuiltinCodedParams(savedBefore).standsFor === 'PotMeter',
+	'a Pot Meter override saved without the field stands for its part again (by id)',
 );
 
 if (failures > 0) {

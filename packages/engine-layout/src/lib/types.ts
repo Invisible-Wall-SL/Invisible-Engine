@@ -1367,6 +1367,16 @@ export interface ComponentDef {
 	/** The kind of part {@link signalScope} names — `meter`, `tier`, `reel` (`SIGNAL_SCOPE_KINDS`),
 	 *  the kinds the engine's scoped signals carry. Absent ⇒ the key alone is matched. */
 	signalScopeKind?: string;
+	/**
+	 * The coded part an instance of this component IS (Phase 12c, `docs/design/hold-and-win.md`
+	 * §8): a `registerBoundComponents` name, e.g. the Pot Meter's `PotMeter`. While the def's tree
+	 * binds that part, the part registers itself. Once an author deletes it, the instance mounts the
+	 * part as a `standIn` (`partStandIn`). The stand-in draws nothing and still registers as the
+	 * part, with the pot's `meter:<id>` flight anchor and its count as that meter's pot. So the
+	 * coded default steps aside and the flights land on the author's own nodes. Absent ⇒ nothing
+	 * stands in (parity).
+	 */
+	standsFor?: string;
 	/** A component may expose its own slots. */
 	slots?: TemplateSlot[];
 	/**

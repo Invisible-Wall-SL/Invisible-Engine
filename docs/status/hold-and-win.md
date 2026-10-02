@@ -54,7 +54,7 @@ titled **"Hold and win game pipeline"**.
 | 11c | Progressive + operator platform jackpots (design §7) | merged, live (`lines@2342c815d074`) — owed: the live Borut round and the partner's platform-jackpot confirmation (Owner checklist 10–11) | Hold and Win Phase 11c — progressive + platform jackpots | part 1: #991 · part 2: #999 |
 | 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | merged — owed: a live check on `hw-3pots-sample` (Open items) | Hold and Win Phase 12a | #1003 |
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | merged — whole pipeline (engine → sources → Scene + Component Editor → guides); owed: the live check (Open items) | Hold and Win Phase 12b value bindings | #1005 |
-| 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — part 1 built (#1006): Pot art params, authored children inside the coded part, editor preview + **Edit inside**; 12a merged in, so nodes inside a pot hear only their pot's signals. Next: 12b (bindings: the fill helper, the frog's bone), the deleted-part trap, then the other parts | Hold and Win Phase 12c skinnable parts | #1006 |
+| 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — part 1 built (#1006): Pot art params, authored children inside the coded part, editor preview + **Edit inside**; 12a and 12b merged in, so nodes inside a pot hear only their pot's signals; the deleted-part trap fixed (`standsFor`). Next: swap in 12b's fill helper, the done-when on `hw-3pots-sample`, then the other parts | Hold and Win Phase 12c skinnable parts | #1006 |
 
 ## Current state
 
@@ -108,6 +108,21 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
   - **A game skins its pots through a project copy, not the built-in.** Saving the built-in Pot
     Meter writes the SHARED library. The create type **Pot Meter (Hold and Win)** clones it for the
     project, the way the Free-Spin Counter does. Per-instance art params need no copy.
+  - **A component that IS a coded part says so: `ComponentDef.standsFor`** (the Pot Meter's
+    `'PotMeter'`). This is the deleted-part trap. Today, an author who deletes the `Pot` part to
+    draw the pot entirely with their own nodes leaves no part to count the meter in, so the coded
+    pot draws and the flights fly to it.
+    - **The fix:** an instance whose def stands for a part its tree no longer binds (`partStandIn`)
+      mounts that part with `standIn`. The stand-in draws nothing, counts in as `potMeter:<id>`,
+      and registers `meter:<id>` on the instance. The flights land on the centre of the author's
+      nodes. The behaviour stays the game's coded part's, so engine-layout never learns pot keys.
+    - **Not the 12a scope:** an earlier plan (Open items) keyed this on 12a's meter scope. Any
+      meter-scoped decoration placed beside the default pot would then hide it and take its
+      flights, and 12a's own live check places exactly that.
+    - **Storage:** `componentStorage` keeps `standsFor`. `mergeBuiltinCodedParams` restores it by id
+      for a Pot Meter override saved without it. The create-type copy carries it.
+    - **What a deleted part loses:** the coded growth and pulse. The author's nodes follow the level
+      only through 12b bindings.
 
 - 2026-10-02 — **Phase 12b contract (value bindings)** (session "Hold and Win Phase 12b value
   bindings"). Pinned by `packages/engine-layout/scripts/test-value-bindings.mjs`.
@@ -718,16 +733,14 @@ Hold and Win beats prints copy.
     Meter's `signalScope` / `signalScopeKind` and is offered only to a Hold and Win project. The
     story's two frog pots show that a node inside the part hears only its own pot's
     **Pot — activate**.
-  - **Merge 12b (#1005) when it lands.** It edits `HoldAndWinPot`, `LayoutNodeView` and
-    `componentCatalog`. Swap `potFillRect` for its `fillMaskRect`.
+  - **12b is merged in.** Swap `potFillRect` for its `fillMaskRect` (one edge rule, one home).
   - **Then the done-when on `hw-3pots-sample`:** a project Pot Meter copy with the frog spine
     inside the part. Its cue on **Pot — activate** comes from 12a. The pot's scope comes from the
     `meter` param. Its belly bone is a 12b `bone` binding on `meter.{meter}.level`. Its art is
     the art params. Check it on all three pots with no Flow branch.
-  - **The deleted-part trap.** A copy whose `Pot` part was deleted still leaves the coded pot drawn
-    and the anchor on it. After 12a, the plan is: an instance scoped as a meter whose def has no
-    `PotMeter` part registers `meter:<id>` and counts itself in. 12a's typed scope key IS the anchor
-    name.
+  - **The other parts can stand in too:** the respin counter's instance-level anchor
+    (`ComponentInstance` `flightAnchor`, keyed by def id) is the same idea, older. Move it to
+    `standsFor` when the respin counter is skinned.
   - **The other parts, same pattern:** respin counter, jackpot bar/tile, total win bar, letters
     strip, wheel, respin cell tiles.
   - **Editor limits:**
@@ -885,6 +898,23 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 
 ## Recent changes
 
+- 2026-10-02 — **Phase 12c: the deleted-part trap** (session "Hold and Win Phase 12c skinnable
+  parts", #1006, on top of 12a and 12b, both merged in). Contract: Decisions, `standsFor`.
+  - **Engine:**
+    - `ComponentDef.standsFor` and `partStandIn` (engine-layout).
+    - `<ComponentInstance>` mounts the stand-in.
+    - `PotMeter` `standIn`: an anchor and the count, no pot.
+    - The Pot Meter stands for `PotMeter`.
+  - **Storage:** `componentStorage` keeps the field. `mergeBuiltinCodedParams` restores it by id.
+    The create-type copy keeps it.
+  - **Verified:**
+    - `test-pot-skin.mjs` (50 assertions) covers the stand-in rule. A skinned or nested part is no
+      stand-in, a meter-scoped decoration never stands in, and an old override gets the field back.
+    - `verify-pot-meter-mount.mjs` mounts a stand-in for real: counted in once, `meter:red`
+      registered, no pot drawn, counted out on unmount.
+    - Storybook: a gold pot whose def has no `Pot` part counts as gold's pot, and `meter:gold` sits
+      at the centre of its nodes. The same def without `standsFor` reproduces the trap: not
+      counted, no anchor.
 - 2026-10-02 — **Phase 12c part 1: a skinnable Pot** (session "Hold and Win Phase 12c skinnable
   parts", #1006). Design §8; contract in Decisions above. Built before 12a/12b merged, as the
   brief allows: the art params and the coded-part plumbing.

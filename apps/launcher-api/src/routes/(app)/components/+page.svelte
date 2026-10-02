@@ -750,10 +750,12 @@
 				category: 'ui',
 				root,
 				params: clone.params,
-				// The Pot Meter hears only its own pot's signals (Phase 12a), so its copy does too.
+				// The Pot Meter hears only its own pot's signals (Phase 12a) and stands for its coded
+				// part (12c), so its copy does too.
 				...(clone.signalScope
 					? { signalScope: clone.signalScope, signalScopeKind: clone.signalScopeKind }
 					: {}),
+				...(clone.standsFor ? { standsFor: clone.standsFor } : {}),
 			};
 		} else {
 			const root: ContainerNode = {

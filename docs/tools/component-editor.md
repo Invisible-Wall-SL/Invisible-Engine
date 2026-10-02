@@ -454,6 +454,11 @@ both labels. Any art picked on the instance still draws under them. The part kee
 - The specials still fly into it.
 - It still counts as that meter's pot, so the game does not draw its own pot for that meter.
 
+You can also delete the **Pot** part and draw the pot entirely with your own nodes. The
+component still counts as that meter's pot, and the specials fly to the centre of your nodes. It
+no longer grows or pulses on its own. To make your nodes follow the level, use
+[Bind to value](#3b-drive-a-node-from-a-number-bind-to-value) on `meter.{meter}.level`.
+
 **↩ Back to …** returns to the component. Save it, then in the Scene Editor replace each Pot Meter
 on the **Pots** screen with your component and set its **meter** param (`red`, `blue`, `green`).
 Do not skin the built-in **Pot Meter** itself: saving it writes the shared library (see

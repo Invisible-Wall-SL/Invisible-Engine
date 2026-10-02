@@ -772,6 +772,8 @@ export function normalizeComponent(raw: ComponentDef): ComponentDef {
 			def.signalScopeKind = raw.signalScopeKind;
 		}
 	}
+	// The coded part the def IS (Phase 12c) — a copy whose part was deleted still registers as it.
+	if (typeof raw.standsFor === 'string' && raw.standsFor) def.standsFor = raw.standsFor;
 	const slots = normalizeSlots(raw.slots);
 	if (slots.length) def.slots = slots;
 	// Enforce "no binding without its param": drop node bindings that point at a param

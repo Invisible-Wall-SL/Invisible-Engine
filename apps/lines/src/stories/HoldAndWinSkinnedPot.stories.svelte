@@ -12,7 +12,7 @@
 	import { App, resolveAnchorPoint } from 'pixi-svelte';
 	import { StoryLocale, StoryGameTemplate } from 'components-storybook';
 	import { HOLD_AND_WIN_PRESETS, normalizeGameConfigDoc } from 'game-config';
-	import { LayoutScene } from 'engine-layout/svelte';
+	import { isComponentMounted, LayoutScene } from 'engine-layout/svelte';
 	import {
 		POT_METER_DEF,
 		registerBoundComponents,
@@ -28,7 +28,7 @@
 	import { eventEmitter } from '../game/eventEmitter';
 	import { featureComponentSignals } from '../game/featureSignals';
 	import { getActiveGameConfig } from '../game/gameConfig';
-	import { meterAnchor, pulseMeter } from '../game/holdAndWinMeters.svelte';
+	import { meterAnchor, potMeterMountKey, pulseMeter } from '../game/holdAndWinMeters.svelte';
 	import { recordHoldAndWinEvent } from '../game/stateHoldAndWin.svelte';
 
 	setContext();
@@ -42,14 +42,23 @@
 	 * A second frog pot sits on RED: each frog pot's ACTIVE badge waits for **Pot — activate**, and the
 	 * copy keeps the Pot Meter's scope, so `window.__activatePot('green')` reveals green's badge only.
 	 * RED therefore has two pots, and `__potAnchor('red')` returns whichever registered last.
+	 * GOLD is a copy whose `Pot` part was DELETED, drawn only with the author's nodes: it still counts
+	 * as gold's pot (`window.__potCounted('gold')`) and owns the `meter:gold` anchor.
 	 * The levels step on their own; a test can set one with `window.__setPotLevel(id, level)` and read
 	 * where a pot's flights land with `window.__potAnchor(id)`.
 	 */
 	const config = getActiveGameConfig();
-	config.holdAndWin = normalizeGameConfigDoc(HOLD_AND_WIN_PRESETS.pots)?.holdAndWin;
+	const block = normalizeGameConfigDoc(HOLD_AND_WIN_PRESETS.pots)?.holdAndWin;
+	config.holdAndWin = block && {
+		...block,
+		meters: [
+			...(block.meters ?? []),
+			{ id: 'gold', symbol: 'H4', maxLevel: 12, sizeStages: [5, 9], activates: 'payer' },
+		],
+	};
 
 	const MAX = 12;
-	const levels: Record<string, number> = { red: 4, blue: 6, green: 10 };
+	const levels: Record<string, number> = { red: 4, blue: 6, green: 10, gold: 2 };
 	const publish = () =>
 		recordHoldAndWinEvent({
 			type: 'meterLevels',
@@ -111,7 +120,27 @@
 			],
 		},
 	};
-	registerComponents({ potMeter: POT_METER_DEF, frogPot });
+	const drawnPot: ComponentDef = {
+		...POT_METER_DEF,
+		id: 'drawnPot',
+		name: 'Drawn pot',
+		scope: 'project',
+		root: {
+			...POT_METER_DEF.root,
+			children: [
+				{ id: 'drawn-body', kind: 'rect', x: 0, y: 0, width: 140, height: 90, color: 0x6b4e16 },
+				{
+					id: 'drawn-caption',
+					kind: 'text',
+					x: 0,
+					y: -70,
+					text: 'NO POT PART',
+					style: { fontFamily: 'Arial', fontSize: 20, fill: 0xffd54a, fontWeight: 'bold' },
+				},
+			],
+		},
+	};
+	registerComponents({ potMeter: POT_METER_DEF, frogPot, drawnPot });
 	registerBoundComponents({ PotMeter });
 	registerComponentSignals(featureComponentSignals(eventEmitter, true));
 	const activatePot = (id: string) =>
@@ -160,6 +189,14 @@
 				params: { meter: 'green' },
 			},
 			{
+				id: 'pot-gold-drawn',
+				kind: 'componentInstance',
+				componentId: 'drawnPot',
+				x: 560,
+				y: 560,
+				params: { meter: 'gold' },
+			},
+			{
 				id: 'pot-red-frog',
 				kind: 'componentInstance',
 				componentId: 'frogPot',
@@ -175,6 +212,7 @@
 			__setPotLevel: setLevel,
 			__potAnchor: (id: string) => resolveAnchorPoint(meterAnchor(id)),
 			__activatePot: activatePot,
+			__potCounted: (id: string) => isComponentMounted(potMeterMountKey(id)),
 		});
 		if (new URLSearchParams(window.location.search).has('still')) return;
 		const tick = setInterval(() => {

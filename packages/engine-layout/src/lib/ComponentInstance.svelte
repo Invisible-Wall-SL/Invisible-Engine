@@ -77,6 +77,7 @@
 	import { getComponentDefaults } from './registerComponentDefaults';
 	import { getSceneVisibleContext, setSceneVisibleContext } from './sceneVisibilityContext';
 	import { getBoundComponent } from './registerBoundComponents';
+	import { partStandIn } from './partStandIn';
 	import { trackComponentMount } from './mountedComponents';
 	import { RESPIN_COUNTER_ANCHOR } from './flightStyle';
 	import {
@@ -190,6 +191,13 @@
 	// The flight anchor an authored twin of a coded part registers, as the coded part does — the
 	// respin counter, which an add-respins special's "+N" flies into. Adds no child.
 	const flightAnchor = def?.id === RESPIN_COUNTER_ANCHOR ? RESPIN_COUNTER_ANCHOR : undefined;
+
+	// The coded part this instance IS, once the author deleted it from the def (Phase 12c — a pot
+	// drawn only with their own nodes): mounted as a `standIn`, it draws nothing and still registers
+	// as that part, so the coded default steps aside and the flights land here. Init-stable, like
+	// the def. A def that stands for nothing, or still binds its part, mounts nothing (parity).
+	const standInName = allowed && def ? partStandIn(def) : undefined;
+	const StandIn = standInName ? getBoundComponent(standInName) : undefined;
 
 	// Param threading (§13.2 / Phase B1+B4.5): resolve the instance's effective
 	// params — def defaults ◁ PER-PROJECT defaults (the B3 sidecar the game
@@ -1120,9 +1128,11 @@
 		<Container visible={liveVisible}>
 			{@render rendered(def.root)}
 			{#if flightAnchor}<Anchor name={flightAnchor} />{/if}
+			{#if StandIn}<StandIn standIn={true} />{/if}
 		</Container>
 	{:else}
 		{@render rendered(def.root)}
 		{#if flightAnchor}<Anchor name={flightAnchor} />{/if}
+		{#if StandIn}<StandIn standIn={true} />{/if}
 	{/if}
 {/if}

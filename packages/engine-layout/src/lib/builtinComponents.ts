@@ -2240,7 +2240,8 @@ const codedPart = (id: string, label: string, component: string, w: number, h: n
  *
  * SKINNABLE (Phase 12c): the {@link POT_SKIN_PARAMS} swap the coded bar for the author's art per
  * instance, and nodes the author puts INSIDE the `Pot` part replace its coded drawing while the
- * part keeps the level, stages, pulse, anchor and its count as that meter's pot.
+ * part keeps the level, stages, pulse, anchor and its count as that meter's pot. It `standsFor` the
+ * part, so a copy whose `Pot` was deleted still registers as that meter's pot.
  */
 export const POT_METER_DEF: ComponentDef = {
 	id: 'potMeter',
@@ -2252,6 +2253,7 @@ export const POT_METER_DEF: ComponentDef = {
 	// Each placed pot hears its own meter's signals only (`potFill`, `potActivate`, …).
 	signalScope: 'meter',
 	signalScopeKind: 'meter',
+	standsFor: 'PotMeter',
 	root: {
 		id: 'potMeter-root',
 		kind: 'container',
@@ -2444,9 +2446,12 @@ export function mergeBuiltinCodedParams(def: ComponentDef): ComponentDef {
 	const twinById = indexNodesById(builtin.root);
 	const nextRoot = mergeNodeBindings(def.root, twinById);
 	const rootChanged = nextRoot !== def.root;
-	if (!missing.length && !rootChanged) return def;
+	// The part a snapshot saved before `standsFor` existed still stands for (by id, like the params).
+	const standsFor = def.standsFor ?? builtin.standsFor;
+	if (!missing.length && !rootChanged && standsFor === def.standsFor) return def;
 	return {
 		...def,
+		...(standsFor ? { standsFor } : {}),
 		params: missing.length ? [...(def.params ?? []), ...missing] : def.params,
 		root: rootChanged ? (nextRoot as ComponentDef['root']) : def.root,
 	};
