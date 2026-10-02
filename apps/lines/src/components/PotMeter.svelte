@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { Container } from 'pixi-svelte';
 	import { getComponentParams, trackComponentMount } from 'engine-layout/svelte';
 
@@ -26,8 +27,13 @@
 	});
 	const meters = $derived(configuredMeters());
 	const index = $derived(meters.findIndex((meter) => meter.id === meterId));
-	// Count this meter's pot in only while it draws one, so the coded pots step aside per meter.
-	$effect(() => (index >= 0 ? trackComponentMount(potMeterMountKey(meterId)) : undefined));
+	// Count this meter's pot in only while it draws one, so the coded pots step aside per meter —
+	// untracked: counting in reads the count it writes, which would re-run this effect forever.
+	$effect(() => {
+		if (index < 0) return;
+		const key = potMeterMountKey(meterId);
+		return untrack(() => trackComponentMount(key));
+	});
 </script>
 
 {#if index >= 0}
