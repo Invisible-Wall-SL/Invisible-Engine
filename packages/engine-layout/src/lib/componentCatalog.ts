@@ -1,5 +1,9 @@
 import { BUTTON_STATE_IMAGE_PARAMS } from './buttonStateImage';
-import { kindCapabilities, type KindCapabilities } from './kindCapabilities';
+import {
+	kindCapabilities,
+	type KindCapabilities,
+	type KindCapabilityConfig,
+} from './kindCapabilities';
 import type { ComponentParam } from './types';
 
 /**
@@ -37,8 +41,9 @@ export interface EngineSignalEntry {
 	 * every listener hears every fire.
 	 */
 	scope?: SignalScopeKind;
-	/** The {@link KindCapabilities} flag a project's kind must have for the editor to offer it — the
-	 *  Hold and Win families are `'holdAndWin'`. Absent ⇒ offered to every kind. */
+	/** The {@link KindCapabilities} flag a project must have for the editor to offer it — the pot
+	 *  family is `'pots'`, the other Hold and Win families `'holdAndWin'`. Absent ⇒ offered to every
+	 *  kind. */
 	capability?: keyof KindCapabilities;
 }
 
@@ -563,17 +568,20 @@ export const BUTTON_STATE_PARAMS: ComponentParam[] = BUTTON_STATE_IMAGE_PARAMS.m
 
 /**
  * The Hold and Win feature's signals (`docs/design/hold-and-win.md` §8, Phase 12a) — the engine's own
- * beats, reaching component cues and gates with no Flow wiring. Offered to a Hold and Win project
- * only. The pot signals are scoped by meter, the jackpot win by tier and the lit letter by reel, so
- * a celebration authored once inside the Pot component plays on the pot it sits on.
+ * beats, reaching component cues and gates with no Flow wiring. Offered to a project with the
+ * feature; the pot family to one with pots too, which the pots overlay add-on brings to any kind
+ * (`docs/design/pots-overlay.md` §4). The pot signals are scoped by meter, the jackpot win by tier
+ * and the lit letter by reel, so a celebration authored once inside the Pot component plays on the
+ * pot it sits on.
  */
-const holdAndWinFamily = (
+const featureFamily = (
+	capability: keyof KindCapabilities,
 	group: string,
 	entries: { key: string; label: string; note: string; scope?: SignalScopeKind }[],
-): EngineSignalEntry[] => entries.map((entry) => ({ ...entry, group, capability: 'holdAndWin' }));
+): EngineSignalEntry[] => entries.map((entry) => ({ ...entry, group, capability }));
 
 const HOLD_AND_WIN_SIGNALS: EngineSignalEntry[] = [
-	...holdAndWinFamily('Pots', [
+	...featureFamily('pots', 'Pots', [
 		{
 			key: 'potFill',
 			label: 'Pot — specials take off',
@@ -606,7 +614,7 @@ const HOLD_AND_WIN_SIGNALS: EngineSignalEntry[] = [
 			scope: 'meter',
 		},
 	]),
-	...holdAndWinFamily('Respins', [
+	...featureFamily('holdAndWin', 'Respins', [
 		{
 			key: 'respinReset',
 			label: 'Respin counter — reset',
@@ -618,13 +626,13 @@ const HOLD_AND_WIN_SIGNALS: EngineSignalEntry[] = [
 			note: 'The counter reached its last respin.',
 		},
 	]),
-	...holdAndWinFamily('Coins', [
+	...featureFamily('holdAndWin', 'Coins', [
 		{ key: 'coinLand', label: 'Coins land', note: 'Coins land and stick on the respin board.' },
 		{ key: 'coinCollect', label: 'Coins collected', note: 'A collector gathers coins.' },
 		{ key: 'coinBoost', label: 'Coins boosted', note: 'Coin values are multiplied.' },
 		{ key: 'coinUpgrade', label: 'Coins upgraded', note: 'An upgrade raises coin values.' },
 	]),
-	...holdAndWinFamily('Jackpots', [
+	...featureFamily('holdAndWin', 'Jackpots', [
 		{
 			key: 'jackpotWin',
 			label: 'Jackpot won',
@@ -632,7 +640,7 @@ const HOLD_AND_WIN_SIGNALS: EngineSignalEntry[] = [
 			scope: 'tier',
 		},
 	]),
-	...holdAndWinFamily('Letters', [
+	...featureFamily('holdAndWin', 'Letters', [
 		{
 			key: 'letterLit',
 			label: 'Letter lit',
@@ -640,11 +648,11 @@ const HOLD_AND_WIN_SIGNALS: EngineSignalEntry[] = [
 			scope: 'reel',
 		},
 	]),
-	...holdAndWinFamily('Wheel', [
+	...featureFamily('holdAndWin', 'Wheel', [
 		{ key: 'wheelSpin', label: 'Wheel — spin', note: 'The wheel starts turning.' },
 		{ key: 'wheelLand', label: 'Wheel — land', note: "The wheel stops on the server's prize." },
 	]),
-	...holdAndWinFamily('Feature', [
+	...featureFamily('holdAndWin', 'Feature', [
 		{ key: 'featureEnter', label: 'Feature — enter', note: 'The respin board appears.' },
 		{ key: 'featureExit', label: 'Feature — exit', note: 'The respin board leaves.' },
 	]),
@@ -729,9 +737,13 @@ export const ENGINE_SIGNAL_CATALOG: EngineSignalEntry[] = [
 	...HOLD_AND_WIN_SIGNALS,
 ];
 
-/** The signals the editor offers a project of `gameType`: every catalog entry its kind can fire. */
-export function engineSignalsForKind(gameType: string | undefined): EngineSignalEntry[] {
-	const capabilities = kindCapabilities(gameType);
+/** The signals the editor offers a project of `gameType` (with the add-ons its `config` carries):
+ *  every catalog entry it can fire. */
+export function engineSignalsForKind(
+	gameType: string | undefined,
+	config?: KindCapabilityConfig,
+): EngineSignalEntry[] {
+	const capabilities = kindCapabilities(gameType, config);
 	return ENGINE_SIGNAL_CATALOG.filter(
 		(entry) => entry.capability === undefined || capabilities[entry.capability],
 	);
