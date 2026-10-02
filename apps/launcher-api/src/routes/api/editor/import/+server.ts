@@ -71,9 +71,7 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 		const manifestKeys = assets.atlases
 			.filter((a) => a.kind === 'atlas-manifest')
 			.map((a) => a.key);
-		const sets = await Promise.all(
-			manifestKeys.map((key) => loadRegionSet(key, clientKey, projectKey)),
-		);
+		const sets = await Promise.all(manifestKeys.map((key) => loadRegionSet(key)));
 		for (const set of sets) {
 			for (const region of set.regions) {
 				if (wanted.has(region.name) && !regionToManifest.has(region.name)) {

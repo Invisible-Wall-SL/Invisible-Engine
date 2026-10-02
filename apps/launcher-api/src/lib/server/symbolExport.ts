@@ -643,7 +643,7 @@ export async function exportEditorSymbols(
 	// what stops the idle-board static sprites from collapsing to one shared texture.
 	await phase('sheets:pinned', async () => {
 		for (const manifestKey of refs.spriteManifests) {
-			await exportSheet(await loadRegionSet(manifestKey, clientKey, projectKey));
+			await exportSheet(await loadRegionSet(manifestKey));
 		}
 	});
 
@@ -665,7 +665,7 @@ export async function exportEditorSymbols(
 			// (e.g. a 6-region icons+glows sheet "covers" 6 bindings but not the 3 in a
 			// later atlas). Check membership of the bound names themselves.
 			if ([...refs.frameNames].every((f) => coveredFrames.has(f))) break;
-			const set = await loadRegionSet(candidate, clientKey, projectKey);
+			const set = await loadRegionSet(candidate);
 			if (exportedManifests.has(set.assetKey)) continue;
 			if (set.regions.some((r) => refs.frameNames.has(r.name))) {
 				await exportSheet(set);

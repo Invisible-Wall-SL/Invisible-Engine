@@ -47,6 +47,20 @@ Shipped capabilities on `main`:
 
 ## Recent changes
 
+- 2026-10-02 — **A manifest's own fields read R2 only inside its own project (#990 review
+  follow-up).** `loadRegionSet` drove R2 reads off author-writable manifest fields with no scope:
+  `resolvePageKey` existence-probed `source_image_path` / `export_prefix` candidates and the
+  stale-deploy guard HEADed `source_image_path` (a planted manifest could learn whether ANY key
+  exists), and `backfillMissingGeometry` read `texturepacker_json` verbatim. Every such read is now
+  held to the manifest key's own `<client>/<project>/` (`manifestHome` / `ownedByManifest` in
+  `editorRegions.ts`; `_shared/sheets/` for a library sheet, which has no `deploy/`). The page is
+  also resolved in the MANIFEST's project, not the caller's: a legacy atlas borrowed from a sibling
+  project lost its page, or showed the caller's same-stem deployed page under the other project's
+  rects. `loadRegionSet(sheet)` therefore no longer takes the caller's client/project. Nit:
+  `candidateAtlases` refuses `_`-rooted keys, so a client slugging to `_shared` can't claim the
+  library. `check:art-scope` now runs the real `loadRegionSet` over an in-memory R2 that records
+  every key touched (a mutant with the guard off fails 8 cases).
+
 - 2026-10-02 — **Art scope hotfix (#987 follow-up, security).** An atlas PAGE is built from the
   manifest's own fields (`resolvePageKey`), which anyone who can write that project can set: an
   author could plant `<own project>/manifests/atlas_manifest_x.json` whose page named ANY file of

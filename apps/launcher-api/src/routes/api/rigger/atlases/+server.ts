@@ -5,7 +5,10 @@ import { listObjects } from '$lib/server/r2';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
-const basename = (k: string): string => { const i = k.lastIndexOf('/'); return i === -1 ? k : k.slice(i + 1); };
+const basename = (k: string): string => {
+	const i = k.lastIndexOf('/');
+	return i === -1 ? k : k.slice(i + 1);
+};
 
 /**
  * List the project's atlases the Rigger can build a new rig from — sourced from the
@@ -26,11 +29,13 @@ export const GET: RequestHandler = async ({ locals, cookies }) => {
 
 	const atlases = [];
 	for (const manifestKey of manifestKeys) {
-		const rs = await loadRegionSet(manifestKey, clientKey, projectKey);
+		const rs = await loadRegionSet(manifestKey);
 		if (!rs.regions.length || !rs.pageKey) continue; // unusable (no regions or no page)
 		atlases.push({
 			manifestKey,
-			label: basename(manifestKey).replace(/^atlas_manifest_/, '').replace(/\.json$/i, ''),
+			label: basename(manifestKey)
+				.replace(/^atlas_manifest_/, '')
+				.replace(/\.json$/i, ''),
 			regions: rs.regions.map((r) => r.name),
 		});
 	}
