@@ -143,6 +143,19 @@ AND `bake-editor-doc.mjs`, or the effect is pruned as an orphan.
 
 ## Recent changes
 
+- 2026-10-02 — **The page reads the Game Config add-on blocks** (Pots overlay Phase 5d). The kind's
+  capabilities now take the config's add-ons (`$lib/configAddOns.ts`: `configAddOns` for the
+  `holdAndWin` / `potsOverlay` presence flags, `configMeterRows` for the meter ids and each overlay
+  token → its pots, both read through `resolveMeters`). A project with a `potsOverlay` block, any
+  kind: its token symbols join the grid even though no strip deals them, each with a
+  `token → <pot id>` chip; the columns gain only Coin land / Coin idle / Fly to meter
+  (`POTS_TOKEN_SYMBOL_STATES`, with token tooltips) unless a `holdAndWin` block is also present;
+  Flights shows (on `caps.pots`) `toMeter` plus one `toMeter:<id>` row per meter — Hold and Win's
+  first, then the overlay's — and hides the other flight kinds unless already authored. A
+  `holdAndWin` block on any kind (e.g. Book-of with a Hold and Win bonus) gets the full coin
+  columns, role chips, coin value label and flights. No block ⇒ unchanged. Gate:
+  `check:symbols-kind-gating`. Guide: [Pots overlay projects](../tools/symbols-state-machine.md#pots-overlay-projects).
+
 - 2026-10-02 — **Hold and Win: states `respinsAdd` / `coinUpgrade` (fallback Win) and Flights rows `toCounter` / `upgradeBeam`** (Phase 11a, #995). The bake keeps both flight keys; `check:flights` now asserts every `FLIGHT_KINDS` entry survives the bake. Detail: [status/hold-and-win](hold-and-win.md).
 
 - 2026-10-02 — **Hold the spin button to keep spinning — a per-project switch, off by default**
