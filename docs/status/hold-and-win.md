@@ -777,6 +777,16 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     more rows than the server opened, coins land in the new rows, `expandFull` pays the 6-row GRAND,
     the shown win equals the server's `gameEnd.win`, and a reload with respin 3's answer lost
     reopens the server's 5 rows with 5 cells locked.
+  - **Parity:** Borut (`bookofborutremake` live data, local book mock, real clock) — `main` vs this
+    branch rebased on `59d12ae6`: identical flow-trace vocabulary and emitter-event set, holds =
+    releases, 0 exceptions, 0 errors on both. `hw-3pots-sample` (live data, local Pots mock): 13/13 —
+    3 rows, nothing locked, no expansion on the wire, the shown win equals the server's (trigger,
+    full board, payer), no page errors. `check:holdandwin`'s preset digests are unchanged.
+  - **Code review** (code-reviewer): no blocker; fixed — a non-expanding board keeps the reconciled
+    grid's rows, rows open before a streak's clear (an unlock symbol leaves as `applied`), `rows`
+    is set on every trigger and cleared at the end, `unlock:<n>` past the unlockable rows is refused.
+    Noted, not changed: under `respins.reset: anySpecial` a landed unlock symbol resets like any
+    special even with `resetsRespins: false`.
 - 2026-10-02 — **Phase 11c part 2: the operator platform jackpot** (session "Hold and Win Phase 11c —
   progressive + platform jackpots"). Kind-independent: any game carries it. The contract was read
   off the partner's client and recorded in `play4fun-protocol.md` § "The operator platform jackpot",
