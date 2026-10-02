@@ -22,6 +22,7 @@
 		Rectangle,
 		Sprite,
 		SpineBoneAttach,
+		SpinePose,
 		SpineProvider,
 		SpineTrack,
 		getContextApp,
@@ -65,6 +66,15 @@
 	import { getComponentSignalScope } from './componentSignalScopeContext';
 	import { handsOffToIdle, isNodeRevealed } from './signalGates';
 	import { resolveBoundValue } from './componentParams';
+	import { createBoundValues } from './boundValues.svelte';
+	import {
+		boundBoneOffsets,
+		boundFillShare,
+		boundFrameOutput,
+		boundScrubs,
+		fillMaskRect,
+		foldBoundTransform,
+	} from './valueBindings';
 	import { editorArtTextureKey, isManifestAssetKey, parseScopedFrameRef } from './editorArtKey';
 	import ComponentInstance from './ComponentInstance.svelte';
 	import ParamReadoutText from './ParamReadoutText.svelte';
@@ -170,7 +180,37 @@
 		!firedSignals || isNodeRevealed(node.hiddenUntilSignal, firedSignals.counts),
 	);
 
-	const transform = $derived(resolveTransform(node, layoutContext.stateLayoutDerived.layoutType()));
+	// Value bindings (Phase 12b): numbers that drive this node. The transform targets fold onto the
+	// authored transform here, ONCE, so every branch below — and the bound / container / instance
+	// wrappers — moves, scales, fades and hides with the value. A `visible` binding hides the way
+	// every layout visibility does, by unmounting: shown again, a spine starts its animation and a
+	// component fires `enter`. The other targets (fill, frame, scrub, bone) are read where their
+	// branch renders. No bindings ⇒ `bound.outputs` is empty and `foldBoundTransform` hands back the
+	// resolved transform itself (parity).
+	// The owning instance's params, captured at init (context reads are init-only; the object's
+	// getters stay live), for `{key}` placeholders and `param` inputs. The bindings themselves are
+	// read once too: a runtime node never changes them, and which branches carry a mask or a pose
+	// must not flip while the node lives (that would remount its art).
+	const bindingParams = getComponentParams();
+	// svelte-ignore state_referenced_locally
+	const bindings = node.valueBindings;
+	const bound = createBoundValues(
+		bindings,
+		() => bindingParams,
+		() => (node.kind === 'flipbook' ? flipbookClip?.frames?.length : undefined),
+	);
+	const bindsTarget = (...targets: string[]): boolean =>
+		bindings?.some((binding) => targets.includes(binding.target)) ?? false;
+	const frameBound = bindsTarget('frame');
+	const fillBound = bindsTarget('fill');
+	const poseBound = bindsTarget('animTime', 'bone');
+	const transform = $derived(
+		foldBoundTransform(
+			resolveTransform(node, layoutContext.stateLayoutDerived.layoutType()),
+			bindings,
+			bound.outputs,
+		),
+	);
 
 	const Bound = $derived(node.bind ? getBoundComponent(node.bind.component) : undefined);
 
@@ -774,12 +814,15 @@
 		// a loop, so that is the effective test.
 		const loops = (loop ?? clip.loop ?? true) !== false;
 		const replay = loops ? '' : `|${cued?.fire ?? 0}`;
-		const key = `${clip.id}|${loop}|${node.fps}|${node.direction}|${node.flipX}|${node.flipY}${replay}`;
+		// A `frame` value binding names a frame of the clip AS AUTHORED, so a frame-bound node walks
+		// its clip forward — frame 3 is the third frame drawn, whatever direction it would play in.
+		const direction = frameBound ? 'forward' : node.direction;
+		const key = `${clip.id}|${loop}|${node.fps}|${direction}|${node.flipX}|${node.flipY}${replay}`;
 		if (foldCache?.key === key) return foldCache.clip;
 		const folded = foldFlipbookPlayback(clip, {
 			fps: node.fps,
 			loop,
-			direction: node.direction,
+			direction,
 			flipX: node.flipX,
 			flipY: node.flipY,
 		});
@@ -809,6 +852,77 @@
 			fallbackKey: parsed.region,
 		};
 	});
+
+	/**
+	 * The value-binding outputs one branch each reads (the transform ones are folded above): a `fill`
+	 * reveal masks a sprite / flipbook / rect, a `frame` holds a flipbook on one frame, an `animTime`
+	 * scrub and a `bone` offset ride a spine. All empty for an unbound node (parity).
+	 */
+	const fill = $derived(boundFillShare(bindings, bound.outputs));
+	const heldFrame = $derived(boundFrameOutput(bindings, bound.outputs));
+	const scrubs = $derived(boundScrubs(bindings, bound.outputs));
+	const boneOffsets = $derived(boundBoneOffsets(bindings, bound.outputs));
+
+	/** A loaded texture's natural size, by the scoped key then the bare fallback (the sprite rule). */
+	const textureSize = (
+		key?: string,
+		fallbackKey?: string,
+	): { w: number; h: number } | undefined => {
+		const assets = appContext.stateApp.loadedAssets;
+		const tex = ((key ? assets?.[key] : undefined) ??
+			(fallbackKey ? assets?.[fallbackKey] : undefined)) as
+			{ width?: number; height?: number } | undefined;
+		return tex?.width && tex.height ? { w: tex.width, h: tex.height } : undefined;
+	};
+
+	/**
+	 * The rect a live `fill` reveals, in the node's local space — measured from the size the branch
+	 * draws: its explicit width/height (scale folded in), else the art's natural size × scale. A
+	 * clip's box, when it declares one, is its natural size (what `<Flipbook>` sizes by), and a
+	 * mirrored clip spans its anchor the other way (`<AnimatedSprite>` flips by the sign of its
+	 * scale, about the anchor). Undefined until the source reports and until the art has a size:
+	 * the mask is then off and the node draws whole, as authored. Never on a cover node (the cover
+	 * owns its size).
+	 */
+	const fillRect = $derived.by(() => {
+		if (!fill || bg) return undefined;
+		if (node.kind === 'rect') {
+			return fillMaskRect(
+				rectWidth,
+				rectHeight,
+				transform.anchor ?? { x: 0.5, y: 0.5 },
+				fill.share,
+				fill.direction,
+			);
+		}
+		let natural: { w: number; h: number } | undefined;
+		if (node.kind === 'sprite') natural = textureSize(spriteKey, spriteFallbackKey);
+		else if (node.kind === 'flipbook') {
+			const clip = flipbookClip;
+			const box = clip?.bounds;
+			if (box && box.w > 0 && box.h > 0) natural = { w: box.w, h: box.h };
+			else if (clip?.frames?.[0]) {
+				const parsed = parseScopedFrameRef(clip.frames[0]);
+				const sheet = parsed.assetKey ?? clip.assetKey;
+				natural = textureSize(
+					isManifestAssetKey(sheet) ? editorArtTextureKey(sheet, parsed.region) : undefined,
+					parsed.region,
+				);
+			}
+		} else return undefined;
+		const width = sizedWidth ?? (natural ? natural.w * (sizedScale?.x ?? 1) : undefined);
+		const height = sizedHeight ?? (natural ? natural.h * (sizedScale?.y ?? 1) : undefined);
+		if (width === undefined || height === undefined) return undefined;
+		const ax = transform.anchor?.x ?? 0;
+		const ay = transform.anchor?.y ?? 0;
+		const anchor =
+			node.kind === 'flipbook'
+				? { x: flipbookClip?.flipX ? 1 - ax : ax, y: flipbookClip?.flipY ? 1 - ay : ay }
+				: transform.anchor;
+		return fillMaskRect(width, height, anchor, fill.share, fill.direction);
+	});
+	/** No mask: the fill branch's mask stays mounted (a remount would restart a clip) but off. */
+	const NO_MASK = { x: 0, y: 0, width: 0, height: 0 };
 </script>
 
 {#if transform.visible && revealed}
@@ -934,21 +1048,50 @@
 			<Repeater {node} {space} />
 		</Container>
 	{:else if node.kind === 'sprite'}
-		<Sprite
-			key={spriteKey}
-			fallbackKey={spriteFallbackKey}
-			x={bg ? bg.x : posX}
-			y={bg ? bg.y : posY}
-			anchor={bg ? { x: 0.5, y: 0.5 } : transform.anchor}
-			scale={bg ? bg.scale : sizedScale}
-			rotation={transform.rotation}
-			alpha={transform.alpha}
-			zIndex={transform.zIndex}
-			width={bg ? undefined : sizedWidth}
-			height={bg ? undefined : sizedHeight}
-			tint={spriteTint}
-			{blendMode}
-		/>
+		{#if fillBound && !bg && spriteKey}
+			<!--
+				A `fill` value binding reveals the sprite from one edge: the placement moves onto a wrapper
+				so the mask rect is drawn in the sprite's own (unrotated) space — a pot's liquid filling
+				upward, a bar filling rightward, at any rotation. The branch is the node's for life (a
+				switch would remount the art); the mask is off until there is a rect. A node without a
+				fill binding takes the plain sprite below, byte-identical.
+			-->
+			<Container
+				x={posX}
+				y={posY}
+				rotation={transform.rotation}
+				alpha={transform.alpha}
+				zIndex={transform.zIndex}
+			>
+				<Sprite
+					key={spriteKey}
+					fallbackKey={spriteFallbackKey}
+					anchor={transform.anchor}
+					scale={sizedScale}
+					width={sizedWidth}
+					height={sizedHeight}
+					tint={spriteTint}
+					{blendMode}
+				/>
+				<Rectangle isMask={fillRect !== undefined} {...fillRect ?? NO_MASK} />
+			</Container>
+		{:else}
+			<Sprite
+				key={spriteKey}
+				fallbackKey={spriteFallbackKey}
+				x={bg ? bg.x : posX}
+				y={bg ? bg.y : posY}
+				anchor={bg ? { x: 0.5, y: 0.5 } : transform.anchor}
+				scale={bg ? bg.scale : sizedScale}
+				rotation={transform.rotation}
+				alpha={transform.alpha}
+				zIndex={transform.zIndex}
+				width={bg ? undefined : sizedWidth}
+				height={bg ? undefined : sizedHeight}
+				tint={spriteTint}
+				{blendMode}
+			/>
+		{/if}
 	{:else if node.kind === 'rect'}
 		<!--
 			Flat filled rectangle (§ rect node): a vector `<Rectangle>` (pixi `Graphics`
@@ -959,17 +1102,36 @@
 			matching the editor's 2D draw, hit-test and spawn, so an anchor-less rect lands
 			identically in editor + game); set `{0,0}` to pin from the top-left.
 		-->
-		<Rectangle
-			x={posX}
-			y={posY}
-			anchor={transform.anchor ?? { x: 0.5, y: 0.5 }}
-			width={rectWidth}
-			height={rectHeight}
-			backgroundColor={rectColor}
-			rotation={transform.rotation}
-			alpha={transform.alpha}
-			zIndex={transform.zIndex}
-		/>
+		{#if fillBound}
+			<!-- A `fill` reveal — the same wrapper + mask as the sprite branch. -->
+			<Container
+				x={posX}
+				y={posY}
+				rotation={transform.rotation}
+				alpha={transform.alpha}
+				zIndex={transform.zIndex}
+			>
+				<Rectangle
+					anchor={transform.anchor ?? { x: 0.5, y: 0.5 }}
+					width={rectWidth}
+					height={rectHeight}
+					backgroundColor={rectColor}
+				/>
+				<Rectangle isMask={fillRect !== undefined} {...fillRect ?? NO_MASK} />
+			</Container>
+		{:else}
+			<Rectangle
+				x={posX}
+				y={posY}
+				anchor={transform.anchor ?? { x: 0.5, y: 0.5 }}
+				width={rectWidth}
+				height={rectHeight}
+				backgroundColor={rectColor}
+				rotation={transform.rotation}
+				alpha={transform.alpha}
+				zIndex={transform.zIndex}
+			/>
+		{/if}
 	{:else if node.kind === 'spine'}
 		{@const stateAnim = stateAnims?.[node.id]}
 		<!--
@@ -1092,6 +1254,15 @@
 						? () => firedSignals.fire(completeSignal)
 						: undefined}
 				/>
+			{/if}
+			<!--
+				Value bindings on a spine (Phase 12b): an `animTime` scrub holds an animation at the bound
+				share of its length and a `bone` offset poses a bone, both on top of whatever is playing,
+				every frame (`<SpinePose>`). Mounted for the node's life when it binds either, so a value
+				arriving never remounts it; not at all for any other spine (parity).
+			-->
+			{#if poseBound}
+				<SpinePose {scrubs} bones={boneOffsets} />
 			{/if}
 			<!--
 				Per-rig bone hosting: effects that attach to THIS rig (`EffectNode.hostSpineId`, paired by
@@ -1277,7 +1448,31 @@
 			supplies the natural dims (`flipbookCoverRef`). Without it a full-bleed animated backdrop
 			had to be hand-scaled to the window and letterboxed on every other device ratio.
 		-->
-		{#if flipbookClip}
+		<!--
+			`frame`: a `frame` value binding holds the clip on the bound frame instead of playing it.
+			`fillRect`: a `fill` binding reveals it from one edge, as in the sprite branch.
+		-->
+		{#if flipbookClip && fillBound && !bg}
+			<Container
+				x={posX}
+				y={posY}
+				rotation={transform.rotation}
+				alpha={transform.alpha}
+				zIndex={transform.zIndex}
+			>
+				<Flipbook
+					clip={flipbookClip}
+					anchor={transform.anchor}
+					scale={sizedScale}
+					width={sizedWidth}
+					height={sizedHeight}
+					tint={transform.tint}
+					frame={heldFrame}
+					{blendMode}
+				/>
+				<Rectangle isMask={fillRect !== undefined} {...fillRect ?? NO_MASK} />
+			</Container>
+		{:else if flipbookClip}
 			<Flipbook
 				clip={flipbookClip}
 				x={bg ? bg.x : posX}
@@ -1290,6 +1485,7 @@
 				width={bg ? undefined : sizedWidth}
 				height={bg ? undefined : sizedHeight}
 				tint={transform.tint}
+				frame={heldFrame}
 				{blendMode}
 			/>
 		{/if}

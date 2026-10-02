@@ -27,6 +27,8 @@
 		clip: FlipbookClip;
 		/** Absent ⇒ playing. */
 		play?: boolean;
+		/** Hold this frame of the walked clip instead of playing — see `<AnimatedSprite frame>`. */
+		frame?: number;
 	};
 </script>
 

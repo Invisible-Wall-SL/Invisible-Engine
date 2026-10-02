@@ -80,8 +80,10 @@ export function childLocalTransform(
 	space: Scene['space'],
 	frameWidth: number,
 	frameHeight: number,
+	/** The draw paths pass the value-binding preview's resolver; geometry edits keep the default. */
+	resolve: typeof resolveTransform = resolveTransform,
 ): ResolvedTransform {
-	const t = resolveTransform(node, layoutType);
+	const t = resolve(node, layoutType);
 	return { ...t, ...anchoredPosition(t, space, frameWidth, frameHeight) };
 }
 

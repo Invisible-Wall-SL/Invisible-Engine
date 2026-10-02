@@ -1,6 +1,7 @@
 <script lang="ts">
 	import ColorField from '$lib/ColorField.svelte';
 	import ArtBoundsEditor from './ArtBoundsEditor.svelte';
+	import EditorValueBindings from './EditorValueBindings.svelte';
 	import {
 		backgroundCoverAnchor,
 		backgroundCoverScale,
@@ -5310,6 +5311,15 @@
 				<p class="muted small">Items wrap to a new row every <strong>columns</strong> items.</p>
 			{/if}
 		</section>
+	{/if}
+	{#if node.kind !== 'reelGrid'}
+		<EditorValueBindings
+			{node}
+			{componentMode}
+			{componentParams}
+			spineMeta={node.kind === 'spine' ? spineMetaFor(node.assetKey) : undefined}
+			onChange={markDirty}
+		/>
 	{/if}
 {/if}
 
