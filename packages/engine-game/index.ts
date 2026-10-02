@@ -80,6 +80,7 @@ export {
 	drainedMeters,
 	drainMeters,
 	emptyOverlayState,
+	freeSpinsGaveWay,
 	type ModeEntryCause,
 	type OverlayDropCell,
 	type OverlayState,

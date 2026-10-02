@@ -1,5 +1,5 @@
 import _ from 'lodash';
-import { drainedMeters } from 'engine-game';
+import { drainedMeters, freeSpinsGaveWay } from 'engine-game';
 
 import { type BookEventHandlerMap } from 'utils-book';
 import { stateBet, stateUi, showMessage } from 'state-shared';
@@ -473,15 +473,7 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		// pot's Hold and Win, or another mode) stay closed — the round resumes on that bonus, not the
 		// free-spin intro. A round with no later bonus replays as it always has. The pots the trigger
 		// drained are restated below (`meterLevels`), so the replay drains nothing.
-		const lastFreeSpinEndEvent = findLastBookEvent('freeSpinEnd' as const);
-		const endedAt = lastFreeSpinEndEvent ? bookEvents.indexOf(lastFreeSpinEndEvent) : -1;
-		const freeSpinsEnded =
-			!!lastFreeSpinTriggerEvent &&
-			endedAt > bookEvents.indexOf(lastFreeSpinTriggerEvent) &&
-			bookEvents.some(
-				(event, at) =>
-					at > endedAt && (event.type === 'holdAndWinTrigger' || event.type === 'modeEnter'),
-			);
+		const freeSpinsEnded = freeSpinsGaveWay(bookEvents);
 		if (lastFreeSpinTriggerEvent && !freeSpinsEnded) {
 			const { meters: _drained, ...trigger } = lastFreeSpinTriggerEvent;
 			await playBookEvent(trigger, { bookEvents });

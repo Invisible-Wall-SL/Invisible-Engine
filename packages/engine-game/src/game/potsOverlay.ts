@@ -110,3 +110,24 @@ export const drainMeters = (
 	ids.length
 		? meters.map((meter) => (ids.includes(meter.id) ? { ...meter, level: 0 } : meter))
 		: meters;
+
+/**
+ * Did the round's free spins END and give way to another bonus before the resume point? A pots
+ * overlay can play the host's free spins and then a pot's Hold and Win (or another mode) in one
+ * round. A resume cut inside the second bonus must not redraw the first: its `freeSpinTrigger` and
+ * counter are not replayed (`createBonusSnapshot`). A round with no later bonus — every plain
+ * free-spin game — answers false and resumes as it always has.
+ */
+export const freeSpinsGaveWay = (bookEvents: readonly { type: string }[]): boolean => {
+	const lastIndexOf = (type: string) => bookEvents.map((event) => event.type).lastIndexOf(type);
+	const triggeredAt = lastIndexOf('freeSpinTrigger');
+	const endedAt = lastIndexOf('freeSpinEnd');
+	return (
+		triggeredAt >= 0 &&
+		endedAt > triggeredAt &&
+		bookEvents.some(
+			(event, at) =>
+				at > endedAt && (event.type === 'holdAndWinTrigger' || event.type === 'modeEnter'),
+		)
+	);
+};
