@@ -347,8 +347,7 @@ const betModesFromOptions = (
  */
 const declaredPayLines = (sid: string): number[][] | null => {
 	const cfg = capturedConfig.get(sid) as
-		| { availablePayLines?: number[][]; paylines?: number[][] }
-		| undefined;
+		{ availablePayLines?: number[][]; paylines?: number[][] } | undefined;
 	const lines = cfg?.availablePayLines ?? cfg?.paylines;
 	return Array.isArray(lines) ? lines : null;
 };
@@ -1556,6 +1555,16 @@ export const requestBet = async (options: {
 	if (cfg) runConfigCrossCheck(options.sessionID, cfg);
 
 	const round = await playOutRound(fetcher, eventsOf(first.response), first.response);
+	// A feature cut short has no `gameEnd`, so presenting it parks the player inside it for good. The
+	// reload this asks for boots on the server's truth: the round resumed where it stands, or — if the
+	// server no longer holds it — its balance. A feature played to its end whose `collect` alone was
+	// refused is presented as before, and `requestEndRound` collects it.
+	if (round.refused && !featureEnded(round.events)) {
+		console.error(
+			`[engine-facade] the server refused a step of round ${session.gid ?? '(unbound)'} mid-feature: ${round.refusal} — asking the player to reload`,
+		);
+		fetcher.abandon(`the server refused a step of the feature: ${round.refusal}`);
+	}
 	return settleRound(options.sessionID, round, options.currency);
 };
 
@@ -1565,11 +1574,18 @@ const eventsOf = (response: Play4FunResponse | null): Play4FunBookEvent[] =>
 interface PlayedRound {
 	events: Play4FunBookEvent[];
 	last: Play4FunResponse | null;
-	/** A request inside the round was refused. Driving stops there, and the round stays open for
-	 *  `requestEndRound`'s own `collect`. `requestBet` presents what it has regardless; a resume gives
-	 *  up, since a round it cannot finish is not one it should show. */
+	/** A request inside the feature was refused (its error, when the server gave one). Driving stops
+	 *  there: `requestBet` gives the session up for a reload, a resume boots without the round. */
 	refused: boolean;
+	refusal?: string;
 }
+
+/** The FEATURE's `gameEnd` — one after the bonus began, so a base-spin `gameEnd` ahead of it
+ *  cannot end the free spins before they are played. */
+const featureEnded = (events: Play4FunBookEvent[]) => {
+	const names = events.map((e) => e.event);
+	return names.slice(names.lastIndexOf('enterBonus')).includes('gameEnd');
+};
 
 /**
  * Drive a round to the end of what the player sees, and aggregate it into one event stream.
@@ -1589,15 +1605,15 @@ const playOutRound = async (
 ): Promise<PlayedRound> => {
 	const round: PlayedRound = { events: [...events], last, refused: false };
 	const names = () => round.events.map((e) => e.event);
-	// The FEATURE's `gameEnd` — one after the bonus began, so a base-spin `gameEnd` ahead of it
-	// cannot end the free spins before they are played.
-	const featureEnded = () => names().slice(names().lastIndexOf('enterBonus')).includes('gameEnd');
 	const post = async (body: Play4FunRequestBody) => {
 		const r = await fetcher.post({ body });
 		// An error envelope carries an empty `platform`, so keeping it as `last` would settle the
 		// round on a balance of 0.
 		if (!r.response || isPlay4FunError(r.response)) {
 			round.refused = true;
+			round.refusal = isPlay4FunError(r.response)
+				? `${r.response.error} (code ${r.response.errorCode})`
+				: `HTTP ${r.status}`;
 			return;
 		}
 		round.events.push(...eventsOf(r.response));
@@ -1606,7 +1622,8 @@ const playOutRound = async (
 
 	if (!names().includes('enterBonus')) return round;
 	let guard = 0;
-	while (!featureEnded() && !round.refused && guard++ < 200) await post([{ action: 'play' }]);
+	while (!featureEnded(round.events) && !round.refused && guard++ < 200)
+		await post([{ action: 'play' }]);
 	if (!round.refused && !names().includes('gameRoundOver')) await post(buildCollectAction());
 	return round;
 };
@@ -1631,8 +1648,7 @@ const settleRound = (sid: string, round: PlayedRound, currency: string) => {
 	const winCents =
 		(
 			[...allEvents].reverse().find((e) => e.event === 'gameEnd')?.context as
-				| { win?: number }
-				| undefined
+				{ win?: number } | undefined
 		)?.win ?? 0;
 	// Whether the reported balance ALREADY includes the win depends on whether the round closed.
 	//

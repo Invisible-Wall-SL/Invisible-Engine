@@ -23,7 +23,8 @@
  *     asked to reload, and a poll stands down rather than talk past a connection it cannot trust.
  *  5. A FREE SPIN REFUSED MID-FEATURE DOES NOT ZERO THE WALLET. An error envelope's `platform` is
  *     empty; settling the round on it showed a balance of 0, and a `collect` was posted into the
- *     refusal. The round is left open instead, for `requestEndRound` to collect.
+ *     refusal. Since 2026-10-02 the feature is not presented at all (it has no end): the session is
+ *     given up for a reload, nothing is collected, and the reload resumes the round and closes it.
  */
 
 import { createServer, type Server } from 'node:http';
@@ -314,28 +315,24 @@ console.log('\n5. a free spin refused mid-feature does not zero the wallet');
 				)
 			: realFetch(input, init);
 	}) as typeof fetch;
-	const bet = (await tab.requestBet({
-		sessionID: sid,
-		rgsUrl,
-		currency: 'USD',
-		amount: 1,
-		mode: 'OPTION1',
-	})) as Answer;
+	const verdict = await tab
+		.requestBet({ sessionID: sid, rgsUrl, currency: 'USD', amount: 1, mode: 'OPTION1' })
+		.then(
+			() => 'presented',
+			(err: Error & { reason?: string }) => `${err.name}:${err.reason ?? ''}`,
+		);
 	globalThis.fetch = realFetch;
 
-	check(
-		'the HUD is handed the server’s balance, not 0',
-		bet.balance?.amount,
-		serverSide(sid).balance * ENGINE_PER_CENT,
-	);
+	check('the cut-short feature asks for a reload', verdict, 'Play4FunConnectionError:refused');
 	check(
 		'no collect was posted into the refusal',
 		sent.some((line) => line.includes('collect')),
 		false,
 	);
 	check('…so the round is still open', serverSide(sid).round !== null, true);
-	await tab.requestEndRound({ sessionID: sid, rgsUrl });
-	check('requestEndRound collects it', serverSide(sid).round, null);
+	const reloaded = (await boot(await openTab(), sid)) as Answer;
+	check('the reload resumes it and closes it on the server', serverSide(sid).round, null);
+	check('…handing the HUD a real balance, not 0', (reloaded.balance?.amount ?? 0) > 0, true);
 }
 
 server.close();

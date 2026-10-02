@@ -44,11 +44,12 @@ export type Play4FunConnectionState =
  * The transport gave up. `unreachable`: no answer inside the budget. `unresolved`: a request that
  * opens a round went unanswered and the server could not show whether it was taken — resending it
  * could charge the stake twice, so the player reloads instead and the boot resumes what the server
- * holds.
+ * holds. `refused`: the server refused a step the round cannot go on without (see `abandon`), so
+ * the player reloads and the boot resumes whatever the server still holds.
  */
 export class Play4FunConnectionError extends Error {
-	readonly reason: 'unreachable' | 'unresolved';
-	constructor(message: string, reason: 'unreachable' | 'unresolved') {
+	readonly reason: 'unreachable' | 'unresolved' | 'refused';
+	constructor(message: string, reason: 'unreachable' | 'unresolved' | 'refused') {
 		super(message);
 		this.name = 'Play4FunConnectionError';
 		this.reason = reason;
@@ -348,6 +349,12 @@ export const createPlay4FunFetcher = (
 	};
 
 	return {
+		/**
+		 * Give the session up on the caller's word rather than the network's: the server answered, but
+		 * refused a step a round already under way cannot be presented without. Reported and final
+		 * exactly like running out of resends — the player is asked to reload.
+		 */
+		abandon: (message: string): never => fail(message, 'refused'),
 		post: (options: Play4FunPostOptions): Promise<Play4FunPostResult> => {
 			if (options.resend === false && lane.pending > 0) {
 				return Promise.reject(new Play4FunConnectionError('busy', 'unreachable'));
