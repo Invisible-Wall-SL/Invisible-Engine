@@ -312,6 +312,13 @@ it('an expanding board opens with its entry rows, grows on an unlock, and resume
 		snapshot,
 	});
 	assert.equal(resumed.rows, 4);
+	const ended = applyHoldAndWinEvent(opened, {
+		type: 'holdAndWinEnd',
+		mode: 'holdAndWin',
+		total: 0,
+		payload: { cells: [], banked: 0 },
+	});
+	assert.equal(ended.rows, undefined);
 });
 
 it('the end closes the feature and keeps only the meters', () => {

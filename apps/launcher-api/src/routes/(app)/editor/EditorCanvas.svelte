@@ -93,7 +93,14 @@
 		// `effect` carries an authored FX id in `key` (the Library's Effects section);
 		// `flipbook` an authored clip id (the Library's Flipbooks section).
 		kind:
-			'atlas-page' | 'atlas-manifest' | 'sheet' | 'spine' | 'text' | 'rect' | 'effect' | 'flipbook';
+			| 'atlas-page'
+			| 'atlas-manifest'
+			| 'sheet'
+			| 'spine'
+			| 'text'
+			| 'rect'
+			| 'effect'
+			| 'flipbook';
 		key: string;
 		name: string;
 	}

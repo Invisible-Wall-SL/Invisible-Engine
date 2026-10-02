@@ -616,6 +616,10 @@ export function createMockRgs(opts = {}) {
 						const n = name === 'expandFull' ? Infinity : Number(args[0]);
 						if (!expansion) errors.push(`${token}: this game's board does not expand`);
 						else if (!(n >= 1)) errors.push(`${token}: unlock at least one row`);
+						else if (n !== Infinity && n > expansion.maxRows - expansion.startRows)
+							errors.push(
+								`${token}: only ${expansion.maxRows - expansion.startRows} rows can unlock`,
+							);
 						else if (expansion.rule === 'unlockSymbol' && !unlockSymbol)
 							errors.push(`${token}: no symbol is tagged unlock`);
 						force.unlockRows = n;
@@ -1612,8 +1616,10 @@ export function createMockRgs(opts = {}) {
 				}
 			}
 		}
-		if (stickiness === 'collectorsOnly') clearNonCollectors(events, round);
+		// Rows open before a streak sweeps the board, so an unlock symbol leaves as `applied` and a
+		// held-count threshold counts what this respin landed.
 		const unlocked = expansion ? expand(events, round, landed) : false;
+		if (stickiness === 'collectorsOnly') clearNonCollectors(events, round);
 
 		// The counter: reset by what LANDED (a mystery counts as what it revealed), or by an unlock.
 		const newCoins =

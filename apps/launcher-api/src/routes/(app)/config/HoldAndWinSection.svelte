@@ -442,9 +442,9 @@
 		else delete grow.thresholds;
 		if (rule !== 'unlockSymbol') delete grow.unlockReels;
 	}
-	/** Growing or shrinking the board keeps one threshold per unlockable row. */
-	function setMaxRows(grow: HoldAndWinExpansion, n: number) {
-		grow.maxRows = n;
+	/** Changing either end of the board keeps one threshold per unlockable row. */
+	function setRows(grow: HoldAndWinExpansion, end: 'startRows' | 'maxRows', n: number) {
+		grow[end] = n;
 		if (grow.rule !== 'coinCount') return;
 		const fill = defaultThresholds(grow);
 		grow.thresholds = fill.map((t, i) => grow.thresholds?.[i] ?? t);
@@ -1085,7 +1085,7 @@
 								type="number"
 								min="1"
 								value={grow.startRows}
-								oninput={num((n) => n >= 1 && (grow.startRows = n), true)}
+								oninput={num((n) => n >= 1 && setRows(grow, 'startRows', n), true)}
 							/></label
 						>
 						<label
@@ -1093,7 +1093,7 @@
 								type="number"
 								min="1"
 								value={grow.maxRows}
-								oninput={num((n) => n >= 1 && setMaxRows(grow, n), true)}
+								oninput={num((n) => n >= 1 && setRows(grow, 'maxRows', n), true)}
 							/></label
 						>
 						<label

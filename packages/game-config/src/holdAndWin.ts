@@ -1181,7 +1181,7 @@ export function validateHoldAndWin(doc: GameConfigDoc): GameConfigIssue[] {
 			if (block.stickiness === 'collectorsOnly') {
 				warning(
 					'expansion.rule',
-					'Coins are cleared every respin, so only the collectors count toward a threshold.',
+					'Coins are cleared every respin, so a threshold counts the collectors plus what that respin landed.',
 				);
 			}
 		}

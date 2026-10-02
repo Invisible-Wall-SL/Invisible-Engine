@@ -182,7 +182,12 @@ const enteringRows = (respinBoard: RespinBoard): number =>
  */
 const ensureBoard = (): RespinBoard => {
 	const { x: reels, y: gridRows } = boardDimensions();
-	const rows = Math.max(gridRows, respinBoardMaxRows(getActiveGameConfig()));
+	// Only an expanding board grows past the grid; any other keeps the grid's rows, which the server's
+	// declared window may have reconciled away from the config's.
+	const config = getActiveGameConfig();
+	const rows = config.holdAndWin?.expansion
+		? Math.max(gridRows, respinBoardMaxRows(config))
+		: gridRows;
 	if (board && board.reels === reels && board.rows === rows) return board;
 	board = createRespinBoard({
 		reels,

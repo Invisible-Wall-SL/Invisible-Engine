@@ -351,7 +351,7 @@ export const applyHoldAndWinEvent = (
 				left: event.payload.respins,
 				stickiness: event.payload.stickiness,
 				activeModifiers: event.payload.activeModifiers,
-				...(event.payload.expansion && { rows: event.payload.expansion.rows }),
+				rows: event.payload.expansion?.rows,
 			};
 		case 'holdAndWinWheel': {
 			const { prize } = event;
@@ -409,6 +409,7 @@ export const applyHoldAndWinEvent = (
 		case 'holdAndWinState':
 			return {
 				...event.snapshot,
+				rows: event.snapshot.rows,
 				cells: putCells([], event.snapshot.cells),
 				active: true,
 				luckySpin: state.luckySpin,
@@ -421,6 +422,7 @@ export const applyHoldAndWinEvent = (
 				meters: state.meters,
 				jackpots: state.jackpots,
 				total: event.total,
+				rows: undefined,
 			};
 		case 'coinInstantCollect':
 		case 'randomMetreTrigger':

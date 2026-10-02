@@ -1400,6 +1400,42 @@ for (const id of ['pots-expansion-fullrow', 'pots-expansion-unlock', 'pots-expan
 		'coinCount: the threshold of held symbols opens the row (resetsRespins off, coins still reset)',
 	);
 	await noReset.close();
+	// A streak board: the unlock symbol leaves as `applied` before the streak sweeps the rest.
+	const streakRaw = structuredClone(HOLD_AND_WIN_TEST_FIXTURES['pots-expansion-unlock']);
+	streakRaw.gameID = 'pots_expansion_streak';
+	streakRaw.holdAndWin.stickiness = 'collectorsOnly';
+	const streakErrors = validateGameConfigDoc(normalizeGameConfigDoc(streakRaw)).filter(
+		(i) => i.severity === 'error',
+	);
+	check(
+		!streakErrors.length,
+		'the streak expansion variant validates',
+		streakErrors.map((i) => i.message).join(' | '),
+	);
+	const streak = await boot(streakRaw);
+	await beat(
+		streak,
+		'unlock:1',
+		(r) => {
+			const names = r.responses[1].events.map((e) => e.event);
+			const u = inRespin(r, 1, 'rowsUnlocked')[0];
+			return (
+				u?.unlockers.length === 1 &&
+				applied(r, 1).includes(key(u.unlockers[0])) &&
+				names.indexOf('rowsUnlocked') < names.lastIndexOf('cellsCleared')
+			);
+		},
+		'collectorsOnly: rows open before the streak clear, and the unlock symbol leaves as applied',
+	);
+	await streak.close();
+	const fullRow2 = await boot('pots-expansion-fullrow');
+	const tooMany = await playRound(fullRow2, 'bad-unlock-4', { force: 'unlock:4' });
+	check(
+		Boolean(tooMany.error),
+		'unlock:<n> past the rows that can open is refused',
+		tooMany.error ?? 'dealt',
+	);
+	await fullRow2.close();
 	const pots = await boot('pots');
 	for (const spec of ['unlock:1', 'expandFull', 'unlock:0']) {
 		const round = await playRound(pots, `bad-${spec}`, { force: spec });
