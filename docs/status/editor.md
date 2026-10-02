@@ -40,6 +40,12 @@ Shipped capabilities on `main`:
 
 ## Recent changes
 
+- 2026-10-02 — **Bind to value** (Hold and Win Phase 12b): the shared Properties panel gains a
+  *Bind to value* section (a number drives a node's transform, visibility, fill, clip frame, spine
+  scrub or bone), and a test-value scrub previews it on the canvas and the text / spine / effect
+  overlays. `nodeTransform` / `childLocalTransform` take an optional resolver; only the draw paths
+  pass the preview's, so drags, hit-tests and selection keep the authored transform. Detail:
+  [hold-and-win](hold-and-win.md).
 - 2026-10-02 — **Measured: no project is broken by an old shared-def pin.** No live doc or
   published snapshot pins `featurecard` (the card arrives at latest). `c_kzdbwen7@11` is pinned by
   `test2`, `test6` and `bookofborutremake`, and its node does still carry Borut's full spine prefix,

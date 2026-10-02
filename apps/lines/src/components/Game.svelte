@@ -195,7 +195,11 @@
 		stateGame,
 		stateGameDerived,
 	} from '../game/stateGame.svelte';
-	import { stateRespinBoard } from '../game/stateRespinBoard.svelte';
+	import {
+		currentRespinBoard,
+		openRespinRows,
+		stateRespinBoard,
+	} from '../game/stateRespinBoard.svelte';
 	import {
 		activeModifiersText,
 		shownCollectorLevel,
@@ -204,8 +208,10 @@
 	import { configuredLetters, stateLetters } from '../game/holdAndWinLetters.svelte';
 	import {
 		configuredMeters,
+		meterFullShown,
 		meterLevelShown,
 		meterMax,
+		meterStageShown,
 		seedHoldAndWinMeters,
 	} from '../game/holdAndWinMeters.svelte';
 	import { jackpotMultiplier, seedHoldAndWinJackpots } from '../game/holdAndWinJackpots.svelte';
@@ -729,6 +735,15 @@
 		// Hold and Win: the respins left on the counter (`respinUpdate`, restated by every snapshot) — what
 		// an authored respin counter binds; the coded one in `RespinCounter` reads the same field.
 		respinsLeft: valueSource(() => stateRespinBoard.counter.left),
+		// …and what the counter resets to — the feature's current cap (an add-respins can raise it),
+		// what a value binding divides `respinsLeft` by to drive a draining bar.
+		respinsStart: valueSource(() => stateRespinBoard.counter.start),
+		// The respin board's held cells and its open cells (reels × open rows) — a "board filling"
+		// bar binds the first, normalised by the second. 0 outside the feature.
+		cellsHeld: valueSource(() => (stateRespinBoard.shown ? stateRespinBoard.held.length : 0)),
+		cellsTotal: valueSource(() =>
+			stateRespinBoard.shown ? (currentRespinBoard()?.reels ?? 0) * openRespinRows() : 0,
+		),
 		// …and the modifiers active in the feature ("PAYER · MULTIPLIER"), what the coded counter's
 		// second line shows.
 		activeModifiers: textSource(activeModifiersText),
@@ -741,13 +756,25 @@
 			: {}),
 		// Each persistent meter the Game Config declares: `meter.<id>.level` (the level the pot shows —
 		// the server's, ticking up as a special lands) and `meter.<id>.max`, what Phase 6's authored
-		// pots bind. None declared ⇒ none registered.
+		// pots bind; `meter.<id>.stage` (how many size stages the shown level has reached) and
+		// `meter.<id>.full` (1 while the pot shows full, else 0), what a value binding gates or grows
+		// a pot's art by. None declared ⇒ none registered.
 		...Object.fromEntries(
 			configuredMeters().flatMap(({ id }) => [
 				[`meter.${id}.level`, valueSource(() => meterLevelShown(id))],
 				[`meter.${id}.max`, valueSource(() => meterMax(id))],
+				[`meter.${id}.stage`, valueSource(() => meterStageShown(id))],
+				[`meter.${id}.full`, valueSource(() => (meterFullShown(id) ? 1 : 0))],
 			]),
 		),
+		// An expanding board's open rows and the most it opens (design §7 11b). Only for a config
+		// whose board expands.
+		...(getActiveGameConfig().holdAndWin?.expansion
+			? {
+					rowsOpen: valueSource(() => (stateRespinBoard.shown ? openRespinRows() : 0)),
+					rowsMax: valueSource(() => getActiveGameConfig().holdAndWin?.expansion?.maxRows ?? 0),
+				}
+			: {}),
 		// What the authored Total Win bar reads: the win meter the feature end counts every coin into
 		// (`tallyCountUp`), so the bar and the HUD win readout can never disagree.
 		featureTotal: valueSource(() => stateBet.winBookEventAmount, bookEventAmountToCurrencyString),
@@ -873,6 +900,13 @@
 			configuredLetters().map((_, reel) => [
 				`letter.${reel}.lit`,
 				boolSource(() => stateLetters.lit.includes(reel)),
+			]),
+		),
+		// …and each pot's full flag (`meter.<id>.full`), so a component gates "pot full" art on it.
+		...Object.fromEntries(
+			configuredMeters().map(({ id }) => [
+				`meter.${id}.full`,
+				boolSource(() => meterFullShown(id)),
 			]),
 		),
 		// …and the two banner beats the authored `luckySpin` / `jackpotWin` screens gate on.

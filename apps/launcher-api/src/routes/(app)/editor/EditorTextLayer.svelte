@@ -46,6 +46,7 @@
 		type Affine,
 		type RepeaterSourceMap,
 	} from './editorCanvas.helpers';
+	import { previewResolveTransform, previewVersion } from './valuePreview.client.svelte';
 
 	interface Props {
 		/** All doc scenes — the composite the 2D canvas + spine layer also draw. */
@@ -378,7 +379,7 @@
 		stack: string[],
 	): void {
 		for (const n of nodes) {
-			if (!resolveTransform(n, layoutType).visible) continue;
+			if (!previewResolveTransform(n, layoutType).visible) continue;
 			const nextChain = [...chain, n];
 			if (n.kind === 'text') {
 				out.push({
@@ -598,7 +599,14 @@
 			// placement below.
 			const topT = (top: LayoutNode) => worldTransformOf(top, scene);
 			const childT = (child: LayoutNode) =>
-				childLocalTransform(child, layoutType, scene.space, frameWidth, frameHeight);
+				childLocalTransform(
+					child,
+					layoutType,
+					scene.space,
+					frameWidth,
+					frameHeight,
+					previewResolveTransform,
+				);
 			const leafT = chain.length === 1 ? topT(node) : childT(node);
 
 			// A boxed text node wraps its glyphs to the box width + aligns them within it
@@ -747,6 +755,8 @@
 		// instance lives in per-node `params`/`bind.props`, which this effect does NOT
 		// deep-track, so without the nonce a font change wouldn't repaint until reload.
 		void redrawNonce;
+		// A scrubbed value-binding test value moves / fades / hides text like any other node.
+		void previewVersion();
 		rebuild();
 	});
 

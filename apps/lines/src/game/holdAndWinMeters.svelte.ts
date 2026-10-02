@@ -82,3 +82,17 @@ export const seedHoldAndWinMeters = (): void => {
 	if (!Array.isArray(meters) || meters.length === 0) return;
 	recordHoldAndWinEvent({ type: 'meterLevels', meters });
 };
+
+/** The size stage meter `id`'s pot shows now — what `meter.<id>.stage` reports (0 for a meter the
+ *  config does not declare). */
+export const meterStageShown = (id: string): number => {
+	const meter = configuredMeters().find((m) => m.id === id);
+	return meter ? meterStage(meter, meterLevelShown(id)) : 0;
+};
+
+/** Is meter `id`'s pot showing full — its shown level at its maximum? What `meter.<id>.full`
+ *  reports. */
+export const meterFullShown = (id: string): boolean => {
+	const max = meterMax(id);
+	return max > 0 && meterLevelShown(id) >= max;
+};

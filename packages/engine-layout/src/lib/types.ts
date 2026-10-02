@@ -272,6 +272,16 @@ interface BaseNode {
 	 */
 	paramBindings?: Record<string, string>;
 	/**
+	 * VALUE bindings (Hold and Win Phase 12b, `docs/design/hold-and-win.md` §8): numbers that drive
+	 * this node — a transform offset, a visibility threshold, a fill reveal, a clip frame, a spine
+	 * animation scrub or a spine bone. Each reads one number (an engine value source, which may name
+	 * the owning instance's params as `{key}` placeholders, or a component param), maps it through
+	 * its own range, and applies it on top of the authored node, so the authored pose stays the rest
+	 * pose. Mapping and folding live in `valueBindings.ts`; the runtime applies them in
+	 * `<LayoutNodeView>`. Absent ⇒ the node renders exactly as authored (parity).
+	 */
+	valueBindings?: ValueBinding[];
+	/**
 	 * Per-node press route inside a `componentInstance` (the two-button dialog primitive). When set,
 	 * this node becomes an interactive hit surface whose press calls the owning instance's action of
 	 * the SAME name — the instance's `actions` prop / injected binding (e.g. a confirm-dialog's
@@ -292,6 +302,92 @@ interface BaseNode {
 	 * (parity — byte-identical to today).
 	 */
 	hiddenUntilSignal?: string;
+}
+
+/**
+ * What a {@link ValueBinding} drives. The transform targets are RELATIVE to the authored node, so a
+ * per-ratio override still places it: `x`/`y` add pixels, `rotation` adds degrees (clockwise),
+ * `scale`/`scaleX`/`scaleY` and `alpha` multiply. `visible` shows the node while the value passes
+ * its threshold. `fill` reveals a sprite, flipbook or rect from one edge (0 = hidden, 1 = whole).
+ * `frame` holds a flipbook on one frame. `animTime` holds a spine animation at a point (0 = first
+ * frame, 1 = last), over whatever the rig is playing, firing none of its events. `bone` offsets one
+ * bone of a spine on top of whatever it is playing.
+ */
+export const VALUE_BINDING_TARGETS = [
+	'x',
+	'y',
+	'scale',
+	'scaleX',
+	'scaleY',
+	'rotation',
+	'alpha',
+	'visible',
+	'fill',
+	'frame',
+	'animTime',
+	'bone',
+] as const;
+export type ValueBindingTarget = (typeof VALUE_BINDING_TARGETS)[number];
+
+/** The curve a mapping follows between its two ends — `valueBindings.ts` `easeValue`. */
+export const VALUE_BINDING_EASES = [
+	'linear',
+	'easeIn',
+	'easeOut',
+	'easeInOut',
+	'backOut',
+	'steps',
+] as const;
+export type ValueBindingEase = (typeof VALUE_BINDING_EASES)[number];
+
+/** The edge a `fill` reveal grows FROM: `up` fills from the bottom, like a pot. */
+export type ValueBindingFillDirection = 'right' | 'left' | 'up' | 'down';
+
+/** The bone channel a `bone` binding offsets. `x`/`y` add, `rotation` adds degrees, scales multiply. */
+export type ValueBindingBoneProperty = 'x' | 'y' | 'rotation' | 'scale' | 'scaleX' | 'scaleY';
+
+/**
+ * One number driving one property of a node (Phase 12b). Where the number comes from:
+ * - `param` — a key of the owning component instance's params (an author number, or the `value` a
+ *   `source` param feeds). Only inside a component.
+ * - `source` — an engine value source (`registerComponentValues`). `{key}` placeholders read the
+ *   owning instance's params, so one Pot def reads `meter.{meter}.level` and each placed pot reads
+ *   its own meter. A placeholder that resolves to nothing leaves the binding inert.
+ *
+ * `param` wins when both are set. `of` divides the value first (normalise — `meter.{meter}.max`); it
+ * resolves as a param when the instance has one by that key, else as a source.
+ *
+ * The number is then mapped `inMin..inMax → outMin..outMax` along `ease` (clamped unless
+ * `clamp: false`), and glides there over `smooth` seconds instead of snapping. Every field but
+ * `target` and one of `param`/`source` is optional; `valueBindings.ts` owns the defaults.
+ */
+export interface ValueBinding {
+	target: ValueBindingTarget;
+	param?: string;
+	source?: string;
+	of?: string;
+	inMin?: number;
+	inMax?: number;
+	outMin?: number;
+	outMax?: number;
+	/** Absent ⇒ clamped to the input range. */
+	clamp?: boolean;
+	/** Absent ⇒ linear. */
+	ease?: ValueBindingEase;
+	/** Seconds the output takes to reach a new value. Absent / 0 ⇒ snaps. Ignored by `visible`. */
+	smooth?: number;
+	/** `visible`: shown while the (normalised) value is ≥ this. Absent ⇒ 1 (a true / full source). */
+	threshold?: number;
+	/** `visible`: invert — shown while the value is BELOW the threshold. */
+	below?: boolean;
+	/** `fill`: the edge the reveal grows from. Absent ⇒ `right` (a bar filling left to right). */
+	direction?: ValueBindingFillDirection;
+	/** `animTime`: the animation scrubbed. */
+	animation?: string;
+	/** `bone`: the bone's name. */
+	bone?: string;
+	/** `bone`: the channel offset. Absent ⇒ `scale`. */
+	boneProperty?: ValueBindingBoneProperty;
 }
 
 export interface ContainerNode extends BaseNode {
