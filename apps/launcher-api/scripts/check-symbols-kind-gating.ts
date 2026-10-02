@@ -3,7 +3,11 @@
  * mechanic (Hold and Win, Phase 7a) cannot quietly change what every OTHER kind sees.
  *
  *   1. CAPABILITIES — the three section flags (`bookSymbolVfx`, `tumblePattern`, `symbolTransition`)
- *      are on for every built-in kind and for a custom kind, and off for `holdAndWin` alone.
+ *      are on for every built-in kind and for a custom kind, and off for `holdAndWin` alone. The
+ *      whole table is pinned per kind, and the add-ons are ADDITIVE (`docs/design/pots-overlay.md`
+ *      §4): a `holdAndWin` / `potsOverlay` block only turns on its own flags (`holdAndWin`,
+ *      `coinSymbols`, `pots`, `potsOverlay`); without a block (or with both `false`) every kind
+ *      answers exactly as before.
  *   2. COLUMNS — `visibleStatesFor` gives every existing kind exactly the columns it had before the
  *      Hold and Win states existed, under every gate; `holdAndWin` gets those eight and no book ones.
  *      `symbolStatesForKind` (the Scene Editor's state pickers) hides the eight Hold and Win states
@@ -21,6 +25,8 @@ import {
 	kindCapabilities,
 	SYMBOL_STATES,
 	symbolStatesForKind,
+	type KindCapabilities,
+	type KindCapabilityConfig,
 } from 'engine-layout';
 import { HOLD_AND_WIN_PRESETS, symbolHoldAndWinRoles } from 'game-config';
 import { symbolDefaultsFor } from '../src/lib/server/symbolDefaults.ts';
@@ -53,6 +59,96 @@ for (const kind of [...GAME_KINDS, 'myCustomKind', undefined]) {
 			: SYMBOL_STATES,
 	);
 }
+
+/** Every kind's answers with no config: the pre-add-on table, plus `pots` on its own feature. */
+const LINES_CAPS: KindCapabilities = {
+	freeSpins: true,
+	bookReveal: false,
+	stackedPictures: true,
+	cascade: false,
+	multiplierCollect: false,
+	holdAndWin: false,
+	coinSymbols: false,
+	pots: false,
+	potsOverlay: false,
+	winLines: true,
+	bookSymbolVfx: true,
+	tumblePattern: true,
+	symbolTransition: true,
+};
+const KIND_CAPS: Record<string, KindCapabilities> = {
+	lines: LINES_CAPS,
+	ways: { ...LINES_CAPS, winLines: false },
+	cluster: { ...LINES_CAPS, cascade: true, winLines: false },
+	scatter: { ...LINES_CAPS, cascade: true, multiplierCollect: true, winLines: false },
+	bookOf: { ...LINES_CAPS, bookReveal: true },
+	holdAndWin: {
+		...LINES_CAPS,
+		freeSpins: false,
+		stackedPictures: false,
+		holdAndWin: true,
+		coinSymbols: true,
+		pots: true,
+		bookSymbolVfx: false,
+		tumblePattern: false,
+		symbolTransition: false,
+	},
+};
+const ADD_ONS: KindCapabilityConfig[] = [
+	{},
+	{ holdAndWin: false, potsOverlay: false },
+	{ holdAndWin: true },
+	{ potsOverlay: true },
+	{ holdAndWin: true, potsOverlay: true },
+];
+const HW_STATES_OFF = SYMBOL_STATES.filter(
+	(s) => !(HOLD_AND_WIN_SYMBOL_STATES as readonly string[]).includes(s),
+);
+for (const kind of [...GAME_KINDS, 'myCustomKind', undefined]) {
+	const table = KIND_CAPS[kind ?? ''] ?? LINES_CAPS;
+	check(`${kind} · the whole table, no config`, kindCapabilities(kind), table);
+	for (const config of ADD_ONS) {
+		const label = `${kind} + ${JSON.stringify(config)}`;
+		const caps = kindCapabilities(kind, config);
+		const holdAndWin = table.holdAndWin || !!config.holdAndWin;
+		const potsOverlay = !!config.potsOverlay;
+		check(`${label} · only the add-on's own flags move`, caps, {
+			...table,
+			holdAndWin,
+			coinSymbols: holdAndWin,
+			pots: holdAndWin || potsOverlay,
+			potsOverlay,
+		});
+		check(
+			`${label} · symbolStatesForKind follows holdAndWin`,
+			symbolStatesForKind(kind, config),
+			holdAndWin ? SYMBOL_STATES : HW_STATES_OFF,
+		);
+	}
+}
+// The two cases the pots overlay plan names (Book of Borut with each add-on).
+const borutHw = kindCapabilities('bookOf', { holdAndWin: true });
+check(
+	'bookOf + holdAndWin block · the feature, its coins and pots',
+	[borutHw.holdAndWin, borutHw.coinSymbols, borutHw.pots, borutHw.potsOverlay],
+	[true, true, true, false],
+);
+check(
+	'bookOf + holdAndWin block · keeps free spins, the book reveal and its VFX',
+	[borutHw.freeSpins, borutHw.bookReveal, borutHw.bookSymbolVfx, borutHw.stackedPictures],
+	[true, true, true, true],
+);
+const borutPots = kindCapabilities('bookOf', { potsOverlay: true });
+check(
+	'bookOf + potsOverlay block · pots and the overlay, no respin feature or coins',
+	[borutPots.pots, borutPots.potsOverlay, borutPots.holdAndWin, borutPots.coinSymbols],
+	[true, true, false, false],
+);
+check(
+	'bookOf + potsOverlay block · keeps free spins and the book reveal',
+	[borutPots.freeSpins, borutPots.bookReveal, borutPots.bookSymbolVfx],
+	[true, true, true],
+);
 
 // ── 2. columns ──────────────────────────────────────────────────────────────────────────────────
 const BASE = ['static', 'spin', 'land', 'win', 'postWinStatic', 'explosion'];

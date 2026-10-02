@@ -11,6 +11,8 @@
  *  2. **Catalog ↔ registry.** Every feature signal the editor offers is one the game registers, and
  *     back — an offered name nobody fires authors a dead cue; a fired name nobody offers is
  *     unauthorable. A signal the catalog calls scoped rides an emitter event that carries `scope`.
+ *     The pot family is gated on `pots`, so the pots overlay add-on offers it to any kind
+ *     (`docs/design/pots-overlay.md` §4) without the rest of the Hold and Win families.
  *  3. **The registry fires right** — each feature signal on its beat (and only there), with the
  *     beat's scope: a consume scopes to every pot it drained, a meter flight to its meter.
  *  4. **Instances and effects filter** — the builtins scope by the right param, the scoped jackpot
@@ -131,7 +133,7 @@ for (const [name, source] of Object.entries(registered)) {
 	source.subscribe(() => {});
 }
 const featureCatalog = ENGINE_SIGNAL_CATALOG.filter(
-	(s) => s.capability === 'holdAndWin' || s.key === 'platformJackpotWin',
+	(s) => s.capability === 'holdAndWin' || s.capability === 'pots' || s.key === 'platformJackpotWin',
 );
 eq(
 	'the catalog offers exactly the feature signals the game registers',
@@ -158,7 +160,48 @@ check(
 );
 check(
 	'a Book-of project is not',
-	!engineSignalsForKind('bookOf').some((s) => s.capability === 'holdAndWin'),
+	!engineSignalsForKind('bookOf').some((s) => s.capability !== undefined),
+);
+const POT_SIGNALS = ['potFill', 'potLand', 'potLevelUp', 'potStageUp', 'potFull', 'potActivate'];
+eq(
+	'the pot family, and only it, is gated on `pots`',
+	ENGINE_SIGNAL_CATALOG.filter((s) => s.capability === 'pots').map((s) => s.key),
+	POT_SIGNALS,
+);
+const keysOf = (entries: { key: string }[]): string[] => entries.map((s) => s.key);
+const ungated = keysOf(ENGINE_SIGNAL_CATALOG.filter((s) => s.capability === undefined));
+for (const kind of ['lines', 'ways', 'cluster', 'scatter', 'bookOf', 'myCustomKind', undefined]) {
+	eq(
+		`${kind} with no add-on is offered the ungated signals only`,
+		keysOf(engineSignalsForKind(kind)),
+		ungated,
+	);
+	eq(
+		`${kind} with both add-ons off is too`,
+		keysOf(engineSignalsForKind(kind, { holdAndWin: false, potsOverlay: false })),
+		ungated,
+	);
+}
+const everySignal = keysOf(ENGINE_SIGNAL_CATALOG);
+eq(
+	'the Hold and Win kind is offered every signal',
+	keysOf(engineSignalsForKind('holdAndWin')),
+	everySignal,
+);
+eq(
+	'…with or without the overlay block',
+	keysOf(engineSignalsForKind('holdAndWin', { potsOverlay: true })),
+	everySignal,
+);
+eq(
+	'a Book-of project with the pots overlay gains the pot family only',
+	keysOf(engineSignalsForKind('bookOf', { potsOverlay: true })),
+	keysOf(ENGINE_SIGNAL_CATALOG.filter((s) => s.capability !== 'holdAndWin')),
+);
+eq(
+	'a Book-of project with a Hold and Win bonus gains every family and keeps its own',
+	keysOf(engineSignalsForKind('bookOf', { holdAndWin: true })),
+	everySignal,
 );
 check(
 	'…but keeps the core signals and the platform jackpot (any kind)',

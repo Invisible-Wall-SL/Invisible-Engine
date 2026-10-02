@@ -213,24 +213,66 @@ for (const id of PLACED) {
 	);
 }
 
-// Kind gating: offered to Hold and Win only; every other built-in still offered everywhere.
+// Kind gating: offered to Hold and Win only; every other built-in still offered everywhere. The pot
+// parts are gated on `pots`, so the pots overlay add-on (docs/design/pots-overlay.md §4) offers
+// them to any kind, and nothing else of the feature; a Hold and Win block offers all of it.
 const GATED = [...PLACED, 'jackpotTile'];
+const POTS = ['potMeter'];
 for (const def of mod.BUILTIN_COMPONENTS) {
 	const gated = GATED.includes(def.id);
-	assert(!gated || def.capability === 'holdAndWin', `${def.id} is not kind-gated`);
+	const pots = POTS.includes(def.id);
+	assert(
+		!gated || def.capability === (pots ? 'pots' : 'holdAndWin'),
+		`${def.id} is not kind-gated (${def.capability})`,
+	);
 	assert(mod.componentOfferedForKind(def, 'holdAndWin'), `${def.id} hidden from Hold and Win`);
+	assert(
+		mod.componentOfferedForKind(def, 'holdAndWin', { potsOverlay: true }),
+		`${def.id} hidden from Hold and Win with the overlay`,
+	);
 	for (const kind of [...EXISTING_KINDS, 'myCustomKind', undefined]) {
 		assert(
 			mod.componentOfferedForKind(def, kind) === !gated,
 			`${def.id} offered wrongly to ${kind}`,
 		);
+		assert(
+			mod.componentOfferedForKind(def, kind, { holdAndWin: false, potsOverlay: false }) === !gated,
+			`${def.id} offered wrongly to ${kind} with both add-ons off`,
+		);
+		assert(
+			mod.componentOfferedForKind(def, kind, { potsOverlay: true }) === (!gated || pots),
+			`${def.id} offered wrongly to ${kind} with the pots overlay`,
+		);
+		assert(
+			mod.componentOfferedForKind(def, kind, { holdAndWin: true }),
+			`${def.id} hidden from ${kind} with a Hold and Win block`,
+		);
 	}
 }
-const pot = mod.BUILTIN_COMPONENTS.find((d) => d.id === 'potMeter');
+const byId = (id) => mod.BUILTIN_COMPONENTS.find((d) => d.id === id);
+assert(
+	mod.componentOfferedForKind(byId('potMeter'), 'bookOf', { potsOverlay: true }),
+	'a Book-of overlay host is offered the Pot Meter',
+);
+assert(
+	!mod.componentOfferedForKind(byId('respinCells'), 'bookOf', { potsOverlay: true }),
+	'…but not the respin cell tiles',
+);
+const pot = byId('potMeter');
 const fork = { ...pot, capability: undefined, scope: 'project' };
 assert(
 	!mod.componentOfferedForKind(fork, 'lines'),
 	'a saved copy of a gated built-in keeps its gate',
+);
+assert(
+	mod.componentOfferedForKind(fork, 'lines', { potsOverlay: true }),
+	'…and its gate is the built-in’s `pots`',
+);
+assert(
+	!mod.componentOfferedForKind({ ...byId('respinCounter'), capability: undefined }, 'lines', {
+		potsOverlay: true,
+	}),
+	'a saved respin counter stays off an overlay host',
 );
 
 // The template names every Hold and Win screen and pins no board shape (5×3 and 3×3 both fit).
