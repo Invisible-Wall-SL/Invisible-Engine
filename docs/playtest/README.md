@@ -56,6 +56,7 @@ reports it but does not pass/fail it (see the visual-limits note in `.claude/age
 | [ways.md](ways.md) | the `ways` win model — every completed run pays and the wins SUM |
 | [borut-remake.md](borut-remake.md) | the shipped Book of Borut remake |
 | [hw-3pots-sample.md](hw-3pots-sample.md) | Hold and Win, Pots preset (3 Pots of Egypt) |
+| [borut-pots-sample.md](borut-pots-sample.md) | Pots overlay (3 Pots preset) laid over a Book of Borut duplicate |
 | [hw-classic-sample.md](hw-classic-sample.md) | Hold and Win, Classic sticky preset (Grand) |
 | [hw-collector-sample.md](hw-collector-sample.md) | Hold and Win, Collector streak preset (Super Hotfire Diamonds) |
 
