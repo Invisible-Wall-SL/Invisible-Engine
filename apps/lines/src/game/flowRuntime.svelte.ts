@@ -50,6 +50,12 @@ import { boardDimensions } from './gameConfig';
 import type { LinesEngineKey } from './flowEngineKeys';
 import { stateHoldAndWin } from './stateHoldAndWin.svelte';
 import { jackpotMultiplier } from './holdAndWinJackpots.svelte';
+import {
+	meterFullShown,
+	meterLevelShown,
+	meterMax,
+	meterStageShown,
+} from './holdAndWinMeters.svelte';
 import { platformJackpotValue } from './platformJackpot.svelte';
 import { eventEmitter } from './eventEmitter';
 import { getFlowInterpreter } from './flowInterpreterHolder';
@@ -149,8 +155,11 @@ const jackpotAmount = (tier: string): number => jackpotMultiplier(tier) * BOOK_A
  *    the live board length (falls back to the static reel count before the first spin lands).
  *  - Hold and Win — `respinsLeft` / `respinTotal` / `featureWorth` / `activeModifiers` from
  *    `stateHoldAndWin`, and `jackpot.<tier>` from the Game Config's jackpot table.
+ *  - `meter.<id>.level|max|stage|full` — a pot as it is drawn (`holdAndWinMeters`, the same reads as
+ *    the HUD's `meter.<id>.*` sources, `full` a boolean here). A project's meters are config data, so
+ *    these are a pattern ({@link METER_READS}), declared per meter by the pots overlay add-on.
  *
- * The set is `LINES_ENGINE_KEYS` (`flowEngineKeys.ts`). Keys outside it resolve `undefined` (a
+ * The fixed set is `LINES_ENGINE_KEYS` (`flowEngineKeys.ts`). Other keys resolve `undefined` (a
  * guard over an unknown key is simply false) — the bounded-accessor line we do not cross (no
  * arbitrary state reads, §11.4). Pure-read: calling it never mutates state, so it is harmless to
  * inject for every fixture (a doc with no `$engine.*` guard never calls it).
@@ -198,8 +207,19 @@ const ENGINE_READS: Record<LinesEngineKey, () => unknown> = {
 	'platformJackpot.grand': () => platformJackpotValue('grand'),
 };
 
-export const linesEngineReader = (key: string): unknown =>
-	Object.hasOwn(ENGINE_READS, key) ? ENGINE_READS[key as LinesEngineKey]() : undefined;
+const METER_READS: Record<'level' | 'max' | 'stage' | 'full', (id: string) => number | boolean> = {
+	level: meterLevelShown,
+	max: meterMax,
+	stage: meterStageShown,
+	full: meterFullShown,
+};
+const METER_KEY = /^meter\.(.+)\.(level|max|stage|full)$/;
+
+export const linesEngineReader = (key: string): unknown => {
+	if (Object.hasOwn(ENGINE_READS, key)) return ENGINE_READS[key as LinesEngineKey]();
+	const meter = METER_KEY.exec(key);
+	return meter ? METER_READS[meter[2] as keyof typeof METER_READS](meter[1]) : undefined;
+};
 
 /**
  * Source the authored FlowDoc. ABSENT by default ⇒ the interpreter is inert (parity, §7).

@@ -9,7 +9,7 @@ import { loadFlowV2LibraryWithEtag } from '$lib/server/flowV2LibraryStorage';
 import { listComponents } from '$lib/server/componentStorage';
 import { loadDoc } from '$lib/server/editorStorage';
 import { loadGameConfigDocWithEtag } from '$lib/server/gameConfigStorage';
-import { resolveGameModes } from 'game-config';
+import { flowAddOnsOf, resolveGameModes } from 'game-config';
 import { resolveToolScope } from '$lib/server/toolScope';
 import { projectContainerEvents, syncFlowContainers } from '$lib/flowV2Projection';
 import type { PageServerLoad } from './$types';
@@ -85,10 +85,15 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 	// `derivePins` and the validator all accept it. Best-effort: a project whose scenes name no cue
 	// yields an empty list and the vocabulary is returned untouched.
 	// Inside COMPONENTS too: a cue authored in a placed component, or a placement's signal override.
+	// The Game Config's add-ons count too: a pot signal the game drives on an overlay host is not the
+	// author's to fire.
+	const { doc: configDoc } = await loadGameConfigDocWithEtag(clientKey, projectKey);
+	const addOns = flowAddOnsOf(configDoc);
 	const sceneCues = collectSceneCueNames(
 		layout.scenes ?? [],
 		components,
 		layout.gameType ?? doc.templateId,
+		addOns,
 	);
 
 	// CONTAINER SYNC (`syncFlowContainers`): every Scene-Editor screen is offered as a container.
@@ -109,7 +114,6 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 	// GAME MODES (`docs/design/hold-and-win.md` §4.5) — the project's mode registry (the built-ins plus
 	// its Game Config `modes`), offered by the "+ Mode" tab picker and the mode nodes' inspector. An
 	// unauthored config resolves to the built-ins.
-	const { doc: configDoc } = await loadGameConfigDocWithEtag(clientKey, projectKey);
 	const gameModes = resolveGameModes(configDoc ?? undefined).map((mode) => ({
 		id: mode.id,
 		label: mode.label ?? mode.id,
@@ -136,5 +140,8 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 		 *  time; a container absent from the map is unresolved and stays unchecked. */
 		containerTaps,
 		gameModes,
+		/** The Game Config add-ons (`flowAddOnsOf`) the vocabulary composes in (`withAddOns`), and
+		 *  what "＋ Add overlay steps" grafts. No block ⇒ the kind's vocabulary alone. */
+		addOns,
 	};
 };

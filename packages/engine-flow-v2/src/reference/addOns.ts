@@ -1,0 +1,283 @@
+/**
+ * Invisible Flow v2 — ADD-ON vocabulary composition and the "＋ Add overlay steps" graft
+ * (`docs/design/pots-overlay.md` §2, §4 "Flow editor").
+ *
+ * A project keeps its kind's vocabulary; a Game Config add-on block layers its own surfaces on top.
+ * {@link withAddOns} is applied wherever a vocabulary is resolved for a project — the `/flow-v2`
+ * editor, the publish gate and the game — so a Book-of flow can reference the pots and the respin
+ * feature and still publish. Nothing becomes mandatory: an event a flow leaves unwired falls through
+ * to its coded default.
+ *
+ * The add-on facts are STRUCTURAL ({@link FlowAddOns}) because this package depends on no config
+ * package: `game-config`'s `flowAddOnsOf(doc)` builds them from a normalized doc.
+ */
+
+import { flowGraphs, graphHandlesSignal } from '../runtime';
+import type { FlowDoc, Graph, TemplateVocabulary, TypeRef } from '../types';
+import { buildEntryGraph, holdAndWinModeGraph, seedContainerRefs } from './drivenSeed';
+import { HOLD_AND_WIN_FRAGMENT } from './holdAndWin';
+import { HOLD_AND_WIN_BASE_CHOREO } from './holdAndWinChoreo';
+import { INT, SYMBOL, insertAfter, type VocabFragment } from './standardVocab';
+
+/** Which add-on blocks a project's Game Config carries, and its meter ids (`resolveMeters`). */
+export interface FlowAddOns {
+	holdAndWin?: boolean;
+	potsOverlay?: boolean;
+	meters?: readonly string[];
+}
+
+const FLOAT: TypeRef = { t: 'float' };
+const STRING: TypeRef = { t: 'string' };
+const BOOL: TypeRef = { t: 'bool' };
+
+/** The named entries of a Hold and Win fragment list — the same decl objects, never copies. */
+const pick = <T extends { name: string }>(entries: readonly T[], names: readonly string[]): T[] =>
+	names.map((name) => {
+		const entry = entries.find((e) => e.name === name);
+		if (!entry) throw new Error(`addOns: the Hold and Win fragment has no '${name}'`);
+		return entry;
+	});
+
+/**
+ * The pots overlay's surfaces: its `overlayDrop` event, the pots it shares with Hold and Win (the
+ * filling event, the restatement, the pot cues and the two effects that already present them) and
+ * the types those name. The token and coin beats of the overlay layer are not here: no effect backs
+ * them yet.
+ */
+const POTS_OVERLAY_FRAGMENT: VocabFragment = {
+	structs: [
+		// `pot` names the pot a token fills; `value` / `jackpot` are a value coin's. A struct field
+		// cannot be optional, so a cell that does not carry one reads it as absent.
+		{
+			name: 'OverlayCell',
+			fields: [
+				{ name: 'reel', type: INT },
+				{ name: 'row', type: INT },
+				{ name: 'token', type: SYMBOL },
+				{ name: 'pot', type: STRING },
+				{ name: 'value', type: FLOAT },
+				{ name: 'jackpot', type: STRING },
+			],
+		},
+		...pick(HOLD_AND_WIN_FRAGMENT.structs, [
+			'HoldAndWinSymbol',
+			'HoldAndWinCell',
+			'HoldAndWinCellAmount',
+			'HoldAndWinMeterLevel',
+			'BookEvent',
+		]),
+	],
+	enums: pick(HOLD_AND_WIN_FRAGMENT.enums, ['HoldAndWinSpecial']),
+	baseEvents: [
+		{
+			name: 'overlayDrop',
+			payload: [
+				{
+					name: 'cells',
+					type: { t: 'list', of: { t: 'struct', name: 'OverlayCell' } },
+					description: 'The cells a token landed on, each with its token symbol.',
+				},
+			],
+			category: 'book',
+			description:
+				'Tokens appeared on these cells, over whatever symbol is there — after the board’s reveal, before its wins. Unwired, the game’s coded default presents them.',
+		},
+		...pick(HOLD_AND_WIN_FRAGMENT.baseEvents, ['meterUpdate', 'meterLevels']),
+	],
+	featureEvents: [],
+	actions: pick(HOLD_AND_WIN_FRAGMENT.actions, ['flyTo', 'fillMeter']),
+	cues: pick(HOLD_AND_WIN_FRAGMENT.cues, [
+		'potFill',
+		'potLevelUp',
+		'potStageUp',
+		'potFull',
+		'potsConsume',
+		'flightArrive',
+	]),
+	values: [],
+};
+
+/** `linesEngineReader`'s per-pot keys, one set per meter id. */
+const meterValues = (ids: readonly string[]): TemplateVocabulary['values'] =>
+	ids.flatMap((id) => [
+		{
+			name: `meter.${id}.level`,
+			type: INT,
+			description: `Pot '${id}': its level as drawn (a beat in flight holds it back).`,
+		},
+		{ name: `meter.${id}.max`, type: INT, description: `Pot '${id}': the level that fills it.` },
+		{
+			name: `meter.${id}.stage`,
+			type: INT,
+			description: `Pot '${id}': how many of its size stages it has reached.`,
+		},
+		{ name: `meter.${id}.full`, type: BOOL, description: `Pot '${id}': it is showing full.` },
+	]);
+
+/** The entries of `extra` whose name neither `have` nor an earlier `extra` entry declares. */
+const missing = <T extends { name: string }>(have: readonly T[], extra: readonly T[]): T[] => {
+	const names = new Set(have.map((e) => e.name));
+	const out: T[] = [];
+	for (const entry of extra) {
+		if (names.has(entry.name)) continue;
+		names.add(entry.name);
+		out.push(entry);
+	}
+	return out;
+};
+
+/**
+ * `vocab` plus the fragment's entries it does not already declare, by name per list — an entry the
+ * kind has stays the kind's. Base events follow `reveal`, feature events close the event list and the
+ * fragment's cues open the cue list, as in the mechanic's own vocabulary. Nothing new ⇒ `vocab`.
+ */
+const compose = (vocab: TemplateVocabulary, fragment: VocabFragment): TemplateVocabulary => {
+	const structs = missing(vocab.structs, fragment.structs);
+	const enums = missing(vocab.enums, fragment.enums);
+	const baseEvents = missing(vocab.events, fragment.baseEvents);
+	const featureEvents = missing([...vocab.events, ...baseEvents], fragment.featureEvents);
+	const actions = missing(vocab.actions, fragment.actions);
+	const cues = missing(vocab.cues, fragment.cues);
+	const values = missing(vocab.values, fragment.values);
+	const parts = [structs, enums, baseEvents, featureEvents, actions, cues, values];
+	if (parts.every((part) => part.length === 0)) return vocab;
+	return {
+		...vocab,
+		structs: [...vocab.structs, ...structs],
+		enums: [...vocab.enums, ...enums],
+		events: [
+			...(baseEvents.length ? insertAfter(vocab.events, 'reveal', baseEvents) : vocab.events),
+			...featureEvents,
+		],
+		actions: [...vocab.actions, ...actions],
+		cues: [...cues, ...vocab.cues],
+		values: [...vocab.values, ...values],
+	};
+};
+
+/**
+ * A kind's vocabulary with the surfaces of the add-ons a project's config carries: the respin
+ * feature for a `holdAndWin` block, the pots overlay (and its `meter.<id>.*` values) for a
+ * `potsOverlay` block. No block ⇒ `vocab` itself, identity included, so a project without add-ons
+ * resolves exactly what it did before.
+ */
+export function withAddOns(
+	vocab: TemplateVocabulary,
+	addOns: FlowAddOns | undefined,
+): TemplateVocabulary {
+	let out = vocab;
+	if (addOns?.holdAndWin) out = compose(out, HOLD_AND_WIN_FRAGMENT);
+	if (addOns?.potsOverlay) {
+		out = compose(out, { ...POTS_OVERLAY_FRAGMENT, values: meterValues(addOns.meters ?? []) });
+	}
+	return out;
+}
+
+// ---------------------------------------------------------------------------
+// The graft — "＋ Add overlay steps".
+// ---------------------------------------------------------------------------
+
+/**
+ * The base-game beats the overlay grafts, each the coded beat of its event (`fillMeter` flies the
+ * tokens into their pot). `overlayDrop` is deliberately absent: no effect presents it yet, and a
+ * handler would own the event and so suppress its coded default.
+ */
+const OVERLAY_BASE_CHOREO = { meterUpdate: HOLD_AND_WIN_BASE_CHOREO.meterUpdate };
+
+const HOLD_AND_WIN_MODE = 'holdAndWin';
+
+/** What a graft did: the new doc, and a label per thing it added (empty ⇒ the doc unchanged). */
+export interface AddOnGraft {
+	doc: FlowDoc;
+	added: string[];
+}
+
+const nodeIds = (graph: Graph, into: Set<string>): Set<string> => {
+	for (const node of graph.nodes) {
+		into.add(node.id);
+		if (node.kind === 'group') nodeIds(node.body, into);
+	}
+	return into;
+};
+
+/** The first of `base`, `base2`, `base3`… that starts no id in `ids` (ids are `<prefix>_…`). */
+const freePrefix = (ids: ReadonlySet<string>, base: string): string => {
+	for (let n = 1; ; n++) {
+		const prefix = n === 1 ? base : `${base}${n}`;
+		if (![...ids].some((id) => id.startsWith(`${prefix}_`))) return prefix;
+	}
+};
+
+/**
+ * Add the add-on steps a project's flow does not have yet, never touching an authored node or wire:
+ *  - **pots overlay**: for each overlay base event the GLOBAL graph does not handle (no `event` node
+ *    for it and no wired `gameSignals` pin — the runtime's own ownership test), a dedicated `event`
+ *    node and its coded beat. An `event` node rather than a pin on the doc's `gameSignals` node:
+ *    the runtime walks the FIRST `gameSignals` node only, and wiring an authored node is not ours.
+ *    Placed right of every existing node.
+ *  - **Hold and Win bonus**: `modes.holdAndWin` from the Hold and Win starter flow when the doc has
+ *    no such section (an existing one is left alone). Its beats show the mode's screens, and the
+ *    validator refuses a show of a container the doc does not declare, so each missing one is
+ *    declared at the seed's z — the same ref a Hold and Win project carries. A declared container
+ *    whose scene the project lacks validates and mounts nothing (the Scene Editor's "＋ Add overlay
+ *    screens" adds them), so the graft never makes a flow unpublishable.
+ *
+ * Every new id carries a prefix no id of the doc starts with. Pure: the input is not mutated, and
+ * nothing to add returns it as is, so a second graft is a no-op.
+ */
+export function graftAddOnSteps(doc: FlowDoc, addOns: FlowAddOns | undefined): AddOnGraft {
+	const ids = new Set<string>();
+	for (const { graph } of flowGraphs(doc)) nodeIds(graph, ids);
+	const added: string[] = [];
+	let graph = doc.graph;
+	let modes = doc.modes;
+	let containers = doc.containers;
+
+	const events = addOns?.potsOverlay
+		? (Object.keys(OVERLAY_BASE_CHOREO) as (keyof typeof OVERLAY_BASE_CHOREO)[]).filter(
+				(event) => !graphHandlesSignal(doc.graph, event),
+			)
+		: [];
+	if (events.length) {
+		const prefix = freePrefix(ids, 'overlay');
+		const xs = doc.graph.nodes.map((n) => n.pos.x);
+		const chains = buildEntryGraph({
+			prefix,
+			x: xs.length ? Math.max(...xs) + 400 : 0,
+			entries: events.map((event) => ({
+				node: { id: `${prefix}_on_${event}`, kind: 'event', pos: { x: 0, y: 0 }, ref: event },
+				beats: [{ k: 'steps', steps: OVERLAY_BASE_CHOREO[event] }],
+			})),
+		});
+		nodeIds(chains, ids);
+		graph = {
+			nodes: [...graph.nodes, ...chains.nodes],
+			exec: [...graph.exec, ...chains.exec],
+			data: [...graph.data, ...chains.data],
+		};
+		added.push(...events);
+	}
+
+	if (addOns?.holdAndWin && !doc.modes?.[HOLD_AND_WIN_MODE]) {
+		const section = holdAndWinModeGraph(freePrefix(ids, 'hw'));
+		modes = { ...doc.modes, [HOLD_AND_WIN_MODE]: { graph: section } };
+		added.push(`modes.${HOLD_AND_WIN_MODE}`);
+		const declared = new Set(doc.containers.map((c) => c.id));
+		const shown = section.nodes.flatMap((n) =>
+			(n.kind === 'showContainer' || n.kind === 'hideContainer') && !declared.has(n.ref)
+				? [n.ref]
+				: [],
+		);
+		const missingRefs = seedContainerRefs(shown);
+		if (missingRefs.length) {
+			containers = [...doc.containers, ...missingRefs];
+			added.push(...missingRefs.map((c) => `container ${c.id}`));
+		}
+	}
+
+	if (!added.length) return { doc, added };
+	return {
+		doc: { ...doc, graph, containers, ...(modes ? { modes } : {}) },
+		added,
+	};
+}

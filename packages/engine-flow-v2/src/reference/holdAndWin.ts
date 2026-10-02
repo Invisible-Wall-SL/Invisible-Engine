@@ -15,23 +15,35 @@
  *    sound and FX: firing one does not move the board.
  *  - **values** — `linesEngineReader`'s Hold and Win keys.
  *
- * DROPPED from the standard palette, mirroring `kindCapabilities('holdAndWin')` (engine-layout; this
- * package cannot import it, so `check:flow-publish-gate` pins the two together): the free-spin
- * surfaces (`freeSpins: false` — the feature is the respins) and stacked pictures
- * (`stackedPictures: false`). The Book-of, cascade and multiplier-board entries were never part of
- * the standard vocabulary, so a kind built on it does not have them.
+ * DROPPED from the standard palette, by {@link HOLD_AND_WIN_KIND_CAPABILITIES} (the kind's
+ * `kindCapabilities('holdAndWin')` flags — engine-layout, which this package cannot import, so
+ * `check:flow-publish-gate` pins the two together): the free-spin surfaces (`freeSpins: false` — the
+ * feature is the respins) and stacked pictures (`stackedPictures: false`). The Book-of, cascade and
+ * multiplier-board entries were never part of the standard vocabulary, so a kind built on it does
+ * not have them.
  *
  * Folded into other beats rather than declared on their own: the design's `clearColumn` is part of
  * `lightLetter` (a cleared column's coins fly into the Total Win bar), `activateMeter` of
  * `showRespinBoard` (pots drain at a meter entry), `countUpTotal` of `hideRespinBoard` (the Total
  * Win bar counts up per coin) and `awardJackpot` of `showJackpotWin`. The per-meter
- * `meter.<id>.level` is a HUD value source (`registerComponentValues`), not a flow value, because a
- * vocabulary cannot name a project's meters.
+ * `meter.<id>.*` values are not declared here, because a kind's vocabulary cannot name a project's
+ * meters; the pots overlay add-on declares them from the config (`withAddOns`, `addOns.ts`).
+ *
+ * The respin feature's own parts are {@link HOLD_AND_WIN_FRAGMENT}, which `withAddOns` also composes
+ * onto any other kind whose config carries a `holdAndWin` block.
  */
 
 import type { TemplateVocabulary, TypeRef } from '../types';
 
-import { SYMBOL, INT, list, insertAfter, standardVocabulary } from './standardVocab';
+import {
+	SYMBOL,
+	INT,
+	list,
+	insertAfter,
+	standardVocabulary,
+	STANDARD_CAPABILITY_ENTRIES,
+	type VocabFragment,
+} from './standardVocab';
 
 const FLOAT: TypeRef = { t: 'float' };
 const STRING: TypeRef = { t: 'string' };
@@ -933,26 +945,50 @@ const VALUES: TemplateVocabulary['values'] = [
 	})),
 ];
 
-/** What `kindCapabilities('holdAndWin')` turns off: free spins and stacked pictures. */
-const unusedByKind = (name: string): boolean =>
-	/freeSpin|FreeSpin|FreeGame|StackedPictures/.test(name);
+/** The Hold and Win kind's answers to the capabilities that gate standard entries
+ *  (`kindCapabilities('holdAndWin')`, pinned by `check:flow-publish-gate`). */
+export const HOLD_AND_WIN_KIND_CAPABILITIES: Readonly<
+	Record<keyof typeof STANDARD_CAPABILITY_ENTRIES, boolean>
+> = { freeSpins: false, stackedPictures: false };
+
+const unusedByKind = new Set(
+	Object.entries(STANDARD_CAPABILITY_ENTRIES).flatMap(([capability, names]) =>
+		HOLD_AND_WIN_KIND_CAPABILITIES[capability as keyof typeof STANDARD_CAPABILITY_ENTRIES]
+			? []
+			: names,
+	),
+);
+
+/** The respin feature's own vocabulary: everything the kind adds over the standard one. */
+export const HOLD_AND_WIN_FRAGMENT: VocabFragment = {
+	structs: STRUCTS,
+	enums: ENUMS,
+	baseEvents: BASE_EVENTS,
+	featureEvents: FEATURE_EVENTS,
+	actions: ACTIONS,
+	cues: CUES,
+	values: VALUES,
+};
 
 const standard = standardVocabulary({
 	templateId: 'holdAndWin',
 	symbolNames: HOLD_AND_WIN_SYMBOLS,
 });
 const used = <T extends { name: string }>(entries: T[]): T[] =>
-	entries.filter((entry) => !unusedByKind(entry.name));
+	entries.filter((entry) => !unusedByKind.has(entry.name));
 
 export const HOLD_AND_WIN_VOCAB: TemplateVocabulary = {
 	...standard,
-	structs: [...standard.structs, ...STRUCTS],
-	enums: [...standard.enums, ...ENUMS],
+	structs: [...standard.structs, ...HOLD_AND_WIN_FRAGMENT.structs],
+	enums: [...standard.enums, ...HOLD_AND_WIN_FRAGMENT.enums],
 	// The base-game events ride on a spin, so they follow `reveal`; the feature's events close the
 	// book-event list, in the order a round plays them.
-	events: [...insertAfter(used(standard.events), 'reveal', BASE_EVENTS), ...FEATURE_EVENTS],
-	actions: [...used(standard.actions), ...ACTIONS],
+	events: [
+		...insertAfter(used(standard.events), 'reveal', HOLD_AND_WIN_FRAGMENT.baseEvents),
+		...HOLD_AND_WIN_FRAGMENT.featureEvents,
+	],
+	actions: [...used(standard.actions), ...HOLD_AND_WIN_FRAGMENT.actions],
 	// The feature's cues open the list, as each mechanic's do in its own vocabulary.
-	cues: [...CUES, ...used(standard.cues)],
-	values: [...used(standard.values), ...VALUES],
+	cues: [...HOLD_AND_WIN_FRAGMENT.cues, ...used(standard.cues)],
+	values: [...used(standard.values), ...HOLD_AND_WIN_FRAGMENT.values],
 };

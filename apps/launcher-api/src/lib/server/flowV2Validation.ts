@@ -7,15 +7,21 @@
  *  - the function library is the one the export embeds (`loadFlowV2Library() ?? empty`), not the
  *    editor's built-in sample fallback — a call into a function the game won't carry is an error;
  *  - only `error` severity blocks. Warnings and hints are the editor's business.
+ *
+ * The vocabulary is composed exactly as the editor and the game compose it: the kind's, plus the
+ * project's Game Config add-ons (`withAddOns`), plus its sounds and scene cues.
  */
 import {
 	templateVocabulary,
 	validateFlowDoc,
+	withAddOns,
+	type FlowAddOns,
 	type FlowDoc,
 	type FlowIssue,
 	type FunctionLibraryDoc,
 } from 'engine-flow-v2';
 import type { ComponentDef, Scene, SoundsDoc } from 'engine-layout';
+import { flowAddOnsOf, type GameConfigDoc } from 'game-config';
 import { collectContainerTaps } from '$lib/containerTaps';
 import { projectContainerEvents, syncFlowContainers } from '$lib/flowV2Projection';
 import { collectSceneCueNames, withSceneCues } from '$lib/sceneCues';
@@ -25,6 +31,7 @@ import { loadDoc } from './editorStorage';
 import { isAuthoredFlowV2 } from './flowV2Export';
 import { loadFlowV2Library } from './flowV2LibraryStorage';
 import { loadFlowV2Doc } from './flowV2Storage';
+import { loadGameConfigDoc } from './gameConfigStorage';
 import { loadSoundsDoc } from './soundsStorage';
 
 export type FlowPublishCheck =
@@ -35,7 +42,8 @@ export type FlowPublishCheck =
 /**
  * Validate a v2 FlowDoc against a project's scenes, sound library and function library — pure, so
  * an offline check can run it over scaffold scenes. The doc is cloned before the container sync.
- * `components` are the defs the scenes place, whose own cue names a flow may fire too.
+ * `components` are the defs the scenes place, whose own cue names a flow may fire too. `addOns` are
+ * the project's Game Config add-ons (`flowAddOnsOf`); absent ⇒ the kind's vocabulary alone.
  */
 export function validateFlowV2Against(
 	stored: FlowDoc,
@@ -43,12 +51,16 @@ export function validateFlowV2Against(
 	sounds: SoundsDoc | null,
 	library: FunctionLibraryDoc,
 	components: readonly ComponentDef[] = [],
+	addOns?: FlowAddOns,
 ): FlowIssue[] {
 	const doc = JSON.parse(JSON.stringify(stored)) as FlowDoc;
 	syncFlowContainers(doc, scenes);
 	const vocab = withSceneCues(
-		withProjectSounds(templateVocabulary(doc.templateId), soundOptionsFor(sounds)),
-		collectSceneCueNames(scenes, components, doc.templateId),
+		withProjectSounds(
+			withAddOns(templateVocabulary(doc.templateId), addOns),
+			soundOptionsFor(sounds),
+		),
+		collectSceneCueNames(scenes, components, doc.templateId, addOns),
 	);
 	return validateFlowDoc(
 		doc,
@@ -59,17 +71,19 @@ export function validateFlowV2Against(
 	);
 }
 
-/** {@link validateFlowV2Against} with the project's stored scenes, sounds and the shipped library. */
+/** {@link validateFlowV2Against} with the project's stored scenes, sounds, Game Config add-ons and
+ *  the shipped library. */
 export async function validateFlowV2ForProject(
 	clientKey: string,
 	projectKey: string,
 	doc: FlowDoc,
 ): Promise<FlowIssue[]> {
-	const [layout, sounds, library, components] = await Promise.all([
+	const [layout, sounds, library, components, config] = await Promise.all([
 		loadDoc(clientKey, projectKey),
 		loadSoundsDoc(clientKey, projectKey),
 		loadFlowV2Library(),
 		listComponents({ projectKey }),
+		loadGameConfigDoc(clientKey, projectKey),
 	]);
 	return validateFlowV2Against(
 		doc,
@@ -77,6 +91,7 @@ export async function validateFlowV2ForProject(
 		sounds,
 		library ?? { version: 2, functions: [] },
 		components,
+		flowAddOnsOf(config),
 	);
 }
 
@@ -95,9 +110,10 @@ export async function checkFlowV2ForPublish(
 
 /**
  * The verdict on the flow a runtime bundle actually SHIPS — its embedded v2 flow + library, checked
- * against its own scenes. Publish runs this on the bundle it is about to freeze, because the
- * stored-doc check above ran before a ~20s assemble, and an autosave in between would otherwise
- * reach players unvalidated.
+ * against its own scenes and the add-ons of the config it ships (none shipped ⇒ the game runs its
+ * compiled config, which carries none). Publish runs this on the bundle it is about to freeze,
+ * because the stored-doc check above ran before a ~20s assemble, and an autosave in between would
+ * otherwise reach players unvalidated.
  */
 export async function checkShippedFlowV2(
 	clientKey: string,
@@ -107,6 +123,7 @@ export async function checkShippedFlowV2(
 		flowV2Library?: FunctionLibraryDoc;
 		scenes: readonly Scene[];
 		components?: readonly ComponentDef[];
+		config?: GameConfigDoc;
 	},
 ): Promise<FlowPublishCheck> {
 	if (!shipped.flowV2) return { status: 'absent' };
@@ -116,6 +133,7 @@ export async function checkShippedFlowV2(
 		await loadSoundsDoc(clientKey, projectKey),
 		shipped.flowV2Library ?? { version: 2, functions: [] },
 		shipped.components,
+		flowAddOnsOf(shipped.config),
 	).filter((i) => i.severity === 'error');
 	return errors.length ? { status: 'invalid', errors } : { status: 'valid' };
 }

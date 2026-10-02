@@ -39,6 +39,7 @@ import {
 	sceneLayerZIndex,
 } from 'engine-layout';
 import { emitterSecondsToWallMs } from 'engine-fx';
+import { flowAddOnsOf } from 'game-config';
 import type { MountedContainerRef } from 'engine-layout/svelte';
 import {
 	awaitCompleteContainerIds,
@@ -56,6 +57,7 @@ import {
 	runFlowModeTransition,
 	SCREEN_LIFECYCLE_SIGNALS,
 	templateVocabulary,
+	withAddOns,
 	type ContainerMountModel,
 	type FlowDoc as FlowDocV2,
 	type FunctionLibraryDoc,
@@ -74,6 +76,7 @@ import { eventEmitter } from './eventEmitter';
 import { stateApp } from './stateApp';
 import { stateLayoutDerived } from './stateLayout';
 import { flowEffect, flowEffectNames } from './flowEffects';
+import { getActiveGameConfig } from './gameConfig';
 import { INTENT_COMMANDS } from './flowIntentCommands';
 import { linesEngineReader } from './flowRuntime.svelte';
 import { stateModes } from './stateModes.svelte';
@@ -286,9 +289,10 @@ export const createLinesFlowV2 = (
 ): LinesFlowV2 | undefined => {
 	const doc = loadFlowV2Doc();
 	if (!doc) return undefined;
-	// Resolve the template vocabulary from the doc's `templateId` (shared registry) — the SAME
-	// contract the /flow-v2 editor authors against. Only `book-of` exists today (registry falls back).
-	const vocab = templateVocabulary(doc.templateId);
+	// Resolve the template vocabulary from the doc's `templateId` (shared registry), plus the add-ons
+	// of the config this game runs (`withAddOns`) — the SAME contract the /flow-v2 editor authors
+	// against and the publish gate checks. No add-on block ⇒ the kind's vocabulary alone.
+	const vocab = withAddOns(templateVocabulary(doc.templateId), flowAddOnsOf(getActiveGameConfig()));
 	assertVocabBacked(vocab); // dev: warn if the vocabulary declares an action the game doesn't implement.
 
 	// HALF-ON GUARD (safety net). A flow that has `showContainer`/`hideContainer` nodes (so the author

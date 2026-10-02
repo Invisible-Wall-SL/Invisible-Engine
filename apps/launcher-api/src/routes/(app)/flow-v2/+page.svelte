@@ -8,9 +8,11 @@
 		expandGroup,
 		derivePins,
 		deriveGraphPins,
+		graftAddOnSteps,
 		templateVocabulary,
 		validateFlowDoc,
 		validateFunctionDef,
+		withAddOns,
 		assignable,
 		type ContainerEventDecl,
 		type FlowComment,
@@ -100,9 +102,16 @@
 	// validation: `refResolves` requires a `fireCue` ref to BE in `vocab.cues`, so without this a
 	// flow could never fire an asset the author placed. Each name becomes a payload-less CueDecl ⇒
 	// exactly `[exec-in, exec-out]`. No author-named cues ⇒ the vocabulary is returned unchanged.
+	//
+	// First of all, the Game Config's ADD-ONS (`data.addOns`) compose their surfaces onto the kind's —
+	// a Hold and Win bonus or the pots overlay on a Book-of project — exactly as the publish gate and
+	// the game do. No add-on block ⇒ the kind's vocabulary, object identity included.
 	const vocab = $derived(
 		withSceneCues(
-			withProjectSounds(templateVocabulary(doc.templateId), data.soundOptions),
+			withProjectSounds(
+				withAddOns(templateVocabulary(doc.templateId), data.addOns),
+				data.soundOptions,
+			),
 			data.sceneCues ?? [],
 		),
 	);
@@ -1339,6 +1348,19 @@
 	const canCollapse = $derived(view.kind === 'flow' && selectedIds.length >= 2);
 	const MODE_TAB_ONLY_GLOBAL = 'Comments, Collapse and Group work on the Global tab only';
 
+	// "＋ Add overlay steps" — graft the add-on steps this flow lacks (the pots' filling beat, the
+	// Hold and Win mode tab) without touching an authored node. Offered only to a project whose Game
+	// Config carries an add-on block; one undo step, saved like any edit.
+	const hasAddOns = $derived(Boolean(data.addOns?.holdAndWin || data.addOns?.potsOverlay));
+	const graftable = $derived(hasAddOns ? graftAddOnSteps(doc, data.addOns).added : []);
+	function addOverlaySteps(): void {
+		const { doc: next, added } = graftAddOnSteps(doc, data.addOns);
+		if (!added.length) return;
+		doc = next;
+		syncCanvas();
+		markDirty();
+	}
+
 	// The inline "name this function" prompt (shown by the toolbar button) + a non-blocking
 	// error surfaced when the pure `collapseToFunction` rejects a selection.
 	let collapsing = $state(false);
@@ -1663,6 +1685,19 @@
 			>
 				＋ Comment
 			</button>
+			{#if hasAddOns}
+				<button
+					class="collapse-btn"
+					type="button"
+					disabled={!graftable.length}
+					onclick={addOverlaySteps}
+					title={graftable.length
+						? `Add the add-on steps this flow does not have yet (${graftable.join(', ')}). Nothing you authored changes.`
+						: 'Nothing to add: this flow already has every add-on step.'}
+				>
+					＋ Add overlay steps
+				</button>
+			{/if}
 			<button
 				class="collapse-btn"
 				type="button"

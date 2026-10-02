@@ -11,6 +11,7 @@ export * from './src/holdAndWinPresets';
 export * from './src/holdAndWinMock';
 export * from './src/potsOverlay';
 export * from './src/potsOverlayPresets';
+export * from './src/flowAddOns';
 export * from './src/modes';
 export * from './src/reelBehaviour';
 export * from './src/sounds';
