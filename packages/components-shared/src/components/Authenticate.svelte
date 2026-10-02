@@ -163,22 +163,18 @@
 	let balanceTimer: ReturnType<typeof setInterval> | undefined;
 
 	/**
-	 * A server whose answers carry a LIVE jackpot — the operator's platform jackpot, or a game's own
-	 * progressive pools — is also asked on the partner client's own heartbeat (every 30 s) when the
-	 * operator declared no interval, so the jackpot values it shows keep moving between rounds. The
-	 * transport reads them off the answer; only an operator-declared interval also moves the balance,
-	 * so a game without a live jackpot polls exactly as before (not at all, unless asked).
+	 * A server whose platform runs a jackpot (`platform.jackpots`) is also asked on the partner
+	 * client's own heartbeat (every 30 s) when the operator declared no interval: other players grow
+	 * that pool, so the values it shows must keep moving between rounds. The transport reads them off
+	 * the answer; only an operator-declared interval also moves the balance, so a game without one
+	 * polls exactly as before (not at all, unless asked). A game's own progressive pools need no poll
+	 * — only the player's own bets move them, and every round restates them.
 	 */
 	const LIVE_JACKPOT_HEARTBEAT_MS = 30_000;
-	const hasLiveJackpot = () => {
-		const live = globalThis as {
-			__IE_PLATFORM_JACKPOTS__?: unknown[];
-			__IE_HOLD_AND_WIN_JACKPOTS__?: unknown[];
-		};
-		return Boolean(
-			live.__IE_PLATFORM_JACKPOTS__?.length || live.__IE_HOLD_AND_WIN_JACKPOTS__?.length,
+	const hasLiveJackpot = () =>
+		Boolean(
+			(globalThis as { __IE_PLATFORM_JACKPOTS__?: unknown[] }).__IE_PLATFORM_JACKPOTS__?.length,
 		);
-	};
 
 	const startBalancePolling = () => {
 		const interval = hostNumber('balanceUpdateInterval');

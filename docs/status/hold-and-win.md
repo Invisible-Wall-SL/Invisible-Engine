@@ -697,7 +697,7 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     apps/lines as a book game on the local book mock, a full free-spin round, balance exact, 0
     errors. Play the remake on its live data per `reference_parity_free_spin_round_local`, or grant
     the read, to close it.
-11. **Try the platform jackpot on a test game (11c part 2)** — add `"jackpot": true` to a game's
+11. **Try the platform jackpot on a test game (11c part 2)** — add `"mockPlatformJackpot": true` to a game's
     `hostSettings` in `test_server/games.json` (a republish keeps it). Its mock then runs the
     platform jackpot. Force a hit from an authoring link with
     `/api/<key>/authoring/platformJackpot?sid=<sid>&hit=Grand` (`&when=feature` for a free spin or a
@@ -719,13 +719,16 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     (`platform.gameRound.jackpot {winJackpotId, win}`) becomes `platformJackpotWin {tier, amount}`,
     placed after the round's own wins (after free spins or the respin feature, before `finalWin`).
     The win is held out of the interim balance and every heartbeat (`lockedPoint`) until
-    `__IE_PLATFORM_JACKPOT_RELEASE__`. A new bet drops anything held.
+    `__IE_PLATFORM_JACKPOT_RELEASE__`. A new bet drops anything held. A hit is taken only from a
+    `play` answer and once per round (an echoed `gameRound.jackpot` is ignored).
   - **Engine** — `platformJackpot.svelte.ts`. The coded celebration is the large jackpot banner (the
     same `jackpotWin` screen step-aside), then the held money is released into the balance. It counts
     as a celebration (re-armed slam, unskippable). The cue is `platformJackpotCelebration`.
     `platformJackpot.<tier>` is a value source and a `$engine` key (money, like `balance`).
-    `platformJackpotShow` gates it. A server reporting a live jackpot is heartbeated every 30 s for
-    the values only; the balance moves only on an operator-declared interval (parity).
+    `platformJackpotShow` gates it. A server whose platform runs a jackpot is heartbeated every 30 s
+    for the values only (progressive pools are not polled); the balance moves only on an
+    operator-declared interval (parity). A flow that owns `platformJackpotWin` gets the held win
+    released at the round's `finalWin`.
   - **Scene Editor** — a new **Platform Jackpot Bar** offered to every kind (pinned in
     `test-hold-and-win-template.mjs` as a deliberate new library entry), and the platform sources in
     the jackpot tile's lists.
@@ -735,10 +738,11 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
   - **Mock** — `scripts/mock-platform-jackpot.mjs` wraps any mock: a pool per tier per session that
     bets grow and time drifts, and forced hits (`force:platformJackpot:<tier>`, or held by
     `…/platformJackpot?sid=&hit=&when=feature`). It is on with `PLATFORM_JACKPOT=1` (CLI) or a
-    project's `hostSettings.jackpot: true` (test server).
-  - **Gates** — `check-platform-jackpot.mjs` (including byte parity with the bare mock) and
-    `platformJackpot.fixture.ts` (21 checks: book base, book free spins, Hold and Win respin, parity,
-    hold and release; a mutant without the hold fails).
+    project's `hostSettings.mockPlatformJackpot: true` (test server).
+  - **Gates** — `check-platform-jackpot.mjs` (byte parity with the bare mock, replays pay once,
+    refusals keep the ledger, forcing keeps the round's close) and `platformJackpot.fixture.ts` (25
+    checks: book base, book free spins, Hold and Win respin, parity, hold and release, an echoed hit
+    taken once; mutants without the hold or the echo guard fail).
   - **Not copied:** their brand gating, the "fake spin" teaser and the take-win button.
   - **Verified live (local):** on the book game the heartbeat moved Grand $5,000 → $5,003. A Grand
     hit held for a free spin was celebrated after the free spins: banner "GRAND JACKPOT $5,010.21",

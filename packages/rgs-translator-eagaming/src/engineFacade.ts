@@ -347,7 +347,8 @@ const betModesFromOptions = (
  */
 const declaredPayLines = (sid: string): number[][] | null => {
 	const cfg = capturedConfig.get(sid) as
-		{ availablePayLines?: number[][]; paylines?: number[][] } | undefined;
+		| { availablePayLines?: number[][]; paylines?: number[][] }
+		| undefined;
 	const lines = cfg?.availablePayLines ?? cfg?.paylines;
 	return Array.isArray(lines) ? lines : null;
 };
@@ -1126,6 +1127,9 @@ const platformTierNames = new Map<string, Map<string, string>>();
 const platformWins = new Map<string, PlatformJackpotWin>();
 /** Credits held back from every balance shown until the engine releases them (`lockedPoint`). */
 const platformLocks = new Map<string, number>();
+/** Every hit already taken, by round — the partner keeps naming a round after it closes, so the same
+ *  `gameRound.jackpot` can come back on a later answer and must not be held or celebrated twice. */
+const platformHitsSeen = new Map<string, Set<string>>();
 
 const readPlatformJackpots = (raw: unknown) =>
 	Array.isArray(raw)
@@ -1157,8 +1161,12 @@ const publishPlatformJackpots = (levels: PlatformJackpotLevel[]): void => {
 	globalThis.dispatchEvent?.(new CustomEvent('ie:platformJackpots', { detail: levels }));
 };
 
-/** Every answer: the platform tiers' values, and a hit (which starts holding its win back). */
-const notePlatform = (sid: string, response: unknown): void => {
+/**
+ * Every answer: the platform tiers' values; and, on an answer to a `play`, a hit — which starts
+ * holding its win back. Only a `play` deals one, so a heartbeat, a `config` or a `collect` that names
+ * the round's jackpot again is never taken for a new hit; nor is a hit already taken for its round.
+ */
+const notePlatform = (sid: string, response: unknown, plays: boolean): void => {
 	const platform = (response as { platform?: Record<string, unknown> } | null)?.platform;
 	if (!platform || isPlay4FunError(response as Play4FunResponse)) return;
 	const tiers = readPlatformJackpots(platform.jackpots);
@@ -1169,8 +1177,14 @@ const notePlatform = (sid: string, response: unknown): void => {
 	const hit = (
 		platform.gameRound as { jackpot?: { winJackpotId?: unknown; win?: unknown } } | undefined
 	)?.jackpot;
-	if (hit && typeof hit.win === 'number' && hit.win > 0) {
+	if (plays && hit && typeof hit.win === 'number' && hit.win > 0) {
 		const id = String(hit.winJackpotId);
+		const round = (platform.gameRound as { id?: unknown }).id;
+		const key = typeof round === 'string' && round ? round : `${id}:${hit.win}`;
+		const seen = platformHitsSeen.get(sid) ?? new Set<string>();
+		platformHitsSeen.set(sid, seen);
+		if (seen.has(key)) return;
+		seen.add(key);
 		const tier = platformTierNames.get(sid)?.get(id) ?? id;
 		platformWins.set(sid, { tier, win: hit.win });
 		platformLocks.set(sid, hit.win);
@@ -1267,7 +1281,11 @@ const fetcherFor = (sid: string, rgsUrl: string) => {
 		...fetcher,
 		post: async (options: Parameters<typeof fetcher.post>[0]) => {
 			const result = await fetcher.post(options);
-			notePlatform(sid, result.response);
+			notePlatform(
+				sid,
+				result.response,
+				options.body.some((a) => a.action === 'play'),
+			);
 			return result;
 		},
 	};
@@ -1776,7 +1794,8 @@ const settleRound = (sid: string, round: PlayedRound, currency: string) => {
 	const winCents =
 		(
 			[...allEvents].reverse().find((e) => e.event === 'gameEnd')?.context as
-				{ win?: number } | undefined
+				| { win?: number }
+				| undefined
 		)?.win ?? 0;
 	// Whether the reported balance ALREADY includes the win depends on whether the round closed.
 	//

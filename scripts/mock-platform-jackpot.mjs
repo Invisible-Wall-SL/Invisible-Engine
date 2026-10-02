@@ -16,9 +16,10 @@
  * the session's next `play` (`&when=feature` — the next `play` that is not a round's opening one,
  * i.e. inside free spins or a respin feature).
  *
- * What it does not do: re-award a hit on a replayed position (a replay gets no jackpot), or move the
- * inner mock's own balance — it keeps a per-session ledger of what it paid and adds it to every
- * `platform.balance` it passes through.
+ * A REPLAY (the client resending a position the inner mock already dealt, which answers it with the
+ * same events) neither grows the pools again nor pays again: it is answered with the hit the first
+ * answer carried. The inner mock's own balance never moves — a per-session ledger of what this paid
+ * is added to every `platform.balance` passed through, refusals included.
  */
 
 import { Readable } from 'node:stream';
@@ -69,31 +70,45 @@ export function createPlatformJackpot(opts = {}) {
 			maxValue: t.max,
 		}));
 
-	const json = (res, status, body) => {
+	/** The mocks' own CORS answer: a credentialed request needs its origin echoed, not `*`. */
+	const corsHeaders = (req) =>
+		req.headers.origin
+			? {
+					'Access-Control-Allow-Origin': req.headers.origin,
+					'Access-Control-Allow-Credentials': 'true',
+					Vary: 'Origin',
+				}
+			: { 'Access-Control-Allow-Origin': '*' };
+	const json = (req, res, status, body) => {
 		const text = JSON.stringify(body);
 		res.writeHead(status, {
 			'Content-Type': 'application/json',
-			'Access-Control-Allow-Origin': '*',
+			...corsHeaders(req),
 			'Content-Length': Buffer.byteLength(text),
 		});
 		res.end(text);
 	};
+	/** The hit each dealt answer carried, by session + position + what was dealt — a replay (the same
+	 *  position answered with the same events, whatever `gid` it was resent under) finds it here. */
+	const dealt = new Map();
 
 	/** `…/platformJackpot?sid=&hit=<tier>[&when=feature]` — hold a hit for the session (`hit=` clears). */
-	const handleHit = (res, url) => {
+	const handleHit = (req, res, url) => {
 		const sid = url.searchParams.get('sid');
-		if (!sid) return json(res, 400, { error: 'missing sid' });
-		if (!allowForce) return json(res, 403, { ok: false, errors: ['forcing is off on this mock'] });
+		if (!sid) return json(req, res, 400, { error: 'missing sid' });
+		if (!allowForce)
+			return json(req, res, 403, { ok: false, errors: ['forcing is off on this mock'] });
 		const s = sessionFor(sid);
 		const name = url.searchParams.get('hit') ?? '';
 		if (!name) {
 			s.hit = null;
-			return json(res, 200, { ok: true, sid, hit: null, jackpots: jackpotsOf(s) });
+			return json(req, res, 200, { ok: true, sid, hit: null, jackpots: jackpotsOf(s) });
 		}
 		const tier = tierNamed(name);
-		if (!tier) return json(res, 400, { ok: false, errors: [`"${name}" is not a platform tier`] });
+		if (!tier)
+			return json(req, res, 400, { ok: false, errors: [`"${name}" is not a platform tier`] });
 		s.hit = { tier: tier.name, inFeature: url.searchParams.get('when') === 'feature' };
-		return json(res, 200, { ok: true, sid, hit: s.hit, jackpots: jackpotsOf(s) });
+		return json(req, res, 200, { ok: true, sid, hit: s.hit, jackpots: jackpotsOf(s) });
 	};
 
 	/** Run `inner` against `body`, capturing its answer instead of sending it. */
@@ -131,7 +146,7 @@ export function createPlatformJackpot(opts = {}) {
 			(req.method === 'POST' || req.method === 'GET') &&
 			/\/platformJackpot\/?$/.test(url.pathname)
 		) {
-			return handleHit(res, url);
+			return handleHit(req, res, url);
 		}
 		if (req.method !== 'POST' || !/\/rgs\/engine\/?$/.test(url.pathname))
 			return inner(req, res, url);
@@ -158,15 +173,20 @@ export function createPlatformJackpot(opts = {}) {
 				a.context.startsWith(FORCE_PREFIX)
 			) {
 				forced = a.context.slice(FORCE_PREFIX.length);
-				return { ...a, context: null };
+				// `''` is what the facade sends with a play: the round closes itself as an unforced one.
+				return { ...a, context: '' };
 			}
 			return a;
 		});
 		if (forced !== null && !allowForce) {
-			return json(res, 200, { error: 'forcing is off on this mock', errorCode: 101, platform: {} });
+			return json(req, res, 200, {
+				error: 'forcing is off on this mock',
+				errorCode: 101,
+				platform: {},
+			});
 		}
 		if (forced !== null && !tierNamed(forced)) {
-			return json(res, 200, {
+			return json(req, res, 200, {
 				error: `force: "${forced}" is not a platform tier`,
 				errorCode: 101,
 				platform: {},
@@ -181,31 +201,45 @@ export function createPlatformJackpot(opts = {}) {
 		}
 		const accepted = answer.status === 200 && body && !body.error && body.platform;
 		if (!accepted) {
+			if (body?.platform && typeof body.platform.balance === 'number') {
+				body.platform.balance += s.ledger;
+				const text = JSON.stringify(body);
+				res.writeHead(answer.status, {
+					...answer.headers,
+					'Content-Length': Buffer.byteLength(text),
+				});
+				return res.end(text);
+			}
 			res.writeHead(answer.status, answer.headers);
 			return res.end(answer.text);
 		}
 
 		const events = Array.isArray(body.events) ? body.events : [];
+		const key = [sid, url.searchParams.get('seq'), JSON.stringify(events)].join('|');
+		const replay = dealt.has(key);
 		const bet = events.find((e) => e.event === 'bet')?.context;
 		const opens = sent.some((a) => a?.action === 'bet');
-		if (opens && typeof bet?.total === 'number') {
+		if (!replay && opens && typeof bet?.total === 'number') {
 			for (const t of tiers) {
 				s.pools[t.name] = Math.min(t.max, s.pools[t.name] + bet.total * t.contribution);
 			}
 		}
 		const plays = sent.some((a) => a?.action === 'play');
 		const held = s.hit && plays && (!s.hit.inFeature || !opens) ? s.hit.tier : null;
-		const tier = tierNamed(forced ?? held);
+		const tier = replay ? null : tierNamed(forced ?? held);
+		let jackpot = replay ? dealt.get(key) : null;
 		if (tier && plays) {
 			const win = Math.floor(s.pools[tier.name]);
 			s.pools[tier.name] = tier.seed;
 			s.ledger += win;
 			if (held) s.hit = null;
-			body.platform.gameRound = {
-				...(body.platform.gameRound ?? {}),
-				jackpot: { winJackpotId: tier.id, win },
-			};
+			jackpot = { winJackpotId: tier.id, win };
 		}
+		if (!replay) {
+			dealt.set(key, jackpot);
+			if (dealt.size > 2000) dealt.delete(dealt.keys().next().value);
+		}
+		if (jackpot) body.platform.gameRound = { ...(body.platform.gameRound ?? {}), jackpot };
 		if (typeof body.platform.balance === 'number') body.platform.balance += s.ledger;
 		body.platform.jackpots = jackpotsOf(s);
 		const text = JSON.stringify(body);

@@ -17,7 +17,8 @@ import { waitPresentation } from './unskippablePresentation';
  * are money — engine units like a balance, not a multiple of the bet. A hit arrives as the book event
  * `platformJackpotWin {tier, amount}` after the round's own wins; the facade holds its money back from
  * the shown balance until {@link presentPlatformJackpotWin} has celebrated it and releases it.
- * A server with no platform jackpot publishes nothing, and nothing here draws or registers a value.
+ * A server with no platform jackpot publishes nothing: nothing here draws, and its four standard
+ * value sources read 0.
  */
 
 /** A platform tier as the facade publishes it: money in engine (API) units. */
@@ -63,7 +64,7 @@ const PLATFORM_JACKPOT_HOLD_MS = 3_000;
  * (`__IE_PLATFORM_JACKPOT_RELEASE__`, which answers with the money it held) and the balance readout
  * moves by exactly that. A transport that holds nothing answers 0 and nothing moves.
  */
-const releaseHeldWin = () => {
+export const releaseHeldPlatformJackpotWin = () => {
 	const release = (globalThis as { __IE_PLATFORM_JACKPOT_RELEASE__?: () => number })
 		.__IE_PLATFORM_JACKPOT_RELEASE__;
 	const held = release?.() ?? 0;
@@ -98,6 +99,6 @@ export const presentPlatformJackpotWin = async (event: { tier: string; amount: n
 		await waitPresentation(PLATFORM_JACKPOT_HOLD_MS);
 		hideHoldAndWinBanner(banner);
 	} finally {
-		releaseHeldWin();
+		releaseHeldPlatformJackpotWin();
 	}
 };

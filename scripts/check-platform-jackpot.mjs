@@ -182,6 +182,53 @@ console.log('a hit held for the feature lands in a free spin');
 	await g.close();
 }
 
+console.log('a resend is a replay: no second payout; refusals keep the ledger');
+{
+	const g = await boot({ forceTrigger: true });
+	await g.post('/rgs/engine?sid=r&seq=0', []);
+	const body = [...bet, { action: 'play', context: 'force:platformJackpot:Minor' }];
+	const first = await g.post('/rgs/engine?sid=r&seq=0', body);
+	const gid = first.platform.gameRound?.id;
+	const again = await g.post(`/rgs/engine?sid=r&seq=0&gid=${gid}`, body);
+	check(
+		JSON.stringify(again.platform.gameRound?.jackpot) ===
+			JSON.stringify(first.platform.gameRound?.jackpot),
+		'a replayed answer carries the same hit',
+		JSON.stringify(again.platform.gameRound?.jackpot),
+	);
+	check(again.platform.balance === first.platform.balance, 'and pays nothing twice');
+	check(
+		g.platform.sessions.get('r').ledger === first.platform.gameRound.jackpot.win,
+		'the ledger holds one payout',
+	);
+	await g.post(`/rgs/engine?sid=r&seq=7&gid=${gid}`, [{ action: 'collect' }]);
+	const after = await g.post('/rgs/engine?sid=r&seq=0', []);
+	const refused = await g.post('/rgs/engine?sid=r&seq=0', [
+		{ action: 'bet', context: [99, 1] },
+		{ action: 'play', context: '' },
+	]);
+	check(
+		Boolean(refused.error) && refused.platform?.balance === after.platform.balance,
+		'a refusal reports the balance with the jackpot in it, as every answer does',
+		`${JSON.stringify(refused.error)} ${refused.platform?.balance} vs ${after.platform.balance}`,
+	);
+	await g.close();
+}
+
+console.log('a forced hit closes its round like an unforced one');
+{
+	const g = await boot();
+	await g.post('/rgs/engine?sid=c&seq=0', []);
+	const plain = await g.bare('/rgs/engine?sid=c&seq=0', [...bet, { action: 'play', context: '' }]);
+	const forced = await g.post('/rgs/engine?sid=c&seq=0', [
+		...bet,
+		{ action: 'play', context: 'force:platformJackpot:Mini' },
+	]);
+	const closes = (a) => (a.events ?? []).some((e) => e.event === 'gameRoundOver');
+	check(closes(forced) === closes(plain), 'the same close as a play sent with context ""');
+	await g.close();
+}
+
 console.log('forcing off, and parity with the bare mock');
 {
 	const g = await boot({ allowForce: false });

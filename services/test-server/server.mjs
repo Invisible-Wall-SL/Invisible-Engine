@@ -289,15 +289,16 @@ const makeHoldAndWinMock = (label, grid, gameKey, runtime, twin) => {
 
 /**
  * The OPERATOR PLATFORM JACKPOT over a game's mock (`scripts/mock-platform-jackpot.mjs`), for a game
- * whose `hostSettings` declare the operator's `jackpot: true` — the field the partner's embed page
- * carries for it. Kind-independent: it wraps whichever mock deals the game. One per game and channel,
- * outside the mock, so a contract swap keeps its pools. Off (null) for every other game, which is
+ * whose `hostSettings` carry our own test switch `mockPlatformJackpot: true` — never the operator's
+ * `jackpot` field, which a copied set of real operator settings may hold. Kind-independent: it
+ * wraps whichever mock deals the game. One per game and channel, outside the mock, so a contract
+ * swap keeps its pools. Off (null) for every other game, which is
  * answered byte-identically. Forcing a hit follows the mocks' rule: a runtime game's players never
  * get it, its authoring twin and a standalone build do.
  */
 const platformJackpots = new Map();
 const platformJackpotFor = (gameKey, meta, channel) => {
-	if (meta.hostSettings?.jackpot !== true) return null;
+	if (meta.hostSettings?.mockPlatformJackpot !== true) return null;
 	const key = channel ? `${gameKey}/${channel}` : gameKey;
 	if (!platformJackpots.has(key)) {
 		platformJackpots.set(

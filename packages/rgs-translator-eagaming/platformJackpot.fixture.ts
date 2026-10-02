@@ -75,7 +75,16 @@ const holdAndWinMock = () => {
 	});
 };
 
-const start = async (opts: { platform: boolean; forceTrigger?: boolean; holdAndWin?: boolean }) => {
+/**
+ * The partner keeps naming a round after it closes, so its last `gameRound.jackpot` may come back on
+ * a later answer. `echo` makes every non-`play` answer repeat the last hit the wrapper dealt.
+ */
+const start = async (opts: {
+	platform: boolean;
+	forceTrigger?: boolean;
+	holdAndWin?: boolean;
+	echo?: boolean;
+}) => {
 	const mock = opts.holdAndWin
 		? holdAndWinMock()
 		: createMockRgs({
@@ -84,8 +93,29 @@ const start = async (opts: { platform: boolean; forceTrigger?: boolean; holdAndW
 				forceTrigger: opts.forceTrigger,
 			});
 	const platform = opts.platform ? createPlatformJackpot() : null;
-	const handle: Handle = (req, res, url) =>
-		platform ? platform.handle(req, res, url, mock.handle) : mock.handle(req, res, url);
+	let lastHit: unknown = null;
+	const echoing: Handle = (req, res, url) => {
+		if (!platform) return mock.handle(req, res, url);
+		const end = res.end.bind(res);
+		const writeHead = res.writeHead.bind(res);
+		let head: [number, Record<string, string>] = [200, {}];
+		res.writeHead = ((status: number, headers: Record<string, string>) => {
+			head = [status, headers];
+			return res;
+		}) as typeof res.writeHead;
+		res.end = ((text: string) => {
+			const answer = JSON.parse(text);
+			const hit = answer.platform?.gameRound?.jackpot;
+			if (hit) lastHit = hit;
+			else if (opts.echo && lastHit && answer.platform)
+				answer.platform.gameRound = { ...(answer.platform.gameRound ?? {}), jackpot: lastHit };
+			const out = JSON.stringify(answer);
+			writeHead(head[0], { ...head[1], 'Content-Length': String(Buffer.byteLength(out)) });
+			return end(out);
+		}) as typeof res.end;
+		return platform.handle(req, res, url, mock.handle);
+	};
+	const handle: Handle = echoing;
 	const server: Server = createServer((req, res) =>
 		handle(req, res, new URL(req.url ?? '/', `http://${req.headers.host}`)),
 	);
@@ -264,6 +294,39 @@ const types = (answer: Answer) => (answer.round?.state ?? []).map((e) => e.type)
 		'Minor',
 	);
 	check('…with its money held', (globals.__IE_PLATFORM_JACKPOT_RELEASE__?.() ?? 0) > 0, true);
+	await hush(() => tab.requestEndRound({ sessionID: sid, rgsUrl: g.rgsUrl }));
+	await g.close();
+}
+
+// ---- an echoed hit (a later answer naming the same jackpot) is never taken twice ----
+{
+	const g = await hush(() => start({ platform: true, echo: true }));
+	const tab = await openTab();
+	const sid = 'echo';
+	await hush(() => tab.requestAuthenticate({ sessionID: sid, rgsUrl: g.rgsUrl, language: 'en' }));
+	await g.hold(sid, 'Mini');
+	const first = await hush(() => bet(tab, sid, g.rgsUrl));
+	check(
+		'echo: the hit is celebrated once',
+		types(first).filter((t) => t === 'platformJackpotWin').length,
+		1,
+	);
+	await hush(() => tab.requestEndRound({ sessionID: sid, rgsUrl: g.rgsUrl }));
+	globals.__IE_PLATFORM_JACKPOT_RELEASE__?.();
+	const whole = (await hush(() => tab.requestBalance({ sessionID: sid, rgsUrl: g.rgsUrl }))).balance
+		?.amount;
+	check(
+		'echo: a heartbeat naming the hit again does not hold it back again',
+		globals.__IE_PLATFORM_JACKPOT_RELEASE__?.(),
+		0,
+	);
+	const next = await hush(() => bet(tab, sid, g.rgsUrl));
+	check(
+		'echo: the next round does not celebrate the old hit',
+		types(next).includes('platformJackpotWin'),
+		false,
+	);
+	check('echo: the heartbeat balance was whole', typeof whole === 'number' && whole > 0, true);
 	await hush(() => tab.requestEndRound({ sessionID: sid, rgsUrl: g.rgsUrl }));
 	await g.close();
 }

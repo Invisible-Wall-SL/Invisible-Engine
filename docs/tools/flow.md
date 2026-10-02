@@ -696,8 +696,8 @@ the engine celebrates it: the large jackpot banner (the same one, and the same a
 `jackpotWin` screen, a Hold and Win jackpot uses) with the Win Text **Platform jackpot** copy. Then
 the win, which the balance held back until now, is added in. The **`platformJackpotCelebration`**
 cue (`tier`, `amount`) fires as it starts, for your sound or FX. A flow that wires the event takes
-the presentation over. The engine still adds the held win once the event has been presented, and
-at the next spin at the latest.
+the presentation over. The engine then adds the held win as the round closes (its `finalWin`), or
+at the next spin on a round the server leaves open.
 
 ### Validation
 

@@ -532,7 +532,7 @@ durations in **ms**.
 | `historyClient` | This launch IS the history viewer: with the boot `config`'s `replay: true` the core replays that round instead of playing | a normal launch | **not read** — owed item 4 |
 | `showFreeRoundBet` | Free-rounds display | — | **not read** — we implement no free rounds |
 | **Not ours** | | | |
-| `jackpot` · `jpspin` | The operator's platform jackpot widget / its teaser spin — _inferred_ | — | not read: the engine shows the platform jackpot whenever the platform's answers carry one (see "The operator platform jackpot"). On the Invisible Test Server, a project's `jackpot: true` turns the mock's platform jackpot on. |
+| `jackpot` · `jpspin` | The operator's platform jackpot widget / its teaser spin — _inferred_ | — | not read: the engine shows the platform jackpot whenever the platform's answers carry one (see "The operator platform jackpot"). |
 | `deniedCountryCodes` · `allowedCountryCodes` · `certificator` | Enforced by their page/server before we load | — | not read |
 | `versionPath` · `certifiedVersionPaths` · `customJs` · `beforeGameEmbedHeadInclude` · `flash` | Build / page injection | — | not read |
 | `demo` · `allowForcing` | Added by their page (`session.demo`, outcome forcing) | — | not read |
@@ -640,8 +640,12 @@ presentation's "take win" step. It then adds it in and sends the round's `collec
   - A hit becomes the book event `platformJackpotWin {tier, amount}`. It is placed after everything
     the round itself presents, just before its `finalWin`, or last if the round is still open. So it
     plays after the free spins or the respin feature, never inside them.
+  - A hit is taken only from an answer to a `play`, and once per round: their client's platform
+    keeps naming a round after it closes, so the same `gameRound.jackpot` on a later heartbeat,
+    `config` or `collect` is not a new hit.
   - The hit's money is held out of the interim balance and every heartbeat until the engine calls
-    `__IE_PLATFORM_JACKPOT_RELEASE__`, after the celebration. The stashed final balance stays whole,
+    `__IE_PLATFORM_JACKPOT_RELEASE__`, after the celebration (or at the round's `finalWin` if a flow
+    presented it). The stashed final balance stays whole,
     because the engine applies it after the round has played. A new bet drops anything still held,
     as their client does.
 - **Engine** (`apps/lines` `platformJackpot.svelte.ts`).
@@ -669,7 +673,8 @@ presentation's "take win" step. It then adds it in and sends the round's `collec
 - A hit is forced by `play.context = "force:platformJackpot:<tier>"`, or held by
   `…/platformJackpot?sid=&hit=<tier>[&when=feature]`.
 - It is switched on by `PLATFORM_JACKPOT=1` on any mock CLI, or by a project's
-  `hostSettings.jackpot: true` on the Invisible Test Server.
+  `hostSettings.mockPlatformJackpot: true` on the Invisible Test Server (our own switch, never the
+  operator's `jackpot`).
 - Gates: `scripts/check-platform-jackpot.mjs` and `rgs-translator-eagaming/platformJackpot.fixture.ts`.
 
 ## Things we have no equivalent for
@@ -712,7 +717,9 @@ Cloudflare challenge; a server-side fetch is bounced). Each step costs at most o
    (body `[]`). Expected: `platform.jackpots` with four `{id, name, value, minValue, maxValue}`,
    `value` in credits. If a jackpot ever hits, keep that answer. Expected:
    `platform.gameRound.jackpot {winJackpotId, win}`, with `win` already inside `platform.balance`.
-   Report the shapes, and whether a hit's round still needs its `collect`.
+   Report the shapes, and whether a hit's round still needs its `collect`. That matters most for a
+   jackpot hit on a round with NO game win: the engine plays that as a losing round and sends no
+   `collect`, so a server that holds such a round open would see it resumed on the next load.
 
 If 2 or 3 fails, a lost answer inside a round ends in the reload prompt instead of a replay — never
 a double charge, since the transport takes an error as an answer and stops resending. If 4 fails
