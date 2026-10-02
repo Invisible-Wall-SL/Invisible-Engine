@@ -358,7 +358,8 @@ the byte-identical-fallback proof; all pass (the sole failing check is the pre-e
 union to a STRUCTURAL type (+ optional `spineKey`) so a config-built tier satisfies it; the coded
 entries stay assignable (un-authored path unchanged). `WinLevelAlias` widened to `string`.
 `gameConfig.ts` owns the resolution: `activeWinLevelData(level)` (config tier → `WinLevelData`, else
-the coded `winLevelMap[level]`), `activeWinLevelIsBig(level)`, `activeWinLevelChain(level)`,
+the coded `winLevelMap[level]`; a level off the ladder presents on its nearest tier, see
+[engine](engine.md) 2026-10-02), `activeWinLevelIsBig(level)`, `activeWinLevelChain(level)`,
 `publishWinLevelsToFacade()`. The win consumers route through these instead of importing the coded
 table: `bookEventHandlerMap.ts` (setWin/freeSpinEnd), `flowEffects.ts` (`winLevelDataOf`),
 `unskippablePresentation.ts` (`startsCelebration`). `winLevelData` widened to `WinLevelData | undefined`

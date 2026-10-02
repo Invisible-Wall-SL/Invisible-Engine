@@ -28,9 +28,10 @@
  *  6. A RESUMED RETRIGGERED FREE-SPIN ROUND ENDS ON ITS OWN TOTAL AND RETURNS TO IDLE. The resumed
  *     book is translated inside `requestAuthenticate`, so the game must hand the facade its authored
  *     win-tier ladder before it authenticates. Booted in that order, the outro carries the round's
- *     total at a tier the engine can present, so its count-up mounts and the round can end. Booted
- *     the old way (the ladder published only once the game mounted), the outro's level came from the
- *     facade's coded ladder, the authored one had no such level, and the outro froze on "$0.00".
+ *     total at its own tier on the authored ladder, and the round ends. Booted the old way (the
+ *     ladder published only once the game mounted), the outro's level came from the facade's coded
+ *     ladder and was off the authored one, which froze the outro on "$0.00" until the engine learned
+ *     to present such a level on the nearest tier (`engine-game` `winLadder.fixture.ts`).
  */
 
 import { readFileSync } from 'node:fs';
@@ -360,8 +361,8 @@ console.log('\n6. a resumed retriggered free-spin round ends on its own total an
 		bakedConfig: () => (template ? { ...template, winLevels: LADDER } : undefined),
 		compiledConfig: compiledLinesConfig,
 	});
-	const presentable = (level: number | undefined) =>
-		level !== undefined && game.activeWinLevelData(level) !== undefined;
+	const onLadder = (level: number | undefined) =>
+		level !== undefined && LADDER.some((_, index) => index + 1 === level);
 
 	const layout = readFileSync(
 		new URL('../../apps/lines/src/routes/+layout.ts', import.meta.url),
@@ -461,10 +462,16 @@ console.log('\n6. a resumed retriggered free-spin round ends on its own total an
 	);
 
 	if (seed && old) {
+		const oldOutro = outroOf(old.state)?.winLevel;
 		check(
-			'booted before the ladder is published, its outro has no tier to present (the frozen "$0.00")',
-			presentable(outroOf(old.state)?.winLevel),
+			'booted before the ladder is published, its outro is stamped off the authored ladder',
+			onLadder(oldOutro),
 			false,
+		);
+		check(
+			'…which no longer freezes it: the engine presents it on the top tier',
+			oldOutro === undefined ? undefined : game.activeWinLevelData(oldOutro)?.alias,
+			LADDER.at(-1)?.alias,
 		);
 
 		const feature = (await openRetriggered(seed)) as OpenFeature;
@@ -489,14 +496,14 @@ console.log('\n6. a resumed retriggered free-spin round ends on its own total an
 			game.activeWinLevel(timesStake(outro)),
 		);
 		check(
-			'…which the engine can present, so the count-up mounts and its tap arms',
-			presentable(outro?.winLevel),
+			'…a level on the authored ladder, so it is shown as stamped',
+			onLadder(outro?.winLevel),
 			true,
 		);
 		const bigWins = state.filter((e) => e.type === 'setWin');
 		check(
-			'every big win on the way is presentable too',
-			[bigWins.length > 0, bigWins.every((e) => presentable(e.winLevel))],
+			'every big win on the way is on the ladder too',
+			[bigWins.length > 0, bigWins.every((e) => onLadder(e.winLevel))],
 			[true, true],
 		);
 		check(

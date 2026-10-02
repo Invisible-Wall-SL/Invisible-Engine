@@ -1502,7 +1502,7 @@
 		bigWin: eventSignal((run) =>
 			context.eventEmitter.subscribe({
 				winUpdate: (e) => {
-					if (e.winLevelData.type === 'big') run();
+					if (e.winLevelData?.type === 'big') run();
 				},
 			}),
 		),
