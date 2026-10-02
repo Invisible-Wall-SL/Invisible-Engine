@@ -13,6 +13,7 @@ export * from './src/potsOverlay';
 export * from './src/potsOverlayMock';
 export * from './src/potsOverlayPresets';
 export * from './src/flowAddOns';
+export * from './src/addOns';
 export * from './src/modes';
 export * from './src/reelBehaviour';
 export * from './src/sounds';
