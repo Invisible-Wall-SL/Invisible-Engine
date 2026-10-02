@@ -18,6 +18,8 @@
 		kindCapabilities,
 		JACKPOT_BAR_DEF,
 		JACKPOT_TILE_DEF,
+		LETTER_TILE_DEF,
+		LETTERS_STRIP_DEF,
 		POT_METER_DEF,
 		RESPIN_COUNTER_DEF,
 		parseScopedFrameRef,
@@ -706,6 +708,8 @@
 		jackpotTile: JACKPOT_TILE_DEF,
 		jackpotBar: JACKPOT_BAR_DEF,
 		totalWinBar: TOTAL_WIN_BAR_DEF,
+		lettersStrip: LETTERS_STRIP_DEF,
+		letterTile: LETTER_TILE_DEF,
 	} satisfies Record<string, ComponentDef>;
 	type CopyType = keyof typeof COPY_TYPES;
 	const isCopyType = (type: string): type is CopyType => type in COPY_TYPES;
@@ -1626,6 +1630,8 @@
 										<option value="jackpotTile">Jackpot Tile (Hold and Win)</option>
 										<option value="jackpotBar">Jackpot Bar (Hold and Win)</option>
 										<option value="totalWinBar">Total Win Bar (Hold and Win)</option>
+										<option value="lettersStrip">Letters Strip (Hold and Win)</option>
+										<option value="letterTile">Letter Tile (Hold and Win)</option>
 									{/if}
 								</select>
 								{#if newType === 'blank'}
@@ -1714,6 +1720,25 @@
 									instead of the win meter; <strong>landPulseScale</strong> pulses it on each one.
 									Place it on the <strong>Total win bar</strong> screen in place of the Total Win
 									Bar. Listed under <strong>UI</strong>.
+								</p>
+							{:else if newType === 'lettersStrip'}
+								<p class="muted small">
+									A project copy of the built-in <strong>Letters Strip</strong>: Grand's column
+									letters, one per reel. Set its <strong>tile</strong> to your own Letter Tile copy
+									to draw every letter that way; blank keeps the game's own letters. Place it on the
+									<strong>Letters</strong> screen in place of the Letters Strip. Listed under
+									<strong>UI</strong>.
+								</p>
+							{:else if newType === 'letterTile'}
+								<p class="muted small">
+									A project copy of the built-in <strong>Letter Tile</strong>: one column letter,
+									its dim and lit art and letter inside the coded <strong>Letter</strong> part.
+									Click
+									<strong>Edit inside Letter</strong> to restyle them or add your own nodes; each
+									shows while the letter is dim or lit through
+									<strong>letter.{'{reel}'}.lit</strong>. The part pulses them as the letter lights.
+									Pick it as a Letters Strip's
+									<strong>tile</strong>. Listed under <strong>UI</strong>.
 								</p>
 							{/if}
 						</div>

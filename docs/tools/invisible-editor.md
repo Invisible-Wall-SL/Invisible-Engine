@@ -814,8 +814,8 @@ game on the next **Publish** — the same trip as the rest of your art.
   **component** select switches the component it draws (say, a Pot Meter to your own Pot copy),
   keeping its position and params.
   The list shows only what your project's game kind and add-ons use: the Hold and Win pieces
-  (Respin Counter, Jackpot Bar, Jackpot Tile, Total Win Bar, Pot Meter, Letters Strip, Wheel,
-  Respin Cell Tiles, Locked Row) appear only in a Hold and Win project or one whose Game Config
+  (Respin Counter, Jackpot Bar, Jackpot Tile, Total Win Bar, Pot Meter, Letters Strip, Letter Tile,
+  Wheel, Respin Cell Tiles, Locked Row) appear only in a Hold and Win project or one whose Game Config
   has a Hold and Win bonus; the Pot Meter also with the pots overlay. A screen that already holds
   one keeps drawing it.
   A **Jackpot Tile** reads `jackpot.<tier>`: the tier's prize at the current bet — for a
@@ -827,6 +827,9 @@ game on the next **Publish** — the same trip as the rest of your art.
   A **Total Win Bar** draws the feature total. Turn on its **catchesCoins** and the feature end's
   coins fly into it instead of the win meter; **landPulseScale** pulses it on each one. Both are
   off by default.
+  A **Letters Strip** draws Grand's letters. Its **tile** picks a component, usually your Letter
+  Tile copy, for every letter to draw as. Blank keeps the game's own letters. A param that names a
+  component is a list of your project's components.
   **Respin Cell Tiles** sets the tile drawn under every respin cell (**tileImage**, **tileTint**) and
   a **gap** between cells (a share of a cell, 0–0.45, which also insets each cell's rolling
   window). Where you drop it doesn't matter: the tiles draw at the respin board's own cells. The

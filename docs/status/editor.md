@@ -39,6 +39,9 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-02 — **A param can name a component** (Hold and Win 12c, #1006). A `component`-kind param
+  (the Letters Strip's `tile`) is a select of the project's components in Properties, minus the
+  instance's own. Detail: [hold-and-win](hold-and-win.md).
 - 2026-10-02 — **Swap a placed instance's component** (Hold and Win 12c, #1006). A **component**
   select in an instance's Properties switches the def it draws. It keeps the placement and params,
   and drops the version pin. Example: a Pot Meter to the game's Pot copy. Detail:

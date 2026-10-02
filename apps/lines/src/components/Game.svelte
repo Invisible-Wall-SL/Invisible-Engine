@@ -279,6 +279,7 @@
 	import RespinCounterPart from './RespinCounterPart.svelte';
 	import JackpotTilePart from './JackpotTilePart.svelte';
 	import TotalWinBarPart from './TotalWinBarPart.svelte';
+	import LetterTilePart from './LetterTilePart.svelte';
 	import LettersStrip from './LettersStrip.svelte';
 	import HoldAndWinWheelPart from './HoldAndWinWheelPart.svelte';
 	import RespinCellTiles from './RespinCellTiles.svelte';
@@ -522,15 +523,17 @@
 		// flips the toggle on an overlay instance ⇒ pure registration, no render change.
 		TapToContinue,
 		// The Hold and Win components' coded parts (`potMeter`, `respinCounter`, `jackpotTile`,
-		// `totalWinBar`, `lettersStrip`, `wheel`, `respinCells` and `lockedRow` defs): live pots, the
-		// counter's pulse and "+N" anchor, a tile's pulse on its tier's win, the bar's coin catch, lit
-		// letters, the config's wheel, the respin cells' tiles and an expanding board's locked cells,
-		// which the static node model can't express.
+		// `totalWinBar`, `lettersStrip`, `letterTile`, `wheel`, `respinCells` and `lockedRow` defs):
+		// live pots, the counter's pulse and "+N" anchor, a tile's pulse on its tier's win, the bar's
+		// coin catch, the config's letters and a letter's pulse as it lights, the config's wheel, the
+		// respin cells' tiles and an expanding board's locked cells, which the static node model can't
+		// express.
 		PotMeter,
 		RespinCounterPart,
 		JackpotTilePart,
 		TotalWinBarPart,
 		LettersStrip,
+		LetterTilePart,
 		HoldAndWinWheelPart,
 		RespinCellTiles,
 		RespinLockedRows,
@@ -757,11 +760,18 @@
 		activeModifiers: textSource(activeModifiersText),
 		// The collector level (1 single, 2 double, 3 triple — raised by the wheel's `extraCollect`).
 		collectorLevel: valueSource(shownCollectorLevel),
-		// Grand's column letters: how many are lit (each letter's own flag is a visibility source,
-		// below). Registered only for a config whose board ends on column letters.
+		// Grand's column letters: how many are lit, and each letter's lit flag (`letter.<reel>.lit`, 1
+		// lit, else 0), what a Letter Tile's dim and lit nodes show by. Its visibility twin is below.
+		// Registered only for a config whose board ends on column letters.
 		...(configuredLetters().length > 0
 			? { lettersLit: valueSource(() => stateLetters.lit.length) }
 			: {}),
+		...Object.fromEntries(
+			configuredLetters().map((_, reel) => [
+				`letter.${reel}.lit`,
+				valueSource(() => (stateLetters.lit.includes(reel) ? 1 : 0)),
+			]),
+		),
 		// Each persistent meter the Game Config declares: `meter.<id>.level` (the level the pot shows —
 		// the server's, ticking up as a special lands) and `meter.<id>.max`, what Phase 6's authored
 		// pots bind; `meter.<id>.stage` (how many size stages the shown level has reached) and

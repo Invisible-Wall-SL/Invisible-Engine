@@ -63,13 +63,16 @@ Mirror the existing built-ins; don't invent a third pattern without reason:
   masked progress fill, interaction state, spine choreography). Pass `boundToInstance:
   true` so the coded part renders at the instance's local origin (parity).
   A coded part can be made **skinnable** (Hold and Win 12c: the Pot, the Respin Counter, the
-  Jackpot Tile, the Total Win Bar). It takes a `skin` snippet
+  Jackpot Tile, the Total Win Bar, the Letter Tile). It takes a `skin` snippet
   prop, the author's nodes inside its `bind` node, and draws them in place of its coded drawing
   while keeping its behaviour. Per-instance art comes from `image` params. Declare it in
   `BOUND_COMPONENT_DEFAULTS.<Part>.skin` so the editors preview it and offer **Edit inside**.
   Mirror `HoldAndWinPot` / `POT_SKIN_PARAMS` (art params) or `RespinCounterPart` /
   `JackpotTilePart` / `TotalWinBarPart` (a plain-node panel moved inside its part,
-  `panelInPart`); a new flight target is opt-in, so an unauthored game flies as before; give the def
+  `panelInPart`); a new flight target is opt-in, so an unauthored game flies as before. A part
+  repeated per item (a letter per reel) renders each item as its own `<ComponentInstance>` of a
+  component a `component`-kind param names (`LettersStrip` → `letterTile`), so 12a scopes cues per
+  item. Give the def
   `standsFor` when the part registers something, so a copy without the part still registers.
   The contract is in `docs/status/hold-and-win.md`.
 

@@ -185,6 +185,8 @@ export const BOUND_COMPONENT_DEFAULTS: Record<string, BoundComponentDefault> = {
 	JackpotTilePart: { skin: { layers: [] } },
 	// The Total Win Bar's coded part, the same shape again.
 	TotalWinBarPart: { skin: { layers: [] } },
+	// A Letter Tile's coded part: the dim and lit art and letter, inside it.
+	LetterTilePart: { skin: { layers: [] } },
 	LoadingScreen: {
 		// The startup splash: the game's `loader` spine (the `title_screen`
 		// animation = the logo) over the progress bar, self-centred in

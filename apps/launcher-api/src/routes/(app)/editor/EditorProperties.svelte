@@ -2733,6 +2733,24 @@
 									>
 								{/if}
 							{/if}
+						{:else if p.kind === 'component'}
+							{@const cur = (instanceParamValue(node, p.key) as string) ?? ''}
+							<select
+								value={cur}
+								onchange={(e) => onSetInstanceParam?.(p.key, e.currentTarget.value || undefined)}
+							>
+								<option value=""
+									>{typeof p.default === 'string' && p.default
+										? `(default: ${p.default})`
+										: '(none)'}</option
+								>
+								{#each componentDefs.filter((c) => c.id !== node.componentId) as c (c.id)}
+									<option value={c.id}>{c.name}</option>
+								{/each}
+								{#if cur && !componentDefs.some((c) => c.id === cur)}
+									<option value={cur}>{cur} (not in this project)</option>
+								{/if}
+							</select>
 						{:else if p.kind === 'symbolState'}
 							{@const cur = (instanceParamValue(node, p.key) as string) ?? ''}
 							<select

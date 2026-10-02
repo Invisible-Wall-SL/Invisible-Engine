@@ -54,7 +54,7 @@ titled **"Hold and win game pipeline"**.
 | 11c | Progressive + operator platform jackpots (design §7) | merged, live (`lines@2342c815d074`) — owed: the live Borut round and the partner's platform-jackpot confirmation (Owner checklist 10–11) | Hold and Win Phase 11c — progressive + platform jackpots | part 1: #991 · part 2: #999 |
 | 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | merged (`97652ca9`; the runtime release passed) — owed: a live check on `hw-3pots-sample` (Open items) | Hold and Win Phase 12a | #1003 |
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | merged — whole pipeline (engine → sources → Scene + Component Editor → guides); owed: the live check (Open items) | Hold and Win Phase 12b value bindings | #1005 |
-| 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — built on #1006: the Pot (art params, nodes inside, `standsFor`, fill on 12b's `fillMaskRect`), the Respin Counter and the Jackpot Tile (their panels inside a coded part), a Jackpot Bar copy, a **component** swap on instances, and the Total Win Bar (its part can catch the coins). Next: the done-when on `hw-3pots-sample`, then letters, wheel, cell tiles | Hold and Win Phase 12c skinnable parts | #1006 |
+| 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — built on #1006: the Pot (art params, nodes inside, `standsFor`, fill on 12b's `fillMaskRect`), the Respin Counter and the Jackpot Tile (their panels inside a coded part), a Jackpot Bar copy, a **component** swap on instances, the Total Win Bar (its part can catch the coins), and the Letters Strip (each letter a Letter Tile instance). Next: the done-when on `hw-3pots-sample`, then the wheel and cell tiles | Hold and Win Phase 12c skinnable parts | #1006 |
 
 ## Current state
 
@@ -181,6 +181,28 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
       stand-in. A bar saved before the part gets both params back by id, off. The stand-in catches
       but never pulses, because the def's own nodes are not inside it, so `landPulseScale` does
       nothing there (the counter's stand-in is the same).
+  - **The Letters Strip draws each letter as a Letter Tile instance.** The strip was a pure coded
+    part (`LettersStrip`, one coded letter per reel). The coded row stepped aside only for an
+    instance whose id was `lettersStrip`, so a renamed copy drew beside it.
+    - **Why an instance per letter, not nodes inside the strip:** a template inside the strip's part,
+      drawn per letter, would be one component instance. Cues are wired per instance and keyed by
+      node id, so a **Letter lit** cue would play on every letter. The Jackpot Bar already holds
+      separate tile instances, and 12a's `reel` scope needs the same.
+    - **The tile:** `LETTER_TILE_DEF` (`letterTile`) puts its dim and lit art (`tileImage`,
+      `litTileImage`) and its dim and lit letter inside a `Letter` part (`LetterTilePart`). Each
+      node shows in one state through a 12b `visible` binding on `letter.{reel}.lit`. The letters
+      copy the coded letter's font, colours, stroke and alpha. The tile is scoped by `reel`, and the
+      part pulses it when its letter lights (`pulseScale`, 1.6 like the coded letter). With nothing
+      inside, it draws the coded letter. It registers nothing, so it stands for no part.
+    - **The strip:** a new `tile` param, kind `component`, names the component each letter draws
+      as, fed `reel` and `letter`. Blank (the default), or a component that is not registered, draws
+      the coded letters (parity). The part counts in under `LETTERS_STRIP_MOUNT`, so the coded row
+      steps aside for any copy, whatever its id. The def `standsFor` its part.
+    - **New pieces:** the `component` param kind (Properties lists the project's components, minus
+      the instance's own), and the game's `letter.<reel>.lit` VALUE source (1 or 0). The latter is
+      beside the visibility source of the same name, because a 12b binding reads values.
+    - **Nesting limit:** a tile is a second-level instance, so a strip placed inside another
+      component exceeds `MAX_COMPONENT_DEPTH` and draws no tiles. The Jackpot Bar has the same limit.
 
 - 2026-10-02 — **Owner: the pots as an overlay on any kind** (session "3 pots overlay mechanic").
   Its own plan and hub: [design/pots-overlay](../design/pots-overlay.md),
@@ -808,7 +830,9 @@ Hold and Win beats prints copy.
   - **The total win bar is done** (Decisions). Open on it, for the owner: whether a new project's
     reference bar should catch the coins (`catchesCoins` on in `holdAndWinReferenceLayout`). It is
     off today, so every game keeps flying them to the win meter.
-  - **The other parts, same pattern:** letters strip, wheel, respin cell tiles.
+  - **The letters strip is done** (Decisions). Open on it: the editor shows the strip as its grey
+    part box, not the letters or tiles, because the editor does not know the config's letters.
+  - **The other parts, same pattern:** wheel, respin cell tiles.
   - **A Platform Jackpot Bar copy** has no create type. Its tiles already get the part, and the
     component swap works on any bar copy.
   - **Editor limits:**
@@ -966,6 +990,38 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 
 ## Recent changes
 
+- 2026-10-02 — **Phase 12c: the Letters Strip skinned** (#1006). Contract: Decisions, "The Letters
+  Strip draws each letter as a Letter Tile instance".
+  - **Engine:**
+    - `LETTER_TILE_DEF` with its `Letter` part.
+    - The strip's `tile` param, `standsFor` and `LETTERS_STRIP_MOUNT`.
+    - The `component` param kind.
+    - The `letter.{reel}.lit` binding source.
+    - The `LetterTilePart` catalog entry.
+  - **Game:**
+    - `LettersStrip` draws the coded letters or one tile instance per letter, counts in under
+      `LETTERS_STRIP_MOUNT`, and stands in.
+    - `LetterTilePart`: skin, pulse, coded fallback.
+    - `HoldAndWinLetters` steps aside on the mount key.
+    - The `letter.<reel>.lit` value sources.
+  - **Editors:**
+    - The Properties `component` select.
+    - **Letters Strip** / **Letter Tile (Hold and Win)** create types.
+  - **Verified:**
+    - `test-letters-strip-part.mjs` (32 assertions): the tile's shape, state bindings, the coded
+      look, scope, pulse and source; the strip's param, parity default, `standsFor`, mount key, and
+      an old strip's upgrade.
+    - `test-hold-and-win-template.mjs` now lists `letterTile` as gated.
+    - Every engine-layout fixture plus the launcher's `check:*` gates, `check:undefined-names`,
+      `check:path-imports` and `verify-pot-meter-mount` pass.
+    - Storybook `MODE_HOLD_AND_WIN/skinned letters strip (12c)`, on the classic preset's GRAND,
+      lighting reel 2:
+      - The built-in strip draws the coded letters.
+      - A renamed copy drawing the Letter Tile matches the coded letters' positions and colours,
+        and pulses the same.
+      - A tile with a node gated on **Letter lit** shows it over A only.
+      - A missing tile falls back to the coded letters.
+      - Every copy counts in as the letters row.
 - 2026-10-02 — **Phase 12c: the Total Win Bar skinned** (#1006). Contract: Decisions, "The Total
   Win Bar can catch the coins".
   - **Engine:**

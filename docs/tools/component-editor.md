@@ -70,9 +70,9 @@ Open **Invisible Component Editor** from the launcher home. The home state shows
   - **Free-Spin Counter** — a project copy of the built-in counter (frame, **FREE SPIN**
     caption and **X OF Y** value), already wired to the engine. Swap the frame art,
     restyle the text or edit the label, then save.
-  - **Pot Meter**, **Respin Counter**, **Jackpot Tile**, **Jackpot Bar** and **Total Win Bar
-    (Hold and Win)** — project copies of those built-ins, all but the Jackpot Bar with their coded
-    part. Put your own nodes inside the part (see
+  - **Pot Meter**, **Respin Counter**, **Jackpot Tile**, **Jackpot Bar**, **Total Win Bar**,
+    **Letters Strip** and **Letter Tile (Hold and Win)** — project copies of those built-ins, all
+    but the Jackpot Bar and the Letters Strip with their coded part. Put your own nodes inside the part (see
     [Skin a coded part](#skin-a-coded-part)). Offered in a Hold and Win project, or one whose
     Game Config has a Hold and Win bonus; the Pot Meter also with the pots overlay.
 - **Library** — existing components grouped by category. Click a row to open it for
@@ -428,8 +428,9 @@ hold time and the win-level sound cues) at boot.
 ## Skin a coded part
 
 Some built-ins draw a **coded part**: the game draws it, and the canvas shows a grey stand-in box.
-The Hold and Win **Pot Meter**, **Respin Counter**, **Jackpot Tile** and **Total Win Bar** have
-parts you can skin.
+The Hold and Win **Pot Meter**, **Respin Counter**, **Jackpot Tile**, **Total Win Bar** and
+**Letter Tile** have parts you can skin.
+
 The Pot takes two ways, which you can use together.
 
 **1. Pick art on the placed pot.** Select a Pot Meter instance in the Scene Editor. Its
@@ -507,6 +508,22 @@ settings on the placement, both off by default:
 - **landPulseScale** — the bar pulses on each coin that lands (1 = still).
 
 On the **Total win bar** screen, switch the Total Win Bar's **component** to yours.
+
+**The Letters Strip and the Letter Tile.** The strip draws Grand's letters, one per reel. To skin
+them, create a **Letter Tile (Hold and Win)** and click **Edit inside Letter ›**. Inside sit the
+art and the letter for each state:
+
+- **Dim and lit art.** Pick them as **tileImage** and **litTileImage**.
+- **Dim and lit letter**, styled like the game's own letters.
+
+Each node shows while its letter is dim or lit, through a [Bind to
+value](#3b-drive-a-node-from-a-number-bind-to-value) on **Letter lit** (`letter.{reel}.lit`).
+Give your own nodes the same binding. The part pulses the tile as its letter lights
+(**pulseScale**). A cue on **Letter lit** inside the tile plays on that letter only.
+
+Then create a **Letters Strip (Hold and Win)**, or select the strip on the **Letters** screen, and
+set its **tile** to your Letter Tile. Every letter then draws as your tile. Blank keeps the game's
+own letters. Swap the strip's **component** to your copy if you made one.
 
 ## Traps
 

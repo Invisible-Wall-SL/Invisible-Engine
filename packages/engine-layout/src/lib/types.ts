@@ -1409,6 +1409,7 @@ export interface ComponentDef {
  *   bundle selected by a sibling `spine`-kind param (named in {@link ComponentParam.spineParam}).
  * - `symbolState` — the fixed `SYMBOL_STATES` set (./symbolStates) the Invisible Symbols State
  *   Machine authors as its grid columns.
+ * - `component` — a component id, picked from the project's components (the Letters Strip's tile).
  */
 export const COMPONENT_PARAM_KINDS = [
 	'number',
@@ -1421,6 +1422,7 @@ export const COMPONENT_PARAM_KINDS = [
 	'spineSlot',
 	'spineBone',
 	'symbolState',
+	'component',
 ] as const;
 
 /**

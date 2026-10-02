@@ -216,7 +216,7 @@ for (const id of PLACED) {
 // Kind gating: offered to Hold and Win only; every other built-in still offered everywhere. The pot
 // parts are gated on `pots`, so the pots overlay add-on (docs/design/pots-overlay.md §4) offers
 // them to any kind, and nothing else of the feature; a Hold and Win block offers all of it.
-const GATED = [...PLACED, 'jackpotTile'];
+const GATED = [...PLACED, 'jackpotTile', 'letterTile'];
 const POTS = ['potMeter'];
 for (const def of mod.BUILTIN_COMPONENTS) {
 	const gated = GATED.includes(def.id);

@@ -2374,11 +2374,106 @@ export const POT_METER_DEF: ComponentDef = {
 	],
 };
 
+/** The coded column letter's font size: 0.36 of a 120 px cell (`HoldAndWinLetter`). */
+const LETTER_FONT_SIZE = 43.2;
+
+/** A column letter in one state, drawn the way the coded letter draws it in that state. */
+const letterText = (lit: boolean): LayoutNode => ({
+	id: lit ? 'letterTile-lit' : 'letterTile-dim',
+	label: lit ? 'Letter (lit)' : 'Letter (dim)',
+	kind: 'text',
+	x: 0,
+	y: 0,
+	anchor: { x: 0.5, y: 0.5 },
+	text: 'G',
+	...(lit ? {} : { alpha: 0.45 }),
+	style: {
+		fontFamily: 'Arial',
+		fontWeight: 'bold',
+		fontSize: LETTER_FONT_SIZE,
+		fill: lit ? 0xffd24a : 0x6b6b6b,
+		stroke: { color: lit ? 0x7a3d00 : 0x000000, width: 6 },
+	},
+	paramBindings: { text: 'letter' },
+	valueBindings: [
+		{ target: 'visible', source: 'letter.{reel}.lit', ...(lit ? {} : { below: true }) },
+	],
+	preview: { style: 'text', textParam: 'letter' },
+});
+
+/** The art behind a column letter in one state (`tileImage` / `litTileImage`; none ⇒ nothing). */
+const letterArt = (lit: boolean): LayoutNode => ({
+	id: lit ? 'letterTile-litArt' : 'letterTile-art',
+	label: lit ? 'Art (lit)' : 'Art (dim)',
+	kind: 'sprite',
+	x: 0,
+	y: 0,
+	anchor: { x: 0.5, y: 0.5 },
+	assetKey: '',
+	width: 100,
+	height: 100,
+	paramBindings: { region: lit ? 'litTileImage' : 'tileImage' },
+	valueBindings: [
+		{ target: 'visible', source: 'letter.{reel}.lit', ...(lit ? {} : { below: true }) },
+	],
+	preview: { w: 100, h: 100, style: 'tile' },
+});
+
+/**
+ * One of Grand's column letters, for a Letters Strip to draw per reel (its `tile` param). SKINNABLE
+ * (Phase 12c), the Jackpot Tile's pattern: the dim and lit art and letter sit INSIDE the coded
+ * `Letter` part, which pulses them when the letter lights (`pulseScale`, the coded letter's 1.6 by
+ * default). Each node shows in one state through a 12b `visible` binding on `letter.{reel}.lit`.
+ * The strip feeds each tile its `reel` and `letter`; the tile is scoped by its reel (12a), so a cue
+ * on **Letter lit** inside it plays on its own letter only. With nothing inside, the part draws the
+ * coded letter. It registers nothing, so it stands for no part.
+ */
+export const LETTER_TILE_DEF: ComponentDef = {
+	id: 'letterTile',
+	name: 'Letter Tile',
+	version: 1,
+	scope: 'shared',
+	category: 'ui',
+	capability: 'holdAndWin',
+	signalScope: 'reel',
+	signalScopeKind: 'reel',
+	root: {
+		id: 'letterTile-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			{
+				...codedPart('letterTile-letter', 'Letter', 'LetterTilePart', 100, 100),
+				children: [letterArt(false), letterArt(true), letterText(false), letterText(true)],
+			},
+		],
+	},
+	params: [
+		{ key: 'reel', kind: 'number', default: 0, label: 'column (0 = the first; the strip sets it)' },
+		{ key: 'letter', kind: 'string', default: 'G', label: 'the letter (the strip sets it)' },
+		{ key: 'tileImage', kind: 'image', label: 'art behind the letter while dim' },
+		{ key: 'litTileImage', kind: 'image', label: 'art behind the letter once lit' },
+		{
+			key: 'pulseScale',
+			kind: 'number',
+			default: 1.6,
+			label: 'pulse when the letter lights (1 = none)',
+		},
+	],
+};
+
+/** What a mounted Letters Strip counts in under, whatever its id, so the coded row steps aside. */
+export const LETTERS_STRIP_MOUNT = 'lettersStrip';
+
 /**
  * Grand's column letters — one per reel, lit as its column completes. The coded `LettersStrip`
  * spells the config's `boardEnd.letters` at `spacing` px (the cell pitch, so the strip lines up with
- * the reels when centred on the board); the coded row steps aside while this is mounted. A project
- * whose board end is not column letters draws nothing.
+ * the reels when centred on the board), and counts itself in as the letters row so the coded row
+ * steps aside. SKINNABLE (Phase 12c): `tile` names a component each letter draws as (a project's
+ * Letter Tile copy); blank, the default, draws the coded letters. It `standsFor` its part, so a
+ * strip drawn without it still steps the coded row aside. A project whose board end is not column
+ * letters draws nothing.
  */
 export const LETTERS_STRIP_DEF: ComponentDef = {
 	id: 'lettersStrip',
@@ -2394,7 +2489,16 @@ export const LETTERS_STRIP_DEF: ComponentDef = {
 		y: 0,
 		children: [codedPart('lettersStrip-letters', 'Letters', 'LettersStrip', 600, 70)],
 	},
-	params: [{ key: 'spacing', kind: 'number', default: 120, label: 'letter pitch (px)' }],
+	params: [
+		{ key: 'spacing', kind: 'number', default: 120, label: 'letter pitch (px)' },
+		{
+			key: 'tile',
+			kind: 'component',
+			default: '',
+			label: 'each letter drawn as (blank = the coded letters)',
+		},
+	],
+	standsFor: 'LettersStrip',
 };
 
 /**
@@ -2488,6 +2592,7 @@ export const HOLD_AND_WIN_COMPONENTS: ComponentDef[] = [
 	TOTAL_WIN_BAR_DEF,
 	POT_METER_DEF,
 	LETTERS_STRIP_DEF,
+	LETTER_TILE_DEF,
 	WHEEL_DEF,
 	RESPIN_CELLS_DEF,
 	LOCKED_ROW_DEF,

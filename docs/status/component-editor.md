@@ -18,7 +18,7 @@ Shipped capabilities on `main`:
 - **Promote to shared** (2026-06-24) — holders of the `componentPublish` capability (admin by default) get a top-bar button writing a `_shared/editor-components/<id>.json` snapshot; enforced server-side. The kept draft stays project-scoped and still shadows the shared copy.
 - **Skinnable coded parts** (2026-10-02, Hold and Win 12c, #1006). A coded part whose catalog entry
   declares a `skin` takes the author's own nodes inside it: the Pot, the Respin Counter, the Jackpot
-  Tile and the Total Win Bar. Those nodes draw in place of the coded drawing, and the part keeps its
+  Tile, the Total Win Bar and the Letter Tile. Those nodes draw in place of the coded drawing, and the part keeps its
   behaviour. The Pot also takes art params. The bar's **Edit inside ‹part› ›** edits the part's
   children, and the canvas previews the art and the children. A **(Hold and Win)** create type per
   part makes a project copy.
@@ -36,6 +36,13 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-02 — **The Letters Strip is skinnable** (Hold and Win 12c, #1006).
+  - New **Letter Tile** built-in: its art and letter for each state sit inside a `Letter` part
+    (**Edit inside Letter ›**).
+  - The strip's new `tile` param, a `component`-kind param, draws every letter as that tile.
+  - **Letters Strip** and **Letter Tile (Hold and Win)** create types.
+
+  Detail: [hold-and-win](hold-and-win.md).
 - 2026-10-02 — **The Total Win Bar is skinnable** (Hold and Win 12c, #1006). Its panel nodes sit
   inside a `Bar` part (**Edit inside Bar ›**), with a new **Total Win Bar (Hold and Win)** create
   type. Detail: [hold-and-win](hold-and-win.md).
