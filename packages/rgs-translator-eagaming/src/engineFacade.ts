@@ -347,8 +347,7 @@ const betModesFromOptions = (
  */
 const declaredPayLines = (sid: string): number[][] | null => {
 	const cfg = capturedConfig.get(sid) as
-		| { availablePayLines?: number[][]; paylines?: number[][] }
-		| undefined;
+		{ availablePayLines?: number[][]; paylines?: number[][] } | undefined;
 	const lines = cfg?.availablePayLines ?? cfg?.paylines;
 	return Array.isArray(lines) ? lines : null;
 };
@@ -1556,6 +1555,15 @@ export const requestBet = async (options: {
 	if (cfg) runConfigCrossCheck(options.sessionID, cfg);
 
 	const round = await playOutRound(fetcher, eventsOf(first.response), first.response);
+	// A feature cut short has no `gameEnd`, so presenting it parks the player inside it for good. The
+	// reload this asks for boots on the server's truth: the round resumed where it stands, or — if the
+	// server no longer holds it — its balance.
+	if (round.refused) {
+		console.error(
+			`[engine-facade] the server refused a step of round ${session.gid ?? '(unbound)'} mid-feature: ${round.refusal} — asking the player to reload`,
+		);
+		fetcher.abandon(`the server refused a step of the feature: ${round.refusal}`);
+	}
 	return settleRound(options.sessionID, round, options.currency);
 };
 
@@ -1565,10 +1573,10 @@ const eventsOf = (response: Play4FunResponse | null): Play4FunBookEvent[] =>
 interface PlayedRound {
 	events: Play4FunBookEvent[];
 	last: Play4FunResponse | null;
-	/** A request inside the round was refused. Driving stops there, and the round stays open for
-	 *  `requestEndRound`'s own `collect`. `requestBet` presents what it has regardless; a resume gives
-	 *  up, since a round it cannot finish is not one it should show. */
+	/** A request inside the feature was refused (its error, when the server gave one). Driving stops
+	 *  there: `requestBet` gives the session up for a reload, a resume boots without the round. */
 	refused: boolean;
+	refusal?: string;
 }
 
 /**
@@ -1598,6 +1606,9 @@ const playOutRound = async (
 		// round on a balance of 0.
 		if (!r.response || isPlay4FunError(r.response)) {
 			round.refused = true;
+			round.refusal = isPlay4FunError(r.response)
+				? `${r.response.error} (code ${r.response.errorCode})`
+				: `HTTP ${r.status}`;
 			return;
 		}
 		round.events.push(...eventsOf(r.response));
@@ -1631,8 +1642,7 @@ const settleRound = (sid: string, round: PlayedRound, currency: string) => {
 	const winCents =
 		(
 			[...allEvents].reverse().find((e) => e.event === 'gameEnd')?.context as
-				| { win?: number }
-				| undefined
+				{ win?: number } | undefined
 		)?.win ?? 0;
 	// Whether the reported balance ALREADY includes the win depends on whether the round closed.
 	//

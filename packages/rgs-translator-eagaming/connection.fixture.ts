@@ -21,6 +21,9 @@
  *  9. "NO COLLECT" IS A LOSING SPIN: in the partner's no-auto-collect mode a zero-win round is
  *     closed by the server in the bet's own answer, so there is nothing to collect — the partner's
  *     client sends none either. Every round still ends closed on the server, to the cent.
+ * 10. A REFUSAL MID-FEATURE is not presented as a feature with no end — the player was left parked
+ *     inside it (bookofborutremake, 2026-10-02). The session is given up for a reload, nothing more
+ *     is sent, and the reload resumes the round the server still holds and settles it, to the cent.
  */
 
 import { createServer, type Server } from 'node:http';
@@ -90,6 +93,10 @@ const partnerWins = await serve(
 		startBalance: START,
 	}),
 );
+// Every base spin enters the free-spin feature.
+const feature = await serve(
+	createBookMock({ label: 'feature', seed: 'conn', forceTrigger: true, startBalance: START }),
+);
 // Our own test server's default: every round closes in the bet's own answer.
 const autoCollect = await serve(
 	createBookMock({ label: 'auto', seed: 'conn', bigWin: true, startBalance: START }),
@@ -98,14 +105,7 @@ const autoCollect = await serve(
 // ---------- a lossy network ----------
 
 type Fault =
-	| 'pass'
-	| 'hang'
-	| 'hang-after'
-	| 'late'
-	| 'drop-before'
-	| 'drop-after'
-	| '503'
-	| 'empty';
+	'pass' | 'hang' | 'hang-after' | 'late' | 'drop-before' | 'drop-after' | '503' | 'empty';
 interface Wire {
 	faults: Fault[];
 	sent: string[];
@@ -563,8 +563,73 @@ console.log('\n9. "no collect" is a losing spin — the server closed it in the 
 	check('the wallet is the server’s', partner.held(sid).balance, expected);
 }
 
+console.log('\n10. a refusal mid-feature asks for a reload, and the reload settles the round');
+{
+	const sid = 'S-refused-feature';
+	const url = rgsUrl(feature.base);
+	// The overlay listens on `window`; give the facade one for this case.
+	Object.assign(globalThis, {
+		window: globalThis,
+		dispatchEvent: windowEvents.dispatchEvent.bind(windowEvents),
+	});
+	const connection = () =>
+		(globalThis as { __IE_RGS_CONNECTION__?: { state: string } }).__IE_RGS_CONNECTION__?.state;
+	const realFetch = globalThis.fetch;
+	const sent: string[] = [];
+	let freeSpins = 0;
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		const body = JSON.parse(String(init?.body ?? '[]')) as { action: string }[];
+		if (body.length) sent.push(body.map((a) => a.action).join('+'));
+		// The third free spin meets a server that lost the round, as a rebuilt mock once did.
+		if (body.length === 1 && body[0].action === 'play' && ++freeSpins === 3) {
+			return new Response(
+				JSON.stringify({ result: 0, error: 'play without bet', errorCode: 110, platform: {} }),
+				{ status: 200 },
+			);
+		}
+		return realFetch(input, init);
+	}) as typeof fetch;
+
+	const tab = await openTab();
+	await tab.requestAuthenticate({ sessionID: sid, rgsUrl: url, language: 'en' });
+	const verdict = await rejection(
+		tab.requestBet({ sessionID: sid, rgsUrl: url, currency: 'USD', amount: 1, mode: 'BASE' }),
+	);
+	check(
+		'the bet asks for a reload instead of presenting a feature with no end',
+		verdict,
+		'Play4FunConnectionError:refused',
+	);
+	check('…the overlay is told', connection(), 'failed');
+	check('…the round is still open on the server', !!feature.held(sid).round, true);
+	const sentBefore = sent.length;
+	check(
+		'…and nothing more is sent from this tab',
+		[await rejection(tab.requestEndRound({ sessionID: sid, rgsUrl: url })), sent.length],
+		['Play4FunConnectionError:unreachable', sentBefore],
+	);
+
+	globalThis.fetch = realFetch;
+	const reload = await openTab();
+	const boot = (await reload.requestAuthenticate({
+		sessionID: sid,
+		rgsUrl: url,
+		language: 'en',
+	})) as Answer & { round?: { active?: boolean } };
+	check('the reload resumes the round', boot.round?.active, true);
+	check('…plays it out and closes it on the server', feature.held(sid).round, null);
+	const end = (await reload.requestEndRound({ sessionID: sid, rgsUrl: url })) as Answer;
+	check(
+		'…and ends on the server’s wallet, the feature win credited once',
+		end.balance?.amount,
+		feature.held(sid).balance * 10_000,
+	);
+	Reflect.deleteProperty(globalThis, 'window');
+}
+
 partner.server.close();
 partnerWins.server.close();
+feature.server.close();
 autoCollect.server.close();
 console.log(failures ? `\n${failures} FAILED` : '\nall passed');
 process.exit(failures ? 1 : 0);
