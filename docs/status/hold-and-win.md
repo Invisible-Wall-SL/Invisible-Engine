@@ -53,7 +53,7 @@ titled **"Hold and win game pipeline"**.
 | 11b | Board expansion — rows unlock (design §7; after 11a) | merged, live (`lines@8fe81dbefddc`); follow-ups (reserve rows at scaffold / in the editor, end-state doc) in a follow-up PR | H&W Phase 11b — board expansion | #1002 |
 | 11c | Progressive + operator platform jackpots (design §7) | merged, live (`lines@2342c815d074`) — owed: the live Borut round and the partner's platform-jackpot confirmation (Owner checklist 10–11) | Hold and Win Phase 11c — progressive + platform jackpots | part 1: #991 · part 2: #999 |
 | 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | not started | — | — |
-| 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | in progress | Hold and Win Phase 12b value bindings | — |
+| 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | built — whole pipeline (engine → sources → Scene + Component Editor → guides) on `claude/happy-clarke-b718m4`, PR pending merge; owed: the live check (Open items) | Hold and Win Phase 12b value bindings | — |
 | 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | not started | — | — |
 
 ## Current state
@@ -78,6 +78,39 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
 
 ## Decisions & findings
 
+- 2026-10-02 — **Phase 12b contract (value bindings)** (session "Hold and Win Phase 12b value
+  bindings"). Pinned by `packages/engine-layout/scripts/test-value-bindings.mjs`.
+  - **Schema:** `BaseNode.valueBindings: ValueBinding[]`, a field of its own beside `paramBindings`
+    (which stays `field → param key` — several walkers read it as strings, so none changes).
+  - **Input:** `param` (a component param; wins) or `source` (an engine value source). `{key}` in a
+    source reads the owning instance's param — `meter.{meter}.level` on the red pot is
+    `meter.red.level` — and an unresolved placeholder leaves the binding inert. `of` divides first
+    (a param by that key, else a source); a zero or missing divisor reads 0.
+  - **Mapping:** `inMin..inMax` (default 0..1) → `outMin..outMax` (a default per target), clamped
+    unless `clamp: false`, along `ease` (linear, easeIn/Out/InOut, backOut, steps); `smooth` seconds
+    glides to each new output (the first value snaps). A node draws as authored until its source
+    reports, and where the source is not registered.
+  - **Targets:** the transform ones are RELATIVE to the authored node, so a per-ratio override still
+    places it — `x`/`y` add px, `rotation` adds degrees clockwise, `scale`/`scaleX`/`scaleY` and
+    `alpha` multiply — folded once onto the resolved transform in `<LayoutNodeView>`. `visible`:
+    shown while the value is ≥ `threshold` (default 1; `below` inverts). `fill`: a mask revealing a
+    sprite / flipbook / rect from one edge (not on a cover node). `frame`: holds a flipbook frame,
+    counted on the clip as authored (a frame-bound clip walks forward). `animTime`: scrubs an
+    animation on its own track (default 1, never 0) at `timeScale` 0, 0..1 of its length. `bone`:
+    offsets a bone on top of the animated pose every frame and undoes it after the world transform,
+    so an unkeyed channel never compounds (`pixi-svelte/spineBoneOffset`, shared with the editor).
+  - **New sources** (`Game.svelte`): `meter.<id>.stage` and `meter.<id>.full` (1/0; also a visibility
+    source), `respinsStart` (the counter's current cap), `cellsHeld` / `cellsTotal`, and `rowsOpen` /
+    `rowsMax` on an expanding board. The editor's picker reads `VALUE_BINDING_SOURCE_CATALOG`
+    (`needsParam` gates the pot entries to a component with a `meter` param; `of` pre-fills the
+    divisor).
+  - **Ship chain:** a binding is a node field, so it travels the existing def / doc bake. There is no
+    new R2 asset class, and bones and animations already ship in the spine bundle. Node fields pass
+    `normalizeNode` / `normalizeComponent` untouched.
+  - **With 12a:** both branches add the identical `meterStage(meter, level)` helper and the same
+    `HoldAndWinPot` line (byte-identical, so they merge clean). Both touch `LayoutNodeView`,
+    `componentCatalog`, `types`, `EditorProperties`, `Game.svelte` and the two editor guides in
+    different places; whoever lands second expects small textual merges there.
 - 2026-10-02 — **Phase 11b contract (board expansion)** (session "H&W Phase 11b — board expansion").
   - **Config:** `holdAndWin.expansion {startRows, maxRows, rule, thresholds?, unlockReels?,
     resetsRespins, rowJackpots?}`, rule `fullRow` | `unlockSymbol` | `coinCount`. `startRows` must
@@ -618,6 +651,18 @@ Hold and Win beats prints copy.
 
 ## Open items / next
 
+- **Phase 12b follow-ups** (none blocks 12c):
+  - **Live check owed.** A binding authored in the Component Editor has not been seen on a live
+    project: the editor UI type-checks and bundles, and the runtime was screenshot in Storybook
+    (`ENGINE-LAYOUT/Value bindings`). The design's done-when (a frog's belly bone growing with its
+    pot on `hw-3pots-sample`) needs 12c's authored children inside the Pot.
+  - **The Scene Editor cannot scrub a node inside a placed instance** — those nodes are not
+    selectable there. Scrub it in the Component Editor.
+  - **Editor-only:** a scrub on a rig that two nodes share can leave its keyed channels on the
+    other node's preview for a frame (the WebGL instance is shared per bundle).
+  - **Fill covers sprite, flipbook and rect only.** A container or spine fill (mask a whole group)
+    is not built.
+
 - **Phase 11b follow-ups** — both ruled by the hub (2026-10-02) and closed:
   - **Reserving an expanding board's area** — the scaffold and "Add missing screens" build the
     template with the stored config's `maxRows`, and the Scene Editor offers **⇕ Reserve rows for
@@ -745,6 +790,36 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-02 — **Phase 12b: value bindings, through the whole pipeline** (branch
+  `claude/happy-clarke-b718m4`; session "Hold and Win Phase 12b value bindings"; contract in
+  Decisions above). Generic: any node in any kind. An unbound node renders byte-identically.
+  - **Engine (`engine-layout`):** `ValueBinding` on every node; the pure `valueBindings.ts`
+    (inputs, mapping, folding, fill rect, frame, scrub, bone) and its fixture
+    `test-value-bindings.mjs` (81 assertions); `boundValues.svelte.ts` subscribes the sources and
+    glides; `<LayoutNodeView>` folds the transform once and adds the fill mask, held frame,
+    `<SpineScrubTrack>` and `<SpineBone offset>`.
+  - **`pixi-svelte`:** `SpineBone` gains `offset` (re-applied on the spine's world-transform hooks,
+    chained, unlinked on unmount); the `spineBoneOffset` leaf; `AnimatedSprite` / `Flipbook` hold a
+    `frame`.
+  - **Sources (`apps/lines`):** `meter.<id>.stage` / `.full`, `respinsStart`, `cellsHeld` /
+    `cellsTotal`, `rowsOpen` / `rowsMax`; the coded pot grows by the shared `meterStage`.
+  - **Editors:** a **Bind to value** section in Properties (Scene + Component Editor): target, source
+    picker (the component's params, the per-instance pot, Hold and Win, game values, custom), divide
+    by, in → out, curve, glide, clamp, the per-target fields, and a **test value** previewed on the
+    canvas and the text / spine / effect overlays. Draw paths only, so a preview is never written
+    into the doc.
+  - **Guides:** [Component Editor §3b](../tools/component-editor.md#3b-drive-a-node-from-a-number-bind-to-value)
+    and the Scene Editor's *Bind to value*.
+  - **Verified:** the fixture; a Storybook story with one pot def placed twice (`red` at 0 → 6,
+    `blue` at 3 → 12), screenshot through Playwright: each liquid fills by its own meter, the marker
+    rises, the full badge shows on the full pot only, the H1 rig grows by its `global` bone and
+    scrubs `h1`, and holds a steady size over many frames (no compounding). `check:svelte` at
+    baseline for engine-layout / pixi-svelte / lines / launcher, lint clean, `check:path-imports` and
+    `check:undefined-names` green, the launcher builds. Not verified: the editor section in a browser
+    (it needs the auth-gated launcher).
+  - **Left:** the follow-ups in Open items; 12c consumes this (the Pot's fill art through a `fill`
+    binding, a frog's bone through `bone`).
 
 - 2026-10-02 — **Phase 11b follow-ups (ruled by the hub)** (session "H&W Phase 11b — board
   expansion"). Reserving an expanding board's area is one helper in `engine-layout`
