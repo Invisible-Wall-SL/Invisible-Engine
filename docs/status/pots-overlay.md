@@ -37,7 +37,7 @@ session is the Claude Code session titled **"3 pots overlay mechanic"**.
 | 4 | Engine runtime (overlay layer, timing, lift-off flights, drain on any mode entry, H&W from an overlay host, resume) | not started (needs 3) | — | — |
 | 5a | `/config` Add-ons section | not started (needs 1) | — | — |
 | 5b | Scene Editor overlay screens + palette/pickers through the capability | not started (needs 1) | — | — |
-| 5c | Flow vocabulary composition (editor, publish gate, runtime) + graft | not started (needs 1) | — | — |
+| 5c | Flow vocabulary composition (editor, publish gate, runtime) + graft | built, in review | Pots overlay Phase 5c — Flow vocabulary composition | editor/pots-overlay-flow-vocab |
 | 5d | `/symbols` + `/win-text` + Localization through the capability | not started (needs 1) | — | — |
 | 6 | Game Maker add-on action + guides + playbook + `borut-pots-sample` played end to end | not started (needs 2–5) | — | — |
 | 7 | Bonus import from another project (provenance, re-sync, pot → imported mode) | not started (needs 6) | — | — |
@@ -89,6 +89,41 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
   - The runtime holds one `RuntimeBundle` (`apps/lines/src/editor-scenes.ts:496-497`).
 
 ## Decisions & findings
+
+- 2026-10-02 — **Phase 5c, as built** (session "Pots overlay Phase 5c — Flow vocabulary
+  composition").
+  - **`withAddOns(kindVocab, addOns)`** (`engine-flow-v2/src/reference/addOns.ts`). `addOns` is
+    structural (`{holdAndWin, potsOverlay, meters}`); `game-config`'s `flowAddOnsOf(doc)` builds it,
+    with `meters` from `resolveMeters`.
+    - It returns the kind's vocabulary itself without a block, or when nothing new is added (the
+      Hold and Win kind with its own block is `HOLD_AND_WIN_VOCAB`).
+    - Entries are de-duplicated by name; the kind's own entry wins. Base events go after `reveal`,
+      feature events at the end, fragment cues first.
+    - **Hold and Win fragment:** `HOLD_AND_WIN_FRAGMENT`, the parts `HOLD_AND_WIN_VOCAB` is built from.
+    - **Overlay fragment:** the new event `overlayDrop` (struct `OverlayCell`; struct fields cannot be
+      optional, so a cell without `pot`/`value`/`jackpot` reads them as absent), `meterUpdate`,
+      `meterLevels`, the pot cues and `flightArrive`, the actions `flyTo` and `fillMeter`, and the values
+      `meter.<id>.level|max|stage|full`. These values are offered with the overlay only.
+      `linesEngineReader` answers them through a pattern branch.
+  - **Applied at three seams:** the `/flow-v2` editor, the publish gate (`validateFlowV2Against`
+    takes `addOns`; the shipped check uses the bundle's own config) and the runtime
+    (`flowV2Runtime.svelte.ts`, from `getActiveGameConfig()`). The cue harvest passes the same flags
+    to `engineSignalsForKind`, so game-driven pot signals are not offered as author cues.
+  - **`unusedByKind`'s regex is gone.** The standard entries per capability are listed by name
+    (`STANDARD_CAPABILITY_ENTRIES`), filtered by `HOLD_AND_WIN_KIND_CAPABILITIES`. The gate pins both
+    to `kindCapabilities('holdAndWin')` and to the old regex.
+  - **Graft ("＋ Add overlay steps", `graftAddOnSteps`):**
+    - **Overlay:** adds `meterUpdate` → `fillMeter` to the base graph as its own event node, unless the
+      graph already handles the signal. It never wires a pin on the authored gameSignals node.
+    - **Hold and Win block:** adds `modes.holdAndWin` from the seed's mode graph when absent, plus
+      ContainerRefs for the screens that section shows (a ref without a scene validates and mounts
+      nothing).
+    - **Ids and placement:** a free prefix (`overlay`, `hw`, `hw2`…), new nodes right of the existing ones.
+    - Idempotent, never mutates its input, never touches an authored node or an existing mode tab.
+  - **Parity:** every registered vocabulary, starter flow and per-kind resolution is byte-identical to
+    `main` (a JSON snapshot diff), and `check:flow-publish-gate` sections 7–12 pin it.
+  - **Found, not fixed:** a branch guard's inline `$engine` operand is not validated (it is not a
+    pin), so an unknown key in a guard passes the gate. This predates the phase.
 
 - 2026-10-02 — **Phase 1 contract, as built** (session "3 pots overlay mechanic", #1008). Pinned by
   `packages/game-config/potsOverlay.fixture.ts` (115 assertions) and the kind-gating /
@@ -184,8 +219,12 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
      has a `holdAndWin` block (`featureComponentSignals`, `Game.svelte:1644`). On a pots-only host, an
      authored pot cue would be offered (`pots`) but never fire, so register the pot family under
      `potsOverlay` too. The runtime's `configuredMeters()` must read `resolveMeters`.
-   - **Phase 5c:** `packages/engine-flow-v2/src/reference/holdAndWin.ts:936-938` (`unusedByKind`)
-     repeats the kind rule as a regex. Make it read the capabilities.
+   - **Phase 4 (from 5c):** the overlay-only flow actions (show / lift tokens) are not in the
+     vocabulary yet: they arrive with their runtime effects. Add them to the overlay fragment in
+     `engine-flow-v2/src/reference/addOns.ts`, and give the graft their chain once a coded beat
+     exists. Until then the graft adds no `overlayDrop` handler, because owning the event would
+     suppress the coded default. `meter.<id>.max` / `.stage` read 0 for an overlay pot until
+     `configuredMeters()` reads `resolveMeters`.
    - **Phase 2:** decide whether a Hold and Win GAME's own count trigger (an H&W kind that adds an
      overlay) also counts dropped value coins, or only landed coin symbols. Record it here.
    - **Phase 5a:** a new pot row without its token or bonus is dropped on save (normalizer rule), so
@@ -216,6 +255,11 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Recent changes
 
+- 2026-10-02 — **Phase 5c: Flow vocabulary composition (in review).** A Book-of (or any) flow can
+  now reference the pots overlay and Hold and Win vocabulary when the config carries the block,
+  and still publishes. The editor's "＋ Add overlay steps" grafts the pot chain and the Hold and Win
+  mode tab without touching authored nodes. Agent `invisible-flow`; guide `docs/tools/flow.md`
+  updated by `docs-keeper`. Projects without a block are unchanged.
 - 2026-10-02 — **Phase 1: the contract (#1008).** The `potsOverlay` Game Config block with its
   normalizer, validator, `resolveMeters` and two presets (Phase 1a, agent `invisible-game-config`).
   The additive `kindCapabilities` with the new `pots` / `potsOverlay` capabilities (Phase 1b, agent

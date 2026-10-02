@@ -700,6 +700,35 @@ steps aside, so nothing draws twice. `featureIntro` and `featureOutro` are not w
 engine's feature has no tap at its start or end. Show them around `holdAndWinTrigger` /
 `holdAndWinEnd` with a held Show, as the free-spin intro and outro are.
 
+### Pots overlay and Hold and Win on any kind — add-ons
+
+A project of any kind (a Book-of game, say) can carry a **Pots overlay** block and/or a **Hold and
+Win** block in its [Game Config](./game-config.md). Each block adds its entries to the palette on
+top of the kind's own, and a flow that uses them publishes. A project with neither block sees no
+change.
+
+- **Pots overlay** adds the event `overlayDrop` (tokens dropped on cells, over whatever symbol is
+  there), `meterUpdate` and `meterLevels`; the pot cues `potFill`, `potLevelUp`, `potStageUp`,
+  `potFull`, `potsConsume` and `flightArrive`; the actions `flyTo` and `fillMeter`; and, per pot,
+  the values `meter.<id>.level`, `meter.<id>.max`, `meter.<id>.stage` and `meter.<id>.full`.
+- **Hold and Win** adds the whole Hold and Win vocabulary described in the section above.
+
+Nothing here has to be authored. An overlay event you leave unwired plays with the game's coded
+default, so the game runs without a flow edit. (The overlay's own token drawing arrives in a later
+phase.)
+
+**＋ Add overlay steps.** This toolbar button shows only when the Game Config has one of these
+blocks. It adds the steps your flow does not have yet:
+
+- with a Pots overlay, the pot-filling chain (`meterUpdate` → `fillMeter`) in the Global graph,
+  placed to the right of your nodes, if nothing there handles `meterUpdate` yet;
+- with Hold and Win, a **Hold and Win** mode tab taken from the Hold and Win starter flow, plus the
+  screen containers that tab shows, if the flow has no such tab yet.
+
+It never changes a node you authored and leaves an existing Hold and Win tab alone. Hover it to see
+what it will add; when there is nothing left to add it is disabled and its tooltip says so. It is
+one **↶ Undo** step, and Save keeps it like any other edit.
+
 ### The operator platform jackpot — any kind
 
 Some casino platforms run their own jackpot above every game. When the server reports a hit, the
