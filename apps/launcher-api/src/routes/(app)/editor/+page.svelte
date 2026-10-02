@@ -1460,8 +1460,8 @@
 		Boolean(data.expansionMaxRows) &&
 			!expandingBoardReserved({ ...data.doc, scenes, mainSizesMap }, data.expansionMaxRows ?? 0),
 	);
-	/** Shrink the reel grid's cells and lift its rows (its row lead) so the respin board's extra rows
-	 *  fit below the base grid — the node does not move; nothing else changes; undoable. */
+	/** Shrink the reel grid's cells and lift the whole board (its board nudge) so the respin board's
+	 *  extra rows fit below the base grid — the node does not move; nothing else changes; undoable. */
 	function reserveExpansionRows(): void {
 		if (!data.expansionMaxRows) return;
 		scenes = reserveExpandingBoard(
@@ -3067,7 +3067,7 @@
 						<button
 							class="add-hud-btn"
 							type="button"
-							title={`This game's respin board grows to ${data.expansionMaxRows} rows below the base grid (Game Config → Board expansion). Shrinks the reel grid's cells and lifts its rows so the grown board fits where the base board was — the grid does not move; move the pieces below it if they still overlap.`}
+							title={`This game's respin board grows to ${data.expansionMaxRows} rows below the base grid (Game Config → Board expansion). Shrinks the reel grid's cells and lifts the board (its board nudge) so the grown board fits where the base board was — the grid does not move; move the pieces below it if they still overlap.`}
 							onclick={reserveExpansionRows}
 						>
 							⇕ Reserve rows for board expansion ({data.expansionMaxRows})

@@ -64,8 +64,9 @@ export const HOLD_AND_WIN_HOTFIRE_BOARD: EngineSkeletonBoard = { ...HOLD_AND_WIN
 /**
  * How an EXPANDING board's area is reserved (design §7 11b). Its rows grow below the base grid, so
  * the board's cells shrink until the grown block takes at most this share of the SHORTEST layout
- * box's height, and the reel grid's row lead (`rowPadding`) lifts the base rows by half the extra
- * rows — the whole `maxRows` block then sits where the base board's centre was, in every layout,
+ * box's height, and the reel grid's board NUDGE (`boardNudgeY` — cells, masks and symbols move
+ * together; the row lead would move the symbols out of their masks) lifts the base rows by half the
+ * extra rows, so the whole `maxRows` block sits where the base board's centre was, in every layout,
  * without moving the node. Both are absolute, so reserving twice changes nothing.
  */
 export const EXPANDING_BLOCK_SHARE = 0.495;
@@ -75,24 +76,25 @@ export const expandingBoardReserve = (
 	grid: Pick<ReelGridNode, 'rows' | 'cellSize'>,
 	maxRows: number,
 	mainSizes: LayoutDoc['mainSizesMap'],
-): { cellSize: number; rowPadding: number } => {
+): { cellSize: number; boardNudgeY: number } => {
 	const extra = Math.max(0, maxRows - grid.rows);
-	if (!extra) return { cellSize: grid.cellSize, rowPadding: 0.5 };
+	if (!extra) return { cellSize: grid.cellSize, boardNudgeY: 0 };
 	const shortest = Math.min(...Object.values(mainSizes).map((size) => size.height));
-	return {
-		cellSize: Math.min(grid.cellSize, Math.floor((shortest * EXPANDING_BLOCK_SHARE) / maxRows)),
-		rowPadding: 0.5 - extra / 2,
-	};
+	const cellSize = Math.min(
+		grid.cellSize,
+		Math.floor((shortest * EXPANDING_BLOCK_SHARE) / maxRows),
+	);
+	return { cellSize, boardNudgeY: -(extra * cellSize) / 2 };
 };
 
 /** Does every reel grid of `doc` already reserve `maxRows`? */
 export const expandingBoardReserved = (doc: LayoutDoc, maxRows: number): boolean =>
 	reelGridsOf(doc).every((grid) => {
 		const want = expandingBoardReserve(grid, maxRows, doc.mainSizesMap);
-		return grid.cellSize === want.cellSize && (grid.rowPadding ?? 0.5) === want.rowPadding;
+		return grid.cellSize === want.cellSize && (grid.boardNudgeY ?? 0) === want.boardNudgeY;
 	});
 
-/** `doc` with every reel grid reserving `maxRows` (cell size + row lead; nothing else moves). */
+/** `doc` with every reel grid reserving `maxRows` (cell size + board nudge; nothing else moves). */
 export const reserveExpandingBoard = (doc: LayoutDoc, maxRows: number): LayoutDoc => ({
 	...doc,
 	scenes: doc.scenes.map((scene) => ({

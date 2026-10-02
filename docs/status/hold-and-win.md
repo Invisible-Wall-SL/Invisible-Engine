@@ -622,7 +622,7 @@ Hold and Win beats prints copy.
   - **Reserving an expanding board's area** — the scaffold and "Add missing screens" build the
     template with the stored config's `maxRows`, and the Scene Editor offers **⇕ Reserve rows for
     board expansion** when the config expands but the reel grid has no room (it sets the grid's cell
-    size and row lead; the node does not move; `reserveExpandingBoard` / `expandingBoardReserved`).
+    size and board nudge; the node does not move; `reserveExpandingBoard` / `expandingBoardReserved`).
   - **Coins in unlocked rows after the feature** — decided: the base board has `startRows`, so they
     leave with the feature (they are paid in the tally). Documented in the playbook (S9 end state).
 
@@ -749,7 +749,7 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - 2026-10-02 — **Phase 11b follow-ups (ruled by the hub)** (session "H&W Phase 11b — board
   expansion"). Reserving an expanding board's area is one helper in `engine-layout`
   (`reserveExpandingBoard`: the reel grid's cells shrink to fit `maxRows` in the shortest layout
-  box, and its row lead lifts the base rows by half the extra rows — the node never moves; absolute,
+  box, and its board nudge lifts the whole board by half the extra rows — the node never moves; absolute,
   so applying it twice changes nothing). The template uses it; the scaffold and the editor's "Add
   missing screens" pass the stored config's `maxRows`; the editor offers **⇕ Reserve rows for
   board expansion** when the config expands but the reel grid has no room. The coins of unlocked

@@ -800,10 +800,10 @@ game on the next **Publish** — the same trip as the rest of your art.
   reel grid. The extra rows grow **below** the base grid, so an expanding game needs room there. A
   project whose Game Config already expands when its layout is created (or re-scaffolded, or tops up
   with **Add missing screens**) gets the template that makes room: the reel grid's cells shrink and
-  its rows lift (its **row lead**), so the grown board sits where the base board was, and the pieces
+  the whole board lifts (its **board nudge**), so the grown board sits where the base board was, and the pieces
   above and below are pushed clear. A project that turns expansion on **later** shows a
   **⇕ Reserve rows for board expansion (N)** button in the screen list: it applies the same cell size
-  and row lead to the reel grid without moving it (undoable). Move any piece that still sits under the
+  and board nudge to the reel grid without moving it (undoable). Move any piece that still sits under the
   grown board yourself.
   Authoring components themselves now lives in the separate **Invisible
   Component Editor** (`/components`), which the panel links out to.

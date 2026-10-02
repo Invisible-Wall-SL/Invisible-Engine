@@ -275,12 +275,12 @@ const SIZE = {
 		'the grid node does not move',
 	);
 	assert(
-		g1.cellSize === 66 && g1.rowPadding === -1,
-		`6 rows reserve 66 px cells lifted 1.5 rows (got ${g1.cellSize}, ${g1.rowPadding})`,
+		g1.cellSize === 66 && g1.boardNudgeY === -99,
+		`6 rows reserve 66 px cells nudged up 1.5 rows (got ${g1.cellSize}, ${g1.boardNudgeY})`,
 	);
 	const withOption = mod.getFullSceneSet('holdAndWin', { maxRows: 6 });
 	assert(
-		gridOf(withOption).cellSize === 66 && gridOf(withOption).rowPadding === -1,
+		gridOf(withOption).cellSize === 66 && gridOf(withOption).boardNudgeY === -99,
 		'getFullSceneSet takes maxRows',
 	);
 	assert(
@@ -313,11 +313,10 @@ for (const [board, options] of [
 		const g = type === 'desktop' ? {} : (grid.overrides?.[type] ?? {});
 		const gx = g.x ?? grid.x;
 		const gy = g.y ?? grid.y;
-		// The base board is centred on the grid node, lifted by its row lead; the reserved rows hang
+		// The base board is centred on the grid node, lifted by its board nudge; the reserved rows hang
 		// below it.
 		const cx = gx;
-		const lead = (grid.rowPadding ?? 0.5) - 0.5;
-		const top = gy - (board.rows * grid.cellSize) / 2 + lead * grid.cellSize;
+		const top = gy + (grid.boardNudgeY ?? 0) - (board.rows * grid.cellSize) / 2;
 		const bottomEdge = top + maxRows * grid.cellSize;
 		const cy = (top + bottomEdge) / 2;
 		const bw = (board.reels * grid.cellSize) / 2;
