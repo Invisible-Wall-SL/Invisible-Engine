@@ -352,8 +352,8 @@ export const presentMeterUpdate = async (event: Beat<'meterUpdate'>) => {
 	if (!event.full) return;
 	pulseMeter(event.meter);
 	eventEmitter.broadcast({ type: 'potFull', meter: event.meter, scope });
-	const activates = configuredMeters().find((meter) => meter.id === event.meter)?.bonus.activates;
-	const title = activates ? meterFullText(activates) : '';
+	const meter = configuredMeters().find((m) => m.id === event.meter);
+	const title = meter ? meterFullText(meter.id, meter.bonus.activates) : '';
 	const banner = title ? showHoldAndWinBanner({ kind: 'meterFull', title, size: 'small' }) : 0;
 	await (banner ? holdBanner(METER_FULL_MS) : waitPresentation(METER_FULL_MS));
 	hideHoldAndWinBanner(banner);
@@ -361,9 +361,10 @@ export const presentMeterUpdate = async (event: Beat<'meterUpdate'>) => {
 
 /**
  * The FULL meters a `meter` cause consumed drain to empty, and the modifier each one buys is
- * announced ("PAYER ACTIVE") before the mode's own intro. Any mode a pot starts plays it — Hold and
- * Win before its board swaps, free spins or another mode before theirs (`docs/design/pots-overlay.md`
- * §3.4). What each pot activates is the Game Config's (`resolveMeters` — a meter's or a pot's
+ * announced ("PAYER ACTIVE"). Any mode a pot starts plays it (`docs/design/pots-overlay.md` §3.4):
+ * Hold and Win before its board swaps; free spins and another mode at the start of their coded
+ * entry beat. The mode layer has already entered the mode by then (`modes.before`), so its tagged
+ * screens and music are up while the pots drain. What each pot activates is the Game Config's (`resolveMeters` — a meter's or a pot's
  * `bonus.activates`); the server already emptied the meters (recorded at the play seam), so the
  * drain runs from each pot's maximum down to the recorded 0.
  */

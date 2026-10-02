@@ -14,7 +14,14 @@ export const stateOverlay = $state(emptyOverlayState());
 export const recordOverlayEvent = (event: { type: string }) => {
 	const before = $state.snapshot(stateOverlay);
 	const next = applyOverlayEvent(before, event);
-	if (next !== before) stateOverlay.tokens = next.tokens;
+	if (next === before) return;
+	// A drop's tokens mount already landing, so no frame shows them at rest first; the beat (or, with
+	// a flow owning the drop, the token's own completion) settles them.
+	if (event.type === 'overlayDrop') {
+		for (const { reel, row } of next.tokens)
+			stateOverlayTokens.state[overlayTokenKey(reel, row)] = 'coinLand';
+	}
+	stateOverlay.tokens = next.tokens;
 };
 
 /** A token's place, the key its layer and its beat share. */

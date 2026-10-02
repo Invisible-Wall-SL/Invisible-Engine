@@ -204,7 +204,8 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		}
 	},
 	freeSpinTrigger: async (bookEvent: BookEventOfType<'freeSpinTrigger'>) => {
-		// A full pot started them (pots overlay): it drains first, as before any mode a pot starts.
+		// A full pot started them (pots overlay): it drains before this handler's own beats, as for any
+		// mode a pot starts. The mode layer has already switched to free spins (`modes.before`).
 		await presentMeterConsume(drainedMeters(bookEvent));
 		// STATE-ONLY. The free-spin intro is a flow screen (the flow's `freeSpinIntro` container, its
 		// tap-to-continue and a `showContainer{awaitComplete}` hold); the engine has no coded intro to
@@ -449,7 +450,7 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 	},
 	// The mode stack moves at the play seam (`stateModes`), on every dispatch path; the coded path has
 	// nothing to add — a mode's presentation is its flow graph and its mode-tagged screens — beyond
-	// the drain of the full pots that started it (pots overlay).
+	// the drain of the full pots that started it (pots overlay), which plays once the mode is up.
 	modeEnter: async (bookEvent: BookEventOfType<'modeEnter'>) => {
 		await presentMeterConsume(drainedMeters(bookEvent));
 	},
@@ -468,14 +469,19 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		const lastSetTotalWinEvent = findLastBookEvent('setTotalWin' as const);
 		const lastUpdateGlobalMultEvent = findLastBookEvent('updateGlobalMult' as const);
 
-		// Free spins that already ENDED before the resume point stay closed — a round whose pot then
-		// started Hold and Win (pots overlay) resumes on the respin board, not the free-spin intro. The
-		// pots they drained are restated below (`meterLevels`), so the replay drains nothing.
+		// Free spins that ENDED and gave way to another bonus in the same round (a pots overlay: the
+		// pot's Hold and Win, or another mode) stay closed — the round resumes on that bonus, not the
+		// free-spin intro. A round with no later bonus replays as it always has. The pots the trigger
+		// drained are restated below (`meterLevels`), so the replay drains nothing.
 		const lastFreeSpinEndEvent = findLastBookEvent('freeSpinEnd' as const);
+		const endedAt = lastFreeSpinEndEvent ? bookEvents.indexOf(lastFreeSpinEndEvent) : -1;
 		const freeSpinsEnded =
 			!!lastFreeSpinTriggerEvent &&
-			!!lastFreeSpinEndEvent &&
-			bookEvents.indexOf(lastFreeSpinEndEvent) > bookEvents.indexOf(lastFreeSpinTriggerEvent);
+			endedAt > bookEvents.indexOf(lastFreeSpinTriggerEvent) &&
+			bookEvents.some(
+				(event, at) =>
+					at > endedAt && (event.type === 'holdAndWinTrigger' || event.type === 'modeEnter'),
+			);
 		if (lastFreeSpinTriggerEvent && !freeSpinsEnded) {
 			const { meters: _drained, ...trigger } = lastFreeSpinTriggerEvent;
 			await playBookEvent(trigger, { bookEvents });
@@ -491,10 +497,10 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		const lastJackpotLevelsEvent = findLastBookEvent('jackpotLevels' as const);
 		const lastHoldAndWinStateEvent = findLastBookEvent('holdAndWinState' as const);
 		const lastHoldAndWinEndEvent = findLastBookEvent('holdAndWinEnd' as const);
-		const endedAt = lastHoldAndWinEndEvent ? bookEvents.indexOf(lastHoldAndWinEndEvent) : -1;
+		const featureEndedAt = lastHoldAndWinEndEvent ? bookEvents.indexOf(lastHoldAndWinEndEvent) : -1;
 		if (lastMeterLevelsEvent) await playBookEvent(lastMeterLevelsEvent, { bookEvents });
 		if (lastJackpotLevelsEvent) await playBookEvent(lastJackpotLevelsEvent, { bookEvents });
-		if (lastHoldAndWinStateEvent && bookEvents.indexOf(lastHoldAndWinStateEvent) > endedAt) {
+		if (lastHoldAndWinStateEvent && bookEvents.indexOf(lastHoldAndWinStateEvent) > featureEndedAt) {
 			await playBookEvent(lastHoldAndWinStateEvent, { bookEvents });
 		}
 	},

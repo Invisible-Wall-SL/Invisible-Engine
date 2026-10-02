@@ -12,7 +12,7 @@
 		"check:scatter": "node scripts/check-scatter-evaluator.mjs",
 		"check:freespins": "node scripts/check-freespin-protocol.mjs",
 		"check:holdandwin": "node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-holdandwin-protocol.mjs && node --experimental-strip-types --import ./scripts/ts-loader.mjs packages/rgs-translator-eagaming/holdAndWin.fixture.ts && node --experimental-strip-types --import ./scripts/ts-loader.mjs packages/rgs-translator-eagaming/potsOverlay.fixture.ts",
-		"check:pots-overlay": "node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-pots-overlay-protocol.mjs",
+		"check:pots-overlay": "node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-pots-overlay-protocol.mjs && node --experimental-strip-types --import ./scripts/ts-loader.mjs packages/game-config/potsOverlay.fixture.ts && node --experimental-strip-types --import ./scripts/ts-loader.mjs packages/engine-game/src/game/potsOverlay.fixture.ts",
 		"check:book-paytable": "node scripts/check-book-paytable.mjs",
 		"check:lines-scatter-paytable": "node scripts/check-lines-scatter-paytable.mjs",
 		"check:paytable": "node --experimental-strip-types scripts/verify-server-paytable.mts && node --experimental-strip-types scripts/verify-server-paytable-import.mts",

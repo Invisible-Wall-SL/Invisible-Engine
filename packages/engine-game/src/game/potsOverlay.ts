@@ -52,8 +52,9 @@ const samePosition = (a: Position) => (b: Position) => a.reel === b.reel && a.ro
 /**
  * What one book event does to the token picture — state only, no presentation:
  * - a base board's `reveal` clears it: a new board drops its own tokens, and a token that did not
- *   fly (a value coin below the trigger count) is gone by the next spin;
- * - `overlayDrop` puts its tokens down;
+ *   fly (a value coin below the trigger count) is gone by the next spin; so does a cascade step
+ *   (`tumbleBoard`), which moves the cells the tokens stood on;
+ * - `overlayDrop` puts its tokens down, one per cell (the last named wins);
  * - `meterUpdate` lifts the tokens that filled the pot (its `from` cells) — they fly to it;
  * - `holdAndWinTrigger` clears it: the dropped coins are held on the respin board now, and the base
  *   board comes back with the host's own symbols when the feature ends.
@@ -66,12 +67,17 @@ export const applyOverlayEvent = (
 	const event = bookEvent as LooseEvent;
 	switch (event.type) {
 		case 'reveal':
+		case 'tumbleBoard':
 		case 'holdAndWinTrigger':
 			return state.tokens.length ? emptyOverlayState() : state;
-		case 'overlayDrop':
+		case 'overlayDrop': {
+			const cells = (event.cells as OverlayDropCell[] | undefined) ?? [];
 			return {
-				tokens: ((event.cells as OverlayDropCell[] | undefined) ?? []).map((c) => ({ ...c })),
+				tokens: cells
+					.filter((cell, i) => !cells.slice(i + 1).some(samePosition(cell)))
+					.map((cell) => ({ ...cell })),
 			};
+		}
 		case 'meterUpdate': {
 			const from = (event.from as Position[] | undefined) ?? [];
 			const lifted = (token: OverlayDropCell) =>

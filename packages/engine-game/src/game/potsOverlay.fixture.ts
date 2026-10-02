@@ -4,7 +4,8 @@
  *   node --experimental-strip-types --import ./scripts/ts-loader.mjs packages/engine-game/src/game/potsOverlay.fixture.ts
  *
  * Claims:
- *  1. A drop puts its tokens down; the next base board clears them (a coin that did not fly is gone).
+ *  1. A drop puts its tokens down, one per cell; the next base board or cascade step clears them (a
+ *     coin that did not fly is gone).
  *  2. A pot's fill lifts exactly its own tokens at its `from` cells, and nothing else.
  *  3. A Hold and Win entry clears the base board's tokens (its coins are held on the respin board).
  *  4. A mode entry a pot started drains that pot — free spins and a generic mode alike; Hold and
@@ -44,6 +45,12 @@ console.log('\n1. a drop, then the next board');
 const dropped = fold([{ type: 'reveal' }, drop]);
 check('the tokens go down as dropped', dropped.tokens, [RED, RED_2, GREEN, COIN]);
 check('the next base board clears them', fold([{ type: 'reveal' }], dropped).tokens, []);
+check('so does a cascade step', fold([{ type: 'tumbleBoard' }], dropped).tokens, []);
+check(
+	'one token per cell: the last named wins',
+	fold([{ type: 'overlayDrop', cells: [RED, { ...COIN, reel: 0, row: 1 }] }]).tokens,
+	[{ ...COIN, reel: 0, row: 1 }],
+);
 check(
 	'an event that touches no token keeps the same picture',
 	applyOverlayEvent(dropped, { type: 'winInfo' }) === dropped,

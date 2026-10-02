@@ -22,8 +22,19 @@ import { recordHoldAndWinEvent, stateHoldAndWin } from './stateHoldAndWin.svelte
  * registers nothing.
  */
 
-/** The meters the Game Config declares — what the coded pots draw, in order. */
-export const configuredMeters = (): ResolvedMeter[] => resolveMeters(getActiveGameConfig());
+const resolvedFor = new WeakMap<object, ResolvedMeter[]>();
+
+/** The meters the Game Config declares — what the coded pots draw, in order. Resolved once per
+ *  config, so a pot's per-frame reads allocate nothing. */
+export const configuredMeters = (): ResolvedMeter[] => {
+	const config = getActiveGameConfig();
+	let meters = resolvedFor.get(config);
+	if (!meters) {
+		meters = resolveMeters(config);
+		resolvedFor.set(config, meters);
+	}
+	return meters;
+};
 
 export const stateMeterDisplay = $state({
 	/** A pot's drawn level while a beat runs, by meter id. */

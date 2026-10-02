@@ -92,8 +92,9 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 ## Decisions & findings
 
 - 2026-10-02 — **Phase 4a runtime, as built** (#1015; the session that built Phase 3). Pinned by
-  `packages/engine-game/src/game/potsOverlay.fixture.ts` and `check:signal-scope`'s new pots-only
-  case.
+  `packages/engine-game/src/game/potsOverlay.fixture.ts` (now run by `check:pots-overlay`, with
+  game-config's Phase 1 fixture, which was not run by any gate before) and `check:signal-scope`'s
+  new pots-only case. `code-reviewer`: nothing blocking; its should-fix items are folded in below.
   - **The token picture** (`engine-game` `applyOverlayEvent`, recorded at the play seam into
     `apps/lines` `stateOverlay`):
     - `overlayDrop` puts tokens down.
@@ -116,9 +117,29 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
     own reducer does for its trigger. The coded `freeSpinTrigger` and `modeEnter` handlers play the
     same drain beat as Hold and Win (`presentMeterConsume(ids)`) before anything else.
   - **Resume:** `createBonusSnapshot` no longer replays a `freeSpinTrigger` (or its counter) when a
-    later `freeSpinEnd` closed those free spins, so a two-bonus round resumes on the respin board.
-    The trigger it does replay drops its `meters`, so a resume never re-plays a drain; the pots are
-    restated by `meterLevels`.
+    `freeSpinEnd` closed those free spins AND another bonus entered after it (`holdAndWinTrigger` or
+    `modeEnter`). A two-bonus round therefore resumes on that bonus. A round with no later bonus
+    (every plain free-spin game, Borut included) replays exactly as before. The trigger it does
+    replay drops its `meters`, so a resume never re-plays a drain; the pots are restated by
+    `meterLevels`.
+  - **One token per cell** (the last named wins), so a duplicate in a drop cannot break the layer's
+    keyed list. A cascade step (`tumbleBoard`) clears the tokens, like a new board.
+  - **Tokens mount already landing:** the play seam sets `coinLand` as it records the drop, so no
+    frame shows them at rest first. With a flow owning `overlayDrop`, the token's own completion
+    settles it.
+  - **`{meter}` in Win Text's "Pot full"** is the special a full pot activates, as before. For a pot
+    that activates none (it starts free spins or another mode), it is the pot's own name
+    (`potCaption`). A Hold and Win game's meters always activate a special, so their banner is
+    unchanged. The `/win-text` hint says so; its preview still shows the special case.
+  - **Tokens ship** (rule 8): `publish-symbol-defaults.mjs` keeps a symbol that is a pot's token
+    (`resolveMeters`), not only symbols on a strip, so the published symbol defaults carry the
+    token rows. The `/symbols` export never filtered by in-play, so an authored token binding
+    already travels export → bake → pull → register.
+  - **`configuredMeters()`** is resolved once per config object, so a pot's per-frame reads allocate
+    nothing.
+  - **Several modes in one round:** a stub mode that nests over the host's free spins (enter
+    pickBonus → exit → resume freeSpins → exit) reaches `allFinished` once, after the last mode —
+    seen against Phase 2's real mock in Phase 3's end-to-end run.
   - **Parity:** without a drop, the layer is one empty container. Without a meter-caused entry,
     nothing drains. A game with no `potsOverlay` registers the same signals as before. A legacy
     resume replays exactly what it did. The svelte-check ratchet holds (lines 164).
@@ -390,6 +411,12 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
      must call the coded drain.
    - **Phase 6:** a token with no art in `/symbols` draws nothing (`Symbol`'s missing-art rule). The
      add-on seeds placeholder art, so this only bites a hand-made config.
+   - **Resume between a drop and its fills** shows no tokens: neither `overlayDrop` nor `reveal` is
+     in the resume snapshot. The following `meterUpdate` still flies from the cell.
+   - **Order:** the drain plays inside the free-spin / mode entry beat, after the mode layer has
+     entered the mode (`modes.before`), so the new mode's screens and music are already up. Hold
+     and Win's drain has always worked this way. Moving the drain into a mode hook would put it
+     first. Inside `freeSpinTrigger` it is also unskippable, which Hold and Win's drain is not.
    - **A visual pass** on a real clock (`game-playtester`, the Phase 6 sample). This container
      cannot reach idle on either branch (software rendering, remote art unreachable).
 
