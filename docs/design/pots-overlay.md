@@ -233,7 +233,10 @@ untouched.
 new config inputs, `holdAndWin` (the block is present) and `potsOverlay` (the block is present):
 
 - `holdAndWin` and `coinSymbols` become "kind OR block";
-- a new `potsOverlay` capability follows the overlay block;
+- a new `pots` capability is `holdAndWin` OR the overlay block. The pot parts (the Pot Meter, the
+  pot signals, the `toMeter:<id>` flights) move to it, so an overlay that routes its pots only to free
+  spins still gets them;
+- a new `potsOverlay` capability follows the overlay block, for the overlay-only parts;
 - `freeSpins`, `bookReveal`, `stackedPictures` and the rest stay on the kind, so Borut keeps
   everything it has.
 
