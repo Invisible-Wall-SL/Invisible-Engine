@@ -360,12 +360,24 @@ async function filterToGameConfig(symbols) {
 	// A pots overlay's tokens are never on a strip (they drop OVER a cell), yet the game draws them:
 	// they are in play through the overlay (`resolveMeters`), so their rows ship too. Imported here,
 	// after the resolve hook above is registered: game-config's own imports have no extension.
+	// The fallback gate is the RAW compiled module, which `resolveMeters` cannot read as is (a hand-
+	// written meter may lack `sizeStages`), so it reads the normalized doc; a config that does not
+	// normalize has no tokens to add.
+	const { normalizeGameConfigDoc } = await import('../../../packages/game-config/src/normalize.ts');
 	const { resolveMeters } = await import('../../../packages/game-config/src/potsOverlay.ts');
-	const tokens = new Set(
-		resolveMeters(cfg)
-			.filter((meter) => meter.source === 'overlay')
-			.map((meter) => meter.symbol),
-	);
+	let tokens = new Set();
+	try {
+		const doc = normalizeGameConfigDoc(cfg);
+		tokens = new Set(
+			resolveMeters(doc)
+				.filter((meter) => meter.source === 'overlay')
+				.map((meter) => meter.symbol),
+		);
+	} catch (err) {
+		console.warn(
+			`⚠ publish-symbols: could not read the ${source}'s pots (${err instanceof Error ? err.message : err}) — publishing no pot tokens.`,
+		);
+	}
 	const inPlay = new Set(
 		Object.keys(used).filter((name) => !onReels || onReels.has(name) || tokens.has(name)),
 	);

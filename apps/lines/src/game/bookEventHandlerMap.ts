@@ -206,7 +206,8 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 	freeSpinTrigger: async (bookEvent: BookEventOfType<'freeSpinTrigger'>) => {
 		// A full pot started them (pots overlay): it drains before this handler's own beats, as for any
 		// mode a pot starts. The mode layer has already switched to free spins (`modes.before`).
-		await presentMeterConsume(drainedMeters(bookEvent));
+		const drained = drainedMeters(bookEvent);
+		if (drained.length) await presentMeterConsume(drained);
 		// STATE-ONLY. The free-spin intro is a flow screen (the flow's `freeSpinIntro` container, its
 		// tap-to-continue and a `showContainer{awaitComplete}` hold); the engine has no coded intro to
 		// fall back to. A flow that owns `freeSpinTrigger` never reaches this handler (`playBook.ts`);
@@ -452,7 +453,8 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 	// nothing to add — a mode's presentation is its flow graph and its mode-tagged screens — beyond
 	// the drain of the full pots that started it (pots overlay), which plays once the mode is up.
 	modeEnter: async (bookEvent: BookEventOfType<'modeEnter'>) => {
-		await presentMeterConsume(drainedMeters(bookEvent));
+		const drained = drainedMeters(bookEvent);
+		if (drained.length) await presentMeterConsume(drained);
 	},
 	modeExit: async () => {},
 	// customised

@@ -12,7 +12,7 @@
  */
 
 /** The only pots-overlay wire this client reads — `config.potsOverlay.wire`. Defined here, the
- *  dependency-free module (plain Node scripts import it), and re-exported by `potsOverlay.ts`. */
+ *  dependency-free module (plain Node scripts import it), and read by `potsOverlay.ts`. */
 export const POTS_OVERLAY_WIRE = 1;
 
 export interface GameMapping {

@@ -18,8 +18,6 @@ import type { HoldAndWinMeterLevel } from './holdAndWin';
  *  this package takes no engine dependency. */
 export const HOLD_AND_WIN_MODE = 'holdAndWin';
 
-export { POTS_OVERLAY_WIRE };
-
 /** The `potsOverlay` block of the boot `config` — the fields the translation reads. */
 export type PotsOverlayWireConfig = {
 	wire: number;

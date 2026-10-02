@@ -18,10 +18,21 @@ export const recordOverlayEvent = (event: { type: string }) => {
 	// A drop's tokens mount already landing, so no frame shows them at rest first; the beat (or, with
 	// a flow owning the drop, the token's own completion) settles them.
 	if (event.type === 'overlayDrop') {
-		for (const { reel, row } of next.tokens)
-			stateOverlayTokens.state[overlayTokenKey(reel, row)] = 'coinLand';
+		for (const { reel, row } of next.tokens) {
+			const key = overlayTokenKey(reel, row);
+			stateOverlayTokens.state[key] = 'coinLand';
+			delete completedEarly[key];
+		}
 	}
 	stateOverlay.tokens = next.tokens;
+};
+
+/** A new round starts: last round's tokens leave as the reels start rolling, not when the next board
+ *  is recorded (they would sit over the spinning reels until then). */
+export const clearOverlay = () => {
+	if (stateOverlay.tokens.length) stateOverlay.tokens = [];
+	stateOverlayTokens.state = {};
+	for (const key of Object.keys(completedEarly)) delete completedEarly[key];
 };
 
 /** A token's place, the key its layer and its beat share. */
@@ -35,9 +46,17 @@ export const stateOverlayTokens = $state({ state: {} as Record<string, SymbolSta
 
 /** Pending beats of tokens, resolved by the token's `oncomplete`. Never read reactively. */
 const tokenBeats: Record<string, () => void> = {};
+/** Tokens that completed before their beat was armed — a static token can report on mount. Never
+ *  read reactively. */
+const completedEarly: Record<string, true> = {};
 
-/** Arm a token's beat: the next completion it reports resolves `resolve`. */
+/** Arm a token's beat: its next completion resolves `resolve` — at once if it already reported. */
 export const armTokenBeat = (key: string, resolve: () => void) => {
+	if (completedEarly[key]) {
+		delete completedEarly[key];
+		resolve();
+		return;
+	}
 	tokenBeats[key] = resolve;
 };
 
@@ -46,5 +65,6 @@ export const completeTokenBeat = (key: string) => {
 	delete stateOverlayTokens.state[key];
 	const resolve = tokenBeats[key];
 	delete tokenBeats[key];
-	resolve?.();
+	if (resolve) resolve();
+	else completedEarly[key] = true;
 };

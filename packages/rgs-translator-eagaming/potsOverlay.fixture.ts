@@ -1241,6 +1241,42 @@ console.log('\n7. entries close bonuses; drops bind to their own spin; names; ma
 		'meterUpdate',
 	]);
 
+	// A trigger board between a Hold and Win feature's end and the next bonus lands on the REELS.
+	const hwThenBoard = await play('S-hw-then-board', {
+		config: respinScript().config,
+		answers: [
+			[
+				...opening(),
+				drop([{ reel: 0, row: 1, symbol: 'RED', pot: 'red' }]),
+				lineWin(20),
+				{ event: 'playedSpin', context: BOARD },
+				meterUpdate('red', 5, [{ reel: 0, row: 1 }]),
+				...respinEntry(),
+				meterLevels({ red: 0 }),
+			],
+			respinOne(),
+			[
+				...respinLast(0).slice(0, -1),
+				featureTrigger(2, { cause: 'meter', meters: ['green'] }),
+				{ event: 'playedSpin', context: SCATTER_BOARD },
+				...enterFreeSpins(2),
+			],
+			freeSpin(1, 1, null),
+			freeSpin(2, 0, { win: 340 }),
+		],
+	});
+	wellFormed('Hold and Win, then a trigger board', hwThenBoard.book);
+	const afterEnd = types(hwThenBoard.book).slice(types(hwThenBoard.book).indexOf('holdAndWinEnd'));
+	check('the board after the feature is a reel reveal, not a respin board', afterEnd.slice(1, 2), [
+		'reveal',
+	]);
+	const meterAfter = only(hwThenBoard.book, 'setTotalWin').map((e) => e.amount as number);
+	check(
+		'…and its bank includes the feature’s total (the meter never steps back)',
+		meterAfter.every((amount, i) => i === 0 || amount >= meterAfter[i - 1]),
+		true,
+	);
+
 	// A Hold and Win GAME that adds an overlay keeps identity names, whatever its vocabulary.
 	const hwGame = await play('S-hw-base-overlay', {
 		config: {

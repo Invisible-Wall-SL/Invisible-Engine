@@ -56,8 +56,9 @@ const samePosition = (a: Position) => (b: Position) => a.reel === b.reel && a.ro
  *   (`tumbleBoard`), which moves the cells the tokens stood on;
  * - `overlayDrop` puts its tokens down, one per cell (the last named wins);
  * - `meterUpdate` lifts the tokens that filled the pot (its `from` cells) — they fly to it;
- * - `holdAndWinTrigger` clears it: the dropped coins are held on the respin board now, and the base
- *   board comes back with the host's own symbols when the feature ends.
+ * - `holdAndWinEnd` clears it: the dropped coins were held on the respin board (which covers the reels,
+ *   tokens and all, while it is up), and the base board comes back with the host's own symbols. Not
+ *   at the trigger: the pots drain over the base board first, and its coins must still show.
  * Every other event leaves it as it is.
  */
 export const applyOverlayEvent = (
@@ -68,7 +69,7 @@ export const applyOverlayEvent = (
 	switch (event.type) {
 		case 'reveal':
 		case 'tumbleBoard':
-		case 'holdAndWinTrigger':
+		case 'holdAndWinEnd':
 			return state.tokens.length ? emptyOverlayState() : state;
 		case 'overlayDrop': {
 			const cells = (event.cells as OverlayDropCell[] | undefined) ?? [];

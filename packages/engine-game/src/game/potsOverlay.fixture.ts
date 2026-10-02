@@ -7,7 +7,8 @@
  *  1. A drop puts its tokens down, one per cell; the next base board or cascade step clears them (a
  *     coin that did not fly is gone).
  *  2. A pot's fill lifts exactly its own tokens at its `from` cells, and nothing else.
- *  3. A Hold and Win entry clears the base board's tokens (its coins are held on the respin board).
+ *  3. A Hold and Win feature's END clears the base board's tokens — not its entry, whose drain plays
+ *     over the base board with the coins still on it.
  *  4. A mode entry a pot started drains that pot — free spins and a generic mode alike; Hold and
  *     Win's own reducer drains its pots, so it is not drained twice; nothing else drains anything.
  *  5. A resume after free spins that gave way to a pot's bonus does not reopen them; a plain
@@ -90,10 +91,15 @@ check(
 	true,
 );
 
-console.log('\n3. Hold and Win starts');
+console.log('\n3. Hold and Win');
 check(
-	'its entry clears the base board',
-	applyOverlayEvent(lifted, ev({ type: 'holdAndWinTrigger', cause: 'meter' })).tokens,
+	'its entry keeps the coins on the base board while the pots drain',
+	applyOverlayEvent(lifted, ev({ type: 'holdAndWinTrigger', cause: 'meter' })) === lifted,
+	true,
+);
+check(
+	'its end clears them: the base board returns with the host’s symbols',
+	applyOverlayEvent(lifted, ev({ type: 'holdAndWinEnd', total: 0 })).tokens,
 	[],
 );
 

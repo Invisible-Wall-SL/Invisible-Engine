@@ -77,6 +77,26 @@ export const releaseMeterDisplay = (id: string, tween: Tween<number>): void => {
 	if (stateMeterDisplay.pinned[id] === tween) delete stateMeterDisplay.pinned[id];
 };
 
+/** The pots a mode entry just drained, pinned at the level they showed. */
+let drainPins: { id: string; tween: Tween<number> }[] = [];
+
+/**
+ * A mode a pot started is recorded — and the pot emptied — BEFORE the mode layer enters it and runs
+ * any authored transition; the drain beat itself plays later, inside the entry's handler. Pin each
+ * drained pot at the level it showed until then, so it does not read empty, then full again, then
+ * drain. Call before the drain is recorded. The beat pins its own and lets these go; a flow that owns
+ * the entry (no drain beat) has them released when the next event is recorded.
+ */
+export const pinDrainedMeters = (ids: readonly string[]): void => {
+	releaseDrainedMeters();
+	drainPins = ids.map((id) => ({ id, tween: holdMeterDisplay(id, meterLevelShown(id)) }));
+};
+
+export const releaseDrainedMeters = (): void => {
+	for (const { id, tween } of drainPins) releaseMeterDisplay(id, tween);
+	drainPins = [];
+};
+
 export const pulseMeter = (id: string): void => {
 	stateMeterDisplay.pulses[id] = (stateMeterDisplay.pulses[id] ?? 0) + 1;
 };

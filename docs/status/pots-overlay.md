@@ -99,8 +99,11 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
     `apps/lines` `stateOverlay`):
     - `overlayDrop` puts tokens down.
     - A pot's `meterUpdate` lifts its own tokens at its `from` cells.
-    - The next base `reveal` or a `holdAndWinTrigger` clears the rest, so a value coin that did not
-      fly is gone by the next spin, and the dropped coins live on the respin board once held.
+    - The next base `reveal`, a cascade step, or a `holdAndWinEnd` clears the rest, and so does
+      the next round's spin press (`clearOverlay`, beside `clearWinPresentation`), so no token sits
+      over rolling reels. A value coin that did not fly is gone by the next spin. Hold and Win's
+      dropped coins stay on the base board while its pots drain, then live on the respin board
+      (which covers the reels, tokens and all) until the feature ends.
     - The record is the timing: an event is recorded as its beat starts. Tokens therefore appear
       when `overlayDrop` plays (after the board stops) and leave as their fill's flights start.
   - **The layer:** `OverlayTokens.svelte`, mounted for every game right after `<Board />` (above the
@@ -158,6 +161,35 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
     - **Validator:** a pot whose bonus is a reels mode it also drops in (free spins with
       `drops.modes` listing `freeSpins`) warns: it can refill during its own bonus and chain without
       end.
+  - **The hub's review of #1015, folded in:**
+    - A trigger board between a Hold and Win feature's end and the next bonus is a reel `reveal`,
+      not a `respinReveal`: an overlay host's feature leaves the respin board at its
+      `holdAndWinEnd`, and its total joins the round's win there (pinned in the facade fixture).
+    - Pots a mode entry drains are pinned at their shown level as the drain is recorded
+      (`pinDrainedMeters`), so they do not read empty during the mode's transition and then refill
+      for the drain beat. The beat pins its own; a flow-owned entry's pins go at the next event.
+    - The coded handlers call the drain only when a pot started the entry (no extra await for any
+      other game).
+    - A token whose art reports complete on mount, before its beat is armed, resolves the beat at
+      once instead of waiting out the cap.
+    - `publish-symbol-defaults.mjs` normalizes the config before `resolveMeters` and falls back to
+      no tokens with a warning, so a raw compiled config cannot abort a publish.
+    - `docs/tools/win-text.md` states the `{meter}` rule for a pot that activates no special.
+  - **Real-clock verification** (`game-playtester`, headless shell over a CDP pipe, `--no-sandbox`
+    as root; ~4 fps software rendering, page visible; local mocks only, no R2):
+    - **Borut-style parity**, `main` vs this branch at e817f06, one forced free-spin round on the
+      book mock: both reach idle; all 13 RGS answers byte-identical; the full ordered flow trace
+      (262 lines) identical; the same 39 emitter-event types (one count, `soundScatterCounterIncrease`,
+      varies run to run on either branch at this frame rate); balance $5000 → $4999 → $5023.50 on
+      both, exactly the mock's; only the 4 environmental errors (Typekit, the boot.json 404).
+    - **Overlay, `pot:red` on Phase 2's mock** (threePots on a book host, a throwaway local config):
+      the token drops, the pot fills 0 → 12 and drains, Hold and Win plays its respins, back to
+      idle, money exact, 0 exceptions.
+    - **`pot:red,feature`:** the host's free spins play, end once (outro once), then the pot drains
+      and Hold and Win plays, back to idle, money exact, 0 exceptions.
+    - The earlier "cannot reach idle" was the harness: `win-countup-repro.mjs` looks for
+      `chrome-headless-shell` (the binary here is `headless_shell`), and as root the shell needs
+      `--no-sandbox`. Only the Typekit font fails remotely.
   - **Parity:** without a drop, the layer is one empty container. Without a meter-caused entry,
     nothing drains. A game with no `potsOverlay` registers the same signals as before. A legacy
     resume replays exactly what it did. The svelte-check ratchet holds (lines 164).
@@ -239,9 +271,9 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
     and Win presets, a queued second mode, a forced meter trigger): 4,396 book events, 0
     differences. `check:holdandwin` (1892), `check:resume`, `check:freespins`, `check:rgs` and `check:engine-game` pass unchanged. The svelte-check ratchet
     holds (lines 164, engine-game 37, launcher 53). `apps/lines` booted on the local book mock
-    (`FORCE_TRIGGER=1`) deals and drives the whole free-spin round exactly as `main` does. In this
-    container neither branch's presentation reaches idle (swiftshader, remote art unreachable), so
-    the visual pass is left to a real-clock playtest.
+    (`FORCE_TRIGGER=1`) deals and drives the whole free-spin round exactly as `main` does. (Phase 4a's
+    real-clock run later showed the container CAN reach idle: the earlier stalls were the harness —
+    see Phase 4a below.)
 - 2026-10-02 — **Phase 2 mock, as built** (session "Pots overlay Phase 2 — composed mock"). The wire
   is the reference's "Pots overlay" section; `pnpm check:pots-overlay` pins it (in `check:rgs`).
   - **Composition is through a host seam, not an HTTP post-processor.** A pot bonus has to keep open
@@ -435,8 +467,16 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
      entered the mode (`modes.before`), so the new mode's screens and music are already up. Hold
      and Win's drain has always worked this way. Moving the drain into a mode hook would put it
      first. Inside `freeSpinTrigger` it is also unskippable, which Hold and Win's drain is not.
-   - **A visual pass** on a real clock (`game-playtester`, the Phase 6 sample). This container
-     cannot reach idle on either branch (software rendering, remote art unreachable).
+   - **4b — lift-off vs the flight stagger:** a fill's tokens leave at once, but each flight starts
+     one stagger (70 ms coded) after the last, so the Nth cell sits empty for (N−1)×70 ms. Goes with
+     the token as the flight head.
+   - **4b — owner decision pending: frame over coin, or coin over frame.** Win frames are drawn per
+     cell inside `Symbol.svelte`, under the overlay layer, so a token on a paying cell covers its
+     frame; §3.4 says the layer sits "below the win frames". The hub is asking the owner; nothing is
+     restructured in 4a.
+   - **Human eyes** on token pop-in, lift-off, the flight and the drain with REAL token art (the
+     runs below had none, so a token drew nothing and its beat ended on its cap), at full frame
+     rate (the container renders at ~4 fps).
 
 1. **Phases 5a, 5c and 5d** run in parallel; Phase 6 needs them and Phase 4. See the Phase board.
 2. **Carried into later phases (found in Phase 1):**
