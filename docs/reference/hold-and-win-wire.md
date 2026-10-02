@@ -287,6 +287,107 @@ respin cell lands something 6% of the time, a Lucky Spin 1%, the random metre 0.
 pacing, chosen so features come round in a playtest. WHICH value lands follows the config's weights.
 None of it is RTP.
 
+## Pots overlay — an add-on on another kind's wire
+
+> Ours too (design [pots-overlay.md](../design/pots-overlay.md) §3.3). A project whose Game Config
+> carries a `potsOverlay` block is dealt by its own kind's mock (Book-of first) wrapped by
+> `withPotsOverlay` (`scripts/mock-pots-overlay.mjs`). **Without the block not one byte below is
+> sent.** Rewritten with the rest of this document when the partner delivers theirs (Phase 8).
+
+**Symbols.** The host's board keeps the host's vocabulary (the book mock's `PIC1`…`TEN`, `SCAT`).
+Everything the overlay adds — tokens, value coins, the Hold and Win respin board — travels under the
+project's **own** Game Config names, as everywhere else on this wire. Values are × the **base**
+total stake (a book host's `betPerLine × 10`; a bought round's premium never raises them).
+
+### The boot `config`
+
+`config.context` is the host's own, plus:
+
+```jsonc
+"potsOverlay": {
+  "wire": 1,                   // refuse a wire you were not written for
+  "pots": [
+    { "id": "red", "token": "POT_RED", "level": 4, "max": 12, "sizeStages": [5, 9],
+      "bonus": "holdAndWin", "activates": "payer" }   // `activates`: a holdAndWin pot that has one
+  ],
+  "bonuses": { "feature": "freeSpins", "respin": "holdAndWin" }  // spinTrigger.bonus → mode id
+}
+```
+
+- `bonus` is the mode a full pot starts: `holdAndWin`, `freeSpins`, or any other mode id.
+- `bonuses` names the mode behind every `spinTrigger.bonus` key this game can send: the book's own
+  free spins are `feature`, the respin feature is `respin`. Route `enterBonus` / `playedBonusSpin`
+  by it.
+- When the project's `holdAndWin` block is the overlay's BONUS (`holdAndWinIsOverlayBonus`), the
+  boot `holdAndWin` block (wire 1, above) is sent beside it, with `meters: []` and
+  `luckySpin: false` — the pots are the meters.
+- Pot levels are server state, per player (per session on the mock) and across rounds, exactly like
+  Hold and Win meters.
+
+### A spin in a dropping mode
+
+The base game, and free spins only when `drops.modes` lists `freeSpins`. Pass-2 order:
+
+| Event                                                           | Context                                                           | When                                                                                                                                                                                                       |
+| --------------------------------------------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `spinStart`, the host's wins (`spinWin`, `bonusWin`)            | the host's                                                        | as the host sends them                                                                                                                                                                                     |
+| `overlayDrop`                                                   | `{cells: [{reel, row, symbol, pot?, value?, jackpot?}]}`          | something dropped. A pot token carries `pot`; a value coin carries `value` (× base total stake) or `jackpot`. Drawn OVER the cell's symbol: the board, its wins and its triggers are the host's, untouched |
+| `meterUpdate`                                                   | `{meter, level, max, full, from: [{reel, row, symbol}], forced?}` | one per pot that moved; `from` = its token cells. `forced: true` = a `pot:<id>` force set it one short first                                                                                               |
+| the host's own feature entry, `retrigger`, `playedBonusSpin`, … | the host's                                                        | unchanged                                                                                                                                                                                                  |
+| the pot bonus entry (below)                                     |                                                                   | a bonus starts now: it REPLACES `gameEnd` (and `gameRoundOver`), and the round stays open                                                                                                                  |
+| `gameEnd`, `gameRoundOver`                                      | the host's                                                        | no bonus starts on this answer                                                                                                                                                                             |
+| `meterLevels`                                                   | `{meters: [{id, level, max}]}`                                    | last, after every `play` (respins included)                                                                                                                                                                |
+
+In the array `overlayDrop` sits right after `spinStart`, and the `meterUpdate`s right after the
+host's wins and `playedSpin`. Pass 1 (`bet`, `playedSpin`) is unchanged.
+
+**Pots.** A token fills its pot by one. A pot that reaches `max` is `full: true` and its bonus
+starts; it drains to 0 the moment its bonus starts, so that answer's `meterLevels` reads 0. A full
+pot still waiting for its bonus (behind another one) is dealt no more tokens.
+
+### A full pot (or enough value coins) starts its bonus
+
+- **→ Hold and Win:** `spinTrigger {bonus: "respin", cause: "meter", meters: [id], …}`, then
+  `holdAndWinTrigger {cause: "meter", meters, cells, respins, stickiness, activeModifiers}`
+  (`cells` = this spin's dropped value coins, held as the feature starts; none ⇒ an empty board),
+  any wheel events, then `enterBonus` — exactly the Hold and Win entry above. Every respin, the
+  feature end and the `collect` are the Hold and Win wire's, under the round's `gid`.
+  `activeModifiers` carries each consumed pot's `activates`.
+- **Value coins:** `holdAndWin.trigger.count.min` or more coins dropped on one spin start the same
+  entry with `cause: "count"` and no `meters`. A pot and the coins on one spin start ONE feature,
+  `cause: "meter"`, holding the coins.
+- **→ free spins** (the host's own): the book wire's `spinTrigger {spins: [{prob: 1, spins}],
+occurs: 0, bonus: "feature", trigger, cause: "meter", meters: [id]}`, then its `enterBonus` and
+  `pickRandomly`, unchanged. `spins` is the pot's `bonus.spins` (the book's 10 when absent).
+- **→ any other mode** (until Phase 7 builds it): `modeEnter {mode, cause: "meter", meters: [id]}`
+  then `modeExit {mode, total: 0}`, after which the round goes on as if no bonus had started.
+
+**Several in one round.** The host's own feature always plays first. Then Hold and Win (every pot
+routed to it, and the coins, as one feature), then each other full pot in config order. Whatever
+ends one — the last free spin's `playedBonusSpins`, a feature's `holdAndWinEnd` +
+`playedBonusSpins` — carries the next one's entry **instead of** `gameEnd`. The last one ends with
+`gameEnd {win}` = the whole round's win, and the client `collect`s. So with the host's free spins
+and a full pot on one spin, the trigger answer is the host's free-spin entry (the pot shows
+`full: true`), and the last free spin's answer carries the pot bonus's `spinTrigger` + entry.
+
+### Forcing (authoring mock only)
+
+On an overlay host the `force:` tokens are the overlay's (the book mock has none of its own),
+comma-separated, through `play.context = "force:<spec>"` or `…/force?sid=&beat=<spec>`:
+
+| Token               | Beat                                                                    |
+| ------------------- | ----------------------------------------------------------------------- |
+| `overlay:drop`      | at least one drop on this spin                                          |
+| `overlay:coins:<n>` | `n` value coins drop (needs the Hold and Win bonus)                     |
+| `pot:<id>`          | that pot is set one short and its token drops: full on this spin        |
+| `pot:<id>:<level>`  | that pot is set to `level` (0 ≤ level < max) before the spin is dealt   |
+| `feature`           | the host's own feature triggers too (with `pot:<id>`: both on one spin) |
+
+A token the game cannot deal (an unknown pot, coins with no Hold and Win bonus, a level out of
+range, a typo) is refused with error 101 before the batch is dealt; a forced `play` waits for its
+`collect` like a Hold and Win one. Every beat and route is exercised by `pnpm check:pots-overlay`
+(`scripts/check-pots-overlay-protocol.mjs`).
+
 ## Open questions for the partner (Phase 10)
 
 How coin values, jackpot labels, held cells, the counter and its reset, collectors, persistent meters,

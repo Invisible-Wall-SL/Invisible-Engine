@@ -32,7 +32,7 @@ session is the Claude Code session titled **"3 pots overlay mechanic"**.
 |---|---|---|---|---|
 | 0 | Plan + hub | in review | 3 pots overlay mechanic | #1008 |
 | 1 | Contract: `potsOverlay` config block + validator + presets + `resolveMeters` + additive `kindCapabilities` inputs | built, in review | 3 pots overlay mechanic | #1008 |
-| 2 | Mock — composed protocol (`withPotsOverlay` over book, reusable H&W feature generator, free-spin hook, forced beats, wire doc, `check:pots-overlay`) | not started (needs 1) | — | — |
+| 2 | Mock — composed protocol (`withPotsOverlay` over book, reusable H&W feature generator, free-spin hook, forced beats, wire doc, `check:pots-overlay`) | in progress — wire doc pushed | Pots overlay Phase 2 — composed mock | (draft PR) |
 | 3 | Facade + engine event contract (`overlayDrop`, mode-entry `cause`/`meters`, per-bonus routing, pots at boot for any kind) | not started (needs 1; parallel with 2) | — | — |
 | 4 | Engine runtime (overlay layer, timing, lift-off flights, drain on any mode entry, H&W from an overlay host, resume) | not started (needs 3) | — | — |
 | 5a | `/config` Add-ons section | not started (needs 1) | — | — |
