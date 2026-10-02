@@ -110,6 +110,7 @@ const boot = async (preset, extra = {}) => {
 		post: (path, body) => send('POST', path, body),
 		get: (path) => send('GET', path),
 		close: () => new Promise((r) => server.close(r)),
+		port: server.address().port,
 		table: Boolean(opts.betModes),
 		lines: opts.paylines.length,
 		jackpots: Object.fromEntries(block.jackpots.map((j) => [j.name, j.multiplier])),
@@ -970,6 +971,13 @@ const jackpotsWon = (r, source) =>
 		'every play reports each pool grown by its contribution, capped',
 		JSON.stringify(pools),
 	);
+	const opening = await playRound(g, 'pools-order', {});
+	const firstLevels = eventsOf(opening).findIndex((e) => e.event === 'jackpotLevels');
+	check(
+		firstLevels > eventsOf(opening).findIndex((e) => e.event === 'bet') &&
+			firstLevels < eventsOf(opening).findIndex((e) => e.event === 'playedSpin'),
+		'the bet reports the pools it grew before the play is dealt',
+	);
 	check(pools.MINOR === 40, 'MINOR stops at its 40× cap', String(pools.MINOR));
 	resp = await g.post(`/rgs/engine?sid=${sid}&seq=0`, []);
 	check(
@@ -1013,6 +1021,62 @@ const jackpotsWon = (r, source) =>
 		tiers.every((t) => next.sessions.get(sid).jackpots[t.name] === pools[t.name]),
 		'pools survive a contract swap',
 	);
+	// Two players at once: A's request is open (its body not yet sent) while B's whole round plays.
+	// Each must be dealt and paid from its OWN pools.
+	{
+		const port = g.port;
+		const send = (path, body, holdMs) =>
+			new Promise((resolve, reject) => {
+				const payload = JSON.stringify(body);
+				const req = request(
+					{
+						host: '127.0.0.1',
+						port,
+						path,
+						method: 'POST',
+						headers: {
+							'content-type': 'application/json',
+							'content-length': Buffer.byteLength(payload),
+							connection: 'close',
+						},
+					},
+					(res) => {
+						let text = '';
+						res.setEncoding('utf8');
+						res.on('data', (c) => (text += c));
+						res.on('end', () => resolve(JSON.parse(text)));
+					},
+				);
+				req.on('error', reject);
+				req.flushHeaders();
+				setTimeout(() => req.end(payload), holdMs);
+			});
+		await g.post(`/rgs/engine?sid=race-b&seq=0`, [{ action: 'config' }]);
+		for (let i = 0; i < 5; i++) await playRound(g, 'race-b', {});
+		await g.post(`/rgs/engine?sid=race-a&seq=0`, [{ action: 'config' }]);
+		const open = await g.post(`/rgs/engine?sid=race-a&seq=0`, [
+			{ action: 'bet', context: [g.lines, 4] },
+			{ action: 'play', context: 'force:jackpot:GRAND' },
+		]);
+		const gid = open.platform.gameRound?.id;
+		const answers = [open];
+		for (let seq = 2; gid && seq < 60; seq++) {
+			const late = send(`/rgs/engine?sid=race-a&seq=${seq}&gid=${gid}`, [{ action: 'play' }], 60);
+			await g.post(`/rgs/engine?sid=race-b&seq=0`, []);
+			const answer = await late;
+			answers.push(answer);
+			if ((answer.events ?? []).some((e) => e.event === 'gameEnd')) break;
+		}
+		const raced = answers.flatMap((r) => r.events ?? []);
+		const stake = raced.find((e) => e.event === 'bet')?.context.total;
+		const paid = raced.find((e) => e.event === 'jackpotWin' && e.context.tier === 'GRAND')?.context
+			.amount;
+		check(
+			paid === Math.round(2001 * stake),
+			"a request open while another player's arrives is paid from its own pool",
+			`${paid} for a 2001× pool on ${stake}`,
+		);
+	}
 	await g.close();
 
 	const fixed = await boot('pots');

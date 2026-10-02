@@ -219,10 +219,10 @@ const publishHoldAndWinJackpots = (levels: HoldAndWinJackpotLevel[]): void => {
 /** A heartbeat's progressive pools: moved into the captured tiers and handed to the game. */
 const refreshHoldAndWinJackpots = (sid: string, response: unknown): void => {
 	const hw = capturedHoldAndWin.get(sid);
-	const event = (response as { events?: Play4FunBookEvent[] } | null)?.events?.findLast(
-		(e) => e.event === 'jackpotLevels',
-	);
-	if (!hw || !event) return;
+	if (!hw) return;
+	const events = (response as { events?: Play4FunBookEvent[] } | null)?.events ?? [];
+	const event = [...events].reverse().find((e) => e.event === 'jackpotLevels');
+	if (!event) return;
 	const levels = readJackpotLevels(event.context);
 	applyJackpotLevels(hw, levels);
 	publishHoldAndWinJackpots(levels);
@@ -347,7 +347,8 @@ const betModesFromOptions = (
  */
 const declaredPayLines = (sid: string): number[][] | null => {
 	const cfg = capturedConfig.get(sid) as
-		{ availablePayLines?: number[][]; paylines?: number[][] } | undefined;
+		| { availablePayLines?: number[][]; paylines?: number[][] }
+		| undefined;
 	const lines = cfg?.availablePayLines ?? cfg?.paylines;
 	return Array.isArray(lines) ? lines : null;
 };
@@ -1630,7 +1631,8 @@ const settleRound = (sid: string, round: PlayedRound, currency: string) => {
 	const winCents =
 		(
 			[...allEvents].reverse().find((e) => e.event === 'gameEnd')?.context as
-				{ win?: number } | undefined
+				| { win?: number }
+				| undefined
 		)?.win ?? 0;
 	// Whether the reported balance ALREADY includes the win depends on whether the round closed.
 	//

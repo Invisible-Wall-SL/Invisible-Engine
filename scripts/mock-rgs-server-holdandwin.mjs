@@ -1563,8 +1563,6 @@ export function createMockRgs(opts = {}) {
 		if (!sid)
 			return sendJson(req, res, 400, { error: { code: 'ERR_VAL', message: 'missing sid' } });
 		const session = getSession(sid);
-		livePools = session.jackpots;
-		wonProgressive.clear();
 		let actions;
 		try {
 			const text = await readBody(req);
@@ -1599,6 +1597,11 @@ export function createMockRgs(opts = {}) {
 		};
 		// A line-config game volunteers its config on first contact; a table game only when asked,
 		// so a stale tab is never pinned to a table it did not see (the lines mock's rule).
+		// From here to the answer nothing awaits, so this request alone reads the pools it points at —
+		// set after the body read, the request's only await, or another player's request in between
+		// would leave it dealing their pools.
+		livePools = session.jackpots;
+		wonProgressive.clear();
 		if (!session.configSent && !betTable) sendConfig();
 		if (actions.length === 0) {
 			// The heartbeat restates the progressive pools, so a bar open between rounds stays current.
@@ -1697,7 +1700,10 @@ export function createMockRgs(opts = {}) {
 						// A table pinned by another mock (a contract swap) may not name its modes; the
 						// option index means the same mode in both.
 						const modeName = (table?.modes ?? betTable?.modes)?.[option];
-						if (round && !round.closed) settleAbandoned(sid, session, round);
+						if (round && !round.closed) {
+							settleAbandoned(sid, session, round);
+							resetWonPools(session);
+						}
 						if (session.balance < total) return fail('insufficient balance', 200);
 						session.balance -= total;
 						growPools(session);
@@ -1770,6 +1776,13 @@ export function createMockRgs(opts = {}) {
 				}
 				round.stored[position] = { action: a, events: events.slice(dealtFrom) };
 				resetWonPools(session);
+				// A bet grows the pools before its play is dealt, so it reports them too: every jackpot
+				// worth in the play's answer is read against the pools it was dealt at.
+				const grown = a.action === 'bet' ? jackpotLevels(session) : null;
+				if (grown) {
+					events.push(grown);
+					round.stored[position].events.push(grown);
+				}
 				if (a.action === 'play' && meters.length) {
 					// Every play answer reports the meters as they stand — the client never computes one.
 					const levels = { event: 'meterLevels', context: { meters: meterList(session) } };

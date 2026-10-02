@@ -978,6 +978,9 @@
 									min="0"
 									step="any"
 									value={j.multiplier}
+									title={j.fixed
+										? undefined
+										: 'Shown only until the server reports the pool; the pool pays'}
 									oninput={num((n) => n > 0 && (j.multiplier = n))}
 								/></td
 							>

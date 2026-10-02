@@ -1195,7 +1195,7 @@ export function createMockRgs(opts = {}) {
 			}
 			let target = null;
 			let best = 0;
-			for (const [name, n] of counts) if (n > best) ((best = n), (target = name));
+			for (const [name, n] of counts) if (n > best) (best = n), (target = name);
 			if (target) {
 				for (let step = 0; step < 2; step++) {
 					const exploding = [];

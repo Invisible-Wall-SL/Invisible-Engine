@@ -81,7 +81,8 @@ arrive at boot here, change only by `meterUpdate`, and are restated after every 
 `fixed: false` is flagged `progressive` and carries its pool as `value` (× total stake, like
 `multiplier`, which stays its fallback). The pool is per player (per session on the mock): every
 `bet` adds the tier's `contribution`, it stops at its `cap`, a win pays the pool and puts it back to
-its `seed`. It arrives at boot here, is restated after every `play` by `jackpotLevels` and on every
+its `seed`. It arrives at boot here, is restated after the opening `bet` and every `play` by
+`jackpotLevels` and on every
 balance heartbeat (`[]`), and a `jackpotWin` of the tier pays it. A game with no progressive tier
 sends exactly what it did before — no `progressive`, no `value`, no `jackpotLevels`.
 
@@ -105,7 +106,7 @@ In order (pass 1: `bet`, `playedSpin`; pass 2: the rest as listed):
 | `enterBonus`                                                                                          | partner snapshot + `holdAndWin` state                                   | the round STAYS OPEN                                                                                                                                                                                                                                                                           |
 | `gameEnd`, `gameRoundOver`                                                                            | `{win}`                                                                 | no feature: the lines mock's close rules (a losing spin closes itself; `play: null` with a win waits for `collect`)                                                                                                                                                                            |
 | `meterLevels`                                                                                         | `{meters: [{id, level, max}]}`                                          | after every `play`, when the game has meters                                                                                                                                                                                                                                                   |
-| `jackpotLevels`                                                                                       | `{jackpots: [{name, value}]}`                                           | after every `play` (and in the heartbeat's `events`), when the game has a progressive tier — each pool × total stake, after any this play won went back to its seed                                                                                                                         |
+| `jackpotLevels`                                                                                       | `{jackpots: [{name, value}]}`                                           | after the opening `bet` (the pools it grew — the play is dealt at them), after every `play` and in the heartbeat's `events`, when the game has a progressive tier — each pool × total stake, after any this play won went back to its seed                                                                                                                         |
 
 **What sticks at entry:** `allCoins` — every coin and jackpot coin (specials on the triggering board
 do not stick; with `activeModifiers.fromTriggeringSpecials` they activate their kind instead).

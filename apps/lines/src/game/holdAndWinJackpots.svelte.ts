@@ -23,7 +23,7 @@ export const jackpotMultiplier = (tier: string): number => {
 		({ name }) => name.toLowerCase() === tier.toLowerCase(),
 	);
 	if (!jackpot) return 0;
-	return (!jackpot.fixed && levelOf(tier)?.value) || jackpot.multiplier;
+	return jackpot.fixed ? jackpot.multiplier : (levelOf(tier)?.value ?? jackpot.multiplier);
 };
 
 const readGlobal = (): HoldAndWinJackpotLevel[] | undefined =>
