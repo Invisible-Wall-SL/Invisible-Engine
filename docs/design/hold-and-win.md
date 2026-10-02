@@ -464,3 +464,101 @@ Two related things, kind-independent where possible:
   confirmed with the partner later (it is read off their client, §3.1) — record it as a Phase 10
   check.
 
+## 8. Phase 12 — authorable feature parts (planned 2026-10-02)
+
+**Why.** Owner, looking at the Pot Meter in the Component Editor: it is "just a shape". An author
+cannot put their own bitmap art in it, and cannot make a character (a frog spine) play an animation
+plus an FX when *that* pot fills or triggers. They also cannot drive a bone from the pot's level. Measured
+2026-10-02 (origin/main 59d12ae6):
+
+- **Hard-coded drawing.** `potMeter` is a coded part (`bind: PotMeter`) that draws hard-coded
+  rectangles and Arial text (`HoldAndWinPot.svelte`), and a `bind` container never renders authored
+  children. The respin counter, jackpot bar/tile, letters, wheel, total bar and respin cell tiles are
+  coded parts in the same way.
+- **No per-pot signals.** The engine already broadcasts `potFill {meter, level, max, full}`,
+  `potFull {meter}`, `potsConsume {meters, activates}` and `flightArrive {target:'meter:<id>'}`. None
+  of them reach spine or flipbook `cues`: the component-signal registry has no Hold and Win entries,
+  and only a Flow `fireCue` reaches the open bus. Inside the Component Editor a cue can only pick from
+  the fixed `ENGINE_SIGNAL_CATALOG` (win, bigWin, freeSpin*…), with no pot signals and no free text.
+  FX `trigger.on:'event'` matches on type only, so a "pot full" FX fires for **every** pot.
+- **Numbers drive only text.** `paramBindings` can drive text, a sprite region/tint and a spine's
+  asset/animation/loop. A value source (`meter.<id>.level`) feeds only text. Nothing maps a number to
+  a transform, a fill or mask, a frame, an animation time or a **bone** (`pixi-svelte` has a
+  `SpineBone` primitive that no layout node uses).
+- **Missing moments.** There are no level-up or size-stage events, and no `meter.<id>.full` or stage
+  visibility sources.
+
+Today's workaround: put the frog on a screen (not in a component), and add a Flow Branch
+`$trigger.meter eq red` → Fire cue `redPotFill`, plus an FX on that cue. It works, but every pot needs
+its own branch, and it all lives outside the pot.
+
+**The shape: three slices, each through the whole pipeline.** Each slice runs through the
+component model, the Component Editor and Scene Editor UI, the runtime, the ship chain (rule 8), the
+docs and the guides. Unauthored, every existing game and component looks and behaves exactly as today.
+The slices are generic: they serve every kind. Hold and Win is the first consumer.
+
+### 12a — signals: free names, engine signals reach components, scoped to an instance
+
+- **Free-text signals in the Component Editor** for spine/flipbook cues, `hiddenUntilSignal` and
+  per-instance overrides, so any Flow cue name works inside a component, not only catalog names.
+- **Engine broadcasts reach components.** Register the engine's own feature events in the
+  component-signal registry, and add them to `ENGINE_SIGNAL_CATALOG` grouped by kind:
+  - pots: `potFill`, `potLevelUp`, `potStageUp`, `potFull`, `potActivate`, `potLand` (special
+    arrives);
+  - respins: counter reset/last;
+  - coins: land, collect, boost, upgrade;
+  - jackpots: jackpot win per tier;
+  - letters: letter lit;
+  - wheel: spin, land;
+  - feature: enter, exit.
+
+  `potLevelUp` and `potStageUp` are new engine events (with flow cues).
+- **Scoped signals.** A signal carries a **scope key**: the meter id for pots, the tier for jackpots,
+  the reel for letters. A component instance names its scope from one of its own params (the pot's
+  `meter`, a jackpot tile's `tier`), and **receives only the signals for its scope**. So "frog: on
+  `potActivate` play celebrate", authored once inside the Pot component, plays only on the pot it sits
+  on. An unscoped instance hears all of them, which is today's behaviour.
+- **FX:** `EmitterTrigger` gains an optional scope filter (`eventType` + `scope`). An effect node
+  inside a scoped component inherits its scope.
+- **Flow:** "Fire cue" gains an optional scope pin, so a flow can target one pot's components. The
+  vocabulary lists the new engine signals.
+
+### 12b — value bindings: numbers drive transforms, fills, frames, animations and bones
+
+- **New `paramBindings` targets for a number value**, each with a mapping
+  (`inMin..inMax → outMin..outMax`, clamp, optional ease or smoothing tween):
+  - transform: x / y / scale / rotation / alpha;
+  - visibility thresholds (`value ≥ n`);
+  - a sprite **fill/mask** (crop or reveal 0–1, horizontal or vertical) for bars and pots;
+  - a frame index (a flipbook or sprite sequence);
+  - a spine **animation scrub** (set a track's time from the value);
+  - a spine **bone** (x / y / rotation / scale of a named bone), through the existing `SpineBone`
+    primitive.
+- **Value sources** may be normalized (`meter.<id>.level / max`). Add booleans `meter.<id>.full` and
+  `meter.<id>.stage≥n`, and expose the respin, jackpot and feature numbers as sources wherever they
+  are missing.
+- **Editor:** a "Bind to value" control on those properties in the Component Editor and Scene Editor,
+  previewable by scrubbing a test value.
+
+### 12c — skinnable feature parts
+
+- Coded parts render the author's art instead of the coded drawing when it is provided, and **keep
+  their behaviour**: the level and state, the `meter:<id>` flight anchor, and registering as that
+  pot. They register even when the coded visuals are removed, which fixes today's trap where
+  deleting the part leaves the default pot drawn and the anchor behind.
+- Two ways to skin:
+  - **(1) Art params on the builtin.** Pot: background, fill (revealed by level, through 12b's
+    mask), frame, an image per size stage, and a label style.
+  - **(2) Authored children inside the part.** Your own nodes: the frog spine, FX, text, wired to
+    12a signals and 12b bindings, with the coded drawing hidden when children exist.
+- Order: **Pot first** (the owner's example). Then the respin counter, jackpot bar/tile, total win bar,
+  letters strip, wheel and respin cell tiles, with the same pattern for each.
+- All new art ships through the component image/spine export chain.
+
+**Order:** 12a and 12b in parallel (the signal bus vs the binding engine). 12c after both, because it
+consumes them. The art params on the pot can start early.
+
+**Done when:** in the Component Editor, an author skins the Pot with their own bitmap fill and frame,
+puts a frog spine inside it that plays "celebrate" plus an FX on `potActivate` for *that* pot only,
+and grows the frog's belly bone with the pot level. This must work on all three pots, with no Flow
+branches, live on hw-3pots-sample.
