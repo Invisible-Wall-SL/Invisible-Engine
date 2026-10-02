@@ -690,6 +690,12 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Recent changes
 
+- 2026-10-02 — **Add-ons section** (Pots overlay Phase 5a): a kind-independent section that adds,
+  edits and removes the pots overlay and adds a Hold and Win bonus, through the pure merge helpers in
+  `packages/game-config/src/addOns.ts` (never a whole-doc reset; clashing names renamed). The page
+  passes `{holdAndWin, potsOverlay}` presence into `kindCapabilities` and leaves the win model free
+  when the block is the overlay's bonus. Detail: [status/pots-overlay](pots-overlay.md).
+
 - 2026-10-02 — **Hold and Win specials `addRespins` and `upgrade`** (Phase 11a, #995): roles + config blocks (`AddRespinsSpecial`, `UpgradeSpecial`, `UPGRADE_TARGETS`, `jackpotLadder`), validator rules, `/config` editors, and the test fixture `HOLD_AND_WIN_TEST_FIXTURES['pots-extra']`. No preset gains either. Detail: [status/hold-and-win](hold-and-win.md).
 
 - 2026-10-01 — **Game modes registry** (Hold and Win Phase 4M, part 1; design

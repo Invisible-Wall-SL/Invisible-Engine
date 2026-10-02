@@ -20,6 +20,7 @@
 		describePaytableDrift,
 		coinEntryLabel,
 		formatPayRow,
+		holdAndWinIsOverlayBonus,
 		isHoldAndWinSymbol,
 		isScatterSymbol,
 		partnerPaytableDrift,
@@ -48,6 +49,7 @@
 	// tool uses) so the Card-graphics `image` params get the exact same visual frame picker instead
 	// of a raw-key text box. Not forked; the editor owns it.
 	import RegionPicker from '../editor/RegionPicker.svelte';
+	import AddOnsSection from './AddOnsSection.svelte';
 	import GameModesSection from './GameModesSection.svelte';
 	import HoldAndWinSection from './HoldAndWinSection.svelte';
 	import { askConfirm } from '$lib/dialogs.svelte';
@@ -88,9 +90,16 @@
 
 	const symbolNames = $derived(Object.keys(doc.symbols));
 
-	const isHoldAndWin = $derived(
-		kindCapabilities(data.gameType).holdAndWin || doc.holdAndWin !== undefined,
+	const capabilities = $derived(
+		kindCapabilities(data.gameType, {
+			holdAndWin: doc.holdAndWin !== undefined,
+			potsOverlay: doc.potsOverlay !== undefined,
+		}),
 	);
+	const isHoldAndWin = $derived(capabilities.holdAndWin);
+	/** A Hold and Win base game pays by lines; a Hold and Win block that is the pots overlay's BONUS
+	 *  leaves the host's own win model alone. */
+	const winModelLinesOnly = $derived(isHoldAndWin && !holdAndWinIsOverlayBonus(snapshot));
 
 	/** A Hold and Win symbol's read-only value list in the Symbols table: a `coin` shows the cash
 	 *  entries of the coin table, a `jackpot` the jackpot entries — they pay by value, not on a line. */
@@ -1675,6 +1684,8 @@
 			{/each}
 		</section>
 
+		<AddOnsSection bind:doc {issuesFor} readOnly={lease.readOnly} />
+
 		{#if isHoldAndWin}
 			<HoldAndWinSection bind:doc {issuesFor} readOnly={lease.readOnly} />
 		{/if}
@@ -1817,9 +1828,9 @@
 			<div class="fields">
 				<label
 					><span>Win model</span><select
-						value={isHoldAndWin ? 'lines' : winModelType}
+						value={winModelLinesOnly ? 'lines' : winModelType}
 						onchange={(e) => setWinModelType(e.currentTarget.value)}
-						disabled={lease.readOnly || isHoldAndWin}
+						disabled={lease.readOnly || winModelLinesOnly}
 					>
 						<option value="lines">Lines — paylines pay left to right</option>
 						<option value="ways">Ways — any adjacent reels pay</option>
@@ -1904,7 +1915,7 @@
 				Symbols play their <strong>Explosion</strong> state from the Symbols tool as they leave — a project
 				that hasn't authored one will see them simply vanish.
 			</p>
-			{#if isHoldAndWin}
+			{#if winModelLinesOnly}
 				<p class="hint">
 					A Hold and Win base game pays by lines.
 					{#if winModelType !== 'lines'}

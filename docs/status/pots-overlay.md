@@ -35,7 +35,7 @@ session is the Claude Code session titled **"3 pots overlay mechanic"**.
 | 2 | Mock — composed protocol (`withPotsOverlay` over book, reusable H&W feature generator, free-spin hook, forced beats, wire doc, `check:pots-overlay`) | not started (needs 1) | — | — |
 | 3 | Facade + engine event contract (`overlayDrop`, mode-entry `cause`/`meters`, per-bonus routing, pots at boot for any kind) | not started (needs 1; parallel with 2) | — | — |
 | 4 | Engine runtime (overlay layer, timing, lift-off flights, drain on any mode entry, H&W from an overlay host, resume) | not started (needs 3) | — | — |
-| 5a | `/config` Add-ons section | not started (needs 1) | — | — |
+| 5a | `/config` Add-ons section | built, in review | Pots overlay Phase 5a — /config Add-ons | _PR_ |
 | 5b | Scene Editor overlay screens + palette/pickers through the capability | not started (needs 1) | — | — |
 | 5c | Flow vocabulary composition (editor, publish gate, runtime) + graft | not started (needs 1) | — | — |
 | 5d | `/symbols` + `/win-text` + Localization through the capability | not started (needs 1) | — | — |
@@ -89,6 +89,41 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
   - The runtime holds one `RuntimeBundle` (`apps/lines/src/editor-scenes.ts:496-497`).
 
 ## Decisions & findings
+
+- 2026-10-02 — **Phase 5a: the add-on merge helpers + the `/config` Add-ons section** (session
+  "Pots overlay Phase 5a — /config Add-ons"). Pinned by `packages/game-config/addOns.fixture.ts`.
+  - **The helpers** (`packages/game-config/src/addOns.ts`): `addPotsOverlay(doc, presetId)`,
+    `addHoldAndWinBonus(doc, presetId)` and `removePotsOverlay(doc)`. They are pure (the input is
+    never mutated) and return the merged doc UN-normalized, so a half-typed field in an editor's live
+    doc survives an add. An add returns `{ok: true, doc, renamed}` or `{ok: false, reason}`. Phase 6's
+    Game Maker action calls the same three.
+  - **Name clashes are RENAMED, not refused** (the Phase 1 open item). A preset symbol or pot id the
+    project already uses takes the first free `_2`, `_3`… suffix everywhere the add-on names it: its
+    respin strips, its pot tokens, its drop table. `renamed.symbols` / `renamed.pots` list each change
+    and `/config` says so. A host symbol is never shared or redefined, which is what lets a remove take
+    back only what was added. Pot ids are renamed against the Hold and Win block's meter ids (a 3 Pots
+    Hold and Win game adding the 3 Pots overlay gets `red_2`, `blue_2`, `green_2`).
+  - **What an add refuses:** a second overlay; a Hold and Win bonus when the project already has a
+    block; a bonus whose respin game type (`respin`, or the authored mode override's) already has
+    strips, which are never overwritten. When the overlay preset pairs a Hold and Win bonus and the
+    project already has a block (a Hold and Win game, or a bonus added first), the project's block is
+    kept and the preset adds only the overlay.
+  - **＋ Hold and Win bonus inserts the whole bonus** — the block, its respin-board symbols and its
+    respin strips — not the bare block: a block with no respin strips deals nothing. Without an
+    overlay the block is the base game (`holdAndWinIsOverlayBonus` is false), so its base-game rules
+    apply until an overlay is added. That is the Phase 1 rule, unchanged.
+  - **Remove** takes out the overlay. When the block is the overlay's bonus, it also takes the block,
+    its respin strips and a `holdAndWin` mode override, because without the overlay nothing could start
+    it. It deletes only symbols no strip deals any more that an add-on makes: a bare token (exactly
+    `meterSpecial`, no paytable) or a Hold and Win role symbol. A token the author has since given a
+    payout or another role is kept. Add then remove gives back the original doc (fixture: both
+    presets, with renames, and on all three Hold and Win games).
+  - **`/config`:** the Add-ons section shows for every kind, between Bet modes and Hold and Win. A
+    new pot row stays a client-side DRAFT until it has a token and a bonus ("Add pot"), so a save never
+    drops a half-typed pot. The page passes `{holdAndWin, potsOverlay}` presence into
+    `kindCapabilities`, and the win model is locked to lines only when a Hold and Win block is NOT the
+    overlay's bonus (`winModelLinesOnly`). Validator issues show under the pot or drop row they name,
+    and the field gets a red border.
 
 - 2026-10-02 — **Phase 1 contract, as built** (session "3 pots overlay mechanic", #1008). Pinned by
   `packages/game-config/potsOverlay.fixture.ts` (115 assertions) and the kind-gating /
@@ -188,15 +223,12 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
      repeats the kind rule as a regex. Make it read the capabilities.
    - **Phase 2:** decide whether a Hold and Win GAME's own count trigger (an H&W kind that adds an
      overlay) also counts dropped value coins, or only landed coin symbols. Record it here.
-   - **Phase 5a:** a new pot row without its token or bonus is dropped on save (normalizer rule), so
-     keep draft rows client-side until they are complete.
    - **Phase 5d:** tokens are off the strips, so `symbolsInPlay` leaves them out. `/symbols` and the
      published symbol defaults must add them through `resolveMeters`. `symbolStatesForKind` (pinned
      by `check-symbols-kind-gating.ts`) hides `coinLand` / `coinIdle` / `flyToMeter` from a pots-only
      host, but design §4 wants those states for the tokens. Gate them on `pots` there.
-   - **Phase 6:** merging `holdAndWinBonus()` symbols into a host's dictionary can clash with the
-     host's own names (a host that already has a `BONUS` or a `BLANK`). The add-on needs a rename
-     map, or must refuse with a clear message.
+   - **Phase 6:** the Game Maker action calls `addPotsOverlay` (Phase 5a). Clashing names are already
+     renamed, so the action only has to show `renamed`.
    - `pnpm --filter game-config typecheck` already exits 2 on `main` (10 errors: fixtures that import
      `node:*` without Node types). The new fixture adds 4 of the same kind. It is not a gate, and
      `check:all` runs every fixture.
@@ -215,6 +247,14 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 - **The partner's RGS** for production play (Phase 8). Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-02 — **Phase 5a: `/config` Add-ons (_PR_).** The pure merge helpers `addPotsOverlay`,
+  `addHoldAndWinBonus` and `removePotsOverlay` (`packages/game-config/src/addOns.ts`), with
+  `addOns.fixture.ts`. The kind-independent Add-ons section in `/config` (`AddOnsSection.svelte`)
+  adds, edits and removes the overlay, and adds a Hold and Win bonus. Capabilities take the config's
+  presence flags, and the win model stays free when the block is the overlay's bonus. A project with
+  neither block sees `/config` as before plus the Add-ons buttons. The decisions are recorded above
+  (renames, refusals, remove). Nothing reaches a game: the mock and the runtime are Phases 2–4.
 
 - 2026-10-02 — **Phase 1: the contract (#1008).** The `potsOverlay` Game Config block with its
   normalizer, validator, `resolveMeters` and two presets (Phase 1a, agent `invisible-game-config`).
