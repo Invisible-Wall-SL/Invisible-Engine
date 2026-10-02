@@ -78,6 +78,12 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
 
 ## Decisions & findings
 
+- 2026-10-02 — **Owner: the pots as an overlay on any kind** (session "3 pots overlay mechanic").
+  Its own plan and hub: [design/pots-overlay](../design/pots-overlay.md),
+  [status/pots-overlay](pots-overlay.md). It reuses this kind's pots, flights, respin feature and game
+  modes. Its Phases 2–4 touch the Hold and Win mock (the feature generator becomes reusable), the facade
+  (per-bonus routing, only under a captured `potsOverlay` block) and the runtime. This file's parity
+  digests are their gate.
 - 2026-10-02 — **Phase 12b contract (value bindings)** (session "Hold and Win Phase 12b value
   bindings"). Pinned by `packages/engine-layout/scripts/test-value-bindings.mjs`.
   - **Schema:** `BaseNode.valueBindings: ValueBinding[]`, a field of its own beside `paramBindings`
