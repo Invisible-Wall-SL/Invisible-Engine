@@ -1,7 +1,7 @@
 # Pots overlay (add-on on any kind) — status + session hub
 
 > Design: [docs/design/pots-overlay.md](../design/pots-overlay.md) · Builds on:
-> [status/hold-and-win](hold-and-win.md) · Guide: _none yet (Phase 6)_ · Agents: per phase — see the
+> [status/hold-and-win](hold-and-win.md) · Guide: [add-pots-overlay](../guides/add-pots-overlay.md) · Agents: per phase — see the
 > design's build plan.
 
 **One-line state:** Phases 0–3 merged: the `potsOverlay` Game Config block and the additive
@@ -552,8 +552,8 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
      `modeEnter` skips the coded handler, so a pot drained by them snaps to empty with no drain beat.
      #1014 has no drain action. Add one (the coded `presentMeterConsume`) to the overlay fragment in
      `engine-flow-v2/src/reference/addOns.ts` together with the show / lift-token actions.
-   - **Phase 6:** a token with no art in `/symbols` draws nothing (`Symbol`'s missing-art rule). The
-     add-on seeds placeholder art, so this only bites a hand-made config.
+   - A token with no art in `/symbols` draws nothing (`Symbol`'s missing-art rule). The Game Maker
+     add-on (Phase 6) seeds placeholder art, so this only bites a hand-made config.
    - **Resume between a drop and its fills** shows no tokens: neither `overlayDrop` nor `reveal` is
      in the resume snapshot. The following `meterUpdate` still flies from the cell.
    - **Order:** the drain plays inside the free-spin / mode entry beat, after the mode layer has
@@ -589,11 +589,6 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
        per bet and no `jackpotLevels`.
      - The book mock still accepts a second base `play` in a round (its old laxness). The overlay
        refuses one only after its own feature has ended.
-   - **Phase 6 (found in 5b):** the new-project scaffold (`projectScaffold.ts:119`) calls
-     `getFullSceneSet` without add-ons. Pass `SceneSetOptions` (see `$lib/addOns`) when the add-on
-     seeds the overlay screens.
-   - **Phase 6:** the Game Maker action calls `addPotsOverlay` (Phase 5a). Clashing names are already
-     renamed, so the action only has to show `renamed`.
    - `pnpm --filter game-config typecheck` already exits 2 on `main` (10 errors: fixtures that import
      `node:*` without Node types). The new fixture adds 4 of the same kind. It is not a gate, and
      `check:all` runs every fixture.
@@ -608,8 +603,20 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 1. **Confirm or change the defaults** in the design's §7, especially #5 (import vs live link) and #4
    (host feature and pot bonus in one round).
-2. **Phase 6:** duplicate Book of Borut as `borut-pots-sample` (Game Maker → Duplicate, setup
-   scope), then publish it once Phase 6 lands. A session cannot sign in.
+2. **Phase 6 — make the sample** (a session cannot sign in to the launcher). Once #1017 is merged
+   and the launcher and test server have redeployed:
+   1. Game Maker → **Book of Borut** card → **Duplicate**: key `borut-pots-sample`, scope **setup**.
+      Never add the overlay to the live `bookofborutremake`.
+   2. On the new `borut-pots-sample` card → **＋ Pots overlay…** → preset **3 Pots** → **Add**
+      (leave "Also add the overlay steps to the Flow" unticked: the coded defaults play). Read the
+      report: config added, symbols and overlay screens seeded.
+   3. `/config` (project `borut-pots-sample`) → **Add-ons** → the **green** pot → bonus mode
+      **`freeSpins`** → Save. The preset routes all three pots to Hold and Win; this makes green start
+      Borut's own free spins (design §6) and is the first hands-on check that a pot's bonus is
+      authorable.
+   4. Game Maker → `borut-pots-sample` → **Publish**.
+   5. Tell the hub (or any session): a session then plays it with `game-playtester` and
+      [docs/playtest/borut-pots-sample.md](../playtest/borut-pots-sample.md).
 3. **Phase 8:** ask the partner whether their RGS can deal per-player pots, drops on top of symbols,
    and a bonus routed by pot. The same partner conversation as Hold and Win Phase 10.
 
