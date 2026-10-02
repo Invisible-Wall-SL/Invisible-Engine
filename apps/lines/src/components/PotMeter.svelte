@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { untrack } from 'svelte';
+	import { untrack, type Snippet } from 'svelte';
 	import { Container } from 'pixi-svelte';
+	import { readPotSkin } from 'engine-layout';
 	import { getComponentParams, trackComponentMount } from 'engine-layout/svelte';
 
 	import HoldAndWinPot from './HoldAndWinPot.svelte';
@@ -12,11 +13,16 @@
 	 * value while a special flies), size steps, pulse and `meter:<id>` flight anchor — at the instance's
 	 * position. While one is mounted the coded pots step aside (`HoldAndWinPots`). A meter the Game
 	 * Config does not declare draws nothing.
+	 *
+	 * Skinnable (Phase 12c): the instance's art params dress the pot, and the nodes the author put
+	 * inside this part arrive as `skin` and draw in the pot's place — the anchor, level, stages,
+	 * pulse and the count-in below stay with the part, so a skinned pot is still THE pot.
 	 */
 	// The instance's params, else the bind's own props (a bare scene `bind` sets them there).
-	const props: Record<string, unknown> = $props();
+	const { skin, ...props }: Record<string, unknown> & { skin?: Snippet } = $props();
 	const instanceParams = getComponentParams();
 	const param = (key: string): unknown => instanceParams[key] ?? props[key];
+	const look = $derived(readPotSkin(param));
 	const meterId = $derived.by(() => {
 		const value = param('meter');
 		return typeof value === 'string' ? value : '';
@@ -38,6 +44,6 @@
 
 {#if index >= 0}
 	<Container {scale}>
-		<HoldAndWinPot meter={meters[index]} {index} x={0} y={0} />
+		<HoldAndWinPot meter={meters[index]} {index} x={0} y={0} {look} {skin} />
 	</Container>
 {/if}

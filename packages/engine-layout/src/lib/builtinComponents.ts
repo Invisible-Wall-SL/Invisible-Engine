@@ -10,6 +10,7 @@ import {
 	VISIBILITY_SOURCE_KEYS,
 } from './componentCatalog';
 import { kindCapabilities } from './kindCapabilities';
+import { POT_SKIN_PARAMS } from './potSkin';
 import type { ComponentDef, ComponentParam, LayoutNode } from './types';
 
 /**
@@ -2227,6 +2228,10 @@ const codedPart = (id: string, label: string, component: string, w: number, h: n
  * a size step at each of the meter's `sizeStages` and a pulse when it fills. The coded `PotMeter`
  * reads `meter.<id>.level` / `meter.<id>.max` for its `meter` param and registers the
  * `meter:<id>` anchor the specials fly into. A meter the config does not declare draws nothing.
+ *
+ * SKINNABLE (Phase 12c): the {@link POT_SKIN_PARAMS} swap the coded bar for the author's art per
+ * instance, and nodes the author puts INSIDE the `Pot` part replace its coded drawing while the
+ * part keeps the level, stages, pulse, anchor and its count as that meter's pot.
  */
 export const POT_METER_DEF: ComponentDef = {
 	id: 'potMeter',
@@ -2245,6 +2250,7 @@ export const POT_METER_DEF: ComponentDef = {
 	params: [
 		{ key: 'meter', kind: 'string', default: 'red', label: 'meter id (Game Config)' },
 		{ key: 'scale', kind: 'number', default: 1 },
+		...POT_SKIN_PARAMS,
 	],
 };
 

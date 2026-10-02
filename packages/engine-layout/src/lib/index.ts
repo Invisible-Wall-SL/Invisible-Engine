@@ -98,6 +98,7 @@ export * from './inlineImage';
 export * from './winText';
 export * from './uiText';
 export * from './builtinComponents';
+export * from './potSkin';
 export * from './boundComponentCatalog';
 export * from './componentCatalog';
 export * from './validateTemplate';
