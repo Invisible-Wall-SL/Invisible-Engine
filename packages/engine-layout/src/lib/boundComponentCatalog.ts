@@ -181,6 +181,8 @@ export const BOUND_COMPONENT_DEFAULTS: Record<string, BoundComponentDefault> = {
 	// The Respin Counter's coded part: its art is the def's own nodes, which sit inside it — no layer
 	// params, so the editor draws those nodes and offers to edit inside the part.
 	RespinCounterPart: { skin: { layers: [] } },
+	// The Jackpot Tile's coded part, the same shape: its art is the tile's own nodes, inside it.
+	JackpotTilePart: { skin: { layers: [] } },
 	LoadingScreen: {
 		// The startup splash: the game's `loader` spine (the `title_screen`
 		// animation = the logo) over the progress bar, self-centred in

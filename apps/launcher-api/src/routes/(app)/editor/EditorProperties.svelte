@@ -2534,6 +2534,35 @@
 			>
 				◇ Edit in Component Editor
 			</button>
+			{#if componentDefs.length > 0}
+				<!-- Swap the component this placement draws — a Pot Meter for the project's own Pot copy,
+				     a bar's tile for the project's Jackpot Tile (Phase 12c) — keeping its position and
+				     params. The pin is dropped, so it draws the new component's latest version. -->
+				<div class="row">
+					<label
+						class="field wide"
+						title="The component this placement draws. Switching keeps its position and its param values; params the new component doesn't declare are ignored."
+					>
+						<span>component</span>
+						<select
+							value={node.componentId}
+							onchange={(e) => {
+								if (node.kind !== 'componentInstance') return;
+								node.componentId = e.currentTarget.value;
+								delete node.componentVersion;
+								markDirty();
+							}}
+						>
+							{#if !componentDefs.some((c) => c.id === node.componentId)}
+								<option value={node.componentId}>{node.componentId} (missing)</option>
+							{/if}
+							{#each componentDefs as c (c.id)}
+								<option value={c.id}>{c.name}</option>
+							{/each}
+						</select>
+					</label>
+				</div>
+			{/if}
 			{#if instanceComponent}
 				<p class="muted small">
 					<strong>{instanceComponent.name}</strong> · {instanceComponent.scope} · pinned v{node.componentVersion ??

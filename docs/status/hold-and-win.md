@@ -54,7 +54,7 @@ titled **"Hold and win game pipeline"**.
 | 11c | Progressive + operator platform jackpots (design §7) | merged, live (`lines@2342c815d074`) — owed: the live Borut round and the partner's platform-jackpot confirmation (Owner checklist 10–11) | Hold and Win Phase 11c — progressive + platform jackpots | part 1: #991 · part 2: #999 |
 | 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | merged (`97652ca9`; the runtime release passed) — owed: a live check on `hw-3pots-sample` (Open items) | Hold and Win Phase 12a | #1003 |
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | merged — whole pipeline (engine → sources → Scene + Component Editor → guides); owed: the live check (Open items) | Hold and Win Phase 12b value bindings | #1005 |
-| 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — part 1 built (#1006): Pot art params, authored children inside the coded part, editor preview + **Edit inside**; 12a and 12b merged in, so nodes inside a pot hear only their pot's signals; the deleted-part trap fixed (`standsFor`); the fill on 12b's `fillMaskRect`; the **Respin Counter** skinned (its panel inside a `Counter` part). Next: the done-when on `hw-3pots-sample`, then the jackpot bar/tile, total win bar, letters, wheel, cell tiles | Hold and Win Phase 12c skinnable parts | #1006 |
+| 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — built on #1006: the Pot (art params, nodes inside, `standsFor`, fill on 12b's `fillMaskRect`), the Respin Counter and the Jackpot Tile (their panels inside a coded part), a Jackpot Bar copy and a **component** swap on instances. Next: the done-when on `hw-3pots-sample`, then the total win bar, letters, wheel, cell tiles | Hold and Win Phase 12c skinnable parts | #1006 |
 
 ## Current state
 
@@ -141,6 +141,25 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
       behaviour without the id special case. `<ComponentInstance>`'s `flightAnchor` is gone.
     - **Not on an authored counter:** the active-modifiers line (`PAYER · MULTIPLIER`). It is drawn
       only by the coded look, because no source an authored text could bind carries it.
+  - **The Jackpot Tile follows the counter; the Jackpot Bar is a composition.** No coded jackpot
+    bar exists in the game. Nothing flies to a tile, and no coded default steps aside for one.
+    - **The tile:** its frame, caption and value (ids unchanged) sit inside a `Tile` part
+      (`JackpotTilePart`), built with the counter's `panelInPart`. The part pulses them when the
+      tile's OWN tier is won (`winPulseScale`, default 1, because tiles never pulsed). A
+      `jackpot.<tier>` source pulses on `respinJackpotWin`, a `platformJackpot.<tier>` one on
+      `platformJackpotCelebration`; the tier compares by `scopeKey` (case-free, as the operator
+      writes `Grand`). It registers nothing, so it stands for no part: a tile saved before the part
+      draws as saved, unpulsed. Its 12a tier scope is unchanged.
+    - **An unregistered part falls back:** a `bind` container whose component is not registered
+      renders its children as a plain container. So a runtime without `JackpotTilePart` or
+      `RespinCounterPart` still draws the panel.
+    - **The bar:** four tile instances. A game skins it through a **Jackpot Bar (Hold and Win)**
+      copy: its own frame around the tiles, each tile restyled on its placement. Each tile can
+      also point at the game's **Jackpot Tile (Hold and Win)** copy.
+    - **Component swap:** pointing a tile at a copy needed a control that didn't exist. Properties
+      now has a **component** select on any instance, in the Scene and Component Editors. It
+      switches `componentId`, keeps the placement and params, and drops the version pin. The same
+      control swaps a Pot Meter for a game's Pot copy, keeping its `meter`.
 
 - 2026-10-02 — **Owner: the pots as an overlay on any kind** (session "3 pots overlay mechanic").
   Its own plan and hub: [design/pots-overlay](../design/pots-overlay.md),
@@ -765,8 +784,9 @@ Hold and Win beats prints copy.
     the art params. Check it on all three pots with no Flow branch.
   - **The respin counter is done** (Decisions). Open on it: the active-modifiers line has no source
     an authored text can bind.
-  - **The other parts, same pattern:** jackpot bar/tile, total win bar, letters strip, wheel,
-    respin cell tiles.
+  - **The other parts, same pattern:** total win bar, letters strip, wheel, respin cell tiles.
+  - **A Platform Jackpot Bar copy** has no create type. Its tiles already get the part, and the
+    component swap works on any bar copy.
   - **Editor limits:**
     - Inside a part, positions are the part's own. That is fine while the part sits at the
       component's origin, as the Pot does.
@@ -922,6 +942,27 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 
 ## Recent changes
 
+- 2026-10-02 — **Phase 12c: the Jackpot Tile and Bar** (#1006). Contract: Decisions, "The
+  Jackpot Tile follows the counter".
+  - **Engine:**
+    - `panelInPart` (shared with the counter).
+    - `JACKPOT_TILE_DEF` inside a `Tile` part, with `winPulseScale`.
+    - The `JackpotTilePart` catalog entry.
+  - **Game:** `JackpotTilePart` (skin, pulse on its tier's Hold and Win or platform win), registered
+    in `Game.svelte`.
+  - **Editors:**
+    - A **component** swap on any instance (Properties, both editors).
+    - `/components` passes its defs to it, minus the open one.
+    - **Jackpot Tile** / **Jackpot Bar (Hold and Win)** create types (a `COPY_TYPES` table now).
+  - **Verified:**
+    - `test-jackpot-tile-part.mjs` (15 assertions): the shape, ids, bindings, scope, no stand-in, the
+      parity default, the flat copy's upgrade, and that both bars place four tiles by id.
+    - Every engine-layout fixture plus `check:signal-scope`, `check:symbols-kind-gating`,
+      `check:scene-cues` and `gen:scenes --check` pass.
+    - Storybook `MODE_HOLD_AND_WIN/skinned jackpot tiles (12c)`, widths measured per tile:
+      - A MAJOR win pulses only MAJOR (162 → 211 px).
+      - On the platform bar, a Hold and Win GRAND win pulses nothing, and the platform's `Grand`
+        pulses only GRAND.
 - 2026-10-02 — **Phase 12c: the Respin Counter skinned** (#1006). Contract: Decisions, "The
   Respin Counter gets a coded part".
   - **Engine:** `RESPIN_COUNTER_DEF` wraps its panel in the `Counter` part and `standsFor` it, with a
@@ -974,7 +1015,7 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     - The canvas draws a skinned part's art (fill part-full) and the nodes inside it.
     - `/components` offers **Edit inside ‹part› ›** and **↩ Back**.
     - New create type **Pot Meter (Hold and Win)**.
-  - **Guides:** [Component Editor → Skin a coded part](../tools/component-editor.md#skin-a-coded-part--the-pot-meter-and-the-respin-counter)
+  - **Guides:** [Component Editor → Skin a coded part](../tools/component-editor.md#skin-a-coded-part)
     and the Scene Editor's Pots paragraph.
   - **Verified:**
     - `test-pot-skin.mjs` passes (43 assertions).

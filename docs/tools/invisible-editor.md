@@ -150,7 +150,7 @@ Components list, so a hybrid game places them on screens of its own. Each pot is
 Meter** component on the **Pots** screen, with its `meter` param naming the Game Config meter.
 Move and scale it here. Its **Pot art**, **Label** and **Motion** groups skin that one pot, and
 nodes you put inside its part in the Component Editor replace the coded drawing. See
-[Skin a coded part](component-editor.md#skin-a-coded-part--the-pot-meter-and-the-respin-counter). While no Pot Meter for a
+[Skin a coded part](component-editor.md#skin-a-coded-part). While no Pot Meter for a
 meter is on screen, the game draws its built-in pot for that meter. A screen
 reaches the game only when the flow shows it. The Hold and Win starter flow shows **Jackpot bar**
 and **Pots** from the start. A project whose flow is older (scaffolded on the Book-of starter)
@@ -799,7 +799,9 @@ game on the next **Publish** — the same trip as the rest of your art.
 
 - **Components** — the **Components** section of the Library tab lists reusable prefabs (overlays,
   UI groups, scenery), grouped by category. **Place** one to drop a component
-  instance into the active screen; instances' params are editable in Properties.
+  instance into the active screen; instances' params are editable in Properties. An instance's
+  **component** select switches the component it draws (say, a Pot Meter to your own Pot copy),
+  keeping its position and params.
   The list shows only what your project's game kind uses: the Hold and Win pieces (Respin
   Counter, Jackpot Bar, Jackpot Tile, Total Win Bar, Pot Meter, Letters Strip, Wheel, Respin Cell
   Tiles, Locked Row) appear only in a Hold and Win project. A screen that already holds one keeps drawing it.

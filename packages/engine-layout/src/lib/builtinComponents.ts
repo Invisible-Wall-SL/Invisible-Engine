@@ -2126,6 +2126,30 @@ const codedPart = (id: string, label: string, component: string, w: number, h: n
 		children: [],
 	}) satisfies LayoutNode;
 
+/**
+ * A plain-node panel moved INSIDE a coded part (Phase 12c — the Respin Counter, the Jackpot Tile):
+ * the panel's nodes keep their ids (so a saved copy's bindings merge by id) and become the part's
+ * `skin`; the part adds the behaviour the static node model can't express. The part sits at the
+ * panel's origin with the panel's box, so placements and the editor's selection box are unchanged.
+ */
+const panelInPart = (
+	panel: ComponentDef,
+	part: { id: string; label: string; component: string; width: number; height: number },
+	extraParams: ComponentParam[],
+): ComponentDef => ({
+	...panel,
+	root: {
+		...panel.root,
+		children: [
+			{
+				...codedPart(part.id, part.label, part.component, part.width, part.height),
+				children: panel.root.children,
+			},
+		],
+	},
+	params: [...(panel.params ?? []), ...extraParams],
+});
+
 const RESPIN_COUNTER_PANEL = holdAndWinPanel({
 	id: 'respinCounter',
 	name: 'Respin Counter',
@@ -2148,25 +2172,28 @@ const RESPIN_COUNTER_PANEL = holdAndWinPanel({
  * Same node ids as the plain panel, so its bindings merge by id.
  */
 export const RESPIN_COUNTER_DEF: ComponentDef = {
-	...RESPIN_COUNTER_PANEL,
-	standsFor: 'RespinCounterPart',
-	root: {
-		...RESPIN_COUNTER_PANEL.root,
-		children: [
+	...panelInPart(
+		RESPIN_COUNTER_PANEL,
+		{
+			id: 'respinCounter-counter',
+			label: 'Counter',
+			component: 'RespinCounterPart',
+			width: 240,
+			height: 96,
+		},
+		[
 			{
-				...codedPart('respinCounter-counter', 'Counter', 'RespinCounterPart', 240, 96),
-				children: RESPIN_COUNTER_PANEL.root.children,
+				key: 'pulseScale',
+				kind: 'number',
+				default: 1,
+				label: 'pulse on a reset or "+N" (1 = none)',
 			},
 		],
-	},
-	params: [
-		...(RESPIN_COUNTER_PANEL.params ?? []),
-		{ key: 'pulseScale', kind: 'number', default: 1, label: 'pulse on a reset or "+N" (1 = none)' },
-	],
+	),
+	standsFor: 'RespinCounterPart',
 };
 
-/** One jackpot's name and its value at the current bet. The bar places four. */
-export const JACKPOT_TILE_DEF: ComponentDef = holdAndWinPanel({
+const JACKPOT_TILE_PANEL = holdAndWinPanel({
 	id: 'jackpotTile',
 	name: 'Jackpot Tile',
 	caption: 'GRAND',
@@ -2179,6 +2206,27 @@ export const JACKPOT_TILE_DEF: ComponentDef = holdAndWinPanel({
 	// authored inside the tile plays on the tile whose tier was won.
 	signalScope: { param: 'source', kind: 'tier' },
 });
+
+/**
+ * One jackpot's name and its value at the current bet. The bar places four. SKINNABLE (Phase 12c):
+ * the panel's frame, caption and value sit INSIDE the coded `Tile` part, which pulses them when the
+ * tile's own tier is won (`winPulseScale`, 1 = still, as the tile always was) — a `jackpot.<tier>`
+ * source on a Hold and Win jackpot win, a `platformJackpot.<tier>` one on the platform's. The tile
+ * registers nothing (nothing flies to it, and no coded tile steps aside for it), so it stands for
+ * no part: a tile saved before the part keeps drawing and only lacks the pulse.
+ */
+export const JACKPOT_TILE_DEF: ComponentDef = panelInPart(
+	JACKPOT_TILE_PANEL,
+	{ id: 'jackpotTile-tile', label: 'Tile', component: 'JackpotTilePart', width: 240, height: 96 },
+	[
+		{
+			key: 'winPulseScale',
+			kind: 'number',
+			default: 1,
+			label: 'pulse when its tier is won (1 = none)',
+		},
+	],
+);
 
 /** "TOTAL WIN" — what the feature has won; the feature end counts every coin into it. */
 export const TOTAL_WIN_BAR_DEF: ComponentDef = holdAndWinPanel({

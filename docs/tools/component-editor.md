@@ -70,9 +70,9 @@ Open **Invisible Component Editor** from the launcher home. The home state shows
   - **Free-Spin Counter** — a project copy of the built-in counter (frame, **FREE SPIN**
     caption and **X OF Y** value), already wired to the engine. Swap the frame art,
     restyle the text or edit the label, then save.
-  - **Pot Meter (Hold and Win)** and **Respin Counter (Hold and Win)** — project copies of those
-    built-ins, each with its coded part. Put your own nodes inside the part (see
-    [Skin a coded part](#skin-a-coded-part--the-pot-meter-and-the-respin-counter)). Offered in a
+  - **Pot Meter**, **Respin Counter**, **Jackpot Tile** and **Jackpot Bar (Hold and Win)** —
+    project copies of those built-ins, the first three with their coded part. Put your own nodes inside the part (see
+    [Skin a coded part](#skin-a-coded-part)). Offered in a
     Hold and Win project only.
 - **Library** — existing components grouped by category. Click a row to open it for
   editing; the `✕` button deletes it from R2 and the list. The confirm asks you to type the
@@ -421,11 +421,11 @@ byte-identically to the built-in table. The animation + spine are consumed insid
 overlay; the duration + sound are bridged to the out-of-tree consumers (the win gate's
 hold time and the win-level sound cues) at boot.
 
-## Skin a coded part — the Pot Meter and the Respin Counter
+## Skin a coded part
 
 Some built-ins draw a **coded part**: the game draws it, and the canvas shows a grey stand-in box.
-The Hold and Win **Pot Meter** and **Respin Counter** have parts you can skin. The Pot takes two
-ways, which you can use together.
+The Hold and Win **Pot Meter**, **Respin Counter** and **Jackpot Tile** have parts you can skin.
+The Pot takes two ways, which you can use together.
 
 **1. Pick art on the placed pot.** Select a Pot Meter instance in the Scene Editor. Its
 **Pot art** group sets that one pot's look, so red, blue and green can each have their own art:
@@ -460,8 +460,9 @@ component still counts as that meter's pot, and the specials fly to the centre o
 no longer grows or pulses on its own. To make your nodes follow the level, use
 [Bind to value](#3b-drive-a-node-from-a-number-bind-to-value) on `meter.{meter}.level`.
 
-**↩ Back to …** returns to the component. Save it, then in the Scene Editor replace each Pot Meter
-on the **Pots** screen with your component and set its **meter** param (`red`, `blue`, `green`).
+**↩ Back to …** returns to the component. Save it, then in the Scene Editor select each Pot Meter
+on the **Pots** screen and switch its **component** to yours in Properties. It keeps its position
+and its **meter** param.
 Do not skin the built-in **Pot Meter** itself: saving it writes the shared library (see
 [Traps](#traps)).
 
@@ -475,8 +476,22 @@ them, or add your own nodes there. The part keeps its behaviour:
   counter uses 1.35). The default, 1, keeps it still, as it always was.
 
 Delete everything inside the part and it draws the game's own counter look, "RESPINS 3" with the
-active modifiers under it, at your position. Place your component on the **Respin counter**
-screen in place of the Respin Counter.
+active modifiers under it, at your position. On the **Respin counter** screen, switch the Respin
+Counter's **component** to yours.
+
+**The Jackpot Tile and Bar.** A tile's frame, caption and value sit inside its **Tile** part.
+Create a **Jackpot Tile (Hold and Win)** and click **Edit inside Tile ›** to restyle them or add
+your own nodes. The part pulses the tile when its own tier is won, if you set **winPulseScale** on
+the placement; the default, 1, keeps it still. Its tier comes from **source**: `jackpot.grand`
+pulses on a GRAND jackpot win, `platformJackpot.grand` on the platform's.
+
+The bar is four tiles. Create a **Jackpot Bar (Hold and Win)** to skin it:
+
+- Add your own frame around the tiles.
+- Restyle each tile on its placement (frame image, label, colours).
+- To use your own tile, select a tile and switch its **component** to your Jackpot Tile copy.
+
+On the **Jackpot bar** screen, switch the Jackpot Bar's **component** to yours.
 
 ## Traps
 
