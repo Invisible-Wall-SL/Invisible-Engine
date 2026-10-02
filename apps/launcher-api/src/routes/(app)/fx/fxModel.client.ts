@@ -574,6 +574,7 @@ export function setTriggerMode(layer: EmitterLayer, on: 'always' | 'event'): Emi
 	if (prev?.eventType) trigger.eventType = prev.eventType;
 	if (prev?.duration !== undefined) trigger.duration = prev.duration;
 	if (prev?.stopEventType) trigger.stopEventType = prev.stopEventType;
+	if (prev?.scope) trigger.scope = prev.scope;
 	return { ...layer, trigger };
 }
 
@@ -588,6 +589,7 @@ export function setTriggerEvent(layer: EmitterLayer, eventType: string): Emitter
 	if (clean) trigger.eventType = clean;
 	if (layer.trigger?.duration !== undefined) trigger.duration = layer.trigger.duration;
 	if (layer.trigger?.stopEventType) trigger.stopEventType = layer.trigger.stopEventType;
+	if (layer.trigger?.scope) trigger.scope = layer.trigger.scope;
 	return { ...layer, trigger };
 }
 
@@ -601,6 +603,7 @@ export function setTriggerDuration(layer: EmitterLayer, duration: number): Emitt
 	if (layer.trigger?.eventType) trigger.eventType = layer.trigger.eventType;
 	if (Number.isFinite(duration)) trigger.duration = duration;
 	if (layer.trigger?.stopEventType) trigger.stopEventType = layer.trigger.stopEventType;
+	if (layer.trigger?.scope) trigger.scope = layer.trigger.scope;
 	return { ...layer, trigger };
 }
 
@@ -617,6 +620,23 @@ export function setTriggerStopEvent(layer: EmitterLayer, stopEvent: string): Emi
 	if (layer.trigger?.eventType) trigger.eventType = layer.trigger.eventType;
 	if (layer.trigger?.duration !== undefined) trigger.duration = layer.trigger.duration;
 	if (clean) trigger.stopEventType = clean;
+	if (layer.trigger?.scope) trigger.scope = layer.trigger.scope;
+	return { ...layer, trigger };
+}
+
+/**
+ * Set the SCOPE an `event`-triggered layer listens on, immutably (Phase 12a) — fire only on events
+ * about one part: a meter id, a jackpot tier, a reel. Forces `on:'event'`; keeps the other event
+ * fields. An empty value CLEARS it, and the layer then takes the scope of the component it is placed
+ * in (or hears every event, placed anywhere else).
+ */
+export function setTriggerScope(layer: EmitterLayer, scope: string): EmitterLayer {
+	const clean = scope.trim();
+	const trigger: EmitterLayer['trigger'] = { on: 'event' };
+	if (layer.trigger?.eventType) trigger.eventType = layer.trigger.eventType;
+	if (layer.trigger?.duration !== undefined) trigger.duration = layer.trigger.duration;
+	if (layer.trigger?.stopEventType) trigger.stopEventType = layer.trigger.stopEventType;
+	if (clean) trigger.scope = clean;
 	return { ...layer, trigger };
 }
 

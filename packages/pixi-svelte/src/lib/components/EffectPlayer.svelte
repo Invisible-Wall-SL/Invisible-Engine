@@ -20,6 +20,8 @@
 		emitFor?: number;
 		/** A moving owner for a trail, forwarded to every FREE layer. See `<EffectLayer>`'s `ownerPos`. */
 		ownerPos?: () => { x: number; y: number };
+		/** The scope of the component the effect sits in — see `<EffectLayer>`'s `scope`. */
+		scope?: string;
 	};
 </script>
 
@@ -55,5 +57,6 @@
 		forceEmit={props.forceEmit}
 		emitFor={props.emitFor}
 		ownerPos={props.ownerPos}
+		scope={props.scope}
 	/>
 {/each}

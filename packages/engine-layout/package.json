@@ -51,6 +51,7 @@
 		"pixi-svelte": "workspace:*",
 		"pixi.js": "8.21.0",
 		"svelte": "5.57.1",
+		"utils-event-emitter": "workspace:*",
 		"utils-layout": "workspace:*",
 		"vite": "6.2.0"
 	}

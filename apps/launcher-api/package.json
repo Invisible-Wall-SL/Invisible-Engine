@@ -88,6 +88,8 @@
 		"check:flipbook-frames": "tsx --tsconfig tsconfig.scripts.json scripts/check-flipbook-frames.ts",
 		"precheck:scene-cues": "node scripts/ensure-svelte-kit.mjs",
 		"check:scene-cues": "tsx --tsconfig tsconfig.scripts.json scripts/check-scene-cues.ts",
+		"precheck:signal-scope": "node scripts/ensure-svelte-kit.mjs",
+		"check:signal-scope": "tsx --tsconfig tsconfig.scripts.json scripts/check-signal-scope.ts",
 		"precheck:container-taps": "node scripts/ensure-svelte-kit.mjs",
 		"check:container-taps": "tsx --tsconfig tsconfig.scripts.json scripts/check-container-taps.ts",
 		"precheck:flow-publish-gate": "node scripts/ensure-svelte-kit.mjs",

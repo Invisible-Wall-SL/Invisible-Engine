@@ -30,6 +30,9 @@ export interface LayerEmitPlan {
 	/** Optional SECOND bus `type` that STOPS emission (`event` mode). `undefined` ⇒ stop by
 	 * `duration`/lifetime only. Ignored when equal to `eventType`. */
 	stopEventType?: string;
+	/** The authored scope filter (`event` mode) — see `EmitterTrigger.scope`. `undefined` ⇒ the
+	 * runtime falls back to the scope of the component the effect sits in. */
+	scope?: string;
 }
 
 /** How a single layer mounts at runtime. */
@@ -89,6 +92,7 @@ export function layerTrigger(layer: EmitterLayer): LayerEmitPlan {
 		duration: layer.trigger?.duration,
 		// A stop cue equal to the fire cue is meaningless (can't both start + stop) — drop it.
 		stopEventType: stopEventType && stopEventType !== eventType ? stopEventType : undefined,
+		...(layer.trigger?.scope ? { scope: layer.trigger.scope } : {}),
 	};
 }
 

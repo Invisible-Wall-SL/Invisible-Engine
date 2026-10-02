@@ -8,7 +8,7 @@ import { listComponentsWithEtags } from '$lib/server/componentStorage';
 import { loadDoc } from '$lib/server/editorStorage';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listProjectAssets } from '$lib/server/projectAssets';
-import { projectName } from '$lib/server/projects';
+import { projectName, storedProjectGameType } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { resolveToolScope } from '$lib/server/toolScope';
 import { getToolOverrides } from '$lib/server/userToolAccess';
@@ -50,7 +50,7 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 		roleOverrides,
 		overrides,
 	);
-	const [componentEntries, assets, storedDefaults, doc, gameName] = await Promise.all([
+	const [componentEntries, assets, storedDefaults, doc, gameName, projectKind] = await Promise.all([
 		// Components the project can use (shared + project, project shadowing shared, §8.3),
 		// each carrying the ETag of the object it was read from — the save's precondition (Phase 1).
 		listComponentsWithEtags({ projectKey }),
@@ -66,6 +66,9 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 		// Display name of the active project — the "This game's defaults" panel's subtitle
 		// (null for a row with no name ⇒ the page falls back to the project key).
 		projectName(projectKey),
+		// The project's kind — which engine signals the signal pickers offer (a Hold and Win
+		// project's pot, jackpot and respin signals; `engineSignalsForKind`).
+		storedProjectGameType(projectKey),
 	]);
 	// Optional deep-link target: `/components?id=<id>` opens that component on mount.
 	// `/editor`'s "Open in Component Editor" sends `&project=` too — that param is now
@@ -90,6 +93,7 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 			components.map((c) => c.id),
 		),
 		gameName,
+		gameType: projectKind ?? doc.gameType ?? '',
 		openId,
 		mainSizesMap: doc.mainSizesMap,
 		canPublishShared,
