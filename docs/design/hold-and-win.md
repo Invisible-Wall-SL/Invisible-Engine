@@ -424,6 +424,10 @@ game (and every existing Hold and Win project) must play byte-identically.
   add-respins; a beam for upgrade), flow events/actions/cues, Symbols states, Win Text lines
   ("+{count} RESPINS", "UPGRADE").
 - Smallest slice — it follows the payer/collector pattern exactly. Do it first.
+- **Built (2026-10-02).** The rules it settled (the counter's `max(start, left)` reset, a per-feature
+  cap, a rule drawn per upgrade landing, the 8-cell neighbourhood, the tier ladder) and what was
+  verified live are in [status/hold-and-win](../status/hold-and-win.md) (Decisions, Recent changes).
+
 
 ### 11b — board expansion (rows unlock)
 

@@ -49,7 +49,7 @@ titled **"Hold and win game pipeline"**.
 | 8 | Win Text (jackpot + respin copy, gating) | merged | Hold and Win Phase 8 — Win Text | part 1: #946 · part 2: #954 |
 | 9 | Game Maker presets + docs + playtest, sample games (3 Pots first) | in progress — 9a preset picker + config seed + guides + playbooks merged; 9b symbols seed at scaffold merged + launcher deployed; owed (owner login): create, publish and play the Classic + Collector samples — see **Owner checklist** | H&W Phase 9 — Game Maker presets, 3 samples, docs · 9b: H&W Phase 9b — symbols seed + samples | 9a: #968 · 9b: #969 |
 | 10 | Partner wire (facade + mock brought in line) | blocked on partner | — | — |
-| 11a | Extra specials: add-respins + upgrade (design §7) | in progress — contract (config + events) on branch `claude/hw-11a-extra-specials` | H&W Phase 11a — add-respins + upgrade specials | — |
+| 11a | Extra specials: add-respins + upgrade (design §7) | merged — whole pipeline (config → mock → facade → beats → flow → Symbols → Win Text → docs); live-checked on the `pots-extra` test fixture | H&W Phase 11a — add-respins + upgrade specials | #PRNUM |
 | 11b | Board expansion — rows unlock (design §7; after 11a) | not started | — | — |
 | 11c | Progressive + operator platform jackpots (design §7) | in progress — part 1 progressive game jackpots, then part 2 operator platform jackpot | Hold and Win Phase 11c — progressive + platform jackpots | — |
 
@@ -74,6 +74,37 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
 5 registered its own vocab + seed.
 
 ## Decisions & findings
+
+- 2026-10-02 — **Phase 11a: the rules add-respins and upgrade settled** (session "H&W Phase 11a —
+  add-respins + upgrade specials"). Each is one fact the mock, the facade, `applyHoldAndWinEvent`
+  and the beats share, pinned by `check:holdandwin`:
+  - **The counter after a respin is `reset ? max(start, left) : left − 1`.** A reset never throws
+    added respins away; without add-respins `left ≤ start` always, so every existing game counts
+    exactly as before. `start` is now the feature's CURRENT cap: it starts at `respins.start`, an
+    add-respins with `raisesCap` raises it, and `respinUpdate.start` and the snapshot carry it (a
+    resume restores a raised cap). `respins.cap` (the most respins one feature plays) is a different
+    limit and is never raised — so a "+N" that lands on the respin that ENDS the feature still flies
+    to the counter, which then reads 0. Accepted, not a bug.
+  - **Add-respins applies at its turn in `applyOrder`:** `respinsAdded {cell, added, left, total}`
+    (`left` after adding, `total` = the cap after), then — when not sticky — its own
+    `cellsCleared {reason: 'applied'}` (the reason 11b's unlock symbols share). A sticky one stays,
+    worth 0, holding its cell.
+  - **Upgrade draws its rule per landing** from a weighted `targets` table: `all` (every held CASH
+    coin + step), `adjacent` (the cash coins in the 8 cells around it + step) or `jackpotTier` (the
+    lowest-tier jackpot coin below the top of the ladder — ties: lowest reel, then row — one tier up,
+    its factor kept; none eligible ⇒ an empty `cells`). A step never touches a jackpot coin. The
+    ladder is the config's tiers sorted by multiplier (`jackpotLadder`). The upgrade stays on the
+    board after, worth 0, like a payer.
+  - **`coinUpgrade.cells` are a union** — `{kind: 'value', from, to}` (× total bet) or
+    `{kind: 'jackpot', from, to}` (tier names). The flow vocabulary has no union type, so its
+    `HoldAndWinUpgradeChange.from/to` pins are typed string; a cash change carries numbers there.
+  - **The test fixture is `HOLD_AND_WIN_TEST_FIXTURES['pots-extra']`** (3 Pots + `ADD` add-respins
+    1/2 non-sticky, `UPG` upgrade all/adjacent/jackpotTier with steps 0.5/1/2; both active at entry,
+    after the payer and before the multiplier — so a multiplier multiplies upgraded values; the
+    mystery reveals both). No preset gains either special; the mock CLI takes `PRESET=pots-extra`.
+  - **Parity is pinned, not just claimed:** `check:holdandwin` hashes 400 seeded rounds per preset
+    plus every forced beat and compares against digests taken from `main`'s mock, so a stray `rand()`
+    on an existing path fails the gate (a planted one did).
 
 - 2026-10-02 — **Phase 11c: a progressive pool is a multiple of the total bet, per player** (session
   "Hold and Win Phase 11c — progressive + platform jackpots"). A pool is in × total bet like a fixed
@@ -566,6 +597,21 @@ Hold and Win beats prints copy.
 
 ## Open items / next
 
+- **Phase 11a follow-ups** (none blocks authoring):
+  - **The active-modifiers line overflows** on the reference layout's wide arrangement once five
+    specials are active ("MYSTERY · ADD RESPINS · UPGRADE · PAYER · COLLECTOR" runs off the left
+    edge under the authored counter). Every `pots-extra` feature hits it; needs a wrap or a
+    shrink-to-fit on that line.
+  - **An upgrade cell shows its cash step ("+$1.00") even when it then applies `jackpotTier`**
+    (the rule is drawn when it applies, per the rules). If that reads wrong, draw the rule when the
+    cell is DEALT instead and print the tier rule as "UP" — a wire change (the cell would carry it).
+  - **`PotMeter.svelte:30` effect loop (found by the 11a live check, not from 11a):**
+    `trackComponentMount` inside a tracked `$effect` raises 2 `effect_update_depth_exceeded` at boot
+    on any Pots project using the template's `pots` scene; without a flow the game then crawls.
+    `ComponentInstance.svelte` wraps the same call in `untrack` — do the same.
+  - Not verified live: the sticky add-respins variant (gate-covered only), any project art for
+    `ADD` / `UPG` (labels only), an authored `toCounter` / `upgradeBeam` flight.
+
 - **Phase 6 owed (owner actions):** `hw-3pots-sample` lacks the message host — in `/editor` run
   **＋ Add missing screens** and place an **Info Bar** on its base game (the Phase 6 session could not
   write the live doc), then confirm the "UNLOCKED"/"ACTIVE" toasts on the mock; scaffold a fresh
@@ -656,6 +702,48 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-02 — **Phase 11a: add-respins + upgrade specials, through the whole pipeline** (#PRNUM;
+  session "H&W Phase 11a — add-respins + upgrade specials"; rules in Decisions above). A runtime
+  release on merge.
+  - **Game Config:** roles + specials `addRespins` / `upgrade` (`AddRespinsSpecial`: whole-respin
+    values, `raisesCap`, `sticky`, reels, `landsInBaseGame`; `UpgradeSpecial`: weighted `targets`,
+    cash step values, reels, `landsInBaseGame`), the mystery may reveal both, validator errors for
+    fractional respins, empty tables, no target rule, a tier rule with under two tiers. `/config`
+    editors for both (`HoldAndWinSection.svelte`), the roles in every role picker.
+  - **Mock + wire + facade:** both dealt and applied per the rules; forced beats
+    `special:addRespins`, `special:upgrade[:all|adjacent|jackpotTier]` (the tier rule also lands a
+    MINI; the cash rules land next to a cash coin), `mystery:`/`unlock:addRespins|upgrade`; wire
+    events `respinsAdded`, `coinUpgrade`, `cellsCleared` reason `applied`
+    ([wire doc](../reference/hold-and-win-wire.md)); the facade maps them to the contract.
+  - **Engine** (`holdAndWinPresentation.ts`): `presentRespinsAdded` — the special plays `respinsAdd`,
+    its "+N" head flies to the counter (`flyTo` kind `toCounter`, target the new `respinCounter`
+    anchor that the coded counter and the Scene Editor builtin both register), the counter steps on
+    arrival, a "+N RESPINS" toast; `presentCoinUpgrade` — the upgrader plays `coinUpgrade`, an
+    `upgradeBeam` flies to each target, then the labels count to `to` (or a jackpot label switches
+    tier under a "{jackpot} UPGRADE" banner, playing `jackpotReveal`). Labels hold their old value /
+    tier until the beams land. Coin labels: an add-respins reads `+N`, an upgrade its step.
+  - **Flow:** events `respinsAdded` / `coinUpgrade`, actions `addRespins` / `upgradeCoins`, cues
+    `respinAddRespins` / `respinCoinUpgrade` (and `respinCellsCleared` now carries `reason`); the
+    starter flow wires both beats in the Hold and Win tab. **Symbols:** states `respinsAdd` and
+    `coinUpgrade` (fallback `win`), Flights rows `toCounter` / `upgradeBeam` (they ship through
+    `bakeFlights`, now asserted for every flight kind by `check:flights`). **Win Text:**
+    `respins.added` "+{count} RESPINS", `feature.upgrade` "UPGRADE", `jackpots.upgrade`
+    "{jackpot} UPGRADE", and `feature.specialNames` gains "ADD RESPINS" / "UPGRADE" — so every Hold
+    and Win project now lists these four strings in /localization (play unchanged). **Game Maker:**
+    profile chips "Add respins" / "Coin upgrade". Storybook: `MODE_HOLD_AND_WIN/extra specials`.
+  - **Live check** (real clock, GPU headless shell, local stub + `pots-extra` mock; both the coded
+    counter on the fallback layout and the authored `respinCounter` + starter flow on the reference
+    layout): all six forced beats, 120/120 checks — every `toCounter` head lands on the counter
+    anchor (0 px), the counter steps on arrival through the server's exact sequence, beams land on
+    each coin then labels count to the server's `to` / MINI → MINOR; the client's picture equalled
+    the server's `holdAndWinState` on all 53 respins before the snapshot applied; every win and
+    balance matched the mock. **Resume** after each beat (connection cut mid-feature, then reload;
+    a plain reload cannot land mid-feature because the facade pre-fetches the round): 13 rounds,
+    235/235, a `raisesCap` cap of 6 restored and filled back to. **Parity:** plain Pots
+    (trigger, natural, Lucky Spin; coded and flow) byte-identical books, emitter, flow trace and
+    balances vs base; **Borut** (`bookofborutremake` live data, local book mock, two free-spin
+    rounds a side) identical traces, holds, game-type moments, balances, 0 exceptions.
 
 - 2026-10-02 — **Phase 11c part 1: progressive game jackpots** (session "Hold and Win Phase 11c —
   progressive + platform jackpots"). A `fixed: false` tier is now real instead of paid as fixed with
