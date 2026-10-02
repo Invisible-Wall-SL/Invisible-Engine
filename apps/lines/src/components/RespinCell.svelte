@@ -25,6 +25,12 @@
 	/** The column pitch — the mask's width, so art drawn to its cell's width is never clipped sideways. */
 	const columnPitch = $derived(SYMBOL_SIZE + stateGameDerived.boardGeometry().columnExtraLocal);
 	const rolling = $derived(props.cell.cellReel.reelState.motion !== 'stopped');
+	/**
+	 * The mask is the cell while the strip rolls; at rest it opens to three cells, so a landed
+	 * symbol's art draws whole like the reel board's (only the window's symbol exists at rest —
+	 * see `shown` — so nothing else can show through).
+	 */
+	const spread = $derived(rolling ? 1 : 3);
 	/** A flat seat leaves the container's scale untouched (see `SymbolWrap`). */
 	const scale = $derived(seat.scale === 1 ? undefined : seat.scale);
 
@@ -42,10 +48,13 @@
 	 * Only the symbols near the window exist — a rolling strip runs twenty cells long, and giving
 	 * every one of them its own block on every cell of the board, the frame a respin starts, cost a
 	 * 50–80 ms hitch. Recomputed each frame the strip moves; a symbol mounts as it nears the window.
+	 * At rest only the window's symbol (strip index 1) exists, which the opened mask relies on.
 	 */
 	const near = (y: number) => Math.abs(y - (cellBox.top + cellBox.height / 2)) < cellBox.height;
 	const shown = $derived(
-		props.cell.cellReel.reelState.symbols.filter((symbol) => near(yOf(symbol))),
+		props.cell.cellReel.reelState.symbols.filter((symbol) =>
+			rolling ? near(yOf(symbol)) : symbol.symbolIndex === 1,
+		),
 	);
 
 	/**
@@ -60,10 +69,10 @@
 <Container visible={!props.held}>
 	<Rectangle
 		isMask
-		x={seat.x - columnPitch / 2}
-		y={cellBox.top}
-		width={columnPitch}
-		height={cellBox.height}
+		x={seat.x - (columnPitch * spread) / 2}
+		y={cellBox.top - (cellBox.height * (spread - 1)) / 2}
+		width={columnPitch * spread}
+		height={cellBox.height * spread}
 	/>
 	{#each shown as reelSymbol (reelSymbol)}
 		<Container x={seat.x} y={yOf(reelSymbol)} {scale}>
