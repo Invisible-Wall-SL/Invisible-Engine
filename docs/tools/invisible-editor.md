@@ -776,8 +776,14 @@ game on the next **Publish** — the same trip as the rest of your art.
   UI groups, scenery), grouped by category. **Place** one to drop a component
   instance into the active screen; instances' params are editable in Properties.
   The list shows only what your project's game kind uses: the Hold and Win pieces (Respin
-  Counter, Jackpot Bar, Jackpot Tile, Total Win Bar, Pot Meter, Letters Strip, Wheel) appear
-  only in a Hold and Win project. A screen that already holds one keeps drawing it.
+  Counter, Jackpot Bar, Jackpot Tile, Total Win Bar, Pot Meter, Letters Strip, Wheel, Respin Cell
+  Tiles) appear only in a Hold and Win project. A screen that already holds one keeps drawing it.
+  **Respin Cell Tiles** sets the tile drawn under every respin cell (**tileImage**, **tileTint**) and
+  a **gap** between cells (a share of a cell, 0–0.45, which also insets each cell's rolling
+  window). Where you drop it doesn't matter: the tiles draw at the respin board's own cells. The
+  Hold and Win template puts one on the **Respin board** screen; without a tile image or a gap it
+  changes nothing. The editor shows it as a handle only — see the tiles in **Live ↗** during a
+  feature.
   Authoring components themselves now lives in the separate **Invisible
   Component Editor** (`/components`), which the panel links out to.
 - **Template editor** — a separate, advanced mode (top-bar toggle) for defining

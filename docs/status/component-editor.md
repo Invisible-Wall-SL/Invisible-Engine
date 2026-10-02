@@ -28,6 +28,7 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-02 — **`respinCells` built-in** ("Respin Cell Tiles", Hold and Win, kind-gated): a coded part that hands `tileImage` / `tileTint` / `gap` to the respin board rather than drawing at its own spot. Detail: [hold-and-win](hold-and-win.md).
 
 - 2026-10-01 — **Kind-gated built-ins** (#951): `ComponentDef.capability` (a `KindCapabilities` flag) gates where the Scene Editor offers a def; seven new Hold and Win built-ins carry `capability: 'holdAndWin'` (respinCounter, jackpotTile, jackpotBar — four nested tiles, totalWinBar, potMeter, lettersStrip, wheel). `componentStorage` does not persist `capability`, so a saved fork falls back to the built-in's gate by id; a copy saved under a NEW id is offered to every kind. New `engine-layout` mount registry (`isComponentMounted`, counted by `<ComponentInstance>` and `<LayoutScene>`) lets a coded default step aside for a mounted authored twin.
 - 2026-09-29 — **Guide refreshed to match the UI** ([tools/component-editor.md](../tools/component-editor.md)): HUD Readout and Free-Spin Counter types, the Space selector, the version browser, save conflict / read-only states.

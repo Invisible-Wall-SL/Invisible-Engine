@@ -197,7 +197,10 @@ const REEL_GRID_SRC = read('packages/engine-layout/src/lib/reelGrid.ts');
 const resolveReelGridTileArt = compileSlice({
 	what: 'verify-board-tiles / reelGrid.ts#resolveReelGridTileArt',
 	names: ['parseScopedFrameRef', 'isManifestAssetKey', 'editorArtTextureKey'],
-	body: `${sliceFunction(REEL_GRID_SRC.replace('export function', 'function'), 'resolveReelGridTileArt', 'reelGrid.ts')}
+	// The tile resolver delegates to `resolveFrameArt` (shared with the Hold and Win respin cell
+	// tile), so both are sliced.
+	body: `${sliceFunction(REEL_GRID_SRC.replaceAll('export function', 'function'), 'resolveReelGridTileArt', 'reelGrid.ts')}
+${sliceFunction(REEL_GRID_SRC.replaceAll('export function', 'function'), 'resolveFrameArt', 'reelGrid.ts')}
 return resolveReelGridTileArt;`,
 })(
 	// Imported, not stubbed: the point of routing the tile ref through the shared parser is that a

@@ -26,7 +26,8 @@ import { engineSkeletonLayout, type EngineSkeletonBoard } from './engineSkeleton
  * - `jackpotBar`, `pots` — on screen in the base game and the feature alike (a pot fills in the
  *   base game; the jackpot table is always shown).
  * - the feature (`role: 'mode'`, `modeId: 'holdAndWin'` — mounted while the mode is on the stack):
- *   `respinBoard` (frame art over the coded respin board), `respinCounter` (+ the active
+ *   `respinBoard` (frame art over the coded respin board; its `respinCells` instance authors the
+ *   cell tiles and gap), `respinCounter` (+ the active
  *   modifiers), `totalWinBar`, `letters`, `wheel`, `featureIntro`, `featureOutro`, `jackpotWin`.
  * - `luckySpin` — the base-game Lucky Spin banner.
  *
@@ -196,7 +197,15 @@ export function holdAndWinReferenceLayout(
 			space: 'background',
 			nodes: [],
 		}),
-		modeScene({ id: 'respinBoard', name: 'Respin board', nodes: [] }),
+		modeScene({
+			id: 'respinBoard',
+			name: 'Respin board',
+			// The cell tiles draw at the board's own seats, so the instance's spot is only where the
+			// editor shows its handle; with no tile image it draws nothing.
+			nodes: [
+				instance('respin-cell-tiles', 'Respin cell tiles', 'respinCells', place({ dx: 0, dy: 0 })),
+			],
+		}),
 		modeScene({
 			id: 'respinCounter',
 			name: 'Respin counter',

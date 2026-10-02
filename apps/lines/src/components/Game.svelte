@@ -264,6 +264,7 @@
 	import PotMeter from './PotMeter.svelte';
 	import LettersStrip from './LettersStrip.svelte';
 	import HoldAndWinWheelPart from './HoldAndWinWheelPart.svelte';
+	import RespinCellTiles from './RespinCellTiles.svelte';
 	import { stateHoldAndWinBanner } from '../game/holdAndWinBanner.svelte';
 	import FreeSpinIntroSymbolReveal from './FreeSpinIntroSymbolReveal.svelte';
 	import ExpandingSymbol from './ExpandingSymbol.svelte';
@@ -503,11 +504,13 @@
 		// (`completeActiveScreen` + `emitFlowSignal(tapSignal)`). Unused until an author
 		// flips the toggle on an overlay instance ⇒ pure registration, no render change.
 		TapToContinue,
-		// The Hold and Win components' coded parts (`potMeter`, `lettersStrip`, `wheel` defs): live
-		// pots, lit letters and the config's wheel, which the static node model can't express.
+		// The Hold and Win components' coded parts (`potMeter`, `lettersStrip`, `wheel`, `respinCells`
+		// defs): live pots, lit letters, the config's wheel and the respin cells' tiles, which the
+		// static node model can't express.
 		PotMeter,
 		LettersStrip,
 		HoldAndWinWheelPart,
+		RespinCellTiles,
 	});
 	// Batch B / B4.4 — register the parametric HUD readout def + its live value
 	// sources. The three HUD bar nodes (balance/win/bet) are now `componentInstance`

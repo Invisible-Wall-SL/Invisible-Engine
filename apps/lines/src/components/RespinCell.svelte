@@ -4,6 +4,7 @@
 
 	import Symbol from './Symbol.svelte';
 	import { cellWindow, getSymbolSeat, stateGameDerived } from '../game/stateGame.svelte';
+	import { respinCellLook } from '../game/stateRespinBoard.svelte';
 
 	type Props = {
 		cell: RespinBoardCell;
@@ -26,11 +27,12 @@
 	const columnPitch = $derived(SYMBOL_SIZE + stateGameDerived.boardGeometry().columnExtraLocal);
 	const rolling = $derived(props.cell.cellReel.reelState.motion !== 'stopped');
 	/**
-	 * The mask is the cell while the strip rolls; at rest it opens to three cells, so a landed
+	 * The mask is the cell while the strip rolls — less the authored gap (`respinCells`), so the cells
+	 * read as separate windows on their tiles; at rest it opens to three cells, so a landed
 	 * symbol's art draws whole like the reel board's (only the window's symbol exists at rest —
 	 * see `shown` — so nothing else can show through).
 	 */
-	const spread = $derived(rolling ? 1 : 3);
+	const spread = $derived(rolling ? 1 - (respinCellLook()?.gap ?? 0) : 3);
 	/** A flat seat leaves the container's scale untouched (see `SymbolWrap`). */
 	const scale = $derived(seat.scale === 1 ? undefined : seat.scale);
 

@@ -245,7 +245,15 @@ export interface ReelGridTileArt {
 export function resolveReelGridTileArt(
 	node: ReelGridNode | undefined,
 ): ReelGridTileArt | undefined {
-	const raw = node?.tileRegion;
+	return resolveFrameArt(node?.tileRegion);
+}
+
+/**
+ * Any authored frame ref — a `reelGrid` tile, or an image-kind component param a coded part draws
+ * itself (the Hold and Win respin cell tile) — resolved to its texture keys exactly as
+ * `LayoutNodeView` resolves a sprite's `region`. `undefined` unless there is something drawable.
+ */
+export function resolveFrameArt(raw: unknown): ReelGridTileArt | undefined {
 	if (typeof raw !== 'string' || raw === '') return undefined;
 	const { assetKey, region } = parseScopedFrameRef(raw);
 	if (!region) return undefined;

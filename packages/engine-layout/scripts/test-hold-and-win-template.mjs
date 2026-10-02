@@ -193,7 +193,15 @@ for (const scene of doc.scenes) {
 		`${scene.id}: the scaffold dropped an engine piece`,
 	);
 }
-const PLACED = ['respinCounter', 'jackpotBar', 'totalWinBar', 'potMeter', 'lettersStrip', 'wheel'];
+const PLACED = [
+	'respinCounter',
+	'jackpotBar',
+	'totalWinBar',
+	'potMeter',
+	'lettersStrip',
+	'wheel',
+	'respinCells',
+];
 for (const id of PLACED) {
 	assert(
 		doc.scenes.some((scene) => instancesIn(scene).some((n) => n.componentId === id)),
