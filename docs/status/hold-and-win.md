@@ -48,7 +48,9 @@ titled **"Hold and win game pipeline"**.
 | 8 | Win Text (jackpot + respin copy, gating) | merged | Hold and Win Phase 8 — Win Text | part 1: #946 · part 2: #954 |
 | 9 | Game Maker presets + docs + playtest, sample games (3 Pots first) | in progress — 9a preset picker + config seed + guides + playbooks merged; 9b symbols seed at scaffold merged + launcher deployed; owed (owner login): create, publish and play the Classic + Collector samples — see **Owner checklist** | H&W Phase 9 — Game Maker presets, 3 samples, docs · 9b: H&W Phase 9b — symbols seed + samples | 9a: #968 · 9b: #969 |
 | 10 | Partner wire (facade + mock brought in line) | blocked on partner | — | — |
-| 11 | Beyond the references (expansion, add-respins/upgrade, platform jackpot) | not started | — | — |
+| 11a | Extra specials: add-respins + upgrade (design §7) | not started | — | — |
+| 11b | Board expansion — rows unlock (design §7; after 11a) | not started | — | — |
+| 11c | Progressive + operator platform jackpots (design §7) | not started | — | — |
 
 ## Current state
 
@@ -72,6 +74,7 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
 
 ## Decisions & findings
 
+- 2026-10-02 — **Owner: start Phase 11 now** (Phase 10 waits on the partner). Split into 11a extra specials (add-respins, upgrade), 11b board expansion (after 11a) and 11c progressive + operator platform jackpots (parallel with 11a); each slice ships through the whole pipeline, unconfigured games byte-identical. Plan: design §7.
 - 2026-10-01 — **Phase 4 polish: three decisions** (session "Hold and Win Phase 4 — polish").
   - **Stepped grids are REFUSED for Hold and Win** (item 8). `validateHoldAndWin` errors at
     `holdAndWin.grid` when the reels' row counts differ, so `/config` will not save one and Publish
