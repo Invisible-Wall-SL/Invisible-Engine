@@ -183,6 +183,19 @@ assert(
 );
 mod.clearTextResolver();
 
+// --- the Phase 11b lines: board expansion -----------------------------------------
+console.info('board expansion');
+const r11b = mod.resolveWinText(undefined);
+assert(
+	mod.formatWinText(r11b.feature.rowUnlocked) === 'ROW UNLOCKED' &&
+		mod.formatWinText(r11b.feature.rows, { rows: 5 }) === '5 ROWS',
+	'"ROW UNLOCKED" over "5 ROWS" — what the unlock beat draws',
+);
+assert(
+	mod.resolveWinText({ feature: { rows: '{rows} FILAS' } }).feature.rows === '{rows} FILAS',
+	'the rows line is authored per field',
+);
+
 // --- the Phase 11a lines: add-respins, upgrade -------------------------------------
 console.info('add-respins, upgrade');
 const r11 = mod.resolveWinText(undefined);

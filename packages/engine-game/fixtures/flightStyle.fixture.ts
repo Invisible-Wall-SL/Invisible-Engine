@@ -117,17 +117,18 @@ it(
 );
 
 it(
-	'flight keys: the six kinds and toMeter:<id>',
+	'flight keys: the seven kinds and toMeter:<id>',
 	[
 		'toTotal',
 		'toCollector',
 		'boostBeam',
 		'toCounter',
 		'upgradeBeam',
+		'unlockRow',
 		'toMeter',
 		'toMeter:gold',
 	].map(isFlightKey),
-	[true, true, true, true, true, true, true],
+	[true, true, true, true, true, true, true, true],
 );
 it(
 	'an unauthored toCounter / upgradeBeam flies the coded flight',

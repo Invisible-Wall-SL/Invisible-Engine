@@ -8,7 +8,7 @@
 		HoldAndWinWheelPrize,
 		Position,
 	} from 'engine-game';
-	import type { HoldAndWinSpecial, UpgradeTarget } from 'game-config';
+	import type { ExpansionRule, HoldAndWinSpecial, UpgradeTarget } from 'game-config';
 
 	/**
 	 * The Hold and Win respin board's cues — NOTIFICATIONS of a beat that has happened, for authored
@@ -82,6 +82,13 @@
 		| { type: 'respinModifierUnlock'; activates: HoldAndWinSpecial[] }
 		| { type: 'respinCellsCleared'; reason: 'collected' | 'applied'; cells: Position[] }
 		| {
+				type: 'respinRowsUnlocked';
+				from: number;
+				rows: number;
+				cause: ExpansionRule;
+				unlockers: HoldAndWinCell[];
+		  }
+		| {
 				type: 'respinJackpotWin';
 				tier: string;
 				amount: number;
@@ -140,6 +147,7 @@
 	import RespinCellTile from './RespinCellTile.svelte';
 	import RespinCounter from './RespinCounter.svelte';
 	import RespinHeldSymbol from './RespinHeldSymbol.svelte';
+	import RespinLockedCell from './RespinLockedCell.svelte';
 	import { getContext } from '../game/context';
 	import {
 		currentRespinBoard,
@@ -150,8 +158,8 @@
 	/**
 	 * THE RESPIN BOARD (design §4.2 of `docs/design/hold-and-win.md`) — the per-cell board a Hold and
 	 * Win feature plays on, drawn over the SAME seats as the reel board, which it replaces while the
-	 * feature runs (`boardHide` / `boardShow`). Four layers, bottom to top: the authored cell tiles,
-	 * the one-cell reels, the held coins, the counter.
+	 * feature runs (`boardHide` / `boardShow`). Five layers, bottom to top: the authored cell tiles,
+	 * the one-cell reels, an expanding board's locked cells, the held coins, the counter.
 	 *
 	 * MOUNTED FOR EVERY GAME, DRAWS NOTHING UNTIL A FEATURE. The outer `Container` is unconditional so
 	 * its seat in the board stack is fixed at mount — pixi-svelte freezes child order then, and an
@@ -174,6 +182,10 @@
 	const heldKeys = $derived(
 		stateRespinBoard.held.map((cell) => respinCellKey(cell.reel, cell.row)),
 	);
+	/** An expanding board's rows below the open ones are locked: no reel, a locked overlay instead. */
+	const openRows = $derived(stateRespinBoard.rows || (board?.rows ?? 0));
+	const openCells = $derived(board ? board.cells.flat().filter((c) => c.row < openRows) : []);
+	const lockedCells = $derived(board ? board.cells.flat().filter((c) => c.row >= openRows) : []);
 
 	context.eventEmitter.subscribeOnMount({
 		stopButtonClick: () => currentRespinBoard()?.stop(),
@@ -187,7 +199,7 @@
 				 tiles that arrive after the board mounted still draw beneath the cells. -->
 			<Container>
 				{#if tileArt}
-					{#each board.cells.flat() as cell (cell)}
+					{#each openCells as cell (cell)}
 						<RespinCellTile
 							reel={cell.reel}
 							row={cell.row}
@@ -199,8 +211,13 @@
 				{/if}
 			</Container>
 			<Container>
-				{#each board.cells.flat() as cell (cell)}
+				{#each openCells as cell (cell)}
 					<RespinCell {cell} held={heldKeys.includes(respinCellKey(cell.reel, cell.row))} />
+				{/each}
+			</Container>
+			<Container>
+				{#each lockedCells as cell (cell)}
+					<RespinLockedCell reel={cell.reel} row={cell.row} />
 				{/each}
 			</Container>
 			<Container>

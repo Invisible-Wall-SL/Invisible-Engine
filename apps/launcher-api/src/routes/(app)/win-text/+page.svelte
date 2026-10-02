@@ -256,6 +256,7 @@
 		meter: specialDisplayName(resolved, 'payer'),
 		modifiers: ['payer', 'multiplier'].map((kind) => specialDisplayName(resolved, kind)).join(', '),
 		level: collectorLevelCaption(resolved, 2),
+		rows: 5,
 	});
 	const holdAndWinPreview = (template: string): string => formatWinText(template, holdAndWinVars);
 	/** A pot's `{level}` is its fill, not a collector name, so its row previews with pot values. */
@@ -695,8 +696,9 @@
 				<p class="hint">
 					The feature's own lines. <code>{'{amount}'}</code> is the feature's total,
 					<code>{'{meter}'}</code> the special a full pot activates and
-					<code>{'{modifiers}'}</code> the specials a feature runs with — each written with the names
-					below. The intro and outro draw nothing until you write them.
+					<code>{'{modifiers}'}</code> the specials a feature runs with — each written with the
+					names below; <code>{'{rows}'}</code> is the rows an expanding board has open. The intro and
+					outro draw nothing until you write them.
 				</p>
 				{#each WIN_TEXT_FEATURE_FIELDS as field (field)}
 					<label class="single">

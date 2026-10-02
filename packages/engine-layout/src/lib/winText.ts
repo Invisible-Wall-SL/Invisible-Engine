@@ -153,6 +153,10 @@ export type WinTextFeature = {
 	potLabel?: string;
 	/** An upgrade special raising coins — "UPGRADE". */
 	upgrade?: string;
+	/** An expanding board opened a row — "ROW UNLOCKED". */
+	rowUnlocked?: string;
+	/** Under it, the rows now open — "{rows} ROWS". */
+	rows?: string;
 	/** Special kind (`collector`, `multiplier`, `payer`, `mystery`, `addRespins`, `upgrade`) → its
 	 *  name in these lines. */
 	specialNames?: Record<string, string>;
@@ -262,7 +266,8 @@ export type ResolvedWinText = {
  *   `respins.award`/`reset`/`last`, `feature.total`/`meterFull` are NEW copy with
  *   no draw site yet: adopting one adds a line to the screen. `respins.added`, `feature.upgrade`
  *   and `jackpots.upgrade` (Phase 11a) belong to specials no existing game configures, so they draw
- *   only in a game that adds one.
+ *   only in a game that adds one; so do `feature.rowUnlocked` / `feature.rows` (11b), which only an
+ *   expanding board draws.
  *   `jackpots.captions` is empty because an unset tier speaks its own config name. `feature.intro`
  *   and `feature.outro` are empty (no prior line, so nothing is drawn until authored).
  */
@@ -311,6 +316,8 @@ export const WIN_TEXT_DEFAULTS: ResolvedWinText = {
 		collectorLevel: '{level} COLLECTOR',
 		potLabel: '{pot} {level}/{max}',
 		upgrade: 'UPGRADE',
+		rowUnlocked: 'ROW UNLOCKED',
+		rows: '{rows} ROWS',
 		specialNames: {
 			collector: 'COLLECTOR',
 			multiplier: 'MULTIPLIER',
@@ -358,6 +365,8 @@ export const WIN_TEXT_FEATURE_FIELDS = [
 	'collectorLevel',
 	'potLabel',
 	'upgrade',
+	'rowUnlocked',
+	'rows',
 ] as const;
 /** The feature family's name maps — resolved, pruned and harvested alike. */
 export const WIN_TEXT_FEATURE_MAPS = ['specialNames', 'collectorLevelNames', 'potNames'] as const;
@@ -403,6 +412,8 @@ export const WIN_TEXT_FEATURE_LABELS: Record<WinTextFeatureField, string> = {
 	collectorLevel: 'Raised collector',
 	potLabel: 'Pot label',
 	upgrade: 'Upgrade',
+	rowUnlocked: 'Row unlocked',
+	rows: 'Rows open',
 };
 export const WIN_TEXT_FEATURE_MAP_LABELS: Record<WinTextFeatureMap, string> = {
 	specialNames: 'Special',
@@ -631,6 +642,8 @@ export type WinTextVars = {
 	max?: number;
 	/** A pot's name ({@link potCaption}), already localized. */
 	pot?: string;
+	/** The rows an expanding respin board has open. */
+	rows?: number;
 };
 
 const TOKEN = /\{(\w+)\}/g;

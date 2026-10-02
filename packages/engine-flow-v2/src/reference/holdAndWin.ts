@@ -625,6 +625,7 @@ const ACTIONS: TemplateVocabulary['actions'] = [
 	beat('collectCoins', 'coinCollect'),
 	beat('revealMystery', 'mysteryReveal'),
 	beat('clearRespinCells', 'cellsCleared'),
+	beat('unlockRows', 'rowsUnlocked'),
 	beat('showJackpotWin', 'jackpotWin'),
 	beat('hideRespinBoard', 'holdAndWinEnd'),
 	beat('fillMeter', 'meterUpdate'),
@@ -773,6 +774,15 @@ const CUES: TemplateVocabulary['cues'] = [
 		payload: [
 			{ name: 'reason', type: STRING },
 			{ name: 'cells', type: list(POSITION) },
+		],
+	},
+	{
+		name: 'respinRowsUnlocked',
+		payload: [
+			{ name: 'from', type: INT },
+			{ name: 'rows', type: INT },
+			{ name: 'cause', type: EXPANSION_RULE },
+			{ name: 'unlockers', type: list(CELL) },
 		],
 	},
 

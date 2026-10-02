@@ -137,6 +137,8 @@ export const STATE_HINTS: Partial<Record<SymbolState, string>> = {
 		'An add-respins special APPLYING — its “+N” leaving for the respin counter. Leave a cell empty to reuse this symbol’s Win binding.',
 	coinUpgrade:
 		'An upgrade special APPLYING — raising the coins around it, every coin, or a jackpot coin a tier. Leave a cell empty to reuse this symbol’s Win binding.',
+	rowUnlock:
+		'An unlock symbol APPLYING — opening a locked row of an expanding board before it leaves. Leave a cell empty to reuse this symbol’s Win binding.',
 };
 
 /** The columns the grid renders for a given project: always the base states, plus the two book states
@@ -644,9 +646,9 @@ export interface SymbolsDoc {
 	 *  `bundle.symbols.coinLabel`. */
 	coinLabel?: CoinLabelConfig;
 	/** Hold and Win FLIGHTS — head / trail / arrival / route / timing per flight kind (`toTotal`,
-	 *  `toCollector`, `boostBeam`, `toCounter`, `upgradeBeam`, `toMeter`, `toMeter:<id>`). Sparse:
-	 *  absent ⇒ every flight flies the coded glow. Normalized by `engine-layout`'s `normalizeFlights`
-	 *  on both sides of the save.
+	 *  `toCollector`, `boostBeam`, `toCounter`, `upgradeBeam`, `unlockRow`, `toMeter`,
+	 *  `toMeter:<id>`). Sparse: absent ⇒ every flight flies the coded glow. Normalized by
+	 *  `engine-layout`'s `normalizeFlights` on both sides of the save.
 
 	 *  Passed through verbatim to `bundle.symbols.flights`. */
 	flights?: FlightsConfig;
@@ -691,7 +693,8 @@ const INHERITS_FROM = (state: SymbolState): SymbolState | null => {
 		state === 'jackpotReveal' ||
 		state === 'flyToMeter' ||
 		state === 'respinsAdd' ||
-		state === 'coinUpgrade'
+		state === 'coinUpgrade' ||
+		state === 'rowUnlock'
 	)
 		return 'win';
 	return null;

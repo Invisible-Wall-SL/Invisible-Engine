@@ -12,6 +12,8 @@ export const FLIGHT_BOOST_BEAM = 'boostBeam';
 export const FLIGHT_TO_COUNTER = 'toCounter';
 /** The flight kind an upgrade special's beam to each coin it raises reports. */
 export const FLIGHT_UPGRADE_BEAM = 'upgradeBeam';
+/** The flight kind an unlock symbol reports flying into the row it opens (board expansion). */
+export const FLIGHT_UNLOCK_ROW = 'unlockRow';
 
 /**
  * THE FEATURE END'S COLLECTION (design §4.3 `holdAndWinEnd` / §4.4) — every tallied coin flies from

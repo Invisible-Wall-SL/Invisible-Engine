@@ -32,6 +32,7 @@ export const SYMBOL_STATES = [
 	'coinBoost',
 	'respinsAdd',
 	'coinUpgrade',
+	'rowUnlock',
 	'jackpotReveal',
 	'mysteryReveal',
 	'flyToMeter',
@@ -105,6 +106,7 @@ export const SWAP_SYMBOL_STATES = ['intro'] as const;
  * - `coinBoost` — a special raising other coins (a payer paying, a multiplier boosting);
  * - `respinsAdd` — an add-respins special applying (its respins fly to the counter);
  * - `coinUpgrade` — an upgrade special applying (its beams raise coins or a jackpot tier);
+ * - `rowUnlock` — an unlock symbol opening a row of an expanding board;
  * - `jackpotReveal` — a jackpot coin, or a full board, lit for its jackpot;
  * - `mysteryReveal` — a mystery opening before it becomes what it revealed;
  * - `flyToMeter` — a base-board special lit while it flies into its pot.
@@ -123,6 +125,7 @@ export const HOLD_AND_WIN_SYMBOL_STATES = [
 	'coinBoost',
 	'respinsAdd',
 	'coinUpgrade',
+	'rowUnlock',
 	'jackpotReveal',
 	'mysteryReveal',
 	'flyToMeter',
@@ -139,6 +142,7 @@ export const WIN_HIGHLIGHT_SYMBOL_STATES = [
 	'coinBoost',
 	'respinsAdd',
 	'coinUpgrade',
+	'rowUnlock',
 	'jackpotReveal',
 	'flyToMeter',
 ] as const;
@@ -211,6 +215,7 @@ export const SYMBOL_STATE_LABELS: Record<SymbolStateName, string> = {
 	coinBoost: 'Coin boost',
 	respinsAdd: 'Respins add',
 	coinUpgrade: 'Coin upgrade',
+	rowUnlock: 'Row unlock',
 	jackpotReveal: 'Jackpot reveal',
 	mysteryReveal: 'Mystery reveal',
 	flyToMeter: 'Fly to meter',
