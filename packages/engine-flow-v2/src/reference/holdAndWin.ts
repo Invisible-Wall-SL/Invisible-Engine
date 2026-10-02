@@ -43,6 +43,7 @@ const CELL_AMOUNT: TypeRef = { t: 'struct', name: 'HoldAndWinCellAmount' };
 const COIN_CHANGE: TypeRef = { t: 'struct', name: 'HoldAndWinCoinChange' };
 const MYSTERY_CELL: TypeRef = { t: 'struct', name: 'HoldAndWinMysteryCell' };
 const METER_LEVEL: TypeRef = { t: 'struct', name: 'HoldAndWinMeterLevel' };
+const JACKPOT_LEVEL: TypeRef = { t: 'struct', name: 'HoldAndWinJackpotLevel' };
 const WHEEL_PRIZE: TypeRef = { t: 'struct', name: 'HoldAndWinWheelPrize' };
 const BOOK_EVENT: TypeRef = { t: 'struct', name: 'BookEvent' };
 const CAUSE: TypeRef = { t: 'enum', name: 'HoldAndWinCause' };
@@ -151,6 +152,13 @@ const STRUCTS: TemplateVocabulary['structs'] = [
 		],
 	},
 	{
+		name: 'HoldAndWinJackpotLevel',
+		fields: [
+			{ name: 'name', type: STRING },
+			{ name: 'value', type: FLOAT },
+		],
+	},
+	{
 		name: 'HoldAndWinEntry',
 		fields: [
 			{ name: 'cells', type: list(CELL) },
@@ -247,6 +255,19 @@ const BASE_EVENTS: TemplateVocabulary['events'] = [
 		category: 'book',
 		description:
 			'The server restating every meter after a play. Recorded automatically; nothing to present.',
+	},
+	{
+		name: 'jackpotLevels',
+		payload: [
+			{
+				name: 'jackpots',
+				type: list(JACKPOT_LEVEL),
+				description: 'Every progressive jackpot pool, × total bet, as the server holds it.',
+			},
+		],
+		category: 'book',
+		description:
+			'The server restating the progressive jackpot pools after a play. Recorded automatically — the jackpot.<tier> values follow it; nothing to present.',
 	},
 	{
 		name: 'coinInstantCollect',

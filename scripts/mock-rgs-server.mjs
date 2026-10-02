@@ -718,8 +718,10 @@ export const carrySession = (session, { keepBetShape }) => ({
 	round: null,
 	configSent: keepBetShape ? Boolean(session.configSent) : false,
 	...(keepBetShape && 'betTable' in session ? { betTable: session.betTable } : {}),
-	// A Hold and Win player's persistent meters are theirs, not the board's, so they survive too.
+	// A Hold and Win player's persistent meters are theirs, not the board's, so they survive too…
 	...(session.meters ? { meters: session.meters } : {}),
+	// …and so are their progressive jackpot pools.
+	...(session.jackpots ? { jackpots: session.jackpots } : {}),
 });
 
 // ---------- factory: one stateful mock instance ----------

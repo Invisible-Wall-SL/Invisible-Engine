@@ -20,7 +20,9 @@ import { BOOK_AMOUNT_MULTIPLIER } from 'constants-shared/bet';
 export type HoldAndWinWireConfig = {
 	wire: number;
 	roles: Record<string, string[]>;
-	jackpots: { name: string; multiplier: number }[];
+	/** A progressive tier says so and carries its pool (`value`, × base total bet), which
+	 *  `jackpotLevels` moves; a fixed tier pays its `multiplier`. */
+	jackpots: { name: string; multiplier: number; progressive?: boolean; value?: number }[];
 	stickiness?: 'allCoins' | 'collectorsOnly';
 };
 
@@ -39,7 +41,7 @@ export const readHoldAndWinConfig = (cfg: unknown): HoldAndWinWireConfig | null 
 	return {
 		wire: block.wire,
 		roles: block.roles ?? {},
-		jackpots: block.jackpots ?? [],
+		jackpots: (block.jackpots ?? []).map((j) => ({ ...j })),
 		...(block.stickiness ? { stickiness: block.stickiness } : {}),
 	};
 };
@@ -67,6 +69,44 @@ export const readBootMeterLevels = (cfg: unknown): HoldAndWinMeterLevel[] => {
 			? [{ id, level, max }]
 			: [];
 	});
+};
+
+/** A progressive tier's pool as the engine reads it (`HoldAndWinJackpotLevel` in engine-game). */
+export type HoldAndWinJackpotLevel = { name: string; value: number };
+
+const jackpotLevelsOf = (raw: unknown): HoldAndWinJackpotLevel[] =>
+	Array.isArray(raw)
+		? raw.flatMap((entry: unknown) => {
+				const { name, value } = (entry ?? {}) as Record<string, unknown>;
+				return typeof name === 'string' && name && typeof value === 'number' && value > 0
+					? [{ name, value }]
+					: [];
+			})
+		: [];
+
+/**
+ * The progressive pools at boot — `config.holdAndWin.jackpots[]` entries flagged `progressive`, with
+ * their `value`. Like a meter level, a pool is SERVER state the client learns here before its first
+ * `play` restates it in `jackpotLevels`. No progressive tier (every game before 11c) ⇒ `[]`.
+ */
+export const readBootJackpotLevels = (cfg: unknown): HoldAndWinJackpotLevel[] => {
+	const block = (cfg as { holdAndWin?: { wire?: unknown; jackpots?: unknown } } | null)?.holdAndWin;
+	if (!block || block.wire !== HOLD_AND_WIN_WIRE || !Array.isArray(block.jackpots)) return [];
+	return jackpotLevelsOf(
+		block.jackpots.filter((j: unknown) => (j as { progressive?: unknown })?.progressive === true),
+	);
+};
+
+/** A `jackpotLevels` answer's pools (an event's context, a heartbeat's included). */
+export const readJackpotLevels = (ctx: unknown): HoldAndWinJackpotLevel[] =>
+	jackpotLevelsOf((ctx as { jackpots?: unknown } | null)?.jackpots);
+
+/** Move the captured tiers' pools, so a held jackpot coin is worth what the pool now holds. */
+export const applyJackpotLevels = (hw: HoldAndWinWireConfig, levels: HoldAndWinJackpotLevel[]) => {
+	for (const { name, value } of levels) {
+		const tier = hw.jackpots.find((j) => j.name === name);
+		if (tier?.progressive) tier.value = value;
+	}
 };
 
 export type HoldAndWinSymbol = { name: string; value?: number; jackpot?: string; factor?: number };
@@ -134,7 +174,8 @@ const worthOf = (hw: HoldAndWinWireConfig, cell: Cell): number => {
 	const { symbol } = cell;
 	if (symbol.jackpot !== undefined) {
 		const tier = hw.jackpots.find((j) => j.name === symbol.jackpot);
-		return (tier?.multiplier ?? 0) * (symbol.factor ?? 1);
+		const prize = tier?.progressive && tier.value !== undefined ? tier.value : tier?.multiplier;
+		return (prize ?? 0) * (symbol.factor ?? 1);
 	}
 	const roles = hw.roles[symbol.name] ?? [];
 	return roles.includes('coin') || roles.includes('collector') ? (symbol.value ?? 0) : 0;
@@ -201,6 +242,8 @@ export const translateHoldAndWinEvent = (
 					({ id, level, max }) => ({ id, level, max }),
 				),
 			};
+		case 'jackpotLevels':
+			return { type: 'jackpotLevels', jackpots: readJackpotLevels(ctx) };
 		case 'coinInstantCollect':
 			return {
 				type: 'coinInstantCollect',

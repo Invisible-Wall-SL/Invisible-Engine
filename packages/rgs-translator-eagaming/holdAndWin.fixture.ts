@@ -12,6 +12,7 @@ import { createServer, type Server } from 'node:http';
 
 import {
 	HOLD_AND_WIN_PRESETS,
+	HOLD_AND_WIN_TEST_FIXTURES,
 	holdAndWinMockInputs,
 	normalizeGameConfigDoc,
 } from '../game-config/index.ts';
@@ -22,6 +23,7 @@ import {
 	type HoldAndWinState,
 } from '../engine-game/src/game/holdAndWin.ts';
 import { createMockRgs } from '../../scripts/mock-rgs-server-holdandwin.mjs';
+import { BOOK_AMOUNT_MULTIPLIER } from '../constants-shared/bet.ts';
 
 type Facade = typeof import('./src/engineFacade.ts');
 type BookEvent = { type: string; [key: string]: unknown };
@@ -61,7 +63,10 @@ let tabs = 0;
 const openTab = (): Promise<Facade> => import(`./src/engineFacade.ts?tab=${++tabs}`);
 
 const startMock = async (preset: string, force: string) => {
-	const doc = normalizeGameConfigDoc(HOLD_AND_WIN_PRESETS[preset]);
+	const doc = normalizeGameConfigDoc(
+		HOLD_AND_WIN_PRESETS[preset as keyof typeof HOLD_AND_WIN_PRESETS] ??
+			HOLD_AND_WIN_TEST_FIXTURES[preset],
+	);
 	const mock = createMockRgs({
 		label: `fixture-${preset}`,
 		quiet: true,
@@ -89,6 +94,7 @@ const HW_TYPES = new Set([
 	'luckySpin',
 	'meterUpdate',
 	'meterLevels',
+	'jackpotLevels',
 	'coinInstantCollect',
 	'randomMetreTrigger',
 	'holdAndWinTrigger',
@@ -263,8 +269,104 @@ for (const [preset, force] of CASES) {
 
 // Every engine Hold and Win event a preset can deal was produced at least once.
 for (const type of HW_TYPES) {
-	if (['coinInstantCollect', 'randomMetreTrigger', 'luckySpin'].includes(type)) continue;
+	if (['coinInstantCollect', 'randomMetreTrigger', 'luckySpin', 'jackpotLevels'].includes(type))
+		continue;
 	check(`the cases produce a ${type}`, seen.has(type), true);
+}
+
+// PROGRESSIVE POOLS (design §7 11c): published at boot, restated in every book and by the balance
+// heartbeat, and a forced jackpot pays the grown pool — on the `pots-progressive` test fixture.
+{
+	type PoolsGlobal = { __IE_HOLD_AND_WIN_JACKPOTS__?: { name: string; value: number }[] };
+	const pools = () => (globalThis as PoolsGlobal).__IE_HOLD_AND_WIN_JACKPOTS__;
+	const levelsIn = (events: BookEvent[]) =>
+		(
+			events.findLast((e) => e.type === 'jackpotLevels') as
+				{ jackpots: { name: string; value: number }[] } | undefined
+		)?.jackpots;
+	const named = (levels: { name: string; value: number }[] | undefined) =>
+		Object.fromEntries((levels ?? []).map(({ name, value }) => [name, value]));
+
+	delete (globalThis as PoolsGlobal).__IE_HOLD_AND_WIN_JACKPOTS__;
+	const plain = await hush(() => startMock('pots', ''));
+	await hush(async () =>
+		(await openTab()).requestAuthenticate({
+			sessionID: 'fx-plain',
+			rgsUrl: plain.rgsUrl,
+			language: 'en',
+		}),
+	);
+	check('progressive: a game without a progressive tier publishes no pools', pools(), undefined);
+	await new Promise<void>((resolve) => plain.server.close(() => resolve()));
+
+	const { server, rgsUrl } = await hush(() => startMock('pots-progressive', ''));
+	const facade = await openTab();
+	const sid = 'fx-pools';
+	const books = await hush(async () => {
+		await facade.requestAuthenticate({ sessionID: sid, rgsUrl, language: 'en' });
+		check('progressive: the boot pools are published at their seeds', named(pools()), {
+			MINOR: 30,
+			MAJOR: 100,
+			GRAND: 2000,
+		});
+		const out: BookEvent[][] = [];
+		for (let i = 0; i < 3; i++) {
+			const bet = (await facade.requestBet({
+				sessionID: sid,
+				currency: 'EUR',
+				amount: 1,
+				mode: 'BASE',
+				rgsUrl,
+			})) as Answer;
+			out.push(bet.round?.state ?? []);
+			await facade.requestEndRound({ sessionID: sid, rgsUrl });
+		}
+		return out;
+	});
+	check(
+		'progressive: every book restates the pools, grown by each bet',
+		books.map((events) => named(levelsIn(events)).MAJOR),
+		[100.2, 100.4, 100.6],
+	);
+	delete (globalThis as PoolsGlobal).__IE_HOLD_AND_WIN_JACKPOTS__;
+	await hush(() => facade.requestBalance({ sessionID: sid, rgsUrl }));
+	check('progressive: the balance heartbeat republishes the pools', named(pools()), {
+		MINOR: 33,
+		MAJOR: 100.6,
+		GRAND: 2003,
+	});
+	await new Promise<void>((resolve) => server.close(() => resolve()));
+
+	const hit = await hush(() => startMock('pots-progressive', 'jackpot:GRAND'));
+	const hitTab = await openTab();
+	const events = await hush(async () => {
+		await hitTab.requestAuthenticate({
+			sessionID: 'fx-pool-hit',
+			rgsUrl: hit.rgsUrl,
+			language: 'en',
+		});
+		const bet = (await hitTab.requestBet({
+			sessionID: 'fx-pool-hit',
+			currency: 'EUR',
+			amount: 1,
+			mode: 'BASE',
+			rgsUrl: hit.rgsUrl,
+		})) as Answer;
+		return bet.round?.state ?? [];
+	});
+	verifyRound('progressive GRAND', events);
+	const win = events.find((e) => e.type === 'jackpotWin' && e.tier === 'GRAND');
+	check(
+		'progressive: a forced GRAND pays the pool the bet grew (2001×), in book units',
+		win?.amount,
+		2001 * BOOK_AMOUNT_MULTIPLIER,
+	);
+	check(
+		'progressive: …and the won pool is back at its seed after',
+		named(levelsIn(events)).GRAND,
+		2000,
+	);
+	await new Promise<void>((resolve) => hit.server.close(() => resolve()));
 }
 
 // A base-game instant collect and a Lucky Spin, which do not open the feature on their own.

@@ -39,6 +39,10 @@ export type HoldAndWinWheelPrize =
 
 export type HoldAndWinMeterLevel = { id: string; level: number; max: number };
 
+/** A progressive jackpot tier's pool as the server reports it, × total bet (design §7 11c). Only
+ *  progressive tiers are reported; a fixed tier's prize is its Game Config multiplier. */
+export type HoldAndWinJackpotLevel = { name: string; value: number };
+
 /** What `holdAndWinTrigger` carries as its mode payload (§4.5 `modeEnter.payload`). */
 export type HoldAndWinEntry = {
 	/** What sticks at entry. */
@@ -91,6 +95,7 @@ export type HoldAndWinEventFields = {
 		forced?: boolean;
 	};
 	meterLevels: { meters: HoldAndWinMeterLevel[] };
+	jackpotLevels: { jackpots: HoldAndWinJackpotLevel[] };
 	coinInstantCollect: {
 		specials: HoldAndWinCell[];
 		multiplier: number;
@@ -156,6 +161,7 @@ const HOLD_AND_WIN_EVENT_TYPES: Record<HoldAndWinEventType, true> = {
 	luckySpin: true,
 	meterUpdate: true,
 	meterLevels: true,
+	jackpotLevels: true,
 	coinInstantCollect: true,
 	randomMetreTrigger: true,
 	holdAndWinTrigger: true,
@@ -184,23 +190,27 @@ export type HoldAndWinEvent = {
 }[HoldAndWinEventType];
 
 /**
- * The book events a resume keeps by name: the open-feature snapshots, the meter levels, and the
+ * The book events a resume keeps by name: the open-feature snapshots, the meter and progressive
+ * jackpot levels, and the
  * feature's end — so a resume that lands after the end does not re-open a closed feature.
  */
 export const HOLD_AND_WIN_SNAPSHOT_EVENTS = [
 	'holdAndWinState',
 	'meterLevels',
+	'jackpotLevels',
 	'holdAndWinEnd',
 ] as const;
 
 /**
  * The client's picture of the feature. `active` is false in the base game. `meters` live across both
- * and have their own events (`meterUpdate`, `meterLevels`), so no snapshot carries or replaces them.
+ * and have their own events (`meterUpdate`, `meterLevels`), so no snapshot carries or replaces them;
+ * nor `jackpots`, the progressive pools (`jackpotLevels`).
  */
 export type HoldAndWinState = HoldAndWinSnapshot & {
 	active: boolean;
 	luckySpin: boolean;
 	meters: HoldAndWinMeterLevel[];
+	jackpots: HoldAndWinJackpotLevel[];
 };
 
 export const emptyHoldAndWinState = (): HoldAndWinState => ({
@@ -218,6 +228,7 @@ export const emptyHoldAndWinState = (): HoldAndWinState => ({
 	coinBoost: 1,
 	lettersLit: [],
 	meters: [],
+	jackpots: [],
 });
 
 const samePosition = (a: Position) => (b: Position) => a.reel === b.reel && a.row === b.row;
@@ -272,9 +283,12 @@ export const applyHoldAndWinEvent = (
 			};
 		case 'meterLevels':
 			return { ...state, meters: event.meters };
+		case 'jackpotLevels':
+			return { ...state, jackpots: event.jackpots };
 		case 'holdAndWinTrigger':
 			return {
 				...emptyHoldAndWinState(),
+				jackpots: state.jackpots,
 				// A `meter` cause names the full meters it consumed, which the server has emptied (wire
 				// doc); its `meterLevels` restates them only after the play, and the pots read empty now.
 				meters: state.meters.map((meter) =>
@@ -342,9 +356,15 @@ export const applyHoldAndWinEvent = (
 				active: true,
 				luckySpin: state.luckySpin,
 				meters: state.meters,
+				jackpots: state.jackpots,
 			};
 		case 'holdAndWinEnd':
-			return { ...emptyHoldAndWinState(), meters: state.meters, total: event.total };
+			return {
+				...emptyHoldAndWinState(),
+				meters: state.meters,
+				jackpots: state.jackpots,
+				total: event.total,
+			};
 		case 'coinInstantCollect':
 		case 'randomMetreTrigger':
 		case 'respinReveal':

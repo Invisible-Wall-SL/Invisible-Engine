@@ -15,6 +15,8 @@
 		type GameConfigDoc,
 		type GameConfigIssue,
 		type HoldAndWin,
+		type HoldAndWinJackpot,
+		type HoldAndWinProgressive,
 		type HoldAndWinSpecial,
 		type HoldAndWinSymbolRole,
 		type MysteryReveal,
@@ -215,6 +217,18 @@
 		for (const p of hw.wheel?.prizes ?? []) {
 			if (p.type === 'jackpot' && p.jackpot === old) p.jackpot = next;
 		}
+	}
+	/** A tier turned progressive starts as a pool at its multiplier that nothing grows yet; a tier
+	 *  turned fixed drops its pool, so the saved doc carries no field nothing reads. */
+	function setFixed(j: HoldAndWinJackpot, fixed: boolean) {
+		j.fixed = fixed;
+		if (fixed) delete j.progressive;
+		else j.progressive ??= { seed: j.multiplier, contribution: 0 };
+	}
+	function setPoolCap(pool: HoldAndWinProgressive, e: NumberInput) {
+		const n = e.currentTarget.valueAsNumber;
+		if (e.currentTarget.value === '') delete pool.cap;
+		else if (Number.isFinite(n) && n > 0) pool.cap = n;
 	}
 	function addJackpot(hw: HoldAndWin) {
 		const top = hw.jackpots[hw.jackpots.length - 1];
@@ -940,7 +954,15 @@
 		<div class="panel">
 			<h3>Jackpot tiers <em>× total bet</em></h3>
 			<table class="tbl">
-				<thead><tr><th>Name</th><th>× total bet</th><th>Fixed</th><th></th></tr></thead>
+				<thead
+					><tr
+						><th>Name</th><th>× total bet</th><th>Fixed</th><th
+							title="Where the pool starts, and goes back to when won">Pool seed</th
+						><th title="What every bet adds to the pool, × total bet">+ per bet</th><th
+							title="The most the pool grows to; empty = no cap">Cap</th
+						><th></th></tr
+					></thead
+				>
 				<tbody>
 					{#each hw.jackpots as j, i (i)}
 						<tr>
@@ -956,10 +978,52 @@
 									min="0"
 									step="any"
 									value={j.multiplier}
+									title={j.fixed
+										? undefined
+										: 'Shown only until the server reports the pool; the pool pays'}
 									oninput={num((n) => n > 0 && (j.multiplier = n))}
 								/></td
 							>
-							<td class="center"><input type="checkbox" bind:checked={j.fixed} /></td>
+							<td class="center"
+								><input
+									type="checkbox"
+									checked={j.fixed}
+									onchange={(e) => setFixed(j, e.currentTarget.checked)}
+								/></td
+							>
+							{#if !j.fixed && j.progressive}
+								{@const pool = j.progressive}
+								<td
+									><input
+										type="number"
+										min="0"
+										step="any"
+										value={pool.seed}
+										oninput={num((n) => n > 0 && (pool.seed = n))}
+									/></td
+								>
+								<td
+									><input
+										type="number"
+										min="0"
+										step="any"
+										value={pool.contribution}
+										oninput={num((n) => n >= 0 && (pool.contribution = n))}
+									/></td
+								>
+								<td
+									><input
+										type="number"
+										min="0"
+										step="any"
+										placeholder="none"
+										value={pool.cap ?? ''}
+										oninput={(e) => setPoolCap(pool, e)}
+									/></td
+								>
+							{:else}
+								<td colspan="3"><span class="note">fixed prize</span></td>
+							{/if}
 							<td
 								><button class="del" title="Remove" onclick={() => hw.jackpots.splice(i, 1)}
 									>×</button
@@ -970,6 +1034,11 @@
 				</tbody>
 			</table>
 			<button class="small" onclick={() => addJackpot(hw)}>+ jackpot tier</button>
+			<p class="note">
+				Untick <b>Fixed</b> for a progressive tier: the server keeps its pool per player, adds the per-bet
+				contribution with every bet, pays the pool when it is won and starts it again from the seed. The
+				jackpot bar shows the live pool.
+			</p>
 		</div>
 
 		<!-- Specials ---------------------------------------------------------------------------->

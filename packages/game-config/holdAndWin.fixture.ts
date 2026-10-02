@@ -10,7 +10,11 @@
 
 import { normalizeGameConfigDoc } from './src/normalize.ts';
 import { gameConfigErrors, validateGameConfigDoc } from './src/validate.ts';
-import { HOLD_AND_WIN_PRESETS, HOLD_AND_WIN_PRESET_IDS } from './src/holdAndWinPresets.ts';
+import {
+	HOLD_AND_WIN_PRESETS,
+	HOLD_AND_WIN_PRESET_IDS,
+	HOLD_AND_WIN_TEST_FIXTURES,
+} from './src/holdAndWinPresets.ts';
 import { configuredSpecials, symbolsWithRole } from './src/holdAndWin.ts';
 import type { GameConfigDoc } from './src/types.ts';
 
@@ -297,6 +301,52 @@ check(
 		withBlock(collector, (d) => (d.holdAndWin!.specials.collector!.collects = 'atEnd')),
 	).map((i) => i.path),
 	['holdAndWin.specials.collector.collects'],
+);
+
+console.log('\nprogressive tiers (11c) — a pool per fixed:false tier, fixed tiers untouched');
+const progressive = normalize(HOLD_AND_WIN_TEST_FIXTURES['pots-progressive']);
+check('the progressive fixture has no blocking issue', issuePaths(progressive), []);
+check(
+	'the progressive fixture is a normalize fixed point',
+	normalize(clone(progressive)),
+	progressive,
+);
+check(
+	'a fixed tier carries no pool; a progressive one keeps its seed, contribution and cap',
+	progressive.holdAndWin?.jackpots.map((j) => j.progressive ?? null),
+	[
+		null,
+		{ seed: 30, contribution: 1, cap: 40 },
+		{ seed: 100, contribution: 0.2 },
+		{ seed: 2000, contribution: 1 },
+	],
+);
+check(
+	'no preset has a progressive tier',
+	HOLD_AND_WIN_PRESET_IDS.flatMap((id) =>
+		normalize(HOLD_AND_WIN_PRESETS[id]).holdAndWin!.jackpots.filter((j) => !j.fixed),
+	),
+	[],
+);
+check(
+	'a bare fixed:false tier is a pool that starts at its multiplier and never grows (pre-11c pay)',
+	withBlock(pots, (d) => {
+		d.holdAndWin!.jackpots = [{ name: 'MINI', multiplier: 15, fixed: false }];
+	}).holdAndWin?.jackpots[0],
+	{ name: 'MINI', multiplier: 15, fixed: false, progressive: { seed: 15, contribution: 0 } },
+);
+check(
+	'a cap under the seed is an error; a pool nobody contributes to warns',
+	validateGameConfigDoc(
+		withBlock(progressive, (d) => {
+			d.holdAndWin!.jackpots[1].progressive = { seed: 30, contribution: 0.05, cap: 20 };
+			d.holdAndWin!.jackpots[2].progressive = { seed: 100, contribution: 0 };
+		}),
+	).map((i) => `${i.severity}:${i.path}`),
+	[
+		'error:holdAndWin.jackpots.1.progressive.cap',
+		'warning:holdAndWin.jackpots.2.progressive.contribution',
+	],
 );
 
 console.log(failures === 0 ? '\nAll Hold and Win assertions passed.\n' : `\n${failures} FAILED\n`);

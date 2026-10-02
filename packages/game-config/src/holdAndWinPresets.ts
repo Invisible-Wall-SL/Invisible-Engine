@@ -457,3 +457,38 @@ export const HOLD_AND_WIN_PRESETS: Record<HoldAndWinPresetId, RawGameConfig> = {
 	classic: CLASSIC,
 	collector: COLLECTOR,
 };
+
+/**
+ * DEV/TEST fixtures — never offered by the Game Maker. `pots-progressive` is 3 Pots with its upper
+ * three tiers progressive (design §7 11c), so the mock, the facade and the engine's live jackpot
+ * values can be exercised without any project turning the option on.
+ */
+export const HOLD_AND_WIN_TEST_FIXTURES: Record<string, RawGameConfig> = {
+	'pots-progressive': {
+		...POTS,
+		holdAndWin: {
+			...POTS_HOLD_AND_WIN,
+			jackpots: [
+				{ name: 'MINI', multiplier: 15, fixed: true },
+				{
+					name: 'MINOR',
+					multiplier: 30,
+					fixed: false,
+					progressive: { seed: 30, contribution: 1, cap: 40 },
+				},
+				{
+					name: 'MAJOR',
+					multiplier: 100,
+					fixed: false,
+					progressive: { seed: 100, contribution: 0.2 },
+				},
+				{
+					name: 'GRAND',
+					multiplier: 2000,
+					fixed: false,
+					progressive: { seed: 2000, contribution: 1 },
+				},
+			],
+		},
+	},
+};

@@ -46,9 +46,10 @@ import { BOOK_AMOUNT_MULTIPLIER } from 'constants-shared/bet';
 import { awaitCue, waitPresentation } from './unskippablePresentation';
 
 import { bakedFlowDoc } from '../editor-scenes';
-import { boardDimensions, getActiveGameConfig } from './gameConfig';
+import { boardDimensions } from './gameConfig';
 import type { LinesEngineKey } from './flowEngineKeys';
 import { stateHoldAndWin } from './stateHoldAndWin.svelte';
+import { jackpotMultiplier } from './holdAndWinJackpots.svelte';
 import { eventEmitter } from './eventEmitter';
 import { getFlowInterpreter } from './flowInterpreterHolder';
 import { stateGame } from './stateGame.svelte';
@@ -125,14 +126,9 @@ export const linesValueResolver = (instanceId: string, source: string): string =
 	return getFlowInterpreter()?.resolveValueSource(instanceId, source) ?? source;
 };
 
-/** A jackpot tier's fixed prize in book-event units (× total bet, like `win`); 0 when the game's
- *  Game Config names no such tier. */
-const jackpotAmount = (tier: string): number => {
-	const jackpot = getActiveGameConfig().holdAndWin?.jackpots.find(
-		({ name }) => name.toLowerCase() === tier,
-	);
-	return jackpot ? jackpot.multiplier * BOOK_AMOUNT_MULTIPLIER : 0;
-};
+/** A jackpot tier's prize in book-event units (× total bet, like `win`) — a progressive tier's live
+ *  pool; 0 when the game's Game Config names no such tier. */
+const jackpotAmount = (tier: string): number => jackpotMultiplier(tier) * BOOK_AMOUNT_MULTIPLIER;
 
 /**
  * The bounded `$engine.*` reader (flow-driven-game §3, design doc §11.4) — a CLOSED key→value

@@ -300,7 +300,7 @@ A **Hold and Win** project has no free-spin values (the kind has no free spins) 
 | `respinTotal` | number | What the counter resets to when a coin lands. |
 | `featureWorth` | number | What the open feature is worth so far (banked jackpots + every held coin), as the server counts it, in the same units as `win`. It is final from the trigger's chain on, unlike the Total Win bar a screen binds (`featureTotal`), which counts up. |
 | `activeModifiers` | list | The specials active in the feature (`payer`, `multiplier`, `collector`, `mystery`). |
-| `jackpot.mini` … `jackpot.grand` | number | Each jackpot's prize in the same units as `win`; `0` when the game has no such tier. A screen's `jackpot.<tier>` source shows the same prize in currency. |
+| `jackpot.mini` … `jackpot.grand` | number | Each jackpot's prize in the same units as `win`; `0` when the game has no such tier. A progressive tier reads its live pool (the server's). A screen's `jackpot.<tier>` source shows the same prize in currency. |
 
 Then the **collections** (`reels`) — the iterables a **ForEach** walks, rather than things
 to compare. You pick a name from the list instead of typing it, so there is nothing to

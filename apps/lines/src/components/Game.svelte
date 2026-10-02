@@ -208,6 +208,7 @@
 		meterMax,
 		seedHoldAndWinMeters,
 	} from '../game/holdAndWinMeters.svelte';
+	import { jackpotMultiplier, seedHoldAndWinJackpots } from '../game/holdAndWinJackpots.svelte';
 	import { HUD_BUTTON_INSTANCES } from '../game/editorFlags';
 	import {
 		bakedEditorArtAssets,
@@ -355,6 +356,8 @@
 	// on the same `config` request `<Authenticate>` gates this mount on). A no-op for every game whose
 	// server declares none, and once a book event has recorded the meters itself.
 	seedHoldAndWinMeters();
+	// …and its progressive jackpot pools, followed on every heartbeat refresh from here on.
+	onMount(seedHoldAndWinJackpots);
 
 	// And say out loud when the RGS is dealing a DIFFERENT board than the one the project authored.
 	// The board follows the server now (above); this is what stops it doing so SILENTLY. An online
@@ -743,11 +746,15 @@
 		// (`tallyCountUp`), so the bar and the HUD win readout can never disagree.
 		featureTotal: valueSource(() => stateBet.winBookEventAmount, bookEventAmountToCurrencyString),
 		// Each configured jackpot's value at the current bet (`jackpot.<name>`, lower-case), what the
-		// authored jackpot tiles read. None configured ⇒ none registered.
+		// authored jackpot tiles read: a fixed tier's multiplier, a progressive tier's LIVE pool (the
+		// server's, moving with every round and heartbeat). None configured ⇒ none registered.
 		...Object.fromEntries(
-			(getActiveGameConfig().holdAndWin?.jackpots ?? []).map(({ name, multiplier }) => [
+			(getActiveGameConfig().holdAndWin?.jackpots ?? []).map(({ name }) => [
 				`jackpot.${name.toLowerCase()}`,
-				valueSource(() => multiplier * stateBetDerived.betCost(), numberToCurrencyString),
+				valueSource(
+					() => jackpotMultiplier(name) * stateBetDerived.betCost(),
+					numberToCurrencyString,
+				),
 			]),
 		),
 		// The coded banner's headline and detail line ("GRAND JACKPOT", the amount), what the authored

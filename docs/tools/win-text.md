@@ -173,7 +173,8 @@ when the game's config has the pre-feature wheel.
   [Invisible Game Config](./game-config.md), not a fixed list. Leave a tier blank and the
   game calls it by its config name. Below the tiers are the jackpot banners: the title
   (`{jackpot} JACKPOT`), the amount under it, the full-board amount
-  (`FULL BOARD  {amount}`) and the small banner over a jackpot coin (`{jackpot}`).
+  (`FULL BOARD  {amount}`) and the small banner over a jackpot coin (`{jackpot}`). For a progressive
+  tier `{amount}` is the live pool the server paid, not its seed.
 - **Respins.** The counter (`RESPINS {count}`), the award when the feature starts
   (`{count} RESPINS`), the reset (`RESPINS RESET`) and the last respin (`LAST RESPIN`).
 - **Hold and Win feature.** These boxes hold:

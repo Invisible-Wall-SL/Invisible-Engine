@@ -16,6 +16,7 @@ import { createServer, request } from 'node:http';
 import {
 	HOLD_AND_WIN_PRESET_IDS,
 	HOLD_AND_WIN_PRESETS,
+	HOLD_AND_WIN_TEST_FIXTURES,
 	holdAndWinMockInputs,
 	normalizeGameConfigDoc,
 } from '../packages/game-config/index.ts';
@@ -37,7 +38,9 @@ const key = (c) => `${c.reel}:${c.row}`;
 // ---------- a preset as the launcher hands it over (mockContract.ts) ----------
 
 const contractFor = (preset) => {
-	const doc = normalizeGameConfigDoc(HOLD_AND_WIN_PRESETS[preset]);
+	const doc = normalizeGameConfigDoc(
+		HOLD_AND_WIN_PRESETS[preset] ?? HOLD_AND_WIN_TEST_FIXTURES[preset],
+	);
 	const modes = Object.entries(doc.betModes);
 	return {
 		doc,
@@ -107,6 +110,7 @@ const boot = async (preset, extra = {}) => {
 		post: (path, body) => send('POST', path, body),
 		get: (path) => send('GET', path),
 		close: () => new Promise((r) => server.close(r)),
+		port: server.address().port,
 		table: Boolean(opts.betModes),
 		lines: opts.paylines.length,
 		jackpots: Object.fromEntries(block.jackpots.map((j) => [j.name, j.multiplier])),
@@ -925,6 +929,168 @@ const jackpotsWon = (r, source) =>
 	if (!failed)
 		pass('meters fill, persist across rounds and reboots, stay per session, survive a swap');
 	await g.close();
+}
+
+// ---------- 3b. progressive jackpot pools (design §7 11c) ----------
+
+{
+	const g = await boot('pots-progressive');
+	console.log('pots-progressive: pools grow per bet, pay the pool, reset, stay per session');
+	const tiers = g.block.jackpots.filter((j) => !j.fixed);
+	const sid = 'pools';
+	const levelsOf = (events) =>
+		events.findLast((e) => e.event === 'jackpotLevels')?.context.jackpots ?? null;
+	let resp = await g.post(`/rgs/engine?sid=${sid}&seq=0`, [{ action: 'config' }]);
+	const meters = meterStart(resp.events.find((e) => e.event === 'config').context);
+	const bootTiers = resp.events.find((e) => e.event === 'config').context.holdAndWin.jackpots;
+	check(
+		tiers.every((t) =>
+			bootTiers.some((b) => b.name === t.name && b.progressive && b.value === t.progressive.seed),
+		) && bootTiers.filter((b) => b.progressive).length === tiers.length,
+		'the boot config names each progressive tier with its pool at the seed',
+		JSON.stringify(bootTiers),
+	);
+	const pools = Object.fromEntries(tiers.map((t) => [t.name, t.progressive.seed]));
+	const grow = () => {
+		for (const t of tiers) {
+			const cap = t.progressive.cap ?? Infinity;
+			pools[t.name] = tidy(Math.min(cap, pools[t.name] + t.progressive.contribution));
+		}
+	};
+	let grew = true;
+	for (let i = 0; i < 30; i++) {
+		grow();
+		g.jackpots = { ...g.jackpots, ...pools };
+		const round = await playRound(g, sid, {});
+		verifyRound(g, round, `pools round ${i}`, meters);
+		const levels = levelsOf(eventsOf(round));
+		if (!levels || levels.some((l) => l.value !== pools[l.name])) grew = false;
+	}
+	check(
+		grew,
+		'every play reports each pool grown by its contribution, capped',
+		JSON.stringify(pools),
+	);
+	const opening = await playRound(g, 'pools-order', {});
+	const firstLevels = eventsOf(opening).findIndex((e) => e.event === 'jackpotLevels');
+	check(
+		firstLevels > eventsOf(opening).findIndex((e) => e.event === 'bet') &&
+			firstLevels < eventsOf(opening).findIndex((e) => e.event === 'playedSpin'),
+		'the bet reports the pools it grew before the play is dealt',
+	);
+	check(pools.MINOR === 40, 'MINOR stops at its 40× cap', String(pools.MINOR));
+	resp = await g.post(`/rgs/engine?sid=${sid}&seq=0`, []);
+	check(
+		levelsOf(resp.events)?.every((l) => l.value === pools[l.name]),
+		'the balance heartbeat restates the pools',
+		JSON.stringify(levelsOf(resp.events)),
+	);
+
+	grow();
+	g.jackpots = { ...g.jackpots, ...pools };
+	const hit = await playRound(g, sid, { force: 'jackpot:GRAND' });
+	verifyRound(g, hit, 'forced GRAND on a grown pool', meters);
+	const bet = first(hit, 'bet');
+	const paid = all(hit, 'jackpotWin').find((j) => j.tier === 'GRAND');
+	check(
+		paid?.amount === Math.round(pools.GRAND * bet.total),
+		'a forced GRAND pays the grown pool, not the 2000× seed',
+		`${paid?.amount} for a pool of ${pools.GRAND}× on ${bet.total}`,
+	);
+	const after = levelsOf(eventsOf(hit));
+	check(
+		after?.find((l) => l.name === 'GRAND')?.value === 2000 &&
+			after.find((l) => l.name === 'MAJOR')?.value === pools.MAJOR,
+		'the won pool goes back to its seed; the others keep growing',
+		JSON.stringify(after),
+	);
+	pools.GRAND = 2000;
+	const other = await g.post(`/rgs/engine?sid=someone-else&seq=0`, [{ action: 'config' }]);
+	check(
+		other.events
+			.find((e) => e.event === 'config')
+			.context.holdAndWin.jackpots.filter((j) => j.progressive)
+			.every((j) => j.value === tiers.find((t) => t.name === j.name).progressive.seed),
+		'another session has its own pools',
+	);
+	const { opts } = contractFor('pots-progressive');
+	const next = createMockRgs({ quiet: true, seed: 'swap', ...opts });
+	for (const [id, session] of g.mock.sessions)
+		next.sessions.set(id, carrySession(session, { keepBetShape: true }));
+	check(
+		tiers.every((t) => next.sessions.get(sid).jackpots[t.name] === pools[t.name]),
+		'pools survive a contract swap',
+	);
+	// Two players at once: A's request is open (its body not yet sent) while B's whole round plays.
+	// Each must be dealt and paid from its OWN pools.
+	{
+		const port = g.port;
+		const send = (path, body, holdMs) =>
+			new Promise((resolve, reject) => {
+				const payload = JSON.stringify(body);
+				const req = request(
+					{
+						host: '127.0.0.1',
+						port,
+						path,
+						method: 'POST',
+						headers: {
+							'content-type': 'application/json',
+							'content-length': Buffer.byteLength(payload),
+							connection: 'close',
+						},
+					},
+					(res) => {
+						let text = '';
+						res.setEncoding('utf8');
+						res.on('data', (c) => (text += c));
+						res.on('end', () => resolve(JSON.parse(text)));
+					},
+				);
+				req.on('error', reject);
+				req.flushHeaders();
+				setTimeout(() => req.end(payload), holdMs);
+			});
+		await g.post(`/rgs/engine?sid=race-b&seq=0`, [{ action: 'config' }]);
+		for (let i = 0; i < 5; i++) await playRound(g, 'race-b', {});
+		await g.post(`/rgs/engine?sid=race-a&seq=0`, [{ action: 'config' }]);
+		const open = await g.post(`/rgs/engine?sid=race-a&seq=0`, [
+			{ action: 'bet', context: [g.lines, 4] },
+			{ action: 'play', context: 'force:jackpot:GRAND' },
+		]);
+		const gid = open.platform.gameRound?.id;
+		const answers = [open];
+		for (let seq = 2; gid && seq < 60; seq++) {
+			const late = send(`/rgs/engine?sid=race-a&seq=${seq}&gid=${gid}`, [{ action: 'play' }], 60);
+			await g.post(`/rgs/engine?sid=race-b&seq=0`, []);
+			const answer = await late;
+			answers.push(answer);
+			if ((answer.events ?? []).some((e) => e.event === 'gameEnd')) break;
+		}
+		const raced = answers.flatMap((r) => r.events ?? []);
+		const stake = raced.find((e) => e.event === 'bet')?.context.total;
+		const paid = raced.find((e) => e.event === 'jackpotWin' && e.context.tier === 'GRAND')?.context
+			.amount;
+		check(
+			paid === Math.round(2001 * stake),
+			"a request open while another player's arrives is paid from its own pool",
+			`${paid} for a 2001× pool on ${stake}`,
+		);
+	}
+	await g.close();
+
+	const fixed = await boot('pots');
+	resp = await fixed.post(`/rgs/engine?sid=fixed&seq=0`, [{ action: 'config' }]);
+	const plain = await playRound(fixed, 'fixed', {});
+	check(
+		!resp.events
+			.find((e) => e.event === 'config')
+			.context.holdAndWin.jackpots.some((j) => 'progressive' in j || 'value' in j) &&
+			!eventsOf(plain).some((e) => e.event === 'jackpotLevels'),
+		'a game without a progressive tier sends no pools (parity)',
+	);
+	await fixed.close();
+	if (!failed) pass('pools grow, cap, refresh on the heartbeat, pay when hit, reset, persist');
 }
 
 // ---------- 4. resume + replay ----------

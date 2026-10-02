@@ -129,7 +129,11 @@ The panels:
   tick it, clears; every letter lit pays the jackpot).
 - **Coin values** — cash coins (× total bet; 1.5 is fine) and jackpot coins, each with a
   weight (its share is shown) and the reels it may land on (none ticked = every reel).
-- **Jackpot tiers** — name and × total bet. Renaming a tier renames every reference.
+- **Jackpot tiers** — name and × total bet. Renaming a tier renames every reference. Untick
+  **Fixed** for a **progressive** tier: it gets a pool with a **seed** (where it starts, and goes back
+  to when won), **+ per bet** (what every bet adds, × total bet) and an optional **cap**. The server
+  keeps the pool per player and pays it when the tier is won; the jackpot bar shows it live. No preset
+  has one — the `pots-progressive` mock fixture exercises it.
 - **Specials** — collector, multiplier, payer, mystery; each switched on separately
   with its own table. Then the **apply order** for specials landing on the same respin
   and which are **active at entry**.

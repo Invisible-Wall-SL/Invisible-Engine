@@ -614,7 +614,8 @@
 					What the player reads for each jackpot tier, and the banners a jackpot win shows. The
 					tiers are this game's own, from <a href={resolve('/config')}>Invisible Game Config</a>;
 					leave a tier blank and it is called by its config name. Write <code>{'{jackpot}'}</code>
-					where the tier's caption goes and <code>{'{amount}'}</code> for what it paid.
+					where the tier's caption goes and <code>{'{amount}'}</code> for what it paid — for a progressive
+					tier, the live pool the server paid out, not its seed.
 				</p>
 				{#each data.jackpotTiers as tier (tier)}
 					<label class="single">

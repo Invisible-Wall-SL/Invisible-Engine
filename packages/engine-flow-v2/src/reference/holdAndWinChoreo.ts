@@ -13,7 +13,8 @@
  *    enters the mode BEFORE presenting the event that opens it, and closes it only after presenting
  *    the one that ends it.
  *
- * Absent on purpose: `meterLevels` (no beat — its coded handler only re-syncs the board).
+ * Absent on purpose: `meterLevels` (no beat — its coded handler only re-syncs the board) and
+ * `jackpotLevels` (recorded at the play seam; the `jackpot.<tier>` values follow it).
  */
 
 import { trig, type ChoreoStep } from './bookOfChoreo';

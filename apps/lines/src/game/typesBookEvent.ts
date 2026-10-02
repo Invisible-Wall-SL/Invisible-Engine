@@ -169,6 +169,10 @@ type BookEventHwMeterLevels = {
 	index: number;
 	type: 'meterLevels';
 } & HoldAndWinEventFields['meterLevels'];
+type BookEventHwJackpotLevels = {
+	index: number;
+	type: 'jackpotLevels';
+} & HoldAndWinEventFields['jackpotLevels'];
 type BookEventHwCoinInstantCollect = {
 	index: number;
 	type: 'coinInstantCollect';
@@ -282,6 +286,7 @@ export type BookEvent =
 	| BookEventHwLuckySpin
 	| BookEventHwMeterUpdate
 	| BookEventHwMeterLevels
+	| BookEventHwJackpotLevels
 	| BookEventHwCoinInstantCollect
 	| BookEventHwRandomMetreTrigger
 	| BookEventHwHoldAndWinTrigger
