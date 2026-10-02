@@ -112,14 +112,19 @@ export async function projectName(key: string): Promise<string | null> {
  * prod. Remove the guard once the migration is confirmed applied.
  */
 export async function projectGameType(key: string): Promise<string> {
+	return (await storedProjectGameType(key)) ?? DEFAULT_GAME_KIND;
+}
+
+/** {@link projectGameType} without the default: `null` for a legacy row with no stored kind. */
+export async function storedProjectGameType(key: string): Promise<string | null> {
 	try {
 		const [row] = await getDb()
 			.select({ gameType: projects.gameType })
 			.from(projects)
 			.where(eq(projects.key, key));
-		return row?.gameType ? row.gameType : DEFAULT_GAME_KIND;
+		return row?.gameType || null;
 	} catch {
-		return DEFAULT_GAME_KIND;
+		return null;
 	}
 }
 

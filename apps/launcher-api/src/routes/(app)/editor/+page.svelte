@@ -1807,9 +1807,11 @@
 	/** True after loading a reference layout, until the first edit — signals the
 	 * on-screen layout is an unsaved preview (autosave hasn't touched the doc). */
 	let loadedPreview = $state(false);
-	/** The project's OWN game type (from its saved doc / resolved template). Used to
-	 * flag a cross-type reference load that would overwrite a different game's doc. */
-	const projectGameType = data.doc.gameType ?? data.template?.gameType ?? '';
+	/** The project's OWN game type: its stored kind (what its config, mock and runtime follow),
+	 * else — a legacy project with none — its saved doc's / resolved template's. A layout scaffolded
+	 * from another kind's reference keeps that kind in `doc.gameType`, which must not hide this
+	 * kind's components and screens. Also flags a cross-type reference load. */
+	const projectGameType = data.projectKind ?? data.doc.gameType ?? data.template?.gameType ?? '';
 	// The palette offers only what this project's kind uses (`ComponentDef.capability` — the Hold and
 	// Win counter, jackpot bar and pots); every placed instance still resolves from `components`.
 	const paletteComponents = $derived(

@@ -6,6 +6,7 @@ import {
 	type GridDimensions,
 	type LayoutDoc,
 } from 'engine-layout';
+import { DEFAULT_GAME_KIND } from 'constants-shared/gameKinds';
 import { resolveBetModes, resolveGrid, resolveWinLevels, type GameConfigDoc } from 'game-config';
 import type { RepeaterSourceMap, RepeaterSourcePreview } from './editorCanvas.helpers';
 import {
@@ -23,7 +24,7 @@ import { listComponents } from '$lib/server/componentStorage';
 import { loadDocWithEtag, saveDoc } from '$lib/server/editorStorage';
 import { listKinds } from '$lib/server/kindStorage';
 import { listProjectAssets } from '$lib/server/projectAssets';
-import { projectGameType, projectName } from '$lib/server/projects';
+import { projectGameType, projectName, storedProjectGameType } from '$lib/server/projects';
 import { ConflictError } from '$lib/server/r2';
 import { writeBaseEtagForm } from '$lib/server/writeGuard';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
@@ -102,7 +103,8 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	// The project's resolved game type, fetched ONCE — drives both the fresh-doc
 	// canvas-box seed (a never-saved project gets the game's REAL main box) and the
 	// template/symbol-default resolution below (the doc's own `gameType` wins when set).
-	const resolvedProjectGameType = await projectGameType(projectKey);
+	const projectKind = await storedProjectGameType(projectKey);
+	const resolvedProjectGameType = projectKind ?? DEFAULT_GAME_KIND;
 	const [
 		loaded,
 		assets,
@@ -235,6 +237,10 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	return {
 		clientKey,
 		projectKey,
+		// The project's stored kind (what its Game Config, mock and runtime follow), or null for a
+		// legacy project with none. It outranks the layout doc's own `gameType` for the kind-gated
+		// surfaces: a layout scaffolded from another kind's reference still belongs to this game.
+		projectKind,
 		doc,
 		docEtag,
 		assets,
