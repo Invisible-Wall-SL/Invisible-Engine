@@ -65,6 +65,7 @@ import {
 } from '../containerEvents';
 import type {
 	ContainerEventDecl,
+	ContainerRef,
 	DataEdge,
 	ExecEdge,
 	FlowDoc,
@@ -534,6 +535,14 @@ const SEED_CONTAINERS: { id: string; z: number }[] = [
 	{ id: LOADING, z: 100 },
 ];
 
+/** The {@link ContainerRef}s a seed declares for `ids`, at the seed's z, in z order. */
+export const seedContainerRefs = (ids: readonly string[]): ContainerRef[] =>
+	SEED_CONTAINERS.filter(({ id }) => ids.includes(id)).map(({ id, z }) => ({
+		id,
+		sceneId: id,
+		z,
+	}));
+
 /** Declared regardless of screen set — the splash and the two buy takeovers, plus the two
  *  round-holding free-spin screens when the template has free spins; each is shown by its own chain
  *  rather than at start. */
@@ -570,11 +579,7 @@ const buildDrivenSeed = (
 		version: 2,
 		templateId: vocab.templateId,
 		graph: buildDrivenSeedGraph({ choreo, gameScreens, around }),
-		containers: SEED_CONTAINERS.filter(({ id }) => shown.includes(id)).map(({ id, z }) => ({
-			id,
-			sceneId: id,
-			z,
-		})),
+		containers: seedContainerRefs(shown),
 	};
 };
 
@@ -584,7 +589,7 @@ const buildDrivenSeed = (
  * carries `prefix`, so a section built here never collides with another (ids are unique across all
  * sections of a doc), and its nodes stack down from `x`, clear of the other sections' columns.
  */
-const buildEntryGraph = ({
+export const buildEntryGraph = ({
 	prefix,
 	x,
 	choreo = {},
@@ -691,6 +696,48 @@ const music = (name: string): ChoreoStep[] => [
 ];
 
 /**
+ * The `modes.holdAndWin` section of the Hold and Win starter flow (described below), every node id
+ * carrying `prefix`. Also what `graftAddOnSteps` adds to a project with a Hold and Win bonus, under a
+ * prefix no id of that doc uses.
+ */
+export const holdAndWinModeGraph = (prefix: string): Graph => {
+	const modeTrigger = (on: 'enter' | 'exit'): Node => ({
+		id: `${prefix}_${on}`,
+		kind: 'modeTrigger',
+		pos: { x: 0, y: 0 },
+		modeId: HOLD_AND_WIN_MODE,
+		on,
+	});
+	/** The mode's screens up and its music on — what entering the mode does, and what a resume
+	 *  (which rebuilds the mode stack silently, with no enter) needs from the first snapshot. Both are
+	 *  idempotent: a shown screen stays, a playing track is not restarted. */
+	const modeOn: Beat[] = [
+		...HOLD_AND_WIN_MODE_SCREENS.map((id): Beat => ({ k: 'show', id })),
+		{ k: 'steps', steps: music('bgm_freespin') },
+	];
+	const beatScreens: Readonly<Record<string, string>> = {
+		holdAndWinWheel: WHEEL,
+		jackpotWin: JACKPOT_WIN,
+	};
+	return buildEntryGraph({
+		prefix,
+		x: 0,
+		choreo: HOLD_AND_WIN_FEATURE_CHOREO,
+		frame: (event, steps) =>
+			event === 'holdAndWinState'
+				? [...modeOn, { k: 'steps', steps }]
+				: aroundBeat(beatScreens[event], [{ k: 'steps', steps }]),
+		entries: [
+			{ node: modeTrigger('enter'), beats: modeOn },
+			{
+				node: modeTrigger('exit'),
+				beats: HOLD_AND_WIN_MODE_SCREENS.map((id): Beat => ({ k: 'hide', id })),
+			},
+		],
+	});
+};
+
+/**
  * The Hold and Win starter flow: a new project plays the whole feature with the coded-default
  * presentation and zero authoring.
  *
@@ -737,24 +784,6 @@ const holdAndWinDrivenSeed = (): FlowDoc => {
 			},
 		],
 	});
-	const modeTrigger = (id: string, on: 'enter' | 'exit'): Node => ({
-		id,
-		kind: 'modeTrigger',
-		pos: { x: 0, y: 0 },
-		modeId: HOLD_AND_WIN_MODE,
-		on,
-	});
-	/** The mode's screens up and its music on — what entering the mode does, and what a resume
-	 *  (which rebuilds the mode stack silently, with no enter) needs from the first snapshot. Both are
-	 *  idempotent: a shown screen stays, a playing track is not restarted. */
-	const modeOn: Beat[] = [
-		...HOLD_AND_WIN_MODE_SCREENS.map((id): Beat => ({ k: 'show', id })),
-		{ k: 'steps', steps: music('bgm_freespin') },
-	];
-	const beatScreens: Readonly<Record<string, string>> = {
-		holdAndWinWheel: WHEEL,
-		jackpotWin: JACKPOT_WIN,
-	};
 	return {
 		...base,
 		graph: {
@@ -762,26 +791,7 @@ const holdAndWinDrivenSeed = (): FlowDoc => {
 			exec: [...base.graph.exec, ...backToBase.exec],
 			data: [...base.graph.data, ...backToBase.data],
 		},
-		modes: {
-			[HOLD_AND_WIN_MODE]: {
-				graph: buildEntryGraph({
-					prefix: 'hw',
-					x: 0,
-					choreo: HOLD_AND_WIN_FEATURE_CHOREO,
-					frame: (event, steps) =>
-						event === 'holdAndWinState'
-							? [...modeOn, { k: 'steps', steps }]
-							: aroundBeat(beatScreens[event], [{ k: 'steps', steps }]),
-					entries: [
-						{ node: modeTrigger('hw_enter', 'enter'), beats: modeOn },
-						{
-							node: modeTrigger('hw_exit', 'exit'),
-							beats: HOLD_AND_WIN_MODE_SCREENS.map((id): Beat => ({ k: 'hide', id })),
-						},
-					],
-				}),
-			},
-		},
+		modes: { [HOLD_AND_WIN_MODE]: { graph: holdAndWinModeGraph('hw') } },
 	};
 };
 

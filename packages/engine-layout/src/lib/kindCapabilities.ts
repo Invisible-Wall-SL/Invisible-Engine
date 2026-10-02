@@ -14,7 +14,12 @@
  * Win bonus keeps its free spins and book reveal. Without a block every answer is the kind's alone.
  */
 
-import { HOLD_AND_WIN_SYMBOL_STATES, SYMBOL_STATES, type SymbolStateName } from './symbolStates';
+import {
+	HOLD_AND_WIN_SYMBOL_STATES,
+	POTS_TOKEN_SYMBOL_STATES,
+	SYMBOL_STATES,
+	type SymbolStateName,
+} from './symbolStates';
 
 /** The facts about a project's config that a capability depends on — RESOLVED values, not the raw
  *  sparse doc, so the answer matches the one the game acts on. Structural on purpose:
@@ -95,15 +100,19 @@ export function kindCapabilities(
 }
 
 /**
- * The symbol states a kind's authoring surfaces offer: every state, minus the Hold and Win ones for
- * a project without the respin feature. The doc schema still accepts every state, so a binding
- * never fails to round-trip; this only decides what a picker lists.
+ * The symbol states a kind's authoring surfaces offer: every state for a project with the respin
+ * feature (`holdAndWin`); for a pots overlay host without it (`pots` alone), every state but the Hold
+ * and Win ones, plus the token's {@link POTS_TOKEN_SYMBOL_STATES}; otherwise every state minus the
+ * Hold and Win ones. The doc schema still accepts every state, so a binding never fails to
+ * round-trip; this only decides what a picker lists.
  */
 export function symbolStatesForKind(
 	gameType: string | undefined,
 	config?: KindCapabilityConfig,
 ): readonly SymbolStateName[] {
-	if (kindCapabilities(gameType, config).holdAndWin) return SYMBOL_STATES;
+	const capabilities = kindCapabilities(gameType, config);
+	if (capabilities.holdAndWin) return SYMBOL_STATES;
 	const holdAndWin: ReadonlySet<string> = new Set(HOLD_AND_WIN_SYMBOL_STATES);
-	return SYMBOL_STATES.filter((state) => !holdAndWin.has(state));
+	const token: ReadonlySet<string> = new Set(capabilities.pots ? POTS_TOKEN_SYMBOL_STATES : []);
+	return SYMBOL_STATES.filter((state) => !holdAndWin.has(state) || token.has(state));
 }

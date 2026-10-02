@@ -271,6 +271,7 @@
 	import SpecialBook from './SpecialBook.svelte';
 	import TumbleBoard from './TumbleBoard.svelte';
 	import MultiplierBoard from './MultiplierBoard.svelte';
+	import OverlayTokens from './OverlayTokens.svelte';
 	import RespinBoard from './RespinBoard.svelte';
 	import FlightLayer from './FlightLayer.svelte';
 	import HoldAndWinBanner from './HoldAndWinBanner.svelte';
@@ -1656,10 +1657,14 @@
 		boardGlowHide: eventSignal((run) =>
 			context.eventEmitter.subscribe({ boardFrameGlowHide: () => run() }),
 		),
-		// Hold and Win's feature parts (pots, respins, coins, jackpots, letters, wheel) — in a Hold and
-		// Win game only — and the operator platform's jackpot, scoped where the beat concerns one pot,
-		// tier or column (Phase 12a).
-		...featureComponentSignals(context.eventEmitter, !!getActiveGameConfig().holdAndWin),
+		// Hold and Win's feature parts (respins, coins, jackpots, letters, wheel) — in a Hold and Win
+		// game only — its pots in any game that has pots (a pots overlay too), and the operator
+		// platform's jackpot, scoped where the beat concerns one pot, tier or column (Phase 12a).
+		...featureComponentSignals(
+			context.eventEmitter,
+			!!getActiveGameConfig().holdAndWin,
+			!!getActiveGameConfig().holdAndWin || !!getActiveGameConfig().potsOverlay,
+		),
 	});
 
 	// The board glow is a STATE — lit for the whole free-spin feature — but it arrives as one-shot
@@ -2265,6 +2270,9 @@
 				<BoardFrame active={boardGlowActive} />
 			{/if}
 			<Board />
+			<!-- The tokens a pots overlay drops over the board's symbols — an unconditional, empty
+			     container until a drop (`OverlayTokens.svelte`). -->
+			<OverlayTokens />
 			<!-- The cascade + multiplier-collect overlays, mounted BESIDE the board because that is
 					 what they are: `TumbleBoard` stands in for the reels for the length of a tumble
 					 (`boardHide` → it shows → `boardShow`), and `MultiplierBoard` flies the landed

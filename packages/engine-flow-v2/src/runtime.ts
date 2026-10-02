@@ -831,7 +831,7 @@ export const flowGraphs = (doc: FlowDoc): { modeId?: string; graph: Graph }[] =>
 const withGraph = (doc: FlowDoc, graph: Graph): FlowDoc => ({ ...doc, graph });
 
 /** Does `graph` handle `eventName` — an `event` node for it, or a wired `gameSignals` pin? */
-const graphHandlesSignal = (graph: Graph, eventName: string): boolean =>
+export const graphHandlesSignal = (graph: Graph, eventName: string): boolean =>
 	graph.nodes.some((n) => n.kind === 'event' && n.ref === eventName) ||
 	graphOwnsSignal(graph, eventName);
 

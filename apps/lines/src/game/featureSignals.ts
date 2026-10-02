@@ -17,12 +17,16 @@ type Handlers = Parameters<typeof eventEmitter.subscribe>[0];
  *
  * The Hold and Win family is registered only for a Hold and Win game (`holdAndWin`): a registered
  * name always beats the open bus, so registering `featureEnter` or `coinLand` in a lines game would
- * silently take the name away from a scene cue an author fires from a Flow. The platform jackpot is
- * any kind's. Svelte-free, so the launcher's `check:signal-scope` drives it with a real emitter.
+ * silently take the name away from a scene cue an author fires from a Flow. The pot family follows
+ * `pots` instead — a Hold and Win game, or any host with a pots overlay
+ * (`docs/design/pots-overlay.md` §4, the `pots` capability) — so an overlay that routes its pots only
+ * to free spins still fires its pot cues. The platform jackpot is any kind's. Svelte-free, so the
+ * launcher's `check:signal-scope` drives it with a real emitter.
  */
 export const featureComponentSignals = (
 	emitter: typeof eventEmitter,
 	holdAndWin: boolean,
+	pots = holdAndWin,
 ): Record<string, SignalSource> => {
 	const on = <T extends EmitterEvent['type']>(
 		type: T,
@@ -36,15 +40,20 @@ export const featureComponentSignals = (
 			} as Handlers),
 	});
 	const platform = { platformJackpotWin: on('platformJackpotCelebration') };
-	if (!holdAndWin) return platform;
+	const potFamily: Record<string, SignalSource> = pots
+		? {
+				potFill: on('potFill'),
+				potLand: on('flightArrive', (event) => event.flight.startsWith(FLIGHT_METER_PREFIX)),
+				potLevelUp: on('potLevelUp'),
+				potStageUp: on('potStageUp'),
+				potFull: on('potFull'),
+				potActivate: on('potsConsume'),
+			}
+		: {};
+	if (!holdAndWin) return { ...platform, ...potFamily };
 	return {
 		...platform,
-		potFill: on('potFill'),
-		potLand: on('flightArrive', (event) => event.flight.startsWith(FLIGHT_METER_PREFIX)),
-		potLevelUp: on('potLevelUp'),
-		potStageUp: on('potStageUp'),
-		potFull: on('potFull'),
-		potActivate: on('potsConsume'),
+		...potFamily,
 		respinReset: on('respinCounterUpdate', (event) => event.reset),
 		respinLast: on('respinCounterUpdate', (event) => !event.reset && event.left === 1),
 		coinLand: on('respinCoinsLand'),

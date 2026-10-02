@@ -46,10 +46,12 @@ import { BOOK_AMOUNT_MULTIPLIER } from 'constants-shared/bet';
 import { awaitCue, waitPresentation } from './unskippablePresentation';
 
 import { bakedFlowDoc } from '../editor-scenes';
-import { boardDimensions } from './gameConfig';
+import { resolveMeters, type ResolvedMeter } from 'game-config';
+import { boardDimensions, getActiveGameConfig } from './gameConfig';
 import type { LinesEngineKey } from './flowEngineKeys';
 import { stateHoldAndWin } from './stateHoldAndWin.svelte';
 import { jackpotMultiplier } from './holdAndWinJackpots.svelte';
+import { meterLevelShown } from './holdAndWinMeters.svelte';
 import { platformJackpotValue } from './platformJackpot.svelte';
 import { eventEmitter } from './eventEmitter';
 import { getFlowInterpreter } from './flowInterpreterHolder';
@@ -149,8 +151,11 @@ const jackpotAmount = (tier: string): number => jackpotMultiplier(tier) * BOOK_A
  *    the live board length (falls back to the static reel count before the first spin lands).
  *  - Hold and Win — `respinsLeft` / `respinTotal` / `featureWorth` / `activeModifiers` from
  *    `stateHoldAndWin`, and `jackpot.<tier>` from the Game Config's jackpot table.
+ *  - `meter.<id>.level|max|stage|full` — a pot as it is drawn (`holdAndWinMeters`, the same reads as
+ *    the HUD's `meter.<id>.*` sources, `full` a boolean here). A project's meters are config data, so
+ *    these are a pattern ({@link METER_READS}), declared per meter by the pots overlay add-on.
  *
- * The set is `LINES_ENGINE_KEYS` (`flowEngineKeys.ts`). Keys outside it resolve `undefined` (a
+ * The fixed set is `LINES_ENGINE_KEYS` (`flowEngineKeys.ts`). Other keys resolve `undefined` (a
  * guard over an unknown key is simply false) — the bounded-accessor line we do not cross (no
  * arbitrary state reads, §11.4). Pure-read: calling it never mutates state, so it is harmless to
  * inject for every fixture (a doc with no `$engine.*` guard never calls it).
@@ -198,8 +203,30 @@ const ENGINE_READS: Record<LinesEngineKey, () => unknown> = {
 	'platformJackpot.grand': () => platformJackpotValue('grand'),
 };
 
-export const linesEngineReader = (key: string): unknown =>
-	Object.hasOwn(ENGINE_READS, key) ? ENGINE_READS[key as LinesEngineKey]() : undefined;
+/**
+ * `meter.<id>.*` for every meter `resolveMeters` lists — the Hold and Win block's AND the pots
+ * overlay's, so an overlay pot answers its config max and stages before any server level is
+ * recorded. An id the config does not declare reads `undefined`, like any other unknown key.
+ */
+const meterMaxOf = (meter: ResolvedMeter): number =>
+	stateHoldAndWin.meters.find((m) => m.id === meter.id)?.max ?? meter.maxLevel;
+const METER_READS: Record<
+	'level' | 'max' | 'stage' | 'full',
+	(meter: ResolvedMeter) => number | boolean
+> = {
+	level: (meter) => meterLevelShown(meter.id),
+	max: meterMaxOf,
+	stage: (meter) => meter.sizeStages.filter((stage) => meterLevelShown(meter.id) >= stage).length,
+	full: (meter) => meterMaxOf(meter) > 0 && meterLevelShown(meter.id) >= meterMaxOf(meter),
+};
+const METER_KEY = /^meter\.(.+)\.(level|max|stage|full)$/;
+
+export const linesEngineReader = (key: string): unknown => {
+	if (Object.hasOwn(ENGINE_READS, key)) return ENGINE_READS[key as LinesEngineKey]();
+	const match = METER_KEY.exec(key);
+	const meter = match && resolveMeters(getActiveGameConfig()).find((m) => m.id === match[1]);
+	return meter ? METER_READS[match[2] as keyof typeof METER_READS](meter) : undefined;
+};
 
 /**
  * Source the authored FlowDoc. ABSENT by default ⇒ the interpreter is inert (parity, §7).

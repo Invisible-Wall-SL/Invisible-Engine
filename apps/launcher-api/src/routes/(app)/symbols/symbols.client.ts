@@ -17,6 +17,7 @@ import {
 	COIN_LABEL_DEFAULTS,
 	COIN_LABEL_FALLBACK_JACKPOTS,
 	HOLD_AND_WIN_SYMBOL_STATES,
+	POTS_TOKEN_SYMBOL_STATES,
 	pruneCoinLabel,
 	SWAP_SYMBOL_STATES,
 	SYMBOL_STATE_LABELS,
@@ -100,6 +101,9 @@ const SWAP_STATE_SET = new Set<SymbolState>(SWAP_STATES);
  *  {@link visibleStatesFor}. */
 export const HOLD_AND_WIN_STATES = HOLD_AND_WIN_SYMBOL_STATES;
 const HOLD_AND_WIN_STATE_SET = new Set<SymbolState>(HOLD_AND_WIN_STATES);
+/** The Hold and Win states a pots overlay token plays — the only ones a pots host without the
+ *  respin feature shows. */
+const POTS_TOKEN_STATE_SET = new Set<SymbolState>(POTS_TOKEN_SYMBOL_STATES);
 
 /** Human labels for the column headers — shared with the Scene Editor's `symbolState`
  *  dropdown so a state reads the same in both tools. */
@@ -141,9 +145,22 @@ export const STATE_HINTS: Partial<Record<SymbolState, string>> = {
 		'An unlock symbol APPLYING — opening a locked row of an expanding board before it leaves. Leave a cell empty to reuse this symbol’s Win binding.',
 };
 
+/** The token's reading of its three states, for a pots overlay host without the respin feature —
+ *  the {@link STATE_HINTS} entries describe the respin board, which such a host does not have. */
+export const POTS_TOKEN_STATE_HINTS: Partial<Record<SymbolState, string>> = {
+	coinLand:
+		'A pots overlay token landing over its cell. Leave a cell empty to use this symbol’s Static binding.',
+	coinIdle:
+		'A pots overlay token resting over its cell until it flies. Leave a cell empty to use this symbol’s Static binding.',
+	flyToMeter:
+		'A pots overlay token lit while it flies into its pot. Leave a cell empty to reuse this symbol’s Win binding.',
+};
+
 /** The columns the grid renders for a given project: always the base states, plus the two book states
  *  ONLY for a kind with the book reveal (`kindCapabilities().bookReveal` — `bookOf`), the Hold and Win
- *  states ONLY for a kind with the respin feature (`kindCapabilities().holdAndWin`), the cascade
+ *  states ONLY for a project with the respin feature (`kindCapabilities().holdAndWin` — the kind or a
+ *  `holdAndWin` block), just the token's land / idle / fly states for a pots overlay host without it
+ *  (`pots` alone), the cascade
  *  state for a project that tumbles OR clears its board on a swap, and the swap state (`intro`) ONLY
  *  for a project that emerges. Every gate is RESOLVED server-side (`resolveCascade` /
  *  `resolveReelBehaviour`), so an authored `/config` answer beats the win model's default and a lines
@@ -151,13 +168,25 @@ export const STATE_HINTS: Partial<Record<SymbolState, string>> = {
  *  {@link NON_GRID_STATE_SET}). */
 export function visibleStatesFor(
 	gameType: string | undefined,
-	gates: { cascade?: boolean; emerge?: boolean; clears?: boolean } = {},
+	gates: {
+		cascade?: boolean;
+		emerge?: boolean;
+		clears?: boolean;
+		holdAndWin?: boolean;
+		potsOverlay?: boolean;
+	} = {},
 ): readonly SymbolState[] {
-	const caps = kindCapabilities(gameType, { cascade: Boolean(gates.cascade) });
+	const caps = kindCapabilities(gameType, {
+		cascade: Boolean(gates.cascade),
+		holdAndWin: gates.holdAndWin,
+		potsOverlay: gates.potsOverlay,
+	});
 	return SYMBOL_STATES.filter((s) => {
 		if (NON_GRID_STATE_SET.has(s)) return false;
 		if (BOOK_STATE_SET.has(s)) return caps.bookReveal;
-		if (HOLD_AND_WIN_STATE_SET.has(s)) return caps.holdAndWin;
+		if (HOLD_AND_WIN_STATE_SET.has(s)) {
+			return caps.holdAndWin || (caps.pots && POTS_TOKEN_STATE_SET.has(s));
+		}
 		// The cascade state is played by TWO things, not one: a tumble removing a symbol, and the
 		// swap-in-place CLEAR step (`clearOutgoingSymbols`) emptying the board before the new symbols
 		// arrive. Gating it on `cascade` alone hid the column from exactly the projects authoring the

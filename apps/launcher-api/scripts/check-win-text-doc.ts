@@ -182,6 +182,59 @@ check(
 	'an authored caption is listed in place of the tier name',
 );
 
+console.info('§5 a pots overlay host lists the pot lines alone');
+const keysOf = (options: Parameters<typeof harvestWinText>[1], doc?: WinTextDoc) =>
+	harvestWinText(doc, options).flatMap((s) => s.items.map((i) => i.key));
+const POT_LINES = ['{meter} ACTIVATED', '{pot} {level}/{max}', 'RED', 'BLUE'];
+const meters = ['red', 'blue'];
+const plain = keysOf({ jackpots: ['MINI', 'GRAND'], meters });
+check(
+	JSON.stringify(plain) ===
+		JSON.stringify(keysOf({ pots: false, jackpots: ['MINI', 'GRAND'], meters })),
+	'no pots option and `pots: false` harvest the same',
+);
+check(
+	POT_LINES.every((line) => !plain.includes(line)),
+	'without the option a project lists no pot line',
+);
+const potsOnly = keysOf({ pots: true, jackpots: ['MINI', 'GRAND'], meters });
+check(
+	POT_LINES.every((line) => potsOnly.includes(line)),
+	'a pots host lists the pot full line, the pot label and each pot name',
+);
+check(
+	!potsOnly.includes('RESPINS {count}') &&
+		!potsOnly.includes('GRAND') &&
+		!potsOnly.includes('{jackpot} JACKPOT') &&
+		!potsOnly.includes('BONUS WIN {amount}') &&
+		!potsOnly.includes('COLLECTOR'),
+	'…and no jackpot, respin or other feature line',
+);
+check(
+	JSON.stringify(potsOnly.filter((key) => !POT_LINES.includes(key))) === JSON.stringify(plain),
+	'…and otherwise exactly what a project without it lists',
+);
+const hwKeys = keysOf({ holdAndWin: true, jackpots: ['MINI', 'GRAND'], meters });
+check(
+	JSON.stringify(keysOf({ holdAndWin: true, pots: true, jackpots: ['MINI', 'GRAND'], meters })) ===
+		JSON.stringify(hwKeys),
+	'a Hold and Win project lists the same with or without `pots`',
+);
+check(
+	POT_LINES.every((line) => hwKeys.includes(line)) && hwKeys.includes('RESPINS {count}'),
+	'…which is every feature line, the pot lines included',
+);
+check(
+	keysOf({ pots: true, meters }, { version: 1, feature: { potNames: { red: 'Ruby' } } }).includes(
+		'Ruby',
+	) &&
+		!keysOf(
+			{ pots: true, meters },
+			{ version: 1, feature: { potNames: { red: 'Ruby' } } },
+		).includes('RED'),
+	'an authored pot name is listed in place of the id',
+);
+
 if (failures) {
 	console.error(`\n${failures} check(s) failed`);
 	process.exit(1);

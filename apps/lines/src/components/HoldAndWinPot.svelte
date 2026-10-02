@@ -2,7 +2,7 @@
 	import type { Snippet } from 'svelte';
 	import { Tween } from 'svelte/motion';
 	import { backOut } from 'svelte/easing';
-	import type { HoldAndWinMeter } from 'game-config';
+	import type { ResolvedMeter } from 'game-config';
 	import { Anchor, Container, getContextApp, Rectangle, Sprite } from 'pixi-svelte';
 	import { SYMBOL_SIZE } from 'engine-game';
 	import {
@@ -26,7 +26,7 @@
 	} from '../game/holdAndWinMeters.svelte';
 
 	type Props = {
-		meter: HoldAndWinMeter;
+		meter: ResolvedMeter;
 		index: number;
 		x: number;
 		y: number;
@@ -210,7 +210,7 @@
 			<CatalogText
 				anchor={{ x: 0.5, y: 0 }}
 				y={boxHeight / 2 + LABEL_GAP}
-				text={potActivatesText(props.meter.activates)}
+				text={props.meter.bonus.activates ? potActivatesText(props.meter.bonus.activates) : ''}
 				style={textStyle(SYMBOL_SIZE * 0.1)}
 			/>
 		{/if}

@@ -150,25 +150,27 @@ retrigger screen and bind a text node's **source** to `freeSpinsAddedText` — y
 full control of the font, size, colour and position, exactly like any other text box.
 (For a bare "+10" number with no words, bind `freeSpinsAdded` instead.)
 
-A **Hold and Win** game has no free spins, so it doesn't show this section.
+A game whose kind is **Hold and Win** has no free spins, so it doesn't show this section (another
+kind with a Hold and Win bonus keeps it).
 
 ### Hold and Win (jackpots, respins, feature, wheel)
 
-These sections appear only for a **Hold and Win** game. They hold the lines the respin
-feature shows. Each row has a live preview on its right. The **Wheel** section appears only
+These sections appear only for a game **with Hold and Win**: one whose kind is Hold and Win, or one
+of any other kind whose [Invisible Game Config](./game-config.md) carries a `holdAndWin` block (for
+example a Book-of game with a Hold and Win bonus). They hold the lines the respin feature shows. Each row has a live preview on its right. The **Wheel** section appears only
 when the game's config has the pre-feature wheel.
 
-| Placeholder   | Becomes                                                                       |
-| ------------- | ----------------------------------------------------------------------------- |
-| `{jackpot}`   | the jackpot tier's caption, e.g. "GRAND" (on an upgrade, the tier it rose to) |
-| `{amount}`    | what the jackpot or the feature paid, in the player's currency                |
-| `{count}`     | a number of respins — the respins left, awarded, or added                     |
-| `{meter}`     | the name of the special a full pot activates, e.g. "PAYER"                    |
-| `{modifiers}` | the specials a feature runs with, e.g. "PAYER, MULTIPLIER"                    |
-| `{pot}`       | a pot's name, e.g. "RED"                                                      |
-| `{level}`     | a collector level's name ("DOUBLE"), or on a pot its fill level               |
-| `{max}`       | a pot's top level                                                             |
-| `{rows}`      | the rows an expanding respin board has open                                   |
+| Placeholder   | Becomes                                                                                                                                                                              |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `{jackpot}`   | the jackpot tier's caption, e.g. "GRAND" (on an upgrade, the tier it rose to)                                                                                                        |
+| `{amount}`    | what the jackpot or the feature paid, in the player's currency                                                                                                                       |
+| `{count}`     | a number of respins — the respins left, awarded, or added                                                                                                                            |
+| `{meter}`     | the name of the special a full pot activates, e.g. "PAYER"; a pot that activates none (a pots overlay pot that starts free spins or another mode) reads as its own name, e.g. "GOLD" |
+| `{modifiers}` | the specials a feature runs with, e.g. "PAYER, MULTIPLIER"                                                                                                                           |
+| `{pot}`       | a pot's name, e.g. "RED"                                                                                                                                                             |
+| `{level}`     | a collector level's name ("DOUBLE"), or on a pot its fill level                                                                                                                      |
+| `{max}`       | a pot's top level                                                                                                                                                                    |
+| `{rows}`      | the rows an expanding respin board has open                                                                                                                                          |
 
 - **Jackpots.** There is one box per jackpot tier. The tiers are the game's own, from
   [Invisible Game Config](./game-config.md), not a fixed list. Leave a tier blank and the
@@ -212,6 +214,23 @@ listed in Localization for translation.
 **Not on screen yet:** the respins awarded, reset and last-respin lines, the feature total,
 the pot-full line and the intro / outro are saved and translated, but nothing draws them
 until a scene or a beat uses them. The page says so above these sections.
+
+### Pots (pots overlay)
+
+A game with a **pots overlay** (a `potsOverlay` block in its
+[Invisible Game Config](./game-config.md)) but no Hold and Win gets one **Pots** section instead of
+the Hold and Win ones — its pots are the only part of that feature it has. (With Hold and Win too,
+the same lines live in the Hold and Win feature section above.) It holds:
+
+- **Pot full** — the line when a pot fills (`{meter} ACTIVATED`). Here `{meter}` is the pot's own
+  name, and the preview uses the first pot. It is saved and translated, and shows once a beat uses
+  it.
+- **Pot label** — each pot's label over its bar (`{pot} {level}/{max}`), with a live preview.
+- **One name per pot** in the config (`pot <id>`), which is what `{pot}` prints. An unnamed pot
+  reads its id in capitals.
+
+The placeholders are the ones in the table above. These lines and every pot's name are listed in
+Localization for translation.
 
 ### Win-level captions
 

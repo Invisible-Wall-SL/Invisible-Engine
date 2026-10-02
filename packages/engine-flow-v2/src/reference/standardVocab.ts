@@ -69,6 +69,21 @@ export const list = (of: TypeRef): TypeRef => ({ t: 'list', of });
 // author's palette the next time the standard list is edited.
 // ---------------------------------------------------------------------------
 
+/**
+ * A mechanic's own surfaces, kept apart from the vocabulary they compose into: its kind's vocabulary
+ * is the standard one plus these, and an add-on puts the same parts on another kind (`withAddOns`).
+ * `baseEvents` ride on a base spin (they follow `reveal`); `featureEvents` close the event list.
+ */
+export interface VocabFragment {
+	structs: TemplateVocabulary['structs'];
+	enums: TemplateVocabulary['enums'];
+	baseEvents: TemplateVocabulary['events'];
+	featureEvents: TemplateVocabulary['events'];
+	actions: TemplateVocabulary['actions'];
+	cues: TemplateVocabulary['cues'];
+	values: TemplateVocabulary['values'];
+}
+
 /** Splice `extras` in directly after the named entry. */
 export const insertAfter = <T extends { name: string }>(
 	entries: T[],
@@ -89,6 +104,43 @@ export const insertBefore = <T extends { name: string }>(
 	const at = entries.findIndex((entry) => entry.name === before);
 	if (at === -1) throw new Error(`insertBefore: no entry named "${before}"`);
 	return [...entries.slice(0, at), ...extras, ...entries.slice(at)];
+};
+
+// ---------------------------------------------------------------------------
+// Capability-gated entries — the standard surfaces that belong to one `kindCapabilities` flag
+// (engine-layout, which this package cannot import). A kind with the flag off drops every entry
+// named here, from events, actions, cues and values alike (`freeSpinIntroShow` is both an action
+// and a cue). `check:flow-publish-gate` pins these lists to the standard vocabulary.
+// ---------------------------------------------------------------------------
+
+export const STANDARD_CAPABILITY_ENTRIES: Readonly<
+	Record<'freeSpins' | 'stackedPictures', readonly string[]>
+> = {
+	freeSpins: [
+		'freeSpinTrigger',
+		'updateFreeSpin',
+		'freeSpinRetrigger',
+		'freeSpinEnd',
+		'setFreeGameType',
+		'setFreeSpinCounterTotal',
+		'setFreeSpinCounterTotalOnly',
+		'freeSpinIntroShow',
+		'freeSpinIntroHide',
+		'freeSpinCounterShow',
+		'freeSpinCounterUpdate',
+		'updateFreeSpinCounter',
+		'enterFreeSpinOutro',
+		'exitFreeSpinOutro',
+		'freeSpinOutroCountUp',
+		'freeSpinIntroUpdate',
+		'freeSpinCounterHide',
+		'freeSpinOutroShow',
+		'freeSpinOutroHide',
+		'isFreeGame',
+		'freeSpinsRemaining',
+		'freeSpinsTotal',
+	],
+	stackedPictures: ['enableStackedPictures', 'disableStackedPictures'],
 };
 
 // ---------------------------------------------------------------------------
