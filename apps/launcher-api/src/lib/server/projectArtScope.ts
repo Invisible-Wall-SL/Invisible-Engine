@@ -32,7 +32,28 @@ const TTL_MS = 60_000;
 const RECHECK_MS = 10_000;
 const cache = new Map<string, { at: number; scope: Promise<ArtScope> }>();
 
-const ATLAS_MANIFEST = /\/manifests\/atlas_manifest_[^/]+\.json$/;
+/** `<client>/<project>/manifests/atlas_manifest_*.json` — where the Atlas Maker writes one, and only
+ *  there (one project segment, no deeper path). */
+const ATLAS_MANIFEST = /^[a-z0-9_]+\/[a-z0-9_]+\/manifests\/atlas_manifest_[^/]+\.json$/;
+const PAGE_IMAGE = /\.(png|webp|jpe?g|avif|ktx2)$/i;
+
+/** `<client>/<project>/` of a key, or `''`. */
+const projectOf = (key: string): string => {
+	const [client, project] = key.split('/');
+	return client && project ? `${client}/${project}/` : '';
+};
+
+/**
+ * May this atlas's page be read? Its page key is built from the MANIFEST's own fields
+ * (`resolvePageKey`), which whoever can write that project can set — so it is trusted only inside the
+ * manifest's own project, and only as an image. Pure, for the fixture.
+ */
+export const pageAllowed = (manifestKey: string, pageKey: string): boolean =>
+	!!pageKey &&
+	!pageKey.includes('..') &&
+	PAGE_IMAGE.test(pageKey) &&
+	projectOf(manifestKey) !== '' &&
+	pageKey.startsWith(projectOf(manifestKey));
 
 /** May this project borrow its client's art at all? Pure, for the fixture. */
 export const borrowsClientArt = (client: string, project: string): boolean =>
@@ -53,14 +74,12 @@ export const artScopeAllows = (scope: ArtScope, key: string): boolean =>
 const computeArtScope = async (client: string, project: string): Promise<ArtScope> => {
 	const keys = new Set<string>();
 	const refs = await referencedArtRefs(await loadDoc(client, project), project);
-	const own = `${r2Slug(client)}/`;
 	const atlases = candidateAtlases(refs.manifestKeys, client);
 	const sets = await Promise.allSettled(atlases.map((key) => loadRegionSet(key, client, project)));
 	for (const [index, settled] of sets.entries()) {
 		if (settled.status !== 'fulfilled' || settled.value.regions.length === 0) continue;
 		keys.add(atlases[index]);
-		const page = settled.value.pageKey;
-		if (page && page.startsWith(own) && !page.includes('..')) keys.add(page);
+		if (pageAllowed(atlases[index], settled.value.pageKey)) keys.add(settled.value.pageKey);
 	}
 	return { keys };
 };
@@ -71,9 +90,12 @@ const artScope = (client: string, project: string, fresh: boolean): Promise<ArtS
 	const id = `${client}\u0000${project}`;
 	const hit = cache.get(id);
 	if (hit && now - hit.at < (fresh ? RECHECK_MS : TTL_MS)) return hit.scope;
-	const scope = computeArtScope(client, project).catch((e) => {
+	// A failed rebuild keeps the last good scope (an R2 blip must not 403 art that was readable);
+	// with none, it allows nothing.
+	const previous = hit?.scope;
+	const scope = computeArtScope(client, project).catch(async (e) => {
 		console.warn('[projectArtScope] could not build the art scope', client, project, e);
-		return { keys: new Set<string>() };
+		return (await previous) ?? { keys: new Set<string>() };
 	});
 	cache.set(id, { at: now, scope });
 	return scope;
