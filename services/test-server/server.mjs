@@ -599,12 +599,13 @@ const swapMock = (key, contract, channel) => {
  * mid-way — is answered by the instance that dealt it until it closes, for every game (`holdOpenRounds`).
  */
 const carryPins = (previous, next, runtime) => {
-	holdOpenRounds(previous, next, { keepBetShape: Boolean(runtime) });
-	if (!runtime || !previous?.sessions || !next.sessions) return;
-	for (const [sid, session] of previous.sessions) {
-		const fresh = { ...session, balance: next.startBalance };
-		next.sessions.set(sid, carrySession(fresh, { keepBetShape: true }));
+	if (runtime && previous?.sessions && next.sessions) {
+		for (const [sid, session] of previous.sessions) {
+			const fresh = { ...session, balance: next.startBalance };
+			next.sessions.set(sid, carrySession(fresh, { keepBetShape: true }));
+		}
 	}
+	holdOpenRounds(previous, next, { keepBetShape: Boolean(runtime) });
 };
 
 /** Games already told about below, so the warning is one line per game per process — not one per
@@ -1194,7 +1195,12 @@ const handleRequest = async (req, res) => {
 		// the channel's mock.
 		await refreshContract(gameKey, channel);
 		const mock = own(channel ? authoringMocks : mocks, gameKey);
-		return mockForSession(mock, url.searchParams.get('sid')).handle(req, res, url);
+		const answering = mockForSession(
+			mock,
+			url.searchParams.get('sid'),
+			url.searchParams.get('gid'),
+		);
+		return answering.handle(req, res, url);
 	}
 
 	// root index

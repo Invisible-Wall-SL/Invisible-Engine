@@ -9,11 +9,14 @@
  * game, so this is what a live bookofborutremake player meets (2026-10-02: seq 9 refused "play
  * without bet" after a refresh, then the collect refused, the player parked inside the feature).
  *
- * FOUR claims:
+ * FIVE claims:
  *  1. Every free spin after each refresh is dealt — none refused.
  *  2. The feature plays out in full: played = 10 + 10 per retrigger, and the last spin ends the game.
  *  3. `collect` closes the round and credits exactly the feature's win.
- *  4. The next round is dealt by the rebuilt mock, on the balance the feature left.
+ *  4. A resend of that `collect` (its answer lost) is REPLAYED by the instance that dealt the round,
+ *     not refused by the rebuilt one, and credits nothing twice.
+ *  5. A refresh between the closing `collect` and the player's next request keeps the balance the
+ *     feature left: the next round is dealt by the rebuilt mock on it.
  */
 
 import { spawn } from 'node:child_process';
@@ -261,6 +264,19 @@ try {
 		'collect credits the win to the balance',
 		` (${lastBalance} → ${collected?.platform?.balance})`,
 	);
+
+	const resent = await engine(seq, gid, [{ action: 'collect' }]);
+	check(
+		!resent?.error && named(resent, 'gameRoundOver')[0]?.context.win === featureWin,
+		'a resent collect is replayed, not refused',
+		resent?.error ? ` — ${resent.error}` : '',
+	);
+	check(
+		resent?.platform?.balance === collected?.platform?.balance,
+		'…and credits nothing twice',
+		` (${resent?.platform?.balance})`,
+	);
+	check(await refresh(), 'POST /refresh lands between the collect and the next round');
 
 	const next = await engine(0, null, [
 		{ action: 'bet', context: [0, 1] },
