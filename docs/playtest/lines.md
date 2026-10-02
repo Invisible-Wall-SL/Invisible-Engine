@@ -46,13 +46,14 @@ available.
   that a real clock never shows (2026-09-28, `docs/status/engine.md`). Claude in Chrome is `hidden`
   at 0 fps too unless the owner's Chrome window is in front.
 - **A real frame clock under automation:** `node scripts/playtest/win-countup-repro.mjs` drives
-  Playwright's `chrome-headless-shell` over a CDP pipe with the GPU on — `visible`, focused,
-  **60 fps** (software rendering manages ~12) — with trusted clicks, and watches every `setWin`
-  count-up read-only; it exits 1 on a stall. `--mode recon` just boots and reports fps; `--accel`
-  puts the count-up on its accelerated path, `--tap` (implies `--accel`) adds a hold + taps inside
-  each big win. Its
-  header has the servers it needs and the options; use it as the template for any other
-  real-clock check (the spin button `BET` is at (749, 755) in its 1456×814 viewport).
+  Playwright's headless shell over a CDP pipe with the GPU on — `visible`, focused, **60 fps**
+  (setup, software frame rates and running as root:
+  [the headless real clock](README.md#the-headless-real-clock)) — with trusted clicks, and watches
+  every `setWin` count-up read-only; it exits 1 on a stall. `--mode recon` just boots and reports
+  fps; `--accel` puts the count-up on its accelerated path, `--tap` (implies `--accel`) adds a
+  hold + taps inside each big win. Its header has the servers it needs and the options; use it as
+  the template for any other real-clock check (the spin button `BET` is at (749, 755) in its
+  1456×814 viewport).
 
 ## Scenarios
 

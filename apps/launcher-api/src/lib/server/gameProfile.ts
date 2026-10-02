@@ -41,6 +41,7 @@ import {
 	type WinModel,
 } from 'game-config';
 import { kindCapabilities, TUMBLE_PATTERN_LABELS } from 'engine-layout';
+import { projectAddOns } from '../addOns';
 import type { GameConfigSource } from './gameConfigDefaults';
 import type { SymbolsDoc } from './symbolsStorage';
 import { protocolFor } from './mockProtocol';
@@ -247,6 +248,10 @@ function winLineActive(ctx: ProfileContext): boolean {
 	return ctx.winModel.type === 'lines' && ctx.symbols.winLine?.enabled !== false;
 }
 
+/** The kind's capabilities with the config's add-ons, as every authoring tool reads them. */
+const capabilitiesOf = (ctx: ProfileContext) =>
+	kindCapabilities(ctx.gameTypeId, projectAddOns(ctx.config).addOns);
+
 /**
  * The OPTIONAL feature table — "Using: …". One entry per switchable mechanic or presentation
  * feature. **This is the list that grows**: adding a mechanic to the engine means adding a row here
@@ -272,19 +277,18 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		id: 'cascade',
 		title:
 			'Cluster/scatter kinds run the cascade (tumble) board: winning symbols explode, survivors slide down, new symbols fall in.',
-		text: (ctx) => (kindCapabilities(ctx.gameTypeId).cascade ? 'Cascading reels (tumble)' : null),
+		text: (ctx) => (capabilitiesOf(ctx).cascade ? 'Cascading reels (tumble)' : null),
 	},
 	{
 		id: 'multiplierCollect',
 		title:
 			'The scatter kind adds the collect beat: multipliers landed during a tumble fly to the board centre and combine.',
-		text: (ctx) =>
-			kindCapabilities(ctx.gameTypeId).multiplierCollect ? 'Multiplier collect' : null,
+		text: (ctx) => (capabilitiesOf(ctx).multiplierCollect ? 'Multiplier collect' : null),
 	},
 	{
 		id: 'expandingBook',
 		title: 'The Book-of kind: one special symbol is scatter and expanding wild in the free spins.',
-		text: (ctx) => (kindCapabilities(ctx.gameTypeId).bookReveal ? 'Expanding book symbol' : null),
+		text: (ctx) => (capabilitiesOf(ctx).bookReveal ? 'Expanding book symbol' : null),
 	},
 	{
 		id: 'respin',
@@ -370,6 +374,15 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		text: (ctx) => {
 			const meters = ctx.config?.holdAndWin?.meters ?? [];
 			return meters.length ? `Persistent pots (${meters.length})` : null;
+		},
+	},
+	{
+		id: 'potsOverlay',
+		title:
+			'The pots overlay add-on: tokens dropped over the board fill persistent pots, and a full pot starts the bonus it names.',
+		text: (ctx) => {
+			const pots = ctx.config?.potsOverlay?.pots ?? [];
+			return pots.length ? `Pots overlay (${plural(pots.length, 'pot')})` : null;
 		},
 	},
 	{

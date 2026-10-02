@@ -72,11 +72,12 @@ To exercise spins / free spins / count-up / return-to-idle on such games:
   this is NOT a bug; check `document.visibilityState` before diagnosing a "stuck" round). Ask the
   user to keep the game tab visible (side-by-side) for the whole run, especially long free-spin
   sequences. Verify with a JS probe: `document.visibilityState === 'visible'`.
-- **Unattended alternative — a headless REAL clock.** Playwright's `chrome-headless-shell` over
+- **Unattended alternative — a headless REAL clock.** Playwright's headless shell over
   `--remote-debugging-pipe` with the GPU flags gives a `visible`, focused, 60 fps page with trusted
-  clicks and no desktop window. Recipe: `docs/playtest/borut-remake.md` ("Headless real-clock drive
-  path"); worked script: `scripts/playtest/win-countup-repro.mjs`. A stall seen only under a
-  hand-stepped clock is unconfirmed until it reproduces here.
+  clicks and no desktop window. Setup and the container caveats (binary name, root):
+  `docs/playtest/README.md` ("The headless real clock"). Recipe: `docs/playtest/borut-remake.md`
+  ("Headless real-clock drive path"); worked script: `scripts/playtest/win-countup-repro.mjs`. A
+  stall seen only under a hand-stepped clock is unconfirmed until it reproduces here.
 - Playing a demo/mock-RGS game (buy-feature, free spins) uses play-money, not real funds — fine to
   drive. Never confirm/submit anything OUTSIDE the game.
 

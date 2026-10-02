@@ -384,6 +384,12 @@ export type WinTextJackpotField = (typeof WIN_TEXT_JACKPOT_FIELDS)[number];
 export type WinTextRespinField = (typeof WIN_TEXT_RESPIN_FIELDS)[number];
 export type WinTextFeatureField = (typeof WIN_TEXT_FEATURE_FIELDS)[number];
 export type WinTextFeatureMap = (typeof WIN_TEXT_FEATURE_MAPS)[number];
+/** The feature lines a pot speaks — all a pots overlay host without the respin feature is offered
+ *  (with the `potNames` map), since its pots are the only part of the feature it has. */
+export const WIN_TEXT_POT_FIELDS = [
+	'meterFull',
+	'potLabel',
+] as const satisfies readonly WinTextFeatureField[];
 export type WinTextWheelField = (typeof WIN_TEXT_WHEEL_FIELDS)[number];
 export type WinTextPlatformJackpotField = (typeof WIN_TEXT_PLATFORM_JACKPOT_FIELDS)[number];
 
@@ -683,15 +689,22 @@ export function formatWinText(template: string, vars: WinTextVars = {}): string 
  * The Hold and Win families (`jackpots`/`respins`/`feature`/`wheel`) follow the toasts' rule — their
  * defaults are player-facing — but only for a project whose kind has the feature
  * (`options.holdAndWin`, from `kindCapabilities`), so every other project's harvest stays exactly
- * what it was. What an author DID write in them is harvested regardless. `options.jackpots` is the
- * config's tier names: each tier's caption (authored, else the name itself) is a string the player
- * reads, so it is listed per tier; `options.meters` (the config's meter ids) does the same for pots.
+ * what it was. What an author DID write in them is harvested regardless. `options.pots` (a pots
+ * overlay host, from `kindCapabilities`) applies the same rule to the pot lines alone
+ * ({@link WIN_TEXT_POT_FIELDS} and the pot names). `options.jackpots` is the config's tier names:
+ * each tier's caption (authored, else the name itself) is a string the player reads, so it is listed
+ * per tier; `options.meters` (the config's meter ids) does the same for pots.
  *
  * `label` is the human hint shown in the tool's Win-text section.
  */
 export function collectWinTextTemplates(
 	doc: WinTextDoc | undefined,
-	options: { holdAndWin?: boolean; jackpots?: readonly string[]; meters?: readonly string[] } = {},
+	options: {
+		holdAndWin?: boolean;
+		pots?: boolean;
+		jackpots?: readonly string[];
+		meters?: readonly string[];
+	} = {},
 ): { key: string; source: string; label: string }[] {
 	const out: { key: string; source: string; label: string }[] = [];
 	const seen = new Set<string>();
@@ -723,7 +736,9 @@ export function collectWinTextTemplates(
 	// toasts — it is harvested from the RESOLVED doc so it can be translated even if never retyped.
 	add(resolved.freeSpins.retrigger, 'Free spins — retrigger (+N extra)');
 	const holdAndWin = options.holdAndWin === true;
+	const pots = holdAndWin || options.pots === true;
 	const source = holdAndWin ? resolved : doc;
+	const potFields: ReadonlySet<string> = new Set(WIN_TEXT_POT_FIELDS);
 	// A template that is only tokens ("{amount}", "{jackpot}") has nothing to translate.
 	const addWords = (template: string | undefined, label: string) => {
 		if (template?.replace(TOKEN, '').trim()) add(template, label);
@@ -741,7 +756,8 @@ export function collectWinTextTemplates(
 		addWords(source?.respins?.[field], WIN_TEXT_RESPIN_LABELS[field]);
 	}
 	for (const field of WIN_TEXT_FEATURE_FIELDS) {
-		addWords(source?.feature?.[field], WIN_TEXT_FEATURE_LABELS[field]);
+		const from = pots && potFields.has(field) ? resolved : source;
+		addWords(from?.feature?.[field], WIN_TEXT_FEATURE_LABELS[field]);
 	}
 	for (const map of WIN_TEXT_FEATURE_MAPS) {
 		for (const [key, name] of Object.entries(source?.feature?.[map] ?? {})) {
@@ -750,7 +766,7 @@ export function collectWinTextTemplates(
 	}
 	for (const meter of options.meters ?? []) {
 		add(
-			doc?.feature?.potNames?.[meter] || (holdAndWin ? meter.toUpperCase() : undefined),
+			doc?.feature?.potNames?.[meter] || (pots ? meter.toUpperCase() : undefined),
 			`Pot — ${meter}`,
 		);
 	}

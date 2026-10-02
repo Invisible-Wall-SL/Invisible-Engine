@@ -11,8 +11,9 @@ A grid editor for a game's `symbol × state → asset` map. Every game hardcodes
 `SYMBOL_INFO_MAP` — a binding for each symbol (e.g. `H1…H5`, `L1…L5`, `W`, `S`) in each
 of six animation **states** (`Static`, `Spin`, `Land`, `Win`, `Post-win`, `Explosion`) —
 plus `Clear reel` on a game that cascades or clears its board, `Intro` on one whose
-swap style is **Emerge**, and eight coin states on a **Hold and Win** game (see
-[Hold and Win projects](#hold-and-win-projects)).
+swap style is **Emerge**, the coin states on a game with **Hold and Win** (see
+[Hold and Win projects](#hold-and-win-projects)), and a token's three states on a game with a
+**pots overlay** (see [Pots overlay projects](#pots-overlay-projects)).
 This tool turns that map into an editable surface: each cell is a **sprite** (a sheet
 frame), a **spine** (a bundle + animation name), or a **flipbook** (an Invisible Flipbook
 clip — an ordered, timed run of atlas frames). Edits are stored as a **sparse override
@@ -52,7 +53,8 @@ reel strip in [Invisible Game Config](game-config.md), read live. A symbol marke
 does not appear here at all, because it can never be dealt and art authored for it can never
 render. Nothing is deleted: its authored states stay in the doc untouched, and the row comes back
 with its art intact the moment you put the symbol back on a strip. (A project with no Game Config
-to compare against shows everything.)
+to compare against shows everything.) The one exception is a pots overlay's tokens, which are never
+on a strip but are always listed (see [Pots overlay projects](#pots-overlay-projects)).
 
 ## How to use it
 
@@ -64,8 +66,10 @@ tool top bar). Switch projects from the launcher before opening the tool.
    (`Book reveal`, `Book idle`); a game that **cascades or clears its board** adds
    `Clear reel` (see [Two explosions](#two-explosions) below); a game whose
    `/config` → Reel behaviour → swap style is **Emerge** adds `Intro` (see
-   [The Intro state](#the-intro-state) below); a **Hold and Win** game adds eight coin states (see
-   [Hold and Win projects](#hold-and-win-projects)). Stacked-picture tall art is **not** a grid column — it is
+   [The Intro state](#the-intro-state) below); a game with **Hold and Win** adds the coin states (see
+   [Hold and Win projects](#hold-and-win-projects)), and a game with a **pots overlay** adds Coin
+   land, Coin idle and Fly to meter (see [Pots overlay projects](#pots-overlay-projects)).
+   Stacked-picture tall art is **not** a grid column — it is
    authored in the **Stacked pictures** section (below). Each cell shows its
    **effective binding** — your override if you've made one, otherwise the game's coded
    default. Sprite cells render a frame thumbnail; spine cells render a live animation
@@ -644,8 +648,8 @@ is no longer the case.)
 
 ### Coin value label
 
-Shown only on a **Hold and Win** project (a kind with coin symbols), or anywhere a label is
-already authored so it can be seen and reset. It styles the value a coin prints on itself — a
+Shown only on a project with **Hold and Win** (see [Hold and Win projects](#hold-and-win-projects)),
+or anywhere a label is already authored so it can be seen and reset. It styles the value a coin prints on itself — a
 cash coin's amount, a collector's total, a payer's `+$4.00`, a multiplier's `×3` and a jackpot
 coin's tier. There is no on/off switch: every field you leave alone keeps the game's coded label
 (`gold`, 0.3 × the symbol, centred, no pops), and **Reset coin label** puts all of it back.
@@ -939,13 +943,16 @@ field over the coded `codedTierFx` ramp for that tier's rank among the config bi
 (`activeBigTiers`). The two cue names resolve sound doc → this doc → the coded
 `sfx_anticipation_start` / `sfx_anticipation`.
 
-### Flights (Hold and Win)
+### Flights (Hold and Win, pots overlay)
 
-Shown for a **Hold and Win** project (and for any project that already authored flights, so they can
-be cleared). In Hold and Win things fly across the screen: a coin into the total win at the end of the
-feature, coins into a collector, a special into its meter (a pot), an add-respins' respins into the
-respin counter, an upgrade's beam at each coin it raises, an unlock symbol into the row it opens.
-This section decides how each of those looks and moves. Leave everything alone and the game flies its built-in gold glow.
+Shown for a project with **Hold and Win** or a **pots overlay** (and for any project that already
+authored flights, so they can be cleared). A pots overlay without Hold and Win lists only the meter
+rows — see [Pots overlay projects](#pots-overlay-projects). In Hold and Win things fly across the
+screen: a coin into the total win at the end of the feature, coins into a collector, a special into
+its meter (a pot), an add-respins' respins into the respin counter, an upgrade's beam at each coin it
+raises, an unlock symbol into the row it opens; with a pots overlay, a token into its pot. This
+section decides how each of those looks and moves. Leave everything alone and the game flies its
+built-in gold glow.
 
 On the left is the list of **flight kinds**:
 
@@ -963,7 +970,8 @@ On the left is the list of **flight kinds**:
   jackpot coin it steps up a tier, like the boost beam.
 - **Unlock into its row** (`unlockRow`) — on an expanding board, an unlock symbol flying into the
   middle of the locked row it opens, before the row's locked cells fade away.
-- One row **per meter** your Game Config declares (`toMeter:<id>`). A single meter uses its own row
+- One row **per meter** your Game Config declares (`toMeter:<id>`, labelled **Into meter “&lt;id&gt;”**):
+  the Hold and Win meters first, then the pots overlay's pots. A single meter uses its own row
   for whatever you set there and falls back to **every meter** for the rest, field by field — so you
   can give the gold pot its own head and keep the shared timing. A meter you authored that the Game
   Config no longer has is still listed, marked _not in Game Config_, so you can reset it.
@@ -1158,9 +1166,13 @@ that is the art to change rather than the text.
 
 ### Hold and Win projects
 
-A project whose kind is **Hold and Win** sees the grid and the page a little differently.
+A project **with Hold and Win** sees the grid and the page a little differently. That is a project
+whose kind is **Hold and Win**, or a project of any other kind whose
+[Invisible Game Config](game-config.md) carries a `holdAndWin` block — for example a Book-of game
+with a Hold and Win bonus. Such a project gets the columns, role chips, coin value label and flights
+below on top of everything its own kind already has.
 
-**Ten more columns** — the respin feature's beats. Each one, left empty, plays what the game
+**Eleven more columns** — the respin feature's beats. Each one, left empty, plays what the game
 played for that moment before the column existed, so a project that binds none of them looks
 exactly as it did:
 
@@ -1176,6 +1188,7 @@ exactly as it did:
 | **Jackpot reveal** | a jackpot coin lit for its jackpot, or every held cell on a full board; a coin an upgrade stepped up | Win       |
 | **Mystery reveal** | a mystery opening before it becomes what it revealed (plays once)                                    | Explosion |
 | **Fly to meter**   | a special lit on the base board while it flies into its pot                                          | Win       |
+| **Row unlock**     | an unlock symbol applying — opening a locked row of an expanding board before it leaves              | Win       |
 
 Coin land and Coin idle borrow `Static`, which is the game's last resort rather than an advertised
 inheritance, so those two read `unset` when empty (the tooltip says what plays). The win frame
@@ -1187,14 +1200,36 @@ did when they played `Win`. A rolling respin cell plays the symbol's own `Spin`.
 `meterSpecial`, `blank`),
 read live from the project's [Invisible Game Config](game-config.md) dictionary.
 
-**Sections that don't apply are hidden** — **Book symbol VFX**, **Stacked pictures**,
-**Explosion pattern** and **Transition** have nothing to act on in a Hold and Win game. Each one
+**Sections that don't apply are hidden** (Hold and Win kind only) — **Book symbol VFX**, **Stacked
+pictures**, **Explosion pattern** and **Transition** have nothing to act on in a Hold and Win game;
+another kind with a Hold and Win bonus keeps them. Each one
 stays visible while the project already authors it, so you can always switch it back off.
 
 **Defaults** — an un-published Hold and Win project starts from its own set: the sample line
 symbols plus `W`, `BONUS`, `JACKPOT`, `BOOST`, `COLLECT`, `MULTI`, `MYSTERY` and `BLANK` (the
 3 Pots preset's names), bound to placeholder art that ships with the engine. `BLANK` has no art —
 an empty respin cell draws nothing.
+
+### Pots overlay projects
+
+A project of any kind whose [Invisible Game Config](game-config.md) carries a `potsOverlay` block
+(see [the pots overlay design](../design/pots-overlay.md)) drops **tokens** over the board: a token
+lands on top of a cell's symbol and flies into its pot, which fills a level. The page adds what you
+need to dress them:
+
+- **Token rows.** Each pot's token symbol is listed as a row even though it is never on a reel strip
+  (it is drawn over a cell, never dealt). Its row head carries a gold **token → &lt;pot id&gt;** chip
+  per pot it fills.
+- **Three token columns** — **Coin land** (the token landing over its cell), **Coin idle** (resting
+  there until it flies) and **Fly to meter** (lit while it flies into its pot). Empty, the first two
+  use the symbol's `Static` and Fly to meter its `Win`. Hover a column head for the token's reading
+  of it. The other Hold and Win columns appear only when the project also has
+  [Hold and Win](#hold-and-win-projects).
+- **Flights.** The [Flights](#flights-hold-and-win-pots-overlay) section lists **Into a meter (every
+  meter)** (`toMeter`) and one **Into meter “&lt;id&gt;”** row per pot. Without Hold and Win the
+  other flight kinds are hidden (one you already authored stays listed so you can reset it).
+
+Everything else on the page stays as the project's own kind has it.
 
 ## Traps
 
