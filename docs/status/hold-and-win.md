@@ -49,7 +49,7 @@ titled **"Hold and win game pipeline"**.
 | 8 | Win Text (jackpot + respin copy, gating) | merged | Hold and Win Phase 8 — Win Text | part 1: #946 · part 2: #954 |
 | 9 | Game Maker presets + docs + playtest, sample games (3 Pots first) | in progress — 9a preset picker + config seed + guides + playbooks merged; 9b symbols seed at scaffold merged + launcher deployed; owed (owner login): create, publish and play the Classic + Collector samples — see **Owner checklist** | H&W Phase 9 — Game Maker presets, 3 samples, docs · 9b: H&W Phase 9b — symbols seed + samples | 9a: #968 · 9b: #969 |
 | 10 | Partner wire (facade + mock brought in line) | blocked on partner | — | — |
-| 11a | Extra specials: add-respins + upgrade (design §7) | merged — whole pipeline (config → mock → facade → beats → flow → Symbols → Win Text → docs); live-checked on the `pots-extra` test fixture | H&W Phase 11a — add-respins + upgrade specials | #PRNUM |
+| 11a | Extra specials: add-respins + upgrade (design §7) | merged — whole pipeline (config → mock → facade → beats → flow → Symbols → Win Text → docs); live-checked on the `pots-extra` test fixture | H&W Phase 11a — add-respins + upgrade specials | #995 |
 | 11b | Board expansion — rows unlock (design §7; after 11a) | not started | — | — |
 | 11c | Progressive + operator platform jackpots (design §7) | in progress — part 1 progressive game jackpots, then part 2 operator platform jackpot | Hold and Win Phase 11c — progressive + platform jackpots | — |
 
@@ -703,7 +703,7 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 
 ## Recent changes
 
-- 2026-10-02 — **Phase 11a: add-respins + upgrade specials, through the whole pipeline** (#PRNUM;
+- 2026-10-02 — **Phase 11a: add-respins + upgrade specials, through the whole pipeline** (#995;
   session "H&W Phase 11a — add-respins + upgrade specials"; rules in Decisions above). A runtime
   release on merge.
   - **Game Config:** roles + specials `addRespins` / `upgrade` (`AddRespinsSpecial`: whole-respin

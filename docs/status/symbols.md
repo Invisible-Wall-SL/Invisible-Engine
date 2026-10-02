@@ -143,7 +143,7 @@ AND `bake-editor-doc.mjs`, or the effect is pruned as an orphan.
 
 ## Recent changes
 
-- 2026-10-02 — **Hold and Win: states `respinsAdd` / `coinUpgrade` (fallback Win) and Flights rows `toCounter` / `upgradeBeam`** (Phase 11a, #PRNUM). The bake keeps both flight keys; `check:flights` now asserts every `FLIGHT_KINDS` entry survives the bake. Detail: [status/hold-and-win](hold-and-win.md).
+- 2026-10-02 — **Hold and Win: states `respinsAdd` / `coinUpgrade` (fallback Win) and Flights rows `toCounter` / `upgradeBeam`** (Phase 11a, #995). The bake keeps both flight keys; `check:flights` now asserts every `FLIGHT_KINDS` entry survives the bake. Detail: [status/hold-and-win](hold-and-win.md).
 
 - 2026-10-02 — **Hold the spin button to keep spinning — a per-project switch, off by default**
   (`winCycle.spinButtonHold`, in the "Winning symbols after the spin" section beside **Wait for a

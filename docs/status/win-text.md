@@ -296,7 +296,7 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
 
 ## Recent changes
 
-- 2026-10-02 — **Hold and Win lines `respins.added` "+{count} RESPINS", `feature.upgrade` "UPGRADE", `jackpots.upgrade` "{jackpot} UPGRADE"** and `feature.specialNames` "ADD RESPINS" / "UPGRADE" (Phase 11a, #PRNUM) — harvested for every Hold and Win project. Detail: [status/hold-and-win](hold-and-win.md).
+- 2026-10-02 — **Hold and Win lines `respins.added` "+{count} RESPINS", `feature.upgrade` "UPGRADE", `jackpots.upgrade` "{jackpot} UPGRADE"** and `feature.specialNames` "ADD RESPINS" / "UPGRADE" (Phase 11a, #995) — harvested for every Hold and Win project. Detail: [status/hold-and-win](hold-and-win.md).
 
 - 2026-10-02 — **A save also keeps the fields this build does not know INSIDE a family.** The
   top-level graft (below) left a gap: a field a newer launcher wrote inside `toast`, `jackpots`,
