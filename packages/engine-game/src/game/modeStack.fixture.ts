@@ -24,7 +24,12 @@ import {
 	type ModeStackState,
 	type ModeTransition,
 } from './modeStack.ts';
-import { BASE_GAME_TYPE, createModeGameTypeResolver, modeOpOf } from './modeEvents.ts';
+import {
+	BASE_GAME_TYPE,
+	createModeGameTypeResolver,
+	modeEntryMeters,
+	modeOpOf,
+} from './modeEvents.ts';
 
 let failures = 0;
 const check = (label: string, actual: unknown, expected: unknown): void => {
@@ -206,6 +211,57 @@ check(
 		legacyGameType: false,
 	},
 );
+// Pots overlay (design §3.2): a full pot starting a mode rides every entry event the same way —
+// `cause` on the entry, the pots in its payload's `meters`.
+const potFreeSpins = modeOpOf({
+	type: 'freeSpinTrigger',
+	index: 3,
+	totalFs: 10,
+	positions: [],
+	cause: 'meter',
+	meters: ['green'],
+} as never);
+check(
+	'freeSpinTrigger from a full pot keeps its cause, and the pots in its payload',
+	potFreeSpins,
+	{
+		op: 'enter',
+		id: 'freeSpins',
+		policy: 'nest',
+		cause: 'meter',
+		payload: { totalFs: 10, positions: [], meters: ['green'] },
+		legacyGameType: true,
+	},
+);
+const potMode = modeOpOf({
+	type: 'modeEnter',
+	mode: 'wheel',
+	cause: 'meter',
+	meters: ['blue'],
+	payload: { segments: 8 },
+} as never);
+check('modeEnter from a full pot carries its top-level meters into the payload', potMode, {
+	op: 'enter',
+	id: 'wheel',
+	policy: 'nest',
+	cause: 'meter',
+	payload: { segments: 8, meters: ['blue'] },
+	legacyGameType: false,
+});
+const potRespins = modeOpOf({
+	type: 'holdAndWinTrigger',
+	mode: 'holdAndWin',
+	cause: 'meter',
+	payload: { cells: [], respins: 3, meters: ['red'] },
+} as never);
+check(
+	'modeEntryMeters reads the pots off every entry kind',
+	[potFreeSpins, potMode, potRespins].map((op) =>
+		op?.op === 'enter' ? modeEntryMeters(op) : null,
+	),
+	[['green'], ['blue'], ['red']],
+);
+check('...and none off an entry no pot started', modeEntryMeters({ payload: { totalFs: 10 } }), []);
 for (const type of ['reveal', 'winInfo', 'updateFreeSpin', 'freeSpinRetrigger', 'setTotalWin']) {
 	check(`${type} does not move the stack`, modeOpOf({ type }), undefined);
 }

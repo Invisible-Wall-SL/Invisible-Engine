@@ -167,7 +167,7 @@ before the rendering.
 
 | Event | Payload | Meaning |
 |---|---|---|
-| `overlayDrop` (new) | `cells: [{reel, row, token, pot?, value?, jackpot?}]` | Tokens appear on these cells, over whatever symbol is there. Comes after the board's `reveal`, before its wins. |
+| `overlayDrop` (new) | `cells: [{reel, row, symbol, pot?, value?, jackpot?}]` | Tokens appear on these cells, over whatever symbol is there. Comes after the board's `reveal`, before its wins. |
 | `meterUpdate` (existing) | `meter, level, max, full, from: [cell]` | A pot fills. `from` is the token cells, so the flights start there. One per pot that moved. |
 | `meterLevels` (existing) | `meters: [{id, level, max}]` | Every pot's level, after every play and at boot. |
 | any mode entry (`holdAndWinTrigger` existing; `freeSpinTrigger`, `modeEnter` gain the fields) | `cause: 'meter'`, `meters: [id]` | A full pot starts this mode. The coded drain beat (`presentMeterConsume`) plays before the mode's own intro, for EVERY mode, not only Hold and Win. |
@@ -186,9 +186,12 @@ The wire is invented, like the Hold and Win wire, and documented in the same ref
 (`docs/reference/hold-and-win-wire.md`, a new "Pots overlay" section, written in Phase 2). It is
 rewritten when the partner delivers theirs. Its shape:
 
-- the boot `config` carries `potsOverlay {wire, pots: [{id, level, max}], roles}`;
-- `overlayDrop` follows `playedSpin`, with `meterUpdate` / `meterLevels` as today;
+- the boot `config` carries `potsOverlay {wire, pots, bonuses}`, `bonuses` mapping each
+  `spinTrigger.bonus` key to a mode id;
+- `overlayDrop` comes first in pass 2, then the host's wins, the `meterUpdate`s and `meterLevels`;
 - the bonus a round enters is named by `spinTrigger.bonus` (the partner's own field).
+
+The exact shapes and orders are in the reference (Phase 2), not here.
 
 The facade routes `enterBonus` / `playedBonusSpin` by that bonus key **when a `potsOverlay` block was
 captured**. Without the block it keeps today's rule (a captured `holdAndWin` block means every bonus
@@ -219,9 +222,10 @@ untouched.
 
 ### 3.5 The mock — a composed protocol
 
-- **The wrapper.** `withPotsOverlay(mock, inputs)` wraps the host's own mock (book first, then lines
-  and ways). It post-processes each base play: deals the drops, moves the per-session pots, and
-  emits the events above.
+- **The wrapper.** `withPotsOverlay(createHost, inputs)` composes over the host's own mock (book
+  first, then lines and ways) through a seam of hooks the host calls on each play: it deals the
+  drops, moves the per-session pots, emits the events above, and keeps the round open when a bonus
+  starts.
 - **On a full pot it routes the bonus:**
   - `holdAndWin` → the Hold and Win mock's feature generator, refactored into a reusable engine with
     the held value coins and the activated special;
@@ -230,8 +234,8 @@ untouched.
   - any other mode → `modeEnter` / `modeExit` around that mode's generator (Phase 7).
 - **Selection.** `protocolFor(kind)` is unchanged. The launcher's mock contract adds the overlay
   inputs whenever the config carries the block, and the test server's `makeMock` wraps.
-- **Forced beats** (authoring mock): `overlay:drop`, `overlay:coins:<n>`, `pot:<id>` (fill it to full
-  on the next spin), `pot:<id>:<level>`.
+- **Forced beats** (authoring mock): `overlay:drop`, `overlay:coins:<n>`, `pot:<id>` (full on the
+  forced spin), `pot:<id>:<level>`, `feature`.
 - **Gate.** A fixture gate, `check:pots-overlay`, pins the wire and the routes. The existing
   `check:holdandwin` / `check:freespins` digests must not move.
 
