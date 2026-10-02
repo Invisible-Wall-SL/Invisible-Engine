@@ -71,9 +71,17 @@ sells a buy) plus:
   "boardEnd": { "type": "fullBoardJackpot", "jackpot": "GRAND" },  // | columnLetters {letters, jackpot} | none
   "meters": [{ "id": "red", "symbol": "BOOST", "level": 4, "max": 12, "sizeStages": [5, 9], "activates": "payer" }],
   "luckySpin": true,
-  "randomMetre": "Diamond Metre"   // when the game has one
+  "randomMetre": "Diamond Metre",  // when the game has one
+  "expansion": { "startRows": 3, "maxRows": 6, "rule": "fullRow" }  // when the respin board grows
 }
 ```
+
+**Board expansion** (when `expansion` is present): the respin board opens with `startRows` rows (the
+base grid's) and unlocks rows BELOW them up to `maxRows`, so a held cell's row never changes. Every
+respin's `playedSpin` board is as tall as the rows open when it landed; `holdAndWinTrigger` carries
+`expansion: {rows, maxRows}`. `rule`: `fullRow` (the bottom open row held whole opens the next),
+`unlockSymbol` (each symbol tagged `unlock` that lands opens one, then leaves) or `coinCount` (the
+held count reaching the next threshold opens a row; several may open at once).
 
 **Meter levels are server state.** They are per player (per session on the mock), survive rounds,
 arrive at boot here, change only by `meterUpdate`, and are restated after every `play` by
@@ -108,7 +116,7 @@ In order (pass 1: `bet`, `playedSpin`; pass 2: the rest as listed):
 | `enterBonus`                                                                                          | partner snapshot + `holdAndWin` state                                   | the round STAYS OPEN                                                                                                                                                                                                                                                                           |
 | `gameEnd`, `gameRoundOver`                                                                            | `{win}`                                                                 | no feature: the lines mock's close rules (a losing spin closes itself; `play: null` with a win waits for `collect`)                                                                                                                                                                            |
 | `meterLevels`                                                                                         | `{meters: [{id, level, max}]}`                                          | after every `play`, when the game has meters                                                                                                                                                                                                                                                   |
-| `jackpotLevels`                                                                                       | `{jackpots: [{name, value}]}`                                           | after the opening `bet` (the pools it grew — the play is dealt at them), after every `play` and in the heartbeat's `events`, when the game has a progressive tier — each pool × total stake, after any this play won went back to its seed                                                                                                                         |
+| `jackpotLevels`                                                                                       | `{jackpots: [{name, value}]}`                                           | after the opening `bet` (the pools it grew — the play is dealt at them), after every `play` and in the heartbeat's `events`, when the game has a progressive tier — each pool × total stake, after any this play won went back to its seed                                                     |
 
 **What sticks at entry:** `allCoins` — every coin and jackpot coin (specials on the triggering board
 do not stick; with `activeModifiers.fromTriggeringSpecials` they activate their kind instead).
@@ -139,7 +147,8 @@ every coin drawn for the rest of the feature; `extraCollect` raises the collecto
 | · `coinUpgrade`                        | `{upgrader, target, step, cells: [{reel,row,from,to} \| {reel,row,jackpot,fromJackpot}]}`                                  | an upgrade applied under `target` (drawn per landing): `all` — every cash coin `to = from + step`; `adjacent` — the cash coins in the 8 cells around it; `jackpotTier` — ONE jackpot coin, the lowest tier below the top (ties: lowest reel, then row), `fromJackpot` → `jackpot` one tier up, factor kept, `step: 0`, `cells: []` when none qualifies. Jackpot coins never change under `all`/`adjacent`. The upgrade stays, worth nothing |
 | · `coinCollect`                        | `{collector, level, cells: [cell + amount], value}`                                                                        | the collector's new `value = old + level × Σ worth(cells)`. Sticky coins: it takes the cash coins, once, when it lands (`collects: atEnd` — at the feature end). Streak: every collector takes every coin and jackpot coin each respin, then they clear. Sent only when there was something to take                                                                                                                                         |
 | `jackpotWin`                           | `{tier, amount, source, banked, cell?}`                                                                                    | see "Money"                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `cellsCleared`                         | `{reason: "collected" \| "applied", cells: [{reel,row}]}`                                                                  | `collected` — a streak's non-collector cells leave the board; `applied` — a non-sticky add-respins leaves after applying                                                                                                                                                                                                                                                                                                                    |
+| `rowsUnlocked`                         | `{from, rows, cause, unlockers: [cell]}`                                                                                   | board expansion, after the specials (and a streak's clear): `from` → `rows` open rows, `cause` = the rule, `unlockers` = the unlock symbols (then an `applied` clear). Then a banked `jackpotWin {source: "row"}` per row jackpot reached. An unlock resets the counter (`max(start, left)`) when `resetsRespins`                                                                                                                           |
+| `cellsCleared`                         | `{reason: "collected" \| "applied", cells: [{reel,row}]}`                                                                  | `collected` — a streak's non-collector cells leave the board; `applied` — a non-sticky add-respins, or an unlock symbol, leaves after applying                                                                                                                                                                                                                                                                                              |
 | `respinUpdate`                         | `{left, played, start, reset}`                                                                                             | `reset` = `anyCoin`: a coin or jackpot landed, or a mystery revealed one · `anySpecial`: anything landed. `start` is the feature's current cap. `left = reset ? max(start, left) : left − 1`, with `left` already counting this respin's add-respins (a reset never throws them away) — except on the respin that ENDS the feature (full board, last letter, cap), which always says `left: 0, reset: false`, like its closing snapshot     |
 | `columnComplete`                       | `{reel, letter, newlyLit, cleared, value, amount, cells}`                                                                  | column letters: a column with every row held. `cleared` ⇒ its cells' `amount`s are banked and it empties; not cleared ⇒ the letter lights, the cells stay (`amount: 0`). Every letter lit ⇒ `jackpotWin {source: "letters"}` and the feature ends                                                                                                                                                                                           |
 | `playedBonusSpin`                      | partner snapshot + `holdAndWin` state                                                                                      | after every respin — the board as it now stands                                                                                                                                                                                                                                                                                                                                                                                             |
@@ -148,14 +157,16 @@ every coin drawn for the rest of the feature; `extraCollect` raises the collecto
 | `meterLevels`                          |                                                                                                                            | as above                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
 **The feature ends** when `left` reaches 0, the board is full (a full board with `fullBoardJackpot`
-whose roles fill it first pays `jackpotWin {source: "fullBoard"}`), every letter is lit, or
+whose roles fill it first pays `jackpotWin {source: "fullBoard"}`; an expanding board is full only with
+all `maxRows` rows open), every letter is lit, or
 `respins.cap` respins have played (the mock also stops at 200, a runaway guard). `meterLevels`
 follows `gameEnd`/`gameRoundOver` in the same answer. The config's `boardEnd` names the type and
 jackpot only; whether letters clear and which roles fill a board are learned from the events.
 
 **The bonus snapshot's `holdAndWin`** (on `enterBonus`, `playedBonusSpin`, `playedBonusSpins`):
-`{cells, start, left, played, banked, activeModifiers, collectorLevel, coinBoost, lettersLit?}` —
-everything held, so a resume can rebuild the board from the last one. `start` is the counter's cap
+`{cells, start, left, played, banked, activeModifiers, collectorLevel, coinBoost, lettersLit?, rows?}` —
+everything held, so a resume can rebuild the board from the last one (`rows`: an expanding board's
+open rows). `start` is the counter's cap
 as it now stands: `respins.start`, plus whatever a `raisesCap` add-respins has added. `respins.cap`
 (the most respins one feature plays) is never raised.
 
@@ -184,7 +195,7 @@ the facade has a fixture for the shape.
 - `holdAndWinEnd.total = banked + Σ cells.amount`, and `cells` are every held cell with a worth
   (coins, jackpot coins, collectors with a value — inert payers/multipliers, upgrades and sticky
   add-respins are not listed).
-- `banked` = every `jackpotWin` with `banked: true` (sources `wheel`, `letters`, `fullBoard`) + every
+- `banked` = every `jackpotWin` with `banked: true` (sources `wheel`, `letters`, `fullBoard`, `row`) + every
   cleared `columnComplete.amount`.
 - A `jackpotWin` with `banked: false` (sources `coin`, `collect`, `column`, `instantCollect`) is
   **presentation only**: its amount is already inside a tally cell, a collector's value, a column or
@@ -229,6 +240,7 @@ A force spec is comma-separated tokens; any feature token implies `trigger`:
 | `mystery:<coin\|jackpot:<TIER>\|collector\|multiplier\|payer\|addRespins\|upgrade>`       | a mystery lands in respin 1 and reveals it                                                                                                                                                                                            |
 | `unlock:<collector\|multiplier\|payer\|addRespins\|upgrade>`                              | the mystery reveals a special that was NOT active at entry                                                                                                                                                                            |
 | `jackpot:<TIER>`                                                                          | a jackpot coin lands in respin 1                                                                                                                                                                                                      |
+| `unlock:<n>` · `expandFull`                                                               | board expansion: the next respins open `n` rows by the game's rule, one per respin / open every row, then fill the whole board (its full-board jackpot)                                                                               |
 | `letter` · `letters` · `fullBoard`                                                        | respin 1 fills the first unlit column / every empty cell                                                                                                                                                                              |
 | `wheel:<index>` · `wheel:coinBoost` · `wheel:extraCollect[:n]` · `wheel:jackpot:<TIER>`   | that wheel prize                                                                                                                                                                                                                      |
 | `chain`                                                                                   | the longest reset chain — one new coin every respin (until one cell is left; 10 respins on a board that clears)                                                                                                                       |
