@@ -674,16 +674,6 @@ export const coinEntryLabel = (entry: CoinValueEntry): string =>
 export const jackpotLadder = (block: Pick<HoldAndWin, 'jackpots'>): string[] =>
 	[...block.jackpots].sort((a, b) => a.multiplier - b.multiplier).map((j) => j.name);
 
-/** The tier one step above `tier`; `undefined` at the top or for a tier not on the ladder. */
-export const nextJackpotTier = (
-	block: Pick<HoldAndWin, 'jackpots'>,
-	tier: string,
-): string | undefined => {
-	const ladder = jackpotLadder(block);
-	const at = ladder.indexOf(tier);
-	return at >= 0 ? ladder[at + 1] : undefined;
-};
-
 /** The feature's special kinds a game uses, in apply order — the mechanics a profile names. */
 export const configuredSpecials = (block: HoldAndWin): HoldAndWinSpecial[] =>
 	HOLD_AND_WIN_SPECIALS.filter((s) => block.specials[s]);
@@ -931,7 +921,10 @@ export function validateHoldAndWin(doc: GameConfigDoc): GameConfigIssue[] {
 		checkTable('specials.addRespins.values', add.values, 'The add-respins');
 		add.values.forEach((v, i) => {
 			if (!Number.isInteger(v.value)) {
-				error(`specials.addRespins.values.${i}.value`, `${v.value} is not a whole number of respins.`);
+				error(
+					`specials.addRespins.values.${i}.value`,
+					`${v.value} is not a whole number of respins.`,
+				);
 			}
 		});
 	}

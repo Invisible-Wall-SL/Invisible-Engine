@@ -293,7 +293,6 @@ const withUpgrades = (
 
 const union = <T>(a: T[], b: T[]): T[] => [...a, ...b.filter((item) => !a.includes(item))];
 
-
 const putMeter = (meters: HoldAndWinMeterLevel[], meter: HoldAndWinMeterLevel) => [
 	...meters.filter((m) => m.id !== meter.id),
 	meter,

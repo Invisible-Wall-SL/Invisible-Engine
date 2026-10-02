@@ -28,7 +28,8 @@
  *      carries its declared fields. The screens: the jackpot bar and pots from boot, the mode's
  *      screens exactly while the mode is on screen, and each beat screen (`luckySpin`, `wheel`,
  *      `jackpotWin`) shown for its beat and hidden after it. The add-respins and upgrade specials
- *      (Phase 11a) play only on the dev fixture: each forced upgrade rule arrives as that rule, a
+ *      (Phase 11a) play only on the test fixture: each forced upgrade rule arrives as that rule, a
+
  *      non-sticky add-respins leaves through `clearRespinCells`, and no preset ever deals either.
  *   7. RESUMED: a resume rebuilds the mode stack silently (no enter), then replays the feature's last
  *      snapshot. That `holdAndWinState` alone puts the mode's screens up, starts the feature music
@@ -524,7 +525,8 @@ for (const [index, [preset, force]] of CASES.entries()) {
 	const rule = /^special:upgrade:(\w+)$/.exec(force)?.[1];
 	if (rule) {
 		const got = events.filter((e) => e.type === 'coinUpgrade').map((e) => String(e.target));
-		if (!got.length || got.some((t) => t !== rule)) upgradeRules.push(`${force} → [${got}]`);
+		// The forced upgrade is the first; a later one that lands naturally draws its own rule.
+		if (got[0] !== rule) upgradeRules.push(`${force} → [${got}]`);
 	}
 	if (force === 'special:addRespins')
 		appliedCleared = events.some((e) => e.type === 'cellsCleared' && e.reason === 'applied');

@@ -684,6 +684,11 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			group: 'Hold and Win',
 			fields: [
 				{
+					key: 'reason',
+					kind: 'object',
+					required: true,
+				},
+				{
 					key: 'cells',
 					kind: 'list',
 					required: true,

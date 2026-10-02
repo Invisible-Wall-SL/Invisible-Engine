@@ -688,6 +688,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Hold and Win',
 				fields: [
 					{
+						key: 'reason',
+						kind: 'object',
+						required: true,
+					},
+					{
 						key: 'cells',
 						kind: 'list',
 						required: true,
@@ -2080,6 +2085,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				type: 'respinCellsCleared',
 				group: 'Hold and Win',
 				fields: [
+					{
+						key: 'reason',
+						kind: 'object',
+						required: true,
+					},
 					{
 						key: 'cells',
 						kind: 'list',
@@ -3474,6 +3484,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Hold and Win',
 				fields: [
 					{
+						key: 'reason',
+						kind: 'object',
+						required: true,
+					},
+					{
 						key: 'cells',
 						kind: 'list',
 						required: true,
@@ -4866,6 +4881,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				type: 'respinCellsCleared',
 				group: 'Hold and Win',
 				fields: [
+					{
+						key: 'reason',
+						kind: 'object',
+						required: true,
+					},
 					{
 						key: 'cells',
 						kind: 'list',

@@ -347,10 +347,17 @@ export const translateHoldAndWinEvent = (
 				upgrader: cellOf(upgrader),
 				target: ctx.target,
 				step: ctx.step ?? 0,
+				// A change missing its `from` reads as no change rather than as an unlabelled coin.
 				cells: ((ctx.cells as WireUpgrade[] | undefined) ?? []).map((c) =>
 					c.jackpot !== undefined
-						? { reel: c.reel, row: c.row, kind: 'jackpot', from: c.fromJackpot, to: c.jackpot }
-						: { reel: c.reel, row: c.row, kind: 'value', from: c.from, to: c.to },
+						? {
+								reel: c.reel,
+								row: c.row,
+								kind: 'jackpot',
+								from: c.fromJackpot ?? c.jackpot,
+								to: c.jackpot,
+							}
+						: { reel: c.reel, row: c.row, kind: 'value', from: c.from ?? c.to, to: c.to },
 				),
 			};
 		}

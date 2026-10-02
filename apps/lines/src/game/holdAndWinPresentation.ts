@@ -689,10 +689,12 @@ export const presentMysteryReveal = async (event: Beat<'mysteryReveal'>) => {
 	await waitPresentation(TOAST_HOLD_MS);
 };
 
-/** `cellsCleared` — a streak's collected cells leave the board: each plays `clearReel`, then goes. */
+/** `cellsCleared` — a streak's collected cells, or a non-sticky special that has applied, leave the
+ *  board: each plays `clearReel`, then goes. */
+
 export const presentCellsCleared = async (event: Beat<'cellsCleared'>) => {
 	if (!stateRespinBoard.shown) return;
-	eventEmitter.broadcast({ type: 'respinCellsCleared', cells: event.cells });
+	eventEmitter.broadcast({ type: 'respinCellsCleared', reason: event.reason, cells: event.cells });
 	await playHeldBeat(event.cells, 'clearReel');
 	syncHeldCells();
 	settleHeldBeats(

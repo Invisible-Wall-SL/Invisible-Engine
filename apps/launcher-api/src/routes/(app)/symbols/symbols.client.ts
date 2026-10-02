@@ -644,8 +644,10 @@ export interface SymbolsDoc {
 	 *  `bundle.symbols.coinLabel`. */
 	coinLabel?: CoinLabelConfig;
 	/** Hold and Win FLIGHTS — head / trail / arrival / route / timing per flight kind (`toTotal`,
-	 *  `toCollector`, `boostBeam`, `toCounter`, `upgradeBeam`, `toMeter`, `toMeter:<id>`). Sparse: absent ⇒ every flight flies the
-	 *  coded glow. Normalized by `engine-layout`'s `normalizeFlights` on both sides of the save.
+	 *  `toCollector`, `boostBeam`, `toCounter`, `upgradeBeam`, `toMeter`, `toMeter:<id>`). Sparse:
+	 *  absent ⇒ every flight flies the coded glow. Normalized by `engine-layout`'s `normalizeFlights`
+	 *  on both sides of the save.
+
 	 *  Passed through verbatim to `bundle.symbols.flights`. */
 	flights?: FlightsConfig;
 	updatedAt?: string;

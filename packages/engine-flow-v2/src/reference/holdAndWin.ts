@@ -734,7 +734,14 @@ const CUES: TemplateVocabulary['cues'] = [
 		],
 	},
 	{ name: 'respinModifierUnlock', payload: [{ name: 'activates', type: list(SPECIAL) }] },
-	{ name: 'respinCellsCleared', payload: [{ name: 'cells', type: list(POSITION) }] },
+	{
+		name: 'respinCellsCleared',
+		payload: [
+			{ name: 'reason', type: STRING },
+			{ name: 'cells', type: list(POSITION) },
+		],
+	},
+
 	{
 		name: 'respinJackpotWin',
 		payload: [

@@ -15,12 +15,7 @@ import {
 	HOLD_AND_WIN_PRESET_IDS,
 	HOLD_AND_WIN_TEST_FIXTURES,
 } from './src/holdAndWinPresets.ts';
-import {
-	configuredSpecials,
-	jackpotLadder,
-	nextJackpotTier,
-	symbolsWithRole,
-} from './src/holdAndWin.ts';
+import { configuredSpecials, jackpotLadder, symbolsWithRole } from './src/holdAndWin.ts';
 import type { GameConfigDoc } from './src/types.ts';
 
 let failures = 0;
@@ -148,7 +143,7 @@ check(
 	['addRespins', 'upgrade'],
 );
 
-console.log('\njackpot ladder — lowest prize first, one step at a time, never past the top');
+console.log('\njackpot ladder — lowest prize first');
 const potsBlock = normalize(HOLD_AND_WIN_PRESETS.pots).holdAndWin!;
 check('pots: the ladder', jackpotLadder(potsBlock), ['MINI', 'MINOR', 'MAJOR', 'GRAND']);
 check(
@@ -161,10 +156,6 @@ check(
 	}),
 	['MINI', 'GRAND'],
 );
-check('MINI steps to MINOR', nextJackpotTier(potsBlock, 'MINI'), 'MINOR');
-check('MAJOR steps to GRAND', nextJackpotTier(potsBlock, 'MAJOR'), 'GRAND');
-check('GRAND is the top', nextJackpotTier(potsBlock, 'GRAND'), undefined);
-check('an unknown tier has no next', nextJackpotTier(potsBlock, 'MEGA'), undefined);
 
 console.log('\nparity — a config without the block is untouched');
 const { holdAndWin: _drop, winLevels: _tiers, ...plain } = clone(HOLD_AND_WIN_PRESETS.classic);

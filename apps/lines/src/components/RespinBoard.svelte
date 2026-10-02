@@ -3,8 +3,8 @@
 		HoldAndWinCell,
 		HoldAndWinCellAmount,
 		HoldAndWinCoinChange,
-		HoldAndWinUpgradeChange,
 		HoldAndWinJackpotSource,
+		HoldAndWinUpgradeChange,
 		HoldAndWinWheelPrize,
 		Position,
 	} from 'engine-game';
@@ -15,11 +15,12 @@
 	 * listeners (sound, FX). The beats themselves are `holdAndWinPresentation.ts`, run by the coded
 	 * handlers and by the flow effects (`showRespinBoard`, `spinRespin`, `stickCoins`,
 	 * `setRespinCounter`, `restoreRespinBoard`, `hideRespinBoard`, `payCoins`, `addRespins`,
-	 * `upgradeCoins`, `boostCoins`,
-	 * `turnSpecialIntoCoin`, `collectCoins`, `revealMystery`, `clearRespinCells`, `showJackpotWin`,
-	 * `fillMeter`, `playLuckySpinIntro`, `fireRandomMetre`, `lightLetter`, `instantCollect`,
-	 * `spinWheel`); broadcasting a cue does not move the board. `respinCollectStep` fires once per collected coin, as it takes
-	 * off for the collector (its landing is a `flightArrive` with flight `toCollector`).
+	 * `upgradeCoins`, `boostCoins`, `turnSpecialIntoCoin`, `collectCoins`, `revealMystery`,
+	 * `clearRespinCells`, `showJackpotWin`, `fillMeter`, `playLuckySpinIntro`, `fireRandomMetre`,
+	 * `lightLetter`, `instantCollect`, `spinWheel`); broadcasting a cue does not move the board.
+	 * `respinCollectStep` fires once per collected coin, as it takes off for the collector (its
+	 * landing is a `flightArrive` with flight `toCollector`).
+
 	 * `respinAddRespins` fires as an add-respins special applies (its "+N" landing in the counter is a
 	 * `flightArrive` with flight `toCounter`), `respinCoinUpgrade` as an upgrade applies (each beam's
 	 * landing is a `flightArrive` with flight `upgradeBeam`).
@@ -79,7 +80,7 @@
 				activates: HoldAndWinSpecial[];
 		  }
 		| { type: 'respinModifierUnlock'; activates: HoldAndWinSpecial[] }
-		| { type: 'respinCellsCleared'; cells: Position[] }
+		| { type: 'respinCellsCleared'; reason: 'collected' | 'applied'; cells: Position[] }
 		| {
 				type: 'respinJackpotWin';
 				tier: string;

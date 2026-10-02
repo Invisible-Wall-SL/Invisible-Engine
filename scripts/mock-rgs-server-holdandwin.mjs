@@ -1232,10 +1232,15 @@ export function createMockRgs(opts = {}) {
 						: forcedCoin,
 			);
 		}
-		/** A forced upgrade, with something to upgrade under its rule. */
+		/** A forced upgrade, with something to upgrade under its rule. The rule rides the forced cell,
+		 *  so it can never leak onto a later upgrade that lands naturally. */
 		const placeUpgrade = () => {
 			const rule = force.upgradeTarget;
-			f.forcedUpgrade = rule;
+			const upgradeCell = (reel, anywhere) => {
+				const cell = forcedSpecial('upgrade')(reel, anywhere);
+				if (cell && rule) cell.forcedRule = rule;
+				return cell;
+			};
 			if (rule === 'jackpotTier') {
 				const tier = jackpotLadder[0];
 				placeSomewhere((reel, anywhere) =>
@@ -1244,7 +1249,7 @@ export function createMockRgs(opts = {}) {
 						: null,
 				);
 			}
-			if (rule !== 'all' && rule !== 'adjacent') return placeSomewhere(forcedSpecial('upgrade'));
+			if (rule !== 'all' && rule !== 'adjacent') return placeSomewhere(upgradeCell);
 			const cashBeside = (reel, row) =>
 				cellsWhere(f.board, (cell, r, w) => cell?.kind === 'coin' && besides(reel, row)(r, w))
 					.length > 0;
@@ -1256,8 +1261,8 @@ export function createMockRgs(opts = {}) {
 			}
 			const spots = empties().filter(({ reel, row }) => cashBeside(reel, row));
 			const spot = spots.find(({ reel }) => specialLandsOn('upgrade', reel)) ?? spots[0];
-			if (spot) place(spot.reel, spot.row, specialCell('upgrade'));
-			else placeSomewhere(forcedSpecial('upgrade'));
+			if (spot) place(spot.reel, spot.row, upgradeCell(spot.reel, true));
+			else placeSomewhere(upgradeCell);
 		};
 
 		if (first) {
@@ -1440,8 +1445,9 @@ export function createMockRgs(opts = {}) {
 				}
 			} else if (kind === 'upgrade') {
 				for (const { reel, row, cell: upgrader } of mine) {
-					const target = f.forcedUpgrade ?? weighted(upgradeTargets)?.target ?? 'all';
-					f.forcedUpgrade = undefined;
+					const target = upgrader.forcedRule ?? weighted(upgradeTargets)?.target ?? 'all';
+					delete upgrader.forcedRule;
+
 					events.push({
 						event: 'coinUpgrade',
 						context: {
