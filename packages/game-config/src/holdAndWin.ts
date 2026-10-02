@@ -17,7 +17,8 @@
  * reference — a jackpot name, a reel index, a role no symbol carries — is the validator's to report.
  */
 
-import { HOLD_AND_WIN_MODE } from './modes';
+import { symbolsInPlayForGameType } from './inPlay';
+import { BASE_GAME_MODE, HOLD_AND_WIN_MODE, gameModeById, gameTypeForMode } from './modes';
 import type { GameConfigDoc } from './types';
 import type { GameConfigIssue } from './validate';
 
@@ -743,6 +744,20 @@ export const respinBoardMaxRows = (doc: Pick<GameConfigDoc, 'numRows' | 'holdAnd
 export const configuredSpecials = (block: HoldAndWin): HoldAndWinSpecial[] =>
 	HOLD_AND_WIN_SPECIALS.filter((s) => block.specials[s]);
 
+/**
+ * Is the `holdAndWin` block the pots overlay's BONUS rather than the base game
+ * (`docs/design/pots-overlay.md` §3.1)? It is when an overlay is present and the base game's strips
+ * deal no Hold and Win symbol: the host's own mock deals the base game, and the feature is reached
+ * only through the overlay. A Hold and Win game that adds an overlay keeps its base-game block.
+ * Decided from the data, here only, so the validator, the mock, the facade and the runtime agree.
+ */
+export const holdAndWinIsOverlayBonus = (doc: GameConfigDoc): boolean =>
+	Boolean(doc.potsOverlay) &&
+	!symbolsInPlayForGameType(
+		doc,
+		gameTypeForMode(gameModeById(doc, BASE_GAME_MODE) ?? { id: BASE_GAME_MODE }),
+	).some((name) => isHoldAndWinSymbol(doc.symbols[name]));
+
 // ─── validate ─────────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -750,14 +765,16 @@ export const configuredSpecials = (block: HoldAndWin): HoldAndWinSpecial[] =>
  * could not generate a round from or the board could not show; every `warning` is one that renders
  * but has a knob that does nothing.
  *
- * Beside a `potsOverlay` block the feature is the overlay's BONUS (`docs/design/pots-overlay.md`
- * §3.1): the host's own mock deals the base game, so the lines-only rule does not apply, the feature
- * starts from a pot or from dropped coins, and the base-board-only options are refused.
+ * Beside a `potsOverlay` block, a pot routed to Hold and Win also starts the feature. When the block
+ * is the overlay's BONUS ({@link holdAndWinIsOverlayBonus}) the host's own mock deals the base game:
+ * the lines-only rule does not apply, the feature starts only from a pot or from dropped coins, and
+ * the base-board-only options — symbol-filled meters among them — are refused.
  */
 export function validateHoldAndWin(doc: GameConfigDoc): GameConfigIssue[] {
 	const block = doc.holdAndWin;
 	if (!block) return [];
 	const overlay = doc.potsOverlay;
+	const asBonus = holdAndWinIsOverlayBonus(doc);
 	const issues: GameConfigIssue[] = [];
 	const error = (path: string, message: string) =>
 		issues.push({ severity: 'error', path: `holdAndWin.${path}`, message });
@@ -780,7 +797,7 @@ export function validateHoldAndWin(doc: GameConfigDoc): GameConfigIssue[] {
 			error(path, `${what} has no value with a weight above 0.`);
 	};
 
-	if (!overlay && doc.winModel && doc.winModel.type !== 'lines') {
+	if (!asBonus && doc.winModel && doc.winModel.type !== 'lines') {
 		issues.push({
 			severity: 'error',
 			path: 'winModel',
@@ -852,20 +869,20 @@ export function validateHoldAndWin(doc: GameConfigDoc): GameConfigIssue[] {
 
 	// Trigger
 	const t = block.trigger;
-	const hasTrigger = overlay
-		? Boolean(block.meters?.length) ||
-			overlay.pots.some((p) => p.bonus.mode === HOLD_AND_WIN_MODE) ||
-			Boolean(t.count && overlay.drops.table.some((e) => 'coin' in e))
-		: Boolean(
-				t.count ||
-				t.pattern ||
-				t.buy?.length ||
-				t.randomMetre ||
-				t.luckySpin ||
-				block.meters?.length,
-			);
-	if (!hasTrigger) error('trigger', 'Nothing can start the feature — add a trigger.');
-	if (overlay) {
+	const potRoute = Boolean(overlay?.pots.some((p) => p.bonus.mode === HOLD_AND_WIN_MODE));
+	const coinDrops = Boolean(overlay?.drops.table.some((e) => 'coin' in e));
+	const baseTriggers = Boolean(
+		t.count || t.pattern || t.buy?.length || t.randomMetre || t.luckySpin || block.meters?.length,
+	);
+	if (!(potRoute || (asBonus ? t.count && coinDrops : baseTriggers))) {
+		error(
+			'trigger',
+			asBonus
+				? 'Nothing can start the feature — route a pot to Hold and Win, or drop value coins for the count trigger.'
+				: 'Nothing can start the feature — add a trigger.',
+		);
+	}
+	if (asBonus) {
 		const notForOverlay = (path: string, what: string) =>
 			error(path, `${what} is not built for an overlay host yet.`);
 		if (t.pattern) notForOverlay('trigger.pattern', 'A pattern trigger');
@@ -879,6 +896,18 @@ export function validateHoldAndWin(doc: GameConfigDoc): GameConfigIssue[] {
 					`The ${kind}'s instant collect in the base game`,
 				);
 			}
+		}
+		if (block.meters?.length) {
+			error(
+				'meters',
+				'A meter filled by a landing symbol is not built for an overlay host yet — make it a pot of the overlay.',
+			);
+		}
+		if (t.count && !coinDrops) {
+			warning(
+				'trigger.count',
+				'The count trigger counts dropped value coins, but the overlay drops none, so it never fires.',
+			);
 		}
 	}
 	const cells = doc.numRows.reduce((sum, rows) => sum + rows, 0);

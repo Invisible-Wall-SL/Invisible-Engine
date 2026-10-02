@@ -5,8 +5,9 @@
  * Pins: a config without the block is untouched (every committed default included); the block is
  * sparse and a normalize fixed point; the validator names every impossible overlay; `resolveMeters`
  * lists the Hold and Win meters, then the pots; both presets validate clean once merged into a
- * book-like host without replacing any of it; a `holdAndWin` block beside the overlay is validated as
- * the overlay's bonus; and without the block every Hold and Win preset validates exactly as before.
+ * book-like host of any width without replacing any of it, and a Hold and Win game may add either;
+ * a `holdAndWin` block is the overlay's bonus or the base game by what the base strips deal; and
+ * without the block every Hold and Win preset validates exactly as before.
  */
 
 import { readFileSync, readdirSync } from 'node:fs';
@@ -14,7 +15,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { normalizeGameConfigDoc } from './src/normalize.ts';
 import { validateGameConfigDoc } from './src/validate.ts';
-import { validateHoldAndWin } from './src/holdAndWin.ts';
+import { holdAndWinIsOverlayBonus, validateHoldAndWin } from './src/holdAndWin.ts';
 import {
 	HOLD_AND_WIN_PRESETS,
 	HOLD_AND_WIN_PRESET_IDS,
@@ -27,9 +28,9 @@ import {
 	validatePotsOverlay,
 } from './src/potsOverlay.ts';
 import {
-	POTS_OVERLAY_PRESETS,
 	POTS_OVERLAY_PRESET_IDS,
 	holdAndWinBonus,
+	potsOverlayPreset,
 	type PotsOverlayPresetId,
 } from './src/potsOverlayPresets.ts';
 import { symbolsInPlay } from './src/inPlay.ts';
@@ -71,27 +72,22 @@ const overlayIssues = (doc: GameConfigDoc) => issuesUnder(doc, 'potsOverlay');
 const holdAndWinIssues = (doc: GameConfigDoc) =>
 	validateHoldAndWin(doc).map((i) => `${i.severity}:${i.path}`);
 
-/** A Book of Borut-shaped host: 5×3 lines, a scatter book, its own free-spin strips. */
-const strip = (names: string[]) => names.map((name) => ({ name }));
+/** A Book of Borut-shaped host: N×3 lines, a scatter book, its own free-spin strips. */
 const pays = (three: number, four: number, five: number): GameConfigSymbol => ({
 	paytable: [{ '3': three }, { '4': four }, { '5': five }],
 });
-const BOOK_STRIP = strip(['PIC1', 'ACE', 'SCAT', 'KING', 'PIC2', 'TEN']);
-const BOOK_HOST: RawGameConfig = {
+const BOOK_STRIP = ['PIC1', 'ACE', 'SCAT', 'KING', 'PIC2', 'TEN'].map((name) => ({ name }));
+const bookHost = (numReels: number): RawGameConfig => ({
 	providerName: 'invisible_wall',
 	gameName: 'book_host',
 	gameID: 'book_host',
 	rtp: 0.96,
-	numReels: 5,
-	numRows: [3, 3, 3, 3, 3],
+	numReels,
+	numRows: Array.from({ length: numReels }, () => 3),
 	betModes: { base: { cost: 1, feature: true, buyBonus: false, rtp: 0.96, max_win: 5000 } },
-	paylines: {
-		'1': [1, 1, 1, 1, 1],
-		'2': [0, 0, 0, 0, 0],
-		'3': [2, 2, 2, 2, 2],
-		'4': [0, 1, 2, 1, 0],
-		'5': [2, 1, 0, 1, 2],
-	},
+	paylines: Object.fromEntries(
+		[1, 0, 2].map((row, i) => [String(i + 1), Array.from({ length: numReels }, () => row)]),
+	),
 	symbols: {
 		PIC1: pays(100, 1000, 5000),
 		PIC2: pays(30, 400, 2000),
@@ -101,15 +97,18 @@ const BOOK_HOST: RawGameConfig = {
 		SCAT: { special_properties: ['scatter'] },
 	},
 	paddingReels: {
-		basegame: Array.from({ length: 5 }, () => BOOK_STRIP),
-		freegame: Array.from({ length: 5 }, () => BOOK_STRIP),
+		basegame: Array.from({ length: numReels }, () => BOOK_STRIP),
+		freegame: Array.from({ length: numReels }, () => BOOK_STRIP),
 	},
-};
+});
+const BOOK_HOST = bookHost(5);
 
-/** Merge a preset into a host the way an "add" does: the host keeps everything it has. */
+/** Merge a preset into a host the way an "add" does: the host keeps everything it has, and a Hold
+ *  and Win game keeps its own block rather than gaining the preset's bonus. */
 const insert = (host: RawGameConfig, id: PotsOverlayPresetId): GameConfigDoc => {
-	const preset = clone(POTS_OVERLAY_PRESETS[id]);
-	const bonus = preset.holdAndWin ? holdAndWinBonus(preset.holdAndWin) : undefined;
+	const preset = potsOverlayPreset(id);
+	const bonus =
+		preset.holdAndWin && !host.holdAndWin ? holdAndWinBonus(preset.holdAndWin, host) : undefined;
 	return normalize({
 		...clone(host),
 		symbols: { ...host.symbols, ...bonus?.symbols, ...preset.tokens },
@@ -233,13 +232,31 @@ const departs = normalizePotsOverlay({
 	pots: [onePot],
 	drops: { table: [{ pot: 'gold' }], modes: ['basegame', 'freeSpins', 'freeSpins', ''], reels: [] },
 })!.drops;
-check('departing modes are stored once each; an empty reel list is not', departs, {
+check('departing modes are stored once each; an empty reel list is kept as authored', departs, {
 	chance: 0.1,
 	maxPerSpin: 1,
 	table: [{ pot: 'gold', weight: 1 }],
+	reels: [],
 	modes: ['basegame', 'freeSpins'],
 });
 check('stored modes read back as written', overlayDropModes(departs), ['basegame', 'freeSpins']);
+const authoredLists = (reels: unknown, modes: unknown) =>
+	normalizePotsOverlay({ pots: [onePot], drops: { table: [{ pot: 'gold' }], reels, modes } })!
+		.drops;
+check(
+	'an every-reel list and an empty mode list are stored; an absent one is not',
+	[authoredLists([4, 0, 1, 2, 3], []), authoredLists(undefined, undefined)],
+	[
+		{
+			chance: 0.1,
+			maxPerSpin: 1,
+			table: [{ pot: 'gold', weight: 1 }],
+			reels: [0, 1, 2, 3, 4],
+			modes: [],
+		},
+		{ chance: 0.1, maxPerSpin: 1, table: [{ pot: 'gold', weight: 1 }] },
+	],
+);
 check('a whole overlay doc is a fixed point', normalize(clone(three)), three);
 
 console.log('\n3. validate — every rule, both ways');
@@ -431,6 +448,11 @@ check(
 	['error:potsOverlay.drops.table.3'],
 );
 check(
+	'a value coin with no count trigger to start warns',
+	overlayIssues(edit(three, (d) => delete d.holdAndWin!.trigger.count)),
+	['warning:potsOverlay.drops.table.3'],
+);
+check(
 	'tokens on a reel off the grid; on the last reel is fine',
 	[
 		[0, 5],
@@ -439,12 +461,21 @@ check(
 	[['error:potsOverlay.drops.reels'], []],
 );
 check(
-	'drops in a mode the project does not have; in free spins is fine',
+	'drops in a mode the project does not have, or off the reels; in free spins is fine',
 	[
 		['basegame', 'bonusWheel'],
+		['basegame', 'holdAndWin'],
 		['basegame', 'freeSpins'],
 	].map((modes) => overlayIssues(edit(three, (d) => (d.potsOverlay!.drops.modes = modes)))),
-	[['error:potsOverlay.drops.modes'], []],
+	[['error:potsOverlay.drops.modes'], ['error:potsOverlay.drops.modes'], []],
+);
+check(
+	'an authored empty reel list, or mode list, drops nothing',
+	[
+		overlayIssues(edit(three, (d) => (d.potsOverlay!.drops.reels = []))),
+		overlayIssues(edit(three, (d) => (d.potsOverlay!.drops.modes = []))),
+	],
+	[['error:potsOverlay.drops.reels'], ['error:potsOverlay.drops.modes']],
 );
 check(
 	'a pot no drop fills warns',
@@ -469,12 +500,13 @@ check(
 	resolveMeters(potsGame).map((m) => `${m.id}:${m.source}:${m.symbol}→${m.bonus.activates}`),
 	['red:symbol:BOOST→payer', 'blue:symbol:COLLECT→collector', 'green:symbol:MULTI→multiplier'],
 );
+const toFree = potsOverlayPreset('potsToFreeSpins');
 const both = normalize({
 	...clone(HOLD_AND_WIN_PRESETS.pots),
-	symbols: { ...HOLD_AND_WIN_PRESETS.pots.symbols, ...POTS_OVERLAY_PRESETS.potsToFreeSpins.tokens },
+	symbols: { ...HOLD_AND_WIN_PRESETS.pots.symbols, ...toFree.tokens },
 	potsOverlay: {
-		...clone(POTS_OVERLAY_PRESETS.potsToFreeSpins.potsOverlay),
-		pots: [{ ...POTS_OVERLAY_PRESETS.potsToFreeSpins.potsOverlay.pots[0], label: 'Gold pot' }],
+		...toFree.potsOverlay,
+		pots: [{ ...toFree.potsOverlay.pots[0], label: 'Gold pot' }],
 	},
 });
 check('both lists, one shape, meters first', resolveMeters(both), [
@@ -512,11 +544,23 @@ check('both lists, one shape, meters first', resolveMeters(both), [
 		label: 'Gold pot',
 	},
 ]);
-check('their ids do not clash', overlayIssues(both), []);
+check(
+	'the whole doc validates clean: a Hold and Win game may add an overlay',
+	validateGameConfigDoc(both),
+	[],
+);
+const resolved = resolveMeters(both);
+resolved[0].sizeStages.push(99);
+resolved[3].bonus.spins = 99;
+check(
+	'resolved meters are copies, never the doc',
+	[both.holdAndWin!.meters![0].sizeStages, both.potsOverlay!.pots[0].bonus.spins],
+	[[5, 9], 10],
+);
 
 console.log('\n5. presets — merged into a book host, clean, nothing of the host replaced');
 for (const id of POTS_OVERLAY_PRESET_IDS) {
-	const preset = POTS_OVERLAY_PRESETS[id];
+	const preset = potsOverlayPreset(id);
 	const doc = insert(BOOK_HOST, id);
 	check(`${id}: no issues at all`, validateGameConfigDoc(doc), []);
 	check(`${id}: re-normalizing is a fixed point`, normalize(clone(doc)), doc);
@@ -573,7 +617,7 @@ check(
 );
 check(
 	"3 Pots: the bonus symbols are the respin board's, meterSpecial dropped",
-	holdAndWinBonus('pots').symbols,
+	holdAndWinBonus('pots', BOOK_HOST).symbols,
 	{
 		BLANK: { special_properties: ['blank'] },
 		BONUS: { special_properties: ['coin'] },
@@ -604,7 +648,7 @@ check(
 check(
 	'every Hold and Win preset as a bonus carries none of the refused options',
 	HOLD_AND_WIN_PRESET_IDS.map((id) => {
-		const { holdAndWin } = holdAndWinBonus(id);
+		const { holdAndWin } = holdAndWinBonus(id, BOOK_HOST);
 		const { collector, multiplier } = holdAndWin.specials;
 		return [
 			Object.keys(holdAndWin.trigger),
@@ -618,47 +662,124 @@ check(
 		[[], false, false],
 	],
 );
+const jade = (
+	host: RawGameConfig,
+	id: Parameters<typeof holdAndWinBonus>[0],
+	drops: unknown[],
+): GameConfigDoc => {
+	const bonus = holdAndWinBonus(id, host);
+	return normalize({
+		...clone(host),
+		symbols: {
+			...host.symbols,
+			...bonus.symbols,
+			POT_JADE: { special_properties: ['meterSpecial'] },
+		},
+		paddingReels: { ...host.paddingReels, ...bonus.paddingReels },
+		holdAndWin: bonus.holdAndWin,
+		potsOverlay: {
+			pots: [{ id: 'jade', token: 'POT_JADE', maxLevel: 5, bonus: { mode: 'holdAndWin' } }],
+			drops: { chance: 0.1, maxPerSpin: 6, table: [{ pot: 'jade' }, ...drops] },
+		},
+	});
+};
 check(
 	'the Classic preset as a pot bonus validates clean on the host too',
-	validateGameConfigDoc(
-		normalize({
-			...clone(BOOK_HOST),
-			symbols: {
-				...BOOK_HOST.symbols,
-				...holdAndWinBonus('classic').symbols,
-				POT_JADE: { special_properties: ['meterSpecial'] },
-			},
-			paddingReels: { ...BOOK_HOST.paddingReels, ...holdAndWinBonus('classic').paddingReels },
-			holdAndWin: holdAndWinBonus('classic').holdAndWin,
-			potsOverlay: {
-				pots: [{ id: 'jade', token: 'POT_JADE', maxLevel: 5, bonus: { mode: 'holdAndWin' } }],
-				drops: { chance: 0.1, maxPerSpin: 6, table: [{ pot: 'jade' }, { coin: true }] },
-			},
-		}),
-	),
+	validateGameConfigDoc(jade(BOOK_HOST, 'classic', [{ coin: true }])),
 	[],
 );
+const collectorStrips = HOLD_AND_WIN_PRESETS.collector.paddingReels.respin;
+const collectorBonus = jade(BOOK_HOST, 'collector', []);
+check(
+	'the 3×3 collector bonus on a 5-reel host: its strips cycle to five reels, and it validates clean',
+	[collectorBonus.paddingReels.respin, validateGameConfigDoc(collectorBonus)],
+	[[0, 1, 2, 0, 1].map((reel) => collectorStrips[reel]), []],
+);
+const wide = insert(bookHost(6), 'threePots');
+check(
+	'3 Pots on a 6-reel host: six respin strips, and it validates clean',
+	[wide.paddingReels.respin.length, validateGameConfigDoc(wide)],
+	[6, []],
+);
+const fresh = potsOverlayPreset('threePots');
+fresh.potsOverlay.pots[0].sizeStages.push(11);
+fresh.tokens.POT_RED.special_properties!.push('wild');
+check(
+	'every call builds a fresh preset; editing one touches neither the next nor the Hold and Win preset',
+	[
+		potsOverlayPreset('threePots').potsOverlay.pots[0].sizeStages,
+		potsOverlayPreset('threePots').tokens.POT_RED,
+		HOLD_AND_WIN_PRESETS.pots.holdAndWin!.meters![0].sizeStages,
+	],
+	[[5, 9], { special_properties: ['meterSpecial'] }, [5, 9]],
+);
+for (const id of HOLD_AND_WIN_PRESET_IDS) {
+	const doc = insert(HOLD_AND_WIN_PRESETS[id], 'potsToFreeSpins');
+	check(
+		`a ${id} Hold and Win game adds pots to free spins: its own block stays the base game, clean`,
+		[holdAndWinIsOverlayBonus(doc), validateGameConfigDoc(doc)],
+		[false, []],
+	);
+}
+check(
+	'3 Pots added to a Hold and Win game names its conflicts: meter ids, specials, a coin trigger',
+	HOLD_AND_WIN_PRESET_IDS.map((id) =>
+		validateGameConfigDoc(insert(HOLD_AND_WIN_PRESETS[id], 'threePots')).map(
+			(i) => `${i.severity}:${i.path}`,
+		),
+	),
+	[
+		['error:potsOverlay.pots.0.id', 'error:potsOverlay.pots.1.id', 'error:potsOverlay.pots.2.id'],
+		['error:potsOverlay.pots.0.bonus.activates', 'error:potsOverlay.pots.1.bonus.activates'],
+		[
+			'error:potsOverlay.pots.0.bonus.activates',
+			'error:potsOverlay.pots.2.bonus.activates',
+			'warning:potsOverlay.drops.table.3',
+		],
+	],
+);
 
-console.log('\n6. a holdAndWin block beside the overlay is its bonus');
+console.log('\n6. bonus or base game — decided by what the base strips deal');
 const noOverlay = (doc: GameConfigDoc) =>
 	edit(doc, (d) => {
 		delete d.potsOverlay;
 	});
+const coinOnBase = (d: GameConfigDoc) => d.paddingReels.basegame[0].push({ name: 'BONUS' });
 const ways = (d: GameConfigDoc) => (d.winModel = { type: 'ways', direction: 'ltr', minKind: 3 });
 check(
-	'the lines-only rule does not apply to an overlay host',
-	[holdAndWinIssues(edit(three, ways)), holdAndWinIssues(noOverlay(edit(three, ways)))],
-	[[], ['error:winModel']],
+	'the block is the bonus only beside an overlay, while the base strips deal no Hold and Win symbol',
+	[
+		holdAndWinIsOverlayBonus(three),
+		holdAndWinIsOverlayBonus(noOverlay(three)),
+		holdAndWinIsOverlayBonus(edit(three, coinOnBase)),
+		holdAndWinIsOverlayBonus(both),
+	],
+	[true, false, false, false],
+);
+check(
+	"the lines-only rule does not apply to an overlay's bonus; it does to a base-game block",
+	[
+		holdAndWinIssues(edit(three, ways)),
+		holdAndWinIssues(noOverlay(edit(three, ways))),
+		holdAndWinIssues(
+			edit(three, (d) => {
+				ways(d);
+				coinOnBase(d);
+			}),
+		),
+	],
+	[[], ['error:winModel'], ['error:winModel']],
 );
 const toFreeSpins = (d: GameConfigDoc) =>
 	d.potsOverlay!.pots.forEach((p) => (p.bonus = { mode: 'freeSpins' }));
 const potsOnly = (d: GameConfigDoc) =>
 	(d.potsOverlay!.drops.table = d.potsOverlay!.drops.table.filter((e) => !('coin' in e)));
 check(
-	'the feature starts from a pot, or from dropped coins counted by the trigger — nothing else',
+	'the bonus starts from a pot, or from dropped coins counted by the trigger — nothing else',
 	[
 		holdAndWinIssues(edit(three, (d) => (d.holdAndWin!.trigger = {}))),
 		holdAndWinIssues(edit(three, toFreeSpins)),
+		holdAndWinIssues(edit(three, potsOnly)),
 		holdAndWinIssues(
 			edit(three, (d) => {
 				toFreeSpins(d);
@@ -672,7 +793,72 @@ check(
 			}),
 		),
 	],
-	[[], [], ['error:holdAndWin.trigger'], ['error:holdAndWin.trigger']],
+	[
+		[],
+		[],
+		['warning:holdAndWin.trigger.count'],
+		['error:holdAndWin.trigger', 'warning:holdAndWin.trigger.count'],
+		['error:holdAndWin.trigger'],
+	],
+);
+const triggerMessage = (doc: GameConfigDoc) =>
+	validateHoldAndWin(doc).find((i) => i.path === 'holdAndWin.trigger')?.message;
+const classicWithPot = (route: string) =>
+	normalize({
+		...clone(HOLD_AND_WIN_PRESETS.classic),
+		symbols: {
+			...HOLD_AND_WIN_PRESETS.classic.symbols,
+			POT_JADE: { special_properties: ['meterSpecial'] },
+		},
+		holdAndWin: { ...clone(HOLD_AND_WIN_PRESETS.classic.holdAndWin!), trigger: {} },
+		potsOverlay: {
+			pots: [{ id: 'jade', token: 'POT_JADE', maxLevel: 5, bonus: { mode: route } }],
+			drops: { table: [{ pot: 'jade' }] },
+		},
+	});
+check(
+	'each block says what starts it there; a base-game block also starts from a pot routed to it',
+	[
+		triggerMessage(
+			edit(three, (d) => {
+				toFreeSpins(d);
+				d.holdAndWin!.trigger = {};
+			}),
+		),
+		triggerMessage(classicWithPot('freeSpins')),
+		holdAndWinIssues(classicWithPot('holdAndWin')),
+	],
+	[
+		'Nothing can start the feature — route a pot to Hold and Win, or drop value coins for the count trigger.',
+		'Nothing can start the feature — add a trigger.',
+		[],
+	],
+);
+const purpleMeter = (d: GameConfigDoc) => (d.holdAndWin!.meters = [{ id: 'purple', ...meter }]);
+check(
+	"a bonus's symbol-filled meters are refused and start nothing; a base-game block keeps them",
+	[
+		holdAndWinIssues(edit(three, purpleMeter)),
+		holdAndWinIssues(
+			edit(three, (d) => {
+				purpleMeter(d);
+				toFreeSpins(d);
+				potsOnly(d);
+				delete d.holdAndWin!.trigger.count;
+			}),
+		).includes('error:holdAndWin.trigger'),
+		holdAndWinIssues(
+			edit(three, (d) => {
+				purpleMeter(d);
+				coinOnBase(d);
+			}),
+		),
+	],
+	[
+		['error:holdAndWin.meters', 'warning:holdAndWin.meters.0.symbol'],
+		true,
+		['warning:holdAndWin.meters.0.symbol'],
+	],
 );
 const refusals: Record<string, (d: GameConfigDoc) => void> = {
 	'trigger.pattern': (d) =>
@@ -690,9 +876,18 @@ const refusals: Record<string, (d: GameConfigDoc) => void> = {
 };
 for (const [path, change] of Object.entries(refusals)) {
 	check(
-		`${path} is refused in an overlay host, and allowed without one`,
-		[holdAndWinIssues(edit(three, change)), holdAndWinIssues(noOverlay(edit(three, change)))],
-		[[`error:holdAndWin.${path}`], []],
+		`${path} is refused for an overlay's bonus, allowed for a base-game block or without one`,
+		[
+			holdAndWinIssues(edit(three, change)),
+			holdAndWinIssues(
+				edit(three, (d) => {
+					change(d);
+					coinOnBase(d);
+				}),
+			),
+			holdAndWinIssues(noOverlay(edit(three, change))),
+		],
+		[[`error:holdAndWin.${path}`], [], []],
 	);
 }
 const nothingActive = (d: GameConfigDoc) => {

@@ -149,10 +149,11 @@ const drops = (raw: unknown): OverlayDrops => {
 		maxPerSpin: num(r.maxPerSpin) ?? DEFAULT_MAX_PER_SPIN,
 		table: list(r.table, dropEntry),
 	};
-	const reels = unique(list(r.reels, (n) => int(n))).sort((a, b) => a - b);
-	if (reels.length) out.reels = reels;
+	if (Array.isArray(r.reels)) {
+		out.reels = unique(list(r.reels, (n) => int(n))).sort((a, b) => a - b);
+	}
 	const modes = unique(list(r.modes, text));
-	if (modes.length && JSON.stringify(modes) !== JSON.stringify(overlayDropModes({}))) {
+	if (Array.isArray(r.modes) && JSON.stringify(modes) !== JSON.stringify(overlayDropModes({}))) {
 		out.modes = modes;
 	}
 	return out;
@@ -160,8 +161,9 @@ const drops = (raw: unknown): OverlayDrops => {
 
 /**
  * Canonicalize a `potsOverlay` block, or `undefined` when there is none. SPARSE: a block with no pot
- * and no drop is no block, so a config that never had one normalizes byte-identically. The default
- * dropping modes (the base game) and an every-reel `reels` are not stored.
+ * and no drop is no block, so a config that never had one normalizes byte-identically. Only the
+ * default dropping modes (the base game alone) are not stored; an authored `reels` or `modes` list is
+ * kept as written — every reel, or none, which the validator names.
  */
 export function normalizePotsOverlay(raw: unknown): PotsOverlay | undefined {
 	if (!isObject(raw)) return undefined;
@@ -202,7 +204,7 @@ export function resolveMeters(
 		source: 'symbol',
 		symbol: m.symbol,
 		maxLevel: m.maxLevel,
-		sizeStages: m.sizeStages,
+		sizeStages: [...m.sizeStages],
 		bonus: { mode: HOLD_AND_WIN_MODE, activates: m.activates },
 	}));
 	const fromOverlay = (doc?.potsOverlay?.pots ?? []).map((p): ResolvedMeter => ({
@@ -210,8 +212,8 @@ export function resolveMeters(
 		source: 'overlay',
 		symbol: p.token,
 		maxLevel: p.maxLevel,
-		sizeStages: p.sizeStages,
-		bonus: p.bonus,
+		sizeStages: [...p.sizeStages],
+		bonus: { ...p.bonus },
 		...(p.label ? { label: p.label } : {}),
 	}));
 	return [...fromSymbols, ...fromOverlay];
@@ -313,7 +315,7 @@ export function validatePotsOverlay(doc: GameConfigDoc): GameConfigIssue[] {
 		}
 		if (spins !== undefined) {
 			const target = gameModeById(doc, mode);
-			if (target && target.id !== BASE_GAME_MODE && target.board !== 'reels') {
+			if (target && target.board !== 'reels') {
 				error(
 					`${at}.bonus.spins`,
 					`A spin count is for a bonus on the reels, such as free spins; "${mode}" plays on its own board.`,
@@ -356,6 +358,11 @@ export function validatePotsOverlay(doc: GameConfigDoc): GameConfigIssue[] {
 			);
 		} else if (!block.coins.length) {
 			error(at, 'A value coin draws its value from the Hold and Win coin table, which is empty.');
+		} else if (!block.trigger.count) {
+			warning(
+				at,
+				'Value coins start Hold and Win only through its count trigger, which is not set, so they never start anything.',
+			);
 		}
 	});
 	const coinTrigger = block?.trigger.count?.min;
@@ -370,6 +377,7 @@ export function validatePotsOverlay(doc: GameConfigDoc): GameConfigIssue[] {
 			`At most ${d.maxPerSpin} drops land on a spin, but the Hold and Win trigger needs ${coinTrigger} coins, so dropped coins can never start it.`,
 		);
 	}
+	if (d.reels && !d.reels.length) error('drops.reels', 'No reel can receive a token.');
 	d.reels?.forEach((r) => {
 		if (r >= doc.numReels) {
 			error(
@@ -378,8 +386,16 @@ export function validatePotsOverlay(doc: GameConfigDoc): GameConfigIssue[] {
 			);
 		}
 	});
+	if (d.modes && !d.modes.length) error('drops.modes', 'No mode drops, so nothing ever drops.');
 	d.modes?.forEach((m) => {
-		if (!modeIds.has(m)) error('drops.modes', `"${m}" is not a mode this project has.`);
+		const mode = gameModeById(doc, m);
+		if (!mode) error('drops.modes', `"${m}" is not a mode this project has.`);
+		else if (mode.board !== 'reels') {
+			error(
+				'drops.modes',
+				`"${m}" does not play on the reels, so it has no cell for a token to drop on.`,
+			);
+		}
 	});
 
 	const filled = new Set(d.table.flatMap((e) => (isCoinDrop(e) ? [] : [e.pot])));
