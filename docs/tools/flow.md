@@ -726,8 +726,12 @@ blocks. It adds the steps your flow does not have yet:
   screen containers that tab shows, if the flow has no such tab yet.
 
 It never changes a node you authored and leaves an existing Hold and Win tab alone. Hover it to see
-what it will add; when there is nothing left to add it is disabled and its tooltip says so. It is
-one **↶ Undo** step, and Save keeps it like any other edit.
+what it will add; when there is nothing left to add it is disabled and its tooltip says so. It works
+from the Global tab only, like **＋ Comment**. It is one **↶ Undo** step, and Save keeps it like any
+other edit.
+
+The editor reads the Game Config when the page loads, so after adding a block in Game Config,
+reload the Flow editor to see the new entries and the button.
 
 ### The operator platform jackpot — any kind
 

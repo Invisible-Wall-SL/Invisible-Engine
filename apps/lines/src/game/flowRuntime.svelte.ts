@@ -46,16 +46,12 @@ import { BOOK_AMOUNT_MULTIPLIER } from 'constants-shared/bet';
 import { awaitCue, waitPresentation } from './unskippablePresentation';
 
 import { bakedFlowDoc } from '../editor-scenes';
-import { boardDimensions } from './gameConfig';
+import { resolveMeters, type ResolvedMeter } from 'game-config';
+import { boardDimensions, getActiveGameConfig } from './gameConfig';
 import type { LinesEngineKey } from './flowEngineKeys';
 import { stateHoldAndWin } from './stateHoldAndWin.svelte';
 import { jackpotMultiplier } from './holdAndWinJackpots.svelte';
-import {
-	meterFullShown,
-	meterLevelShown,
-	meterMax,
-	meterStageShown,
-} from './holdAndWinMeters.svelte';
+import { meterLevelShown } from './holdAndWinMeters.svelte';
 import { platformJackpotValue } from './platformJackpot.svelte';
 import { eventEmitter } from './eventEmitter';
 import { getFlowInterpreter } from './flowInterpreterHolder';
@@ -207,18 +203,29 @@ const ENGINE_READS: Record<LinesEngineKey, () => unknown> = {
 	'platformJackpot.grand': () => platformJackpotValue('grand'),
 };
 
-const METER_READS: Record<'level' | 'max' | 'stage' | 'full', (id: string) => number | boolean> = {
-	level: meterLevelShown,
-	max: meterMax,
-	stage: meterStageShown,
-	full: meterFullShown,
+/**
+ * `meter.<id>.*` for every meter `resolveMeters` lists — the Hold and Win block's AND the pots
+ * overlay's, so an overlay pot answers its config max and stages before any server level is
+ * recorded. An id the config does not declare reads `undefined`, like any other unknown key.
+ */
+const meterMaxOf = (meter: ResolvedMeter): number =>
+	stateHoldAndWin.meters.find((m) => m.id === meter.id)?.max ?? meter.maxLevel;
+const METER_READS: Record<
+	'level' | 'max' | 'stage' | 'full',
+	(meter: ResolvedMeter) => number | boolean
+> = {
+	level: (meter) => meterLevelShown(meter.id),
+	max: meterMaxOf,
+	stage: (meter) => meter.sizeStages.filter((stage) => meterLevelShown(meter.id) >= stage).length,
+	full: (meter) => meterMaxOf(meter) > 0 && meterLevelShown(meter.id) >= meterMaxOf(meter),
 };
 const METER_KEY = /^meter\.(.+)\.(level|max|stage|full)$/;
 
 export const linesEngineReader = (key: string): unknown => {
 	if (Object.hasOwn(ENGINE_READS, key)) return ENGINE_READS[key as LinesEngineKey]();
-	const meter = METER_KEY.exec(key);
-	return meter ? METER_READS[meter[2] as keyof typeof METER_READS](meter[1]) : undefined;
+	const match = METER_KEY.exec(key);
+	const meter = match && resolveMeters(getActiveGameConfig()).find((m) => m.id === match[1]);
+	return meter ? METER_READS[match[2] as keyof typeof METER_READS](meter) : undefined;
 };
 
 /**

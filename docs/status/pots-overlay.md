@@ -104,7 +104,8 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
       optional, so a cell without `pot`/`value`/`jackpot` reads them as absent), `meterUpdate`,
       `meterLevels`, the pot cues and `flightArrive`, the actions `flyTo` and `fillMeter`, and the values
       `meter.<id>.level|max|stage|full`. These values are offered with the overlay only.
-      `linesEngineReader` answers them through a pattern branch.
+      `linesEngineReader` answers them for every `resolveMeters` id (an undeclared id reads
+      `undefined`), so an overlay pot reports its config max and stages before any server level.
   - **Applied at three seams:** the `/flow-v2` editor, the publish gate (`validateFlowV2Against`
     takes `addOns`; the shipped check uses the bundle's own config) and the runtime
     (`flowV2Runtime.svelte.ts`, from `getActiveGameConfig()`). The cue harvest passes the same flags
@@ -223,8 +224,8 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
      vocabulary yet: they arrive with their runtime effects. Add them to the overlay fragment in
      `engine-flow-v2/src/reference/addOns.ts`, and give the graft their chain once a coded beat
      exists. Until then the graft adds no `overlayDrop` handler, because owning the event would
-     suppress the coded default. `meter.<id>.max` / `.stage` read 0 for an overlay pot until
-     `configuredMeters()` reads `resolveMeters`.
+     suppress the coded default. The flow's `meter.<id>.*` reads already go through
+     `resolveMeters` (`linesEngineReader`); the coded pots' `configuredMeters()` does not yet.
    - **Phase 2:** decide whether a Hold and Win GAME's own count trigger (an H&W kind that adds an
      overlay) also counts dropped value coins, or only landed coin symbols. Record it here.
    - **Phase 5a:** a new pot row without its token or bonus is dropped on save (normalizer rule), so

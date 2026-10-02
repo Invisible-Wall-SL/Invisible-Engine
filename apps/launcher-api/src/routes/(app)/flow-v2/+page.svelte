@@ -1689,11 +1689,13 @@
 				<button
 					class="collapse-btn"
 					type="button"
-					disabled={!graftable.length}
+					disabled={view.kind === 'mode' || !graftable.length}
 					onclick={addOverlaySteps}
-					title={graftable.length
-						? `Add the add-on steps this flow does not have yet (${graftable.join(', ')}). Nothing you authored changes.`
-						: 'Nothing to add: this flow already has every add-on step.'}
+					title={view.kind === 'mode'
+						? 'Add overlay steps from the Global tab: they go into the Global graph'
+						: graftable.length
+							? `Add the add-on steps this flow does not have yet (${graftable.join(', ')}). Nothing you authored changes.`
+							: 'Nothing to add: this flow already has every add-on step.'}
 				>
 					＋ Add overlay steps
 				</button>
