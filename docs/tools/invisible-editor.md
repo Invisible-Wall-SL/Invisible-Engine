@@ -784,8 +784,9 @@ game on the next **Publish** — the same trip as the rest of your art.
   a **gap** between cells (a share of a cell, 0–0.45, which also insets each cell's rolling
   window). Where you drop it doesn't matter: the tiles draw at the respin board's own cells. The
   Hold and Win template puts one on the **Respin board** screen; without a tile image or a gap it
-  changes nothing. The editor shows it as a handle only — see the tiles in **Live ↗** during a
-  feature.
+  changes nothing. **Select it** to preview: the reel grid then shows every cell as an empty respin
+  cell on your tile, at the gap — the respin board itself only appears in the game, during a
+  feature (**Live ↗**).
   Authoring components themselves now lives in the separate **Invisible
   Component Editor** (`/components`), which the panel links out to.
 - **Template editor** — a separate, advanced mode (top-bar toggle) for defining

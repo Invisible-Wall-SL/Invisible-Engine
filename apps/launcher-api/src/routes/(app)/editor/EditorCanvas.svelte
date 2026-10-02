@@ -47,6 +47,7 @@
 		topMidWorld,
 		pointInQuad,
 		reelGridGeometry,
+		type ReelGridSeat,
 		resolveBoneRiderRigKey,
 		type BoneRiderTransform,
 		type Vec2,
@@ -2949,6 +2950,8 @@
 			ctx.restore();
 		}
 
+		drawRespinCellTilesPreview(ctx, geo.seats);
+
 		ctx.lineWidth = 2;
 		ctx.strokeStyle = '#5db0ff';
 		if (geo.outline) {
@@ -2973,6 +2976,51 @@
 				box.h + geo.overflowY * 2,
 			);
 			ctx.setLineDash([]);
+		}
+	}
+
+	/**
+	 * The `respinCells` component's look, while one is SELECTED: the game draws its tiles only on the
+	 * Hold and Win respin board, under every cell, which no editor screen shows — so the reel grid
+	 * stands in for it. Each cell reads as an empty respin cell on its tile, shrunk by the gap, so the
+	 * author sees the tile, its tint and the gap while setting them. Nothing selected ⇒ nothing drawn.
+	 */
+	function drawRespinCellTilesPreview(
+		ctx: CanvasRenderingContext2D,
+		seats: readonly ReelGridSeat[],
+	): void {
+		const selected = selectedId ? findNodeById(selectedId) : null;
+		if (selected?.kind !== 'componentInstance' || selected.componentId !== 'respinCells') return;
+		const defaults = Object.fromEntries(
+			(componentMap.get('respinCells')?.params ?? []).map((p) => [p.key, p.default]),
+		);
+		const params: Record<string, unknown> = { ...defaults, ...(selected.params ?? {}) };
+		const gap = Math.min(Math.max(Number(params.gap) || 0, 0), 0.45);
+		const image = typeof params.tileImage === 'string' ? params.tileImage : '';
+		const tintText = typeof params.tileTint === 'string' ? params.tileTint : '';
+		const tint = /^#[0-9a-f]{6}$/i.test(tintText) ? parseInt(tintText.slice(1), 16) : undefined;
+		const scoped = image ? parseScopedFrameRef(image) : null;
+		for (const seat of seats) {
+			ctx.fillStyle = 'rgba(8, 10, 18, 0.9)';
+			ctx.fillRect(seat.x, seat.y, seat.w, seat.h);
+			const tw = seat.w * (1 - gap);
+			const th = seat.h * (1 - gap);
+			if (!scoped) {
+				ctx.strokeStyle = 'rgba(255, 196, 93, 0.6)';
+				ctx.strokeRect(seat.cx - tw / 2, seat.cy - th / 2, tw, th);
+				continue;
+			}
+			ctx.save();
+			ctx.translate(seat.cx, seat.cy);
+			drawArtRegionSprite(
+				ctx,
+				scoped.assetKey ?? '',
+				scoped.region,
+				{ x: 0, y: 0, anchor: { x: 0.5, y: 0.5 }, width: tw, height: th, visible: true },
+				undefined,
+				tint !== undefined && tint !== 0xffffff ? tint : undefined,
+			);
+			ctx.restore();
 		}
 	}
 

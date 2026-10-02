@@ -40,6 +40,22 @@ Shipped capabilities on `main`:
 
 ## Recent changes
 
+- 2026-10-02 — **The editor draws art a shared component def brings from another project.** The
+  shared `hudReadout` def's frame lives in `invisible_wall/test6`'s `S_UI` atlas and `featureCard`'s
+  in `bookofborutremake`'s `S_Game_UI2`, so every project placing them — new or old — drew grey
+  "UI_0005_WidgetBig" placeholders: `/api/editor/regions` and `/api/editor/asset` read only the
+  project's own prefix + the shared library and 403'd those sheets (the game was fine — the export
+  copies them into the project). Both gates now also allow what the project's doc and its resolved
+  component defs reference (`projectArtScope.ts`, built on the export's own walk,
+  `referencedArtRefs`): the atlases, their pages, plain images and spine bundle folders — exactly
+  what the game ships, held to the project's CLIENT (another client's key gains nothing), cached
+  60 s and re-checked once before a refusal so freshly bound art is not refused.
+  `check:art-scope`. Verified against R2 for `hw-3pots-sample`: `test6`'s `S_UI` + its page and
+  `S_Game_UI2` allowed, an unreferenced sibling atlas refused.
+- 2026-10-02 — **Respin Cell Tiles preview:** selecting a `respinCells` instance draws every reel
+  cell as an empty respin cell with the tile (tint, gap) over it (`drawRespinCellTilesPreview`), since
+  the respin board exists only in the game.
+
 Lessons that recur in this tool, each paid for at least once below: **a new doc field must be added
 to its server whitelist** (`normalizeScene`, `normalizeAlign`, `normalizeGameSettings`,
 `componentStorage`'s `PARAM_KINDS`, the node-kind set — an unlisted field renders locally and is
