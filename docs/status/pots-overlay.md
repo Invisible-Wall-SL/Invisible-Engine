@@ -4,11 +4,13 @@
 > [status/hold-and-win](hold-and-win.md) · Guide: _none yet (Phase 6)_ · Agents: per phase — see the
 > design's build plan.
 
-**One-line state:** Phases 0–3 merged: the `potsOverlay` Game Config block and the additive
-`kindCapabilities` (#1008), the composed mock (#1013), and the facade plus the engine event contract
-(#1012). Phase 4a built (#1015 in review): the runtime draws dropped tokens over the board, flies them
-into the pots, and drains a pot as any bonus it starts begins. A project without the block, which is
-every project today, plays exactly as before. Next: 4b, 5a, 5c, 5d, then 6.
+**One-line state:** Phases 0–5 merged (2026-10-02): #1008, #1013, #1012, #1015 (4a), #1010, #1009,
+#1014 and #1011. A Book-of project can switch the pots overlay on in `/config`. The mock deals it, and
+the shared runtime draws tokens over the host's symbols, flies them into the pots and starts each pot's
+bonus. The overlay screens, Flow steps, symbol states and Win Text are authorable. A project without the
+block, which is every live project today, plays exactly as before: real-clock Borut parity was checked
+on 4a. Next: **4b** (overlay flow actions, per-reel timing, the token as the flight head; in progress)
+and **6** (the Game Maker add-on, guides, and `borut-pots-sample` played end to end).
 
 ## How sessions use this file (the hub)
 
@@ -31,16 +33,16 @@ session is the Claude Code session titled **"3 pots overlay mechanic"**.
 
 | # | Phase | State | Owner session | PR |
 |---|---|---|---|---|
-| 0 | Plan + hub | in review | 3 pots overlay mechanic | #1008 |
-| 1 | Contract: `potsOverlay` config block + validator + presets + `resolveMeters` + additive `kindCapabilities` inputs | built, in review | 3 pots overlay mechanic | #1008 |
+| 0 | Plan + hub | merged | 3 pots overlay mechanic | #1008 |
+| 1 | Contract: `potsOverlay` config block + validator + presets + `resolveMeters` + additive `kindCapabilities` inputs | merged | 3 pots overlay mechanic | #1008 |
 | 2 | Mock — composed protocol (`withPotsOverlay` over book, reusable H&W feature generator, free-spin hook, forced beats, wire doc, `check:pots-overlay`) | merged | Pots overlay Phase 2 — composed mock | #1013 |
 | 3 | Facade + engine event contract (`overlayDrop`, mode-entry `cause`/`meters`, per-bonus routing, pots at boot for any kind) | merged | Pots overlay Phase 3 — facade + event contract | #1012 |
-| 4 | Engine runtime (overlay layer, timing, lift-off flights, drain on any mode entry, H&W from an overlay host, resume) | 4a built, in review (the per-reel timing option is 4b) | Pots overlay Phase 3 — facade + event contract | #1015 |
-| 5a | `/config` Add-ons section | built, in review | Pots overlay Phase 5a — /config Add-ons | #1010 |
+| 4 | Engine runtime (overlay layer, timing, lift-off flights, drain on any mode entry, H&W from an overlay host, resume) | 4a merged; 4b in progress (overlay flow actions, per-reel timing, the token as the flight head) | Pots overlay Phase 3 — facade + event contract | 4a: #1015 |
+| 5a | `/config` Add-ons section | merged | Pots overlay Phase 5a — /config Add-ons | #1010 |
 | 5b | Scene Editor overlay screens + palette/pickers through the capability | merged | Pots overlay Phase 5b — Scene Editor overlay screens | #1009 |
 | 5c | Flow vocabulary composition (editor, publish gate, runtime) + graft | merged | Pots overlay Phase 5c — Flow vocabulary composition | #1014 |
-| 5d | `/symbols` + `/win-text` + Localization through the capability | built, in review | Pots overlay Phase 5d — Symbols + Win Text | #1011 |
-| 6 | Game Maker add-on action + guides + playbook + `borut-pots-sample` played end to end | not started (needs 2–5) | — | — |
+| 5d | `/symbols` + `/win-text` + Localization through the capability | merged | Pots overlay Phase 5d — Symbols + Win Text | #1011 |
+| 6 | Game Maker add-on action + guides + playbook + `borut-pots-sample` played end to end | ready to start (2–5 merged) | — | — |
 | 7 | Bonus import from another project (provenance, re-sync, pot → imported mode) | not started (needs 6) | — | — |
 | 8 | Partner wire | blocked on partner | — | — |
 
@@ -571,8 +573,24 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
      runs below had none, so a token drew nothing and its beat ended on its cap), at full frame
      rate (the container renders at ~4 fps).
 
-1. **Phases 5a, 5c and 5d** run in parallel; Phase 6 needs them and Phase 4. See the Phase board.
-2. **Carried into later phases (found in Phase 1):**
+1. **Phase 6 is next.** Phases 2–5 are merged, so it can start beside 4b. Besides its own scope
+   (design §6), it takes the Phase 6 items below and these:
+   - **One home for "which add-ons does this config carry".** There are two helpers today: launcher
+     `apps/launcher-api/src/lib/addOns.ts` (`projectAddOns`, `overlayTokenPots`), and game-config
+     `packages/game-config/src/flowAddOns.ts` (`flowAddOnsOf`, which the runtime can import). Make the
+     launcher helper build on the game-config one.
+   - **5d's cosmetic nits:**
+     - on a pots-only host, the `/symbols` flight rows say "meter" where the rest says "pot";
+     - the `gameProfile` "Pots overlay" chip doesn't show for a block with drops but zero pots;
+     - `win-text/+page.server.ts` calls `projectAddOns` twice.
+2. **Owner decisions pending** (asked 2026-10-02):
+   - **(a)** On a paying cell, does the win frame draw over the coin or the coin over the frame? The
+     hub recommends the frame over the coin. 4b builds whichever is chosen.
+   - **(b)** Should a **coins-only** overlay be allowed: value coins with no pots, N+ starting a
+     classic Hold and Win? Today the validator requires at least one pot, and the bonus-or-base rule
+     needs a pot routed to Hold and Win or a coin drop. Allowing it is a small Phase 1 rule change
+     (allow zero pots when the table has coin drops) plus the matching `/config` UI.
+3. **Carried into later phases (found in Phase 1):**
    - **Phase 4 (from 5c):** the overlay-only flow actions (show / lift tokens) are not in the
      vocabulary yet: they arrive with their runtime effects. Add them to the overlay fragment in
      `engine-flow-v2/src/reference/addOns.ts`, and give the graft their chain once a coded beat
@@ -607,7 +625,7 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 ## Owner checklist
 
 1. **Confirm or change the defaults** in the design's §7, especially #5 (import vs live link) and #4
-   (host feature and pot bonus in one round).
+   (host feature and pot bonus in one round). Also answer Open items 2 (a) and (b).
 2. **Phase 6:** duplicate Book of Borut as `borut-pots-sample` (Game Maker → Duplicate, setup
    scope), then publish it once Phase 6 lands. A session cannot sign in.
 3. **Phase 8:** ask the partner whether their RGS can deal per-player pots, drops on top of symbols,
@@ -618,6 +636,19 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 - **The partner's RGS** for production play (Phase 8). Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-02 — **Hub: first wave merged** (session "3 pots overlay mechanic").
+  - Six phase sessions ran in parallel from #1008. Phases 2, 3, 4a, 5a, 5b, 5c and 5d each merged
+    on the owner's instruction, every one green on CI.
+  - The hub ran an independent `code-reviewer` pass on the two runtime PRs (#1012, #1015). Each
+    found no change for non-overlay games:
+    - #1012: 83 sessions and 15,391 events with 0 differences;
+    - #1015: 649 records with 0 differences, besides unseeded book round ids.
+  - Their should-fix findings landed before merge: #1012's in #1015; #1015's in #1015 itself.
+  - #1015 also ran real-clock Borut parity: identical answers, flow trace, emitter set and balance.
+  - The hub relayed the Phase 2 ↔ 3 wire and the shared `$lib/addOns.ts` helper between sessions,
+    so nothing diverged.
+  - The board, one-line state and Open items above are brought up to date after the parallel merges.
 
 - 2026-10-02 — **Phase 5d: `/symbols`, `/win-text` and Localization read the add-ons** (session
   "Pots overlay Phase 5d — Symbols + Win Text", agent `invisible-symbols`). Tokens get rows, the
