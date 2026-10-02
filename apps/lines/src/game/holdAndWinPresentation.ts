@@ -158,6 +158,14 @@ const WHEEL_RESULT_MIN_MS = 700;
  */
 let featureCountedIntoBar = 0;
 
+/**
+ * Hold a banner on screen for `ms`, or — under a slam — for the slam's message hold, so a beat a
+ * player slams through (a base-game reveal, a respin) still shows its line instead of hiding it in
+ * the tick it went up. The celebrations need none of this: their slam is re-armed before them.
+ */
+const holdBanner = (ms: number) =>
+	roundSkip.isSkipped() ? slamHold(SLAM_MESSAGE_HOLD_MS) : roundSkip.wait(ms);
+
 const updateCounter = ({ left, start }: { left: number; start: number }) => {
 	stateRespinBoard.counter.left = left;
 	stateRespinBoard.counter.start = start;
@@ -292,7 +300,7 @@ export const presentMeterUpdate = async (event: Beat<'meterUpdate'>) => {
 	const activates = configuredMeters().find((meter) => meter.id === event.meter)?.activates;
 	const title = activates ? meterFullText(activates) : '';
 	const banner = title ? showHoldAndWinBanner({ kind: 'meterFull', title, size: 'small' }) : 0;
-	await waitPresentation(METER_FULL_MS);
+	await (banner ? holdBanner(METER_FULL_MS) : waitPresentation(METER_FULL_MS));
 	hideHoldAndWinBanner(banner);
 };
 
@@ -359,14 +367,15 @@ export const presentHoldAndWinTrigger = async (event: Beat<'holdAndWinTrigger'>)
 		return;
 	}
 	const banner = showHoldAndWinBanner({ kind: 'featureIntro', title: intro, size: 'large' });
-	await waitPresentation(FEATURE_LINE_MS);
+	await holdBanner(FEATURE_LINE_MS);
 	hideHoldAndWinBanner(banner);
 };
 
 /**
  * `randomMetreTrigger` — base game: the random metre (Grand's Diamond Metre, Hotfire's Extra Bonus
- * Game) fired and ADDED the coins the trigger needed. Its banner (the config's metre name) holds over
- * the base board while those coins play `coinStick` where they landed; the trigger beat follows.
+ * Game) fired and ADDED the coins the trigger needed (they are on the revealed board). Its banner —
+ * the config's metre name, as authored: config text, not a Win Text template — holds over the base
+ * board while those coins play `coinStick` where they landed; the trigger beat follows.
  */
 export const presentRandomMetreTrigger = async (event: Beat<'randomMetreTrigger'>) => {
 	eventEmitter.broadcast({
@@ -378,7 +387,7 @@ export const presentRandomMetreTrigger = async (event: Beat<'randomMetreTrigger'
 	const banner = event.name
 		? showHoldAndWinBanner({ kind: 'randomMetre', title: event.name, size: 'small' })
 		: 0;
-	await waitPresentation(RANDOM_METRE_MS);
+	await (banner ? holdBanner(RANDOM_METRE_MS) : waitPresentation(RANDOM_METRE_MS));
 	hideHoldAndWinBanner(banner);
 	unlight.forEach((undo) => undo());
 };

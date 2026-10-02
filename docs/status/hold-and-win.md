@@ -621,16 +621,20 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     base board while the coins it ADDED play `coinStick`, 1.6 s, then the trigger. Flow effect
     `fireRandomMetre` (base graph, `HOLD_AND_WIN_BASE_CHOREO`), cue `randomMetreFire {name, cells}`.
     `meterLevels` is now the only event left on a sync-only handler.
-  - **Win Text draw sites:** the respin counter reads `respins.award` as the feature opens (until the first respin rolls),
-  `respins.reset` while a reset pulses and `respins.last` at 1 left (an empty one falls back to
-  `respins.counter`); the coded banner shows `feature.total` over the board once the Total Win bar
-  has landed, `feature.meterFull` as a base-game pot fills, and `feature.intro` / `feature.outro`
-  only when authored non-empty (their defaults are empty — the references show nothing there).
-  `{count}` = respins for `award`/`reset`/`last`/`intro`; `{amount}` = the feature total for
-  `total`/`outro`; `{meter}` = what the pot activates.
+  - **Win Text draw sites:** the respin counter reads `respins.award` as the feature opens (until
+    the first respin rolls), `respins.reset` while a reset pulses and `respins.last` at 1 left (an
+    empty one falls back to `respins.counter`); the coded banner shows `feature.total` over the
+    board once the Total Win bar has landed, `feature.meterFull` as a base-game pot fills, and
+    `feature.intro` / `feature.outro` only when authored non-empty (their defaults are empty — the
+    references show nothing there). `{count}` = respins for `award`/`reset`/`last`/`intro`;
+    `{amount}` = the feature total for `total`/`outro`; `{meter}` = what the pot activates.
     New banner kinds `randomMetre`, `meterFull`, `featureIntro`, `featureTotal`, `featureOutro`;
     `HOLD_AND_WIN_BANNER_SCREENS` steps the coded banner aside for an authored `featureIntro` /
     `featureOutro` screen.
+  - **Slam-proof:** the base-game and entry banners (random metre, pot full, intro) hold for the
+    slam's message hold when slammed (`holdBanner`), as the instant-collect banner does; the end's
+    total / outro run inside the celebration window, so an authored outro adds 1.6 s to the locked
+    end.
   - Verified on a real clock against the local mocks: Pots `meter:red` drew "Payer ACTIVATED",
     "3 RESPINS", "LAST RESPIN", "RESPINS RESET" and "BONUS WIN $52.00" at their beats, in the
     sample's authored copy where it has one; Classic `trigger:randomMetre` drew the "Diamond Metre"

@@ -15,8 +15,8 @@
 	 * handlers and by the flow effects (`showRespinBoard`, `spinRespin`, `stickCoins`,
 	 * `setRespinCounter`, `restoreRespinBoard`, `hideRespinBoard`, `payCoins`, `boostCoins`,
 	 * `turnSpecialIntoCoin`, `collectCoins`, `revealMystery`, `clearRespinCells`, `showJackpotWin`,
-	 * `fillMeter`, `playLuckySpinIntro`, `fireRandomMetre`, `lightLetter`, `instantCollect`, `spinWheel`); broadcasting
-	 * a cue does not move the board. `respinCollectStep` fires once per collected coin, as it takes
+	 * `fillMeter`, `playLuckySpinIntro`, `fireRandomMetre`, `lightLetter`, `instantCollect`,
+	 * `spinWheel`); broadcasting a cue does not move the board. `respinCollectStep` fires once per collected coin, as it takes
 	 * off for the collector (its landing is a `flightArrive` with flight `toCollector`).
 	 *
 	 * The pots and the Lucky Spin (base game) and the feature's celebrations:
