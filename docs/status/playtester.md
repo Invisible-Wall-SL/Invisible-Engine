@@ -4,7 +4,7 @@
 
 **One-line state:** Phase 1 shipped — the `game-playtester` subagent + playbooks for `lines`,
 `borut-remake` and `ways`, invoked from a Claude Code session. Since 2026-09-28 a headless
-real-clock drive (GPU `chrome-headless-shell`, 60 fps) runs live games unattended, so the
+real-clock drive (GPU headless shell, 60 fps) runs live games unattended, so the
 frozen-rAF limit no longer blocks spins. Phases 2–3 (a `/playtest` launcher card + an Agent-SDK
 fix-worker) are designed, not built.
 
@@ -23,8 +23,11 @@ fix-worker) are designed, not built.
   the `WIN_MODEL=ways` mock). One file per game; add a launch config for games outside this repo.
 - **Three drive paths** — the Browser preview pane (boot + static render + source-import actor on
   a dev build; its tab is hidden, so rAF is frozen), Claude-in-Chrome (foreground, needs a visible
-  tab) and the headless real clock (`chrome-headless-shell` over a CDP pipe with GPU flags; worked
-  script `scripts/playtest/win-countup-repro.mjs`, exits 1 on a count-up stall). A stall seen only
+  tab) and the headless real clock (Playwright's headless shell over a CDP pipe with GPU flags,
+  one launch shared by `scripts/playtest/*`; worked script
+  `scripts/playtest/win-countup-repro.mjs`, exits 1 on a count-up stall). It runs in a Claude Code
+  cloud container too, in software; setup and caveats are in
+  [the headless real clock](../playtest/README.md#the-headless-real-clock). A stall seen only
   under a hand-stepped clock is unconfirmed until it reproduces on the real clock.
 - **Honest limits are encoded** — no visual-polish pass/fail; those are reported as
   **human-eyes**. Trap list (baked-data masking, silent stale-baked fallback, frozen ticker) is in

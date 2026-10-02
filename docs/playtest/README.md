@@ -41,6 +41,28 @@ reports it but does not pass/fail it (see the visual-limits note in `.claude/age
 - **Cover regressions you've hit before**: turn a fixed bug into a permanent scenario so it can't
   come back (e.g. the free-spin outro that renders nothing without the count-up cue).
 
+## The headless real clock
+
+The Browser pane's tab is `hidden`, so rAF never fires there, and a Claude-in-Chrome tab runs only
+while the owner's window is in front. For an unattended run on a real frame clock, the scripts in
+`scripts/playtest/` drive Playwright's headless shell over `--remote-debugging-pipe`. They share one
+launch, `scripts/playtest/headless-shell.mjs`. `win-countup-repro.mjs` is the worked example, and
+its `--mode recon` boots, prints the fps and exits.
+
+- **Install:** `npx playwright install chromium-headless-shell`, or pass `--chrome <exe>`.
+- **The binary has two names.** Chrome-for-Testing builds ship `chrome-headless-shell`. Older
+  Chromium builds ship `headless_shell`, and the Claude Code cloud image is one of them (under
+  `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`). The launch looks for both names in every Playwright
+  browser directory.
+- **As root it needs `--no-sandbox`.** Chromium will not start its sandbox as root, which is a cloud
+  container's default user. The launch adds the flag only when `process.getuid()` is 0. A shell
+  that exits before it answers prints its stderr.
+- **Frame rate:** 60 fps with a GPU. A container has no GPU and renders in software at a few fps.
+  That is slow, but the clock is real and the page is `visible`, so rounds still finish. Check the
+  `fps` a run prints before timing anything.
+- **"The game never reaches idle" in a container was the harness** (2026-10-02). The script found
+  no `chrome-headless-shell`, or the shell would not start as root. Neither is an engine finding.
+
 ## Adding a new game
 
 1. Copy the shape above into `docs/playtest/<game>.md`.

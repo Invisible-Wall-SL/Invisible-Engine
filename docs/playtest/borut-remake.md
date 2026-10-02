@@ -46,8 +46,9 @@ book from `read_network_requests{urlPattern:'rgs/engine'}`. **The tab MUST stay 
 At 1512×812 the controls sit at: Spin = revolver cylinder ~(756,715); BUY FEATURE ~(1318,740); tap-to-
 start = anywhere. Boot takes ~15s (runtime assemble) — wait before the first screenshot.
 ### Headless real-clock drive path (CONFIRMED 2026-09-28 — no desktop window needed)
-Playwright's `chrome-headless-shell` over `--remote-debugging-pipe` with the GPU flags (same launch
-as `scripts/playtest/win-countup-repro.mjs`) runs the LIVE game `visible` at 60 fps. Clicks are CDP
+Playwright's headless shell over `--remote-debugging-pipe` with the GPU flags runs the LIVE game
+`visible` at 60 fps (setup, binary names and running as root:
+[the headless real clock](README.md#the-headless-real-clock)). Clicks are CDP
 `Input.dispatchMouseEvent`. The live bundle is minified, so do not import `/src` modules. Read
 `window.__IE_FLOW_V2__` (`mount.heldContainers()`, `ordered()`) and add `&flowlog=1` to the launch
 URL for `window.__IE_FLOW_V2_TRACE__`. At 1456×814: tap-to-start anywhere (after ~30 s of boot);
