@@ -14,6 +14,10 @@
  *
  * The host's feature always plays first; a bonus waiting behind it starts instead of its `gameEnd`.
  *
+ * The host calls these hooks only for a session whose config carried the overlay (its pin,
+ * `session.potsOverlay`): a tab booted before the overlay was switched on plays the host game until
+ * it reloads.
+ *
  * A host takes it through its `overlay` option (the book mock today): `withPotsOverlay(createHost,
  * inputs)` returns a factory with the host's own signature, whose mock also answers `…/force`.
  */

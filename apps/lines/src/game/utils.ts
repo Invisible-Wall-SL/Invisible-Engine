@@ -1,7 +1,8 @@
 import { createPlayBook, createSymbolInfo, drainedMeters, isHoldAndWinEvent } from 'engine-game';
 
-import { activeWinLevelData } from './gameConfig';
+import { activeWinLevelData, getActiveGameConfig } from './gameConfig';
 import { symbolMap } from './symbolMap';
+import { symbolPlaceholder } from './symbolPlaceholder';
 import { eventEmitter } from './eventEmitter';
 import { bookEventHandlerMap } from './bookEventHandlerMap';
 import {
@@ -40,7 +41,10 @@ import { releaseHeldPlatformJackpotWin } from './platformJackpot.svelte';
  * Constructed here rather than in `symbolMap.ts` so the ten components that import `getSymbolInfo`
  * from `../game/utils` keep the import they already have.
  */
-export const { getSymbolInfo, hasAuthoredSymbolState } = createSymbolInfo({ symbolMap });
+export const { getSymbolInfo, hasAuthoredSymbolState } = createSymbolInfo({
+	symbolMap,
+	drawsPlaceholder: (name) => symbolPlaceholder(getActiveGameConfig(), name) !== undefined,
+});
 
 /**
  * THE PLAY PIPELINE, wired to this game's presentation. How a round is played — the seams every

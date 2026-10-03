@@ -713,6 +713,11 @@
 		the config and never replaces what is already here; a name the config already uses is renamed.
 		Token symbols live in the dictionary only — a strip never deals them.
 	</p>
+	<p class="hint">
+		After saving an add-on change, reload any open game tab: a tab keeps the add-ons it booted with.
+		Their symbol art is seeded only by Game Maker's <strong>＋ Pots overlay…</strong> (or
+		<strong>Pots overlay parts…</strong>); otherwise bind it in /symbols.
+	</p>
 	{#if notice}
 		<p class="inline-issue {notice.kind === 'error' ? 'error' : 'info'}">{notice.text}</p>
 	{/if}

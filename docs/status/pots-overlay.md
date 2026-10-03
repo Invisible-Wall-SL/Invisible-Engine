@@ -859,6 +859,28 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Recent changes
 
+- 2026-10-03 — **A tab open when the overlay is switched on keeps the game it booted with**
+  (branch `fix/pots-overlay-stale-tab`). From a diagnosis run on a `book` project, which found no
+  boot-blocking code path.
+  - **Root cause:** the facade captures the boot config once (first one wins, `captureConfig`).
+    Within ~10 s of a Save the authoring twin rebuilt the mock from the live contract (a Publish
+    does the same on the player channel) and carried the session over (`carrySession`). A tab booted
+    without `potsOverlay` was then dealt drops, meter events and pot-started Hold and Win. The
+    facade passed them through as `_overlayDrop` etc. and the engine skipped them ("Missing
+    bookEventHandler"). A pot fill played as free spins over BLANK, BONUS, MYSTERY and COLLECT cells
+    with no art; a red-pot round took ~78 s.
+  - **Fix:** the book mock pins each session to the add-on its config carried (`session.potsOverlay`,
+    kept by `carrySession` under `keepBetShape`, like the bet table). It deals the overlay only to a
+    session told about it. A session told the other shape is dealt the plain host, and its heartbeat
+    carries no config, so a reload asks for `config` and is re-pinned. The reverse (switched off under
+    a tab booted with it) deals the plain host too; the pots sit and keep their levels. A desktop
+    build's sessions are re-sent the config on their next heartbeat, as before.
+  - Also: `/config` Add-ons tells the author to reload open tabs after an add-on save, and that only
+    Game Maker seeds symbol art. The no-art warning names the placeholder disc for a token, coin or
+    Hold and Win special.
+  - Gates: `check:pots-overlay` §5b (fails on the unfixed mock) and `symbolInfo.fixture.ts`.
+  - Left: a change inside the overlay (pot count, drop table) is not pinned, so an open tab is dealt the
+    new pots until it reloads.
 - 2026-10-03 — **Phase 7: import a bonus from another project (#1022, draft).** Game Maker →
   **Import a bonus…** / **Re-sync** (`POST /api/game-maker/import`). It copies a same-client
   project's Hold and Win feature into an overlay host: the config with provenance and a stored rename

@@ -3,7 +3,8 @@
 // (`potsOverlayMockInputs`), is played the way the facade plays a round, and every answer is
 // re-derived from its events alone: where each drop landed, every pot's level across rounds and
 // sessions, which bonus a full pot starts and when, the round's money, and replay/resume. Then every
-// forced beat is fired, and a project without the block is shown to get the host mock byte for byte.
+// forced beat is fired, and a project without the block is shown to get the host mock byte for byte,
+// as is a tab open across a contract swap that adds the block (until it reloads).
 //
 //   pnpm check:pots-overlay
 
@@ -707,6 +708,141 @@ console.log('5. pots persist per session, across rounds and a contract swap');
 	);
 	const before = (await levelsOf('a')).red;
 	check(carried.level === before, `a contract swap carries the pots (${carried.level})`);
+}
+
+// ---------- 5b. a swap under an open tab ----------
+
+console.log(
+	'5b. a contract swap: an open tab is dealt the add-on its config carried, until it reloads',
+);
+{
+	// Dropping on every spin, so a session the overlay is dealt to cannot miss it.
+	const always = insert(BOOK_HOST, 'threePots', (doc) => {
+		doc.potsOverlay.drops.chance = 1;
+		return doc;
+	});
+	const OVERLAY_EVENTS = [
+		'overlayDrop',
+		'meterUpdate',
+		'meterLevels',
+		'holdAndWinTrigger',
+		'respinUpdate',
+	];
+	const overlaid = (answers) => answers.flatMap(names).filter((n) => OVERLAY_EVENTS.includes(n));
+	const dealt = (answers) => answers.map(({ events, platform }) => [events, platform.balance]);
+	const carried = (from, to, keepBetShape = true) => {
+		for (const [sid, session] of from.sessions)
+			to.sessions.set(sid, carrySession(session, { keepBetShape }));
+		return to;
+	};
+	/** Boot as the facade does: the balance probe, then `config` only if the probe carried none. */
+	const boot = async (mock, sid) => {
+		const probe = await engine(mock, `sid=${sid}`, []);
+		if (names(probe).includes('config')) return { probe, config: one(probe, 'config') };
+		const asked = await engine(mock, `sid=${sid}`, [{ action: 'config' }]);
+		return { probe, config: one(asked, 'config') };
+	};
+	/** Plain, collected, auto-collected and bought rounds, and one a pot beat is forced on. */
+	const rounds = async (mock, sid, n) => {
+		const answers = [];
+		for (let r = 0; r < n; r++) {
+			const opts =
+				r % 7 === 5
+					? { bet: [1, 1] }
+					: { context: r % 7 === 3 ? 'force:pot:red' : r % 2 ? '' : null };
+			answers.push(...(await playRound(mock, sid, opts)));
+		}
+		return answers;
+	};
+
+	// (a) Booted on the plain book game; the overlay is switched on under the open tab.
+	const tab = createBookMock({ seed: 'stale-tab', label: 'before' });
+	const booted = (await boot(tab, 't')).config;
+	const on = carried(tab, overlayMock(always, { seed: 'stale-tab' }));
+	const reference = createBookMock({ seed: 'stale-tab', label: 'reference' });
+	await boot(reference, 't');
+	const probe = await engine(on, 'sid=t', []);
+	const stale = await rounds(on, 't', 30);
+	const plain = await rounds(reference, 't', 30);
+	check(
+		!booted.potsOverlay && !names(probe).includes('config'),
+		'a tab booted without the overlay: after the swap its balance probe carries no config',
+	);
+	check(
+		overlaid(stale).length === 0 && !on.sessions.get('t').meters,
+		'30 rounds after the swap (a forced pot beat among them): no overlay event, no pots',
+		`${overlaid(stale).length} overlay events`,
+	);
+	check(
+		stale.some((a) => names(a).includes('enterBonus')) && same(dealt(stale), dealt(plain)),
+		'…every answer, the host’s free spins included, is the plain book game’s on the same seed',
+	);
+
+	// (b) The tab reloads: its probe finds no config, it asks for one, and is dealt the overlay.
+	const reload = await boot(on, 't');
+	const next = new Set(overlaid(await playRound(on, 't', { context: 'force:pot:red' })));
+	check(
+		!names(reload.probe).includes('config') &&
+			reload.config?.potsOverlay?.wire === 1 &&
+			reload.config.holdAndWin?.wire === 1,
+		'a reload asks for config and is told the overlay',
+	);
+	check(
+		OVERLAY_EVENTS.every((n) => next.has(n)),
+		'…and its next round is dealt it: the drop, the pots, the full pot’s Hold and Win',
+		[...next].join(' '),
+	);
+	check(
+		names(await engine(on, 'sid=t', [])).includes('config'),
+		'…and its balance probe carries the config again',
+	);
+
+	// (c) The reverse: booted with the overlay, which is switched off under the open tab.
+	const withIt = overlayMock(always, { seed: 'reverse' });
+	await boot(withIt, 'r');
+	await playRound(withIt, 'r', { context: 'force:pot:red:5' });
+	const pots = structuredClone(withIt.sessions.get('r').meters);
+	const off = carried(withIt, createBookMock({ seed: 'reverse-2', label: 'after' }));
+	// The same session, told the plain game: its wallet, on the same seed.
+	const offReference = carried(withIt, createBookMock({ seed: 'reverse-2', label: 'reference' }));
+	await engine(offReference, 'sid=r', [{ action: 'config' }]);
+	let threw = '';
+	let dealtOff = [];
+	try {
+		dealtOff = await rounds(off, 'r', 20);
+	} catch (e) {
+		threw = String(e);
+	}
+	check(
+		!threw && dealtOff.length > 0 && dealtOff.every((a) => a.status === 200 && !a.error),
+		'the overlay switched off under a tab booted with it: nothing throws or is refused',
+		threw,
+	);
+	check(
+		overlaid(dealtOff).length === 0 &&
+			same(dealt(dealtOff), dealt(await rounds(offReference, 'r', 20))) &&
+			same(off.sessions.get('r').meters, pots),
+		'…it is dealt the plain book game, its pots kept for a swap back',
+	);
+	const reloadOff = await boot(off, 'r');
+	check(
+		!names(reloadOff.probe).includes('config') &&
+			reloadOff.config &&
+			!reloadOff.config.potsOverlay &&
+			names(await engine(off, 'sid=r', [])).includes('config'),
+		'…and a reload asks for config and is told the plain game',
+	);
+
+	// A desktop build's session is re-told on its next heartbeat, as before.
+	const desktop = createBookMock({ seed: 'desktop', label: 'desktop' });
+	await boot(desktop, 'd');
+	const built = carried(desktop, overlayMock(always, { seed: 'desktop' }), false);
+	const heartbeat = await engine(built, 'sid=d', []);
+	check(
+		one(heartbeat, 'config')?.potsOverlay?.wire === 1 &&
+			overlaid(await playRound(built, 'd')).includes('overlayDrop'),
+		'a desktop build’s session: re-sent the config on its next heartbeat and dealt the overlay',
+	);
 }
 
 // ---------- 6. both on one spin ----------
