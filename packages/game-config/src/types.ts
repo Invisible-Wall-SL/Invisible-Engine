@@ -21,6 +21,7 @@ import type { HoldAndWin } from './holdAndWin';
 import type { PotsOverlay } from './potsOverlay';
 import type { GameSounds } from './sounds';
 import type { GameModeDecl } from './modes';
+import type { BonusImport } from './bonusImports';
 
 export const GAME_CONFIG_DOC_VERSION = 1;
 
@@ -471,6 +472,12 @@ export type GameConfigDoc = {
 	 * and `holdAndWin` with a `holdAndWin` block). Read it through `resolveGameModes`.
 	 */
 	modes?: GameModeDecl[];
+	/**
+	 * OPTIONAL bonuses IMPORTED from another project (see `./imports`, `docs/design/pots-overlay.md`
+	 * §5 A): each one's mode, its provenance and the rename map a re-sync reuses. Absent ⇒ nothing
+	 * imported, byte-identical to every config authored before it existed.
+	 */
+	imports?: BonusImport[];
 	/** The symbol DICTIONARY — art/properties/payouts. Not the in-play set. */
 	symbols: Record<string, GameConfigSymbol>;
 	/**

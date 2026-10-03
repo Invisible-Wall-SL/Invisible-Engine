@@ -6,7 +6,9 @@
  *   2. EXCEPT `source.json`: it names the authoring project's sheet, and a bundle read re-derives
  *      the bundle from that sheet when it drifts, so a copied sidecar let a re-pack in the authoring
  *      project rewrite the shared copy;
- *   3. re-promoting prunes a sidecar an earlier promotion left behind, and keeps other entries.
+ *   3. re-promoting prunes a sidecar an earlier promotion left behind, and keeps other entries;
+ *   4. a bonus import promotes under another name (`as`), and the index merge is conditional: an
+ *      entry another promotion writes between its read and its write survives.
  *
  * Runs the real module over an in-memory R2.
  *   pnpm --filter launcher-api check:shared-spine-promote
@@ -14,17 +16,35 @@
 import { mock } from 'node:test';
 
 const bucket = new Map<string, string>();
+/** A write another promotion lands on this key just before ours, once. */
+const race = new Map<string, string>();
+const etagOf = (key: string) => `"${bucket.get(key)?.length ?? 0}:${bucket.get(key)?.slice(-16)}"`;
 const r2Url = new URL('../src/lib/server/r2.ts', import.meta.url).href;
+const r2 = await import(r2Url);
 mock.module(r2Url, {
 	namedExports: {
-		...(await import(r2Url)),
+		...r2,
 		getObjectText: async (key: string) => bucket.get(key) ?? null,
+		getObjectTextWithEtag: async (key: string) =>
+			bucket.has(key) ? { text: bucket.get(key)!, etag: etagOf(key) } : null,
 		objectExists: async (key: string) => bucket.has(key),
 		listAllKeys: async (prefix: string) => [...bucket.keys()].filter((k) => k.startsWith(prefix)),
 		deleteObjects: async (keys: string[]) => keys.forEach((k) => bucket.delete(k)),
-		putObjectText: async (key: string, text: string) => {
+		putObjectText: async (
+			key: string,
+			text: string,
+			_type?: string,
+			cond?: { ifMatch?: string; ifNoneMatch?: string },
+		) => {
+			const raced = race.get(key);
+			if (raced !== undefined) {
+				race.delete(key);
+				bucket.set(key, raced);
+			}
+			if (cond?.ifNoneMatch && bucket.has(key)) throw new r2.ConflictError(key);
+			if (cond?.ifMatch && etagOf(key) !== cond.ifMatch) throw new r2.ConflictError(key);
 			bucket.set(key, text);
-			return '"etag"';
+			return etagOf(key);
 		},
 		copyObject: async (from: string, to: string) => {
 			const body = bucket.get(from);
@@ -92,6 +112,29 @@ check('reported file count excludes it', result.files === 4);
 
 console.log('3. the authoring project is untouched');
 check('its source.json stays', bucket.has(`${SRC}/R_BuyBonus/source.json`));
+
+console.log('4. promoted under another name, against a concurrent promotion');
+const AS = 'imported/bookofborutremake/R_BuyBonus';
+const RACED = { ...OTHER, name: 'raced/raced', folder: 'raced' };
+race.set(
+	'_shared/spines/skeletons.json',
+	JSON.stringify({
+		skeletons: [
+			...(JSON.parse(bucket.get('_shared/spines/skeletons.json')!) as { skeletons: unknown[] })
+				.skeletons,
+			RACED,
+		],
+	}),
+);
+await promoteSpineToShared('Invisible_Wall', 'bookofborutremake', 'R_BuyBonus', AS);
+check('copied under the new name', bucket.has(`_shared/spines/${AS}/R_BuyBonus.atlas`));
+const after = JSON.parse(bucket.get('_shared/spines/skeletons.json') ?? '{}') as {
+	skeletons: { folder: string }[];
+};
+check(
+	'indexed under the new name, and the concurrent entry survives',
+	after.skeletons.map((e) => e.folder).join() === `engine-loader,${AS},R_BuyBonus,raced`,
+);
 
 console.log(
 	failures === 0 ? '\nshared spine promote: OK' : `\nshared spine promote: ${failures} FAILED`,

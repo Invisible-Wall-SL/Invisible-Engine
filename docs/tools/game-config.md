@@ -102,6 +102,12 @@ free `_2`, `_3`… suffix everywhere the add-on names it, and the section says w
 changed. Nothing is stored until you **Save**. Why the model works this way is in
 [the pots overlay plan](../design/pots-overlay.md).
 
+After saving an add-on change, **reload any open game tab**: a tab keeps the add-ons it booted
+with, and the test server goes on dealing it that game until it reloads. Adding one here puts its
+symbols in the config only. Their art is seeded only by Game Maker's **＋ Pots overlay…** (or
+**Pots overlay parts…**); otherwise bind it in Symbols. Until then a token, a coin or a Hold and
+Win special draws a coded placeholder disc.
+
 ### Pots overlay
 
 Tokens drop over the symbols during a spin and fly to pots; a full pot starts its bonus.
@@ -144,7 +150,11 @@ drop on such a game gets a warning).
 - **0** leaves a coins-only overlay (above). It is offered only when the Hold and Win block
   is the overlay's bonus — not on a Hold and Win game, whose own block counts only the coins
   landing on its reels. The block also needs a coin count trigger. A value-coin row is added if
-  the table has none, and **Most per spin** is raised if it could not reach the trigger.
+  the table has none, and **Most per spin** is raised if it could not reach the trigger; the
+  section says so, and it stays raised if you add pots back. Hover the picker when 0 is greyed
+  out to see why.
+- Lowering it, the section names the pots it removed. What you authored for them elsewhere (a
+  Pot Meter, a Win Text name, a flight style) stays and comes back if a pot with that id returns.
 
 One row per pot:
 
@@ -163,10 +173,10 @@ One row per pot:
 **+ pot** opens a draft row, up to 5 pots. Pick its token and its bonus, then press
 **Add pot** — only then does it join the config, because a pot missing either would be
 dropped on save. **×** discards a draft, or removes a pot along with its drop-table rows. The
-last pot can be removed only while the drop table has a value-coin row, and the last value-coin
-row only while there is a pot (the **×** is greyed out otherwise) — to take out both, use
-**Remove overlay**. With no pots the table says _No pots: value coins only_. Changing **How
-many** discards open drafts first.
+last pot's **×** works exactly like setting **How many** to 0 (same rule, same coin row), and
+the last value-coin row can go only while there is a pot (the **×** is greyed out otherwise; hover
+it for why) — to take out both, use **Remove overlay**. With no pots the table says _No pots:
+value coins only_. Changing **How many** discards open drafts first.
 
 **Drops** — mock math; the real RGS decides what drops:
 

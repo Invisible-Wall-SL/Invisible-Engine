@@ -633,10 +633,12 @@ const fingerprintOf = (c) => JSON.stringify([c.protocol, c.cascade ?? null, c.gr
  * (`holdOpenRounds`): a round dealt on the previous grid cannot be settled on the new one, and
  * dropping it strands the player inside the feature.
  *
- * A runtime game's sessions also keep the bet table they were told about (`carrySession`): its
- * client keeps the config it booted with, and a tab open when the project gains or loses a buy would
- * otherwise be priced by a table it never saw. A reload asks for `config` and gets the new one. A
- * desktop build's sessions are re-sent the config on their next heartbeat, as before.
+ * A runtime game's sessions also keep the bet table they were told about, and whether their config
+ * carried the pots overlay (`carrySession`): its client keeps the config it booted with, and a tab
+ * open when the project gains or loses a buy would otherwise be priced by a table it never saw, and
+ * one open when a book game gains the overlay dealt drops and pot bonuses it cannot draw. A reload
+ * asks for `config` and gets the new one. A desktop build's sessions are re-sent the config on their
+ * next heartbeat, as before.
  */
 const swapMock = (key, contract, channel) => {
 	const twin = channel === AUTHORING;

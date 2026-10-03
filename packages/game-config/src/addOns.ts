@@ -51,8 +51,11 @@ export type AddOnRenames = {
 	pots: Record<string, string>;
 };
 
+/** `notes`: anything else the change did that the author should be told — a setting it moved, the
+ *  pots it removed. Absent when there is nothing to say. */
 export type AddOnResult =
-	{ ok: true; doc: GameConfigDoc; renamed: AddOnRenames } | { ok: false; reason: string };
+	| { ok: true; doc: GameConfigDoc; renamed: AddOnRenames; notes?: string[] }
+	| { ok: false; reason: string };
 
 const freeName = (wanted: string, taken: Set<string>): string => {
 	if (!taken.has(wanted)) return wanted;
@@ -232,9 +235,9 @@ function dropUnusedTokens(doc: GameConfigDoc, tokens: Iterable<string>): void {
 	}
 }
 
-/** The token for a new pot `id`: `POT_<ID>` when free, or when it is an unused `meterSpecial` symbol
- *  (one a lower count kept because the author gave it a payout or another role); else the first
- *  free suffix, reported in `renamed`. */
+/** The token for a new pot `id`: `POT_<ID>` when free, or when it is an unused symbol whose only
+ *  role is `meterSpecial` (one a lower count kept because the author gave it a payout); else the
+ *  first free suffix, reported in `renamed`. A Hold and Win role symbol is never taken over. */
 function tokenForNewPot(doc: GameConfigDoc, id: string, renamed: AddOnRenames): string {
 	const base = `POT_${id.toUpperCase().replace(/[^A-Z0-9_]/g, '_')}`;
 	const used = new Set([
@@ -242,8 +245,8 @@ function tokenForNewPot(doc: GameConfigDoc, id: string, renamed: AddOnRenames): 
 		...(doc.potsOverlay?.pots ?? []).map((p) => p.token),
 		...(doc.holdAndWin?.meters ?? []).map((m) => m.symbol),
 	]);
-	const existing = doc.symbols[base];
-	if (existing?.special_properties?.includes('meterSpecial') && !used.has(base)) return base;
+	const roles = doc.symbols[base]?.special_properties;
+	if (JSON.stringify(roles) === JSON.stringify(['meterSpecial']) && !used.has(base)) return base;
 	const name = freeName(base, new Set(Object.keys(doc.symbols)));
 	doc.symbols[name] = { special_properties: ['meterSpecial'] };
 	if (name !== base) renamed.symbols[base] = name;
@@ -287,11 +290,29 @@ function bonusForNewPot(doc: GameConfigDoc, like: OverlayPot | undefined): PotBo
  * {@link OVERLAY_POT_IDS}, its own token, the last pot's size and drop weight, and a bonus like the
  * last pot's ({@link bonusForNewPot}).
  *
- * With no pots the overlay drops only value coins, so 0 needs a Hold and Win block that is the
- * overlay's bonus (a Hold and Win game's own block counts only its landed coins) with a coin count
- * trigger. A value-coin drop row is added when the table has none, and the most drops per spin is
- * raised to reach the trigger, as the Coins only preset sets it.
+ * 0 is allowed when {@link zeroPotsRefusal} says so. A value-coin drop row is then added when the
+ * table has none, and the most drops per spin is raised to reach the trigger, as the Coins only
+ * preset sets it. `notes` says what was removed and what was raised.
  */
+/**
+ * Why `doc`'s overlay cannot go down to no pots, or `undefined` when it can. With no pots it drops
+ * only value coins, so it needs a Hold and Win block that is the overlay's bonus (a Hold and Win
+ * game's own block counts only its landed coins) with a coin count trigger. `/config`'s pot count
+ * and its last pot's × both ask here.
+ */
+export function zeroPotsRefusal(doc: GameConfigDoc): string | undefined {
+	if (!doc.holdAndWin) {
+		return 'With no pots the overlay drops only value coins, which start a Hold and Win bonus — add one first, or keep at least one pot.';
+	}
+	if (!holdAndWinIsOverlayBonus(doc)) {
+		return "This game's own Hold and Win is its base game, started by coins landing on its reels, so value coins alone start nothing — it needs at least one pot.";
+	}
+	if (!doc.holdAndWin.trigger.count) {
+		return 'Value coins start this Hold and Win only through its coin count trigger, which it does not set — set one in the Hold and Win section first, or keep at least one pot.';
+	}
+	return undefined;
+}
+
 export function setOverlayPotCount(doc: GameConfigDoc, count: number): AddOnResult {
 	if (!doc.potsOverlay) return { ok: false, reason: 'This project has no pots overlay.' };
 	if (!Number.isInteger(count) || count < 0 || count > MAX_OVERLAY_POTS) {
@@ -300,7 +321,13 @@ export function setOverlayPotCount(doc: GameConfigDoc, count: number): AddOnResu
 	const next = structuredClone(doc);
 	const overlay = next.potsOverlay!;
 	const renamed = noRenames();
+	const notes: string[] = [];
 	const removed = overlay.pots.splice(count);
+	if (removed.length) {
+		notes.push(
+			`Removed ${removed.map((p) => p.id).join(', ')}. What is authored for ${removed.length > 1 ? 'them' : 'it'} elsewhere (a Pot Meter, a Win Text name, a flight style) is kept and draws nothing until a pot with that id returns.`,
+		);
+	}
 	const gone = new Set(
 		removed.map((p) => p.id).filter((id) => !overlay.pots.some((p) => p.id === id)),
 	);
@@ -335,73 +362,87 @@ export function setOverlayPotCount(doc: GameConfigDoc, count: number): AddOnResu
 	}
 
 	if (!count) {
-		if (!next.holdAndWin) {
-			return {
-				ok: false,
-				reason:
-					'With no pots the overlay drops only value coins, which start a Hold and Win bonus — add one first, or remove the overlay.',
-			};
-		}
-		if (!holdAndWinIsOverlayBonus(next)) {
-			return {
-				ok: false,
-				reason:
-					"This game's own Hold and Win is its base game, started by coins landing on its reels, so value coins alone start nothing — it needs at least one pot.",
-			};
-		}
-		const trigger = next.holdAndWin.trigger.count?.min;
-		if (trigger === undefined) {
-			return {
-				ok: false,
-				reason:
-					'Value coins start this Hold and Win only through its coin count trigger, which it does not set — set one in the Hold and Win section first, or keep at least one pot.',
-			};
-		}
+		const refusal = zeroPotsRefusal(next);
+		if (refusal) return { ok: false, reason: refusal };
 		if (!overlay.drops.table.some(isCoinDrop)) overlay.drops.table.push({ coin: true, weight: 1 });
 		// Enough coins must be able to land on one spin to reach the trigger, as the Coins only
-		// preset sets it.
-		if (overlay.drops.maxPerSpin < trigger) overlay.drops.maxPerSpin = trigger + 2;
+		// preset sets it. Said, not done silently: it stays raised when pots come back.
+		const trigger = next.holdAndWin!.trigger.count!.min;
+		const before = overlay.drops.maxPerSpin;
+		if (before < trigger) {
+			overlay.drops.maxPerSpin = trigger + 2;
+			notes.push(
+				`Most per spin raised from ${before} to ${trigger + 2}, so the ${trigger} coins the Hold and Win trigger needs can land on one spin. Lower it again if you add pots back.`,
+			);
+		}
 	}
-	return { ok: true, doc: next, renamed };
+	return { ok: true, doc: next, renamed, ...(notes.length ? { notes } : {}) };
+}
+
+/**
+ * Take the Hold and Win BONUS out of `doc` in place: the block, its mode override and its respin
+ * strips (unless another mode pads from them), and its record as an imported bonus. Returns the
+ * symbols those strips dealt, for the caller to drop once nothing deals them
+ * ({@link dropUnusedSymbols}).
+ */
+export function takeOutHoldAndWinBonus(doc: GameConfigDoc): Set<string> {
+	const dealt = new Set<string>();
+	if (!doc.holdAndWin) return dealt;
+	const gameType = holdAndWinGameType(doc);
+	const shared = resolveGameModes(doc).some(
+		(m) => m.id !== HOLD_AND_WIN_MODE && gameTypeForMode(m) === gameType,
+	);
+	if (!shared) {
+		for (const name of symbolsInPlayForGameType(doc, gameType)) dealt.add(name);
+		delete doc.paddingReels[gameType];
+	}
+	delete doc.holdAndWin;
+	const modes = doc.modes?.filter((m) => m.id !== HOLD_AND_WIN_MODE);
+	if (modes?.length) doc.modes = modes;
+	else delete doc.modes;
+	const imports = doc.imports?.filter((i) => i.mode !== HOLD_AND_WIN_MODE);
+	if (imports?.length) doc.imports = imports;
+	else delete doc.imports;
+	return dealt;
+}
+
+/**
+ * Delete each of `names` from the dictionary that `removable` accepts and that nothing still names:
+ * no strip deals it, and it is no meter's symbol or pot's token.
+ */
+export function dropUnusedSymbols(
+	doc: GameConfigDoc,
+	names: Iterable<string>,
+	removable: (symbol: GameConfigSymbol | undefined) => boolean,
+): void {
+	const keep = new Set([
+		...symbolsInPlay(doc),
+		...(doc.holdAndWin?.meters ?? []).map((m) => m.symbol),
+		...(doc.potsOverlay?.pots ?? []).map((p) => p.token),
+	]);
+	for (const name of names) {
+		if (!keep.has(name) && removable(doc.symbols[name])) delete doc.symbols[name];
+	}
 }
 
 /**
  * Take the pots overlay out of `doc`. When the `holdAndWin` block is the overlay's BONUS
  * ({@link holdAndWinIsOverlayBonus}) it goes too — without the overlay nothing could start it — with
- * its mode override and its respin strips, unless another mode pads from those strips. A symbol the removed parts named is dropped only when no
- * strip deals it any more and it is one an add-on makes (a bare token, or a Hold and Win role
- * symbol); everything else the project has is left exactly as it was.
+ * its mode override and its respin strips, unless another mode pads from those strips. A symbol the
+ * removed parts named is dropped only when no strip deals it any more and it is one an add-on makes
+ * (a bare token, or a Hold and Win role symbol); everything else the project has is left exactly as
+ * it was.
  */
 export function removePotsOverlay(doc: GameConfigDoc): GameConfigDoc {
 	const next = structuredClone(doc);
 	const overlay = next.potsOverlay;
 	if (!overlay) return next;
 	const tokens = new Set(overlay.pots.map((p) => p.token));
-	const bonusSymbols = new Set<string>();
-	if (holdAndWinIsOverlayBonus(next)) {
-		const gameType = holdAndWinGameType(next);
-		const shared = resolveGameModes(next).some(
-			(m) => m.id !== HOLD_AND_WIN_MODE && gameTypeForMode(m) === gameType,
-		);
-		if (!shared) {
-			for (const name of symbolsInPlayForGameType(next, gameType)) bonusSymbols.add(name);
-			delete next.paddingReels[gameType];
-		}
-		delete next.holdAndWin;
-		const modes = next.modes?.filter((m) => m.id !== HOLD_AND_WIN_MODE);
-		if (modes?.length) next.modes = modes;
-		else delete next.modes;
-	}
+	const bonusSymbols = holdAndWinIsOverlayBonus(next)
+		? takeOutHoldAndWinBonus(next)
+		: new Set<string>();
 	delete next.potsOverlay;
-	const keep = new Set([
-		...symbolsInPlay(next),
-		...(next.holdAndWin?.meters ?? []).map((m) => m.symbol),
-	]);
-	for (const name of tokens) {
-		if (!keep.has(name) && isBareToken(next.symbols[name])) delete next.symbols[name];
-	}
-	for (const name of bonusSymbols) {
-		if (!keep.has(name) && isHoldAndWinSymbol(next.symbols[name])) delete next.symbols[name];
-	}
+	dropUnusedSymbols(next, tokens, isBareToken);
+	dropUnusedSymbols(next, bonusSymbols, isHoldAndWinSymbol);
 	return next;
 }

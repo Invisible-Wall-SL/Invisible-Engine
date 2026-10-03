@@ -418,7 +418,13 @@ const pathEndsWith = (pathname, route) => {
  *
  * `overlay` is the seam an add-on deals through (`withPotsOverlay`, `mock-pots-overlay.mjs`): called
  * once with this host's board and its `startFreeSpins` hook, it returns the hooks below. Absent, not
- * one byte of any answer changes.
+ * one byte of an answer to a session never told about it changes.
+ *
+ * A session is dealt the add-on only while the config it was sent carried it (`session.potsOverlay`,
+ * kept across a contract swap by `carrySession`). A client keeps the first config it saw, so a tab
+ * booted before the add-on was switched on is dealt the plain game, and so is a tab booted with it
+ * after it was switched off (its pots just sit). That session's heartbeat carries no config, so a
+ * reload finds none, asks for `config`, and is re-pinned to the game this mock deals.
  */
 export function createMockRgs(opts = {}) {
 	const startBalance = Number(opts.startBalance ?? process.env.START_BALANCE ?? 500_000); // cents → $5000
@@ -547,10 +553,16 @@ export function createMockRgs(opts = {}) {
 		);
 
 		const events = [];
+		const isConfigCall = actions.length === 1 && actions[0].action === 'config';
+		// A session told a different game than this mock deals, and not being re-told now: an open tab
+		// from before a contract swap. It is dealt the plain game (see the factory's comment).
+		const stale =
+			session.configSent && !isConfigCall && (session.potsOverlay === true) !== Boolean(overlay);
+		const addOn = stale ? null : overlay;
 		const openRound = (round) => ({
 			updating: true,
 			id: round.id,
-			...(round.bonus || overlay?.inBonus(round)
+			...(round.bonus || addOn?.inBonus(round)
 				? { outcome: 'bonus', inGameBet: round.baseBet }
 				: {}),
 		});
@@ -558,10 +570,12 @@ export function createMockRgs(opts = {}) {
 		// body = the auth call). A real server sends it once per session, but the
 		// facade module resets on each browser reload while this mock keeps the
 		// session — re-sending on heartbeat ensures every (re)load re-captures it
-		// (and re-selects the book symbol mapping).
-		const isConfigCall = actions.length === 1 && actions[0].action === 'config';
-		if (!session.configSent || actions.length === 0 || isConfigCall) {
+		// (and re-selects the book symbol mapping). A stale session's heartbeat is
+		// the exception: its reload must ask for `config` to be re-pinned.
+		if (!session.configSent || isConfigCall || (actions.length === 0 && !stale)) {
 			session.configSent = true;
+			if (overlay) session.potsOverlay = true;
+			else delete session.potsOverlay;
 			const context = buildConfigContext(payTable);
 			const config = {
 				event: 'config',
@@ -581,7 +595,7 @@ export function createMockRgs(opts = {}) {
 
 		let round = session.round;
 		// The add-on's forced beats are checked before anything is dealt, so a typo charges nothing.
-		const refused = overlay?.refuse(actions);
+		const refused = addOn?.refuse(actions);
 		if (refused) {
 			return sendJson(req, res, 200, {
 				result: 0,
@@ -662,7 +676,7 @@ export function createMockRgs(opts = {}) {
 						});
 					}
 
-					const turn = overlay?.beginPlay(session, round, a.context, {
+					const turn = addOn?.beginPlay(session, round, a.context, {
 						mode: round.bonus?.active ? 'freeSpins' : 'basegame',
 						sid,
 					});
@@ -675,7 +689,7 @@ export function createMockRgs(opts = {}) {
 						});
 					}
 					if (turn?.owned) {
-						overlay.playOwned(events, session, round);
+						addOn.playOwned(events, session, round);
 						break;
 					}
 
@@ -740,7 +754,7 @@ export function createMockRgs(opts = {}) {
 							round.bonus.active = false;
 							events.push({ event: 'playedBonusSpins', context: bonusSnapshot(round) });
 							// The add-on's bonus waiting behind these free spins starts instead of the end.
-							if (!overlay?.takeOver(events, session, round))
+							if (!addOn?.takeOver(events, session, round))
 								events.push({ event: 'gameEnd', context: { win: round.win } });
 						}
 						break;
@@ -781,7 +795,7 @@ export function createMockRgs(opts = {}) {
 					// No trigger → base round resolves now.
 					events.push({ event: 'playedSpin', context: reels });
 					// …unless the add-on starts its bonus on this spin: the round stays open.
-					if (overlay?.takeOver(events, session, round)) break;
+					if (addOn?.takeOver(events, session, round)) break;
 					events.push({ event: 'gameEnd', context: { win: round.win } });
 					const context = turn ? turn.context : a.context;
 					const autoCollect = autoCollectAllowed && (context === '' || context === undefined);
@@ -816,7 +830,7 @@ export function createMockRgs(opts = {}) {
 						platform: {},
 					});
 			}
-			if (overlay && a.action === 'play') overlay.endPlay(events, dealtFrom, session, round);
+			if (addOn && a.action === 'play') addOn.endPlay(events, dealtFrom, session, round);
 			round?.stored.push({ action: a, events: events.slice(dealtFrom) });
 		}
 
