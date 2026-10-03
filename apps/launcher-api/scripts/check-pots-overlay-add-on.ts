@@ -13,7 +13,10 @@
  *    carries the overlay screens for one with;
  *  - end to end: the config is added once (a second add is refused), a part that loses its race is
  *    reported and filled by a re-run, the Flow is grafted only when asked, and nothing is written to
- *    Win Text.
+ *    Win Text;
+ *  - the REAL symbols export does not report the seeded placeholder art as missing: the shared
+ *    runtime registers those built-in frames itself, so "will render blank" was a false alarm on
+ *    every overlay project. A bound frame nothing ships is still reported.
  */
 import { mock } from 'node:test';
 import type { LiveLease } from '../src/lib/server/lease.ts';
@@ -75,6 +78,15 @@ mock.module(src('lib/server/r2.ts'), {
 			R2.set(to, { ...o });
 			return true;
 		},
+		getObjectBytes: async (key: string) => {
+			const o = R2.get(key);
+			return o ? new TextEncoder().encode(o.body) : null;
+		},
+		putObjectBytes: async (key: string, bytes: Uint8Array) => {
+			R2.set(key, { body: new TextDecoder().decode(bytes), etag: `"e${++etagSeq}"` });
+			return R2.get(key)!.etag;
+		},
+		deleteObject: async (key: string) => R2.delete(key),
 		deleteObjects: async (keys: string[]) => keys.forEach((k) => R2.delete(k)),
 		listAllKeys: async (prefix: string) => sortedKeys(prefix),
 		listAllObjects: async (prefix: string) =>
@@ -123,6 +135,7 @@ const { potsOverlaySymbolsSeed, symbolDefaultsFor } =
 const { gameConfigDefaultFor } = await import('../src/lib/server/gameConfigDefaults.ts');
 const { normalizeDoc } = await import('../src/lib/server/editorStorage.ts');
 const { sceneSetOptionsFor } = await import('../src/lib/addOns.ts');
+const { exportEditorSymbols } = await import('../src/lib/server/symbolExport.ts');
 const { editorDocKey, flowV2DocKey, gameConfigDocKey, symbolsDocKey, winTextDocKey } =
 	await import('../src/lib/server/projectPaths.ts');
 
@@ -793,6 +806,25 @@ await check('a preset that does not fit: a readable refusal, no validator paths'
 	assert(out.error.startsWith("This preset doesn't fit this game: "), out.error);
 	assert(!/potsOverlay\.|holdAndWin\./.test(out.error), `a path leaked: ${out.error}`);
 	same(snapshot(), before, 'R2');
+});
+
+console.log('\n6. the seeded art is not reported missing');
+
+await check('the overlay symbols export: no missing frame, no missing spine', async () => {
+	const symbols = storedJson<{ symbols: Record<string, unknown> }>(symbolsDocKey(CLIENT, 'book'));
+	assert(symbols.symbols.POT_RED && symbols.symbols.BONUS, 'section 4 seeded no overlay symbols');
+	const { index } = await exportEditorSymbols(CLIENT, 'book');
+	same(index.missing, [], 'missing frames');
+	same(index.spinesMissing, [], 'missing spines');
+});
+
+await check('a bound frame nothing ships is still reported', async () => {
+	const key = symbolsDocKey(CLIENT, 'book');
+	const doc = storedJson<{ symbols: Record<string, Record<string, unknown>> }>(key);
+	doc.symbols.POT_RED.static = { type: 'sprite', assetKey: 'not_in_any_atlas.png' };
+	R2.set(key, { body: JSON.stringify(doc), etag: `"e${++etagSeq}"` });
+	const { index } = await exportEditorSymbols(CLIENT, 'book');
+	same(index.missing, ['not_in_any_atlas.png'], 'missing frames');
 });
 
 if (failures) {

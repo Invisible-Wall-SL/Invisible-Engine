@@ -257,6 +257,7 @@
 	async function runDuplicate() {
 		const source = dupSource;
 		if (!source) return;
+		const scope = dupScope;
 		dupBusy = true;
 		dupErr = '';
 		try {
@@ -268,13 +269,17 @@
 					key: dupKey,
 					name: dupName,
 					clientKey: dupClient,
-					scope: dupScope,
+					scope,
 				}),
 			});
 			const out = await res.json().catch(() => ({}));
 			if (!res.ok) throw new Error(out?.error ?? `Duplicate failed (${res.status}).`);
 			dupSource = null;
-			dupMsg = `Copied ${source.name} → ${dupName} (${out.copied} files, ${out.rebased} re-pointed).`;
+			dupMsg =
+				`Copied ${source.name} → ${dupName} (${out.copied} files, ${out.rebased} re-pointed). ` +
+				(scope === 'setup'
+					? 'No art, sounds or fonts were copied: the copy plays on placeholder art until you add your own.'
+					: 'It starts unpublished.');
 			await invalidateAll();
 		} catch (e) {
 			dupErr = e instanceof Error ? e.message : 'Duplicate failed.';
@@ -1689,17 +1694,19 @@
 					<label>
 						What to copy
 						<select bind:value={dupScope}>
-							<option value="setup">Game setup only (scenes, flow, config, symbols, text)</option>
-							<option value="full">Everything, including atlases, spines and fonts</option>
+							<option value="setup">Game setup only (no art, sounds or fonts)</option>
+							<option value="full">Everything, including atlases, spines, fonts and sounds</option>
 						</select>
 					</label>
 				</div>
 				<p class="confirm-note">
 					{#if dupScope === 'setup'}
-						Fast. The copy keeps the whole game but points at no art yet — bring your own for the
-						reskin.
+						Copies the scenes, flow, config, symbols and text, and no art, sounds or fonts. The copy
+						plays on placeholder art until you add your own, and anything that used the original's
+						art draws blank. Pick Everything for a copy that plays as the original does.
 					{:else}
-						The copy plays immediately and you replace art in place. Large projects can take a
+						The copy plays as the original does and you replace art in place. It starts unpublished:
+						the original's published versions stay with the original. Large projects can take a
 						while, and very large ones are refused (move those with the FTP Browser).
 					{/if}
 				</p>

@@ -151,20 +151,27 @@ client for a variant, a different client to reskin it for them. You choose:
 - **New name / new key / client** — the key auto-follows the name until you edit it,
   same as the create form.
 - **What to copy:**
-  - **Game setup only** (default) — scenes, both flow docs, Game Config, symbols,
-    win text, strings, the project's editor components and their defaults, plus the
-    atlas/sheet config seeds. Fast; the copy keeps the entire game and points at no
-    art yet, which is what you want when new art is coming.
-  - **Everything, including atlases, spines and fonts** — additionally copies the
-    asset folders, so the copy plays immediately and you replace art in place.
-    Large projects take a while and very large ones are refused outright (move
-    those with the [FTP Browser](ftp-browser.md) instead) — the copy is never
-    silently truncated.
+  - **Game setup only (no art, sounds or fonts)** (default) — scenes, both flow
+    docs, Game Config, symbols, win text, strings, the project's editor components
+    and their defaults, plus the atlas/sheet config seeds. It copies **no art,
+    sounds or fonts**: the copy plays on placeholder art until you add your own, and
+    everything that used the original's art draws blank. Pick it only when new art
+    is coming. The message after the copy says so again.
+  - **Everything, including atlases, spines, fonts and sounds** — the whole project:
+    every asset folder, the Atlas Maker's deployed pages, effects, clips and
+    cinematics. The copy plays as the original does and you replace art in place.
+    Use it to try something on a copy of a working game (the
+    [pots overlay walkthrough](../guides/add-pots-overlay.md) does). The original's
+    published versions and its rolling doc backups stay with the original. Over 4000
+    files the copy is refused outright, before anything is written; only files that
+    are copied count. Move a bigger project with the [FTP Browser](ftp-browser.md).
+    The copy is never silently truncated.
 
 Asset references **inside** the copied documents are re-pointed at the new project
 as they are copied, so the duplicate never quietly reads the original's files (and
 does not break when the original is edited or deleted). The copy inherits the
-source's game type, is created unpublished, and mints its own read token on its
+source's game type, starts unpublished with either choice (no published versions,
+nothing for players until you Publish it), and mints its own read token on its
 first publish.
 
 You need the Game Maker tool and access to the source project; unlike Publish, it
