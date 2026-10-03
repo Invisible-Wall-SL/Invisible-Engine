@@ -252,6 +252,43 @@ including one you cleared on purpose.
 To tune the pots, the drops and each pot's bonus, or to remove the overlay, use
 [Game Config → Add-ons](game-config.md#add-ons). The Game Maker only adds it.
 
+### Import a bonus from another project
+
+Once a project has the pots overlay, its card also shows **Import a bonus…**: it copies one feature
+of another project of the **same client** into this one, as a bonus a pot can start. The other
+project is only read.
+
+1. On the card, click **Import a bonus…**.
+2. Pick the source project under **From**, then the **Feature**. Today only a Hold and Win feature
+   can be imported. Free spins and authored reels modes are listed but marked **(not yet)**, with
+   the reason under the picker.
+3. Under **Pots that start it**, tick the pots that should start the imported bonus (each shows the
+   mode it starts now).
+4. If this project already has a Hold and Win bonus (for example from the 3 Pots preset), tick
+   **Replace this project's Hold and Win bonus**: a project has one Hold and Win. A Hold and Win
+   game's own base-game block is never replaced. /config keeps a backup of the config from before.
+5. Click **Import**, read the report, then **Done**, and reload your own open tabs of the tools
+   below for this project.
+
+**What it copies.** The feature's [Game Config](game-config.md) block with its respin strips and
+its symbols (a name this project already uses is renamed, listed under **Renamed**); those symbols'
+[Symbols](symbols-state-machine.md) art; the feature's screens, which replace this project's
+screens for that mode; its [Flow](flow.md) section, only into a flow the project has stored; and its
+[Win Text](win-text.md) lines, except the pot lines, which stay this project's. Spines the copied art
+or screens use are copied into the shared library under `imported/<project>/…`, so they ship with
+the game. Options of the source that only work in its base game (buy, random metre, instant
+collect…) are left out, and the report lists them under **Left out**. A pot whose special the
+imported feature lacks loses it (**Special dropped**).
+
+**Re-sync.** Each imported bonus adds a **Re-sync _mode_ from _project_…** button to the
+card. It copies the feature again as the source is now. Only the imported pieces are overwritten
+and their names stay the same; the pots that start it and everything else in the project stay.
+
+**Who else is editing.** Nothing is written while someone else has this project's Game Config,
+Symbols, Scene Editor, Flow or Win Text open. The report has one line per part (Symbols, Spines,
+Screens, Flow, Win Text): _added_, _nothing to add_, _changed meanwhile_, _skipped_ or _failed_. A
+part that lost a race to someone else's save is filled in by running **Re-sync**.
+
 ### Publish (and Re-publish)
 
 Each project card under **Your projects** carries a **Publish** button (it reads
@@ -520,6 +557,8 @@ graduate later; its R2 authoring data carries over.
   only appends a Pot Meter for each new pot (`red_2`…) beside the existing ones. Arrange them in the
   [Scene Editor](invisible-editor.md). **Coins only** is not offered there: the game's own Hold and
   Win starts from its reels, so dropped coins alone would start nothing.
+- **Only a Hold and Win feature can be imported.** Free spins and authored reels bonuses are listed
+  as **(not yet)**: they would play as the game's own free spins, not on their own strips.
 - **The pots overlay can only be added here.** Tuning and removing it are in
   [Game Config → Add-ons](game-config.md#add-ons). The new-game checkbox never grafts the Flow; use
   **Pots overlay parts…** with the checkbox, or **＋ Add overlay steps** in Invisible Flow.

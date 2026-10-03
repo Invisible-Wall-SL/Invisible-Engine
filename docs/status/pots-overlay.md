@@ -11,8 +11,10 @@ draws tokens over the host's symbols (after the stop, or reel by reel), flies ea
 flight head into its pot, drains the pot and starts its bonus (Hold and Win, or the host's free
 spins). Overlays may be pots-only, coins-only or both. The overlay screens, Flow steps (including
 `showTokens` / `liftTokens` / `drainPots`), symbol states and Win Text are authorable. A project
-without the block, which is every live project today, plays exactly as before. Next: the owner makes
-`borut-pots-sample` (Owner checklist 2); then Phase 7 (import a bonus from another project); Phase 8
+without the block, which is every live project today, plays exactly as before. Phase 7 (#1022, in
+review): Game Maker → **Import a bonus…** copies another same-client project's Hold and Win feature
+into an overlay host as the bonus a pot starts, and **Re-sync** copies it again from the source.
+Next: the owner makes `borut-pots-sample` and `hw-classic-sample` (Owner checklist 2 and 4); Phase 8
 waits on the partner.
 
 ## How sessions use this file (the hub)
@@ -46,7 +48,7 @@ session is the Claude Code session titled **"3 pots overlay mechanic"**.
 | 5c | Flow vocabulary composition (editor, publish gate, runtime) + graft | merged | Pots overlay Phase 5c — Flow vocabulary composition | #1014 |
 | 5d | `/symbols` + `/win-text` + Localization through the capability | merged | Pots overlay Phase 5d — Symbols + Win Text | #1011 |
 | 6 | Game Maker add-on action + guides + playbook + `borut-pots-sample` played end to end | merged (the published sample is the owner's) | Pots overlay Phase 6 — Game Maker add-on + sample | #1017 |
-| 7 | Bonus import from another project (provenance, re-sync, pot → imported mode) | in progress | Pots overlay Phase 7 — bonus import from another project | — |
+| 7 | Bonus import from another project (provenance, re-sync, pot → imported mode) | in review (draft) | Pots overlay Phase 7 — bonus import from another project | #1022 |
 | 8 | Partner wire | blocked on partner | — | — |
 
 ## Current state
@@ -95,6 +97,80 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
   - The runtime holds one `RuntimeBundle` (`apps/lines/src/editor-scenes.ts:496-497`).
 
 ## Decisions & findings
+
+- 2026-10-03 — **Phase 7, as built** (session "Pots overlay Phase 7 — bonus import from another
+  project", #1022). Pinned by `packages/game-config/imports.fixture.ts`, `check:bonus-import`
+  (launcher), `check:shared-spine-promote` §4 and two new cases in `check:pots-overlay`.
+  - **Only a Hold and Win feature imports (decided, conservative).** The facade turns every `reels`
+    bonus into the host's own free spins on `freegame` (`bonusRoutes` keeps only `respins` vs
+    `reels`), nothing sends spins inside a custom mode, and the book mock deals no strips. So an
+    imported free-spins or authored `reels` mode would not play on its own strips. `importableFeatures`
+    lists them with the reason and `importBonus` refuses them. Building them is an open item.
+  - **One Hold and Win per project, so an import REPLACES.** The engine holds one `holdAndWin` block
+    (one `RespinBoard`, one facade capture). An import into a host whose block is the OVERLAY's bonus
+    (the 3 Pots preset's) replaces it only with **Replace** ticked. The config save takes a backup
+    (`'always'`). A Hold and Win GAME's base-game block is never replaced. Never two blocks.
+  - **The config half** (`packages/game-config/src/imports.ts`, pure, as `addOns.ts`):
+    - `importBonus(target, source, {project, mode, at, replace?, pots?})` needs a pots overlay on the
+      target, since a full pot is the only thing that starts an imported bonus.
+    - The block goes through `holdAndWinBonusFrom(source, host)`, which is `holdAndWinBonus` (5a)
+      generalised from a preset id to any config. It drops the base-board-only options (pattern, lucky
+      spin, random metre, buy, instant collect, meters) and returns them as `leftOut`; the respin
+      strips are read under the source's game type and cycled to the host's reels.
+    - Symbols merge with the add-ons' `_2` renames. `imports: [{mode, importedFrom: {project, mode,
+      at}, symbols: {sourceName: nameHere}}]` records every imported symbol, so a re-sync reuses each
+      name and its `/symbols` binding never orphans.
+    - `pots` routes those pots to the mode. A pot routed to it whose `activates` names a special the
+      imported block lacks loses it (`droppedActivates`): a Classic import into 3 Pots drops red's
+      payer and blue's collector and keeps green's multiplier.
+    - `resyncBonus(target, source, mode, at)` is a replace that takes back only the import's pieces
+      (block, strips, mode override, the symbols in the map) and adds the source's again under the
+      stored names. The pots, their routes and labels, and every other key are untouched.
+    - `takeOutHoldAndWinBonus` / `dropUnusedSymbols` were split out of `removePotsOverlay`, which now
+      also drops the `imports` record. `normalizeBonusImports` / `validateBonusImports` sit in
+      `bonusImports.ts`, apart from the presets, so a game bundle that normalizes never carries them.
+      A config without an import stores no `imports` key (byte-identical).
+  - **The other docs** (`apps/launcher-api/src/lib/server/projectBonusImport.ts`, `POST
+    /api/game-maker/import`). It mirrors the Phase 6 add-on: a lease on any target doc refuses with
+    nothing written; config first (`If-Match` + backup); then each doc its own conditional write
+    reporting `added` / `present` / `conflict` / `skipped` / `failed`; never over an unparseable doc;
+    `invalidateRuntimeBundle`. What counts as "the feature's" (decided, conservative):
+    - **Symbols:** `symbols` / `names` / `symbolSounds` of the imported symbols, under the map. A
+      symbol the source never bound gets the 5d placeholder. NOT copied: `coinLabel`, `flights`, and
+      the other board-wide blocks (they are the host's).
+    - **Screens:** the source's `role: 'mode'` screens for the mode, plus the screen its mode override
+      names as HUD. They replace this layout's for the mode, at the place they stood. A node id another
+      screen uses is suffixed and reported.
+    - **Flow:** `modes[mode]`, into a stored flow only.
+    - **Win Text:** `jackpots`, `respins`, `wheel` and the `feature` lines, but never a pot's
+      (`meterFull`, `potLabel`, `potNames`).
+    - A piece the source lacks leaves the host's as it is and says so. The source is only read.
+  - **Spines (rule 8).** A cell or a copied screen node naming a spine under the source's prefix is
+    promoted to `_shared/spines/imported/<source>/<bundle>` BEFORE the doc naming it is written, and
+    the reference is rewritten. A `_shared` bundle already travels export → deploy → bake → pull →
+    register (`bundleFromAssetKey`), so nothing new is needed down the chain. The namespace means an
+    import never overwrites another project's shared bundle. `promoteSpineToShared` gained `as`, and
+    its shared-index merge is now a conditional read-modify-write with retries (it was
+    last-writer-wins). Atlas regions need nothing: a scoped sheet ref is a full R2 manifest key, which
+    the export already reads from any prefix.
+  - **The mock route needed no change.** An imported Hold and Win is THE project's block, so
+    `potsOverlayMockInputs` hands it to the reused H&W engine as before (design §3.5: "the source
+    feature's generator"). Its `check:pots-overlay` digests, `check:holdandwin` and
+    `check:freespins` are unmoved.
+  - **`hw-classic-sample` is not reachable from a session** (no launcher login, and a session never
+    reads live R2 here). Everything is built and verified against its config as the Game Maker writes
+    it, which is the Classic sticky preset (`docs/playtest/hw-classic-sample.md`). Its creation is
+    Owner checklist 4.
+  - **Real-clock verification** (headless shell, local mock + runtime stub, no R2):
+    - **Import:** a Book-of host on "pots to free spins" with `hw-classic-sample`'s Hold and Win
+      imported and `gold` routed to it. `pot:gold` filled the pot, the GRAND jackpot bar and the
+      Classic respins played (multiplier active), the round collected and returned to idle.
+      Balance $5,000 → $5,012 (stake $1, `gameEnd.win` $13). 0 exceptions; the only console errors
+      are environmental (no symbol map in the stub, web fonts).
+    - **Re-sync:** the source edited to 5 starting respins, re-synced. The next `pot:gold` entered
+      with `respins: 5` (3 before), played 40 respins to the end and returned to idle; 0 exceptions.
+    - **Comparison, unchanged path:** the 3 Pots preset (no import), `pot:red`, reached idle the same
+      way.
 
 - 2026-10-02 — **Phase 4b runtime, as built** (the session that built Phases 3 and 4a). Pinned by
   new cases in `engine-game`'s `potsOverlay.fixture.ts` (`boardDropCells`) and game-config's
@@ -642,6 +718,27 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Open items / next
 
+00. **Left after Phase 7 (#1022):**
+   - **Importing a free-spins or authored `reels` mode.** It needs (from the runtime map taken in
+     Phase 7):
+     - the facade to keep the bonus's mode id (`bonusRoutes` reduces it to `reels`), widen its
+       `gameType` past `basegame | freegame`, and enter / exit the mode with `modeEnter` / `modeExit`
+       instead of `freeSpinTrigger` / `freeSpinEnd`;
+     - the mock to deal that mode's spins from its own strips (the book mock has none; `takeOver`
+       routes only `host.freeSpinsMode`);
+     - `getPaddingReels` to stop serving the server's strips for an authored non-base game type;
+     - coded presentation for a generic reels mode, or a flow.
+     Until then such a mode stays a `modeEnter` / `modeExit` stub in the mock.
+   - **Not copied by an import:** `/symbols` `coinLabel` and `flights` (board-wide, the host's), a
+     flipbook clip or FX effect a copied cell or node names (they live in the source's own docs), and
+     a source project's own components. A copied Flow section that names a node id the import
+     suffixed points at the old id. Each is reported nowhere yet; the report names renamed nodes only.
+   - **One Hold and Win per project.** Two imported Hold and Win bonuses (or one beside the 3 Pots
+     bonus) would need several `holdAndWin` blocks in the engine, the facade and the mock.
+   - **Human eyes:** after a pot-started Hold and Win on an overlay host, the respin board's last
+     coins stay on screen at idle until the next spin. The same happens on the 3 Pots preset without
+     an import, so it predates Phase 7; whether it is intended is a design question.
+
 0. **Left after Phase 4b:**
    - **Phase 6:** a token with no art in `/symbols` draws nothing (`Symbol`'s missing-art rule),
      on its cell and as a flight head. The add-on seeds placeholder art, so this only bites a
@@ -722,7 +819,18 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
    4. Game Maker → `borut-pots-sample` → **Publish**.
    5. Tell the hub (or any session): a session then plays it with `game-playtester` and
       [docs/playtest/borut-pots-sample.md](../playtest/borut-pots-sample.md).
-3. **Phase 8:** ask the partner whether their RGS can deal per-player pots, drops on top of symbols,
+3. **Phase 7 — try the import** once #1022 is merged and the launcher has redeployed:
+   1. Make sure `hw-classic-sample` exists (item 4).
+   2. Game Maker → `borut-pots-sample` card → **Import a bonus…** → From **hw-classic-sample** →
+      Feature **Hold and Win** → tick the pots that should start it → tick **Replace this project's
+      Hold and Win bonus** (the 3 Pots bonus) → **Import**. Read the report.
+   3. Edit something in `hw-classic-sample` (for example `/config` → Hold and Win → respins), then on
+      the `borut-pots-sample` card → **Re-sync holdAndWin from hw-classic-sample…**. Publish, and a
+      session plays it with the playbook.
+4. **Create `hw-classic-sample`** if it does not exist yet: the Hold and Win Owner checklist step 1
+   ([status/hold-and-win.md](hold-and-win.md)). Phase 7 was built against its config as the Game
+   Maker writes it, not against the project itself.
+5. **Phase 8:** ask the partner whether their RGS can deal per-player pots, drops on top of symbols,
    and a bonus routed by pot. The same partner conversation as Hold and Win Phase 10.
 
 ## Blocked (owner / external)
@@ -730,6 +838,16 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 - **The partner's RGS** for production play (Phase 8). Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-03 — **Phase 7: import a bonus from another project (#1022, draft).** Game Maker →
+  **Import a bonus…** / **Re-sync** (`POST /api/game-maker/import`). It copies a same-client
+  project's Hold and Win feature into an overlay host: the config with provenance and a stored rename
+  map, the `/symbols` art (source spines promoted to `_shared/spines/imported/…`), the mode's
+  screens, its Flow section and its Win Text lines. A pot can route to it. Free spins and reels modes
+  are refused with the reason (open item 00). The shared spine index merge is now conditional. New
+  gates: `imports.fixture.ts`, `check:bonus-import`; extended: `check:pots-overlay`,
+  `check:shared-spine-promote`. Verified at real clock (Decisions). Left: open item 00, Owner
+  checklist 3–4.
 
 - 2026-10-03 — **Hub: second wave merged** (session "3 pots overlay mechanic"). The owner said
   "merge when green"; the hub merged each PR once its independent `code-reviewer` should-fixes had

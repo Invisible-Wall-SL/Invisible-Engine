@@ -42,6 +42,8 @@ export class PromoteError extends Error {
 
 const SHARED_INDEX_KEY = '_shared/spines/skeletons.json';
 const BUNDLE_SOURCE_SIDECAR = 'source.json';
+/** The namespace bonus imports promote under (`projectBonusImport.importedSpineBundle`). */
+const IMPORTED_ROOT = 'imported';
 
 /**
  * Copy `<client>/<project>/spines/<bundle>` → `_shared/spines/<as>` (`as` defaults to the bundle's
@@ -59,6 +61,10 @@ export async function promoteSpineToShared(
 	bundle: string,
 	as: string = bundle,
 ): Promise<{ entry: SkeletonIndexEntry; files: number; replaced: boolean }> {
+	if (as === bundle && (as === IMPORTED_ROOT || as.startsWith(`${IMPORTED_ROOT}/`))) {
+		// The prune below would delete every bonus import's promoted bundles under it.
+		throw new PromoteError(`'${bundle}' is reserved for bonus imports; rename the bundle first.`);
+	}
 	const srcPrefix = spineBundlePath(clientKey, projectKey, bundle);
 	const destPrefix = spineBundleSharedPath(as);
 
@@ -119,13 +125,14 @@ async function mergeSharedIndex(entry: SkeletonIndexEntry): Promise<void> {
 		let skeletons: SkeletonIndexEntry[] = [];
 		const existing = await getObjectTextWithEtag(SHARED_INDEX_KEY);
 		if (existing) {
+			let parsed: { skeletons?: unknown };
 			try {
-				const parsed = JSON.parse(existing.text) as { skeletons?: SkeletonIndexEntry[] };
-				if (Array.isArray(parsed.skeletons)) skeletons = parsed.skeletons;
+				parsed = JSON.parse(existing.text) as { skeletons?: unknown };
 			} catch {
-				// An unparseable shared index is treated as empty rather than throwing: refusing to
-				// promote because of somebody else's corrupt file helps nobody, and we rewrite it whole.
+				// Rewriting it would drop every other project's entry (the engine mark among them).
+				throw new PromoteError(`${SHARED_INDEX_KEY} does not parse; fix it before promoting.`);
 			}
+			if (Array.isArray(parsed.skeletons)) skeletons = parsed.skeletons as SkeletonIndexEntry[];
 		}
 		const next = [...skeletons.filter((e) => e.folder !== entry.folder), entry].sort((a, b) =>
 			a.folder.localeCompare(b.folder),
