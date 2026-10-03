@@ -18,7 +18,7 @@
  */
 import { mock } from 'node:test';
 import type { LiveLease } from '../src/lib/server/lease.ts';
-import type { FlowDocV2 } from 'engine-flow-v2';
+import type { FlowDoc as FlowDocV2 } from 'engine-flow-v2';
 import type { LayoutDoc, Scene, WinTextDoc } from 'engine-layout';
 import type { GameConfigDoc } from 'game-config';
 

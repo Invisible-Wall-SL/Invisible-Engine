@@ -28,7 +28,7 @@
  * `failed`; never over a doc that does not parse. A part that lost a race is filled in by running
  * re-sync.
  */
-import type { FlowDocV2 } from 'engine-flow-v2';
+import type { FlowDoc as FlowDocV2 } from 'engine-flow-v2';
 import {
 	WIN_TEXT_POT_FIELDS,
 	mergeMissingScreens,
