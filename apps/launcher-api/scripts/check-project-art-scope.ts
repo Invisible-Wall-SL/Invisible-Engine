@@ -57,7 +57,9 @@ mock.module(r2Url, {
 		getObjectBytes: async (key: string) => {
 			touched.push(key);
 			const o = bucket.get(key);
-			return o ? { body: new TextEncoder().encode(o.text), etag: null } : null;
+			return o
+				? { body: new TextEncoder().encode(o.text), contentType: 'application/json', etag: null }
+				: null;
 		},
 		putObjectText: async (key: string, text: string) => {
 			bucket.set(key, { text, modified: Date.now() });
@@ -94,11 +96,11 @@ mock.module(r2Url, {
 	},
 });
 
-const { artScopeAllows, borrowsClientArt, candidateAtlases, pageAllowed } =
+const { artScopeAllows, borrowsClientArt, candidateAtlases, isProjectArtAllowed, pageAllowed } =
 	await import('../src/lib/server/projectArtScope.ts');
 const { loadRegionSet } = await import('../src/lib/server/editorRegions.ts');
-const { exportEditorArt, referencedArtRefs } = await import('../src/lib/server/editorArtExport.ts');
-const { editorDocKey, projectComponentKey, SUB } =
+const { exportEditorArt } = await import('../src/lib/server/editorArtExport.ts');
+const { editorDocKey, projectComponentKey, projectComponentVersionKey, SUB } =
 	await import('../src/lib/server/projectPaths.ts');
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -302,6 +304,8 @@ const sheet = (stem: string, frame: string) => {
 };
 const LANDSCAPE_SHEET = sheet('S_Land', 'faceLand');
 const PORTRAIT_SHEET = sheet('S_Port', 'facePort');
+const LEGACY_SHEET = sheet('S_Legacy', 'faceLegacy');
+const PINNED_SHEET = sheet('S_Pinned', 'facePinned');
 const RIG = 'portraitRig';
 const rigFolder = `${SUB.spines(CLIENT, PROJECT)}/${RIG}`;
 put(`${SUB.spines(CLIENT, PROJECT)}/skeletons.json`, {
@@ -310,19 +314,33 @@ put(`${SUB.spines(CLIENT, PROJECT)}/skeletons.json`, {
 put(`${rigFolder}/${RIG}.atlas`, `${RIG}.webp\nsize: 8,8\nbone\n  bounds: 0,0,8,8\n`);
 put(`${rigFolder}/${RIG}.json`, { skeleton: { spine: '4.2' } });
 put(`${rigFolder}/${RIG}.webp`, 'x');
-put(projectComponentKey(PROJECT, 'ratioFace'), {
-	id: 'ratioFace',
-	name: 'Ratio Face',
-	version: 1,
+const def = (id: string, version: number, params: { key: string; kind: string }[]) => ({
+	id,
+	name: id,
+	version,
 	scope: 'project',
 	category: 'ui',
-	params: [
-		{ key: 'faceImage', kind: 'image' },
-		{ key: 'introSpine', kind: 'spine' },
-	],
+	params,
 	root: { id: 'root', kind: 'container', x: 0, y: 0, children: [] },
 });
-const ratioDoc = {
+put(
+	projectComponentKey(PROJECT, 'ratioFace'),
+	def('ratioFace', 1, [
+		{ key: 'faceImage', kind: 'image' },
+		{ key: 'introSpine', kind: 'spine' },
+	]),
+);
+// The instance below is pinned to v1, whose image param v2 renamed: it renders v1, so v1's kinds
+// decide what its params reference.
+put(
+	projectComponentVersionKey(PROJECT, 'pinnedFace', 1),
+	def('pinnedFace', 1, [{ key: 'faceImage', kind: 'image' }]),
+);
+put(
+	projectComponentKey(PROJECT, 'pinnedFace'),
+	def('pinnedFace', 2, [{ key: 'face', kind: 'image' }]),
+);
+put(editorDocKey(CLIENT, PROJECT), {
 	scenes: [
 		{
 			id: 'base',
@@ -339,38 +357,49 @@ const ratioDoc = {
 						portrait: {
 							params: { faceImage: `${PORTRAIT_SHEET}::facePort`, introSpine: RIG },
 						},
+						// A patch with no params, and one holding a legacy bare-basename ref that only
+						// the ship path's repair can pin (and a non-string, which names nothing).
+						landscape: { x: 5 },
+						desktop: { params: { faceImage: 'atlas_manifest_S_Legacy.json::faceLegacy' } },
+						tablet: { params: { introSpine: 0 } },
 					},
+				},
+				{
+					id: 'pinned',
+					kind: 'componentInstance',
+					componentId: 'pinnedFace',
+					componentVersion: 1,
+					x: 0,
+					y: 0,
+					overrides: { portrait: { params: { faceImage: `${PINNED_SHEET}::facePinned` } } },
 				},
 			],
 		},
 	],
-};
-put(editorDocKey(CLIENT, PROJECT), ratioDoc);
+});
 
-const scopeRefs = await referencedArtRefs(
-	ratioDoc as unknown as Parameters<typeof referencedArtRefs>[0],
-	PROJECT,
-);
-check('the base-params sheet is referenced', scopeRefs.manifestKeys.has(LANDSCAPE_SHEET));
-check(
-	'the sheet picked only in the portrait override is referenced too',
-	scopeRefs.manifestKeys.has(PORTRAIT_SHEET),
-);
+const inScope = (key: string) => isProjectArtAllowed(key, [], CLIENT, PROJECT);
+check('the base-params sheet is in the art scope', await inScope(LANDSCAPE_SHEET));
+check('the sheet picked only in the portrait override is too', await inScope(PORTRAIT_SHEET));
+check('… a legacy ref in an override is repaired and pins its sheet', await inScope(LEGACY_SHEET));
+check('… a pinned instance’s override is read by its pinned def', await inScope(PINNED_SHEET));
 
 const index = await exportEditorArt(CLIENT, PROJECT);
 const deployPrefix = `${SUB.deploy(CLIENT, PROJECT)}/`;
 const artPrefix = `${deployPrefix}editor-art/`;
-check(
-	'the base-params sheet ships',
-	index.sheets.some((s) => s.key === LANDSCAPE_SHEET),
-);
-const shippedSheet = index.sheets.find((s) => s.key === PORTRAIT_SHEET);
+const ships = (key: string) => index.sheets.find((s) => s.key === key);
+check('the base-params sheet ships', !!ships(LANDSCAPE_SHEET));
+const shippedSheet = ships(PORTRAIT_SHEET);
 check('the portrait-only sheet is in the shipped index', !!shippedSheet);
 check(
 	'… and its spritesheet is written under deploy/editor-art/',
 	!!shippedSheet && bucket.has(`${deployPrefix}${shippedSheet.json}`),
 );
-check('its frame does not dangle', !index.missing.includes('facePort'));
+check(
+	'… and its scoped frame counts as covered, not dangling',
+	!index.missing.includes('facePort'),
+);
+check('the pinned instance’s portrait-only sheet ships', !!ships(PINNED_SHEET));
 check(
 	'the spine bundle picked only in the portrait override ships under its name',
 	index.spines.some((s) => s.key === RIG),

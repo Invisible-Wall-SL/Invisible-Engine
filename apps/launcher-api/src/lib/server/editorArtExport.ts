@@ -37,6 +37,7 @@ import {
 	collectComponentIds,
 	collectComponentPins,
 	FEATURE_CARD_DEF,
+	instanceParamMaps,
 	isBuiltinRegion,
 	parseScopedFrameRef,
 } from 'engine-layout';
@@ -275,18 +276,18 @@ function collectArtRefs(doc: LayoutDoc, defs: Record<string, ComponentDef>): Art
 		if (node.kind === 'reelGrid' && typeof node.tileRegion === 'string' && node.tileRegion) {
 			addImageRef(refs, node.tileRegion);
 		}
-		// The base params AND every per-layoutType patch: the runtime applies `overrides[*].params`
-		// per ratio (`resolveLayoutInstanceParams`), so art picked only for portrait is art the game
-		// asks for in portrait.
 		if (node.kind === 'componentInstance') {
-			const imgKeys = imageParamKeys.get(node.componentId);
-			const spineKeys = spineParamKeys.get(node.componentId);
-			const paramSets = [
-				node.params,
-				...Object.values(node.overrides ?? {}).map((override) => override?.params),
-			];
-			for (const params of paramSets) {
-				for (const [k, v] of Object.entries(params ?? {})) {
+			// A pinned instance renders its pinned def (`resolveReferencedDefs` keys it `id@version`
+			// unless it IS latest), so its params are classified by that def's kinds.
+			const pinned = `${node.componentId}@${node.componentVersion}`;
+			const defKey =
+				node.componentVersion !== undefined && imageParamKeys.has(pinned)
+					? pinned
+					: node.componentId;
+			const imgKeys = imageParamKeys.get(defKey);
+			const spineKeys = spineParamKeys.get(defKey);
+			for (const params of instanceParamMaps(node)) {
+				for (const [k, v] of Object.entries(params)) {
 					if (typeof v !== 'string' || !v) continue;
 					if (imgKeys?.has(k)) addImageRef(refs, v);
 					else if (spineKeys?.has(k)) refs.spineNames.add(v);
