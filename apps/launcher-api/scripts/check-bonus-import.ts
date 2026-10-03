@@ -161,7 +161,7 @@ const modeScreens = (layout: LayoutDoc) =>
 
 const SPINE_ROOT = SUB.spines(CLIENT, SOURCE);
 const COIN_SPINE = `${SPINE_ROOT}/coin`;
-const SHARED_COIN = `_shared/spines/${importedSpineBundle(SOURCE, 'coin')}`;
+const SHARED_COIN = `_shared/spines/${importedSpineBundle(HOST, SOURCE, 'coin')}`;
 
 /** `hw-classic-sample` as created in the Game Maker, then authored: a spine on BONUS, a Flow
  *  section for the feature, its own jackpot and feature copy. */
@@ -248,6 +248,7 @@ await check('a spine under the source prefix is rewritten to its imported shared
 		{ a: `${COIN_SPINE}/`, b: [`${COIN_SPINE}`], c: `${SUB.spines(CLIENT, HOST)}/own/`, d: 3 },
 		CLIENT,
 		SOURCE,
+		HOST,
 	);
 	same(
 		out,
@@ -282,13 +283,23 @@ await check("win text: the source's Hold and Win lines, the host's pot lines", (
 		out.doc,
 		{
 			version: 1,
+			jackpots: { award: 'a' },
 			feature: { intro: 'src', potLabel: 'host pot', potNames: { red: 'Ruby' } },
 			lineMessage: { default: 'x' },
 			respins: { counter: 'r' },
 		},
-		'merged',
+		'merged; a family the source lacks is kept',
 	);
-	same(out.added, ['jackpots', 'respins', 'feature'], 'families');
+	same(out.added, ['respins', 'feature'], 'families');
+	const bare = mergeImportedWinText(
+		{ version: 1, feature: { intro: 'host' } } as WinTextDoc,
+		{ version: 1 } as WinTextDoc,
+	);
+	same(
+		[bare.doc.feature, bare.added],
+		[{ intro: 'host' }, []],
+		'a source with no copy changes nothing',
+	);
 });
 
 console.log('\n2. import');
@@ -372,7 +383,7 @@ await check(
 		const index = storedJson<{ skeletons: { folder: string }[] }>('_shared/spines/skeletons.json');
 		same(
 			index.skeletons.map((e) => e.folder),
-			[importedSpineBundle(SOURCE, 'coin')],
+			[importedSpineBundle(HOST, SOURCE, 'coin')],
 			'the shared index',
 		);
 

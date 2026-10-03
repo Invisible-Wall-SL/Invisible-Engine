@@ -147,12 +147,21 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
       (`meterFull`, `potLabel`, `potNames`).
     - A piece the source lacks leaves the host's as it is and says so. The source is only read.
   - **Spines (rule 8).** A cell or a copied screen node naming a spine under the source's prefix is
-    promoted to `_shared/spines/imported/<source>/<bundle>` BEFORE the doc naming it is written, and
+    promoted to `_shared/spines/imported/<project>/<source>/<bundle>` BEFORE the doc naming it is written, and
     the reference is rewritten. A `_shared` bundle already travels export → deploy → bake → pull →
     register (`bundleFromAssetKey`), so nothing new is needed down the chain. The namespace means an
-    import never overwrites another project's shared bundle. `promoteSpineToShared` gained `as`, and
-    its shared-index merge is now a conditional read-modify-write with retries (it was
-    last-writer-wins). Atlas regions need nothing: a scoped sheet ref is a full R2 manifest key, which
+    import never overwrites another project's shared bundle, and two projects importing the same
+    source bundle each get their own copy (one writer per path; a re-sync of one never changes the
+    other's art). `promoteSpineToShared` gained `as`. Its shared-index merge is now a conditional
+    read-modify-write with retries (it was last-writer-wins), and an index that does not parse is
+    refused rather than rewritten with one entry (that dropped every project's entry, the engine mark
+    included). A plain promotion of a bundle named `imported/…` is refused, since its prune would
+    delete the imports' copies.
+  - **The `pipeline-concurrency` review** found those two index issues, and three should-fixes, all
+    fixed: a re-sync now keeps a Win Text family the source lacks (Win Text has no backups and its
+    families are not per mode); the symbols, layout and flow saves take a backup (`'always'`), as the
+    config does; and the spine copy is per importing project. A corrupt source flow now reports as
+    unreadable. Atlas regions need nothing: a scoped sheet ref is a full R2 manifest key, which
     the export already reads from any prefix.
   - **The mock route needed no change.** An imported Hold and Win is THE project's block, so
     `potsOverlayMockInputs` hands it to the reused H&W engine as before (design §3.5: "the source

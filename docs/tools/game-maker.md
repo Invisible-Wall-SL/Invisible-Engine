@@ -275,7 +275,7 @@ its symbols (a name this project already uses is renamed, listed under **Renamed
 [Symbols](symbols-state-machine.md) art; the feature's screens, which replace this project's
 screens for that mode; its [Flow](flow.md) section, only into a flow the project has stored; and its
 [Win Text](win-text.md) lines, except the pot lines, which stay this project's. Spines the copied art
-or screens use are copied into the shared library under `imported/<project>/…`, so they ship with
+or screens use are copied into the shared library under `imported/<this project>/<source project>/…`, so they ship with
 the game. Options of the source that only work in its base game (buy, random metre, instant
 collect…) are left out, and the report lists them under **Left out**. A pot whose special the
 imported feature lacks loses it (**Special dropped**).

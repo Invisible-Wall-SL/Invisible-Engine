@@ -48,7 +48,7 @@ const IMPORTED_ROOT = 'imported';
 /**
  * Copy `<client>/<project>/spines/<bundle>` → `_shared/spines/<as>` (`as` defaults to the bundle's
  * own name) and merge its entry into the shared `skeletons.json`, creating that index if this is the
- * first promotion. A bonus import promotes under `imported/<project>/<bundle>`, so it never
+ * first promotion. A bonus import promotes under `imported/<project>/<source>/<bundle>`, so it never
  * overwrites another project's shared bundle of the same name.
  *
  * Overwrites an existing shared bundle of the same name — the admin UI warns first. Stale files
@@ -142,7 +142,8 @@ async function mergeSharedIndex(entry: SkeletonIndexEntry): Promise<void> {
 				SHARED_INDEX_KEY,
 				JSON.stringify({ skeletons: next }, null, '\t'),
 				'application/json',
-				precondition(existing ? (existing.etag ?? undefined) : null),
+				// A stored index with no ETag fails safe: `If-None-Match` refuses rather than overwriting it.
+				precondition(existing?.etag ?? null),
 			);
 			return;
 		} catch (e) {

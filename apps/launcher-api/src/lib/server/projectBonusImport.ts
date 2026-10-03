@@ -8,7 +8,7 @@
  *  - **Symbols:** each imported symbol's `/symbols` cells, display name and sound overrides, from the
  *    source symbol to its name here. A symbol the import no longer brings loses its binding.
  *  - **Spines:** a cell or a screen node that names a spine under the SOURCE project's prefix would
- *    export nothing from here, so the bundle is promoted to `_shared/spines/imported/<source>/<bundle>`
+ *    export nothing from here, so the bundle is promoted to `_shared/spines/imported/<project>/<source>/<bundle>`
  *    and the reference rewritten. A shared bundle travels export → deploy → bake → pull → register
  *    like any other (CLAUDE.md rule 8).
  *  - **Layout:** the mode's `role: 'mode'` screens (and the screen its mode override names as HUD).
@@ -106,10 +106,13 @@ async function guarded(write: () => Promise<AddOnPart>): Promise<AddOnPart> {
 
 // ─── spines ───────────────────────────────────────────────────────────────────────────────────
 
-/** The shared bundle an imported spine is promoted to — namespaced by its source project, so it
- *  never overwrites another project's shared bundle of the same name. */
-export const importedSpineBundle = (source: string, bundle: string): string =>
-	`imported/${r2Slug(source)}/${bundle}`;
+/**
+ * The shared bundle an imported spine is promoted to — namespaced by the importing project and its
+ * source, so it never overwrites another project's shared bundle of the same name, and two projects
+ * importing the same source bundle never share (or overwrite) one copy: each path has one writer.
+ */
+export const importedSpineBundle = (target: string, source: string, bundle: string): string =>
+	`imported/${r2Slug(target)}/${r2Slug(source)}/${bundle}`;
 
 /**
  * Every spine bundle a JSON value names under the SOURCE project's prefix, and the value with each
@@ -119,6 +122,7 @@ export function rewriteSourceSpines<T>(
 	value: T,
 	client: string,
 	source: string,
+	target: string,
 ): { value: T; bundles: string[] } {
 	const root = `${SUB.spines(client, source)}/`;
 	const bundles = new Set<string>();
@@ -128,7 +132,7 @@ export function rewriteSourceSpines<T>(
 			const bundle = v.slice(root.length, slash ? -1 : undefined);
 			if (!bundle) return v;
 			bundles.add(bundle);
-			return `${sharedSpinesPrefix(importedSpineBundle(source, bundle))}${slash ? '/' : ''}`;
+			return `${sharedSpinesPrefix(importedSpineBundle(target, source, bundle))}${slash ? '/' : ''}`;
 		}
 		if (Array.isArray(v)) return v.map(walk);
 		if (v && typeof v === 'object') {
@@ -152,7 +156,7 @@ async function promoteSpines(ctx: ImportContext, bundles: readonly string[]): Pr
 				ctx.client,
 				ctx.source,
 				bundle,
-				importedSpineBundle(ctx.source, bundle),
+				importedSpineBundle(ctx.project, ctx.source, bundle),
 			);
 			ctx.spines.set(bundle, null);
 		} catch (e) {
@@ -276,8 +280,8 @@ const POT_LINES = new Set<string>([...WIN_TEXT_POT_FIELDS, 'potNames']);
 
 /**
  * The source's Hold and Win copy put in place of `current`'s — the `jackpots`, `respins` and `wheel`
- * families whole, and every `feature` line but a pot's. A family the source lacks is cleared, since
- * it was the replaced feature's copy. Pure.
+ * families whole, and every `feature` line but a pot's. A family the source lacks leaves this doc's
+ * as it is: Win Text keeps no backups, and its families are not per mode. Pure.
  */
 export function mergeImportedWinText(
 	current: WinTextDoc,
@@ -286,22 +290,22 @@ export function mergeImportedWinText(
 	const doc: WinTextDoc = structuredClone(current);
 	const added: string[] = [];
 	for (const family of ['jackpots', 'respins', 'wheel'] as const) {
-		if (JSON.stringify(doc[family]) === JSON.stringify(source[family])) continue;
-		if (source[family]) (doc as Record<string, unknown>)[family] = structuredClone(source[family]);
-		else delete doc[family];
+		if (!source[family] || JSON.stringify(doc[family]) === JSON.stringify(source[family])) continue;
+		(doc as Record<string, unknown>)[family] = structuredClone(source[family]);
 		added.push(family);
 	}
-	const pots = Object.fromEntries(
-		Object.entries(current.feature ?? {}).filter(([key]) => POT_LINES.has(key)),
-	);
-	const lines = Object.fromEntries(
-		Object.entries(source.feature ?? {}).filter(([key]) => !POT_LINES.has(key)),
-	);
-	const feature = { ...lines, ...pots } as NonNullable<WinTextDoc['feature']>;
-	if (JSON.stringify(feature) !== JSON.stringify(current.feature ?? {})) {
-		if (Object.keys(feature).length) doc.feature = feature;
-		else delete doc.feature;
-		added.push('feature');
+	if (source.feature) {
+		const pots = Object.fromEntries(
+			Object.entries(current.feature ?? {}).filter(([key]) => POT_LINES.has(key)),
+		);
+		const lines = Object.fromEntries(
+			Object.entries(source.feature).filter(([key]) => !POT_LINES.has(key)),
+		);
+		const feature = { ...lines, ...pots } as NonNullable<WinTextDoc['feature']>;
+		if (JSON.stringify(feature) !== JSON.stringify(current.feature ?? {})) {
+			doc.feature = feature;
+			added.push('feature');
+		}
 	}
 	return { doc, added };
 }
@@ -339,7 +343,7 @@ async function importSymbols(ctx: ImportContext, config: GameConfigDoc): Promise
 			.map((name) => [name, source.doc[block]![name]]);
 		if (entries.length) (imported as Record<string, unknown>)[block] = Object.fromEntries(entries);
 	}
-	const rewritten = rewriteSourceSpines(imported, ctx.client, ctx.source);
+	const rewritten = rewriteSourceSpines(imported, ctx.client, ctx.source, ctx.project);
 	const merged = mergeImportedBindings(target.doc, rewritten.value, ctx.names, ctx.dropped);
 	// A symbol the source never bound gets the placeholder a Hold and Win bonus's roles get.
 	const seeded = potsOverlaySymbolsSeed(config, merged.doc);
@@ -352,7 +356,7 @@ async function importSymbols(ctx: ImportContext, config: GameConfigDoc): Promise
 	);
 	if (JSON.stringify(seeded.doc) === JSON.stringify(target.doc)) return part('present', [], note);
 	await promoteSpines(ctx, rewritten.bundles);
-	await saveSymbolsDoc(ctx.client, ctx.project, seeded.doc, target.etag);
+	await saveSymbolsDoc(ctx.client, ctx.project, seeded.doc, target.etag, 'always');
 	return part('added', added, note);
 }
 
@@ -384,14 +388,14 @@ async function importLayout(
 	}
 	// Only the copied screens are read, so only their spines are promoted.
 	const copied = { ...source.doc, scenes: source.doc.scenes.filter((s) => ids.includes(s.id)) };
-	const rewritten = rewriteSourceSpines(copied, ctx.client, ctx.source);
+	const rewritten = rewriteSourceSpines(copied, ctx.client, ctx.source, ctx.project);
 	const merged = mergeImportedScreens(target.doc, rewritten.value, ctx.mode, hud);
 	const note = notes(
 		merged.renamedNodes.length ? `Node ids renamed: ${merged.renamedNodes.join(', ')}.` : '',
 	);
 	if (!merged.added.length) return part('present', [], note);
 	await promoteSpines(ctx, rewritten.bundles);
-	await saveDoc(ctx.client, ctx.project, merged.doc, target.etag);
+	await saveDoc(ctx.client, ctx.project, merged.doc, target.etag, 'always');
 	return part('added', merged.added, note);
 }
 
@@ -407,6 +411,13 @@ async function importFlow(ctx: ImportContext): Promise<AddOnPart> {
 		);
 	}
 	const source = await loadFlowV2DocWithEtag(ctx.client, ctx.source);
+	if (!source.doc && source.etag !== null) {
+		return part(
+			'skipped',
+			[],
+			`${ctx.source}'s flow could not be read, so the section here is kept.`,
+		);
+	}
 	const section = source.doc?.modes?.[ctx.mode];
 	if (!section) {
 		return part(
@@ -422,7 +433,7 @@ async function importFlow(ctx: ImportContext): Promise<AddOnPart> {
 		...target.doc,
 		modes: { ...target.doc.modes, [ctx.mode]: structuredClone(section) },
 	};
-	await saveFlowV2Doc(ctx.client, ctx.project, doc, target.etag);
+	await saveFlowV2Doc(ctx.client, ctx.project, doc, target.etag, 'always');
 	return part('added', [`modes.${ctx.mode}`]);
 }
 
@@ -584,7 +595,7 @@ export async function applyBonusImport(
 	const failed = [...ctx.spines].filter(([, why]) => why !== null);
 	const promoted = [...ctx.spines]
 		.filter(([, why]) => why === null)
-		.map(([bundle]) => importedSpineBundle(source, bundle));
+		.map(([bundle]) => importedSpineBundle(project, source, bundle));
 	const spines = !ctx.spines.size
 		? part('present')
 		: part(
