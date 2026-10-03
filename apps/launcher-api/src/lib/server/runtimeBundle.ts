@@ -57,6 +57,7 @@ import { getGlobalLayoutProfile } from './layoutProfile';
 import { pruneUnreachableEffects } from './effectReachability';
 import { exportEditorFlow } from './flowExport';
 import { exportEditorFlowV2 } from './flowV2Export';
+import { flowScreensMissing } from './flowV2Validation';
 import { cinematicRigNames, exportCinematics, loadAuthoredCinematics } from './cinematicExport';
 import type { CinematicDoc } from './cinematicStorage';
 import { exportEditorFonts } from './fontExport';
@@ -463,6 +464,16 @@ async function assembleRuntimeBundle(
 		);
 	}
 	const effects = reachableEffects;
+	// A screen the flow names but the layout lost ships as nothing: the game logs it at boot, and
+	// Publish lists it. Said here too, so an authoring boot's assemble leaves a trace server-side.
+	const screensMissing = flowScreensMissing(flowV2, doc.scenes);
+	if (screensMissing.length) {
+		console.warn(
+			`[runtime] "${projectKey}": the flow names ${screensMissing.length} screen(s) the layout ` +
+				`does not have, which draw nothing in-game: ${screensMissing.join(', ')}. Restore them ` +
+				'in the Scene Editor (History…) or remove them from the flow.',
+		);
+	}
 
 	return {
 		doc,

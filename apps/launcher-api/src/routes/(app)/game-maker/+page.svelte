@@ -742,6 +742,22 @@
 						'Re-pick the rig in the Scene Editor or Invisible Symbols.',
 				};
 			}
+			const flowScreens: string[] = Array.isArray(out?.flowScreensMissing)
+				? out.flowScreensMissing
+				: [];
+			if (flowScreens.length) {
+				const one = flowScreens.length === 1;
+				publishNote = {
+					...publishNote,
+					[projectKey]:
+						`${publishNote[projectKey] ? `${publishNote[projectKey]} ` : ''}` +
+						`⚠ The flow names ${flowScreens.length} screen${one ? '' : 's'} the Scene Editor ` +
+						`no longer has, so nothing draws for ${one ? 'it' : 'them'} and a step waiting on ` +
+						`${one ? 'it' : 'one'} never continues: ${flowScreens.join(', ')}. Restore ` +
+						`${one ? 'it' : 'them'} in the Scene Editor (History…) or remove ` +
+						`${one ? 'it' : 'them'} from the flow; its Validation panel lists each step.`,
+				};
+			}
 			if (out?.holdAndWinConfigMissing) {
 				publishNote = {
 					...publishNote,

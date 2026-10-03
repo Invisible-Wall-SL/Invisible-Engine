@@ -53,6 +53,8 @@
 
 ## Recent changes
 
+- 2026-10-03 — **A flow screen the layout lost is now loud, not silent** (branch `fix/flow-missing-screen-warning`). A deleted scene stays in `FlowDoc.containers`, so `showContainer` mounted it, `<FlowV2Mount>` skipped it and a live game sat on its background with an empty console. One rule, `containersMissingScene` (`engine-flow-v2`; an empty scene list = unknown layout ⇒ `[]`), feeds: the game (`apps/lines` `flowV2MissingScreens.ts`: one `console.error` at boot listing them, then one per container id on its first show/hide; an agreeing pair gets the raw mount back, so logs and behaviour are unchanged); the validator (`container-scene-missing` WARNING on each Show/Hide, when `validateFlowDoc`'s new 6th arg `sceneIds` is given — the editor and the publish gate pass it); the runtime-bundle assembly (`[runtime]` warn) and Publish (`flowScreensMissing` → a Game Maker note; never blocking). Verified: `packages/engine-flow-v2/containerScenes.fixture.ts` (15), `apps/lines/src/game/flowV2MissingScreens.fixture.ts` (12, through the real mount model), `check:flow-publish-gate` §13 (every starter flow agrees with its scaffold; a lost `loading` warns and adds no error). Engine change — rides the runtime release on merge.
+
 - 2026-10-02 — **Fire Cue scope pin + component cue harvest (Hold and Win Phase 12a, #1003).**
   - Every Fire Cue has an optional `scope` data-in (`CUE_SCOPE_PIN`). Set, it rides the payload
     and the open component bus, so only components and effects scoped to that part react. Unset,

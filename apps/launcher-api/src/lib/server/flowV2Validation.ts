@@ -12,6 +12,7 @@
  * project's Game Config add-ons (`withAddOns`), plus its sounds and scene cues.
  */
 import {
+	containersMissingScene,
 	templateVocabulary,
 	validateFlowDoc,
 	withAddOns,
@@ -68,6 +69,7 @@ export function validateFlowV2Against(
 		library,
 		projectContainerEvents(doc.containers, scenes),
 		collectContainerTaps(doc.containers, scenes),
+		scenes.map((s) => s.id),
 	);
 }
 
@@ -136,6 +138,19 @@ export async function checkShippedFlowV2(
 		flowAddOnsOf(shipped.config),
 	).filter((i) => i.severity === 'error');
 	return errors.length ? { status: 'invalid', errors } : { status: 'valid' };
+}
+
+/**
+ * The containers a flow names whose screen its layout does not have (container ids): they draw
+ * nothing in-game, and a step waiting on one never continues. Never blocking: an author may be
+ * mid-edit. No flow, or no scenes, ⇒ `[]`.
+ */
+export function flowScreensMissing(flow: FlowDoc | undefined, scenes: readonly Scene[]): string[] {
+	if (!flow) return [];
+	return containersMissingScene(
+		flow.containers,
+		scenes.map((s) => s.id),
+	).map((c) => c.id);
 }
 
 /** One line per error, for a refusal message or a build log. Capped so a wreck stays readable. */

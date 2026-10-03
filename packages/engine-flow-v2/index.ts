@@ -3,6 +3,7 @@ export * from './src/pins';
 export * from './src/textMessage';
 export * from './src/scope';
 export * from './src/containerEvents';
+export * from './src/containerScenes';
 export * from './src/types-check';
 export * from './src/validate';
 export * from './src/collapse';
