@@ -46,7 +46,7 @@ session is the Claude Code session titled **"3 pots overlay mechanic"**.
 | 5c | Flow vocabulary composition (editor, publish gate, runtime) + graft | merged | Pots overlay Phase 5c — Flow vocabulary composition | #1014 |
 | 5d | `/symbols` + `/win-text` + Localization through the capability | merged | Pots overlay Phase 5d — Symbols + Win Text | #1011 |
 | 6 | Game Maker add-on action + guides + playbook + `borut-pots-sample` played end to end | merged (the published sample is the owner's) | Pots overlay Phase 6 — Game Maker add-on + sample | #1017 |
-| 7 | Bonus import from another project (provenance, re-sync, pot → imported mode) | not started (needs 6) | — | — |
+| 7 | Bonus import from another project (provenance, re-sync, pot → imported mode) | in progress | Pots overlay Phase 7 — bonus import from another project | — |
 | 8 | Partner wire | blocked on partner | — | — |
 
 ## Current state
