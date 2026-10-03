@@ -82,12 +82,23 @@ export async function loadDocWithEtag(
 ): Promise<{ doc: LayoutDoc; etag: string | null; corrupt?: true }> {
 	const obj = await getObjectTextWithEtag(editorDocKey(clientKey, projectKey));
 	if (!obj) return { doc: seedFreshDoc(projectKey, gameType), etag: null };
+	let parsed: unknown;
 	try {
-		return { doc: normalizeDoc(JSON.parse(obj.text), projectKey), etag: obj.etag };
+		parsed = JSON.parse(obj.text);
 	} catch {
-		return { doc: normalizeDoc(undefined, projectKey), etag: obj.etag, corrupt: true };
+		parsed = undefined;
 	}
+	// `normalizeDoc` never throws: it coerces any shape into a layout with no screens, so a stored
+	// value that is not a layout at all is flagged here; the doc itself reads as it always has.
+	const doc = normalizeDoc(parsed, projectKey);
+	return isLayoutShaped(parsed) ? { doc, etag: obj.etag } : { doc, etag: obj.etag, corrupt: true };
 }
+
+const isLayoutShaped = (value: unknown): boolean =>
+	typeof value === 'object' &&
+	value !== null &&
+	!Array.isArray(value) &&
+	Array.isArray((value as { scenes?: unknown }).scenes);
 
 /**
  * Build the default doc for a never-saved project, seeding the canvas box from the

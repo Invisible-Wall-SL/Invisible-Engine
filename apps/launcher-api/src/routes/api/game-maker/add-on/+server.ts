@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { POTS_OVERLAY_PRESET_IDS } from 'game-config';
 import { roleHasTool } from '$lib/roles';
+import { SESSION_COOKIE, sessionIdFromToken } from '$lib/server/auth';
 import { addOnToolsMissing, applyPotsOverlayAddOn } from '$lib/server/projectAddOn';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { canAccessProject, projectClientKey } from '$lib/server/projects';
@@ -24,9 +25,10 @@ const NO_STORE = { 'cache-control': 'no-store' };
  * steps into a stored flow. Every write is create-only and conditional; see `projectAddOn.ts`.
  *
  * Gated like the duplicate endpoint (the `gameMaker` tool, plus a project the caller can access),
- * and by the tools that own the docs it writes ({@link addOnToolsMissing}).
+ * and by the tools that own the docs it writes ({@link addOnToolsMissing}). While another session
+ * holds an edit lease on one of those docs it answers 409 and writes nothing.
  */
-export const POST: RequestHandler = async ({ request, locals }) => {
+export const POST: RequestHandler = async ({ request, cookies, locals }) => {
 	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE });
 	const { role } = locals.user;
 	const roleOverrides = await getRoleOverrides(role);
@@ -67,8 +69,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		return json({ error: 'Unknown pots overlay preset.' }, { status: 400, headers: NO_STORE });
 	}
 
+	const sessionId = await sessionIdFromToken(cookies.get(SESSION_COOKIE));
+	if (!sessionId) return json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE });
+
 	const client = (await projectClientKey(project)) ?? UNASSIGNED_CLIENT;
-	const result = await applyPotsOverlayAddOn(client, project, { preset, flow });
+	const result = await applyPotsOverlayAddOn(client, project, { preset, flow, sessionId });
 	if (!result.ok) {
 		return json({ error: result.error }, { status: result.status, headers: NO_STORE });
 	}

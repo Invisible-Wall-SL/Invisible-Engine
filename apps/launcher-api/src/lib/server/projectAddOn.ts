@@ -12,13 +12,17 @@
  * What is seeded:
  *  - **Symbols:** placeholder art for every token and, when the Hold and Win block is the overlay's
  *    bonus, its role symbols ({@link potsOverlaySymbolsSeed}).
- *  - **Layout:** the Scene Editor's "＋ Add overlay screens" merge, server-side — only the add-on
- *    screens the layout lacks; a project with no layout yet gets the scaffold's.
+ *  - **Layout:** the Scene Editor's "＋ Add overlay screens" merge, server-side, on the run that adds
+ *    the config — only the add-on screens the layout lacks; a project with no layout yet gets the
+ *    scaffold's. Every run adds a Pot Meter for a pot that has none on any screen.
  *  - **Flow (opt-in):** the `/flow-v2` "＋ Add overlay steps" graft on a STORED flow. Unauthored, the
  *    coded defaults play, so this is never done unasked.
  *  - **Win Text:** nothing. The doc is sparse: every pot, jackpot and respin line has a coded default
  *    that `/win-text` and Localization already offer once the config has the block, and writing the
  *    defaults in would freeze them as authored copy.
+ *
+ * Nothing is written while another session holds an edit lease on a doc it would write
+ * ({@link leaseBlocker}).
  */
 import { graftAddOnSteps } from 'engine-flow-v2';
 import {
@@ -29,8 +33,11 @@ import {
 	type LayoutNode,
 } from 'engine-layout';
 import {
+	POTS_OVERLAY_PRESET_IDS,
 	addPotsOverlay,
 	flowAddOnsOf,
+	gameConfigErrors,
+	normalizeGameConfigDoc,
 	type AddOnRenames,
 	type GameConfigDoc,
 	type PotsOverlayPresetId,
@@ -47,9 +54,11 @@ import { loadDocWithEtag, saveDoc } from './editorStorage';
 import { loadFlowV2DocWithEtag, saveFlowV2Doc } from './flowV2Storage';
 import { resolveGameConfig } from './gameConfigDefaults';
 import { InvalidGameConfigError, saveGameConfigDoc } from './gameConfigStorage';
+import { liveLeases, type LiveLease } from './lease';
 import { scaffoldLayoutDoc } from './projectScaffold';
 import { projectGameType } from './projects';
 import { ConflictError } from './r2';
+import { invalidateRuntimeBundle } from './runtimeBundleCache';
 import { potsOverlaySymbolsSeed } from './symbolDefaults';
 import { loadSymbolsDocWithEtag, saveSymbolsDoc } from './symbolsStorage';
 
@@ -63,6 +72,21 @@ export type { AddOnOutcome, AddOnPart, AddOnPartStatus, AddOnSeedReport };
 export function addOnToolsMissing(hasTool: (tool: string) => boolean, flow: boolean): string[] {
 	const needed = ['gameConfig', 'symbols', 'editor', ...(flow ? ['flow'] : [])];
 	return needed.filter((tool) => !hasTool(tool)).map((tool) => TOOLS[tool]?.name ?? tool);
+}
+
+/**
+ * The presets that add cleanly to `doc`: the add is not refused and the result has no validator
+ * error. A preset that does not fit the game (3 Pots names specials a Classic Hold and Win game
+ * lacks) is not offered rather than refused after the click. Empty once the overlay is there.
+ */
+export function cleanOverlayPresets(doc: GameConfigDoc | null): PotsOverlayPresetId[] {
+	if (!doc) return [];
+	return POTS_OVERLAY_PRESET_IDS.filter((id) => {
+		const result = addPotsOverlay(doc, id);
+		if (!result.ok) return false;
+		const next = normalizeGameConfigDoc(result.doc);
+		return next !== null && next !== undefined && !gameConfigErrors(next).length;
+	});
 }
 
 const part = (status: AddOnPartStatus, added: string[] = [], note?: string): AddOnPart => ({
@@ -95,66 +119,135 @@ const meterOf = (node: LayoutNode): unknown =>
 		? node.params?.meter
 		: undefined;
 
-const meters = (nodes: readonly LayoutNode[], into = new Set<unknown>()): Set<unknown> => {
+/** Every node of `nodes`, containers' children included. */
+function* allNodes(nodes: readonly LayoutNode[]): Generator<LayoutNode> {
 	for (const node of nodes) {
-		into.add(meterOf(node));
-		if (node.kind === 'container') meters(node.children, into);
+		yield node;
+		if (node.kind === 'container') yield* allNodes(node.children);
 	}
-	return into;
-};
-
-/**
- * A Hold and Win game already has the overlay's screens; what it lacks is a Pot Meter for each
- * overlay pot beside its own meters. Each missing one is appended to its Pots screen as the
- * reference places it (the screen itself, when the layout has none). Existing nodes are never moved
- * or edited; `added` names each new node.
- */
-function mergeMissingPotMeters(
-	current: LayoutDoc,
-	reference: LayoutDoc,
-): { doc: LayoutDoc; added: string[] } {
-	const ref = reference.scenes.find((s) => s.id === POTS_SCREEN);
-	if (!ref) return { doc: current, added: [] };
-	const screen = current.scenes.find((s) => s.id === POTS_SCREEN);
-	if (!screen) {
-		const scenes = mergeMissingScreens(current.scenes, reference.scenes, [POTS_SCREEN]);
-		return { doc: { ...current, scenes }, added: [POTS_SCREEN] };
-	}
-	const present = meters(screen.nodes);
-	const ids = new Set(screen.nodes.map((n) => n.id));
-	const missing = ref.nodes.filter((n) => !present.has(meterOf(n)) && !ids.has(n.id));
-	if (!missing.length) return { doc: current, added: [] };
-	const nodes = [...screen.nodes, ...structuredClone(missing)];
-	return {
-		doc: {
-			...current,
-			scenes: current.scenes.map((s) => (s === screen ? { ...screen, nodes } : s)),
-		},
-		added: missing.map((n) => n.id),
-	};
 }
 
+/** The pots that have a Pot Meter on ANY screen — an author may move one off the Pots screen. */
+const meteredPots = (scenes: LayoutDoc['scenes']): Set<unknown> =>
+	new Set(scenes.flatMap((scene) => [...allNodes(scene.nodes)].map(meterOf)));
+
+/** `wanted`, or the first `wanted-2`, `wanted-3`… no node of the layout uses. */
+function freeNodeId(scenes: LayoutDoc['scenes'], wanted: string): string {
+	const ids = new Set(scenes.flatMap((scene) => [...allNodes(scene.nodes)].map((n) => n.id)));
+	let id = wanted;
+	for (let n = 2; ids.has(id); n++) id = `${wanted}-${n}`;
+	return id;
+}
+
+export type AddOnLayoutMerge = { doc: LayoutDoc; added: string[]; note?: string };
+
 /**
- * The layout with the add-on screens it lacks merged in — the Scene Editor's "＋ Add overlay
- * screens", applied to a stored doc; on a Hold and Win game, the Pot Meters its Pots screen lacks
- * ({@link mergeMissingPotMeters}). `current` is not mutated; `added` names what was merged.
+ * The add-on's screens and Pot Meters merged into a stored layout. `current` is not mutated;
+ * `added` names each screen and each Pot Meter node merged.
+ *
+ * - **`screens`** (the run that adds the config): the Scene Editor's "＋ Add overlay screens" — the
+ *   add-on screens the layout lacks; on a Hold and Win game, which has them, only a missing Pots
+ *   screen. The Pots screen is skipped when every pot already has a meter somewhere, and a merged
+ *   one carries only the pots that have none.
+ * - **Always:** a Pot Meter for each pot with no meter on ANY screen, appended to the Pots screen as
+ *   the reference places it. Without a Pots screen, nothing, and `note` says so.
+ *
+ * A re-run passes `screens: false`, so a screen the author deleted is never revived; only a pot left
+ * without any meter gets one.
  */
 export function mergeAddOnScreens(
 	current: LayoutDoc,
 	gameType: string,
 	config: GameConfigDoc,
-): { doc: LayoutDoc; added: string[] } {
+	{ screens }: { screens: boolean },
+): AddOnLayoutMerge {
 	const options = sceneSetOptionsFor(gameType, config);
 	const reference = getFullSceneSet(gameType, options);
+	const refPots = reference?.scenes.find((s) => s.id === POTS_SCREEN);
 	if (!reference) return { doc: current, added: [] };
-	if (gameType === 'holdAndWin') {
-		return options.potIds ? mergeMissingPotMeters(current, reference) : { doc: current, added: [] };
+	const before = meteredPots(current.scenes);
+	const unmetered = (options.potIds ?? []).filter((id) => !before.has(id));
+	const added: string[] = [];
+	let scenes = current.scenes;
+
+	if (screens) {
+		const hasPots = scenes.some((s) => s.id === POTS_SCREEN);
+		const ids = (
+			gameType === 'holdAndWin'
+				? refPots && !hasPots
+					? [POTS_SCREEN]
+					: []
+				: addOnSceneIds(gameType, options)
+		).filter((id) => id !== POTS_SCREEN || unmetered.length > 0);
+		const merged = mergeMissingScreens(scenes, reference.scenes, ids);
+		scenes = merged.map((scene) =>
+			scene.id === POTS_SCREEN && !hasPots
+				? { ...scene, nodes: scene.nodes.filter((n) => !before.has(meterOf(n))) }
+				: scene,
+		);
+		added.push(
+			...scenes.filter((s) => !current.scenes.some((c) => c.id === s.id)).map((s) => s.id),
+		);
 	}
-	const ids = addOnSceneIds(gameType, options);
-	if (!ids.length) return { doc: current, added: [] };
-	const scenes = mergeMissingScreens(current.scenes, reference.scenes, ids);
-	const added = scenes.filter((s) => !current.scenes.some((c) => c.id === s.id)).map((s) => s.id);
-	return { doc: added.length ? { ...current, scenes } : current, added };
+
+	const metered = meteredPots(scenes);
+	const missing = (refPots?.nodes ?? []).filter((n) => {
+		const meter = meterOf(n);
+		return meter !== undefined && !metered.has(meter);
+	});
+	let note: string | undefined;
+	if (missing.length) {
+		const screen = scenes.find((s) => s.id === POTS_SCREEN);
+		if (screen) {
+			const nodes = [...screen.nodes];
+			for (const node of missing) {
+				const id = freeNodeId(scenes, node.id);
+				nodes.push({ ...structuredClone(node), id });
+				added.push(id);
+			}
+			scenes = scenes.map((s) => (s === screen ? { ...screen, nodes } : s));
+			note = 'New Pot Meters are placed beside the existing pots: arrange them in /editor.';
+		} else {
+			note = `No Pots screen holds the pots ${missing.map(meterOf).join(', ')}: add a Pot Meter for each in /editor.`;
+		}
+	}
+	return { doc: added.length ? { ...current, scenes } : current, added, ...(note ? { note } : {}) };
+}
+
+/** A doc the add-on writes, by the lease its own tool takes on it (`LeaseState` on each page). */
+type LeaseTarget = { toolId: string; docKey: string; path: string };
+
+const ADD_ON_LEASE_TARGETS: readonly LeaseTarget[] = [
+	{ toolId: 'gameConfig', docKey: 'gameConfig', path: '/config' },
+	{ toolId: 'symbols', docKey: 'symbols', path: '/symbols' },
+	{ toolId: 'editor', docKey: 'editor', path: '/editor' },
+];
+const FLOW_LEASE_TARGET: LeaseTarget = { toolId: 'flow', docKey: 'flow', path: '/flow-v2' };
+
+const leaseTargets = (flow: boolean): readonly LeaseTarget[] =>
+	flow ? [...ADD_ON_LEASE_TARGETS, FLOW_LEASE_TARGET] : ADD_ON_LEASE_TARGETS;
+
+/**
+ * Who stops the add-on: the first live lease on a doc it writes held by ANOTHER session, as
+ * "<who> is editing <path>". The caller's own tabs never block it. `null` ⇒ write. Pure.
+ */
+export function leaseBlocker(
+	leases: readonly LiveLease[],
+	mySessionId: string,
+	targets: readonly LeaseTarget[],
+): string | null {
+	for (const target of targets) {
+		const held = leases.find(
+			(l) =>
+				l.toolId === target.toolId &&
+				l.docKey === target.docKey &&
+				l.holderSessionId !== mySessionId,
+		);
+		if (held) {
+			return `${held.holderName ?? 'Someone'} is editing ${target.path} for this project. Try again once they close it.`;
+		}
+	}
+	return null;
 }
 
 async function seedSymbols(client: string, project: string, config: GameConfigDoc) {
@@ -170,13 +263,17 @@ async function seedSymbols(client: string, project: string, config: GameConfigDo
 	return part('added', seed.added, note);
 }
 
-async function seedLayout(client: string, project: string, config: GameConfigDoc) {
+async function seedLayout(
+	client: string,
+	project: string,
+	config: GameConfigDoc,
+	screens: boolean,
+) {
 	const kind = await projectGameType(project);
 	const { doc, etag, corrupt } = await loadDocWithEtag(client, project, kind);
 	if (corrupt) return part('skipped', [], 'The layout could not be read. Open it in /editor.');
 	const gameType = doc.gameType ?? kind;
-	const options = sceneSetOptionsFor(gameType, config);
-	const reference = getFullSceneSet(gameType, options);
+	const reference = getFullSceneSet(gameType, sceneSetOptionsFor(gameType, config));
 	if (!reference) {
 		return part(
 			'skipped',
@@ -192,12 +289,11 @@ async function seedLayout(client: string, project: string, config: GameConfigDoc
 			seeded.scenes.map((s) => s.id),
 		);
 	}
-	const merged = mergeAddOnScreens(doc, gameType, config);
-	if (!merged.added.length) return outcome([]);
-	await saveDoc(client, project, merged.doc, etag);
-	return gameType === 'holdAndWin' && !merged.added.includes(POTS_SCREEN)
-		? part('added', merged.added, 'Placed beside the existing pots: arrange them in /editor.')
-		: outcome(merged.added);
+	const merged = mergeAddOnScreens(doc, gameType, config, { screens });
+	if (merged.added.length) await saveDoc(client, project, merged.doc, etag);
+	return merged.added.length
+		? part('added', merged.added, merged.note)
+		: part(merged.note ? 'skipped' : 'present', [], merged.note);
 }
 
 async function graftFlow(client: string, project: string, config: GameConfigDoc) {
@@ -218,17 +314,19 @@ async function graftFlow(client: string, project: string, config: GameConfigDoc)
 
 /**
  * Seed every part an overlay needs that the project does not have yet, from `config` (which must
- * carry the block). Idempotent and create-only; each part reports separately.
+ * carry the block). Idempotent and create-only; each part reports separately. The layout's screens
+ * are merged only with `configAdded` (the run that adds the overlay); a re-run fills in only Pot
+ * Meters, so a screen the author deleted since stays deleted ({@link mergeAddOnScreens}).
  */
 export async function seedPotsOverlayParts(
 	client: string,
 	project: string,
 	config: GameConfigDoc,
-	opts: { flow?: boolean } = {},
+	opts: { flow?: boolean; configAdded?: boolean } = {},
 ): Promise<AddOnSeedReport> {
 	const seeds: AddOnSeedReport = {
 		symbols: await guarded(() => seedSymbols(client, project, config)),
-		layout: await guarded(() => seedLayout(client, project, config)),
+		layout: await guarded(() => seedLayout(client, project, config, opts.configAdded === true)),
 		winText: part(
 			'present',
 			[],
@@ -250,8 +348,9 @@ export async function seedPotsOverlayParts(
 export async function applyPotsOverlayAddOn(
 	client: string,
 	project: string,
-	opts: { preset?: PotsOverlayPresetId; flow?: boolean } = {},
+	opts: { preset?: PotsOverlayPresetId; flow?: boolean; sessionId: string },
 ): Promise<AddOnOutcome> {
+	const flow = opts.flow === true;
 	const gameType = await projectGameType(project);
 	const resolved = await resolveGameConfig(client, project, gameType);
 	if (!resolved.doc) {
@@ -266,19 +365,38 @@ export async function applyPotsOverlayAddOn(
 			error: 'The stored Game Config could not be read. Open it in /config first.',
 		};
 	}
+	// An author with one of these docs open would only meet the change as a refused save, so nothing
+	// is written while anyone else holds a lease on one. `If-Match` stays the floor behind it.
+	const targets = leaseTargets(flow);
+	const editing = leaseBlocker(
+		await liveLeases(
+			targets.map(({ toolId, docKey }) => ({
+				toolId,
+				docKey,
+				clientKey: client,
+				projectKey: project,
+			})),
+		),
+		opts.sessionId,
+		targets,
+	);
+	if (editing) return { ok: false, status: 409, error: editing };
+
 	const none: AddOnRenames = { symbols: {}, pots: {} };
 	if (!opts.preset) {
 		if (!resolved.doc.potsOverlay) {
 			return { ok: false, status: 400, error: 'This project has no pots overlay yet.' };
 		}
-		const seeds = await seedPotsOverlayParts(client, project, resolved.doc, opts);
+		const seeds = await seedPotsOverlayParts(client, project, resolved.doc, { flow });
+		if (Object.values(seeds).some((p) => p?.status === 'added')) invalidateRuntimeBundle(project);
 		return { ok: true, configAdded: false, renamed: none, seeds };
 	}
 	const added = addPotsOverlay(resolved.doc, opts.preset);
 	if (!added.ok) return { ok: false, status: 409, error: added.reason };
 	let saved: GameConfigDoc;
 	try {
-		saved = (await saveGameConfigDoc(client, project, added.doc, resolved.etag)).doc;
+		// `always`: the bytes before the overlay are a restore point in /config's backups.
+		saved = (await saveGameConfigDoc(client, project, added.doc, resolved.etag, 'always')).doc;
 	} catch (e) {
 		if (e instanceof ConflictError) {
 			return {
@@ -288,10 +406,17 @@ export async function applyPotsOverlayAddOn(
 			};
 		}
 		if (e instanceof InvalidGameConfigError) {
-			return { ok: false, status: 400, error: `The config would not save: ${e.message}` };
+			const first = e.issues.find((i) => i.severity === 'error') ?? e.issues[0];
+			return {
+				ok: false,
+				status: 400,
+				error: `This preset doesn't fit this game${first ? `: ${first.message}` : '.'}`,
+			};
 		}
 		throw e;
 	}
-	const seeds = await seedPotsOverlayParts(client, project, saved, opts);
+	const seeds = await seedPotsOverlayParts(client, project, saved, { flow, configAdded: true });
+	// The config is an input to the runtime bundle, so a live game picks the overlay up at once.
+	invalidateRuntimeBundle(project);
 	return { ok: true, configAdded: true, renamed: added.renamed, seeds };
 }

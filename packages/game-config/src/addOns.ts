@@ -104,7 +104,8 @@ export function addHoldAndWinBonus(doc: GameConfigDoc, id: HoldAndWinPresetId): 
  * only, never on a strip). A preset that pairs a Hold and Win bonus also adds that bonus, unless the
  * project already has a Hold and Win block — a Hold and Win game keeps its own, and its pots fill
  * beside the block's meters. Refused when the project already has an overlay, and a preset with no
- * pots (coins only) is refused on a Hold and Win game, whose block counts only its own landed coins.
+ * pots (coins only) is refused on a Hold and Win game, whose block counts only its own landed coins;
+ * there a preset's value-coin drops are left out too.
  */
 export function addPotsOverlay(doc: GameConfigDoc, id: PotsOverlayPresetId): AddOnResult {
 	if (doc.potsOverlay) {
@@ -146,6 +147,10 @@ export function addPotsOverlay(doc: GameConfigDoc, id: PotsOverlayPresetId): Add
 			reason:
 				"This project's Hold and Win is its base game, started by coins landing on its reels, so dropped value coins would start nothing. Pick a preset with pots.",
 		};
+	}
+	// For the same reason a preset's value-coin rows are left out there: only its pots fill.
+	if (!holdAndWinIsOverlayBonus(next)) {
+		overlay.drops.table = overlay.drops.table.filter((entry) => 'pot' in entry);
 	}
 	return { ok: true, doc: next, renamed };
 }

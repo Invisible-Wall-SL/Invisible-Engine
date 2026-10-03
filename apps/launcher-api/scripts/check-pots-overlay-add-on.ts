@@ -16,6 +16,7 @@
  *    Win Text.
  */
 import { mock } from 'node:test';
+import type { LiveLease } from '../src/lib/server/lease.ts';
 import { getFullSceneSet, type LayoutDoc, type Scene } from 'engine-layout';
 import {
 	HOLD_AND_WIN_PRESETS,
@@ -86,6 +87,7 @@ const GAME_TYPES: Record<string, string> = {
 	hw: 'holdAndWin',
 	hwClassic: 'holdAndWin',
 	hwNew: 'holdAndWin',
+	hwFit: 'holdAndWin',
 };
 mock.module(src('lib/server/projects.ts'), {
 	namedExports: {
@@ -93,7 +95,27 @@ mock.module(src('lib/server/projects.ts'), {
 	},
 });
 
-const { applyPotsOverlayAddOn, mergeAddOnScreens } =
+/** The edit leases "held" right now, by any session; the add-on reads them, never writes them. */
+const LEASES: (LiveLease & { projectKey: string })[] = [];
+mock.module(src('lib/server/lease.ts'), {
+	namedExports: {
+		liveLeases: async (keys: { toolId: string; docKey: string; projectKey: string }[]) =>
+			LEASES.filter((l) =>
+				keys.some(
+					(k) => k.toolId === l.toolId && k.docKey === l.docKey && k.projectKey === l.projectKey,
+				),
+			),
+	},
+});
+/** The projects whose runtime bundle the add-on invalidated, in order. */
+const INVALIDATED: string[] = [];
+mock.module(src('lib/server/runtimeBundleCache.ts'), {
+	namedExports: { invalidateRuntimeBundle: (project: string) => INVALIDATED.push(project) },
+});
+/** The caller's own session. */
+const ME = 'session-me';
+
+const { applyPotsOverlayAddOn, cleanOverlayPresets, leaseBlocker, mergeAddOnScreens } =
 	await import('../src/lib/server/projectAddOn.ts');
 const { scaffoldProject, scaffoldLayoutDoc } = await import('../src/lib/server/projectScaffold.ts');
 const { potsOverlaySymbolsSeed, symbolDefaultsFor } =
@@ -134,6 +156,8 @@ const withOverlay = (doc: GameConfigDoc, preset: PotsOverlayPresetId) => {
 	assert(result.ok, `add refused: ${result.ok ? '' : result.reason}`);
 	return result;
 };
+const FIRST_RUN = { screens: true };
+const RE_RUN = { screens: false };
 const lines = gameConfigDefaultFor('lines');
 assert(lines, 'no lines default');
 const hwPots = normalized(HOLD_AND_WIN_PRESETS.pots);
@@ -242,7 +266,7 @@ await check(
 	() => {
 		const { doc: config } = withOverlay(lines, 'threePots');
 		const before = bookLayout();
-		const merged = mergeAddOnScreens(before, 'bookOf', config);
+		const merged = mergeAddOnScreens(before, 'bookOf', config, FIRST_RUN);
 		same(
 			merged.added,
 			[
@@ -274,7 +298,7 @@ await check(
 			'the authored order',
 		);
 		same(before, bookLayout(), 'the input was mutated');
-		const again = mergeAddOnScreens(merged.doc, 'bookOf', config);
+		const again = mergeAddOnScreens(merged.doc, 'bookOf', config, FIRST_RUN);
 		same(again.added, [], 'a second merge');
 		assert(again.doc === merged.doc, 'a no-op merge returned a new doc');
 	},
@@ -282,7 +306,7 @@ await check(
 
 await check('pots to free spins: the Pots screen alone, with its gold pot', () => {
 	const { doc: config } = withOverlay(lines, 'potsToFreeSpins');
-	const merged = mergeAddOnScreens(bookLayout(), 'bookOf', config);
+	const merged = mergeAddOnScreens(bookLayout(), 'bookOf', config, FIRST_RUN);
 	same(merged.added, ['pots'], 'added screens');
 	same(potsOf(merged.doc), ['pot-gold'], 'the gold pot');
 });
@@ -296,9 +320,47 @@ await check('a hand-authored layout keeps every screen; only the add-on screens 
 			{ id: 'pots', name: 'My pots', nodes: [] },
 		],
 	};
-	const merged = mergeAddOnScreens(authored, 'bookOf', config);
-	same(merged.added, [], 'an existing Pots screen is not replaced');
-	same(merged.doc, authored, 'the layout');
+	const merged = mergeAddOnScreens(authored, 'bookOf', config, FIRST_RUN);
+	same(merged.added, ['pot-gold'], 'only a meter for the pot that has none');
+	same(merged.doc.scenes[0], authored.scenes[0], 'the other screen');
+	same(merged.doc.scenes[1].name, 'My pots', 'the existing Pots screen is kept');
+	same(potsOf(merged.doc), ['pot-gold'], 'its meter');
+});
+
+await check('every pot metered on another screen: no Pots screen, no second meter', () => {
+	const { doc: config } = withOverlay(lines, 'threePots');
+	const first = mergeAddOnScreens(bookLayout(), 'bookOf', config, FIRST_RUN).doc;
+	const meters = first.scenes.find((s) => s.id === 'pots')?.nodes ?? [];
+	const moved: LayoutDoc = {
+		...first,
+		scenes: first.scenes
+			.filter((s) => s.id !== 'pots')
+			.map((s) =>
+				s.id === 'jackpotBar'
+					? {
+							...s,
+							nodes: [...s.nodes, { id: 'box', kind: 'container', x: 0, y: 0, children: meters }],
+						}
+					: s,
+			) as LayoutDoc['scenes'],
+	};
+	for (const run of [FIRST_RUN, RE_RUN]) {
+		const again = mergeAddOnScreens(moved, 'bookOf', config, run);
+		same(again.added, [], `screens: ${run.screens}`);
+	}
+});
+
+await check('a re-run revives no deleted screen; a pot with no meter anywhere is reported', () => {
+	const { doc: config } = withOverlay(lines, 'threePots');
+	const first = mergeAddOnScreens(bookLayout(), 'bookOf', config, FIRST_RUN).doc;
+	const trimmed: LayoutDoc = {
+		...first,
+		scenes: first.scenes.filter((s) => !['pots', 'wheel', 'letters'].includes(s.id)),
+	};
+	const again = mergeAddOnScreens(trimmed, 'bookOf', config, RE_RUN);
+	same(again.added, [], 'nothing re-added');
+	assert(again.doc === trimmed, 'the layout changed');
+	assert(again.note?.includes('red, blue, green'), `no note naming the pots: ${again.note}`);
 });
 
 console.log('\n2b. an overlay with no pots (value coins only)');
@@ -324,7 +386,7 @@ await check('no tokens bound, the Hold and Win bonus symbols still are', () => {
 });
 
 await check('no Pots screen; the jackpot bar and Hold and Win mode screens join', () => {
-	const merged = mergeAddOnScreens(bookLayout(), 'bookOf', coinsOnly());
+	const merged = mergeAddOnScreens(bookLayout(), 'bookOf', coinsOnly(), FIRST_RUN);
 	assert(!merged.added.includes('pots'), 'a Pots screen was merged');
 	same(
 		merged.added,
@@ -412,7 +474,8 @@ await check(
 			'the scaffold layout without an add-on',
 		);
 
-		const out = await applyPotsOverlayAddOn(CLIENT, 'book', { preset: 'threePots' });
+		const out = await applyPotsOverlayAddOn(CLIENT, 'book', { sessionId: ME, preset: 'threePots' });
+		same(INVALIDATED, ['book'], 'the runtime bundle invalidated once');
 		assert(out.ok, `refused: ${out.ok ? '' : out.error}`);
 		assert(out.configAdded, 'config not added');
 		same(out.seeds.symbols.status, 'added', 'symbols');
@@ -447,10 +510,13 @@ await check(
 	'a second add is refused; the re-run without a preset finds nothing to add',
 	async () => {
 		const config = stored(gameConfigDocKey(CLIENT, 'book'));
-		const again = await applyPotsOverlayAddOn(CLIENT, 'book', { preset: 'potsToFreeSpins' });
+		const again = await applyPotsOverlayAddOn(CLIENT, 'book', {
+			sessionId: ME,
+			preset: 'potsToFreeSpins',
+		});
 		assert(!again.ok && again.status === 409, 'a second overlay was not refused');
 		same(stored(gameConfigDocKey(CLIENT, 'book')), config, 'the config');
-		const fill = await applyPotsOverlayAddOn(CLIENT, 'book');
+		const fill = await applyPotsOverlayAddOn(CLIENT, 'book', { sessionId: ME });
 		assert(fill.ok && !fill.configAdded, 'the re-run');
 		same([fill.seeds.symbols.status, fill.seeds.layout.status], ['present', 'present'], 'parts');
 	},
@@ -458,7 +524,7 @@ await check(
 
 await check('seeding without an overlay is refused', async () => {
 	await scaffoldProject(CLIENT, 'plain');
-	const out = await applyPotsOverlayAddOn(CLIENT, 'plain');
+	const out = await applyPotsOverlayAddOn(CLIENT, 'plain', { sessionId: ME });
 	assert(!out.ok && out.status === 400, 'not refused');
 	assert(!R2.has(gameConfigDocKey(CLIENT, 'plain')), 'a config was written');
 });
@@ -470,12 +536,15 @@ await check('a part that loses its race is reported, and a re-run fills it in', 
 		symbols: { H1: { static: { type: 'sprite', assetKey: 'h.png' } } },
 	});
 	RACE.set(symbolsDocKey(CLIENT, 'race'), theirs);
-	const out = await applyPotsOverlayAddOn(CLIENT, 'race', { preset: 'potsToFreeSpins' });
+	const out = await applyPotsOverlayAddOn(CLIENT, 'race', {
+		sessionId: ME,
+		preset: 'potsToFreeSpins',
+	});
 	assert(out.ok, 'refused');
 	same(out.seeds.symbols.status, 'conflict', 'symbols');
 	same(out.seeds.layout.status, 'added', 'layout');
 	same(stored(symbolsDocKey(CLIENT, 'race')), theirs, 'the concurrent save');
-	const fill = await applyPotsOverlayAddOn(CLIENT, 'race');
+	const fill = await applyPotsOverlayAddOn(CLIENT, 'race', { sessionId: ME });
 	assert(fill.ok, 'the re-run');
 	same(fill.seeds.symbols.added, ['POT_GOLD'], 'symbols filled');
 	same(fill.seeds.layout.status, 'present', 'layout');
@@ -486,16 +555,20 @@ await check('a part that loses its race is reported, and a re-run fills it in', 
 await check('the Flow graft runs only when asked, once', async () => {
 	await scaffoldProject(CLIENT, 'flow');
 	const before = stored(flowV2DocKey(CLIENT, 'flow'));
-	const out = await applyPotsOverlayAddOn(CLIENT, 'flow', { preset: 'threePots', flow: true });
+	const out = await applyPotsOverlayAddOn(CLIENT, 'flow', {
+		sessionId: ME,
+		preset: 'threePots',
+		flow: true,
+	});
 	assert(out.ok && out.seeds.flow, 'no flow part');
 	same(out.seeds.flow.status, 'added', 'flow');
 	assert(out.seeds.flow.added.includes('modes.holdAndWin'), 'no Hold and Win mode section');
 	assert(stored(flowV2DocKey(CLIENT, 'flow')) !== before, 'the flow was not written');
-	const again = await applyPotsOverlayAddOn(CLIENT, 'flow', { flow: true });
+	const again = await applyPotsOverlayAddOn(CLIENT, 'flow', { sessionId: ME, flow: true });
 	assert(again.ok && again.seeds.flow, 'no flow part');
 	same(again.seeds.flow.status, 'present', 'a second graft');
 	R2.delete(flowV2DocKey(CLIENT, 'flow'));
-	const none = await applyPotsOverlayAddOn(CLIENT, 'flow', { flow: true });
+	const none = await applyPotsOverlayAddOn(CLIENT, 'flow', { sessionId: ME, flow: true });
 	assert(none.ok && none.seeds.flow, 'no flow part');
 	same(none.seeds.flow.status, 'skipped', 'an unauthored flow');
 	assert(!R2.has(flowV2DocKey(CLIENT, 'flow')), 'a flow was seeded');
@@ -510,7 +583,10 @@ await check(
 			storedJson<LayoutDoc>(editorDocKey(CLIENT, 'hwNew')),
 			'hwNew',
 		);
-		const out = await applyPotsOverlayAddOn(CLIENT, 'hwNew', { preset: 'threePots' });
+		const out = await applyPotsOverlayAddOn(CLIENT, 'hwNew', {
+			sessionId: ME,
+			preset: 'threePots',
+		});
 		assert(out.ok, 'refused');
 		same(out.renamed.pots, { red: 'red_2', blue: 'blue_2', green: 'green_2' }, 'renames');
 		same([...out.seeds.symbols.added].sort(), ['POT_BLUE', 'POT_GREEN', 'POT_RED'], 'symbols');
@@ -540,7 +616,7 @@ await check(
 				`screen ${scene.id}`,
 			);
 		}
-		const again = await applyPotsOverlayAddOn(CLIENT, 'hwNew');
+		const again = await applyPotsOverlayAddOn(CLIENT, 'hwNew', { sessionId: ME });
 		assert(again.ok, 'the re-run');
 		same(again.seeds.layout.status, 'present', 'a second run adds no meter');
 		const symbols = storedJson<{ symbols: Record<string, unknown> }>(
@@ -563,6 +639,160 @@ await check('re-scaffolding an overlay project seeds its overlay screens', async
 	);
 	const pots = layout.scenes.find((s) => s.id === 'pots')?.nodes.map((n) => n.id);
 	same(pots, ['pot-red', 'pot-blue', 'pot-green'], 'the config pots');
+});
+
+console.log('\n5. re-runs, leases, unreadable docs, presets that do not fit');
+
+/** Every stored object, to prove a refusal wrote nothing. */
+const snapshot = () => JSON.stringify([...R2.entries()].sort(([a], [b]) => a.localeCompare(b)));
+
+await check(
+	'the reported repro: meters moved, Pots / wheel / letters deleted, re-run',
+	async () => {
+		await scaffoldProject(CLIENT, 'moved');
+		const out = await applyPotsOverlayAddOn(CLIENT, 'moved', {
+			sessionId: ME,
+			preset: 'threePots',
+		});
+		assert(out.ok, 'refused');
+		const key = editorDocKey(CLIENT, 'moved');
+		const layout = storedJson<LayoutDoc>(key);
+		const meters = layout.scenes.find((s) => s.id === 'pots')?.nodes ?? [];
+		layout.scenes = layout.scenes
+			.filter((s) => !['pots', 'wheel', 'letters'].includes(s.id))
+			.map((s) => (s.id === 'jackpotBar' ? { ...s, nodes: [...s.nodes, ...meters] } : s));
+		R2.set(key, { body: JSON.stringify(layout), etag: `"e${++etagSeq}"` });
+		const before = stored(key);
+		const again = await applyPotsOverlayAddOn(CLIENT, 'moved', { sessionId: ME });
+		assert(again.ok, 'the re-run');
+		same(again.seeds.layout.status, 'present', 'layout');
+		same(stored(key), before, 'the layout bytes');
+	},
+);
+
+await check('leases: another session blocks with its name, my own tabs do not (pure)', () => {
+	const targets = [
+		{ toolId: 'gameConfig', docKey: 'gameConfig', path: '/config' },
+		{ toolId: 'symbols', docKey: 'symbols', path: '/symbols' },
+	];
+	const lease = (holderSessionId: string, holderName: string | null) => ({
+		toolId: 'symbols',
+		docKey: 'symbols',
+		holderSessionId,
+		holderName,
+	});
+	same(leaseBlocker([], ME, targets), null, 'no lease');
+	same(leaseBlocker([lease(ME, 'Me')], ME, targets), null, 'my own tab');
+	assert(
+		leaseBlocker([lease('other', 'Ana')], ME, targets)?.startsWith('Ana is editing /symbols'),
+		'named',
+	);
+	assert(
+		leaseBlocker([lease('other', null)], ME, targets)?.startsWith('Someone is editing'),
+		'unnamed',
+	);
+	same(
+		leaseBlocker([{ ...lease('other', 'Ana'), toolId: 'flow', docKey: 'flow' }], ME, targets),
+		null,
+		'a doc it does not write',
+	);
+});
+
+await check('a live lease held elsewhere: 409, and nothing written', async () => {
+	await scaffoldProject(CLIENT, 'leased');
+	LEASES.push({
+		toolId: 'editor',
+		docKey: 'editor',
+		projectKey: 'leased',
+		holderSessionId: 'other',
+		holderName: 'Ana',
+	});
+	const before = snapshot();
+	const out = await applyPotsOverlayAddOn(CLIENT, 'leased', { sessionId: ME, preset: 'threePots' });
+	assert(!out.ok && out.status === 409, 'not refused');
+	assert(out.error.startsWith('Ana is editing /editor'), out.error);
+	same(snapshot(), before, 'R2');
+	LEASES.push({
+		toolId: 'flow',
+		docKey: 'flow',
+		projectKey: 'leased',
+		holderSessionId: ME,
+		holderName: 'Me',
+	});
+	LEASES.splice(0, 1);
+	const mine = await applyPotsOverlayAddOn(CLIENT, 'leased', {
+		sessionId: ME,
+		preset: 'threePots',
+		flow: true,
+	});
+	assert(mine.ok, 'my own lease blocked the add-on');
+	LEASES.length = 0;
+});
+
+await check('an unreadable or invalid Game Config: 409, and nothing written', async () => {
+	for (const [project, body] of [
+		['badJson', '{not json'],
+		['badShape', '{"foo": 1}'],
+	] as const) {
+		await scaffoldProject(CLIENT, project);
+		R2.set(gameConfigDocKey(CLIENT, project), { body, etag: `"e${++etagSeq}"` });
+		const before = snapshot();
+		const out = await applyPotsOverlayAddOn(CLIENT, project, {
+			sessionId: ME,
+			preset: 'threePots',
+		});
+		assert(!out.ok && out.status === 409, `${project}: not refused`);
+		same(snapshot(), before, `${project}: R2`);
+	}
+});
+
+await check('unreadable symbols, layout and flow: skipped, their bytes untouched', async () => {
+	await scaffoldProject(CLIENT, 'badDocs');
+	const bad: [string, string][] = [
+		[symbolsDocKey(CLIENT, 'badDocs'), 'null'],
+		[editorDocKey(CLIENT, 'badDocs'), '{"scenes":"oops"}'],
+		[flowV2DocKey(CLIENT, 'badDocs'), '[]'],
+	];
+	for (const [key, body] of bad) R2.set(key, { body, etag: `"e${++etagSeq}"` });
+	const out = await applyPotsOverlayAddOn(CLIENT, 'badDocs', {
+		sessionId: ME,
+		preset: 'threePots',
+		flow: true,
+	});
+	assert(out.ok && out.seeds.flow, 'refused');
+	same(
+		[out.seeds.symbols.status, out.seeds.layout.status, out.seeds.flow.status],
+		['skipped', 'skipped', 'skipped'],
+		'parts',
+	);
+	for (const [key, body] of bad) same(stored(key), body, key);
+	for (const body of ['[]', '"x"', '{"symbols":"oops"}']) {
+		R2.set(symbolsDocKey(CLIENT, 'badDocs'), { body, etag: `"e${++etagSeq}"` });
+		const again = await applyPotsOverlayAddOn(CLIENT, 'badDocs', { sessionId: ME });
+		assert(again.ok, 'the re-run');
+		same(again.seeds.symbols.status, 'skipped', `symbols ${body}`);
+		same(stored(symbolsDocKey(CLIENT, 'badDocs')), body, `symbols ${body} bytes`);
+	}
+});
+
+await check('presets offered are the ones that add cleanly', () => {
+	same(cleanOverlayPresets(lines), ['threePots', 'potsToFreeSpins', 'coinsOnly'], 'lines');
+	same(cleanOverlayPresets(hwPots), ['threePots', 'potsToFreeSpins'], 'a 3 Pots game');
+	for (const id of ['classic', 'collector'] as const) {
+		same(cleanOverlayPresets(normalized(HOLD_AND_WIN_PRESETS[id])), ['potsToFreeSpins'], id);
+	}
+	same(cleanOverlayPresets(withOverlay(lines, 'threePots').doc), [], 'one already added');
+	same(cleanOverlayPresets(null), [], 'no config');
+});
+
+await check('a preset that does not fit: a readable refusal, no validator paths', async () => {
+	await scaffoldProject(CLIENT, 'hwFit', { holdAndWinPreset: 'classic' });
+	const before = snapshot();
+	const out = await applyPotsOverlayAddOn(CLIENT, 'hwFit', { sessionId: ME, preset: 'threePots' });
+	assert(!out.ok && out.status === 400, 'not refused');
+	assert(out.error.startsWith("This preset doesn't fit this game: "), out.error);
+	assert(!/potsOverlay\.|holdAndWin\./.test(out.error), `a path leaked: ${out.error}`);
+	same(snapshot(), before, 'R2');
 });
 
 if (failures) {

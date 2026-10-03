@@ -1126,7 +1126,13 @@ export async function loadSymbolsDocWithEtag(
 	const obj = await getObjectTextWithEtag(symbolsDocKey(clientKey, projectKey));
 	if (!obj) return { doc: emptySymbolsDoc(), etag: null };
 	try {
-		return { doc: normalizeSymbolsDoc(JSON.parse(obj.text)), etag: obj.etag };
+		const parsed: unknown = JSON.parse(obj.text);
+		// `normalizeSymbolsDoc` reads `null` as an empty doc; a stored value that is not an object
+		// is not a symbols doc.
+		if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+			return { doc: emptySymbolsDoc(), etag: obj.etag, corrupt: true };
+		}
+		return { doc: normalizeSymbolsDoc(parsed), etag: obj.etag };
 	} catch {
 		return { doc: emptySymbolsDoc(), etag: obj.etag, corrupt: true };
 	}

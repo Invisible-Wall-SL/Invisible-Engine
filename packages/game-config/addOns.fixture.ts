@@ -13,7 +13,11 @@ import { holdAndWinIsOverlayBonus } from './src/holdAndWin.ts';
 import { HOLD_AND_WIN_PRESETS, HOLD_AND_WIN_PRESET_IDS } from './src/holdAndWinPresets.ts';
 import { symbolsInPlay } from './src/inPlay.ts';
 import { normalizeGameConfigDoc } from './src/normalize.ts';
-import { POTS_OVERLAY_PRESET_IDS, potsOverlayPreset } from './src/potsOverlayPresets.ts';
+import {
+	POTS_OVERLAY_PRESET_IDS,
+	potsOverlayPreset,
+	type PotsOverlayPresetId,
+} from './src/potsOverlayPresets.ts';
 import type { AddOnResult } from './src/addOns.ts';
 import type { GameConfigDoc, GameConfigSymbol, RawGameConfig } from './src/types.ts';
 import { validateGameConfigDoc } from './src/validate.ts';
@@ -165,19 +169,50 @@ check(
 const potsGame = normalize(HOLD_AND_WIN_PRESETS.pots);
 const onPotsGame = addPotsOverlay(potsGame, 'threePots');
 check(
-	"a 3 Pots Hold and Win game keeps its block; the overlay's pots take free ids beside its meters",
+	"a 3 Pots Hold and Win game keeps its block; the overlay's pots take free ids beside its meters, and its coin drops are left out (the game's own reels start its feature)",
 	[
 		onPotsGame.ok && onPotsGame.renamed.pots,
 		added(onPotsGame).holdAndWin,
 		added(onPotsGame).potsOverlay!.drops.table.map((e) => ('pot' in e ? e.pot : 'coin')),
-		issues(added(onPotsGame)).filter((i) => /pots\.\d\.id/.test(i)),
+		issues(added(onPotsGame)),
 	],
 	[
 		{ red: 'red_2', blue: 'blue_2', green: 'green_2' },
 		potsGame.holdAndWin,
-		['red_2', 'blue_2', 'green_2', 'coin'],
+		['red_2', 'blue_2', 'green_2'],
 		[],
 	],
+);
+const errorsOn = (doc: GameConfigDoc, id: PotsOverlayPresetId) => {
+	const result = addPotsOverlay(doc, id);
+	return result.ok ? issues(result.doc).filter((i) => i.startsWith('error:')) : 'refused';
+};
+check(
+	'on each Hold and Win game: what each preset leaves (3 Pots names specials Classic and Collector lack)',
+	HOLD_AND_WIN_PRESET_IDS.map((game) => [
+		game,
+		POTS_OVERLAY_PRESET_IDS.map((id) => [id, errorsOn(normalize(HOLD_AND_WIN_PRESETS[game]), id)]),
+	]),
+	HOLD_AND_WIN_PRESET_IDS.map((game) => [
+		game,
+		POTS_OVERLAY_PRESET_IDS.map((id) => [
+			id,
+			id === 'coinsOnly'
+				? 'refused'
+				: id === 'threePots' && game !== 'pots'
+					? errorsOn(normalize(HOLD_AND_WIN_PRESETS[game]), id)
+					: [],
+		]),
+	]),
+);
+check(
+	'...and 3 Pots on Classic or Collector does not come out clean',
+	['classic', 'collector'].map(
+		(game) =>
+			(errorsOn(normalize(HOLD_AND_WIN_PRESETS[game as 'classic']), 'threePots') as string[])
+				.length > 0,
+	),
+	[true, true],
 );
 
 console.log('\n3. refusals');

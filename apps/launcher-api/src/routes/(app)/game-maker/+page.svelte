@@ -8,7 +8,6 @@
 		POTS_OVERLAY_PRESET_IDS,
 		POTS_OVERLAY_PRESET_LABELS,
 		type HoldAndWinPresetId,
-		potsOverlayPreset,
 		type PotsOverlayPresetId,
 	} from 'game-config';
 	import { invalidateAll } from '$app/navigation';
@@ -284,18 +283,15 @@
 	// ---------------------------------------------------------------------------------------------
 	// Pots overlay add-on (docs/design/pots-overlay.md §4) — `POST /api/game-maker/add-on`.
 	// ---------------------------------------------------------------------------------------------
-	/** Presets with no pot (value coins only): their Hold and Win bonus cannot join a Hold and Win
-	 *  game, which already has a block, so its pickers leave them out. */
-	const COINS_ONLY_PRESETS = new Set(
-		POTS_OVERLAY_PRESET_IDS.filter((id) => !potsOverlayPreset(id).potsOverlay.pots.length),
+	/** The overlay presets that add cleanly to the game the Create form would make (`load`). */
+	const createPresets = $derived(
+		data.createOverlayPresets[
+			gameType === 'holdAndWin' ? `holdAndWin:${holdAndWinPreset}` : gameType
+		] ?? [],
 	);
-	const overlayPresetsFor = (kind: string): PotsOverlayPresetId[] =>
-		POTS_OVERLAY_PRESET_IDS.filter((id) => kind !== 'holdAndWin' || !COINS_ONLY_PRESETS.has(id));
-	/** The picked overlay preset, or the kind's first when the picked one is not offered for it. */
+	/** The picked overlay preset, or the first offered when the picked one does not fit. */
 	const createPreset = $derived(
-		overlayPresetsFor(gameType).includes(createOverlayPreset)
-			? createOverlayPreset
-			: overlayPresetsFor(gameType)[0],
+		createPresets.includes(createOverlayPreset) ? createOverlayPreset : createPresets[0],
 	);
 
 	const ADD_ON_PARTS: { key: keyof AddOnSeedReport; label: string }[] = [
@@ -328,7 +324,7 @@
 
 	function openAddOn(p: Project) {
 		addOnProject = p;
-		addOnPreset = overlayPresetsFor(p.gameType)[0];
+		addOnPreset = p.overlayPresets[0] ?? POTS_OVERLAY_PRESET_IDS[0];
 		addOnFlow = false;
 		addOnErr = '';
 		addOnResult = null;
@@ -839,17 +835,19 @@
 						<input type="checkbox" bind:checked={createWithOverlay} />
 						Add the pots overlay
 					</label>
-					{#if createWithOverlay}
+					{#if createWithOverlay && createPreset}
 						<select
 							value={createPreset}
 							onchange={(e) => (createOverlayPreset = e.currentTarget.value as PotsOverlayPresetId)}
 							title="Pots overlay preset"
 						>
-							{#each overlayPresetsFor(gameType) as id (id)}
+							{#each createPresets as id (id)}
 								<option value={id}>{POTS_OVERLAY_PRESET_LABELS[id]}</option>
 							{/each}
 						</select>
 						<input type="hidden" name="potsOverlayPreset" value={createPreset} />
+					{:else if createWithOverlay}
+						<span class="muted">No pots overlay preset fits this game type.</span>
 					{/if}
 				</div>
 				<div class="actions">
@@ -1347,15 +1345,19 @@
 					{/if}
 				</p>
 				<div class="grid">
-					{#if !addOnProject.hasPotsOverlay}
+					{#if !addOnProject.hasPotsOverlay && addOnProject.overlayPresets.length}
 						<label>
 							Preset
 							<select bind:value={addOnPreset} disabled={Boolean(addOnResult?.ok)}>
-								{#each overlayPresetsFor(addOnProject.gameType) as id (id)}
+								{#each addOnProject.overlayPresets as id (id)}
 									<option value={id}>{POTS_OVERLAY_PRESET_LABELS[id]}</option>
 								{/each}
 							</select>
 						</label>
+					{:else if !addOnProject.hasPotsOverlay}
+						<p class="err">
+							No pots overlay preset fits this game's Game Config. Check it in /config first.
+						</p>
 					{/if}
 					<label class="check">
 						<input type="checkbox" bind:checked={addOnFlow} />
@@ -1363,9 +1365,9 @@
 					</label>
 				</div>
 				<p class="confirm-note">
-					Without the Flow steps the overlay plays its built-in beats. Reload any open Game Config,
-					Scene Editor, Symbols or Flow tab for this project: its next save would be refused as a
-					conflict.
+					Without the Flow steps the overlay plays its built-in beats. Nothing is added while
+					someone else has this project's Game Config, Scene Editor, Symbols or Flow open. Reload
+					your own open tabs of them afterwards.
 				</p>
 				{#if addOnErr}<p class="err">{addOnErr}</p>{/if}
 				{#if addOnResult}{@render addOnReport(addOnResult)}{/if}
@@ -1377,7 +1379,8 @@
 						<button
 							class="primary"
 							onclick={() => runAddOn(addOnProject?.hasPotsOverlay ? undefined : addOnPreset)}
-							disabled={addOnBusy}
+							disabled={addOnBusy ||
+								(!addOnProject.hasPotsOverlay && !addOnProject.overlayPresets.length)}
 						>
 							{addOnBusy ? 'Adding…' : addOnProject.hasPotsOverlay ? 'Seed missing parts' : 'Add'}
 						</button>

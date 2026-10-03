@@ -253,12 +253,15 @@ export function validatePotsOverlay(doc: GameConfigDoc): GameConfigIssue[] {
 	// Win game's own count trigger counts the coins landing on its reels.
 	const coinsCount = Boolean(block) && holdAndWinIsOverlayBonus(doc);
 
+	// Coins alone on a Hold and Win game's base-game block: one error for the overlay, not a warning
+	// per coin row as well.
+	const coinsAlone = !overlay.pots.length && Boolean(block) && !coinsCount;
 	if (!overlay.pots.length && !overlay.drops.table.some(isCoinDrop)) {
 		error(
 			'pots',
 			'The overlay has no pots and drops no value coins — it needs at least one of them.',
 		);
-	} else if (!overlay.pots.length && block && !coinsCount) {
+	} else if (coinsAlone) {
 		error(
 			'pots',
 			"This game's own Hold and Win is its base game, started by coins landing on its reels, so an overlay of value coins alone starts nothing. It needs at least one pot.",
@@ -380,10 +383,12 @@ export function validatePotsOverlay(doc: GameConfigDoc): GameConfigIssue[] {
 		} else if (!block.coins.length) {
 			error(at, 'A value coin draws its value from the Hold and Win coin table, which is empty.');
 		} else if (!coinsCount) {
-			warning(
-				at,
-				"This game's own Hold and Win starts from coins landing on its reels; dropped value coins count only toward a Hold and Win that is the overlay's bonus, so they never start anything here.",
-			);
+			if (!coinsAlone) {
+				warning(
+					at,
+					"This game's own Hold and Win starts from coins landing on its reels; dropped value coins count only toward a Hold and Win that is the overlay's bonus, so they never start anything here.",
+				);
+			}
 		} else if (!block.trigger.count) {
 			warning(
 				at,

@@ -1006,13 +1006,13 @@ const coinsOnGame = normalize({
 	potsOverlay: { ...coinsBlock, drops: { ...coinsBlock.drops, maxPerSpin: 1 } },
 });
 check(
-	"on a Hold and Win game the block stays its base game: coins alone are an error (as the add refuses), and each coin warns it starts nothing (the trigger's count is not compared)",
+	"on a Hold and Win game the block stays its base game: coins alone are one error (as the add refuses), with no per-coin warning beside it (the trigger's count is not compared)",
 	[
 		holdAndWinIsOverlayBonus(coinsOnGame),
 		overlayIssues(coinsOnGame),
 		holdAndWinIssues(coinsOnGame),
 	],
-	[false, ['error:potsOverlay.pots', 'warning:potsOverlay.drops.table.0'], []],
+	[false, ['error:potsOverlay.pots'], []],
 );
 check(
 	'...and one pot beside the coins clears the error',

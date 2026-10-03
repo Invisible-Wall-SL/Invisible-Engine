@@ -178,13 +178,20 @@ spin) starts a bonus. The game keeps its own kind, lines and features. A walkthr
 to playtest is in [Add a pots overlay to an existing game](../guides/add-pots-overlay.md).
 
 Try it on a **duplicate**, never on a live game: the add-on writes to the project's Game Config at
-once, and the next Publish ships it. It needs the tools whose docs it writes, beside the Game Maker:
+once. **Live ↗** shows it straight away and players get it with the next Publish, except on a game
+published before versioned snapshots (the amber note on its card): its players boot the live
+authoring data, so they get the overlay at once. It needs the tools whose docs it writes, beside the Game Maker:
 Game Config, Symbols and the Scene Editor (and Invisible Flow for the Flow steps). Without one, the
-dialog says which, and the new-game checkbox creates the game without the overlay.
+dialog says which, and the new-game checkbox creates the game without the overlay. It also adds
+nothing while someone else has this project's Game Config, Scene Editor, Symbols (or, with the Flow
+steps, Flow) open: the dialog names who is editing, and you try again once they close it.
 
 1. On the project's card, click **＋ Pots overlay…**. (On a project that already has the overlay the
    button reads **Pots overlay parts…**; see _Running it again_ below.)
-2. Pick a **Preset**:
+2. Pick a **Preset**. Only the presets that fit the game's Game Config are offered: on a Hold and
+   Win game **Coins only** never is (its own reels start its feature), and **3 Pots** only on the
+   3 Pots preset (its pots start specials Classic and Collector do not have). On a Hold and Win game
+   the overlay brings no value coins either, for the same reason.
    - **3 Pots (each pot a Hold and Win with its special)** — red, blue and green pots, each starting
      the Hold and Win feature with a different special active, plus value coins.
    - **Pots to free spins** — one gold pot that starts free spins.
@@ -195,8 +202,8 @@ dialog says which, and the new-game checkbox creates the game without the overla
    steps [Invisible Flow](flow.md#pots-overlay-and-hold-and-win-on-any-kind--add-ons)'s **＋ Add
    overlay steps** adds, to a flow the project has stored.
 4. Click **Add**. When the report appears, click **Done**.
-5. **Reload any open Game Config, Scene Editor, Symbols or Flow tab for this project.** A tab opened
-   before the add-on still holds the old doc, and its next save is refused as a conflict.
+5. **Reload your own open Game Config, Scene Editor, Symbols or Flow tabs for this project.** A tab
+   opened before the add-on still holds the old doc, and its next save is refused as a conflict.
 
 **What it adds.** It first merges the overlay into the project's
 [Game Config](game-config.md#add-ons) (the 3 Pots and Coins only presets also bring a Hold and Win
@@ -207,7 +214,9 @@ overlay needs:
   draw from the first spin. Replace it in [Symbols](symbols-state-machine.md#pots-overlay-projects).
 - **Screens** — the Scene Editor's **＋ Add overlay screens**, done for you: the **Pots** screen
   (one Pot Meter per pot) and, with a Hold and Win bonus, the Jackpot bar and the feature's screens.
-  Coins only has no pots, so it adds no Pots screen and no token.
+  Coins only has no pots, so it adds no Pots screen and no token. A pot that already has a Pot Meter
+  on any screen gets no second one. On a Hold and Win game, which has its Pots screen, it appends a
+  Pot Meter for each new pot beside the existing ones.
 - **Win Text** — nothing. Every pot, jackpot and respin line already has a built-in default that
   [Win Text](win-text.md) and Localization offer once the config has the overlay. Writing the
   defaults in would freeze them as your own copy, so name the pots in Win Text yourself.
@@ -233,7 +242,9 @@ and steps that are missing and leaves the rest alone. A Flow graft never touches
 A part that lost that race reads **changed meanwhile** (or **failed** on an error), and the dialog
 offers **Run again for the rest**. Running again is safe: it adds only what is still missing and
 never duplicates a part. The same goes for **Pots overlay parts…** on the card later: it has no
-preset, only the Flow checkbox and **Seed missing parts**. If the Game Config itself was saved by
+preset, only the Flow checkbox and **Seed missing parts**. A run that does not add the overlay never
+adds a screen, so a screen you deleted stays deleted: it only adds a Pot Meter for a pot that has none
+on any screen (or names it, when there is no Pots screen to put it on). If the Game Config itself was saved by
 someone else meanwhile, the dialog says so and nothing was added; click **Add** again.
 **Seed missing parts** binds placeholder art to every token or bonus symbol that has no binding,
 including one you cleared on purpose.
