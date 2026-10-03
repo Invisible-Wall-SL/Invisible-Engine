@@ -9,7 +9,8 @@
  *  - `SymbolSprite` fires from an `$effect` on `symbolInfo` — a state bound to art that is already
  *    on screen has nothing to report.
  *  - `Symbol.svelte` renders NOTHING when the state resolves to no art at all (`missingArt`), so no
- *    renderer is mounted to report in the first place.
+ *    renderer is mounted to report in the first place — unless it is an add-on symbol, whose
+ *    placeholder disc (`SymbolPlaceholder`) reports after a short hold.
  *  - `SymbolWrap` only mounts the cell on the layer that matches its `animating` flag and only while
  *    the seat is in frame, so an out-of-frame cell has no `<Symbol>` either.
  *  - a spine whose bound `animationName` is not in the skeleton: `setAnimation` throws, the catch

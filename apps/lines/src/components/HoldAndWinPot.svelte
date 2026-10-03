@@ -17,6 +17,7 @@
 	import { CatalogText } from 'engine-layout/svelte';
 
 	import { potActivatesText, potLabelText } from '../game/holdAndWinText';
+	import { potColour } from '../game/symbolPlaceholder';
 	import {
 		meterAnchor,
 		meterLevelShown,
@@ -54,17 +55,9 @@
 	const LABEL_GAP = HEIGHT * 0.15;
 	const CENTRE = { x: 0.5, y: 0.5 };
 	const CODED_LOOK = readPotSkin(() => undefined);
-	const PALETTE = [0xe0b030, 0x30b0e0, 0xb060e0, 0x60c070];
-	const NAMED: Record<string, number> = {
-		red: 0xe0452f,
-		blue: 0x2f7be0,
-		green: 0x3fbf5a,
-		gold: 0xe0b030,
-		purple: 0x9a4fe0,
-	};
 
 	const look = $derived(props.look ?? CODED_LOOK);
-	const colour = $derived(NAMED[props.meter.id] ?? PALETTE[props.index % PALETTE.length]);
+	const colour = $derived(potColour(props.meter.id, props.index));
 	const max = $derived(meterMax(props.meter.id) || props.meter.maxLevel);
 	const level = $derived(Math.max(0, Math.min(max, meterLevelShown(props.meter.id))));
 	const stage = $derived(meterStage(props.meter, level));

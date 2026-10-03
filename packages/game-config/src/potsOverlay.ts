@@ -79,12 +79,19 @@ export type OverlayDrops = {
 export type OverlayTiming = 'afterStop' | 'perReel';
 
 export type PotsOverlay = {
-	/** Empty for a coins-only overlay: value coins drop and N+ start Hold and Win, with no pot. */
+	/** 0 to {@link MAX_OVERLAY_POTS}. Empty for a coins-only overlay: value coins drop and N+ start
+	 *  Hold and Win, with no pot. */
 	pots: OverlayPot[];
 	drops: OverlayDrops;
 	/** Absent ⇒ `afterStop`, which is not stored. Presentation only: the server never sees it. */
 	timing?: OverlayTiming;
 };
+
+/** The most pots one overlay holds. */
+export const MAX_OVERLAY_POTS = 5;
+
+/** The ids pots take in order, each with its own colour in the coded pots. */
+export const OVERLAY_POT_IDS = ['red', 'blue', 'green', 'gold', 'purple'] as const;
 
 export const isCoinDrop = (
 	entry: OverlayDropEntry,
@@ -263,7 +270,12 @@ export function validatePotsOverlay(doc: GameConfigDoc): GameConfigIssue[] {
 	// Coins alone on a Hold and Win game's base-game block: one error for the overlay, not a warning
 	// per coin row as well.
 	const coinsAlone = !overlay.pots.length && Boolean(block) && !coinsCount;
-	if (!overlay.pots.length && !overlay.drops.table.some(isCoinDrop)) {
+	if (overlay.pots.length > MAX_OVERLAY_POTS) {
+		error(
+			'pots',
+			`An overlay holds at most ${MAX_OVERLAY_POTS} pots (this one has ${overlay.pots.length}).`,
+		);
+	} else if (!overlay.pots.length && !overlay.drops.table.some(isCoinDrop)) {
 		error(
 			'pots',
 			'The overlay has no pots and drops no value coins — it needs at least one of them.',
