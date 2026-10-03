@@ -459,7 +459,7 @@
 		if (!node || node.kind !== 'componentInstance') return undefined;
 		const primary = instanceComponent?.params?.find((q) => q.kind === 'spine');
 		if (!primary) return undefined;
-		const override = node.params?.[primary.key];
+		const override = instanceParamValue(node, primary.key);
 		if (typeof override === 'string' && override) return override;
 		return typeof primary.default === 'string' && primary.default ? primary.default : undefined;
 	}
@@ -496,13 +496,13 @@
 	 * instead of degrading to free text. */
 	function effectiveSpineBundle(p: ComponentParam): string | undefined {
 		if (!p.spineParam || !node || node.kind !== 'componentInstance') return undefined;
-		const override = node.params?.[p.spineParam];
+		const override = instanceParamValue(node, p.spineParam);
 		if (typeof override === 'string' && override) return override;
 		const sib = instanceComponent?.params?.find((q) => q.key === p.spineParam);
 		if (typeof sib?.default === 'string' && sib.default) return sib.default;
 		const primary = instanceComponent?.params?.find((q) => q.kind === 'spine');
 		if (primary && primary.key !== p.spineParam) {
-			const primaryOverride = node.params?.[primary.key];
+			const primaryOverride = instanceParamValue(node, primary.key);
 			if (typeof primaryOverride === 'string' && primaryOverride) return primaryOverride;
 			if (typeof primary.default === 'string' && primary.default) return primary.default;
 		}
@@ -518,7 +518,7 @@
 	function instanceSpineBoundName(sp: SpineNode): string | undefined {
 		const paramKey = sp.paramBindings?.['assetKey'];
 		if (!paramKey || !node || node.kind !== 'componentInstance') return undefined;
-		const override = node.params?.[paramKey];
+		const override = instanceParamValue(node, paramKey);
 		if (typeof override === 'string' && override) return override;
 		const sib = instanceComponent?.params?.find((q) => q.key === paramKey);
 		return typeof sib?.default === 'string' ? sib.default : undefined;
