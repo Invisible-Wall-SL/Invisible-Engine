@@ -64,6 +64,19 @@ Tools are typed `online` (opened in the browser) or `local` (installed on your
 machine). Online tool cards are clickable and link straight into the tool;
 local tool cards show an "install" tag.
 
+### Choosing a project
+
+The **Client** and **Project** dropdowns in the header pick the project your tools
+work on. Picking a project saves it to your session, and every online tool card
+opens **the project the dropdown shows** (the link carries `?project=`). The
+project then shows in the tool's top bar as `<client> / <project>`.
+
+Your session is shared by all your tabs, and other tabs can change it: a Game
+Maker **Publish** switches you to the project it published, and opening a tool for
+another project switches you to that one. When you come back to a launcher tab, it
+reloads its project list and selection, so a project created or duplicated in
+another tab shows up, and the dropdown shows where your session is now.
+
 ## How tool pages work
 
 **Tools are always full-page — never iframes.** Each online tool route is a

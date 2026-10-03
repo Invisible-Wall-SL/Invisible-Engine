@@ -56,6 +56,23 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+- 2026-10-03 — **The home Project selector can no longer disagree with the session.** Owner report
+  after duplicating Book of Borut: the copy was missing from the dropdown, the dropdown showed
+  BookOfBorutRemake, and the Scene Editor opened `borut-pots-sample`. Cause: the session is
+  shared by every tab and moves without this tab knowing (Game Maker Publish pins the project
+  it published; a `?project=` tool launch syncs it). A home tab loaded before the Duplicate kept
+  its old list and selection, and the tool cards (no `?project=`) opened the session's project.
+  Picking the original did nothing, because the original was the option already selected, so
+  no `change` fired. Two fixes in `(app)/+page.svelte`:
+  - The home page re-runs its loads (`invalidateAll`, at most once per 2s) on `visibilitychange`
+    to visible and on window `focus`. Only the home page: a tool page must not switch project
+    under an open document.
+  - Every online tool card links `?project=<the selected project>`, so a tool opens the project
+    the dropdown shows. This also covers clicking a card in a side-by-side window before the
+    reload lands. Routes without `resolveToolScope` (`/files`, `/rigger`, `/spine`, `/comfyui`,
+    `/storybook`, `/game-maker`) ignore the param, as before.
+  - Guide: [tools/launcher.md § Choosing a project](../tools/launcher.md#choosing-a-project).
+    The Duplicate naming half of the report is in [game-maker.md](game-maker.md).
 - 2026-10-02 — **`/admin` → promote spine no longer copies the bundle's `source.json`** into `_shared/spines/`, so a shared bundle is a real snapshot (the sidecar let a re-pack in the authoring project rewrite it). Detail: [editor status](editor.md).
 - 2026-09-30 — **Build uploads client source maps to Sentry when `SENTRY_AUTH_TOKEN` is set** (`vite.config.js` hidden maps → `build` script runs `scripts/sentry-sourcemaps.mjs launcher build`: inject debug IDs, upload for `RAILWAY_GIT_COMMIT_SHA`, delete every `.map`, fail if one is left in `client/_app`). Without the token the build is unchanged. Owner steps: docs/INFRA.md "Readable stack traces — source maps".
 

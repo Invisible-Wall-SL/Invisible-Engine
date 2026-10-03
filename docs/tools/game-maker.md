@@ -148,8 +148,10 @@ resets every filter at once.
 **Duplicate…** on a card copies the whole game onto a new project key — the same
 client for a variant, a different client to reskin it for them. You choose:
 
-- **New name / new key / client** — the key auto-follows the name until you edit it,
-  same as the create form.
+- **New name / new key / client** — name and key start empty, and **Duplicate** stays
+  greyed out until both are filled. The key auto-follows the name until you edit it,
+  same as the create form; typing a key never fills in the name. To rename a copy
+  afterwards, use **/admin → Projects**.
 - **What to copy:**
   - **Game setup only (no art, sounds or fonts)** (default) — scenes, both flow
     docs, Game Config, symbols, win text, strings, the project's editor components
