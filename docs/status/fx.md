@@ -30,6 +30,18 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-10-03 — **An effect placed inside a component no longer also bursts at the stage origin**
+  (found by the Hold and Win 12c done-when rehearsal, #1006).
+  - **The bug:** `Effects.svelte` auto-mounts every event-triggered effect that is not placed, at
+    the stage origin. The game's `placedEffectIds()` walked only the scenes, so an effect node
+    inside a component def counted as unplaced. An FX in a Pot therefore fired twice on each cue:
+    on its pot, and unscoped in the top-left corner (47 particles each, measured), on every pot's
+    cue.
+  - **The fix:** one walk, `collectPlacedEffectIds` (engine-layout), over the scenes and every
+    shipped def. The game and the launcher's `effectReachability.ts` both call it; the launcher
+    already walked the defs.
+  - **Verified:** `test-placed-effects.mjs` (6 assertions), and on the real game the same Pot FX
+    fires on its own pot only, with 0 particles anywhere else.
 - 2026-10-02 — **Trigger scope (Hold and Win Phase 12a, #1003).**
   - `EmitterTrigger.scope` fires a layer only on events about one part (a meter, a tier, a reel),
     matched against the event's `scope`.

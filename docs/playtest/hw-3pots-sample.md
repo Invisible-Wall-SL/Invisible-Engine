@@ -106,6 +106,45 @@ built for the grown board (`holdAndWinReferenceLayout(HOLD_AND_WIN_BOARD, { maxR
 - **Resume:** as S8 (a plain reload cannot land mid-feature): fail a later respin request, reload —
   the board reopens at the server's open rows, the rest locked, with no intro.
 
+### S10 — The 12c done-when: a skinned Pot on all three pots (Phase 12c)
+
+The design's done-when (§8): the author skins the Pot with their own bitmap fill and frame, and puts
+a frog spine inside it that plays "celebrate" plus an FX on **Pot — activate** for that pot only,
+its belly bone growing with the pot's level. All three pots, no Flow branch.
+
+- **Author** (needs #1006 on the runtime, and the project's Pots screen — hub Owner checklist 5):
+  1. `/components` → **Create** → **Pot Meter (Hold and Win)**, then **Edit inside Pot ›**.
+  2. Inside the part, drop the frog spine. Give it a cue on **Pot — activate** playing its
+     celebrate animation. Add a **Bind to value**: drives **Spine bone** (its belly bone), from
+     **Pot (this instance's meter)** → level, **divide by** its maximum, out 1 → 2.5.
+  3. Inside the part, drop the effect. In `/fx`, its layer triggers on the `potsConsume` event,
+     with **Scope** left blank (it takes the pot's).
+  4. Save. On the **Pots** screen, select each pot, switch its **component** to the copy, and pick
+     **fillImage** and **frameImage** (and **backgroundImage**) in its **Pot art** group. Publish.
+- **Force:** `meter:red`, then `meter:blue`, then `meter:green`, one round each. Wait for each
+  feature to finish before the next: the client fetches the round up front, so the server is done
+  long before the screen is.
+- **Expect:** only the forced pot's frog plays celebrate and only its FX bursts, at the feature's
+  entry. Its belly grows as the pot fills and shrinks as the feature takes the pot. The other frogs
+  rest at their own pots' levels. No burst anywhere else (an FX inside a component used to burst at
+  the top-left corner as well).
+- **Local rehearsal** (no project data; how it was first verified, 2026-10-03):
+  1. A `/api/editor/runtime` stub on a free port answering
+     `{ assetBase, doc, config, componentDefs, effects }`. The doc is
+     `holdAndWinReferenceLayout()` with each `potMeter` instance switched to the copy and given the
+     art params; the config is `normalizeGameConfigDoc(HOLD_AND_WIN_PRESETS.pots)`; no `flowV2`.
+     Stand-ins from the game's own assets: the H1 rig (`h1` as celebrate, its `beard` bone as the
+     belly) and the `progressBar` sprites (`progressBar.png` / `progressBarFrame.png` /
+     `progressBarBackground.png`).
+  2. `PORT=<free> PRESET=pots node --experimental-strip-types --import ./scripts/ts-loader.mjs
+     scripts/mock-rgs-server-holdandwin.mjs`.
+  3. `PUBLIC_RGS_TRANSPORT=play4fun pnpm --filter lines dev`, opened with `?runtime=1&k=local`,
+     `editorDocBase` = the stub and `rgs_url` = the mock. Force with `GET <mock>/force?sid=…`, press
+     Space until the mock logs the round's `bet`.
+  4. Read the scene off `globalThis.__PIXI_APP__`: a spine's animation is
+     `rig.state.getCurrent(0)`. Read a bound bone with `bone.getWorldScaleX()`: the local
+     `scaleX` reads 1, because `SpinePose` undoes its offsets after each world transform.
+
 ## Known state (2026-10-01)
 
 - Until Phase 4c the respins show NOTHING moving: the base board stays on screen while the round

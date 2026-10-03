@@ -54,7 +54,7 @@ titled **"Hold and win game pipeline"**.
 | 11c | Progressive + operator platform jackpots (design §7) | merged, live (`lines@2342c815d074`) — owed: the live Borut round and the partner's platform-jackpot confirmation (Owner checklist 10–11) | Hold and Win Phase 11c — progressive + platform jackpots | part 1: #991 · part 2: #999 |
 | 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | merged (`97652ca9`; the runtime release passed) — owed: a live check on `hw-3pots-sample` (Open items) | Hold and Win Phase 12a | #1003 |
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | merged — whole pipeline (engine → sources → Scene + Component Editor → guides); owed: the live check (Open items) | Hold and Win Phase 12b value bindings | #1005 |
-| 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — built on #1006: the Pot (art params, nodes inside, `standsFor`, fill on 12b's `fillMaskRect`), the Respin Counter and the Jackpot Tile (their panels inside a coded part), a Jackpot Bar copy, a **component** swap on instances, the Total Win Bar (its part can catch the coins), the Letters Strip (each letter a Letter Tile instance), the Wheel (art params, nodes on its turning face), and the respin cells (each a Cell Tile instance). Next: the done-when on `hw-3pots-sample` | Hold and Win Phase 12c skinnable parts | #1006 |
+| 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — built on #1006: the Pot (art params, nodes inside, `standsFor`, fill on 12b's `fillMaskRect`), the Respin Counter and the Jackpot Tile (their panels inside a coded part), a Jackpot Bar copy, a **component** swap on instances, the Total Win Bar (its part can catch the coins), the Letters Strip (each letter a Letter Tile instance), the Wheel (art params, nodes on its turning face), and the respin cells (each a Cell Tile instance). The done-when passes on the real game locally (all three pots); owed: the live run on `hw-3pots-sample` after merge (Owner checklist 13) | Hold and Win Phase 12c skinnable parts | #1006 |
 
 ## Current state
 
@@ -897,10 +897,12 @@ Hold and Win beats prints copy.
     **Pot — activate**.
   - **12b is merged in.** The Pot's fill reveal is its `fillMaskRect`; the coded `potFillRect` is
     gone.
-  - **Then the done-when on `hw-3pots-sample`:** a project Pot Meter copy with the frog spine
-    inside the part. Its cue on **Pot — activate** comes from 12a. The pot's scope comes from the
-    `meter` param. Its belly bone is a 12b `bone` binding on `meter.{meter}.level`. Its art is
-    the art params. Check it on all three pots with no Flow branch.
+  - **The done-when passes locally on the real game (2026-10-03, Recent changes).** A project Pot
+    copy on all three pots, each forced full in turn: only that pot's frog celebrates and fires its
+    FX, and each frog's bone follows its own pot's level, with no Flow at all. It found and fixed an
+    FX bug (an effect inside a component also burst at the stage origin).
+    - **Owed: the live run on `hw-3pots-sample`** (Owner checklist 13). This session could not
+      reach the launcher, the games host or R2, so nothing was authored on the project.
   - **The respin counter is done** (Decisions). Open on it: the active-modifiers line has no source
     an authored text can bind.
   - **The total win bar is done** (Decisions). Open on it, for the owner: whether a new project's
@@ -928,8 +930,8 @@ Hold and Win beats prints copy.
 - **Phase 12b follow-ups** (none blocks 12c):
   - **Live check owed.** A binding authored in the Component Editor has not been seen on a live
     project: the editor UI type-checks and bundles, and the runtime was screenshot in Storybook
-    (`ENGINE-LAYOUT/Value bindings`). The design's done-when (a frog's belly bone growing with its
-    pot on `hw-3pots-sample`) needs 12c's authored children inside the Pot.
+    (`ENGINE-LAYOUT/Value bindings`). The done-when's bone on `meter.{meter}.level` passes on the
+    real game locally (12c Recent changes, 2026-10-03); the live run is Owner checklist 13.
   - **The Scene Editor cannot scrub a node inside a placed instance** — those nodes are not
     selectable there. Scrub it in the Component Editor.
   - **Fill covers sprite, flipbook and rect only.** A container or spine fill (mask a whole group)
@@ -939,7 +941,9 @@ Hold and Win beats prints copy.
   - **A live check on `hw-3pots-sample`.** Author a component scoped by `meter` with a spine cue on
     **Pot — activate** (or an FX on `potFull`), place it on each pot, and confirm only the pot that
     activates plays. Everything up to that point is gate-covered (`check:signal-scope`), but the
-    instance filter itself is Svelte and runs only in a browser.
+    instance filter itself is Svelte and runs only in a browser. The 12c done-when rehearsal ran it
+    in the real game on the local mock (a spine cue and an FX, three pots): only the activated pot
+    played. The live run is Owner checklist 13.
   - **Coins are not scoped.** A coin signal has no part a placed component stands for. 12c's Cell
     Tile is a per-cell instance now, but "Coins land" lists several cells, so a per-cell scope would
     need a fire per cell, which would replay an unscoped listener's cue. A Cell Tile reads its cell's
@@ -1065,6 +1069,15 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     binds its `unlock`-tagged symbol in `/symbols` (the tool defaults use the scatter art, seeded only
     when the symbol exists at scaffold time). Without art the beat still plays (state, flight, fade,
     banner).
+13. **The 12c done-when, live on `hw-3pots-sample`** — after #1006 merges and its runtime release
+    passes. Needs item 5 first (the project has no Pots screen, and its Book-of flow must show the
+    Pots screen at load). Then, as the author, per the playbook's
+    [S10](../playtest/hw-3pots-sample.md): create a **Pot Meter (Hold and Win)** copy, put the frog
+    spine and an FX inside its `Pot` part, give the spine a cue on **Pot — activate** and a **Bind to
+    value** on its belly bone, pick the fill and frame art, switch the three placed pots to the copy,
+    and publish. Hand the forced rounds back to a session, or play them: each `meter:<id>` must play
+    only that pot's frog and FX, with no Flow branch. A cloud session needs `games.invisiblewall.org`
+    allowed in its environment's network access to play it.
 
 ## Blocked (owner / external)
 
@@ -1072,6 +1085,32 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 
 ## Recent changes
 
+- 2026-10-03 — **Phase 12c: the done-when rehearsed on the real game, locally** (#1006). All three
+  pots pass. The live run on `hw-3pots-sample` is owed (Owner checklist 13).
+  - **Why local:** this session's egress blocks `games.invisiblewall.org` and
+    `app.invisiblewall.org`, and it has no R2 keys. So nothing was authored on the project.
+  - **The setup** (recipe in the playbook's S10): the `lines` runtime from this branch with
+    `?runtime=1`, a local `/api/editor/runtime` stub and the Pots mock (`PRESET=pots`, a free port).
+    The stub serves the Pots preset and the Hold and Win reference layout, with the three placed
+    pots switched to a project Pot copy and no Flow.
+  - **The Pot copy, authored as the done-when asks:**
+    - The fill and frame are bitmaps through the art params (the game's progress-bar sprites).
+    - The "frog" is the H1 rig inside the `Pot` part, with a cue on **Pot — activate** playing
+      `h1` (its celebrate).
+    - A 12b `bone` binding scales its `beard` bone (the belly) by `meter.{meter}.level` over
+      `meter.{meter}.max`, from 1× to 2.5×.
+    - An FX node inside the part, its layer triggered on `potsConsume` with no scope of its own.
+  - **Result:** each `meter:<id>` forced in turn, Playwright reading the Pixi scene:
+    - Only that pot's frog plays `h1`, and only its FX emits (24 particles); the other two rest.
+    - Its bone reaches 2.49× as the pot fills to 12 of 12, and falls back as the feature takes
+      the pot. The other frogs hold their own levels (1.125× at 1 of 12).
+    - 0 particles away from the pots, 0 console errors, no Flow in the bundle.
+  - **Found and fixed:** the FX also burst at the stage origin, unscoped, on every pot's cue.
+    `placedEffectIds()` walked only the scenes, so `Effects.svelte` auto-mounted the Pot's effect a
+    second time. One shared walk now, `collectPlacedEffectIds`, with `test-placed-effects.mjs`.
+    Detail: [fx](fx.md).
+  - **Checks:** `check:all` (363), svelte-check at baseline for lines, engine-layout and the
+    launcher, the `lines` and `launcher-api` builds.
 - 2026-10-03 — **Phase 12c: the respin cell tiles skinned** (#1006). That closes the 12c list of
   parts. Contract: Decisions, "The respin cell tiles follow the Letters Strip".
   - **Engine:**

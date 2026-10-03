@@ -123,6 +123,30 @@ export async function resolveComponentClosure(
 	return defs;
 }
 
+/**
+ * The effect ids PLACED as `effect` nodes in `nodes` (a doc's scenes, flattened) and in every def's
+ * tree (`defs`, the closure of the placed instances), recursing into container children — a bind
+ * part's skin included. An instance is not expanded: its def is walked once, in `defs`. The game
+ * skips these when it auto-mounts free effects at the stage origin (an FX inside a Pot mounts on the
+ * pot), and the launcher keeps them when it prunes the effects a bundle ships.
+ */
+export function collectPlacedEffectIds(
+	nodes: readonly LayoutNode[],
+	defs: Iterable<ComponentDef> = [],
+): Set<string> {
+	const ids = new Set<string>();
+	const walk = (list: readonly LayoutNode[] | undefined): void => {
+		for (const node of list ?? []) {
+			if (node.kind === 'effect' && typeof node.effectId === 'string' && node.effectId) {
+				ids.add(node.effectId);
+			} else if (node.kind === 'container') walk(node.children);
+		}
+	};
+	walk(nodes);
+	for (const def of defs) if (def.root) walk([def.root]);
+	return ids;
+}
+
 /** A `componentInstance`'s explicit version pin (`componentVersion` set). */
 export interface ComponentPin {
 	id: string;
