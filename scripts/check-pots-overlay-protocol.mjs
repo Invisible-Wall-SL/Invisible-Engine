@@ -745,6 +745,35 @@ console.log('4. routes: Hold and Win (pots, coins), the host’s free spins, ano
 			'…and its own symbols pay at their own prices (MUMMY, ACE_2)',
 			JSON.stringify([...sample]),
 		);
+		// A cosmetic strip can land a scatter on every reel of every spin: its retriggers stop at the cap
+		// and the round still ends.
+		const dense = imported(
+			importBonus(
+				FREE,
+				normalizeGameConfigDoc({
+					...structuredClone(BOOK_SOURCE),
+					paddingReels: {
+						...structuredClone(BOOK_SOURCE.paddingReels),
+						freegame: [['SCAT', 'TEN', 'KING'].map((name) => ({ name }))],
+					},
+				}),
+				{
+					project: 'book-dense',
+					mode: 'freeSpins',
+					at: '2026-10-03T08:00:00.000Z',
+					pots: ['gold'],
+				},
+			),
+		);
+		const capped = await playRound(overlayMock(dense, { seed: 'import-dense' }), 'd', {
+			context: 'force:pot:gold',
+		});
+		const freeSpins = capped.flatMap((a) => named(a, 'playedBonusSpin')).length;
+		check(
+			capped.some((a) => named(a, 'gameEnd').length) && freeSpins > 10 && freeSpins <= 50,
+			'…a scatter on every reel retriggers up to the 50-spin cap, then the round ends',
+			JSON.stringify({ freeSpins }),
+		);
 	}
 	const stub = await playRound(overlayMock(STUB, { seed: 'stub-close' }), 's', {
 		context: 'force:pot:gold',
