@@ -210,8 +210,9 @@ function addImageRef(refs: ArtRefs, value: string): void {
 }
 
 /** Collect every art reference in the doc + the defs' roots: sprite-node manifest
- * keys, and frames set through image-kind params (instance overrides and def
- * defaults) — scoped refs pin their atlas, bare names are resolved by name below. */
+ * keys, and frames set through image-kind params (def defaults, instance params and
+ * their per-layoutType overrides) — scoped refs pin their atlas, bare names are
+ * resolved by name below. */
 function collectArtRefs(doc: LayoutDoc, defs: Record<string, ComponentDef>): ArtRefs {
 	const refs: ArtRefs = {
 		manifestKeys: new Set(),
@@ -274,13 +275,22 @@ function collectArtRefs(doc: LayoutDoc, defs: Record<string, ComponentDef>): Art
 		if (node.kind === 'reelGrid' && typeof node.tileRegion === 'string' && node.tileRegion) {
 			addImageRef(refs, node.tileRegion);
 		}
-		if (node.kind === 'componentInstance' && node.params) {
+		// The base params AND every per-layoutType patch: the runtime applies `overrides[*].params`
+		// per ratio (`resolveLayoutInstanceParams`), so art picked only for portrait is art the game
+		// asks for in portrait.
+		if (node.kind === 'componentInstance') {
 			const imgKeys = imageParamKeys.get(node.componentId);
 			const spineKeys = spineParamKeys.get(node.componentId);
-			for (const [k, v] of Object.entries(node.params)) {
-				if (typeof v !== 'string' || !v) continue;
-				if (imgKeys?.has(k)) addImageRef(refs, v);
-				else if (spineKeys?.has(k)) refs.spineNames.add(v);
+			const paramSets = [
+				node.params,
+				...Object.values(node.overrides ?? {}).map((override) => override?.params),
+			];
+			for (const params of paramSets) {
+				for (const [k, v] of Object.entries(params ?? {})) {
+					if (typeof v !== 'string' || !v) continue;
+					if (imgKeys?.has(k)) addImageRef(refs, v);
+					else if (spineKeys?.has(k)) refs.spineNames.add(v);
+				}
 			}
 		}
 	};
