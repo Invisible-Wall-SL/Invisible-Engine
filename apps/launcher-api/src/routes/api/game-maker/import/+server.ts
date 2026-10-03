@@ -16,12 +16,16 @@ const NO_STORE = { 'cache-control': 'no-store' };
 
 type Gate = { ok: true; client: string; source?: string } | { ok: false; response: Response };
 
+const unauthorized = () => json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE });
+
 /**
- * The Game Maker grant, every tool whose doc an import writes, both projects accessible, and the
- * SAME client: an import copies a feature between one client's projects, never across clients.
+ * The Game Maker grant, every tool whose doc an import writes, both projects accessible
+ * (`mayAccess`, the handler's own `canAccessProject`), and the SAME client: an import copies a
+ * feature between one client's projects, never across clients.
  */
 async function gate(
-	locals: App.Locals,
+	user: NonNullable<App.Locals['user']>,
+	mayAccess: (project: string) => Promise<boolean>,
 	project: string,
 	source: string | undefined,
 ): Promise<Gate> {
@@ -29,8 +33,7 @@ async function gate(
 		ok: false,
 		response: json({ error }, { status, headers: NO_STORE }),
 	});
-	if (!locals.user) return refuse(401, 'Unauthorized');
-	const { role, id } = locals.user;
+	const { role, id } = user;
 	const roleOverrides = await getRoleOverrides(role);
 	const toolOverrides = await getToolOverrides(id);
 	const hasTool = (tool: string) => roleHasTool(role, tool, roleOverrides, toolOverrides);
@@ -40,10 +43,10 @@ async function gate(
 		return refuse(403, `The import writes docs your role cannot edit: ${missing.join(', ')}.`);
 	}
 	if (!project) return refuse(400, 'Missing project');
-	if (!(await canAccessProject(id, role, project))) return refuse(404, 'Unknown project');
+	if (!(await mayAccess(project))) return refuse(404, 'Unknown project');
 	const client = (await projectClientKey(project)) ?? UNASSIGNED_CLIENT;
 	if (source !== undefined) {
-		if (!source || !(await canAccessProject(id, role, source))) {
+		if (!source || !(await mayAccess(source))) {
 			return refuse(404, 'Unknown source project');
 		}
 		if (((await projectClientKey(source)) ?? UNASSIGNED_CLIENT) !== client) {
@@ -62,7 +65,10 @@ async function gate(
 export const GET: RequestHandler = async ({ url, locals }) => {
 	const project = url.searchParams.get('project')?.trim() ?? '';
 	const source = url.searchParams.get('source')?.trim() ?? '';
-	const gated = await gate(locals, project, source);
+	const user = locals.user;
+	if (!user) return unauthorized();
+	const mayAccess = (key: string) => canAccessProject(user.id, user.role, key);
+	const gated = await gate(user, mayAccess, project, source);
 	if (!gated.ok) return gated.response;
 	return json({ features: await sourceFeatures(gated.client, source) }, { headers: NO_STORE });
 };
@@ -100,7 +106,10 @@ export const POST: RequestHandler = async ({ request, cookies, locals }) => {
 		? body.pots.filter((p): p is string => typeof p === 'string')
 		: undefined;
 	// A re-sync's source is the one the config records; the gate checks it once it is known.
-	const gated = await gate(locals, project, resync ? undefined : text(body.source));
+	const user = locals.user;
+	if (!user) return unauthorized();
+	const mayAccess = (key: string) => canAccessProject(user.id, user.role, key);
+	const gated = await gate(user, mayAccess, project, resync ? undefined : text(body.source));
 	if (!gated.ok) return gated.response;
 
 	const sessionId = await sessionIdFromToken(cookies.get(SESSION_COOKIE));
@@ -113,10 +122,7 @@ export const POST: RequestHandler = async ({ request, cookies, locals }) => {
 		replace: body.replace === true,
 		pots,
 		sessionId,
-		mayRead: async (source) => {
-			const again = await gate(locals, project, source);
-			return again.ok;
-		},
+		mayRead: async (source) => (await gate(user, mayAccess, project, source)).ok,
 	});
 	if (!result.ok) {
 		return json({ error: result.error }, { status: result.status, headers: NO_STORE });
