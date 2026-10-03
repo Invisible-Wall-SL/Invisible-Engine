@@ -5,6 +5,8 @@
 		HOLD_AND_WIN_PRESET_LABELS,
 		HOLD_AND_WIN_SPECIALS,
 		BASE_GAME_MODE,
+		MAX_OVERLAY_POTS,
+		OVERLAY_POT_IDS,
 		POTS_OVERLAY_PRESET_IDS,
 		POTS_OVERLAY_PRESET_LABELS,
 		addHoldAndWinBonus,
@@ -12,8 +14,10 @@
 		holdAndWinIsOverlayBonus,
 		isCoinDrop,
 		overlayDropModes,
+		potsOverlayPreset,
 		removePotsOverlay,
 		resolveGameModes,
+		setOverlayPotCount,
 		symbolsInPlay,
 		type AddOnResult,
 		type GameConfigDoc,
@@ -84,6 +88,15 @@
 
 	// ── add / remove ───────────────────────────────────────────────────────────────────────────
 	let overlayPreset = $state<PotsOverlayPresetId>(POTS_OVERLAY_PRESET_IDS[0]);
+	const presetPotCount = (id: PotsOverlayPresetId) => potsOverlayPreset(id).potsOverlay.pots.length;
+	/** How many pots the overlay is added with — the preset's own until picked. */
+	let overlayPots = $state(presetPotCount(POTS_OVERLAY_PRESET_IDS[0]));
+	const POT_COUNTS = [...Array(MAX_OVERLAY_POTS + 1).keys()];
+
+	function pickPreset(id: PotsOverlayPresetId) {
+		overlayPreset = id;
+		overlayPots = presetPotCount(id);
+	}
 	let bonusPreset = $state<HoldAndWinPresetId>(HOLD_AND_WIN_PRESET_IDS[0]);
 	/** What the last add did beyond the obvious — a rename or a refusal. Local, never saved. */
 	let notice = $state<{ kind: 'info' | 'error'; text: string } | null>(null);
@@ -107,7 +120,25 @@
 	}
 
 	function addOverlay() {
-		apply(addPotsOverlay(snapshot(), overlayPreset), POTS_OVERLAY_PRESET_LABELS[overlayPreset]);
+		apply(
+			addPotsOverlay(snapshot(), overlayPreset, overlayPots),
+			POTS_OVERLAY_PRESET_LABELS[overlayPreset],
+		);
+	}
+
+	/**
+	 * Set the pot count. A refusal leaves everything as it was, the picker included; otherwise the rows
+	 * still being typed go first, so the count is what the block holds.
+	 */
+	function setPotCount(select: HTMLSelectElement, count: number) {
+		const trial = setOverlayPotCount(snapshot(), count);
+		if (!trial.ok) {
+			select.value = String(doc.potsOverlay?.pots.length ?? 0);
+			apply(trial, `${count} pots`);
+			return;
+		}
+		for (let i = drafts.length - 1; i >= 0; i -= 1) discardDraft(i);
+		apply(setOverlayPotCount(snapshot(), count), `${count} pots`);
 	}
 
 	function addBonus() {
@@ -144,6 +175,8 @@
 			...(doc.holdAndWin?.meters ?? []).map((m) => m.id),
 			...drafts.map((d) => d.id),
 		]);
+		const named = OVERLAY_POT_IDS.find((id) => !taken.has(id));
+		if (named) return named;
 		let n = overlay.pots.length + drafts.length + 1;
 		while (taken.has(`pot${n}`)) n += 1;
 		return `pot${n}`;
@@ -183,8 +216,10 @@
 	/** On a Hold and Win game the block is its base game, started by its own reels, so dropped coins
 	 *  alone start nothing and the last pot must stay (the validator's error, the add's refusal). */
 	const coinsAloneStart = $derived(!doc.holdAndWin || holdAndWinIsOverlayBonus(doc));
+	/** No pots at all — value coins only — needs a Hold and Win block that is the overlay's bonus. */
+	const zeroPotsAllowed = $derived(Boolean(doc.holdAndWin) && holdAndWinIsOverlayBonus(doc));
 	const potRemovable = (overlay: PotsOverlay) =>
-		overlay.pots.length > 1 || (hasCoinDrop(overlay) && coinsAloneStart);
+		overlay.pots.length > 1 || (hasCoinDrop(overlay) && zeroPotsAllowed);
 	const dropRemovable = (overlay: PotsOverlay, i: number) =>
 		overlay.pots.length > 0 || overlay.drops.table.some((e, k) => k !== i && isCoinDrop(e));
 	const KEEP_ONE =
@@ -342,7 +377,33 @@
 			>
 		</div>
 
-		<span class="legend">Pots <em>the server keeps each player's level</em></span>
+		<div class="row tight count-row">
+			<span class="legend">Pots <em>the server keeps each player's level</em></span>
+			<label class="inline"
+				><span>How many</span><select
+					value={overlay.pots.length}
+					onchange={(e) => setPotCount(e.currentTarget, Number(e.currentTarget.value))}
+				>
+					{#each POT_COUNTS as n (n)}
+						<option value={n} disabled={n === 0 && !zeroPotsAllowed && overlay.pots.length > 0}
+							>{n}{n === 0 && !zeroPotsAllowed
+								? doc.holdAndWin
+									? ' — this game’s Hold and Win needs a pot'
+									: ' — needs a Hold and Win bonus'
+								: ''}</option
+						>
+					{/each}
+					{#if overlay.pots.length > MAX_OVERLAY_POTS}
+						<option value={overlay.pots.length}>{overlay.pots.length} — too many</option>
+					{/if}
+				</select></label
+			>
+			<span class="note"
+				>{overlay.pots.length
+					? `${zeroPotsAllowed ? 0 : 1}–${MAX_OVERLAY_POTS}; a new pot copies the last one's size and bonus`
+					: 'no pots: the overlay drops only value coins'}</span
+			>
+		</div>
 		<table class="tbl">
 			<thead>
 				<tr
@@ -504,6 +565,10 @@
 		</table>
 		<button
 			class="small"
+			disabled={overlay.pots.length + drafts.length >= MAX_OVERLAY_POTS}
+			title={overlay.pots.length + drafts.length >= MAX_OVERLAY_POTS
+				? `An overlay holds at most ${MAX_OVERLAY_POTS} pots`
+				: undefined}
 			onclick={() => drafts.push({ id: freePotId(overlay), token: '', mode: '' })}>+ pot</button
 		>
 		{@render issueLines(issuesAt('potsOverlay.pots'))}
@@ -656,11 +721,22 @@
 		{@render overlayEditor(doc.potsOverlay)}
 	{:else}
 		<div class="row tight">
-			<select bind:value={overlayPreset} disabled={readOnly}>
+			<select
+				value={overlayPreset}
+				onchange={(e) => pickPreset(e.currentTarget.value as PotsOverlayPresetId)}
+				disabled={readOnly}
+			>
 				{#each POTS_OVERLAY_PRESET_IDS as id (id)}
 					<option value={id}>{POTS_OVERLAY_PRESET_LABELS[id]}</option>
 				{/each}
 			</select>
+			<label class="inline"
+				><span>pots</span><select bind:value={overlayPots} disabled={readOnly}>
+					{#each POT_COUNTS as n (n)}
+						<option value={n}>{n}</option>
+					{/each}
+				</select></label
+			>
 			<button class="small" onclick={addOverlay} disabled={readOnly}>＋ Pots overlay</button>
 		</div>
 	{/if}
@@ -732,6 +808,12 @@
 	}
 	.sub {
 		margin-top: 10px;
+	}
+	.count-row {
+		margin: 12px 0 6px;
+	}
+	.count-row .legend {
+		margin: 0;
 	}
 	.legend {
 		display: block;

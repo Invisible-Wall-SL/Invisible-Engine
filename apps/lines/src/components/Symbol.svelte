@@ -11,7 +11,10 @@
 	import { playWildExplodeSound } from '../game/soundBindings';
 	import { BitmapText, Container } from 'pixi-svelte';
 	import CoinLabel from './CoinLabel.svelte';
+	import SymbolPlaceholder from './SymbolPlaceholder.svelte';
 	import { coinLabelFor, coinLabelLookFor, type CoinLabelPopCue } from '../game/coinLabel';
+	import { getActiveGameConfig } from '../game/gameConfig';
+	import { symbolPlaceholder } from '../game/symbolPlaceholder';
 
 	type Props = {
 		x?: number;
@@ -70,11 +73,15 @@
 	const symbolInfo = $derived(getSymbolInfo({ rawSymbol: props.rawSymbol, state: props.state }));
 	const isSprite = $derived(symbolInfo.type === 'sprite');
 	const isFlipbook = $derived(symbolInfo.type === 'flipbook');
-	// No art bound for this symbol: draw no art at all. The `{:else}` arm below is the SPINE
-	// renderer, so falling through would hand it an undefined bundle — the blank-binding crash
-	// one layer down from the one `getSymbolInfo` now absorbs. Any value the symbol CARRIES (a
+	// No art bound for this symbol: draw no art at all — except a pot token or a Hold and Win coin,
+	// which draws a coded disc until art is bound (`symbolPlaceholder`). The `{:else}` arm below is
+	// the SPINE renderer, so falling through would hand it an undefined bundle — the blank-binding
+	// crash one layer down from the one `getSymbolInfo` now absorbs. Any value the symbol CARRIES (a
 	// multiplier) still draws, because that is the part the player needs to read.
 	const hasArt = $derived(!symbolInfo.missingArt);
+	const placeholder = $derived(
+		hasArt ? undefined : symbolPlaceholder(getActiveGameConfig(), props.rawSymbol.name),
+	);
 	/**
 	 * A Hold and Win coin's value, jackpot tier or factor. Like the multiplier stamp it draws even
 	 * with no art bound — the value is what the player reads — and it sits in its own band after the
@@ -115,8 +122,8 @@
 	 * cell was bound to a flipbook (or a sprite) paid with no frame while its spine-bound neighbour
 	 * on the same payline got one.
 	 *
-	 * A symbol with NO art draws nothing at all, frame included: a lone frame around empty space
-	 * reads as a rendering fault rather than as the missing binding it is.
+	 * A symbol with NO art gets no frame (it draws nothing, or an add-on's placeholder disc): a lone
+	 * frame around empty space reads as a rendering fault rather than as the missing binding it is.
 	 *
 	 * Drawn on every WIN HIGHLIGHT state, not only `win`: the Hold and Win beats that played `win`
 	 * before they had names of their own (`WIN_HIGHLIGHT_SYMBOL_STATES`) keep the frame they had.
@@ -209,7 +216,16 @@
 
 <Container tint={props.tint}>
 	{#if !hasArt}
-		<!-- nothing to draw -->
+		{#if placeholder}
+			<SymbolPlaceholder
+				look={placeholder}
+				state={props.state}
+				showText={!coinLabel}
+				x={props.x}
+				y={props.y}
+				oncomplete={props.oncomplete}
+			/>
+		{/if}
 	{:else if isFlipbook}
 		<SymbolFlipbook
 			{symbolInfo}

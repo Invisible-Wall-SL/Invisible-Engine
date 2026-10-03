@@ -9,7 +9,8 @@
 `/config`, or in one click from Game Maker ("＋ Pots overlay"). The mock deals it. The shared runtime
 draws tokens over the host's symbols (after the stop, or reel by reel), flies each token as its own
 flight head into its pot, drains the pot and starts its bonus (Hold and Win, or the host's free
-spins). Overlays may be pots-only, coins-only or both. The overlay screens, Flow steps (including
+spins). Overlays may be pots-only, coins-only or both, with 0–5 pots (`/config` **How many**, 2026-10-03).
+An add-on symbol with no art draws a coded placeholder disc. The overlay screens, Flow steps (including
 `showTokens` / `liftTokens` / `drainPots`), symbol states and Win Text are authorable. A project
 without the block, which is every live project today, plays exactly as before. Next: the owner makes
 `borut-pots-sample` (Owner checklist 2); then Phase 7 (import a bonus from another project); Phase 8
@@ -643,9 +644,10 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 ## Open items / next
 
 0. **Left after Phase 4b:**
-   - **Phase 6:** a token with no art in `/symbols` draws nothing (`Symbol`'s missing-art rule),
-     on its cell and as a flight head. The add-on seeds placeholder art, so this only bites a
-     hand-made config.
+   - ~~**Phase 6:** a token with no art in `/symbols` draws nothing.~~ Done 2026-10-03: it bit
+     every overlay added in `/config` too, which seeds no art (only the Game Maker add-on does). A pot
+     token, and a Hold and Win coin, jackpot or special, with no art now draws a coded disc
+     (`apps/lines` `symbolPlaceholder.ts`). Seeding `/config` adds the Game Maker way is still open.
    - **Resume between a drop and its fills** shows no tokens: neither `overlayDrop` nor `reveal` is
      in the resume snapshot. The following `meterUpdate` still flies from the cell (with the coded
      head, as no token is there to carry).
@@ -730,6 +732,63 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 - **The partner's RGS** for production play (Phase 8). Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-03 — **0–5 pots, and visible tokens and coins** (session "3 pots overlay config", branch
+  `claude/three-pots-overlay-config-nedyqc`). From an owner report on Book of Borut: the game did not
+  show after adding 3 Pots; they wanted 0 to 5 pots; and no pot coins showed in Borut. Merged with
+  Phase 6, whose coins-only rules, `coinsOnly` preset, zero-pot mock and profile chip are main's.
+  - **Pot count:** `setOverlayPotCount(doc, n)` (game-config `addOns.ts`), plus `addPotsOverlay`'s
+    optional `pots` argument, drives `/config`'s **How many** picker (0–5, also offered on add).
+    - Raising the count adds pots at the end. Each takes the next free id of `OVERLAY_POT_IDS` (red,
+      blue, green, gold, purple, the coded pots' named colours) and its own `POT_<ID>` token. A
+      leftover `meterSpecial` token of that name is reused. It copies the last pot's size, drop weight
+      and bonus. A Hold and Win pot takes the next special no pot or meter starts with: payer,
+      collector, multiplier (the 3 Pots order), then mystery… With none left it starts with none.
+    - Lowering it removes pots from the end, with their drop rows and bare tokens.
+    - 0 is Phase 6's coins-only rule. It is allowed only when the block is the overlay's bonus and
+      has a coin count trigger. A coin row is added if the table has none. "Most per spin" is raised
+      to trigger + 2 when it could not reach the trigger, as the `coinsOnly` preset sets it. The
+      picker disables 0 otherwise, and the last pot's × follows the same rule.
+    - A count picked on add is what the coins-only refusal checks, so Coins only with 3 pots is
+      allowed on a Hold and Win game.
+    - A rename is reported only while the pot or token it names survives the count.
+    - The coded pots keep a minimum spacing (`SYMBOL_SIZE * 0.95`), so more pots than columns spread
+      past the board's edges instead of overlapping (a 3 Pots Hold and Win game with 5 overlay pots
+      has 8). At five or fewer on a 5-reel board, the layout is unchanged.
+    - The validator errors on more than `MAX_OVERLAY_POTS` (5). `+ pot` stops at 5.
+    - Pinned by `addOns.fixture.ts` §6 and the `potsOverlay` fixture. `check:pots-overlay` §4 adds a
+      count-0 route and a fifth-pot route.
+  - **Placeholders for add-on symbols** (`apps/lines` `symbolPlaceholder.ts` + `SymbolPlaceholder.svelte`,
+    drawn by `Symbol.svelte` when no art is bound). This is why the coins did not show in Borut: an
+    overlay added in `/config` seeds no art, so its tokens and Hold and Win symbols had none. Tokens
+    landed and flew invisibly, and the respin board showed bare value labels.
+    - A pot token now draws a disc in its pot's colour with its name. A Hold and Win coin draws a gold
+      disc under its value. A jackpot or special draws its own colour and tag, hidden under a value
+      label. `BLANK` and every other artless symbol still draw nothing.
+    - Bound art wins, including Phase 6's seeded placeholders.
+    - The disc completes after a 400 ms hold, as a missing flipbook clip does. Otherwise a token's
+      `coinLand` would end in the same flush and its flight would leave before the disc was seen.
+    - `potColour` is shared with the coded pot and keyed off `OVERLAY_POT_IDS`, so a renamed `red_2`
+      stays red. The Hold and Win role looks apply only to a config with a Hold and Win block.
+    - `code-reviewer`: nothing blocking. Its four should-fixes and the nits are folded in above.
+    - Pinned by `symbolPlaceholder.fixture.ts`. Verified on a real clock, local mocks, with the 3
+      Pots config in effect: tokens, coins and specials visible; 5 pots in a row; a special-less fifth
+      pot's Hold and Win played out; money exact.
+  - **"The game is not showing up" — NOT reproduced.** The live game and launcher are outside this
+    container's network policy, so Borut's live bundle could not be read. Every local variant booted
+    and played (headless shell, `apps/lines` dev):
+    - the lines reference flow (Book-of vocabulary), with 3 and with 5 pots;
+    - the Book-of reference layout with every add-on screen merged;
+    - the overlay mock;
+    - the plain book mock (a server that deals no overlay).
+    - Also ruled out:
+      - the runtime release lagging: every phase's Runtime release run succeeded;
+      - a test-server image missing a module;
+      - Win Text without a `feature` section: `resolveWinText` defaults per field.
+    - Open: the page's console errors, or network access to `games.invisiblewall.org` and
+      `app.invisiblewall.org`. One lead: `/config`'s save gate refuses any doc with a validator error,
+      so an add that produced one was never stored. That would also hide the add-on from the other
+      tools.
 
 - 2026-10-03 — **Hub: second wave merged** (session "3 pots overlay mechanic"). The owner said
   "merge when green"; the hub merged each PR once its independent `code-reviewer` should-fixes had

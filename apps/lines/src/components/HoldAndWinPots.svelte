@@ -22,10 +22,16 @@
 	const meters = $derived(configuredMeters());
 	const columns = $derived(boardDimensions().x);
 	const y = $derived(cellWindow(0, 0).top - SYMBOL_SIZE * 0.75);
+	/** Pot centres never sit closer than this, so more pots than columns spread past the board's
+	 *  edges instead of overlapping (a pot is `SYMBOL_SIZE * 0.8` wide). */
+	const MIN_SPACING = SYMBOL_SIZE * 0.95;
 	const xFor = (index: number, count: number) => {
 		const first = getSymbolX(0);
 		const last = getSymbolX(columns - 1);
-		return count > 1 ? first + ((last - first) * index) / (count - 1) : (first + last) / 2;
+		const centre = (first + last) / 2;
+		if (count < 2) return centre;
+		const span = Math.max(last - first, MIN_SPACING * (count - 1));
+		return centre - span / 2 + (span * index) / (count - 1);
 	};
 </script>
 
