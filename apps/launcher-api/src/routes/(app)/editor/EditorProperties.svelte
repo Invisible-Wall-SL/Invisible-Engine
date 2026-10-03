@@ -135,9 +135,10 @@
 		 * param dropdown and resolves a selected bundle name to the `assetKey` the
 		 * `spineMeta` map is keyed by (for the animation / slot dropdowns). */
 		spines?: SpineOption[];
-		/** The project's component ids + names — feeds the `repeater` node's `componentId`
-		 * picker (the same list the scene picker/canvas resolve). */
-		componentDefs?: { id: string; name: string }[];
+		/** The project's component ids, names and param keys — feeds the `repeater` node's
+		 * `componentId` picker, an instance's component swap and a `component` param's select (the
+		 * same list the scene picker/canvas resolve). */
+		componentDefs?: { id: string; name: string; params?: string[] }[];
 		/** "Edit as component": open the selected container's sub-tree as a component. */
 		onEditAsComponent?: (container: ContainerNode) => void;
 		/** "Convert to parametric grid": replace the selected reelGrid mount anchor
@@ -711,6 +712,21 @@
 	function hasProjectDefault(key: string): boolean {
 		return Object.prototype.hasOwnProperty.call(projectParamDefaults, key);
 	}
+	/** What a `component` param can name: every component declaring the params it is fed, except
+	 * `ownId` (a component naming itself would never draw). Same-named entries show their id. */
+	function componentChoices(p: ComponentParam, ownId?: string): { id: string; label: string }[] {
+		const fed = p.fedParams ?? [];
+		const offered = componentDefs.filter(
+			(c) => c.id !== ownId && fed.every((key) => c.params?.includes(key)),
+		);
+		return offered.map((c) => ({
+			id: c.id,
+			label: offered.some((o) => o.id !== c.id && o.name === c.name)
+				? `${c.name} (${c.id})`
+				: c.name,
+		}));
+	}
+
 	/** The def's own default, as the "(inherit …)" hint a control shows when unset. */
 	function inheritHint(p: ComponentParam): string {
 		return p.default === undefined
@@ -2080,6 +2096,21 @@
 												<option value={cur}>{cur} (custom)</option>
 											{/if}
 										</select>
+									{:else if p.kind === 'component'}
+										{@const cur = typeof p.default === 'string' ? p.default : ''}
+										<select
+											value={cur}
+											onchange={(e) =>
+												onSetParamDefault?.(p.key, e.currentTarget.value || undefined)}
+										>
+											<option value="">(none)</option>
+											{#each componentChoices(p) as c (c.id)}
+												<option value={c.id}>{c.label}</option>
+											{/each}
+											{#if cur && !componentDefs.some((c) => c.id === cur)}
+												<option value={cur}>{cur} (not in this project)</option>
+											{/if}
+										</select>
 									{:else}
 										<input
 											type="text"
@@ -2316,6 +2347,21 @@
 								<option value={a}>{ENGINE_ACTION_LABELS[a] ?? a}</option>
 							{/each}
 						</select>
+					{:else if p.kind === 'component'}
+						{@const cur = (projectDefaultOf(p.key) as string) ?? ''}
+						<select
+							value={cur}
+							onchange={(e) =>
+								onSetProjectParamDefault?.(p.key, e.currentTarget.value || undefined)}
+						>
+							<option value="">{inheritHint(p)}</option>
+							{#each componentChoices(p) as c (c.id)}
+								<option value={c.id}>{c.label}</option>
+							{/each}
+							{#if cur && !componentDefs.some((c) => c.id === cur)}
+								<option value={cur}>{cur} (not in this project)</option>
+							{/if}
+						</select>
 					{:else if p.options && p.options.length > 0}
 						<select
 							value={(projectDefaultOf(p.key) as string) ?? ''}
@@ -2541,6 +2587,35 @@
 			>
 				◇ Edit in Component Editor
 			</button>
+			{#if componentDefs.length > 0}
+				<!-- Swap the component this placement draws — a Pot Meter for the project's own Pot copy,
+				     a bar's tile for the project's Jackpot Tile (Phase 12c) — keeping its position and
+				     params. The pin is dropped, so it draws the new component's latest version. -->
+				<div class="row">
+					<label
+						class="field wide"
+						title="The component this placement draws. Switching keeps its position and its param values; params the new component doesn't declare are ignored."
+					>
+						<span>component</span>
+						<select
+							value={node.componentId}
+							onchange={(e) => {
+								if (node.kind !== 'componentInstance') return;
+								node.componentId = e.currentTarget.value;
+								delete node.componentVersion;
+								markDirty();
+							}}
+						>
+							{#if !componentDefs.some((c) => c.id === node.componentId)}
+								<option value={node.componentId}>{node.componentId} (missing)</option>
+							{/if}
+							{#each componentDefs as c (c.id)}
+								<option value={c.id}>{c.name}</option>
+							{/each}
+						</select>
+					</label>
+				</div>
+			{/if}
 			{#if instanceComponent}
 				<p class="muted small">
 					<strong>{instanceComponent.name}</strong> · {instanceComponent.scope} · pinned v{node.componentVersion ??
@@ -2707,6 +2782,24 @@
 									>
 								{/if}
 							{/if}
+						{:else if p.kind === 'component'}
+							{@const cur = (instanceParamValue(node, p.key) as string) ?? ''}
+							<select
+								value={cur}
+								onchange={(e) => onSetInstanceParam?.(p.key, e.currentTarget.value || undefined)}
+							>
+								<option value=""
+									>{typeof p.default === 'string' && p.default
+										? `(default: ${p.default})`
+										: '(none)'}</option
+								>
+								{#each componentChoices(p, node.componentId) as c (c.id)}
+									<option value={c.id}>{c.label}</option>
+								{/each}
+								{#if cur && !componentDefs.some((c) => c.id === cur)}
+									<option value={cur}>{cur} (not in this project)</option>
+								{/if}
+							</select>
 						{:else if p.kind === 'symbolState'}
 							{@const cur = (instanceParamValue(node, p.key) as string) ?? ''}
 							<select

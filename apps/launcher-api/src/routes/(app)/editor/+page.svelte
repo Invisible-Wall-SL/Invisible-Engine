@@ -546,7 +546,13 @@
 	/** The project's component ids + names — feeds the `repeater` node's `componentId`
 	 * picker in Properties (reusing the SAME list the picker/canvas already resolve, not a
 	 * re-fetch). */
-	const componentDefs = $derived(components.map((c) => ({ id: c.id, name: c.name })));
+	const componentDefs = $derived(
+		components.map((c) => ({
+			id: c.id,
+			name: c.name,
+			params: (c.params ?? []).map((p) => p.key),
+		})),
+	);
 
 	/** Atlas/sheet manifests an `image`-kind param can pick frames from (the region
 	 * picker source). Atlas pages aren't manifests, so only `atlas-manifest`s + sheets. */

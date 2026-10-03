@@ -34,17 +34,18 @@
  */
 import type { ComponentDef, LayoutDoc, LayoutNode } from 'engine-layout';
 import {
-	collectComponentIds,
 	collectComponentPins,
 	FEATURE_CARD_DEF,
 	instanceParamMaps,
 	isBuiltinRegion,
 	parseScopedFrameRef,
+	resolveComponentClosure,
 } from 'engine-layout';
 import { EDITOR_SPINE_LOAD_SCALE } from '$lib/spineScale';
 import { betModeCardIds, betModeCardParamRefs } from 'game-config';
 import { sheetVersion } from './assetVersion';
 import { repairComponentDefsAtlasRefs } from './atlasRefRepair';
+import { componentDefaultsFor, listComponentDefaults } from './componentDefaultsStorage';
 import { loadComponent } from './componentStorage';
 import { loadDoc } from './editorStorage';
 import { loadGameConfigDoc } from './gameConfigStorage';
@@ -317,23 +318,18 @@ async function resolveReferencedDefs(
 	projectKey: string,
 	extraSeedIds: string[] = [],
 ): Promise<Record<string, ComponentDef>> {
-	const defs: Record<string, ComponentDef> = {};
-	const seen = new Set<string>();
-	const queue = [
-		...collectComponentIds(doc.scenes.flatMap((scene) => scene.nodes)),
-		...extraSeedIds,
-	];
-	while (queue.length) {
-		const id = queue.shift()!;
-		if (seen.has(id)) continue;
-		seen.add(id);
-		const def = await loadComponent(id, projectKey);
-		if (!def) continue;
-		defs[id] = def;
-		for (const nested of collectComponentIds([def.root])) {
-			if (!seen.has(nested)) queue.push(nested);
-		}
-	}
+	// The project's defaults are read only if a def names a component through a param (the Letters
+	// Strip's `tile`), so an export that resolves none costs no extra listing.
+	let stored: Promise<Record<string, Record<string, unknown>>> | undefined;
+	const defs = await resolveComponentClosure(
+		doc.scenes.flatMap((scene) => scene.nodes),
+		(id) => loadComponent(id, projectKey),
+		{
+			extraSeedIds,
+			defaultsFor: async (id) =>
+				componentDefaultsFor(await (stored ??= listComponentDefaults(projectKey)), id),
+		},
+	);
 	// Also walk PINNED component versions the game actually renders — mirror the doc bake
 	// (`/api/editor/doc?components=1`, which ships `componentVersions` via `collectComponentPins`).
 	// An instance pinned to a non-latest version renders THAT version's nodes, so its atlas art

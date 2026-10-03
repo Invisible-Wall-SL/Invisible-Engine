@@ -1349,7 +1349,8 @@ const effects: Record<string, FlowEffect> = {
 	 * FLIGHTS (design §4.4) — fly a glow from each cell to a target and broadcast `flightArrive`
 	 * `{flight, target, index}` as each lands. `cells`, `cellAmounts` or `positions` (three pins, one
 	 * per cell type a book event carries) or one `reel` + `row` are the sources; `target`
-	 * is a layout node id, or `'total'` (the win meter; the default); `flight` is the kind reported in
+	 * is a layout node id, or `'total'` (the default: a Total Win Bar that catches the coins, else the
+	 * win meter); `flight` is the kind reported in
 	 * the cue (default `toTotal`); `avoid` lists cells the routes bend around; `stagger` is the ms
 	 * between two flights. `await` (default true) holds the flow until the last head lands.
 	 */

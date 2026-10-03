@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Container } from 'pixi-svelte';
 	import { BoardContainer, SYMBOL_SIZE } from 'engine-game';
+	import { LETTERS_STRIP_MOUNT } from 'engine-layout';
 	import { isComponentMounted } from 'engine-layout/svelte';
 
 	import HoldAndWinLetter from './HoldAndWinLetter.svelte';
@@ -12,8 +13,8 @@
 	/**
 	 * THE CODED COLUMN LETTERS (design §1.2 Grand) — "G R A N D" above the respin board, one letter
 	 * over each reel, lit as its column completes (`holdAndWinLetters.svelte.ts`). The default for a
-	 * project that authored none: it steps aside while an authored `lettersStrip` component (the same
-	 * letters, `LettersStrip`) is mounted.
+	 * project that authored none: it steps aside while an authored Letters Strip (the same letters,
+	 * `LettersStrip`, which counts itself in whatever the copy's id) is mounted.
 	 *
 	 * Mounted only while the respin board is up, and only for a config whose board ends on column
 	 * letters — every other game mounts nothing here. A zIndex seat over the respin board it shares a
@@ -26,7 +27,7 @@
 	);
 </script>
 
-{#if letters.length > 0 && !isComponentMounted('lettersStrip')}
+{#if letters.length > 0 && !isComponentMounted(LETTERS_STRIP_MOUNT)}
 	<Container zIndex={1}>
 		<BoardContainer>
 			{#each letters as letter, reel (reel)}

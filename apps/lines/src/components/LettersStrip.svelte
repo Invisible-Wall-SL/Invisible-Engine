@@ -1,30 +1,75 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { Container } from 'pixi-svelte';
-	import { getComponentParams } from 'engine-layout/svelte';
+	import {
+		LETTERS_STRIP_MOUNT,
+		MAX_COMPONENT_DEPTH,
+		resolveComponent,
+		type ComponentInstanceNode,
+	} from 'engine-layout';
+	import {
+		ComponentInstance,
+		getComponentNestState,
+		getComponentParams,
+		trackComponentMount,
+	} from 'engine-layout/svelte';
 
 	import HoldAndWinLetter from './HoldAndWinLetter.svelte';
 	import { configuredLetters } from '../game/holdAndWinLetters.svelte';
 
 	/**
 	 * The `lettersStrip` component's coded part — Grand's column letters (design §1.3, board end
-	 * `columnLetters`), each drawn by the same `HoldAndWinLetter` as the coded row (dim until its
-	 * column completes, then lit with a pulse) at `spacing` px, centred on the instance. With the
-	 * default spacing (the cell pitch) and the instance centred on the board each letter sits over its
-	 * reel. While one is mounted the coded row steps aside (`HoldAndWinLetters`). A project whose board
-	 * end is not column letters draws nothing.
+	 * `columnLetters`) at `spacing` px, centred on the instance. With the default spacing (the cell
+	 * pitch) and the instance centred on the board each letter sits over its reel. It counts itself in
+	 * as the letters row, so the coded row (`HoldAndWinLetters`) steps aside for any copy of the strip,
+	 * whatever its id. A project whose board end is not column letters draws nothing.
+	 *
+	 * Each letter draws as the component `tile` names (Phase 12c — a project's Letter Tile copy), fed
+	 * its `reel` and `letter`. Blank, or a tile `<ComponentInstance>` would refuse (not registered,
+	 * nested too deep, or a cycle), draws the coded letter (`HoldAndWinLetter`: dim until its column
+	 * completes, then lit with a pulse), so the strip is never empty while the coded row steps aside.
+	 *
+	 * A STAND-IN (`standIn`, mounted by `<ComponentInstance>` for a strip whose def no longer binds
+	 * this part) draws nothing: the def's own nodes are the letters. It still counts in.
 	 */
 	// The instance's params, else the bind's own props (a bare scene `bind` sets them there).
-	const props: Record<string, unknown> = $props();
+	const { standIn = false, ...props }: Record<string, unknown> & { standIn?: boolean } = $props();
 	const instanceParams = getComponentParams();
+	const nest = getComponentNestState();
 	const spacing = $derived.by(() => {
 		const value = instanceParams.spacing ?? props.spacing;
 		return typeof value === 'number' && Number.isFinite(value) ? value : 120;
 	});
-	const letters = $derived(configuredLetters());
+	const tile = $derived.by(() => {
+		const value = instanceParams.tile ?? props.tile;
+		if (typeof value !== 'string' || !value) return undefined;
+		if (nest.depth >= MAX_COMPONENT_DEPTH || nest.visited.has(value)) return undefined;
+		return resolveComponent(value).def ? value : undefined;
+	});
+	const letters = $derived(standIn ? [] : configuredLetters());
+
+	// Untracked: counting in reads the count it writes, which would re-run this effect forever.
+	$effect(() => untrack(() => trackComponentMount(LETTERS_STRIP_MOUNT)));
+
+	const tileNode = (componentId: string, reel: number, letter: string): ComponentInstanceNode => ({
+		kind: 'componentInstance',
+		id: `lettersStrip-letter-${reel}`,
+		componentId,
+		x: 0,
+		y: 0,
+		params: { reel, letter },
+	});
 </script>
 
 <Container>
-	{#each letters as letter, reel (reel)}
-		<HoldAndWinLetter {reel} {letter} x={(reel - (letters.length - 1) / 2) * spacing} y={0} />
+	{#each letters as letter, reel (`${tile ?? ''}:${reel}`)}
+		{@const x = (reel - (letters.length - 1) / 2) * spacing}
+		{#if tile}
+			<Container {x}>
+				<ComponentInstance node={tileNode(tile, reel, letter)} />
+			</Container>
+		{:else}
+			<HoldAndWinLetter {reel} {letter} {x} y={0} />
+		{/if}
 	{/each}
 </Container>

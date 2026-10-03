@@ -1159,7 +1159,8 @@ async function main() {
 
 	// Ship only REACHABLE effects — an orphan/scratch effect that nothing mounts must not reach the
 	// game. Keep in sync with apps/launcher-api/src/lib/server/effectReachability.ts
-	// (`pruneUnreachableEffects`, the runtime-bundle path) and the render-time guardrail in
+	// (`pruneUnreachableEffects`, the runtime-bundle path; its placed walk is engine-layout's
+	// `collectPlacedEffectIds`, which the game's skip set shares) and the render-time guardrail in
 	// apps/lines/src/components/Effects.svelte (`isEventReachable`). An effect is REACHABLE iff it is
 	// PLACED (a kind:'effect' node's effectId in the scenes, incl. nested in containers + component
 	// instances — every referenced ComponentDef is walked, since componentDefs is the transitively-

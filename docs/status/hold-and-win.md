@@ -54,7 +54,7 @@ titled **"Hold and win game pipeline"**.
 | 11c | Progressive + operator platform jackpots (design §7) | merged, live (`lines@2342c815d074`) — owed: the live Borut round and the partner's platform-jackpot confirmation (Owner checklist 10–11) | Hold and Win Phase 11c — progressive + platform jackpots | part 1: #991 · part 2: #999 |
 | 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | merged (`97652ca9`; the runtime release passed) — owed: a live check on `hw-3pots-sample` (Open items) | Hold and Win Phase 12a | #1003 |
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | merged — whole pipeline (engine → sources → Scene + Component Editor → guides); owed: the live check (Open items) | Hold and Win Phase 12b value bindings | #1005 |
-| 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | not started | — | — |
+| 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — built on #1006: the Pot (art params, nodes inside, `standsFor`, fill on 12b's `fillMaskRect`), the Respin Counter and the Jackpot Tile (their panels inside a coded part), a Jackpot Bar copy, a **component** swap on instances, the Total Win Bar (its part can catch the coins), the Letters Strip (each letter a Letter Tile instance), the Wheel (art params, nodes on its turning face), and the respin cells (each a Cell Tile instance). The done-when passes on the real game locally (all three pots); owed: the live run on `hw-3pots-sample` after merge (Owner checklist 13) | Hold and Win Phase 12c skinnable parts | #1006 |
 
 ## Current state
 
@@ -77,6 +77,208 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
 5 registered its own vocab + seed.
 
 ## Decisions & findings
+
+- 2026-10-02 — **Phase 12c: how a coded part is skinned** (session "Hold and Win Phase 12c
+  skinnable parts", #1006). Pinned by `packages/engine-layout/scripts/test-pot-skin.mjs`.
+  - **Authored children reach the part, not the scene.** A `bind` container's children are handed
+    to its coded component as a `skin` snippet (`<LayoutNodeView>`; the prop is absent when there
+    are no children, so every existing part is byte-identical). The PART decides where they draw.
+    A part that ignores `skin` draws exactly as before, which is also today's behaviour, since a
+    `bind` never rendered its children.
+  - **The Pot draws the skin inside its own scaled container**, under its `meter:<id>` anchor.
+    The children grow at each size stage and pulse with the pot. The anchor centres on whatever
+    is drawn, so flights land on the author's art. Measured in Storybook: the anchor sits at the
+    centre of the frog pot's nodes. `PotMeter` still counts itself in as `potMeter:<id>`. Children
+    replace the coded bar AND both labels. Art params still draw under them.
+  - **Art params, not def nodes.** The Pot's art lives in per-instance `image` params
+    (`POT_SKIN_PARAMS`): `backgroundImage`, `fillImage` + `fillDirection`, `frameImage`,
+    `stageImage1..3`, `artWidth` / `artHeight`. A label group (`showLevel`, `showActivates`,
+    `labelFontFamily`, `labelFill`, `labelScale`) and a motion group (`stageGrowth`, `pulseScale`)
+    complete it. The coded part draws them. They are not sprite nodes in the def, so a Pot Meter saved
+    before 12c gains them through `mergeBuiltinCodedParams`. A def node would never reach a saved
+    copy. Any pot image swaps the whole coded bar. Unset, the pot draws the coded bar exactly. The
+    art ships through the existing image-param export.
+  - **The fill reveal is 12b's `fillMaskRect`**, anchored at the art's centre. One edge rule
+    serves the Pot's fill image and a value binding's `fill`. The editor previews the fill at
+    `POT_PREVIEW_FILL_SHARE` (0.6).
+  - **A skinnable part is declared in the bound catalog** (`BOUND_COMPONENT_DEFAULTS.PotMeter.skin`:
+    its layer params, box params). The editor canvas draws a skinned part's art and children instead
+    of its stand-in chip. The Component Editor's bar offers **Edit inside ‹part› ›**, which points
+    the canvas, outline and spawns at the part's children (`/components` `insidePartId`).
+  - **A game skins its pots through a project copy, not the built-in.** Saving the built-in Pot
+    Meter writes the SHARED library. The create type **Pot Meter (Hold and Win)** clones it for the
+    project, the way the Free-Spin Counter does. Per-instance art params need no copy.
+  - **A component that IS a coded part says so: `ComponentDef.standsFor`** (the Pot Meter's
+    `'PotMeter'`). This is the deleted-part trap. Today, an author who deletes the `Pot` part to
+    draw the pot entirely with their own nodes leaves no part to count the meter in, so the coded
+    pot draws and the flights fly to it.
+    - **The fix:** an instance whose def stands for a part its tree no longer binds (`partStandIn`)
+      mounts that part with `standIn`. The stand-in draws nothing, counts in as `potMeter:<id>`,
+      and registers `meter:<id>` on the instance. The flights land on the centre of the author's
+      nodes. The behaviour stays the game's coded part's, so engine-layout never learns pot keys.
+    - **Not the 12a scope:** an earlier plan (Open items) keyed this on 12a's meter scope. Any
+      meter-scoped decoration placed beside the default pot would then hide it and take its
+      flights, and 12a's own live check places exactly that.
+    - **Storage:** `componentStorage` keeps `standsFor`. `mergeBuiltinCodedParams` restores it by id
+      for a Pot Meter override saved without it. The create-type copy carries it.
+    - **What a deleted part loses:** the coded growth and pulse. The author's nodes follow the level
+      only through 12b bindings.
+  - **The Respin Counter gets a coded part, the Pot's pattern.** The authored counter was the plain
+    `holdAndWinPanel` (frame, caption, value). Only the game's coded default pulsed, carried the
+    "+N" anchor and showed the modifiers. An instance-level anchor keyed on the def id `respinCounter`
+    stood in for the anchor, so a renamed copy lost it, and the coded default kept drawing beside it.
+    - **The shape:** `RESPIN_COUNTER_DEF` wraps the panel's three nodes, ids unchanged, in a `Counter`
+      part (`RespinCounterPart`) and `standsFor` it.
+    - **What the part does:** it draws them as its `skin`, scaled by the pulse on every reset and
+      "+N". It registers `respinCounter` and counts in under that name, so the coded default steps
+      aside for any copy, whatever its id.
+    - **Nothing inside the part:** it draws the coded counter (`RespinCounterArt`, shared with the
+      coded default, which renders identically).
+    - **Parity:** `pulseScale` defaults to 1 (still), because the authored counter never pulsed. The
+      coded counter's own pulse is 1.35.
+    - **Old copies:** a counter saved before the part (nodes at the root) gets `standsFor` and
+      `pulseScale` back by id. The stand-in registers the anchor and the count, which is today's
+      behaviour without the id special case. `<ComponentInstance>`'s `flightAnchor` is gone.
+    - **Not on an authored counter:** the active-modifiers line (`PAYER · MULTIPLIER`). It is drawn
+      only by the coded look, because no source an authored text could bind carries it.
+  - **The Jackpot Tile follows the counter; the Jackpot Bar is a composition.** No coded jackpot
+    bar exists in the game. Nothing flies to a tile, and no coded default steps aside for one.
+    - **The tile:** its frame, caption and value (ids unchanged) sit inside a `Tile` part
+      (`JackpotTilePart`), built with the counter's `panelInPart`. The part pulses them when the
+      tile's OWN tier is won (`winPulseScale`, default 1, because tiles never pulsed). A
+      `jackpot.<tier>` source pulses on `respinJackpotWin`, a `platformJackpot.<tier>` one on
+      `platformJackpotCelebration`; the tier compares by `scopeKey` (case-free, as the operator
+      writes `Grand`). It registers nothing, so it stands for no part: a tile saved before the part
+      draws as saved, unpulsed. Its 12a tier scope is unchanged.
+    - **An unregistered part falls back:** a `bind` container whose component is not registered
+      renders its children as a plain container. So a runtime without `JackpotTilePart` or
+      `RespinCounterPart` still draws the panel.
+    - **The bar:** four tile instances. A game skins it through a **Jackpot Bar (Hold and Win)**
+      copy: its own frame around the tiles, each tile restyled on its placement. Each tile can
+      also point at the game's **Jackpot Tile (Hold and Win)** copy.
+    - **Component swap:** pointing a tile at a copy needed a control that didn't exist. Properties
+      now has a **component** select on any instance, in the Scene and Component Editors. It
+      switches `componentId`, keeps the placement and params, and drops the version pin. The same
+      control swaps a Pot Meter for a game's Pot copy, keeping its `meter`.
+  - **The Total Win Bar can catch the coins, but only when asked to.** Every `toTotal` head flew to
+    `'total'`, which resolved to the HUD's win meter (`hud-win`). No coded total bar exists, and the
+    authored bar never caught anything.
+    - **The shape:** `TOTAL_WIN_BAR_DEF`'s frame, caption and value (ids unchanged) sit inside a
+      `Bar` part (`TotalWinBarPart`), built with `panelInPart`.
+    - **The catch:** with `catchesCoins` on, the part registers the `flights:totalWinBar` anchor
+      (`TOTAL_WIN_BAR_ANCHOR`). It is prefixed because every layout node anchors its own id, and a
+      node named `totalWinBar` would otherwise take the coins whatever `catchesCoins` says.
+      `'total'` then resolves to that anchor first, then to `hud-win`
+      (`totalTargetPoint()` in `flights.svelte.ts`). That covers the feature-end volley, a swept
+      Grand column, and a flow that flies to the total.
+    - **The pulse:** `landPulseScale` pulses the bar on every head that lands in the total. It does
+      so whether or not the bar catches, because the figure steps either way.
+    - **Parity:** both are off by default, since moving the landing point of every existing game
+      would be a visible change.
+    - **When the bar is hidden:** its anchor is not shown while the bar is hidden
+      (`respinCounterShow`), so the coins fall back to the win meter instead of flying at nothing.
+    - **Stand-in:** the bar `standsFor` its part, so a bar drawn without it still catches through a
+      stand-in. A bar saved before the part gets both params back by id, off. The stand-in catches
+      but never pulses, because the def's own nodes are not inside it, so `landPulseScale` does
+      nothing there (the counter's stand-in is the same).
+  - **The Letters Strip draws each letter as a Letter Tile instance.** The strip was a pure coded
+    part (`LettersStrip`, one coded letter per reel). The coded row stepped aside only for an
+    instance whose id was `lettersStrip`, so a renamed copy drew beside it.
+    - **Why an instance per letter, not nodes inside the strip:** a template inside the strip's part,
+      drawn per letter, would be one component instance. Cues are wired per instance and keyed by
+      node id, so a **Letter lit** cue would play on every letter. The Jackpot Bar already holds
+      separate tile instances, and 12a's `reel` scope needs the same.
+    - **The tile:** `LETTER_TILE_DEF` (`letterTile`) puts its dim and lit art (`tileImage`,
+      `litTileImage`) and its dim and lit letter inside a `Letter` part (`LetterTilePart`). Each
+      node shows in one state through a 12b `visible` binding on `letter.{reel}.lit`. The letters
+      copy the coded letter's font, colours, stroke and alpha. The tile is scoped by `reel`, and the
+      part pulses it when its letter lights (`pulseScale`, 1.6 like the coded letter). With nothing
+      inside, it draws the coded letter, which pulses on its own (`pulseScale` does not apply). It
+      registers nothing, so it stands for no part.
+    - **The strip:** a new `tile` param, kind `component`, names the component each letter draws
+      as, fed `reel` and `letter`. Blank (the default) draws the coded letters (parity). So does a
+      tile `<ComponentInstance>` would refuse: not registered, nested past `MAX_COMPONENT_DEPTH`
+      (a strip placed inside another component), or a cycle (a tile naming the strip). The strip is
+      therefore never empty while the coded row steps aside. The part counts in under
+      `LETTERS_STRIP_MOUNT`, so the coded row steps aside for any copy, whatever its id. The def
+      `standsFor` its part.
+    - **The tile ships.** A tile a param names is in no node, so the bake would miss it, and the
+      strip would fall back to the coded letters in the published game. `resolveComponentClosure`
+      (`collectComponentIds.ts`) is now the one walk the doc bake, the runtime bundle and the art
+      export share. It also follows `component`-kind params: the def default, every placed
+      instance's value and per-ratio override, and the project's defaults (read only for a def with
+      such a param). The tile's art then ships through its own image-param defaults.
+    - **New pieces:**
+      - The `component` param kind. Properties and **This game's defaults** list the project's
+        components that declare every `fedParams` key (the tile's `reel` and `letter`), minus the
+        instance's own.
+      - The game's `letter.<reel>.lit` VALUE source (1 or 0). It sits beside the visibility source
+        of the same name, because a 12b binding reads values.
+    - **Limits:**
+      - A component placed inside a Letter Tile is skipped, since the tile is already a
+        second-level instance. The Jackpot Bar has the same limit.
+      - A tile's nodes render without the screen's `space`, because a bound part is not handed it.
+        So `screenAnchor` / cover fit on a node inside a tile does nothing.
+  - **The Wheel follows the Pot: art params, and nodes inside its part.** The wheel was a pure coded
+    part (`HoldAndWinWheelPart` → `HoldAndWinWheelArt`). The coded wheel stepped aside only for an
+    instance whose id was `wheel`.
+    - **Art params** (`WHEEL_SKIN_PARAMS`, `wheelSkin.ts`):
+      - `faceImage` turns with the spin and replaces the coded segments, rim stroke and hub.
+      - `rimImage` stays put over the face.
+      - Both draw at `artSize`, else the wheel's diameter, so the labels and the landed outline
+        stay aligned.
+      - `pointerImage` stays put at its own size, its bottom edge at the coded pointer's tip.
+    - **Nodes inside the `Wheel` part** turn with the face, in place of the coded segments: over the
+      face art, under the rim, which frames everything.
+    - **Labels and outline stay coded:** the prize labels and the landed outline come from the Game
+      Config and the server's segment, which no authored node can know. So `showLabels` /
+      `showLanded` switch them, with a label font, colour and size. Unlike the Pot's labels, nodes
+      inside do not hide them. The labels draw through `CatalogText`, so a Font Maker font picked
+      for them renders, a bitmap one included.
+    - **Fixed decoration** (lights, a stand) goes beside the part in the component root. It shows
+      with the wheel screen, which a Flow holds around the beat. A cue on **Wheel — spin** /
+      **Wheel — land** can drive it.
+    - **Paint order:** every layer has an always-mounted slot, the Pot's fix.
+    - **Parity:** unset, the drawing is the coded wheel's.
+    - **Step-aside:** the part counts in under `WHEEL_MOUNT`, so the coded wheel steps aside for a
+      copy of any id. The def `standsFor` the part, and a stand-in draws nothing and counts in.
+    - **Editor:**
+      - **Layers:** the canvas previews the face, then the nodes inside, then the rim (an `overNodes`
+        layer), as the game draws them.
+      - **Size:** `PartSkinBinding.radiusParam` sizes the face and rim at twice `radius` when
+        `artSize` is blank, the box the game uses.
+      - **Not previewed:** the pointer sits off centre at the rim, so only the game draws it. With
+        only a rim picked, the canvas shows just the rim, while the game still draws the coded
+        segments under it.
+  - **The respin cell tiles follow the Letters Strip: each cell draws on a Cell Tile instance.**
+    The Respin Cell Tiles (`respinCells`) already took art params (`tileImage`, `tileTint`, `gap`),
+    which the board stamps under every cell.
+    - **The tile:** `CELL_TILE_DEF` (`cellTile`) puts a tile node (`tileImage`, `tileTint`) and a
+      held overlay (`heldImage`) inside a `Cell` part (`CellTilePart`).
+      - **Held:** the overlay shows through a 12b `visible` binding on the `held` param. The board
+        feeds `held` per cell (1 while a coin holds it) through `<ComponentInstance engineValues>`,
+        so no value source has to exist for every cell.
+      - **Pulse:** the part pulses the tile when a coin lands on its own cell (`landPulseScale`,
+        default 1, still like the coded tiles).
+      - **Box:** it is authored on one cell's box (120 square, centred), and the board scales it to
+        each cell's window, shrunk by the gap.
+      - It registers nothing, so it stands for no part.
+    - **The tiles' new `tile` param** (kind `component`, fed `reel`, `row` and `held`) names the
+      component each cell draws on, instead of stamping `tileImage`.
+      - **Mounting:** `RespinCellTile` mounts it per open cell, on the same seat and box math as the
+        coded sprite.
+      - **Fallback:** blank (the default), a component that is not registered, or one naming the
+        tiles themselves keeps `tileImage` (parity). The gap still insets the rolling windows.
+      - **Nesting:** a Respin Cell Tiles mounted inside a cell's tile, at any depth, publishes no
+        look (`insideRespinCellTile`). Its look would replace the one that mounted it, unmounting
+        the very tiles it sits in, so every tile vanished. The per-cell instances mount outside
+        the placed one, so the component nest guard cannot see that loop.
+      - **Box:** the board divides by `CELL_TILE_SIZE`, the constant the def is authored on.
+    - **Not scoped:** the coin signals stay unscoped. The "Coins land" event lists several cells, so
+      firing it per cell would replay an unscoped listener's cue once per cell. A cue on **Coins
+      land** inside a Cell Tile therefore plays on every tile; per-cell state is `held`.
+    - **Shipping:** the tile ships through `resolveComponentClosure` (the `component` param), like
+      the Letter Tile.
 
 - 2026-10-02 — **Owner: the pots as an overlay on any kind** (session "3 pots overlay mechanic").
   Its own plan and hub: [design/pots-overlay](../design/pots-overlay.md),
@@ -688,11 +890,48 @@ Hold and Win beats prints copy.
 
 ## Open items / next
 
+- **Phase 12c next (part 1 is #1006):**
+  - **12a is merged in** (the coded pot uses its `meterStage`). The create type keeps the Pot
+    Meter's `signalScope` / `signalScopeKind` and is offered only to a Hold and Win project. The
+    story's two frog pots show that a node inside the part hears only its own pot's
+    **Pot — activate**.
+  - **12b is merged in.** The Pot's fill reveal is its `fillMaskRect`; the coded `potFillRect` is
+    gone.
+  - **The done-when passes locally on the real game (2026-10-03, Recent changes).** A project Pot
+    copy on all three pots, each forced full in turn: only that pot's frog celebrates and fires its
+    FX, and each frog's bone follows its own pot's level, with no Flow at all. It found and fixed an
+    FX bug (an effect inside a component also burst at the stage origin).
+    - **Owed: the live run on `hw-3pots-sample`** (Owner checklist 13). This session could not
+      reach the launcher, the games host or R2, so nothing was authored on the project.
+  - **The respin counter is done** (Decisions). Open on it: the active-modifiers line has no source
+    an authored text can bind.
+  - **The total win bar is done** (Decisions). Open on it, for the owner: whether a new project's
+    reference bar should catch the coins (`catchesCoins` on in `holdAndWinReferenceLayout`). It is
+    off today, so every game keeps flying them to the win meter.
+  - **The letters strip is done** (Decisions). Open on it: the editor shows the strip as its grey
+    part box, not the letters or tiles, because the editor does not know the config's letters.
+  - **The wheel is done** (Decisions). Open on it: nodes inside the part draw static in the editor;
+    only the game turns them.
+  - **The respin cell tiles are done** (Decisions). That closes the 12c list of parts. Open on
+    them: the coin signals are not scoped per cell (Decisions).
+  - **A Platform Jackpot Bar copy** has no create type. Its tiles already get the part, and the
+    component swap works on any bar copy.
+  - **Editor limits:**
+    - Inside a part, positions are the part's own. That is fine while the part sits at the
+      component's origin, as the Pot does.
+    - Inside a part, the canvas shows only the part's nodes. The art picked in this game's
+      defaults is not drawn behind them.
+    - The canvas does not preview the coded labels, the size-stage images or the pot's `scale`
+      param.
+    - Selecting a Respin Cell Tiles previews its `tileImage` at every cell even when its `tile`
+      names a Cell Tile. The Cell Tile shows in the Component Editor and in the game.
+  - **Not verified in a browser:** the editor side (the launcher is auth-gated). It type-checks and
+    builds. The runtime was verified in Storybook (`MODE_HOLD_AND_WIN/skinned pot (12c)`).
 - **Phase 12b follow-ups** (none blocks 12c):
   - **Live check owed.** A binding authored in the Component Editor has not been seen on a live
     project: the editor UI type-checks and bundles, and the runtime was screenshot in Storybook
-    (`ENGINE-LAYOUT/Value bindings`). The design's done-when (a frog's belly bone growing with its
-    pot on `hw-3pots-sample`) needs 12c's authored children inside the Pot.
+    (`ENGINE-LAYOUT/Value bindings`). The done-when's bone on `meter.{meter}.level` passes on the
+    real game locally (12c Recent changes, 2026-10-03); the live run is Owner checklist 13.
   - **The Scene Editor cannot scrub a node inside a placed instance** — those nodes are not
     selectable there. Scrub it in the Component Editor.
   - **Fill covers sprite, flipbook and rect only.** A container or spine fill (mask a whole group)
@@ -702,10 +941,13 @@ Hold and Win beats prints copy.
   - **A live check on `hw-3pots-sample`.** Author a component scoped by `meter` with a spine cue on
     **Pot — activate** (or an FX on `potFull`), place it on each pot, and confirm only the pot that
     activates plays. Everything up to that point is gate-covered (`check:signal-scope`), but the
-    instance filter itself is Svelte and runs only in a browser.
-  - **Coins are not scoped.** A coin signal has no part a placed component stands for: the respin
-    cells are one coded board, not per-cell instances. Revisit with 12c's skinnable respin cell
-    tiles if a per-cell component appears.
+    instance filter itself is Svelte and runs only in a browser. The 12c done-when rehearsal ran it
+    in the real game on the local mock (a spine cue and an FX, three pots): only the activated pot
+    played. The live run is Owner checklist 13.
+  - **Coins are not scoped.** A coin signal has no part a placed component stands for. 12c's Cell
+    Tile is a per-cell instance now, but "Coins land" lists several cells, so a per-cell scope would
+    need a fire per cell, which would replay an unscoped listener's cue. A Cell Tile reads its cell's
+    state from `held` instead.
 - **Phase 11b follow-ups** — both ruled by the hub (2026-10-02) and closed:
   - **Reserving an expanding board's area** — the scaffold and "Add missing screens" build the
     template with the stored config's `maxRows`, and the Scene Editor offers **⇕ Reserve rows for
@@ -827,6 +1069,15 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     binds its `unlock`-tagged symbol in `/symbols` (the tool defaults use the scatter art, seeded only
     when the symbol exists at scaffold time). Without art the beat still plays (state, flight, fade,
     banner).
+13. **The 12c done-when, live on `hw-3pots-sample`** — after #1006 merges and its runtime release
+    passes. Needs item 5 first (the project has no Pots screen, and its Book-of flow must show the
+    Pots screen at load). Then, as the author, per the playbook's
+    [S10](../playtest/hw-3pots-sample.md): create a **Pot Meter (Hold and Win)** copy, put the frog
+    spine and an FX inside its `Pot` part, give the spine a cue on **Pot — activate** and a **Bind to
+    value** on its belly bone, pick the fill and frame art, switch the three placed pots to the copy,
+    and publish. Hand the forced rounds back to a session, or play them: each `meter:<id>` must play
+    only that pot's frog and FX, with no Flow branch. A cloud session needs `games.invisiblewall.org`
+    allowed in its environment's network access to play it.
 
 ## Blocked (owner / external)
 
@@ -834,6 +1085,286 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 
 ## Recent changes
 
+- 2026-10-03 — **Phase 12c: the done-when rehearsed on the real game, locally** (#1006). All three
+  pots pass. The live run on `hw-3pots-sample` is owed (Owner checklist 13).
+  - **Why local:** this session's egress blocks `games.invisiblewall.org` and
+    `app.invisiblewall.org`, and it has no R2 keys. So nothing was authored on the project.
+  - **The setup** (recipe in the playbook's S10): the `lines` runtime from this branch with
+    `?runtime=1`, a local `/api/editor/runtime` stub and the Pots mock (`PRESET=pots`, a free port).
+    The stub serves the Pots preset and the Hold and Win reference layout, with the three placed
+    pots switched to a project Pot copy and no Flow.
+  - **The Pot copy, authored as the done-when asks:**
+    - The fill and frame are bitmaps through the art params (the game's progress-bar sprites).
+    - The "frog" is the H1 rig inside the `Pot` part, with a cue on **Pot — activate** playing
+      `h1` (its celebrate).
+    - A 12b `bone` binding scales its `beard` bone (the belly) by `meter.{meter}.level` over
+      `meter.{meter}.max`, from 1× to 2.5×.
+    - An FX node inside the part, its layer triggered on `potsConsume` with no scope of its own.
+  - **Result:** each `meter:<id>` forced in turn, Playwright reading the Pixi scene:
+    - Only that pot's frog plays `h1`, and only its FX emits (24 particles within 70 px of the pot
+      at the probe's sample; 47 at the burst's peak); the other two rest.
+    - Its bone reaches 2.49× as the pot fills to 12 of 12, and falls back as the feature takes
+      the pot. The other frogs hold their own levels (1.125× at 1 of 12).
+    - 0 particles away from the pots, 0 console errors, no Flow in the bundle.
+  - **Found and fixed:** the FX also burst at the stage origin, unscoped, on every pot's cue.
+    `placedEffectIds()` walked only the scenes, so `Effects.svelte` auto-mounted the Pot's effect a
+    second time. One shared walk now, `collectPlacedEffectIds`, with `test-placed-effects.mjs`.
+    Detail: [fx](fx.md).
+  - **Checks:** `check:all` (363), svelte-check at baseline for lines, engine-layout and the
+    launcher, the `lines` and `launcher-api` builds.
+- 2026-10-03 — **Phase 12c: the respin cell tiles skinned** (#1006). That closes the 12c list of
+  parts. Contract: Decisions, "The respin cell tiles follow the Letters Strip".
+  - **Engine:**
+    - `CELL_TILE_DEF` (`cellTile`): the tile and a held overlay inside its `Cell` part.
+    - `RESPIN_CELLS_DEF` gains `tile` (kind `component`, fed `reel`, `row`, `held`).
+    - The `CellTilePart` catalog entry (no art layers).
+  - **Game:**
+    - `CellTilePart` draws the skin and pulses it when a coin lands on its own cell.
+    - `RespinCellTiles` hands the board the `tile`, refusing an unregistered or self-naming one.
+    - `RespinBoard` → `RespinCellTile` mounts it per open cell, scaled to the cell's window and fed
+      its `held` through `engineValues`.
+  - **Editors:** **Respin Cell Tiles** and **Cell Tile (Hold and Win)** create types.
+  - **Verified:**
+    - `test-cell-tile.mjs` (23 assertions): the tile's shape and box, the held overlay's binding,
+      the defaults (still, a sample cell), no stand-in, the `tile` param and the picker filter (a
+      Letter Tile is not offered), the parity default, an old copy's upgrade, and shipping through
+      the closure.
+    - Every engine-layout fixture, `check:holdandwin` and the launcher's `check:*` gates pass.
+    - Storybook `MODE_HOLD_AND_WIN/skinned cell tiles (12c)`, a placed Respin Cell Tiles over a 3×3
+      grid of cells:
+      - **On a Cell Tile copy:** all 9 tiles draw at the cell's box (0.94, the gap's inset). Holding
+        two cells shows two "H" overlays, and releasing one leaves one.
+      - **A coin landing on cell 1:1** pulses that tile alone (1.16 at 60 ms), back to 0.94 by
+        860 ms.
+      - **A missing tile, or one naming the cell tiles:** refused; no tile draws.
+      - **A copy nesting a Respin Cell Tiles:** all 9 tiles stay, and the look holds over 90
+        frames. Before the fix, the same story settled with no tiles at all.
+    - A whole feature does not render a board in the sandbox (its art loads from the network), so
+      the story mounts the cells directly.
+    - The `lines` build passes.
+  - **Review round (code-reviewer):**
+    - **Fixed:** a Respin Cell Tiles nested in a Cell Tile replaced the look that mounted it,
+      emptying the board (Decisions, "Nesting").
+    - **Fixed:** the board fitted the tile by `SYMBOL_SIZE`, 120 like `CELL_TILE_SIZE` only by
+      coincidence. It divides by the exported `CELL_TILE_SIZE` now.
+    - **Fixed:** a typo in the def's JSDoc.
+    - **Noted:** each open cell mounts a whole `ComponentInstance` when a tile is set. That is fine
+      at 5×3. On an expanding board on a low-end phone, watch the mount cost as the board shows.
+- 2026-10-02 — **Phase 12c: the Wheel skinned** (#1006). Contract: Decisions, "The Wheel follows
+  the Pot".
+  - **Engine:**
+    - `wheelSkin.ts` (`WHEEL_SKIN_PARAMS`, `readWheelSkin`).
+    - `WHEEL_DEF` carries them, `standsFor` its part, and adds `WHEEL_MOUNT`.
+    - The `HoldAndWinWheelPart` catalog entry (face under rim).
+    - `PartSkinBinding.radiusParam`.
+  - **Game:**
+    - `HoldAndWinWheelArt` draws the art params and the skin in always-mounted layer slots.
+    - `HoldAndWinWheelPart` reads the skin, counts in under `WHEEL_MOUNT` and stands in.
+    - `HoldAndWinWheel` steps aside on the mount key.
+  - **Editors:**
+    - The canvas previews the face and rim at twice `radius`.
+    - A **Wheel (Hold and Win)** create type.
+  - **Verified:**
+    - `test-wheel-skin.mjs` (21 assertions): the params beside an unchanged `radius`, the
+      parity read, fallbacks for cleared or bad values, `standsFor`, the mount key, the editor box,
+      and an old wheel's upgrade.
+    - Every engine-layout fixture plus the launcher's `check:*` gates pass.
+    - Storybook `MODE_HOLD_AND_WIN/skinned wheel (12c)`, seven prizes, spun onto segment 3:
+      - **As shipped:** the built-in draws the coded wheel. The segments are 380 px across, and the
+        pointer tip sits at y = 157.
+      - **Art params on a renamed copy:**
+        - The face and rim draw 371 px square (the wheel's diameter), and the labels are off.
+        - The pointer image's bottom-centre sits at (506, 154), the coded tip.
+        - The copy counts in as the wheel.
+      - **A "★" node inside the part:** it turns with the face, from (506, 200) to (451, 440), 127 px
+        from the centre on both sides of a 205.7° turn.
+  - **Review round (code-reviewer):**
+    - **Fixed, blocking:** the labels used a plain `<Text>`, so a Font Maker font picked as the
+      label font drew in the browser's default face. They use `CatalogText` now, as the Pot's
+      labels do.
+    - **Fixed:** the editor drew the rim under the nodes inside the part, while the game draws it
+      over them. Layers now carry `overNodes`.
+    - **Fixed:** the create-type hint named the wrong category (copies are listed under UI).
+    - **Fixed:** the fixture checks the font picker through `fontParamKeysOf` (21 assertions now).
+    - **Noted:** the rim-only preview (Decisions).
+    - **Found in passing, older:** `collectArtRefs` also misses image params set in a per-ratio
+      override (`node.overrides[layoutType].params`). Queued as its own task, beside the one for
+      art picked in **This game's defaults**.
+- 2026-10-02 — **Phase 12c: the Letters Strip skinned** (#1006). Contract: Decisions, "The Letters
+  Strip draws each letter as a Letter Tile instance".
+  - **Engine:**
+    - `LETTER_TILE_DEF` with its `Letter` part.
+    - The strip's `tile` param, `standsFor` and `LETTERS_STRIP_MOUNT`.
+    - The `component` param kind.
+    - The `letter.{reel}.lit` binding source.
+    - The `LetterTilePart` catalog entry.
+  - **Game:**
+    - `LettersStrip` draws the coded letters or one tile instance per letter, counts in under
+      `LETTERS_STRIP_MOUNT`, and stands in.
+    - `LetterTilePart`: skin, pulse, coded fallback.
+    - `HoldAndWinLetters` steps aside on the mount key.
+    - The `letter.<reel>.lit` value sources.
+  - **Editors:**
+    - The Properties `component` select.
+    - **Letters Strip** / **Letter Tile (Hold and Win)** create types.
+  - **Verified:**
+    - `test-letters-strip-part.mjs` (32 assertions): the tile's shape, state bindings, the coded
+      look, scope, pulse and source; the strip's param, parity default, `standsFor`, mount key, and
+      an old strip's upgrade.
+    - `test-component-closure.mjs` (11 assertions): a tile named on the placed strip, a per-ratio
+      override, the project's defaults, a strip copy's default or a nested strip ships; a missing
+      one is skipped; a doc naming none loads in the plain walk's order.
+    - `test-hold-and-win-template.mjs` now lists `letterTile` as gated.
+    - Every engine-layout fixture plus the launcher's `check:*` gates, `check:undefined-names`,
+      `check:path-imports` and `verify-pot-meter-mount` pass.
+    - Storybook `MODE_HOLD_AND_WIN/skinned letters strip (12c)`, on the classic preset's GRAND,
+      lighting reel 2:
+      - The built-in strip draws the coded letters.
+      - A renamed copy drawing the Letter Tile matches the coded letters' positions and colours,
+        and pulses the same.
+      - A tile with a node gated on **Letter lit** shows it over A only.
+      - A missing tile, or a tile naming the strip itself, falls back to the coded letters.
+      - Every copy counts in as the letters row.
+  - **Review round (code-reviewer):**
+    - **Fixed, blocking:** a project's Letter Tile named by `tile` never shipped. The bake, the runtime
+      bundle and the art export only followed instance nodes, so the published strip fell back to
+      the coded letters. All three now share `resolveComponentClosure`, which follows
+      `component`-kind params.
+    - **Fixed:** the strip drew nothing, not the coded letters, when the tile `<ComponentInstance>`
+      would refuse (too deep, or a cycle).
+    - **Fixed:** **This game's defaults** and **Variables in use** were free text for a `component`
+      param; they are selects now. The picker lists only components declaring every `fedParams` key,
+      and same-named entries show their id.
+    - **Fixed:** the tile reads `reel` once (a Svelte `state_referenced_locally` warning).
+    - **Fixed:** doc wording.
+    - **Left:** a tile's nodes get no screen `space` (Decisions, Limits).
+    - **Found in passing, queued as its own task:** art picked only in **This game's defaults**
+      never reaches `deploy/editor-art/`, for any component. `collectArtRefs` never reads the
+      project's defaults. The guide sends a tile's art to its own param defaults instead.
+- 2026-10-02 — **Phase 12c: the Total Win Bar skinned** (#1006). Contract: Decisions, "The Total
+  Win Bar can catch the coins".
+  - **Engine:**
+    - `TOTAL_WIN_BAR_DEF` sits inside a `Bar` part and `standsFor` it, with `catchesCoins` and
+      `landPulseScale`.
+    - `TOTAL_WIN_BAR_ANCHOR` (`flightStyle.ts`).
+    - The `TotalWinBarPart` catalog entry.
+  - **Game:**
+    - `TotalWinBarPart` (skin, pulse on each head landing in the total, the catch anchor,
+      stand-in), registered in `Game.svelte`.
+    - `'total'` resolves through `totalTargetPoint()`: the bar first, then the win meter.
+  - **Editor:** a **Total Win Bar (Hold and Win)** create type.
+  - **Verified:**
+    - `test-total-win-bar-part.mjs` (15 assertions): the shape, ids, binding, both parity defaults,
+      `standsFor`, and the flat copy's upgrade (stand-in, both params back, catching off).
+    - `test-respin-counter-part.mjs` drops its check that the total win bar had no part.
+    - Every engine-layout fixture plus `verify-pot-meter-mount`, `check:signal-scope`,
+      `check:symbols-kind-gating`, `check:scene-cues` and `gen:scenes --check` pass.
+    - Storybook `MODE_HOLD_AND_WIN/skinned total win bar (12c)`, with a stand-in win meter at
+      (150, 600):
+      - As it ships, the next head lands on the win meter and the bar registers no anchor.
+      - With `catchesCoins`, it lands on the bar's centre. One landing at `landPulseScale` 1.3
+        widens the bar 304 → 347 px, sampled 60 ms in (on its way back from the 1.3 peak), and it
+        settles back to 304 px.
+      - A bar saved before the part catches through the stand-in, on the same point.
+- 2026-10-02 — **Phase 12c: the Jackpot Tile and Bar** (#1006). Contract: Decisions, "The
+  Jackpot Tile follows the counter".
+  - **Engine:**
+    - `panelInPart` (shared with the counter).
+    - `JACKPOT_TILE_DEF` inside a `Tile` part, with `winPulseScale`.
+    - The `JackpotTilePart` catalog entry.
+  - **Game:** `JackpotTilePart` (skin, pulse on its tier's Hold and Win or platform win), registered
+    in `Game.svelte`.
+  - **Editors:**
+    - A **component** swap on any instance (Properties, both editors).
+    - `/components` passes its defs to it, minus the open one.
+    - **Jackpot Tile** / **Jackpot Bar (Hold and Win)** create types (a `COPY_TYPES` table now).
+  - **Verified:**
+    - `test-jackpot-tile-part.mjs` (15 assertions): the shape, ids, bindings, scope, no stand-in, the
+      parity default, the flat copy's upgrade, and that both bars place four tiles by id.
+    - Every engine-layout fixture plus `check:signal-scope`, `check:symbols-kind-gating`,
+      `check:scene-cues` and `gen:scenes --check` pass.
+    - Storybook `MODE_HOLD_AND_WIN/skinned jackpot tiles (12c)`, widths measured per tile:
+      - A MAJOR win pulses only MAJOR (162 → 211 px).
+      - On the platform bar, a Hold and Win GRAND win pulses nothing, and the platform's `Grand`
+        pulses only GRAND.
+- 2026-10-02 — **Phase 12c: the Respin Counter skinned** (#1006). Contract: Decisions, "The
+  Respin Counter gets a coded part".
+  - **Engine:** `RESPIN_COUNTER_DEF` wraps its panel in the `Counter` part and `standsFor` it, with a
+    new `pulseScale` param. The `RespinCounterPart` catalog entry is `skin` with no layers.
+    `<ComponentInstance>`'s def-id `flightAnchor` is gone.
+  - **Game:** `RespinCounterPart` (skin, pulse, anchor, count, stand-in, coded fallback) and
+    `RespinCounterArt` (the coded look, now shared by `RespinCounter`), registered in `Game.svelte`.
+  - **Editor:** `/components` offers **Edit inside Counter ›** and a **Respin Counter (Hold and
+    Win)** create type.
+  - **Verified:**
+    - `test-respin-counter-part.mjs` (14 assertions): the shape, ids, the parity default, the flat
+      override's upgrade, and that the other panels are untouched.
+    - Every engine-layout fixture, `check:signal-scope` and `gen:scenes --check` pass.
+    - Storybook `MODE_HOLD_AND_WIN/skinned respin counter (12c)`: built-in, stand-in and empty part
+      each register `respinCounter` and count in. Measured pulse on a reset: 1.35 → 1 for the
+      built-in and the coded fallback, none for the stand-in.
+- 2026-10-02 — **Phase 12c: one fill rule** (#1006). The Pot's fill image is revealed by 12b's
+  `fillMaskRect` (game and editor preview). The coded `potFillRect` and `PotFillDirection` are
+  deleted; `POT_FILL_DIRECTIONS` is typed as 12b's `ValueBindingFillDirection`. The fixture pins
+  the pot's centred use (50 assertions).
+- 2026-10-02 — **Phase 12c: the deleted-part trap** (session "Hold and Win Phase 12c skinnable
+  parts", #1006, on top of 12a and 12b, both merged in). Contract: Decisions, `standsFor`.
+  - **Engine:**
+    - `ComponentDef.standsFor` and `partStandIn` (engine-layout).
+    - `<ComponentInstance>` mounts the stand-in.
+    - `PotMeter` `standIn`: an anchor and the count, no pot.
+    - The Pot Meter stands for `PotMeter`.
+  - **Storage:** `componentStorage` keeps the field. `mergeBuiltinCodedParams` restores it by id.
+    The create-type copy keeps it.
+  - **Verified:**
+    - `test-pot-skin.mjs` (50 assertions) covers the stand-in rule. A skinned or nested part is no
+      stand-in, a meter-scoped decoration never stands in, and an old override gets the field back.
+    - `verify-pot-meter-mount.mjs` mounts a stand-in for real: counted in once, `meter:red`
+      registered, no pot drawn, counted out on unmount.
+    - Storybook: a gold pot whose def has no `Pot` part counts as gold's pot, and `meter:gold` sits
+      at the centre of its nodes. The same def without `standsFor` reproduces the trap: not
+      counted, no anchor.
+- 2026-10-02 — **Phase 12c part 1: a skinnable Pot** (session "Hold and Win Phase 12c skinnable
+  parts", #1006). Design §8; contract in Decisions above. Built before 12a/12b merged, as the
+  brief allows: the art params and the coded-part plumbing.
+  - **Engine (`engine-layout`):**
+    - `potSkin.ts` holds the params, `readPotSkin`, the stage body, the fill share and rect.
+    - The Pot Meter gains `POT_SKIN_PARAMS`.
+    - `<LayoutNodeView>` hands a `bind` container's children to its part as `skin`.
+    - The bound catalog's `skin` declaration and `boundComponentSkin`.
+  - **Game (`apps/lines`):** `HoldAndWinPot` draws the art (body per stage, the masked fill, the
+    frame). It also draws the label style, the motion knobs and the `skin`. `PotMeter` reads the
+    skin off its params. Labels go through `CatalogText`, so a bitmap font works.
+  - **Editors:**
+    - The canvas draws a skinned part's art (fill part-full) and the nodes inside it.
+    - `/components` offers **Edit inside ‹part› ›** and **↩ Back**.
+    - New create type **Pot Meter (Hold and Win)**.
+  - **Guides:** [Component Editor → Skin a coded part](../tools/component-editor.md#skin-a-coded-part)
+    and the Scene Editor's Pots paragraph.
+  - **Verified:**
+    - `test-pot-skin.mjs` passes (43 assertions).
+    - Storybook `MODE_HOLD_AND_WIN/skinned pot (12c)`, screenshot through Playwright:
+      - The coded red pot is unchanged.
+      - The blue pot draws the progress-bar art as its body, fill and frame. The fill tracks the
+        level (6/12, then 11/12), the labels are gold, and it grows with its stages.
+      - The green frog pot draws only the author's glass, rig and caption, and pulses full.
+      - `resolveAnchorPoint('meter:<id>')` lands on each pot's centre.
+    - `check:svelte` stays at baseline for engine-layout, lines and the launcher. Lint is clean. The
+      launcher builds.
+  - **Then 12a merged into the branch:**
+    - `meterStage` is shared.
+    - The **Pot Meter (Hold and Win)** copy keeps the def's signal scope and is kind-gated.
+    - Two frog pots in the story: `__activatePot('green')` reveals only green's
+      `hiddenUntilSignal: 'potActivate'` badge.
+  - **Review fixes** (code-reviewer):
+    - Each art layer sits in an always-mounted slot. pixi-svelte appends a child when it mounts, so
+      a fill that first appears at level 1 drew over the frame and the author's nodes.
+    - `stageGrowth` is clamped to ≥ 0.
+    - Part mode resets on inspect / back to latest.
+  - **CI fix:** `scripts/verify-pot-meter-mount.mjs` stubs `PotMeter`'s imports. It now hands it
+    the real `readPotSkin` from `potSkin.ts`. Before, the package index loaded the build-generated
+    `builtinSpineMeta` and failed on a clean checkout.
+  - **Left:** the 12c items in Open items.
 - 2026-10-02 — **Phase 12b: value bindings, through the whole pipeline** (#1005; session "Hold and Win Phase 12b value bindings"; contract in
   Decisions above). Generic: any node in any kind. An unbound node renders byte-identically.
   - **Engine (`engine-layout`):** `ValueBinding` on every node; the pure `valueBindings.ts`

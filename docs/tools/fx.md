@@ -282,12 +282,14 @@ mere save.
   two side panels shrinks to a strip and they fall off its sides. Widen the window, then **Reset
   view** or scroll out. Nothing is lost.
 - **An always-on effect never appears in the game.** A game ships only effects something reaches:
-  placed in the Scene Editor, bound to a rig event in the Rigger, used by a symbol in Invisible
-  Symbols, or set to fire **On event**. An **Always (ambient)** effect that is none of these is
+  placed in the Scene Editor or inside a component, bound to a rig event in the Rigger, used by a
+  symbol in Invisible Symbols, or set to fire **On event**. An **Always (ambient)** effect that is none of these is
   left out. Place it in the Scene Editor (Library → **Effects**) where it should play.
 - **An On event effect bursts in the top-left corner of the game.** A **Free (scene)** effect that
   isn't placed plays at the game's origin — the top-left corner — plus its **Offset**. Place it in
-  the Scene Editor at the spot it belongs; it still fires on its event there.
+  the Scene Editor, or inside a component, at the spot it belongs; it still fires on its event
+  there. A placed effect plays only where it is mounted: one inside a component plays on each
+  placed copy that is on screen when its event fires.
 
 ## What it does not do yet
 

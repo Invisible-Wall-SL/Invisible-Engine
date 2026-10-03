@@ -81,6 +81,31 @@ export interface TileImageBinding {
 	height: number;
 }
 
+/**
+ * A coded part an author can SKIN (Phase 12c, design `hold-and-win.md` §8). The part draws the
+ * picked art in place of its coded drawing, and the author's own nodes INSIDE it — its `bind`
+ * node's children, which the game hands the part as its `skin` — draw over that art (under an
+ * `overNodes` layer), while the part keeps its behaviour. Declaring this is what lets the editors draw those children and the
+ * art instead of the stand-in chip, and lets the Component Editor step inside the part to author
+ * them. Keyed off `bind.component`, naming the ENCLOSING instance's param keys like
+ * {@link TileImageBinding}; never written to the layout doc.
+ */
+export interface PartSkinBinding {
+	/**
+	 * Instance params (kind `image`) drawn bottom → top, centred on the part. A layer with a
+	 * `directionParam` is a FILL: the game reveals it by a value from the edge that param names
+	 * (12b's `fillMaskRect`); the editor previews it at `POT_PREVIEW_FILL_SHARE`. An `overNodes`
+	 * layer draws over the author's nodes, as the game draws it (the wheel's rim frames everything).
+	 */
+	layers: { imageParam: string; directionParam?: string; overNodes?: boolean }[];
+	/** Instance params (kind `number`) overriding every layer's box; blank ⇒ each image's own. */
+	widthParam?: string;
+	heightParam?: string;
+	/** A round part (the wheel): with width and height blank, every layer's box is twice this
+	 *  instance param, its radius. */
+	radiusParam?: string;
+}
+
 export interface BoundComponentPreview {
 	kind: 'spine' | 'sprite';
 	/** Convention spine-bundle name (kind `spine`), resolved against project spines. */
@@ -116,6 +141,8 @@ export interface BoundComponentDefault {
 	ridesBone?: BoneRiderBinding;
 	/** Editor-only per-instance tile skin (see {@link TileImageBinding}). */
 	tileImage?: TileImageBinding;
+	/** A part the author can skin with art and their own nodes (see {@link PartSkinBinding}). */
+	skin?: PartSkinBinding;
 	/** Where the editor places the preview (see {@link OverlayPlacement}). */
 	placement?: OverlayPlacement;
 	/** Default render order when the component is dropped as an anchor. */
@@ -140,6 +167,40 @@ export const BOUND_COMPONENT_DEFAULTS: Record<string, BoundComponentDefault> = {
 			heightParam: 'backgroundHeight',
 			width: HUD_TILE_WIDTH,
 			height: HUD_TILE_HEIGHT,
+		},
+	},
+	// The Pot Meter's coded pot. A part inside the `potMeter` def, never a droppable anchor, so —
+	// like `HudTicker` — no `space`/`preview`/`placement`. Its art params are `POT_SKIN_PARAMS`.
+	PotMeter: {
+		skin: {
+			layers: [
+				{ imageParam: 'backgroundImage' },
+				{ imageParam: 'fillImage', directionParam: 'fillDirection' },
+				{ imageParam: 'frameImage' },
+			],
+			widthParam: 'artWidth',
+			heightParam: 'artHeight',
+		},
+	},
+	// The Respin Counter's coded part: its art is the def's own nodes, which sit inside it — no layer
+	// params, so the editor draws those nodes and offers to edit inside the part.
+	RespinCounterPart: { skin: { layers: [] } },
+	// The Jackpot Tile's coded part, the same shape: its art is the tile's own nodes, inside it.
+	JackpotTilePart: { skin: { layers: [] } },
+	// The Total Win Bar's coded part, the same shape again.
+	TotalWinBarPart: { skin: { layers: [] } },
+	// A Letter Tile's coded part: the dim and lit art and letter, inside it.
+	LetterTilePart: { skin: { layers: [] } },
+	// A Cell Tile's coded part: the tile and its held overlay, inside it.
+	CellTilePart: { skin: { layers: [] } },
+	// The Wheel's coded part: the turning face under the fixed rim, at the wheel's size. The pointer
+	// sits off-centre at the rim, so only the game draws it.
+	HoldAndWinWheelPart: {
+		skin: {
+			layers: [{ imageParam: 'faceImage' }, { imageParam: 'rimImage', overNodes: true }],
+			widthParam: 'artSize',
+			heightParam: 'artSize',
+			radiusParam: 'radius',
 		},
 	},
 	LoadingScreen: {
@@ -307,6 +368,14 @@ export function boundComponentRidesBone(name: string): BoneRiderBinding | undefi
  */
 export function boundComponentTileImage(name: string | undefined): TileImageBinding | undefined {
 	return name ? BOUND_COMPONENT_DEFAULTS[name]?.tileImage : undefined;
+}
+
+/**
+ * The skin a coded part declares (see {@link PartSkinBinding}), or `undefined` for a part whose
+ * drawing is fixed. Keyed off the `bind.component` name, so the editor never hardcodes `PotMeter`.
+ */
+export function boundComponentSkin(name: string | undefined): PartSkinBinding | undefined {
+	return name ? BOUND_COMPONENT_DEFAULTS[name]?.skin : undefined;
 }
 
 /**

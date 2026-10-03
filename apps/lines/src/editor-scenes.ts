@@ -21,6 +21,7 @@ import type {
 	FlightsConfig,
 } from 'engine-layout';
 import {
+	collectPlacedEffectIds,
 	editorArtNamespace,
 	normalizeHudScenes,
 	registerComponentDefaults,
@@ -753,24 +754,18 @@ export function bakedRigFlipbooks(): Record<string, RigFlipbookBinding[]> {
 }
 
 /**
- * The effect ids PLACED as `effect` nodes in the baked layout (walking scenes + container children).
- * `components/Effects.svelte` skips these when auto-mounting free effects — a placed EffectNode
- * already mounts the effect at its position via `LayoutNodeView`, so an effect is never
- * double-mounted. Empty when un-baked / no placed effects (parity).
+ * The effect ids PLACED as `effect` nodes in the baked layout's scenes and shipped component defs
+ * (`collectPlacedEffectIds`). `components/Effects.svelte` skips these when auto-mounting free
+ * effects — a placed EffectNode already mounts the effect at its position via `LayoutNodeView`, so
+ * an effect is never double-mounted (one inside a Pot would also burst at the stage origin, on every
+ * pot's cue). Empty when un-baked / no placed effects (parity).
  */
 export function placedEffectIds(): Set<string> {
 	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
-	const ids = new Set<string>();
-	const scenes = source?.doc?.scenes;
-	if (!Array.isArray(scenes)) return ids;
-	const walk = (nodes: LayoutNode[]): void => {
-		for (const n of nodes) {
-			if (n.kind === 'effect' && typeof n.effectId === 'string' && n.effectId) ids.add(n.effectId);
-			else if (n.kind === 'container' && Array.isArray(n.children)) walk(n.children);
-		}
-	};
-	for (const scene of scenes) if (Array.isArray(scene.nodes)) walk(scene.nodes);
-	return ids;
+	return collectPlacedEffectIds(
+		(source?.doc?.scenes ?? []).flatMap((scene) => scene.nodes ?? []),
+		[...Object.values(source?.componentDefs ?? {}), ...(source?.componentVersions ?? [])],
+	);
 }
 
 /**

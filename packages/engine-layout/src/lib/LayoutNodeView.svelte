@@ -213,6 +213,13 @@
 	);
 
 	const Bound = $derived(node.bind ? getBoundComponent(node.bind.component) : undefined);
+	// The author's own nodes inside a coded part (Phase 12c): handed to the part as its `skin`
+	// snippet, so the PART decides where they draw — a skinnable part draws them in place of its
+	// coded drawing and keeps its behaviour; any other part ignores them, as it always has. A part
+	// with no children gets no `skin` prop at all, so its props are exactly as before.
+	const boundSkin = $derived(
+		node.kind === 'container' && node.children.length > 0 ? { skin: authoredChildren } : {},
+	);
 
 	// Effective position — `screenAnchor` pins a `canvas`-space node to a window edge (x/y
 	// then act as an offset from that edge); every other space uses x/y verbatim. Shared with
@@ -925,6 +932,14 @@
 	const NO_MASK = { x: 0, y: 0, width: 0, height: 0 };
 </script>
 
+{#snippet authoredChildren()}
+	{#if node.kind === 'container'}
+		{#each node.children as child (child.id)}
+			<svelte:self node={child} {space} />
+		{/each}
+	{/if}
+{/snippet}
+
 {#if transform.visible && revealed}
 	{#if Bound}
 		<!--
@@ -961,9 +976,10 @@
 					{transform}
 					cover={{ scale: bgCoverScale, fit: bgFit, stretch: bgStretch, anchor: bgAnchor }}
 					{...node.bind?.props ?? {}}
+					{...boundSkin}
 				/>
 			{:else}
-				<Bound {transform} {...node.bind?.props ?? {}} />
+				<Bound {transform} {...node.bind?.props ?? {}} {...boundSkin} />
 			{/if}
 		</Container>
 	{:else if node.kind === 'container'}

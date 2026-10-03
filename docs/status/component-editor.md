@@ -16,6 +16,13 @@ Shipped capabilities on `main`:
 - **Button-state-driven spine animations** (2026-06-25) — `SpineNode.stateAnimations` (hover/pressed/selected/disabled/spinning cascade), authored via "Plays on button state"; blank-default spine = a state-only overlay over a resting button image.
 - **Versioning** — pin-by-default with a **true multi-version store** (v2): a changed save bumps `version` AND retains every historical `<id>.v<N>.json` snapshot, so an instance resolves the EXACT def it pinned (editor preview, bake, and shipped game); a missing pin renders latest + a `versionMismatch` warning, never a silent upgrade. Outdated instances are **flagged** in the Scene Editor and updated per instance (never bulk). A **version browser** (top-bar `Version` dropdown + **Inspect** read-only + **Back to latest**) browses retained snapshots non-destructively.
 - **Promote to shared** (2026-06-24) — holders of the `componentPublish` capability (admin by default) get a top-bar button writing a `_shared/editor-components/<id>.json` snapshot; enforced server-side. The kept draft stays project-scoped and still shadows the shared copy.
+- **Skinnable coded parts** (2026-10-02, Hold and Win 12c, #1006). A coded part whose catalog entry
+  declares a `skin` takes the author's own nodes inside it: the Pot, the Respin Counter, the Jackpot
+  Tile, the Total Win Bar, the Letter Tile, the Wheel and the Cell Tile. Those nodes draw in place
+  of the coded drawing, and the part keeps its behaviour. The Pot and the Wheel also take art params. The bar's
+  **Edit inside ‹part› ›** edits the part's children, and the canvas previews the art and the
+  children. A **(Hold and Win)** create type per part makes a project copy.
+  Contract: [hold-and-win](hold-and-win.md) Decisions.
 - **Bind to value** (2026-10-02, Hold and Win Phase 12b) — a node's `valueBindings`: a number (a component param, an engine source, or the instance's own pot via `meter.{meter}.*`) mapped in → out onto a transform offset, a show/hide threshold, a fill reveal (sprite / flipbook / rect), a held clip frame, a spine animation scrub or a spine bone. Authored in the shared Properties section (`EditorValueBindings.svelte`) with a test-value scrub previewed on the canvas and overlays (`valuePreview.client.svelte.ts`). Guide §3b; contract in [hold-and-win](hold-and-win.md).
 - **"This game's defaults"** (2026-09-17, design Phase B3) — a second panel under *Component variables* setting the open def's params for the ACTIVE PROJECT only, stored in the §13.3 sidecar (`editor/<project>/component-defaults/<id>.json`) so a SHARED def can look different per game without being forked. Lists every `!engineProvided` param with the instance panel's widgets; empty = inherit (the key stays absent, `×` restores it); its own `SaveState` + **Save for this game** + conflict badge, separate from the def's versioned save. Each save backs up the version it replaces (newest 20 per component, under `component-defaults-backups/`); **History…** beside it opens the shared version-history modal (#857). Both editor canvases resolve it (see [editor status](./editor.md)).
 
@@ -29,6 +36,42 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-03 — **The respin cell tiles are skinnable** (Hold and Win 12c, #1006). New **Cell Tile**
+  built-in: the tile and a held overlay sit inside a `Cell` part (**Edit inside Cell ›**). The
+  Respin Cell Tiles' new **tile** (a `component` param) picks it for every cell. New **Respin Cell
+  Tiles** and **Cell Tile (Hold and Win)** create types. Detail: [hold-and-win](hold-and-win.md).
+- 2026-10-02 — **The Wheel is skinnable** (Hold and Win 12c, #1006). Art params turn its face and
+  swap its rim and pointer. Nodes inside its `Wheel` part (**Edit inside Wheel ›**) turn with the
+  face. There is a new **Wheel (Hold and Win)** create type. Detail: [hold-and-win](hold-and-win.md).
+- 2026-10-02 — **The Letters Strip is skinnable** (Hold and Win 12c, #1006).
+  - New **Letter Tile** built-in: its art and letter for each state sit inside a `Letter` part
+    (**Edit inside Letter ›**).
+  - The strip's new `tile` param, a `component`-kind param, draws every letter as that tile.
+  - **Letters Strip** and **Letter Tile (Hold and Win)** create types.
+
+  Detail: [hold-and-win](hold-and-win.md).
+- 2026-10-02 — **The Total Win Bar is skinnable** (Hold and Win 12c, #1006). Its panel nodes sit
+  inside a `Bar` part (**Edit inside Bar ›**), with a new **Total Win Bar (Hold and Win)** create
+  type. Detail: [hold-and-win](hold-and-win.md).
+- 2026-10-02 — **Jackpot Tile skinnable; a component swap on instances** (Hold and Win 12c, #1006).
+  - The tile's panel sits inside a `Tile` part (**Edit inside Tile ›**).
+  - New **Jackpot Tile** and **Jackpot Bar (Hold and Win)** create types.
+  - Properties shows a **component** select on any instance, so a bar copy's tiles can use the
+    game's tile copy.
+
+  Detail: [hold-and-win](hold-and-win.md).
+- 2026-10-02 — **The Respin Counter is skinnable** (Hold and Win 12c, #1006). Its panel nodes sit
+  inside a `Counter` part (**Edit inside Counter ›**), with a new **Respin Counter (Hold and Win)**
+  create type. Detail: [hold-and-win](hold-and-win.md).
+- 2026-10-02 — **Skinnable coded parts, Pot first** (Hold and Win 12c part 1, #1006).
+  - `/components` gains **Edit inside ‹part› ›** / **↩ Back**: an `insidePartId` re-points the
+    synthetic scene, spawns and deletes at the part's children.
+  - New create type **Pot Meter (Hold and Win)**.
+  - `EditorCanvas` draws a skinned part's art layers and children instead of its chip
+    (`boundComponentSkin`).
+  - Not browser-verified (auth-gated launcher); it type-checks and builds. Detail:
+    [hold-and-win](hold-and-win.md).
+
 - 2026-10-02 — **Bind to value** (Hold and Win Phase 12b): numbers drive a node's transform, visibility, fill, clip frame, spine scrub and spine bones — engine, sources, the Properties section with a test-value preview, guide §3b. Live check in the tool owed (the auth-gated canvas). Detail: [hold-and-win](hold-and-win.md).
 - 2026-10-02 — **Scoped signals (Hold and Win Phase 12a, #1003).**
   - The signal picker is grouped by family and filtered by the project's kind, and takes any Flow

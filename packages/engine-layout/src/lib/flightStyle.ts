@@ -41,6 +41,11 @@ export const FLIGHT_KIND_LABELS: Record<FlightKind, string> = {
  *  `respinCounter` component both register it; an add-respins head flies into it (`toCounter`). */
 export const RESPIN_COUNTER_ANCHOR = 'respinCounter';
 
+/** An authored Total Win Bar's flight anchor (Phase 12c): registered only while the bar catches the
+ *  coins (`catchesCoins`); the feature end's `toTotal` volley then lands on it instead of the HUD's
+ *  win meter. Prefixed so no layout node id (each node anchors its own id) can take the coins. */
+export const TOTAL_WIN_BAR_ANCHOR = 'flights:totalWinBar';
+
 /** `toMeter:<id>` — one meter's flight, falling back to `toMeter` field by field. */
 export const FLIGHT_METER_PREFIX = 'toMeter:';
 

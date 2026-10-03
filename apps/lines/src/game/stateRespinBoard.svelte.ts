@@ -1,4 +1,4 @@
-import { untrack } from 'svelte';
+import { getContext, setContext, untrack } from 'svelte';
 import { Tween } from 'svelte/motion';
 import {
 	createRespinBoard,
@@ -93,14 +93,25 @@ export const openRespinRows = (): number => stateRespinBoard.rows || (board?.row
  * The authored look of every respin cell — a tile under it and a gap between cells — handed over by
  * a mounted `respinCells` component (`RespinCellTiles`). No component mounted ⇒ the coded look: no
  * tile, no gap. Each mounted instance holds its own entry, by id; the most recently published one
- * is drawn, and unmounting one hands the board back to the one before it.
+ * is drawn, and unmounting one hands the board back to the one before it. `tile` names a component
+ * each cell draws on instead of `art` (Phase 12c — a Cell Tile copy).
  */
-export type RespinCellLook = { art?: ReelGridTileArt; tint?: string; gap: number };
+export type RespinCellLook = { art?: ReelGridTileArt; tint?: string; gap: number; tile?: string };
 let cellLooks = $state.raw<{ id: number; look: RespinCellLook }[]>([]);
 let nextLookId = 1;
 
 /** The look the respin board draws, or `null` for the coded one. */
 export const respinCellLook = (): RespinCellLook | null => cellLooks.at(-1)?.look ?? null;
+
+const INSIDE_CELL_TILE = Symbol('insideRespinCellTile');
+
+/**
+ * Marks a respin cell's own tile (`RespinCellTile`) for everything mounted in it. A Respin Cell
+ * Tiles nested there (in the Cell Tile it draws, at any depth) must publish no look: its look would
+ * replace the one that mounted it, unmounting the very tiles it sits in.
+ */
+export const markInsideRespinCellTile = () => setContext(INSIDE_CELL_TILE, true);
+export const insideRespinCellTile = (): boolean => getContext(INSIDE_CELL_TILE) === true;
 
 /**
  * The authored art of a LOCKED cell of an expanding board, handed over by a mounted `lockedRow`

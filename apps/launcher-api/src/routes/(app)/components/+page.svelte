@@ -8,17 +8,29 @@
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import { pickSheetsFrom } from '$lib/pickSheets';
 	import {
+		boundComponentSkin,
 		BUTTON_STATE_PARAMS,
+		CELL_TILE_DEF,
 		ENGINE_ACTION_CATALOG,
 		fontParamKeysOf,
 		FREE_SPIN_COUNTER_DEF,
 		HUD_READOUT_DEF,
 		isManifestAssetKey,
+		kindCapabilities,
+		JACKPOT_BAR_DEF,
+		JACKPOT_TILE_DEF,
+		LETTER_TILE_DEF,
+		LETTERS_STRIP_DEF,
+		POT_METER_DEF,
+		RESPIN_CELLS_DEF,
+		RESPIN_COUNTER_DEF,
 		parseScopedFrameRef,
 		pruneOrphanParamBindings,
 		resolveComponentParams,
 		scopedFrameRef,
 		STANDARD_MAIN_SIZES_MAP,
+		TOTAL_WIN_BAR_DEF,
+		WHEEL_DEF,
 	} from 'engine-layout';
 	import type {
 		ComponentCategory,
@@ -412,15 +424,50 @@
 		return m;
 	});
 
-	/** Synthetic scene wrapping the open draft's `root.children`, so the reused
-	 * editor canvas/outline/properties machinery edits the sub-tree in place (the
-	 * array IS `root.children`). The exact pattern from `/editor`'s component mode. */
+	/**
+	 * The coded parts of the open draft an author can skin (Phase 12c — a `bind` container whose
+	 * catalog entry declares a `skin`, e.g. the Pot Meter's `Pot`): the parts the editor bar offers
+	 * to step inside.
+	 */
+	const skinnableParts = $derived.by<ContainerNode[]>(() => {
+		const out: ContainerNode[] = [];
+		const walk = (nodes: LayoutNode[]): void => {
+			for (const n of nodes) {
+				if (n.kind !== 'container') continue;
+				if (n.bind && boundComponentSkin(n.bind.component)) out.push(n);
+				else walk(n.children);
+			}
+		};
+		if (componentDraft) walk(componentDraft.root.children);
+		return out;
+	});
+	/**
+	 * The skinnable part the author stepped inside, by node id. The canvas, outline and spawns then
+	 * edit ITS children — the nodes the game draws in place of the part's coded drawing, in the
+	 * part's own space. `null` (or a part this draft no longer has) = the component's root.
+	 */
+	let insidePartId = $state<string | null>(null);
+	const insidePart = $derived(skinnableParts.find((part) => part.id === insidePartId) ?? null);
+	/** The node list the editor is editing: the open part's children, else the root's. */
+	const editedNodes = $derived(insidePart?.children ?? componentDraft?.root.children ?? []);
+	function setEditedNodes(nodes: LayoutNode[]): void {
+		if (insidePart) insidePart.children = nodes;
+		else if (componentDraft) componentDraft.root.children = nodes;
+	}
+	function enterPart(id: string | null): void {
+		insidePartId = id;
+		selectedIds = [];
+	}
+
+	/** Synthetic scene wrapping the edited node list (the draft's `root.children`, or a skinnable
+	 * part's children), so the reused editor canvas/outline/properties machinery edits the sub-tree
+	 * in place (the array IS that list). The exact pattern from `/editor`'s component mode. */
 	const componentScene = $derived.by<Scene | undefined>(() =>
 		componentDraft
 			? {
-					id: 's_component',
+					id: insidePart ? `s_part_${insidePart.id}` : 's_component',
 					name: componentDraft.name,
-					nodes: componentDraft.root.children,
+					nodes: editedNodes,
 					// Preview in the component's authoring space (default 'game' → mapped
 					// through the project's MAIN box like the runtime; 'canvas' → full-window
 					// overlay). This is what makes the Component Editor WYSIWYG with the game.
@@ -496,6 +543,7 @@
 			? JSON.stringify($state.snapshot(componentDraft))
 			: null;
 		selectedIds = [];
+		insidePartId = null;
 		saveStatus = null;
 		leftTab = 'outline';
 		// Seed this project's defaults from the page load so the panel + canvas paint without a
@@ -581,6 +629,7 @@
 			componentDraft = def;
 			inspectingVersion = version;
 			selectedIds = [];
+			insidePartId = null;
 			// Baseline = this snapshot, so the read-only draft never reads as "dirty".
 			savedSnapshot = JSON.stringify(def);
 		} catch (e) {
@@ -612,6 +661,7 @@
 		inspectingVersion = null;
 		pickVersion = '';
 		selectedIds = [];
+		insidePartId = null;
 		saveStatus = null;
 	}
 
@@ -649,7 +699,27 @@
 	 * instance picks its action from the registered-action dropdown, and the engine
 	 * provides the hit surface for an action-bound def with no coded part (§18.4) —
 	 * the authored art becomes clickable with zero extra wiring. */
-	let newType = $state<'blank' | 'button' | 'readout' | 'counter'>('blank');
+	/**
+	 * The built-ins a create type copies for this project (fresh node ids, project scope): the
+	 * Free-Spin Counter, and the Hold and Win parts a game skins with its own nodes (12c) without
+	 * changing the shared built-in every other project draws.
+	 */
+	const COPY_TYPES = {
+		counter: FREE_SPIN_COUNTER_DEF,
+		pot: POT_METER_DEF,
+		respin: RESPIN_COUNTER_DEF,
+		jackpotTile: JACKPOT_TILE_DEF,
+		jackpotBar: JACKPOT_BAR_DEF,
+		totalWinBar: TOTAL_WIN_BAR_DEF,
+		lettersStrip: LETTERS_STRIP_DEF,
+		letterTile: LETTER_TILE_DEF,
+		wheel: WHEEL_DEF,
+		respinCells: RESPIN_CELLS_DEF,
+		cellTile: CELL_TILE_DEF,
+	} satisfies Record<string, ComponentDef>;
+	type CopyType = keyof typeof COPY_TYPES;
+	const isCopyType = (type: string): type is CopyType => type in COPY_TYPES;
+	let newType = $state<'blank' | 'button' | 'readout' | CopyType>('blank');
 
 	/**
 	 * Create a component + open it. `blank` = empty root; `button` = empty root pre-wired
@@ -685,13 +755,13 @@
 				root,
 				params,
 			};
-		} else if (newType === 'counter') {
-			// Project-scoped clone of the built-in Free-Spin Counter: the full frame +
-			// "FREE SPIN" caption + "X OF Y" value structure, pre-wired with `source`
-			// (the engine value feed) + the engine-fed string `value` + `visibleSource` +
-			// `label` + font/fill params, so the author only swaps the art + text. Fresh
-			// node ids so two copies never collide.
-			const clone = structuredClone(FREE_SPIN_COUNTER_DEF);
+		} else if (isCopyType(newType)) {
+			// Project-scoped clone of a built-in (`COPY_TYPES`), fresh node ids so two copies never
+			// collide. The Free-Spin Counter: the full frame + "FREE SPIN" caption + "X OF Y" value
+			// structure, pre-wired with `source` (the engine value feed) + the engine-fed string
+			// `value` + `visibleSource` + `label` + font/fill params, so the author only swaps the
+			// art + text. A Hold and Win part keeps its coded part and params.
+			const clone = structuredClone(COPY_TYPES[newType]);
 			const root = clone.root;
 			const reid = (n: LayoutNode): void => {
 				n.id = genComponentId();
@@ -707,6 +777,12 @@
 				category: 'ui',
 				root,
 				params: clone.params,
+				// A pot hears only its own meter's signals, a jackpot tile its own tier's (Phase 12a),
+				// and a part-backed def stands for its coded part (12c), so the copy does too.
+				...(clone.signalScope
+					? { signalScope: clone.signalScope, signalScopeKind: clone.signalScopeKind }
+					: {}),
+				...(clone.standsFor ? { standsFor: clone.standsFor } : {}),
 			};
 		} else {
 			const root: ContainerNode = {
@@ -756,6 +832,7 @@
 		projectDefaultsBaseline = defaultsSignature({});
 		defaultsSave.adoptEtag(null);
 		selectedIds = [];
+		insidePartId = null;
 		saveStatus = null;
 		inspectingVersion = null;
 		pickVersion = '';
@@ -784,19 +861,19 @@
 		if (componentDraft?.id === def.id) await closeComponent();
 	}
 
-	/** Spawn a node into the open draft's `root.children` (the array the synthetic
-	 * scene exposes). The component has its own save — no autosave here. Blocked while
-	 * inspecting a historical version (read-only). */
+	/** Spawn a node into the edited list (the array the synthetic scene exposes). The
+	 * component has its own save — no autosave here. Blocked while inspecting a historical
+	 * version (read-only). */
 	function onSpawn(node: LayoutNode): void {
 		if (!componentDraft || isInspecting) return;
-		componentDraft.root.children = [...componentDraft.root.children, node];
+		setEditedNodes([...editedNodes, node]);
 	}
 
 	function onDeleteNode(id: string): void {
 		if (!componentDraft || isInspecting) return;
-		const nodes = componentDraft.root.children.slice();
+		const nodes = editedNodes.slice();
 		if (!removeNode(nodes, id)) return;
-		componentDraft.root.children = nodes;
+		setEditedNodes(nodes);
 		if (selectedIds.includes(id)) selectedIds = selectedIds.filter((x) => x !== id);
 	}
 
@@ -1398,8 +1475,30 @@
 		<div class="editor-bar">
 			<div class="eb-group">
 				<span class="open-pill" title="The component currently open for editing">
-					◇ {componentDraft.name}
+					◇ {componentDraft.name}{#if insidePart}
+						› {insidePart.label ?? insidePart.id}{/if}
 				</span>
+				{#if insidePart}
+					<button
+						class="save-btn"
+						type="button"
+						title="Back to the component's own nodes"
+						onclick={() => enterPart(null)}
+					>
+						↩ Back to {componentDraft.name}
+					</button>
+				{:else}
+					{#each skinnableParts as part (part.id)}
+						<button
+							class="save-btn"
+							type="button"
+							title="Put your own nodes inside this coded part. They draw in place of its coded drawing, and the part keeps its behaviour — its value, size steps, pulse and the anchor its flights aim at."
+							onclick={() => enterPart(part.id)}
+						>
+							Edit inside {part.label ?? part.id} ›
+						</button>
+					{/each}
+				{/if}
 				<label
 					class="space-toggle"
 					title="Game = positioned in the game's main box (board-relative; WYSIWYG against this project's layout). Canvas = a full-window overlay (free-spin intro dim, modal scrim) authored in raw window pixels. A Canvas component must be mounted in a Canvas-space screen for editor↔game parity."
@@ -1529,6 +1628,20 @@
 									<option value="button">Button</option>
 									<option value="readout">HUD readout</option>
 									<option value="counter">Free-Spin Counter</option>
+									{#if kindCapabilities(data.gameType, data.addOns).pots}
+										<option value="pot">Pot Meter (Hold and Win)</option>
+									{/if}
+									{#if kindCapabilities(data.gameType, data.addOns).holdAndWin}
+										<option value="respin">Respin Counter (Hold and Win)</option>
+										<option value="jackpotTile">Jackpot Tile (Hold and Win)</option>
+										<option value="jackpotBar">Jackpot Bar (Hold and Win)</option>
+										<option value="totalWinBar">Total Win Bar (Hold and Win)</option>
+										<option value="lettersStrip">Letters Strip (Hold and Win)</option>
+										<option value="letterTile">Letter Tile (Hold and Win)</option>
+										<option value="wheel">Wheel (Hold and Win)</option>
+										<option value="respinCells">Respin Cell Tiles (Hold and Win)</option>
+										<option value="cellTile">Cell Tile (Hold and Win)</option>
+									{/if}
 								</select>
 								{#if newType === 'blank'}
 									<select bind:value={newCategory} aria-label="Component category">
@@ -1571,6 +1684,100 @@
 									or edit the <strong>label</strong> — then <strong>Save component</strong>. Listed
 									under
 									<strong>UI</strong>.
+								</p>
+							{:else if newType === 'pot'}
+								<p class="muted small">
+									A project copy of the built-in <strong>Pot Meter</strong>: the coded pot of the
+									meter its <strong>meter</strong> param names. Click
+									<strong>Edit inside Pot</strong> and drop your own nodes (a spine, an effect,
+									art): they replace the coded drawing, and the pot still follows its level, grows,
+									pulses and catches its flights. Place it on the <strong>Pots</strong> screen in
+									place of the Pot Meter. Listed under <strong>UI</strong>.
+								</p>
+							{:else if newType === 'respin'}
+								<p class="muted small">
+									A project copy of the built-in <strong>Respin Counter</strong>: its frame, caption
+									and value sit inside the coded <strong>Counter</strong> part. Click
+									<strong>Edit inside Counter</strong> to restyle them or add your own nodes; the
+									part pulses them on a reset or "+N" (<strong>pulseScale</strong>) and the "+N"
+									still flies to it. Place it on the <strong>Respin counter</strong> screen in place
+									of the Respin Counter. Listed under <strong>UI</strong>.
+								</p>
+							{:else if newType === 'jackpotTile'}
+								<p class="muted small">
+									A project copy of the built-in <strong>Jackpot Tile</strong>: its frame, caption
+									and value sit inside the coded <strong>Tile</strong> part. Click
+									<strong>Edit inside Tile</strong> to restyle them or add your own nodes; the part
+									pulses them when the tile's own tier is won (<strong>winPulseScale</strong>).
+									Point a Jackpot Bar's tiles at it with <strong>Component</strong> in Properties.
+									Listed under <strong>UI</strong>.
+								</p>
+							{:else if newType === 'jackpotBar'}
+								<p class="muted small">
+									A project copy of the built-in <strong>Jackpot Bar</strong>: MINI · MINOR · MAJOR
+									· GRAND tiles. Add your own frame around them, restyle each tile on its placement,
+									or select a tile and switch its <strong>Component</strong> to your own Jackpot
+									Tile copy. Place it on the <strong>Jackpot bar</strong> screen in place of the
+									Jackpot Bar. Listed under <strong>UI</strong>.
+								</p>
+							{:else if newType === 'totalWinBar'}
+								<p class="muted small">
+									A project copy of the built-in <strong>Total Win Bar</strong>: its frame, caption
+									and value sit inside the coded <strong>Bar</strong> part. Click
+									<strong>Edit inside Bar</strong> to restyle them or add your own nodes. Turn on
+									<strong>catchesCoins</strong> and the feature end's coins fly into this bar
+									instead of the win meter; <strong>landPulseScale</strong> pulses it on each one.
+									Place it on the <strong>Total win bar</strong> screen in place of the Total Win
+									Bar. Listed under <strong>UI</strong>.
+								</p>
+							{:else if newType === 'lettersStrip'}
+								<p class="muted small">
+									A project copy of the built-in <strong>Letters Strip</strong>: Grand's column
+									letters, one per reel. Set its <strong>tile</strong> to your own Letter Tile copy
+									to draw every letter that way; blank keeps the game's own letters. Place it on the
+									<strong>Letters</strong> screen in place of the Letters Strip. Listed under
+									<strong>UI</strong>.
+								</p>
+							{:else if newType === 'letterTile'}
+								<p class="muted small">
+									A project copy of the built-in <strong>Letter Tile</strong>: one column letter,
+									its dim and lit art and letter inside the coded <strong>Letter</strong> part.
+									Click
+									<strong>Edit inside Letter</strong> to restyle them or add your own nodes; each
+									shows while the letter is dim or lit through
+									<strong>letter.{'{reel}'}.lit</strong>. The part pulses them as the letter lights.
+									Pick it as a Letters Strip's
+									<strong>tile</strong>. Listed under <strong>UI</strong>.
+								</p>
+							{:else if newType === 'wheel'}
+								<p class="muted small">
+									A project copy of the built-in <strong>Wheel</strong>. Pick its art on the
+									placement: a <strong>faceImage</strong> that turns, a <strong>rimImage</strong>
+									and a
+									<strong>pointerImage</strong> that stay put. Click
+									<strong>Edit inside Wheel</strong>
+									to add nodes that turn with the face. The prize labels and the landed outline stay the
+									game's (switch them off with <strong>showLabels</strong> /
+									<strong>showLanded</strong>). Place it on the <strong>Wheel</strong> screen in
+									place of the Wheel. Listed under <strong>UI</strong>.
+								</p>
+							{:else if newType === 'respinCells'}
+								<p class="muted small">
+									A project copy of the built-in <strong>Respin Cell Tiles</strong>: the tile under
+									every respin cell and the <strong>gap</strong> between cells. Set its
+									<strong>tile</strong> to your own Cell Tile copy to draw every cell on it; blank
+									stamps <strong>tileImage</strong>. Place it on the <strong>Respin board</strong>
+									screen in place of the Respin Cell Tiles. Listed under <strong>UI</strong>.
+								</p>
+							{:else if newType === 'cellTile'}
+								<p class="muted small">
+									A project copy of the built-in <strong>Cell Tile</strong>: one respin cell's tile
+									and a <strong>held</strong> overlay inside the coded <strong>Cell</strong> part.
+									Click
+									<strong>Edit inside Cell</strong> to restyle them or add your own nodes, on one
+									cell's box; the board fits it to every cell. Show a node only while a coin holds
+									the cell with <strong>Bind to value</strong> on <strong>held</strong>. Pick it as
+									the Respin Cell Tiles' <strong>tile</strong>. Listed under <strong>UI</strong>.
 								</p>
 							{/if}
 						</div>
@@ -1696,6 +1903,13 @@
 						componentSignalScope={componentDraft.signalScope}
 						componentSignalScopeKind={componentDraft.signalScopeKind}
 						gameType={data.gameType}
+						componentDefs={components
+							.filter((c) => c.id !== componentDraft?.id)
+							.map((c) => ({
+								id: c.id,
+								name: c.name,
+								params: (c.params ?? []).map((p) => p.key),
+							}))}
 						addOns={data.addOns}
 						instanceComponent={selectedNode?.kind === 'componentInstance'
 							? (componentMap.get(selectedNode.componentId) ?? null)
@@ -1772,7 +1986,12 @@
 			{#if componentDraft}
 				<p class="muted hint foot">
 					Component: <strong>{componentDraft.name}</strong> ·
-					{componentDraft.root.children.length} nodes
+					{#if insidePart}
+						{insidePart.children.length} nodes inside {insidePart.label ?? insidePart.id} — they replace
+						its coded drawing
+					{:else}
+						{componentDraft.root.children.length} nodes
+					{/if}
 				</p>
 			{/if}
 		</aside>

@@ -27,39 +27,12 @@
  * predicate inline (it can't import TS) with a "keep in sync" comment.
  */
 import type { EffectDoc } from 'engine-fx';
-import type { ComponentDef, LayoutNode, RigFxBinding, Scene } from 'engine-layout';
-
-/**
- * Collect every `kind:'effect'` `effectId` reachable by walking `nodes` and their `container`
- * children. `componentInstance` nodes are NOT expanded here — each referenced ComponentDef is walked
- * independently by the caller (the def set is already the transitively-referenced closure), which
- * covers component-nested placed effects without needing per-instance expansion or a cycle guard.
- */
-function collectEffectNodeIds(nodes: LayoutNode[] | undefined, ids: Set<string>): void {
-	if (!Array.isArray(nodes)) return;
-	for (const node of nodes) {
-		if (node.kind === 'effect' && typeof node.effectId === 'string' && node.effectId) {
-			ids.add(node.effectId);
-		} else if (node.kind === 'container') {
-			collectEffectNodeIds(node.children, ids);
-		}
-	}
-}
-
-/**
- * The PLACED effect ids across a doc's scenes + every referenced ComponentDef. `componentDefs` is
- * the transitively-referenced def closure (`resolveReferencedDefs` in `runtimeBundle.ts` / the
- * `components=1` doc endpoint), so walking each def's `root` covers a component-nested placed effect —
- * the MORE complete walk (containers + component instances) the editor overlay uses, so a
- * component-nested placed effect is never pruned. Mirrors `editor-scenes.ts#placedEffectIds` (scenes
- * + containers) extended to component defs.
- */
-function placedEffectIds(scenes: Scene[], componentDefs: ComponentDef[]): Set<string> {
-	const ids = new Set<string>();
-	for (const scene of scenes) collectEffectNodeIds(scene.nodes, ids);
-	for (const def of componentDefs) collectEffectNodeIds(def.root.children, ids);
-	return ids;
-}
+import {
+	collectPlacedEffectIds,
+	type ComponentDef,
+	type RigFxBinding,
+	type Scene,
+} from 'engine-layout';
 
 /**
  * Event-reachable: at least one layer is `trigger.on === 'event'` with an `eventType` (the Flow
@@ -99,7 +72,10 @@ export function pruneUnreachableEffects(
 	rigFx: Record<string, RigFxBinding[]>,
 	extraReachable?: Iterable<string>,
 ): EffectPruneResult {
-	const placed = placedEffectIds(scenes, componentDefs);
+	const placed = collectPlacedEffectIds(
+		scenes.flatMap((scene) => scene.nodes),
+		componentDefs,
+	);
 	const rigBound = new Set<string>();
 	for (const binds of Object.values(rigFx)) {
 		for (const b of binds) if (b.effectId) rigBound.add(b.effectId);

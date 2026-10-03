@@ -11,6 +11,8 @@ import {
 	type SignalScopeKind,
 } from './componentCatalog';
 import { kindCapabilities, type KindCapabilityConfig } from './kindCapabilities';
+import { POT_SKIN_PARAMS } from './potSkin';
+import { WHEEL_SKIN_PARAMS } from './wheelSkin';
 import type { ComponentDef, ComponentParam, LayoutNode } from './types';
 
 /**
@@ -2112,8 +2114,45 @@ const holdAndWinPanel = (panel: HoldAndWinPanel): ComponentDef => ({
 	],
 });
 
-/** "RESPINS 3" — the respins left, shown for the whole feature (`respinCounterShow`). */
-export const RESPIN_COUNTER_DEF: ComponentDef = holdAndWinPanel({
+/** A coded part's box in the editor (the game draws the real thing). */
+const codedPart = (id: string, label: string, component: string, w: number, h: number) =>
+	({
+		id,
+		label,
+		kind: 'container',
+		x: 0,
+		y: 0,
+		bind: { component, props: { boundToInstance: true } },
+		preview: { w, h, style: 'tile' },
+		children: [],
+	}) satisfies LayoutNode;
+
+/**
+ * A plain-node panel moved INSIDE a coded part (Phase 12c — the Respin Counter, the Jackpot Tile,
+ * the Total Win Bar):
+ * the panel's nodes keep their ids (so a saved copy's bindings merge by id) and become the part's
+ * `skin`; the part adds the behaviour the static node model can't express. The part sits at the
+ * panel's origin with the panel's box, so placements and the editor's selection box are unchanged.
+ */
+const panelInPart = (
+	panel: ComponentDef,
+	part: { id: string; label: string; component: string; width: number; height: number },
+	extraParams: ComponentParam[],
+): ComponentDef => ({
+	...panel,
+	root: {
+		...panel.root,
+		children: [
+			{
+				...codedPart(part.id, part.label, part.component, part.width, part.height),
+				children: panel.root.children,
+			},
+		],
+	},
+	params: [...(panel.params ?? []), ...extraParams],
+});
+
+const RESPIN_COUNTER_PANEL = holdAndWinPanel({
 	id: 'respinCounter',
 	name: 'Respin Counter',
 	caption: 'RESPINS',
@@ -2125,8 +2164,38 @@ export const RESPIN_COUNTER_DEF: ComponentDef = holdAndWinPanel({
 	note: 'respins left (engine)',
 });
 
-/** One jackpot's name and its value at the current bet. The bar places four. */
-export const JACKPOT_TILE_DEF: ComponentDef = holdAndWinPanel({
+/**
+ * "RESPINS 3" — the respins left, shown for the whole feature (`respinCounterShow`). SKINNABLE
+ * (Phase 12c): the panel's frame, caption and value sit INSIDE the coded `Counter` part, which
+ * pulses them on every reset and "+N" (`pulseScale`, 1 = still, as the authored counter always was),
+ * registers the `respinCounter` anchor the "+N" flies into and counts the instance in as the
+ * counter. With nothing inside, the part draws the coded counter. It `standsFor` the part, so a
+ * counter saved before the part existed (its nodes at the root) still registers through a stand-in.
+ * Same node ids as the plain panel, so its bindings merge by id.
+ */
+export const RESPIN_COUNTER_DEF: ComponentDef = {
+	...panelInPart(
+		RESPIN_COUNTER_PANEL,
+		{
+			id: 'respinCounter-counter',
+			label: 'Counter',
+			component: 'RespinCounterPart',
+			width: 240,
+			height: 96,
+		},
+		[
+			{
+				key: 'pulseScale',
+				kind: 'number',
+				default: 1,
+				label: 'pulse on a reset or "+N" (1 = none)',
+			},
+		],
+	),
+	standsFor: 'RespinCounterPart',
+};
+
+const JACKPOT_TILE_PANEL = holdAndWinPanel({
 	id: 'jackpotTile',
 	name: 'Jackpot Tile',
 	caption: 'GRAND',
@@ -2140,8 +2209,28 @@ export const JACKPOT_TILE_DEF: ComponentDef = holdAndWinPanel({
 	signalScope: { param: 'source', kind: 'tier' },
 });
 
-/** "TOTAL WIN" — what the feature has won; the feature end counts every coin into it. */
-export const TOTAL_WIN_BAR_DEF: ComponentDef = holdAndWinPanel({
+/**
+ * One jackpot's name and its value at the current bet. The bar places four. SKINNABLE (Phase 12c):
+ * the panel's frame, caption and value sit INSIDE the coded `Tile` part, which pulses them when the
+ * tile's own tier is won (`winPulseScale`, 1 = still, as the tile always was) — a `jackpot.<tier>`
+ * source on a Hold and Win jackpot win, a `platformJackpot.<tier>` one on the platform's. The tile
+ * registers nothing (nothing flies to it, and no coded tile steps aside for it), so it stands for
+ * no part: a tile saved before the part keeps drawing and only lacks the pulse.
+ */
+export const JACKPOT_TILE_DEF: ComponentDef = panelInPart(
+	JACKPOT_TILE_PANEL,
+	{ id: 'jackpotTile-tile', label: 'Tile', component: 'JackpotTilePart', width: 240, height: 96 },
+	[
+		{
+			key: 'winPulseScale',
+			kind: 'number',
+			default: 1,
+			label: 'pulse when its tier is won (1 = none)',
+		},
+	],
+);
+
+const TOTAL_WIN_BAR_PANEL = holdAndWinPanel({
 	id: 'totalWinBar',
 	name: 'Total Win Bar',
 	caption: 'TOTAL WIN',
@@ -2152,6 +2241,37 @@ export const TOTAL_WIN_BAR_DEF: ComponentDef = holdAndWinPanel({
 	height: 96,
 	note: 'feature total (engine)',
 });
+
+/**
+ * "TOTAL WIN" — what the feature has won (`featureTotal`, the same figure as the HUD's win meter).
+ * SKINNABLE (Phase 12c): the panel's frame, caption and value sit INSIDE the coded `Bar` part. With
+ * `catchesCoins` on, the part registers `TOTAL_WIN_BAR_ANCHOR`, so the feature end's coins (and a
+ * swept Grand column's) fly into this bar instead of the HUD's win meter. It pulses on each coin that
+ * lands (`landPulseScale`). Both are off by default: the bar never caught the coins, so every
+ * existing game flies them where it always did. It `standsFor` the part, so a bar drawn without it
+ * still catches the coins through a stand-in.
+ */
+export const TOTAL_WIN_BAR_DEF: ComponentDef = {
+	...panelInPart(
+		TOTAL_WIN_BAR_PANEL,
+		{ id: 'totalWinBar-bar', label: 'Bar', component: 'TotalWinBarPart', width: 360, height: 96 },
+		[
+			{
+				key: 'catchesCoins',
+				kind: 'boolean',
+				default: false,
+				label: 'coins fly here at the feature end',
+			},
+			{
+				key: 'landPulseScale',
+				kind: 'number',
+				default: 1,
+				label: 'pulse on each coin that lands (1 = none)',
+			},
+		],
+	),
+	standsFor: 'TotalWinBarPart',
+};
 
 const JACKPOT_TIERS = ['mini', 'minor', 'major', 'grand'] as const;
 /** Tile pitch in the bar — a tile plus a 16px gap. */
@@ -2219,24 +2339,16 @@ export const PLATFORM_JACKPOT_BAR_DEF: ComponentDef = {
 	},
 };
 
-/** A coded part's box in the editor (the game draws the real thing). */
-const codedPart = (id: string, label: string, component: string, w: number, h: number) =>
-	({
-		id,
-		label,
-		kind: 'container',
-		x: 0,
-		y: 0,
-		bind: { component, props: { boundToInstance: true } },
-		preview: { w, h, style: 'tile' },
-		children: [],
-	}) satisfies LayoutNode;
-
 /**
  * ONE persistent meter (a 3 Pots pot): its level bar, "<ID> level/max", what a full one activates,
  * a size step at each of the meter's `sizeStages` and a pulse when it fills. The coded `PotMeter`
  * reads `meter.<id>.level` / `meter.<id>.max` for its `meter` param and registers the
  * `meter:<id>` anchor the specials fly into. A meter the config does not declare draws nothing.
+ *
+ * SKINNABLE (Phase 12c): the {@link POT_SKIN_PARAMS} swap the coded bar for the author's art per
+ * instance, and nodes the author puts INSIDE the `Pot` part replace its coded drawing while the
+ * part keeps the level, stages, pulse, anchor and its count as that meter's pot. It `standsFor` the
+ * part, so a copy whose `Pot` was deleted still registers as that meter's pot.
  */
 export const POT_METER_DEF: ComponentDef = {
 	id: 'potMeter',
@@ -2248,6 +2360,7 @@ export const POT_METER_DEF: ComponentDef = {
 	// Each placed pot hears its own meter's signals only (`potFill`, `potActivate`, …).
 	signalScope: 'meter',
 	signalScopeKind: 'meter',
+	standsFor: 'PotMeter',
 	root: {
 		id: 'potMeter-root',
 		kind: 'container',
@@ -2258,14 +2371,110 @@ export const POT_METER_DEF: ComponentDef = {
 	params: [
 		{ key: 'meter', kind: 'string', default: 'red', label: 'meter id (Game Config)' },
 		{ key: 'scale', kind: 'number', default: 1 },
+		...POT_SKIN_PARAMS,
 	],
 };
+
+/** The coded column letter's font size: 0.36 of a 120 px cell (`HoldAndWinLetter`). */
+const LETTER_FONT_SIZE = 43.2;
+
+/** A column letter in one state, drawn the way the coded letter draws it in that state. */
+const letterText = (lit: boolean): LayoutNode => ({
+	id: lit ? 'letterTile-lit' : 'letterTile-dim',
+	label: lit ? 'Letter (lit)' : 'Letter (dim)',
+	kind: 'text',
+	x: 0,
+	y: 0,
+	anchor: { x: 0.5, y: 0.5 },
+	text: 'G',
+	...(lit ? {} : { alpha: 0.45 }),
+	style: {
+		fontFamily: 'Arial',
+		fontWeight: 'bold',
+		fontSize: LETTER_FONT_SIZE,
+		fill: lit ? 0xffd24a : 0x6b6b6b,
+		stroke: { color: lit ? 0x7a3d00 : 0x000000, width: 6 },
+	},
+	paramBindings: { text: 'letter' },
+	valueBindings: [
+		{ target: 'visible', source: 'letter.{reel}.lit', ...(lit ? {} : { below: true }) },
+	],
+	preview: { style: 'text', textParam: 'letter' },
+});
+
+/** The art behind a column letter in one state (`tileImage` / `litTileImage`; none ⇒ nothing). */
+const letterArt = (lit: boolean): LayoutNode => ({
+	id: lit ? 'letterTile-litArt' : 'letterTile-art',
+	label: lit ? 'Art (lit)' : 'Art (dim)',
+	kind: 'sprite',
+	x: 0,
+	y: 0,
+	anchor: { x: 0.5, y: 0.5 },
+	assetKey: '',
+	width: 100,
+	height: 100,
+	paramBindings: { region: lit ? 'litTileImage' : 'tileImage' },
+	valueBindings: [
+		{ target: 'visible', source: 'letter.{reel}.lit', ...(lit ? {} : { below: true }) },
+	],
+	preview: { w: 100, h: 100, style: 'tile' },
+});
+
+/**
+ * One of Grand's column letters, for a Letters Strip to draw per reel (its `tile` param). SKINNABLE
+ * (Phase 12c), the Jackpot Tile's pattern: the dim and lit art and letter sit INSIDE the coded
+ * `Letter` part, which pulses them when the letter lights (`pulseScale`, the coded letter's 1.6 by
+ * default). Each node shows in one state through a 12b `visible` binding on `letter.{reel}.lit`.
+ * The strip feeds each tile its `reel` and `letter`; the tile is scoped by its reel (12a), so a cue
+ * on **Letter lit** inside it plays on its own letter only. With nothing inside, the part draws the
+ * coded letter. It registers nothing, so it stands for no part.
+ */
+export const LETTER_TILE_DEF: ComponentDef = {
+	id: 'letterTile',
+	name: 'Letter Tile',
+	version: 1,
+	scope: 'shared',
+	category: 'ui',
+	capability: 'holdAndWin',
+	signalScope: 'reel',
+	signalScopeKind: 'reel',
+	root: {
+		id: 'letterTile-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			{
+				...codedPart('letterTile-letter', 'Letter', 'LetterTilePart', 100, 100),
+				children: [letterArt(false), letterArt(true), letterText(false), letterText(true)],
+			},
+		],
+	},
+	params: [
+		{ key: 'reel', kind: 'number', default: 0, label: 'column (0 = the first; the strip sets it)' },
+		{ key: 'letter', kind: 'string', default: 'G', label: 'the letter (the strip sets it)' },
+		{ key: 'tileImage', kind: 'image', label: 'art behind the letter while dim' },
+		{ key: 'litTileImage', kind: 'image', label: 'art behind the letter once lit' },
+		{
+			key: 'pulseScale',
+			kind: 'number',
+			default: 1.6,
+			label: 'pulse when the letter lights (1 = none)',
+		},
+	],
+};
+
+/** What a mounted Letters Strip counts in under, whatever its id, so the coded row steps aside. */
+export const LETTERS_STRIP_MOUNT = 'lettersStrip';
 
 /**
  * Grand's column letters — one per reel, lit as its column completes. The coded `LettersStrip`
  * spells the config's `boardEnd.letters` at `spacing` px (the cell pitch, so the strip lines up with
- * the reels when centred on the board); the coded row steps aside while this is mounted. A project
- * whose board end is not column letters draws nothing.
+ * the reels when centred on the board), and counts itself in as the letters row so the coded row
+ * steps aside. SKINNABLE (Phase 12c): `tile` names a component each letter draws as (a project's
+ * Letter Tile copy); blank, the default, draws the coded letters. It `standsFor` its part, so a
+ * strip drawn without it still steps the coded row aside. A project whose board end is not column
+ * letters draws nothing.
  */
 export const LETTERS_STRIP_DEF: ComponentDef = {
 	id: 'lettersStrip',
@@ -2281,13 +2490,33 @@ export const LETTERS_STRIP_DEF: ComponentDef = {
 		y: 0,
 		children: [codedPart('lettersStrip-letters', 'Letters', 'LettersStrip', 600, 70)],
 	},
-	params: [{ key: 'spacing', kind: 'number', default: 120, label: 'letter pitch (px)' }],
+	params: [
+		{ key: 'spacing', kind: 'number', default: 120, label: 'letter pitch (px)' },
+		{
+			key: 'tile',
+			kind: 'component',
+			default: '',
+			label: 'each letter drawn as (blank = the coded letters)',
+			fedParams: ['reel', 'letter'],
+		},
+	],
+	standsFor: 'LettersStrip',
 };
+
+/** What a mounted Wheel counts in under, whatever its id, so the coded wheel steps aside. */
+export const WHEEL_MOUNT = 'wheel';
 
 /**
  * The pre-feature wheel (Super Hotfire Diamonds) at the instance's position: the coded
- * `HoldAndWinWheelPart` draws the same art and spin as the coded board-centred wheel, which steps
- * aside while this is mounted. Draws nothing until the wheel beat puts a wheel up.
+ * `HoldAndWinWheelPart` draws the same art and spin as the coded board-centred wheel, and counts
+ * itself in as the wheel, so that one steps aside for a copy of any id. Draws nothing until the
+ * wheel beat puts a wheel up.
+ *
+ * SKINNABLE (Phase 12c), the Pot's pattern: art params (`WHEEL_SKIN_PARAMS`) swap the turning face,
+ * the fixed rim and the pointer, and nodes the author puts inside the `Wheel` part turn with the
+ * face, in place of the coded segments. The prize labels and the landed outline stay coded, each
+ * behind a switch. Fixed decoration goes beside the part. It `standsFor` the part, so a wheel drawn
+ * without it still steps the coded wheel aside.
  */
 export const WHEEL_DEF: ComponentDef = {
 	id: 'wheel',
@@ -2303,7 +2532,88 @@ export const WHEEL_DEF: ComponentDef = {
 		y: 0,
 		children: [codedPart('wheel-art', 'Wheel', 'HoldAndWinWheelPart', 440, 440)],
 	},
-	params: [{ key: 'radius', kind: 'number', default: 220 }],
+	params: [{ key: 'radius', kind: 'number', default: 220 }, ...WHEEL_SKIN_PARAMS],
+	standsFor: 'HoldAndWinWheelPart',
+};
+
+/** A respin cell's design box: a Cell Tile is authored on one cell, and the board fits it to each. */
+export const CELL_TILE_SIZE = 120;
+
+/**
+ * One respin cell's tile, for the Respin Cell Tiles to draw under every cell (their `tile` param).
+ * SKINNABLE (Phase 12c), the Letter Tile's pattern: the tile art and a held overlay sit INSIDE the
+ * coded `Cell` part, which pulses them when a coin lands on its cell (`landPulseScale`, 1 = still,
+ * as the coded tiles are). The board feeds each tile its `reel` and `row`, and `held` (1 while a coin
+ * holds the cell, else 0), which the overlay shows through a 12b `visible` binding. Authored on one
+ * cell's box ({@link CELL_TILE_SIZE} square, centred); the board fits it to each cell's window. It
+ * registers nothing, so it stands for no part.
+ */
+export const CELL_TILE_DEF: ComponentDef = {
+	id: 'cellTile',
+	name: 'Cell Tile',
+	version: 1,
+	scope: 'shared',
+	category: 'ui',
+	capability: 'holdAndWin',
+	root: {
+		id: 'cellTile-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			{
+				...codedPart('cellTile-cell', 'Cell', 'CellTilePart', CELL_TILE_SIZE, CELL_TILE_SIZE),
+				children: [
+					{
+						id: 'cellTile-tile',
+						label: 'Tile',
+						kind: 'sprite',
+						x: 0,
+						y: 0,
+						anchor: { x: 0.5, y: 0.5 },
+						assetKey: '',
+						width: CELL_TILE_SIZE,
+						height: CELL_TILE_SIZE,
+						paramBindings: { region: 'tileImage', tint: 'tileTint' },
+						preview: { w: CELL_TILE_SIZE, h: CELL_TILE_SIZE, style: 'tile' },
+					},
+					{
+						id: 'cellTile-held',
+						label: 'Held',
+						kind: 'sprite',
+						x: 0,
+						y: 0,
+						anchor: { x: 0.5, y: 0.5 },
+						assetKey: '',
+						width: CELL_TILE_SIZE,
+						height: CELL_TILE_SIZE,
+						paramBindings: { region: 'heldImage' },
+						valueBindings: [{ target: 'visible', param: 'held' }],
+						preview: { w: CELL_TILE_SIZE, h: CELL_TILE_SIZE, style: 'tile' },
+					},
+				],
+			},
+		],
+	},
+	params: [
+		{ key: 'reel', kind: 'number', default: 0, label: 'column (the board sets it)' },
+		{ key: 'row', kind: 'number', default: 0, label: 'row (the board sets it)' },
+		{
+			key: 'held',
+			kind: 'number',
+			engineProvided: true,
+			label: '1 while a coin holds the cell (the board sets it)',
+		},
+		{ key: 'tileImage', kind: 'image', label: 'tile under the cell' },
+		{ key: 'tileTint', kind: 'color' },
+		{ key: 'heldImage', kind: 'image', label: 'over the tile while a coin holds the cell' },
+		{
+			key: 'landPulseScale',
+			kind: 'number',
+			default: 1,
+			label: 'pulse when a coin lands on the cell (1 = none)',
+		},
+	],
 };
 
 /**
@@ -2313,6 +2623,10 @@ export const WHEEL_DEF: ComponentDef = {
  * under each cell at that cell's seat and insets each cell's rolling window by `gap` (a share of a
  * cell; a gap with no tile parts the windows over the background). Not placed ⇒ no tiles and no gap,
  * the coded look. In the Scene Editor it shows as a handle only — the tiles draw in the game.
+ *
+ * SKINNABLE (Phase 12c): `tile` names a component each cell draws as instead of `tileImage` (a
+ * project's Cell Tile copy), fed its `reel`, `row` and `held`; blank, the default, stamps
+ * `tileImage` as before.
  */
 export const RESPIN_CELLS_DEF: ComponentDef = {
 	id: 'respinCells',
@@ -2336,6 +2650,13 @@ export const RESPIN_CELLS_DEF: ComponentDef = {
 			kind: 'number',
 			default: 0,
 			label: 'gap between cells (share of a cell, 0–0.45)',
+		},
+		{
+			key: 'tile',
+			kind: 'component',
+			default: '',
+			label: 'each cell drawn on (blank = tileImage)',
+			fedParams: ['reel', 'row', 'held'],
 		},
 	],
 };
@@ -2375,8 +2696,10 @@ export const HOLD_AND_WIN_COMPONENTS: ComponentDef[] = [
 	TOTAL_WIN_BAR_DEF,
 	POT_METER_DEF,
 	LETTERS_STRIP_DEF,
+	LETTER_TILE_DEF,
 	WHEEL_DEF,
 	RESPIN_CELLS_DEF,
+	CELL_TILE_DEF,
 	LOCKED_ROW_DEF,
 ];
 
@@ -2444,9 +2767,12 @@ export function mergeBuiltinCodedParams(def: ComponentDef): ComponentDef {
 	const twinById = indexNodesById(builtin.root);
 	const nextRoot = mergeNodeBindings(def.root, twinById);
 	const rootChanged = nextRoot !== def.root;
-	if (!missing.length && !rootChanged) return def;
+	// The part a snapshot saved before `standsFor` existed still stands for (by id, like the params).
+	const standsFor = def.standsFor ?? builtin.standsFor;
+	if (!missing.length && !rootChanged && standsFor === def.standsFor) return def;
 	return {
 		...def,
+		...(standsFor ? { standsFor } : {}),
 		params: missing.length ? [...(def.params ?? []), ...missing] : def.params,
 		root: rootChanged ? (nextRoot as ComponentDef['root']) : def.root,
 	};

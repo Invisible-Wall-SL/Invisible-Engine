@@ -2,7 +2,7 @@ import type { HoldAndWinCellAmount } from 'engine-game';
 
 import { FLIGHT_TARGET_TOTAL, flyTo } from './flights.svelte';
 
-/** The flight kind a coin flying into the win meter reports in `flightArrive`. */
+/** The flight kind a coin flying into the total win reports in `flightArrive`. */
 export const FLIGHT_TO_TOTAL = 'toTotal';
 /** The flight kind a coin flying into a collector (or a base-game instant-collect special) reports. */
 export const FLIGHT_TO_COLLECTOR = 'toCollector';
