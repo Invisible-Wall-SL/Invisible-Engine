@@ -22,7 +22,12 @@
  * Pure: the input is never mutated, and the result is NOT normalized (as `./addOns`).
  */
 
-import { dropUnusedSymbols, takeOutHoldAndWinBonus, type AddOnRenames } from './addOns';
+import {
+	dropUnusedSymbols,
+	takeOutHoldAndWinBonus,
+	zeroPotsRefusal,
+	type AddOnRenames,
+} from './addOns';
 import { holdAndWinIsOverlayBonus, isHoldAndWinSymbol } from './holdAndWin';
 import {
 	HOLD_AND_WIN_MODE,
@@ -198,6 +203,17 @@ export function importBonus(
 		...(hostHud ? { hud: hostHud } : {}),
 	};
 	if (authored || hostHud) next.modes = [...(next.modes ?? []), override];
+
+	// On a coins-only host (no pots) value coins are all that can start the bonus, so the imported
+	// feature must pass the same rule as going down to no pots (`zeroPotsRefusal`): a re-sync from a
+	// source that dropped its coin count trigger is refused too.
+	if (!next.potsOverlay!.pots.length && zeroPotsRefusal(next)) {
+		return {
+			ok: false,
+			reason:
+				'This overlay has no pots, so only value coins can start the imported Hold and Win, and it has no coin count trigger for them. Add a pot first, or import a feature whose trigger counts coins.',
+		};
+	}
 
 	const pots = new Set(opts.pots ?? []);
 	const specials = next.holdAndWin.specials;

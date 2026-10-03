@@ -19,6 +19,7 @@
 		resolveGameModes,
 		setOverlayPotCount,
 		symbolsInPlay,
+		zeroPotsRefusal,
 		type AddOnResult,
 		type GameConfigDoc,
 		type GameConfigIssue,
@@ -111,12 +112,15 @@
 			...Object.entries(result.renamed.symbols).map(([from, to]) => `symbol ${from} → ${to}`),
 			...Object.entries(result.renamed.pots).map(([from, to]) => `pot ${from} → ${to}`),
 		];
-		notice = renames.length
-			? {
-					kind: 'info',
-					text: `Added ${what}. These names were already taken, so they were renamed: ${renames.join(', ')}.`,
-				}
-			: null;
+		const said = [
+			...(renames.length
+				? [
+						`Added ${what}. These names were already taken, so they were renamed: ${renames.join(', ')}.`,
+					]
+				: []),
+			...(result.notes ?? []),
+		];
+		notice = said.length ? { kind: 'info', text: said.join(' ') } : null;
 	}
 
 	function addOverlay() {
@@ -210,24 +214,24 @@
 
 	/**
 	 * An overlay needs a pot or a value coin (`validatePotsOverlay`), so the last of the one cannot go
-	 * while the other is absent — removing the overlay is its own button.
+	 * while the other is absent — removing the overlay is its own button. Going down to no pots is
+	 * `zeroPotsRefusal`'s call, for the pot count and the last pot's × alike.
 	 */
 	const hasCoinDrop = (overlay: PotsOverlay) => overlay.drops.table.some(isCoinDrop);
-	/** On a Hold and Win game the block is its base game, started by its own reels, so dropped coins
-	 *  alone start nothing and the last pot must stay (the validator's error, the add's refusal). */
-	const coinsAloneStart = $derived(!doc.holdAndWin || holdAndWinIsOverlayBonus(doc));
-	/** No pots at all — value coins only — needs a Hold and Win block that is the overlay's bonus. */
-	const zeroPotsAllowed = $derived(Boolean(doc.holdAndWin) && holdAndWinIsOverlayBonus(doc));
-	const potRemovable = (overlay: PotsOverlay) =>
-		overlay.pots.length > 1 || (hasCoinDrop(overlay) && zeroPotsAllowed);
+	const zeroPotsBlocker = $derived(doc.potsOverlay ? zeroPotsRefusal(doc) : undefined);
+	const potRemovable = (overlay: PotsOverlay) => overlay.pots.length > 1 || !zeroPotsBlocker;
 	const dropRemovable = (overlay: PotsOverlay, i: number) =>
 		overlay.pots.length > 0 || overlay.drops.table.some((e, k) => k !== i && isCoinDrop(e));
 	const KEEP_ONE =
 		'An overlay needs at least one pot or one value-coin drop. Add the other first, or remove the overlay.';
-	const KEEP_POT =
-		"This game's own Hold and Win starts from its reels, so value coins alone start nothing: keep at least one pot, or remove the overlay.";
 
+	/** The last pot goes through `setOverlayPotCount`, which adds the coin row and raises the drops
+	 *  per spin the way the pot count does, and says so. */
 	function removePot(overlay: PotsOverlay, i: number) {
+		if (overlay.pots.length === 1) {
+			apply(setOverlayPotCount(snapshot(), 0), 'no pots');
+			return;
+		}
 		const [gone] = overlay.pots.splice(i, 1);
 		if (overlay.pots.some((p) => p.id === gone.id)) return;
 		overlay.drops.table = overlay.drops.table.filter((e) => isCoinDrop(e) || e.pot !== gone.id);
@@ -382,15 +386,12 @@
 			<label class="inline"
 				><span>How many</span><select
 					value={overlay.pots.length}
+					title={zeroPotsBlocker ?? ''}
 					onchange={(e) => setPotCount(e.currentTarget, Number(e.currentTarget.value))}
 				>
 					{#each POT_COUNTS as n (n)}
-						<option value={n} disabled={n === 0 && !zeroPotsAllowed && overlay.pots.length > 0}
-							>{n}{n === 0 && !zeroPotsAllowed
-								? doc.holdAndWin
-									? ' — this game’s Hold and Win needs a pot'
-									: ' — needs a Hold and Win bonus'
-								: ''}</option
+						<option value={n} disabled={n === 0 && !!zeroPotsBlocker && overlay.pots.length > 0}
+							>{n}{n === 0 && zeroPotsBlocker ? ' — not here (hover for why)' : ''}</option
 						>
 					{/each}
 					{#if overlay.pots.length > MAX_OVERLAY_POTS}
@@ -400,7 +401,7 @@
 			>
 			<span class="note"
 				>{overlay.pots.length
-					? `${zeroPotsAllowed ? 0 : 1}–${MAX_OVERLAY_POTS}; a new pot copies the last one's size and bonus`
+					? `${zeroPotsBlocker ? 1 : 0}–${MAX_OVERLAY_POTS}; a new pot copies the last one's size and bonus`
 					: 'no pots: the overlay drops only value coins'}</span
 			>
 		</div>
@@ -512,7 +513,7 @@
 						<td
 							><button
 								class="del"
-								title={potRemovable(overlay) ? 'Remove' : coinsAloneStart ? KEEP_ONE : KEEP_POT}
+								title={potRemovable(overlay) ? 'Remove' : zeroPotsBlocker}
 								disabled={!potRemovable(overlay)}
 								onclick={() => removePot(overlay, i)}>×</button
 							></td

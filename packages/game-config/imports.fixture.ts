@@ -191,6 +191,23 @@ check(
 	refusal(importBonus(threePotsHost, SOURCE, FROM)),
 	'This project already has a Hold and Win bonus. Replace it to import this one.',
 );
+const coinsOnlyHost = added(addPotsOverlay(host, 'coinsOnly'));
+check(
+	'a feature with no coin count trigger into a coins-only host (no pots)',
+	refusal(
+		importBonus(coinsOnlyHost, normalize(clone(HOLD_AND_WIN_PRESETS.collector)), {
+			...FROM,
+			project: 'hw-collector-sample',
+			replace: true,
+		}),
+	),
+	'This overlay has no pots, so only value coins can start the imported Hold and Win, and it has no coin count trigger for them. Add a pot first, or import a feature whose trigger counts coins.',
+);
+check(
+	'a counted feature into the same host is accepted',
+	refusal(importBonus(coinsOnlyHost, SOURCE, { ...FROM, replace: true })),
+	'accepted',
+);
 const hwGame = added(addPotsOverlay(normalize(clone(HOLD_AND_WIN_PRESETS.pots)), 'threePots'));
 check(
 	'a Hold and Win GAME, even asked',

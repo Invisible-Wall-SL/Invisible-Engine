@@ -13,6 +13,7 @@ import {
 	addPotsOverlay,
 	removePotsOverlay,
 	setOverlayPotCount,
+	zeroPotsRefusal,
 } from './src/addOns.ts';
 import { holdAndWinIsOverlayBonus } from './src/holdAndWin.ts';
 import { HOLD_AND_WIN_PRESETS, HOLD_AND_WIN_PRESET_IDS } from './src/holdAndWinPresets.ts';
@@ -404,7 +405,7 @@ check(
 check(
 	'0 pots with no Hold and Win bonus is refused: nothing would drop',
 	refused(setOverlayPotCount(freeOverlay, 0)),
-	'With no pots the overlay drops only value coins, which start a Hold and Win bonus — add one first, or remove the overlay.',
+	'With no pots the overlay drops only value coins, which start a Hold and Win bonus — add one first, or keep at least one pot.',
 );
 check(
 	'0 pots on a Hold and Win game is refused: its block counts only its own landed coins',
@@ -461,6 +462,59 @@ check(
 		issues(freeToCoins).filter((i) => i.includes('potsOverlay')),
 	],
 	[(freeWithClassic.holdAndWin!.trigger.count!.min ?? 0) + 2, []],
+);
+check(
+	'raising most-per-spin is said, and it stays raised when a pot comes back',
+	[
+		(() => {
+			const result = setOverlayPotCount(freeWithClassic, 0);
+			return result.ok && result.notes;
+		})(),
+		added(setOverlayPotCount(freeToCoins, 1)).potsOverlay!.drops.maxPerSpin,
+	],
+	[
+		[
+			'Removed gold. What is authored for it elsewhere (a Pot Meter, a Win Text name, a flight style) is kept and draws nothing until a pot with that id returns.',
+			'Most per spin raised from 2 to 8, so the 6 coins the Hold and Win trigger needs can land on one spin. Lower it again if you add pots back.',
+		],
+		8,
+	],
+);
+check(
+	'lowering the count names the pots it removed; raising it says nothing',
+	[
+		(() => {
+			const result = setOverlayPotCount(five, 3);
+			return (
+				result.ok &&
+				result.notes?.[0]?.startsWith('Removed gold, purple. What is authored for them')
+			);
+		})(),
+		(() => {
+			const result = setOverlayPotCount(three, 5);
+			return result.ok && result.notes;
+		})(),
+	],
+	[true, undefined],
+);
+check(
+	"zeroPotsRefusal: the one rule the count and the last pot's × share",
+	[
+		zeroPotsRefusal(three),
+		zeroPotsRefusal(freeOverlay)?.startsWith('With no pots'),
+		zeroPotsRefusal(added(onPotsGame))?.startsWith("This game's own Hold and Win"),
+		zeroPotsRefusal(added(addHoldAndWinBonus(freeOverlay, 'collector')))?.startsWith(
+			'Value coins start this Hold and Win only through its coin count trigger',
+		),
+	],
+	[undefined, true, true, true],
+);
+const coinRoleGold = clone(three);
+coinRoleGold.symbols.POT_GOLD = { special_properties: ['coin', 'meterSpecial'] };
+check(
+	'a Hold and Win role symbol named like a new token is never taken over',
+	added(setOverlayPotCount(coinRoleGold, 4)).potsOverlay!.pots[3].token,
+	'POT_GOLD_2',
 );
 check(
 	'0 pots on a bonus with no coin count trigger is refused',
