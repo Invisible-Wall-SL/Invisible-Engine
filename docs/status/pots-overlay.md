@@ -859,6 +859,24 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Recent changes
 
+- 2026-10-03 — **The base board returns after a pot's Hold and Win** (session "3 pots overlay
+  config"). The hub reproduced this on `borut-pots-sample`. After a pot-started Hold and Win, the base
+  reels were left on the feature's final board: the held coins, with `BLANK` everywhere else. An
+  overlay host has no art for `BLANK`.
+  - Symptoms: after `pot:red` with no coin landed, the reels were empty at idle. After a 6-coin
+    feature, the coins stayed on the base board.
+  - Fix: `presentHoldAndWinEnd` calls `settleReelsOnHeldCells()` only when the block is NOT the
+    overlay's bonus (`holdAndWinIsOverlayBonus`). An overlay host's reels come back on the trigger
+    spin's board, the host's own symbols (design §3.4).
+  - The collected coins are not drawn on it.
+  - A resume needs nothing extra: it either replays the same end beat or boots on the host's board.
+  - A Hold and Win GAME is unchanged byte for byte: it has no overlay, or its base strips deal Hold and
+    Win symbols, so the helper answers false.
+  - Verified on a real clock (local mocks, the 3 Pots config on a book host): after `pot:red` the board
+    at idle read `H…/L…/S` with no `BLANK`, and the money was right.
+  - Also: the runtime's warning about spines shipped with no files now names both causes: a rig not in
+    this project at all (e.g. a duplicate made without its art), or one under another project's prefix.
+
 - 2026-10-03 — **A tab open when the overlay is switched on keeps the game it booted with**
   (#1026). From a diagnosis run on a `book` project, which found no
   boot-blocking code path.
