@@ -19,11 +19,13 @@
  * module copies: skeleton + `.atlas` + every page image.
  */
 import {
+	ConflictError,
 	copyObject,
 	deleteObjects,
-	getObjectText,
+	getObjectTextWithEtag,
 	listAllKeys,
 	objectExists,
+	precondition,
 	putObjectText,
 } from './r2';
 import { spineBundlePath, spineBundleSharedPath } from './projectPaths';
@@ -42,8 +44,10 @@ const SHARED_INDEX_KEY = '_shared/spines/skeletons.json';
 const BUNDLE_SOURCE_SIDECAR = 'source.json';
 
 /**
- * Copy `<client>/<project>/spines/<bundle>` → `_shared/spines/<bundle>` and merge its entry
- * into the shared `skeletons.json`, creating that index if this is the first promotion.
+ * Copy `<client>/<project>/spines/<bundle>` → `_shared/spines/<as>` (`as` defaults to the bundle's
+ * own name) and merge its entry into the shared `skeletons.json`, creating that index if this is the
+ * first promotion. A bonus import promotes under `imported/<project>/<bundle>`, so it never
+ * overwrites another project's shared bundle of the same name.
  *
  * Overwrites an existing shared bundle of the same name — the admin UI warns first. Stale files
  * from a previous promotion of the SAME bundle are pruned, so a rig that dropped a page doesn't
@@ -53,20 +57,23 @@ export async function promoteSpineToShared(
 	clientKey: string,
 	projectKey: string,
 	bundle: string,
+	as: string = bundle,
 ): Promise<{ entry: SkeletonIndexEntry; files: number; replaced: boolean }> {
 	const srcPrefix = spineBundlePath(clientKey, projectKey, bundle);
-	const destPrefix = spineBundleSharedPath(bundle);
+	const destPrefix = spineBundleSharedPath(as);
 
 	// The index entry is what makes a folder of files a loadable bundle — it names which file is
 	// the skeleton and which is the atlas. A bundle the project's own index doesn't list cannot
 	// be promoted, because nothing downstream could resolve it either.
-	const entry = (await loadSkeletonIndex(clientKey, projectKey)).find((e) => e.folder === bundle);
-	if (!entry) {
+	const own = (await loadSkeletonIndex(clientKey, projectKey)).find((e) => e.folder === bundle);
+	if (!own) {
 		throw new PromoteError(
 			`'${bundle}' has no entry in this project's spines/skeletons.json, so it isn't a loadable ` +
 				'bundle yet. Open it in the Rigger and save (or re-sync its atlas) first.',
 		);
 	}
+	const entry: SkeletonIndexEntry =
+		as === bundle ? own : { ...own, folder: as, dir_b64: Buffer.from(as).toString('base64url') };
 
 	const srcKeys = await listAllKeys(`${srcPrefix}/`);
 	if (srcKeys.length === 0) throw new PromoteError(`'${bundle}' has no files under ${srcPrefix}/.`);
@@ -102,30 +109,39 @@ export async function promoteSpineToShared(
 /**
  * Insert-or-replace one entry in `_shared/spines/skeletons.json`, keyed by `folder`.
  *
- * Read-modify-write on a shared index is a lost-update risk if two admins promote at once, but
- * this is an admin-only action taken a handful of times in a project's life; a lease here would
- * be ceremony. It does preserve every other entry rather than rewriting the file wholesale.
+ * A conditional read-modify-write: the index is written `If-Match` the ETag it was read with
+ * (`If-None-Match` when there is none yet), and a lost race re-reads and retries, so two promotions
+ * at once (an admin's and a bonus import's) never drop each other's entry. It preserves every other
+ * entry rather than rewriting the file wholesale.
  */
 async function mergeSharedIndex(entry: SkeletonIndexEntry): Promise<void> {
-	let skeletons: SkeletonIndexEntry[] = [];
-	const existing = await getObjectText(SHARED_INDEX_KEY);
-	if (existing) {
+	for (let attempt = 0; ; attempt++) {
+		let skeletons: SkeletonIndexEntry[] = [];
+		const existing = await getObjectTextWithEtag(SHARED_INDEX_KEY);
+		if (existing) {
+			try {
+				const parsed = JSON.parse(existing.text) as { skeletons?: SkeletonIndexEntry[] };
+				if (Array.isArray(parsed.skeletons)) skeletons = parsed.skeletons;
+			} catch {
+				// An unparseable shared index is treated as empty rather than throwing: refusing to
+				// promote because of somebody else's corrupt file helps nobody, and we rewrite it whole.
+			}
+		}
+		const next = [...skeletons.filter((e) => e.folder !== entry.folder), entry].sort((a, b) =>
+			a.folder.localeCompare(b.folder),
+		);
 		try {
-			const parsed = JSON.parse(existing) as { skeletons?: SkeletonIndexEntry[] };
-			if (Array.isArray(parsed.skeletons)) skeletons = parsed.skeletons;
-		} catch {
-			// An unparseable shared index is treated as empty rather than throwing: refusing to
-			// promote because of somebody else's corrupt file helps nobody, and we rewrite it whole.
+			await putObjectText(
+				SHARED_INDEX_KEY,
+				JSON.stringify({ skeletons: next }, null, '\t'),
+				'application/json',
+				precondition(existing ? (existing.etag ?? undefined) : null),
+			);
+			return;
+		} catch (e) {
+			if (!(e instanceof ConflictError) || attempt >= 4) throw e;
 		}
 	}
-	const next = [...skeletons.filter((e) => e.folder !== entry.folder), entry].sort((a, b) =>
-		a.folder.localeCompare(b.folder),
-	);
-	await putObjectText(
-		SHARED_INDEX_KEY,
-		JSON.stringify({ skeletons: next }, null, '\t'),
-		'application/json',
-	);
 }
 
 /** Bundle names in one project's `spines/` that are listed in its `skeletons.json` — i.e. the
