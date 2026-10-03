@@ -3,6 +3,7 @@
 	import { enhance } from '$app/forms';
 	import {
 		DEFAULT_HOLD_AND_WIN_PRESET,
+		HOLD_AND_WIN_MODE,
 		HOLD_AND_WIN_PRESET_IDS,
 		HOLD_AND_WIN_PRESET_LABELS,
 		POTS_OVERLAY_PRESET_IDS,
@@ -1529,7 +1530,7 @@
 				!importResync &&
 				(!importFeature ||
 					Boolean(importFeature.refused) ||
-					(project.hasHoldAndWin && !importReplace))}
+					(importMode === HOLD_AND_WIN_MODE && project.hasHoldAndWin && !importReplace))}
 			hideCancel={Boolean(importResult?.ok)}
 			error={importErr}
 			onconfirm={runImport}
@@ -1629,7 +1630,7 @@
 							{/each}
 						</fieldset>
 					{/if}
-					{#if project.hasHoldAndWin}
+					{#if importMode === HOLD_AND_WIN_MODE && project.hasHoldAndWin}
 						<label class="check">
 							<input type="checkbox" bind:checked={importReplace} />
 							Replace this project's Hold and Win bonus (a project has one; /config keeps a backup)
