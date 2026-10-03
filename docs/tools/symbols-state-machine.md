@@ -1224,7 +1224,8 @@ need to dress them:
   than drawing nothing, the game draws a coded disc for each one: a token in its pot's colour with
   the pot's name, a value coin as a gold disc under its value, and a jackpot or special as a disc
   of its own colour (`COLLECT`, `PAY`, `MULTI`, `?`). Binding art in the row replaces the disc.
-  `BLANK` still draws nothing.
+  `BLANK` still draws nothing. The disc is decided per state: a coin bound only on `Win` shows the
+  disc at rest, so bind `Static` too.
 - **Three token columns** — **Coin land** (the token landing over its cell), **Coin idle** (resting
   there until it flies) and **Fly to meter** (lit while it flies into its pot). Empty, the first two
   use the symbol's `Static` and Fly to meter its `Win`. Hover a column head for the token's reading

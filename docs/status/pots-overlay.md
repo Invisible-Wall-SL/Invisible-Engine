@@ -859,6 +859,36 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Recent changes
 
+- 2026-10-03 — **Pot count follow-ups** (session "3 pots overlay config"). These are the hub's
+  independent review of #1024: nothing blocking; parity confirmed on the lines, ways, scatter and
+  book hosts.
+  - **Nothing changes silently.** `AddOnResult` gains optional `notes`, and `/config` shows them.
+    - Going to 0 pots says when "Most per spin" was raised (e.g. 2 → 8). It stays raised when pots
+      come back, and the note says to lower it.
+    - Lowering the count names the pots it removed. Their Pot Meter nodes, Win Text names and flight
+      styles stay, draw nothing, and re-attach if that id returns.
+  - **One rule for no pots:** `zeroPotsRefusal(doc)` (game-config). It needs a Hold and Win block
+    that is the overlay's bonus, with a coin count trigger.
+    - `setOverlayPotCount`, the picker's 0 and the last pot's × all ask it.
+    - The × on the last pot now goes through `setOverlayPotCount(…, 0)`, so it adds the coin row,
+      raises the drops and says so. Before, it skipped both rules: a Collector bonus (no count
+      trigger) could save a coins-only overlay that starts nothing.
+  - **Phase 7 imports share the rule:** `importBonus` (and so a re-sync) refuses a feature with no
+    coin count trigger into a coins-only host (no pots), where nothing could start it.
+    `imports.fixture.ts` pins it.
+  - **Token reuse:** a new pot reuses `POT_<ID>` only when `meterSpecial` is its only role, so a host
+    symbol with a Hold and Win role is never taken over.
+  - **Coded pots:** the minimum spacing applies only with more pots than columns. Up to one pot per
+    column, every existing layout is byte-identical.
+  - The placeholder's no-op `untrack` is gone.
+  - Pinned by new `addOns.fixture.ts` lines for the notes, the shared rule and the reuse rule.
+  - **Recorded, not changed:**
+    - The placeholder is decided per state. A coin with `win` art but no `static` art shows the disc
+      at rest, where `main` drew nothing.
+    - Coins only with N pots picked on a Hold and Win game keeps the Coins only drop settings
+      (chance 0.1, most per spin 8) with its coin rows left out (a Hold and Win game's dropped
+      coins count for nothing). Tune them in Drops.
+
 - 2026-10-03 — **Phase 7: import a bonus from another project (#1022, draft).** Game Maker →
   **Import a bonus…** / **Re-sync** (`POST /api/game-maker/import`). It copies a same-client
   project's Hold and Win feature into an overlay host: the config with provenance and a stored rename
@@ -883,13 +913,13 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
     - 0 is Phase 6's coins-only rule. It is allowed only when the block is the overlay's bonus and
       has a coin count trigger. A coin row is added if the table has none. "Most per spin" is raised
       to trigger + 2 when it could not reach the trigger, as the `coinsOnly` preset sets it. The
-      picker disables 0 otherwise, and the last pot's × follows the same rule.
+      picker disables 0 otherwise. (The last pot's × only followed this from the follow-up below.)
     - A count picked on add is what the coins-only refusal checks, so Coins only with 3 pots is
       allowed on a Hold and Win game.
     - A rename is reported only while the pot or token it names survives the count.
     - The coded pots keep a minimum spacing (`SYMBOL_SIZE * 0.95`), so more pots than columns spread
       past the board's edges instead of overlapping (a 3 Pots Hold and Win game with 5 overlay pots
-      has 8). At five or fewer on a 5-reel board, the layout is unchanged.
+      has 8). (Gated on more pots than columns from the follow-up below.)
     - The validator errors on more than `MAX_OVERLAY_POTS` (5). `+ pot` stops at 5.
     - Pinned by `addOns.fixture.ts` §6 and the `potsOverlay` fixture. `check:pots-overlay` §4 adds a
       count-0 route and a fifth-pot route.
