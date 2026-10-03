@@ -1,5 +1,5 @@
 import type { ComponentDef, LayoutDoc, LayoutNode } from 'engine-layout';
-import { needsAtlasRefRepair } from 'engine-layout';
+import { instanceParamMaps, needsAtlasRefRepair } from 'engine-layout';
 
 import { createAtlasRefResolver } from './manifestBasename';
 
@@ -33,7 +33,8 @@ function repairablePrefix(value: unknown): string | null {
 /** Every art ref on one node that could need repairing, as a flat list of strings to test. */
 function nodeRefs(node: LayoutNode): unknown[] {
 	if (node.kind === 'sprite') return [node.assetKey, node.region];
-	if (node.kind === 'componentInstance') return Object.values(node.params ?? {});
+	if (node.kind === 'componentInstance')
+		return instanceParamMaps(node).flatMap((params) => Object.values(params));
 	// A reel grid's GROUND TILE art is a scoped frame ref like a sprite's `region`, so it can
 	// arrive in the same un-scopeable legacy form and lose the same atlas PIN.
 	if (node.kind === 'reelGrid') return [node.tileRegion];
@@ -106,9 +107,11 @@ async function repairNode(node: LayoutNode, resolve: Resolve): Promise<void> {
 		node.tileRegion = (await repairScoped(node.tileRegion, resolve)) as string | undefined;
 		return;
 	}
-	if (node.kind === 'componentInstance' && node.params) {
-		for (const [key, value] of Object.entries(node.params)) {
-			node.params[key] = await repairScoped(value, resolve);
+	if (node.kind === 'componentInstance') {
+		for (const params of instanceParamMaps(node)) {
+			for (const [key, value] of Object.entries(params)) {
+				params[key] = await repairScoped(value, resolve);
+			}
 		}
 	}
 }

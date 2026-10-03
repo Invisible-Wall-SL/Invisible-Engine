@@ -37,6 +37,7 @@ import {
 	collectComponentIds,
 	collectComponentPins,
 	FEATURE_CARD_DEF,
+	instanceParamMaps,
 	isBuiltinRegion,
 	parseScopedFrameRef,
 } from 'engine-layout';
@@ -210,8 +211,9 @@ function addImageRef(refs: ArtRefs, value: string): void {
 }
 
 /** Collect every art reference in the doc + the defs' roots: sprite-node manifest
- * keys, and frames set through image-kind params (instance overrides and def
- * defaults) — scoped refs pin their atlas, bare names are resolved by name below. */
+ * keys, and frames set through image-kind params (def defaults, instance params and
+ * their per-layoutType overrides) — scoped refs pin their atlas, bare names are
+ * resolved by name below. */
 function collectArtRefs(doc: LayoutDoc, defs: Record<string, ComponentDef>): ArtRefs {
 	const refs: ArtRefs = {
 		manifestKeys: new Set(),
@@ -274,13 +276,22 @@ function collectArtRefs(doc: LayoutDoc, defs: Record<string, ComponentDef>): Art
 		if (node.kind === 'reelGrid' && typeof node.tileRegion === 'string' && node.tileRegion) {
 			addImageRef(refs, node.tileRegion);
 		}
-		if (node.kind === 'componentInstance' && node.params) {
-			const imgKeys = imageParamKeys.get(node.componentId);
-			const spineKeys = spineParamKeys.get(node.componentId);
-			for (const [k, v] of Object.entries(node.params)) {
-				if (typeof v !== 'string' || !v) continue;
-				if (imgKeys?.has(k)) addImageRef(refs, v);
-				else if (spineKeys?.has(k)) refs.spineNames.add(v);
+		if (node.kind === 'componentInstance') {
+			// A pinned instance renders its pinned def (`resolveReferencedDefs` keys it `id@version`
+			// unless it IS latest), so its params are classified by that def's kinds.
+			const pinned = `${node.componentId}@${node.componentVersion}`;
+			const defKey =
+				node.componentVersion !== undefined && imageParamKeys.has(pinned)
+					? pinned
+					: node.componentId;
+			const imgKeys = imageParamKeys.get(defKey);
+			const spineKeys = spineParamKeys.get(defKey);
+			for (const params of instanceParamMaps(node)) {
+				for (const [k, v] of Object.entries(params)) {
+					if (typeof v !== 'string' || !v) continue;
+					if (imgKeys?.has(k)) addImageRef(refs, v);
+					else if (spineKeys?.has(k)) refs.spineNames.add(v);
+				}
 			}
 		}
 	};
