@@ -153,6 +153,7 @@
 	import {
 		activeModeHud,
 		activeModeIds,
+		isFreeGameType,
 		modeHudIds,
 		setModeTransitionPresenter,
 	} from '../game/stateModes.svelte';
@@ -934,7 +935,7 @@
 		// broadcasts; free-game / base-game derive from `gameType`.
 		freeSpinIntroShow: boolSource(() => stateUi.freeSpinIntroShow),
 		freeSpinOutroShow: boolSource(() => stateUi.freeSpinOutroShow),
-		freeGameShow: boolSource(() => stateGame.gameType === 'freegame'),
+		freeGameShow: boolSource(() => isFreeGameType(stateGame.gameType)),
 		baseGameShow: boolSource(() => stateGame.gameType === 'basegame'),
 		winShow: boolSource(() => stateUi.winShow),
 		bigWinShow: boolSource(() => stateUi.bigWinShow),

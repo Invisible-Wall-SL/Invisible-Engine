@@ -66,6 +66,21 @@ export const freeSpinsGameType = (mode: string | undefined): GameType => {
 	return declared?.board === 'reels' ? (gameTypeForMode(declared) as GameType) : 'freegame';
 };
 
+/**
+ * Whether `gameType` is a free-spin game type: `freegame`, or the game type of a reels mode of the
+ * project's own (an imported free spins, which plays as free spins in that mode). What the "in free
+ * spins" gates read, so such a round lights the free-game screens and music as the host's own does.
+ * Without such a mode it is exactly `gameType === 'freegame'`.
+ */
+export const isFreeGameType = (gameType: string): boolean =>
+	gameType === 'freegame' ||
+	resolveGameModes(getActiveGameConfig()).some(
+		(mode) =>
+			mode.board === 'reels' &&
+			gameTypeForMode(mode) === gameType &&
+			!builtinGameModes(getActiveGameConfig()).some((b) => b.id === mode.id),
+	);
+
 /** The ids of every mode on the stack (reactive) — what a mode-tagged screen mounts against. */
 // A fresh, read-only snapshot per read: the reactivity is the stack's, so a SvelteSet would add none.
 export const activeModeIds = (): ReadonlySet<string> =>

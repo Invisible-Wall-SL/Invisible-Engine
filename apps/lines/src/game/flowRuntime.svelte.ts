@@ -56,7 +56,7 @@ import { platformJackpotValue } from './platformJackpot.svelte';
 import { eventEmitter } from './eventEmitter';
 import { getFlowInterpreter } from './flowInterpreterHolder';
 import { stateGame } from './stateGame.svelte';
-import { stateModes } from './stateModes.svelte';
+import { isFreeGameType, stateModes } from './stateModes.svelte';
 import { bookEventHandlerMap } from './bookEventHandlerMap';
 import { flowEffect } from './flowEffects';
 import {
@@ -166,7 +166,7 @@ const ENGINE_READS: Record<LinesEngineKey, () => unknown> = {
 	totalWin: () => stateBet.winBookEventAmount,
 	bet: () => stateBetDerived.betCost(),
 	gameType: () => stateGame.gameType,
-	isFreeGame: () => stateGame.gameType === 'freegame',
+	isFreeGame: () => isFreeGameType(stateGame.gameType),
 	activeMode: () => stateModes.active(),
 	modeDepth: () => stateModes.state.stack.length,
 	queuedModes: () => stateModes.state.queue.length,

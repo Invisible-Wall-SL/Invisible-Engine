@@ -17,6 +17,7 @@
 	 */
 	import { getContext } from '../game/context';
 	import { getSymbolSeat, stateGame } from '../game/stateGame.svelte';
+	import { isFreeGameType } from '../game/stateModes.svelte';
 	import { boardDimensions } from '../game/gameConfig';
 	import { bakedBookVfx } from '../editor-scenes';
 	import SymbolLayer from './SymbolLayer.svelte';
@@ -35,7 +36,7 @@
 	// The gate: free spins only (the explicit `gameType` check the rest of the game uses — e.g.
 	// `Background.svelte`, `Game.svelte`'s `freeGameShow`) AND a chosen special symbol. In the base
 	// game `specialSymbol` is null, so this is doubly closed there.
-	const active = $derived(stateGame.gameType === 'freegame' && stateGame.specialSymbol != null);
+	const active = $derived(isFreeGameType(stateGame.gameType) && stateGame.specialSymbol != null);
 
 	const geometry = $derived(context.stateGameDerived.boardGeometry());
 
