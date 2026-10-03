@@ -611,7 +611,9 @@ const FEATURE_EVENTS: TemplateVocabulary['events'] = [
 
 /** A per-beat effect: the coded presentation of `event`, fed that whole event. The game refuses
  *  (with a console error) any other event, since the validator cannot see which chain a node is on. */
-const beat = (name: string, event: string): TemplateVocabulary['actions'][number] => ({
+/** An action that presents one book event, fed it as `bookEvent` — every Hold and Win beat, and the
+ *  pots overlay's. */
+export const beat = (name: string, event: string): TemplateVocabulary['actions'][number] => ({
 	name,
 	params: [
 		{

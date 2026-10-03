@@ -105,17 +105,31 @@ changed. Nothing is stored until you **Save**. Why the model works this way is i
 ### Pots overlay
 
 Tokens drop over the symbols during a spin and fly to pots; a full pot starts its bonus.
+Value coins can drop too: enough of them on one spin start Hold and Win with those coins
+held. Pots and value coins are each optional, but an overlay needs at least one of the two:
+
+- **pots only** — tokens fill pots, and a full pot starts its bonus;
+- **coins only** — no pots: value coins drop over the host's symbols. Enough on one spin
+  (the Hold and Win count trigger, e.g. 6+) start Hold and Win with those coins held;
+  fewer are shown, then cleared on the next spin;
+- **both** — the 3 Pots shape.
 
 **Adding it.** Pick a preset and press **＋ Pots overlay**:
 
 - **3 Pots (each pot a Hold and Win with its special)** — three pots, each starting the
   Hold and Win feature with a different special active.
 - **Pots to free spins** — one pot that starts free spins.
+- **Coins only (6+ value coins start a classic Hold and Win)** — no pots. A tenth of spins
+  drop 1 to 8 value coins, and 6 or more start the Classic Hold and Win (about one spin in
+  27, mock math).
 
 It adds the overlay and its **token** symbols. Tokens go in the Symbols dictionary only —
-a strip never deals them. The 3 Pots preset also adds a Hold and Win bonus (its block, the
-symbols its respin board deals and its respin strips) — unless the project already has a
-Hold and Win block, in which case the pots use that one.
+a strip never deals them. The 3 Pots and Coins only presets also add a Hold and Win bonus
+(its block, the symbols its respin board deals and its respin strips) — unless the project
+already has a Hold and Win block, in which case the overlay uses that one. **Coins only is
+refused on a Hold and Win game**: its block is the base game, which counts only the coins
+landing on its reels, so dropped coins would start nothing (for the same reason, a value-coin
+drop on such a game gets a warning).
 
 **Pots** (the server keeps each player's level) — one row per pot:
 
@@ -133,16 +147,26 @@ Hold and Win block, in which case the pots use that one.
 
 **+ pot** opens a draft row. Pick its token and its bonus, then press **Add pot** — only
 then does it join the config, because a pot missing either would be dropped on save.
-**×** discards a draft, or removes a pot along with its drop-table rows.
+**×** discards a draft, or removes a pot along with its drop-table rows. The last pot can be
+removed only while the drop table has a value-coin row, and the last value-coin row only
+while there is a pot (the **×** is greyed out otherwise) — to take out both, use **Remove
+overlay**. With no pots the table says _No pots: value coins only_.
 
 **Drops** — mock math; the real RGS decides what drops:
 
 - **Chance per spin** (0–1) and **Most per spin**.
 - The weighted **drop table** — each row drops _a token for a pot_ or _a value coin (Hold
-  and Win)_, with a weight; its share is shown beside it. **+ drop** adds a row.
+  and Win)_, with a weight; its share is shown beside it. **+ drop** adds a row (a value
+  coin when there are no pots). With value coins and a Hold and Win bonus, a note under the
+  table says how many coins on one spin start it. Keep **Most per spin** at or above that
+  count, or the coins can never start it (a warning says so).
 - **Reels a token can land on** — none ticked = every reel.
 - **Modes that drop** — the base game by default; only modes on the reels are offered,
   since only they have a cell to drop on.
+
+**Presentation → Tokens appear** — _after the last reel stops_ (the default) or _as each
+reel stops_. It changes only how the game shows a drop; the server never sees it. A board
+that swaps in place instead of rolling always shows its tokens together.
 
 Problems show under the row or field they belong to, and that field gets a red border.
 

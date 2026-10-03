@@ -1,13 +1,14 @@
 /**
  * Writes the canonical per-project R2 skeleton for a `(client, project)` pair.
- * Idempotent: every key is `HEAD`-checked first and only written when missing,
- * so calling `scaffoldProject` repeatedly safely backfills new seed files
+ * Idempotent: every key is `HEAD`-checked first and only created when missing
+ * (`If-None-Match: *`), so calling `scaffoldProject` repeatedly safely backfills new seed files
  * without trampling existing data.
  */
 import { freshDrivenSeedDoc } from 'engine-flow-v2';
 import type { HoldAndWinPresetId } from 'game-config';
 import type { LayoutDoc } from 'engine-layout';
 import { engineOwnedOnly, getFullSceneSet } from 'engine-layout';
+import { sceneSetOptionsFor } from '$lib/addOns';
 import { gameConfigSeedFor } from './gameConfigDefaults';
 import { ConflictError, loadGameConfigDocWithEtag, saveGameConfigDoc } from './gameConfigStorage';
 import { normalizeDoc } from './localization';
@@ -33,6 +34,25 @@ interface Seed {
 	contentType: string;
 }
 
+/**
+ * §19.3 / §21.6: the editor doc a project is seeded with — the engine-owned projection of the kind's
+ * full scene set (correct screens + engine pieces, no artist art). The `reference` is resolved by the
+ * caller from the built-in registry first, then the custom-kind store; no reference (an unknown or
+ * legacy type that resolves to neither) seeds no screens.
+ */
+export function scaffoldLayoutDoc(
+	project: string,
+	gameType: string,
+	reference: LayoutDoc | undefined,
+): Pick<LayoutDoc, 'version' | 'projectKey' | 'gameType' | 'scenes'> {
+	return {
+		version: 1,
+		projectKey: project,
+		gameType,
+		scenes: reference ? engineOwnedOnly(reference).scenes : [],
+	};
+}
+
 function buildSeeds(
 	client: string,
 	project: string,
@@ -42,17 +62,7 @@ function buildSeeds(
 	const atlasConfig = { version: 1, output_prefix: project };
 	const sheetConfig = { version: 1 };
 	const strings = normalizeDoc({});
-	// §19.3 / §21.6: seed the editor doc from the engine-owned projection of the
-	// kind's full scene set (correct screens + engine pieces, no artist art). The
-	// `reference` is resolved by the caller from the built-in registry first, then
-	// the custom-kind store; the `?? []` is a defensive default for an unknown /
-	// legacy type that resolves to neither.
-	const scenes = {
-		version: 1,
-		projectKey: project,
-		gameType,
-		scenes: reference ? engineOwnedOnly(reference).scenes : [],
-	};
+	const scenes = scaffoldLayoutDoc(project, gameType, reference);
 
 	return [
 		{
@@ -109,17 +119,21 @@ export async function scaffoldProject(
 	// Resolve the reference `LayoutDoc` from the built-in registry first, then the
 	// custom-kind store (§21.6). `loadKind` is async, so resolve here (already async)
 	// and hand the result to the sync `buildSeeds`.
-	// A Hold and Win project whose stored Game Config already expands its respin board (a re-scaffold,
-	// or a config written before the layout) gets the template that reserves the grown board's area.
-	const maxRows =
-		gameType === 'holdAndWin'
-			? (await loadGameConfigDocWithEtag(client, project)).doc?.holdAndWin?.expansion?.maxRows
-			: undefined;
+	// The STORED Game Config shapes the set (a re-scaffold, or a config written before the layout): a
+	// respin board that expands reserves the grown area, and an add-on merges in its screens.
+	const { doc: stored } = await loadGameConfigDocWithEtag(client, project);
 	const reference =
-		getFullSceneSet(gameType, maxRows ? { maxRows } : {}) ?? (await loadKind(gameType))?.doc;
+		getFullSceneSet(gameType, sceneSetOptionsFor(gameType, stored)) ??
+		(await loadKind(gameType))?.doc;
+	// The HEAD skips the PUT in the common case; `If-None-Match: *` closes the window between the two,
+	// so an author's first save that lands in it (a re-scaffold of a live project) is never replaced.
 	for (const seed of buildSeeds(client, project, gameType, reference)) {
 		if (await objectExists(seed.key)) continue;
-		await putObjectText(seed.key, seed.body, seed.contentType);
+		try {
+			await putObjectText(seed.key, seed.body, seed.contentType, { ifNoneMatch: '*' });
+		} catch (e) {
+			if (!(e instanceof ConflictError)) throw e;
+		}
 	}
 	// The kind's default Game Config, written through the config store (validated, backed up,
 	// `If-None-Match: *`) so a concurrent first save in `/config` wins rather than being clobbered.

@@ -74,6 +74,8 @@
 		"check:sound-bindings": "tsx --tsconfig tsconfig.scripts.json scripts/check-sound-bindings.ts",
 		"precheck:sounds-doc": "node scripts/ensure-svelte-kit.mjs",
 		"check:sounds-doc": "tsx --tsconfig tsconfig.scripts.json scripts/check-sounds-doc.ts",
+		"precheck:pots-overlay-add-on": "node scripts/ensure-svelte-kit.mjs",
+		"check:pots-overlay-add-on": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-pots-overlay-add-on.ts",
 		"precheck:win-text-doc": "node scripts/ensure-svelte-kit.mjs",
 		"check:win-text-doc": "tsx --tsconfig tsconfig.scripts.json scripts/check-win-text-doc.ts",
 		"precheck:doc-readers-unknown-fields": "node scripts/ensure-svelte-kit.mjs",

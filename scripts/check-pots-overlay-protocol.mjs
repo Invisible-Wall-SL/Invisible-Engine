@@ -77,6 +77,8 @@ const insert = (host, id, change = (doc) => doc) => {
 
 const THREE = insert(BOOK_HOST, 'threePots');
 const FREE = insert(BOOK_HOST, 'potsToFreeSpins');
+/** No pots: value coins over the host's symbols, N+ on one spin start the Classic Hold and Win. */
+const COINS = insert(BOOK_HOST, 'coinsOnly');
 /** A pot routed to a mode of the project's own (a stub until Phase 7). */
 const STUB = insert(BOOK_HOST, 'potsToFreeSpins', (doc) => {
 	doc.modes = [{ id: 'pickBonus', board: 'none' }];
@@ -344,8 +346,10 @@ const deriveRound = (doc, answers, levels, tag) => {
 			mode = 'basegame';
 		}
 		if (ev.includes('playedBonusSpins') && !end) mode = 'basegame';
-		// — every play restates every pot, last —
-		if (ev.includes('spinStart') || ev.includes('playedSpin')) {
+		// — every play restates every pot, last (with no pot there is nothing to restate) —
+		if (!overlay.pots.length) {
+			expect(!ev.includes('meterLevels'), 'meterLevels with no pot');
+		} else if (ev.includes('spinStart') || ev.includes('playedSpin')) {
 			expect(ev.at(-1) === 'meterLevels', `meterLevels last (${ev.at(-1)})`);
 			const restated = one(a, 'meterLevels').meters;
 			expect(
@@ -390,7 +394,7 @@ console.log('1. the contract: inputs only with the block, the Hold and Win bonus
 {
 	const host = normalizeGameConfigDoc(structuredClone(BOOK_HOST));
 	check(potsOverlayMockInputs(host) === undefined, 'a project without the block: no inputs');
-	for (const [name, doc] of Object.entries({ THREE, FREE, STUB, FREE_DROPS })) {
+	for (const [name, doc] of Object.entries({ THREE, FREE, STUB, FREE_DROPS, COINS })) {
 		check(
 			!validateGameConfigDoc(doc).some((i) => i.severity === 'error'),
 			`${name} validates`,
@@ -403,6 +407,13 @@ console.log('1. the contract: inputs only with the block, the Hold and Win bonus
 		'3 Pots: three pots, the base game drops, its Hold and Win bonus rides along',
 	);
 	check(!potsOverlayMockInputs(FREE).holdAndWin, 'pots to free spins: no Hold and Win');
+	const coins = potsOverlayMockInputs(COINS);
+	check(
+		same(coins.pots, []) &&
+			same(coins.drops.table, [{ coin: true, weight: 1 }]) &&
+			coins.holdAndWin?.block.trigger.count.min === 6,
+		'coins only: no pots, a coin row, the Classic Hold and Win bonus with its 6+ count trigger',
+	);
 	const game = insert(HOLD_AND_WIN_PRESETS.pots, 'potsToFreeSpins');
 	check(
 		!potsOverlayMockInputs(game).holdAndWin,
@@ -892,9 +903,99 @@ console.log('9. one Hold and Win per round, and a full pot never stays stuck');
 	);
 }
 
-// ---------- 10. the test-server image ----------
+// ---------- 10. coins only ----------
 
-console.log('10. the test server ships it');
+console.log('10. coins only: no pots, 6+ value coins start the Classic Hold and Win, fewer clear');
+{
+	const mock = overlayMock(COINS, { seed: 'coins-seeded' });
+	const boot = await engine(mock, 'sid=c', []);
+	const config = boot.events[0].context;
+	check(
+		same(config.potsOverlay, {
+			wire: 1,
+			pots: [],
+			bonuses: { feature: 'freeSpins', respin: 'holdAndWin' },
+		}) &&
+			config.holdAndWin?.wire === 1 &&
+			same(config.holdAndWin.meters, []),
+		'boot: potsOverlay {wire, pots: [], bonuses} with the Hold and Win bonus beside it',
+		JSON.stringify(config.potsOverlay),
+	);
+	const min = COINS.holdAndWin.trigger.count.min;
+	const levels = {};
+	const seen = { coinBonus: 0, drops: 0, below: 0, hostFeature: 0 };
+	let ok = true;
+	for (let r = 0; r < 600; r++) {
+		const answers = await playRound(mock, 'c', { context: r % 2 ? '' : null });
+		const did = deriveRound(COINS, answers, levels, `coins ${r}`);
+		ok &&= did.ok;
+		seen.coinBonus += did.coinBonus;
+		seen.drops += did.drops;
+		seen.hostFeature += did.hostFeature ? 1 : 0;
+		const drop = one(answers[0], 'overlayDrop');
+		if (drop && drop.cells.length < min && !one(answers[0], 'holdAndWinTrigger')) seen.below++;
+		ok &&= answers.every((a) => !names(a).some((n) => ['meterUpdate', 'meterLevels'].includes(n)));
+	}
+	check(
+		ok,
+		'600 rounds: drops, held coins, entries and money re-derived; no meterUpdate or meterLevels',
+	);
+	check(
+		seen.drops > 30 && seen.below > 0 && seen.coinBonus > 0 && seen.hostFeature > 0,
+		'coins drop, fewer than the trigger start nothing, enough start Hold and Win, the host’s free spins still come',
+		JSON.stringify(seen),
+	);
+	const forced = async (spec) =>
+		playRound(overlayMock(COINS, { seed: `coins-${spec}` }), 'f', { context: `force:${spec}` });
+	const six = await forced(`overlay:coins:${min}`);
+	const sixDrop = one(six[0], 'overlayDrop').cells;
+	const sixTrigger = one(six[0], 'holdAndWinTrigger');
+	check(
+		sixDrop.length === min &&
+			sixTrigger?.cause === 'count' &&
+			!sixTrigger.meters &&
+			same(sixTrigger.cells.map(key).sort(), sixDrop.map(key).sort()) &&
+			deriveRound(COINS, six, {}, 'coins forced').ok,
+		`overlay:coins:${min}: Hold and Win, cause count, those ${min} coins held, played out`,
+	);
+	const five = await forced(`overlay:coins:${min - 1}`);
+	check(
+		one(five[0], 'overlayDrop').cells.length === min - 1 &&
+			!one(five[0], 'holdAndWinTrigger') &&
+			names(five[0]).includes('gameEnd'),
+		`overlay:coins:${min - 1}: shown, no feature, the round ends`,
+	);
+	const refused = await engine(overlayMock(COINS), 'sid=x&seq=0', [
+		{ action: 'bet', context: [0, 1] },
+		{ action: 'play', context: 'force:pot:gold' },
+	]);
+	check(refused.errorCode === 101, 'refused: a pot beat with no pots');
+	const buildError = (doc) => {
+		try {
+			overlayMock(doc);
+			return '';
+		} catch (e) {
+			return e.message;
+		}
+	};
+	const noBonus = insert(BOOK_HOST, 'potsToFreeSpins', (doc) => {
+		doc.potsOverlay.pots = [];
+		doc.potsOverlay.drops.table = [{ coin: true, weight: 1 }];
+		return doc;
+	});
+	const nothing = insert(BOOK_HOST, 'coinsOnly', (doc) => {
+		doc.potsOverlay.drops.table = [{ pot: 'gold', weight: 1 }];
+		return doc;
+	});
+	check(
+		[noBonus, nothing].every((doc) => /at least one pot/.test(buildError(doc))),
+		'neither a pot nor a coin it can deal (no Hold and Win bonus, or no coin row): refused at build',
+	);
+}
+
+// ---------- 11. the test-server image ----------
+
+console.log('11. the test server ships it');
 {
 	const read = (rel) => readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8');
 	const copied = new Set(

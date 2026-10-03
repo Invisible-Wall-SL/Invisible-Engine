@@ -7,6 +7,7 @@
 	import {
 		completeTokenBeat,
 		overlayTokenKey,
+		overlayTokenSymbol,
 		stateOverlayTokens,
 		TOKEN_REST,
 	} from '../game/stateOverlay.svelte';
@@ -23,11 +24,7 @@
 	const key = $derived(overlayTokenKey(props.token.reel, props.token.row));
 	const seat = $derived(getSymbolSeat(props.token.reel, props.token.row));
 	const scale = $derived(seat.scale === 1 ? undefined : seat.scale);
-	const rawSymbol = $derived({
-		name: props.token.token,
-		...(props.token.jackpot !== undefined ? { jackpot: props.token.jackpot } : {}),
-		...(props.token.value !== undefined ? { value: props.token.value } : {}),
-	});
+	const rawSymbol = $derived(overlayTokenSymbol(props.token));
 </script>
 
 <Container x={seat.x} y={seat.y} {scale}>

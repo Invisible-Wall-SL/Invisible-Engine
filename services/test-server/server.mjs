@@ -518,13 +518,13 @@ const validGrid = (grid) => {
 		);
 	const holdAndWin = holdAndWinShaped(grid.holdAndWin) ? grid.holdAndWin : null;
 	// A pots overlay's inputs (a book game's add-on), shape-checked as far as the overlay needs to
-	// stand up; its Hold and Win bonus, when it has one, like a Hold and Win game's.
+	// stand up; its Hold and Win bonus, when it has one, like a Hold and Win game's. `pots: []` is a
+	// coins-only overlay; one with neither pots nor coins is refused by the overlay itself, loudly.
 	const po = grid.potsOverlay;
 	const potsOverlay =
 		po &&
 		typeof po === 'object' &&
 		Array.isArray(po.pots) &&
-		po.pots.length &&
 		po.pots.every(
 			(p) =>
 				p &&

@@ -97,7 +97,7 @@ overlay host.
 
 ```ts
 type PotsOverlay = {
-	pots: OverlayPot[]; // 1..N; 3 Pots has three
+	pots: OverlayPot[]; // 0..N; 3 Pots has three, coins only none (needs a coin row then)
 	drops: OverlayDrops;
 };
 
@@ -159,6 +159,9 @@ Rules:
   - **3 Pots**: red → Hold and Win + payer, blue → + collector, green → + multiplier (the 3 Pots of
     Egypt pots, as overlays).
   - **Pots to free spins**: one pot → `freeSpins`.
+  - **Coins only** (owner scope addition): no pots; value coins drop, and the Classic Hold and
+    Win's count trigger (6+ on one spin) starts it with those coins held. Pots and value coins are
+    each optional, but an overlay needs one of them.
 
 ### 3.2 Engine book events
 
@@ -200,8 +203,9 @@ untouched.
 
 ### 3.4 Runtime presentation (coded defaults)
 
-- **The overlay layer.** A board-level layer at a fixed zIndex seat, above the symbols and below the
-  win frames and the flight layer. It draws each token at its cell's seat, using the board's own seat
+- **The overlay layer.** A board-level layer at a fixed zIndex seat, above the symbols and their win
+  frames (owner, 2026-10-02: a coin on a paying cell covers that cell's frame) and below the flight
+  layer. It draws each token at its cell's seat, using the board's own seat
   maths, so stepped and perspective boards follow.
   - It never changes the cell's `RawSymbol`. Win frames, the book's expansion and anticipation never
     see a token.
@@ -212,7 +216,10 @@ untouched.
 - **Lift-off.** A token leaves its cell as its flight starts: the token art becomes the flight head.
   Tokens that do not fly (value coins below the trigger count) clear on the next spin.
 - **Bonus entry.** Any mode entry with `cause: 'meter'` drains the named pots first (the existing
-  drain, toast and banner), then the mode's own intro.
+  drain, toast and banner), then the mode's own intro. This holds when a flow owns the entry too:
+  unless that entry's chain plays `drainPots` itself, the game plays the coded drain before the
+  flow runs it. A Hold and Win entry drains in `showRespinBoard`, so a flow that owns
+  `holdAndWinTrigger` without that beat shows no drain.
 - **Hold and Win from an overlay host.** The base board hands over to the `RespinBoard` as in a
   Hold and Win game. The held coins are the dropped value coins; with none, the feature starts on
   an empty board. When it ends, the base board returns with the host's symbols.
@@ -371,3 +378,11 @@ an edit made in the source project.
    routing before a real-money release (Phase 8).
 7. **Never test on live Borut:** the sample is a duplicate (`borut-pots-sample`), so the live remake
    is never touched.
+8. **Pots and coins are each optional** (owner, 2026-10-02). An overlay has pots, value coins or
+   both, but at least one of them:
+   - **pots only:** tokens fill pots, and each full pot starts its bonus;
+   - **coins only:** value coins drop over the host's symbols with no pots on screen, N+ on one spin
+     start a classic Hold and Win with those coins held, and fewer simply clear;
+   - **both:** the 3 Pots shape.
+9. **Coin over the win frame** (owner, 2026-10-02): a token on a paying cell draws over that cell's
+   win frame, as 4a built it.

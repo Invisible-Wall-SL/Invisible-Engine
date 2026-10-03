@@ -1,6 +1,6 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, or, sql } from 'drizzle-orm';
 import { getDb } from './db';
-import { docLeases, type DocLease } from './db/schema';
+import { docLeases, users, type DocLease } from './db/schema';
 
 /**
  * Soft, cooperative edit lease — the Postgres half of
@@ -45,12 +45,10 @@ export interface HeldBy {
 }
 
 export type AcquireResult =
-	| { held: true; lease: DocLease }
-	| { held: false; heldBy: HeldBy; activeAgoMs: number };
+	{ held: true; lease: DocLease } | { held: false; heldBy: HeldBy; activeAgoMs: number };
 
 export type HeartbeatResult =
-	| { held: true; lease: DocLease }
-	| { held: false; heldBy: HeldBy | null };
+	{ held: true; lease: DocLease } | { held: false; heldBy: HeldBy | null };
 
 /**
  * The takeability predicate, kept as a pure function so it can be unit-tested
@@ -215,4 +213,30 @@ export async function takeover(key: LeaseKey, holder: LeaseHolder): Promise<{ le
 		.returning();
 
 	return { lease: row };
+}
+
+/** A live lease as a server-side writer sees it: whose session holds which doc, and their name. */
+export interface LiveLease {
+	toolId: string;
+	docKey: string;
+	holderSessionId: string;
+	holderName: string | null;
+}
+
+/**
+ * The unexpired leases on any of `keys` — READ-ONLY, for a server-side writer (the Game Maker's
+ * add-on) that must not race an author's open editor. Never acquires or extends anything.
+ */
+export async function liveLeases(keys: readonly LeaseKey[]): Promise<LiveLease[]> {
+	if (!keys.length) return [];
+	return getDb()
+		.select({
+			toolId: docLeases.toolId,
+			docKey: docLeases.docKey,
+			holderSessionId: docLeases.holderSessionId,
+			holderName: sql<string | null>`coalesce(${users.name}, ${users.email})`,
+		})
+		.from(docLeases)
+		.leftJoin(users, eq(users.id, docLeases.holderUserId))
+		.where(and(or(...keys.map(keyMatch)), sql`${docLeases.expiresAt} >= now()`));
 }

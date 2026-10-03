@@ -63,7 +63,7 @@ import { broadcastMusicCue, playWildExplodeSound } from './soundBindings';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 import { stateApp } from './stateApp';
 import { winState } from './winState.svelte';
-import { type WinLevelData } from 'engine-game';
+import { boardDropCells, drainedMeters, type WinLevelData } from 'engine-game';
 import { awaitSymbolBeat, TRANSIT_BEAT_CAP_MS } from './symbolBeat';
 import { stateGame, stateGameDerived, getSymbolSeat, stackedScrollStrip } from './stateGame.svelte';
 import { tumbleBoardCombined } from './stateTumble.svelte';
@@ -83,6 +83,7 @@ import {
 	presentInstantCollect,
 	presentJackpotWin,
 	presentLuckySpin,
+	presentMeterConsume,
 	presentMeterUpdate,
 	presentMysteryReveal,
 	presentRandomMetreTrigger,
@@ -92,6 +93,8 @@ import {
 	presentSpecialBecomesCoin,
 	presentWheel,
 } from './holdAndWinPresentation';
+import { presentOverlayDrop, presentTokenLift } from './overlayPresentation';
+import { armReelTokens } from './stateOverlay.svelte';
 import { luckySpinArming, takeLuckySpinReveal } from './luckySpin';
 import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
 import { FLIGHT_TARGET_TOTAL, flyTo } from './flights.svelte';
@@ -106,6 +109,7 @@ import {
 	activeWinLevelData,
 	activeWinModel,
 	boardDimensions,
+	getActiveGameConfig,
 	paddingReels,
 	paylineColor,
 } from './gameConfig';
@@ -1048,6 +1052,9 @@ export const presentReveal = async ({
 	// The Lucky Spin intro armed THIS reveal (`luckySpin.ts`): taken here, by every reveal, so the
 	// one-shot never outlives the spin it was armed for.
 	const lucky = takeLuckySpinReveal();
+	// A pots overlay timed per reel: this board's tokens go down as their reels stop.
+	if (getActiveGameConfig().potsOverlay?.timing === 'perReel')
+		armReelTokens(boardDropCells(bookEvents, bookEvent));
 
 	stateGame.gameType = bookEvent.gameType;
 	// A new board ⇒ last spin's expansion is over. Cleared BEFORE the board arrives so a `winInfo` can
@@ -1313,6 +1320,30 @@ const effects: Record<string, FlowEffect> = {
 	lightLetter: beat('columnComplete', presentColumnComplete),
 	instantCollect: beat('coinInstantCollect', presentInstantCollect),
 	spinWheel: beat('holdAndWinWheel', presentWheel),
+
+	/**
+	 * THE POTS OVERLAY (`docs/design/pots-overlay.md` §3.4) — the coded beats of the overlay's events,
+	 * so a flow that owns one can still present it as the game does.
+	 *
+	 * - `showTokens` (`overlayDrop`) — the dropped tokens land over their cells (`coinLand`, awaited)
+	 *   and settle. The tokens are drawn from the moment the event plays, beat or no beat.
+	 * - `liftTokens` (`meterUpdate`) — the pot's tokens leave their cells at once, without flying.
+	 *   For a flow that presents the fill its own way; `fillMeter` already flies each token off as
+	 *   its flight leaves, the token as the head.
+	 * - `drainPots` (`freeSpinTrigger` / `modeEnter`) — the pots that started the mode drain (the
+	 *   coded drain, toast and banner); an entry no pot started drains nothing. Hold and Win's
+	 *   `showRespinBoard` drains its own pots.
+	 */
+	showTokens: beat('overlayDrop', presentOverlayDrop),
+	liftTokens: beat('meterUpdate', presentTokenLift),
+	drainPots: (payload) => {
+		const event = payload.bookEvent as BookEvent | undefined;
+		if (event?.type === 'freeSpinTrigger' || event?.type === 'modeEnter')
+			return presentMeterConsume(drainedMeters(event));
+		console.error(
+			`[flow] drainPots was fed ${event?.type ?? 'no event'}: put it on a freeSpinTrigger or modeEnter chain, bookEvent = $trigger`,
+		);
+	},
 
 	/**
 	 * FLIGHTS (design §4.4) — fly a glow from each cell to a target and broadcast `flightArrive`
