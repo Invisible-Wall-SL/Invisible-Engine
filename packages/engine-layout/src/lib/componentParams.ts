@@ -68,6 +68,18 @@ export function resolveLayoutInstanceParams(
 	return out;
 }
 
+/**
+ * Every param map a componentInstance carries: its base {@link ComponentInstanceNode.params} and
+ * each per-layoutType {@link NodeOverride.params} patch. A value set only in one ratio's patch is
+ * still one the game reads ({@link resolveLayoutInstanceParams}), so whatever walks an instance's
+ * params to ship or repair what they reference walks all of these. The maps are the node's own,
+ * so a caller may rewrite values in place.
+ */
+export function instanceParamMaps(node: ComponentInstanceNode): Record<string, unknown>[] {
+	const maps = [node.params, ...Object.values(node.overrides ?? {}).map((o) => o?.params)];
+	return maps.filter((params): params is Record<string, unknown> => !!params);
+}
+
 function mergeDefined(target: Record<string, unknown>, source?: Record<string, unknown>): void {
 	if (!source) return;
 	for (const [key, value] of Object.entries(source)) {

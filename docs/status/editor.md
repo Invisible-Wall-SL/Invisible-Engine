@@ -24,7 +24,7 @@ Shipped capabilities on `main`:
 - **Version history** — each save backs up the `scenes.json` it replaces (throttled, newest 20 kept; reference load, Overwrite-with-mine and restore always back up). **History…** opens the shared `$lib/DocHistoryModal.svelte` over `/api/editor/backups`; a restore is ETag-conditional and itself undoable.
 - **Concurrency** — conditional autosave (stale ETag ⇒ 409 ⇒ **Reload theirs / Overwrite with mine**, autosave paused); custom kinds and templates are create-only / ETag-guarded.
 - **Templates** — template-authoring mode (tag `slotId`s, save `editor/templates/<gameType>.json`) + slot/asset-issue warnings on save.
-- **Pipeline** — layout-doc bake + **editor-art export** (`deploy/editor-art/`) travel export→deploy→bake→pull→register; Art bounds ship as TexturePacker trim, component `spine`-param bundles and `_shared/` spines export like placed ones.
+- **Pipeline** — layout-doc bake + **editor-art export** (`deploy/editor-art/`) travel export→deploy→bake→pull→register; Art bounds ship as TexturePacker trim, component `spine`-param bundles and `_shared/` spines export like placed ones, and art picked only in a per-layoutType param override ships too.
 
 ## Open items / next
 
@@ -40,6 +40,18 @@ Shipped capabilities on `main`:
 
 ## Recent changes
 
+- 2026-10-03 — **Art picked in a per-ratio instance override ships** (rule 8). `collectArtRefs`
+  (`editorArtExport.ts`) classified only an instance's base `params` by param kind, never
+  `overrides[layoutType].params`, which the runtime applies per ratio
+  (`resolveLayoutInstanceParams`). A portrait-only `image` pick (the HUD Readout's
+  `backgroundImage`; the Hold and Win Phase 12c skins add more) looked right in the editor and
+  rendered blank in the portrait game unless another node used the same sheet; a `spine` pick
+  shipped no bundle. The export and the ship-path atlas-ref repair (`atlasRefRepair.ts`, which had
+  the same blind spot and left a legacy ref in an override unpinned) now walk
+  `instanceParamMaps(node)` (`engine-layout/componentParams.ts`), so the Scene Editor's art scope
+  sees it too. A pinned instance's params are now classified by its pinned def's kinds, not
+  latest's. `check:art-scope` part 6 runs the real `exportEditorArt` and `isProjectArtAllowed`
+  over an in-memory R2 and proves all of it.
 - 2026-10-02 — **Bind to value** (Hold and Win Phase 12b): the shared Properties panel gains a
   *Bind to value* section (a number drives a node's transform, visibility, fill, clip frame, spine
   scrub or bone), and a test-value scrub previews it on the canvas and the text / spine / effect

@@ -16,6 +16,10 @@
  *      own (author-writable) fields drive R2 reads ONLY inside the manifest's own project — no
  *      existence probe, HEAD or TexturePacker read of another project's key — and a manifest
  *      BORROWED from a sibling project resolves its page in THAT project, not the caller's.
+ *   6. Art an author picks ONLY in a per-ratio instance override (`overrides.portrait.params`)
+ *      is in the scope AND ships: the REAL `exportEditorArt` writes its sheet and its spine
+ *      bundle to `deploy/editor-art/`. The editor reads R2 directly, so without this the game
+ *      looks the portrait frame up in an atlas that was never exported.
  *
  * Run:  pnpm --filter launcher-api check:art-scope
  */
@@ -36,7 +40,7 @@ const under = (prefix: string) =>
 	[...bucket.entries()]
 		.filter(([key]) => key.startsWith(prefix))
 		.map(([key, o]) => ({ key, size: o.text.length, lastModified: o.modified }));
-// The whole r2 surface stays importable (the scope pulls in the export modules); the reads record.
+// The whole r2 surface the scope and the art export touch is in memory; the reads record.
 const r2Url = new URL('../src/lib/server/r2.ts', import.meta.url).href;
 mock.module(r2Url, {
 	namedExports: {
@@ -44,6 +48,33 @@ mock.module(r2Url, {
 		getObjectText: async (key: string) => {
 			touched.push(key);
 			return bucket.get(key)?.text ?? null;
+		},
+		getObjectTextWithEtag: async (key: string) => {
+			touched.push(key);
+			const o = bucket.get(key);
+			return o ? { text: o.text, etag: null } : null;
+		},
+		getObjectBytes: async (key: string) => {
+			touched.push(key);
+			const o = bucket.get(key);
+			return o
+				? { body: new TextEncoder().encode(o.text), contentType: 'application/json', etag: null }
+				: null;
+		},
+		putObjectText: async (key: string, text: string) => {
+			bucket.set(key, { text, modified: Date.now() });
+		},
+		copyObject: async (from: string, to: string) => {
+			const o = bucket.get(from);
+			if (o) bucket.set(to, { ...o });
+			return !!o;
+		},
+		deleteObjects: async (keys: string[]) => {
+			for (const key of keys) bucket.delete(key);
+		},
+		listAllKeys: async (prefix: string) => {
+			touched.push(prefix);
+			return under(prefix).map((o) => o.key);
 		},
 		headObject: async (key: string) => {
 			touched.push(key);
@@ -65,9 +96,12 @@ mock.module(r2Url, {
 	},
 });
 
-const { artScopeAllows, borrowsClientArt, candidateAtlases, pageAllowed } =
+const { artScopeAllows, borrowsClientArt, candidateAtlases, isProjectArtAllowed, pageAllowed } =
 	await import('../src/lib/server/projectArtScope.ts');
 const { loadRegionSet } = await import('../src/lib/server/editorRegions.ts');
+const { exportEditorArt } = await import('../src/lib/server/editorArtExport.ts');
+const { editorDocKey, projectComponentKey, projectComponentVersionKey, SUB } =
+	await import('../src/lib/server/projectPaths.ts');
 
 const here = dirname(fileURLToPath(import.meta.url));
 let failures = 0;
@@ -254,6 +288,126 @@ check(
 	set.pageKey === '_shared/sheets/S_Sym/S_Sym.webp',
 );
 check('… without listing any project’s deploy/', stayedIn('_shared/sheets/'));
+
+console.log('6. art picked only in a per-ratio instance override is in the scope and ships');
+const CLIENT = 'invisible_wall';
+const PROJECT = 'ratio_art';
+const sheet = (stem: string, frame: string) => {
+	const manifest = `${SUB.manifests(CLIENT, PROJECT)}/atlas_manifest_${stem}.json`;
+	const page = `${SUB.sheets(CLIENT, PROJECT)}/${stem}/${stem}.webp`;
+	put(page, 'x');
+	put(manifest, {
+		atlas: { source_image_path: page },
+		regions: [{ name: frame, x: 0, y: 0, w: 8, h: 8 }],
+	});
+	return manifest;
+};
+const LANDSCAPE_SHEET = sheet('S_Land', 'faceLand');
+const PORTRAIT_SHEET = sheet('S_Port', 'facePort');
+const LEGACY_SHEET = sheet('S_Legacy', 'faceLegacy');
+const PINNED_SHEET = sheet('S_Pinned', 'facePinned');
+const RIG = 'portraitRig';
+const rigFolder = `${SUB.spines(CLIENT, PROJECT)}/${RIG}`;
+put(`${SUB.spines(CLIENT, PROJECT)}/skeletons.json`, {
+	skeletons: [{ folder: RIG, name: RIG, atlas_file: `${RIG}.atlas`, skeleton_file: `${RIG}.json` }],
+});
+put(`${rigFolder}/${RIG}.atlas`, `${RIG}.webp\nsize: 8,8\nbone\n  bounds: 0,0,8,8\n`);
+put(`${rigFolder}/${RIG}.json`, { skeleton: { spine: '4.2' } });
+put(`${rigFolder}/${RIG}.webp`, 'x');
+const def = (id: string, version: number, params: { key: string; kind: string }[]) => ({
+	id,
+	name: id,
+	version,
+	scope: 'project',
+	category: 'ui',
+	params,
+	root: { id: 'root', kind: 'container', x: 0, y: 0, children: [] },
+});
+put(
+	projectComponentKey(PROJECT, 'ratioFace'),
+	def('ratioFace', 1, [
+		{ key: 'faceImage', kind: 'image' },
+		{ key: 'introSpine', kind: 'spine' },
+	]),
+);
+// The instance below is pinned to v1, whose image param v2 renamed: it renders v1, so v1's kinds
+// decide what its params reference.
+put(
+	projectComponentVersionKey(PROJECT, 'pinnedFace', 1),
+	def('pinnedFace', 1, [{ key: 'faceImage', kind: 'image' }]),
+);
+put(
+	projectComponentKey(PROJECT, 'pinnedFace'),
+	def('pinnedFace', 2, [{ key: 'face', kind: 'image' }]),
+);
+put(editorDocKey(CLIENT, PROJECT), {
+	scenes: [
+		{
+			id: 'base',
+			name: 'Base',
+			nodes: [
+				{
+					id: 'face',
+					kind: 'componentInstance',
+					componentId: 'ratioFace',
+					x: 0,
+					y: 0,
+					params: { faceImage: `${LANDSCAPE_SHEET}::faceLand` },
+					overrides: {
+						portrait: {
+							params: { faceImage: `${PORTRAIT_SHEET}::facePort`, introSpine: RIG },
+						},
+						// A patch with no params, and one holding a legacy bare-basename ref that only
+						// the ship path's repair can pin (and a non-string, which names nothing).
+						landscape: { x: 5 },
+						desktop: { params: { faceImage: 'atlas_manifest_S_Legacy.json::faceLegacy' } },
+						tablet: { params: { introSpine: 0 } },
+					},
+				},
+				{
+					id: 'pinned',
+					kind: 'componentInstance',
+					componentId: 'pinnedFace',
+					componentVersion: 1,
+					x: 0,
+					y: 0,
+					overrides: { portrait: { params: { faceImage: `${PINNED_SHEET}::facePinned` } } },
+				},
+			],
+		},
+	],
+});
+
+const inScope = (key: string) => isProjectArtAllowed(key, [], CLIENT, PROJECT);
+check('the base-params sheet is in the art scope', await inScope(LANDSCAPE_SHEET));
+check('the sheet picked only in the portrait override is too', await inScope(PORTRAIT_SHEET));
+check('… a legacy ref in an override is repaired and pins its sheet', await inScope(LEGACY_SHEET));
+check('… a pinned instance’s override is read by its pinned def', await inScope(PINNED_SHEET));
+
+const index = await exportEditorArt(CLIENT, PROJECT);
+const deployPrefix = `${SUB.deploy(CLIENT, PROJECT)}/`;
+const artPrefix = `${deployPrefix}editor-art/`;
+const ships = (key: string) => index.sheets.find((s) => s.key === key);
+check('the base-params sheet ships', !!ships(LANDSCAPE_SHEET));
+const shippedSheet = ships(PORTRAIT_SHEET);
+check('the portrait-only sheet is in the shipped index', !!shippedSheet);
+check(
+	'… and its spritesheet is written under deploy/editor-art/',
+	!!shippedSheet && bucket.has(`${deployPrefix}${shippedSheet.json}`),
+);
+check(
+	'… and its scoped frame counts as covered, not dangling',
+	!index.missing.includes('facePort'),
+);
+check('the pinned instance’s portrait-only sheet ships', !!ships(PINNED_SHEET));
+check(
+	'the spine bundle picked only in the portrait override ships under its name',
+	index.spines.some((s) => s.key === RIG),
+);
+check(
+	'… its skeleton copied under deploy/editor-art/',
+	under(artPrefix).some((o) => o.key.endsWith(`/${RIG}.json`)),
+);
 
 console.log(failures === 0 ? '\nart scope: OK' : `\nart scope: ${failures} FAILED`);
 if (failures > 0) process.exit(1);

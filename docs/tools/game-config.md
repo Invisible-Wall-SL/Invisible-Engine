@@ -114,7 +114,8 @@ held. Pots and value coins are each optional, but an overlay needs at least one 
   fewer are shown, then cleared on the next spin;
 - **both** — the 3 Pots shape.
 
-**Adding it.** Pick a preset and press **＋ Pots overlay**:
+**Adding it.** Pick a preset, how many **pots** it starts with (0–5; the preset's own count
+is picked for you), and press **＋ Pots overlay**:
 
 - **3 Pots (each pot a Hold and Win with its special)** — three pots, each starting the
   Hold and Win feature with a different special active.
@@ -131,7 +132,21 @@ refused on a Hold and Win game**: its block is the base game, which counts only 
 landing on its reels, so dropped coins would start nothing (for the same reason, a value-coin
 drop on such a game gets a warning).
 
-**Pots** (the server keeps each player's level) — one row per pot:
+**Pots** (the server keeps each player's level). **How many** sets the count, 0 to 5:
+
+- Raising it adds pots at the end. Each takes the next free id of red, blue, green, gold,
+  purple (the coded pots' colours), its own `POT_<ID>` token, the last pot's max level and
+  size stages, a drop-table row at the last pot's weight, and the last pot's bonus. A Hold
+  and Win pot takes the next special no other pot starts with (payer, collector,
+  multiplier, then mystery…), or _no special_ once none is left.
+- Lowering it removes pots from the end, with their drop-table rows and their tokens (a
+  token you have given a payout or another role is kept).
+- **0** leaves a coins-only overlay (above). It is offered only when the Hold and Win block
+  is the overlay's bonus — not on a Hold and Win game, whose own block counts only the coins
+  landing on its reels. The block also needs a coin count trigger. A value-coin row is added if
+  the table has none, and **Most per spin** is raised if it could not reach the trigger.
+
+One row per pot:
 
 - **Id** — renaming a pot also renames it in the drop table.
 - **Token** — the symbol that fills it. Untagged `meterSpecial` symbols, and symbols a
@@ -145,12 +160,13 @@ drop on such a game gets a warning).
   special the Hold and Win block hasn't configured says so). For a reels mode such as
   free spins, the number of **spins** — mock only; the real count is the server's.
 
-**+ pot** opens a draft row. Pick its token and its bonus, then press **Add pot** — only
-then does it join the config, because a pot missing either would be dropped on save.
-**×** discards a draft, or removes a pot along with its drop-table rows. The last pot can be
-removed only while the drop table has a value-coin row, and the last value-coin row only
-while there is a pot (the **×** is greyed out otherwise) — to take out both, use **Remove
-overlay**. With no pots the table says _No pots: value coins only_.
+**+ pot** opens a draft row, up to 5 pots. Pick its token and its bonus, then press
+**Add pot** — only then does it join the config, because a pot missing either would be
+dropped on save. **×** discards a draft, or removes a pot along with its drop-table rows. The
+last pot can be removed only while the drop table has a value-coin row, and the last value-coin
+row only while there is a pot (the **×** is greyed out otherwise) — to take out both, use
+**Remove overlay**. With no pots the table says _No pots: value coins only_. Changing **How
+many** discards open drafts first.
 
 **Drops** — mock math; the real RGS decides what drops:
 

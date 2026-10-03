@@ -79,6 +79,13 @@ const doc = {
 						oddLabel: 'a/b::c',
 						panelTint: 16777215,
 					},
+					// A per-layoutType patch is read by the game in that ratio, so its refs ship too.
+					overrides: {
+						portrait: {
+							params: { buttonImage: `${SHEET}::T_UI_Portrait.png`, cardSpine: 'featureCardSpine' },
+						},
+						landscape: { x: 5 },
+					},
 				},
 				// Nothing on these kinds is an atlas ref.
 				{ id: 't1', kind: 'text', text: `${SHEET}::not a frame` },
@@ -90,7 +97,10 @@ const doc = {
 
 await repairLayoutDocWith(doc as never, resolve);
 const nodes = doc.scenes[0].nodes[0].children as Record<string, string>[];
-const inst = doc.scenes[0].nodes[1] as { params: Record<string, unknown> };
+const inst = doc.scenes[0].nodes[1] as {
+	params: Record<string, unknown>;
+	overrides: Record<string, { params?: Record<string, unknown> }>;
+};
 
 console.log('layout doc');
 check('sprite assetKey prefix → manifest', nodes[0].assetKey, MANIFEST);
@@ -114,6 +124,11 @@ check('prose is untouched', inst.params.title, 'High Noon Spin');
 // survives because an unresolvable ref comes back unchanged — the resolver is asked, and says no.
 check('a non-atlas value containing :: survives', inst.params.oddLabel, 'a/b::c');
 check('a non-string param is untouched', inst.params.panelTint, 16777215);
+check('a per-layoutType override image param prefix → manifest', inst.overrides.portrait.params, {
+	buttonImage: `${MANIFEST}::T_UI_Portrait.png`,
+	cardSpine: 'featureCardSpine',
+});
+check('an override with no params gains none', inst.overrides.landscape, { x: 5 });
 check(
 	'a text node is untouched',
 	(doc.scenes[0].nodes[2] as { text: string }).text,

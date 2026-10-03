@@ -290,6 +290,25 @@ check(
 	[['error:potsOverlay.pots', 'error:potsOverlay.drops.table.0.pot'], []],
 );
 check(
+	'more than five pots',
+	overlayIssues(
+		edit(three, (d) => {
+			for (const id of ['gold', 'purple', 'pink']) {
+				d.symbols[`POT_${id.toUpperCase()}`] = { special_properties: ['meterSpecial'] };
+				d.potsOverlay!.pots.push({
+					id,
+					token: `POT_${id.toUpperCase()}`,
+					maxLevel: 12,
+					sizeStages: [],
+					bonus: { mode: 'holdAndWin' },
+				});
+				d.potsOverlay!.drops.table.push({ pot: id, weight: 1 });
+			}
+		}),
+	),
+	['error:potsOverlay.pots'],
+);
+check(
 	'a pot id that cannot be an anchor',
 	overlayIssues(
 		edit(three, (d) => {

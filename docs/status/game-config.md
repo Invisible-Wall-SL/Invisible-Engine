@@ -695,6 +695,10 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
   `importBonus` / `resyncBonus` / `importableFeatures` (`src/imports.ts`). `holdAndWinBonus` is now
   `holdAndWinBonusFrom` over any config; `removePotsOverlay` shares `takeOutHoldAndWinBonus`. A
   config without an import is byte-identical. Detail: [status/pots-overlay](pots-overlay.md).
+- 2026-10-03 — **Pot count 0–5** (pots overlay): the Add-ons section's **How many** picker (also
+  offered when adding the overlay) sets 0 to 5 pots through `setOverlayPotCount`; 0 follows the
+  coins-only rule. The validator caps an overlay at 5 pots. Detail:
+  [status/pots-overlay](pots-overlay.md).
 - 2026-10-02 — **Add-ons section** (Pots overlay Phase 5a): a kind-independent section that adds,
   edits and removes the pots overlay and adds a Hold and Win bonus, through the pure merge helpers in
   `packages/game-config/src/addOns.ts` (never a whole-doc reset; clashing names renamed). The page
