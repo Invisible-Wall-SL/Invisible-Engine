@@ -35,8 +35,8 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
   - **The bug:** `Effects.svelte` auto-mounts every event-triggered effect that is not placed, at
     the stage origin. The game's `placedEffectIds()` walked only the scenes, so an effect node
     inside a component def counted as unplaced. An FX in a Pot therefore fired twice on each cue:
-    on its pot, and unscoped in the top-left corner (47 particles each, measured), on every pot's
-    cue.
+    on its pot, and unscoped in the top-left corner, on every pot's cue. Measured at the burst's
+    peak: 47 particles from each emitter.
   - **The fix:** one walk, `collectPlacedEffectIds` (engine-layout), over the scenes and every
     shipped def. The game and the launcher's `effectReachability.ts` both call it; the launcher
     already walked the defs.

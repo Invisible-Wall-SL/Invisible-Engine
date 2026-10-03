@@ -1101,7 +1101,8 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
       `meter.{meter}.max`, from 1× to 2.5×.
     - An FX node inside the part, its layer triggered on `potsConsume` with no scope of its own.
   - **Result:** each `meter:<id>` forced in turn, Playwright reading the Pixi scene:
-    - Only that pot's frog plays `h1`, and only its FX emits (24 particles); the other two rest.
+    - Only that pot's frog plays `h1`, and only its FX emits (24 particles within 70 px of the pot
+      at the probe's sample; 47 at the burst's peak); the other two rest.
     - Its bone reaches 2.49× as the pot fills to 12 of 12, and falls back as the feature takes
       the pot. The other frogs hold their own levels (1.125× at 1 of 12).
     - 0 particles away from the pots, 0 console errors, no Flow in the bundle.

@@ -113,14 +113,16 @@ a frog spine inside it that plays "celebrate" plus an FX on **Pot — activate**
 its belly bone growing with the pot's level. All three pots, no Flow branch.
 
 - **Author** (needs #1006 on the runtime, and the project's Pots screen — hub Owner checklist 5):
-  1. `/components` → **Create** → **Pot Meter (Hold and Win)**, then **Edit inside Pot ›**.
+  1. `/components`: type a name, pick the type **Pot Meter (Hold and Win)** and click **Create**.
+     Then click **Edit inside Pot ›**.
   2. Inside the part, drop the frog spine. Give it a cue on **Pot — activate** playing its
-     celebrate animation. Add a **Bind to value**: drives **Spine bone** (its belly bone), from
-     **Pot (this instance's meter)** → level, **divide by** its maximum, out 1 → 2.5.
+     celebrate animation. Add a **Bind to value**: drives **Spine bone** (its belly bone, **scale**),
+     from **Pot level** (under **Pot (this instance's meter)**). **divide by (normalise)** fills in
+     with **Pot maximum**. Out 1 → 2.5.
   3. Inside the part, drop the effect. In `/fx`, its layer triggers on the `potsConsume` event,
      with **Scope** left blank (it takes the pot's).
   4. Save. On the **Pots** screen, select each pot, switch its **component** to the copy, and pick
-     **fillImage** and **frameImage** (and **backgroundImage**) in its **Pot art** group. Publish.
+     its **fill** and **frame** (and **pot**) in its **Pot art** group. Publish.
 - **Force:** `meter:red`, then `meter:blue`, then `meter:green`, one round each. Wait for each
   feature to finish before the next: the client fetches the round up front, so the server is done
   long before the screen is.
@@ -136,10 +138,14 @@ its belly bone growing with the pot's level. All three pots, no Flow branch.
      Stand-ins from the game's own assets: the H1 rig (`h1` as celebrate, its `beard` bone as the
      belly) and the `progressBar` sprites (`progressBar.png` / `progressBarFrame.png` /
      `progressBarBackground.png`).
-  2. `PORT=<free> PRESET=pots node --experimental-strip-types --import ./scripts/ts-loader.mjs
-     scripts/mock-rgs-server-holdandwin.mjs`.
+  2. The mock, on a free port:
+
+     ```sh
+     PORT=<free> PRESET=pots node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/mock-rgs-server-holdandwin.mjs
+     ```
+
   3. `PUBLIC_RGS_TRANSPORT=play4fun pnpm --filter lines dev`, opened with `?runtime=1&k=local`,
-     `editorDocBase` = the stub and `rgs_url` = the mock. Force with `GET <mock>/force?sid=…`, press
+     `editorDocBase` = the stub and `rgs_url` = the mock. Force with `GET <mock>/force?sid=<sid>&beat=meter:red`, press
      Space until the mock logs the round's `bet`.
   4. Read the scene off `globalThis.__PIXI_APP__`: a spine's animation is
      `rig.state.getCurrent(0)`. Read a bound bone with `bone.getWorldScaleX()`: the local

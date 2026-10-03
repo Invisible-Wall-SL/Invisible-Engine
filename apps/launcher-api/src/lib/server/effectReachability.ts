@@ -72,7 +72,6 @@ export function pruneUnreachableEffects(
 	rigFx: Record<string, RigFxBinding[]>,
 	extraReachable?: Iterable<string>,
 ): EffectPruneResult {
-	// Placed in a scene, or in any def of the closure (a component-nested effect is never pruned).
 	const placed = collectPlacedEffectIds(
 		scenes.flatMap((scene) => scene.nodes),
 		componentDefs,
