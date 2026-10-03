@@ -24,6 +24,7 @@ import {
 	checkFlowV2ForPublish,
 	checkShippedFlowV2,
 	describeFlowErrors,
+	flowScreensMissing,
 	invalidFlowMessage,
 	type FlowPublishCheck,
 } from './flowV2Validation';
@@ -63,6 +64,9 @@ export interface PublishResult {
 	 *  ship as nothing (`EditorArtIndex.spinesMissing` + `SymbolExportIndex.spinesMissing`).
 	 *  Never blocking — shown next to the publish so the author re-binds them. */
 	spinesMissing: { scene: string[]; symbols: string[] };
+	/** Flow containers (ids) whose screen the shipped layout does not have: they draw nothing, and a
+	 *  step waiting on one never continues. Never blocking — an author may be mid-edit. */
+	flowScreensMissing: string[];
 	/** A `holdAndWin` project whose shipped config has no `holdAndWin` block — the mock deals its
 	 *  base game as plain lines and no feature ever triggers. Never blocking; the fix is saving
 	 *  `/config` once (a project scaffolded before the kind's config was seeded). */
@@ -362,6 +366,7 @@ export async function publishGame(
 		sounds: soundCheck.licences,
 		flow: flowCheck.status === 'invalid' ? 'overridden' : flowCheck.status,
 		spinesMissing,
+		flowScreensMissing: flowScreensMissing(bundle.flowV2, bundle.doc.scenes),
 		holdAndWinConfigMissing,
 		snapshot,
 	};

@@ -782,6 +782,13 @@ screen has a tap surface but nothing waits for it, so the tap advances nothing (
 tap signal); the hint's "Wait for this screen" is that same **Hold until…** tick. Both stay silent
 for a screen the editor could not resolve, so a brand-new project is never reddened by them.
 
+`container-scene-missing` (amber) is the screen you cannot see: a Show or Hide Container for a
+screen the Scene Editor no longer has (deleted, or lost to a bad save — the flow keeps the
+container either way). In the game it draws nothing, and any step waiting on it never continues,
+so a start-up chain that shows a lost `loading` screen leaves the game on its background forever.
+Restore the screen from the Scene Editor's **History…**, or remove the step. It is a warning, so
+Publish still ships (and lists the screens in a note); the game logs it to the console at boot.
+
 ### Preview (deterministic timeline)
 
 The left **Preview** panel runs a chosen **event** node's handler headlessly through the

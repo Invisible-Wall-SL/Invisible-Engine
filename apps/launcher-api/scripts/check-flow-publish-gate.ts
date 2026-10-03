@@ -45,6 +45,10 @@
  *    drain its pots itself" test) follows the chain of the signal's own scope.
  * 12. **Every composed vocabulary is well formed**: every struct / enum a type names is declared and
  *    no list declares a name twice, for every kind under every add-on combination.
+ * 13. **A screen the layout lost WARNS, never refuses** (`container-scene-missing`). Every kind's
+ *    starter flow names only screens its scaffold has, so a fresh project publishes with no note;
+ *    the lines starter against its scaffold minus `loading` reports `loading`, warns on each Show /
+ *    Hide of it, and gains no error from it.
  */
 import { GAME_KINDS } from 'constants-shared/gameKinds';
 import {
@@ -80,7 +84,7 @@ import {
 } from 'game-config';
 
 import { gameConfigDefaultFor } from '../src/lib/server/gameConfigDefaults';
-import { validateFlowV2Against } from '../src/lib/server/flowV2Validation';
+import { flowScreensMissing, validateFlowV2Against } from '../src/lib/server/flowV2Validation';
 import { addExecEdgeIn } from '../src/routes/(app)/flow-v2/graphOps';
 
 let fails = 0;
@@ -701,6 +705,48 @@ check(
 	) &&
 		overlayVocab.events[overlayVocab.events.findIndex((e) => e.name === 'reveal') + 1]?.name ===
 			'overlayDrop',
+);
+
+for (const gameType of GAME_KINDS) {
+	const scenes = engineOwnedOnly(getFullSceneSet(gameType)!).scenes;
+	const seedDoc = freshDrivenSeedDoc(gameType);
+	const missing = flowScreensMissing(seedDoc, scenes);
+	check(
+		`13. ${gameType}: the starter flow names only screens its scaffold has`,
+		!missing.length,
+		missing.join(),
+	);
+	check(
+		`13. ${gameType}: …so the gate has no container-scene-missing warning`,
+		!validateFlowV2Against(seedDoc, scenes, null, EMPTY_LIBRARY).some(
+			(i) => i.code === 'container-scene-missing',
+		),
+	);
+}
+const withoutLoading = linesScenes.filter((scene) => scene.id !== 'loading');
+check(
+	'13. a layout that lost `loading` reports it',
+	json(flowScreensMissing(linesSeed, withoutLoading)) === json(['loading']),
+	json(flowScreensMissing(linesSeed, withoutLoading)),
+);
+const lostIssues = validateFlowV2Against(linesSeed, withoutLoading, null, EMPTY_LIBRARY);
+const loadingNodes = linesSeed.graph.nodes
+	.filter((n) => (n.kind === 'showContainer' || n.kind === 'hideContainer') && n.ref === 'loading')
+	.map((n) => n.id);
+const warned = lostIssues
+	.filter((i) => i.code === 'container-scene-missing')
+	.map((i) => (i.at.on === 'node' ? i.at.node : ''));
+check(
+	'13. …warns on every Show / Hide of it, and only those',
+	loadingNodes.length > 0 && json(warned) === json(loadingNodes),
+	`${json(warned)} vs ${json(loadingNodes)}`,
+);
+const fullIssues = validateFlowV2Against(linesSeed, linesScenes, null, EMPTY_LIBRARY);
+check(
+	'13. …as a warning, adding no error to the gate',
+	lostIssues.every((i) => i.code !== 'container-scene-missing' || i.severity === 'warning') &&
+		json(errorsOf(lostIssues)) === json(errorsOf(fullIssues)),
+	json(errorsOf(lostIssues).map((i) => i.message)),
 );
 
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASS');

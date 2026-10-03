@@ -77,6 +77,7 @@ import { eventEmitter } from './eventEmitter';
 import { stateApp } from './stateApp';
 import { stateLayoutDerived } from './stateLayout';
 import { flowEffect, flowEffectNames } from './flowEffects';
+import { withMissingScreenReport } from './flowV2MissingScreens';
 import { getActiveGameConfig } from './gameConfig';
 import { INTENT_COMMANDS } from './flowIntentCommands';
 import { linesEngineReader } from './flowRuntime.svelte';
@@ -367,6 +368,14 @@ export const createLinesFlowV2 = (
 		onContainersChange,
 		awaitCompleteContainerIds(doc),
 	);
+	// A container whose scene the layout lost still mounts, `<FlowV2Mount>` skips it, and a game
+	// waiting on it hangs with a silent console. Say so at boot and on each such screen's first
+	// show/hide. A flow and layout that agree get `rawMount` itself back.
+	const checkedMount = withMissingScreenReport(
+		rawMount,
+		doc.containers,
+		editorDoc.scenes.map((scene) => scene.id),
+	);
 	// SLAM-AWARE ROUND-BLOCK HOLD. `showContainer{awaitComplete}` was the ONLY await left in the
 	// round chain that a slam could not release: every cue, delay and cut-short effect races
 	// `roundSkip` (see `broadcast` / `waitForTimeout` below), but this hold is resolved solely by a
@@ -385,7 +394,7 @@ export const createLinesFlowV2 = (
 	// next spin the way a raced cue could: the resumed chain runs the authored `hideContainer`, so the
 	// screen the hold belonged to is taken down rather than left running detached.
 	const slamAwareMount: ContainerMountModel = {
-		...rawMount,
+		...checkedMount,
 		awaitComplete: (id) => {
 			const held = rawMount.awaitComplete(id);
 			// Subscribed AFTER the hold is registered, because `onSkip` fires SYNCHRONOUSLY when the

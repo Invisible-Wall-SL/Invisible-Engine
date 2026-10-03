@@ -130,6 +130,11 @@
 	// unsaved project yields an empty one), which those checks treat as "unknown" and skip.
 	const containerTaps = $derived<Record<string, boolean>>(data.containerTaps ?? {});
 
+	// The project's Scene-Editor screen ids (the keys of `sceneNames`), so Validation can flag a Show /
+	// Hide of a screen the layout no longer has (`container-scene-missing`). An unsaved project has
+	// none, and that check stays silent.
+	const sceneIds = $derived(Object.keys(data.sceneNames ?? {}));
+
 	// `ctx` reads the LIVE `library` state (a getter, not a snapshot), so every consumer —
 	// `derivePins`, `validateFlowDoc`, the palette, the inspector — sees the current library. It also
 	// carries the container-event surface so a `showContainer` node fuses its component events (§6.1).
@@ -381,7 +386,7 @@
 	const issues = $derived(
 		view.kind === 'function' && activeFn
 			? validateFunctionDef(activeFn, vocab, library)
-			: validateFlowDoc(doc, vocab, library, containerEvents, containerTaps),
+			: validateFlowDoc(doc, vocab, library, containerEvents, containerTaps, sceneIds),
 	);
 
 	// Issues per doc section, for the tab badges (`''` = the global graph).

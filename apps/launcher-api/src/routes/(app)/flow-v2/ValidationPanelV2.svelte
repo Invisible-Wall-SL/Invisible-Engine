@@ -44,6 +44,7 @@
 		'tap-without-hold': 'ℹ',
 		'mode-unset': '✗',
 		'mode-entry-scope': '⤫',
+		'container-scene-missing': '⊘',
 	};
 
 	// Best-effort node id an issue points at — a node/pin `at`, or an edge's TARGET node.

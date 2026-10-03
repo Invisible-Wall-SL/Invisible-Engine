@@ -53,6 +53,10 @@
  *  - `mode-entry-scope`    — a mode entry in a section that never runs it: a `modeTrigger` for mode
  *                            B inside mode A's section, or `allModesFinished` inside any mode section
  *                            but `basegame` (a WARNING — the graph runs, the entry is dead).
+ *  - `container-scene-missing` — a show/hide of a container whose scene the layout no longer has
+ *                            (`containersMissingScene`): nothing draws for it, and a hold on it never
+ *                            releases. A WARNING, so an author mid-edit can still publish; judged only
+ *                            when the caller projects the layout's scene ids in.
  *
  * GAME MODES (`docs/design/hold-and-win.md` §4.5): `FlowDoc.modes` sections are each validated like
  * the global graph, and an issue found in one carries that section's `mode`. Node ids are unique
@@ -63,6 +67,7 @@
  */
 
 import { flattenGroups } from './collapse';
+import { containersMissingScene } from './containerScenes';
 import { flowGraphs } from './runtime';
 import { dataSourceType, type PinContext } from './pins';
 import { deriveGraphPins } from './scope';
@@ -110,7 +115,8 @@ export type FlowIssueCode =
 	| 'hold-without-release'
 	| 'tap-without-hold'
 	| 'mode-unset'
-	| 'mode-entry-scope';
+	| 'mode-entry-scope'
+	| 'container-scene-missing';
 
 /** `info` is an authoring HINT: the doc runs, nothing is wrong, but an authored surface is idle. */
 export type FlowIssueSeverity = 'error' | 'warning' | 'info';
@@ -439,6 +445,33 @@ const duplicateIdIssuesFrom = (counts: Map<string, number>): FlowIssue[] => {
 	return issues;
 };
 
+/**
+ * `container-scene-missing` — every Show / Hide Container on a container whose scene is gone from the
+ * layout (`missing`: ContainerId → its sceneId). The container itself still resolves, so nothing else
+ * catches it, and the hold-safety checks deliberately skip a container whose scene did not resolve.
+ */
+const missingSceneIssues = (
+	graph: FlowDoc['graph'],
+	missing: ReadonlyMap<string, string>,
+): FlowIssue[] => {
+	const issues: FlowIssue[] = [];
+	if (missing.size === 0) return issues;
+	for (const node of graph.nodes) {
+		if (node.kind !== 'showContainer' && node.kind !== 'hideContainer') continue;
+		const sceneId = missing.get(node.ref);
+		if (sceneId === undefined) continue;
+		const [label, verb] = node.kind === 'showContainer' ? ['show', 'shows'] : ['hide', 'hides'];
+		const scene = sceneId === node.ref ? '' : ` (scene '${sceneId}')`;
+		issues.push({
+			code: 'container-scene-missing',
+			severity: 'warning',
+			message: `${label} container '${node.id}' ${verb} screen '${node.ref}'${scene}, which is not in this game's layout (Scene Editor) — nothing will draw for it, and any step waiting on it will never continue. Restore the screen in /editor (History…) or remove it from the Flow`,
+			at: { on: 'node', node: node.id },
+		});
+	}
+	return issues;
+};
+
 // ---------------------------------------------------------------------------
 // The validator.
 // ---------------------------------------------------------------------------
@@ -456,9 +489,15 @@ export const validateFlowDoc = (
 	// completeOnLoaded?). Feeds the hold-safety checks ONLY, and only for the containers it keys: absent
 	// (an unsaved project, a headless caller) ⇒ those checks report nothing at all — never guess.
 	containerTaps?: Record<string, boolean>,
+	// The layout's scene ids, for `container-scene-missing`. Absent or empty ⇒ the layout is unknown
+	// and that check reports nothing.
+	sceneIds?: Iterable<string>,
 ): FlowIssue[] => {
 	const ctx: PinContext = { vocab, library, containerEvents, containerTaps };
 	const containerIds = new Set(doc.containers.map((c) => c.id));
+	const missingScenes = new Map(
+		containersMissingScene(doc.containers, sceneIds ?? []).map((c) => [c.id, c.sceneId]),
+	);
 	// The `duplicate-id` scan runs on the RAW graph (before flatten collapses group bodies in) — that
 	// is where a body-vs-main id collision is visible. §5.2: the structural checks then run on the
 	// FLATTENED graph so exec/data rules apply to the real semantics — a `group` is a pure fold, so its
@@ -467,12 +506,14 @@ export const validateFlowDoc = (
 	const idCounts = new Map<string, number>();
 	for (const { modeId, graph } of flowGraphs(doc)) {
 		collectIdCounts(graph, idCounts);
-		const scoped = validateGraph(flattenGroups(graph), ctx, {
+		const flat = flattenGroups(graph);
+		const scoped = validateGraph(flat, ctx, {
 			mode: 'flow',
 			containerIds,
 			templateId: doc.templateId,
 		});
 		scoped.push(...modeScopeIssues(graph, modeId));
+		scoped.push(...missingSceneIssues(flat, missingScenes));
 		issues.push(
 			...(modeId === undefined ? scoped : scoped.map((issue) => ({ ...issue, mode: modeId }))),
 		);

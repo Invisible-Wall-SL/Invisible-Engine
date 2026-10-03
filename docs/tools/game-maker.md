@@ -368,7 +368,11 @@ without the free-spin intro and outro (see [Flow](/docs/flow) for how to give it
 After a successful publish, notes under the card can also flag (never blocking): sounds with a
 non-commercial or missing licence, and **⚠ spine bundles that resolved to nothing** — a rig
 placed in a scene or bound to a symbol that will be missing in-game. Re-pick the rig in the
-Scene Editor or Invisible Symbols and publish again. A **Hold and Win** game whose Game Config has
+Scene Editor or Invisible Symbols and publish again. **⚠ The flow names N screens the Scene Editor
+no longer has** lists flow screens whose scene was deleted (or lost to a bad save): nothing draws
+for them, and a step waiting on one never continues, so a game can sit on its background forever.
+Restore the screen from the Scene Editor's **History…**, or remove it from the flow (its
+Validation panel marks each step that uses one). A **Hold and Win** game whose Game Config has
 no Hold and Win block (a project created before its config was seeded) gets **⚠ dealt plain
 lines** — open Game Config, save, and publish again.
 
