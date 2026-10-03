@@ -165,6 +165,30 @@ check(
 	},
 );
 check(
+	'a free-spin pair that names a mode enters and exits THAT mode (an imported free spins)',
+	[
+		modeOpOf({
+			type: 'freeSpinTrigger',
+			totalFs: 8,
+			positions: [],
+			mode: 'freeSpins_2',
+			cause: 'meter',
+		} as never),
+		modeOpOf({ type: 'freeSpinEnd', amount: 12, winLevel: 1, mode: 'freeSpins_2' } as never),
+	],
+	[
+		{
+			op: 'enter',
+			id: 'freeSpins_2',
+			policy: 'nest',
+			cause: 'meter',
+			payload: { totalFs: 8, positions: [] },
+			legacyGameType: true,
+		},
+		{ op: 'exit', id: 'freeSpins_2', total: 12, legacyGameType: true },
+	],
+);
+check(
 	'modeEnter carries policy, cause and payload',
 	modeOpOf({
 		type: 'modeEnter',

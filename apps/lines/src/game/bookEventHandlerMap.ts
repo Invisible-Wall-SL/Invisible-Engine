@@ -14,6 +14,7 @@ import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentat
 import { playBookEvent } from './utils';
 import { awaitSymbolBeat, TRANSIT_BEAT_CAP_MS } from './symbolBeat';
 import { stateGame, stateGameDerived } from './stateGame.svelte';
+import { freeSpinsGameType } from './stateModes.svelte';
 import { tumbleBoardCombined } from './stateTumble.svelte';
 import {
 	presentCellsCleared,
@@ -237,7 +238,7 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		// `freeSpinMusic` slot rather than a literal, so a game with its own audio sounds like itself
 		// in the feature too.
 		broadcastMusicCue('freeSpinMusic');
-		stateGame.gameType = 'freegame';
+		stateGame.gameType = freeSpinsGameType(bookEvent.mode);
 		eventEmitter.broadcast({ type: 'boardFrameGlowShow' });
 		eventEmitter.broadcast({ type: 'freeSpinCounterShow' });
 		stateUi.freeSpinCounterShow = true;

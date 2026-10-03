@@ -34,6 +34,9 @@ type BookEventFreeSpinTrigger = {
 	type: 'freeSpinTrigger';
 	totalFs: number;
 	positions: Position[];
+	/** A reels mode of the project's own these free spins play in (an imported bonus); absent ⇒ the
+	 *  built-in `freeSpins`. */
+	mode?: string;
 } & ModeEntryCause;
 
 type BookEventUpdateFreeSpin = {
@@ -67,6 +70,8 @@ type BookEventFreeSpinEnd = {
 	type: 'freeSpinEnd';
 	amount: number;
 	winLevel: number;
+	/** The mode its `freeSpinTrigger` named, if any. */
+	mode?: string;
 };
 
 type BookEventWinInfo = {
