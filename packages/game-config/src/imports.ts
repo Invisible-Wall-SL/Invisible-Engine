@@ -8,11 +8,17 @@
  * `/symbols` bindings, the mode's screens, its Flow section, its Win Text lines) under the same
  * rename map.
  *
- * WHAT CAN BE IMPORTED: a Hold and Win feature. A project has ONE Hold and Win block, so importing
- * into a host whose block is the overlay's bonus REPLACES that bonus, and only when asked; a block
- * that is the host's base game is never replaced. Free spins and authored `reels` modes are listed
- * but refused: the facade plays every `reels` bonus as the host's own free spins on `freegame`, so
- * an imported one would not play on its own strips yet.
+ * WHAT CAN BE IMPORTED:
+ *  - **A Hold and Win feature.** A project has ONE Hold and Win block, so importing into a host whose
+ *    block is the overlay's bonus REPLACES that bonus, and only when asked; a block that is the
+ *    host's base game is never replaced.
+ *  - **A reels feature** — the source's free spins, or a `reels` mode of its own. It arrives as a
+ *    NEW mode of this project (the source's id, `_2`-renamed when this project already has one, as
+ *    `freeSpins` always does) on a NEW game type with its own strips, cycled to the host's reels. It
+ *    plays as free spins in that mode (`freeSpinTrigger.mode`, engine `modeEvents.ts`). A symbol on
+ *    its strips that this project defines identically is SHARED (not copied, not in the record), so a
+ *    free spins imported between two games of one family brings only what differs.
+ *  - A respin board, wheel or `none` mode of the source's own is refused: nothing plays one yet.
  *
  * RE-SYNC overwrites only the imported pieces — the block, its strips, its mode override and the
  * symbols it brought — reusing the stored rename map, so a symbol keeps its name (and its
@@ -25,11 +31,14 @@
 import {
 	dropUnusedSymbols,
 	takeOutHoldAndWinBonus,
+	takeOutImportedReelsMode,
 	zeroPotsRefusal,
 	type AddOnRenames,
 } from './addOns';
 import { holdAndWinIsOverlayBonus, isHoldAndWinSymbol } from './holdAndWin';
+import { symbolsInPlayFromStrips } from './inPlay';
 import {
+	BASE_GAME_MODE,
 	HOLD_AND_WIN_MODE,
 	gameModeById,
 	gameTypeForMode,
@@ -49,21 +58,21 @@ export type ImportableFeature = {
 	refused?: string;
 };
 
-const REELS_NOT_BUILT =
-	"A reels bonus would play as this game's own free spins, not on its own strips, until the facade can route one.";
+const BOARD_NOT_BUILT =
+	'Only a Hold and Win or a reels feature can be imported: nothing plays a board of this kind from a pot yet.';
 
 /** The features of `source` an import can pick from, in mode order. The base game is never one. */
 export function importableFeatures(source: GameConfigDoc): ImportableFeature[] {
 	return resolveGameModes(source)
-		.filter((m) => m.id !== 'basegame')
+		.filter((m) => m.id !== BASE_GAME_MODE)
 		.map((m) => {
 			const label = m.label ?? m.id;
-			if (m.id === HOLD_AND_WIN_MODE) {
-				return source.paddingReels[gameTypeForMode(m)]?.length
-					? { mode: m.id, label }
-					: { mode: m.id, label, refused: 'Its respin board has no strips to deal from.' };
+			if (m.id !== HOLD_AND_WIN_MODE && m.board !== 'reels') {
+				return { mode: m.id, label, refused: BOARD_NOT_BUILT };
 			}
-			return { mode: m.id, label, refused: REELS_NOT_BUILT };
+			return source.paddingReels[gameTypeForMode(m)]?.length
+				? { mode: m.id, label }
+				: { mode: m.id, label, refused: 'It has no strips to deal from.' };
 		});
 }
 
@@ -78,6 +87,8 @@ export type ImportOptions = {
 	replace?: boolean;
 	/** Pots to route to the imported mode. */
 	pots?: string[];
+	/** The mode it already is in this project — a re-sync's, so a reels mode keeps its id. */
+	into?: string;
 };
 
 export type ImportResult =
@@ -125,12 +136,16 @@ export function importBonus(
 	if (!feature || opts.mode === 'basegame') {
 		return { ok: false, reason: `The source project has no "${opts.mode}" feature.` };
 	}
-	if (opts.mode !== HOLD_AND_WIN_MODE) return { ok: false, reason: REELS_NOT_BUILT };
+	const unknown = opts.pots?.find((id) => !target.potsOverlay!.pots.some((p) => p.id === id));
+	if (unknown) return { ok: false, reason: `This project has no pot "${unknown}".` };
+	if (opts.mode !== HOLD_AND_WIN_MODE) {
+		return feature.board === 'reels'
+			? importReelsMode(target, source, feature, opts)
+			: { ok: false, reason: BOARD_NOT_BUILT };
+	}
 	if (!source.holdAndWin) {
 		return { ok: false, reason: 'The source project has no Hold and Win block.' };
 	}
-	const unknownPot = opts.pots?.find((id) => !target.potsOverlay!.pots.some((p) => p.id === id));
-	if (unknownPot) return { ok: false, reason: `This project has no pot "${unknownPot}".` };
 
 	const next = structuredClone(target);
 	const previous = bonusImportOf(next, HOLD_AND_WIN_MODE);
@@ -267,5 +282,118 @@ export function resyncBonus(
 		mode: record.importedFrom.mode,
 		at,
 		replace: true,
+		into: mode,
 	});
+}
+
+/**
+ * Import the source's REELS feature `feature` (its free spins, or a reels mode of its own) as a mode
+ * of `target`'s own; see the file header. A re-sync (`opts.into`) takes its previous pieces back
+ * first and keeps its mode id, game type and every name.
+ */
+function importReelsMode(
+	target: GameConfigDoc,
+	source: HoldAndWinBonusSource,
+	feature: GameModeDecl,
+	opts: ImportOptions,
+): ImportResult {
+	const own = source.paddingReels[gameTypeForMode(feature)] ?? [];
+	if (!own.length) {
+		return { ok: false, reason: `The source's "${feature.id}" has no strips to deal from.` };
+	}
+	const already = target.imports?.find(
+		(i) =>
+			i.mode !== opts.into &&
+			i.importedFrom.project === opts.project &&
+			i.importedFrom.mode === opts.mode,
+	);
+	if (already) {
+		return {
+			ok: false,
+			reason: `"${opts.project}"'s ${feature.id} is already imported here as "${already.mode}". Re-sync it instead.`,
+		};
+	}
+	const next = structuredClone(target);
+	const previous = opts.into ? bonusImportOf(next, opts.into) : undefined;
+	const previousDecl = previous && next.modes?.find((m) => m.id === previous.mode);
+	if (previous) dropUnusedSymbols(next, takeOutImportedReelsMode(next, previous.mode), () => true);
+
+	const modeIds = new Set(resolveGameModes(next).map((m) => m.id));
+	const mode = previous?.mode ?? freeName(feature.id, modeIds);
+	const gameTypes = new Set([
+		...Object.keys(next.paddingReels),
+		...resolveGameModes(next).map(gameTypeForMode),
+	]);
+	const gameType =
+		previousDecl && !gameTypes.has(gameTypeForMode(previousDecl))
+			? gameTypeForMode(previousDecl)
+			: freeName(gameTypeForMode(feature), gameTypes);
+
+	const strips = Array.from({ length: next.numReels }, (_unused, reel) => own[reel % own.length]);
+	const renamed: AddOnRenames = { symbols: {}, pots: {} };
+	const taken = new Set(Object.keys(next.symbols));
+	const names: Record<string, string> = {};
+	const owned: Record<string, string> = {};
+	for (const wanted of symbolsInPlayFromStrips({ [gameType]: strips })) {
+		const entry = source.symbols[wanted] ?? {};
+		if (JSON.stringify(next.symbols[wanted]) === JSON.stringify(entry)) {
+			names[wanted] = wanted;
+			continue;
+		}
+		const stored = previous?.symbols[wanted];
+		const name = stored && !taken.has(stored) ? stored : freeName(wanted, taken);
+		taken.add(name);
+		names[wanted] = owned[wanted] = name;
+		if (name !== wanted) renamed.symbols[wanted] = name;
+		next.symbols[name] = structuredClone(entry);
+	}
+	next.paddingReels[gameType] = strips.map((strip) =>
+		strip.map((cell) => ({ name: names[cell.name] ?? cell.name })),
+	);
+
+	// Its presentation comes with it (music, counter, label); its HUD names a screen of the SOURCE's
+	// layout, so it does not.
+	const {
+		hud: _hud,
+		gameType: _sourceType,
+		id: _sourceId,
+		board: _board,
+		...presentation
+	} = feature;
+	const decl: GameModeDecl = {
+		id: mode,
+		board: 'reels',
+		gameType,
+		...presentation,
+		...(feature.id === 'freeSpins' && !feature.counter ? { counter: 'freeSpins' } : {}),
+		label: previousDecl?.label ?? `${feature.label ?? feature.id} (${opts.project})`,
+	};
+	next.modes = [...(next.modes ?? []), decl];
+
+	const pots = new Set(opts.pots ?? []);
+	next.potsOverlay = {
+		...next.potsOverlay!,
+		pots: next.potsOverlay!.pots.map((pot) =>
+			pots.has(pot.id)
+				? { ...pot, bonus: { mode, ...(pot.bonus.spins ? { spins: pot.bonus.spins } : {}) } }
+				: pot,
+		),
+	};
+
+	const record: BonusImport = {
+		mode,
+		importedFrom: { project: opts.project, mode: opts.mode, at: opts.at },
+		symbols: owned,
+	};
+	next.imports = [...(next.imports ?? []).filter((i) => i.mode !== mode), record];
+	return {
+		ok: true,
+		doc: next,
+		mode,
+		renamed,
+		symbols: owned,
+		leftOut: [],
+		droppedActivates: [],
+		replaced: false,
+	};
 }

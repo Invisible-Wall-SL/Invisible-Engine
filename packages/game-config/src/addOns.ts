@@ -426,6 +426,24 @@ export function dropUnusedSymbols(
 }
 
 /**
+ * Take an imported REELS mode out of `doc` in place (`./imports`): its declaration, its strips and its
+ * record. Returns the symbols it owned (its record's map — a symbol it shared with the host is not
+ * there), for the caller to drop once nothing deals them ({@link dropUnusedSymbols}).
+ */
+export function takeOutImportedReelsMode(doc: GameConfigDoc, mode: string): Set<string> {
+	const record = doc.imports?.find((i) => i.mode === mode);
+	const decl = doc.modes?.find((m) => m.id === mode);
+	if (decl?.board === 'reels') delete doc.paddingReels[gameTypeForMode(decl)];
+	const modes = doc.modes?.filter((m) => m.id !== mode);
+	if (modes?.length) doc.modes = modes;
+	else delete doc.modes;
+	const imports = doc.imports?.filter((i) => i.mode !== mode);
+	if (imports?.length) doc.imports = imports;
+	else delete doc.imports;
+	return new Set(Object.values(record?.symbols ?? {}));
+}
+
+/**
  * Take the pots overlay out of `doc`. When the `holdAndWin` block is the overlay's BONUS
  * ({@link holdAndWinIsOverlayBonus}) it goes too — without the overlay nothing could start it — with
  * its mode override and its respin strips, unless another mode pads from those strips. A symbol the
@@ -441,8 +459,13 @@ export function removePotsOverlay(doc: GameConfigDoc): GameConfigDoc {
 	const bonusSymbols = holdAndWinIsOverlayBonus(next)
 		? takeOutHoldAndWinBonus(next)
 		: new Set<string>();
+	// An imported reels mode is started only by a pot too, so it goes with the overlay.
+	const reelsSymbols = (next.imports ?? [])
+		.filter((i) => i.mode !== HOLD_AND_WIN_MODE)
+		.flatMap((i) => [...takeOutImportedReelsMode(next, i.mode)]);
 	delete next.potsOverlay;
 	dropUnusedSymbols(next, tokens, isBareToken);
 	dropUnusedSymbols(next, bonusSymbols, isHoldAndWinSymbol);
+	dropUnusedSymbols(next, reelsSymbols, () => true);
 	return next;
 }
