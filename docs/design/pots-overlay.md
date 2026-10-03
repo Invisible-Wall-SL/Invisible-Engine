@@ -97,7 +97,7 @@ overlay host.
 
 ```ts
 type PotsOverlay = {
-	pots: OverlayPot[]; // 1..N; 3 Pots has three
+	pots: OverlayPot[]; // 0..N; 3 Pots has three, coins only none (needs a coin row then)
 	drops: OverlayDrops;
 };
 
@@ -159,6 +159,9 @@ Rules:
   - **3 Pots**: red → Hold and Win + payer, blue → + collector, green → + multiplier (the 3 Pots of
     Egypt pots, as overlays).
   - **Pots to free spins**: one pot → `freeSpins`.
+  - **Coins only** (owner scope addition): no pots; value coins drop, and the Classic Hold and
+    Win's count trigger (6+ on one spin) starts it with those coins held. Pots and value coins are
+    each optional, but an overlay needs one of them.
 
 ### 3.2 Engine book events
 

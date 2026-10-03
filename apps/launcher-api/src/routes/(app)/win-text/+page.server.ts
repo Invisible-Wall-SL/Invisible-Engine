@@ -54,6 +54,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		loadSymbolsDoc(clientKey, projectKey),
 	]);
 	const defaults = published ?? symbolDefaultsFor(gameType);
+	const { addOns, potIds } = projectAddOns(config.doc);
 
 	return {
 		clientKey,
@@ -74,11 +75,11 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		symbolNames: symbolsDoc.names ?? {},
 		/** The kind's capabilities with the config's add-ons — a Hold and Win bonus brings the
 		 *  feature's lines, a pots overlay its pot lines. */
-		capabilities: kindCapabilities(gameType, projectAddOns(config.doc).addOns),
+		capabilities: kindCapabilities(gameType, addOns),
 		/** The config's jackpot tier names, in the config's order. */
 		jackpotTiers: (config.doc?.holdAndWin?.jackpots ?? []).map((jackpot) => jackpot.name),
 		/** Every pot (meter) id the config declares, Hold and Win meters then overlay pots. */
-		meterIds: projectAddOns(config.doc).potIds ?? [],
+		meterIds: potIds ?? [],
 		/** Whether the config has the pre-feature wheel — its copy is offered only then. */
 		hasWheel: Boolean(config.doc?.holdAndWin?.wheel),
 		/** The config's big-win tiers, which are the ones a caption can be drawn for. Empty when
