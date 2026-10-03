@@ -6,6 +6,7 @@
 	import { SYMBOL_SIZE } from 'engine-game';
 
 	import { potActivatesText, potLabelText } from '../game/holdAndWinText';
+	import { potColour } from '../game/symbolPlaceholder';
 	import {
 		meterAnchor,
 		meterLevelShown,
@@ -28,16 +29,7 @@
 	const HEIGHT = SYMBOL_SIZE * 0.16;
 	const STAGE_GROWTH = 0.1;
 	const PULSE_SCALE = 1.3;
-	const PALETTE = [0xe0b030, 0x30b0e0, 0xb060e0, 0x60c070];
-	const NAMED: Record<string, number> = {
-		red: 0xe0452f,
-		blue: 0x2f7be0,
-		green: 0x3fbf5a,
-		gold: 0xe0b030,
-		purple: 0x9a4fe0,
-	};
-
-	const colour = $derived(NAMED[props.meter.id] ?? PALETTE[props.index % PALETTE.length]);
+	const colour = $derived(potColour(props.meter.id, props.index));
 	const max = $derived(meterMax(props.meter.id) || props.meter.maxLevel);
 	const level = $derived(Math.max(0, Math.min(max, meterLevelShown(props.meter.id))));
 	const stage = $derived(meterStage(props.meter, level));

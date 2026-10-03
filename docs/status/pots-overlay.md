@@ -4,7 +4,8 @@
 > [status/hold-and-win](hold-and-win.md) · Guide: _none yet (Phase 6)_ · Agents: per phase — see the
 > design's build plan.
 
-**One-line state:** Phases 0–5 merged (2026-10-02): #1008, #1013, #1012, #1015 (4a), #1010, #1009,
+**One-line state:** An overlay holds 0–5 pots (2026-10-03, `/config` **How many**), and add-on
+symbols with no art draw coded placeholders. Phases 0–5 merged (2026-10-02): #1008, #1013, #1012, #1015 (4a), #1010, #1009,
 #1014 and #1011. A Book-of project can switch the pots overlay on in `/config`. The mock deals it, and
 the shared runtime draws tokens over the host's symbols, flies them into the pots and starts each pot's
 bonus. The overlay screens, Flow steps, symbol states and Win Text are authorable. A project without the
@@ -556,8 +557,8 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
      `modeEnter` skips the coded handler, so a pot drained by them snaps to empty with no drain beat.
      #1014 has no drain action. Add one (the coded `presentMeterConsume`) to the overlay fragment in
      `engine-flow-v2/src/reference/addOns.ts` together with the show / lift-token actions.
-   - **Phase 6:** a token with no art in `/symbols` draws nothing (`Symbol`'s missing-art rule). The
-     add-on seeds placeholder art, so this only bites a hand-made config.
+   - ~~**Phase 6:** a token with no art in `/symbols` draws nothing.~~ Done 2026-10-03: a token,
+     and a Hold and Win coin or special, with no art draws a coded disc (`symbolPlaceholder.ts`).
    - **Resume between a drop and its fills** shows no tokens: neither `overlayDrop` nor `reveal` is
      in the resume snapshot. The following `meterUpdate` still flies from the cell.
    - **Order:** the drain plays inside the free-spin / mode entry beat, after the mode layer has
@@ -582,20 +583,22 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
      launcher helper build on the game-config one.
    - **5d's cosmetic nits:**
      - on a pots-only host, the `/symbols` flight rows say "meter" where the rest says "pot";
-     - the `gameProfile` "Pots overlay" chip doesn't show for a block with drops but zero pots;
+     - ~~the `gameProfile` "Pots overlay" chip doesn't show for a block with drops but zero pots~~
+       (done 2026-10-03: "Pots overlay (coins only)");
      - `win-text/+page.server.ts` calls `projectAddOns` twice.
 2. **Owner decisions** (asked and answered 2026-10-02):
    - **(a) Decided 2026-10-02: the coin draws over the win frame** (design §7 #9). This is 4a's
      layering, so nothing is to build.
    - **(b) Decided 2026-10-02: pots and coins are each optional** (design §7 #8). An overlay may be
      coins-only (no pots: value coins over the host's symbols, N+ start a classic Hold and Win) or
-     pots-only, but needs at least one. Phase 6 builds it:
+     pots-only, but needs at least one. Built 2026-10-03 except where marked:
      - the validator allows zero pots when the drop table has a coin row, and errors only when there
        are neither pots nor coin drops;
      - a `coinsOnly` preset paired with the Classic Hold and Win bonus;
      - `/config` lets the last pot be removed and offers the preset;
-     - the mock and runtime are checked with zero pots (no Pots screen, no pot flights);
-     - the Game Maker action offers it.
+     - the mock and runtime are checked with zero pots (no Pots screen, no pot flights) — the mock
+       is (`check:pots-overlay` §4); a real-clock zero-pot run is still to do;
+     - the Game Maker action offers it (Phase 6, not built).
 3. **Carried into later phases (found in Phase 1):**
    - **Phase 4 (from 5c):** the overlay-only flow actions (show / lift tokens) are not in the
      vocabulary yet: they arrive with their runtime effects. Add them to the overlay fragment in
@@ -642,6 +645,60 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 - **The partner's RGS** for production play (Phase 8). Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-03 — **0–5 pots, a coins-only overlay, and visible tokens and coins** (session "3 pots
+  overlay config", branch `claude/three-pots-overlay-config-nedyqc`). From an owner report on Book
+  of Borut: the game did not show after adding 3 Pots; they wanted 0 to 5 pots; and no pot coins
+  showed in Borut.
+  - **Pot count:** `setOverlayPotCount(doc, n)` (game-config `addOns.ts`), with `addPotsOverlay`'s
+    new optional `pots` argument, drives `/config`'s **How many** picker (0–5).
+    - Raising the count adds pots at the end. Each takes the next free id of `OVERLAY_POT_IDS` (red,
+      blue, green, gold, purple, the coded pots' named colours) and its own `POT_<ID>` token. A
+      leftover `meterSpecial` token of that name is reused. It copies the last pot's size, drop weight
+      and bonus. A Hold and Win pot takes the next special no pot or meter starts with: the 3 Pots
+      order (payer, collector, multiplier), then mystery… With none left it starts with none.
+    - Lowering it removes pots from the end, with their drop rows and bare tokens.
+    - 0 needs a Hold and Win bonus beside the overlay. A coin row is added if the table would
+      otherwise be empty.
+    - `+ pot` stops at 5.
+    - Pinned by `addOns.fixture.ts` §6.
+  - **Owner decision (b), coins only:** most of it is built.
+    - The validator errors on more than `MAX_OVERLAY_POTS` (5) pots. It errors on no pots only when
+      no value coin drops.
+    - New `coinsOnly` preset, paired with the Classic Hold and Win bonus.
+    - The mock deals a pot-less overlay. `check:pots-overlay` §4 adds a coins-only route and a fifth
+      pot route.
+    - The `gameProfile` chip reads "Pots overlay (coins only)" (5d's nit).
+    - Left: a real-clock run of a zero-pot game, and the Game Maker action (Phase 6).
+  - **Placeholders for add-on symbols** (`apps/lines` `symbolPlaceholder.ts` + `SymbolPlaceholder.svelte`,
+    drawn by `Symbol.svelte` when no art is bound). This is why the coins did not show: on a Book-of host
+    the add-on's tokens and Hold and Win symbols have no art (the engine's placeholder art is only in
+    the Hold and Win KIND's defaults). Tokens landed and flew invisibly, and the respin board showed
+    bare value labels.
+    - A pot token now draws a disc in its pot's colour with its name. A Hold and Win coin draws a gold
+      disc under its value. A jackpot or special draws its own colour and tag. `BLANK` and every other
+      artless symbol still draw nothing.
+    - The disc completes at once, like a sprite, so a token's `coinLand` beat no longer waits out its
+      cap.
+    - `potColour` is shared with the coded pot.
+    - Pinned by `symbolPlaceholder.fixture.ts`. Verified on a real clock: tokens, coins and specials
+      visible; 5 pots in a row; a fifth (special-less) pot's Hold and Win played out; money exact.
+  - **"The game is not showing up" — NOT reproduced.** The live game and launcher are outside this
+    container's network policy, so Borut's live bundle could not be read. Every local variant booted
+    and played on a real clock (headless shell, `apps/lines` dev + local mocks), with the 3 Pots
+    overlay config in effect:
+    - the lines reference flow (Book-of vocabulary), with 3 and with 5 pots;
+    - the Book-of reference layout with every add-on screen merged ("＋ Add overlay screens");
+    - the overlay mock;
+    - the plain book mock (a server that deals no overlay).
+    - Also ruled out:
+      - the runtime release lagging: every phase's Runtime release run succeeded;
+      - a test-server image missing a module: every import is copied;
+      - Win Text without a `feature` section: `resolveWinText` defaults per field.
+    - Open: the page's console errors, or network access to `games.invisiblewall.org` and
+      `app.invisiblewall.org`, to see what Borut's own data does. One more lead: `/config`'s save
+      gate refuses any doc with a validator error, so an add that produced an error was never stored.
+      That would also explain the other tools not showing the add-on.
 
 - 2026-10-02 — **Hub: first wave merged** (session "3 pots overlay mechanic").
   - Six phase sessions ran in parallel from #1008. Phases 2, 3, 4a, 5a, 5b, 5c and 5d each merged
