@@ -14,6 +14,7 @@ import {
 	type SymbolState,
 } from 'engine-game';
 import { RESPIN_COUNTER_ANCHOR } from 'engine-layout';
+import { holdAndWinIsOverlayBonus } from 'game-config';
 import { showMessage, stateBet } from 'state-shared';
 import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
 import { roundSkip } from 'utils-shared/skipToken';
@@ -1152,6 +1153,10 @@ export const presentHoldAndWinEnd = async (event: Beat<'holdAndWinEnd'>) => {
 		hideHoldAndWinBanner(banner);
 	}
 	eventEmitter.broadcast({ type: 'winPresentationForget' });
-	settleReelsOnHeldCells();
+	// A Hold and Win GAME's reels rest on the feature's final board. On a pots overlay host the feature
+	// is a bonus, and the base board returns with the host's symbols as the trigger spin left them
+	// (design §3.4): its final board is mostly `blank`, which a host has no art for, so the reels
+	// would read as empty.
+	if (!holdAndWinIsOverlayBonus(getActiveGameConfig())) settleReelsOnHeldCells();
 	hideRespinBoard();
 };
