@@ -60,10 +60,41 @@ export function holdAndWinBonus(
 ): HoldAndWinBonus {
 	const preset = HOLD_AND_WIN_PRESETS[id];
 	if (!preset.holdAndWin) throw new Error(`Hold and Win preset "${id}" has no holdAndWin block.`);
-	const { meters: _meters, ...source } = preset.holdAndWin;
-	const { trigger, specials } = source;
+	const { leftOut: _leftOut, ...bonus } = holdAndWinBonusFrom(preset, host);
+	return bonus;
+}
+
+/** A Hold and Win block's source: a preset, or another project's config (a bonus import). */
+export type HoldAndWinBonusSource = Pick<
+	GameConfigDoc,
+	'holdAndWin' | 'modes' | 'paddingReels' | 'symbols'
+>;
+
+/**
+ * {@link holdAndWinBonus} from any config carrying a `holdAndWin` block — a preset, or the project a
+ * bonus is imported from (`./imports`). The source's respin strips are read under ITS Hold and Win
+ * game type (its mode override included) and returned under the default one, which is the game
+ * type the host's Hold and Win mode pads from. `leftOut` names each base-board-only option the
+ * source had and the bonus drops.
+ */
+export function holdAndWinBonusFrom(
+	source: HoldAndWinBonusSource,
+	host: Pick<GameConfigDoc, 'numReels'>,
+): HoldAndWinBonus & { leftOut: string[] } {
+	if (!source.holdAndWin) throw new Error('The source has no holdAndWin block.');
+	const { meters, ...rest } = source.holdAndWin;
+	const { trigger, specials } = rest;
+	const leftOut = [
+		...(trigger.pattern ? ['the pattern trigger'] : []),
+		...(trigger.luckySpin ? ['the lucky spin'] : []),
+		...(trigger.randomMetre ? ['the random metre'] : []),
+		...(trigger.buy?.length ? ['buying the feature'] : []),
+		...(specials.collector?.instantCollectInBaseGame ? ["the collector's instant collect"] : []),
+		...(specials.multiplier?.instantCollectInBaseGame ? ["the multiplier's instant collect"] : []),
+		...(meters?.length ? ['the symbol-filled meters'] : []),
+	];
 	const block: HoldAndWin = {
-		...source,
+		...rest,
 		trigger: trigger.count ? { count: trigger.count } : {},
 		specials: {
 			...specials,
@@ -75,19 +106,25 @@ export function holdAndWinBonus(
 			}),
 		},
 	};
+	const from = gameTypeForMode(gameModeById(source, HOLD_AND_WIN_MODE)!);
 	const gameType = gameTypeForMode(gameModeById({ holdAndWin: block }, HOLD_AND_WIN_MODE)!);
-	const own = preset.paddingReels[gameType] ?? [];
+	const own = source.paddingReels[from] ?? [];
 	const strips = own.length
 		? Array.from({ length: host.numReels }, (_unused, reel) => own[reel % own.length])
 		: [];
 	const symbols: Record<string, GameConfigSymbol> = {};
 	for (const name of symbolsInPlayFromStrips({ [gameType]: strips })) {
-		const entry = preset.symbols[name] ?? {};
+		const entry = source.symbols[name] ?? {};
 		const roles = (entry.special_properties ?? []).filter((r) => r !== 'meterSpecial');
 		const { special_properties: _roles, ...pays } = entry;
 		symbols[name] = roles.length ? { ...pays, special_properties: roles } : pays;
 	}
-	return structuredClone({ holdAndWin: block, symbols, paddingReels: { [gameType]: strips } });
+	return structuredClone({
+		holdAndWin: block,
+		symbols,
+		paddingReels: { [gameType]: strips },
+		leftOut,
+	});
 }
 
 const tokenSymbol = (): GameConfigSymbol => ({ special_properties: ['meterSpecial'] });

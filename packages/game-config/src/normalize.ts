@@ -41,6 +41,7 @@ import {
 import { normalizeHoldAndWin } from './holdAndWin';
 import { normalizePotsOverlay } from './potsOverlay';
 import { normalizeGameModes } from './modes';
+import { normalizeBonusImports } from './bonusImports';
 import { normalizeReelBehaviour } from './reelBehaviour';
 import { normalizeSounds } from './sounds';
 
@@ -445,6 +446,9 @@ export const normalizeGameConfigDoc = (raw: unknown): GameConfigDoc | undefined 
 	// built-in base game and free spins stores no block.
 	const modes = normalizeGameModes(raw.modes, doc);
 	if (modes) doc.modes = modes;
+
+	const imports = normalizeBonusImports(raw.imports);
+	if (imports) doc.imports = imports;
 
 	// Grid ALIGNMENT is kept only when it departs from the `center` default AND the grid is actually
 	// stepped. Both halves matter: the first keeps a paste-in math export byte-identical, the second

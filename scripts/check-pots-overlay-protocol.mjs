@@ -14,9 +14,11 @@ import { Readable } from 'node:stream';
 import {
 	holdAndWinBonus,
 	HOLD_AND_WIN_PRESETS,
+	importBonus,
 	normalizeGameConfigDoc,
 	potsOverlayMockInputs,
 	potsOverlayPreset,
+	resyncBonus,
 	validateGameConfigDoc,
 } from '../packages/game-config/index.ts';
 import { createMockRgs as createBookMock } from './mock-rgs-server-book.mjs';
@@ -85,6 +87,21 @@ const STUB = insert(BOOK_HOST, 'potsToFreeSpins', (doc) => {
 	doc.potsOverlay.pots[0].bonus = { mode: 'pickBonus' };
 	return doc;
 });
+/** A bonus imported from `hw-classic-sample` (its config is the Classic preset), the pot routed to
+ *  it (Phase 7): the mock deals the source feature's own generator. */
+const CLASSIC_SAMPLE = normalizeGameConfigDoc(structuredClone(HOLD_AND_WIN_PRESETS.classic));
+const imported = (result) => {
+	if (!result.ok) throw new Error(`import refused: ${result.reason}`);
+	return normalizeGameConfigDoc(result.doc);
+};
+const IMPORTED = imported(
+	importBonus(FREE, CLASSIC_SAMPLE, {
+		project: 'hw-classic-sample',
+		mode: 'holdAndWin',
+		at: '2026-10-03T08:00:00.000Z',
+		pots: ['gold'],
+	}),
+);
 /** Drops in free spins too. */
 const FREE_DROPS = insert(BOOK_HOST, 'threePots', (doc) => {
 	doc.potsOverlay.drops.modes = ['basegame', 'freeSpins'];
@@ -394,7 +411,7 @@ console.log('1. the contract: inputs only with the block, the Hold and Win bonus
 {
 	const host = normalizeGameConfigDoc(structuredClone(BOOK_HOST));
 	check(potsOverlayMockInputs(host) === undefined, 'a project without the block: no inputs');
-	for (const [name, doc] of Object.entries({ THREE, FREE, STUB, FREE_DROPS, COINS })) {
+	for (const [name, doc] of Object.entries({ THREE, FREE, STUB, FREE_DROPS, COINS, IMPORTED })) {
 		check(
 			!validateGameConfigDoc(doc).some((i) => i.severity === 'error'),
 			`${name} validates`,
@@ -589,6 +606,12 @@ console.log('4. routes: Hold and Win (pots, coins), the host’s free spins, ano
 		['value coins → Hold and Win', THREE, 'force:overlay:coins:6', (d) => d.coinBonus === 1],
 		['pot → free spins', FREE, 'force:pot:gold', (d) => d.freeSpinsByPot === 1],
 		['pot → another mode (a stub)', STUB, 'force:pot:gold', (d) => d.stub === 1],
+		[
+			'pot → an imported Hold and Win',
+			IMPORTED,
+			'force:pot:gold',
+			(d) => same(d.potBonus, ['gold']),
+		],
 	];
 	for (const [what, doc, context, did] of routes) {
 		const mock = overlayMock(doc, { seed: `route-${what}` });
@@ -610,6 +633,22 @@ console.log('4. routes: Hold and Win (pots, coins), the host’s free spins, ano
 			same(hw.cells.map(key).sort(), coins.map(key).sort()) &&
 			coins.length === 3,
 		'a pot and coins on one spin: ONE feature, cause meter, the coins held, the payer active',
+	);
+	// The imported feature is the source's: its boot block, and a re-synced edit reaches the mock.
+	const bootHoldAndWin = async (doc) =>
+		(await engine(overlayMock(doc, { seed: 'import-boot' }), 'sid=i', [])).events[0].context
+			.holdAndWin;
+	const before = await bootHoldAndWin(IMPORTED);
+	const edited = structuredClone(CLASSIC_SAMPLE);
+	edited.holdAndWin.respins.start = 5;
+	const resynced = imported(
+		resyncBonus(IMPORTED, edited, 'holdAndWin', '2026-10-04T09:00:00.000Z'),
+	);
+	const after = await bootHoldAndWin(resynced);
+	check(
+		JSON.stringify(before).includes('GRAND') && before.respins === 3 && after.respins === 5,
+		'an imported bonus boots as the source feature (GRAND letters), and a re-sync reaches the mock',
+		JSON.stringify({ before: before.respins, after: after.respins }),
 	);
 	const stub = await playRound(overlayMock(STUB, { seed: 'stub-close' }), 's', {
 		context: 'force:pot:gold',
