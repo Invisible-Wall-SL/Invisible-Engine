@@ -382,7 +382,7 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 				return true;
 			}
 			for (const id of next.meters) session.meters[id] = 0;
-			const reels = reelsModes[next.mode];
+			const reels = Object.hasOwn(reelsModes, next.mode) ? reelsModes[next.mode] : undefined;
 			if (next.mode === host.freeSpinsMode || reels) {
 				host.startFreeSpins(events, round, {
 					occurs: 0,

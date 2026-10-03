@@ -126,8 +126,9 @@ export const reelsModes = (
 	return events.map((e) => {
 		if (e.event === 'spinTrigger') {
 			const key = (e.context as { bonus?: unknown } | undefined)?.bonus;
-			const named = isText(key) ? overlay.bonuses[key] : undefined;
-			mode = named !== undefined && overlay.modes[named] ? named : undefined;
+			const named =
+				isText(key) && Object.hasOwn(overlay.bonuses, key) ? overlay.bonuses[key] : undefined;
+			mode = named !== undefined && Object.hasOwn(overlay.modes, named) ? named : undefined;
 		}
 		return mode;
 	});

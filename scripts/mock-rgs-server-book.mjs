@@ -114,6 +114,12 @@ const SPECIAL_WEIGHTS = {
 const TOTAL_FS = 10;
 /** Extra free spins awarded when 3+ SCAT land during a free spin (retrigger). */
 const RETRIGGER_FS = 10;
+/**
+ * The most spins an imported reels mode's round may reach through retriggers. Its spins are drawn
+ * from its cosmetic padding strips, which can stack scatters far denser than a real reel set — one
+ * measured round chained 111 retriggers into the facade's play guard and never ended.
+ */
+const MAX_STRIPS_ROUND_SPINS = 50;
 
 function hashStr(s) {
 	let h = 2166136261 >>> 0;
@@ -756,12 +762,15 @@ export function createMockRgs(opts = {}) {
 						round.bonus.played += 1;
 						round.bonus.left -= 1;
 						// RETRIGGER: 3+ SCAT (the Book) landing DURING a free spin awards +10
-						// more free spins, added to the remaining count (unlimited chaining).
+						// more free spins, added to the remaining count (unlimited chaining, except
+						// an imported reels mode's round: MAX_STRIPS_ROUND_SPINS).
 						// Only the scatter retriggers — the special expanding symbol never does.
 						// Emitted BEFORE playedBonusSpin so the counter (total = played + left)
 						// already reflects the new total on this spin.
 						const retrig = evaluateScatterTrigger(reels);
-						if (retrig && retrig.count >= 3) {
+						const capped =
+							round.bonus.strips && round.bonus.total + RETRIGGER_FS > MAX_STRIPS_ROUND_SPINS;
+						if (retrig && retrig.count >= 3 && !capped) {
 							round.bonus.left += RETRIGGER_FS;
 							round.bonus.total += RETRIGGER_FS;
 							events.push({

@@ -941,6 +941,28 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Recent changes
 
+- 2026-10-03 — **Hub parity review of #1027 (imported free spins): parity holds; two follow-ups.**
+  - **Parity:** an independent review found a game with no own `reels` mode, no
+    `potsOverlay.modes` and no `mode` on `freeSpinTrigger` / `freeSpinEnd` plays exactly as on
+    `main`.
+    - Evidence: `check:freespins` / `check:holdandwin` hashes identical; 566 facade-level records
+      identical apart from round ids; a real-clock Book-of run with an identical 592-entry flow trace
+      and the same balances.
+    - Clearing the book special at a free-spin end changes nothing for a plain book game: it is local
+      to one response, and nothing follows `gameEnd`.
+  - **Fixed — the mock no longer chains an imported mode's retriggers forever.** Its spins come from
+    cosmetic padding strips, which can land a scatter on every reel: one round chained 111
+    retriggers into the facade's play guard and never ended. A round dealt from `strips` now stops
+    retriggering at 50 spins (`MAX_STRIPS_ROUND_SPINS`, `mock-rgs-server-book.mjs`); every other
+    free-spin round chains as before. Pinned in `check:pots-overlay` §4.
+  - **Fixed:** the facade's bonus-to-mode lookup and the mock's reels-mode lookup use
+    `Object.hasOwn`, so a mode named like an `Object` property (`constructor`) is never matched.
+  - **Decided (no change):** "own reels mode" covers a hand-authored `reels` mode from `/config` →
+    Modes, not only an imported one, as open item 00 planned ("a free-spins or authored reels
+    mode"). A pot routed to such a mode now plays free spins on its strips, where `main` dealt a
+    `modeEnter` / `modeExit` stub, and the mode reads as a free game (`isFreeGame`, feature
+    background, music). The live partner never sends that mode.
+
 - 2026-10-03 — **Open item 00: import free spins as a reels mode** (branch
   `claude/pots-overlay-reels-import`, session "Pots overlay Phase 7 — bonus import from another
   project"). The source's free spins arrive as a mode of the project's own (`freeSpins_2` on
