@@ -4,15 +4,16 @@
 > [status/hold-and-win](hold-and-win.md) · Guide: [add-pots-overlay](../guides/add-pots-overlay.md) · Agents: per phase — see the
 > design's build plan.
 
-**One-line state:** Phases 0–5 merged (2026-10-02): #1008, #1013, #1012, #1015 (4a), #1010, #1009,
-#1014 and #1011. A Book-of project can switch the pots overlay on in `/config`. The mock deals it, and
-the shared runtime draws tokens over the host's symbols, flies them into the pots and starts each pot's
-bonus. The overlay screens, Flow steps, symbol states and Win Text are authorable. A project without the
-block, which is every live project today, plays exactly as before. Phase 6 is merged (#1017): the
-Game Maker "＋ Pots overlay" add-on, coins-only overlays, the guide and the playbook. **4b** is built
-and in review (#1019): each token flies as its own flight's head, a per-reel timing option, the
-overlay Flow actions, and a pot that always drains. Next: the owner makes `borut-pots-sample` (Owner
-checklist 2).
+**One-line state:** Phases 0–6 merged (2026-10-02/03): #1008, #1013, #1012, #1015 (4a), #1019 (4b),
+#1010, #1009, #1014, #1011 and #1017 (6). A Book-of project can switch the pots overlay on in
+`/config`, or in one click from Game Maker ("＋ Pots overlay"). The mock deals it. The shared runtime
+draws tokens over the host's symbols (after the stop, or reel by reel), flies each token as its own
+flight head into its pot, drains the pot and starts its bonus (Hold and Win, or the host's free
+spins). Overlays may be pots-only, coins-only or both. The overlay screens, Flow steps (including
+`showTokens` / `liftTokens` / `drainPots`), symbol states and Win Text are authorable. A project
+without the block, which is every live project today, plays exactly as before. Next: the owner makes
+`borut-pots-sample` (Owner checklist 2); then Phase 7 (import a bonus from another project); Phase 8
+waits on the partner.
 
 ## How sessions use this file (the hub)
 
@@ -39,7 +40,7 @@ session is the Claude Code session titled **"3 pots overlay mechanic"**.
 | 1 | Contract: `potsOverlay` config block + validator + presets + `resolveMeters` + additive `kindCapabilities` inputs | merged | 3 pots overlay mechanic | #1008 |
 | 2 | Mock — composed protocol (`withPotsOverlay` over book, reusable H&W feature generator, free-spin hook, forced beats, wire doc, `check:pots-overlay`) | merged | Pots overlay Phase 2 — composed mock | #1013 |
 | 3 | Facade + engine event contract (`overlayDrop`, mode-entry `cause`/`meters`, per-bonus routing, pots at boot for any kind) | merged | Pots overlay Phase 3 — facade + event contract | #1012 |
-| 4 | Engine runtime (overlay layer, timing, lift-off flights, drain on any mode entry, H&W from an overlay host, resume) | 4a merged; 4b built, in review | Pots overlay Phase 3 — facade + event contract | 4a: #1015, 4b: #1019 |
+| 4 | Engine runtime (overlay layer, timing, lift-off flights, drain on any mode entry, H&W from an overlay host, resume) | merged | Pots overlay Phase 3 — facade + event contract | 4a: #1015, 4b: #1019 |
 | 5a | `/config` Add-ons section | merged | Pots overlay Phase 5a — /config Add-ons | #1010 |
 | 5b | Scene Editor overlay screens + palette/pickers through the capability | merged | Pots overlay Phase 5b — Scene Editor overlay screens | #1009 |
 | 5c | Flow vocabulary composition (editor, publish gate, runtime) + graft | merged | Pots overlay Phase 5c — Flow vocabulary composition | #1014 |
@@ -729,6 +730,24 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 - **The partner's RGS** for production play (Phase 8). Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-03 — **Hub: second wave merged** (session "3 pots overlay mechanic"). The owner said
+  "merge when green"; the hub merged each PR once its independent `code-reviewer` should-fixes had
+  landed and CI was green on the head.
+  - **#1017 (Phase 6)** merged first, as a9a0aca. The hub review's five fixes landed in 19a7b20:
+    - refuse while another session holds a lease on a target doc;
+    - a re-run never revives a deleted screen or duplicates a Pot Meter;
+    - only clean presets are offered, with readable errors;
+    - corrupt or wrong-shaped docs are left byte-unchanged;
+    - all of it is pinned in `check:pots-overlay-add-on`.
+  - **#1019 (4b)** merged second, as 9247a0b, after merging main in. The review found no blocker;
+    parity held (the Borut reference flow, same seed: the same 1,212-line flow trace, 2,030
+    broadcasts and `flyTo` records as `main`). Its two should-fixes landed in 7a180a5:
+    - a pot always drains, even when a flow owns the bonus entry without `drainPots` (the play seam
+      plays the coded drain first; `holdAndWinTrigger` excluded, so no double drain);
+    - one beat and one land sound per drop cell.
+    The nits (shared `beat` helper, seat-scaled token head) went in too; the two per-reel timing
+    points are on the human-eyes list in Open items.
 
 - 2026-10-02 — **Phase 4b: the token flies as its own head, per-reel timing, overlay Flow actions
   (#1019).** Details under Decisions. Agent rule 7: built in this session on the
