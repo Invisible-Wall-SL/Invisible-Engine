@@ -14,8 +14,15 @@ Every tool below is a full-page tool in the launcher at `app.invisiblewall.org` 
 ## 1. Make a copy — Invisible Game Maker
 
 **Do:** open `/game-maker`, click **Duplicate…** on Book of Borut, give the copy a new name and key
-(the sample uses `borut-pots-sample`), and keep **Game setup only**.
+(the sample uses `borut-pots-sample`), and set **What to copy** to **Everything**.
 Guide: [Duplicate](../tools/game-maker.md#duplicate-reskin-for-another-client).
+
+**Why Everything:** **Game setup only** copies no art, sounds or fonts. Its copy plays on
+placeholder art, and everything that used Borut's art draws blank. Everything copies Borut's art,
+sounds and fonts too, and the copy starts unpublished.
+
+**Goes wrong:** a copy of more than 4000 files is refused, and nothing is written. Borut's published
+versions are not copied and do not count.
 
 **Never add the overlay to a live game.** The add-on writes the project's Game Config at once, and
 the next Publish ships it to players.
@@ -30,8 +37,8 @@ its special)**, leave the Flow checkbox off, and click **Add**. Read the report,
 
 It adds the overlay and a Hold and Win bonus to the Game Config, placeholder art for the tokens and
 the bonus's symbols, and the Pots, Jackpot bar and feature screens to the layout. It never
-overwrites anything you authored. The game is playable from here: every overlay beat has a built-in
-default.
+overwrites anything you authored. A copy made with **Everything** is playable from here, with
+Borut's own art: every overlay beat has a built-in default.
 
 **Goes wrong:**
 

@@ -24,11 +24,26 @@
  * ## What `setup` vs `full` means
  *
  * `setup` copies the AUTHORING docs only — the game itself (scenes, flow, config, symbols, win text,
- * strings, components). It is small, fast, and the right default for a reskin: the duplicate keeps
- * the game and you point it at new art. `full` additionally copies the asset folders (`input/`,
- * `atlas/`, `sheets/`, `spines/`, `fonts/`, `deploy/`, `cinematics/`, `manifests/`), so the copy
- * plays immediately and you replace art in place. `full` can be thousands of objects, which is why
- * it is capped rather than silently truncated.
+ * strings, components) and NO art, sounds or fonts. Every asset reference is still re-based onto the
+ * copy's prefix, where nothing exists yet, so the copy plays on the engine's placeholder art and its
+ * placed art draws blank until the reskin's own art lands. It is small and fast, and right only when
+ * new art is coming.
+ *
+ * `full` copies the whole project prefix, so the copy plays as the source does, MINUS what describes
+ * the source's own history and would make the copy lie about its own:
+ *  - `published/` — the source's frozen snapshots and the live pointer. Copied, a player boot of the
+ *    copy would serve the SOURCE's snapshot before its own first Publish, and Game Maker would list
+ *    the source's versions as the copy's. The copy starts unpublished.
+ *  - the rolling doc backups (below).
+ *
+ * `deploy/` travels: it is not only exporter output. The Atlas Maker's Deploy writes its packed pages
+ * and TexturePacker JSON there, `findDeployedPage` (`editorRegions.ts`) prefers them over the source
+ * page, and neither Publish nor the live assemble writes them — dropped, every deployed atlas would
+ * fall back to a source page that may carry another packing. `storybook/` travels too: only
+ * `publish-storybook.mjs` writes it, so nothing would rebuild it for the copy.
+ *
+ * `full` can be thousands of objects, which is why it is capped rather than silently truncated; the
+ * cap counts only what is copied.
  */
 
 import {
@@ -51,7 +66,7 @@ export type DuplicateScope = 'setup' | 'full';
  * object, so an unbounded copy can outlive the HTTP request that started it and leave a half-copied
  * project behind. Over the cap we refuse with a countable error instead of copying part of it.
  */
-const MAX_OBJECTS = 4000;
+export const MAX_OBJECTS = 4000;
 
 /** Concurrent copies. R2 copies server-side, so this bounds request fan-out, not bandwidth. */
 const COPY_CONCURRENCY = 8;
@@ -86,11 +101,11 @@ export interface DuplicateResult {
 	skipped: number;
 }
 
-/** Raised when a `full` copy would exceed {@link MAX_OBJECTS}. Carries the count for the message. */
+/** Raised when a copy would write more than {@link MAX_OBJECTS}. Carries the count for the message. */
 export class DuplicateTooLargeError extends Error {
 	constructor(readonly objects: number) {
 		super(
-			`This project holds ${objects} files, over the ${MAX_OBJECTS}-file limit for one copy. ` +
+			`This copy would write ${objects} files, over the ${MAX_OBJECTS}-file limit for one copy. ` +
 				'Duplicate the game setup only, then move its assets across with the FTP Browser.',
 		);
 		this.name = 'DuplicateTooLargeError';
@@ -130,22 +145,26 @@ export async function planDuplicate(
 		}
 	}
 
-	// A copy starts its own history: the source's rolling doc backups describe the SOURCE, and
-	// carrying them would re-base and write every one of them (20 per doc) into the copy.
-	const backupPrefixes = [
+	// A copy starts its own history: the source's rolling doc backups and its published snapshots
+	// describe the SOURCE. Carrying the backups would re-base and write every one of them (20 per
+	// doc); carrying `published/` would hand the copy the source's live version (see the header).
+	const excluded = [
 		editorDocBackupTarget,
 		flowV2DocBackupTarget,
 		symbolsDocBackupTarget,
 		gameConfigDocBackupTarget,
 	]
 		.map((target) => target(source.clientKey, source.projectKey).prefix)
-		.concat(componentDefaultsBackupsPrefix(source.projectKey));
+		.concat(
+			componentDefaultsBackupsPrefix(source.projectKey),
+			`${SUB.published(source.clientKey, source.projectKey)}/`,
+		);
 
 	const entries: DuplicatePlanEntry[] = [];
 	const seen = new Set<string>();
 	for (const root of roots) {
 		for (const key of await listAllKeys(root.from)) {
-			if (seen.has(key) || backupPrefixes.some((prefix) => key.startsWith(prefix))) continue;
+			if (seen.has(key) || excluded.some((prefix) => key.startsWith(prefix))) continue;
 			seen.add(key);
 			entries.push({ from: key, to: root.to + key.slice(root.from.length) });
 		}
@@ -246,6 +265,13 @@ async function pooled<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[
  * storage only, so the caller owns project creation and can roll it back on failure.
  *
  * Throws {@link DuplicateTooLargeError} BEFORE writing anything when the plan is over the cap.
+ *
+ * `deploy/` is copied in a second pass. R2 stamps each copy with the time it is written, and
+ * `findDeployedPage` drops a deployed page older than its manifest when the source page is newer
+ * still. In listing order `deploy/` lands before `manifests/` and `sheets/`, so an atlas whose
+ * manifest was re-saved after its deploy, with its page under `sheets/`, showed the deployed page
+ * in the source and a page of another packing in the copy. Copied last, every deployed page stands
+ * — so an atlas re-packed in the source but not yet deployed shows its last deploy in the copy.
  */
 export async function duplicateProjectData(
 	source: { clientKey: string; projectKey: string },
@@ -255,10 +281,16 @@ export async function duplicateProjectData(
 	const plan = await planDuplicate(source, target, scope);
 	if (plan.length > MAX_OBJECTS) throw new DuplicateTooLargeError(plan.length);
 
-	const outcomes = await pooled(
-		plan.map((entry) => () => copyOne(entry, source, target)),
-		COPY_CONCURRENCY,
-	);
+	const deployRoot = `${SUB.deploy(source.clientKey, source.projectKey)}/`;
+	const copyAll = (entries: DuplicatePlanEntry[]) =>
+		pooled(
+			entries.map((entry) => () => copyOne(entry, source, target)),
+			COPY_CONCURRENCY,
+		);
+	const outcomes = [
+		...(await copyAll(plan.filter((entry) => !entry.from.startsWith(deployRoot)))),
+		...(await copyAll(plan.filter((entry) => entry.from.startsWith(deployRoot)))),
+	];
 
 	return {
 		copied: outcomes.filter((o) => o !== 'skipped').length,

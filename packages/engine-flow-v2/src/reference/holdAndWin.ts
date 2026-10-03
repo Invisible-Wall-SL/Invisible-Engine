@@ -676,7 +676,8 @@ const ACTIONS: TemplateVocabulary['actions'] = [
 				name: 'target',
 				type: STRING,
 				optional: true,
-				description: 'A layout node id, or `total` (the win meter; the default).',
+				description:
+					'A layout node id, or `total` (the default): a Total Win Bar that catches the coins, else the win meter.',
 			},
 			{
 				name: 'flight',

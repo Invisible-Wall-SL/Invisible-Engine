@@ -327,6 +327,13 @@ export const VALUE_BINDING_SOURCE_CATALOG: ValueBindingSourceEntry[] = [
 		needsParam: 'meter',
 	},
 	{
+		key: 'letter.{reel}.lit',
+		label: 'Letter lit',
+		group: 'Letter (this tile’s column)',
+		note: '1 while this column’s letter is lit, else 0.',
+		needsParam: 'reel',
+	},
+	{
 		key: 'respinsLeft',
 		label: 'Respins left',
 		group: 'Hold and Win',

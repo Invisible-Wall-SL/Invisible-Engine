@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { MainContainer } from 'components-layout';
 	import { BoardContainer } from 'engine-game';
+	import { WHEEL_MOUNT } from 'engine-layout';
 	import { isComponentMounted } from 'engine-layout/svelte';
 	import { Container } from 'pixi-svelte';
 
@@ -12,7 +13,8 @@
 	 * THE CODED PRE-FEATURE WHEEL (`holdAndWinWheel.svelte.ts`) — the wheel's art
 	 * (`HoldAndWinWheelArt`) centred on the board. Mounted in the flights band at a zIndex seat between
 	 * the flight layer and the banner (the prize banner reads over it). It steps aside while an
-	 * authored `wheel` component is mounted, which draws the same beat where the author put it.
+	 * authored Wheel is mounted (`HoldAndWinWheelPart` counts itself in whatever the copy's id), which
+	 * draws the same beat where the author put it.
 	 *
 	 * Nothing is mounted until a wheel is up, so a game that never receives `holdAndWinWheel` pays
 	 * nothing for it.
@@ -21,7 +23,7 @@
 	const radius = $derived(Math.min(layout.width, layout.height) * 0.46);
 </script>
 
-{#if stateWheel.current && !isComponentMounted('wheel')}
+{#if stateWheel.current && !isComponentMounted(WHEEL_MOUNT)}
 	<Container zIndex={1}>
 		<MainContainer>
 			<BoardContainer>

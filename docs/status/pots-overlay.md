@@ -906,8 +906,11 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
    (host feature and pot bonus in one round). Open items 2 (a) and (b) are answered.
 2. **Phase 6 — make the sample** (a session cannot sign in to the launcher). Once #1017 is merged
    and the launcher and test server have redeployed:
-   1. Game Maker → **Book of Borut** card → **Duplicate**: key `borut-pots-sample`, scope **setup**.
-      Never add the overlay to the live `bookofborutremake`.
+   1. Game Maker → **Book of Borut** card → **Duplicate**: key `borut-pots-sample`, What to copy
+      **Everything**. Never add the overlay to the live `bookofborutremake`. (**Game setup only**
+      copies no art, sounds or fonts, so the copy plays on placeholder art; see Recent changes,
+      2026-10-03.) If a `borut-pots-sample` was already made with setup, an admin deletes and then
+      purges it in `/admin` (a deleted project still holds its key), and you duplicate again.
    2. On the new `borut-pots-sample` card → **＋ Pots overlay…** → preset **3 Pots** → **Add**
       (leave "Also add the overlay steps to the Flow" unticked: the coded defaults play). Read the
       report: config added, symbols and overlay screens seeded.
@@ -945,6 +948,17 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
   optional `freeSpinTrigger.mode` and boot `potsOverlay.modes`, with no change for a game without them
   (real-clock parity: identical trace). See Decisions, "Open item 00, as built".
 
+- 2026-10-03 — **The sample is duplicated with Everything, not setup** (the hub's Duplicate fix). Owner checklist 2.1, the guide and the playbook said to Duplicate
+  Book of Borut with scope **setup**. Setup copies the authored docs only and re-points every asset
+  reference at the copy's prefix, where no art exists. Measured with `buildRuntimeBundle`, the copy
+  shipped 0 sheets, 0 spines and 0 fonts, so it played generic lines art with blank Borut nodes;
+  the owner reported "the game is broken". Corrected to **Everything** in all three. Everything now
+  leaves out the source's `published/` snapshots, so the copy starts unpublished; detail in
+  [game-maker.md](game-maker.md).
+  - Also fixed: every overlay project warned that `s.png`, `w.png` and `explodedW.png` "will render
+    blank". The shared runtime registers those built-in frames itself, and they draw. The symbols
+    export now leaves them out of `missing`, as the art export already did for regions. Pinned in
+    `check:pots-overlay-add-on` §6.
 - 2026-10-03 — **The base board returns after a pot's Hold and Win** (session "3 pots overlay
   config"). The hub reproduced this on `borut-pots-sample`. After a pot-started Hold and Win, the base
   reels were left on the feature's final board: the held coins, with `BLANK` everywhere else. An

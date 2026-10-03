@@ -16,6 +16,10 @@
 // enough for Svelte's anchors. The real `trackComponentMount` / `isComponentMounted` count it;
 // only what the pot draws (Pixi, the config) is a stand-in. A reintroduced loop throws from
 // `flushSync` here.
+//
+// ALSO (Phase 12c): mounted as a `standIn` — what `<ComponentInstance>` does when an author deleted
+// the `Pot` part from a def that `standsFor` it — the part draws no pot yet still counts in and
+// registers the `meter:<id>` anchor.
 
 import { realpathSync } from 'node:fs';
 import { createRequire, register } from 'node:module';
@@ -24,14 +28,22 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const repoFile = (path) => new URL(`../${path}`, import.meta.url).href;
 const POT_METER = repoFile('apps/lines/src/components/PotMeter.svelte');
 const MOUNTED_COMPONENTS = repoFile('packages/engine-layout/src/lib/mountedComponents.ts');
+const POT_SKIN = repoFile('packages/engine-layout/src/lib/potSkin.ts');
 
 const moduleUrl = (source) => `data:text/javascript,${encodeURIComponent(source)}`;
 const harness = 'globalThis.__potMeterHarness';
 
-/** PotMeter's imports, by specifier: everything but the mount count is a stand-in. */
+/**
+ * PotMeter's imports, by specifier: everything but the mount count and the skin reader is a
+ * stand-in.
+ */
 const STUBS = {
-	'pixi-svelte': moduleUrl('export const Container = () => {};'),
-	'./HoldAndWinPot.svelte': moduleUrl('export default () => {};'),
+	'pixi-svelte': moduleUrl(`
+		export const Container = (anchor, props) => props.children?.(anchor);
+		export const Anchor = (_, props) => { ${harness}.anchors.push(props.name); };
+	`),
+	'./HoldAndWinPot.svelte': moduleUrl(`export default () => { ${harness}.pots += 1; };`),
+	'engine-layout': moduleUrl(`export { readPotSkin } from '${POT_SKIN}';`),
 	'engine-layout/svelte': moduleUrl(`
 		import * as real from '${MOUNTED_COMPONENTS}';
 		export const getComponentParams = () => ${harness}.params;
@@ -44,6 +56,7 @@ const STUBS = {
 	'../game/holdAndWinMeters.svelte': moduleUrl(`
 		export const configuredMeters = () => ${harness}.meters.get('list');
 		export const potMeterMountKey = (id) => 'potMeter:' + id;
+		export const meterAnchor = (id) => 'meter:' + id;
 	`),
 };
 
@@ -179,7 +192,7 @@ const { default: PotMeter } = await import(POT_METER);
 
 const params = new SvelteMap([['meter', 'red']]);
 const meters = new SvelteMap([['list', [{ id: 'red' }, { id: 'blue' }]]]);
-const state = { params: { get meter() { return params.get('meter'); } }, meters, countedIn: [] }; // prettier-ignore
+const state = { params: { get meter() { return params.get('meter'); } }, meters, countedIn: [], anchors: [], pots: 0 }; // prettier-ignore
 globalThis.__potMeterHarness = state;
 
 let failures = 0;
@@ -214,6 +227,7 @@ const mountError = (() => {
 loopFree('mount: no effect_update_depth_exceeded', mountError);
 check('mount: the pot counts itself in once', state.countedIn.length === 1, `counted in ${state.countedIn.length}×`); // prettier-ignore
 check('mount: the coded pot for its meter steps aside', isComponentMounted('potMeter:red'));
+check('mount: it draws the pot, which owns the anchor', state.pots === 1 && state.anchors.length === 0); // prettier-ignore
 
 state.countedIn.length = 0;
 params.set('meter', 'blue');
@@ -248,6 +262,18 @@ check('the config declares it again: counted back in', isComponentMounted('potMe
 if (app) unmount(app);
 loopFree('unmount: no loop', settle());
 check('unmount: counted back out', !isComponentMounted('potMeter:red'));
+
+// A STAND-IN (Phase 12c): the instance of a def whose `Pot` part the author deleted mounts the part
+// with `standIn` — no pot drawn, still counted in, and the `meter:<id>` anchor on the instance.
+Object.assign(state, { countedIn: [], anchors: [], pots: 0 });
+const standIn = mount(PotMeter, { target, props: { standIn: true } });
+loopFree('stand-in: no loop', settle());
+check('stand-in: counted in as the meter\'s pot, once', isComponentMounted('potMeter:red') && state.countedIn.length === 1); // prettier-ignore
+check('stand-in: registers the meter anchor', state.anchors.join() === 'meter:red', state.anchors.join()); // prettier-ignore
+check('stand-in: draws no pot', state.pots === 0, `drew ${state.pots}`);
+unmount(standIn);
+loopFree('stand-in unmount: no loop', settle());
+check('stand-in unmount: counted back out', !isComponentMounted('potMeter:red'));
 
 console.log(failures ? `\n${failures} FAILED` : '\nall passed');
 process.exit(failures ? 1 : 0);

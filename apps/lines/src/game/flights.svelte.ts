@@ -16,6 +16,7 @@ import {
 	flightEaseOf,
 	flightPlanOptions,
 	resolveFlightStyle,
+	TOTAL_WIN_BAR_ANCHOR,
 	type FlightEase,
 	type FlightHead,
 	type ResolvedFlightStyle,
@@ -51,7 +52,7 @@ import { inUnskippablePresentation } from './unskippablePresentation';
  * and gold trail), so an unauthored game flies exactly as it did.
  */
 
-/** Where a flight starts or ends: a global point, a board cell, or a layout node id / `'total'`. */
+/** Where a flight starts or ends: a global point, a board cell, a layout node id, or `'total'`. */
 export type FlightEnd = FlightPoint | { reel: number; row: number } | string;
 
 export type FlyToOptions = {
@@ -80,7 +81,8 @@ export type FlyToOptions = {
 /** The symbol a flight carries as its head ({@link FlyToOptions.symbol}). */
 export type FlightSymbol = { name: string; value?: number; jackpot?: string };
 
-/** The win meter — `'total'` in a flight's target. */
+/** The total win — `'total'` in a flight's target: a Total Win Bar that catches the coins, else the
+ *  win meter ({@link totalTargetPoint}). */
 export const FLIGHT_TARGET_TOTAL = 'total';
 /** The `hud-win` node is the reference layout's win meter; `LabelWin`/`HudReadout` anchor it too. */
 const TOTAL_ANCHOR = 'hud-win';
@@ -225,10 +227,17 @@ const boardBottomGlobal = (): FlightPoint | undefined => {
 	return board.toGlobal({ x: width / 2, y: height });
 };
 
+/**
+ * Where `'total'` lands: an authored Total Win Bar that catches the coins (Phase 12c,
+ * `catchesCoins`), else the HUD's win meter — the only target before a bar could catch them.
+ */
+export const totalTargetPoint = (): FlightPoint | undefined =>
+	resolveAnchorPoint(TOTAL_WIN_BAR_ANCHOR) ?? resolveAnchorPoint(TOTAL_ANCHOR);
+
 const resolveEnd = (end: FlightEnd): FlightPoint | undefined => {
 	if (typeof end === 'string') {
-		const name = end === FLIGHT_TARGET_TOTAL ? TOTAL_ANCHOR : end;
-		return resolveAnchorPoint(name) ?? boardBottomGlobal();
+		const point = end === FLIGHT_TARGET_TOTAL ? totalTargetPoint() : resolveAnchorPoint(end);
+		return point ?? boardBottomGlobal();
 	}
 	if (isCell(end)) return cellGlobal(end.reel, end.row);
 	return end;

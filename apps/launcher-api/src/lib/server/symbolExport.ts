@@ -53,7 +53,7 @@ import {
 	type SymbolCell,
 	type SymbolsDoc,
 } from './symbolsStorage';
-import { parseScopedFrameRef, scopedFrameRef } from 'engine-layout';
+import { isBuiltinRegion, parseScopedFrameRef, scopedFrameRef } from 'engine-layout';
 import { mapWithConcurrency } from './concurrency';
 import { parseSpineBundleKey } from '$lib/spineBundleKey';
 
@@ -120,7 +120,8 @@ export interface SymbolExportIndex {
 	 *  packs — so they never reach the game's `loadedAssets` and the symbol renders
 	 *  blank ("… is not found in the loadedAssets"). Surfaced as a build/boot warning
 	 *  (the dangling-binding guard) so a re-authored atlas that dropped/renamed a
-	 *  bound frame is caught at publish instead of silently in-game. */
+	 *  bound frame is caught at publish instead of silently in-game. An engine BUILT-IN
+	 *  frame (`isBuiltinRegion`) is never listed: the runtime registers those itself. */
 	missing: string[];
 	/** Spine `assetKey`s the symbols doc binds (cells, highlight, board glow, anticipation, rig
 	 *  layers) that name an R2 bundle prefix which resolved to nothing — a bundle since
@@ -757,7 +758,15 @@ export async function exportEditorSymbols(
 	// reaches `loadedAssets` → the symbol renders blank in-game. Report it so a
 	// re-authored atlas that dropped/renamed the frame is caught (bake warns; the
 	// engine warns at boot) instead of surfacing only as a runtime lookup miss.
-	const missing = [...refs.frameNames].filter((f) => !coveredFrames.has(f)).sort();
+	//
+	// The engine's BUILT-IN frames are excluded, as `editorArtExport` excludes them for regions.
+	// The shared runtime registers `symbolsStatic` (`s.png`, `w.png`, `explodedW.png`, …) under bare
+	// names, so a cell bound to one — every pots overlay token and bonus symbol the add-on seeds —
+	// renders with no project atlas, and reporting it warned "will render blank" on every overlay
+	// project about art that draws.
+	const missing = [...refs.frameNames]
+		.filter((f) => !coveredFrames.has(f) && !isBuiltinRegion(f))
+		.sort();
 
 	// CANONICAL ORDER — `spines` is filled by side-effecting `push`es from concurrent tasks, so its
 	// array order is whichever bundle finished first. Nothing downstream reads that order (the game

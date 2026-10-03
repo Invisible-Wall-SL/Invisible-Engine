@@ -158,8 +158,10 @@ free-spin screens; the Free-Spin Counter and free-spin intro/outro components st
 Components list, so a hybrid game places them on screens of its own. Each pot is a **Pot
 Meter** component on the **Pots** screen, with its `meter` param naming the Game Config meter; the
 screen gets one per meter the config declares, so a preset without meters gets no Pots screen.
-Move and scale it here. Its look (bar, label) is coded, so there is no art to pick yet. While no
-Pot Meter for a meter is on screen, the game draws its built-in pot for that meter. A screen
+Move and scale it here. Its **Pot art**, **Label** and **Motion** groups skin that one pot, and
+nodes you put inside its part in the Component Editor replace the coded drawing. See
+[Skin a coded part](component-editor.md#skin-a-coded-part). While no Pot Meter for a
+meter is on screen, the game draws its built-in pot for that meter. A screen
 reaches the game only when the flow shows it. The Hold and Win starter flow shows **Jackpot bar**
 and **Pots** from the start. A project whose flow is older (scaffolded on the Book-of starter)
 also needs a **Show container** for each at load in `/flow-v2`.
@@ -808,10 +810,12 @@ game on the next **Publish** — the same trip as the rest of your art.
 
 - **Components** — the **Components** section of the Library tab lists reusable prefabs (overlays,
   UI groups, scenery), grouped by category. **Place** one to drop a component
-  instance into the active screen; instances' params are editable in Properties.
+  instance into the active screen; instances' params are editable in Properties. An instance's
+  **component** select switches the component it draws (say, a Pot Meter to your own Pot copy),
+  keeping its position and params.
   The list shows only what your project's game kind and add-ons use: the Hold and Win pieces
-  (Respin Counter, Jackpot Bar, Jackpot Tile, Total Win Bar, Pot Meter, Letters Strip, Wheel,
-  Respin Cell Tiles, Locked Row) appear only in a Hold and Win project or one whose Game Config
+  (Respin Counter, Jackpot Bar, Jackpot Tile, Total Win Bar, Pot Meter, Letters Strip, Letter Tile,
+  Wheel, Respin Cell Tiles, Locked Row) appear only in a Hold and Win project or one whose Game Config
   has a Hold and Win bonus; the Pot Meter also with the pots overlay. A screen that already holds
   one keeps drawing it.
   A **Jackpot Tile** reads `jackpot.<tier>`: the tier's prize at the current bet — for a
@@ -820,13 +824,24 @@ game on the next **Publish** — the same trip as the rest of your art.
   `platformJackpot.<tier>`, the casino platform's own jackpot in money, live. It is gated by
   `platformJackpotShow`, so it stays hidden where the operator runs none. A Jackpot Tile's
   **source** and **visibleSource** lists offer the same platform values.
+  A **Total Win Bar** draws the feature total. Turn on its **catchesCoins** and the feature end's
+  coins fly into it instead of the win meter; **landPulseScale** pulses it on each one. Both are
+  off by default.
+  A **Wheel**'s **Wheel art** group swaps its face (it turns), rim and pointer for your art. Its
+  **Labels** group restyles or hides the prize labels and the landed outline.
+  A **Letters Strip** draws Grand's letters. Its **tile** picks a component, usually your Letter
+  Tile copy, for every letter to draw as. Blank keeps the game's own letters. A param that names a
+  component is a list of your project's components that fit it: the **tile** lists those with a
+  `reel` and a `letter`, which are the Letter Tiles.
   **Respin Cell Tiles** sets the tile drawn under every respin cell (**tileImage**, **tileTint**) and
   a **gap** between cells (a share of a cell, 0–0.45, which also insets each cell's rolling
   window). Where you drop it doesn't matter: the tiles draw at the respin board's own cells. The
   Hold and Win template puts one on the **Respin board** screen; without a tile image or a gap it
   changes nothing. **Select it** to preview: the reel grid then shows every cell as an empty respin
   cell on your tile, at the gap — the respin board itself only appears in the game, during a
-  feature (**Live ↗**).
+  feature (**Live ↗**). Its **tile** picks a component, usually your Cell Tile copy, for every
+  cell to draw on instead of the **tileImage**. It lists the components with a `reel`, a `row` and
+  a `held`. The preview still shows the **tileImage**.
   **Locked Row** is what an **expanding** respin board (Game Config → Board expansion) draws over
   every cell of a row that has not opened yet (**lockedImage**, **lockedTint**). Without an image the
   game draws its own dark panel marked LOCKED. Like the tiles, where you drop it doesn't matter; the

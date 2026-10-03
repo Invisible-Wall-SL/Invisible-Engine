@@ -42,7 +42,7 @@
 </script>
 
 <script lang="ts">
-	import { Anchor, Container, createPressHold } from 'pixi-svelte';
+	import { Container, createPressHold } from 'pixi-svelte';
 	import { CanvasSizeRectangle } from 'components-layout';
 	import { getContextLayout } from 'utils-layout';
 	import { scopeMatches, scopeOf, type EventScope } from 'utils-event-emitter';
@@ -77,8 +77,8 @@
 	import { getComponentDefaults } from './registerComponentDefaults';
 	import { getSceneVisibleContext, setSceneVisibleContext } from './sceneVisibilityContext';
 	import { getBoundComponent } from './registerBoundComponents';
+	import { partStandIn } from './partStandIn';
 	import { trackComponentMount } from './mountedComponents';
-	import { RESPIN_COUNTER_ANCHOR } from './flightStyle';
 	import {
 		isTapToContinueEnabled,
 		tapSignalOf,
@@ -187,9 +187,13 @@
 	// (`isComponentMounted` — the respin counter, the pots). Only a resolved, expanding instance counts.
 	$effect(() => (allowed ? untrack(() => trackComponentMount(node.componentId)) : undefined));
 
-	// The flight anchor an authored twin of a coded part registers, as the coded part does — the
-	// respin counter, which an add-respins special's "+N" flies into. Adds no child.
-	const flightAnchor = def?.id === RESPIN_COUNTER_ANCHOR ? RESPIN_COUNTER_ANCHOR : undefined;
+	// The coded part this instance IS, once the def no longer binds it (Phase 12c — a pot drawn only
+	// with the author's own nodes, a respin counter saved before its part existed): mounted as a
+	// `standIn`, it draws nothing and still registers as that part (the pot's or the counter's flight
+	// anchor, its count), so the coded default steps aside and the flights land here. Init-stable,
+	// like the def. A def that stands for nothing, or still binds its part, mounts nothing (parity).
+	const standInName = allowed && def ? partStandIn(def) : undefined;
+	const StandIn = standInName ? getBoundComponent(standInName) : undefined;
 
 	// Param threading (§13.2 / Phase B1+B4.5): resolve the instance's effective
 	// params — def defaults ◁ PER-PROJECT defaults (the B3 sidecar the game
@@ -1119,10 +1123,10 @@
 	{#if visibilitySource}
 		<Container visible={liveVisible}>
 			{@render rendered(def.root)}
-			{#if flightAnchor}<Anchor name={flightAnchor} />{/if}
+			{#if StandIn}<StandIn standIn={true} />{/if}
 		</Container>
 	{:else}
 		{@render rendered(def.root)}
-		{#if flightAnchor}<Anchor name={flightAnchor} />{/if}
+		{#if StandIn}<StandIn standIn={true} />{/if}
 	{/if}
 {/if}

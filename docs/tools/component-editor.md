@@ -70,6 +70,12 @@ Open **Invisible Component Editor** from the launcher home. The home state shows
   - **Free-Spin Counter** — a project copy of the built-in counter (frame, **FREE SPIN**
     caption and **X OF Y** value), already wired to the engine. Swap the frame art,
     restyle the text or edit the label, then save.
+  - **Pot Meter**, **Respin Counter**, **Jackpot Tile**, **Jackpot Bar**, **Total Win Bar**,
+    **Letters Strip**, **Letter Tile**, **Wheel**, **Respin Cell Tiles** and **Cell Tile (Hold and
+    Win)** — project copies of those built-ins. Put your own nodes inside the coded part of the Pot
+    Meter, Respin Counter, Jackpot Tile, Total Win Bar, Letter Tile, Wheel or Cell Tile (see
+    [Skin a coded part](#skin-a-coded-part)). Offered in a Hold and Win project, or one whose
+    Game Config has a Hold and Win bonus; the Pot Meter also with the pots overlay.
 - **Library** — existing components grouped by category. Click a row to open it for
   editing; the `✕` button deletes it from R2 and the list. The confirm asks you to type the
   component's name, and every saved version goes with it.
@@ -419,6 +425,150 @@ Every per-tier field is empty by default, so an un-authored Win Overlay renders
 byte-identically to the built-in table. The animation + spine are consumed inside the
 overlay; the duration + sound are bridged to the out-of-tree consumers (the win gate's
 hold time and the win-level sound cues) at boot.
+
+## Skin a coded part
+
+Some built-ins draw a **coded part**: the game draws it, and the canvas shows a grey stand-in box.
+The Hold and Win **Pot Meter**, **Respin Counter**, **Jackpot Tile**, **Total Win Bar**, **Letter
+Tile**, **Wheel** and **Cell Tile** have parts you can skin.
+
+The Pot takes two ways, which you can use together.
+
+**1. Pick art on the placed pot.** Select a Pot Meter instance in the Scene Editor. Its
+**Pot art** group sets that one pot's look, so red, blue and green can each have their own art:
+
+- **pot**: the pot body.
+- **fill**: revealed by the meter's level. **fill grows towards** picks the edge it grows to:
+  **up** for liquid rising in a pot, **right** for a bar.
+- **frame**: drawn over the fill.
+- **pot from size stage 1–3**: the body from that size stage on. A stage with no image keeps the
+  one below it.
+- **width / height**: a box for every layer. Blank means each image's own size.
+
+Any pot image replaces the coded bar as a whole. The **Label** group shows or hides the level
+(`RED 3/12`) and what a full pot activates, and sets their font, colour and size. The **Motion**
+group sets the growth per size stage (0 = none) and the pulse when the pot fills (1 = none). With
+nothing set, the pot draws exactly the coded bar. The canvas shows the art, with the fill drawn
+part-full so you can see which way it grows. The labels and the size stages show only in the game.
+
+**2. Put your own nodes inside the part.** Create a component of type **Pot Meter (Hold and Win)**,
+a copy of the Pot Meter for this project. Click **Edit inside Pot ›** in the editor bar. The canvas,
+Outline and Library now work on the part's own nodes. Drop a spine, an effect, sprites or text
+there, at positions relative to the pot's centre. In the game, your nodes replace the coded bar and
+both labels. Any art picked on the instance still draws under them. The part keeps its behaviour:
+
+- It follows its meter's level.
+- It grows at each size stage and pulses when the pot fills.
+- The specials still fly into it.
+- It still counts as that meter's pot, so the game does not draw its own pot for that meter.
+
+You can also delete the **Pot** part and draw the pot entirely with your own nodes. The
+component still counts as that meter's pot, and the specials fly to the centre of your nodes. It
+no longer grows or pulses on its own. To make your nodes follow the level, use
+[Bind to value](#3b-drive-a-node-from-a-number-bind-to-value) on `meter.{meter}.level`.
+
+**↩ Back to …** returns to the component. Save it, then in the Scene Editor select each Pot Meter
+on the **Pots** screen and switch its **component** to yours in Properties. It keeps its position
+and its **meter** param.
+Do not skin the built-in **Pot Meter** itself: saving it writes the shared library (see
+[Traps](#traps)).
+
+**The Respin Counter.** Its frame, caption and value sit inside its **Counter** part. Create a
+component of type **Respin Counter (Hold and Win)** and click **Edit inside Counter ›** to restyle
+them, or add your own nodes there. The part keeps its behaviour:
+
+- The "+N" of an add-respins special flies to it.
+- It counts as the respin counter, so the game does not draw its own.
+- It pulses on every reset and "+N" when you set **pulseScale** on the instance (the game's own
+  counter uses 1.35). The default, 1, keeps it still, as it always was.
+
+Delete everything inside the part and it draws the game's own counter look, "RESPINS 3" with the
+active modifiers under it, at your position. On the **Respin counter** screen, switch the Respin
+Counter's **component** to yours.
+
+**The Jackpot Tile and Bar.** A tile's frame, caption and value sit inside its **Tile** part.
+Create a **Jackpot Tile (Hold and Win)** and click **Edit inside Tile ›** to restyle them or add
+your own nodes. The part pulses the tile when its own tier is won, if you set **winPulseScale** on
+the placement; the default, 1, keeps it still. Its tier comes from **source**: `jackpot.grand`
+pulses on a GRAND jackpot win, `platformJackpot.grand` on the platform's.
+
+The bar is four tiles. Create a **Jackpot Bar (Hold and Win)** to skin it:
+
+- Add your own frame around the tiles.
+- Restyle each tile on its placement (frame image, label, colours).
+- To use your own tile, select a tile and switch its **component** to your Jackpot Tile copy.
+
+On the **Jackpot bar** screen, switch the Jackpot Bar's **component** to yours.
+
+**The Total Win Bar.** Its frame, caption and value sit inside its **Bar** part. Create a **Total
+Win Bar (Hold and Win)** and click **Edit inside Bar ›** to restyle them or add your own nodes. Two
+settings on the placement, both off by default:
+
+- **catchesCoins** — the feature end's coins, and a swept Grand column's, fly into this bar instead
+  of the win meter. While the bar is hidden they still fly to the win meter.
+- **landPulseScale** — the bar pulses on each coin that lands (1 = still).
+
+On the **Total win bar** screen, switch the Total Win Bar's **component** to yours.
+
+**The Letters Strip and the Letter Tile.** The strip draws Grand's letters, one per reel. To skin
+them, create a **Letter Tile (Hold and Win)** and click **Edit inside Letter ›**. Inside sit the
+art and the letter for each state:
+
+- **Dim and lit art.** Pick them as the **default** of **tileImage** and **litTileImage** under
+  **Variables in use**. The strip creates each tile itself, so there is no placed tile to set them
+  on.
+- **Dim and lit letter**, styled like the game's own letters.
+
+Each node shows while its letter is dim or lit, through a [Bind to
+value](#3b-drive-a-node-from-a-number-bind-to-value) on **Letter lit** (`letter.{reel}.lit`).
+Give your own nodes the same binding. The part pulses the tile as its letter lights
+(**pulseScale**). A cue on **Letter lit** inside the tile plays on that letter only.
+
+Then create a **Letters Strip (Hold and Win)**, or select the strip on the **Letters** screen, and
+set its **tile** to your Letter Tile. Every letter then draws as your tile. Blank keeps the game's
+own letters. Swap the strip's **component** to your copy if you made one.
+
+**The Wheel.** It works like the Pot: art on the placement, nodes inside its part, or both. Pick
+the art in the **Wheel art** group of the placed Wheel's Properties:
+
+- **faceImage** turns with the spin, in place of the coloured segments.
+- **rimImage** stays put over the face.
+- **pointerImage** stays put at the top. Its bottom edge is the tip that points at the prize.
+- **artSize** sizes the face and the rim. Blank, they fill the wheel (twice its **radius**), which
+  keeps them lined up with the prize labels.
+
+Create a **Wheel (Hold and Win)** and click **Edit inside Wheel ›**. Nodes inside turn with the
+face, in place of the coloured segments. They draw over the face and under the rim. Place them
+relative to the wheel's centre. The canvas shows them still; only the game turns them.
+
+The prize labels come from the Game Config and the outline from the server's result, so they stay
+the game's. Switch them off with **showLabels** and **showLanded**, or restyle the labels in the
+**Labels** group. Decoration that should not turn, such as lights or a stand, goes beside the part
+in the component, not inside it. A cue on **Wheel — spin** or **Wheel — land** can drive it. On
+the **Wheel** screen, switch the Wheel's **component** to yours.
+
+**The Respin Cell Tiles and the Cell Tile.** The Respin Cell Tiles draw a tile under every respin
+cell. To skin them, create a **Cell Tile (Hold and Win)** and click **Edit inside Cell ›**. Inside
+sit the cell's tile and a **held** overlay, on one cell's box (120 square, centred). The game fits
+the box to every cell, shrunk by the **gap**.
+
+- **Tile and held art.** Pick them as the **default** of **tileImage** and **heldImage** under
+  **Variables in use**. The board creates each tile itself, so there is no placed tile to set them
+  on.
+- **Held.** The overlay shows while a coin holds the cell, through a [Bind to
+  value](#3b-drive-a-node-from-a-number-bind-to-value) on **held**. Give your own nodes the same
+  binding to show them only on a held cell.
+- **Pulse.** The part pulses the tile when a coin lands on its cell (**landPulseScale**; 1, the
+  default, keeps it still).
+
+A cue on **Coins land** inside the tile plays on every tile, not just the landed cell's, because one
+landing can fill several cells. Use **held** for what a single cell shows.
+
+Then create a **Respin Cell Tiles (Hold and Win)**, or select the tiles on the **Respin board**
+screen, and set its **tile** to your Cell Tile. Every cell then draws on your tile. Blank keeps the
+**tileImage**. The **gap** still applies. Selecting the tiles in the Scene Editor previews the
+**tileImage**, not your Cell Tile; see it in the Component Editor or the game. A Respin Cell Tiles
+placed inside a Cell Tile does nothing.
 
 ## Traps
 

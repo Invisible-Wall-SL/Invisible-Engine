@@ -29,7 +29,7 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
 - **The project hub is now a browsable catalogue, not a list** (2026-08-20). Three changes to the `/game-maker` "Your projects" card:
   - **Per-project profile chips** replace the old row of tool-launch buttons (Edit/Atlas/Fonts/Symbols/Localization — they duplicated the tool top bar and said nothing about the game). A **Game** row states the identity (kind · win model · board · paylines · RTP · max win · runtime bundle · mock-RGS protocol · own-config-vs-template) and a **Using** row lists the optional mechanics actually switched on (wild/scatter/multiplier symbols, cascade, multiplier collect, expanding book, buy feature, ante, stacked pictures, win line + full-payline trace, per-line colours, win replay + dim/hold, highlight, board glow, book VFX, anticipation, explosion states, named symbols, big-win tiers, escalation). Built by `src/lib/server/gameProfile.ts`, which is **a data table of detectors over one `ProfileContext`** — a new mechanic is one entry there, no page/loader edit — deliberately so a shipped optional feature can't stay invisible on the hub. Costs **two extra R2 reads per project** (the Game Config + the Symbols doc); everything else was already loaded. One trap encoded: the special-property gate is "on the strips **OR** has a paytable", not `symbolsInPlay` alone — the reference `lines` wild `W` is dictionary+paytable and never on a *cosmetic* padding strip, so the strips-only gate reported "no wild" for a game that plainly has one.
   - **Filter / sort / group** toolbar — search (matching the profile chips too, so "stacked"/"cluster" finds the games that use them), client + game-type + status (incl. *Engine stale*) filters, four sort orders, and **group by client** on by default.
-  - **Duplicate** (`POST /api/game-maker/duplicate` + `src/lib/server/projectDuplicate.ts`) — copy a game onto a new key in the same or another client, for reskins. Two scopes: `setup` (authoring docs only — fast, art comes later) and `full` (asset folders too, capped at 4000 objects and refused rather than truncated over it). **Two roots are copied, not one**: `<client>/<project>/` AND `editor/<projectKey>/` (components + component-defaults live outside the project prefix; missing them yields scenes referencing prefabs that only exist for the source). Every `.json` body is **re-based** on the way across (project R2 prefix, component root, and the self-naming `projectKey`/`output_prefix` fields, matched by field name so a project key that is also a symbol id or a word in a string is never touched) — a byte copy would leave the duplicate silently reading the *source's* assets. Gated like Create (any `gameMaker` holder) + access to the source; the new project row is rolled back if the copy throws. Verified offline over the real modules (profile rendering for lines/ways/scatter/no-config, plan + rebase fixtures).
+  - **Duplicate** (`POST /api/game-maker/duplicate` + `src/lib/server/projectDuplicate.ts`) — copy a game onto a new key in the same or another client, for reskins. Two scopes: `setup` (authoring docs only, NO art, sounds or fonts — the copy plays on placeholder art and its placed art draws blank until new art lands; the dialog and the result message say so) and `full` (the whole project prefix except the source's `published/` snapshots + pointer and the doc backups, so it starts unpublished; `deploy/` copied last; capped at 4000 COPIED objects and refused before writing over it). **Two roots are copied, not one**: `<client>/<project>/` AND `editor/<projectKey>/` (components + component-defaults live outside the project prefix; missing them yields scenes referencing prefabs that only exist for the source). Every `.json` body is **re-based** on the way across (project R2 prefix, component root, and the self-naming `projectKey`/`output_prefix` fields, matched by field name so a project key that is also a symbol id or a word in a string is never touched) — a byte copy would leave the duplicate silently reading the *source's* assets. Gated like Create (any `gameMaker` holder) + access to the source; the new project row is rolled back if the copy throws. Verified offline over the real modules (profile rendering for lines/ways/scatter/no-config, plan + rebase fixtures).
 
 - **＋ Pots overlay — an add-on on an existing project** (2026-10-02, pots overlay Phase 6). A card action (and a checkbox on Create) merges a pots overlay preset (`threePots`, `potsToFreeSpins`, `coinsOnly`) into the project's Game Config through game-config's `addPotsOverlay`, then seeds, CREATE-ONLY, what a playable overlay needs: placeholder `/symbols` art for every token and Hold and Win bonus symbol, and the overlay screens merged into the layout (the Scene Editor's "＋ Add overlay screens", server-side). The Flow graft is opt-in, and Win Text is deliberately left at its coded defaults. `POST /api/game-maker/add-on` + `src/lib/server/projectAddOn.ts`; each doc is its own conditional write, a lost race is reported per part, and the action is safe to re-run. Rules and decisions: [status/pots-overlay.md](pots-overlay.md); guide: [add-pots-overlay.md](../guides/add-pots-overlay.md).
 - **Import a bonus from another project / Re-sync** (2026-10-03, pots overlay Phase 7, #1022). On a project with a pots overlay, a card action copies one feature of another project of the SAME client (today a Hold and Win only) into it as the bonus its pots start: the Game Config feature with its provenance (`imports`) and a stored rename map, the `/symbols` art (source spines promoted to `_shared/spines/imported/<project>/<source>/…` so they ship), the mode's screens, its Flow section and its Win Text lines. The overlay's own Hold and Win bonus is replaced only when asked. **Re-sync <mode> from <project>…** copies it again and overwrites only the imported pieces. `POST /api/game-maker/import` + `src/lib/server/projectBonusImport.ts`, mirroring the add-on's writes (leases, `If-Match`, per-part report); the source is only read. Rules and decisions: [status/pots-overlay.md](pots-overlay.md); guide: [game-maker.md](../tools/game-maker.md).
@@ -59,11 +59,46 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
 - Bulk republish against real projects: the progress panel (bar, per-game states), a desktop-built game reported as *skipped*, **Stop after this game**, re-attach after navigating away, and the stale badges clearing when the run finishes. The walk's semantics (order, skip-vs-fail, cancel, timing) are covered offline over the real `publishAllRunner` module.
 - On-screen Pixi render / boot-order timing for the runtime boot is owner-confirm only (headless gate PASSED).
 - Publish pin fix: rebuild a non-active project → selection lands on it (owner verify owed).
+- A `full` Duplicate against real R2 (the `borut-pots-sample` copy of the Borut remake): under the
+  cap, no Published versions on the new card, Borut's art drawing, no "will render blank" warning.
+  Verified offline (`check:project-duplicate`), not live.
 
 ## Recent changes
 - 2026-10-03 — **Import a bonus: free spins too** (pots overlay open item 00). A source's free spins
   or reels mode imports as a mode of this project's own (`freeSpins_2`) on its own strips; screens
   and Flow re-tagged, Win Text untouched. Detail: [status/pots-overlay](pots-overlay.md).
+- 2026-10-03 — **Duplicate: `full` starts unpublished, `setup` says it copies no art**
+  (the pots overlay hub's Duplicate fix). The pots overlay checklist sent the owner to a `setup` copy of
+  Book of Borut, which shipped 0 sheets, 0 spines and 0 fonts (every reference re-based onto a
+  prefix with no art). That copy looked broken. Detail in
+  [pots-overlay.md](pots-overlay.md) Recent changes.
+  - **`full` no longer copies `published/`.** It used to take the source's snapshots and live
+    pointer, so before its own first Publish a player boot of the copy would serve the SOURCE's
+    snapshot, and the card listed the source's versions. The doc backups stay excluded. The 4000
+    cap counts only copied objects, so up to 5 snapshots (~240 files each for the Borut remake) no
+    longer push a project over it.
+  - **`deploy/` still travels, by evidence.** The Atlas Maker's Deploy writes packed pages and
+    TexturePacker JSON there; `findDeployedPage` prefers them over the source page, and neither
+    Publish nor the live assemble writes them (the exporter subtrees are regenerated, those are
+    not). The gate shows the copy's atlas reading its page from the copied deploy, and another
+    page without it. `storybook/` travels too: only `publish-storybook.mjs` writes it, so nothing
+    would rebuild it for the copy.
+  - **`deploy/` is copied last.** R2 stamps a copy with its write time, and in listing order
+    `deploy/` landed before `manifests/` and `sheets/`. So an atlas whose manifest was re-saved after
+    its deploy, with the page under `sheets/` (the test6 Flipbook → Atlas Maker case), resolved to
+    its deployed page in the source and to the source page, of another packing, in the copy.
+    Trade-off: an atlas re-packed in the source but not deployed shows its last deploy in the copy
+    (Deploy it there).
+  - **`setup` is honest in the UI.** The option reads "Game setup only (no art, sounds or fonts)".
+    The note says the copy plays on placeholder art and the original's art draws blank, and the
+    result message repeats it. No third "game + art" scope: without `deploy/` it would lose the
+    deployed pages, and with it, it is `full` minus a few folders, a third folder list to keep in
+    step with every tool.
+  - **Symbols export:** built-in frames (`isBuiltinRegion`) are no longer reported in `missing`,
+    which ended the false "will render blank" warning on every pots overlay project.
+  - Gates: new `pnpm --filter launcher-api check:project-duplicate` (per-scope folders, no
+    `published/` or backups, unpublished copy via the real `currentPointer`, rebase, cap counting,
+    `deploy/` evidence and order); `check:pots-overlay-add-on` §6 (the real `exportEditorSymbols`).
 - 2026-10-03 — **Import a bonus / Re-sync** (pots overlay Phase 7, #1022). The card actions and
   `POST /api/game-maker/import` (above); gate `check:bonus-import`.
 - 2026-10-02 — **＋ Pots overlay add-on** (pots overlay Phase 6, #1017). The card action, the
