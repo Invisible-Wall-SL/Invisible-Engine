@@ -1,3 +1,4 @@
+import { applyOverlayEvent, emptyOverlayState } from 'engine-game';
 import { roundSkip } from 'utils-shared/skipToken';
 
 import { playSymbolLandSound } from './soundBindings';
@@ -24,9 +25,11 @@ import type { BookEventOfType } from './typesBookEvent';
  * waits for it alone.
  */
 export const presentOverlayDrop = async (event: BookEventOfType<'overlayDrop'>) => {
-	const keys = event.cells.map(({ reel, row }) => overlayTokenKey(reel, row));
-	event.cells.forEach((cell, i) => {
-		if (!shownWithItsReel(keys[i])) playSymbolLandSound(cell.token, 1);
+	// One token per cell, the last named, as the play seam recorded them.
+	const tokens = applyOverlayEvent(emptyOverlayState(), event).tokens;
+	const keys = tokens.map(({ reel, row }) => overlayTokenKey(reel, row));
+	tokens.forEach((token, i) => {
+		if (!shownWithItsReel(keys[i])) playSymbolLandSound(token.token, 1);
 	});
 	await roundSkip.race(
 		Promise.all(

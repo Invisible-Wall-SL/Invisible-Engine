@@ -719,8 +719,10 @@ change.
 - **Hold and Win** adds the whole Hold and Win vocabulary described in the section above.
 
 Nothing here has to be authored. An overlay event you leave unwired plays with the game's coded
-default, so the game runs without a flow edit. A flow that owns `freeSpinTrigger` or `modeEnter`
-skips the coded drain, so add `drainPots` to that chain.
+default, so the game runs without a flow edit. A pot always drains as the mode it started begins:
+when your flow owns `freeSpinTrigger` or `modeEnter` and that chain has no `drainPots`, the game
+plays the drain before your chain runs. Put `drainPots` on the chain only to place the drain
+yourself, for example after an intro.
 
 **＋ Add overlay steps.** This toolbar button shows only when the Game Config has one of these
 blocks. It adds the steps your flow does not have yet:

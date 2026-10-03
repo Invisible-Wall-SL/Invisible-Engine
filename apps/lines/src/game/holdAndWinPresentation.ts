@@ -66,7 +66,7 @@ import {
 import { hideWheel, showWheel, spinWheelTo, wheelSegments } from './holdAndWinWheel.svelte';
 import { armLuckySpinReveal } from './luckySpin';
 import { playSymbolLandSound } from './soundBindings';
-import { stateGame } from './stateGame.svelte';
+import { getSymbolSeat, stateGame } from './stateGame.svelte';
 import { meterLevelBefore, stateHoldAndWin, stateHoldAndWinShown } from './stateHoldAndWin.svelte';
 import { leavingToken, liftToken, overlayTokenSymbol } from './stateOverlay.svelte';
 import {
@@ -341,7 +341,12 @@ export const presentMeterUpdate = async (event: Beat<'meterUpdate'>) => {
 				meterAnchor(event.meter),
 				meterFlight(event.meter),
 				token
-					? { index, symbol: overlayTokenSymbol(token), onStart: () => liftToken(token) }
+					? {
+							index,
+							symbol: overlayTokenSymbol(token),
+							symbolScale: getSymbolSeat(token.reel, token.row).scale,
+							onStart: () => liftToken(token),
+						}
 					: { index },
 			);
 			unlight();

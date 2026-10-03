@@ -117,6 +117,20 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
       flow that presents the fill its own way (`fillMeter` already flies each off as its head).
     - `drainPots` (`freeSpinTrigger` / `modeEnter`) — the coded drain of the pots that started the
       mode; an entry no pot started drains nothing. Hold and Win's `showRespinBoard` drains its own.
+  - **A pot always drains** (the hub's review of #1019). When a v2 flow owns a pot-started
+    `freeSpinTrigger` / `modeEnter` (the `potsToFreeSpins` preset's case) and the chain it runs has
+    no `drainPots`, the play seam plays `presentMeterConsume` before dispatching (`playBook`'s new
+    optional `beforeFlowOwnedEvent`). The test is `signalChainCallsAction` (engine-flow-v2): the
+    exec chain from the signal's `event` nodes and `gameSignals` pin, in the scope the runtime
+    picks (the active mode's graph when it handles the signal), a group counting whole; a call into
+    the function library is not followed. Pinned by `check:flow-publish-gate` §11. A Hold and Win
+    entry is not covered: its drain is `showRespinBoard`'s, and a flow that owns
+    `holdAndWinTrigger` without that beat shows none.
+  - **One token per cell in the drop beat too:** `presentOverlayDrop` reads the drop through the
+    reducer (last named wins), so a cell named twice arms its beat and plays its sound once.
+  - **A token keeps its size as it lifts off:** the head is drawn at the cell's seat scale
+    (`flyTo`'s `symbolScale`), so a perspective board's token does not jump. It keeps that size all
+    the way to the pot.
   - **The graft** now adds `overlayDrop` → `showTokens` beside `meterUpdate` → `fillMeter`. It is
     still idempotent and never touches an authored node. The Hold and Win starter flow with an
     overlay gains only the `overlayDrop` chain.
@@ -607,7 +621,11 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
      The facade emits it there; a partner wire that sends drops in a later request would show them
      after the stop.
    - **Human eyes** on token pop-in (both timings), the token flights and the drain with REAL token
-     art, at full frame rate (the container renders at ~4 fps).
+     art, at full frame rate (the container renders at ~4 fps). Two things to judge (the hub's
+     review of #1019, no code yet):
+     - per-reel tokens appear at the reel's stop beat (`onSpinFinishing`, the start of its bounce),
+       so the strip is still settling under a token already at rest;
+     - tokens on stopped reels sit above the anticipation dim and are not darkened with them.
 
 1. **Phase 6 is next.** Phases 2–5 are merged, so it can start beside 4b. Besides its own scope
    (design §6), it takes the Phase 6 items below and these:

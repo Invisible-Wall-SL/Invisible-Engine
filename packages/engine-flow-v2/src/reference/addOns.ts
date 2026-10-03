@@ -15,7 +15,7 @@
 import { flowGraphs, graphHandlesSignal } from '../runtime';
 import type { FlowDoc, Graph, TemplateVocabulary, TypeRef } from '../types';
 import { buildEntryGraph, holdAndWinModeGraph, seedContainerRefs } from './drivenSeed';
-import { HOLD_AND_WIN_FRAGMENT } from './holdAndWin';
+import { beat, HOLD_AND_WIN_FRAGMENT } from './holdAndWin';
 import { trig, type ChoreoStep } from './bookOfChoreo';
 import { HOLD_AND_WIN_BASE_CHOREO } from './holdAndWinChoreo';
 import { INT, SYMBOL, insertAfter, type VocabFragment } from './standardVocab';
@@ -39,20 +39,7 @@ const pick = <T extends { name: string }>(entries: readonly T[], names: readonly
 		return entry;
 	});
 
-const BOOK_EVENT: TypeRef = { t: 'struct', name: 'BookEvent' };
-
-/** An overlay beat fed the event it presents — the Hold and Win beats' shape. */
-const overlayBeat = (name: string, events: string): TemplateVocabulary['actions'][number] => ({
-	name,
-	params: [
-		{
-			name: 'bookEvent',
-			type: BOOK_EVENT,
-			description: `The ${events} event this beat presents: on its chain, set accessor $trigger with no field. Any other event is refused.`,
-		},
-	],
-	category: 'command',
-});
+const drainPots = beat('drainPots', 'freeSpinTrigger');
 
 /**
  * The overlay's own beats, each the coded presentation `apps/lines` plays:
@@ -60,12 +47,20 @@ const overlayBeat = (name: string, events: string): TemplateVocabulary['actions'
  * - `liftTokens` — a pot's tokens leave their cells at once, without flying, for a fill presented
  *   another way (`fillMeter` flies each off as its own flight leaves);
  * - `drainPots` — the pots that started a free-spin or generic mode drain, as the coded entry does
- *   (Hold and Win's `showRespinBoard` drains its own).
+ *   (Hold and Win's `showRespinBoard` drains its own). An owned entry whose chain has no `drainPots`
+ *   still drains: the game plays the coded drain before the flow runs it.
  */
 const OVERLAY_ACTIONS: TemplateVocabulary['actions'] = [
-	overlayBeat('showTokens', '`overlayDrop`'),
-	overlayBeat('liftTokens', '`meterUpdate`'),
-	overlayBeat('drainPots', '`freeSpinTrigger` or `modeEnter`'),
+	beat('showTokens', 'overlayDrop'),
+	beat('liftTokens', 'meterUpdate'),
+	{
+		...drainPots,
+		params: drainPots.params.map((param) => ({
+			...param,
+			description:
+				'The `freeSpinTrigger` or `modeEnter` event this beat presents: on either chain, set accessor $trigger with no field. Any other event is refused.',
+		})),
+	},
 ];
 
 /**

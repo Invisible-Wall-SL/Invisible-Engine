@@ -114,7 +114,11 @@
 			</Container>
 		{/if}
 		{#if flight.phase === 'flying' && flight.symbol}
-			<Container x={flight.head.x} y={flight.head.y} scale={flight.scale}>
+			<Container
+				x={flight.head.x}
+				y={flight.head.y}
+				scale={flight.scale * (flight.symbolScale ?? 1)}
+			>
 				<Symbol state="flyToMeter" rawSymbol={flight.symbol} />
 			</Container>
 		{/if}

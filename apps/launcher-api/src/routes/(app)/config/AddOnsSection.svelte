@@ -296,10 +296,10 @@
 	}
 
 	/** After the stop is the default, which a doc never stores. */
-	const setTiming = (overlay: PotsOverlay, value: string) => {
+	function setTiming(overlay: PotsOverlay, value: string) {
 		if (value === 'perReel') overlay.timing = 'perReel';
 		else delete overlay.timing;
-	};
+	}
 </script>
 
 {#snippet issueLines(list: GameConfigIssue[])}

@@ -69,6 +69,9 @@ export type FlyToOptions = {
 	/** A symbol that IS the head, in place of the kind's authored or coded one (a pots overlay's
 	 *  token flying into its pot), drawn in its `flyToMeter` state. The trail stays the kind's. */
 	symbol?: FlightSymbol;
+	/** The {@link symbol}'s size where it rests, × a board cell (a perspective board's seat scale), so
+	 *  a token keeps its size as it lifts off. Absent ⇒ 1. */
+	symbolScale?: number;
 	/** Called once, as the head leaves its start (after its stagger), or at once when it cannot fly —
 	 *  so the thing it carries leaves its cell then, not when the volley is set up. */
 	onStart?: () => void;
@@ -116,6 +119,8 @@ export type ActiveFlight = {
 	label?: string;
 	/** The symbol that is the head ({@link FlyToOptions.symbol}). */
 	symbol?: FlightSymbol;
+	/** {@link FlyToOptions.symbolScale}. */
+	symbolScale?: number;
 	/** The trail: `'coded'` (the gold glow), the id of an authored effect the bundle carries, or
 	 *  `null` (none). An id, not the doc: this list is deep `$state`, and an emitter config must not
 	 *  be proxied. */
@@ -324,6 +329,7 @@ export const flyTo = (
 			...(style.head ? { headStyle: style.head } : {}),
 			...(options.label ? { label: options.label } : {}),
 			...(options.symbol ? { symbol: { ...options.symbol } } : {}),
+			...(options.symbolScale !== undefined ? { symbolScale: options.symbolScale } : {}),
 			...trailOf(style),
 			...(style.arrival ? { arrivalEffectId: style.arrival.effectId } : {}),
 			arrivalDone: !style.arrival,

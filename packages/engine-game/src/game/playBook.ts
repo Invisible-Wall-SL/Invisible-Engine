@@ -88,6 +88,13 @@ export type PlayBookDeps<TWins> = {
 	 * as the coded one does.
 	 */
 	modes?: Pick<ModeController, 'before' | 'after' | 'reset' | 'restore'>;
+
+	/**
+	 * What the game plays BEFORE a v2 flow drives an event it owns, for a beat the game guarantees
+	 * whoever presents the event (a pot's drain as the mode it started begins, unless the flow's own
+	 * chain plays it). Optional: a game without it dispatches owned events exactly as before.
+	 */
+	beforeFlowOwnedEvent?: (bookEvent: BookEvent) => Promise<void>;
 };
 
 /**
@@ -122,6 +129,7 @@ export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 		trackCascadeStep,
 		recordBookEvent,
 		modes,
+		beforeFlowOwnedEvent,
 	} = deps;
 
 	const coded = createPlayBookUtils({ bookEventHandlerMap });
@@ -286,6 +294,7 @@ export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 			// Confirm which path drove the event — v2 is a PARITY repro of v1 so it looks identical on
 			// screen; this console line is how you verify v2 (not v1/coded) actually handled it.
 			if (import.meta.env.DEV) console.info(`[flow-v2] drove '${bookEvent.type}'`);
+			await beforeFlowOwnedEvent?.(bookEvent);
 			// Pass the whole event as the trigger + the surrounding book list as `$context.bookEvents`
 			// (the `reveal` mechanic reads it for the bonus-game check), matching the coded handler's args.
 			await v2.dispatch(bookEvent.type, bookEvent as unknown as Record<string, unknown>, {
