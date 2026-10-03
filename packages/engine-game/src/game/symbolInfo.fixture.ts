@@ -130,6 +130,26 @@ console.log('\na symbol or state with no art renders NOTHING — it never takes 
 	);
 }
 
+console.log('\nthe no-art warning says what the cell draws instead');
+{
+	const warned: string[] = [];
+	const warn = console.warn;
+	console.warn = (message: string) => warned.push(message);
+	try {
+		const map = createSymbolMap({ codedMap: CODED, bakedMap: () => undefined });
+		const info = createSymbolInfo({
+			symbolMap: map,
+			drawsPlaceholder: (name) => name === 'POT_RED',
+		});
+		for (const name of ['POT_RED', 'NOPE'])
+			info.getSymbolInfo({ rawSymbol: { name }, state: state('static') });
+	} finally {
+		console.warn = warn;
+	}
+	ok('a symbol with a placeholder says it draws one', /POT_RED.*placeholder disc/.test(warned[0]));
+	ok('…any other says it draws nothing', /NOPE.*rendering nothing/.test(warned[1]));
+}
+
 console.log('\nsize ratios resolve baked → coded → 1×1');
 {
 	const map = createSymbolMap({

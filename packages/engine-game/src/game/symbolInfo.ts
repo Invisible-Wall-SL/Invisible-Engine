@@ -12,16 +12,23 @@ import type { RawSymbol, SymbolState } from './types';
  */
 export interface SymbolInfoDeps {
 	symbolMap: SymbolMapApi;
+	/** Does this symbol draw a placeholder while it has no art? Absent, none does. */
+	drawsPlaceholder?: (name: string) => boolean;
 }
 
 /** Derived from the factory's return type rather than re-declared — same rule as `SymbolMapApi`. */
 export type SymbolInfoApi = ReturnType<typeof createSymbolInfo>;
 
-export function createSymbolInfo({ symbolMap }: SymbolInfoDeps) {
+export function createSymbolInfo({ symbolMap, drawsPlaceholder }: SymbolInfoDeps) {
 	const { getActiveSymbolInfoMap, resolveSymbolSizeRatios, symbolMapGeneration } = symbolMap;
 
 	/** Symbols already reported as having no art — one warning each, not one per frame. */
 	const warnedMissingArt = new Set<string>();
+	/** What a symbol with no art draws instead, as its warning says it. */
+	const drawnInstead = (name: string) =>
+		drawsPlaceholder?.(name)
+			? 'drawing a placeholder disc for it until art is bound'
+			: 'rendering nothing for it';
 
 	/**
 	 * Did this symbol AUTHOR art for this state, or is it borrowing someone else's?
@@ -117,7 +124,7 @@ export function createSymbolInfo({ symbolMap }: SymbolInfoDeps) {
 			if (!warnedMissingArt.has(rawSymbol.name)) {
 				warnedMissingArt.add(rawSymbol.name);
 				console.warn(
-					`[symbols] "${rawSymbol.name}" is dealt but has no art bound in /symbols — rendering nothing for it`,
+					`[symbols] "${rawSymbol.name}" is dealt but has no art bound in /symbols — ${drawnInstead(rawSymbol.name)}`,
 				);
 			}
 			const resolved = resolveSymbolSizeRatios(rawSymbol.name, state);
@@ -141,7 +148,7 @@ export function createSymbolInfo({ symbolMap }: SymbolInfoDeps) {
 			if (!warnedMissingArt.has(rawSymbol.name)) {
 				warnedMissingArt.add(rawSymbol.name);
 				console.warn(
-					`[symbols] "${rawSymbol.name}" has no usable art for "${state}" (and none for "static") — rendering nothing for it`,
+					`[symbols] "${rawSymbol.name}" has no usable art for "${state}" (and none for "static") — ${drawnInstead(rawSymbol.name)}`,
 				);
 			}
 			const fallback = resolveSymbolSizeRatios(rawSymbol.name, state);

@@ -102,6 +102,12 @@ free `_2`, `_3`… suffix everywhere the add-on names it, and the section says w
 changed. Nothing is stored until you **Save**. Why the model works this way is in
 [the pots overlay plan](../design/pots-overlay.md).
 
+After saving an add-on change, **reload any open game tab**: a tab keeps the add-ons it booted
+with, and the test server goes on dealing it that game until it reloads. Adding one here puts its
+symbols in the config only. Their art is seeded only by Game Maker's **＋ Pots overlay…** (or
+**Pots overlay parts…**); otherwise bind it in Symbols. Until then a token, a coin or a Hold and
+Win special draws a coded placeholder disc.
+
 ### Pots overlay
 
 Tokens drop over the symbols during a spin and fly to pots; a full pot starts its bonus.

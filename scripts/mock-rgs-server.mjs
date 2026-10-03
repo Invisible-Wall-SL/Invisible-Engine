@@ -709,17 +709,19 @@ const pathEndsWith = (pathname, route) => {
  * A session as the test server carries it across a contract swap (`swapMock`): the BALANCE (and a
  * Hold and Win player's meters) survive, an open round does not (it was dealt on the previous board).
  *
- * `keepBetShape` (a game served from the shared runtime) also keeps the session's config as SENT and
- * its bet table PINNED (`tableFor`). That client keeps the config it booted with, so it must go on
- * being priced by it; a reload finds no config on its balance probe, asks for `config`, and is
- * re-pinned. Without it — a desktop build, which may predate the runtime's `config` probe and never
- * gets a table — the next heartbeat re-sends the config, as it always has.
+ * `keepBetShape` (a game served from the shared runtime) also keeps the session's config as SENT, its
+ * bet table PINNED (`tableFor`), and whether that config carried the pots overlay (the book mock deals
+ * the add-on only to a session told about it). That client keeps the config it booted with, so it
+ * must go on being priced and dealt by it; a reload finds no config on its balance probe, asks for
+ * `config`, and is re-pinned. Without it — a desktop build, which may predate the runtime's `config`
+ * probe and never gets a table — the next heartbeat re-sends the config, as it always has.
  */
 export const carrySession = (session, { keepBetShape }) => ({
 	balance: session.balance,
 	round: null,
 	configSent: keepBetShape ? Boolean(session.configSent) : false,
 	...(keepBetShape && 'betTable' in session ? { betTable: session.betTable } : {}),
+	...(keepBetShape && session.potsOverlay === true ? { potsOverlay: true } : {}),
 	// A Hold and Win player's persistent meters are theirs, not the board's, so they survive too…
 	...(session.meters ? { meters: session.meters } : {}),
 	// …and so are their progressive jackpot pools.
