@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { Container, Sprite } from 'pixi-svelte';
-	import type { ComponentInstanceNode, ReelGridTileArt } from 'engine-layout';
+	import { CELL_TILE_SIZE, type ComponentInstanceNode, type ReelGridTileArt } from 'engine-layout';
 	import { ComponentInstance } from 'engine-layout/svelte';
 
 	import { SYMBOL_SIZE } from 'engine-game';
 
 	import { getContext } from '../game/context';
 	import { cellWindow, getSymbolSeat } from '../game/stateGame.svelte';
+	import { markInsideRespinCellTile } from '../game/stateRespinBoard.svelte';
 
 	type Props = {
 		reel: number;
@@ -22,6 +23,7 @@
 
 	const props: Props = $props();
 	const context = getContext();
+	markInsideRespinCellTile();
 
 	/**
 	 * ONE respin cell's authored tile, stamped at the cell's seat (the seat the cell's symbol rests
@@ -30,8 +32,8 @@
 	 * its tile's. The row scale of a perspective board is applied once, by the container, as a reel
 	 * cell applies it.
 	 *
-	 * A `tile` component (Phase 12c) is authored on one cell's box (`SYMBOL_SIZE` square) and scaled
-	 * to this one, fed its `reel`, `row` and `held`.
+	 * A `tile` component (Phase 12c) is authored on one cell's box (`CELL_TILE_SIZE` square) and
+	 * scaled to this one, fed its `reel`, `row` and `held`.
 	 */
 	const seat = $derived(getSymbolSeat(props.reel, props.row));
 	const columnPitch = $derived(
@@ -41,8 +43,8 @@
 	const scale = $derived(seat.scale === 1 ? undefined : seat.scale);
 	const shrink = $derived(1 - props.gap);
 	const fit = $derived({
-		x: (columnPitch * shrink) / SYMBOL_SIZE,
-		y: (cellHeight * shrink) / SYMBOL_SIZE,
+		x: (columnPitch * shrink) / CELL_TILE_SIZE,
+		y: (cellHeight * shrink) / CELL_TILE_SIZE,
 	});
 
 	const tileNode = (componentId: string): ComponentInstanceNode => ({

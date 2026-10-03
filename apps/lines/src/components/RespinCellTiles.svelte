@@ -2,7 +2,7 @@
 	import { resolveComponent, resolveFrameArt } from 'engine-layout';
 	import { getComponentNestState, getComponentParams } from 'engine-layout/svelte';
 
-	import { claimRespinCellLook } from '../game/stateRespinBoard.svelte';
+	import { claimRespinCellLook, insideRespinCellTile } from '../game/stateRespinBoard.svelte';
 
 	/**
 	 * The `respinCells` component's coded part. It draws nothing where it is placed: it hands its
@@ -13,7 +13,8 @@
 	 *
 	 * `tile` (Phase 12c) names a component every cell draws on instead of `tileImage` — a project's
 	 * Cell Tile copy, which the board mounts per cell. One that is not registered, or that names this
-	 * component itself, is ignored, so the cells keep `tileImage`.
+	 * component itself, is ignored, so the cells keep `tileImage`. Mounted inside a cell's own tile, it
+	 * publishes nothing (`insideRespinCellTile`).
 	 */
 	const props: Record<string, unknown> = $props();
 	const instanceParams = getComponentParams();
@@ -27,9 +28,10 @@
 
 	const HEX = /^#[0-9a-f]{6}$/i;
 	const MAX_GAP = 0.45;
-	const claim = claimRespinCellLook();
+	const claim = insideRespinCellTile() ? undefined : claimRespinCellLook();
 
 	$effect(() => {
+		if (!claim) return;
 		const tint = param('tileTint');
 		const gap = Number(param('gap'));
 		claim.set({
@@ -39,5 +41,5 @@
 			tile: tileComponent(),
 		});
 	});
-	$effect(() => claim.release);
+	$effect(() => claim?.release);
 </script>

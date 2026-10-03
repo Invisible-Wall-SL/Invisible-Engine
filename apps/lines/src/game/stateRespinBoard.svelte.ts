@@ -1,4 +1,4 @@
-import { untrack } from 'svelte';
+import { getContext, setContext, untrack } from 'svelte';
 import { Tween } from 'svelte/motion';
 import {
 	createRespinBoard,
@@ -102,6 +102,16 @@ let nextLookId = 1;
 
 /** The look the respin board draws, or `null` for the coded one. */
 export const respinCellLook = (): RespinCellLook | null => cellLooks.at(-1)?.look ?? null;
+
+const INSIDE_CELL_TILE = Symbol('insideRespinCellTile');
+
+/**
+ * Marks a respin cell's own tile (`RespinCellTile`) for everything mounted in it. A Respin Cell
+ * Tiles nested there (in the Cell Tile it draws, at any depth) must publish no look: its look would
+ * replace the one that mounted it, unmounting the very tiles it sits in.
+ */
+export const markInsideRespinCellTile = () => setContext(INSIDE_CELL_TILE, true);
+export const insideRespinCellTile = (): boolean => getContext(INSIDE_CELL_TILE) === true;
 
 /**
  * The authored art of a LOCKED cell of an expanding board, handed over by a mounted `lockedRow`

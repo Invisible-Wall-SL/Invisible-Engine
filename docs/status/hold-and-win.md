@@ -269,6 +269,11 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
         coded sprite.
       - **Fallback:** blank (the default), a component that is not registered, or one naming the
         tiles themselves keeps `tileImage` (parity). The gap still insets the rolling windows.
+      - **Nesting:** a Respin Cell Tiles mounted inside a cell's tile, at any depth, publishes no
+        look (`insideRespinCellTile`). Its look would replace the one that mounted it, unmounting
+        the very tiles it sits in, so every tile vanished. The per-cell instances mount outside
+        the placed one, so the component nest guard cannot see that loop.
+      - **Box:** the board divides by `CELL_TILE_SIZE`, the constant the def is authored on.
     - **Not scoped:** the coin signals stay unscoped. The "Coins land" event lists several cells, so
       firing it per cell would replay an unscoped listener's cue once per cell. A cue on **Coins
       land** inside a Cell Tile therefore plays on every tile; per-cell state is `held`.
@@ -1080,10 +1085,10 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
       its `held` through `engineValues`.
   - **Editors:** **Respin Cell Tiles** and **Cell Tile (Hold and Win)** create types.
   - **Verified:**
-    - `test-cell-tile.mjs` (22 assertions): the tile's shape, the held overlay's binding, the
-      defaults (still, a sample cell), no stand-in, the `tile` param and the picker filter (a Letter
-      Tile is not offered), the parity default, an old copy's upgrade, and shipping through the
-      closure.
+    - `test-cell-tile.mjs` (23 assertions): the tile's shape and box, the held overlay's binding,
+      the defaults (still, a sample cell), no stand-in, the `tile` param and the picker filter (a
+      Letter Tile is not offered), the parity default, an old copy's upgrade, and shipping through
+      the closure.
     - Every engine-layout fixture, `check:holdandwin` and the launcher's `check:*` gates pass.
     - Storybook `MODE_HOLD_AND_WIN/skinned cell tiles (12c)`, a placed Respin Cell Tiles over a 3×3
       grid of cells:
@@ -1092,9 +1097,19 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
       - **A coin landing on cell 1:1** pulses that tile alone (1.16 at 60 ms), back to 0.94 by
         860 ms.
       - **A missing tile, or one naming the cell tiles:** refused; no tile draws.
+      - **A copy nesting a Respin Cell Tiles:** all 9 tiles stay, and the look holds over 90
+        frames. Before the fix, the same story settled with no tiles at all.
     - A whole feature does not render a board in the sandbox (its art loads from the network), so
       the story mounts the cells directly.
-
+    - The `lines` build passes.
+  - **Review round (code-reviewer):**
+    - **Fixed:** a Respin Cell Tiles nested in a Cell Tile replaced the look that mounted it,
+      emptying the board (Decisions, "Nesting").
+    - **Fixed:** the board fitted the tile by `SYMBOL_SIZE`, 120 like `CELL_TILE_SIZE` only by
+      coincidence. It divides by the exported `CELL_TILE_SIZE` now.
+    - **Fixed:** a typo in the def's JSDoc.
+    - **Noted:** each open cell mounts a whole `ComponentInstance` when a tile is set. That is fine
+      at 5×3. On an expanding board on a low-end phone, watch the mount cost as the board shows.
 - 2026-10-02 — **Phase 12c: the Wheel skinned** (#1006). Contract: Decisions, "The Wheel follows
   the Pot".
   - **Engine:**

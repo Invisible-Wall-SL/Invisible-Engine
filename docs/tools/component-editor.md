@@ -567,7 +567,8 @@ landing can fill several cells. Use **held** for what a single cell shows.
 Then create a **Respin Cell Tiles (Hold and Win)**, or select the tiles on the **Respin board**
 screen, and set its **tile** to your Cell Tile. Every cell then draws on your tile. Blank keeps the
 **tileImage**. The **gap** still applies. Selecting the tiles in the Scene Editor previews the
-**tileImage**, not your Cell Tile; see it in the Component Editor or the game.
+**tileImage**, not your Cell Tile; see it in the Component Editor or the game. A Respin Cell Tiles
+placed inside a Cell Tile does nothing.
 
 ## Traps
 

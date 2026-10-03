@@ -21,6 +21,7 @@ const bundled = await esbuild.build({
 	stdin: {
 		contents: `export {
 			CELL_TILE_DEF,
+			CELL_TILE_SIZE,
 			HOLD_AND_WIN_COMPONENTS,
 			LETTER_TILE_DEF,
 			RESPIN_CELLS_DEF,
@@ -98,8 +99,12 @@ const params = mod.resolveComponentParams(tile, {});
 assert(params.landPulseScale === 1, 'still by default, as the coded tiles are');
 assert(params.reel === 0 && params.row === 0, 'a sample cell by default');
 assert(
-	[base, held].every((n) => n.width === 120 && n.height === 120),
-	'authored on one cell’s box (120 square)',
+	[base, held].every((n) => n.width === mod.CELL_TILE_SIZE && n.height === mod.CELL_TILE_SIZE),
+	'authored on one cell’s box (CELL_TILE_SIZE square)',
+);
+assert(
+	part.preview?.w === mod.CELL_TILE_SIZE && part.preview?.h === mod.CELL_TILE_SIZE,
+	'…the box the Cell part previews, and the board fits to each cell',
 );
 assert(tile.standsFor === undefined && mod.partStandIn(tile) === undefined, 'stands for no part');
 assert(same(mod.boundComponentSkin('CellTilePart'), { layers: [] }), 'skinnable in the editors');

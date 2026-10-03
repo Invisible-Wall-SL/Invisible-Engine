@@ -33,12 +33,16 @@
 
 	/**
 	 * Phase 12c — the respin cells drawn on a Cell Tile copy. A placed Respin Cell Tiles hands its
-	 * `tile` to the board's look, and a 3×3 grid of cells stamps it as the respin board does (one
-	 * story each: the copy; a component that is not registered; the Respin Cell Tiles naming itself —
-	 * both refused, so no tile is drawn). The copy adds two marker texts inside its `Cell` part: "T"
-	 * on every tile, and "H" shown only while the cell's `held` is 1; it pulses at 1.3 as a coin lands
-	 * on its cell. `window.__hold(reel, row)` toggles a held cell, `window.__land(reel, row)` lands a
-	 * coin there, and `window.__probe()` reads the look, the shown markers and each tile's scale.
+	 * `tile` to the board's look, and a 3×3 grid of cells stamps it as the respin board does. One
+	 * story each:
+	 * - the copy;
+	 * - a copy nesting a Respin Cell Tiles, whose look must stay put;
+	 * - a component that is not registered, and the Respin Cell Tiles naming itself: both refused, so
+	 *   no tile is drawn.
+	 * The copy adds two marker texts inside its `Cell` part: "T" on every tile, and "H" shown only
+	 * while the cell's `held` is 1; it pulses at 1.3 as a coin lands on its cell.
+	 * `window.__hold(reel, row)` toggles a held cell, `window.__land(reel, row)` lands a coin there,
+	 * and `window.__probe()` reads the look, the shown markers and each tile's scale.
 	 */
 	const cellPart = CELL_TILE_DEF.root.children[0] as LayoutNode & { kind: 'container' };
 	const marker = (id: string, text: string, held: boolean): LayoutNode => ({
@@ -71,7 +75,30 @@
 			p.key === 'landPulseScale' ? { ...p, default: 1.3 } : p,
 		),
 	};
-	registerComponents({ respinCells: RESPIN_CELLS_DEF, probeCellTile: probeTile });
+	// A copy with the Respin Cell Tiles nested inside: it must publish no look from inside a cell, or
+	// the cells it would hand a new look to unmount it, and around again.
+	const nestingTile: ComponentDef = {
+		...probeTile,
+		id: 'nestingCellTile',
+		root: {
+			...probeTile.root,
+			children: [
+				...probeTile.root.children,
+				{
+					id: 'nesting-cells',
+					kind: 'componentInstance',
+					componentId: 'respinCells',
+					x: 0,
+					y: 0,
+				},
+			],
+		},
+	};
+	registerComponents({
+		respinCells: RESPIN_CELLS_DEF,
+		probeCellTile: probeTile,
+		nestingCellTile: nestingTile,
+	});
 	registerBoundComponents({ RespinCellTiles, CellTilePart });
 
 	const sceneOf = (tile: string): Scene => ({
@@ -156,6 +183,10 @@
 
 <Story name="cells on a Cell Tile copy">
 	{@render stage('probeCellTile')}
+</Story>
+
+<Story name="a tile nesting the cell tiles">
+	{@render stage('nestingCellTile')}
 </Story>
 
 <Story name="a missing tile (no tile)">

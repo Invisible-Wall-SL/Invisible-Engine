@@ -2537,14 +2537,14 @@ export const WHEEL_DEF: ComponentDef = {
 };
 
 /** A respin cell's design box: a Cell Tile is authored on one cell, and the board fits it to each. */
-const CELL_TILE_SIZE = 120;
+export const CELL_TILE_SIZE = 120;
 
 /**
  * One respin cell's tile, for the Respin Cell Tiles to draw under every cell (their `tile` param).
  * SKINNABLE (Phase 12c), the Letter Tile's pattern: the tile art and a held overlay sit INSIDE the
  * coded `Cell` part, which pulses them when a coin lands on its cell (`landPulseScale`, 1 = still,
  * as the coded tiles are). The board feeds each tile its `reel` and `row`, and `held` (1 while a coin
- * holds the cell, else 0), which the overlay shows by through a 12b `visible` binding. Authored on one
+ * holds the cell, else 0), which the overlay shows through a 12b `visible` binding. Authored on one
  * cell's box ({@link CELL_TILE_SIZE} square, centred); the board fits it to each cell's window. It
  * registers nothing, so it stands for no part.
  */
