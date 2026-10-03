@@ -926,6 +926,8 @@ console.log('6. the host’s feature and a full pot on one spin: one round, the 
 	for (const [doc, spec, route] of [
 		[THREE, 'force:feature,pot:blue', 'respin'],
 		[FREE, 'force:feature,pot:gold', 'feature'],
+		// Two free-spin-shaped features back to back: the host's, then the imported reels mode.
+		[IMPORTED_FS, 'force:feature,pot:gold', 'freeSpins_2'],
 	]) {
 		const mock = overlayMock(doc, { seed: `both-${route}` });
 		const levels = Object.fromEntries(doc.potsOverlay.pots.map((p) => [p.id, 0]));
@@ -958,8 +960,10 @@ console.log('6. the host’s feature and a full pot on one spin: one round, the 
 			ev.join(' '),
 		);
 		check(
-			did.ok && answers.at(-1).events.some((e) => e.event === 'gameRoundOver'),
-			`${route}: one round, played out and collected`,
+			did.ok &&
+				answers.at(-1).events.some((e) => e.event === 'gameRoundOver') &&
+				answers.flatMap(names).filter((n) => n === 'gameEnd').length === 1,
+			`${route}: one round, played out and collected, one gameEnd`,
 		);
 	}
 	// Drops in free spins: a pot that fills there starts its bonus once they end.

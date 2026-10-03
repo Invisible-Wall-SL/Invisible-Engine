@@ -259,12 +259,13 @@ of another project of the **same client** into this one, as a bonus a pot can st
 project is only read.
 
 1. On the card, click **Import a bonus…**.
-2. Pick the source project under **From**, then the **Feature**. Today only a Hold and Win feature
-   can be imported. Free spins and authored reels modes are listed but marked **(not yet)**, with
-   the reason under the picker.
+2. Pick the source project under **From**, then the **Feature**: its **Hold and Win**, its **Free
+   spins**, or a reels mode of its own. A feature that cannot be imported (a wheel, a respin board of
+   its own, one with no strips) is marked **(not yet)**, with the reason under the picker.
 3. Under **Pots that start it**, tick the pots that should start the imported bonus (each shows the
    mode it starts now).
-4. If this project already has a Hold and Win bonus (for example from the 3 Pots preset), tick
+4. Importing a Hold and Win into a project that already has a Hold and Win bonus (for example from
+   the 3 Pots preset)? Tick
    **Replace this project's Hold and Win bonus**: a project has one Hold and Win. A Hold and Win
    game's own base-game block is never replaced. /config keeps a backup of the config from before.
 5. Click **Import**, read the report, then **Done**, and reload your own open tabs of the tools
@@ -279,6 +280,13 @@ or screens use are copied into the shared library under `imported/<this project>
 the game. Options of the source that only work in its base game (buy, random metre, instant
 collect…) are left out, and the report lists them under **Left out**. A pot whose special the
 imported feature lacks loses it (**Special dropped**).
+
+**Free spins** arrive as a mode of this project's own, beside its own free spins: the source's
+name with `_2` added (`freeSpins_2`), playing on its own strips with this game's free-spin
+presentation. A symbol this project defines exactly as the source does is shared rather than
+copied, so only what differs arrives. The source's mode screens are copied for the new mode, and its
+Flow section with it. Win Text is not copied: the imported free spins speak this game's own
+free-spin lines.
 
 **Re-sync.** Each imported bonus adds a **Re-sync _mode_ from _project_…** button to the
 card. It copies the feature again as the source is now. Only the imported pieces are overwritten
@@ -557,8 +565,11 @@ graduate later; its R2 authoring data carries over.
   only appends a Pot Meter for each new pot (`red_2`…) beside the existing ones. Arrange them in the
   [Scene Editor](invisible-editor.md). **Coins only** is not offered there: the game's own Hold and
   Win starts from its reels, so dropped coins alone would start nothing.
-- **Only a Hold and Win feature can be imported.** Free spins and authored reels bonuses are listed
-  as **(not yet)**: they would play as the game's own free spins, not on their own strips.
+- **Only a Hold and Win or a reels feature can be imported.** A wheel, a respin board or a `none`
+  mode of the source's own is listed as **(not yet)**: nothing plays one from a pot.
+- **Imported free spins look like this game's free spins** unless the source has mode screens for
+  them: a source's free-game screens that show by the free-game gate rather than as mode screens
+  are not copied.
 - **The pots overlay can only be added here.** Tuning and removing it are in
   [Game Config → Add-ons](game-config.md#add-ons). The new-game checkbox never grafts the Flow; use
   **Pots overlay parts…** with the checkbox, or **＋ Add overlay steps** in Invisible Flow.

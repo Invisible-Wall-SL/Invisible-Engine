@@ -61,6 +61,9 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
 - Publish pin fix: rebuild a non-active project → selection lands on it (owner verify owed).
 
 ## Recent changes
+- 2026-10-03 — **Import a bonus: free spins too** (pots overlay open item 00). A source's free spins
+  or reels mode imports as a mode of this project's own (`freeSpins_2`) on its own strips; screens
+  and Flow re-tagged, Win Text untouched. Detail: [status/pots-overlay](pots-overlay.md).
 - 2026-10-03 — **Import a bonus / Re-sync** (pots overlay Phase 7, #1022). The card actions and
   `POST /api/game-maker/import` (above); gate `check:bonus-import`.
 - 2026-10-02 — **＋ Pots overlay add-on** (pots overlay Phase 6, #1017). The card action, the

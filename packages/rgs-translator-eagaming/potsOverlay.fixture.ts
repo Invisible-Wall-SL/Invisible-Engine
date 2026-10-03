@@ -740,6 +740,89 @@ console.log("\n2c. a pot routed to a reels mode of the project's own (an importe
 	);
 }
 
+console.log("\n2d. the host's free spins, then the imported ones, in one round; and a resume");
+{
+	const IMPORTED_MODE = 'freeSpins_2';
+	const config = bookConfig({
+		potsOverlay: {
+			...overlayBlock([{ id: 'gold', level: 4, bonus: IMPORTED_MODE }]),
+			bonuses: { feature: 'freeSpins', [IMPORTED_MODE]: IMPORTED_MODE },
+			modes: { [IMPORTED_MODE]: { gameType: 'freegame_2' } },
+		},
+	});
+	const importedEntry = (spins: number): Wire[] => [
+		{
+			event: 'spinTrigger',
+			context: {
+				...(featureTrigger(spins, { cause: 'meter', meters: ['gold'] }).context as object),
+				bonus: IMPORTED_MODE,
+			},
+		},
+		...enterFreeSpins(spins),
+	];
+	const answers: Wire[][] = [
+		[
+			...opening(),
+			drop([{ reel: 1, row: 0, symbol: 'GOLD', pot: 'gold' }]),
+			meterUpdate('gold', 5, [{ reel: 1, row: 0 }]),
+			featureTrigger(1),
+			{ event: 'playedSpin', context: SCATTER_BOARD },
+			...enterFreeSpins(1),
+			meterLevels({ gold: 5 }),
+		],
+		[
+			{ event: 'spinStart', context: {} },
+			{ event: 'playedSpin', context: BOARD },
+			{ event: 'playedBonusSpin', context: bookSnapshot(1, 0) },
+			{ event: 'playedBonusSpins', context: bookSnapshot(1, 0) },
+			...importedEntry(1),
+			meterLevels({ gold: 0 }),
+		],
+		[...freeSpin(1, 0, { win: 30 }), meterLevels({ gold: 0 })],
+	];
+	const { book } = await play('S-both-reels', { config, answers });
+	wellFormed('host free spins, then imported', book);
+	check(
+		"two free-spin features in one round: the host's (no mode), then the imported one (its mode)",
+		[
+			only(book, 'freeSpinTrigger').map((e) => (e as { mode?: string }).mode ?? 'freeSpins'),
+			only(book, 'freeSpinEnd').map((e) => (e as { mode?: string }).mode ?? 'freeSpins'),
+		],
+		[
+			['freeSpins', IMPORTED_MODE],
+			['freeSpins', IMPORTED_MODE],
+		],
+	);
+	check(
+		'each feature reveals on its own game type',
+		only(book, 'reveal').map((e) => (e as { gameType?: string }).gameType),
+		['basegame', 'freegame', 'freegame_2'],
+	);
+	check('the stack plays them one after the other', modesOf(book).moves, [
+		'enter:freeSpins',
+		'exit:freeSpins',
+		'allFinished',
+		`enter:${IMPORTED_MODE}`,
+		`exit:${IMPORTED_MODE}`,
+		'allFinished',
+	]);
+	const resumed = await play('S-resume-reels', {
+		config,
+		answers: answers.slice(),
+		open: { actions: [{ action: 'bet' }, { action: 'play' }, { action: 'play' }] },
+	});
+	check(
+		'a resume mid-way replays the whole round: the imported free spins re-enter their mode',
+		[
+			resumed.boot.round?.event,
+			only(resumed.book, 'freeSpinTrigger').map((e) => (e as { mode?: string }).mode ?? null),
+			only(resumed.book, 'reveal').at(-1) &&
+				(only(resumed.book, 'reveal').at(-1) as { gameType?: string }).gameType,
+		],
+		['0', [null, IMPORTED_MODE], 'freegame_2'],
+	);
+}
+
 // ---------- 3. book host + pot → Hold and Win ----------
 
 console.log('\n3. a book host: a full pot starts Hold and Win, holding the dropped coins');

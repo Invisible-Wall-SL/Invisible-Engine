@@ -690,6 +690,10 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Recent changes
 
+- 2026-10-03 — **Imported reels modes** (pots overlay open item 00): `importBonus` takes a source's
+  free spins / `reels` mode as a new mode of the project's own (id and game type `_2`-renamed,
+  identical symbols shared); `potsOverlayMockInputs.modes` carries its strips and pays. Detail:
+  [status/pots-overlay](pots-overlay.md).
 - 2026-10-03 — **Imported bonuses** (Pots overlay Phase 7, #1022): an optional `imports` block
   (`{mode, importedFrom {project, mode, at}, symbols}`, `src/bonusImports.ts`) and the pure
   `importBonus` / `resyncBonus` / `importableFeatures` (`src/imports.ts`). `holdAndWinBonus` is now
