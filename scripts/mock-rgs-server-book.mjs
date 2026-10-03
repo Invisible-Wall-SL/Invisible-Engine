@@ -481,7 +481,7 @@ export function createMockRgs(opts = {}) {
 		}
 		return 'TEN';
 	};
-	/** A board drawn from `strips` (one per reel): each reel stops at a random cell, `rows` deep. */
+	/** A board drawn from `strips` (one per reel): each reel stops at a random cell, 3 rows deep. */
 	const spinStrips = (strips) =>
 		strips.map((strip) => {
 			const stop = Math.floor(nextRand() * strip.length);
@@ -494,14 +494,16 @@ export function createMockRgs(opts = {}) {
 	 *
 	 * A REELS MODE of the project's own (a pot's imported free spins, `mock-pots-overlay.mjs`) passes
 	 * its `bonus` key, the `strips` its spins are drawn from and the `paytable` of the symbols only it
-	 * deals. Without them — every free-spin round before imports existed — nothing here changes.
+	 * deals. It has no expanding special: that is this book's own mechanic, not the imported
+	 * feature's, so no `pickRandomly` is sent and no special pays. Without them — every free-spin round
+	 * before imports existed — nothing here changes.
 	 */
 	const startFreeSpins = (
 		events,
 		round,
 		{ occurs, spins = TOTAL_FS, board, extra = {}, bonus = 'feature', strips, paytable },
 	) => {
-		const special = pickSpecialSymbol();
+		const special = strips ? null : pickSpecialSymbol();
 		round.bonus = {
 			active: true,
 			total: spins,
@@ -525,15 +527,16 @@ export function createMockRgs(opts = {}) {
 			event: 'enterBonus',
 			context: bonusSnapshot(round, { played: 0, left: spins }),
 		});
-		events.push({
-			event: 'pickRandomly',
-			context: {
-				items: PAY_SYMBOLS.map((s) => ({ state: s, prob: SPECIAL_WEIGHTS[s] })),
-				state: bonusSnapshot(round, { played: 0, left: spins, playing: 'feature' }),
-				scope: 'enterState',
-				item: { state: special, prob: SPECIAL_WEIGHTS[special] },
-			},
-		});
+		if (special)
+			events.push({
+				event: 'pickRandomly',
+				context: {
+					items: PAY_SYMBOLS.map((s) => ({ state: s, prob: SPECIAL_WEIGHTS[s] })),
+					state: bonusSnapshot(round, { played: 0, left: spins, playing: 'feature' }),
+					scope: 'enterState',
+					item: { state: special, prob: SPECIAL_WEIGHTS[special] },
+				},
+			});
 	};
 	const overlay = opts.overlay
 		? opts.overlay({
@@ -729,7 +732,8 @@ export function createMockRgs(opts = {}) {
 						const special = round.bonus.special;
 						// The BASE stake, never `round.total`: a bought round's total carries the buy
 						// premium, which would pay the special 100× over.
-						const specialWin = evaluateExpandingSpecial(reels, special, round.baseBet, roundPays);
+						const specialWin =
+							special && evaluateExpandingSpecial(reels, special, round.baseBet, roundPays);
 						let wins;
 						if (specialWin) {
 							const paidBoard = expandSpecialBoard(reels, special);

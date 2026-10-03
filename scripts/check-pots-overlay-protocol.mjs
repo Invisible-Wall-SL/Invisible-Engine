@@ -341,7 +341,11 @@ const deriveRound = (doc, answers, levels, tag) => {
 				waiting = waiting.filter((id) => !(trigger.meters ?? []).includes(id));
 				const spins = potOf.get(trigger.meters?.[0])?.bonus.spins ?? 10;
 				expect(same(trigger.spins, [{ prob: 1, spins }]), `${spins} free spins`);
-				expect(ev.includes('enterBonus') && ev.includes('pickRandomly'), 'free-spin entry');
+				// An imported mode has no expanding special: that is the host book's own mechanic.
+				expect(
+					ev.includes('enterBonus') && ev.includes('pickRandomly') === (routed === 'freeSpins'),
+					'free-spin entry (a special for the host’s own only)',
+				);
 				if (routed === 'freeSpins') did.freeSpinsByPot++;
 				else did.importedSpins++;
 			} else {
