@@ -5,7 +5,11 @@ import type {
 	LayoutNode,
 	WinTextDoc,
 } from 'engine-layout';
-import { collectUiTextStrings, collectWinTextTemplates } from 'engine-layout';
+import {
+	collectUiTextStrings,
+	collectWinTextTemplates,
+	resolveLayoutInstanceParams,
+} from 'engine-layout';
 import type { FlowDoc } from 'engine-flow-v2';
 import { collectTextMessages } from 'engine-flow-v2';
 import type { GameConfigDoc } from 'game-config';
@@ -171,14 +175,25 @@ export async function harvestSceneText(
 			const label = nodeLabel(node);
 			if (node.kind === 'text') add(node.text, label);
 			if (node.kind === 'componentInstance') {
-				const params = (node.params ?? {}) as Record<string, unknown>;
-				const feed = boundToFeed(params);
-				// `label` is a static caption (the readout's "BALANCE" above the live
-				// value) — a `source` feeds the value, never the label, so always take it.
-				if (typeof params.label === 'string') add(params.label, label);
-				if (!feed && typeof params.text === 'string') add(params.text, label);
 				const def = await getDef(node.componentId, node.componentVersion);
-				if (def) collectDefText(def, params, feed, label, add);
+				// Every ratio's EFFECTIVE params — the base, then the base with each layoutType's
+				// patch merged on top — so a caption set only for portrait is harvested, and a
+				// `source` feed bound only in one ratio suppresses `text` only there.
+				const ratios = Object.keys(node.overrides ?? {}).filter(
+					(layoutType) => node.overrides?.[layoutType]?.params,
+				);
+				const paramSets = [
+					node.params ?? {},
+					...ratios.map((layoutType) => resolveLayoutInstanceParams(node, layoutType) ?? {}),
+				];
+				for (const params of paramSets) {
+					const feed = boundToFeed(params);
+					// `label` is a static caption (the readout's "BALANCE" above the live
+					// value) — a `source` feeds the value, never the label, so always take it.
+					if (typeof params.label === 'string') add(params.label, label);
+					if (!feed && typeof params.text === 'string') add(params.text, label);
+					if (def) collectDefText(def, params, feed, label, add);
+				}
 			}
 			for (const child of childrenOf(node)) await visit(child);
 		};
