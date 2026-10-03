@@ -35,6 +35,7 @@ import {
 	symbolsInPlay,
 	type GameConfigDoc,
 	type PaytableRow,
+	type PotsOverlayMockInputs,
 } from 'game-config';
 import {
 	bookMapping,
@@ -236,6 +237,38 @@ function projectSymbolPaytable(
 	return Object.keys(out).length ? out : undefined;
 }
 
+/**
+ * The overlay inputs with each imported reels mode's strips and pays in the SERVER's vocabulary — a
+ * book host's symbols are `H1`… in its config and `PIC1`… on the wire, and the book mock deals and
+ * pays wire names. A name the mapping lacks (a symbol only the imported mode has) passes through, as
+ * the facade passes it back.
+ */
+function inServerNames(
+	inputs: PotsOverlayMockInputs | undefined,
+	mapping: GameMapping,
+): PotsOverlayMockInputs | undefined {
+	if (!inputs?.modes) return inputs;
+	const toServer = new Map(
+		Object.entries(mapping.symbols).map(([server, client]) => [client, server]),
+	);
+	const server = (name: string) => toServer.get(name) ?? name;
+	return {
+		...inputs,
+		modes: Object.fromEntries(
+			Object.entries(inputs.modes).map(([id, mode]) => [
+				id,
+				{
+					...mode,
+					strips: mode.strips.map((strip) => strip.map(server)),
+					paytable: Object.fromEntries(
+						Object.entries(mode.paytable).map(([name, pays]) => [server(name), pays]),
+					),
+				},
+			]),
+		),
+	};
+}
+
 /** Projects already told they author more than one base mode, so a contract re-read every few
  *  seconds says it once per process. */
 const warnedManyBases = new Set<string>();
@@ -353,7 +386,7 @@ function projectGrid(
 			// Neither an authored table nor an overlay ⇒ no grid ⇒ the contract is exactly what it was
 			// before either existed; an overlay goes LAST so a project without one is byte-identical.
 			const symbolPaytable = projectSymbolPaytable(doc, bookMapping);
-			const potsOverlay = potsOverlayMockInputs(doc);
+			const potsOverlay = inServerNames(potsOverlayMockInputs(doc), bookMapping);
 			if (!symbolPaytable && !potsOverlay) return undefined;
 			return {
 				reels,

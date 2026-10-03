@@ -21,7 +21,12 @@
 import { readFileSync } from 'node:fs';
 import { mock } from 'node:test';
 import { isHttpError } from '@sveltejs/kit';
-import { normalizeGameConfigDoc, potsOverlayPreset, type GameConfigDoc } from 'game-config';
+import {
+	importBonus,
+	normalizeGameConfigDoc,
+	potsOverlayPreset,
+	type GameConfigDoc,
+} from 'game-config';
 
 // ── In-memory R2 ─────────────────────────────────────────────────────────────
 type Obj = { body: string; etag: string };
@@ -82,6 +87,7 @@ const PROJECTS: Record<string, { token: string; gameType: string }> = {
 	hnw: { token: 'HNW', gameType: 'holdAndWin' },
 	book: { token: 'BOK', gameType: 'bookOf' },
 	bookPots: { token: 'BKP', gameType: 'bookOf' },
+	bookImport: { token: 'BKI', gameType: 'bookOf' },
 };
 mock.module(src('lib/server/projects.ts'), {
 	namedExports: {
@@ -112,6 +118,29 @@ const withOverlay = (doc: GameConfigDoc): GameConfigDoc => {
 	})!;
 };
 
+/** A book host whose pot starts another book game's free spins (pots overlay open item 00): their
+ *  strips carry the host's `H1` and `L1`, a re-priced `L2` (→ `L2_2`) and a `MUMMY` of their own. */
+const withImportedFreeSpins = (doc: GameConfigDoc): GameConfigDoc => {
+	const strip = ['H1', 'L2', 'MUMMY', 'S', 'L1'].map((name) => ({ name }));
+	const source = normalizeGameConfigDoc({
+		...doc,
+		symbols: {
+			...doc.symbols,
+			L2: { paytable: [{ '3': 9 }, { '4': 19 }, { '5': 99 }] },
+			MUMMY: { paytable: [{ '3': 20 }, { '4': 200 }, { '5': 900 }] },
+		},
+		paddingReels: { ...doc.paddingReels, freegame: [strip] },
+	})!;
+	const result = importBonus(withOverlay(doc), source, {
+		project: 'book-sample',
+		mode: 'freeSpins',
+		at: '2026-10-03T08:00:00.000Z',
+		pots: ['gold'],
+	});
+	if (!result.ok) throw new Error(result.reason);
+	return normalizeGameConfigDoc(result.doc)!;
+};
+
 /** The LIVE authoring data, per project — what an authoring boot reads. */
 const LIVE_CONFIG: Record<string, GameConfigDoc> = {
 	remake: resized(template('lines'), 8, 4),
@@ -120,6 +149,7 @@ const LIVE_CONFIG: Record<string, GameConfigDoc> = {
 	hnw: template('holdAndWin.classic'),
 	book: template('lines'),
 	bookPots: withOverlay(template('lines')),
+	bookImport: withImportedFreeSpins(template('lines')),
 };
 type LiveSymbols = {
 	symbols: Record<string, { static?: unknown }>;
@@ -132,6 +162,7 @@ const LIVE_SYMBOLS: Record<string, LiveSymbols> = {
 	hnw: { symbols: {} },
 	book: { symbols: {} },
 	bookPots: { symbols: {} },
+	bookImport: { symbols: {} },
 };
 mock.module(src('lib/server/gameConfigStorage.ts'), {
 	namedExports: {
@@ -337,6 +368,31 @@ await check(
 		);
 		const { potsOverlay: _o, ...rest } = pots.grid ?? {};
 		eq(rest, plain.grid, 'the rest of the grid is the plain one');
+		eq('modes' in (pots.grid?.potsOverlay ?? {}), false, 'no imported mode, no `modes`');
+	},
+);
+
+await check(
+	"an imported free spins rides in the SERVER's names: shared symbols mapped, its own passed through",
+	async () => {
+		const out = await answer('project=bookImport&k=BKI&source=live');
+		const modes = (
+			out.grid?.potsOverlay as
+				| { modes?: Record<string, { gameType: string; strips: string[][]; paytable: object }> }
+				| undefined
+		)?.modes;
+		eq(Object.keys(modes ?? {}), ['freeSpins_2'], 'the mode');
+		eq(modes?.freeSpins_2.gameType, 'freegame_2', 'its game type');
+		eq(
+			modes?.freeSpins_2.strips[0],
+			['PIC1', 'L2_2', 'MUMMY', 'SCAT', 'ACE'],
+			'its strip, wire names',
+		);
+		eq(
+			Object.keys(modes?.freeSpins_2.paytable ?? {}).sort(),
+			['ACE', 'L2_2', 'MUMMY', 'PIC1'],
+			'its line pays (no scatter)',
+		);
 	},
 );
 

@@ -113,6 +113,26 @@ const counted = (doc, pots) => {
 const COINS_ONLY = counted(THREE, 0);
 /** Five pots, the last two new. */
 const FIVE = counted(THREE, 5);
+/** Another book game's free spins imported as a mode of this one (open item 00), the pot routed to
+ *  it: its own MUMMY and re-priced ACE, the rest shared with the host. */
+const FS_STRIP = ['PIC1', 'MUMMY', 'ACE', 'KING', 'TEN'].map((name) => ({ name }));
+const BOOK_SOURCE = normalizeGameConfigDoc({
+	...structuredClone(BOOK_HOST),
+	symbols: {
+		...structuredClone(BOOK_HOST.symbols),
+		ACE: pays(10, 60, 200),
+		MUMMY: pays(20, 200, 900),
+	},
+	paddingReels: { ...structuredClone(BOOK_HOST.paddingReels), freegame: [FS_STRIP] },
+});
+const IMPORTED_FS = imported(
+	importBonus(FREE, BOOK_SOURCE, {
+		project: 'book-sample',
+		mode: 'freeSpins',
+		at: '2026-10-03T08:00:00.000Z',
+		pots: ['gold'],
+	}),
+);
 /** Drops in free spins too. */
 const FREE_DROPS = insert(BOOK_HOST, 'threePots', (doc) => {
 	doc.potsOverlay.drops.modes = ['basegame', 'freeSpins'];
@@ -199,11 +219,13 @@ const deriveRound = (doc, answers, levels, tag) => {
 	const reels = overlay.drops.reels ?? [0, 1, 2, 3, 4];
 	const coinMin = doc.holdAndWin?.trigger.count?.min;
 	const dropModes = overlay.drops.modes ?? ['basegame'];
+	const reelsModeIds = new Set(Object.keys(potsOverlayMockInputs(doc).modes ?? {}));
 	const did = {
 		potBonus: [],
 		coinBonus: 0,
 		hostFeature: false,
 		freeSpinsByPot: 0,
+		importedSpins: 0,
 		stub: 0,
 		drops: 0,
 	};
@@ -303,13 +325,16 @@ const deriveRound = (doc, answers, levels, tag) => {
 		if (trigger) {
 			if (trigger.bonus === 'feature' && trigger.cause === undefined) {
 				did.hostFeature = true;
-			} else if (trigger.bonus === 'feature') {
+			} else if (trigger.bonus === 'feature' || reelsModeIds.has(trigger.bonus)) {
+				// A reels mode of the project's own (an imported free spins) is dealt as free spins
+				// under its own key, its mode id.
+				const routed = trigger.bonus === 'feature' ? 'freeSpins' : trigger.bonus;
 				expect(
 					trigger.cause === 'meter' && trigger.occurs === 0,
 					'a pot free spin: meter, occurs 0',
 				);
 				for (const id of trigger.meters ?? []) {
-					expect(potOf.get(id).bonus.mode === 'freeSpins', `${id} routes to free spins`);
+					expect(potOf.get(id).bonus.mode === routed, `${id} routes to ${routed}`);
 					expect(waiting.includes(id), `${id} started its bonus without being full`);
 					levels[id] = 0;
 				}
@@ -317,7 +342,8 @@ const deriveRound = (doc, answers, levels, tag) => {
 				const spins = potOf.get(trigger.meters?.[0])?.bonus.spins ?? 10;
 				expect(same(trigger.spins, [{ prob: 1, spins }]), `${spins} free spins`);
 				expect(ev.includes('enterBonus') && ev.includes('pickRandomly'), 'free-spin entry');
-				did.freeSpinsByPot++;
+				if (routed === 'freeSpins') did.freeSpinsByPot++;
+				else did.importedSpins++;
 			} else {
 				expect(trigger.bonus === 'respin', `bonus ${trigger.bonus}`);
 				const hw = one(a, 'holdAndWinTrigger');
@@ -353,6 +379,7 @@ const deriveRound = (doc, answers, levels, tag) => {
 				mode = 'holdAndWin';
 			}
 			if (trigger.bonus === 'feature') mode = 'freeSpins';
+			if (reelsModeIds.has(trigger.bonus)) mode = trigger.bonus;
 			// The bonus replaces the end: nothing closes on this answer.
 			expect(!ev.includes('gameEnd') || ev.includes('holdAndWinEnd'), 'an entry with a gameEnd');
 		}
@@ -422,7 +449,15 @@ console.log('1. the contract: inputs only with the block, the Hold and Win bonus
 {
 	const host = normalizeGameConfigDoc(structuredClone(BOOK_HOST));
 	check(potsOverlayMockInputs(host) === undefined, 'a project without the block: no inputs');
-	for (const [name, doc] of Object.entries({ THREE, FREE, STUB, FREE_DROPS, COINS, IMPORTED })) {
+	for (const [name, doc] of Object.entries({
+		THREE,
+		FREE,
+		STUB,
+		FREE_DROPS,
+		COINS,
+		IMPORTED,
+		IMPORTED_FS,
+	})) {
 		check(
 			!validateGameConfigDoc(doc).some((i) => i.severity === 'error'),
 			`${name} validates`,
@@ -624,6 +659,12 @@ console.log('4. routes: Hold and Win (pots, coins), the host’s free spins, ano
 			(d) => same(d.potBonus, ['gold']),
 		],
 		[
+			'pot → imported free spins (a reels mode)',
+			IMPORTED_FS,
+			'force:pot:gold',
+			(d) => d.importedSpins === 1 && d.freeSpinsByPot === 0,
+		],
+		[
 			'no pots: value coins → Hold and Win',
 			COINS_ONLY,
 			'force:overlay:coins:6',
@@ -668,6 +709,39 @@ console.log('4. routes: Hold and Win (pots, coins), the host’s free spins, ano
 		'an imported bonus boots as the source feature (GRAND letters), and a re-sync reaches the mock',
 		JSON.stringify({ before: before.respins, after: after.respins }),
 	);
+	// The imported free spins are dealt from THEIR strips, pay THEIR symbols, and boot announce the mode.
+	{
+		const mock = overlayMock(IMPORTED_FS, { seed: 'import-fs' });
+		const boot = (await engine(mock, 'sid=f', [])).events[0].context.potsOverlay;
+		const fs = await playRound(mock, 'f', { context: 'force:pot:gold' });
+		const boards = fs.slice(1).flatMap((a) => named(a, 'playedSpin').map((e) => e.context));
+		const onStrip = new Set(FS_STRIP.map((c) => (c.name === 'ACE' ? 'ACE_2' : c.name)));
+		const paid = fs.flatMap((a) => named(a, 'spinWin').map((e) => e.context.what));
+		check(
+			same(boot.modes, { freeSpins_2: { gameType: 'freegame_2' } }) &&
+				boot.bonuses.freeSpins_2 === 'freeSpins_2' &&
+				one(fs[0], 'spinTrigger')?.bonus === 'freeSpins_2' &&
+				boards.length === 10 &&
+				boards.every((b) => b.flat().every((name) => onStrip.has(name))),
+			'imported free spins: boot names the mode, its key enters it, 10 spins drawn only from its strips',
+			JSON.stringify({ modes: boot.modes, boards: boards.length, paid }),
+		);
+		const sample = await (async () => {
+			const seen = new Set();
+			for (let r = 0; r < 30; r++) {
+				const round = await playRound(overlayMock(IMPORTED_FS, { seed: `import-fs-${r}` }), 'p', {
+					context: 'force:pot:gold',
+				});
+				for (const a of round) for (const w of named(a, 'spinWin')) seen.add(w.context.what);
+			}
+			return seen;
+		})();
+		check(
+			sample.has('MUMMY') && sample.has('ACE_2'),
+			'…and its own symbols pay at their own prices (MUMMY, ACE_2)',
+			JSON.stringify([...sample]),
+		);
+	}
 	const stub = await playRound(overlayMock(STUB, { seed: 'stub-close' }), 's', {
 		context: 'force:pot:gold',
 	});

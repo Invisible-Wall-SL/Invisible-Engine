@@ -19,10 +19,15 @@ export type PotsOverlayMockInputs = {
 	holdAndWin?: HoldAndWinMockInputs;
 	/**
 	 * The REELS modes of the project's own a pot starts (an imported free spins, `./imports`), by
-	 * mode id: the game type it plays on and the strips the mock deals its spins from. Absent when no
-	 * pot routes to one, so every overlay before imports existed is dealt exactly as before.
+	 * mode id: the game type it plays on, the strips the mock deals its spins from and the line pays
+	 * (`occurs → multiplier`) of the symbols on them that pay on a line. Absent when no pot routes to
+	 * one, so every overlay before imports existed is dealt exactly as before. Names are the
+	 * project's; the launcher's contract puts them in the server's vocabulary.
 	 */
-	modes?: Record<string, { gameType: string; strips: string[][] }>;
+	modes?: Record<
+		string,
+		{ gameType: string; strips: string[][]; paytable: Record<string, Record<string, number>> }
+	>;
 };
 
 /** The mock's overlay inputs for a normalized doc, or `undefined` when it has no `potsOverlay`. */
@@ -37,7 +42,18 @@ export function potsOverlayMockInputs(doc: GameConfigDoc): PotsOverlayMockInputs
 		if (!mode || builtin.has(mode.id) || mode.board !== 'reels') continue;
 		const gameType = gameTypeForMode(mode);
 		const strips = (doc.paddingReels[gameType] ?? []).map((strip) => strip.map((c) => c.name));
-		if (strips.length) modes[mode.id] = { gameType, strips };
+		if (!strips.length) continue;
+		const paytable: Record<string, Record<string, number>> = {};
+		for (const name of new Set(strips.flat())) {
+			const symbol = doc.symbols[name];
+			const special = symbol?.special_properties ?? [];
+			// A scatter's or wild's pay is not a line pay: the mock pays them its own way.
+			if (!symbol?.paytable?.length || special.includes('scatter') || special.includes('wild')) {
+				continue;
+			}
+			paytable[name] = Object.assign({}, ...symbol.paytable);
+		}
+		modes[mode.id] = { gameType, strips, paytable };
 	}
 	return {
 		pots: overlay.pots,

@@ -481,20 +481,41 @@ export function createMockRgs(opts = {}) {
 		}
 		return 'TEN';
 	};
+	/** A board drawn from `strips` (one per reel): each reel stops at a random cell, `rows` deep. */
+	const spinStrips = (strips) =>
+		strips.map((strip) => {
+			const stop = Math.floor(nextRand() * strip.length);
+			return Array.from({ length: 3 }, (_unused, row) => strip[(stop + row) % strip.length]);
+		});
 	/**
 	 * Enter the free spins: draw the special and announce it. The round STAYS OPEN — free spins and a
 	 * `collect` follow. `board` (the triggering spin's) is sent between the trigger and the entry, as
 	 * the capture has it; `extra` rides on `spinTrigger` (a pot's `cause` and `meters`).
+	 *
+	 * A REELS MODE of the project's own (a pot's imported free spins, `mock-pots-overlay.mjs`) passes
+	 * its `bonus` key, the `strips` its spins are drawn from and the `paytable` of the symbols only it
+	 * deals. Without them — every free-spin round before imports existed — nothing here changes.
 	 */
-	const startFreeSpins = (events, round, { occurs, spins = TOTAL_FS, board, extra = {} }) => {
+	const startFreeSpins = (
+		events,
+		round,
+		{ occurs, spins = TOTAL_FS, board, extra = {}, bonus = 'feature', strips, paytable },
+	) => {
 		const special = pickSpecialSymbol();
-		round.bonus = { active: true, total: spins, played: 0, left: spins, special };
+		round.bonus = {
+			active: true,
+			total: spins,
+			played: 0,
+			left: spins,
+			special,
+			...(strips ? { key: bonus, strips, payTable: { ...payTable, ...paytable } } : {}),
+		};
 		events.push({
 			event: 'spinTrigger',
 			context: {
 				spins: [{ prob: 1, spins }],
 				occurs,
-				bonus: 'feature',
+				bonus,
 				trigger: { occurs: [3, 4, 5], of: 'SCAT', mode: 'scatter', from: '' },
 				...extra,
 			},
@@ -695,7 +716,8 @@ export function createMockRgs(opts = {}) {
 
 					// ----- FREE SPIN (round already in bonus) -----
 					if (round.bonus?.active) {
-						const reels = spinReels();
+						const reels = round.bonus.strips ? spinStrips(round.bonus.strips) : spinReels();
+						const roundPays = round.bonus.payTable ?? payTable;
 						events.push(spinStartEvent(round));
 						// Book mechanic: the chosen special is an expanding symbol. If it
 						// covers enough reels it pays scatter-style (on the reel count, × BASE
@@ -707,21 +729,21 @@ export function createMockRgs(opts = {}) {
 						const special = round.bonus.special;
 						// The BASE stake, never `round.total`: a bought round's total carries the buy
 						// premium, which would pay the special 100× over.
-						const specialWin = evaluateExpandingSpecial(reels, special, round.baseBet, payTable);
+						const specialWin = evaluateExpandingSpecial(reels, special, round.baseBet, roundPays);
 						let wins;
 						if (specialWin) {
 							const paidBoard = expandSpecialBoard(reels, special);
-							const lineWins = evaluatePaylines(paidBoard, round.betPerLine, payTable).filter(
+							const lineWins = evaluatePaylines(paidBoard, round.betPerLine, roundPays).filter(
 								(w) => w.what !== special,
 							);
 							wins = [specialWin, ...lineWins];
 						} else {
-							wins = evaluatePaylines(reels, round.betPerLine, payTable);
+							wins = evaluatePaylines(reels, round.betPerLine, roundPays);
 						}
 						for (const w of wins) {
 							events.push({
 								event: 'bonusWin',
-								context: { bonus: 'feature', pay: w.pay, isSpinWin: true },
+								context: { bonus: round.bonus.key ?? 'feature', pay: w.pay, isSpinWin: true },
 							});
 							events.push({ event: 'spinWin', context: w });
 							round.win += w.pay;
@@ -745,7 +767,7 @@ export function createMockRgs(opts = {}) {
 									occurs: retrig.count,
 									total: round.bonus.total,
 									left: round.bonus.left,
-									bonus: 'feature',
+									bonus: round.bonus.key ?? 'feature',
 								},
 							});
 						}
