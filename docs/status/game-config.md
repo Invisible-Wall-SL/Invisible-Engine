@@ -690,6 +690,11 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Recent changes
 
+- 2026-10-03 — **Imported bonuses** (Pots overlay Phase 7, #1022): an optional `imports` block
+  (`{mode, importedFrom {project, mode, at}, symbols}`, `src/bonusImports.ts`) and the pure
+  `importBonus` / `resyncBonus` / `importableFeatures` (`src/imports.ts`). `holdAndWinBonus` is now
+  `holdAndWinBonusFrom` over any config; `removePotsOverlay` shares `takeOutHoldAndWinBonus`. A
+  config without an import is byte-identical. Detail: [status/pots-overlay](pots-overlay.md).
 - 2026-10-03 — **Pot count 0–5** (pots overlay): the Add-ons section's **How many** picker (also
   offered when adding the overlay) sets 0 to 5 pots through `setOverlayPotCount`; 0 follows the
   coins-only rule. The validator caps an overlay at 5 pots. Detail:

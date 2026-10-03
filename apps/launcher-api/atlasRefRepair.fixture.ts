@@ -79,7 +79,7 @@ const doc = {
 						oddLabel: 'a/b::c',
 						panelTint: 16777215,
 					},
-					// A per-layoutType patch is read by the game in that ratio, so its refs ship too.
+					// A per-layoutType patch is read by the game in that ratio, so its refs are pinned too.
 					overrides: {
 						portrait: {
 							params: { buttonImage: `${SHEET}::T_UI_Portrait.png`, cardSpine: 'featureCardSpine' },

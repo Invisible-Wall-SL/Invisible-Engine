@@ -8,7 +8,7 @@
 
 Live in the launcher at `/localization` (granted to `developer`, `artist`, `pipelineTester` and `localizationReviewer`; `admin` always), scoped to the **active project**. One provider call per batch + R2 storage — no DB table.
 
-- **Table** — a spreadsheet-style view of the game's text. **Auto-collected sections** harvest every localizable string, source read-only (the owning tool edits it): **per-screen** from the Scene Editor (text nodes, component `text`/`label` params, and text authored inside custom components); a **Win text** section from Invisible Win Text's templates (incl. the built-in info-bar toast defaults); a **Symbol names** section from the Invisible Symbols State Machine's display names (`H1` → "Banana"/"Bananas"); a **Flow messages** section from Invisible Flow's `textMessage` nodes; a **Bet modes** section from Invisible Game Config's bet-mode copy (buy-feature card title/description/button, confirm-dialog body, HUD bet badge); and a **Game UI** section carrying the engine's own coded chrome. Each string's translation key **is the source text**, so identical strings share one translation. A **manual** section holds hand-authored rows (editable `key` + `source`). A **No longer in scenes** section surfaces removed-but-translated rows.
+- **Table** — a spreadsheet-style view of the game's text. **Auto-collected sections** harvest every localizable string, source read-only (the owning tool edits it): **per-screen** from the Scene Editor (text nodes, component `text`/`label` params, and text authored inside custom components — in every ratio, per-layoutType param overrides included); a **Win text** section from Invisible Win Text's templates (incl. the built-in info-bar toast defaults); a **Symbol names** section from the Invisible Symbols State Machine's display names (`H1` → "Banana"/"Bananas"); a **Flow messages** section from Invisible Flow's `textMessage` nodes; a **Bet modes** section from Invisible Game Config's bet-mode copy (buy-feature card title/description/button, confirm-dialog body, HUD bet badge); and a **Game UI** section carrying the engine's own coded chrome. Each string's translation key **is the source text**, so identical strings share one translation. A **manual** section holds hand-authored rows (editable `key` + `source`). A **No longer in scenes** section surfaces removed-but-translated rows.
   - Symbol-name rows key on the **trimmed** name (unlike scene/win text, keyed on the exact literal): `resolveSymbolName` trims before it calls the resolver, so a padded key would never match. Only _authored_ names harvest — an unnamed symbol resolves to its bare id and must never become a row; numeric-only names ("7") are skipped.
 - **Global settings** — source language, target languages, an optional context/glossary that guides every translation, and a **Never translate** list (comma-separated terms kept verbatim in every language).
   - Not a prompt instruction: each occurrence is **masked** to a `{{DNTn}}` token before the request and the ORIGINAL matched text is restored after it (`localizationMask.ts`), so the model translates the sentence around the term and physically cannot localize the term. Case-insensitive, whole-word, longest-term-first; the restore keeps the source's own casing. Verified offline (16 assertions, `tsx`).
@@ -34,6 +34,12 @@ Live in the launcher at `/localization` (granted to `developer`, `artist`, `pipe
 
 ## Recent changes
 
+- 2026-10-03 — **A caption set only for one ratio is translatable.** The harvest read a placed
+  component's base `params` only, so a `label`/`text` (or a def text bound to a param) an author set
+  only in the Scene Editor's portrait override never became a row and shipped untranslated in
+  portrait. `harvestSceneText` now harvests each ratio's EFFECTIVE params
+  (`resolveLayoutInstanceParams`). Whether `text` is fed stays one answer for every ratio: the game
+  binds a `source` feed from the BASE params only. `localizationHarvest.fixture.ts` covers it.
 - 2026-09-29 — **Leaving with unsaved translations now asks first.** The page tracked a dirty state but
   registered no leave guard, so a tool-bar switch, Back, a reload or a tab close discarded unsaved
   translations and review ticks silently. It now calls the shared `guardUnsavedWork` (`src/lib/unsavedGuard.ts`) — the

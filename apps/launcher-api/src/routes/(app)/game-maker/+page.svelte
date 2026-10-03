@@ -8,9 +8,11 @@
 		POTS_OVERLAY_PRESET_IDS,
 		POTS_OVERLAY_PRESET_LABELS,
 		type HoldAndWinPresetId,
+		type ImportableFeature,
 		type PotsOverlayPresetId,
 	} from 'game-config';
 	import { invalidateAll } from '$app/navigation';
+	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import { askConfirm } from '$lib/dialogs.svelte';
 	import {
@@ -27,6 +29,7 @@
 		withCurrency,
 		asAuthoringLaunch,
 	} from '$lib/gameLaunch';
+	import type { BonusImportOutcome, BonusImportParts } from '$lib/bonusImport';
 	import type { AddOnOutcome, AddOnPartStatus, AddOnSeedReport } from '$lib/potsOverlayAddOn';
 	import type { PageData } from './$types';
 
@@ -350,6 +353,106 @@
 			addOnErr = e instanceof Error ? e.message : 'The add-on failed.';
 		} finally {
 			addOnBusy = false;
+		}
+	}
+
+	// Import a bonus from another project of the same client (pots overlay Phase 7).
+	const IMPORT_PARTS: { key: keyof BonusImportParts; label: string }[] = [
+		{ key: 'symbols', label: 'Symbols' },
+		{ key: 'spines', label: 'Spines (shared)' },
+		{ key: 'layout', label: 'Screens' },
+		{ key: 'flow', label: 'Flow' },
+		{ key: 'winText', label: 'Win Text' },
+	];
+
+	let importProject = $state<Project | null>(null);
+	/** Set for a re-sync: the imported mode to copy again from its source. */
+	let importResync = $state<string | null>(null);
+	let importSource = $state('');
+	let importFeatures = $state<ImportableFeature[]>([]);
+	let importMode = $state('');
+	let importPots = $state<string[]>([]);
+	let importReplace = $state(false);
+	let importBusy = $state(false);
+	let importErr = $state('');
+	let importResult = $state<BonusImportOutcome | null>(null);
+
+	/** Same-client projects to import from: never the project itself. */
+	const importSources = $derived(
+		importProject
+			? data.projects.filter(
+					(p) => p.key !== importProject!.key && p.clientKey === importProject!.clientKey,
+				)
+			: [],
+	);
+	const importFeature = $derived(importFeatures.find((f) => f.mode === importMode));
+
+	function openImport(p: Project, resync: string | null = null) {
+		importProject = p;
+		importResync = resync;
+		importSource = '';
+		importFeatures = [];
+		importMode = resync ?? '';
+		importPots = [];
+		importReplace = false;
+		importErr = '';
+		importResult = null;
+	}
+
+	async function loadImportFeatures() {
+		const project = importProject;
+		importFeatures = [];
+		importMode = '';
+		importErr = '';
+		const requested = importSource;
+		if (!project || !requested) return;
+		try {
+			const q = new URLSearchParams({ project: project.key, source: requested });
+			const res = await fetch(`/api/game-maker/import?${q}`);
+			const out = await res.json().catch(() => ({}));
+			// A source picked since this request was sent owns the pickers now.
+			if (importSource !== requested) return;
+			if (!res.ok) throw new Error(out?.error ?? `Could not read ${requested} (${res.status}).`);
+			importFeatures = (out as { features: ImportableFeature[] }).features;
+			importMode = importFeatures.find((f) => !f.refused)?.mode ?? '';
+		} catch (e) {
+			importErr = e instanceof Error ? e.message : 'Could not read that project.';
+		}
+	}
+
+	async function runImport() {
+		const project = importProject;
+		if (!project) return;
+		if (importResult?.ok) {
+			importProject = null;
+			return;
+		}
+		importBusy = true;
+		importErr = '';
+		try {
+			const res = await fetch('/api/game-maker/import', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify(
+					importResync
+						? { project: project.key, mode: importResync, resync: true }
+						: {
+								project: project.key,
+								source: importSource,
+								mode: importMode,
+								replace: importReplace,
+								pots: importPots,
+							},
+				),
+			});
+			const out = await res.json().catch(() => ({}));
+			if (!res.ok) throw new Error(out?.error ?? `The import failed (${res.status}).`);
+			importResult = out as BonusImportOutcome;
+			await invalidateAll();
+		} catch (e) {
+			importErr = e instanceof Error ? e.message : 'The import failed.';
+		} finally {
+			importBusy = false;
 		}
 	}
 
@@ -1118,6 +1221,24 @@
 										>
 											{p.hasPotsOverlay ? 'Pots overlay parts…' : '＋ Pots overlay…'}
 										</button>
+										{#if p.hasPotsOverlay}
+											<button
+												class="add-on"
+												title="Copy a bonus from another project of this client into this one, for a pot to start"
+												onclick={() => openImport(p)}
+											>
+												Import a bonus…
+											</button>
+										{/if}
+										{#each p.imports as imported (imported.mode)}
+											<button
+												class="add-on"
+												title={`Copy ${imported.mode} again from ${imported.project} as it is now (imported ${shortDate(Date.parse(imported.at))})`}
+												onclick={() => openImport(p, imported.mode)}
+											>
+												Re-sync {imported.mode} from {imported.project}…
+											</button>
+										{/each}
 										{#if publishErr[p.key]}<span class="err">{publishErr[p.key]}</span>{/if}
 										{#if publishNote[p.key]}<span class="note">{publishNote[p.key]}</span>{/if}
 									</div>
@@ -1392,6 +1513,135 @@
 				</div>
 			</div>
 		</div>
+	{/if}
+
+	{#if importProject}
+		{@const project = importProject}
+		<ConfirmDialog
+			open
+			title={importResync
+				? `Re-sync ${importResync} into ${project.name}`
+				: `Import a bonus into ${project.name}`}
+			confirmLabel={importResult?.ok ? 'Done' : importResync ? 'Re-sync' : 'Import'}
+			busy={importBusy}
+			busyLabel={importResync ? 'Re-syncing…' : 'Importing…'}
+			blocked={!importResult?.ok &&
+				!importResync &&
+				(!importFeature ||
+					Boolean(importFeature.refused) ||
+					(project.hasHoldAndWin && !importReplace))}
+			hideCancel={Boolean(importResult?.ok)}
+			error={importErr}
+			onconfirm={runImport}
+			oncancel={() => (importProject = null)}
+		>
+			{#snippet body()}
+				{#if importResult}
+					{#if importResult.ok}
+						<ul class="add-on-report">
+							<li>
+								<strong>Game Config</strong>
+								{importResult.resynced
+									? 're-synced from the source'
+									: importResult.replaced
+										? 'the Hold and Win bonus replaced'
+										: 'bonus added'}
+							</li>
+							{#if Object.keys(importResult.renamed.symbols).length}
+								<li>
+									<strong>Renamed</strong>
+									(this project already used these names)
+									{renames(importResult.renamed.symbols)}
+								</li>
+							{/if}
+							{#if importResult.leftOut.length}
+								<li>
+									<strong>Left out</strong>
+									(a bonus starts only from a pot) {importResult.leftOut.join(', ')}
+								</li>
+							{/if}
+							{#if importResult.droppedActivates.length}
+								<li>
+									<strong>Special dropped</strong>
+									(the imported feature has none) pots {importResult.droppedActivates.join(', ')}
+								</li>
+							{/if}
+							{#each IMPORT_PARTS as { key: partKey, label } (partKey)}
+								{@const item = importResult.parts[partKey]}
+								<li class={`part-${item.status}`}>
+									<strong>{label}</strong>
+									{ADD_ON_STATUS[item.status] ?? item.status}{item.added.length
+										? `: ${item.added.join(', ')}`
+										: ''}
+									{#if item.note}<span class="part-note">{item.note}</span>{/if}
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				{:else if importResync}
+					<p class="confirm-note">
+						Copies {importResync} again from
+						{project.imports.find((i) => i.mode === importResync)?.project} as it is now: its Game Config,
+						symbol art, screens, Flow section and Win Text lines. Only those pieces are overwritten; the
+						pots that start it and everything else in this project stay as they are.
+					</p>
+				{:else}
+					<p class="confirm-note">
+						Copies one feature of another project of this client into this one, as a bonus a pot can
+						start: its Game Config, the symbols it deals (a name this project uses is renamed),
+						their art, its screens, its Flow section and its Win Text lines. The other project is
+						only read. Re-sync later to pick up its edits.
+					</p>
+					<div class="grid">
+						<label>
+							From
+							<select bind:value={importSource} onchange={loadImportFeatures}>
+								<option value="" disabled>Pick a project…</option>
+								{#each importSources as p (p.key)}
+									<option value={p.key}>{p.name} ({p.key})</option>
+								{/each}
+							</select>
+						</label>
+						{#if importFeatures.length}
+							<label>
+								Feature
+								<select bind:value={importMode}>
+									{#each importFeatures as f (f.mode)}
+										<option value={f.mode} disabled={Boolean(f.refused)}>
+											{f.label}{f.refused ? ' (not yet)' : ''}
+										</option>
+									{/each}
+								</select>
+							</label>
+						{/if}
+					</div>
+					{#each importFeatures.filter((f) => f.refused) as f (f.mode)}
+						<p class="confirm-note">{f.label}: {f.refused}</p>
+					{/each}
+					{#if project.pots.length}
+						<fieldset class="grid">
+							<legend>Pots that start it</legend>
+							{#each project.pots as pot (pot.id)}
+								<label class="check">
+									<input type="checkbox" value={pot.id} bind:group={importPots} />
+									{pot.id} <span class="part-note">(now {pot.mode})</span>
+								</label>
+							{/each}
+						</fieldset>
+					{/if}
+					{#if project.hasHoldAndWin}
+						<label class="check">
+							<input type="checkbox" bind:checked={importReplace} />
+							Replace this project's Hold and Win bonus (a project has one; /config keeps a backup)
+						</label>
+					{/if}
+					<p class="confirm-note">
+						Nothing is written while someone else has this project's Game Config, Symbols, Scene
+						Editor, Flow or Win Text open. Reload your own open tabs of them afterwards.
+					</p>
+				{/if}
+			{/snippet}
+		</ConfirmDialog>
 	{/if}
 
 	{#if dupSource}
