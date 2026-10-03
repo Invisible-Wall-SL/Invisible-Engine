@@ -63,8 +63,5 @@ check('the imported mode pads from its authored strips', game.getPaddingReels('f
 check('an unknown game type, generated as before', game.getPaddingReels('nope'), generated);
 delete global.__IE_SERVER_CONFIG__;
 
-if (failures) {
-	console.log(`\n${failures} FAILED`);
-	process.exit(1);
-}
-console.log('\nAll padding-reel assertions passed.');
+console.log(failures === 0 ? '\nAll padding-reel assertions passed.' : `\n${failures} FAILED`);
+if (failures > 0) throw new Error('padding-reel fixture failed');
