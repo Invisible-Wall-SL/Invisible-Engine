@@ -199,13 +199,17 @@ only expected console noise is environmental (Typekit, a `boot.json` 404).
   the Nth cell sits empty for about (N−1)×70 ms before its flight starts.
 - **Resume between a drop and its fills shows no tokens.** Neither `overlayDrop` nor `reveal` is in
   the resume snapshot. The following `meterUpdate` still flies from the cell.
-- **Frame over coin is an owner decision pending (4b).** A token on a paying cell covers that
-  cell's win frame. §3.4 says the layer should sit under the frames.
+- **The coin draws over the win frame** (owner decision, design §7 #9). A token on a paying cell
+  covers that cell's frame by design.
 - **The drain plays after the mode has entered,** so the new mode's screens and music are already
   up. A flow that OWNS `freeSpinTrigger` or `modeEnter` skips the drain (the pot snaps to empty).
 - **A token with no `/symbols` art draws nothing.** The add-on seeds placeholder art, so this is a
   bug only on the published sample.
 - **About 4 fps in the container** (software GL). Token pop-in, lift-off, the flights and the drain
   need **human eyes** at full frame rate with real art.
+- **Expected, not bugs (seen on the first local run, 2026-10-03):** a 3 Pots feature's
+  `activeModifiers` always include `mystery` beside the pot's special (the Pots Hold and Win preset);
+  on a trigger spin the mock sends the `meterUpdate`s before `playedSpin` (the facade holds them until
+  the board has paid); a forced `pot:<id>` reads its old level, then 12 (the forced 11 is never shown).
 - Inherited from [borut-remake.md](borut-remake.md): there is no retrigger overlay, the hamburger
   menu does nothing, and the Buy Feature copy is off-theme.
