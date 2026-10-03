@@ -191,6 +191,8 @@ export const BOUND_COMPONENT_DEFAULTS: Record<string, BoundComponentDefault> = {
 	TotalWinBarPart: { skin: { layers: [] } },
 	// A Letter Tile's coded part: the dim and lit art and letter, inside it.
 	LetterTilePart: { skin: { layers: [] } },
+	// A Cell Tile's coded part: the tile and its held overlay, inside it.
+	CellTilePart: { skin: { layers: [] } },
 	// The Wheel's coded part: the turning face under the fixed rim, at the wheel's size. The pointer
 	// sits off-centre at the rim, so only the game draws it.
 	HoldAndWinWheelPart: {

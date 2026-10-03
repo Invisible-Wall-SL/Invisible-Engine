@@ -54,7 +54,7 @@ titled **"Hold and win game pipeline"**.
 | 11c | Progressive + operator platform jackpots (design §7) | merged, live (`lines@2342c815d074`) — owed: the live Borut round and the partner's platform-jackpot confirmation (Owner checklist 10–11) | Hold and Win Phase 11c — progressive + platform jackpots | part 1: #991 · part 2: #999 |
 | 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | merged (`97652ca9`; the runtime release passed) — owed: a live check on `hw-3pots-sample` (Open items) | Hold and Win Phase 12a | #1003 |
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | merged — whole pipeline (engine → sources → Scene + Component Editor → guides); owed: the live check (Open items) | Hold and Win Phase 12b value bindings | #1005 |
-| 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — built on #1006: the Pot (art params, nodes inside, `standsFor`, fill on 12b's `fillMaskRect`), the Respin Counter and the Jackpot Tile (their panels inside a coded part), a Jackpot Bar copy, a **component** swap on instances, the Total Win Bar (its part can catch the coins), the Letters Strip (each letter a Letter Tile instance), and the Wheel (art params, nodes on its turning face). Next: the done-when on `hw-3pots-sample`, then the cell tiles | Hold and Win Phase 12c skinnable parts | #1006 |
+| 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — built on #1006: the Pot (art params, nodes inside, `standsFor`, fill on 12b's `fillMaskRect`), the Respin Counter and the Jackpot Tile (their panels inside a coded part), a Jackpot Bar copy, a **component** swap on instances, the Total Win Bar (its part can catch the coins), the Letters Strip (each letter a Letter Tile instance), the Wheel (art params, nodes on its turning face), and the respin cells (each a Cell Tile instance). Next: the done-when on `hw-3pots-sample` | Hold and Win Phase 12c skinnable parts | #1006 |
 
 ## Current state
 
@@ -250,6 +250,30 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
       - **Not previewed:** the pointer sits off centre at the rim, so only the game draws it. With
         only a rim picked, the canvas shows just the rim, while the game still draws the coded
         segments under it.
+  - **The respin cell tiles follow the Letters Strip: each cell draws on a Cell Tile instance.**
+    The Respin Cell Tiles (`respinCells`) already took art params (`tileImage`, `tileTint`, `gap`),
+    which the board stamps under every cell.
+    - **The tile:** `CELL_TILE_DEF` (`cellTile`) puts a tile node (`tileImage`, `tileTint`) and a
+      held overlay (`heldImage`) inside a `Cell` part (`CellTilePart`).
+      - **Held:** the overlay shows through a 12b `visible` binding on the `held` param. The board
+        feeds `held` per cell (1 while a coin holds it) through `<ComponentInstance engineValues>`,
+        so no value source has to exist for every cell.
+      - **Pulse:** the part pulses the tile when a coin lands on its own cell (`landPulseScale`,
+        default 1, still like the coded tiles).
+      - **Box:** it is authored on one cell's box (120 square, centred), and the board scales it to
+        each cell's window, shrunk by the gap.
+      - It registers nothing, so it stands for no part.
+    - **The tiles' new `tile` param** (kind `component`, fed `reel`, `row` and `held`) names the
+      component each cell draws on, instead of stamping `tileImage`.
+      - **Mounting:** `RespinCellTile` mounts it per open cell, on the same seat and box math as the
+        coded sprite.
+      - **Fallback:** blank (the default), a component that is not registered, or one naming the
+        tiles themselves keeps `tileImage` (parity). The gap still insets the rolling windows.
+    - **Not scoped:** the coin signals stay unscoped. The "Coins land" event lists several cells, so
+      firing it per cell would replay an unscoped listener's cue once per cell. A cue on **Coins
+      land** inside a Cell Tile therefore plays on every tile; per-cell state is `held`.
+    - **Shipping:** the tile ships through `resolveComponentClosure` (the `component` param), like
+      the Letter Tile.
 
 - 2026-10-02 — **Owner: the pots as an overlay on any kind** (session "3 pots overlay mechanic").
   Its own plan and hub: [design/pots-overlay](../design/pots-overlay.md),
@@ -881,7 +905,8 @@ Hold and Win beats prints copy.
     part box, not the letters or tiles, because the editor does not know the config's letters.
   - **The wheel is done** (Decisions). Open on it: nodes inside the part draw static in the editor;
     only the game turns them.
-  - **The other parts, same pattern:** respin cell tiles.
+  - **The respin cell tiles are done** (Decisions). That closes the 12c list of parts. Open on
+    them: the coin signals are not scoped per cell (Decisions).
   - **A Platform Jackpot Bar copy** has no create type. Its tiles already get the part, and the
     component swap works on any bar copy.
   - **Editor limits:**
@@ -891,6 +916,8 @@ Hold and Win beats prints copy.
       defaults is not drawn behind them.
     - The canvas does not preview the coded labels, the size-stage images or the pot's `scale`
       param.
+    - Selecting a Respin Cell Tiles previews its `tileImage` at every cell even when its `tile`
+      names a Cell Tile. The Cell Tile shows in the Component Editor and in the game.
   - **Not verified in a browser:** the editor side (the launcher is auth-gated). It type-checks and
     builds. The runtime was verified in Storybook (`MODE_HOLD_AND_WIN/skinned pot (12c)`).
 - **Phase 12b follow-ups** (none blocks 12c):
@@ -908,9 +935,10 @@ Hold and Win beats prints copy.
     **Pot — activate** (or an FX on `potFull`), place it on each pot, and confirm only the pot that
     activates plays. Everything up to that point is gate-covered (`check:signal-scope`), but the
     instance filter itself is Svelte and runs only in a browser.
-  - **Coins are not scoped.** A coin signal has no part a placed component stands for: the respin
-    cells are one coded board, not per-cell instances. Revisit with 12c's skinnable respin cell
-    tiles if a per-cell component appears.
+  - **Coins are not scoped.** A coin signal has no part a placed component stands for. 12c's Cell
+    Tile is a per-cell instance now, but "Coins land" lists several cells, so a per-cell scope would
+    need a fire per cell, which would replay an unscoped listener's cue. A Cell Tile reads its cell's
+    state from `held` instead.
 - **Phase 11b follow-ups** — both ruled by the hub (2026-10-02) and closed:
   - **Reserving an expanding board's area** — the scaffold and "Add missing screens" build the
     template with the stored config's `maxRows`, and the Scene Editor offers **⇕ Reserve rows for
@@ -1038,6 +1066,34 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-03 — **Phase 12c: the respin cell tiles skinned** (#1006). That closes the 12c list of
+  parts. Contract: Decisions, "The respin cell tiles follow the Letters Strip".
+  - **Engine:**
+    - `CELL_TILE_DEF` (`cellTile`): the tile and a held overlay inside its `Cell` part.
+    - `RESPIN_CELLS_DEF` gains `tile` (kind `component`, fed `reel`, `row`, `held`).
+    - The `CellTilePart` catalog entry (no art layers).
+  - **Game:**
+    - `CellTilePart` draws the skin and pulses it when a coin lands on its own cell.
+    - `RespinCellTiles` hands the board the `tile`, refusing an unregistered or self-naming one.
+    - `RespinBoard` → `RespinCellTile` mounts it per open cell, scaled to the cell's window and fed
+      its `held` through `engineValues`.
+  - **Editors:** **Respin Cell Tiles** and **Cell Tile (Hold and Win)** create types.
+  - **Verified:**
+    - `test-cell-tile.mjs` (22 assertions): the tile's shape, the held overlay's binding, the
+      defaults (still, a sample cell), no stand-in, the `tile` param and the picker filter (a Letter
+      Tile is not offered), the parity default, an old copy's upgrade, and shipping through the
+      closure.
+    - Every engine-layout fixture, `check:holdandwin` and the launcher's `check:*` gates pass.
+    - Storybook `MODE_HOLD_AND_WIN/skinned cell tiles (12c)`, a placed Respin Cell Tiles over a 3×3
+      grid of cells:
+      - **On a Cell Tile copy:** all 9 tiles draw at the cell's box (0.94, the gap's inset). Holding
+        two cells shows two "H" overlays, and releasing one leaves one.
+      - **A coin landing on cell 1:1** pulses that tile alone (1.16 at 60 ms), back to 0.94 by
+        860 ms.
+      - **A missing tile, or one naming the cell tiles:** refused; no tile draws.
+    - A whole feature does not render a board in the sandbox (its art loads from the network), so
+      the story mounts the cells directly.
 
 - 2026-10-02 — **Phase 12c: the Wheel skinned** (#1006). Contract: Decisions, "The Wheel follows
   the Pot".

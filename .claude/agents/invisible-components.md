@@ -63,18 +63,20 @@ Mirror the existing built-ins; don't invent a third pattern without reason:
   masked progress fill, interaction state, spine choreography). Pass `boundToInstance:
   true` so the coded part renders at the instance's local origin (parity).
   A coded part can be made **skinnable** (Hold and Win 12c: the Pot, the Respin Counter, the
-  Jackpot Tile, the Total Win Bar, the Letter Tile, the Wheel). It takes a `skin` snippet
-  prop, the author's nodes inside its `bind` node, and draws them in place of its coded drawing
-  while keeping its behaviour. Per-instance art comes from `image` params. Declare it in
+  Jackpot Tile, the Total Win Bar, the Letter Tile, the Wheel, the Cell Tile). It takes a `skin`
+  snippet prop, the author's nodes inside its `bind` node, and draws them in place of its coded
+  drawing while keeping its behaviour. Per-instance art comes from `image` params. Declare it in
   `BOUND_COMPONENT_DEFAULTS.<Part>.skin` so the editors preview it and offer **Edit inside**.
   Mirror `HoldAndWinPot` / `POT_SKIN_PARAMS` or `HoldAndWinWheelArt` / `WHEEL_SKIN_PARAMS` (art
   params; a turning or growing part draws the skin inside its moving container), or
   `RespinCounterPart` / `JackpotTilePart` / `TotalWinBarPart` (a plain-node panel moved inside its
   part, `panelInPart`); a new flight target is opt-in, so an unauthored game flies as before. A part
   repeated per item (a letter per reel) renders each item as its own `<ComponentInstance>` of a
-  component a `component`-kind param names (`LettersStrip` → `letterTile`), so 12a scopes cues per
-  item. Such a component is in no node, so it ships only through `resolveComponentClosure` (the one
-  def walk the bake, the runtime bundle and the art export share). Never hand-roll a def walk. Give
+  component a `component`-kind param names (`LettersStrip` → `letterTile`, `RespinCellTiles` →
+  `cellTile`), so 12a can scope cues per item. A per-item state no value source covers is fed
+  through `<ComponentInstance engineValues>` (a cell's `held`). Such a component is in no node, so
+  it ships only through `resolveComponentClosure` (the one def walk the bake, the runtime bundle
+  and the art export share). Never hand-roll a def walk. Give
   the def `standsFor` when the part registers something, so a copy without the part still registers.
   The contract is in `docs/status/hold-and-win.md`.
 

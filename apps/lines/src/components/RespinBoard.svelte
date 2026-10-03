@@ -194,6 +194,7 @@
 	const board = $derived(stateRespinBoard.shown ? currentRespinBoard() : null);
 	const look = $derived(respinCellLook());
 	const tileArt = $derived(look?.art);
+	const tileComponent = $derived(look?.tile);
 	const heldKeys = $derived(
 		stateRespinBoard.held.map((cell) => respinCellKey(cell.reel, cell.row)),
 	);
@@ -210,15 +211,18 @@
 <Container>
 	{#if board}
 		<BoardContainer>
-			<!-- The authored cell tiles (`respinCells`), under everything. An unconditional container, so
-				 tiles that arrive after the board mounted still draw beneath the cells. -->
+			<!-- The authored cell tiles (`respinCells`: a Cell Tile component, else the tile image), under
+				 everything. An unconditional container, so tiles that arrive after the board mounted
+				 still draw beneath the cells. -->
 			<Container>
-				{#if tileArt}
+				{#if tileComponent || tileArt}
 					{#each openCells as cell (cell)}
 						<RespinCellTile
 							reel={cell.reel}
 							row={cell.row}
 							art={tileArt}
+							tile={tileComponent}
+							held={heldKeys.includes(respinCellKey(cell.reel, cell.row))}
 							tint={look?.tint}
 							gap={look?.gap ?? 0}
 						/>

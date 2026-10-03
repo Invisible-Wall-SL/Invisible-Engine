@@ -281,6 +281,7 @@
 	import JackpotTilePart from './JackpotTilePart.svelte';
 	import TotalWinBarPart from './TotalWinBarPart.svelte';
 	import LetterTilePart from './LetterTilePart.svelte';
+	import CellTilePart from './CellTilePart.svelte';
 	import LettersStrip from './LettersStrip.svelte';
 	import HoldAndWinWheelPart from './HoldAndWinWheelPart.svelte';
 	import RespinCellTiles from './RespinCellTiles.svelte';
@@ -524,17 +525,18 @@
 		// flips the toggle on an overlay instance ⇒ pure registration, no render change.
 		TapToContinue,
 		// The Hold and Win components' coded parts (`potMeter`, `respinCounter`, `jackpotTile`,
-		// `totalWinBar`, `lettersStrip`, `letterTile`, `wheel`, `respinCells` and `lockedRow` defs):
-		// live pots, the counter's pulse and "+N" anchor, a tile's pulse on its tier's win, the bar's
-		// coin catch, the config's letters and a letter's pulse as it lights, the config's wheel, the
-		// respin cells' tiles and an expanding board's locked cells, which the static node model can't
-		// express.
+		// `totalWinBar`, `lettersStrip`, `letterTile`, `wheel`, `respinCells`, `cellTile` and
+		// `lockedRow` defs): live pots, the counter's pulse and "+N" anchor, a tile's pulse on its
+		// tier's win, the bar's coin catch, the config's letters and a letter's pulse as it lights, the
+		// config's wheel, the respin cells' tiles and a cell's pulse as a coin lands, and an expanding
+		// board's locked cells, which the static node model can't express.
 		PotMeter,
 		RespinCounterPart,
 		JackpotTilePart,
 		TotalWinBarPart,
 		LettersStrip,
 		LetterTilePart,
+		CellTilePart,
 		HoldAndWinWheelPart,
 		RespinCellTiles,
 		RespinLockedRows,

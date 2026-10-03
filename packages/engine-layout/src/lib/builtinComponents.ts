@@ -2536,6 +2536,86 @@ export const WHEEL_DEF: ComponentDef = {
 	standsFor: 'HoldAndWinWheelPart',
 };
 
+/** A respin cell's design box: a Cell Tile is authored on one cell, and the board fits it to each. */
+const CELL_TILE_SIZE = 120;
+
+/**
+ * One respin cell's tile, for the Respin Cell Tiles to draw under every cell (their `tile` param).
+ * SKINNABLE (Phase 12c), the Letter Tile's pattern: the tile art and a held overlay sit INSIDE the
+ * coded `Cell` part, which pulses them when a coin lands on its cell (`landPulseScale`, 1 = still,
+ * as the coded tiles are). The board feeds each tile its `reel` and `row`, and `held` (1 while a coin
+ * holds the cell, else 0), which the overlay shows by through a 12b `visible` binding. Authored on one
+ * cell's box ({@link CELL_TILE_SIZE} square, centred); the board fits it to each cell's window. It
+ * registers nothing, so it stands for no part.
+ */
+export const CELL_TILE_DEF: ComponentDef = {
+	id: 'cellTile',
+	name: 'Cell Tile',
+	version: 1,
+	scope: 'shared',
+	category: 'ui',
+	capability: 'holdAndWin',
+	root: {
+		id: 'cellTile-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			{
+				...codedPart('cellTile-cell', 'Cell', 'CellTilePart', CELL_TILE_SIZE, CELL_TILE_SIZE),
+				children: [
+					{
+						id: 'cellTile-tile',
+						label: 'Tile',
+						kind: 'sprite',
+						x: 0,
+						y: 0,
+						anchor: { x: 0.5, y: 0.5 },
+						assetKey: '',
+						width: CELL_TILE_SIZE,
+						height: CELL_TILE_SIZE,
+						paramBindings: { region: 'tileImage', tint: 'tileTint' },
+						preview: { w: CELL_TILE_SIZE, h: CELL_TILE_SIZE, style: 'tile' },
+					},
+					{
+						id: 'cellTile-held',
+						label: 'Held',
+						kind: 'sprite',
+						x: 0,
+						y: 0,
+						anchor: { x: 0.5, y: 0.5 },
+						assetKey: '',
+						width: CELL_TILE_SIZE,
+						height: CELL_TILE_SIZE,
+						paramBindings: { region: 'heldImage' },
+						valueBindings: [{ target: 'visible', param: 'held' }],
+						preview: { w: CELL_TILE_SIZE, h: CELL_TILE_SIZE, style: 'tile' },
+					},
+				],
+			},
+		],
+	},
+	params: [
+		{ key: 'reel', kind: 'number', default: 0, label: 'column (the board sets it)' },
+		{ key: 'row', kind: 'number', default: 0, label: 'row (the board sets it)' },
+		{
+			key: 'held',
+			kind: 'number',
+			engineProvided: true,
+			label: '1 while a coin holds the cell (the board sets it)',
+		},
+		{ key: 'tileImage', kind: 'image', label: 'tile under the cell' },
+		{ key: 'tileTint', kind: 'color' },
+		{ key: 'heldImage', kind: 'image', label: 'over the tile while a coin holds the cell' },
+		{
+			key: 'landPulseScale',
+			kind: 'number',
+			default: 1,
+			label: 'pulse when a coin lands on the cell (1 = none)',
+		},
+	],
+};
+
 /**
  * The respin board's per-cell TILE and the gap between cells (the references draw every respin cell
  * on a tile, an empty cell as a bare tile). Placed in the `respinBoard` scene; WHERE it sits does not
@@ -2543,6 +2623,10 @@ export const WHEEL_DEF: ComponentDef = {
  * under each cell at that cell's seat and insets each cell's rolling window by `gap` (a share of a
  * cell; a gap with no tile parts the windows over the background). Not placed ⇒ no tiles and no gap,
  * the coded look. In the Scene Editor it shows as a handle only — the tiles draw in the game.
+ *
+ * SKINNABLE (Phase 12c): `tile` names a component each cell draws as instead of `tileImage` (a
+ * project's Cell Tile copy), fed its `reel`, `row` and `held`; blank, the default, stamps
+ * `tileImage` as before.
  */
 export const RESPIN_CELLS_DEF: ComponentDef = {
 	id: 'respinCells',
@@ -2566,6 +2650,13 @@ export const RESPIN_CELLS_DEF: ComponentDef = {
 			kind: 'number',
 			default: 0,
 			label: 'gap between cells (share of a cell, 0–0.45)',
+		},
+		{
+			key: 'tile',
+			kind: 'component',
+			default: '',
+			label: 'each cell drawn on (blank = tileImage)',
+			fedParams: ['reel', 'row', 'held'],
 		},
 	],
 };
@@ -2608,6 +2699,7 @@ export const HOLD_AND_WIN_COMPONENTS: ComponentDef[] = [
 	LETTER_TILE_DEF,
 	WHEEL_DEF,
 	RESPIN_CELLS_DEF,
+	CELL_TILE_DEF,
 	LOCKED_ROW_DEF,
 ];
 

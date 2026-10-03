@@ -839,7 +839,9 @@ game on the next **Publish** — the same trip as the rest of your art.
   Hold and Win template puts one on the **Respin board** screen; without a tile image or a gap it
   changes nothing. **Select it** to preview: the reel grid then shows every cell as an empty respin
   cell on your tile, at the gap — the respin board itself only appears in the game, during a
-  feature (**Live ↗**).
+  feature (**Live ↗**). Its **tile** picks a component, usually your Cell Tile copy, for every
+  cell to draw on instead of the **tileImage**. It lists the components with a `reel`, a `row` and
+  a `held`. The preview still shows the **tileImage**.
   **Locked Row** is what an **expanding** respin board (Game Config → Board expansion) draws over
   every cell of a row that has not opened yet (**lockedImage**, **lockedTint**). Without an image the
   game draws its own dark panel marked LOCKED. Like the tiles, where you drop it doesn't matter; the

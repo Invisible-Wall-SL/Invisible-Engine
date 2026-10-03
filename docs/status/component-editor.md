@@ -18,8 +18,8 @@ Shipped capabilities on `main`:
 - **Promote to shared** (2026-06-24) — holders of the `componentPublish` capability (admin by default) get a top-bar button writing a `_shared/editor-components/<id>.json` snapshot; enforced server-side. The kept draft stays project-scoped and still shadows the shared copy.
 - **Skinnable coded parts** (2026-10-02, Hold and Win 12c, #1006). A coded part whose catalog entry
   declares a `skin` takes the author's own nodes inside it: the Pot, the Respin Counter, the Jackpot
-  Tile, the Total Win Bar, the Letter Tile and the Wheel. Those nodes draw in place of the coded
-  drawing, and the part keeps its behaviour. The Pot and the Wheel also take art params. The bar's
+  Tile, the Total Win Bar, the Letter Tile, the Wheel and the Cell Tile. Those nodes draw in place
+  of the coded drawing, and the part keeps its behaviour. The Pot and the Wheel also take art params. The bar's
   **Edit inside ‹part› ›** edits the part's children, and the canvas previews the art and the
   children. A **(Hold and Win)** create type per part makes a project copy.
   Contract: [hold-and-win](hold-and-win.md) Decisions.
@@ -36,6 +36,10 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-03 — **The respin cell tiles are skinnable** (Hold and Win 12c, #1006). New **Cell Tile**
+  built-in: the tile and a held overlay sit inside a `Cell` part (**Edit inside Cell ›**). The
+  Respin Cell Tiles' new **tile** (a `component` param) picks it for every cell. New **Respin Cell
+  Tiles** and **Cell Tile (Hold and Win)** create types. Detail: [hold-and-win](hold-and-win.md).
 - 2026-10-02 — **The Wheel is skinnable** (Hold and Win 12c, #1006). Art params turn its face and
   swap its rim and pointer. Nodes inside its `Wheel` part (**Edit inside Wheel ›**) turn with the
   face. There is a new **Wheel (Hold and Win)** create type. Detail: [hold-and-win](hold-and-win.md).

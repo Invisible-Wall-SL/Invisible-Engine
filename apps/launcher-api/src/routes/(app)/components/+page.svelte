@@ -10,6 +10,7 @@
 	import {
 		boundComponentSkin,
 		BUTTON_STATE_PARAMS,
+		CELL_TILE_DEF,
 		ENGINE_ACTION_CATALOG,
 		fontParamKeysOf,
 		FREE_SPIN_COUNTER_DEF,
@@ -21,6 +22,7 @@
 		LETTER_TILE_DEF,
 		LETTERS_STRIP_DEF,
 		POT_METER_DEF,
+		RESPIN_CELLS_DEF,
 		RESPIN_COUNTER_DEF,
 		parseScopedFrameRef,
 		pruneOrphanParamBindings,
@@ -712,6 +714,8 @@
 		lettersStrip: LETTERS_STRIP_DEF,
 		letterTile: LETTER_TILE_DEF,
 		wheel: WHEEL_DEF,
+		respinCells: RESPIN_CELLS_DEF,
+		cellTile: CELL_TILE_DEF,
 	} satisfies Record<string, ComponentDef>;
 	type CopyType = keyof typeof COPY_TYPES;
 	const isCopyType = (type: string): type is CopyType => type in COPY_TYPES;
@@ -1635,6 +1639,8 @@
 										<option value="lettersStrip">Letters Strip (Hold and Win)</option>
 										<option value="letterTile">Letter Tile (Hold and Win)</option>
 										<option value="wheel">Wheel (Hold and Win)</option>
+										<option value="respinCells">Respin Cell Tiles (Hold and Win)</option>
+										<option value="cellTile">Cell Tile (Hold and Win)</option>
 									{/if}
 								</select>
 								{#if newType === 'blank'}
@@ -1754,6 +1760,24 @@
 									game's (switch them off with <strong>showLabels</strong> /
 									<strong>showLanded</strong>). Place it on the <strong>Wheel</strong> screen in
 									place of the Wheel. Listed under <strong>UI</strong>.
+								</p>
+							{:else if newType === 'respinCells'}
+								<p class="muted small">
+									A project copy of the built-in <strong>Respin Cell Tiles</strong>: the tile under
+									every respin cell and the <strong>gap</strong> between cells. Set its
+									<strong>tile</strong> to your own Cell Tile copy to draw every cell on it; blank
+									stamps <strong>tileImage</strong>. Place it on the <strong>Respin board</strong>
+									screen in place of the Respin Cell Tiles. Listed under <strong>UI</strong>.
+								</p>
+							{:else if newType === 'cellTile'}
+								<p class="muted small">
+									A project copy of the built-in <strong>Cell Tile</strong>: one respin cell's tile
+									and a <strong>held</strong> overlay inside the coded <strong>Cell</strong> part.
+									Click
+									<strong>Edit inside Cell</strong> to restyle them or add your own nodes, on one
+									cell's box; the board fits it to every cell. Show a node only while a coin holds
+									the cell with <strong>Bind to value</strong> on <strong>held</strong>. Pick it as
+									the Respin Cell Tiles' <strong>tile</strong>. Listed under <strong>UI</strong>.
 								</p>
 							{/if}
 						</div>

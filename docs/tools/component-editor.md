@@ -71,9 +71,9 @@ Open **Invisible Component Editor** from the launcher home. The home state shows
     caption and **X OF Y** value), already wired to the engine. Swap the frame art,
     restyle the text or edit the label, then save.
   - **Pot Meter**, **Respin Counter**, **Jackpot Tile**, **Jackpot Bar**, **Total Win Bar**,
-    **Letters Strip**, **Letter Tile** and **Wheel (Hold and Win)** — project copies of those
-    built-ins. Put your own nodes inside the coded part of the Pot Meter, Respin Counter, Jackpot
-    Tile, Total Win Bar, Letter Tile or Wheel (see
+    **Letters Strip**, **Letter Tile**, **Wheel**, **Respin Cell Tiles** and **Cell Tile (Hold and
+    Win)** — project copies of those built-ins. Put your own nodes inside the coded part of the Pot
+    Meter, Respin Counter, Jackpot Tile, Total Win Bar, Letter Tile, Wheel or Cell Tile (see
     [Skin a coded part](#skin-a-coded-part)). Offered in a Hold and Win project, or one whose
     Game Config has a Hold and Win bonus; the Pot Meter also with the pots overlay.
 - **Library** — existing components grouped by category. Click a row to open it for
@@ -429,8 +429,8 @@ hold time and the win-level sound cues) at boot.
 ## Skin a coded part
 
 Some built-ins draw a **coded part**: the game draws it, and the canvas shows a grey stand-in box.
-The Hold and Win **Pot Meter**, **Respin Counter**, **Jackpot Tile**, **Total Win Bar** and
-**Letter Tile** have parts you can skin, and so does the **Wheel**.
+The Hold and Win **Pot Meter**, **Respin Counter**, **Jackpot Tile**, **Total Win Bar**, **Letter
+Tile**, **Wheel** and **Cell Tile** have parts you can skin.
 
 The Pot takes two ways, which you can use together.
 
@@ -546,6 +546,28 @@ the game's. Switch them off with **showLabels** and **showLanded**, or restyle t
 **Labels** group. Decoration that should not turn, such as lights or a stand, goes beside the part
 in the component, not inside it. A cue on **Wheel — spin** or **Wheel — land** can drive it. On
 the **Wheel** screen, switch the Wheel's **component** to yours.
+
+**The Respin Cell Tiles and the Cell Tile.** The Respin Cell Tiles draw a tile under every respin
+cell. To skin them, create a **Cell Tile (Hold and Win)** and click **Edit inside Cell ›**. Inside
+sit the cell's tile and a **held** overlay, on one cell's box (120 square, centred). The game fits
+the box to every cell, shrunk by the **gap**.
+
+- **Tile and held art.** Pick them as the **default** of **tileImage** and **heldImage** under
+  **Variables in use**. The board creates each tile itself, so there is no placed tile to set them
+  on.
+- **Held.** The overlay shows while a coin holds the cell, through a [Bind to
+  value](#3b-drive-a-node-from-a-number-bind-to-value) on **held**. Give your own nodes the same
+  binding to show them only on a held cell.
+- **Pulse.** The part pulses the tile when a coin lands on its cell (**landPulseScale**; 1, the
+  default, keeps it still).
+
+A cue on **Coins land** inside the tile plays on every tile, not just the landed cell's, because one
+landing can fill several cells. Use **held** for what a single cell shows.
+
+Then create a **Respin Cell Tiles (Hold and Win)**, or select the tiles on the **Respin board**
+screen, and set its **tile** to your Cell Tile. Every cell then draws on your tile. Blank keeps the
+**tileImage**. The **gap** still applies. Selecting the tiles in the Scene Editor previews the
+**tileImage**, not your Cell Tile; see it in the Component Editor or the game.
 
 ## Traps
 

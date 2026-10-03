@@ -93,9 +93,10 @@ export const openRespinRows = (): number => stateRespinBoard.rows || (board?.row
  * The authored look of every respin cell — a tile under it and a gap between cells — handed over by
  * a mounted `respinCells` component (`RespinCellTiles`). No component mounted ⇒ the coded look: no
  * tile, no gap. Each mounted instance holds its own entry, by id; the most recently published one
- * is drawn, and unmounting one hands the board back to the one before it.
+ * is drawn, and unmounting one hands the board back to the one before it. `tile` names a component
+ * each cell draws on instead of `art` (Phase 12c — a Cell Tile copy).
  */
-export type RespinCellLook = { art?: ReelGridTileArt; tint?: string; gap: number };
+export type RespinCellLook = { art?: ReelGridTileArt; tint?: string; gap: number; tile?: string };
 let cellLooks = $state.raw<{ id: number; look: RespinCellLook }[]>([]);
 let nextLookId = 1;
 
