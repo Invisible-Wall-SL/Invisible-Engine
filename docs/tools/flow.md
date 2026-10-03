@@ -709,19 +709,27 @@ change.
 
 - **Pots overlay** adds the event `overlayDrop` (tokens dropped on cells, over whatever symbol is
   there), `meterUpdate` and `meterLevels`; the pot cues `potFill`, `potLevelUp`, `potStageUp`,
-  `potFull`, `potsConsume` and `flightArrive`; the actions `flyTo` and `fillMeter`; and, per pot,
-  the values `meter.<id>.level`, `meter.<id>.max`, `meter.<id>.stage` and `meter.<id>.full`.
+  `potFull`, `potsConsume` and `flightArrive`; the actions `flyTo`, `fillMeter` (each token flies
+  into its pot as its own flight's head), `showTokens` (the dropped tokens land and settle — the
+  coded `overlayDrop` beat), `liftTokens` (a fill's tokens leave their cells without flying, for a
+  fill you present another way) and `drainPots` (on a `freeSpinTrigger` or `modeEnter` chain: the
+  pots that started the mode drain); and, per pot, the values `meter.<id>.level`,
+  `meter.<id>.max`, `meter.<id>.stage` and `meter.<id>.full`. Each beat takes its event as
+  `bookEvent` = `$trigger`.
 - **Hold and Win** adds the whole Hold and Win vocabulary described in the section above.
 
 Nothing here has to be authored. An overlay event you leave unwired plays with the game's coded
-default, so the game runs without a flow edit. (The overlay's own token drawing arrives in a later
-phase.)
+default, so the game runs without a flow edit. A pot always drains as the mode it started begins:
+when your flow owns `freeSpinTrigger` or `modeEnter` and that chain has no `drainPots`, the game
+plays the drain before your chain runs. Put `drainPots` on the chain only to place the drain
+yourself, for example after an intro.
 
 **＋ Add overlay steps.** This toolbar button shows only when the Game Config has one of these
 blocks. It adds the steps your flow does not have yet:
 
-- with a Pots overlay, the pot-filling chain (`meterUpdate` → `fillMeter`) in the Global graph,
-  placed to the right of your nodes, if nothing there handles `meterUpdate` yet;
+- with a Pots overlay, the drop chain (`overlayDrop` → `showTokens`) and the pot-filling chain
+  (`meterUpdate` → `fillMeter`) in the Global graph, placed to the right of your nodes, each only
+  if nothing there handles its event yet;
 - with Hold and Win, a **Hold and Win** mode tab taken from the Hold and Win starter flow, plus the
   screen containers that tab shows, if the flow has no such tab yet.
 

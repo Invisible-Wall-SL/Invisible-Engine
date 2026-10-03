@@ -5,7 +5,10 @@
 		DEFAULT_HOLD_AND_WIN_PRESET,
 		HOLD_AND_WIN_PRESET_IDS,
 		HOLD_AND_WIN_PRESET_LABELS,
+		POTS_OVERLAY_PRESET_IDS,
+		POTS_OVERLAY_PRESET_LABELS,
 		type HoldAndWinPresetId,
+		type PotsOverlayPresetId,
 	} from 'game-config';
 	import { invalidateAll } from '$app/navigation';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
@@ -24,6 +27,7 @@
 		withCurrency,
 		asAuthoringLaunch,
 	} from '$lib/gameLaunch';
+	import type { AddOnOutcome, AddOnPartStatus, AddOnSeedReport } from '$lib/potsOverlayAddOn';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -48,6 +52,9 @@
 	let creating = $state(false);
 	let createMsg = $state('');
 	let createErr = $state('');
+	let createWithOverlay = $state(false);
+	let createOverlayPreset = $state<PotsOverlayPresetId>(POTS_OVERLAY_PRESET_IDS[0]);
+	let createAddOn = $state<AddOnOutcome | null>(null);
 
 	// Per-project publish state, keyed by project key.
 	let publishing = $state<Record<string, boolean>>({});
@@ -272,6 +279,84 @@
 			dupBusy = false;
 		}
 	}
+
+	// ---------------------------------------------------------------------------------------------
+	// Pots overlay add-on (docs/design/pots-overlay.md §4) — `POST /api/game-maker/add-on`.
+	// ---------------------------------------------------------------------------------------------
+	/** The overlay presets that add cleanly to the game the Create form would make (`load`). */
+	const createPresets = $derived(
+		data.createOverlayPresets[
+			gameType === 'holdAndWin' ? `holdAndWin:${holdAndWinPreset}` : gameType
+		] ?? [],
+	);
+	/** The picked overlay preset, or the first offered when the picked one does not fit. */
+	const createPreset = $derived(
+		createPresets.includes(createOverlayPreset) ? createOverlayPreset : createPresets[0],
+	);
+
+	const ADD_ON_PARTS: { key: keyof AddOnSeedReport; label: string }[] = [
+		{ key: 'symbols', label: 'Symbols' },
+		{ key: 'layout', label: 'Screens' },
+		{ key: 'winText', label: 'Win Text' },
+		{ key: 'flow', label: 'Flow' },
+	];
+	const ADD_ON_STATUS: Record<AddOnPartStatus, string> = {
+		added: 'added',
+		present: 'nothing to add',
+		conflict: 'changed meanwhile',
+		skipped: 'skipped',
+		failed: 'failed',
+	};
+
+	let addOnProject = $state<Project | null>(null);
+	let addOnPreset = $state<PotsOverlayPresetId>(POTS_OVERLAY_PRESET_IDS[0]);
+	let addOnFlow = $state(false);
+	let addOnBusy = $state(false);
+	let addOnErr = $state('');
+	let addOnResult = $state<AddOnOutcome | null>(null);
+
+	/** A part to run again: it lost a race or threw. */
+	const needsRerun = (out: AddOnOutcome | null): boolean =>
+		Boolean(
+			out?.ok &&
+			Object.values(out.seeds).some((p) => p?.status === 'conflict' || p?.status === 'failed'),
+		);
+
+	function openAddOn(p: Project) {
+		addOnProject = p;
+		addOnPreset = p.overlayPresets[0] ?? POTS_OVERLAY_PRESET_IDS[0];
+		addOnFlow = false;
+		addOnErr = '';
+		addOnResult = null;
+	}
+
+	/** With a preset, add the overlay; without one, fill in the parts an overlay project lacks. */
+	async function runAddOn(preset: PotsOverlayPresetId | undefined) {
+		const project = addOnProject;
+		if (!project) return;
+		addOnBusy = true;
+		addOnErr = '';
+		try {
+			const res = await fetch('/api/game-maker/add-on', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ project: project.key, preset, flow: addOnFlow }),
+			});
+			const out = await res.json().catch(() => ({}));
+			if (!res.ok) throw new Error(out?.error ?? `The add-on failed (${res.status}).`);
+			addOnResult = out as AddOnOutcome;
+			await invalidateAll();
+		} catch (e) {
+			addOnErr = e instanceof Error ? e.message : 'The add-on failed.';
+		} finally {
+			addOnBusy = false;
+		}
+	}
+
+	const renames = (map: Record<string, string>): string =>
+		Object.entries(map)
+			.map(([from, to]) => `${from} → ${to}`)
+			.join(', ');
 
 	// ---------------------------------------------------------------------------------------------
 	// Bulk re-publish — "the engine shipped, reconcile every game" in one action.
@@ -669,13 +754,17 @@
 					creating = true;
 					createMsg = '';
 					createErr = '';
+					createAddOn = null;
 					return async ({ result, update }) => {
 						creating = false;
 						if (result.type === 'success' && result.data?.ok) {
 							createMsg = String(result.data.ok);
+							createAddOn = (result.data.addOn as AddOnOutcome | null | undefined) ?? null;
 							key = '';
 							name = '';
 							keyTouched = false;
+							createWithOverlay = false;
+							createOverlayPreset = POTS_OVERLAY_PRESET_IDS[0];
 							await update({ reset: false });
 						} else if (result.type === 'failure') {
 							createErr = String(result.data?.error ?? 'Create failed.');
@@ -741,6 +830,26 @@
 				{#if gameType === 'holdAndWin'}
 					<input type="hidden" name="holdAndWinPreset" value={holdAndWinPreset} />
 				{/if}
+				<div class="add-on-row">
+					<label class="check">
+						<input type="checkbox" bind:checked={createWithOverlay} />
+						Add the pots overlay
+					</label>
+					{#if createWithOverlay && createPreset}
+						<select
+							value={createPreset}
+							onchange={(e) => (createOverlayPreset = e.currentTarget.value as PotsOverlayPresetId)}
+							title="Pots overlay preset"
+						>
+							{#each createPresets as id (id)}
+								<option value={id}>{POTS_OVERLAY_PRESET_LABELS[id]}</option>
+							{/each}
+						</select>
+						<input type="hidden" name="potsOverlayPreset" value={createPreset} />
+					{:else if createWithOverlay}
+						<span class="muted">No pots overlay preset fits this game type.</span>
+					{/if}
+				</div>
 				<div class="actions">
 					<button class="primary" type="submit" disabled={creating}>
 						{creating ? 'Creating…' : 'Create project'}
@@ -748,6 +857,7 @@
 					{#if createMsg}<span class="ok">{createMsg}</span>{/if}
 					{#if createErr}<span class="err">{createErr}</span>{/if}
 				</div>
+				{#if createAddOn}{@render addOnReport(createAddOn)}{/if}
 			</form>
 		</section>
 
@@ -999,6 +1109,15 @@
 										>
 											Duplicate…
 										</button>
+										<button
+											class="add-on"
+											title={p.hasPotsOverlay
+												? 'Seed any part of the pots overlay this project is still missing'
+												: 'Lay the pots overlay over this game: tokens drop on the board and fill pots that start a bonus'}
+											onclick={() => openAddOn(p)}
+										>
+											{p.hasPotsOverlay ? 'Pots overlay parts…' : '＋ Pots overlay…'}
+										</button>
 										{#if publishErr[p.key]}<span class="err">{publishErr[p.key]}</span>{/if}
 										{#if publishNote[p.key]}<span class="note">{publishNote[p.key]}</span>{/if}
 									</div>
@@ -1164,6 +1283,112 @@
 					<button class="primary" onclick={() => startBulk(bulkConfirm!)} disabled={bulkBusy}>
 						{bulkBusy ? 'Starting…' : 'Republish'}
 					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	{#snippet addOnReport(out: AddOnOutcome)}
+		{#if out.ok}
+			<ul class="add-on-report">
+				<li>
+					<strong>Game Config</strong>
+					{out.configAdded ? 'pots overlay added' : 'already has the overlay'}
+				</li>
+				{#if Object.keys(out.renamed.pots).length || Object.keys(out.renamed.symbols).length}
+					<li>
+						<strong>Renamed</strong>
+						(the project already used these names)
+						{renames({ ...out.renamed.pots, ...out.renamed.symbols })}
+					</li>
+				{/if}
+				{#each ADD_ON_PARTS as { key: partKey, label } (partKey)}
+					{@const item = out.seeds[partKey]}
+					{#if item}
+						<li class={`part-${item.status}`}>
+							<strong>{label}</strong>
+							{ADD_ON_STATUS[item.status] ?? item.status}{item.added.length
+								? `: ${item.added.join(', ')}`
+								: ''}
+							{#if item.note}<span class="part-note">{item.note}</span>{/if}
+						</li>
+					{/if}
+				{/each}
+			</ul>
+		{:else}
+			<p class="err">{out.error}</p>
+		{/if}
+	{/snippet}
+
+	{#if addOnProject}
+		<div class="modal-backdrop" role="presentation" onclick={() => (addOnProject = null)}>
+			<div
+				class="modal wide"
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby="add-on-title"
+				onclick={(e) => e.stopPropagation()}
+			>
+				<h3 id="add-on-title">
+					{addOnProject.hasPotsOverlay ? 'Pots overlay parts for' : 'Add the pots overlay to'}
+					{addOnProject.name}
+				</h3>
+				<p class="confirm-note">
+					{#if addOnProject.hasPotsOverlay}
+						This project has the overlay. Seeds any part it is still missing: token and bonus symbol
+						art, the overlay screens. Nothing authored is changed.
+					{:else}
+						Tokens and value coins drop over the board; a full pot, or enough coins, starts a bonus.
+						Adds the overlay to the Game Config, then placeholder art for its symbols and its
+						screens. It only adds: nothing authored is replaced, and a name the game already uses is
+						renamed.
+					{/if}
+				</p>
+				<div class="grid">
+					{#if !addOnProject.hasPotsOverlay && addOnProject.overlayPresets.length}
+						<label>
+							Preset
+							<select bind:value={addOnPreset} disabled={Boolean(addOnResult?.ok)}>
+								{#each addOnProject.overlayPresets as id (id)}
+									<option value={id}>{POTS_OVERLAY_PRESET_LABELS[id]}</option>
+								{/each}
+							</select>
+						</label>
+					{:else if !addOnProject.hasPotsOverlay}
+						<p class="err">
+							No pots overlay preset fits this game's Game Config. Check it in /config first.
+						</p>
+					{/if}
+					<label class="check">
+						<input type="checkbox" bind:checked={addOnFlow} />
+						Also add the overlay steps to the Flow
+					</label>
+				</div>
+				<p class="confirm-note">
+					Without the Flow steps the overlay plays its built-in beats. Nothing is added while
+					someone else has this project's Game Config, Scene Editor, Symbols or Flow open. Reload
+					your own open tabs of them afterwards.
+				</p>
+				{#if addOnErr}<p class="err">{addOnErr}</p>{/if}
+				{#if addOnResult}{@render addOnReport(addOnResult)}{/if}
+				<div class="confirm-actions">
+					<button onclick={() => (addOnProject = null)} disabled={addOnBusy}>
+						{addOnResult?.ok ? 'Done' : 'Cancel'}
+					</button>
+					{#if !addOnResult?.ok}
+						<button
+							class="primary"
+							onclick={() => runAddOn(addOnProject?.hasPotsOverlay ? undefined : addOnPreset)}
+							disabled={addOnBusy ||
+								(!addOnProject.hasPotsOverlay && !addOnProject.overlayPresets.length)}
+						>
+							{addOnBusy ? 'Adding…' : addOnProject.hasPotsOverlay ? 'Seed missing parts' : 'Add'}
+						</button>
+					{:else if needsRerun(addOnResult)}
+						<button class="primary" onclick={() => runAddOn(undefined)} disabled={addOnBusy}>
+							{addOnBusy ? 'Running…' : 'Run again for the rest'}
+						</button>
+					{/if}
 				</div>
 			</div>
 		</div>
@@ -1643,6 +1868,40 @@
 	.dup {
 		margin-left: auto;
 		font-weight: 500;
+		color: #9a9aa6;
+	}
+	.add-on {
+		font-weight: 500;
+		color: #9a9aa6;
+	}
+	.add-on-row {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		margin-top: 12px;
+		font-size: 13px;
+	}
+	.add-on-report {
+		margin: 10px 0 14px;
+		padding: 0;
+		list-style: none;
+		font-size: 13px;
+		line-height: 1.6;
+		color: #c8c8d2;
+	}
+	.add-on-report strong {
+		display: inline-block;
+		min-width: 96px;
+		color: #e8e8ee;
+	}
+	.add-on-report .part-conflict,
+	.add-on-report .part-failed {
+		color: #ff8c8c;
+	}
+	.part-note {
+		display: block;
+		margin-left: 96px;
+		font-size: 12px;
 		color: #9a9aa6;
 	}
 	.stale {

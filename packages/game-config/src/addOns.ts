@@ -121,8 +121,10 @@ export function addHoldAndWinBonus(doc: GameConfigDoc, id: HoldAndWinPresetId): 
  * Add the pots overlay preset `id`: its `potsOverlay` block and its token symbols (in the dictionary
  * only, never on a strip). A preset that pairs a Hold and Win bonus also adds that bonus, unless the
  * project already has a Hold and Win block — a Hold and Win game keeps its own, and its pots fill
- * beside the block's meters. Refused when the project already has an overlay. `pots` sets how many
- * pots it starts with ({@link setOverlayPotCount}); absent ⇒ the preset's own.
+ * beside the block's meters. Refused when the project already has an overlay, and a preset with no
+ * pots (coins only) is refused on a Hold and Win game, whose block counts only its own landed coins;
+ * there a preset's value-coin drops are left out too. `pots` sets how many pots it starts with
+ * ({@link setOverlayPotCount}); absent ⇒ the preset's own.
  */
 export function addPotsOverlay(
 	doc: GameConfigDoc,
@@ -171,6 +173,17 @@ function mergePotsOverlay(doc: GameConfigDoc, id: PotsOverlayPresetId): AddOnRes
 		},
 	};
 	next.potsOverlay = overlay;
+	if (!overlay.pots.length && !holdAndWinIsOverlayBonus(next)) {
+		return {
+			ok: false,
+			reason:
+				"This project's Hold and Win is its base game, started by coins landing on its reels, so dropped value coins would start nothing. Pick a preset with pots.",
+		};
+	}
+	// For the same reason a preset's value-coin rows are left out there: only its pots fill.
+	if (!holdAndWinIsOverlayBonus(next)) {
+		overlay.drops.table = overlay.drops.table.filter((entry) => 'pot' in entry);
+	}
 	return { ok: true, doc: next, renamed };
 }
 
@@ -246,8 +259,9 @@ function bonusForNewPot(doc: GameConfigDoc, like: OverlayPot | undefined): PotBo
  * {@link OVERLAY_POT_IDS}, its own token, the last pot's size and drop weight, and a bonus like the
  * last pot's ({@link bonusForNewPot}).
  *
- * With no pots the overlay drops only value coins, so 0 needs a Hold and Win bonus beside the overlay;
- * a value-coin drop row is added when the table would be left empty.
+ * With no pots the overlay drops only value coins, so 0 needs a Hold and Win block that is the
+ * overlay's bonus (a Hold and Win game's own block counts only its landed coins); a value-coin drop
+ * row is added when the table has none.
  */
 export function setOverlayPotCount(doc: GameConfigDoc, count: number): AddOnResult {
 	if (!doc.potsOverlay) return { ok: false, reason: 'This project has no pots overlay.' };
@@ -290,15 +304,22 @@ export function setOverlayPotCount(doc: GameConfigDoc, count: number): AddOnResu
 		overlay.drops.table.push({ pot: id, weight });
 	}
 
-	if (!overlay.drops.table.length) {
-		if (!next.holdAndWin || !holdAndWinIsOverlayBonus(next)) {
+	if (!count) {
+		if (!next.holdAndWin) {
 			return {
 				ok: false,
 				reason:
 					'With no pots the overlay drops only value coins, which start a Hold and Win bonus — add one first, or remove the overlay.',
 			};
 		}
-		overlay.drops.table.push({ coin: true, weight: 1 });
+		if (!holdAndWinIsOverlayBonus(next)) {
+			return {
+				ok: false,
+				reason:
+					"This game's own Hold and Win is its base game, started by coins landing on its reels, so value coins alone start nothing — it needs at least one pot.",
+			};
+		}
+		if (!overlay.drops.table.some(isCoinDrop)) overlay.drops.table.push({ coin: true, weight: 1 });
 	}
 	return { ok: true, doc: next, renamed: noRenames() };
 }

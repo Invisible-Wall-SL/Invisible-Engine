@@ -8,6 +8,9 @@
  * mock and the tool's readouts, and the RGS stays the authority on every outcome (pot levels are
  * per-player SERVER state — the client never computes one).
  *
+ * Pots and value coins are each optional, but not both: an overlay may be pots only, value coins
+ * only (a classic Hold and Win started by dropped coins), or both (3 Pots).
+ *
  * A token is a dictionary symbol drawn OVER a cell's symbol, never dealt by a strip. That keeps the
  * strips the in-play gate: the symbol underneath still pays and triggers, and a token never does.
  *
@@ -15,7 +18,11 @@
  * reference — a pot a drop names, a bonus mode, a token on a strip — is the validator's to report.
  */
 
-import { HOLD_AND_WIN_SPECIALS, type HoldAndWinSpecial } from './holdAndWin';
+import {
+	HOLD_AND_WIN_SPECIALS,
+	holdAndWinIsOverlayBonus,
+	type HoldAndWinSpecial,
+} from './holdAndWin';
 import { symbolsInPlay } from './inPlay';
 import {
 	BASE_GAME_MODE,
@@ -67,10 +74,17 @@ export type OverlayDrops = {
 	modes?: string[];
 };
 
+/** When a board's tokens appear: all together once the last reel has stopped (the default), or each
+ *  reel's as that reel stops. A board with no reel roll (a swap in place) always shows them together. */
+export type OverlayTiming = 'afterStop' | 'perReel';
+
 export type PotsOverlay = {
-	/** 0 to {@link MAX_OVERLAY_POTS}. With none, the overlay drops only value coins. */
+	/** 0 to {@link MAX_OVERLAY_POTS}. Empty for a coins-only overlay: value coins drop and N+ start
+	 *  Hold and Win, with no pot. */
 	pots: OverlayPot[];
 	drops: OverlayDrops;
+	/** Absent ⇒ `afterStop`, which is not stored. Presentation only: the server never sees it. */
+	timing?: OverlayTiming;
 };
 
 /** The most pots one overlay holds. */
@@ -169,15 +183,16 @@ const drops = (raw: unknown): OverlayDrops => {
 /**
  * Canonicalize a `potsOverlay` block, or `undefined` when there is none. SPARSE: a block with no pot
  * and no drop is no block, so a config that never had one normalizes byte-identically. Only the
- * default dropping modes (the base game alone) are not stored; an authored `reels` or `modes` list is
- * kept as written — every reel, or none, which the validator names.
+ * defaults — the dropping modes (the base game alone) and the timing (after the stop) — are not
+ * stored; an authored `reels` or `modes` list is kept as written — every reel, or none, which the
+ * validator names.
  */
 export function normalizePotsOverlay(raw: unknown): PotsOverlay | undefined {
 	if (!isObject(raw)) return undefined;
 	const pots = list(raw.pots, pot);
 	const dropped = drops(raw.drops);
 	if (!pots.length && !dropped.table.length) return undefined;
-	return { pots, drops: dropped };
+	return { pots, drops: dropped, ...(raw.timing === 'perReel' ? { timing: 'perReel' } : {}) };
 }
 
 // ─── meters ───────────────────────────────────────────────────────────────────────────────────
@@ -248,14 +263,28 @@ export function validatePotsOverlay(doc: GameConfigDoc): GameConfigIssue[] {
 	const modeIds = new Set(resolveGameModes(doc).map((m) => m.id));
 	const inPlay = new Set(symbolsInPlay(doc));
 	const meterIds = new Set(block?.meters?.map((m) => m.id));
+	// Dropped value coins count toward a Hold and Win only when it is the overlay's bonus; a Hold and
+	// Win game's own count trigger counts the coins landing on its reels.
+	const coinsCount = Boolean(block) && holdAndWinIsOverlayBonus(doc);
 
+	// Coins alone on a Hold and Win game's base-game block: one error for the overlay, not a warning
+	// per coin row as well.
+	const coinsAlone = !overlay.pots.length && Boolean(block) && !coinsCount;
 	if (overlay.pots.length > MAX_OVERLAY_POTS) {
 		error(
 			'pots',
 			`An overlay holds at most ${MAX_OVERLAY_POTS} pots (this one has ${overlay.pots.length}).`,
 		);
 	} else if (!overlay.pots.length && !overlay.drops.table.some(isCoinDrop)) {
-		error('pots', 'The overlay has no pots and drops no value coins, so nothing it drops counts.');
+		error(
+			'pots',
+			'The overlay has no pots and drops no value coins — it needs at least one of them.',
+		);
+	} else if (coinsAlone) {
+		error(
+			'pots',
+			"This game's own Hold and Win is its base game, started by coins landing on its reels, so an overlay of value coins alone starts nothing. It needs at least one pot.",
+		);
 	}
 
 	const potIds = new Set<string>();
@@ -372,6 +401,13 @@ export function validatePotsOverlay(doc: GameConfigDoc): GameConfigIssue[] {
 			);
 		} else if (!block.coins.length) {
 			error(at, 'A value coin draws its value from the Hold and Win coin table, which is empty.');
+		} else if (!coinsCount) {
+			if (!coinsAlone) {
+				warning(
+					at,
+					"This game's own Hold and Win starts from coins landing on its reels; dropped value coins count only toward a Hold and Win that is the overlay's bonus, so they never start anything here.",
+				);
+			}
 		} else if (!block.trigger.count) {
 			warning(
 				at,
@@ -381,6 +417,7 @@ export function validatePotsOverlay(doc: GameConfigDoc): GameConfigIssue[] {
 	});
 	const coinTrigger = block?.trigger.count?.min;
 	if (
+		coinsCount &&
 		coinTrigger !== undefined &&
 		d.table.some(isCoinDrop) &&
 		whole(d.maxPerSpin, 1) &&

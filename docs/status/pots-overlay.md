@@ -1,17 +1,20 @@
 # Pots overlay (add-on on any kind) — status + session hub
 
 > Design: [docs/design/pots-overlay.md](../design/pots-overlay.md) · Builds on:
-> [status/hold-and-win](hold-and-win.md) · Guide: _none yet (Phase 6)_ · Agents: per phase — see the
+> [status/hold-and-win](hold-and-win.md) · Guide: [add-pots-overlay](../guides/add-pots-overlay.md) · Agents: per phase — see the
 > design's build plan.
 
-**One-line state:** An overlay holds 0–5 pots (2026-10-03, `/config` **How many**), and add-on
-symbols with no art draw coded placeholders. Phases 0–5 merged (2026-10-02): #1008, #1013, #1012, #1015 (4a), #1010, #1009,
-#1014 and #1011. A Book-of project can switch the pots overlay on in `/config`. The mock deals it, and
-the shared runtime draws tokens over the host's symbols, flies them into the pots and starts each pot's
-bonus. The overlay screens, Flow steps, symbol states and Win Text are authorable. A project without the
-block, which is every live project today, plays exactly as before: real-clock Borut parity was checked
-on 4a. Next: **4b** (overlay flow actions, per-reel timing, the token as the flight head; in progress)
-and **6** (the Game Maker add-on, guides, and `borut-pots-sample` played end to end).
+**One-line state:** Phases 0–6 merged (2026-10-02/03): #1008, #1013, #1012, #1015 (4a), #1019 (4b),
+#1010, #1009, #1014, #1011 and #1017 (6). A Book-of project can switch the pots overlay on in
+`/config`, or in one click from Game Maker ("＋ Pots overlay"). The mock deals it. The shared runtime
+draws tokens over the host's symbols (after the stop, or reel by reel), flies each token as its own
+flight head into its pot, drains the pot and starts its bonus (Hold and Win, or the host's free
+spins). Overlays may be pots-only, coins-only or both, with 0–5 pots (`/config` **How many**, 2026-10-03).
+An add-on symbol with no art draws a coded placeholder disc. The overlay screens, Flow steps (including
+`showTokens` / `liftTokens` / `drainPots`), symbol states and Win Text are authorable. A project
+without the block, which is every live project today, plays exactly as before. Next: the owner makes
+`borut-pots-sample` (Owner checklist 2); then Phase 7 (import a bonus from another project); Phase 8
+waits on the partner.
 
 ## How sessions use this file (the hub)
 
@@ -38,12 +41,12 @@ session is the Claude Code session titled **"3 pots overlay mechanic"**.
 | 1 | Contract: `potsOverlay` config block + validator + presets + `resolveMeters` + additive `kindCapabilities` inputs | merged | 3 pots overlay mechanic | #1008 |
 | 2 | Mock — composed protocol (`withPotsOverlay` over book, reusable H&W feature generator, free-spin hook, forced beats, wire doc, `check:pots-overlay`) | merged | Pots overlay Phase 2 — composed mock | #1013 |
 | 3 | Facade + engine event contract (`overlayDrop`, mode-entry `cause`/`meters`, per-bonus routing, pots at boot for any kind) | merged | Pots overlay Phase 3 — facade + event contract | #1012 |
-| 4 | Engine runtime (overlay layer, timing, lift-off flights, drain on any mode entry, H&W from an overlay host, resume) | 4a merged; 4b in progress (overlay flow actions, per-reel timing, the token as the flight head) | Pots overlay Phase 3 — facade + event contract | 4a: #1015 |
+| 4 | Engine runtime (overlay layer, timing, lift-off flights, drain on any mode entry, H&W from an overlay host, resume) | merged | Pots overlay Phase 3 — facade + event contract | 4a: #1015, 4b: #1019 |
 | 5a | `/config` Add-ons section | merged | Pots overlay Phase 5a — /config Add-ons | #1010 |
 | 5b | Scene Editor overlay screens + palette/pickers through the capability | merged | Pots overlay Phase 5b — Scene Editor overlay screens | #1009 |
 | 5c | Flow vocabulary composition (editor, publish gate, runtime) + graft | merged | Pots overlay Phase 5c — Flow vocabulary composition | #1014 |
 | 5d | `/symbols` + `/win-text` + Localization through the capability | merged | Pots overlay Phase 5d — Symbols + Win Text | #1011 |
-| 6 | Game Maker add-on action + guides + playbook + `borut-pots-sample` played end to end | ready to start (2–5 merged) | — | — |
+| 6 | Game Maker add-on action + guides + playbook + `borut-pots-sample` played end to end | merged (the published sample is the owner's) | Pots overlay Phase 6 — Game Maker add-on + sample | #1017 |
 | 7 | Bonus import from another project (provenance, re-sync, pot → imported mode) | not started (needs 6) | — | — |
 | 8 | Partner wire | blocked on partner | — | — |
 
@@ -93,6 +96,100 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
   - The runtime holds one `RuntimeBundle` (`apps/lines/src/editor-scenes.ts:496-497`).
 
 ## Decisions & findings
+
+- 2026-10-02 — **Phase 4b runtime, as built** (the session that built Phases 3 and 4a). Pinned by
+  new cases in `engine-game`'s `potsOverlay.fixture.ts` (`boardDropCells`) and game-config's
+  (`timing`), and by `check:flow-publish-gate` §11 (the graft).
+  - **The token is its flight's head.** `flyTo` takes a `symbol` (drawn as the head in its
+    `flyToMeter` state, in place of the kind's authored or coded head; the trail stays the kind's)
+    and an `onStart` hook, fired as the head leaves after its stagger. A fill's `meterUpdate` moves
+    its tokens into `stateOverlayLeaving`: they stay drawn at rest until `liftToken` takes each off
+    as its own flight leaves. This removes the (N−1)×70 ms empty cell. The next event recorded (or
+    the next spin) clears any token nothing flew, so a flow that owns `meterUpdate` without
+    `fillMeter` leaves none behind. The cell under a token is not lit (`lightBaseCell` already
+    skipped a host symbol).
+  - **Per-reel timing:** `potsOverlay.timing: 'perReel'` (sparse; absent ⇒ after the stop, the
+    default). `/config` → Add-ons → Presentation → "Tokens appear". `presentReveal`, the reveal both
+    drivers call, reads the board's drop ahead in the book (`boardDropCells`: the `overlayDrop` after
+    this reveal, before the next `reveal` or `tumbleBoard`). engine-game's new `onReelStopping(reel)`
+    dep then puts each reel's tokens down as it stops, landing, with their sound. The drop later
+    finds them down and neither restarts their landing nor replays their sound. Tokens a reel did not
+    show (a board that swaps in place has no reel stop) appear with the drop, as after the stop.
+  - **Flow actions** (overlay fragment, `addOns.ts`; effects in `flowEffects.ts`):
+    - `showTokens` (`overlayDrop`) — the coded drop beat.
+    - `liftTokens` (`meterUpdate`) — takes a fill's tokens off their cells without flying, for a
+      flow that presents the fill its own way (`fillMeter` already flies each off as its head).
+    - `drainPots` (`freeSpinTrigger` / `modeEnter`) — the coded drain of the pots that started the
+      mode; an entry no pot started drains nothing. Hold and Win's `showRespinBoard` drains its own.
+  - **A pot always drains** (the hub's review of #1019). When a v2 flow owns a pot-started
+    `freeSpinTrigger` / `modeEnter` (the `potsToFreeSpins` preset's case) and the chain it runs has
+    no `drainPots`, the play seam plays `presentMeterConsume` before dispatching (`playBook`'s new
+    optional `beforeFlowOwnedEvent`). The test is `signalChainCallsAction` (engine-flow-v2): the
+    exec chain from the signal's `event` nodes and `gameSignals` pin, in the scope the runtime
+    picks (the active mode's graph when it handles the signal), a group counting whole; a call into
+    the function library is not followed. Pinned by `check:flow-publish-gate` §11. A Hold and Win
+    entry is not covered: its drain is `showRespinBoard`'s, and a flow that owns
+    `holdAndWinTrigger` without that beat shows none.
+  - **One token per cell in the drop beat too:** `presentOverlayDrop` reads the drop through the
+    reducer (last named wins), so a cell named twice arms its beat and plays its sound once.
+  - **A token keeps its size as it lifts off:** the head is drawn at the cell's seat scale
+    (`flyTo`'s `symbolScale`), so a perspective board's token does not jump. It keeps that size all
+    the way to the pot.
+  - **The graft** now adds `overlayDrop` → `showTokens` beside `meterUpdate` → `fillMeter`. It is
+    still idempotent and never touches an authored node. The Hold and Win starter flow with an
+    overlay gains only the `overlayDrop` chain.
+  - **Real-clock verification** (headless shell, ~4 fps; local mocks only, no R2):
+    - **Borut-style parity** (book mock, one forced free-spin round): reaches idle; the 261-line
+      flow trace is identical to the earlier `main` run; the same emitter event types; balance
+      $5000 → $5023.50; only the four environmental errors (Typekit, `boot.json` 404).
+    - **`pot:red`, after the stop** (threePots on a book host, a throwaway local config): the token
+      drops, then leaves its cell as its own flight starts, with the `POT_RED` token as the head (a
+      20 ms sampler saw the token, then the token-headed flight); Hold and Win plays; back to idle;
+      0 exceptions.
+    - **`overlay:coins:4`, per reel:** every token was shown by its reel as it stopped, in reel order
+      (0, 1, 2, 4), before the drop restated them in its own order without restarting them; back
+      to idle; 0 exceptions.
+    - **Harness trap, not a game bug:** after any Vite HMR update (a config swap, a branch switch)
+      the driver's `import('/src/game/actor.ts')` gets a fresh, never-started actor, which reads
+      `rendering` forever. Restart Vite after every file change before a run.
+  - **Not done, on purpose:** the mode-entry `cause` / `meters` fields are still not in the
+    standard Flow payloads. `drainPots` reads the whole entry event, so an author needs no pin for
+    them, and adding them would change every kind's vocabulary.
+- 2026-10-03 — **Phase 6, as built** (session "Pots overlay Phase 6 — Game Maker add-on + sample",
+  #1017). Pinned by `check:pots-overlay-add-on` (launcher), the game-config fixtures and
+  `check:pots-overlay`. Reviewed by `pipeline-concurrency` and `code-reviewer`; every finding is fixed.
+  - **The add-on** (`POST /api/game-maker/add-on`, `apps/launcher-api/src/lib/server/projectAddOn.ts`):
+    - the config gets `addPotsOverlay` (which pairs the Hold and Win bonus), saved `If-Match` the
+      loaded ETag; a refusal returns its `reason` (409), and `renamed` is shown;
+    - then each part is its own conditional write and reports `added` / `present` / `conflict` /
+      `skipped` / `failed`. Re-running with no preset seeds only what is missing;
+    - **symbols:** placeholder art for every token (3 Pots specials by pot, else the coin) and, when
+      the block is the overlay's bonus, its role symbols as `holdAndWinSymbolsSeed` binds them. Names
+      after renames; an existing binding is never touched (`potsOverlaySymbolsSeed`);
+    - **layout:** the Scene Editor's "＋ Add overlay screens" merge, server-side. On a Hold and Win
+      game, whose Pots screen already exists, it appends one Pot Meter per new overlay pot and never
+      moves an existing node;
+    - **Win Text: nothing.** Every pot line has a coded default, and writing it in would freeze it as
+      authored copy (a renamed pot reads `RED_2` until named);
+    - **Flow:** never seeded; the 5c graft only when the user ticks it, on a stored flow;
+    - **never over an unreadable doc:** a config that does not parse is refused, and a layout or
+      symbols doc that does not parse is skipped (the loaders now flag `corrupt`);
+    - **tools:** besides `gameMaker`, it needs `gameConfig`, `symbols`, `editor` (+ `flow` for the
+      graft). No lease check: `If-Match` is the floor, and an open tab's next save gets its banner.
+  - **Create a game:** an optional preset; the same path after the scaffold. A failed add-on is
+    reported and the game is kept.
+  - **Scaffold:** `getFullSceneSet(kind, sceneSetOptionsFor(kind, storedConfig))`, byte-identical for
+    every config without an overlay (pinned for every kind and preset). Seed PUTs now carry
+    `If-None-Match: *` (a first save landing between the HEAD and the PUT was erased).
+  - **One home:** `$lib/addOns` `projectAddOns` reads `flowAddOnsOf`. 5d's three nits are fixed.
+  - **Coins only** (design §7 #8): the validator errors only with neither pots nor coin drops, and
+    a coins-only overlay on a Hold and Win BASE game is an error (its coins could start nothing).
+    `coinsOnly` preset: Classic bonus, `chance` 0.1, `maxPerSpin` 8 (trigger min 6 + 2), one coin
+    row. The mock sends `pots: []` and no `meterLevels`; the test server accepts it; the facade needed
+    no change. `/config` keeps the last pot unless coins can start the bonus; the Game Maker hides
+    zero-pot presets on a Hold and Win kind.
+  - **The 3 Pots preset routes all three pots to Hold and Win.** The sample re-routes green to
+    `freeSpins` in `/config` (Owner checklist 2); the preset stays the 3 Pots of Egypt shape.
 
 - 2026-10-02 — **Phase 5d: symbols and copy, as built** (session "Pots overlay Phase 5d — Symbols +
   Win Text"). Pinned by `check:symbols-kind-gating` (265 checks) and `check:win-text-doc` §5.
@@ -546,66 +643,49 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Open items / next
 
-0. **Left after Phase 4a (#1015):**
-   - **4b — timing:** tokens pop in after the last reel stops (the default). The authorable
-     "each reel's tokens as it lands" option is not built. It needs a config field (none in the
-     block yet) and a hook on the reel-stop beat.
-   - **4b — the token as the flight head:** a token leaves its cell as its fill's beat starts, and
-     the coded head (or the `toMeter:<id>` style authored in `/symbols`) flies. Drawing the token's
-     own art as the head is not built.
-   - **Phase 4b (with the overlay actions, found in 4a):** a flow that OWNS `freeSpinTrigger` or
-     `modeEnter` skips the coded handler, so a pot drained by them snaps to empty with no drain beat.
-     #1014 has no drain action. Add one (the coded `presentMeterConsume`) to the overlay fragment in
-     `engine-flow-v2/src/reference/addOns.ts` together with the show / lift-token actions.
-   - ~~**Phase 6:** a token with no art in `/symbols` draws nothing.~~ Done 2026-10-03: a token,
-     and a Hold and Win coin or special, with no art draws a coded disc (`symbolPlaceholder.ts`).
+0. **Left after Phase 4b:**
+   - ~~**Phase 6:** a token with no art in `/symbols` draws nothing.~~ Done 2026-10-03: it bit
+     every overlay added in `/config` too, which seeds no art (only the Game Maker add-on does). A pot
+     token, and a Hold and Win coin, jackpot or special, with no art now draws a coded disc
+     (`apps/lines` `symbolPlaceholder.ts`). Seeding `/config` adds the Game Maker way is still open.
    - **Resume between a drop and its fills** shows no tokens: neither `overlayDrop` nor `reveal` is
-     in the resume snapshot. The following `meterUpdate` still flies from the cell.
+     in the resume snapshot. The following `meterUpdate` still flies from the cell (with the coded
+     head, as no token is there to carry).
    - **Order:** the drain plays inside the free-spin / mode entry beat, after the mode layer has
      entered the mode (`modes.before`), so the new mode's screens and music are already up. Hold
      and Win's drain has always worked this way. Moving the drain into a mode hook would put it
      first. Inside `freeSpinTrigger` it is also unskippable, which Hold and Win's drain is not.
-   - **4b — lift-off vs the flight stagger:** a fill's tokens leave at once, but each flight starts
-     one stagger (70 ms coded) after the last, so the Nth cell sits empty for (N−1)×70 ms. Goes with
-     the token as the flight head.
    - **Coin over the win frame — decided 2026-10-02** (owner, design §7 #9). The overlay layer
      stays above the per-cell frames drawn in `Symbol.svelte`, as 4a built it. Design §3.4 now
      says so, and 4b does not restructure it.
-   - **Human eyes** on token pop-in, lift-off, the flight and the drain with REAL token art (the
-     runs below had none, so a token drew nothing and its beat ended on its cap), at full frame
-     rate (the container renders at ~4 fps).
+   - **Per-reel timing reads the book ahead**, so it needs the drop in the same book as its board.
+     The facade emits it there; a partner wire that sends drops in a later request would show them
+     after the stop.
+   - **Human eyes** on token pop-in (both timings), the token flights and the drain with REAL token
+     art, at full frame rate (the container renders at ~4 fps). Two things to judge (the hub's
+     review of #1019, no code yet):
+     - per-reel tokens appear at the reel's stop beat (`onSpinFinishing`, the start of its bounce),
+       so the strip is still settling under a token already at rest;
+     - tokens on stopped reels sit above the anticipation dim and are not darkened with them.
 
-1. **Phase 6 is next.** Phases 2–5 are merged, so it can start beside 4b. Besides its own scope
-   (design §6), it takes the Phase 6 items below and these:
-   - **One home for "which add-ons does this config carry".** There are two helpers today: launcher
-     `apps/launcher-api/src/lib/addOns.ts` (`projectAddOns`, `overlayTokenPots`), and game-config
-     `packages/game-config/src/flowAddOns.ts` (`flowAddOnsOf`, which the runtime can import). Make the
-     launcher helper build on the game-config one.
-   - **5d's cosmetic nits:**
-     - on a pots-only host, the `/symbols` flight rows say "meter" where the rest says "pot";
-     - ~~the `gameProfile` "Pots overlay" chip doesn't show for a block with drops but zero pots~~
-       (done 2026-10-03: "Pots overlay (coins only)");
-     - `win-text/+page.server.ts` calls `projectAddOns` twice.
+1. **Phase 6 (#1017)** built the Game Maker add-on, the scaffold's scene options, the one-home
+   add-ons helper (`$lib/addOns` on `flowAddOnsOf`) and 5d's three nits; see Decisions. Left: the
+   owner makes and publishes `borut-pots-sample` (Owner checklist 2), then a session plays it on
+   its authoring mock with the playbook.
 2. **Owner decisions** (asked and answered 2026-10-02):
    - **(a) Decided 2026-10-02: the coin draws over the win frame** (design §7 #9). This is 4a's
      layering, so nothing is to build.
    - **(b) Decided 2026-10-02: pots and coins are each optional** (design §7 #8). An overlay may be
      coins-only (no pots: value coins over the host's symbols, N+ start a classic Hold and Win) or
-     pots-only, but needs at least one. Built 2026-10-03 except where marked:
+     pots-only, but needs at least one. Built in Phase 6 (#1017):
      - the validator allows zero pots when the drop table has a coin row, and errors only when there
        are neither pots nor coin drops;
      - a `coinsOnly` preset paired with the Classic Hold and Win bonus;
      - `/config` lets the last pot be removed and offers the preset;
-     - the mock and runtime are checked with zero pots (no Pots screen, no pot flights) — the mock
-       is (`check:pots-overlay` §4); a real-clock zero-pot run is still to do;
-     - the Game Maker action offers it (Phase 6, not built).
+     - the mock and runtime are checked with zero pots (no Pots screen, no pot flights);
+     - the Game Maker action offers it.
 3. **Carried into later phases (found in Phase 1):**
-   - **Phase 4 (from 5c):** the overlay-only flow actions (show / lift tokens) are not in the
-     vocabulary yet: they arrive with their runtime effects. Add them to the overlay fragment in
-     `engine-flow-v2/src/reference/addOns.ts`, and give the graft their chain once a coded beat
-     exists. Until then the graft adds no `overlayDrop` handler, because owning the event would
-     suppress the coded default.
-     Phase 3's mode-entry `cause` / `meters` fields are not in the Flow payloads yet: the kind's own
+   - Phase 3's mode-entry `cause` / `meters` fields are not in the Flow payloads yet: the kind's own
      `freeSpinTrigger` / `modeEnter` decls win over a fragment's (de-duplication keeps the kind's), so
      adding them is an edit to `standardVocab.ts` that every kind's vocabulary picks up.
    - **After Phase 2 (mock):**
@@ -616,11 +696,6 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
        per bet and no `jackpotLevels`.
      - The book mock still accepts a second base `play` in a round (its old laxness). The overlay
        refuses one only after its own feature has ended.
-   - **Phase 6 (found in 5b):** the new-project scaffold (`projectScaffold.ts:119`) calls
-     `getFullSceneSet` without add-ons. Pass `SceneSetOptions` (see `$lib/addOns`) when the add-on
-     seeds the overlay screens.
-   - **Phase 6:** the Game Maker action calls `addPotsOverlay` (Phase 5a). Clashing names are already
-     renamed, so the action only has to show `renamed`.
    - `pnpm --filter game-config typecheck` already exits 2 on `main` (10 errors: fixtures that import
      `node:*` without Node types). The new fixture adds 4 of the same kind. It is not a gate, and
      `check:all` runs every fixture.
@@ -635,8 +710,20 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 1. **Confirm or change the defaults** in the design's §7, especially #5 (import vs live link) and #4
    (host feature and pot bonus in one round). Open items 2 (a) and (b) are answered.
-2. **Phase 6:** duplicate Book of Borut as `borut-pots-sample` (Game Maker → Duplicate, setup
-   scope), then publish it once Phase 6 lands. A session cannot sign in.
+2. **Phase 6 — make the sample** (a session cannot sign in to the launcher). Once #1017 is merged
+   and the launcher and test server have redeployed:
+   1. Game Maker → **Book of Borut** card → **Duplicate**: key `borut-pots-sample`, scope **setup**.
+      Never add the overlay to the live `bookofborutremake`.
+   2. On the new `borut-pots-sample` card → **＋ Pots overlay…** → preset **3 Pots** → **Add**
+      (leave "Also add the overlay steps to the Flow" unticked: the coded defaults play). Read the
+      report: config added, symbols and overlay screens seeded.
+   3. `/config` (project `borut-pots-sample`) → **Add-ons** → the **green** pot → bonus mode
+      **`freeSpins`** → Save. The preset routes all three pots to Hold and Win; this makes green start
+      Borut's own free spins (design §6) and is the first hands-on check that a pot's bonus is
+      authorable.
+   4. Game Maker → `borut-pots-sample` → **Publish**.
+   5. Tell the hub (or any session): a session then plays it with `game-playtester` and
+      [docs/playtest/borut-pots-sample.md](../playtest/borut-pots-sample.md).
 3. **Phase 8:** ask the partner whether their RGS can deal per-player pots, drops on top of symbols,
    and a bonus routed by pot. The same partner conversation as Hold and Win Phase 10.
 
@@ -646,59 +733,88 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Recent changes
 
-- 2026-10-03 — **0–5 pots, a coins-only overlay, and visible tokens and coins** (session "3 pots
-  overlay config", branch `claude/three-pots-overlay-config-nedyqc`). From an owner report on Book
-  of Borut: the game did not show after adding 3 Pots; they wanted 0 to 5 pots; and no pot coins
-  showed in Borut.
-  - **Pot count:** `setOverlayPotCount(doc, n)` (game-config `addOns.ts`), with `addPotsOverlay`'s
-    new optional `pots` argument, drives `/config`'s **How many** picker (0–5).
+- 2026-10-03 — **0–5 pots, and visible tokens and coins** (session "3 pots overlay config", branch
+  `claude/three-pots-overlay-config-nedyqc`). From an owner report on Book of Borut: the game did not
+  show after adding 3 Pots; they wanted 0 to 5 pots; and no pot coins showed in Borut. Merged with
+  Phase 6, whose coins-only rules, `coinsOnly` preset, zero-pot mock and profile chip are main's.
+  - **Pot count:** `setOverlayPotCount(doc, n)` (game-config `addOns.ts`), plus `addPotsOverlay`'s
+    optional `pots` argument, drives `/config`'s **How many** picker (0–5, also offered on add).
     - Raising the count adds pots at the end. Each takes the next free id of `OVERLAY_POT_IDS` (red,
       blue, green, gold, purple, the coded pots' named colours) and its own `POT_<ID>` token. A
       leftover `meterSpecial` token of that name is reused. It copies the last pot's size, drop weight
-      and bonus. A Hold and Win pot takes the next special no pot or meter starts with: the 3 Pots
-      order (payer, collector, multiplier), then mystery… With none left it starts with none.
+      and bonus. A Hold and Win pot takes the next special no pot or meter starts with: payer,
+      collector, multiplier (the 3 Pots order), then mystery… With none left it starts with none.
     - Lowering it removes pots from the end, with their drop rows and bare tokens.
-    - 0 needs a Hold and Win bonus beside the overlay. A coin row is added if the table would
-      otherwise be empty.
-    - `+ pot` stops at 5.
-    - Pinned by `addOns.fixture.ts` §6.
-  - **Owner decision (b), coins only:** most of it is built.
-    - The validator errors on more than `MAX_OVERLAY_POTS` (5) pots. It errors on no pots only when
-      no value coin drops.
-    - New `coinsOnly` preset, paired with the Classic Hold and Win bonus.
-    - The mock deals a pot-less overlay. `check:pots-overlay` §4 adds a coins-only route and a fifth
-      pot route.
-    - The `gameProfile` chip reads "Pots overlay (coins only)" (5d's nit).
-    - Left: a real-clock run of a zero-pot game, and the Game Maker action (Phase 6).
+    - 0 is Phase 6's coins-only rule. It is allowed only when the block is the overlay's bonus, and
+      a coin row is added if the table has none. The picker disables 0 otherwise.
+    - The validator errors on more than `MAX_OVERLAY_POTS` (5). `+ pot` stops at 5.
+    - Pinned by `addOns.fixture.ts` §6 and the `potsOverlay` fixture. `check:pots-overlay` §4 adds a
+      count-0 route and a fifth-pot route.
   - **Placeholders for add-on symbols** (`apps/lines` `symbolPlaceholder.ts` + `SymbolPlaceholder.svelte`,
-    drawn by `Symbol.svelte` when no art is bound). This is why the coins did not show: on a Book-of host
-    the add-on's tokens and Hold and Win symbols have no art (the engine's placeholder art is only in
-    the Hold and Win KIND's defaults). Tokens landed and flew invisibly, and the respin board showed
-    bare value labels.
+    drawn by `Symbol.svelte` when no art is bound). This is why the coins did not show in Borut: an
+    overlay added in `/config` seeds no art, so its tokens and Hold and Win symbols had none. Tokens
+    landed and flew invisibly, and the respin board showed bare value labels.
     - A pot token now draws a disc in its pot's colour with its name. A Hold and Win coin draws a gold
-      disc under its value. A jackpot or special draws its own colour and tag. `BLANK` and every other
-      artless symbol still draw nothing.
-    - The disc completes at once, like a sprite, so a token's `coinLand` beat no longer waits out its
-      cap.
-    - `potColour` is shared with the coded pot.
-    - Pinned by `symbolPlaceholder.fixture.ts`. Verified on a real clock: tokens, coins and specials
-      visible; 5 pots in a row; a fifth (special-less) pot's Hold and Win played out; money exact.
+      disc under its value. A jackpot or special draws its own colour and tag, hidden under a value
+      label. `BLANK` and every other artless symbol still draw nothing.
+    - Bound art wins, including Phase 6's seeded placeholders.
+    - The disc completes at once, like a sprite. `potColour` is shared with the coded pot.
+    - Pinned by `symbolPlaceholder.fixture.ts`. Verified on a real clock, local mocks, with the 3
+      Pots config in effect: tokens, coins and specials visible; 5 pots in a row; a special-less fifth
+      pot's Hold and Win played out; money exact.
   - **"The game is not showing up" — NOT reproduced.** The live game and launcher are outside this
     container's network policy, so Borut's live bundle could not be read. Every local variant booted
-    and played on a real clock (headless shell, `apps/lines` dev + local mocks), with the 3 Pots
-    overlay config in effect:
+    and played (headless shell, `apps/lines` dev):
     - the lines reference flow (Book-of vocabulary), with 3 and with 5 pots;
-    - the Book-of reference layout with every add-on screen merged ("＋ Add overlay screens");
+    - the Book-of reference layout with every add-on screen merged;
     - the overlay mock;
     - the plain book mock (a server that deals no overlay).
     - Also ruled out:
       - the runtime release lagging: every phase's Runtime release run succeeded;
-      - a test-server image missing a module: every import is copied;
+      - a test-server image missing a module;
       - Win Text without a `feature` section: `resolveWinText` defaults per field.
     - Open: the page's console errors, or network access to `games.invisiblewall.org` and
-      `app.invisiblewall.org`, to see what Borut's own data does. One more lead: `/config`'s save
-      gate refuses any doc with a validator error, so an add that produced an error was never stored.
-      That would also explain the other tools not showing the add-on.
+      `app.invisiblewall.org`. One lead: `/config`'s save gate refuses any doc with a validator error,
+      so an add that produced one was never stored. That would also hide the add-on from the other
+      tools.
+
+- 2026-10-03 — **Hub: second wave merged** (session "3 pots overlay mechanic"). The owner said
+  "merge when green"; the hub merged each PR once its independent `code-reviewer` should-fixes had
+  landed and CI was green on the head.
+  - **#1017 (Phase 6)** merged first, as a9a0aca. The hub review's five fixes landed in 19a7b20:
+    - refuse while another session holds a lease on a target doc;
+    - a re-run never revives a deleted screen or duplicates a Pot Meter;
+    - only clean presets are offered, with readable errors;
+    - corrupt or wrong-shaped docs are left byte-unchanged;
+    - all of it is pinned in `check:pots-overlay-add-on`.
+  - **#1019 (4b)** merged second, as 9247a0b, after merging main in. The review found no blocker;
+    parity held (the Borut reference flow, same seed: the same 1,212-line flow trace, 2,030
+    broadcasts and `flyTo` records as `main`). Its two should-fixes landed in 7a180a5:
+    - a pot always drains, even when a flow owns the bonus entry without `drainPots` (the play seam
+      plays the coded drain first; `holdAndWinTrigger` excluded, so no double drain);
+    - one beat and one land sound per drop cell.
+    The nits (shared `beat` helper, seat-scaled token head) went in too; the two per-reel timing
+    points are on the human-eyes list in Open items.
+
+- 2026-10-02 — **Phase 4b: the token flies as its own head, per-reel timing, overlay Flow actions
+  (#1019).** Details under Decisions. Agent rule 7: built in this session on the
+  `engine-pixi-svelte` patterns, reviewed by `code-reviewer`. `/config` gains "Tokens appear"
+  (`docs/tools/game-config.md`). A project without the block is unchanged.
+- 2026-10-03 — **Phase 6: the Game Maker add-on, coins only and the sample playbook (#1017).**
+  "＋ Pots overlay" on a project card and on Create; coins-only overlays; the guide
+  [add-pots-overlay](../guides/add-pots-overlay.md) and the playbook
+  [borut-pots-sample](../playtest/borut-pots-sample.md). Rules under Decisions.
+  - **Played end to end locally** (`game-playtester`, d9e7420, headless shell `--no-sandbox`, ~4 fps,
+    local mocks only, no R2): a Borut-shaped book host plus `threePots` with green → `freeSpins`, plus
+    a coins-only config. Drop over the host's own board; three pots fill; red → drain → Hold and Win
+    with the payer (blue → collector); green → drain → the host's free spins (on a coded host; a flow
+    that owns `freeSpinTrigger` snapped the pot, fixed in 4b #1019: the play seam drains it); 6 coins → Hold and Win with the six
+    held, 5 → nothing; `pot:red,feature` → free spins then Hold and Win in one round with one
+    `gameEnd`; pots persist across rounds and a reload; bad force specs refused. Every round idle,
+    money exact, 0 exceptions. Parity: the same host without the block vs `main` — 13 RGS answers
+    byte-identical (round id aside), 244-line flow trace identical, same balances.
+  - **Left:** the owner makes and publishes `borut-pots-sample` (Owner checklist 2), then a session
+    replays the playbook on its authoring mock with real art; human eyes on pop-in, flights and drain.
 
 - 2026-10-02 — **Hub: first wave merged** (session "3 pots overlay mechanic").
   - Six phase sessions ran in parallel from #1008. Phases 2, 3, 4a, 5a, 5b, 5c and 5d each merged

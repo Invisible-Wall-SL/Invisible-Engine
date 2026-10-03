@@ -199,6 +199,25 @@
 		}
 	}
 
+	/**
+	 * An overlay needs a pot or a value coin (`validatePotsOverlay`), so the last of the one cannot go
+	 * while the other is absent — removing the overlay is its own button.
+	 */
+	const hasCoinDrop = (overlay: PotsOverlay) => overlay.drops.table.some(isCoinDrop);
+	/** On a Hold and Win game the block is its base game, started by its own reels, so dropped coins
+	 *  alone start nothing and the last pot must stay (the validator's error, the add's refusal). */
+	const coinsAloneStart = $derived(!doc.holdAndWin || holdAndWinIsOverlayBonus(doc));
+	/** No pots at all — value coins only — needs a Hold and Win block that is the overlay's bonus. */
+	const zeroPotsAllowed = $derived(Boolean(doc.holdAndWin) && holdAndWinIsOverlayBonus(doc));
+	const potRemovable = (overlay: PotsOverlay) =>
+		overlay.pots.length > 1 || (hasCoinDrop(overlay) && coinsAloneStart);
+	const dropRemovable = (overlay: PotsOverlay, i: number) =>
+		overlay.pots.length > 0 || overlay.drops.table.some((e, k) => k !== i && isCoinDrop(e));
+	const KEEP_ONE =
+		'An overlay needs at least one pot or one value-coin drop. Add the other first, or remove the overlay.';
+	const KEEP_POT =
+		"This game's own Hold and Win starts from its reels, so value coins alone start nothing: keep at least one pot, or remove the overlay.";
+
 	function removePot(overlay: PotsOverlay, i: number) {
 		const [gone] = overlay.pots.splice(i, 1);
 		if (overlay.pots.some((p) => p.id === gone.id)) return;
@@ -318,6 +337,12 @@
 		if (next.length === 1 && next[0] === BASE_GAME_MODE) delete drops.modes;
 		else drops.modes = reelModes.map((m) => m.id).filter((id) => next.includes(id));
 	}
+
+	/** After the stop is the default, which a doc never stores. */
+	function setTiming(overlay: PotsOverlay, value: string) {
+		if (value === 'perReel') overlay.timing = 'perReel';
+		else delete overlay.timing;
+	}
 </script>
 
 {#snippet issueLines(list: GameConfigIssue[])}
@@ -333,7 +358,9 @@
 		<div class="row tight">
 			<h3>
 				Pots overlay <em
-					>tokens drop over the symbols and fly to pots; a full pot starts its bonus</em
+					>{overlay.pots.length
+						? 'tokens drop over the symbols and fly to pots; a full pot starts its bonus'
+						: 'value coins drop over the symbols; enough on one spin start Hold and Win'}</em
 				>
 			</h3>
 			<button class="small danger push" onclick={removeOverlay} disabled={readOnly}
@@ -349,7 +376,9 @@
 					onchange={(e) => setPotCount(Number(e.currentTarget.value))}
 				>
 					{#each POT_COUNTS as n (n)}
-						<option value={n}>{n}</option>
+						<option value={n} disabled={n === 0 && !zeroPotsAllowed && overlay.pots.length > 0}
+							>{n}{n === 0 && !zeroPotsAllowed ? ' — needs a Hold and Win bonus' : ''}</option
+						>
 					{/each}
 					{#if overlay.pots.length > MAX_OVERLAY_POTS}
 						<option value={overlay.pots.length}>{overlay.pots.length} — too many</option>
@@ -358,7 +387,7 @@
 			>
 			<span class="note"
 				>{overlay.pots.length
-					? `0–${MAX_OVERLAY_POTS}; a new pot copies the last one's size and bonus`
+					? `${zeroPotsAllowed ? 0 : 1}–${MAX_OVERLAY_POTS}; a new pot copies the last one's size and bonus`
 					: 'no pots: the overlay drops only value coins'}</span
 			>
 		</div>
@@ -468,12 +497,24 @@
 							{/if}
 						</td>
 						<td
-							><button class="del" title="Remove" onclick={() => removePot(overlay, i)}>×</button
+							><button
+								class="del"
+								title={potRemovable(overlay) ? 'Remove' : coinsAloneStart ? KEEP_ONE : KEEP_POT}
+								disabled={!potRemovable(overlay)}
+								onclick={() => removePot(overlay, i)}>×</button
 							></td
 						>
 					</tr>
 					{#if issuesFor(at).length}
 						<tr class="issues"><td colspan="7">{@render issueLines(issuesFor(at))}</td></tr>
+					{/if}
+				{:else}
+					{#if !drafts.length}
+						<tr
+							><td colspan="7" class="note"
+								>No pots: value coins only. Add a pot to give tokens somewhere to fly.</td
+							></tr
+						>
 					{/if}
 				{/each}
 				{#each drafts as d, i (i)}
@@ -576,7 +617,11 @@
 							/><span class="note">{share(entry.weight, dropTotal)}</span></td
 						>
 						<td
-							><button class="del" title="Remove" onclick={() => drops.table.splice(i, 1)}>×</button
+							><button
+								class="del"
+								title={dropRemovable(overlay, i) ? 'Remove' : KEEP_ONE}
+								disabled={!dropRemovable(overlay, i)}
+								onclick={() => drops.table.splice(i, 1)}>×</button
 							></td
 						>
 					</tr>
@@ -587,6 +632,12 @@
 			</tbody>
 		</table>
 		<button class="small" onclick={() => addDrop(overlay)}>+ drop</button>
+		{#if hasCoinDrop(overlay) && doc.holdAndWin?.trigger.count && holdAndWinIsOverlayBonus(doc)}
+			<span class="note"
+				>{doc.holdAndWin.trigger.count.min}+ value coins on one spin start Hold and Win with them
+				held; fewer are shown and cleared (the count trigger, in the Hold and Win section)</span
+			>
+		{/if}
 		{@render issueLines(issuesAt('potsOverlay.drops.table'))}
 
 		<div class="sub">
@@ -621,6 +672,21 @@
 				{/each}
 			</div>
 			{@render issueLines(issuesAt('potsOverlay.drops.modes'))}
+		</div>
+
+		<span class="legend"
+			>Presentation <em>how the game shows a drop; the server never sees it</em></span
+		>
+		<div class="row">
+			<label
+				><span>Tokens appear</span><select
+					value={overlay.timing ?? 'afterStop'}
+					onchange={(e) => setTiming(overlay, e.currentTarget.value)}
+				>
+					<option value="afterStop">after the last reel stops</option>
+					<option value="perReel">as each reel stops</option>
+				</select></label
+			>
 		</div>
 	</fieldset>
 {/snippet}
@@ -881,8 +947,12 @@
 		cursor: pointer;
 		padding: 0 4px;
 	}
-	.del:hover {
+	.del:hover:not(:disabled) {
 		color: #e07070;
+	}
+	.del:disabled {
+		opacity: 0.3;
+		cursor: default;
 	}
 	.inline-issue {
 		margin: 0 0 8px;

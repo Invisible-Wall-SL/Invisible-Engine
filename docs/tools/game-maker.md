@@ -39,7 +39,8 @@ version; your later edits reach them only when you publish again.
 
 The page has two cards: **Create a game** and **Your projects**. Each project in
 the second card shows what kind of game it is and which features it uses, can be
-filtered/sorted/grouped by client, and can be duplicated onto a new key.
+filtered/sorted/grouped by client, can be duplicated onto a new key, and can take the pots
+overlay add-on.
 
 ### Create a game
 
@@ -61,7 +62,11 @@ filtered/sorted/grouped by client, and can be duplicated onto a new key.
      first spin; replace that art in Symbols. Win Text starts on the engine's defaults. To
      switch preset later, use **Reset to preset** in Game Config (the symbols doc is not
      re-seeded — bind any new preset symbol in Symbols).
-4. Click **Create project**. This creates the launcher project and scaffolds its
+4. Optionally tick **Add the pots overlay** and pick its preset from the dropdown beside it. The
+   new project then gets the same add-on as the card's **＋ Pots overlay…** (see
+   [Add the pots overlay](#add-the-pots-overlay-to-a-project) below), run on its fresh scaffold.
+   This route never grafts the Flow, so the overlay plays its coded beats.
+5. Click **Create project**. This creates the launcher project and scaffolds its
    cloud tree (the same scaffold the `/admin` create action produces:
    `editor/scenes.json`, `editor/flow-v2.json` — the game type's starter
    [flow](/docs/flow) — `atlas_config.json`, `manifests/`, `input/refs/`,
@@ -69,7 +74,8 @@ filtered/sorted/grouped by client, and can be duplicated onto a new key.
    also gets the preset you picked as its own [Game Config](/docs/game-config)
    and `symbols/symbols.json` binding its Hold and Win symbols, so its first publish
    already deals and draws the feature). A confirmation appears and
-   the project shows up under **Your projects** below.
+   the project shows up under **Your projects** below. With the overlay ticked, the confirmation
+   reads _"… with the pots overlay"_ and the add-on's report shows under the form.
 
 From here you author the game with the existing online tools — the Scene Editor,
 Atlas Maker, Sheet Maker, Font Maker, Symbols State Machine, and Localization —
@@ -163,6 +169,88 @@ first publish.
 
 You need the Game Maker tool and access to the source project; unlike Publish, it
 needs no extra capability.
+
+### Add the pots overlay to a project
+
+The pots overlay lays the 3 Pots mechanic over a game you already have: tokens and value coins
+drop on top of the board's symbols, tokens fly into pots, and a full pot (or enough coins on one
+spin) starts a bonus. The game keeps its own kind, lines and features. A walkthrough from duplicate
+to playtest is in [Add a pots overlay to an existing game](../guides/add-pots-overlay.md).
+
+Try it on a **duplicate**, never on a live game: the add-on writes to the project's Game Config at
+once. **Live ↗** shows it straight away and players get it with the next Publish, except on a game
+published before versioned snapshots (the amber note on its card): its players boot the live
+authoring data, so they get the overlay at once. It needs the tools whose docs it writes, beside the Game Maker:
+Game Config, Symbols and the Scene Editor (and Invisible Flow for the Flow steps). Without one, the
+dialog says which, and the new-game checkbox creates the game without the overlay. It also adds
+nothing while someone else has this project's Game Config, Scene Editor, Symbols (or, with the Flow
+steps, Flow) open: the dialog names who is editing, and you try again once they close it.
+
+1. On the project's card, click **＋ Pots overlay…**. (On a project that already has the overlay the
+   button reads **Pots overlay parts…**; see _Running it again_ below.)
+2. Pick a **Preset**. Only the presets that fit the game's Game Config are offered: on a Hold and
+   Win game **Coins only** never is (its own reels start its feature), and **3 Pots** only on the
+   3 Pots preset (its pots start specials Classic and Collector do not have). On a Hold and Win game
+   the overlay brings no value coins either, for the same reason.
+   - **3 Pots (each pot a Hold and Win with its special)** — red, blue and green pots, each starting
+     the Hold and Win feature with a different special active, plus value coins.
+   - **Pots to free spins** — one gold pot that starts free spins.
+   - **Coins only (6+ value coins start a classic Hold and Win)** — no pots: value coins drop, and
+     enough of them on one spin start a classic Hold and Win with those coins held.
+3. Leave **Also add the overlay steps to the Flow** off unless you want them. Without the Flow
+   steps the overlay plays its built-in beats, so the game needs no flow edit. Ticked, it adds the
+   steps [Invisible Flow](flow.md#pots-overlay-and-hold-and-win-on-any-kind--add-ons)'s **＋ Add
+   overlay steps** adds, to a flow the project has stored.
+4. Click **Add**. When the report appears, click **Done**.
+5. **Reload your own open Game Config, Scene Editor, Symbols or Flow tabs for this project.** A tab
+   opened before the add-on still holds the old doc, and its next save is refused as a conflict.
+
+**What it adds.** It first merges the overlay into the project's
+[Game Config](game-config.md#add-ons) (the 3 Pots and Coins only presets also bring a Hold and Win
+bonus, unless the project already has a Hold and Win block). Then it seeds the parts a playable
+overlay needs:
+
+- **Symbols** — placeholder art for each token and for the Hold and Win bonus's symbols, so they
+  draw from the first spin. Replace it in [Symbols](symbols-state-machine.md#pots-overlay-projects).
+- **Screens** — the Scene Editor's **＋ Add overlay screens**, done for you: the **Pots** screen
+  (one Pot Meter per pot) and, with a Hold and Win bonus, the Jackpot bar and the feature's screens.
+  Coins only has no pots, so it adds no Pots screen and no token. A pot that already has a Pot Meter
+  on any screen gets no second one. On a Hold and Win game, which has its Pots screen, it appends a
+  Pot Meter for each new pot beside the existing ones.
+- **Win Text** — nothing. Every pot, jackpot and respin line already has a built-in default that
+  [Win Text](win-text.md) and Localization offer once the config has the overlay. Writing the
+  defaults in would freeze them as your own copy, so name the pots in Win Text yourself.
+- **Flow** — only when you ticked the checkbox.
+
+**It only adds.** It never overwrites a layout, a Flow, a symbol binding or any config setting you
+authored, and it never reseeds a layout or Flow the project already has: it merges in the screens
+and steps that are missing and leaves the rest alone. A Flow graft never touches a node you made.
+
+**Reading the report.** One line per part:
+
+- **Game Config** — _pots overlay added_, or _already has the overlay_.
+- **Renamed** — shown when the project already used a name the preset brings (a symbol or a pot
+  id). The new one takes the first free `_2`, `_3`… suffix everywhere the overlay names it, and the
+  line lists each change, e.g. `red → red_2`. Use the new names in the other tools.
+- **Symbols / Screens / Win Text / Flow** — _added_ (with what was added), _nothing to add_,
+  _changed meanwhile_, _skipped_ or _failed_, with a note when there is something to do by hand.
+  For example, a project with no stored flow skips the Flow graft (the built-in beats play), and a
+  custom game kind skips the screens (add them with **＋ Add overlay screens** in the
+  [Scene Editor](invisible-editor.md)).
+
+**Running it again.** Each part is saved separately and only if nobody saved that doc in between.
+A part that lost that race reads **changed meanwhile** (or **failed** on an error), and the dialog
+offers **Run again for the rest**. Running again is safe: it adds only what is still missing and
+never duplicates a part. The same goes for **Pots overlay parts…** on the card later: it has no
+preset, only the Flow checkbox and **Seed missing parts**. A run that does not add the overlay never
+adds a screen, so a screen you deleted stays deleted: it only adds a Pot Meter for a pot that has none
+on any screen (or names it, when there is no Pots screen to put it on). If the Game Config itself was saved by
+someone else meanwhile, the dialog says so and nothing was added; click **Add** again.
+**Seed missing parts** binds placeholder art to every token or bonus symbol that has no binding,
+including one you cleared on purpose.
+
+To tune the pots, the drops and each pot's bonus, or to remove the overlay, use
+[Game Config → Add-ons](game-config.md#add-ons). The Game Maker only adds it.
 
 ### Publish (and Re-publish)
 
@@ -373,6 +461,14 @@ graduate later; its R2 authoring data carries over.
   **Rescaffold** the project in `/admin` (it writes the bindings only if the project has no
   symbols doc yet), or bind each symbol in [Symbols](/docs/symbols-state-machine); then **Publish**.
 
+- **A save is refused as a conflict right after adding the pots overlay.** — The tab was open
+  before the add-on wrote the project's docs. Reload it (your unsaved edits in it are lost), redo
+  them, and save.
+- **A pots overlay token draws nothing.** — The token has no art bound in
+  [Symbols](symbols-state-machine.md#pots-overlay-projects). The add-on binds placeholder art, and
+  its report names any symbol it found none for; bind those by hand. A token added by hand in Game
+  Config gets no art until you bind it, or run **Pots overlay parts…**.
+
 - **"My edit isn't in the game."** — **Play ↗**, **Copy URL** and every player link boot the
   _published_ version, so anything saved since the last Publish is missing there by design. Check
   the edit with **Live ↗** (or the portal's Games card), then **Publish** to ship it.
@@ -417,6 +513,16 @@ graduate later; its R2 authoring data carries over.
   on the Invisible Test Server (a fake balance per browser tab, resets on
   restart). This is a test/preview surface, not a real-money deploy. See
   [`test-server.md`](test-server.md).
+- **The pots overlay is dealt on Book of hosts only.** The test server's mock deals the overlay
+  over a `book` game; a lines or ways host with the overlay is dealt its own game with no drops yet.
+  A Hold and Win game that adds the overlay is likewise dealt without pots.
+- **Pots overlay on a Hold and Win game:** the project already has its Pots screen, so the add-on
+  only appends a Pot Meter for each new pot (`red_2`…) beside the existing ones. Arrange them in the
+  [Scene Editor](invisible-editor.md). **Coins only** is not offered there: the game's own Hold and
+  Win starts from its reels, so dropped coins alone would start nothing.
+- **The pots overlay can only be added here.** Tuning and removing it are in
+  [Game Config → Add-ons](game-config.md#add-ons). The new-game checkbox never grafts the Flow; use
+  **Pots overlay parts…** with the checkbox, or **＋ Add overlay steps** in Invisible Flow.
 - **A published version freezes data, not the engine.** Every online game runs the live
   engine release; after an engine change that needs new game data, republish (the amber
   badge above is the prompt). Rolling a game back to an old version does not roll its engine

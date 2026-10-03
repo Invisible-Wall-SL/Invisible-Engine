@@ -1290,6 +1290,18 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'showTokens',
+				group: 'Effect',
+			},
+			{
+				name: 'liftTokens',
+				group: 'Effect',
+			},
+			{
+				name: 'drainPots',
+				group: 'Effect',
+			},
+			{
 				name: 'flyTo',
 				group: 'Effect',
 			},
@@ -2832,6 +2844,18 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				name: 'spinWheel',
+				group: 'Effect',
+			},
+			{
+				name: 'showTokens',
+				group: 'Effect',
+			},
+			{
+				name: 'liftTokens',
+				group: 'Effect',
+			},
+			{
+				name: 'drainPots',
 				group: 'Effect',
 			},
 			{
@@ -4380,6 +4404,18 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'showTokens',
+				group: 'Effect',
+			},
+			{
+				name: 'liftTokens',
+				group: 'Effect',
+			},
+			{
+				name: 'drainPots',
+				group: 'Effect',
+			},
+			{
 				name: 'flyTo',
 				group: 'Effect',
 			},
@@ -5922,6 +5958,18 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				name: 'spinWheel',
+				group: 'Effect',
+			},
+			{
+				name: 'showTokens',
+				group: 'Effect',
+			},
+			{
+				name: 'liftTokens',
+				group: 'Effect',
+			},
+			{
+				name: 'drainPots',
 				group: 'Effect',
 			},
 			{

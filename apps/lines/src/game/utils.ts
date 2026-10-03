@@ -28,6 +28,7 @@ import { stateModes } from './stateModes.svelte';
 import { drainHoldAndWinMeters, recordHoldAndWinEvent } from './stateHoldAndWin.svelte';
 import { recordOverlayEvent } from './stateOverlay.svelte';
 import { pinDrainedMeters, releaseDrainedMeters } from './holdAndWinMeters.svelte';
+import { presentMeterConsume } from './holdAndWinPresentation';
 import { releaseHeldPlatformJackpotWin } from './platformJackpot.svelte';
 
 /**
@@ -81,4 +82,11 @@ export const { playBookEvent, playBookEvents, playBet, convertTorResumableBet } 
 		if (bookEvent.type === 'finalWin') releaseHeldPlatformJackpotWin();
 	},
 	modes: stateModes,
+	// A pot drains as the mode it started begins, whoever presents the entry: a flow that owns
+	// `freeSpinTrigger` / `modeEnter` without `drainPots` on that chain gets the coded drain first.
+	beforeFlowOwnedEvent: async (bookEvent) => {
+		const drained = drainedMeters(bookEvent);
+		if (drained.length && !getFlowV2()?.chainCallsAction(bookEvent.type, 'drainPots'))
+			await presentMeterConsume(drained);
+	},
 });

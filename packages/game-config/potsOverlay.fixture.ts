@@ -4,8 +4,9 @@
  *
  * Pins: a config without the block is untouched (every committed default included); the block is
  * sparse and a normalize fixed point; the validator names every impossible overlay; `resolveMeters`
- * lists the Hold and Win meters, then the pots; both presets validate clean once merged into a
- * book-like host of any width without replacing any of it, and a Hold and Win game may add either;
+ * lists the Hold and Win meters, then the pots; every preset validates clean once merged into a
+ * book-like host of any width without replacing any of it (coins only: no pots, the Classic bonus),
+ * and a Hold and Win game may add pots;
  * a `holdAndWin` block is the overlay's bonus or the base game by what the base strips deal; and
  * without the block every Hold and Win preset validates exactly as before.
  */
@@ -121,6 +122,7 @@ const insert = (host: RawGameConfig, id: PotsOverlayPresetId): GameConfigDoc => 
 const host = normalize(BOOK_HOST);
 const three = insert(BOOK_HOST, 'threePots');
 const free = insert(BOOK_HOST, 'potsToFreeSpins');
+const coins = insert(BOOK_HOST, 'coinsOnly');
 
 console.log('\n1. absent ⇒ absent');
 check('the host validates clean on its own', validateGameConfigDoc(host), []);
@@ -258,29 +260,34 @@ check(
 	],
 );
 check('a whole overlay doc is a fixed point', normalize(clone(three)), three);
+check(
+	'timing: per reel is stored; after the stop (the default) and anything unread are not',
+	['perReel', 'afterStop', 'sideways', undefined].map(
+		(timing) => normalizePotsOverlay({ pots: [onePot], timing })!.timing,
+	),
+	['perReel', undefined, undefined, undefined],
+);
 
 console.log('\n3. validate — every rule, both ways');
 check('3 Pots on the host is clean', validateGameConfigDoc(three), []);
 check('pots to free spins on the host is clean', validateGameConfigDoc(free), []);
 check(
-	'no pots, value coins only, is clean',
-	overlayIssues(
-		edit(three, (d) => {
-			d.potsOverlay!.pots = [];
-			d.potsOverlay!.drops.table = [{ coin: true, weight: 1 }];
-		}),
-	),
-	[],
-);
-check(
-	'no pots and no value coin',
-	overlayIssues(
-		edit(free, (d) => {
-			d.potsOverlay!.pots = [];
-			d.potsOverlay!.drops.table = [{ pot: 'gold', weight: 1 }];
-		}),
-	),
-	['error:potsOverlay.pots', 'error:potsOverlay.drops.table.0.pot'],
+	'no pots and no value coins; value coins with no pots are fine',
+	[
+		overlayIssues(
+			edit(three, (d) => {
+				d.potsOverlay!.pots = [];
+				d.potsOverlay!.drops.table = [{ pot: 'red', weight: 1 }];
+			}),
+		),
+		overlayIssues(
+			edit(three, (d) => {
+				d.potsOverlay!.pots = [];
+				d.potsOverlay!.drops.table = [{ coin: true, weight: 1 }];
+			}),
+		),
+	],
+	[['error:potsOverlay.pots', 'error:potsOverlay.drops.table.0.pot'], []],
 );
 check(
 	'more than five pots',
@@ -345,7 +352,8 @@ check(
 check(
 	'a token on a base strip',
 	overlayIssues(edit(three, (d) => d.paddingReels.basegame[0].push({ name: 'POT_RED' }))),
-	['error:potsOverlay.pots.0.token'],
+	// …which also makes the block the base game, so the dropped coins count for nothing.
+	['error:potsOverlay.pots.0.token', 'warning:potsOverlay.drops.table.3'],
 );
 check(
 	'a token on the respin strips',
@@ -766,8 +774,17 @@ check(
 		),
 	),
 	[
-		['error:potsOverlay.pots.0.id', 'error:potsOverlay.pots.1.id', 'error:potsOverlay.pots.2.id'],
-		['error:potsOverlay.pots.0.bonus.activates', 'error:potsOverlay.pots.1.bonus.activates'],
+		[
+			'error:potsOverlay.pots.0.id',
+			'error:potsOverlay.pots.1.id',
+			'error:potsOverlay.pots.2.id',
+			'warning:potsOverlay.drops.table.3',
+		],
+		[
+			'error:potsOverlay.pots.0.bonus.activates',
+			'error:potsOverlay.pots.1.bonus.activates',
+			'warning:potsOverlay.drops.table.3',
+		],
 		[
 			'error:potsOverlay.pots.0.bonus.activates',
 			'error:potsOverlay.pots.2.bonus.activates',
@@ -946,6 +963,100 @@ check(
 		holdAndWinIssues(noOverlay(edit(three, nothingActive))),
 	],
 	[[], ['warning:holdAndWin.activeModifiers']],
+);
+
+console.log('\n6b. coins only — no pots, value coins start a classic Hold and Win');
+const coinsBlock = { pots: [], drops: { table: [{ coin: true }] } };
+check('normalize keeps a block with value coins and no pots', normalizePotsOverlay(coinsBlock), {
+	pots: [],
+	drops: { chance: 0.1, maxPerSpin: 1, table: [{ coin: true, weight: 1 }] },
+});
+check(
+	'...on a doc too, a fixed point',
+	[
+		normalize({ ...clone(BOOK_HOST), potsOverlay: coinsBlock }).potsOverlay,
+		normalize(clone(coins)),
+	],
+	[normalizePotsOverlay(coinsBlock), coins],
+);
+check(
+	'the preset: no pots, no tokens, one coin row, the Classic bonus, enough drops for its trigger',
+	[
+		coins.potsOverlay,
+		Object.keys(coins.symbols).filter((n) => !(n in host.symbols)),
+		coins.potsOverlay!.drops.maxPerSpin >= coins.holdAndWin!.trigger.count!.min,
+		coins.holdAndWin,
+	],
+	[
+		{ pots: [], drops: { chance: 0.1, maxPerSpin: 8, table: [{ coin: true, weight: 1 }] } },
+		Object.keys(holdAndWinBonus('classic', BOOK_HOST).symbols),
+		true,
+		holdAndWinBonus('classic', BOOK_HOST).holdAndWin,
+	],
+);
+check(
+	'the block is the bonus with zero pots; no meters; the dropped coins are its trigger',
+	[holdAndWinIsOverlayBonus(coins), resolveMeters(coins), holdAndWinIssues(coins)],
+	[true, [], []],
+);
+check(
+	'with no count trigger nothing can start it: an error, and the coins warn',
+	[
+		holdAndWinIssues(edit(coins, (d) => (d.holdAndWin!.trigger = {}))),
+		triggerMessage(edit(coins, (d) => (d.holdAndWin!.trigger = {}))),
+		overlayIssues(edit(coins, (d) => (d.holdAndWin!.trigger = {}))),
+	],
+	[
+		['error:holdAndWin.trigger'],
+		'Nothing can start the feature — route a pot to Hold and Win, or drop value coins for the count trigger.',
+		['warning:potsOverlay.drops.table.0'],
+	],
+);
+check(
+	'fewer drops per spin than the trigger counts warns',
+	overlayIssues(edit(coins, (d) => (d.potsOverlay!.drops.maxPerSpin = 5))),
+	['warning:potsOverlay.drops.maxPerSpin'],
+);
+check(
+	'value coins with no Hold and Win block: an error, and nothing else to drop',
+	overlayIssues(
+		edit(coins, (d) => {
+			delete d.holdAndWin;
+			delete d.paddingReels.respin;
+		}),
+	),
+	['error:potsOverlay.drops.table.0'],
+);
+const coinsOnGame = normalize({
+	...clone(HOLD_AND_WIN_PRESETS.classic),
+	potsOverlay: { ...coinsBlock, drops: { ...coinsBlock.drops, maxPerSpin: 1 } },
+});
+check(
+	"on a Hold and Win game the block stays its base game: coins alone are one error (as the add refuses), with no per-coin warning beside it (the trigger's count is not compared)",
+	[
+		holdAndWinIsOverlayBonus(coinsOnGame),
+		overlayIssues(coinsOnGame),
+		holdAndWinIssues(coinsOnGame),
+	],
+	[false, ['error:potsOverlay.pots'], []],
+);
+check(
+	'...and one pot beside the coins clears the error',
+	overlayIssues(
+		edit(coinsOnGame, (d) => {
+			d.symbols.POT_GOLD = { special_properties: ['meterSpecial'] };
+			d.potsOverlay!.pots = [
+				{
+					id: 'gold',
+					token: 'POT_GOLD',
+					maxLevel: 12,
+					sizeStages: [5, 9],
+					bonus: { mode: 'freeSpins' },
+				},
+			];
+		}),
+	).filter((issue) => issue === 'error:potsOverlay.pots'),
+	[],
 );
 
 console.log('\n7. parity — without the block, Hold and Win validates exactly as before');

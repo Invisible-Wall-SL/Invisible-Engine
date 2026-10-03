@@ -44,7 +44,7 @@ change piled back into one file. See [`docs/status/README.md`](status/README.md)
 | **Launcher / platform** | [status/launcher](status/launcher.md) | [design/unified-project-repo](design/unified-project-repo.md) | [tools/launcher](tools/launcher.md) | `launcher-studio` |
 | **Engine & games** (runtime) | [status/engine](status/engine.md) | [design/flow-driven-game](design/flow-driven-game.md) | — | `engine-pixi-svelte` |
 | **Hold and Win** (game kind — engine runtime, game modes, Scene Editor template, flow vocab + starter flow, Symbols, Win Text, Game Maker presets built; live Classic/Collector samples (9, owner login) and partner wire (10) open — session hub) | [status/hold-and-win](status/hold-and-win.md) | [design/hold-and-win](design/hold-and-win.md) | — | per phase |
-| **Pots overlay** (an add-on on any kind: the 3 Pots pots over the host game's symbols, a pot-cued bonus — Hold and Win, the host's free spins, or an imported bonus; Phases 0–5 merged: authorable in `/config`, `/editor`, `/flow-v2`, `/symbols`, dealt by the book mock, drawn by the runtime; 4b + 6 next, 7–8 open — session hub) | [status/pots-overlay](status/pots-overlay.md) | [design/pots-overlay](design/pots-overlay.md) | — | per phase |
+| **Pots overlay** (an add-on on any kind: the 3 Pots pots over the host game's symbols, a pot-cued bonus — Hold and Win, the host's free spins, or an imported bonus; Phases 0–6 merged: authorable in `/config`, `/editor`, `/flow-v2`, `/symbols`, one-click from Game Maker, dealt by the book mock, drawn by the runtime; owner makes `borut-pots-sample` next, 7 open, 8 blocked on partner — session hub) | [status/pots-overlay](status/pots-overlay.md) | [design/pots-overlay](design/pots-overlay.md) | — | per phase |
 | **Invisible Playtester** (automated QA) | [status/playtester](status/playtester.md) | [design/invisible-playtester](design/invisible-playtester.md) | [playtest/](playtest/README.md) | `game-playtester` |
 | **Infra** (Railway/CF/R2) | [status/infra](status/infra.md) | — | [INFRA.md](INFRA.md) | `infra-railway` |
 
@@ -79,6 +79,7 @@ tool guides rather than restating them.
 | Guide | Use it when |
 |---|---|
 | [Build your first game](guides/build-your-first-game.md) | Making a lines / Book-of / ways reskin, Game Maker → Deliver |
+| [Add a pots overlay](guides/add-pots-overlay.md) | Laying the 3 Pots (or coins-only) add-on over a game you already have, duplicate → playtest |
 | [Publish and deliver](guides/publish-and-deliver.md) | Getting a game's authored content to players, or cutting a delivery build |
 | [Publisher runbook](guides/publisher-runbook.md) | Shipping a standalone build from the desktop launcher (☁ Publish / 📦 Deliver) |
 | [Release and rollback](guides/release-and-rollback.md) | An engine merge is going out, or a release or a game's content needs rolling back |

@@ -841,6 +841,44 @@ const scopeForSignal = (doc: FlowDoc, modeId: string | undefined, eventName: str
 	return graph && graphHandlesSignal(graph, eventName) ? withGraph(doc, graph) : doc;
 };
 
+/** Does `graph` (or a group body inside it) hold an action node calling `action`? */
+const graphCallsAction = (graph: Graph, action: string): boolean =>
+	graph.nodes.some(
+		(n) =>
+			(n.kind === 'action' && n.ref === action) ||
+			(n.kind === 'group' && graphCallsAction(n.body, action)),
+	);
+
+/**
+ * Does the chain a flow runs for `eventName` reach an action calling `action`? The chain is the
+ * graph the runtime picks for the signal (the active mode's when it handles it, else the global
+ * one), walked along exec wires from its `event` nodes and its `gameSignals` pin. A group on the
+ * chain counts as a whole. A call into the function library is not followed.
+ */
+export const signalChainCallsAction = (
+	doc: FlowDoc,
+	modeId: string | undefined,
+	eventName: string,
+	action: string,
+): boolean => {
+	const { graph } = scopeForSignal(doc, modeId, eventName);
+	const byId = new Map(graph.nodes.map((n) => [n.id, n] as const));
+	const seen = new Set<string>();
+	const queue = graph.exec
+		.filter((e) => e.from.pin === eventName && byId.get(e.from.node)?.kind === 'gameSignals')
+		.map((e) => e.to.node);
+	for (const n of graph.nodes) if (n.kind === 'event' && n.ref === eventName) queue.push(n.id);
+	for (let id = queue.pop(); id !== undefined; id = queue.pop()) {
+		if (seen.has(id)) continue;
+		seen.add(id);
+		const node = byId.get(id);
+		if (node?.kind === 'action' && node.ref === action) return true;
+		if (node?.kind === 'group' && graphCallsAction(node.body, action)) return true;
+		for (const e of graph.exec) if (e.from.node === id) queue.push(e.to.node);
+	}
+	return false;
+};
+
 /**
  * Present a mode-stack transition: the matching `modeTrigger` entries of the mode's OWN graph, then
  * those of the global graph. An `allFinished` runs the `allModesFinished` entries of the `basegame`

@@ -1,7 +1,13 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import { HOLD_AND_WIN_PRESET_IDS } from 'game-config';
+import {
+	HOLD_AND_WIN_PRESET_IDS,
+	POTS_OVERLAY_PRESET_IDS,
+	type PotsOverlayPresetId,
+} from 'game-config';
 import { ADMIN_PANEL_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import { mayTargetClient } from '$lib/accessRules';
+import { SESSION_COOKIE, sessionIdFromToken } from '$lib/server/auth';
+import type { AddOnOutcome } from '$lib/potsOverlayAddOn';
 import { OWNER_ROLE } from '$lib/launcherGates';
 import {
 	clientExists,
@@ -9,12 +15,21 @@ import {
 	listClients,
 	mayCreateUnderClient,
 } from '$lib/server/clients';
-import { resolveGameConfig } from '$lib/server/gameConfigDefaults';
+import {
+	gameConfigDefaultFor,
+	gameConfigSeedFor,
+	resolveGameConfig,
+} from '$lib/server/gameConfigDefaults';
 import { selectableGameKinds } from '$lib/server/gameKinds';
 import { buildGameProfile } from '$lib/server/gameProfile';
 import { listGames } from '$lib/server/games';
 import { currentPointer } from '$lib/server/publishedRuntime';
 import { UNASSIGNED_CLIENT, editorDocKey } from '$lib/server/projectPaths';
+import {
+	addOnToolsMissing,
+	applyPotsOverlayAddOn,
+	cleanOverlayPresets,
+} from '$lib/server/projectAddOn';
 import { scaffoldProject } from '$lib/server/projectScaffold';
 import {
 	accessibleProjectsWithClient,
@@ -58,6 +73,56 @@ async function gate(locals: App.Locals): Promise<NonNullable<App.Locals['user']>
 		throw error(403, 'Your role does not have access to Invisible Game Maker.');
 	}
 	return locals.user;
+}
+
+/**
+ * The overlay presets the Create form offers, keyed like its pickers: a kind, or
+ * `holdAndWin:<preset>` for each Hold and Win preset — what adds cleanly to the config the new game
+ * starts from (its seed, else the kind's template, which the add-on resolves to).
+ */
+function createOverlayPresets(kinds: string[]): Record<string, PotsOverlayPresetId[]> {
+	const out: Record<string, PotsOverlayPresetId[]> = {};
+	for (const kind of kinds) {
+		out[kind] = cleanOverlayPresets(gameConfigSeedFor(kind) ?? gameConfigDefaultFor(kind));
+	}
+	for (const preset of HOLD_AND_WIN_PRESET_IDS) {
+		out[`holdAndWin:${preset}`] = cleanOverlayPresets(gameConfigSeedFor('holdAndWin', preset));
+	}
+	return out;
+}
+
+/** The create action's pots overlay add-on, with the endpoint's tool gate. */
+async function createAddOn(
+	user: NonNullable<App.Locals['user']>,
+	sessionId: string,
+	client: string,
+	project: string,
+	preset: PotsOverlayPresetId,
+): Promise<AddOnOutcome> {
+	const roleOverrides = await getRoleOverrides(user.role);
+	const toolOverrides = await getToolOverrides(user.id);
+	const missing = addOnToolsMissing(
+		(tool) => roleHasTool(user.role, tool, roleOverrides, toolOverrides),
+		false,
+	);
+	if (missing.length) {
+		return {
+			ok: false,
+			status: 403,
+			error: `The pots overlay was not added: it writes docs your role cannot edit (${missing.join(', ')}).`,
+		};
+	}
+	try {
+		return await applyPotsOverlayAddOn(client, project, { preset, sessionId });
+	} catch (e) {
+		console.error('pots overlay add-on on create failed:', e);
+		const detail = e instanceof Error ? e.message : String(e);
+		return {
+			ok: false,
+			status: 500,
+			error: `The game was created, but the pots overlay was not added: ${detail}`,
+		};
+	}
 }
 
 export const load: PageServerLoad = async ({ locals, parent }) => {
@@ -146,6 +211,10 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 				clientName: p.clientName,
 				gameType: p.gameType,
 				profile,
+				// The card offers "＋ Pots overlay" without one, and "fill in its parts" with one.
+				hasPotsOverlay: Boolean(config.doc?.potsOverlay),
+				/** The overlay presets that add cleanly to this game's config. */
+				overlayPresets: cleanOverlayPresets(config.doc),
 				published: Boolean(game),
 				url: game?.url ?? null,
 				// Publish-confirmation signal: when the project's scenes were last edited.
@@ -173,11 +242,12 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 		// A version shipped past the flow gate goes live again only for the owner role (see the
 		// rollback route), so the page hides that "Make live" from everyone else.
 		isOwner: role === OWNER_ROLE,
+		createOverlayPresets: createOverlayPresets(gameKinds.map((k) => k.id)),
 	};
 };
 
 export const actions: Actions = {
-	create: async ({ request, locals }) => {
+	create: async ({ request, cookies, locals }) => {
 		const user = await gate(locals);
 		const data = await request.formData();
 		const key = String(data.get('key') ?? '')
@@ -188,6 +258,7 @@ export const actions: Actions = {
 		const clientKey = rawClient === '' ? null : rawClient;
 		const rawGameType = String(data.get('gameType') ?? '').trim();
 		const rawPreset = String(data.get('holdAndWinPreset') ?? '').trim();
+		const rawOverlay = String(data.get('potsOverlayPreset') ?? '').trim();
 
 		if (!isValidProjectKey(key)) {
 			return fail(400, { action: 'create', error: 'Key must match a-z, 0-9, _ or - (max 64).' });
@@ -200,6 +271,10 @@ export const actions: Actions = {
 		const holdAndWinPreset = HOLD_AND_WIN_PRESET_IDS.find((id) => id === rawPreset);
 		if (rawGameType === 'holdAndWin' && rawPreset !== '' && !holdAndWinPreset) {
 			return fail(400, { action: 'create', error: 'Unknown Hold and Win preset.' });
+		}
+		const potsOverlayPreset = POTS_OVERLAY_PRESET_IDS.find((id) => id === rawOverlay);
+		if (rawOverlay !== '' && !potsOverlayPreset) {
+			return fail(400, { action: 'create', error: 'Unknown pots overlay preset.' });
 		}
 		if (await projectExists(key)) {
 			return fail(400, { action: 'create', error: 'A project with that key exists.' });
@@ -222,6 +297,23 @@ export const actions: Actions = {
 		await scaffoldProject(clientKey ?? UNASSIGNED_CLIENT, key, {
 			holdAndWinPreset: rawGameType === 'holdAndWin' ? holdAndWinPreset : undefined,
 		});
-		return { action: 'create', ok: `Created project ${key}.`, createdKey: key };
+		// The add-on runs on the scaffolded project exactly as the card's "＋ Pots overlay" does, so a
+		// new game and an existing one get the same parts. The game exists by now, so a refusal or a
+		// failure is reported beside it rather than failing the create.
+		const addOn = potsOverlayPreset
+			? await createAddOn(
+					user,
+					(await sessionIdFromToken(cookies.get(SESSION_COOKIE))) ?? '',
+					clientKey ?? UNASSIGNED_CLIENT,
+					key,
+					potsOverlayPreset,
+				)
+			: null;
+		return {
+			action: 'create',
+			ok: `Created project ${key}${addOn?.ok ? ' with the pots overlay' : ''}.`,
+			createdKey: key,
+			addOn,
+		};
 	},
 };

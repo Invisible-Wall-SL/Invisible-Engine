@@ -383,9 +383,7 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		text: (ctx) => {
 			const overlay = ctx.config?.potsOverlay;
 			if (!overlay) return null;
-			return overlay.pots.length
-				? `Pots overlay (${plural(overlay.pots.length, 'pot')})`
-				: 'Pots overlay (coins only)';
+			return `Pots overlay (${overlay.pots.length ? plural(overlay.pots.length, 'pot') : 'coins only'})`;
 		},
 	},
 	{

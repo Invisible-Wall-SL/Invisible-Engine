@@ -1286,6 +1286,18 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			group: 'Effect',
 		},
 		{
+			name: 'showTokens',
+			group: 'Effect',
+		},
+		{
+			name: 'liftTokens',
+			group: 'Effect',
+		},
+		{
+			name: 'drainPots',
+			group: 'Effect',
+		},
+		{
 			name: 'flyTo',
 			group: 'Effect',
 		},

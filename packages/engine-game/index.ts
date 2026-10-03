@@ -77,6 +77,7 @@ export {
 } from './src/game/modeEvents';
 export {
 	applyOverlayEvent,
+	boardDropCells,
 	drainedMeters,
 	drainMeters,
 	emptyOverlayState,

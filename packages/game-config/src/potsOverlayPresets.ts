@@ -23,7 +23,7 @@ export type PotsOverlayPresetId = (typeof POTS_OVERLAY_PRESET_IDS)[number];
 export const POTS_OVERLAY_PRESET_LABELS: Record<PotsOverlayPresetId, string> = {
 	threePots: '3 Pots (each pot a Hold and Win with its special)',
 	potsToFreeSpins: 'Pots to free spins',
-	coinsOnly: 'Coins only (value coins start a Hold and Win)',
+	coinsOnly: 'Coins only (6+ value coins start a classic Hold and Win)',
 };
 
 /** What a preset adds to a doc. Each part is merged in — never a whole-doc reset. */
@@ -137,20 +137,21 @@ function potsToFreeSpins(): PotsOverlayPreset {
 	};
 }
 
-/** No pots: value coins drop over the host's symbols, and enough on one spin start the Classic
- *  Hold and Win. */
+/**
+ * No pots: value coins drop over the host's symbols, and as many as the Classic trigger counts on one
+ * spin start its Hold and Win with those coins held; fewer are shown and gone. A dropping spin drops
+ * 1 to 8 coins evenly, so with a 0.1 chance a spin starts the feature about once in 27.
+ */
 function coinsOnly(): PotsOverlayPreset {
+	const preset: HoldAndWinPresetId = 'classic';
+	const trigger = HOLD_AND_WIN_PRESETS[preset].holdAndWin?.trigger.count?.min ?? 1;
 	return {
 		potsOverlay: {
 			pots: [],
-			drops: {
-				chance: 0.15,
-				maxPerSpin: HOLD_AND_WIN_PRESETS.classic.holdAndWin?.trigger.count?.min ?? 1,
-				table: [{ coin: true, weight: 1 }],
-			},
+			drops: { chance: 0.1, maxPerSpin: trigger + 2, table: [{ coin: true, weight: 1 }] },
 		},
 		tokens: {},
-		holdAndWin: 'classic',
+		holdAndWin: preset,
 	};
 }
 

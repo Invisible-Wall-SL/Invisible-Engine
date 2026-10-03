@@ -86,9 +86,11 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 	const table = list(drops.table).filter(
 		(e) => Number(e?.weight) > 0 && (e.coin === true ? Boolean(hw) : potById.has(e.pot)),
 	);
-	// With no pots, value coins are all an overlay drops.
-	if (!pots.length && !table.length) {
-		throw new Error(`[${host.label}] a pots overlay needs a pot or a value coin to drop`);
+	// Pots and value coins are each optional, not both: a coins-only overlay has no pot to fill.
+	if (!pots.length && !table.some((e) => e.coin === true)) {
+		throw new Error(
+			`[${host.label}] a pots overlay needs at least one pot, or value coins and a Hold and Win bonus`,
+		);
 	}
 	const bonuses = { ...host.bonuses, ...(hw ? { respin: HOLD_AND_WIN_MODE } : {}) };
 
@@ -456,7 +458,8 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 			while (after < events.length && PLAY_EVENTS.has(events[after].event)) after++;
 			events.splice(after, 0, ...turn.updates);
 		}
-		events.push(meterLevels(session));
+		// With no pot there is no level to restate.
+		if (pots.length) events.push(meterLevels(session));
 	};
 
 	const inBonus = (round) => Boolean(round.potsFeature);

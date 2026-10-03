@@ -323,6 +323,8 @@ total stake (a book host's `betPerLine × 10`; a bought round's premium never ra
   `luckySpin: false` — the pots are the meters.
 - Pot levels are server state, per player (per session on the mock) and across rounds, exactly like
   Hold and Win meters.
+- **Coins only:** an overlay with no pots sends `"pots": []`. The block is still sent, because
+  `bonuses` routes the respin feature the value coins start. No pot level is published at boot.
 
 ### A spin in a dropping mode
 
@@ -337,7 +339,7 @@ The base game, and free spins only when `drops.modes` lists `freeSpins`. Pass-2 
 | the host's own feature entry, `retrigger`, `playedBonusSpin`, … | the host's                                                        | unchanged                                                                                                                                                                                                  |
 | the pot bonus entry (below)                                     |                                                                   | a bonus starts now: it REPLACES `gameEnd` (and `gameRoundOver`), and the round stays open                                                                                                                  |
 | `gameEnd`, `gameRoundOver`                                      | the host's                                                        | no bonus starts on this answer                                                                                                                                                                             |
-| `meterLevels`                                                   | `{meters: [{id, level, max}]}`                                    | last, after every `play` (respins included)                                                                                                                                                                |
+| `meterLevels`                                                   | `{meters: [{id, level, max}]}`                                    | last, after every `play` (respins included); never sent by an overlay with no pots                                                                                                                         |
 
 In the array `overlayDrop` sits right after `spinStart`, and the `meterUpdate`s right after the
 host's wins (and its `playedSpin`, when that comes next), before anything else the host sends — on a
