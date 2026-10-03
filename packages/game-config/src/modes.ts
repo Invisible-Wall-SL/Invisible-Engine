@@ -107,6 +107,26 @@ export function gameModeById(
 	return resolveGameModes(doc).find((mode) => mode.id === id);
 }
 
+/**
+ * The REELS mode of the project's own that plays on `gameType` (an imported free spins,
+ * `./imports`), or `undefined`. A built-in mode, a mode that is not on the reels, and a game type a
+ * built-in mode already plays on (`basegame`, `freegame`, `respin`) are never one — so a project
+ * without such a mode answers `undefined` for every game type, as before it could have one.
+ */
+export function ownReelsModeForGameType(
+	doc: Pick<GameConfigDoc, 'holdAndWin' | 'modes'> | undefined,
+	gameType: string,
+): GameModeDecl | undefined {
+	const builtins = builtinGameModes(doc);
+	if (builtins.some((mode) => gameTypeForMode(mode) === gameType)) return undefined;
+	return resolveGameModes(doc).find(
+		(mode) =>
+			mode.board === 'reels' &&
+			gameTypeForMode(mode) === gameType &&
+			!builtins.some((b) => b.id === mode.id),
+	);
+}
+
 /** The `stateGame.gameType` value a mode sets while it is on top (its `gameType`, else its id). */
 export function gameTypeForMode(mode: Pick<GameModeDecl, 'id' | 'gameType'>): string {
 	return mode.gameType ?? mode.id;

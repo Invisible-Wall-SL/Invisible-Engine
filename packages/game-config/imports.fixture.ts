@@ -16,6 +16,7 @@ import { holdAndWinIsOverlayBonus } from './src/holdAndWin.ts';
 import { HOLD_AND_WIN_PRESETS } from './src/holdAndWinPresets.ts';
 import { importBonus, importableFeatures, resyncBonus, type ImportResult } from './src/imports.ts';
 import { symbolsInPlay, symbolsInPlayForGameType } from './src/inPlay.ts';
+import { ownReelsModeForGameType } from './src/modes.ts';
 import { normalizeGameConfigDoc } from './src/normalize.ts';
 import type { AddOnResult } from './src/addOns.ts';
 import type { GameConfigDoc, GameConfigSymbol, RawGameConfig } from './src/types.ts';
@@ -436,6 +437,15 @@ console.log("\n8. a reels feature: another book game's free spins as a mode of t
 		"the host's own free spins and base game are untouched",
 		[doc.paddingReels.basegame, doc.paddingReels.freegame],
 		[goldHost.paddingReels.basegame, goldHost.paddingReels.freegame],
+	);
+	check(
+		"its game type is a reels mode of the project's own; a built-in one never is",
+		[
+			ownReelsModeForGameType(doc, 'freegame_2')?.id,
+			ownReelsModeForGameType(doc, 'freegame'),
+			ownReelsModeForGameType(goldHost, 'freegame_2'),
+		],
+		['freeSpins_2', undefined, undefined],
 	);
 	check(
 		'importing the same feature again is refused: re-sync it',

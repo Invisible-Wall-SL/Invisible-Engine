@@ -936,6 +936,8 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 		});
 		gameType = 'basegame';
 		freeSpinsMode = undefined;
+		// The next free-spin feature draws its own special (an imported one draws none).
+		specialRaw = undefined;
 	};
 
 	for (const [i, e] of events.entries()) {
@@ -1174,7 +1176,8 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 					push({ type: 'setTotalWin', amount: runningTotal });
 				}
 				freeSpinsMode = modesAt?.[i];
-				gameType = freeSpinsMode ? overlay!.modes[freeSpinsMode].gameType : 'freegame';
+				gameType =
+					(freeSpinsMode && captured?.overlay.modes[freeSpinsMode]?.gameType) || 'freegame';
 				push({
 					type: 'freeSpinTrigger',
 					totalFs: totalFs || (e.context as { left?: number })?.left || 0,
@@ -1233,6 +1236,7 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 					});
 					gameType = 'basegame';
 					freeSpinsMode = undefined;
+					specialRaw = undefined;
 				} else if (isBigWinLevel(winLevel)) {
 					// Base-game big win (≥ BIG tier): trigger the big/mega/… win
 					// presentation (setWin → Win.svelte → bigwin spine).

@@ -1,7 +1,6 @@
 import {
-	builtinGameModes,
-	gameTypeForMode,
 	normalizeGameConfigDoc,
+	ownReelsModeForGameType,
 	resolveWinLevel,
 	resolveWinLevelChain,
 	resolveWinLevels,
@@ -408,9 +407,10 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		const doc = getActiveGameConfig();
 		const server = serverConfig();
 		if (!server) return doc.paddingReels[gameType] ?? [];
-		const builtin = builtinGameModes(doc).some((mode) => gameTypeForMode(mode) === gameType);
 		const authored = doc.paddingReels[gameType];
-		return !builtin && authored?.length ? authored : serverPaddingReels(server);
+		return ownReelsModeForGameType(doc, gameType) && authored?.length
+			? authored
+			: serverPaddingReels(server);
 	}
 
 	/**

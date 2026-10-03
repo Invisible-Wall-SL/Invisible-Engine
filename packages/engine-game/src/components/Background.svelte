@@ -23,7 +23,15 @@
 
 	import { getGameContext } from '../game/context';
 
-	const { cover }: { cover?: BackgroundCover } = $props();
+	const {
+		cover,
+		isFeatureGameType,
+	}: {
+		cover?: BackgroundCover;
+		/** A game type beyond `freegame` / `respin` that plays on the feature background — the game
+		 *  passes its own (an imported free spins' game type). Absent ⇒ those two only. */
+		isFeatureGameType?: (gameType: string) => boolean;
+	} = $props();
 
 	const context = getGameContext();
 
@@ -91,7 +99,9 @@
 	// A Hold and Win feature (game type `respin`, design `docs/design/hold-and-win.md` §4.5) plays on
 	// the feature background, like free spins — a Hold and Win game has no free-spin backdrop of its
 	// own to compete with, and its authored `respinBackground` screen draws over this one.
-	const showFeatureBackground = $derived(gameType === 'freegame' || gameType === 'respin');
+	const showFeatureBackground = $derived(
+		gameType === 'freegame' || gameType === 'respin' || (isFeatureGameType?.(gameType) ?? false),
+	);
 </script>
 
 <Rectangle {...context.stateLayoutDerived.canvasSizes()} backgroundColor={0x000000} zIndex={-3} />

@@ -2153,7 +2153,7 @@
 			 background scenes stay behind the coded one), so this is parity for every game. -->
 	{#if !suppressCodedBackground}
 		<Container zIndex={LAYER_BAND_BACKGROUND_CODED}>
-			<Background cover={backgroundCover} />
+			<Background cover={backgroundCover} isFeatureGameType={isFreeGameType} />
 		</Container>
 	{/if}
 

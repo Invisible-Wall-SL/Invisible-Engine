@@ -1,5 +1,11 @@
 import { createModeController, createModeGameTypeResolver, type ModeTransition } from 'engine-game';
-import { builtinGameModes, gameModeById, gameTypeForMode, resolveGameModes } from 'game-config';
+import {
+	builtinGameModes,
+	gameModeById,
+	gameTypeForMode,
+	ownReelsModeForGameType,
+	resolveGameModes,
+} from 'game-config';
 
 import { eventEmitter } from './eventEmitter';
 import { getActiveGameConfig } from './gameConfig';
@@ -63,7 +69,9 @@ export const freeSpinsGameType = (mode: string | undefined): GameType => {
 	if (!mode || builtinGameModes(getActiveGameConfig()).some((m) => m.id === mode))
 		return 'freegame';
 	const declared = gameModeById(getActiveGameConfig(), mode);
-	return declared?.board === 'reels' ? (gameTypeForMode(declared) as GameType) : 'freegame';
+	if (declared?.board !== 'reels') return 'freegame';
+	const gameType = gameTypeForMode(declared);
+	return ownReelsModeForGameType(getActiveGameConfig(), gameType) ? gameType : 'freegame';
 };
 
 /**
@@ -73,13 +81,7 @@ export const freeSpinsGameType = (mode: string | undefined): GameType => {
  * Without such a mode it is exactly `gameType === 'freegame'`.
  */
 export const isFreeGameType = (gameType: string): boolean =>
-	gameType === 'freegame' ||
-	resolveGameModes(getActiveGameConfig()).some(
-		(mode) =>
-			mode.board === 'reels' &&
-			gameTypeForMode(mode) === gameType &&
-			!builtinGameModes(getActiveGameConfig()).some((b) => b.id === mode.id),
-	);
+	gameType === 'freegame' || ownReelsModeForGameType(getActiveGameConfig(), gameType) !== undefined;
 
 /** The ids of every mode on the stack (reactive) — what a mode-tagged screen mounts against. */
 // A fresh, read-only snapshot per read: the reactivity is the stack's, so a SvelteSet would add none.
