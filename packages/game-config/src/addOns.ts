@@ -366,42 +366,69 @@ export function setOverlayPotCount(doc: GameConfigDoc, count: number): AddOnResu
 }
 
 /**
+ * Take the Hold and Win BONUS out of `doc` in place: the block, its mode override and its respin
+ * strips (unless another mode pads from them), and its record as an imported bonus. Returns the
+ * symbols those strips dealt, for the caller to drop once nothing deals them
+ * ({@link dropUnusedSymbols}).
+ */
+export function takeOutHoldAndWinBonus(doc: GameConfigDoc): Set<string> {
+	const dealt = new Set<string>();
+	if (!doc.holdAndWin) return dealt;
+	const gameType = holdAndWinGameType(doc);
+	const shared = resolveGameModes(doc).some(
+		(m) => m.id !== HOLD_AND_WIN_MODE && gameTypeForMode(m) === gameType,
+	);
+	if (!shared) {
+		for (const name of symbolsInPlayForGameType(doc, gameType)) dealt.add(name);
+		delete doc.paddingReels[gameType];
+	}
+	delete doc.holdAndWin;
+	const modes = doc.modes?.filter((m) => m.id !== HOLD_AND_WIN_MODE);
+	if (modes?.length) doc.modes = modes;
+	else delete doc.modes;
+	const imports = doc.imports?.filter((i) => i.mode !== HOLD_AND_WIN_MODE);
+	if (imports?.length) doc.imports = imports;
+	else delete doc.imports;
+	return dealt;
+}
+
+/**
+ * Delete each of `names` from the dictionary that `removable` accepts and that nothing still names:
+ * no strip deals it, and it is no meter's symbol or pot's token.
+ */
+export function dropUnusedSymbols(
+	doc: GameConfigDoc,
+	names: Iterable<string>,
+	removable: (symbol: GameConfigSymbol | undefined) => boolean,
+): void {
+	const keep = new Set([
+		...symbolsInPlay(doc),
+		...(doc.holdAndWin?.meters ?? []).map((m) => m.symbol),
+		...(doc.potsOverlay?.pots ?? []).map((p) => p.token),
+	]);
+	for (const name of names) {
+		if (!keep.has(name) && removable(doc.symbols[name])) delete doc.symbols[name];
+	}
+}
+
+/**
  * Take the pots overlay out of `doc`. When the `holdAndWin` block is the overlay's BONUS
  * ({@link holdAndWinIsOverlayBonus}) it goes too — without the overlay nothing could start it — with
- * its mode override and its respin strips, unless another mode pads from those strips. A symbol the removed parts named is dropped only when no
- * strip deals it any more and it is one an add-on makes (a bare token, or a Hold and Win role
- * symbol); everything else the project has is left exactly as it was.
+ * its mode override and its respin strips, unless another mode pads from those strips. A symbol the
+ * removed parts named is dropped only when no strip deals it any more and it is one an add-on makes
+ * (a bare token, or a Hold and Win role symbol); everything else the project has is left exactly as
+ * it was.
  */
 export function removePotsOverlay(doc: GameConfigDoc): GameConfigDoc {
 	const next = structuredClone(doc);
 	const overlay = next.potsOverlay;
 	if (!overlay) return next;
 	const tokens = new Set(overlay.pots.map((p) => p.token));
-	const bonusSymbols = new Set<string>();
-	if (holdAndWinIsOverlayBonus(next)) {
-		const gameType = holdAndWinGameType(next);
-		const shared = resolveGameModes(next).some(
-			(m) => m.id !== HOLD_AND_WIN_MODE && gameTypeForMode(m) === gameType,
-		);
-		if (!shared) {
-			for (const name of symbolsInPlayForGameType(next, gameType)) bonusSymbols.add(name);
-			delete next.paddingReels[gameType];
-		}
-		delete next.holdAndWin;
-		const modes = next.modes?.filter((m) => m.id !== HOLD_AND_WIN_MODE);
-		if (modes?.length) next.modes = modes;
-		else delete next.modes;
-	}
+	const bonusSymbols = holdAndWinIsOverlayBonus(next)
+		? takeOutHoldAndWinBonus(next)
+		: new Set<string>();
 	delete next.potsOverlay;
-	const keep = new Set([
-		...symbolsInPlay(next),
-		...(next.holdAndWin?.meters ?? []).map((m) => m.symbol),
-	]);
-	for (const name of tokens) {
-		if (!keep.has(name) && isBareToken(next.symbols[name])) delete next.symbols[name];
-	}
-	for (const name of bonusSymbols) {
-		if (!keep.has(name) && isHoldAndWinSymbol(next.symbols[name])) delete next.symbols[name];
-	}
+	dropUnusedSymbols(next, tokens, isBareToken);
+	dropUnusedSymbols(next, bonusSymbols, isHoldAndWinSymbol);
 	return next;
 }

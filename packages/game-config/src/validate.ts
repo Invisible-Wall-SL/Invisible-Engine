@@ -17,6 +17,7 @@
 
 import { validateHoldAndWin } from './holdAndWin';
 import { validateGameModes } from './modes';
+import { validateBonusImports } from './bonusImports';
 import { validatePotsOverlay } from './potsOverlay';
 import { symbolsInPlay } from './inPlay';
 import { resolveWinLevels } from './winLevels';
@@ -305,6 +306,7 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 	issues.push(...validateHoldAndWin(doc));
 	issues.push(...validatePotsOverlay(doc));
 	issues.push(...validateGameModes(doc));
+	issues.push(...validateBonusImports(doc));
 
 	return issues;
 };

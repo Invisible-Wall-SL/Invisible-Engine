@@ -215,6 +215,19 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 				hasPotsOverlay: Boolean(config.doc?.potsOverlay),
 				/** The overlay presets that add cleanly to this game's config. */
 				overlayPresets: cleanOverlayPresets(config.doc),
+				/** The pots a bonus import can route, with the mode each starts now. */
+				pots: (config.doc?.potsOverlay?.pots ?? []).map((pot) => ({
+					id: pot.id,
+					mode: pot.bonus.mode,
+				})),
+				/** Whether the overlay's Hold and Win bonus is there (an import then replaces it). */
+				hasHoldAndWin: Boolean(config.doc?.holdAndWin),
+				/** Bonuses imported from another project, for "Re-sync". */
+				imports: (config.doc?.imports ?? []).map((i) => ({
+					mode: i.mode,
+					project: i.importedFrom.project,
+					at: i.importedFrom.at,
+				})),
 				published: Boolean(game),
 				url: game?.url ?? null,
 				// Publish-confirmation signal: when the project's scenes were last edited.
