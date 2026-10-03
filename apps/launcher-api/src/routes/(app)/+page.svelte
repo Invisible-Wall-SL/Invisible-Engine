@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { invalidateAll } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import type { PageData, ActionData } from './$types';
 	import Emblem from '$lib/Emblem.svelte';
@@ -175,6 +176,24 @@
 		if (next && next !== data.activeProjectKey) form?.requestSubmit();
 	}
 
+	// The session is shared by every tab: another tab moves it (a Game Maker Publish pins the
+	// project it built, a tool opened with `?project=` syncs it) and adds projects (Create,
+	// Duplicate). This tab's selector would keep showing what it loaded with, missing the new
+	// project and naming one the tools would not open — and the project it shows cannot be picked,
+	// since picking the selected option fires no change. So re-read both when the tab comes back.
+	// Only here: a tool page must not switch project under an open document.
+	let lastResync = 0;
+	function resyncSession() {
+		if (document.visibilityState !== 'visible' || Date.now() - lastResync < 2000) return;
+		lastResync = Date.now();
+		void invalidateAll();
+	}
+
+	// A tool opens the project this selector shows, never whatever the session moved to since
+	// (`resolveToolScope` takes `?project=` and syncs the session to it).
+	const toolUrl = (url: string | undefined) =>
+		url && `${url}${url.includes('?') ? '&' : '?'}project=${encodeURIComponent(projectKey)}`;
+
 	// --- Engine deploy status pill (bundle-vs-source axis) --------------------
 	// Which engine commit the live shared runtime bundle was built from + whether a release is
 	// building right now. Distinct from the per-game `engineStale` badge in Game Maker.
@@ -323,6 +342,8 @@
 {/snippet}
 
 <svelte:head><title>Launcher — Invisible Wall</title></svelte:head>
+<svelte:window onfocus={resyncSession} />
+<svelte:document onvisibilitychange={resyncSession} />
 
 <div class="shell">
 	<header>
@@ -355,7 +376,7 @@
 			<h2>{stage.label}</h2>
 			<div class="grid">
 				{#each stage.items as tool (tool.id)}
-					<a class="tool" href={tool.url}>
+					<a class="tool" href={toolUrl(tool.url)}>
 						<span class="ico">{@html tool.icon ?? ''}</span>
 						<strong>{tool.name}</strong>
 						<span class="muted">{tool.description}</span>

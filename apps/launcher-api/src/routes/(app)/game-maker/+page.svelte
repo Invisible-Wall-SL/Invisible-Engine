@@ -239,10 +239,13 @@
 	let dupErr = $state('');
 	let dupMsg = $state('');
 
+	// Name and key start empty, as in Create. A prefilled "<name> copy" outlived a typed key: the
+	// key never feeds the name, so a copy keyed `borut-pots-sample` was still called
+	// "BookOfBorutRemake copy".
 	function openDuplicate(p: Project) {
 		dupSource = p;
-		dupName = `${p.name} copy`;
-		dupKey = slugify(`${p.key} copy`);
+		dupName = '';
+		dupKey = '';
 		dupKeyTouched = false;
 		dupClient = data.clients.some((c) => c.key === p.clientKey) ? (p.clientKey ?? '') : '';
 		dupScope = 'setup';

@@ -64,6 +64,12 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
   Verified offline (`check:project-duplicate`), not live.
 
 ## Recent changes
+- 2026-10-03 — **Duplicate: name and key start empty.** The dialog prefilled the name as
+  "<source name> copy" and the key followed the name, never the reverse. The pots overlay checklist
+  said "key `borut-pots-sample`", so the owner typed only the key and the copy was called
+  "BookOfBorutRemake copy". Both fields now start empty, as in Create, and **Duplicate** stays
+  disabled until both are filled. That copy keeps its name until an admin renames it in
+  `/admin` → Projects. The selector half of that report is in [launcher.md](launcher.md).
 - 2026-10-03 — **Import a bonus: free spins too** (pots overlay open item 00). A source's free spins
   or reels mode imports as a mode of this project's own (`freeSpins_2`) on its own strips; screens
   and Flow re-tagged, Win Text untouched. Detail: [status/pots-overlay](pots-overlay.md).
