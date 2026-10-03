@@ -40,12 +40,15 @@ Shipped capabilities on `main`:
 
 ## Recent changes
 
-- 2026-10-03 — **Spine dropdowns follow the active ratio.** With the canvas on a ratio whose override
-  swaps a placed component's rig, the Properties panel's animation / skin / slot / bone dropdowns
-  still listed the BASE rig's names (`primarySpineBundle`, `effectiveSpineBundle` and
-  `instanceSpineBoundName` read `node.params` only). They now read `instanceParamValue`, the
-  ratio-aware value the panel's param fields already show. `scripts/verify-editor-ratio-spine-params.mjs`
-  runs the real resolvers sliced from `EditorProperties.svelte`.
+- 2026-10-03 — **Spine param dropdowns follow the active ratio.** With the canvas on a ratio whose
+  override swaps a placed component's rig, a `spineAnimation` / `spineSlot` / `spineBone` param
+  field still listed the BASE rig's names (`primarySpineBundle` / `effectiveSpineBundle` read
+  `node.params` only), though its value saves into that ratio's override. They now read
+  `instanceParamValue`, the ratio-aware value the param fields already show. The "Spine (this
+  placement)" fields deliberately stay on the base rig (`instanceSpineBoundName`): what they write
+  (`spineRestOverrides` / `stateAnimationOverrides`) is per-node and plays in every ratio.
+  `scripts/verify-editor-ratio-spine-params.mjs` runs the real resolvers sliced from
+  `EditorProperties.svelte`.
 - 2026-10-03 — **Art picked in a per-ratio instance override ships** (rule 8). `collectArtRefs`
   (`editorArtExport.ts`) classified only an instance's base `params` by param kind, never
   `overrides[layoutType].params`, which the runtime applies per ratio

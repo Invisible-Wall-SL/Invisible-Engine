@@ -518,7 +518,10 @@
 	function instanceSpineBoundName(sp: SpineNode): string | undefined {
 		const paramKey = sp.paramBindings?.['assetKey'];
 		if (!paramKey || !node || node.kind !== 'componentInstance') return undefined;
-		const override = instanceParamValue(node, paramKey);
+		// The BASE value, not the active ratio's: this names the rig the "Spine (this placement)"
+		// fields list, and what they write (`spineRestOverrides` / `stateAnimationOverrides`) is
+		// per-node — the game applies it in every ratio.
+		const override = node.params?.[paramKey];
 		if (typeof override === 'string' && override) return override;
 		const sib = instanceComponent?.params?.find((q) => q.key === paramKey);
 		return typeof sib?.default === 'string' ? sib.default : undefined;

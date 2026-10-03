@@ -38,8 +38,8 @@ Live in the launcher at `/localization` (granted to `developer`, `artist`, `pipe
   component's base `params` only, so a `label`/`text` (or a def text bound to a param) an author set
   only in the Scene Editor's portrait override never became a row and shipped untranslated in
   portrait. `harvestSceneText` now harvests each ratio's EFFECTIVE params
-  (`resolveLayoutInstanceParams`), so a base `source` feed still suppresses a `text` one ratio
-  patches in, exactly as the game renders it. `localizationHarvest.fixture.ts` covers it.
+  (`resolveLayoutInstanceParams`). Whether `text` is fed stays one answer for every ratio: the game
+  binds a `source` feed from the BASE params only. `localizationHarvest.fixture.ts` covers it.
 - 2026-09-29 — **Leaving with unsaved translations now asks first.** The page tracked a dirty state but
   registered no leave guard, so a tool-bar switch, Back, a reload or a tab close discarded unsaved
   translations and review ticks silently. It now calls the shared `guardUnsavedWork` (`src/lib/unsavedGuard.ts`) — the

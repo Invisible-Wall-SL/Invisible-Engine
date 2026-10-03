@@ -6,8 +6,8 @@
  *
  * A componentInstance renders its base `params` with `overrides[layoutType].params` merged on top
  * (`resolveLayoutInstanceParams`). A caption an author sets only for portrait is text the portrait
- * game shows, so it must be offered for translation; and because the merge is what renders, a
- * `source` feed bound in the base still suppresses a `text` that only one ratio patches in.
+ * game shows, so it must be offered for translation. A `source` feed, though, is bound from the
+ * BASE params only (`ComponentInstance`), so it suppresses `text` in every ratio or in none.
  */
 
 import type { ComponentDef, LayoutDoc } from 'engine-layout';
@@ -92,14 +92,14 @@ check(
 	['Default Title'],
 );
 check(
-	'a feed bound only for portrait leaves the base `text` harvested',
+	'a `source` patched into one ratio binds no feed, so that ratio’s `text` is harvested',
 	await harvest([
 		instance('a', {
 			params: { text: 'Hello' },
-			overrides: { portrait: { params: { source: 'balance' } } },
+			overrides: { portrait: { params: { source: 'balance', text: 'CREDIT' } } },
 		}),
 	]),
-	['Hello', 'Default Title'],
+	['Hello', 'Default Title', 'CREDIT'],
 );
 
 console.log(failures === 0 ? '\nAll assertions passed.' : `\n${failures} assertion(s) FAILED.`);

@@ -1,15 +1,20 @@
-// Offline fixture: the Scene Editor's spine dropdowns follow the ACTIVE ratio's component params.
+// Offline fixture: the Scene Editor's spine dropdowns name the rig the value they write is for.
 //
 //   node scripts/verify-editor-ratio-spine-params.mjs
 //
 // A placed component's effective params in a ratio are its base `params` with
 // `overrides[layoutType].params` on top — the canvas draws that (`resolveLayoutInstanceParams`).
-// The Properties panel picks the rig whose animation / skin / slot / bone names its dropdowns list
-// through three resolvers (`primarySpineBundle`, `effectiveSpineBundle`, `instanceSpineBoundName`).
-// When they read the BASE `params` only, an author who swapped the rig for portrait and switched the
-// canvas to portrait was offered the landscape rig's animations — a name the portrait rig may not
-// have, which then plays nothing. The panel's own `instanceParamValue` already answers "what does
-// this ratio set"; these checks hold the resolvers to it.
+// The Properties panel picks the rig whose animation / skin / slot / bone names a dropdown lists
+// through three resolvers, and the right rig depends on where the dropdown WRITES:
+//
+//   * `primarySpineBundle` / `effectiveSpineBundle` feed the component's own `spineAnimation` (…)
+//     PARAM fields, which save into the active ratio's override. They must follow that ratio: an
+//     author who swapped the rig for portrait was offered the landscape rig's animations, a name
+//     the portrait rig may not have, which then plays nothing. `instanceParamValue` answers "what
+//     does this ratio set", and they read it.
+//   * `instanceSpineBoundName` feeds the "Spine (this placement)" fields, which save PER NODE
+//     (`spineRestOverrides` / `stateAnimationOverrides`) and play in every ratio. It stays on the
+//     BASE rig, or an author in portrait would pick a name the base rig lacks, out of sight.
 //
 // HOW IT RUNS THE REAL SOURCE. `EditorProperties.svelte` is a runes component Node cannot import, so
 // the four functions are SLICED out of its `<script>` by brace balance and compiled with the panel
@@ -108,7 +113,7 @@ for (const [layoutType, want, why] of [
 	const [primary, sibling, bound] = resolved(placed, rigDef, layoutType);
 	same(`${layoutType}: ${why} — primarySpineBundle`, primary, want);
 	same(`${layoutType}: ${why} — effectiveSpineBundle`, sibling, want);
-	same(`${layoutType}: ${why} — instanceSpineBoundName`, bound, want);
+	same(`${layoutType}: the per-node placement fields stay on the base rig`, bound, 'landRig');
 }
 same(
 	'portrait: an unset rig still falls back to the def default',
@@ -138,7 +143,7 @@ same(
 
 console.log(
 	failures === 0
-		? `PASS — ${checks} checks: the spine dropdowns list the rig the active ratio renders.`
+		? `PASS — ${checks} checks: each spine dropdown lists the rig the value it writes is for.`
 		: `${failures} of ${checks} checks FAILED.`,
 );
 process.exit(failures === 0 ? 0 : 1);

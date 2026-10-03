@@ -176,9 +176,11 @@ export async function harvestSceneText(
 			if (node.kind === 'text') add(node.text, label);
 			if (node.kind === 'componentInstance') {
 				const def = await getDef(node.componentId, node.componentVersion);
+				// The game binds a `source` feed from the BASE params only (`ComponentInstance`'s
+				// static params), so whether `text` is fed is one answer for every ratio.
+				const feed = boundToFeed(node.params ?? {});
 				// Every ratio's EFFECTIVE params — the base, then the base with each layoutType's
-				// patch merged on top — so a caption set only for portrait is harvested, and a
-				// `source` feed bound only in one ratio suppresses `text` only there.
+				// patch merged on top — so a caption set only for portrait is harvested.
 				const ratios = Object.keys(node.overrides ?? {}).filter(
 					(layoutType) => node.overrides?.[layoutType]?.params,
 				);
@@ -187,7 +189,6 @@ export async function harvestSceneText(
 					...ratios.map((layoutType) => resolveLayoutInstanceParams(node, layoutType) ?? {}),
 				];
 				for (const params of paramSets) {
-					const feed = boundToFeed(params);
 					// `label` is a static caption (the readout's "BALANCE" above the live
 					// value) — a `source` feeds the value, never the label, so always take it.
 					if (typeof params.label === 'string') add(params.label, label);
