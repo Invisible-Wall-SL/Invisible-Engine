@@ -29,6 +29,7 @@ import {
 	addOnSceneIds,
 	getFullSceneSet,
 	mergeMissingScreens,
+	POTS_SCREEN,
 	type LayoutDoc,
 	type LayoutNode,
 } from 'engine-layout';
@@ -110,8 +111,6 @@ async function guarded(write: () => Promise<AddOnPart>): Promise<AddOnPart> {
 		return part('failed', [], e instanceof Error ? e.message : String(e));
 	}
 }
-
-const POTS_SCREEN = 'pots';
 
 /** The pot a node draws, if it is a Pot Meter. */
 const meterOf = (node: LayoutNode): unknown =>

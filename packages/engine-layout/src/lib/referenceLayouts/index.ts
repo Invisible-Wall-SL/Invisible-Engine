@@ -5,6 +5,7 @@ import {
 	HOLD_AND_WIN_BOARD,
 	HOLD_AND_WIN_MODE,
 	holdAndWinReferenceLayout,
+	POTS_SCREEN,
 	type HoldAndWinTemplateOptions,
 } from './holdAndWin';
 import { defaultLayout } from './lines';
@@ -22,6 +23,7 @@ export {
 	HOLD_AND_WIN_HOTFIRE_BOARD,
 	HOLD_AND_WIN_MODE,
 	HOLD_AND_WIN_BANNER_SCREENS,
+	POTS_SCREEN,
 	EXPANDING_BLOCK_SHARE,
 	expandingBoardReserve,
 	expandingBoardReserved,
@@ -103,7 +105,7 @@ function addOnScenes(options: SceneSetOptions): { reference: Scene[]; ids: strin
 	const ids = reference
 		.filter(
 			(scene) =>
-				scene.id === 'pots' ||
+				scene.id === POTS_SCREEN ||
 				(holdAndWin &&
 					(scene.id === 'jackpotBar' ||
 						(scene.role === 'mode' && scene.modeId === HOLD_AND_WIN_MODE))),

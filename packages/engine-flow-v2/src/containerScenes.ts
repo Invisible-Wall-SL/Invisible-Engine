@@ -1,4 +1,5 @@
-import type { ContainerRef } from './types';
+import { flowGraphs } from './runtime';
+import type { ContainerRef, FlowDoc, Graph } from './types';
 
 /**
  * The flow's containers whose backing scene is NOT in the layout: screens the flow can show that
@@ -18,4 +19,28 @@ export const containersMissingScene = (
 	const known = new Set(sceneIds);
 	if (known.size === 0) return [];
 	return containers.filter((c) => !known.has(c.sceneId));
+};
+
+/**
+ * The scenes the flow can put on screen: the backing scene of each declared container a
+ * `showContainer` node targets, in any section (the global graph or a mode's), groups included.
+ *
+ * Declaring a container is not showing it. The `/flow-v2` editor declares every Scene-Editor screen
+ * (`syncFlowContainers`), so a declared-only container is a screen the flow leaves alone. A hide
+ * alone mounts nothing either. A show of an undeclared container mounts nothing, so it is not
+ * counted.
+ */
+export const shownSceneIds = (doc: FlowDoc): Set<string> => {
+	const sceneOf = new Map(doc.containers.map((c) => [c.id, c.sceneId]));
+	const shown = new Set<string>();
+	const scan = (graph: Graph): void => {
+		for (const node of graph.nodes) {
+			if (node.kind === 'showContainer') {
+				const sceneId = sceneOf.get(node.ref);
+				if (sceneId !== undefined) shown.add(sceneId);
+			} else if (node.kind === 'group' && node.body) scan(node.body);
+		}
+	};
+	for (const { graph } of flowGraphs(doc)) scan(graph);
+	return shown;
 };
