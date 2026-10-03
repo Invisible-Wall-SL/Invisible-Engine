@@ -169,6 +169,7 @@
 		emitFlowAction,
 	} from '../game/flowInterpreterHolder';
 	import { createLinesFlowV2, type LinesFlowV2 } from '../game/flowV2Runtime.svelte';
+	import type { EnginePotsScreen } from '../game/flowV2PotsScreen';
 	import {
 		setFlowV2,
 		getFlowV2,
@@ -1245,6 +1246,10 @@
 	// suppress on `flowV2DrivesScreens` (they'd double FlowV2Mount). Engine-owned bands (reels, gates) instead
 	// gate on `isFlowDriven` (v1 OR v2) so they still hide during loading and reveal on the game screen.
 	let flowV2DrivesScreens = $state(false);
+	// The add-on's Pots screen when a driven v2 flow never shows it (`enginePotsScreen`): the game
+	// mounts it with the board, so an authored Pot Meter draws where it was placed. `undefined`
+	// without such a flow, meters or Pots screen ⇒ nothing renders (parity).
+	let flowV2EnginePots = $state<EnginePotsScreen | undefined>(undefined);
 	// Authored background scenes (§ persistent-bg-scene). An author's "New background screen"
 	// gets a fresh-id scene with `space: 'background'` (NOT the coded `background`-id /
 	// `space:'canvas'` spine anchor above) carrying full-bleed art. `backgroundScenes` selects
@@ -2088,6 +2093,7 @@
 			// "Drives screens" ⇒ the flow authors the `load` entry (shows the initial screen). A
 			// book-events-only flow doesn't, so the coded/v1 screen path stays (no regression).
 			flowV2DrivesScreens = flowV2?.ownsEvent('load') ?? false;
+			flowV2EnginePots = flowV2?.enginePots;
 			flowV2ResolveScene = flowV2?.resolveScene;
 			flowV2Containers = flowV2?.ordered() ?? [];
 			// Mirror the handle for `<FlowV2Messages>` — its `textMessages` (static) + `messageShown`
@@ -2332,6 +2338,16 @@
 			{/if}
 		{:else if basegameAboveReel && basegameAboveReel.nodes.length}
 			<LayoutScene scene={basegameAboveReel} />
+		{/if}
+
+		<!-- The add-on's Pots screen under a driven v2 flow that never shows it. Inside this gate, so it
+				 is up exactly while the board is, as the coded pots are (base game, free spins, Hold and
+				 Win). At the screen's own Screens-list z, as a flow container or the coded mount would put
+				 it: above the board, below the HUD and the overlays the add-on merged after it. -->
+		{#if flowV2EnginePots}
+			<Container zIndex={flowV2EnginePots.z}>
+				<LayoutScene scene={flowV2EnginePots.scene} />
+			</Container>
 		{/if}
 
 		<!-- The win line + the amount it stamps are HUD chrome, not board furniture: they read as

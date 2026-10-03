@@ -226,6 +226,10 @@ untouched.
 - **Unauthored, it plays.** Every overlay beat has a coded default. A flow that does not handle an
   overlay event falls back to it, as Hold and Win events already do. So adding the overlay to Borut
   needs **no flow edit**. Authoring is for taste.
+- **The Pots screen under a driven flow.** The game mounts the layout's `pots` screen itself when a
+  flow drives the screens but never shows it, the layout has it, and the config declares meters.
+  Declaring the screen does not count as showing it. It is mounted with the board (base game, free
+  spins, Hold and Win), at the screen's own Screens-list z. A flow that shows it anywhere owns it.
 
 ### 3.5 The mock — a composed protocol
 

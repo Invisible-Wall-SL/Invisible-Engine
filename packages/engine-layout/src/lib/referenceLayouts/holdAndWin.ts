@@ -120,6 +120,9 @@ export type HoldAndWinTemplateOptions = { maxRows?: number; potIds?: readonly st
 
 export const HOLD_AND_WIN_MODE = 'holdAndWin';
 
+/** The Pots screen: one Pot Meter per pot, on screen in the base game and the feature alike. */
+export const POTS_SCREEN = 'pots';
+
 /**
  * The authored screen that draws each coded banner beat. While the flow shows one (the screen is
  * mounted) the game's coded banner for that beat steps aside, so the two never draw together; with
@@ -255,7 +258,7 @@ export function holdAndWinReferenceLayout(
 	/** Centred on the board: three pots land at -160 / 0 / +160. */
 	const potDx = (index: number) => (index - (potIds.length - 1) / 2) * 160;
 	const potsScene: Scene = {
-		id: 'pots',
+		id: POTS_SCREEN,
 		name: 'Pots',
 		nodes: potIds.map((meter, index) =>
 			instance(

@@ -5,7 +5,7 @@
  * A screen deleted from the Scene Editor (or lost to a bad save) stays in `FlowDoc.containers`, so
  * `showContainer` still mounts it, nothing draws, and a step waiting on it never continues. Live, a
  * game sat on its background forever with no console error. `containersMissingScene` is the one rule
- * the game (boot log) and the launcher (validator, runtime assembly, Publish) read. FOUR claims:
+ * the game (boot log) and the launcher (validator, runtime assembly, Publish) read. FIVE claims:
  *
  *  1. THE HELPER REPORTS EXACTLY THE CONTAINERS WHOSE SCENE IS GONE. Containers [a, b, c] against
  *     a layout of [a, c] report [b]; an agreeing pair reports []; a container is judged by its
@@ -16,9 +16,14 @@
  *     node (so Publish, which refuses only errors, still ships), in a mode section too, carrying the
  *     section's `mode`.
  *  4. PARITY: no scene ids, an empty list, or an agreeing layout adds no issue at all.
+ *  5. `shownSceneIds` IS WHAT A SHOW CAN MOUNT. The backing scene of every declared container a
+ *     `showContainer` targets, in any section and inside groups. A declared-only container (the
+ *     editor declares every screen), a hide alone and a show of an undeclared container are not
+ *     shows, because none of them mounts anything. The game reads it to decide whether the add-on's
+ *     Pots screen is the flow's or its own.
  */
 
-import { containersMissingScene } from './src/containerScenes.ts';
+import { containersMissingScene, shownSceneIds } from './src/containerScenes.ts';
 import { validateFlowDoc } from './src/validate.ts';
 import type {
 	ContainerRef,
@@ -155,6 +160,71 @@ console.log('4. parity');
 check('no scene ids: nothing', missingScene(), []);
 check('an empty scene list: nothing', missingScene([]), []);
 check('an agreeing layout: nothing', missingScene(ALL_SCENES), []);
+
+console.log('5. shownSceneIds');
+const sorted = (set: Set<string>): string[] => [...set].sort();
+check('a show counts, a hide alone does not', sorted(shownSceneIds(DOC)), [
+	'background',
+	'loading',
+]);
+check(
+	'a declared-only container is not shown',
+	sorted(shownSceneIds({ ...DOC, containers: [...DOC.containers, ref('pots')] })),
+	['background', 'loading'],
+);
+const showOf = (id: string, containerRef: string): Graph => ({
+	nodes: [{ id, kind: 'showContainer', pos: { x: 0, y: 0 }, ref: containerRef }],
+	exec: [],
+	data: [],
+});
+const BARE: FlowDoc = {
+	version: 2,
+	templateId: 'book-of',
+	graph: showOf('s', 'pots'),
+	containers: [],
+};
+check('a show of an undeclared container mounts nothing', sorted(shownSceneIds(BARE)), []);
+check(
+	'judged by the container scene, not its id',
+	sorted(shownSceneIds({ ...BARE, containers: [ref('pots', 'p_x1')] })),
+	['p_x1'],
+);
+check(
+	'a show only in a mode section counts',
+	sorted(
+		shownSceneIds({
+			...BARE,
+			graph: { nodes: [], exec: [], data: [] },
+			modes: { holdAndWin: { graph: showOf('hw_s', 'pots') } },
+			containers: [ref('pots')],
+		}),
+	),
+	['pots'],
+);
+check(
+	'a show inside a group counts',
+	sorted(
+		shownSceneIds({
+			...BARE,
+			graph: {
+				nodes: [
+					{
+						id: 'g',
+						kind: 'group',
+						pos: { x: 0, y: 0 },
+						label: 'Pots',
+						body: showOf('g_s', 'pots'),
+						boundary: [],
+					},
+				],
+				exec: [],
+				data: [],
+			},
+			containers: [ref('pots')],
+		}),
+	),
+	['pots'],
+);
 
 console.log(failures === 0 ? '\nAll assertions passed.' : `\n${failures} assertion(s) FAILED.`);
 if (failures > 0) throw new Error('container scenes fixture failed');

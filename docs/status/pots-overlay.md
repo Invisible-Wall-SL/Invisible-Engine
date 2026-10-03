@@ -833,6 +833,11 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
    - **Human eyes:** after a pot-started Hold and Win on an overlay host, the respin board's last
      coins stay on screen at idle until the next spin. The same happens on the 3 Pots preset without
      an import, so it predates Phase 7; whether it is intended is a design question.
+   - **Found 2026-10-03, not fixed: no jackpot bar under a driven flow that never shows it.** The
+     Pots screen now mounts itself there (Recent changes), but `jackpotBar` has no coded fallback.
+     On `borut-pots-sample`'s flow shape the MINI…GRAND bar never draws, while the coded path shows
+     it. The graft's `modes.holdAndWin` shows only the mode screens. A fix could extend
+     `enginePotsScreen` to `jackpotBar` on an overlay host with a Hold and Win bonus.
 
 0. **Left after Phase 4b:**
    - ~~**Phase 6:** a token with no art in `/symbols` draws nothing.~~ Done 2026-10-03: it bit
@@ -940,6 +945,45 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 - **The partner's RGS** for production play (Phase 8). Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-03 — **The Pots screen draws under a driven flow that never shows it** (branch
+  `fix/pots-screen-driven-flow`). On `borut-pots-sample` the pot drew at the coded spot above the
+  board, not where the owner placed the Pot Meter.
+  - **Cause:** the project's hand-authored v2 flow drives the screens, and a driven flow mounts only
+    what a `showContainer` shows. Nothing showed `pots`, so the Pot Meter never mounted and the
+    coded pots (`HoldAndWinPots`) drew instead. The graft adds no `pots` show either.
+  - **The rule** (`enginePotsScreen`, `apps/lines/src/game/flowV2PotsScreen.ts`): the game mounts the
+    layout's `pots` scene itself when all of these hold:
+    - a v2 flow drives the screens;
+    - none of its `showContainer` nodes, in any section or group, shows a container backed by
+      `pots` (`shownSceneIds`, engine-flow-v2). Declaring does not count: `/flow-v2`'s container
+      sync declares every Scene-Editor screen, so a "declares" rule would switch off on the
+      owner's next Flow save;
+    - the layout has `pots` (`POTS_SCREEN`, now exported by engine-layout);
+    - `configuredMeters()` is not empty.
+  - **Where and when:** inside `Game.svelte`'s base-game gate, so it is on screen exactly while the
+    board is: base game, free spins, and a pot-started Hold and Win, as the coded pots are. Its z is
+    the screen's own `sceneLayerZIndex`. That is the z a flow container or the coded generic mount
+    gives the same screen. The add-on merges `pots` right after `basegame` / `jackpotBar` (z 104 on
+    the Book-of set: above the board at 0, below the free-spin counter 115 and `hudBar` 121). It is
+    not a flow container, so the flow's shown set, traces and the #1032 missing-screen report are
+    untouched. The report cannot fire for it, since the mount needs the scene.
+  - **Unchanged:** no meters, no `pots` scene, a non-driven flow (the coded / v1 path), or a flow
+    that shows `pots` anywhere (the Hold and Win seed) render as before. The coded / v1 path had no
+    gap: its generic `extraScenes` mount already draws `pots` at the same z.
+  - **The graft is unchanged.** `/flow-v2` already lists `pots` and `jackpotBar` as containers (the
+    sync), and declaring changes nothing under this rule.
+  - **Verified:**
+    - `apps/lines/src/game/flowV2PotsScreen.fixture.ts` (29 checks on the real seeds, scene sets and
+      presets). It fails on a "declares" rule and without the driven-flow gate.
+    - `containerScenes.fixture.ts` §5 (6 checks on `shownSceneIds`).
+    - **Real clock** (local test server + launcher stub, the 3 Pots config on the lines template,
+      the Book-of driven seed, red and blue Pot Meters moved to (150,600) / (1270,600)): on `main`
+      no meter counts in and all three pots draw on the coded row at stage z 0. On the branch each
+      draws where authored, at z 104. They stay there through a fill, a `pot:red` Hold and Win
+      (respin board up) and a full free-spin round, each back to idle, with no missing-screen line.
+    - **Parity at real clock:** without the `pots` scene, and on the coded path with and without
+      it, `main` and the branch report the same pots, positions and z.
 
 - 2026-10-03 — **Hub parity review of #1027 (imported free spins): parity holds; two follow-ups.**
   - **Parity:** an independent review found a game with no own `reels` mode, no

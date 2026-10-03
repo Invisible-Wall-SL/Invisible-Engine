@@ -78,7 +78,9 @@ import { stateApp } from './stateApp';
 import { stateLayoutDerived } from './stateLayout';
 import { flowEffect, flowEffectNames } from './flowEffects';
 import { withMissingScreenReport } from './flowV2MissingScreens';
+import { enginePotsScreen, type EnginePotsScreen } from './flowV2PotsScreen';
 import { getActiveGameConfig } from './gameConfig';
+import { configuredMeters } from './holdAndWinMeters.svelte';
 import { INTENT_COMMANDS } from './flowIntentCommands';
 import { linesEngineReader } from './flowRuntime.svelte';
 import { stateModes } from './stateModes.svelte';
@@ -258,6 +260,9 @@ export type LinesFlowV2 = {
 	/** Present a mode-stack transition through the flow's Mode trigger / All modes finished entries
 	 *  (hold-and-win §4.5). `undefined` when the doc has none, so the stack stays a pure state move. */
 	presentModeTransition?: (transition: ModeTransition) => Promise<void>;
+	/** The add-on's Pots screen when this flow drives the screens but never shows it, so the game
+	 *  mounts it with the board (`enginePotsScreen`). Not a flow container. `undefined` otherwise. */
+	enginePots?: EnginePotsScreen;
 };
 
 /** A structural narrow for a loaded Spine `SkeletonData` — just the `findAnimation` we read, so this
@@ -734,6 +739,10 @@ export const createLinesFlowV2 = (
 					});
 				}
 			: undefined,
+		enginePots: enginePotsScreen(doc, editorDoc.scenes, {
+			drivesScreens: screenStatus.drivesScreens,
+			hasMeters: configuredMeters().length > 0,
+		}),
 		/** The cinematics the flow currently wants on screen (id → play options). */
 		playingCinematics,
 		/** Called by `<Cinematic>`'s `oncomplete`: settle a pending await and unmount it. */

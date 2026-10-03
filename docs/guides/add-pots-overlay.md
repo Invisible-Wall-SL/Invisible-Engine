@@ -73,6 +73,9 @@ Guide: [invisible-editor.md](../tools/invisible-editor.md).
   the missing ones and never replaces your layout.
 - A pot you added in step 3 has no meter. The Pots screen already exists, so add a Pot Meter for
   it by hand.
+- The Jackpot bar does not show in the game. If the project's Flow drives the screens, it draws
+  only screens the Flow shows. Add a **Show** of `jackpotBar` next to the one for `basegame`. The
+  Pots screen needs no Show: the game draws it whenever the Flow never shows it.
 
 ## 5. Dress the tokens — Invisible Symbols State Machine
 
