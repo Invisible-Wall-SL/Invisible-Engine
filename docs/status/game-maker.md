@@ -31,6 +31,8 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
   - **Filter / sort / group** toolbar — search (matching the profile chips too, so "stacked"/"cluster" finds the games that use them), client + game-type + status (incl. *Engine stale*) filters, four sort orders, and **group by client** on by default.
   - **Duplicate** (`POST /api/game-maker/duplicate` + `src/lib/server/projectDuplicate.ts`) — copy a game onto a new key in the same or another client, for reskins. Two scopes: `setup` (authoring docs only — fast, art comes later) and `full` (asset folders too, capped at 4000 objects and refused rather than truncated over it). **Two roots are copied, not one**: `<client>/<project>/` AND `editor/<projectKey>/` (components + component-defaults live outside the project prefix; missing them yields scenes referencing prefabs that only exist for the source). Every `.json` body is **re-based** on the way across (project R2 prefix, component root, and the self-naming `projectKey`/`output_prefix` fields, matched by field name so a project key that is also a symbol id or a word in a string is never touched) — a byte copy would leave the duplicate silently reading the *source's* assets. Gated like Create (any `gameMaker` holder) + access to the source; the new project row is rolled back if the copy throws. Verified offline over the real modules (profile rendering for lines/ways/scatter/no-config, plan + rebase fixtures).
 
+- **＋ Pots overlay — an add-on on an existing project** (2026-10-02, pots overlay Phase 6). A card action (and a checkbox on Create) merges a pots overlay preset (`threePots`, `potsToFreeSpins`, `coinsOnly`) into the project's Game Config through game-config's `addPotsOverlay`, then seeds, CREATE-ONLY, what a playable overlay needs: placeholder `/symbols` art for every token and Hold and Win bonus symbol, and the overlay screens merged into the layout (the Scene Editor's "＋ Add overlay screens", server-side). The Flow graft is opt-in, and Win Text is deliberately left at its coded defaults. `POST /api/game-maker/add-on` + `src/lib/server/projectAddOn.ts`; each doc is its own conditional write, a lost race is reported per part, and the action is safe to re-run. Rules and decisions: [status/pots-overlay.md](pots-overlay.md); guide: [add-pots-overlay.md](../guides/add-pots-overlay.md).
+
 **Reskin / template games work today:** background, scenery, HUD, free-spin intro/counter/outro, loading splash, board position/shape/spin-feel, fonts, localized text, and per-instance prefab art are all doc + R2-driven.
 
 ## Open items / next
@@ -58,6 +60,15 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
 - Publish pin fix: rebuild a non-active project → selection lands on it (owner verify owed).
 
 ## Recent changes
+- 2026-10-02 — **＋ Pots overlay add-on** (pots overlay Phase 6, #1017). The card action, the
+  create-a-game checkbox and `POST /api/game-maker/add-on` (above). The scaffold now passes
+  `SceneSetOptions` from the stored config's add-ons, so a re-scaffold of an overlay project seeds
+  the overlay screens (byte-identical for every project without one, pinned by
+  `check:pots-overlay-add-on`). Found by the `pipeline-concurrency` review and fixed: the scaffold's
+  seed PUTs now carry `If-None-Match: *` (a first save landing between the HEAD and the PUT was
+  erased), and the add-on refuses to write over a Game Config, layout or Symbols doc that does not
+  parse (the loaders' fallback carried the stored ETag, so its `If-Match` passed). No lease check:
+  `If-Match` is the floor, and an open tab's next save gets its conflict banner.
 - 2026-10-01 — **A new Hold and Win project is scaffolded with its symbols doc** (H&W Phase 9b).
   `scaffoldProject` binds every Hold and Win symbol of the project's stored Game Config to its
   placeholder art in `symbols/symbols.json`, create-only; without it the game drew no coin art.
