@@ -253,7 +253,7 @@ export const standardVocabulary = ({
 					name: 'gameType',
 					type: GAME_TYPE,
 					description:
-						'Which mode this spin belongs to — `basegame` or `freegame`. Branch on it to swap background, music, or win presentation between the two.',
+						'Which mode this spin belongs to — `basegame`, `freegame`, or the game type of a free spins imported from another project (`freegame_2`…). Branch on it to swap background, music, or win presentation; to ask "is this a free spin?" use `isFreeGame`, which counts an imported free spins too.',
 				},
 			],
 			category: 'book',
@@ -851,7 +851,7 @@ export const standardVocabulary = ({
 			name: 'gameType',
 			type: GAME_TYPE,
 			description:
-				"The active mode's game type: basegame, freegame, respin, or a project mode's own.",
+				"The active mode's game type: basegame, freegame, respin, or a project mode's own (an imported free spins plays on its own, e.g. freegame_2 — `isFreeGame` counts it as free spins).",
 		},
 		{
 			name: 'activeMode',
@@ -868,7 +868,12 @@ export const standardVocabulary = ({
 			type: INT,
 			description: 'How many modes are waiting to play after the current ones.',
 		},
-		{ name: 'isFreeGame', type: BOOL, description: 'True while the free-spin feature is running.' },
+		{
+			name: 'isFreeGame',
+			type: BOOL,
+			description:
+				"True while the free-spin feature is running — the game's own, or a free spins imported from another project.",
+		},
 		{ name: 'freeSpinsRemaining', type: INT, description: 'Free spins still to play.' },
 		{ name: 'freeSpinsTotal', type: INT, description: 'Free spins awarded this feature.' },
 		// FLOAT, not INT: the `∞` autoplay option really is `Infinity`.

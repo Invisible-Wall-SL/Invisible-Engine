@@ -35,6 +35,7 @@ import {
 	symbolsInPlay,
 	type GameConfigDoc,
 	type PaytableRow,
+	type PotsOverlayMockInputs,
 } from 'game-config';
 import {
 	bookMapping,
@@ -236,6 +237,60 @@ function projectSymbolPaytable(
 	return Object.keys(out).length ? out : undefined;
 }
 
+/**
+ * The overlay inputs with each imported reels mode's strips and pays in the SERVER's vocabulary — a
+ * book host's symbols are `H1`… in its config and `PIC1`… on the wire, and the book mock deals and
+ * pays wire names. A name the mapping lacks (a symbol only the imported mode has) passes through, as
+ * the facade passes it back — unless it IS a wire name (`PIC1`, `SCAT`…), which the facade would read
+ * as the host's symbol: such a mode is left out, so the mock deals it as a stub, and said once.
+ */
+function inServerNames(
+	inputs: PotsOverlayMockInputs | undefined,
+	mapping: GameMapping,
+	projectKey: string,
+): PotsOverlayMockInputs | undefined {
+	if (!inputs?.modes) return inputs;
+	const toServer = new Map(
+		Object.entries(mapping.symbols).map(([server, client]) => [client, server]),
+	);
+	const server = (name: string) => toServer.get(name) ?? name;
+	const clashes = (mode: { strips: string[][] }) =>
+		mode.strips.flat().filter((name) => !toServer.has(name) && name in mapping.symbols);
+	const modes = Object.fromEntries(
+		Object.entries(inputs.modes).flatMap(([id, mode]) => {
+			const clash = clashes(mode);
+			if (clash.length) {
+				warnOnce(
+					`${projectKey}:${id}`,
+					`[mock-contract] ${projectKey}: the imported mode "${id}" deals ${[...new Set(clash)].join(', ')}, which the wire reads as the host's own symbols; the mock deals it as a stub. Rename them in /config.`,
+				);
+				return [];
+			}
+			return [
+				[
+					id,
+					{
+						...mode,
+						strips: mode.strips.map((strip) => strip.map(server)),
+						paytable: Object.fromEntries(
+							Object.entries(mode.paytable).map(([name, pays]) => [server(name), pays]),
+						),
+					},
+				],
+			];
+		}),
+	);
+	const { modes: _modes, ...rest } = inputs;
+	return Object.keys(modes).length ? { ...rest, modes } : rest;
+}
+
+const warned = new Set<string>();
+const warnOnce = (key: string, message: string) => {
+	if (warned.has(key)) return;
+	warned.add(key);
+	console.warn(message);
+};
+
 /** Projects already told they author more than one base mode, so a contract re-read every few
  *  seconds says it once per process. */
 const warnedManyBases = new Set<string>();
@@ -353,7 +408,7 @@ function projectGrid(
 			// Neither an authored table nor an overlay ⇒ no grid ⇒ the contract is exactly what it was
 			// before either existed; an overlay goes LAST so a project without one is byte-identical.
 			const symbolPaytable = projectSymbolPaytable(doc, bookMapping);
-			const potsOverlay = potsOverlayMockInputs(doc);
+			const potsOverlay = inServerNames(potsOverlayMockInputs(doc), bookMapping, projectKey);
 			if (!symbolPaytable && !potsOverlay) return undefined;
 			return {
 				reels,

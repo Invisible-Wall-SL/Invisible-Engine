@@ -1,5 +1,6 @@
 import {
 	normalizeGameConfigDoc,
+	ownReelsModeForGameType,
 	resolveWinLevel,
 	resolveWinLevelChain,
 	resolveWinLevels,
@@ -399,11 +400,17 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	/** The cosmetic strips for one game type, or `[]` when the config declares no such type. Empty
 	 *  rather than `undefined` so a caller indexing an unknown game type gets an empty reel, not a
 	 *  crash mid-spin. When the RGS is authoritative the strips are auto-generated from its in-play set
-	 *  (there are no authored strips) — the same generated blur for every game type. */
+	 *  (there are no authored strips) — the same generated blur for every game type — EXCEPT for a
+	 *  game type of a reels mode of the project's own (an imported free spins): the server declares
+	 *  only its own game, so that mode's authored strips are the only ones its symbols are on. */
 	function getPaddingReels(gameType: string): Array<Array<{ name: string }>> {
+		const doc = getActiveGameConfig();
 		const server = serverConfig();
-		if (server) return serverPaddingReels(server);
-		return getActiveGameConfig().paddingReels[gameType] ?? [];
+		if (!server) return doc.paddingReels[gameType] ?? [];
+		const authored = doc.paddingReels[gameType];
+		return ownReelsModeForGameType(doc, gameType) && authored?.length
+			? authored
+			: serverPaddingReels(server);
 	}
 
 	/**

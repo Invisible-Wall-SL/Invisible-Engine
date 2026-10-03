@@ -532,12 +532,16 @@ await check('a re-sync of a mode that was not imported is refused', async () => 
 	assert(!out.ok && out.status === 400, 'not refused');
 });
 
-await check('a reels feature is refused with its reason, nothing written', async () => {
-	const before = under('');
-	const out = await run({ mode: 'freeSpins', replace: true });
-	assert(!out.ok && out.error.startsWith('A reels bonus'), out.ok ? 'accepted' : out.error);
-	same(under(''), before, 'R2');
-});
+await check(
+	'a reels feature with no strips is refused with its reason, nothing written',
+	async () => {
+		const before = under('');
+		const out = await run({ mode: 'freeSpins', replace: true });
+		assert(!out.ok, 'accepted');
+		same(out.error, 'The source\'s "freeSpins" has no strips to deal from.', 'why');
+		same(under(''), before, 'R2');
+	},
+);
 
 console.log('\n4. spines and screens');
 
@@ -607,6 +611,136 @@ await check(
 			'the mode screen replaced in place, the host screen kept',
 		);
 		same(out.renamedScreens, ['hud_bonus → hud_bonus-2'], 'reported');
+	},
+);
+
+console.log("\n5. a reels feature: another book game's free spins");
+
+await check(
+	"imported as a new mode: config, its own symbols' art, its screens and Flow re-tagged, Win Text kept",
+	async () => {
+		const BOOK_SOURCE = 'book-sample';
+		const FS_HOST = 'book-host';
+		await scaffoldProject(CLIENT, FS_HOST);
+		const added = await applyPotsOverlayAddOn(CLIENT, FS_HOST, {
+			sessionId: ME,
+			preset: 'potsToFreeSpins',
+		});
+		assert(added.ok, `the add-on refused: ${added.ok ? '' : added.error}`);
+		await scaffoldProject(CLIENT, BOOK_SOURCE);
+		// The source authors its free spins: a MUMMY of its own on its own strips, its art, a mode
+		// screen and a Flow section for them.
+		const hostConfig = storedJson<GameConfigDoc>(gameConfigDocKey(CLIENT, FS_HOST));
+		const strip = ['H1', 'MUMMY', 'L1', 'S'].map((name) => ({ name }));
+		put(gameConfigDocKey(CLIENT, BOOK_SOURCE), {
+			...hostConfig,
+			potsOverlay: undefined,
+			symbols: {
+				...hostConfig.symbols,
+				MUMMY: { paytable: [{ '3': 20 }, { '4': 200 }, { '5': 900 }] },
+			},
+			paddingReels: { ...hostConfig.paddingReels, freegame: [strip] },
+		});
+		put(symbolsDocKey(CLIENT, BOOK_SOURCE), {
+			version: 1,
+			symbols: {
+				MUMMY: { static: { type: 'spine', assetKey: `${SUB.spines(CLIENT, BOOK_SOURCE)}/mummy/` } },
+				H1: { static: { type: 'sprite', assetKey: 'source-only-H1-art' } },
+			},
+		});
+		put(`${SUB.spines(CLIENT, BOOK_SOURCE)}/skeletons.json`, {
+			skeletons: [
+				{
+					name: 'mummy',
+					folder: 'mummy',
+					skeleton_file: 'mummy.json',
+					atlas_file: 'mummy.atlas',
+					format: 'json',
+					runtime: '4.2',
+					dir_b64: 'bXVtbXk',
+				},
+			],
+		});
+		put(`${SUB.spines(CLIENT, BOOK_SOURCE)}/mummy/mummy.json`, '{}');
+		put(`${SUB.spines(CLIENT, BOOK_SOURCE)}/mummy/mummy.atlas`, 'mummy.png');
+		const sourceLayout = storedJson<LayoutDoc>(editorDocKey(CLIENT, BOOK_SOURCE));
+		put(editorDocKey(CLIENT, BOOK_SOURCE), {
+			...sourceLayout,
+			scenes: [
+				...sourceLayout.scenes,
+				{ id: 'tombBackdrop', name: 'Tomb', nodes: [], role: 'mode', modeId: 'freeSpins' },
+			],
+		});
+		const sourceFlow = storedJson<FlowDocV2>(flowV2DocKey(CLIENT, BOOK_SOURCE));
+		put(flowV2DocKey(CLIENT, BOOK_SOURCE), {
+			...sourceFlow,
+			modes: { freeSpins: { graph: { nodes: [{ id: 'tomb-intro' }], edges: [] } } },
+		});
+		const winTextBefore = stored(winTextDocKey(CLIENT, FS_HOST));
+		const sourceBytes = under(`${CLIENT}/${BOOK_SOURCE.replace(/-/g, '_')}`);
+
+		const out = await applyBonusImport(CLIENT, FS_HOST, {
+			source: BOOK_SOURCE,
+			mode: 'freeSpins',
+			pots: ['gold'],
+			sessionId: ME,
+			at: AT,
+		});
+		assert(out.ok, `refused: ${out.ok ? '' : out.error}`);
+		same(out.mode, 'freeSpins_2', 'the mode here');
+		same(
+			Object.fromEntries(Object.entries(out.parts).map(([k, p]) => [k, p.status])),
+			{ symbols: 'added', layout: 'added', flow: 'added', winText: 'present', spines: 'added' },
+			'parts',
+		);
+		const config = storedJson<GameConfigDoc>(gameConfigDocKey(CLIENT, FS_HOST));
+		same(config.potsOverlay?.pots[0].bonus.mode, 'freeSpins_2', 'the pot routes to it');
+		same(config.imports?.[0]?.symbols, { MUMMY: 'MUMMY' }, 'it owns only MUMMY');
+		const symbols = storedJson<{ symbols: Record<string, { static?: { assetKey: string } }> }>(
+			symbolsDocKey(CLIENT, FS_HOST),
+		);
+		same(
+			symbols.symbols.MUMMY?.static?.assetKey,
+			`_shared/spines/${importedSpineBundle(FS_HOST, BOOK_SOURCE, 'mummy')}/`,
+			'MUMMY bound to its promoted spine',
+		);
+		assert(
+			symbols.symbols.H1?.static?.assetKey !== 'source-only-H1-art',
+			'a shared symbol took the source art',
+		);
+		const layout = storedJson<LayoutDoc>(editorDocKey(CLIENT, FS_HOST));
+		same(
+			layout.scenes
+				.filter((sc) => sc.role === 'mode' && sc.modeId === 'freeSpins_2')
+				.map((sc) => sc.id),
+			['tombBackdrop'],
+			'its screen, re-tagged to the mode here',
+		);
+		const flow = storedJson<FlowDocV2>(flowV2DocKey(CLIENT, FS_HOST));
+		same(
+			flow.modes?.freeSpins_2,
+			{ graph: { nodes: [{ id: 'tomb-intro' }], edges: [] } },
+			'its Flow section',
+		);
+		same(stored(winTextDocKey(CLIENT, FS_HOST)), winTextBefore, 'Win Text untouched');
+		same(
+			under(`${CLIENT}/${BOOK_SOURCE.replace(/-/g, '_')}`),
+			sourceBytes,
+			'the source is never written',
+		);
+
+		const again = await applyBonusImport(CLIENT, FS_HOST, {
+			mode: 'freeSpins_2',
+			resync: true,
+			sessionId: ME,
+			at: AT,
+		});
+		assert(again.ok, `re-sync refused: ${again.ok ? '' : again.error}`);
+		same(
+			[again.parts.layout.status, again.parts.flow.status],
+			['present', 'present'],
+			'a re-sync with no edit changes nothing',
+		);
 	},
 );
 

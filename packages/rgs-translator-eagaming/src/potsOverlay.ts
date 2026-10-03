@@ -24,6 +24,13 @@ export type PotsOverlayWireConfig = {
 	pots: { id: string; token: string; level: number; max: number; bonus?: string }[];
 	/** `spinTrigger.bonus` key → the engine mode it enters (`respin` → `holdAndWin`, …). */
 	bonuses: Record<string, string>;
+	/**
+	 * The REELS modes of the project's own a bonus may enter — free spins imported from another
+	 * project (design §5 A) — by mode id, with the game type each plays on. Such a bonus plays as
+	 * free spins IN that mode (`freeSpinTrigger.mode`), on that game type. Empty when the boot block
+	 * carries none: every reels bonus is the host's own free spins, as before.
+	 */
+	modes: Record<string, { gameType: string }>;
 };
 
 const isText = (v: unknown): v is string => typeof v === 'string' && v !== '';
@@ -60,7 +67,15 @@ export const readPotsOverlayConfig = (cfg: unknown): PotsOverlayWireConfig | nul
 	if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
 		for (const [key, mode] of Object.entries(raw)) if (isText(mode)) bonuses[key] = mode;
 	}
-	return { wire: POTS_OVERLAY_WIRE, pots, bonuses };
+	const modes: Record<string, { gameType: string }> = {};
+	const rawModes = block.modes;
+	if (rawModes && typeof rawModes === 'object' && !Array.isArray(rawModes)) {
+		for (const [id, mode] of Object.entries(rawModes)) {
+			const gameType = (mode as { gameType?: unknown } | null)?.gameType;
+			if (isText(id) && isText(gameType)) modes[id] = { gameType };
+		}
+	}
+	return { wire: POTS_OVERLAY_WIRE, pots, bonuses, modes };
 };
 
 /** The pots' levels at boot, in the meter shape the game seeds its pots from. */
@@ -95,6 +110,26 @@ export const bonusRoutes = (
 			route = respins ? 'respins' : 'reels';
 		}
 		return route;
+	});
+};
+
+/**
+ * Each event's REELS MODE of the project's own, by its index: the mode the latest `spinTrigger`'s
+ * bonus key names when the boot block lists it in `modes` (an imported free spins), else undefined —
+ * a host's own free spins, a Hold and Win, or no bonus yet.
+ */
+export const reelsModes = (
+	overlay: PotsOverlayWireConfig,
+	events: readonly { event: string; context?: unknown }[],
+): (string | undefined)[] => {
+	let mode: string | undefined;
+	return events.map((e) => {
+		if (e.event === 'spinTrigger') {
+			const key = (e.context as { bonus?: unknown } | undefined)?.bonus;
+			const named = isText(key) ? overlay.bonuses[key] : undefined;
+			mode = named !== undefined && overlay.modes[named] ? named : undefined;
+		}
+		return mode;
 	});
 };
 

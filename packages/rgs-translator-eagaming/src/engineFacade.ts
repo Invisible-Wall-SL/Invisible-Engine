@@ -100,6 +100,7 @@ import {
 	overlayBootLevels,
 	overlayDropEvent,
 	readPotsOverlayConfig,
+	reelsModes,
 	type BonusRoute,
 	type PotsOverlayWireConfig,
 } from './potsOverlay';
@@ -739,7 +740,11 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 		context?: unknown;
 	}[] = [];
 	let runningTotal = 0;
-	let gameType: 'basegame' | 'freegame' = 'basegame';
+	// `freegame` in the host's own free spins; a reels mode of the project's own plays on its own.
+	let gameType = 'basegame';
+	// The reels mode of the project's own the free spins play in (an imported free spins), if any.
+	let freeSpinsMode: string | undefined;
+	const inFreeSpins = (): boolean => gameType !== 'basegame';
 	let totalFs = 0;
 	let scatterTriggerPositions: { reel: number; row: number }[] = [];
 	let specialRaw: string | undefined; // the free-spin expanding symbol (raw Play4Fun name)
@@ -762,6 +767,7 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 	const routes = captured
 		? bonusRoutes(captured.overlay, holdAndWin ? captured.holdAndWinBonus : null, events)
 		: null;
+	const modesAt = captured ? reelsModes(captured.overlay, events) : null;
 	// A route to Hold and Win with no Hold and Win block captured has no respin board to play on.
 	const respinsAt = (i: number): boolean =>
 		Boolean(holdAndWin) && (routes ? routes[i] === ('respins' satisfies BonusRoute) : true);
@@ -918,7 +924,7 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 		const ctx = (e as { context?: { cause?: unknown } }).context;
 		const potMode = e.event === 'modeEnter' && ctx?.cause === 'meter';
 		const entry = e.event === 'holdAndWinTrigger' || e.event === 'enterBonus' || potMode;
-		if (!entry || gameType !== 'freegame') return;
+		if (!entry || !inFreeSpins()) return;
 		push({
 			type: 'freeSpinEnd',
 			amount: runningTotal,
@@ -926,8 +932,12 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 				Math.round((runningTotal / BOOK_AMOUNT_MULTIPLIER) * betBaseCents),
 				betBaseCents,
 			),
+			...(freeSpinsMode ? { mode: freeSpinsMode } : {}),
 		});
 		gameType = 'basegame';
+		freeSpinsMode = undefined;
+		// The next free-spin feature draws its own special (an imported one draws none).
+		specialRaw = undefined;
 	};
 
 	for (const [i, e] of events.entries()) {
@@ -989,7 +999,7 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 				// spin was off by one, and the last two both sat on "N OF N" (the +1th
 				// reveal found no counter left). Gate on freegame so the N free reveals
 				// consume exactly the N counters, 1:1.
-				if (gameType === 'freegame') emitBonusCounter();
+				if (inFreeSpins()) emitBonusCounter();
 				push({
 					type: 'reveal',
 					board: reels.map((reel) =>
@@ -1006,7 +1016,7 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 				// one cell at a time). Emitted AFTER the reveal and BEFORE the wins
 				// (flushWins), so the column transform plays before any payout. Below
 				// 3 specials: emit nothing — natural board, normal line pays.
-				if (gameType === 'freegame' && specialRaw) {
+				if (inFreeSpins() && specialRaw) {
 					const specialReels: number[] = [];
 					reels.forEach((reel, reelIndex) => {
 						if (reel.some((name) => name === specialRaw)) specialReels.push(reelIndex);
@@ -1037,7 +1047,7 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 				// single-spin Book expansion celebrated only its win line and the big-win
 				// overlay never played during free spins. Emitted AFTER the win lines and
 				// BEFORE the meter bank, mirroring the base-game order (setWin → setTotalWin).
-				if (gameType === 'freegame') {
+				if (inFreeSpins()) {
 					const spinWinLevel = computeWinLevel(spinWinCents, betBaseCents);
 					if (isBigWinLevel(spinWinLevel)) {
 						push({
@@ -1056,7 +1066,7 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 				// very end, reading as "shown but never paid". Emitting it now
 				// credits it visibly before the free-spin intro (freeSpinTrigger)
 				// takes over. runningTotal only grows, so the meter never steps back.
-				if (gameType === 'freegame' || totalFs > 0) {
+				if (inFreeSpins() || totalFs > 0) {
 					push({ type: 'setTotalWin', amount: runningTotal });
 					bankedAtReveal = true;
 				}
@@ -1165,13 +1175,16 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 				if (overlay && !bankedAtReveal && runningTotal > 0) {
 					push({ type: 'setTotalWin', amount: runningTotal });
 				}
-				gameType = 'freegame';
+				freeSpinsMode = modesAt?.[i];
+				gameType =
+					(freeSpinsMode && captured?.overlay.modes[freeSpinsMode]?.gameType) || 'freegame';
 				push({
 					type: 'freeSpinTrigger',
 					totalFs: totalFs || (e.context as { left?: number })?.left || 0,
 					// A full pot is the cause, not the scatters (none need have landed).
 					positions: pendingCause.cause === 'meter' ? [] : scatterTriggerPositions,
 					...pendingCause,
+					...(freeSpinsMode ? { mode: freeSpinsMode } : {}),
 				});
 				pendingCause = {};
 				break;
@@ -1214,9 +1227,16 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 				const amount = toBookEventAmount(winCents, betBaseCents);
 				const winLevel = computeWinLevel(winCents, betBaseCents);
 				inHoldAndWin = false;
-				if (gameType === 'freegame') {
-					push({ type: 'freeSpinEnd', amount, winLevel });
+				if (inFreeSpins()) {
+					push({
+						type: 'freeSpinEnd',
+						amount,
+						winLevel,
+						...(freeSpinsMode ? { mode: freeSpinsMode } : {}),
+					});
 					gameType = 'basegame';
+					freeSpinsMode = undefined;
+					specialRaw = undefined;
 				} else if (isBigWinLevel(winLevel)) {
 					// Base-game big win (≥ BIG tier): trigger the big/mega/… win
 					// presentation (setWin → Win.svelte → bigwin spine).

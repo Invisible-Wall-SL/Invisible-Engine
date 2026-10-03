@@ -310,7 +310,8 @@ total stake (a book host's `betPerLine × 10`; a bought round's premium never ra
     { "id": "red", "token": "POT_RED", "level": 4, "max": 12, "sizeStages": [5, 9],
       "bonus": "holdAndWin", "activates": "payer" }   // `activates`: a holdAndWin pot that has one
   ],
-  "bonuses": { "feature": "freeSpins", "respin": "holdAndWin" }  // spinTrigger.bonus → mode id
+  "bonuses": { "feature": "freeSpins", "respin": "holdAndWin" }, // spinTrigger.bonus → mode id
+  "modes": { "freeSpins_2": { "gameType": "freegame_2" } }        // optional: reels modes of its own
 }
 ```
 
@@ -321,6 +322,13 @@ total stake (a book host's `betPerLine × 10`; a bought round's premium never ra
 - When the project's `holdAndWin` block is the overlay's BONUS (`holdAndWinIsOverlayBonus`), the
   boot `holdAndWin` block (wire 1, above) is sent beside it, with `meters: []` and
   `luckySpin: false` — the pots are the meters.
+- `modes` (optional) lists the REELS modes of the project's own a pot can start: free spins imported
+  from another project (`docs/design/pots-overlay.md` §5 A). Each is also a `bonuses` key (its mode
+  id names itself). Such a bonus is dealt exactly like the book's free spins — `spinTrigger`
+  (`bonus: <mode id>`), `enterBonus`, `pickRandomly`, the spins, `playedBonusSpins` — but on that
+  mode's own strips, and its `bonusWin` / `retrigger` name the same key. The facade enters it as free
+  spins IN that mode (`freeSpinTrigger.mode`), revealing its spins on `gameType`. Without the field
+  every reels bonus is the book's own free spins.
 - Pot levels are server state, per player (per session on the mock) and across rounds, exactly like
   Hold and Win meters.
 - **Coins only:** an overlay with no pots sends `"pots": []`. The block is still sent, because

@@ -32,6 +32,7 @@
 
 	import { stateXstateDerived } from '../game/stateXstate';
 	import { stateGame } from '../game/stateGame.svelte';
+	import { isFreeGameType } from '../game/stateModes.svelte';
 	import type { LinesFlowV2 } from '../game/flowV2Runtime.svelte';
 
 	const { flow }: { flow: LinesFlowV2 | undefined } = $props();
@@ -62,7 +63,7 @@
 				// freeSpin book events and back to `basegame` when the feature ends — NOT
 				// `stateUi.freeSpinCounterShow`, which is a HUD-visibility flag the intro/outro celebration
 				// screens flip off MID-feature (so it would drop the message while free spins are still on).
-				return stateGame.gameType === 'freegame';
+				return isFreeGameType(stateGame.gameType);
 			default:
 				return false; // 'none' | undefined ⇒ visibility driven solely by show/hide exec.
 		}

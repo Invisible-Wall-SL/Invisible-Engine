@@ -66,6 +66,7 @@ import { winState } from './winState.svelte';
 import { boardDropCells, drainedMeters, type WinLevelData } from 'engine-game';
 import { awaitSymbolBeat, TRANSIT_BEAT_CAP_MS } from './symbolBeat';
 import { stateGame, stateGameDerived, getSymbolSeat, stackedScrollStrip } from './stateGame.svelte';
+import { freeSpinsGameType, isFreeGameType, stateModes } from './stateModes.svelte';
 import { tumbleBoardCombined } from './stateTumble.svelte';
 import { hideRespinBoard, stateRespinBoard } from './stateRespinBoard.svelte';
 import {
@@ -150,7 +151,7 @@ export const winLevelSoundsStop = () => {
 	// `bgm_main` / `bgm_freespin` until 2026-09-15, which meant a game whose theme is an uploaded
 	// track was handed back to a name its author had never picked — the one beat they could not
 	// author, sitting at the end of the loudest moment in the game.
-	const inFeature = stateBet.activeBetModeKey === 'SUPERSPIN' || stateGame.gameType === 'freegame';
+	const inFeature = stateBet.activeBetModeKey === 'SUPERSPIN' || isFreeGameType(stateGame.gameType);
 	broadcastMusicCue(inFeature ? 'freeSpinMusic' : 'baseMusic');
 	eventEmitter.broadcastAsync({ type: 'uiShow' });
 };
@@ -1441,9 +1442,11 @@ const effects: Record<string, FlowEffect> = {
 		stateUi.freeSpinIntroShow = true;
 	},
 
-	/** Switch to free-game (`freeSpinTrigger`) — `stateGame.gameType = 'freegame'`. */
+	/** Switch to free-game (`freeSpinTrigger`) — `stateGame.gameType = 'freegame'`, or the game type
+	 *  of the reels mode of the project's own these free spins play in (already on top: the mode layer
+	 *  enters it before the event). */
 	setFreeGameType: () => {
-		stateGame.gameType = 'freegame';
+		stateGame.gameType = freeSpinsGameType(stateModes.active());
 	},
 
 	/** Hide the intro flag (`freeSpinTrigger`) — `stateUi.freeSpinIntroShow = false`. */

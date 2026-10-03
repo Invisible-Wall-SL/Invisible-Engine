@@ -64,6 +64,9 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
   Verified offline (`check:project-duplicate`), not live.
 
 ## Recent changes
+- 2026-10-03 — **Import a bonus: free spins too** (pots overlay open item 00). A source's free spins
+  or reels mode imports as a mode of this project's own (`freeSpins_2`) on its own strips; screens
+  and Flow re-tagged, Win Text untouched. Detail: [status/pots-overlay](pots-overlay.md).
 - 2026-10-03 — **Duplicate: `full` starts unpublished, `setup` says it copies no art**
   (the pots overlay hub's Duplicate fix). The pots overlay checklist sent the owner to a `setup` copy of
   Book of Borut, which shipped 0 sheets, 0 spines and 0 fonts (every reference re-based onto a

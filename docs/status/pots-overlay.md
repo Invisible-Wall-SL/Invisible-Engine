@@ -99,6 +99,81 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Decisions & findings
 
+- 2026-10-03 — **Open item 00, as built: free spins imported as a reels mode** (session "Pots
+  overlay Phase 7 — bonus import from another project"). Pinned by game-config `imports.fixture.ts`
+  §8, engine-game `modeStack.fixture.ts` and `paddingReels.fixture.ts`, the facade's
+  `potsOverlay.fixture.ts` §2c–2d, `check:pots-overlay` (a route, §6 back to back, strips and pays),
+  launcher `check:bonus-import` §5 and `check:mock-contract`.
+  - **It plays as free spins IN a mode of the project's own** — not a generic mode. The coded
+    free-spin presentation (counter, music, board glow, expanding symbol) and every flow already
+    authored for free spins carry over, and only the mode and its game type differ.
+    - Engine: `freeSpinTrigger` / `freeSpinEnd` take an optional `mode`, as `holdAndWinTrigger`
+      already did, and the mode stack enters that mode.
+    - `freeSpinsGameType(mode)` puts the mode's own game type on screen (the coded handler and the
+      flow's `setFreeGameType`).
+    - `isFreeGameType` counts it as free spins for `freeGameShow`, the book VFX, Flow messages, the
+      flow's `isFreeGame` and the feature music.
+    - Both answer exactly as before for every event without a project-own reels mode, since a
+      built-in or undeclared mode is never one.
+  - **Padding under a server config.** `getPaddingReels` serves a project-own reels mode's AUTHORED
+    strips even when the RGS is authoritative: the server declares only its own game, so those strips
+    are the only ones the imported symbols are on. Built-in game types (`basegame`, `freegame`,
+    `respin`) are served exactly as before.
+  - **Facade.** The optional boot `potsOverlay.modes {id: {gameType}}` is our field. A bonus key
+    routed to such a mode enters free spins with `mode`, its reveals carry the mode's game type, and
+    its end names the mode. The in-free-spins tests read `gameType !== 'basegame'` (`inFreeSpins`).
+    Without `modes` no event carries `mode`, so every game without it is byte-identical. Two
+    free-spin features in one round (the host's, then the imported one) close and open in order, with
+    one `gameEnd`. A resume replays the whole round, as every free-spin round does, so it re-enters
+    the mode.
+  - **Config.** `importBonus` takes a source's free spins or `reels` mode as a NEW mode: the source
+    id, `_2`-renamed on a clash (`freeSpins` always clashes), on a new game type (`freegame_2`) with
+    its strips cycled to the host's reels, its label `"<label> (<project>)"`, and its music and
+    counter. Its HUD is not copied.
+    - **A symbol this project defines identically is SHARED**, not copied and not in the record, so
+      a free spins imported between two games of one family brings only what differs. The rest is
+      renamed on a clash, as before.
+    - Re-sync keeps the mode id, the game type, the label and every name. Removing the overlay takes
+      an imported reels mode with it (`takeOutImportedReelsMode`), as it takes an overlay's Hold and
+      Win.
+    - Importing the same source feature twice is refused: re-sync it instead.
+  - **Mock.** `potsOverlayMockInputs` carries each such mode a pot routes to: its game type, its
+    strips and the line pays of the symbols on them. The launcher's contract puts the names in the
+    server's vocabulary (a book host's `H1` is `PIC1` on the wire; a name only the mode has passes
+    through, as the facade passes it back).
+    - The composed mock deals it through the host's `startFreeSpins` under its own bonus key, and the
+      book mock draws each free spin from those strips and pays from those pays.
+    - Without `modes`, nothing changes: every digest is unmoved.
+    - The test server shape-checks `modes`.
+  - **Launcher.** The source's `role: 'mode'` screens for its mode are copied re-tagged to the new
+    mode id, and its Flow `modes[sourceMode]` is copied as `modes[newMode]`. Only the symbols it owns
+    are bound. Win Text is untouched: its families are not per mode, and a free-spins mode speaks the
+    host's own free-spin lines. A source free-spin screen gated by `freeGameShow` (not a mode screen)
+    is not copied; the host's own free-game screens show instead.
+  - **No expanding special for an imported mode.** The book's expanding symbol is the host's own
+    mechanic, not the imported feature's. The mock draws none for it (no `pickRandomly`), and the
+    facade clears the host's special at every free-spin end, so a back-to-back round never carries it
+    into the imported spins.
+  - **One gate, `ownReelsModeForGameType(doc, gameType)`** (game-config `modes.ts`). A built-in mode
+    or a game type a built-in already plays on is never one. It is read by `getPaddingReels`,
+    `freeSpinsGameType` and `isFreeGameType`, and through `Background`'s new optional
+    `isFeatureGameType` prop, so imported free spins play on the feature background rather than
+    black.
+  - **The mock contract stubs** an imported mode one of whose own symbol names IS a wire name
+    (`PIC1`, `SCAT`…), and says so once: the facade would read it as the host's symbol.
+  - **Reviews:** `code-reviewer` found no blocker; its five should-fixes and the nits are fixed.
+  - **Parity, real clock** (headless shell, the book mock `SEED=parity FORCE_TRIGGER=1`, the
+    reference flow, one forced free-spin round): `main` and the branch print the SAME 292 console /
+    flow-trace lines, no diff, 0 exceptions.
+  - **Imported free spins, real clock** (a book host on "pots to free spins" with another book
+    game's free spins imported, gold routed to them; local mock + runtime stub, no R2).
+    - `pot:gold` entered `freeSpins_2` on game type `freegame_2`, under the host's free-spin
+      presentation (counter, board glow).
+    - It played 30 spins on its own strips (two retriggers), paid its own symbols, and returned to
+      idle.
+    - Balance $5,000 → $5,107.60 = −$1 + `gameEnd.win` $108.60. 0 exceptions; the console notes
+      only the stub's missing art for `L2_2` / `MUMMY`.
+
 - 2026-10-03 — **Phase 7, as built** (session "Pots overlay Phase 7 — bonus import from another
   project", #1022). Pinned by `packages/game-config/imports.fixture.ts`, `check:bonus-import`
   (launcher), `check:shared-spine-promote` §4 and two new cases in `check:pots-overlay`.
@@ -738,16 +813,17 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 ## Open items / next
 
 00. **Left after Phase 7 (#1022):**
-   - **Importing a free-spins or authored `reels` mode.** It needs (from the runtime map taken in
-     Phase 7):
-     - the facade to keep the bonus's mode id (`bonusRoutes` reduces it to `reels`), widen its
-       `gameType` past `basegame | freegame`, and enter / exit the mode with `modeEnter` / `modeExit`
-       instead of `freeSpinTrigger` / `freeSpinEnd`;
-     - the mock to deal that mode's spins from its own strips (the book mock has none; `takeOver`
-       routes only `host.freeSpinsMode`);
-     - `getPaddingReels` to stop serving the server's strips for an authored non-base game type;
-     - coded presentation for a generic reels mode, or a flow.
-     Until then such a mode stays a `modeEnter` / `modeExit` stub in the mock.
+   - ~~**Importing a free-spins or authored `reels` mode.**~~ Built 2026-10-03 (session "Pots overlay
+     Phase 7 — bonus import from another project", branch `claude/pots-overlay-reels-import`); see
+     Decisions, "Open item 00, as built". A respin board, wheel or `none` mode of the source's own is
+     still refused (nothing plays one from a pot).
+   - **Left after open item 00:**
+     - an imported mode's own symbols draw the console's "not in the symbol map" note in the facade
+       (`isKnownSymbol` lists the host's and the overlay's names only): noise, not a fault;
+     - the source mode's `music` cue comes with it and is silent when the host has no such cue;
+     - removing the overlay takes an imported mode out of the config but leaves its re-tagged
+       screens and Flow section in their docs, inert (no mode enters them);
+     - a source free-spin screen gated by `freeGameShow`, not a mode screen, is not copied.
    - **Not copied by an import:** `/symbols` `coinLabel` and `flights` (board-wide, the host's), a
      flipbook clip or FX effect a copied cell or node names (they live in the source's own docs), and
      a source project's own components. A copied Flow section that names a node id the import
@@ -817,6 +893,9 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Phase 8 checklist (partner wire)
 
+- **Our boot fields:** `potsOverlay.modes` (an imported reels mode's id → game type) and the
+  engine's `freeSpinTrigger.mode` exist only on our wire (`docs/reference/play4fun-protocol.md`,
+  "Ours, not theirs"). Map the partner's way of naming a second free-spin feature onto them.
 - **Retriggers:** the facade closes free spins at the next bonus's entry. If the partner's wire
   announces a retrigger with an `enterBonus` (it has no `retrigger` event), that would end the free
   spins early; check their retrigger shape before switching.
@@ -861,6 +940,13 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 - **The partner's RGS** for production play (Phase 8). Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-03 — **Open item 00: import free spins as a reels mode** (branch
+  `claude/pots-overlay-reels-import`, session "Pots overlay Phase 7 — bonus import from another
+  project"). The source's free spins arrive as a mode of the project's own (`freeSpins_2` on
+  `freegame_2`), which a pot starts and the mock deals on its own strips. The engine and facade gain an
+  optional `freeSpinTrigger.mode` and boot `potsOverlay.modes`, with no change for a game without them
+  (real-clock parity: identical trace). See Decisions, "Open item 00, as built".
 
 - 2026-10-03 — **The sample is duplicated with Everything, not setup** (the hub's Duplicate fix). Owner checklist 2.1, the guide and the playbook said to Duplicate
   Book of Borut with scope **setup**. Setup copies the authored docs only and re-points every asset

@@ -9,8 +9,9 @@
  *   - per-session POTS (levels in `session.meters`, beside a Hold and Win game's meters, so a contract
  *     swap carries them — `carrySession`);
  *   - the BONUS a full pot starts: the Hold and Win feature (`mock-holdandwin-engine.mjs`, with the
- *     dropped value coins held), the host's own free spins (its `startFreeSpins` hook), or a
- *     `modeEnter`/`modeExit` stub for any other mode until Phase 7 builds it.
+ *     dropped value coins held), the host's own free spins (its `startFreeSpins` hook), a REELS mode
+ *     of the project's own (an imported free spins: the same hook, on that mode's strips and pays,
+ *     under its own bonus key), or a `modeEnter`/`modeExit` stub for any other mode.
  *
  * The host's feature always plays first; a bonus waiting behind it starts instead of its `gameEnd`.
  *
@@ -96,7 +97,19 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 			`[${host.label}] a pots overlay needs at least one pot, or value coins and a Hold and Win bonus`,
 		);
 	}
-	const bonuses = { ...host.bonuses, ...(hw ? { respin: HOLD_AND_WIN_MODE } : {}) };
+	// The REELS modes of the project's own a pot starts (an imported free spins): dealt as the host's
+	// free spins on their own strips, each under its own bonus key (its mode id).
+	const reelsModes = Object.fromEntries(
+		Object.entries(inputs.modes ?? {}).filter(
+			([id, m]) =>
+				pots.some((p) => p.bonus.mode === id) && Array.isArray(m?.strips) && m.strips.length,
+		),
+	);
+	const bonuses = {
+		...host.bonuses,
+		...(hw ? { respin: HOLD_AND_WIN_MODE } : {}),
+		...Object.fromEntries(Object.keys(reelsModes).map((id) => [id, id])),
+	};
 
 	// ---- sessions: pots (and a Hold and Win bonus's progressive pools) ----
 	const ensure = (session) => {
@@ -142,6 +155,13 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 						: {}),
 				})),
 				bonuses,
+				...(Object.keys(reelsModes).length
+					? {
+							modes: Object.fromEntries(
+								Object.entries(reelsModes).map(([id, m]) => [id, { gameType: m.gameType }]),
+							),
+						}
+					: {}),
 			},
 			...(hw ? { holdAndWin: hw.holdAndWinConfig(session) } : {}),
 		};
@@ -362,11 +382,13 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 				return true;
 			}
 			for (const id of next.meters) session.meters[id] = 0;
-			if (next.mode === host.freeSpinsMode) {
+			const reels = reelsModes[next.mode];
+			if (next.mode === host.freeSpinsMode || reels) {
 				host.startFreeSpins(events, round, {
 					occurs: 0,
 					...(next.spins > 0 ? { spins: Math.round(next.spins) } : {}),
 					extra: { cause: 'meter', meters: next.meters },
+					...(reels ? { bonus: next.mode, strips: reels.strips, paytable: reels.paytable } : {}),
 				});
 				return true;
 			}

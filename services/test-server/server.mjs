@@ -517,6 +517,23 @@ const validGrid = (grid) => {
 			Object.values(hw.symbols).every((sym) => sym && Array.isArray(sym.roles)),
 		);
 	const holdAndWin = holdAndWinShaped(grid.holdAndWin) ? grid.holdAndWin : null;
+	// An overlay's REELS modes of the project's own (an imported free spins): per mode, the strips its
+	// spins are drawn from (one per reel, names) and the line pays of its own symbols.
+	const reelsModesShaped = (modes) =>
+		Boolean(modes) &&
+		typeof modes === 'object' &&
+		Object.values(modes).every(
+			(m) =>
+				m &&
+				typeof m.gameType === 'string' &&
+				Array.isArray(m.strips) &&
+				m.strips.length > 0 &&
+				m.strips.every(
+					(s) => Array.isArray(s) && s.length && s.every((n) => typeof n === 'string'),
+				) &&
+				m.paytable &&
+				typeof m.paytable === 'object',
+		);
 	// A pots overlay's inputs (a book game's add-on), shape-checked as far as the overlay needs to
 	// stand up; its Hold and Win bonus, when it has one, like a Hold and Win game's. `pots: []` is a
 	// coins-only overlay; one with neither pots nor coins is refused by the overlay itself, loudly.
@@ -536,7 +553,8 @@ const validGrid = (grid) => {
 		po.drops &&
 		typeof po.drops === 'object' &&
 		Array.isArray(po.drops.table) &&
-		(po.holdAndWin === undefined || holdAndWinShaped(po.holdAndWin))
+		(po.holdAndWin === undefined || holdAndWinShaped(po.holdAndWin)) &&
+		(po.modes === undefined || reelsModesShaped(po.modes))
 			? po
 			: null;
 	return {

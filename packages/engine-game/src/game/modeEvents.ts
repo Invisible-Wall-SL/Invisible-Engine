@@ -11,6 +11,10 @@ import type { ModePolicy } from './modeStack';
  * |---------------------|--------------------------|
  * | `freeSpinTrigger`   | `modeEnter freeSpins`    |
  * | `freeSpinEnd`       | `modeExit freeSpins`     |
+ *
+ * (A free-spin event that names a `mode` enters or exits THAT mode instead — a reels mode of the
+ * project's own, such as free spins imported from another project, played with the free-spin
+ * presentation on its own game type. As `holdAndWinTrigger`'s `mode` already does.)
  * | `holdAndWinTrigger` | `modeEnter holdAndWin`   |
  * | `holdAndWinEnd`     | `modeExit holdAndWin`    |
  *
@@ -105,14 +109,19 @@ export function modeOpOf(bookEvent: { type: string }): ModeOp | undefined {
 		case 'freeSpinTrigger':
 			return {
 				op: 'enter',
-				id: 'freeSpins',
+				id: text(event.mode) ?? 'freeSpins',
 				policy: 'nest',
 				cause: text(event.cause),
-				payload: payloadOf(event, ['cause']),
+				payload: payloadOf(event, ['cause', 'mode']),
 				legacyGameType: true,
 			};
 		case 'freeSpinEnd':
-			return { op: 'exit', id: 'freeSpins', total: finite(event.amount), legacyGameType: true };
+			return {
+				op: 'exit',
+				id: text(event.mode) ?? 'freeSpins',
+				total: finite(event.amount),
+				legacyGameType: true,
+			};
 		case 'holdAndWinTrigger':
 			return {
 				op: 'enter',

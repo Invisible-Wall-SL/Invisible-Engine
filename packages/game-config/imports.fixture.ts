@@ -16,6 +16,7 @@ import { holdAndWinIsOverlayBonus } from './src/holdAndWin.ts';
 import { HOLD_AND_WIN_PRESETS } from './src/holdAndWinPresets.ts';
 import { importBonus, importableFeatures, resyncBonus, type ImportResult } from './src/imports.ts';
 import { symbolsInPlay, symbolsInPlayForGameType } from './src/inPlay.ts';
+import { ownReelsModeForGameType } from './src/modes.ts';
 import { normalizeGameConfigDoc } from './src/normalize.ts';
 import type { AddOnResult } from './src/addOns.ts';
 import type { GameConfigDoc, GameConfigSymbol, RawGameConfig } from './src/types.ts';
@@ -169,11 +170,9 @@ check(
 	'Add a pots overlay first: a full pot is what starts an imported bonus.',
 );
 check(
-	'a reels feature',
-	refusal(importBonus(goldHost, SOURCE, { ...FROM, mode: 'freeSpins' })).startsWith(
-		'A reels bonus',
-	),
-	true,
+	'a reels feature with no strips (the Classic sample deals no free spins)',
+	refusal(importBonus(goldHost, SOURCE, { ...FROM, mode: 'freeSpins' })),
+	'The source\'s "freeSpins" has no strips to deal from.',
 );
 check(
 	'a feature the source lacks',
@@ -378,6 +377,125 @@ check(
 	false,
 );
 check('the renamed BONUS_2 is dealt', symbolsInPlay(first.doc).includes('BONUS_2'), true);
+
+console.log("\n8. a reels feature: another book game's free spins as a mode of this one");
+{
+	// `book-sample`: the same family — PIC1 and KING as the host has them, its own ACE pays and a
+	// MUMMY the host lacks, on its own free-spin strips.
+	const FS_STRIP = ['PIC1', 'MUMMY', 'ACE', 'KING'].map((name) => ({ name }));
+	const BOOK_SOURCE = normalize({
+		...clone(BOOK_HOST),
+		symbols: { ...clone(BOOK_HOST.symbols), ACE: pays(10, 60, 200), MUMMY: pays(20, 200, 900) },
+		paddingReels: { ...clone(BOOK_HOST.paddingReels), freegame: [FS_STRIP, FS_STRIP, FS_STRIP] },
+	});
+	const FS_FROM = { project: 'book-sample', mode: 'freeSpins', at: AT };
+	check(
+		'the book sample offers its free spins',
+		importableFeatures(BOOK_SOURCE).map((f) => [f.mode, Boolean(f.refused)]),
+		[['freeSpins', false]],
+	);
+	const before = clone(goldHost);
+	const result = imported(importBonus(goldHost, BOOK_SOURCE, { ...FS_FROM, pots: ['gold'] }));
+	const doc = result.doc;
+	check('validates without an error', errors(doc), []);
+	check('normalizing it changes nothing', canon(normalize(clone(doc))), canon(doc));
+	check('the input is not mutated', goldHost, before);
+	check(
+		"a new mode beside the host's own free spins, on its own game type",
+		result.mode,
+		'freeSpins_2',
+	);
+	check('…declared as a reels mode with the free-spin counter', doc.modes, [
+		{
+			id: 'freeSpins_2',
+			board: 'reels',
+			gameType: 'freegame_2',
+			counter: 'freeSpins',
+			label: 'Free spins (book-sample)',
+		},
+	]);
+	check(
+		"its strips are the source's, cycled to the host's five reels, its clash renamed",
+		doc.paddingReels.freegame_2.map((s) => s.map((c) => c.name).join(',')),
+		Array(5).fill('PIC1,MUMMY,ACE_2,KING'),
+	);
+	check(
+		"only what differs is copied: MUMMY new, ACE as ACE_2; PIC1 and KING are the host's own",
+		canon([result.symbols, result.renamed.symbols, doc.symbols.ACE, doc.symbols.ACE_2]),
+		canon([
+			{ MUMMY: 'MUMMY', ACE: 'ACE_2' },
+			{ ACE: 'ACE_2' },
+			host.symbols.ACE,
+			BOOK_SOURCE.symbols.ACE,
+		]),
+	);
+	check('the pot routes to it, its spin count kept', doc.potsOverlay!.pots[0].bonus, {
+		mode: 'freeSpins_2',
+		spins: 10,
+	});
+	check(
+		"the host's own free spins and base game are untouched",
+		[doc.paddingReels.basegame, doc.paddingReels.freegame],
+		[goldHost.paddingReels.basegame, goldHost.paddingReels.freegame],
+	);
+	check(
+		"its game type is a reels mode of the project's own; a built-in one never is",
+		[
+			ownReelsModeForGameType(doc, 'freegame_2')?.id,
+			ownReelsModeForGameType(doc, 'freegame'),
+			ownReelsModeForGameType(goldHost, 'freegame_2'),
+		],
+		['freeSpins_2', undefined, undefined],
+	);
+	check(
+		'importing the same feature again is refused: re-sync it',
+		refusal(importBonus(doc, BOOK_SOURCE, FS_FROM)),
+		'"book-sample"\'s freeSpins is already imported here as "freeSpins_2". Re-sync it instead.',
+	);
+
+	const edited = clone(BOOK_SOURCE);
+	edited.symbols.MUMMY = pays(25, 250, 1000);
+	edited.paddingReels.freegame = edited.paddingReels.freegame.map((s) => [...s, { name: 'TEN' }]);
+	const authored = clone(doc);
+	authored.potsOverlay!.pots[0].label = 'Gold pot';
+	authored.modes![0].music = 'bgm_mine';
+	const synced = imported(resyncBonus(authored, edited, 'freeSpins_2', LATER));
+	check(
+		're-sync keeps the mode id and game type',
+		[synced.mode, synced.doc.modes?.[0]?.gameType],
+		['freeSpins_2', 'freegame_2'],
+	);
+	check(
+		'…picks up the edit, the names reused',
+		canon([synced.doc.symbols.MUMMY, synced.symbols]),
+		canon([pays(25, 250, 1000), { MUMMY: 'MUMMY', ACE: 'ACE_2' }]),
+	);
+	check(
+		"…and the new strip cell (TEN is the host's own, shared)",
+		synced.doc.paddingReels.freegame_2[0].map((c) => c.name),
+		['PIC1', 'MUMMY', 'ACE_2', 'KING', 'TEN'],
+	);
+	check(
+		'…keeping the label the host gave it; the pot and its label untouched',
+		[synced.doc.modes?.[0]?.label, synced.doc.potsOverlay!.pots[0]],
+		['Free spins (book-sample)', authored.potsOverlay!.pots[0]],
+	);
+	check('validates without an error', errors(synced.doc), []);
+	check(
+		'removing the overlay takes the imported mode, its strips and only its own symbols',
+		removePotsOverlay(doc),
+		host,
+	);
+	const wheel = normalize({ ...clone(BOOK_SOURCE), modes: [{ id: 'wheel', board: 'wheel' }] });
+	check(
+		"a wheel of the source's own is listed but refused",
+		[
+			importableFeatures(wheel).find((f) => f.mode === 'wheel')?.refused !== undefined,
+			refusal(importBonus(goldHost, wheel, { ...FS_FROM, mode: 'wheel' })).startsWith('Only a'),
+		],
+		[true, true],
+	);
+}
 
 if (failures) {
 	console.log(`\n${failures} FAILED`);

@@ -677,6 +677,15 @@ presentation's "take win" step. It then adds it in and sends the round's `collec
   operator's `jackpot`).
 - Gates: `scripts/check-platform-jackpot.mjs` and `rgs-translator-eagaming/platformJackpot.fixture.ts`.
 
+## Ours, not theirs: the pots overlay's boot fields (2026-10-03)
+
+The boot `config.potsOverlay` block is OUR wire (`docs/reference/hold-and-win-wire.md`, "Pots
+overlay"), including its optional `modes` (the reels modes of a project's own a pot can start — free
+spins imported from another project). A Play4Fun server sends none of it. The facade reads
+`freeSpinTrigger.mode` into the engine book ONLY from a captured block, so on the live path no
+free-spin round names a mode and every one plays as the game's own free spins, as before. When the
+partner deals overlays (pots overlay Phase 8) these are the fields to map onto theirs.
+
 ## Things we have no equivalent for
 
 Recorded because each is a real feature of the protocol, not because any is scheduled:

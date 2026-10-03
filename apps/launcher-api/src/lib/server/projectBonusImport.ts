@@ -21,6 +21,11 @@
  *    this doc's, except the lines a pot speaks (`meterFull`, `potLabel`, `potNames`), which are the
  *    host's.
  *
+ * A REELS feature (an imported free spins, a mode of this project's own under a new id) takes the
+ * same path with the source's mode id read and the new one written: its screens re-tagged, its Flow
+ * section re-keyed, its symbols only those the import owns (a shared one keeps the host's art). Its
+ * Win Text is the host's own free-spin lines, so nothing is copied there.
+ *
  * WHAT COUNTS AS THE FEATURE'S (decided here, conservatively): exactly the pieces above. A source
  * piece that does not exist leaves the host's as it is (and says so) rather than deleting it.
  * Nothing else of either project is read or written, and the SOURCE is only ever read.
@@ -40,6 +45,7 @@ import {
 	type WinTextDoc,
 } from 'engine-layout';
 import {
+	HOLD_AND_WIN_MODE,
 	bonusImportOf,
 	importBonus,
 	importableFeatures,
@@ -244,17 +250,19 @@ function freeIn(taken: Set<string>, wanted: string, renamed: string[]): string {
 }
 
 /**
- * The source's screens for `mode` put in place of `current`'s. Only this layout's screens for the
- * mode are replaced, at the place the first of them stood; with none, the imported ones go after
- * the layout's own. Any other screen is kept: an imported screen whose id one of them uses is
- * suffixed, and so is a node id another screen of this layout uses. Pure.
+ * The source's screens for its mode `sourceMode` put in place of `current`'s for `mode` (the same id
+ * for a Hold and Win; an imported reels mode's own id here), each re-tagged to `mode`. Only this
+ * layout's screens for the mode are replaced, at the place the first of them stood; with none, the
+ * imported ones go after the layout's own. Any other screen is kept: an imported screen whose id one
+ * of them uses is suffixed, and so is a node id another screen of this layout uses. Pure.
  */
 export function mergeImportedScreens(
 	current: LayoutDoc,
 	source: LayoutDoc,
 	mode: string,
+	sourceMode: string = mode,
 ): { doc: LayoutDoc; added: string[]; renamedScreens: string[]; renamedNodes: string[] } {
-	const ids = modeScreenIds(source.scenes, mode);
+	const ids = modeScreenIds(source.scenes, sourceMode);
 	if (!ids.length) return { doc: current, added: [], renamedScreens: [], renamedNodes: [] };
 	const replaced = new Set(modeScreenIds(current.scenes, mode));
 	const kept = current.scenes.filter((s) => !replaced.has(s.id));
@@ -273,6 +281,7 @@ export function mergeImportedScreens(
 		.filter((s) => ids.includes(s.id))
 		.map((s) => ({
 			...structuredClone(s),
+			modeId: mode,
 			id: freeIn(screenIds, s.id, renamedScreens),
 			nodes: renameNodes(s.nodes),
 		}));
@@ -332,7 +341,10 @@ type ImportContext = {
 	client: string;
 	project: string;
 	source: string;
+	/** Its mode id here. */
 	mode: string;
+	/** Its mode id in the source (a reels import's differs: `freeSpins` → `freeSpins_2`). */
+	sourceMode: string;
 	/** Source symbol → name here (the stored map). */
 	names: Record<string, string>;
 	/** Names the previous import brought that this one does not. */
@@ -405,7 +417,7 @@ async function importLayout(ctx: ImportContext): Promise<AddOnPart> {
 			`${ctx.source} has no readable layout, so its screens stay as they are here.`,
 		);
 	}
-	const ids = modeScreenIds(source.doc.scenes, ctx.mode);
+	const ids = modeScreenIds(source.doc.scenes, ctx.sourceMode);
 	if (!ids.length) {
 		return part(
 			'present',
@@ -415,7 +427,12 @@ async function importLayout(ctx: ImportContext): Promise<AddOnPart> {
 	}
 	// Only the copied screens are read, so only their spines are promoted.
 	const copied = { ...source.doc, scenes: source.doc.scenes.filter((s) => ids.includes(s.id)) };
-	const merged = mergeImportedScreens(target.doc, await sourceSpines(ctx, copied), ctx.mode);
+	const merged = mergeImportedScreens(
+		target.doc,
+		await sourceSpines(ctx, copied),
+		ctx.mode,
+		ctx.sourceMode,
+	);
 	const note = notes(
 		merged.renamedScreens.length
 			? `Screens renamed (this layout uses the id): ${merged.renamedScreens.join(', ')}.`
@@ -446,7 +463,7 @@ async function importFlow(ctx: ImportContext): Promise<AddOnPart> {
 			`${ctx.source}'s flow could not be read, so the section here is kept.`,
 		);
 	}
-	const section = source.doc?.modes?.[ctx.mode];
+	const section = source.doc?.modes?.[ctx.sourceMode];
 	if (!section) {
 		return part(
 			'present',
@@ -477,6 +494,11 @@ async function loadWinText(client: string, project: string) {
 }
 
 async function importWinText(ctx: ImportContext): Promise<AddOnPart> {
+	// Win Text's families are not per mode, and the ones a reels mode would speak (the free-spin
+	// lines) are the host's: an imported free spins speaks them as the host's own do.
+	if (ctx.mode !== HOLD_AND_WIN_MODE) {
+		return part('present', [], "A free-spins mode speaks this game's own free-spin lines.");
+	}
 	const target = await loadWinText(ctx.client, ctx.project);
 	if (!target.doc) {
 		return part('skipped', [], 'The Win Text doc could not be read. Open it in /win-text.');
@@ -622,6 +644,7 @@ export async function applyBonusImport(
 		project,
 		source,
 		mode: result.mode,
+		sourceMode: record?.importedFrom.mode ?? opts.mode,
 		names: result.symbols,
 		dropped: Object.values(previous).filter(
 			(n) => !Object.values(result.symbols).includes(n) && !saved.symbols[n],
