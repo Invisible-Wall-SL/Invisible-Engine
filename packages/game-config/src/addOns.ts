@@ -51,8 +51,11 @@ export type AddOnRenames = {
 	pots: Record<string, string>;
 };
 
+/** `notes`: anything else the change did that the author should be told — a setting it moved, the
+ *  pots it removed. Absent when there is nothing to say. */
 export type AddOnResult =
-	{ ok: true; doc: GameConfigDoc; renamed: AddOnRenames } | { ok: false; reason: string };
+	| { ok: true; doc: GameConfigDoc; renamed: AddOnRenames; notes?: string[] }
+	| { ok: false; reason: string };
 
 const freeName = (wanted: string, taken: Set<string>): string => {
 	if (!taken.has(wanted)) return wanted;
@@ -232,9 +235,9 @@ function dropUnusedTokens(doc: GameConfigDoc, tokens: Iterable<string>): void {
 	}
 }
 
-/** The token for a new pot `id`: `POT_<ID>` when free, or when it is an unused `meterSpecial` symbol
- *  (one a lower count kept because the author gave it a payout or another role); else the first
- *  free suffix, reported in `renamed`. */
+/** The token for a new pot `id`: `POT_<ID>` when free, or when it is an unused symbol whose only
+ *  role is `meterSpecial` (one a lower count kept because the author gave it a payout); else the
+ *  first free suffix, reported in `renamed`. A Hold and Win role symbol is never taken over. */
 function tokenForNewPot(doc: GameConfigDoc, id: string, renamed: AddOnRenames): string {
 	const base = `POT_${id.toUpperCase().replace(/[^A-Z0-9_]/g, '_')}`;
 	const used = new Set([
@@ -242,8 +245,8 @@ function tokenForNewPot(doc: GameConfigDoc, id: string, renamed: AddOnRenames): 
 		...(doc.potsOverlay?.pots ?? []).map((p) => p.token),
 		...(doc.holdAndWin?.meters ?? []).map((m) => m.symbol),
 	]);
-	const existing = doc.symbols[base];
-	if (existing?.special_properties?.includes('meterSpecial') && !used.has(base)) return base;
+	const roles = doc.symbols[base]?.special_properties;
+	if (JSON.stringify(roles) === JSON.stringify(['meterSpecial']) && !used.has(base)) return base;
 	const name = freeName(base, new Set(Object.keys(doc.symbols)));
 	doc.symbols[name] = { special_properties: ['meterSpecial'] };
 	if (name !== base) renamed.symbols[base] = name;
@@ -287,11 +290,29 @@ function bonusForNewPot(doc: GameConfigDoc, like: OverlayPot | undefined): PotBo
  * {@link OVERLAY_POT_IDS}, its own token, the last pot's size and drop weight, and a bonus like the
  * last pot's ({@link bonusForNewPot}).
  *
- * With no pots the overlay drops only value coins, so 0 needs a Hold and Win block that is the
- * overlay's bonus (a Hold and Win game's own block counts only its landed coins) with a coin count
- * trigger. A value-coin drop row is added when the table has none, and the most drops per spin is
- * raised to reach the trigger, as the Coins only preset sets it.
+ * 0 is allowed when {@link zeroPotsRefusal} says so. A value-coin drop row is then added when the
+ * table has none, and the most drops per spin is raised to reach the trigger, as the Coins only
+ * preset sets it. `notes` says what was removed and what was raised.
  */
+/**
+ * Why `doc`'s overlay cannot go down to no pots, or `undefined` when it can. With no pots it drops
+ * only value coins, so it needs a Hold and Win block that is the overlay's bonus (a Hold and Win
+ * game's own block counts only its landed coins) with a coin count trigger. `/config`'s pot count
+ * and its last pot's × both ask here.
+ */
+export function zeroPotsRefusal(doc: GameConfigDoc): string | undefined {
+	if (!doc.holdAndWin) {
+		return 'With no pots the overlay drops only value coins, which start a Hold and Win bonus — add one first, or keep at least one pot.';
+	}
+	if (!holdAndWinIsOverlayBonus(doc)) {
+		return "This game's own Hold and Win is its base game, started by coins landing on its reels, so value coins alone start nothing — it needs at least one pot.";
+	}
+	if (!doc.holdAndWin.trigger.count) {
+		return 'Value coins start this Hold and Win only through its coin count trigger, which it does not set — set one in the Hold and Win section first, or keep at least one pot.';
+	}
+	return undefined;
+}
+
 export function setOverlayPotCount(doc: GameConfigDoc, count: number): AddOnResult {
 	if (!doc.potsOverlay) return { ok: false, reason: 'This project has no pots overlay.' };
 	if (!Number.isInteger(count) || count < 0 || count > MAX_OVERLAY_POTS) {
@@ -300,7 +321,13 @@ export function setOverlayPotCount(doc: GameConfigDoc, count: number): AddOnResu
 	const next = structuredClone(doc);
 	const overlay = next.potsOverlay!;
 	const renamed = noRenames();
+	const notes: string[] = [];
 	const removed = overlay.pots.splice(count);
+	if (removed.length) {
+		notes.push(
+			`Removed ${removed.map((p) => p.id).join(', ')}. What is authored for ${removed.length > 1 ? 'them' : 'it'} elsewhere (a Pot Meter, a Win Text name, a flight style) is kept and draws nothing until a pot with that id returns.`,
+		);
+	}
 	const gone = new Set(
 		removed.map((p) => p.id).filter((id) => !overlay.pots.some((p) => p.id === id)),
 	);
@@ -335,34 +362,21 @@ export function setOverlayPotCount(doc: GameConfigDoc, count: number): AddOnResu
 	}
 
 	if (!count) {
-		if (!next.holdAndWin) {
-			return {
-				ok: false,
-				reason:
-					'With no pots the overlay drops only value coins, which start a Hold and Win bonus — add one first, or remove the overlay.',
-			};
-		}
-		if (!holdAndWinIsOverlayBonus(next)) {
-			return {
-				ok: false,
-				reason:
-					"This game's own Hold and Win is its base game, started by coins landing on its reels, so value coins alone start nothing — it needs at least one pot.",
-			};
-		}
-		const trigger = next.holdAndWin.trigger.count?.min;
-		if (trigger === undefined) {
-			return {
-				ok: false,
-				reason:
-					'Value coins start this Hold and Win only through its coin count trigger, which it does not set — set one in the Hold and Win section first, or keep at least one pot.',
-			};
-		}
+		const refusal = zeroPotsRefusal(next);
+		if (refusal) return { ok: false, reason: refusal };
 		if (!overlay.drops.table.some(isCoinDrop)) overlay.drops.table.push({ coin: true, weight: 1 });
 		// Enough coins must be able to land on one spin to reach the trigger, as the Coins only
-		// preset sets it.
-		if (overlay.drops.maxPerSpin < trigger) overlay.drops.maxPerSpin = trigger + 2;
+		// preset sets it. Said, not done silently: it stays raised when pots come back.
+		const trigger = next.holdAndWin!.trigger.count!.min;
+		const before = overlay.drops.maxPerSpin;
+		if (before < trigger) {
+			overlay.drops.maxPerSpin = trigger + 2;
+			notes.push(
+				`Most per spin raised from ${before} to ${trigger + 2}, so the ${trigger} coins the Hold and Win trigger needs can land on one spin. Lower it again if you add pots back.`,
+			);
+		}
 	}
-	return { ok: true, doc: next, renamed };
+	return { ok: true, doc: next, renamed, ...(notes.length ? { notes } : {}) };
 }
 
 /**

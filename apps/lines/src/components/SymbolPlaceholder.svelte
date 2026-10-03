@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { untrack } from 'svelte';
 	import { Circle, Container, Text } from 'pixi-svelte';
 
 	import { getContext } from '../game/context';
@@ -36,7 +35,7 @@
 	$effect(() => {
 		void props.state;
 		void props.look;
-		const id = setTimeout(() => untrack(() => props.oncomplete?.()), PLACEHOLDER_HOLD_MS);
+		const id = setTimeout(() => props.oncomplete?.(), PLACEHOLDER_HOLD_MS);
 		return () => clearTimeout(id);
 	});
 </script>
