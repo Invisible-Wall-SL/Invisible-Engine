@@ -68,9 +68,16 @@ export type OverlayDrops = {
 };
 
 export type PotsOverlay = {
+	/** 0 to {@link MAX_OVERLAY_POTS}. With none, the overlay drops only value coins. */
 	pots: OverlayPot[];
 	drops: OverlayDrops;
 };
+
+/** The most pots one overlay holds. */
+export const MAX_OVERLAY_POTS = 5;
+
+/** The ids pots take in order, each with its own colour in the coded pots. */
+export const OVERLAY_POT_IDS = ['red', 'blue', 'green', 'gold', 'purple'] as const;
 
 export const isCoinDrop = (
 	entry: OverlayDropEntry,
@@ -242,7 +249,14 @@ export function validatePotsOverlay(doc: GameConfigDoc): GameConfigIssue[] {
 	const inPlay = new Set(symbolsInPlay(doc));
 	const meterIds = new Set(block?.meters?.map((m) => m.id));
 
-	if (!overlay.pots.length) error('pots', 'The overlay has no pots.');
+	if (overlay.pots.length > MAX_OVERLAY_POTS) {
+		error(
+			'pots',
+			`An overlay holds at most ${MAX_OVERLAY_POTS} pots (this one has ${overlay.pots.length}).`,
+		);
+	} else if (!overlay.pots.length && !overlay.drops.table.some(isCoinDrop)) {
+		error('pots', 'The overlay has no pots and drops no value coins, so nothing it drops counts.');
+	}
 
 	const potIds = new Set<string>();
 	const tokenPot = new Map<string, string>();

@@ -17,6 +17,7 @@ import {
 	normalizeGameConfigDoc,
 	potsOverlayMockInputs,
 	potsOverlayPreset,
+	setOverlayPotCount,
 	validateGameConfigDoc,
 } from '../packages/game-config/index.ts';
 import { createMockRgs as createBookMock } from './mock-rgs-server-book.mjs';
@@ -83,6 +84,15 @@ const STUB = insert(BOOK_HOST, 'potsToFreeSpins', (doc) => {
 	doc.potsOverlay.pots[0].bonus = { mode: 'pickBonus' };
 	return doc;
 });
+const counted = (doc, pots) => {
+	const result = setOverlayPotCount(doc, pots);
+	if (!result.ok) throw new Error(result.reason);
+	return normalizeGameConfigDoc(result.doc);
+};
+/** No pots: the overlay drops only value coins. */
+const COINS_ONLY = counted(THREE, 0);
+/** Five pots, the last two new. */
+const FIVE = counted(THREE, 5);
 /** Drops in free spins too. */
 const FREE_DROPS = insert(BOOK_HOST, 'threePots', (doc) => {
 	doc.potsOverlay.drops.modes = ['basegame', 'freeSpins'];
@@ -578,6 +588,13 @@ console.log('4. routes: Hold and Win (pots, coins), the host’s free spins, ano
 		['value coins → Hold and Win', THREE, 'force:overlay:coins:6', (d) => d.coinBonus === 1],
 		['pot → free spins', FREE, 'force:pot:gold', (d) => d.freeSpinsByPot === 1],
 		['pot → another mode (a stub)', STUB, 'force:pot:gold', (d) => d.stub === 1],
+		[
+			'no pots: value coins → Hold and Win',
+			COINS_ONLY,
+			'force:overlay:coins:6',
+			(d) => d.coinBonus === 1,
+		],
+		['a fifth pot → Hold and Win', FIVE, 'force:pot:purple', (d) => same(d.potBonus, ['purple'])],
 	];
 	for (const [what, doc, context, did] of routes) {
 		const mock = overlayMock(doc, { seed: `route-${what}` });

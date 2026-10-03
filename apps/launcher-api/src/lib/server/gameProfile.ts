@@ -381,8 +381,11 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		title:
 			'The pots overlay add-on: tokens dropped over the board fill persistent pots, and a full pot starts the bonus it names.',
 		text: (ctx) => {
-			const pots = ctx.config?.potsOverlay?.pots ?? [];
-			return pots.length ? `Pots overlay (${plural(pots.length, 'pot')})` : null;
+			const overlay = ctx.config?.potsOverlay;
+			if (!overlay) return null;
+			return overlay.pots.length
+				? `Pots overlay (${plural(overlay.pots.length, 'pot')})`
+				: 'Pots overlay (coins only)';
 		},
 	},
 	{

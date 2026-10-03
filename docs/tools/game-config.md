@@ -106,18 +106,33 @@ changed. Nothing is stored until you **Save**. Why the model works this way is i
 
 Tokens drop over the symbols during a spin and fly to pots; a full pot starts its bonus.
 
-**Adding it.** Pick a preset and press **＋ Pots overlay**:
+**Adding it.** Pick a preset, how many **pots** it starts with (0–5; the preset's own count
+is picked for you), and press **＋ Pots overlay**:
 
 - **3 Pots (each pot a Hold and Win with its special)** — three pots, each starting the
   Hold and Win feature with a different special active.
 - **Pots to free spins** — one pot that starts free spins.
+- **Coins only (value coins start a Hold and Win)** — no pots: value coins drop over the
+  symbols, and enough on one spin start the Classic Hold and Win.
 
 It adds the overlay and its **token** symbols. Tokens go in the Symbols dictionary only —
-a strip never deals them. The 3 Pots preset also adds a Hold and Win bonus (its block, the
-symbols its respin board deals and its respin strips) — unless the project already has a
-Hold and Win block, in which case the pots use that one.
+a strip never deals them. The 3 Pots and Coins only presets also add a Hold and Win bonus
+(its block, the symbols its respin board deals and its respin strips) — unless the project
+already has a Hold and Win block, in which case the overlay uses that one.
 
-**Pots** (the server keeps each player's level) — one row per pot:
+**Pots** (the server keeps each player's level). **How many** sets the count, 0 to 5:
+
+- Raising it adds pots at the end. Each takes the next free id of red, blue, green, gold,
+  purple (the coded pots' colours), its own `POT_<ID>` token, the last pot's max level and
+  size stages, a drop-table row at the last pot's weight, and the last pot's bonus. A Hold
+  and Win pot takes the next special no other pot starts with (payer, collector,
+  multiplier, then mystery…), or _no special_ once none is left.
+- Lowering it removes pots from the end, with their drop-table rows and their tokens (a
+  token you have given a payout or another role is kept).
+- **0** leaves an overlay that drops only **value coins**, which start the Hold and Win
+  bonus through its coin count trigger — so 0 needs a Hold and Win bonus beside the overlay.
+
+One row per pot:
 
 - **Id** — renaming a pot also renames it in the drop table.
 - **Token** — the symbol that fills it. Untagged `meterSpecial` symbols, and symbols a
@@ -131,9 +146,10 @@ Hold and Win block, in which case the pots use that one.
   special the Hold and Win block hasn't configured says so). For a reels mode such as
   free spins, the number of **spins** — mock only; the real count is the server's.
 
-**+ pot** opens a draft row. Pick its token and its bonus, then press **Add pot** — only
-then does it join the config, because a pot missing either would be dropped on save.
-**×** discards a draft, or removes a pot along with its drop-table rows.
+**+ pot** opens a draft row, up to 5 pots. Pick its token and its bonus, then press
+**Add pot** — only then does it join the config, because a pot missing either would be
+dropped on save. **×** discards a draft, or removes a pot along with its drop-table rows.
+Changing **How many** discards open drafts first.
 
 **Drops** — mock math; the real RGS decides what drops:
 

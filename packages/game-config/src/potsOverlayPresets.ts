@@ -16,13 +16,14 @@ import { HOLD_AND_WIN_MODE, gameModeById, gameTypeForMode } from './modes';
 import type { OverlayPot, PotsOverlay } from './potsOverlay';
 import type { GameConfigDoc, GameConfigSymbol, PaddingReels } from './types';
 
-export const POTS_OVERLAY_PRESET_IDS = ['threePots', 'potsToFreeSpins'] as const;
+export const POTS_OVERLAY_PRESET_IDS = ['threePots', 'potsToFreeSpins', 'coinsOnly'] as const;
 
 export type PotsOverlayPresetId = (typeof POTS_OVERLAY_PRESET_IDS)[number];
 
 export const POTS_OVERLAY_PRESET_LABELS: Record<PotsOverlayPresetId, string> = {
 	threePots: '3 Pots (each pot a Hold and Win with its special)',
 	potsToFreeSpins: 'Pots to free spins',
+	coinsOnly: 'Coins only (value coins start a Hold and Win)',
 };
 
 /** What a preset adds to a doc. Each part is merged in — never a whole-doc reset. */
@@ -136,7 +137,28 @@ function potsToFreeSpins(): PotsOverlayPreset {
 	};
 }
 
-const BUILD: Record<PotsOverlayPresetId, () => PotsOverlayPreset> = { threePots, potsToFreeSpins };
+/** No pots: value coins drop over the host's symbols, and enough on one spin start the Classic
+ *  Hold and Win. */
+function coinsOnly(): PotsOverlayPreset {
+	return {
+		potsOverlay: {
+			pots: [],
+			drops: {
+				chance: 0.15,
+				maxPerSpin: HOLD_AND_WIN_PRESETS.classic.holdAndWin?.trigger.count?.min ?? 1,
+				table: [{ coin: true, weight: 1 }],
+			},
+		},
+		tokens: {},
+		holdAndWin: 'classic',
+	};
+}
+
+const BUILD: Record<PotsOverlayPresetId, () => PotsOverlayPreset> = {
+	threePots,
+	potsToFreeSpins,
+	coinsOnly,
+};
 
 /** A fresh copy of the preset `id`, safe to merge into a doc and edit. */
 export const potsOverlayPreset = (id: PotsOverlayPresetId): PotsOverlayPreset => BUILD[id]();

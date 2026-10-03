@@ -8,7 +8,12 @@
  * refused with a reason; and removing the overlay gives back exactly the doc it was added to.
  */
 
-import { addHoldAndWinBonus, addPotsOverlay, removePotsOverlay } from './src/addOns.ts';
+import {
+	addHoldAndWinBonus,
+	addPotsOverlay,
+	removePotsOverlay,
+	setOverlayPotCount,
+} from './src/addOns.ts';
 import { holdAndWinIsOverlayBonus } from './src/holdAndWin.ts';
 import { HOLD_AND_WIN_PRESETS, HOLD_AND_WIN_PRESET_IDS } from './src/holdAndWinPresets.ts';
 import { symbolsInPlay } from './src/inPlay.ts';
@@ -278,6 +283,104 @@ check(
 	'a token the author has since given a payout is kept',
 	'POT_RED' in removePotsOverlay(tokenEdited).symbols,
 	true,
+);
+
+console.log('\n6. the pot count runs 0 to 5');
+const potRows = (doc: GameConfigDoc) =>
+	doc.potsOverlay!.pots.map((p) => [p.id, p.token, p.bonus.mode, p.bonus.activates ?? '-']);
+const dropRows = (doc: GameConfigDoc) =>
+	doc.potsOverlay!.drops.table.map((e) =>
+		'pot' in e ? `${e.pot}:${e.weight}` : `coin:${e.weight}`,
+	);
+const five = added(setOverlayPotCount(three, 5));
+check(
+	'5 pots: two more, each with its own colour, token and the next unused special',
+	potRows(five),
+	[
+		['red', 'POT_RED', 'holdAndWin', 'payer'],
+		['blue', 'POT_BLUE', 'holdAndWin', 'collector'],
+		['green', 'POT_GREEN', 'holdAndWin', 'multiplier'],
+		['gold', 'POT_GOLD', 'holdAndWin', 'mystery'],
+		['purple', 'POT_PURPLE', 'holdAndWin', '-'],
+	],
+);
+check("5 pots: each new pot drops at the last pot's weight", dropRows(five), [
+	'red:2',
+	'blue:2',
+	'green:2',
+	'coin:3',
+	'gold:2',
+	'purple:2',
+]);
+check('5 pots validates clean', issues(five), []);
+check('5 pots: the input is not mutated', 'gold' in Object.fromEntries(potRows(three)), false);
+check('back to 3 gives the 3 Pots doc again', added(setOverlayPotCount(five, 3)), three);
+const none = added(setOverlayPotCount(three, 0));
+check(
+	'0 pots: value coins only, the tokens gone, the Hold and Win bonus kept',
+	[none.potsOverlay!.pots, dropRows(none), 'POT_RED' in none.symbols, Boolean(none.holdAndWin)],
+	[[], ['coin:3'], false, true],
+);
+check('0 pots validates clean', issues(none), []);
+check('0 pots survives normalizing', normalize(clone(none)), none);
+check(
+	'from 0 back to 3: the 3 Pots pots, each dropping once',
+	[potRows(added(setOverlayPotCount(none, 3))), dropRows(added(setOverlayPotCount(none, 3)))],
+	[potRows(three), ['coin:3', 'red:1', 'blue:1', 'green:1']],
+);
+const freeOverlay = added(addPotsOverlay(host, 'potsToFreeSpins'));
+check(
+	'pots to free spins at 3: each new pot starts the free spins like the gold one',
+	potRows(added(setOverlayPotCount(freeOverlay, 3))),
+	[
+		['gold', 'POT_GOLD', 'freeSpins', '-'],
+		['red', 'POT_RED', 'freeSpins', '-'],
+		['blue', 'POT_BLUE', 'freeSpins', '-'],
+	],
+);
+check(
+	'0 pots with no Hold and Win bonus is refused: nothing would drop',
+	refused(setOverlayPotCount(freeOverlay, 0)),
+	'With no pots the overlay drops only value coins, which start a Hold and Win bonus — add one first, or remove the overlay.',
+);
+check(
+	'out of range is refused',
+	[refused(setOverlayPotCount(three, 6)), refused(setOverlayPotCount(three, -1))],
+	['An overlay holds 0 to 5 pots.', 'An overlay holds 0 to 5 pots.'],
+);
+check(
+	'no overlay is refused',
+	refused(setOverlayPotCount(host, 2)),
+	'This project has no pots overlay.',
+);
+const keptArt = clone(five);
+keptArt.symbols.POT_PURPLE.paytable = [{ '3': 1 }];
+const shrunk = added(setOverlayPotCount(keptArt, 4));
+check(
+	'a dropped pot whose token the author changed keeps the token; a regrown pot reuses it',
+	['POT_PURPLE' in shrunk.symbols, potRows(added(setOverlayPotCount(shrunk, 5)))[4][1]],
+	[true, 'POT_PURPLE'],
+);
+check(
+	'adding the overlay with a count',
+	[
+		potRows(added(addPotsOverlay(host, 'threePots', 5))).length,
+		added(addPotsOverlay(host, 'threePots', 0)).potsOverlay!.pots.length,
+		refused(addPotsOverlay(host, 'potsToFreeSpins', 0)),
+	],
+	[
+		5,
+		0,
+		'With no pots the overlay drops only value coins, which start a Hold and Win bonus — add one first, or remove the overlay.',
+	],
+);
+check(
+	"on a 3 Pots Hold and Win game, new pots skip the meters' ids and specials",
+	potRows(added(setOverlayPotCount(added(onPotsGame), 5))).slice(3),
+	[
+		['gold', 'POT_GOLD', 'holdAndWin', 'mystery'],
+		['purple', 'POT_PURPLE', 'holdAndWin', '-'],
+	],
 );
 
 console.log(failures === 0 ? '\nAll add-on assertions passed.\n' : `\n${failures} FAILED\n`);

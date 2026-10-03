@@ -18,11 +18,29 @@
  * an editor's live doc survives an add.
  */
 
-import { holdAndWinIsOverlayBonus, isHoldAndWinSymbol } from './holdAndWin';
-import type { HoldAndWinPresetId } from './holdAndWinPresets';
+import {
+	HOLD_AND_WIN_SPECIALS,
+	holdAndWinIsOverlayBonus,
+	isHoldAndWinSymbol,
+	type HoldAndWinSpecial,
+} from './holdAndWin';
+import { HOLD_AND_WIN_PRESETS, type HoldAndWinPresetId } from './holdAndWinPresets';
 import { symbolsInPlay, symbolsInPlayForGameType } from './inPlay';
-import { HOLD_AND_WIN_MODE, gameModeById, gameTypeForMode, resolveGameModes } from './modes';
-import type { PotsOverlay } from './potsOverlay';
+import {
+	BASE_GAME_MODE,
+	HOLD_AND_WIN_MODE,
+	gameModeById,
+	gameTypeForMode,
+	resolveGameModes,
+} from './modes';
+import {
+	MAX_OVERLAY_POTS,
+	OVERLAY_POT_IDS,
+	isCoinDrop,
+	type OverlayPot,
+	type PotBonus,
+	type PotsOverlay,
+} from './potsOverlay';
 import { holdAndWinBonus, potsOverlayPreset, type PotsOverlayPresetId } from './potsOverlayPresets';
 import type { GameConfigDoc, GameConfigSymbol } from './types';
 
@@ -103,9 +121,23 @@ export function addHoldAndWinBonus(doc: GameConfigDoc, id: HoldAndWinPresetId): 
  * Add the pots overlay preset `id`: its `potsOverlay` block and its token symbols (in the dictionary
  * only, never on a strip). A preset that pairs a Hold and Win bonus also adds that bonus, unless the
  * project already has a Hold and Win block — a Hold and Win game keeps its own, and its pots fill
- * beside the block's meters. Refused when the project already has an overlay.
+ * beside the block's meters. Refused when the project already has an overlay. `pots` sets how many
+ * pots it starts with ({@link setOverlayPotCount}); absent ⇒ the preset's own.
  */
-export function addPotsOverlay(doc: GameConfigDoc, id: PotsOverlayPresetId): AddOnResult {
+export function addPotsOverlay(
+	doc: GameConfigDoc,
+	id: PotsOverlayPresetId,
+	pots?: number,
+): AddOnResult {
+	const result = mergePotsOverlay(doc, id);
+	if (!result.ok || pots === undefined || pots === result.doc.potsOverlay?.pots.length) {
+		return result;
+	}
+	const counted = setOverlayPotCount(result.doc, pots);
+	return counted.ok ? { ...counted, renamed: result.renamed } : counted;
+}
+
+function mergePotsOverlay(doc: GameConfigDoc, id: PotsOverlayPresetId): AddOnResult {
 	if (doc.potsOverlay) {
 		return { ok: false, reason: 'This project already has a pots overlay. Remove it first.' };
 	}
@@ -147,6 +179,129 @@ const isBareToken = (symbol: GameConfigSymbol | undefined): boolean =>
 	!!symbol &&
 	!symbol.paytable?.length &&
 	JSON.stringify(symbol.special_properties) === JSON.stringify(['meterSpecial']);
+
+/** The symbols nothing but `tokens` names may be deleted with them: dealt by no strip, the token of
+ *  no pot or Hold and Win meter. */
+function dropUnusedTokens(doc: GameConfigDoc, tokens: Iterable<string>): void {
+	const keep = new Set([
+		...symbolsInPlay(doc),
+		...(doc.potsOverlay?.pots ?? []).map((p) => p.token),
+		...(doc.holdAndWin?.meters ?? []).map((m) => m.symbol),
+	]);
+	for (const name of tokens) {
+		if (!keep.has(name) && isBareToken(doc.symbols[name])) delete doc.symbols[name];
+	}
+}
+
+/** The token for a new pot `id`: `POT_<ID>` when free, or when it is an unused `meterSpecial` symbol
+ *  (one a lower count left behind with art the author kept); else the first free suffix. */
+function tokenForNewPot(doc: GameConfigDoc, id: string): string {
+	const base = `POT_${id.toUpperCase().replace(/[^A-Z0-9_]/g, '_')}`;
+	const used = new Set([
+		...symbolsInPlay(doc),
+		...(doc.potsOverlay?.pots ?? []).map((p) => p.token),
+		...(doc.holdAndWin?.meters ?? []).map((m) => m.symbol),
+	]);
+	const existing = doc.symbols[base];
+	if (existing?.special_properties?.includes('meterSpecial') && !used.has(base)) return base;
+	const name = freeName(base, new Set(Object.keys(doc.symbols)));
+	doc.symbols[name] = { special_properties: ['meterSpecial'] };
+	return name;
+}
+
+/** The specials Hold and Win pots activate in turn: the 3 Pots order (red, blue, green), then the
+ *  rest. */
+const potSpecials = (): HoldAndWinSpecial[] => [
+	...new Set([
+		...(HOLD_AND_WIN_PRESETS.pots.holdAndWin?.meters ?? []).flatMap((m) =>
+			m.activates ? [m.activates] : [],
+		),
+		...HOLD_AND_WIN_SPECIALS,
+	]),
+];
+
+/** What a new pot starts: like the last pot's, with a Hold and Win pot taking the first configured
+ *  special ({@link potSpecials}) no other pot or meter activates. Without a pot to copy, Hold and Win
+ *  when the project has a block, else its first bonus mode on the reels. */
+function bonusForNewPot(doc: GameConfigDoc, like: OverlayPot | undefined): PotBonus | undefined {
+	const block = doc.holdAndWin;
+	const mode =
+		like?.bonus.mode ??
+		(block
+			? HOLD_AND_WIN_MODE
+			: resolveGameModes(doc).find((m) => m.id !== BASE_GAME_MODE && m.board === 'reels')?.id);
+	if (!mode) return undefined;
+	if (mode !== HOLD_AND_WIN_MODE) return { ...like?.bonus, mode };
+	const taken = new Set<HoldAndWinSpecial | undefined>([
+		...(doc.potsOverlay?.pots ?? []).map((p) => p.bonus.activates),
+		...(block?.meters ?? []).map((m) => m.activates),
+	]);
+	const activates = potSpecials().find((s) => block?.specials[s] && !taken.has(s));
+	return activates ? { mode, activates } : { mode };
+}
+
+/**
+ * Give the overlay `count` pots, 0 to {@link MAX_OVERLAY_POTS}. Pots go from the end, with their drop
+ * rows and the bare tokens nothing else uses. A new pot takes the next free id of
+ * {@link OVERLAY_POT_IDS}, its own token, the last pot's size and drop weight, and a bonus like the
+ * last pot's ({@link bonusForNewPot}).
+ *
+ * With no pots the overlay drops only value coins, so 0 needs a Hold and Win bonus beside the overlay;
+ * a value-coin drop row is added when the table would be left empty.
+ */
+export function setOverlayPotCount(doc: GameConfigDoc, count: number): AddOnResult {
+	if (!doc.potsOverlay) return { ok: false, reason: 'This project has no pots overlay.' };
+	if (!Number.isInteger(count) || count < 0 || count > MAX_OVERLAY_POTS) {
+		return { ok: false, reason: `An overlay holds 0 to ${MAX_OVERLAY_POTS} pots.` };
+	}
+	const next = structuredClone(doc);
+	const overlay = next.potsOverlay!;
+	const removed = overlay.pots.splice(count);
+	const gone = new Set(
+		removed.map((p) => p.id).filter((id) => !overlay.pots.some((p) => p.id === id)),
+	);
+	overlay.drops.table = overlay.drops.table.filter((e) => isCoinDrop(e) || !gone.has(e.pot));
+	dropUnusedTokens(
+		next,
+		removed.map((p) => p.token),
+	);
+
+	while (overlay.pots.length < count) {
+		const like = overlay.pots.at(-1);
+		const bonus = bonusForNewPot(next, like);
+		if (!bonus)
+			return { ok: false, reason: 'This project has no bonus mode a full pot could start.' };
+		const taken = new Set([
+			...overlay.pots.map((p) => p.id),
+			...(next.holdAndWin?.meters ?? []).map((m) => m.id),
+		]);
+		const id =
+			OVERLAY_POT_IDS.find((name) => !taken.has(name)) ??
+			freeName(OVERLAY_POT_IDS[overlay.pots.length % OVERLAY_POT_IDS.length], taken);
+		overlay.pots.push({
+			id,
+			token: tokenForNewPot(next, id),
+			maxLevel: like?.maxLevel ?? 12,
+			sizeStages: like ? [...like.sizeStages] : [5, 9],
+			bonus,
+		});
+		const weight =
+			overlay.drops.table.find((e) => !isCoinDrop(e) && e.pot === like?.id)?.weight ?? 1;
+		overlay.drops.table.push({ pot: id, weight });
+	}
+
+	if (!overlay.drops.table.length) {
+		if (!next.holdAndWin || !holdAndWinIsOverlayBonus(next)) {
+			return {
+				ok: false,
+				reason:
+					'With no pots the overlay drops only value coins, which start a Hold and Win bonus — add one first, or remove the overlay.',
+			};
+		}
+		overlay.drops.table.push({ coin: true, weight: 1 });
+	}
+	return { ok: true, doc: next, renamed: noRenames() };
+}
 
 /**
  * Take the pots overlay out of `doc`. When the `holdAndWin` block is the overlay's BONUS

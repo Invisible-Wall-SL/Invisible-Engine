@@ -263,11 +263,40 @@ console.log('\n3. validate — every rule, both ways');
 check('3 Pots on the host is clean', validateGameConfigDoc(three), []);
 check('pots to free spins on the host is clean', validateGameConfigDoc(free), []);
 check(
-	'no pots',
+	'no pots, value coins only, is clean',
 	overlayIssues(
 		edit(three, (d) => {
 			d.potsOverlay!.pots = [];
 			d.potsOverlay!.drops.table = [{ coin: true, weight: 1 }];
+		}),
+	),
+	[],
+);
+check(
+	'no pots and no value coin',
+	overlayIssues(
+		edit(free, (d) => {
+			d.potsOverlay!.pots = [];
+			d.potsOverlay!.drops.table = [{ pot: 'gold', weight: 1 }];
+		}),
+	),
+	['error:potsOverlay.pots', 'error:potsOverlay.drops.table.0.pot'],
+);
+check(
+	'more than five pots',
+	overlayIssues(
+		edit(three, (d) => {
+			for (const id of ['gold', 'purple', 'pink']) {
+				d.symbols[`POT_${id.toUpperCase()}`] = { special_properties: ['meterSpecial'] };
+				d.potsOverlay!.pots.push({
+					id,
+					token: `POT_${id.toUpperCase()}`,
+					maxLevel: 12,
+					sizeStages: [],
+					bonus: { mode: 'holdAndWin' },
+				});
+				d.potsOverlay!.drops.table.push({ pot: id, weight: 1 });
+			}
 		}),
 	),
 	['error:potsOverlay.pots'],

@@ -39,7 +39,6 @@ const HOLD_AND_WIN_MODE = 'holdAndWin';
 export function createPotsOverlay(host, inputs, opts = {}) {
 	const allowForce = opts.allowForce !== false;
 	const pots = list(inputs?.pots).filter((p) => p && typeof p.id === 'string' && p.bonus?.mode);
-	if (!pots.length) throw new Error(`[${host.label}] a pots overlay needs at least one pot`);
 	const potById = new Map(pots.map((p) => [p.id, p]));
 	const maxOf = (pot) => Math.max(1, Math.round(Number(pot.maxLevel) || 1));
 	const drops = inputs.drops ?? {};
@@ -87,6 +86,10 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 	const table = list(drops.table).filter(
 		(e) => Number(e?.weight) > 0 && (e.coin === true ? Boolean(hw) : potById.has(e.pot)),
 	);
+	// With no pots, value coins are all an overlay drops.
+	if (!pots.length && !table.length) {
+		throw new Error(`[${host.label}] a pots overlay needs a pot or a value coin to drop`);
+	}
 	const bonuses = { ...host.bonuses, ...(hw ? { respin: HOLD_AND_WIN_MODE } : {}) };
 
 	// ---- sessions: pots (and a Hold and Win bonus's progressive pools) ----
