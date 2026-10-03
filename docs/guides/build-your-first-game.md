@@ -37,8 +37,9 @@ separate app ([design](../design/game-type-templates.md)).
 **Do:** open `/game-maker`. Choose one:
 
 - **Create a game:** fill in Name, Key, Client and **Game type**, then click **Create project**.
-- **Duplicate…** an existing game onto a new key. Pick **Game setup only** when new art is
-  coming, or copy everything to replace the art in place.
+- **Duplicate…** an existing game onto a new key. **Game setup only** copies no art, sounds or
+  fonts, so pick it only when new art is coming. **Everything** copies a game that plays as the
+  original does, and you replace the art in place.
 
 Guide: [game-maker.md](../tools/game-maker.md#create-a-game).
 

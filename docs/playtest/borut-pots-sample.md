@@ -8,7 +8,8 @@
 The pots overlay sample (design [pots-overlay.md](../design/pots-overlay.md), hub
 [status/pots-overlay.md](../status/pots-overlay.md)). It is Book of Borut with the **3 Pots** add-on
 layered on top. The owner made it with Game Maker → Duplicate (`invisible_wall/bookofborutremake` →
-`borut-pots-sample`, setup scope), then added **＋ Pots overlay** with the **3 Pots** preset,
+`borut-pots-sample`, What to copy **Everything**, so it carries Borut's art, sounds and fonts; a
+setup-scope copy has none and draws Borut's nodes blank), then added **＋ Pots overlay** with the **3 Pots** preset,
 re-routed the green pot in `/config` → Add-ons (green pot → bonus mode `freeSpins`, so one pot
 starts Borut's own free spins), then published. If the Game Maker action is not live yet, the same add-on is in `/config` → Add-ons. The
 base game is still the `book` kind, so the test server deals it with the book mock
@@ -105,6 +106,11 @@ balance must equal the balance before, minus the stake, plus `gameEnd.win`. The 
 Balance/Win must match `platform.balance` and `gameEnd.win`. The console must show 0 uncaught
 exceptions and no `Missing bookEventHandler`. The round must end back at idle with spin armed. The
 only expected console noise is environmental (Typekit, a `boot.json` 404).
+
+At boot, Borut's own art must draw: the board, frame and symbols are Borut's, not the generic lines
+art. The console must show no `[invisible] … will render blank` or `… shipped with NO files`
+warning. Either one usually means the sample was duplicated with **Game setup only**, which copies
+no art; stop and report the warning's names rather than playing on.
 
 ### S1 — Base spin plays Borut, tokens over its symbols (`overlay:drop`)
 
