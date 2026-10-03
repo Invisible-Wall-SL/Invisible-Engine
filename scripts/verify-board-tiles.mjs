@@ -615,14 +615,15 @@ const symbolDimmed = compileSlice({
 
 console.log('5. the rule-8 ship chain: collectArtRefs sees the tile');
 const EXPORT_SRC = read('apps/launcher-api/src/lib/server/editorArtExport.ts');
-// Both stub names are IMPORTED, not faked. `collectArtRefs` asks
+// Every stub name is IMPORTED, not faked. `collectArtRefs` asks
 // `staticSpineKeyIsReachable` which of the two spine sets a node's static `assetKey` belongs
 // in (#734), and it is free in the slice — a stub would let this fixture pass while the real
 // pair diverged, and leaving it out entirely arms a `ReferenceError` for the first case that
-// places a spine node. Both modules are dependency-free on purpose so Node can load them.
+// places a spine node. `instanceParamMaps` is the same for the first componentInstance. All three
+// modules are dependency-free on purpose so Node can load them.
 const collectArtRefs = compileSlice({
 	what: 'verify-board-tiles / editorArtExport.ts#collectArtRefs',
-	names: ['parseScopedFrameRef', 'staticSpineKeyIsReachable'],
+	names: ['parseScopedFrameRef', 'staticSpineKeyIsReachable', 'instanceParamMaps'],
 	body: [
 		sliceFunction(EXPORT_SRC, 'isManifestAssetKey', 'editorArtExport.ts'),
 		sliceFunction(EXPORT_SRC, 'isImageAssetKey', 'editorArtExport.ts'),
@@ -634,6 +635,7 @@ const collectArtRefs = compileSlice({
 })(
 	(await import('../packages/engine-layout/src/lib/editorArtKey.ts')).parseScopedFrameRef,
 	(await import('../apps/launcher-api/src/lib/spineBundleKey.ts')).staticSpineKeyIsReachable,
+	(await import('../packages/engine-layout/src/lib/componentParams.ts')).instanceParamMaps,
 );
 
 const docWith = (nodes) => ({ scenes: [{ nodes }] });
