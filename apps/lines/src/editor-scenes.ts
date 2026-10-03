@@ -621,8 +621,10 @@ function warnMissingAssets(source: BakedBundle): void {
 	if (spine.length) {
 		console.warn(
 			`[invisible] ${spine.length} placed spine bundle(s) shipped with NO files and will be ` +
-				`missing: ${spine.join(', ')}. A rig under another project's prefix is not exported ` +
-				'into this game — re-pick it from this project, or promote it to the shared library.',
+				`missing: ${spine.join(', ')}. Either the rig is not in this project at all (a project ` +
+				"duplicated without its art, a deleted rig), or it lives under another project's " +
+				'prefix, which is not exported into this game. Re-pick it from this project, upload it ' +
+				'here, or promote it to the shared library.',
 		);
 	}
 	if (sym.length) {
