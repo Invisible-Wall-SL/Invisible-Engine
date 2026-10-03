@@ -141,9 +141,10 @@ drop on such a game gets a warning).
   multiplier, then mystery…), or _no special_ once none is left.
 - Lowering it removes pots from the end, with their drop-table rows and their tokens (a
   token you have given a payout or another role is kept).
-- **0** leaves a coins-only overlay (above), so it is offered only when the Hold and Win
-  block is the overlay's bonus — not on a Hold and Win game, whose own block counts only the
-  coins landing on its reels. A value-coin row is added if the table has none.
+- **0** leaves a coins-only overlay (above). It is offered only when the Hold and Win block
+  is the overlay's bonus — not on a Hold and Win game, whose own block counts only the coins
+  landing on its reels. The block also needs a coin count trigger. A value-coin row is added if
+  the table has none, and **Most per spin** is raised if it could not reach the trigger.
 
 One row per pot:
 

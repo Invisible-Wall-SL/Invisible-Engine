@@ -1,4 +1,5 @@
 import {
+	OVERLAY_POT_IDS,
 	resolveMeters,
 	symbolHoldAndWinRoles,
 	type GameConfigDoc,
@@ -16,18 +17,18 @@ import {
 
 export type SymbolPlaceholder = { fill: number; text: string };
 
-const NAMED_POT_COLOURS: Record<string, number> = {
-	red: 0xe0452f,
-	blue: 0x2f7be0,
-	green: 0x3fbf5a,
-	gold: 0xe0b030,
-	purple: 0x9a4fe0,
-};
+/** One colour per {@link OVERLAY_POT_IDS} id, in its order. */
+const OVERLAY_POT_COLOURS = [0xe0452f, 0x2f7be0, 0x3fbf5a, 0xe0b030, 0x9a4fe0];
 const POT_PALETTE = [0xe0b030, 0x30b0e0, 0xb060e0, 0x60c070];
 
-/** A pot's colour, shared by the coded pot and its token: its id's own, else by its position. */
-export const potColour = (id: string, index: number): number =>
-	NAMED_POT_COLOURS[id] ?? POT_PALETTE[index % POT_PALETTE.length];
+/**
+ * A pot's colour, shared by the coded pot and its token: its id's own (a clash-renamed `red_2` is
+ * still red), else by its position.
+ */
+export const potColour = (id: string, index: number): number => {
+	const named = OVERLAY_POT_IDS.findIndex((potId) => potId === id.replace(/_\d+$/, ''));
+	return named === -1 ? POT_PALETTE[index % POT_PALETTE.length] : OVERLAY_POT_COLOURS[named];
+};
 
 /** A coin's or a jackpot's value is its label (`CoinLabel`), drawn over the disc, so no text. */
 const ROLE_LOOKS: Partial<Record<HoldAndWinSymbolRole, SymbolPlaceholder>> = {
@@ -51,6 +52,7 @@ function resolvePlaceholder(config: GameConfigDoc, name: string): SymbolPlacehol
 		const { id, label } = meters[pot];
 		return { fill: potColour(id, pot), text: (label ?? id).toUpperCase() };
 	}
+	if (!config.holdAndWin) return null;
 	const roles = symbolHoldAndWinRoles(config.symbols[name]);
 	if (roles.includes('blank')) return null;
 	for (const role of roles) {
@@ -61,9 +63,10 @@ function resolvePlaceholder(config: GameConfigDoc, name: string): SymbolPlacehol
 }
 
 /**
- * The disc `name` draws while it has no art, or `undefined` for a symbol that is not a pot token
- * or a Hold and Win coin or special (and for a `blank`, which draws nothing by design). Resolved once
- * per config and symbol, since every cell asks on every state change.
+ * The disc `name` draws while it has no art, or `undefined` for a symbol that is not a pot token or
+ * a Hold and Win coin or special of a config with a Hold and Win block (and for a `blank`, which
+ * draws nothing by design). Resolved once per config and symbol, since every cell asks on every
+ * state change.
  */
 export function symbolPlaceholder(
 	config: GameConfigDoc,

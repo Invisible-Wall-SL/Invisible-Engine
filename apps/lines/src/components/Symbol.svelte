@@ -122,8 +122,8 @@
 	 * cell was bound to a flipbook (or a sprite) paid with no frame while its spine-bound neighbour
 	 * on the same payline got one.
 	 *
-	 * A symbol with NO art draws nothing at all, frame included: a lone frame around empty space
-	 * reads as a rendering fault rather than as the missing binding it is.
+	 * A symbol with NO art gets no frame (it draws nothing, or an add-on's placeholder disc): a lone
+	 * frame around empty space reads as a rendering fault rather than as the missing binding it is.
 	 *
 	 * Drawn on every WIN HIGHLIGHT state, not only `win`: the Hold and Win beats that played `win`
 	 * before they had names of their own (`WIN_HIGHLIGHT_SYMBOL_STATES`) keep the frame they had.

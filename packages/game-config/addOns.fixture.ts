@@ -439,8 +439,51 @@ check(
 	[
 		5,
 		0,
-		'With no pots the overlay drops only value coins, which start a Hold and Win bonus — add one first, or remove the overlay.',
+		'With no pots the overlay drops only value coins, which start a Hold and Win bonus. Pick a preset that brings one (3 Pots, Coins only), or keep at least one pot.',
 	],
+);
+check(
+	'Coins only with 3 pots asked for on a Hold and Win game is added with 3 pots',
+	[
+		added(addPotsOverlay(potsGame, 'coinsOnly', 3)).potsOverlay!.pots.length,
+		issues(added(addPotsOverlay(potsGame, 'coinsOnly', 3))).filter((i) =>
+			i.startsWith('error:potsOverlay'),
+		),
+	],
+	[3, []],
+);
+const freeWithClassic = added(addHoldAndWinBonus(freeOverlay, 'classic'));
+const freeToCoins = added(setOverlayPotCount(freeWithClassic, 0));
+check(
+	'0 pots raises the most drops per spin to reach the coin trigger, so it can start',
+	[
+		freeToCoins.potsOverlay!.drops.maxPerSpin,
+		issues(freeToCoins).filter((i) => i.includes('potsOverlay')),
+	],
+	[(freeWithClassic.holdAndWin!.trigger.count!.min ?? 0) + 2, []],
+);
+check(
+	'0 pots on a bonus with no coin count trigger is refused',
+	refused(setOverlayPotCount(added(addHoldAndWinBonus(freeOverlay, 'collector')), 0)),
+	'Value coins start this Hold and Win only through its coin count trigger, which it does not set — set one in the Hold and Win section first, or keep at least one pot.',
+);
+const goldTaken = clone(three);
+goldTaken.symbols.POT_GOLD = { paytable: [{ '3': 1 }] };
+check(
+	'a new pot whose token name is taken gets a suffix, and the result says so',
+	(() => {
+		const result = setOverlayPotCount(goldTaken, 4);
+		return result.ok && [result.doc.potsOverlay!.pots[3].token, result.renamed.symbols];
+	})(),
+	['POT_GOLD_2', { POT_GOLD: 'POT_GOLD_2' }],
+);
+check(
+	'a rename the merge made is dropped when the count cut what it named',
+	(() => {
+		const result = addPotsOverlay(crowded, 'threePots', 0);
+		return result.ok && result.renamed;
+	})(),
+	{ symbols: { BONUS: 'BONUS_2' }, pots: {} },
 );
 check(
 	"on a 3 Pots Hold and Win game, new pots skip the meters' ids and specials",

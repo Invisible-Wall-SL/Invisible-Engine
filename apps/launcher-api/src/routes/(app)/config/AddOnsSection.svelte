@@ -126,8 +126,17 @@
 		);
 	}
 
-	/** Set the pot count; the rows still being typed go first, so the count is what the block holds. */
-	function setPotCount(count: number) {
+	/**
+	 * Set the pot count. A refusal leaves everything as it was, the picker included; otherwise the rows
+	 * still being typed go first, so the count is what the block holds.
+	 */
+	function setPotCount(select: HTMLSelectElement, count: number) {
+		const trial = setOverlayPotCount(snapshot(), count);
+		if (!trial.ok) {
+			select.value = String(doc.potsOverlay?.pots.length ?? 0);
+			apply(trial, `${count} pots`);
+			return;
+		}
 		for (let i = drafts.length - 1; i >= 0; i -= 1) discardDraft(i);
 		apply(setOverlayPotCount(snapshot(), count), `${count} pots`);
 	}
@@ -210,7 +219,7 @@
 	/** No pots at all — value coins only — needs a Hold and Win block that is the overlay's bonus. */
 	const zeroPotsAllowed = $derived(Boolean(doc.holdAndWin) && holdAndWinIsOverlayBonus(doc));
 	const potRemovable = (overlay: PotsOverlay) =>
-		overlay.pots.length > 1 || (hasCoinDrop(overlay) && coinsAloneStart);
+		overlay.pots.length > 1 || (hasCoinDrop(overlay) && zeroPotsAllowed);
 	const dropRemovable = (overlay: PotsOverlay, i: number) =>
 		overlay.pots.length > 0 || overlay.drops.table.some((e, k) => k !== i && isCoinDrop(e));
 	const KEEP_ONE =
@@ -373,11 +382,15 @@
 			<label class="inline"
 				><span>How many</span><select
 					value={overlay.pots.length}
-					onchange={(e) => setPotCount(Number(e.currentTarget.value))}
+					onchange={(e) => setPotCount(e.currentTarget, Number(e.currentTarget.value))}
 				>
 					{#each POT_COUNTS as n (n)}
 						<option value={n} disabled={n === 0 && !zeroPotsAllowed && overlay.pots.length > 0}
-							>{n}{n === 0 && !zeroPotsAllowed ? ' — needs a Hold and Win bonus' : ''}</option
+							>{n}{n === 0 && !zeroPotsAllowed
+								? doc.holdAndWin
+									? ' — this game’s Hold and Win needs a pot'
+									: ' — needs a Hold and Win bonus'
+								: ''}</option
 						>
 					{/each}
 					{#if overlay.pots.length > MAX_OVERLAY_POTS}
@@ -553,7 +566,9 @@
 		<button
 			class="small"
 			disabled={overlay.pots.length + drafts.length >= MAX_OVERLAY_POTS}
-			title={`An overlay holds at most ${MAX_OVERLAY_POTS} pots`}
+			title={overlay.pots.length + drafts.length >= MAX_OVERLAY_POTS
+				? `An overlay holds at most ${MAX_OVERLAY_POTS} pots`
+				: undefined}
 			onclick={() => drafts.push({ id: freePotId(overlay), token: '', mode: '' })}>+ pot</button
 		>
 		{@render issueLines(issuesAt('potsOverlay.pots'))}

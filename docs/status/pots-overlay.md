@@ -745,8 +745,16 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
       and bonus. A Hold and Win pot takes the next special no pot or meter starts with: payer,
       collector, multiplier (the 3 Pots order), then mystery… With none left it starts with none.
     - Lowering it removes pots from the end, with their drop rows and bare tokens.
-    - 0 is Phase 6's coins-only rule. It is allowed only when the block is the overlay's bonus, and
-      a coin row is added if the table has none. The picker disables 0 otherwise.
+    - 0 is Phase 6's coins-only rule. It is allowed only when the block is the overlay's bonus and
+      has a coin count trigger. A coin row is added if the table has none. "Most per spin" is raised
+      to trigger + 2 when it could not reach the trigger, as the `coinsOnly` preset sets it. The
+      picker disables 0 otherwise, and the last pot's × follows the same rule.
+    - A count picked on add is what the coins-only refusal checks, so Coins only with 3 pots is
+      allowed on a Hold and Win game.
+    - A rename is reported only while the pot or token it names survives the count.
+    - The coded pots keep a minimum spacing (`SYMBOL_SIZE * 0.95`), so more pots than columns spread
+      past the board's edges instead of overlapping (a 3 Pots Hold and Win game with 5 overlay pots
+      has 8). At five or fewer on a 5-reel board, the layout is unchanged.
     - The validator errors on more than `MAX_OVERLAY_POTS` (5). `+ pot` stops at 5.
     - Pinned by `addOns.fixture.ts` §6 and the `potsOverlay` fixture. `check:pots-overlay` §4 adds a
       count-0 route and a fifth-pot route.
@@ -758,7 +766,11 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
       disc under its value. A jackpot or special draws its own colour and tag, hidden under a value
       label. `BLANK` and every other artless symbol still draw nothing.
     - Bound art wins, including Phase 6's seeded placeholders.
-    - The disc completes at once, like a sprite. `potColour` is shared with the coded pot.
+    - The disc completes after a 400 ms hold, as a missing flipbook clip does. Otherwise a token's
+      `coinLand` would end in the same flush and its flight would leave before the disc was seen.
+    - `potColour` is shared with the coded pot and keyed off `OVERLAY_POT_IDS`, so a renamed `red_2`
+      stays red. The Hold and Win role looks apply only to a config with a Hold and Win block.
+    - `code-reviewer`: nothing blocking. Its four should-fixes and the nits are folded in above.
     - Pinned by `symbolPlaceholder.fixture.ts`. Verified on a real clock, local mocks, with the 3
       Pots config in effect: tokens, coins and specials visible; 5 pots in a row; a special-less fifth
       pot's Hold and Win played out; money exact.

@@ -73,6 +73,7 @@ check(
 	[0xe0b030, 0x9a4fe0],
 );
 check('an unnamed pot takes the palette by position', potColour('pot6', 1), 0x30b0e0);
+check('a clash-renamed pot keeps its colour', potColour('red_2', 4), 0xe0452f);
 
 console.log('\n2. Hold and Win coins and specials');
 check('a coin is a gold disc with no text', symbolPlaceholder(three, 'BONUS'), {
@@ -95,6 +96,15 @@ check(
 	[undefined, undefined, undefined],
 );
 check('an unknown name', symbolPlaceholder(three, 'NOPE'), undefined);
+const noBlock = normalizeGameConfigDoc({
+	...host,
+	symbols: { ...host.symbols, MYSTERY: { special_properties: ['mystery'] } },
+})!;
+check(
+	'a Hold and Win role without a Hold and Win block',
+	symbolPlaceholder(noBlock, 'MYSTERY'),
+	undefined,
+);
 
 if (failures) throw new Error(`${failures} placeholder assertion(s) FAILED`);
 console.log('\nAll placeholder assertions passed.\n');
