@@ -129,6 +129,8 @@ export function importBonus(
 
 	const next = structuredClone(target);
 	const previous = bonusImportOf(next, HOLD_AND_WIN_MODE);
+	// The HUD screen is the host's layout's, so the host's choice outlives a replace.
+	const hostHud = next.modes?.find((m) => m.id === HOLD_AND_WIN_MODE)?.hud;
 	let replaced = false;
 	if (next.holdAndWin) {
 		if (!holdAndWinIsOverlayBonus(next)) {
@@ -178,14 +180,24 @@ export function importBonus(
 	);
 	next.holdAndWin = bonus.holdAndWin;
 
-	// The source's presentation of the mode (its HUD, music, label) comes with it; its game type
-	// does not, as the strips were written under this project's default.
+	// The source's presentation of the mode (its music, counter, label) comes with it. Its game type
+	// does not, as the strips were written under this project's default, and neither does its HUD,
+	// which names a screen of the SOURCE's layout: the host keeps its own.
 	const authored = source.modes?.find((m) => m.id === HOLD_AND_WIN_MODE);
-	if (authored) {
-		const { gameType: _gameType, ...presentation } = authored;
-		const override: GameModeDecl = { ...presentation, id: HOLD_AND_WIN_MODE };
-		next.modes = [...(next.modes ?? []), override];
-	}
+	const {
+		gameType: _gameType,
+		hud: _hud,
+		...presentation
+	} = authored ?? {
+		id: HOLD_AND_WIN_MODE,
+		board: 'respinBoard' as const,
+	};
+	const override: GameModeDecl = {
+		...presentation,
+		id: HOLD_AND_WIN_MODE,
+		...(hostHud ? { hud: hostHud } : {}),
+	};
+	if (authored || hostHud) next.modes = [...(next.modes ?? []), override];
 
 	const pots = new Set(opts.pots ?? []);
 	const specials = next.holdAndWin.specials;

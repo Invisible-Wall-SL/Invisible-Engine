@@ -8,6 +8,7 @@
 		POTS_OVERLAY_PRESET_IDS,
 		POTS_OVERLAY_PRESET_LABELS,
 		type HoldAndWinPresetId,
+		type ImportableFeature,
 		type PotsOverlayPresetId,
 	} from 'game-config';
 	import { invalidateAll } from '$app/navigation';
@@ -30,7 +31,6 @@
 	} from '$lib/gameLaunch';
 	import type { BonusImportOutcome, BonusImportParts } from '$lib/bonusImport';
 	import type { AddOnOutcome, AddOnPartStatus, AddOnSeedReport } from '$lib/potsOverlayAddOn';
-	import type { ImportableFeature } from 'game-config';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -404,12 +404,15 @@
 		importFeatures = [];
 		importMode = '';
 		importErr = '';
-		if (!project || !importSource) return;
+		const requested = importSource;
+		if (!project || !requested) return;
 		try {
-			const q = new URLSearchParams({ project: project.key, source: importSource });
+			const q = new URLSearchParams({ project: project.key, source: requested });
 			const res = await fetch(`/api/game-maker/import?${q}`);
 			const out = await res.json().catch(() => ({}));
-			if (!res.ok) throw new Error(out?.error ?? `Could not read ${importSource} (${res.status}).`);
+			// A source picked since this request was sent owns the pickers now.
+			if (importSource !== requested) return;
+			if (!res.ok) throw new Error(out?.error ?? `Could not read ${requested} (${res.status}).`);
 			importFeatures = (out as { features: ImportableFeature[] }).features;
 			importMode = importFeatures.find((f) => !f.refused)?.mode ?? '';
 		} catch (e) {
@@ -688,7 +691,8 @@
 			// Licensing is surfaced ONCE, here — the moment a build goes out is when "who owns this
 			// audio" stops being paperwork, and the only moment everyone is looking.
 			const sounds = out?.sounds as
-				{ bound: number; missingLicence: string[]; nonCommercial: string[] } | undefined;
+				| { bound: number; missingLicence: string[]; nonCommercial: string[] }
+				| undefined;
 			if (sounds?.nonCommercial?.length) {
 				publishNote = {
 					...publishNote,
@@ -714,7 +718,8 @@
 				};
 			}
 			const spinesMissing = out?.spinesMissing as
-				{ scene: string[]; symbols: string[] } | undefined;
+				| { scene: string[]; symbols: string[] }
+				| undefined;
 			const strandedSpines = [
 				...new Set([...(spinesMissing?.scene ?? []), ...(spinesMissing?.symbols ?? [])]),
 			];
@@ -1247,8 +1252,8 @@
 											<span class="stale-dot"></span>
 											<div class="stale-body">
 												<strong>Engine update available.</strong>
-												The shared engine runtime shipped after this game was last published, so the running
-												game may still be on the old engine. Republish to re-hydrate it.
+												The shared engine runtime shipped after this game was last published, so the
+												running game may still be on the old engine. Republish to re-hydrate it.
 											</div>
 											<button
 												class="stale-cta"

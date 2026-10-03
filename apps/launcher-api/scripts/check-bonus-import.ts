@@ -124,8 +124,13 @@ mock.module(src('lib/server/runtimeBundleCache.ts'), {
 });
 const ME = 'session-me';
 
-const { applyBonusImport, rewriteSourceSpines, mergeImportedWinText, importedSpineBundle } =
-	await import('../src/lib/server/projectBonusImport.ts');
+const {
+	applyBonusImport,
+	rewriteSourceSpines,
+	mergeImportedScreens,
+	mergeImportedWinText,
+	importedSpineBundle,
+} = await import('../src/lib/server/projectBonusImport.ts');
 const { applyPotsOverlayAddOn } = await import('../src/lib/server/projectAddOn.ts');
 const { scaffoldProject } = await import('../src/lib/server/projectScaffold.ts');
 const { editorDocKey, flowV2DocKey, gameConfigDocKey, symbolsDocKey, winTextDocKey, SUB } =
@@ -465,7 +470,8 @@ await check('a re-sync picks up a source edit and moves nothing else', async () 
 	assert(out.resynced && !out.replaced, 'not a re-sync');
 	same(
 		Object.fromEntries(Object.entries(out.parts).map(([k, p]) => [k, p.status])),
-		{ symbols: 'present', layout: 'present', flow: 'present', winText: 'added', spines: 'present' },
+		// The spine is promoted again on every run, so a source re-export reaches the copy.
+		{ symbols: 'present', layout: 'present', flow: 'present', winText: 'added', spines: 'added' },
 		'parts',
 	);
 	const config = storedJson<GameConfigDoc>(gameConfigDocKey(CLIENT, HOST));
@@ -532,6 +538,77 @@ await check('a reels feature is refused with its reason, nothing written', async
 	assert(!out.ok && out.error.startsWith('A reels bonus'), out.ok ? 'accepted' : out.error);
 	same(under(''), before, 'R2');
 });
+
+console.log('\n4. spines and screens');
+
+await check('a re-sync carries a spine the source re-exported at the same path', async () => {
+	put(`${COIN_SPINE}/coin.png`, 'PNG v2');
+	const out = await applyBonusImport(CLIENT, HOST, {
+		mode: 'holdAndWin',
+		resync: true,
+		sessionId: ME,
+	});
+	assert(out.ok, `refused: ${out.ok ? '' : out.error}`);
+	same(out.parts.spines.status, 'added', 'spines');
+	same(stored(`${SHARED_COIN}/coin.png`), 'PNG v2', 'the shared copy');
+});
+
+await check('a spine that cannot be promoted keeps its source reference, and says so', async () => {
+	const ghost = `${SPINE_ROOT}/ghost/`;
+	const symbols = storedJson<{ version: 1; symbols: Record<string, unknown> }>(
+		symbolsDocKey(CLIENT, SOURCE),
+	);
+	symbols.symbols.JACKPOT = { static: { type: 'spine', assetKey: ghost, animationName: 'idle' } };
+	put(symbolsDocKey(CLIENT, SOURCE), symbols);
+	const out = await applyBonusImport(CLIENT, HOST, {
+		mode: 'holdAndWin',
+		resync: true,
+		sessionId: ME,
+	});
+	assert(out.ok, `refused: ${out.ok ? '' : out.error}`);
+	const host = storedJson<{ symbols: Record<string, { static?: { assetKey: string } }> }>(
+		symbolsDocKey(CLIENT, HOST),
+	);
+	same(host.symbols.JACKPOT?.static?.assetKey, ghost, 'never a shared key with nothing behind it');
+	same(host.symbols.BONUS?.static?.assetKey, `${SHARED_COIN}/`, 'the promoted one is rewritten');
+	assert(out.parts.spines.note?.includes('ghost'), `no note: ${JSON.stringify(out.parts.spines)}`);
+	assert(
+		!R2.has(`_shared/spines/${importedSpineBundle(HOST, SOURCE, 'ghost')}/`),
+		'a copy appeared',
+	);
+});
+
+await check(
+	"a host screen sharing an imported screen's id is kept; the import's is renamed",
+	() => {
+		const scene = (id: string, extra: Partial<Scene> = {}) =>
+			({ id, name: id, nodes: [], ...extra }) as Scene;
+		const layout = (scenes: Scene[]) =>
+			({
+				version: 1,
+				projectKey: 'p',
+				mainSizesMap: {},
+				scenes,
+				updatedAt: '',
+			}) as unknown as LayoutDoc;
+		const out = mergeImportedScreens(
+			layout([
+				scene('basegame'),
+				scene('hud_bonus'),
+				scene('old_board', { role: 'mode', modeId: 'holdAndWin' }),
+				scene('outro'),
+			]),
+			layout([scene('hud_bonus', { role: 'mode', modeId: 'holdAndWin' })]),
+			'holdAndWin',
+		);
+		same(
+			out.doc.scenes.map((s) => s.id),
+			['basegame', 'hud_bonus', 'hud_bonus-2', 'outro'],
+			'the mode screen replaced in place, the host screen kept',
+		);
+		same(out.renamedScreens, ['hud_bonus → hud_bonus-2'], 'reported');
+	},
+);
 
 if (failures) {
 	console.error(`\ncheck:bonus-import — ${failures} failure(s)`);

@@ -70,7 +70,9 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	const mayAccess = (key: string) => canAccessProject(user.id, user.role, key);
 	const gated = await gate(user, mayAccess, project, source);
 	if (!gated.ok) return gated.response;
-	return json({ features: await sourceFeatures(gated.client, source) }, { headers: NO_STORE });
+	const offered = await sourceFeatures(gated.client, source);
+	if ('error' in offered) return json(offered, { status: 409, headers: NO_STORE });
+	return json(offered, { headers: NO_STORE });
 };
 
 /**

@@ -6,13 +6,16 @@
  * the rest under the same rename map:
  *
  *  - **Symbols:** each imported symbol's `/symbols` cells, display name and sound overrides, from the
- *    source symbol to its name here. A symbol the import no longer brings loses its binding.
+ *    source symbol to its name here; an imported symbol the source never bound gets a placeholder.
+ *    A symbol the import no longer brings loses its binding.
  *  - **Spines:** a cell or a screen node that names a spine under the SOURCE project's prefix would
- *    export nothing from here, so the bundle is promoted to `_shared/spines/imported/<project>/<source>/<bundle>`
- *    and the reference rewritten. A shared bundle travels export → deploy → bake → pull → register
- *    like any other (CLAUDE.md rule 8).
- *  - **Layout:** the mode's `role: 'mode'` screens (and the screen its mode override names as HUD).
- *    They replace this layout's screens for the mode, at the same place.
+ *    export nothing from here, so on every run the bundle is promoted to
+ *    `_shared/spines/imported/<project>/<source>/<bundle>` and the reference rewritten; a bundle that
+ *    cannot be promoted keeps its source reference. A shared bundle travels export → deploy → bake →
+ *    pull → register like any other (CLAUDE.md rule 8).
+ *  - **Layout:** the mode's `role: 'mode'` screens. They replace this layout's screens for the mode,
+ *    at the same place; every other screen is kept, so an id clash renames the imported screen. A
+ *    HUD screen is the host's and never copied (the config keeps the host's `hud`).
  *  - **Flow:** the source's `modes[mode]` section replaces this flow's, on a stored flow only.
  *  - **Win Text:** the Hold and Win families (jackpots, respins, wheel, the feature lines) replace
  *    this doc's, except the lines a pot speaks (`meterFull`, `potLabel`, `potNames`), which are the
@@ -31,7 +34,6 @@
 import type { FlowDoc as FlowDocV2 } from 'engine-flow-v2';
 import {
 	WIN_TEXT_POT_FIELDS,
-	mergeMissingScreens,
 	type LayoutDoc,
 	type LayoutNode,
 	type Scene,
@@ -65,15 +67,7 @@ import { normalizeWinTextDoc, saveWinTextDoc } from './winTextStorage';
 
 export type { BonusImportOutcome, BonusImportParts };
 
-/** The docs an import writes, by the tool that owns each — the Game Maker grant alone must not reach
- *  a doc its own tool would refuse. */
-const IMPORT_TOOLS = ['gameConfig', 'symbols', 'editor', 'flow', 'winText'] as const;
-
-/** The tools {@link IMPORT_TOOLS} names that `hasTool` does not grant, by name. */
-export function importToolsMissing(hasTool: (tool: string) => boolean): string[] {
-	return IMPORT_TOOLS.filter((tool) => !hasTool(tool)).map((tool) => TOOLS[tool]?.name ?? tool);
-}
-
+/** The docs an import writes, by the tool that owns each and the lease its page takes on it. */
 const IMPORT_LEASE_TARGETS = [
 	{ toolId: 'gameConfig', docKey: 'gameConfig', path: '/config' },
 	{ toolId: 'symbols', docKey: 'symbols', path: '/symbols' },
@@ -81,6 +75,14 @@ const IMPORT_LEASE_TARGETS = [
 	{ toolId: 'flow', docKey: 'flow', path: '/flow-v2' },
 	{ toolId: 'winText', docKey: 'winText', path: '/win-text' },
 ] as const;
+
+/** The tools whose doc an import writes that `hasTool` does not grant, by name — the Game Maker
+ *  grant alone must not reach a doc its own tool would refuse. */
+export function importToolsMissing(hasTool: (tool: string) => boolean): string[] {
+	return IMPORT_LEASE_TARGETS.map((t) => t.toolId)
+		.filter((tool) => !hasTool(tool))
+		.map((tool) => TOOLS[tool]?.name ?? tool);
+}
 
 const part = (status: AddOnPartStatus, added: string[] = [], note?: string): AddOnPart => ({
 	status,
@@ -109,20 +111,24 @@ async function guarded(write: () => Promise<AddOnPart>): Promise<AddOnPart> {
 /**
  * The shared bundle an imported spine is promoted to — namespaced by the importing project and its
  * source, so it never overwrites another project's shared bundle of the same name, and two projects
- * importing the same source bundle never share (or overwrite) one copy: each path has one writer.
+ * importing the same source bundle never share (or overwrite) one copy: each path has one writer
+ * (project keys are lowercase slugs, so `r2Slug` maps distinct keys to distinct segments).
  */
 export const importedSpineBundle = (target: string, source: string, bundle: string): string =>
 	`imported/${r2Slug(target)}/${r2Slug(source)}/${bundle}`;
 
 /**
  * Every spine bundle a JSON value names under the SOURCE project's prefix, and the value with each
- * such reference rewritten to its promoted shared bundle. Pure; `value` is not mutated.
+ * such reference rewritten to its promoted shared bundle — except a bundle in `keep` (one whose
+ * promotion failed), which keeps its source reference rather than naming a copy that is not there.
+ * Pure; `value` is not mutated.
  */
 export function rewriteSourceSpines<T>(
 	value: T,
 	client: string,
 	source: string,
 	target: string,
+	keep: ReadonlySet<string> = new Set(),
 ): { value: T; bundles: string[] } {
 	const root = `${SUB.spines(client, source)}/`;
 	const bundles = new Set<string>();
@@ -132,6 +138,7 @@ export function rewriteSourceSpines<T>(
 			const bundle = v.slice(root.length, slash ? -1 : undefined);
 			if (!bundle) return v;
 			bundles.add(bundle);
+			if (keep.has(bundle)) return v;
 			return `${sharedSpinesPrefix(importedSpineBundle(target, source, bundle))}${slash ? '/' : ''}`;
 		}
 		if (Array.isArray(v)) return v.map(walk);
@@ -144,9 +151,10 @@ export function rewriteSourceSpines<T>(
 }
 
 /**
- * Promote each of `bundles` once per import, BEFORE the doc naming it is written, so a written
- * reference always has its shared copy. A bundle that cannot be promoted (not a loadable bundle in
- * the source) is recorded with why; its reference then ships nothing, and the export says so.
+ * Promote each of `bundles` once per run — every run, so a re-sync picks up a spine the source
+ * re-exported at the same path — BEFORE the doc naming it is written. A bundle that cannot be
+ * promoted (not a loadable bundle in the source) is recorded with why, and {@link sourceSpines}
+ * leaves its reference on the source.
  */
 async function promoteSpines(ctx: ImportContext, bundles: readonly string[]): Promise<void> {
 	for (const bundle of bundles) {
@@ -163,6 +171,14 @@ async function promoteSpines(ctx: ImportContext, bundles: readonly string[]): Pr
 			ctx.spines.set(bundle, e instanceof Error ? e.message : String(e));
 		}
 	}
+}
+
+/** `value` with its source spines promoted and rewritten; a failed one keeps its source key. */
+async function sourceSpines<T>(ctx: ImportContext, value: T): Promise<T> {
+	const { bundles } = rewriteSourceSpines(value, ctx.client, ctx.source, ctx.project);
+	await promoteSpines(ctx, bundles);
+	const failed = new Set(bundles.filter((b) => ctx.spines.get(b) !== null));
+	return rewriteSourceSpines(value, ctx.client, ctx.source, ctx.project, failed).value;
 }
 
 // ─── symbols ──────────────────────────────────────────────────────────────────────────────────
@@ -206,11 +222,10 @@ export function mergeImportedBindings(
 
 // ─── layout ───────────────────────────────────────────────────────────────────────────────────
 
-/** The screens that ARE the mode in a layout: its `role: 'mode'` screens, plus its HUD screen. */
-const modeScreenIds = (scenes: readonly Scene[], mode: string, hud: string | undefined): string[] =>
-	scenes
-		.filter((s) => (s.role === 'mode' && s.modeId === mode) || (hud !== undefined && s.id === hud))
-		.map((s) => s.id);
+/** The screens that ARE the mode in a layout: its `role: 'mode'` screens. A HUD screen is not one —
+ *  it is the host's, and other modes may name it. */
+const modeScreenIds = (scenes: readonly Scene[], mode: string): string[] =>
+	scenes.filter((s) => s.role === 'mode' && s.modeId === mode).map((s) => s.id);
 
 function* allNodes(nodes: readonly LayoutNode[]): Generator<LayoutNode> {
 	for (const node of nodes) {
@@ -219,56 +234,57 @@ function* allNodes(nodes: readonly LayoutNode[]): Generator<LayoutNode> {
 	}
 }
 
+/** `wanted`, or the first `wanted-2`, `wanted-3`… not in `taken` (which it then joins). */
+function freeIn(taken: Set<string>, wanted: string, renamed: string[]): string {
+	let next = wanted;
+	for (let n = 2; taken.has(next); n++) next = `${wanted}-${n}`;
+	if (next !== wanted) renamed.push(`${wanted} → ${next}`);
+	taken.add(next);
+	return next;
+}
+
 /**
- * The source's screens for `mode` put in place of `current`'s: each one replaces the screen the
- * layout had for the mode, at the place the first of those stood, and a layout with none gets them
- * where the source has them ({@link mergeMissingScreens}). A node id another screen of this layout
- * already uses is suffixed. Pure.
+ * The source's screens for `mode` put in place of `current`'s. Only this layout's screens for the
+ * mode are replaced, at the place the first of them stood; with none, the imported ones go after
+ * the layout's own. Any other screen is kept: an imported screen whose id one of them uses is
+ * suffixed, and so is a node id another screen of this layout uses. Pure.
  */
 export function mergeImportedScreens(
 	current: LayoutDoc,
 	source: LayoutDoc,
 	mode: string,
-	hud: { current?: string; source?: string },
-): { doc: LayoutDoc; added: string[]; renamedNodes: string[] } {
-	const ids = modeScreenIds(source.scenes, mode, hud.source);
-	if (!ids.length) return { doc: current, added: [], renamedNodes: [] };
-	const replaced = new Set([...modeScreenIds(current.scenes, mode, hud.current), ...ids]);
+): { doc: LayoutDoc; added: string[]; renamedScreens: string[]; renamedNodes: string[] } {
+	const ids = modeScreenIds(source.scenes, mode);
+	if (!ids.length) return { doc: current, added: [], renamedScreens: [], renamedNodes: [] };
+	const replaced = new Set(modeScreenIds(current.scenes, mode));
 	const kept = current.scenes.filter((s) => !replaced.has(s.id));
-	const taken = new Set(kept.flatMap((s) => [...allNodes(s.nodes)].map((n) => n.id)));
+	const screenIds = new Set(kept.map((s) => s.id));
+	const nodeIds = new Set(kept.flatMap((s) => [...allNodes(s.nodes)].map((n) => n.id)));
+	const renamedScreens: string[] = [];
 	const renamedNodes: string[] = [];
-	const freeId = (id: string): string => {
-		let next = id;
-		for (let n = 2; taken.has(next); n++) next = `${id}-${n}`;
-		if (next !== id) renamedNodes.push(`${id} → ${next}`);
-		taken.add(next);
-		return next;
-	};
 	const renameNodes = (nodes: readonly LayoutNode[]): LayoutNode[] =>
 		nodes.map((node) => {
-			const id = freeId(node.id);
+			const id = freeIn(nodeIds, node.id, renamedNodes);
 			return node.kind === 'container'
 				? { ...node, id, children: renameNodes(node.children) }
 				: { ...node, id };
 		});
 	const imported = source.scenes
 		.filter((s) => ids.includes(s.id))
-		.map((s) => ({ ...structuredClone(s), nodes: renameNodes(s.nodes) }));
+		.map((s) => ({
+			...structuredClone(s),
+			id: freeIn(screenIds, s.id, renamedScreens),
+			nodes: renameNodes(s.nodes),
+		}));
 	const at = current.scenes.findIndex((s) => replaced.has(s.id));
-	let scenes: Scene[];
-	if (at >= 0) {
-		const before = current.scenes.slice(0, at).filter((s) => !replaced.has(s.id)).length;
-		scenes = [...kept.slice(0, before), ...imported, ...kept.slice(before)];
-	} else {
-		scenes = mergeMissingScreens(kept, imported, ids);
-		// `mergeMissingScreens` places by the reference's order; with only the imported screens as
-		// reference they go after nothing, so keep them together after the layout's own.
-		if (scenes.length !== kept.length + imported.length) scenes = [...kept, ...imported];
-	}
+	const before =
+		at >= 0 ? current.scenes.slice(0, at).filter((s) => !replaced.has(s.id)).length : kept.length;
+	const scenes = [...kept.slice(0, before), ...imported, ...kept.slice(before)];
 	const unchanged = JSON.stringify(scenes) === JSON.stringify(current.scenes);
 	return {
 		doc: unchanged ? current : { ...current, scenes },
-		added: unchanged ? [] : ids,
+		added: unchanged ? [] : imported.map((s) => s.id),
+		renamedScreens,
 		renamedNodes,
 	};
 }
@@ -343,30 +359,41 @@ async function importSymbols(ctx: ImportContext, config: GameConfigDoc): Promise
 			.map((name) => [name, source.doc[block]![name]]);
 		if (entries.length) (imported as Record<string, unknown>)[block] = Object.fromEntries(entries);
 	}
-	const rewritten = rewriteSourceSpines(imported, ctx.client, ctx.source, ctx.project);
-	const merged = mergeImportedBindings(target.doc, rewritten.value, ctx.names, ctx.dropped);
-	// A symbol the source never bound gets the placeholder a Hold and Win bonus's roles get.
-	const seeded = potsOverlaySymbolsSeed(config, merged.doc);
-	const added = [...merged.added, ...seeded.added.filter((n) => !merged.added.includes(n))];
-	const unbound = merged.unbound.filter((n) => !seeded.added.includes(n));
+	const merged = mergeImportedBindings(
+		target.doc,
+		await sourceSpines(ctx, imported),
+		ctx.names,
+		ctx.dropped,
+	);
+	// An imported symbol the source never bound gets the placeholder a Hold and Win bonus's roles
+	// get. Only an imported one: the seed would also bind the host's own unbound tokens.
+	const ours = new Set(Object.values(ctx.names));
+	const seed = potsOverlaySymbolsSeed(config, merged.doc);
+	const placeholders = seed.added.filter((n) => ours.has(n) && !merged.added.includes(n));
+	const doc: SymbolsDoc = {
+		...merged.doc,
+		symbols: {
+			...merged.doc.symbols,
+			...Object.fromEntries(placeholders.map((n) => [n, seed.doc.symbols[n]])),
+		},
+	};
+	const added = [...merged.added, ...placeholders];
+	const unbound = merged.unbound.filter((n) => !placeholders.includes(n));
 	const note = notes(
 		unbound.length
 			? `No art for ${unbound.join(', ')} in either project: bind it in /symbols.`
 			: '',
 	);
-	if (JSON.stringify(seeded.doc) === JSON.stringify(target.doc)) return part('present', [], note);
-	await promoteSpines(ctx, rewritten.bundles);
-	await saveSymbolsDoc(ctx.client, ctx.project, seeded.doc, target.etag, 'always');
+	if (JSON.stringify(doc) === JSON.stringify(target.doc)) return part('present', [], note);
+	await saveSymbolsDoc(ctx.client, ctx.project, doc, target.etag, 'always');
 	return part('added', added, note);
 }
 
-async function importLayout(
-	ctx: ImportContext,
-	hud: { current?: string; source?: string },
-): Promise<AddOnPart> {
+async function importLayout(ctx: ImportContext): Promise<AddOnPart> {
 	const target = await loadDocWithEtag(ctx.client, ctx.project, await projectGameType(ctx.project));
-	if (target.corrupt)
+	if (target.corrupt) {
 		return part('skipped', [], 'The layout could not be read. Open it in /editor.');
+	}
 	if (target.etag === null) {
 		return part('skipped', [], 'This project has no layout yet: open /editor once, then re-sync.');
 	}
@@ -378,7 +405,7 @@ async function importLayout(
 			`${ctx.source} has no readable layout, so its screens stay as they are here.`,
 		);
 	}
-	const ids = modeScreenIds(source.doc.scenes, ctx.mode, hud.source);
+	const ids = modeScreenIds(source.doc.scenes, ctx.mode);
 	if (!ids.length) {
 		return part(
 			'present',
@@ -388,13 +415,14 @@ async function importLayout(
 	}
 	// Only the copied screens are read, so only their spines are promoted.
 	const copied = { ...source.doc, scenes: source.doc.scenes.filter((s) => ids.includes(s.id)) };
-	const rewritten = rewriteSourceSpines(copied, ctx.client, ctx.source, ctx.project);
-	const merged = mergeImportedScreens(target.doc, rewritten.value, ctx.mode, hud);
+	const merged = mergeImportedScreens(target.doc, await sourceSpines(ctx, copied), ctx.mode);
 	const note = notes(
+		merged.renamedScreens.length
+			? `Screens renamed (this layout uses the id): ${merged.renamedScreens.join(', ')}.`
+			: '',
 		merged.renamedNodes.length ? `Node ids renamed: ${merged.renamedNodes.join(', ')}.` : '',
 	);
 	if (!merged.added.length) return part('present', [], note);
-	await promoteSpines(ctx, rewritten.bundles);
 	await saveDoc(ctx.client, ctx.project, merged.doc, target.etag, 'always');
 	return part('added', merged.added, note);
 }
@@ -450,10 +478,13 @@ async function loadWinText(client: string, project: string) {
 
 async function importWinText(ctx: ImportContext): Promise<AddOnPart> {
 	const target = await loadWinText(ctx.client, ctx.project);
-	if (!target.doc)
+	if (!target.doc) {
 		return part('skipped', [], 'The Win Text doc could not be read. Open it in /win-text.');
+	}
 	const source = await loadWinText(ctx.client, ctx.source);
-	if (!source.doc) return part('skipped', [], `${ctx.source}'s Win Text doc could not be read.`);
+	if (!source.doc) {
+		return part('skipped', [], `${ctx.source}'s Win Text doc could not be read.`);
+	}
 	const merged = mergeImportedWinText(target.doc, source.doc);
 	if (!merged.added.length) return part('present');
 	await saveWinTextDoc(ctx.client, ctx.project, merged.doc, target.etag);
@@ -463,9 +494,22 @@ async function importWinText(ctx: ImportContext): Promise<AddOnPart> {
 // ─── the action ───────────────────────────────────────────────────────────────────────────────
 
 /** What a same-client source project offers to import. */
-export async function sourceFeatures(client: string, source: string) {
+/**
+ * A source project's own Game Config, never its kind's template: a stored config that does not
+ * parse resolves to the template, and importing that would copy a feature the source does not have.
+ */
+async function sourceConfigOf(client: string, source: string): Promise<GameConfigDoc | string> {
 	const resolved = await resolveGameConfig(client, source, await projectGameType(source));
-	return resolved.doc ? importableFeatures(resolved.doc) : [];
+	if (resolved.source === 'template' && resolved.etag !== null) {
+		return `${source}'s Game Config could not be read. Open it in /config first.`;
+	}
+	return resolved.doc ?? `${source} has no Game Config to import from.`;
+}
+
+/** What a same-client source project offers to import, or why it cannot be read. */
+export async function sourceFeatures(client: string, source: string) {
+	const config = await sourceConfigOf(client, source);
+	return typeof config === 'string' ? { error: config } : { features: importableFeatures(config) };
 }
 
 /**
@@ -533,14 +577,14 @@ export async function applyBonusImport(
 	);
 	if (editing) return { ok: false, status: 409, error: editing };
 
-	const sourceConfig = await resolveGameConfig(client, source, await projectGameType(source));
-	if (!sourceConfig.doc) {
-		return { ok: false, status: 404, error: `${source} has no Game Config to import from.` };
+	const sourceConfig = await sourceConfigOf(client, source);
+	if (typeof sourceConfig === 'string') {
+		return { ok: false, status: 409, error: sourceConfig };
 	}
 	const at = opts.at ?? new Date().toISOString();
 	const result: ImportResult = record
-		? resyncBonus(resolved.doc, sourceConfig.doc, opts.mode, at)
-		: importBonus(resolved.doc, sourceConfig.doc, {
+		? resyncBonus(resolved.doc, sourceConfig, opts.mode, at)
+		: importBonus(resolved.doc, sourceConfig, {
 				project: source,
 				mode: opts.mode,
 				at,
@@ -584,12 +628,8 @@ export async function applyBonusImport(
 		),
 		spines: new Map(),
 	};
-	const hud = {
-		current: resolved.doc.modes?.find((m) => m.id === result.mode)?.hud,
-		source: sourceConfig.doc.modes?.find((m) => m.id === result.mode)?.hud,
-	};
 	const symbols = await guarded(() => importSymbols(ctx, saved));
-	const layout = await guarded(() => importLayout(ctx, hud));
+	const layout = await guarded(() => importLayout(ctx));
 	const flow = await guarded(() => importFlow(ctx));
 	const winText = await guarded(() => importWinText(ctx));
 	const failed = [...ctx.spines].filter(([, why]) => why !== null);

@@ -139,9 +139,11 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
     - **Symbols:** `symbols` / `names` / `symbolSounds` of the imported symbols, under the map. A
       symbol the source never bound gets the 5d placeholder. NOT copied: `coinLabel`, `flights`, and
       the other board-wide blocks (they are the host's).
-    - **Screens:** the source's `role: 'mode'` screens for the mode, plus the screen its mode override
-      names as HUD. They replace this layout's for the mode, at the place they stood. A node id another
-      screen uses is suffixed and reported.
+    - **Screens:** the source's `role: 'mode'` screens for the mode. They replace this layout's
+      screens for the mode, at the place they stood, and nothing else: an imported screen whose id
+      another screen here uses is suffixed (as is a clashing node id), and both are reported.
+    - **HUD:** never copied. A mode override's `hud` names a screen of its own project's layout, so
+      the config keeps the HOST's `hud` and drops the source's (music, counter and label come).
     - **Flow:** `modes[mode]`, into a stored flow only.
     - **Win Text:** `jackpots`, `respins`, `wheel` and the `feature` lines, but never a pot's
       (`meterFull`, `potLabel`, `potNames`).
@@ -161,7 +163,14 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
     fixed: a re-sync now keeps a Win Text family the source lacks (Win Text has no backups and its
     families are not per mode); the symbols, layout and flow saves take a backup (`'always'`), as the
     config does; and the spine copy is per importing project. A corrupt source flow now reports as
-    unreadable. Atlas regions need nothing: a scoped sheet ref is a full R2 manifest key, which
+    unreadable.
+  - **The `code-reviewer` pass** (no blocker) found five should-fixes, all fixed: the spine copy is
+    promoted on EVERY run (a re-sync after the source re-exports a spine at the same path refreshes
+    it); a bundle that cannot be promoted keeps its source reference instead of naming a shared copy
+    that is not there; only the mode's own screens are replaced (a HUD or other host screen sharing an
+    id is kept); the source's `hud` is not copied; a source whose stored config does not parse is
+    refused (409) rather than read as its kind's template. The `/symbols` placeholder seed is limited
+    to imported symbols. Atlas regions need nothing: a scoped sheet ref is a full R2 manifest key, which
     the export already reads from any prefix.
   - **The mock route needed no change.** An imported Hold and Win is THE project's block, so
     `potsOverlayMockInputs` hands it to the reused H&W engine as before (design §3.5: "the source

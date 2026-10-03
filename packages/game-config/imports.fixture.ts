@@ -312,6 +312,26 @@ console.log('\n6. re-sync picks up a source edit and keeps everything else');
 	);
 }
 
+console.log("\n6b. the mode override: the source's presentation, the host's HUD");
+{
+	const source = clone(SOURCE);
+	source.modes = [
+		{ id: 'holdAndWin', board: 'respinBoard', hud: 'hud_source', music: 'bgm_classic' },
+	];
+	const hosted = clone(threePotsHost);
+	hosted.modes = [{ id: 'holdAndWin', board: 'respinBoard', hud: 'hud_host' }];
+	const doc = imported(importBonus(hosted, source, { ...FROM, replace: true })).doc;
+	check(
+		"music comes with it; the HUD stays the host's (it names a screen of the host's layout)",
+		doc.modes,
+		[{ id: 'holdAndWin', board: 'respinBoard', music: 'bgm_classic', hud: 'hud_host' }],
+	);
+	const bare = imported(importBonus(goldHost, source, FROM)).doc;
+	check('a host with no HUD of its own takes none from the source', bare.modes, [
+		{ id: 'holdAndWin', board: 'respinBoard', music: 'bgm_classic' },
+	]);
+}
+
 console.log('\n7. the record normalizes structurally');
 check(
 	'junk is dropped, a duplicate mode is kept once',
