@@ -13,10 +13,12 @@
  *     Win's own reducer drains its pots, so it is not drained twice; nothing else drains anything.
  *  5. A resume after free spins that gave way to a pot's bonus does not reopen them; a plain
  *     free-spin round resumes as before.
+ *  6. A board's reveal finds its own drop ahead of it (for per-reel timing), never the next board's.
  */
 
 import {
 	applyOverlayEvent,
+	boardDropCells,
 	drainedMeters,
 	drainMeters,
 	emptyOverlayState,
@@ -184,6 +186,38 @@ check(
 	]),
 	false,
 );
+
+console.log('\n6. the drop a reveal shows');
+const reveal1 = ev({ type: 'reveal' });
+const reveal2 = ev({ type: 'reveal' });
+const drop2 = ev({ type: 'overlayDrop', cells: [GREEN] });
+check(
+	'the drop after a reveal, past its other events',
+	boardDropCells([reveal1, ev({ type: 'winInfo' }), ev(drop)], reveal1),
+	[RED, RED_2, GREEN, COIN],
+);
+check(
+	'a board with no drop finds none, not the next board’s',
+	boardDropCells([reveal1, reveal2, drop2], reveal1),
+	[],
+);
+check('…and the next board finds its own', boardDropCells([reveal1, reveal2, drop2], reveal2), [
+	GREEN,
+]);
+check(
+	'a cascade step is a new board too',
+	boardDropCells([reveal1, ev({ type: 'tumbleBoard' }), drop2], reveal1),
+	[],
+);
+check(
+	'a cell the drop names twice is one token, the last named',
+	boardDropCells(
+		[reveal1, ev({ type: 'overlayDrop', cells: [RED, { ...COIN, reel: 0, row: 1 }] })],
+		reveal1,
+	),
+	[{ ...COIN, reel: 0, row: 1 }],
+);
+check('a reveal not in the book finds nothing', boardDropCells([reveal1, drop2], reveal2), []);
 
 if (failures > 0) throw new Error(`${failures} pots-overlay assertion(s) failed.`);
 console.log('\nAll pots-overlay assertions passed.');

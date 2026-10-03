@@ -56,6 +56,7 @@ import {
 	runFlowEvent,
 	runFlowModeTransition,
 	SCREEN_LIFECYCLE_SIGNALS,
+	signalChainCallsAction,
 	templateVocabulary,
 	withAddOns,
 	type ContainerMountModel,
@@ -207,6 +208,8 @@ export type LinesFlowV2 = {
 	 *  by v2 ALONE (its coded/v1 twin is suppressed, no doubling); an un-owned event falls through to
 	 *  the coded/v1 path (parity). This is how the game hands events to v2 ONE AT A TIME. */
 	ownsEvent: (eventType: string) => boolean;
+	/** Does the chain the flow runs for this event (in the active mode) call `action`? */
+	chainCallsAction: (eventType: string, action: string) => boolean;
 	/** Run the authored v2 handler for `eventName` with `payload` + dispatch `context` (e.g. the
 	 *  surrounding `bookEvents` list a mechanic effect reads); a no-op if un-authored. */
 	dispatch: (
@@ -688,6 +691,8 @@ export const createLinesFlowV2 = (
 			if (screenStatus.halfOn && SCREEN_LIFECYCLE_SIGNALS.has(eventType)) return false;
 			return ownedEvents.has(eventType) || flowOwnsSignal(doc, eventType, stateModes.active());
 		},
+		chainCallsAction: (eventType, action) =>
+			signalChainCallsAction(doc, stateModes.active(), eventType, action),
 		dispatch: (eventName, payload, context) => {
 			trace('event ▶', eventName);
 			return runFlowEvent(doc, ctx, eventName, payload, context);

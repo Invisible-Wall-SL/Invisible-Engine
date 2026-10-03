@@ -216,7 +216,10 @@ untouched.
 - **Lift-off.** A token leaves its cell as its flight starts: the token art becomes the flight head.
   Tokens that do not fly (value coins below the trigger count) clear on the next spin.
 - **Bonus entry.** Any mode entry with `cause: 'meter'` drains the named pots first (the existing
-  drain, toast and banner), then the mode's own intro.
+  drain, toast and banner), then the mode's own intro. This holds when a flow owns the entry too:
+  unless that entry's chain plays `drainPots` itself, the game plays the coded drain before the
+  flow runs it. A Hold and Win entry drains in `showRespinBoard`, so a flow that owns
+  `holdAndWinTrigger` without that beat shows no drain.
 - **Hold and Win from an overlay host.** The base board hands over to the `RespinBoard` as in a
   Hold and Win game. The held coins are the dropped value coins; with none, the feature starts on
   an empty board. When it ends, the base board returns with the host's symbols.

@@ -311,6 +311,12 @@
 		if (next.length === 1 && next[0] === BASE_GAME_MODE) delete drops.modes;
 		else drops.modes = reelModes.map((m) => m.id).filter((id) => next.includes(id));
 	}
+
+	/** After the stop is the default, which a doc never stores. */
+	function setTiming(overlay: PotsOverlay, value: string) {
+		if (value === 'perReel') overlay.timing = 'perReel';
+		else delete overlay.timing;
+	}
 </script>
 
 {#snippet issueLines(list: GameConfigIssue[])}
@@ -616,6 +622,21 @@
 				{/each}
 			</div>
 			{@render issueLines(issuesAt('potsOverlay.drops.modes'))}
+		</div>
+
+		<span class="legend"
+			>Presentation <em>how the game shows a drop; the server never sees it</em></span
+		>
+		<div class="row">
+			<label
+				><span>Tokens appear</span><select
+					value={overlay.timing ?? 'afterStop'}
+					onchange={(e) => setTiming(overlay, e.currentTarget.value)}
+				>
+					<option value="afterStop">after the last reel stops</option>
+					<option value="perReel">as each reel stops</option>
+				</select></label
+			>
 		</div>
 	</fieldset>
 {/snippet}

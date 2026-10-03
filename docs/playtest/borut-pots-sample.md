@@ -192,17 +192,19 @@ only expected console noise is environmental (Typekit, a `boot.json` 404).
 
 ## Known limits — do NOT report as bugs (hub "Open items")
 
-- **Timing:** tokens always appear after the last reel stops. The per-reel option is not built
-  (4b).
-- **The token is not the flight head.** The token leaves its cell, and the coded head (or the
-  `toMeter:<id>` style authored in `/symbols`) flies instead (4b). With several tokens for one pot,
-  the Nth cell sits empty for about (N−1)×70 ms before its flight starts.
+- **Timing:** tokens appear after the last reel stops, unless the config sets
+  `potsOverlay.timing: 'perReel'` (`/config` → Add-ons → "Tokens appear"); then each reel's tokens
+  come down as that reel stops. A board that swaps in place always shows them together.
+- **Each token is its own flight's head** (4b). It waits in its cell until its flight leaves, then
+  flies as the head in its `flyToMeter` state. The cell under it is not lit.
 - **Resume between a drop and its fills shows no tokens.** Neither `overlayDrop` nor `reveal` is in
   the resume snapshot. The following `meterUpdate` still flies from the cell.
 - **The coin draws over the win frame** (owner decision, design §7 #9). A token on a paying cell
   covers that cell's frame by design.
 - **The drain plays after the mode has entered,** so the new mode's screens and music are already
-  up. A flow that OWNS `freeSpinTrigger` or `modeEnter` skips the drain (the pot snaps to empty).
+  up. A flow that OWNS `freeSpinTrigger` or `modeEnter` still drains the pot: unless its chain plays
+  `drainPots`, the game plays the drain first (4b). A flow that owns `holdAndWinTrigger` drains only
+  through `showRespinBoard`.
 - **A token with no `/symbols` art draws nothing.** The add-on seeds placeholder art, so this is a
   bug only on the published sample.
 - **About 4 fps in the container** (software GL). Token pop-in, lift-off, the flights and the drain

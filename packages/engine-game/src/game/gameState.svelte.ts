@@ -64,6 +64,9 @@ export interface GameStateDeps<TGameType extends string> {
 	/** GAME CONTENT: what this game plays when a symbol lands (its scatter counter + wild cue).
 	 *  Supplied by the app, re-exposed on `stateGameDerived` so existing callers are unchanged. */
 	onSymbolLand: (args: { rawSymbol: RawSymbol }) => void;
+	/** GAME CONTENT: what this game shows as a reel stops (a pots overlay's per-reel tokens). Absent ⇒
+	 *  nothing beyond the reel-stop cue. */
+	onReelStopping?: (reelIndex: number) => void;
 	/**
 	 * How the board PRESENTS a round — `activeReelBehaviour()` from the app's game config, defaults
 	 * already applied (roll vs swap in place, the swap style, the per-column stagger, the clear step).
@@ -803,6 +806,7 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 				initialSymbols: init[reelIndex],
 				initialSymbolState: INITIAL_SYMBOL_STATE,
 				onReelStopping: () => {
+					deps.onReelStopping?.(reelIndex);
 					// The reel-stop LADDER, indexed by this reel's own position, so the left-to-right stop
 					// rises in pitch. Every reel used to play `sfx_reel_stop_1` — the audiosprite has
 					// shipped rungs 2–5 since the fork and nothing ever reached them. The pick clamps, so
