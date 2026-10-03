@@ -23,7 +23,7 @@
 		"game-config": "workspace:*"
 	},
 	"devDependencies": {
-		"@types/node": "22.13.5",
+		"@types/node": "26.6.3",
 		"eslint": "9.21.0",
 		"eslint-config-custom": "workspace:*",
 		"tsx": "4.23.15",
