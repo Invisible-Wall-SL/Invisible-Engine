@@ -207,3 +207,29 @@ a delivery, where the RGS is same-origin with the operator's page — see
 - `{#each}` with keyed blocks for lists; `{#await}` for async data
 - Avoid `writable()` stores in new code — prefer runes-based state
 - SvelteKit: use `+page.svelte`, `+layout.svelte`, `+server.ts` file conventions
+
+## Invisible Director + Invisible Pipeline Changes project
+
+The project's docs live in **`docs/director/`** (README, SPEC, ARCHITECTURE, PLAN, HISTORY, ADRs in
+`DECISIONS/`, OPEN_QUESTIONS; `KICKOFF_PROMPT.md` is the original brief, never edited). Its build
+agents are `director-architect`, `platform-integrator`, `director-backend`, `director-frontend`,
+`regression-guardian` and `historian` in `.claude/agents/`.
+
+**Ground rules:**
+1. Games made by Director are created the way Game Maker creates them (no branch).
+2. Everything else — tools, engine, templates, blueprints, runtime-agent definitions, this project's own
+   code — is a **pipeline change**: its own branch, merged only when all pipeline tests pass, every
+   current game still builds, passes its tests and looks the same, and the owner approves. Merges are
+   revertable.
+3. Never break a current game. If a change can't be proven safe for every game, it doesn't merge.
+4. Locked template items win: mockups and notes never change math, paytable, bet modes or feature
+   rules. Conflicts are reported, not "fixed".
+5. Secrets stay on the server (`ANTHROPIC_API_KEY` is a server env var only).
+6. Mockups must be ours or the client's; keep the ownership check; uploads go to the project's R2.
+7. Follow the existing patterns (registry, roles, cards, tool header/nav, styling, storage paths). No
+   unrelated refactors.
+8. Long GPU jobs are queued and resumed, never waited on in a polling loop.
+
+**Session routine.** At start: read `docs/director/README.md`, then `PLAN.md`, then the top of
+`HISTORY.md`, then the ADRs your task cites. At end: add a `HISTORY.md` entry (newest on top) and
+update `PLAN.md`.

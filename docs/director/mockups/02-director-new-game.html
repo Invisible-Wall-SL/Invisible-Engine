@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Invisible Director: new game (mockup)</title>
+
+<style>
+body{margin:0;background:#0B0B0F;color-scheme:dark}
+*{box-sizing:border-box}
+a{color:#7EE0C0}a:hover{color:#A8F0D8}
+.iw-nav:hover{background:#1B1B22 !important;color:#E8E8EE !important}
+.iw-btn:hover{background:#23232E !important;border-color:#3A3A48 !important}
+.iw-btn-primary:hover{background:#26846A !important}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid #6EA8FF;outline-offset:2px}
+</style>
+
+</head>
+<body>
+
+<div style="min-height: 100vh; background: #0B0B0F; color: #EEEEEE; font-family: system-ui, 'Segoe UI', sans-serif; font-size: 14px; line-height: 1.45; color-scheme: dark">
+
+<header style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 12px 24px; background: #0F0F14; border-bottom: 1px solid #1D1D24">
+<a href="01-launcher.html" style="display: inline-flex; align-items: center; gap: 10px; text-decoration: none"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" style="fill: none; stroke: #C9C9D1; stroke-width: 1.6"><path d="M2 12V2h10"></path></svg><span style="font-size: 15px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #7EE0C0">Invisible Director</span></a>
+<nav aria-label="Tools" style="display: flex; flex-wrap: wrap; gap: 2px">
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #7EE787; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><rect x="1.5" y="4.5" width="13" height="7" rx="3.5"></rect><path d="M5 7v2M4 8h2M10.5 7.5h.01M12 9h.01"></path></svg>Game Maker</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #7EE787; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><rect x="2" y="2" width="12" height="12" rx="1.5"></rect><path d="M2 6h12M2 10h12M6 2v12M10 2v12"></path></svg>Game Config</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #F5B95C; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><rect x="2" y="2" width="5" height="5" rx="1"></rect><rect x="9" y="2" width="5" height="5" rx="1"></rect><rect x="2" y="9" width="5" height="5" rx="1"></rect><rect x="9" y="9" width="5" height="5" rx="1"></rect></svg>Atlas Maker</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #F5B95C; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><circle cx="3.5" cy="4" r="1.5"></circle><circle cx="12.5" cy="8" r="1.5"></circle><circle cx="3.5" cy="12" r="1.5"></circle><path d="M5 4.5l6 3M5 11.5l6-3"></path></svg>ComfyUI</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #F5B95C; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><rect x="2" y="2" width="12" height="12" rx="1.5"></rect><path d="M2 8h12M8 8v6"></path></svg>Sheet Maker</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #F5B95C; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><path d="M3 13L8 3l5 10M5 9.5h6"></path></svg>Font Maker</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #F5B95C; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><path d="M3 6v4h2.5L9 13V3L5.5 6z"></path><path d="M11.5 6a3 3 0 0 1 0 4"></path></svg>Sound</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #F5B95C; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><path d="M4 12l8-8"></path><circle cx="3.5" cy="12.5" r="1.5"></circle><circle cx="12.5" cy="3.5" r="1.5"></circle></svg>Rigger</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #F5B95C; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><rect x="2" y="3" width="12" height="10" rx="1.5"></rect><path d="M5 3v10M11 3v10"></path></svg>Flipbook</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #F5B95C; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><path d="M8 2v3M8 11v3M2 8h3M11 8h3M4 4l2 2M10 10l2 2M12 4l-2 2M6 10l-2 2"></path></svg>FX</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #6EA8FF; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><rect x="2" y="2" width="9" height="9" rx="1.5"></rect><rect x="5" y="5" width="9" height="9" rx="1.5"></rect></svg>Scene Editor</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #6EA8FF; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><rect x="1.5" y="3" width="5" height="4" rx="1"></rect><rect x="9.5" y="9" width="5" height="4" rx="1"></rect><path d="M6.5 5h3v4"></path></svg>Flow</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #6EA8FF; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><rect x="2" y="2" width="12" height="12" rx="2"></rect><circle cx="8" cy="8" r="2.5"></circle></svg>Symbols SM</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #6EA8FF; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5"></rect><rect x="5.5" y="5.5" width="5" height="5" rx="1"></rect></svg>Component Editor</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #6EA8FF; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"></path></svg>Win Text</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #6EA8FF; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><circle cx="8" cy="8" r="6"></circle><path d="M2 8h12M8 2c2 2 2 10 0 12M8 2c-2 2-2 10 0 12"></path></svg>Localization</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #B9B9C4; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><path d="M3 13l3-3M6 10l4-4M10 6l3-3"></path><circle cx="6" cy="10" r="1"></circle><circle cx="10" cy="6" r="1"></circle></svg>Spine Viewer</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #B9B9C4; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><path d="M3 2.5h7.5a2 2 0 0 1 2 2v9H5a2 2 0 0 1-2-2z"></path><path d="M3 11.5a2 2 0 0 1 2-2h7.5"></path></svg>Storybook</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #B9B9C4; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><path d="M5 4h9M5 8h9M5 12h9M2 4h.01M2 8h.01M2 12h.01"></path></svg>FTP Browser</a>
+</nav>
+</header>
+
+<main style="padding: 28px 24px 56px">
+<div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+
+<div style="flex: 1 1 640px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+
+<section aria-label="Project" style="display: flex; flex-direction: column; gap: 14px; padding: 20px; background: #14141B; border: 1px solid #23232E; border-radius: 12px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-size: 16px; font-weight: 700; letter-spacing: 0.02em; color: #E8E8EE">Create a game with agents</h1>
+<p style="margin: 0; font-size: 13px; color: #9A9AA6">Same project setup as Game Maker. Pick the client and game type, then a template and a preset, and start from design mockups, a style description or both. The agents build it while you review.</p>
+</div>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 6px"><label for="name" style="font-size: 12px; font-weight: 600; color: #B9B9C4">Name</label><input id="name" type="text" value="Sunken Temple" style="width: 100%; min-height: 36px; padding: 8px 10px; background: #0D0D12; border: 1px solid #2C2C38; border-radius: 8px; color: #E8E8EE; font-family: inherit; font-size: 13px"></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><label for="key" style="font-size: 12px; font-weight: 600; color: #B9B9C4">Key</label><input id="key" type="text" value="sunken-temple" style="width: 100%; min-height: 36px; padding: 8px 10px; background: #0D0D12; border: 1px solid #2C2C38; border-radius: 8px; color: #E8E8EE; font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 13px"></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><label for="client" style="font-size: 12px; font-weight: 600; color: #B9B9C4">Client</label><select id="client" style="width: 100%; min-height: 36px; padding: 8px 10px; background: #0D0D12; border: 1px solid #2C2C38; border-radius: 8px; color: #E8E8EE; font-family: inherit; font-size: 13px"><option>Invisible_Wall</option><option>Borut</option><option>Vikings</option><option>Unassigned</option></select></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><label for="gametype" style="font-size: 12px; font-weight: 600; color: #B9B9C4">Game type</label><select id="gametype" style="width: 100%; min-height: 36px; padding: 8px 10px; background: #0D0D12; border: 1px solid #2C2C38; border-radius: 8px; color: #E8E8EE; font-family: inherit; font-size: 13px"><option>Hold and Win</option><option>Lines</option><option>Book of</option><option>Ways</option><option>Cluster</option><option>Scatter</option></select></div>
+</div>
+</section>
+
+<section aria-label="Template" style="display: flex; flex-direction: column; gap: 12px; padding: 20px; background: #14141B; border: 1px solid #23232E; border-radius: 12px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<label for="template" style="font-size: 16px; font-weight: 700; letter-spacing: 0.02em; color: #E8E8EE">Template</label>
+<p style="margin: 0; font-size: 13px; color: #9A9AA6">Start from a Hold and Win game that already works. The agents re-theme it.</p>
+</div>
+<select id="template" style="width: 100%; min-height: 36px; padding: 8px 10px; background: #0D0D12; border: 1px solid #2C2C38; border-radius: 8px; color: #E8E8EE; font-family: inherit; font-size: 13px"><option>Hold and Win 3 Pots Sample · hw-3pots-sample</option><option>hw-classic-sample</option><option>hw-collector-sample</option></select>
+<div style="display: grid; grid-template-columns: 60px minmax(0, 1fr); gap: 8px 10px; align-items: start">
+<span style="padding-top: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #80808C">Game</span>
+<div style="display: flex; flex-wrap: wrap; gap: 6px">
+<span style="padding: 2px 8px; background: #17212A; border: 1px solid #27404F; border-radius: 6px; color: #A9CFE4; font-size: 11px">Hold and Win</span>
+<span style="padding: 2px 8px; background: #17212A; border: 1px solid #27404F; border-radius: 6px; color: #A9CFE4; font-size: 11px">Line pays</span>
+<span style="padding: 2px 8px; background: #17212A; border: 1px solid #27404F; border-radius: 6px; color: #A9CFE4; font-size: 11px">5 × 3 board</span>
+<span style="padding: 2px 8px; background: #17212A; border: 1px solid #27404F; border-radius: 6px; color: #A9CFE4; font-size: 11px">25 paylines</span>
+<span style="padding: 2px 8px; background: #17212A; border: 1px solid #27404F; border-radius: 6px; color: #A9CFE4; font-size: 11px">96% RTP</span>
+<span style="padding: 2px 8px; background: #17212A; border: 1px solid #27404F; border-radius: 6px; color: #A9CFE4; font-size: 11px">×5,000 max win</span>
+</div>
+<span style="padding-top: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #80808C">Using</span>
+<div style="display: flex; flex-wrap: wrap; gap: 6px">
+<span style="padding: 2px 8px; background: #1A2320; border: 1px solid #2B5546; border-radius: 6px; color: #9FD9C2; font-size: 11px">Wild symbol</span>
+<span style="padding: 2px 8px; background: #1A2320; border: 1px solid #2B5546; border-radius: 6px; color: #9FD9C2; font-size: 11px">Hold and Win respins (3, coins stick)</span>
+<span style="padding: 2px 8px; background: #1A2320; border: 1px solid #2B5546; border-radius: 6px; color: #9FD9C2; font-size: 11px">Jackpots (MINI · MINOR · MAJOR · GRAND)</span>
+<span style="padding: 2px 8px; background: #1A2320; border: 1px solid #2B5546; border-radius: 6px; color: #9FD9C2; font-size: 11px">Collector</span>
+<span style="padding: 2px 8px; background: #1A2320; border: 1px solid #2B5546; border-radius: 6px; color: #9FD9C2; font-size: 11px">Coin multiplier</span>
+<span style="padding: 2px 8px; background: #1A2320; border: 1px solid #2B5546; border-radius: 6px; color: #9FD9C2; font-size: 11px">Persistent pots (3)</span>
+<span style="padding: 2px 8px; background: #1A2320; border: 1px solid #2B5546; border-radius: 6px; color: #9FD9C2; font-size: 11px">Big-win tiers (4)</span>
+</div>
+<span style="padding-top: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #80808C">Locked</span>
+<div style="display: flex; flex-wrap: wrap; gap: 6px">
+<span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; background: #1B1B22; border: 1px solid #2C2C38; border-radius: 6px; color: #C9C9D1; font-size: 11px"><svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round"><rect x="3.5" y="7" width="9" height="7" rx="1.5"></rect><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"></path></svg>Math contract (Game Config)</span>
+<span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; background: #1B1B22; border: 1px solid #2C2C38; border-radius: 6px; color: #C9C9D1; font-size: 11px"><svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round"><rect x="3.5" y="7" width="9" height="7" rx="1.5"></rect><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"></path></svg>Paytable</span>
+<span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; background: #1B1B22; border: 1px solid #2C2C38; border-radius: 6px; color: #C9C9D1; font-size: 11px"><svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round"><rect x="3.5" y="7" width="9" height="7" rx="1.5"></rect><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"></path></svg>Bet modes</span>
+<span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; background: #1B1B22; border: 1px solid #2C2C38; border-radius: 6px; color: #C9C9D1; font-size: 11px"><svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round"><rect x="3.5" y="7" width="9" height="7" rx="1.5"></rect><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"></path></svg>Feature rules</span>
+</div>
+</div>
+</section>
+
+<section aria-label="Preset" style="display: flex; flex-direction: column; gap: 12px; padding: 20px; background: #14141B; border: 1px solid #23232E; border-radius: 12px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<label for="preset" style="font-size: 16px; font-weight: 700; letter-spacing: 0.02em; color: #E8E8EE">Preset</label>
+<p style="margin: 0; font-size: 13px; color: #9A9AA6">Which Atlas Maker blueprint, render quality and GPU the art agents use.</p>
+</div>
+<select id="preset" style="width: 100%; min-height: 36px; padding: 8px 10px; background: #0D0D12; border: 1px solid #2C2C38; border-radius: 8px; color: #E8E8EE; font-family: inherit; font-size: 13px"><option>Stylized symbols · final quality</option><option>Painterly · final quality</option><option>Fast concept · drafts only</option></select>
+<div style="display: flex; flex-wrap: wrap; gap: 6px">
+<span style="padding: 2px 8px; background: #1B1B22; border: 1px solid #2C2C38; border-radius: 6px; color: #C9C9D1; font-size: 11px">Blueprint: <span style="font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace">stylized-symbols-v3</span></span>
+<span style="padding: 2px 8px; background: #1B1B22; border: 1px solid #2C2C38; border-radius: 6px; color: #C9C9D1; font-size: 11px">Drafts 512 px</span>
+<span style="padding: 2px 8px; background: #1B1B22; border: 1px solid #2C2C38; border-radius: 6px; color: #C9C9D1; font-size: 11px">Finals 1024 px</span>
+<span style="padding: 2px 8px; background: #1B1B22; border: 1px solid #2C2C38; border-radius: 6px; color: #C9C9D1; font-size: 11px">3 variants per region</span>
+<span style="padding: 2px 8px; background: #1B1B22; border: 1px solid #2C2C38; border-radius: 6px; color: #C9C9D1; font-size: 11px">RunPod 4090</span>
+</div>
+</section>
+
+<section aria-label="Starting point" style="display: flex; flex-direction: column; gap: 14px; padding: 20px; background: #14141B; border: 1px solid #23232E; border-radius: 12px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h2 style="margin: 0; font-size: 16px; font-weight: 700; letter-spacing: 0.02em; color: #E8E8EE">Starting point</h2>
+<p style="margin: 0; font-size: 13px; color: #9A9AA6">Upload design mockups for the agents to recreate, describe a style, or both. Tag each image with the screen it shows.</p>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 10px">
+<div style="display: flex; flex-direction: column; gap: 8px; width: 210px; padding: 8px; background: #16161C; border: 1px solid #222222; border-radius: 10px">
+<div style="aspect-ratio: 16 / 10; border-radius: 6px; overflow: hidden"><svg viewBox="0 0 320 200" width="100%" height="100%" role="img" aria-label="Mockup: base game screen"><rect width="320" height="200" style="fill: #0E2A30"></rect><path d="M0 64L40 36L80 52L120 24L160 46L200 18L240 42L280 28L320 52V0H0Z" style="fill: #12363C"></path><rect x="110" y="8" width="100" height="16" rx="4" style="fill: #F2C14E"></rect><rect x="64" y="30" width="44" height="9" rx="3" style="fill: #A99BFF"></rect><rect x="114" y="30" width="44" height="9" rx="3" style="fill: #5CE1E6"></rect><rect x="164" y="30" width="44" height="9" rx="3" style="fill: #FF6F61"></rect><rect x="214" y="30" width="44" height="9" rx="3" style="fill: #F2C14E"></rect><rect x="56" y="46" width="208" height="112" rx="6" style="fill: #0A1D22; stroke: #3FB68B; stroke-width: 2"></rect><rect x="64" y="54" width="32" height="28" rx="4" style="fill: #3FB68B"></rect><rect x="104" y="54" width="32" height="28" rx="4" style="fill: #FF6F61"></rect><rect x="144" y="54" width="32" height="28" rx="4" style="fill: #5CE1E6"></rect><rect x="184" y="54" width="32" height="28" rx="4" style="fill: #F2C14E"></rect><rect x="224" y="54" width="32" height="28" rx="4" style="fill: #7FA79A"></rect><rect x="64" y="88" width="32" height="28" rx="4" style="fill: #F2C14E"></rect><rect x="104" y="88" width="32" height="28" rx="4" style="fill: #3FB68B"></rect><rect x="144" y="88" width="32" height="28" rx="4" style="fill: #A99BFF"></rect><rect x="184" y="88" width="32" height="28" rx="4" style="fill: #FF6F61"></rect><rect x="224" y="88" width="32" height="28" rx="4" style="fill: #5CE1E6"></rect><rect x="64" y="122" width="32" height="28" rx="4" style="fill: #7FA79A"></rect><rect x="104" y="122" width="32" height="28" rx="4" style="fill: #5CE1E6"></rect><rect x="144" y="122" width="32" height="28" rx="4" style="fill: #FF6F61"></rect><rect x="184" y="122" width="32" height="28" rx="4" style="fill: #3FB68B"></rect><rect x="224" y="122" width="32" height="28" rx="4" style="fill: #F2C14E"></rect><path d="M18 118q7-6 14 0q-7 6-14 0zM12 132q7-6 14 0q-7 6-14 0zM22 146q7-6 14 0q-7 6-14 0z" style="fill: #5CE1E6"></path><rect x="0" y="166" width="320" height="34" style="fill: #071518"></rect><rect x="16" y="176" width="60" height="14" rx="3" style="fill: #12363C"></rect><rect x="84" y="176" width="60" height="14" rx="3" style="fill: #12363C"></rect><rect x="226" y="175" width="40" height="16" rx="4" style="fill: #A99BFF"></rect><circle cx="292" cy="183" r="12" style="fill: #FF6F61"></circle></svg></div>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 6px"><span style="font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 11px; color: #C9C9D1">base-game.png</span><button type="button" class="iw-btn" aria-label="Remove base-game.png" style="display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; background: transparent; border: 1px solid #2C2C38; border-radius: 6px; color: #9A9AA6; cursor: pointer"><svg width="10" height="10" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round"><path d="M4 4l8 8M12 4l-8 8"></path></svg></button></div>
+<select aria-label="Use base-game.png as" style="width: 100%; min-height: 30px; padding: 4px 8px; background: #0D0D12; border: 1px solid #2C2C38; border-radius: 8px; color: #E8E8EE; font-family: inherit; font-size: 12px"><option>Base game</option><option>Hold and Win bonus</option><option>Big win</option><option>Paytable</option><option>Style reference only</option></select>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px; width: 210px; padding: 8px; background: #16161C; border: 1px solid #222222; border-radius: 10px">
+<div style="aspect-ratio: 16 / 10; border-radius: 6px; overflow: hidden"><svg viewBox="0 0 320 200" width="100%" height="100%" role="img" aria-label="Mockup: Hold and Win bonus"><rect width="320" height="200" style="fill: #0E2A30"></rect><rect x="64" y="12" width="44" height="12" rx="3" style="fill: #A99BFF"></rect><rect x="114" y="12" width="44" height="12" rx="3" style="fill: #5CE1E6"></rect><rect x="164" y="12" width="44" height="12" rx="3" style="fill: #FF6F61"></rect><rect x="214" y="12" width="44" height="12" rx="3" style="fill: #F2C14E"></rect><rect x="56" y="34" width="208" height="124" rx="6" style="fill: #0A1D22; stroke: #F2C14E; stroke-width: 2"></rect><circle cx="80" cy="56" r="13" style="fill: #F2C14E; stroke: #B8862B; stroke-width: 2"></circle><rect x="106" y="42" width="28" height="28" rx="4" style="fill: #0F262B"></rect><circle cx="160" cy="56" r="13" style="fill: #F2C14E; stroke: #B8862B; stroke-width: 2"></circle><rect x="186" y="42" width="28" height="28" rx="4" style="fill: #0F262B"></rect><circle cx="240" cy="56" r="13" style="fill: #F2C14E; stroke: #B8862B; stroke-width: 2"></circle><rect x="66" y="82" width="28" height="28" rx="4" style="fill: #0F262B"></rect><circle cx="120" cy="96" r="13" style="fill: #F2C14E; stroke: #B8862B; stroke-width: 2"></circle><rect x="146" y="82" width="28" height="28" rx="4" style="fill: #0F262B"></rect><circle cx="200" cy="96" r="13" style="fill: #F2C14E; stroke: #B8862B; stroke-width: 2"></circle><rect x="226" y="82" width="28" height="28" rx="4" style="fill: #0F262B"></rect><circle cx="80" cy="136" r="13" style="fill: #F2C14E; stroke: #B8862B; stroke-width: 2"></circle><rect x="106" y="122" width="28" height="28" rx="4" style="fill: #0F262B"></rect><circle cx="160" cy="136" r="13" style="fill: #F2C14E; stroke: #B8862B; stroke-width: 2"></circle><rect x="186" y="122" width="28" height="28" rx="4" style="fill: #0F262B"></rect><rect x="226" y="122" width="28" height="28" rx="4" style="fill: #0F262B"></rect><rect x="110" y="166" width="100" height="22" rx="6" style="fill: #12363C"></rect><circle cx="135" cy="177" r="5" style="fill: #5CE1E6"></circle><circle cx="160" cy="177" r="5" style="fill: #5CE1E6"></circle><circle cx="185" cy="177" r="5" style="fill: #3A5A5F"></circle></svg></div>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 6px"><span style="font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 11px; color: #C9C9D1">hold-and-win.png</span><button type="button" class="iw-btn" aria-label="Remove hold-and-win.png" style="display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; background: transparent; border: 1px solid #2C2C38; border-radius: 6px; color: #9A9AA6; cursor: pointer"><svg width="10" height="10" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round"><path d="M4 4l8 8M12 4l-8 8"></path></svg></button></div>
+<select aria-label="Use hold-and-win.png as" style="width: 100%; min-height: 30px; padding: 4px 8px; background: #0D0D12; border: 1px solid #2C2C38; border-radius: 8px; color: #E8E8EE; font-family: inherit; font-size: 12px"><option>Hold and Win bonus</option><option>Base game</option><option>Big win</option><option>Paytable</option><option>Style reference only</option></select>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px; width: 210px; padding: 8px; background: #16161C; border: 1px solid #222222; border-radius: 10px">
+<div style="aspect-ratio: 16 / 10; border-radius: 6px; overflow: hidden"><svg viewBox="0 0 320 200" width="100%" height="100%" role="img" aria-label="Mockup: big win"><rect width="320" height="200" style="fill: #0A1D22"></rect><circle cx="160" cy="100" r="78" style="fill: #12363C"></circle><path d="M66 80H254L240 100L254 120H66L80 100Z" style="fill: #F2C14E"></path><text x="160" y="107" style="font-family: system-ui, 'Segoe UI', sans-serif; font-size: 20px; font-weight: 800; fill: #0A1D22; text-anchor: middle">BIG WIN</text><circle cx="92" cy="150" r="9" style="fill: #F2C14E"></circle><circle cx="232" cy="48" r="7" style="fill: #F2C14E"></circle><circle cx="250" cy="152" r="6" style="fill: #F2C14E"></circle><circle cx="70" cy="44" r="5" style="fill: #F2C14E"></circle><circle cx="200" cy="168" r="4" style="fill: #F2C14E"></circle></svg></div>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 6px"><span style="font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 11px; color: #C9C9D1">big-win.png</span><button type="button" class="iw-btn" aria-label="Remove big-win.png" style="display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; background: transparent; border: 1px solid #2C2C38; border-radius: 6px; color: #9A9AA6; cursor: pointer"><svg width="10" height="10" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round"><path d="M4 4l8 8M12 4l-8 8"></path></svg></button></div>
+<select aria-label="Use big-win.png as" style="width: 100%; min-height: 30px; padding: 4px 8px; background: #0D0D12; border: 1px solid #2C2C38; border-radius: 8px; color: #E8E8EE; font-family: inherit; font-size: 12px"><option>Big win</option><option>Base game</option><option>Hold and Win bonus</option><option>Paytable</option><option>Style reference only</option></select>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px; width: 210px; padding: 8px; background: #16161C; border: 1px solid #222222; border-radius: 10px">
+<div style="aspect-ratio: 16 / 10; border-radius: 6px; overflow: hidden"><svg viewBox="0 0 320 200" width="100%" height="100%" role="img" aria-label="Style reference: coral reef"><rect width="320" height="200" style="fill: #0F2E33"></rect><path d="M80 190V110M80 140l-30-30M80 125l30-40M200 190V95M200 125l34-34M200 150l-30-24M260 190v-50M260 160l18-22" style="fill: none; stroke: #FF6F61; stroke-width: 10; stroke-linecap: round"></path><circle cx="48" cy="106" r="9" style="fill: #5CE1E6"></circle><circle cx="236" cy="88" r="9" style="fill: #5CE1E6"></circle><circle cx="112" cy="82" r="7" style="fill: #FF9A8B"></circle><circle cx="280" cy="136" r="6" style="fill: #FF9A8B"></circle></svg></div>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 6px"><span style="font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 11px; color: #C9C9D1">coral-reef.jpg</span><button type="button" class="iw-btn" aria-label="Remove coral-reef.jpg" style="display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; background: transparent; border: 1px solid #2C2C38; border-radius: 6px; color: #9A9AA6; cursor: pointer"><svg width="10" height="10" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round"><path d="M4 4l8 8M12 4l-8 8"></path></svg></button></div>
+<select aria-label="Use coral-reef.jpg as" style="width: 100%; min-height: 30px; padding: 4px 8px; background: #0D0D12; border: 1px solid #2C2C38; border-radius: 8px; color: #E8E8EE; font-family: inherit; font-size: 12px"><option>Style reference only</option><option>Base game</option><option>Hold and Win bonus</option><option>Big win</option><option>Paytable</option></select>
+</div>
+<button type="button" class="iw-btn" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; width: 210px; min-height: 186px; padding: 12px; background: transparent; border: 1px dashed #3A3A48; border-radius: 10px; color: #B9B9C4; font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer"><svg width="20" height="20" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round"><path d="M8 11V3M5 6l3-3 3 3M3 13h10"></path></svg>Add mockups or references<span style="font-weight: 400; color: #9A9AA6">PNG or JPG, any size</span></button>
+</div>
+<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px">
+<div role="radiogroup" aria-label="How close to the mockups" style="display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; background: #0D0D12; border: 1px solid #23232E; border-radius: 10px">
+<label style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; background: #1F6F57; border-radius: 8px; color: #EAFFF6; font-size: 12px; font-weight: 600; cursor: pointer"><input type="radio" name="fidelity" checked="checked" style="margin: 0; accent-color: #7EE0C0">Match the mockups closely</label>
+<label style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; cursor: pointer"><input type="radio" name="fidelity" style="margin: 0; accent-color: #7EE0C0">Use them as a starting point</label>
+</div>
+<label style="display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: #C9C9D1; cursor: pointer"><input type="checkbox" checked="checked" style="width: 16px; height: 16px; margin: 0; accent-color: #2B8D6F">These designs belong to us or to the client</label>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<label for="style" style="font-size: 12px; font-weight: 600; color: #B9B9C4">Notes and style <span style="font-weight: 400; color: #9A9AA6">· optional when you upload mockups</span></label>
+<textarea id="style" rows="3" style="width: 100%; min-height: 84px; padding: 10px 12px; background: #0D0D12; border: 1px solid #2C2C38; border-radius: 8px; color: #E8E8EE; font-family: inherit; font-size: 14px; line-height: 1.5; resize: vertical">Recreate the mockups. Keep the layout and palette, make the sea serpent friendlier, and coins must read at 64 px.</textarea>
+</div>
+</section>
+
+<section aria-label="Checkpoints" style="display: flex; flex-direction: column; gap: 4px; padding: 20px; background: #14141B; border: 1px solid #23232E; border-radius: 12px">
+<h2 style="margin: 0; font-size: 16px; font-weight: 700; letter-spacing: 0.02em; color: #E8E8EE">Checkpoints</h2>
+<p style="margin: 0 0 8px; font-size: 13px; color: #9A9AA6">Where the agents stop and wait for you. In between they keep working.</p>
+<label style="display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 0; border-top: 1px solid #1D1D24; cursor: pointer">
+<input type="checkbox" checked="checked" style="width: 18px; height: 18px; margin: 0; accent-color: #2B8D6F; flex-shrink: 0">
+<span style="display: flex; flex-direction: column; gap: 2px; flex-grow: 1"><span style="font-size: 14px; font-weight: 600">Mockup breakdown</span><span style="font-size: 12px; color: #9A9AA6">See what the agents found in each mockup and where it goes, before any rendering. Without mockups, this is a style board.</span></span>
+<span style="padding: 2px 8px; background: #1A2320; border: 1px solid #2B5546; border-radius: 6px; color: #9FD9C2; font-size: 11px">Recommended</span>
+</label>
+<label style="display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 0; border-top: 1px solid #1D1D24; cursor: pointer">
+<input type="checkbox" checked="checked" style="width: 18px; height: 18px; margin: 0; accent-color: #2B8D6F; flex-shrink: 0">
+<span style="display: flex; flex-direction: column; gap: 2px; flex-grow: 1"><span style="font-size: 14px; font-weight: 600">After each region batch</span><span style="font-size: 12px; color: #9A9AA6">Review symbols, coins, backgrounds and UI before the next batch</span></span>
+</label>
+<label style="display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 0; border-top: 1px solid #1D1D24">
+<input type="checkbox" checked="checked" disabled="disabled" style="width: 18px; height: 18px; margin: 0; accent-color: #2B8D6F; flex-shrink: 0">
+<span style="display: flex; flex-direction: column; gap: 2px; flex-grow: 1"><span style="font-size: 14px; font-weight: 600">Before publishing</span><span style="font-size: 12px; color: #9A9AA6">The agents build and test the game. Publishing stays with you in Game Maker.</span></span>
+<span style="padding: 2px 8px; background: #1B1B22; border: 1px solid #2C2C38; border-radius: 6px; color: #C9C9D1; font-size: 11px">Always</span>
+</label>
+</section>
+
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+<a href="03-director-mockup-breakdown.html" class="iw-btn-primary" style="display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 18px; background: #1F6F57; border: 1px solid #2B8D6F; border-radius: 8px; color: #EAFFF6; font-size: 14px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round"><path d="M5 3.5v9l7-4.5z"></path></svg>Create project &amp; start agents</a>
+<button type="button" class="iw-btn" style="min-height: 40px; padding: 0 16px; background: #1B1B22; border: 1px solid #2C2C38; border-radius: 8px; color: #E8E8EE; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer">Save as preset</button>
+<span style="font-size: 12px; color: #9A9AA6">Creates <span style="font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; color: #C9C9D1">invisible_wall / sunken-temple</span> on main, the same way Game Maker does.</span>
+</div>
+
+</div>
+
+<aside aria-label="Run summary" style="flex: 1 1 340px; max-width: 440px; display: flex; flex-direction: column; gap: 18px; padding: 20px; background: #14141B; border: 1px solid #23232E; border-radius: 12px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h2 style="margin: 0; font-size: 16px; font-weight: 700; letter-spacing: 0.02em; color: #E8E8EE">What this run will do</h2>
+<p style="margin: 0; font-size: 13px; color: #9A9AA6">Filled in from your selections.</p>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h3 style="margin: 0 0 2px; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #80808C">Agents</h3>
+<ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column">
+<li style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 8px 0; border-bottom: 1px solid #1D1D24"><span style="display: flex; flex-direction: column; gap: 1px"><span style="font-size: 13px; font-weight: 600">Coordinator</span><span style="font-size: 12px; color: #9A9AA6">Plans the run and talks to you</span></span><span style="font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 12px; color: #8A8A96">Opus 5.5</span></li>
+<li style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 8px 0; border-bottom: 1px solid #1D1D24"><span style="display: flex; flex-direction: column; gap: 1px"><span style="font-size: 13px; font-weight: 600">Mockup analyst</span><span style="font-size: 12px; color: #9A9AA6">Reads your mockups and maps each element to the template</span></span><span style="font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 12px; color: #8A8A96; white-space: nowrap">Opus 5.5</span></li>
+<li style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 8px 0; border-bottom: 1px solid #1D1D24"><span style="display: flex; flex-direction: column; gap: 1px"><span style="font-size: 13px; font-weight: 600">Art director</span><span style="font-size: 12px; color: #9A9AA6">Reviews every variant before you see it</span></span><span style="font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 12px; color: #8A8A96">Sonnet 5.5</span></li>
+<li style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 8px 0; border-bottom: 1px solid #1D1D24"><span style="display: flex; flex-direction: column; gap: 1px"><span style="font-size: 13px; font-weight: 600">Atlas artist</span><span style="font-size: 12px; color: #9A9AA6">Atlas Maker · ComfyUI</span></span><span style="font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 12px; color: #8A8A96">Sonnet 5.5</span></li>
+<li style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 8px 0; border-bottom: 1px solid #1D1D24"><span style="display: flex; flex-direction: column; gap: 1px"><span style="font-size: 13px; font-weight: 600">Animator</span><span style="font-size: 12px; color: #9A9AA6">Rigger · Flipbook · Symbols SM</span></span><span style="font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 12px; color: #8A8A96">Sonnet 5.5</span></li>
+<li style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 8px 0; border-bottom: 1px solid #1D1D24"><span style="display: flex; flex-direction: column; gap: 1px"><span style="font-size: 13px; font-weight: 600">Builder</span><span style="font-size: 12px; color: #9A9AA6">Scene Editor · Win Text · Localization</span></span><span style="font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 12px; color: #8A8A96">Sonnet 5.5</span></li>
+<li style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 8px 0"><span style="display: flex; flex-direction: column; gap: 1px"><span style="font-size: 13px; font-weight: 600">QA</span><span style="font-size: 12px; color: #9A9AA6">Sizes, alpha, sheet budget, plays the build</span></span><span style="font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 12px; color: #8A8A96">Haiku 4.5</span></li>
+</ul>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h3 style="margin: 0 0 2px; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #80808C">Regions from the template</h3>
+<ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; font-size: 13px">
+<li style="display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid #1D1D24"><span>Symbols</span><span>11</span></li>
+<li style="display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid #1D1D24"><span>Coins &amp; jackpots</span><span>6</span></li>
+<li style="display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid #1D1D24"><span>Backgrounds</span><span>2</span></li>
+<li style="display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid #1D1D24"><span>Reel frame &amp; logo</span><span>2</span></li>
+<li style="display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid #1D1D24"><span>UI kit</span><span>14</span></li>
+<li style="display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid #1D1D24"><span>Win banners</span><span>4</span></li>
+<li style="display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; font-weight: 700"><span>Total</span><span>39</span></li>
+</ul>
+<span style="font-size: 12px; color: #9A9AA6">Plus 6 Spine rigs reused from the template.</span>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h3 style="margin: 0 0 2px; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #80808C">Estimate</h3>
+<ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; font-size: 13px">
+<li style="display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid #1D1D24"><span>Claude API</span><span>~$6–12</span></li>
+<li style="display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid #1D1D24"><span>RunPod 4090</span><span>~30 min · ~$0.40</span></li>
+<li style="display: flex; justify-content: space-between; gap: 12px; padding: 6px 0"><span>Your reviews</span><span>3 checkpoints</span></li>
+</ul>
+</div>
+</aside>
+
+</div>
+</main>
+</div>
+</body>
+</html>
