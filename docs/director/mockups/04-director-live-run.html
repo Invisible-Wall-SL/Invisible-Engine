@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Invisible Director: live run (mockup)</title>
+
+<style>
+body{margin:0;background:#0B0B0F;color-scheme:dark}
+*{box-sizing:border-box}
+a{color:#7EE0C0}a:hover{color:#A8F0D8}
+.iw-nav:hover{background:#1B1B22 !important;color:#E8E8EE !important}
+.iw-btn:hover{background:#23232E !important;border-color:#3A3A48 !important}
+.iw-btn-primary:hover{background:#26846A !important}
+.iw-btn-amber:hover{background:#8C6A16 !important}
+.iw-choice:hover{border-color:#3A3A48 !important}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid #6EA8FF;outline-offset:2px}
+</style>
+
+</head>
+<body>
+
+<div style="min-height: 100vh; background: #0B0B0F; color: #EEEEEE; font-family: system-ui, 'Segoe UI', sans-serif; font-size: 14px; line-height: 1.45; color-scheme: dark">
+
+<header style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 12px 24px; background: #0F0F14; border-bottom: 1px solid #1D1D24">
+<a href="01-launcher.html" style="display: inline-flex; align-items: center; gap: 10px; text-decoration: none"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" style="fill: none; stroke: #C9C9D1; stroke-width: 1.6"><path d="M2 12V2h10"></path></svg><span style="font-size: 15px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #7EE0C0">Invisible Director</span></a>
+<nav aria-label="Tools" style="display: flex; flex-wrap: wrap; gap: 2px">
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #7EE787; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><rect x="1.5" y="4.5" width="13" height="7" rx="3.5"></rect><path d="M5 7v2M4 8h2M10.5 7.5h.01M12 9h.01"></path></svg>Game Maker</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #7EE787; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><rect x="2" y="2" width="12" height="12" rx="1.5"></rect><path d="M2 6h12M2 10h12M6 2v12M10 2v12"></path></svg>Game Config</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #F5B95C; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><rect x="2" y="2" width="5" height="5" rx="1"></rect><rect x="9" y="2" width="5" height="5" rx="1"></rect><rect x="2" y="9" width="5" height="5" rx="1"></rect><rect x="9" y="9" width="5" height="5" rx="1"></rect></svg>Atlas Maker</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #F5B95C; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><circle cx="3.5" cy="4" r="1.5"></circle><circle cx="12.5" cy="8" r="1.5"></circle><circle cx="3.5" cy="12" r="1.5"></circle><path d="M5 4.5l6 3M5 11.5l6-3"></path></svg>ComfyUI</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #F5B95C; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><rect x="2" y="2" width="12" height="12" rx="1.5"></rect><path d="M2 8h12M8 8v6"></path></svg>Sheet Maker</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #F5B95C; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><path d="M3 13L8 3l5 10M5 9.5h6"></path></svg>Font Maker</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #F5B95C; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><path d="M3 6v4h2.5L9 13V3L5.5 6z"></path><path d="M11.5 6a3 3 0 0 1 0 4"></path></svg>Sound</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #F5B95C; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><path d="M4 12l8-8"></path><circle cx="3.5" cy="12.5" r="1.5"></circle><circle cx="12.5" cy="3.5" r="1.5"></circle></svg>Rigger</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #F5B95C; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><rect x="2" y="3" width="12" height="10" rx="1.5"></rect><path d="M5 3v10M11 3v10"></path></svg>Flipbook</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #F5B95C; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><path d="M8 2v3M8 11v3M2 8h3M11 8h3M4 4l2 2M10 10l2 2M12 4l-2 2M6 10l-2 2"></path></svg>FX</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #6EA8FF; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><rect x="2" y="2" width="9" height="9" rx="1.5"></rect><rect x="5" y="5" width="9" height="9" rx="1.5"></rect></svg>Scene Editor</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #6EA8FF; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><rect x="1.5" y="3" width="5" height="4" rx="1"></rect><rect x="9.5" y="9" width="5" height="4" rx="1"></rect><path d="M6.5 5h3v4"></path></svg>Flow</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #6EA8FF; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><rect x="2" y="2" width="12" height="12" rx="2"></rect><circle cx="8" cy="8" r="2.5"></circle></svg>Symbols SM</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #6EA8FF; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5"></rect><rect x="5.5" y="5.5" width="5" height="5" rx="1"></rect></svg>Component Editor</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #6EA8FF; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"></path></svg>Win Text</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #6EA8FF; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><circle cx="8" cy="8" r="6"></circle><path d="M2 8h12M8 2c2 2 2 10 0 12M8 2c-2 2-2 10 0 12"></path></svg>Localization</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #B9B9C4; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><path d="M3 13l3-3M6 10l4-4M10 6l3-3"></path><circle cx="6" cy="10" r="1"></circle><circle cx="10" cy="6" r="1"></circle></svg>Spine Viewer</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #B9B9C4; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><path d="M3 2.5h7.5a2 2 0 0 1 2 2v9H5a2 2 0 0 1-2-2z"></path><path d="M3 11.5a2 2 0 0 1 2-2h7.5"></path></svg>Storybook</a>
+<a href="#" class="iw-nav" style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 8px; color: #B9B9C4; font-size: 12px; font-weight: 600; text-decoration: none"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #B9B9C4; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><path d="M5 4h9M5 8h9M5 12h9M2 4h.01M2 8h.01M2 12h.01"></path></svg>FTP Browser</a>
+</nav>
+</header>
+
+<main style="padding: 24px 24px 56px">
+<div style="display: flex; flex-direction: column; gap: 16px">
+
+<section aria-label="Run" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px; background: #14141B; border: 1px solid #23232E; border-radius: 12px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+<h1 style="margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0.01em; color: #E8E8EE">Sunken Temple</h1>
+<span style="font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 12px; color: #8A8A96">sunken-temple</span>
+<span style="display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; background: #17212A; border: 1px solid #27404F; border-radius: 6px; color: #A9CFE4; font-size: 11px"><span aria-hidden="true" style="width: 6px; height: 6px; border-radius: 50%; background: #6EA8FF"></span>Running · step 3 of 5</span>
+</div>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 14px">
+<span style="font-size: 12px; color: #9A9AA6">Invisible_Wall · Hold and Win · from Hold and Win 3 Pots Sample</span>
+<a href="#" style="color: #7EE0C0; font-size: 13px; font-weight: 600; text-decoration: none">Open in Game Maker ↗</a>
+<a href="#" style="color: #7EE0C0; font-size: 13px; font-weight: 600; text-decoration: none">Play draft ↗</a>
+</div>
+</div>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px">
+<div style="display: flex; flex-direction: column; padding: 5px 10px; background: #0D0D12; border: 1px solid #23232E; border-radius: 8px"><span style="font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #80808C">Elapsed</span><span style="font-size: 13px; font-weight: 600">48 min</span></div>
+<div style="display: flex; flex-direction: column; padding: 5px 10px; background: #0D0D12; border: 1px solid #23232E; border-radius: 8px"><span style="font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #80808C">Claude API</span><span style="font-size: 13px; font-weight: 600">$3.10</span></div>
+<div style="display: flex; flex-direction: column; padding: 5px 10px; background: #0D0D12; border: 1px solid #23232E; border-radius: 8px"><span style="font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #80808C">RunPod 4090</span><span style="font-size: 13px; font-weight: 600">$0.22 · 9 jobs queued</span></div>
+<button type="button" class="iw-btn" style="display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 14px; background: #1B1B22; border: 1px solid #2C2C38; border-radius: 8px; color: #E8E8EE; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round"><path d="M6 4v8M10 4v8"></path></svg>Pause</button>
+<button type="button" class="iw-btn" style="display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 14px; background: #1B1B22; border: 1px solid #2C2C38; border-radius: 8px; color: #FF9D9D; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 1.6"><rect x="4.5" y="4.5" width="7" height="7" rx="1"></rect></svg>Stop</button>
+</div>
+</section>
+
+<ol aria-label="Run steps" style="list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px">
+<li style="display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; background: #14141B; border: 1px solid #23232E; border-radius: 10px">
+<span aria-hidden="true" style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: #1F6F57; color: #EAFFF6; flex-shrink: 0"><svg width="12" height="12" viewBox="0 0 16 16" style="fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round"><path d="M3.5 8.5l3 3 6-7"></path></svg></span>
+<span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px; font-weight: 700">1 · Mockup breakdown</span><span style="font-size: 12px; color: #9A9AA6">3 mockups · 34 of 39 regions matched</span></span>
+</li>
+<li style="display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; background: #14141B; border: 1px solid #23232E; border-radius: 10px">
+<span aria-hidden="true" style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: #1F6F57; color: #EAFFF6; flex-shrink: 0"><svg width="12" height="12" viewBox="0 0 16 16" style="fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round"><path d="M3.5 8.5l3 3 6-7"></path></svg></span>
+<span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px; font-weight: 700">2 · Style pack</span><span style="font-size: 12px; color: #9A9AA6">Palette and refs taken from your mockups</span></span>
+</li>
+<li aria-current="step" style="display: flex; align-items: flex-start; gap: 10px; padding: 11px 13px; background: #14141B; border: 2px solid #2B8D6F; border-radius: 10px">
+<span aria-hidden="true" style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid #7EE0C0; color: #7EE0C0; font-size: 11px; font-weight: 700; flex-shrink: 0">3</span>
+<span style="display: flex; flex-direction: column; gap: 6px; flex-grow: 1"><span style="font-size: 13px; font-weight: 700">3 · Regions</span><span style="font-size: 12px; color: #9A9AA6">21 of 39 approved</span><span aria-hidden="true" style="display: block; height: 4px; border-radius: 2px; background: #23232E"><span style="display: block; width: 54%; height: 4px; border-radius: 2px; background: #2B8D6F"></span></span></span>
+</li>
+<li style="display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; background: #14141B; border: 1px solid #23232E; border-radius: 10px">
+<span aria-hidden="true" style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid #3A3A48; color: #9A9AA6; font-size: 11px; font-weight: 700; flex-shrink: 0">4</span>
+<span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px; font-weight: 700; color: #C9C9D1">4 · Build</span><span style="font-size: 12px; color: #9A9AA6">Scene Editor, Symbols SM, Win Text</span></span>
+</li>
+<li style="display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; background: #14141B; border: 1px solid #23232E; border-radius: 10px">
+<span aria-hidden="true" style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid #3A3A48; color: #9A9AA6; font-size: 11px; font-weight: 700; flex-shrink: 0">5</span>
+<span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px; font-weight: 700; color: #C9C9D1">5 · Hand-off</span><span style="font-size: 12px; color: #9A9AA6">You publish it in Game Maker</span></span>
+</li>
+</ol>
+
+<div role="status" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; background: #2A2210; border: 1px solid #A67C1A; border-radius: 10px; color: #FFE7B0">
+<span style="display: flex; align-items: center; gap: 10px"><svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #F5B95C; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0"><circle cx="8" cy="8" r="6"></circle><path d="M8 5v3.5l2 1.5"></path></svg><span><strong style="font-weight: 700">Waiting for you: 6 regions are ready to review.</strong> The agents keep working on the rest.</span></span>
+<a href="#review" class="iw-btn-amber" style="display: inline-flex; align-items: center; min-height: 32px; padding: 0 14px; background: #7A5C12; border: 1px solid #A67C1A; border-radius: 8px; color: #FFF5DC; font-size: 12px; font-weight: 600; text-decoration: none">Review 6 now</a>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
+
+<div style="flex: 1 1 700px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+
+<nav aria-label="Region groups" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px">
+<button type="button" aria-pressed="true" style="display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 56px; padding: 9px 11px; background: #17212A; border: 1px solid #6EA8FF; border-radius: 10px; color: #E8E8EE; font-family: inherit; font-size: 13px; text-align: left; cursor: pointer"><span style="font-weight: 700">Symbols</span><span style="font-size: 11px; color: #A9CFE4">7 of 11 · <span style="color: #F5CF7A">2 to review</span></span></button>
+<button type="button" aria-pressed="false" class="iw-choice" style="display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 56px; padding: 9px 11px; background: #14141B; border: 1px solid #23232E; border-radius: 10px; color: #E8E8EE; font-family: inherit; font-size: 13px; text-align: left; cursor: pointer"><span style="font-weight: 700">Coins &amp; jackpots</span><span style="font-size: 11px; color: #9A9AA6">2 of 6 · <span style="color: #F5CF7A">1 to review</span></span></button>
+<button type="button" aria-pressed="false" class="iw-choice" style="display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 56px; padding: 9px 11px; background: #14141B; border: 1px solid #23232E; border-radius: 10px; color: #E8E8EE; font-family: inherit; font-size: 13px; text-align: left; cursor: pointer"><span style="font-weight: 700">Backgrounds</span><span style="font-size: 11px; color: #9A9AA6">1 of 2 · <span style="color: #F5CF7A">1 to review</span></span></button>
+<button type="button" aria-pressed="false" class="iw-choice" style="display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 56px; padding: 9px 11px; background: #14141B; border: 1px solid #23232E; border-radius: 10px; color: #E8E8EE; font-family: inherit; font-size: 13px; text-align: left; cursor: pointer"><span style="font-weight: 700">Reel frame &amp; logo</span><span style="font-size: 11px; color: #9A9AA6">2 of 2 · done</span></button>
+<button type="button" aria-pressed="false" class="iw-choice" style="display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 56px; padding: 9px 11px; background: #14141B; border: 1px solid #23232E; border-radius: 10px; color: #E8E8EE; font-family: inherit; font-size: 13px; text-align: left; cursor: pointer"><span style="font-weight: 700">UI kit</span><span style="font-size: 11px; color: #9A9AA6">9 of 14 · <span style="color: #F5CF7A">2 to review</span></span></button>
+<button type="button" aria-pressed="false" class="iw-choice" style="display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 56px; padding: 9px 11px; background: #14141B; border: 1px solid #23232E; border-radius: 10px; color: #E8E8EE; font-family: inherit; font-size: 13px; text-align: left; cursor: pointer"><span style="font-weight: 700">Win banners</span><span style="font-size: 11px; color: #9A9AA6">0 of 4 · queued</span></button>
+</nav>
+
+<section aria-label="Symbols" style="display: flex; flex-direction: column; gap: 14px; padding: 18px; background: #14141B; border: 1px solid #23232E; border-radius: 12px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+<h2 style="margin: 0; font-size: 16px; font-weight: 700; color: #E8E8EE">Symbols</h2>
+<span style="padding: 2px 8px; background: #241D12; border: 1px solid #5C4613; border-radius: 6px; color: #F5CF7A; font-size: 11px">Atlas Maker · stylized-symbols-v3</span>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 6px">
+<button type="button" aria-pressed="true" style="min-height: 30px; padding: 0 12px; background: #23232E; border: 1px solid #3A3A48; border-radius: 999px; color: #E8E8EE; font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer">All · 11</button>
+<button type="button" aria-pressed="false" class="iw-btn" style="min-height: 30px; padding: 0 12px; background: transparent; border: 1px solid #2C2C38; border-radius: 999px; color: #B9B9C4; font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer">To review · 2</button>
+<button type="button" aria-pressed="false" class="iw-btn" style="min-height: 30px; padding: 0 12px; background: transparent; border: 1px solid #2C2C38; border-radius: 999px; color: #B9B9C4; font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer">Approved · 7</button>
+<button type="button" aria-pressed="false" class="iw-btn" style="min-height: 30px; padding: 0 12px; background: transparent; border: 1px solid #2C2C38; border-radius: 999px; color: #B9B9C4; font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer">Drafting · 2</button>
+</div>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 10px">
+
+<div style="display: flex; flex-direction: column; gap: 7px; padding: 7px; background: #16161C; border: 1px solid #222222; border-radius: 10px">
+<div style="aspect-ratio: 1 / 1; border-radius: 6px; overflow: hidden"><svg viewBox="0 0 120 120" width="100%" height="100%" role="img" aria-label="Draft art: jade idol"><rect width="120" height="120" style="fill: #0F2E33"></rect><path d="M60 20L88 34L84 84Q60 100 36 84L32 34Z" style="fill: #3FB68B"></path><rect x="34" y="30" width="52" height="10" rx="3" style="fill: #F2C14E"></rect><rect x="44" y="52" width="10" height="6" rx="2" style="fill: #0F2E33"></rect><rect x="66" y="52" width="10" height="6" rx="2" style="fill: #0F2E33"></rect><path d="M50 72Q60 78 70 72" style="fill: none; stroke: #0F2E33; stroke-width: 3; stroke-linecap: round"></path></svg></div>
+<span style="font-size: 12px; font-weight: 700">H1 · Jade idol</span>
+<span style="display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; padding: 1px 7px; background: #1A2320; border: 1px solid #2B5546; border-radius: 6px; color: #9FD9C2; font-size: 11px"><svg width="10" height="10" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round"><path d="M3.5 8.5l3 3 6-7"></path></svg>Approved</span>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 7px; padding: 7px; background: #16161C; border: 1px solid #F5B95C; border-radius: 10px; box-shadow: 0 0 0 1px #F5B95C">
+<div style="aspect-ratio: 1 / 1; border-radius: 6px; overflow: hidden"><svg viewBox="0 0 120 120" width="100%" height="100%" role="img" aria-label="Draft art: coral mask"><rect width="120" height="120" style="fill: #0F2E33"></rect><path d="M28 40Q60 18 92 40Q94 76 60 98Q26 76 28 40Z" style="fill: #FF6F61"></path><ellipse cx="46" cy="54" rx="9" ry="6" style="fill: #5CE1E6"></ellipse><ellipse cx="74" cy="54" rx="9" ry="6" style="fill: #5CE1E6"></ellipse><path d="M42 74Q60 84 78 74" style="fill: none; stroke: #0F2E33; stroke-width: 3; stroke-linecap: round"></path><circle cx="32" cy="28" r="5" style="fill: #FF9A8B"></circle><circle cx="90" cy="26" r="4" style="fill: #FF9A8B"></circle></svg></div>
+<span style="font-size: 12px; font-weight: 700">H2 · Coral mask</span>
+<span style="align-self: flex-start; padding: 1px 7px; background: #241D12; border: 1px solid #5C4613; border-radius: 6px; color: #F5CF7A; font-size: 11px">To review</span>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 7px; padding: 7px; background: #16161C; border: 1px solid #222222; border-radius: 10px">
+<div style="aspect-ratio: 1 / 1; border-radius: 6px; overflow: hidden"><svg viewBox="0 0 120 120" width="100%" height="100%" role="img" aria-label="Draft art: rune tablet"><rect width="120" height="120" style="fill: #0F2E33"></rect><rect x="32" y="22" width="56" height="78" rx="10" style="fill: #7FA79A"></rect><path d="M48 38L60 50L72 38M60 50V66M48 76H72M52 86H68" style="fill: none; stroke: #5CE1E6; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round"></path></svg></div>
+<span style="font-size: 12px; font-weight: 700">H3 · Rune tablet</span>
+<span style="display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; padding: 1px 7px; background: #1A2320; border: 1px solid #2B5546; border-radius: 6px; color: #9FD9C2; font-size: 11px"><svg width="10" height="10" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round"><path d="M3.5 8.5l3 3 6-7"></path></svg>Approved</span>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 7px; padding: 7px; background: #16161C; border: 1px solid #222222; border-radius: 10px">
+<div style="aspect-ratio: 1 / 1; border-radius: 6px; overflow: hidden"><svg viewBox="0 0 120 120" width="100%" height="100%" role="img" aria-label="Sea serpent, still drafting"><rect width="120" height="120" style="fill: #1B1B22"></rect><path d="M18 74Q38 50 58 74T98 74" style="fill: none; stroke: #2C2C38; stroke-width: 8; stroke-linecap: round"></path><circle cx="98" cy="62" r="7" style="fill: #2C2C38"></circle></svg></div>
+<span style="font-size: 12px; font-weight: 700">H4 · Sea serpent</span>
+<span style="align-self: flex-start; padding: 1px 7px; background: #17212A; border: 1px solid #27404F; border-radius: 6px; color: #A9CFE4; font-size: 11px">Drafting</span>
+<span aria-hidden="true" style="display: block; height: 3px; border-radius: 2px; background: #23232E"><span style="display: block; width: 60%; height: 3px; border-radius: 2px; background: #6EA8FF"></span></span>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 7px; padding: 7px; background: #16161C; border: 1px solid #222222; border-radius: 10px">
+<div style="aspect-ratio: 1 / 1; border-radius: 6px; overflow: hidden"><svg viewBox="0 0 120 120" width="100%" height="100%" role="img" aria-label="Draft art: letter A"><rect width="120" height="120" style="fill: #0F2E33"></rect><text x="60" y="82" style="font-family: system-ui, 'Segoe UI', sans-serif; font-size: 64px; font-weight: 700; fill: #3FB68B; text-anchor: middle">A</text></svg></div>
+<span style="font-size: 12px; font-weight: 700">L1 · A</span>
+<span style="display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; padding: 1px 7px; background: #1A2320; border: 1px solid #2B5546; border-radius: 6px; color: #9FD9C2; font-size: 11px"><svg width="10" height="10" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round"><path d="M3.5 8.5l3 3 6-7"></path></svg>Approved</span>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 7px; padding: 7px; background: #16161C; border: 1px solid #222222; border-radius: 10px">
+<div style="aspect-ratio: 1 / 1; border-radius: 6px; overflow: hidden"><svg viewBox="0 0 120 120" width="100%" height="100%" role="img" aria-label="Draft art: letter K"><rect width="120" height="120" style="fill: #0F2E33"></rect><text x="60" y="82" style="font-family: system-ui, 'Segoe UI', sans-serif; font-size: 64px; font-weight: 700; fill: #FF6F61; text-anchor: middle">K</text></svg></div>
+<span style="font-size: 12px; font-weight: 700">L2 · K</span>
+<span style="display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; padding: 1px 7px; background: #1A2320; border: 1px solid #2B5546; border-radius: 6px; color: #9FD9C2; font-size: 11px"><svg width="10" height="10" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round"><path d="M3.5 8.5l3 3 6-7"></path></svg>Approved</span>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 7px; padding: 7px; background: #16161C; border: 1px solid #222222; border-radius: 10px">
+<div style="aspect-ratio: 1 / 1; border-radius: 6px; overflow: hidden"><svg viewBox="0 0 120 120" width="100%" height="100%" role="img" aria-label="Draft art: letter Q"><rect width="120" height="120" style="fill: #0F2E33"></rect><text x="60" y="82" style="font-family: system-ui, 'Segoe UI', sans-serif; font-size: 64px; font-weight: 700; fill: #5CE1E6; text-anchor: middle">Q</text></svg></div>
+<span style="font-size: 12px; font-weight: 700">L3 · Q</span>
+<span style="align-self: flex-start; padding: 1px 7px; background: #241D12; border: 1px solid #5C4613; border-radius: 6px; color: #F5CF7A; font-size: 11px">To review</span>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 7px; padding: 7px; background: #16161C; border: 1px solid #222222; border-radius: 10px">
+<div style="aspect-ratio: 1 / 1; border-radius: 6px; overflow: hidden"><svg viewBox="0 0 120 120" width="100%" height="100%" role="img" aria-label="Draft art: letter J"><rect width="120" height="120" style="fill: #0F2E33"></rect><text x="60" y="82" style="font-family: system-ui, 'Segoe UI', sans-serif; font-size: 64px; font-weight: 700; fill: #F2C14E; text-anchor: middle">J</text></svg></div>
+<span style="font-size: 12px; font-weight: 700">L4 · J</span>
+<span style="display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; padding: 1px 7px; background: #1A2320; border: 1px solid #2B5546; border-radius: 6px; color: #9FD9C2; font-size: 11px"><svg width="10" height="10" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round"><path d="M3.5 8.5l3 3 6-7"></path></svg>Approved</span>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 7px; padding: 7px; background: #16161C; border: 1px solid #222222; border-radius: 10px">
+<div style="aspect-ratio: 1 / 1; border-radius: 6px; overflow: hidden"><svg viewBox="0 0 120 120" width="100%" height="100%" role="img" aria-label="Draft art: number 10"><rect width="120" height="120" style="fill: #0F2E33"></rect><text x="60" y="80" style="font-family: system-ui, 'Segoe UI', sans-serif; font-size: 54px; font-weight: 700; fill: #A99BFF; text-anchor: middle">10</text></svg></div>
+<span style="font-size: 12px; font-weight: 700">L5 · 10</span>
+<span style="display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; padding: 1px 7px; background: #1A2320; border: 1px solid #2B5546; border-radius: 6px; color: #9FD9C2; font-size: 11px"><svg width="10" height="10" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round"><path d="M3.5 8.5l3 3 6-7"></path></svg>Approved</span>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 7px; padding: 7px; background: #16161C; border: 1px solid #222222; border-radius: 10px">
+<div style="aspect-ratio: 1 / 1; border-radius: 6px; overflow: hidden"><svg viewBox="0 0 120 120" width="100%" height="100%" role="img" aria-label="Draft art: wild"><rect width="120" height="120" style="fill: #0F2E33"></rect><path d="M60 18L96 39V81L60 102L24 81V39Z" style="fill: #F2C14E"></path><text x="60" y="68" style="font-family: system-ui, 'Segoe UI', sans-serif; font-size: 22px; font-weight: 700; fill: #0F2E33; text-anchor: middle">WILD</text></svg></div>
+<span style="font-size: 12px; font-weight: 700">Wild</span>
+<span style="display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; padding: 1px 7px; background: #1A2320; border: 1px solid #2B5546; border-radius: 6px; color: #9FD9C2; font-size: 11px"><svg width="10" height="10" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round"><path d="M3.5 8.5l3 3 6-7"></path></svg>Approved</span>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 7px; padding: 7px; background: #16161C; border: 1px solid #222222; border-radius: 10px">
+<div style="aspect-ratio: 1 / 1; border-radius: 6px; overflow: hidden"><svg viewBox="0 0 120 120" width="100%" height="100%" role="img" aria-label="Coin, still drafting"><rect width="120" height="120" style="fill: #1B1B22"></rect><circle cx="60" cy="60" r="26" style="fill: none; stroke: #2C2C38; stroke-width: 8"></circle></svg></div>
+<span style="font-size: 12px; font-weight: 700">Bonus coin</span>
+<span style="align-self: flex-start; padding: 1px 7px; background: #17212A; border: 1px solid #27404F; border-radius: 6px; color: #A9CFE4; font-size: 11px">Drafting</span>
+<span aria-hidden="true" style="display: block; height: 3px; border-radius: 2px; background: #23232E"><span style="display: block; width: 20%; height: 3px; border-radius: 2px; background: #6EA8FF"></span></span>
+</div>
+
+</div>
+</section>
+
+<section id="review" aria-label="Review H2 Coral mask" style="display: flex; flex-direction: column; gap: 14px; padding: 18px 20px; background: #14141B; border: 1px solid #23232E; border-radius: 12px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<span style="font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #F5CF7A">To review · 1 of 6</span>
+<h2 style="margin: 0; font-size: 18px; font-weight: 700; color: #E8E8EE">H2 · Coral mask</h2>
+</div>
+<div style="display: flex; gap: 6px">
+<button type="button" class="iw-btn" aria-label="Previous region" style="display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; background: #1B1B22; border: 1px solid #2C2C38; border-radius: 8px; color: #E8E8EE; cursor: pointer"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round"><path d="M10 3.5L5.5 8l4.5 4.5"></path></svg></button>
+<button type="button" class="iw-btn" aria-label="Next region" style="display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; background: #1B1B22; border: 1px solid #2C2C38; border-radius: 8px; color: #E8E8EE; cursor: pointer"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round"><path d="M6 3.5l4.5 4.5L6 12.5"></path></svg></button>
+</div>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 190px)); gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 8px; background: #0D0D12; border: 1px dashed #A67C1A; border-radius: 10px">
+<div style="aspect-ratio: 1 / 1; border-radius: 6px; overflow: hidden"><svg viewBox="0 0 120 120" width="100%" height="100%" role="img" aria-label="Target from your mockup: coral mask"><rect width="120" height="120" style="fill: #0E2A30"></rect><path d="M28 40Q60 18 92 40Q94 76 60 98Q26 76 28 40Z" style="fill: #FF6F61"></path><circle cx="46" cy="54" r="11" style="fill: none; stroke: #5CE1E6; stroke-width: 2; opacity: 0.6"></circle><circle cx="74" cy="54" r="11" style="fill: none; stroke: #5CE1E6; stroke-width: 2; opacity: 0.6"></circle><ellipse cx="46" cy="54" rx="9" ry="6" style="fill: #5CE1E6"></ellipse><ellipse cx="74" cy="54" rx="9" ry="6" style="fill: #5CE1E6"></ellipse><path d="M42 74Q60 84 78 74" style="fill: none; stroke: #0E2A30; stroke-width: 3; stroke-linecap: round"></path><circle cx="32" cy="28" r="5" style="fill: #FF9A8B"></circle><circle cx="90" cy="26" r="4" style="fill: #FF9A8B"></circle></svg></div>
+<span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px; font-weight: 700">Your mockup</span><span style="font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 11px; color: #F5CF7A">base-game.png</span></span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 8px; background: #16161C; border: 1px solid #222222; border-radius: 10px">
+<div style="aspect-ratio: 1 / 1; border-radius: 6px; overflow: hidden"><svg viewBox="0 0 120 120" width="100%" height="100%" role="img" aria-label="Variant A: coral mask with muddy edges"><rect width="120" height="120" style="fill: #0F2E33"></rect><path d="M28 40Q60 18 92 40Q94 76 60 98Q26 76 28 40Z" style="fill: #B8574D; stroke: #6E3530; stroke-width: 5"></path><ellipse cx="46" cy="54" rx="9" ry="6" style="fill: #3E8E92"></ellipse><ellipse cx="74" cy="54" rx="9" ry="6" style="fill: #3E8E92"></ellipse><path d="M42 74Q60 84 78 74" style="fill: none; stroke: #0F2E33; stroke-width: 3; stroke-linecap: round"></path></svg></div>
+<span style="font-size: 13px; font-weight: 700">Variant A</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 8px; background: #16161C; border: 1px solid #7EE0C0; border-radius: 10px; box-shadow: 0 0 0 1px #7EE0C0">
+<div style="aspect-ratio: 1 / 1; border-radius: 6px; overflow: hidden"><svg viewBox="0 0 120 120" width="100%" height="100%" role="img" aria-label="Variant B: coral mask with cyan eyes"><rect width="120" height="120" style="fill: #0F2E33"></rect><path d="M28 40Q60 18 92 40Q94 76 60 98Q26 76 28 40Z" style="fill: #FF6F61"></path><ellipse cx="46" cy="54" rx="9" ry="6" style="fill: #5CE1E6"></ellipse><ellipse cx="74" cy="54" rx="9" ry="6" style="fill: #5CE1E6"></ellipse><path d="M42 74Q60 84 78 74" style="fill: none; stroke: #0F2E33; stroke-width: 3; stroke-linecap: round"></path><circle cx="32" cy="28" r="5" style="fill: #FF9A8B"></circle><circle cx="90" cy="26" r="4" style="fill: #FF9A8B"></circle></svg></div>
+<span style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px"><span style="font-size: 13px; font-weight: 700">Variant B</span><span style="padding: 1px 7px; background: #1A2320; border: 1px solid #2B5546; border-radius: 6px; color: #9FD9C2; font-size: 11px">Art director's pick</span></span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 8px; background: #16161C; border: 1px solid #222222; border-radius: 10px">
+<div style="aspect-ratio: 1 / 1; border-radius: 6px; overflow: hidden"><svg viewBox="0 0 120 120" width="100%" height="100%" role="img" aria-label="Variant C: magenta mask, off palette"><rect width="120" height="120" style="fill: #0F2E33"></rect><path d="M30 44Q60 16 90 44Q90 78 60 98Q30 78 30 44Z" style="fill: #E04FA8"></path><ellipse cx="47" cy="56" rx="8" ry="6" style="fill: #F2C14E"></ellipse><ellipse cx="73" cy="56" rx="8" ry="6" style="fill: #F2C14E"></ellipse><path d="M44 76Q60 84 76 76" style="fill: none; stroke: #0F2E33; stroke-width: 3; stroke-linecap: round"></path></svg></div>
+<span style="font-size: 13px; font-weight: 700">Variant C</span>
+</div>
+</div>
+
+<div style="display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; background: #0D0D12; border: 1px solid #23232E; border-radius: 8px">
+<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #9A9AA6; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; margin-top: 2px"><circle cx="8" cy="4" r="2"></circle><circle cx="3.5" cy="12" r="2"></circle><circle cx="12.5" cy="12" r="2"></circle><path d="M7 5.8L4.5 10.2M9 5.8l2.5 4.4"></path></svg>
+<p style="margin: 0; font-size: 13px; color: #C9C9D1"><strong style="color: #E8E8EE">Art director:</strong> B is closest to your mockup: same silhouette and eye glow, and it reads at 128 px. A's edges get muddy on the dark reels, and C drifts off the palette.</p>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 6px">
+<label for="note" style="font-size: 12px; font-weight: 600; color: #B9B9C4">Your note (optional)</label>
+<textarea id="note" rows="2" style="width: 100%; min-height: 64px; padding: 8px 10px; background: #0D0D12; border: 1px solid #2C2C38; border-radius: 8px; color: #E8E8EE; font-family: inherit; font-size: 13px; line-height: 1.5; resize: vertical">Make the eyes glow brighter and use less pink in the coral.</textarea>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px">
+<button type="button" class="iw-btn-primary" style="display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 16px; background: #1F6F57; border: 1px solid #2B8D6F; border-radius: 8px; color: #EAFFF6; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"><path d="M3.5 8.5l3 3 6-7"></path></svg>Approve B</button>
+<button type="button" class="iw-btn" style="min-height: 36px; padding: 0 16px; background: #1B1B22; border: 1px solid #2C2C38; border-radius: 8px; color: #E8E8EE; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer">Redo with my note</button>
+<span style="font-size: 12px; color: #9A9AA6">Approved art goes into this project's Atlas Maker sheet.</span>
+</div>
+</section>
+
+</div>
+
+<aside style="flex: 1 1 300px; max-width: 400px; display: flex; flex-direction: column; gap: 16px">
+
+<section aria-label="Activity" style="display: flex; flex-direction: column; gap: 6px; padding: 18px; background: #14141B; border: 1px solid #23232E; border-radius: 12px">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px">
+<h2 style="margin: 0; font-size: 16px; font-weight: 700; color: #E8E8EE">Activity</h2>
+<span style="display: inline-flex; align-items: center; gap: 6px; padding: 1px 8px; background: #17212A; border: 1px solid #27404F; border-radius: 6px; color: #A9CFE4; font-size: 11px"><span aria-hidden="true" style="width: 6px; height: 6px; border-radius: 50%; background: #6EA8FF"></span>Live</span>
+</div>
+<ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column">
+<li style="display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 8px; padding: 9px 0; border-top: 1px solid #1D1D24"><span style="padding-top: 1px; font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 11px; color: #8A8A96">11:42</span><span style="display: flex; flex-direction: column; gap: 4px; font-size: 13px"><span><strong style="color: #E8E8EE">Art director</strong> <span style="color: #C9C9D1">rejected 2 of 4 variants for L3 · Q. The letter came out warped, so they're back in the queue.</span></span><span style="align-self: flex-start; padding: 0 6px; background: #241D12; border: 1px solid #5C4613; border-radius: 6px; color: #F5CF7A; font-size: 10px">Atlas Maker</span></span></li>
+<li style="display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 8px; padding: 9px 0; border-top: 1px solid #1D1D24"><span style="padding-top: 1px; font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 11px; color: #8A8A96">11:41</span><span style="display: flex; flex-direction: column; gap: 4px; font-size: 13px"><span><strong style="color: #E8E8EE">Atlas artist</strong> <span style="color: #C9C9D1">rendered 4 variants of H4 · Sea serpent.</span></span><span style="align-self: flex-start; padding: 0 6px; background: #241D12; border: 1px solid #5C4613; border-radius: 6px; color: #F5CF7A; font-size: 10px">ComfyUI · RunPod 4090</span></span></li>
+<li style="display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 8px; padding: 9px 0; border-top: 1px solid #1D1D24"><span style="padding-top: 1px; font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 11px; color: #8A8A96">11:39</span><span style="display: flex; flex-direction: column; gap: 4px; font-size: 13px"><span><strong style="color: #E8E8EE">QA</strong> <span style="color: #C9C9D1">passed H1 · Jade idol: 256×256, clean alpha, fits the sheet.</span></span><span style="align-self: flex-start; padding: 0 6px; background: #241D12; border: 1px solid #5C4613; border-radius: 6px; color: #F5CF7A; font-size: 10px">Atlas Maker</span></span></li>
+<li style="display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 8px; padding: 9px 0; border-top: 1px solid #1D1D24"><span style="padding-top: 1px; font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 11px; color: #8A8A96">11:37</span><span style="font-size: 13px"><strong style="color: #E8E8EE">Coordinator</strong> <span style="color: #C9C9D1">moved the base background to the front of the queue, as you asked.</span></span></li>
+<li style="display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 8px; margin: 0 -8px; padding: 9px 8px; background: #1B1B22; border-radius: 8px"><span style="padding-top: 1px; font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 11px; color: #8A8A96">11:36</span><span style="font-size: 13px"><strong style="color: #E8E8EE">You</strong> <span style="color: #C9C9D1">“Do the background before the low symbols.”</span></span></li>
+<li style="display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 8px; padding: 9px 0; border-top: 1px solid #1D1D24"><span style="padding-top: 1px; font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 11px; color: #8A8A96">11:30</span><span style="display: flex; flex-direction: column; gap: 4px; font-size: 13px"><span><strong style="color: #E8E8EE">Animator</strong> <span style="color: #C9C9D1">bound H1 and H3 to the template's win animations.</span></span><span style="align-self: flex-start; padding: 0 6px; background: #17212A; border: 1px solid #27404F; border-radius: 6px; color: #A9CFE4; font-size: 10px">Symbols SM</span></span></li>
+<li style="display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 8px; padding: 9px 0; border-top: 1px solid #1D1D24"><span style="padding-top: 1px; font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 11px; color: #8A8A96">11:24</span><span style="display: flex; flex-direction: column; gap: 4px; font-size: 13px"><span><strong style="color: #E8E8EE">Coordinator</strong> <span style="color: #C9C9D1">created the project and built the style pack from your 3 mockups.</span></span><span style="align-self: flex-start; padding: 0 6px; background: #1A2320; border: 1px solid #2B5546; border-radius: 6px; color: #9FD9C2; font-size: 10px">Game Maker</span></span></li>
+</ol>
+</section>
+
+<section aria-label="Message the coordinator" style="display: flex; flex-direction: column; gap: 8px; padding: 18px; background: #14141B; border: 1px solid #23232E; border-radius: 12px">
+<label for="msg" style="font-size: 14px; font-weight: 700; color: #E8E8EE">Message the coordinator</label>
+<textarea id="msg" rows="3" placeholder="e.g. Make the wilds gold, not silver" style="width: 100%; min-height: 80px; padding: 8px 10px; background: #0D0D12; border: 1px solid #2C2C38; border-radius: 8px; color: #E8E8EE; font-family: inherit; font-size: 13px; line-height: 1.5; resize: vertical"></textarea>
+<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px">
+<span style="font-size: 12px; color: #9A9AA6">It updates the plan and tells you what changed.</span>
+<button type="button" class="iw-btn-primary" style="display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 14px; background: #1F6F57; border: 1px solid #2B8D6F; border-radius: 8px; color: #EAFFF6; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round"><path d="M2.5 8L13.5 3l-3.5 10.5-2-4z"></path></svg>Send</button>
+</div>
+</section>
+
+</aside>
+
+</div>
+
+</div>
+</main>
+</div>
+</body>
+</html>
