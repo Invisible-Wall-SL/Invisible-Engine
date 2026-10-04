@@ -1,0 +1,13 @@
+{
+	"about": "Tunable comparison tolerance (ADR-0004 §6): default, then gameTypes.<type>, then screens[\"<type>/<screen>\"]. Measured 2026-10-04: main vs main is byte-identical on every screen of every fixture, twice, so the starting values sit just above zero noise: any differing pixel in any 16x16 block fails. Changing a value is a pipeline change the owner approves; put the measured noise in the PR. See docs/playtest/current-games.md.",
+	"default": {
+		"maxDiffRatio": 0.001,
+		"blockSize": 16,
+		"blockThreshold": 0,
+		"threshold": 0.1,
+		"antiAliasing": "count",
+		"masks": []
+	},
+	"gameTypes": {},
+	"screens": {}
+}
