@@ -17,6 +17,7 @@ full-page — never in an iframe). Local tools you install on your own machine.
 |---|---|---|---|
 | **The Launcher** (the portal itself) | `app.invisiblewall.org` | all | [launcher.md](launcher.md) |
 | **Invisible Game Maker** | `/game-maker` | admin · developer · pipeline tester | [game-maker.md](game-maker.md) |
+| **Invisible Director** (early access) | `/director` | admin | [director.md](director.md) |
 | **Invisible Scene Editor** | `/editor` | admin · developer · artist · pipeline tester | [invisible-editor.md](invisible-editor.md) |
 | **Invisible Flow** | `/flow-v2` | admin · developer · artist · pipeline tester | [flow.md](flow.md) |
 | **Invisible FX** | `/fx` | admin · developer · artist · pipeline tester | [fx.md](fx.md) |
@@ -36,6 +37,7 @@ full-page — never in an iframe). Local tools you install on your own machine.
 | **Invisible Game Config** | `/config` | admin · developer · artist · pipeline tester | [game-config.md](game-config.md) |
 | **Invisible Localization** | `/localization` | admin · developer · artist · pipeline tester · localization reviewer | [localization.md](localization.md) |
 | **Invisible FTP Browser** | `/files` | admin · developer · pipeline tester · music/SFX | [ftp-browser.md](ftp-browser.md) |
+| **Invisible Pipeline Changes** (early access) | `/pipeline` | admin · pipeline tester (merging: admin) | [pipeline-changes.md](pipeline-changes.md) |
 
 ## Local tools (install on your machine)
 

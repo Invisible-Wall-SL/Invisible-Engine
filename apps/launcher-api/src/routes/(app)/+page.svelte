@@ -376,11 +376,14 @@
 			<h2>{stage.label}</h2>
 			<div class="grid">
 				{#each stage.items as tool (tool.id)}
-					<a class="tool" href={toolUrl(tool.url)}>
+					<a class="tool" class:is-new={tool.isNew} href={toolUrl(tool.url)}>
 						<span class="ico">{@html tool.icon ?? ''}</span>
 						<strong>{tool.name}</strong>
 						<span class="muted">{tool.description}</span>
-						<span class="tag online">open</span>
+						<span class="tags">
+							{#if tool.isNew}<span class="tag new">new</span>{/if}
+							<span class="tag online">open</span>
+						</span>
 					</a>
 				{/each}
 			</div>
@@ -778,9 +781,26 @@
 		padding: 2px 8px;
 		border-radius: 999px;
 	}
+	.tags {
+		position: absolute;
+		top: 14px;
+		right: 14px;
+		display: flex;
+		gap: 4px;
+	}
+	.tags .tag {
+		position: static;
+	}
 	.tag.online {
 		background: #1f2d23;
 		color: #7ee787;
+	}
+	.tag.new {
+		background: #2d2516;
+		color: #f5b95c;
+	}
+	a.tool.is-new:not(:hover) {
+		border-color: var(--accent);
 	}
 	.tag.local {
 		background: #2a2430;
