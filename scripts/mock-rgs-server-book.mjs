@@ -29,6 +29,7 @@
  * Env (CLI): PORT=7788, START_BALANCE=500000 (cents = $5000), SEED=anything,
  *      FORCE_TRIGGER=1 (every base play triggers the bonus — handy for testing),
  *      BIG_WIN=1 (force a top-tier base win to verify the win presentation),
+ *      WIN_X=10,20,40 (the n-th base spin pays ≥ WIN_X[n] × the base stake — `parseWinX`),
  *      AUTO_COLLECT=0 (the partner's rule: a winning base round stays open until `collect`,
  *      whatever `play.context` says — the only way a round is left open to resume).
  */
@@ -37,6 +38,7 @@ import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
 
 import { createPlatformJackpot } from './mock-platform-jackpot.mjs';
+import { boardPayingAtLeast, parseWinX } from './mock-rgs-server.mjs';
 
 // ---------- pure game data (verified from the live config event) ----------
 
@@ -440,6 +442,8 @@ export function createMockRgs(opts = {}) {
 	// big/mega/max WIN presentation can be verified on demand. Ignored when a
 	// bonus is triggered.
 	const bigWin = opts.bigWin ?? process.env.BIG_WIN === '1';
+	const winX = parseWinX(opts.winX ?? process.env.WIN_X);
+	let baseSpinsDealt = 0;
 	const autoCollectAllowed = opts.autoCollect ?? process.env.AUTO_COLLECT !== '0';
 	const label = opts.label ?? 'mock-book';
 	const payTable = effectivePayTable(opts.symbolPaytable);
@@ -800,17 +804,30 @@ export function createMockRgs(opts = {}) {
 					// bigWin: PIC1 4-of-a-kind on the middle line (broken at reel 4) →
 					// a MEGA-tier win, enough to show the big-win banner without hitting
 					// the MAX special-case.
+					const forcedX = trigger ? undefined : winX[baseSpinsDealt++];
 					const reels = trigger
 						? spinReelsWithScatters(4)
-						: bigWin
-							? [
-									['TEN', 'PIC1', 'TEN'],
-									['TEN', 'PIC1', 'TEN'],
-									['TEN', 'PIC1', 'TEN'],
-									['TEN', 'PIC1', 'TEN'],
-									['TEN', 'KING', 'TEN'],
-								]
-							: spinReels();
+						: forcedX !== undefined
+							? boardPayingAtLeast(spinReels(), {
+									symbols: PAY_SYMBOLS,
+									scatter: 'SCAT',
+									filler: PAY_SYMBOLS[PAY_SYMBOLS.length - 1],
+									target: forcedX,
+									multipleOf: (board) =>
+										evaluatePaylines(board, round.betPerLine, payTable).reduce(
+											(sum, w) => sum + w.pay,
+											0,
+										) / round.baseBet,
+								})
+							: bigWin
+								? [
+										['TEN', 'PIC1', 'TEN'],
+										['TEN', 'PIC1', 'TEN'],
+										['TEN', 'PIC1', 'TEN'],
+										['TEN', 'PIC1', 'TEN'],
+										['TEN', 'KING', 'TEN'],
+									]
+								: spinReels();
 					events.push(spinStartEvent(round));
 					const lineWins = evaluatePaylines(reels, round.betPerLine, payTable);
 					const scat = evaluateScatterTrigger(reels);

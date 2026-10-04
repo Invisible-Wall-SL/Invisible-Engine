@@ -31,6 +31,7 @@
  *   MIN_CLUSTER=5 · ADJACENCY=orthogonal   cluster shape (WIN_MODEL=cluster)
  *   MIN_COUNT=8               scatter-pays floor (WIN_MODEL=scatter)
  *   FORCE_TRIGGER=1 · STACKED=1 · CASCADE=1 · MULTIPLIER=1   outcome/presentation forcing
+ *   WIN_X=10,20,40            the n-th base spin pays ≥ WIN_X[n] × the stake (`parseWinX`)
  *   BUY=1                     a TABLE game selling the default template's buy (`bonus`, 100×)
  *
  * Endpoints:
@@ -251,6 +252,44 @@ const FS_TRIGGER_MIN = 3;
 const TOTAL_FS = 10;
 /** Extra free spins when FS_TRIGGER_MIN+ SCAT land DURING a free spin. */
 const RETRIGGER_FS = 5;
+
+/**
+ * `WIN_X=10,20,40,70,120` — TEST-ONLY forcing for the current-games harness (each big-win tier on
+ * demand): the n-th base spin a mock deals pays at least `WIN_X[n]` × the stake it is priced on.
+ * Spins past the list deal normally. Absent or malformed ⇒ an empty list, and nothing changes.
+ */
+export const parseWinX = (raw) =>
+	String(raw ?? '')
+		.split(',')
+		.filter((t) => t.trim() !== '')
+		.map(Number)
+		.filter((n) => Number.isFinite(n) && n > 0);
+
+/**
+ * The board, built from `dealt`, that pays the smallest multiple of the stake at or above `target`
+ * (the largest one when none reaches it). Candidates replace every `scatter` cell with `filler` (so
+ * the forced spin never triggers the feature) and fill the first `n` cells, reel by reel, with one
+ * `symbols` entry, so the wins on it are the mock's own evaluation of a real board. `multipleOf(board)`
+ * prices one.
+ */
+export const boardPayingAtLeast = (dealt, { symbols, scatter, filler, target, multipleOf }) => {
+	const base = dealt.map((column) => column.map((s) => (s === scatter ? filler : s)));
+	const cells = base.flatMap((column, reel) => column.map((_s, row) => [reel, row]));
+	let best;
+	for (const symbol of symbols)
+		for (let n = 1; n <= cells.length; n++) {
+			const board = base.map((column) => [...column]);
+			for (const [reel, row] of cells.slice(0, n)) board[reel][row] = symbol;
+			const x = multipleOf(board);
+			const better = best
+				? x >= target
+					? best.x < target || x < best.x
+					: best.x < target && x > best.x
+				: true;
+			if (better) best = { board, x };
+		}
+	return best?.board ?? base;
+};
 
 function hashStr(s) {
 	let h = 2166136261 >>> 0;
@@ -931,6 +970,8 @@ export function createMockRgs(opts = {}) {
 	// runs + a full-height WILD so the engine's stacked-picture reel mode has data to render. Opt-in
 	// (`STACKED=1` env or `createMockRgs({ stacked: true })`); OFF ⇒ the normal weighted deal.
 	const stackedDeal = opts.stacked === true || process.env.STACKED === '1';
+	const winX = parseWinX(opts.winX ?? process.env.WIN_X);
+	let baseSpinsDealt = 0;
 	/**
 	 * Emit the cascade presentation fixture on every spin — see the note at its emit site.
 	 *
@@ -1664,7 +1705,22 @@ export function createMockRgs(opts = {}) {
 					}
 
 					// ----- BASE SPIN -----
-					const dealt = stackedDeal ? spinReelsStacked() : spinReels();
+					const shuffled = stackedDeal ? spinReelsStacked() : spinReels();
+					// A round that enters the feature anyway (bought, `FORCE_TRIGGER`) is never forced to pay,
+					// and does not use up a `WIN_X` entry.
+					const forcedX = pendingRound.isBuy || forceTrigger ? undefined : winX[baseSpinsDealt++];
+					const dealt =
+						forcedX === undefined
+							? shuffled
+							: boardPayingAtLeast(shuffled, {
+									symbols: LINE_POOL,
+									scatter: 'SCAT',
+									filler: LINE_POOL[LINE_POOL.length - 1],
+									target: forcedX,
+									multipleOf: (board) =>
+										evaluatePayWins(board, pendingRound).reduce((sum, w) => sum + w.pay, 0) /
+										pendingRound.baseTotal,
+								});
 					// A bought round enters the feature the way `FORCE_TRIGGER` makes every round enter it:
 					// scatters forced onto the dealt board, so the trigger on screen is the one that fired.
 					// Not on a game with no scatter in play, which has no art for one; that round still
