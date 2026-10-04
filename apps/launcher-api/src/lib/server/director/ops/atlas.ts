@@ -257,7 +257,7 @@ export const setRegionPrompt = defineOp<
 	tool: 'atlas',
 	name: 'set_region_prompt',
 	description:
-		"Set a region's generation prompt (and optionally its negative). Saved through the Atlas Maker's own save, compare-and-swapped: a conflict means someone saved this atlas since `base` — re-read and retry.",
+		"Set a region's generation prompt, and optionally its negative. Saved through the Atlas Maker's own save, compare-and-swapped: a conflict means someone saved this atlas since `base` — re-read and retry.",
 	inputSchema: {
 		type: 'object',
 		properties: {
