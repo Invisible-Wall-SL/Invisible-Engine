@@ -25,6 +25,8 @@
 		"check:game-bundle-relay": "tsx --tsconfig tsconfig.scripts.json scripts/check-game-bundle-relay.ts",
 		"precheck:launcher-gates": "node scripts/ensure-svelte-kit.mjs",
 		"check:launcher-gates": "tsx --tsconfig tsconfig.scripts.json scripts/check-launcher-gates.ts",
+		"precheck:pipeline-games": "node scripts/ensure-svelte-kit.mjs",
+		"check:pipeline-games": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-pipeline-games.ts",
 		"precheck:project-scope": "node scripts/ensure-svelte-kit.mjs",
 		"check:project-scope": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-project-scope.ts",
 		"precheck:published-runtime": "node scripts/ensure-svelte-kit.mjs",

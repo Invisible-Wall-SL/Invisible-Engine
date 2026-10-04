@@ -165,6 +165,17 @@ for (const route of [
 }
 
 /**
+ * The current-games CI list is gated on its bearer token ALONE (`check-pipeline-games.ts` holds the
+ * behaviour): a session must never stand in for it, so the handler may not touch `locals`.
+ */
+check(
+	'pipeline/games gates on the CI token',
+	source('pipeline/games').includes('pipelineCiDenial('),
+	true,
+);
+check('pipeline/games never reads the session', /\blocals\b/.test(source('pipeline/games')), false);
+
+/**
  * No handler may compare a role STRING: that is the shape no override can ever reach, which is
  * how the publish chain refused the publishers the owner had just granted.
  */

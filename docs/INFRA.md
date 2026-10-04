@@ -392,6 +392,10 @@ code default, so the dashboard need not set it):
 - **Publishing / engine status:** `GIT_CLONE_TOKEN`, `GIT_CLONE_USERNAME` (default),
   `GITHUB_ENGINE_READ_TOKEN` (optional), `GITHUB_ENGINE_REPO` (default), `PARTNER_RGS` (optional,
   partner launches), `CF_API_TOKEN` + `CF_ZONE_ID` (optional cache purge — see below).
+- **Pipeline CI:** `PIPELINE_CI_TOKEN` (secret, no default) — the bearer token the current-games
+  regression harness (`docs/director/DECISIONS/0004-current-games-regression-harness.md`) sends to
+  the read-only `GET /api/pipeline/games` to list every live game. Held by the launcher and by the
+  GitHub Actions secret of the same name. Unset → that endpoint answers 503; nothing else uses it.
 - **Admin → Costs** (all optional): `RAILWAY_API_TOKEN`, `RAILWAY_PROJECT_ID`, `CF_ACCOUNT_ID`,
   `CF_ANALYTICS_TOKEN`, `ANTHROPIC_ADMIN_API_KEY`, `OPENAI_ADMIN_API_KEY`.
 - **Error tracking** (optional, see "Monitoring & error tracking"): `SENTRY_DSN` +
@@ -913,6 +917,7 @@ apply staged vars.
 | **Tool signing secrets** (`ATLAS_TOOL_SIGNING_SECRET`, `SHEET_TOOL_SIGNING_SECRET`) | Railway Shared Variables → launcher + the one tool each. | New random value (see "Tool launch tokens"); set the tool side, then the launcher. | Both services. Everyone is signed out of that tool and reopens it from the launcher. |
 | **Deploy token** | Admin → Settings → Deploy token (`app_settings`); `EDITOR_DOC_SECRET` is only its env fallback. Held by the build runners. | Admin → Settings → Rotate. | None for the portal; desktop launchers fetch the new value on their next Sync. |
 | **`TEST_SERVER_SECRET`** | Invisible-test-Server; the **launcher** (sends it as a header on its `/refresh` pokes); the GitHub Actions secret of the same name; the owner's portal-publish script. | New random value in every place at once, while no Runtime release or rollback is running. | Test server + launcher → Apply changes / Deploy. A launcher left on the old value still publishes, but the game goes live only on the test server's next hydrate. |
+| **`PIPELINE_CI_TOKEN`** | The **launcher**; the GitHub Actions secret of the same name (the current-games harness). Grants only the read-only game list `GET /api/pipeline/games`. | New random value (e.g. `openssl rand -hex 32`) in both places. | Launcher → Apply changes / Deploy. Harness runs between the two updates get a 401. |
 | **`RUNPOD_API_KEY`** | RunPod → Settings → API Keys. Read by the launcher, atlas-tool and the Serverless endpoint's own env. | Create a new key, switch all three, delete the old. | Launcher + atlas-tool; edit the endpoint's env in RunPod. |
 | **`COMFY_ORG_API_KEY`** (gpt_image) | platform.comfy.org → API Keys. Read by atlas-tool, and locally by the desktop Atlas Maker. | Create a new key, switch consumers, revoke the old. | atlas-tool → Apply changes / Deploy. |
 | **Backup source-reader R2 token** (`backup-source-reader`) | Cloudflare R2 → API Tokens. Object Read only on `invisibleassets`. GitHub env `backups` secrets `BACKUP_SRC_R2_ACCESS_KEY_ID` / `BACKUP_SRC_R2_SECRET_ACCESS_KEY`. Not used by any Railway service. | Create a new token with the same scope, then delete the old one. | Update the two secrets. Actions → **Nightly backup** → Run workflow → green. |

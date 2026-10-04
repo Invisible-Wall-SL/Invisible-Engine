@@ -56,6 +56,13 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+- 2026-10-04 — **`GET /api/pipeline/games`, the current-games harness's game list** (Director
+  Phase 1, task 1.1; ADR-0004). Read-only, gated by the bearer `PIPELINE_CI_TOKEN` alone (constant-
+  time compare; no session ever stands in; unset → 503). Returns every `listGames()` row whose
+  project is live (soft-deleted projects' games dropped, global games kept with null project
+  fields): key, name, project/client/game type, version, builtAt, the published pointer key
+  (`publishedPointerKey` in `projectPaths.ts`, now also used by `publishedRuntime.ts`) and
+  `hasOwnBuiltBundle`. Fixture: `check:pipeline-games`; `check:launcher-gates` pins the gate.
 - 2026-10-03 — **The home Project selector can no longer disagree with the session.** Owner report
   after duplicating Book of Borut: the copy was missing from the dropdown, the dropdown showed
   BookOfBorutRemake, and the Scene Editor opened `borut-pots-sample`. Cause: the session is

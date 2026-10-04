@@ -103,7 +103,7 @@ export class PublishBlockedError extends Error {
  * served from their own files with their real `protocol` and NO `runtime` field;
  * the online Game Maker (generic runtime) must never overwrite them.
  */
-async function hasOwnBuiltBundle(key: string): Promise<boolean> {
+export async function hasOwnBuiltBundle(key: string): Promise<boolean> {
 	const objects = await listAllObjects(`test_server/${key}/`);
 	return objects.some((o) => !o.key.endsWith('/'));
 }
