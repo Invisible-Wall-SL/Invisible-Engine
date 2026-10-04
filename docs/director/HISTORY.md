@@ -15,6 +15,23 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-04 · Phase 0 → 1 · coordinator
+- **Did:**
+  - The owner approved Phase 0 ("alright, let's start").
+  - ADR-0001…0006 are now `approved` and all open-question defaults are accepted.
+  - New working model: each task runs in its own session, started from a task card. This
+    coordinator session reviews and records.
+  - Issued the Phase 1 task cards.
+- **Files:**
+  - `docs/director/{README,ARCHITECTURE,OPEN_QUESTIONS,PLAN}.md`
+  - `docs/director/DECISIONS/*`
+  - `.claude/agents/*` (reporting goes through the PR description)
+  - `docs/STATUS.md` (map row)
+- **Branch / PR:** `claude/upbeat-feynman-pwgx6a`, Invisible-Wall-SL/Invisible-Engine#1034.
+- **Tests:** none; docs only.
+- **Decisions:** ADR-0001…0006 approved.
+- **Next:** merge #1034 so task sessions start from `main`, then run the Phase 1 cards.
+
 ## 2026-10-04 · Phase 0 · coordinator
 - **Did:** Applied the owner's feedback on "looks the same".
   - Tolerance is now a tunable config, not a fixed 0.1 %.

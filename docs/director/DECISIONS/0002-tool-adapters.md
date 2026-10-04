@@ -1,6 +1,6 @@
 # ADR-0002 — Tool adapters
 
-- **Status:** proposed
+- **Status:** approved (2026-10-04, owner)
 - **Date:** 2026-10-04
 
 ## Context

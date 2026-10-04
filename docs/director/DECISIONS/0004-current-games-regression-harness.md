@@ -1,6 +1,6 @@
 # ADR-0004 — Current-games regression harness
 
-- **Status:** proposed
+- **Status:** approved (2026-10-04, owner)
 - **Date:** 2026-10-04
 
 ## Context

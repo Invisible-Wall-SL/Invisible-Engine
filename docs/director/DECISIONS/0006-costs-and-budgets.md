@@ -1,6 +1,6 @@
 # ADR-0006 — Costs and budgets
 
-- **Status:** proposed
+- **Status:** approved (2026-10-04, owner)
 - **Date:** 2026-10-04
 
 ## Context

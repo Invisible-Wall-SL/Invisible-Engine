@@ -1,6 +1,6 @@
 # ADR-0005 — Mockup analysis
 
-- **Status:** proposed
+- **Status:** approved (2026-10-04, owner)
 - **Date:** 2026-10-04
 
 ## Context

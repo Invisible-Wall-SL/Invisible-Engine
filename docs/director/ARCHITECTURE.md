@@ -149,7 +149,7 @@ How the two tools plug into the platform. §1 maps what exists today (Phase 0 ex
   - Deterministic mocks: `scripts/mock-rgs-server.mjs` (`SEED`, `FORCE_TRIGGER`, …) and the
     authoring force channel.
 
-## 2. Proposed shape (pending ADR approval)
+## 2. Shape (ADR-0001…0006, approved 2026-10-04)
 
 ```
  Browser (launcher pages, full width, ToolTopBar)
@@ -177,4 +177,14 @@ How the two tools plug into the platform. §1 maps what exists today (Phase 0 ex
 
 ## 3. Approved decisions
 
-None yet. Every ADR in `DECISIONS/` is `proposed`.
+All approved 2026-10-04:
+- **ADR-0001:** Anthropic SDK tool runner in a new `services/director-worker` service.
+- **ADR-0002:** typed launcher adapter API. It has hard refusals in code and resumes GPU jobs
+  instead of polling them.
+- **ADR-0003:** Postgres run state, a pure state machine, `LISTEN/NOTIFY` and SSE.
+- **ADR-0004:** current-games harness. Published snapshots × branch runtime vs main runtime, with
+  a tunable tolerance and per-diff owner approval.
+- **ADR-0005:** mockups in `<C>/<P>/director/`. Structured analysis; code has the final word on
+  `left_out`.
+- **ADR-0006:** `pricing.json` plus an Admin override, a `director_spend` ledger, and a budget cap
+  snapshotted per run.

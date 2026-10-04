@@ -12,8 +12,9 @@ Two new online tools for the Studio launcher (app.invisiblewall.org):
   It merges only when the pipeline tests pass, every current game still builds and looks the
   same, and someone with `pipelineMerge` approves.
 
-**Status:** Phase 0 (set-up) is done. No feature code is written yet: everything waits on the
-owner approving the ADRs and the plan.
+**Status:** Phase 0 is done and approved (2026-10-04). Phase 1 is in progress. Each task runs in its
+own session, launched from a task card, and is coordinated from the coordinator session. See
+"Task sessions" below.
 
 ## Documents
 
@@ -33,12 +34,12 @@ owner approving the ADRs and the plan.
 
 | ADR | Decision | Status |
 |---|---|---|
-| [0001](DECISIONS/0001-agent-runtime.md) | Agent runtime | proposed |
-| [0002](DECISIONS/0002-tool-adapters.md) | Tool adapters | proposed |
-| [0003](DECISIONS/0003-run-state-and-events.md) | Run state and events | proposed |
-| [0004](DECISIONS/0004-current-games-regression-harness.md) | Current-games regression harness | proposed |
-| [0005](DECISIONS/0005-mockup-analysis.md) | Mockup analysis | proposed |
-| [0006](DECISIONS/0006-costs-and-budgets.md) | Costs and budgets | proposed |
+| [0001](DECISIONS/0001-agent-runtime.md) | Agent runtime | approved |
+| [0002](DECISIONS/0002-tool-adapters.md) | Tool adapters | approved |
+| [0003](DECISIONS/0003-run-state-and-events.md) | Run state and events | approved |
+| [0004](DECISIONS/0004-current-games-regression-harness.md) | Current-games regression harness | approved |
+| [0005](DECISIONS/0005-mockup-analysis.md) | Mockup analysis | approved |
+| [0006](DECISIONS/0006-costs-and-budgets.md) | Costs and budgets | approved |
 
 ### Mockups
 
@@ -64,6 +65,22 @@ owner approving the ADRs and the plan.
 
 The coordinator (the main Claude Code session) assigns tasks and reviews results against the
 acceptance criteria. It asks the owner before any merge.
+
+## Task sessions
+
+Each PLAN task (or a small group of tasks that share a branch) runs in its **own session**. The
+owner starts it from a task card the coordinator issues. To keep parallel sessions from fighting
+over the shared files:
+
+- A task session works only on **its own branch**, named in the card, and opens a **draft PR** with
+  a scoped title.
+- A task session **does not edit `HISTORY.md` or `PLAN.md`**. It puts its HISTORY entry in the PR
+  description under `## HISTORY entry`, using the usual format.
+- The **coordinator session** reviews the PR against the acceptance criteria and asks the owner to
+  merge. After the merge it copies the entry into `HISTORY.md` and moves `PLAN.md`.
+- A new open question goes in the PR description under `## Open questions`, each with a suggested
+  default. The coordinator adds it to `OPEN_QUESTIONS.md`.
+- No session merges. Only the owner merges.
 
 ## How a session starts
 

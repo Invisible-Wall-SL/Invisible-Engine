@@ -46,4 +46,7 @@ End every task with a report to the coordinator:
 - **Changed:** files and a one-line why each.
 - **Tests:** the exact commands you ran and their result (pass/fail counts). Say plainly if something was not run.
 - **Left:** what is not done, and any new open question (with a suggested default).
-Then prepend an entry to `docs/director/HISTORY.md` in the format shown at the top of that file, and move your task's status in `PLAN.md` (`doing` → `review`).
+Put this report in your draft PR's description under `## HISTORY entry`, using the format at the
+top of `docs/director/HISTORY.md`. Put any new questions under `## Open questions`, each with a
+suggested default. Do **not** edit `HISTORY.md` or `PLAN.md` from a task branch: the coordinator
+session records them after the owner merges.

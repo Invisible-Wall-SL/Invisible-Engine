@@ -1,6 +1,6 @@
 # ADR-0001 — Agent runtime
 
-- **Status:** proposed
+- **Status:** approved (2026-10-04, owner)
 - **Date:** 2026-10-04
 - **Author:** coordinator (Phase 0)
 
