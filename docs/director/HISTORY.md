@@ -16,6 +16,17 @@ with a new one. Use this format:
 ---
 
 ## 2026-10-04 · Phase 0 · coordinator
+- **Did:** Added `02-director-new-game.html` from the owner. All six screens now have both a PNG and an HTML file. Closed the mockup-gaps question.
+- **Files:**
+  - `docs/director/mockups/02-director-new-game.html`
+  - `docs/director/README.md`
+  - `docs/director/OPEN_QUESTIONS.md`
+- **Branch / PR:** `claude/upbeat-feynman-pwgx6a`, Invisible-Wall-SL/Invisible-Engine#1034.
+- **Tests:** none; docs only.
+- **Decisions:** none.
+- **Next:** owner approval of ADR-0001…0006 and the open-question defaults, then Phase 1.
+
+## 2026-10-04 · Phase 0 · coordinator
 - **Did:** The owner re-sent the mockups. I added the Live run screenshot, which was the missing PNG. The other four were identical to the committed files.
 - **Files:**
   - `docs/director/mockups/04-director-live-run.png`

@@ -41,10 +41,6 @@ with the default.
    - *Default:* each pipeline change is a GitHub branch with a PR, squash-merged with a scoped
      title. History is the merged PRs. Rollback is a revert PR that goes through the same checks.
      This becomes ADR-0007, before Phase 5.
-10. **Mockup HTML gap.**
-    - Every screen now has a PNG. Only `02-director-new-game` still has no HTML.
-    - *Default:* build screen 02 from its PNG, reusing the spacing and colour tokens from the other screens' HTML. Share the 02 HTML if you have it.
-
 ## Answered
 
-None yet.
+- **(was Q10) Mockup gaps.** Answered 2026-10-04: the owner sent `02-director-new-game.html` and `04-director-live-run.png`, so the set is now complete.
