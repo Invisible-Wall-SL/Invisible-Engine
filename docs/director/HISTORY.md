@@ -15,6 +15,72 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-04 · Phase 1 · coordinator (recording #1035–#1038)
+- **Did:** Recorded the merges of cards A, B and C, plus #1038, a follow-up fixing two problems that card C found. Adopted the default answers to the cards' open questions; see OPEN_QUESTIONS.
+- **Files:** `docs/director/{HISTORY,PLAN,OPEN_QUESTIONS}.md`
+- **Branch / PR:** `claude/upbeat-feynman-pwgx6a` (restarted from main).
+- **Tests:** none; docs only.
+- **Decisions:** card E uses `draw:'last'`. A stall or error fails the game. Games run pinned to UTC/en-US. A game with no snapshot reports "not rendered", never a silent pass.
+- **Next:** card E (harness). Phase 2/3 cards in parallel; they merge only once the harness exists.
+
+## 2026-10-04 · Phase 1 · platform-integrator (Card C, #1037)
+- **Did:**
+  - Registered `director` in Create and `pipelineChanges` in a new Pipeline stage (#f778ba), with icons in `TOOL_ICONS` and all 4 toolbar twins.
+  - Added a `ToolDef.isNew` "new" tag.
+  - Added the `pipelineMerge` capability (Admin only). Pipeline Tester gets `pipelineChanges` by default.
+  - Added early-access `/director` and `/pipeline` pages (full width, ToolTopBar, 403 gate).
+  - Wrote both tool guides.
+- **Files:**
+  - `apps/launcher-api/src/lib/roles.ts`
+  - `(app)/+page.svelte`, `(app)/admin/*`, `(app)/director/*`, `(app)/pipeline/*`
+  - `scripts/check-director-access.ts`
+  - the toolbar twins
+  - `docs/tools/{director,pipeline-changes,README,launcher}.md`
+  - `docs/status/launcher.md`
+- **Branch / PR:** `launcher/director-registry`, Invisible-Wall-SL/Invisible-Engine#1037. Follow-up: Invisible-Wall-SL/Invisible-Engine#1038 fixes `vite dev` for `engine-fx` and formats three launcher files.
+- **Tests:**
+  - check:director-access 29/29
+  - check:toolbar-icons, check:launcher-gates 332: pass
+  - lint clean; check:svelte at baseline 53; build OK
+- **Decisions:** The page gate uses the parent-manifest 403 (the comfyui pattern), because neither page is project-scoped. "new" is a manual flag.
+- **Next:** card D; the pages get filled in Phases 4 and 5.
+
+## 2026-10-04 · Phase 1 · regression-guardian (Card B, #1036)
+- **Did:** Added a test-only determinism mode, `?ie_determinism=<seed>`, to the shared runtime:
+  - a virtual clock driving rAF, timers, `performance.now`, `Date` and CSS/Web Animations
+  - a seeded `Math.random`
+  - a per-frame I/O gate
+  - `window.__IE_DETERMINISM__`, with `step`, `waitFor`, `state` and the `draw:'last'` fast mode
+  - With the flag off, nothing changes.
+- **Files:**
+  - `apps/lines/src/game/determinism.ts`
+  - `apps/lines/src/hooks.client.ts`
+  - `apps/lines/src/components/Game.svelte`
+  - `packages/config-svelte/index.js`
+  - `scripts/playtest/determinism-proof.mjs`
+  - `docs/status/engine.md`
+- **Branch / PR:** `engine/determinism-hook`, Invisible-Wall-SL/Invisible-Engine#1036.
+- **Tests:**
+  - 2 runs × 4 scenarios (base spin, line win, big win, Hold and Win Classic): 20/20 captures byte-identical in both draw modes.
+  - check:all 331/331; lint and svelte-check at baseline.
+- **Decisions:** The hook lives in the page, because CDP virtual time showed 0.5–24.6 % noise between two runs of main. The flag ships ungated in the player bundle.
+- **Next:** card E builds on `__IE_DETERMINISM__` and `determinism-proof.mjs`. A runtime release is needed after this merge.
+
+## 2026-10-04 · Phase 1 · platform-integrator (Card A, #1035)
+- **Did:** Added `GET /api/pipeline/games`.
+  - It is gated by a bearer `PIPELINE_CI_TOKEN` compared in constant time: 401 for a wrong or missing token, 503 when the token is unset, no session fallback.
+  - It is read-only. It returns `listGames()` joined to live projects, with `publishedPointerKey` and `hasOwnBuiltBundle`, and never a `readToken`.
+  - `publishedPointerKey` moved into `projectPaths.ts`.
+- **Files:**
+  - `apps/launcher-api/src/routes/api/pipeline/games/+server.ts`
+  - `src/lib/server/pipelineGames.ts`
+  - `scripts/check-pipeline-games.ts`
+  - `docs/INFRA.md`
+- **Branch / PR:** `claude/compassionate-maxwell-z5h9ba`, Invisible-Wall-SL/Invisible-Engine#1035.
+- **Tests:** check:pipeline-games 35/35; check:launcher-gates 330/330; check:published-runtime 37/37; svelte-check at baseline.
+- **Decisions:** Global (project-less) games stay in the list with null project fields. The pointer key is computed, not probed.
+- **Next:** card E consumes this. The owner sets `PIPELINE_CI_TOKEN` on the launcher and as a GitHub secret.
+
 ## 2026-10-04 · Phase 0 → 1 · coordinator
 - **Did:**
   - The owner approved Phase 0 ("alright, let's start").
