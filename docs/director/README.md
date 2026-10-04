@@ -47,7 +47,7 @@ owner approving the ADRs and the plan.
 | Launcher with the new tools | `01-launcher.png` | `01-launcher.html` |
 | Director: New game | `02-director-new-game.png` | not provided |
 | Director: Mockup breakdown | `03-director-mockup-breakdown.png` | `03-director-mockup-breakdown.html` |
-| Director: Live run | not provided | `04-director-live-run.html` |
+| Director: Live run | `04-director-live-run.png` | `04-director-live-run.html` |
 | Pipeline Changes | `05-pipeline-changes.png` | `05-pipeline-changes.html` |
 | Admin › Roles | `06-admin-roles.png` | `06-admin-roles.html` |
 

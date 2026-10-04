@@ -16,6 +16,17 @@ with a new one. Use this format:
 ---
 
 ## 2026-10-04 · Phase 0 · coordinator
+- **Did:** The owner re-sent the mockups. I added the Live run screenshot, which was the missing PNG. The other four were identical to the committed files.
+- **Files:**
+  - `docs/director/mockups/04-director-live-run.png`
+  - `docs/director/README.md` (mockup table)
+  - `docs/director/OPEN_QUESTIONS.md` (Q10)
+- **Branch / PR:** `claude/upbeat-feynman-pwgx6a`, Invisible-Wall-SL/Invisible-Engine#1034.
+- **Tests:** none; docs only.
+- **Decisions:** none.
+- **Next:** owner review of Phase 0. Only `02-director-new-game.html` is still missing.
+
+## 2026-10-04 · Phase 0 · coordinator
 - **Did:**
   - Explored the platform. The findings and their file paths are in ARCHITECTURE §1.
   - Created the project docs, the six build agents and the seven runtime-agent drafts.
