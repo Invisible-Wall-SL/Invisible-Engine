@@ -1,5 +1,5 @@
 {
-  "id": "b2c02e82-ae2b-48c5-9e0c-2bcb87d96c51",
+  "id": "af9a50bc-989d-4728-898e-34dc35785739",
   "prevId": "e1eb1203-5577-4241-ab90-509a3635c20f",
   "version": "7",
   "dialect": "postgresql",
@@ -234,6 +234,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'{}'::jsonb"
+        },
+        "handled_at": {
+          "name": "handled_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -254,6 +260,22 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "director_events_unhandled_idx": {
+          "name": "director_events_unhandled_idx",
+          "columns": [
+            {
+              "expression": "run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"director_events\".\"handled_at\" is null",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -674,13 +696,6 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
-        },
-        "handled_event_id": {
-          "name": "handled_event_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
         },
         "project_create_started_at": {
           "name": "project_create_started_at",

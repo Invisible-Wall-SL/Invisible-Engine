@@ -29,13 +29,23 @@ log.info('agents loaded', {
 	})),
 });
 
-const sql = env.databaseUrl
-	? postgres(env.databaseUrl, {
+/** Never log the error itself: a malformed URL's error carries the URL, password included. */
+function openDatabase(url: string) {
+	try {
+		return postgres(url, {
 			max: 4,
 			onnotice: () => {},
 			connection: { application_name: 'director-worker' },
-		})
-	: null;
+		});
+	} catch (error) {
+		log.error('DATABASE_URL is not a valid connection string', {
+			code: (error as { code?: unknown }).code ?? null,
+		});
+		process.exit(1);
+	}
+}
+
+const sql = env.databaseUrl ? openDatabase(env.databaseUrl) : null;
 let wake: Wake | null = null;
 if (sql) {
 	try {
@@ -64,9 +74,14 @@ server.listen(env.port, () => log.info('http listening', { port: env.port }));
 async function shutdown(signal: string) {
 	log.info('shutdown', { signal });
 	server.close();
-	await wake?.stop();
-	await sql?.end({ timeout: 5 });
-	process.exit(0);
+	try {
+		await wake?.stop();
+		await sql?.end({ timeout: 5 });
+	} catch (error) {
+		log.warn('shutdown: database already gone', { error });
+	} finally {
+		process.exit(0);
+	}
 }
 process.on('SIGTERM', () => void shutdown('SIGTERM'));
 process.on('SIGINT', () => void shutdown('SIGINT'));

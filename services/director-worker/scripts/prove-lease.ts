@@ -9,7 +9,7 @@
  * SCRATCH DATABASE ONLY: it refuses to run when `director_runs` holds any row, and it installs a
  * logging trigger on `director_runs` for its duration.
  *
- * WORKERS separate connections race over RUNS runs (fewer runs than workers, so most claims
+ * WORKERS drivers on separate connections (two per worker id, as two loops of one process) race over RUNS runs (fewer runs than workers, so most claims
  * contend) for DURATION_MS. Each claims with the real `claimRun`, then makes a few guarded writes
  * with the real `writeState` / `renewLease`, sometimes stalling past its lease first, and releases.
  * A trigger logs every change to a run's lease or state in the SAME transaction, under the row lock,
@@ -57,13 +57,21 @@ const running: RunState = {
 	checkpoints: checkpointSettings({}),
 };
 
-/** One worker: claim, drive a few guarded steps (sometimes stalling past the lease), release. */
+/**
+ * One driver: claim, drive a few guarded steps (sometimes stalling past the lease), release. Drivers
+ * share a worker id in pairs, as two loops of one process would (the sweep and a NOTIFY): the lease
+ * must fence each CLAIM, not each process.
+ */
 async function worker(index: number, deadline: number) {
-	const sql = postgres(url!, { max: 1, onnotice: () => {} });
-	const holder = `worker-${index}`;
+	const sql = postgres(url!, {
+		max: 1,
+		onnotice: () => {},
+		connection: { application_name: `driver-${index}` },
+	});
+	const workerId = `worker-${Math.floor(index / 2)}`;
 	try {
 		while (Date.now() < deadline) {
-			const claimed = await claimRun(sql, holder, { leaseMs: LEASE_MS });
+			const claimed = await claimRun(sql, workerId, { leaseMs: LEASE_MS });
 			if (!claimed) {
 				stats.emptyClaims++;
 				await sleep(Math.random() * 10);
@@ -82,12 +90,12 @@ async function worker(index: number, deadline: number) {
 				// A same-state write still bumps updated_at under the guard: a "drive" step.
 				held =
 					i % 2 === 0
-						? await writeState(sql, claimed.id, holder, running, running, 'lease proof')
-						: await renewLease(sql, claimed.id, holder, LEASE_MS);
+						? await writeState(sql, claimed, running, running, 'lease proof')
+						: await renewLease(sql, claimed, LEASE_MS);
 				if (held) stats.writes++;
 				else stats.refusedWrites++;
 			}
-			if (held && (await releaseLease(sql, claimed.id, holder))) stats.releases++;
+			if (held && (await releaseLease(sql, claimed))) stats.releases++;
 		}
 	} finally {
 		await sql.end();
@@ -97,6 +105,8 @@ async function worker(index: number, deadline: number) {
 interface LogRow {
 	id: number;
 	run_id: string;
+	/** The connection that wrote — one per driver — whatever `lease_holder` it wrote. */
+	driver: string;
 	old_holder: string | null;
 	new_holder: string | null;
 	/** The old lease against the writing transaction's `now()` — the clock its guard compared
@@ -105,36 +115,39 @@ interface LogRow {
 	writable: boolean;
 }
 
-/** Replay each run's log in order; every way the history could break the claim is a violation. */
+/**
+ * Replay each run's log in order. A change is classified by what the database allowed, not by the
+ * holder string: setting a holder over a free or expired lease is a claim, anything else that keeps a
+ * holder is a write under a live lease. Every write and release must then come from the DRIVER that
+ * made the run's last claim, so a fence that only told processes apart would be caught here.
+ */
 function replay(log: LogRow[]) {
 	const violations: string[] = [];
 	let steals = 0;
-	const current = new Map<string, string | null>();
+	let sameProcessSteals = 0;
+	const driving = new Map<string, string | null>();
 	for (const row of log) {
-		const holder = current.get(row.run_id) ?? null;
-		const isClaim = row.new_holder !== null && row.new_holder !== row.old_holder;
-		const isRelease = row.new_holder === null && row.old_holder !== null;
-		if (isClaim) {
-			const free = row.old_holder === null || row.claimable;
-			if (!free) {
-				violations.push(
-					`#${row.id} ${row.new_holder} claimed ${row.run_id} under a live lease of ${row.old_holder}`,
-				);
+		const driver = driving.get(row.run_id) ?? null;
+		const where = `#${row.id} ${row.driver} on ${row.run_id}`;
+		if (row.new_holder === null) {
+			if (row.driver !== driver) violations.push(`${where}: released a run ${driver} drives`);
+			driving.set(row.run_id, null);
+		} else if (row.old_holder === null || row.claimable) {
+			if (row.old_holder !== null) {
+				steals++;
+				if (row.old_holder.split('#')[0] === row.new_holder.split('#')[0]) sameProcessSteals++;
 			}
-			if (row.old_holder !== null) steals++;
-			current.set(row.run_id, row.new_holder);
-		} else if (isRelease) {
-			if (row.old_holder !== holder) {
-				violations.push(`#${row.id} ${row.old_holder} released ${row.run_id} held by ${holder}`);
-			}
-			current.set(row.run_id, null);
-		} else if (row.new_holder !== holder) {
-			violations.push(`#${row.id} ${row.new_holder} wrote ${row.run_id} while ${holder} held it`);
+			if (row.new_holder === row.old_holder) violations.push(`${where}: a claim reused a token`);
+			driving.set(row.run_id, row.driver);
 		} else if (!row.writable) {
-			violations.push(`#${row.id} ${row.new_holder} wrote ${row.run_id} after its lease expired`);
+			violations.push(`${where}: claimed under a live lease, or wrote after it expired`);
+		} else if (row.driver !== driver) {
+			violations.push(`${where}: wrote while ${driver} drives it`);
+		} else if (row.new_holder !== row.old_holder) {
+			violations.push(`${where}: changed the holder without claiming`);
 		}
 	}
-	return { violations, steals };
+	return { violations, steals, sameProcessSteals };
 }
 
 let log: LogRow[] = [];
@@ -142,6 +155,7 @@ try {
 	await admin`create table director_lease_proof_log (
 		id bigserial primary key,
 		run_id text not null,
+		driver text not null,
 		old_holder text,
 		new_holder text,
 		old_lease_until timestamptz,
@@ -149,8 +163,9 @@ try {
 	)`;
 	await admin`create function director_lease_proof_log_fn() returns trigger as $$
 		begin
-			insert into director_lease_proof_log (run_id, old_holder, new_holder, old_lease_until, at)
-			values (new.id, old.lease_holder, new.lease_holder, old.lease_until, now());
+			insert into director_lease_proof_log (run_id, driver, old_holder, new_holder, old_lease_until, at)
+			values (new.id, current_setting('application_name'), old.lease_holder, new.lease_holder,
+				old.lease_until, now());
 			return new;
 		end $$ language plpgsql`;
 	await admin`create trigger director_lease_proof_log_trg after update on director_runs
@@ -166,7 +181,7 @@ try {
 	const deadline = Date.now() + DURATION_MS;
 	await Promise.all(Array.from({ length: WORKERS }, (_, i) => worker(i, deadline)));
 
-	log = await admin<LogRow[]>`select id, run_id, old_holder, new_holder,
+	log = await admin<LogRow[]>`select id, run_id, driver, old_holder, new_holder,
 			coalesce(old_lease_until < at, true) as claimable,
 			coalesce(old_lease_until > at, false) as writable
 		from director_lease_proof_log order by run_id, id`;
@@ -179,12 +194,16 @@ try {
 	await admin.end();
 }
 
-const { violations, steals } = replay(log);
+const { violations, steals, sameProcessSteals } = replay(log);
 const checks: [boolean, string][] = [
 	[violations.length === 0, `no two workers drove one run (${log.length} logged changes replayed)`],
 	[stats.claims > 50, `runs were claimed many times (${stats.claims})`],
 	[stats.emptyClaims > 0, `contending claims came back empty (${stats.emptyClaims})`],
-	[steals > 0, `expired leases were taken over by another worker (${steals})`],
+	[steals > 0, `expired leases were taken over by another claim (${steals})`],
+	[
+		sameProcessSteals > 0,
+		`... including by the same process, fenced by the claim token (${sameProcessSteals})`,
+	],
 	[stats.refusedWrites > 0, `writes after a lost lease were refused (${stats.refusedWrites})`],
 ];
 let failed = false;
@@ -193,6 +212,15 @@ for (const [ok, msg] of checks) {
 	failed ||= !ok;
 }
 for (const v of violations.slice(0, 20)) console.log(`    ${v}`);
-console.log(JSON.stringify({ workers: WORKERS, runs: RUNS, leaseMs: LEASE_MS, ...stats, steals }));
+console.log(
+	JSON.stringify({
+		drivers: WORKERS,
+		runs: RUNS,
+		leaseMs: LEASE_MS,
+		...stats,
+		steals,
+		sameProcessSteals,
+	}),
+);
 if (failed) process.exit(1);
 console.log('\nlease claim proven: one driver per run.');

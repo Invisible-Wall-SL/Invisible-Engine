@@ -1,5 +1,4 @@
 import {
-	bigint,
 	bigserial,
 	boolean,
 	check,
@@ -485,9 +484,6 @@ export const directorRuns = pgTable(
 		/** The worker driving the run, and until when. Both null = nobody. */
 		leaseHolder: text('lease_holder'),
 		leaseUntil: timestamp('lease_until', { withTimezone: true }),
-		/** The last `director_events.id` the worker has acted on: an owner event or `job_done` after
-		 *  it is what the 60 s sweep wakes a run for. */
-		handledEventId: bigint('handled_event_id', { mode: 'number' }).notNull().default(0),
 		/** Set when `gamemaker.create_from_template` starts copying: from then on the run's project
 		 *  key is this run's, so a retry after a crash finishes the copy instead of refusing it. */
 		projectCreateStartedAt: timestamp('project_create_started_at', { withTimezone: true }),
@@ -525,6 +521,11 @@ export const directorRuns = pgTable(
  * ever INSERT here (`owner_message`, `checkpoint_resolved`, `owner_request` for start / pause /
  * resume / stop) and NOTIFY `director_wake`; the worker reacts. `run_status` records each transition
  * the worker makes. The live page streams this table after `Last-Event-ID` (= `id`).
+ *
+ * A row's content never changes. The one column written later is `handled_at`, which the worker
+ * stamps on a waking event once it has acted on it. That is per row, not an id high-water mark,
+ * because bigserial ids are taken before commit: a slow insert can commit with a LOWER id than one
+ * already handled, and a mark would skip it for good.
  */
 export const directorEvents = pgTable(
 	'director_events',
@@ -554,9 +555,14 @@ export const directorEvents = pgTable(
 		/** The tool used (`<tool>.<op>`), for the Activity feed; null when none. */
 		tool: text('tool'),
 		payloadJson: jsonb('payload_json').notNull().default({}),
+		/** When the worker acted on this event; null until then. Only waking kinds are stamped. */
+		handledAt: timestamp('handled_at', { withTimezone: true }),
 	},
 	(table) => [
 		index('director_events_run_idx').on(table.runId, table.id),
+		index('director_events_unhandled_idx')
+			.on(table.runId)
+			.where(sql`${table.handledAt} is null`),
 		check(
 			'director_events_kind_check',
 			sql`${table.kind} in ('activity', 'owner_message', 'owner_request', 'checkpoint_open', 'checkpoint_resolved', 'region_status', 'job_queued', 'job_done', 'spend', 'run_status', 'error')`,

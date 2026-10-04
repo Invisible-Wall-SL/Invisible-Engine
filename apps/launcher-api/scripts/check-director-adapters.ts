@@ -1155,7 +1155,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 
 // ── The worker's tool catalogue covers the registry (its agent loader refuses any other tool) ──
 {
-	const catalogue = await import(
+	const catalogue: typeof import('../../../services/director-worker/src/tools.ts') = await import(
 		new URL('../../../services/director-worker/src/tools.ts', import.meta.url).href
 	);
 	const adapterOps: readonly string[] = catalogue.ADAPTER_OPS;

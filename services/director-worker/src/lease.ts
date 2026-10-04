@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import type { Checkpoint, RunState, RunStatus, RunStep } from './runState.ts';
 import { checkpointSettings } from './runState.ts';
@@ -7,9 +8,12 @@ import { checkpointSettings } from './runState.ts';
  *
  * - **claim** picks one claimable run with `FOR UPDATE SKIP LOCKED`, so two workers racing for the
  *   same row never both get it — the loser skips it and takes the next one, or nothing;
+ * - the claim stores a token unique to THAT claim (`<workerId>#<uuid>`) as `lease_holder`, so a
+ *   second claim of the same run by the same process — its sweep re-claiming a run whose first
+ *   driver stalled — is a different holder, not the same one twice;
  * - every later write (**renew**, **writeState**, **release**) is conditional on `lease_holder` still
- *   being this worker AND `lease_until` still in the future. A worker that stalled past its lease
- *   finds its write refused (another worker may have claimed the run by then) and must drop the run.
+ *   being that token AND `lease_until` still in the future. A driver that stalled past its lease
+ *   finds its write refused (another claim may hold the run by then) and must drop the run.
  *
  * Time is always the database's `now()`, never this process's clock, so workers on machines whose
  * clocks disagree still agree on whether a lease has expired.
@@ -31,8 +35,9 @@ export const WAKING_KINDS = [
 
 export interface ClaimedRun {
 	id: string;
+	/** This claim's token: what every guarded write for this run must present. */
+	lease: string;
 	state: RunState;
-	handledEventId: number;
 }
 
 interface RunRow {
@@ -41,18 +46,18 @@ interface RunRow {
 	step: RunStep;
 	waiting_on: Checkpoint | null;
 	checkpoints_json: unknown;
-	handled_event_id: string | number;
+	lease_holder: string;
 }
 
 const toClaimed = (row: RunRow): ClaimedRun => ({
 	id: row.id,
+	lease: row.lease_holder,
 	state: {
 		status: row.status,
 		step: row.step,
 		waitingOn: row.waiting_on,
 		checkpoints: checkpointSettings(row.checkpoints_json),
 	},
-	handledEventId: Number(row.handled_event_id),
 });
 
 /** A constant list as one text parameter, split server-side: `= any(string_to_array(…))`. */
@@ -67,7 +72,7 @@ const claimable = (sql: Sql) => sql`
 		or exists (
 			select 1 from director_events e
 			where e.run_id = c.id
-				and e.id > c.handled_event_id
+				and e.handled_at is null
 				and e.kind = any(string_to_array(${list(WAKING_KINDS)}, ','))
 		)
 	)`;
@@ -79,12 +84,12 @@ const claimable = (sql: Sql) => sql`
  */
 export async function claimRun(
 	sql: Sql,
-	holder: string,
+	workerId: string,
 	{ runId = null, leaseMs = LEASE_MS }: { runId?: string | null; leaseMs?: number } = {},
 ): Promise<ClaimedRun | null> {
 	const rows = await sql<RunRow[]>`
 		update director_runs r
-		set lease_holder = ${holder},
+		set lease_holder = ${`${workerId}#${randomUUID()}`},
 			lease_until = now() + ${leaseMs} * interval '1 millisecond'
 		where r.id = (
 			select c.id from director_runs c
@@ -94,44 +99,45 @@ export async function claimRun(
 			limit 1
 			for update skip locked
 		)
-		returning r.id, r.status, r.step, r.waiting_on, r.checkpoints_json, r.handled_event_id`;
+		returning r.id, r.status, r.step, r.waiting_on, r.checkpoints_json, r.lease_holder`;
 	return rows[0] ? toClaimed(rows[0]) : null;
 }
 
-/** Extend a lease this worker still holds. False = it was lost: stop driving the run. */
+/** Extend a lease this claim still holds. False = it was lost: stop driving the run. */
 export async function renewLease(
 	sql: Sql,
-	runId: string,
-	holder: string,
+	run: Pick<ClaimedRun, 'id' | 'lease'>,
 	leaseMs = LEASE_MS,
 ): Promise<boolean> {
 	const rows = await sql`
 		update director_runs
 		set lease_until = now() + ${leaseMs} * interval '1 millisecond'
-		where id = ${runId} and lease_holder = ${holder} and lease_until > now()
+		where id = ${run.id} and lease_holder = ${run.lease} and lease_until > now()
 		returning id`;
 	return rows.length === 1;
 }
 
 /** Give a run back. A no-op when the lease was already lost. */
-export async function releaseLease(sql: Sql, runId: string, holder: string): Promise<boolean> {
+export async function releaseLease(
+	sql: Sql,
+	run: Pick<ClaimedRun, 'id' | 'lease'>,
+): Promise<boolean> {
 	const rows = await sql`
 		update director_runs
 		set lease_holder = null, lease_until = null
-		where id = ${runId} and lease_holder = ${holder}
+		where id = ${run.id} and lease_holder = ${run.lease}
 		returning id`;
 	return rows.length === 1;
 }
 
 /**
  * Persist a transition `transition()` returned, with its `run_status` event, as one transaction —
- * only if this worker still holds a live lease AND the run is still in `from` (so a stale view of the
+ * only if this claim still holds a live lease AND the run is still in `from` (so a stale view of the
  * run can never overwrite a newer one). False = nothing was written; drop the run.
  */
 export async function writeState(
 	sql: Sql,
-	runId: string,
-	holder: string,
+	run: Pick<ClaimedRun, 'id' | 'lease'>,
 	from: RunState,
 	to: RunState,
 	cause: string,
@@ -140,15 +146,15 @@ export async function writeState(
 		const rows = await tx`
 			update director_runs
 			set status = ${to.status}, step = ${to.step}, waiting_on = ${to.waitingOn}, updated_at = now()
-			where id = ${runId}
-				and lease_holder = ${holder} and lease_until > now()
+			where id = ${run.id}
+				and lease_holder = ${run.lease} and lease_until > now()
 				and status = ${from.status} and step = ${from.step}
 				and waiting_on is not distinct from ${from.waitingOn}
 			returning id`;
 		if (rows.length !== 1) return false;
 		await tx`
 			insert into director_events (run_id, agent, kind, payload_json)
-			values (${runId}, 'worker', 'run_status', ${tx.json({
+			values (${run.id}, 'worker', 'run_status', ${tx.json({
 				from: { status: from.status, step: from.step, waitingOn: from.waitingOn },
 				to: { status: to.status, step: to.step, waitingOn: to.waitingOn },
 				cause,

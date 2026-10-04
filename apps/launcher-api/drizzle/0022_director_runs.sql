@@ -6,6 +6,7 @@ CREATE TABLE "director_events" (
 	"kind" text NOT NULL,
 	"tool" text,
 	"payload_json" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"handled_at" timestamp with time zone,
 	CONSTRAINT "director_events_kind_check" CHECK ("director_events"."kind" in ('activity', 'owner_message', 'owner_request', 'checkpoint_open', 'checkpoint_resolved', 'region_status', 'job_queued', 'job_done', 'spend', 'run_status', 'error'))
 );
 --> statement-breakpoint
@@ -42,11 +43,11 @@ ALTER TABLE "director_runs" ADD COLUMN "waiting_on" text;--> statement-breakpoin
 ALTER TABLE "director_runs" ADD COLUMN "budget_cap_usd" double precision;--> statement-breakpoint
 ALTER TABLE "director_runs" ADD COLUMN "lease_holder" text;--> statement-breakpoint
 ALTER TABLE "director_runs" ADD COLUMN "lease_until" timestamp with time zone;--> statement-breakpoint
-ALTER TABLE "director_runs" ADD COLUMN "handled_event_id" bigint DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE "director_events" ADD CONSTRAINT "director_events_run_id_director_runs_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."director_runs"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "director_messages" ADD CONSTRAINT "director_messages_run_id_director_runs_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."director_runs"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "director_regions" ADD CONSTRAINT "director_regions_run_id_director_runs_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."director_runs"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "director_events_run_idx" ON "director_events" USING btree ("run_id","id");--> statement-breakpoint
+CREATE INDEX "director_events_unhandled_idx" ON "director_events" USING btree ("run_id") WHERE "director_events"."handled_at" is null;--> statement-breakpoint
 CREATE UNIQUE INDEX "director_messages_run_agent_seq_idx" ON "director_messages" USING btree ("run_id","agent","seq");--> statement-breakpoint
 CREATE INDEX "director_runs_status_idx" ON "director_runs" USING btree ("status");--> statement-breakpoint
 ALTER TABLE "director_runs" ADD CONSTRAINT "director_runs_status_check" CHECK ("director_runs"."status" in ('draft', 'running', 'waiting', 'paused', 'stopping', 'stopped', 'failed', 'handed_off'));--> statement-breakpoint

@@ -16,7 +16,8 @@ export const SWEEP_MS = 60_000;
 
 export interface Wake {
 	stop(): Promise<void>;
-	/** Whether the last database round-trip (LISTEN or sweep) succeeded. */
+	/** Whether the last sweep succeeded — a query against the run tables, so a database that
+	 *  answers but whose schema is behind is unhealthy too. */
 	healthy(): boolean;
 }
 
@@ -26,10 +27,7 @@ export async function startWake(sql: Sql, sweepMs = SWEEP_MS): Promise<Wake> {
 	const listener = await sql.listen(
 		WAKE_CHANNEL,
 		(payload) => log.info('wake', { channel: WAKE_CHANNEL, runId: payload || null }),
-		() => {
-			healthy = true;
-			log.info('listening', { channel: WAKE_CHANNEL });
-		},
+		() => log.info('listening', { channel: WAKE_CHANNEL }),
 	);
 
 	const sweep = async () => {
