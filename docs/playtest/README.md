@@ -62,6 +62,7 @@ its `--mode recon` boots, prints the fps and exits.
   page is `visible`, so rounds still finish: idle in 9–18 s, and a 32 s big-win count-up lands on
   time. Check the `fps` a run prints before timing anything. Expect one `Web font load inactive`
   console error there, because the Typekit font does not load from a container.
+- **A virtual clock instead.** `determinism-proof.mjs` boots with `?ie_determinism=<seed>` and steps frames itself, so captures are pixel-identical run to run. See "Determinism mode" in [status/engine.md](../status/engine.md).
 - **"The game never reaches idle" in a container was the harness** (2026-10-02). The script found
   no `chrome-headless-shell`, or the shell would not start as root. Neither is an engine finding.
 

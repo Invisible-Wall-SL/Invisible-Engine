@@ -101,7 +101,10 @@ export default () => {
 					files: {
 						routes: `${ENGINE_APP_SRC}/routes`,
 						appTemplate: `${ENGINE_APP_SRC}/app.html`,
-						hooks: { server: `${ENGINE_APP_SRC}/hooks.server` },
+						hooks: {
+							server: `${ENGINE_APP_SRC}/hooks.server`,
+							client: `${ENGINE_APP_SRC}/hooks.client`,
+						},
 					},
 				}
 			: kit,
