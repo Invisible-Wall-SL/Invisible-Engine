@@ -1,7 +1,7 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
 import { DEFAULT_GAME_KIND } from 'constants-shared/gameKinds';
 import { bearerToken } from '$lib/launcherGates';
 import { mapWithConcurrency } from './concurrency';
+import { tokensMatch } from './tokensMatch';
 import type { Game, Project } from './db/schema';
 import { listGames } from './games';
 import { publishedPointerKey, UNASSIGNED_CLIENT } from './projectPaths';
@@ -41,12 +41,6 @@ export interface PipelineGame {
 
 /** Parallel `hasOwnBuiltBundle` listings: one LIST per 1,000 objects under `test_server/<key>/`. */
 const OWN_BUNDLE_CONCURRENCY = 8;
-
-/** Equal-length digests, so the comparison takes the same time whatever the presented length. */
-function tokensMatch(presented: string, configured: string): boolean {
-	const digest = (value: string) => createHash('sha256').update(value).digest();
-	return timingSafeEqual(digest(presented), digest(configured));
-}
 
 /** Why the request must be refused, or `null` when its bearer token is the configured CI token. */
 export function pipelineCiDenial(

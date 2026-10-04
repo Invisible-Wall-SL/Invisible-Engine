@@ -148,6 +148,13 @@
       "when": 1791131249210,
       "tag": "0020_director_spend",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791136660127,
+      "tag": "0021_director_adapters",
+      "breakpoints": true
     }
   ]
 }

@@ -179,6 +179,10 @@ first publish.
 You need the Game Maker tool and access to the source project; unlike Publish, it
 needs no extra capability.
 
+Invisible Director creates its projects through this same duplicate (**Everything**),
+from a published game an admin marked as a
+[Director template](director.md#mark-a-game-as-a-director-template).
+
 ### Add the pots overlay to a project
 
 The pots overlay lays the 3 Pots mechanic over a game you already have: tokens and value coins

@@ -214,6 +214,10 @@
 
 	let selectedId = $state<string | null>(null);
 	const selected = $derived(data.users.find((u) => u.id === selectedId) ?? null);
+	/** Projects with a registered game: only these can be marked as a Director template. */
+	const publishedProjectKeys = $derived(
+		new Set(data.games.flatMap((g) => (g.projectKey ? [g.projectKey] : []))),
+	);
 
 	const loadedSessions = $derived(
 		form?.action === 'loadSessions' && form.userId === selectedId ? form.sessions : null,
@@ -935,6 +939,26 @@
 									<option value={gk.id}>{gk.name}</option>
 								{/each}
 							</select>
+						</form>
+						<form
+							method="POST"
+							action="?/setDirectorTemplate"
+							use:enhance
+							title={p.directorTemplate || publishedProjectKeys.has(p.key)
+								? 'Invisible Director can start new games from a Director template'
+								: 'Publish this project first: only a published game can be a Director template'}
+						>
+							<input type="hidden" name="key" value={p.key} />
+							<input type="hidden" name="on" value={p.directorTemplate ? 'false' : 'true'} />
+							<button
+								type="submit"
+								class="small toggle"
+								class:on={p.directorTemplate}
+								aria-pressed={p.directorTemplate}
+								disabled={!p.directorTemplate && !publishedProjectKeys.has(p.key)}
+							>
+								{p.directorTemplate ? '✓ ' : ''}Director template
+							</button>
 						</form>
 						<form method="POST" action="?/rescaffoldProject" use:enhance>
 							<input type="hidden" name="key" value={p.key} />
@@ -2528,6 +2552,20 @@
 	button.small {
 		padding: 5px 10px;
 		font-size: 12px;
+	}
+	button.toggle {
+		background: transparent;
+		border: 1px solid #3a3a48;
+		color: #b9b9c6;
+	}
+	button.toggle.on {
+		background: #6b5bff;
+		border-color: #6b5bff;
+		color: #fff;
+	}
+	button.toggle:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
 	}
 	.inline {
 		display: flex;
