@@ -460,8 +460,8 @@
 		<h2>Local tools</h2>
 		<p class="sechelp">
 			Installed on <em>your</em> machine. The launcher can't see your disk — the path below is a personal
-			bookmark of where you put the tool (for your own reference + the download flow), not something
-			it verifies or runs.
+			bookmark of where you put the tool (for your own reference + the download flow), not something it
+			verifies or runs.
 		</p>
 		<div class="grid wide">
 			{#each local as tool (tool.id)}

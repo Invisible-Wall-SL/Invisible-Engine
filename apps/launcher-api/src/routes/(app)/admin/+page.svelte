@@ -982,10 +982,10 @@
 			<section>
 				<h2>Deleted projects</h2>
 				<p class="muted hint">
-					Deleting a project only hides it — every file it owns is still in R2 and a restore
-					brings it back with its read token intact, so published game URLs keep working.
-					<strong>Purge files</strong> is the only destructive action here: it permanently
-					deletes the project's R2 objects and drops the row for good.
+					Deleting a project only hides it — every file it owns is still in R2 and a restore brings
+					it back with its read token intact, so published game URLs keep working.
+					<strong>Purge files</strong> is the only destructive action here: it permanently deletes the
+					project's R2 objects and drops the row for good.
 				</p>
 				<div class="projects">
 					{#each data.deletedProjects as p (p.key)}
@@ -1241,8 +1241,8 @@
 			<p class="muted hint">
 				What the pipeline is spending, per provider. Figures come straight from each provider's own
 				API and are cached for ten minutes — hit <strong>Refresh</strong> to re-read them now.
-				Anything marked <span class="pill est">estimate</span> is our arithmetic over usage counters
-				rather than a billed figure, so reconcile against the provider's invoice, not against this page.
+				Anything marked <span class="pill est">estimate</span> is our arithmetic over usage counters rather
+				than a billed figure, so reconcile against the provider's invoice, not against this page.
 			</p>
 
 			{#await data.costs}
@@ -1649,8 +1649,8 @@
 						action="?/saveLayoutProfile"
 						use:enhance
 						onsubmit={(e) => {
-							const el = e.currentTarget.querySelector<HTMLInputElement>('input[name=profile]');
-							if (el) el.value = JSON.stringify(layoutProfile);
+							const el = e.currentTarget.querySelector('input[name=profile]');
+							if (el instanceof HTMLInputElement) el.value = JSON.stringify(layoutProfile);
 						}}
 					>
 						<input type="hidden" name="profile" value="" />
@@ -1799,8 +1799,8 @@
 					can run past the viewport edges. You'll see the change on a game's next publish.
 					<br />
 					Leave <strong>Animation</strong> blank only if the skeleton's first clip is the right one —
-					a spine left on its setup pose renders empty, which looks like a broken splash rather than
-					an unset one.
+					a spine left on its setup pose renders empty, which looks like a broken splash rather than an
+					unset one.
 				</p>
 
 				<hr class="boot-rule" />
@@ -2082,15 +2082,16 @@
 			<p class="muted">Checking what it owns…</p>
 		{:else}
 			<p>
-				Keeping <strong>{footprint.objects.toLocaleString()}</strong> files
-				({sizeLabel(footprint.bytes)}) in R2.
+				Keeping <strong>{footprint.objects.toLocaleString()}</strong> files ({sizeLabel(
+					footprint.bytes,
+				)}) in R2.
 			</p>
 			{#if footprint.games.length > 0}
 				<p class="warn">
 					Unregisters {footprint.games.length} published game{footprint.games.length === 1
 						? ''
-						: 's'}: {footprint.games.map((g) => g.name).join(', ')}. Restoring the project does
-					not bring them back.
+						: 's'}: {footprint.games.map((g) => g.name).join(', ')}. Restoring the project does not
+					bring them back.
 				</p>
 			{/if}
 		{/if}
@@ -2124,8 +2125,8 @@
 			<p class="muted">Counting files…</p>
 		{:else if footprint.collidesWith.length > 0}
 			<p class="warn">
-				Blocked: {footprint.collidesWith.join(', ')} shares this project's R2 folder, so purging
-				would destroy that project's work too. Rename one of them first.
+				Blocked: {footprint.collidesWith.join(', ')} shares this project's R2 folder, so purging would
+				destroy that project's work too. Rename one of them first.
 			</p>
 		{:else if footprint.strayPrefixes.length > 0}
 			<p class="warn">
@@ -2136,8 +2137,9 @@
 			</p>
 		{:else}
 			<p>
-				This deletes <strong>{footprint.objects.toLocaleString()}</strong> files
-				({sizeLabel(footprint.bytes)}) from
+				This deletes <strong>{footprint.objects.toLocaleString()}</strong> files ({sizeLabel(
+					footprint.bytes,
+				)}) from
 				{#each footprint.roots as root (root)}
 					<code>{root}</code>
 				{/each}
