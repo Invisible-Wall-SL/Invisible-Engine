@@ -279,9 +279,10 @@ export const ENV = {
 	},
 	/** Bearer token for the read-only `GET /api/pipeline/games` the current-games CI harness lists
 	 *  games from (`docs/director/DECISIONS/0004-current-games-regression-harness.md`). Secret: no
-	 *  code default. Unset ⇒ the endpoint answers 503, never an open list. */
+	 *  code default; trimmed, so a pasted trailing newline cannot 401 every run. Unset ⇒ the
+	 *  endpoint answers 503, never an open list. */
 	get PIPELINE_CI_TOKEN() {
-		return env.PIPELINE_CI_TOKEN ?? '';
+		return (env.PIPELINE_CI_TOKEN ?? '').trim();
 	},
 	// GitHub read-only token the desktop launcher uses to clone PRIVATE game repos
 	// (and their submodules) on any machine with no per-user GitHub login. Served by

@@ -24,7 +24,7 @@ export interface PipelineCiDenial {
 export interface PipelineGame {
 	key: string;
 	name: string;
-	/** Null for a global game (no owning project); such a game has no published snapshot. */
+	/** Null for a global (legacy, project-less) game: it has no published snapshot to render. */
 	projectKey: string | null;
 	/** The project's stored client; null when unassigned (its R2 tree is under `unassigned/`). */
 	clientKey: string | null;
@@ -32,13 +32,14 @@ export interface PipelineGame {
 	gameType: string | null;
 	version: string;
 	builtAt: string | null;
-	/** R2 key of the project's published-snapshot pointer; null for a global game. */
+	/** Where the project's published-snapshot pointer lives, computed, not probed: a never-published
+	 *  project's key names no object yet. Null for a global game. */
 	publishedPointerKey: string | null;
 	/** A desktop build serves its own bundle (`test_server/<key>/`), not the shared runtime. */
 	hasOwnBuiltBundle: boolean;
 }
 
-/** Parallel R2 listings for `hasOwnBuiltBundle` — one small LIST per game. */
+/** Parallel `hasOwnBuiltBundle` listings: one LIST per 1,000 objects under `test_server/<key>/`. */
 const OWN_BUNDLE_CONCURRENCY = 8;
 
 /** Equal-length digests, so the comparison takes the same time whatever the presented length. */
@@ -73,6 +74,7 @@ export function joinPipelineGames(
 	gameRows: Game[],
 	projectRows: Project[],
 ): Omit<PipelineGame, 'hasOwnBuiltBundle'>[] {
+	// `listProjects()` already drops tombstones; filtered again so this stays right for any caller.
 	const live = new Map(projectRows.filter((p) => !p.deletedAt).map((p) => [p.key, p]));
 	const out: Omit<PipelineGame, 'hasOwnBuiltBundle'>[] = [];
 	for (const game of gameRows) {

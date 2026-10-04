@@ -125,6 +125,8 @@ delete process.env.PIPELINE_CI_TOKEN;
 }
 process.env.PIPELINE_CI_TOKEN = '';
 check('an empty PIPELINE_CI_TOKEN is unset too', (await get(bearer(''))).status, 503);
+process.env.PIPELINE_CI_TOKEN = ' \n';
+check('so is a whitespace-only one', (await get(bearer(''))).status, 503);
 
 // ── Set: only the exact bearer token gets in ──────────────────────────────────
 process.env.PIPELINE_CI_TOKEN = TOKEN;
@@ -142,6 +144,10 @@ for (const [label, headers] of refusals) {
 	check(`${label} reads nothing`, res.read, 0);
 	check(`${label} names the Bearer scheme`, res.headers.get('www-authenticate'), 'Bearer');
 }
+
+process.env.PIPELINE_CI_TOKEN = `${TOKEN}\n`;
+check('a pasted trailing newline is trimmed', (await get(bearer(TOKEN))).status, 200);
+process.env.PIPELINE_CI_TOKEN = TOKEN;
 
 // ── The list ──────────────────────────────────────────────────────────────────
 const ok = await get(bearer(TOKEN));
