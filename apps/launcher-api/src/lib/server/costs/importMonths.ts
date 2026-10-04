@@ -39,6 +39,7 @@ const PROVIDER_ALIASES: Record<ProviderId, string[]> = {
 	r2: ['r2', 'cloudflare', 'cloudflarer2', 'cf', 'cfr2'],
 	openai: ['openai', 'open-ai', 'gpt', 'chatgpt'],
 	anthropic: ['anthropic', 'claude'],
+	anthropicAgents: ['anthropicagents', 'anthropic(agents)', 'claudeagents'],
 };
 
 /** English and Spanish month names, full and abbreviated — the two languages this
