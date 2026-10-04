@@ -66,7 +66,14 @@ export async function serveSnapshot({ dir, name, snapshotId, assetBase }) {
 			return res.end(body);
 		}
 		if (url.pathname.startsWith('/f/')) {
-			const file = resolve(deploy, decodeURIComponent(url.pathname.slice(3)));
+			let rel;
+			try {
+				rel = decodeURIComponent(url.pathname.slice(3));
+			} catch {
+				res.writeHead(400, cors);
+				return res.end();
+			}
+			const file = resolve(deploy, rel);
 			if (file.startsWith(deploy + sep) && existsSync(file) && statSync(file).isFile()) {
 				res.writeHead(200, {
 					...cors,

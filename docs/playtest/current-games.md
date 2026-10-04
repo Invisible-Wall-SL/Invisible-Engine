@@ -130,12 +130,19 @@ Rows that are visible but never count as a pass:
 - `not rendered (no snapshot)`: a global game with no published snapshot.
 - `skip: not published`: its pointer does not exist yet.
 - `own bundle — build + tests only`: a desktop-built game (`hasOwnBuiltBundle`). It serves its own
-  bundle on both sides, so the screens would compare a bundle against itself.
+  bundle, the same one on both sides, so it is not rendered: its screens would compare that bundle
+  with itself. Its row still fails when its type's gates fail.
+
+A game whose **main** render fails (a scenario main cannot finish, or main's page reports errors or
+stalls) is an `error` row that names main's failure. The branch is not blamed for it, but the
+comparison proves nothing until main is fixed.
 
 Each changed screen shows before (main), after (branch) and diff images. It also shows the
 measured differing-pixel ratio and worst block, the tolerance it ran with, and its **stable id**:
-`<branch sha>:<game key>:<screen>:<diff hash>`. The diff hash covers both images' pixels, so a new
-commit that changes the picture gets a new id. Phase 5 approvals will name that id.
+`<branch sha>:<game key>:<screen>:<diff hash>`. The branch sha is the PR head, not its merge
+commit. The diff hash covers both images' pixels, so a new commit that changes the picture gets a
+new id. A screen only one side captured has no diff image; its hash covers the one capture and the
+side that took it. Phase 5 approvals will name that id.
 
 "Every screen's measured difference" at the bottom is the noise record for every screen, including
 the ones that passed.
@@ -149,7 +156,8 @@ rendered. A run that cannot start (a missing secret, a failed build) fails and n
 
 1. **`prepare`** posts `pending`, checks the six secrets (a missing one fails the status, named),
    and picks the base commit. On a PR that is the merge commit's first parent. On a push it is the
-   merge-base with main.
+   merge-base with main. A push to a branch with an open PR stands down, so the PR's run owns the
+   status and the two never race. A PR from a fork does not run: it gets no secrets.
 2. **`build`** builds both runtimes and runs the gates once.
 3. **`render`** is four shards, split by game key.
 4. **`report`** merges the parts, uploads the `current-games-report` artifact and posts the final

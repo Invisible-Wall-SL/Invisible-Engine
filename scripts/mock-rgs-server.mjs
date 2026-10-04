@@ -1706,7 +1706,9 @@ export function createMockRgs(opts = {}) {
 
 					// ----- BASE SPIN -----
 					const shuffled = stackedDeal ? spinReelsStacked() : spinReels();
-					const forcedX = winX[baseSpinsDealt++];
+					// A round that enters the feature anyway (bought, `FORCE_TRIGGER`) is never forced to pay,
+					// and does not use up a `WIN_X` entry.
+					const forcedX = pendingRound.isBuy || forceTrigger ? undefined : winX[baseSpinsDealt++];
 					const dealt =
 						forcedX === undefined
 							? shuffled

@@ -398,7 +398,8 @@ code default, so the dashboard need not set it):
   GitHub Actions secret of the same name. Unset → that endpoint answers 503; nothing else uses it.
 - **Current-games harness (GitHub Actions secrets, `.github/workflows/current-games.yml`):**
   `PIPELINE_GAMES_URL` (the launcher's `/api/pipeline/games` URL), `PIPELINE_CI_TOKEN` (above), and
-  a **read-only** R2 token scoped to `*/published/**` + `test_server/games.json`:
+  an R2 API token with **Object Read only** on the bucket (R2 scopes tokens per bucket, not per key
+  prefix; the harness reads only `*/published/**` and `test_server/games.json`):
   `CURRENT_GAMES_R2_ENDPOINT`, `CURRENT_GAMES_R2_BUCKET`, `CURRENT_GAMES_R2_ACCESS_KEY_ID`,
   `CURRENT_GAMES_R2_SECRET_ACCESS_KEY`. Deliberately NOT the release's read-write `R2_*`: the harness
   never writes. A missing one fails the run and the `current-games` commit status, naming it. The

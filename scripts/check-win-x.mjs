@@ -92,23 +92,36 @@ for (const [name, make] of Object.entries(MOCKS)) {
 	await close();
 }
 
-console.log('\n§ unforced — the same seed deals the same board with and without an exhausted list');
+console.log('\n§ unforced — past the list, the deal is the one an unforced mock deals');
 {
-	const plain = await boot(createMockRgs({ seed: 'win-x', quiet: true }));
-	const forced = await boot(createMockRgs({ seed: 'win-x', quiet: true, winX: [10] }));
-	await forced.post('/rgs/engine?sid=f&seq=0', [
-		{ action: 'bet', context: [10, 1] },
-		{ action: 'play', context: '' },
-	]);
-	await plain.post('/rgs/engine?sid=p&seq=0', [
-		{ action: 'bet', context: [10, 1] },
-		{ action: 'play', context: '' },
-	]);
-	const a = await spin(plain.post, 'p', 1);
-	const b = await spin(forced.post, 'f', 1);
-	check(a.win === b.win, 'the spin after the list deals as an unforced mock would');
-	await plain.close();
-	await forced.close();
+	// The same seed's second board, with and without a one-entry list: the forced first spin must
+	// draw from the RNG exactly as an unforced one does.
+	const board = async (winX) => {
+		const { post, close } = await boot(createMockRgs({ seed: 'win-x', quiet: true, winX }));
+		const boards = [];
+		for (let n = 0; n < 2; n++) {
+			const resp = await post(`/rgs/engine?sid=b&seq=${n * 2}`, [
+				{ action: 'bet', context: [10, 1] },
+				{ action: 'play', context: '' },
+			]);
+			boards.push(JSON.stringify(events(resp, 'playedSpin')[0]?.context));
+		}
+		await close();
+		return boards;
+	};
+	const [plainFirst, plainSecond] = await board([]);
+	const [forcedFirst, forcedSecond] = await board([10]);
+	check(plainFirst !== forcedFirst, 'the forced spin deals a different board');
+	check(plainSecond === forcedSecond, 'the spin after the list deals the same board as unforced');
+}
+
+console.log('\n§ a round that enters the feature anyway is not forced and keeps the list');
+{
+	const mock = createMockRgs({ seed: 'win-x', quiet: true, winX: [10], forceTrigger: true });
+	const { post, close } = await boot(mock);
+	const { triggered } = await spin(post, 'ft', 0);
+	check(triggered, 'FORCE_TRIGGER still triggers with a WIN_X list');
+	await close();
 }
 
 console.log(failed ? `\nFAIL — ${failed} check(s)` : '\nPASS');

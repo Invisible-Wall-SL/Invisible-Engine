@@ -9,11 +9,14 @@ import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-/** pass / fail of one row; `null` for a row that was not rendered (visible, but never a pass). */
+/**
+ * pass / fail of one row; `null` for a row that was not rendered — no snapshot, not published, or a
+ * desktop build's own bundle — which is visible in the report but never counts as a pass.
+ */
 export function rowVerdict(row) {
 	if (row.build?.status === 'fail' || row.tests?.status === 'fail') return 'fail';
 	if (row.looks.status === 'changed' || row.looks.status === 'error') return 'fail';
-	if (row.looks.status === 'same' || row.looks.status === 'own-bundle') return 'pass';
+	if (row.looks.status === 'same') return 'pass';
 	return null;
 }
 
@@ -26,9 +29,7 @@ export function summarize(games, aborted) {
 		else counts.notRendered++;
 	}
 	const rendered = games.filter((g) => g.looks.status === 'same' || g.looks.status === 'changed');
-	const changedScreens = games.flatMap((g) =>
-		g.screens.filter((s) => !s.pass).map((s) => s.id ?? `${g.key}:${s.screen}`),
-	);
+	const changedScreens = games.flatMap((g) => g.screens.filter((s) => !s.pass).map((s) => s.id));
 	const verdict = aborted || counts.fail || !rendered.length ? 'fail' : 'pass';
 	const line = aborted
 		? aborted
@@ -124,7 +125,7 @@ function html(report) {
 @media (prefers-color-scheme: light){:root{--bg:#fff;--fg:#16181d;--muted:#5d636e;--line:#dde0e5;--pass:#cdeedb;--fail:#f7d4d7;--warn:#f6e7bf}}
 body{background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,sans-serif;margin:0;padding:16px;max-width:1400px}
 table{border-collapse:collapse;width:100%;margin:12px 0}td,th{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
-.s-pass,.s-same,.s-own-bundle{background:var(--pass)}.s-fail,.s-changed,.s-error{background:var(--fail)}.s-skip,.s-no-snapshot,.s-unpublished{background:var(--warn)}
+.s-pass,.s-same{background:var(--pass)}.s-fail,.s-changed,.s-error{background:var(--fail)}.s-skip,.s-no-snapshot,.s-unpublished,.s-own-bundle{background:var(--warn)}
 .verdict{font-size:20px;font-weight:700}.imgs{display:flex;gap:8px;flex-wrap:wrap}figure{margin:0;flex:1 1 300px}img{width:100%;border:1px solid var(--line)}
 small,.tol{color:var(--muted)}code{word-break:break-all}details{margin:12px 0}
 </style></head><body>

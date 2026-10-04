@@ -22,7 +22,7 @@
 
 const DEFAULT_MAX_FRAMES = 3600;
 
-export class ScriptError extends Error {}
+class ScriptError extends Error {}
 
 const matches = (until, s) =>
 	(until.anyOf === undefined || until.anyOf.some((c) => matches(c, s))) &&

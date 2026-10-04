@@ -3,7 +3,7 @@
 
 import { spawnHeadlessShell } from '../../playtest/headless-shell.mjs';
 
-export const VIEWPORT = { width: 1280, height: 720, deviceScaleFactor: 1 };
+const VIEWPORT = { width: 1280, height: 720, deviceScaleFactor: 1 };
 
 /** Console errors and uncaught exceptions are kept (the last 50) for the report. */
 export async function openPage(chromePath, profile) {

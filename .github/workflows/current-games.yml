@@ -8,22 +8,25 @@
 # scripts/current-games/tolerance.json, and run its type's `check:*` gates. Posts the commit status
 # `current-games` (it can be made a required check) and uploads the report as an artifact.
 #
-# READ-ONLY by construction: the R2 key it is given must be a read-only token (scoped to
-# `*/published/**` and `test_server/games.json`), and nothing here writes to R2 or to production.
+# READ-ONLY by construction: the R2 key it is given must be an Object Read-only token (R2 scopes
+# tokens per bucket, not per key prefix; the harness only reads `*/published/**` and
+# `test_server/games.json`), and nothing here writes to R2 or to production.
 #
 # SECRETS (Settings → Secrets and variables → Actions; the owner adds them, values never committed):
 #   PIPELINE_GAMES_URL                   https://<launcher>/api/pipeline/games
 #   PIPELINE_CI_TOKEN                    the launcher's PIPELINE_CI_TOKEN (bearer for that endpoint)
 #   CURRENT_GAMES_R2_ENDPOINT            the R2 S3 endpoint
 #   CURRENT_GAMES_R2_BUCKET              the bucket
-#   CURRENT_GAMES_R2_ACCESS_KEY_ID       a READ-ONLY R2 token's key id
+#   CURRENT_GAMES_R2_ACCESS_KEY_ID       an Object Read-only R2 token's key id
 #   CURRENT_GAMES_R2_SECRET_ACCESS_KEY   …and its secret
 # A missing one fails the run (and the status) naming it.
 #
 # WHAT IS COMPARED: on a pull request, the PR merge commit against its first parent (the base
 # branch tip it merges into), so only this change shows; on a push, the branch tip against its
-# merge-base with main. Main's runtime is cached by SHA. A docs-only change posts success without
-# rendering anything: no game can look different.
+# merge-base with main. A push to a branch that has an open PR stands down: the PR's run owns the
+# status, so the two never race on one commit. Main's runtime is cached by SHA. A docs-only change
+# posts success without rendering anything: no game can look different. A PR from a fork gets no
+# secrets and no write token, so it does not run at all.
 
 name: Current games
 
@@ -33,12 +36,13 @@ on:
     branches-ignore: [main]
 
 concurrency:
-  group: current-games-${{ github.event.pull_request.head.sha || github.sha }}
+  group: current-games-${{ github.event_name }}-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 permissions:
   contents: read
   statuses: write
+  pull-requests: read
 
 env:
   # The commit the status is posted on: the PR head, not its merge commit.
@@ -48,20 +52,39 @@ env:
 
 jobs:
   prepare:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
-      code: ${{ steps.changes.outputs.code }}
+      code: ${{ steps.owner.outputs.run == 'true' && steps.changes.outputs.code || 'false' }}
       base: ${{ steps.base.outputs.sha }}
     steps:
-      - uses: actions/checkout@v7
+      - name: Stand down for a branch with an open PR
+        id: owner
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run=true
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            open="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$GITHUB_REF_NAME" --state open --json number --jq length)"
+            if [ "$open" != 0 ]; then
+              echo "::notice::an open PR runs current-games for this branch — this push run stands down"
+              run=false
+            fi
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
+      - if: steps.owner.outputs.run == 'true'
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - id: changes
+        if: steps.owner.outputs.run == 'true'
         uses: ./.github/actions/code-changed
 
       - name: Post the pending status
+        if: steps.owner.outputs.run == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -69,7 +92,7 @@ jobs:
             -f context=current-games -f description='Rendering every live game…' -f target_url="$RUN_URL"
 
       - name: Docs-only change — nothing to render
-        if: steps.changes.outputs.code != 'true'
+        if: steps.owner.outputs.run == 'true' && steps.changes.outputs.code != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -77,7 +100,8 @@ jobs:
             -f context=current-games -f description='Docs-only change: no game can differ' -f target_url="$RUN_URL"
 
       - name: Check the secrets
-        if: steps.changes.outputs.code == 'true'
+        id: secrets
+        if: steps.owner.outputs.run == 'true' && steps.changes.outputs.code == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           PIPELINE_GAMES_URL: ${{ secrets.PIPELINE_GAMES_URL }}
@@ -106,7 +130,7 @@ jobs:
 
       - name: Pick the base commit
         id: base
-        if: steps.changes.outputs.code == 'true'
+        if: steps.owner.outputs.run == 'true' && steps.changes.outputs.code == 'true'
         run: |
           if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
             sha="$(git rev-parse HEAD^1)"
@@ -116,6 +140,16 @@ jobs:
           fi
           echo "base: $sha"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      # Any other failure in this job must not leave the status pending forever. (A missing secret
+      # posted its own, naming it.)
+      - name: Post the failure
+        if: failure() && steps.secrets.outcome != 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state=failure -f context=current-games \
+            -f description='The harness could not start: see the prepare job' -f target_url="$RUN_URL"
 
   build:
     needs: prepare
@@ -207,7 +241,7 @@ jobs:
           CURRENT_GAMES_R2_BUCKET: ${{ secrets.CURRENT_GAMES_R2_BUCKET }}
           CURRENT_GAMES_R2_ACCESS_KEY_ID: ${{ secrets.CURRENT_GAMES_R2_ACCESS_KEY_ID }}
           CURRENT_GAMES_R2_SECRET_ACCESS_KEY: ${{ secrets.CURRENT_GAMES_R2_SECRET_ACCESS_KEY }}
-          GITHUB_SHA: ${{ env.STATUS_SHA }}
+          CURRENT_GAMES_HEAD_SHA: ${{ env.STATUS_SHA }}
         # A failing game is reported by the merge job; this step fails only when it cannot run.
         run: |
           set +e
@@ -228,7 +262,7 @@ jobs:
 
   report:
     needs: [prepare, build, render]
-    if: always() && needs.prepare.outputs.code == 'true' && needs.prepare.result == 'success'
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.code == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -239,26 +273,29 @@ jobs:
           node-version: 22
 
       - uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           pattern: current-games-part-*
           path: parts
 
       - name: Merge the shards
-        id: merge
         run: |
           set +e
           node scripts/current-games/lib/report.mjs merge report \
             $(for i in $(seq 1 "$SHARDS"); do echo "parts/current-games-part-$i"; done)
-          echo "code=$?" >> "$GITHUB_OUTPUT"
-          { echo '### Current games'; tail -n 1 report/summary.txt; } >> "$GITHUB_STEP_SUMMARY"
+          { echo '### Current games'; tail -n 1 report/summary.txt || echo 'no report was merged'; } \
+            >> "$GITHUB_STEP_SUMMARY"
+          true
 
       - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
         with:
           name: current-games-report
           retention-days: 14
           path: report
 
       - name: Post the status
+        if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
           BUILD: ${{ needs.build.result }}

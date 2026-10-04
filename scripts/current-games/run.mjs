@@ -14,6 +14,7 @@
 // to --out (one shard's part when sharded; `report.mjs merge` joins the parts). Exit 1 when a
 // rendered game fails, 2 when the run itself cannot start (a missing secret, a failed build).
 
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -105,7 +106,9 @@ try {
 } catch (e) {
 	abort(`base runtime build failed: ${e.message}`);
 }
-const headSha = process.env.GITHUB_SHA ?? gitSha(ROOT, 'HEAD');
+// CI passes the PR head here (GITHUB_SHA is the merge commit there, and is reserved), so a screen's
+// id names the commit the status is posted on.
+const headSha = process.env.CURRENT_GAMES_HEAD_SHA || gitSha(ROOT, 'HEAD');
 try {
 	head = {
 		sha: headSha,
@@ -142,34 +145,32 @@ async function render(side, runtimeDir, game, snapshot, scenario, draw) {
 		game.key,
 		manifestEntry(game),
 	);
-	const server = await startTestServer(tree, { SEED: opt.seed, ...(scenario.env ?? {}) });
-	const snap = await serveSnapshot({
-		dir: snapshot.dir,
-		name: game.name,
-		snapshotId: snapshot.id,
-		assetBase: game.local?.assetBase === 'runtime' ? `${server.origin}/${game.key}/` : undefined,
-	});
-	const profile = mkdtempSync(join(tmpdir(), 'cg-profile-'));
-	const page = await openPage(chrome, profile);
-	const sid = `cg-${game.key}-${scenario.id}`;
-	const rgs = `${server.origin}/api/${game.key}/authoring`;
-	const params = new URLSearchParams({
-		runtime: '1',
-		project: game.projectKey ?? game.key,
-		k: 'current-games',
-		editorDocBase: snap.origin,
-		rgs_url: rgs.replace(/^http:\/\//, ''),
-		sessionID: sid,
-		lang: 'en',
-		currency: 'USD',
-		device: 'desktop',
-		ie_determinism: opt.seed,
-	});
 	const shots = {};
 	const states = {};
 	const renderStarted = Date.now();
+	let server;
+	let snap;
+	let profile;
+	let page;
 	let error;
-	try {
+	let final;
+	let consoleLines = [];
+	/** Boot the game on the two servers and play the scenario on it. */
+	const play = async () => {
+		const sid = `cg-${game.key}-${scenario.id}`;
+		const rgs = `${server.origin}/api/${game.key}/authoring`;
+		const params = new URLSearchParams({
+			runtime: '1',
+			project: game.projectKey ?? game.key,
+			k: 'current-games',
+			editorDocBase: snap.origin,
+			rgs_url: rgs.replace(/^http:\/\//, ''),
+			sessionID: sid,
+			lang: 'en',
+			currency: 'USD',
+			device: 'desktop',
+			ie_determinism: opt.seed,
+		});
 		await page.navigate(`${server.origin}/${game.key}/?${params}`);
 		let ready = false;
 		for (let i = 0; i < 300 && !ready; i++) {
@@ -200,15 +201,28 @@ async function render(side, runtimeDir, game, snapshot, scenario, draw) {
 				states[screen] = { frame: state.frame, screens: state.screens, winLevel: state.winLevel };
 			},
 		});
+	};
+	try {
+		server = await startTestServer(tree, { SEED: opt.seed, ...(scenario.env ?? {}) });
+		snap = await serveSnapshot({
+			dir: snapshot.dir,
+			name: game.name,
+			snapshotId: snapshot.id,
+			assetBase: game.local?.assetBase === 'runtime' ? `${server.origin}/${game.key}/` : undefined,
+		});
+		profile = mkdtempSync(join(tmpdir(), 'cg-profile-'));
+		page = await openPage(chrome, profile);
+		await play();
 	} catch (e) {
 		error = e.message;
+	} finally {
+		final = await page?.evaluate('window.__IE_DETERMINISM__?.state()').catch(() => undefined);
+		consoleLines = [...(page?.consoleLines ?? [])];
+		await page?.close();
+		server?.stop();
+		await snap?.close();
+		if (profile) rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
 	}
-	const final = await page.evaluate('window.__IE_DETERMINISM__?.state()').catch(() => undefined);
-	const consoleLines = [...page.consoleLines];
-	await page.close();
-	server.stop();
-	await snap.close();
-	rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
 	return {
 		shots,
 		states,
@@ -233,6 +247,10 @@ function protocolFor(gameType) {
 }
 
 const safe = (s) => s.replace(/[^\w.-]/g, '_');
+
+/** The id half for a screen only one side captured: the side plus that capture's bytes. */
+const oneSidedHash = (png, side) =>
+	createHash('sha256').update(side).update(png).digest('hex').slice(0, 16);
 
 /** `grid.potsOverlay.pots.0.id` in a manifest entry; a negative index counts from the end. */
 const at = (value, path) =>
@@ -273,8 +291,8 @@ async function runGame(game) {
 	if (game.hasOwnBuiltBundle) {
 		row.looks = { status: 'own-bundle' };
 		row.notes.push(
-			'Desktop-built game: it serves its own bundle on both sides, so only build and tests ' +
-				'are checked against the branch.',
+			'Desktop-built game: it serves its own bundle, which is the same bundle on both sides, so ' +
+				'it is not rendered; only build and tests are checked against the branch.',
 		);
 		return row;
 	}
@@ -303,6 +321,8 @@ async function runGame(game) {
 
 	const screensFile = loadScript(script);
 	const smoke = { status: 'pass', errors: 0, stalls: 0, failures: [] };
+	// main itself failing a scenario is not the branch's doing: reported, but as main's.
+	const baseFailures = [];
 	const entry = manifestEntry(game);
 	const scenarios = screensFile.scenarios.filter(
 		(sc) => !opt.scenario || opt.scenario.split(',').includes(sc.id),
@@ -329,17 +349,21 @@ async function runGame(game) {
 		for (const [side, r] of Object.entries(sides)) {
 			const errors = r.final?.errors ?? 0;
 			const stalls = r.final?.stalls ?? 0;
-			smoke.errors += errors;
-			smoke.stalls += stalls;
-			if (r.error || errors || stalls)
-				smoke.failures.push({
-					side,
-					scenario: scenario.id,
-					error: r.error,
-					errors,
-					stalls,
-					console: r.console.slice(-10),
-				});
+			if (!r.error && !errors && !stalls) continue;
+			const failure = {
+				side,
+				scenario: scenario.id,
+				error: r.error,
+				errors,
+				stalls,
+				console: r.console.slice(-10),
+			};
+			if (side === 'base') baseFailures.push(failure);
+			else {
+				smoke.errors += errors;
+				smoke.stalls += stalls;
+				smoke.failures.push(failure);
+			}
 		}
 		const screens = [
 			...new Set([...Object.keys(sides.base.shots), ...Object.keys(sides.head.shots)]),
@@ -348,7 +372,7 @@ async function runGame(game) {
 			const tol = toleranceFor(tolerance, script, screen);
 			const before = sides.base.shots[screen];
 			const after = sides.head.shots[screen];
-			const entry = {
+			const shot = {
 				screen,
 				scenario: scenario.id,
 				draw,
@@ -357,41 +381,40 @@ async function runGame(game) {
 			};
 			const stem = `${safe(game.key)}--${safe(screen)}`;
 			if (!before || !after) {
-				entry.pass = false;
-				entry.reason = `captured on ${before ? 'base' : 'head'} only`;
+				shot.pass = false;
+				shot.reason = `captured on ${before ? 'main' : 'the branch'} only — no diff`;
+				shot.diffHash = oneSidedHash(before ?? after, before ? 'base' : 'head');
 			} else if (identical(before, after)) {
-				entry.pass = true;
-				entry.identical = true;
-				entry.measured = { diffPixels: 0, diffRatio: 0, maxBlockRatio: 0 };
+				shot.pass = true;
+				shot.identical = true;
+				shot.measured = { diffPixels: 0, diffRatio: 0, maxBlockRatio: 0 };
 			} else {
 				const c = compareScreens(before, after, tol);
-				entry.pass = c.pass;
-				entry.reason = c.reason;
-				entry.measured = {
+				shot.pass = c.pass;
+				shot.reason = c.reason;
+				shot.measured = {
 					diffPixels: c.diffPixels,
 					diffRatio: c.diffRatio,
 					maxBlockRatio: c.maxBlockRatio,
 				};
-				if (c.diffHash) {
-					entry.diffHash = c.diffHash;
-					entry.id = `${headSha}:${game.key}:${screen}:${c.diffHash}`;
-				}
+				shot.diffHash = c.diffHash;
 				if (c.diffPng) {
 					writeFileSync(join(out, 'screens', `${stem}.diff.png`), c.diffPng);
-					entry.images = { diff: `screens/${stem}.diff.png` };
+					shot.images = { diff: `screens/${stem}.diff.png` };
 				}
 			}
-			if (!entry.pass || !entry.identical || opt['keep-screens']) {
+			if (shot.diffHash) shot.id = `${headSha}:${game.key}:${screen}:${shot.diffHash}`;
+			if (!shot.pass || opt['keep-screens']) {
 				for (const [side, png] of [
 					['before', before],
 					['after', after],
 				])
 					if (png) {
 						writeFileSync(join(out, 'screens', `${stem}.${side}.png`), png);
-						entry.images = { ...entry.images, [side]: `screens/${stem}.${side}.png` };
+						shot.images = { ...shot.images, [side]: `screens/${stem}.${side}.png` };
 					}
 			}
-			row.screens.push(entry);
+			row.screens.push(shot);
 		}
 	}
 	if (smoke.failures.length) smoke.status = 'fail';
@@ -399,9 +422,19 @@ async function runGame(game) {
 	if (smoke.status === 'fail') row.tests.status = 'fail';
 	else if (row.tests.status === 'skip') row.tests.status = 'pass';
 	const changed = row.screens.filter((s) => !s.pass);
-	row.looks = changed.length
-		? { status: 'changed', changed: changed.length, of: row.screens.length }
-		: { status: 'same', of: row.screens.length };
+	row.looks = baseFailures.length
+		? {
+				status: 'error',
+				detail: `main's runtime failed this game too, so the comparison proves nothing: ${baseFailures
+					.map((f) => `${f.scenario}: ${f.error ?? `errors ${f.errors}, stalls ${f.stalls}`}`)
+					.join('; ')}`,
+				baseFailures,
+				changed: changed.length,
+				of: row.screens.length,
+			}
+		: changed.length
+			? { status: 'changed', changed: changed.length, of: row.screens.length }
+			: { status: 'same', of: row.screens.length };
 	return row;
 }
 

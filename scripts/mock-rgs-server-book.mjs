@@ -820,14 +820,14 @@ export function createMockRgs(opts = {}) {
 										) / round.baseBet,
 								})
 							: bigWin
-							? [
-									['TEN', 'PIC1', 'TEN'],
-									['TEN', 'PIC1', 'TEN'],
-									['TEN', 'PIC1', 'TEN'],
-									['TEN', 'PIC1', 'TEN'],
-									['TEN', 'KING', 'TEN'],
-								]
-							: spinReels();
+								? [
+										['TEN', 'PIC1', 'TEN'],
+										['TEN', 'PIC1', 'TEN'],
+										['TEN', 'PIC1', 'TEN'],
+										['TEN', 'PIC1', 'TEN'],
+										['TEN', 'KING', 'TEN'],
+									]
+								: spinReels();
 					events.push(spinStartEvent(round));
 					const lineWins = evaluatePaylines(reels, round.betPerLine, payTable);
 					const scat = evaluateScatterTrigger(reels);

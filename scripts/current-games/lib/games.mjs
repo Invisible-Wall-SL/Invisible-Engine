@@ -6,7 +6,7 @@
 // game's mock contract from `test_server/games.json`. Nothing here writes to R2.
 
 import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 
 export const R2_ENV = [
@@ -96,6 +96,7 @@ export async function fetchManifest({ manifestFile }) {
 }
 
 const DONE = '.current-games-complete';
+const POINTER_KEY = /^[\w.-]+(\/[\w.-]+)*\/pointer\.json$/;
 const CONCURRENCY = 12;
 
 /**
@@ -106,6 +107,10 @@ const CONCURRENCY = 12;
  */
 export async function fetchSnapshot(game, cache) {
 	if (game.local?.snapshot) return { id: 'local', dir: game.local.snapshot };
+	// The key arrives from the launcher and names a folder on this disk: plain segments only.
+	const segments = String(game.publishedPointerKey).split('/');
+	if (!POINTER_KEY.test(game.publishedPointerKey) || segments.some((p) => /^\.+$/.test(p)))
+		throw new Error(`refusing pointer key ${JSON.stringify(game.publishedPointerKey)}`);
 	const text = await getText(game.publishedPointerKey);
 	if (text === null) return null;
 	const pointer = JSON.parse(text);
@@ -119,7 +124,9 @@ export async function fetchSnapshot(game, cache) {
 	const worker = async () => {
 		while (next < keys.length) {
 			const key = keys[next++];
-			await download(key, join(dir, key.slice(prefix.length)));
+			const file = resolve(dir, key.slice(prefix.length));
+			if (!file.startsWith(resolve(dir) + sep)) throw new Error(`refusing object key ${key}`);
+			await download(key, file);
 		}
 	};
 	await Promise.all(Array.from({ length: CONCURRENCY }, worker));

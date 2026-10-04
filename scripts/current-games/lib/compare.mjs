@@ -79,7 +79,16 @@ export function compareScreens(beforePng, afterPng, tolerance) {
 			diffPixels++;
 			blocks[Math.floor(y / size) * blocksX + Math.floor(x / size)]++;
 		}
-	const maxBlockRatio = Math.max(...blocks) / (size * size);
+	// An edge block is cut short by the image border: its ratio is over its real area.
+	const blocksY = Math.ceil(a.height / size);
+	let maxBlockRatio = 0;
+	for (let by = 0; by < blocksY; by++)
+		for (let bx = 0; bx < blocksX; bx++) {
+			const area =
+				(Math.min(size, a.width - bx * size) || size) *
+				(Math.min(size, a.height - by * size) || size);
+			maxBlockRatio = Math.max(maxBlockRatio, blocks[by * blocksX + bx] / area);
+		}
 	const diffRatio = diffPixels / total;
 	const pass = diffRatio <= tolerance.maxDiffRatio && maxBlockRatio <= tolerance.blockThreshold;
 	return {
