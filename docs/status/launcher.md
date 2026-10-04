@@ -12,7 +12,7 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 (`docs/INFRA.md`):
 
 - **Auth / sessions** — invite-only email+password (scrypt), server-side sessions in Postgres/Drizzle, "remember me" (`REMEMBER_TTL_DAYS` vs `SESSION_TTL_HOURS`). Not signed in → `/login`. Users change their own password at `/account/password` (header link); a new password — self-service or admin create/reset — needs 12+ characters (`$lib/passwordPolicy.ts`), never checked at sign-in.
-- **Roles + tool matrix** — seven roles (admin, developer, artist, animator, pipelineTester, localizationReviewer, audio; labels in `ROLE_LABELS`). Three-layer entitlement: `TOOLS`/`ROLE_TOOLS` registry (`src/lib/roles.ts`) → editable role→tool matrix → per-user overrides. Managed capabilities gate sensitive actions (`gamePublish` for every publish path, `fontPublish`/`blueprintPublish` for shared-library writes, `adminPanel`).
+- **Roles + tool matrix** — seven roles (admin, developer, artist, animator, pipelineTester, localizationReviewer, audio; labels in `ROLE_LABELS`). Three-layer entitlement: `TOOLS`/`ROLE_TOOLS` registry (`src/lib/roles.ts`) → editable role→tool matrix → per-user overrides. Managed capabilities gate sensitive actions (`gamePublish` for every publish path, `fontPublish`/`blueprintPublish` for shared-library writes, `pipelineMerge` for Pipeline Changes merges, `adminPanel`).
 - **Access scoping** — ONE gate for tool APIs, `$lib/server/toolScope.ts`: `gate()` (auth + tool + the session's project, re-checked every request), `requireProjectScope` for APIs that name a project, and the single `allowedPrefixes()`. Desktop-facing routes go through `$lib/server/launcherAuth.ts`. Pinned in CI by `check:launcher-gates`, `check:project-scope`, `check:lease-scope`, `check:change-password`, `check:deploy-read`.
 - **Admin panel** — `/admin`, tabbed + full-bleed: users, roles, tools, projects, clients, games, sessions, **costs**, plus **Settings** (deploy token, engine boot mark, ComfyUI pod fleet, …). Login expiry configurable.
 - **Costs** — `/admin` → Costs reads RunPod, Railway, Cloudflare R2 and whichever LLM provider Localization bills at, cached 10 min, with euro figures at the ECB rate and a monthly history per calendar year. See [tools/launcher.md](../tools/launcher.md) §Admin → Costs.
@@ -23,7 +23,7 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - **Desktop launcher support** — the `.exe` (separate `invisible-launcher` repo) is served over open routes `/api/launcher/download` + `/api/launcher/latest`; it self-updates via the manifest. `/api/launcher/projects` (session-scoped project sync, with a **derived** build profile from the project's game kind when none is stored — `launcherProfile.ts`, `mockProtocol.ts`), `/api/launcher/game-upload` (the publish relay), `register-game`, `deploy-token` and `git-credentials` (`gamePublish`-gated).
 - **Saving together** — every authoring tool saves through `$lib/saveState.svelte.ts` with R2 conditional writes, holds a soft lease (`/api/lease`, `doc_leases`) with a presence banner, and keeps rolling backups of its whole-doc saves (`docBackups.ts`).
 - **DB migrations** — applied by the launcher at boot (`init` hook → `runMigrations()`); all 20 (`0000`–`0019`) are live and `/api/health` reports `schema: current`. **`db:push` is banned on prod** — `db:generate` + the boot migrator.
-- **UI** — full-bleed home: online tools grouped into **game-making stage sections** (Create / Assets / Build / Files & Reference) plus Games and Local tools, Invisible Wall emblem branding. Stages are the single source `TOOL_STAGES` in `roles.ts`; the top-bar switcher tints each tool icon by its stage accent.
+- **UI** — full-bleed home: online tools grouped into **game-making stage sections** (Create / Assets / Build / Files & Reference / Pipeline) plus Games and Local tools, Invisible Wall emblem branding. Stages are the single source `TOOL_STAGES` in `roles.ts`; the top-bar switcher tints each tool icon by its stage accent.
 
 ## Open items / next
 1. **Grant `gamePublish`** to the non-admin publishers (owner) — `developer` and `pipelineTester` are the roles that can open Game Maker at all. Every publish endpoint reads the capability (2026-09-18); the grant itself is owed in /admin → Roles. It also opens the desktop Sync's zero-login clone (`git-credentials`).
@@ -56,6 +56,15 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+- 2026-10-04 — **Invisible Director + Invisible Pipeline Changes registered** (Director Phase 1,
+  tasks 1.7–1.10). `director` (Create, after Game Config) and `pipelineChanges` (a new **Pipeline**
+  stage, accent `#f778ba`) are in `TOOLS`, with icons in `TOOL_ICONS` and the four toolbar twins.
+  Defaults: Director is Admin only; Pipeline Changes is Admin plus Pipeline Tester. A new
+  capability, `pipelineMerge` ("Merge pipeline changes"), is Admin only. `/director` and
+  `/pipeline` are early-access empty pages behind the parent-manifest 403. A new `ToolDef.isNew`
+  flag puts a "new" tag on the home card and the Admin › Roles row, and `CAPABILITIES` entries
+  take the same flag. Drop it once Director ships its Phase 4 screens. Fixture:
+  `check:director-access`. Guides: `tools/director.md`, `tools/pipeline-changes.md`.
 - 2026-10-04 — **`GET /api/pipeline/games`, the current-games harness's game list** (Director
   Phase 1, task 1.1; ADR-0004). Read-only, gated by the bearer `PIPELINE_CI_TOKEN` alone (constant-
   time compare; no session ever stands in; unset → 503). Returns every `listGames()` row whose

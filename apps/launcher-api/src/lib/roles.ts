@@ -59,6 +59,8 @@ export interface ToolDef {
 	handsOff?: true;
 	/** Inline, stroke-based SVG (currentColor) shown on the tool card + onboarding. */
 	icon?: string;
+	/** Recently added: the launcher card and the Admin › Roles row carry a "new" tag. */
+	isNew?: true;
 	/** Local tools: metadata the launcher uses to download + install on the machine. */
 	install?: {
 		/** Identifier the launcher knows how to fetch/install (resolved against the shared repo). */
@@ -188,6 +190,17 @@ export const TOOL_ICONS: Record<string, string> = {
 	gameConfig: I(
 		'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/><path d="M15 4v16"/>' +
 			'<path d="M3 9.5h18"/><path d="M3 14.5h18"/>',
+	),
+	// clapperboard (direct a game's production)
+	director: I(
+		'<path d="M3 9.75h18v10.5H3z"/><path d="M3 9.75 4.8 4.5h15.9L21 9.75"/>' +
+			'<path d="M9 4.5 7.5 9.75"/><path d="M15 4.5l-1.5 5.25"/>',
+	),
+	// git branch (a change on its own branch, merging back)
+	pipelineChanges: I(
+		'<circle cx="6.75" cy="5.25" r="2"/><circle cx="6.75" cy="18.75" r="2"/>' +
+			'<circle cx="17.25" cy="9" r="2"/><path d="M6.75 7.25v9.5"/>' +
+			'<path d="M17.25 11c0 3.75-5.25 3.75-10.5 5.25"/>',
 	),
 };
 
@@ -402,6 +415,28 @@ export const TOOLS: Record<string, ToolDef> = {
 		url: '/flipbook',
 		icon: TOOL_ICONS.flipbook,
 	},
+	director: {
+		id: 'director',
+		name: 'Invisible Director',
+		barName: 'Director',
+		description:
+			'Pick client, game type, template and preset, describe the style, and agents build the game across these tools while you review.',
+		kind: 'online',
+		url: '/director',
+		icon: TOOL_ICONS.director,
+		isNew: true,
+	},
+	pipelineChanges: {
+		id: 'pipelineChanges',
+		name: 'Invisible Pipeline Changes',
+		barName: 'Pipeline',
+		description:
+			'Changes to tools and engine, each on its own branch. Merges only when every test passes and every game still matches.',
+		kind: 'online',
+		url: '/pipeline',
+		icon: TOOL_ICONS.pipelineChanges,
+		isNew: true,
+	},
 };
 
 export type ToolStage = {
@@ -425,7 +460,12 @@ export type ToolStage = {
  * home grid) so it can never silently vanish. See `docs/design/unified-tool-bar.md`.
  */
 export const TOOL_STAGES: ToolStage[] = [
-	{ id: 'create', label: 'Create', accent: '#7ee787', tools: ['gameMaker', 'gameConfig'] },
+	{
+		id: 'create',
+		label: 'Create',
+		accent: '#7ee787',
+		tools: ['gameMaker', 'gameConfig', 'director'],
+	},
 	{
 		id: 'assets',
 		label: 'Assets',
@@ -444,6 +484,7 @@ export const TOOL_STAGES: ToolStage[] = [
 		accent: '#9aa4b8',
 		tools: ['spineViewer', 'storybook', 'ftpBrowser'],
 	},
+	{ id: 'pipeline', label: 'Pipeline', accent: '#f778ba', tools: ['pipelineChanges'] },
 ];
 
 /** The stage a tool belongs to, or `undefined` if it isn't placed in one. */
@@ -539,6 +580,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'ftpBrowser',
 		'storybook',
 		'invisibleLauncher',
+		'pipelineChanges',
 	],
 	localizationReviewer: ['localization', 'winText'],
 	audio: ['sound', 'ftpBrowser', 'storybook', 'invisibleLauncher'],
@@ -596,19 +638,28 @@ export const GAME_PUBLISH_CAPABILITY = 'gamePublish';
  */
 export const COMPONENT_PUBLISH_CAPABILITY = 'componentPublish';
 
+/**
+ * Managed capability key for merging a pipeline change into `main` from Invisible Pipeline
+ * Changes. Like the publish capabilities it is NOT a tool in `TOOLS`; it lives in the same
+ * override matrix. Default-ON for `admin` only — seeing the `pipelineChanges` tool (Pipeline
+ * Testers get it by default) never implies the right to merge.
+ */
+export const PIPELINE_MERGE_CAPABILITY = 'pipelineMerge';
+
 /** Capabilities managed by the role matrix that are not entries in `TOOLS`. */
-export const CAPABILITIES: { key: string; name: string }[] = [
+export const CAPABILITIES: { key: string; name: string; isNew?: true }[] = [
 	{ key: ADMIN_PANEL_CAPABILITY, name: 'Admin panel' },
 	{ key: BLUEPRINT_PUBLISH_CAPABILITY, name: 'Publish blueprints' },
 	{ key: FONT_PUBLISH_CAPABILITY, name: 'Publish shared fonts' },
 	{ key: GAME_PUBLISH_CAPABILITY, name: 'Build & publish games' },
 	{ key: COMPONENT_PUBLISH_CAPABILITY, name: 'Publish shared components' },
+	{ key: PIPELINE_MERGE_CAPABILITY, name: 'Merge pipeline changes', isNew: true },
 ];
 
 /**
  * `ROLE_TOOLS` baseline for a capability key. Admin-only capabilities
  * (`adminPanel`, `blueprintPublish`, `fontPublish`, `gamePublish`,
- * `componentPublish`) default ON for `admin` and OFF elsewhere.
+ * `componentPublish`, `pipelineMerge`) default ON for `admin` and OFF elsewhere.
  */
 function capabilityDefault(role: Role, key: string): boolean {
 	if (key === ADMIN_PANEL_CAPABILITY) return role === 'admin';
@@ -616,6 +667,7 @@ function capabilityDefault(role: Role, key: string): boolean {
 	if (key === FONT_PUBLISH_CAPABILITY) return role === 'admin';
 	if (key === GAME_PUBLISH_CAPABILITY) return role === 'admin';
 	if (key === COMPONENT_PUBLISH_CAPABILITY) return role === 'admin';
+	if (key === PIPELINE_MERGE_CAPABILITY) return role === 'admin';
 	return false;
 }
 
@@ -719,6 +771,8 @@ const TOOL_DOC_SLUG: Record<string, string> = {
 	fx: 'fx',
 	flipbook: 'flipbook',
 	sound: 'sound',
+	director: 'director',
+	pipelineChanges: 'pipeline-changes',
 };
 
 /**

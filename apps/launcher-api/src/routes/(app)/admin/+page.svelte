@@ -301,7 +301,7 @@
 	// grouped by kind). We turn them into a single categorised list of rows; the
 	// roles are the columns. Each cell reuses the existing `setRoleToolAccess`
 	// action — this is purely a UI layer over the same DB-backed overrides.
-	type CapRow = { key: string; name: string };
+	type CapRow = { key: string; name: string; isNew?: true };
 	type CapGroup = { id: string; label: string; rows: CapRow[] };
 
 	const capGroups = $derived.by<CapGroup[]>(() => {
@@ -312,14 +312,14 @@
 				label: 'Online tools',
 				rows: data.tools
 					.filter((t) => t.kind === 'online')
-					.map((t) => ({ key: t.id, name: t.name })),
+					.map((t) => ({ key: t.id, name: t.name, isNew: t.isNew })),
 			},
 			{
 				id: 'local',
 				label: 'Local tools',
 				rows: data.tools
 					.filter((t) => t.kind === 'local')
-					.map((t) => ({ key: t.id, name: t.name })),
+					.map((t) => ({ key: t.id, name: t.name, isNew: t.isNew })),
 			},
 		];
 		return groups.filter((g) => g.rows.length > 0);
@@ -805,9 +805,12 @@
 							</button>
 							{#if !collapsed[group.id]}
 								{#each rows as cap (cap.key)}
-									<div class="rm-row">
+									<div class="rm-row" class:is-new={cap.isNew}>
 										<span class="rm-cap" title={cap.key}>
-											{cap.name}
+											<span>
+												{cap.name}
+												{#if cap.isNew}<span class="rm-new">new</span>{/if}
+											</span>
 											<em class="rm-key">{cap.key}</em>
 										</span>
 										{#each data.roles as role (role)}
@@ -2525,6 +2528,17 @@
 		gap: 2px;
 		font-size: 13px;
 		color: #ddd;
+	}
+	.rm-new {
+		margin-left: 4px;
+		padding: 0 7px;
+		border-radius: 999px;
+		background: #2a2450;
+		color: #c2b8ff;
+		font-size: 10px;
+	}
+	.rm-row.is-new {
+		background: #15142a;
 	}
 	.rm-key {
 		font-style: normal;
