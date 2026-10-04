@@ -11,7 +11,31 @@
  * nothing downstream has to know the difference.
  */
 
-export type ProviderId = 'runpod' | 'railway' | 'r2' | 'anthropic' | 'openai';
+/** Every provider the page and the monthly ledger know. The one list `ProviderId` derives from. */
+export const PROVIDER_IDS = [
+	'runpod',
+	'railway',
+	'r2',
+	'openai',
+	'anthropic',
+	'anthropicAgents',
+] as const;
+
+export type ProviderId = (typeof PROVIDER_IDS)[number];
+
+export function isProviderId(value: string): value is ProviderId {
+	return (PROVIDER_IDS as readonly string[]).includes(value);
+}
+
+/**
+ * Providers whose spend is a SUBSET of another provider's bill, mapped to that parent.
+ * Director agent spend is billed on the same Anthropic org the `anthropic` card reads, so
+ * adding both to a total counts it twice. A subset is left out of every total whenever its
+ * parent reports, and counted only when the parent has no figure.
+ */
+export const INCLUDED_IN: Partial<Record<ProviderId, ProviderId>> = {
+	anthropicAgents: 'anthropic',
+};
 
 /** One row in a provider's breakdown — a pod, a service, a bucket, a model. */
 export interface CostLine {
@@ -50,6 +74,12 @@ export interface ProviderCost {
 	 */
 	estimated?: boolean;
 	lines: CostLine[];
+	/** Extra titled breakdowns under `lines` (e.g. spend by agent, top runs). */
+	sections?: { title: string; lines: CostLine[] }[];
+	/** Set when this spend is already inside another provider's bill (see `INCLUDED_IN`). */
+	includedIn?: ProviderId;
+	/** A standing note under the figures, separate from `reason` (which explains a gap). */
+	note?: string;
 	/** Env vars the admin must set. Shown when `configured` is false. */
 	requires?: string[];
 }

@@ -141,6 +141,13 @@
       "when": 1788948828168,
       "tag": "0019_project_soft_delete",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791131249210,
+      "tag": "0020_director_spend",
+      "breakpoints": true
     }
   ]
 }

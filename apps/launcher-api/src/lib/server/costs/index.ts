@@ -21,6 +21,7 @@
 
 import { ENV } from '../env';
 import { collectAnthropic } from './anthropic';
+import { collectAnthropicAgents } from './anthropicAgents';
 import { usdToEur, type FxRate } from './fx';
 import {
 	listMonths,
@@ -133,6 +134,10 @@ export async function getCosts(force = false): Promise<CostsSnapshot> {
 			safely('anthropic', 'Anthropic (Claude API)', () => collectAnthropic(monthStart)),
 		);
 	}
+	// Always on: it reads our own ledger, so there is nothing to configure.
+	jobs.push(() =>
+		safely('anthropicAgents', 'Anthropic (agents)', () => collectAnthropicAgents(monthStart)),
+	);
 
 	// The FX lookup rides along with the provider calls rather than adding a step —
 	// it's a third-party HTTP call like the rest, and it already fails to `null`.

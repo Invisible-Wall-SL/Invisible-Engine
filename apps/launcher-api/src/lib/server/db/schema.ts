@@ -1,6 +1,8 @@
 import {
 	boolean,
+	check,
 	doublePrecision,
+	index,
 	integer,
 	jsonb,
 	pgTable,
@@ -8,6 +10,7 @@ import {
 	text,
 	timestamp,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import type { Role } from '$lib/roles';
 
 export const users = pgTable('users', {
@@ -387,6 +390,41 @@ export const costMonths = pgTable(
 	(table) => [primaryKey({ columns: [table.provider, table.year, table.month] })],
 );
 
+/**
+ * Invisible Director spend ledger (ADR-0006): one row per billed unit of work — a Messages
+ * response's `usage` (`kind: 'claude'`) or a serverless GPU job (`kind: 'runpod'`). Written
+ * once by the worker, never updated. Admin › Costs sums the `claude` rows month-to-date for
+ * the "Anthropic (agents)" card; RunPod rows are already inside the RunPod account card.
+ *
+ * `runId` has no foreign key yet: the run tables arrive with the worker (PLAN 3.3).
+ */
+export const directorSpend = pgTable(
+	'director_spend',
+	{
+		id: text('id')
+			.primaryKey()
+			.$defaultFn(() => crypto.randomUUID()),
+		runId: text('run_id').notNull(),
+		/** The runtime agent that spent it (`services/director-worker/agents/<agent>.md`). */
+		agent: text('agent').notNull(),
+		/** The model that served the turn (the fallback model, after a refusal fallback), or
+		 *  the GPU type for a RunPod row. */
+		model: text('model').notNull(),
+		at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+		inputTokens: integer('input_tokens').notNull().default(0),
+		outputTokens: integer('output_tokens').notNull().default(0),
+		cacheReadTokens: integer('cache_read_tokens').notNull().default(0),
+		cacheWriteTokens: integer('cache_write_tokens').notNull().default(0),
+		usd: doublePrecision('usd').notNull(),
+		kind: text('kind').$type<'claude' | 'runpod'>().notNull(),
+	},
+	(table) => [
+		index('director_spend_at_idx').on(table.at),
+		index('director_spend_run_idx').on(table.runId),
+		check('director_spend_kind_check', sql`${table.kind} in ('claude', 'runpod')`),
+	],
+);
+
 export type User = typeof users.$inferSelect;
 export type Session = typeof sessions.$inferSelect;
 export type ToolInstall = typeof toolInstalls.$inferSelect;
@@ -403,3 +441,4 @@ export type SharedRig = typeof sharedRigs.$inferSelect;
 export type SharedAnimation = typeof sharedAnimations.$inferSelect;
 export type DocLease = typeof docLeases.$inferSelect;
 export type CostMonth = typeof costMonths.$inferSelect;
+export type DirectorSpend = typeof directorSpend.$inferSelect;

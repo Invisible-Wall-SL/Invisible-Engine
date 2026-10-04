@@ -155,6 +155,7 @@ export async function collectAnthropic(since?: Date): Promise<ProviderCost> {
 		balanceUsd: null,
 		spendUsd: totalUsd,
 		spendWindow: since ? 'this month' : `last ${windowDays} days`,
+		note: 'This org-wide total includes Invisible Director agent spend (the Anthropic (agents) card).',
 		lines,
 	};
 }
