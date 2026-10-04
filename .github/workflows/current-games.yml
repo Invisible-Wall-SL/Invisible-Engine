@@ -95,8 +95,12 @@ jobs:
           if [ -n "$missing" ]; then
             echo "::error title=current-games: missing secret(s)::Add these repository secrets:$missing (see .github/workflows/current-games.yml)"
             echo "### current-games did not run: missing secret(s):$missing" >> "$GITHUB_STEP_SUMMARY"
+            # A status description is at most 140 characters: past that, it points at the run log,
+            # whose error names every one.
+            description="Missing secret(s):$missing"
+            [ "${#description}" -le 140 ] || description="Missing $(wc -w <<<"$missing") secrets (named in the run log):$missing"
             gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state=failure -f context=current-games \
-              -f description="Missing secret(s):$missing" -f target_url="$RUN_URL"
+              -f description="${description:0:140}" -f target_url="$RUN_URL"
             exit 1
           fi
 
