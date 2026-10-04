@@ -15,6 +15,7 @@ import {
 	existsSync,
 	mkdirSync,
 	readFileSync,
+	rmSync,
 	statSync,
 	symlinkSync,
 	writeFileSync,
@@ -89,7 +90,9 @@ export async function serveSnapshot({ dir, name, snapshotId, assetBase }) {
 export function testServerTree(work, runtimeDir, gameKey, entry) {
 	mkdirSync(join(work, '_runtime'), { recursive: true });
 	const link = join(work, '_runtime', 'lines');
-	if (!existsSync(link)) symlinkSync(resolve(runtimeDir), link, 'junction');
+	// Re-pointed every time: a tree reused for another runtime must never keep the old one.
+	rmSync(link, { force: true, recursive: false });
+	symlinkSync(resolve(runtimeDir), link, 'junction');
 	const game = { ...entry, runtime: 'lines' };
 	for (const key of ['docBase', 'readToken', 'runtimeVersion']) delete game[key];
 	writeFileSync(
