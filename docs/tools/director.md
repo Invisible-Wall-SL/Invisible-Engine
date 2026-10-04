@@ -37,6 +37,20 @@ never publish and never change the template's math. You publish in Invisible Gam
 The cards are not buttons. As the page says: "Nothing on this page does anything yet." To make a
 game today, use [Invisible Game Maker](game-maker.md).
 
+## Mark a game as a Director template
+
+Director starts every new game from a **template**: a published game an admin has marked for it.
+
+1. Publish the game in [Invisible Game Maker](game-maker.md) first. An unpublished project cannot be
+   marked.
+2. Open **Admin › Projects**. Each project row has a **Director template** button.
+   - Greyed out: the project is not published. Hovering says so.
+   - Click it to mark the project. It turns purple and reads **✓ Director template**.
+   - Click it again to unmark it. Unmarking is always allowed.
+
+Only admins see Admin › Projects. A template must be a project the person running Director can
+open; Director never lists or copies a template they cannot reach.
+
 ## What's coming
 
 This is the plan, not working features. Source: `docs/director/SPEC.md` §1.
@@ -53,5 +67,6 @@ This is the plan, not working features. Source: `docs/director/SPEC.md` §1.
 
 ## Known limitations / TODOs
 
-- Everything. The page is an explanation only: no form, no runs, no agents.
+- The page is an explanation only: no form, no runs, no agents. The template flag above and the
+  server-side tool adapters exist; nothing in the UI starts a run yet.
 - The build plan and progress live in `docs/director/PLAN.md` and `docs/director/HISTORY.md`.

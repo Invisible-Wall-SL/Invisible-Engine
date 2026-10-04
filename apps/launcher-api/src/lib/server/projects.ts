@@ -135,6 +135,23 @@ export async function setProjectGameType(key: string, gameType: string): Promise
 }
 
 /**
+ * Mark or unmark a project as an Invisible Director template (Q1). The admin action checks that the
+ * project is live and published before marking; unmarking is always allowed.
+ */
+export async function setProjectDirectorTemplate(key: string, on: boolean): Promise<void> {
+	await getDb().update(projects).set({ directorTemplate: on }).where(eq(projects.key, key));
+}
+
+/** Every LIVE project an admin marked as a Director template, oldest first. */
+export async function listDirectorTemplateProjects(): Promise<Project[]> {
+	return getDb()
+		.select()
+		.from(projects)
+		.where(and(isNull(projects.deletedAt), eq(projects.directorTemplate, true)))
+		.orderBy(projects.createdAt);
+}
+
+/**
  * Projects a user may switch to. Admins get every project; everyone else gets
  * the union of their `user_client_access` grants (every project owned by a
  * granted client) and their per-project `user_project_access` grants, plus the
@@ -345,10 +362,7 @@ export async function renameProject(key: string, name: string): Promise<void> {
  */
 export async function softDeleteProject(key: string, when: Date): Promise<string[]> {
 	return getDb().transaction(async (tx) => {
-		const owned = await tx
-			.select({ key: games.key })
-			.from(games)
-			.where(eq(games.projectKey, key));
+		const owned = await tx.select({ key: games.key }).from(games).where(eq(games.projectKey, key));
 		await tx.delete(games).where(eq(games.projectKey, key));
 		await tx
 			.update(sessions)

@@ -62,6 +62,7 @@ import {
 	renameProject,
 	restoreProject,
 	revokeProjectAccess,
+	setProjectDirectorTemplate,
 	setProjectGameType,
 	softDeleteProject,
 } from '$lib/server/projects';
@@ -88,6 +89,7 @@ import {
 	gameExists,
 	isValidGameKey,
 	listGames,
+	listGamesOwnedByProject,
 	renameGame,
 	setGameProject,
 	setGameUrl,
@@ -558,6 +560,29 @@ export const actions: Actions = {
 		return { action: 'renameProject', ok: 'Project renamed.' };
 	},
 
+	setDirectorTemplate: async ({ request, locals }) => {
+		await requireAdmin(locals);
+		const data = await request.formData();
+		const key = String(data.get('key') ?? '');
+		const on = data.get('on') === 'true';
+
+		if (!(await projectExists(key))) {
+			return fail(400, { action: 'setDirectorTemplate', error: 'Unknown project.' });
+		}
+		// Q1: a template is a game that already plays — Director re-themes it and never publishes.
+		if (on && (await listGamesOwnedByProject(key)).length === 0) {
+			return fail(400, {
+				action: 'setDirectorTemplate',
+				error: `${key} is not published. Publish it in Invisible Game Maker before marking it as a Director template.`,
+			});
+		}
+
+		await setProjectDirectorTemplate(key, on);
+		return {
+			action: 'setDirectorTemplate',
+			ok: on ? `${key} is a Director template.` : `${key} is no longer a Director template.`,
+		};
+	},
 	setProjectGameType: async ({ request, locals }) => {
 		await requireAdmin(locals);
 		const data = await request.formData();

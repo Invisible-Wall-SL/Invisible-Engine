@@ -176,6 +176,21 @@ check(
 check('pipeline/games never reads the session', /\blocals\b/.test(source('pipeline/games')), false);
 
 /**
+ * The Director adapter gate is the service token's alone (`check-director-adapters.ts` holds the
+ * behaviour): the worker acts as the run's owner, never as whoever holds a session.
+ */
+check(
+	'director adapters go through runAdapterCall',
+	source('director/adapter/[tool]/[op]').includes('runAdapterCall('),
+	true,
+);
+check(
+	'director adapters never read the session',
+	/\blocals\b/.test(source('director/adapter/[tool]/[op]')),
+	false,
+);
+
+/**
  * No handler may compare a role STRING: that is the shape no override can ever reach, which is
  * how the publish chain refused the publishers the owner had just granted.
  */
@@ -416,8 +431,15 @@ check(
 	true,
 );
 check(
-	'duplicate checks the destination client',
-	source('game-maker/duplicate').includes('mayCreateUnderClient('),
+	'duplicate goes through duplicateProject',
+	source('game-maker/duplicate').includes('duplicateProject('),
+	true,
+);
+check(
+	'duplicateProject checks the source project and the destination client',
+	['canAccessProject(', 'mayCreateUnderClient('].every((c) =>
+		readFileSync(`${srcRoot}lib/server/duplicateProject.ts`, 'utf8').includes(c),
+	),
 	true,
 );
 check(

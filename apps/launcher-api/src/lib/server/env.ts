@@ -284,6 +284,12 @@ export const ENV = {
 	get PIPELINE_CI_TOKEN() {
 		return (env.PIPELINE_CI_TOKEN ?? '').trim();
 	},
+	/** Bearer token the Director worker calls `/api/director/adapter/*` with
+	 *  (`docs/director/DECISIONS/0002-tool-adapters.md`). Secret: no code default; trimmed like
+	 *  {@link PIPELINE_CI_TOKEN}. Unset ⇒ every adapter call answers 503, never an open gate. */
+	get DIRECTOR_SERVICE_TOKEN() {
+		return (env.DIRECTOR_SERVICE_TOKEN ?? '').trim();
+	},
 	// GitHub read-only token the desktop launcher uses to clone PRIVATE game repos
 	// (and their submodules) on any machine with no per-user GitHub login. Served by
 	// GET /api/launcher/git-credentials to launchers signed in with `gamePublish`. Use a fine-grained
