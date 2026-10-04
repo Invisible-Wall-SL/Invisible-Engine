@@ -16,6 +16,20 @@ with a new one. Use this format:
 ---
 
 ## 2026-10-04 · Phase 0 · coordinator
+- **Did:** Applied the owner's feedback on "looks the same".
+  - Tolerance is now a tunable config, not a fixed 0.1 %.
+  - Intended visual differences can be approved, with before/after shown for each one.
+  - Agents are told to propose improvements and not hold back.
+- **Files:**
+  - `docs/director/DECISIONS/0004-current-games-regression-harness.md`
+  - `docs/director/OPEN_QUESTIONS.md` (Q7 moved to Answered)
+  - `.claude/agents/regression-guardian.md`
+- **Branch / PR:** `claude/upbeat-feynman-pwgx6a`, Invisible-Wall-SL/Invisible-Engine#1034.
+- **Tests:** none; docs only.
+- **Decisions:** ADR-0004 revised. It is still proposed.
+- **Next:** owner approval of the remaining ADRs and defaults.
+
+## 2026-10-04 · Phase 0 · coordinator
 - **Did:** Added `02-director-new-game.html` from the owner. All six screens now have both a PNG and an HTML file. Closed the mockup-gaps question.
 - **Files:**
   - `docs/director/mockups/02-director-new-game.html`

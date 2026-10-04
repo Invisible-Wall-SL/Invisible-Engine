@@ -30,9 +30,6 @@ with the default.
 6. **Which games does the harness compare?**
    - *Default:* every game in the `games` table, using its **published** snapshot. A desktop-built
      game is checked for build and tests only, and the report marks it that way.
-7. **What pixel tolerance counts as "looks the same"?**
-   - *Default:* at most 0.1 % of pixels differ, plus no 16×16 block over the threshold. Masks are
-     allowed only for content that is time-based by design, and masks are reviewed like code.
 8. **CI access for the harness.**
    - It needs a read-only R2 token, scoped to `*/published/**` and `test_server/games.json`, and a
      CI token for `/api/pipeline/games`.
@@ -43,4 +40,8 @@ with the default.
      This becomes ADR-0007, before Phase 5.
 ## Answered
 
+- **(was Q7) Pixel tolerance.** Answered 2026-10-04: not a fixed 0.1 %. Tolerance is a tunable
+  config (`scripts/current-games/tolerance.json`), changed as needed with the owner's approval.
+  Agents should actively propose improvements, including visual ones, as pipeline changes with
+  before/after screenshots. See ADR-0004.
 - **(was Q10) Mockup gaps.** Answered 2026-10-04: the owner sent `02-director-new-game.html` and `04-director-live-run.png`, so the set is now complete.

@@ -67,21 +67,36 @@ A GitHub Actions workflow `current-games.yml`, triggered on every pipeline branc
    - The list per game type lives in `scripts/current-games/screens/<type>.json` (a pipeline-change
      artifact).
 6. **Compare** with pixelmatch.
-   - A screen counts as "same" when the differing pixels are ≤ 0.1 % of the screen and no 16×16
-     block differs by more than a threshold (catches small but real changes).
-   - Anti-aliasing tolerance is on.
-   - Per-screen masks only for content that is time-based by design. Masks are listed in the JSON
-     and reviewed like code.
+   - **The tolerance is a tunable setting, not a fixed rule.** It lives in
+     `scripts/current-games/tolerance.json`, with a default plus per-game-type and per-screen
+     overrides: max differing-pixel ratio, block size, block threshold and anti-aliasing.
+   - Starting values: at most 0.1 % of pixels differ, plus no 16×16 block over the threshold.
+     These are tuned from real runs: Phase 1 measures how much main-vs-main noise each screen has
+     and sets thresholds just above it.
+   - Tuning happens as needed. Changing the tolerance is a pipeline change the owner approves, and
+     the report shows which tolerance each screen ran with.
+   - Per-screen masks are only for content that is time-based by design. Masks are listed in the
+     JSON and reviewed like code.
 7. **Game tests:** run the game's own gates for its type (`check:*`, paytable fixtures, and the
    headless playtest smoke from its `docs/playtest/<game>.md` where scriptable).
 8. **Report:** a JSON + HTML artifact, with a commit status `current-games` and per-game rows
    (build / tests / looks the same). The Pipeline Changes UI renders it.
 
 **Approving an intended difference.**
+- A visible difference is not automatically bad. Some changes are deliberate improvements. The
+  harness blocks the merge and shows before / after / diff for every changed screen, and the owner
+  decides.
 - The owner approves *that diff* (branch SHA + game + screen + diff hash) in Pipeline Changes.
 - The approval is stored in `pipeline_approvals` and re-checked against the hash, so a new commit
   invalidates it.
 - `regression-guardian` can never approve. The approve control needs `pipelineMerge`.
+
+**Asking for improvements.**
+- Agents are expected to propose improvements, not only to avoid change. Examples: a sharper
+  render, a fix for a visual bug the harness exposes, or a tolerance that is too loose or too
+  strict.
+- A proposal is opened as a pipeline change with before/after screenshots and a one-line reason.
+  It is listed in `OPEN_QUESTIONS.md` and surfaced to the owner, never applied silently.
 
 **Scale.**
 - 14 games × ~14 screens, sharded 4 ways, is roughly 10 minutes per run with software rendering.
@@ -100,6 +115,6 @@ A GitHub Actions workflow `current-games.yml`, triggered on every pipeline branc
 
 ## Needs owner approval
 
-- The pixel tolerance and the masking policy.
+- Tolerance as a tunable config (starting values above, tuned from real runs) and the masking policy.
 - The two CI secrets.
 - The fact that the harness compares against **published** snapshots, not unpublished drafts.

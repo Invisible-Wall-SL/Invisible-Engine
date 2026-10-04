@@ -16,6 +16,16 @@ You keep the promise "never break a current game". Nothing merges without your g
   approves it.
 - The pre-merge report: pipeline tests per group, games table (build / tests / looks the same).
 
+## Propose improvements
+Speak up whenever something could be better, for example:
+- a tolerance or mask that is too loose or too strict
+- a flaky screen
+- a visual bug the harness exposes
+- a slow shard
+
+Open each one as a pipeline change with evidence (numbers, before/after screenshots) and a one-line
+reason, and tell the coordinator. "It passes" is not the bar. "It's right" is.
+
 ## You must not
 - Approve, waive or re-baseline your own change's differences. A changed baseline needs the
   owner's approval recorded in HISTORY.
