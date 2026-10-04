@@ -125,7 +125,7 @@ _Nothing._
   an acting caller's `?manifest=atlas_manifest_<x>.json` pins that manifest for the request and for
   the render / compose thread it starts, so Director never switches a project's active atlas
   (`atlas_config.json` is not written); and `/createatlas` with `Accept: application/json` answers
-  `{started, message}` instead of always "composing". A person's requests behave exactly as before.
+  `{started, message}`, claiming the render slot before it answers (a busy one is `started: false`), instead of always "composing". A person's requests behave exactly as before.
   Launcher side: `apps/launcher-api/src/lib/server/director/ops/atlas.ts`. Tests:
   `test_director_calls.py` (46 checks); `scripts/check-python.py` 47/47.
 - 2026-10-04 — **Still renders are resumable and can call back when they end** (Director task 2.5,

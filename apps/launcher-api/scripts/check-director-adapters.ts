@@ -1212,6 +1212,8 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			regions: [
 				{ name: 'H1', prompt: 'a ruby', seed: 7, lock: true, x: 0, y: 0, w: 50, h: 50 },
 				{ name: 'H2', negative: 'blurry', x: 50, y: 0, w: 50, h: 50 },
+				// Written before the explicit lock flag: its stored seed is what locks it.
+				{ name: 'L1', prompt: 'old', seed: 9 },
 			],
 			rotated_regions: [{ name: 'W', prompt: 'a wild', variant: '00001' }],
 			saved_by: { rev: 'rev0', tool: 'atlas' },
@@ -1230,6 +1232,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 	const seen: { path: string; claims: Claims; manifest: string | null; body: string }[] = [];
 	const progress = new Map<string, Record<string, unknown>>();
 	let busy = false;
+	let refuseCallbacks = false;
 	let refSeq = 0;
 	const server = createServer((req, res) => {
 		let raw = '';
@@ -1294,6 +1297,13 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 				});
 			}
 			if (url.pathname === '/render') {
+				if (refuseCallbacks && JSON.parse(raw).callbackUrl) {
+					return send(
+						400,
+						'application/json',
+						'{"started":false,"message":"callbacks are not configured on this server"}',
+					);
+				}
 				if (busy) {
 					return send(
 						200,
@@ -1351,7 +1361,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 					a.regions.map((r) => r.name),
 				]),
 			],
-			[200, [['symbols', ['H1', 'H2', 'W']]]],
+			[200, [['symbols', ['H1', 'H2', 'L1', 'W']]]],
 		);
 		const got = await atlas('get_region', { atlas: 'symbols', region: 'H1' }, 'art-director');
 		check(
@@ -1373,7 +1383,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		check(
 			'sheet_stats sizes the page and names the gaps',
 			[stats.body.page, stats.body.regions, stats.body.fill, stats.body.withoutPrompt],
-			[{ width: 100, height: 100 }, 3, 0.5, ['H2']],
+			[{ width: 100, height: 100 }, 4, 0.5, ['H2']],
 		);
 	}
 
@@ -1408,6 +1418,30 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			'...and its version comes back for the next write',
 			(set.body.version as { rev: string }).rev,
 			doc.saved_by.rev,
+		);
+
+		const legacy = await atlas('set_region_prompt', {
+			atlas: 'symbols',
+			region: 'L1',
+			prompt: 'a new idol',
+		});
+		const l1 = JSON.parse(R2.get(MANIFEST)!.body).regions.find(
+			(r: { name: string }) => r.name === 'L1',
+		);
+		check(
+			'a region locked the pre-flag way keeps its lock and seed through a prompt change',
+			[legacy.status, l1.prompt, l1.lock, l1.seed],
+			[200, 'a new idol', true, 9],
+		);
+		check(
+			'a whitespace-only prompt is refused before anything is saved',
+			(await atlas('set_region_prompt', { atlas: 'symbols', region: 'H1', prompt: '  ' })).status,
+			400,
+		);
+		check(
+			'a region name with a space is refused (the variant routes cannot decode it)',
+			(await atlas('get_region', { atlas: 'symbols', region: 'my region' })).status,
+			400,
 		);
 
 		// A person saves the atlas after the agent read it: choose_variant on the old base conflicts.
@@ -1521,6 +1555,19 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			[replay.replay, replay.body.jobRef, progress.size],
 			[true, jobRef, 1],
 		);
+		refuseCallbacks = true;
+		const plain = await atlas('queue_variants', { atlas: 'symbols', regions: ['H2'], variants: 1 });
+		check(
+			'an atlas-tool without the callback secret still renders, settled by the poll',
+			[
+				plain.status,
+				plain.body.callback,
+				plain.body.tracked,
+				JSON.parse(seen.at(-1)!.body).callbackUrl,
+			],
+			[200, false, true, undefined],
+		);
+		refuseCallbacks = false;
 		busy = true;
 		const refused = await atlas('queue_variants', {
 			atlas: 'symbols',

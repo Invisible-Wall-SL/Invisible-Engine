@@ -20,7 +20,8 @@ import { getAtlasJob, insertAtlasJob } from '../store';
  */
 
 const ATLAS = '^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,119}$';
-const REGION = '^[A-Za-z0-9_][A-Za-z0-9_ .()-]{0,119}$';
+// No space: atlas-tool's variant routes take the region from the raw, undecoded path.
+const REGION = '^[A-Za-z0-9_][A-Za-z0-9_.()-]{0,119}$';
 const VARIANT_ID = '^[0-9]{1,8}$';
 /** atlas-tool's variant tiles: a JPEG thumb, or the full PNG. */
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
@@ -66,7 +67,13 @@ interface ManifestRegion {
 }
 
 interface Manifest {
-	atlas?: { width?: number; height?: number; layout?: string; source_image_path?: string };
+	atlas?: {
+		width?: number;
+		height?: number;
+		layout?: string;
+		atlas_file?: string;
+		source_image_path?: string;
+	};
 	regions?: ManifestRegion[];
 	rotated_regions?: ManifestRegion[];
 	saved_by?: { rev?: string; tool?: string; name?: string; agent?: string; at?: string };
@@ -128,6 +135,9 @@ function cardOf(
 	r: ManifestRegion,
 	change: Partial<{ prompt: string; negative: string; variant: string }>,
 ) {
+	// `batch_atlas.region_locked`: a manifest written before the explicit flag is locked by a
+	// stored seed or pick, and a card that said otherwise would unpin it and drop the seed.
+	const locked = 'lock' in r ? Boolean(r.lock) : r.seed !== undefined || Boolean(r.variant?.trim());
 	return {
 		name: r.name,
 		prompt: change.prompt ?? r.prompt ?? '',
@@ -137,8 +147,8 @@ function cardOf(
 		positive_replace: Boolean(r.positive_replace),
 		variant: change.variant ?? r.variant ?? '',
 		selected: !r.skip_unless_explicit,
-		lock: Boolean(r.lock),
-		seed: r.lock && r.seed !== undefined ? String(r.seed) : '',
+		lock: locked,
+		seed: locked && r.seed !== undefined ? String(r.seed) : '',
 	};
 }
 
@@ -170,12 +180,18 @@ const writesManifest = (
 
 export const listRegions = defineOp<
 	{ atlas?: string },
-	{ atlases: { atlas: string; regions: ReturnType<typeof regionSummary>[] }[] }
+	{
+		atlases: {
+			atlas: string;
+			boundToAtlasFile: boolean;
+			regions: ReturnType<typeof regionSummary>[];
+		}[];
+	}
 >({
 	tool: 'atlas',
 	name: 'list_regions',
 	description:
-		"The regions of one Atlas Maker atlas, or of every atlas in the run's project when no atlas is named: name, prompt, chosen variant, lock, size.",
+		"The regions of one Atlas Maker atlas, or of every atlas in the run's project when no atlas is named: name, prompt, chosen variant, lock, size. An atlas `boundToAtlasFile` lists only the regions that already have a manifest entry.",
 	inputSchema: {
 		type: 'object',
 		properties: { atlas: atlasProp },
@@ -194,7 +210,11 @@ export const listRegions = defineOp<
 		const atlases = [];
 		for (const id of ids) {
 			const m = await loadManifest(ctx, id);
-			atlases.push({ atlas: id, regions: m.regions.map(regionSummary) });
+			atlases.push({
+				atlas: id,
+				boundToAtlasFile: Boolean(m.doc.atlas?.atlas_file),
+				regions: m.regions.map(regionSummary),
+			});
 		}
 		return { atlases };
 	},
@@ -243,7 +263,7 @@ export const setRegionPrompt = defineOp<
 		properties: {
 			atlas: atlasProp,
 			region: regionProp,
-			prompt: { type: 'string', minLength: 1, maxLength: 4000 },
+			prompt: { type: 'string', pattern: '\\S', maxLength: 4000 },
 			negative: { type: 'string', maxLength: 2000 },
 			base: baseProp,
 		},
@@ -271,6 +291,7 @@ export const queueVariants = defineOp<
 		regions: string[];
 		variants: number;
 		callback: boolean;
+		tracked: boolean;
 	}
 >({
 	tool: 'atlas',
@@ -301,25 +322,45 @@ export const queueVariants = defineOp<
 			throw new AdapterError(400, 'invalid_input', 'Name at least one region.');
 		const m = await loadManifest(ctx, atlas);
 		for (const name of names) requireRegion(m, name);
-		const callback = callbackFor(ctx.run.id);
-		const answer = await atlasFetch(ctx, {
-			method: 'POST',
-			path: '/render',
-			atlas,
-			body: { names, variants, ...callback },
-		});
+		let callback = callbackFor(ctx.run.id);
+		const render = () =>
+			atlasFetch(ctx, {
+				method: 'POST',
+				path: '/render',
+				atlas,
+				body: { names, variants, ...callback },
+			});
+		let answer;
+		try {
+			answer = await render();
+		} catch (e) {
+			// atlas-tool without ATLAS_CALLBACK_SECRET refuses any callback: the poll settles it.
+			const unconfigured =
+				e instanceof AdapterError && /callbacks are not configured/.test(e.message);
+			if (!callback || !unconfigured) throw e;
+			callback = null;
+			answer = await render();
+		}
 		const started = answer.json<{ started: boolean; message: string; jobRef: string | null }>();
 		if (!started.started || !started.jobRef || !new RegExp(JOB_REF).test(started.jobRef)) {
 			throw new AdapterError(409, 'busy', started.message || 'The Atlas Maker is busy rendering.');
 		}
-		await insertAtlasJob({
-			jobRef: started.jobRef,
-			runId: ctx.run.id,
-			agent: ctx.agent,
-			atlas,
-			regions: names,
-		});
-		startAtlasJobWatch(ctx, started.jobRef);
+		// The render is running now: failing the op here would release its opId, and the retry
+		// would start a second render. An unrecorded job is reported instead.
+		let tracked = true;
+		try {
+			await insertAtlasJob({
+				jobRef: started.jobRef,
+				runId: ctx.run.id,
+				agent: ctx.agent,
+				atlas,
+				regions: names,
+			});
+			startAtlasJobWatch(ctx, started.jobRef);
+		} catch (e) {
+			tracked = false;
+			console.error(`director atlas job ${started.jobRef}: not recorded:`, e);
+		}
 		return {
 			jobRef: started.jobRef,
 			status: 'queued',
@@ -327,6 +368,7 @@ export const queueVariants = defineOp<
 			regions: names,
 			variants,
 			callback: callback !== null,
+			tracked,
 		};
 	},
 });
@@ -477,9 +519,10 @@ export const packSheet = defineOp<
 	agents: ['atlas-artist'],
 	scope: 'project',
 	write: true,
-	// The packed layout (a machine write to the manifest) and the composed page.
+	// The packed layout (machine manifest writes), rebuilt FX layers in batch/, and the page.
 	writes: (input, scope) => [
 		...writesManifest(input, scope),
+		`${projectPrefix(scope.clientKey, scope.projectKey)}/batch/`,
 		`${SUB.atlas(scope.clientKey, scope.projectKey)}/`,
 	],
 	handler: async (ctx, { atlas }) => {
@@ -528,6 +571,7 @@ export const sheetStats = defineOp<{ atlas: string }, Record<string, unknown>>({
 			withoutPrompt: m.regions.filter((r) => !r.prompt?.trim()).map((r) => r.name),
 			withoutChosenVariant: m.regions.filter((r) => !r.variant).map((r) => r.name),
 			pageImage: m.doc.atlas?.source_image_path ?? null,
+			boundToAtlasFile: Boolean(m.doc.atlas?.atlas_file),
 			savedBy: m.doc.saved_by ?? null,
 		};
 	},

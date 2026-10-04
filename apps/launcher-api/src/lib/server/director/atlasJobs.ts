@@ -1,6 +1,6 @@
 import { ENV } from '../env';
 import type { DirectorAtlasJob } from '../db/schema';
-import { AdapterError, type AdapterContext } from './adapter';
+import type { AdapterContext } from './adapter';
 import { mintCallbackToken } from './atlasCallback';
 import { atlasFetch } from './atlasClient';
 import { getAtlasJob, settleAtlasJob } from './store';
@@ -98,24 +98,25 @@ export async function watchAtlasJob(
 	for (let i = 0; ; i++) {
 		const wait = POLL_BACKOFF_SECONDS[Math.min(i, POLL_BACKOFF_SECONDS.length - 1)];
 		await deps.sleep(wait * 1000);
-		if ((await getAtlasJob(job.jobRef))?.status !== 'queued') return null;
-		if ((deps.now() - start) / 1000 > POLL_GIVE_UP_SECONDS) {
+		const giveUp = (deps.now() - start) / 1000 > POLL_GIVE_UP_SECONDS;
+		// Any failure — atlas-tool, a bad body, the database — is retried on the next tick.
+		try {
+			if ((await getAtlasJob(job.jobRef))?.status !== 'queued') return null;
+			const view = await deps.read(job.jobRef);
+			if (isTerminal(view.status)) {
+				return await recordJobDone({ ...job, status: view.status, result: view, via: 'poll' });
+			}
+		} catch (e) {
+			if (!giveUp) continue;
+			console.error(`director atlas job ${job.jobRef}: last read failed:`, e);
+		}
+		if (giveUp) {
 			return recordJobDone({
 				...job,
 				status: 'failed',
 				result: { error: 'No completion within the resume window.' },
 				via: 'poll',
 			});
-		}
-		let view: JobView;
-		try {
-			view = await deps.read(job.jobRef);
-		} catch (e) {
-			if (e instanceof AdapterError) continue;
-			throw e;
-		}
-		if (isTerminal(view.status)) {
-			return recordJobDone({ ...job, status: view.status, result: view, via: 'poll' });
 		}
 	}
 }

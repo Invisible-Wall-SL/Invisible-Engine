@@ -8393,8 +8393,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send(400, "application/json", b'{"error":"bad manifest"}')
             return False
         # Staging may predate a project created after this container booted.
-        _refresh_manifest_from_r2(name)
+        # Only then: writes re-read the doc from R2 anyway (doc_sync), and a
+        # refresh here would rewrite the staged file under a running post-hook.
         mp = MANIFEST_DIR / name
+        if not mp.exists():
+            _refresh_manifest_from_r2(name)
         if not mp.exists():
             self._send(404, "application/json", b'{"error":"unknown manifest"}')
             return False
@@ -8859,12 +8862,14 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, "text/plain", msg.encode(),
                            {"X-Atlas-Job-Ref": job_ref} if job_ref else None)
         elif post_path == "/createatlas":
-            with _render_lock:
-                busy = _render_state["running"]
-                if busy:
-                    held = _render_state.get("owner") or {}
-                    msg = (f"{held.get('name') or 'Someone'} holds the render slot "
-                           f"{_render_progress()} — Create Atlas did not start.")
+            wants_json = "application/json" in (self.headers.get("Accept") or "")
+            if wants_json:
+                # Claimed HERE, like /render: a caller told `started` has the slot.
+                started, msg = claim_render_slot(self._render_owner())
+                busy = not started
+            else:
+                with _render_lock:
+                    busy = _render_state["running"]
             if not busy:
                 ctx = (project_paths.client_name(), project_paths.project_name())
                 threading.Thread(target=run_compose,
@@ -8872,7 +8877,7 @@ class Handler(BaseHTTPRequestHandler):
                                        getattr(_pinned_manifest, "path", None)),
                                  daemon=True).start()
                 msg = "Create Atlas started."
-            if "application/json" in (self.headers.get("Accept") or ""):
+            if wants_json:
                 self._send(200, "application/json", json.dumps(
                     {"started": not busy, "message": msg}).encode())
             else:

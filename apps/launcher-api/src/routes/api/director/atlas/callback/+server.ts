@@ -28,8 +28,11 @@ export const POST: RequestHandler = async ({ request, url }) => {
 		return answer(503, { error: 'disabled', message: 'ATLAS_CALLBACK_SECRET is not set.' });
 
 	const runId = url.searchParams.get('run') ?? '';
+	if (Number(request.headers.get('content-length') ?? 0) > MAX_BODY_BYTES) {
+		return answer(413, { error: 'too_large' });
+	}
 	const body = await request.text();
-	if (body.length > MAX_BODY_BYTES) return answer(413, { error: 'too_large' });
+	if (Buffer.byteLength(body) > MAX_BODY_BYTES) return answer(413, { error: 'too_large' });
 	const signed =
 		Boolean(runId) &&
 		verifyCallbackToken(

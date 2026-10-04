@@ -192,8 +192,7 @@ def test_manifest_pin_end_to_end() -> None:
                            agent)
         check("an agent's GET sees the pinned manifest",
               (st, json.loads(body)["m"]), (200, "atlas_manifest_symbols.json"))
-        check("...after an exact-key refresh from R2", refreshed,
-              ["atlas_manifest_symbols.json"])
+        check("...without re-pulling a manifest already staged", refreshed, [])
         st, _, body = _req(port, "POST", "/save?manifest=atlas_manifest_symbols.json",
                            agent, b"{}")
         check("an agent's POST sees the pinned manifest",
@@ -202,7 +201,7 @@ def test_manifest_pin_end_to_end() -> None:
                            person)
         check("a person's manifest param is ignored",
               (st, json.loads(body)["m"]), (200, "atlas_manifest_main.json"))
-        check("...and refreshes nothing", len(refreshed), 2)
+        check("...and refreshes nothing", refreshed, [])
         check("the selection is untouched",
               (u.CONFIG_PATH.read_bytes() == config_before, u.manifest_path().name),
               (True, "atlas_manifest_main.json"))
@@ -219,6 +218,8 @@ def test_manifest_pin_end_to_end() -> None:
         check("an unknown manifest is 404",
               (st, ctype, json.loads(body)), (404, "application/json",
                                               {"error": "unknown manifest"}))
+        check("...after an exact-key refresh from R2 found nothing", refreshed,
+              ["atlas_manifest_nope.json"])
 
         st, _, body = _req(port, "POST", "/render?manifest=atlas_manifest_symbols.json",
                            dict(agent, Accept="application/json"),
@@ -235,6 +236,11 @@ def test_manifest_pin_end_to_end() -> None:
         _wait(lambda: started["render"][-1] is None)
         check("a person's render carries no pin", started["render"][-1], None)
 
+        class _Live:
+            def poll(self):
+                return None
+        real_proc = u._render_proc
+        u._render_proc = _Live()
         with u._render_lock:
             u._render_state.update(running=True, owner={"id": "u_bob", "name": "Bob"},
                                    cur=1, total=4)
@@ -250,6 +256,7 @@ def test_manifest_pin_end_to_end() -> None:
         check("/createatlas without JSON is unchanged while busy",
               _req(port, "POST", "/createatlas", person, b"{}")[1:],
               ("text/plain", b"composing"))
+        u._render_proc = real_proc
         with u._render_lock:
             u._render_state.update(running=False, owner=None)
         st, ctype, body = _req(port, "POST",
@@ -257,6 +264,8 @@ def test_manifest_pin_end_to_end() -> None:
                                dict(agent, Accept="application/json"), b"{}")
         check("/createatlas JSON says started when the slot is free",
               (st, json.loads(body)["started"]), (200, True))
+        check("...having claimed the slot before answering",
+              u._render_state["running"], True)
         _wait(lambda: "compose" in started)
         check("...carrying the pin to its worker", str(started.get("compose", ())[-1]),
               str(u.MANIFEST_DIR / "atlas_manifest_symbols.json"))

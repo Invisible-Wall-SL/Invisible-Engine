@@ -54,6 +54,10 @@ export function launchHeaders(ctx: AdapterContext, now = Date.now()): Record<str
 		);
 	}
 	const { owner, scope, agent, run } = ctx;
+	// atlas-tool refuses an `act` whose run id is outside this shape (`launch._ACT_RUN`).
+	if (!/^[A-Za-z0-9_:-]{1,64}$/.test(run.id)) {
+		throw new AdapterError(400, 'bad_run_id', `Run id "${run.id}" cannot be sent to atlas-tool.`);
+	}
 	const token = mintToolLaunchToken(
 		secret,
 		{

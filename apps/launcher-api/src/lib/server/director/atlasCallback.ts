@@ -11,8 +11,6 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
  */
 
 const TOKEN_SCOPE = 'atlas-callback.v1';
-/** `still_jobs.MAX_TOKEN_TTL_SECONDS`: atlas-tool refuses a token that lives longer. */
-export const MAX_CALLBACK_TOKEN_TTL_SECONDS = 24 * 3600;
 /** `still_jobs.SIGNATURE_TOLERANCE_SECONDS`. */
 export const SIGNATURE_TOLERANCE_SECONDS = 300;
 
