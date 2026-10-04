@@ -191,6 +191,7 @@
 	} from 'engine-game';
 	import { freeSpinOutroState } from '../game/freeSpinOutroState.svelte';
 	import { winState } from '../game/winState.svelte';
+	import { registerDeterminismProbe } from '../game/determinism';
 	import {
 		rebuildBoard,
 		setBoardOverride,
@@ -1362,6 +1363,17 @@
 	});
 	const isPlayerIn = $derived(
 		bootSettled && (!isFlowDriven || (isBasegameActive && !isLoadingScreenUp)),
+	);
+	// The determinism harness's ready signal (`game/determinism.ts`). Inert without `?ie_determinism`.
+	onMount(() =>
+		registerDeterminismProbe(() => ({
+			screens: activeScreenIds,
+			idle: context.stateXstateDerived.isIdle(),
+			loaded: stateApp.loaded,
+			playerIn: isPlayerIn,
+			winLevel: winState.winLevelData?.alias,
+			win: stateBet.winBookEventAmount,
+		})),
 	);
 	// Phase-5 above-reel z-order (design doc §11.5 follow-up B.1). When the interpreter
 	// AUTHORS basegame it owns the basegame mount, but the board MainContainer is engine-owned
