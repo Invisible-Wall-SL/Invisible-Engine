@@ -40,6 +40,7 @@ own session, launched from a task card, and is coordinated from the coordinator 
 | [0004](DECISIONS/0004-current-games-regression-harness.md) | Current-games regression harness | approved |
 | [0005](DECISIONS/0005-mockup-analysis.md) | Mockup analysis | approved |
 | [0006](DECISIONS/0006-costs-and-budgets.md) | Costs and budgets | approved |
+| [0007](DECISIONS/0007-pipeline-change-mechanics.md) | Pipeline-change mechanics | proposed |
 
 ### Mockups
 
