@@ -9,6 +9,23 @@ None right now. Task sessions add new ones through their PR descriptions.
 
 ## Answered
 
+- **2026-10-04: Phase 1 card questions (#1035–#1037). Defaults adopted, per the rule at the top of this file.**
+  - Global (project-less) games stay in `/api/pipeline/games`. The harness reports a game with no
+    snapshot as "not rendered (no snapshot)" and a missing pointer as "skip: not published", each
+    in its own row and never as a pass.
+  - The harness uses `draw:'last'` on both sides, plus one faithful (`draw:'every'`) canary scenario
+    per game type.
+  - The determinism flag stays ungated in the player bundle.
+  - `stalls > 0` or `errors > 0` fails that game's comparison.
+  - The harness pins the browser to UTC / en-US.
+  - The "new" tags come off in the PR that ships each tool's UI: Director in Phase 4, Pipeline
+    Changes and `pipelineMerge` in Phase 5.
+  - Pipeline Tester has `pipelineChanges` as a `ROLE_TOOLS` default, not a DB grant.
+  - `pipelineMerge` can be set per role only. Per-user capability overrides are a separate launcher
+    change if anyone wants them.
+  - A session that can only push to its own designated branch uses it instead of the card's branch
+    name.
+
 - **2026-10-04: all Phase 0 defaults accepted by the owner ("alright, let's start").**
   - Q1 Template = a published project an admin marks as a "Director template".
   - Q2 "On main" = Game Maker's DB + R2 path, with no git.
