@@ -20,6 +20,20 @@ export const RUNPOD_IDLE_MINUTES_DEFAULT = 20;
  */
 export const RUNPOD_PODS_KEY = 'runpodPods';
 
+/** Settings key: the Invisible Director per-run budget cap in USD (ADR-0006). */
+export const DIRECTOR_RUN_BUDGET_KEY = 'DIRECTOR_RUN_BUDGET_USD';
+/** Budget cap when the admin hasn't set one. */
+export const DIRECTOR_RUN_BUDGET_DEFAULT_USD = 25;
+/** Lowest cap a run can be given — below this a run would pause on its first call. */
+export const DIRECTOR_RUN_BUDGET_MIN_USD = 1;
+/** Highest cap Settings accepts, so a typo (2500 for 25.00) can't remove the guard. */
+export const DIRECTOR_RUN_BUDGET_MAX_USD = 500;
+/**
+ * Settings key: an optional JSON override laid over `services/director-worker/pricing.json`
+ * (same shape, every field optional). Unset means the file's prices apply.
+ */
+export const DIRECTOR_PRICING_OVERRIDE_KEY = 'directorPricingOverride';
+
 /**
  * Read a single app setting's value, or `undefined` when unset. The value may be
  * a SECRET — only call from server code behind an admin/capability gate; never
@@ -42,6 +56,11 @@ export async function setAppSetting(key: string, value: string, userId: string):
 			target: appSettings.key,
 			set: { value, updatedAt: new Date(), updatedBy: userId },
 		});
+}
+
+/** Remove an app setting, so its reader falls back to the default. */
+export async function deleteAppSetting(key: string): Promise<void> {
+	await getDb().delete(appSettings).where(eq(appSettings.key, key));
 }
 
 /**
@@ -94,6 +113,39 @@ export async function getRunpodIdleConfig(): Promise<{ enabled: boolean; minutes
 			err instanceof Error ? err.message : err,
 		);
 		return { enabled: false, minutes: RUNPOD_IDLE_MINUTES_DEFAULT };
+	}
+}
+
+/**
+ * Clamp a budget figure into `[DIRECTOR_RUN_BUDGET_MIN_USD, DIRECTOR_RUN_BUDGET_MAX_USD]`,
+ * rounded to cents. `null` for anything that isn't a positive finite number.
+ */
+export function clampDirectorBudget(value: number): number | null {
+	if (!Number.isFinite(value) || value <= 0) return null;
+	const clamped = Math.min(
+		DIRECTOR_RUN_BUDGET_MAX_USD,
+		Math.max(DIRECTOR_RUN_BUDGET_MIN_USD, value),
+	);
+	return Math.round(clamped * 100) / 100;
+}
+
+/**
+ * The Invisible Director per-run budget cap in USD (`DIRECTOR_RUN_BUDGET_USD`). Defaults to
+ * `DIRECTOR_RUN_BUDGET_DEFAULT_USD` (25) when unset or unparseable, and is clamped to the
+ * min/max above. A run copies this at start, so a change here never moves a running run.
+ * Fails SAFE — a DB read error degrades to the default, never to "no cap". Never throws.
+ */
+export async function getDirectorRunBudget(): Promise<number> {
+	try {
+		const raw = await getAppSetting(DIRECTOR_RUN_BUDGET_KEY);
+		if (raw === undefined || raw.trim() === '') return DIRECTOR_RUN_BUDGET_DEFAULT_USD;
+		return clampDirectorBudget(Number(raw)) ?? DIRECTOR_RUN_BUDGET_DEFAULT_USD;
+	} catch (err) {
+		console.warn(
+			'[appSettings] director budget DB read failed — using the default cap:',
+			err instanceof Error ? err.message : err,
+		);
+		return DIRECTOR_RUN_BUDGET_DEFAULT_USD;
 	}
 }
 

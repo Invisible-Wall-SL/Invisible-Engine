@@ -64,6 +64,12 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
   Verified offline (`check:project-duplicate`), not live.
 
 ## Recent changes
+- 2026-10-04 — **Duplicate is shared with Invisible Director.** The body of
+  `POST /api/game-maker/duplicate` moved, unchanged, into `$lib/server/duplicateProject.ts`, so
+  Director's `gamemaker.create_from_template` adapter creates a project exactly as a person's
+  **Duplicate · Everything** does. New `projects.director_template` flag, set from Admin › Projects
+  (published projects only); see [docs/tools/director.md](../tools/director.md). Director PLAN
+  2.1–2.3.
 - 2026-10-03 — **Duplicate: name and key start empty.** The dialog prefilled the name as
   "<source name> copy" and the key followed the name, never the reverse. The pots overlay checklist
   said "key `borut-pots-sample`", so the owner typed only the key and the copy was called

@@ -406,6 +406,11 @@ code default, so the dashboard need not set it):
   status is posted through the API, so making it required means adding `current-games` to the `main`
   ruleset with source **any** (not "GitHub Actions"). How to run and read it:
   `docs/playtest/current-games.md`.
+- **Director adapters:** `DIRECTOR_SERVICE_TOKEN` (secret, no default) — the bearer token the
+  Invisible Director worker sends to `POST /api/director/adapter/<tool>/<op>`
+  (`docs/director/DECISIONS/0002-tool-adapters.md`). Every call also names a run and an agent, and
+  acts as that run's owner, within the owner's project access. Held by the launcher and, once it
+  exists, the `director-worker` Railway service. Unset → every adapter call answers 503.
 - **Admin → Costs** (all optional): `RAILWAY_API_TOKEN`, `RAILWAY_PROJECT_ID`, `CF_ACCOUNT_ID`,
   `CF_ANALYTICS_TOKEN`, `ANTHROPIC_ADMIN_API_KEY`, `OPENAI_ADMIN_API_KEY`.
 - **Error tracking** (optional, see "Monitoring & error tracking"): `SENTRY_DSN` +
@@ -928,6 +933,7 @@ apply staged vars.
 | **Deploy token** | Admin → Settings → Deploy token (`app_settings`); `EDITOR_DOC_SECRET` is only its env fallback. Held by the build runners. | Admin → Settings → Rotate. | None for the portal; desktop launchers fetch the new value on their next Sync. |
 | **`TEST_SERVER_SECRET`** | Invisible-test-Server; the **launcher** (sends it as a header on its `/refresh` pokes); the GitHub Actions secret of the same name; the owner's portal-publish script. | New random value in every place at once, while no Runtime release or rollback is running. | Test server + launcher → Apply changes / Deploy. A launcher left on the old value still publishes, but the game goes live only on the test server's next hydrate. |
 | **`PIPELINE_CI_TOKEN`** | The **launcher**; the GitHub Actions secret of the same name (the current-games harness). Grants only the read-only game list `GET /api/pipeline/games`. | New random value (e.g. `openssl rand -hex 32`) in both places. | Launcher → Apply changes / Deploy. Harness runs between the two updates get a 401. |
+| **`DIRECTOR_SERVICE_TOKEN`** | The **launcher**; the `director-worker` service once it exists (PLAN 3.x). Lets the worker call the Director adapters as a run's owner; no publish, Game Config, roles or merge op exists behind it. | New random value (e.g. `openssl rand -hex 32`) in both places. | Launcher + worker → Apply changes / Deploy. Adapter calls between the two updates get a 401; the worker retries them with the same `opId`. |
 | **`RUNPOD_API_KEY`** | RunPod → Settings → API Keys. Read by the launcher, atlas-tool and the Serverless endpoint's own env. | Create a new key, switch all three, delete the old. | Launcher + atlas-tool; edit the endpoint's env in RunPod. |
 | **`COMFY_ORG_API_KEY`** (gpt_image) | platform.comfy.org → API Keys. Read by atlas-tool, and locally by the desktop Atlas Maker. | Create a new key, switch consumers, revoke the old. | atlas-tool → Apply changes / Deploy. |
 | **Backup source-reader R2 token** (`backup-source-reader`) | Cloudflare R2 → API Tokens. Object Read only on `invisibleassets`. GitHub env `backups` secrets `BACKUP_SRC_R2_ACCESS_KEY_ID` / `BACKUP_SRC_R2_SECRET_ACCESS_KEY`. Not used by any Railway service. | Create a new token with the same scope, then delete the old one. | Update the two secrets. Actions → **Nightly backup** → Run workflow → green. |

@@ -15,14 +15,14 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - **Roles + tool matrix** — seven roles (admin, developer, artist, animator, pipelineTester, localizationReviewer, audio; labels in `ROLE_LABELS`). Three-layer entitlement: `TOOLS`/`ROLE_TOOLS` registry (`src/lib/roles.ts`) → editable role→tool matrix → per-user overrides. Managed capabilities gate sensitive actions (`gamePublish` for every publish path, `fontPublish`/`blueprintPublish` for shared-library writes, `pipelineMerge` for Pipeline Changes merges, `adminPanel`).
 - **Access scoping** — ONE gate for tool APIs, `$lib/server/toolScope.ts`: `gate()` (auth + tool + the session's project, re-checked every request), `requireProjectScope` for APIs that name a project, and the single `allowedPrefixes()`. Desktop-facing routes go through `$lib/server/launcherAuth.ts`. Pinned in CI by `check:launcher-gates`, `check:project-scope`, `check:lease-scope`, `check:change-password`, `check:deploy-read`.
 - **Admin panel** — `/admin`, tabbed + full-bleed: users, roles, tools, projects, clients, games, sessions, **costs**, plus **Settings** (deploy token, engine boot mark, ComfyUI pod fleet, …). Login expiry configurable.
-- **Costs** — `/admin` → Costs reads RunPod, Railway, Cloudflare R2 and whichever LLM provider Localization bills at, cached 10 min, with euro figures at the ECB rate and a monthly history per calendar year. See [tools/launcher.md](../tools/launcher.md) §Admin → Costs.
+- **Costs** — `/admin` → Costs reads RunPod, Railway, Cloudflare R2 and whichever LLM provider Localization bills at, plus **Anthropic (agents)** (Invisible Director's spend, from the `director_spend` ledger), cached 10 min, with euro figures at the ECB rate and a monthly history per calendar year. See [tools/launcher.md](../tools/launcher.md) §Admin → Costs.
 - **Client → project hierarchy** — accounts get scoped project access; R2 is **isolated per `<client>/<project>/`** (one unified repo per project shared by all tools). Home game cards are scoped to the active project (`games.project_key`; null = global). Projects soft-delete (restore / purge from /admin).
 - **Tool pages** — full-page, never iframes: each route runs an auth+role gate then renders in the launcher or `throw redirect(303,…)` (atlas/sheet with a signed launch token; spine/rigger to a static `view.html`). Shared `$lib/ToolTopBar.svelte` (`.iw-toolbar`) owns the chrome (see unified-tool-bar).
 - **Loading screens** — ONE boot experience across stacks: the CRT boot splash (`$lib/BootSplash.svelte` · `static/shared/boot-splash.js` · `iw_common/splash.py`) covers a tool that is still opening; the dimmed overlay + card (`$lib/BusyOverlay.svelte`) covers loading INSIDE an open tool. See `docs/ui-inventory.md` §12.
 - **Tool registry + docs** — `roles.ts` is the single registry; the launcher **serves the guides** at authed `/docs/[slug]` (rendered from `docs/tools/*.md`). `/onboarding` walks each role through its tools with a guide link per tool and saves each user's local-tool install paths (`tool_installs`). CLAUDE.md rule 9 keeps a new/renamed tool from shipping doc-less.
 - **Desktop launcher support** — the `.exe` (separate `invisible-launcher` repo) is served over open routes `/api/launcher/download` + `/api/launcher/latest`; it self-updates via the manifest. `/api/launcher/projects` (session-scoped project sync, with a **derived** build profile from the project's game kind when none is stored — `launcherProfile.ts`, `mockProtocol.ts`), `/api/launcher/game-upload` (the publish relay), `register-game`, `deploy-token` and `git-credentials` (`gamePublish`-gated).
 - **Saving together** — every authoring tool saves through `$lib/saveState.svelte.ts` with R2 conditional writes, holds a soft lease (`/api/lease`, `doc_leases`) with a presence banner, and keeps rolling backups of its whole-doc saves (`docBackups.ts`).
-- **DB migrations** — applied by the launcher at boot (`init` hook → `runMigrations()`); all 20 (`0000`–`0019`) are live and `/api/health` reports `schema: current`. **`db:push` is banned on prod** — `db:generate` + the boot migrator.
+- **DB migrations** — applied by the launcher at boot (`init` hook → `runMigrations()`); `0000`–`0019` are live and `0020_director_spend` ships with Director Phase 1 card D and `/api/health` reports `schema: current`. **`db:push` is banned on prod** — `db:generate` + the boot migrator.
 - **UI** — full-bleed home: online tools grouped into **game-making stage sections** (Create / Assets / Build / Files & Reference / Pipeline) plus Games and Local tools, Invisible Wall emblem branding. Stages are the single source `TOOL_STAGES` in `roles.ts`; the top-bar switcher tints each tool icon by its stage accent.
 
 ## Open items / next
@@ -56,6 +56,25 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+- 2026-10-04 — **Anthropic (agents) cost card + Director run budget** (Director Phase 1, tasks
+  1.11–1.12; ADR-0006).
+  - Prices live in `services/director-worker/pricing.json` (Claude $/MTok, cache ×0.1 read /
+    ×1.25 write, RunPod $/s per GPU marked `placeholder`), validated at load by
+    `costs/directorPricing.ts`. An optional JSON override in `app_settings`
+    (`directorPricingOverride`) is laid over it by `costs/pricingConfig.ts`; a bad or unreadable
+    override degrades to the file and says why.
+  - `costOfUsage(model, usage, pricing)` is pure and throws on an unknown model.
+  - New table `director_spend` (migration `0020_director_spend`) and a new `ProviderId`
+    `anthropicAgents`. Its collector sums the `claude` rows month-to-date (Madrid month): total,
+    by agent, top 5 runs. It gets a monthly column through `recordAndLock`.
+  - `INCLUDED_IN` marks it as a subset of `anthropic`, so neither the page total nor the month
+    Total counts it twice. The org-wide Anthropic card notes that it includes agent spend.
+  - `ProviderId` now derives from `PROVIDER_IDS`, and `/admin` uses `isProviderId` instead of a
+    hand-copied list.
+  - Settings → **Invisible Director**: run budget (`DIRECTOR_RUN_BUDGET_USD`, default 25,
+    $1–$500; `getDirectorRunBudget()` mirrors `getRunpodIdleConfig()`), the effective price table,
+    and the override editor. Actions: `setDirectorBudget`, `setDirectorPricingOverride`.
+  - Fixture: `check:director-costs` (wired into Lint).
 - 2026-10-04 — **Invisible Director + Invisible Pipeline Changes registered** (Director Phase 1,
   tasks 1.7–1.10). `director` (Create, after Game Config) and `pipelineChanges` (a new **Pipeline**
   stage, accent `#f778ba`) are in `TOOLS`, with icons in `TOOL_ICONS` and the four toolbar twins.

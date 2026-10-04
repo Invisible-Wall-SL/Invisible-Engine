@@ -1,6 +1,8 @@
 import {
 	boolean,
+	check,
 	doublePrecision,
+	index,
 	integer,
 	jsonb,
 	pgTable,
@@ -8,6 +10,7 @@ import {
 	text,
 	timestamp,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import type { Role } from '$lib/roles';
 
 export const users = pgTable('users', {
@@ -71,6 +74,12 @@ export const projects = pgTable('projects', {
 	 * already-deleted project — never the button sitting next to Rescaffold.
 	 */
 	deletedAt: timestamp('deleted_at', { withTimezone: true }),
+	/**
+	 * An admin marked this PUBLISHED project as a template Invisible Director re-themes
+	 * (`docs/director/OPEN_QUESTIONS.md` Q1). Set only from Admin › Projects, which refuses an
+	 * unpublished project; `gamemaker.list_templates` lists only these.
+	 */
+	directorTemplate: boolean('director_template').notNull().default(false),
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -387,6 +396,101 @@ export const costMonths = pgTable(
 	(table) => [primaryKey({ columns: [table.provider, table.year, table.month] })],
 );
 
+/**
+ * Invisible Director spend ledger (ADR-0006): one row per billed unit of work — a Messages
+ * response's `usage` (`kind: 'claude'`) or a serverless GPU job (`kind: 'runpod'`). Written
+ * once by the worker, never updated. Admin › Costs sums the `claude` rows month-to-date for
+ * the "Anthropic (agents)" card; RunPod rows are already inside the RunPod account card.
+ *
+ * `runId` has no foreign key yet: the run tables arrive with the worker (PLAN 3.3).
+ */
+export const directorSpend = pgTable(
+	'director_spend',
+	{
+		id: text('id')
+			.primaryKey()
+			.$defaultFn(() => crypto.randomUUID()),
+		runId: text('run_id').notNull(),
+		/** The runtime agent that spent it (`services/director-worker/agents/<agent>.md`). */
+		agent: text('agent').notNull(),
+		/** The model that served the turn (the fallback model, after a refusal fallback), or
+		 *  the GPU type for a RunPod row. */
+		model: text('model').notNull(),
+		at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+		inputTokens: integer('input_tokens').notNull().default(0),
+		outputTokens: integer('output_tokens').notNull().default(0),
+		cacheReadTokens: integer('cache_read_tokens').notNull().default(0),
+		cacheWriteTokens: integer('cache_write_tokens').notNull().default(0),
+		usd: doublePrecision('usd').notNull(),
+		kind: text('kind').$type<'claude' | 'runpod'>().notNull(),
+	},
+	(table) => [
+		index('director_spend_at_idx').on(table.at),
+		index('director_spend_run_idx').on(table.runId),
+		check('director_spend_kind_check', sql`${table.kind} in ('claude', 'runpod')`),
+	],
+);
+
+/**
+ * Invisible Director run — a STUB holding only what the adapter gate needs (ADR-0002): which
+ * project the run works on, the template it copies, and whose identity its writes carry. The full
+ * run record of ADR-0003 (status, step, preset, checkpoints, lease, budget) arrives with the worker
+ * in PLAN 3.3, which extends this table rather than replacing it. Nothing in the launcher inserts
+ * a row yet.
+ */
+export const directorRuns = pgTable('director_runs', {
+	id: text('id').primaryKey(),
+	/** The project the run creates and then works on. It need not exist until
+	 *  `gamemaker.create_from_template` creates it. */
+	projectKey: text('project_key').notNull(),
+	/** The client the project is created under; null = unassigned. */
+	clientKey: text('client_key'),
+	templateProjectKey: text('template_project_key').notNull(),
+	ownerUserId: text('owner_user_id')
+		.notNull()
+		.references(() => users.id, { onDelete: 'cascade' }),
+	/** Set when `gamemaker.create_from_template` starts copying: from then on the run's project key
+	 *  is this run's, so a retry after a crash finishes the copy instead of refusing it. */
+	projectCreateStartedAt: timestamp('project_create_started_at', { withTimezone: true }),
+	/** ETag of the template's `config/config.json` when the project was copied from it, and of the
+	 *  copy's own right after — the math lock QA checks (Q3). Null until the copy. */
+	templateConfigEtag: text('template_config_etag'),
+	projectConfigEtag: text('project_config_etag'),
+	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Director adapter idempotency (ADR-0002): one row per WRITE op, keyed by the worker's
+ * `runId:step:seq`. A row is claimed `pending` before the op runs and becomes `done` with its
+ * result after; a replayed `opId` returns that stored result instead of running again. A failed op
+ * releases its row, so only successes are remembered. A `pending` row older than the stale window
+ * (a crash between the write and its record) is reclaimed by the next call with that `opId`.
+ */
+export const directorOps = pgTable(
+	'director_ops',
+	{
+		opId: text('op_id').primaryKey(),
+		runId: text('run_id')
+			.notNull()
+			.references(() => directorRuns.id, { onDelete: 'cascade' }),
+		agent: text('agent').notNull(),
+		/** `<tool>.<op>`, e.g. `gamemaker.create_from_template`. */
+		op: text('op').notNull(),
+		/** SHA-256 of the call's input: an `opId` replayed with a different input is a worker bug,
+		 *  refused rather than answered with the first call's result. */
+		inputHash: text('input_hash').notNull(),
+		status: text('status').$type<'pending' | 'done'>().notNull(),
+		result: jsonb('result'),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		completedAt: timestamp('completed_at', { withTimezone: true }),
+	},
+	(table) => [
+		index('director_ops_run_idx').on(table.runId),
+		check('director_ops_status_check', sql`${table.status} in ('pending', 'done')`),
+	],
+);
+
 export type User = typeof users.$inferSelect;
 export type Session = typeof sessions.$inferSelect;
 export type ToolInstall = typeof toolInstalls.$inferSelect;
@@ -403,3 +507,6 @@ export type SharedRig = typeof sharedRigs.$inferSelect;
 export type SharedAnimation = typeof sharedAnimations.$inferSelect;
 export type DocLease = typeof docLeases.$inferSelect;
 export type CostMonth = typeof costMonths.$inferSelect;
+export type DirectorSpend = typeof directorSpend.$inferSelect;
+export type DirectorRun = typeof directorRuns.$inferSelect;
+export type DirectorOp = typeof directorOps.$inferSelect;

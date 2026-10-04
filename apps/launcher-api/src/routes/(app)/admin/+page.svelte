@@ -144,6 +144,7 @@
 		r2: 'Cloudflare R2',
 		openai: 'OpenAI',
 		anthropic: 'Anthropic',
+		anthropicAgents: 'Anthropic (agents)',
 	};
 
 	/** A plain EUR amount (no conversion) — used for the real charged figures. */
@@ -213,6 +214,10 @@
 
 	let selectedId = $state<string | null>(null);
 	const selected = $derived(data.users.find((u) => u.id === selectedId) ?? null);
+	/** Projects with a registered game: only these can be marked as a Director template. */
+	const publishedProjectKeys = $derived(
+		new Set(data.games.flatMap((g) => (g.projectKey ? [g.projectKey] : []))),
+	);
 
 	const loadedSessions = $derived(
 		form?.action === 'loadSessions' && form.userId === selectedId ? form.sessions : null,
@@ -935,6 +940,26 @@
 								{/each}
 							</select>
 						</form>
+						<form
+							method="POST"
+							action="?/setDirectorTemplate"
+							use:enhance
+							title={p.directorTemplate || publishedProjectKeys.has(p.key)
+								? 'Invisible Director can start new games from a Director template'
+								: 'Publish this project first: only a published game can be a Director template'}
+						>
+							<input type="hidden" name="key" value={p.key} />
+							<input type="hidden" name="on" value={p.directorTemplate ? 'false' : 'true'} />
+							<button
+								type="submit"
+								class="small toggle"
+								class:on={p.directorTemplate}
+								aria-pressed={p.directorTemplate}
+								disabled={!p.directorTemplate && !publishedProjectKeys.has(p.key)}
+							>
+								{p.directorTemplate ? '✓ ' : ''}Director template
+							</button>
+						</form>
 						<form method="POST" action="?/rescaffoldProject" use:enhance>
 							<input type="hidden" name="key" value={p.key} />
 							<button type="submit" class="small">Rescaffold</button>
@@ -1249,7 +1274,12 @@
 				<p class="muted">Reading provider costs…</p>
 			{:then costs}
 				{@const known = costs.providers.filter((p) => p.ok && p.spendUsd != null)}
-				{@const total = known.reduce((sum, p) => sum + (p.spendUsd ?? 0), 0)}
+				<!-- A subset (agent spend inside the Anthropic bill) is left out while its parent
+					 reports, so it isn't counted twice. -->
+				{@const counted = known.filter(
+					(p) => !p.includedIn || !known.some((parent) => parent.id === p.includedIn),
+				)}
+				{@const total = counted.reduce((sum, p) => sum + (p.spendUsd ?? 0), 0)}
 				<!-- Columns follow the providers actually on the page, so a dormant one
 					 (the unused LLM provider) doesn't leave a column of em dashes. -->
 				{@const columns = costs.providers.map((p) => p.id)}
@@ -1329,6 +1359,10 @@
 								<p class="muted hint cost-reason">{provider.reason}</p>
 							{/if}
 
+							{#if provider.note}
+								<p class="muted hint cost-reason">{provider.note}</p>
+							{/if}
+
 							{#if provider.requires && provider.requires.length > 0}
 								{@const required = provider.requires}
 								<p class="muted hint">
@@ -1353,6 +1387,21 @@
 									{/each}
 								</div>
 							{/if}
+
+							{#each provider.sections ?? [] as section (section.title)}
+								<div class="cost-lines">
+									<span class="muted cost-section-title">{section.title}</span>
+									{#each section.lines as line (line.label)}
+										<div class="cost-line">
+											<span class="cost-line-label mono">{line.label}</span>
+											{#if line.detail}
+												<span class="muted cost-line-detail">{line.detail}</span>
+											{/if}
+											<span class="cost-line-amount mono">{usd(line.amountUsd)}</span>
+										</div>
+									{/each}
+								</div>
+							{/each}
 						</div>
 					{/each}
 				</div>
@@ -1450,7 +1499,10 @@
 						</div>
 						<p class="muted hint table-note">
 							Press Enter in any cell to save. Boxed cells are typed in — RunPod and Railway can't
-							report a monthly total, so their figures come from you.
+							report a monthly total, so their figures come from you. Anthropic (agents) is part of
+							the Anthropic bill, so it is left out of Total in any month Anthropic has a figure
+							(and out of Measured spend while the Anthropic card reports). Anthropic's report lags
+							a little, so agent spend can briefly run ahead of it.
 						</p>
 					</div>
 				{:else}
@@ -1989,6 +2041,104 @@
 					</div>
 				{/if}
 			</div>
+
+			<div class="card">
+				<h3>Invisible Director</h3>
+				<p class="muted hint">
+					Each Director run stops and asks before it spends past its budget. A run copies the cap
+					when it starts, so a change here applies to new runs only. Default
+					<strong>${data.director.budgetDefaultUsd}</strong>.
+				</p>
+				<form method="POST" action="?/setDirectorBudget" use:enhance class="runpod-idle">
+					<label class="minutes">
+						Run budget (USD)
+						<input
+							name="budgetUsd"
+							type="number"
+							min={data.director.budgetMinUsd}
+							max={data.director.budgetMaxUsd}
+							step="0.01"
+							value={data.director.budgetUsd}
+						/>
+					</label>
+					<button type="submit">Save budget</button>
+				</form>
+
+				<h4 class="director-sub">
+					Prices
+					{#if data.director.pricingSource === 'override'}
+						<span class="pill est">override</span>
+					{:else}
+						<span class="pill on">pricing.json</span>
+					{/if}
+				</h4>
+				<p class="muted hint">
+					From <span class="mono">services/director-worker/pricing.json</span> (a reviewed file — changing
+					it is a pipeline change). Each call is priced when it is recorded.
+				</p>
+				{#if data.director.pricingOverrideError}
+					<p class="banner error">
+						The stored override is ignored: {data.director.pricingOverrideError}
+					</p>
+				{/if}
+				<div class="cost-lines">
+					{#each Object.entries(data.director.pricing.perMTok) as [model, rate] (model)}
+						<div class="cost-line">
+							<span class="cost-line-label mono">{model}</span>
+							<span class="muted cost-line-detail">per MTok in / out</span>
+							<span class="cost-line-amount mono">{usd(rate.input)} / {usd(rate.output)}</span>
+						</div>
+					{/each}
+					<div class="cost-line">
+						<span class="cost-line-label">Cache read / write</span>
+						<span class="muted cost-line-detail">× input price</span>
+						<span class="cost-line-amount mono"
+							>{data.director.pricing.cacheReadMultiplier}× / {data.director.pricing
+								.cacheWriteMultiplier}×</span
+						>
+					</div>
+					{#each Object.entries(data.director.pricing.runpod.perSecondByGpu) as [gpu, rate] (gpu)}
+						<div class="cost-line">
+							<span class="cost-line-label">RunPod {gpu}</span>
+							<span class="muted cost-line-detail">
+								per second
+								{#if data.director.pricing.runpod.placeholder}
+									<span class="pill err">placeholder</span>
+								{/if}
+							</span>
+							<span class="cost-line-amount mono">${rate}</span>
+						</div>
+					{/each}
+				</div>
+
+				<form
+					method="POST"
+					action="?/setDirectorPricingOverride"
+					use:enhance
+					class="director-override"
+				>
+					<p class="muted hint" id="director-override-hint">
+						<strong>Override (optional):</strong> JSON in the same shape as pricing.json, every
+						field optional, e.g.
+						<span class="mono">{'{"perMTok":{"claude-opus-5-5":{"output":18}}}'}</span>. Leave empty
+						to use the file.
+					</p>
+					<textarea
+						name="override"
+						class="mono import-text"
+						rows="4"
+						placeholder={'{}'}
+						aria-label="Price override JSON"
+						aria-describedby="director-override-hint"
+						>{form?.action === 'setDirectorPricingOverride' && form.override
+							? form.override
+							: data.director.pricingOverride}</textarea
+					>
+					<div class="token-actions">
+						<button type="submit">Save override</button>
+					</div>
+				</form>
+			</div>
 		</section>
 	</div>
 </div>
@@ -2402,6 +2552,20 @@
 	button.small {
 		padding: 5px 10px;
 		font-size: 12px;
+	}
+	button.toggle {
+		background: transparent;
+		border: 1px solid #3a3a48;
+		color: #b9b9c6;
+	}
+	button.toggle.on {
+		background: #6b5bff;
+		border-color: #6b5bff;
+		color: #fff;
+	}
+	button.toggle:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
 	}
 	.inline {
 		display: flex;
@@ -2907,6 +3071,25 @@
 	}
 	.cost-line-detail {
 		font-size: 11px;
+	}
+	.cost-section-title {
+		padding: 8px 0 2px;
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+	.director-sub {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin: 16px 0 4px;
+		font-size: 13px;
+	}
+	.director-override {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		margin-top: 12px;
 	}
 	.cost-line-amount {
 		min-width: 72px;

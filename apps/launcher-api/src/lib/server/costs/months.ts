@@ -26,7 +26,7 @@
 import { and, eq, isNull, lt, or, sql } from 'drizzle-orm';
 import { getDb } from '../db';
 import { costMonths } from '../db/schema';
-import type { ProviderId } from './types';
+import { INCLUDED_IN, type ProviderId } from './types';
 
 const ZONE = 'Europe/Madrid';
 
@@ -285,10 +285,20 @@ export function summarize(rows: MonthRow[]): YearSummary[] {
 			if (row.eur != null) entry.totalEur = row.eur;
 		} else {
 			entry.byProvider[row.provider] = (entry.byProvider[row.provider] ?? 0) + row.amountUsd;
-			entry.totalUsd += row.amountUsd;
+			if (!INCLUDED_IN[row.provider]) entry.totalUsd += row.amountUsd;
 			if (row.manual) entry.manualProviders.push(row.provider);
 			// A month is only "locked" once every provider row for it is locked.
 			entry.locked = entry.locked && row.locked;
+		}
+	}
+
+	// A subset (agent spend inside the Anthropic bill) joins the total only in a month its
+	// parent has no row for — otherwise it is already counted.
+	for (const entry of byMonth.values()) {
+		for (const [subset, parent] of Object.entries(INCLUDED_IN)) {
+			if (subset in entry.byProvider && !(parent in entry.byProvider)) {
+				entry.totalUsd += entry.byProvider[subset];
+			}
 		}
 	}
 

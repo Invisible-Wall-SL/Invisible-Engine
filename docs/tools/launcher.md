@@ -105,7 +105,7 @@ Spine Viewer and the Rigger it redirects to their static `view.html` documents
   own password; see [Changing your password](#changing-your-password).
 - **`/admin`** (admins only) — tabbed: Users, Roles, Tools, Projects, Clients,
   Games, Sessions, **Costs**, Settings (deploy token, layout default, **engine
-  boot mark**, ComfyUI pod fleet, edge cache). **Create user**'s initial
+  boot mark**, ComfyUI pod fleet, edge cache, **Invisible Director** budget + prices). **Create user**'s initial
   password and a user's **Reset** password must be at least 12 characters (the
   same rule as a self-service change); a reset signs that user out everywhere.
 - **Sign out** — header form posting to `/auth/logout`.
@@ -128,6 +128,19 @@ Leave the URL blank when creating and it auto-fills the standard test-server URL
 for the key, including the `runtime=1` flag the shared engine bundle needs to
 read the project's live authoring data. The game still has to be published to
 that path to actually load.
+
+### Admin → Settings → Invisible Director
+
+- **Run budget (USD)** — the cap each Director run pauses at, asking the owner to raise it or
+  stop. Default **$25**; Settings accepts $1–$500. A run copies the cap when it starts, so a change
+  applies to new runs only.
+- **Prices** — the table the agents are billed at: per-model $/MTok in/out, the cache read/write
+  multipliers, and RunPod $/s per GPU (tagged `placeholder` until the owner confirms them). They
+  come from `services/director-worker/pricing.json`, a reviewed file. The pill says `pricing.json`
+  or `override`.
+- **Override (optional)** — JSON in the same shape as `pricing.json`, every field optional (e.g.
+  `{"perMTok":{"claude-opus-5-5":{"output":18}}}`), so a price can change without a deploy. It is
+  validated on save; empty clears it. Nothing in code carries a price.
 
 ### Admin → Settings → Engine boot mark
 
@@ -194,7 +207,14 @@ API and cached for ten minutes (**Refresh** re-reads now).
 | **Railway** (services + Postgres) | current-cycle estimated cost, broken down by measurement | `RAILWAY_API_TOKEN` (account or **workspace** token — a project token uses a different header and won't work), `RAILWAY_PROJECT_ID` |
 | **Cloudflare R2** (assets) | stored GB, class A/B operation counts, derived cost | `CF_ACCOUNT_ID`, `CF_ANALYTICS_TOKEN` (Account → Account Analytics: Read — the existing `CF_API_TOKEN` is zone-scoped for cache purge and **cannot** read this) |
 | **OpenAI** (translations) | spend by line item | `OPENAI_ADMIN_API_KEY` — an **admin** key (`sk-admin-…`) mintable only by an org **Owner**; a project key (`sk-proj-…`) gets 401 |
-| **Anthropic** (Claude API) | spend by model / cost type | `ANTHROPIC_ADMIN_API_KEY` — an **admin** key (`sk-ant-admin…`), a different credential from `ANTHROPIC_API_KEY`; it reads usage and cannot spend |
+| **Anthropic** (Claude API) | spend by model / cost type; its org-wide total **includes** Invisible Director agent spend (the card says so) | `ANTHROPIC_ADMIN_API_KEY` — an **admin** key (`sk-ant-admin…`), a different credential from `ANTHROPIC_API_KEY`; it reads usage and cannot spend |
+| **Anthropic (agents)** | Invisible Director's own Claude spend this month: the total, **By agent** and **Top runs** | nothing — it sums the launcher's own `director_spend` ledger, so it always shows (a real $0 until runs exist) |
+
+**Anthropic (agents)** prices each call when the Director worker records it, from
+`services/director-worker/pricing.json` (or the override under Settings → Invisible Director).
+GPU time from Director runs is not on this card — it already drains the RunPod balance. Because
+the agent spend is part of the Anthropic bill, the page's *Measured spend* and the monthly
+**Total** leave it out whenever the Anthropic card has a figure, and count it only when it doesn't.
 
 Only **one** LLM card shows: `translate.ts` uses an OpenAI-compatible endpoint
 when `LOCALIZATION_LLM_BASE_URL` + `LOCALIZATION_LLM_API_KEY` are set and

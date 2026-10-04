@@ -62,6 +62,7 @@ import {
 	renameProject,
 	restoreProject,
 	revokeProjectAccess,
+	setProjectDirectorTemplate,
 	setProjectGameType,
 	softDeleteProject,
 } from '$lib/server/projects';
@@ -88,6 +89,7 @@ import {
 	gameExists,
 	isValidGameKey,
 	listGames,
+	listGamesOwnedByProject,
 	renameGame,
 	setGameProject,
 	setGameUrl,
@@ -95,11 +97,18 @@ import {
 import { ENV } from '$lib/server/env';
 import {
 	DEPLOY_TOKEN_KEY,
+	DIRECTOR_PRICING_OVERRIDE_KEY,
+	DIRECTOR_RUN_BUDGET_DEFAULT_USD,
+	DIRECTOR_RUN_BUDGET_KEY,
+	DIRECTOR_RUN_BUDGET_MAX_USD,
+	DIRECTOR_RUN_BUDGET_MIN_USD,
 	RUNPOD_IDLE_ENABLED_KEY,
 	RUNPOD_IDLE_MINUTES_DEFAULT,
 	RUNPOD_IDLE_MINUTES_KEY,
 	RUNPOD_PODS_KEY,
+	deleteAppSetting,
 	getDeployToken,
+	getDirectorRunBudget,
 	getRunpodIdleConfig,
 	getRunpodPods,
 	setAppSetting,
@@ -114,7 +123,9 @@ import { DEFAULT_LAYOUT_PROFILE } from 'engine-layout';
 import { getCosts, invalidateCosts } from '$lib/server/costs';
 import { parseCostImport } from '$lib/server/costs/importMonths';
 import { importMonths, setMonthEur, setMonthUsd, TOTAL_KEY } from '$lib/server/costs/months';
-import type { ProviderId } from '$lib/server/costs/types';
+import { isProviderId, type ProviderId } from '$lib/server/costs/types';
+import { FILE_PRICING, getDirectorPricing } from '$lib/server/costs/pricingConfig';
+import { mergePricing } from '$lib/server/costs/directorPricing';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
@@ -169,13 +180,6 @@ function generateDeployToken(): string {
 
 const MIN_DEPLOY_TOKEN = 16;
 
-/** Providers the cost ledger accepts — mirrors `ProviderId` in `$lib/server/costs/types`. */
-const COST_PROVIDERS: ProviderId[] = ['runpod', 'railway', 'r2', 'openai', 'anthropic'];
-
-function isCostProvider(value: string): value is ProviderId {
-	return (COST_PROVIDERS as string[]).includes(value);
-}
-
 export const load: PageServerLoad = async ({ locals }) => {
 	await requireAdmin(locals);
 
@@ -226,6 +230,11 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const runpodIdle = await getRunpodIdleConfig();
 	const runpodStored = await getRunpodPods();
 	const runpodPods = runpodConfigured ? await probeFleet() : [];
+
+	const [directorBudgetUsd, directorPricing] = await Promise.all([
+		getDirectorRunBudget(),
+		getDirectorPricing(),
+	]);
 
 	return {
 		currentUserId: locals.user!.id,
@@ -285,7 +294,6 @@ export const load: PageServerLoad = async ({ locals }) => {
 		// worst-case network wait in front of user management. `getCosts` never
 		// rejects (every collector degrades to a card), so the stream can't error out.
 		costs: getCosts(),
-		costProviders: COST_PROVIDERS,
 		runpod: {
 			configured: runpodConfigured,
 			idleEnabled: runpodIdle.enabled,
@@ -300,6 +308,16 @@ export const load: PageServerLoad = async ({ locals }) => {
 				status: p.status,
 				ready: p.ready,
 			})),
+		},
+		director: {
+			budgetUsd: directorBudgetUsd,
+			budgetDefaultUsd: DIRECTOR_RUN_BUDGET_DEFAULT_USD,
+			budgetMinUsd: DIRECTOR_RUN_BUDGET_MIN_USD,
+			budgetMaxUsd: DIRECTOR_RUN_BUDGET_MAX_USD,
+			pricing: directorPricing.pricing,
+			pricingSource: directorPricing.source,
+			pricingOverrideError: directorPricing.overrideError ?? null,
+			pricingOverride: directorPricing.overrideRaw ?? '',
 		},
 	};
 };
@@ -540,6 +558,30 @@ export const actions: Actions = {
 
 		await renameProject(key, name);
 		return { action: 'renameProject', ok: 'Project renamed.' };
+	},
+
+	setDirectorTemplate: async ({ request, locals }) => {
+		await requireAdmin(locals);
+		const data = await request.formData();
+		const key = String(data.get('key') ?? '').trim();
+		const on = data.get('on') === 'true';
+
+		if (!(await projectExists(key))) {
+			return fail(400, { action: 'setDirectorTemplate', error: 'Unknown project.' });
+		}
+		// Q1: a template is a game that already plays — Director re-themes it and never publishes.
+		if (on && (await listGamesOwnedByProject(key)).length === 0) {
+			return fail(400, {
+				action: 'setDirectorTemplate',
+				error: `${key} is not published. Publish it in Invisible Game Maker before marking it as a Director template.`,
+			});
+		}
+
+		await setProjectDirectorTemplate(key, on);
+		return {
+			action: 'setDirectorTemplate',
+			ok: on ? `${key} is a Director template.` : `${key} is no longer a Director template.`,
+		};
 	},
 
 	setProjectGameType: async ({ request, locals }) => {
@@ -1121,6 +1163,59 @@ export const actions: Actions = {
 		return { action: 'stopRunpodPod', ok: 'Pod stop requested.' };
 	},
 
+	// --- Invisible Director ---
+
+	/** Save the per-run budget cap. Runs copy it at start, so running runs keep theirs. */
+	setDirectorBudget: async ({ request, locals }) => {
+		const admin = await requireAdmin(locals);
+		const data = await request.formData();
+		const raw = String(data.get('budgetUsd') ?? '').trim();
+		const value = Number(raw);
+		if (!raw || !Number.isFinite(value)) {
+			return fail(400, { action: 'setDirectorBudget', error: 'Enter the budget as a number.' });
+		}
+		if (value < DIRECTOR_RUN_BUDGET_MIN_USD || value > DIRECTOR_RUN_BUDGET_MAX_USD) {
+			return fail(400, {
+				action: 'setDirectorBudget',
+				error: `The budget must be between $${DIRECTOR_RUN_BUDGET_MIN_USD} and $${DIRECTOR_RUN_BUDGET_MAX_USD}.`,
+			});
+		}
+		const budget = Math.round(value * 100) / 100;
+		await setAppSetting(DIRECTOR_RUN_BUDGET_KEY, String(budget), admin.id);
+		return { action: 'setDirectorBudget', ok: `Run budget set to $${budget.toFixed(2)}.` };
+	},
+
+	/**
+	 * Save (or clear, when empty) the JSON price override laid over pricing.json. Validated
+	 * against the file before it is stored, so a bad override is refused here rather than
+	 * silently ignored at billing time.
+	 */
+	setDirectorPricingOverride: async ({ request, locals }) => {
+		const admin = await requireAdmin(locals);
+		const data = await request.formData();
+		const raw = String(data.get('override') ?? '').trim();
+		if (!raw) {
+			await deleteAppSetting(DIRECTOR_PRICING_OVERRIDE_KEY);
+			invalidateCosts();
+			return {
+				action: 'setDirectorPricingOverride',
+				ok: 'Override cleared — pricing.json applies.',
+			};
+		}
+		try {
+			mergePricing(FILE_PRICING, JSON.parse(raw));
+		} catch (err) {
+			return fail(400, {
+				action: 'setDirectorPricingOverride',
+				error: err instanceof Error ? err.message : 'The override is not valid JSON.',
+				override: raw,
+			});
+		}
+		await setAppSetting(DIRECTOR_PRICING_OVERRIDE_KEY, raw, admin.id);
+		invalidateCosts();
+		return { action: 'setDirectorPricingOverride', ok: 'Price override saved.' };
+	},
+
 	/** Re-poll every provider now, bypassing the 10-minute snapshot cache. */
 	refreshCosts: async ({ locals }) => {
 		await requireAdmin(locals);
@@ -1146,7 +1241,7 @@ export const actions: Actions = {
 
 		// `total` is the reserved month-level key — the euro figure is what the bank
 		// charged for the month as a whole, not per provider.
-		if (provider !== TOTAL_KEY && !isCostProvider(provider)) {
+		if (provider !== TOTAL_KEY && !isProviderId(provider)) {
 			return fail(400, { action: 'setCostMonthEur', error: 'Unknown provider.' });
 		}
 		if (!Number.isInteger(year) || !Number.isInteger(month)) {
@@ -1192,7 +1287,7 @@ export const actions: Actions = {
 		const month = Number(String(data.get('month') ?? ''));
 		const raw = String(data.get('usd') ?? '').trim();
 
-		if (!isCostProvider(provider)) {
+		if (!isProviderId(provider)) {
 			return fail(400, { action: 'setCostMonthUsd', error: 'Unknown provider.' });
 		}
 		if (!Number.isInteger(year) || !Number.isInteger(month)) {
