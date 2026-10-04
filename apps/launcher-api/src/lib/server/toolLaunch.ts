@@ -37,6 +37,18 @@ export interface LaunchClaims {
 	client: string;
 	project: string;
 	caps: string[];
+	/**
+	 * Who is acting for the user, on an `api` token only: an Invisible Director agent. atlas-tool
+	 * stamps the manifests it saves with it (`saved_by.tool = 'director'`, `agent`, `runId`) and
+	 * refuses it on any other token type.
+	 */
+	act?: LaunchActor;
+}
+
+export interface LaunchActor {
+	tool: 'director';
+	agent: string;
+	run: string;
 }
 
 /**
@@ -51,6 +63,7 @@ export function mintToolLaunchToken(
 	now: number = Date.now(),
 	typ: LaunchTokenType = 'launch',
 ): string {
+	if (claims.act && typ !== 'api') throw new Error('An acting claim rides an api token only');
 	const iat = Math.floor(now / 1000);
 	// Fixed key order keeps the shared test vector byte-exact; the verifier checks the bytes it
 	// received and never re-serialises.
@@ -65,6 +78,7 @@ export function mintToolLaunchToken(
 		client: claims.client,
 		project: claims.project,
 		caps: claims.caps,
+		...(claims.act ? { act: claims.act } : {}),
 		iat,
 		exp: iat + LAUNCH_TOKEN_TTL_SECONDS,
 	};

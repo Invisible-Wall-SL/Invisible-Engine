@@ -117,6 +117,17 @@ Works today on `main` / live:
 _Nothing._
 
 ## Recent changes
+- 2026-10-04 — **Invisible Director can drive the Atlas Maker as a run's owner** (Director task
+  2.4, [ADR-0002](../director/DECISIONS/0002-tool-adapters.md)). Three additive changes, all gated
+  on a signed `act` claim that only an `api` launch token may carry (`iw_common/launch.py`; any other
+  token with `act`, or a malformed one, is refused, and `act` never reaches a session cookie):
+  `docsave.stamp` writes `saved_by.tool = 'director'` plus `agent` and `runId` for such a caller;
+  an acting caller's `?manifest=atlas_manifest_<x>.json` pins that manifest for the request and for
+  the render / compose thread it starts, so Director never switches a project's active atlas
+  (`atlas_config.json` is not written); and `/createatlas` with `Accept: application/json` answers
+  `{started, message}` instead of always "composing". A person's requests behave exactly as before.
+  Launcher side: `apps/launcher-api/src/lib/server/director/ops/atlas.ts`. Tests:
+  `test_director_calls.py` (46 checks); `scripts/check-python.py` 47/47.
 - 2026-10-04 — **Still renders are resumable and can call back when they end** (Director task 2.5,
   [ADR-0002](../director/DECISIONS/0002-tool-adapters.md) "GPU jobs"; `still_jobs.py`). Every
   `/render` gets a stable `jobRef` (header `X-Atlas-Job-Ref`; JSON body with `Accept:

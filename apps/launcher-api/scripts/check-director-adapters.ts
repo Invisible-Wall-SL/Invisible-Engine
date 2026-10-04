@@ -31,7 +31,13 @@ import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { mock } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import type { DirectorOp, DirectorRun, Game, Project } from '../src/lib/server/db/schema.ts';
+import type {
+	DirectorAtlasJob,
+	DirectorOp,
+	DirectorRun,
+	Game,
+	Project,
+} from '../src/lib/server/db/schema.ts';
 
 const src = (rel: string) => new URL(`../src/${rel}`, import.meta.url).href;
 const srcPath = (rel: string) => fileURLToPath(src(rel));
@@ -140,6 +146,7 @@ const ROLE_OVERRIDES = new Map<string, Record<string, boolean>>();
 const USER_OVERRIDES = new Map<string, Record<string, boolean>>();
 const RUNS = new Map<string, DirectorRun>();
 const OPS = new Map<string, DirectorOp>();
+const ATLAS_JOBS = new Map<string, DirectorAtlasJob>();
 
 const project = (key: string, over: Partial<Project> = {}): Project => ({
 	key,
@@ -246,6 +253,42 @@ fake('lib/server/director/store.ts', {
 	releaseOp: async (opId: string) => {
 		if (OPS.get(opId)?.status === 'pending') OPS.delete(opId);
 	},
+	insertAtlasJob: async (row: {
+		jobRef: string;
+		runId: string;
+		agent: string;
+		atlas: string;
+		regions: string[];
+	}) => {
+		if (!ATLAS_JOBS.has(row.jobRef)) {
+			ATLAS_JOBS.set(row.jobRef, {
+				...row,
+				status: 'queued',
+				result: null,
+				doneVia: null,
+				queuedAt: new Date(),
+				doneAt: null,
+			});
+		}
+	},
+	getAtlasJob: async (jobRef: string) => ATLAS_JOBS.get(jobRef) ?? null,
+	settleAtlasJob: async (done: {
+		jobRef: string;
+		runId: string;
+		status: DirectorAtlasJob['status'];
+		result: unknown;
+		via: 'callback' | 'poll';
+	}) => {
+		const row = ATLAS_JOBS.get(done.jobRef);
+		if (!row || row.runId !== done.runId || row.status !== 'queued') return null;
+		Object.assign(row, {
+			status: done.status,
+			result: done.result,
+			doneVia: done.via,
+			doneAt: new Date(),
+		});
+		return { ...row };
+	},
 });
 
 const { POST } = await import(src('routes/api/director/adapter/[tool]/[op]/+server.ts'));
@@ -257,6 +300,7 @@ const {
 	opId: opIdOf,
 } = await import(src('lib/server/director/registry.ts'));
 const { GAMEMAKER_OPS } = await import(src('lib/server/director/ops/gamemaker.ts'));
+const { ATLAS_OPS } = await import(src('lib/server/director/ops/atlas.ts'));
 const { defineOp, DIRECTOR_AGENTS } = await import(src('lib/server/director/adapter.ts'));
 const { refusedOp, refusedWriteTarget } = await import(src('lib/server/director/refusals.ts'));
 const { putObjectText, precondition } = await import(src('lib/server/r2.ts'));
@@ -599,7 +643,11 @@ for (const [tool, op, id] of REFUSED) {
 		true,
 	);
 }
-check('no registered op is refused', [...ADAPTER_OPS.keys()].length, GAMEMAKER_OPS.length);
+check(
+	'no registered op is refused',
+	[...ADAPTER_OPS.keys()].length,
+	GAMEMAKER_OPS.length + ATLAS_OPS.length,
+);
 
 // ── 2.2 Target-key guard, whatever op declares the key ────────────────────────
 let handlerRuns = 0;
@@ -1117,6 +1165,592 @@ check(
 	);
 }
 check('every adapter call that reached the ledger was a write', claims > 0, true);
+
+// ── 2.4 Atlas Maker adapters, against a fake atlas-tool ───────────────────────
+{
+	const { createServer } = await import('node:http');
+	const { createHmac } = await import('node:crypto');
+	const { POST: CALLBACK } = await import(src('routes/api/director/atlas/callback/+server.ts'));
+	const cb = await import(src('lib/server/director/atlasCallback.ts'));
+	const jobs = await import(src('lib/server/director/atlasJobs.ts'));
+
+	const SIGNING = 'atlas-signing-secret-0123456789';
+	const CB_SECRET = 'atlas-callback-secret-0123456789';
+	process.env.ATLAS_TOOL_SIGNING_SECRET = SIGNING;
+	process.env.ATLAS_CALLBACK_SECRET = CB_SECRET;
+	process.env.ORIGIN = 'https://app.example';
+
+	// The port matches still_jobs.py byte for byte: these were printed by the Python reference.
+	check(
+		'mintCallbackToken matches still_jobs.mint_callback_token',
+		cb.mintCallbackToken(
+			'vector-secret',
+			'https://app.example/api/director/atlas/callback?run=r1',
+			3600,
+			1790000000_000,
+		),
+		'v1.1790003600.54bac12ed9c5205f13478c07706224f4aeffb8090db41a448a3d40935ce4c72d', // pragma: allowlist secret
+	);
+	check(
+		'signCallbackBody matches still_jobs.sign_body',
+		cb.signCallbackBody(
+			'vector-secret',
+			'{"jobRef": "st_0123456789abcdef", "status": "finished", "variants": []}',
+			1790000000_000,
+		),
+		't=1790000000,v1=e6a70f02a97e36a8b4223383b868ac85b9a2b9e5393768cc4e8609b6af802421', // pragma: allowlist secret
+	);
+
+	// The project an atlas run works on, with one atlas.
+	PROJECTS.set('atl', project('atl'));
+	RUNS.set('ra', run('ra', { projectKey: 'atl' }));
+	RUNS.set('rb', run('rb', { projectKey: 'atl' }));
+	const MANIFEST = 'acme/atl/manifests/atlas_manifest_symbols.json';
+	R2.set(MANIFEST, {
+		body: JSON.stringify({
+			atlas: { width: 100, height: 100 },
+			regions: [
+				{ name: 'H1', prompt: 'a ruby', seed: 7, lock: true, x: 0, y: 0, w: 50, h: 50 },
+				{ name: 'H2', negative: 'blurry', x: 50, y: 0, w: 50, h: 50 },
+			],
+			rotated_regions: [{ name: 'W', prompt: 'a wild', variant: '00001' }],
+			saved_by: { rev: 'rev0', tool: 'atlas' },
+		}),
+		etag: etag(),
+	});
+
+	// ── The fake atlas-tool: verifies the api token, then answers like ui_server.py ──
+	type Claims = {
+		typ: string;
+		client: string;
+		project: string;
+		uid: string;
+		act?: { tool: string; agent: string; run: string };
+	};
+	const seen: { path: string; claims: Claims; manifest: string | null; body: string }[] = [];
+	const progress = new Map<string, Record<string, unknown>>();
+	let busy = false;
+	let refSeq = 0;
+	const server = createServer((req, res) => {
+		let raw = '';
+		req.on('data', (c) => (raw += c));
+		req.on('end', () => {
+			const url = new URL(req.url ?? '/', 'http://atlas');
+			const send = (status: number, type: string, body: string | Buffer, extra = {}) => {
+				res.writeHead(status, { 'content-type': type, ...extra });
+				res.end(body);
+			};
+			const token = String(req.headers['x-iw-launch'] ?? '');
+			const [v, payload, sig] = token.split('.');
+			const want = createHmac('sha256', SIGNING).update(`${v}.${payload}`).digest('base64url');
+			if (v !== 'v1' || sig !== want) return send(403, 'text/plain', 'Forbidden');
+			const claims = JSON.parse(Buffer.from(payload, 'base64url').toString()) as Claims;
+			const manifest = url.searchParams.get('manifest');
+			seen.push({ path: url.pathname, claims, manifest, body: raw });
+			if (manifest !== null && manifest !== 'atlas_manifest_symbols.json') {
+				return send(404, 'application/json', '{"error":"unknown manifest"}');
+			}
+			const doc = JSON.parse(R2.get(MANIFEST)!.body);
+			if (url.pathname.startsWith('/variants/')) {
+				return send(200, 'application/json', '[{"id":"00002","seed":3},{"id":"00001","seed":2}]');
+			}
+			if (url.pathname.startsWith('/vthumb/')) {
+				return url.searchParams.get('id') === '00002'
+					? send(200, 'image/jpeg', Buffer.from([0xff, 0xd8, 0xff]))
+					: send(200, 'image/svg+xml', '<svg/>');
+			}
+			if (url.pathname === '/save') {
+				// docsave: the page's base must still be what R2 holds, unless only machine writes
+				// moved it (same rev).
+				const bases = JSON.parse(String(req.headers['x-iw-doc-bases'] ?? '{}'));
+				const base = bases['manifests/atlas_manifest_symbols.json'];
+				const cur = R2.get(MANIFEST)!;
+				if (!base || (base.etag !== cur.etag && base.rev !== doc.saved_by?.rev)) {
+					return send(409, 'application/json', '{"conflict":true,"reason":"stale"}');
+				}
+				for (const card of JSON.parse(raw)) {
+					const r = [...doc.regions, ...doc.rotated_regions].find((x) => x.name === card.name);
+					if (card.prompt) r.prompt = card.prompt;
+					if (card.variant) r.variant = card.variant;
+					else delete r.variant;
+					if (card.negative) r.negative = card.negative;
+					else delete r.negative;
+					r.lock = card.lock && Boolean(card.seed || card.variant);
+					if (card.lock && card.seed) r.seed = Number(card.seed);
+					else delete r.seed;
+				}
+				doc.saved_by = {
+					tool: claims.act?.tool ?? 'atlas',
+					agent: claims.act?.agent,
+					runId: claims.act?.run,
+					uid: claims.uid,
+					rev: `rev${R2.size}`,
+				};
+				const tag = put(MANIFEST, JSON.stringify(doc));
+				return send(200, 'text/plain', 'Saved (1 prompt change(s))', {
+					'x-iw-doc-versions': JSON.stringify({
+						'manifests/atlas_manifest_symbols.json': { etag: tag, rev: doc.saved_by.rev },
+					}),
+				});
+			}
+			if (url.pathname === '/render') {
+				if (busy) {
+					return send(
+						200,
+						'application/json',
+						'{"started":false,"message":"Ana is rendering","jobRef":null}',
+					);
+				}
+				const jobRef = `st_${String(++refSeq).padStart(16, '0')}`;
+				// Started, never finished: the render runs on with nobody waiting on it.
+				progress.set(jobRef, { jobRef, status: 'running', total: 2, jobs: [], variants: [] });
+				return send(
+					200,
+					'application/json',
+					JSON.stringify({ started: true, message: 'ok', jobRef }),
+				);
+			}
+			if (url.pathname === '/createatlas') {
+				return send(
+					200,
+					'application/json',
+					JSON.stringify({ started: !busy, message: busy ? 'busy' : 'composing' }),
+				);
+			}
+			if (url.pathname === '/progress') {
+				const view = progress.get(url.searchParams.get('jobRef') ?? '');
+				return view
+					? send(200, 'application/json', JSON.stringify(view))
+					: send(404, 'application/json', '{"error":"unknown jobRef"}');
+			}
+			return send(404, 'text/plain', 'not found');
+		});
+	});
+	await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+	const port = (server.address() as { port: number }).port;
+	process.env.ATLAS_TOOL_URL = `http://127.0.0.1:${port}`;
+
+	let seqN = 0;
+	const atlas = (op: string, input: unknown, agent = 'atlas-artist', runId = 'ra') =>
+		call(op === 'job_status' ? 'comfyui' : 'atlas', op, {
+			runId,
+			agent,
+			opId: `${runId}:atlas:${++seqN}`,
+			input,
+		});
+
+	// Reads come from R2 directly.
+	{
+		const listed = await atlas('list_regions', {}, 'mockup-analyst');
+		check(
+			'list_regions lists every atlas, rotated regions included',
+			[
+				listed.status,
+				(listed.body.atlases as { atlas: string; regions: { name: string }[] }[]).map((a) => [
+					a.atlas,
+					a.regions.map((r) => r.name),
+				]),
+			],
+			[200, [['symbols', ['H1', 'H2', 'W']]]],
+		);
+		const got = await atlas('get_region', { atlas: 'symbols', region: 'H1' }, 'art-director');
+		check(
+			'get_region returns the region and the base a write hands back',
+			[got.status, got.body.prompt, got.body.seed, got.body.base],
+			[200, 'a ruby', 7, { etag: R2.get(MANIFEST)!.etag, rev: 'rev0' }],
+		);
+		check(
+			'an unknown region is a 404',
+			(await atlas('get_region', { atlas: 'symbols', region: 'Z9' })).status,
+			404,
+		);
+		check(
+			'an unknown atlas is a 404',
+			(await atlas('get_region', { atlas: 'nope', region: 'H1' })).status,
+			404,
+		);
+		const stats = await atlas('sheet_stats', { atlas: 'symbols' }, 'qa');
+		check(
+			'sheet_stats sizes the page and names the gaps',
+			[stats.body.page, stats.body.regions, stats.body.fill, stats.body.withoutPrompt],
+			[{ width: 100, height: 100 }, 3, 0.5, ['H2']],
+		);
+	}
+
+	// Writes go through atlas-tool's /save, as the owner, stamped director + agent.
+	{
+		const base = (await atlas('get_region', { atlas: 'symbols', region: 'H2' })).body.base;
+		const set = await call('atlas', 'set_region_prompt', {
+			runId: 'ra',
+			agent: 'atlas-artist',
+			opId: 'ra:prompt:1',
+			input: { atlas: 'symbols', region: 'H2', prompt: 'an emerald', base },
+		});
+		const doc = JSON.parse(R2.get(MANIFEST)!.body);
+		const h2 = doc.regions.find((r: { name: string }) => r.name === 'H2');
+		check(
+			'set_region_prompt lands through /save with the other fields kept',
+			[set.status, h2.prompt, h2.negative, doc.regions[0].seed, doc.regions[0].lock],
+			[200, 'an emerald', 'blurry', 7, true],
+		);
+		check(
+			'...stamped saved_by tool director, the agent and the run, as the owner',
+			[doc.saved_by.tool, doc.saved_by.agent, doc.saved_by.runId, doc.saved_by.uid],
+			['director', 'atlas-artist', 'ra', 'owner'],
+		);
+		const sent = seen.at(-1)!;
+		check(
+			'...over an api token scoped to the run project, naming its atlas',
+			[sent.path, sent.claims.typ, sent.claims.client, sent.claims.project, sent.manifest],
+			['/save', 'api', 'acme', 'atl', 'atlas_manifest_symbols.json'],
+		);
+		check(
+			'...and its version comes back for the next write',
+			(set.body.version as { rev: string }).rev,
+			doc.saved_by.rev,
+		);
+
+		// A person saves the atlas after the agent read it: choose_variant on the old base conflicts.
+		const stale = (await atlas('get_region', { atlas: 'symbols', region: 'W' })).body.base;
+		const human = JSON.parse(R2.get(MANIFEST)!.body);
+		human.saved_by = { tool: 'atlas', rev: 'human1', name: 'Ana' };
+		put(MANIFEST, JSON.stringify(human));
+		const chose = await call('atlas', 'choose_variant', {
+			runId: 'ra',
+			agent: 'atlas-artist',
+			opId: 'ra:choose:1',
+			input: { atlas: 'symbols', region: 'W', id: '00002', base: stale },
+		});
+		check(
+			"choose_variant over a person's newer save is { error: 'conflict' }",
+			[chose.status, chose.body.error],
+			[409, 'conflict'],
+		);
+		check(
+			"...the person's save stands, and the opId is released",
+			[JSON.parse(R2.get(MANIFEST)!.body).saved_by.rev, OPS.has('ra:choose:1')],
+			['human1', false],
+		);
+		const retried = await call('atlas', 'choose_variant', {
+			runId: 'ra',
+			agent: 'atlas-artist',
+			opId: 'ra:choose:2',
+			input: { atlas: 'symbols', region: 'W', id: '00002' },
+		});
+		check(
+			're-read and retried, the pick lands',
+			[
+				retried.status,
+				JSON.parse(R2.get(MANIFEST)!.body).rotated_regions[0].variant,
+				JSON.parse(R2.get(MANIFEST)!.body).rotated_regions[0].prompt,
+			],
+			[200, '00002', 'a wild'],
+		);
+		check(
+			'a variant that was never rendered is a 404',
+			(await atlas('choose_variant', { atlas: 'symbols', region: 'W', id: '00009' })).status,
+			404,
+		);
+	}
+
+	// Variants and images.
+	{
+		const listed = await atlas('list_variants', { atlas: 'symbols', region: 'W' }, 'art-director');
+		check(
+			'list_variants returns the ids and the chosen one',
+			[listed.body.chosen, (listed.body.variants as { id: string }[]).map((x) => x.id)],
+			['00002', ['00002', '00001']],
+		);
+		const img = await atlas(
+			'get_variant_image',
+			{ atlas: 'symbols', region: 'W', id: '00002' },
+			'qa',
+		);
+		check(
+			'get_variant_image returns the bytes base64',
+			[img.status, img.body.contentType, img.body.base64],
+			[200, 'image/jpeg', '/9j/'],
+		);
+		check(
+			"a variant atlas-tool answers with its placeholder is a 404, not an 'image'",
+			(await atlas('get_variant_image', { atlas: 'symbols', region: 'W', id: '00007' }, 'qa'))
+				.status,
+			404,
+		);
+	}
+
+	// queue_variants returns a jobRef at once; the render goes on without it.
+	let jobRef = '';
+	{
+		const queued = await call('atlas', 'queue_variants', {
+			runId: 'ra',
+			agent: 'atlas-artist',
+			opId: 'ra:queue:1',
+			input: { atlas: 'symbols', regions: ['H1', 'H2', 'H1'], variants: 3 },
+		});
+		jobRef = String(queued.body.jobRef);
+		check(
+			'queue_variants answers with a jobRef while the render is still running',
+			[queued.status, /^st_[0-9]{16}$/.test(jobRef), progress.get(jobRef)?.status],
+			[200, true, 'running'],
+		);
+		const sent = JSON.parse(seen.at(-1)!.body);
+		check(
+			'...asking for a callback to this run, with a token minted for exactly that URL',
+			[
+				sent.names,
+				sent.variants,
+				sent.callbackUrl,
+				cb.verifyCallbackToken(CB_SECRET, sent.callbackUrl, sent.callbackToken),
+			],
+			[['H1', 'H2'], 3, 'https://app.example/api/director/atlas/callback?run=ra', true],
+		);
+		check(
+			'...and records the job queued for the run',
+			[ATLAS_JOBS.get(jobRef)?.runId, ATLAS_JOBS.get(jobRef)?.status],
+			['ra', 'queued'],
+		);
+		const replay = await call('atlas', 'queue_variants', {
+			runId: 'ra',
+			agent: 'atlas-artist',
+			opId: 'ra:queue:1',
+			input: { atlas: 'symbols', regions: ['H1', 'H2', 'H1'], variants: 3 },
+		});
+		check(
+			'a replayed queue returns the same jobRef and renders nothing new',
+			[replay.replay, replay.body.jobRef, progress.size],
+			[true, jobRef, 1],
+		);
+		busy = true;
+		const refused = await atlas('queue_variants', {
+			atlas: 'symbols',
+			regions: ['H1'],
+			variants: 1,
+		});
+		check('a busy render slot is a 409 busy', [refused.status, refused.body.error], [409, 'busy']);
+		const pack = await atlas('pack_sheet', { atlas: 'symbols' });
+		check('a busy compose is a 409 busy too', [pack.status, pack.body.error], [409, 'busy']);
+		busy = false;
+		check(
+			'pack_sheet starts the compose',
+			[(await atlas('pack_sheet', { atlas: 'symbols' })).status, seen.at(-1)!.path],
+			[200, '/createatlas'],
+		);
+		const status = await atlas('job_status', { jobRef });
+		check(
+			'comfyui.job_status reads /progress?jobRef= once',
+			[status.status, status.body.status, status.body.recorded, seen.at(-1)!.path],
+			[200, 'running', 'queued', '/progress'],
+		);
+		check(
+			"another run's job is not this run's to read",
+			(await atlas('job_status', { jobRef }, 'atlas-artist', 'rb')).status,
+			404,
+		);
+	}
+
+	// The completion callback: verified, recorded exactly once.
+	{
+		const deliver = async (
+			body: string,
+			opts: { runId?: string; token?: string; signature?: string } = {},
+		) => {
+			const runId = opts.runId ?? 'ra';
+			const url = `https://app.example/api/director/atlas/callback?run=${runId}`;
+			const request = new Request(url, {
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json',
+					'x-atlas-callback-token': opts.token ?? cb.mintCallbackToken(CB_SECRET, url, 3600),
+					'x-atlas-signature': opts.signature ?? cb.signCallbackBody(CB_SECRET, body),
+				},
+				body,
+			});
+			const res: Response = await CALLBACK({ request, url: new URL(url) } as never);
+			return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+		};
+		const body = JSON.stringify({
+			jobRef,
+			status: 'finished',
+			variants: [{ region: 'H1', variant: 'H1_00003_.png', slot: 1 }],
+		});
+		const first = await deliver(body);
+		check('a valid callback records job_done', [first.status, first.body.recorded], [200, true]);
+		check(
+			'...on the run, from the callback',
+			[ATLAS_JOBS.get(jobRef)?.status, ATLAS_JOBS.get(jobRef)?.doneVia],
+			['finished', 'callback'],
+		);
+		const doneAt = ATLAS_JOBS.get(jobRef)?.doneAt;
+		const again = await deliver(body);
+		check(
+			'a redelivery answers 200 and records nothing again',
+			[again.status, again.body.recorded, ATLAS_JOBS.get(jobRef)?.doneAt === doneAt],
+			[200, false, true],
+		);
+		const forged = await deliver(body, { signature: cb.signCallbackBody('not-the-secret', body) });
+		check(
+			'a forged signature is a 400',
+			[forged.status, forged.body.error],
+			[400, 'bad_signature'],
+		);
+		const otherBody = body.replace('finished', 'failed');
+		check(
+			'a body changed after signing is a 400',
+			(await deliver(otherBody, { signature: cb.signCallbackBody(CB_SECRET, body) })).status,
+			400,
+		);
+		const expiredUrl = 'https://app.example/api/director/atlas/callback?run=ra';
+		check(
+			'an expired token is a 400',
+			(
+				await deliver(body, {
+					token: cb.mintCallbackToken(CB_SECRET, expiredUrl, 60, Date.now() - 3600_000),
+				})
+			).status,
+			400,
+		);
+		check(
+			'a stale signature (older than the tolerance) is a 400',
+			(
+				await deliver(body, {
+					signature: cb.signCallbackBody(CB_SECRET, body, Date.now() - 3600_000),
+				})
+			).status,
+			400,
+		);
+		check(
+			"a token minted for another run's URL is a 400",
+			(
+				await deliver(body, {
+					runId: 'rb',
+					token: cb.mintCallbackToken(CB_SECRET, expiredUrl, 3600),
+				})
+			).status,
+			400,
+		);
+		const stray = JSON.stringify({
+			jobRef: 'st_ffffffffffffffff',
+			status: 'finished',
+			variants: [],
+		});
+		check('a callback for a job the run never queued is a 404', (await deliver(stray)).status, 404);
+		delete process.env.ATLAS_CALLBACK_SECRET;
+		check(
+			'the callback route is a 503 while the secret is unset',
+			(await deliver(body)).status,
+			503,
+		);
+		process.env.ATLAS_CALLBACK_SECRET = CB_SECRET;
+	}
+
+	// The /progress fallback: code-side, on a backoff; it records only when the callback did not.
+	{
+		ATLAS_JOBS.set('st_00000000000000aa', {
+			jobRef: 'st_00000000000000aa',
+			runId: 'ra',
+			agent: 'atlas-artist',
+			atlas: 'symbols',
+			regions: ['H1'],
+			status: 'queued',
+			result: null,
+			doneVia: null,
+			queuedAt: new Date(),
+			doneAt: null,
+		});
+		const waits: number[] = [];
+		const views = ['running', 'running', 'failed'];
+		const settled = await jobs.watchAtlasJob(
+			{ jobRef: 'st_00000000000000aa', runId: 'ra' },
+			{
+				sleep: async (ms: number) => void waits.push(ms / 1000),
+				read: async () => ({ jobRef: 'st_00000000000000aa', status: views.shift()! }),
+				now: () => 0,
+			},
+		);
+		check(
+			'the fallback polls on a growing backoff and records the terminal status once',
+			[waits, settled?.recorded, ATLAS_JOBS.get('st_00000000000000aa')?.doneVia],
+			[[60, 120, 240], true, 'poll'],
+		);
+		const late = await jobs.watchAtlasJob(
+			{ jobRef, runId: 'ra' },
+			{
+				sleep: async () => {},
+				read: async () => {
+					throw new Error('a settled job is never read');
+				},
+				now: () => 0,
+			},
+		);
+		check('the fallback stops once the callback has settled the job', late, null);
+	}
+
+	// One disallowed agent per op.
+	const DISALLOWED: [string, string, Record<string, unknown>][] = [
+		['list_regions', 'builder', {}],
+		['get_region', 'qa', { atlas: 'symbols', region: 'H1' }],
+		['set_region_prompt', 'art-director', { atlas: 'symbols', region: 'H1', prompt: 'x' }],
+		['queue_variants', 'coordinator', { atlas: 'symbols', regions: ['H1'], variants: 1 }],
+		['list_variants', 'qa', { atlas: 'symbols', region: 'H1' }],
+		['get_variant_image', 'atlas-artist', { atlas: 'symbols', region: 'H1', id: '00002' }],
+		['choose_variant', 'art-director', { atlas: 'symbols', region: 'H1', id: '00002' }],
+		['pack_sheet', 'builder', { atlas: 'symbols' }],
+		['sheet_stats', 'atlas-artist', { atlas: 'symbols' }],
+	];
+	const before = seen.length;
+	for (const [op, agent, input] of DISALLOWED) {
+		const res = await atlas(op, input, agent);
+		check(
+			`atlas.${op}: ${agent} is refused`,
+			[res.status, res.body.error],
+			[403, 'agent_not_allowed'],
+		);
+	}
+	const js = await atlas('job_status', { jobRef }, 'qa');
+	check(
+		'comfyui.job_status: qa is refused',
+		[js.status, js.body.error],
+		[403, 'agent_not_allowed'],
+	);
+	check('...and no refused call reached atlas-tool', seen.length, before);
+
+	// Nothing an atlas op writes is a refused target, and every op names its own atlas.
+	check(
+		'the atlas ops declare no forbidden write target',
+		[...ADAPTER_OPS.values()]
+			.filter((op: { tool: string; write: boolean }) => op.tool === 'atlas' && op.write)
+			.flatMap((op: { writes: (i: unknown, s: unknown) => string[] }) =>
+				op.writes({ atlas: 'symbols' }, { clientKey: 'acme', projectKey: 'atl' }),
+			)
+			.filter((key: string) => refusedWriteTarget(key)),
+		[],
+	);
+	check(
+		'no atlas-tool route that deploys, publishes or switches the active atlas was called',
+		seen.filter((s) => ['/deployatlas', '/saveconfig', '/uploadblueprint'].includes(s.path)),
+		[],
+	);
+	check(
+		'every call but /progress named its atlas, so none used the shared active one',
+		seen.filter((s) => s.path !== '/progress' && s.manifest === null).map((s) => s.path),
+		[],
+	);
+	check(
+		'every call to atlas-tool named the acting agent',
+		seen.every((s) => s.claims.act?.tool === 'director' && s.claims.act.run !== ''),
+		true,
+	);
+
+	delete process.env.ATLAS_TOOL_SIGNING_SECRET;
+	const unsigned = await atlas('list_variants', { atlas: 'symbols', region: 'W' }, 'art-director');
+	check(
+		'without a signing secret no attributable call can be made: 503',
+		[unsigned.status, unsigned.body.error],
+		[503, 'atlas_unconfigured'],
+	);
+	server.close();
+}
 
 // ── Allow-lists agree with the agents' frontmatter `tools:` ───────────────────
 {
