@@ -61,6 +61,11 @@ export const SUB = {
 	storybook: (c: string, p: string) => `${projectPrefix(c, p)}/storybook`,
 } as const;
 
+/** A project's published-snapshot pointer: `<client>/<project>/published/pointer.json`. */
+export function publishedPointerKey(client: string, project: string): string {
+	return `${SUB.published(client, project)}/pointer.json`;
+}
+
 /** The engine reference Storybook (apps/lines), outside any single project. */
 export const SHARED_ENGINE_STORYBOOK_PREFIX = '_shared/storybook/engine';
 

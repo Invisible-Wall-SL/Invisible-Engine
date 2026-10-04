@@ -38,7 +38,7 @@
  */
 import type { RuntimeBundle } from './runtimeBundle';
 import { mapWithConcurrency } from './concurrency';
-import { SUB } from './projectPaths';
+import { publishedPointerKey, SUB } from './projectPaths';
 import {
 	ConflictError,
 	copyObject,
@@ -118,8 +118,6 @@ export interface PublishedPointer {
 }
 
 const publishedPrefix = (client: string, project: string) => `${SUB.published(client, project)}/`;
-const pointerKey = (client: string, project: string) =>
-	`${publishedPrefix(client, project)}pointer.json`;
 const snapshotPrefix = (client: string, project: string, id: string) =>
 	`${publishedPrefix(client, project)}${id}/`;
 
@@ -147,7 +145,7 @@ async function readPointer(
 	client: string,
 	project: string,
 ): Promise<{ pointer: PublishedPointer | null; etag: string | null } | null> {
-	const got = await getObjectTextWithEtag(pointerKey(client, project));
+	const got = await getObjectTextWithEtag(publishedPointerKey(client, project));
 	if (!got) return null;
 	return { pointer: parsePointer(got.text), etag: got.etag };
 }
@@ -306,7 +304,7 @@ async function updatePointer(
 		try {
 			// A corrupt pointer is overwritten deliberately (CAS on its etag); an absent one is created.
 			await putObjectText(
-				pointerKey(client, project),
+				publishedPointerKey(client, project),
 				JSON.stringify(next, null, '\t'),
 				'application/json',
 				precondition(read ? read.etag : null),

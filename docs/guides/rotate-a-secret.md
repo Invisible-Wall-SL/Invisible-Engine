@@ -73,7 +73,7 @@ cheaper than a leaked write key.
 | Holder | What it holds |
 | --- | --- |
 | Railway Shared Variables (`production`) | `R2_ACCESS_KEY_ID` + `R2_SECRET_ACCESS_KEY`, `CF_ACCESS_CLIENT_ID` + `CF_ACCESS_CLIENT_SECRET`, `COMFY_ORG_API_KEY`, `ATLAS_TOOL_SIGNING_SECRET`, `SHEET_TOOL_SIGNING_SECRET`, and until the cut-over the legacy `ATLAS_TOOL_SECRET` / `SHEET_TOOL_SECRET` |
-| Railway **launcher** | `DATABASE_URL`, `EDITOR_DOC_SECRET`, `RUNPOD_API_KEY`, `GIT_CLONE_TOKEN`, `GITHUB_ENGINE_READ_TOKEN`, `GITHUB_ACTIONS_TOKEN`, `CF_API_TOKEN`, `CF_ANALYTICS_TOKEN`, `RAILWAY_API_TOKEN`, `ANTHROPIC_API_KEY`, `LOCALIZATION_LLM_API_KEY`, `ANTHROPIC_ADMIN_API_KEY`, `OPENAI_ADMIN_API_KEY`, `PARTNER_RGS`, `ATLAS_BLUEPRINT_SECRET` (legacy), `SENTRY_DSN`, `PUBLIC_SENTRY_DSN`, `TEST_SERVER_SECRET` if set |
+| Railway **launcher** | `DATABASE_URL`, `EDITOR_DOC_SECRET`, `RUNPOD_API_KEY`, `GIT_CLONE_TOKEN`, `GITHUB_ENGINE_READ_TOKEN`, `GITHUB_ACTIONS_TOKEN`, `CF_API_TOKEN`, `CF_ANALYTICS_TOKEN`, `RAILWAY_API_TOKEN`, `ANTHROPIC_API_KEY`, `LOCALIZATION_LLM_API_KEY`, `ANTHROPIC_ADMIN_API_KEY`, `OPENAI_ADMIN_API_KEY`, `PARTNER_RGS`, `ATLAS_BLUEPRINT_SECRET` (legacy), `SENTRY_DSN`, `PUBLIC_SENTRY_DSN`, `TEST_SERVER_SECRET` if set, `PIPELINE_CI_TOKEN` |
 | Railway **atlas-tool** | the shared R2, CF Access, comfy.org and atlas signing vars; `RUNPOD_API_KEY`; `ATLAS_BLUEPRINT_SECRET` (legacy); `SENTRY_DSN` |
 | Railway **sheet-tool** | the shared R2 and sheet signing vars; `SENTRY_DSN` |
 | Railway **Invisible-test-Server** | `R2_*` (it only reads); `TEST_SERVER_SECRET` if set |
@@ -345,6 +345,27 @@ curl -s -X POST -H "x-test-server-secret: $TEST_SERVER_SECRET" \
 
 The old value must answer 403. A launcher left on the old value shows no error anywhere (Publish
 ignores the refresh's answer), so compare the two Railway values by eye as well.
+
+### `PIPELINE_CI_TOKEN`
+
+The bearer token for the read-only `GET /api/pipeline/games`, the game list the current-games
+regression harness runs against (`docs/director/DECISIONS/0004-current-games-regression-harness.md`).
+It opens nothing else. Unset on the launcher, the endpoint answers 503.
+
+**Consumers:**
+
+- the launcher (Railway var), compared in `src/lib/server/pipelineGames.ts`;
+- the GitHub repo secret of the same name, used by the harness workflow once it exists.
+
+**Pattern: single value.** A new random value (`openssl rand -hex 32`) in both places; a harness
+run between the two updates gets a 401 and fails visibly.
+
+**Verify.** With the new value in `$PIPELINE_CI_TOKEN`, this must answer 200, and the old value 401:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $PIPELINE_CI_TOKEN" \
+  "https://app.invisiblewall.org/api/pipeline/games"
+```
 
 ### RunPod API key (`RUNPOD_API_KEY`)
 
