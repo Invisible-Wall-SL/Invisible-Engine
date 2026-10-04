@@ -449,6 +449,9 @@ export const directorRuns = pgTable('director_runs', {
 	ownerUserId: text('owner_user_id')
 		.notNull()
 		.references(() => users.id, { onDelete: 'cascade' }),
+	/** Set when `gamemaker.create_from_template` starts copying: from then on the run's project key
+	 *  is this run's, so a retry after a crash finishes the copy instead of refusing it. */
+	projectCreateStartedAt: timestamp('project_create_started_at', { withTimezone: true }),
 	/** ETag of the template's `config/config.json` when the project was copied from it, and of the
 	 *  copy's own right after — the math lock QA checks (Q3). Null until the copy. */
 	templateConfigEtag: text('template_config_etag'),
@@ -461,7 +464,8 @@ export const directorRuns = pgTable('director_runs', {
  * Director adapter idempotency (ADR-0002): one row per WRITE op, keyed by the worker's
  * `runId:step:seq`. A row is claimed `pending` before the op runs and becomes `done` with its
  * result after; a replayed `opId` returns that stored result instead of running again. A failed op
- * releases its row, so only successes are remembered.
+ * releases its row, so only successes are remembered. A `pending` row older than the stale window
+ * (a crash between the write and its record) is reclaimed by the next call with that `opId`.
  */
 export const directorOps = pgTable(
 	'director_ops',
@@ -473,6 +477,9 @@ export const directorOps = pgTable(
 		agent: text('agent').notNull(),
 		/** `<tool>.<op>`, e.g. `gamemaker.create_from_template`. */
 		op: text('op').notNull(),
+		/** SHA-256 of the call's input: an `opId` replayed with a different input is a worker bug,
+		 *  refused rather than answered with the first call's result. */
+		inputHash: text('input_hash').notNull(),
 		status: text('status').$type<'pending' | 'done'>().notNull(),
 		result: jsonb('result'),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

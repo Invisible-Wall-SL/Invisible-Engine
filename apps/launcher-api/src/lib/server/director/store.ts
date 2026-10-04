@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, lt } from 'drizzle-orm';
 import { getDb } from '../db';
 import { directorOps, directorRuns, users, type DirectorOp, type DirectorRun } from '../db/schema';
 
@@ -35,6 +35,14 @@ export async function getRunOwner(userId: string): Promise<NonNullable<App.Local
 	return { id: row.id, email: row.email, name: row.name, role: row.role };
 }
 
+/** Claim the run's project key for this run, before `create_from_template` copies anything. */
+export async function markProjectCreateStarted(runId: string): Promise<void> {
+	await getDb()
+		.update(directorRuns)
+		.set({ projectCreateStartedAt: new Date(), updatedAt: new Date() })
+		.where(eq(directorRuns.id, runId));
+}
+
 /** Record the math-lock ETags on the run when its project is copied from the template (Q3). */
 export async function setRunConfigEtags(
 	runId: string,
@@ -53,6 +61,13 @@ export async function setRunConfigEtags(
 export type OpClaim = { claimed: true } | { claimed: false; existing: DirectorOp };
 
 /**
+ * How long a `pending` claim holds before the next call with its `opId` may reclaim it. Longer than
+ * any adapter call runs (a full duplicate is capped at 4,000 objects), so a live call is never
+ * taken over; a claim left by a crash stops wedging its `opId` after this.
+ */
+export const STALE_CLAIM_MS = 10 * 60_000;
+
+/**
  * Claim `opId` before running a write op. The insert is the lock: of two concurrent calls with the
  * same `opId`, exactly one inserts. The other gets the row it lost to — `pending` while the first is
  * still running, `done` with the stored result after.
@@ -62,7 +77,17 @@ export async function claimOp(row: {
 	runId: string;
 	agent: string;
 	op: string;
+	inputHash: string;
 }): Promise<OpClaim> {
+	await getDb()
+		.delete(directorOps)
+		.where(
+			and(
+				eq(directorOps.opId, row.opId),
+				eq(directorOps.status, 'pending'),
+				lt(directorOps.createdAt, new Date(Date.now() - STALE_CLAIM_MS)),
+			),
+		);
 	const inserted = await getDb()
 		.insert(directorOps)
 		.values({ ...row, status: 'pending' })

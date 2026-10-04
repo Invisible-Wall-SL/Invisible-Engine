@@ -1,13 +1,14 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { isHttpError } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
 import { bearerToken } from '$lib/launcherGates';
-import { ConflictError } from '../r2';
 import { getRoleOverrides } from '../roleToolAccess';
 import { allowedPrefixes, isKeyAllowed, requireProjectScope } from '../toolScope';
 import { tokensMatch } from '../tokensMatch';
 import { getToolOverrides } from '../userToolAccess';
+import { UNASSIGNED_CLIENT, projectPrefix, r2Slug } from '../projectPaths';
 import { projectKeyTaken } from '../projects';
+import { ConflictError, listObjects } from '../r2';
 import {
 	AdapterError,
 	isDirectorAgent,
@@ -25,7 +26,8 @@ import { claimOp, completeOp, getRun, getRunOwner, releaseOp } from './store';
  *  1. the service token (503 when unset, 401 when wrong);
  *  2. the hard refusals, matched on the op NAME before the registry is consulted (403 `refused`);
  *  3. the op exists (404), the body names a `runId` and an `agent`, and the agent is on the op's
- *     allow-list (403) — a prompt can never widen what its frontmatter grants;
+ *     allow-list (403). The token holder declares the agent, so this holds only while the worker
+ *     sets `agent` itself from the definition it runs, never from model output;
  *  4. the run exists and its owner is still an active account holding Invisible Director: the
  *     owner is who every call acts as (Q5);
  *  5. the input matches the op's schema (400);
@@ -162,11 +164,17 @@ export async function runAdapterCall(
 	}
 	const opId = body.opId!;
 	const opName = `${op.tool}.${op.name}`;
-	const claim = await claimOp({ opId, runId: run.id, agent, op: opName });
+	const inputHash = createHash('sha256').update(JSON.stringify(input)).digest('hex');
+	const claim = await claimOp({ opId, runId: run.id, agent, op: opName, inputHash });
 	if (!claim.claimed) {
 		const { existing } = claim;
-		if (existing.op !== opName || existing.agent !== agent || existing.runId !== run.id) {
-			return fail(409, 'op_id_reused', `${opId} was already used for ${existing.op}.`);
+		const same =
+			existing.op === opName &&
+			existing.agent === agent &&
+			existing.runId === run.id &&
+			existing.inputHash === inputHash;
+		if (!same) {
+			return fail(409, 'op_id_reused', `${opId} was already used for another call.`);
 		}
 		if (existing.status !== 'done') return fail(409, 'in_progress', `${opId} is still running.`);
 		return { status: 200, body: existing.result, replayed: true };
@@ -174,8 +182,7 @@ export async function runAdapterCall(
 
 	let answer: AdapterAnswer;
 	try {
-		answer =
-			(await refusedWrite(op, scope, run.projectKey, input)) ?? (await execute(op, ctx, input));
+		answer = (await refusedWrite(op, scope, run, input)) ?? (await execute(op, ctx, input));
 	} catch (e) {
 		await releaseOp(opId);
 		throw e;
@@ -189,13 +196,24 @@ export async function runAdapterCall(
 async function refusedWrite(
 	op: AdapterOp,
 	scope: AdapterContext['scope'],
-	runProject: string,
+	run: AdapterContext['run'],
 	input: Record<string, unknown>,
 ): Promise<AdapterAnswer | null> {
 	if (!op.write) return null;
 	if ('createsProject' in op) {
-		if (!(await projectKeyTaken(runProject))) return null;
-		return fail(409, 'project_exists', `The project "${runProject}" already exists.`);
+		// A run that already started creating its project resumes it (the op handles that).
+		if (run.projectCreateStartedAt) return null;
+		// "Nothing to overwrite" must hold in R2 too: keys are slugged (`a-b` and `a_b` share a tree),
+		// so a free DB key is not enough.
+		const roots = [
+			`${projectPrefix(run.clientKey ?? UNASSIGNED_CLIENT, run.projectKey)}/`,
+			`editor/${r2Slug(run.projectKey)}/`,
+		];
+		const occupied = await Promise.all(
+			roots.map(async (p) => (await listObjects(p, 1)).keys.length),
+		);
+		if (!(await projectKeyTaken(run.projectKey)) && occupied.every((n) => n === 0)) return null;
+		return fail(409, 'project_exists', `The project "${run.projectKey}" already exists.`);
 	}
 	const prefixes = allowedPrefixes(scope!.clientKey, scope!.projectKey);
 	for (const key of op.writes(input, scope!)) {

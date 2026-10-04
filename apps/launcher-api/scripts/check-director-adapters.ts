@@ -27,6 +27,7 @@
  *    config ETags on the run; `get_project` reads it back. Every model agent's frontmatter `tools:`
  *    and the server-side allow-lists agree.
  */
+import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { mock } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -210,12 +211,21 @@ fake('lib/server/director/store.ts', {
 		if (!u || !u.active || (u.expiresAt && u.expiresAt.getTime() < Date.now())) return null;
 		return { id: u.id, email: u.email, name: u.name, role: u.role };
 	},
+	markProjectCreateStarted: async (id: string) => {
+		RUNS.get(id)!.projectCreateStartedAt = new Date();
+	},
 	setRunConfigEtags: async (id: string, e: { template: string | null; project: string | null }) => {
 		const run = RUNS.get(id)!;
 		run.templateConfigEtag = e.template;
 		run.projectConfigEtag = e.project;
 	},
-	claimOp: async (row: { opId: string; runId: string; agent: string; op: string }) => {
+	claimOp: async (row: {
+		opId: string;
+		runId: string;
+		agent: string;
+		op: string;
+		inputHash: string;
+	}) => {
 		claims++;
 		const existing = OPS.get(row.opId);
 		if (existing) return { claimed: false, existing };
@@ -248,7 +258,7 @@ const {
 } = await import(src('lib/server/director/registry.ts'));
 const { GAMEMAKER_OPS } = await import(src('lib/server/director/ops/gamemaker.ts'));
 const { defineOp, DIRECTOR_AGENTS } = await import(src('lib/server/director/adapter.ts'));
-const { refusedWriteTarget } = await import(src('lib/server/director/refusals.ts'));
+const { refusedOp, refusedWriteTarget } = await import(src('lib/server/director/refusals.ts'));
 const { putObjectText, precondition } = await import(src('lib/server/r2.ts'));
 
 let checks = 0;
@@ -339,6 +349,7 @@ const run = (id: string, over: Partial<DirectorRun> = {}): DirectorRun => ({
 	clientKey: C,
 	templateProjectKey: 'tpl_lines',
 	ownerUserId: 'owner',
+	projectCreateStartedAt: null,
 	templateConfigEtag: null,
 	projectConfigEtag: null,
 	createdAt: new Date(),
@@ -515,6 +526,20 @@ const REFUSED: [string, string, string][] = [
 	['changes', 'merge_change', 'merge'],
 	['agents', 'write_definition', 'agent_definitions'],
 	['run', 'update_agent_definition', 'agent_definitions'],
+	// Names the first blocklist missed (code review, PLAN 2.2).
+	['gamemaker', 'save_gameconfig', 'game_config'],
+	['gamemaker', 'set_math', 'game_config'],
+	['scene', 'set_rtp', 'game_config'],
+	['symbols', 'update_reels', 'game_config'],
+	['gamemaker', 'set_game_type', 'game_config'],
+	['launcher', 'set_access', 'roles'],
+	['launcher', 'assign_tool', 'roles'],
+	['launcher', 'set_permissions', 'roles'],
+	['build', 'push', 'merge'],
+	['build', 'commit', 'merge'],
+	['build', 'open_pr', 'merge'],
+	['run', 'approve', 'merge'],
+	['run', 'update_agent', 'agent_definitions'],
 ];
 for (const [tool, op, id] of REFUSED) {
 	const res = await call(tool, op, {
@@ -548,6 +573,31 @@ for (const [tool, op, id] of REFUSED) {
 		thrown = (e as Error).message;
 	}
 	check(`the registry refuses to load ${tool}.${op}`, thrown.includes(`(${id})`), true);
+}
+{
+	let thrown = '';
+	try {
+		buildRegistry([
+			defineOp({
+				tool: 'symbols',
+				name: 'reset_project',
+				description: 'x',
+				inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+				agents: ['worker'],
+				scope: 'template',
+				write: true,
+				createsProject: true,
+				handler: async () => ({}),
+			}),
+		]);
+	} catch (e) {
+		thrown = (e as Error).message;
+	}
+	check(
+		'no op but create_from_template may skip the write guard',
+		thrown.includes('only gamemaker.create_from_template'),
+		true,
+	);
 }
 check('no registered op is refused', [...ADAPTER_OPS.keys()].length, GAMEMAKER_OPS.length);
 
@@ -597,6 +647,7 @@ for (const [key, id] of [
 	['services/director-worker/agents/qa.md', 'agent_definitions'],
 	[prefix('plain'), 'game_config'],
 	[`${prefix('plain')}config/`, 'game_config'],
+	[`${prefix('plain')}config/backups/config-20261004.json`, 'game_config'],
 	[`${prefix('plain')}../other/x.json`, 'publish'],
 ] as const) {
 	const res = await direct({
@@ -687,6 +738,9 @@ check(
 		runId: 'rw',
 		agent: 'builder',
 		op: 'fixture.write_doc',
+		inputHash: createHash('sha256')
+			.update(JSON.stringify({ key: DOC }))
+			.digest('hex'),
 		status: 'pending',
 		result: null,
 		createdAt: new Date(),
@@ -703,6 +757,7 @@ check(
 		runId: 'rw',
 		agent: 'builder',
 		op: 'gamemaker.create_from_template',
+		inputHash: '',
 		status: 'done',
 		result: {},
 		createdAt: new Date(),
@@ -979,11 +1034,50 @@ check(
 		input: { name: 'Neon' },
 	});
 	check(
-		'a second create for the run is refused: its project exists',
-		[again.status, again.body.error],
-		[409, 'project_exists'],
+		'a second create for the run resumes rather than copying again',
+		[again.status, again.body.resumed, again.body.projectConfigEtag, copies],
+		[200, true, runRow.projectConfigEtag, copiesBefore],
 	);
-	check('...and releases that opId', OPS.has('rc:create:2'), false);
+	const changed = await call('gamemaker', 'create_from_template', {
+		runId: 'rc',
+		agent: 'worker',
+		opId: 'rc:create:1',
+		input: { name: 'Other' },
+	});
+	check(
+		'an opId replayed with a different input is a 409',
+		[changed.status, changed.body.error],
+		[409, 'op_id_reused'],
+	);
+	RUNS.set('rslug', run('rslug', { projectKey: 'by-hand' }));
+	const slug = await call('gamemaker', 'create_from_template', {
+		runId: 'rslug',
+		agent: 'worker',
+		opId: 'rslug:create:1',
+		input: { name: 'X' },
+	});
+	check(
+		"a key whose R2 tree is another project's (by-hand → by_hand) is refused",
+		[slug.status, slug.body.error, PROJECTS.has('by-hand')],
+		[409, 'project_exists', false],
+	);
+	check('...and releases that opId', OPS.has('rslug:create:1'), false);
+	GAMES.splice(
+		GAMES.findIndex((g) => g.projectKey === 'tpl_lines'),
+		1,
+	);
+	RUNS.set('runpub', run('runpub'));
+	const unpub = await call('gamemaker', 'create_from_template', {
+		runId: 'runpub',
+		agent: 'worker',
+		opId: 'runpub:create:1',
+		input: { name: 'X' },
+	});
+	check(
+		'a template unpublished since it was marked cannot be copied',
+		[unpub.status, unpub.body.error, PROJECTS.has('new_runpub')],
+		[404, 'unknown_template', false],
+	);
 	check(
 		'creating over an existing project is refused',
 		(
@@ -1039,6 +1133,12 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		'every runtime agent definition is a known agent',
 		[...tools.keys()].sort(),
 		[...models].sort(),
+	);
+	const named = [...tools.values()].flatMap((set) => [...set]);
+	check(
+		'no tool an agent definition names is a hard refusal',
+		named.filter((id) => refusedOp(id.split('.')[0], id.split('.')[1] ?? '')),
+		[],
 	);
 	for (const op of ADAPTER_OPS.values()) {
 		const id = opIdOf(op);

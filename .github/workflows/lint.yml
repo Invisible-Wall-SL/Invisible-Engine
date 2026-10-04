@@ -149,8 +149,10 @@ jobs:
       # — the click event arrives as `force`, and every manual Save skips the conflict check.
       # `director-access` pins the Director / Pipeline Changes / `pipelineMerge` role defaults, both
       # override layers and the two pages' 403.
+      # `director-adapters` pins the Director adapter gate: service token, allow-lists, scope,
+      # idempotency and each hard refusal (ADR-0002).
       # `toolbar-icons` fails when an online tool is missing from one of the four hand-copied
       # tool-bar icon maps (rigger/spine view.html, atlas/sheet tool) — it renders iconless there.
       - name: launcher gates hold
         if: steps.changes.outputs.code == 'true'
-        run: pnpm --filter launcher-api check:launcher-gates && pnpm --filter launcher-api check:director-access && pnpm --filter launcher-api check:project-scope && pnpm --filter launcher-api check:lease-scope && pnpm --filter launcher-api check:change-password && pnpm --filter launcher-api check:deploy-read && pnpm --filter launcher-api check:mock-contract && pnpm --filter launcher-api check:event-bound-flags && pnpm --filter launcher-api check:tool-launch-token && pnpm --filter launcher-api check:director-costs && pnpm check:toolbar-icons
+        run: pnpm --filter launcher-api check:launcher-gates && pnpm --filter launcher-api check:director-access && pnpm --filter launcher-api check:director-adapters && pnpm --filter launcher-api check:project-scope && pnpm --filter launcher-api check:lease-scope && pnpm --filter launcher-api check:change-password && pnpm --filter launcher-api check:deploy-read && pnpm --filter launcher-api check:mock-contract && pnpm --filter launcher-api check:event-bound-flags && pnpm --filter launcher-api check:tool-launch-token && pnpm --filter launcher-api check:director-costs && pnpm check:toolbar-icons

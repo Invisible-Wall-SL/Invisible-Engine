@@ -2,8 +2,14 @@ import { DEFAULT_GAME_KIND } from 'constants-shared/gameKinds';
 import { duplicateProject } from '../../duplicateProject';
 import { loadGameConfigDocWithEtag } from '../../gameConfigStorage';
 import { UNASSIGNED_CLIENT } from '../../projectPaths';
-import { canAccessProject, listDirectorTemplateProjects, listProjects } from '../../projects';
-import { setRunConfigEtags } from '../store';
+import { listGamesOwnedByProject } from '../../games';
+import {
+	canAccessProject,
+	listDirectorTemplateProjects,
+	listProjects,
+	projectExists,
+} from '../../projects';
+import { markProjectCreateStarted, setRunConfigEtags } from '../store';
 import { AdapterError, defineOp, type AdapterContext } from '../adapter';
 import { loadSummaryContext, summarizeProject, type ProjectSummary } from '../templates';
 
@@ -15,10 +21,22 @@ import { loadSummaryContext, summarizeProject, type ProjectSummary } from '../te
 
 const PROJECT_KEY = '^[a-z0-9][a-z0-9_-]{0,63}$';
 
-/** A live Director template the owner can access, or a 404 that does not say which it failed. */
+/** True when the project still has a published game: a template is a game that already plays. */
+async function isPublished(key: string): Promise<boolean> {
+	return (await listGamesOwnedByProject(key)).length > 0;
+}
+
+/**
+ * A live, published Director template the owner can access, or a 404 that does not say which of
+ * those it failed.
+ */
 async function requireTemplate(ctx: AdapterContext, key: string) {
 	const template = (await listDirectorTemplateProjects()).find((p) => p.key === key);
-	if (!template || !(await canAccessProject(ctx.owner.id, ctx.owner.role, key))) {
+	const usable =
+		template !== undefined &&
+		(await isPublished(key)) &&
+		(await canAccessProject(ctx.owner.id, ctx.owner.role, key));
+	if (!usable) {
 		throw new AdapterError(404, 'unknown_template', `"${key}" is not a Director template.`);
 	}
 	return template;
@@ -44,13 +62,13 @@ export const listTemplates = defineOp<{ gameType: string }, { templates: Project
 		const marked = (await listDirectorTemplateProjects()).filter(
 			(p) => (p.gameType || DEFAULT_GAME_KIND) === gameType,
 		);
-		const reachable = [];
+		const usable = [];
 		for (const p of marked) {
-			if (await canAccessProject(ctx.owner.id, ctx.owner.role, p.key)) reachable.push(p);
+			if (!(await canAccessProject(ctx.owner.id, ctx.owner.role, p.key))) continue;
+			if (await isPublished(p.key)) usable.push(p);
 		}
 		const summaryCtx = await loadSummaryContext();
-		const templates = await Promise.all(reachable.map((p) => summarizeProject(p, summaryCtx)));
-		return { templates: templates.filter((t) => t.published) };
+		return { templates: await Promise.all(usable.map((p) => summarizeProject(p, summaryCtx))) };
 	},
 });
 
@@ -78,6 +96,8 @@ export interface CreateFromTemplateResult {
 	projectKey: string;
 	clientKey: string | null;
 	templateKey: string;
+	/** True when this call finished a create an earlier call of the run started. */
+	resumed: boolean;
 	copied: number;
 	rebased: number;
 	skipped: number;
@@ -113,16 +133,27 @@ export const createFromTemplate = defineOp<{ name: string }, CreateFromTemplateR
 		const templateClient = template.clientKey ?? UNASSIGNED_CLIENT;
 		const before = await loadGameConfigDocWithEtag(templateClient, template.key);
 
-		const outcome = await duplicateProject(ctx.owner, {
-			source: template.key,
-			key: run.projectKey,
-			name: name.trim(),
-			clientKey: run.clientKey,
-			scope: 'full',
-		});
-		if (!outcome.ok) {
-			const code = outcome.status === 409 ? 'project_exists' : 'create_failed';
-			throw new AdapterError(outcome.status, code, outcome.error);
+		// A retry of a create this run started and that got as far as the projects row (a crash, or
+		// a failure recording the ETags) finishes it: the copy is not repeated over a project that
+		// may already be in use.
+		const resumed = run.projectCreateStartedAt !== null && (await projectExists(run.projectKey));
+		let outcome: { key: string; copied: number; rebased: number; skipped: number };
+		if (resumed) {
+			outcome = { key: run.projectKey, copied: 0, rebased: 0, skipped: 0 };
+		} else {
+			await markProjectCreateStarted(run.id);
+			const made = await duplicateProject(ctx.owner, {
+				source: template.key,
+				key: run.projectKey,
+				name: name.trim(),
+				clientKey: run.clientKey,
+				scope: 'full',
+			});
+			if (!made.ok) {
+				const code = made.status === 409 ? 'project_exists' : 'create_failed';
+				throw new AdapterError(made.status, code, made.error);
+			}
+			outcome = made;
 		}
 
 		const [after, copy] = await Promise.all([
@@ -131,7 +162,8 @@ export const createFromTemplate = defineOp<{ name: string }, CreateFromTemplateR
 		]);
 		// The template's math moved while it was being copied: the copy may hold either version, so
 		// the lock would vouch for a config nobody chose. Recorded as unknown; QA fails the run.
-		const templateConfigEtag = before.etag === after.etag ? before.etag : null;
+		// A resumed create cannot know which template version it copied, so it is unknown too.
+		const templateConfigEtag = !resumed && before.etag === after.etag ? before.etag : null;
 		await setRunConfigEtags(run.id, { template: templateConfigEtag, project: copy.etag });
 		return {
 			projectKey: outcome.key,
@@ -140,6 +172,7 @@ export const createFromTemplate = defineOp<{ name: string }, CreateFromTemplateR
 			copied: outcome.copied,
 			rebased: outcome.rebased,
 			skipped: outcome.skipped,
+			resumed,
 			templateConfigEtag,
 			projectConfigEtag: copy.etag,
 		};

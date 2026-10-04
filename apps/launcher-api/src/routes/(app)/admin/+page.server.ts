@@ -563,7 +563,7 @@ export const actions: Actions = {
 	setDirectorTemplate: async ({ request, locals }) => {
 		await requireAdmin(locals);
 		const data = await request.formData();
-		const key = String(data.get('key') ?? '');
+		const key = String(data.get('key') ?? '').trim();
 		const on = data.get('on') === 'true';
 
 		if (!(await projectExists(key))) {
@@ -583,6 +583,7 @@ export const actions: Actions = {
 			ok: on ? `${key} is a Director template.` : `${key} is no longer a Director template.`,
 		};
 	},
+
 	setProjectGameType: async ({ request, locals }) => {
 		await requireAdmin(locals);
 		const data = await request.formData();

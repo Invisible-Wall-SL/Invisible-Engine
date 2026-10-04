@@ -181,7 +181,8 @@ export type AdapterOp<I = unknown, O = unknown> =
 			 * The op CREATES the run's project through Game Maker's own path, so it writes a whole
 			 * tree that did not exist — including the math contract, copied from the template. The
 			 * gate exempts it from the key guard only because nothing is there to overwrite: it
-			 * refuses the call when the run's project already exists.
+			 * refuses the call when the run's project key is taken in the DB or in R2, unless this
+			 * run itself started creating it.
 			 */
 			createsProject: true;
 	  });

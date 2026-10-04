@@ -41,7 +41,11 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	} catch (e) {
 		console.error(`director adapter ${params.tool}.${params.op} failed:`, e);
 		return json(
-			{ error: 'internal', message: 'The adapter failed. Nothing was recorded for this opId.' },
+			{
+				error: 'internal',
+				message:
+					'The adapter failed; whether it wrote anything is unknown. Re-read, then retry with the same opId.',
+			},
 			{ status: 500, headers: NO_STORE },
 		);
 	}

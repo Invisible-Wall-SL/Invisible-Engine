@@ -32,6 +32,12 @@ export function buildRegistry(ops: readonly AdapterOp[]): ReadonlyMap<string, Ad
 		if (op.write && 'writes' in op && op.scope !== 'project') {
 			throw new Error(`Director adapter ${id}: a write op writes only inside the run's project`);
 		}
+		// The one op the write-target guard exempts. Pinned by id so no other op can claim it.
+		if (op.write && 'createsProject' in op && id !== 'gamemaker.create_from_template') {
+			throw new Error(
+				`Director adapter ${id}: only gamemaker.create_from_template creates projects`,
+			);
+		}
 		if (op.write && 'createsProject' in op && op.scope !== 'template') {
 			throw new Error(`Director adapter ${id}: creating the project is scoped to its template`);
 		}

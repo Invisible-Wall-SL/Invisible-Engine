@@ -44,6 +44,17 @@ const PIPELINE_TOOLS = new Set([
 /** Tool names that are the runtime agents' own definitions. */
 const AGENT_TOOLS = new Set(['agents', 'agent', 'agent_definitions', 'agent-definitions']);
 
+/**
+ * Op-name words, matched as whole `_`-separated words. A blocklist is defence in depth: the
+ * registry is the allow-list, and no op exists for any of these.
+ */
+const MERGE_WORDS = /(^|_)(merge|push|commit|branch|pull_request|pr|approve)(_|$)/;
+const ROLE_WORDS =
+	/(^|_)(role|roles|override|overrides|grant|revoke|capability|capabilities|access|permission|permissions|tool|tools)(_|$)/;
+const MATH_WORDS =
+	/(^|_)(config|gameconfig|math|rtp|paytable|bet|betmode|betmodes|modes?|paylines?|lines|reels?|strips?|gametype|type|features?)(_|$)/;
+const AGENT_WORDS = /(^|_)(agent|agents|agentdef|definition|definitions)(_|$)/;
+
 /** A read op name: these never change anything, so a refused AREA may still be read from. */
 const READ_OP = /^(get|list|read)(_|$)/;
 
@@ -56,19 +67,11 @@ export function refusedOp(tool: string, op: string): Refusal | null {
 	const t = tool.toLowerCase();
 	const o = op.toLowerCase();
 	if (/publish/.test(t) || /publish/.test(o)) return refusal('publish');
-	if (/merge/.test(o) || PIPELINE_TOOLS.has(t)) return refusal('merge');
-	if (
-		ROLE_TOOLS.has(t) ||
-		/(^|_)(role|roles|override|overrides|grant|revoke|capability)(_|$)/.test(o)
-	) {
-		return refusal('roles');
-	}
-	if (GAME_CONFIG_TOOLS.has(t) && !READ_OP.test(o)) return refusal('game_config');
-	if (/(^|_)(config|paytable|bet_?modes?|paylines)(_|$)/.test(o) && !READ_OP.test(o)) {
-		return refusal('game_config');
-	}
-	if (AGENT_TOOLS.has(t) && !READ_OP.test(o)) return refusal('agent_definitions');
-	if (/agent_?def/.test(o)) return refusal('agent_definitions');
+	if (PIPELINE_TOOLS.has(t) || MERGE_WORDS.test(o)) return refusal('merge');
+	if (ROLE_TOOLS.has(t) || ROLE_WORDS.test(o)) return refusal('roles');
+	if (READ_OP.test(o)) return null;
+	if (GAME_CONFIG_TOOLS.has(t) || MATH_WORDS.test(o)) return refusal('game_config');
+	if (AGENT_TOOLS.has(t) || AGENT_WORDS.test(o)) return refusal('agent_definitions');
 	return null;
 }
 
@@ -79,6 +82,8 @@ export function refusedOp(tool: string, op: string): Refusal | null {
  */
 const FORBIDDEN_TARGETS: { id: RefusalId; test: (key: string) => boolean }[] = [
 	{ id: 'game_config', test: (k) => /(^|\/)config\/config\.json$/.test(k) },
+	// The rest of a project's `config/` holds the math contract's backups, which feed a restore.
+	{ id: 'game_config', test: (k) => /^[^/]+\/[^/]+\/config(\/|$)/.test(k) },
 	{ id: 'publish', test: (k) => /(^|\/)published(\/|$)/.test(k) },
 	{ id: 'publish', test: (k) => k === 'test_server' || k.startsWith('test_server/') },
 	{
@@ -91,8 +96,7 @@ const FORBIDDEN_TARGETS: { id: RefusalId; test: (key: string) => boolean }[] = [
 /**
  * Why a write to `key` is refused, or `null`. A key ending in `/` is a PREFIX the op writes under:
  * refused when it is inside a forbidden area, or when it spans a whole client or project tree
- * (`<client>/` or `<client>/<project>/`) or a project's `config/` folder, which hold the math
- * contract. A key that tries to escape (`..`, a leading `/`, a backslash) is refused outright.
+ * (`<client>/` or `<client>/<project>/`), which holds the math contract. A key that tries to escape (`..`, a leading `/`, a backslash) is refused outright.
  */
 export function refusedWriteTarget(key: string): Refusal | null {
 	if (!key || key.includes('..') || key.startsWith('/') || key.includes('\\')) {
@@ -104,7 +108,7 @@ export function refusedWriteTarget(key: string): Refusal | null {
 	}
 	if (key.endsWith('/')) {
 		const segments = key.split('/').filter(Boolean);
-		if (segments.length <= 2 || /^[^/]+\/[^/]+\/config\/$/.test(key)) return refusal('game_config');
+		if (segments.length <= 2) return refusal('game_config');
 	}
 	return null;
 }
