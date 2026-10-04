@@ -25,7 +25,8 @@
  *    the GAME / USING chips, locked items and region counts per atlas; `create_from_template` makes
  *    the same `projects` row and R2 tree as Game Maker's own duplicate (scope full) and records the
  *    config ETags on the run; `get_project` reads it back. Every model agent's frontmatter `tools:`
- *    and the server-side allow-lists agree.
+ *    and the server-side allow-lists agree, and the worker's tool catalogue
+ *    (`services/director-worker/src/tools.ts`) holds every registered op and no refused one.
  */
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -1150,6 +1151,33 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			listing.sort(),
 		);
 	}
+}
+
+// ── The worker's tool catalogue covers the registry (its agent loader refuses any other tool) ──
+{
+	const catalogue = await import(
+		new URL('../../../services/director-worker/src/tools.ts', import.meta.url).href
+	);
+	const adapterOps: readonly string[] = catalogue.ADAPTER_OPS;
+	const workerTools: readonly string[] = catalogue.WORKER_TOOLS;
+	const registered = [...ADAPTER_OPS.values()].map(opIdOf);
+	check(
+		'every registered op is in the worker catalogue ADAPTER_OPS',
+		registered.filter((id) => !adapterOps.includes(id)),
+		[],
+	);
+	check(
+		'no registered op is one the worker serves itself',
+		registered.filter((id) => workerTools.includes(id)),
+		[],
+	);
+	check(
+		'no tool in the worker catalogue is a hard refusal',
+		[...adapterOps, ...workerTools].filter((id) =>
+			refusedOp(id.split('.')[0], id.split('.')[1] ?? ''),
+		),
+		[],
+	);
 }
 
 console.log(`director-adapters: ${checks - failures}/${checks} checks passed`);

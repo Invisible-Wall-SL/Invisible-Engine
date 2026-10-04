@@ -2270,6 +2270,19 @@ importers:
         specifier: workspace:*
         version: link:../eslint-config-custom
 
+  services/director-worker:
+    dependencies:
+      postgres:
+        specifier: 3.4.9
+        version: 3.4.9
+    devDependencies:
+      '@types/node':
+        specifier: 22.13.5
+        version: 22.13.5
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+
   tools/bg-scene-spike:
     devDependencies:
       engine-layout:
