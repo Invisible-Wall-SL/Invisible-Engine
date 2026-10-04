@@ -159,7 +159,7 @@ rendered. A run that cannot start (a missing secret, a failed build) fails and n
    merge-base with main. A push to a branch with an open PR stands down, so the PR's run owns the
    status and the two never race. A PR from a fork does not run: it gets no secrets.
 2. **`build`** builds both runtimes and runs the gates once.
-3. **`render`** is four shards, split by game key.
+3. **`render`** is six shards, split by game key.
 4. **`report`** merges the parts, uploads the `current-games-report` artifact and posts the final
    status.
 
