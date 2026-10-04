@@ -73,6 +73,13 @@ its `--mode recon` boots, prints the fps and exits.
    (name, `cwd`, port, env) so the agent can `preview_start` it.
 3. List scenarios from that game's mechanic (see `docs/playtest/lines.md` for a worked example).
 
+## The current-games harness
+
+Every live game is also rendered on every pipeline branch: same seed, same forced books, once with
+main's runtime and once with the branch's, compared screen by screen. How to run it and read its
+report: [current-games.md](current-games.md). Its screen scripts are per game TYPE
+(`scripts/current-games/screens/`), not per playbook.
+
 ## Playbooks
 
 | File | Covers |

@@ -396,6 +396,15 @@ code default, so the dashboard need not set it):
   regression harness (`docs/director/DECISIONS/0004-current-games-regression-harness.md`) sends to
   the read-only `GET /api/pipeline/games` to list every live game. Held by the launcher and by the
   GitHub Actions secret of the same name. Unset → that endpoint answers 503; nothing else uses it.
+- **Current-games harness (GitHub Actions secrets, `.github/workflows/current-games.yml`):**
+  `PIPELINE_GAMES_URL` (the launcher's `/api/pipeline/games` URL), `PIPELINE_CI_TOKEN` (above), and
+  a **read-only** R2 token scoped to `*/published/**` + `test_server/games.json`:
+  `CURRENT_GAMES_R2_ENDPOINT`, `CURRENT_GAMES_R2_BUCKET`, `CURRENT_GAMES_R2_ACCESS_KEY_ID`,
+  `CURRENT_GAMES_R2_SECRET_ACCESS_KEY`. Deliberately NOT the release's read-write `R2_*`: the harness
+  never writes. A missing one fails the run and the `current-games` commit status, naming it. The
+  status is posted through the API, so making it required means adding `current-games` to the `main`
+  ruleset with source **any** (not "GitHub Actions"). How to run and read it:
+  `docs/playtest/current-games.md`.
 - **Admin → Costs** (all optional): `RAILWAY_API_TOKEN`, `RAILWAY_PROJECT_ID`, `CF_ACCOUNT_ID`,
   `CF_ANALYTICS_TOKEN`, `ANTHROPIC_ADMIN_API_KEY`, `OPENAI_ADMIN_API_KEY`.
 - **Error tracking** (optional, see "Monitoring & error tracking"): `SENTRY_DSN` +

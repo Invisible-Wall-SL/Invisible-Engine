@@ -1,0 +1,12 @@
+{
+	"default": {
+		"maxDiffRatio": 0.001,
+		"blockSize": 16,
+		"blockThreshold": 0.1,
+		"threshold": 0.1,
+		"antiAliasing": "count",
+		"masks": []
+	},
+	"gameTypes": {},
+	"screens": {}
+}

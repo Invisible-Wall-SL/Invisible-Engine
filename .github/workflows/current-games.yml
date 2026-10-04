@@ -1,0 +1,268 @@
+# Current games — the regression harness every pipeline change must pass (ADR-0004,
+# docs/director/DECISIONS/0004-current-games-regression-harness.md). How to run it locally and read
+# the report: docs/playtest/current-games.md.
+#
+# For every live game (the launcher's `/api/pipeline/games`): render its PUBLISHED snapshot
+# (read-only from R2) with main's runtime and with this branch's runtime, play its game type's
+# screen script with the same seed and forced books, compare every screen under
+# scripts/current-games/tolerance.json, and run its type's `check:*` gates. Posts the commit status
+# `current-games` (it can be made a required check) and uploads the report as an artifact.
+#
+# READ-ONLY by construction: the R2 key it is given must be a read-only token (scoped to
+# `*/published/**` and `test_server/games.json`), and nothing here writes to R2 or to production.
+#
+# SECRETS (Settings → Secrets and variables → Actions; the owner adds them, values never committed):
+#   PIPELINE_GAMES_URL                   https://<launcher>/api/pipeline/games
+#   PIPELINE_CI_TOKEN                    the launcher's PIPELINE_CI_TOKEN (bearer for that endpoint)
+#   CURRENT_GAMES_R2_ENDPOINT            the R2 S3 endpoint
+#   CURRENT_GAMES_R2_BUCKET              the bucket
+#   CURRENT_GAMES_R2_ACCESS_KEY_ID       a READ-ONLY R2 token's key id
+#   CURRENT_GAMES_R2_SECRET_ACCESS_KEY   …and its secret
+# A missing one fails the run (and the status) naming it.
+#
+# WHAT IS COMPARED: on a pull request, the PR merge commit against its first parent (the base
+# branch tip it merges into), so only this change shows; on a push, the branch tip against its
+# merge-base with main. Main's runtime is cached by SHA. A docs-only change posts success without
+# rendering anything: no game can look different.
+
+name: Current games
+
+on:
+  pull_request:
+  push:
+    branches-ignore: [main]
+
+concurrency:
+  group: current-games-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  statuses: write
+
+env:
+  # The commit the status is posted on: the PR head, not its merge commit.
+  STATUS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+  SHARDS: 4
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      code: ${{ steps.changes.outputs.code }}
+      base: ${{ steps.base.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - id: changes
+        uses: ./.github/actions/code-changed
+
+      - name: Post the pending status
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state=pending \
+            -f context=current-games -f description='Rendering every live game…' -f target_url="$RUN_URL"
+
+      - name: Docs-only change — nothing to render
+        if: steps.changes.outputs.code != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state=success \
+            -f context=current-games -f description='Docs-only change: no game can differ' -f target_url="$RUN_URL"
+
+      - name: Check the secrets
+        if: steps.changes.outputs.code == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PIPELINE_GAMES_URL: ${{ secrets.PIPELINE_GAMES_URL }}
+          PIPELINE_CI_TOKEN: ${{ secrets.PIPELINE_CI_TOKEN }}
+          CURRENT_GAMES_R2_ENDPOINT: ${{ secrets.CURRENT_GAMES_R2_ENDPOINT }}
+          CURRENT_GAMES_R2_BUCKET: ${{ secrets.CURRENT_GAMES_R2_BUCKET }}
+          CURRENT_GAMES_R2_ACCESS_KEY_ID: ${{ secrets.CURRENT_GAMES_R2_ACCESS_KEY_ID }}
+          CURRENT_GAMES_R2_SECRET_ACCESS_KEY: ${{ secrets.CURRENT_GAMES_R2_SECRET_ACCESS_KEY }}
+        run: |
+          missing=''
+          for name in PIPELINE_GAMES_URL PIPELINE_CI_TOKEN CURRENT_GAMES_R2_ENDPOINT CURRENT_GAMES_R2_BUCKET \
+            CURRENT_GAMES_R2_ACCESS_KEY_ID CURRENT_GAMES_R2_SECRET_ACCESS_KEY; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error title=current-games: missing secret(s)::Add these repository secrets:$missing (see .github/workflows/current-games.yml)"
+            echo "### current-games did not run: missing secret(s):$missing" >> "$GITHUB_STEP_SUMMARY"
+            gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state=failure -f context=current-games \
+              -f description="Missing secret(s):$missing" -f target_url="$RUN_URL"
+            exit 1
+          fi
+
+      - name: Pick the base commit
+        id: base
+        if: steps.changes.outputs.code == 'true'
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            sha="$(git rev-parse HEAD^1)"
+          else
+            git fetch -q --no-tags origin main
+            sha="$(git merge-base origin/main HEAD)"
+          fi
+          echo "base: $sha"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Main's runtime never changes for a SHA, so it is built once per base commit.
+      - name: Restore the base runtime
+        id: base-cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/current-games/runtimes/${{ needs.prepare.outputs.base }}
+          key: current-games-runtime-${{ needs.prepare.outputs.base }}
+
+      - name: Build the base runtime
+        run: |
+          node --input-type=module -e "
+            import { runtimeForRef } from './scripts/current-games/lib/runtimes.mjs';
+            const r = runtimeForRef(process.cwd(), '.cache/current-games', '${{ needs.prepare.outputs.base }}');
+            console.log(r.cached ? 'cached' : 'built', r.dir);
+          "
+
+      - name: Build the branch runtime
+        run: |
+          node --input-type=module -e "
+            import { buildWorkingTree } from './scripts/current-games/lib/runtimes.mjs';
+            console.log(buildWorkingTree(process.cwd(), '.cache/current-games'));
+          "
+
+      - name: Run every game type's gates once
+        run: node scripts/current-games/lib/gates.mjs .cache/current-games/gates.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: current-games-runtimes
+          retention-days: 1
+          path: |
+            .cache/current-games/runtimes/${{ needs.prepare.outputs.base }}
+            .cache/current-games/runtimes/working-tree
+            .cache/current-games/gates.json
+
+  render:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install the headless shell
+        run: pnpm dlx playwright@1.63.0 install --with-deps chromium-headless-shell
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: current-games-runtimes
+          path: .cache/current-games
+
+      - name: Render shard ${{ matrix.shard }}/${{ env.SHARDS }}
+        env:
+          PIPELINE_GAMES_URL: ${{ secrets.PIPELINE_GAMES_URL }}
+          PIPELINE_CI_TOKEN: ${{ secrets.PIPELINE_CI_TOKEN }}
+          CURRENT_GAMES_R2_ENDPOINT: ${{ secrets.CURRENT_GAMES_R2_ENDPOINT }}
+          CURRENT_GAMES_R2_BUCKET: ${{ secrets.CURRENT_GAMES_R2_BUCKET }}
+          CURRENT_GAMES_R2_ACCESS_KEY_ID: ${{ secrets.CURRENT_GAMES_R2_ACCESS_KEY_ID }}
+          CURRENT_GAMES_R2_SECRET_ACCESS_KEY: ${{ secrets.CURRENT_GAMES_R2_SECRET_ACCESS_KEY }}
+          GITHUB_SHA: ${{ env.STATUS_SHA }}
+        # A failing game is reported by the merge job; this step fails only when it cannot run.
+        run: |
+          set +e
+          node scripts/current-games/run.mjs \
+            --base-build ".cache/current-games/runtimes/${{ needs.prepare.outputs.base }}" \
+            --head-build .cache/current-games/runtimes/working-tree \
+            --gates-file .cache/current-games/gates.json \
+            --shard "${{ matrix.shard }}/$SHARDS" --out "report-part-${{ matrix.shard }}"
+          code=$?
+          [ "$code" -le 1 ] || exit "$code"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: current-games-part-${{ matrix.shard }}
+          retention-days: 3
+          path: report-part-${{ matrix.shard }}
+
+  report:
+    needs: [prepare, build, render]
+    if: always() && needs.prepare.outputs.code == 'true' && needs.prepare.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: current-games-part-*
+          path: parts
+
+      - name: Merge the shards
+        id: merge
+        run: |
+          set +e
+          node scripts/current-games/lib/report.mjs merge report \
+            $(for i in $(seq 1 "$SHARDS"); do echo "parts/current-games-part-$i"; done)
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+          { echo '### Current games'; tail -n 1 report/summary.txt; } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: current-games-report
+          retention-days: 14
+          path: report
+
+      - name: Post the status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD: ${{ needs.build.result }}
+        run: |
+          verdict="$(head -n 1 report/summary.txt 2>/dev/null || echo fail)"
+          line="$(tail -n 1 report/summary.txt 2>/dev/null || echo 'no report')"
+          [ "$BUILD" = success ] || { verdict=fail; line="the runtime build or the gates job failed"; }
+          state=failure; [ "$verdict" = pass ] && state=success
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state="$state" -f context=current-games \
+            -f description="${line:0:139}" -f target_url="$RUN_URL"
+          [ "$state" = success ]

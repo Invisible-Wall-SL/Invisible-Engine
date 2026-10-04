@@ -1,0 +1,380 @@
+{
+	"gameType": "holdAndWin",
+	"about": "Hold and Win games (respins feature, jackpots, pots meters where the game has them), dealt by the Hold and Win mock (`scripts/mock-rgs-server-holdandwin.mjs`) through its authoring channel, which takes forced beats. 12 screens without pots, 14 with (the multiplier scenario only where the block has one).",
+	"scenarios": [
+		{
+			"id": "base",
+			"canary": true,
+			"about": "Boot, idle and one spin to its settled board. The draw:'every' canary: every frame is drawn on both sides, so a difference only the per-frame draw shows is still seen.",
+			"env": {},
+			"steps": [
+				{
+					"op": "waitFor",
+					"until": {
+						"loaded": true,
+						"idle": true
+					},
+					"maxFrames": 7200
+				},
+				{
+					"op": "step",
+					"frames": 30
+				},
+				{
+					"op": "capture",
+					"screen": "loaded"
+				},
+				{
+					"op": "tapToStart"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"playerIn": true,
+						"idle": true
+					}
+				},
+				{
+					"op": "step",
+					"frames": 60
+				},
+				{
+					"op": "capture",
+					"screen": "idle"
+				},
+				{
+					"op": "space"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"idle": false
+					},
+					"maxFrames": 600
+				},
+				{
+					"op": "step",
+					"frames": 20
+				},
+				{
+					"op": "capture",
+					"screen": "spin"
+				},
+				{
+					"op": "settle"
+				},
+				{
+					"op": "step",
+					"frames": 60
+				},
+				{
+					"op": "capture",
+					"screen": "settled"
+				}
+			]
+		},
+		{
+			"id": "line-win",
+			"about": "The seed's first winning spin, 10 frames after its win lands.",
+			"env": {},
+			"steps": [
+				{
+					"op": "waitFor",
+					"until": {
+						"loaded": true,
+						"idle": true
+					},
+					"maxFrames": 7200
+				},
+				{
+					"op": "tapToStart"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"playerIn": true,
+						"idle": true
+					}
+				},
+				{
+					"op": "step",
+					"frames": 30
+				},
+				{
+					"op": "spinUntilWin",
+					"maxSpins": 20
+				},
+				{
+					"op": "step",
+					"frames": 10
+				},
+				{
+					"op": "capture",
+					"screen": "line-win"
+				}
+			]
+		},
+		{
+			"id": "hold-and-win",
+			"about": "A forced trigger: the trigger spin, the respins board twice, and the feature's total win.",
+			"env": {},
+			"steps": [
+				{
+					"op": "waitFor",
+					"until": {
+						"loaded": true,
+						"idle": true
+					},
+					"maxFrames": 7200
+				},
+				{
+					"op": "tapToStart"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"playerIn": true,
+						"idle": true
+					}
+				},
+				{
+					"op": "step",
+					"frames": 30
+				},
+				{
+					"op": "force",
+					"beat": "trigger"
+				},
+				{
+					"op": "space"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"idle": false
+					},
+					"maxFrames": 600
+				},
+				{
+					"op": "step",
+					"frames": 260
+				},
+				{
+					"op": "capture",
+					"screen": "hw-trigger"
+				},
+				{
+					"op": "step",
+					"frames": 480
+				},
+				{
+					"op": "capture",
+					"screen": "hw-respins"
+				},
+				{
+					"op": "step",
+					"frames": 480
+				},
+				{
+					"op": "capture",
+					"screen": "hw-respins-late"
+				},
+				{
+					"op": "until",
+					"until": {
+						"winLevelIn": ["big", "superwin", "mega", "epic", "max"]
+					},
+					"maxFrames": 7200,
+					"fallback": true
+				},
+				{
+					"op": "step",
+					"frames": 120
+				},
+				{
+					"op": "capture",
+					"screen": "hw-total"
+				}
+			]
+		},
+		{
+			"id": "jackpot",
+			"about": "A forced trigger with the top jackpot landing: the respins board with the jackpot, and the total.",
+			"env": {},
+			"steps": [
+				{
+					"op": "waitFor",
+					"until": {
+						"loaded": true,
+						"idle": true
+					},
+					"maxFrames": 7200
+				},
+				{
+					"op": "tapToStart"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"playerIn": true,
+						"idle": true
+					}
+				},
+				{
+					"op": "step",
+					"frames": 30
+				},
+				{
+					"op": "force",
+					"beat": "trigger,jackpot:{grid.holdAndWin.block.jackpots.-1.name}"
+				},
+				{
+					"op": "space"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"idle": false
+					},
+					"maxFrames": 600
+				},
+				{
+					"op": "step",
+					"frames": 480
+				},
+				{
+					"op": "capture",
+					"screen": "hw-jackpot"
+				},
+				{
+					"op": "until",
+					"until": {
+						"winLevelIn": ["big", "superwin", "mega", "epic", "max"]
+					},
+					"maxFrames": 7200,
+					"fallback": true
+				},
+				{
+					"op": "step",
+					"frames": 120
+				},
+				{
+					"op": "capture",
+					"screen": "hw-jackpot-total"
+				}
+			]
+		},
+		{
+			"id": "multiplier",
+			"about": "A forced multiplier special landing in the respins (only a game whose block has one).",
+			"env": {},
+			"steps": [
+				{
+					"op": "waitFor",
+					"until": {
+						"loaded": true,
+						"idle": true
+					},
+					"maxFrames": 7200
+				},
+				{
+					"op": "tapToStart"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"playerIn": true,
+						"idle": true
+					}
+				},
+				{
+					"op": "step",
+					"frames": 30
+				},
+				{
+					"op": "force",
+					"beat": "trigger,special:multiplier"
+				},
+				{
+					"op": "space"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"idle": false
+					},
+					"maxFrames": 600
+				},
+				{
+					"op": "step",
+					"frames": 600
+				},
+				{
+					"op": "capture",
+					"screen": "hw-multiplier"
+				}
+			],
+			"requires": ["grid.holdAndWin.block.specials.multiplier"]
+		},
+		{
+			"id": "pots",
+			"about": "Pots (meters; only a game whose contract has them): the first meter forced full on a base spin, then its bonus.",
+			"env": {},
+			"steps": [
+				{
+					"op": "waitFor",
+					"until": {
+						"loaded": true,
+						"idle": true
+					},
+					"maxFrames": 7200
+				},
+				{
+					"op": "tapToStart"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"playerIn": true,
+						"idle": true
+					}
+				},
+				{
+					"op": "step",
+					"frames": 30
+				},
+				{
+					"op": "force",
+					"beat": "meter:{grid.holdAndWin.block.meters.0.id}"
+				},
+				{
+					"op": "space"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"idle": false
+					},
+					"maxFrames": 600
+				},
+				{
+					"op": "step",
+					"frames": 260
+				},
+				{
+					"op": "capture",
+					"screen": "pot-full"
+				},
+				{
+					"op": "step",
+					"frames": 480
+				},
+				{
+					"op": "capture",
+					"screen": "pot-bonus"
+				}
+			],
+			"requires": ["grid.holdAndWin.block.meters.0"]
+		}
+	]
+}

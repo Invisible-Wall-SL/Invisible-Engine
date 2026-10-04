@@ -88,3 +88,6 @@ __pycache__/
 services/atlas-serverless/nodes.json
 services/atlas-serverless/fetch-models.py
 services/atlas-serverless/custom_nodes/ComfyUI-SemanticLayers/
+
+# current-games harness cache (runtimes, snapshots, reports)
+.cache/

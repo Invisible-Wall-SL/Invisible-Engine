@@ -1,0 +1,462 @@
+{
+	"gameType": "bookOf",
+	"about": "Book-of games (expanding special in free spins, buy feature), dealt by the book mock (`scripts/mock-rgs-server-book.mjs`), with the pots overlay where the game has one. 12 screens, 14 with the pots overlay.",
+	"scenarios": [
+		{
+			"id": "base",
+			"canary": true,
+			"about": "Boot, idle and one spin. The draw:'every' canary: every frame is drawn on both sides, so a difference only the per-frame draw shows is still seen.",
+			"env": {},
+			"steps": [
+				{
+					"op": "waitFor",
+					"until": {
+						"loaded": true,
+						"idle": true
+					},
+					"maxFrames": 7200
+				},
+				{
+					"op": "step",
+					"frames": 30
+				},
+				{
+					"op": "capture",
+					"screen": "loaded"
+				},
+				{
+					"op": "tapToStart"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"playerIn": true,
+						"idle": true
+					}
+				},
+				{
+					"op": "step",
+					"frames": 60
+				},
+				{
+					"op": "capture",
+					"screen": "idle"
+				},
+				{
+					"op": "space"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"idle": false
+					},
+					"maxFrames": 600
+				},
+				{
+					"op": "step",
+					"frames": 20
+				},
+				{
+					"op": "capture",
+					"screen": "spin"
+				}
+			]
+		},
+		{
+			"id": "line-win",
+			"about": "The seed's first winning spin, 10 frames after its win lands.",
+			"env": {},
+			"steps": [
+				{
+					"op": "waitFor",
+					"until": {
+						"loaded": true,
+						"idle": true
+					},
+					"maxFrames": 7200
+				},
+				{
+					"op": "tapToStart"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"playerIn": true,
+						"idle": true
+					}
+				},
+				{
+					"op": "step",
+					"frames": 30
+				},
+				{
+					"op": "spinUntilWin",
+					"maxSpins": 20
+				},
+				{
+					"op": "step",
+					"frames": 10
+				},
+				{
+					"op": "capture",
+					"screen": "line-win"
+				}
+			]
+		},
+		{
+			"id": "free-spins",
+			"about": "A forced scatter trigger (FORCE_TRIGGER=1): fs-trigger, fs-spin, fs-settled at fixed frames from the spin.",
+			"env": {
+				"FORCE_TRIGGER": "1"
+			},
+			"steps": [
+				{
+					"op": "waitFor",
+					"until": {
+						"loaded": true,
+						"idle": true
+					},
+					"maxFrames": 7200
+				},
+				{
+					"op": "tapToStart"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"playerIn": true,
+						"idle": true
+					}
+				},
+				{
+					"op": "step",
+					"frames": 30
+				},
+				{
+					"op": "space"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"idle": false
+					},
+					"maxFrames": 600
+				},
+				{
+					"op": "step",
+					"frames": 260
+				},
+				{
+					"op": "capture",
+					"screen": "fs-trigger"
+				},
+				{
+					"op": "step",
+					"frames": 360
+				},
+				{
+					"op": "capture",
+					"screen": "fs-spin"
+				},
+				{
+					"op": "settle",
+					"maxFrames": 36000
+				},
+				{
+					"op": "step",
+					"frames": 60
+				},
+				{
+					"op": "capture",
+					"screen": "fs-settled"
+				}
+			]
+		},
+		{
+			"id": "big-wins",
+			"about": "WIN_X forces the n-th base spin to pay at least 10/20/40/70/120x the stake (the coded ladder's thresholds). Each banner is captured 120 frames after the count-up reaches that tier (or 3600 frames after the win lands when the project's ladder has no such alias). The tier on show is recorded in the report.",
+			"env": {
+				"WIN_X": "10,20,40,70,120"
+			},
+			"steps": [
+				{
+					"op": "waitFor",
+					"until": {
+						"loaded": true,
+						"idle": true
+					},
+					"maxFrames": 7200
+				},
+				{
+					"op": "tapToStart"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"playerIn": true,
+						"idle": true
+					}
+				},
+				{
+					"op": "step",
+					"frames": 30
+				},
+				{
+					"op": "space"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"idle": false
+					},
+					"maxFrames": 600
+				},
+				{
+					"op": "until",
+					"until": {
+						"winAbove": 0
+					}
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"winLevel": "big"
+					},
+					"maxFrames": 3600,
+					"fallback": true
+				},
+				{
+					"op": "step",
+					"frames": 120
+				},
+				{
+					"op": "capture",
+					"screen": "bigwin-x10"
+				},
+				{
+					"op": "settle"
+				},
+				{
+					"op": "step",
+					"frames": 60
+				},
+				{
+					"op": "space"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"idle": false
+					},
+					"maxFrames": 600
+				},
+				{
+					"op": "until",
+					"until": {
+						"winAbove": 0
+					}
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"winLevel": "superwin"
+					},
+					"maxFrames": 3600,
+					"fallback": true
+				},
+				{
+					"op": "step",
+					"frames": 120
+				},
+				{
+					"op": "capture",
+					"screen": "bigwin-x20"
+				},
+				{
+					"op": "settle"
+				},
+				{
+					"op": "step",
+					"frames": 60
+				},
+				{
+					"op": "space"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"idle": false
+					},
+					"maxFrames": 600
+				},
+				{
+					"op": "until",
+					"until": {
+						"winAbove": 0
+					}
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"winLevel": "mega"
+					},
+					"maxFrames": 3600,
+					"fallback": true
+				},
+				{
+					"op": "step",
+					"frames": 120
+				},
+				{
+					"op": "capture",
+					"screen": "bigwin-x40"
+				},
+				{
+					"op": "settle"
+				},
+				{
+					"op": "step",
+					"frames": 60
+				},
+				{
+					"op": "space"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"idle": false
+					},
+					"maxFrames": 600
+				},
+				{
+					"op": "until",
+					"until": {
+						"winAbove": 0
+					}
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"winLevel": "epic"
+					},
+					"maxFrames": 3600,
+					"fallback": true
+				},
+				{
+					"op": "step",
+					"frames": 120
+				},
+				{
+					"op": "capture",
+					"screen": "bigwin-x70"
+				},
+				{
+					"op": "settle"
+				},
+				{
+					"op": "step",
+					"frames": 60
+				},
+				{
+					"op": "space"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"idle": false
+					},
+					"maxFrames": 600
+				},
+				{
+					"op": "until",
+					"until": {
+						"winAbove": 0
+					}
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"winLevel": "max"
+					},
+					"maxFrames": 3600,
+					"fallback": true
+				},
+				{
+					"op": "step",
+					"frames": 120
+				},
+				{
+					"op": "capture",
+					"screen": "bigwin-x120"
+				},
+				{
+					"op": "settle"
+				},
+				{
+					"op": "step",
+					"frames": 60
+				}
+			]
+		},
+		{
+			"id": "pots",
+			"requires": ["grid.potsOverlay"],
+			"about": "Pots overlay (only a game whose contract has one): the first pot forced full on a base spin, then its bonus.",
+			"env": {},
+			"steps": [
+				{
+					"op": "waitFor",
+					"until": {
+						"loaded": true,
+						"idle": true
+					},
+					"maxFrames": 7200
+				},
+				{
+					"op": "tapToStart"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"playerIn": true,
+						"idle": true
+					}
+				},
+				{
+					"op": "step",
+					"frames": 30
+				},
+				{
+					"op": "force",
+					"beat": "pot:{grid.potsOverlay.pots.0.id}"
+				},
+				{
+					"op": "space"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"idle": false
+					},
+					"maxFrames": 600
+				},
+				{
+					"op": "step",
+					"frames": 240
+				},
+				{
+					"op": "capture",
+					"screen": "pot-full"
+				},
+				{
+					"op": "step",
+					"frames": 480
+				},
+				{
+					"op": "capture",
+					"screen": "pot-bonus"
+				}
+			]
+		}
+	]
+}
