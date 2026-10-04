@@ -240,7 +240,12 @@ export const load: PageServerLoad = async ({ locals }) => {
 		roles: ROLES,
 		overrides,
 		roleOverrides,
-		tools: Object.values(TOOLS).map((t) => ({ id: t.id, name: t.name, kind: t.kind })),
+		tools: Object.values(TOOLS).map((t) => ({
+			id: t.id,
+			name: t.name,
+			kind: t.kind,
+			isNew: t.isNew,
+		})),
 		capabilities: CAPABILITIES,
 		adminPanelCapability: ADMIN_PANEL_CAPABILITY,
 		// Baseline (no-override) state for each managed capability per role, using

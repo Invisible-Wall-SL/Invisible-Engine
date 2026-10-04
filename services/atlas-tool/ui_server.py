@@ -4660,6 +4660,8 @@ IW_TOOLBAR = """<header class="iw-toolbar">
     ftpBrowser: '<circle cx="5" cy="6" r="1"/><line x1="9" y1="6" x2="20" y2="6"/><circle cx="5" cy="12" r="1"/><line x1="9" y1="12" x2="20" y2="12"/><circle cx="5" cy="18" r="1"/><line x1="9" y1="18" x2="20" y2="18"/>',
     gameMaker: '<rect x="2" y="7" width="20" height="10" rx="4"/><line x1="7" y1="12" x2="9" y2="12"/><line x1="8" y1="11" x2="8" y2="13"/><circle cx="15.5" cy="11" r="0.9" fill="currentColor" stroke="none"/><circle cx="17.5" cy="13" r="0.9" fill="currentColor" stroke="none"/>',
     gameConfig: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/><path d="M15 4v16"/><path d="M3 9.5h18"/><path d="M3 14.5h18"/>',
+    director: '<path d="M3 9.75h18v10.5H3z"/><path d="M3 9.75 4.8 4.5h15.9L21 9.75"/><path d="M9 4.5 7.5 9.75"/><path d="M15 4.5l-1.5 5.25"/>',
+    pipelineChanges: '<circle cx="6.75" cy="5.25" r="2"/><circle cx="6.75" cy="18.75" r="2"/><circle cx="17.25" cy="9" r="2"/><path d="M6.75 7.25v9.5"/><path d="M17.25 11c0 3.75-5.25 3.75-10.5 5.25"/>',
     flow: '<rect x="3" y="4" width="6" height="5" rx="1"/><rect x="15" y="9" width="6" height="5" rx="1"/><rect x="3" y="15" width="6" height="5" rx="1"/><path d="M9 6.5h3a2 2 0 0 1 2 2v1"/><path d="M9 17.5h3a2 2 0 0 0 2-2v-1"/>',
     fx: '<path d="M12 3v4"/><path d="M12 17v4"/><path d="M3 12h4"/><path d="M17 12h4"/><path d="M5.6 5.6l2.8 2.8"/><path d="M15.6 15.6l2.8 2.8"/><path d="M18.4 5.6l-2.8 2.8"/><path d="M8.4 15.6l-2.8 2.8"/><circle cx="12" cy="12" r="1.6"/>',
     flipbook: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M7 5v4"/><path d="M11 5v4"/><path d="M15 5v4"/><path d="M7 15v4"/><path d="M11 15v4"/><path d="M15 15v4"/>',

@@ -53,10 +53,10 @@ registry lives in `apps/launcher-api/src/lib/roles.ts` (`TOOLS` = every tool;
 | Role | Label in the UI | Tools |
 |---|---|---|
 | `admin` | Admin | all tools |
-| `developer` | Developer | every online tool except the Sheet Maker, plus the desktop Invisible Launcher |
+| `developer` | Developer | every online tool except the Sheet Maker, Invisible Director and Invisible Pipeline Changes, plus the desktop Invisible Launcher |
 | `artist` | Artist | the art + authoring set: Atlas Maker, Sheet Maker, ComfyUI, Scene Editor, Flow, FX, Flipbook, Symbols SM, Component Editor, Font Maker, Game Config, Sound, Localization, Win Text, + the desktop Invisible Launcher |
 | `animator` | Animator | Invisible Spine Viewer, Invisible Rigger, Spine Editor |
-| `pipelineTester` | Pipeline Tester | the whole authoring + build chain to test it end to end (Game Maker, Game Config, Scene Editor, Flow, FX, Flipbook, Symbols SM, Component Editor, Atlas Maker, Sheet Maker, Font Maker, Sound, Spine Viewer, Localization, Win Text, FTP Browser, Storybook, desktop Invisible Launcher) — **without** the publish capabilities, which stay admin-default |
+| `pipelineTester` | Pipeline Tester | the whole authoring + build chain to test it end to end (Game Maker, Game Config, Scene Editor, Flow, FX, Flipbook, Symbols SM, Component Editor, Atlas Maker, Sheet Maker, Font Maker, Sound, Spine Viewer, Localization, Win Text, FTP Browser, Storybook, desktop Invisible Launcher, Invisible Pipeline Changes) — **without** the publish capabilities or `pipelineMerge`, which stay admin-default |
 | `localizationReviewer` | Localization Reviewer | Invisible Localization, Invisible Win Text |
 | `audio` | Music / SFX | Invisible Sound (upload, audition and approve the game's music and SFX), Invisible FTP Browser, Invisible Storybook, desktop Invisible Launcher |
 

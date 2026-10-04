@@ -67,10 +67,11 @@ Tools are grouped by **game-making stage** — the single source of truth is
 
 | Stage | Accent | Tools |
 |---|---|---|
-| **Create** | `#7ee787` green | gameMaker, gameConfig |
+| **Create** | `#7ee787` green | gameMaker, gameConfig, director |
 | **Assets** | `#f5b95c` amber | atlasTool, sheetMaker, fontMaker, rigger, flipbook, fx |
 | **Build** | `#6ea8ff` blue | editor, flow, symbols, componentEditor, winText, localization |
 | **Files & Reference** | `#9aa4b8` slate | spineViewer, storybook, ftpBrowser |
+| **Pipeline** | `#f778ba` pink | pipelineChanges |
 
 `TOOL_BAR_ORDER` is **derived** from this (`TOOL_STAGES.flatMap(s => s.tools)`), so a
 tool is placed, ordered, and coloured by editing ONE list — the bar and the home
