@@ -3040,6 +3040,11 @@ def build_workflow_flux(region: dict, style: dict, atlas_path: str) -> dict:
 # process, which cannot otherwise know them. `ui_server.stop_render` reads it so
 # Stop can cancel the REMOTE job, not just the local poller.
 RUNPOD_JOB_MARK = "@@RUNPOD_JOB@@"
+# The render's `jobRef` (`still_jobs`), handed down by `ui_server.run_render`. Set,
+# every RunPod job this subprocess submits is recorded under it so a container
+# that replaces this one can collect the job; unset (a CLI run), nothing is.
+JOB_REF = (os.environ.get("ATLAS_JOB_REF") or "").strip()
+_JOB_SEQ = iter(range(1, 1 << 30))
 
 
 def read_runpod_job_mark(line: str) -> tuple[str, str] | None:
@@ -3186,7 +3191,7 @@ def _runpod_get(path: str, endpoint: str) -> dict:
         raise RuntimeError(f"Cannot reach RunPod endpoint at {base}{path}: {e}")
 
 
-def _runpod_run_and_wait(job: dict, region_name: str) -> dict:
+def _runpod_run_and_wait(job: dict, region_name: str, on_submit=None) -> dict:
     """Submit a job to /run and poll /status until it finishes. Returns the
     worker's `output` on COMPLETED; raises a clear RuntimeError on
     FAILED/CANCELLED/TIMED_OUT (with any error detail) and TimeoutError on the
@@ -3207,6 +3212,8 @@ def _runpod_run_and_wait(job: dict, region_name: str) -> dict:
     # The worker is already built to notice (handler.py `_job_cancelled`); nobody
     # was telling it.
     print(f"{RUNPOD_JOB_MARK}{jid} {eid}", flush=True)
+    if on_submit:
+        on_submit(jid, eid)
     deadline = time.time() + 1800  # 30 min cap — cold start + model load + gen
     started = time.time()
     last_tick = started
@@ -3328,26 +3335,52 @@ def _run_region_serverless(region: dict, wf: dict,
     submits the identical api-prompt graph, decodes the returned base64 image and
     persists it via the SAME _persist_variant path the http transport uses."""
     images = _serverless_workflow_images(wf)
-    out = _runpod_run_and_wait(
-        {"input": {"workflow": wf, "images": images}}, region["name"])
+    job = {"input": {"workflow": wf, "images": images}}
+    seq = next(_JOB_SEQ) if JOB_REF else 0
+
+    def _record(jid: str, eid: str) -> None:
+        import still_jobs
+        still_jobs.record_submitted(JOB_REF, seq, region=region["name"], job_id=jid,
+                                    endpoint=eid, payload=job, provenance=provenance)
+
+    try:
+        out = _runpod_run_and_wait(job, region["name"],
+                                   on_submit=_record if JOB_REF else None)
+        filename, blob = persist_serverless_output(region["name"], out,
+                                                   provenance=provenance)
+    except Exception as e:
+        if JOB_REF:
+            import still_jobs
+            still_jobs.record_settled(JOB_REF, seq, "failed", error=str(e))
+        raise
+    if JOB_REF:
+        import still_jobs
+        still_jobs.record_settled(JOB_REF, seq, "done", variant=filename)
+    return Image.open(io.BytesIO(blob)).convert("RGBA")
+
+
+def persist_serverless_output(rname: str, out: dict,
+                              provenance: dict | None = None) -> tuple[str, bytes]:
+    """Decode a finished RunPod job's `output` and persist it as the region's next
+    variant. Returns (variant filename, PNG bytes). Shared by the subprocess and
+    by `still_jobs`, which collects a job the subprocess did not live to see end."""
     # The worker can report a graph/execution failure as {"error", "detail"}
     # inside `output` on an otherwise-COMPLETED job — surface it as a clear error
     # rather than the generic "no images" below.
     if isinstance(out, dict) and out.get("error"):
         detail = out.get("detail")
-        emit(diag("COMFY_NODE_FAILED", CATALOG, name=region["name"],
+        emit(diag("COMFY_NODE_FAILED", CATALOG, name=rname,
                   node="runpod", msg=str(out.get("error"))))
         raise RuntimeError(
-            f"RunPod serverless job for region '{region['name']}' failed: "
+            f"RunPod serverless job for region '{rname}' failed: "
             f"{out.get('error')}" + (f" ({detail})" if detail else ""))
     out_images = (out or {}).get("images") or []
     if not out_images:
-        emit(diag("COMFY_NODE_FAILED", CATALOG, name=region["name"],
+        emit(diag("COMFY_NODE_FAILED", CATALOG, name=rname,
                   node="runpod", msg="serverless job returned no images"))
         raise RuntimeError(
-            f"RunPod serverless job for region '{region['name']}' returned no "
+            f"RunPod serverless job for region '{rname}' returned no "
             f"images (output={out!r}).")
-    rname = region["name"]
     # Prefer the SaveImage output (its worker filename is region-prefixed) over any
     # preview/temp image the graph may also emit, so we don't persist a preview.
     saves = [im for im in out_images
@@ -3366,7 +3399,7 @@ def _run_region_serverless(region: dict, wf: dict,
     # PNG still carries its embedded seed so lock / Create Atlas work unchanged.
     filename = _next_variant_filename(rname)
     _persist_variant(rname, filename, blob, provenance=provenance)
-    return Image.open(io.BytesIO(blob)).convert("RGBA")
+    return filename, blob
 
 
 def run_region(region: dict, style: dict, atlas_path: str, client_id: str) -> Image.Image:
@@ -3488,6 +3521,11 @@ def run_region(region: dict, style: dict, atlas_path: str, client_id: str) -> Im
                 # globbing/seed-reading works unchanged — and mirror to R2.
                 _persist_variant(region["name"], meta["filename"], blob,
                                  provenance=prov)
+                if JOB_REF:
+                    import still_jobs
+                    still_jobs.record_local(
+                        JOB_REF, next(_JOB_SEQ), region=region["name"],
+                        variant=os.path.basename(meta["filename"]))
                 return Image.open(io.BytesIO(blob)).convert("RGBA")
     emit(diag("COMFY_TIMEOUT", CATALOG, name=region["name"]))
     raise TimeoutError(f"Region {region['name']} timed out after 20 min")
@@ -4585,6 +4623,9 @@ def main() -> None:
 
     print(f"Generation: regions {len(gen_regions)}  variants {variants}  "
           f"total jobs {len(jobs)}  (atlas NOT composed — use Create Atlas)")
+    if JOB_REF:
+        import still_jobs
+        still_jobs.record_plan(JOB_REF, len(jobs))
 
     # Effective pipeline per job — so the log states plainly WHICH pipeline runs
     # and, for a blueprint, whether it actually loaded (vs. a built-in path).
