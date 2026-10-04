@@ -3323,19 +3323,33 @@ def run_render(names: list[str], variants: int = 1,
     # manifest path / subprocess env, else everything falls back to the env
     # default context (unassigned/cloud) and the subprocess resolves the wrong
     # tree (geometry "not found in R2").
+    global _stopped
     if ctx:
         project_paths.set_context(*ctx)
+    # Reset here, not only in `_run_cmd`: a render that never reaches it (an
+    # unreachable "My computer") must not inherit the last render's Stop.
+    _stopped = False
+    hold = None
+    if job_ref:
+        # The render's job record + this container's lease on it (still_jobs):
+        # what lets a container that replaces this one collect the RunPod jobs in
+        # flight, and what fires the completion callback. The hold comes FIRST:
+        # it keeps a `/progress?jobRef=` read in this container from adopting the
+        # render as an orphan the moment its doc exists. Bookkeeping only — a
+        # failure here costs resumability, never the render.
+        try:
+            hold = still_jobs.Hold(job_ref)
+            still_jobs.open_render(job_ref, manifest=manifest_path().name,
+                                   names=names, variants=variants, user=user,
+                                   callback=callback)
+        except Exception as e:  # noqa: BLE001
+            print(f"[still-jobs] {job_ref}: not recorded ({e})", flush=True)
+            if hold:
+                hold.release()
+            hold, job_ref = None, ""
     if not job_ref:
         _render_job(names, variants, user)
         return
-    # The render's job record + this container's lease on it (still_jobs): what
-    # lets a container that replaces this one collect the RunPod jobs in flight,
-    # and what fires the completion callback. Neither changes the render itself.
-    # The hold comes FIRST: it is what keeps a `/progress?jobRef=` read in this
-    # container from adopting the render as an orphan the moment its doc exists.
-    hold = still_jobs.Hold(job_ref)
-    still_jobs.open_render(job_ref, manifest=manifest_path().name, names=names,
-                           variants=variants, user=user, callback=callback)
     status, error = "failed", ""
     try:
         rc = _render_job(names, variants, user, job_ref)
@@ -3350,10 +3364,15 @@ def run_render(names: list[str], variants: int = 1,
         error = str(e)
         raise
     finally:
-        closed = still_jobs.close_render(job_ref, status, error)
-        hold.release()
-        if closed:
-            still_jobs.deliver_callback(closed)
+        # Delivered BEFORE the lease goes, so a boot sweep in another container
+        # cannot redeliver it beside us; one that never lands is redelivered at
+        # the next boot.
+        try:
+            closed = still_jobs.close_render(job_ref, status, error)
+            if closed:
+                still_jobs.deliver_callback(closed)
+        finally:
+            hold.release()
 
 
 def _render_job(names: list[str], variants: int, user: str,
@@ -8613,7 +8632,13 @@ class Handler(BaseHTTPRequestHandler):
             qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             ref = qs.get("jobRef", [""])[0]
             if ref:
-                view = still_jobs.job_view(ref, finish=_finish_resumed_render)
+                try:
+                    view = still_jobs.job_view(ref, finish=_finish_resumed_render)
+                except Exception as e:  # noqa: BLE001 — R2 unreadable: say so, retryably
+                    self._send(503, "application/json",
+                               json.dumps({"error": f"job state unreadable ({e})"})
+                               .encode())
+                    return
                 if view is None:
                     self._send(404, "application/json",
                                json.dumps({"error": "unknown jobRef"}).encode())

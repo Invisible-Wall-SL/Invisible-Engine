@@ -31,6 +31,7 @@ import threading
 import time
 import uuid
 import difflib
+import itertools
 import urllib.parse
 from pathlib import Path
 from urllib.request import Request, urlopen
@@ -251,6 +252,7 @@ import comfy_specs  # noqa: E402
 import shared_taxonomy  # noqa: E402
 import model_mirror  # noqa: E402
 import model_provenance  # noqa: E402
+import still_jobs  # noqa: E402
 from iw_common.diagnostics import diag, emit  # noqa: E402
 from diag_catalog import CATALOG  # noqa: E402
 
@@ -3044,7 +3046,7 @@ RUNPOD_JOB_MARK = "@@RUNPOD_JOB@@"
 # every RunPod job this subprocess submits is recorded under it so a container
 # that replaces this one can collect the job; unset (a CLI run), nothing is.
 JOB_REF = (os.environ.get("ATLAS_JOB_REF") or "").strip()
-_JOB_SEQ = iter(range(1, 1 << 30))
+_JOB_SEQ = itertools.count(1)
 
 
 def read_runpod_job_mark(line: str) -> tuple[str, str] | None:
@@ -3177,6 +3179,11 @@ def _runpod_post(path: str, payload: dict, endpoint: str) -> dict:
         raise RuntimeError(f"Cannot reach RunPod endpoint at {base}{path}: {e}")
 
 
+def runpod_status(job_id: str, endpoint: str) -> dict:
+    """GET /status/<job_id> on the endpoint the job was submitted to."""
+    return _runpod_get(f"/status/{job_id}", endpoint)
+
+
 def _runpod_get(path: str, endpoint: str) -> dict:
     base = _runpod_endpoint_base(endpoint)
     req = Request(f"{base}{path}", headers=_runpod_headers())
@@ -3213,7 +3220,10 @@ def _runpod_run_and_wait(job: dict, region_name: str, on_submit=None) -> dict:
     # was telling it.
     print(f"{RUNPOD_JOB_MARK}{jid} {eid}", flush=True)
     if on_submit:
-        on_submit(jid, eid)
+        try:
+            on_submit(jid, eid)
+        except Exception as e:  # noqa: BLE001 — bookkeeping must never orphan the job
+            print(f"[still-jobs] could not record job {jid} ({e})", flush=True)
     deadline = time.time() + 1800  # 30 min cap — cold start + model load + gen
     started = time.time()
     last_tick = started
@@ -3339,31 +3349,37 @@ def _run_region_serverless(region: dict, wf: dict,
     seq = next(_JOB_SEQ) if JOB_REF else 0
 
     def _record(jid: str, eid: str) -> None:
-        import still_jobs
         still_jobs.record_submitted(JOB_REF, seq, region=region["name"], job_id=jid,
                                     endpoint=eid, payload=job, provenance=provenance)
 
     try:
         out = _runpod_run_and_wait(job, region["name"],
                                    on_submit=_record if JOB_REF else None)
-        filename, blob = persist_serverless_output(region["name"], out,
-                                                   provenance=provenance)
+        filename, blob = persist_serverless_output(
+            region["name"], out, provenance=provenance,
+            claim=(lambda name: still_jobs.claim_collect(JOB_REF, seq, name))
+            if JOB_REF else None)
     except Exception as e:
         if JOB_REF:
-            import still_jobs
             still_jobs.record_settled(JOB_REF, seq, "failed", error=str(e))
         raise
-    if JOB_REF:
-        import still_jobs
+    if JOB_REF and filename:
         still_jobs.record_settled(JOB_REF, seq, "done", variant=filename)
     return Image.open(io.BytesIO(blob)).convert("RGBA")
 
 
-def persist_serverless_output(rname: str, out: dict,
-                              provenance: dict | None = None) -> tuple[str, bytes]:
+def persist_serverless_output(rname: str, out: dict, provenance: dict | None = None,
+                              *, claim=None, filename: str | None = None,
+                              exclusive: bool = False) -> tuple[str | None, bytes]:
     """Decode a finished RunPod job's `output` and persist it as the region's next
     variant. Returns (variant filename, PNG bytes). Shared by the subprocess and
-    by `still_jobs`, which collects a job the subprocess did not live to see end."""
+    by `still_jobs`, which collects a job the subprocess did not live to see end.
+
+    `claim(name)` is asked before anything is written; False means somebody else
+    is saving this job, and the filename comes back None with nothing written.
+    `exclusive` creates the R2 object `If-None-Match: *`, moving to the next id
+    when the name is taken — or, for a fixed `filename`, reading a taken name as
+    this very render already saved."""
     # The worker can report a graph/execution failure as {"error", "detail"}
     # inside `output` on an otherwise-COMPLETED job — surface it as a clear error
     # rather than the generic "no images" below.
@@ -3397,9 +3413,39 @@ def persist_serverless_output(rname: str, out: dict,
     # all variants collide on '<region>_00001_.png' and overwrite each other. The
     # next-free local id (mirrors ComfyUI's counter) keeps every variant, and the
     # PNG still carries its embedded seed so lock / Create Atlas work unchanged.
-    filename = _next_variant_filename(rname)
-    _persist_variant(rname, filename, blob, provenance=provenance)
-    return filename, blob
+    name = filename or _next_variant_filename(rname)
+    if claim and not claim(name):
+        return None, blob
+    if exclusive:
+        name, fresh = _claim_variant_name(rname, name, blob, fixed=bool(filename))
+        if not fresh:
+            return name, blob
+        if claim and not claim(name):
+            return None, blob
+    _persist_variant(rname, name, blob, provenance=provenance)
+    return name, blob
+
+
+def _claim_variant_name(rname: str, name: str, blob: bytes,
+                        fixed: bool) -> tuple[str, bool]:
+    """Create `batch/<name>` in R2 only if nothing is there. Returns (name, fresh):
+    a taken name moves to the next id, unless it is `fixed` — then it is already
+    this render, and `fresh` is False. Without R2 (a local run) nothing is checked."""
+    r2_prefix = project_paths.resolve().get("r2_project_prefix")
+    if not r2_prefix:
+        return name, True
+    pat = re.compile(rf"^{re.escape(rname)}_(\d+)_?\.png$", re.IGNORECASE)
+    for _ in range(100):
+        try:
+            storage.put(f"{r2_prefix}/batch/{name}", blob, "image/png",
+                        if_none_match="*")
+            return name, True
+        except storage.Conflict:
+            if fixed:
+                return name, False
+            m = pat.match(name)
+            name = f"{rname}_{(int(m.group(1)) if m else 0) + 1:05d}_.png"
+    raise RuntimeError(f"no free variant name for region '{rname}' after 100 tries")
 
 
 def run_region(region: dict, style: dict, atlas_path: str, client_id: str) -> Image.Image:
@@ -3522,7 +3568,6 @@ def run_region(region: dict, style: dict, atlas_path: str, client_id: str) -> Im
                 _persist_variant(region["name"], meta["filename"], blob,
                                  provenance=prov)
                 if JOB_REF:
-                    import still_jobs
                     still_jobs.record_local(
                         JOB_REF, next(_JOB_SEQ), region=region["name"],
                         variant=os.path.basename(meta["filename"]))
@@ -4624,7 +4669,6 @@ def main() -> None:
     print(f"Generation: regions {len(gen_regions)}  variants {variants}  "
           f"total jobs {len(jobs)}  (atlas NOT composed — use Create Atlas)")
     if JOB_REF:
-        import still_jobs
         still_jobs.record_plan(JOB_REF, len(jobs))
 
     # Effective pipeline per job — so the log states plainly WHICH pipeline runs

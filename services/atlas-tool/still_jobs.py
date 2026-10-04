@@ -21,6 +21,15 @@ renewed while the subprocess lives). A fresh container looks at boot for renders
 still `running` whose lease nobody holds, re-attaches to each job still marked
 `submitted`, and collects it the way the subprocess would have. A job RunPod no
 longer knows is resubmitted ONCE from its stored payload; a second loss fails it.
+A render the old container still held at boot (a rolling deploy overlaps the two)
+is re-checked once its lease can have expired, and a finished render whose callback
+was never delivered is delivered again — at least once, so a receiver dedupes on
+`jobRef`.
+
+A job is CLAIMED before its variant is written: `submitted` -> `collecting`, with
+the variant's filename, on a conditional write. Whoever loses that write does not
+persist, and a job found `collecting` after a crash is finished under the same
+filename, created `If-None-Match: *` — so a job is never saved twice.
 
 Every write is conditional: records are created `If-None-Match: *` and changed
 `If-Match` on the ETag just read (`_cas`). The manifest itself is only written by
@@ -55,9 +64,15 @@ INSTANCE_ID = ((os.environ.get("RAILWAY_REPLICA_ID")
 
 LEASE_TOOL = "atlasStill"
 LEASE_RENEW_SECONDS = lease.LEASE_HEARTBEAT_MS / 1000.0
+# A render held by another container at boot is looked at again after its lease
+# can have expired, this many times. A rolling deploy's overlap is well under a
+# minute, so the tail is only for an old container that is slow to die.
+DEFER_RECHECK_SECONDS = lease.LEASE_TTL_MS / 1000.0 + 15
+DEFER_RECHECKS = 40
 # A render older than this is not resumed: RunPod dropped its jobs long ago, and
 # re-queueing them would spend on a render nobody is waiting for. It is settled
-# `failed` instead, so its callback still fires.
+# `failed` instead, so its callback still fires. The same window bounds callback
+# redelivery.
 RESUME_WINDOW_HOURS = float(os.environ.get("STILL_RESUME_WINDOW_HOURS") or 12)
 # The subprocess gives a job 30 minutes from submit; a resumed job gets the same.
 JOB_TIMEOUT_SECONDS = 1800
@@ -68,15 +83,18 @@ STATUS_GRACE_SECONDS = 180.0
 NOT_FOUND_RECHECK_SECONDS = (10.0, 20.0, 40.0, 80.0)
 CALLBACK_TIMEOUT_SECONDS = 10
 CALLBACK_RETRY_SECONDS = (2.0, 8.0)
+# A token may live at most this long: a caller mints one per render.
+MAX_TOKEN_TTL_SECONDS = 24 * 3600
 # How long a signed callback POST stays acceptable to a receiver that checks `t=`.
 SIGNATURE_TOLERANCE_SECONDS = 300
 
 TERMINAL = ("finished", "failed", "cancelled")
+SETTLEABLE = ("submitted", "collecting")
 _REF_RE = re.compile(r"^st_[0-9a-f]{16}$")
 _TOKEN_SCOPE = "atlas-callback.v1"
 
-# Renders this process is running or resuming right now. Adopt-on-read checks it so
-# a render this container owns is never adopted a second time beside itself.
+# Renders this process is running, resuming or delivering right now. Adoption
+# checks it so a render this container owns is never taken on a second time.
 _LIVE: set[str] = set()
 _LIVE_LOCK = threading.Lock()
 
@@ -97,9 +115,17 @@ def valid_job_ref(ref: str) -> bool:
     return bool(_REF_RE.match(ref or ""))
 
 
+def _prefix() -> str:
+    """`<client>/<project>` for the CALLING thread's context. Not via `resolve()`,
+    which hydrates the project's staging — a boot sweep over every project would
+    pull them all."""
+    return project_paths.r2_project_prefix(
+        project_paths.r2_slug(project_paths.client_name()),
+        project_paths.r2_slug(project_paths.project_name()))
+
+
 def _root() -> str:
-    """`<client>/<project>/_jobs/still` for the CALLING thread's context."""
-    return f"{project_paths.resolve()['r2_project_prefix']}/_jobs/still"
+    return f"{_prefix()}/_jobs/still"
 
 
 def _render_key(ref: str) -> str:
@@ -226,30 +252,39 @@ def record_plan(ref: str, total: int) -> None:
 
 
 def close_render(ref: str, status: str, error: str = "") -> dict | None:
-    """Move a `running` render to a terminal status. Returns the closed doc only
-    to the caller that made the transition, so its callback fires exactly once.
+    """Move a `running` render to a terminal status, with the variants it made.
+    Returns the closed doc only to the caller that made the transition.
 
-    Records a render's own death or stop too: any job still `submitted` was
-    abandoned with it (Stop cancelled it on RunPod)."""
-    def _m(d: dict) -> dict | None:
-        if d.get("status") in TERMINAL:
-            return None
-        d.update(status=status, finishedAt=_now())
-        if error:
-            d["error"] = error[:500]
-        return d
-    closed = _cas(_render_key(ref), _m)
-    if closed is None:
-        return None
+    A job still `submitted` at this point outlived the process that was polling it
+    (a stop, or a subprocess that died): it is cancelled on RunPod — nothing will
+    collect it now — and recorded `abandoned`."""
     try:
         jobs = _jobs(ref)
     except Exception:  # noqa: BLE001
         jobs = []
     for j in jobs:
-        if j.get("status") == "submitted":
-            record_settled(ref, int(j["seq"]), "abandoned", error=f"render {status}")
-    closed["variants"] = variants_of([j for j in jobs if j.get("status") == "done"])
-    return closed
+        if j.get("status") not in SETTLEABLE:
+            continue
+        if j.get("status") == "submitted" and j.get("jobId"):
+            import batch_atlas
+            why = batch_atlas.runpod_cancel(str(j["jobId"]), str(j.get("endpoint") or ""))
+            if why:
+                print(f"[still-jobs] {ref}: could not cancel abandoned job "
+                      f"{j['jobId']} ({why})", flush=True)
+        settled = record_settled(ref, int(j["seq"]), "abandoned",
+                                 error=f"render {status}")
+        if settled:
+            j.update(settled)
+    variants = variants_of(jobs)
+
+    def _m(d: dict) -> dict | None:
+        if d.get("status") in TERMINAL:
+            return None
+        d.update(status=status, finishedAt=_now(), variants=variants)
+        if error:
+            d["error"] = error[:500]
+        return d
+    return _cas(_render_key(ref), _m)
 
 
 # --------------------------------------------------------------------------
@@ -283,14 +318,36 @@ def record_local(ref: str, seq: int, *, region: str, variant: str) -> None:
     })
 
 
+def claim_collect(ref: str, seq: int, variant: str) -> bool:
+    """Take the right to save this job's render as `variant`: `submitted` ->
+    `collecting`, or a rename of a claim this container already holds. False when
+    somebody else holds it or it is settled — the caller must not save."""
+    def _m(d: dict) -> dict | None:
+        st = d.get("status")
+        if st == "collecting" and d.get("collector") != INSTANCE_ID:
+            return None
+        if st not in SETTLEABLE:
+            return None
+        d.update(status="collecting", collector=INSTANCE_ID, variant=variant)
+        return d
+    try:
+        exists, _etag = _read(_job_key(ref, seq))
+    except Exception:  # noqa: BLE001 — a store we cannot ask holds nobody
+        return True
+    if exists is None:
+        return True    # no record (it could not be written): nothing to claim against
+    return _cas(_job_key(ref, seq), _m) is not None
+
+
 def record_settled(ref: str, seq: int, status: str, *, variant: str = "",
                    error: str = "") -> dict | None:
-    """Settle a `submitted` job. A job already settled is left as it is — the
+    """Settle a job still in flight. A job already settled is left as it is — the
     first answer wins, so a late writer cannot undo a collected render."""
     def _m(d: dict) -> dict | None:
-        if d.get("status") != "submitted":
+        if d.get("status") not in SETTLEABLE:
             return None
         d.update(status=status, settledAt=_now())
+        d.pop("collector", None)
         if variant:
             d["variant"] = variant
         if error:
@@ -310,7 +367,7 @@ def record_settled(ref: str, seq: int, status: str, *, variant: str = "",
 # --------------------------------------------------------------------------
 
 def _lease_key(ref: str) -> lease.LeaseKey:
-    parts = project_paths.resolve()["r2_project_prefix"].strip("/").split("/")
+    parts = _prefix().strip("/").split("/")
     return lease.LeaseKey(LEASE_TOOL, parts[-2], parts[-1], ref)
 
 
@@ -319,11 +376,13 @@ def _holder() -> lease.LeaseHolder:
 
 
 class Hold:
-    """This container's lease on one render, renewed until `release()`."""
+    """This container's lease on one render, renewed until `release()` — or until
+    a renewal is refused, which means somebody took it (`lost`)."""
 
     def __init__(self, ref: str) -> None:
         self.ref = ref
         self.key = _lease_key(ref)
+        self.lost = False
         self._stop = threading.Event()
         self.acquired = lease.acquire(self.key, _holder())
         with _LIVE_LOCK:
@@ -335,7 +394,9 @@ class Hold:
     def _beat(self) -> None:
         while not self._stop.wait(LEASE_RENEW_SECONDS):
             try:
-                lease.heartbeat(self.key, _holder())
+                if not lease.heartbeat(self.key, _holder()):
+                    self.lost = True
+                    return
             except Exception:  # noqa: BLE001 — expiry is the backstop
                 pass
 
@@ -355,6 +416,24 @@ def _held_elsewhere(ref: str) -> bool:
     except Exception:  # noqa: BLE001 — unreadable holds nobody
         return False
     return row is not None and not lease.is_same_holder(row, _holder())
+
+
+def _take(ref: str) -> Hold | str:
+    """This container's hold on `ref`, or why not: `"busy"` (we already have it)
+    or `"held"` (another container does)."""
+    with _LIVE_LOCK:
+        if ref in _LIVE:
+            return "busy"
+        _LIVE.add(ref)
+    if _held_elsewhere(ref):
+        with _LIVE_LOCK:
+            _LIVE.discard(ref)
+        return "held"
+    hold = Hold(ref)
+    if not hold.acquired:
+        hold.release()
+        return "held"
+    return hold
 
 
 # --------------------------------------------------------------------------
@@ -380,7 +459,7 @@ def _await(job_id: str, endpoint: str, since: float) -> tuple[str, object]:
     while True:
         now = _now()
         try:
-            st = batch_atlas._runpod_get(f"/status/{job_id}", endpoint)
+            st = batch_atlas.runpod_status(job_id, endpoint)
         except Exception as e:  # noqa: BLE001 — a bad READ is not a bad job
             if getattr(e, "code", None) == 404:
                 if rechecks < len(NOT_FOUND_RECHECK_SECONDS):
@@ -412,11 +491,26 @@ def _await(job_id: str, endpoint: str, since: float) -> tuple[str, object]:
         _sleep(POLL_SECONDS)
 
 
+def _already_saved(variant: str) -> bool:
+    """Is this variant in R2 already? A job left `collecting` by a process that
+    died after its write and before its settle is done, not owed."""
+    if not variant:
+        return False
+    try:
+        return storage.head(f"{_prefix()}/batch/{variant}") is not None
+    except Exception:  # noqa: BLE001 — unknown: the exclusive write below decides
+        return False
+
+
 def _finish_job(ref: str, job: dict) -> str:
-    """Drive one `submitted` job to a settled status, re-queueing it once if
+    """Drive one in-flight job to a settled status, re-queueing it once if
     RunPod lost it. Returns the status it settled at."""
     import batch_atlas
     seq = int(job["seq"])
+    fixed = str(job.get("variant") or "") if job.get("status") == "collecting" else ""
+    if fixed and _already_saved(fixed):
+        record_settled(ref, seq, "done", variant=fixed)
+        return "done"
     while True:
         since = float(job.get("requeuedAt") or job.get("submittedAt") or _now())
         outcome, detail = _await(str(job["jobId"]), str(job.get("endpoint") or ""),
@@ -424,10 +518,14 @@ def _finish_job(ref: str, job: dict) -> str:
         if outcome == "completed":
             try:
                 fname, _blob = batch_atlas.persist_serverless_output(
-                    str(job["region"]), detail, provenance=job.get("provenance"))
+                    str(job["region"]), detail, provenance=job.get("provenance"),
+                    claim=lambda name: claim_collect(ref, seq, name),
+                    filename=fixed or None, exclusive=True)
             except Exception as e:  # noqa: BLE001
                 record_settled(ref, seq, "failed", error=str(e))
                 return "failed"
+            if fname is None:
+                return "claimed"   # somebody else is saving it
             record_settled(ref, seq, "done", variant=fname)
             print(f"[still-jobs] {ref}: collected {fname} after a restart", flush=True)
             return "done"
@@ -455,7 +553,7 @@ def _requeue(ref: str, job: dict) -> dict | None:
         return None
 
     def _claim(d: dict) -> dict | None:
-        if d.get("status") != "submitted" or d.get("requeued"):
+        if d.get("status") not in SETTLEABLE or d.get("requeued"):
             return None
         d.update(requeued=True, previousJobId=d.get("jobId"), requeuedAt=_now())
         return d
@@ -468,11 +566,16 @@ def _requeue(ref: str, job: dict) -> dict | None:
         return None
 
     def _bind(d: dict) -> dict | None:
-        if d.get("status") != "submitted":
+        if d.get("status") not in SETTLEABLE:
             return None
         d.update(jobId=jid, endpoint=eid)
         return d
     bound = _cas(_job_key(ref, seq), _bind)
+    if bound is None:
+        # The job is polled from memory below either way; only a restart before
+        # it settles would lose it, and then this line is how to find it.
+        print(f"[still-jobs] {ref}/{seq}: re-queued as RunPod job {jid} on endpoint "
+              f"{eid} but could not record it", flush=True)
     print(f"[still-jobs] {ref}: RunPod lost job {seq} ({job.get('region')}); "
           f"re-queued once as {jid}", flush=True)
     return bound or {**job, "jobId": jid, "endpoint": eid, "requeued": True,
@@ -492,7 +595,7 @@ def _resume(ref: str, ctx: tuple[str, str], hold: Hold,
         jobs = _jobs(ref)
         old = _now() - float(doc.get("submittedAt") or 0) > RESUME_WINDOW_HOURS * 3600
         for j in jobs:
-            if j.get("status") != "submitted":
+            if j.get("status") not in SETTLEABLE or hold.lost:
                 continue
             if old:
                 record_settled(ref, int(j["seq"]), "lost", error="too old to resume")
@@ -502,9 +605,13 @@ def _resume(ref: str, ctx: tuple[str, str], hold: Hold,
             except Exception as e:  # noqa: BLE001 — one job must not sink the rest
                 errors.capture_error(e, job="still-resume", job_ref=ref)
                 record_settled(ref, int(j["seq"]), "failed", error=str(e))
+        if hold.lost:
+            print(f"[still-jobs] {ref}: another container took this render over; "
+                  "leaving it to them", flush=True)
+            return
         jobs = _jobs(ref)
         done = [j for j in jobs if j.get("status") == "done"]
-        bad = [j for j in jobs if j.get("status") not in ("done", "submitted")]
+        bad = [j for j in jobs if j.get("status") not in ("done",) + SETTLEABLE]
         total = doc.get("total")
         unstarted = max(0, int(total) - len(jobs)) if total is not None else 0
         if done and finish:
@@ -534,77 +641,145 @@ def _resume(ref: str, ctx: tuple[str, str], hold: Hold,
 
 
 def adopt(ref: str, finish: Callable[[dict], None] | None = None,
-          *, wait: bool = False) -> bool:
-    """Take an orphaned render on in THIS container: one nobody's lease covers and
-    this process is not already running. True when it was adopted."""
-    with _LIVE_LOCK:
-        if ref in _LIVE:
-            return False
-        _LIVE.add(ref)
-    if _held_elsewhere(ref):
-        with _LIVE_LOCK:
-            _LIVE.discard(ref)
-        return False
-    hold = Hold(ref)
-    if not hold.acquired:
-        hold.release()
-        return False
+          *, wait: bool = False) -> str:
+    """Take an orphaned render on in THIS container. `"adopted"`, `"busy"` (this
+    process already has it) or `"held"` (another container does)."""
+    hold = _take(ref)
+    if not isinstance(hold, Hold):
+        return hold
     ctx = (project_paths.client_name(), project_paths.project_name())
     if wait:
         _resume(ref, ctx, hold, finish)
     else:
         threading.Thread(target=_resume, args=(ref, ctx, hold, finish), daemon=True,
                          name=f"still-resume-{ref}").start()
-    return True
+    return "adopted"
 
 
-def _project_prefixes() -> list[str]:
-    out: list[str] = []
-    for client in storage.list_prefixes("", complete=False):
-        out += storage.list_prefixes(client, complete=False)
+def _owes_callback(doc: dict) -> bool:
+    """A closed render whose callback never landed, recently enough to matter."""
+    return (doc.get("status") in TERMINAL and bool(doc.get("callback"))
+            and not doc.get("callbackDelivered")
+            and _now() - float(doc.get("finishedAt") or 0)
+            < RESUME_WINDOW_HOURS * 3600)
+
+
+def redeliver(ref: str) -> str:
+    """Deliver a closed render's undelivered callback again, under its lease so
+    two containers do not both send it. Same answers as `adopt`."""
+    hold = _take(ref)
+    if not isinstance(hold, Hold):
+        return hold
+    try:
+        doc, _etag = _read(_render_key(ref))
+        if doc and _owes_callback(doc):
+            deliver_callback(doc)
+    except Exception as e:  # noqa: BLE001
+        print(f"[still-jobs] could not redeliver {ref} ({e})", flush=True)
+    finally:
+        hold.release()
+    return "adopted"
+
+
+def _visit(ref: str, finish, wait: bool) -> str:
+    """What the sweep does with one render: adopt it if it is running, redeliver
+    its callback if it owes one. `"held"` means look again later."""
+    doc, _etag = _read(_render_key(ref))
+    if not doc:
+        return "done"
+    if doc.get("status") == "running":
+        return adopt(ref, finish, wait=wait)
+    if _owes_callback(doc):
+        return redeliver(ref)
+    return "done"
+
+
+def _project_keys() -> list[tuple[str, str]]:
+    """Every (client, project) in the bucket whose names are real slugs. Anything
+    else at the top level (`_users/`, …) is not a project, and `set_context` would
+    quietly fall back to the env default for it."""
+    out: list[tuple[str, str]] = []
+    for cp in storage.list_prefixes("", complete=False):
+        for pp in storage.list_prefixes(cp, complete=False):
+            parts = pp.strip("/").split("/")
+            if len(parts) != 2:
+                continue
+            c, p = parts
+            if project_paths.r2_slug(c) == c and project_paths.r2_slug(p) == p:
+                out.append((c, p))
     return out
 
 
 def resume_orphans(finish: Callable[[dict], None] | None = None,
                    *, wait: bool = False) -> list[str]:
-    """At boot: adopt every render the last container left `running`. Returns the
-    jobRefs adopted. Never raises — a bucket it cannot sweep costs the recovery,
+    """At boot: adopt every render the last container left `running`, redeliver
+    callbacks that never landed, and keep looking at the renders another container
+    still held until its lease has had time to expire. Returns the jobRefs adopted
+    on the first pass. Never raises — a bucket it cannot sweep costs the recovery,
     not the tool."""
     adopted: list[str] = []
+    deferred: list[tuple[str, str, str]] = []
     try:
-        prefixes = _project_prefixes()
+        projects = _project_keys()
     except Exception as e:  # noqa: BLE001
         print(f"[still-jobs] could not list projects ({e})", flush=True)
         return adopted
-    for pp in prefixes:
-        try:
-            client, project = pp.strip("/").split("/", 1)
-        except ValueError:
-            continue
+    for client, project in projects:
         try:
             project_paths.set_context(client, project)
-            for ref in storage.list_prefixes(f"{_root()}/", complete=False):
-                ref = ref.rstrip("/").rsplit("/", 1)[-1]
+            for pref in storage.list_prefixes(f"{_root()}/", complete=False):
+                ref = pref.rstrip("/").rsplit("/", 1)[-1]
                 if not valid_job_ref(ref):
                     continue
-                doc, _etag = _read(_render_key(ref))
-                if not doc or doc.get("status") != "running":
-                    continue
-                if adopt(ref, finish, wait=wait):
+                got = _visit(ref, finish, wait)
+                if got == "adopted":
                     adopted.append(ref)
+                elif got == "held":
+                    deferred.append((client, project, ref))
         except Exception as e:  # noqa: BLE001 — one project must not stop the rest
-            print(f"[still-jobs] could not scan {pp} ({e})", flush=True)
+            print(f"[still-jobs] could not scan {client}/{project} ({e})", flush=True)
     if adopted:
         print(f"[still-jobs] resuming {len(adopted)} render(s) interrupted by the "
               f"last restart: {', '.join(adopted)}", flush=True)
+    if deferred:
+        print(f"[still-jobs] {len(deferred)} render(s) still held by the previous "
+              "container; looking again once its lease can have expired", flush=True)
+        if wait:
+            _recheck_deferred(deferred, finish, wait)
+        else:
+            threading.Thread(target=_recheck_deferred, args=(deferred, finish, False),
+                             daemon=True, name="still-resume-deferred").start()
     return adopted
+
+
+def _recheck_deferred(deferred: list[tuple[str, str, str]], finish,
+                      wait: bool) -> None:
+    """The boot sweep runs while the old container is still up and renewing its
+    leases, so most of what it finds is `held`. Without this, those renders waited
+    for the next boot — by when RunPod had dropped the results."""
+    for _ in range(DEFER_RECHECKS):
+        if not deferred:
+            return
+        _sleep(DEFER_RECHECK_SECONDS)
+        still: list[tuple[str, str, str]] = []
+        for client, project, ref in deferred:
+            try:
+                project_paths.set_context(client, project)
+                if _visit(ref, finish, wait) == "held":
+                    still.append((client, project, ref))
+            except Exception as e:  # noqa: BLE001
+                print(f"[still-jobs] could not re-check {ref} ({e})", flush=True)
+        deferred = still
+    if deferred:
+        print(f"[still-jobs] gave up waiting on {len(deferred)} render(s) another "
+              "container still holds", flush=True)
 
 
 def job_view(ref: str, finish: Callable[[dict], None] | None = None) -> dict | None:
     """`/progress?jobRef=`: the render's state and its jobs, for the CALLER's
     project. A render left `running` by a container that is gone is adopted here
-    too — the reader is the job watcher, so this is where an orphan the boot sweep
-    deferred (its old container was still draining) gets picked up."""
+    too, so a watcher's read is a further way in for an orphan. Raises
+    `storage.ObjectUnreadable` when R2 cannot be read."""
     if not valid_job_ref(ref):
         return None
     doc, _etag = _read(_render_key(ref))
@@ -636,8 +811,8 @@ def _token_mac(secret: bytes, url: str, exp: int) -> str:
 
 def mint_callback_token(url: str, ttl_seconds: int = 6 * 3600,
                         secret: bytes | None = None) -> str:
-    """`v1.<exp>.<hex>` — the launcher's half, mirrored here for the fixtures and
-    for anyone wiring a caller in Python."""
+    """`v1.<exp>.<hex>`. A caller (the Director adapter) mints this with the same
+    secret; this one is the reference implementation and the fixtures' minter."""
     exp = int(_now()) + int(ttl_seconds)
     return f"v1.{exp}.{_token_mac(secret or _secret(), url, exp)}"
 
@@ -667,6 +842,8 @@ def parse_callback(payload: dict) -> tuple[dict | None, str]:
     exp = int(parts[1])
     if exp < _now():
         return None, "the callback token has expired"
+    if exp - _now() > MAX_TOKEN_TTL_SECONDS:
+        return None, "the callback token lives longer than a day"
     if not hmac.compare_digest(parts[2], _token_mac(secret, url, exp)):
         return None, "the callback token does not match this URL"
     return {"url": url, "token": token}, ""
@@ -696,15 +873,28 @@ def verify_signature(body: bytes, header: str, secret: bytes,
     return hmac.compare_digest(fields.get("v1", ""), want)
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """The token binds ONE URL; following a redirect would POST the signed body
+    and the token somewhere it never named."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D401
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 def _post(url: str, body: bytes, headers: dict) -> int:
     req = urllib.request.Request(url, data=body, method="POST", headers=headers)
-    with urllib.request.urlopen(req, timeout=CALLBACK_TIMEOUT_SECONDS) as r:
+    with _OPENER.open(req, timeout=CALLBACK_TIMEOUT_SECONDS) as r:
         return int(r.status)
 
 
 def deliver_callback(doc: dict) -> bool:
     """POST `{jobRef, status, variants}` to the render's callback, signed. A render
-    with no callback does nothing. Never raises; never logs the token or secret."""
+    with no callback does nothing. Never raises; never logs the token or secret.
+    Delivery is recorded on the render, and the boot sweep redelivers one that
+    never landed."""
     cb = doc.get("callback") or {}
     url = str(cb.get("url") or "")
     if not url:

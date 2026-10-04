@@ -77,6 +77,9 @@ class Bucket:
     def list_keys(self, p, complete=True):
         return [{"key": k, "mtime": 0} for k in sorted(self.o) if k.startswith(p)]
 
+    def head(self, k):
+        return {"size": len(self.o[k][0])} if k in self.o else None
+
     def list_prefixes(self, p, complete=True):
         return sorted({k[:len(p) + k[len(p):].index("/") + 1]
                        for k in self.o if k.startswith(p) and "/" in k[len(p):]})
@@ -88,6 +91,7 @@ class Bucket:
 R2 = Bucket()
 TMP = tempfile.mkdtemp(prefix="still-jobs-")
 PERSISTED: list[tuple[str, str]] = []
+CANCELLED: list[str] = []
 ROOT = "clientx/projecty/_jobs/still"
 
 
@@ -96,11 +100,14 @@ def install() -> None:
     R2 = Bucket()
     for mod in (storage, shared_storage):
         for name in ("put", "get_with_etag", "get", "delete", "list_keys",
-                     "list_prefixes"):
+                     "list_prefixes", "head"):
             setattr(mod, name, getattr(R2, name))
     # still_jobs reads `storage` (the tool's shim, whose names were bound at its
     # import) and the lease reads `iw_common.storage`: both must be the double.
     still_jobs.storage = storage
+    batch_atlas.storage = storage
+    still_jobs.project_paths.r2_project_prefix = lambda c, p: f"{c}/{p}"
+    still_jobs.project_paths.r2_slug = lambda x: x if "_" not in x[:1] else ""
     still_jobs.project_paths.resolve = lambda: {
         "r2_project_prefix": "clientx/projecty", "batch_dir": TMP, "staging_root": TMP}
     still_jobs.project_paths.set_context = lambda *a, **k: True
@@ -113,7 +120,8 @@ def install() -> None:
     batch_atlas._persist_variant = (
         lambda rname, fname, blob, provenance=None: PERSISTED.append((rname, fname)))
     batch_atlas._next_variant_filename = lambda rname: f"{rname}_00007_.png"
-    batch_atlas.runpod_cancel = lambda jid, eid: ""
+    CANCELLED.clear()
+    batch_atlas.runpod_cancel = lambda jid, eid: CANCELLED.append(jid) or ""
     os.environ["ATLAS_CALLBACK_SECRET"] = SECRET.decode()
 
 
@@ -124,8 +132,7 @@ class RunPod:
         self.answers = answers
         self.submitted: list[dict] = []
 
-    def get(self, path, endpoint):
-        jid = path.rsplit("/", 1)[-1]
+    def get(self, jid, endpoint):
         seq = self.answers.get(jid) or [404]
         ans = seq.pop(0) if len(seq) > 1 else seq[0]
         if ans == 404:
@@ -139,7 +146,7 @@ class RunPod:
         return f"requeued-{len(self.submitted)}", "ep1"
 
     def install(self) -> None:
-        batch_atlas._runpod_get = self.get
+        batch_atlas.runpod_status = self.get
         batch_atlas.runpod_submit = self.submit
 
 
@@ -548,11 +555,131 @@ def test_a_render_records_and_closes_its_job_ref() -> None:
           (doc["status"], doc["manifest"], doc["user"]), ("finished", "hero.json", "alice"))
     check("...posting nothing without a callback", posted, [])
     check("...and letting its lease go", any("/_leases/" in k for k in R2.o), False)
-    u._stopped = True
+    def stopped_mid_render(names, variants, user, job_ref=""):
+        u._stopped = True       # what Stop does while the subprocess runs
+        return -15
+    u._render_job = stopped_mid_render
     u.run_render(["H1"], 1, ("clientx", "projecty"), "alice", "st_00000000000000ee")
-    u._stopped = False
     check("a stopped render closes cancelled",
           R2.doc(f"{ROOT}/st_00000000000000ee/render.json")["status"], "cancelled")
+    u._render_job = lambda names, variants, user, job_ref="": None
+    u.run_render(["H1"], 1, ("clientx", "projecty"), "alice", "st_00000000000000ff")
+    check("...and the next render that never starts is failed, not cancelled",
+          R2.doc(f"{ROOT}/st_00000000000000ff/render.json")["status"], "failed")
+
+
+# --------------------------------------------------------------------------
+# What the review found
+# --------------------------------------------------------------------------
+
+def test_a_render_held_at_boot_is_picked_up_once_the_lease_lapses() -> None:
+    install()
+    RunPod({"job-1": [completed()]}).install()
+    ref = interrupted_render()
+    other = still_jobs.lease.LeaseHolder("atlas-tool", "the-old-container")
+    key = still_jobs._lease_key(ref)
+    still_jobs.lease.acquire(key, other)
+    waits: list[float] = []
+
+    def old_container_dies(seconds):
+        waits.append(seconds)
+        R2.delete(key.path())   # its lease is gone: the container went away
+    still_jobs._sleep = old_container_dies
+    adopted = still_jobs.resume_orphans(wait=True)
+    check("the first pass leaves a render the old container still holds",
+          adopted, [])
+    check("...and looks again after the lease can have expired",
+          waits[:1], [still_jobs.DEFER_RECHECK_SECONDS])
+    check("...when it adopts and collects it",
+          R2.doc(f"{ROOT}/{ref}/render.json")["status"], "finished")
+
+
+def test_an_undelivered_callback_is_redelivered_at_boot() -> None:
+    install()
+    RunPod({"job-1": [completed()]}).install()
+    url = "https://launcher.example/cb"
+    ref = interrupted_render(callback={"url": url,
+                                       "token": still_jobs.mint_callback_token(url)})
+    down = {"on": True}
+    posts: list = []
+
+    def flaky(u_, body, headers):
+        if down["on"]:
+            raise OSError("receiver down")
+        posts.append(json.loads(body))
+        return 200
+    still_jobs._post = flaky
+    still_jobs.resume_orphans(wait=True)
+    doc = R2.doc(f"{ROOT}/{ref}/render.json")
+    check("a callback that never landed is recorded as such",
+          (doc["status"], doc["callbackDelivered"]), ("finished", False))
+    down["on"] = False
+    still_jobs.resume_orphans(wait=True)
+    check("the next boot redelivers it, variants and all",
+          [(p["status"], len(p["variants"])) for p in posts], [("finished", 1)])
+    check("...and a delivered one is not sent again",
+          (still_jobs.resume_orphans(wait=True), len(posts)), ([], 1))
+
+
+def test_a_job_saved_before_its_settle_is_not_saved_twice() -> None:
+    install()
+    RunPod({"job-1": [completed()]}).install()
+    ref = interrupted_render()
+    # The subprocess claimed the job, wrote the variant, and died before settling.
+    check("the subprocess's claim lands", still_jobs.claim_collect(ref, 1, "H1_00003_.png"),
+          True)
+    R2.put("clientx/projecty/batch/H1_00003_.png", PNG)
+    still_jobs.resume_orphans(wait=True)
+    job = R2.doc(f"{ROOT}/{ref}/job_001.json")
+    check("the resume sees the variant is already there and settles it",
+          (job["status"], job["variant"]), ("done", "H1_00003_.png"))
+    check("...without saving a second copy", PERSISTED, [])
+
+
+def test_a_claimed_job_is_not_collected_by_a_second_container() -> None:
+    install()
+    RunPod({"job-1": [completed()]}).install()
+    ref = interrupted_render()
+    job = R2.doc(f"{ROOT}/{ref}/job_001.json")
+    job.update(status="collecting", collector="the-other-container",
+               variant="H1_00004_.png")
+    R2.put(f"{ROOT}/{ref}/job_001.json", json.dumps(job).encode())
+    still_jobs._finish_job(ref, {**job, "status": "submitted", "variant": None})
+    check("a job another container is saving is left to it", PERSISTED, [])
+
+
+def test_a_resume_never_overwrites_a_variant_it_could_not_see() -> None:
+    install()
+    real_next = batch_atlas._next_variant_filename
+    batch_atlas._next_variant_filename = lambda rname: f"{rname}_00001_.png"
+    R2.put("clientx/projecty/batch/H1_00001_.png", b"the artist's pick")
+    RunPod({"job-1": [completed()]}).install()
+    ref = interrupted_render()
+    still_jobs.resume_orphans(wait=True)
+    batch_atlas._next_variant_filename = real_next
+    check("the existing variant is untouched",
+          R2.get("clientx/projecty/batch/H1_00001_.png"), b"the artist's pick")
+    check("the collected render takes the next free id",
+          R2.doc(f"{ROOT}/{ref}/job_001.json")["variant"], "H1_00002_.png")
+
+
+def test_a_render_that_dies_cancels_the_job_it_left_behind() -> None:
+    install()
+    ref = interrupted_render()
+    closed = still_jobs.close_render(ref, "failed", "the render exited with code -9")
+    check("a job nothing will collect is cancelled on RunPod", CANCELLED, ["job-1"])
+    check("...and recorded abandoned",
+          R2.doc(f"{ROOT}/{ref}/job_001.json")["status"], "abandoned")
+    check("the close carries what the render made", closed["variants"], [])
+
+
+def test_callback_tokens_cannot_be_long_lived() -> None:
+    install()
+    url = "https://launcher.example/cb"
+    token = still_jobs.mint_callback_token(url, ttl_seconds=30 * 24 * 3600)
+    check("a token valid for a month is refused",
+          still_jobs.parse_callback({"callbackUrl": url, "callbackToken": token})[1],
+          "the callback token lives longer than a day")
 
 
 if __name__ == "__main__":
@@ -572,6 +699,13 @@ if __name__ == "__main__":
     test_no_callback_changes_nothing()
     test_the_render_route()
     test_a_render_records_and_closes_its_job_ref()
+    test_a_render_held_at_boot_is_picked_up_once_the_lease_lapses()
+    test_an_undelivered_callback_is_redelivered_at_boot()
+    test_a_job_saved_before_its_settle_is_not_saved_twice()
+    test_a_claimed_job_is_not_collected_by_a_second_container()
+    test_a_resume_never_overwrites_a_variant_it_could_not_see()
+    test_a_render_that_dies_cancels_the_job_it_left_behind()
+    test_callback_tokens_cannot_be_long_lived()
     print()
     if FAILED:
         print(f"{len(FAILED)} FAILED: {', '.join(FAILED)}")
