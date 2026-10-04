@@ -167,4 +167,32 @@ A docs-only change posts success without rendering.
 
 ## Measured (2026-10-04, Claude Code cloud container, 4 vCPU, software GL)
 
-<!-- filled from the runs below -->
+There were no R2 or launcher credentials in that session, so these runs used the stand-in fixtures
+(`fixtures.mjs`, eight games covering every type plus the pots variants: 108 screens). The first CI
+run with the secrets measures the live games the same way.
+
+- **Noise, main vs main, twice.** Both runs gave 108 of 108 screens **byte-identical**, with every
+  gate passing. Each comparison pairs two independent renders: a fresh test server and a fresh
+  browser on each side.
+- **Separate builds.** `main` (`902d04c`) and a commit whose engine source is identical (the
+  revert below) gave 108 of 108 byte-identical screens. The two bundles are *not* byte-identical:
+  `version.json` holds a timestamp, and the Svelte CSS scope hashes come from the build's file
+  paths, so a build in another worktree gets other class names. The pixels are the same, and the
+  pixels are what is compared.
+- **The 1 px proof.** The throwaway commit `3c46443` moved the shared `freeSpinCounter`
+  ComponentDef frame from `x: 0` to `x: 1`. The harness flagged exactly six screens:
+  - `fs-board` and `fs-spin` on lines and on ways;
+  - `fs-spin` on bookOf and on bookOf + pots.
+
+  Each diff measured 1,185–1,318 px, with a worst block of 28.5–29.3 %. All six sit in the same box
+  (x 93–324, y 223–395), the counter panel. Every other screen was byte-identical, including the
+  cluster and scatter free-spin screens: those layouts (`engineSkeleton`) draw the *coded*
+  `FreeSpinCounter.svelte`, not the ComponentDef, so they really did not change. The revert
+  (`6b44b38`) was green, 108 of 108 identical. Evidence:
+  [`current-games/proof-1px.png`](current-games/proof-1px.png) shows before | after | diff for each
+  flagged screen, cropped to the panel.
+- **Time.** A game takes 2–5 minutes for both sides, about 4 on average uncontended. The
+  `draw: 'every'` canary is the largest share: lines' canary took 51 s per side, against 5–30 s for
+  each other scenario. A runtime build takes 70–80 s on top of `pnpm install`. At six shards and
+  about 14 games, that is 2–3 games per shard, roughly 8–12 minutes of rendering after a
+  3–5 minute build job. The first real CI run will give the exact figure.
