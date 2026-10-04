@@ -117,6 +117,32 @@ Works today on `main` / live:
 _Nothing._
 
 ## Recent changes
+- 2026-10-04 — **Still renders are resumable and can call back when they end** (Director task 2.5,
+  [ADR-0002](../director/DECISIONS/0002-tool-adapters.md) "GPU jobs"; `still_jobs.py`). Every
+  `/render` gets a stable `jobRef` (header `X-Atlas-Job-Ref`; JSON body with `Accept:
+  application/json`) — the page's plain-text answer is unchanged. The render and each RunPod job it
+  submits are recorded under `<client>/<project>/_jobs/still/<jobRef>/` (create-only / `If-Match`
+  writes) and leased to this container (`atlasStill`, `iw_common.lease`). At boot, and on a
+  `/progress?jobRef=` read, a render left `running` that no live lease covers is adopted: each
+  in-flight job is re-attached and collected as a variant, a job RunPod has lost is resubmitted from
+  its stored payload **once**, then the usual post-render step runs (`render_post_hook`, machine
+  writes via `_write_manifest_at`). A render the old container still held at boot (the rolling
+  deploy overlap) is re-checked after its lease can have expired. A job is claimed (`submitted` →
+  `collecting` + filename, conditional) before its variant is written, and a resumed variant is
+  created `If-None-Match: *`, so a job is never saved twice or over an existing variant. Jobs never
+  submitted before the restart are not started; the render closes `failed` and says how many. A job
+  left `submitted` when a render closes (Stop, a crashed subprocess) is cancelled on RunPod. **Callback:** `/render` may carry `callbackUrl` +
+  `callbackToken`. The token is `v1.<exp>.<hex HMAC-SHA256(ATLAS_CALLBACK_SECRET,
+  "atlas-callback.v1|<url>|<exp>")>`, minted by the caller, so only a holder of the secret can make
+  atlas-tool POST anywhere; a bad one answers 400 and nothing renders. On the end the tool POSTs
+  `{jobRef, status: finished|failed|cancelled, variants: [{region, variant, slot}]}` with
+  `X-Atlas-Signature: t=<unix>,v1=<hex HMAC-SHA256(secret, "<t>." + body)>` and the caller's token in
+  `X-Atlas-Callback-Token` (retried twice, redirects not followed; one that never lands is redelivered
+  at the next boot — at least once, so the receiver dedupes on `jobRef`; tokens live ≤ 24 h;
+  `still_jobs.verify_signature` is the receiver's check).
+  The secret is env-only and never logged; without it every callback is refused. No callback = the
+  render behaves as before. Not yet live-verified: set `ATLAS_CALLBACK_SECRET` on Railway and
+  restart mid-render once. Fixtures: `test_still_jobs.py`.
 - 2026-10-01 — **Stop cancels a serverless job on the endpoint it was submitted to.** The
   `@@RUNPOD_JOB@@` marker now carries `<job id> <endpoint>` (`batch_atlas.read_runpod_job_mark`),
   `_render_state` keeps `runpodEndpoint`, and `_runpod_run_and_wait` polls and gives up on the

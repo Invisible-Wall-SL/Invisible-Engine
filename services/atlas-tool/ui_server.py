@@ -46,6 +46,7 @@ import shine  # noqa: E402  (local *_shine derivation, no ComfyUI)
 import pack  # noqa: E402  (MaxRects bin packer for from-scratch auto-pack atlases)
 import runpod_control  # noqa: E402  (RunPod on-demand pod resume/idle-stop)
 import video_runner  # noqa: E402  (Flipbook video sessions — blueprint -> animated WEBP)
+import still_jobs  # noqa: E402  (resumable still renders: jobRef, lease, callback)
 import video_to_clip  # noqa: E402  (Flipbook video -> packed sheet -> clip frames)
 import video_to_refs  # noqa: E402  (Flipbook video -> Atlas Maker reference images)
 import model_mirror  # noqa: E402  (R2 model mirror — where a declared model file lives)
@@ -2856,9 +2857,13 @@ def stop_render() -> str:
 
 
 def _run_cmd(cmd: list[str], total: int, post_hook=None,
-             pre_note: str | None = None, comfy_env: dict | None = None) -> None:
+             pre_note: str | None = None, comfy_env: dict | None = None,
+             job_ref: str = "") -> int | None:
+    """Run the generation subprocess, streaming it into the render panel. Returns
+    its exit code, or None when it could not be run to the end."""
     global _render_proc, _stopped
     _stopped = False
+    rc: int | None = None
     with _render_lock:
         _render_state.update(running=True,
                              log=(f"{pre_note}\n" if pre_note else ""),
@@ -2878,6 +2883,8 @@ def _run_cmd(cmd: list[str], total: int, post_hook=None,
         # inherited global COMFY_URL (shared tunnel) is kept.
         if comfy_env:
             env.update(comfy_env)
+        if job_ref:
+            env["ATLAS_JOB_REF"] = job_ref
         proc = subprocess.Popen(cmd, cwd=str(SELF), env=env, stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT, text=True, bufsize=1)
         _render_proc = proc
@@ -2905,6 +2912,7 @@ def _run_cmd(cmd: list[str], total: int, post_hook=None,
                     _render_state["cur"] = int(mt.group(1))
                     _render_state["total"] = int(mt.group(2))
         proc.wait()
+        rc = proc.returncode
         with _render_lock:
             tag = "[STOPPED by user]" if _stopped else f"[exit {proc.returncode}]"
             _render_state["log"] += f"\n{tag}\n"
@@ -2927,6 +2935,7 @@ def _run_cmd(cmd: list[str], total: int, post_hook=None,
         _render_proc = None
         with _render_lock:
             _render_state.update(running=False, done=True)
+    return rc
 
 
 def resolve_user_comfy_env(user_id: str) -> dict:
@@ -3307,14 +3316,69 @@ def _drop_superseded_picks(m: dict) -> list[str]:
 
 
 def run_render(names: list[str], variants: int = 1,
-               ctx: tuple[str, str] | None = None, user: str = "") -> None:
+               ctx: tuple[str, str] | None = None, user: str = "",
+               job_ref: str = "", callback: dict | None = None) -> None:
     # These run on a NEW worker thread, so the request thread's thread-local
     # (client, project) is NOT inherited — re-apply it here before resolving the
     # manifest path / subprocess env, else everything falls back to the env
     # default context (unassigned/cloud) and the subprocess resolves the wrong
     # tree (geometry "not found in R2").
+    global _stopped
     if ctx:
         project_paths.set_context(*ctx)
+    # Reset here, not only in `_run_cmd`: a render that never reaches it (an
+    # unreachable "My computer") must not inherit the last render's Stop.
+    _stopped = False
+    hold = None
+    if job_ref:
+        # The render's job record + this container's lease on it (still_jobs):
+        # what lets a container that replaces this one collect the RunPod jobs in
+        # flight, and what fires the completion callback. The hold comes FIRST:
+        # it keeps a `/progress?jobRef=` read in this container from adopting the
+        # render as an orphan the moment its doc exists. Bookkeeping only — a
+        # failure here costs resumability, never the render.
+        try:
+            hold = still_jobs.Hold(job_ref)
+            still_jobs.open_render(job_ref, manifest=manifest_path().name,
+                                   names=names, variants=variants, user=user,
+                                   callback=callback)
+        except Exception as e:  # noqa: BLE001
+            print(f"[still-jobs] {job_ref}: not recorded ({e})", flush=True)
+            if hold:
+                hold.release()
+            hold, job_ref = None, ""
+    if not job_ref:
+        _render_job(names, variants, user)
+        return
+    status, error = "failed", ""
+    try:
+        rc = _render_job(names, variants, user, job_ref)
+        if _stopped:
+            status = "cancelled"
+        elif rc == 0:
+            status = "finished"
+        else:
+            error = ("the render exited with code %s" % rc if rc is not None
+                     else "the render did not start (see the render log)")
+    except Exception as e:  # noqa: BLE001 — record it; the panel already shows it
+        error = str(e)
+        raise
+    finally:
+        # Delivered BEFORE the lease goes, so a boot sweep in another container
+        # cannot redeliver it beside us; one that never lands is redelivered at
+        # the next boot.
+        try:
+            closed = still_jobs.close_render(job_ref, status, error)
+            if closed:
+                still_jobs.deliver_callback(closed)
+        finally:
+            hold.release()
+
+
+def _render_job(names: list[str], variants: int, user: str,
+                job_ref: str = "") -> int | None:
+    """The render itself. Returns the subprocess's exit code, or None when it
+    never ran (a "My computer" target that is not reachable)."""
     comfy_env = resolve_user_comfy_env(user)
     chosen = str(load_config().get("run_on") or "").strip().lower()
     target = chosen if chosen in RUN_ON_OPTIONS else _env_run_on()
@@ -3354,7 +3418,7 @@ def run_render(names: list[str], variants: int = 1,
                     log=(f"✖ Run generation on = My computer, but the address "
                          f"configured for it is not your computer.\n{mis}\n"
                          "Nothing was submitted.\n"))
-            return
+            return None
         if not _comfy_answers(url, comfy_env):
             with _render_lock:
                 _render_state.update(
@@ -3363,7 +3427,7 @@ def run_render(names: list[str], variants: int = 1,
                          f"answered at {url}.\nStart ComfyUI and the tunnel "
                          "(desktop launcher), or switch to RunPod in ⚙ Global "
                          "settings, then retry.\n"))
-            return
+            return None
     # The subprocess reads batch/ from local disk (already_generated seed-match
     # skips re-rendering pinned variants). It hydrates lazily, so pull it here
     # before spawning, else the subprocess sees an empty pile.
@@ -3378,38 +3442,60 @@ def run_render(names: list[str], variants: int = 1,
            "--variants", str(max(1, variants))]
 
     def _post():
-        with pinned_manifest(mp):
-            return _post_locked()
+        return render_post_hook(mp, names)
 
-    def _post_locked():
-        notes = []
-        rebuilt, fx_skipped = rebuild_fx_layers_at(mp, base_names=set(names))
-        if rebuilt:
-            notes.append("Auto-rebuilt %d FX layer(s) from regenerated base(s): %s"
-                         % (len(rebuilt), ", ".join(rebuilt)))
-        if fx_skipped:
-            notes.append(_fx_skip_note(fx_skipped))
-        with _manifest_lock:
-            m = _read_manifest_at(mp)
-            if m is None:
-                return "\n".join(notes) or None
-            dropped = _drop_superseded_picks(m)
-            if dropped:
-                _write_manifest_at(mp, m)
+    return _run_cmd(cmd, total, post_hook=_post, comfy_env=comfy_env,
+                    pre_note=("\n".join(_warm) if _warm else None), job_ref=job_ref)
+
+
+def render_post_hook(mp: Path, names: list[str]) -> str | None:
+    """What a finished render does to the manifest it rendered: rebuild the FX
+    layers of its regenerated bases and clear the picks newer art superseded.
+    Machine writes only (`_write_manifest_at`). Also run by `still_jobs` for a
+    render it collected after a restart."""
+    with pinned_manifest(mp):
+        return _render_post_locked(mp, names)
+
+
+def _render_post_locked(mp: Path, names: list[str]) -> str | None:
+    notes = []
+    rebuilt, fx_skipped = rebuild_fx_layers_at(mp, base_names=set(names))
+    if rebuilt:
+        notes.append("Auto-rebuilt %d FX layer(s) from regenerated base(s): %s"
+                     % (len(rebuilt), ", ".join(rebuilt)))
+    if fx_skipped:
+        notes.append(_fx_skip_note(fx_skipped))
+    with _manifest_lock:
+        m = _read_manifest_at(mp)
+        if m is None:
+            return "\n".join(notes) or None
+        dropped = _drop_superseded_picks(m)
         if dropped:
-            # Not "…now show the fresh render": the sweep covers every region,
-            # not just this run's, so it also clears picks an EARLIER render
-            # already spent. Those slots have been showing their latest all
-            # along — this is the manifest catching up, not the card moving.
-            notes.append("Cleared %d variant pick(s) that newer art had "
-                         "superseded — %s on the latest render: %s"
-                         % (len(dropped),
-                            "they are" if len(dropped) > 1 else "it is",
-                            ", ".join(dropped)))
-        return "\n".join(notes) or None
+            _write_manifest_at(mp, m)
+    if dropped:
+        # Not "…now show the fresh render": the sweep covers every region,
+        # not just this run's, so it also clears picks an EARLIER render
+        # already spent. Those slots have been showing their latest all
+        # along — this is the manifest catching up, not the card moving.
+        notes.append("Cleared %d variant pick(s) that newer art had "
+                     "superseded — %s on the latest render: %s"
+                     % (len(dropped),
+                        "they are" if len(dropped) > 1 else "it is",
+                        ", ".join(dropped)))
+    return "\n".join(notes) or None
 
-    _run_cmd(cmd, total, post_hook=_post, comfy_env=comfy_env,
-             pre_note=("\n".join(_warm) if _warm else None))
+
+def _finish_resumed_render(doc: dict) -> None:
+    """`still_jobs`' finish hook: the post-render step for a render collected
+    after a restart, on the manifest that render was for."""
+    name = Path(str(doc.get("manifest") or "")).name
+    if not name:
+        return
+    mp = MANIFEST_DIR / name
+    if mp.exists() or _read_manifest_at(mp) is not None:
+        note = render_post_hook(mp, list(doc.get("names") or []))
+        if note:
+            print(f"[still-jobs] {doc.get('jobRef')}: {note}", flush=True)
 
 
 # Page-width cap for the from-scratch auto-pack layout. The sheet grows only if
@@ -8543,9 +8629,25 @@ class Handler(BaseHTTPRequestHandler):
         elif path.startswith("/outfull/"):
             self._serve_img(self._outpath(path), thumb=False, label="no user image")
         elif path == "/progress":
-            self._send(200, "application/json",
-                       render_view(self._identity, project_paths.client_name(),
-                                   project_paths.project_name()))
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            ref = qs.get("jobRef", [""])[0]
+            if ref:
+                try:
+                    view = still_jobs.job_view(ref, finish=_finish_resumed_render)
+                except Exception as e:  # noqa: BLE001 — R2 unreadable: say so, retryably
+                    self._send(503, "application/json",
+                               json.dumps({"error": f"job state unreadable ({e})"})
+                               .encode())
+                    return
+                if view is None:
+                    self._send(404, "application/json",
+                               json.dumps({"error": "unknown jobRef"}).encode())
+                else:
+                    self._send(200, "application/json", json.dumps(view).encode())
+            else:
+                self._send(200, "application/json",
+                           render_view(self._identity, project_paths.client_name(),
+                                       project_paths.project_name()))
         elif path == "/credits":
             self._send(200, "application/json", self._credits())
         elif path == "/fsbrowse":
@@ -8690,14 +8792,30 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(raw)
             names = payload.get("names", [])
             variants = int(payload.get("variants", 1))
+            wants_json = "application/json" in (self.headers.get("Accept") or "")
+            callback, refused = still_jobs.parse_callback(payload)
+            if refused:
+                if wants_json:
+                    self._send(400, "application/json", json.dumps(
+                        {"started": False, "message": refused}).encode())
+                else:
+                    self._send(400, "text/plain", refused.encode())
+                return
             started, msg = claim_render_slot(self._render_owner())
+            job_ref = still_jobs.new_job_ref() if started else ""
             if started:
                 ctx = (project_paths.client_name(), project_paths.project_name())
                 user = getattr(self, "_user_id", "") or ""
                 threading.Thread(target=run_render,
-                                 args=(names, variants, ctx, user),
+                                 args=(names, variants, ctx, user, job_ref, callback),
                                  daemon=True).start()
-            self._send(200, "text/plain", msg.encode())
+            if wants_json:
+                self._send(200, "application/json", json.dumps(
+                    {"started": started, "message": msg,
+                     "jobRef": job_ref or None}).encode())
+            else:
+                self._send(200, "text/plain", msg.encode(),
+                           {"X-Atlas-Job-Ref": job_ref} if job_ref else None)
         elif post_path == "/createatlas":
             if not _render_state["running"]:
                 ctx = (project_paths.client_name(), project_paths.project_name())
@@ -12071,6 +12189,11 @@ def main():
     # has to answer while it does.
     threading.Thread(target=video_runner.boot_recovery, daemon=True,
                      name="video-resume").start()
+    # The same for still renders: re-attach to the RunPod jobs a render left in
+    # flight, collect them, and fire the render's completion callback.
+    threading.Thread(target=still_jobs.resume_orphans,
+                     kwargs={"finish": _finish_resumed_render}, daemon=True,
+                     name="still-resume").start()
     _Server((HOST, PORT), Handler).serve_forever()
 
 
