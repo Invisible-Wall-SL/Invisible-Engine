@@ -1190,6 +1190,18 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 	const { POST: CALLBACK } = await import(src('routes/api/director/atlas/callback/+server.ts'));
 	const cb = await import(src('lib/server/director/atlasCallback.ts'));
 	const jobs = await import(src('lib/server/director/atlasJobs.ts'));
+	const { costOfRunpodJob, parsePricing } = await import(
+		src('lib/server/costs/directorPricing.ts')
+	);
+	// The reviewed prices the worker bills a reported render with (ADR-0006).
+	const PRICING = parsePricing(
+		JSON.parse(
+			readFileSync(
+				fileURLToPath(new URL('../../../services/director-worker/pricing.json', import.meta.url)),
+				'utf8',
+			),
+		),
+	);
 
 	const SIGNING = 'atlas-signing-secret-0123456789';
 	const CB_SECRET = 'atlas-callback-secret-0123456789';
@@ -1330,7 +1342,15 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 				}
 				const jobRef = `st_${String(++refSeq).padStart(16, '0')}`;
 				// Started, never finished: the render runs on with nobody waiting on it.
-				progress.set(jobRef, { jobRef, status: 'running', total: 2, jobs: [], variants: [] });
+				progress.set(jobRef, {
+					jobRef,
+					status: 'running',
+					total: 2,
+					jobs: [],
+					variants: [],
+					// The GPU time so far, as atlas-tool reports it live (`still_jobs.runpod_summary`).
+					runpod: { gpu: 'L40S (48 GB)', seconds: 30.5, delaySeconds: 2, jobs: 1, unreported: 0 },
+				});
 				return send(
 					200,
 					'application/json',
@@ -1606,6 +1626,13 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			[status.status, status.body.status, status.body.recorded, seen.at(-1)!.path],
 			[200, 'running', 'queued', '/progress'],
 		);
+		check('...and reports the GPU time spent so far, as the worker bills it', status.body.runpod, {
+			gpu: 'L40S (48 GB)',
+			seconds: 30.5,
+			delaySeconds: 2,
+			jobs: 1,
+			unreported: 0,
+		});
 		check(
 			"another run's job is not this run's to read",
 			(await atlas('job_status', { jobRef }, 'atlas-artist', 'rb')).status,
@@ -1637,6 +1664,15 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			jobRef,
 			status: 'finished',
 			variants: [{ region: 'H1', variant: 'H1_00003_.png', slot: 1 }],
+			// What atlas-tool reports, plus a price a forged body might carry.
+			runpod: {
+				gpu: 'L40S (48 GB)',
+				seconds: 100,
+				delaySeconds: 3.5,
+				jobs: 2,
+				unreported: 0,
+				usd: 999,
+			},
 		});
 		const first = await deliver(body);
 		check('a valid callback records job_done', [first.status, first.body.recorded], [200, true]);
@@ -1644,6 +1680,17 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			'...on the run, from the callback',
 			[ATLAS_JOBS.get(jobRef)?.status, ATLAS_JOBS.get(jobRef)?.doneVia],
 			['finished', 'callback'],
+		);
+		const usage = { gpu: 'L40S (48 GB)', seconds: 100, delaySeconds: 3.5, jobs: 2, unreported: 0 };
+		check(
+			"...carrying the render's GPU time for the worker to bill, and no price off the wire",
+			(ATLAS_JOBS.get(jobRef)?.result as { runpod?: unknown }).runpod,
+			usage,
+		);
+		check(
+			"...which prices from pricing.json: seconds × the GPU's $/s",
+			costOfRunpodJob(usage.gpu, usage.seconds, PRICING),
+			100 * PRICING.runpod.perSecondByGpu['L40S (48 GB)'],
 		);
 		const doneAt = ATLAS_JOBS.get(jobRef)?.doneAt;
 		const again = await deliver(body);
@@ -1699,6 +1746,57 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			variants: [],
 		});
 		check('a callback for a job the run never queued is a 404', (await deliver(stray)).status, 404);
+
+		// A finished render that reports no usable GPU time: nothing to bill, and it is logged.
+		const queued = (ref: string) =>
+			ATLAS_JOBS.set(ref, {
+				jobRef: ref,
+				runId: 'ra',
+				agent: 'atlas-artist',
+				atlas: 'symbols',
+				regions: ['H1'],
+				status: 'queued',
+				result: null,
+				doneVia: null,
+				queuedAt: new Date(),
+				doneAt: null,
+			});
+		const warned: string[] = [];
+		const realWarn = console.warn;
+		console.warn = (...args: unknown[]) => void warned.push(args.join(' '));
+		try {
+			queued('st_00000000000000ab');
+			await deliver(
+				JSON.stringify({ jobRef: 'st_00000000000000ab', status: 'finished', variants: [] }),
+			);
+			queued('st_00000000000000ac');
+			await deliver(
+				JSON.stringify({
+					jobRef: 'st_00000000000000ac',
+					status: 'finished',
+					variants: [],
+					runpod: { gpu: '', seconds: 7 },
+				}),
+			);
+		} finally {
+			console.warn = realWarn;
+		}
+		check(
+			'a finished render with no GPU time passes no runpod on, and is logged',
+			[
+				'runpod' in (ATLAS_JOBS.get('st_00000000000000ab')?.result as object),
+				warned.some((w) => w.includes('st_00000000000000ab') && w.includes('without reporting')),
+			],
+			[false, true],
+		);
+		check(
+			'one with time but no GPU passes the seconds on with gpu null, and names the env to set',
+			[
+				(ATLAS_JOBS.get('st_00000000000000ac')?.result as { runpod?: unknown }).runpod,
+				warned.some((w) => w.includes('st_00000000000000ac') && w.includes('RUNPOD_ENDPOINT_GPU')),
+			],
+			[{ gpu: null, seconds: 7 }, true],
+		);
 		delete process.env.ATLAS_CALLBACK_SECRET;
 		check(
 			'the callback route is a 503 while the secret is unset',
@@ -1723,12 +1821,17 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			doneAt: null,
 		});
 		const waits: number[] = [];
-		const views = ['running', 'running', 'failed'];
+		const views: Record<string, unknown>[] = [
+			{ status: 'running' },
+			{ status: 'running' },
+			// A failed render's GPU time was spent too; a malformed count is not passed on.
+			{ status: 'failed', runpod: { gpu: 'L40S (48 GB)', seconds: 12, jobs: 'two' } },
+		];
 		const settled = await jobs.watchAtlasJob(
 			{ jobRef: 'st_00000000000000aa', runId: 'ra' },
 			{
 				sleep: async (ms: number) => void waits.push(ms / 1000),
-				read: async () => ({ jobRef: 'st_00000000000000aa', status: views.shift()! }),
+				read: async () => ({ jobRef: 'st_00000000000000aa', ...views.shift()! }),
 				now: () => 0,
 			},
 		);
@@ -1736,6 +1839,15 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			'the fallback polls on a growing backoff and records the terminal status once',
 			[waits, settled?.recorded, ATLAS_JOBS.get('st_00000000000000aa')?.doneVia],
 			[[60, 120, 240], true, 'poll'],
+		);
+		check(
+			'...with the GPU time the view reported, reduced to what the worker bills from',
+			ATLAS_JOBS.get('st_00000000000000aa')?.result,
+			{
+				jobRef: 'st_00000000000000aa',
+				status: 'failed',
+				runpod: { gpu: 'L40S (48 GB)', seconds: 12 },
+			},
 		);
 		const late = await jobs.watchAtlasJob(
 			{ jobRef, runId: 'ra' },

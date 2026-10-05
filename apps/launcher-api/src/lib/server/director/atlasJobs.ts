@@ -42,6 +42,68 @@ export type JobDone =
 	| { recorded: true; job: DirectorAtlasJob }
 	| { recorded: false; reason: 'duplicate' | 'unknown_job' };
 
+/**
+ * A render's GPU time as atlas-tool reports it (`still_jobs.runpod_summary`), in the shape the
+ * worker bills from (ADR-0006): `result.runpod = { gpu, seconds }`, seconds × the GPU's $/s in
+ * `pricing.json`. The price never travels on the wire; only the time does.
+ */
+export interface RunpodUsage {
+	/** The GPU the jobs ran on, as `pricing.json` names it; null when atlas-tool could not name
+	 *  one (`RUNPOD_ENDPOINT_GPU` unset, or jobs on different cards), so nothing is priced by a
+	 *  guess. */
+	gpu: string | null;
+	/** Execution seconds, summed over the jobs that reported a time. */
+	seconds: number;
+	/** Seconds the jobs waited in RunPod's queue: not billed, kept for the estimate. */
+	delaySeconds?: number;
+	/** Jobs that reported a time, and RunPod jobs that ended without one. */
+	jobs?: number;
+	unreported?: number;
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+	typeof v === 'object' && v !== null && !Array.isArray(v);
+const count = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null);
+
+/** `runpod` as the worker may read it, or null when it is not that shape. */
+export function runpodUsageOf(raw: unknown): RunpodUsage | null {
+	if (!isRecord(raw)) return null;
+	const seconds = count(raw.seconds);
+	if (seconds === null) return null;
+	const gpu = typeof raw.gpu === 'string' && raw.gpu.trim() ? raw.gpu.trim() : null;
+	const usage: RunpodUsage = { gpu, seconds };
+	for (const key of ['delaySeconds', 'jobs', 'unreported'] as const) {
+		const n = count(raw[key]);
+		if (n !== null) usage[key] = n;
+	}
+	return usage;
+}
+
+/** Why a finished render has nothing the worker can bill; its GPU time then never counts. */
+function unbilledReason(status: TerminalStatus, runpod: RunpodUsage | null): string | undefined {
+	if (status !== 'finished' || runpod?.gpu) return undefined;
+	return runpod
+		? `finished with ${runpod.seconds} s of GPU time but no GPU named (set RUNPOD_ENDPOINT_GPU on atlas-tool)`
+		: 'finished without reporting its GPU time';
+}
+
+/**
+ * The result as the run's `job_done` carries it: atlas-tool's message with `runpod` reduced to
+ * `RunpodUsage`, or without it when it is not one.
+ */
+function billable(done: { status: TerminalStatus; result: unknown }): {
+	result: unknown;
+	unbilled?: string;
+} {
+	if (!isRecord(done.result)) return { result: done.result };
+	const { runpod: raw, ...rest } = done.result;
+	const runpod = runpodUsageOf(raw);
+	return {
+		result: runpod ? { ...rest, runpod } : rest,
+		unbilled: unbilledReason(done.status, runpod),
+	};
+}
+
 /** Settle `jobRef` of `runId` — the single path both signals take. */
 export async function recordJobDone(done: {
 	jobRef: string;
@@ -50,8 +112,12 @@ export async function recordJobDone(done: {
 	result: unknown;
 	via: 'callback' | 'poll';
 }): Promise<JobDone> {
-	const job = await settleAtlasJob(done);
-	if (job) return { recorded: true, job };
+	const { result, unbilled } = billable(done);
+	const job = await settleAtlasJob({ ...done, result });
+	if (job) {
+		if (unbilled) console.warn(`director atlas job ${done.jobRef}: ${unbilled}; nothing to bill`);
+		return { recorded: true, job };
+	}
 	const existing = await getAtlasJob(done.jobRef);
 	return existing && existing.runId === done.runId
 		? { recorded: false, reason: 'duplicate' }
@@ -66,6 +132,8 @@ export interface JobView {
 	names?: string[];
 	variants?: { region: string; variant: string; slot: number }[];
 	jobs?: { seq: number; region: string; status: string }[];
+	/** The GPU time so far (`RunpodUsage` once validated); absent until a job reports one. */
+	runpod?: unknown;
 	error?: string;
 }
 
