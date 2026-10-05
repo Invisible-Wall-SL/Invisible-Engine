@@ -219,7 +219,8 @@ self-compare and a seeded proof on one commit, or two proofs with different base
 each other. `log_images: true` prints each changed screen's before / after / diff crops into the
 log, with each side's web-font states, whether the capture was the same 300 ms later, and the
 external requests each render made. It only reads the page and waits; it draws nothing, so the
-captures are the same as without it.
+captures are the same as without it (18 `cg-lines` captures came back byte-identical with and
+without it).
 
 **The repository is public, so every artifact and every log line is public.** The plan carries
 contract hashes, never contracts. The per-shard parts hold every capture of every live game: the
