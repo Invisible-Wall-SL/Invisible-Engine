@@ -116,6 +116,24 @@ const TRANSLUCENT = `(() => {
 	return out.sort();
 })()`;
 
+// …and the DOM over the canvas: every visible element drawn part-transparent or with a background,
+// and every CSS / Web Animation with its state.
+const DOM = `(() => {
+	const out = [];
+	for (const el of document.querySelectorAll('body *')) {
+		if (el.tagName === 'CANVAS' || out.length >= 200) continue;
+		const cs = getComputedStyle(el);
+		const r = el.getBoundingClientRect();
+		if (!r.width || !r.height || cs.display === 'none' || cs.visibility === 'hidden') continue;
+		const bg = cs.backgroundColor !== 'rgba(0, 0, 0, 0)' || cs.backgroundImage !== 'none';
+		if (parseFloat(cs.opacity) >= 1 && !bg) continue;
+		out.push(\`\${el.tagName.toLowerCase()}#\${el.id}.\${String(el.className).slice(0, 40)} opacity \${cs.opacity} bg \${cs.backgroundColor} box \${[r.x, r.y, r.width, r.height].map((v) => Math.round(v)).join(',')}\`);
+	}
+	for (const a of document.getAnimations?.() ?? [])
+		out.push(\`animation \${a.animationName ?? a.transitionProperty ?? a.id ?? '?'} \${a.playState} t \${Math.round(a.currentTime ?? -1)} on \${a.effect?.target?.id || a.effect?.target?.tagName || '?'}\`);
+	return out.sort();
+})()`;
+
 /** A forced beat with `{path}` placeholders filled from the game's contract (its own pot ids…). */
 const fillBeat = (beat, contract) =>
 	beat.replace(/\{([\w.-]+)\}/g, (_m, path) => {
@@ -231,6 +249,7 @@ export async function renderUnit({
 								texts: await page.evaluate(TEXTS).catch((e) => [e.message]),
 								layout: await page.evaluate(LAYOUT).catch((e) => [e.message]),
 								translucent: await page.evaluate(TRANSLUCENT).catch((e) => [e.message]),
+								dom: await page.evaluate(DOM).catch((e) => [e.message]),
 							}
 						: {}),
 				};
