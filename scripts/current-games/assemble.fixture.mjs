@@ -110,7 +110,7 @@ await test('the digest counts byte-identical screens and names one that passed u
 	assert.equal(rowVerdict(row), 'pass');
 	assert.match(
 		digest({ games: [row] }),
-		/^noise: 1 of 2 compared screen\(s\) byte-identical; passed under the colour threshold, not byte-identical: g\/b$/m,
+		/^noise: 1 of 2 compared screen\(s\) byte-identical; passed within tolerance, not byte-identical: g\/b 0\.0000%, worst block 0\.0000%$/m,
 	);
 });
 

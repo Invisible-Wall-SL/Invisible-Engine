@@ -11,7 +11,8 @@
 # branch has no `before` (all zeros), so it diffs against its merge-base with main. Anything the
 # diff cannot decide (an unreachable `before` after a force-push, another event) counts as code.
 #
-# Needs the checkout to have fetched the PR merge commit's parent: `fetch-depth: 2`.
+# Needs a shallow checkout that fetched the PR merge commit's parent: `fetch-depth: 2`. (Its depth
+# flags would make a full checkout shallow.)
 
 name: code-changed
 description: Sets `code` to 'true' unless every changed file is docs, Markdown or .claude/.
@@ -31,28 +32,15 @@ runs:
         BEFORE: ${{ github.event.before }}
       run: |
         base=''
-        # Depth flags only on a shallow checkout: on a full one (fetch-depth: 0) they would MAKE it
-        # shallow, cutting the history a later merge-base needs.
-        shallow="$(git rev-parse --is-shallow-repository)"
         if [ "$EVENT" = pull_request ]; then
           base="$(git rev-parse -q --verify 'HEAD^1' || true)"
         elif [ "$EVENT" = push ] && [ -z "${BEFORE//0/}" ]; then
           # A new branch: diff against where it left main (a branch is rarely 200 commits behind).
-          if [ "$shallow" = true ]; then
-            git fetch -q --no-tags --depth=200 origin +refs/heads/main:refs/remotes/origin/main &&
-              git fetch -q --no-tags --deepen=200 origin "$GITHUB_REF" || true
-          else
-            git fetch -q --no-tags origin +refs/heads/main:refs/remotes/origin/main || true
-          fi
+          git fetch -q --no-tags --depth=200 origin +refs/heads/main:refs/remotes/origin/main &&
+            git fetch -q --no-tags --deepen=200 origin "$GITHUB_REF" || true
           base="$(git merge-base origin/main HEAD 2>/dev/null || true)"
-        elif [ "$EVENT" = push ]; then
-          if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-            base="$BEFORE"
-          elif [ "$shallow" = true ]; then
-            git fetch -q --no-tags --depth=1 origin "$BEFORE" 2>/dev/null && base="$BEFORE"
-          else
-            git fetch -q --no-tags origin "$BEFORE" 2>/dev/null && base="$BEFORE"
-          fi
+        elif [ "$EVENT" = push ] && git fetch -q --no-tags --depth=1 origin "$BEFORE" 2>/dev/null; then
+          base="$BEFORE"
         fi
         if [ -z "$base" ] || ! files="$(git diff --name-only "$base" HEAD)"; then
           echo "::notice::change set unknown — running every step"

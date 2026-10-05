@@ -174,16 +174,24 @@ export function digest(report) {
 	const lines = Object.entries(report.browser ?? {}).map(
 		([name, paths]) => `browser (${name}): ${paths}`,
 	);
-	// The per-screen noise: a passing screen that is not byte-identical differed only under the
-	// colour threshold, and is named.
-	const shots = report.games.flatMap((g) => g.screens.map((s) => ({ ...s, game: g.key })));
-	const near = shots.filter((s) => s.pass && !s.identical);
-	lines.push(
-		`noise: ${shots.filter((s) => s.identical).length} of ${shots.length} compared screen(s) byte-identical` +
-			(near.length
-				? `; passed under the colour threshold, not byte-identical: ${near.map((s) => `${s.game}/${s.screen}`).join(', ')}`
-				: ''),
+	// The per-screen noise over the screens both sides captured: a passing screen that is not
+	// byte-identical differed within its tolerance, and is named with what was measured.
+	const shots = report.games.flatMap((g) =>
+		g.screens.filter((s) => s.measured).map((s) => ({ ...s, game: g.key })),
 	);
+	const near = shots.filter((s) => s.pass && !s.identical);
+	if (shots.length)
+		lines.push(
+			`noise: ${shots.filter((s) => s.identical).length} of ${shots.length} compared screen(s) byte-identical` +
+				(near.length
+					? `; passed within tolerance, not byte-identical: ${near
+							.map(
+								(s) =>
+									`${s.game}/${s.screen} ${pct(s.measured.diffRatio)}, worst block ${pct(s.measured.maxBlockRatio)}`,
+							)
+							.join('; ')}`
+					: ''),
+		);
 	for (const g of report.games) {
 		const v = rowVerdict(g);
 		const failedGates = (g.tests.gates ?? []).filter((x) => !x.pass);

@@ -109,7 +109,7 @@ const headSha = process.env.CURRENT_GAMES_HEAD_SHA || gitSha(ROOT, 'HEAD');
  * without R2.
  */
 async function manifestFor(games) {
-	const needsR2 = games.some((g) => g.publishedPointerKey && !g.local);
+	const needsR2 = games.some((g) => g.publishedPointerKey && !g.local?.manifestEntry);
 	let manifest = needsR2 ? await fetchManifest({}) : {};
 	if (opt['manifest-file'])
 		manifest = { ...manifest, ...(await fetchManifest({ manifestFile: opt['manifest-file'] })) };
@@ -119,12 +119,14 @@ async function manifestFor(games) {
 /** List the games, pin each one's snapshot, list the units. */
 async function plan() {
 	try {
+		const only = opt.only ? new Set(opt.only.split(',')) : null;
 		const games = await listGames({ gamesFile: opt['games-file'] });
-		const manifest = await manifestFor(games);
+		// The games the render phase will read the manifest for, so both phases decide alike.
+		const manifest = await manifestFor(games.filter((g) => !only || only.has(g.key)));
 		const made = await makePlan({
 			games,
 			manifest,
-			only: opt.only ? new Set(opt.only.split(',')) : null,
+			only,
 			scenarioIds: opt.scenario?.split(','),
 		});
 		const baseSha = process.env.CURRENT_GAMES_BASE_SHA;

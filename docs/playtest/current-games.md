@@ -204,21 +204,21 @@ rendered. A run that cannot start (a missing secret, a failed build) fails and n
 the browser's render paths (`chrome://gpu`: WebGL, 2D canvas, compositing), failing gates, each
 failing unit's error and last console lines, and per changed screen the reason, the bounding box,
 both frames, both screen sets and a 64×24 map of where the pixels differ. Its `noise:` line counts
-the compared screens that came back byte-identical and names any that passed only under the colour
-threshold. A run that cannot finish (no plan, no gate results) still writes a report naming why,
-and the status says so.
+the screens both sides captured that came back byte-identical, and names any that passed within its
+tolerance without being byte-identical, with what was measured. A run that cannot finish (no plan,
+no gate results) still writes a report naming why, and the status says so.
 
-**Noise calibration.** A manual run (`workflow_dispatch`, `self_compare: true`, the default)
-renders a ref against itself: main's runtime built twice and rendered on separate runners, which is
-the main-vs-main measurement. It always renders (there is no change for `touched.mjs` to read) and
-posts the separate status context `current-games/self-compare`, so it never stands in for a
-branch's comparison. A manual run with `self_compare: false` posts `current-games/manual` and can
+**Noise calibration.** A manual run (`workflow_dispatch`, `self_compare: true`, the default) renders
+the dispatched ref against itself: its runtime built twice and rendered on separate runners, which
+on main is the main-vs-main measurement. It always renders (there is no change for `touched.mjs` to
+read) and posts the separate status context `current-games/self-compare`, so it never stands in for
+a branch's comparison. A manual run with `self_compare: false` posts `current-games/manual` and can
 name a `base` commit to compare against instead of main's merge-base: the seeded proof renders a
-deliberate 1 px change against the commit before it (`base` is ignored on a self-compare). Manual
-runs with different inputs on one commit do not cancel each other. `log_images: true` prints each
-changed screen's crops into the log, with each side's web-font states, every stage text's font
-string, measured size and texture hash, the ordered scene tree, whether one more draw changes the
-capture, and the external requests each render made.
+deliberate 1 px change against the commit before it (`base` is ignored on a self-compare). A
+self-compare and a seeded proof on one commit, or two proofs with different bases, do not cancel
+each other. `log_images: true` prints each changed screen's crops into the log, with each side's
+web-font states, every stage text's font string, measured size and texture hash, the ordered scene
+tree, whether one more draw changes the capture, and the external requests each render made.
 
 **The repository is public**, so every artifact is downloadable by anyone. The plan carries contract
 hashes, never contracts; the per-shard parts (every capture of every game) and the plan and gate

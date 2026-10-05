@@ -62,7 +62,7 @@ on:
 concurrency:
   # A manual run's inputs are part of its group: a self-compare and a seeded proof on one commit post
   # different contexts, and cancelling one would leave its context pending.
-  group: current-games-${{ github.event_name }}-${{ github.event.pull_request.head.sha || github.sha }}-${{ inputs.self_compare }}-${{ inputs.base }}
+  group: current-games-${{ github.event_name }}-${{ github.event.pull_request.head.sha || github.sha }}-${{ inputs.self_compare && 'self-compare' || inputs.base }}
   cancel-in-progress: true
 
 permissions:
