@@ -60,7 +60,7 @@ env:
   STATUS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
   STATUS_CONTEXT: ${{ inputs.self_compare && 'current-games/self-compare' || 'current-games' }}
-  SHARDS: 6
+  SHARDS: 10
 
 jobs:
   prepare:
@@ -210,7 +210,28 @@ jobs:
           "
 
       - name: Run every game type's gates once
-        run: node scripts/current-games/lib/gates.mjs .cache/current-games/gates.json
+        run: |
+          mkdir -p .cache/current-games/plan
+          node scripts/current-games/lib/gates.mjs .cache/current-games/plan/gates.json
+
+      # The plan is made ONCE, here: every shard renders the same snapshot of each game even if it
+      # is republished mid-run, and the same split of render units.
+      - name: Plan the run
+        env:
+          PIPELINE_GAMES_URL: ${{ secrets.PIPELINE_GAMES_URL }}
+          PIPELINE_CI_TOKEN: ${{ secrets.PIPELINE_CI_TOKEN }}
+          CURRENT_GAMES_R2_ENDPOINT: ${{ secrets.CURRENT_GAMES_R2_ENDPOINT }}
+          CURRENT_GAMES_R2_BUCKET: ${{ secrets.CURRENT_GAMES_R2_BUCKET }}
+          CURRENT_GAMES_R2_ACCESS_KEY_ID: ${{ secrets.CURRENT_GAMES_R2_ACCESS_KEY_ID }}
+          CURRENT_GAMES_R2_SECRET_ACCESS_KEY: ${{ secrets.CURRENT_GAMES_R2_SECRET_ACCESS_KEY }}
+          CURRENT_GAMES_HEAD_SHA: ${{ env.STATUS_SHA }}
+          CURRENT_GAMES_BASE_SHA: ${{ needs.prepare.outputs.base }}
+        run: |
+          mkdir -p .cache/current-games/plan
+          node scripts/current-games/run.mjs --phase plan --out .cache/current-games/plan-out
+          code=$?
+          cp .cache/current-games/plan-out/plan.json .cache/current-games/plan/plan.json
+          exit $code
 
       - uses: actions/upload-artifact@v4
         with:
@@ -219,8 +240,17 @@ jobs:
           path: |
             .cache/current-games/runtimes/${{ needs.prepare.outputs.base }}
             .cache/current-games/runtimes/working-tree
-            .cache/current-games/gates.json
 
+      # Also after a failure: a plan that could not be made says why (a missing secret, …).
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: current-games-plan
+          retention-days: 3
+          path: .cache/current-games/plan
+
+  # A render unit is one side of one scenario of one game; the plan balances the units across the
+  # shards by their measured cost, and each shard renders two at a time.
   render:
     needs: [prepare, build]
     runs-on: ubuntu-latest
@@ -228,7 +258,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     steps:
       - uses: actions/checkout@v7
 
@@ -256,52 +286,58 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: current-games-runtimes
-          path: .cache/current-games
+          path: .cache/current-games/runtimes
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: current-games-plan
+          path: .cache/current-games/plan
 
       - name: Render shard ${{ matrix.shard }}/${{ env.SHARDS }}
         env:
-          PIPELINE_GAMES_URL: ${{ secrets.PIPELINE_GAMES_URL }}
-          PIPELINE_CI_TOKEN: ${{ secrets.PIPELINE_CI_TOKEN }}
           CURRENT_GAMES_R2_ENDPOINT: ${{ secrets.CURRENT_GAMES_R2_ENDPOINT }}
           CURRENT_GAMES_R2_BUCKET: ${{ secrets.CURRENT_GAMES_R2_BUCKET }}
           CURRENT_GAMES_R2_ACCESS_KEY_ID: ${{ secrets.CURRENT_GAMES_R2_ACCESS_KEY_ID }}
           CURRENT_GAMES_R2_SECRET_ACCESS_KEY: ${{ secrets.CURRENT_GAMES_R2_SECRET_ACCESS_KEY }}
           CURRENT_GAMES_HEAD_SHA: ${{ env.STATUS_SHA }}
-        # A failing game is reported by the merge job; this step fails only when it cannot run.
+        # A unit that fails still writes its result (the compare names it); a non-zero exit is the
+        # runner itself dying.
         run: |
-          set +e
-          node scripts/current-games/run.mjs \
+          node scripts/current-games/run.mjs --phase render \
+            --plan .cache/current-games/plan/plan.json --shard "${{ matrix.shard }}/$SHARDS" \
             --base-build ".cache/current-games/runtimes/${{ needs.prepare.outputs.base }}" \
             --head-build .cache/current-games/runtimes/working-tree \
-            --gates-file .cache/current-games/gates.json \
-            --shard "${{ matrix.shard }}/$SHARDS" --out "report-part-${{ matrix.shard }}"
-          code=$?
-          # 0 = every game passed, 1 = a game failed (the report says which). Any exit without a
-          # report is the runner itself dying, which must fail here rather than pass as "ran".
-          if [ ! -f "report-part-${{ matrix.shard }}/report.json" ]; then
-            echo "::error title=current-games shard ${{ matrix.shard }}::run.mjs exited $code without writing a report"
-            exit 1
-          fi
-          [ "$code" -le 1 ] || exit "$code"
+            --out "part-${{ matrix.shard }}"
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: current-games-part-${{ matrix.shard }}
           retention-days: 3
-          path: report-part-${{ matrix.shard }}
+          path: part-${{ matrix.shard }}
 
   report:
     needs: [prepare, build, render]
     if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.code == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
 
       - uses: actions/setup-node@v7
         with:
           node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: current-games-plan
+          path: plan
 
       - uses: actions/download-artifact@v4
         continue-on-error: true
@@ -312,7 +348,7 @@ jobs:
       # GitHub masks secrets in the LOG only: the step summary, the report artifact and the status
       # description publish their text as given, so every one goes through lib/redact.mjs, which
       # needs the values to name them.
-      - name: Merge the shards
+      - name: Compare
         env:
           PIPELINE_GAMES_URL: ${{ secrets.PIPELINE_GAMES_URL }}
           PIPELINE_CI_TOKEN: ${{ secrets.PIPELINE_CI_TOKEN }}
@@ -320,13 +356,15 @@ jobs:
           CURRENT_GAMES_R2_BUCKET: ${{ secrets.CURRENT_GAMES_R2_BUCKET }}
           CURRENT_GAMES_R2_ACCESS_KEY_ID: ${{ secrets.CURRENT_GAMES_R2_ACCESS_KEY_ID }}
           CURRENT_GAMES_R2_SECRET_ACCESS_KEY: ${{ secrets.CURRENT_GAMES_R2_SECRET_ACCESS_KEY }}
+          CURRENT_GAMES_HEAD_SHA: ${{ env.STATUS_SHA }}
         run: |
           set +e
-          node scripts/current-games/lib/report.mjs merge report \
-            $(for i in $(seq 1 "$SHARDS"); do echo "parts/current-games-part-$i"; done)
+          units="$(ls -d parts/current-games-part-* 2>/dev/null | paste -sd, -)"
+          node scripts/current-games/run.mjs --phase compare --plan plan/plan.json \
+            --gates-file plan/gates.json --units "$units" --out report
           # Every non-pass row's cause, for reading without downloading the artifact.
           cat report/digest.txt 2>/dev/null
-          { echo '### Current games'; tail -n 1 report/summary.txt || echo 'no report was merged'; } \
+          { echo '### Current games'; tail -n 1 report/summary.txt || echo 'no report was made'; } \
             >> "$GITHUB_STEP_SUMMARY"
           true
 
@@ -342,6 +380,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           BUILD: ${{ needs.build.result }}
+          RENDER: ${{ needs.render.result }}
           PIPELINE_GAMES_URL: ${{ secrets.PIPELINE_GAMES_URL }}
           PIPELINE_CI_TOKEN: ${{ secrets.PIPELINE_CI_TOKEN }}
           CURRENT_GAMES_R2_ENDPOINT: ${{ secrets.CURRENT_GAMES_R2_ENDPOINT }}
@@ -351,7 +390,9 @@ jobs:
         run: |
           verdict="$(head -n 1 report/summary.txt 2>/dev/null || echo fail)"
           line="$(tail -n 1 report/summary.txt 2>/dev/null || echo 'no report')"
-          [ "$BUILD" = success ] || { verdict=fail; line="the runtime build or the gates job failed"; }
+          aborted="$(node -p "require('./report/report.json').aborted ?? ''" 2>/dev/null)"
+          [ "$BUILD" = success ] || { verdict=fail; line="${aborted:-the runtime build or the gates failed}"; }
+          [ "$RENDER" = success ] || { verdict=fail; line="a render shard died ($line)"; }
           line="$(printf %s "$line" | node scripts/current-games/lib/redact.mjs)" || line='the report could not be redacted'
           state=failure; [ "$verdict" = pass ] && state=success
           gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state="$state" -f context="$STATUS_CONTEXT" \

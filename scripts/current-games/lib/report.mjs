@@ -2,12 +2,9 @@
 // a static `index.html` beside it. One row per game — build / tests / looks the same — and, for a
 // changed screen, before / after / diff images, the tolerance it ran with and its stable id
 // (`<head sha>:<game>:<screen>:<diff hash>`, what an approval will name in Phase 5).
-//
-//   node scripts/current-games/lib/report.mjs merge <out> <part dir>…   join shard parts
 
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { redactReport } from './redact.mjs';
 
@@ -54,6 +51,7 @@ const LOOKS = {
 	'own-bundle': 'own bundle — build + tests only',
 	'no-snapshot': 'not rendered (no snapshot)',
 	unpublished: 'skip: not published',
+	refused: "not rendered (main's runtime refuses the snapshot)",
 	error: 'error',
 	skip: 'skip',
 };
@@ -127,7 +125,7 @@ function html(report) {
 @media (prefers-color-scheme: light){:root{--bg:#fff;--fg:#16181d;--muted:#5d636e;--line:#dde0e5;--pass:#cdeedb;--fail:#f7d4d7;--warn:#f6e7bf}}
 body{background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,sans-serif;margin:0;padding:16px;max-width:1400px}
 table{border-collapse:collapse;width:100%;margin:12px 0}td,th{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
-.s-pass,.s-same{background:var(--pass)}.s-fail,.s-changed,.s-error{background:var(--fail)}.s-skip,.s-no-snapshot,.s-unpublished,.s-own-bundle{background:var(--warn)}
+.s-pass,.s-same{background:var(--pass)}.s-fail,.s-changed,.s-error{background:var(--fail)}.s-skip,.s-no-snapshot,.s-unpublished,.s-own-bundle,.s-refused{background:var(--warn)}
 .verdict{font-size:20px;font-weight:700}.imgs{display:flex;gap:8px;flex-wrap:wrap}figure{margin:0;flex:1 1 300px}img{width:100%;border:1px solid var(--line)}
 small,.tol{color:var(--muted)}code{word-break:break-all}details{margin:12px 0}
 </style></head><body>
@@ -176,7 +174,8 @@ export function digest(report) {
 		const failedGates = (g.tests.gates ?? []).filter((x) => !x.pass);
 		lines.push(
 			`${v ?? 'not rendered'} · ${g.key} (${g.gameType ?? '—'}, script ${g.script ?? '—'}) · ` +
-				`looks ${g.looks.status}${g.looks.of ? ` ${g.looks.changed ?? 0}/${g.looks.of}` : ''}`,
+				`looks ${g.looks.status}${g.looks.of ? ` ${g.looks.changed ?? 0}/${g.looks.of}` : ''}` +
+				(report.renderSeconds?.[g.key] ? ` · ${report.renderSeconds[g.key]} s rendering` : ''),
 		);
 		if (v === 'pass') continue;
 		for (const note of g.notes ?? []) lines.push(`    note: ${note}`);
@@ -201,46 +200,11 @@ export function digest(report) {
 	return lines.join('\n');
 }
 
-/** Join shard parts (each a run's --out) into one report under `out`. */
-export function mergeReports(out, parts) {
-	mkdirSync(join(out, 'screens'), { recursive: true });
-	const reports = parts
-		.filter((p) => existsSync(join(p, 'report.json')))
-		.map((p) => ({ dir: p, report: JSON.parse(readFileSync(join(p, 'report.json'), 'utf8')) }));
-	const aborted = reports.map((r) => r.report.aborted).filter(Boolean);
-	const missing = parts.length - reports.length;
-	for (const { dir } of reports)
-		if (existsSync(join(dir, 'screens')))
-			cpSync(join(dir, 'screens'), join(out, 'screens'), { recursive: true });
-	const first = reports.find((r) => !r.report.aborted)?.report ?? reports[0]?.report ?? {};
-	return writeReport(out, {
-		...first,
-		shard: undefined,
-		shards: parts.length,
-		seconds: Math.max(0, ...reports.map((r) => r.report.seconds ?? 0)),
-		aborted:
-			[...new Set(aborted)].join('; ') ||
-			(missing ? `${missing} shard(s) wrote no report` : undefined),
-		games: reports.flatMap((r) => r.report.games).sort((a, b) => a.key.localeCompare(b.key)),
-	});
-}
-
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-	const [command, out, ...parts] = process.argv.slice(2);
-	if (command !== 'merge' || !out || !parts.length) {
-		console.error('usage: report.mjs merge <out> <part dir>…');
-		process.exit(2);
-	}
-	const report = mergeReports(
-		resolve(out),
-		parts.map((p) => resolve(p)),
-	);
-	// A file, not stdout: `process.exit` below would cut a long piped write short.
-	writeFileSync(join(resolve(out), 'digest.txt'), `${digest(report)}\n`);
-	console.log(`[current-games] ${report.summary.verdict} — ${report.summary.line}`);
-	writeFileSync(
-		join(resolve(out), 'summary.txt'),
-		`${report.summary.verdict}\n${report.summary.line}\n`,
-	);
-	process.exit(report.summary.verdict === 'pass' ? 0 : 1);
+/**
+ * `summary.txt` (verdict, then the status line) and `digest.txt` beside the report, for the
+ * workflow's status step and log.
+ */
+export function writeSummaryFiles(out, report) {
+	writeFileSync(join(out, 'digest.txt'), `${digest(report)}\n`);
+	writeFileSync(join(out, 'summary.txt'), `${report.summary.verdict}\n${report.summary.line}\n`);
 }
