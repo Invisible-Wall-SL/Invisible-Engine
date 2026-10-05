@@ -163,6 +163,19 @@ const REBUILD = `(() => {
 		.map(([r, n]) => \`\${r.constructor?.name} \${r.label ?? ''} \${typeof r.text === 'string' ? JSON.stringify(r.text) : ''} x\${n}\`);
 })()`;
 
+// …and the scene tree in order: one line per node (depth, type, label, children), so a child
+// added in another order shows (every other probe sorts).
+const TREE = `(() => {
+	const out = [];
+	const walk = (node, depth) => {
+		if (!node || out.length >= 4000) return;
+		out.push(\`\${depth} \${node.constructor?.name} \${node.label ?? ''} \${node.visible === false ? 'hidden ' : ''}\${node.children?.length ?? 0}\`);
+		for (const c of node.children ?? []) walk(c, depth + 1);
+	};
+	walk(window.__PIXI_APP__?.stage, 0);
+	return out;
+})()`;
+
 /** A forced beat with `{path}` placeholders filled from the game's contract (its own pot ids…). */
 const fillBeat = (beat, contract) =>
 	beat.replace(/\{([\w.-]+)\}/g, (_m, path) => {
@@ -279,8 +292,12 @@ export async function renderUnit({
 								layout: await page.evaluate(LAYOUT).catch((e) => [e.message]),
 								translucent: await page.evaluate(TRANSLUCENT).catch((e) => [e.message]),
 								dom: await page.evaluate(DOM).catch((e) => [e.message]),
+								tree: await page.evaluate(TREE).catch((e) => [e.message]),
 								batchedTwice: await page.evaluate(REBUILD).catch((e) => [e.message]),
-								rebuiltEqual: (await page.screenshot()).equals(shot),
+								rebuilt: await page.screenshot().then((png) => {
+									writeFileSync(join(dir, `${safe(screen)}.rebuilt.png`), png);
+									return { file: `${safe(screen)}.rebuilt.png`, equal: png.equals(shot) };
+								}),
 							}
 						: {}),
 				};
