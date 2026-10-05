@@ -7,6 +7,7 @@
 //     [--seed current-games] [--out <dir>] [--cache <dir>] [--jobs 1]
 //     [--no-gates | --gates-file <json>] [--keep-screens] [--trace] [--chrome <exe>]
 //     [--phase all | plan | render | compare] [--plan <json>] [--shard 1/4] [--units <dir>,…]
+//     [--typekit auto | mirror | network | <dir>]
 //
 // For every live game: render its PUBLISHED snapshot (read-only from R2) with main's runtime (BASE)
 // and the branch's runtime (HEAD), play its game type's screen script (`screens/<gameType>.json`)
@@ -20,6 +21,10 @@
 //   compare  pair the units of every shard (`--units`), compare, write the report
 // A unit is one side of one scenario of one game; the two sides of a comparison are independent
 // renders (fresh test server, fresh browser), so they need not share a runner.
+// Web fonts: the live games' renders answer Adobe's Typekit hosts from the R2 mirror
+// (`lib/typekit.mjs`, pinned by hash in the plan: `--typekit mirror`, the default when the games
+// come from R2); a local run of stand-in games loads them from Adobe (`network`); a local mirror
+// dir (from `typekit-mirror.mjs refresh --out`) stands in for R2.
 // Exit 1 when a rendered game fails, 2 when the run itself cannot start.
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -38,6 +43,7 @@ import { redactText } from './lib/redact.mjs';
 import { renderUnit } from './lib/render.mjs';
 import { writeSummaryFiles } from './lib/report.mjs';
 import { buildWorkingTree, gitSha, runtimeForRef } from './lib/runtimes.mjs';
+import { describeTypekit, mirrorInterceptor, planTypekit } from './lib/typekit.mjs';
 
 const ROOT = resolve(import.meta.dirname, '../..');
 const HERE = import.meta.dirname;
@@ -65,6 +71,7 @@ const { values: opt } = parseArgs({
 		'keep-screens': { type: 'boolean', default: false },
 		trace: { type: 'boolean', default: false },
 		chrome: { type: 'string' },
+		typekit: { type: 'string', default: 'auto' },
 	},
 });
 
@@ -129,12 +136,19 @@ async function plan() {
 			only,
 			scenarioIds: opt.scenario?.split(','),
 		});
+		// The live games (R2) render through the mirror; stand-in games load from Adobe.
+		const live = games.some((g) => g.publishedPointerKey && !g.local);
+		const typekit = await planTypekit(
+			opt.typekit === 'auto' ? (live ? 'mirror' : 'network') : opt.typekit,
+			ROOT,
+		);
 		const baseSha = process.env.CURRENT_GAMES_BASE_SHA;
 		return {
 			version: 2,
 			seed: opt.seed,
 			head: { sha: headSha },
 			base: baseSha ? { sha: baseSha } : undefined,
+			typekit,
 			...made,
 		};
 	} catch (e) {
@@ -193,6 +207,15 @@ async function render(thePlan, units, runtimes) {
 		for (const unit of units) writeFailedUnit(unit, `mock contracts unreadable: ${e.message}`);
 		return;
 	}
+	// The mirror the plan pinned, once per shard; without it every unit here would compare fonts
+	// Adobe served against fonts it did not.
+	let intercept;
+	try {
+		intercept = await mirrorInterceptor(thePlan.typekit, cache);
+	} catch (e) {
+		for (const unit of units) writeFailedUnit(unit, `Typekit mirror unavailable: ${e.message}`);
+		return;
+	}
 	// One download per snapshot, however many of the game's units run at once.
 	const snapshots = new Map();
 	const snapshotOf = (planned) => {
@@ -231,6 +254,7 @@ async function render(thePlan, units, runtimes) {
 				cache,
 				out,
 				trace: opt.trace ? log : undefined,
+				intercept,
 			});
 			log(
 				`${unit.id}: ${Object.keys(r.screens).length} screen(s), ${r.seconds.toFixed(0)} s` +
@@ -258,6 +282,7 @@ function compare(thePlan, unitDirs) {
 		extra: {
 			shards: unitDirs.length,
 			browser: browserFile ? JSON.parse(readFileSync(browserFile, 'utf8')) : undefined,
+			typekit: thePlan.typekit,
 		},
 	});
 	writeSummaryFiles(out, report);
@@ -277,6 +302,7 @@ if (opt.phase === 'plan') {
 	const thePlan = await plan();
 	writeFileSync(join(out, 'plan.json'), JSON.stringify(thePlan, null, '\t'));
 	log(`${thePlan.games.length} game(s), ${thePlan.units.length} render unit(s)`);
+	log(describeTypekit(thePlan.typekit));
 } else if (opt.phase === 'render') {
 	const thePlan = readPlan();
 	const [index, count] = opt.shard.split('/').map(Number);

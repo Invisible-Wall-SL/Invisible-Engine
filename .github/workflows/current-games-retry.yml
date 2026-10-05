@@ -1,0 +1,61 @@
+# Re-run the `current-games` jobs GitHub failed to START — a hosted runner never acquired ("The job
+# was not acquired by Runner of type hosted even after multiple attempts": the job is cancelled
+# after ~15 min with no runner and no steps), or one lost before the job's body ran (checkout,
+# toolchain, install, artifact download) — at most ONCE per run. A job that ran and failed is never
+# retried: a build, the gates, a render shard or the compare that started is a real result. The
+# decision is scripts/current-games/lib/retry.mjs, proved by retry.fixture.mjs; this file only gives
+# it a trigger and a token. Doc: docs/playtest/current-games.md ("CI").
+#
+# `workflow_run` fires from the DEFAULT branch's copy of this file after every completed run of
+# "Current games", in that run's own repository context, so a branch cannot change what is retried.
+# Least privilege: the token can list a run's jobs and re-run its failed ones (`actions: write`)
+# and nothing else; the checkout of one public file needs no permission.
+#
+# A manual run (`workflow_dispatch`) decides on any run id and, unless `apply` is set, only prints
+# the decision: how a past run, or this file on a branch, is checked.
+
+name: Current games retry
+
+on:
+  workflow_run:
+    workflows: [Current games]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: The Current games run to decide on
+        type: string
+        required: true
+      apply:
+        description: Re-run its failed jobs when the decision says so (else only print it)
+        type: boolean
+        default: false
+
+permissions:
+  actions: write
+
+jobs:
+  retry:
+    # Only a failed FIRST attempt can be retried; a re-run (attempt 2+) completes without a decision.
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt == 1)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: scripts/current-games/lib/retry.mjs
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Decide, and re-run the failed jobs once
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
+          APPLY: ${{ github.event_name == 'workflow_run' || inputs.apply }}
+        run: |
+          apply=''
+          [ "$APPLY" = true ] && apply=--apply
+          node scripts/current-games/lib/retry.mjs --run "$RUN_ID" $apply

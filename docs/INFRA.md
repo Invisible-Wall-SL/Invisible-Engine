@@ -408,6 +408,13 @@ These were needed to get the artist's FLUX/PuLID blueprint running on a hand-bui
 - Key layout:
   - `test_server/games.json` + `test_server/<key>/…` — the test server's manifest and each desktop-built game's own bundle
   - `test_server/_runtime/lines@<version>/…` — one immutable online-engine release each; `test_server/_runtime/lines/current.json` is the pointer the test server serves (`releases.json` = history, `release.json` = the launcher's status stamp). Written only by the **Runtime release** Action, flipped by the **Runtime rollback** Action; see "Runtime releases" in [design/games-deploy](design/games-deploy.md). `games.invisiblewall.org/healthz` shows the served version; every runtime response carries `X-Runtime-Release`.
+  - `_ci/typekit-mirror/current.json` + `_ci/typekit-mirror/blobs/<sha256>` — the Typekit kit
+    (stylesheet, script, font files) the current-games harness renders with instead of asking
+    Adobe; players still load from `use.typekit.net`. Written only by the **Typekit mirror** Action
+    (`.github/workflows/typekit-mirror.yml`, the release's `R2_*` key; blobs are never overwritten,
+    the manifest is one write), read by the harness's read-only key. Private on purpose: Adobe's
+    fonts are licensed, so they are mirrored into this bucket and never into the public repo. How
+    and when to refresh: `docs/playtest/current-games.md` ("Typekit mirror").
   - `atlas/manifests/loader.json` — Svelte-era manifest (legacy path)
   - `spines/hotfruits/…` — spine assets
   - `atlas_maker/cloud/<project>/{manifests,input,output,deploy}/…` — the ported tool's store
@@ -453,7 +460,8 @@ code default, so the dashboard need not set it):
 - **Current-games harness (GitHub Actions secrets, `.github/workflows/current-games.yml`):**
   `PIPELINE_GAMES_URL` (the launcher's `/api/pipeline/games` URL), `PIPELINE_CI_TOKEN` (above), and
   an R2 API token with **Object Read only** on the bucket (R2 scopes tokens per bucket, not per key
-  prefix; the harness reads only `*/published/**` and `test_server/games.json`):
+  prefix; the harness reads only `*/published/**`, `test_server/games.json` and
+  `_ci/typekit-mirror/**`):
   `CURRENT_GAMES_R2_ENDPOINT`, `CURRENT_GAMES_R2_BUCKET`, `CURRENT_GAMES_R2_ACCESS_KEY_ID`,
   `CURRENT_GAMES_R2_SECRET_ACCESS_KEY`. Deliberately NOT the release's read-write `R2_*`: the harness
   never writes. A missing one fails the run and the `current-games` commit status, naming it. The
@@ -996,7 +1004,7 @@ apply staged vars.
 
 | Secret | Lives in / read by | How to rotate | Redeploy after |
 | --- | --- | --- | --- |
-| **R2 access key** (`R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`, bucket `invisibleassets`) | Cloudflare R2 → API Tokens. Read by: Railway **launcher**, **atlas-tool**, **sheet-tool**, **Invisible-test-Server**; GitHub Actions repo secrets (`runtime-release.yml`, `runtime-rollback.yml` — miss those and every engine release fails); the owner's desktop launcher only if its Settings opt-in *Publish games straight to R2* (or the owner-only model/node/tunnel publishing, *Seed Atlas*, `build_and_publish.py`) is used; owner-run maintenance scripts (`apps/launcher-api/scripts/*`, `scripts/seed-comfyui-models.py`); a RunPod pod while `pull-models.py` / `push-models.py` runs. Full consumer list: [rotate-a-secret](guides/rotate-a-secret.md). | Create a new token scoped to `invisibleassets` (read+write), switch every consumer, then delete the old token. | Each Railway service → Apply changes / Deploy; update the two Actions secrets; re-enter it in the owner's launcher via *R2 credentials…*. Since launcher v1.0.56 no publisher desktop needs it — ☁ Publish goes through the portal (`api/launcher/game-upload`), and a desktop still holding the old key falls back to the portal on its first rejected publish. |
+| **R2 access key** (`R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`, bucket `invisibleassets`) | Cloudflare R2 → API Tokens. Read by: Railway **launcher**, **atlas-tool**, **sheet-tool**, **Invisible-test-Server**; GitHub Actions repo secrets (`runtime-release.yml`, `runtime-rollback.yml` — miss those and every engine release fails; `typekit-mirror.yml`); the owner's desktop launcher only if its Settings opt-in *Publish games straight to R2* (or the owner-only model/node/tunnel publishing, *Seed Atlas*, `build_and_publish.py`) is used; owner-run maintenance scripts (`apps/launcher-api/scripts/*`, `scripts/seed-comfyui-models.py`); a RunPod pod while `pull-models.py` / `push-models.py` runs. Full consumer list: [rotate-a-secret](guides/rotate-a-secret.md). | Create a new token scoped to `invisibleassets` (read+write), switch every consumer, then delete the old token. | Each Railway service → Apply changes / Deploy; update the two Actions secrets; re-enter it in the owner's launcher via *R2 credentials…*. Since launcher v1.0.56 no publisher desktop needs it — ☁ Publish goes through the portal (`api/launcher/game-upload`), and a desktop still holding the old key falls back to the portal on its first rejected publish. |
 | **Postgres password** | Inside `DATABASE_URL` on the **launcher** (and `BACKUP_DATABASE_URL` if it holds that role — see the backup row). | Railway Postgres service → Variables → regenerate credentials (or `ALTER USER … WITH PASSWORD …`). | Launcher → Apply changes / Deploy; `/api/health` must read `db: ok`. |
 | **CF Access service token** (`CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET`) | Cloudflare Zero Trust → Access → Service Auth (the token in front of `comfy.invisiblewall.org`). Read by **atlas-tool**. | Rotate/regenerate the service token, or create a new one, allow it in the Access policy, then delete the old. | atlas-tool → Apply changes / Deploy. Verify with `curl -H "CF-Access-Client-Id: …" -H "CF-Access-Client-Secret: …" https://comfy.invisiblewall.org/system_stats`. |
 | **Tool signing secrets** (`ATLAS_TOOL_SIGNING_SECRET`, `SHEET_TOOL_SIGNING_SECRET`) | Railway Shared Variables → launcher + the one tool each. | New random value (see "Tool launch tokens"); set the tool side, then the launcher. | Both services. Everyone is signed out of that tool and reopens it from the launcher. |

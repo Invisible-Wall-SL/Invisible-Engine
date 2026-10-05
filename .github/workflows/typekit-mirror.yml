@@ -1,0 +1,68 @@
+# Refresh the Typekit mirror the current-games harness renders with. The live games load their web
+# fonts from Adobe (use.typekit.net); CI renders answer that host from a copy in R2
+# (`_ci/typekit-mirror/`, see scripts/current-games/lib/typekit.mjs) so an Adobe outage cannot
+# stall a frame or fail a comparison. Players are not touched: they keep loading from Adobe.
+#
+# WHEN TO RUN IT: once, before the first harness run after this lands; again whenever the harness
+# fails with "the Typekit mirror is missing" / "lacks kit(s)" / "has no entry for <url>" — a kit id
+# changed in the runtime's sources, or a face was added. Nothing in a render ever reaches Adobe, so
+# the mirror does not go stale on its own: Adobe republishing the kit changes what players get, not
+# what the harness compares (both sides render the same mirrored faces). A branch that changes the
+# kit runs this with `extra_kits` naming the OLD id too, until it merges (main's runtime still loads
+# it). Doc: docs/playtest/current-games.md ("Typekit mirror").
+#
+# WRITES to R2 with the release's read-write key (`R2_*`, the runtime-release secrets), the only
+# harness-side thing that does: blobs are content-addressed (never overwritten) and `current.json`
+# is one write, last. The harness itself keeps its read-only key.
+
+name: Typekit mirror
+
+on:
+  workflow_dispatch:
+    inputs:
+      extra_kits:
+        description: Kit ids to mirror besides the ones harvested from the runtime (space-separated)
+        type: string
+        default: ''
+      dry_run:
+        description: Fetch from Adobe and report; write nothing to R2
+        type: boolean
+        default: false
+
+concurrency:
+  group: typekit-mirror
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Fetch the kit from Adobe and upload it to R2
+        env:
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          EXTRA_KITS: ${{ inputs.extra_kits }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          args=''
+          for kit in $EXTRA_KITS; do args="$args --kit $kit"; done
+          [ "$DRY_RUN" = true ] && args="$args --dry-run"
+          # shellcheck disable=SC2086
+          node scripts/current-games/typekit-mirror.mjs refresh $args
