@@ -2,12 +2,9 @@
 // a static `index.html` beside it. One row per game — build / tests / looks the same — and, for a
 // changed screen, before / after / diff images, the tolerance it ran with and its stable id
 // (`<head sha>:<game>:<screen>:<diff hash>`, what an approval will name in Phase 5).
-//
-//   node scripts/current-games/lib/report.mjs merge <out> <part dir>…   join shard parts
 
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { redactReport } from './redact.mjs';
 
@@ -54,6 +51,7 @@ const LOOKS = {
 	'own-bundle': 'own bundle — build + tests only',
 	'no-snapshot': 'not rendered (no snapshot)',
 	unpublished: 'skip: not published',
+	refused: "not rendered (main's runtime refuses the snapshot)",
 	error: 'error',
 	skip: 'skip',
 };
@@ -127,13 +125,16 @@ function html(report) {
 @media (prefers-color-scheme: light){:root{--bg:#fff;--fg:#16181d;--muted:#5d636e;--line:#dde0e5;--pass:#cdeedb;--fail:#f7d4d7;--warn:#f6e7bf}}
 body{background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,sans-serif;margin:0;padding:16px;max-width:1400px}
 table{border-collapse:collapse;width:100%;margin:12px 0}td,th{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
-.s-pass,.s-same{background:var(--pass)}.s-fail,.s-changed,.s-error{background:var(--fail)}.s-skip,.s-no-snapshot,.s-unpublished,.s-own-bundle{background:var(--warn)}
+.s-pass,.s-same{background:var(--pass)}.s-fail,.s-changed,.s-error{background:var(--fail)}.s-skip,.s-no-snapshot,.s-unpublished,.s-own-bundle,.s-refused{background:var(--warn)}
 .verdict{font-size:20px;font-weight:700}.imgs{display:flex;gap:8px;flex-wrap:wrap}figure{margin:0;flex:1 1 300px}img{width:100%;border:1px solid var(--line)}
 small,.tol{color:var(--muted)}code{word-break:break-all}details{margin:12px 0}
 </style></head><body>
 <h1>Current games</h1>
 <p class="verdict">${summary.verdict === 'pass' ? 'PASS' : 'FAIL'} — ${esc(summary.line)}</p>
-<p>branch <code>${esc(report.head?.sha)}</code> vs main <code>${esc(report.base?.sha)}</code> · seed <code>${esc(report.seed)}</code> · ${esc(report.viewport)} · ${esc(report.seconds)} s${report.shards ? ` · ${report.shards} shard(s)` : ''}</p>
+<p>branch <code>${esc(report.head?.sha)}</code> vs main <code>${esc(report.base?.sha)}</code> · seed <code>${esc(report.seed)}</code> · ${esc(report.viewport)} · ${esc(Object.values(report.renderSeconds ?? {}).reduce((a, b) => a + b, 0))} s of rendering${report.shards ? ` over ${report.shards} shard(s)` : ''}</p>
+${Object.entries(report.browser ?? {})
+	.map(([name, paths]) => `<p><small>browser (${esc(name)}): ${esc(paths)}</small></p>`)
+	.join('')}
 <table><thead><tr><th>Game</th><th>Type</th><th>Build</th><th>Tests</th><th>Looks the same</th><th>Notes</th></tr></thead><tbody>
 ${rows}
 </tbody></table>
@@ -157,44 +158,90 @@ export function writeReport(out, data) {
 	return report;
 }
 
-/** Join shard parts (each a run's --out) into one report under `out`. */
-export function mergeReports(out, parts) {
-	mkdirSync(join(out, 'screens'), { recursive: true });
-	const reports = parts
-		.filter((p) => existsSync(join(p, 'report.json')))
-		.map((p) => ({ dir: p, report: JSON.parse(readFileSync(join(p, 'report.json'), 'utf8')) }));
-	const aborted = reports.map((r) => r.report.aborted).filter(Boolean);
-	const missing = parts.length - reports.length;
-	for (const { dir } of reports)
-		if (existsSync(join(dir, 'screens')))
-			cpSync(join(dir, 'screens'), join(out, 'screens'), { recursive: true });
-	const first = reports.find((r) => !r.report.aborted)?.report ?? reports[0]?.report ?? {};
-	return writeReport(out, {
-		...first,
-		shard: undefined,
-		shards: parts.length,
-		seconds: Math.max(0, ...reports.map((r) => r.report.seconds ?? 0)),
-		aborted:
-			[...new Set(aborted)].join('; ') ||
-			(missing ? `${missing} shard(s) wrote no report` : undefined),
-		games: reports.flatMap((r) => r.report.games).sort((a, b) => a.key.localeCompare(b.key)),
-	});
+/**
+ * A plain-text account of every row that is not a pass, for the job log: the artifact needs a
+ * download, the log does not. Built from the (already redacted) report.
+ */
+const short = (text) =>
+	text
+		.replace(/\?[^\s):]*ie_determinism=[^\s):]*/g, '')
+		.split('\n')
+		.slice(0, 6)
+		.join(' | ')
+		.slice(0, 600);
+
+export function digest(report) {
+	const lines = Object.entries(report.browser ?? {}).map(
+		([name, paths]) => `browser (${name}): ${paths}`,
+	);
+	// The per-screen noise over the screens both sides captured: a passing screen that is not
+	// byte-identical differed within its tolerance, and is named with what was measured.
+	const shots = report.games.flatMap((g) =>
+		g.screens.filter((s) => s.measured).map((s) => ({ ...s, game: g.key })),
+	);
+	const near = shots.filter((s) => s.pass && !s.identical);
+	if (shots.length)
+		lines.push(
+			`noise: ${shots.filter((s) => s.identical).length} of ${shots.length} compared screen(s) byte-identical` +
+				(near.length
+					? `; passed within tolerance, not byte-identical: ${near
+							.map(
+								(s) =>
+									`${s.game}/${s.screen} ${pct(s.measured.diffRatio)}, worst block ${pct(s.measured.maxBlockRatio)}`,
+							)
+							.join('; ')}`
+					: ''),
+		);
+	for (const g of report.games) {
+		const v = rowVerdict(g);
+		const failedGates = (g.tests.gates ?? []).filter((x) => !x.pass);
+		lines.push(
+			`${v ?? 'not rendered'} · ${g.key} (${g.gameType ?? '—'}, script ${g.script ?? '—'}) · ` +
+				`looks ${g.looks.status}${g.looks.of ? ` ${g.looks.changed ?? 0}/${g.looks.of}` : ''}` +
+				(report.renderSeconds?.[g.key] ? ` · ${report.renderSeconds[g.key]} s rendering` : ''),
+		);
+		if (v === 'pass') continue;
+		for (const note of g.notes ?? []) lines.push(`    note: ${note}`);
+		if (g.looks.detail) lines.push(`    looks: ${short(g.looks.detail)}`);
+		for (const gate of failedGates)
+			lines.push(`    gate ${gate.gate}: ${(gate.tail ?? 'failed').slice(-300)}`);
+		const failures = [...(g.tests.smoke?.failures ?? []), ...(g.looks.baseFailures ?? [])];
+		for (const f of failures) {
+			lines.push(
+				`    ${f.side}/${f.scenario}: ${short(f.error ?? '')} errors ${f.errors} stalls ${f.stalls}`,
+			);
+			for (const c of f.console ?? []) lines.push(`      ${short(c)}`);
+		}
+		for (const s of g.screens.filter((x) => !x.pass))
+			lines.push(
+				`    screen ${s.screen} (${s.scenario}): ${s.reason}` +
+					(s.measured?.box ? ` · box ${JSON.stringify(s.measured.box)}` : '') +
+					` · frames ${s.state?.base?.frame ?? '-'}/${s.state?.head?.frame ?? '-'}` +
+					` · screens ${s.state?.base?.screens?.join('>') ?? '-'} | ${s.state?.head?.screens?.join('>') ?? '-'}`,
+			);
+		for (const s of g.screens.filter((x) => !x.pass && x.heatmap))
+			lines.push(`    ${s.screen} diff map:`, ...s.heatmap.map((r) => `      |${r}|`));
+	}
+	return lines.join('\n');
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-	const [command, out, ...parts] = process.argv.slice(2);
-	if (command !== 'merge' || !out || !parts.length) {
-		console.error('usage: report.mjs merge <out> <part dir>…');
-		process.exit(2);
-	}
-	const report = mergeReports(
-		resolve(out),
-		parts.map((p) => resolve(p)),
+/**
+ * `summary.txt` (verdict, then the status line) and `digest.txt` beside the report, for the
+ * workflow's status step and log.
+ */
+export function writeSummaryFiles(out, report) {
+	// Each scenario's slower side, for `costs.json` (the shard balance).
+	const seconds = Object.fromEntries(
+		report.games.flatMap((g) =>
+			Object.entries(g.timings ?? {}).map(([sc, t]) => [
+				`${g.key}/${sc}`,
+				Math.round(Math.max(t.base, t.head)),
+			]),
+		),
 	);
-	console.log(`[current-games] ${report.summary.verdict} — ${report.summary.line}`);
 	writeFileSync(
-		join(resolve(out), 'summary.txt'),
-		`${report.summary.verdict}\n${report.summary.line}\n`,
+		join(out, 'digest.txt'),
+		`${digest(report)}\ncosts: ${JSON.stringify({ seconds })}\n`,
 	);
-	process.exit(report.summary.verdict === 'pass' ? 0 : 1);
+	writeFileSync(join(out, 'summary.txt'), `${report.summary.verdict}\n${report.summary.line}\n`);
 }

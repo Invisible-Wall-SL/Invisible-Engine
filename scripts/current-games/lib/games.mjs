@@ -106,13 +106,13 @@ const POINTER_KEY = /^[\w.-]+(\/[\w.-]+)*\/pointer\.json$/;
 const CONCURRENCY = 12;
 
 /**
- * The game's current published snapshot under `<cache>/snapshots/<pointer dir>/<id>/`: `{ id, dir }`,
- * or `null` when its pointer does not exist (never published). A snapshot is immutable by id, so a
- * complete one is never downloaded twice. A game in the list with `local.snapshot` (a fixture) is
- * read from that folder instead.
+ * The game's current published snapshot: `{ id, prefix }`, or `null` when its pointer does not
+ * exist (never published). A game in the list with `local.snapshot` (a fixture) has the id `local`. Read
+ * once per run (the plan), so every render of the run uses the same snapshot even if the game is
+ * republished mid-run.
  */
-export async function fetchSnapshot(game, cache) {
-	if (game.local?.snapshot) return { id: 'local', dir: game.local.snapshot };
+export async function currentSnapshot(game) {
+	if (game.local?.snapshot) return { id: 'local' };
 	// The key arrives from the launcher and names a folder on this disk: plain segments only.
 	const segments = String(game.publishedPointerKey).split('/');
 	if (!POINTER_KEY.test(game.publishedPointerKey) || segments.some((p) => /^\.+$/.test(p)))
@@ -122,9 +122,23 @@ export async function fetchSnapshot(game, cache) {
 	const pointer = JSON.parse(text);
 	if (typeof pointer.current !== 'string' || !/^[\w-]+$/.test(pointer.current))
 		throw new Error(`${game.publishedPointerKey}: no valid current snapshot`);
-	const prefix = `${game.publishedPointerKey.replace(/pointer\.json$/, '')}${pointer.current}/`;
+	return {
+		id: pointer.current,
+		prefix: `${game.publishedPointerKey.replace(/pointer\.json$/, '')}${pointer.current}/`,
+	};
+}
+
+/**
+ * Snapshot `current` (from `currentSnapshot`) under `<cache>/snapshots/<prefix>`: `{ id, dir }`. A
+ * snapshot is immutable by id, so a complete one is never downloaded twice.
+ */
+export async function fetchSnapshot(game, cache, current) {
+	if (game.local?.snapshot) return { id: 'local', dir: game.local.snapshot };
+	const { id, prefix } = current;
+	if (!/^[\w-]+$/.test(id) || !prefix.endsWith(`/${id}/`))
+		throw new Error(`refusing snapshot ${JSON.stringify(current)}`);
 	const dir = join(cache, 'snapshots', prefix);
-	if (existsSync(join(dir, DONE))) return { id: pointer.current, dir };
+	if (existsSync(join(dir, DONE))) return { id, dir };
 	const keys = await listKeys(`${prefix}deploy/`);
 	let next = 0;
 	const worker = async () => {
@@ -139,5 +153,5 @@ export async function fetchSnapshot(game, cache) {
 	// Last, like the publish writes it: a snapshot without runtime.json is not served.
 	await download(`${prefix}runtime.json`, join(dir, 'runtime.json'));
 	writeFileSync(join(dir, DONE), new Date().toISOString());
-	return { id: pointer.current, dir };
+	return { id, dir };
 }

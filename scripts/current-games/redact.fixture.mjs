@@ -6,12 +6,13 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { listGames } from './lib/games.mjs';
-import { mergeReports, writeReport } from './lib/report.mjs';
+import { assembleReport } from './lib/assemble.mjs';
+import { writeReport } from './lib/report.mjs';
 import { MASK, redactText, SECRET_ENV } from './lib/redact.mjs';
 
 const hex = (seed, n) =>
@@ -121,22 +122,17 @@ await test('every free-text field of a game row is redacted; ids keep their hash
 	assert.equal(report.games[0].screens[0].id, `${sha}:g:x:${'b'.repeat(16)}`);
 });
 
-await test('the merge job, which has no secrets, still masks a token-shaped value', () => {
-	const part = join(tmp, 'part');
-	mkdirSync(part, { recursive: true });
-	writeFileSync(
-		join(part, 'report.json'),
-		JSON.stringify({
-			version: 1,
-			aborted: `Failed to parse URL from ${SECRETS.PIPELINE_CI_TOKEN}`,
-			games: [],
-		}),
-	);
+await test('the compare job, which has no secrets, still masks a token-shaped value', () => {
 	const saved = Object.fromEntries(SECRET_ENV.map((n) => [n, process.env[n]]));
 	for (const n of SECRET_ENV) delete process.env[n];
 	try {
-		const report = mergeReports(join(tmp, 'merged'), [part]);
-		clean(report.summary.line, 'merged summary line');
+		const report = assembleReport({
+			plan: { aborted: `Failed to parse URL from ${SECRETS.PIPELINE_CI_TOKEN}`, games: [] },
+			unitDirs: [],
+			out: join(tmp, 'compared'),
+			tolerance: {},
+		});
+		clean(report.summary.line, 'compared summary line');
 		clean(
 			postedDescription(
 				`Failed to parse URL from ${SECRETS.CURRENT_GAMES_R2_SECRET_ACCESS_KEY}`,
