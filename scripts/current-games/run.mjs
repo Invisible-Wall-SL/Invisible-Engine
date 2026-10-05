@@ -26,6 +26,7 @@ import { compareScreens, identical, loadTolerance, toleranceFor } from './lib/co
 import { gatesFor, loadGateResults, runGate } from './lib/gates.mjs';
 import { fetchManifest, fetchSnapshot, listGames } from './lib/games.mjs';
 import { playScenario } from './lib/play.mjs';
+import { redactText } from './lib/redact.mjs';
 import { writeReport } from './lib/report.mjs';
 import { buildWorkingTree, gitSha, runtimeForRef } from './lib/runtimes.mjs';
 import { serveSnapshot, startTestServer, testServerTree } from './lib/serve.mjs';
@@ -63,7 +64,8 @@ rmSync(out, { recursive: true, force: true });
 mkdirSync(join(out, 'screens'), { recursive: true });
 
 /** Die before rendering anything, with the reason in the report. */
-const abort = (message) => {
+const abort = (raw) => {
+	const message = redactText(raw);
 	console.error(`[current-games] ${message}`);
 	writeFileSync(
 		join(out, 'report.json'),

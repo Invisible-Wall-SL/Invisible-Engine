@@ -169,6 +169,13 @@ rendered. A run that cannot start (a missing secret, a failed build) fails and n
 
 A docs-only change posts success without rendering.
 
+**Secrets never leave the log.** GitHub masks secrets in job logs only: the status description, the
+step summary and the report artifact publish their text as given. Every message bound for one of
+them goes through `lib/redact.mjs`, which replaces each secret env's value with `***` and, as a
+backstop where the values are not known (the merge), any 32+ hex or token-shaped base64 run. A
+malformed `PIPELINE_GAMES_URL` fails up front with a fixed message that never quotes it.
+`redact.fixture.mjs` (run by `check:all`) proves each secret stays out of all three.
+
 ## Measured (2026-10-04, Claude Code cloud container, 4 vCPU, software GL)
 
 There were no R2 or launcher credentials in that session, so these runs used the stand-in fixtures
