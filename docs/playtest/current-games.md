@@ -271,6 +271,43 @@ piped write; it is a file now); `code-changed` made a full checkout shallow when
 `before` with `--depth=1`, which broke the base-commit step; and a new branch's first push now diffs
 against its merge-base with main instead of counting as "change set unknown".
 
+## Measured on the live games (CI, 2026-10-05)
+
+- **Noise, main vs main, twice in a row.** Self-compare runs
+  [37376834557](https://github.com/Invisible-Wall-SL/Invisible-Engine/actions/runs/37376834557) and
+  [37378492596](https://github.com/Invisible-Wall-SL/Invisible-Engine/actions/runs/37378492596), both
+  on `1ef36e2` (card 1F's final engine and harness), each reported 12 pass · 0 fail · 9 not rendered ·
+  0 changed screens, with **161 of 161 compared screens byte-identical** on each: 12 games × 11–14
+  screens, every gate passing. The 9 not rendered are the five desktop builds, the three unpublished
+  games and `cloud`'s refused snapshot.
+- **Time.** 14 min 10 s and 11 min 44 s from dispatch to status: `prepare` ~20 s, the runtime
+  builds and the plan ~1.5–2 min with the gates beside them, the 20 shards 9.5–11 min, the compare
+  ~35 s. A game's two sides take 3–20 minutes of rendering in all (`test2` the longest), spread over
+  shards by `costs.json`.
+- **Runner shortages.** On the same evening GitHub's hosted pool repeatedly could not supply
+  `ubuntu-latest` machines: a job not acquired within ~15 minutes is cancelled ("The job was not
+  acquired by Runner of type hosted even after multiple attempts"), and one shard lost its machine
+  mid-run. A run with a missing shard reports those games as errors, never as passes; **Re-run
+  failed jobs** re-renders only the missing shards and keeps the rest.
+- **The 1 px proof on the live games.** Throwaway commit `9a9cfcf` wrapped the runtime's
+  `<WinLine />` mount in a container 1 px to the right, which moves the win line and the amount it
+  draws and nothing else. Against `1ef36e2`
+  ([run 37379922702](https://github.com/Invisible-Wall-SL/Invisible-Engine/actions/runs/37379922702))
+  the harness flagged 21 screens on 10 games and left the other 140 of 161 byte-identical. Every
+  flagged screen is a win presentation: `line-win` on all ten games, and the settled, free-spin,
+  trigger, pot and big-win screens where a line or amount stays up. Both sides were on the same
+  frame, and the difference is boxed where the line and amount are drawn. `hw-classic-sample` and
+  `test3` changed on no screen (not inspected: their captures may draw no line from this
+  component). The revert (`24436f4`) has the same tree as `1ef36e2`, which both self-compares above
+  ran on. The same change on the stand-in fixtures flagged 17 of 70 screens, all win presentations.
+- **A built-in component change does not reach a published game.** The fixture proof's change
+  (the built-in `freeSpinCounter` frame moved 1 px) changed none of the seven live games that
+  rendered fully (run 37366774720). Publishing bakes the component definitions a game uses into
+  its snapshot (`runtimeBundle.ts`: each referenced id resolves project ◁ shared ◁ built-in), and
+  the runtime registers them over its own built-ins (`registerBakedComponents`). The harness renders
+  published snapshots, so it correctly shows nothing; such a change reaches a game at its next
+  publish without passing this harness. An open question for the owner.
+
 ## Measured on the stand-in fixtures (2026-10-04, Claude Code cloud container, 4 vCPU, software GL)
 
 There were no R2 or launcher credentials in that session, so these runs used the stand-in fixtures
