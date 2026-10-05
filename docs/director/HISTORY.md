@@ -15,6 +15,19 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-05 · Phase 1 · coordinator
+- **Did:**
+  - Recorded #1044 (3A, `director-worker`; the service is deployed and healthy), #1046 (2C, Atlas
+    Maker adapters), #1054 (a harness fix) and #1055 (secret redaction in the harness).
+  - The owner rotated `PIPELINE_CI_TOKEN` after #1055 found a secret value in a commit status.
+    **Closed.**
+- **Found:** the first harness run on the live games gave 6 pass · 7 fail · 8 not rendered · 10
+  changed screens, on a CI-only change. This is harness noise, to be calibrated in card 1F.
+- **Branch / PR:** `claude/upbeat-feynman-pwgx6a`, Invisible-Wall-SL/Invisible-Engine#1045.
+- **Next:**
+  - 1F: calibrate the harness on the live games, then make `current-games` required.
+  - 2D, 3B and 3C.
+
 ## 2026-10-04 · Phase 1–3 · coordinator (recording #1040–#1043, #1044 in review)
 - **Did:**
   - Recorded the merges of card D (#1040), card E (#1041), card 2A (#1042) and card 2B (#1043).
