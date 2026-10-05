@@ -17,14 +17,14 @@ import { writeReport } from './report.mjs';
 const oneSidedHash = (png, side) =>
 	createHash('sha256').update(side).update(png).digest('hex').slice(0, 16);
 
-/** Diagnostics: do the two sides' fresh-instruction re-draws of a screen match? */
-function freshEqual(sides, screen) {
-	const [a, b] = [sides.base, sides.head].map((side) => side.rebuiltPngs?.[screen]);
+/** Diagnostics: do the two sides' redraws of a screen match? */
+function redrawEqual(sides, screen) {
+	const [a, b] = [sides.base, sides.head].map((side) => side.redrawnPngs?.[screen]);
 	if (!a || !b) return 'not captured';
 	if (a.equals(b)) return 'yes, byte-identical';
-	return `no (${compareScreens(a, b, FRESH_TOLERANCE).diffPixels} px)`;
+	return `no (${compareScreens(a, b, EXACT).diffPixels} px)`;
 }
-const FRESH_TOLERANCE = {
+const EXACT = {
 	maxDiffRatio: 0,
 	blockSize: 16,
 	blockThreshold: 0,
@@ -54,12 +54,12 @@ function loadUnit(unitDirs, id) {
 				readFileSync(join(dir, s.file)),
 			]),
 		);
-		const rebuiltPngs = Object.fromEntries(
+		const redrawnPngs = Object.fromEntries(
 			Object.entries(result.screens)
-				.filter(([, s]) => s.rebuilt?.file)
-				.map(([screen, s]) => [screen, readFileSync(join(dir, s.rebuilt.file))]),
+				.filter(([, s]) => s.redrawn?.file)
+				.map(([screen, s]) => [screen, readFileSync(join(dir, s.redrawn.file))]),
 		);
-		return { ...result, shots, rebuiltPngs };
+		return { ...result, shots, redrawnPngs };
 	}
 	return undefined;
 }
@@ -204,11 +204,9 @@ function gameRow(
 							`texts only on main: ${only(texts[0], texts[1])}`,
 							`texts only on the branch: ${only(texts[1], texts[0])}`,
 							`capture equal 300 ms later: main ${sides.base.screens[screen]?.stableLater} · branch ${sides.head.screens[screen]?.stableLater}`,
-							`capture equal after a fresh instruction build: main ${sides.base.screens[screen]?.rebuilt?.equal} · branch ${sides.head.screens[screen]?.rebuilt?.equal}`,
-							`fresh builds equal across the sides: ${freshEqual(sides, screen)}`,
+							`capture equal after one more draw: main ${sides.base.screens[screen]?.redrawn?.equal} · branch ${sides.head.screens[screen]?.redrawn?.equal}`,
+							`redraws equal across the sides: ${redrawEqual(sides, screen)}`,
 							`scene tree: ${treeDiff(sides.base.screens[screen]?.tree, sides.head.screens[screen]?.tree)}`,
-							`batched twice on main: ${(sides.base.screens[screen]?.batchedTwice ?? []).join(' | ')}`,
-							`batched twice on the branch: ${(sides.head.screens[screen]?.batchedTwice ?? []).join(' | ')}`,
 							`texts on main: ${(texts[0] ?? []).map((t) => t.split(' ').slice(0, 3).join(' ')).join(' | ')}`,
 							`layout on main: ${(layout[0] ?? []).join(' | ')}`,
 							`layout only on the branch: ${only(layout[1], layout[0])}`,

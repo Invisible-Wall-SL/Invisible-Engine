@@ -135,33 +135,9 @@ const DOM = `(() => {
 	return out.sort();
 })()`;
 
-// …and the same frame drawn again from freshly built instructions: the texts a rebuild adds to a
-// batch more than once. Returns them; the capture after it shows whether the frame changed.
-const REBUILD = `(() => {
-	const app = window.__PIXI_APP__;
-	const pipe = app.renderer.renderPipes.batch;
-	const real = pipe.addToBatch;
-	const counts = new Map();
-	pipe.addToBatch = function (el, set) {
-		const r = el.renderable;
-		counts.set(r, (counts.get(r) ?? 0) + 1);
-		return real.call(this, el, set);
-	};
-	const mark = (g) => {
-		g.structureDidChange = true;
-		for (const c of g.renderGroupChildren ?? []) mark(c);
-	};
-	try {
-		mark(app.stage.renderGroup);
-		app.renderer.render(app.stage);
-	} finally {
-		pipe.addToBatch = real;
-	}
-	// A text is one batch element; a Graphics or a Spine legitimately adds several.
-	return [...counts]
-		.filter(([r, n]) => n > 1 && typeof r.text === 'string')
-		.map(([r, n]) => \`\${r.constructor?.name} \${r.label ?? ''} \${typeof r.text === 'string' ? JSON.stringify(r.text) : ''} x\${n}\`);
-})()`;
+// …and the same frame drawn once more, after the browser has shown the capture: a capture that
+// differs from it was not of one draw onto a cleared canvas.
+const REDRAW = 'window.__PIXI_APP__.render()';
 
 // …and the scene tree in order: one line per node (depth, type, label, children), so a child
 // added in another order shows (every other probe sorts).
@@ -293,11 +269,14 @@ export async function renderUnit({
 								translucent: await page.evaluate(TRANSLUCENT).catch((e) => [e.message]),
 								dom: await page.evaluate(DOM).catch((e) => [e.message]),
 								tree: await page.evaluate(TREE).catch((e) => [e.message]),
-								batchedTwice: await page.evaluate(REBUILD).catch((e) => [e.message]),
-								rebuilt: await page.screenshot().then((png) => {
-									writeFileSync(join(dir, `${safe(screen)}.rebuilt.png`), png);
-									return { file: `${safe(screen)}.rebuilt.png`, equal: png.equals(shot) };
-								}),
+								redrawn: await page
+									.evaluate(REDRAW)
+									.then(() => page.screenshot())
+									.then((png) => {
+										writeFileSync(join(dir, `${safe(screen)}.redrawn.png`), png);
+										return { file: `${safe(screen)}.redrawn.png`, equal: png.equals(shot) };
+									})
+									.catch((e) => ({ error: e.message })),
 							}
 						: {}),
 				};
