@@ -106,8 +106,8 @@ const POINTER_KEY = /^[\w.-]+(\/[\w.-]+)*\/pointer\.json$/;
 const CONCURRENCY = 12;
 
 /**
- * The game's current published snapshot: `{ id, prefix }`, or `null` when its pointer does not exist
- * (never published). A game in the list with `local.snapshot` (a fixture) has the id `local`. Read
+ * The game's current published snapshot: `{ id, prefix }`, or `null` when its pointer does not
+ * exist (never published). A game in the list with `local.snapshot` (a fixture) has the id `local`. Read
  * once per run (the plan), so every render of the run uses the same snapshot even if the game is
  * republished mid-run.
  */

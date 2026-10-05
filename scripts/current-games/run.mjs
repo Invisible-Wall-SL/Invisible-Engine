@@ -33,7 +33,7 @@ import { openPage } from './lib/browser.mjs';
 import { loadTolerance } from './lib/compare.mjs';
 import { loadGateResults } from './lib/gates.mjs';
 import { fetchManifest, fetchSnapshot, listGames } from './lib/games.mjs';
-import { makePlan, unitsForShard } from './lib/plan.mjs';
+import { contractFor, contractHash, makePlan, unitsForShard } from './lib/plan.mjs';
 import { redactText } from './lib/redact.mjs';
 import { renderUnit } from './lib/render.mjs';
 import { writeSummaryFiles } from './lib/report.mjs';
@@ -74,7 +74,6 @@ if (!PHASES.includes(opt.phase)) {
 	process.exit(2);
 }
 const log = (...parts) => console.log(`[current-games] ${parts.join(' ')}`);
-const started = Date.now();
 const out = resolve(opt.out);
 const cache = resolve(opt.cache);
 rmSync(out, { recursive: true, force: true });
@@ -104,14 +103,20 @@ const abort = (raw) => {
 // id names the commit the status is posted on.
 const headSha = process.env.CURRENT_GAMES_HEAD_SHA || gitSha(ROOT, 'HEAD');
 
+/** The test server's manifest: every game's mock contract (from R2, plus `--manifest-file`). */
+async function manifestFor(games) {
+	const needsR2 = games.some((g) => g.publishedPointerKey && !g.local);
+	let manifest = needsR2 || !opt['games-file'] ? await fetchManifest({}) : {};
+	if (opt['manifest-file'])
+		manifest = { ...manifest, ...(await fetchManifest({ manifestFile: opt['manifest-file'] })) };
+	return manifest;
+}
+
 /** List the games, pin each one's snapshot, list the units. */
 async function plan() {
 	try {
 		const games = await listGames({ gamesFile: opt['games-file'] });
-		const needsR2 = games.some((g) => g.publishedPointerKey && !g.local);
-		let manifest = needsR2 || !opt['games-file'] ? await fetchManifest({}) : {};
-		if (opt['manifest-file'])
-			manifest = { ...manifest, ...(await fetchManifest({ manifestFile: opt['manifest-file'] })) };
+		const manifest = await manifestFor(games);
 		const made = await makePlan({
 			games,
 			manifest,
@@ -149,29 +154,24 @@ function writeFailedUnit(unit, error) {
 	);
 }
 
-const GPU_KEYS = ['2d_canvas', 'webgl', 'gpu_compositing', 'rasterization'];
+const GPU_KEYS = ['webgl', '2d_canvas', 'gpu_compositing', 'rasterization'];
 
-/** The paths this machine's browser renders with, as the harness launches it and without its 2D-canvas pin. */
+/** The paths this machine's browser renders with (`chrome://gpu`), for the report. */
 async function browserPaths(chrome) {
-	const paths = {};
-	for (const [name, args] of [
-		['harness', undefined],
-		['without the 2D-canvas pin', []],
-	]) {
-		const profile = mkdtempSync(join(tmpdir(), 'cg-gpu-'));
-		try {
-			const page = await openPage(chrome, profile, args ? { args } : undefined);
-			const status = await page.gpuStatus();
-			await page.close();
-			paths[name] = GPU_KEYS.map((k) => `${k} ${status[k] ?? '?'}`).join(', ');
-		} catch (e) {
-			paths[name] = `unknown (${e.message})`;
-		} finally {
-			rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
-		}
+	const profile = mkdtempSync(join(tmpdir(), 'cg-gpu-'));
+	let paths;
+	try {
+		const page = await openPage(chrome, profile);
+		const status = await page.gpuStatus();
+		await page.close();
+		paths = GPU_KEYS.map((k) => `${k} ${status[k] ?? '?'}`).join(', ');
+	} catch (e) {
+		paths = `unknown (${e.message})`;
+	} finally {
+		rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
 	}
-	writeFileSync(join(out, 'browser.json'), JSON.stringify(paths, null, '\t'));
-	for (const [name, line] of Object.entries(paths)) log(`browser (${name}): ${line}`);
+	writeFileSync(join(out, 'browser.json'), JSON.stringify({ harness: paths }, null, '\t'));
+	log(`browser: ${paths}`);
 }
 
 /** Render `units` of `thePlan`, `--jobs` at a time. */
@@ -179,6 +179,14 @@ async function render(thePlan, units, runtimes) {
 	const chrome = headlessShell(opt.chrome);
 	await browserPaths(chrome);
 	const byKey = new Map(thePlan.games.map((p) => [p.game.key, p]));
+	// Read here, not carried in the (public) plan; the plan's hash pins it to what was planned.
+	let manifest;
+	try {
+		manifest = await manifestFor(thePlan.games.map((p) => p.game));
+	} catch (e) {
+		for (const unit of units) writeFailedUnit(unit, `mock contracts unreadable: ${e.message}`);
+		return;
+	}
 	// One download per snapshot, however many of the game's units run at once.
 	const snapshots = new Map();
 	const snapshotOf = (planned) => {
@@ -191,6 +199,14 @@ async function render(thePlan, units, runtimes) {
 		while (next < units.length) {
 			const unit = units[next++];
 			const planned = byKey.get(unit.key);
+			const contract = contractFor(planned.game, manifest);
+			if (contractHash(contract) !== planned.contractHash) {
+				writeFailedUnit(
+					unit,
+					"the game's mock contract changed during the run (test_server/games.json was rewritten)",
+				);
+				continue;
+			}
 			let snapshot;
 			try {
 				snapshot = await snapshotOf(planned);
@@ -201,6 +217,7 @@ async function render(thePlan, units, runtimes) {
 			const r = await renderUnit({
 				unit,
 				planned,
+				contract,
 				runtimeDir: runtimes[unit.side],
 				snapshotDir: snapshot.dir,
 				chrome,
@@ -220,7 +237,10 @@ async function render(thePlan, units, runtimes) {
 }
 
 function compare(thePlan, unitDirs) {
-	if (opt['gates-file']) loadGateResults(opt['gates-file']);
+	if (opt['gates-file'] && !thePlan.aborted) {
+		if (!existsSync(opt['gates-file'])) abort('no gate results (the gates job did not finish)');
+		loadGateResults(opt['gates-file']);
+	}
 	const browserFile = unitDirs.map((d) => join(d, 'browser.json')).find((f) => existsSync(f));
 	const report = assembleReport({
 		plan: thePlan,
@@ -230,7 +250,7 @@ function compare(thePlan, unitDirs) {
 		gates: !opt['no-gates'],
 		keepScreens: opt['keep-screens'],
 		extra: {
-			seconds: Math.round((Date.now() - started) / 1000),
+			shards: unitDirs.length,
 			browser: browserFile ? JSON.parse(readFileSync(browserFile, 'utf8')) : undefined,
 		},
 	});
@@ -240,8 +260,10 @@ function compare(thePlan, unitDirs) {
 	process.exit(report.summary.verdict === 'pass' ? 0 : 1);
 }
 
+// A missing input still ends in a report that names it: the status step posts that reason.
 const readPlan = () => {
 	if (!opt.plan) abort('--plan <plan.json> is required for this phase');
+	if (!existsSync(resolve(opt.plan))) abort('no plan was made (the build job did not finish)');
 	return JSON.parse(readFileSync(resolve(opt.plan), 'utf8'));
 };
 

@@ -81,12 +81,14 @@ const fillBeat = (beat, contract) =>
 	});
 
 /**
- * Render `unit` of `planned` (a plan entry) with `runtimeDir`. `snapshotDir` is the downloaded
- * snapshot. Returns the result it wrote.
+ * Render `unit` of `planned` (a plan entry) with `runtimeDir`, dealt from `contract` (the game's
+ * mock contract, checked against the plan's hash). `snapshotDir` is the downloaded snapshot.
+ * Returns the result it wrote.
  */
 export async function renderUnit({
 	unit,
 	planned,
+	contract,
 	runtimeDir,
 	snapshotDir,
 	chrome,
@@ -95,7 +97,7 @@ export async function renderUnit({
 	out,
 	trace,
 }) {
-	const { game, contract } = planned;
+	const { game } = planned;
 	const scenario = loadScript(planned.script).scenarios.find((sc) => sc.id === unit.scenario);
 	const draw = scenario.canary ? 'every' : 'last';
 	const dir = join(out, 'units', unit.id);
@@ -216,7 +218,7 @@ export async function renderUnit({
 		draw,
 		screens,
 		error: error === undefined ? undefined : redactText(error),
-		bootStopped,
+		bootStopped: bootStopped === undefined ? undefined : redactText(bootStopped),
 		errors: final?.errors ?? 0,
 		stalls: final?.stalls ?? 0,
 		frame: final?.frame,

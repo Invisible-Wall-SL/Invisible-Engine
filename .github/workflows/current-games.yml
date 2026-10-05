@@ -63,7 +63,8 @@ env:
   # The commit the status is posted on: the PR head, not its merge commit.
   STATUS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-  STATUS_CONTEXT: ${{ inputs.self_compare && 'current-games/self-compare' || 'current-games' }}
+  # A manual run never stands in for a branch's comparison: it posts a context of its own.
+  STATUS_CONTEXT: ${{ github.event_name != 'workflow_dispatch' && 'current-games' || inputs.self_compare && 'current-games/self-compare' || 'current-games/manual' }}
   SHARDS: 20
 
 jobs:
@@ -226,6 +227,7 @@ jobs:
           CURRENT_GAMES_HEAD_SHA: ${{ env.STATUS_SHA }}
           CURRENT_GAMES_BASE_SHA: ${{ needs.prepare.outputs.base }}
         run: |
+          set +e
           mkdir -p .cache/current-games/plan
           node scripts/current-games/run.mjs --phase plan --out .cache/current-games/plan-out
           code=$?
@@ -245,7 +247,7 @@ jobs:
         if: always()
         with:
           name: current-games-plan
-          retention-days: 3
+          retention-days: 1
           path: .cache/current-games/plan
 
   # Every game type's `check:*` gates, once, beside the build: they test the branch's source, not
@@ -275,7 +277,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: current-games-gates
-          retention-days: 3
+          retention-days: 1
           path: gates
 
   # A render unit is one side of one scenario of one game; the plan balances the units across the
@@ -344,7 +346,7 @@ jobs:
         if: always()
         with:
           name: current-games-part-${{ matrix.shard }}
-          retention-days: 3
+          retention-days: 1
           path: part-${{ matrix.shard }}
 
   report:
@@ -430,10 +432,14 @@ jobs:
         run: |
           verdict="$(head -n 1 report/summary.txt 2>/dev/null || echo fail)"
           line="$(tail -n 1 report/summary.txt 2>/dev/null || echo 'no report')"
-          aborted="$(node -p "require('./report/report.json').aborted ?? ''" 2>/dev/null)"
-          [ "$BUILD" = success ] || { verdict=fail; line="${aborted:-the runtime build failed}"; }
-          [ "$GATES" = success ] || { verdict=fail; line="the gates job did not finish ($line)"; }
-          [ "$RENDER" = success ] || { verdict=fail; line="a render shard died ($line)"; }
+          aborted="$(node -p "require('./report/report.json').aborted ?? ''" 2>/dev/null || true)"
+          if [ "$BUILD" != success ]; then
+            verdict=fail; line="${aborted:-the runtime build failed}"
+          elif [ "$GATES" != success ]; then
+            verdict=fail; line="the gates job did not finish"
+          elif [ "$RENDER" != success ]; then
+            verdict=fail; line="a render shard died ($line)"
+          fi
           line="$(printf %s "$line" | node scripts/current-games/lib/redact.mjs)" || line='the report could not be redacted'
           state=failure; [ "$verdict" = pass ] && state=success
           gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state="$state" -f context="$STATUS_CONTEXT" \

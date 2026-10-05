@@ -16,10 +16,11 @@
  * - **Randomness.** `Math.random` is a PRNG seeded from the flag. Only cosmetic code reads it: the
  *   outcome (the book) comes from the RGS, and the client draws nothing that changes it.
  * - **I/O.** A frame does not start while a fetch, XHR, image, external script or stylesheet,
- *   `createImageBitmap`, worker job, `FontFace.load()` or web font is in flight, so how fast the network answers
- *   never changes which frame a load lands on. Every declared web font is loaded as soon as it is
- *   declared, so a text never meets its font half-loaded. A frame that waits past `IO_STALL_MS`
- *   counts a stall and forgets what it waited on.
+ *   `createImageBitmap`, worker job, `FontFace.load()` or web font is in flight, so how fast the
+ *   network answers never changes which frame a load lands on. Every web font the page declares
+ *   starts loading at the next settle (or when its stylesheet arrives), and the app starts only
+ *   once the fonts declared before it have loaded (`determinismInit`). A frame that waits past
+ *   `IO_STALL_MS` counts a stall and gives up on what it waited on, once.
  * - **Ready signal.** `window.__IE_DETERMINISM__` (see `DeterminismApi`): `step(n)` and
  *   `waitFor({ screen, idle, … })`, reading `Game.svelte`'s probe.
  * - **Drawing.** Every frame draws by default. `draw: 'last'` runs the frames without the WebGL
@@ -147,15 +148,13 @@ export function registerDeterminismProbe(read: () => DeterminismProbeState): () 
  * SvelteKit's client `init` hook, awaited before the app starts. With the flag, every web font the
  * page has declared by then (the `app.html` kit stylesheet's faces) is loaded first: the boot
  * measures and draws text in real-time continuations, outside any frame, so a face still on the
- * way when a text is first measured would decide its metrics by network order. Without the flag it
+ * way when a text is first measured would decide its metrics by network order. A face that has
+ * not loaded after `IO_STALL_MS` real time is a stall, and the boot goes on. Without the flag it
  * returns `undefined`, which `start()` awaits either way (`await hooks.init?.()`).
  */
+let initFonts: (() => Promise<void>) | undefined;
 export function determinismInit(): Promise<void> | undefined {
-	if (!globalThis.__IE_DETERMINISM__ || typeof document === 'undefined' || !document.fonts)
-		return undefined;
-	return Promise.all([...document.fonts].map((face) => face.load().catch(() => undefined))).then(
-		() => undefined,
-	);
+	return initFonts?.();
 }
 
 export function installDeterminism(): void {
@@ -233,13 +232,30 @@ export function installDeterminism(): void {
 	globalThis.clearInterval = clearTimer as typeof clearInterval;
 
 	// ---- I/O tracking ----
-	const ioDone = () => {
-		pendingIo = Math.max(0, pendingIo - 1);
-	};
-	const track = <T>(promise: Promise<T>): Promise<T> => {
+	// Each load in flight holds one count, released once by its `end()`. A stall abandons every
+	// count of its generation (and every face still loading), so a load that ends after a stall can
+	// never release a count a later load holds.
+	let ioGeneration = 0;
+	const abandonedFaces = new WeakSet<FontFace>();
+	const begin = () => {
+		const generation = ioGeneration;
+		let open = true;
 		pendingIo++;
-		return promise.finally(() => ioDone());
+		return () => {
+			if (!open) return;
+			open = false;
+			if (generation === ioGeneration) pendingIo = Math.max(0, pendingIo - 1);
+		};
 	};
+	const abandon = () => {
+		stalls++;
+		ioGeneration++;
+		pendingIo = 0;
+		document.fonts?.forEach((face) => {
+			if (face.status === 'loading') abandonedFaces.add(face);
+		});
+	};
+	const track = <T>(promise: Promise<T>): Promise<T> => promise.finally(begin());
 	globalThis.fetch = (...args: Parameters<typeof fetch>) => track(realFetch(...args));
 	for (const method of ['arrayBuffer', 'blob', 'formData', 'json', 'text'] as const) {
 		const real = Response.prototype[method] as (this: Response) => Promise<unknown>;
@@ -252,11 +268,14 @@ export function installDeterminism(): void {
 		});
 	}
 	// A FontFace loading before it is added to `document.fonts` (`registerBakedWebFonts` awaits
-	// `load()` first) is invisible to `document.fonts.status`: track the load itself.
+	// `load()` first) is invisible to the font wait: track the load itself. The face's own promise
+	// is what `load()` returns (`face.load() === face.loaded`).
 	if (typeof FontFace !== 'undefined') {
 		const realFontLoad = FontFace.prototype.load;
 		FontFace.prototype.load = function (this: FontFace) {
-			return track(realFontLoad.call(this));
+			const loading = realFontLoad.call(this);
+			track(loading).catch(() => undefined);
+			return loading;
 		};
 	}
 	if (realCreateImageBitmap)
@@ -271,9 +290,9 @@ export function installDeterminism(): void {
 			set(this: HTMLImageElement, value: string) {
 				setSrc.call(this, value);
 				if (this.complete) return;
-				pendingIo++;
+				const end = begin();
 				const done = () => {
-					ioDone();
+					end();
 					this.removeEventListener('load', done);
 					this.removeEventListener('error', done);
 				};
@@ -283,34 +302,70 @@ export function installDeterminism(): void {
 		});
 	}
 
+	// Every declared face that nothing has loaded yet starts loading, so the font wait covers it.
+	const loadDeclaredFonts = () => {
+		document.fonts?.forEach((face) => {
+			if (face.status === 'unloaded') face.load().catch(() => undefined);
+		});
+	};
+
 	// An external <script> or stylesheet <link> is in flight from its insertion until it loads or
 	// fails. Web-font loaders inject both (Typekit: its kit script, then the kit's CSS), and their
-	// own give-up timer runs on the virtual clock, so an untracked load raced the frames.
+	// own give-up timer runs on the virtual clock, so an untracked load raced the frames. Only
+	// elements that will fire `load` or `error` count: a script the browser runs (not `nomodule`, a
+	// JavaScript type), a stylesheet with an `href` that is not disabled or already loaded. A
+	// stylesheet removed before it loads fires nothing, so its removal releases it. A script set
+	// through `innerHTML` never runs and fires nothing either, and nothing tells it apart: it would
+	// cost one counted stall (nothing in the runtime inserts one).
+	const runs = (script: HTMLScriptElement) => {
+		const type = script.type.trim().toLowerCase();
+		return (
+			type === 'module' ||
+			(!script.noModule &&
+				(type === '' || /^(text|application)\/(x-)?(java|ecma)script$/.test(type)))
+		);
+	};
 	const tracked = new WeakSet<Element>();
-	const trackLoad = (node: Node) => {
+	const pendingLinks = new Map<HTMLLinkElement, () => void>();
+	const trackLoad = (el: Element) => {
 		const external =
-			(node instanceof HTMLScriptElement && node.src !== '') ||
-			(node instanceof HTMLLinkElement && node.rel === 'stylesheet' && !node.sheet);
-		if (!external || tracked.has(node as Element)) return;
-		tracked.add(node as Element);
-		pendingIo++;
+			(el instanceof HTMLScriptElement && el.src !== '' && runs(el)) ||
+			(el instanceof HTMLLinkElement &&
+				el.rel === 'stylesheet' &&
+				!!el.getAttribute('href') &&
+				!el.disabled &&
+				!el.sheet);
+		if (!external || !el.isConnected || tracked.has(el)) return;
+		tracked.add(el);
+		const end = begin();
 		const done = () => {
-			ioDone();
-			node.removeEventListener('load', done);
-			node.removeEventListener('error', done);
+			end();
+			if (el instanceof HTMLLinkElement) pendingLinks.delete(el);
+			el.removeEventListener('load', done);
+			el.removeEventListener('error', done);
+			loadDeclaredFonts();
 		};
-		node.addEventListener('load', done);
-		node.addEventListener('error', done);
+		if (el instanceof HTMLLinkElement) pendingLinks.set(el, done);
+		el.addEventListener('load', done);
+		el.addEventListener('error', done);
 	};
 	new MutationObserver((records) => {
-		for (const record of records) for (const node of record.addedNodes) trackLoad(node);
+		for (const record of records) {
+			for (const node of record.addedNodes) {
+				if (!(node instanceof Element)) continue;
+				trackLoad(node);
+				for (const el of node.querySelectorAll('script[src], link[rel="stylesheet"]'))
+					trackLoad(el);
+			}
+			if (record.removedNodes.length)
+				for (const [link, done] of pendingLinks) if (!link.isConnected) done();
+		}
 	}).observe(document, { childList: true, subtree: true });
 
 	const realXhrSend = XMLHttpRequest.prototype.send;
 	XMLHttpRequest.prototype.send = function (this: XMLHttpRequest, body) {
 		realXhrSend.call(this, body);
-		pendingIo++;
-		this.addEventListener('loadend', ioDone, { once: true });
+		this.addEventListener('loadend', begin(), { once: true });
 	};
 
 	// A worker is busy from construction until it first speaks or is first given work (Pixi's
@@ -319,33 +374,30 @@ export function installDeterminism(): void {
 	const RealWorker = globalThis.Worker;
 	if (RealWorker)
 		globalThis.Worker = class TrackedWorker extends RealWorker {
-			#booting = true;
-			#jobs = 0;
+			#boot: (() => void) | undefined;
+			#jobs: (() => void)[] = [];
 			constructor(...args: ConstructorParameters<typeof Worker>) {
 				super(...args);
-				pendingIo++;
+				this.#boot = begin();
 				const answered = () => {
-					if (this.#booting) this.#booting = false;
-					else if (this.#jobs > 0) this.#jobs--;
-					else return;
-					ioDone();
+					if (this.#boot) this.#booted();
+					else this.#jobs.shift()?.();
 				};
 				this.addEventListener('message', answered);
 				this.addEventListener('error', answered);
 			}
+			#booted() {
+				this.#boot?.();
+				this.#boot = undefined;
+			}
 			postMessage(message: unknown, options?: StructuredSerializeOptions | Transferable[]): void {
-				if (this.#booting) {
-					this.#booting = false;
-					ioDone();
-				}
-				this.#jobs++;
-				pendingIo++;
+				this.#booted();
+				this.#jobs.push(begin());
 				super.postMessage(message, options as StructuredSerializeOptions);
 			}
 			terminate() {
-				pendingIo = Math.max(0, pendingIo - this.#jobs - (this.#booting ? 1 : 0));
-				this.#jobs = 0;
-				this.#booting = false;
+				this.#booted();
+				for (const end of this.#jobs.splice(0)) end();
 				super.terminate();
 			}
 		};
@@ -365,16 +417,13 @@ export function installDeterminism(): void {
 	const drainMicrotasks = async () => {
 		for (let i = 0; i < MICROTASK_TURNS; i++) await Promise.resolve();
 	};
-	const fontsLoading = () =>
-		typeof document !== 'undefined' && document.fonts?.status === 'loading';
-	// A web font loads when something first uses it — a canvas text draw (Pixi rasterizes a text
-	// once, so it keeps whichever face was ready then) or a DOM layout, which runs on real time.
-	// Loading every declared face as soon as it is declared makes text always meet its font loaded.
-	const loadDeclaredFonts = () => {
-		if (typeof document === 'undefined' || !document.fonts) return;
-		document.fonts.forEach((face) => {
-			if (face.status === 'unloaded') face.load().catch(() => undefined);
+	// A face still loading holds the frame, unless a stall gave up on it.
+	const fontsLoading = () => {
+		let loading = false;
+		document.fonts?.forEach((face) => {
+			if (face.status === 'loading' && !abandonedFaces.has(face)) loading = true;
 		});
+		return loading;
 	};
 	// Let real tasks run until no I/O is in flight for two turns in a row.
 	const settle = async () => {
@@ -386,8 +435,7 @@ export function installDeterminism(): void {
 			quiet = pendingIo > 0 || fontsLoading() ? 0 : quiet + 1;
 			if (quiet === 0 && RealDate.now() - started > IO_STALL_MS) {
 				// A load that never ends must not cost every later frame the same wait.
-				stalls++;
-				pendingIo = 0;
+				abandon();
 				return;
 			}
 			if (quiet === 0) await new Promise((resolve) => realSetTimeout(resolve, 4));
@@ -504,6 +552,20 @@ export function installDeterminism(): void {
 		stepping = run.catch(() => undefined);
 		return run;
 	};
+
+	initFonts = () =>
+		new Promise<void>((resolve) => {
+			const timer = realSetTimeout(() => {
+				abandon();
+				resolve();
+			}, IO_STALL_MS);
+			Promise.all(
+				[...(document.fonts ?? [])].map((face) => face.load().catch(() => undefined)),
+			).then(() => {
+				realClearTimeout(timer);
+				resolve();
+			});
+		});
 
 	globalThis.__IE_DETERMINISM__ = {
 		seed,

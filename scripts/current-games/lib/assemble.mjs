@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { compareScreens, cropAround, identical, toleranceFor } from './compare.mjs';
 import { gatesFor, runGate } from './gates.mjs';
 import { safe, unitId } from './plan.mjs';
+import { redactSecrets } from './redact.mjs';
 import { writeReport } from './report.mjs';
 
 /** The id half for a screen only one side captured: the side plus that capture's bytes. */
@@ -83,6 +84,7 @@ function gameRow(
 	const baseFailures = [];
 	const missing = [];
 	const refusals = { base: new Set(), head: new Set() };
+	const refusedUnits = { base: 0, head: 0 };
 	row.timings = {};
 	for (const { id: scenario } of planned.scenarios) {
 		const sides = {};
@@ -94,7 +96,10 @@ function gameRow(
 		row.timings[scenario] = { base: sides.base.seconds, head: sides.head.seconds };
 		for (const side of ['base', 'head']) {
 			const r = sides[side];
-			if (r.bootStopped) refusals[side].add(r.bootStopped);
+			if (r.bootStopped) {
+				refusals[side].add(r.bootStopped);
+				refusedUnits[side]++;
+			}
 			const failure = failureOf(r, side, scenario);
 			if (!failure) continue;
 			if (side === 'base') baseFailures.push(failure);
@@ -148,13 +153,15 @@ function gameRow(
 					const texts = [sides.base, sides.head].map((r) => r.screens[screen]?.texts);
 					const ext = [sides.base, sides.head].map((r) => r.external ?? []);
 					crops.push(
-						`== ${game.key} ${screen} crop x${crop.x} y${crop.y} ${crop.w}x${crop.h}`,
-						`fonts only on main: ${only(fonts[0], fonts[1])}`,
-						`fonts only on the branch: ${only(fonts[1], fonts[0])}`,
-						`texts only on main: ${only(texts[0], texts[1])}`,
-						`texts only on the branch: ${only(texts[1], texts[0])}`,
-						`external on main: ${ext[0].join(' | ')}`,
-						`external on the branch: ${ext[1].join(' | ')}`,
+						...[
+							`== ${game.key} ${screen} crop x${crop.x} y${crop.y} ${crop.w}x${crop.h}`,
+							`fonts only on main: ${only(fonts[0], fonts[1])}`,
+							`fonts only on the branch: ${only(fonts[1], fonts[0])}`,
+							`texts only on main: ${only(texts[0], texts[1])}`,
+							`texts only on the branch: ${only(texts[1], texts[0])}`,
+							`external on main: ${ext[0].join(' | ')}`,
+							`external on the branch: ${ext[1].join(' | ')}`,
+						].map((line) => redactSecrets(line)),
 						...['before', 'after', 'diff'].map((k, i) => `${k} ${crop.images[i]}`),
 					);
 				}
@@ -181,15 +188,18 @@ function gameRow(
 	if (smoke.status === 'fail') row.tests.status = 'fail';
 	else if (row.tests.status === 'skip') row.tests.status = 'pass';
 	const changed = row.screens.filter((s) => !s.pass);
-	// Main's runtime refuses this published snapshot, and so does the branch's, for the same reason:
-	// players get the runtime's error screen today. Nothing is rendered, so nothing is compared — a
-	// visible row that never passes, and the branch is not blamed for it.
+	// Main's runtime refuses this published snapshot in every scenario, and so does the branch's,
+	// for the same reasons: players get the runtime's error screen today. Nothing is rendered, so
+	// nothing is compared — a visible row that never passes, and the branch is not blamed for it.
+	// Anything else the branch did (a crash, a scenario it did boot) fails the row as usual.
 	const refused = [...refusals.base];
 	if (
 		refused.length &&
+		!missing.length &&
+		refusedUnits.base === planned.scenarios.length &&
+		refusedUnits.head === planned.scenarios.length &&
 		refusals.base.size === refusals.head.size &&
-		refused.every((r) => refusals.head.has(r)) &&
-		baseFailures.length === planned.scenarios.length
+		refused.every((r) => refusals.head.has(r))
 	) {
 		row.tests.smoke = { ...smoke, status: 'pass', errors: 0, stalls: 0, failures: [] };
 		row.tests.status = !gates ? 'skip' : row.tests.gates.every((g) => g.pass) ? 'pass' : 'fail';

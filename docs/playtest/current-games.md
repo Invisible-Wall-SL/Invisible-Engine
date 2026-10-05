@@ -16,10 +16,12 @@ For every live game (`GET /api/pipeline/games`, bearer `PIPELINE_CI_TOKEN`):
    SHA under `.cache/current-games/runtimes/<sha>/`.
 2. **Plan.** It reads each game's published pointer from R2, read-only, once per run, and pins
    that snapshot id for every render of the run, so a republish mid-run cannot hand two renders two
-   different snapshots. It also reads the game's mock contract from `test_server/games.json`
-   (`docBase` and `readToken` dropped). The plan lists the render **units**: one side (main's
-   runtime or the branch's) of one scenario of one game. A snapshot is immutable by id, so its
-   download (`<id>/runtime.json` + `<id>/deploy/**`) is cached.
+   different snapshots. It pins the game's mock contract from `test_server/games.json` the same
+   way, by hash: the plan is a public artifact, so it never carries the contract itself, and each
+   render reads the contract, drops `docBase` and `readToken`, and refuses to render one whose hash
+   changed. The plan lists the render **units**: one side (main's runtime or the branch's) of one
+   scenario of one game. A snapshot is immutable by id, so its download (`<id>/runtime.json` +
+   `<id>/deploy/**`) is cached.
 3. **Serve.** It serves what a player boots, twice, once per runtime:
    - a local stand-in for the launcher's `/api/editor/runtime` that answers the frozen
      `runtime.json`, with `assetBase` pointing at the frozen `deploy/` files;
@@ -151,10 +153,11 @@ Rows that are visible but never count as a pass:
   bundle, the same one on both sides, so it is not rendered: its screens would compare that bundle
   with itself. Its row still fails when its type's gates fail.
 - `not rendered (main's runtime refuses the snapshot)`: main's runtime refuses to boot the
-  published snapshot and shows its error screen, and the branch's refuses it for the same reason.
-  Players get that error screen today; republishing the game fixes it. There is nothing to compare,
-  so the branch is not blamed. A branch that refuses a snapshot main boots fails as before, and so
-  does a different refusal on either side.
+  published snapshot in every scenario and shows its error screen, and the branch's refuses it in
+  every scenario for the same reasons. Players get that error screen today; republishing the game
+  fixes it. There is nothing to compare, so the branch is not blamed. Anything else fails as
+  before: a branch that boots a snapshot main refuses, a branch crash in any scenario, a different
+  refusal, a missing render. `assemble.fixture.mjs` (run by `check:all`) holds these rules.
 
 A game whose **main** render fails (a scenario main cannot finish, or main's page reports errors or
 stalls) is an `error` row that names main's failure. The branch is not blamed for it, but the
@@ -196,14 +199,23 @@ rendered. A run that cannot start (a missing secret, a failed build) fails and n
    `current-games-report` artifact, prints the **digest** to the log and posts the final status.
 
 **The digest** is every non-pass row's cause, written for a reader who cannot download the artifact:
-failing gates, each failing unit's error and last console lines, and per changed screen the reason,
-the bounding box, both frames, both screen sets and a 64×24 map of where the pixels differ.
+the browser's render paths (`chrome://gpu`: WebGL, 2D canvas, compositing), failing gates, each
+failing unit's error and last console lines, and per changed screen the reason, the bounding box,
+both frames, both screen sets and a 64×24 map of where the pixels differ. A run that cannot finish
+(no plan, no gate results) still writes a report naming why, and the status says so.
 
 **Noise calibration.** A manual run (`workflow_dispatch`, `self_compare: true`) renders a ref
 against itself: main's runtime built twice and rendered on separate runners, which is the
-main-vs-main measurement. It posts the separate status context `current-games/self-compare`, so it
-never stands in for a branch's comparison. `log_images: true` prints each changed screen's crops into
-the log.
+main-vs-main measurement. It posts the separate status context `current-games/self-compare` (a
+manual run without `self_compare` posts `current-games/manual`), so it never stands in for a
+branch's comparison. `log_images: true` prints each changed screen's crops into the log, with each
+side's web-font states, every stage text's font string, measured size and texture hash, and the
+external requests each render made.
+
+**The repository is public**, so every artifact is downloadable by anyone. The plan carries contract
+hashes, never contracts; the per-shard parts (every capture of every game) and the plan and gate
+results are kept 1 day, only long enough for the report job; the report (changed screens only) is
+kept 14 days.
 
 A docs-only change posts success without rendering.
 

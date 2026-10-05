@@ -1,25 +1,16 @@
 // One headless-shell page over CDP, pinned the way every harness capture must be: 1280×720, DPR 1,
-// time zone UTC, locale en-US, focused, every 2D canvas rastered on the CPU. The launch itself is
-// `scripts/playtest/headless-shell.mjs`.
+// time zone UTC, locale en-US, focused. The launch itself is `scripts/playtest/headless-shell.mjs`.
 
 import { spawnHeadlessShell } from '../../playtest/headless-shell.mjs';
 
 const VIEWPORT = { width: 1280, height: 720, deviceScaleFactor: 1 };
 
-// Chrome rasters a 2D canvas on the GPU or on the CPU, per canvas: by its size, by a budget of live
-// accelerated canvases that garbage collection frees on its own time, and by readbacks. The two
-// paths antialias text differently, and Pixi rasters every text into a 2D canvas, so on a runner
-// whose (software) GPU accepts 2D canvases the same text came out with 3–12 % more or less ink on
-// two renders of one build. The CPU path is the same on every render.
-export const HARNESS_ARGS = ['--disable-accelerated-2d-canvas'];
-
 /** Console errors and uncaught exceptions are kept (the last 50) for the report. */
-export async function openPage(chromePath, profile, { args = HARNESS_ARGS } = {}) {
+export async function openPage(chromePath, profile) {
 	const chrome = spawnHeadlessShell(chromePath, {
 		profile,
 		width: VIEWPORT.width,
 		height: VIEWPORT.height,
-		args,
 	});
 	const pending = new Map();
 	const consoleLines = [];

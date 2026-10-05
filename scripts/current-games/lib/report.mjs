@@ -131,7 +131,7 @@ small,.tol{color:var(--muted)}code{word-break:break-all}details{margin:12px 0}
 </style></head><body>
 <h1>Current games</h1>
 <p class="verdict">${summary.verdict === 'pass' ? 'PASS' : 'FAIL'} — ${esc(summary.line)}</p>
-<p>branch <code>${esc(report.head?.sha)}</code> vs main <code>${esc(report.base?.sha)}</code> · seed <code>${esc(report.seed)}</code> · ${esc(report.viewport)} · ${esc(report.seconds)} s${report.shards ? ` · ${report.shards} shard(s)` : ''}</p>
+<p>branch <code>${esc(report.head?.sha)}</code> vs main <code>${esc(report.base?.sha)}</code> · seed <code>${esc(report.seed)}</code> · ${esc(report.viewport)} · ${esc(Object.values(report.renderSeconds ?? {}).reduce((a, b) => a + b, 0))} s of rendering${report.shards ? ` over ${report.shards} shard(s)` : ''}</p>
 ${Object.entries(report.browser ?? {})
 	.map(([name, paths]) => `<p><small>browser (${esc(name)}): ${esc(paths)}</small></p>`)
 	.join('')}

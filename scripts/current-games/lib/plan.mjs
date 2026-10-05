@@ -1,12 +1,15 @@
 // The run's plan, made once and shared by every render shard and the compare: which games are
 // rendered, from which PINNED snapshot (a republish mid-run must not give two shards two different
-// snapshots), with which mock contract and scenarios, and the render UNITS — one side
-// (base | head) of one scenario of one game — balanced across the shards.
+// snapshots), with which scenarios, and the render UNITS — one side (base | head) of one scenario
+// of one game — balanced across the shards. The plan is an artifact of a PUBLIC repository: it
+// names each game's mock contract by hash only, and a render shard reads the contract itself.
 
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { currentSnapshot } from './games.mjs';
+import { redactText } from './redact.mjs';
 
 const HERE = join(import.meta.dirname, '..');
 
@@ -42,7 +45,7 @@ export const unitId = (key, scenario, side) => `${safe(key)}--${safe(scenario)}-
  * launcher link (`docBase` / `readToken`) is dropped here, so it never reaches the plan artifact
  * and the mock never follows live data mid-run.
  */
-function contractFor(game, manifest) {
+export function contractFor(game, manifest) {
 	const entry = game.local?.manifestEntry ??
 		manifest[game.key] ?? { protocol: protocolFor(game.gameType), name: game.name };
 	const contract = { ...entry };
@@ -50,12 +53,15 @@ function contractFor(game, manifest) {
 	return contract;
 }
 
+export const contractHash = (contract) =>
+	createHash('sha256').update(JSON.stringify(contract)).digest('hex').slice(0, 16);
+
 /**
  * Seconds one side of a scenario takes to render: measured per game in `costs.json` (`<game
  * key>/<scenario>` → seconds, the larger side; the report's `costs` line refreshes it), else by
- * scenario from the live games' 2026-10-05 run on a CI runner with SwiftShader WebGL — a
- * `draw: 'every'` canary 120–350 s, big-wins 90–210 s, free spins ~60 s, the rest 10–45 s. Only the
- * balance across shards depends on it.
+ * scenario from the live games' 2026-10-05 runs on a CI runner with SwiftShader WebGL: a
+ * `draw: 'every'` canary 120–350 s, big-wins 90–210 s, free spins ~60 s, the rest 10–45 s. Only
+ * the balance across shards depends on it.
  */
 const COSTS_FILE = join(HERE, 'costs.json');
 const measured = existsSync(COSTS_FILE) ? JSON.parse(readFileSync(COSTS_FILE, 'utf8')).seconds : {};
@@ -106,7 +112,7 @@ export async function makePlan({ games, manifest, only, scenarioIds }) {
 			entry.snapshot = await currentSnapshot(game);
 		} catch (e) {
 			entry.status = 'error';
-			entry.detail = `snapshot lookup failed: ${e.message}`;
+			entry.detail = redactText(`snapshot lookup failed: ${e.message}`);
 			continue;
 		}
 		if (!entry.snapshot) {
@@ -115,14 +121,13 @@ export async function makePlan({ games, manifest, only, scenarioIds }) {
 			continue;
 		}
 		entry.status = 'render';
-		entry.contract = contractFor(g, manifest);
+		const contract = contractFor(g, manifest);
+		entry.contractHash = contractHash(contract);
 		const scenarios = loadScript(entry.script).scenarios.filter(
 			(sc) => !scenarioIds || scenarioIds.includes(sc.id),
 		);
 		// A scenario for a feature this game does not have (`requires`: contract paths) is not played.
-		const skipped = scenarios.filter((sc) =>
-			(sc.requires ?? []).some((p) => !at(entry.contract, p)),
-		);
+		const skipped = scenarios.filter((sc) => (sc.requires ?? []).some((p) => !at(contract, p)));
 		if (skipped.length)
 			entry.notes.push(
 				`scenario(s) not played, the game has no such feature: ${skipped.map((sc) => sc.id).join(', ')}`,
