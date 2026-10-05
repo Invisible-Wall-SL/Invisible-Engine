@@ -70,6 +70,7 @@ const TEXTS = `(() => {
 				document.fonts.check(node.style._fontString) ? 'ok' : 'unusable',
 				\`measured \${node.width.toFixed(2)}x\${node.height.toFixed(2)}\`,
 				\`texture \${current ? pixels(current) : 'none'}\`,
+				\`sampled \${current?.source ? [current.source.width + 'x' + current.source.height, current.source.style?.scaleMode, current.source.style?.mipmapFilter, current.source.autoGenerateMipmaps, current.source.mipLevelCount, current.source.alphaMode, current.source.antialias].join('/') : '-'} round \${node._gpuData?.[renderer.uid]?.roundPixels}\`,
 				\`fresh \${fresh}\`,
 				\`alpha \${chain(node, (n) => n.alpha).toFixed(4)} tint \${chain(node, (n) => (n.tint ?? 0xffffff) === 0xffffff ? 1 : n.tint).toString(16)}\`,
 				\`at \${[node.worldTransform.tx, node.worldTransform.ty, node.worldTransform.a, node.worldTransform.d].map((v) => v.toFixed(3)).join(',')}\`,
