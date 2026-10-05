@@ -145,11 +145,14 @@ function gameRow(
 					const crop = cropAround(before, after, c.diffPng);
 					const only = (xs = [], ys = []) => xs.filter((x) => !ys.includes(x)).join(' | ');
 					const fonts = [sides.base, sides.head].map((r) => r.screens[screen]?.fonts);
+					const texts = [sides.base, sides.head].map((r) => r.screens[screen]?.texts);
 					const ext = [sides.base, sides.head].map((r) => r.external ?? []);
 					crops.push(
 						`== ${game.key} ${screen} crop x${crop.x} y${crop.y} ${crop.w}x${crop.h}`,
 						`fonts only on main: ${only(fonts[0], fonts[1])}`,
 						`fonts only on the branch: ${only(fonts[1], fonts[0])}`,
+						`texts only on main: ${only(texts[0], texts[1])}`,
+						`texts only on the branch: ${only(texts[1], texts[0])}`,
 						`external on main: ${ext[0].join(' | ')}`,
 						`external on the branch: ${ext[1].join(' | ')}`,
 						...['before', 'after', 'diff'].map((k, i) => `${k} ${crop.images[i]}`),

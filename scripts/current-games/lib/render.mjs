@@ -23,6 +23,27 @@ const BOOT_PROBE_FRAMES = 10;
 // Diagnostics (`CURRENT_GAMES_LOG_IMAGES`): every web font face the page knows, at a capture.
 const FONTS =
 	'[...document.fonts].map((f) => `${f.family} ${f.weight} ${f.style} ${f.status}`).sort()';
+// …and every visible Pixi text on stage: what it says, the font it asks for, whether that font is
+// usable now, and the texture it was rasterized into.
+const TEXTS = `(() => {
+	const out = [];
+	const walk = (node) => {
+		if (!node || node.visible === false) return;
+		if (typeof node.text === 'string' && node.style?._fontString !== undefined) {
+			const t = node.texture;
+			out.push([
+				JSON.stringify(node.text.slice(0, 24)),
+				node.style._fontString,
+				document.fonts.check(node.style._fontString) ? 'ok' : 'unusable',
+				\`measured \${node.width.toFixed(2)}x\${node.height.toFixed(2)} res \${node._resolution}\`,
+				t ? \`\${t.frame.width}x\${t.frame.height}@\${t.source?._resolution ?? t.source?.resolution}\` : 'no-texture',
+			].join(' '));
+		}
+		for (const c of node.children ?? []) walk(c);
+	};
+	walk(window.__PIXI_APP__?.stage);
+	return out.sort();
+})()`;
 
 /** A forced beat with `{path}` placeholders filled from the game's contract (its own pot ids…). */
 const fillBeat = (beat, contract) =>
@@ -125,7 +146,10 @@ export async function renderUnit({
 					screens: state.screens,
 					winLevel: state.winLevel,
 					...(process.env.CURRENT_GAMES_LOG_IMAGES
-						? { fonts: await page.evaluate(FONTS).catch((e) => [e.message]) }
+						? {
+								fonts: await page.evaluate(FONTS).catch((e) => [e.message]),
+								texts: await page.evaluate(TEXTS).catch((e) => [e.message]),
+							}
 						: {}),
 				};
 			},
