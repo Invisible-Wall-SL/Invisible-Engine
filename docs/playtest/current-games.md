@@ -41,6 +41,54 @@ For every live game (`GET /api/pipeline/games`, bearer `PIPELINE_CI_TOKEN`):
    screen script is the scriptable smoke: a scenario that does not reach a screen, or whose page
    reports `errors > 0` or `stalls > 0` on either side, fails the game's **tests**.
 
+## As republished
+
+A published snapshot carries its own copy of every component def its doc uses: the publish bake
+(`runtimeBundle.ts`) resolves each referenced id project ◁ shared ◁ built-in and writes the def it
+found, and the runtime registers those over its own built-ins (`registerBakedComponents`). So a
+change to `packages/engine-layout/src/lib/builtinComponents.ts` reaches a published game only at
+its next publish, and the as-published render, correctly, shows nothing (measured below, card 1F).
+Since card 1G the harness also renders each **affected** game **as republished**: the same snapshot
+with its baked copies of built-in defs replaced by each side's built-ins, exactly as a republish of
+the game on that commit would bake it. Code: `scripts/current-games/lib/builtins.mjs` (plain node)
+and `lib/republish.mjs` (the TypeScript half, run under the TS loader).
+
+- **Each runtime build carries its built-ins.** `runtimes.mjs` writes `builtins.json` beside every
+  build (`BUILTIN_COMPONENTS` of that checkout, keyed by id), so main's built-ins come from main's
+  cached build and the branch's from its own. The CI cache key is `current-games-runtime-v2-<sha>`:
+  a build from before this file is rebuilt.
+- **Which baked defs are copies.** A snapshot carries no provenance, so a baked def equal by content
+  to **main's** built-in of the same id is a copy of the built-in; every other def is the author's
+  and is kept as baked. The bake leaves a built-in's copy byte-equal (its spine keys and atlas refs
+  are bare names, which the post-resolve fixups skip), while a saved def goes through
+  `normalizeComponent` (which drops a built-in's `capability` and `defaultInstanceParams` and
+  reorders fields) and an edit changes its content. Main's built-ins decide on both sides, so the
+  two variants replace the same ids.
+- **What a republish does next.** The bake re-resolves the component closure (the instances the doc
+  places, the defs those nest, the components `component`-kind params name), so a built-in that
+  newly nests another def ships it. The same `resolveComponentClosure` runs here, loading an authored
+  id from the snapshot and any other from the side's built-ins, seeded with every id the snapshot
+  shipped. Pinned non-latest versions follow the same copy rule. Per-project param defaults stay as
+  baked: they are project data the harness does not read.
+- **Who pays.** Nothing, unless the change can have altered what a publish bakes. `touched.mjs`'s
+  `republish` verdict says whether the diff touches the bake's repo inputs — `builtinComponents.ts`
+  and every module it takes a value from, followed import by import (`bakeInputs`) — and when it
+  does, the plan reads both builds' `builtins.json`; only when they differ does it read each
+  rendered game's `runtime.json` (one R2 read per game) and make both variants. A game is
+  **affected** when the two variants disagree on a def: one of its baked copies changed, or a changed
+  built-in now ships a def it did not. Only affected games render a second time; the others get a
+  note saying a republish would not change them. A comment-only edit to the defs file plans nothing.
+- **Two rows, kept apart.** An affected game has an **as published** row and an **as republished**
+  row. The republished row's screens, files and ids carry `<game key>@republished`
+  (`<sha>:bookofborut@republished:fs-board:<hash>`), so a Phase 5 approval of one row never covers
+  the other, and the summary line ends `· N row(s) as republished`. Both rows count: a changed
+  republished screen fails the run like any other.
+- **Blind spots that remain.** A saved shared-library copy of an unchanged built-in reads as a copy
+  and is replaced, though a republish would keep it (a false difference the owner can see as such); a
+  copy of a built-in that main changed since the game's publish reads as authored and is kept,
+  though a republish would replace it (no row, until the game is republished or the bake records
+  where each def came from — an open question for the owner).
+
 ## Screen scripts
 
 `scripts/current-games/screens/<gameType>.json` holds one file per game type: `lines`, `ways`,
@@ -123,7 +171,18 @@ node scripts/current-games/run.mjs --phase render --plan plan/plan.json --shard 
   --base-build <dir> --head-build <dir> --out part-1
 node scripts/current-games/run.mjs --phase compare --plan plan/plan.json --units part-1,part-2 \
   --no-gates --out report
+# The republish proof: snapshots baked from MAIN's built-ins (a publish from before the change), then a
+# branch whose built-in def changed renders the affected games as republished too.
+node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/current-games/fixtures.mjs \
+  --builtins .cache/current-games/runtimes/<main sha>/builtins.json
+node scripts/current-games/run.mjs --base-build .cache/current-games/runtimes/<main sha> \
+  --head-build .cache/current-games/runtimes/working-tree \
+  --games-file .cache/current-games/fixtures/games.json --no-gates
 ```
+
+The stand-in fixtures bake the component defs their docs reference, like a publish, so a built-in
+change reaches a fixture only as republished (before card 1G they carried no defs, and the
+2026-10-04 proof below caught the change on the as-published rows).
 
 A local run renders one unit at a time (`--jobs 1`): SwiftShader already uses every core, and two
 at a time halved each unit's speed on a 4-vCPU runner.
@@ -137,7 +196,8 @@ writes to R2. It needs the Playwright headless shell (see "The headless real clo
 
 ## Reading the report
 
-`index.html` (and `report.json`) has one row per game:
+`index.html` (and `report.json`) has one row per game, and a second row, **as republished**, for a
+game rendered that way too (above):
 
 | Column | Meaning |
 |---|---|
@@ -166,8 +226,8 @@ comparison proves nothing until main is fixed.
 
 Each changed screen shows before (main), after (branch) and diff images. It also shows the
 measured differing-pixel ratio and worst block, the tolerance it ran with, and its **stable id**:
-`<branch sha>:<game key>:<screen>:<diff hash>`. The branch sha is the PR head, not its merge
-commit. The diff hash covers both images' pixels, so a new commit that changes the picture gets a
+`<branch sha>:<game key>:<screen>:<diff hash>`, with `<game key>@republished` on the as-republished
+row. The branch sha is the PR head, not its merge commit. The diff hash covers both images' pixels, so a new commit that changes the picture gets a
 new id. A screen only one side captured has no diff image; its hash covers the one capture and the
 side that took it. Phase 5 approvals will name that id.
 
@@ -182,13 +242,16 @@ rendered. A run that cannot start (a missing secret, a failed build) fails and n
 `current-games.yml` runs on every PR and on pushes to non-main branches. It has five jobs:
 
 1. **`prepare`** posts `pending`, picks the base commit, decides whether the change can reach a
-   game (below) and, when it can, checks the six secrets (a missing one fails the status, named).
+   game (below) and whether it can alter what a publish bakes (`republish`, see "As republished")
+   and, when it can reach a game, checks the six secrets (a missing one fails the status, named).
    The base is, on a PR, the merge commit's first parent; on a push, the merge-base with main. A
    push to a branch with an open PR stands down, so the PR's run owns the status and the two never
    race. A PR from a fork does not run: it gets no secrets.
-2. **`build`** builds both runtimes and makes the **plan** (`--phase plan`):
-   the game list, each game's pinned snapshot, and the render units. A plan that cannot be made (a
-   missing secret, an unreachable list) carries the reason to the report.
+2. **`build`** builds both runtimes and makes the **plan** (`--phase plan`, after the builds, which
+   it is given as `--base-build`/`--head-build`): the game list, each game's pinned snapshot, the
+   render units and, when the two builds' built-in defs differ, the republished units of each
+   affected game. A plan that cannot be made (a missing secret, an unreachable list) carries the
+   reason to the report.
 3. **`gates`** runs every game type's `check:*` gates once, beside the build: they test the
    branch's source, not its runtime, so they do not hold up the renders.
 4. **`render`** is 20 shards. Each renders its share of the units (`--phase render`), one at a
@@ -283,9 +346,11 @@ against its merge-base with main instead of counting as "change set unknown".
   measured or drawn in a fallback face. Players can: on a slow network a text first laid out
   before its face arrives keeps that measurement (Pixi caches `CanvasTextMetrics`), so it can sit
   wrong until it changes. That is a real bug class, and this harness cannot catch it.
-- **A change to a built-in component definition.** A published snapshot carries its own copy of
-  every component definition it uses (see the live measurements below), so the change reaches a
-  game only when it is republished.
+- **A change to a built-in component definition reaches a published game only when it is
+  republished.** The as-republished row (above) shows what that republish would change, with the two
+  blind spots listed there: a shared-library save of an unchanged built-in is replaced though a
+  republish would keep it, and a copy of a built-in that main changed since the game's publish is
+  kept though a republish would replace it.
 
 ## Measured on the live games (CI, 2026-10-05)
 
@@ -322,7 +387,16 @@ against its merge-base with main instead of counting as "change set unknown".
   its snapshot (`runtimeBundle.ts`: each referenced id resolves project ◁ shared ◁ built-in), and
   the runtime registers them over its own built-ins (`registerBakedComponents`). The harness renders
   published snapshots, so it correctly shows nothing; such a change reaches a game at its next
-  publish without passing this harness. An open question for the owner.
+  publish without passing this harness. Answered by card 1G: the as-republished row (above).
+
+## As republished, on the stand-in fixtures (2026-10-05, card 1G, Claude Code cloud container, 4 vCPU, software GL)
+
+The fixtures were baked from main's built-ins (`fixtures.mjs --builtins`), as snapshots published
+before the change, and rendered with main's runtime (`89407ba`) against the working tree.
+
+- **The 1 px proof, the revert and main vs main** are being measured in
+  [#1063](https://github.com/Invisible-Wall-SL/Invisible-Engine/pull/1063); the counts land here in
+  that PR.
 
 ## Measured on the stand-in fixtures (2026-10-04, Claude Code cloud container, 4 vCPU, software GL)
 
