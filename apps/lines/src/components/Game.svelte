@@ -2378,9 +2378,7 @@
 				 exactly as before. -->
 		<Container zIndex={LAYER_BAND_WIN_PRESENTATION}>
 			<MainContainer>
-				<Container x={1}>
-					<WinLine />
-				</Container>
+				<WinLine />
 			</MainContainer>
 		</Container>
 	{/if}
