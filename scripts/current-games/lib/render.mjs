@@ -43,6 +43,12 @@ const TEXTS = `(() => {
 			return 'err';
 		}
 	};
+	// What the parents multiply in: the effective alpha (and any tint) a text is drawn with.
+	const chain = (node, f) => {
+		let v = 1;
+		for (let n = node; n; n = n.parent) v *= f(n);
+		return v;
+	};
 	const out = [];
 	const walk = (node) => {
 		if (!node || node.visible === false) return;
@@ -65,7 +71,7 @@ const TEXTS = `(() => {
 				\`measured \${node.width.toFixed(2)}x\${node.height.toFixed(2)}\`,
 				\`texture \${current ? pixels(current) : 'none'}\`,
 				\`fresh \${fresh}\`,
-				\`alpha \${node.groupAlpha?.toFixed(4) ?? node.worldAlpha?.toFixed(4)}\`,
+				\`alpha \${chain(node, (n) => n.alpha).toFixed(4)} tint \${chain(node, (n) => (n.tint ?? 0xffffff) === 0xffffff ? 1 : n.tint).toString(16)}\`,
 				\`at \${[node.worldTransform.tx, node.worldTransform.ty, node.worldTransform.a, node.worldTransform.d].map((v) => v.toFixed(3)).join(',')}\`,
 				\`in \${node.parent?.label ?? '-'}/\${node.parent?.parent?.label ?? '-'}\`,
 			].join(' '));
@@ -90,6 +96,24 @@ const LAYOUT = `(() => {
 			return \`canvas \${c.width}x\${c.height} box \${[b.x, b.y, b.width, b.height].map((v) => v.toFixed(2)).join(',')} opacity \${cs.opacity} transform \${cs.transform} visible \${cs.visibility}/\${cs.display}\`;
 		}),
 	];
+})()`;
+
+// …and every visible object drawn part-transparent (effective alpha strictly between 0 and 1): a
+// fade that ends a little differently shows here.
+const TRANSLUCENT = `(() => {
+	const out = [];
+	const walk = (node, alpha) => {
+		if (!node || node.visible === false || out.length >= 300) return;
+		const a = alpha * (node.alpha ?? 1);
+		if (a <= 0) return;
+		if (a < 1 && node !== window.__PIXI_APP__.stage) {
+			const b = node.getBounds?.();
+			out.push(\`\${node.constructor?.name} \${node.label ?? '-'} alpha \${a.toFixed(4)} \${b ? [b.x, b.y, b.width, b.height].map((v) => Math.round(v)).join(',') : ''}\`);
+		}
+		for (const c of node.children ?? []) walk(c, a);
+	};
+	walk(window.__PIXI_APP__?.stage, 1);
+	return out.sort();
 })()`;
 
 /** A forced beat with `{path}` placeholders filled from the game's contract (its own pot ids…). */
@@ -199,6 +223,7 @@ export async function renderUnit({
 								fonts: await page.evaluate(FONTS).catch((e) => [e.message]),
 								texts: await page.evaluate(TEXTS).catch((e) => [e.message]),
 								layout: await page.evaluate(LAYOUT).catch((e) => [e.message]),
+								translucent: await page.evaluate(TRANSLUCENT).catch((e) => [e.message]),
 							}
 						: {}),
 				};
