@@ -202,7 +202,8 @@ an HTTP response may stay open for **up to 15 minutes while data keeps flowing**
 **5 minutes with no data**; idle HTTP/1.1 connections close after 60 s between requests; HTTP/2 from
 the browser is demuxed to HTTP/1.1 towards the launcher. The 15 s heartbeat keeps the stream inside
 the 5-minute rule, and at the 15-minute cut the browser's `EventSource` reconnects on its own with
-`Last-Event-ID`, which is lossless (`eventStream.ts`). Nothing to configure on Railway. Community
+`Last-Event-ID`; the catch-up read starts 16 ids below it, so a row that committed out of id order
+while the client was away still arrives, and the page keys events by `id` (`eventStream.ts`). Nothing to configure on Railway. Community
 reports of the edge buffering a streamed response until EOF were checked against the stream's
 headers (`cache-control: no-store, no-transform`, `x-accel-buffering: no`); confirm on the deployed
 launcher with `curl -N -H 'cookie: …' https://app.invisiblewall.org/director/<runId>/events` and

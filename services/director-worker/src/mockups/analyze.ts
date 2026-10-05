@@ -1,4 +1,4 @@
-import { AdapterCallError, opIdFor, type AdapterClient } from '../adapters.ts';
+import { opIdFor, type AdapterClient } from '../adapters.ts';
 import type { AgentDefinition } from '../agents.ts';
 import {
 	applyCodeRules,
@@ -154,16 +154,6 @@ export function imagePrompt(
 	].join('\n\n');
 }
 
-async function tryCall<T>(fn: () => Promise<T>): Promise<T | null> {
-	try {
-		return await fn();
-	} catch (e) {
-		// An adapter that does not exist yet (PLAN 2.6) is a missing input, not a failed analysis.
-		if (e instanceof AdapterCallError && e.status === 404 && e.code === 'unknown_op') return null;
-		throw e;
-	}
-}
-
 export async function analyzeMockups(deps: AnalyzeDeps): Promise<Breakdown> {
 	const { adapters, model, agent, run } = deps;
 
@@ -174,14 +164,12 @@ export async function analyzeMockups(deps: AnalyzeDeps): Promise<Breakdown> {
 		throw new AnalysisRefused('no_mockups', 'This run has no mockups; it takes the style board.');
 	}
 
-	const [template, regions, fonts] = await Promise.all([
+	const [template, regions] = await Promise.all([
 		adapters.call<TemplateSummary>('gamemaker', 'get_template', { key: run.templateProjectKey }),
 		adapters.call<RegionListing>('atlas', 'list_regions', {}),
-		tryCall(() => adapters.call<{ fonts?: { name: string }[] }>('fonts', 'list', {})),
 	]);
 	const regionNames = regions.atlases.flatMap((a) => a.regions.map((r) => r.name));
 	const index = regionIndex(regionNames);
-	const knownFonts = new Set((fonts?.fonts ?? []).map((f) => f.name.toLowerCase()));
 	const system = `${agent.systemPrompt}\n\n${catalogueText(template, regions)}`;
 
 	const images: BreakdownImage[] = [];
@@ -216,9 +204,9 @@ export async function analyzeMockups(deps: AnalyzeDeps): Promise<Breakdown> {
 			for (const region of el.regions) crops.push({ imageId: image.id, region, box: el.box });
 		}
 		proposed.push(...answer.output.palette);
-		for (const gap of answer.output.fontGaps) {
-			if (!knownFonts.has(gap.text.toLowerCase())) fontGaps.push({ ...gap, imageId: image.id });
-		}
+		// Reported as the model sees them; the comparison with the Font Maker catalogues (ADR-0005
+		// "Fonts") needs the `fonts.list` adapter of PLAN 2.6.
+		for (const gap of answer.output.fontGaps) fontGaps.push({ ...gap, imageId: image.id });
 		images.push({ ...pick(image), w: got.w, h: got.h, elements, model: answer.model });
 	}
 

@@ -1,7 +1,7 @@
 // Draw the reference mockup set in `docs/director/eval/mockups/` (ADR-0005 tests; ADR-0007's agent
 // evaluation reuses it) and record each image's dominant colours in `reference.json`:
 //
-//   node apps/launcher-api/scripts/generate-director-eval-mockups.mjs
+//   node --experimental-strip-types apps/launcher-api/scripts/generate-director-eval-mockups.mjs
 //
 // The images are ours: flat shapes drawn here with sharp, so the repo owns them outright and the
 // "these designs belong to us" rule holds for the fixtures too. They are deliberately simple — a

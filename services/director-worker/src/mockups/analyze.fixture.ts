@@ -254,6 +254,19 @@ console.log('code rules');
 	);
 	check(/feature_rules/.test(gamble.reason), '…and the reason says what the analyst saw');
 
+	const shop = base.find((e) => e.name === 'Shop')!;
+	check(
+		shop.status === 'left_out' && shop.lockedItem?.id === 'bet_modes',
+		'a renamed buy control is still left out when the model names the locked item',
+		JSON.stringify(shop),
+	);
+	const info = base.find((e) => e.name === 'Paytable button')!;
+	check(
+		info.status === 'needs_you' && info.regions.length === 0,
+		'a model needs_you is never promoted to matched by a listed region',
+		JSON.stringify(info),
+	);
+
 	check(!base.some((e) => /Stray/.test(e.name)), 'a box outside the image is dropped');
 	check(
 		base.map((e) => e.n).join() === base.map((_, i) => i + 1).join(),
@@ -413,7 +426,7 @@ console.log('checkpoint');
 		needsYou: number;
 	};
 	check(
-		activity.regionsMatched === 21 && activity.leftOut === 1 && activity.needsYou === 3,
+		activity.regionsMatched === 21 && activity.leftOut === 2 && activity.needsYou === 4,
 		'the activity row summarises it',
 	);
 	const off: RunState = {

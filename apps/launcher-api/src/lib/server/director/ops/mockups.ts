@@ -4,6 +4,7 @@ import {
 	cropImage,
 	dominantColors,
 	downscaleForModel,
+	modelScale,
 	unscaleBox,
 	type Box,
 	type DominantColor,
@@ -26,8 +27,9 @@ import {
  */
 
 const UPLOAD_ID = '^[a-f0-9]{16}$';
-// The same shape Atlas Maker accepts for a region, and a single path segment under `crops/`.
-const REGION = '^[A-Za-z0-9_][A-Za-z0-9_.()-]{0,119}$';
+// The same shape Atlas Maker accepts for a region, and a single path segment under `crops/`; `..`
+// is refused outright so a crop key can never read as a path escape.
+const REGION = '^(?!.*\\.\\.)[A-Za-z0-9_][A-Za-z0-9_.()-]{0,119}$';
 const MAX_CROPS = 128;
 
 const scope = (ctx: AdapterContext) => ctx.scope!;
@@ -232,8 +234,8 @@ export const saveCrops = defineOp<SaveCropsInput, SaveCropsResult>({
 			}
 			if (!originals.has(image.id)) originals.set(image.id, requireBytes(ctx, image));
 			const bytes = await originals.get(image.id)!;
-			const model = await downscaleForModel(bytes, image.mediaType);
-			const png = await cropImage(bytes, unscaleBox(crop.box, model.scale));
+			// The same scale `get_image` applied, from the doc's dimensions: no re-encode per crop.
+			const png = await cropImage(bytes, unscaleBox(crop.box, modelScale(image.w, image.h)));
 			if (!png) {
 				skip('the box is outside the image');
 				continue;

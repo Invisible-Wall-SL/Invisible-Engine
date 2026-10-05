@@ -87,6 +87,8 @@ export const cropKey = (client: string, project: string, runId: string, region: 
 
 const UPLOAD_ID = /^[a-f0-9]{16}$/;
 export const isUploadId = (value: string) => UPLOAD_ID.test(value);
+/** A stored `file` is spliced into R2 keys, so only the shape `addMockup` writes is believed. */
+const UPLOAD_FILE = /^[a-f0-9]{16}\.(png|jpg)$/;
 
 /**
  * The file's real type, from its first bytes — never the browser's `File.type` or the name's
@@ -150,7 +152,10 @@ function readDoc(text: string): MockupsDoc {
 				typeof img === 'object' &&
 				img !== null &&
 				typeof img.id === 'string' &&
-				typeof img.file === 'string',
+				isUploadId(img.id) &&
+				typeof img.file === 'string' &&
+				UPLOAD_FILE.test(img.file) &&
+				img.file.startsWith(img.id),
 		),
 	};
 }
@@ -175,14 +180,14 @@ const CAS_ATTEMPTS = 3;
  * attempt, so a limit it checks holds against what others saved meanwhile, not what this caller
  * first read.
  */
-async function updateDoc(
+async function updateDoc<T = void>(
 	client: string,
 	project: string,
-	mutate: (doc: MockupsDoc) => void,
-): Promise<MockupsDoc> {
+	mutate: (doc: MockupsDoc) => T,
+): Promise<{ doc: MockupsDoc; value: T }> {
 	for (let attempt = 1; ; attempt++) {
 		const { doc, etag } = await loadMockupsDoc(client, project);
-		mutate(doc);
+		const value = mutate(doc);
 		try {
 			await putObjectText(
 				mockupsDocKey(client, project),
@@ -190,7 +195,7 @@ async function updateDoc(
 				'application/json',
 				precondition(etag),
 			);
-			return doc;
+			return { doc, value };
 		} catch (e) {
 			if (!(e instanceof ConflictError) || attempt >= CAS_ATTEMPTS) throw e;
 		}
@@ -254,7 +259,7 @@ export async function addMockup(input: AddMockupInput): Promise<{ doc: MockupsDo
 	const key = mockupImageKey(client, project, file);
 	await putObjectBytes(key, bytes, image.mediaType, { ifNoneMatch: '*' });
 	try {
-		const doc = await updateDoc(client, project, (d) => {
+		const { doc } = await updateDoc(client, project, (d) => {
 			if (d.images.length >= MAX_MOCKUPS) {
 				throw new MockupError(409, 'too_many', `At most ${MAX_MOCKUPS} mockups per project.`);
 			}
@@ -273,14 +278,12 @@ export async function removeMockup(
 	id: string,
 ): Promise<MockupsDoc> {
 	if (!isUploadId(id)) throw new MockupError(404, 'unknown_mockup', 'No such mockup.');
-	let file: string | null = null;
-	const doc = await updateDoc(client, project, (d) => {
+	const { doc, value: removed } = await updateDoc(client, project, (d) => {
 		const at = d.images.findIndex((img) => img.id === id);
 		if (at < 0) throw new MockupError(404, 'unknown_mockup', 'No such mockup.');
-		file = d.images[at].file;
-		d.images.splice(at, 1);
+		return d.images.splice(at, 1)[0];
 	});
-	if (file) await deleteObject(mockupImageKey(client, project, file)).catch(() => undefined);
+	await deleteObject(mockupImageKey(client, project, removed.file)).catch(() => undefined);
 	return doc;
 }
 
@@ -290,9 +293,10 @@ export async function confirmOwnership(
 	project: string,
 	by: Stamp,
 ): Promise<MockupsDoc> {
-	return updateDoc(client, project, (d) => {
+	const { doc } = await updateDoc(client, project, (d) => {
 		d.ownershipConfirmed ??= { by, at: new Date().toISOString() };
 	});
+	return doc;
 }
 
 export async function setFidelity(
@@ -303,9 +307,10 @@ export async function setFidelity(
 	if (!(FIDELITIES as readonly unknown[]).includes(fidelity)) {
 		throw new MockupError(400, 'bad_fidelity', `Fidelity is one of ${FIDELITIES.join(', ')}.`);
 	}
-	return updateDoc(client, project, (d) => {
+	const { doc } = await updateDoc(client, project, (d) => {
 		d.fidelity = fidelity as Fidelity;
 	});
+	return doc;
 }
 
 /** One original's bytes, or null when the doc lists it but the object is gone. */

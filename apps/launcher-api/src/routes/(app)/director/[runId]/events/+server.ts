@@ -19,7 +19,10 @@ import type { RequestHandler } from './$types';
  *
  * Railway's edge keeps an HTTP response open for up to 15 minutes while data flows and closes it
  * after 5 minutes of silence; the heartbeat keeps it flowing and the browser's `EventSource`
- * reconnects with `Last-Event-ID` when the 15 minutes are up — lossless, see `eventStream.ts`.
+ * reconnects with `Last-Event-ID` when the 15 minutes are up — see `eventStream.ts` for what that
+ * covers. Teardown: under adapter-node a GET's `request.signal` does not fire when the client goes
+ * away; the stream's `cancel()` does (the adapter cancels the body reader on `close`), so both are
+ * wired and `cancel()` is the one that matters in production.
  */
 export const GET: RequestHandler = async ({ params, request, url, locals }) => {
 	const user = await requireDirectorAccess(locals);

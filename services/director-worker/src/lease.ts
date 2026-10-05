@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Sql } from 'postgres';
+import type { JSONValue, Sql } from 'postgres';
 import type { Checkpoint, RunState, RunStatus, RunStep } from './runState.ts';
 import { checkpointSettings } from './runState.ts';
 
@@ -173,7 +173,7 @@ export async function writeState(
 			await tx`
 				insert into director_events (run_id, agent, kind, tool, payload_json)
 				values (${run.id}, ${event.agent}, ${event.kind}, ${event.tool}, ${tx.json(
-					event.payload as never,
+					event.payload as JSONValue,
 				)})`;
 		}
 		return true;

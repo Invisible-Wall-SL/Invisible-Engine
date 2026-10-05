@@ -260,9 +260,9 @@ console.log('catch-up and tail');
 	const out = collect(body);
 	await tick();
 	check(
-		'opening after id 2 sends 3, 4, 5 and nothing of another run',
+		'opening after id 2 sends 3, 4, 5, the look-back rows before them, and nothing of another run',
 		ids(out.frames()),
-		[3, 4, 5],
+		[1, 2, 3, 4, 5],
 	);
 	check('each frame names its kind', out.frames()[0].event, 'activity');
 	const live = table.insert('run-1', 'checkpoint_open');
@@ -295,16 +295,20 @@ let everDelivered: number[] = [];
 	const slow = table.reserve('run-1', 'activity'); // takes id 8, commits later
 	const fast = table.insert('run-1', 'activity'); // id 9, commits first
 	await tick();
-	check('the faster insert is sent first', ids(out.frames()), [fast.id]);
+	check(
+		'the faster insert is sent first (after the look-back rows)',
+		ids(out.frames()).at(-1),
+		fast.id,
+	);
 	const late = slow();
 	await tick();
-	check('a row that commits with a lower id is still delivered', ids(out.frames()), [
+	check('a row that commits with a lower id is still delivered', ids(out.frames()).slice(-2), [
 		fast.id,
 		late.id,
 	]);
 	table.notify('run-1', late.id);
 	await tick();
-	check('…once, if its NOTIFY repeats', ids(out.frames()), [fast.id, late.id]);
+	check('…once, if its NOTIFY repeats', ids(out.frames()).filter((id) => id === late.id).length, 1);
 	lastSeen = ids(out.frames()).at(-1)!; // what the browser now holds: 8
 	everDelivered = ids(out.frames());
 	ctl.abort();
@@ -331,11 +335,8 @@ let everDelivered: number[] = [];
 	const all = new Set([...everDelivered, ...got]);
 	check(
 		'…and nothing of the run is lost across the reconnect',
-		[...all].sort((a, b) => a - b),
-		table.rows
-			.filter((r) => r.runId === 'run-1' && r.id > 7)
-			.map((r) => r.id)
-			.sort((a, b) => a - b),
+		table.rows.filter((r) => r.runId === 'run-1' && r.id > 7).every((r) => all.has(r.id)),
+		true,
 	);
 	check(
 		'a repeat after the late commit is possible (the page keys by id)',
@@ -346,13 +347,54 @@ let everDelivered: number[] = [];
 	await out2.done;
 }
 
-console.log('heartbeat');
+console.log('late commit while away');
 {
 	const ctl = new AbortController();
 	const out = collect(
 		stream.openEventStream({
 			runId: 'run-1',
 			afterId: 11,
+			source: table,
+			heartbeatMs: 10_000,
+			signal: ctl.signal,
+		}),
+	);
+	await tick();
+	const slow = table.reserve('run-1', 'activity'); // id 12, commits after the client is gone
+	const fast = table.insert('run-1', 'activity'); // id 13
+	await tick();
+	check('the client last saw the faster row', ids(out.frames()).at(-1), fast.id);
+	ctl.abort();
+	await out.done;
+	const late = slow(); // commits while nobody is connected: its NOTIFY reaches no stream
+	const ctl2 = new AbortController();
+	const out2 = collect(
+		stream.openEventStream({
+			runId: 'run-1',
+			afterId: fast.id,
+			source: table,
+			heartbeatMs: 10_000,
+			signal: ctl2.signal,
+		}),
+	);
+	await tick();
+	check(
+		'a reconnect still delivers a row that committed below Last-Event-ID while the client was away',
+		ids(out2.frames()).includes(late.id),
+		true,
+	);
+	check('…within the look-back window', stream.LOOKBACK >= fast.id - late.id, true);
+	ctl2.abort();
+	await out2.done;
+}
+
+console.log('heartbeat');
+{
+	const ctl = new AbortController();
+	const out = collect(
+		stream.openEventStream({
+			runId: 'run-1',
+			afterId: 13,
 			source: table,
 			heartbeatMs: 20,
 			signal: ctl.signal,
@@ -367,7 +409,16 @@ console.log('heartbeat');
 		frames.filter((f) => f.comment === 'heartbeat').length >= 2,
 		true,
 	);
-	check('a row whose NOTIFY was lost is caught by the heartbeat re-read', ids(frames), [silent.id]);
+	check(
+		'a row whose NOTIFY was lost is caught by the heartbeat re-read',
+		ids(frames).at(-1),
+		silent.id,
+	);
+	check(
+		'…once, although every heartbeat re-reads the look-back window',
+		ids(frames).filter((id) => id === silent.id).length,
+		1,
+	);
 	ctl.abort();
 	await out.done;
 }
@@ -430,15 +481,24 @@ console.log('route');
 		[ok.status, ok.type],
 		[200, 'text/event-stream; charset=utf-8'],
 	);
+	const runRows = (after: number) =>
+		table.rows.filter((r) => r.runId === 'run-1' && r.id > after).map((r) => r.id);
 	check(
-		'…from Last-Event-ID',
-		ok.ids,
-		table.rows.filter((r) => r.runId === 'run-1' && r.id > 10).map((r) => r.id),
+		'…from Last-Event-ID (every later row, plus the look-back window)',
+		[
+			runRows(10).every((id) => ok.ids.includes(id)),
+			ok.ids.every((id) => id > 10 - stream.LOOKBACK),
+		],
+		[true, true],
 	);
+	const viaQuery = (await call('run-1', admin, {}, '?after=11')).ids;
 	check(
 		'…or from ?after=',
-		(await call('run-1', admin, {}, '?after=11')).ids,
-		table.rows.filter((r) => r.runId === 'run-1' && r.id > 11).map((r) => r.id),
+		[
+			runRows(11).every((id) => viaQuery.includes(id)),
+			viaQuery.every((id) => id > 11 - stream.LOOKBACK),
+		],
+		[true, true],
 	);
 	check('every stream closed with its request', table.subscribers, 0);
 }

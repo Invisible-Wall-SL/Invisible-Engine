@@ -369,9 +369,7 @@
 						"h": 110
 					},
 					"name": "Logo “Sunken Temple”",
-					"regions": [
-						"Logo"
-					],
+					"regions": ["Logo"],
 					"status": "matched",
 					"reason": "Carved gold title plate at the top.",
 					"lockedItem": null
@@ -385,12 +383,7 @@
 						"h": 50
 					},
 					"name": "Jackpot plaques × 4",
-					"regions": [
-						"MINI",
-						"MINOR",
-						"MAJOR",
-						"GRAND"
-					],
+					"regions": ["MINI", "MINOR", "MAJOR", "GRAND"],
 					"status": "matched",
 					"reason": "Four glowing plaques above the reels.",
 					"lockedItem": null
@@ -404,9 +397,7 @@
 						"h": 464
 					},
 					"name": "Reel frame",
-					"regions": [
-						"Frame"
-					],
+					"regions": ["Frame"],
 					"status": "matched",
 					"reason": "Stone frame around the 5×3 grid.",
 					"lockedItem": null
@@ -420,19 +411,7 @@
 						"h": 450
 					},
 					"name": "Symbols × 15",
-					"regions": [
-						"H1",
-						"H2",
-						"H3",
-						"H4",
-						"L1",
-						"L2",
-						"L3",
-						"L4",
-						"L5",
-						"Wild",
-						"bonuscoin"
-					],
+					"regions": ["H1", "H2", "H3", "H4", "L1", "L2", "L3", "L4", "L5", "Wild", "bonuscoin"],
 					"status": "matched",
 					"reason": "Rounded symbol tiles in three colours.",
 					"lockedItem": null
@@ -446,9 +425,7 @@
 						"h": 800
 					},
 					"name": "Background: deep sea",
-					"regions": [
-						"Background"
-					],
+					"regions": ["Background"],
 					"status": "matched",
 					"reason": "Dark teal field behind everything.",
 					"lockedItem": null
@@ -462,9 +439,7 @@
 						"h": 100
 					},
 					"name": "Fish swarm",
-					"regions": [
-						"FishSwarm"
-					],
+					"regions": ["FishSwarm"],
 					"status": "needs_you",
 					"reason": "Animated fish crossing the reels.",
 					"lockedItem": null
@@ -478,10 +453,7 @@
 						"h": 110
 					},
 					"name": "Bet panel & spin button",
-					"regions": [
-						"BetPanel",
-						"SpinButton"
-					],
+					"regions": ["BetPanel", "SpinButton"],
 					"status": "matched",
 					"reason": "Bottom bar with the round spin control.",
 					"lockedItem": null
@@ -495,9 +467,7 @@
 						"h": 90
 					},
 					"name": "Buy bonus button",
-					"regions": [
-						"BetPanel"
-					],
+					"regions": ["BetPanel"],
 					"status": "matched",
 					"reason": "Gold button at the bottom right labelled BUY.",
 					"lockedItem": null
@@ -525,11 +495,37 @@
 						"h": 10
 					},
 					"name": "Stray box outside the image",
-					"regions": [
-						"Logo"
-					],
+					"regions": ["Logo"],
 					"status": "matched",
 					"reason": "Should be dropped by code.",
+					"lockedItem": null
+				},
+				{
+					"n": 11,
+					"box": {
+						"x": 900,
+						"y": 20,
+						"w": 120,
+						"h": 60
+					},
+					"name": "Shop",
+					"regions": ["SpinButton"],
+					"status": "matched",
+					"reason": "A coin-shaped shortcut to buy the feature.",
+					"lockedItem": "bet_modes"
+				},
+				{
+					"n": 12,
+					"box": {
+						"x": 1100,
+						"y": 20,
+						"w": 140,
+						"h": 60
+					},
+					"name": "Paytable button",
+					"regions": ["BetPanel"],
+					"status": "needs_you",
+					"reason": "An info button the template may not have as its own region.",
 					"lockedItem": null
 				}
 			],
@@ -577,9 +573,7 @@
 						"h": 200
 					},
 					"name": "Big win banner",
-					"regions": [
-						"BigWinBanner"
-					],
+					"regions": ["BigWinBanner"],
 					"status": "matched",
 					"reason": "Coral banner with a glowing text plate.",
 					"lockedItem": null
@@ -593,9 +587,7 @@
 						"h": 600
 					},
 					"name": "Coin shower",
-					"regions": [
-						"CoinShower"
-					],
+					"regions": ["CoinShower"],
 					"status": "needs_you",
 					"reason": "Gold coins falling across the screen.",
 					"lockedItem": null

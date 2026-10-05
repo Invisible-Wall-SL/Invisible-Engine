@@ -24,12 +24,25 @@ export interface DominantColor {
 	share: number;
 }
 
-export async function imageDimensions(bytes: Uint8Array): Promise<{ w: number; h: number }> {
+/** Displayed dimensions (EXIF orientation applied) and whether the file needs rotating to show. */
+async function orientedMetadata(
+	bytes: Uint8Array,
+): Promise<{ w: number; h: number; rotated: boolean }> {
 	const meta = await sharp(bytes).metadata();
 	if (!meta.width || !meta.height) throw new Error('The image has no dimensions.');
+	const orientation = meta.orientation ?? 1;
 	// EXIF orientation 5–8 swaps the axes when the image is displayed.
-	const swapped = (meta.orientation ?? 1) >= 5;
-	return swapped ? { w: meta.height, h: meta.width } : { w: meta.width, h: meta.height };
+	const swapped = orientation >= 5;
+	return {
+		w: swapped ? meta.height : meta.width,
+		h: swapped ? meta.width : meta.height,
+		rotated: orientation > 1,
+	};
+}
+
+export async function imageDimensions(bytes: Uint8Array): Promise<{ w: number; h: number }> {
+	const { w, h } = await orientedMetadata(bytes);
+	return { w, h };
 }
 
 /** The factor the model's copy is scaled by: 1 when the original already fits. */
@@ -67,17 +80,18 @@ export interface ModelImage {
 }
 
 /**
- * The copy the model sees: at most `longEdge` on the long side, same format as the original. An
- * original that already fits is passed through untouched (`scale` 1).
+ * The copy the model sees: at most `longEdge` on the long side, same format as the original, and
+ * always in display orientation so the model's boxes land in the frame `cropImage` cuts from. An
+ * original that already fits and needs no rotating is passed through untouched (`scale` 1).
  */
 export async function downscaleForModel(
 	bytes: Uint8Array,
 	mediaType: MockupMediaType,
 	longEdge = MODEL_LONG_EDGE,
 ): Promise<ModelImage> {
-	const { w, h } = await imageDimensions(bytes);
+	const { w, h, rotated } = await orientedMetadata(bytes);
 	const scale = modelScale(w, h, longEdge);
-	if (scale === 1) return { bytes, mediaType, w, h, scale };
+	if (scale === 1 && !rotated) return { bytes, mediaType, w, h, scale };
 	let pipeline = sharp(bytes)
 		.rotate()
 		.resize({ width: longEdge, height: longEdge, fit: 'inside', withoutEnlargement: true });

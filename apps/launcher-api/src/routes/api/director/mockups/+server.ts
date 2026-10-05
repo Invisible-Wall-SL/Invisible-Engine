@@ -21,7 +21,7 @@ import type { RequestHandler } from './$types';
  *
  *   GET  /api/director/mockups?project=<key>                  the doc, the limits, the start refusal
  *   POST /api/director/mockups?project=<key>  (multipart)
- *        action=upload   file=<png|jpg> tag=<screen> [styleOnly=1]    (several `file`s allowed)
+ *        action=upload   file=<png|jpg> tag=<screen> [styleOnly=1]    (one file per request)
  *        action=confirm_ownership                                   records who and when, once
  *        action=fidelity fidelity=match|start
  *        action=remove   id=<mockup id>
@@ -29,7 +29,8 @@ import type { RequestHandler } from './$types';
  * Session-gated on the `director` tool, then on the project the request names — the tool grant
  * alone is not a project grant. Every limit (PNG/JPG only, 20 MB, 12 files) is enforced in
  * `mockups.ts`; this file only maps its refusals to responses. Files travel through the launcher
- * (`BODY_SIZE_LIMIT` is 32M in code), one request per file is the safe shape for a 20 MB mockup.
+ * (`BODY_SIZE_LIMIT` is 32M in code), one file per request, so a refusal is about THE file and
+ * nothing has half-landed.
  */
 
 const NO_STORE = { 'cache-control': 'no-store' };
@@ -74,20 +75,17 @@ export const POST: RequestHandler = async ({ request, url, locals }) => {
 		switch (action) {
 			case 'upload': {
 				const files = form.getAll('file').filter((f): f is File => f instanceof File);
-				if (files.length === 0) throw error(400, 'No file.');
+				if (files.length !== 1) throw error(400, 'Send exactly one file per request.');
 				const styleOnly = ['1', 'true', 'on'].includes(String(form.get('styleOnly') ?? ''));
-				let doc: MockupsDoc | null = null;
-				for (const file of files) {
-					({ doc } = await addMockup({
-						client: clientKey,
-						project: projectKey,
-						bytes: new Uint8Array(await file.arrayBuffer()),
-						tag: form.get('tag'),
-						styleOnly,
-						by,
-					}));
-				}
-				return answer(doc!);
+				const { doc } = await addMockup({
+					client: clientKey,
+					project: projectKey,
+					bytes: new Uint8Array(await files[0].arrayBuffer()),
+					tag: form.get('tag'),
+					styleOnly,
+					by,
+				});
+				return answer(doc);
 			}
 			case 'confirm_ownership':
 				return answer(await confirmOwnership(clientKey, projectKey, by));

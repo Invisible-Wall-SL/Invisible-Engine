@@ -164,6 +164,37 @@
 					"status": "needs_you",
 					"reason": "A double-up control. — the analyst saw a clash with feature_rules; nothing locked in the template confirms it, so it is your call",
 					"lockedItem": null
+				},
+				{
+					"n": 10,
+					"box": {
+						"x": 900,
+						"y": 20,
+						"w": 120,
+						"h": 60
+					},
+					"name": "Shop",
+					"regions": [],
+					"status": "left_out",
+					"reason": "Clashes with the locked bet modes (base). Math changes are made by a person in Invisible Game Config, outside Director.",
+					"lockedItem": {
+						"id": "bet_modes",
+						"label": "Bet modes"
+					}
+				},
+				{
+					"n": 11,
+					"box": {
+						"x": 1100,
+						"y": 20,
+						"w": 140,
+						"h": 60
+					},
+					"name": "Paytable button",
+					"regions": [],
+					"status": "needs_you",
+					"reason": "An info button the template may not have as its own region.",
+					"lockedItem": null
 				}
 			],
 			"model": "claude-opus-5-5"

@@ -20,7 +20,9 @@ export interface LockedItem {
 
 export interface LockedRule {
 	id: string;
-	/** Elements this rule is about, by name. */
+	/** The locked item this rule guards; the model naming it in `lockedItem` makes the rule run. */
+	lockedItemId: string;
+	/** Elements this rule is about, by their name and proposed regions. */
 	element: RegExp;
 	/** The locked item the element clashes with given this template, or null when it does not. */
 	clashes: (locked: LockedItem[]) => LockedItem | null;
@@ -44,6 +46,7 @@ const betModesOf = (locked: LockedItem[]): string[] | null => {
 export const LOCKED_RULES: LockedRule[] = [
 	{
 		id: 'buy_without_buy_mode',
+		lockedItemId: 'bet_modes',
 		element: /\b(buy|purchase|bonus buy|feature buy)\b/i,
 		clashes: (locked) => {
 			const modes = betModesOf(locked);
@@ -54,9 +57,20 @@ export const LOCKED_RULES: LockedRule[] = [
 	},
 ];
 
-export function lockedClash(name: string, locked: LockedItem[]): LockedItem | null {
+/**
+ * The locked item `element` clashes with, or null. A rule is tried when its pattern matches the
+ * element's name, any region it proposes, or the locked item the model itself named — the model's
+ * `lockedItem` is a reason to EVALUATE a rule, never a verdict — so a renamed control ("Shop",
+ * "Get bonus") still meets the rule through its region or the model's own claim.
+ */
+export function lockedClash(
+	element: Pick<AnalystElement, 'name' | 'regions' | 'lockedItem'>,
+	locked: LockedItem[],
+): LockedItem | null {
+	const text = [element.name, ...element.regions].join(' ');
 	for (const rule of LOCKED_RULES) {
-		if (rule.element.test(name)) {
+		const named = element.lockedItem !== null && rule.lockedItemId === element.lockedItem;
+		if (named || rule.element.test(text)) {
 			const clash = rule.clashes(locked);
 			if (clash) return clash;
 		}
@@ -103,7 +117,7 @@ export function applyCodeRules(elements: AnalystElement[], ctx: RuleContext): Co
 	for (const el of elements) {
 		const box = clamp(el.box, ctx.image.w, ctx.image.h);
 		if (!box) continue;
-		const clash = lockedClash(el.name, ctx.locked);
+		const clash = lockedClash(el, ctx.locked);
 		if (clash) {
 			out.push({
 				n: out.length + 1,
@@ -131,8 +145,10 @@ export function applyCodeRules(elements: AnalystElement[], ctx: RuleContext): Co
 				`the analyst saw a clash with ${el.lockedItem ?? 'a locked item'}; nothing locked in the template confirms it, so it is your call`,
 			);
 		}
+		// Code never promotes: a `matched` claim holds only for real regions, and the model's own
+		// `needs_you` stays `needs_you` even when it also listed a region.
 		const status: ElementStatus =
-			known.length > 0 && el.status !== 'left_out' ? 'matched' : 'needs_you';
+			el.status === 'matched' && known.length > 0 ? 'matched' : 'needs_you';
 		const reason = [el.reason, ...notes].filter(Boolean).join(' — ');
 		out.push({
 			n: out.length + 1,

@@ -34,8 +34,9 @@ function ensureListening(): Promise<ListenMeta> {
 			connection: { application_name: 'launcher-director-events' },
 		});
 		listening = sql.listen(EVENTS_CHANNEL, dispatch).catch((error: unknown) => {
-			// Streams still poll on the heartbeat; the next subscriber retries the LISTEN.
+			// Streams still poll on the heartbeat; the next subscriber retries with a fresh client.
 			listening = null;
+			void sql.end({ timeout: 0 }).catch(() => undefined);
 			throw error;
 		});
 	}
