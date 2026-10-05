@@ -162,6 +162,7 @@ function gameRow(
 					};
 					const fonts = [sides.base, sides.head].map((r) => r.screens[screen]?.fonts);
 					const texts = [sides.base, sides.head].map((r) => r.screens[screen]?.texts);
+					const layout = [sides.base, sides.head].map((r) => r.screens[screen]?.layout);
 					const ext = [sides.base, sides.head].map((r) => r.external ?? []);
 					crops.push(
 						...[
@@ -170,6 +171,8 @@ function gameRow(
 							`fonts only on the branch: ${only(fonts[1], fonts[0])}`,
 							`texts only on main: ${only(texts[0], texts[1])}`,
 							`texts only on the branch: ${only(texts[1], texts[0])}`,
+							`layout on main: ${(layout[0] ?? []).join(' | ')}`,
+							`layout only on the branch: ${only(layout[1], layout[0])}`,
 							`external on main: ${ext[0].join(' | ')}`,
 							`external on the branch: ${ext[1].join(' | ')}`,
 						].map((line) => redactSecrets(line)),

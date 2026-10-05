@@ -76,6 +76,22 @@ const TEXTS = `(() => {
 	return out.sort();
 })()`;
 
+// …and the surfaces the screenshot is composited from: every canvas's backing size against its CSS
+// box, the renderer's size, and the viewport (a scrollbar narrows it).
+const LAYOUT = `(() => {
+	const r = window.__PIXI_APP__?.renderer;
+	const html = document.documentElement;
+	return [
+		\`viewport \${innerWidth}x\${innerHeight} client \${html.clientWidth}x\${html.clientHeight} scroll \${html.scrollWidth}x\${html.scrollHeight} dpr \${devicePixelRatio}\`,
+		\`renderer \${r?.width}x\${r?.height} res \${r?.resolution} screen \${window.__PIXI_APP__?.screen?.width}x\${window.__PIXI_APP__?.screen?.height}\`,
+		...[...document.querySelectorAll('canvas')].map((c) => {
+			const b = c.getBoundingClientRect();
+			const cs = getComputedStyle(c);
+			return \`canvas \${c.width}x\${c.height} box \${[b.x, b.y, b.width, b.height].map((v) => v.toFixed(2)).join(',')} opacity \${cs.opacity} transform \${cs.transform} visible \${cs.visibility}/\${cs.display}\`;
+		}),
+	];
+})()`;
+
 /** A forced beat with `{path}` placeholders filled from the game's contract (its own pot ids…). */
 const fillBeat = (beat, contract) =>
 	beat.replace(/\{([\w.-]+)\}/g, (_m, path) => {
@@ -182,6 +198,7 @@ export async function renderUnit({
 						? {
 								fonts: await page.evaluate(FONTS).catch((e) => [e.message]),
 								texts: await page.evaluate(TEXTS).catch((e) => [e.message]),
+								layout: await page.evaluate(LAYOUT).catch((e) => [e.message]),
 							}
 						: {}),
 				};
