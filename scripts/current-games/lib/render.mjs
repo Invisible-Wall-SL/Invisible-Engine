@@ -24,24 +24,51 @@ const BOOT_PROBE_FRAMES = 10;
 const FONTS =
 	'[...document.fonts].map((f) => `${f.family} ${f.weight} ${f.style} ${f.status}`).sort()';
 // …and every visible Pixi text on stage: what it says, the font it asks for, whether that font is
-// usable now, and the texture it was rasterized into.
+// usable now, its measured size, and two hashes — of the texture it was rasterized into (read
+// back from the GPU) and of a fresh raster of it made now. Equal fresh rasters with unequal
+// textures mean a text was rasterized while the fonts were in another state.
 const TEXTS = `(() => {
+	const app = window.__PIXI_APP__;
+	const renderer = app?.renderer;
+	const hash = (bytes) => {
+		let h = 2166136261;
+		for (let i = 0; i < bytes.length; i++) h = Math.imul(h ^ bytes[i], 16777619);
+		return (h >>> 0).toString(16);
+	};
+	const pixels = (texture) => {
+		try {
+			return hash(renderer.extract.pixels(texture).pixels);
+		} catch (e) {
+			return 'err';
+		}
+	};
 	const out = [];
 	const walk = (node) => {
 		if (!node || node.visible === false) return;
 		if (typeof node.text === 'string' && node.style?._fontString !== undefined) {
-			const t = node.texture;
+			const current = node._gpuData?.[renderer.uid]?.texture;
+			let fresh = 'err';
+			try {
+				const t = renderer.canvasText.getTexture({
+					text: node.text,
+					style: node.style,
+					resolution: node._resolution ?? renderer.resolution,
+				});
+				fresh = pixels(t);
+				renderer.canvasText.returnTexture(t);
+			} catch (e) {}
 			out.push([
 				JSON.stringify(node.text.slice(0, 24)),
 				node.style._fontString,
 				document.fonts.check(node.style._fontString) ? 'ok' : 'unusable',
-				\`measured \${node.width.toFixed(2)}x\${node.height.toFixed(2)} res \${node._resolution}\`,
-				t ? \`\${t.frame.width}x\${t.frame.height}@\${t.source?._resolution ?? t.source?.resolution}\` : 'no-texture',
+				\`measured \${node.width.toFixed(2)}x\${node.height.toFixed(2)}\`,
+				\`texture \${current ? pixels(current) : 'none'}\`,
+				\`fresh \${fresh}\`,
 			].join(' '));
 		}
 		for (const c of node.children ?? []) walk(c);
 	};
-	walk(window.__PIXI_APP__?.stage);
+	walk(app?.stage);
 	return out.sort();
 })()`;
 
