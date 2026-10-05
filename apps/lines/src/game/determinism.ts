@@ -16,8 +16,10 @@
  * - **Randomness.** `Math.random` is a PRNG seeded from the flag. Only cosmetic code reads it: the
  *   outcome (the book) comes from the RGS, and the client draws nothing that changes it.
  * - **I/O.** A frame does not start while a fetch, XHR, image, external script or stylesheet,
- *   `createImageBitmap`, worker job or web font is in flight, so how fast the network answers never changes which frame a load lands
- *   on. A frame that waits past `IO_STALL_MS` counts a stall and forgets what it waited on.
+ *   `createImageBitmap`, worker job or web font is in flight, so how fast the network answers
+ *   never changes which frame a load lands on. Every declared web font is loaded as soon as it is
+ *   declared, so a text never meets its font half-loaded. A frame that waits past `IO_STALL_MS`
+ *   counts a stall and forgets what it waited on.
  * - **Ready signal.** `window.__IE_DETERMINISM__` (see `DeterminismApi`): `step(n)` and
  *   `waitFor({ screen, idle, … })`, reading `Game.svelte`'s probe.
  * - **Drawing.** Every frame draws by default. `draw: 'last'` runs the frames without the WebGL
@@ -342,12 +344,22 @@ export function installDeterminism(): void {
 	};
 	const fontsLoading = () =>
 		typeof document !== 'undefined' && document.fonts?.status === 'loading';
+	// A web font loads when something first uses it — a canvas text draw (Pixi rasterizes a text
+	// once, so it keeps whichever face was ready then) or a DOM layout, which runs on real time.
+	// Loading every declared face as soon as it is declared makes text always meet its font loaded.
+	const loadDeclaredFonts = () => {
+		if (typeof document === 'undefined' || !document.fonts) return;
+		document.fonts.forEach((face) => {
+			if (face.status === 'unloaded') face.load().catch(() => undefined);
+		});
+	};
 	// Let real tasks run until no I/O is in flight for two turns in a row.
 	const settle = async () => {
 		const started = RealDate.now();
 		let quiet = 0;
 		while (quiet < 2) {
 			await realMacrotask();
+			loadDeclaredFonts();
 			quiet = pendingIo > 0 || fontsLoading() ? 0 : quiet + 1;
 			if (quiet === 0 && RealDate.now() - started > IO_STALL_MS) {
 				// A load that never ends must not cost every later frame the same wait.
