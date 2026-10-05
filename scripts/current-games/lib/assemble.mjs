@@ -28,7 +28,7 @@ const EXACT = {
 	maxDiffRatio: 0,
 	blockSize: 16,
 	blockThreshold: 0,
-	threshold: 0.1,
+	threshold: 0,
 	antiAliasing: 'count',
 	masks: [],
 };
@@ -204,7 +204,7 @@ function gameRow(
 							`texts only on main: ${only(texts[0], texts[1])}`,
 							`texts only on the branch: ${only(texts[1], texts[0])}`,
 							`capture equal 300 ms later: main ${sides.base.screens[screen]?.stableLater} · branch ${sides.head.screens[screen]?.stableLater}`,
-							`capture equal after one more draw: main ${sides.base.screens[screen]?.redrawn?.equal} · branch ${sides.head.screens[screen]?.redrawn?.equal}`,
+							`capture equal after one more draw: ${[sides.base, sides.head].map((r, i) => `${i ? 'branch' : 'main'} ${r.screens[screen]?.redrawn?.error ?? r.screens[screen]?.redrawn?.equal}`).join(' · ')}`,
 							`redraws equal across the sides: ${redrawEqual(sides, screen)}`,
 							`scene tree: ${treeDiff(sides.base.screens[screen]?.tree, sides.head.screens[screen]?.tree)}`,
 							`texts on main: ${(texts[0] ?? []).map((t) => t.split(' ').slice(0, 3).join(' ')).join(' | ')}`,

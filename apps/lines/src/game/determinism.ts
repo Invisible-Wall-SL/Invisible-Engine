@@ -27,7 +27,7 @@
  *   draw and draws once at the end: the same updates, ~100× faster under software GL (a draw is
  *   ~99% of a frame there). Nothing in the game reads a drawn frame back (no render-to-texture);
  *   one that did would read blank in `last`. A harness uses one mode on both sides of a comparison.
- *   Every draw to the screen starts from a cleared canvas (see `drawOnClearedCanvas`), as every
+ *   Every draw to the screen starts from a cleared canvas (see `clearCanvasBeforeDraws`), as every
  *   frame the browser shows does.
  * - **Time zone and locale** are the browser's; a harness pins them (CDP `setTimezoneOverride`).
  */
@@ -487,11 +487,11 @@ export function installDeterminism(): void {
 	// canvas drawn twice (a HUD text's edges brighten), and how many draws land before it shows one
 	// depends on real time, not on the frames. So each draw to the screen first clears the canvas
 	// the way the browser does, as for every frame a player sees.
-	const cleared = new WeakSet<object>();
-	const drawOnClearedCanvas = () => {
+	const wrapped = new WeakSet<object>();
+	const clearCanvasBeforeDraws = () => {
 		const renderer = pixiApp()?.renderer;
-		if (!renderer || cleared.has(renderer)) return;
-		cleared.add(renderer);
+		if (!renderer || wrapped.has(renderer)) return;
+		wrapped.add(renderer);
 		const render = renderer.render;
 		renderer.render = function (this: unknown, ...args: unknown[]) {
 			const [first, legacy] = args as [
@@ -509,7 +509,7 @@ export function installDeterminism(): void {
 	};
 	const runFrame = async (draw: boolean) => {
 		await settle();
-		drawOnClearedCanvas();
+		clearCanvasBeforeDraws();
 		const target = now + DETERMINISM_FRAME_MS;
 		for (let due = nextDueTimer(target); due; due = nextDueTimer(target)) {
 			const [id, timer] = due;
@@ -557,7 +557,7 @@ export function installDeterminism(): void {
 			ran = true;
 		}
 		if (ran && !every) {
-			drawOnClearedCanvas();
+			clearCanvasBeforeDraws();
 			pixiApp()?.render();
 		}
 	};
