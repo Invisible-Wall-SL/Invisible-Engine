@@ -45,7 +45,9 @@ export function canonical(value) {
 /**
  * Run `republish.mjs <command> …` under the TS loader. `cwd` is the checkout whose
  * `scripts/ts-loader.mjs` and `node_modules` resolve the imports: the worktree being built for an
- * extraction, this repo for the variants.
+ * extraction, this repo for the variants. Every path in `args` must already be absolute: the child
+ * resolves a relative one against ITS cwd, not the caller's (CI hands the build a relative cache
+ * path, and the first run resolved the worktree's source against the worktree itself).
  */
 function republishCli(cwd, args) {
 	const r = spawnSync(
@@ -58,7 +60,7 @@ function republishCli(cwd, args) {
 			REPUBLISH,
 			...args,
 		],
-		{ cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+		{ cwd: resolve(cwd), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
 	);
 	if (r.status !== 0)
 		throw new Error(`${(r.stderr || r.stdout || `exit ${r.status}`).trim().slice(-800)}`);
@@ -75,9 +77,9 @@ export function extractBuiltins(checkout, outFile) {
 		republishCli(checkout, [
 			'extract',
 			'--source',
-			join(checkout, BUILTIN_DEFS_SOURCE),
+			resolve(checkout, BUILTIN_DEFS_SOURCE),
 			'--out',
-			outFile,
+			resolve(outFile),
 		]);
 	} catch (e) {
 		throw new Error(`built-in component defs could not be read from ${checkout}: ${e.message}`);
@@ -102,13 +104,13 @@ export function republishVariants({ bundleFile, baseBuiltinsFile, headBuiltinsFi
 	republishCli(ROOT, [
 		'variants',
 		'--bundle',
-		bundleFile,
+		resolve(bundleFile),
 		'--base-builtins',
-		baseBuiltinsFile,
+		resolve(baseBuiltinsFile),
 		'--head-builtins',
-		headBuiltinsFile,
+		resolve(headBuiltinsFile),
 		'--out',
-		outDir,
+		resolve(outDir),
 	]);
 	return JSON.parse(readFileSync(join(outDir, 'republish.json'), 'utf8'));
 }

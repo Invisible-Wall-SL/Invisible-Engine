@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 
 import { BUILTIN_COMPONENTS } from '../../packages/engine-layout/src/lib/builtinComponents.ts';
 import {
@@ -51,6 +51,23 @@ await test('a runtime build carries every built-in def, keyed by id', () => {
 		canonical(BUILTIN_COMPONENTS.find((d) => d.id === 'freeSpinCounter')),
 	);
 	assert.equal(readBuiltins(join(tmp, 'no-such-build')), null);
+});
+
+// CI hands the build a RELATIVE cache path, so the checkout and the out file arrive relative to a
+// cwd that is not the checkout; the child must not resolve them against the worktree (the first CI
+// run did, and looked for the source at a doubled path).
+await test('the extraction takes relative paths from another cwd', () => {
+	const cwd = process.cwd();
+	process.chdir(tmp);
+	try {
+		extractBuiltins(relative(tmp, ROOT), relative(tmp, join(tmp, 'relative', BUILTINS_FILE)));
+	} finally {
+		process.chdir(cwd);
+	}
+	assert.equal(
+		canonical(readBuiltins(join(tmp, 'relative')).defs),
+		canonical(readBuiltins(buildDir).defs),
+	);
 });
 
 const base = readBuiltins(buildDir).defs;

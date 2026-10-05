@@ -27,7 +27,7 @@
 // are project data, which the harness does not read.
 
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { resolveComponentClosure } from '../../../packages/engine-layout/src/lib/collectComponentIds.ts';
@@ -122,6 +122,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
 	const readJson = (file) => JSON.parse(readFileSync(file, 'utf8'));
 	if (command === 'extract') {
 		const defs = await extractBuiltinDefs(opt('--source'));
+		mkdirSync(dirname(opt('--out')), { recursive: true });
 		writeFileSync(opt('--out'), JSON.stringify({ version: 1, defs }));
 		console.log(`${Object.keys(defs).length} built-in component def(s)`);
 	} else if (command === 'variants') {
