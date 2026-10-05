@@ -2,6 +2,7 @@ import { and, eq, lt } from 'drizzle-orm';
 import { getDb } from '../db';
 import {
 	directorAtlasJobs,
+	directorEvents,
 	directorOps,
 	directorRuns,
 	users,
@@ -130,10 +131,21 @@ export async function insertAtlasJob(row: {
 	atlas: string;
 	regions: string[];
 }): Promise<void> {
-	await getDb()
-		.insert(directorAtlasJobs)
-		.values({ ...row, status: 'queued' })
-		.onConflictDoNothing({ target: directorAtlasJobs.jobRef });
+	await getDb().transaction(async (tx) => {
+		const inserted = await tx
+			.insert(directorAtlasJobs)
+			.values({ ...row, status: 'queued' })
+			.onConflictDoNothing({ target: directorAtlasJobs.jobRef })
+			.returning({ jobRef: directorAtlasJobs.jobRef });
+		if (inserted.length === 0) return;
+		await tx.insert(directorEvents).values({
+			runId: row.runId,
+			agent: row.agent,
+			kind: 'job_queued',
+			tool: 'atlas.queue_variants',
+			payloadJson: { jobRef: row.jobRef, atlas: row.atlas, regions: row.regions },
+		});
+	});
 }
 
 export async function getAtlasJob(jobRef: string): Promise<DirectorAtlasJob | null> {
@@ -145,9 +157,10 @@ export async function getAtlasJob(jobRef: string): Promise<DirectorAtlasJob | nu
 }
 
 /**
- * The run's `job_done`: move a queued render of `runId` to its terminal status. Conditional on it
- * still being `queued`, so of the callback, its redeliveries and the `/progress` fallback, exactly
- * one records it. Returns the settled row to that one caller, and `null` to every other.
+ * The run's `job_done`: move a queued render of `runId` to its terminal status and append the
+ * `job_done` event that wakes the worker, in one transaction. Conditional on it still being
+ * `queued`, so of the callback, its redeliveries and the `/progress` fallback, exactly one records
+ * it. Returns the settled row to that one caller, and `null` to every other.
  */
 export async function settleAtlasJob(done: {
 	jobRef: string;
@@ -156,16 +169,33 @@ export async function settleAtlasJob(done: {
 	result: unknown;
 	via: 'callback' | 'poll';
 }): Promise<DirectorAtlasJob | null> {
-	const [row] = await getDb()
-		.update(directorAtlasJobs)
-		.set({ status: done.status, result: done.result, doneVia: done.via, doneAt: new Date() })
-		.where(
-			and(
-				eq(directorAtlasJobs.jobRef, done.jobRef),
-				eq(directorAtlasJobs.runId, done.runId),
-				eq(directorAtlasJobs.status, 'queued'),
-			),
-		)
-		.returning();
-	return row ?? null;
+	return getDb().transaction(async (tx) => {
+		const [row] = await tx
+			.update(directorAtlasJobs)
+			.set({ status: done.status, result: done.result, doneVia: done.via, doneAt: new Date() })
+			.where(
+				and(
+					eq(directorAtlasJobs.jobRef, done.jobRef),
+					eq(directorAtlasJobs.runId, done.runId),
+					eq(directorAtlasJobs.status, 'queued'),
+				),
+			)
+			.returning();
+		if (!row) return null;
+		await tx.insert(directorEvents).values({
+			runId: row.runId,
+			agent: row.agent,
+			kind: 'job_done',
+			tool: 'atlas.queue_variants',
+			payloadJson: {
+				jobRef: row.jobRef,
+				atlas: row.atlas,
+				regions: row.regions,
+				status: row.status,
+				via: done.via,
+				result: done.result,
+			},
+		});
+		return row;
+	});
 }

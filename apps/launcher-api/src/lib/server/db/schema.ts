@@ -1,4 +1,5 @@
 import {
+	bigserial,
 	boolean,
 	check,
 	doublePrecision,
@@ -9,6 +10,7 @@ import {
 	primaryKey,
 	text,
 	timestamp,
+	uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import type { Role } from '$lib/roles';
@@ -432,33 +434,193 @@ export const directorSpend = pgTable(
 );
 
 /**
- * Invisible Director run — a STUB holding only what the adapter gate needs (ADR-0002): which
- * project the run works on, the template it copies, and whose identity its writes carry. The full
- * run record of ADR-0003 (status, step, preset, checkpoints, lease, budget) arrives with the worker
- * in PLAN 3.3, which extends this table rather than replacing it. Nothing in the launcher inserts
- * a row yet.
+ * Invisible Director run (ADR-0003). The launcher inserts it as a `draft` and from then on only
+ * appends `director_events`; the worker is the single writer of `status`, `step` and `waiting_on`,
+ * through the pure state machine in `services/director-worker/src/runState.ts` (whose fixture holds
+ * the lists below to its own). A worker drives a run only while it holds the lease: it claims one with
+ * `FOR UPDATE SKIP LOCKED`, and every write it makes is conditional on `lease_holder` still being it
+ * and `lease_until` still in the future.
  */
-export const directorRuns = pgTable('director_runs', {
-	id: text('id').primaryKey(),
-	/** The project the run creates and then works on. It need not exist until
-	 *  `gamemaker.create_from_template` creates it. */
-	projectKey: text('project_key').notNull(),
-	/** The client the project is created under; null = unassigned. */
-	clientKey: text('client_key'),
-	templateProjectKey: text('template_project_key').notNull(),
-	ownerUserId: text('owner_user_id')
-		.notNull()
-		.references(() => users.id, { onDelete: 'cascade' }),
-	/** Set when `gamemaker.create_from_template` starts copying: from then on the run's project key
-	 *  is this run's, so a retry after a crash finishes the copy instead of refusing it. */
-	projectCreateStartedAt: timestamp('project_create_started_at', { withTimezone: true }),
-	/** ETag of the template's `config/config.json` when the project was copied from it, and of the
-	 *  copy's own right after — the math lock QA checks (Q3). Null until the copy. */
-	templateConfigEtag: text('template_config_etag'),
-	projectConfigEtag: text('project_config_etag'),
-	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const directorRuns = pgTable(
+	'director_runs',
+	{
+		id: text('id').primaryKey(),
+		/** The project the run creates and then works on. It need not exist until
+		 *  `gamemaker.create_from_template` creates it. */
+		projectKey: text('project_key').notNull(),
+		/** The client the project is created under; null = unassigned. */
+		clientKey: text('client_key'),
+		templateProjectKey: text('template_project_key').notNull(),
+		ownerUserId: text('owner_user_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		/** The art agents' settings (SPEC §1.1 "Preset"): blueprint, resolutions, variants, GPU. */
+		presetJson: jsonb('preset_json').notNull().default({}),
+		/** Mockups (with screen tags), fidelity, notes and the recorded ownership check. */
+		startingPointJson: jsonb('starting_point_json').notNull().default({}),
+		/** `{ breakdown, regionBatch }`; `before_publish` is not stored because it cannot be off. */
+		checkpointsJson: jsonb('checkpoints_json').notNull().default({}),
+		status: text('status')
+			.$type<
+				| 'draft'
+				| 'running'
+				| 'waiting'
+				| 'paused'
+				| 'stopping'
+				| 'stopped'
+				| 'failed'
+				| 'handed_off'
+			>()
+			.notNull()
+			.default('draft'),
+		step: text('step')
+			.$type<'breakdown' | 'style_pack' | 'regions' | 'build' | 'handoff'>()
+			.notNull()
+			.default('breakdown'),
+		/** The open checkpoint while `waiting`; null otherwise. */
+		waitingOn: text('waiting_on').$type<'breakdown' | 'region_batch' | 'before_publish'>(),
+		/** Null = no cap. The worker pauses the run before the call that would cross it (ADR-0006). */
+		budgetCapUsd: doublePrecision('budget_cap_usd'),
+		/** The worker driving the run, and until when. Both null = nobody. */
+		leaseHolder: text('lease_holder'),
+		leaseUntil: timestamp('lease_until', { withTimezone: true }),
+		/** Set when `gamemaker.create_from_template` starts copying: from then on the run's project
+		 *  key is this run's, so a retry after a crash finishes the copy instead of refusing it. */
+		projectCreateStartedAt: timestamp('project_create_started_at', { withTimezone: true }),
+		/** ETag of the template's `config/config.json` when the project was copied from it, and of
+		 *  the copy's own right after — the math lock QA checks (Q3). Null until the copy. */
+		templateConfigEtag: text('template_config_etag'),
+		projectConfigEtag: text('project_config_etag'),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(table) => [
+		index('director_runs_status_idx').on(table.status),
+		check(
+			'director_runs_status_check',
+			sql`${table.status} in ('draft', 'running', 'waiting', 'paused', 'stopping', 'stopped', 'failed', 'handed_off')`,
+		),
+		check(
+			'director_runs_step_check',
+			sql`${table.step} in ('breakdown', 'style_pack', 'regions', 'build', 'handoff')`,
+		),
+		check(
+			'director_runs_waiting_on_check',
+			sql`(${table.status} = 'waiting') = (${table.waitingOn} is not null) and (${table.waitingOn} is null or ${table.waitingOn} in ('breakdown', 'region_batch', 'before_publish'))`,
+		),
+		check(
+			'director_runs_lease_check',
+			sql`(${table.leaseHolder} is null) = (${table.leaseUntil} is null)`,
+		),
+	],
+);
+
+/**
+ * Everything that happens in a run, append-only (ADR-0003): the Activity feed, checkpoints, region
+ * statuses, GPU jobs, spend and errors, plus the owner's own rows — the launcher's form actions only
+ * ever INSERT here (`owner_message`, `checkpoint_resolved`, `owner_request` for start / pause /
+ * resume / stop) and NOTIFY `director_wake`; the worker reacts. `run_status` records each transition
+ * the worker makes. The live page streams this table after `Last-Event-ID` (= `id`).
+ *
+ * A row's content never changes. The one column written later is `handled_at`, which the worker
+ * stamps on a waking event once it has acted on it. That is per row, not an id high-water mark,
+ * because bigserial ids are taken before commit: a slow insert can commit with a LOWER id than one
+ * already handled, and a mark would skip it for good.
+ */
+export const directorEvents = pgTable(
+	'director_events',
+	{
+		id: bigserial('id', { mode: 'number' }).primaryKey(),
+		runId: text('run_id')
+			.notNull()
+			.references(() => directorRuns.id, { onDelete: 'cascade' }),
+		at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+		/** The runtime agent, `worker`, or `owner`. */
+		agent: text('agent').notNull(),
+		kind: text('kind')
+			.$type<
+				| 'activity'
+				| 'owner_message'
+				| 'owner_request'
+				| 'checkpoint_open'
+				| 'checkpoint_resolved'
+				| 'region_status'
+				| 'job_queued'
+				| 'job_done'
+				| 'spend'
+				| 'run_status'
+				| 'error'
+			>()
+			.notNull(),
+		/** The tool used (`<tool>.<op>`), for the Activity feed; null when none. */
+		tool: text('tool'),
+		payloadJson: jsonb('payload_json').notNull().default({}),
+		/** When the worker acted on this event; null until then. Only waking kinds are stamped. */
+		handledAt: timestamp('handled_at', { withTimezone: true }),
+	},
+	(table) => [
+		index('director_events_run_idx').on(table.runId, table.id),
+		index('director_events_unhandled_idx')
+			.on(table.runId)
+			.where(sql`${table.handledAt} is null`),
+		check(
+			'director_events_kind_check',
+			sql`${table.kind} in ('activity', 'owner_message', 'owner_request', 'checkpoint_open', 'checkpoint_resolved', 'region_status', 'job_queued', 'job_done', 'spend', 'run_status', 'error')`,
+		),
+	],
+);
+
+/**
+ * Each agent's conversation, append-only: one row per Messages API message, in order (`seq` per run
+ * and agent). An agent's next turn is built from these rows, so a restart replays nothing (ADR-0001).
+ */
+export const directorMessages = pgTable(
+	'director_messages',
+	{
+		id: bigserial('id', { mode: 'number' }).primaryKey(),
+		runId: text('run_id')
+			.notNull()
+			.references(() => directorRuns.id, { onDelete: 'cascade' }),
+		agent: text('agent').notNull(),
+		seq: integer('seq').notNull(),
+		role: text('role').$type<'user' | 'assistant'>().notNull(),
+		/** The message's `content` exactly as sent or received, thinking blocks included. */
+		contentJson: jsonb('content_json').notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(table) => [
+		uniqueIndex('director_messages_run_agent_seq_idx').on(table.runId, table.agent, table.seq),
+		check('director_messages_role_check', sql`${table.role} in ('user', 'assistant')`),
+	],
+);
+
+/** One row per template region a run works on: its review status and the art director's pick. */
+export const directorRegions = pgTable(
+	'director_regions',
+	{
+		runId: text('run_id')
+			.notNull()
+			.references(() => directorRuns.id, { onDelete: 'cascade' }),
+		region: text('region').notNull(),
+		/** The gallery group: Symbols, Coins & jackpots, Backgrounds, … */
+		regionGroup: text('region_group').notNull(),
+		status: text('status')
+			.$type<'queued' | 'drafting' | 'to_review' | 'approved' | 'rejected'>()
+			.notNull()
+			.default('queued'),
+		variantsJson: jsonb('variants_json').notNull().default([]),
+		artDirectorPickJson: jsonb('art_director_pick_json'),
+		ownerNote: text('owner_note'),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.runId, table.region] }),
+		check(
+			'director_regions_status_check',
+			sql`${table.status} in ('queued', 'drafting', 'to_review', 'approved', 'rejected')`,
+		),
+	],
+);
 
 /**
  * Director adapter idempotency (ADR-0002): one row per WRITE op, keyed by the worker's
@@ -495,8 +657,8 @@ export const directorOps = pgTable(
  * Atlas Maker still renders a Director run queued (`atlas.queue_variants`), keyed by atlas-tool's
  * `jobRef`. A row is `queued` when the render starts and moves to its terminal status exactly once,
  * from the signed completion callback or the launcher's `/progress` fallback, whichever lands
- * first: that one transition is the run's `job_done` event. Stands in for a `director_events` row
- * until the run's event table exists (PLAN 3.3).
+ * first: that one transition writes the run's `job_done` row to `director_events`, which wakes the
+ * worker.
  */
 export const directorAtlasJobs = pgTable(
 	'director_atlas_jobs',
@@ -547,5 +709,8 @@ export type DocLease = typeof docLeases.$inferSelect;
 export type CostMonth = typeof costMonths.$inferSelect;
 export type DirectorSpend = typeof directorSpend.$inferSelect;
 export type DirectorRun = typeof directorRuns.$inferSelect;
+export type DirectorEvent = typeof directorEvents.$inferSelect;
+export type DirectorMessage = typeof directorMessages.$inferSelect;
+export type DirectorRegion = typeof directorRegions.$inferSelect;
 export type DirectorOp = typeof directorOps.$inferSelect;
 export type DirectorAtlasJob = typeof directorAtlasJobs.$inferSelect;

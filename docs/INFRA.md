@@ -22,6 +22,9 @@
  ├─ games.invisiblewall.org ─► INVISIBLE TEST SERVER (Node, services/test-server)
  │                            serves published games + the shared online runtime, mock RGS
  │
+ ├─ (no public domain) ──────► DIRECTOR WORKER (Node, services/director-worker) ──► the launcher's
+ │                            Postgres; drives Invisible Director runs (Anthropic API from PLAN 3.4)
+ │
  └─ R2 bucket invisibleassets — the shared system of record every service above reads/writes
     R2 bucket invisible-backups — nightly encrypted backups (GitHub Actions, see "Backups")
 
@@ -40,6 +43,7 @@ notes call it `Invisible launcher`.
 | **atlas-tool**                  | `atlas-tool-production.up.railway.app`                                     | Python (http.server)             | **repo root**, Dockerfile Path `services/atlas-tool/Dockerfile`    |
 | **sheet-tool**                  | `sheet-tool-production.up.railway.app`                                     | Python (http.server)             | **repo root**, Dockerfile Path `services/sheet-tool/Dockerfile`    |
 | **Invisible-test-Server**       | `games.invisiblewall.org`                                                  | Node (`server.mjs`)              | **repo root**, Dockerfile Path `services/test-server/Dockerfile`   |
+| **director-worker**             | none (private) — **the owner creates it**, see "Invisible Director worker" | Node 22 (`src/main.ts`)          | **repo root**, Dockerfile Path `services/director-worker/Dockerfile` |
 | **Postgres**                    | internal (`postgres.railway.internal`)                                     | Postgres                         | —                                                                  |
 
 All deploy from GitHub `Invisible-Wall-SL/Invisible-Engine`, branch `main`, **auto-deploy on push**.
@@ -75,6 +79,7 @@ GitHub Releases during install. Two consequences for a deploy:
 | **atlas-tool**            | `/services/atlas-tool/**`, `/services/_shared/**`           |
 | **sheet-tool**            | `/services/sheet-tool/**`, `/services/_shared/**`           |
 | **Invisible-test-Server** | `/services/test-server/**`, `/scripts/mock-rgs-server*.mjs` |
+| **director-worker**       | `/services/director-worker/**`                              |
 
 Each list is exactly what that service's Dockerfile `COPY`s, so **a new build input needs a new watch path** or the service will quietly keep deploying the old code. The **launcher** deliberately has none: it builds from the whole pnpm workspace (`apps/`, `packages/`, the lockfile, turbo config), and a partial list there would strand a real change.
 
@@ -156,6 +161,40 @@ The launcher now applies pending Drizzle migrations **itself**, at server startu
 > **SELF-HEALING GUARD (built 2026-06-13, `migrate.ts` `baselineIfPushProvisioned`):** `runMigrations()` now does this baseline AUTOMATICALLY at boot — if `__drizzle_migrations` is empty BUT a core table (`public.users`) already exists (the `db:push` signature), it records one baseline row at the latest journal timestamp before calling `migrate()`, so it never replays from `0000`. A truly empty DB (no app tables) is left alone → migrates from `0000` as normal; a migrate-managed DB (populated journal) is untouched. So a NEW `db:push`-provisioned Postgres (e.g. a fresh environment) no longer needs the manual baseline — but running the first `drizzle-kit migrate` against a truly empty DB is still the cleanest provisioning path.
 
 > ⚠️ **Railway gotcha (cost us hours):** adding an env var only **stages** it; you must click the **"Apply changes / Deploy"** banner. A plain "Redeploy" does NOT apply staged vars. When a var "isn't working", verify what the _runtime_ actually sees rather than re-checking the dashboard. For launcher tool URLs we now keep a **code default** (`env.ts`) so it works regardless.
+
+## Invisible Director worker (2026-10-04, PLAN 3.1)
+
+`services/director-worker` drives Invisible Director runs (ADR-0001, ADR-0003). It loads the runtime
+agent definitions (`agents/*.md`, validated against `pricing.json` and the tool catalogue
+`src/tools.ts`), claims runs from `director_runs` with a lease (`SELECT … FOR UPDATE SKIP LOCKED`),
+and wakes on Postgres `LISTEN director_wake` plus a 60 s sweep. As of PLAN 3.3 it only logs what it
+would act on; the turn loop that calls the Anthropic API is PLAN 3.4.
+
+- **Database:** the launcher's Postgres. The worker owns no migrations: its tables are in the
+  launcher schema, and the **launcher applies them at boot**. So on a push that adds a Director
+  migration the worker can come up first and see the old schema. Its sweep fails, `/healthz` is
+  503, and with the healthcheck set Railway keeps the previous worker. Redeploy the worker once the
+  launcher is up if it stays stuck.
+- **Image:** `node:22-slim` with the service folder only, `npm install --omit=dev` of its one pinned
+  runtime dependency (`postgres`; the service has no workspace deps), and the TypeScript run
+  directly with `--experimental-strip-types`. Locally: `pnpm --filter director-worker start`;
+  `pnpm --filter director-worker build` is the typecheck.
+- **Replicas:** safe to scale. The lease keeps one driver per run, and
+  `pnpm --filter director-worker prove:lease` proves it against a scratch database.
+
+**Owner set-up (once):** Railway → the project → **+ New → GitHub Repo** → this repo. Then, on the
+new service:
+
+1. **Name** `director-worker`. **Settings → Source:** Root Directory = repo root (empty), branch
+   `main`. **Build:** Builder = Dockerfile, Dockerfile Path = `services/director-worker/Dockerfile`.
+   **Watch Paths:** `/services/director-worker/**`.
+2. **Networking:** no public domain. Nothing calls the worker; it only calls out.
+3. **Deploy → Healthcheck Path** `/healthz`, timeout 120 s.
+4. **Variables:** `DATABASE_URL` = `${{Postgres.DATABASE_URL}}`; `DIRECTOR_SERVICE_TOKEN` = the
+   launcher's value (or make it a Shared Variable both reference); `ANTHROPIC_API_KEY` = the agents'
+   key. Then **Apply changes / Deploy**.
+5. **Verify:** the deploy log shows `"msg":"agents loaded"` with seven agents and `"msg":"sweep"`,
+   and the service's commit status reads `Success -`.
 
 ## ComfyUI tunnel (optional — a person's own GPU)
 
@@ -409,8 +448,8 @@ code default, so the dashboard need not set it):
 - **Director adapters:** `DIRECTOR_SERVICE_TOKEN` (secret, no default) — the bearer token the
   Invisible Director worker sends to `POST /api/director/adapter/<tool>/<op>`
   (`docs/director/DECISIONS/0002-tool-adapters.md`). Every call also names a run and an agent, and
-  acts as that run's owner, within the owner's project access. Held by the launcher and, once it
-  exists, the `director-worker` Railway service. Unset → every adapter call answers 503.
+  acts as that run's owner, within the owner's project access. Held by the launcher and the
+  `director-worker` service (the same value on both). Unset → every adapter call answers 503.
   The Atlas Maker ops (`atlas.*`, `comfyui.job_status`) call atlas-tool with an `api` launch token
   (`ATLAS_TOOL_SIGNING_SECRET`, required — the legacy handoff cannot name the acting agent) and
   `ATLAS_CALLBACK_SECRET` (secret, no default; the SAME value as atlas-tool's) — it mints the
@@ -424,6 +463,14 @@ code default, so the dashboard need not set it):
   `PUBLIC_SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_SAMPLE_RATE`, `PUBLIC_SENTRY_ENVIRONMENT`,
   `PUBLIC_SENTRY_SAMPLE_RATE`; build-time source-map upload: `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`,
   `SENTRY_PROJECT` (+ `SENTRY_URL` for a personal token) — see "Readable stack traces".
+
+**Invisible Director worker** (`services/director-worker`, read in `src/env.ts`; ADR-0001):
+`DATABASE_URL` (reference the Postgres service's, `${{Postgres.DATABASE_URL}}` — the run tables live
+in the launcher's database and its migrations), `ANTHROPIC_API_KEY` (the agents' key; read but unused
+until the turn loop, PLAN 3.4, and never logged — the worker logs only `anthropicApiKeySet`),
+`DIRECTOR_SERVICE_TOKEN` (the launcher's value, for the adapter gate). `PORT` is injected by
+Railway. With `DATABASE_URL` unset the worker still boots but claims nothing and `/healthz` answers
+503 `db: unconfigured`. See "Invisible Director worker" below.
 
 **Invisible Test Server:** `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
 (read), `TEST_SERVER_SECRET` (gates `POST /refresh`, taken as the `x-test-server-secret` header or
@@ -699,6 +746,7 @@ node scripts/sentry-sourcemaps.mjs runtime apps/lines/build --dry-run
 | --- | --- | --- |
 | `https://app.invisiblewall.org/api/health` | 200 `{"ok":true,"db":"ok","migrations":{"boot":"ok","schema":"current"}}` — Postgres answered (3s budget) and `max(created_at)` in `drizzle.__drizzle_migrations` reaches the newest journal entry this build ships. | 503 otherwise, with `db: down/unconfigured` or `schema: behind/unknown`. Public, so it names states only — no error text. `boot` is reported, not gated on (a boot that failed only because the DB blinked must not stay red once the schema is current). |
 | `https://games.invisiblewall.org/healthz` | 200 `{"ok":true,…}`; **503 `"ok":false`** when it serves nothing because its boot read of R2 failed | the test server / online games host. `lastHydrate.succeeded: false` with `ok:true` = a later refresh failed and it still serves the previous games (publishes are not landing — see the log). |
+| director-worker `/healthz` (private; Railway's healthcheck) | 200 `{"ok":true,"agents":7,"db":"up","workerId":…}` — every agent definition loaded and validated, and the last Postgres round-trip (the `LISTEN director_wake` connect or the 60 s sweep) succeeded. | 503 with `db: down/unconfigured`. A definition that fails validation stops the boot outright, so a bad agent edit shows as a failed deploy, never as a worker running without it. |
 | `https://atlas-tool-production.up.railway.app/healthz`, `https://sheet-tool-production.up.railway.app/healthz` | 200 `{"ok":true,"service":…,"build":…,"commit":…}` | Gate-exempt (the only path that is); `commit` = the first 12 chars of `RAILWAY_GIT_COMMIT_SHA`, so it also answers "which commit is running?". |
 
 ### Uptime — Better Stack Uptime (free plan)
