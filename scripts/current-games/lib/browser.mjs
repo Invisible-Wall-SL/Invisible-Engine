@@ -14,6 +14,10 @@ export async function openPage(chromePath, profile) {
 	});
 	const pending = new Map();
 	const consoleLines = [];
+	// Every request the page makes to a host other than the harness's own (127.0.0.1): its
+	// outcome, in order. A third-party host answers each render on its own terms.
+	const external = [];
+	const requests = new Map();
 	const keep = (line) => {
 		consoleLines.push(line);
 		if (consoleLines.length > 50) consoleLines.shift();
@@ -45,6 +49,16 @@ export async function openPage(chromePath, profile) {
 			} else if (msg.method === 'Runtime.exceptionThrown') {
 				const d = msg.params.exceptionDetails;
 				keep(`[exception] ${d.exception?.description ?? d.text}`);
+			} else if (msg.method === 'Network.requestWillBeSent') {
+				const url = msg.params.request.url;
+				if (/^https?:/.test(url) && new URL(url).hostname !== '127.0.0.1')
+					requests.set(msg.params.requestId, url);
+			} else if (msg.method === 'Network.responseReceived' && requests.has(msg.params.requestId)) {
+				external.push(`${msg.params.response.status} ${requests.get(msg.params.requestId)}`);
+				requests.delete(msg.params.requestId);
+			} else if (msg.method === 'Network.loadingFailed' && requests.has(msg.params.requestId)) {
+				external.push(`${msg.params.errorText} ${requests.get(msg.params.requestId)}`);
+				requests.delete(msg.params.requestId);
 			} else if (msg.method === 'Runtime.consoleAPICalled' && msg.params.type === 'error') {
 				keep(`[error] ${msg.params.args.map((a) => a.value ?? a.description).join(' ')}`);
 			}
@@ -74,6 +88,7 @@ export async function openPage(chromePath, profile) {
 	const page = (method, params) => send(method, params, attached.sessionId);
 	await page('Runtime.enable');
 	await page('Page.enable');
+	await page('Network.enable');
 	await page('Emulation.setDeviceMetricsOverride', { ...VIEWPORT, mobile: false });
 	await page('Emulation.setFocusEmulationEnabled', { enabled: true });
 	await page('Emulation.setTimezoneOverride', { timezoneId: 'UTC' });
@@ -111,6 +126,7 @@ export async function openPage(chromePath, profile) {
 		key,
 		screenshot,
 		consoleLines,
+		external,
 		navigate: (url) => page('Page.navigate', { url }),
 		/** Resolves once the browser has exited, so its profile can be deleted. */
 		close: () =>

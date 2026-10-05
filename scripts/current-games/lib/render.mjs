@@ -20,6 +20,10 @@ const BOOT_STOPPED = '[runtime] boot stopped — ';
 // to answer and a refused boot to say so.
 const BOOT_PROBE_FRAMES = 10;
 
+// Diagnostics (`CURRENT_GAMES_LOG_IMAGES`): every web font face the page knows, at a capture.
+const FONTS =
+	'[...document.fonts].map((f) => `${f.family} ${f.weight} ${f.style} ${f.status}`).sort()';
+
 /** A forced beat with `{path}` placeholders filled from the game's contract (its own pot ids…). */
 const fillBeat = (beat, contract) =>
 	beat.replace(/\{([\w.-]+)\}/g, (_m, path) => {
@@ -120,6 +124,9 @@ export async function renderUnit({
 					frame: state.frame,
 					screens: state.screens,
 					winLevel: state.winLevel,
+					...(process.env.CURRENT_GAMES_LOG_IMAGES
+						? { fonts: await page.evaluate(FONTS).catch((e) => [e.message]) }
+						: {}),
 				};
 			},
 		});
@@ -164,6 +171,7 @@ export async function renderUnit({
 		frame: final?.frame,
 		renderer: final?.renderer,
 		console: consoleLines.slice(-10).map((l) => redactText(l)),
+		external: [...(page?.external ?? [])].map((l) => redactText(l)),
 		seconds: (Date.now() - started) / 1000,
 	};
 	writeFileSync(join(dir, 'result.json'), JSON.stringify(result, null, '\t'));
