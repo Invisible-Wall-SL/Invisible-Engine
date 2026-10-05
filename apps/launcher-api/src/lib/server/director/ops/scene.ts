@@ -1,6 +1,14 @@
-import type { LayoutDoc, LayoutNode, LayoutType, Point2D, Scene } from 'engine-layout';
+import type {
+	ComponentDef,
+	LayoutDoc,
+	LayoutNode,
+	LayoutType,
+	Point2D,
+	Scene,
+} from 'engine-layout';
+import { loadComponent } from '../../componentStorage';
 import { loadDocWithEtag, saveDoc } from '../../editorStorage';
-import { editorDocKey } from '../../projectPaths';
+import { editorDocBackupTarget, editorDocKey } from '../../projectPaths';
 import { projectGameType } from '../../projects';
 import { AdapterError, defineOp } from '../adapter';
 import { baseEtagProp, baseOf, preconditionOf, projectOf } from './docs';
@@ -13,15 +21,37 @@ import { baseEtagProp, baseOf, preconditionOf, projectOf } from './docs';
  * node on the bet / buy screens — is refused and listed, never changed (ADR-0002 "Locked items").
  */
 
-/** Words that tie a binding to the math contract: bet levels, bet modes, paylines, features. */
+/** Words that tie a binding to the math contract: stakes, bet levels and modes, paylines, features. */
 const MATH_WORD =
-	/(bet|payline|paytable|buy|bonus|feature|trigger|increase|decrease|level|mode|rtp|jackpot)/i;
+	/(bet|stake|payline|paytable|ways|coin|buy|bonus|feature|trigger|increase|decrease|level|mode|rtp|jackpot)/i;
 
-/** Screens that ARE math: the bet menu and the buy-feature menu and its confirm. */
+/** Screens that ARE math: the bet menu, the buy-feature menu and its confirm, a mode's screens. */
 const MATH_ROLES = new Set(['betMenu', 'buyFeature', 'buyConfirm', 'mode']);
 
-/** Why `node` itself is bound to the math, or `null`. Its children are checked by the caller. */
-function ownMathBinding(node: LayoutNode): string | null {
+/** How deep a component placed inside a component is followed. */
+const MAX_COMPONENT_DEPTH = 4;
+
+type DefLoader = (id: string) => Promise<ComponentDef | undefined>;
+
+/** One load per component id for the whole call. */
+function defLoader(projectKey: string): DefLoader {
+	const seen = new Map<string, Promise<ComponentDef | undefined>>();
+	return (id) => {
+		if (!seen.has(id)) seen.set(id, loadComponent(id, projectKey));
+		return seen.get(id)!;
+	};
+}
+
+/**
+ * Why `node` itself is bound to the math, or `null`: its own bindings, and for a placed component
+ * the def's defaults for the params it leaves unset and every node inside the def. Its children are
+ * checked by {@link mathBinding}.
+ */
+async function ownMathBinding(
+	node: LayoutNode,
+	defs: DefLoader,
+	depth = 0,
+): Promise<string | null> {
 	if (node.kind === 'reelGrid') return 'it is the reel grid';
 	if (node.kind === 'repeater') return `it repeats the game's "${node.source}" data`;
 	const params = node.kind === 'componentInstance' ? (node.params ?? {}) : {};
@@ -29,6 +59,7 @@ function ownMathBinding(node: LayoutNode): string | null {
 		['press action', node.pressAction],
 		['action', params.action],
 		['value source', params.source],
+		['component', node.kind === 'componentInstance' ? node.componentId : undefined],
 		['bound component', node.bind?.component],
 		['bound action', node.bind?.props?.action],
 		['bound source', node.bind?.props?.source],
@@ -41,16 +72,26 @@ function ownMathBinding(node: LayoutNode): string | null {
 	for (const [what, value] of named) {
 		if (typeof value === 'string' && MATH_WORD.test(value)) return `its ${what} is "${value}"`;
 	}
-	return null;
+	if (node.kind !== 'componentInstance' || depth >= MAX_COMPONENT_DEPTH) return null;
+	const def = await defs(node.componentId);
+	if (!def) return null;
+	for (const param of def.params ?? []) {
+		const unset = params[param.key] === undefined;
+		if (unset && typeof param.default === 'string' && MATH_WORD.test(param.default)) {
+			return `its component's ${param.key} defaults to "${param.default}"`;
+		}
+	}
+	const inner = await mathBinding(def.root, defs, depth + 1);
+	return inner ? `its component "${node.componentId}" holds a node where ${inner}` : null;
 }
 
 /** Why `node` — itself, or anything under it that moves with it — is bound to the math. */
-function mathBinding(node: LayoutNode): string | null {
-	const own = ownMathBinding(node);
+async function mathBinding(node: LayoutNode, defs: DefLoader, depth = 0): Promise<string | null> {
+	const own = await ownMathBinding(node, defs, depth);
 	if (own) return own;
 	if (node.kind !== 'container') return null;
 	for (const child of node.children) {
-		const why = mathBinding(child);
+		const why = await mathBinding(child, defs, depth);
 		if (why) return `it contains "${child.id}", and ${why}`;
 	}
 	return null;
@@ -62,11 +103,38 @@ function sceneMathBinding(scene: Scene): string | null {
 		: null;
 }
 
-function findNode(nodes: LayoutNode[], id: string): LayoutNode | null {
+/**
+ * Why a change to `node` (reached through `ancestors`) is refused before looking at the change: the
+ * screen, the node or anything under it bound to the math, a parent bound to the math, or the
+ * editor's own lock.
+ */
+async function lockOf(
+	scene: Scene,
+	ancestors: LayoutNode[],
+	node: LayoutNode,
+	defs: DefLoader,
+): Promise<string | null> {
+	const onScreen = sceneMathBinding(scene);
+	if (onScreen) return `bound to the math: ${onScreen}`;
+	for (const parent of ancestors) {
+		const why = await ownMathBinding(parent, defs);
+		if (why) return `bound to the math: its parent "${parent.id}" is, as ${why}`;
+	}
+	const own = await mathBinding(node, defs);
+	if (own) return `bound to the math: ${own}`;
+	return node.locked ? 'it is locked in the Scene Editor' : null;
+}
+
+/** `id`'s node and the containers above it, outermost first. */
+function findNode(
+	nodes: LayoutNode[],
+	id: string,
+	ancestors: LayoutNode[] = [],
+): { node: LayoutNode; ancestors: LayoutNode[] } | null {
 	for (const node of nodes) {
-		if (node.id === id) return node;
+		if (node.id === id) return { node, ancestors };
 		if (node.kind === 'container') {
-			const hit = findNode(node.children, id);
+			const hit = findNode(node.children, id, [...ancestors, node]);
 			if (hit) return hit;
 		}
 	}
@@ -84,11 +152,17 @@ interface NodeSummary {
 	region: string | null;
 	skin: string | null;
 	clipId: string | null;
-	mathBound: string | null;
+	/** Why scene.update_nodes refuses this node, or `null` when it may be moved and re-skinned. */
+	locked: string | null;
 	children?: NodeSummary[];
 }
 
-function summarize(node: LayoutNode, sceneLock: string | null): NodeSummary {
+async function summarize(
+	scene: Scene,
+	ancestors: LayoutNode[],
+	node: LayoutNode,
+	defs: DefLoader,
+): Promise<NodeSummary> {
 	const out: NodeSummary = {
 		id: node.id,
 		kind: node.kind,
@@ -100,9 +174,14 @@ function summarize(node: LayoutNode, sceneLock: string | null): NodeSummary {
 		region: node.kind === 'sprite' ? (node.region ?? null) : null,
 		skin: node.kind === 'spine' ? (node.skin ?? null) : null,
 		clipId: node.kind === 'flipbook' ? node.clipId : null,
-		mathBound: sceneLock ?? mathBinding(node),
+		locked: await lockOf(scene, ancestors, node, defs),
 	};
-	if (node.kind === 'container') out.children = node.children.map((c) => summarize(c, sceneLock));
+	if (node.kind === 'container') {
+		out.children = [];
+		for (const child of node.children) {
+			out.children.push(await summarize(scene, [...ancestors, node], child, defs));
+		}
+	}
 	return out;
 }
 
@@ -130,7 +209,7 @@ export const getLayout = defineOp<
 	tool: 'scene',
 	name: 'get_layout',
 	description:
-		"The project's Scene Editor screens and their node trees: position, scale, art, and `mathBound` — why a node is locked to the math (scene.update_nodes refuses those). Plus the baseEtag to hand back to scene.update_nodes.",
+		"The project's Scene Editor screens and their node trees: position, scale, art, and `locked` — why scene.update_nodes refuses a node (bound to the math, or locked in the editor). Plus the baseEtag to hand back to scene.update_nodes.",
 	inputSchema: {
 		type: 'object',
 		properties: { screen: { type: 'string', description: 'Only this screen id.', maxLength: 120 } },
@@ -146,15 +225,17 @@ export const getLayout = defineOp<
 		if (screen && scenes.length === 0) {
 			throw new AdapterError(404, 'unknown_screen', `No screen "${screen}" in this project.`);
 		}
+		const defs = defLoader(projectKey);
+		const screens = [];
+		for (const s of scenes) {
+			const nodes = [];
+			for (const n of s.nodes) nodes.push(await summarize(s, [], n, defs));
+			screens.push({ id: s.id, name: s.name, role: s.role ?? null, nodes });
+		}
 		return {
 			layouts: Object.keys(doc.mainSizesMap),
 			mainSizes: doc.mainSizesMap,
-			screens: scenes.map((s) => ({
-				id: s.id,
-				name: s.name,
-				role: s.role ?? null,
-				nodes: s.nodes.map((n) => summarize(n, sceneMathBinding(s))),
-			})),
+			screens,
 			baseEtag: baseOf(etag),
 		};
 	},
@@ -260,10 +341,17 @@ export const updateNodes = defineOp<
 	agents: ['builder'],
 	scope: 'project',
 	write: true,
-	writes: (_input, scope) => [editorDocKey(scope.clientKey, scope.projectKey)],
+	writes: (_input, scope) => [
+		editorDocKey(scope.clientKey, scope.projectKey),
+		editorDocBackupTarget(scope.clientKey, scope.projectKey).prefix,
+	],
 	handler: async (ctx, { changes, baseEtag }) => {
 		const { clientKey, projectKey } = projectOf(ctx);
 		const { doc, etag } = await loadLayout(clientKey, projectKey);
+		if (etag === null) {
+			throw new AdapterError(404, 'no_layout', 'The project has no Scene Editor layout to change.');
+		}
+		const defs = defLoader(projectKey);
 		const layouts = Object.keys(doc.mainSizesMap);
 		const applied: { screen: string; node: string }[] = [];
 		const refused: { screen: string; node: string; reason: string }[] = [];
@@ -272,20 +360,21 @@ export const updateNodes = defineOp<
 			if (!scene) {
 				throw new AdapterError(404, 'unknown_screen', `No screen "${change.screen}".`);
 			}
-			const node = findNode(scene.nodes, change.node);
-			if (!node) {
+			const found = findNode(scene.nodes, change.node);
+			if (!found) {
 				throw new AdapterError(
 					404,
 					'unknown_node',
 					`No node "${change.node}" on "${change.screen}". This op cannot add nodes.`,
 				);
 			}
-			const locked = sceneMathBinding(scene) ?? mathBinding(node);
-			const reason = locked ? `bound to the math: ${locked}` : applyChange(node, change, layouts);
+			const reason =
+				(await lockOf(scene, found.ancestors, found.node, defs)) ??
+				applyChange(found.node, change, layouts);
 			if (reason) refused.push({ screen: change.screen, node: change.node, reason });
 			else applied.push({ screen: change.screen, node: change.node });
 		}
-		if (applied.length === 0) return { applied, refused, baseEtag: baseOf(etag) };
+		if (applied.length === 0) return { applied, refused, baseEtag };
 		const saved = await saveDoc(
 			clientKey,
 			projectKey,

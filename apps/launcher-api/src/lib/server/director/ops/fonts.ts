@@ -1,11 +1,14 @@
 import { createHash } from 'node:crypto';
 import { defaultGradientStops, type GradientStop } from '../../../gradient';
+import { etagDiffers } from '../../docBackups';
 import { loadRenderableFonts } from '../../fonts';
 import { projectPrefix } from '../../projectPaths';
 import {
+	ConflictError,
 	copyObject,
 	getObjectBytes,
 	getObjectTextWithEtag,
+	headObject,
 	listAllKeys,
 	precondition,
 	putObjectText,
@@ -218,7 +221,16 @@ export const bakeFromTtf = defineOp<
 		// earlier request still names.
 		const sourceFile = `_src-${hash}.${ext}`;
 		const folderKey = `${requestsRoot(scope)}${input.folder}/`;
-		await copyObject(input.source, `${folderKey}${sourceFile}`, 'font/' + ext);
+		const key = `${folderKey}request.json`;
+		// Settle the precondition before anything is written, so a conflict leaves nothing behind. A
+		// save racing in after this still loses at the PUT; it then leaves only an unreferenced copy.
+		const base = preconditionOf(input.baseEtag);
+		const head = await headObject(key);
+		const stale = base === null ? head !== null : !head?.etag || etagDiffers(head.etag, base);
+		if (stale) throw new ConflictError(key);
+		if (!(await copyObject(input.source, `${folderKey}${sourceFile}`, `font/${ext}`))) {
+			throw new AdapterError(404, 'unknown_source', `No font at ${input.source}.`);
+		}
 
 		const request: FontBakeRequest = {
 			version: 1,
@@ -252,12 +264,11 @@ export const bakeFromTtf = defineOp<
 				},
 			},
 		};
-		const key = `${folderKey}request.json`;
 		const etag = await putObjectText(
 			key,
 			JSON.stringify(stampSavedBy(request, ctx.savedBy), null, 2),
 			'application/json',
-			precondition(preconditionOf(input.baseEtag)),
+			precondition(base),
 		);
 		return {
 			folder: input.folder,

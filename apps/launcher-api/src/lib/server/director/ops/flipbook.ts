@@ -1,7 +1,6 @@
 import type { FlipbookClip } from 'engine-flipbook';
 import { listClips, loadClip, saveClip, type FlipbookClipRow } from '../../flipbookStorage';
 import { clipDocKey } from '../../projectPaths';
-import { headObject } from '../../r2';
 import { AdapterError, defineOp } from '../adapter';
 import { NEW_DOC, baseEtagProp, baseOf, preconditionOf, projectOf } from './docs';
 
@@ -16,12 +15,12 @@ const CLIP_ID = '^[a-z0-9_]{1,60}$';
 
 export const listClipsOp = defineOp<
 	{ id?: string },
-	{ clips: (FlipbookClipRow & { baseEtag: string })[]; clip?: FlipbookClip }
+	{ clips: FlipbookClipRow[]; clip?: FlipbookClip; baseEtag?: string }
 >({
 	tool: 'flipbook',
 	name: 'list_clips',
 	description:
-		"The project's Flipbook clips (id, name, frame count, sheet, playback) with each one's baseEtag. Name an `id` to also get that clip's full frame list.",
+		"The project's Flipbook clips (id, name, frame count, sheet, playback). Name an `id` to get that clip in full with the baseEtag to hand back to flipbook.save_clip.",
 	inputSchema: {
 		type: 'object',
 		properties: { id: { type: 'string', pattern: CLIP_ID } },
@@ -32,17 +31,11 @@ export const listClipsOp = defineOp<
 	write: false,
 	handler: async (ctx, { id }) => {
 		const { clientKey, projectKey } = projectOf(ctx);
-		const rows = await listClips(clientKey, projectKey);
-		const clips = await Promise.all(
-			rows.map(async (row) => {
-				const head = await headObject(clipDocKey(clientKey, projectKey, row.id));
-				return { ...row, baseEtag: baseOf(head?.etag) };
-			}),
-		);
+		const clips = await listClips(clientKey, projectKey);
 		if (!id) return { clips };
-		const { clip } = await loadClip(clientKey, projectKey, id);
+		const { clip, etag } = await loadClip(clientKey, projectKey, id);
 		if (!clip) throw new AdapterError(404, 'unknown_clip', `No clip "${id}" in this project.`);
-		return { clips, clip };
+		return { clips, clip, baseEtag: baseOf(etag) };
 	},
 });
 
@@ -62,7 +55,7 @@ export const saveClipOp = defineOp<
 	tool: 'flipbook',
 	name: 'save_clip',
 	description:
-		'Save a whole clip: its sheet (`assetKey`), its ordered frames (repeat a frame to hold it), fps, loop and direction. A new clip takes baseEtag "new"; an existing one the baseEtag flipbook.list_clips returned. Fields not given keep the stored clip\'s values.',
+		'Save a whole clip: its sheet (`assetKey`), its ordered frames (repeat a frame to hold it), fps, loop and direction. A new clip takes baseEtag "new"; an existing one the baseEtag flipbook.list_clips returned for its `id`. Fields not given keep the stored clip\'s values.',
 	inputSchema: {
 		type: 'object',
 		properties: {

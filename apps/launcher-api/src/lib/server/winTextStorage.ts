@@ -255,18 +255,19 @@ export function normalizeWinTextDoc(
  * they need OPPOSITE preconditions. Collapsing them (returning "no doc" for both) would give a
  * corrupt `win-text.json` an `ifNoneMatch: '*'` precondition forever ⇒ 412 forever ⇒ the project
  * becomes permanently unsaveable with no way out from the UI. Carrying the corrupt object's ETag
- * lets it be deliberately overwritten.
+ * lets it be deliberately overwritten. `corrupt` flags that fallback, so a merge that would
+ * write it back can refuse instead.
  */
 export async function loadWinTextDocWithEtag(
 	clientKey: string,
 	projectKey: string,
-): Promise<{ doc: WinTextDoc; etag: string | null; existed: boolean }> {
+): Promise<{ doc: WinTextDoc; etag: string | null; existed: boolean; corrupt?: true }> {
 	const obj = await getObjectTextWithEtag(winTextDocKey(clientKey, projectKey));
 	if (!obj) return { doc: emptyWinTextDoc(), etag: null, existed: false };
 	try {
 		return { doc: normalizeWinTextDoc(JSON.parse(obj.text)), etag: obj.etag, existed: true };
 	} catch {
-		return { doc: emptyWinTextDoc(), etag: obj.etag, existed: true };
+		return { doc: emptyWinTextDoc(), etag: obj.etag, existed: true, corrupt: true };
 	}
 }
 

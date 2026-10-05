@@ -1827,12 +1827,12 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 	const seedDoc = (key: string, doc: unknown) =>
 		R2.set(key, { body: JSON.stringify(doc), etag: etag() });
 	const stored = (key: string) => JSON.parse(R2.get(key)!.body);
-	const stampOf = (key: string, agent: string) => {
+	const stampOf = (key: string, agent: string, owner: string | null = 'owner') => {
 		const s = stored(key).saved_by ?? {};
 		return check(
 			`${key.slice(P.length + 1)}: stamped saved_by tool director, ${agent}, the run and its owner`,
-			[s.tool, s.agent, s.runId, s.uid],
-			['director', agent, 'rt', 'owner'],
+			[s.tool, s.agent, s.runId, s.uid ?? null],
+			['director', agent, 'rt', owner],
 		);
 	};
 	/** Read, a person saves, then a write on the read's baseEtag: a conflict that changes nothing. */
@@ -1962,15 +1962,37 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 						],
 					},
 					{ id: 'bg', kind: 'spine', x: 0, y: 0, assetKey: 'bg_rig' },
+					{
+						id: 'betWrap',
+						kind: 'container',
+						x: 0,
+						y: 0,
+						pressAction: 'betMenu',
+						children: [sprite('betArt')],
+					},
+					sprite('pinned', { locked: true }),
+					{ id: 'readout', kind: 'componentInstance', x: 0, y: 0, componentId: 'readout' },
 				],
 			},
 			{ id: 'buy', name: 'Buy', role: 'buyFeature', nodes: [sprite('card')] },
 		],
 	});
+	R2.set(paths.projectComponentKey('tools', 'readout'), {
+		body: JSON.stringify({
+			id: 'readout',
+			name: 'Readout',
+			version: 1,
+			scope: 'project',
+			category: 'ui',
+			root: { id: 'root', kind: 'container', x: 0, y: 0, children: [] },
+			params: [{ key: 'source', kind: 'string', default: 'bet' }],
+		}),
+		etag: etag(),
+	});
 	const layout = await tool('scene.get_layout', 'builder', {});
 	const bound = Object.fromEntries(
-		(layout.body.screens as { nodes: { id: string; mathBound: string | null }[] }[]).flatMap((s) =>
-			s.nodes.map((n) => [n.id, n.mathBound !== null]),
+		(layout.body.screens as { nodes: { id: string; locked: string | null }[] }[]).flatMap((s) =>
+			s.nodes.map((n) => [n.id, n.locked !== null]),
 		),
 	);
 	check('scene.get_layout marks the nodes bound to the math', bound, {
@@ -1980,6 +2002,9 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		spinBtn: false,
 		group: true,
 		bg: false,
+		betWrap: true,
+		pinned: true,
+		readout: true,
 		card: true,
 	});
 	const changes = [
@@ -1993,6 +2018,9 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		{ screen: 'base', node: 'bg', skin: 'gold' },
 		{ screen: 'base', node: 'logo', clipId: 'spark' },
 		{ screen: 'base', node: 'spinBtn', y: 3 },
+		{ screen: 'base', node: 'betArt', assetKey: 'a::chip' },
+		{ screen: 'base', node: 'pinned', x: 1 },
+		{ screen: 'base', node: 'readout', x: 1 },
 	];
 	const update = (baseEtag: string, list: unknown[] = changes) =>
 		tool('scene.update_nodes', 'builder', { changes: list, baseEtag }, true);
@@ -2000,9 +2028,9 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 	const updated = await update(R2.get(SCENE)!.etag);
 	check('scene.update_nodes lands', updated.status, 200);
 	check(
-		'...refusing and listing every node bound to the math, and a field the node has not',
+		'...refusing and listing every node bound to the math (or under a parent that is, or bound by its component), a locked node, and a field the node has not',
 		(updated.body.refused as { node: string }[]).map((r) => r.node),
-		['grid', 'plus', 'group', 'betLabel', 'card', 'logo'],
+		['grid', 'plus', 'group', 'betLabel', 'card', 'logo', 'betArt', 'pinned', 'readout'],
 	);
 	check(
 		'...and applying the rest',
@@ -2031,7 +2059,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		'...with the same screens and nodes as before',
 		scenes.map((s: { id: string; nodes: { id: string }[] }) => [s.id, s.nodes.map((n) => n.id)]),
 		[
-			['base', ['logo', 'grid', 'plus', 'spinBtn', 'group', 'bg']],
+			['base', ['logo', 'grid', 'plus', 'spinBtn', 'group', 'bg', 'betWrap', 'pinned', 'readout']],
 			['buy', ['card']],
 		],
 	);
@@ -2045,12 +2073,19 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 	);
 	const noScreen = await update(R2.get(SCENE)!.etag, [{ screen: 'newScreen', node: 'logo', x: 1 }]);
 	check('...or a screen', [noScreen.status, noScreen.body.error], [404, 'unknown_screen']);
-	const allLocked = await update(R2.get(SCENE)!.etag, [{ screen: 'base', node: 'grid', x: 1 }]);
+	const allLocked = await update('"held-by-the-agent"', [{ screen: 'base', node: 'grid', x: 1 }]);
 	check(
-		'a call whose every change is refused writes nothing',
-		[allLocked.status, R2.get(SCENE)],
-		[200, sceneBefore],
+		'a call whose every change is refused writes nothing, and hands back the baseEtag it was given',
+		[allLocked.status, R2.get(SCENE), allLocked.body.baseEtag],
+		[200, sceneBefore, '"held-by-the-agent"'],
 	);
+	R2.delete(SCENE);
+	check(
+		'scene.update_nodes on a project with no layout writes none',
+		[(await update('new', [{ screen: 'base', node: 'logo', x: 1 }])).body.error, R2.has(SCENE)],
+		['no_layout', false],
+	);
+	R2.set(SCENE, sceneBefore!);
 
 	// Win Text
 	const WT = paths.winTextDocKey(C, 'tools');
@@ -2107,21 +2142,32 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		],
 	});
 	const strings = await tool('localization.get_strings', 'builder', {});
-	check('localization.get_strings reads keys, origins and review state', strings.body.strings, [
-		{ key: 'title', source: 'Hello', origin: 'manual', translations: { es: { reviewed: true } } },
-		{
-			key: 'scene.spin',
-			source: 'Spin',
-			origin: 'editor',
-			translations: { es: { reviewed: true } },
-		},
-	]);
+	const shown = strings.body.strings as { key: string; origin: string }[];
+	check(
+		'localization.get_strings reads the stored rows, with their owners and review state',
+		shown.slice(0, 2),
+		[
+			{ key: 'title', source: 'Hello', origin: 'manual', translations: { es: { reviewed: true } } },
+			{
+				key: 'scene.spin',
+				source: 'Spin',
+				origin: 'editor',
+				translations: { es: { reviewed: true } },
+			},
+		],
+	);
+	check(
+		'...and the text other tools own, as the page shows it',
+		shown.find((e) => e.key === 'BET')?.origin,
+		'uiText',
+	);
 	const writeStrings = (baseEtag: string, list: unknown[]) =>
 		tool('localization.update_strings', 'builder', { strings: list, baseEtag }, true);
 	const sourceEdits = [
 		{ key: 'title', source: 'Hello there' },
 		{ key: 'bonus.intro', source: 'Bonus!' },
 		{ key: 'scene.spin', source: 'Go' },
+		{ key: 'BET', source: 'STAKE' },
 	];
 	await staleIsConflict(
 		'localization.update_strings',
@@ -2138,7 +2184,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			wrote.body.changed,
 			(wrote.body.refused as { key: string }[]).map((r) => r.key),
 		],
-		[200, ['bonus.intro'], ['title'], ['scene.spin']],
+		[200, ['bonus.intro'], ['title'], ['scene.spin', 'BET']],
 	);
 	const entry = (key: string) => stored(LOC).entries.find((e: { key: string }) => e.key === key);
 	check(
@@ -2160,6 +2206,11 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 	});
 	stampOf(LOC, 'builder');
 	check(
+		'...and never shadows a harvested key with a manual row the next page load takes back',
+		entry('BET'),
+		undefined,
+	);
+	check(
 		'localization.update_strings never takes a translation or a review',
 		[
 			(
@@ -2172,6 +2223,30 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		],
 		['invalid_input', 'invalid_input'],
 	);
+
+	for (const [label, key, op, input] of [
+		[
+			'wintext.update_doc',
+			WT,
+			'wintext.update_doc',
+			{ edits: [{ path: 'amountFormat', value: 'x' }] },
+		],
+		[
+			'localization.update_strings',
+			LOC,
+			'localization.update_strings',
+			{ strings: [{ key: 'k', source: 'x' }] },
+		],
+	] as const) {
+		R2.set(key, { body: '{ not json', etag: etag() });
+		const before = R2.get(key);
+		const answer = await tool(op, 'builder', { ...input, baseEtag: before!.etag }, true);
+		check(
+			`${label} refuses to write over an unreadable doc`,
+			[answer.body.error, R2.get(key)],
+			['unreadable_doc', before],
+		);
+	}
 
 	// Font Maker
 	const CATALOG = `${P}/fonts/fonts.json`;
@@ -2233,7 +2308,18 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		(baseEtag) => bake({ baseEtag }),
 		pendingEtag,
 	);
-	check('...and restaging it as new is a conflict too', (await bake({})).body.error, 'conflict');
+	R2.set(`${P}/uploads/brand2.ttf`, { body: '\u0000\u0001\u0000\u0000other-font', etag: etag() });
+	const filesBefore = keysUnder(`${P}/director/fonts/brand/`);
+	check(
+		'...and restaging it as new is a conflict too',
+		(await bake({ source: `${P}/uploads/brand2.ttf` })).body.error,
+		'conflict',
+	);
+	check(
+		'...that copies no source beside the request',
+		keysUnder(`${P}/director/fonts/brand/`),
+		filesBefore,
+	);
 	check(
 		'fonts.bake_from_ttf will not shadow a font that exists',
 		(await bake({ folder: 'gold' })).body.error,
@@ -2361,7 +2447,12 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		),
 		true,
 	);
-	stampOf(IRIG, 'animator');
+	stampOf(IRIG, 'animator', null);
+	check(
+		'...naming no owner in a file that ships in the game bundle',
+		stored(IRIG).saved_by.name,
+		undefined,
+	);
 	await staleIsConflict(
 		'rigger.rebind_attachments',
 		IRIG,
@@ -2377,6 +2468,23 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		).body.error,
 		'invalid_input',
 	);
+	for (const [dir, stem] of [
+		['hero', 'hero..v2'],
+		['hero/..', 'hero'],
+	]) {
+		check(
+			`rigger.rebind_attachments refuses the path ${dir}/${stem}`,
+			(
+				await tool(
+					'rigger.rebind_attachments',
+					'animator',
+					{ dir, stem, rebinds: [], baseEtag: 'new' },
+					true,
+				)
+			).body.error,
+			'invalid_input',
+		);
+	}
 	check(
 		'...and no animations',
 		(await rebind(R2.get(IRIG)!.etag, [], { animations: {} })).body.error,
@@ -2415,12 +2523,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			},
 			true,
 		);
-	await staleIsConflict(
-		'flipbook.save_clip',
-		CLIP,
-		saveClip,
-		String((clips.body.clips as { baseEtag: string }[])[0].baseEtag),
-	);
+	await staleIsConflict('flipbook.save_clip', CLIP, saveClip, String(clips.body.baseEtag));
 	check('flipbook.save_clip lands', (await saveClip(R2.get(CLIP)!.etag)).status, 200);
 	check(
 		"...with the new frames and fps, keeping the clip's name",

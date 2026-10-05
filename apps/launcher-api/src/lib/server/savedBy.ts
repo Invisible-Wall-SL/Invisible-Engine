@@ -8,8 +8,9 @@
  * write it describes.
  */
 export interface SavedByStamp {
-	uid: string;
-	name: string;
+	/** Who: left out of a doc that ships in a public game bundle. */
+	uid?: string;
+	name?: string;
 	tool: string;
 	at: string;
 	rev: string;

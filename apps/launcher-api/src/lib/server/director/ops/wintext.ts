@@ -115,7 +115,14 @@ export const updateDoc = defineOp<
 			throw new AdapterError(400, 'invalid_input', `No such template: ${unknown.join(', ')}.`);
 		}
 		const { clientKey, projectKey } = projectOf(ctx);
-		const { doc } = await loadWinTextDocWithEtag(clientKey, projectKey);
+		const { doc, corrupt } = await loadWinTextDocWithEtag(clientKey, projectKey);
+		if (corrupt) {
+			throw new AdapterError(
+				409,
+				'unreadable_doc',
+				"The project's win text doc is unreadable. A person must repair it in Invisible Win Text.",
+			);
+		}
 		let next = doc as unknown as Record<string, unknown>;
 		for (const { path, value } of edits) next = withTemplate(next, path, value);
 		const saved = await validated(() =>

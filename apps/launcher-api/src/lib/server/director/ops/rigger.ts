@@ -17,15 +17,16 @@ import { baseEtagProp, baseOf, preconditionOf, projectOf } from './docs';
  */
 
 const SEGMENT = '[A-Za-z0-9_-][A-Za-z0-9_. -]{0,119}';
-const DIR = `^(${SEGMENT}(/${SEGMENT}){0,7})?$`;
-const STEM = `^${SEGMENT}$`;
+// No `..` anywhere: `irigTarget` refuses one with a SvelteKit error, which is not an adapter answer.
+const DIR = `^(?!.*\\.\\.)(${SEGMENT}(/${SEGMENT}){0,7})?$`;
+const STEM = `^(?!.*\\.\\.)${SEGMENT}$`;
 const NAME = { type: 'string', minLength: 1, maxLength: 200 } as const;
 
 /** Attachment types drawn from an atlas region; Spine reads an absent type as `region`. */
 const REGION_TYPES = new Set(['region', 'mesh', 'linkedmesh']);
 const MAX_RIGS = 100;
 
-type Attachment = { type?: string; path?: string; [k: string]: unknown };
+type Attachment = { type?: string; path?: string; sequence?: unknown; [k: string]: unknown };
 interface Skin {
 	name: string;
 	attachments?: Record<string, Record<string, Attachment>>;
@@ -120,6 +121,7 @@ export const listRigs = defineOp<
 			attachments: ReturnType<typeof attachmentsOf>;
 			baseEtag: string;
 		}[];
+		truncated: boolean;
 	}
 >({
 	tool: 'rigger',
@@ -141,7 +143,12 @@ export const listRigs = defineOp<
 			if (!seen.has(`${dir}/${m[2]}`)) seen.set(`${dir}/${m[2]}`, { dir, stem: m[2] });
 		}
 		const rigs = [];
+		let truncated = false;
 		for (const { dir, stem } of seen.values()) {
+			if (rigs.length === MAX_RIGS) {
+				truncated = true;
+				break;
+			}
 			const loaded = await loadRig(prefix, dir, stem).catch((e: unknown) => {
 				if (e instanceof AdapterError) return null;
 				throw e;
@@ -158,9 +165,8 @@ export const listRigs = defineOp<
 				attachments: attachmentsOf(loaded.rig),
 				baseEtag: baseOf(loaded.irigEtag),
 			});
-			if (rigs.length === MAX_RIGS) break;
 		}
-		return { rigs };
+		return { rigs, truncated };
 	},
 });
 
@@ -249,9 +255,11 @@ export const rebindAttachments = defineOp<
 			const type = found.type ?? 'region';
 			const reason = !REGION_TYPES.has(type)
 				? `a ${type} attachment draws no region`
-				: !atlas.regions.has(rebind.region)
-					? `"${rebind.region}" is not a region of ${atlas.atlas}`
-					: null;
+				: found.sequence !== undefined
+					? 'a sequence attachment names a run of regions, not one'
+					: !atlas.regions.has(rebind.region)
+						? `"${rebind.region}" is not a region of ${atlas.atlas}`
+						: null;
 			if (reason) {
 				refused.push({ ...rebind, reason });
 				continue;
@@ -260,16 +268,17 @@ export const rebindAttachments = defineOp<
 			else found.path = rebind.region;
 			applied.push({ ...rebind, skin });
 		}
-		if (applied.length === 0) {
-			return { dir, stem, applied, refused, indexed: true, baseEtag: baseOf(loaded.irigEtag) };
-		}
+		if (applied.length === 0) return { dir, stem, applied, refused, indexed: true, baseEtag };
 		const target = irigTarget(
 			clientKey,
 			projectKey,
 			Buffer.from(dir, 'utf8').toString('base64url'),
 			stem,
 		);
-		const text = JSON.stringify(stampSavedBy(rig, ctx.savedBy));
+		// The `.irig` ships verbatim in game bundles (as the bundle's skeleton), so its stamp names the
+		// run and the agent but not the owner: the run leads back to them inside the launcher.
+		const { tool, agent, runId, at, rev } = ctx.savedBy;
+		const text = JSON.stringify(stampSavedBy(rig, { tool, agent, runId, at, rev }));
 		const res = await writeIrig(clientKey, projectKey, target, text, preconditionOf(baseEtag));
 		if (res.ok) {
 			return { dir, stem, applied, refused, indexed: true, baseEtag: baseOf(res.etag) };

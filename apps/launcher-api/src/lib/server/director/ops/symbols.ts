@@ -1,5 +1,5 @@
 import { SYMBOL_STATES } from 'engine-layout';
-import { symbolsDocKey } from '../../projectPaths';
+import { symbolsDocBackupTarget, symbolsDocKey } from '../../projectPaths';
 import {
 	loadSymbolsDocWithEtag,
 	saveSymbolsDoc,
@@ -124,7 +124,10 @@ export const setState = defineOp<
 	agents: ['animator'],
 	scope: 'project',
 	write: true,
-	writes: (_input, scope) => [symbolsDocKey(scope.clientKey, scope.projectKey)],
+	writes: (_input, scope) => [
+		symbolsDocKey(scope.clientKey, scope.projectKey),
+		symbolsDocBackupTarget(scope.clientKey, scope.projectKey).prefix,
+	],
 	handler: async (ctx, { symbol, state, binding, baseEtag }) => {
 		const { clientKey, projectKey } = projectOf(ctx);
 		const { doc } = await loadForWrite(ctx);

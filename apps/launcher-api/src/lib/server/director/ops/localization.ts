@@ -4,8 +4,10 @@ import {
 	type LocalizationDoc,
 	type LocalizationEntry,
 } from '../../localization';
+import { reconcileWithEditor } from '../../localizationHarvest';
+import { harvestProjectSections } from '../../localizationSections';
 import { localizationDocKey } from '../../projectPaths';
-import { AdapterError, defineOp } from '../adapter';
+import { AdapterError, defineOp, type AdapterContext } from '../adapter';
 import { baseEtagProp, baseOf, preconditionOf, projectOf } from './docs';
 
 /**
@@ -14,10 +16,29 @@ import { baseEtagProp, baseOf, preconditionOf, projectOf } from './docs';
  * marks a line reviewed — only reviewed lines ship, and reviewing is a person's job. A changed
  * source leaves its existing translations in place but unreviewed, since they translate the old
  * text. Rows another tool owns (scene text, win text, symbol names, …) are refused and listed:
- * their source is edited in that tool.
+ * their source is edited in that tool. Ownership is the page's own: the stored doc folded with the
+ * project's harvested text (`harvestProjectSections` + `reconcileWithEditor`), so a key the harvest
+ * produces is never shadowed by a manual row the next page load would take back.
  */
 
 const KEY = '^[A-Za-z0-9_.:/-]{1,160}$';
+
+/** The stored doc, refused when unreadable, and every row the page shows with its owner. */
+async function loadStrings(ctx: AdapterContext) {
+	const { clientKey, projectKey } = projectOf(ctx);
+	const [loaded, sections] = await Promise.all([
+		loadDocWithEtag(clientKey, projectKey),
+		harvestProjectSections(clientKey, projectKey),
+	]);
+	if (loaded.corrupt) {
+		throw new AdapterError(
+			409,
+			'unreadable_doc',
+			"The project's strings doc is unreadable. A person must repair it in Invisible Localization.",
+		);
+	}
+	return { ...loaded, shown: reconcileWithEditor(loaded.doc, sections).entries };
+}
 
 const entrySummary = (e: LocalizationEntry) => ({
 	key: e.key,
@@ -41,19 +62,18 @@ export const getStrings = defineOp<
 	tool: 'localization',
 	name: 'get_strings',
 	description:
-		"The project's stored game strings: key, source text, which tool owns it (`origin`), and per language whether its translation is reviewed. Plus the baseEtag to hand back to localization.update_strings.",
+		"The project's game strings as Invisible Localization shows them: key, source text, which tool owns it (`origin`; only `manual` rows are edited here), and per language whether its translation is reviewed. Plus the baseEtag to hand back to localization.update_strings.",
 	inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 	agents: ['builder'],
 	scope: 'project',
 	write: false,
 	handler: async (ctx) => {
-		const { clientKey, projectKey } = projectOf(ctx);
-		const { doc, etag } = await loadDocWithEtag(clientKey, projectKey);
+		const { doc, etag, shown } = await loadStrings(ctx);
 		return {
 			sourceLang: doc.sourceLang,
 			targetLangs: doc.targetLangs,
 			protectedTerms: doc.protectedTerms,
-			strings: doc.entries.map(entrySummary),
+			strings: shown.map(entrySummary),
 			baseEtag: baseOf(etag),
 		};
 	},
@@ -102,10 +122,15 @@ export const updateStrings = defineOp<
 		const keys = strings.map((s) => s.key);
 		const twice = keys.filter((k, i) => keys.indexOf(k) !== i);
 		if (twice.length) {
-			throw new AdapterError(400, 'invalid_input', `Keys named twice: ${[...new Set(twice)]}.`);
+			throw new AdapterError(
+				400,
+				'invalid_input',
+				`Keys named twice: ${[...new Set(twice)].join(', ')}.`,
+			);
 		}
 		const { clientKey, projectKey } = projectOf(ctx);
-		const { doc, etag } = await loadDocWithEtag(clientKey, projectKey);
+		const { doc, shown } = await loadStrings(ctx);
+		const owner = new Map(shown.map((e) => [e.key, e.origin]));
 		const entries = [...doc.entries];
 		const out = {
 			added: [] as string[],
@@ -116,14 +141,12 @@ export const updateStrings = defineOp<
 		for (const { key, source } of strings) {
 			const at = entries.findIndex((e) => e.key === key);
 			const current = entries[at];
-			if (!current) {
+			const origin = owner.get(key) ?? 'manual';
+			if (origin !== 'manual') {
+				out.refused.push({ key, reason: `owned by ${origin}: edit its source in that tool` });
+			} else if (!current) {
 				entries.push({ id: '', key, source, translations: {}, origin: 'manual' });
 				out.added.push(key);
-			} else if (current.origin !== 'manual') {
-				out.refused.push({
-					key,
-					reason: `owned by ${current.origin}: edit its source in that tool`,
-				});
 			} else if (current.source === source) {
 				out.unchanged.push(key);
 			} else {
@@ -137,7 +160,7 @@ export const updateStrings = defineOp<
 				out.changed.push(key);
 			}
 		}
-		if (out.added.length + out.changed.length === 0) return { ...out, baseEtag: baseOf(etag) };
+		if (out.added.length + out.changed.length === 0) return { ...out, baseEtag };
 		const next: LocalizationDoc = { ...doc, entries };
 		const saved = await saveDoc(clientKey, projectKey, next, preconditionOf(baseEtag), ctx.savedBy);
 		return { ...out, baseEtag: baseOf(saved.etag) };

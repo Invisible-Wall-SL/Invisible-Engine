@@ -74,19 +74,20 @@ export async function loadDoc(clientKey: string, projectKey: string): Promise<Lo
  * {@link loadDoc} plus the ETag its next save must match. `etag` is read off the
  * object, NOT inferred from a successful parse — a corrupt doc also returns
  * `emptyDoc()`, so treating "empty" as "absent" would send a create precondition and
- * 412 forever. `etag === null` means, and only means, no object.
+ * 412 forever. `etag === null` means, and only means, no object. `corrupt` flags the
+ * fallback so a merge that would write it back can refuse instead.
  * See `docs/design/multi-user-concurrency.md` Phase 1.
  */
 export async function loadDocWithEtag(
 	clientKey: string,
 	projectKey: string,
-): Promise<{ doc: LocalizationDoc; etag: string | null }> {
+): Promise<{ doc: LocalizationDoc; etag: string | null; corrupt?: true }> {
 	const obj = await getObjectTextWithEtag(localizationDocKey(clientKey, projectKey));
 	if (!obj) return { doc: emptyDoc(), etag: null };
 	try {
 		return { doc: normalizeDoc(JSON.parse(obj.text)), etag: obj.etag };
 	} catch {
-		return { doc: emptyDoc(), etag: obj.etag };
+		return { doc: emptyDoc(), etag: obj.etag, corrupt: true };
 	}
 }
 
