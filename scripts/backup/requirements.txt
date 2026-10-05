@@ -1,13 +1,13 @@
 # Exact, hash-checked pins: this job holds the database URL and two R2 tokens, so a new release of
 # any dependency must not be able to slip in unreviewed. Regenerate from boto3 + psycopg[binary]:
 #   pip-compile --generate-hashes --strip-extras -o scripts/backup/requirements.txt requirements.in
-boto3==1.43.104 \
-    --hash=sha256:d26ad9b8f6066e9be90c78c1f8f0cdd82e33e0a363a1ccc5ab01008b0e48c7fd \
-    --hash=sha256:dc0c4b5c217fa38792d6b2e3c89b0d26220fd938dc173e48adab45d2d05e6977
+boto3==1.43.107 \
+    --hash=sha256:632a4f8298725b94144c8cd383cbdacb34624daa73221e954c3d33ac6e2528d6 \
+    --hash=sha256:c4e0f1a0295cbb7103f2950128cf88463c076d220080a7d0f127cf834969fc3a
     # via -r requirements.in
-botocore==1.43.104 \
-    --hash=sha256:099f84876df9f6dc23a24b4d8c02da2d73c6949249761dd85585f735b825c182 \
-    --hash=sha256:a447978a815f8ac7ef2f4ba103b6a0c310e56536386974df769edb1326f3b208
+botocore==1.43.107 \
+    --hash=sha256:23cbe854e815dbaccf097f7fd32b461c9e1d2ed7e0c7dcc5658218704509d840 \
+    --hash=sha256:4a37fa072a00280c746313532d19b00e2dc53f1993222601df104d71d548d5b6
     # via
     #   boto3
     #   s3transfer
