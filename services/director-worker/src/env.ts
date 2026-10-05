@@ -6,13 +6,17 @@ export interface WorkerEnv {
 	port: number;
 	/** Postgres shared with the launcher; unset only in local runs without a database. */
 	databaseUrl: string | null;
-	/** Read but unused until the turn loop (PLAN 3.4). */
+	/** The agents' Anthropic key. Unset = no run is driven (a claim would only pause it). */
 	anthropicApiKey: string | null;
-	/** Bearer token for the launcher's adapter gate; unused until the turn loop calls adapters. */
+	/** Bearer token for the launcher's adapter gate and catalog. */
 	directorServiceToken: string | null;
+	/** The launcher the adapters live on. Not a secret, so it has a code default. */
+	launcherUrl: string;
 	/** This process's lease-holder id: Railway's replica id when present, else host + pid. */
 	workerId: string;
 }
+
+const DEFAULT_LAUNCHER_URL = 'https://app.invisiblewall.org';
 
 const nonEmpty = (value: string | undefined) => (value && value.trim() ? value : null);
 
@@ -25,6 +29,7 @@ export function readEnv(env: NodeJS.ProcessEnv = process.env): WorkerEnv {
 		databaseUrl: nonEmpty(env.DATABASE_URL),
 		anthropicApiKey: nonEmpty(env.ANTHROPIC_API_KEY),
 		directorServiceToken: nonEmpty(env.DIRECTOR_SERVICE_TOKEN),
+		launcherUrl: (nonEmpty(env.DIRECTOR_LAUNCHER_URL) ?? DEFAULT_LAUNCHER_URL).replace(/\/+$/, ''),
 		workerId: `${replica ?? env.HOSTNAME ?? 'local'}:${process.pid}`,
 	};
 }
@@ -37,5 +42,6 @@ export function describeEnv(env: WorkerEnv) {
 		databaseUrlSet: env.databaseUrl !== null,
 		anthropicApiKeySet: env.anthropicApiKey !== null,
 		directorServiceTokenSet: env.directorServiceToken !== null,
+		launcherUrl: env.launcherUrl,
 	};
 }

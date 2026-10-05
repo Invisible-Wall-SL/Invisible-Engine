@@ -301,6 +301,7 @@ fake('lib/server/director/store.ts', {
 
 const { POST } = await import(src('routes/api/director/adapter/[tool]/[op]/+server.ts'));
 const { POST: DUPLICATE } = await import(src('routes/api/game-maker/duplicate/+server.ts'));
+const { GET: CATALOG } = await import(src('routes/api/director/adapter/+server.ts'));
 const { runAdapterCall } = await import(src('lib/server/director/gate.ts'));
 const {
 	ADAPTER_OPS,
@@ -2721,6 +2722,47 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			listing.sort(),
 		);
 	}
+}
+
+// ── The catalog the worker offers tools from (GET /api/director/adapter) ──────
+{
+	const catalog = async (headers: Record<string, string>) => {
+		const request = new Request('https://app.example/api/director/adapter', { headers });
+		const res: Response = await CATALOG({ request } as never);
+		return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+	};
+	check('the catalog without a token is a 401', (await catalog({})).status, 401);
+	check(
+		'the catalog with a wrong token is a 401',
+		(await catalog({ authorization: 'Bearer nope' })).status,
+		401,
+	);
+	delete process.env.DIRECTOR_SERVICE_TOKEN;
+	check(
+		'the catalog with DIRECTOR_SERVICE_TOKEN unset is a 503',
+		(await catalog({ authorization: `Bearer ${TOKEN}` })).status,
+		503,
+	);
+	process.env.DIRECTOR_SERVICE_TOKEN = TOKEN;
+	const answer = await catalog({ authorization: `Bearer ${TOKEN}` });
+	const ops = (answer.body.ops ?? []) as { id: string; inputSchema: unknown; write: boolean }[];
+	check('the catalog answers 200', answer.status, 200);
+	check(
+		'the catalog lists exactly the registered ops, sorted by id',
+		ops.map((op) => op.id),
+		[...ADAPTER_OPS.values()].map(opIdOf).sort(),
+	);
+	check(
+		'each catalog entry carries its op schema and write flag',
+		ops.filter((op) => {
+			const registered = ADAPTER_OPS.get(op.id);
+			return (
+				registered?.write !== op.write ||
+				JSON.stringify(registered.inputSchema) !== JSON.stringify(op.inputSchema)
+			);
+		}),
+		[],
+	);
 }
 
 // ── The worker's tool catalogue covers the registry (its agent loader refuses any other tool) ──

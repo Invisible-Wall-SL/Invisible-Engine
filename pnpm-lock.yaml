@@ -190,6 +190,9 @@ importers:
       constants-shared:
         specifier: workspace:*
         version: link:../../packages/constants-shared
+      director-costs:
+        specifier: workspace:*
+        version: link:../../packages/director-costs
       drizzle-orm:
         specifier: 0.45.3
         version: 0.45.3(@opentelemetry/api@1.9.1)(gel@2.2.0)(postgres@3.4.9)
@@ -1402,6 +1405,12 @@ importers:
         specifier: 5.9.3
         version: 5.9.3
 
+  packages/director-costs:
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+
   packages/engine-cinematic:
     devDependencies:
       eslint:
@@ -2281,6 +2290,12 @@ importers:
 
   services/director-worker:
     dependencies:
+      '@anthropic-ai/sdk':
+        specifier: ^0.128.0
+        version: 0.128.0(zod@3.23.8)
+      director-costs:
+        specifier: workspace:*
+        version: link:../../packages/director-costs
       postgres:
         specifier: 3.4.9
         version: 3.4.9

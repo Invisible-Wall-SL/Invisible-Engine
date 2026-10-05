@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import type { Checkpoint, RunState, RunStatus, RunStep } from './runState.ts';
 import { checkpointSettings } from './runState.ts';
+import { applyTransition } from './store.ts';
 
 /**
  * Run leases (ADR-0001, ADR-0003). A worker drives a run only while it holds that run's lease:
@@ -143,23 +144,11 @@ export async function writeState(
 	cause: string,
 ): Promise<boolean> {
 	return sql.begin(async (tx) => {
-		const rows = await tx`
-			update director_runs
-			set status = ${to.status}, step = ${to.step}, waiting_on = ${to.waitingOn}, updated_at = now()
-			where id = ${run.id}
-				and lease_holder = ${run.lease} and lease_until > now()
-				and status = ${from.status} and step = ${from.step}
-				and waiting_on is not distinct from ${from.waitingOn}
-			returning id`;
-		if (rows.length !== 1) return false;
-		await tx`
-			insert into director_events (run_id, agent, kind, payload_json)
-			values (${run.id}, 'worker', 'run_status', ${tx.json({
-				from: { status: from.status, step: from.step, waitingOn: from.waitingOn },
-				to: { status: to.status, step: to.step, waitingOn: to.waitingOn },
-				cause,
-			})})`;
-		return true;
+		const [held] = await tx`
+			select id from director_runs
+			where id = ${run.id} and lease_holder = ${run.lease} and lease_until > now()
+			for update`;
+		return held ? applyTransition(tx, run.id, from, to, cause) : false;
 	});
 }
 

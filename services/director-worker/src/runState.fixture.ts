@@ -66,6 +66,8 @@ const EVENTS: RunEvent[] = [
 	),
 	{ type: 'pause', reason: 'owner' },
 	{ type: 'pause', reason: 'budget_cap' },
+	{ type: 'pause', reason: 'refusal' },
+	{ type: 'pause', reason: 'error' },
 	{ type: 'resume' },
 	{ type: 'stop' },
 	{ type: 'stopped' },
@@ -140,6 +142,8 @@ const LEGAL: Record<string, Record<string, string>> = {
 for (const step of RUN_STEPS) {
 	LEGAL[`running/${step}`]['pause:owner'] = `paused/${step}`;
 	LEGAL[`running/${step}`]['pause:budget_cap'] = `paused/${step}`;
+	LEGAL[`running/${step}`]['pause:refusal'] = `paused/${step}`;
+	LEGAL[`running/${step}`]['pause:error'] = `paused/${step}`;
 	LEGAL[`paused/${step}`] = { resume: `running/${step}` };
 	LEGAL[`stopping/${step}`].stopped = `stopped/${step}`;
 }

@@ -3,7 +3,7 @@
 	"version": "0.1.0",
 	"private": true,
 	"type": "module",
-	"description": "Invisible Director worker — drives Director runs (ADR-0001, ADR-0003).",
+	"description": "Invisible Director worker \u2014 drives Director runs (ADR-0001, ADR-0003).",
 	"engines": {
 		"node": ">=22.16.0"
 	},
@@ -15,6 +15,8 @@
 		"prove:lease": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/prove-lease.ts"
 	},
 	"dependencies": {
+		"@anthropic-ai/sdk": "^0.128.0",
+		"director-costs": "workspace:*",
 		"postgres": "3.4.9"
 	},
 	"devDependencies": {
