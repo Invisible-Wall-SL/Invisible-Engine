@@ -22,6 +22,6 @@
 		"constants-shared": "workspace:*",
 		"delivery-profile": "workspace:*",
 		"@lingui/core": "5.2.0",
-		"@lingui/message-utils": "5.2.0"
+		"@lingui/message-utils": "6.9.0"
 	}
 }
