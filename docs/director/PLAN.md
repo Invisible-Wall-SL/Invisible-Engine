@@ -39,6 +39,7 @@ starts once A and B are merged.
 | E | merged #1041. **Not yet run on live games: 5 secrets missing** | 1.3–1.6 | A, B |
 
 The current-games harness is the priority: every later merge depends on it. 1.3–1.6 stay `review` until its first green run on the live games.
+A change that cannot reach a game (docs only, or nothing in the `lines` runtime's workspace closure, the gates' inputs or the harness itself) passes `current-games` without a build or a render, so launcher, atlas-tool and director-worker cards are not held by it.
 
 | # | Task | Card | Owner | Status | Acceptance |
 |---|---|---|---|---|---|
