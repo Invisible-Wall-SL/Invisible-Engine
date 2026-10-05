@@ -330,6 +330,7 @@ jobs:
           CURRENT_GAMES_R2_ACCESS_KEY_ID: ${{ secrets.CURRENT_GAMES_R2_ACCESS_KEY_ID }}
           CURRENT_GAMES_R2_SECRET_ACCESS_KEY: ${{ secrets.CURRENT_GAMES_R2_SECRET_ACCESS_KEY }}
           CURRENT_GAMES_HEAD_SHA: ${{ env.STATUS_SHA }}
+          CURRENT_GAMES_LOG_IMAGES: ${{ inputs.log_images && '1' || '' }}
         # A unit that fails still writes its result (the compare names it); a non-zero exit is the
         # runner itself dying.
         run: |
