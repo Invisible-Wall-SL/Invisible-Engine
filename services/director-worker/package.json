@@ -1,0 +1,24 @@
+{
+	"name": "director-worker",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"description": "Invisible Director worker — drives Director runs (ADR-0001, ADR-0003).",
+	"engines": {
+		"node": ">=22.16.0"
+	},
+	"scripts": {
+		"start": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/main.ts",
+		"build": "tsc -p tsconfig.json",
+		"check:agents": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/agents.fixture.ts",
+		"check:run-state": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/runState.fixture.ts",
+		"prove:lease": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/prove-lease.ts"
+	},
+	"dependencies": {
+		"postgres": "3.4.9"
+	},
+	"devDependencies": {
+		"@types/node": "22.13.5",
+		"typescript": "5.9.3"
+	}
+}
