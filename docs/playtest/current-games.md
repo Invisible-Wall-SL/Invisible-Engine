@@ -175,22 +175,24 @@ rendered. A run that cannot start (a missing secret, a failed build) fails and n
 
 ## CI
 
-`current-games.yml` runs on every PR and on pushes to non-main branches. It has four jobs:
+`current-games.yml` runs on every PR and on pushes to non-main branches. It has five jobs:
 
 1. **`prepare`** posts `pending`, checks the six secrets (a missing one fails the status, named),
    and picks the base commit. On a PR that is the merge commit's first parent. On a push it is the
    merge-base with main. A push to a branch with an open PR stands down, so the PR's run owns the
    status and the two never race. A PR from a fork does not run: it gets no secrets.
-2. **`build`** builds both runtimes, runs the gates once, and makes the **plan** (`--phase plan`):
+2. **`build`** builds both runtimes and makes the **plan** (`--phase plan`):
    the game list, each game's pinned snapshot, and the render units. A plan that cannot be made (a
    missing secret, an unreachable list) carries the reason to the report.
-3. **`render`** is 16 shards. Each renders its share of the units (`--phase render`), one at a
+3. **`gates`** runs every game type's `check:*` gates once, beside the build: they test the
+   branch's source, not its runtime, so they do not hold up the renders.
+4. **`render`** is 20 shards. Each renders its share of the units (`--phase render`), one at a
    time; the plan balances them by each unit's measured seconds (`scripts/current-games/costs.json`,
    refreshed from the `costs:` line a run prints). It first lifts the runner's AppArmor limit on
    unprivileged user namespaces: Playwright's headless shell has no AppArmor profile, so on Ubuntu
    24.04 its sandbox cannot start and it exits at launch. A unit that fails still writes its result,
    so the report names it; a unit with no result at all is its game's error.
-4. **`report`** pairs every shard's units (`--phase compare`), compares, uploads the
+5. **`report`** pairs every shard's units (`--phase compare`), compares, uploads the
    `current-games-report` artifact, prints the **digest** to the log and posts the final status.
 
 **The digest** is every non-pass row's cause, written for a reader who cannot download the artifact:
