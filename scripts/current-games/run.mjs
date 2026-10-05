@@ -218,7 +218,11 @@ async function render(side, runtimeDir, game, snapshot, scenario, draw) {
 	} catch (e) {
 		error = e.message;
 	} finally {
-		final = await page?.evaluate('window.__IE_DETERMINISM__?.state()').catch(() => undefined);
+		final = await page
+			?.evaluate(
+				'window.__IE_DETERMINISM__ && { ...window.__IE_DETERMINISM__.state(), renderer: window.__PIXI_APP__?.renderer?.name }',
+			)
+			.catch(() => undefined);
 		consoleLines = [...(page?.consoleLines ?? [])];
 		await page?.close();
 		server?.stop();
@@ -349,6 +353,10 @@ async function runGame(game) {
 			[scenario.id]: { base: sides.base.seconds, head: sides.head.seconds },
 		};
 		for (const [side, r] of Object.entries(sides)) {
+			// Players render with WebGL; a page that fell back to Pixi's Canvas renderer (no WebGL in
+			// the browser) draws through other code and proves nothing about theirs.
+			if (r.final?.renderer && r.final.renderer !== 'webgl' && !r.error)
+				r.error = `the page rendered with Pixi's ${r.final.renderer} renderer, not WebGL`;
 			const errors = r.final?.errors ?? 0;
 			const stalls = r.final?.stalls ?? 0;
 			if (!r.error && !errors && !stalls) continue;

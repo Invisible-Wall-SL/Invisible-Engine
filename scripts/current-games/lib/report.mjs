@@ -161,6 +161,14 @@ export function writeReport(out, data) {
  * A plain-text account of every row that is not a pass, for the job log: the artifact needs a
  * download, the log does not. Built from the (already redacted) report.
  */
+const short = (text) =>
+	text
+		.replace(/\?[^\s):]*ie_determinism=[^\s):]*/g, '')
+		.split('\n')
+		.slice(0, 6)
+		.join(' | ')
+		.slice(0, 600);
+
 export function digest(report) {
 	const lines = [];
 	for (const g of report.games) {
@@ -172,15 +180,15 @@ export function digest(report) {
 		);
 		if (v === 'pass') continue;
 		for (const note of g.notes ?? []) lines.push(`    note: ${note}`);
-		if (g.looks.detail) lines.push(`    looks: ${g.looks.detail}`);
+		if (g.looks.detail) lines.push(`    looks: ${short(g.looks.detail)}`);
 		for (const gate of failedGates)
 			lines.push(`    gate ${gate.gate}: ${(gate.tail ?? 'failed').slice(-300)}`);
 		const failures = [...(g.tests.smoke?.failures ?? []), ...(g.looks.baseFailures ?? [])];
 		for (const f of failures) {
 			lines.push(
-				`    ${f.side}/${f.scenario}: ${f.error ?? ''} errors ${f.errors} stalls ${f.stalls}`,
+				`    ${f.side}/${f.scenario}: ${short(f.error ?? '')} errors ${f.errors} stalls ${f.stalls}`,
 			);
-			for (const c of f.console ?? []) lines.push(`      ${c.slice(0, 400)}`);
+			for (const c of f.console ?? []) lines.push(`      ${short(c)}`);
 		}
 		for (const s of g.screens.filter((x) => !x.pass))
 			lines.push(
@@ -227,7 +235,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
 		resolve(out),
 		parts.map((p) => resolve(p)),
 	);
-	console.log(digest(report));
+	// A file, not stdout: `process.exit` below would cut a long piped write short.
+	writeFileSync(join(resolve(out), 'digest.txt'), `${digest(report)}\n`);
 	console.log(`[current-games] ${report.summary.verdict} — ${report.summary.line}`);
 	writeFileSync(
 		join(resolve(out), 'summary.txt'),
