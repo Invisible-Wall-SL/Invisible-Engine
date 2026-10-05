@@ -598,12 +598,12 @@ export function installDeterminism(): void {
 				abandon();
 				resolve();
 			}, IO_STALL_MS);
-			Promise.all(
-				[...(document.fonts ?? [])].map((face) => face.load().catch(() => undefined)),
-			).then(() => {
-				realClearTimeout(timer);
-				resolve();
-			});
+			Promise.all([...document.fonts].map((face) => face.load().catch(() => undefined))).then(
+				() => {
+					realClearTimeout(timer);
+					resolve();
+				},
+			);
 		});
 
 	globalThis.__IE_DETERMINISM__ = {

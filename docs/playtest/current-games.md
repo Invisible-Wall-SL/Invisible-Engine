@@ -216,9 +216,10 @@ a branch's comparison. A manual run with `self_compare: false` posts `current-ga
 name a `base` commit to compare against instead of main's merge-base: the seeded proof renders a
 deliberate 1 px change against the commit before it (`base` is ignored on a self-compare). A
 self-compare and a seeded proof on one commit, or two proofs with different bases, do not cancel
-each other. `log_images: true` prints each changed screen's crops into the log, with each side's
-web-font states, every stage text's font string, measured size and texture hash, the ordered scene
-tree, whether one more draw changes the capture, and the external requests each render made.
+each other. `log_images: true` prints each changed screen's before / after / diff crops into the
+log, with each side's web-font states, whether the capture was the same 300 ms later, and the
+external requests each render made. It only reads the page and waits; it draws nothing, so the
+captures are the same as without it.
 
 **The repository is public**, so every artifact is downloadable by anyone. The plan carries contract
 hashes, never contracts; the per-shard parts (every capture of every game) and the plan and gate
@@ -270,6 +271,17 @@ Harness fixes found on the way: the digest stopped after three games (`process.e
 piped write; it is a file now); `code-changed` made a full checkout shallow when it fetched
 `before` with `--depth=1`, which broke the base-commit step; and a new branch's first push now diffs
 against its merge-base with main instead of counting as "change set unknown".
+
+## What the harness cannot see
+
+- **Text measured before its font arrives.** Determinism mode loads every declared web font before
+  the app starts and makes frames wait for font loads, so no capture ever has a text that was
+  measured or drawn in a fallback face. Players can: on a slow network a text first laid out
+  before its face arrives keeps that measurement (Pixi caches `CanvasTextMetrics`), so it can sit
+  wrong until it changes. That is a real bug class, and this harness cannot catch it.
+- **A change to a built-in component definition.** A published snapshot carries its own copy of
+  every component definition it uses (see the live measurements below), so the change reaches a
+  game only when it is republished.
 
 ## Measured on the live games (CI, 2026-10-05)
 

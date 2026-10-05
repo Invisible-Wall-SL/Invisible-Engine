@@ -17,31 +17,6 @@ import { writeReport } from './report.mjs';
 const oneSidedHash = (png, side) =>
 	createHash('sha256').update(side).update(png).digest('hex').slice(0, 16);
 
-/** Diagnostics: do the two sides' redraws of a screen match? */
-function redrawEqual(sides, screen) {
-	const [a, b] = [sides.base, sides.head].map((side) => side.redrawnPngs?.[screen]);
-	if (!a || !b) return 'not captured';
-	if (a.equals(b)) return 'yes, byte-identical';
-	return `no (${compareScreens(a, b, EXACT).diffPixels} px)`;
-}
-const EXACT = {
-	maxDiffRatio: 0,
-	blockSize: 16,
-	blockThreshold: 0,
-	threshold: 0,
-	antiAliasing: 'count',
-	masks: [],
-};
-
-/** Diagnostics: the first place two ordered scene trees part. */
-function treeDiff(a = [], b = []) {
-	if (!a.length || !b.length) return 'not captured';
-	for (let i = 0; i < Math.max(a.length, b.length); i++)
-		if (a[i] !== b[i])
-			return `differ at node ${i}: main "${a[i] ?? '(end)'}" · branch "${b[i] ?? '(end)'}" (${a.length} vs ${b.length} nodes)`;
-	return `identical (${a.length} nodes, in order)`;
-}
-
 /** A unit's result and its screen PNGs, from whichever unit dir has it. */
 function loadUnit(unitDirs, id) {
 	for (const root of unitDirs) {
@@ -54,12 +29,7 @@ function loadUnit(unitDirs, id) {
 				readFileSync(join(dir, s.file)),
 			]),
 		);
-		const redrawnPngs = Object.fromEntries(
-			Object.entries(result.screens)
-				.filter(([, s]) => s.redrawn?.file)
-				.map(([screen, s]) => [screen, readFileSync(join(dir, s.redrawn.file))]),
-		);
-		return { ...result, shots, redrawnPngs };
+		return { ...result, shots };
 	}
 	return undefined;
 }
@@ -196,29 +166,13 @@ function gameRow(
 							.join(' | ');
 					};
 					const fonts = [sides.base, sides.head].map((r) => r.screens[screen]?.fonts);
-					const texts = [sides.base, sides.head].map((r) => r.screens[screen]?.texts);
-					const layout = [sides.base, sides.head].map((r) => r.screens[screen]?.layout);
-					const translucent = [sides.base, sides.head].map((r) => r.screens[screen]?.translucent);
-					const dom = [sides.base, sides.head].map((r) => r.screens[screen]?.dom);
 					const ext = [sides.base, sides.head].map((r) => r.external ?? []);
 					crops.push(
 						...[
 							`== ${game.key} ${screen} crop x${crop.x} y${crop.y} ${crop.w}x${crop.h}`,
 							`fonts only on main: ${only(fonts[0], fonts[1])}`,
 							`fonts only on the branch: ${only(fonts[1], fonts[0])}`,
-							`texts only on main: ${only(texts[0], texts[1])}`,
-							`texts only on the branch: ${only(texts[1], texts[0])}`,
 							`capture equal 300 ms later: main ${sides.base.screens[screen]?.stableLater} · branch ${sides.head.screens[screen]?.stableLater}`,
-							`capture equal after one more draw: ${[sides.base, sides.head].map((r, i) => `${i ? 'branch' : 'main'} ${r.screens[screen]?.redrawn?.error ?? r.screens[screen]?.redrawn?.equal}`).join(' · ')}`,
-							`redraws equal across the sides: ${redrawEqual(sides, screen)}`,
-							`scene tree: ${treeDiff(sides.base.screens[screen]?.tree, sides.head.screens[screen]?.tree)}`,
-							`texts on main: ${(texts[0] ?? []).map((t) => t.split(' ').slice(0, 3).join(' ')).join(' | ')}`,
-							`layout on main: ${(layout[0] ?? []).join(' | ')}`,
-							`layout only on the branch: ${only(layout[1], layout[0])}`,
-							`translucent only on main: ${only(translucent[0], translucent[1])}`,
-							`translucent only on the branch: ${only(translucent[1], translucent[0])}`,
-							`dom on main: ${(dom[0] ?? []).join(' | ')}`,
-							`dom only on the branch: ${only(dom[1], dom[0])}`,
 							`external on main: ${ext[0].join(' | ')}`,
 							`external on the branch: ${ext[1].join(' | ')}`,
 						].map((line) => redactSecrets(line)),
