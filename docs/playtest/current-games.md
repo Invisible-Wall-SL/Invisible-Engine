@@ -14,9 +14,12 @@ For every live game (`GET /api/pipeline/games`, bearer `PIPELINE_CI_TOKEN`):
    `runtime-release.yml` does: workspace packages first, then the app with
    `PUBLIC_RGS_TRANSPORT=play4fun` and `PUBLIC_DELIVERY_PROFILES='*'`. Main's runtime is cached by
    SHA under `.cache/current-games/runtimes/<sha>/`.
-2. **Fetch.** It reads the game's published snapshot from R2, read-only:
-   `publishedPointerKey` → `<id>/runtime.json` + `<id>/deploy/**`. It also reads the game's mock
-   contract from `test_server/games.json`. A snapshot is immutable by id, so it is cached.
+2. **Plan.** It reads each game's published pointer from R2, read-only, once per run, and pins
+   that snapshot id for every render of the run, so a republish mid-run cannot hand two renders two
+   different snapshots. It also reads the game's mock contract from `test_server/games.json`
+   (`docBase` and `readToken` dropped). The plan lists the render **units**: one side (main's
+   runtime or the branch's) of one scenario of one game. A snapshot is immutable by id, so its
+   download (`<id>/runtime.json` + `<id>/deploy/**`) is cached.
 3. **Serve.** It serves what a player boots, twice, once per runtime:
    - a local stand-in for the launcher's `/api/editor/runtime` that answers the frozen
      `runtime.json`, with `assetBase` pointing at the frozen `deploy/` files;
@@ -25,9 +28,12 @@ For every live game (`GET /api/pipeline/games`, bearer `PIPELINE_CI_TOKEN`):
      (`docBase`/`readToken`) is dropped, so the mock never follows live data mid-run. The game is
      booted through the mock's **authoring** channel, the one that takes forced beats.
 4. **Play.** It boots with `?ie_determinism=<seed>` (see "Determinism mode" in
-   [status/engine.md](../status/engine.md)) at 1280×720, DPR 1, UTC, en-US, and plays the game
-   type's screen script. Each scenario gets a fresh test server and browser, so the seeded deal
-   starts over.
+   [status/engine.md](../status/engine.md)) at 1280×720, DPR 1, UTC, en-US, with WebGL, and plays
+   the game type's screen script. Each unit gets a fresh test server and browser, so the seeded deal
+   starts over, and the two sides of a comparison need not share a machine. A page that rendered
+   with Pixi's Canvas renderer instead of WebGL is that unit's error: players render with WebGL.
+   A snapshot the runtime refuses to boot (its own `[runtime] boot stopped —` error screen) is
+   known after 10 frames, not after a 2-minute wait.
 5. **Compare.** It compares each screen with pixelmatch under `tolerance.json`.
 6. **Test.** It runs the game type's `check:*` gates (`scripts/current-games/lib/gates.mjs`). The
    screen script is the scriptable smoke: a scenario that does not reach a screen, or whose page
@@ -89,12 +95,13 @@ anti-aliasing; `"ignore"` skips them. `masks` are `{x, y, w, h}` rectangles, use
 that is time-based by design. Changing the tolerance is a pipeline change the owner approves. The
 report shows the tolerance each screen ran with.
 
-**Starting values and why.** Determinism mode makes main vs main byte-identical on every screen
-(measured below), so there is no noise to sit above. The values are set as tight as the 1 px proof
-needs: any differing pixel in any 16×16 block fails (`blockThreshold: 0`), and pixelmatch's colour
-threshold is 0.1. `maxDiffRatio` stays at the ADR's 0.1 %, but the block rule is what catches a
-1 px change. If a real game ever shows noise, loosen that game type or screen alone, with the
-measured number in the PR.
+**Values and why.** Determinism mode makes main vs main byte-identical on every screen of every
+live game (measured below), so there is no noise to sit above. The values are as tight as the 1 px
+proof needs: any differing pixel in any 16×16 block fails (`blockThreshold: 0`), and pixelmatch's
+colour threshold is 0.1. `maxDiffRatio` stays at the ADR's 0.1 %, but the block rule is what catches
+a 1 px change. There are no masks and no per-type or per-screen overrides: every difference the
+calibration found had a root cause, fixed below. If a game ever shows real noise, loosen that game
+type or screen alone, with the measured number in the PR.
 
 ## Running it locally
 
@@ -108,7 +115,18 @@ node scripts/current-games/run.mjs --games-file .cache/current-games/fixtures/ga
 node scripts/current-games/run.mjs --base-build <dir> --head-build apps/lines/build \
   --games-file .cache/current-games/fixtures/games.json --only cg-lines --scenario big-wins \
   --no-gates --keep-screens --trace
+# CI's split, by hand: plan once, render shards (anywhere), compare their units.
+node scripts/current-games/run.mjs --phase plan --games-file <json> --out plan
+node scripts/current-games/run.mjs --phase render --plan plan/plan.json --shard 1/2 \
+  --base-build <dir> --head-build <dir> --out part-1
+node scripts/current-games/run.mjs --phase compare --plan plan/plan.json --units part-1,part-2 \
+  --no-gates --out report
 ```
+
+A local run renders one unit at a time (`--jobs 1`): SwiftShader already uses every core, and two
+at a time halved each unit's speed on a 4-vCPU runner.
+`CURRENT_GAMES_LOG_IMAGES=1` writes `crops.txt` beside the report: a 256×128 before / after / diff
+crop of each changed screen, around its densest difference, as base64 PNG lines.
 
 To run against the real live games, set `PIPELINE_GAMES_URL` and `PIPELINE_CI_TOKEN` (or pass
 `--games-file`) and the read-only `CURRENT_GAMES_R2_*` key ([INFRA](../INFRA.md)). The run never
@@ -132,6 +150,11 @@ Rows that are visible but never count as a pass:
 - `own bundle — build + tests only`: a desktop-built game (`hasOwnBuiltBundle`). It serves its own
   bundle, the same one on both sides, so it is not rendered: its screens would compare that bundle
   with itself. Its row still fails when its type's gates fail.
+- `not rendered (main's runtime refuses the snapshot)`: main's runtime refuses to boot the
+  published snapshot and shows its error screen, and the branch's refuses it for the same reason.
+  Players get that error screen today; republishing the game fixes it. There is nothing to compare,
+  so the branch is not blamed. A branch that refuses a snapshot main boots fails as before, and so
+  does a different refusal on either side.
 
 A game whose **main** render fails (a scenario main cannot finish, or main's page reports errors or
 stalls) is an `error` row that names main's failure. The branch is not blamed for it, but the
@@ -158,23 +181,57 @@ rendered. A run that cannot start (a missing secret, a failed build) fails and n
    and picks the base commit. On a PR that is the merge commit's first parent. On a push it is the
    merge-base with main. A push to a branch with an open PR stands down, so the PR's run owns the
    status and the two never race. A PR from a fork does not run: it gets no secrets.
-2. **`build`** builds both runtimes and runs the gates once.
-3. **`render`** is six shards, split by game key. It first lifts the runner's AppArmor limit on
+2. **`build`** builds both runtimes, runs the gates once, and makes the **plan** (`--phase plan`):
+   the game list, each game's pinned snapshot, and the render units. A plan that cannot be made (a
+   missing secret, an unreachable list) carries the reason to the report.
+3. **`render`** is 16 shards. Each renders its share of the units (`--phase render`), one at a
+   time; the plan balances them by each unit's measured seconds (`scripts/current-games/costs.json`,
+   refreshed from the `costs:` line a run prints). It first lifts the runner's AppArmor limit on
    unprivileged user namespaces: Playwright's headless shell has no AppArmor profile, so on Ubuntu
-   24.04 its sandbox cannot start and it exits at launch (the first live run, 2026-10-05, crashed
-   every shard that way). A shell that exits before answering is that game's error, with the
-   shell's stderr in the report. A shard that writes no report fails its job.
-4. **`report`** merges the parts, uploads the `current-games-report` artifact and posts the final
-   status.
+   24.04 its sandbox cannot start and it exits at launch. A unit that fails still writes its result,
+   so the report names it; a unit with no result at all is its game's error.
+4. **`report`** pairs every shard's units (`--phase compare`), compares, uploads the
+   `current-games-report` artifact, prints the **digest** to the log and posts the final status.
+
+**The digest** is every non-pass row's cause, written for a reader who cannot download the artifact:
+failing gates, each failing unit's error and last console lines, and per changed screen the reason,
+the bounding box, both frames, both screen sets and a 64×24 map of where the pixels differ.
+
+**Noise calibration.** A manual run (`workflow_dispatch`, `self_compare: true`) renders a ref
+against itself: main's runtime built twice and rendered on separate runners, which is the
+main-vs-main measurement. It posts the separate status context `current-games/self-compare`, so it
+never stands in for a branch's comparison. `log_images: true` prints each changed screen's crops into
+the log.
 
 A docs-only change posts success without rendering.
 
 **Secrets never leave the log.** GitHub masks secrets in job logs only: the status description, the
 step summary and the report artifact publish their text as given. Every message bound for one of
 them goes through `lib/redact.mjs`, which replaces each secret env's value with `***` and, as a
-backstop where the values are not known (the merge), any 32+ hex or token-shaped base64 run. A
+backstop where the values are not known, any 32+ hex or token-shaped base64 run. A
 malformed `PIPELINE_GAMES_URL` fails up front with a fixed message that never quotes it.
 `redact.fixture.mjs` (run by `check:all`) proves each secret stays out of all three.
+
+## Calibration on the live games (2026-10-05, Director card 1F)
+
+The first live run (#1055, run 37286687249) reported 6 pass · 7 fail · 8 not rendered · 10 changed
+screens on a CI-only change. Every fail and every changed screen came from the harness or from a
+determinism gap, none from the engine. What each one was:
+
+| Symptom | Root cause | Fix |
+|---|---|---|
+| Book games: `drawImage … canvas element with a width or height of 0` on both sides, every scenario | The CI runner's headless shell had **no WebGL**: newer Chrome builds no longer fall back to SwiftShader on their own, so Pixi fell back to its **Canvas** renderer, which throws on a 0-size texture. No player's browser takes that path. | `--enable-unsafe-swiftshader` on non-Windows (`scripts/playtest/headless-shell.mjs`), and a unit whose page did not render with WebGL is now that unit's error. |
+| Changed screens with the two sides 119–121 frames apart (a 2 s boot difference) | The Typekit kit (`preloadFont`) is an injected `<script>` and stylesheet; determinism mode did not wait for either, and WebFontLoader's 3 s give-up timer runs on the virtual clock. Whether the kit loaded before the timer depended on the network. | Determinism mode waits for external scripts and stylesheets (engine change). |
+| Same frame, ~0.16 % of the screen, a logo text in two weights | A web font loads when first used; Pixi rasterizes a text once and keeps whichever face was ready. Two paths raced: a face first used by a canvas draw or a DOM layout (real time), and the game's own baked web font, which `registerBakedWebFonts` loads *before* adding it to `document.fonts`, invisible to the font wait. | Determinism mode loads every declared face up front and counts `FontFace.load()` as I/O (engine change). |
+| `cloud`: every scenario timed out at frame 7200 on both sides | Its published snapshot has no `basegame` scene: main's runtime shows its `boot stopped — runtime bundle shape invalid` error screen. Players see that today. | Its own visible row, `not rendered (main's runtime refuses the snapshot)`, decided after 10 frames. **The game needs republishing** (owner). |
+| `hw-classic-sample` / book games ran in seconds | Same Canvas-renderer crash, earlier in each scenario. | As the first row. |
+| Not rendered (8) | `bookofborut`, `bookofborutremakebuild`, `hotfruits`, `test1build`, `waysofwavesbuild`: desktop builds (own bundle). `salmons`, `test4`, `test5`: no published pointer. `cloud` joined as above. | Correct as reported; the report says which. |
+| A run past 30 minutes once WebGL was real | Rendering per game (5–15 minutes with WebGL) did not fit whole-game shards. | Plan once, render per-side units on 16 shards balanced by measured cost, compare in the report job. |
+
+Harness fixes found on the way: the digest stopped after three games (`process.exit` cut a long
+piped write; it is a file now); `code-changed` made a full checkout shallow when it fetched
+`before` with `--depth=1`, which broke the base-commit step; and a new branch's first push now diffs
+against its merge-base with main instead of counting as "change set unknown".
 
 ## Measured (2026-10-04, Claude Code cloud container, 4 vCPU, software GL)
 
