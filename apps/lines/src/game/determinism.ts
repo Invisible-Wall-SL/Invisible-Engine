@@ -16,7 +16,7 @@
  * - **Randomness.** `Math.random` is a PRNG seeded from the flag. Only cosmetic code reads it: the
  *   outcome (the book) comes from the RGS, and the client draws nothing that changes it.
  * - **I/O.** A frame does not start while a fetch, XHR, image, external script or stylesheet,
- *   `createImageBitmap`, worker job or web font is in flight, so how fast the network answers
+ *   `createImageBitmap`, worker job, `FontFace.load()` or web font is in flight, so how fast the network answers
  *   never changes which frame a load lands on. Every declared web font is loaded as soon as it is
  *   declared, so a text never meets its font half-loaded. A frame that waits past `IO_STALL_MS`
  *   counts a stall and forgets what it waited on.
@@ -235,6 +235,14 @@ export function installDeterminism(): void {
 				return track(real.call(this));
 			},
 		});
+	}
+	// A FontFace loading before it is added to `document.fonts` (`registerBakedWebFonts` awaits
+	// `load()` first) is invisible to `document.fonts.status`: track the load itself.
+	if (typeof FontFace !== 'undefined') {
+		const realFontLoad = FontFace.prototype.load;
+		FontFace.prototype.load = function (this: FontFace) {
+			return track(realFontLoad.call(this));
+		};
 	}
 	if (realCreateImageBitmap)
 		globalThis.createImageBitmap = ((...args: Parameters<typeof createImageBitmap>) =>
