@@ -21,11 +21,18 @@ export async function openPage(chromePath, profile) {
 	let nextId = 1;
 	let buf = Buffer.alloc(0);
 	let exited = false;
-	chrome.on('exit', () => {
+	const gone = () => {
 		exited = true;
 		for (const resolve of pending.values()) resolve({ error: { message: 'browser exited' } });
 		pending.clear();
-	});
+	};
+	chrome.on('exit', gone);
+	// 'close' follows 'exit' once stderr has drained, so the reason is complete by then.
+	const closed = new Promise((resolve) => chrome.once('close', resolve));
+	// A shell that dies at launch resets the CDP pipes. Unheard, that error aborts the whole shard
+	// (exit 1, no report, the shell's own reason lost); heard, it is this game's error.
+	chrome.stdio[3].on('error', gone);
+	chrome.stdio[4].on('error', gone);
 	chrome.stdio[4].on('data', (chunk) => {
 		buf = Buffer.concat([buf, chunk]);
 		let end;
@@ -53,6 +60,13 @@ export async function openPage(chromePath, profile) {
 			);
 		});
 	const { result: created } = await send('Target.createTarget', { url: 'about:blank' });
+	if (!created) {
+		chrome.kill();
+		await Promise.race([closed, new Promise((resolve) => setTimeout(resolve, 2000))]);
+		throw new Error(
+			`the headless shell exited before answering: ${chrome.stderrTail() || '(no stderr)'}`,
+		);
+	}
 	const { result: attached } = await send('Target.attachToTarget', {
 		targetId: created.targetId,
 		flatten: true,

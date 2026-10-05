@@ -1,6 +1,6 @@
 ---
 name: deploy
-description: Deploy checklist for this monorepo's Railway services (launcher, atlas-tool, sheet-tool, test-server). Use when the user wants to ship/deploy a change, or asks why a deploy "isn't working". Encodes the hard-won gotchas (always push, staged env vars, verify the runtime).
+description: Deploy checklist for this monorepo's Railway services (launcher, atlas-tool, sheet-tool, test-server, director-worker). Use when the user wants to ship/deploy a change, or asks why a deploy "isn't working". Encodes the hard-won gotchas (always push, staged env vars, verify the runtime).
 ---
 
 # Deploy
@@ -25,6 +25,7 @@ Railway auto-deploys each service from GitHub `main` on push. There is no manual
 ## Service-specific notes
 
 - **Launcher** (`Invisible launcher` project): serves `app.invisiblewall.org`. Has Postgres. Routes under `(app)/` require auth+role.
+- **director-worker** (Invisible Director): no public domain — verify from the deploy log (`"msg":"agents loaded"`, `"msg":"sweep"`) and its commit status, not a URL. Build check: `pnpm --filter director-worker build` (a typecheck; the image runs the TS directly). It reads the launcher's Postgres but owns no migrations, so a push with a Director migration can bring the worker up before the launcher has migrated — `/healthz` goes 503 until it has; redeploy the worker if it stays stuck. Set-up and env: `docs/INFRA.md` § "Invisible Director worker".
 - **atlas-tool**: on ⚙ *Run generation on* = *My computer* it calls ComfyUI over the `comfy.invisiblewall.org` tunnel with CF Access headers + a custom User-Agent (Cloudflare 403s `Python-urllib`). `atlas-tool` hydrates its staging from R2 at start and per project on first use, then only on **↻ Refresh from R2** — after changing R2 data out-of-band, refresh; don't assume the staged copy is current.
 
 ## Secrets

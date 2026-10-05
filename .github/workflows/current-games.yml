@@ -228,6 +228,15 @@ jobs:
       - name: Install the headless shell
         run: pnpm dlx playwright@1.63.0 install --with-deps chromium-headless-shell
 
+      # Ubuntu 24.04 runners restrict unprivileged user namespaces through AppArmor, and only
+      # binaries with an AppArmor profile (the system Chrome) are exempt. Playwright's headless
+      # shell has none, so its sandbox cannot start and it exits at launch. Lifting the restriction
+      # on this throwaway runner keeps the sandbox on, rather than passing --no-sandbox.
+      - name: Let the headless shell start its sandbox
+        run: |
+          f=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
+          if [ -e "$f" ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
+
       - uses: actions/download-artifact@v4
         with:
           name: current-games-runtimes
@@ -251,6 +260,12 @@ jobs:
             --gates-file .cache/current-games/gates.json \
             --shard "${{ matrix.shard }}/$SHARDS" --out "report-part-${{ matrix.shard }}"
           code=$?
+          # 0 = every game passed, 1 = a game failed (the report says which). Any exit without a
+          # report is the runner itself dying, which must fail here rather than pass as "ran".
+          if [ ! -f "report-part-${{ matrix.shard }}/report.json" ]; then
+            echo "::error title=current-games shard ${{ matrix.shard }}::run.mjs exited $code without writing a report"
+            exit 1
+          fi
           [ "$code" -le 1 ] || exit "$code"
 
       - uses: actions/upload-artifact@v4

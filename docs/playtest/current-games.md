@@ -159,7 +159,11 @@ rendered. A run that cannot start (a missing secret, a failed build) fails and n
    merge-base with main. A push to a branch with an open PR stands down, so the PR's run owns the
    status and the two never race. A PR from a fork does not run: it gets no secrets.
 2. **`build`** builds both runtimes and runs the gates once.
-3. **`render`** is six shards, split by game key.
+3. **`render`** is six shards, split by game key. It first lifts the runner's AppArmor limit on
+   unprivileged user namespaces: Playwright's headless shell has no AppArmor profile, so on Ubuntu
+   24.04 its sandbox cannot start and it exits at launch (the first live run, 2026-10-05, crashed
+   every shard that way). A shell that exits before answering is that game's error, with the
+   shell's stderr in the report. A shard that writes no report fails its job.
 4. **`report`** merges the parts, uploads the `current-games-report` artifact and posts the final
    status.
 
