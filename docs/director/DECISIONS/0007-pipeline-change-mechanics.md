@@ -1,6 +1,6 @@
 # ADR-0007: Pipeline-change mechanics
 
-- **Status:** proposed
+- **Status:** approved (2026-10-05)
 - **Date:** 2026-10-04
 - **Author:** coordinator
 
@@ -51,10 +51,9 @@ The parts it builds on:
 - **Diff approval.**
   - Stored in the launcher table `pipeline_approvals`: diff id, approver, time, note.
   - The id embeds the head SHA, so a new push invalidates every approval on that change.
-  - When every diff on the head is approved, the launcher posts a commit status
-    `current-games/approved` as success.
-  - The required check is "`current-games` green **or** `current-games/approved` green". This is
-    two statuses with ruleset logic, or one aggregating status the launcher posts.
+  - When every diff on the head is approved, the launcher posts `success` to the same
+    `current-games` status context, naming the approver. The one required status therefore means
+    "harness green **or** every diff approved".
   - Approving needs `pipelineMerge`.
 - **Merge.**
   - `pipelineMerge` users only.
@@ -74,7 +73,7 @@ The parts it builds on:
     `main` agent on a fixed reference set (e.g. the mockup breakdown of
     `docs/director/eval/mockups/*`) and reports a before/after score plus a diff of outputs.
   - The eval spends real API money, so it runs only on `agent-definition` PRs, with a hard per-run
-    cap.
+    cap of **$20**.
 - **Credentials.**
   - A GitHub App installed on this repo only.
   - Permissions: contents and pull-requests write, statuses write, checks read.
@@ -92,12 +91,16 @@ The parts it builds on:
 - New launcher tables `pipeline_approvals` and `pipeline_merges`.
 - A GitHub App the owner creates and installs, plus 2 env vars (App id and private key).
 - A new workflow, `agent-eval.yml`, plus a reference eval set in the repo.
-- Branch protection on `main` must require the Lint/Checks set plus the
-  `current-games`-or-approved status.
+- Branch protection on `main` must require the Lint/Checks set plus `current-games`.
 
-## Needs owner approval
+## Owner decision (2026-10-05)
 
-- Option 1.
-- Creating the GitHub App.
-- How the "green or approved" requirement is expressed (two statuses or one aggregate).
-- The eval's per-run cost cap.
+Approved, with these choices:
+
+- **Option 1.** GitHub is the record.
+- **A GitHub App** holds the credentials, as above. The owner creates it when Phase 5 starts.
+- **"Green or approved" is one required status, `current-games`.** The harness posts its result
+  there. When every diff on the head is approved, the launcher posts `success` to the **same**
+  context, with the approver in the description. A new push re-runs the harness, which resets it.
+  There is no separate `current-games/approved` status.
+- **Eval cap: $20 per run**, a hard stop.
