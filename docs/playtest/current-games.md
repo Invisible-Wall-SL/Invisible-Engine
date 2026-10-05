@@ -153,11 +153,12 @@ Rows that are visible but never count as a pass:
   bundle, the same one on both sides, so it is not rendered: its screens would compare that bundle
   with itself. Its row still fails when its type's gates fail.
 - `not rendered (main's runtime refuses the snapshot)`: main's runtime refuses to boot the
-  published snapshot in every scenario and shows its error screen, and the branch's refuses it in
-  every scenario for the same reasons. Players get that error screen today; republishing the game
-  fixes it. There is nothing to compare, so the branch is not blamed. Anything else fails as
-  before: a branch that boots a snapshot main refuses, a branch crash in any scenario, a different
-  refusal, a missing render. `assemble.fixture.mjs` (run by `check:all`) holds these rules.
+  published snapshot in every scenario and shows its error screen, and in each scenario the
+  branch's refuses it for the same reason with no more errors or stalls. Players get that error
+  screen today; republishing the game fixes it. There is nothing to compare, so the branch is not
+  blamed. Anything else fails as before: a branch that boots a snapshot main refuses, a branch
+  crash in any scenario (refusing or not), a different refusal, a missing render.
+  `assemble.fixture.mjs` (run by `check:all`) holds these rules.
 
 A game whose **main** render fails (a scenario main cannot finish, or main's page reports errors or
 stalls) is an `error` row that names main's failure. The branch is not blamed for it, but the

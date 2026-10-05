@@ -68,7 +68,7 @@ function scenarioRun(name, units) {
 					error: u.error,
 					bootStopped: u.bootStopped,
 					errors: u.errors ?? 0,
-					stalls: 0,
+					stalls: u.stalls ?? 0,
 					console: [],
 					seconds: 1,
 				}),
@@ -147,6 +147,29 @@ await test('a snapshot both runtimes refuse in every scenario is a visible not-r
 	assert.equal(row.looks.status, 'refused');
 	assert.equal(rowVerdict(row), null);
 	assert.ok(row.notes.some((n) => n.includes('Republish the game')));
+});
+
+await test('a branch that refuses too but crashes doing it still fails', () => {
+	const row = scenarioRun('refused-crashing', {
+		base: { base: refusal, head: { ...refusal, errors: 3, stalls: 1 } },
+		'line-win': { base: refusal, head: refusal },
+	});
+	assert.notEqual(row.looks.status, 'refused');
+	assert.equal(row.tests.smoke.errors, 3);
+	assert.equal(rowVerdict(row), 'fail');
+});
+
+await test('refusal reasons pair by scenario, not as a set', () => {
+	const other = {
+		bootStopped: 'another reason',
+		error: 'the runtime refused to boot: another reason',
+	};
+	const row = scenarioRun('refused-swapped', {
+		base: { base: refusal, head: other },
+		'line-win': { base: other, head: refusal },
+	});
+	assert.notEqual(row.looks.status, 'refused');
+	assert.equal(rowVerdict(row), 'fail');
 });
 
 await test('a branch that crashes where main refused still fails', () => {

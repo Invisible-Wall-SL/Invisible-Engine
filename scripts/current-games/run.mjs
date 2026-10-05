@@ -103,10 +103,14 @@ const abort = (raw) => {
 // id names the commit the status is posted on.
 const headSha = process.env.CURRENT_GAMES_HEAD_SHA || gitSha(ROOT, 'HEAD');
 
-/** The test server's manifest: every game's mock contract (from R2, plus `--manifest-file`). */
+/**
+ * The test server's manifest: every game's mock contract (from R2 when a published game needs it,
+ * plus `--manifest-file`). Decided from the games alone, so a render phase of stand-in games runs
+ * without R2.
+ */
 async function manifestFor(games) {
 	const needsR2 = games.some((g) => g.publishedPointerKey && !g.local);
-	let manifest = needsR2 || !opt['games-file'] ? await fetchManifest({}) : {};
+	let manifest = needsR2 ? await fetchManifest({}) : {};
 	if (opt['manifest-file'])
 		manifest = { ...manifest, ...(await fetchManifest({ manifestFile: opt['manifest-file'] })) };
 	return manifest;

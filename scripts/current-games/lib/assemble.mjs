@@ -113,8 +113,9 @@ function gameRow(
 	const smoke = { status: 'pass', errors: 0, stalls: 0, failures: [] };
 	const baseFailures = [];
 	const missing = [];
-	const refusals = { base: new Set(), head: new Set() };
-	const refusedUnits = { base: 0, head: 0 };
+	// Scenarios both sides refused for the same reason, the branch with no more errors or stalls
+	// than main.
+	const refusedAlike = new Map();
 	row.timings = {};
 	for (const { id: scenario } of planned.scenarios) {
 		const sides = {};
@@ -124,12 +125,16 @@ function gameRow(
 		}
 		if (!sides.base || !sides.head) continue;
 		row.timings[scenario] = { base: sides.base.seconds, head: sides.head.seconds };
+		const { base, head } = sides;
+		if (
+			base.bootStopped &&
+			head.bootStopped === base.bootStopped &&
+			head.errors <= base.errors &&
+			head.stalls <= base.stalls
+		)
+			refusedAlike.set(scenario, base.bootStopped);
 		for (const side of ['base', 'head']) {
 			const r = sides[side];
-			if (r.bootStopped) {
-				refusals[side].add(r.bootStopped);
-				refusedUnits[side]++;
-			}
 			const failure = failureOf(r, side, scenario);
 			if (!failure) continue;
 			if (side === 'base') baseFailures.push(failure);
@@ -244,18 +249,12 @@ function gameRow(
 	else if (row.tests.status === 'skip') row.tests.status = 'pass';
 	const changed = row.screens.filter((s) => !s.pass);
 	// Main's runtime refuses this published snapshot in every scenario, and so does the branch's,
-	// for the same reasons: players get the runtime's error screen today. Nothing is rendered, so
-	// nothing is compared — a visible row that never passes, and the branch is not blamed for it.
-	// Anything else the branch did (a crash, a scenario it did boot) fails the row as usual.
-	const refused = [...refusals.base];
-	if (
-		refused.length &&
-		!missing.length &&
-		refusedUnits.base === planned.scenarios.length &&
-		refusedUnits.head === planned.scenarios.length &&
-		refusals.base.size === refusals.head.size &&
-		refused.every((r) => refusals.head.has(r))
-	) {
+	// for the same reason and with no more errors or stalls: players get the runtime's error screen
+	// today. Nothing is rendered, so nothing is compared — a visible row that never passes, and the
+	// branch is not blamed for it. Anything else the branch did (a crash, a scenario it did boot, a
+	// refusal of its own) fails the row as usual.
+	const refused = [...new Set(refusedAlike.values())];
+	if (refusedAlike.size && !missing.length && refusedAlike.size === planned.scenarios.length) {
 		row.tests.smoke = { ...smoke, status: 'pass', errors: 0, stalls: 0, failures: [] };
 		row.tests.status = !gates ? 'skip' : row.tests.gates.every((g) => g.pass) ? 'pass' : 'fail';
 		row.looks = { status: 'refused', detail: refused.join('; ') };
