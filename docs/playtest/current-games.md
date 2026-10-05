@@ -171,7 +171,7 @@ rendered. A run that cannot start (a missing secret, a failed build) fails and n
 **A change that cannot reach a game is not rendered.** `prepare` diffs the branch against the same
 base the renders would compare with and classifies it with `scripts/current-games/lib/touched.mjs`.
 The runtime's inputs are computed, not listed: `apps/lines` plus every workspace package reachable
-from it through its dependencies (the set `pnpm --filter 'lines^...' build` builds), the root build
+from it through its dependencies (the set `pnpm --filter 'lines...'` selects), the root build
 files (`package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `turbo.json`, `.npmrc`,
 `tsconfig.base.json`), everything the gates can read (`scripts/`, `services/test-server/`, the
 launcher's `src/lib/data/gameConfig/` defaults) and the workflow itself. Docs (`docs/**`,
@@ -179,8 +179,11 @@ launcher's `src/lib/data/gameConfig/` defaults) and the workflow itself. Docs (`
 success at once (`Runtime untouched: no game can differ (N changed files …)`, or `Docs-only change`
 when nothing else changed) with no build, no secrets check and no render: a launcher, atlas-tool or
 director-worker PR passes in seconds. A diff git cannot decide renders everything.
+The diff is read with rename detection off, so a file moved out of the inputs still counts as a
+change to them. `check:undefined-names` scans every app, package and service, so a launcher or
+service change can fail it; that is accepted, because Lint runs the same gate on every PR.
 `touched.fixture.mjs` (run by `check:all`) proves the closure equals pnpm's graph, that every gate's
-command names only inputs, and the verdict for each kind of path.
+command line names only inputs, the verdict for each kind of path, and the rename case.
 
 **Secrets never leave the log.** GitHub masks secrets in job logs only: the status description, the
 step summary and the report artifact publish their text as given. Every message bound for one of

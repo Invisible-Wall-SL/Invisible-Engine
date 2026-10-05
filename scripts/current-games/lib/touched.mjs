@@ -7,10 +7,11 @@
 //
 // The inputs are COMPUTED, not listed, so a new workspace package the runtime pulls in counts from
 // the day `apps/lines` depends on it: `apps/lines` plus every workspace package reachable from it
-// (the set `pnpm --filter 'lines^...' build` builds, which `touched.fixture.mjs` checks against
-// pnpm's own graph), the root build config, the gates and everything they can read (`scripts/`,
-// the test server the mock plays through, the launcher's game-config defaults) and this harness.
-// Anything the diff cannot decide is touched: the rule only ever skips, never widens.
+// (the set `pnpm --filter 'lines...'` selects, which `touched.fixture.mjs` checks against pnpm's
+// own graph), the root build config, the gates and what they read (`scripts/`, the test server the
+// mock plays through, the launcher's game-config defaults) and this harness. Anything the diff
+// cannot decide — git cannot diff it, or this script cannot read the workspace — is touched: the
+// rule only ever skips, never widens.
 //
 //   node scripts/current-games/lib/touched.mjs --base <sha> [--head <ref>]   classify git's diff
 //   … --files -                                                               classify stdin's list
@@ -41,7 +42,9 @@ const ROOT_BUILD_FILES = [
  * What the gates (`gates.mjs`) and the renders read besides the runtime: every `check:*` gate is a
  * script under `scripts/` (and what one imports lives there or in a runtime package), the mock RGS
  * is served through the test server, and `check:stake` plus the game-config fixtures read the
- * launcher's per-template defaults. The harness itself is in `scripts/` too.
+ * launcher's per-template defaults. The harness itself is in `scripts/` too. Accepted exception:
+ * `check:undefined-names` scans every app, package and service, so a launcher or service change
+ * can fail it; Lint runs that gate on every PR, where such a change is caught.
  */
 const GATE_DIRS = ['scripts', 'services/test-server', 'apps/launcher-api/src/lib/data/gameConfig'];
 const HARNESS_FILES = ['.github/workflows/current-games.yml'];
@@ -52,14 +55,20 @@ export const isDoc = (file) =>
 
 const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'));
 
-/** The workspace's package directories (repo-relative), from `pnpm-workspace.yaml`'s globs. */
+/**
+ * The workspace's package directories (repo-relative), from the `packages:` list of
+ * `pnpm-workspace.yaml`. A negated glob is ignored: that can only widen the closure.
+ */
 function workspaceDirs(repo) {
 	const yaml = readFileSync(join(repo, 'pnpm-workspace.yaml'), 'utf8');
 	const dirs = [];
+	let inPackages = false;
 	for (const line of yaml.split('\n')) {
-		const m = /^\s*-\s*["']?([^"'\s#]+)["']?\s*$/.exec(line);
+		if (/^\S/.test(line)) inPackages = /^packages:/.test(line);
+		const m = inPackages && /^\s*-\s*["']?([^"'\s#]+)["']?\s*$/.exec(line);
 		if (!m) continue;
 		const glob = m[1].replace(/\/$/, '');
+		if (glob.startsWith('!')) continue;
 		if (glob.endsWith('/*')) {
 			const parent = glob.slice(0, -2);
 			if (!existsSync(join(repo, parent))) continue;
@@ -107,7 +116,8 @@ export function runtimeInputs(repo = ROOT) {
 	};
 }
 
-const inDir = (file, dir) => file === dir || file.startsWith(`${dir}/`);
+/** Is `file` the directory `dir` or inside it? A path segment, not a string prefix. */
+export const inDir = (file, dir) => file === dir || file.startsWith(`${dir}/`);
 
 /**
  * `{ kind, touching }`: `docs` when every changed file is docs (or nothing changed), `untouched`
@@ -125,13 +135,33 @@ export function classifyChange(files, inputs) {
 /** The commit-status description (≤ 140 characters) for a change that is not rendered. */
 export function describe(result, changed) {
 	if (result.kind === 'docs') return 'Docs-only change: no game can differ';
-	return `Runtime untouched: no game can differ (${changed} changed files reach neither the lines runtime, its gates nor the harness)`;
+	const reach = 'reach neither the lines runtime, its gates nor the harness';
+	return `Runtime untouched: no game can differ (${changed} changed files ${reach})`;
 }
 
-function changedFiles(base, head) {
-	const r = spawnSync('git', ['diff', '--name-only', base, head], { cwd: ROOT, encoding: 'utf8' });
+/**
+ * The files `git diff base head` names, or null when git cannot. Rename detection is OFF: with it
+ * a file moved out of the inputs is listed under its new path only, and the move would read as
+ * untouched.
+ */
+export function changedFiles(base, head, repo = ROOT) {
+	const r = spawnSync('git', ['diff', '--name-only', '--no-renames', base, head], {
+		cwd: repo,
+		encoding: 'utf8',
+	});
 	if (r.status !== 0) return null;
 	return r.stdout.split('\n').filter(Boolean);
+}
+
+/** `classifyChange` over the real inputs, or `unknown` when the workspace cannot be read. */
+function classify(files) {
+	if (!files) return { kind: 'unknown', touching: [] };
+	try {
+		return classifyChange(files, runtimeInputs());
+	} catch (error) {
+		console.error(error);
+		return { kind: 'unknown', touching: [] };
+	}
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
@@ -147,16 +177,13 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
 		console.error('usage: touched.mjs --base <sha> [--head <ref>] | --files -');
 		process.exit(2);
 	}
-	const result = files ? classifyChange(files, runtimeInputs()) : { kind: 'unknown', touching: [] };
+	const result = classify(files);
 	const render = result.kind === 'touched' || result.kind === 'unknown';
-	const description = render ? '' : describe(result, files.length);
+	const description = render ? '' : describe(result, files.filter((f) => !isDoc(f)).length);
 	if (result.kind === 'unknown') console.log('::notice::change set unknown — rendering every game');
 	else if (render)
 		console.log(`runtime inputs changed:\n${result.touching.slice(0, 20).join('\n')}`);
 	else console.log(`::notice::${description}`);
 	if (process.env.GITHUB_OUTPUT)
-		appendFileSync(
-			process.env.GITHUB_OUTPUT,
-			`render=${render}\nreason=${result.kind}\ndescription=${description}\n`,
-		);
+		appendFileSync(process.env.GITHUB_OUTPUT, `render=${render}\ndescription=${description}\n`);
 }

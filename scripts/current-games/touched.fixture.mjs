@@ -7,14 +7,16 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 
 import { ALL_GATES } from './lib/gates.mjs';
 import {
+	changedFiles,
 	classifyChange,
 	describe,
+	inDir,
 	isDoc,
 	runtimeClosure,
 	runtimeInputs,
@@ -24,7 +26,7 @@ import {
 const ROOT = resolve(import.meta.dirname, '../..');
 const TOUCHED = 'scripts/current-games/lib/touched.mjs';
 
-// 1. The closure is pnpm's graph: what `pnpm --filter 'lines^...' build` builds is what counts.
+// 1. The closure is pnpm's graph: `lines` and what `pnpm --filter 'lines^...' build` builds.
 {
 	const r = spawnSync(
 		'pnpm',
@@ -52,11 +54,12 @@ const TOUCHED = 'scripts/current-games/lib/touched.mjs';
 }
 
 const inputs = runtimeInputs();
-const isInput = (file) =>
-	inputs.files.includes(file) || inputs.dirs.some((d) => file === d || file.startsWith(`${d}/`));
+const isInput = (file) => inputs.files.includes(file) || inputs.dirs.some((d) => inDir(file, d));
 
-// 2. Every gate's command names only files inside the inputs: a gate that started reading launcher
-//    code would otherwise run against stale results on a launcher-only PR.
+// 2. Every gate's command line names only files inside the inputs: a gate that moved to launcher
+//    code would otherwise run against stale results on a launcher-only PR. What a gate then reads
+//    is covered by GATE_DIRS by construction (`scripts/`, the test server, the game-config
+//    defaults), bar the accepted `check:undefined-names` exception noted in touched.mjs.
 {
 	const scripts = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).scripts;
 	for (const gate of ALL_GATES) {
@@ -137,6 +140,31 @@ assert.equal(kind(['scripts-old/x.mjs']), 'untouched');
 for (const text of [describe({ kind: 'docs' }, 3), describe({ kind: 'untouched' }, 1234)])
 	assert.ok(text.length <= 140, `status description fits: ${text}`);
 
+// A file MOVED out of the inputs is still a change to them: git's default rename detection would
+// list only the new path, and the move would read as untouched.
+{
+	const repo = mkdtempSync(join(tmpdir(), 'cg-touched-repo-'));
+	const git = (...args) => {
+		const r = spawnSync('git', ['-c', 'user.name=cg', '-c', 'user.email=cg@test', ...args], {
+			cwd: repo,
+			encoding: 'utf8',
+		});
+		assert.equal(r.status, 0, `git ${args.join(' ')}: ${r.stderr}`);
+	};
+	git('init', '-q');
+	mkdirSync(join(repo, 'apps/lines/src'), { recursive: true });
+	writeFileSync(join(repo, 'apps/lines/src/big.ts'), Array.from({ length: 200 }, (_, i) => `export const v${i} = ${i};`).join('\n')); // prettier-ignore
+	git('add', '-A');
+	git('commit', '-q', '-m', 'one');
+	mkdirSync(join(repo, 'tools'));
+	git('mv', 'apps/lines/src/big.ts', 'tools/big.ts');
+	git('commit', '-q', '-m', 'two');
+	const files = changedFiles('HEAD~1', 'HEAD', repo);
+	rmSync(repo, { recursive: true, force: true });
+	assert.deepEqual(files, ['apps/lines/src/big.ts', 'tools/big.ts']);
+	assert.equal(kind(files), 'touched', 'a move out of apps/lines is a change to apps/lines');
+}
+
 // 4. The CLI writes what the workflow reads.
 const cli = (args, input) => {
 	const dir = mkdtempSync(join(tmpdir(), 'cg-touched-'));
@@ -155,20 +183,18 @@ const cli = (args, input) => {
 	const r = cli(['--files', '-'], 'apps/launcher-api/src/x.ts\ndocs/a.md\n');
 	assert.equal(r.status, 0, r.stderr);
 	assert.match(r.written, /^render=false$/m);
-	assert.match(r.written, /^reason=untouched$/m);
-	assert.match(r.written, /^description=Runtime untouched: no game can differ \(2 changed files/m);
+	assert.match(r.written, /^description=Runtime untouched: no game can differ \(1 changed files/m);
 }
 {
 	const r = cli(['--files', '-'], 'docs/a.md\n');
 	assert.match(r.written, /^render=false$/m);
-	assert.match(r.written, /^reason=docs$/m);
 	assert.match(r.written, /^description=Docs-only change: no game can differ$/m);
 }
 {
 	const r = cli(['--files', '-'], 'apps/launcher-api/src/x.ts\napps/lines/src/x.ts\n');
 	assert.match(r.written, /^render=true$/m);
-	assert.match(r.written, /^reason=touched$/m);
 	assert.match(r.written, /^description=$/m);
+	assert.match(r.stdout, /^runtime inputs changed:/m);
 	assert.match(r.stdout, /apps\/lines\/src\/x\.ts/);
 	assert.doesNotMatch(r.stdout, /launcher-api/);
 }
@@ -177,14 +203,14 @@ const cli = (args, input) => {
 	const r = cli(['--base', 'no-such-ref']);
 	assert.equal(r.status, 0, r.stderr);
 	assert.match(r.written, /^render=true$/m);
-	assert.match(r.written, /^reason=unknown$/m);
+	assert.match(r.stdout, /change set unknown/);
 }
 {
 	// Against git for real: HEAD vs HEAD changes nothing.
 	const r = cli(['--base', 'HEAD', '--head', 'HEAD']);
 	assert.equal(r.status, 0, r.stderr);
 	assert.match(r.written, /^render=false$/m);
-	assert.match(r.written, /^reason=docs$/m);
+	assert.match(r.written, /^description=Docs-only change/m);
 }
 {
 	const r = spawnSync(process.execPath, [TOUCHED], { cwd: ROOT, encoding: 'utf8' });
