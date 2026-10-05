@@ -12,7 +12,7 @@ import { PNG } from 'pngjs';
 
 import { assembleReport } from './lib/assemble.mjs';
 import { makePlan, unitId, unitsForShard } from './lib/plan.mjs';
-import { rowVerdict } from './lib/report.mjs';
+import { digest, rowVerdict } from './lib/report.mjs';
 
 let failures = 0;
 const test = async (name, fn) => {
@@ -101,6 +101,17 @@ await test('identical captures on both sides pass', () => {
 	});
 	assert.equal(row.looks.status, 'same');
 	assert.equal(rowVerdict(row), 'pass');
+});
+
+await test('the digest counts byte-identical screens and names one that passed under the threshold', () => {
+	const row = scenarioRun('noise', {
+		base: { base: { screens: { a: 1, b: 1 } }, head: { screens: { a: 1, b: 2 } } },
+	});
+	assert.equal(rowVerdict(row), 'pass');
+	assert.match(
+		digest({ games: [row] }),
+		/^noise: 1 of 2 compared screen\(s\) byte-identical; passed under the colour threshold, not byte-identical: g\/b$/m,
+	);
 });
 
 await test('one differing pixel fails the row, with a stable id', () => {
