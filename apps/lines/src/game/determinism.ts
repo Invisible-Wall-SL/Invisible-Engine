@@ -23,10 +23,12 @@
  *   `IO_STALL_MS` counts a stall and gives up on what it waited on, once.
  * - **Ready signal.** `window.__IE_DETERMINISM__` (see `DeterminismApi`): `step(n)` and
  *   `waitFor({ screen, idle, … })`, reading `Game.svelte`'s probe.
- * - **Drawing.** Every frame draws by default. `draw: 'last'` runs the frames without the WebGL
- *   draw and draws once at the end: the same updates, ~100× faster under software GL (a draw is
- *   ~99% of a frame there). Nothing in the game reads a drawn frame back (no render-to-texture);
- *   one that did would read blank in `last`. A harness uses one mode on both sides of a comparison.
+ * - **Drawing.** Every draw rebuilds Pixi's instructions from the scene (see `drawFromScene`), so
+ *   what is drawn depends on the scene alone. Every frame draws by default. `draw: 'last'` runs
+ *   the frames without the WebGL draw and draws once at the end: the same updates, ~100× faster
+ *   under software GL (a draw is ~99% of a frame there). Nothing in the game reads a drawn frame
+ *   back (no render-to-texture); one that did would read blank in `last`. A harness uses one
+ *   mode on both sides of a comparison.
  * - **Time zone and locale** are the browser's; a harness pins them (CDP `setTimezoneOverride`).
  */
 
@@ -72,6 +74,8 @@ export type DeterminismCondition = {
 /** `every` frame (default) or only the `last` one of a call. */
 export type DeterminismDraw = 'every' | 'last';
 
+type RenderGroupLike = { structureDidChange: boolean; renderGroupChildren?: RenderGroupLike[] };
+type ContainerLike = { renderGroup?: RenderGroupLike; parentRenderGroup?: RenderGroupLike };
 type PixiAppLike = { render(): void; renderer: { render(...args: unknown[]): void } };
 
 export type DeterminismState = DeterminismProbeState & {
@@ -472,8 +476,32 @@ export function installDeterminism(): void {
 		}
 	};
 	const pixiApp = () => (globalThis as { __PIXI_APP__?: PixiAppLike }).__PIXI_APP__;
+	// Every draw rebuilds its instructions from the scene. Pixi updates the instructions of a
+	// changed object in place, at the batch offset it remembers from the last build, and that
+	// state depends on the order updates came in, not only on the scene: two renders of one build
+	// once left the same frame with a HUD text written twice in one and once in the other. A fresh
+	// build is a function of the scene alone.
+	const rebuilt = new WeakSet<object>();
+	const markRebuild = (group: RenderGroupLike | undefined) => {
+		if (!group) return;
+		group.structureDidChange = true;
+		for (const child of group.renderGroupChildren ?? []) markRebuild(child);
+	};
+	const drawFromScene = () => {
+		const renderer = pixiApp()?.renderer;
+		if (!renderer || rebuilt.has(renderer)) return;
+		rebuilt.add(renderer);
+		const render = renderer.render;
+		renderer.render = function (this: unknown, ...args: unknown[]) {
+			const options = args[0] as ({ container?: ContainerLike } & ContainerLike) | undefined;
+			const container = options?.container ?? options;
+			markRebuild(container?.renderGroup ?? container?.parentRenderGroup);
+			return render.apply(this, args);
+		};
+	};
 	const runFrame = async (draw: boolean) => {
 		await settle();
+		drawFromScene();
 		const target = now + DETERMINISM_FRAME_MS;
 		for (let due = nextDueTimer(target); due; due = nextDueTimer(target)) {
 			const [id, timer] = due;
@@ -520,7 +548,10 @@ export function installDeterminism(): void {
 			await runFrame(every);
 			ran = true;
 		}
-		if (ran && !every) pixiApp()?.render();
+		if (ran && !every) {
+			drawFromScene();
+			pixiApp()?.render();
+		}
 	};
 
 	const readProbe = (): DeterminismProbeState => {
