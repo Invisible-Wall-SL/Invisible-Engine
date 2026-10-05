@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { compareScreens, identical, toleranceFor } from './compare.mjs';
+import { compareScreens, cropAround, identical, toleranceFor } from './compare.mjs';
 import { gatesFor, runGate } from './gates.mjs';
 import { safe, unitId } from './plan.mjs';
 import { writeReport } from './report.mjs';
@@ -45,7 +45,10 @@ const failureOf = (r, side, scenario) =>
 			}
 		: undefined;
 
-function gameRow(planned, { unitDirs, out, tolerance, headSha, buildStatus, gates, keepScreens }) {
+function gameRow(
+	planned,
+	{ unitDirs, out, tolerance, headSha, buildStatus, gates, keepScreens, crops },
+) {
 	const { game, script } = planned;
 	const row = {
 		key: game.key,
@@ -137,6 +140,14 @@ function gameRow(planned, { unitDirs, out, tolerance, headSha, buildStatus, gate
 					box: c.box,
 				};
 				shot.diffHash = c.diffHash;
+				shot.heatmap = c.heatmap;
+				if (c.diffPng && process.env.CURRENT_GAMES_LOG_IMAGES) {
+					const crop = cropAround(before, after, c.diffPng);
+					crops.push(
+						`== ${game.key} ${screen} crop x${crop.x} y${crop.y} ${crop.w}x${crop.h}`,
+						...['before', 'after', 'diff'].map((k, i) => `${k} ${crop.images[i]}`),
+					);
+				}
 				if (c.diffPng) {
 					writeFileSync(join(out, 'screens', `${stem}.diff.png`), c.diffPng);
 					shot.images = { diff: `screens/${stem}.diff.png` };
@@ -214,6 +225,7 @@ export function assembleReport({
 	extra = {},
 }) {
 	mkdirSync(join(out, 'screens'), { recursive: true });
+	const crops = [];
 	const buildStatus = plan.buildStatus ?? { status: 'pass' };
 	const games = plan.aborted
 		? []
@@ -226,8 +238,12 @@ export function assembleReport({
 					buildStatus,
 					gates,
 					keepScreens,
+					crops,
 				}),
 			);
+	// Opt-in (`CURRENT_GAMES_LOG_IMAGES`): never inside the report, whose redaction would mask the
+	// base64 as token-shaped.
+	if (crops.length) writeFileSync(join(out, 'crops.txt'), `${crops.join('\n')}\n`);
 	const seconds = Object.fromEntries(
 		games.map((g) => [
 			g.key,

@@ -4,7 +4,7 @@
 //   node scripts/current-games/run.mjs
 //     [--base-ref origin/main | --base-build <dir>] [--head-build <dir>]
 //     [--games-file <json>] [--manifest-file <json>] [--only k1,k2] [--scenario id,id]
-//     [--seed current-games] [--out <dir>] [--cache <dir>] [--jobs 2]
+//     [--seed current-games] [--out <dir>] [--cache <dir>] [--jobs 1]
 //     [--no-gates | --gates-file <json>] [--keep-screens] [--trace] [--chrome <exe>]
 //     [--phase all | plan | render | compare] [--plan <json>] [--shard 1/4] [--units <dir>,…]
 //
@@ -53,7 +53,7 @@ const { values: opt } = parseArgs({
 		only: { type: 'string' },
 		scenario: { type: 'string' },
 		shard: { type: 'string', default: '1/1' },
-		jobs: { type: 'string', default: '2' },
+		jobs: { type: 'string', default: '1' },
 		seed: { type: 'string', default: 'current-games' },
 		out: { type: 'string', default: join(ROOT, '.cache/current-games/report') },
 		cache: { type: 'string', default: join(ROOT, '.cache/current-games') },

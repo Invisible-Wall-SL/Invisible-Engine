@@ -45,6 +45,10 @@ on:
         description: Render the ref against itself (noise calibration)
         type: boolean
         default: true
+      log_images:
+        description: Print a crop of every changed screen into the log (base64 PNG)
+        type: boolean
+        default: false
 
 concurrency:
   group: current-games-${{ github.event_name }}-${{ github.event.pull_request.head.sha || github.sha }}
@@ -60,7 +64,7 @@ env:
   STATUS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
   STATUS_CONTEXT: ${{ inputs.self_compare && 'current-games/self-compare' || 'current-games' }}
-  SHARDS: 10
+  SHARDS: 16
 
 jobs:
   prepare:
@@ -250,7 +254,8 @@ jobs:
           path: .cache/current-games/plan
 
   # A render unit is one side of one scenario of one game; the plan balances the units across the
-  # shards by their measured cost, and each shard renders two at a time.
+  # shards by their measured cost (`costs.json`). One at a time: SwiftShader already uses every
+  # core, so a second lane only halved each unit's speed (measured 2026-10-05).
   render:
     needs: [prepare, build]
     runs-on: ubuntu-latest
@@ -258,7 +263,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
     steps:
       - uses: actions/checkout@v7
 
@@ -307,7 +312,7 @@ jobs:
             --plan .cache/current-games/plan/plan.json --shard "${{ matrix.shard }}/$SHARDS" \
             --base-build ".cache/current-games/runtimes/${{ needs.prepare.outputs.base }}" \
             --head-build .cache/current-games/runtimes/working-tree \
-            --out "part-${{ matrix.shard }}"
+            --jobs 1 --out "part-${{ matrix.shard }}"
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -357,6 +362,7 @@ jobs:
           CURRENT_GAMES_R2_ACCESS_KEY_ID: ${{ secrets.CURRENT_GAMES_R2_ACCESS_KEY_ID }}
           CURRENT_GAMES_R2_SECRET_ACCESS_KEY: ${{ secrets.CURRENT_GAMES_R2_SECRET_ACCESS_KEY }}
           CURRENT_GAMES_HEAD_SHA: ${{ env.STATUS_SHA }}
+          CURRENT_GAMES_LOG_IMAGES: ${{ inputs.log_images && '1' || '' }}
         run: |
           set +e
           units="$(ls -d parts/current-games-part-* 2>/dev/null | paste -sd, -)"
@@ -364,6 +370,7 @@ jobs:
             --gates-file plan/gates.json --units "$units" --out report
           # Every non-pass row's cause, for reading without downloading the artifact.
           cat report/digest.txt 2>/dev/null
+          cat report/crops.txt 2>/dev/null
           { echo '### Current games'; tail -n 1 report/summary.txt || echo 'no report was made'; } \
             >> "$GITHUB_STEP_SUMMARY"
           true

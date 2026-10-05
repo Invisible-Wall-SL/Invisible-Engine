@@ -196,6 +196,8 @@ export function digest(report) {
 					` · frames ${s.state?.base?.frame ?? '-'}/${s.state?.head?.frame ?? '-'}` +
 					` · screens ${s.state?.base?.screens?.join('>') ?? '-'} | ${s.state?.head?.screens?.join('>') ?? '-'}`,
 			);
+		for (const s of g.screens.filter((x) => !x.pass && x.heatmap))
+			lines.push(`    ${s.screen} diff map:`, ...s.heatmap.map((r) => `      |${r}|`));
 	}
 	return lines.join('\n');
 }
@@ -205,6 +207,18 @@ export function digest(report) {
  * workflow's status step and log.
  */
 export function writeSummaryFiles(out, report) {
-	writeFileSync(join(out, 'digest.txt'), `${digest(report)}\n`);
+	// Each scenario's slower side, for `costs.json` (the shard balance).
+	const seconds = Object.fromEntries(
+		report.games.flatMap((g) =>
+			Object.entries(g.timings ?? {}).map(([sc, t]) => [
+				`${g.key}/${sc}`,
+				Math.round(Math.max(t.base, t.head)),
+			]),
+		),
+	);
+	writeFileSync(
+		join(out, 'digest.txt'),
+		`${digest(report)}\ncosts: ${JSON.stringify({ seconds })}\n`,
+	);
 	writeFileSync(join(out, 'summary.txt'), `${report.summary.verdict}\n${report.summary.line}\n`);
 }

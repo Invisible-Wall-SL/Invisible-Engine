@@ -3,7 +3,7 @@
 // snapshots), with which mock contract and scenarios, and the render UNITS — one side
 // (base | head) of one scenario of one game — balanced across the shards.
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { currentSnapshot } from './games.mjs';
@@ -51,12 +51,23 @@ function contractFor(game, manifest) {
 }
 
 /**
- * Relative cost of rendering one side of a scenario, measured on the live games (2026-10-05, CI
- * runner, SwiftShader WebGL): a `draw: 'every'` canary 120–330 s, big-wins 90–135 s (18 000 frames),
- * free spins ~55 s, the rest 10–25 s. Only the balance across shards depends on it.
+ * Seconds one side of a scenario takes to render: measured per game in `costs.json` (`<game
+ * key>/<scenario>` → seconds, the larger side; the report's `costs` line refreshes it), else by
+ * scenario from the live games' 2026-10-05 run on a CI runner with SwiftShader WebGL — a
+ * `draw: 'every'` canary 120–350 s, big-wins 90–210 s, free spins ~60 s, the rest 10–45 s. Only the
+ * balance across shards depends on it.
  */
-const weightOf = (scenario) =>
-	scenario.canary ? 300 : scenario.id === 'big-wins' ? 130 : scenario.id === 'free-spins' ? 60 : 25;
+const COSTS_FILE = join(HERE, 'costs.json');
+const measured = existsSync(COSTS_FILE) ? JSON.parse(readFileSync(COSTS_FILE, 'utf8')).seconds : {};
+const weightOf = (key, scenario) =>
+	measured[`${key}/${scenario.id}`] ??
+	(scenario.canary
+		? 300
+		: scenario.id === 'big-wins'
+			? 130
+			: scenario.id === 'free-spins'
+				? 60
+				: 25);
 
 /**
  * `games` as the list endpoint gives them, filtered by `only` (keys) and `scenarioIds`. Every game
@@ -118,7 +129,7 @@ export async function makePlan({ games, manifest, only, scenarioIds }) {
 			);
 		entry.scenarios = scenarios
 			.filter((sc) => !skipped.includes(sc))
-			.map((sc) => ({ id: sc.id, canary: Boolean(sc.canary), weight: weightOf(sc) }));
+			.map((sc) => ({ id: sc.id, canary: Boolean(sc.canary), weight: weightOf(g.key, sc) }));
 	}
 	const units = planned.flatMap((p) =>
 		p.scenarios.flatMap((sc) =>
