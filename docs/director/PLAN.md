@@ -10,6 +10,7 @@
 
 **How phases run:**
 - Each phase works on its own small branches off `main`.
+- A session that can only push to its own designated branch uses that branch instead of the card's name; the PR is what counts.
 - PR titles use the existing scopes with a `director` detail (`launcher(director): …`, `pipeline(director): …`, `docs(director): …`), as `scripts/check-commit-scope.mjs` requires, and are squash-merged per repo convention.
 - Nothing merges without the owner.
 
@@ -31,28 +32,28 @@ starts once A and B are merged.
 
 | Card | Branch | Tasks | Depends on |
 |---|---|---|---|
-| A | `pipeline/games-list-endpoint` | 1.1 | — |
-| B | `engine/determinism-hook` | 1.2 | — |
-| C | `launcher/director-registry` | 1.7–1.10 | — |
-| D | `launcher/director-costs-budget` | 1.11–1.12 | C (rebase onto it if C merges first; otherwise independent) |
-| E | `pipeline/current-games-harness` | 1.3–1.6 | A, B |
+| A | merged #1035 | 1.1 | — |
+| B | merged #1036 | 1.2 | — |
+| C | merged #1037 (+ follow-up #1038) | 1.7–1.10 | — |
+| D | `launcher/director-costs-budget` (in progress) | 1.11–1.12 | C (merged) |
+| E | `pipeline/current-games-harness` | 1.3–1.6 | A, B (both merged): ready |
 
 The current-games harness is the priority: every later merge depends on it.
 
 | # | Task | Card | Owner | Status | Acceptance |
 |---|---|---|---|---|---|
-| 1.1 | Game-list source for CI: `/api/pipeline/games` (CI-token gated, read-only) | A | platform-integrator | todo | A `check:` fixture shows 401 without the token; the list equals `listGames()` |
-| 1.2 | Determinism hook in the runtime: a test-only flag for clock, seed and GSAP stepping | B | regression-guardian (+ engine-pixi-svelte) | todo | With the flag off, the bundle behaves the same and screenshots are unchanged; with it on, two runs give pixel-identical captures |
+| 1.1 | Game-list source for CI: `/api/pipeline/games` (CI-token gated, read-only) | A | platform-integrator | done | A `check:` fixture shows 401 without the token; the list equals `listGames()` |
+| 1.2 | Determinism hook in the runtime: a test-only flag for clock, seed and GSAP stepping | B | regression-guardian (+ engine-pixi-svelte) | done | With the flag off, the bundle behaves the same and screenshots are unchanged; with it on, two runs give pixel-identical captures |
 | 1.3 | Screen scripts per game type (`scripts/current-games/screens/<type>.json`) with forced books | E | regression-guardian | todo | Every live game type covered; 12–14 screens each; reviewed by the owner |
 | 1.4 | Harness runner: build both runtimes, serve snapshots, capture, pixelmatch with `tolerance.json`, report JSON/HTML | E | regression-guardian | todo | main vs main → 0 differences on every game, twice in a row; per-screen noise measured and recorded |
 | 1.5 | `current-games.yml` workflow + commit status + artifact | E | regression-guardian | todo | The status can be made required; sharded; runs in under 15 min |
 | 1.6 | Seeded proof: an intentional 1 px engine change is caught | E | regression-guardian | todo | The harness reports exactly the changed screens, and the revert turns it green |
-| 1.7 | `director` and `pipelineChanges` in `TOOLS`; new `pipeline` stage; "new" badge; icons in the 4 toolbar twins | C | platform-integrator | todo | `check:toolbar-icons` passes; the launcher shows CREATE and PIPELINE as in mockup 01 |
-| 1.8 | `pipelineMerge` capability and role defaults | C | platform-integrator | todo | The Admin › Roles matrix matches mockup 06; a fixture covers defaults, role overrides and user overrides |
-| 1.9 | Empty `/director` and `/pipeline` pages: full width, `ToolTopBar`, gated | C | platform-integrator | todo | 403 for a role without the tool; no iframe |
-| 1.10 | `docs/tools/director.md`, `docs/tools/pipeline-changes.md`, README rows, `TOOL_DOC_SLUG` | C | platform-integrator (docs-keeper) | todo | `/docs/<slug>` renders (repo rule 9) |
-| 1.11 | Costs: `anthropicAgents` provider, `director_spend` table + migration, card + monthly column; `pricing.json` | D | platform-integrator | todo | The card renders with $0; prices come from the file; a fixture computes the cost of a sample `usage` with cache reads at 0.1× |
-| 1.12 | Settings: `DIRECTOR_RUN_BUDGET_USD` (default 25) card + action | D | platform-integrator | todo | Validated, clamped, and degrades on a DB error like `getRunpodIdleConfig` |
+| 1.7 | `director` and `pipelineChanges` in `TOOLS`; new `pipeline` stage; "new" badge; icons in the 4 toolbar twins | C | platform-integrator | done | `check:toolbar-icons` passes; the launcher shows CREATE and PIPELINE as in mockup 01 |
+| 1.8 | `pipelineMerge` capability and role defaults | C | platform-integrator | done | The Admin › Roles matrix matches mockup 06; a fixture covers defaults, role overrides and user overrides |
+| 1.9 | Empty `/director` and `/pipeline` pages: full width, `ToolTopBar`, gated | C | platform-integrator | done | 403 for a role without the tool; no iframe |
+| 1.10 | `docs/tools/director.md`, `docs/tools/pipeline-changes.md`, README rows, `TOOL_DOC_SLUG` | C | platform-integrator (docs-keeper) | done | `/docs/<slug>` renders (repo rule 9) |
+| 1.11 | Costs: `anthropicAgents` provider, `director_spend` table + migration, card + monthly column; `pricing.json` | D | platform-integrator | doing | The card renders with $0; prices come from the file; a fixture computes the cost of a sample `usage` with cache reads at 0.1× |
+| 1.12 | Settings: `DIRECTOR_RUN_BUDGET_USD` (default 25) card + action | D | platform-integrator | doing | Validated, clamped, and degrades on a DB error like `getRunpodIdleConfig` |
 
 ## Phase 2 — Tool adapters · branch `director/adapters`
 
