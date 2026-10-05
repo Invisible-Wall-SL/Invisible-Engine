@@ -31,15 +31,28 @@ runs:
         BEFORE: ${{ github.event.before }}
       run: |
         base=''
+        # Depth flags only on a shallow checkout: on a full one (fetch-depth: 0) they would MAKE it
+        # shallow, cutting the history a later merge-base needs.
+        shallow="$(git rev-parse --is-shallow-repository)"
         if [ "$EVENT" = pull_request ]; then
           base="$(git rev-parse -q --verify 'HEAD^1' || true)"
         elif [ "$EVENT" = push ] && [ -z "${BEFORE//0/}" ]; then
-          # The checkout is shallow: deepen both sides until they meet (a branch is rarely 200 behind).
-          git fetch -q --no-tags --depth=200 origin +refs/heads/main:refs/remotes/origin/main 2>/dev/null &&
-            git fetch -q --no-tags --deepen=200 origin "$GITHUB_REF" 2>/dev/null
+          # A new branch: diff against where it left main (a branch is rarely 200 commits behind).
+          if [ "$shallow" = true ]; then
+            git fetch -q --no-tags --depth=200 origin +refs/heads/main:refs/remotes/origin/main &&
+              git fetch -q --no-tags --deepen=200 origin "$GITHUB_REF" || true
+          else
+            git fetch -q --no-tags origin +refs/heads/main:refs/remotes/origin/main || true
+          fi
           base="$(git merge-base origin/main HEAD 2>/dev/null || true)"
-        elif [ "$EVENT" = push ] && git fetch -q --no-tags --depth=1 origin "$BEFORE" 2>/dev/null; then
-          base="$BEFORE"
+        elif [ "$EVENT" = push ]; then
+          if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            base="$BEFORE"
+          elif [ "$shallow" = true ]; then
+            git fetch -q --no-tags --depth=1 origin "$BEFORE" 2>/dev/null && base="$BEFORE"
+          else
+            git fetch -q --no-tags origin "$BEFORE" 2>/dev/null && base="$BEFORE"
+          fi
         fi
         if [ -z "$base" ] || ! files="$(git diff --name-only "$base" HEAD)"; then
           echo "::notice::change set unknown — running every step"
