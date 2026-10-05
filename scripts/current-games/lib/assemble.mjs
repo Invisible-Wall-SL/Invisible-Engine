@@ -148,7 +148,18 @@ function gameRow(
 				shot.heatmap = c.heatmap;
 				if (c.diffPng && process.env.CURRENT_GAMES_LOG_IMAGES) {
 					const crop = cropAround(before, after, c.diffPng);
-					const only = (xs = [], ys = []) => xs.filter((x) => !ys.includes(x)).join(' | ');
+					// A multiset difference: a line twice on one side and once on the other shows.
+					const only = (xs = [], ys = []) => {
+						const left = [...ys];
+						return xs
+							.filter((x) => {
+								const i = left.indexOf(x);
+								if (i < 0) return true;
+								left.splice(i, 1);
+								return false;
+							})
+							.join(' | ');
+					};
 					const fonts = [sides.base, sides.head].map((r) => r.screens[screen]?.fonts);
 					const texts = [sides.base, sides.head].map((r) => r.screens[screen]?.texts);
 					const ext = [sides.base, sides.head].map((r) => r.external ?? []);

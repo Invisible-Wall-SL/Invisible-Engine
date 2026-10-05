@@ -24,9 +24,10 @@ const BOOT_PROBE_FRAMES = 10;
 const FONTS =
 	'[...document.fonts].map((f) => `${f.family} ${f.weight} ${f.style} ${f.status}`).sort()';
 // …and every visible Pixi text on stage: what it says, the font it asks for, whether that font is
-// usable now, its measured size, and two hashes — of the texture it was rasterized into (read
-// back from the GPU) and of a fresh raster of it made now. Equal fresh rasters with unequal
-// textures mean a text was rasterized while the fonts were in another state.
+// usable now, its measured size, two hashes — of the texture it was rasterized into (read back
+// from the GPU) and of a fresh raster of it made now — and where it is drawn: alpha, world
+// transform and parents. Equal fresh rasters with unequal textures mean a text was rasterized
+// while the fonts were in another state; equal textures drawn differently show in the rest.
 const TEXTS = `(() => {
 	const app = window.__PIXI_APP__;
 	const renderer = app?.renderer;
@@ -64,6 +65,9 @@ const TEXTS = `(() => {
 				\`measured \${node.width.toFixed(2)}x\${node.height.toFixed(2)}\`,
 				\`texture \${current ? pixels(current) : 'none'}\`,
 				\`fresh \${fresh}\`,
+				\`alpha \${node.groupAlpha?.toFixed(4) ?? node.worldAlpha?.toFixed(4)}\`,
+				\`at \${[node.worldTransform.tx, node.worldTransform.ty, node.worldTransform.a, node.worldTransform.d].map((v) => v.toFixed(3)).join(',')}\`,
+				\`in \${node.parent?.label ?? '-'}/\${node.parent?.parent?.label ?? '-'}\`,
 			].join(' '));
 		}
 		for (const c of node.children ?? []) walk(c);
