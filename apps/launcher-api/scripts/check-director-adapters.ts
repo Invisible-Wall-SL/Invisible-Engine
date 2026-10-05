@@ -302,6 +302,7 @@ const {
 } = await import(src('lib/server/director/registry.ts'));
 const { GAMEMAKER_OPS } = await import(src('lib/server/director/ops/gamemaker.ts'));
 const { ATLAS_OPS } = await import(src('lib/server/director/ops/atlas.ts'));
+const { MOCKUP_OPS } = await import(src('lib/server/director/ops/mockups.ts'));
 const { defineOp, DIRECTOR_AGENTS } = await import(src('lib/server/director/adapter.ts'));
 const { refusedOp, refusedWriteTarget } = await import(src('lib/server/director/refusals.ts'));
 const { putObjectText, precondition } = await import(src('lib/server/r2.ts'));
@@ -647,7 +648,7 @@ for (const [tool, op, id] of REFUSED) {
 check(
 	'no registered op is refused',
 	[...ADAPTER_OPS.keys()].length,
-	GAMEMAKER_OPS.length + ATLAS_OPS.length,
+	GAMEMAKER_OPS.length + ATLAS_OPS.length + MOCKUP_OPS.length,
 );
 
 // ── 2.2 Target-key guard, whatever op declares the key ────────────────────────

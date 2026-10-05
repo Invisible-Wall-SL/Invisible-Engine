@@ -130,10 +130,19 @@ export async function releaseLease(
 	return rows.length === 1;
 }
 
+/** An event a transition appends alongside its `run_status` row, in the same transaction. */
+export interface WriteEvent {
+	agent: string;
+	kind: string;
+	tool: string | null;
+	payload: unknown;
+}
+
 /**
- * Persist a transition `transition()` returned, with its `run_status` event, as one transaction —
- * only if this claim still holds a live lease AND the run is still in `from` (so a stale view of the
- * run can never overwrite a newer one). False = nothing was written; drop the run.
+ * Persist a transition `transition()` returned, with its `run_status` event and any `events` that
+ * belong to it (a checkpoint opening with its content), as one transaction — only if this claim
+ * still holds a live lease AND the run is still in `from` (so a stale view of the run can never
+ * overwrite a newer one). False = nothing was written; drop the run.
  */
 export async function writeState(
 	sql: Sql,
@@ -141,6 +150,7 @@ export async function writeState(
 	from: RunState,
 	to: RunState,
 	cause: string,
+	events: WriteEvent[] = [],
 ): Promise<boolean> {
 	return sql.begin(async (tx) => {
 		const rows = await tx`
@@ -159,6 +169,13 @@ export async function writeState(
 				to: { status: to.status, step: to.step, waitingOn: to.waitingOn },
 				cause,
 			})})`;
+		for (const event of events) {
+			await tx`
+				insert into director_events (run_id, agent, kind, tool, payload_json)
+				values (${run.id}, ${event.agent}, ${event.kind}, ${event.tool}, ${tx.json(
+					event.payload as never,
+				)})`;
+		}
 		return true;
 	});
 }

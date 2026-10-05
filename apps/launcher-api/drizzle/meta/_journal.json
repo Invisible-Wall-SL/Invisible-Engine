@@ -169,6 +169,13 @@
       "when": 1791191555984,
       "tag": "0023_director_atlas_jobs",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791215184462,
+      "tag": "0024_director_events_notify",
+      "breakpoints": true
     }
   ]
 }

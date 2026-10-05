@@ -2,9 +2,10 @@
 # Dockerfile Path = services/director-worker/Dockerfile), like the other repo-root services.
 #
 # Node 22 runs the TypeScript directly (type stripping), so there is no build step and no dist/: the
-# image holds the service's own folder — source, agent definitions and pricing.json — and its one
-# runtime dependency. Installed with npm because the service has no workspace dependencies, so it
-# does not need the rest of the pnpm workspace in the image; `postgres` is pinned and has no deps.
+# image holds the service's own folder — source, agent definitions and pricing.json — and its two
+# runtime dependencies (`postgres`, `@anthropic-ai/sdk`), both pinned. Installed with npm because
+# the service has no workspace dependencies, so it does not need the rest of the pnpm workspace in
+# the image.
 FROM node:22-slim
 
 WORKDIR /app

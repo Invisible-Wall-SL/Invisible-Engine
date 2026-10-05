@@ -28,6 +28,7 @@ export const ADAPTER_OPS = [
 	'mockups.list',
 	'mockups.get_image',
 	'mockups.get_crop',
+	'mockups.save_crops',
 	'rigger.list_rigs',
 	'rigger.rebind_attachments',
 	'flipbook.list_clips',

@@ -1,4 +1,4 @@
-import { and, eq, lt } from 'drizzle-orm';
+import { and, asc, eq, gt, lt } from 'drizzle-orm';
 import { getDb } from '../db';
 import {
 	directorAtlasJobs,
@@ -7,6 +7,7 @@ import {
 	directorRuns,
 	users,
 	type DirectorAtlasJob,
+	type DirectorEvent,
 	type DirectorOp,
 	type DirectorRun,
 } from '../db/schema';
@@ -198,4 +199,27 @@ export async function settleAtlasJob(done: {
 		});
 		return row;
 	});
+}
+
+/** The run's events after `afterId`, oldest first — the live stream's catch-up read. */
+export async function listEventsAfter(
+	runId: string,
+	afterId: number,
+	limit: number,
+): Promise<DirectorEvent[]> {
+	return getDb()
+		.select()
+		.from(directorEvents)
+		.where(and(eq(directorEvents.runId, runId), gt(directorEvents.id, afterId)))
+		.orderBy(asc(directorEvents.id))
+		.limit(limit);
+}
+
+/** One event of the run, or null — a NOTIFY names it and the stream fetches it. */
+export async function getEvent(runId: string, id: number): Promise<DirectorEvent | null> {
+	const [row] = await getDb()
+		.select()
+		.from(directorEvents)
+		.where(and(eq(directorEvents.runId, runId), eq(directorEvents.id, id)));
+	return row ?? null;
 }

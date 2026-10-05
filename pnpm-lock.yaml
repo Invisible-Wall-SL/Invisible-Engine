@@ -2281,6 +2281,9 @@ importers:
 
   services/director-worker:
     dependencies:
+      '@anthropic-ai/sdk':
+        specifier: 0.128.0
+        version: 0.128.0(zod@3.23.8)
       postgres:
         specifier: 3.4.9
         version: 3.4.9

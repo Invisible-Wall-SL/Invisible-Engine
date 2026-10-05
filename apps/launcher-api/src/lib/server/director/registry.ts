@@ -1,6 +1,7 @@
 import { isDirectorAgent, type AdapterOp } from './adapter';
 import { ATLAS_OPS } from './ops/atlas';
 import { GAMEMAKER_OPS } from './ops/gamemaker';
+import { MOCKUP_OPS } from './ops/mockups';
 import { assertNoRefusedOps } from './refusals';
 
 /** `<tool>.<op>` — the id an agent's frontmatter `tools:` list names. */
@@ -48,4 +49,4 @@ export function buildRegistry(ops: readonly AdapterOp[]): ReadonlyMap<string, Ad
 }
 
 /** Every Director adapter op. The rest arrive with PLAN 2.6. */
-export const ADAPTER_OPS = buildRegistry([...GAMEMAKER_OPS, ...ATLAS_OPS]);
+export const ADAPTER_OPS = buildRegistry([...GAMEMAKER_OPS, ...ATLAS_OPS, ...MOCKUP_OPS]);
