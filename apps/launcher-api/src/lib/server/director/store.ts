@@ -1,6 +1,15 @@
 import { and, eq, lt } from 'drizzle-orm';
 import { getDb } from '../db';
-import { directorOps, directorRuns, users, type DirectorOp, type DirectorRun } from '../db/schema';
+import {
+	directorAtlasJobs,
+	directorEvents,
+	directorOps,
+	directorRuns,
+	users,
+	type DirectorAtlasJob,
+	type DirectorOp,
+	type DirectorRun,
+} from '../db/schema';
 
 /**
  * Postgres access for the Director adapter gate (ADR-0002): the run stub, the run owner the
@@ -112,4 +121,81 @@ export async function releaseOp(opId: string): Promise<void> {
 	await getDb()
 		.delete(directorOps)
 		.where(and(eq(directorOps.opId, opId), eq(directorOps.status, 'pending')));
+}
+
+/** Record a still render a run queued, as atlas-tool named it. */
+export async function insertAtlasJob(row: {
+	jobRef: string;
+	runId: string;
+	agent: string;
+	atlas: string;
+	regions: string[];
+}): Promise<void> {
+	await getDb().transaction(async (tx) => {
+		const inserted = await tx
+			.insert(directorAtlasJobs)
+			.values({ ...row, status: 'queued' })
+			.onConflictDoNothing({ target: directorAtlasJobs.jobRef })
+			.returning({ jobRef: directorAtlasJobs.jobRef });
+		if (inserted.length === 0) return;
+		await tx.insert(directorEvents).values({
+			runId: row.runId,
+			agent: row.agent,
+			kind: 'job_queued',
+			tool: 'atlas.queue_variants',
+			payloadJson: { jobRef: row.jobRef, atlas: row.atlas, regions: row.regions },
+		});
+	});
+}
+
+export async function getAtlasJob(jobRef: string): Promise<DirectorAtlasJob | null> {
+	const [row] = await getDb()
+		.select()
+		.from(directorAtlasJobs)
+		.where(eq(directorAtlasJobs.jobRef, jobRef));
+	return row ?? null;
+}
+
+/**
+ * The run's `job_done`: move a queued render of `runId` to its terminal status and append the
+ * `job_done` event that wakes the worker, in one transaction. Conditional on it still being
+ * `queued`, so of the callback, its redeliveries and the `/progress` fallback, exactly one records
+ * it. Returns the settled row to that one caller, and `null` to every other.
+ */
+export async function settleAtlasJob(done: {
+	jobRef: string;
+	runId: string;
+	status: 'finished' | 'failed' | 'cancelled';
+	result: unknown;
+	via: 'callback' | 'poll';
+}): Promise<DirectorAtlasJob | null> {
+	return getDb().transaction(async (tx) => {
+		const [row] = await tx
+			.update(directorAtlasJobs)
+			.set({ status: done.status, result: done.result, doneVia: done.via, doneAt: new Date() })
+			.where(
+				and(
+					eq(directorAtlasJobs.jobRef, done.jobRef),
+					eq(directorAtlasJobs.runId, done.runId),
+					eq(directorAtlasJobs.status, 'queued'),
+				),
+			)
+			.returning();
+		if (!row) return null;
+		await tx.insert(directorEvents).values({
+			runId: row.runId,
+			agent: row.agent,
+			kind: 'job_done',
+			tool: 'atlas.queue_variants',
+			payloadJson: {
+				jobRef: row.jobRef,
+				atlas: row.atlas,
+				regions: row.regions,
+				status: row.status,
+				via: done.via,
+				result: done.result,
+			},
+		});
+		return row;
+	});
 }

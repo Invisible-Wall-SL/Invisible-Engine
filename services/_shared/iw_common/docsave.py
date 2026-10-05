@@ -61,6 +61,11 @@ def stamp(doc: dict, identity, tool: str, now: float | None = None) -> dict:
         "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
         "rev": secrets.token_hex(6),
     }
+    act_tool = str(getattr(ident, "act_tool", "") or "")
+    if act_tool:
+        # An agent's save names the agent and its run, not the tool it drove.
+        by.update(tool=act_tool, agent=str(getattr(ident, "act_agent", "") or ""),
+                  runId=str(getattr(ident, "act_run", "") or ""))
     doc[SAVED_BY] = by
     return by
 

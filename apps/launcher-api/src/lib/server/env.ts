@@ -290,6 +290,13 @@ export const ENV = {
 	get DIRECTOR_SERVICE_TOKEN() {
 		return (env.DIRECTOR_SERVICE_TOKEN ?? '').trim();
 	},
+	/** Shared with atlas-tool (`ATLAS_CALLBACK_SECRET` there): mints the token that lets a Director
+	 *  render call back into `/api/director/atlas/callback`, and verifies that call's
+	 *  `X-Atlas-Signature`. Secret: no code default; trimmed. Unset ⇒ renders are queued without a
+	 *  callback (the `/progress` fallback still settles them) and the callback route answers 503. */
+	get ATLAS_CALLBACK_SECRET() {
+		return (env.ATLAS_CALLBACK_SECRET ?? '').trim();
+	},
 	// GitHub read-only token the desktop launcher uses to clone PRIVATE game repos
 	// (and their submodules) on any machine with no per-user GitHub login. Served by
 	// GET /api/launcher/git-credentials to launchers signed in with `gamePublish`. Use a fine-grained

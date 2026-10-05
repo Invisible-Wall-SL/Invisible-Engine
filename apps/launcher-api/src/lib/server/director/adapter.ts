@@ -196,7 +196,7 @@ export function defineOp<I, O>(op: AdapterOp<I, O>): AdapterOp {
 /** A refusal a handler raises; the gate answers `{ error: code, message }` with `status`. */
 export class AdapterError extends Error {
 	constructor(
-		readonly status: 400 | 403 | 404 | 409 | 413 | 502,
+		readonly status: 400 | 403 | 404 | 409 | 413 | 502 | 503,
 		readonly code: string,
 		message: string,
 	) {

@@ -653,6 +653,44 @@ export const directorOps = pgTable(
 	],
 );
 
+/**
+ * Atlas Maker still renders a Director run queued (`atlas.queue_variants`), keyed by atlas-tool's
+ * `jobRef`. A row is `queued` when the render starts and moves to its terminal status exactly once,
+ * from the signed completion callback or the launcher's `/progress` fallback, whichever lands
+ * first: that one transition writes the run's `job_done` row to `director_events`, which wakes the
+ * worker.
+ */
+export const directorAtlasJobs = pgTable(
+	'director_atlas_jobs',
+	{
+		jobRef: text('job_ref').primaryKey(),
+		runId: text('run_id')
+			.notNull()
+			.references(() => directorRuns.id, { onDelete: 'cascade' }),
+		agent: text('agent').notNull(),
+		/** The Atlas Maker atlas (manifest stem) the render works on. */
+		atlas: text('atlas').notNull(),
+		regions: jsonb('regions').$type<string[]>().notNull(),
+		status: text('status').$type<'queued' | 'finished' | 'failed' | 'cancelled'>().notNull(),
+		/** What settled it: the callback body, or the `/progress` view the fallback read. */
+		result: jsonb('result'),
+		doneVia: text('done_via').$type<'callback' | 'poll'>(),
+		queuedAt: timestamp('queued_at', { withTimezone: true }).notNull().defaultNow(),
+		doneAt: timestamp('done_at', { withTimezone: true }),
+	},
+	(table) => [
+		index('director_atlas_jobs_run_idx').on(table.runId),
+		check(
+			'director_atlas_jobs_status_check',
+			sql`${table.status} in ('queued', 'finished', 'failed', 'cancelled')`,
+		),
+		check(
+			'director_atlas_jobs_done_check',
+			sql`(${table.status} = 'queued') = (${table.doneAt} is null)`,
+		),
+	],
+);
+
 export type User = typeof users.$inferSelect;
 export type Session = typeof sessions.$inferSelect;
 export type ToolInstall = typeof toolInstalls.$inferSelect;
@@ -675,3 +713,4 @@ export type DirectorEvent = typeof directorEvents.$inferSelect;
 export type DirectorMessage = typeof directorMessages.$inferSelect;
 export type DirectorRegion = typeof directorRegions.$inferSelect;
 export type DirectorOp = typeof directorOps.$inferSelect;
+export type DirectorAtlasJob = typeof directorAtlasJobs.$inferSelect;

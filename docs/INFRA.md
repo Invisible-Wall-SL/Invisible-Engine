@@ -450,6 +450,13 @@ code default, so the dashboard need not set it):
   (`docs/director/DECISIONS/0002-tool-adapters.md`). Every call also names a run and an agent, and
   acts as that run's owner, within the owner's project access. Held by the launcher and the
   `director-worker` service (the same value on both). Unset → every adapter call answers 503.
+  The Atlas Maker ops (`atlas.*`, `comfyui.job_status`) call atlas-tool with an `api` launch token
+  (`ATLAS_TOOL_SIGNING_SECRET`, required — the legacy handoff cannot name the acting agent) and
+  `ATLAS_CALLBACK_SECRET` (secret, no default; the SAME value as atlas-tool's) — it mints the
+  token for a render's completion callback to `POST /api/director/atlas/callback` and verifies
+  the callback's `X-Atlas-Signature`. Unset → renders are queued without a callback (a
+  `/progress` poll settles them) and the callback route answers 503. The callback URL is built
+  from `ORIGIN`, so `ORIGIN` must be the launcher's public https origin.
 - **Admin → Costs** (all optional): `RAILWAY_API_TOKEN`, `RAILWAY_PROJECT_ID`, `CF_ACCOUNT_ID`,
   `CF_ANALYTICS_TOKEN`, `ANTHROPIC_ADMIN_API_KEY`, `OPENAI_ADMIN_API_KEY`.
 - **Error tracking** (optional, see "Monitoring & error tracking"): `SENTRY_DSN` +

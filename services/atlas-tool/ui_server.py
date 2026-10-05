@@ -1710,6 +1710,8 @@ def creative_manifest_path() -> Path:
 
 
 _pinned_manifest = threading.local()
+# The manifest an agent's request may pin (`?manifest=`, Handler._pin_requested_manifest).
+_PIN_MANIFEST_NAME = re.compile(r"atlas_manifest_[A-Za-z0-9_.-]{1,120}\.json")
 
 
 @contextlib.contextmanager
@@ -3317,15 +3319,22 @@ def _drop_superseded_picks(m: dict) -> list[str]:
 
 def run_render(names: list[str], variants: int = 1,
                ctx: tuple[str, str] | None = None, user: str = "",
-               job_ref: str = "", callback: dict | None = None) -> None:
+               job_ref: str = "", callback: dict | None = None,
+               pin: Path | None = None) -> None:
     # These run on a NEW worker thread, so the request thread's thread-local
     # (client, project) is NOT inherited — re-apply it here before resolving the
     # manifest path / subprocess env, else everything falls back to the env
     # default context (unassigned/cloud) and the subprocess resolves the wrong
-    # tree (geometry "not found in R2").
-    global _stopped
+    # tree (geometry "not found in R2"). The same for a request's manifest pin.
     if ctx:
         project_paths.set_context(*ctx)
+    with pinned_manifest(pin) if pin else contextlib.nullcontext():
+        _run_render(names, variants, user, job_ref, callback)
+
+
+def _run_render(names: list[str], variants: int, user: str, job_ref: str,
+                callback: dict | None) -> None:
+    global _stopped
     # Reset here, not only in `_run_cmd`: a render that never reaches it (an
     # unreachable "My computer") must not inherit the last render's Stop.
     _stopped = False
@@ -4492,8 +4501,8 @@ def stamp_compose_provenance(mp: Path) -> str | None:
 
 
 def run_compose(ctx: tuple[str, str] | None = None,
-                owner: dict | None = None) -> None:
-    # See run_render: re-apply the request thread's context on this worker.
+                owner: dict | None = None, pin: Path | None = None) -> None:
+    # See run_render: re-apply the request thread's context (and pin) on this worker.
     if ctx:
         project_paths.set_context(*ctx)
     # SAY "RUNNING" BEFORE THE SLOW PART, not when the subprocess starts.
@@ -4514,7 +4523,7 @@ def run_compose(ctx: tuple[str, str] | None = None,
         # Compose picks each region's variant PNG from batch/ in the subprocess,
         # so the variant pile must be on local disk first (it hydrates lazily).
         project_paths.ensure_lazy("batch/")
-        with pinned_manifest(manifest_path()) as mp:
+        with pinned_manifest(pin or manifest_path()) as mp:
             _run_compose_pinned(mp)
     finally:
         with _render_lock:
@@ -8368,6 +8377,33 @@ class Handler(BaseHTTPRequestHandler):
         self._user_id = ident.sub
         project_paths.switch_context(ident.client, ident.project)
 
+    def _pin_requested_manifest(self) -> bool:
+        """An agent's call (an api token's `act` claim) names the manifest it
+        works on with `?manifest=`, pinned for this request only: the selection
+        in atlas_config.json is never touched, so a Director run cannot move an
+        artist's dropdown. Anyone else's `manifest` param means what it always
+        did. Answers the request and returns False on a bad or unknown name."""
+        if not getattr(getattr(self, "_identity", None), "act_tool", ""):
+            return True
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        name = q.get("manifest", [""])[0]
+        if not name:
+            return True
+        if not _PIN_MANIFEST_NAME.fullmatch(name):
+            self._send(400, "application/json", b'{"error":"bad manifest"}')
+            return False
+        # Staging may predate a project created after this container booted.
+        # Only then: writes re-read the doc from R2 anyway (doc_sync), and a
+        # refresh here would rewrite the staged file under a running post-hook.
+        mp = MANIFEST_DIR / name
+        if not mp.exists():
+            _refresh_manifest_from_r2(name)
+        if not mp.exists():
+            self._send(404, "application/json", b'{"error":"unknown manifest"}')
+            return False
+        self._request_pin.enter_context(pinned_manifest(mp))
+        return True
+
     def _render_owner(self) -> dict:
         ident = self._identity
         return {"id": ident.sub, "uid": ident.uid, "name": ident.name or ident.sub,
@@ -8526,6 +8562,9 @@ class Handler(BaseHTTPRequestHandler):
         got an answer. A 500 with a body is honest and, unlike a dead socket,
         is something the page's retry loader can act on."""
         self._responded = False
+        # A keep-alive connection reuses this thread, so a request's manifest pin
+        # must end with the request.
+        self._request_pin = contextlib.ExitStack()
         try:
             fn()
         except docsave.DocConflict as e:
@@ -8553,6 +8592,7 @@ class Handler(BaseHTTPRequestHandler):
                 pass  # client hung up first
         finally:
             doc_sync.end()
+            self._request_pin.close()
 
     def _get(self):
         if urllib.parse.urlparse(self.path).path == "/healthz":
@@ -8563,6 +8603,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._resolve_context()
         self._resolve_publish()
+        if not self._pin_requested_manifest():
+            return
         path = urllib.parse.urlparse(self.path).path
         # Only the page render re-reads its docs from R2 (it hands the page the
         # versions it will save against); the polling GETs read staging.
@@ -8753,6 +8795,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._resolve_context()
         self._resolve_publish()
+        if not self._pin_requested_manifest():
+            return
         # A page that knows about saving safely says which version of each doc it
         # is showing; a request without the header (a tab opened before this
         # shipped, a script) is still compare-and-swapped, just never asked.
@@ -8807,7 +8851,8 @@ class Handler(BaseHTTPRequestHandler):
                 ctx = (project_paths.client_name(), project_paths.project_name())
                 user = getattr(self, "_user_id", "") or ""
                 threading.Thread(target=run_render,
-                                 args=(names, variants, ctx, user, job_ref, callback),
+                                 args=(names, variants, ctx, user, job_ref, callback,
+                                       getattr(_pinned_manifest, "path", None)),
                                  daemon=True).start()
             if wants_json:
                 self._send(200, "application/json", json.dumps(
@@ -8817,11 +8862,26 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, "text/plain", msg.encode(),
                            {"X-Atlas-Job-Ref": job_ref} if job_ref else None)
         elif post_path == "/createatlas":
-            if not _render_state["running"]:
+            wants_json = "application/json" in (self.headers.get("Accept") or "")
+            if wants_json:
+                # Claimed HERE, like /render: a caller told `started` has the slot.
+                started, msg = claim_render_slot(self._render_owner())
+                busy = not started
+            else:
+                with _render_lock:
+                    busy = _render_state["running"]
+            if not busy:
                 ctx = (project_paths.client_name(), project_paths.project_name())
-                threading.Thread(target=run_compose, args=(ctx, self._render_owner()),
+                threading.Thread(target=run_compose,
+                                 args=(ctx, self._render_owner(),
+                                       getattr(_pinned_manifest, "path", None)),
                                  daemon=True).start()
-            self._send(200, "text/plain", b"composing")
+                msg = "Create Atlas started."
+            if wants_json:
+                self._send(200, "application/json", json.dumps(
+                    {"started": not busy, "message": msg}).encode())
+            else:
+                self._send(200, "text/plain", b"composing")
         elif post_path == "/stop":
             with _render_lock:
                 running = _render_state["running"]
