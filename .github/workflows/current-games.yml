@@ -387,6 +387,10 @@ jobs:
     if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.render == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      statuses: write
+      actions: write # deletes the per-shard captures once compared
     steps:
       - uses: actions/checkout@v7
 
@@ -446,7 +450,7 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           name: current-games-report
-          retention-days: 14
+          retention-days: 3
           path: report
 
       - name: Post the status
@@ -478,3 +482,15 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state="$state" -f context="$STATUS_CONTEXT" \
             -f description="${line:0:139}" -f target_url="$RUN_URL"
           [ "$state" = success ]
+
+      # The parts hold every capture of every live game, and the repository is public: once every
+      # shard's units are compared they are deleted, not left for their day. A run with a shard
+      # missing keeps them, so "Re-run failed jobs" can finish the compare.
+      - name: Delete the per-shard captures
+        if: ${{ !cancelled() && needs.render.result == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
+            --jq '.artifacts[] | select(.name | startswith("current-games-part-")) | .id' |
+            while read -r id; do gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id"; done

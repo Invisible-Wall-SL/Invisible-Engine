@@ -221,10 +221,13 @@ log, with each side's web-font states, whether the capture was the same 300 ms l
 external requests each render made. It only reads the page and waits; it draws nothing, so the
 captures are the same as without it.
 
-**The repository is public**, so every artifact is downloadable by anyone. The plan carries contract
-hashes, never contracts; the per-shard parts (every capture of every game) and the plan and gate
-results are kept 1 day, only long enough for the report job; the report (changed screens only) is
-kept 14 days.
+**The repository is public, so every artifact and every log line is public.** The plan carries
+contract hashes, never contracts. The per-shard parts hold every capture of every live game: the
+compare needs both sides of each screen and the two sides render on different shards, so the
+captures must travel, but the report job deletes the parts once every shard's units are compared. A
+run with a shard missing keeps them for GitHub's 1-day minimum, so "Re-run failed jobs" can finish
+the compare. The plan and gate results are kept 1 day; the report, which holds the changed screens
+only, is kept 3 days; `log_images` prints changed screens' crops into the log.
 
 **A change that cannot reach a game is not rendered.** `prepare` diffs the branch against the same
 base the renders would compare with and classifies it with `scripts/current-games/lib/touched.mjs`.
