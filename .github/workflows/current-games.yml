@@ -24,16 +24,19 @@
 # WHAT IS COMPARED: on a pull request, the PR merge commit against its first parent (the base
 # branch tip it merges into), so only this change shows; on a push, the branch tip against its
 # merge-base with main. A push to a branch that has an open PR stands down: the PR's run owns the
-# status, so the two never race on one commit. Main's runtime is cached by SHA. A docs-only change
-# posts success without rendering anything: no game can look different. A PR from a fork gets no
-# secrets and no write token, so it does not run at all.
+# status, so the two never race on one commit. Main's runtime is cached by SHA. A change that cannot
+# reach a game posts success without building or rendering anything: docs only, or nothing inside
+# the `lines` runtime's workspace closure, the gates' inputs or this harness (decided from that same
+# diff by scripts/current-games/lib/touched.mjs, which computes the closure from the workspace graph;
+# an undecidable diff renders everything). A PR from a fork gets no secrets and no write token, so
+# it does not run at all.
 #
 # NOISE CALIBRATION: a manual run (workflow_dispatch) with `self_compare` renders the chosen ref
 # against ITSELF — two independent renders of the same runtime, the main-vs-main measurement a
-# calibration needs. It posts its own status context, `current-games/self-compare`, so it never
-# stands in for a branch's real comparison. Without `self_compare`, `base` names the commit to
-# compare against instead of main's merge-base: a seeded proof renders a deliberate change against
-# the commit before it.
+# calibration needs — and always renders, as there is no change to read. It posts its own status
+# context, `current-games/self-compare`, so it never stands in for a branch's real comparison.
+# Without `self_compare`, `base` names the commit to compare against instead of main's merge-base:
+# a seeded proof renders a deliberate change against the commit before it.
 
 name: Current games
 
@@ -57,7 +60,9 @@ on:
         default: ''
 
 concurrency:
-  group: current-games-${{ github.event_name }}-${{ github.event.pull_request.head.sha || github.sha }}
+  # A manual run's inputs are part of its group: a self-compare and a seeded proof on one commit post
+  # different contexts, and cancelling one would leave its context pending.
+  group: current-games-${{ github.event_name }}-${{ github.event.pull_request.head.sha || github.sha }}-${{ inputs.self_compare }}-${{ inputs.base }}
   cancel-in-progress: true
 
 permissions:
@@ -79,7 +84,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
-      code: ${{ steps.owner.outputs.run == 'true' && steps.changes.outputs.code || 'false' }}
+      render: ${{ steps.owner.outputs.run == 'true' && steps.touched.outputs.render || 'false' }}
       base: ${{ steps.base.outputs.sha }}
     steps:
       - name: Stand down for a branch with an open PR
@@ -102,9 +107,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - id: changes
-        if: steps.owner.outputs.run == 'true'
-        uses: ./.github/actions/code-changed
+      - if: steps.owner.outputs.run == 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
 
       - name: Post the pending status
         if: steps.owner.outputs.run == 'true'
@@ -114,17 +120,55 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state=pending \
             -f context="$STATUS_CONTEXT" -f description='Rendering every live game…' -f target_url="$RUN_URL"
 
-      - name: Docs-only change — nothing to render
-        if: steps.owner.outputs.run == 'true' && steps.changes.outputs.code != 'true'
+      # The base the renders compare against is also the base the diff is read from, so a push of a
+      # docs commit onto an engine branch still renders: the branch as a whole is what main would get.
+      - name: Pick the base commit
+        id: base
+        if: steps.owner.outputs.run == 'true'
+        env:
+          SELF_COMPARE: ${{ inputs.self_compare }}
+          BASE: ${{ inputs.base }}
+        run: |
+          if [ "$SELF_COMPARE" = true ]; then
+            sha="$(git rev-parse HEAD)"
+          elif [ -n "$BASE" ]; then
+            sha="$(git rev-parse -q --verify "$BASE^{commit}")" || { echo "::error::base '$BASE' is not a commit"; exit 1; }
+          elif [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            sha="$(git rev-parse HEAD^1)"
+          else
+            git fetch -q --no-tags origin main
+            sha="$(git merge-base origin/main HEAD)"
+          fi
+          echo "base: $sha"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Can this change reach a game?
+        id: touched
+        if: steps.owner.outputs.run == 'true'
+        env:
+          BASE: ${{ steps.base.outputs.sha }}
+          SELF_COMPARE: ${{ inputs.self_compare }}
+        run: |
+          # A self-compare has no change to read: rendering the ref against itself is the point.
+          if [ "$SELF_COMPARE" = true ]; then
+            printf 'render=true\ndescription=self-compare: every live game renders\n' >> "$GITHUB_OUTPUT"
+          else
+            node scripts/current-games/lib/touched.mjs --base "$BASE"
+          fi
+
+      - name: Nothing to render
+        if: steps.owner.outputs.run == 'true' && steps.touched.outputs.render != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          DESCRIPTION: ${{ steps.touched.outputs.description }}
         run: |
+          echo "### current-games: ${DESCRIPTION}" >> "$GITHUB_STEP_SUMMARY"
           gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state=success \
-            -f context="$STATUS_CONTEXT" -f description='Docs-only change: no game can differ' -f target_url="$RUN_URL"
+            -f context="$STATUS_CONTEXT" -f description="${DESCRIPTION:0:140}" -f target_url="$RUN_URL"
 
       - name: Check the secrets
         id: secrets
-        if: steps.owner.outputs.run == 'true' && steps.changes.outputs.code == 'true'
+        if: steps.owner.outputs.run == 'true' && steps.touched.outputs.render == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           PIPELINE_GAMES_URL: ${{ secrets.PIPELINE_GAMES_URL }}
@@ -151,26 +195,6 @@ jobs:
             exit 1
           fi
 
-      - name: Pick the base commit
-        id: base
-        if: steps.owner.outputs.run == 'true' && steps.changes.outputs.code == 'true'
-        env:
-          SELF_COMPARE: ${{ inputs.self_compare }}
-          BASE: ${{ inputs.base }}
-        run: |
-          if [ "$SELF_COMPARE" = true ]; then
-            sha="$(git rev-parse HEAD)"
-          elif [ -n "$BASE" ]; then
-            sha="$(git rev-parse -q --verify "$BASE^{commit}")" || { echo "::error::base '$BASE' is not a commit"; exit 1; }
-          elif [ "$GITHUB_EVENT_NAME" = pull_request ]; then
-            sha="$(git rev-parse HEAD^1)"
-          else
-            git fetch -q --no-tags origin main
-            sha="$(git merge-base origin/main HEAD)"
-          fi
-          echo "base: $sha"
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-
       # Any other failure in this job must not leave the status pending forever. (A missing secret
       # posted its own, naming it.)
       - name: Post the failure
@@ -183,7 +207,7 @@ jobs:
 
   build:
     needs: prepare
-    if: needs.prepare.outputs.code == 'true'
+    if: needs.prepare.outputs.render == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -263,7 +287,7 @@ jobs:
   # its runtime, so they need not hold up the renders.
   gates:
     needs: prepare
-    if: needs.prepare.outputs.code == 'true'
+    if: needs.prepare.outputs.render == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -360,7 +384,7 @@ jobs:
 
   report:
     needs: [prepare, build, gates, render]
-    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.code == 'true' }}
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.render == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

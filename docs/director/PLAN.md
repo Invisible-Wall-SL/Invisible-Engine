@@ -39,6 +39,7 @@ starts once A and B are merged.
 | E | merged #1041. **Not yet run on live games: 5 secrets missing** | 1.3–1.6 | A, B |
 
 The current-games harness is the priority: every later merge depends on it. 1.3–1.6 stay `review` until its first green run on the live games.
+A change that cannot reach a game (docs only, or nothing in the `lines` runtime's workspace closure, the gates' inputs or the harness itself) passes `current-games` without a build or a render, so launcher, atlas-tool and director-worker cards are not held by it.
 
 | # | Task | Card | Owner | Status | Acceptance |
 |---|---|---|---|---|---|
@@ -91,7 +92,7 @@ The current-games harness is the priority: every later merge depends on it. 1.3�
 
 | # | Task | Owner | Status | Acceptance |
 |---|---|---|---|---|
-| 5.0 | ADR-0007: pipeline-change mechanics (GitHub PR as the change record, merge strategy, revert) | director-architect | review | Approved before 5.1 |
+| 5.0 | ADR-0007: pipeline-change mechanics (GitHub PR as the change record, merge strategy, revert) | director-architect | done | Approved before 5.1 (2026-10-05; eval cap $20) |
 | 5.1 | Changes list + detail (files, diff link, why) | director-frontend + director-backend | todo | Matches mockup 05 |
 | 5.2 | Check 1 (CI gates grouped) + Check 2 (harness report) + diff approval | director-backend | todo | A visible difference blocks merge until approved; approval is invalidated by a new commit |
 | 5.3 | Merge with `pipelineMerge` + History + rollback (revert) | director-backend | todo | A roll back produces a revert that passes the harness |
