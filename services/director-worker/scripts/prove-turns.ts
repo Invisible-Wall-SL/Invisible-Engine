@@ -24,19 +24,27 @@
  *  6. owner start → the cap is snapshotted onto the run; a checkpoint the agent asks for opens and
  *     the run waits; the owner's approval moves it on and the next turn runs;
  *  7. `job_done` reaches the agent that queued the job and is billed once as a RunPod row;
- *  8. the AFTER INSERT trigger NOTIFYs `director_wake` for owner rows and `job_done` only.
+ *  8. the AFTER INSERT trigger NOTIFYs `director_wake` for owner rows and `job_done` only;
+ *  9. an owner's pause pressed while a turn runs is applied before that turn's calls go out;
+ * 10. a call the API rejects (400) pauses the run; a transient failure (529) is left for the next
+ *     wake, which asks again;
+ * 11. after a mid-output refusal fallback, the declined model's thinking and tool calls are neither
+ *     stored nor run, and the turn is billed per attempt;
+ * 12. an adapter answer that leaves the outcome unknown (409 in_progress) stores nothing; the next
+ *     claim sends the same opId, so the op runs once.
  */
 import type {
 	BetaMessage,
 	BetaMessageStreamParams,
 } from '@anthropic-ai/sdk/resources/beta/messages/messages';
+import Anthropic from '@anthropic-ai/sdk';
 import postgres from 'postgres';
 import { parsePricing } from 'director-costs';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { AgentDefinition } from '../src/agents.ts';
 import { driveRun, type DriverDeps } from '../src/driver.ts';
-import type { AdapterSpec, Launcher } from '../src/launcher.ts';
+import type { AdapterResult, AdapterSpec, Launcher } from '../src/launcher.ts';
 import { claimRun } from '../src/lease.ts';
 import { toolName, type ModelTransport } from '../src/model.ts';
 import { recordSpend } from '../src/store.ts';
@@ -67,7 +75,13 @@ const pricing = parsePricing(
 
 // ── Fakes ─────────────────────────────────────────────────────────────────────
 
-type Reply = Partial<BetaMessage> & { content: BetaMessage['content'] };
+type Reply = Partial<BetaMessage> & {
+	content: BetaMessage['content'];
+	/** Runs while the call is in flight — e.g. the owner pressing Pause. */
+	during?: () => Promise<unknown>;
+	/** The call fails with this instead of answering. */
+	error?: unknown;
+};
 
 /** Scripted model: answers each call with the next reply; counts and keeps every request. */
 function fakeModel(replies: Reply[]) {
@@ -79,6 +93,8 @@ function fakeModel(replies: Reply[]) {
 			const reply = replies[n++];
 			if (!reply)
 				throw new Error(`the model was called ${n} times; only ${replies.length} expected`);
+			await reply.during?.();
+			if (reply.error) throw reply.error;
 			return {
 				id: reply.id ?? `msg_${tag}_${n}_${Math.random().toString(36).slice(2)}`,
 				type: 'message',
@@ -118,7 +134,7 @@ const SPECS: AdapterSpec[] = [
 ];
 
 /** The launcher gate's idempotency: a write's opId runs once; a repeat returns the stored result. */
-function fakeLauncher() {
+function fakeLauncher(answer?: (id: string, nth: number) => AdapterResult | null) {
 	const effects: string[] = [];
 	const sent: string[] = [];
 	const stored = new Map<string, unknown>();
@@ -128,6 +144,8 @@ function fakeLauncher() {
 		},
 		async call(id, body) {
 			sent.push(`${id}@${body.opId}`);
+			const scripted = answer?.(id, sent.length);
+			if (scripted) return scripted;
 			if (body.opId && stored.has(body.opId)) return { status: 200, body: stored.get(body.opId) };
 			effects.push(id);
 			const result =
@@ -568,6 +586,163 @@ try {
 			gpu.map((r) => [r.request_id, r.usd]),
 			[['runpod:job-1', 100 * pricing.runpod.perSecondByGpu['L40S (48 GB)']]],
 		);
+	}
+
+	// ── 9. Pause or stop during a turn ────────────────────────────────────────
+	console.log('9. a pause pressed during a turn stops its tool calls going out');
+	{
+		const runId = await newRun();
+		await userMessage(runId, 'coordinator', 'Start.');
+		const gate = fakeLauncher();
+		const model = fakeModel([
+			{
+				during: () => event(runId, 'owner', 'owner_request', { action: 'pause' }),
+				content: [use('p1', 'gamemaker.create_from_template')],
+			},
+			{ content: [use('p2', 'gamemaker.create_from_template')] },
+			{ content: [say('Created.')] },
+		]);
+		await drive(runId, deps(model.transport, gate.launcher));
+		check('the write was not sent', gate.sent, []);
+		check('the run is paused', (await runRow(runId)).status, 'paused');
+		const stored = await messages(runId, 'coordinator');
+		check(
+			'the call is answered "not run"',
+			JSON.stringify(stored.at(-1)?.content).includes('Not run: the run is paused'),
+			true,
+		);
+		await event(runId, 'owner', 'owner_request', { action: 'resume' });
+		await drive(runId, deps(model.transport, gate.launcher));
+		check('after resume the agent asks again and the write runs once', gate.effects, [
+			'gamemaker.create_from_template',
+		]);
+		check('three calls in all', model.calls(), 3);
+	}
+
+	// ── 10. API errors ────────────────────────────────────────────────────────
+	console.log('10. a rejected call pauses the run; a transient failure is retried');
+	{
+		const runId = await newRun();
+		await userMessage(runId, 'coordinator', 'Start.');
+		const rejected = Anthropic.APIError.generate(
+			400,
+			{ type: 'error', error: { type: 'invalid_request_error', message: 'bad request' } },
+			'bad request',
+			new Headers(),
+		);
+		const model = fakeModel([{ content: [], error: rejected }]);
+		await drive(runId, deps(model.transport, fakeLauncher().launcher));
+		check('a 400 pauses the run', (await runRow(runId)).status, 'paused');
+		check('…with the status shown', (await events(runId, 'error'))[0]?.payload.status, 400);
+		check(
+			'…and nothing billed or stored',
+			[(await spendRows(runId)).length, (await messages(runId, 'coordinator')).length],
+			[0, 1],
+		);
+
+		const flaky = await newRun();
+		await userMessage(flaky, 'coordinator', 'Start.');
+		const overloaded = Anthropic.APIError.generate(529, undefined, 'overloaded', new Headers());
+		const retried = fakeModel([{ content: [], error: overloaded }, { content: [say('Done.')] }]);
+		let threw = false;
+		try {
+			await drive(flaky, deps(retried.transport, fakeLauncher().launcher));
+		} catch {
+			threw = true;
+		}
+		check(
+			'a 529 leaves the run running for the next wake',
+			[threw, (await runRow(flaky)).status],
+			[true, 'running'],
+		);
+		await drive(flaky, deps(retried.transport, fakeLauncher().launcher));
+		check(
+			'…which asks again and stores one turn',
+			(await messages(flaky, 'coordinator')).length,
+			2,
+		);
+	}
+
+	// ── 11. Mid-output fallback ───────────────────────────────────────────────
+	console.log("11. a mid-output fallback drops the declined model's thinking and calls");
+	{
+		const runId = await newRun();
+		await userMessage(runId, 'coordinator', 'Start.');
+		const gate = fakeLauncher();
+		const model = fakeModel([
+			{
+				model: 'claude-opus-5',
+				content: [
+					{ type: 'thinking', thinking: '', signature: 'sig' },
+					use('f1', 'gamemaker.create_from_template'),
+					{
+						type: 'fallback',
+						from: { model: 'claude-opus-5-5' },
+						to: { model: 'claude-opus-5' },
+					},
+					say('Taking over.'),
+					use('f2', 'run.post_activity', { text: 'after the fallback' }),
+				] as never,
+				usage: {
+					input_tokens: 1000,
+					output_tokens: 100,
+					cache_read_input_tokens: 0,
+					cache_creation_input_tokens: 0,
+					iterations: [
+						{ type: 'message', model: 'claude-opus-5-5', input_tokens: 1000, output_tokens: 50 },
+						{
+							type: 'fallback_message',
+							model: 'claude-opus-5',
+							input_tokens: 1000,
+							output_tokens: 100,
+						},
+					],
+				} as never,
+			},
+			{ content: [say('Done.')] },
+		]);
+		await drive(runId, deps(model.transport, gate.launcher));
+		const stored = (await messages(runId, 'coordinator'))[1];
+		check(
+			'the stored turn keeps the marker and what follows it',
+			stored.content.map((b) => b.type),
+			['fallback', 'text', 'tool_use'],
+		);
+		check("the declined model's call never ran", gate.sent, []);
+		check('the call after the boundary ran', (await events(runId, 'activity')).length, 1);
+		const [first] = await spendRows(runId);
+		check(
+			'the turn is billed per attempt, each at its model',
+			first?.usd,
+			(1000 * 4 + 50 * 20 + 1000 * 5 + 100 * 25) / 1_000_000,
+		);
+	}
+
+	// ── 12. An adapter answer that leaves the outcome unknown ─────────────────
+	console.log('12. an op still in progress is retried with the same opId, never re-issued');
+	{
+		const runId = await newRun();
+		await userMessage(runId, 'coordinator', 'Start.');
+		const gate = fakeLauncher((_id, nth) =>
+			nth === 1 ? { status: 409, body: { error: 'in_progress' } } : null,
+		);
+		const model = fakeModel([
+			{ content: [use('i1', 'gamemaker.create_from_template')] },
+			{ content: [say('Created.')] },
+		]);
+		await drive(runId, deps(model.transport, gate.launcher));
+		check(
+			'nothing is stored for the call yet',
+			(await messages(runId, 'coordinator')).map((m) => m.role),
+			['user', 'assistant'],
+		);
+		await drive(runId, deps(model.transport, gate.launcher));
+		check(
+			'the next claim sends the same opId again',
+			new Set(gate.sent).size === 1 && gate.sent.length === 2,
+			true,
+		);
+		check('…the op runs once and the turn goes on', [gate.effects.length, model.calls()], [1, 2]);
 	}
 
 	// ── 8. The wake trigger ───────────────────────────────────────────────────

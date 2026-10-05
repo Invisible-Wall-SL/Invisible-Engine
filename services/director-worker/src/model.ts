@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type {
+	BetaContentBlockParam,
 	BetaMessage,
 	BetaMessageParam,
 	BetaMessageStreamParams,
@@ -133,6 +134,34 @@ export function buildRequest(
 		request.betas = [FALLBACK_BETA];
 	}
 	return request;
+}
+
+/**
+ * What of a response's content goes into the stored history, and so back to the model. After a
+ * mid-output refusal fallback the content keeps the declined model's partial, the `fallback` block
+ * marking where the fallback model took over; before the last such block only text may be echoed
+ * (and the marker, which the API ignores), so the declined model's thinking and tool calls are
+ * dropped — and its calls are never run.
+ */
+export function echoable(content: BetaContentBlockParam[]): BetaContentBlockParam[] {
+	const boundary = content.findLastIndex((b) => b.type === 'fallback');
+	if (boundary < 0) return content;
+	return content.filter((b, i) => i >= boundary || b.type === 'text' || b.type === 'fallback');
+}
+
+/** API errors a retry cannot fix (the request itself, the key, access): the run pauses on them. */
+const PERMANENT_STATUSES = new Set([400, 401, 403, 404, 413, 422]);
+
+/**
+ * The status of an API error that will fail the same way however often it is retried; null for
+ * anything else — rate limits, overload, 5xx and network errors are left to the next wake.
+ */
+export function permanentApiError(error: unknown): number | null {
+	return error instanceof Anthropic.APIError &&
+		typeof error.status === 'number' &&
+		PERMANENT_STATUSES.has(error.status)
+		? error.status
+		: null;
 }
 
 /** The one seam to the Messages API, so tests run the loop on a fake. */

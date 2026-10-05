@@ -18,7 +18,14 @@ import { overCap, projectCall } from './budget.ts';
 import type { AdapterSpec, Launcher } from './launcher.ts';
 import { LEASE_MS, releaseLease, renewLease, type ClaimedRun } from './lease.ts';
 import { log } from './log.ts';
-import { buildRequest, toolId, type ModelTransport, type ToolSpec } from './model.ts';
+import {
+	buildRequest,
+	echoable,
+	permanentApiError,
+	toolId,
+	type ModelTransport,
+	type ToolSpec,
+} from './model.ts';
 import { transition, type RunEvent } from './runState.ts';
 import {
 	appendMessage,
@@ -61,6 +68,10 @@ import { runWorkerTool, workerToolSpecs, type WorkerToolId } from './workerTools
  *
  * A run with nothing pending — waiting on the owner, on a GPU job, paused — makes no model call:
  * the only way to a call is a pending conversation in a `running` run.
+ *
+ * What cannot be finished now is left for the next wake rather than guessed at: a model call that
+ * failed transiently, or an adapter call whose outcome is unknown (`RetryLater`), stores nothing,
+ * so the next claim repeats it — the adapter call with the same `opId`.
  */
 
 export interface DriverDeps {
@@ -83,6 +94,29 @@ const WORKER_TOOL_IDS: ReadonlySet<string> = new Set(WORKER_TOOLS);
 const COORDINATOR = 'coordinator';
 const MAX_TURNS = 40;
 const MAX_RESULT_CHARS = 60_000;
+
+/**
+ * An adapter answer that says nothing about whether the op ran, or that the launcher could not be
+ * asked: the turn's results are not stored, and the next claim sends the same calls again.
+ */
+export class RetryLater extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = 'RetryLater';
+	}
+}
+
+/** The gate's answers that leave an op's outcome unknown or unreached (ADR-0002). */
+function unsettled(status: number, body: unknown): boolean {
+	const error = (body as { error?: unknown } | null)?.error;
+	return (
+		status === 401 ||
+		status === 500 ||
+		status === 502 ||
+		status === 503 ||
+		(status === 409 && error === 'in_progress')
+	);
+}
 
 interface Ctx extends DriverDeps {
 	run: Pick<ClaimedRun, 'id' | 'lease'>;
@@ -124,6 +158,10 @@ export async function driveRun(deps: DriverDeps, claimed: ClaimedRun): Promise<v
 	} catch (error) {
 		if (error instanceof LeaseLost || controller.signal.aborted) {
 			log.warn('run dropped: lease lost', { runId: claimed.id });
+			return;
+		}
+		if (error instanceof RetryLater) {
+			log.warn('run left for the next wake', { runId: claimed.id, reason: error.message });
 			return;
 		}
 		throw error;
@@ -184,9 +222,17 @@ async function settle(
 	const served = await catalog(ctx);
 	const results = new Map<string, BetaToolResultBlockParam>();
 	let budgetStop: { spentUsd: number; projectedUsd: number; capUsd: number } | null = null;
+	// Nothing of this turn was sent unless the run was running when it was stored and still is: an
+	// owner's pause or stop is applied before a turn's calls go out, and nothing else moves a run
+	// between storing a turn and settling it.
+	const { status } = (await withLease(ctx.sql, ctx.run, async (_tx, l) => l)).state;
 
 	for (const [index, call] of calls.entries()) {
 		const id = toolId(call.name);
+		if (status !== 'running') {
+			results.set(call.id, resultBlock(call.id, `Not run: the run is ${status}.`, true));
+			continue;
+		}
 		if (WORKER_TOOL_IDS.has(id) && agent.tools.includes(id)) continue;
 		if (budgetStop) {
 			results.set(
@@ -227,6 +273,9 @@ async function settle(
 			ctx.signal,
 		);
 		await ctx.afterAdapterCall?.(opId);
+		if (unsettled(answer.status, answer.body)) {
+			throw new RetryLater(`${id} answered ${answer.status}`);
+		}
 		results.set(call.id, resultBlock(call.id, JSON.stringify(answer.body), answer.status !== 200));
 	}
 
@@ -369,7 +418,19 @@ async function takeTurn(ctx: Ctx, name: string): Promise<boolean> {
 	});
 	if (stopped) return false;
 
-	const response = await ctx.transport.send(request, ctx.signal);
+	let response: BetaMessage;
+	try {
+		response = await ctx.transport.send(request, ctx.signal);
+	} catch (error) {
+		const status = permanentApiError(error);
+		if (status === null) throw error;
+		await pauseWithError(ctx, name, {
+			type: 'api_error',
+			status,
+			message: `${name}'s call was rejected (${status}): ${(error as Error).message}`,
+		});
+		return false;
+	}
 	if (!(await billResponse(ctx, name, response, pricing))) return false;
 
 	if (response.stop_reason === 'refusal') {
@@ -386,7 +447,7 @@ async function takeTurn(ctx: Ctx, name: string): Promise<boolean> {
 		return false;
 	}
 
-	const content = response.content as BetaContentBlockParam[];
+	const content = echoable(response.content as BetaContentBlockParam[]);
 	const calls = content.filter((b): b is BetaToolUseBlock => b.type === 'tool_use');
 	const truncated = response.stop_reason === 'max_tokens';
 	const turnSeq = await withLease(ctx.sql, ctx.run, async (tx, live) => {
@@ -406,7 +467,10 @@ async function takeTurn(ctx: Ctx, name: string): Promise<boolean> {
 		}
 		return seq;
 	});
-	if (calls.length && !truncated) await settle(ctx, agent, turnSeq, content);
+	if (calls.length && !truncated) {
+		await handleEvents(ctx, { ownerRequestsOnly: true });
+		await settle(ctx, agent, turnSeq, content);
+	}
 	return true;
 }
 
@@ -456,8 +520,15 @@ async function billResponse(
 
 const userText = (text: string): BetaContentBlockParam[] => [{ type: 'text', text }];
 
-async function handleEvents(ctx: Ctx): Promise<void> {
+/**
+ * Apply the unhandled waking events in order. `ownerRequestsOnly` applies just the leading owner
+ * requests (pause, stop, …) — what may change while a turn's tool calls are unsettled, since those
+ * only move the run and never write to a conversation — and stops at the first other event, so
+ * events still apply in the order they were inserted.
+ */
+async function handleEvents(ctx: Ctx, { ownerRequestsOnly = false } = {}): Promise<void> {
 	for (const event of await unhandledEvents(ctx.sql, ctx.run.id)) {
+		if (ownerRequestsOnly && event.kind !== 'owner_request') return;
 		await withLease(ctx.sql, ctx.run, async (tx, live) => {
 			await applyEvent(ctx, tx, live, event);
 			await markHandled(tx, event.id);
@@ -538,13 +609,14 @@ async function applyEvent(
 				return error ? refuse(error) : undefined;
 			}
 			if (action === 'resume') {
+				const error = await move(tx, live, { type: 'resume' }, 'owner resume');
+				if (error) return refuse(error);
 				const raised = Number(p.budgetCapUsd);
 				if (Number.isFinite(raised) && raised > (live.budgetCapUsd ?? 0)) {
 					live.budgetCapUsd = raised;
 					await setBudgetCap(tx, live.id, raised);
 				}
-				const error = await move(tx, live, { type: 'resume' }, 'owner resume');
-				return error ? refuse(error) : undefined;
+				return;
 			}
 			if (action === 'stop') {
 				const error = await move(tx, live, { type: 'stop' }, 'owner stop');
