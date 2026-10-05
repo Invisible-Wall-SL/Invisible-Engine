@@ -143,6 +143,21 @@ export function registerDeterminismProbe(read: () => DeterminismProbeState): () 
 	};
 }
 
+/**
+ * SvelteKit's client `init` hook, awaited before the app starts. With the flag, every web font the
+ * page has declared by then (the `app.html` kit stylesheet's faces) is loaded first: the boot
+ * measures and draws text in real-time continuations, outside any frame, so a face still on the
+ * way when a text is first measured would decide its metrics by network order. Without the flag it
+ * returns `undefined`, which `start()` awaits either way (`await hooks.init?.()`).
+ */
+export function determinismInit(): Promise<void> | undefined {
+	if (!globalThis.__IE_DETERMINISM__ || typeof document === 'undefined' || !document.fonts)
+		return undefined;
+	return Promise.all([...document.fonts].map((face) => face.load().catch(() => undefined))).then(
+		() => undefined,
+	);
+}
+
 export function installDeterminism(): void {
 	const seed = flagSeed();
 	if (seed === undefined || globalThis.__IE_DETERMINISM__) return;
