@@ -16,7 +16,7 @@ import {
 	type DirectorPricing,
 } from 'director-costs';
 import type { AgentDefinition } from './agents.ts';
-import { overCap, projectCall } from './budget.ts';
+import { overCap, projectCall, projectQueuedGpu } from './budget.ts';
 import type { AdapterSpec, Launcher } from './launcher.ts';
 import { deferLease, LEASE_MS, releaseLease, renewLease, type ClaimedRun } from './lease.ts';
 import { log } from './log.ts';
@@ -285,7 +285,7 @@ async function settle(
 	const { status } = (await withLease(ctx.sql, ctx.run, async (_tx, l) => l)).state;
 	const served = status === 'running' ? await catalog(ctx) : new Map<string, AdapterSpec>();
 	const results = new Map<string, BetaToolResultBlockParam>();
-	let budgetStop: { spentUsd: number; projectedUsd: number; capUsd: number } | null = null;
+	let budgetStop: BudgetFigures | null = null;
 
 	for (const [index, call] of calls.entries()) {
 		const id = toolId(call.name);
@@ -315,9 +315,17 @@ async function settle(
 				withLease(ctx.sql, ctx.run, async (_tx, l) => l),
 				runSpend(ctx.sql, ctx.run.id),
 			]);
-			const projectedUsd = spend.meanRunpodJobUsd ?? 0;
+			// This render and the ones already in flight: none is billed before its job_done.
+			const queuedGpuUsd = projectQueuedGpu(spend.queuedJobs, spend.meanRunpodJobUsd);
+			const projectedUsd = queuedGpuUsd + projectQueuedGpu(1, spend.meanRunpodJobUsd);
 			if (overCap(spend.totalUsd, projectedUsd, capOf(live))) {
-				budgetStop = { spentUsd: spend.totalUsd, projectedUsd, capUsd: capOf(live) };
+				budgetStop = {
+					spentUsd: spend.totalUsd,
+					projectedUsd,
+					queuedJobs: spend.queuedJobs,
+					queuedGpuUsd,
+					capUsd: capOf(live),
+				};
 				results.set(
 					call.id,
 					resultBlock(call.id, 'Not run: the run paused at its budget cap.', true),
@@ -431,11 +439,20 @@ async function pause(
 	return true;
 }
 
+/** What a budget pause tells the owner: `projectedUsd` includes the `queuedGpuUsd` in flight. */
+interface BudgetFigures {
+	spentUsd: number;
+	projectedUsd: number;
+	queuedJobs: number;
+	queuedGpuUsd: number;
+	capUsd: number;
+}
+
 async function pauseForBudget(
 	tx: Db,
 	live: LiveRun,
 	agent: string,
-	figures: { spentUsd: number; projectedUsd: number; capUsd: number },
+	figures: BudgetFigures,
 	before: 'model_call' | 'gpu_submit',
 ): Promise<void> {
 	if (!(await pause(tx, live, 'budget_cap', `budget cap before ${agent}'s ${before}`))) return;
@@ -502,7 +519,10 @@ async function takeTurn(ctx: Ctx, name: string): Promise<boolean> {
 	const pricing = await ctx.pricing();
 	const request = buildRequest(agent, specs, toParams(history));
 	const spend = await runSpend(ctx.sql, ctx.run.id);
-	const projectedUsd = projectCall(request, pricing, spend.maxOutputByAgent[name]);
+	// The call, plus the renders in flight: a run at its cap must not keep talking while their
+	// cost is still to land.
+	const queuedGpuUsd = projectQueuedGpu(spend.queuedJobs, spend.meanRunpodJobUsd);
+	const projectedUsd = projectCall(request, pricing, spend.maxOutputByAgent[name]) + queuedGpuUsd;
 	const stopped = await withLease(ctx.sql, ctx.run, async (tx, live) => {
 		if (live.state.status !== 'running') return true;
 		if (!overCap(spend.totalUsd, projectedUsd, capOf(live))) return false;
@@ -510,7 +530,13 @@ async function takeTurn(ctx: Ctx, name: string): Promise<boolean> {
 			tx,
 			live,
 			name,
-			{ spentUsd: spend.totalUsd, projectedUsd, capUsd: capOf(live) },
+			{
+				spentUsd: spend.totalUsd,
+				projectedUsd,
+				queuedJobs: spend.queuedJobs,
+				queuedGpuUsd,
+				capUsd: capOf(live),
+			},
 			'model_call',
 		);
 		return true;
@@ -790,8 +816,12 @@ async function applyEvent(
 
 /**
  * The RunPod row for a finished job (ADR-0006): its execution seconds × the GPU's $/s, keyed
- * `runpod:<jobRef>` so a redelivered `job_done` is billed once. Written only when the job reports
- * both (`result.runpod = { gpu, seconds }`); atlas-tool does not report them yet.
+ * `runpod:<jobRef>` so a redelivered `job_done` is billed once. The figures are what atlas-tool
+ * reports (`result.runpod = { gpu, seconds }`, read off RunPod's own job status and the
+ * endpoint's `RUNPOD_ENDPOINT_GPU`); the price is from `pricing.json`, never from the wire. A job
+ * that reports no usable pair gets no row — a figure made up here could not be told from a real
+ * one — and is logged; a finished render among them is also an `error` event, since its GPU time
+ * was spent and is not counting toward the cap.
  */
 async function billJob(
 	tx: Db,
@@ -801,19 +831,45 @@ async function billJob(
 ): Promise<void> {
 	const runpod = (event.payload.result as { runpod?: { gpu?: unknown; seconds?: unknown } } | null)
 		?.runpod;
-	if (typeof runpod?.gpu !== 'string' || typeof runpod.seconds !== 'number') return;
+	const jobRef = String(event.payload.jobRef);
+	if (
+		typeof runpod?.gpu !== 'string' ||
+		typeof runpod.seconds !== 'number' ||
+		!Number.isFinite(runpod.seconds)
+	) {
+		const seconds = typeof runpod?.seconds === 'number' ? runpod.seconds : null;
+		log.warn('GPU job not billed: no usage reported', {
+			runId: live.id,
+			jobRef,
+			status: event.payload.status,
+			gpu: typeof runpod?.gpu === 'string' ? runpod.gpu : null,
+			seconds,
+		});
+		if (event.payload.status === 'finished') {
+			await insertEvent(tx, live.id, 'worker', 'error', {
+				type: 'unbilled_job',
+				jobRef,
+				seconds,
+				message:
+					seconds === null
+						? `Render ${jobRef} finished without reporting its GPU time, so it does not count toward the cap.`
+						: `Render ${jobRef} reports ${seconds} s of GPU time but no GPU to price it by (RUNPOD_ENDPOINT_GPU on atlas-tool), so it does not count toward the cap.`,
+			});
+		}
+		return;
+	}
 	let usd: number;
 	try {
 		usd = costOfRunpodJob(runpod.gpu, runpod.seconds, pricing);
 	} catch (error) {
 		await insertEvent(tx, live.id, 'worker', 'error', {
 			type: 'unpriced',
-			jobRef: event.payload.jobRef,
+			jobRef,
 			message: (error as Error).message,
 		});
 		return;
 	}
-	const requestId = `runpod:${String(event.payload.jobRef)}`;
+	const requestId = `runpod:${jobRef}`;
 	if (
 		await recordSpend(tx, {
 			runId: live.id,

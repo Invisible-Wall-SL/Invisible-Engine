@@ -274,6 +274,8 @@ export interface RunSpend {
 	maxOutputByAgent: Record<string, number>;
 	/** Mean cost of one GPU job so far; null before the first. */
 	meanRunpodJobUsd: number | null;
+	/** Renders queued and not yet billed: their cost is still to land. */
+	queuedJobs: number;
 }
 
 export async function runSpend(db: Db, runId: string): Promise<RunSpend> {
@@ -287,6 +289,7 @@ export async function runSpend(db: Db, runId: string): Promise<RunSpend> {
 		byAgent: {},
 		maxOutputByAgent: {},
 		meanRunpodJobUsd: null,
+		queuedJobs: await queuedJobs(db, runId),
 	};
 	let gpuUsd = 0;
 	let gpuJobs = 0;

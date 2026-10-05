@@ -32,6 +32,16 @@ export function projectCall(
 	return (inputTokens * rate.input + outputTokens * rate.output) / 1_000_000;
 }
 
+/**
+ * Projected USD of `renders` GPU renders whose cost has not landed — the ones queued and not yet
+ * billed, plus any about to be submitted — each at the run's mean billed render so far. A render
+ * is billed only at its `job_done`, so without this a run at its cap could keep calling the model,
+ * and submitting, while its renders' cost was still to come. Before the first billed render there
+ * is no figure to project from, so it projects nothing (measured profiles come with the pilot).
+ */
+export const projectQueuedGpu = (renders: number, meanRunpodJobUsd: number | null): number =>
+	Math.max(0, renders) * (meanRunpodJobUsd ?? 0);
+
 /** Whether a step costing `projectedUsd` must not run. */
 export const overCap = (spentUsd: number, projectedUsd: number, capUsd: number): boolean =>
 	spentUsd + projectedUsd >= capUsd;

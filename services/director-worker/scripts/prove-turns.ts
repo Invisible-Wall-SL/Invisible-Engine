@@ -45,7 +45,11 @@
  * 22. a failure that persists pauses the run after MAX_FAILURES drives, retrying the same opId;
  *     settled while paused, the turn is answered from what the launcher recorded for each opId —
  *     a write that ran gets its result and is not issued again, one that never ran is "not run";
- * 23. tokens streamed before a failure are billed.
+ * 23. tokens streamed before a failure are billed;
+ * 24. a job_done that reports no usable GPU time writes no spend row, is logged, and a finished
+ *     render among them is an `error` event the owner can see;
+ * 25. the renders queued and not yet billed count toward the cap, before a model call and before
+ *     a GPU submit.
  */
 import type {
 	BetaMessage,
@@ -1161,6 +1165,138 @@ try {
 			[[partial.id, (2000 * 4 + 300 * 20) / 1_000_000]],
 		);
 		check('the run waits for its retry', (await runRow(runId)).status, 'running');
+	}
+
+	// ── 24. A job_done with nothing to bill ───────────────────────────────────
+	console.log('24. a job_done that reports no GPU time writes no row and says so');
+	{
+		const runId = await newRun({ step: 'regions' });
+		const done = (jobRef: string, status: string, result: Record<string, unknown>) =>
+			event(runId, 'atlas-artist', 'job_done', { jobRef, status, result }, 'atlas.queue_variants');
+		await done(`${runId}-blind`, 'finished', { variants: [] });
+		await done(`${runId}-nogpu`, 'finished', { runpod: { gpu: null, seconds: 42 } });
+		await done(`${runId}-lost`, 'failed', { error: 'lost' });
+		const logged: string[] = [];
+		const write = process.stdout.write.bind(process.stdout);
+		process.stdout.write = ((chunk: string | Uint8Array) => {
+			logged.push(String(chunk));
+			return write(chunk);
+		}) as typeof process.stdout.write;
+		try {
+			await drive(
+				runId,
+				deps(
+					fakeModel([{ content: [say('Seen.')] }, { content: [say('Noted.')] }]).transport,
+					fakeLauncher().launcher,
+				),
+			);
+		} finally {
+			process.stdout.write = write;
+		}
+		check(
+			'no RunPod row is written for any of them',
+			(await spendRows(runId)).filter((r) => r.kind === 'runpod'),
+			[],
+		);
+		check(
+			'each is logged, with what was reported',
+			logged
+				.filter((l) => l.includes('GPU job not billed'))
+				.map((l) => JSON.parse(l))
+				.map((l) => [l.jobRef.replace(runId, 'run'), l.status, l.gpu, l.seconds]),
+			[
+				['run-blind', 'finished', null, null],
+				['run-nogpu', 'finished', null, 42],
+				['run-lost', 'failed', null, null],
+			],
+		);
+		check(
+			'the finished renders are error events the owner sees; the lost one is only logged',
+			(await events(runId, 'error')).map((e) => [
+				e.payload.type,
+				String(e.payload.jobRef).replace(runId, 'run'),
+				e.payload.seconds,
+			]),
+			[
+				['unbilled_job', 'run-blind', null],
+				['unbilled_job', 'run-nogpu', 42],
+			],
+		);
+		check(
+			'the agent still hears every job_done',
+			(await messages(runId, 'atlas-artist')).map((m) => m.role),
+			['user', 'user', 'user', 'assistant'],
+		);
+	}
+
+	// ── 25. Queued GPU work counts toward the cap ─────────────────────────────
+	console.log('25. renders queued and not yet billed count toward the cap');
+	{
+		const queue = (runId: string, jobRef: string) =>
+			sql`insert into director_atlas_jobs (job_ref, run_id, agent, atlas, regions, status)
+				values (${jobRef}, ${runId}, 'atlas-artist', 'symbols', ${sql.json(['H1'])}, 'queued')`;
+		const billed = (runId: string, usd: number) =>
+			recordSpend(sql, {
+				runId,
+				agent: 'atlas-artist',
+				model: 'L40S (48 GB)',
+				kind: 'runpod',
+				requestId: `${runId}-job0`,
+				usd,
+			});
+
+		// Before a model call: $0.50 spent on one render, two more in flight at that mean, cap $1.50.
+		// The call alone (~$0.16) would fit; with the $1.00 still to land it does not.
+		const runId = await newRun({ cap: 1.5, step: 'regions' });
+		await userMessage(runId, 'coordinator', 'Go.');
+		await billed(runId, 0.5);
+		await queue(runId, `${runId}-q1`);
+		await queue(runId, `${runId}-q2`);
+		const model = fakeModel([{ content: [say('Going.')] }]);
+		await drive(runId, deps(model.transport, fakeLauncher().launcher));
+		check(
+			'no call is made while the renders in flight would carry the run past its cap',
+			model.calls(),
+			0,
+		);
+		const [budget] = await events(runId, 'checkpoint_open');
+		check(
+			'the budget checkpoint shows the renders in flight and what they project',
+			[
+				budget?.payload.before,
+				budget?.payload.queuedJobs,
+				budget?.payload.queuedGpuUsd,
+				budget?.payload.spentUsd,
+			],
+			['model_call', 2, 1, 0.5],
+		);
+		await sql`update director_atlas_jobs set status = 'finished', done_at = now() where run_id = ${runId}`;
+		await event(runId, 'owner', 'owner_request', { action: 'resume' });
+		await drive(runId, deps(model.transport, fakeLauncher().launcher));
+		check('with nothing in flight, the same spend lets the call through', model.calls(), 1);
+
+		// Before a GPU submit: $0.50 spent, two in flight, cap $2. The call fits ($0.50 + $1.00 +
+		// ~$0.08); the submit — itself plus the two in flight, $1.50 — does not.
+		const gpuRun = await newRun({ cap: 2, step: 'regions' });
+		await userMessage(gpuRun, 'atlas-artist', 'Draw.');
+		await billed(gpuRun, 0.5);
+		await queue(gpuRun, `${gpuRun}-q1`);
+		await queue(gpuRun, `${gpuRun}-q2`);
+		const gpuModel = fakeModel([{ content: [use('q1', 'atlas.queue_variants')] }]);
+		const gate = fakeLauncher();
+		await drive(gpuRun, deps(gpuModel.transport, gate.launcher));
+		check('the call went out, the submit did not', [gpuModel.calls(), gate.effects], [1, []]);
+		const [stop] = await events(gpuRun, 'checkpoint_open');
+		check(
+			'the GPU budget checkpoint projects this render on top of the ones in flight',
+			[
+				stop?.payload.before,
+				stop?.payload.queuedJobs,
+				stop?.payload.queuedGpuUsd,
+				stop?.payload.projectedUsd,
+			],
+			['gpu_submit', 2, 1, 1.5],
+		);
 	}
 
 	// ── 8. The wake trigger ───────────────────────────────────────────────────
