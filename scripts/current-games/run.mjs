@@ -398,6 +398,7 @@ async function runGame(game) {
 					diffPixels: c.diffPixels,
 					diffRatio: c.diffRatio,
 					maxBlockRatio: c.maxBlockRatio,
+					box: c.box,
 				};
 				shot.diffHash = c.diffHash;
 				if (c.diffPng) {

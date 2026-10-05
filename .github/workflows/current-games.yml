@@ -27,6 +27,11 @@
 # status, so the two never race on one commit. Main's runtime is cached by SHA. A docs-only change
 # posts success without rendering anything: no game can look different. A PR from a fork gets no
 # secrets and no write token, so it does not run at all.
+#
+# NOISE CALIBRATION: a manual run (workflow_dispatch) with `self_compare` renders the chosen ref
+# against ITSELF — two independent renders of the same runtime, the main-vs-main measurement a
+# calibration needs. It posts its own status context, `current-games/self-compare`, so it never
+# stands in for a branch's real comparison.
 
 name: Current games
 
@@ -34,6 +39,12 @@ on:
   pull_request:
   push:
     branches-ignore: [main]
+  workflow_dispatch:
+    inputs:
+      self_compare:
+        description: Render the ref against itself (noise calibration)
+        type: boolean
+        default: true
 
 concurrency:
   group: current-games-${{ github.event_name }}-${{ github.event.pull_request.head.sha || github.sha }}
@@ -48,11 +59,12 @@ env:
   # The commit the status is posted on: the PR head, not its merge commit.
   STATUS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+  STATUS_CONTEXT: ${{ inputs.self_compare && 'current-games/self-compare' || 'current-games' }}
   SHARDS: 6
 
 jobs:
   prepare:
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -89,7 +101,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state=pending \
-            -f context=current-games -f description='Rendering every live game…' -f target_url="$RUN_URL"
+            -f context="$STATUS_CONTEXT" -f description='Rendering every live game…' -f target_url="$RUN_URL"
 
       - name: Docs-only change — nothing to render
         if: steps.owner.outputs.run == 'true' && steps.changes.outputs.code != 'true'
@@ -97,7 +109,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state=success \
-            -f context=current-games -f description='Docs-only change: no game can differ' -f target_url="$RUN_URL"
+            -f context="$STATUS_CONTEXT" -f description='Docs-only change: no game can differ' -f target_url="$RUN_URL"
 
       - name: Check the secrets
         id: secrets
@@ -123,7 +135,7 @@ jobs:
             # whose error names every one.
             description="Missing secret(s):$missing"
             [ "${#description}" -le 140 ] || description="Missing $(wc -w <<<"$missing") secrets (named in the run log):$missing"
-            gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state=failure -f context=current-games \
+            gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state=failure -f context="$STATUS_CONTEXT" \
               -f description="${description:0:140}" -f target_url="$RUN_URL"
             exit 1
           fi
@@ -131,8 +143,12 @@ jobs:
       - name: Pick the base commit
         id: base
         if: steps.owner.outputs.run == 'true' && steps.changes.outputs.code == 'true'
+        env:
+          SELF_COMPARE: ${{ inputs.self_compare }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+          if [ "$SELF_COMPARE" = true ]; then
+            sha="$(git rev-parse HEAD)"
+          elif [ "$GITHUB_EVENT_NAME" = pull_request ]; then
             sha="$(git rev-parse HEAD^1)"
           else
             git fetch -q --no-tags origin main
@@ -148,7 +164,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state=failure -f context=current-games \
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state=failure -f context="$STATUS_CONTEXT" \
             -f description='The harness could not start: see the prepare job' -f target_url="$RUN_URL"
 
   build:
@@ -336,6 +352,6 @@ jobs:
           [ "$BUILD" = success ] || { verdict=fail; line="the runtime build or the gates job failed"; }
           line="$(printf %s "$line" | node scripts/current-games/lib/redact.mjs)" || line='the report could not be redacted'
           state=failure; [ "$verdict" = pass ] && state=success
-          gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state="$state" -f context=current-games \
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state="$state" -f context="$STATUS_CONTEXT" \
             -f description="${line:0:139}" -f target_url="$RUN_URL"
           [ "$state" = success ]

@@ -7,8 +7,9 @@
 # installed nothing. It is a step, not a gating job, because a job skipped by `if:` reports ONE
 # check with the matrix name unexpanded (`check-all (${{ matrix.shard }}/3)`), never the three.
 #
-# "Docs" is what paths-ignore used to skip: docs/**, any *.md, .claude/**. Anything the diff cannot
-# decide (an unreachable `before` after a force-push, a new branch, another event) counts as code.
+# "Docs" is what paths-ignore used to skip: docs/**, any *.md, .claude/**. The first push of a new
+# branch has no `before` (all zeros), so it diffs against its merge-base with main. Anything the
+# diff cannot decide (an unreachable `before` after a force-push, another event) counts as code.
 #
 # Needs the checkout to have fetched the PR merge commit's parent: `fetch-depth: 2`.
 
@@ -32,6 +33,11 @@ runs:
         base=''
         if [ "$EVENT" = pull_request ]; then
           base="$(git rev-parse -q --verify 'HEAD^1' || true)"
+        elif [ "$EVENT" = push ] && [ -z "${BEFORE//0/}" ]; then
+          # The checkout is shallow: deepen both sides until they meet (a branch is rarely 200 behind).
+          git fetch -q --no-tags --depth=200 origin +refs/heads/main:refs/remotes/origin/main 2>/dev/null &&
+            git fetch -q --no-tags --deepen=200 origin "$GITHUB_REF" 2>/dev/null
+          base="$(git merge-base origin/main HEAD 2>/dev/null || true)"
         elif [ "$EVENT" = push ] && git fetch -q --no-tags --depth=1 origin "$BEFORE" 2>/dev/null; then
           base="$BEFORE"
         fi

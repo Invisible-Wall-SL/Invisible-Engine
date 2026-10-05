@@ -71,12 +71,17 @@ export function compareScreens(beforePng, afterPng, tolerance) {
 	const blocksX = Math.ceil(a.width / size);
 	const blocks = new Uint32Array(blocksX * Math.ceil(a.height / size));
 	let diffPixels = 0;
+	const box = { x0: a.width, y0: a.height, x1: -1, y1: -1 };
 	for (let y = 0; y < a.height; y++)
 		for (let x = 0; x < a.width; x++) {
 			const o = (y * a.width + x) * 4;
 			const red = diff.data[o] === 255 && diff.data[o + 1] === 0 && diff.data[o + 2] === 0;
 			if (!red || inMask(masks, x, y)) continue;
 			diffPixels++;
+			box.x0 = Math.min(box.x0, x);
+			box.y0 = Math.min(box.y0, y);
+			box.x1 = Math.max(box.x1, x);
+			box.y1 = Math.max(box.y1, y);
 			blocks[Math.floor(y / size) * blocksX + Math.floor(x / size)]++;
 		}
 	// An edge block is cut short by the image border: its ratio is over its real area.
@@ -101,6 +106,7 @@ export function compareScreens(beforePng, afterPng, tolerance) {
 		diffPixels,
 		diffRatio,
 		maxBlockRatio,
+		box: diffPixels ? box : undefined,
 		diffPng: diffPixels ? PNG.sync.write(diff) : undefined,
 		diffHash: diffPixels ? pairHash(a, b) : undefined,
 	};

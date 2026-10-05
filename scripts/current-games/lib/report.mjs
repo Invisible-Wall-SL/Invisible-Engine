@@ -157,6 +157,42 @@ export function writeReport(out, data) {
 	return report;
 }
 
+/**
+ * A plain-text account of every row that is not a pass, for the job log: the artifact needs a
+ * download, the log does not. Built from the (already redacted) report.
+ */
+export function digest(report) {
+	const lines = [];
+	for (const g of report.games) {
+		const v = rowVerdict(g);
+		const failedGates = (g.tests.gates ?? []).filter((x) => !x.pass);
+		lines.push(
+			`${v ?? 'not rendered'} · ${g.key} (${g.gameType ?? '—'}, script ${g.script ?? '—'}) · ` +
+				`looks ${g.looks.status}${g.looks.of ? ` ${g.looks.changed ?? 0}/${g.looks.of}` : ''}`,
+		);
+		if (v === 'pass') continue;
+		for (const note of g.notes ?? []) lines.push(`    note: ${note}`);
+		if (g.looks.detail) lines.push(`    looks: ${g.looks.detail}`);
+		for (const gate of failedGates)
+			lines.push(`    gate ${gate.gate}: ${(gate.tail ?? 'failed').slice(-300)}`);
+		const failures = [...(g.tests.smoke?.failures ?? []), ...(g.looks.baseFailures ?? [])];
+		for (const f of failures) {
+			lines.push(
+				`    ${f.side}/${f.scenario}: ${f.error ?? ''} errors ${f.errors} stalls ${f.stalls}`,
+			);
+			for (const c of f.console ?? []) lines.push(`      ${c.slice(0, 400)}`);
+		}
+		for (const s of g.screens.filter((x) => !x.pass))
+			lines.push(
+				`    screen ${s.screen} (${s.scenario}): ${s.reason}` +
+					(s.measured?.box ? ` · box ${JSON.stringify(s.measured.box)}` : '') +
+					` · frames ${s.state?.base?.frame ?? '-'}/${s.state?.head?.frame ?? '-'}` +
+					` · screens ${s.state?.base?.screens?.join('>') ?? '-'} | ${s.state?.head?.screens?.join('>') ?? '-'}`,
+			);
+	}
+	return lines.join('\n');
+}
+
 /** Join shard parts (each a run's --out) into one report under `out`. */
 export function mergeReports(out, parts) {
 	mkdirSync(join(out, 'screens'), { recursive: true });
@@ -191,6 +227,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
 		resolve(out),
 		parts.map((p) => resolve(p)),
 	);
+	console.log(digest(report));
 	console.log(`[current-games] ${report.summary.verdict} — ${report.summary.line}`);
 	writeFileSync(
 		join(resolve(out), 'summary.txt'),
