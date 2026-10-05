@@ -125,3 +125,8 @@ A GitHub Actions workflow `current-games.yml`, triggered on every pipeline branc
   rendered. Their row reports build + tests only, because comparing their own bundle with itself
   proves nothing. Rows that weren't rendered (no snapshot, not published, desktop-built) never count
   as a pass and never fail the run.
+- **2026-10-05, proposed:** a change that touches none of the runtime's inputs is not built or
+  rendered; `current-games` posts success from the diff alone. The inputs are computed from the
+  workspace graph (`apps/lines` and every package it reaches), plus the root build files, what the
+  gates read and the harness itself (`scripts/current-games/lib/touched.mjs`). A diff that cannot
+  be decided renders everything.

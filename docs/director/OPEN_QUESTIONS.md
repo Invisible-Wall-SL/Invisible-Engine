@@ -8,8 +8,10 @@ with the default.
 1. **Merging before the harness has run.** #1042 and #1043 merged while `current-games` was red only
    because its secrets are missing.
    - *Suggested default:* from now on, nothing merges until `current-games` is green on the live
-     games, except docs-only PRs (the workflow already passes those). Once it has run green once,
-     make `current-games` a required check on `main`, with ruleset source **any**.
+     games, except changes that cannot reach a game (docs only, or nothing in the runtime's
+     closure, the gates' inputs or the harness: the workflow passes those without rendering). Once
+     it has run green once, make `current-games` a required check on `main`, with ruleset source
+     **any**.
 
 ## Answered
 
