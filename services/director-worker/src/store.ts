@@ -205,6 +205,21 @@ export async function markHandled(tx: Db, eventId: number): Promise<void> {
 	await tx`update director_events set handled_at = now() where id = ${eventId}`;
 }
 
+/**
+ * What the launcher's gate recorded for a write's `opId` (`director_ops`, ADR-0002): `done` with
+ * the op's stored result, `pending` while it runs (or since it was lost mid-run), or null when it
+ * never completed — the gate releases a failed op's row, so no row means nothing to report.
+ */
+export async function opRecord(
+	db: Db,
+	opId: string,
+): Promise<{ status: 'done'; result: unknown } | { status: 'pending' } | null> {
+	const [row] = await db<{ status: 'pending' | 'done'; result: unknown }[]>`
+		select status, result from director_ops where op_id = ${opId}`;
+	if (!row) return null;
+	return row.status === 'done' ? { status: 'done', result: row.result } : { status: 'pending' };
+}
+
 export async function queuedJobs(db: Db, runId: string): Promise<number> {
 	const [row] = await db<{ n: number }[]>`
 		select count(*)::int as n from director_atlas_jobs

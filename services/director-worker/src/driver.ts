@@ -39,6 +39,7 @@ import {
 	LeaseLost,
 	loadMessages,
 	markHandled,
+	opRecord,
 	pendingAgents,
 	queuedJobs,
 	recordSpend,
@@ -281,18 +282,16 @@ async function settle(
 	content: BetaContentBlockParam[],
 ) {
 	const calls = content.filter((b): b is BetaToolUseBlock => b.type === 'tool_use');
-	const served = await catalog(ctx);
+	const { status } = (await withLease(ctx.sql, ctx.run, async (_tx, l) => l)).state;
+	const served = status === 'running' ? await catalog(ctx) : new Map<string, AdapterSpec>();
 	const results = new Map<string, BetaToolResultBlockParam>();
 	let budgetStop: { spentUsd: number; projectedUsd: number; capUsd: number } | null = null;
-	// Nothing of this turn was sent unless the run was running when it was stored and still is: an
-	// owner's pause or stop is applied before a turn's calls go out, and nothing else moves a run
-	// between storing a turn and settling it.
-	const { status } = (await withLease(ctx.sql, ctx.run, async (_tx, l) => l)).state;
 
 	for (const [index, call] of calls.entries()) {
 		const id = toolId(call.name);
 		if (status !== 'running') {
-			results.set(call.id, resultBlock(call.id, `Not run: the run is ${status}.`, true));
+			const opId = opIdOf(ctx.run.id, agent.name, turnSeq, index);
+			results.set(call.id, await recordedOutcome(ctx, call, opId, status));
 			continue;
 		}
 		if (!agent.tools.includes(id)) {
@@ -381,6 +380,30 @@ async function settle(
 			calls.map((c) => results.get(c.id)!),
 		);
 	});
+}
+
+/**
+ * The answer to a call of a turn settled while the run is not running. Nothing is sent then, but
+ * the call may have gone out before: a run paused after repeated failures leaves its last turn
+ * unsettled, its calls' outcomes unknown. So the answer is what the launcher recorded for the
+ * call's opId, never a guess — a write that completed gets its stored result, so the model does
+ * not issue it again; one still in progress is retried later; and one that never completed (or a
+ * read, or a worker tool, which commits with the results) is reported as not run.
+ */
+async function recordedOutcome(
+	ctx: Ctx,
+	call: BetaToolUseBlock,
+	opId: string,
+	status: string,
+): Promise<BetaToolResultBlockParam> {
+	if (WORKER_TOOL_IDS.has(toolId(call.name))) {
+		return resultBlock(call.id, `Not run: the run is ${status}.`, true);
+	}
+	const record = await opRecord(ctx.sql, opId);
+	if (record?.status === 'pending') throw new RetryLater(`${opId} is still in progress`);
+	return record
+		? resultBlock(call.id, JSON.stringify(record.result))
+		: resultBlock(call.id, `Not run: the run is ${status}.`, true);
 }
 
 async function settleAll(ctx: Ctx): Promise<void> {

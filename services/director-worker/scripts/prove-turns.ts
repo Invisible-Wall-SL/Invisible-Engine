@@ -43,6 +43,8 @@
  * 20. a job_done that lands after the run ended is still billed;
  * 21. handling a billed job_done needs no second pool connection;
  * 22. a failure that persists pauses the run after MAX_FAILURES drives, retrying the same opId;
+ *     settled while paused, the turn is answered from what the launcher recorded for each opId —
+ *     a write that ran gets its result and is not issued again, one that never ran is "not run";
  * 23. tokens streamed before a failure are billed.
  */
 import type {
@@ -97,14 +99,16 @@ type Reply = Partial<BetaMessage> & {
 	error?: unknown;
 };
 
-/** Scripted model: answers each call with the next reply; counts and keeps every request. */
-function fakeModel(replies: Reply[]) {
+/** Scripted model: answers each call with the next reply, or with what a reply function makes of
+ *  the request (as a model reacts to a tool result); counts and keeps every request. */
+function fakeModel(replies: (Reply | ((request: BetaMessageStreamParams) => Reply))[]) {
 	const requests: BetaMessageStreamParams[] = [];
 	let n = 0;
 	const transport: ModelTransport = {
 		async send(request) {
 			requests.push(structuredClone(request));
-			const reply = replies[n++];
+			const next = replies[n++];
+			const reply = typeof next === 'function' ? next(request) : next;
 			if (!reply)
 				throw new Error(`the model was called ${n} times; only ${replies.length} expected`);
 			await reply.during?.();
@@ -147,14 +151,19 @@ const SPECS: AdapterSpec[] = [
 	},
 ];
 
-/** The launcher gate's idempotency: a write's opId runs once; a repeat returns the stored result. */
+/**
+ * The launcher gate's idempotency, on the real `director_ops` table as the gate keeps it: a write's
+ * opId runs once and is recorded `done` with its result; a repeat returns that result. `answer`
+ * scripts a reply before the op runs (it does not run); `loseAnswer` lets the op run and record,
+ * then loses the reply on the way back, as a dropped connection would.
+ */
 function fakeLauncher(
 	answer?: (id: string, nth: number) => AdapterResult | null,
 	catalogUp: () => boolean = () => true,
+	loseAnswer: () => boolean = () => false,
 ) {
 	const effects: string[] = [];
 	const sent: string[] = [];
-	const stored = new Map<string, unknown>();
 	const launcher: Launcher = {
 		async catalog() {
 			if (!catalogUp()) throw new Error('the launcher is unreachable');
@@ -164,14 +173,24 @@ function fakeLauncher(
 			sent.push(`${id}@${body.opId}`);
 			const scripted = answer?.(id, sent.length);
 			if (scripted) return scripted;
-			if (body.opId && stored.has(body.opId)) return { status: 200, body: stored.get(body.opId) };
+			const lost: AdapterResult = { status: 503, body: { error: 'unavailable' } };
+			if (body.opId) {
+				const [done] = await sql<{ result: unknown }[]>`
+					select result from director_ops where op_id = ${body.opId} and status = 'done'`;
+				if (done) return loseAnswer() ? lost : { status: 200, body: done.result };
+			}
 			effects.push(id);
 			const result =
 				id === 'atlas.queue_variants'
 					? { jobRef: `job-${effects.length}` }
 					: { ok: effects.length };
-			if (body.opId) stored.set(body.opId, result);
-			return { status: 200, body: result };
+			if (body.opId) {
+				await sql`insert into director_ops (op_id, run_id, agent, op, input_hash, status, result,
+						completed_at)
+					values (${body.opId}, ${body.runId}, ${body.agent}, ${id}, 'proof', 'done',
+						${sql.json(result)}, now())`;
+			}
+			return loseAnswer() ? lost : { status: 200, body: result };
 		},
 	};
 	return { launcher, effects, sent };
@@ -1040,6 +1059,76 @@ try {
 		);
 		check('every attempt sent the same opId', new Set(gate.sent).size, 1);
 		check('the model was asked once', model.calls(), 1);
+	}
+	console.log('22b. after that pause, a write that never ran is reported not run, and runs once');
+	{
+		const runId = await newRun();
+		await userMessage(runId, 'coordinator', 'Start.');
+		let outage = true;
+		const gate = fakeLauncher(() => (outage ? { status: 503, body: { error: 'disabled' } } : null));
+		const model = fakeModel([
+			{ content: [use('n1', 'gamemaker.create_from_template')] },
+			{ content: [use('n2', 'gamemaker.create_from_template')] },
+			{ content: [say('Created.')] },
+		]);
+		for (let i = 0; i < MAX_FAILURES + 2 && (await runRow(runId)).status === 'running'; i++) {
+			await drive(runId, deps(model.transport, gate.launcher));
+			await afterRetryDelay();
+		}
+		outage = false;
+		await event(runId, 'owner', 'owner_request', { action: 'resume' });
+		await drive(runId, deps(model.transport, gate.launcher));
+		const results = JSON.stringify((await messages(runId, 'coordinator'))[2]?.content);
+		check('the call that never completed is reported not run', results.includes('Not run'), true);
+		check('the model issued it again after resume, and it ran once', gate.effects, [
+			'gamemaker.create_from_template',
+		]);
+	}
+	console.log('22c. after that pause, a write that ran but whose answers were lost runs once');
+	{
+		const runId = await newRun();
+		await userMessage(runId, 'coordinator', 'Start.');
+		let lossy = true;
+		const gate = fakeLauncher(undefined, undefined, () => lossy);
+		const model = fakeModel([
+			{ content: [use('l1', 'gamemaker.create_from_template')] },
+			// As a model would: told the write did not run, it issues it again.
+			(request) =>
+				JSON.stringify(
+					request.messages.slice(request.messages.findLastIndex((m) => m.role === 'assistant')),
+				).includes('Not run')
+					? { content: [use('l2', 'gamemaker.create_from_template')] }
+					: { content: [say('Created.')] },
+			{ content: [say('Created.')] },
+		]);
+		for (let i = 0; i < MAX_FAILURES + 2 && (await runRow(runId)).status === 'running'; i++) {
+			await drive(runId, deps(model.transport, gate.launcher));
+			await afterRetryDelay();
+		}
+		check(
+			'the run paused with the op done but unconfirmed',
+			[(await runRow(runId)).status, gate.effects.length],
+			['paused', 1],
+		);
+		lossy = false;
+		// An owner message is enough to settle the turn, before any resume.
+		await event(runId, 'owner', 'owner_message', { text: 'What happened?' });
+		await drive(runId, deps(model.transport, gate.launcher));
+		const [answer] = ((await messages(runId, 'coordinator'))[2]?.content ?? []) as unknown as {
+			content: string;
+			is_error?: boolean;
+		}[];
+		check(
+			"the turn is answered with the op's recorded result",
+			[answer?.content, answer?.is_error ?? false],
+			['{"ok":1}', false],
+		);
+		await event(runId, 'owner', 'owner_request', { action: 'resume' });
+		await drive(runId, deps(model.transport, gate.launcher));
+		check('after resume the op is not issued again: it ran once', gate.effects, [
+			'gamemaker.create_from_template',
+		]);
+		check('the model went on from the result', model.calls(), 2);
 	}
 
 	// ── 23. A stream cut off partway ──────────────────────────────────────────
