@@ -15,6 +15,17 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-05 · Phase 5 · coordinator
+- **Did:** the owner approved ADR-0007 (pipeline-change mechanics), changing the eval cap to $20.
+- **Decisions:**
+  - GitHub is the record; merge is a SHA-pinned squash through the API; rollback is a revert PR.
+  - A GitHub App holds the credentials.
+  - "Green or approved" is the single required status `current-games`: the launcher posts
+    `success` to that same context once every diff on the head is approved.
+  - The `agent-eval.yml` cap is $20 per run.
+- **Files:** `DECISIONS/0007-pipeline-change-mechanics.md`, `README.md`, `PLAN.md`.
+- **Next:** Phase 5 starts once the harness is calibrated (1F). The owner creates the GitHub App then.
+
 ## 2026-10-05 · Phase 1 · coordinator
 - **Did:**
   - Recorded #1044 (3A, `director-worker`; the service is deployed and healthy), #1046 (2C, Atlas
