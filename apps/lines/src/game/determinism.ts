@@ -23,12 +23,12 @@
  *   `IO_STALL_MS` counts a stall and gives up on what it waited on, once.
  * - **Ready signal.** `window.__IE_DETERMINISM__` (see `DeterminismApi`): `step(n)` and
  *   `waitFor({ screen, idle, … })`, reading `Game.svelte`'s probe.
- * - **Drawing.** Every draw rebuilds Pixi's instructions from the scene (see `drawFromScene`), so
- *   what is drawn depends on the scene alone. Every frame draws by default. `draw: 'last'` runs
- *   the frames without the WebGL draw and draws once at the end: the same updates, ~100× faster
- *   under software GL (a draw is ~99% of a frame there). Nothing in the game reads a drawn frame
- *   back (no render-to-texture); one that did would read blank in `last`. A harness uses one
- *   mode on both sides of a comparison.
+ * - **Drawing.** Every frame draws by default. `draw: 'last'` runs the frames without the WebGL
+ *   draw and draws once at the end: the same updates, ~100× faster under software GL (a draw is
+ *   ~99% of a frame there). Nothing in the game reads a drawn frame back (no render-to-texture);
+ *   one that did would read blank in `last`. A harness uses one mode on both sides of a comparison.
+ *   Every draw to the screen starts from a cleared canvas (see `drawOnClearedCanvas`), as every
+ *   frame the browser shows does.
  * - **Time zone and locale** are the browser's; a harness pins them (CDP `setTimezoneOverride`).
  */
 
@@ -74,9 +74,14 @@ export type DeterminismCondition = {
 /** `every` frame (default) or only the `last` one of a call. */
 export type DeterminismDraw = 'every' | 'last';
 
-type RenderGroupLike = { structureDidChange: boolean; renderGroupChildren?: RenderGroupLike[] };
-type ContainerLike = { renderGroup?: RenderGroupLike; parentRenderGroup?: RenderGroupLike };
-type PixiAppLike = { render(): void; renderer: { render(...args: unknown[]): void } };
+type RendererLike = {
+	render(...args: unknown[]): void;
+	view: { renderTarget: object };
+	background: { clearBeforeRender: boolean };
+	backBuffer?: { useBackBuffer: boolean };
+	renderTarget: { bind(options: { target: object; clear: boolean; clearColor: number[] }): void };
+};
+type PixiAppLike = { render(): void; renderer: RendererLike };
 
 export type DeterminismState = DeterminismProbeState & {
 	seed: string;
@@ -476,32 +481,35 @@ export function installDeterminism(): void {
 		}
 	};
 	const pixiApp = () => (globalThis as { __PIXI_APP__?: PixiAppLike }).__PIXI_APP__;
-	// Every draw rebuilds its instructions from the scene. Pixi updates the instructions of a
-	// changed object in place, at the batch offset it remembers from the last build, and that
-	// state depends on the order updates came in, not only on the scene: two renders of one build
-	// once left the same frame with a HUD text written twice in one and once in the other. A fresh
-	// build is a function of the scene alone.
-	const rebuilt = new WeakSet<object>();
-	const markRebuild = (group: RenderGroupLike | undefined) => {
-		if (!group) return;
-		group.structureDidChange = true;
-		for (const child of group.renderGroupChildren ?? []) markRebuild(child);
-	};
-	const drawFromScene = () => {
+	// Through a back buffer (`useBackBuffer`), Pixi clears the buffer and then blends it onto the
+	// canvas without clearing the canvas: the browser clears it once it has shown it. Two draws
+	// before the browser shows one leave every translucent pixel over a transparent part of the
+	// canvas drawn twice (a HUD text's edges brighten), and how many draws land before it shows one
+	// depends on real time, not on the frames. So each draw to the screen first clears the canvas
+	// the way the browser does, as for every frame a player sees.
+	const cleared = new WeakSet<object>();
+	const drawOnClearedCanvas = () => {
 		const renderer = pixiApp()?.renderer;
-		if (!renderer || rebuilt.has(renderer)) return;
-		rebuilt.add(renderer);
+		if (!renderer || cleared.has(renderer)) return;
+		cleared.add(renderer);
 		const render = renderer.render;
 		renderer.render = function (this: unknown, ...args: unknown[]) {
-			const options = args[0] as ({ container?: ContainerLike } & ContainerLike) | undefined;
-			const container = options?.container ?? options;
-			markRebuild(container?.renderGroup ?? container?.parentRenderGroup);
+			const [first, legacy] = args as [
+				{ container?: unknown; target?: object; clear?: unknown } | undefined,
+				{ renderTexture?: object } | undefined,
+			];
+			const isOptions = !!first && 'container' in first;
+			const screen = renderer.view.renderTarget;
+			const target = (isOptions ? first.target : legacy?.renderTexture) || screen;
+			const clear = (isOptions ? first.clear : undefined) ?? renderer.background.clearBeforeRender;
+			if (renderer.backBuffer?.useBackBuffer && target === screen && clear)
+				renderer.renderTarget.bind({ target: screen, clear: true, clearColor: [0, 0, 0, 0] });
 			return render.apply(this, args);
 		};
 	};
 	const runFrame = async (draw: boolean) => {
 		await settle();
-		drawFromScene();
+		drawOnClearedCanvas();
 		const target = now + DETERMINISM_FRAME_MS;
 		for (let due = nextDueTimer(target); due; due = nextDueTimer(target)) {
 			const [id, timer] = due;
@@ -549,7 +557,7 @@ export function installDeterminism(): void {
 			ran = true;
 		}
 		if (ran && !every) {
-			drawFromScene();
+			drawOnClearedCanvas();
 			pixiApp()?.render();
 		}
 	};
