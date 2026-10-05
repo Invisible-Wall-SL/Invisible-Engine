@@ -135,6 +135,34 @@ const DOM = `(() => {
 	return out.sort();
 })()`;
 
+// …and the same frame drawn again from freshly built instructions: the texts a rebuild adds to a
+// batch more than once. Returns them; the capture after it shows whether the frame changed.
+const REBUILD = `(() => {
+	const app = window.__PIXI_APP__;
+	const pipe = app.renderer.renderPipes.batch;
+	const real = pipe.addToBatch;
+	const counts = new Map();
+	pipe.addToBatch = function (el, set) {
+		const r = el.renderable;
+		counts.set(r, (counts.get(r) ?? 0) + 1);
+		return real.call(this, el, set);
+	};
+	const mark = (g) => {
+		g.structureDidChange = true;
+		for (const c of g.renderGroupChildren ?? []) mark(c);
+	};
+	try {
+		mark(app.stage.renderGroup);
+		app.renderer.render(app.stage);
+	} finally {
+		pipe.addToBatch = real;
+	}
+	// A text is one batch element; a Graphics or a Spine legitimately adds several.
+	return [...counts]
+		.filter(([r, n]) => n > 1 && typeof r.text === 'string')
+		.map(([r, n]) => \`\${r.constructor?.name} \${r.label ?? ''} \${typeof r.text === 'string' ? JSON.stringify(r.text) : ''} x\${n}\`);
+})()`;
+
 /** A forced beat with `{path}` placeholders filled from the game's contract (its own pot ids…). */
 const fillBeat = (beat, contract) =>
 	beat.replace(/\{([\w.-]+)\}/g, (_m, path) => {
@@ -251,6 +279,8 @@ export async function renderUnit({
 								layout: await page.evaluate(LAYOUT).catch((e) => [e.message]),
 								translucent: await page.evaluate(TRANSLUCENT).catch((e) => [e.message]),
 								dom: await page.evaluate(DOM).catch((e) => [e.message]),
+								batchedTwice: await page.evaluate(REBUILD).catch((e) => [e.message]),
+								rebuiltEqual: (await page.screenshot()).equals(shot),
 							}
 						: {}),
 				};
