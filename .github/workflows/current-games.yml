@@ -31,7 +31,9 @@
 # NOISE CALIBRATION: a manual run (workflow_dispatch) with `self_compare` renders the chosen ref
 # against ITSELF — two independent renders of the same runtime, the main-vs-main measurement a
 # calibration needs. It posts its own status context, `current-games/self-compare`, so it never
-# stands in for a branch's real comparison.
+# stands in for a branch's real comparison. Without `self_compare`, `base` names the commit to
+# compare against instead of main's merge-base: a seeded proof renders a deliberate change against
+# the commit before it.
 
 name: Current games
 
@@ -49,6 +51,10 @@ on:
         description: Print a crop of every changed screen into the log (base64 PNG)
         type: boolean
         default: false
+      base:
+        description: Without self_compare, compare against this commit instead of main's merge-base
+        type: string
+        default: ''
 
 concurrency:
   group: current-games-${{ github.event_name }}-${{ github.event.pull_request.head.sha || github.sha }}
@@ -150,9 +156,12 @@ jobs:
         if: steps.owner.outputs.run == 'true' && steps.changes.outputs.code == 'true'
         env:
           SELF_COMPARE: ${{ inputs.self_compare }}
+          BASE: ${{ inputs.base }}
         run: |
           if [ "$SELF_COMPARE" = true ]; then
             sha="$(git rev-parse HEAD)"
+          elif [ -n "$BASE" ]; then
+            sha="$(git rev-parse -q --verify "$BASE^{commit}")" || { echo "::error::base '$BASE' is not a commit"; exit 1; }
           elif [ "$GITHUB_EVENT_NAME" = pull_request ]; then
             sha="$(git rev-parse HEAD^1)"
           else

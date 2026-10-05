@@ -208,7 +208,8 @@ both frames, both screen sets and a 64×24 map of where the pixels differ. A run
 against itself: main's runtime built twice and rendered on separate runners, which is the
 main-vs-main measurement. It posts the separate status context `current-games/self-compare` (a
 manual run without `self_compare` posts `current-games/manual`), so it never stands in for a
-branch's comparison. `log_images: true` prints each changed screen's crops into the log, with each
+branch's comparison. Such a manual run can name a `base` commit to compare against instead of main's
+merge-base: the seeded proof renders a deliberate 1 px change against the commit before it. `log_images: true` prints each changed screen's crops into the log, with each
 side's web-font states, every stage text's font string, measured size and texture hash, the
 ordered scene tree, whether one more draw changes the capture, and the external requests each
 render made.
