@@ -1,12 +1,27 @@
 // The harness report: `report.json` (what the Pipeline Changes UI and the commit status read) and
 // a static `index.html` beside it. One row per game — build / tests / looks the same — and, for a
 // changed screen, before / after / diff images, the tolerance it ran with and its stable id
-// (`<head sha>:<game>:<screen>:<diff hash>`, what an approval will name in Phase 5).
+// (`<head sha>:<game>:<screen>:<diff hash>`, what an approval will name in Phase 5). A game rendered
+// as republished too has a second row, `variant: 'republished'`, whose game key reads
+// `<key>@republished` in every id, file name and digest line (`rowKey`).
 
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { redactReport } from './redact.mjs';
+
+/** A row's key, distinct per variant: `<game key>` as published, `<game key>@republished`. */
+export const rowKey = (row) => (row.variant === 'republished' ? `${row.key}@republished` : row.key);
+
+/** Whether the report has both rows of this row's game. */
+const hasTwin = (games, row) =>
+	games.some(
+		(o) => o.key === row.key && (o.variant ?? 'published') !== (row.variant ?? 'published'),
+	);
+
+/** `as published` / `as republished`, or nothing for a game with one row. */
+export const variantLabel = (games, row) =>
+	row.variant === 'republished' ? 'as republished' : hasTwin(games, row) ? 'as published' : '';
 
 /**
  * pass / fail of one row; `null` for a row that was not rendered — no snapshot, not published, or a
@@ -29,14 +44,16 @@ export function summarize(games, aborted) {
 	}
 	const rendered = games.filter((g) => g.looks.status === 'same' || g.looks.status === 'changed');
 	const changedScreens = games.flatMap((g) => g.screens.filter((s) => !s.pass).map((s) => s.id));
+	const republished = games.filter((g) => g.variant === 'republished').length;
 	const verdict = aborted || counts.fail || !rendered.length ? 'fail' : 'pass';
 	const line = aborted
 		? aborted
 		: !rendered.length
 			? 'no game was rendered'
 			: `${counts.pass} pass · ${counts.fail} fail · ${counts.notRendered} not rendered · ` +
-				`${changedScreens.length} changed screen(s)`;
-	return { verdict, ...counts, rendered: rendered.length, changedScreens, line };
+				`${changedScreens.length} changed screen(s)` +
+				(republished ? ` · ${republished} row(s) as republished` : '');
+	return { verdict, ...counts, rendered: rendered.length, changedScreens, republished, line };
 }
 
 const esc = (s) =>
@@ -86,7 +103,8 @@ function html(report) {
 							.join(' · ')
 					: g.tests.status;
 			const v = rowVerdict(g) ?? 'none';
-			return `<tr class="v-${v}"><td><b>${esc(g.name)}</b><br><code>${esc(g.key)}</code></td><td>${esc(g.gameType ?? '—')}<br><small>script ${esc(g.script ?? '—')}</small></td>${cell(g.build.status, g.build.status)}${cell(g.tests.status, testsText)}${cell(g.looks.status, looksText)}<td>${g.notes.map(esc).join('<br>')}</td></tr>`;
+			const label = variantLabel(report.games, g);
+			return `<tr class="v-${v}"><td><b>${esc(g.name)}</b>${label ? ` <small>${esc(label)}</small>` : ''}<br><code>${esc(rowKey(g))}</code></td><td>${esc(g.gameType ?? '—')}<br><small>script ${esc(g.script ?? '—')}</small></td>${cell(g.build.status, g.build.status)}${cell(g.tests.status, testsText)}${cell(g.looks.status, looksText)}<td>${g.notes.map(esc).join('<br>')}</td></tr>`;
 		})
 		.join('\n');
 	const changed = report.games
@@ -96,7 +114,7 @@ function html(report) {
 				.map(
 					(
 						s,
-					) => `<section class="diff"><h3>${esc(g.name)} · ${esc(s.screen)} <small>(${esc(s.scenario)}, draw ${esc(s.draw)})</small></h3>
+					) => `<section class="diff"><h3>${esc(g.name)}${g.variant === 'republished' ? ' (as republished)' : ''} · ${esc(s.screen)} <small>(${esc(s.scenario)}, draw ${esc(s.draw)})</small></h3>
 <p>${esc(s.reason)}${s.measured ? ` · measured ${pct(s.measured.diffRatio)} of pixels, worst block ${pct(s.measured.maxBlockRatio)}` : ''}</p>
 <p><code>${esc(s.id ?? '')}</code></p>
 <p class="tol">tolerance: <code>${esc(JSON.stringify(s.tolerance))}</code></p>
@@ -114,7 +132,7 @@ function html(report) {
 		.flatMap((g) =>
 			g.screens.map(
 				(s) =>
-					`<tr><td>${esc(g.key)}</td><td>${esc(s.screen)}</td><td>${esc(s.draw)}</td><td>${s.identical ? 'byte-identical' : pct(s.measured?.diffRatio)}</td><td>${s.identical ? '' : pct(s.measured?.maxBlockRatio)}</td><td>${s.pass ? 'pass' : 'FAIL'}</td></tr>`,
+					`<tr><td>${esc(rowKey(g))}</td><td>${esc(s.screen)}</td><td>${esc(s.draw)}</td><td>${s.identical ? 'byte-identical' : pct(s.measured?.diffRatio)}</td><td>${s.identical ? '' : pct(s.measured?.maxBlockRatio)}</td><td>${s.pass ? 'pass' : 'FAIL'}</td></tr>`,
 			),
 		)
 		.join('\n');
@@ -132,6 +150,7 @@ small,.tol{color:var(--muted)}code{word-break:break-all}details{margin:12px 0}
 <h1>Current games</h1>
 <p class="verdict">${summary.verdict === 'pass' ? 'PASS' : 'FAIL'} — ${esc(summary.line)}</p>
 <p>branch <code>${esc(report.head?.sha)}</code> vs main <code>${esc(report.base?.sha)}</code> · seed <code>${esc(report.seed)}</code> · ${esc(report.viewport)} · ${esc(Object.values(report.renderSeconds ?? {}).reduce((a, b) => a + b, 0))} s of rendering${report.shards ? ` over ${report.shards} shard(s)` : ''}</p>
+${report.republish?.reason ? `<p><small>republished renders: ${esc(report.republish.reason)}</small></p>` : ''}
 ${Object.entries(report.browser ?? {})
 	.map(([name, paths]) => `<p><small>browser (${esc(name)}): ${esc(paths)}</small></p>`)
 	.join('')}
@@ -176,8 +195,9 @@ export function digest(report) {
 	);
 	// The per-screen noise over the screens both sides captured: a passing screen that is not
 	// byte-identical differed within its tolerance, and is named with what was measured.
+	if (report.republish?.reason) lines.push(`republished renders: ${report.republish.reason}`);
 	const shots = report.games.flatMap((g) =>
-		g.screens.filter((s) => s.measured).map((s) => ({ ...s, game: g.key })),
+		g.screens.filter((s) => s.measured).map((s) => ({ ...s, game: rowKey(g) })),
 	);
 	const near = shots.filter((s) => s.pass && !s.identical);
 	if (shots.length)
@@ -195,10 +215,13 @@ export function digest(report) {
 	for (const g of report.games) {
 		const v = rowVerdict(g);
 		const failedGates = (g.tests.gates ?? []).filter((x) => !x.pass);
+		const label = variantLabel(report.games, g);
 		lines.push(
-			`${v ?? 'not rendered'} · ${g.key} (${g.gameType ?? '—'}, script ${g.script ?? '—'}) · ` +
+			`${v ?? 'not rendered'} · ${rowKey(g)}${label ? ` (${label})` : ''} (${g.gameType ?? '—'}, script ${g.script ?? '—'}) · ` +
 				`looks ${g.looks.status}${g.looks.of ? ` ${g.looks.changed ?? 0}/${g.looks.of}` : ''}` +
-				(report.renderSeconds?.[g.key] ? ` · ${report.renderSeconds[g.key]} s rendering` : ''),
+				(report.renderSeconds?.[rowKey(g)]
+					? ` · ${report.renderSeconds[rowKey(g)]} s rendering`
+					: ''),
 		);
 		if (v === 'pass') continue;
 		for (const note of g.notes ?? []) lines.push(`    note: ${note}`);
@@ -230,15 +253,14 @@ export function digest(report) {
  * workflow's status step and log.
  */
 export function writeSummaryFiles(out, report) {
-	// Each scenario's slower side, for `costs.json` (the shard balance).
-	const seconds = Object.fromEntries(
-		report.games.flatMap((g) =>
-			Object.entries(g.timings ?? {}).map(([sc, t]) => [
-				`${g.key}/${sc}`,
-				Math.round(Math.max(t.base, t.head)),
-			]),
-		),
-	);
+	// Each scenario's slower side, for `costs.json` (the shard balance). A republished unit costs
+	// what its as-published twin does, so the two rows share one entry: the slower of all four.
+	const seconds = {};
+	for (const g of report.games)
+		for (const [sc, t] of Object.entries(g.timings ?? {})) {
+			const key = `${g.key}/${sc}`;
+			seconds[key] = Math.max(seconds[key] ?? 0, Math.round(Math.max(t.base, t.head)));
+		}
 	writeFileSync(
 		join(out, 'digest.txt'),
 		`${digest(report)}\ncosts: ${JSON.stringify({ seconds })}\n`,

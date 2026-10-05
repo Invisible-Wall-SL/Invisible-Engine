@@ -1,8 +1,10 @@
 // The run's plan, made once and shared by every render shard and the compare: which games are
 // rendered, from which PINNED snapshot (a republish mid-run must not give two shards two different
-// snapshots), with which scenarios, and the render UNITS — one side (base | head) of one scenario
-// of one game — balanced across the shards. The plan is an artifact of a PUBLIC repository: it
-// names each game's mock contract by hash only, and a render shard reads the contract itself.
+// snapshots), with which scenarios, and the render UNITS — one side (base | head) of one VARIANT
+// (`published`: the snapshot as it is; `republished`: with the baked copies of built-in component
+// defs replaced by each side's built-ins, `builtins.mjs`) of one scenario of one game — balanced
+// across the shards. The plan is an artifact of a PUBLIC repository: it names each game's mock
+// contract by hash only, and a render shard reads the contract itself.
 
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
@@ -38,7 +40,24 @@ export const at = (value, path) =>
 	}, value);
 
 export const safe = (s) => String(s).replace(/[^\w.-]/g, '_');
-export const unitId = (key, scenario, side) => `${safe(key)}--${safe(scenario)}--${side}`;
+export const unitId = (key, scenario, side, variant = 'published') =>
+	`${safe(key)}--${safe(scenario)}--${side}${variant === 'republished' ? '--republished' : ''}`;
+
+/** The two sides of every comparison. */
+const SIDES = ['base', 'head'];
+
+/** The units of one planned game's scenarios, for `variant`. */
+const unitsOf = (planned, variant) =>
+	planned.scenarios.flatMap((sc) =>
+		SIDES.map((side) => ({
+			id: unitId(planned.game.key, sc.id, side, variant),
+			key: planned.game.key,
+			scenario: sc.id,
+			side,
+			variant,
+			weight: sc.weight,
+		})),
+	);
 
 /**
  * The game's mock contract: a fixture's own entry, else its test-server manifest entry. The
@@ -136,18 +155,41 @@ export async function makePlan({ games, manifest, only, scenarioIds }) {
 			.filter((sc) => !skipped.includes(sc))
 			.map((sc) => ({ id: sc.id, canary: Boolean(sc.canary), weight: weightOf(g.key, sc) }));
 	}
-	const units = planned.flatMap((p) =>
-		p.scenarios.flatMap((sc) =>
-			['base', 'head'].map((side) => ({
-				id: unitId(p.game.key, sc.id, side),
-				key: p.game.key,
-				scenario: sc.id,
-				side,
-				weight: sc.weight,
-			})),
-		),
-	);
-	return { games: planned, units };
+	return { games: planned, units: planned.flatMap((p) => unitsOf(p, 'published')) };
+}
+
+/**
+ * Add the `republished` units to `plan` (a `makePlan` result): for every game to be rendered,
+ * `variantsFor(entry, bundleFile)` makes both sides' republished variants of its snapshot
+ * (`republishVariants` in `builtins.mjs`) from the `runtime.json` that `bundleFor(entry)` fetched,
+ * and the game is rendered a second time only when the two variants differ — a built-in the snapshot
+ * ships as a copy changed between the sides. Each entry records the classification
+ * (`entry.republished`: `copies`, `authored`, `changed`, `affected`), and an entry whose variants
+ * could not be made gets `status: 'error'`, which the compare turns into a failing row rather than
+ * a silent gap. `reason` is kept on `plan.republish` for the report.
+ */
+export async function planRepublished(plan, { bundleFor, variantsFor }) {
+	for (const entry of plan.games) {
+		if (entry.status !== 'render') continue;
+		try {
+			const bundleFile = await bundleFor(entry);
+			const meta = await variantsFor(entry, bundleFile);
+			entry.republished = {
+				status: 'planned',
+				affected: Boolean(meta.affected),
+				copies: meta.copies,
+				authored: meta.authored,
+				changed: meta.changed,
+			};
+			if (entry.republished.affected) plan.units.push(...unitsOf(entry, 'republished'));
+		} catch (e) {
+			entry.republished = {
+				status: 'error',
+				detail: redactText(`the republished variant could not be made: ${e.message}`),
+			};
+		}
+	}
+	return plan;
 }
 
 /**

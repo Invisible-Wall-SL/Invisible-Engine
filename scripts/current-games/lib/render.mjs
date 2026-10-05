@@ -1,7 +1,8 @@
 // One render unit: one side (base = main's runtime, head = the branch's) of one scenario of one
 // game, played from a fresh test server and a fresh browser so the seeded deal starts over. Writes
 // `<out>/units/<unit id>/result.json` and one PNG per captured screen; the compare
-// (`assemble.mjs`) pairs the two sides.
+// (`assemble.mjs`) pairs the two sides. A unit of the `republished` variant serves the snapshot's
+// republished `runtime.json` (`bundleFile`, from `builtins.mjs`) over the same deploy files.
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -34,8 +35,9 @@ const fillBeat = (beat, contract) =>
 
 /**
  * Render `unit` of `planned` (a plan entry) with `runtimeDir`, dealt from `contract` (the game's
- * mock contract, checked against the plan's hash). `snapshotDir` is the downloaded snapshot.
- * Returns the result it wrote.
+ * mock contract, checked against the plan's hash). `snapshotDir` is the downloaded snapshot;
+ * `bundleFile`, when given, the `runtime.json` to serve instead of the snapshot's own. Returns the
+ * result it wrote.
  */
 export async function renderUnit({
 	unit,
@@ -43,6 +45,7 @@ export async function renderUnit({
 	contract,
 	runtimeDir,
 	snapshotDir,
+	bundleFile,
 	chrome,
 	seed,
 	cache,
@@ -54,8 +57,9 @@ export async function renderUnit({
 	const draw = scenario.canary ? 'every' : 'last';
 	const dir = join(out, 'units', unit.id);
 	mkdirSync(dir, { recursive: true });
+	const variant = unit.variant === 'republished' ? '-republished' : '';
 	const tree = testServerTree(
-		join(cache, 'trees', `${unit.side}-${safe(game.key)}-${safe(scenario.id)}`),
+		join(cache, 'trees', `${unit.side}${variant}-${safe(game.key)}-${safe(scenario.id)}`),
 		runtimeDir,
 		game.key,
 		contract,
@@ -146,6 +150,7 @@ export async function renderUnit({
 		server = await startTestServer(tree, { SEED: seed, ...(scenario.env ?? {}) });
 		snap = await serveSnapshot({
 			dir: snapshotDir,
+			bundleFile,
 			name: game.name,
 			snapshotId: planned.snapshot.id,
 			assetBase: game.local?.assetBase === 'runtime' ? `${server.origin}/${game.key}/` : undefined,

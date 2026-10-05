@@ -128,6 +128,22 @@ export async function currentSnapshot(game) {
 	};
 }
 
+/** Where snapshot `current` of `game` is kept: a fixture's own folder, else `<cache>/snapshots/<prefix>`. */
+const snapshotDir = (game, cache, current) =>
+	game.local?.snapshot ? game.local.snapshot : join(cache, 'snapshots', current.prefix);
+
+/**
+ * The snapshot's `runtime.json` alone (the plan reads it to decide whether a republish would change
+ * the game's component defs), downloaded into the snapshot's folder; `fetchSnapshot` later completes
+ * the folder. Returns the file's path.
+ */
+export async function fetchRuntimeJson(game, cache, current) {
+	const file = join(snapshotDir(game, cache, current), 'runtime.json');
+	if (game.local?.snapshot) return file;
+	if (!existsSync(file)) await download(`${current.prefix}runtime.json`, file);
+	return file;
+}
+
 /**
  * Snapshot `current` (from `currentSnapshot`) under `<cache>/snapshots/<prefix>`: `{ id, dir }`. A
  * snapshot is immutable by id, so a complete one is never downloaded twice.

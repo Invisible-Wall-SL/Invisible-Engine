@@ -31,6 +31,15 @@
 # an undecidable diff renders everything). A PR from a fork gets no secrets and no write token, so
 # it does not run at all.
 #
+# AS REPUBLISHED: a published snapshot carries its own copies of the built-in component defs it uses,
+# so a change to `builtinComponents.ts` reaches a game only at its next publish, and the as-published
+# render cannot see it. When the diff touches what the bake reads from the repo (touched.mjs's
+# `republish` verdict) and the two builds' built-in defs differ (`builtins.json`, written beside each
+# runtime build), the plan also renders each AFFECTED game — one whose snapshot ships a copy of a def
+# the sides disagree on — a second time with those copies replaced by each side's built-ins, exactly
+# as a republish would bake it, as a row of its own ("as republished"). An untouched PR never pays
+# for it.
+#
 # NOISE CALIBRATION: a manual run (workflow_dispatch) with `self_compare` renders the chosen ref
 # against ITSELF — two independent renders of the same runtime, the main-vs-main measurement a
 # calibration needs — and always renders, as there is no change to read. It posts its own status
@@ -85,6 +94,7 @@ jobs:
     timeout-minutes: 30
     outputs:
       render: ${{ steps.owner.outputs.run == 'true' && steps.touched.outputs.render || 'false' }}
+      republish: ${{ steps.owner.outputs.run == 'true' && steps.touched.outputs.republish || 'false' }}
       base: ${{ steps.base.outputs.sha }}
     steps:
       - name: Stand down for a branch with an open PR
@@ -149,9 +159,10 @@ jobs:
           BASE: ${{ steps.base.outputs.sha }}
           SELF_COMPARE: ${{ inputs.self_compare }}
         run: |
-          # A self-compare has no change to read: rendering the ref against itself is the point.
+          # A self-compare has no change to read: rendering the ref against itself is the point (its
+          # two builds' built-ins are the same, so it plans no republished render).
           if [ "$SELF_COMPARE" = true ]; then
-            printf 'render=true\ndescription=self-compare: every live game renders\n' >> "$GITHUB_OUTPUT"
+            printf 'render=true\nrepublish=true\ndescription=self-compare: every live game renders\n' >> "$GITHUB_OUTPUT"
           else
             node scripts/current-games/lib/touched.mjs --base "$BASE"
           fi
@@ -224,13 +235,14 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # Main's runtime never changes for a SHA, so it is built once per base commit.
+      # Main's runtime never changes for a SHA, so it is built once per base commit. The key's
+      # version changes when a build gains a file (v2: `builtins.json`), so an older entry rebuilds.
       - name: Restore the base runtime
         id: base-cache
         uses: actions/cache@v4
         with:
           path: .cache/current-games/runtimes/${{ needs.prepare.outputs.base }}
-          key: current-games-runtime-${{ needs.prepare.outputs.base }}
+          key: current-games-runtime-v2-${{ needs.prepare.outputs.base }}
 
       - name: Build the base runtime
         run: |
@@ -248,9 +260,11 @@ jobs:
           "
 
       # The plan is made ONCE, here: every shard renders the same snapshot of each game even if it
-      # is republished mid-run, and the same split of render units.
+      # is republished mid-run, and the same split of render units. The two builds' built-ins decide
+      # the republished units, so the plan is made after the builds.
       - name: Plan the run
         env:
+          CURRENT_GAMES_REPUBLISH: ${{ needs.prepare.outputs.republish == 'true' && '1' || '0' }}
           PIPELINE_GAMES_URL: ${{ secrets.PIPELINE_GAMES_URL }}
           PIPELINE_CI_TOKEN: ${{ secrets.PIPELINE_CI_TOKEN }}
           CURRENT_GAMES_R2_ENDPOINT: ${{ secrets.CURRENT_GAMES_R2_ENDPOINT }}
@@ -262,7 +276,9 @@ jobs:
         run: |
           set +e
           mkdir -p .cache/current-games/plan
-          node scripts/current-games/run.mjs --phase plan --out .cache/current-games/plan-out
+          node scripts/current-games/run.mjs --phase plan --out .cache/current-games/plan-out \
+            --base-build ".cache/current-games/runtimes/${{ needs.prepare.outputs.base }}" \
+            --head-build .cache/current-games/runtimes/working-tree
           code=$?
           cp .cache/current-games/plan-out/plan.json .cache/current-games/plan/plan.json
           exit $code
