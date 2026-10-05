@@ -24,7 +24,7 @@ import { mock } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { isHttpError } from '@sveltejs/kit';
 import type { DirectorRun } from '../src/lib/server/db/schema.ts';
-import type { EventSource, StreamedEvent } from '../src/lib/server/director/eventStream.ts';
+import type { RunEventSource, StreamedEvent } from '../src/lib/server/director/eventStream.ts';
 
 const src = (rel: string) => new URL(`../src/${rel}`, import.meta.url).href;
 const srcPath = (rel: string) => fileURLToPath(src(rel));
@@ -64,7 +64,7 @@ function fake(rel: string, impl: Record<string, unknown>): void {
 }
 
 // ── An in-memory director_events with its trigger ─────────────────────────────
-class Table implements EventSource {
+class Table implements RunEventSource {
 	rows: StreamedEvent[] = [];
 	private handlers = new Map<string, Set<(id: number) => void>>();
 	subscribers = 0;
@@ -105,6 +105,12 @@ class Table implements EventSource {
 			.filter((r) => r.runId === runId && r.id > afterId)
 			.sort((a, b) => a.id - b.id)
 			.slice(0, limit);
+	}
+	async anchor(runId: string, upTo: number, count: number) {
+		const below = this.rows
+			.filter((r) => r.runId === runId && r.id <= upTo)
+			.sort((a, b) => b.id - a.id);
+		return below[count]?.id ?? 0;
 	}
 	async one(runId: string, id: number) {
 		return this.rows.find((r) => r.runId === runId && r.id === id) ?? null;
@@ -361,7 +367,9 @@ console.log('late commit while away');
 	);
 	await tick();
 	const slow = table.reserve('run-1', 'activity'); // id 12, commits after the client is gone
-	const fast = table.insert('run-1', 'activity'); // id 13
+	// Other runs keep writing: the shared id counter moves far past the slow row.
+	for (let i = 0; i < 40; i++) table.insert('run-2', 'activity');
+	const fast = table.insert('run-1', 'activity'); // id 53
 	await tick();
 	check('the client last saw the faster row', ids(out.frames()).at(-1), fast.id);
 	ctl.abort();
@@ -383,7 +391,11 @@ console.log('late commit while away');
 		ids(out2.frames()).includes(late.id),
 		true,
 	);
-	check('…within the look-back window', stream.LOOKBACK >= fast.id - late.id, true);
+	check(
+		'…although other runs took more ids in between than the look-back counts',
+		fast.id - late.id > stream.LOOKBACK,
+		true,
+	);
 	ctl2.abort();
 	await out2.done;
 }
@@ -471,9 +483,9 @@ console.log('route');
 		200,
 	);
 	check(
-		'…but nobody else',
-		(await call('run-draft', { ...stranger, role: 'developer' as const })).status,
-		403,
+		'…but nobody else — and a run outside your projects answers like a missing one',
+		(await call('run-draft', stranger)).status,
+		404,
 	);
 	const ok = await call('run-1', admin, { 'last-event-id': '10' });
 	check(

@@ -16,6 +16,8 @@ export interface LockedItem {
 	label: string;
 	/** What the template's config says, as `gamemaker.get_template` describes it. */
 	detail: string;
+	/** The same facts as data (`templates.ts` `LockedItem.facts`); a rule decides on these. */
+	facts?: { betModes?: { id: string; buyBonus: boolean }[] };
 }
 
 export interface LockedRule {
@@ -28,20 +30,11 @@ export interface LockedRule {
 	clashes: (locked: LockedItem[]) => LockedItem | null;
 }
 
-const betModesOf = (locked: LockedItem[]): string[] | null => {
-	const item = locked.find((l) => l.id === 'bet_modes');
-	if (!item) return null;
-	return item.detail.trim().toLowerCase() === 'none'
-		? []
-		: item.detail
-				.split(',')
-				.map((m) => m.trim())
-				.filter(Boolean);
-};
-
 /**
  * The rules. Each names the template fact it reads, so a false `left_out` can be traced to one line.
- * A buy / purchase control needs a buy bet mode; a template whose `betModes` has none locks it out.
+ * A buy / purchase control needs a bet mode with `buyBonus` — the FLAG, never the mode's name
+ * (`scatter.json` buys through a mode called `bonus`). A template whose facts are missing cannot
+ * confirm a clash, so no rule fires on it: code only ever forces `left_out` on evidence.
  */
 export const LOCKED_RULES: LockedRule[] = [
 	{
@@ -49,10 +42,10 @@ export const LOCKED_RULES: LockedRule[] = [
 		lockedItemId: 'bet_modes',
 		element: /\b(buy|purchase|bonus buy|feature buy)\b/i,
 		clashes: (locked) => {
-			const modes = betModesOf(locked);
-			if (modes === null) return null;
-			const hasBuy = modes.some((m) => /buy|purchase/i.test(m));
-			return hasBuy ? null : locked.find((l) => l.id === 'bet_modes')!;
+			const item = locked.find((l) => l.id === 'bet_modes');
+			const modes = item?.facts?.betModes;
+			if (!item || !Array.isArray(modes)) return null;
+			return modes.some((m) => m.buyBonus === true) ? null : item;
 		},
 	},
 ];

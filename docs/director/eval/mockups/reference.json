@@ -18,7 +18,15 @@
 			{
 				"id": "bet_modes",
 				"label": "Bet modes",
-				"detail": "base"
+				"detail": "base",
+				"facts": {
+					"betModes": [
+						{
+							"id": "base",
+							"buyBonus": false
+						}
+					]
+				}
 			},
 			{
 				"id": "paylines",

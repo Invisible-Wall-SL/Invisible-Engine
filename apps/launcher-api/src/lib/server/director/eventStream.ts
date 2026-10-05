@@ -8,22 +8,23 @@
  *  - a heartbeat comment goes out every 15 s, and re-reads the table past the high-water mark, so a
  *    NOTIFY lost while the listener reconnected is caught within one heartbeat.
  *
- * Reconnects lose nothing committed in order, and nothing committed out of order within
- * {@link LOOKBACK} ids: bigserial ids are taken before commit, so a slow insert can commit with a
- * LOWER id than one already sent. While connected its NOTIFY delivers it (by id, once). To cover a
- * late commit that lands while the client is away, or while the LISTEN connection is reconnecting,
- * every catch-up read — on open and on each heartbeat — starts {@link LOOKBACK} ids below the
- * high-water mark; rows already delivered on this connection are dropped by id, so the only repeats
- * a client sees are the few rows below its `Last-Event-ID` on a reconnect. A page therefore keys
- * events by `id` and treats a repeat as a no-op.
+ * Reconnects lose nothing committed in order, and nothing committed out of order within the run's
+ * last {@link LOOKBACK} rows: bigserial ids are taken before commit, so a slow insert can commit
+ * with a LOWER id than one already sent. While connected its NOTIFY delivers it (by id, once). To
+ * cover a late commit that lands while the client is away, or while the LISTEN connection is
+ * reconnecting, every catch-up read — on open and on each heartbeat — starts {@link LOOKBACK} of
+ * THIS RUN's rows below the high-water mark (`id` is one counter for every run, so a count of ids
+ * would shrink to nothing while other runs write). Rows already delivered on this connection are
+ * dropped by id, so the only repeats a client sees are those few rows on a reconnect. A page
+ * therefore keys events by `id` and treats a repeat as a no-op.
  *
- * Pure over an {@link EventSource}, so the fixture drives it without Postgres; the database source
+ * Pure over a {@link RunEventSource}, so the fixture drives it without Postgres; the database source
  * is `eventListener.ts`.
  */
 
 export const HEARTBEAT_MS = 15_000;
 export const CATCH_UP_LIMIT = 500;
-/** How many ids below the high-water mark a catch-up read re-covers, for late commits. */
+/** How many of the run's rows below the high-water mark a catch-up read re-covers. */
 export const LOOKBACK = 16;
 export const HEARTBEAT_FRAME = ': heartbeat\n\n';
 
@@ -37,9 +38,14 @@ export interface StreamedEvent {
 	payloadJson: unknown;
 }
 
-export interface EventSource {
+export interface RunEventSource {
 	/** Up to `limit` rows of `runId` with `id > afterId`, ascending. */
 	after(runId: string, afterId: number, limit: number): Promise<StreamedEvent[]>;
+	/**
+	 * The id to read after so that the run's `count` most recent rows with `id <= upTo` are read
+	 * again: the id of the row just before them, or 0 when the run has no more than `count`.
+	 */
+	anchor(runId: string, upTo: number, count: number): Promise<number>;
 	/** One row by id, or null. */
 	one(runId: string, id: number): Promise<StreamedEvent | null>;
 	/** Call `onInsert(id)` for each new row of `runId`; returns the unsubscribe. */
@@ -84,7 +90,7 @@ const REMEMBERED_IDS = 512;
 export interface StreamOptions {
 	runId: string;
 	afterId: number;
-	source: EventSource;
+	source: RunEventSource;
 	heartbeatMs?: number;
 	/** The request's signal: closing the tab ends the stream and its subscription. */
 	signal?: AbortSignal;
@@ -121,7 +127,7 @@ export function openEventStream(opts: StreamOptions): ReadableStream<Uint8Array>
 				send(frameEvent(event));
 			};
 			const catchUp = async () => {
-				let from = Math.max(0, highWater - LOOKBACK);
+				let from = await source.anchor(runId, highWater, LOOKBACK);
 				for (;;) {
 					const rows = await source.after(runId, from, CATCH_UP_LIMIT);
 					for (const row of rows) deliver(row);

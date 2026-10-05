@@ -86,7 +86,7 @@ interface Call {
 	opId?: string;
 }
 
-function fakeLauncher(over: Partial<Pick<Reference, 'ownershipConfirmed'>> = {}) {
+function fakeLauncher(over: Partial<Pick<Reference, 'ownershipConfirmed' | 'template'>> = {}) {
 	const calls: Call[] = [];
 	const adapters: AdapterClient = {
 		async call<T>(tool: string, op: string, input: unknown, opts?: { opId?: string }) {
@@ -114,7 +114,7 @@ function fakeLauncher(over: Partial<Pick<Reference, 'ownershipConfirmed'>> = {})
 					} as T;
 				}
 				case 'gamemaker.get_template':
-					return reference.template as T;
+					return (over.template ?? reference.template) as T;
 				case 'atlas.list_regions':
 					return reference.regions as T;
 				case 'fonts.list':
@@ -374,6 +374,56 @@ console.log('calls');
 }
 
 // ── Ownership refusal ─────────────────────────────────────────────────────────
+console.log('a template that can buy');
+{
+	const withBuy = structuredClone(reference.template);
+	const betModes = withBuy.lockedItems.find((l) => l.id === 'bet_modes')!;
+	// scatter.json's shape: the buy mode is called `bonus`; only the flag says it buys.
+	betModes.detail = 'base, bonus (buy)';
+	betModes.facts = {
+		betModes: [
+			{ id: 'base', buyBonus: false },
+			{ id: 'bonus', buyBonus: true },
+		],
+	};
+	const launcher = fakeLauncher({ template: withBuy });
+	const result = await analyzeMockups({
+		adapters: asAdapterError(launcher.adapters),
+		model: fakeTransport().transport,
+		agent: analyst,
+		run,
+		attempt: 1,
+	});
+	const els = elementsOf(result, 'base-game.png');
+	const buy = els.find((e) => e.name === 'Buy bonus button')!;
+	check(
+		buy.status === 'matched' && buy.regions.join() === 'BetPanel',
+		'the buy button is matched on a template with a buyBonus mode',
+		JSON.stringify(buy),
+	);
+	const shop = els.find((e) => e.name === 'Shop')!;
+	check(
+		shop.status === 'matched',
+		'…and so is the renamed buy control the model flagged',
+		JSON.stringify(shop),
+	);
+	check(!els.some((e) => e.status === 'left_out'), 'nothing is left out on that template');
+
+	const noFacts = structuredClone(reference.template);
+	delete noFacts.lockedItems.find((l) => l.id === 'bet_modes')!.facts;
+	const bare = await analyzeMockups({
+		adapters: asAdapterError(fakeLauncher({ template: noFacts }).adapters),
+		model: fakeTransport().transport,
+		agent: analyst,
+		run,
+		attempt: 1,
+	});
+	check(
+		!elementsOf(bare, 'base-game.png').some((e) => e.status === 'left_out'),
+		'without the bet-mode facts no rule fires: code forces left_out only on evidence',
+	);
+}
+
 console.log('ownership');
 {
 	const launcher = fakeLauncher({ ownershipConfirmed: null });

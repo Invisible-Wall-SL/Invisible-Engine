@@ -1,7 +1,7 @@
 import postgres, { type ListenMeta } from 'postgres';
 import { ENV } from '../env';
-import { parsePayload, type EventSource } from './eventStream';
-import { getEvent, listEventsAfter } from './store';
+import { parsePayload, type RunEventSource } from './eventStream';
+import { eventAnchor, getEvent, listEventsAfter } from './store';
 
 /**
  * The Postgres half of the live stream: ONE `LISTEN director_events` connection per launcher
@@ -54,8 +54,9 @@ export function subscribeToRun(runId: string, onInsert: Handler): () => void {
 	};
 }
 
-export const dbEventSource: EventSource = {
+export const dbEventSource: RunEventSource = {
 	after: (runId, afterId, limit) => listEventsAfter(runId, afterId, limit),
+	anchor: (runId, upTo, count) => eventAnchor(runId, upTo, count),
 	one: (runId, id) => getEvent(runId, id),
 	subscribe: subscribeToRun,
 };

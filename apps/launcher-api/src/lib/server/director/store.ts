@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, lt } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, lt, lte } from 'drizzle-orm';
 import { getDb } from '../db';
 import {
 	directorAtlasJobs,
@@ -213,6 +213,22 @@ export async function listEventsAfter(
 		.where(and(eq(directorEvents.runId, runId), gt(directorEvents.id, afterId)))
 		.orderBy(asc(directorEvents.id))
 		.limit(limit);
+}
+
+/**
+ * The id just before the run's `count` most recent events with `id <= upTo`, or 0 when there are no
+ * more than `count` — the stream's look-back start, counted in THIS run's rows (`id` is shared by
+ * every run).
+ */
+export async function eventAnchor(runId: string, upTo: number, count: number): Promise<number> {
+	const [row] = await getDb()
+		.select({ id: directorEvents.id })
+		.from(directorEvents)
+		.where(and(eq(directorEvents.runId, runId), lte(directorEvents.id, upTo)))
+		.orderBy(desc(directorEvents.id))
+		.offset(count)
+		.limit(1);
+	return row?.id ?? 0;
 }
 
 /** One event of the run, or null — a NOTIFY names it and the stream fetches it. */

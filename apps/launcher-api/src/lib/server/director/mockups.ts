@@ -63,7 +63,11 @@ export interface MockupImage {
 export interface MockupsDoc {
 	version: 1;
 	fidelity: Fidelity;
-	/** The owner's "these designs belong to us or to the client", once; null until checked. */
+	/**
+	 * The owner's "these designs belong to us or to the client" for the images listed at the time;
+	 * null until checked, and cleared again by every new upload, so no image is ever covered by a
+	 * check made before it existed.
+	 */
 	ownershipConfirmed: { by: Stamp; at: string } | null;
 	images: MockupImage[];
 }
@@ -264,6 +268,7 @@ export async function addMockup(input: AddMockupInput): Promise<{ doc: MockupsDo
 				throw new MockupError(409, 'too_many', `At most ${MAX_MOCKUPS} mockups per project.`);
 			}
 			d.images.push(image);
+			d.ownershipConfirmed = null;
 		});
 		return { doc, id };
 	} catch (e) {

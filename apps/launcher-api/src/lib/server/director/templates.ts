@@ -24,6 +24,12 @@ export interface LockedItem {
 	label: string;
 	/** What the template's config says today, for the Mockup analyst to compare against. */
 	detail: string;
+	/**
+	 * The same facts as data, for the worker's code rules (ADR-0005 "Conflict handling"): a rule
+	 * decides on these, never on the wording of `detail` or on a mode's name. `bet_modes` carries
+	 * each mode's `buyBonus` flag — `scatter.json` buys through a mode called `bonus`.
+	 */
+	facts?: { betModes: { id: string; buyBonus: boolean }[] };
 }
 
 /** Regions in one Atlas Maker atlas (`manifests/atlas_manifest_<atlas>.json`). */
@@ -52,7 +58,10 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
 
 /** The template items no agent may change, described from the config the game actually runs. */
 export function lockedItemsOf(config: GameConfigDoc | null): LockedItem[] {
-	const betModes = Object.keys(config?.betModes ?? {});
+	const betModes = Object.entries(config?.betModes ?? {}).map(([id, mode]) => ({
+		id,
+		buyBonus: Boolean(mode.buyBonus),
+	}));
 	const paying = Object.values(config?.symbols ?? {}).filter((s) => (s.paytable ?? []).length > 0);
 	const lines = config?.paylines ? Object.keys(config.paylines).length : 0;
 	const features = [
@@ -72,7 +81,10 @@ export function lockedItemsOf(config: GameConfigDoc | null): LockedItem[] {
 		{
 			id: 'bet_modes',
 			label: 'Bet modes',
-			detail: betModes.length ? betModes.join(', ') : 'none',
+			detail: betModes.length
+				? betModes.map((m) => (m.buyBonus ? `${m.id} (buy)` : m.id)).join(', ')
+				: 'none',
+			facts: { betModes },
 		},
 		{ id: 'paylines', label: 'Paylines', detail: plural(lines, 'payline') },
 		{

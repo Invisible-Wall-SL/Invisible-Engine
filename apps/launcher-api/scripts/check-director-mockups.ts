@@ -313,11 +313,20 @@ console.log('ownership');
 	check('the check records who', confirmed.ownershipConfirmed?.by, by);
 	check('…and when', typeof confirmed.ownershipConfirmed?.at, 'string');
 	check('a checked doc may start', mockups.ownershipRefusal(confirmed), null);
+	const afterUpload = await add(basePng, 'Added later');
+	check('a new upload clears the check', afterUpload.doc.ownershipConfirmed, null);
+	check(
+		'…so the run cannot start again',
+		typeof mockups.ownershipRefusal(afterUpload.doc),
+		'string',
+	);
+	await mockups.removeMockup(C, P, afterUpload.id);
+	const reconfirmed = await mockups.confirmOwnership(C, P, by);
 	const again = await mockups.confirmOwnership(C, P, { uid: 'later', name: 'Later' });
 	check(
 		'a second confirmation keeps the first',
 		again.ownershipConfirmed,
-		confirmed.ownershipConfirmed,
+		reconfirmed.ownershipConfirmed,
 	);
 	check('a bad fidelity is 400', await refused(() => mockups.setFidelity(C, P, 'loose')), 400);
 	check('fidelity is stored', (await mockups.setFidelity(C, P, 'start')).fidelity, 'start');

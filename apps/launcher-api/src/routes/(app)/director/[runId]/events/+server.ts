@@ -15,7 +15,8 @@ import type { RequestHandler } from './$types';
  * through `requireProjectScope`. The one allowance is the run's OWNER while the project does not
  * exist yet (a draft, or the first step still copying the template): there is no project row to
  * grant access to, and the owner is the person who is about to create it. Once it exists the
- * project rule applies to the owner too.
+ * project rule applies to the owner too. A run that does not exist and a run outside the caller's
+ * projects get the SAME 404, so the route is not an oracle for which run ids exist.
  *
  * Railway's edge keeps an HTTP response open for up to 15 minutes while data flows and closes it
  * after 5 minutes of silence; the heartbeat keeps it flowing and the browser's `EventSource`
@@ -31,12 +32,9 @@ export const GET: RequestHandler = async ({ params, request, url, locals }) => {
 	try {
 		await requireProjectScope(user, run.projectKey);
 	} catch (e) {
-		const ownerOfUncreated =
-			run.ownerUserId === user.id &&
-			isHttpError(e) &&
-			e.status === 403 &&
-			!(await projectExists(run.projectKey));
-		if (!ownerOfUncreated) throw e;
+		if (!isHttpError(e) || e.status !== 403) throw e;
+		const ownerOfUncreated = run.ownerUserId === user.id && !(await projectExists(run.projectKey));
+		if (!ownerOfUncreated) throw error(404, 'No such run.');
 	}
 	const afterId = parseLastEventId(
 		request.headers.get('last-event-id'),
