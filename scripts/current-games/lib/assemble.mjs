@@ -172,6 +172,7 @@ function gameRow(
 							`fonts only on the branch: ${only(fonts[1], fonts[0])}`,
 							`texts only on main: ${only(texts[0], texts[1])}`,
 							`texts only on the branch: ${only(texts[1], texts[0])}`,
+							`capture equal 300 ms later: main ${sides.base.screens[screen]?.stableLater} · branch ${sides.head.screens[screen]?.stableLater}`,
 							`layout on main: ${(layout[0] ?? []).join(' | ')}`,
 							`layout only on the branch: ${only(layout[1], layout[0])}`,
 							`translucent only on main: ${only(translucent[0], translucent[1])}`,

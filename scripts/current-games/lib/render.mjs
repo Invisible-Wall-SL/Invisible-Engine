@@ -212,14 +212,21 @@ export async function renderUnit({
 				: undefined,
 			capture: async (screen, state) => {
 				const file = `${safe(screen)}.png`;
-				writeFileSync(join(dir, file), await page.screenshot());
+				const shot = await page.screenshot();
+				writeFileSync(join(dir, file), shot);
+				// Diagnostics: the same frame captured again after 300 ms of real time, no frame
+				// stepped. A difference means the first capture was of a frame not yet presented.
+				const later = process.env.CURRENT_GAMES_LOG_IMAGES
+					? await new Promise((r) => setTimeout(r, 300)).then(() => page.screenshot())
+					: undefined;
 				screens[screen] = {
 					file,
 					frame: state.frame,
 					screens: state.screens,
 					winLevel: state.winLevel,
-					...(process.env.CURRENT_GAMES_LOG_IMAGES
+					...(later
 						? {
+								stableLater: later.equals(shot),
 								fonts: await page.evaluate(FONTS).catch((e) => [e.message]),
 								texts: await page.evaluate(TEXTS).catch((e) => [e.message]),
 								layout: await page.evaluate(LAYOUT).catch((e) => [e.message]),
