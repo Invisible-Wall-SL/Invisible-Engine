@@ -28,6 +28,13 @@ with a new one. Use this format:
   - 1F: calibrate the harness on the live games, then make `current-games` required.
   - 2D, 3B and 3C.
 
+## 2026-10-05 · Phase 1 · regression-guardian (current-games secret redaction)
+- **Did:** The `current-games` status description published a secret's raw value on #1046 (`Failed to parse URL from <value>`: a token sat in `PIPELINE_GAMES_URL`, and undici quotes a bad URL). GitHub masks logs only, so every status/step-summary/report text now goes through `scripts/current-games/lib/redact.mjs` (secret values → `***`, plus a hex/base64 backstop), and `listGames` rejects a non-https `PIPELINE_GAMES_URL` with a fixed message.
+- **Files:** `scripts/current-games/{run.mjs,redact.fixture.mjs,lib/{redact,report,games}.mjs}`, `.github/workflows/current-games.yml`, `docs/playtest/current-games.md`
+- **Branch / PR:** `claude/current-games-redact-secrets`.
+- **Tests:** `redact.fixture.mjs` (auto-run by `check:all`); two mutants (no report redaction, no URL check) both fail it.
+- **Next:** owner — rotate the exposed value (most likely `PIPELINE_CI_TOKEN`: launcher env + GitHub secret) and set `PIPELINE_GAMES_URL` to the launcher's `/api/pipeline/games` URL.
+
 ## 2026-10-04 · Phase 1–3 · coordinator (recording #1040–#1043, #1044 in review)
 - **Did:**
   - Recorded the merges of card D (#1040), card E (#1041), card 2A (#1042) and card 2B (#1043).

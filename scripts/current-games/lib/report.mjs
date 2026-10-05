@@ -9,6 +9,8 @@ import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { redactReport } from './redact.mjs';
+
 /**
  * pass / fail of one row; `null` for a row that was not rendered — no snapshot, not published, or a
  * desktop build's own bundle — which is visible in the report but never counts as a pass.
@@ -143,9 +145,13 @@ ${noise}
 </body></html>`;
 }
 
-/** Write `report.json` + `index.html` into `out`; returns the report with its summary. */
+/**
+ * Write `report.json` + `index.html` into `out`; returns the report with its summary. Everything in
+ * it is redacted first: the summary line becomes the commit status, and the report an artifact.
+ */
 export function writeReport(out, data) {
-	const report = { ...data, summary: summarize(data.games, data.aborted) };
+	const clean = redactReport(data);
+	const report = { ...clean, summary: summarize(clean.games, clean.aborted) };
 	writeFileSync(join(out, 'report.json'), JSON.stringify(report, null, '\t'));
 	writeFileSync(join(out, 'index.html'), html(report));
 	return report;

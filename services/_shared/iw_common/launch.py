@@ -11,6 +11,8 @@ with ``{v, typ:"launch", aud, sub, uid, name, role, client, project, caps, iat, 
 agree byte for byte). The browser arrives with ``?iw_launch=<token>`` (accepted
 once); a server-to-server caller sends a ``typ:"api"`` token as the
 ``X-IW-Launch`` header instead, so a token seen in a URL is never valid there.
+Only an api token may carry ``act`` (an Invisible Director agent acting for the
+user); it never reaches a session cookie.
 
 With neither secret set the tool is open for local dev — but never on Railway
 (``RAILWAY_ENVIRONMENT`` set), where a missing secret must not open it.
@@ -69,6 +71,12 @@ _HANDOFF_PARAMS = (LAUNCH_PARAM, "k", "client", "project", "user", "bp")
 
 ADMIN_ROLE = "admin"
 PUBLISH_CAP = "blueprintPublish"
+
+# An api token may say the call acts for an agent (Invisible Director, ADR 0002):
+# `act: {tool, agent, run}`. Only these values are ever trusted.
+ACT_TOOLS = ("director",)
+_ACT_AGENT = re.compile(r"[a-z][a-z0-9-]{0,39}")
+_ACT_RUN = re.compile(r"[A-Za-z0-9_:-]{1,64}")
 
 
 def _b64e(raw: bytes) -> str:
@@ -133,6 +141,10 @@ class Identity:
     client: str | None = None
     project: str | None = None
     caps: tuple[str, ...] = ()
+    # Set only from a signed api token's `act` claim: the call is an agent's.
+    act_tool: str = ""
+    act_agent: str = ""
+    act_run: str = ""
 
     @property
     def is_admin(self) -> bool:
@@ -178,6 +190,23 @@ def _eq(a: str, b: str) -> bool:
 
 def _slug(value: str) -> str:
     return re.sub(r"[^a-z0-9]", "_", (value or "").lower())[:60]
+
+
+def _act(claims: dict) -> tuple[str, str, str] | None:
+    """The `(tool, agent, run)` a token acts for — empty strings when it carries
+    no `act` — or None when the claim is present but not acceptable: on any
+    token but an api one, or malformed. A refused claim refuses the TOKEN, so a
+    garbled acting call never degrades into a plain user's."""
+    if "act" not in claims:
+        return "", "", ""
+    act = claims["act"]
+    if claims.get("typ") != "api" or not isinstance(act, dict):
+        return None
+    tool, agent, run = act.get("tool"), act.get("agent"), act.get("run")
+    if (tool not in ACT_TOOLS or not isinstance(agent, str) or not isinstance(run, str)
+            or not _ACT_AGENT.fullmatch(agent) or not _ACT_RUN.fullmatch(run)):
+        return None
+    return tool, agent, run
 
 
 def legacy_until(today: _dt.date | None = None) -> bool:
@@ -260,13 +289,17 @@ class LaunchGate:
         project = valid_project(str(claims.get("project") or ""))
         if not client or not project:
             return None
+        act = _act(claims)
+        if act is None:
+            return None
         caps = claims.get("caps")
         return Identity(
             via="token", sub=_slug(str(claims.get("sub") or "")),
             uid=str(claims.get("uid") or "")[:64],
             name=str(claims.get("name") or "")[:120], role=str(claims.get("role") or ""),
             client=client, project=project,
-            caps=tuple(c for c in caps if isinstance(c, str)) if isinstance(caps, list) else ())
+            caps=tuple(c for c in caps if isinstance(c, str)) if isinstance(caps, list) else (),
+            act_tool=act[0], act_agent=act[1], act_run=act[2])
 
     def _first_use(self, token: str, exp: float) -> bool:
         key = token.rsplit(".", 1)[-1]
