@@ -118,3 +118,10 @@ A GitHub Actions workflow `current-games.yml`, triggered on every pipeline branc
 - Tolerance as a tunable config (starting values above, tuned from real runs) and the masking policy.
 - The two CI secrets.
 - The fact that the harness compares against **published** snapshots, not unpublished drafts.
+
+## Amendments
+
+- **2026-10-04, owner defaults (#1041):** desktop-built games (`hasOwnBuiltBundle`) are not
+  rendered. Their row reports build + tests only, because comparing their own bundle with itself
+  proves nothing. Rows that weren't rendered (no snapshot, not published, desktop-built) never count
+  as a pass and never fail the run.

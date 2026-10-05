@@ -95,3 +95,13 @@ The worker reacts. The page never mutates run state directly.
 ## Needs owner approval
 
 - Postgres as the single source of run state, and SSE for the live view.
+
+## Amendments
+
+- **2026-10-04, owner defaults (#1044):**
+  - Event kinds also include `owner_request` (start / pause / resume / stop) and `run_status` (one
+    per transition).
+  - Checkpoint ids are `breakdown` (the mockup breakdown or the style board), `region_batch` and
+    `before_publish`.
+  - Pause is only allowed from `running`.
+  - `NOTIFY director_wake` is sent by an `AFTER INSERT` trigger on `director_events`.

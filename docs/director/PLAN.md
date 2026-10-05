@@ -35,44 +35,44 @@ starts once A and B are merged.
 | A | merged #1035 | 1.1 | — |
 | B | merged #1036 | 1.2 | — |
 | C | merged #1037 (+ follow-up #1038) | 1.7–1.10 | — |
-| D | `launcher/director-costs-budget` (in progress) | 1.11–1.12 | C (merged) |
-| E | `pipeline/current-games-harness` | 1.3–1.6 | A, B (both merged): ready |
+| D | merged #1040 | 1.11–1.12 | C (merged) |
+| E | merged #1041. **Not yet run on live games: 5 secrets missing** | 1.3–1.6 | A, B |
 
-The current-games harness is the priority: every later merge depends on it.
+The current-games harness is the priority: every later merge depends on it. 1.3–1.6 stay `review` until its first green run on the live games.
 
 | # | Task | Card | Owner | Status | Acceptance |
 |---|---|---|---|---|---|
 | 1.1 | Game-list source for CI: `/api/pipeline/games` (CI-token gated, read-only) | A | platform-integrator | done | A `check:` fixture shows 401 without the token; the list equals `listGames()` |
 | 1.2 | Determinism hook in the runtime: a test-only flag for clock, seed and GSAP stepping | B | regression-guardian (+ engine-pixi-svelte) | done | With the flag off, the bundle behaves the same and screenshots are unchanged; with it on, two runs give pixel-identical captures |
-| 1.3 | Screen scripts per game type (`scripts/current-games/screens/<type>.json`) with forced books | E | regression-guardian | todo | Every live game type covered; 12–14 screens each; reviewed by the owner |
-| 1.4 | Harness runner: build both runtimes, serve snapshots, capture, pixelmatch with `tolerance.json`, report JSON/HTML | E | regression-guardian | todo | main vs main → 0 differences on every game, twice in a row; per-screen noise measured and recorded |
-| 1.5 | `current-games.yml` workflow + commit status + artifact | E | regression-guardian | todo | The status can be made required; sharded; runs in under 15 min |
-| 1.6 | Seeded proof: an intentional 1 px engine change is caught | E | regression-guardian | todo | The harness reports exactly the changed screens, and the revert turns it green |
+| 1.3 | Screen scripts per game type (`scripts/current-games/screens/<type>.json`) with forced books | E | regression-guardian | review | Every live game type covered; 12–14 screens each; reviewed by the owner |
+| 1.4 | Harness runner: build both runtimes, serve snapshots, capture, pixelmatch with `tolerance.json`, report JSON/HTML | E | regression-guardian | review | main vs main → 0 differences on every game, twice in a row; per-screen noise measured and recorded |
+| 1.5 | `current-games.yml` workflow + commit status + artifact | E | regression-guardian | review | The status can be made required; sharded; runs in under 15 min |
+| 1.6 | Seeded proof: an intentional 1 px engine change is caught | E | regression-guardian | review | The harness reports exactly the changed screens, and the revert turns it green |
 | 1.7 | `director` and `pipelineChanges` in `TOOLS`; new `pipeline` stage; "new" badge; icons in the 4 toolbar twins | C | platform-integrator | done | `check:toolbar-icons` passes; the launcher shows CREATE and PIPELINE as in mockup 01 |
 | 1.8 | `pipelineMerge` capability and role defaults | C | platform-integrator | done | The Admin › Roles matrix matches mockup 06; a fixture covers defaults, role overrides and user overrides |
 | 1.9 | Empty `/director` and `/pipeline` pages: full width, `ToolTopBar`, gated | C | platform-integrator | done | 403 for a role without the tool; no iframe |
 | 1.10 | `docs/tools/director.md`, `docs/tools/pipeline-changes.md`, README rows, `TOOL_DOC_SLUG` | C | platform-integrator (docs-keeper) | done | `/docs/<slug>` renders (repo rule 9) |
-| 1.11 | Costs: `anthropicAgents` provider, `director_spend` table + migration, card + monthly column; `pricing.json` | D | platform-integrator | doing | The card renders with $0; prices come from the file; a fixture computes the cost of a sample `usage` with cache reads at 0.1× |
-| 1.12 | Settings: `DIRECTOR_RUN_BUDGET_USD` (default 25) card + action | D | platform-integrator | doing | Validated, clamped, and degrades on a DB error like `getRunpodIdleConfig` |
+| 1.11 | Costs: `anthropicAgents` provider, `director_spend` table + migration, card + monthly column; `pricing.json` | D | platform-integrator | done | The card renders with $0; prices come from the file; a fixture computes the cost of a sample `usage` with cache reads at 0.1× |
+| 1.12 | Settings: `DIRECTOR_RUN_BUDGET_USD` (default 25) card + action | D | platform-integrator | done | Validated, clamped, and degrades on a DB error like `getRunpodIdleConfig` |
 
 ## Phase 2 — Tool adapters · branch `director/adapters`
 
 | # | Task | Owner | Status | Acceptance |
 |---|---|---|---|---|
-| 2.1 | Adapter gate: service token, run scope, per-agent allow-list, `director_ops` idempotency | director-backend | todo | Fixtures: wrong token 401; out-of-scope project 403; disallowed op 403; replayed `opId` returns the same result |
-| 2.2 | Hard refusals (publish, game-config, roles, merge, agent defs, `published/**`) | director-backend | todo | One failing-on-purpose fixture per refusal |
-| 2.3 | Game Maker adapters: get template, duplicate as project (Game Maker path) | director-backend | todo | Creates the same `projects` row + R2 tree as the `create` action + `duplicate full` |
+| 2.1 | Adapter gate: service token, run scope, per-agent allow-list, `director_ops` idempotency | director-backend | done | Fixtures: wrong token 401; out-of-scope project 403; disallowed op 403; replayed `opId` returns the same result |
+| 2.2 | Hard refusals (publish, game-config, roles, merge, agent defs, `published/**`) | director-backend | done | One failing-on-purpose fixture per refusal |
+| 2.3 | Game Maker adapters: get template, duplicate as project (Game Maker path) | director-backend | done | Creates the same `projects` row + R2 tree as the `create` action + `duplicate full` |
 | 2.4 | Atlas Maker adapters: list/get region, set prompt, queue variants (returns a jobRef), list variants, choose variant, pack/compose | director-backend (+ atlas-python-tools) | todo | Works against a test project; writes go through CAS; no model-side polling |
-| 2.5 | atlas-tool pipeline change: render completion callback + resumable still queue | atlas-python-tools | todo | Restart during a render → the job resumes or re-queues once; Python tests pass |
+| 2.5 | atlas-tool pipeline change: render completion callback + resumable still queue | atlas-python-tools | done | Restart during a render → the job resumes or re-queues once; Python tests pass |
 | 2.6 | Symbols, Scene Editor, Win Text, Localization, Font Maker, Rigger and Flipbook adapters | director-backend | todo | Each goes through the existing storage module with `baseEtag`; a 409 is surfaced as `conflict` |
 
 ## Phase 3 — Director runtime · branch `director/worker`
 
 | # | Task | Owner | Status | Acceptance |
 |---|---|---|---|---|
-| 3.1 | `services/director-worker` skeleton (Node 22, pnpm workspace, Railway service, `/healthz`) | director-backend (+ infra-railway) | todo | Deploys; no key in logs; `docs/INFRA.md` updated |
-| 3.2 | Agent-definition loader + schema validation | director-backend | todo | Rejects unknown tools and models; fixtures |
-| 3.3 | Run tables + state machine (pure) + lease claim | director-backend | todo | Transition-table fixture; two workers never drive one run |
+| 3.1 | `services/director-worker` skeleton (Node 22, pnpm workspace, Railway service, `/healthz`) | director-backend (+ infra-railway) | review | Deploys; no key in logs; `docs/INFRA.md` updated |
+| 3.2 | Agent-definition loader + schema validation | director-backend | review | Rejects unknown tools and models; fixtures |
+| 3.3 | Run tables + state machine (pure) + lease claim | director-backend | review | Transition-table fixture; two workers never drive one run |
 | 3.4 | Turn loop: Anthropic SDK tool runner, caching, fallbacks, persisted history, resume | director-backend | todo | Kill mid-run → resumes from stored messages with no duplicate ops |
 | 3.5 | Checkpoints, pause, stop, owner messages via `LISTEN/NOTIFY` | director-backend | todo | An idle run makes zero model calls |
 | 3.6 | Mockup storage + analysis + code-side conflict rules + palette check | director-backend | todo | Reference mockup set → stable breakdown; Buy bonus forced `left_out` |
@@ -91,7 +91,7 @@ The current-games harness is the priority: every later merge depends on it.
 
 | # | Task | Owner | Status | Acceptance |
 |---|---|---|---|---|
-| 5.0 | ADR-0007: pipeline-change mechanics (GitHub PR as the change record, merge strategy, revert) | director-architect | todo | Approved before 5.1 |
+| 5.0 | ADR-0007: pipeline-change mechanics (GitHub PR as the change record, merge strategy, revert) | director-architect | review | Approved before 5.1 |
 | 5.1 | Changes list + detail (files, diff link, why) | director-frontend + director-backend | todo | Matches mockup 05 |
 | 5.2 | Check 1 (CI gates grouped) + Check 2 (harness report) + diff approval | director-backend | todo | A visible difference blocks merge until approved; approval is invalidated by a new commit |
 | 5.3 | Merge with `pipelineMerge` + History + rollback (revert) | director-backend | todo | A roll back produces a revert that passes the harness |
