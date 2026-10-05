@@ -4,7 +4,7 @@
 // not boot, spin and settle, or that logs an error or stalls on I/O, fails its row.
 //
 //   node scripts/current-games/lib/gates.mjs <out.json>   run every type's gates once, for CI's
-//                                                          shards to read (`run.mjs --gates-file`)
+//                                                          compare to read (`run.mjs --gates-file`)
 
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';

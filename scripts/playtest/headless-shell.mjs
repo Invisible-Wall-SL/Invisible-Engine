@@ -56,11 +56,14 @@ export function headlessShell(override) {
 }
 
 // Without the GPU flags the shell renders WebGL in software at ~12 fps. Measured on Windows (ANGLE
-// on D3D11); elsewhere check the `fps` the run prints first.
+// on D3D11); elsewhere check the `fps` the run prints first. On a machine with no GPU (a CI
+// runner), WebGL needs SwiftShader, which newer Chrome builds no longer fall back to on their own:
+// without `--enable-unsafe-swiftshader` the page gets no WebGL at all and Pixi silently falls back
+// to its Canvas renderer, a path no player's browser takes.
 const GPU_FLAGS =
 	process.platform === 'win32'
 		? ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist']
-		: ['--enable-gpu', '--ignore-gpu-blocklist'];
+		: ['--enable-gpu', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader'];
 
 /**
  * Start the shell on a blank page with CDP on `stdio[3]` (to Chrome) and `stdio[4]` (from it).
