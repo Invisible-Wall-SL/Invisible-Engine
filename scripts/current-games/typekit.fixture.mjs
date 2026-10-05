@@ -92,6 +92,8 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8">
 <script src="https://use.typekit.net/kit.js"></script>
 </head><body><p class="tk-cg">The quick brown fox</p><p class="tk-cg" style="font-weight:700">jumps</p>
 <script>document.fonts.forEach((f) => f.load());</script></body></html>`;
+const PAGE_PLAIN =
+	'<!doctype html><html><head><meta charset="utf-8"></head><body>plain</body></html>';
 const PAGE_UNMIRRORED = `<!doctype html><html><head><meta charset="utf-8">
 <link rel="stylesheet" href="https://use.typekit.net/other.css" onerror="window.__err=1" onload="window.__err=2">
 </head><body>x</body></html>`;
@@ -107,9 +109,14 @@ const server = createServer((req, res) => {
 		res.writeHead(200, { 'content-type': served.type });
 		return res.end(served.body);
 	}
-	if (url.pathname === '/page.html' || url.pathname === '/unmirrored.html') {
+	const pages = {
+		'/page.html': PAGE,
+		'/unmirrored.html': PAGE_UNMIRRORED,
+		'/plain.html': PAGE_PLAIN,
+	};
+	if (pages[url.pathname]) {
 		res.writeHead(200, { 'content-type': 'text/html' });
-		return res.end(url.pathname === '/page.html' ? PAGE : PAGE_UNMIRRORED);
+		return res.end(pages[url.pathname]);
 	}
 	res.writeHead(404);
 	res.end();
@@ -263,11 +270,12 @@ try {
 			await page.close();
 			rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
 		}
-		// Without an interceptor the browser is as before: nothing is paused or recorded.
+		// Without an interceptor the browser is as before: nothing is paused or recorded. (A page with
+		// no Typekit reference: a check must not reach for Adobe.)
 		profile = mkdtempSync(join(tmpdir(), 'cg-typekit-profile-'));
 		page = await openPage(chrome, profile);
 		try {
-			await page.navigate(`${origin}/page.html`);
+			await page.navigate(`${origin}/plain.html`);
 			await until(page, 'document.readyState === "complete"', 'the page');
 			assert.deepEqual(page.unmirrored, []);
 		} finally {

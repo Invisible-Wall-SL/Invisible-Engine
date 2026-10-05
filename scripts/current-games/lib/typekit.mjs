@@ -213,15 +213,14 @@ export async function planTypekit(mode, root) {
 	if (mode === 'network') return { mode: 'network' };
 	if (mode !== 'mirror') return pinOf(readMirrorDir(mode), mode);
 	const manifest = await readMirrorManifest();
-	const refresh = 'run the "Typekit mirror" workflow (.github/workflows/typekit-mirror.yml)';
+	// Also a commit-status description, which GitHub cuts at 140 characters: the fix must fit.
+	const refresh = 'run the "Typekit mirror" workflow, then re-run';
 	if (!manifest)
-		throw new Error(
-			`the Typekit mirror is missing from R2 (${MANIFEST_KEY}): ${refresh}, then re-run`,
-		);
+		throw new Error(`the Typekit mirror is missing from R2 (${MANIFEST_KEY}): ${refresh}`);
 	const missing = kitIds(root).filter((id) => !manifest.kits.includes(id));
 	if (missing.length)
 		throw new Error(
-			`the Typekit mirror (kits ${manifest.kits.join(', ')}) lacks kit(s) the runtime loads: ${missing.join(', ')}: ${refresh}`,
+			`the Typekit mirror (kits ${manifest.kits.join(', ')}) lacks kit(s) the runtime loads (${missing.join(', ')}): ${refresh}`,
 		);
 	return pinOf(manifest, 'r2');
 }
