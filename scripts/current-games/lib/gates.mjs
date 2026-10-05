@@ -26,7 +26,8 @@ const BY_TYPE = {
 
 export const gatesFor = (script) => [...RUNTIME, ...(BY_TYPE[script] ?? BY_TYPE.lines)];
 
-const ALL = [...new Set([...RUNTIME, ...Object.values(BY_TYPE).flat()])];
+/** Every gate any type runs; `touched.mjs`'s fixture checks each reads only runtime inputs. */
+export const ALL_GATES = [...new Set([...RUNTIME, ...Object.values(BY_TYPE).flat()])];
 
 const results = new Map();
 
@@ -62,7 +63,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
 		console.error('usage: gates.mjs <out.json>');
 		process.exit(2);
 	}
-	const all = ALL.map((gate) => {
+	const all = ALL_GATES.map((gate) => {
 		const r = runGate(gate);
 		console.log(`[current-games] ${r.pass ? 'pass' : 'FAIL'} ${gate} (${r.seconds.toFixed(1)} s)`);
 		return r;

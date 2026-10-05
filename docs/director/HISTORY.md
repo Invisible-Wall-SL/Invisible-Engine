@@ -15,6 +15,29 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-05 · Phase 1 · regression-guardian (skip renders when the runtime is untouched)
+- **Did:** `current-games` no longer builds two runtimes and renders every live game for a change
+  that cannot reach one. `prepare` reads the diff against the harness's own base and classifies it
+  with `scripts/current-games/lib/touched.mjs`: the inputs are `apps/lines` and every workspace
+  package it reaches (computed from the package graph, not listed), the root build files, what the
+  gates read (`scripts/`, `services/test-server/`, the launcher's game-config defaults) and the
+  workflow itself; docs are never inputs. No input changed ⇒ success from `prepare` alone, before
+  the secrets check, so a launcher, atlas-tool or director-worker PR is not held by the missing
+  secrets or by harness noise. An undecidable diff renders everything. The docs-only step is folded
+  into the same classification, and on a push it now diffs against the merge-base rather than
+  `event.before`, so a docs commit pushed onto an engine branch still renders.
+- **Files:** `scripts/current-games/{lib/touched.mjs,touched.fixture.mjs,lib/gates.mjs}`,
+  `.github/workflows/current-games.yml`, `docs/playtest/current-games.md`, `docs/status/engine.md`,
+  ADR-0004 (amendment, proposed), `docs/director/{PLAN,OPEN_QUESTIONS}.md`.
+- **Branch / PR:** `claude/amazing-cori-an3axf`.
+- **Tests:** `touched.fixture.mjs` (auto-run by `check:all`): the closure equals pnpm's graph, every
+  gate's command names only inputs, one verdict per kind of path, and the CLI's outputs. Replayed on
+  merged PRs: #1046 and #1043 skip; #1044 (lockfile) and #1055 (harness) render.
+- **Decisions:** "untouched" is decided by inputs, never by output hashes: a build to prove a bundle
+  identical costs the build the skip is meant to save. The rule only ever skips, never widens.
+- **Next:** 1F calibration still needs the secrets and a live run; this change makes the gate green
+  meanwhile for the cards that cannot affect it.
+
 ## 2026-10-05 · Phase 1 · coordinator
 - **Did:**
   - Recorded #1044 (3A, `director-worker`; the service is deployed and healthy), #1046 (2C, Atlas
