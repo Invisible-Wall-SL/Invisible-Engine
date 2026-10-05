@@ -182,12 +182,23 @@ would act on; the turn loop that calls the Anthropic API is PLAN 3.4.
 - **Replicas:** safe to scale. The lease keeps one driver per run, and
   `pnpm --filter director-worker prove:lease` proves it against a scratch database.
 
-**Owner set-up (once):** Railway → the project → **+ New → GitHub Repo** → this repo. Then, on the
-new service:
+**Owner set-up (once):** open the **existing** Railway project, the one whose canvas already shows the
+launcher, atlas-tool, sheet-tool, Invisible-test-Server and Postgres. Inside it, **+ Create → GitHub
+Repo** → this repo.
+
+Do **not** create a new project for the worker. A separate project can't reference `Postgres`, can't reach
+the database privately, and can't share variables with the launcher.
+
+Then, on the new service:
 
 1. **Name** `director-worker`. **Settings → Source:** Root Directory = repo root (empty), branch
    `main`. **Build:** Builder = Dockerfile, Dockerfile Path = `services/director-worker/Dockerfile`.
    **Watch Paths:** `/services/director-worker/**`.
+   - Root Directory **must stay empty**. With `/services/director-worker` there, the build fails with
+     `"/services/director-worker/pricing.json": not found`, because every `COPY` path in the
+     Dockerfile starts at the repo root.
+   - If the build log shows **Railpack** instead of Docker steps, the Builder isn't set to
+     Dockerfile yet.
 2. **Networking:** no public domain. Nothing calls the worker; it only calls out.
 3. **Deploy → Healthcheck Path** `/healthz`, timeout 120 s.
 4. **Variables:** `DATABASE_URL` = `${{Postgres.DATABASE_URL}}`; `DIRECTOR_SERVICE_TOKEN` = the
@@ -195,6 +206,10 @@ new service:
    key. Then **Apply changes / Deploy**.
 5. **Verify:** the deploy log shows `"msg":"agents loaded"` with seven agents and `"msg":"sweep"`,
    and the service's commit status reads `Success -`.
+   - `/healthz` 503 with **`"msg":"DATABASE_URL is unset"`** in the log means `DATABASE_URL` is
+     missing. If `${{Postgres…}}` doesn't autocomplete, the service is in the wrong project.
+   - `/healthz` 503 with **`"msg":"sweep failed"`** means the launcher hasn't applied migration 0022
+     yet. Redeploy the launcher, then the worker.
 
 ## ComfyUI tunnel (optional — a person's own GPU)
 
