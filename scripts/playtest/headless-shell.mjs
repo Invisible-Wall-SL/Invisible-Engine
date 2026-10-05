@@ -66,10 +66,11 @@ const GPU_FLAGS =
 		: ['--enable-gpu', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader'];
 
 /**
- * Start the shell on a blank page with CDP on `stdio[3]` (to Chrome) and `stdio[4]` (from it).
+ * Start the shell on a blank page with CDP on `stdio[3]` (to Chrome) and `stdio[4]` (from it),
+ * with `args` after the standard flags.
  * `stderrTail()` is the end of what it printed — the reason when it exits before answering.
  */
-export function spawnHeadlessShell(path, { profile, width, height }) {
+export function spawnHeadlessShell(path, { profile, width, height, args = [] }) {
 	const chrome = spawn(
 		path,
 		[
@@ -81,6 +82,7 @@ export function spawnHeadlessShell(path, { profile, width, height }) {
 			'--no-default-browser-check',
 			'--autoplay-policy=no-user-gesture-required',
 			...GPU_FLAGS,
+			...args,
 			// Chromium will not start its sandbox as root, a cloud container's default user.
 			...(process.getuid?.() === 0 ? ['--no-sandbox'] : []),
 			'about:blank',

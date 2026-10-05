@@ -22,12 +22,14 @@
 // renders (fresh test server, fresh browser), so they need not share a runner.
 // Exit 1 when a rendered game fails, 2 when the run itself cannot start.
 
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
 import { headlessShell } from '../playtest/headless-shell.mjs';
 import { assembleReport } from './lib/assemble.mjs';
+import { openPage } from './lib/browser.mjs';
 import { loadTolerance } from './lib/compare.mjs';
 import { loadGateResults } from './lib/gates.mjs';
 import { fetchManifest, fetchSnapshot, listGames } from './lib/games.mjs';
@@ -147,9 +149,35 @@ function writeFailedUnit(unit, error) {
 	);
 }
 
+const GPU_KEYS = ['2d_canvas', 'webgl', 'gpu_compositing', 'rasterization'];
+
+/** The paths this machine's browser renders with, as the harness launches it and without its 2D-canvas pin. */
+async function browserPaths(chrome) {
+	const paths = {};
+	for (const [name, args] of [
+		['harness', undefined],
+		['without the 2D-canvas pin', []],
+	]) {
+		const profile = mkdtempSync(join(tmpdir(), 'cg-gpu-'));
+		try {
+			const page = await openPage(chrome, profile, args ? { args } : undefined);
+			const status = await page.gpuStatus();
+			await page.close();
+			paths[name] = GPU_KEYS.map((k) => `${k} ${status[k] ?? '?'}`).join(', ');
+		} catch (e) {
+			paths[name] = `unknown (${e.message})`;
+		} finally {
+			rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
+		}
+	}
+	writeFileSync(join(out, 'browser.json'), JSON.stringify(paths, null, '\t'));
+	for (const [name, line] of Object.entries(paths)) log(`browser (${name}): ${line}`);
+}
+
 /** Render `units` of `thePlan`, `--jobs` at a time. */
 async function render(thePlan, units, runtimes) {
 	const chrome = headlessShell(opt.chrome);
+	await browserPaths(chrome);
 	const byKey = new Map(thePlan.games.map((p) => [p.game.key, p]));
 	// One download per snapshot, however many of the game's units run at once.
 	const snapshots = new Map();
@@ -193,6 +221,7 @@ async function render(thePlan, units, runtimes) {
 
 function compare(thePlan, unitDirs) {
 	if (opt['gates-file']) loadGateResults(opt['gates-file']);
+	const browserFile = unitDirs.map((d) => join(d, 'browser.json')).find((f) => existsSync(f));
 	const report = assembleReport({
 		plan: thePlan,
 		unitDirs,
@@ -200,7 +229,10 @@ function compare(thePlan, unitDirs) {
 		tolerance: loadTolerance(opt.tolerance),
 		gates: !opt['no-gates'],
 		keepScreens: opt['keep-screens'],
-		extra: { seconds: Math.round((Date.now() - started) / 1000) },
+		extra: {
+			seconds: Math.round((Date.now() - started) / 1000),
+			browser: browserFile ? JSON.parse(readFileSync(browserFile, 'utf8')) : undefined,
+		},
 	});
 	writeSummaryFiles(out, report);
 	log(`${report.summary.verdict} — ${report.summary.line}`);

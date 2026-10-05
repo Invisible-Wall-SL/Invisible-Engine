@@ -132,6 +132,9 @@ small,.tol{color:var(--muted)}code{word-break:break-all}details{margin:12px 0}
 <h1>Current games</h1>
 <p class="verdict">${summary.verdict === 'pass' ? 'PASS' : 'FAIL'} — ${esc(summary.line)}</p>
 <p>branch <code>${esc(report.head?.sha)}</code> vs main <code>${esc(report.base?.sha)}</code> · seed <code>${esc(report.seed)}</code> · ${esc(report.viewport)} · ${esc(report.seconds)} s${report.shards ? ` · ${report.shards} shard(s)` : ''}</p>
+${Object.entries(report.browser ?? {})
+	.map(([name, paths]) => `<p><small>browser (${esc(name)}): ${esc(paths)}</small></p>`)
+	.join('')}
 <table><thead><tr><th>Game</th><th>Type</th><th>Build</th><th>Tests</th><th>Looks the same</th><th>Notes</th></tr></thead><tbody>
 ${rows}
 </tbody></table>
@@ -168,7 +171,9 @@ const short = (text) =>
 		.slice(0, 600);
 
 export function digest(report) {
-	const lines = [];
+	const lines = Object.entries(report.browser ?? {}).map(
+		([name, paths]) => `browser (${name}): ${paths}`,
+	);
 	for (const g of report.games) {
 		const v = rowVerdict(g);
 		const failedGates = (g.tests.gates ?? []).filter((x) => !x.pass);
