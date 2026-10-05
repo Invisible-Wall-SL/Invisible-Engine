@@ -24,6 +24,12 @@ export async function listGames({ gamesFile }) {
 	if (gamesFile) return JSON.parse(readFileSync(gamesFile, 'utf8')).games;
 	const missing = missingEnv(LIST_ENV);
 	if (missing.length) throw new Error(`missing secret(s): ${missing.join(', ')}`);
+	// Checked here, with a message that never quotes it: `fetch` puts a bad URL in its TypeError.
+	if (
+		!URL.canParse(process.env.PIPELINE_GAMES_URL) ||
+		new URL(process.env.PIPELINE_GAMES_URL).protocol !== 'https:'
+	)
+		throw new Error('PIPELINE_GAMES_URL is not an absolute https URL');
 	const res = await fetch(process.env.PIPELINE_GAMES_URL, {
 		headers: { authorization: `Bearer ${process.env.PIPELINE_CI_TOKEN}` },
 		signal: AbortSignal.timeout(60_000),

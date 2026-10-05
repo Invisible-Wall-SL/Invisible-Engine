@@ -278,7 +278,17 @@ jobs:
           pattern: current-games-part-*
           path: parts
 
+      # GitHub masks secrets in the LOG only: the step summary, the report artifact and the status
+      # description publish their text as given, so every one goes through lib/redact.mjs, which
+      # needs the values to name them.
       - name: Merge the shards
+        env:
+          PIPELINE_GAMES_URL: ${{ secrets.PIPELINE_GAMES_URL }}
+          PIPELINE_CI_TOKEN: ${{ secrets.PIPELINE_CI_TOKEN }}
+          CURRENT_GAMES_R2_ENDPOINT: ${{ secrets.CURRENT_GAMES_R2_ENDPOINT }}
+          CURRENT_GAMES_R2_BUCKET: ${{ secrets.CURRENT_GAMES_R2_BUCKET }}
+          CURRENT_GAMES_R2_ACCESS_KEY_ID: ${{ secrets.CURRENT_GAMES_R2_ACCESS_KEY_ID }}
+          CURRENT_GAMES_R2_SECRET_ACCESS_KEY: ${{ secrets.CURRENT_GAMES_R2_SECRET_ACCESS_KEY }}
         run: |
           set +e
           node scripts/current-games/lib/report.mjs merge report \
@@ -299,10 +309,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           BUILD: ${{ needs.build.result }}
+          PIPELINE_GAMES_URL: ${{ secrets.PIPELINE_GAMES_URL }}
+          PIPELINE_CI_TOKEN: ${{ secrets.PIPELINE_CI_TOKEN }}
+          CURRENT_GAMES_R2_ENDPOINT: ${{ secrets.CURRENT_GAMES_R2_ENDPOINT }}
+          CURRENT_GAMES_R2_BUCKET: ${{ secrets.CURRENT_GAMES_R2_BUCKET }}
+          CURRENT_GAMES_R2_ACCESS_KEY_ID: ${{ secrets.CURRENT_GAMES_R2_ACCESS_KEY_ID }}
+          CURRENT_GAMES_R2_SECRET_ACCESS_KEY: ${{ secrets.CURRENT_GAMES_R2_SECRET_ACCESS_KEY }}
         run: |
           verdict="$(head -n 1 report/summary.txt 2>/dev/null || echo fail)"
           line="$(tail -n 1 report/summary.txt 2>/dev/null || echo 'no report')"
           [ "$BUILD" = success ] || { verdict=fail; line="the runtime build or the gates job failed"; }
+          line="$(printf %s "$line" | node scripts/current-games/lib/redact.mjs)" || line='the report could not be redacted'
           state=failure; [ "$verdict" = pass ] && state=success
           gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state="$state" -f context=current-games \
             -f description="${line:0:139}" -f target_url="$RUN_URL"
