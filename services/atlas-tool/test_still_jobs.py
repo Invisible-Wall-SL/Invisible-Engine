@@ -14,6 +14,11 @@ What each group stands for:
     POST anywhere, the POST is signed, and neither secret nor token reaches a log.
   * NO CALLBACK — the render, its `/render` answer and `/progress` stay as they
     were; a CLI run of batch_atlas records nothing.
+  * BILLING — each job keeps the GPU it was submitted to (RUNPOD_ENDPOINT_GPU) and
+    the `executionTime` RunPod reported, a failed job's too; the render's `runpod`
+    summary reaches `/progress` and the callback, and is absent when no job reported
+    a time. No price is computed here (ADR-0006: that is the worker's, from
+    pricing.json).
 
 ASCII only in the labels: a non-Latin-1 glyph aborts the suite on a cp1252 console.
 """
@@ -36,6 +41,8 @@ from iw_common import storage as shared_storage
 
 FAILED: list[str] = []
 SECRET = b"test-callback-secret-not-real"
+# The real poll loop, so a fixture that replaced it does not leak into the next.
+REAL_RUN_AND_WAIT = batch_atlas._runpod_run_and_wait
 PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
 
@@ -122,7 +129,9 @@ def install() -> None:
     batch_atlas._next_variant_filename = lambda rname: f"{rname}_00007_.png"
     CANCELLED.clear()
     batch_atlas.runpod_cancel = lambda jid, eid: CANCELLED.append(jid) or ""
+    batch_atlas._runpod_run_and_wait = REAL_RUN_AND_WAIT
     os.environ["ATLAS_CALLBACK_SECRET"] = SECRET.decode()
+    os.environ.pop("RUNPOD_ENDPOINT_GPU", None)
 
 
 class RunPod:
@@ -150,14 +159,24 @@ class RunPod:
         batch_atlas.runpod_submit = self.submit
 
 
-def completed() -> dict:
-    return {"status": "COMPLETED",
-            "output": {"images": [{"filename": "H1_00001_.png",
-                                   "image": base64.b64encode(PNG).decode()}]}}
+def completed(ms: int | None = None, delay: int | None = None,
+              worker: str = "") -> dict:
+    """A COMPLETED status read; with `ms`, the timing RunPod reports beside it."""
+    st = {"status": "COMPLETED",
+          "output": {"images": [{"filename": "H1_00001_.png",
+                                 "image": base64.b64encode(PNG).decode()}]}}
+    if ms is not None:
+        st["executionTime"] = ms
+    if delay is not None:
+        st["delayTime"] = delay
+    if worker:
+        st["workerId"] = worker
+    return st
 
 
 def interrupted_render(ref: str = "st_00000000000000aa", *, jobs: int = 1,
-                       total: int | None = 1, callback: dict | None = None) -> str:
+                       total: int | None = 1, callback: dict | None = None,
+                       gpu: str = "") -> str:
     """What a container leaves behind when it dies mid-render: a `running` doc and
     `submitted` job records, written through the same calls the render makes."""
     still_jobs.open_render(ref, manifest="hero.json", names=["H1"], variants=jobs,
@@ -166,7 +185,8 @@ def interrupted_render(ref: str = "st_00000000000000aa", *, jobs: int = 1,
         still_jobs.record_plan(ref, total)
     for seq in range(1, jobs + 1):
         still_jobs.record_submitted(ref, seq, region="H1", job_id=f"job-{seq}",
-                                    endpoint="ep1", payload={"input": {"seq": seq}})
+                                    endpoint="ep1", gpu=gpu,
+                                    payload={"input": {"seq": seq}})
     return ref
 
 
@@ -398,9 +418,9 @@ def test_the_callback_fires_once_signed_and_never_logs_secrets() -> None:
     target, body, headers = posts[0]
     msg = json.loads(body)
     check("it POSTs to the callback URL", target, url)
-    check("with {jobRef, status, variants}", msg, {
-        "jobRef": ref, "status": "finished",
-        "variants": [{"region": "H1", "variant": "H1_00007_.png", "slot": 1}]})
+    check("with {jobRef, status, variants} - and no runpod when no job reported a time",
+          msg, {"jobRef": ref, "status": "finished",
+                "variants": [{"region": "H1", "variant": "H1_00007_.png", "slot": 1}]})
     check("signed with the server secret",
           still_jobs.verify_signature(body, headers["X-Atlas-Signature"], SECRET), True)
     check("carrying the caller's token back", headers["X-Atlas-Callback-Token"], token)
@@ -431,7 +451,7 @@ def test_no_callback_changes_nothing() -> None:
     batch_atlas.JOB_REF = ""
     batch_atlas._serverless_workflow_images = lambda wf: []
     batch_atlas._runpod_run_and_wait = (
-        lambda job, name, on_submit=None: completed()["output"])
+        lambda job, name, on_submit=None, on_settle=None: completed()["output"])
     batch_atlas._run_region_serverless({"name": "H1"}, {})
     check("without a jobRef the subprocess writes no job record", R2.o, {})
 
@@ -440,7 +460,7 @@ def test_no_callback_changes_nothing() -> None:
     still_jobs.open_render(ref, manifest="hero.json", names=["H1"], variants=1)
     batch_atlas.JOB_REF = ref
 
-    def run_and_wait(job, name, on_submit=None):
+    def run_and_wait(job, name, on_submit=None, on_settle=None):
         on_submit("job-9", "ep1")
         return completed()["output"]
     batch_atlas._runpod_run_and_wait = run_and_wait
@@ -450,6 +470,8 @@ def test_no_callback_changes_nothing() -> None:
     check("with a jobRef the subprocess records the job and settles it",
           (job["jobId"], job["status"], job["variant"]),
           ("job-9", "done", "H1_00007_.png"))
+    check("...with no GPU named and no time, since none was reported",
+          (job["gpu"], "usage" in job), (None, False))
     check("...dropping the payload once it cannot be needed",
           f"{ROOT}/{ref}/job_001.payload.json" in R2.o, False)
 
@@ -682,6 +704,179 @@ def test_callback_tokens_cannot_be_long_lived() -> None:
           "the callback token lives longer than a day")
 
 
+# --------------------------------------------------------------------------
+# Billing: GPU time per job, reported for the worker to price (ADR-0006)
+# --------------------------------------------------------------------------
+
+def test_a_resumed_job_keeps_its_gpu_time_for_billing() -> None:
+    install()
+    os.environ["RUNPOD_ENDPOINT_GPU"] = "L40S (48 GB)"
+    RunPod({"job-1": [{"status": "IN_PROGRESS"},
+                      completed(ms=12345, delay=1500, worker="w1")]}).install()
+    url = "https://launcher.example/cb"
+    token = still_jobs.mint_callback_token(url)
+    posts: list[bytes] = []
+    still_jobs._post = lambda u_, body, headers: posts.append(body) or 200
+    ref = interrupted_render(callback={"url": url, "token": token},
+                             gpu=batch_atlas.runpod_endpoint_gpu())
+    still_jobs.resume_orphans(wait=True)
+    job = R2.doc(f"{ROOT}/{ref}/job_001.json")
+    check("the job record names the GPU it was submitted to", job["gpu"], "L40S (48 GB)")
+    check("...and keeps the time RunPod reported, in seconds", job["usage"],
+          {"seconds": 12.345, "delaySeconds": 1.5, "workerId": "w1"})
+    want = {"gpu": "L40S (48 GB)", "seconds": 12.345, "delaySeconds": 1.5,
+            "jobs": 1, "unreported": 0}
+    check("the closed render sums it as its runpod usage",
+          R2.doc(f"{ROOT}/{ref}/render.json")["runpod"], want)
+    check("the callback carries it", json.loads(posts[0]).get("runpod"), want)
+    check("...and so does /progress", still_jobs.job_view(ref)["runpod"], want)
+    check("the report names no price: that is the worker's, from pricing.json",
+          "usd" in json.dumps(posts[0].decode()), False)
+
+    # Two jobs: one collected with a time, one RunPod lost for good (no time to report).
+    install()
+    os.environ["RUNPOD_ENDPOINT_GPU"] = "L40S (48 GB)"
+    rp = RunPod({"job-1": [completed(ms=1000)], "job-2": [404], "requeued-1": [404]})
+    rp.install()
+    ref = interrupted_render("st_00000000000000a1", jobs=2, total=2, gpu="L40S (48 GB)")
+    still_jobs.resume_orphans(wait=True)
+    doc = R2.doc(f"{ROOT}/{ref}/render.json")
+    check("a job that ended without a time is counted, not summed",
+          (doc["status"], doc["runpod"]),
+          ("failed", {"gpu": "L40S (48 GB)", "seconds": 1.0, "delaySeconds": 0.0,
+                      "jobs": 1, "unreported": 1}))
+
+    # A re-queued job is billed by the GPU of the endpoint that ran it the second time.
+    install()
+    os.environ["RUNPOD_ENDPOINT_GPU"] = "A100 (80 GB)"
+    RunPod({"job-1": [404], "requeued-1": [completed(ms=2000)]}).install()
+    ref = interrupted_render("st_00000000000000a2", gpu="L40S (48 GB)")
+    still_jobs.resume_orphans(wait=True)
+    job = R2.doc(f"{ROOT}/{ref}/job_001.json")
+    check("a re-queued job carries the GPU it was re-submitted to",
+          (job["requeued"], job["gpu"], job["usage"]["seconds"]),
+          (True, "A100 (80 GB)", 2.0))
+
+    # Jobs on different GPUs: the seconds are summed, but no single card is named.
+    install()
+    RunPod({"job-1": [completed(ms=1000)], "job-2": [completed(ms=3000)]}).install()
+    ref = "st_00000000000000a3"
+    still_jobs.open_render(ref, manifest="hero.json", names=["H1"], variants=2)
+    still_jobs.record_plan(ref, 2)
+    still_jobs.record_submitted(ref, 1, region="H1", job_id="job-1", endpoint="ep1",
+                                gpu="L40S (48 GB)", payload={})
+    still_jobs.record_submitted(ref, 2, region="H1", job_id="job-2", endpoint="ep2",
+                                gpu="A100 (80 GB)", payload={})
+    still_jobs.resume_orphans(wait=True)
+    check("jobs on different GPUs leave the card unnamed rather than guessed",
+          R2.doc(f"{ROOT}/{ref}/render.json")["runpod"],
+          {"gpu": None, "seconds": 4.0, "delaySeconds": 0.0, "jobs": 2, "unreported": 0})
+
+    # No GPU configured: the time is still reported, just with no card to price it by.
+    install()
+    RunPod({"job-1": [completed(ms=500)]}).install()
+    ref = interrupted_render("st_00000000000000a4")
+    still_jobs.resume_orphans(wait=True)
+    check("without RUNPOD_ENDPOINT_GPU the seconds are reported with gpu null",
+          R2.doc(f"{ROOT}/{ref}/render.json")["runpod"],
+          {"gpu": None, "seconds": 0.5, "delaySeconds": 0.0, "jobs": 1, "unreported": 0})
+
+
+def test_the_subprocess_keeps_a_jobs_time_even_when_it_fails() -> None:
+    install()
+    os.environ["RUNPOD_ENDPOINT_GPU"] = "L40S (48 GB)"
+    batch_atlas._serverless_workflow_images = lambda wf: []
+    ref = "st_00000000000000a5"
+    still_jobs.open_render(ref, manifest="hero.json", names=["H1", "H2"], variants=1)
+    still_jobs.record_plan(ref, 2)
+    batch_atlas.JOB_REF = ref
+    batch_atlas._JOB_SEQ = iter(range(1, 100))
+
+    def collected(job, name, on_submit=None, on_settle=None):
+        on_submit("job-11", "ep1")
+        on_settle({"status": "COMPLETED", "executionTime": 2500, "delayTime": 100,
+                   "workerId": "w9", "output": completed()["output"]})
+        return completed()["output"]
+
+    def failed(job, name, on_submit=None, on_settle=None):
+        on_submit("job-12", "ep1")
+        on_settle({"status": "FAILED", "executionTime": 4000, "error": "OOM"})
+        raise RuntimeError("RunPod job job-12 for region 'H2' ended FAILED: OOM")
+    try:
+        batch_atlas._runpod_run_and_wait = collected
+        batch_atlas._run_region_serverless({"name": "H1"}, {})
+        batch_atlas._runpod_run_and_wait = failed
+        try:
+            batch_atlas._run_region_serverless({"name": "H2"}, {})
+            check("the failed region still raises", False, True)
+        except RuntimeError:
+            pass
+    finally:
+        batch_atlas.JOB_REF = ""
+    j1, j2 = R2.doc(f"{ROOT}/{ref}/job_001.json"), R2.doc(f"{ROOT}/{ref}/job_002.json")
+    check("a collected job keeps its GPU and time",
+          (j1["status"], j1["gpu"], j1["usage"]),
+          ("done", "L40S (48 GB)", {"seconds": 2.5, "delaySeconds": 0.1, "workerId": "w9"}))
+    check("a failed job keeps its time too: it was spent",
+          (j2["status"], j2["usage"]), ("failed", {"seconds": 4.0}))
+    closed = still_jobs.close_render(ref, "failed", "the render exited with code 1")
+    check("the render bills both", closed["runpod"],
+          {"gpu": "L40S (48 GB)", "seconds": 6.5, "delaySeconds": 0.1,
+           "jobs": 2, "unreported": 0})
+
+
+def test_the_poll_loop_hands_the_settling_read_to_billing() -> None:
+    """The real `_runpod_run_and_wait`, over a faked RunPod."""
+    install()
+    saved = (batch_atlas.runpod_submit, batch_atlas._runpod_get, batch_atlas.time.sleep,
+             batch_atlas.emit)
+    settled: list[dict] = []
+    batch_atlas.runpod_submit = lambda job: ("job-p1", "ep1")
+    batch_atlas.time.sleep = lambda s: None
+    batch_atlas.emit = lambda *a, **k: None
+    try:
+        reads = iter([{"status": "IN_QUEUE"}, {"status": "IN_PROGRESS"},
+                      completed(ms=7000, delay=250, worker="w2")])
+        batch_atlas._runpod_get = lambda path, endpoint: next(reads)
+        out = batch_atlas._runpod_run_and_wait({"input": {}}, "H1",
+                                               on_settle=settled.append)
+        check("the COMPLETED read is handed over, once, before the output is returned",
+              (len(settled), batch_atlas.runpod_usage(settled[0]), "images" in out),
+              (1, {"seconds": 7.0, "delaySeconds": 0.25, "workerId": "w2"}, True))
+
+        settled.clear()
+        reads = iter([{"status": "FAILED", "executionTime": 900, "error": "boom"}])
+        batch_atlas._runpod_get = lambda path, endpoint: next(reads)
+        try:
+            batch_atlas._runpod_run_and_wait({"input": {}}, "H1", on_settle=settled.append)
+            check("a FAILED job still raises", False, True)
+        except RuntimeError:
+            pass
+        check("...and its read is handed over too: the time was spent",
+              [batch_atlas.runpod_usage(s) for s in settled], [{"seconds": 0.9}])
+
+        reads = iter([completed()])
+        batch_atlas._runpod_get = lambda path, endpoint: next(reads)
+
+        def broken(st):
+            raise ValueError("no")
+        out = batch_atlas._runpod_run_and_wait({"input": {}}, "H1", on_settle=broken)
+        check("a note that fails never fails the render", "images" in out, True)
+    finally:
+        (batch_atlas.runpod_submit, batch_atlas._runpod_get, batch_atlas.time.sleep,
+         batch_atlas.emit) = saved
+
+    check("a read with no executionTime reports no usage",
+          [batch_atlas.runpod_usage(s) for s in
+           (completed(), {"status": "COMPLETED", "executionTime": "7"},
+            {"status": "COMPLETED", "executionTime": -1},
+            {"status": "COMPLETED", "executionTime": True}, None)],
+          [None, None, None, None, None])
+    check("delay and worker are optional",
+          batch_atlas.runpod_usage({"executionTime": 1234.5, "delayTime": "x"}),
+          {"seconds": 1.234})
+
+
 if __name__ == "__main__":
     threading.excepthook = lambda a: FAILED.append(f"thread: {a.exc_value!r}")
     test_resume_after_a_restart_collects_the_job()
@@ -706,6 +901,9 @@ if __name__ == "__main__":
     test_a_resume_never_overwrites_a_variant_it_could_not_see()
     test_a_render_that_dies_cancels_the_job_it_left_behind()
     test_callback_tokens_cannot_be_long_lived()
+    test_a_resumed_job_keeps_its_gpu_time_for_billing()
+    test_the_subprocess_keeps_a_jobs_time_even_when_it_fails()
+    test_the_poll_loop_hands_the_settling_read_to_billing()
     print()
     if FAILED:
         print(f"{len(FAILED)} FAILED: {', '.join(FAILED)}")

@@ -11,8 +11,9 @@ in flight — paid for, and never collected. Now each render gets a stable `jobR
 and leaves this in R2, beside the project and out of hydrated staging:
 
     <client>/<project>/_jobs/still/<jobRef>/
-        render.json             # who asked, which manifest, status, callback
-        job_001.json            # one per RunPod job: id, endpoint, region, slot, status
+        render.json             # who asked, which manifest, status, callback, GPU time
+        job_001.json            # one per RunPod job: id, endpoint, GPU, region, slot,
+                                # status, and once settled its execution time (`usage`)
         job_001.payload.json    # the submitted job body, kept until it settles —
                                 # what a re-queue resubmits
 
@@ -37,6 +38,12 @@ the caller's finish hook, which goes through `_write_manifest_at`.
 
 Fails open throughout: R2 that cannot be read or written costs the resumability of
 this render, never the render.
+
+Billing (ADR-0006): each settled job keeps the `executionTime` RunPod reported for it
+and the GPU the endpoint ran it on (`RUNPOD_ENDPOINT_GPU`, recorded at submit). The
+render's `runpod` summary — `{gpu, seconds, delaySeconds, jobs, unreported}` — is what
+`/progress?jobRef=` and the completion callback carry, so the Director worker can price
+the render from `pricing.json`. No price is computed here.
 """
 from __future__ import annotations
 
@@ -218,6 +225,37 @@ def variants_of(jobs: list[dict]) -> list[dict]:
             for j in jobs if j.get("status") == "done" and j.get("variant")]
 
 
+def _seconds_of(job: dict) -> float | None:
+    usage = job.get("usage")
+    s = usage.get("seconds") if isinstance(usage, dict) else None
+    return float(s) if isinstance(s, (int, float)) and not isinstance(s, bool) else None
+
+
+def runpod_summary(jobs: list[dict]) -> dict | None:
+    """The render's GPU time, for billing (ADR-0006): the execution seconds of every
+    RunPod job that reported one — a failed job's time was spent too — and the GPU
+    they ran on. None when no job reported any (a receiver then has nothing to bill
+    and says so). `gpu` is None unless every reported job names the same one, so a
+    sum is never priced by the wrong card; `unreported` counts the RunPod jobs that
+    settled without a time (lost, abandoned, never read to the end)."""
+    reported = [j for j in jobs if _seconds_of(j) is not None]
+    if not reported:
+        return None
+    gpus = {str(j.get("gpu") or "") for j in reported}
+    gpu = gpus.pop() if len(gpus) == 1 and "" not in gpus else None
+    delay = sum(float((j.get("usage") or {}).get("delaySeconds") or 0) for j in reported)
+    return {
+        "gpu": gpu,
+        "seconds": round(sum(_seconds_of(j) or 0.0 for j in reported), 3),
+        "delaySeconds": round(delay, 3),
+        "jobs": len(reported),
+        "unreported": sum(1 for j in jobs
+                          if j.get("transport") == "runpod"
+                          and j.get("status") not in SETTLEABLE
+                          and _seconds_of(j) is None),
+    }
+
+
 # --------------------------------------------------------------------------
 # The render's own side (ui_server)
 # --------------------------------------------------------------------------
@@ -276,11 +314,14 @@ def close_render(ref: str, status: str, error: str = "") -> dict | None:
         if settled:
             j.update(settled)
     variants = variants_of(jobs)
+    runpod = runpod_summary(jobs)
 
     def _m(d: dict) -> dict | None:
         if d.get("status") in TERMINAL:
             return None
         d.update(status=status, finishedAt=_now(), variants=variants)
+        if runpod:
+            d["runpod"] = runpod
         if error:
             d["error"] = error[:500]
         return d
@@ -292,10 +333,12 @@ def close_render(ref: str, status: str, error: str = "") -> dict | None:
 # --------------------------------------------------------------------------
 
 def record_submitted(ref: str, seq: int, *, region: str, job_id: str,
-                     endpoint: str, payload: dict,
+                     endpoint: str, payload: dict, gpu: str = "",
                      provenance: dict | None = None) -> None:
     """A RunPod job is in flight. The payload is stored FIRST so a record that
-    exists always has what a re-queue needs."""
+    exists always has what a re-queue needs. `gpu` is the card the endpoint runs
+    on now (`batch_atlas.runpod_endpoint_gpu`), kept with the job so a later change
+    of endpoint never re-prices it."""
     try:
         storage.put(_payload_key(ref, seq), json.dumps(payload).encode("utf-8"),
                     "application/json", if_none_match="*")
@@ -304,8 +347,9 @@ def record_submitted(ref: str, seq: int, *, region: str, job_id: str,
               flush=True)
     _create(_job_key(ref, seq), {
         "jobRef": ref, "seq": int(seq), "region": region, "transport": "runpod",
-        "jobId": job_id, "endpoint": endpoint, "submittedAt": _now(),
-        "status": "submitted", "requeued": False, "provenance": provenance,
+        "jobId": job_id, "endpoint": endpoint, "gpu": gpu or None,
+        "submittedAt": _now(), "status": "submitted", "requeued": False,
+        "provenance": provenance,
     })
 
 
@@ -340,9 +384,11 @@ def claim_collect(ref: str, seq: int, variant: str) -> bool:
 
 
 def record_settled(ref: str, seq: int, status: str, *, variant: str = "",
-                   error: str = "") -> dict | None:
+                   error: str = "", usage: dict | None = None) -> dict | None:
     """Settle a job still in flight. A job already settled is left as it is — the
-    first answer wins, so a late writer cannot undo a collected render."""
+    first answer wins, so a late writer cannot undo a collected render. `usage` is
+    the job's time off its last status read (`batch_atlas.runpod_usage`), kept
+    whatever the status: a failed job billed all the same."""
     def _m(d: dict) -> dict | None:
         if d.get("status") not in SETTLEABLE:
             return None
@@ -352,6 +398,8 @@ def record_settled(ref: str, seq: int, status: str, *, variant: str = "",
             d["variant"] = variant
         if error:
             d["error"] = error[:500]
+        if usage:
+            d["usage"] = usage
         return d
     done = _cas(_job_key(ref, seq), _m)
     if done is not None:
@@ -440,18 +488,20 @@ def _take(ref: str) -> Hold | str:
 # Re-attaching
 # --------------------------------------------------------------------------
 
-def _await(job_id: str, endpoint: str, since: float) -> tuple[str, object]:
-    """Poll one RunPod job to an answer: `("completed", output)`,
-    `("failed", detail)` or `("lost", reason)` — lost meaning RunPod has no
-    record of it, the one case a re-queue can help."""
+def _await(job_id: str, endpoint: str,
+           since: float) -> tuple[str, object, dict | None]:
+    """Poll one RunPod job to an answer: `("completed", output, usage)`,
+    `("failed", detail, usage)` or `("lost", reason, None)` — lost meaning RunPod
+    has no record of it, the one case a re-queue can help. `usage` is the job's
+    time off the read that answered (`batch_atlas.runpod_usage`), or None."""
     import batch_atlas
     unreadable_since = 0.0
     rechecks = 0
 
-    def _timed_out() -> tuple[str, object]:
+    def _timed_out() -> tuple[str, object, dict | None]:
         why = batch_atlas.runpod_cancel(job_id, endpoint)
         return "failed", "timed out after 30 min" + (
-            f" (and RunPod would not cancel it: {why})" if why else "")
+            f" (and RunPod would not cancel it: {why})" if why else ""), None
 
     # The cap is checked only AFTER a read that is not an answer: a job resumed
     # an hour after it was submitted may well have COMPLETED, and that render is
@@ -466,12 +516,12 @@ def _await(job_id: str, endpoint: str, since: float) -> tuple[str, object]:
                     _sleep(NOT_FOUND_RECHECK_SECONDS[rechecks])
                     rechecks += 1
                     continue
-                return "lost", "RunPod has no record of the job"
+                return "lost", "RunPod has no record of the job", None
             unreadable_since = unreadable_since or now
             if now - unreadable_since >= STATUS_GRACE_SECONDS:
                 why = batch_atlas.runpod_cancel(job_id, endpoint)
                 return "failed", f"lost contact with RunPod: {str(e)[:200]}" + (
-                    f" (and RunPod would not cancel it: {why})" if why else "")
+                    f" (and RunPod would not cancel it: {why})" if why else ""), None
             if now - since > JOB_TIMEOUT_SECONDS:
                 return _timed_out()
             _sleep(POLL_SECONDS)
@@ -479,13 +529,14 @@ def _await(job_id: str, endpoint: str, since: float) -> tuple[str, object]:
         unreadable_since = 0.0
         rechecks = 0
         status = str(st.get("status") or "").upper()
+        usage = batch_atlas.runpod_usage(st)
         if status == "COMPLETED":
             out = st.get("output") or {}
             if isinstance(out, dict) and out.get("error"):
-                return "failed", str(out.get("error"))[:300]
-            return "completed", out
+                return "failed", str(out.get("error"))[:300], usage
+            return "completed", out, usage
         if status in ("FAILED", "CANCELLED", "TIMED_OUT"):
-            return "failed", f"job {status}: {str(st.get('error') or '')[:300]}"
+            return "failed", f"job {status}: {str(st.get('error') or '')[:300]}", usage
         if now - since > JOB_TIMEOUT_SECONDS:
             return _timed_out()
         _sleep(POLL_SECONDS)
@@ -513,8 +564,8 @@ def _finish_job(ref: str, job: dict) -> str:
         return "done"
     while True:
         since = float(job.get("requeuedAt") or job.get("submittedAt") or _now())
-        outcome, detail = _await(str(job["jobId"]), str(job.get("endpoint") or ""),
-                                 since)
+        outcome, detail, usage = _await(str(job["jobId"]),
+                                        str(job.get("endpoint") or ""), since)
         if outcome == "completed":
             try:
                 fname, _blob = batch_atlas.persist_serverless_output(
@@ -522,11 +573,11 @@ def _finish_job(ref: str, job: dict) -> str:
                     claim=lambda name: claim_collect(ref, seq, name),
                     filename=fixed or None, exclusive=True)
             except Exception as e:  # noqa: BLE001
-                record_settled(ref, seq, "failed", error=str(e))
+                record_settled(ref, seq, "failed", error=str(e), usage=usage)
                 return "failed"
             if fname is None:
                 return "claimed"   # somebody else is saving it
-            record_settled(ref, seq, "done", variant=fname)
+            record_settled(ref, seq, "done", variant=fname, usage=usage)
             print(f"[still-jobs] {ref}: collected {fname} after a restart", flush=True)
             return "done"
         if outcome == "lost" and not job.get("requeued"):
@@ -535,7 +586,7 @@ def _finish_job(ref: str, job: dict) -> str:
                 job = requeued
                 continue
         record_settled(ref, seq, "lost" if outcome == "lost" else "failed",
-                       error=str(detail))
+                       error=str(detail), usage=usage)
         return "lost" if outcome == "lost" else "failed"
 
 
@@ -565,10 +616,12 @@ def _requeue(ref: str, job: dict) -> dict | None:
         print(f"[still-jobs] {ref}/{seq}: re-queue refused ({e})", flush=True)
         return None
 
+    gpu = batch_atlas.runpod_endpoint_gpu() or None
+
     def _bind(d: dict) -> dict | None:
         if d.get("status") not in SETTLEABLE:
             return None
-        d.update(jobId=jid, endpoint=eid)
+        d.update(jobId=jid, endpoint=eid, gpu=gpu)
         return d
     bound = _cas(_job_key(ref, seq), _bind)
     if bound is None:
@@ -578,8 +631,8 @@ def _requeue(ref: str, job: dict) -> dict | None:
               f"{eid} but could not record it", flush=True)
     print(f"[still-jobs] {ref}: RunPod lost job {seq} ({job.get('region')}); "
           f"re-queued once as {jid}", flush=True)
-    return bound or {**job, "jobId": jid, "endpoint": eid, "requeued": True,
-                     "requeuedAt": _now()}
+    return bound or {**job, "jobId": jid, "endpoint": eid, "gpu": gpu,
+                     "requeued": True, "requeuedAt": _now()}
 
 
 def _resume(ref: str, ctx: tuple[str, str], hold: Hold,
@@ -793,6 +846,12 @@ def job_view(ref: str, finish: Callable[[dict], None] | None = None) -> dict | N
         view["callback"] = {k: v for k, v in doc["callback"].items() if k != "token"}
     view["jobs"] = [{k: v for k, v in j.items() if k != "provenance"} for j in jobs]
     view["variants"] = variants_of(jobs)
+    # Live from the jobs, so a watcher sees the time a running render has spent so far.
+    runpod = runpod_summary(jobs)
+    if runpod:
+        view["runpod"] = runpod
+    else:
+        view.pop("runpod", None)
     return view
 
 
@@ -891,10 +950,10 @@ def _post(url: str, body: bytes, headers: dict) -> int:
 
 
 def deliver_callback(doc: dict) -> bool:
-    """POST `{jobRef, status, variants}` to the render's callback, signed. A render
-    with no callback does nothing. Never raises; never logs the token or secret.
-    Delivery is recorded on the render, and the boot sweep redelivers one that
-    never landed."""
+    """POST `{jobRef, status, variants, runpod?}` to the render's callback, signed —
+    `runpod` only when a job reported its time. A render with no callback does
+    nothing. Never raises; never logs the token or secret. Delivery is recorded on
+    the render, and the boot sweep redelivers one that never landed."""
     cb = doc.get("callback") or {}
     url = str(cb.get("url") or "")
     if not url:
@@ -907,6 +966,8 @@ def deliver_callback(doc: dict) -> bool:
         return False
     msg = {"jobRef": doc.get("jobRef"), "status": doc.get("status"),
            "variants": doc.get("variants") or []}
+    if doc.get("runpod"):
+        msg["runpod"] = doc["runpod"]
     if doc.get("error"):
         msg["error"] = doc["error"]
     body = json.dumps(msg).encode("utf-8")
