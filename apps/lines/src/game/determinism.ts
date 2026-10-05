@@ -15,8 +15,8 @@
  *   the clock and finished at their end.
  * - **Randomness.** `Math.random` is a PRNG seeded from the flag. Only cosmetic code reads it: the
  *   outcome (the book) comes from the RGS, and the client draws nothing that changes it.
- * - **I/O.** A frame does not start while a fetch, XHR, image, `createImageBitmap`, worker job or
- *   web font is in flight, so how fast the network answers never changes which frame a load lands
+ * - **I/O.** A frame does not start while a fetch, XHR, image, external script or stylesheet,
+ *   `createImageBitmap`, worker job or web font is in flight, so how fast the network answers never changes which frame a load lands
  *   on. A frame that waits past `IO_STALL_MS` counts a stall and forgets what it waited on.
  * - **Ready signal.** `window.__IE_DETERMINISM__` (see `DeterminismApi`): `step(n)` and
  *   `waitFor({ screen, idle, … })`, reading `Game.svelte`'s probe.
@@ -257,6 +257,29 @@ export function installDeterminism(): void {
 			},
 		});
 	}
+
+	// An external <script> or stylesheet <link> is in flight from its insertion until it loads or
+	// fails. Web-font loaders inject both (Typekit: its kit script, then the kit's CSS), and their
+	// own give-up timer runs on the virtual clock, so an untracked load raced the frames.
+	const tracked = new WeakSet<Element>();
+	const trackLoad = (node: Node) => {
+		const external =
+			(node instanceof HTMLScriptElement && node.src !== '') ||
+			(node instanceof HTMLLinkElement && node.rel === 'stylesheet' && !node.sheet);
+		if (!external || tracked.has(node as Element)) return;
+		tracked.add(node as Element);
+		pendingIo++;
+		const done = () => {
+			ioDone();
+			node.removeEventListener('load', done);
+			node.removeEventListener('error', done);
+		};
+		node.addEventListener('load', done);
+		node.addEventListener('error', done);
+	};
+	new MutationObserver((records) => {
+		for (const record of records) for (const node of record.addedNodes) trackLoad(node);
+	}).observe(document, { childList: true, subtree: true });
 
 	const realXhrSend = XMLHttpRequest.prototype.send;
 	XMLHttpRequest.prototype.send = function (this: XMLHttpRequest, body) {
