@@ -271,11 +271,11 @@ piped write; it is a file now); `code-changed` made a full checkout shallow when
 `before` with `--depth=1`, which broke the base-commit step; and a new branch's first push now diffs
 against its merge-base with main instead of counting as "change set unknown".
 
-## Measured (2026-10-04, Claude Code cloud container, 4 vCPU, software GL)
+## Measured on the stand-in fixtures (2026-10-04, Claude Code cloud container, 4 vCPU, software GL)
 
 There were no R2 or launcher credentials in that session, so these runs used the stand-in fixtures
-(`fixtures.mjs`, eight games covering every type plus the pots variants: 108 screens). The first CI
-run with the secrets measures the live games the same way.
+(`fixtures.mjs`, eight games covering every type plus the pots variants: 108 screens). The live
+games are measured in CI: see the next section.
 
 - **Noise, main vs main, twice.** Both runs gave 108 of 108 screens **byte-identical**, with every
   gate passing. Each comparison pairs two independent renders: a fresh test server and a fresh
@@ -297,8 +297,7 @@ run with the secrets measures the live games the same way.
   (`6b44b38`) was green, 108 of 108 identical. Evidence:
   [`current-games/proof-1px.png`](current-games/proof-1px.png) shows before | after | diff for each
   flagged screen, cropped to the panel.
-- **Time.** A game takes 2–5 minutes for both sides, about 4 on average uncontended. The
+- **Time.** A fixture game took 2–5 minutes for both sides, about 4 on average uncontended. The
   `draw: 'every'` canary is the largest share: lines' canary took 51 s per side, against 5–30 s for
-  each other scenario. A runtime build takes 70–80 s on top of `pnpm install`. At six shards and
-  about 14 games, that is 2–3 games per shard, roughly 8–12 minutes of rendering after a
-  3–5 minute build job. The first real CI run will give the exact figure.
+  each other scenario. A runtime build takes 70–80 s on top of `pnpm install`. The live games are
+  heavier (5–15 minutes a game on CI's runners); their timings are in the next section.
