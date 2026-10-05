@@ -34,6 +34,14 @@ Live in the launcher at `/localization` (granted to `developer`, `artist`, `pipe
 
 ## Recent changes
 
+- 2026-10-05 — **Invisible Director can drive this tool.** Invisible Director's adapters (PLAN 2.6,
+  `apps/launcher-api/src/lib/server/director/ops/`) now read and write this tool's strings
+  (`localization.get_strings` / `localization.update_strings`) through its own storage module, under
+  `If-Match`, stamping `saved_by` (`tool: 'director'`, the agent, the run). Director writes SOURCE
+  strings of `manual` rows only: it never translates, never marks a line reviewed, and a changed
+  source leaves its translations unreviewed; rows another tool owns are refused. A save without a
+  stamp drops a carried one (`savedBy.ts`), so `saved_by` always names the last save. The page is
+  unchanged.
 - 2026-10-03 — **A caption set only for one ratio is translatable.** The harvest read a placed
   component's base `params` only, so a `label`/`text` (or a def text bound to a param) an author set
   only in the Scene Editor's portrait override never became a row and shipped untranslated in

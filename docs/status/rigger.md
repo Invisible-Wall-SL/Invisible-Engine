@@ -72,6 +72,13 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
 
 Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger-history.md).
 
+- 2026-10-05 — **Invisible Director can drive this tool.** Invisible Director's adapters (PLAN 2.6,
+  `apps/launcher-api/src/lib/server/director/ops/`) now read and write this tool's rigs
+  (`rigger.list_rigs` / `rigger.rebind_attachments`, through `writeIrig`) through its own storage
+  module, under `If-Match`, stamping `saved_by` (`tool: 'director'`, the agent, the run). A rebind
+  only re-points a skin attachment at another region of the rig's own atlas; bones, slots and
+  timelines are never touched, and a rig with only its source `.json` is saved as its `.irig`. The
+  page is unchanged.
 - 2026-10-01 — **The esbuild spikes resolve esbuild through the workspace** (was open item 14).
   `irig-save`, `rigtext`, `rigtext-runtime`, `rigtext-panel`, `reindex-preserve`,
   `cinematic-flow` and `cinematic-storage` hard-coded `.pnpm/esbuild@0.25.5/…`; they now

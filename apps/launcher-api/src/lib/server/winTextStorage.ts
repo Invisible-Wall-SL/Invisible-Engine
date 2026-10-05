@@ -10,6 +10,7 @@ import {
 } from 'engine-layout';
 import { winTextDocKey } from './projectPaths';
 import { ConflictError, getObjectTextWithEtag, precondition, putObjectText } from './r2';
+import { stampSavedBy, type SavedByStamp } from './savedBy';
 import { stripUnknownKeysWithWarning, type UnknownValues } from './stripUnknownKeys';
 import { loadedStoredDoc, unknownTopLevelBlocks, withUnknownFamilyFields } from './unknownBlocks';
 
@@ -291,12 +292,15 @@ export async function loadWinTextDoc(clientKey: string, projectKey: string): Pro
  * save — win text has no backups, so dropping it would lose it for good: the top-level blocks
  * ({@link unknownTopLevelBlocks}) and the fields inside a family ({@link withUnknownFamilyFields}).
  * The returned doc omits them.
+ *
+ * `savedBy` stamps the doc's `saved_by` (`savedBy.ts`); a save without one drops a carried stamp.
  */
 export async function saveWinTextDoc(
 	clientKey: string,
 	projectKey: string,
 	doc: unknown,
 	baseEtag?: string | null,
+	savedBy?: SavedByStamp,
 ): Promise<{ doc: WinTextDoc; etag: string | null }> {
 	const next = normalizeWinTextDoc(doc, 'reject');
 	const key = winTextDocKey(clientKey, projectKey);
@@ -306,7 +310,7 @@ export async function saveWinTextDoc(
 	const updatedAt = new Date().toISOString();
 	const etag = await putObjectText(
 		key,
-		JSON.stringify({ ...written, ...kept, updatedAt }, null, 2),
+		JSON.stringify(stampSavedBy({ ...written, ...kept, updatedAt }, savedBy), null, 2),
 		'application/json',
 		precondition(baseEtag),
 	);

@@ -1,6 +1,6 @@
 /**
- * Contract check for the Invisible Director adapter gate, hard refusals and Game Maker adapters
- * (ADR-0002; PLAN 2.1–2.3):
+ * Contract check for the Invisible Director adapter gate, hard refusals and tool adapters
+ * (ADR-0002; PLAN 2.1–2.6):
  *   pnpm --filter launcher-api check:director-adapters
  *
  * Runs the REAL route `POST /api/director/adapter/[tool]/[op]`, `director/gate.ts`, the registry,
@@ -27,6 +27,11 @@
  *    config ETags on the run; `get_project` reads it back. Every model agent's frontmatter `tools:`
  *    and the server-side allow-lists agree, and the worker's tool catalogue
  *    (`services/director-worker/src/tools.ts`) holds every registered op and no refused one.
+ *  - 2.6 Symbols, Scene Editor, Win Text, Localization, Font Maker, Rigger and Flipbook, each over
+ *    its tool's real storage module: a read, then a write on a stale baseEtag, is `conflict` and
+ *    writes nothing; every doc written carries the `saved_by` stamp; and each op's own refusals —
+ *    Scene nodes bound to the math, source-only unreviewed strings, a font bake that waits for the
+ *    owner, a rig rebind that cannot re-time.
  */
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -647,7 +652,7 @@ for (const [tool, op, id] of REFUSED) {
 check(
 	'no registered op is refused',
 	[...ADAPTER_OPS.keys()].length,
-	GAMEMAKER_OPS.length + ATLAS_OPS.length,
+	GAMEMAKER_OPS.length + ATLAS_OPS.length + 14,
 );
 
 // ── 2.2 Target-key guard, whatever op declares the key ────────────────────────
@@ -1798,6 +1803,642 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		[503, 'atlas_unconfigured'],
 	);
 	server.close();
+}
+
+// ── 2.6 Symbols, Scene, Win Text, Localization, Fonts, Rigger, Flipbook ───────
+{
+	const paths = await import(src('lib/server/projectPaths.ts'));
+	const { saveSymbolsDoc } = await import(src('lib/server/symbolsStorage.ts'));
+	PROJECTS.set('tools', project('tools'));
+	RUNS.set('rt', run('rt', { projectKey: 'tools' }));
+	const P = 'acme/tools';
+	let toolSeq = 0;
+	const tool = (name: string, agent: string, input: unknown, write = false) => {
+		const [t, o] = name.split('.');
+		return call(t, o, {
+			runId: 'rt',
+			agent,
+			...(write ? { opId: `rt:t26:${++toolSeq}` } : {}),
+			input,
+		});
+	};
+	/** A person's save from the tool's own page: the bytes stay, the version moves on. */
+	const personSaves = (key: string) => R2.set(key, { ...R2.get(key)!, etag: etag() });
+	const seedDoc = (key: string, doc: unknown) =>
+		R2.set(key, { body: JSON.stringify(doc), etag: etag() });
+	const stored = (key: string) => JSON.parse(R2.get(key)!.body);
+	const stampOf = (key: string, agent: string) => {
+		const s = stored(key).saved_by ?? {};
+		return check(
+			`${key.slice(P.length + 1)}: stamped saved_by tool director, ${agent}, the run and its owner`,
+			[s.tool, s.agent, s.runId, s.uid],
+			['director', agent, 'rt', 'owner'],
+		);
+	};
+	/** Read, a person saves, then a write on the read's baseEtag: a conflict that changes nothing. */
+	async function staleIsConflict(
+		label: string,
+		key: string,
+		write: (baseEtag: string) => Promise<Answer>,
+		baseEtag: string,
+	) {
+		personSaves(key);
+		const before = R2.get(key)!;
+		const answer = await write(baseEtag);
+		check(
+			`${label}: a write on a stale baseEtag is a conflict`,
+			[answer.status, answer.body.error],
+			[409, 'conflict'],
+		);
+		check(`${label}: ...and writes nothing`, R2.get(key), before);
+	}
+
+	// Symbols
+	const SYM = paths.symbolsDocKey(C, 'tools');
+	seedDoc(SYM, {
+		version: 1,
+		symbols: { H1: { static: { type: 'sprite', assetKey: `${P}/manifests/a.json::h1` } } },
+		winLine: { enabled: false },
+		newerBlock: { kept: true },
+	});
+	const map = await tool('symbols.get_map', 'animator', {});
+	check('symbols.get_map reads the bindings', map.body.symbols, {
+		H1: { static: { type: 'sprite', assetKey: `${P}/manifests/a.json::h1` } },
+	});
+	check('symbols.get_map hands out the stored ETag', map.body.baseEtag, R2.get(SYM)!.etag);
+	const winBinding = { type: 'spine', assetKey: 'h1_rig', animationName: 'win', loop: false };
+	const setState = (baseEtag: string, binding: unknown = winBinding) =>
+		tool('symbols.set_state', 'animator', { symbol: 'H1', state: 'win', binding, baseEtag }, true);
+	await staleIsConflict('symbols.set_state', SYM, setState, String(map.body.baseEtag));
+	const set = await setState(R2.get(SYM)!.etag);
+	check('symbols.set_state lands', set.status, 200);
+	check(
+		'...binding the one state and keeping the rest of the doc',
+		[
+			stored(SYM).symbols.H1.win,
+			stored(SYM).symbols.H1.static.type,
+			stored(SYM).winLine,
+			stored(SYM).newerBlock,
+		],
+		[winBinding, 'sprite', { enabled: false }, { kept: true }],
+	);
+	stampOf(SYM, 'animator');
+	check(
+		'symbols.set_state refuses a binding the tool would refuse',
+		[(await setState(R2.get(SYM)!.etag, { type: 'flipbook', assetKey: 'x' })).body.error],
+		['invalid_input'],
+	);
+	check(
+		"symbols.set_state is the animator's: the builder is refused",
+		(
+			await tool(
+				'symbols.set_state',
+				'builder',
+				{ symbol: 'H1', state: 'win', binding: winBinding, baseEtag: 'new' },
+				true,
+			)
+		).status,
+		403,
+	);
+	await saveSymbolsDoc(C, 'tools', stored(SYM), R2.get(SYM)!.etag);
+	check("a person's later save drops the Director stamp", stored(SYM).saved_by, undefined);
+
+	// Scene Editor
+	const SCENE = paths.editorDocKey(C, 'tools');
+	const sprite = (id: string, over: object = {}) => ({
+		id,
+		kind: 'sprite',
+		x: 10,
+		y: 10,
+		assetKey: 'a::x',
+		...over,
+	});
+	seedDoc(SCENE, {
+		version: 2,
+		projectKey: 'tools',
+		mainSizesMap: {
+			desktop: { width: 1920, height: 1080 },
+			portrait: { width: 576, height: 1024 },
+		},
+		updatedAt: '',
+		scenes: [
+			{
+				id: 'base',
+				name: 'Base',
+				role: 'basegame',
+				nodes: [
+					sprite('logo'),
+					{ id: 'grid', kind: 'reelGrid', x: 0, y: 0, reels: 5, rows: 3, cellSize: 100 },
+					{
+						id: 'plus',
+						kind: 'componentInstance',
+						x: 0,
+						y: 0,
+						componentId: 'UiButton',
+						params: { action: 'increase' },
+					},
+					{
+						id: 'spinBtn',
+						kind: 'componentInstance',
+						x: 0,
+						y: 0,
+						componentId: 'UiButton',
+						params: { action: 'spin' },
+					},
+					{
+						id: 'group',
+						kind: 'container',
+						x: 0,
+						y: 0,
+						children: [
+							{
+								id: 'betLabel',
+								kind: 'componentInstance',
+								x: 0,
+								y: 0,
+								componentId: 'UiLabel',
+								params: { source: 'bet' },
+							},
+						],
+					},
+					{ id: 'bg', kind: 'spine', x: 0, y: 0, assetKey: 'bg_rig' },
+				],
+			},
+			{ id: 'buy', name: 'Buy', role: 'buyFeature', nodes: [sprite('card')] },
+		],
+	});
+	const layout = await tool('scene.get_layout', 'builder', {});
+	const bound = Object.fromEntries(
+		(layout.body.screens as { nodes: { id: string; mathBound: string | null }[] }[]).flatMap((s) =>
+			s.nodes.map((n) => [n.id, n.mathBound !== null]),
+		),
+	);
+	check('scene.get_layout marks the nodes bound to the math', bound, {
+		logo: false,
+		grid: true,
+		plus: true,
+		spinBtn: false,
+		group: true,
+		bg: false,
+		card: true,
+	});
+	const changes = [
+		{ screen: 'base', node: 'logo', x: 42, y: 7, assetKey: 'a::newlogo' },
+		{ screen: 'base', node: 'grid', x: 99 },
+		{ screen: 'base', node: 'plus', x: 99 },
+		{ screen: 'base', node: 'group', x: 99 },
+		{ screen: 'base', node: 'betLabel', assetKey: 'a::b' },
+		{ screen: 'buy', node: 'card', assetKey: 'a::gold' },
+		{ screen: 'base', node: 'bg', layout: 'portrait', x: 5, y: 6 },
+		{ screen: 'base', node: 'bg', skin: 'gold' },
+		{ screen: 'base', node: 'logo', clipId: 'spark' },
+		{ screen: 'base', node: 'spinBtn', y: 3 },
+	];
+	const update = (baseEtag: string, list: unknown[] = changes) =>
+		tool('scene.update_nodes', 'builder', { changes: list, baseEtag }, true);
+	await staleIsConflict('scene.update_nodes', SCENE, update, String(layout.body.baseEtag));
+	const updated = await update(R2.get(SCENE)!.etag);
+	check('scene.update_nodes lands', updated.status, 200);
+	check(
+		'...refusing and listing every node bound to the math, and a field the node has not',
+		(updated.body.refused as { node: string }[]).map((r) => r.node),
+		['grid', 'plus', 'group', 'betLabel', 'card', 'logo'],
+	);
+	check(
+		'...and applying the rest',
+		(updated.body.applied as { node: string }[]).map((r) => r.node),
+		['logo', 'bg', 'bg', 'spinBtn'],
+	);
+	const scenes = stored(SCENE).scenes;
+	const nodeOf = (screen: number, id: string) =>
+		scenes[screen].nodes.find((n: { id: string }) => n.id === id);
+	check(
+		'...moving and re-skinning only what it applied',
+		[
+			nodeOf(0, 'logo').x,
+			nodeOf(0, 'logo').assetKey,
+			nodeOf(0, 'grid').x,
+			nodeOf(0, 'plus').x,
+			nodeOf(0, 'group').x,
+			nodeOf(1, 'card').assetKey,
+			nodeOf(0, 'bg').skin,
+			nodeOf(0, 'bg').overrides,
+			nodeOf(0, 'bg').x,
+		],
+		[42, 'a::newlogo', 0, 0, 0, 'a::x', 'gold', { portrait: { x: 5, y: 6 } }, 0],
+	);
+	check(
+		'...with the same screens and nodes as before',
+		scenes.map((s: { id: string; nodes: { id: string }[] }) => [s.id, s.nodes.map((n) => n.id)]),
+		[
+			['base', ['logo', 'grid', 'plus', 'spinBtn', 'group', 'bg']],
+			['buy', ['card']],
+		],
+	);
+	stampOf(SCENE, 'builder');
+	const sceneBefore = R2.get(SCENE);
+	const unknown = await update(R2.get(SCENE)!.etag, [{ screen: 'base', node: 'newNode', x: 1 }]);
+	check(
+		'scene.update_nodes cannot add a node',
+		[unknown.status, unknown.body.error],
+		[404, 'unknown_node'],
+	);
+	const noScreen = await update(R2.get(SCENE)!.etag, [{ screen: 'newScreen', node: 'logo', x: 1 }]);
+	check('...or a screen', [noScreen.status, noScreen.body.error], [404, 'unknown_screen']);
+	const allLocked = await update(R2.get(SCENE)!.etag, [{ screen: 'base', node: 'grid', x: 1 }]);
+	check(
+		'a call whose every change is refused writes nothing',
+		[allLocked.status, R2.get(SCENE)],
+		[200, sceneBefore],
+	);
+
+	// Win Text
+	const WT = paths.winTextDocKey(C, 'tools');
+	seedDoc(WT, { version: 1, amountFormat: '{amount}', newerBlock: { kept: true } });
+	const wt = await tool('wintext.get_doc', 'builder', {});
+	check('wintext.get_doc reads the doc', wt.body.doc, { version: 1, amountFormat: '{amount}' });
+	const edits = [
+		{ path: 'toast.full', value: 'WIN {amount}' },
+		{ path: 'lineMessage.byCount.5', value: 'FIVE {symbolName}' },
+		{ path: 'amountFormat', value: '' },
+	];
+	const editWt = (baseEtag: string, list: unknown[] = edits) =>
+		tool('wintext.update_doc', 'builder', { edits: list, baseEtag }, true);
+	await staleIsConflict('wintext.update_doc', WT, editWt, String(wt.body.baseEtag));
+	check('wintext.update_doc lands', (await editWt(R2.get(WT)!.etag)).status, 200);
+	check(
+		'...setting and clearing templates, keeping what a newer launcher wrote',
+		[stored(WT).toast, stored(WT).lineMessage, stored(WT).amountFormat, stored(WT).newerBlock],
+		[{ full: 'WIN {amount}' }, { byCount: { 5: 'FIVE {symbolName}' } }, undefined, { kept: true }],
+	);
+	stampOf(WT, 'builder');
+	check(
+		'wintext.update_doc refuses a field the doc does not have',
+		[
+			(await editWt(R2.get(WT)!.etag, [{ path: 'toast.bogus', value: 'x' }])).body.error,
+			(await editWt(R2.get(WT)!.etag, [{ path: 'bogus', value: 'x' }])).body.error,
+		],
+		['invalid_input', 'invalid_input'],
+	);
+
+	// Localization
+	const LOC = paths.localizationDocKey(C, 'tools');
+	seedDoc(LOC, {
+		sourceLang: 'en',
+		targetLangs: ['es'],
+		context: '',
+		protectedTerms: [],
+		updatedAt: '',
+		entries: [
+			{
+				id: '1',
+				key: 'title',
+				source: 'Hello',
+				origin: 'manual',
+				translations: { es: { text: 'Hola', reviewed: true } },
+			},
+			{
+				id: '2',
+				key: 'scene.spin',
+				source: 'Spin',
+				origin: 'editor',
+				translations: { es: { text: 'Girar', reviewed: true } },
+			},
+		],
+	});
+	const strings = await tool('localization.get_strings', 'builder', {});
+	check('localization.get_strings reads keys, origins and review state', strings.body.strings, [
+		{ key: 'title', source: 'Hello', origin: 'manual', translations: { es: { reviewed: true } } },
+		{
+			key: 'scene.spin',
+			source: 'Spin',
+			origin: 'editor',
+			translations: { es: { reviewed: true } },
+		},
+	]);
+	const writeStrings = (baseEtag: string, list: unknown[]) =>
+		tool('localization.update_strings', 'builder', { strings: list, baseEtag }, true);
+	const sourceEdits = [
+		{ key: 'title', source: 'Hello there' },
+		{ key: 'bonus.intro', source: 'Bonus!' },
+		{ key: 'scene.spin', source: 'Go' },
+	];
+	await staleIsConflict(
+		'localization.update_strings',
+		LOC,
+		(b) => writeStrings(b, sourceEdits),
+		String(strings.body.baseEtag),
+	);
+	const wrote = await writeStrings(R2.get(LOC)!.etag, sourceEdits);
+	check(
+		"localization.update_strings adds and changes source strings, refusing another tool's",
+		[
+			wrote.status,
+			wrote.body.added,
+			wrote.body.changed,
+			(wrote.body.refused as { key: string }[]).map((r) => r.key),
+		],
+		[200, ['bonus.intro'], ['title'], ['scene.spin']],
+	);
+	const entry = (key: string) => stored(LOC).entries.find((e: { key: string }) => e.key === key);
+	check(
+		'...a changed source keeps its translation, now unreviewed; a new one has none',
+		[
+			entry('title').source,
+			entry('title').translations,
+			entry('bonus.intro').translations,
+			entry('bonus.intro').origin,
+		],
+		['Hello there', { es: { text: 'Hola', reviewed: false } }, {}, 'manual'],
+	);
+	check("...and the other tool's row is untouched", entry('scene.spin'), {
+		id: '2',
+		key: 'scene.spin',
+		source: 'Spin',
+		translations: { es: { text: 'Girar', reviewed: true } },
+		origin: 'editor',
+	});
+	stampOf(LOC, 'builder');
+	check(
+		'localization.update_strings never takes a translation or a review',
+		[
+			(
+				await writeStrings(R2.get(LOC)!.etag, [
+					{ key: 'title', source: 'Hi', translations: { es: { text: 'Hola', reviewed: true } } },
+				])
+			).body.error,
+			(await writeStrings(R2.get(LOC)!.etag, [{ key: 'title', source: 'Hi', reviewed: true }])).body
+				.error,
+		],
+		['invalid_input', 'invalid_input'],
+	);
+
+	// Font Maker
+	const CATALOG = `${P}/fonts/fonts.json`;
+	seedDoc(CATALOG, {
+		prefix: `${P}/fonts`,
+		fonts: [{ id: 'gold', name: 'Gold', kind: 'bitmap', folder: 'gold' }],
+	});
+	R2.set(`${P}/uploads/brand.ttf`, { body: '\u0000\u0001\u0000\u0000rest-of-font', etag: etag() });
+	R2.set(`${P}/uploads/notes.ttf`, { body: 'not a font', etag: etag() });
+	R2.set('other/x/uploads/brand.ttf', { body: '\u0000\u0001\u0000\u0000', etag: etag() });
+	const catalogBefore = R2.get(CATALOG);
+	const bake = (input: object, agent = 'builder') =>
+		tool(
+			'fonts.bake_from_ttf',
+			agent,
+			{
+				folder: 'brand',
+				face: 'Brand',
+				source: `${P}/uploads/brand.ttf`,
+				preset: 'digits',
+				bakeSize: 64,
+				baseEtag: 'new',
+				...input,
+			},
+			true,
+		);
+	const baked = await bake({ fillColor: '#ffcc00' });
+	const REQUEST = `${P}/director/fonts/brand/request.json`;
+	check(
+		'fonts.bake_from_ttf stages the bake, waiting for the owner',
+		[
+			baked.status,
+			baked.body.status,
+			stored(REQUEST).status,
+			stored(REQUEST).recipe.effects.fill.color,
+		],
+		[200, 'awaiting_owner', 'awaiting_owner', '#ffcc00'],
+	);
+	check(
+		'...copying the source beside it',
+		R2.has(`${P}/director/fonts/brand/${stored(REQUEST).sourceFile}`),
+		true,
+	);
+	check("...and adding nothing to the game's font catalog", R2.get(CATALOG), catalogBefore);
+	stampOf(REQUEST, 'builder');
+	const fonts = await tool('fonts.list', 'mockup-analyst', {});
+	check(
+		'fonts.list reads the catalog and the staged bakes',
+		[
+			(fonts.body.fonts as { id: string }[]).map((f) => f.id),
+			(fonts.body.pending as { folder: string; status: string }[]).map((f) => [f.folder, f.status]),
+		],
+		[['gold'], [['brand', 'awaiting_owner']]],
+	);
+	const pendingEtag = (fonts.body.pending as { baseEtag: string }[])[0].baseEtag;
+	await staleIsConflict(
+		'fonts.bake_from_ttf',
+		REQUEST,
+		(baseEtag) => bake({ baseEtag }),
+		pendingEtag,
+	);
+	check('...and restaging it as new is a conflict too', (await bake({})).body.error, 'conflict');
+	check(
+		'fonts.bake_from_ttf will not shadow a font that exists',
+		(await bake({ folder: 'gold' })).body.error,
+		'font_exists',
+	);
+	check(
+		'...reads no source outside the project',
+		(await bake({ folder: 'b2', source: 'other/x/uploads/brand.ttf' })).body.error,
+		'out_of_scope',
+	);
+	check(
+		'...and stages only a real font',
+		(await bake({ folder: 'b3', source: `${P}/uploads/notes.ttf` })).body.error,
+		'bad_font',
+	);
+	check(
+		"fonts.bake_from_ttf is the builder's alone",
+		(await bake({ folder: 'b4' }, 'mockup-analyst')).status,
+		403,
+	);
+
+	// Rigger
+	const RIG_DIR = `${P}/spines/hero`;
+	const skeleton = {
+		skeleton: { spine: '4.2.0' },
+		bones: [{ name: 'root' }],
+		slots: [
+			{ name: 'body', bone: 'root', attachment: 'body' },
+			{ name: 'hit', bone: 'root' },
+		],
+		skins: [
+			{
+				name: 'default',
+				attachments: {
+					body: { body: { x: 1 } },
+					hit: { box: { type: 'boundingbox', vertexCount: 3, vertices: [0, 0, 1, 1, 2, 2] } },
+				},
+			},
+		],
+		animations: {
+			idle: {
+				slots: { body: { attachment: [{ time: 0.5, name: 'body' }] } },
+				bones: {
+					root: {
+						rotate: [
+							{ time: 0, value: 0 },
+							{ time: 1, value: 10 },
+						],
+					},
+				},
+			},
+		},
+	};
+	seedDoc(`${RIG_DIR}/hero.json`, skeleton);
+	R2.set(`${RIG_DIR}/hero.atlas`, {
+		body: 'hero.png\nsize: 64,64\nfilter: Linear,Linear\nbody\nbounds: 0,0,10,10\nbody_gold\nbounds: 10,0,10,10\n',
+		etag: etag(),
+	});
+	R2.set(`${RIG_DIR}/hero.png`, { body: 'PNG', etag: etag() });
+	const sourceBefore = R2.get(`${RIG_DIR}/hero.json`);
+	const rigs = await tool('rigger.list_rigs', 'animator', {});
+	const hero = (rigs.body.rigs as Record<string, unknown>[])[0];
+	check(
+		'rigger.list_rigs reads the rig, its atlas and what each attachment draws',
+		[
+			hero.dir,
+			hero.stem,
+			hero.hasIrig,
+			hero.atlas,
+			hero.animations,
+			hero.attachments,
+			hero.baseEtag,
+		],
+		[
+			'hero',
+			'hero',
+			false,
+			'hero.atlas',
+			['idle'],
+			[
+				{ skin: 'default', slot: 'body', attachment: 'body', type: 'region', region: 'body' },
+				{ skin: 'default', slot: 'hit', attachment: 'box', type: 'boundingbox', region: null },
+			],
+			'new',
+		],
+	);
+	const rebind = (baseEtag: string, rebinds: unknown[], extra: object = {}) =>
+		tool(
+			'rigger.rebind_attachments',
+			'animator',
+			{ dir: 'hero', stem: 'hero', rebinds, baseEtag, ...extra },
+			true,
+		);
+	const rebound = await rebind('new', [
+		{ slot: 'body', attachment: 'body', region: 'body_gold' },
+		{ slot: 'hit', attachment: 'box', region: 'body_gold' },
+		{ slot: 'body', attachment: 'missing', region: 'body_gold' },
+		{ slot: 'body', attachment: 'body', region: 'not_in_atlas' },
+	]);
+	check(
+		'rigger.rebind_attachments re-points region attachments, refusing and listing the rest',
+		[
+			rebound.status,
+			(rebound.body.applied as unknown[]).length,
+			(rebound.body.refused as { attachment: string }[]).map((r) => r.attachment),
+		],
+		[200, 1, ['box', 'missing', 'body']],
+	);
+	const IRIG = `${RIG_DIR}/hero.irig`;
+	check(
+		'...saving the rig as its .irig, with the attachment pointed at the new region',
+		stored(IRIG).skins[0].attachments.body.body,
+		{ x: 1, path: 'body_gold' },
+	);
+	check(
+		'...and no re-timing: bones, slots and every animation are byte-identical',
+		[stored(IRIG).bones, stored(IRIG).slots, stored(IRIG).animations],
+		[skeleton.bones, skeleton.slots, skeleton.animations],
+	);
+	check("...the artist's source .json is untouched", R2.get(`${RIG_DIR}/hero.json`), sourceBefore);
+	check(
+		'...and the skeleton index lists the rig',
+		JSON.parse(R2.get(`${P}/spines/skeletons.json`)?.body ?? '{}').skeletons?.some(
+			(s: { skeleton_file: string }) => s.skeleton_file === 'hero.irig',
+		),
+		true,
+	);
+	stampOf(IRIG, 'animator');
+	await staleIsConflict(
+		'rigger.rebind_attachments',
+		IRIG,
+		(b) => rebind(b, [{ slot: 'body', attachment: 'body', region: 'body' }]),
+		String(rebound.body.baseEtag),
+	);
+	check(
+		'rigger.rebind_attachments takes no timing',
+		(
+			await rebind(R2.get(IRIG)!.etag, [
+				{ slot: 'body', attachment: 'body', region: 'body', time: 2 },
+			])
+		).body.error,
+		'invalid_input',
+	);
+	check(
+		'...and no animations',
+		(await rebind(R2.get(IRIG)!.etag, [], { animations: {} })).body.error,
+		'invalid_input',
+	);
+
+	// Flipbook
+	const CLIP = paths.clipDocKey(C, 'tools', 'coin');
+	seedDoc(CLIP, {
+		id: 'coin',
+		name: 'Coin',
+		assetKey: `${P}/manifests/atlas_manifest_fx.json`,
+		frames: ['c1', 'c2'],
+		fps: 12,
+	});
+	const clips = await tool('flipbook.list_clips', 'animator', { id: 'coin' });
+	check(
+		'flipbook.list_clips reads the clips and the one named',
+		[
+			(clips.body.clips as { id: string; frames: number }[]).map((c) => [c.id, c.frames]),
+			(clips.body.clip as { frames: string[] }).frames,
+		],
+		[[['coin', 2]], ['c1', 'c2']],
+	);
+	const saveClip = (baseEtag: string, over: object = {}) =>
+		tool(
+			'flipbook.save_clip',
+			'animator',
+			{
+				id: 'coin',
+				assetKey: `${P}/manifests/atlas_manifest_fx.json`,
+				frames: ['c1', 'c1', 'c2'],
+				fps: 24,
+				baseEtag,
+				...over,
+			},
+			true,
+		);
+	await staleIsConflict(
+		'flipbook.save_clip',
+		CLIP,
+		saveClip,
+		String((clips.body.clips as { baseEtag: string }[])[0].baseEtag),
+	);
+	check('flipbook.save_clip lands', (await saveClip(R2.get(CLIP)!.etag)).status, 200);
+	check(
+		"...with the new frames and fps, keeping the clip's name",
+		[stored(CLIP).frames, stored(CLIP).fps, stored(CLIP).name],
+		[['c1', 'c1', 'c2'], 24, 'Coin'],
+	);
+	stampOf(CLIP, 'animator');
+	check('a new clip takes baseEtag new', (await saveClip('new', { id: 'spark' })).status, 200);
+	check(
+		'...and a second create is a conflict',
+		(await saveClip('new', { id: 'spark' })).body.error,
+		'conflict',
+	);
+	check(
+		'flipbook.save_clip refuses an empty clip',
+		(await saveClip(R2.get(CLIP)!.etag, { frames: [] })).body.error,
+		'invalid_input',
+	);
 }
 
 // ── Allow-lists agree with the agents' frontmatter `tools:` ───────────────────

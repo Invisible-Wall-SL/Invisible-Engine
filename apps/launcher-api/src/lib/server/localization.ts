@@ -1,6 +1,7 @@
 import { normalizeProtectedTerms } from './localizationMask';
 import { localizationDocKey } from './projectPaths';
 import { getObjectTextWithEtag, precondition, putObjectText } from './r2';
+import { stampSavedBy, type SavedByStamp } from './savedBy';
 
 /** One translated value for a target language; `reviewed` gates it for export. */
 export interface LocalizationTranslation {
@@ -93,19 +94,20 @@ export async function loadDocWithEtag(
  * Persist a project's document to R2 (stamps `updatedAt`), guarded by `baseEtag` —
  * see `r2.precondition`. Throws `ConflictError` when another author saved first, so
  * a reviewer's approvals are never silently discarded by a stale tab. Returns the new
- * ETag.
+ * ETag. `savedBy` stamps the stored doc's `saved_by` (`savedBy.ts`).
  */
 export async function saveDoc(
 	clientKey: string,
 	projectKey: string,
 	doc: LocalizationDoc,
 	baseEtag?: string | null,
+	savedBy?: SavedByStamp,
 ): Promise<{ doc: LocalizationDoc; etag: string | null }> {
 	const next = normalizeDoc(doc);
 	next.updatedAt = new Date().toISOString();
 	const etag = await putObjectText(
 		localizationDocKey(clientKey, projectKey),
-		JSON.stringify(next, null, 2),
+		JSON.stringify(stampSavedBy(next, savedBy), null, 2),
 		'application/json',
 		precondition(baseEtag),
 	);

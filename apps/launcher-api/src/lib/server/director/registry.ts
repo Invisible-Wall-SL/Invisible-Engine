@@ -1,6 +1,13 @@
 import { isDirectorAgent, type AdapterOp } from './adapter';
 import { ATLAS_OPS } from './ops/atlas';
+import { FLIPBOOK_OPS } from './ops/flipbook';
+import { FONTS_OPS } from './ops/fonts';
 import { GAMEMAKER_OPS } from './ops/gamemaker';
+import { LOCALIZATION_OPS } from './ops/localization';
+import { RIGGER_OPS } from './ops/rigger';
+import { SCENE_OPS } from './ops/scene';
+import { SYMBOLS_OPS } from './ops/symbols';
+import { WINTEXT_OPS } from './ops/wintext';
 import { assertNoRefusedOps } from './refusals';
 
 /** `<tool>.<op>` — the id an agent's frontmatter `tools:` list names. */
@@ -47,5 +54,15 @@ export function buildRegistry(ops: readonly AdapterOp[]): ReadonlyMap<string, Ad
 	return out;
 }
 
-/** Every Director adapter op. The rest arrive with PLAN 2.6. */
-export const ADAPTER_OPS = buildRegistry([...GAMEMAKER_OPS, ...ATLAS_OPS]);
+/** Every Director adapter op. */
+export const ADAPTER_OPS = buildRegistry([
+	...GAMEMAKER_OPS,
+	...ATLAS_OPS,
+	...SYMBOLS_OPS,
+	...SCENE_OPS,
+	...WINTEXT_OPS,
+	...LOCALIZATION_OPS,
+	...FONTS_OPS,
+	...RIGGER_OPS,
+	...FLIPBOOK_OPS,
+]);

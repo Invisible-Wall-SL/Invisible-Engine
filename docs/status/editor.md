@@ -39,6 +39,14 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-05 — **Invisible Director can drive this tool.** Invisible Director's adapters (PLAN 2.6,
+  `apps/launcher-api/src/lib/server/director/ops/`) now read and write this tool's layout
+  (`scene.get_layout` / `scene.update_nodes`) through its own storage module, under `If-Match`,
+  stamping `saved_by` (`tool: 'director'`, the agent, the run). It moves and re-skins existing nodes
+  only, never adds or removes a screen or node, and refuses any node bound to the math: the reel
+  grid, a repeater, a bet/buy/feature binding, anything on the bet-menu, buy-feature, buy-confirm or
+  mode screens. A save without a stamp drops a carried one (`savedBy.ts`), so `saved_by` always
+  names the last save. The page is unchanged.
 - 2026-10-02 — **A param can name a component** (Hold and Win 12c, #1006). A `component`-kind param
   (the Letters Strip's `tile`) is a select of the project's components in Properties, minus the
   instance's own. Detail: [hold-and-win](hold-and-win.md).
