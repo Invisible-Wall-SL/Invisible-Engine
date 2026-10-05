@@ -64,7 +64,7 @@ env:
   STATUS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
   STATUS_CONTEXT: ${{ inputs.self_compare && 'current-games/self-compare' || 'current-games' }}
-  SHARDS: 16
+  SHARDS: 20
 
 jobs:
   prepare:
@@ -213,11 +213,6 @@ jobs:
             console.log(buildWorkingTree(process.cwd(), '.cache/current-games'));
           "
 
-      - name: Run every game type's gates once
-        run: |
-          mkdir -p .cache/current-games/plan
-          node scripts/current-games/lib/gates.mjs .cache/current-games/plan/gates.json
-
       # The plan is made ONCE, here: every shard renders the same snapshot of each game even if it
       # is republished mid-run, and the same split of render units.
       - name: Plan the run
@@ -253,6 +248,36 @@ jobs:
           retention-days: 3
           path: .cache/current-games/plan
 
+  # Every game type's `check:*` gates, once, beside the build: they test the branch's source, not
+  # its runtime, so they need not hold up the renders.
+  gates:
+    needs: prepare
+    if: needs.prepare.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run every game type's gates once
+        run: |
+          mkdir -p gates
+          node scripts/current-games/lib/gates.mjs gates/gates.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: current-games-gates
+          retention-days: 3
+          path: gates
+
   # A render unit is one side of one scenario of one game; the plan balances the units across the
   # shards by their measured cost (`costs.json`). One at a time: SwiftShader already uses every
   # core, so a second lane only halved each unit's speed (measured 2026-10-05).
@@ -263,7 +288,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
     steps:
       - uses: actions/checkout@v7
 
@@ -322,7 +347,7 @@ jobs:
           path: part-${{ matrix.shard }}
 
   report:
-    needs: [prepare, build, render]
+    needs: [prepare, build, gates, render]
     if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.code == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -347,6 +372,12 @@ jobs:
       - uses: actions/download-artifact@v4
         continue-on-error: true
         with:
+          name: current-games-gates
+          path: gates
+
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
           pattern: current-games-part-*
           path: parts
 
@@ -367,7 +398,7 @@ jobs:
           set +e
           units="$(ls -d parts/current-games-part-* 2>/dev/null | paste -sd, -)"
           node scripts/current-games/run.mjs --phase compare --plan plan/plan.json \
-            --gates-file plan/gates.json --units "$units" --out report
+            --gates-file gates/gates.json --units "$units" --out report
           # Every non-pass row's cause, for reading without downloading the artifact.
           cat report/digest.txt 2>/dev/null
           cat report/crops.txt 2>/dev/null
@@ -387,6 +418,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           BUILD: ${{ needs.build.result }}
+          GATES: ${{ needs.gates.result }}
           RENDER: ${{ needs.render.result }}
           PIPELINE_GAMES_URL: ${{ secrets.PIPELINE_GAMES_URL }}
           PIPELINE_CI_TOKEN: ${{ secrets.PIPELINE_CI_TOKEN }}
@@ -398,7 +430,8 @@ jobs:
           verdict="$(head -n 1 report/summary.txt 2>/dev/null || echo fail)"
           line="$(tail -n 1 report/summary.txt 2>/dev/null || echo 'no report')"
           aborted="$(node -p "require('./report/report.json').aborted ?? ''" 2>/dev/null)"
-          [ "$BUILD" = success ] || { verdict=fail; line="${aborted:-the runtime build or the gates failed}"; }
+          [ "$BUILD" = success ] || { verdict=fail; line="${aborted:-the runtime build failed}"; }
+          [ "$GATES" = success ] || { verdict=fail; line="the gates job did not finish ($line)"; }
           [ "$RENDER" = success ] || { verdict=fail; line="a render shard died ($line)"; }
           line="$(printf %s "$line" | node scripts/current-games/lib/redact.mjs)" || line='the report could not be redacted'
           state=failure; [ "$verdict" = pass ] && state=success
