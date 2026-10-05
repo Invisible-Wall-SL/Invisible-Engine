@@ -201,7 +201,6 @@ try {
 check('an unpriced model cannot be projected', threw, true);
 check('at the cap is over it', overCap(24, 1, 25), true);
 check('below the cap is not', overCap(23.99, 1, 25), false);
-check('no cap is never over', overCap(1e9, 1, null), false);
 
 // ── Cost of a response ──
 const usage = {

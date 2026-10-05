@@ -6,10 +6,12 @@ import type { DirectorPricing } from 'director-costs';
  * the projected cost of that next step reaches its cap pauses instead. Pure, so the projection is
  * fixture-tested.
  *
- * The projection errs high, because pausing one call early costs the owner a click and passing the
- * cap costs money: every input token is priced uncached (about 4 characters a token over the whole
- * request), and the output is the largest this agent has produced in the run so far, or
- * `DEFAULT_OUTPUT_TOKENS` before its first call.
+ * The input side errs high: every token is priced uncached, at about 4 characters a token over the
+ * whole request. The output side is the largest reply this agent has produced in the run so far,
+ * or `DEFAULT_OUTPUT_TOKENS` before its first call — a typical turn, not the worst case. So one
+ * reply longer than any before it can carry the run past its cap by the difference, at most
+ * `max_tokens` minus that figure (about $1 on Opus). Projecting every call at `max_tokens` would
+ * stop a small-cap run before its first call.
  */
 
 export const DEFAULT_OUTPUT_TOKENS = 8_000;
@@ -30,6 +32,6 @@ export function projectCall(
 	return (inputTokens * rate.input + outputTokens * rate.output) / 1_000_000;
 }
 
-/** Whether a step costing `projectedUsd` must not run. A run with no cap is never stopped. */
-export const overCap = (spentUsd: number, projectedUsd: number, capUsd: number | null): boolean =>
-	capUsd !== null && spentUsd + projectedUsd >= capUsd;
+/** Whether a step costing `projectedUsd` must not run. */
+export const overCap = (spentUsd: number, projectedUsd: number, capUsd: number): boolean =>
+	spentUsd + projectedUsd >= capUsd;

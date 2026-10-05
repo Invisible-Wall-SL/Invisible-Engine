@@ -9,7 +9,7 @@ import { log } from './log.ts';
 import { anthropicTransport, modelProfile } from './model.ts';
 import { pricingSource } from './pricing.ts';
 import { KNOWN_TOOLS } from './tools.ts';
-import { startWake, type Wake } from './wake.ts';
+import { CONCURRENCY, startWake, type Wake } from './wake.ts';
 
 /**
  * Invisible Director worker (ADR-0001). Boot order: environment, agent definitions (a bad one stops
@@ -38,8 +38,10 @@ log.info('agents loaded', {
 /** Never log the error itself: a malformed URL's error carries the URL, password included. */
 function openDatabase(url: string) {
 	try {
+		// Each drive holds at most one connection in a transaction; the rest is for its other queries,
+		// lease renewals and the sweep.
 		return postgres(url, {
-			max: 4,
+			max: CONCURRENCY * 2 + 2,
 			onnotice: () => {},
 			connection: { application_name: 'director-worker' },
 		});
@@ -51,7 +53,11 @@ function openDatabase(url: string) {
 	}
 }
 
+/** How long a shutdown lets turns in flight finish before it stops them (Railway's SIGTERM). */
+const SHUTDOWN_GRACE_MS = 20_000;
+
 const sql = env.databaseUrl ? openDatabase(env.databaseUrl) : null;
+const shuttingDown = new AbortController();
 let wake: Wake | null = null;
 if (!sql) log.warn('DATABASE_URL is unset: no runs will be claimed');
 else if (!env.anthropicApiKey || !env.directorServiceToken) {
@@ -63,6 +69,8 @@ else if (!env.anthropicApiKey || !env.directorServiceToken) {
 		launcher: httpLauncher(env.launcherUrl, env.directorServiceToken),
 		agents,
 		pricing: pricingSource(sql, root('pricing.json')),
+		retries: new Map<string, number>(),
+		shutdown: shuttingDown.signal,
 	};
 	try {
 		wake = await startWake(sql, env.workerId, (claimed) => driveRun(deps, claimed));
@@ -92,11 +100,18 @@ const server = createServer((req, res) => {
 });
 server.listen(env.port, () => log.info('http listening', { port: env.port }));
 
+/**
+ * Stop claiming, let the turns in flight finish (a model call cut off is billed only as far as it
+ * streamed, and its turn runs again), then stop the rest: each gives its run back on the way out.
+ */
 async function shutdown(signal: string) {
 	log.info('shutdown', { signal });
 	server.close();
 	try {
 		await wake?.stop();
+		await wake?.drain(SHUTDOWN_GRACE_MS);
+		shuttingDown.abort(new Error(`worker shutting down (${signal})`));
+		await wake?.drain(5_000);
 		await sql?.end({ timeout: 5 });
 	} catch (error) {
 		log.warn('shutdown: database already gone', { error });

@@ -172,8 +172,11 @@ for owner rows and `job_done`, migration 0025) plus a 60 s sweep. It then drives
 (PLAN 3.4–3.7): one streamed Anthropic call per agent turn, the history stored after every turn, the
 adapters called on the launcher with a deterministic `opId`, one `director_spend` row per response
 (unique `request_id`), and a pause before any call or GPU submit that would reach the run's cap. It
-offers an agent only the ops `GET /api/director/adapter` lists, and asks nothing of the model while
-a run waits on the owner or a GPU job.
+offers an agent only the ops `GET /api/director/adapter` lists, and claims only runs with work, so a
+run waiting on the owner or a GPU job costs nothing. A drive that fails (the launcher or the API
+unreachable, an adapter answer that leaves an op's outcome unknown) changes nothing and holds the
+run back 15 s, doubling to 2 min; after 6 failures in a row the run pauses with an `error` event
+naming the cause. On SIGTERM it stops claiming and gives turns in flight 20 s to finish.
 
 - **Database:** the launcher's Postgres. The worker owns no migrations: its tables are in the
   launcher schema, and the **launcher applies them at boot**. So on a push that adds a Director

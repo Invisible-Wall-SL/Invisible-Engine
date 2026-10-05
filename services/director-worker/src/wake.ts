@@ -16,7 +16,10 @@ export const SWEEP_MS = 60_000;
 export const CONCURRENCY = 4;
 
 export interface Wake {
+	/** Stop claiming. Drives in flight carry on; `drain` waits for them. */
 	stop(): Promise<void>;
+	/** Resolves when no drive is in flight, or after `timeoutMs`, whichever comes first. */
+	drain(timeoutMs: number): Promise<void>;
 	/** Whether the last sweep succeeded — a claim against the run tables, so a database that
 	 *  answers but whose schema is behind is unhealthy too. */
 	healthy(): boolean;
@@ -33,6 +36,7 @@ export async function startWake(
 	let healthy = false;
 	let active = 0;
 	let stopping = false;
+	let drained: (() => void) | null = null;
 
 	/** Claim and drive runs until nothing (for `runId`, that run) is claimable or slots run out. */
 	const pump = async (runId: string | null) => {
@@ -44,6 +48,7 @@ export async function startWake(
 				.catch((error) => log.error('drive failed', { runId: claimed.id, error }))
 				.finally(() => {
 					active--;
+					if (active === 0) drained?.();
 					void kick(null);
 				});
 			if (runId) return;
@@ -72,6 +77,16 @@ export async function startWake(
 			stopping = true;
 			clearInterval(timer);
 			await listener.unlisten();
+		},
+		drain(timeoutMs) {
+			if (active === 0) return Promise.resolve();
+			return new Promise<void>((resolve) => {
+				const deadline = setTimeout(resolve, timeoutMs);
+				drained = () => {
+					clearTimeout(deadline);
+					resolve();
+				};
+			});
 		},
 		healthy: () => healthy,
 	};

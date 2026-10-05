@@ -483,7 +483,9 @@ export const directorRuns = pgTable(
 			.default('breakdown'),
 		/** The open checkpoint while `waiting`; null otherwise. */
 		waitingOn: text('waiting_on').$type<'breakdown' | 'region_batch' | 'before_publish'>(),
-		/** Null = no cap. The worker pauses the run before the call that would cross it (ADR-0006). */
+		/** Null until the run starts, when the worker copies `DIRECTOR_RUN_BUDGET_USD` onto it; a run
+		 *  that somehow has none gets the default. The worker pauses the run before the call or GPU
+		 *  submit that would reach it (ADR-0006). */
 		budgetCapUsd: doublePrecision('budget_cap_usd'),
 		/** The worker driving the run, and until when. Both null = nobody. */
 		leaseHolder: text('lease_holder'),

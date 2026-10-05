@@ -31,7 +31,19 @@
  * 11. after a mid-output refusal fallback, the declined model's thinking and tool calls are neither
  *     stored nor run, and the turn is billed per attempt;
  * 12. an adapter answer that leaves the outcome unknown (409 in_progress) stores nothing; the next
- *     claim sends the same opId, so the op runs once.
+ *     claim sends the same opId, so the op runs once;
+ * 13. a run with no work (every agent idle, a stop waiting on a render, a checkpoint) is never
+ *     claimed, so a live wake loop never spins on it;
+ * 14. a catalog outage leaves a stored turn for a later claim instead of answering its calls;
+ * 15. only an explicit approve or revise resolves a checkpoint;
+ * 16. a pause queued behind a job_done still stops the turn's calls;
+ * 17. a GPU budget stop wins over a checkpoint request in the same turn;
+ * 18. an empty reply is stored as text, so the next request stays valid;
+ * 19. a resume raises the cap within the Settings bounds, and only when it is allowed;
+ * 20. a job_done that lands after the run ended is still billed;
+ * 21. handling a billed job_done needs no second pool connection;
+ * 22. a failure that persists pauses the run after MAX_FAILURES drives, retrying the same opId;
+ * 23. tokens streamed before a failure are billed.
  */
 import type {
 	BetaMessage,
@@ -43,11 +55,13 @@ import { parsePricing } from 'director-costs';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { AgentDefinition } from '../src/agents.ts';
-import { driveRun, type DriverDeps } from '../src/driver.ts';
+import { driveRun, MAX_FAILURES, type DriverDeps } from '../src/driver.ts';
 import type { AdapterResult, AdapterSpec, Launcher } from '../src/launcher.ts';
-import { claimRun } from '../src/lease.ts';
-import { toolName, type ModelTransport } from '../src/model.ts';
+import { claimRun, deferLease } from '../src/lease.ts';
+import { PartialResponse, toolName, type ModelTransport } from '../src/model.ts';
+import { pricingSource } from '../src/pricing.ts';
 import { recordSpend } from '../src/store.ts';
+import { startWake } from '../src/wake.ts';
 
 const url = process.env.DATABASE_URL;
 if (!url) {
@@ -134,12 +148,16 @@ const SPECS: AdapterSpec[] = [
 ];
 
 /** The launcher gate's idempotency: a write's opId runs once; a repeat returns the stored result. */
-function fakeLauncher(answer?: (id: string, nth: number) => AdapterResult | null) {
+function fakeLauncher(
+	answer?: (id: string, nth: number) => AdapterResult | null,
+	catalogUp: () => boolean = () => true,
+) {
 	const effects: string[] = [];
 	const sent: string[] = [];
 	const stored = new Map<string, unknown>();
 	const launcher: Launcher = {
 		async catalog() {
+			if (!catalogUp()) throw new Error('the launcher is unreachable');
 			return new Map(SPECS.map((s) => [s.id, s]));
 		},
 		async call(id, body) {
@@ -179,6 +197,7 @@ const AGENTS = new Map([
 				'run.request_checkpoint',
 				'run.assign_task',
 				'gamemaker.create_from_template',
+				'atlas.queue_variants',
 			],
 			'claude-opus-5-5',
 		),
@@ -228,6 +247,13 @@ const event = (
 	sql`insert into director_events (run_id, agent, kind, tool, payload_json)
 		values (${runId}, ${agentName}, ${kind}, ${tool}, ${sql.json(payload as never)})`;
 
+/** Failed drives in a row, shared like a worker process shares it. */
+const retries = new Map<string, number>();
+const RETRY_BASE_MS = 20;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** Long enough for any deferral these scenarios cause to run out. */
+const afterRetryDelay = () => sleep(RETRY_BASE_MS * 2 ** MAX_FAILURES + 50);
+
 const deps = (
 	transport: ModelTransport,
 	launcher: Launcher,
@@ -238,7 +264,9 @@ const deps = (
 	launcher,
 	agents: AGENTS,
 	pricing: async () => pricing,
+	retries,
 	leaseMs: 2_000,
+	retryBaseMs: RETRY_BASE_MS,
 	...over,
 });
 
@@ -292,13 +320,8 @@ try {
 				throw new Error('killed');
 			}
 		};
-		let crashed = false;
-		try {
-			await drive(runId, deps(model.transport, gate.launcher, { afterAdapterCall: kill }));
-		} catch (error) {
-			crashed = (error as Error).message === 'killed';
-		}
-		check('the first worker died after the write, before storing its result', crashed, true);
+		await drive(runId, deps(model.transport, gate.launcher, { afterAdapterCall: kill }));
+		check('the first worker died after the write, before storing its result', killed, true);
 		check('…having asked the model once', model.calls(), 1);
 		check(
 			'…with the assistant turn stored and no results yet',
@@ -644,17 +667,23 @@ try {
 		await userMessage(flaky, 'coordinator', 'Start.');
 		const overloaded = Anthropic.APIError.generate(529, undefined, 'overloaded', new Headers());
 		const retried = fakeModel([{ content: [], error: overloaded }, { content: [say('Done.')] }]);
-		let threw = false;
-		try {
-			await drive(flaky, deps(retried.transport, fakeLauncher().launcher));
-		} catch {
-			threw = true;
-		}
+		await drive(flaky, deps(retried.transport, fakeLauncher().launcher));
 		check(
-			'a 529 leaves the run running for the next wake',
-			[threw, (await runRow(flaky)).status],
-			[true, 'running'],
+			'a 529 leaves the run running, with nothing stored',
+			[(await runRow(flaky)).status, (await messages(flaky, 'coordinator')).length],
+			['running', 1],
 		);
+		check(
+			'…tells the owner a retry is coming',
+			(await events(flaky, 'error'))[0]?.payload.type,
+			'retrying',
+		);
+		check(
+			'…and holds the run back meanwhile',
+			await claimRun(sql, 'prover', { runId: flaky }),
+			null,
+		);
+		await afterRetryDelay();
 		await drive(flaky, deps(retried.transport, fakeLauncher().launcher));
 		check(
 			'…which asks again and stores one turn',
@@ -736,6 +765,7 @@ try {
 			(await messages(runId, 'coordinator')).map((m) => m.role),
 			['user', 'assistant'],
 		);
+		await afterRetryDelay();
 		await drive(runId, deps(model.transport, gate.launcher));
 		check(
 			'the next claim sends the same opId again',
@@ -743,6 +773,305 @@ try {
 			true,
 		);
 		check('…the op runs once and the turn goes on', [gate.effects.length, model.calls()], [1, 2]);
+	}
+
+	// ── 13. Only runs with work are claimed ───────────────────────────────────
+	console.log('13. a run with no work is never claimed, so the worker never spins on it');
+	{
+		const idle = await newRun({ step: 'regions' });
+		await sql`insert into director_messages (run_id, agent, seq, role, content_json) values
+			(${idle}, 'coordinator', 0, 'user', ${sql.json([{ type: 'text', text: 'Go.' }])}),
+			(${idle}, 'coordinator', 1, 'assistant', ${sql.json([{ type: 'text', text: 'Waiting.' }])})`;
+		const stopping = await newRun({ status: 'stopping', step: 'regions' });
+		await sql`insert into director_atlas_jobs (job_ref, run_id, agent, atlas, regions, status)
+			values (${`${stopping}-job`}, ${stopping}, 'atlas-artist', 'symbols', ${sql.json(['A'])}, 'queued')`;
+		const waiting = await newRun({ status: 'waiting', waitingOn: 'breakdown' });
+		for (const [name, id] of [
+			['running, every agent idle', idle],
+			['stopping, a render still queued', stopping],
+			['waiting on the owner', waiting],
+		]) {
+			check(`not claimable: ${name}`, await claimRun(sql, 'prover', { runId: id }), null);
+		}
+		const driven: string[] = [];
+		const wake = await startWake(
+			sql,
+			'prover-wake',
+			async (claimed) => {
+				driven.push(claimed.id);
+				await deferLease(sql, claimed, 60_000);
+			},
+			50,
+		);
+		await sleep(400);
+		await wake.stop();
+		await wake.drain(1_000);
+		check(
+			'a live wake loop drives none of them',
+			driven.filter((id) => [idle, stopping, waiting].includes(id)),
+			[],
+		);
+		check('…and drives nothing twice', driven.length, new Set(driven).size);
+	}
+
+	// ── 14. The launcher unreachable mid-turn ─────────────────────────────────
+	console.log('14. a catalog outage leaves a stored turn for later, never answered "not yours"');
+	{
+		const runId = await newRun();
+		await userMessage(runId, 'coordinator', 'Start.');
+		let up = true;
+		const gate = fakeLauncher(undefined, () => up);
+		const model = fakeModel([
+			{ during: async () => (up = false), content: [use('c1', 'gamemaker.create_from_template')] },
+			{ content: [say('Created.')] },
+		]);
+		await drive(runId, deps(model.transport, gate.launcher));
+		check(
+			'the turn is stored, its call unanswered',
+			(await messages(runId, 'coordinator')).map((m) => m.role),
+			['user', 'assistant'],
+		);
+		check('the run keeps running', (await runRow(runId)).status, 'running');
+		up = true;
+		await afterRetryDelay();
+		await drive(runId, deps(model.transport, gate.launcher));
+		const results = JSON.stringify((await messages(runId, 'coordinator'))[2]?.content);
+		check('once the launcher is back the call runs', gate.effects, [
+			'gamemaker.create_from_template',
+		]);
+		check(
+			'…and is never answered "not one of your tools"',
+			results.includes('not one of your tools'),
+			false,
+		);
+	}
+
+	// ── 15. Checkpoint decisions ──────────────────────────────────────────────
+	console.log('15. only an explicit approve or revise resolves a checkpoint');
+	{
+		const runId = await newRun({ status: 'waiting', step: 'handoff', waitingOn: 'before_publish' });
+		const model = fakeModel([]);
+		await event(runId, 'owner', 'checkpoint_resolved', {
+			checkpoint: 'before_publish',
+			decision: 'reject',
+		});
+		await event(runId, 'owner', 'checkpoint_resolved', { checkpoint: 'before_publish' });
+		await drive(runId, deps(model.transport, fakeLauncher().launcher));
+		const row = await runRow(runId);
+		check(
+			'"reject" and a missing decision leave the run waiting',
+			[row.status, row.waiting_on],
+			['waiting', 'before_publish'],
+		);
+		check(
+			'…each refused visibly',
+			(await events(runId, 'error')).map((e) => e.payload.type),
+			['refused_request', 'refused_request'],
+		);
+	}
+
+	// ── 16. Pause queued behind another event ─────────────────────────────────
+	console.log("16. a pause queued behind a job_done still stops the turn's calls");
+	{
+		const runId = await newRun({ step: 'regions' });
+		await userMessage(runId, 'coordinator', 'Draw.');
+		const gate = fakeLauncher();
+		const model = fakeModel([
+			{
+				during: async () => {
+					await event(
+						runId,
+						'atlas-artist',
+						'job_done',
+						{ jobRef: 'j0', status: 'finished' },
+						'atlas.queue_variants',
+					);
+					await event(runId, 'owner', 'owner_request', { action: 'pause' });
+				},
+				content: [use('q1', 'atlas.queue_variants')],
+			},
+		]);
+		await drive(runId, deps(model.transport, gate.launcher));
+		check('the render was not queued', gate.sent, []);
+		check('the run is paused', (await runRow(runId)).status, 'paused');
+		check('the job_done was still handled', (await messages(runId, 'atlas-artist')).length, 1);
+	}
+
+	// ── 17. Budget stop and a checkpoint request in one turn ──────────────────
+	console.log('17. a GPU budget stop wins over a checkpoint request in the same turn');
+	{
+		const runId = await newRun({ cap: 1, step: 'breakdown' });
+		await userMessage(runId, 'coordinator', 'Go.');
+		await recordSpend(sql, {
+			runId,
+			agent: 'atlas-artist',
+			model: 'L40S (48 GB)',
+			kind: 'runpod',
+			requestId: `${runId}-job0`,
+			usd: 0.5,
+		});
+		const gate = fakeLauncher();
+		const model = fakeModel([
+			{
+				content: [
+					use('g1', 'atlas.queue_variants'),
+					use('g2', 'run.request_checkpoint', { kind: 'step_done', summary: 'Done.' }),
+				],
+			},
+		]);
+		await drive(runId, deps(model.transport, gate.launcher));
+		const row = await runRow(runId);
+		check('the run is paused, not waiting', [row.status, row.waiting_on], ['paused', null]);
+		check(
+			'only the budget checkpoint is open',
+			(await events(runId, 'checkpoint_open')).map((e) => e.payload.checkpoint),
+			['budget'],
+		);
+		check('the render was not queued', gate.sent, []);
+	}
+
+	// ── 18. An empty reply ────────────────────────────────────────────────────
+	console.log('18. an empty reply is stored so the next request stays valid');
+	{
+		const runId = await newRun();
+		await userMessage(runId, 'coordinator', 'Anything to add?');
+		const model = fakeModel([{ content: [] }, { content: [say('Noted.')] }]);
+		await drive(runId, deps(model.transport, fakeLauncher().launcher));
+		await event(runId, 'owner', 'owner_message', { text: 'Carry on.' });
+		await drive(runId, deps(model.transport, fakeLauncher().launcher));
+		check('the agent was asked again', model.calls(), 2);
+		check(
+			'no message in the next request is empty',
+			model.requests[1].messages.every((m) => Array.isArray(m.content) && m.content.length > 0),
+			true,
+		);
+	}
+
+	// ── 19. Raising the cap ───────────────────────────────────────────────────
+	console.log('19. a resume raises the cap within the Settings bounds');
+	{
+		const runId = await newRun({ status: 'paused', cap: 1 });
+		await event(runId, 'owner', 'owner_request', { action: 'resume', budgetCapUsd: 1e9 });
+		await drive(runId, deps(fakeModel([]).transport, fakeLauncher().launcher));
+		check('1e9 is clamped to $500', (await runRow(runId)).budget_cap_usd, 500);
+		const refused = await newRun({ status: 'running', cap: 5 });
+		await event(refused, 'owner', 'owner_request', { action: 'resume', budgetCapUsd: 50 });
+		await drive(refused, deps(fakeModel([]).transport, fakeLauncher().launcher));
+		check('a refused resume leaves the cap alone', (await runRow(refused)).budget_cap_usd, 5);
+	}
+
+	// ── 20. A job that lands as the run ends ──────────────────────────────────
+	console.log('20. a job_done that lands after the run ended is still billed');
+	{
+		const runId = await newRun({ status: 'stopped' });
+		await event(
+			runId,
+			'atlas-artist',
+			'job_done',
+			{
+				jobRef: `${runId}-late`,
+				status: 'finished',
+				result: { runpod: { gpu: 'L40S (48 GB)', seconds: 10 } },
+			},
+			'atlas.queue_variants',
+		);
+		await drive(runId, deps(fakeModel([]).transport, fakeLauncher().launcher));
+		check(
+			'billed once',
+			(await spendRows(runId)).map((r) => r.request_id),
+			[`runpod:${runId}-late`],
+		);
+		check('nothing is told to the ended run', (await messages(runId, 'atlas-artist')).length, 0);
+	}
+
+	// ── 21. One pool connection ───────────────────────────────────────────────
+	console.log('21. handling a billed job_done needs no second connection');
+	{
+		const runId = await newRun({ step: 'regions' });
+		await event(
+			runId,
+			'atlas-artist',
+			'job_done',
+			{
+				jobRef: `${runId}-one`,
+				status: 'finished',
+				result: { runpod: { gpu: 'L40S (48 GB)', seconds: 10 } },
+			},
+			'atlas.queue_variants',
+		);
+		const single = postgres(url, { max: 1, onnotice: () => {} });
+		const pricingFile = fileURLToPath(new URL('../pricing.json', import.meta.url));
+		const claimed = await claimRun(single, 'prover-single', { runId, leaseMs: 2_000 });
+		const finished = await Promise.race([
+			driveRun(
+				deps(
+					fakeModel([{ content: [say('Seen.')] }, { content: [say('Noted.')] }]).transport,
+					fakeLauncher().launcher,
+					{
+						sql: single,
+						pricing: pricingSource(single, pricingFile),
+					},
+				),
+				claimed!,
+			).then(() => true),
+			sleep(5_000).then(() => false),
+		]);
+		check('the drive finishes on a one-connection pool', finished, true);
+		check('…and the job is billed', (await spendRows(runId)).length >= 1, true);
+		await single.end({ timeout: 1 });
+	}
+
+	// ── 22. A failure that does not go away ───────────────────────────────────
+	console.log(`22. ${MAX_FAILURES} failed drives in a row pause the run`);
+	{
+		const runId = await newRun();
+		await userMessage(runId, 'coordinator', 'Start.');
+		const gate = fakeLauncher(() => ({ status: 503, body: { error: 'disabled' } }));
+		const model = fakeModel([{ content: [use('d1', 'gamemaker.create_from_template')] }]);
+		for (let i = 0; i < MAX_FAILURES + 2 && (await runRow(runId)).status === 'running'; i++) {
+			await drive(runId, deps(model.transport, gate.launcher));
+			await afterRetryDelay();
+		}
+		check('the run is paused', (await runRow(runId)).status, 'paused');
+		check(
+			'with a retry notice per failure, then the reason',
+			(await events(runId, 'error')).map((e) => e.payload.type),
+			[...Array(MAX_FAILURES - 1).fill('retrying'), 'retries_exhausted'],
+		);
+		check('every attempt sent the same opId', new Set(gate.sent).size, 1);
+		check('the model was asked once', model.calls(), 1);
+	}
+
+	// ── 23. A stream cut off partway ──────────────────────────────────────────
+	console.log('23. tokens streamed before a failure are billed');
+	{
+		const runId = await newRun();
+		await userMessage(runId, 'coordinator', 'Start.');
+		const partial = {
+			id: `msg_${runId}_partial`,
+			type: 'message',
+			role: 'assistant',
+			model: 'claude-opus-5-5',
+			content: [],
+			stop_reason: null,
+			stop_sequence: null,
+			stop_details: null,
+			usage: {
+				input_tokens: 2000,
+				output_tokens: 300,
+				cache_read_input_tokens: 0,
+				cache_creation_input_tokens: 0,
+			},
+		} as unknown as BetaMessage;
+		const dropped = Anthropic.APIError.generate(529, undefined, 'overloaded', new Headers());
+		const model = fakeModel([{ content: [], error: new PartialResponse(partial, dropped) }]);
+		await drive(runId, deps(model.transport, fakeLauncher().launcher));
+		check(
+			'the partial response is billed under its id',
+			(await spendRows(runId)).map((r) => [r.request_id, r.usd]),
+			[[partial.id, (2000 * 4 + 300 * 20) / 1_000_000]],
+		);
+		check('the run waits for its retry', (await runRow(runId)).status, 'running');
 	}
 
 	// ── 8. The wake trigger ───────────────────────────────────────────────────

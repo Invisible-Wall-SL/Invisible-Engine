@@ -169,10 +169,38 @@ export interface ModelTransport {
 	send(request: BetaMessageStreamParams, signal: AbortSignal): Promise<BetaMessage>;
 }
 
+/**
+ * A call that failed or was cut off after the response had started streaming. The tokens up to that
+ * point are billed, so `partial` — the message as far as it got, with its id and `usage` — is what
+ * the ledger records; `cause` is the error itself.
+ */
+export class PartialResponse extends Error {
+	readonly partial: BetaMessage;
+
+	constructor(partial: BetaMessage, cause: unknown) {
+		super(
+			`the response stopped partway: ${cause instanceof Error ? cause.message : String(cause)}`,
+			{
+				cause,
+			},
+		);
+		this.name = 'PartialResponse';
+		this.partial = partial;
+	}
+}
+
 /** The real transport: a streamed call (long turns never hit an HTTP timeout), final message. */
 export function anthropicTransport(apiKey: string): ModelTransport {
 	const client = new Anthropic({ apiKey });
 	return {
-		send: (request, signal) => client.beta.messages.stream(request, { signal }).finalMessage(),
+		async send(request, signal) {
+			const stream = client.beta.messages.stream(request, { signal });
+			try {
+				return await stream.finalMessage();
+			} catch (error) {
+				const partial = stream.currentMessage;
+				throw partial ? new PartialResponse(partial, error) : error;
+			}
+		},
 	};
 }

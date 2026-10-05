@@ -8,25 +8,28 @@ import type {
 import type { Sql } from 'postgres';
 import {
 	budgetFromSetting,
+	clampDirectorBudget,
 	costOfResponse,
 	costOfRunpodJob,
+	DIRECTOR_RUN_BUDGET_DEFAULT_USD,
 	DIRECTOR_RUN_BUDGET_KEY,
 	type DirectorPricing,
 } from 'director-costs';
 import type { AgentDefinition } from './agents.ts';
 import { overCap, projectCall } from './budget.ts';
 import type { AdapterSpec, Launcher } from './launcher.ts';
-import { LEASE_MS, releaseLease, renewLease, type ClaimedRun } from './lease.ts';
+import { deferLease, LEASE_MS, releaseLease, renewLease, type ClaimedRun } from './lease.ts';
 import { log } from './log.ts';
 import {
 	buildRequest,
 	echoable,
+	PartialResponse,
 	permanentApiError,
 	toolId,
 	type ModelTransport,
 	type ToolSpec,
 } from './model.ts';
-import { transition, type RunEvent } from './runState.ts';
+import { TERMINAL_STATUSES, transition, type Checkpoint, type RunEvent } from './runState.ts';
 import {
 	appendMessage,
 	appSetting,
@@ -43,6 +46,7 @@ import {
 	setBudgetCap,
 	unhandledEvents,
 	withLease,
+	type Db,
 	type LiveRun,
 	type StoredMessage,
 	type WakingEvent,
@@ -69,9 +73,11 @@ import { runWorkerTool, workerToolSpecs, type WorkerToolId } from './workerTools
  * A run with nothing pending — waiting on the owner, on a GPU job, paused — makes no model call:
  * the only way to a call is a pending conversation in a `running` run.
  *
- * What cannot be finished now is left for the next wake rather than guessed at: a model call that
- * failed transiently, or an adapter call whose outcome is unknown (`RetryLater`), stores nothing,
- * so the next claim repeats it — the adapter call with the same `opId`.
+ * What cannot be finished now is retried, never guessed at: a model call that failed transiently,
+ * an adapter call whose outcome is unknown (`RetryLater`), or the launcher unreachable stores
+ * nothing, and the run is held back for a growing delay before the next claim repeats it — the
+ * adapter call with the same `opId`. After `MAX_FAILURES` failed drives in a row the run pauses with
+ * the error, so no failure is retried forever.
  */
 
 export interface DriverDeps {
@@ -80,9 +86,15 @@ export interface DriverDeps {
 	launcher: Launcher;
 	agents: ReadonlyMap<string, AgentDefinition>;
 	pricing: () => Promise<DirectorPricing>;
+	/** Failed drives in a row, per run, in this process. A successful drive clears its entry. */
+	retries: Map<string, number>;
 	leaseMs?: number;
-	/** Turns one claim may take before it lets go of the run (the next sweep picks it back up). */
+	/** Turns one claim may take before it lets go of the run (the next wake picks it back up). */
 	maxTurns?: number;
+	/** The first retry delay; it doubles per failure in a row, up to `RETRY_MAX_MS`. */
+	retryBaseMs?: number;
+	/** Aborted when the worker shuts down: every drive stops and gives its run back. */
+	shutdown?: AbortSignal;
 	/** Test seam: runs after each adapter call returns, before its result is stored. */
 	afterAdapterCall?: (opId: string) => void | Promise<void>;
 }
@@ -90,14 +102,19 @@ export interface DriverDeps {
 /** Ops that submit GPU work: the budget is checked before each (ADR-0006). */
 export const GPU_OPS: ReadonlySet<string> = new Set(['atlas.queue_variants']);
 
+/** Failed drives in a row after which the run pauses with the error for a person to look at. */
+export const MAX_FAILURES = 6;
+const RETRY_BASE_MS = 15_000;
+const RETRY_MAX_MS = 120_000;
+
 const WORKER_TOOL_IDS: ReadonlySet<string> = new Set(WORKER_TOOLS);
 const COORDINATOR = 'coordinator';
 const MAX_TURNS = 40;
 const MAX_RESULT_CHARS = 60_000;
 
 /**
- * An adapter answer that says nothing about whether the op ran, or that the launcher could not be
- * asked: the turn's results are not stored, and the next claim sends the same calls again.
+ * An answer that says nothing about whether an op ran, or a launcher that could not be asked: the
+ * turn's results are not stored, and a later claim sends the same calls again.
  */
 export class RetryLater extends Error {
 	constructor(message: string) {
@@ -127,13 +144,18 @@ interface Ctx extends DriverDeps {
 export async function driveRun(deps: DriverDeps, claimed: ClaimedRun): Promise<void> {
 	const leaseMs = deps.leaseMs ?? LEASE_MS;
 	const controller = new AbortController();
+	const onShutdown = () => controller.abort(deps.shutdown?.reason);
+	deps.shutdown?.addEventListener('abort', onShutdown, { once: true });
 	const heartbeat = setInterval(
 		async () => {
 			try {
-				if (!(await renewLease(deps.sql, claimed, leaseMs)))
+				if (!(await renewLease(deps.sql, claimed, leaseMs))) {
 					controller.abort(new LeaseLost(claimed.id));
+				}
 			} catch (error) {
-				controller.abort(error);
+				// Not a lost lease: the next renewal may land, and a write after a real expiry is
+				// refused by its own guard. Aborting here would throw away a call already paid for.
+				log.warn('lease renewal failed', { runId: claimed.id, error });
 			}
 		},
 		Math.max(10, Math.floor(leaseMs / 3)),
@@ -144,6 +166,7 @@ export async function driveRun(deps: DriverDeps, claimed: ClaimedRun): Promise<v
 		signal: controller.signal,
 		workerSpecs: workerToolSpecs([...deps.agents.keys()]),
 	};
+	let deferMs: number | null = null;
 	try {
 		await settleAll(ctx);
 		await handleEvents(ctx);
@@ -155,21 +178,60 @@ export async function driveRun(deps: DriverDeps, claimed: ClaimedRun): Promise<v
 			if (!agent || !(await takeTurn(ctx, agent))) break;
 			await handleEvents(ctx);
 		}
+		deps.retries.delete(claimed.id);
 	} catch (error) {
 		if (error instanceof LeaseLost || controller.signal.aborted) {
-			log.warn('run dropped: lease lost', { runId: claimed.id });
+			log.warn('run dropped', {
+				runId: claimed.id,
+				reason: error instanceof LeaseLost ? 'lease lost' : 'shutting down',
+			});
 			return;
 		}
-		if (error instanceof RetryLater) {
-			log.warn('run left for the next wake', { runId: claimed.id, reason: error.message });
-			return;
-		}
-		throw error;
+		deferMs = await failed(ctx, error);
 	} finally {
 		clearInterval(heartbeat);
-		await releaseLease(deps.sql, claimed).catch(() => {});
+		deps.shutdown?.removeEventListener('abort', onShutdown);
+		await (
+			deferMs === null ? releaseLease(deps.sql, claimed) : deferLease(deps.sql, claimed, deferMs)
+		).catch((error) => log.warn('could not give the run back', { runId: claimed.id, error }));
 	}
 }
+
+/**
+ * Record a failed drive and return how long to hold the run back. The run is left exactly as it
+ * was; an `error` event tells the owner a retry is coming, and the failure that makes
+ * `MAX_FAILURES` in a row pauses the run instead. Past that, retries continue at the longest delay
+ * without adding events, for a run the pause could not stop (one waiting on the owner).
+ */
+async function failed(ctx: Ctx, error: unknown): Promise<number> {
+	const attempt = (ctx.retries.get(ctx.run.id) ?? 0) + 1;
+	ctx.retries.set(ctx.run.id, attempt);
+	const reason = error instanceof Error ? error.message : String(error);
+	const delayMs = Math.min(RETRY_MAX_MS, (ctx.retryBaseMs ?? RETRY_BASE_MS) * 2 ** (attempt - 1));
+	log.warn('drive failed', { runId: ctx.run.id, attempt, delayMs, error });
+	try {
+		if (attempt === MAX_FAILURES) {
+			await pauseWithError(ctx, 'worker', {
+				type: 'retries_exhausted',
+				attempts: attempt,
+				message: `The run stopped after ${attempt} failed attempts in a row: ${reason}`,
+			});
+		} else if (attempt < MAX_FAILURES) {
+			await insertEvent(ctx.sql, ctx.run.id, 'worker', 'error', {
+				type: 'retrying',
+				attempt,
+				inSeconds: Math.round(delayMs / 1000),
+				message: reason,
+			});
+		}
+	} catch (writeError) {
+		log.warn('could not record the failure', { runId: ctx.run.id, error: writeError });
+	}
+	return delayMs;
+}
+
+/** The run's cap. Null only for a run that never started through the worker: the default applies. */
+const capOf = (live: LiveRun) => live.budgetCapUsd ?? DIRECTOR_RUN_BUDGET_DEFAULT_USD;
 
 // ── Tools ─────────────────────────────────────────────────────────────────────
 
@@ -185,12 +247,12 @@ function toolsFor(ctx: Ctx, agent: AgentDefinition, served: ReadonlyMap<string, 
 	return { specs, missing };
 }
 
+/** The ops the launcher serves now. Unreachable is not "serves none": the drive is retried. */
 async function catalog(ctx: Ctx): Promise<ReadonlyMap<string, AdapterSpec>> {
 	try {
 		return await ctx.launcher.catalog();
 	} catch (error) {
-		log.warn('adapter catalog unavailable: offering no adapter ops', { error });
-		return new Map();
+		throw new RetryLater(`the adapter catalog is unavailable: ${(error as Error).message}`);
 	}
 }
 
@@ -210,7 +272,7 @@ const opIdOf = (runId: string, agent: string, turnSeq: number, index: number) =>
 /**
  * Run the tool calls of `agent`'s assistant message `turnSeq` and store their results as one user
  * message. Adapter calls run first, in order, outside any transaction (the launcher's `opId` makes
- * them safe to repeat); worker tools, the results and any pause commit together after.
+ * them safe to repeat); a budget pause, the worker tools and the results commit together after.
  */
 async function settle(
 	ctx: Ctx,
@@ -233,7 +295,11 @@ async function settle(
 			results.set(call.id, resultBlock(call.id, `Not run: the run is ${status}.`, true));
 			continue;
 		}
-		if (WORKER_TOOL_IDS.has(id) && agent.tools.includes(id)) continue;
+		if (!agent.tools.includes(id)) {
+			results.set(call.id, resultBlock(call.id, `${id} is not one of your tools.`, true));
+			continue;
+		}
+		if (WORKER_TOOL_IDS.has(id)) continue;
 		if (budgetStop) {
 			results.set(
 				call.id,
@@ -242,18 +308,17 @@ async function settle(
 			continue;
 		}
 		const spec = served.get(id);
-		if (!agent.tools.includes(id) || !spec) {
-			results.set(call.id, resultBlock(call.id, `${id} is not one of your tools.`, true));
-			continue;
-		}
+		// It was served when the turn was asked for: a launcher rolled back since is retried, never
+		// answered with an error the model would work around by calling again under a new opId.
+		if (!spec) throw new RetryLater(`${id} is not served by the launcher now`);
 		if (GPU_OPS.has(id)) {
 			const [live, spend] = await Promise.all([
 				withLease(ctx.sql, ctx.run, async (_tx, l) => l),
 				runSpend(ctx.sql, ctx.run.id),
 			]);
 			const projectedUsd = spend.meanRunpodJobUsd ?? 0;
-			if (overCap(spend.totalUsd, projectedUsd, live.budgetCapUsd)) {
-				budgetStop = { spentUsd: spend.totalUsd, projectedUsd, capUsd: live.budgetCapUsd! };
+			if (overCap(spend.totalUsd, projectedUsd, capOf(live))) {
+				budgetStop = { spentUsd: spend.totalUsd, projectedUsd, capUsd: capOf(live) };
 				results.set(
 					call.id,
 					resultBlock(call.id, 'Not run: the run paused at its budget cap.', true),
@@ -280,6 +345,8 @@ async function settle(
 	}
 
 	await withLease(ctx.sql, ctx.run, async (tx, live) => {
+		// The pause first, so a worker tool later in the turn (a checkpoint request) sees it.
+		if (budgetStop) await pauseForBudget(tx, live, agent.name, budgetStop, 'gpu_submit');
 		const toolCtx = {
 			tx,
 			live,
@@ -306,7 +373,6 @@ async function settle(
 			);
 			results.set(call.id, resultBlock(call.id, outcome.content, outcome.isError));
 		}
-		if (budgetStop) await pauseForBudget(tx, live, agent.name, budgetStop, 'gpu_submit');
 		await appendMessage(
 			tx,
 			live.id,
@@ -327,26 +393,29 @@ async function settleAll(ctx: Ctx): Promise<void> {
 
 // ── Pauses ────────────────────────────────────────────────────────────────────
 
+/** Pause a running run. False when the run was not running (it stays as it was). */
 async function pause(
-	tx: Parameters<typeof applyTransition>[0],
+	tx: Db,
 	live: LiveRun,
 	reason: Extract<RunEvent, { type: 'pause' }>['reason'],
 	cause: string,
-): Promise<void> {
+): Promise<boolean> {
 	const result = transition(live.state, { type: 'pause', reason });
-	if (result.ok && (await applyTransition(tx, live.id, live.state, result.state, cause))) {
-		live.state = result.state;
+	if (!result.ok || !(await applyTransition(tx, live.id, live.state, result.state, cause))) {
+		return false;
 	}
+	live.state = result.state;
+	return true;
 }
 
 async function pauseForBudget(
-	tx: Parameters<typeof applyTransition>[0],
+	tx: Db,
 	live: LiveRun,
 	agent: string,
 	figures: { spentUsd: number; projectedUsd: number; capUsd: number },
 	before: 'model_call' | 'gpu_submit',
 ): Promise<void> {
-	await pause(tx, live, 'budget_cap', `budget cap before ${agent}'s ${before}`);
+	if (!(await pause(tx, live, 'budget_cap', `budget cap before ${agent}'s ${before}`))) return;
 	await insertEvent(tx, live.id, 'worker', 'checkpoint_open', {
 		checkpoint: 'budget',
 		agent,
@@ -374,6 +443,13 @@ const finalText = (content: BetaContentBlockParam[]) =>
 		.map((b) => (b as { text: string }).text)
 		.join('\n')
 		.trim();
+
+/**
+ * What a reply is stored as. The API refuses an empty message anywhere but last, and the history is
+ * append-only, so an empty reply (the model had nothing to add) is stored as a short text instead.
+ */
+const storable = (content: BetaContentBlockParam[]): BetaContentBlockParam[] =>
+	content.length ? content : [{ type: 'text', text: '(no reply)' }];
 
 /** One turn for `name`. False when the loop should stop (paused, or nothing could be done). */
 async function takeTurn(ctx: Ctx, name: string): Promise<boolean> {
@@ -406,12 +482,12 @@ async function takeTurn(ctx: Ctx, name: string): Promise<boolean> {
 	const projectedUsd = projectCall(request, pricing, spend.maxOutputByAgent[name]);
 	const stopped = await withLease(ctx.sql, ctx.run, async (tx, live) => {
 		if (live.state.status !== 'running') return true;
-		if (!overCap(spend.totalUsd, projectedUsd, live.budgetCapUsd)) return false;
+		if (!overCap(spend.totalUsd, projectedUsd, capOf(live))) return false;
 		await pauseForBudget(
 			tx,
 			live,
 			name,
-			{ spentUsd: spend.totalUsd, projectedUsd, capUsd: live.budgetCapUsd! },
+			{ spentUsd: spend.totalUsd, projectedUsd, capUsd: capOf(live) },
 			'model_call',
 		);
 		return true;
@@ -422,12 +498,15 @@ async function takeTurn(ctx: Ctx, name: string): Promise<boolean> {
 	try {
 		response = await ctx.transport.send(request, ctx.signal);
 	} catch (error) {
-		const status = permanentApiError(error);
-		if (status === null) throw error;
+		// Tokens streamed before a failure or a cut-off are billed: record them, then handle the cause.
+		const cause = error instanceof PartialResponse ? error.cause : error;
+		if (error instanceof PartialResponse) await billResponse(ctx, name, error.partial, pricing);
+		const status = permanentApiError(cause);
+		if (status === null || ctx.signal.aborted) throw cause;
 		await pauseWithError(ctx, name, {
 			type: 'api_error',
 			status,
-			message: `${name}'s call was rejected (${status}): ${(error as Error).message}`,
+			message: `${name}'s call was rejected (${status}): ${(cause as Error).message}`,
 		});
 		return false;
 	}
@@ -447,7 +526,7 @@ async function takeTurn(ctx: Ctx, name: string): Promise<boolean> {
 		return false;
 	}
 
-	const content = echoable(response.content as BetaContentBlockParam[]);
+	const content = storable(echoable(response.content as BetaContentBlockParam[]));
 	const calls = content.filter((b): b is BetaToolUseBlock => b.type === 'tool_use');
 	const truncated = response.stop_reason === 'max_tokens';
 	const turnSeq = await withLease(ctx.sql, ctx.run, async (tx, live) => {
@@ -475,9 +554,10 @@ async function takeTurn(ctx: Ctx, name: string): Promise<boolean> {
 }
 
 /**
- * Write the response's spend row and `spend` event. Written whatever happens next, lease or not:
- * the money is spent. The response id is the row's `requestId`, so a repeat is ignored. False when
- * the response can't be priced; the run pauses rather than spend unrecorded money.
+ * Write the response's spend row and its `spend` event, together. Written whatever happens next,
+ * lease or not: the money is spent. The response id is the row's `requestId`, so a repeat is
+ * ignored. False when the response can't be priced; the run pauses rather than spend unrecorded
+ * money, and the error carries the usage so it can still be priced by hand.
  */
 async function billResponse(
 	ctx: Ctx,
@@ -493,26 +573,29 @@ async function billResponse(
 			type: 'unpriced',
 			model: response.model,
 			requestId: response.id,
+			usage: response.usage,
 			message: `${agent}'s call (${response.id}) could not be priced: ${(error as Error).message}. Add the model to pricing.json.`,
 		});
 		return false;
 	}
-	const written = await recordSpend(ctx.sql, {
-		runId: ctx.run.id,
-		agent,
-		model: response.model,
-		kind: 'claude',
-		requestId: response.id,
-		...cost,
-	});
-	if (written) {
-		await insertEvent(ctx.sql, ctx.run.id, agent, 'spend', {
-			kind: 'claude',
+	await ctx.sql.begin(async (tx) => {
+		const written = await recordSpend(tx, {
+			runId: ctx.run.id,
+			agent,
 			model: response.model,
-			usd: cost.usd,
+			kind: 'claude',
 			requestId: response.id,
+			...cost,
 		});
-	}
+		if (written) {
+			await insertEvent(tx, ctx.run.id, agent, 'spend', {
+				kind: 'claude',
+				model: response.model,
+				usd: cost.usd,
+				requestId: response.id,
+			});
+		}
+	});
 	return true;
 }
 
@@ -521,27 +604,27 @@ async function billResponse(
 const userText = (text: string): BetaContentBlockParam[] => [{ type: 'text', text }];
 
 /**
- * Apply the unhandled waking events in order. `ownerRequestsOnly` applies just the leading owner
- * requests (pause, stop, …) — what may change while a turn's tool calls are unsettled, since those
- * only move the run and never write to a conversation — and stops at the first other event, so
- * events still apply in the order they were inserted.
+ * Apply the unhandled waking events in order. `ownerRequestsOnly` applies just the owner's requests
+ * (pause, stop, …), skipping the rest for a later pass: it runs while a turn's tool calls are
+ * unsettled and the run is running, when only those may apply — they move the run and never write
+ * to a conversation — and they are what must take effect before the calls go out. Pricing is read
+ * first, so no transaction waits on a second pool connection.
  */
 async function handleEvents(ctx: Ctx, { ownerRequestsOnly = false } = {}): Promise<void> {
-	for (const event of await unhandledEvents(ctx.sql, ctx.run.id)) {
-		if (ownerRequestsOnly && event.kind !== 'owner_request') return;
+	const events = (await unhandledEvents(ctx.sql, ctx.run.id)).filter(
+		(e) => !ownerRequestsOnly || e.kind === 'owner_request',
+	);
+	if (events.length === 0) return;
+	const pricing = await ctx.pricing();
+	for (const event of events) {
 		await withLease(ctx.sql, ctx.run, async (tx, live) => {
-			await applyEvent(ctx, tx, live, event);
+			await applyEvent(ctx, tx, live, event, pricing);
 			await markHandled(tx, event.id);
 		});
 	}
 }
 
-async function move(
-	tx: Parameters<typeof applyTransition>[0],
-	live: LiveRun,
-	event: RunEvent,
-	cause: string,
-): Promise<string | null> {
+async function move(tx: Db, live: LiveRun, event: RunEvent, cause: string): Promise<string | null> {
 	const result = transition(live.state, event);
 	if (!result.ok) return result.error;
 	if (!(await applyTransition(tx, live.id, live.state, result.state, cause))) return 'stale state';
@@ -550,7 +633,7 @@ async function move(
 }
 
 /** Finish a stop once no GPU job of the run is still in flight. */
-async function finishStop(tx: Parameters<typeof applyTransition>[0], live: LiveRun) {
+async function finishStop(tx: Db, live: LiveRun) {
 	if (live.state.status === 'stopping' && (await queuedJobs(tx, live.id)) === 0) {
 		await move(tx, live, { type: 'stopped' }, 'no GPU job in flight');
 	}
@@ -579,9 +662,10 @@ function brief(live: LiveRun): string {
 
 async function applyEvent(
 	ctx: Ctx,
-	tx: Parameters<typeof applyTransition>[0],
+	tx: Db,
 	live: LiveRun,
 	event: WakingEvent,
+	pricing: DirectorPricing,
 ): Promise<void> {
 	const p = event.payload;
 	const refuse = (error: string) =>
@@ -611,8 +695,10 @@ async function applyEvent(
 			if (action === 'resume') {
 				const error = await move(tx, live, { type: 'resume' }, 'owner resume');
 				if (error) return refuse(error);
-				const raised = Number(p.budgetCapUsd);
-				if (Number.isFinite(raised) && raised > (live.budgetCapUsd ?? 0)) {
+				// Raised within the same bounds Settings allows, never lowered here.
+				const raised =
+					p.budgetCapUsd === undefined ? null : clampDirectorBudget(Number(p.budgetCapUsd));
+				if (raised !== null && raised > capOf(live)) {
 					live.budgetCapUsd = raised;
 					await setBudgetCap(tx, live.id, raised);
 				}
@@ -635,8 +721,12 @@ async function applyEvent(
 			);
 			return;
 		case 'checkpoint_resolved': {
-			const checkpoint = p.checkpoint as Extract<RunEvent, { type: 'resolve' }>['checkpoint'];
-			const decision = p.decision === 'revise' ? 'revise' : 'approve';
+			const decision = p.decision;
+			// Only an explicit decision moves the run: anything else could hand a draft off unapproved.
+			if (decision !== 'approve' && decision !== 'revise') {
+				return refuse(`unknown checkpoint decision "${String(decision)}"`);
+			}
+			const checkpoint = p.checkpoint as Checkpoint;
 			const error = await move(
 				tx,
 				live,
@@ -658,7 +748,9 @@ async function applyEvent(
 			return;
 		}
 		case 'job_done': {
-			await billJob(ctx, tx, live, event);
+			await billJob(tx, live, event, pricing);
+			// An ended run has nobody left to tell; its job is only billed.
+			if (TERMINAL_STATUSES.includes(live.state.status)) return;
 			const to = ctx.agents.has(event.agent) ? event.agent : COORDINATOR;
 			const body = JSON.stringify({ jobRef: p.jobRef, status: p.status, result: p.result });
 			await appendMessage(
@@ -679,17 +771,17 @@ async function applyEvent(
  * both (`result.runpod = { gpu, seconds }`); atlas-tool does not report them yet.
  */
 async function billJob(
-	ctx: Ctx,
-	tx: Parameters<typeof applyTransition>[0],
+	tx: Db,
 	live: LiveRun,
 	event: WakingEvent,
+	pricing: DirectorPricing,
 ): Promise<void> {
 	const runpod = (event.payload.result as { runpod?: { gpu?: unknown; seconds?: unknown } } | null)
 		?.runpod;
 	if (typeof runpod?.gpu !== 'string' || typeof runpod.seconds !== 'number') return;
 	let usd: number;
 	try {
-		usd = costOfRunpodJob(runpod.gpu, runpod.seconds, await ctx.pricing());
+		usd = costOfRunpodJob(runpod.gpu, runpod.seconds, pricing);
 	} catch (error) {
 		await insertEvent(tx, live.id, 'worker', 'error', {
 			type: 'unpriced',

@@ -2291,7 +2291,7 @@ importers:
   services/director-worker:
     dependencies:
       '@anthropic-ai/sdk':
-        specifier: ^0.128.0
+        specifier: 0.128.0
         version: 0.128.0(zod@3.23.8)
       director-costs:
         specifier: workspace:*
