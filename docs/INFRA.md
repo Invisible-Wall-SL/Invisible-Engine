@@ -79,7 +79,7 @@ GitHub Releases during install. Two consequences for a deploy:
 | **atlas-tool**            | `/services/atlas-tool/**`, `/services/_shared/**`           |
 | **sheet-tool**            | `/services/sheet-tool/**`, `/services/_shared/**`           |
 | **Invisible-test-Server** | `/services/test-server/**`, `/scripts/mock-rgs-server*.mjs` |
-| **director-worker**       | `/services/director-worker/**`                              |
+| **director-worker**       | `/services/director-worker/**`, `/packages/director-costs/**` |
 
 Each list is exactly what that service's Dockerfile `COPY`s, so **a new build input needs a new watch path** or the service will quietly keep deploying the old code. The **launcher** deliberately has none: it builds from the whole pnpm workspace (`apps/`, `packages/`, the lockfile, turbo config), and a partial list there would strand a real change.
 
@@ -167,20 +167,28 @@ The launcher now applies pending Drizzle migrations **itself**, at server startu
 `services/director-worker` drives Invisible Director runs (ADR-0001, ADR-0003). It loads the runtime
 agent definitions (`agents/*.md`, validated against `pricing.json` and the tool catalogue
 `src/tools.ts`), claims runs from `director_runs` with a lease (`SELECT … FOR UPDATE SKIP LOCKED`),
-and wakes on Postgres `LISTEN director_wake` plus a 60 s sweep. As of PLAN 3.3 it only logs what it
-would act on; the turn loop that calls the Anthropic API is PLAN 3.4.
+and wakes on Postgres `LISTEN director_wake` (an AFTER INSERT trigger on `director_events` sends it
+for owner rows and `job_done`, migration 0025) plus a 60 s sweep. It then drives the run's turn loop
+(PLAN 3.4–3.7): one streamed Anthropic call per agent turn, the history stored after every turn, the
+adapters called on the launcher with a deterministic `opId`, one `director_spend` row per response
+(unique `request_id`), and a pause before any call or GPU submit that would reach the run's cap. It
+offers an agent only the ops `GET /api/director/adapter` lists, and asks nothing of the model while
+a run waits on the owner or a GPU job.
 
 - **Database:** the launcher's Postgres. The worker owns no migrations: its tables are in the
   launcher schema, and the **launcher applies them at boot**. So on a push that adds a Director
   migration the worker can come up first and see the old schema. Its sweep fails, `/healthz` is
   503, and with the healthcheck set Railway keeps the previous worker. Redeploy the worker once the
   launcher is up if it stays stuck.
-- **Image:** `node:22-slim` with the service folder only, `npm install --omit=dev` of its one pinned
-  runtime dependency (`postgres`; the service has no workspace deps), and the TypeScript run
-  directly with `--experimental-strip-types`. Locally: `pnpm --filter director-worker start`;
+- **Image:** `node:22-slim` with the service folder, `npm install --omit=dev` of its npm
+  dependencies (`postgres`, `@anthropic-ai/sdk`), and the one workspace package it uses,
+  `packages/director-costs`, copied to `/packages` and linked into `node_modules` (Node strips
+  types only outside `node_modules`). The TypeScript runs directly with `--experimental-strip-types`. Locally: `pnpm --filter director-worker start`;
   `pnpm --filter director-worker build` is the typecheck.
 - **Replicas:** safe to scale. The lease keeps one driver per run, and
-  `pnpm --filter director-worker prove:lease` proves it against a scratch database.
+  `pnpm --filter director-worker prove:lease` proves it against a scratch database;
+  `prove:turns` proves the turn loop there with a fake model. Both run in the `Director worker`
+  workflow on a `postgres:16` service container.
 
 **Owner set-up (once):** open the **existing** Railway project, the one whose canvas already shows the
 launcher, atlas-tool, sheet-tool, Invisible-test-Server and Postgres. Inside it, **+ Create → GitHub
@@ -193,7 +201,7 @@ Then, on the new service:
 
 1. **Name** `director-worker`. **Settings → Source:** Root Directory = repo root (empty), branch
    `main`. **Build:** Builder = Dockerfile, Dockerfile Path = `services/director-worker/Dockerfile`.
-   **Watch Paths:** `/services/director-worker/**`.
+   **Watch Paths:** `/services/director-worker/**` and `/packages/director-costs/**`.
    - Root Directory **must stay empty**. With `/services/director-worker` there, the build fails with
      `"/services/director-worker/pricing.json": not found`, because every `COPY` path in the
      Dockerfile starts at the repo root.
@@ -481,9 +489,11 @@ code default, so the dashboard need not set it):
 
 **Invisible Director worker** (`services/director-worker`, read in `src/env.ts`; ADR-0001):
 `DATABASE_URL` (reference the Postgres service's, `${{Postgres.DATABASE_URL}}` — the run tables live
-in the launcher's database and its migrations), `ANTHROPIC_API_KEY` (the agents' key; read but unused
-until the turn loop, PLAN 3.4, and never logged — the worker logs only `anthropicApiKeySet`),
-`DIRECTOR_SERVICE_TOKEN` (the launcher's value, for the adapter gate). `PORT` is injected by
+in the launcher's database and its migrations), `ANTHROPIC_API_KEY` (the agents' key, never logged —
+the worker logs only `anthropicApiKeySet`), `DIRECTOR_SERVICE_TOKEN` (the launcher's value, for the
+adapter gate and catalog), `DIRECTOR_LAUNCHER_URL` (optional; code default
+`https://app.invisiblewall.org`). Without the key or the token the worker claims no run and
+`/healthz` answers 503 `db: not_driving`. `PORT` is injected by
 Railway. With `DATABASE_URL` unset the worker still boots but claims nothing and `/healthz` answers
 503 `db: unconfigured`. See "Invisible Director worker" below.
 
@@ -761,7 +771,7 @@ node scripts/sentry-sourcemaps.mjs runtime apps/lines/build --dry-run
 | --- | --- | --- |
 | `https://app.invisiblewall.org/api/health` | 200 `{"ok":true,"db":"ok","migrations":{"boot":"ok","schema":"current"}}` — Postgres answered (3s budget) and `max(created_at)` in `drizzle.__drizzle_migrations` reaches the newest journal entry this build ships. | 503 otherwise, with `db: down/unconfigured` or `schema: behind/unknown`. Public, so it names states only — no error text. `boot` is reported, not gated on (a boot that failed only because the DB blinked must not stay red once the schema is current). |
 | `https://games.invisiblewall.org/healthz` | 200 `{"ok":true,…}`; **503 `"ok":false`** when it serves nothing because its boot read of R2 failed | the test server / online games host. `lastHydrate.succeeded: false` with `ok:true` = a later refresh failed and it still serves the previous games (publishes are not landing — see the log). |
-| director-worker `/healthz` (private; Railway's healthcheck) | 200 `{"ok":true,"agents":7,"db":"up","workerId":…}` — every agent definition loaded and validated, and the last Postgres round-trip (the `LISTEN director_wake` connect or the 60 s sweep) succeeded. | 503 with `db: down/unconfigured`. A definition that fails validation stops the boot outright, so a bad agent edit shows as a failed deploy, never as a worker running without it. |
+| director-worker `/healthz` (private; Railway's healthcheck) | 200 `{"ok":true,"agents":7,"db":"up","workerId":…}` — every agent definition loaded and validated, and the last Postgres round-trip (the `LISTEN director_wake` connect or the 60 s sweep) succeeded. | 503 with `db: down/unconfigured/not_driving` (`not_driving` = `ANTHROPIC_API_KEY` or `DIRECTOR_SERVICE_TOKEN` unset). A definition that fails validation stops the boot outright, so a bad agent edit shows as a failed deploy, never as a worker running without it. |
 | `https://atlas-tool-production.up.railway.app/healthz`, `https://sheet-tool-production.up.railway.app/healthz` | 200 `{"ok":true,"service":…,"build":…,"commit":…}` | Gate-exempt (the only path that is); `commit` = the first 12 chars of `RAILWAY_GIT_COMMIT_SHA`, so it also answers "which commit is running?". |
 
 ### Uptime — Better Stack Uptime (free plan)

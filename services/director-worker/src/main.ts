@@ -2,14 +2,19 @@ import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { loadAgents, pricedModels } from './agents.ts';
+import { driveRun } from './driver.ts';
 import { describeEnv, readEnv } from './env.ts';
+import { httpLauncher } from './launcher.ts';
 import { log } from './log.ts';
+import { anthropicTransport, modelProfile } from './model.ts';
+import { pricingSource } from './pricing.ts';
 import { KNOWN_TOOLS } from './tools.ts';
 import { startWake, type Wake } from './wake.ts';
 
 /**
  * Invisible Director worker (ADR-0001). Boot order: environment, agent definitions (a bad one stops
- * the boot), the database and its wake-up listener, then `/healthz`.
+ * the boot), the database and its wake-up listener, then `/healthz`. Runs are driven only when the
+ * Anthropic key and the launcher's service token are both set.
  */
 
 const root = (rel: string) => fileURLToPath(new URL(`../${rel}`, import.meta.url));
@@ -21,6 +26,7 @@ const agents = loadAgents(root('agents'), {
 	models: pricedModels(root('pricing.json')),
 	tools: KNOWN_TOOLS,
 });
+for (const agent of agents.values()) modelProfile(agent.model);
 log.info('agents loaded', {
 	agents: [...agents.values()].map((a) => ({
 		name: a.name,
@@ -47,21 +53,36 @@ function openDatabase(url: string) {
 
 const sql = env.databaseUrl ? openDatabase(env.databaseUrl) : null;
 let wake: Wake | null = null;
-if (sql) {
+if (!sql) log.warn('DATABASE_URL is unset: no runs will be claimed');
+else if (!env.anthropicApiKey || !env.directorServiceToken) {
+	log.warn('ANTHROPIC_API_KEY or DIRECTOR_SERVICE_TOKEN is unset: no runs will be claimed');
+} else {
+	const deps = {
+		sql,
+		transport: anthropicTransport(env.anthropicApiKey),
+		launcher: httpLauncher(env.launcherUrl, env.directorServiceToken),
+		agents,
+		pricing: pricingSource(sql, root('pricing.json')),
+	};
 	try {
-		wake = await startWake(sql);
+		wake = await startWake(sql, env.workerId, (claimed) => driveRun(deps, claimed));
 	} catch (error) {
 		log.error('database unreachable at boot', { error });
 		process.exit(1);
 	}
-} else {
-	log.warn('DATABASE_URL is unset: no runs will be claimed');
 }
 
 /** 200 when the agents loaded and the database answers; 503 otherwise, naming which. */
 const server = createServer((req, res) => {
 	if (req.method === 'GET' && req.url === '/healthz') {
-		const db = sql === null ? 'unconfigured' : wake?.healthy() ? 'up' : 'down';
+		const db =
+			sql === null
+				? 'unconfigured'
+				: wake === null
+					? 'not_driving'
+					: wake.healthy()
+						? 'up'
+						: 'down';
 		res.writeHead(db === 'up' ? 200 : 503, { 'content-type': 'application/json' });
 		res.end(JSON.stringify({ ok: db === 'up', agents: agents.size, db, workerId: env.workerId }));
 		return;

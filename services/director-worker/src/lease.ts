@@ -151,11 +151,3 @@ export async function writeState(
 		return held ? applyTransition(tx, run.id, from, to, cause) : false;
 	});
 }
-
-/** Runs the sweep would claim now — for the skeleton's log line. */
-export async function countClaimable(sql: Sql): Promise<number> {
-	const [row] = await sql<{ n: number }[]>`
-		select count(*)::int as n from director_runs c
-		where ${claimable(sql)}`;
-	return row.n;
-}
