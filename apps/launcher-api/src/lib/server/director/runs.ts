@@ -50,6 +50,7 @@ import {
 	deleteDraftRun,
 	findOwnerRequest,
 	getRun,
+	STALE_CLAIM_MS,
 	insertDraftRun,
 	lastEventId,
 	latestCheckpointOpen,
@@ -405,8 +406,14 @@ export async function createRun(user: User, input: CreateRunInput): Promise<Crea
 		if (!same) {
 			throw new RunError(409, 'request_id_reused', `${requestId} already created another run.`);
 		}
-		// Its project is finished if the first attempt died mid-copy.
+		// Its project is finished if the first attempt died mid-copy — once that attempt can no
+		// longer be running: a resend while the first call is still copying would copy too, and
+		// whichever lost would delete a draft the other's project needs.
 		if (existing.status === 'draft' && !(await projectExists(existing.projectKey))) {
+			const startedAt = existing.projectCreateStartedAt?.getTime() ?? 0;
+			if (startedAt > Date.now() - STALE_CLAIM_MS) {
+				throw new RunError(409, 'in_progress', 'This request is still being created.');
+			}
 			await copyTemplate(user, existing, template, name);
 		}
 		return { run: existing, replayed: true };
@@ -517,8 +524,12 @@ export async function performOwnerAction(
 	const req = parseAction(raw);
 	const { requestId, ...sent } = req;
 	const inputHash = createHash('sha256').update(JSON.stringify(sent)).digest('hex');
+	// A claim a crash left `pending` blocks its id only for the stale window: the event and its
+	// record are one transaction, so nothing was written, and `appendOwnerEvent` reclaims it then.
 	const prior = await findOwnerRequest(run.id, requestId);
-	if (prior) {
+	const live =
+		prior && (prior.status === 'done' || prior.createdAt.getTime() > Date.now() - STALE_CLAIM_MS);
+	if (prior && live) {
 		if (prior.op !== `owner.${req.action}` || prior.inputHash !== inputHash) {
 			throw new RunError(
 				409,

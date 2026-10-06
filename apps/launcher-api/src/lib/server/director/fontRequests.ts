@@ -10,7 +10,7 @@ import {
 } from '../r2';
 import { stampSavedBy } from '../savedBy';
 import { baseOf } from './ops/docs';
-import { fontRequestsRoot, type FontBakeRequest } from './ops/fonts';
+import { FONT_REQUEST_KEY, fontRequestsRoot, type FontBakeRequest } from './ops/fonts';
 
 /**
  * The owner's side of a Director font request (PLAN 4A): the bakes the Builder staged with
@@ -103,9 +103,6 @@ async function readRequest(
 	}
 }
 
-/** A request's key under the root: `<folder>/request.json`, one level down, nothing deeper. */
-const REQUEST_KEY = /^([a-z0-9][a-z0-9_-]{0,59})\/request\.json$/;
-
 /**
  * Every staged request of the project, awaiting ones first, then by folder. The folder is the
  * KEY's, as the adapter wrote it; a doc's own `folder` field is data it could get wrong.
@@ -115,7 +112,7 @@ export async function listFontRequests(scope: Scope): Promise<FontRequestEntry[]
 	const folders = await catalogFolders(scope);
 	const out: FontRequestEntry[] = [];
 	for (const key of await listAllKeys(root)) {
-		const folder = REQUEST_KEY.exec(key.slice(root.length))?.[1];
+		const folder = FONT_REQUEST_KEY.exec(key.slice(root.length))?.[1];
 		if (!folder) continue;
 		const got = await readRequest(key);
 		if (got) out.push(entryOf(key, folder, got.doc, got.etag, folders.has(folder)));

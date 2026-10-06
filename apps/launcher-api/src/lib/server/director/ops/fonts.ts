@@ -33,6 +33,8 @@ import { baseEtagProp, baseOf, preconditionOf, projectOf } from './docs';
  */
 
 const FOLDER = '^[a-z0-9][a-z0-9_-]{0,59}$';
+/** A request's key under the root: `<folder>/request.json`, one level down, nothing deeper. */
+export const FONT_REQUEST_KEY = /^([a-z0-9][a-z0-9_-]{0,59})\/request\.json$/;
 const HEX = '^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$';
 const PRESETS = Object.keys(CHARSET_LABELS) as CharsetPreset[];
 const MAX_FONT_BYTES = 20 * 1024 * 1024;
@@ -69,15 +71,17 @@ export const fontRequestsRoot = (scope: { clientKey: string; projectKey: string 
 
 async function listRequests(ctx: AdapterContext) {
 	const root = fontRequestsRoot(projectOf(ctx));
-	const keys = (await listAllKeys(root)).filter((k) => k.endsWith('/request.json'));
 	const out = [];
-	for (const key of keys) {
+	for (const key of await listAllKeys(root)) {
+		// The folder is the key's, as this adapter wrote it; a doc's own `folder` field is data.
+		const folder = FONT_REQUEST_KEY.exec(key.slice(root.length))?.[1];
+		if (!folder) continue;
 		const got = await getObjectTextWithEtag(key);
 		if (!got) continue;
 		try {
 			const doc = JSON.parse(got.text) as FontBakeRequest;
 			out.push({
-				folder: doc.folder,
+				folder,
 				face: doc.recipe.face,
 				status: doc.status,
 				preset: doc.recipe.preset,

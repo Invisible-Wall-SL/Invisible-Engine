@@ -24,6 +24,7 @@
  *    point, snapshots the budget cap, and leaves nothing behind when the copy fails;
  *  - font requests list and mark done, once the font is in the catalog.
  */
+import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { mock } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -276,7 +277,11 @@ fake('lib/server/fonts.ts', {
 // ── The Director store ────────────────────────────────────────────────────────
 const RUNS = new Map<string, DirectorRun>();
 const EVENTS: DirectorEvent[] = [];
-const OPS = new Map<string, { op: string; inputHash: string; status: string; result: unknown }>();
+const OPS = new Map<
+	string,
+	{ op: string; inputHash: string; status: string; result: unknown; createdAt: Date }
+>();
+const STALE_MS = 10 * 60_000;
 const SPEND = new Map<string, { claudeUsd: number; runpodUsd: number }>();
 const CONVOS = new Map<
 	string,
@@ -287,6 +292,7 @@ let clock = 0;
 /** Another request's create lands right after the next draft is inserted (a double submit). */
 let raceOnNextInsert = false;
 fake('lib/server/director/store.ts', {
+	STALE_CLAIM_MS: STALE_MS,
 	getRun: async (id: string) => RUNS.get(id) ?? null,
 	findOwnerRequest: async (runId: string, requestId: string) =>
 		OPS.get(`${runId}:owner:${requestId}`) ?? null,
@@ -313,7 +319,7 @@ fake('lib/server/director/store.ts', {
 				waitingOn: null,
 				leaseHolder: null,
 				leaseUntil: null,
-				projectCreateStartedAt: at,
+				projectCreateStartedAt: new Date(),
 				templateConfigEtag: null,
 				projectConfigEtag: null,
 				createdAt: at,
@@ -361,7 +367,10 @@ fake('lib/server/director/store.ts', {
 	}) => {
 		const opId = `${args.runId}:owner:${args.requestId}`;
 		const existing = OPS.get(opId);
-		if (existing) {
+		// A stale pending claim is reclaimed, as `claimOp` does.
+		const stale =
+			existing?.status === 'pending' && existing.createdAt.getTime() <= Date.now() - STALE_MS;
+		if (existing && !stale) {
 			if (existing.op !== `owner.${args.action}` || existing.inputHash !== args.inputHash) {
 				return { conflict: 'reused' };
 			}
@@ -384,6 +393,7 @@ fake('lib/server/director/store.ts', {
 			inputHash: args.inputHash,
 			status: 'done',
 			result: { eventId: id },
+			createdAt: new Date(),
 		});
 		return { eventId: id, replayed: false };
 	},
@@ -732,6 +742,29 @@ console.log('create');
 		[retried.status, live('reef') !== undefined],
 		[201, true],
 	);
+	{
+		// A resend while the first call is still copying (the draft is there, the project not yet)
+		// must not copy too; once that attempt can no longer be running, the resend finishes it.
+		const reef = RUNS.get(runsMod.runIdFor('owner', 'reef-0001'))!;
+		const kept = PROJECTS.get('reef')!;
+		PROJECTS.delete('reef');
+		reef.projectCreateStartedAt = new Date();
+		const copies = duplicates;
+		const early = await create(OWNER, createBody({ key: 'reef', requestId: 'reef-0001' }));
+		check(
+			'a resend while the first create is still copying is in_progress',
+			[early.status, early.body.error, duplicates - copies],
+			[409, 'in_progress', 0],
+		);
+		reef.projectCreateStartedAt = new Date(Date.now() - STALE_MS - 1);
+		const late = await create(OWNER, createBody({ key: 'reef', requestId: 'reef-0001' }));
+		check(
+			'…and once that attempt is stale the resend finishes the copy',
+			[late.status, late.body.replayed, duplicates - copies, live('reef') !== undefined],
+			[200, true, 1, true],
+		);
+		PROJECTS.set('reef', kept);
+	}
 }
 
 const runRow = () => RUNS.get(RUN_ID)!;
@@ -1054,6 +1087,39 @@ console.log('actions × statuses');
 		);
 	}
 
+	{
+		// A claim a crash left pending blocks its id only for the stale window; a young one is
+		// still being written.
+		Object.assign(run, { status: 'running', step: 'regions', waitingOn: null });
+		const claim = (id: string, age: number) =>
+			OPS.set(`${RUN_ID}:owner:${id}`, {
+				op: 'owner.pause',
+				inputHash: createHash('sha256')
+					.update(JSON.stringify({ action: 'pause' }))
+					.digest('hex'),
+				status: 'pending',
+				result: null,
+				createdAt: new Date(Date.now() - age),
+			});
+		const staleId = requestId();
+		const youngId = requestId();
+		claim(staleId, STALE_MS + 1);
+		claim(youngId, 1000);
+		const rows = rowsOf(RUN_ID).length;
+		const reclaimed = await act(OWNER, RUN_ID, { action: 'pause', requestId: staleId });
+		check(
+			'a stale pending claim is reclaimed and the action recorded',
+			[reclaimed.status, reclaimed.body.replayed, rowsOf(RUN_ID).length - rows],
+			[200, false, 1],
+		);
+		const young = await act(OWNER, RUN_ID, { action: 'pause', requestId: youngId });
+		check(
+			'a young pending claim is still in progress',
+			[young.status, young.body.error, rowsOf(RUN_ID).length - rows],
+			[409, 'in_progress', 1],
+		);
+	}
+
 	// Resume with a raised cap.
 	Object.assign(run, { status: 'paused', step: 'regions', waitingOn: null, budgetCapUsd: 25 });
 	const lower = await act(OWNER, RUN_ID, {
@@ -1304,7 +1370,7 @@ console.log('estimate');
 	check(
 		'no run, no project, no row was made by estimating',
 		[RUNS.size, duplicates, EVENTS.length],
-		[2, 2, eventSeq],
+		[2, 3, eventSeq],
 	);
 
 	// The pure estimator.
