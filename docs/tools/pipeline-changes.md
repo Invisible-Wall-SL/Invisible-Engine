@@ -58,8 +58,9 @@ pull requests and their checks; the launcher adds only the approval of a changed
    - **Why** — the reason the author gave in the pull request (a `Why` heading or `**Why:**` line,
      else its first paragraph), shown as written;
    - **Files · N changed** — each file with `+added −removed`, `new` for a new file, `deleted` for
-     a removed one, and `old → new` for a rename; a note when GitHub listed only the first 3000
-     files. **View diff** opens the pull request's diff on GitHub.
+     a removed one, and `old → new` for a rename; **Show all N files** unfolds the rest past the
+     first forty, and a note says when GitHub listed only the first 3000. **View diff** opens the
+     pull request's diff on GitHub.
    - **Check 1 · Pipeline tests** — the repository's check runs grouped by workflow (Lint, Checks,
      svelte-check, Python, Secrets, …), each tile `passed / total` jobs and a link to the run; the
      header pill reads "N of M passed", "running · N of M" or "failed". **Jobs** unfolds every job

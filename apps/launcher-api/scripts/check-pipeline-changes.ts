@@ -1014,6 +1014,7 @@ const approveRoute = await import(src('routes/api/pipeline/changes/[number]/appr
 const reportRoute = await import(
 	src('routes/api/pipeline/changes/[number]/report/[...path]/+server.ts')
 );
+const view = await import(src('routes/(app)/pipeline/view.ts'));
 
 type Locals = { user: App.Locals['user'] };
 const ADMIN: Locals = {
@@ -2213,6 +2214,110 @@ check(
 	gh.posts.some((p) => String(p.body.description).includes('@')),
 	false,
 );
+
+// ── The page's pure wording (view.ts), over the same answers ──────────────────
+{
+	type Detail = Parameters<typeof view.blockedSentence>[0];
+	const detailOf = async (number: string): Promise<Detail> =>
+		(await detail(ADMIN, number)).body as unknown as Detail;
+	check(
+		'a merge conflict, in words',
+		view.blockedSentence(await detailOf('15')),
+		'Merge conflict with main: bring main in and resolve it.',
+	);
+	check(
+		'a failed Check 1 job names the workflow and the job',
+		view.blockedSentence(await detailOf('17')),
+		'Lint: lint failed',
+	);
+	const d18 = view.blockedSentence(await detailOf('18'));
+	check(
+		'a failing report says what breaks, per game, in mockup 05 words',
+		d18.startsWith(
+			'Breaks Book of Borut: 1 of 12 screens look different (win); Breaks HotFruits: the build failed',
+		) && d18.endsWith('.'),
+		true,
+	);
+	check(
+		'…without the approve hint when an approval cannot clear it',
+		d18.includes('Approve each'),
+		false,
+	);
+	check(
+		'a difference an approval can clear says so',
+		view.blockedSentence(await detailOf('34')),
+		'Breaks Book of Borut: 1 of 12 screens look different (win). Approve each changed screen below, or push a fix.',
+	);
+	check(
+		'a harness failure with no readable report falls back to the status line',
+		view.blockedSentence(await detailOf('19')),
+		'current-games: 12 pass · 1 fail · 3 changed screen(s)',
+	);
+	const d14 = await detailOf('14');
+	check('a ready change has no blocked sentence', view.blockedSentence(d14), '');
+	check('…and its approvals are complete', view.approvalState(d14.harness), 'complete');
+	check('…and Check 2 counts its changed screens', view.check2Summary(d14.harness), {
+		tone: 'red',
+		label: '2 changed screens',
+	});
+	check('Check 1 sums the workflows', view.check1Summary(d14.checks), {
+		kind: 'pass',
+		passed: 7,
+		total: 7,
+		label: '7 of 7 passed',
+	});
+	const d10 = await detailOf('10');
+	check('a running Check 1', view.check1Summary(d10.checks).label, 'running · 3 of 4');
+	check('a running Check 2', view.check2Summary(d10.harness), { tone: 'blue', label: 'running' });
+	check('a skipped Check 2', view.check2Summary((await detailOf('16')).harness), {
+		tone: 'green',
+		label: 'nothing to render',
+	});
+	check('an expired Check 2', view.check2Summary((await detailOf('19')).harness), {
+		tone: 'amber',
+		label: 'expired',
+	});
+	check('no approvals yet', view.approvalState((await detailOf('34')).harness), 'none');
+	const rows = d14.harness.report.state === 'ready' ? d14.harness.report.report.games : [];
+	check(
+		'the games table cells',
+		rows.map((r) => {
+			const c = view.rowCells(r);
+			return [c.build.text, c.tests.text, c.looks.text];
+		}),
+		[
+			['Passed', 'Passed', '2 of 12 changed'],
+			['Passed', 'Passed', 'Same on 12 screens'],
+		],
+	);
+	check(
+		'an image URL encodes each segment and names the artifact',
+		view.reportImageUrl(14, 9001, 'screens/a b--win.before.png'),
+		'/api/pipeline/changes/14/report/screens/a%20b--win.before.png?artifact=9001',
+	);
+	const t = Date.parse('2026-10-06T12:00:00Z');
+	check(
+		'time ago',
+		[
+			view.timeAgo('2026-10-06T11:59:40Z', t),
+			view.timeAgo('2026-10-06T11:30:00Z', t),
+			view.timeAgo('2026-10-06T09:00:00Z', t),
+			view.timeAgo('2026-10-05T09:00:00Z', t),
+			view.timeAgo('2026-10-03T09:00:00Z', t),
+			view.timeAgo('2026-09-01T09:00:00Z', t),
+		],
+		['just now', '30 min ago', '3 h ago', 'yesterday', '3 days ago', '2026-09-01'],
+	);
+	check(
+		'an error answer reads its sentence',
+		[
+			view.apiErrorText(503, { error: 'unset' }),
+			view.apiErrorText(401, { message: 'no' }),
+			view.apiErrorText(500, null),
+		],
+		['unset', 'no', 'The request failed (500).'],
+	);
+}
 
 // ── No secret anywhere ────────────────────────────────────────────────────────
 {
