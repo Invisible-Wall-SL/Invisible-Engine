@@ -128,14 +128,21 @@ _Nothing._
   region's EFFECTIVE pipeline (`batch_atlas.bp_overrides_for`, `load_bp_params`,
   `BP_PARAMS_ALL`; the resolved-workflow export agrees): a region whose own blueprint has saved
   params uses them, anything else gets the active pipeline's as before, so every earlier manifest
-  shape renders the same graph byte for byte (proved on fixtures). (3) `/render` refuses a Director
-  token with 403 when `effective_run_on()` maps to `http`, before claiming the slot. (4) A Director
+  shape renders the same graph byte for byte (proved on fixtures). This applies to every atlas, not
+  only a Director's: a person's region overriding to blueprint B on an atlas that saved `bpParams[B]`
+  earlier now renders with those. (3) `/render` refuses a Director token with 403 when
+  `effective_run_on()` maps to `http`, before claiming the slot, and the worker re-checks the
+  setting it actually reads (`run_render_as_director`). (4) A Director
   `/setoutput` writes `refs/useroutput_<region>_<run>_<sha12>.png` create-only
   (`_put_create_only`, `If-None-Match: *`; a replay with the same bytes is accepted, other bytes
   refused, an R2 failure refused rather than staged), never adds a region, and points
   `output_override` at it; compose, `_outpath` and the layer resolver already read that field.
-  (5) `/newatlas` and `/duplicateatlas` go through `select_manifest`, which never moves
-  `manifest_path` for a Director. GET `/blueprints` (endpoint GPU, staleness), the card routes and
+  ✕ revert of such a tile drops the pointer and keeps the file (`is_versioned_output`); FX builds,
+  "use the ref as the tile" and `_setmode('ai')` still work on the fixed `useroutput_<region>.png`
+  name, so an FX build replaces a run's tile on that region. (5) `/newatlas`, `/duplicateatlas`
+  and the `/?atlas=` deep link never move `manifest_path` for a Director (`select_manifest`). A
+  Director manifest write that R2 did not take is a 503, never a ✓ from staging (`doc_sync.commit`
+  `strict`). GET `/blueprints` (endpoint GPU, staleness), the card routes and
   the bundled-card sync were 8A. `test_director_safety.py`; `test_director_calls.py` now renders
   under `COMFY_TRANSPORT=serverless`. ⏳ Owed: one Director-token pass on the live tool once the
   adapter ops (8D) exist.

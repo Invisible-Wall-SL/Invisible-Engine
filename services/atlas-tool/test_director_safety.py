@@ -405,6 +405,9 @@ def test_resolved_export_agrees() -> None:
         wf = batch_atlas.resolve_blueprint_workflow(manifest, "R1")[0]
         check("...and the atlas's for a region on the atlas's blueprint",
               wf["2"]["inputs"]["steps"], 33)
+        wf = batch_atlas.resolve_blueprint_workflow(manifest, "R1", "bp_b")[0]
+        check("...and an explicit blueprint's own params, as the page asks for them",
+              wf["2"]["inputs"]["steps"], 50)
     finally:
         batch_atlas.blueprints.get_blueprint, batch_atlas.refresh_config_globals = saved
 
@@ -445,6 +448,27 @@ def test_render_refused_for_director_on_http() -> None:
               (st, json.loads(body)["started"]), (200, True))
         with u._render_lock:
             u._render_state.update(running=False, owner=None)
+
+
+def test_render_worker_rechecks_the_transport() -> None:
+    """`/render` answered on RunPod, then someone picked My computer before the
+    worker read the setting: the worker refuses too."""
+    _seed({"run_on": "local"})
+    ran: list = []
+    real = u._run_cmd if hasattr(u, "_run_cmd") else None
+    try:
+        if real:
+            u._run_cmd = lambda *a, **k: ran.append(a) or 0
+        u._render_caller.director = True
+        rc = u._render_job(["H1"], 1, "")
+        check("a Director render the setting moved to http never runs",
+              (rc, ran, u._render_state.get("running")), (None, [], False))
+    finally:
+        u._render_caller.director = False
+        if real:
+            u._run_cmd = real
+        with u._render_lock:
+            u._render_state.update(running=False, owner=None, log="")
 
 
 # --- 4. versioned /setoutput ----------------------------------------------------
@@ -494,11 +518,43 @@ def test_setoutput_versioned_for_director() -> None:
         check("a name another writer holds is refused, nothing changed",
               (body[:1], _manifest(SYMBOLS) == m_before, clash.exists()), ("✖", True, False))
 
+        s.req("POST", "/saveconfig", s.person, {"manifest_path": SYMBOLS})
+        st, body = s.req("POST", "/clearoutput", s.person, {"name": "H1"})
+        check("a person's revert of a run's tile drops the pointer",
+              "output_override" in _manifest(SYMBOLS)["regions"][0], False)
+        check("...keeps the run's file and the person's older tile",
+              ((u.INPUT_DIR / rel2).exists(), human_tile.read_bytes()),
+              (True, b"a person's committed tile"))
+
         st, body = s.req("POST", f"/setoutput?manifest={SYMBOLS}", s.agent,
                          {"name": "NOPE", "data": _png((0, 0, 0, 255))})
         check("a region the atlas lacks is refused, never added",
               (any(r["name"] == "NOPE" for r in _manifest(SYMBOLS)["regions"]),
                any("NOPE" in p.name for p in refs.iterdir())), (False, False))
+
+
+def test_director_save_never_ok_from_staging_alone() -> None:
+    _seed()
+    with _Bucket() as bucket, _Server() as s:
+        def broken(*a, **k):
+            raise OSError("R2 is down")
+        bucket.put = broken
+        storage.put = broken
+        before = (u.MANIFEST_DIR / SYMBOLS).read_bytes()
+        st, body = s.req("POST", f"/saveconfig?manifest={SYMBOLS}", s.agent,
+                         {"atlas_pipeline": "flux"})
+        check("a Director save R2 did not take is refused, not answered OK",
+              (st, body.startswith("✓"), (u.MANIFEST_DIR / SYMBOLS).read_bytes() == before),
+              (503, False, True))
+
+
+def test_deeplink_never_switches_for_director() -> None:
+    _seed()
+    with _Bucket(), _Server() as s:
+        cfg_before = u.CONFIG_PATH.read_bytes()
+        s.req("GET", "/?atlas=symbols", s.agent)
+        check("a Director deep link leaves the active atlas alone",
+              u.CONFIG_PATH.read_bytes(), cfg_before)
 
 
 def test_setoutput_person_unchanged() -> None:

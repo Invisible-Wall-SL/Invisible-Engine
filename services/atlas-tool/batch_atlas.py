@@ -2655,8 +2655,8 @@ def resolve_blueprint_workflow(
                          if isinstance(bp_params, dict) else None)
             if not isinstance(overrides, dict):
                 overrides = None
-            if not (blueprint_id or "").strip():
-                overrides = bp_overrides_for(region, bp_params, overrides)
+            overrides = bp_overrides_for(dict(region, pipeline=bp_id), bp_params,
+                                         overrides)
 
             baked = copy.deepcopy(blueprint.get("graph") or {})
             wf, out_node_id = build_workflow_blueprint(

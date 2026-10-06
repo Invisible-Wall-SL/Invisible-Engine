@@ -300,7 +300,8 @@ def _put_create_only(p: Path, body: bytes) -> bool:
         try:
             storage.put(key, body, "image/png", if_none_match="*")
         except storage.Conflict:
-            if storage.get(key) != body:
+            held = storage.get_with_etag(key)  # raises when R2 cannot be read
+            if held is None or held[0] != body:
                 return False
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_bytes(body)
@@ -316,6 +317,13 @@ def versioned_output_rel(name: str, run: str, body: bytes) -> str:
     run_id = re.sub(r"[^A-Za-z0-9-]+", "-", run or "").strip("-") or "run"
     return (f"refs/useroutput_{region}_{run_id}_"
             f"{hashlib.sha256(body).hexdigest()[:12]}.png")
+
+
+def is_versioned_output(rel: str, name: str) -> bool:
+    """Is `rel` a Director run's committed tile for region `name`?"""
+    region = re.sub(r"[^A-Za-z0-9_.-]+", "_", name).strip("._") or "region"
+    pattern = rf"refs/useroutput_{re.escape(region)}_[A-Za-z0-9-]+_[0-9a-f]{{12}}\.png"
+    return bool(re.fullmatch(pattern, str(rel or "")))
 
 
 def _unmirror(p: Path) -> None:
@@ -699,9 +707,10 @@ def refuse_config_edits(edits: dict, director: bool) -> str:
                     f"{', '.join(stray)}. Nothing was saved.")
     if "atlas_pipeline" in edits:
         pipe = str(edits["atlas_pipeline"]).strip().lower()
-        if pipe and pipe not in PIPELINE_OPTIONS and not blueprints.get_blueprint(pipe):
-            return (f"✖ No pipeline '{pipe}': not a built-in and not in the "
-                    "blueprint library. Nothing was saved.")
+        if pipe and pipe not in PIPELINE_OPTIONS and pipe not in {
+                str(b.get("id") or "") for b in blueprints.list_blueprints(kind="image")}:
+            return (f"✖ No pipeline '{pipe}': not a built-in and not an image "
+                    "blueprint in the library. Nothing was saved.")
     return ""
 
 
@@ -3434,6 +3443,20 @@ def run_render(names: list[str], variants: int = 1,
         _run_render(names, variants, user, job_ref, callback)
 
 
+# Who the render on THIS worker thread is for — `_render_job` re-checks the
+# Director's transport rule against the setting it actually reads.
+_render_caller = threading.local()
+
+
+def run_render_as_director(*args) -> None:
+    """`run_render` for a Director call (the worker thread's target)."""
+    _render_caller.director = True
+    try:
+        run_render(*args)
+    finally:
+        _render_caller.director = False
+
+
 def _run_render(names: list[str], variants: int, user: str, job_ref: str,
                 callback: dict | None) -> None:
     global _stopped
@@ -3489,10 +3512,18 @@ def _run_render(names: list[str], variants: int, user: str, job_ref: str,
 def _render_job(names: list[str], variants: int, user: str,
                 job_ref: str = "") -> int | None:
     """The render itself. Returns the subprocess's exit code, or None when it
-    never ran (a "My computer" target that is not reachable)."""
+    never ran (a "My computer" target that is not reachable, or a Director
+    render the setting moved to it after `/render` answered)."""
     comfy_env = resolve_user_comfy_env(user)
     chosen = str(load_config().get("run_on") or "").strip().lower()
     target = chosen if chosen in RUN_ON_OPTIONS else _env_run_on()
+    if getattr(_render_caller, "director", False) and RUN_ON_TRANSPORT.get(target) == "http":
+        with _render_lock:
+            _render_state.update(running=False, done=True, cur=0, total=0,
+                                 log="The Director renders only on RunPod, and ⚙ Run "
+                                     "generation on is now 'My computer'. Nothing was "
+                                     "rendered.\n", diagnostics=[])
+        return None
     comfy_env.update(run_on_env(target))
     total = len(names) * max(1, variants)
     # RunPod on-demand: if the pod is asleep, wake it and wait for ComfyUI before
@@ -8624,6 +8655,8 @@ class Handler(BaseHTTPRequestHandler):
         # Defaults so _index() can read these unconditionally.
         self._deeplink_region = ""
         self._deeplink_notice = ""
+        if is_director(getattr(self, "_identity", None)):
+            return False  # it activates an atlas: the people's selection
         try:
             atlas = (qs.get("atlas", [""])[0] or "").strip()
             if not atlas:
@@ -9014,7 +9047,8 @@ class Handler(BaseHTTPRequestHandler):
             if started:
                 ctx = (project_paths.client_name(), project_paths.project_name())
                 user = getattr(self, "_user_id", "") or ""
-                threading.Thread(target=run_render,
+                director = is_director(getattr(self, "_identity", None))
+                threading.Thread(target=run_render_as_director if director else run_render,
                                  args=(names, variants, ctx, user, job_ref, callback,
                                        getattr(_pinned_manifest, "path", None)),
                                  daemon=True).start()
@@ -11968,10 +12002,10 @@ class Handler(BaseHTTPRequestHandler):
                 return f"✖ {rel} already holds a different image. Nothing was changed."
         except Exception as e:  # noqa: BLE001 — R2 did not take it
             return f"✖ Couldn't store the tile ({type(e).__name__}: {e}). Nothing was changed."
-        _drop_fx_snapshot(name)
         r = self._ensure_region(m, name)
         r["output_override"] = rel
         save_manifest(m)
+        _drop_fx_snapshot(name)
         return f"✓ Committed {rel} as the tile of {name} (not processed)."
 
     def _bind_ref_as_output(self, m: dict, region: dict) -> tuple[bool, str]:
@@ -12123,11 +12157,19 @@ class Handler(BaseHTTPRequestHandler):
         name = payload.get("name", "")
         m = load_manifest()
         cleared = False
+        versioned = False
         for bucket in ("regions", "rotated_regions"):
             for r in m.get(bucket, []):
                 if r.get("name") == name and "output_override" in r:
+                    versioned = is_versioned_output(r["output_override"], name)
                     del r["output_override"]
                     cleared = True
+        if cleared and versioned:
+            # A Director run's committed tile: the pointer goes, the file stays
+            # (versioned files are never rewritten or deleted).
+            save_manifest(m)
+            _drop_fx_snapshot(name)
+            return f"Reverted {name} — it will be generated again on render"
         if cleared:
             save_manifest(m)
             _drop_fx_snapshot(name)
