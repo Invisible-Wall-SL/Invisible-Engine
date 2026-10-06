@@ -49,6 +49,7 @@ add a source that ends in a ref the tool already resolves.**
 | Localization grid (rows = strings, cols = languages, editable cells) | A | `(app)/localization/+page.svelte` | bespoke |
 | Admin tables ×7 (users, roles matrix, projects, clients, games, sessions) | A | `(app)/admin/+page.svelte` (1279 lines) | bespoke, monolithic |
 | Win Text grid (rows = symbols, cols = match counts, editable cells; placeholder shows the inherited value) | A | `(app)/win-text/+page.svelte` | bespoke — 3rd instance; **extract next** |
+| Pipeline Changes **Check 2 games table** (rows = current games, cols = Build / Game tests / Looks the same; read-only, "Show all N" fold) | A | `(app)/pipeline/+page.svelte` | bespoke — 4th matrix instance (read-only, so the simplest to move first); copied from the admin tables' styling, logged for the `<DataTable>` extraction in `docs/status/launcher.md` "Open items" |
 
 → **Target:** a small `<DataTable>` (columns def + rows + per-row actions) in `components-shared`. Would simplify admin (health-eval #3), localization, and win-text. The win-text grid adds a requirement the other two don't have: a cell's **placeholder** renders its inherited/effective value, so the extraction needs a per-cell "fallback display" hook.
 
@@ -282,3 +283,10 @@ have got a dialog that closed once and could never reopen, silently.
 effects in a microtask, but `requestSubmit()` dispatches `submit` synchronously and SvelteKit's
 `enhance` builds `new FormData(form)` before its first `await` — so the POST carries the PREVIOUS
 value and only a second click works. Set it on the `FormData` inside the enhance callback.
+
+### 18. Before / after / diff screen compare
+| Impl | Domain | File(s) | Status |
+|---|---|---|---|
+| **`ScreenCompare.svelte`** — the three images of one changed screen (before = main, after = the branch, diff) side by side on a checkerboard, a segmented switch to one large view, each image a link to itself, "image unavailable" when the artifact expired | A | `apps/launcher-api/src/routes/(app)/pipeline/ScreenCompare.svelte` | first instance (Pipeline Changes, Check 2). Director's Live run review galleries (PLAN 4.3) compare renders the same way: build them on this and move it to `$lib/` on that second use |
+
+→ The images come through the launcher (`GET /api/pipeline/changes/<n>/report/<path>?artifact=<id>`), never from GitHub directly: the artifact store needs the App's token, which never reaches the browser.

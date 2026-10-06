@@ -1,5 +1,10 @@
 import { redirect } from '@sveltejs/kit';
-import { ADMIN_PANEL_CAPABILITY, manifestForRole, roleHasCapability } from '$lib/roles';
+import {
+	ADMIN_PANEL_CAPABILITY,
+	PIPELINE_MERGE_CAPABILITY,
+	manifestForRole,
+	roleHasCapability,
+} from '$lib/roles';
 import { SESSION_COOKIE, getActiveProjectKey } from '$lib/server/auth';
 import { listClients } from '$lib/server/clients';
 import {
@@ -66,6 +71,14 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 		user: locals.user,
 		tools: manifestForRole(locals.user.role, roleOverrides, overrides),
 		canAdmin: roleHasCapability(locals.user.role, ADMIN_PANEL_CAPABILITY, roleOverrides, overrides),
+		// Whether Invisible Pipeline Changes may show its Approve (and, later, Merge) controls: the
+		// same two override layers, read once here rather than again by the page.
+		canPipelineMerge: roleHasCapability(
+			locals.user.role,
+			PIPELINE_MERGE_CAPABILITY,
+			roleOverrides,
+			overrides,
+		),
 		projects,
 		activeProjectKey,
 		engine,

@@ -3,11 +3,11 @@
  *   pnpm --filter launcher-api check:pipeline-changes
  *
  * Runs the REAL modules — `githubApp.ts` (the App JWT and the installation token), `zip.ts`,
- * `pipelineReport.ts`, `pipelineChanges.ts`, `pipelineAccess.ts` and the three routes under
+ * `pipelineReport.ts`, `pipelineChanges.ts`, `pipelineAccess.ts` and the four routes under
  * `/api/pipeline/changes` — against a fake GitHub behind `globalThis.fetch` that verifies every
- * App JWT with the public half of a key made here, hands out numbered installation tokens, and
- * records every status it is asked to post. Replaced at their boundaries: the approvals table
- * (in memory) and the role / user override reads.
+ * App JWT with the public half of a key made here, hands out numbered installation tokens,
+ * records every status it is asked to post and serves artifact downloads by byte range. Replaced
+ * at their boundaries: the approvals table (in memory) and the role / user override reads.
  *
  * Pinned:
  *  - the token is minted once and shared, minted again shortly before it expires and once more
@@ -21,7 +21,10 @@
  *    head is void (409) and a new head starts with no approvals;
  *  - `success` is posted to `current-games` on the exact SHA only when every changed screen on it
  *    is approved, exactly once per head, never for an unfinished run, a run with nothing to
- *    approve, or a failure an approval cannot clear.
+ *    approve, or a failure an approval cannot clear;
+ *  - a changed screen's image is served only by a path the report itself lists, read out of the
+ *    full artifact by byte range (the tail, the central directory when it is past the tail, then
+ *    the entry alone) and never whole; the images artifact a re-run replaced is a 409.
  */
 import { createVerify, generateKeyPairSync } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -136,6 +139,12 @@ const gh = {
 	tokens: [] as string[],
 	revoked: new Set<string>(),
 	requests: [] as string[],
+	/** Every blob download, with the byte range it asked for ('' when none). */
+	ranges: [] as { id: number; range: string }[],
+	/** Whether the blob honours a byte range; off, it answers 200 with the whole archive. */
+	blobRanges: true,
+	/** A `content-length` the blob claims on a whole answer instead of the archive's real size. */
+	blobClaimLength: null as number | null,
 };
 
 const jsonResponse = (status: number, body: unknown): Response =>
@@ -160,10 +169,31 @@ const fakeFetch: typeof fetch = async (input, init) => {
 		// The signed URL is the authorization: a bearer header beside it is refused, as the real
 		// blob store refuses it.
 		if (auth) return jsonResponse(401, { message: 'blob: a bearer header beside a signed URL' });
-		const zip = gh.zips.get(Number(url.pathname.split('/').pop()));
-		return zip
-			? new Response(new Uint8Array(zip), { status: 200 })
-			: jsonResponse(404, { message: 'blob: no such artifact' });
+		const id = Number(url.pathname.split('/').pop());
+		const zip = gh.zips.get(id);
+		if (!zip) return jsonResponse(404, { message: 'blob: no such artifact' });
+		const range = headers.Range ?? headers.range ?? '';
+		gh.ranges.push({ id, range });
+		if (range && gh.blobRanges) {
+			const m = /^bytes=(\d+)-(\d+)$/.exec(range);
+			if (!m) return jsonResponse(400, { message: `blob: unsupported range ${range}` });
+			const start = Number(m[1]);
+			const end = Math.min(Number(m[2]), zip.length - 1);
+			if (start >= zip.length || start > end) {
+				return new Response(null, {
+					status: 416,
+					headers: { 'content-range': `bytes */${zip.length}` },
+				});
+			}
+			return new Response(new Uint8Array(zip.subarray(start, end + 1)), {
+				status: 206,
+				headers: { 'content-range': `bytes ${start}-${end}/${zip.length}` },
+			});
+		}
+		return new Response(new Uint8Array(zip), {
+			status: 200,
+			headers: { 'content-length': String(gh.blobClaimLength ?? zip.length) },
+		});
 	}
 	if (url.origin !== 'https://api.github.com') return jsonResponse(500, { message: 'wrong host' });
 	check(`${url.pathname}: API version header`, headers['X-GitHub-Api-Version'], '2022-11-28');
@@ -475,7 +505,11 @@ function report(headSha: string, rows: RowSpec[]): Json {
 				pass: false,
 				id: `${headSha}:${rowKey}:${screen}:${'0123456789abcdef'.slice(i, i + 8)}deadbeef`,
 				reason: 'differing pixels over the tolerance',
-				images: { before: `screens/${rowKey}--${screen}.base.png` },
+				images: {
+					before: `screens/${rowKey}--${screen}.before.png`,
+					after: `screens/${rowKey}--${screen}.after.png`,
+					diff: `screens/${rowKey}--${screen}.diff.png`,
+				},
 			})),
 		];
 		return {
@@ -540,9 +574,20 @@ function artifact(
 	const { fullOnly, ...rest } = over;
 	const run = harnessRun(headSha);
 	const text = reportJson ? JSON.stringify(reportJson) : '';
+	// The images the report names, as the harness writes them beside it: `before` stored, the
+	// others deflated, so both ways out of the archive are read.
+	const images: Record<string, string> = {};
+	for (const game of (reportJson?.games as { screens: { images?: Record<string, string> }[] }[]) ??
+		[]) {
+		for (const screen of game.screens) {
+			for (const [kind, path] of Object.entries(screen.images ?? {}))
+				images[path] = `PNG ${kind} ${path}`;
+		}
+	}
 	const full = reportJson
-		? zipOf({ 'report.json': text, 'index.html': '<html>', 'screens/x.png': 'PNG' }, [
+		? zipOf({ 'report.json': text, 'index.html': '<html>', 'screens/x.png': 'PNG', ...images }, [
 				'report.json',
+				...Object.keys(images).filter((path) => !path.endsWith('.before.png')),
 			])
 		: Buffer.alloc(0);
 	const small = reportJson ? zipOf({ 'report.json': text }, ['report.json']) : Buffer.alloc(0);
@@ -906,6 +951,57 @@ head(sha(33), GREEN, {
 artifact(sha(33), REPORT_33);
 pull(33, 'engine: a disabled approver', { sha: sha(33) });
 
+// #34 — the report alone still reads; the full artifact, with the images, expired.
+const REPORT_34 = report(sha(34), [
+	{ key: 'bookofborut', name: 'Book of Borut', looks: 'changed', changed: ['win'] },
+]);
+head(sha(34), GREEN, {
+	state: 'failure',
+	description: (REPORT_34.summary as { line: string }).line,
+});
+const [, FULL_34] = artifact(sha(34), REPORT_34);
+{
+	const expired = (gh.artifacts.get(Number(harnessRun(sha(34)).id)) ?? []).find(
+		(a) => a.id === FULL_34,
+	) as Artifact;
+	expired.expired = true;
+	gh.zips.delete(FULL_34);
+}
+pull(34, 'engine: images expired', { sha: sha(34) });
+
+// #35 — a listed artifact size far below the blob's, and a diff image of an unknown type.
+const REPORT_35 = report(sha(35), [
+	{ key: 'bookofborut', name: 'Book of Borut', looks: 'changed', changed: ['win'] },
+]);
+(REPORT_35.games as { screens: { images?: Record<string, string> }[] }[])[0].screens[1].images = {
+	before: 'screens/bookofborut--win.before.png',
+	after: 'screens/bookofborut--win.after.png',
+	diff: 'screens/bookofborut--win.diff.dat',
+};
+head(sha(35), GREEN, {
+	state: 'failure',
+	description: (REPORT_35.summary as { line: string }).line,
+});
+const [, FULL_35] = artifact(sha(35), REPORT_35, { size_in_bytes: 10 });
+pull(35, 'engine: odd sizes', { sha: sha(35) });
+
+// #36 — a listed artifact size far above the blob's.
+const REPORT_36 = report(sha(36), [
+	{ key: 'bookofborut', name: 'Book of Borut', looks: 'changed', changed: ['win'] },
+]);
+head(sha(36), GREEN, {
+	state: 'failure',
+	description: (REPORT_36.summary as { line: string }).line,
+});
+const [, FULL_36] = artifact(sha(36), REPORT_36);
+{
+	const listed = (gh.artifacts.get(Number(harnessRun(sha(36)).id)) ?? []).find(
+		(a) => a.id === FULL_36,
+	) as Artifact;
+	listed.size_in_bytes = (gh.zips.get(FULL_36) as Buffer).length + 1_000_000;
+}
+pull(36, 'engine: a size too large', { sha: sha(36) });
+
 // ── Replaced boundaries ───────────────────────────────────────────────────────
 const approvals: PipelineApproval[] = [];
 fake('lib/server/pipelineApprovals.ts', {
@@ -944,14 +1040,21 @@ delete process.env.GITHUB_APP_ID;
 delete process.env.GITHUB_APP_INSTALLATION_ID;
 delete process.env.GITHUB_APP_PRIVATE_KEY;
 
-const { createGithubApp, GithubAppError, mintAppJwt } = await import(
+const { createGithubApp, GithubAppError, githubApp, mintAppJwt } = await import(
 	src('lib/server/githubApp.ts')
 );
 const changes = await import(src('lib/server/pipelineChanges.ts'));
-const { readZipEntry } = await import(src('lib/server/zip.ts'));
+const { MAX_IMAGE_BYTES, openReportEntry, readBounded } = await import(
+	src('lib/server/pipelineReport.ts')
+);
+const { locateCentralDirectory, readZipEntry } = await import(src('lib/server/zip.ts'));
 const listRoute = await import(src('routes/api/pipeline/changes/+server.ts'));
 const detailRoute = await import(src('routes/api/pipeline/changes/[number]/+server.ts'));
 const approveRoute = await import(src('routes/api/pipeline/changes/[number]/approvals/+server.ts'));
+const reportRoute = await import(
+	src('routes/api/pipeline/changes/[number]/report/[...path]/+server.ts')
+);
+const view = await import(src('routes/(app)/pipeline/view.ts'));
 
 type Locals = { user: App.Locals['user'] };
 const ADMIN: Locals = {
@@ -994,6 +1097,41 @@ const list = (locals: Locals) => call(listRoute.GET, locals);
 const detail = (locals: Locals, number: string) => call(detailRoute.GET, locals, { number });
 const approve = (locals: Locals, number: string, body: unknown) =>
 	call(approveRoute.POST, locals, { number }, body);
+
+type ByteAnswer = { status: number; bytes: Buffer; headers: Headers; body: Json };
+/** The image route: a binary answer, or the JSON of a refusal. */
+async function image(
+	locals: Locals,
+	number: string,
+	path: string,
+	query = '',
+): Promise<ByteAnswer> {
+	const url = new URL(`https://app.example/api/pipeline/changes/${number}/report/${path}${query}`);
+	try {
+		const res = await (reportRoute.GET as unknown as (event: unknown) => Promise<Response>)({
+			locals,
+			params: { number, path },
+			url,
+			request: new Request(url),
+		});
+		const bytes = Buffer.from(await res.arrayBuffer());
+		const isJson = res.headers.get('content-type')?.startsWith('application/json') ?? false;
+		const text = isJson ? bytes.toString('utf8') : '';
+		answered.push(text || bytes.toString('latin1'));
+		return { status: res.status, bytes, headers: res.headers, body: text ? JSON.parse(text) : {} };
+	} catch (err) {
+		if (isHttpError(err)) {
+			thrown.push(err.body.message);
+			return {
+				status: err.status,
+				bytes: Buffer.alloc(0),
+				headers: new Headers(),
+				body: { error: err.body.message },
+			};
+		}
+		throw err;
+	}
+}
 
 // ── Unconfigured: named, and nothing fetched ──────────────────────────────────
 {
@@ -1305,7 +1443,7 @@ check('a role without the tool is a 403', (await list(ARTIST)).status, 403);
 	check(
 		'every open PR into main, newest first, bar Director games and Dependabot',
 		body.changes.map((c) => c.number),
-		[33, 32, 31, 30, 29, 28, 27, 26, 25, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 10],
+		[36, 35, 34, 33, 32, 31, 30, 29, 28, 27, 26, 25, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 10],
 	);
 	check(
 		'Dependabot apart',
@@ -1531,6 +1669,351 @@ check('a fork is not a change', (await detail(ADMIN, '24')).status, 404);
 		true,
 	);
 	check('#22: …with no diffs to approve', d.harness.diffs, []);
+}
+
+// ── A changed screen's images, out of the full artifact by byte range ─────────
+{
+	const d = (await detail(ADMIN, '14')).body as { harness: Json; headSha: string };
+	const zipSize = (gh.zips.get(FULL_14) as Buffer).length;
+	check('#14: the detail names the images artifact', (d.harness.report as Json).images, {
+		artifactId: FULL_14,
+		sizeInBytes: zipSize,
+		expiresAt: '2026-10-09T10:00:00Z',
+	});
+	const diffs = d.harness.diffs as (Json & { images: Record<string, string> })[];
+	const before = diffs[0].images.before;
+	const after = diffs[0].images.after;
+	check('the report names the three images', Object.keys(diffs[0].images), [
+		'before',
+		'after',
+		'diff',
+	]);
+	check('no session is a 401', (await image(ANON, '14', before)).status, 401);
+	check('a role without the tool is a 403', (await image(ARTIST, '14', before)).status, 403);
+	const from = gh.ranges.length;
+	const res = await image(TESTER, '14', before, `?artifact=${FULL_14}`);
+	check('a reader of the tool gets the image', res.status, 200);
+	check('…as a PNG', res.headers.get('content-type'), 'image/png');
+	check(
+		'…cacheable, since that artifact never changes',
+		res.headers.get('cache-control'),
+		'private, max-age=259200, immutable',
+	);
+	check('…the stored bytes', res.bytes.toString(), `PNG before ${before}`);
+	check(
+		'…never a document or a script, whatever the bytes claim',
+		[res.headers.get('x-content-type-options'), res.headers.get('content-security-policy')],
+		['nosniff', "default-src 'none'; sandbox"],
+	);
+	const ranges = gh.ranges.slice(from);
+	check(
+		'…read in two ranges of the full artifact: its tail, then the entry',
+		ranges.map((r) => r.id),
+		[FULL_14, FULL_14],
+	);
+	check('…the tail first', ranges[0].range, `bytes=${Math.max(0, zipSize - 65536)}-${zipSize - 1}`);
+	check('…then the entry alone', /^bytes=\d+-\d+$/.test(ranges[1].range), true);
+	check(
+		'…never the whole archive',
+		gh.ranges.some((r) => r.id === FULL_14 && r.range === ''),
+		false,
+	);
+	const beforeSecond = gh.requests.length;
+	const deflated = await image(TESTER, '14', after, `?artifact=${FULL_14}`);
+	check('a deflated entry inflates as it streams', deflated.bytes.toString(), `PNG after ${after}`);
+	check(
+		'…and a second image of the same change costs one download: the PR, its head, the artifacts and the directory are remembered',
+		gh.requests.slice(beforeSecond),
+		[`GET /repos/${REPO}/actions/artifacts/${FULL_14}/zip`, `GET /artifacts/${FULL_14}`],
+	);
+	check(
+		'without ?artifact the answer is not cached',
+		(await image(TESTER, '14', before)).headers.get('cache-control'),
+		'private, no-store',
+	);
+	check(
+		'an artifact a re-run replaced is a 409',
+		(await image(ADMIN, '14', before, `?artifact=${FULL_14 + 1}`)).status,
+		409,
+	);
+	check('a bad artifact is a 400', (await image(ADMIN, '14', before, '?artifact=x')).status, 400);
+	for (const path of [
+		'report.json',
+		'index.html',
+		'screens/x.png',
+		'../report.json',
+		`screens/../${before}`,
+		`/${before}`,
+		'screens/bookofborut--nope.before.png',
+		'',
+	]) {
+		check(
+			`"${path}" is not an image the report lists`,
+			(await image(ADMIN, '14', path)).status,
+			404,
+		);
+	}
+	check('an unknown change serves no image', (await image(ADMIN, '999', before)).status, 404);
+	check('a Director game serves no image', (await image(ADMIN, '12', before)).status, 404);
+	check('a fork serves no image', (await image(ADMIN, '24', before)).status, 404);
+	check(
+		'the report itself was still read from the report-only artifact',
+		gh.ranges.some((r) => r.id === JSON_14 && r.range === ''),
+		true,
+	);
+}
+{
+	const res = await image(ADMIN, '19', 'screens/bookofborut--win.before.png');
+	check('an expired report serves no image', res.status, 404);
+	check('…saying so', String(res.body.error).includes('expired'), true);
+	check(
+		'a running harness serves no image',
+		(await image(ADMIN, '10', 'screens/bookofborut--win.before.png')).status,
+		404,
+	);
+}
+{
+	const d = (await detail(ADMIN, '34')).body as { harness: Json };
+	const report = d.harness.report as Json;
+	check(
+		'#34: the report reads with its images gone',
+		[report.state, report.images],
+		['ready', null],
+	);
+	const diffs = d.harness.diffs as (Json & { images: Record<string, string> })[];
+	const res = await image(ADMIN, '34', diffs[0].images.before);
+	check('#34: …so an image is a 404', res.status, 404);
+	check('#34: …that says the images expired', String(res.body.error).includes('gone'), true);
+}
+{
+	// A blob store that ignores the byte range: a small archive is read whole, a large one refused.
+	const d = (await detail(ADMIN, '14')).body as { harness: Json };
+	const before = (d.harness.diffs as (Json & { images: Record<string, string> })[])[0].images
+		.before;
+	gh.blobRanges = false;
+	const whole = await image(TESTER, '14', before, `?artifact=${FULL_14}`);
+	check(
+		'a blob store that ignores the range still serves a small archive',
+		[whole.status, whole.bytes.toString()],
+		[200, `PNG before ${before}`],
+	);
+	gh.blobClaimLength = 65 * 1024 * 1024;
+	const big = await image(TESTER, '14', before, `?artifact=${FULL_14}`);
+	check(
+		'…but a large one is refused by its content-length before a byte is read',
+		[big.status, String(big.body.error).includes('too large')],
+		[502, true],
+	);
+	gh.blobClaimLength = null;
+	gh.blobRanges = true;
+	const threw = async (fn: () => Promise<unknown>): Promise<string> => {
+		try {
+			await fn();
+			return '';
+		} catch (e) {
+			return (e as Error).message;
+		}
+	};
+	const body = new Uint8Array(1000);
+	check(
+		'a whole answer is refused by its bytes too, when the header lies',
+		(await threw(() => readBounded(new Response(body), 100))).includes('too large'),
+		true,
+	);
+	check('…and read when it fits', (await readBounded(new Response(body), 1000)).length, 1000);
+}
+{
+	// A listed artifact size the blob disagrees with is corrected from the blob's own total, once,
+	// on the first read of that artifact; the directory is then remembered.
+	const d35 = (await detail(ADMIN, '35')).body as { harness: Json };
+	const diffs35 = d35.harness.diffs as (Json & { images: Record<string, string> })[];
+	let from = gh.ranges.length;
+	const first = await image(TESTER, '35', diffs35[0].images.before, `?artifact=${FULL_35}`);
+	check(
+		'#35: a size listed far too small is corrected from the total',
+		[first.status, first.bytes.toString()],
+		[200, `PNG before ${diffs35[0].images.before}`],
+	);
+	check(
+		'#35: …with one extra range for the correction',
+		gh.ranges.slice(from).filter((r) => r.id === FULL_35).length,
+		3,
+	);
+	from = gh.ranges.length;
+	const dat = await image(TESTER, '35', diffs35[0].images.diff, `?artifact=${FULL_35}`);
+	check(
+		'#35: an image of no known type is served as bytes',
+		[dat.status, dat.headers.get('content-type'), dat.bytes.toString()],
+		[200, 'application/octet-stream', `PNG diff ${diffs35[0].images.diff}`],
+	);
+	check('#35: …in one range, the directory remembered', gh.ranges.slice(from).length, 1);
+	const d36 = (await detail(ADMIN, '36')).body as { harness: Json };
+	const diffs36 = d36.harness.diffs as (Json & { images: Record<string, string> })[];
+	from = gh.ranges.length;
+	const big = await image(TESTER, '36', diffs36[0].images.before, `?artifact=${FULL_36}`);
+	check(
+		'#36: a size listed far too large is corrected from the 416',
+		[
+			big.status,
+			big.bytes.toString(),
+			gh.ranges.slice(from).filter((r) => r.id === FULL_36).length,
+		],
+		[200, `PNG before ${diffs36[0].images.before}`, 3],
+	);
+}
+{
+	// A re-run replaces #35's artifacts under the same head: the detail names the new one at once,
+	// and an image asked for by the new id is served without waiting the cache out.
+	const [, NEW_35] = artifact(sha(35), REPORT_35);
+	const d = (await detail(ADMIN, '35')).body as { harness: Json };
+	const report = d.harness.report as Json & { images: Json };
+	check('#35: the detail names the re-run’s artifact', report.images.artifactId, NEW_35);
+	const diffs = d.harness.diffs as (Json & { images: Record<string, string> })[];
+	const fresh = await image(TESTER, '35', diffs[0].images.before, `?artifact=${NEW_35}`);
+	check(
+		'#35: the new id is served at once — the cached walk is dropped and redone',
+		[fresh.status, fresh.bytes.toString()],
+		[200, `PNG before ${diffs[0].images.before}`],
+	);
+	const stale = await image(TESTER, '35', diffs[0].images.before, `?artifact=${FULL_35}`);
+	check('#35: …and the old id is now the replaced one', stale.status, 409);
+}
+{
+	// A cold detail opens every image at once: the artifact's directory is read once for all.
+	const shared = zipOf({ 'screens/a.png': 'A', 'screens/b.png': 'B', 'screens/c.png': 'C' }, [
+		'screens/b.png',
+	]);
+	gh.zips.set(8004, shared);
+	const images = { artifactId: 8004, sizeInBytes: shared.length, expiresAt: null };
+	const from = gh.ranges.length;
+	const bodies = await Promise.all(
+		['screens/a.png', 'screens/b.png', 'screens/c.png'].map(async (name) =>
+			Buffer.from(
+				await new Response(await openReportEntry(githubApp, REPO, images, name)).arrayBuffer(),
+			).toString(),
+		),
+	);
+	check('three images at once all read', bodies, ['A', 'B', 'C']);
+	check(
+		'…with one tail read between them, then one range each',
+		gh.ranges.slice(from).filter((r) => r.id === 8004).length,
+		4,
+	);
+}
+{
+	// What a branch could put in its artifact: an entry that inflates past what it declares, one
+	// that declares more than any screen, a ZIP64 archive, an empty one.
+	const threw = async (fn: () => Promise<unknown>): Promise<string> => {
+		try {
+			await fn();
+			return '';
+		} catch (e) {
+			return (e as Error).message;
+		}
+	};
+	const readAll = (stream: ReadableStream<Uint8Array> | null) =>
+		stream ? new Response(stream).arrayBuffer() : Promise.resolve(new ArrayBuffer(0));
+	const bomb = zipOf({ 'screens/bomb.png': Buffer.alloc(MAX_IMAGE_BYTES + 1024) }, [
+		'screens/bomb.png',
+	]);
+	check('the bomb is small on the wire', bomb.length < 1024 * 1024, true);
+	gh.zips.set(8001, bomb);
+	const bombImages = { artifactId: 8001, sizeInBytes: bomb.length, expiresAt: null };
+	check(
+		'an entry that would inflate past the cap is cut off and the download torn down',
+		(
+			await threw(async () =>
+				readAll(await openReportEntry(githubApp, REPO, bombImages, 'screens/bomb.png')),
+			)
+		).includes('larger than it declares'),
+		true,
+	);
+	const liar = zipOf({ 'screens/liar.png': Buffer.alloc(1024 * 1024) }, ['screens/liar.png']);
+	// The directory says 1,000 bytes; the data inflates to a megabyte.
+	liar.writeUInt32LE(1000, locateCentralDirectory(liar, 0).offset + 24);
+	gh.zips.set(8002, liar);
+	check(
+		'an entry that inflates past what it declares is cut off at the declaration',
+		(
+			await threw(async () =>
+				readAll(
+					await openReportEntry(
+						githubApp,
+						REPO,
+						{ artifactId: 8002, sizeInBytes: liar.length, expiresAt: null },
+						'screens/liar.png',
+					),
+				),
+			)
+		).includes('larger than it declares'),
+		true,
+	);
+	const zip64 = zipOf({ 'a.txt': 'x' });
+	zip64.writeUInt16LE(0xffff, zip64.length - 22 + 10);
+	check(
+		'a ZIP64 archive is refused, not misread',
+		(await threw(async () => readZipEntry(zip64, 'a.txt', 10))).includes('ZIP64'),
+		true,
+	);
+	const zip64entry = zipOf({ 'a.txt': 'x' });
+	zip64entry.writeUInt32LE(0xffffffff, locateCentralDirectory(zip64entry, 0).offset + 24);
+	check(
+		'…and so is a ZIP64 entry',
+		(await threw(async () => readZipEntry(zip64entry, 'a.txt', 10))).includes('ZIP64'),
+		true,
+	);
+	const empty = zipOf({});
+	gh.zips.set(8003, empty);
+	const from = gh.ranges.length;
+	check(
+		'an empty archive has no entry and asks for no directory range',
+		[
+			await openReportEntry(
+				githubApp,
+				REPO,
+				{ artifactId: 8003, sizeInBytes: empty.length, expiresAt: null },
+				'screens/x.png',
+			),
+			gh.ranges.slice(from).length,
+		],
+		[null, 1],
+	);
+}
+{
+	// A central directory bigger than the tail is fetched by its own range.
+	const files: Record<string, string> = {};
+	for (let i = 0; i < 1500; i++) {
+		files[`screens/game-${String(i).padStart(4, '0')}--screen.before.png`] = `p${i}`;
+	}
+	files['screens/last.after.png'] = 'the last one';
+	const zip = zipOf(files, ['screens/last.after.png']);
+	const cd = locateCentralDirectory(zip, 0);
+	check(
+		"the fixture archive's directory is past a 64 KB tail",
+		zip.length - cd.offset > 65536,
+		true,
+	);
+	const id = 8000;
+	gh.zips.set(id, zip);
+	const from = gh.ranges.length;
+	const images = { artifactId: id, sizeInBytes: zip.length, expiresAt: null };
+	const stream = await openReportEntry(githubApp, REPO, images, 'screens/last.after.png');
+	const text = stream ? Buffer.from(await new Response(stream).arrayBuffer()).toString() : null;
+	check('the entry is read', text, 'the last one');
+	check(
+		'…in three ranges: the tail, the central directory, the entry',
+		gh.ranges.slice(from).map((r) => r.range),
+		[
+			`bytes=${zip.length - 65536}-${zip.length - 1}`,
+			`bytes=${cd.offset}-${cd.offset + cd.size - 1}`,
+			gh.ranges[from + 2]?.range,
+		],
+	);
+	check(
+		'a file the archive lacks is null',
+		await openReportEntry(githubApp, REPO, images, 'screens/nope.png'),
+		null,
+	);
 }
 
 // ── Approvals ─────────────────────────────────────────────────────────────────
@@ -1936,6 +2419,145 @@ check(
 	gh.posts.some((p) => String(p.body.description).includes('@')),
 	false,
 );
+
+// ── The page's pure wording (view.ts), over the same answers ──────────────────
+{
+	type Detail = Parameters<typeof view.blockedSentence>[0];
+	const detailOf = async (number: string): Promise<Detail> =>
+		(await detail(ADMIN, number)).body as unknown as Detail;
+	check(
+		'a merge conflict, in words',
+		view.blockedSentence(await detailOf('15')),
+		'Merge conflict with main: bring main in and resolve it.',
+	);
+	check(
+		'a failed Check 1 job names the workflow and the job',
+		view.blockedSentence(await detailOf('17')),
+		'Lint: lint failed',
+	);
+	const d18 = view.blockedSentence(await detailOf('18'));
+	check(
+		'a failing report says what breaks, per game, in mockup 05 words',
+		d18.startsWith(
+			'Breaks Book of Borut: 1 of 12 screens look different (win); Breaks HotFruits: the build failed',
+		) && d18.endsWith('.'),
+		true,
+	);
+	check(
+		'…without the approve hint when an approval cannot clear it',
+		d18.includes('Approve each'),
+		false,
+	);
+	check(
+		'a difference an approval can clear says so',
+		view.blockedSentence(await detailOf('34')),
+		'Breaks Book of Borut: 1 of 12 screens look different (win). Approve each changed screen below, or push a fix.',
+	);
+	check(
+		'a harness failure with no readable report falls back to the status line',
+		view.blockedSentence(await detailOf('19')),
+		'current-games: 12 pass · 1 fail · 3 changed screen(s)',
+	);
+	const d14 = await detailOf('14');
+	check('a ready change has no blocked sentence', view.blockedSentence(d14), '');
+	check('…and its approvals are complete', view.approvalState(d14.harness), 'complete');
+	check('…and Check 2 counts its changed screens', view.check2Summary(d14.harness), {
+		tone: 'red',
+		label: '2 changed screens',
+	});
+	check('Check 1 sums the workflows', view.check1Summary(d14.checks), {
+		kind: 'pass',
+		passed: 7,
+		total: 7,
+		label: '7 of 7 passed',
+	});
+	const d10 = await detailOf('10');
+	check('a running Check 1', view.check1Summary(d10.checks).label, 'running · 3 of 4');
+	check('a running Check 2', view.check2Summary(d10.harness), { tone: 'blue', label: 'running' });
+	check('a skipped Check 2', view.check2Summary((await detailOf('16')).harness), {
+		tone: 'green',
+		label: 'nothing to render',
+	});
+	check('an expired Check 2', view.check2Summary((await detailOf('19')).harness), {
+		tone: 'amber',
+		label: 'expired',
+	});
+	check('no approvals yet', view.approvalState((await detailOf('34')).harness), 'none');
+	const rows = d14.harness.report.state === 'ready' ? d14.harness.report.report.games : [];
+	check(
+		'the games table cells',
+		rows.map((r) => {
+			const c = view.rowCells(r);
+			return [c.build.text, c.tests.text, c.looks.text];
+		}),
+		[
+			['Passed', 'Passed', '2 of 12 changed'],
+			['Passed', 'Passed', 'Same on 12 screens'],
+		],
+	);
+	check(
+		'an image URL encodes each segment and names the artifact',
+		view.reportImageUrl(14, 9001, 'screens/a b--win.before.png'),
+		'/api/pipeline/changes/14/report/screens/a%20b--win.before.png?artifact=9001',
+	);
+	const t = Date.parse('2026-10-06T12:00:00Z');
+	check(
+		'time ago',
+		[
+			view.timeAgo('2026-10-06T11:59:40Z', t),
+			view.timeAgo('2026-10-06T11:30:00Z', t),
+			view.timeAgo('2026-10-06T09:00:00Z', t),
+			view.timeAgo('2026-10-05T09:00:00Z', t),
+			view.timeAgo('2026-10-03T09:00:00Z', t),
+			view.timeAgo('2026-09-01T09:00:00Z', t),
+		],
+		['just now', '30 min ago', '3 h ago', 'yesterday', '3 days ago', '2026-09-01'],
+	);
+	check(
+		'only a GitHub page is a link; anything else renders as text',
+		[
+			view.safeHref('https://github.com/iw/engine/pull/14'),
+			view.safeHref('https://github.com/iw/engine/actions/runs/1/job/2'),
+			view.safeHref('javascript:alert(1)'),
+			view.safeHref('http://github.com/iw/engine'),
+			view.safeHref('https://github.com.evil.example/x'),
+			view.safeHref('https://raw.githubusercontent.com/x'),
+			view.safeHref(null),
+			view.safeHref(undefined),
+		],
+		[
+			'https://github.com/iw/engine/pull/14',
+			'https://github.com/iw/engine/actions/runs/1/job/2',
+			null,
+			null,
+			null,
+			null,
+			null,
+			null,
+		],
+	);
+	check(
+		'a blocked reason never links off GitHub',
+		view.blockedReason({
+			...(await detailOf('19')),
+			harness: {
+				...(await detailOf('19')).harness,
+				status: { state: 'failure', description: 'x', url: 'javascript:alert(1)', updatedAt: AT },
+				run: null,
+			},
+		})?.url,
+		null,
+	);
+	check(
+		'an error answer reads its sentence',
+		[
+			view.apiErrorText(503, { error: 'unset' }),
+			view.apiErrorText(401, { message: 'no' }),
+			view.apiErrorText(500, null),
+		],
+		['unset', 'no', 'The request failed (500).'],
+	);
+}
 
 // ── No secret anywhere ────────────────────────────────────────────────────────
 {
