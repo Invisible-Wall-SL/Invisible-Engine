@@ -1,10 +1,9 @@
-// Render parity: draws rigs with the reference Pixi runtime and with engine-rig/pixi in headless
-// Chromium (WebGL via SwiftShader) and pixel-diffs the frames.
+// Render parity for the static tools' runtime: draws rigs with the vendored reference WebGL runtime
+// (`static/spine/vendor/spine-webgl-4.2.js`) and with engine-rig/webgl (as the `spine` global) in
+// headless Chromium through each one's SceneRenderer, and pixel-diffs the frames — plain, and with
+// the mesh debug overlay the Rigger draws.
 //
-//   node tools/rig-parity/render.mjs [--filter <substring>] [--dir <folder>] [--size 256] [--max 0.5]
-//
-// Each rig is drawn at its authored box, for up to three animations at two times. A frame passes
-// when at most --max percent of its pixels differ beyond pixelmatch's default threshold.
+//   node tools/rig-parity/render-webgl.mjs [--filter <substring>] [--dir <folder>] [--size 256] [--max 0.5]
 import { createServer } from 'node:http';
 import { readFileSync, statSync, writeFileSync, mkdtempSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -23,47 +22,45 @@ const MAX = Number(arg('--max', 0.5));
 const dumpDir = arg('--dump', null);
 
 const pixelmatch = (await import('pixelmatch')).default;
-const { PNG } = await import('pngjs');
-
 const esbuild = await import(ESBUILD);
-const work = mkdtempSync(join(tmpdir(), 'rig-render-'));
-const nodePaths = [join(ROOT, 'packages/pixi-svelte/node_modules'), join(ROOT, 'packages/engine-rig/node_modules')];
-for (const name of ['ref', 'rig']) {
-	await esbuild.build({
-		entryPoints: [join(ROOT, 'tools/rig-parity/render/page.ts')],
-		bundle: true,
-		format: 'iife',
-		platform: 'browser',
-		outfile: join(work, `${name}.js`),
-		nodePaths,
-		alias: { RUNTIME: name === 'ref' ? '@esotericsoftware/spine-pixi-v8' : join(ROOT, 'packages/engine-rig/pixi.ts') },
-		define: { RUNTIME_NAME: JSON.stringify(name) },
-		logLevel: 'error',
-	});
-	writeFileSync(join(work, `${name}.html`), `<!doctype html><body style="margin:0"><script src="/__work/${name}.js"></script></body>`);
-}
+const work = mkdtempSync(join(tmpdir(), 'rig-render-webgl-'));
+await esbuild.build({
+	entryPoints: [join(ROOT, 'packages/engine-rig/webgl.ts')],
+	bundle: true,
+	format: 'iife',
+	globalName: 'spine',
+	platform: 'browser',
+	outfile: join(work, 'rig.js'),
+	logLevel: 'error',
+});
+writeFileSync(join(work, 'ref.js'), readFileSync(join(ROOT, 'apps/launcher-api/static/spine/vendor/spine-webgl-4.2.js')));
+for (const name of ['ref', 'rig'])
+	writeFileSync(
+		join(work, `${name}.html`),
+		`<!doctype html><body style="margin:0"><script src="/__work/${name}.js"></script><script src="/__work/page.js"></script></body>`,
+	);
+writeFileSync(join(work, 'page.js'), readFileSync(join(ROOT, 'tools/rig-parity/render/webglPage.js')));
 
 const types = { '.js': 'text/javascript', '.html': 'text/html', '.png': 'image/png', '.webp': 'image/webp', '.json': 'application/json', '.atlas': 'text/plain', '.skel': 'application/octet-stream' };
 const server = createServer((req, res) => {
 	const url = decodeURIComponent(new URL(req.url, 'http://x').pathname);
 	const file = url.startsWith('/__work/') ? join(work, url.slice(8)) : join(dir, url);
-	if (!existsSync(file) || statSync(file).isDirectory()) {
-		res.writeHead(404).end();
-		return;
-	}
+	if (!existsSync(file) || statSync(file).isDirectory()) return void res.writeHead(404).end();
 	res.writeHead(200, { 'content-type': types[extname(file)] ?? 'application/octet-stream' });
 	res.end(readFileSync(file));
 }).listen(0);
 const port = server.address().port;
 
-const rigs = findRigs(dir, filter);
-const cases = poseCases(rigs);
+const hideBlend = arg('--hide-blend', null);
+const cases = poseCases(findRigs(dir, filter))
+	.flatMap((c) => [c, { ...c, debug: true }])
+	.map((c) => (hideBlend === null ? c : { ...c, hideBlend: Number(hideBlend) }));
 if (!cases.length) {
 	console.log('no rigs found');
 	process.exit(1);
 }
-
-async function renderAll(name, cases) {
+const browser = await launchChrome({ name: 'rig-render-webgl', url: 'about:blank', args: [`--window-size=${SIZE + 50},${SIZE + 50}`] });
+async function renderAll(name) {
 	await browser.evaluate(`location.href = 'http://127.0.0.1:${port}/__work/${name}.html'`);
 	await browser.waitFor('window.ready === true', 60_000);
 	const out = [];
@@ -76,27 +73,19 @@ async function renderAll(name, cases) {
 	}
 	return out;
 }
-
-const browser = await launchChrome({ name: 'rig-render', url: 'about:blank', args: [`--window-size=${SIZE + 50},${SIZE + 50}`] });
-const ref = await renderAll('ref', cases);
-const rig = await renderAll('rig', cases);
+const ref = await renderAll('ref');
+const rig = await renderAll('rig');
 await browser.close();
 server.close();
 
 let failures = 0;
 let compared = 0;
-let empty = 0;
-const coverage = (buf) => {
-	let n = 0;
-	for (let i = 3; i < buf.length; i += 4) if (buf[i] > 8) n++;
-	return n;
-};
 let worst = 0;
 for (let i = 0; i < cases.length; i++) {
 	const c = cases[i];
-	const label = `${c.rig} :: ${c.animation ?? 'setup'} @${c.time}`;
+	const label = `${c.rig} :: ${c.animation ?? 'setup'} @${c.time}${c.debug ? ' +debug' : ''}`;
 	if (typeof ref[i] !== 'string') {
-		console.log(`skip ${label}: reference failed (${ref[i]?.error})`);
+		console.log(`skip ${label}: reference failed (${String(ref[i]?.error).split('\n')[0]})`);
 		continue;
 	}
 	if (typeof rig[i] !== 'string') {
@@ -106,12 +95,6 @@ for (let i = 0; i < cases.length; i++) {
 	}
 	const a = Buffer.from(ref[i], 'base64');
 	const b = Buffer.from(rig[i], 'base64');
-	if (coverage(a) === 0) empty++;
-	if (args.includes('--save') && i % 9 === 0 && dumpDir) {
-		const png = new PNG({ width: SIZE, height: SIZE });
-		png.data = b;
-		writeFileSync(join(dumpDir, `sample-${i}.rig.png`), PNG.sync.write(png));
-	}
 	const diff = Buffer.alloc(a.length);
 	const bad = pixelmatch(a, b, diff, SIZE, SIZE, { threshold: 0.1 });
 	const pct = (bad / (SIZE * SIZE)) * 100;
@@ -121,6 +104,7 @@ for (let i = 0; i < cases.length; i++) {
 		failures++;
 		console.log(`✗ ${label}: ${pct.toFixed(2)}% pixels differ`);
 		if (dumpDir) {
+			const { PNG } = await import('pngjs');
 			for (const [tag, buf] of [['ref', a], ['rig', b], ['diff', diff]]) {
 				const png = new PNG({ width: SIZE, height: SIZE });
 				png.data = buf;
@@ -129,5 +113,5 @@ for (let i = 0; i < cases.length; i++) {
 		}
 	}
 }
-console.log(`${failures ? '✗' : '✓'} rig render parity: ${rigs.length} rigs, ${compared} frames (${empty} empty in the reference), ${failures} over ${MAX}% (worst ${worst.toFixed(2)}%)`);
+console.log(`${failures ? '✗' : '✓'} rig WebGL render parity: ${compared} frames, ${failures} over ${MAX}% (worst ${worst.toFixed(2)}%)`);
 process.exit(failures ? 1 : 0);

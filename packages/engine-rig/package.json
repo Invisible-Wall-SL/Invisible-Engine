@@ -8,7 +8,8 @@
 	"type": "module",
 	"exports": {
 		".": "./index.ts",
-		"./pixi": "./pixi.ts"
+		"./pixi": "./pixi.ts",
+		"./webgl": "./webgl.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit",
