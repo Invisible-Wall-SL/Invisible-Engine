@@ -1,5 +1,10 @@
 import { createHmac } from 'node:crypto';
-import { BLUEPRINT_PUBLISH_CAPABILITY, roleHasCapability, type Role } from '$lib/roles';
+import {
+	BLUEPRINT_PUBLISH_CAPABILITY,
+	PIPELINE_MERGE_CAPABILITY,
+	roleHasCapability,
+	type Role,
+} from '$lib/roles';
 import { ENV } from './env';
 import { r2Slug } from './projectPaths';
 import { getRoleOverrides } from './roleToolAccess';
@@ -16,6 +21,10 @@ import { getToolOverrides } from './userToolAccess';
  *   `v1.<base64url(JSON payload)>.<base64url(HMAC-SHA256(secret, "v1." + payloadB64))>`
  *
  * base64url without padding, payload keys in the fixed order `mintToolLaunchToken` writes them.
+ *
+ * `caps` is empty except on an atlas token: `blueprintPublish` (publish to the shared blueprint
+ * library) on any atlas handoff, and `pipelineMerge` (mark a blueprint card reviewed) on a browser
+ * launch only — never on a server-to-server `api` token.
  *
  * While a tool's signing secret is unset the legacy unsigned query handoff is sent instead, so
  * nothing changes until the matching secret is set on both services.
@@ -101,6 +110,8 @@ export interface HandoffInput {
 	clientKey: string;
 	projectKey: string;
 	canPublishBlueprints: boolean;
+	/** The `pipelineMerge` capability; it rides an atlas `launch` token only. */
+	canMergePipeline?: boolean;
 }
 
 /** `query` puts the token on the redirect URL; `header` is for a server-to-server fetch. */
@@ -120,10 +131,16 @@ export function buildToolHandoff(
 	now: number = Date.now(),
 ): ToolHandoff {
 	const { tool, user, clientKey, projectKey, canPublishBlueprints } = input;
+	const canMergePipeline = input.canMergePipeline ?? false;
 	const params = new URLSearchParams();
 	const headers: Record<string, string> = {};
 
 	if (secrets.signingSecret) {
+		const caps: string[] = [];
+		if (tool === 'atlas' && canPublishBlueprints) caps.push(BLUEPRINT_PUBLISH_CAPABILITY);
+		if (tool === 'atlas' && canMergePipeline && via === 'query') {
+			caps.push(PIPELINE_MERGE_CAPABILITY);
+		}
 		const token = mintToolLaunchToken(
 			secrets.signingSecret,
 			{
@@ -135,7 +152,7 @@ export function buildToolHandoff(
 				role: user.role,
 				client: clientKey,
 				project: projectKey,
-				caps: tool === 'atlas' && canPublishBlueprints ? [BLUEPRINT_PUBLISH_CAPABILITY] : [],
+				caps,
 			},
 			now,
 			via === 'header' ? 'api' : 'launch',
@@ -179,6 +196,10 @@ function handoffSecrets(tool: LaunchAudience): HandoffSecrets {
  * The `blueprintPublish` capability (the token's `caps`, or the legacy `bp`) is looked up only when
  * `withPublish` is set — the Flipbook proxy sets it on its publish route alone, so a status poll
  * costs no DB queries. Otherwise `canPublishBlueprints` is `false` without a lookup.
+ *
+ * The same lookup resolves `pipelineMerge` (reviewing a blueprint card) when a signing secret is
+ * set; `buildToolHandoff` puts it on a browser launch only. The legacy unsigned path cannot carry
+ * it, so review is unavailable there.
  */
 export async function toolHandoff({
 	tool,
@@ -197,6 +218,7 @@ export async function toolHandoff({
 }): Promise<ToolHandoff> {
 	const secrets = handoffSecrets(tool);
 	let canPublishBlueprints = false;
+	let canMergePipeline = false;
 	if (tool === 'atlas' && withPublish && (secrets.signingSecret || secrets.blueprintSecret)) {
 		const [roleOverrides, userOverrides] = await Promise.all([
 			getRoleOverrides(user.role),
@@ -208,9 +230,12 @@ export async function toolHandoff({
 			roleOverrides,
 			userOverrides,
 		);
+		canMergePipeline =
+			!!secrets.signingSecret &&
+			roleHasCapability(user.role, PIPELINE_MERGE_CAPABILITY, roleOverrides, userOverrides);
 	}
 	return buildToolHandoff(
-		{ tool, user, clientKey, projectKey, canPublishBlueprints },
+		{ tool, user, clientKey, projectKey, canPublishBlueprints, canMergePipeline },
 		secrets,
 		via,
 	);
