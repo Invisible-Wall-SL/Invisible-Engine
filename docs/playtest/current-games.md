@@ -431,9 +431,17 @@ before the change, and rendered with main's runtime (`89407ba`) against the work
   the def has changed since), so against main's built-ins it reads as the author's and is kept. The
   classification now prefers the built-ins of the engine the pointer records, which fixes this for
   every snapshot published since the history began; the live games need a republish first.
-- **The revert and main vs main** are being measured in
-  [#1063](https://github.com/Invisible-Wall-SL/Invisible-Engine/pull/1063); the counts land here in
-  that PR.
+- **The revert, which is also main vs main.** With the frame back at `x: 0` the working tree's
+  engine source equals main's, so its runtime (built again from the restored source) against main's
+  cached build is two independent builds and renders of one engine. The plan found the two builds'
+  built-ins the same and planned no republished render; the eight rows: `8 pass · 0 fail · 0 not
+  rendered · 0 changed screen(s)`, 108 of 108 compared screens byte-identical, every gate of every
+  type passing (14 gates). On the live games the reverted head `629607d`
+  ([run 37391483948](https://github.com/Invisible-Wall-SL/Invisible-Engine/actions/runs/37391483948))
+  gave `12 pass · 0 fail · 9 not rendered · 0 changed screen(s)`, 161 of 161 byte-identical.
+- **Time.** The seeded run rendered 162 screens in 2,503 s of rendering (106 units, one at a time:
+  the as-published units plus the four affected games' republished ones, which cost the same as
+  their twins), the revert run 108 screens in 1,650 s plus the gates.
 
 ## Measured on the stand-in fixtures (2026-10-04, Claude Code cloud container, 4 vCPU, software GL)
 
