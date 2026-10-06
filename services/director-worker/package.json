@@ -14,6 +14,7 @@
 		"check:run-state": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/runState.fixture.ts",
 		"prove:lease": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/prove-lease.ts",
 		"check:model": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/model.fixture.ts",
+		"check:health": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/health.fixture.ts",
 		"prove:turns": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/prove-turns.ts"
 	},
 	"dependencies": {
