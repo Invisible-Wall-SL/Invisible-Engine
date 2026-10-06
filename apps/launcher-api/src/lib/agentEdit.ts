@@ -1,4 +1,5 @@
 import {
+	AGENT_NAME,
 	parseAgent,
 	type AgentDefinition,
 } from '../../../../services/director-worker/src/agentDefinition';
@@ -38,7 +39,7 @@ export type AgentEditVerdict =
 /** The file the definition lives in. */
 export const agentPath = (name: string): string => `services/director-worker/agents/${name}.md`;
 
-export const AGENT_NAME = /^[a-z][a-z-]*$/;
+export { AGENT_NAME };
 
 /** The one-line reason the PR carries in its title; one line, within the title GitHub shows. */
 export const WHY_MAX = 120;

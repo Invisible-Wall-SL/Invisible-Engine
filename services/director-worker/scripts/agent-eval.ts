@@ -19,7 +19,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { pricedModels } from '../src/agents.ts';
+import { AGENT_NAME, pricedModels } from '../src/agents.ts';
 import { EVAL_CAP_USD, evalPasses } from '../src/eval/report.ts';
 import { runAgentEval } from '../src/eval/run.ts';
 import { anthropicTransport } from '../src/mockups/vision.ts';
@@ -49,7 +49,7 @@ const { values } = parseArgs({
 
 const { agent, after, head, base, out } = values;
 if (!agent || !after || !head || !base || !out) usageError('missing an option');
-if (!/^[a-z][a-z-]*$/.test(agent)) usageError('--agent must be a lower-case-kebab agent name');
+if (!AGENT_NAME.test(agent)) usageError('--agent must be a lower-case-kebab agent name');
 const capUsd = values.cap === undefined ? EVAL_CAP_USD : Number(values.cap);
 if (values.cap === '' || !Number.isFinite(capUsd) || capUsd < 0 || capUsd > EVAL_CAP_USD) {
 	usageError(`--cap must be a number of dollars from 0 to ${EVAL_CAP_USD}`);

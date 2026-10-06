@@ -357,9 +357,9 @@ const opening = createKeyedMutex();
  * Open the pipeline change for an edit of `name` (the caller has passed `pipelineMerge`). The
  * same `requestId` opens the same branch, so a resend finds the change it already made —
  * including one whose PR never got opened or labelled — and finishes it rather than making a
- * second. The commit is based on main's commit as read at the start; if main moves before the
- * branch exists the whole thing is done once more from the new commit, and refused if it moved
- * again (409), so a change never starts behind main by a commit it did not see.
+ * second. The commit is based on main's commit as read at the start; if main moves while the
+ * commit is being made it is made once more from the new commit, and refused if it moved again
+ * (409), so a change starts at main's tip as closely as a read-then-write allows.
  */
 export async function openAgentChange(
 	input: AgentChangeRequest & { name: string; user: NonNullable<App.Locals['user']> },
@@ -379,7 +379,7 @@ export async function openAgentChange(
 		throw error(400, {
 			message: `The definition cannot be submitted: ${verdict.errors[0]}`,
 			errors: verdict.errors,
-		} as unknown as string);
+		});
 	}
 	const path = agentPath(name);
 	const branch = branchFor(name, input.requestId);
@@ -442,6 +442,21 @@ export async function openAgentChange(
 				draft: false,
 			}),
 		});
+		if (pull.status === 422) {
+			// Another launcher instance sent the same request and opened the PR between this one's
+			// look and its own open: GitHub refuses a second PR for the branch, so that one is it.
+			const raced = await findExisting(app, branch, path, proposed);
+			if (raced.kind === 'pull') {
+				await ensureLabel(app, raced.number);
+				return {
+					number: raced.number,
+					url: raced.url,
+					branch,
+					headSha: raced.headSha,
+					created: false,
+				};
+			}
+		}
 		if (!pull.ok) throw await failure(pull, 'opening the pull request');
 		const opened = (await pull.json()) as { number: number; html_url: string };
 		await ensureLabel(app, opened.number);
@@ -489,7 +504,9 @@ async function findExisting(
 /**
  * One commit changing `path` to `text`, on main's current commit. Refuses a base that is not
  * main's file (the editor is stale: it would silently undo what landed since), and an unchanged
- * file. Done once more if main moved while the commit was made; refused if it moved again.
+ * file. Done once more if main moved while the commit was made; refused if it moved again. Main
+ * can still move between this read and the branch's creation; a PR one commit behind main is
+ * what that costs.
  */
 async function commitOnFreshBase(
 	app: GithubApp,

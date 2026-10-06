@@ -524,8 +524,9 @@ code default, so the dashboard need not set it):
   edits exactly one `services/director-worker/agents/<name>.md`, from **main's** workflow file and
   code (`pull_request_target`), with a hard cap of **$20 per run** enforced in the eval's own code
   from the usage the API returns. Missing → the run posts `agent-eval` as a failure naming the
-  secret, without printing anything. The value is never echoed: the runner logs usage and dollars
-  only. See "GitHub App (Pipeline Changes)" for how the launcher opens those PRs.
+  secret, without printing anything. The value is never echoed: the runner prints the report's
+  one-line summary (scores and dollars) and nothing else. See "GitHub App (Pipeline Changes)" for
+  how the launcher opens those PRs.
 - **Director adapters:** `DIRECTOR_SERVICE_TOKEN` (secret, no default) — the bearer token the
   Invisible Director worker sends to `POST /api/director/adapter/<tool>/<op>`
   (`docs/director/DECISIONS/0002-tool-adapters.md`). Every call also names a run and an agent, and
@@ -1083,9 +1084,9 @@ edited runtime-agent definition becomes a branch `agents/<name>-<short>` off `ma
 changing only `services/director-worker/agents/<name>.md` (the Git Data API: blob → tree → commit →
 ref, never a push to `main`), and a PR titled `agents: <name> — <why>` labelled `agent-definition`,
 all as the App; the launcher user is named in the body. The label is added through the issues
-endpoint (Pull requests write covers a PR's labels); if the repository has no `agent-definition`
-label yet the launcher creates it, which needs Issues **write** — or the owner creates the label
-once by hand (Issues → Labels) and the App needs no Issues permission. The merge (card 5C) uses
+endpoint (Pull requests write covers a PR's labels); if that add is refused because the repository
+has no `agent-definition` label yet, the launcher creates it, which needs Issues **write** — or the
+owner creates the label once by hand (Issues → Labels) and the App needs no Issues permission. The merge (card 5C) uses
 the same two write permissions. The status the launcher posts comes through the API, like the
 harness's own, so the `main` ruleset's required check `current-games` keeps source **any**.
 

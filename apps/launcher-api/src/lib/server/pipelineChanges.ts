@@ -20,11 +20,15 @@ import {
 	type HarnessReportState,
 	type ReportImages,
 } from './pipelineReport';
-import { loadAgentEval, type AgentEvalCheck } from './pipelineAgentEval';
-
-export type { AgentEvalCheck };
+import {
+	AGENT_DEFINITION_LABEL,
+	EVAL_STATUS_CONTEXT,
+} from '../../../../../services/director-worker/src/eval/report';
+import { EVAL_WORKFLOW_PATH, loadAgentEval, type AgentEvalCheck } from './pipelineAgentEval';
 import { getRoleOverrides } from './roleToolAccess';
 import { getToolOverrides } from './userToolAccess';
+
+export type { AgentEvalCheck };
 
 /**
  * Invisible Pipeline Changes over GitHub (ADR-0007, "GitHub is the record"): the changes are the
@@ -49,10 +53,10 @@ export const HARNESS_WORKFLOW_PATH = '.github/workflows/current-games.yml';
 export const HARNESS_SOURCES = [/^\.github\/workflows\//, /^scripts\/current-games\//];
 /** Reserved for Director games, which never make a PR; a PR wearing it is not a change. */
 export const DIRECTOR_GAME_LABEL = 'director-game';
-/** An Agents-tab change (PLAN 5.4); listed like any other, flagged for the UI. */
-export const AGENT_DEFINITION_LABEL = 'agent-definition';
-/** The extra status an agent-definition change carries: its evaluation (`agent-eval.yml`). */
-export const EVAL_CONTEXT = 'agent-eval';
+/** An Agents-tab change (PLAN 5.4); listed like any other, flagged for the UI. The label and the
+ *  eval's status context are the workflow's own constants (`eval/report.ts`). */
+export { AGENT_DEFINITION_LABEL };
+export const EVAL_CONTEXT = EVAL_STATUS_CONTEXT;
 const BASE_BRANCH = 'main';
 const PER_CHANGE_CONCURRENCY = 4;
 const PAGE = 100;
@@ -304,7 +308,9 @@ function groupState(jobs: CheckJob[]): CheckState {
  * The harness's own jobs (by its workflow file, not its name) are left out — they are Check 2: its
  * `report` job exits non-zero on a failed verdict by design, and the verdict is the `current-games`
  * status, which an approval can turn green. Counting those jobs here would hold a change Blocked
- * after every diff was approved. A workflow a PR adds under the same name stays in Check 1.
+ * after every diff was approved. The eval workflow's job is left out the same way: its verdict is
+ * the `agent-eval` status, with the reason in its description, and its job exits non-zero on a
+ * failed one. A workflow a PR adds under the same name stays in Check 1.
  */
 export function groupCheckRuns(
 	checkRuns: GhCheckRun[],
@@ -314,7 +320,7 @@ export function groupCheckRuns(
 	const groups = new Map<string, CheckGroup>();
 	for (const run of checkRuns) {
 		const workflow = run.check_suite ? bySuite.get(run.check_suite.id) : undefined;
-		if (workflow?.path === HARNESS_WORKFLOW_PATH) continue;
+		if (workflow?.path === HARNESS_WORKFLOW_PATH || workflow?.path === EVAL_WORKFLOW_PATH) continue;
 		const name = workflow?.name ?? run.app?.name ?? run.name;
 		let group = groups.get(name);
 		if (!group) {

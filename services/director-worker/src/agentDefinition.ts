@@ -37,6 +37,9 @@ export type ParseResult = { ok: true; agent: AgentDefinition } | { ok: false; er
 
 type Frontmatter = Map<string, string | string[]>;
 
+/** An agent's name, and its file's: lower-case-kebab. */
+export const AGENT_NAME = /^[a-z][a-z-]*$/;
+
 /** The keys a definition may carry, in the order the files write them. */
 export const AGENT_KEYS = [
 	'name',
@@ -129,7 +132,7 @@ export function parseAgent(file: string, text: string, catalog: AgentCatalog): P
 	}
 
 	const name = string('name');
-	if (name && !/^[a-z][a-z-]*$/.test(name)) errors.push(`name: ${name} is not lower-case-kebab`);
+	if (name && !AGENT_NAME.test(name)) errors.push(`name: ${name} is not lower-case-kebab`);
 	if (name && `${name}.md` !== fileName(file)) {
 		errors.push(`name: ${name} does not match ${fileName(file)}`);
 	}

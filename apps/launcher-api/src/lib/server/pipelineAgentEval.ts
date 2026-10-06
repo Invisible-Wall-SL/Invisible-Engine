@@ -15,7 +15,8 @@ import { readZipEntry } from './zip';
  * report it uploads as the `agent-eval-report` artifact (`report.json`, the shape
  * `services/director-worker/src/eval/report.ts` defines and the workflow writes from MAIN's code).
  *
- * The workflow runs on `pull_request_target`, so its run's `head_sha` is main's, not the PR's:
+ * The workflow runs on `pull_request_target`, whose run GitHub attributes to the base branch's
+ * commit rather than the PR head, so the head's own workflow-run listing is not where to look:
  * the run is found through the status's own `target_url` (the run the workflow posted), and then
  * checked to be the eval workflow's, from this repository, with a report naming this head —
  * a status anyone with `statuses: write` could post points at nothing the launcher trusts

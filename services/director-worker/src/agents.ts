@@ -11,6 +11,7 @@ import { parseAgent, type AgentCatalog, type AgentDefinition } from './agentDefi
 
 export {
 	AGENT_KEYS,
+	AGENT_NAME,
 	EFFORTS,
 	parseAgent,
 	type AgentCatalog,
