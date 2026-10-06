@@ -4,6 +4,7 @@ import { AdapterCallError, type AdapterClient } from '../adapters.ts';
 import type {
 	AnalyzeDeps,
 	Breakdown,
+	FontListing,
 	MockupListing,
 	RegionListing,
 	TemplateSummary,
@@ -26,6 +27,7 @@ const EVAL_DIR = fileURLToPath(new URL('../../../../docs/director/eval/mockups/'
 interface Reference {
 	template: TemplateSummary;
 	regions: RegionListing;
+	fonts: FontListing;
 	fidelity: MockupListing['fidelity'];
 	ownershipConfirmed: MockupListing['ownershipConfirmed'];
 	images: (MockupListing['images'][number] & {
@@ -68,9 +70,8 @@ export interface ReferenceCall {
 
 /**
  * A fresh in-memory launcher over the reference set: the analyst's reads and the worker's write, as
- * `analyzeMockups` wants them. Anything the real gate would answer and the set does not — `fonts.list`
- * included, which the live analysis does not call yet — is a 404 `unknown_op`, the answer an
- * unserved op gets. Each call is appended to `calls` when one is given.
+ * `analyzeMockups` wants them. Anything the real gate would answer and the set does not is a 404
+ * `unknown_op`, the answer an unserved op gets. Each call is appended to `calls` when one is given.
  */
 export function referenceAdapters(calls: ReferenceCall[] = []): AnalyzeDeps['adapters'] {
 	const { reference, bytes } = loadSet();
@@ -105,6 +106,8 @@ export function referenceAdapters(calls: ReferenceCall[] = []): AnalyzeDeps['ada
 					return reference.template as T;
 				case 'atlas.list_regions':
 					return reference.regions as T;
+				case 'fonts.list':
+					return reference.fonts as T;
 				case 'mockups.save_crops': {
 					const crops = (input as { crops: { region: string; imageId: string }[] }).crops;
 					return {

@@ -2,6 +2,7 @@ import { opIdFor, type AdapterClient } from '../adapters.ts';
 import type { AgentDefinition } from '../agents.ts';
 import {
 	applyCodeRules,
+	catalogueFontNamed,
 	regionIndex,
 	verifyPalette,
 	type CodedElement,
@@ -64,6 +65,10 @@ export interface RegionListing {
 	atlases: { atlas: string; regions: { name: string; size: { w: number; h: number } | null }[] }[];
 }
 
+export interface FontListing {
+	fonts: { id: string; name: string; kind: string; folder: string; shared: boolean }[];
+}
+
 export interface SaveCropsResult {
 	saved: { region: string; key: string; imageId: string }[];
 	skipped: { region: string; imageId: string; reason: string }[];
@@ -90,6 +95,7 @@ export interface Breakdown {
 	images: BreakdownImage[];
 	palette: AnalystSwatch[];
 	paletteDropped: PaletteCheck['dropped'];
+	/** Lettering the model found that no font of the project's or the shared catalogue is named for. */
 	fontGaps: (AnalystFontGap & { imageId: string })[];
 	/** Template regions no matched element covers: designed from the notes and the palette. */
 	uncoveredRegions: string[];
@@ -194,9 +200,12 @@ export async function analyzeMockups(deps: AnalyzeDeps): Promise<Breakdown> {
 		throw new AnalysisRefused('no_mockups', 'This run has no mockups; it takes the style board.');
 	}
 
-	const [template, regions] = await Promise.all([
+	// A failed read fails the analysis like the others: a catalogue taken as empty would report
+	// gaps for fonts the project has, and a retry would then report different ones.
+	const [template, regions, catalogue] = await Promise.all([
 		analyst.call<TemplateSummary>('gamemaker', 'get_template', { key: run.templateProjectKey }),
 		analyst.call<RegionListing>('atlas', 'list_regions', {}),
+		analyst.call<FontListing>('fonts', 'list', {}),
 	]);
 	const regionNames = regions.atlases.flatMap((a) => a.regions.map((r) => r.name));
 	const index = regionIndex(regionNames);
@@ -234,9 +243,13 @@ export async function analyzeMockups(deps: AnalyzeDeps): Promise<Breakdown> {
 			for (const region of el.regions) crops.push({ imageId: image.id, region, box: el.box });
 		}
 		proposed.push(...answer.output.palette);
-		// Reported as the model sees them; the comparison with the Font Maker catalogues (ADR-0005
-		// "Fonts") needs the `fonts.list` adapter of PLAN 2.6.
-		for (const gap of answer.output.fontGaps) fontGaps.push({ ...gap, imageId: image.id });
+		// ADR-0005 "Fonts": a gap whose style note names a font the project or `_shared` already
+		// has is not a gap. The rest are reported, never filled.
+		for (const gap of answer.output.fontGaps) {
+			if (!catalogueFontNamed(gap.styleNote, catalogue.fonts)) {
+				fontGaps.push({ ...gap, imageId: image.id });
+			}
+		}
 		images.push({ ...pick(image), w: got.w, h: got.h, elements, model: answer.model });
 	}
 

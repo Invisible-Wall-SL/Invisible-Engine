@@ -179,6 +179,24 @@
 			}
 		]
 	},
+	"fonts": {
+		"fonts": [
+			{
+				"id": "cinzel-decorative",
+				"name": "Cinzel Decorative",
+				"kind": "bitmap",
+				"folder": "cinzel-decorative",
+				"shared": true
+			},
+			{
+				"id": "temple-gold",
+				"name": "Temple Gold",
+				"kind": "bitmap",
+				"folder": "temple-gold",
+				"shared": false
+			}
+		]
+	},
 	"fidelity": "match",
 	"ownershipConfirmed": {
 		"by": {

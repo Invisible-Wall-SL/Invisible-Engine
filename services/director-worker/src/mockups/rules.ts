@@ -57,6 +57,25 @@ export const tokens = (text: string): string =>
 		.toLowerCase();
 
 /**
+ * The font of a catalogue a style note names, or null: every word of the font's name, in order and
+ * as whole words, inside the note's words (so "Cinzel Decorative, carved" names `CinzelDecorative`
+ * and "carved serif capitals" names nothing). Conservative on purpose: a gap dropped for a font
+ * the mockup does not use would hide a font the owner needs, while a gap kept for a font the
+ * project has costs one line in the review. A name shorter than three letters is never matched.
+ */
+export function catalogueFontNamed<F extends { name: string }>(
+	styleNote: string,
+	fonts: readonly F[],
+): F | null {
+	const note = ` ${tokens(styleNote)} `;
+	for (const font of fonts) {
+		const name = tokens(font.name);
+		if (name.length >= 3 && note.includes(` ${name} `)) return font;
+	}
+	return null;
+}
+
+/**
  * The rules. Each names the template fact it reads, so a false `left_out` can be traced to one line.
  * A buy / purchase control needs a bet mode with `buyBonus` — the FLAG, never the mode's name
  * (`scatter.json` buys through a mode called `bonus`). A template whose facts are missing cannot
