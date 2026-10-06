@@ -172,7 +172,11 @@ const gh = {
 	runs: new Map<number, Json>(),
 	/** The next label create is answered 422: another request made the label first. */
 	labelRace: false,
+	/** A repository route whose path holds the key is answered with this status instead of its own. */
+	failing: new Map<string, number>(),
 };
+/** The sentence the fake gives a request it was told to fail. */
+const FAILURE_MESSAGE = 'upstream failure';
 
 const jsonResponse = (status: number, body: unknown): Response =>
 	new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -617,6 +621,9 @@ const fakeFetch: typeof fetch = async (input, init) => {
 		return jsonResponse(404, { message: 'Not Found' });
 	}
 	const rest = seg.slice(3);
+	for (const [part, status] of gh.failing) {
+		if (path.includes(part)) return jsonResponse(status, { message: FAILURE_MESSAGE });
+	}
 	const agentAnswer = agentRoutes(method, rest, url, init);
 	if (agentAnswer) return agentAnswer;
 	if (rest[0] === 'pulls' && rest.length === 1) {
@@ -2087,10 +2094,40 @@ check(
 			[true, false, true],
 		);
 		check(
-			'…the page still reads the why back from it, joiners and all',
-			changes.whyFromBody(risky),
-			`fix @${WORD_JOINER}alice's #${WORD_JOINER}12 wording`,
+			'…the page reads the why back from it without the joiners, while the PR body keeps them',
+			[changes.whyFromBody(risky), risky.includes(WORD_JOINER)],
+			["fix @alice's #12 wording", true],
 		);
+		{
+			const why = 'see https://github.com/x/y#readme and #12';
+			const linked = agents.changeBody('qa', why, 'tester');
+			check(
+				'…a #12 after other text is joined whatever else the why holds, and the page reads the why back unjoined',
+				[linked.split('\n')[0].endsWith(` and #${WORD_JOINER}12`), changes.whyFromBody(linked)],
+				[true, why],
+			);
+			check(
+				'…a # after a / is a URL fragment and is left alone',
+				agents
+					.changeBody('qa', 'see https://example.com/#readme and #12', 'tester')
+					.startsWith(`**Why:** see https://example.com/#readme and #${WORD_JOINER}12\n`),
+				true,
+			);
+			check(
+				'…a URL is left whole: a # inside its fragment is not joined, the #12 after it is',
+				agents
+					.changeBody('qa', 'see https://github.com/x/y#readme and #12', 'tester')
+					.startsWith(`**Why:** see https://github.com/x/y#readme and #${WORD_JOINER}12\n`),
+				true,
+			);
+			check(
+				'…an @ after a / is left alone too',
+				agents
+					.changeBody('qa', 'see https://example.com/@bob and @bob', 'tester')
+					.startsWith(`**Why:** see https://example.com/@bob and @${WORD_JOINER}bob\n`),
+				true,
+			);
+		}
 		check(
 			'…the user name is joined too, inside its backticks; a mark with no word after it is left alone',
 			[
@@ -4951,6 +4988,147 @@ const evalRequests = (from: number): string[] =>
 			);
 		}
 	}
+}
+{
+	// GitHub failing on the way is that change's unreadable eval: it blocks the change, and neither
+	// the list nor the detail is an error of the page.
+	const unbacked = (detail: string) => ({
+		kind: 'blocked',
+		reason: `agent-eval: No report the launcher can read backs the agent-eval status: ${detail}`,
+	});
+	const listNow = async () => {
+		lapse();
+		const res = await list(ADMIN);
+		return { status: res.status, changes: (res.body as { changes: Json[] }).changes };
+	};
+	const of = (l: { changes: Json[] }, n: number): Json =>
+		l.changes.find((c) => c.number === n) as Json;
+	const others = (l: { changes: Json[] }): Json[] =>
+		l.changes.filter((c) => c.number !== FIRST.number);
+
+	const run = evalRun();
+	evalArtifact(run, { 'report.json': JSON.stringify(evalReport(EVAL_HEAD)) });
+	setEvalStatus(evalHead, 'success', 'qa: 50% → 75% on 4 elements', evalRunUrl(run));
+	const before = await listNow();
+	check(
+		'the list with GitHub answering: 200, the labelled change ready on its verified report',
+		[before.status, of(before, FIRST.number).status, others(before).length > 0],
+		[200, { kind: 'ready' }, true],
+	);
+	try {
+		gh.failing.set(`/pulls/${FIRST.number}/files`, 502);
+		const filesDown = await listNow();
+		check(
+			"GitHub 502 on a labelled change's files: the list still answers 200 with every other change intact",
+			[filesDown.status, others(filesDown), filesDown.changes.length],
+			[200, others(before), before.changes.length],
+		);
+		check(
+			'…and that change is still listed, flagged, on its head, and blocked on an unreadable eval',
+			[
+				of(filesDown, FIRST.number).agentDefinition,
+				of(filesDown, FIRST.number).headSha,
+				of(filesDown, FIRST.number).status,
+			],
+			[
+				true,
+				EVAL_HEAD,
+				unbacked(`GitHub did not answer for this change: GitHub 502: ${FAILURE_MESSAGE}`),
+			],
+		);
+	} finally {
+		gh.failing.clear();
+	}
+	try {
+		gh.failing.set(`/actions/runs/${run}/artifacts`, 500);
+		const artifactsDown = await listNow();
+		check(
+			"GitHub 500 on the eval run's artifacts: the list answers 200 with every other change intact",
+			[artifactsDown.status, others(artifactsDown)],
+			[200, others(before)],
+		);
+		check(
+			'…and that change is blocked on the unlisted artifacts, however green its status says',
+			of(artifactsDown, FIRST.number).status,
+			unbacked(`The run's artifacts could not be listed: GitHub 500: ${FAILURE_MESSAGE}`),
+		);
+		const ae = (await evalOf(FIRST.number)).agentEval;
+		check(
+			'…and the detail answers too: an unreadable report, the run and the agent still named, the change blocked',
+			[ae?.report, ae?.run, ae?.agent, ae?.blocking, ae?.status?.state],
+			[
+				{
+					state: 'unreadable',
+					detail: `The run's artifacts could not be listed: GitHub 500: ${FAILURE_MESSAGE}`,
+				},
+				{ id: run, url: evalRunUrl(run), status: 'completed', conclusion: 'success' },
+				'qa',
+				`No report the launcher can read backs the agent-eval status: The run's artifacts could not be listed: GitHub 500: ${FAILURE_MESSAGE}`,
+				'success',
+			],
+		);
+		check(
+			'…and with the artifacts back, the same change reads its report and is ready again',
+			await (async () => {
+				gh.failing.clear();
+				const l = await listNow();
+				return [l.status, of(l, FIRST.number).status];
+			})(),
+			[200, { kind: 'ready' }],
+		);
+	} finally {
+		gh.failing.clear();
+	}
+
+	const posted = [
+		{
+			context: 'lint',
+			state: 'success',
+			description: null,
+			target_url: null,
+			updated_at: AT,
+		},
+		{
+			context: 'agent-eval',
+			state: 'success',
+			description: 'all good',
+			target_url: evalRunUrl(run),
+			updated_at: AT,
+		},
+	];
+	check(
+		'unreadableAgentEval: fails closed, no run, no agent, the status the head holds, and says why',
+		agentEval.unreadableAgentEval(posted, 'GitHub did not answer for this change: GitHub 502: x'),
+		{
+			status: { state: 'success', description: 'all good', url: evalRunUrl(run), updatedAt: AT },
+			run: null,
+			report: {
+				state: 'unreadable',
+				detail: 'GitHub did not answer for this change: GitHub 502: x',
+			},
+			agent: null,
+			blocking:
+				'No report the launcher can read backs the agent-eval status: GitHub did not answer for this change: GitHub 502: x',
+		},
+	);
+	check(
+		'…with no agent-eval status on the head the status is null, and it still blocks',
+		(({ status, blocking }) => [status, blocking !== null])(
+			agentEval.unreadableAgentEval(posted.slice(0, 1), 'x'),
+		),
+		[null, true],
+	);
+	check(
+		'githubErrorText: an App error and an Error give their message, anything else its string',
+		[
+			agentEval.githubErrorText(new GithubAppError('GitHub 502: Bad Gateway', 502)),
+			agentEval.githubErrorText(new Error('boom')),
+			agentEval.githubErrorText('plain'),
+			agentEval.githubErrorText(404),
+			agentEval.githubErrorText(null),
+		],
+		['GitHub 502: Bad Gateway', 'boom', 'plain', '404', 'null'],
+	);
 }
 {
 	// A change that carries the label but does not edit exactly one definition.

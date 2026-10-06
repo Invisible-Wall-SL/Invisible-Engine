@@ -166,8 +166,12 @@ export function branchFor(name: string, requestId: string): string {
 export const changeTitle = (name: string, why: string): string => `agents: ${name} — ${why}`;
 
 /** `@name` and `#123` in a PR body page people and link issues; a word joiner after the mark
- *  keeps the text as written without either. */
-const unlinked = (text: string): string => text.replace(/([@#])(?=\w)/g, '$1\u2060');
+ *  keeps the text as written without either. A URL (a token with `://`) is left whole: a joiner
+ *  inside its fragment or path would break the link. */
+const unlinked = (text: string): string =>
+	text.replace(/\S+/g, (token) =>
+		token.includes('://') ? token : token.replace(/([@#])(?=\w)/g, '$1\u2060'),
+	);
 
 export function changeBody(name: string, why: string, user: string): string {
 	return [

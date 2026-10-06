@@ -5,7 +5,7 @@ import {
 	parseEvalReport,
 	type EvalReport,
 } from '../../../../../services/director-worker/src/eval/report';
-import type { GithubApp } from './githubApp';
+import { GithubAppError, type GithubApp } from './githubApp';
 import { readBounded } from './pipelineReport';
 import { readZipEntry } from './zip';
 
@@ -125,9 +125,40 @@ async function readReport(app: GithubApp, repo: string, artifact: GhArtifact): P
 }
 
 /**
+ * The check when GitHub could not be asked about the eval at all (the change's files, the run's
+ * artifacts): the report is unreadable, so the verdict fails closed, and the rest of the Changes
+ * list is not held up by one change's bad answer.
+ */
+export function unreadableAgentEval(
+	statuses: {
+		context: string;
+		state: string;
+		description: string | null;
+		target_url: string | null;
+		updated_at: string;
+	}[],
+	detail: string,
+): AgentEvalCheck {
+	const s = statuses.find((x) => x.context === EVAL_STATUS_CONTEXT) ?? null;
+	const status: EvalStatus | null = s && {
+		state: s.state,
+		description: s.description,
+		url: s.target_url,
+		updatedAt: s.updated_at,
+	};
+	const report: AgentEvalReportState = { state: 'unreadable', detail };
+	return { status, run: null, report, agent: null, blocking: unreadableReason(report) };
+}
+
+/** A GitHub error's sentence, or the error's; never a credential (`GithubAppError` carries none). */
+export const githubErrorText = (err: unknown): string =>
+	err instanceof GithubAppError || err instanceof Error ? err.message : String(err);
+
+/**
  * The eval of an agent-definition change on `headSha`. `statuses` are the head's commit statuses,
  * `files` the change's files (what decides the agent). Never throws for a state of the eval: an
- * absent, running, expired or foreign report is a state the page shows.
+ * absent, running, expired or foreign report is a state the page shows, and a GitHub answer that
+ * fails on the way is the `unreadable` state rather than an error.
  */
 export async function loadAgentEval(
 	app: GithubApp,
@@ -202,9 +233,19 @@ export async function loadAgentEval(
 	if (ghRun.status !== 'completed') {
 		return check(run, { state: 'running', detail: 'agent-eval is still running on this head.' });
 	}
-	const { artifacts } = await app.json<{ artifacts: GhArtifact[] }>(
-		`/repos/${repo}/actions/runs/${runId}/artifacts?per_page=100`,
-	);
+	let artifacts: GhArtifact[];
+	try {
+		artifacts = (
+			await app.json<{ artifacts: GhArtifact[] }>(
+				`/repos/${repo}/actions/runs/${runId}/artifacts?per_page=100`,
+			)
+		).artifacts;
+	} catch (err) {
+		return check(run, {
+			state: 'unreadable',
+			detail: `The run's artifacts could not be listed: ${githubErrorText(err)}`,
+		});
+	}
 	const artifact = artifacts.find((a) => a.name === EVAL_REPORT_ARTIFACT);
 	if (!artifact)
 		return check(run, { state: 'missing', detail: 'The run made no report; see its log.' });
@@ -267,8 +308,11 @@ function blockingOf(
 		return status.description ?? 'agent-eval failed';
 	}
 	if (report.state === 'none' || report.state === 'running') return null;
-	return `No report the launcher can read backs the agent-eval status: ${report.detail}`;
+	return unreadableReason(report);
 }
+
+const unreadableReason = (report: { detail: string }): string =>
+	`No report the launcher can read backs the agent-eval status: ${report.detail}`;
 
 export type EvalVerdict = 'pass' | 'pending' | 'fail';
 

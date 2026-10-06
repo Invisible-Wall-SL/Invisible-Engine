@@ -27,7 +27,9 @@ import {
 import {
 	EVAL_WORKFLOW_PATH,
 	evalVerdict,
+	githubErrorText,
 	loadAgentEval,
+	unreadableAgentEval,
 	type AgentEvalCheck,
 	type EvalVerdict,
 } from './pipelineAgentEval';
@@ -419,9 +421,12 @@ export function deriveStatus({
  */
 export function whyFromBody(body: string | null): string | null {
 	if (!body) return null;
+	// The word joiner an agent-definition change's body carries after `@` and `#` (so nobody is
+	// paged) is not part of the reason.
 	const text = body
 		.replace(/\r\n/g, '\n')
 		.replace(/<!--[\s\S]*?-->/g, '')
+		.replace(/\u2060/g, '')
 		.trim();
 	const heading = /(?:^|\n)#{1,6}[ \t]*why\b[^\n]*\n+([\s\S]*?)(?=\n#{1,6}[ \t]|$)/i.exec(text);
 	if (heading) return clip(heading[1]);
@@ -533,7 +538,11 @@ function summaryOf(pull: GhPull, head: Head, agentEval: AgentEvalCheck | null): 
 	};
 }
 
-/** The evaluation of an agent-definition change, or null for any other change. */
+/**
+ * The evaluation of an agent-definition change, or null for any other change. A GitHub failure
+ * on the way (the files, the run) is that change's `unreadable` eval, so one bad answer never
+ * fails the whole list; a 404 of the change itself is not caught here (`readPull` says why).
+ */
 async function agentEvalOf(
 	app: GithubApp,
 	pull: GhPull,
@@ -541,7 +550,14 @@ async function agentEvalOf(
 	files: () => Promise<ChangeFile[]>,
 ): Promise<AgentEvalCheck | null> {
 	if (!labelsOf(pull).includes(AGENT_DEFINITION_LABEL)) return null;
-	return loadAgentEval(app, repo(), pull.head.sha, head.statuses, await files());
+	try {
+		return await loadAgentEval(app, repo(), pull.head.sha, head.statuses, await files());
+	} catch (err) {
+		return unreadableAgentEval(
+			head.statuses,
+			`GitHub did not answer for this change: ${githubErrorText(err)}`,
+		);
+	}
 }
 
 /** Every open agent-definition change (the label), with the files each edits. */
