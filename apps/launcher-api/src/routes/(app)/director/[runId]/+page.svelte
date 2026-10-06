@@ -68,7 +68,8 @@
 	const terminal = $derived(
 		run !== null && ['stopped', 'failed', 'handed_off'].includes(run.status),
 	);
-	const can = (action: string) => run?.allowedActions.includes(action as never) ?? false;
+	const can = (action: string) =>
+		(run?.allowedActions as readonly string[] | undefined)?.includes(action) ?? false;
 
 	async function refresh() {
 		try {
@@ -127,6 +128,15 @@
 		}, 250);
 	};
 
+	/**
+	 * The stream re-sends the run's last rows on open and on every reconnect (`eventStream.ts`
+	 * `LOOKBACK`), so a row counts once by id, and only a row newer than the summary this page
+	 * opened with is news: an old refusal is history, not the answer to a button pressed here.
+	 */
+	const SEEN_IDS = 64;
+	const seenIds: number[] = [];
+	let baselineEventId = 0;
+
 	function onEvent(raw: MessageEvent<string>) {
 		let event: RunEvent;
 		try {
@@ -134,8 +144,10 @@
 		} catch {
 			return;
 		}
-		// A reconnect may replay the run's last rows; the id makes a repeat a no-op.
-		if (recent.some((r) => r.id === event.id)) return;
+		if (seenIds.includes(event.id)) return;
+		seenIds.push(event.id);
+		if (seenIds.length > SEEN_IDS) seenIds.shift();
+		if (event.id <= baselineEventId) return;
 		recent = [event, ...recent].slice(0, 8);
 		if (event.kind === 'error' && event.payload?.type === 'refused_request') {
 			refusals = [...refusals, String(event.payload.error ?? 'The request was refused.')];
@@ -147,15 +159,28 @@
 	onMount(() => {
 		let source: EventSource | null = null;
 		let poll: ReturnType<typeof setInterval> | null = null;
+		let disposed = false;
 		const tick = setInterval(() => (now = Date.now()), 30_000);
 		const startPolling = () => {
-			if (poll) return;
+			if (poll || disposed) return;
 			poll = setInterval(() => void refresh(), 5_000);
 		};
+		// What the New-game screen left for this run: a start it could not record, or a create that
+		// was replayed as first sent.
+		for (const kind of ['start-refusal', 'note'] as const) {
+			const key = `director:${kind}:${runId}`;
+			const text = sessionStorage.getItem(key);
+			if (!text) continue;
+			sessionStorage.removeItem(key);
+			if (kind === 'start-refusal') actionErr = text;
+			else notice = text;
+		}
 		void (async () => {
 			await refresh();
 			await loadProjectDocs();
+			if (disposed) return;
 			if (!run) return startPolling();
+			baselineEventId = run.lastEventId;
 			source = new EventSource(
 				`${resolve('/(app)/director/[runId]/events', { runId })}?after=${run.lastEventId}`,
 			);
@@ -173,6 +198,7 @@
 			};
 		})();
 		return () => {
+			disposed = true;
 			source?.close();
 			if (poll) clearInterval(poll);
 			if (refreshTimer) clearTimeout(refreshTimer);
@@ -181,34 +207,44 @@
 	});
 
 	// ── Owner actions, each with its own request id kept across retries ───────
-	const requestIds: Record<string, string> = {};
-	const requestIdFor = (intent: string): string => (requestIds[intent] ??= newRequestId());
+	/**
+	 * One request per intent until it is answered: the id AND the body as first sent, because the
+	 * server replays an id to the answer it recorded and refuses the same id with another body. A
+	 * note edited between a lost answer and the next press therefore does not travel; the page
+	 * says so. An id the server reports as reused is dropped, so the next press starts afresh.
+	 */
+	const pending: Record<string, { requestId: string; body: Record<string, unknown> }> = {};
 	let acting = $state('');
 	let actionErr = $state('');
 	let recorded = $state('');
+	let notice = $state('');
 
 	async function act(
 		intent: string,
 		body: Record<string, unknown>,
 		done = 'Recorded. The agents pick it up now.',
 	) {
+		const sent = (pending[intent] ??= { requestId: newRequestId(), body });
+		const asFirstSent = JSON.stringify(sent.body) !== JSON.stringify(body);
 		acting = intent;
 		actionErr = '';
 		recorded = '';
 		try {
 			const answer = await resend<ActionAnswer>(
 				`/api/director/runs/${encodeURIComponent(runId)}/actions`,
-				{ ...body, requestId: requestIdFor(intent) },
+				{ ...sent.body, requestId: sent.requestId },
 			);
 			run = answer.run;
-			recorded = done;
-			delete requestIds[intent];
+			refusals = [];
+			recorded = asFirstSent ? `${done} The earlier request was resent as first written.` : done;
+			delete pending[intent];
 		} catch (e) {
 			if (e instanceof NetworkLost) {
 				actionErr = `${e.message} Press the button again: the same request is resent, never a second one.`;
 			} else if (isRefusal(e, 'in_progress')) {
 				actionErr = 'This request is still being written. Try again in a moment.';
 			} else {
+				if (isRefusal(e, 'request_id_reused')) delete pending[intent];
 				actionErr = describe(e);
 			}
 		} finally {
@@ -259,15 +295,6 @@
 		});
 		if (ok) await act('stop', { action: 'stop' }, 'Recorded. The run is stopping.');
 	}
-
-	onMount(() => {
-		const key = `director:start-refusal:${runId}`;
-		const refusal = sessionStorage.getItem(key);
-		if (refusal) {
-			actionErr = refusal;
-			sessionStorage.removeItem(key);
-		}
-	});
 
 	// ── The breakdown ─────────────────────────────────────────────────────────
 	let selectedImage = $state('');
@@ -449,8 +476,8 @@
 						{#if run.projectCreated}
 							Start the agents when the mockups are ready.
 						{:else}
-							The project was not created. Create the run again from the New-game screen with the
-							same request.
+							The project was not created, so this draft cannot start. Create the game again from
+							the New game screen.
 						{/if}
 					</span>
 					{#if can('start')}
@@ -481,8 +508,11 @@
 						{#if typeof checkpointPayload?.summary === 'string'}{checkpointPayload.summary}{/if}
 					</span>
 					<span class="row">
-						<button type="button" class="primary" disabled={acting !== ''} onclick={approve}
-							>Approve</button
+						<button
+							type="button"
+							class="primary"
+							disabled={acting !== '' || !can('approve')}
+							onclick={approve}>Approve</button
 						>
 					</span>
 				</div>
@@ -538,6 +568,7 @@
 			{/if}
 			{#if actionErr}<p class="err" role="alert">{actionErr}</p>{/if}
 			{#if recorded}<p class="ok" role="status">{recorded}</p>{/if}
+			{#if notice}<p class="ok" role="status">{notice}</p>{/if}
 			{#if loadErr}<p class="err">{loadErr}</p>{/if}
 			{#if recent.length}
 				{@const last = recent[0]}
@@ -694,7 +725,7 @@
 									{#each crops as crop (crop.region)}
 										<figure>
 											<img
-												src={cropUrl(run.id, crop.region)}
+												src={cropUrl(run.id, crop.region, run.checkpoint?.id ?? 0)}
 												alt="Crop for {crop.region}"
 												loading="lazy"
 											/>

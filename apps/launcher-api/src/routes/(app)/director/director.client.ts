@@ -143,8 +143,6 @@ async function readRefusal(res: Response): Promise<ApiRefusal> {
 		const body = (await res.json()) as { error?: unknown; message?: unknown };
 		if (typeof body.error === 'string') code = body.error;
 		if (typeof body.message === 'string') message = body.message;
-		// SvelteKit's `error()` answers `{ message }` alone.
-		else if (typeof body.error === 'string' && code.startsWith('http_')) message = body.error;
 	} catch {
 		// Not JSON: the status line is the message.
 	}
@@ -198,8 +196,9 @@ export function projectQuery(projectKey: string, clientKey: string | null): stri
 export const mockupImageUrl = (projectKey: string, clientKey: string | null, id: string) =>
 	`/api/director/mockups/image?${projectQuery(projectKey, clientKey)}&id=${encodeURIComponent(id)}`;
 
-export const cropUrl = (runId: string, region: string) =>
-	`/api/director/runs/${encodeURIComponent(runId)}/crop?region=${encodeURIComponent(region)}`;
+/** `version` changes with the breakdown (its checkpoint event id), so a revise is not served stale. */
+export const cropUrl = (runId: string, region: string, version: number) =>
+	`/api/director/runs/${encodeURIComponent(runId)}/crop?region=${encodeURIComponent(region)}&v=${version}`;
 
 /** The agents' short descriptions beside their names; the model comes from the server. */
 export const AGENT_BLURBS: Record<string, { name: string; does: string }> = {

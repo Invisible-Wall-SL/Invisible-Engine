@@ -144,8 +144,17 @@
 		}
 	}
 
+	/** The scope a write goes to; its answer is kept only while the form still names that scope. */
+	class ScopeMoved extends Error {}
+
 	async function postMockups(form: FormData): Promise<void> {
-		mockups = await api<MockupsAnswer>(`/api/director/mockups?${scopeQuery}`, { form });
+		const k = scopeKey;
+		const c = scopeClient;
+		const answer = await api<MockupsAnswer>(`/api/director/mockups?${projectQuery(k, c)}`, {
+			form,
+		});
+		if (k !== scopeKey || c !== scopeClient) throw new ScopeMoved();
+		mockups = answer;
 	}
 
 	async function onFiles(files: FileList | null) {
@@ -161,7 +170,7 @@
 			try {
 				await postMockups(form);
 			} catch (e) {
-				mockupsErr = `${file.name}: ${describe(e)}`;
+				if (!(e instanceof ScopeMoved)) mockupsErr = `${file.name}: ${describe(e)}`;
 				break;
 			} finally {
 				uploading--;
@@ -193,7 +202,7 @@
 		try {
 			await postMockups(form);
 		} catch (e) {
-			mockupsErr = describe(e);
+			if (!(e instanceof ScopeMoved)) mockupsErr = describe(e);
 		} finally {
 			busyMockup = '';
 		}
@@ -206,10 +215,11 @@
 		await withMockup('fidelity', form);
 	}
 
-	async function confirmOwnership() {
+	async function confirmOwnership(box: HTMLInputElement) {
 		const form = new FormData();
 		form.set('action', 'confirm_ownership');
 		await withMockup('ownership', form);
+		if (!confirmed) box.checked = false;
 	}
 
 	/** The options a card's select offers: the screens, a tag typed elsewhere, and style-only. */
@@ -221,6 +231,8 @@
 	let estimate = $state<EstimateAnswer | null>(null);
 	let estimateErr = $state('');
 	let estimating = $state(false);
+	/** Only the newest estimate request may answer: two in flight can land out of order. */
+	let estimateSeq = 0;
 
 	$effect(() => {
 		const tk = templateKey;
@@ -232,16 +244,19 @@
 			return;
 		}
 		const t = setTimeout(async () => {
+			const seq = ++estimateSeq;
 			estimating = true;
 			try {
-				estimate = await api<EstimateAnswer>('/api/director/estimate', {
+				const answer = await api<EstimateAnswer>('/api/director/estimate', {
 					json: { template: tk, mockups: m, preset: p, checkpoints: c },
 				});
+				if (seq !== estimateSeq) return;
+				estimate = answer;
 				estimateErr = '';
 			} catch (e) {
-				estimateErr = describe(e);
+				if (seq === estimateSeq) estimateErr = describe(e);
 			} finally {
-				estimating = false;
+				if (seq === estimateSeq) estimating = false;
 			}
 		}, 400);
 		return () => clearTimeout(t);
@@ -258,16 +273,18 @@
 
 	// ── Create, then start ────────────────────────────────────────────────────
 	/**
-	 * One request id per (key, client, template): the server derives the run id from it and
-	 * replays a resend to the run it made, so a retry after a lost answer never creates twice. A
-	 * different trio is another request.
+	 * One create request per (key, client, template), kept with the body as FIRST sent until it is
+	 * answered: the server derives the run id from the request id and replays a resend to the run
+	 * it made, so a retry after a lost answer never creates twice, and the same id with another
+	 * body would be refused. A name or note edited meanwhile does not travel; the run page says
+	 * so. A different trio is another request.
 	 */
-	let createRequestId = $state(newRequestId());
+	let createPending: { requestId: string; body: Record<string, unknown> } | null = null;
 	$effect(() => {
 		void key;
 		void clientKey;
 		void templateKey;
-		createRequestId = newRequestId();
+		createPending = null;
 	});
 	/** The start request id per run, kept for the resend of a lost answer. */
 	const startRequestIds: Record<string, string> = {};
@@ -289,21 +306,32 @@
 		if (images.length === 0 && !notes.trim()) {
 			return void (createErr = 'Describe the style in the notes, or upload mockups.');
 		}
+		const body = {
+			key: k,
+			name: name.trim(),
+			clientKey: clientKey || undefined,
+			gameType,
+			template: templateKey,
+			notes: notes.trim(),
+			preset: presetBody,
+			checkpoints: checkpointsBody,
+		};
+		const sent = (createPending ??= { requestId: newRequestId(), body });
+		const asFirstSent = JSON.stringify(sent.body) !== JSON.stringify(body);
 		creating = true;
 		createStage = 'Creating the project…';
 		try {
 			const made = await resend<{ run: RunSummary; replayed: boolean }>('/api/director/runs', {
-				requestId: createRequestId,
-				key: k,
-				name: name.trim(),
-				clientKey: clientKey || undefined,
-				gameType,
-				template: templateKey,
-				notes: notes.trim(),
-				preset: presetBody,
-				checkpoints: checkpointsBody,
+				...sent.body,
+				requestId: sent.requestId,
 			});
 			const run = made.run;
+			if (asFirstSent) {
+				sessionStorage.setItem(
+					`director:note:${run.id}`,
+					'The create request was resent as first written: the name, notes, preset and checkpoints are those of the first attempt.',
+				);
+			}
 			createStage = 'Starting the agents…';
 			let startRefusal = '';
 			try {
@@ -325,6 +353,7 @@
 			} else if (isRefusal(e, 'project_exists')) {
 				createErr = 'A project with that key was created meanwhile. Pick another key.';
 			} else {
+				if (isRefusal(e, 'request_id_reused')) createPending = null;
 				createErr = describe(e);
 			}
 		} finally {
@@ -392,19 +421,22 @@
 							Key
 							<input
 								class="mono"
-								bind:value={key}
-								oninput={() => (keyTouched = true)}
+								value={key}
+								oninput={(e) => {
+									keyTouched = true;
+									key = e.currentTarget.value.toLowerCase();
+								}}
 								placeholder="sunken-temple"
 								pattern="[a-z0-9][a-z0-9_\-]{'{'}0,63}"
 								spellcheck="false"
-								disabled={scopeLocked}
+								disabled={scopeLocked || uploading > 0}
 								required
 							/>
 							{#if keyHint}<span class="field-err">{keyHint}</span>{/if}
 						</label>
 						<label>
 							Client
-							<select bind:value={clientKey} disabled={scopeLocked}>
+							<select bind:value={clientKey} disabled={scopeLocked || uploading > 0}>
 								<option value="">Unassigned</option>
 								{#each offer?.clients ?? [] as c (c.key)}
 									<option value={c.key}>{c.name}</option>
@@ -630,7 +662,7 @@
 									type="checkbox"
 									checked={confirmed !== null}
 									disabled={confirmed !== null || busyMockup !== ''}
-									onchange={confirmOwnership}
+									onchange={(e) => confirmOwnership(e.currentTarget)}
 								/>
 								These designs belong to us or to the client
 								{#if confirmed}
