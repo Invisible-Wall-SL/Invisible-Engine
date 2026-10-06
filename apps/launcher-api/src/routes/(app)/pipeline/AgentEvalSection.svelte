@@ -42,8 +42,8 @@
 		<Pill tone={pill.tone} large>{pill.label}</Pill>
 	</div>
 	<p class="dim">
-		The edited definition and main's version of it run on the same reference mockups, and each is
-		scored against the expected breakdown.
+		When the agent has a reference set, the edited definition and main's version of it run on the
+		same reference mockups, and each is scored against the expected breakdown.
 	</p>
 
 	{#if check.blocking}

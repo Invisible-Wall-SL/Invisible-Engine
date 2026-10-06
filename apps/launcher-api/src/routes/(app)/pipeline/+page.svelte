@@ -471,8 +471,8 @@
 			<div class="heading">
 				<h1>Agents</h1>
 				<p>
-					Director's runtime agents, read from main. Editing one opens a pipeline change with a
-					before and after evaluation.
+					Director's runtime agents, read from main. Editing one opens a pipeline change; an agent
+					with a reference set is evaluated before and after the edit.
 				</p>
 			</div>
 
