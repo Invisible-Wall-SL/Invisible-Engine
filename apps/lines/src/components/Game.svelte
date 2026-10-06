@@ -2376,7 +2376,7 @@
 				 reproduces the identical transform: the line lands in exactly the same PLACE, only
 				 higher in the stack. Still inside the base-game gate, so it unmounts with the board
 				 exactly as before. -->
-		<Container zIndex={LAYER_BAND_WIN_PRESENTATION}>
+		<Container zIndex={LAYER_BAND_WIN_PRESENTATION} x={1}>
 			<MainContainer>
 				<WinLine />
 			</MainContainer>
@@ -2524,7 +2524,7 @@
 			 renders nothing (the OFF composer `bind:Win` draws the visual itself) — byte-identical to
 			 `main` (parity). Mirrors the free-spin outro VISUAL scene. -->
 	{#if winVisualScene && winVisualScene.nodes.length}
-		<Container zIndex={LAYER_BAND_WIN_PRESENTATION}>
+		<Container zIndex={LAYER_BAND_WIN_PRESENTATION} x={1}>
 			<LayoutScene scene={winVisualScene} />
 		</Container>
 	{/if}
