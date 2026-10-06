@@ -474,7 +474,7 @@ export const FREE_SPIN_COUNTER_DEF: ComponentDef = {
 				id: 'freeSpinCounter-frame',
 				label: 'Frame',
 				kind: 'sprite',
-				x: 0,
+				x: 1,
 				y: 0,
 				anchor: { x: 0, y: 0 },
 				assetKey: BUILTIN_REGION.freeSpinCounterFrame,
