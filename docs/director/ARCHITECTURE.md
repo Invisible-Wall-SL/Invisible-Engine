@@ -181,14 +181,21 @@ but the source of truth is the GitHub PR's statuses and reviews.
 
 ## 3. Approved decisions
 
-All approved 2026-10-04:
-- **ADR-0001:** Anthropic SDK tool runner in a new `services/director-worker` service.
-- **ADR-0002:** typed launcher adapter API. It has hard refusals in code and resumes GPU jobs
-  instead of polling them.
-- **ADR-0003:** Postgres run state, a pure state machine, `LISTEN/NOTIFY` and SSE.
-- **ADR-0004:** current-games harness. Published snapshots × branch runtime vs main runtime, with
-  a tunable tolerance and per-diff owner approval.
-- **ADR-0005:** mockups in `<C>/<P>/director/`. Structured analysis; code has the final word on
-  `left_out`.
-- **ADR-0006:** `pricing.json` plus an Admin override, a `director_spend` ledger, and a budget cap
-  snapshotted per run.
+Approved dates as noted:
+- **ADR-0001** (2026-10-04): Anthropic SDK tool runner in a new `services/director-worker` service.
+- **ADR-0002** (2026-10-04): typed launcher adapter API. It has hard refusals in code and resumes
+  GPU jobs instead of polling them.
+- **ADR-0003** (2026-10-04): Postgres run state, a pure state machine, `LISTEN/NOTIFY` and SSE.
+- **ADR-0004** (2026-10-04): current-games harness. Published snapshots × branch runtime vs main
+  runtime, with a tunable tolerance and per-diff owner approval.
+- **ADR-0005** (2026-10-04): mockups in `<C>/<P>/director/`. Structured analysis; code has the
+  final word on `left_out`.
+- **ADR-0006** (2026-10-04): `pricing.json` plus an Admin override, a `director_spend` ledger,
+  and a budget cap snapshotted per run.
+- **ADR-0007** (2026-10-05): Pipeline changes live on GitHub branches and PRs; every merge is
+  gated by CI and the harness; approval is per-diff in Postgres; rollback is a revert PR.
+- **ADR-0008** (2026-10-06): Blueprint-driven art. A `card.json` per blueprint; a reviewed card
+  unlocks agents to plan with it. The `atlas-technician` agent chooses pipelines from the catalogue
+  and writes recipes per region. Tables: `director_blueprint_timings` (GPU seconds by pipeline +
+  pixel count) and `director_template_recipes` (per-template default chains, written only after an
+  owner-approved Art plan). Agents: `atlas-technician` (Sonnet 5.5).

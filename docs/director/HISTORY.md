@@ -15,6 +15,50 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-06 · Phases 5, 4, 2 · coordinator (merges #1070, #1072, #1073, #1075)
+- **Did:**
+  - **#1070 (card 5.2, Phase 5: changes list/detail & checks):** the `/pipeline Changes` tab shows
+    branches + PRs with files, diffs, CI gates grouped, a report streamed from a new endpoint as a
+    ZIP archive (path whitelist; server-chosen artifact per section; size cap; ZIP64 refused), and
+    diff approval. Two screen passes (mockup 05 detail both checks); GitHub-only links; nosniff +
+    sandbox CSP on report artifacts.
+  - **#1072 (card 4.1 & 4.2, Phase 4: new game & mockup breakdown screens):** Director → New game
+    (form, estimate, ownership check) and Mockup breakdown (read-only analysis display). Shared
+    `$lib/projectKey.ts` editor. Pending-project mockups writable by uploader only; enforcement
+    in the gate and CAS write (empty doc frees the key); confirm needs images. Mockup tab shows
+    all pending mockups.
+  - **#1073 (card 5.4, Phase 5: agents tab):** edit an agent definition as a PR on a branch,
+    labelled `agent-definition` (label exists). `agent-eval.yml` evaluates before/after on
+    `pull_request_target` (main only, main's code) with a $20 spend cap from real usage. The
+    launcher fails closed on an unverified report.
+  - **#1075 (ADR-0008: blueprint-driven art, approved):** blueprint catalogue draft (7 library + 3
+    built-in cards). Card schema, storage, history, editor. `GET /blueprints` (blueprint read
+    adapter op). Bundled and seeded cards. Everything inert (no agent consumes it yet). All defaults
+    approved by owner.
+- **Files:**
+  - #1070: `apps/launcher-api/src/lib/server/{pipeline,pipelineReport,pipelineChanges}/*.ts`,
+    `src/routes/api/pipeline/{changes,report}/*.ts`, `docs/tools/pipeline-changes.md`.
+  - #1072: `apps/launcher-api/src/lib/{projectKey,director/newGame,director/mockupBreakdown}.svelte`,
+    `src/lib/server/director/mockups.ts`, `docs/tools/director.md`.
+  - #1073: `.github/workflows/agent-eval.yml`, `apps/launcher-api/src/routes/api/director/eval`,
+    `agents/{coordinator,atlas-artist,atlas-technician}.md` (agent label added).
+  - #1075: `services/atlas-tool/blueprints/{card,edit,sync}*.py`, `apps/launcher-api/src/lib/server/director/blueprints.ts`,
+    `docs/director/blueprints/catalogue-draft.json`, `docs/director/DECISIONS/0008-blueprint-driven-art.md`.
+- **Tests:**
+  - #1070: launcher gates, svelte-check.
+  - #1072: check:director-mockups, check:director-runs, launcher gates.
+  - #1073: agent-eval, code-reviewer pass.
+  - #1075: card schema validation, blueprints module, check:director-adapters, code-reviewer pass.
+- **Decisions:**
+  - #1070, #1072: implement ADR-0007 (PIPELINE) and Phase 4 tasks.
+  - #1073: agent definitions are PRs with labels; evaluation is GitHub Actions with $ cap from real usage.
+  - #1075: ADR-0008 approved with all suggested defaults (owner decision 2026-10-06; catalogue
+    draft has 7 library + 3 built-in cards).
+- **Next:** Phase 8 on the roadmap (blueprint-driven art build: cards 8A–8F); 4.1 and 4.2 done;
+  5.1 and 5.2 done; 5.3 merge and rollback; 5.4 agents tab done. Open question items answered
+  (GitHub App permissions, ANTHROPIC_API_KEY, agent-eval label).
+- **Owner approval:** All four PRs merged with owner approval (recorded 2026-10-06).
+
 ## 2026-10-06 · Phases 3, 5, 4 · coordinator (merges #1067, #1068, #1069)
 - **Did:**
   - **#1067 (card 3.9, PLAN 3.6 follow-up):** the breakdown step moves entirely to the worker.

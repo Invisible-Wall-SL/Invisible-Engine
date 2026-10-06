@@ -33,11 +33,33 @@ with the default.
    under a free-key subtree and accumulate indefinitely. *Suggested default:* a cleanup follow-up
    to remove mockups / mockups.json on project deletion.
 
-8. **GitHub App permissions for 5.3/5.4.** Tasks 5.3 (merge with GitHub) and 5.4 (edit agent
-   definitions) need `Contents` and `Pull requests` write access on the App. *Suggested default:*
-   the owner raises permissions when 5.3 lands.
+9. **Pin agent-eval actions to commit SHAs.** `agent-eval.yml` uses action versions that float
+   (e.g. `@v4`). *Suggested default:* a follow-up touching only that workflow to pin to major version
+   SHAs and enable Dependabot.
+
+10. **Agent-eval as a GitHub required check.** Should `agent-eval` block a merge if it fails?
+    *Suggested default:* no; the launcher's merge gate reads the evaluation report but does not
+    require a passing status, so `pipelineMerge` users can merge anyway. Make it required only if
+    policy changes.
+
+11. **Changes tab image-cache eviction.** An old report stays in the `?artifact=` cache if a new
+    report has a different name. *Suggested default:* fixed in #1074 (or note if deferred).
 
 ## Answered
+
+- **2026-10-06: Phases 2–5 merges (#1070, #1072, #1073, #1075). Owner decisions.**
+  - GitHub App permissions: already in place. `Contents` and `Pull requests` write for 5.3 (merge),
+    5.4 (edit agent defs). The environment move to GitHub secret is optional (recorded 2026-10-06).
+  - ANTHROPIC_API_KEY: stays a GitHub Actions repository secret, not an environment variable
+    (2026-10-06). Environment move optional.
+  - Agent-definition label: exists (added in #1073).
+  - ADR-0008 (blueprint-driven art) decisions: all suggested defaults approved. Blueprint card
+    review needs `pipelineMerge` (counts as approval); `atlas_pipeline` is a dedicated per-atlas
+    key; technician on Sonnet 5.5; pre-run budget cap; credit-billed cards excluded until ADR-0006
+    gains a `credits` kind; third-party API use (mockup crops to OpenAI) needs owner consent per
+    run; licences listed before publish; `wanloopingvideo__3_` re-publish (shape_ref unbound +
+    rescan); `bluprinttest` and `characterdesignertest3` permanent draft; deploy only when no run
+    non-terminal.
 
 - **2026-10-06: harness and merges (#1056–#1065). Owner decisions.**
   - The harness is calibrated; `current-games` gates every merge and is to be made a required
