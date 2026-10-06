@@ -754,13 +754,19 @@ figures you type are guesses and say so.
 - **Save and mark reviewed** needs *Merge pipeline changes* (`pipelineMerge`), the owner's capability:
   a reviewed card changes what agents do in every later run, so the review *is* the approval of that
   blueprint for agents. It only works when you opened the Atlas Maker from the launcher (a signed
-  launch). A card that bills comfy.org credits cannot be reviewed yet (the Director cannot count
-  credits), and neither can one with no GPU seconds.
+  launch), and only within **30 minutes of that launch**: the capability is read from the launch,
+  so a revoked *Merge pipeline changes* stops working at the latest 30 minutes later. Past that, the
+  editor says to reopen the Atlas Maker from the launcher, which re-reads your permissions. Drafts
+  are not affected. A card that bills comfy.org credits cannot be reviewed yet (the Director cannot
+  count credits), and neither can one with no GPU seconds.
 - **Any other save turns a reviewed card back into a draft** — an edit is a new proposal until it is
   reviewed again.
 - **Re-publishing a blueprint turns its card back into a draft** ("blueprint re-published by … at …"),
-  and a card reviewed against an older graph shows **stale** and counts as a draft until re-reviewed.
-- Agents never write cards.
+  and so do ⟳ Rescan models and a tool update that changes a bundled blueprint, when they actually
+  change it. A card reviewed against an older graph shows **stale** and counts as a draft until
+  re-reviewed.
+- Agents never write cards, and never read a draft: they see only the reviewed list, minus any card
+  the live blueprint no longer validates.
 
 **Two people on one card.** Saves are compare-and-swapped like an atlas: if someone saved the card
 after you opened it, you are asked (*Reload theirs* / *Overwrite with mine*). Each save keeps the

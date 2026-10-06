@@ -148,6 +148,18 @@ class Identity:
     act_tool: str = ""
     act_agent: str = ""
     act_run: str = ""
+    # For a signed identity: which token carried it — `launch` / `session` (a
+    # browser) or `api` (a server-to-server `X-IW-Launch` header) — and when the
+    # launcher's decision behind it was made. A session keeps its launch-time
+    # caps for SESSION_TTL, so a check that must not outlive a revocation for
+    # that long reads `issued_at`.
+    token_typ: str = ""
+    issued_at: float = 0.0
+
+    @property
+    def is_browser(self) -> bool:
+        """A person's signed browser launch (or its session) — never an api token."""
+        return self.via == "token" and self.token_typ in ("launch", "session")
 
     @property
     def is_admin(self) -> bool:
@@ -302,7 +314,9 @@ class LaunchGate:
             name=str(claims.get("name") or "")[:120], role=str(claims.get("role") or ""),
             client=client, project=project,
             caps=tuple(c for c in caps if isinstance(c, str)) if isinstance(caps, list) else (),
-            act_tool=act[0], act_agent=act[1], act_run=act[2])
+            act_tool=act[0], act_agent=act[1], act_run=act[2],
+            token_typ=str(claims.get("typ") or ""),
+            issued_at=float(claims.get("iat") or 0))
 
     def _first_use(self, token: str, exp: float) -> bool:
         key = token.rsplit(".", 1)[-1]

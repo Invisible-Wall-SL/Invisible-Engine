@@ -38,6 +38,7 @@ import shutil
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 os.environ["ATLAS_STAGING"] = tempfile.mkdtemp(prefix="bp-cards-")
@@ -122,14 +123,25 @@ storage.pull_prefix = lambda *a, **k: 0  # staging is written directly below
 BK = u.CARD_BUILTIN_KEYS
 PFX = blueprints.SHARED_BLUEPRINTS_PREFIX
 
+# A browser session minted just now, as the launcher's redirect leaves it.
 OWNER = launch.Identity(via="token", sub="owner", uid="u1", name="Owner",
-                        caps=(launch.PUBLISH_CAP, launch.REVIEW_CAP))
+                        caps=(launch.PUBLISH_CAP, launch.REVIEW_CAP),
+                        token_typ="session", issued_at=time.time())
 ARTIST = launch.Identity(via="token", sub="artist", uid="u2", name="Artist",
-                         caps=(launch.PUBLISH_CAP,))
+                         caps=(launch.PUBLISH_CAP,), token_typ="session",
+                         issued_at=time.time())
 LEGACY = launch.Identity(via="legacy", sub="legacy")
 AGENT = launch.Identity(via="token", sub="owner", uid="u1", name="Owner",
                         caps=(launch.PUBLISH_CAP, launch.REVIEW_CAP),
-                        act_tool="director", act_agent="atlas-technician", act_run="run1")
+                        act_tool="director", act_agent="atlas-technician", act_run="run1",
+                        token_typ="api", issued_at=time.time())
+# A server-to-server call carrying the owner's caps but acting for no agent.
+API_OWNER = launch.Identity(via="token", sub="owner", uid="u1", name="Owner",
+                            caps=(launch.PUBLISH_CAP, launch.REVIEW_CAP),
+                            token_typ="api", issued_at=time.time())
+OLD_OWNER = launch.Identity(via="token", sub="owner", uid="u1", name="Owner",
+                            caps=(launch.PUBLISH_CAP, launch.REVIEW_CAP),
+                            token_typ="session", issued_at=time.time() - 3600)
 
 MATTE_GRAPH = {
     "1": {"class_type": "LoadImage", "inputs": {"image": "in.png"}},
@@ -523,8 +535,8 @@ class UploadHandler:
     def _publish_author(self) -> str:
         return "tester"
 
-    def _reset_card_on_republish(self, bp_id: str) -> str:
-        return u.Handler._reset_card_on_republish(self, bp_id)
+    def _reset_card_on_republish(self, bp_id: str, what: str = "re-published") -> str:
+        return u.Handler._reset_card_on_republish(self, bp_id, what)
 
 
 def upload(name: str, graph: dict) -> str:
@@ -863,10 +875,246 @@ def test_doc_guard_names_a_card() -> None:
     check("doc-guard words card:<id> as the card", "'the card “' + id.slice(5)" in js, True)
 
 
+# --------------------------------------------------------------------------
+# Review round (PR #1078)
+# --------------------------------------------------------------------------
+def test_the_page_renders() -> None:
+    """`_index` once bound a local `cards` list over the `cards` module, so the
+    page 500ed for everyone. Render it for real."""
+    reset()
+    for ident in (ARTIST, OWNER):
+        h = get("/_index_html", ident)
+        page = h.wfile.getvalue().decode("utf-8", "replace")
+        check(f"the page renders ({ident.name})", h.code, 200)
+        check(f"...with the review flag ({ident.name})",
+              f"const CARD_CAN_REVIEW={'true' if ident is OWNER else 'false'};" in page, True)
+    check("...and carries the card editor", "openCardEditor" in page, True)
+
+
+def test_review_needs_a_recent_browser_launch() -> None:
+    reset()
+    matte()
+    check("an api token with pipelineMerge cannot review",
+          refused(lambda: save("matte", matte_card(), base_of("matte"), API_OWNER, review=True)),
+          True)
+    check("...though it is neither an agent nor missing the cap",
+          (cards.is_agent(API_OWNER), API_OWNER.can(launch.REVIEW_CAP)), (False, True))
+    check("a session older than REVIEW_MAX_AGE cannot review",
+          refused(lambda: save("matte", matte_card(), base_of("matte"), OLD_OWNER, review=True)),
+          True)
+    check("...and is told to relaunch",
+          (cards.review_needs_relaunch(OLD_OWNER), cards.review_needs_relaunch(OWNER)),
+          (True, False))
+    check("...but may still save a draft",
+          save("matte", matte_card(), base_of("matte"), OLD_OWNER)["ok"], True)
+    v = get("/card?id=matte", OLD_OWNER).json()
+    check("GET /card says why the review button is gone",
+          (v["canReview"], v["reviewNeedsRelaunch"]), (False, True))
+    check("nothing was reviewed", stored("matte")["status"], "draft")
+    gate = launch.LaunchGate(aud="atlas", signing_env="T_SIGN", legacy_env="T_LEGACY",
+                             legacy_cookie="t", legacy_header="X-T")
+    os.environ["T_SIGN"] = "s" * 32
+    try:
+        now = int(time.time())
+        claims = {"v": 1, "typ": "api", "aud": "atlas", "sub": "owner", "client": "c",
+                  "project": "p", "caps": [launch.REVIEW_CAP], "iat": now, "exp": now + 60}
+        res = gate.authenticate("/card", {launch.LAUNCH_HEADER: launch.sign("s" * 32, claims)})
+        check("the gate marks an X-IW-Launch identity as an api token",
+              (res.ok, res.identity.token_typ, res.identity.is_browser,
+               cards.can_review(res.identity)), (True, "api", False, False))
+        cookie = gate.mint_session({**claims, "typ": "launch"})
+        res = gate.authenticate("/", {"Cookie": f"{gate.session_cookie}={cookie}"})
+        check("...and a session cookie as a fresh browser launch that may review",
+              (res.identity.token_typ, res.identity.is_browser, cards.can_review(res.identity)),
+              ("session", True, True))
+    finally:
+        os.environ.pop("T_SIGN", None)
+
+
+def test_agents_never_read_a_card_directly() -> None:
+    reset()
+    matte()
+    save("matte", matte_card(), base_of("matte"), OWNER)
+    check("GET /card refuses an agent", get("/card?id=matte", AGENT).code, 403)
+    check("GET /card/history refuses an agent", get("/card/history?id=matte&rev=1", AGENT).code,
+          403)
+
+    def unreadable(key):
+        raise storage.ObjectUnreadable(key)
+
+    real = storage.get_with_etag
+    storage.get_with_etag = unreadable
+    try:
+        check("GET /card answers 503 when R2 cannot be read",
+              get("/card?id=matte", ARTIST).code, 503)
+    finally:
+        storage.get_with_etag = real
+    real = storage.get_strict
+    storage.get_strict = unreadable
+    try:
+        check("GET /card/history answers 503 when R2 cannot be read",
+              get("/card/history?id=matte&rev=1", ARTIST).code, 503)
+    finally:
+        storage.get_strict = real
+
+
+MODEL_GRAPH = {
+    "1": {"class_type": "LoadImage", "inputs": {"image": "in.png"}},
+    "2": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "toon.safetensors"}},
+    "3": {"class_type": "SaveImage", "inputs": {"images": ["1", 0], "filename_prefix": "IW"}},
+}
+
+
+def review_now(bp_id: str, **over) -> None:
+    res = save(bp_id, matte_card(settings=[], **over), base_of(bp_id), OWNER, review=True)
+    assert res["ok"], res
+
+
+def test_other_blueprint_changes_reset_review() -> None:
+    reset()
+    publish("rescan", MODEL_GRAPH, {"style_ref": {"node": "1", "field": "image"},
+                                    "output": {"node": "3"}})
+    review_now("rescan")
+    msg = UploadHandler()
+    msg = u.Handler._rescanblueprintmodels(msg, {"id": "rescan"})
+    check("a rescan that changes the manifest resets review",
+          (msg.startswith("✓"), stored("rescan")["status"],
+           stored("rescan").get("resetReason", "").startswith("blueprint models rescanned by Owner")),
+          (True, "draft", True))
+    review_now("rescan")
+    msg = u.Handler._rescanblueprintmodels(UploadHandler(), {"id": "rescan"})
+    check("a rescan that changes nothing leaves the review alone",
+          ("already up to date" in msg, stored("rescan")["status"]), (True, "reviewed"))
+
+    reset()
+    blueprints._sync_bundled_blueprints()
+    wan = "wan22_i2v_flipbook"
+    wan_card = json.loads((blueprints.BUNDLED_SRC / wan / "card.json").read_text(encoding="utf-8"))
+    body = {k: v for k, v in wan_card.items() if k in cards.CLIENT_FIELDS}
+    res = save(wan, body, base_of(wan), OWNER, review=True)
+    check("the bundled wan22 card can be reviewed", res["ok"], True)
+    blueprints._sync_bundled_blueprints()
+    check("an unchanged bundled blueprint at boot leaves the review alone",
+          stored(wan)["status"], "reviewed")
+    key = f"{PFX}/{wan}/blueprint.json"
+    man = json.loads(R2.objects[key][0])
+    man["description"] = "an older copy"
+    R2.objects[key] = (json.dumps(man).encode("utf-8"), '"old"')
+    blueprints._sync_bundled_blueprints()
+    check("a bundled blueprint updated at boot resets its reviewed card",
+          (stored(wan)["status"],
+           stored(wan).get("resetReason", "").startswith(
+               "blueprint updated from the bundled copy by the boot sync")),
+          ("draft", True))
+
+
+def lag_staging(bp_id: str) -> None:
+    """The bucket moves on; the staging mirror still holds the old graph."""
+    key = f"{PFX}/{bp_id}/workflow.json"
+    graph = {**MATTE_GRAPH, "9": {"class_type": "Note", "inputs": {}}}
+    R2.objects[key] = (json.dumps(graph, indent=2).encode("utf-8"), '"new"')
+
+
+def test_review_and_staleness_read_the_bucket() -> None:
+    reset()
+    old = matte()
+    lag_staging("matte")
+    review_now("matte")
+    r2 = blueprints.read_blueprint_r2("matte")
+    check("a review pins the graph the bucket holds, not the lagging mirror",
+          (stored("matte")["graphSha"] == r2["graph_sha"],
+           stored("matte")["graphSha"] == old["graph_sha"]), (True, False))
+    check("...and the listing calls it reviewed", ids(get("/blueprints", ARTIST)), ["matte"])
+
+    reset()
+    matte()
+    review_now("matte")
+    lag_staging("matte")
+    check("the mirror still matches the card",
+          cards.effective_status(stored("matte"), blueprints.get_blueprint("matte")), "reviewed")
+    every = {e["id"]: e for e in get("/blueprints?all=1", ARTIST).json()["blueprints"]}
+    check("...but a reviewed card is judged against the bucket: stale",
+          (every["matte"]["status"], ids(get("/blueprints", ARTIST))), ("stale", []))
+    check("GET /card agrees", get("/card?id=matte", ARTIST).json()["status"], "stale")
+
+
+def test_agents_never_get_a_card_with_problems() -> None:
+    reset()
+    bp = matte()
+    raw_card("matte", full_card("matte", matte_card(settings=[{"key": "gone"}]),
+                                status="reviewed", graphSha=bp["graph_sha"],
+                                mapSha=bp["map_sha"]))
+    check("a reviewed card with problems is withheld from the agents' list",
+          (ids(get("/blueprints", ARTIST)), ids(get("/blueprints", AGENT))), ([], []))
+    every = {e["id"]: e for e in get("/blueprints?all=1", ARTIST).json()["blueprints"]}
+    check("...the editor still lists it, with its problems",
+          (every["matte"]["status"], has(every["matte"]["problems"], "gone")), ("reviewed", True))
+
+
+def test_publish_names_the_blueprint_id() -> None:
+    reset()
+    body = {"name": "My Fancy Matte!", "description": "", "kind": "image", "base": "sdxl",
+            "workflow_text": json.dumps(MATTE_GRAPH),
+            "bindings": {"output": {"node": "3"}, "style_ref": {"node": "1", "field": "image"}},
+            "params": [], "overwrite": True, "use_for_atlas": False}
+    h = post("/uploadblueprint", ARTIST, body)
+    check("the publish reply names the server's slugged id",
+          (h.wfile.getvalue().decode("utf-8").startswith("✓"),
+           h.sent_headers.get("X-IW-Blueprint-Id")), (True, "my_fancy_matte_"))
+    h = post("/uploadblueprint", ARTIST, {**body, "workflow_text": "not json"})
+    check("...and a failed publish names none", h.sent_headers.get("X-IW-Blueprint-Id"), None)
+    js = (Path(u.__file__).parent / "card-editor.js").read_text(encoding="utf-8")
+    check("the page saves the card under that id, never a client-side slug",
+          ("X-IW-Blueprint-Id" in u.PAGE, "toLowerCase" in js), (True, False))
+
+
+def test_bundled_cards_that_cannot_ship() -> None:
+    reset()
+    blueprints._sync_bundled_blueprints()
+    src = Path(tempfile.mkdtemp(prefix="bp-bad-"))
+    for i in ("sdxl", "flux", "gpt_image"):
+        (src / i).mkdir()
+    (src / "sdxl" / "card.json").write_text("[1, 2]", encoding="utf-8")
+    flux = json.loads((blueprints.BUNDLED_SRC / "flux" / "card.json").read_text(encoding="utf-8"))
+    (src / "flux" / "card.json").write_text(json.dumps({**flux, "id": "sdxl"}), encoding="utf-8")
+    shutil.copy(blueprints.BUNDLED_SRC / "gpt_image" / "card.json", src / "gpt_image" / "card.json")
+    done = dict(cards.sync_bundled_cards(src, log=lambda _m: None))
+    check("a card that is not an object, or names another id, is skipped; the rest ship",
+          (done["sdxl"], done["flux"], done["gpt_image"], stored("sdxl"), stored("flux")),
+          ("skipped: not a JSON object", "skipped: id does not match its directory", "created",
+           None, None))
+
+
+def test_history_is_summarised_on_open() -> None:
+    reset()
+    matte()
+    for n in range(9):
+        save("matte", matte_card(purpose=f"v{n}"), base_of("matte"))
+    reads = []
+    real = storage.get_strict
+    storage.get_strict = lambda key: (reads.append(key), real(key))[1]
+    try:
+        hist = get("/card?id=matte", ARTIST).json()["history"]
+    finally:
+        storage.get_strict = real
+    check("GET /card lists every version", [h["rev"] for h in hist], list(range(9, 0, -1)))
+    check("...but reads only the newest few in full",
+          (sum(1 for k in reads if "/card.history/" in k),
+           [h.get("loaded", True) for h in hist].count(False)),
+          (cards.HISTORY_DETAIL, 8 - cards.HISTORY_DETAIL))
+    check("an older one is read on demand",
+          get("/card/history?id=matte&rev=1", ARTIST).json()["card"]["purpose"], "v0")
+
+
 if __name__ == "__main__":
     for fn in (test_schema, test_blueprint_rules, test_cas, test_review,
                test_reset_races_a_save, test_republish_resets_review, test_bundled_sync,
-               test_catalogue_seed, test_listing, test_delete, test_doc_guard_names_a_card):
+               test_catalogue_seed, test_listing, test_delete, test_doc_guard_names_a_card,
+               test_the_page_renders, test_review_needs_a_recent_browser_launch,
+               test_agents_never_read_a_card_directly, test_other_blueprint_changes_reset_review,
+               test_review_and_staleness_read_the_bucket,
+               test_agents_never_get_a_card_with_problems, test_publish_names_the_blueprint_id,
+               test_bundled_cards_that_cannot_ship, test_history_is_summarised_on_open):
         print(f"\n-- {fn.__name__}")
         fn()
     print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")

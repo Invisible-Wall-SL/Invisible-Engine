@@ -493,20 +493,21 @@
 		);
 		history.forEach(function (h, i) {
 			var who = (h.savedBy && (h.savedBy.name || h.savedBy.tool)) || 'unstamped';
-			var line = el(
-				'div',
-				'font-size:12px;color:#bbb;cursor:pointer;padding:2px 0',
-				'rev ' +
-					h.rev +
-					' · ' +
-					h.status +
-					' · ' +
-					who +
-					(h.savedBy && h.savedBy.at ? ' · ' + h.savedBy.at : '') +
-					(h.reviewedBy ? ' · reviewed by ' + h.reviewedBy : '') +
-					(h.resetReason ? ' · ' + h.resetReason : '') +
-					(i === 0 ? ' (current)' : ''),
-			);
+			// Older versions are listed by rev only; clicking reads that one.
+			var text =
+				h.loaded === false
+					? 'rev ' + h.rev + ' · click to view'
+					: 'rev ' +
+						h.rev +
+						' · ' +
+						h.status +
+						' · ' +
+						who +
+						(h.savedBy && h.savedBy.at ? ' · ' + h.savedBy.at : '') +
+						(h.reviewedBy ? ' · reviewed by ' + h.reviewedBy : '') +
+						(h.resetReason ? ' · ' + h.resetReason : '') +
+						(i === 0 ? ' (current)' : '');
+			var line = el('div', 'font-size:12px;color:#bbb;cursor:pointer;padding:2px 0', text);
 			line.title = 'View this version (read-only)';
 			line.onclick = async function () {
 				if (i === 0) {
@@ -573,6 +574,14 @@
 			);
 		head.appendChild(list('Problems against the live blueprint', v.problems, '#f19a8e'));
 		head.appendChild(list('Blocks review', v.reviewProblems, '#e2c46a'));
+		if (v.reviewNeedsRelaunch)
+			head.appendChild(
+				el(
+					'div',
+					'color:#e2c46a;font-size:12px',
+					'To mark this card reviewed, open the Atlas Maker again from the launcher: a review is accepted only within 30 minutes of a launch, so a revoked permission cannot linger.',
+				),
+			);
 		if (!v.canEdit)
 			head.appendChild(
 				el(
@@ -740,14 +749,12 @@
 	// After a successful publish: save the Card section when it was filled in.
 	// A create (base etag ""), so an existing card is never replaced unasked —
 	// doc-guard.js offers "Replace it?". Returns a status line, or '' when the
-	// section was left empty.
-	window.cardAfterPublish = async function (name) {
+	// section was left empty. `id` is the server's own slug of the blueprint
+	// (the publish reply's X-IW-Blueprint-Id), never re-derived here.
+	window.cardAfterPublish = async function (id) {
 		if (!newForm || !newForm.purposeFilled()) return '';
-		var id =
-			String(name || '')
-				.toLowerCase()
-				.replace(/[^a-z0-9]/g, '_')
-				.slice(0, 60) || 'default';
+		if (!id)
+			return ' ⚠ The blueprint is published, but the server did not name its id, so the card was not saved — open 🗑 Manage blueprints → ✎ Card.';
 		window.IW_DOCS = window.IW_DOCS || {};
 		window.IW_DOCS['card:' + id] = { etag: '', rev: '' };
 		var review = !!(canReview() && (document.getElementById('bpCardReview') || {}).checked);

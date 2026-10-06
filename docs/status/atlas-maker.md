@@ -131,7 +131,12 @@ _Nothing._
   a matching `graphSha`; a repo file or seed that says anything but `draft` is refused (a review is
   only ever the editor's). A history slot already holding a DIFFERENT version (a rev rewound by the
   bundled sync, or left by a partial delete) is never a wedge: the old version is filed at the next
-  free rev and `rev` continues from there. Inert: nothing consumes cards yet. `test_blueprint_cards.py`. ⏳ Owed: a
+  free rev and `rev` continues from there. After the coordinator's review: review needs a browser
+  session (`Identity.token_typ`, never an api token) launched within 30 min (`cards.REVIEW_MAX_AGE`:
+  a revoked `pipelineMerge` lapses within that, not the 12 h session); ⟳ Rescan models and the boot
+  sync reset a reviewed card when they change the blueprint; reviews and staleness are judged
+  against R2, not staging; agents get 403 on `/card` and never see a card with problems.
+  Inert: nothing consumes cards yet. `test_blueprint_cards.py`. ⏳ Owed: a
   browser pass of the editor on the live tool, and the owner's review of the drafts.
 - 2026-10-05 — **Every still render reports its GPU time, for the Director to bill** (Director
   card 2.7, [ADR-0006](../director/DECISIONS/0006-costs-and-budgets.md)). RunPod's job status

@@ -84,6 +84,14 @@ _GPU_KEYS = frozenset(("secondsPerImage", "coldStart", "source",
 _VARIANT_KEYS = ("draft", "final", "max")
 
 HISTORY_LIMIT = 50
+# How many history versions `GET /card` reads in full; older ones are listed by
+# rev and read one at a time (`GET /card/history`) when the editor asks.
+HISTORY_DETAIL = 5
+# A session carries the caps of its launch for SESSION_TTL (12 h). A review is
+# the owner's approval for agents, so it is accepted only this soon after the
+# launcher last decided the caller holds `pipelineMerge` — a revoked permission
+# lingers at most this long instead of half a day.
+REVIEW_MAX_AGE = 30 * 60
 _TRANSIENT_ATTEMPTS = 3
 
 
@@ -132,15 +140,30 @@ def is_agent(identity) -> bool:
     return bool(getattr(identity, "act_tool", "") or "")
 
 
-def can_review(identity) -> bool:
-    """May this caller mark a card reviewed? A person holding `pipelineMerge`
-    on a signed launch, or anyone on a local dev tool with no gate. Never an
-    agent and never a legacy `?k=` session (it names itself in the URL)."""
+def _review_holder(identity) -> bool:
+    """A person holding `pipelineMerge` on a signed BROWSER launch. Never an
+    agent, never an api-token call (a server acting for someone, whatever caps
+    it carries), never a legacy `?k=` session (it names itself in the URL)."""
     if identity is None or is_agent(identity):
         return False
-    if identity.via == "open":
+    return bool(getattr(identity, "is_browser", False)) and identity.can(REVIEW_CAP)
+
+
+def review_needs_relaunch(identity, now: float | None = None) -> bool:
+    """Holds `pipelineMerge`, but the launch behind this session is older than
+    `REVIEW_MAX_AGE`: re-opening the tool from the launcher re-checks it."""
+    t = time.time() if now is None else now
+    return (_review_holder(identity)
+            and t - float(getattr(identity, "issued_at", 0) or 0) > REVIEW_MAX_AGE)
+
+
+def can_review(identity, now: float | None = None) -> bool:
+    """May this caller mark a card reviewed? A recent signed browser launch
+    holding `pipelineMerge` (see `REVIEW_MAX_AGE`), or anyone on a local dev
+    tool with no gate (the gate never opens on Railway)."""
+    if identity is not None and not is_agent(identity) and identity.via == "open":
         return True
-    return identity.via == "token" and identity.can(REVIEW_CAP)
+    return _review_holder(identity) and not review_needs_relaunch(identity, now)
 
 
 def can_edit(identity, can_publish: bool) -> bool:
@@ -676,15 +699,22 @@ def save_card(bp_id: str, incoming, *, base: docsave.Base | None, identity,
     if not can_edit(identity, can_publish):
         raise CardRefused("You're not allowed to edit blueprint cards. Ask an admin "
                           "for the 'Publish blueprints' permission.")
+    if review and review_needs_relaunch(identity):
+        raise CardRefused("Your launch is more than 30 minutes old. Open the Atlas Maker "
+                          "again from the launcher to mark a card reviewed — that is "
+                          "where the 'pipelineMerge' permission is re-checked.")
     if review and not can_review(identity):
         raise CardRefused("Marking a card reviewed needs the owner's 'pipelineMerge' "
-                          "permission (open the Atlas Maker from the launcher).")
+                          "permission on a browser launch of the Atlas Maker.")
     bp_id = norm_id(bp_id)
     if not bp_id:
         return {"ok": False, "errors": ["no blueprint id"]}
     if not isinstance(incoming, dict):
         return {"ok": False, "errors": ["card: must be a JSON object"]}
-    blueprint = lookup_blueprint(bp_id)
+    # A review pins the graph the BUCKET holds: a lagging staging mirror must
+    # never let an old graph be approved under a new one's id.
+    blueprint = (blueprints.read_blueprint_r2(bp_id) if review else lookup_blueprint(bp_id)
+                 ) if bp_id not in BUILTIN_IDS else None
     if bp_id not in BUILTIN_IDS and blueprint is None:
         return {"ok": False, "errors": [f"no such blueprint '{bp_id}' in the library"]}
 
@@ -709,12 +739,14 @@ def save_card(bp_id: str, incoming, *, base: docsave.Base | None, identity,
             "version": docsave.version(new_etag, card)}
 
 
-def reset_on_republish(bp_id: str, identity) -> bool:
-    """A re-publish changes what the card was reviewed against, so a reviewed
-    card goes back to draft with the reason recorded. A machine write: no page
-    base, CAS on the ETag it just read, one retry when another write lands in
-    between, and the author stamp carried through (the reset is in
-    `resetReason`). Returns whether a card was reset."""
+def reset_on_republish(bp_id: str, identity, *, what: str = "re-published",
+                       by: str | None = None) -> bool:
+    """A blueprint change (a re-publish, a models rescan, a bundled update at
+    boot) changes what the card was reviewed against, so a reviewed card goes
+    back to draft with the reason recorded. A machine write: no page base, CAS
+    on the ETag it just read, one retry when another write lands in between,
+    and the author stamp carried through (the reset is in `resetReason`).
+    Returns whether a card was reset."""
     bp_id = norm_id(bp_id)
     for attempt in range(2):
         got = storage.get_with_etag(card_key(bp_id))
@@ -725,7 +757,7 @@ def reset_on_republish(bp_id: str, identity) -> bool:
             return False
         new = copy.deepcopy(cur)
         new.update(status="draft", rev=_rev_of(cur) + 1, reviewedBy="", reviewedAt="",
-                   resetReason=f"blueprint re-published by {_who(identity)} at {_now_iso()}")
+                   resetReason=f"blueprint {what} by {by or _who(identity)} at {_now_iso()}")
         try:
             _replace(bp_id, new, got[0], got[1], _rev_of(cur))
             return True
@@ -735,10 +767,11 @@ def reset_on_republish(bp_id: str, identity) -> bool:
     return False
 
 
-def card_history(bp_id: str) -> list[dict]:
+def card_history(bp_id: str, detail: int = HISTORY_LIMIT) -> list[dict]:
     """`[{rev, status, savedBy, reviewedBy, reviewedAt, resetReason}]`, newest
     first: the current card, then the stored history (the newest
-    `HISTORY_LIMIT`)."""
+    `HISTORY_LIMIT`). Only the newest `detail` versions are read; older ones
+    are `{rev, loaded: False}`, for the editor to fetch when clicked."""
     bp_id = norm_id(bp_id)
 
     def entry(card: dict) -> dict:
@@ -754,7 +787,10 @@ def card_history(bp_id: str) -> list[dict]:
     cur, _ = read_card(bp_id)
     if cur:
         out.append(entry(cur))
-    for rev in sorted(_history_revs(bp_id), reverse=True)[:HISTORY_LIMIT]:
+    for i, rev in enumerate(sorted(_history_revs(bp_id), reverse=True)[:HISTORY_LIMIT]):
+        if i >= detail:
+            out.append({"rev": rev, "loaded": False})
+            continue
         doc = docsave.parse_doc(storage.get_strict(history_key(bp_id, rev)))
         if doc:
             out.append(entry(doc))
@@ -838,6 +874,17 @@ def describe_blueprint(bp_id: str, blueprint: dict | None, builtin_keys: dict) -
             "mapSha": str((blueprint or {}).get("map_sha") or "")}
 
 
+def judged_against(bp_id: str, card, staged: dict | None) -> dict | None:
+    """The blueprint a card's state and problems are judged against. A REVIEWED
+    library card is compared with what the bucket holds (two reads), so a
+    lagging mirror can never keep a changed graph looking approved; anything
+    else is judged against the staging mirror, which costs nothing."""
+    if (bp_id in BUILTIN_IDS or not isinstance(card, dict)
+            or card.get("status") != "reviewed"):
+        return staged
+    return blueprints.read_blueprint_r2(bp_id)
+
+
 def library_ids() -> list[str]:
     """Every pipeline id a card can describe: the built-ins, then the library
     (minus its reference copies under the built-in ids — the built-in entry
@@ -865,11 +912,16 @@ def list_entries(*, kind: str | None, include_all: bool, identity,
         if want and info["kind"] != want:
             continue
         card, etag = read_card(bp_id)
-        status = effective_status(card, blueprint)
+        live = judged_against(bp_id, card, blueprint)
+        status = effective_status(card, live)
         if not include_all and status != "reviewed":
             continue
-        problems = (validate_card(card, bp_id=bp_id, blueprint=blueprint,
+        problems = (validate_card(card, bp_id=bp_id, blueprint=live,
                                   builtin_keys=builtin_keys)[1] if card else [])
+        # What agents get must be usable as written: a reviewed card that no
+        # longer validates (a Settings key removed, a range moved) is withheld.
+        if not include_all and problems:
+            continue
         out.append({**info, "status": status, "stale": status == "stale",
                     "card": card, "cardEtag": docsave.norm_etag(etag), "problems": problems})
     return {"gpu": gpu or "", "blueprints": out}
@@ -885,7 +937,8 @@ def card_view(bp_id: str, *, identity, can_publish: bool, builtin_keys: dict) ->
     if bp_id not in BUILTIN_IDS and blueprint is None:
         return None
     card, etag = read_card(bp_id)
-    problems = (validate_card(card, bp_id=bp_id, blueprint=blueprint,
+    live = judged_against(bp_id, card, blueprint)
+    problems = (validate_card(card, bp_id=bp_id, blueprint=live,
                               builtin_keys=builtin_keys)[1] if card else [])
     info = describe_blueprint(bp_id, blueprint, builtin_keys)
     return {
@@ -893,11 +946,12 @@ def card_view(bp_id: str, *, identity, can_publish: bool, builtin_keys: dict) ->
         "card": card,
         "etag": docsave.norm_etag(etag),
         "version": docsave.version(etag, card),
-        "status": effective_status(card, blueprint),
+        "status": effective_status(card, live),
         "problems": problems,
         "reviewProblems": review_problems(card) if card else [],
-        "history": card_history(bp_id),
+        "history": card_history(bp_id, detail=HISTORY_DETAIL),
         "canReview": can_review(identity) and can_edit(identity, can_publish),
+        "reviewNeedsRelaunch": review_needs_relaunch(identity) and can_edit(identity, can_publish),
         "canEdit": can_edit(identity, can_publish),
         "blueprint": info,
         "prefill": None if card else prefill(bp_id, blueprint),
@@ -934,6 +988,14 @@ def sync_bundled_cards(src: Path = blueprints.BUNDLED_SRC, *, dry_run: bool = Fa
             card = json.loads(f.read_text(encoding="utf-8"))
         except (OSError, ValueError) as e:
             log(f"[cards] bundled card '{bp_id}' unreadable: {e}")
+            continue
+        if not isinstance(card, dict):
+            log(f"[cards] bundled card '{bp_id}' is not a JSON object, not shipped")
+            done.append((bp_id, "skipped: not a JSON object"))
+            continue
+        if card.get("id") != bp_id:
+            log(f"[cards] bundled card in '{bp_id}/' says id {card.get('id')!r}, not shipped")
+            done.append((bp_id, "skipped: id does not match its directory"))
             continue
         if _shipped_review(card):
             log(f"[cards] bundled card '{bp_id}' says status '{card.get('status')}', not "

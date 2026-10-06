@@ -293,6 +293,22 @@ def _sync_bundled_blueprints() -> None:
             print(f"[blueprints] {action} bundled blueprint '{d.name}'", flush=True)
         except Exception as e:  # noqa: BLE001 — one bad blueprint, keep going
             print(f"[blueprints] could not sync bundled '{d.name}': {e}", flush=True)
+            continue
+        if action == "updated":
+            _reset_card_after_change(d.name)
+
+
+def _reset_card_after_change(bp_id: str) -> None:
+    """The library's copy of a bundled blueprint just changed under its card, so
+    a reviewed card goes back to draft, as on a re-publish. Best-effort."""
+    try:
+        import cards  # local: cards imports this module
+        if cards.reset_on_republish(bp_id, None, what="updated from the bundled copy",
+                                    by="the boot sync"):
+            print(f"[blueprints] card of '{bp_id}' returned to draft (bundled update)",
+                  flush=True)
+    except Exception as e:  # noqa: BLE001 — never stop the library loading
+        print(f"[blueprints] could not reset the card of '{bp_id}': {e}", flush=True)
 
 
 def library_status() -> dict:
@@ -954,6 +970,10 @@ def delete_blueprint(blueprint_id: str) -> dict:
     try:
         keys = [o["key"] for o in storage.list_keys(prefix)]
     except Exception:  # noqa: BLE001 — R2 hiccup: fall back to the known files
+        # `card.history/<rev>.json` cannot be named without a listing. Deleting
+        # card.json is what matters (no card = nothing offered to agents); the
+        # orphaned history is harmless — a later card under this id files its
+        # history above it (`cards._write_history`) — and a re-delete cleans it.
         keys = [f"{prefix}blueprint.json", f"{prefix}workflow.json",
                 f"{prefix}thumb.png", f"{prefix}card.json"]
     deleted = 0

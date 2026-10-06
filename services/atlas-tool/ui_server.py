@@ -41,7 +41,7 @@ import atlas_format  # noqa: E402
 import atlas_writers  # noqa: E402  (TexturePacker JSON for game-loadable deploy)
 import batch_atlas  # noqa: E402  (reuse the geometry resolver — single source)
 import blueprints  # noqa: E402  (shared, data-driven ComfyUI pipeline library)
-import cards  # noqa: E402  (blueprint cards: what agents may know about a pipeline)
+import cards as bp_cards  # noqa: E402  (blueprint cards: what agents may know about a pipeline)
 import comfy_catalog  # noqa: E402  (model lists that survive a dead/serverless ComfyUI)
 import shine  # noqa: E402  (local *_shine derivation, no ComfyUI)
 import pack  # noqa: E402  (MaxRects bin packer for from-scratch auto-pack atlases)
@@ -668,7 +668,7 @@ PER_ATLAS_KEYS = {
 }
 # The Settings keys a built-in pipeline's card may name (ADR-0008 §2): per atlas
 # or per region, never global-only.
-CARD_BUILTIN_KEYS = cards.builtin_keys(PER_ATLAS_KEYS, ADV_FIELDS)
+CARD_BUILTIN_KEYS = bp_cards.builtin_keys(PER_ATLAS_KEYS, ADV_FIELDS)
 
 # Editable manifest["atlas"] geometry, surfaced in the Settings panel.
 # UI key -> manifest atlas key. Always per-manifest (no global fallback).
@@ -7465,9 +7465,10 @@ async function saveBlueprint(overwrite){{
   // The server sets the pipeline itself — it is the side that knows the slugged
   // id, so nothing has to parse one back out of the reply text.
   use_for_atlas:!!(document.getElementById('bpUseNow')||{{}}).checked}};
- let msg;
+ let msg, bpId='';
  try{{ let r=await fetch('/uploadblueprint',{{method:'POST',body:JSON.stringify(body)}});
   msg=(r.status===404)?'Upload endpoint missing — restart the service':await r.text();
+  bpId=r.headers.get('X-IW-Blueprint-Id')||'';
  }}catch(e){{ msg='Publish failed: '+e; }}
  // A pre-existing id prompts to overwrite (mirror the .atlas confirm style).
  if(msg.indexOf('⚠')===0 && msg.indexOf('already exists')>=0 && !overwrite){{
@@ -7478,7 +7479,7 @@ async function saveBlueprint(overwrite){{
  if(msg.indexOf('✓')===0){{
   // The publish has landed; a card that fails to save says so and never undoes it.
   bpStat(msg+' — saving the card…');
-  let cardMsg=await cardAfterPublish(document.getElementById('bpName').value);
+  let cardMsg=await cardAfterPublish(bpId);
   bpStat(msg+cardMsg);
   if(cardMsg.indexOf('⚠')<0) setTimeout(()=>location.reload(),1600);
   return;
@@ -8978,8 +8979,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, "text/plain",
                            b"Invalid request body (not JSON).")
                 return
-            self._send(200, "text/plain",
-                       self._uploadblueprint(payload).encode())
+            self._published_bp_id = ""
+            msg = self._uploadblueprint(payload)
+            # The slugged id, so the page saves the card under the id the server
+            # chose rather than re-deriving it from the name it typed.
+            self._send(200, "text/plain", msg.encode(),
+                       {"X-IW-Blueprint-Id": self._published_bp_id}
+                       if self._published_bp_id else None)
         elif post_path == "/card/save":
             self._post_card_save(raw)
         elif post_path == "/deleteblueprint":
@@ -9586,6 +9592,7 @@ class Handler(BaseHTTPRequestHandler):
             return (f"⚠ Saved '{bp_id}' but it didn't reload cleanly — check the "
                     "bindings and try again.")
         verb = "Updated" if overwrite else "Published"
+        self._published_bp_id = bp_id
         card_note = self._reset_card_on_republish(bp_id) if existing is not None else ""
         # Publishing only puts a blueprint in the shared library. Nothing SELECTS
         # it, so the next render still went through whatever pipeline the atlas
@@ -9608,11 +9615,12 @@ class Handler(BaseHTTPRequestHandler):
         return (f"✓ {verb} blueprint '{bp_id}'{selected}." + card_note
                 + _models_note(manifest["models"], dropped_models) + mirror_note)
 
-    def _reset_card_on_republish(self, bp_id: str) -> str:
+    def _reset_card_on_republish(self, bp_id: str, what: str = "re-published") -> str:
         """A re-publish changes what a reviewed card was approved against, so it
         goes back to draft. Never fails the publish that already landed."""
         try:
-            if cards.reset_on_republish(bp_id, getattr(self, "_identity", None)):
+            if bp_cards.reset_on_republish(bp_id, getattr(self, "_identity", None),
+                                           what=what):
                 return " Its card returns to draft until re-reviewed."
         except Exception as e:  # noqa: BLE001 — the publish itself succeeded
             print(f"[cards] could not reset the card of '{bp_id}' after a "
@@ -9661,7 +9669,7 @@ class Handler(BaseHTTPRequestHandler):
         agent always gets the reviewed list, whatever it asks for."""
         q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
         try:
-            body = cards.list_entries(
+            body = bp_cards.list_entries(
                 kind=q.get("kind", [""])[0] or None,
                 include_all=q.get("all", [""])[0] in ("1", "true"),
                 identity=getattr(self, "_identity", None),
@@ -9673,20 +9681,42 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._send_json(200, body)
 
+    def _refuse_agent_card_read(self) -> bool:
+        """Only reviewed cards reach an agent, and only through `/blueprints`: a
+        draft is a proposal the owner has not approved. Answers and returns True
+        when refused."""
+        if bp_cards.is_agent(getattr(self, "_identity", None)):
+            self._send_json(403, {"error": "Agents read reviewed cards through "
+                                           "/blueprints only."})
+            return True
+        return False
+
     def _get_card(self) -> None:
+        if self._refuse_agent_card_read():
+            return
         q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-        view = cards.card_view(q.get("id", [""])[0],
-                               identity=getattr(self, "_identity", None),
-                               can_publish=bool(getattr(self, "can_publish", False)),
-                               builtin_keys=CARD_BUILTIN_KEYS)
+        try:
+            view = bp_cards.card_view(q.get("id", [""])[0],
+                                      identity=getattr(self, "_identity", None),
+                                      can_publish=bool(getattr(self, "can_publish", False)),
+                                      builtin_keys=CARD_BUILTIN_KEYS)
+        except storage.ObjectUnreadable as e:
+            self._send_json(503, {"error": f"Could not read the card from storage ({e})."})
+            return
         if view is None:
             self._send_json(404, {"error": "no such blueprint"})
         else:
             self._send_json(200, view)
 
     def _get_card_history(self) -> None:
+        if self._refuse_agent_card_read():
+            return
         q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-        card = cards.get_history_version(q.get("id", [""])[0], q.get("rev", [""])[0])
+        try:
+            card = bp_cards.get_history_version(q.get("id", [""])[0], q.get("rev", [""])[0])
+        except storage.ObjectUnreadable as e:
+            self._send_json(503, {"error": f"Could not read the card from storage ({e})."})
+            return
         if card is None:
             self._send_json(404, {"error": "no such version"})
         else:
@@ -9704,22 +9734,22 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(payload, dict):
             self._send_json(400, {"ok": False, "error": "Expected {id, card, review}."})
             return
-        bp_id = cards.norm_id(payload.get("id"))
+        bp_id = bp_cards.norm_id(payload.get("id"))
         bases = doc_sync.ctx().bases
         try:
-            res = cards.save_card(
+            res = bp_cards.save_card(
                 bp_id, payload.get("card"),
-                base=(bases or {}).get(cards.doc_id(bp_id)),
+                base=(bases or {}).get(bp_cards.doc_id(bp_id)),
                 identity=getattr(self, "_identity", None),
                 can_publish=bool(getattr(self, "can_publish", False)),
                 review=bool(payload.get("review")),
                 builtin_keys=CARD_BUILTIN_KEYS)
-        except cards.CardRefused as e:
+        except bp_cards.CardRefused as e:
             self._send_json(403, {"ok": False, "error": str(e)})
             return
         if res.get("ok"):
             # So the page's next save is based on the version it just wrote.
-            doc_sync.ctx().versions[cards.doc_id(bp_id)] = res["version"]
+            doc_sync.ctx().versions[bp_cards.doc_id(bp_id)] = res["version"]
         self._send_json(200, res)
 
     def _rescanblueprintmodels(self, payload: dict) -> str:
@@ -9786,7 +9816,10 @@ class Handler(BaseHTTPRequestHandler):
             blueprints.hydrate(force=True)
         except Exception:  # noqa: BLE001 — staging copy already written
             pass
-        return (f"✓ Rescanned '{bp_id}'."
+        # The manifest changed (its mapSha with it), so a reviewed card goes back
+        # to draft exactly as on a re-publish.
+        card_note = self._reset_card_on_republish(bp_id, what="models rescanned")
+        return (f"✓ Rescanned '{bp_id}'." + card_note
                 + _models_note(manifest["models"], dropped) + mirror_note)
 
     def _publish_author(self) -> str:
@@ -11621,7 +11654,7 @@ class Handler(BaseHTTPRequestHandler):
             doc_guard_js=doc_guard_js(page_docs, me, active_doc),
             color_field_js=COLOR_FIELD_JS,
             card_editor_js=CARD_EDITOR_JS,
-            card_can_review_js=json.dumps(cards.can_review(getattr(self, "_identity", None))),
+            card_can_review_js=json.dumps(bp_cards.can_review(getattr(self, "_identity", None))),
             iw_toolbar=IW_TOOLBAR,
             iw_toolbar_css=IW_TOOLBAR_CSS,
             cards="".join(cards),
