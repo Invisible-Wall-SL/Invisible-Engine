@@ -14,6 +14,7 @@ import type { Project } from './db/schema';
 import type { Role } from '$lib/roles';
 import { DEFAULT_GAME_KIND } from 'constants-shared/gameKinds';
 import { getDeployToken } from './appSettings';
+import { r2SlugSql, withProjectKeyLock, type Queryer } from './projectKeyLock';
 import { UNASSIGNED_CLIENT } from './projectPaths';
 
 /** The default project every user can always reach; null session = this key. */
@@ -77,6 +78,19 @@ export async function projectKeyTaken(key: string): Promise<boolean> {
 		.select({ key: projects.key })
 		.from(projects)
 		.where(eq(projects.key, key));
+	return Boolean(row);
+}
+
+/**
+ * True when ANY row, live or deleted, has a key whose R2 folder is `slug` (`my-game` and `my_game`
+ * share one). Run on the lock's `tx` by the pending-mockup cleanup.
+ */
+export async function projectInFolder(slug: string, db: Queryer = getDb()): Promise<boolean> {
+	const [row] = await db
+		.select({ key: projects.key })
+		.from(projects)
+		.where(eq(r2SlugSql(projects.key), slug))
+		.limit(1);
 	return Boolean(row);
 }
 
@@ -335,15 +349,19 @@ export async function revokeProjectAccess(userId: string, projectKey: string): P
 		.where(and(eq(userProjectAccess.userId, userId), eq(userProjectAccess.projectKey, projectKey)));
 }
 
+/**
+ * Insert a project row, holding its key ({@link withProjectKeyLock}): the pending-mockup cleanup
+ * re-checks "no project" under the same lock, so it never clears a key this insert is claiming.
+ */
 export async function createProject(
 	key: string,
 	name: string,
 	clientKey: string | null = null,
 	gameType?: string,
 ): Promise<void> {
-	await getDb()
-		.insert(projects)
-		.values({ key, name, clientKey, gameType: gameType ?? null });
+	await withProjectKeyLock(key, async (tx) => {
+		await tx.insert(projects).values({ key, name, clientKey, gameType: gameType ?? null });
+	});
 }
 
 export async function renameProject(key: string, name: string): Promise<void> {

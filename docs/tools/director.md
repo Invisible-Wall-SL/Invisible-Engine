@@ -52,7 +52,9 @@ The same project setup as Game Maker's "Create a game", plus what the agents nee
    the screen it shows: Base game, Hold and Win bonus, Big win, Paytable, … or **Style reference
    only** (palette and mood, never a region). Each card shows the stored file and a tag picker; ×
    removes it. Mockups are stored under the key and client of the game you are about to create,
-   so once one is uploaded the key and client lock until you remove them all.
+   so once one is uploaded the key and client lock until you remove them all. Removing the last
+   one deletes that key's stored mockups, and mockups left under a key that never became a game
+   are cleared by an admin after 14 days without an upload (Admin › Settings › Invisible Director).
    - **Match the mockups closely / Use them as a starting point** sets the fidelity the art agents
      work to.
    - **These designs belong to us or to the client** is required before the run can be created or

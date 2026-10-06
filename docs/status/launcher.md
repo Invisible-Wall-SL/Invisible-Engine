@@ -59,6 +59,42 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+- 2026-10-06 — **Invisible Director: pending-key mockup cleanup** (#1069/#1072 follow-up).
+  Mockups uploaded under a key that never became a game no longer stay in R2 forever
+  (`director/mockupCleanup.ts`).
+  - **Two triggers:** removing the last image of a PENDING key (the mockups route's `remove`)
+    clears the key's `director/mockups.json`, originals and `director/crops/`. **Admin › Settings ›
+    Invisible Director › Clear abandoned mockups** sweeps every pending folder with nothing written
+    for N days. N is the app setting `DIRECTOR_PENDING_MOCKUP_DAYS` (default 14, 1–365), like the
+    run budget; the worker has no R2 access, so the sweep is the launcher's. Unlisted originals
+    (strays) go too once they are older than a 10-minute grace.
+  - **Per R2 folder, not per key:** a folder is `r2Slug(key)`, so `my-game` and `my_game` share one.
+    A folder is pending only when no project row (live or deleted) and no Director run has a key
+    that slugs to it. The first draft compared keys and cleared a real project's folder in the
+    fixture.
+  - **Lock:** `withProjectKeyLock` (`projectKeyLock.ts`) is a `pg_advisory_xact_lock` keyed by the
+    folder slug, with a 30 s `lock_timeout`. It is taken by `createProject`, which every creation
+    path calls (Game Maker, Admin, desktop sync, duplicate / Director copy); by `createRun` around
+    the mockup read and the draft insert; and by the cleanup, which re-checks "no project, no run"
+    inside it. Every query inside the lock runs on the lock's own `tx`, so each holder needs ONE
+    pooled connection: `projectInFolder` / `runInFolder` compare by slug in SQL
+    (`r2SlugSql`), and `insertDraftRun` takes the `tx`.
+  - **Sweep cost:** project and run keys are read once, outside any lock. A folder with a project
+    is skipped. One with no mockup objects is skipped. One a run names, or with anything newer than
+    the cutoff (or of unknown age), is reported kept. Only the remaining candidates take the lock.
+    The banner names each kept folder and why.
+  - **Uploads are not lost:** uploads stay lock-free. R2 has no conditional delete, so the cleanup
+    first **seals** the doc: a CAS on the ETag it read, to an empty doc with `sealedAt`. Only then
+    does it delete the doc. `updateDoc` will not write over a fresh seal: it waits, then answers
+    409 `clearing`, and the seal lapses after 5 min if a cleanup died. The sweep also refuses
+    (`changed`) a doc that moved since its listing.
+  - Fixture: `check:director-mockups` (now 144 checks), plus a `check:director-runs` check that
+    every draft insert holds the lock and runs on its `tx`.
+  - **Open:** `requireDirectorProjectScope` accepts a free key whose folder is an existing
+    project's (`sunken_temple` vs `sunken-temple`), so a pending upload can land in that project's
+    `director/` tree. The cleanup refuses to clear such a folder. The scope gate itself is
+    unchanged.
+
 - 2026-10-06 — **Invisible Director: the Live run screen** (Director card 4C, PLAN 4.3; over
   #1069, #1067 and #1072).
   - `/director/[runId]` is now the Live run screen (mockup 04) for every state past the breakdown;

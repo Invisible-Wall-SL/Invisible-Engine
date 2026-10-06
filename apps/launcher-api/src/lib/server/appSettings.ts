@@ -25,6 +25,16 @@ export const RUNPOD_IDLE_MINUTES_DEFAULT = 20;
  */
 export const RUNPOD_PODS_KEY = 'runpodPods';
 
+/**
+ * Settings key: days a PENDING Director key's mockups may sit untouched, with no project and no
+ * run, before the Admin sweep clears them (`director/mockupCleanup.ts`). Launcher-only: the worker
+ * has no R2 access and never sweeps.
+ */
+export const DIRECTOR_PENDING_MOCKUP_DAYS_KEY = 'DIRECTOR_PENDING_MOCKUP_DAYS';
+export const DIRECTOR_PENDING_MOCKUP_DAYS_DEFAULT = 14;
+export const DIRECTOR_PENDING_MOCKUP_DAYS_MIN = 1;
+export const DIRECTOR_PENDING_MOCKUP_DAYS_MAX = 365;
+
 // The Director budget and pricing keys and the cap's clamp are shared with the worker, which reads
 // the same settings (ADR-0006).
 export {
@@ -133,6 +143,28 @@ export async function getDirectorRunBudget(): Promise<number> {
 			err instanceof Error ? err.message : err,
 		);
 		return DIRECTOR_RUN_BUDGET_DEFAULT_USD;
+	}
+}
+
+/**
+ * The pending-mockup retention in days ({@link DIRECTOR_PENDING_MOCKUP_DAYS_KEY}): the stored whole
+ * number within min/max, else the default. Fails SAFE to the default — never to a shorter window.
+ * Never throws.
+ */
+export async function getDirectorPendingMockupDays(): Promise<number> {
+	try {
+		const days = Number(await getAppSetting(DIRECTOR_PENDING_MOCKUP_DAYS_KEY));
+		return Number.isInteger(days) &&
+			days >= DIRECTOR_PENDING_MOCKUP_DAYS_MIN &&
+			days <= DIRECTOR_PENDING_MOCKUP_DAYS_MAX
+			? days
+			: DIRECTOR_PENDING_MOCKUP_DAYS_DEFAULT;
+	} catch (err) {
+		console.warn(
+			'[appSettings] pending-mockup retention DB read failed — using the default:',
+			err instanceof Error ? err.message : err,
+		);
+		return DIRECTOR_PENDING_MOCKUP_DAYS_DEFAULT;
 	}
 }
 

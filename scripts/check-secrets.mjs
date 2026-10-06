@@ -56,8 +56,12 @@ export const PATTERNS = [
 		'Database URL with password',
 		/\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|rediss?|amqps?):\/\/[^:\s/@]+:[^@\s/]+@/,
 	],
-	// A pip `--hash=sha256:<hex>` pin (hash-checked requirements) is a public checksum, not a secret.
-	['Generic 40+ hex secret', /(?<!--hash=sha(?:256|384|512):)\b[0-9a-f]{40,}\b/],
+	// A pip `--hash=sha256:<hex>` pin (hash-checked requirements) and a workflow's
+	// `uses: owner/repo@<sha>` action pin are public checksums, not secrets.
+	[
+		'Generic 40+ hex secret',
+		/(?<!--hash=sha(?:256|384|512):|\buses:\s*[\w.-]+\/[\w./-]+@)\b[0-9a-f]{40,}\b/,
+	],
 ];
 
 // A match that reads like documentation, not a credential: `sk-ant-api03-xxxx…`, `<token>`,

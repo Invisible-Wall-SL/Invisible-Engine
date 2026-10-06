@@ -31,6 +31,10 @@
  *  - the checkpoint submission is `step_done`: waiting on `breakdown` with the checkpoint on, and the
  *    `checkpoint_open` event carries the breakdown; with it off the run moves on to style_pack; the
  *    coordinator's report names the figures and the open checkpoint;
+ *  - font gaps (ADR-0005 "Fonts"): the analysis reads `fonts.list` in the analyst's name, and a gap
+ *    whose style note names a catalogue font (by its words, in order, as whole words) is not
+ *    reported while an unknown one is; a failed `fonts.list` fails the analysis, before any model
+ *    call, rather than reporting every gap;
  *  - the schema parser refuses a malformed answer with a reason.
  */
 import assert from 'node:assert/strict';
@@ -46,6 +50,7 @@ import {
 	imagePrompt,
 	type AnalyzeDeps,
 	type Breakdown,
+	type FontListing,
 	type MockupListing,
 	type RegionListing,
 	type TemplateSummary,
@@ -75,6 +80,7 @@ const check = (ok: boolean, msg: string, extra = '') => {
 interface Reference {
 	template: TemplateSummary;
 	regions: RegionListing;
+	fonts: FontListing;
 	fidelity: MockupListing['fidelity'];
 	ownershipConfirmed: MockupListing['ownershipConfirmed'];
 	images: (MockupListing['images'][number] & {
@@ -104,7 +110,12 @@ interface Call {
 	opId?: string;
 }
 
-function fakeLauncher(over: Partial<Pick<Reference, 'ownershipConfirmed' | 'template'>> = {}) {
+function fakeLauncher(
+	over: Partial<Pick<Reference, 'ownershipConfirmed' | 'template'>> & {
+		/** The catalogue `fonts.list` answers; `null` = the op is not served. */
+		fonts?: FontListing['fonts'] | null;
+	} = {},
+) {
 	const calls: Call[] = [];
 	const client = (as: Call['as']): AdapterClient => ({
 		async call<T>(tool: string, op: string, input: unknown, opts?: { opId?: string }) {
@@ -136,11 +147,14 @@ function fakeLauncher(over: Partial<Pick<Reference, 'ownershipConfirmed' | 'temp
 				case 'atlas.list_regions':
 					return reference.regions as T;
 				case 'fonts.list':
-					throw Object.assign(new Error('fonts.list: 404 unknown_op'), {
-						name: 'AdapterCallError',
-						status: 404,
-						code: 'unknown_op',
-					});
+					if (over.fonts === null) {
+						throw Object.assign(new Error('fonts.list: 404 unknown_op'), {
+							name: 'AdapterCallError',
+							status: 404,
+							code: 'unknown_op',
+						});
+					}
+					return { fonts: over.fonts ?? reference.fonts.fonts, pending: [] } as T;
 				case 'mockups.save_crops': {
 					const crops = (input as { crops: { region: string; imageId: string }[] }).crops;
 					return {
@@ -406,10 +420,129 @@ console.log('calls');
 		breakdown.fontGaps.length === 1 && breakdown.fontGaps[0].imageId === 'a1b2c3d4e5f60001',
 		'the font gap is kept with its image',
 	);
+	check(
+		calls.some((c) => c.as === 'analyst' && c.tool === 'fonts' && c.op === 'list'),
+		'the catalogue is read through fonts.list in the analyst’s name',
+	);
 	check(breakdown.usage.inputTokens === 2000, 'usage is summed over the calls');
 	check(
 		!calls.some((c) => c.tool === 'atlas' && c.op !== 'list_regions'),
 		'nothing is queued on Atlas Maker',
+	);
+}
+
+// ── Font gaps ─────────────────────────────────────────────────────────────────
+console.log('font gaps');
+{
+	const withGaps = (...gaps: { text: string; styleNote: string }[]) => ({
+		[reference.images[0].id]: {
+			...reference.answers[reference.images[0].id],
+			fontGaps: gaps,
+		},
+	});
+	const gapsOf = async (
+		gaps: { text: string; styleNote: string }[],
+		fonts?: FontListing['fonts'],
+	) =>
+		(
+			await analyzeMockups({
+				adapters: withErrors(fakeLauncher({ fonts }).adapters),
+				model: fakeTransport(withGaps(...gaps)).transport,
+				agent: analyst,
+				run,
+				pass: 1,
+			})
+		).fontGaps.map((g) => g.text);
+	const catalogue = reference.fonts.fonts;
+	check(
+		(await gapsOf([{ text: 'SUNKEN', styleNote: 'Cinzel Decorative, gold' }])).length === 0,
+		'a gap naming a catalogue font is not reported',
+	);
+	check(
+		(await gapsOf([{ text: 'SUNKEN', styleNote: 'set in TEMPLE-GOLD bold' }])).length === 0,
+		'…whatever the spelling or case, and a project font counts like a shared one',
+	);
+	check(
+		(await gapsOf([{ text: 'SUNKEN', styleNote: 'carved serif capitals' }])).join() === 'SUNKEN',
+		'an unknown font is reported',
+	);
+	check(
+		(await gapsOf([{ text: 'Cinzel Decorative', styleNote: 'carved serif capitals' }])).join() ===
+			'Cinzel Decorative',
+		'only the style note counts: lettering that happens to spell a font’s name is still a gap',
+	);
+	for (const note of [
+		'not Cinzel Decorative',
+		'Cinzel Decorative-like capitals',
+		'like Cinzel Decorative',
+		'similar to Cinzel Decorative',
+		'inspired by Cinzel Decorative',
+		'Cinzel Decorative style',
+		'without Cinzel Decorative',
+	]) {
+		check(
+			(await gapsOf([{ text: 'A', styleNote: note }])).join() === 'A',
+			`"${note}" is hedged: the gap stays`,
+		);
+	}
+	check(
+		(await gapsOf([{ text: 'A', styleNote: 'not serif, Cinzel Decorative' }])).length === 0,
+		'a negation that is not about the font does not hedge it',
+	);
+	check(
+		(await gapsOf([{ text: 'A', styleNote: 'cinzel only' }])).join() === 'A',
+		'part of a font’s name is not the font',
+	);
+	check(
+		(await gapsOf([{ text: 'A', styleNote: 'Gold temple' }])).join() === 'A',
+		'…nor are its words in another order',
+	);
+	check(
+		(
+			await gapsOf(
+				[{ text: 'A', styleNote: 'Cinzel Decorative Black' }],
+				[
+					{ id: 'x', name: 'Cinzel Decorative Black', kind: 'bitmap', folder: 'x', shared: true },
+					{ id: 'y', name: 'Be', kind: 'bitmap', folder: 'y', shared: true },
+				],
+			)
+		).length === 0 &&
+			(
+				await gapsOf(
+					[{ text: 'A', styleNote: 'Be bold' }],
+					[{ id: 'y', name: 'Be', kind: 'bitmap', folder: 'y', shared: true }],
+				)
+			).join() === 'A',
+		'a longer name matches in full; a name under three letters never matches',
+	);
+	check(
+		(await gapsOf([{ text: 'A', styleNote: 'carved serif capitals' }], [])).join() === 'A',
+		'an empty catalogue reports every gap',
+	);
+	const mixed = await gapsOf([
+		{ text: 'ONE', styleNote: 'Temple Gold' },
+		{ text: 'TWO', styleNote: 'brush script' },
+	]);
+	check(mixed.join() === 'TWO', 'a mixed list keeps only the unknown fonts', mixed.join());
+	check(catalogue.length === 2, 'the reference catalogue holds two fonts');
+
+	const model = fakeTransport();
+	let refused: unknown;
+	try {
+		await analyzeMockups({
+			adapters: withErrors(fakeLauncher({ fonts: null }).adapters),
+			model: model.transport,
+			agent: analyst,
+			run,
+			pass: 1,
+		});
+	} catch (error) {
+		refused = error;
+	}
+	check(
+		refused instanceof Error && /fonts\.list/.test(refused.message) && model.requests.length === 0,
+		'a catalogue that cannot be read fails the analysis before any model call',
+		String(refused),
 	);
 }
 

@@ -18,6 +18,8 @@ tests too.
 
 - `template` and `regions` — what `gamemaker.get_template` and `atlas.list_regions` answer for the
   fixture's template: five locked items (its `betModes` is `base` only) and 23 regions in two atlases.
+- `fonts` — what `fonts.list` answers: two catalogue fonts, neither named by the canned font gap
+  ("carved serif capitals"), so the snapshot keeps it.
 - `images` — the listing `mockups.list` answers, plus each image's `dominantColors`, which the
   generator computes with the launcher's real k-means (`mockupPixels.ts`). The launcher fixture
   recomputes them and fails if they drift.

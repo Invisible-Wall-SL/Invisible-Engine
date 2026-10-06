@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, gt, inArray, lt, lte, sql } from 'drizzle-orm';
 import { getDb } from '../db';
+import { r2SlugSql, type Queryer } from '../projectKeyLock';
 import {
 	directorAtlasJobs,
 	directorEvents,
@@ -262,8 +263,8 @@ export interface NewRun {
  * refuses. The budget cap stays null: the worker copies Settings onto the run at start
  * (ADR-0006). False when the id exists — a replayed create, which returns the run it made.
  */
-export async function insertDraftRun(row: NewRun): Promise<boolean> {
-	const inserted = await getDb()
+export async function insertDraftRun(row: NewRun, db: Queryer = getDb()): Promise<boolean> {
+	const inserted = await db
 		.insert(directorRuns)
 		.values({ ...row, status: 'draft', step: 'breakdown', projectCreateStartedAt: new Date() })
 		.onConflictDoNothing({ target: directorRuns.id })
@@ -276,6 +277,27 @@ export async function deleteDraftRun(runId: string): Promise<void> {
 	await getDb()
 		.delete(directorRuns)
 		.where(and(eq(directorRuns.id, runId), eq(directorRuns.status, 'draft')));
+}
+
+/**
+ * Every project key a run names, in any state — a key with a run is the run's, never a pending
+ * key's to clear (`mockupCleanup.ts`, which compares them by R2 folder).
+ */
+export async function listRunProjectKeys(): Promise<string[]> {
+	const rows = await getDb()
+		.selectDistinct({ projectKey: directorRuns.projectKey })
+		.from(directorRuns);
+	return rows.map((r) => r.projectKey);
+}
+
+/** Whether any run, in any state, names a key whose R2 folder is `slug`; on the lock's `tx`. */
+export async function runInFolder(slug: string, db: Queryer = getDb()): Promise<boolean> {
+	const [row] = await db
+		.select({ id: directorRuns.id })
+		.from(directorRuns)
+		.where(eq(r2SlugSql(directorRuns.projectKey), slug))
+		.limit(1);
+	return Boolean(row);
 }
 
 /** Refresh a draft's starting point; a run the worker has moved since keeps what it started with. */
