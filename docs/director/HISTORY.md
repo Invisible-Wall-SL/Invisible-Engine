@@ -15,6 +15,37 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-06 · Phase 8 · coordinator (merges #1081)
+- **Did:** #1081 (card 8B, Atlas Maker safety changes for the Director). atlas-tool only; nothing
+  changes on a person's atlas.
+  - `/saveconfig` `atlas_pipeline` → `manifest.settings.pipeline` (Director only, per-atlas keys
+    only, never writes `atlas_config.json`); the page follows that atlas's pipeline.
+  - On such an atlas, `bpParams` follow each region's effective pipeline
+    (`batch_atlas.region_bp_params`); person atlases render byte-identically, proven by fixtures
+    and by a side-by-side render against main.
+  - `/render` refuses a Director token on the `http` transport, re-checked in the worker.
+  - A Director `/setoutput` writes a create-only `refs/useroutput/<region>_<run>_<sha12>.png` (own
+    folder, so no collision with a person's `useroutput_<name>.png`); ✕ revert keeps the file.
+  - No Director call moves the active atlas (`/newatlas`, `/duplicateatlas`, `/?atlas=`);
+    `hold_selection` writes down a blank or stale `manifest_path` before a Director create.
+  - Refused for a Director token: POSTs to atlas routes without `?manifest=` (400),
+    `/uploadblueprint`, and manifest writes R2 did not take (503). `bpParams` ids stored lowercase.
+- **Files:** `services/atlas-tool/{batch_atlas.py,ui_server.py,test_director_safety.py,
+  test_director_calls.py,test_atlas_style_gate.py}`, `docs/status/atlas-maker.md`,
+  `docs/tools/atlas-maker.md`.
+- **Branch / PR:** `claude/clever-galileo-0fcc93` → #1081 (squash 4c26341c).
+- **Tests:** `scripts/check-python.py` atlas-tool 40/40, sheet-tool 6/6; CI green. Reviewed twice
+  by code-reviewer; the first round's blocker (bpParams by effective pipeline changed human
+  renders) fixed by limiting the rule to Director-configured atlases.
+- **Decisions:** ADR-0008 §Context and §5 amended: an override region renders with the ACTIVE
+  pipeline's saved params matched by key (not baked defaults); effective-pipeline keying applies
+  only on a Director-configured atlas.
+- **Next:** 8D. It must expect the tile at `refs/useroutput/…`; add server-side `is_director`
+  refusals on `/card/save`, `/deleteblueprint`, `/taxonomy/save` as a second line behind
+  `refusals.ts`; owed a live Director-token pass. Open nits: `applyPipe`'s first loop still shows
+  per-atlas fields from the global pipeline on a Director atlas; `hold_selection` can race a
+  person's atlas switch (tiny window).
+
 ## 2026-10-06 · Phases 5, 4, 8 · coordinator (merges #1074, #1076, #1078)
 - **Did:**
   - **#1074 (card 5C, Phase 5: merge & history & rollback):** pipelineMerge endpoint pins a SHA and
