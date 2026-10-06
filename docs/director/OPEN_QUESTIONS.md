@@ -51,6 +51,19 @@ with the default.
     them). When agents are ready to request cards, reviewed and problem-free cards become available.
     *Suggested default:* the owner reviews each card in Atlas Maker (✎ Card) before agents use it.
 
+14. **Clearing an atlas's own pipeline (from #1081).** A person cannot clear the pipeline a
+    Director run set on an atlas, and ⧉ Duplicate atlas copies it. *Suggested default:* add a "use
+    the global Pipeline again" action in Atlas Maker as a small follow-up.
+
+15. **Person tile tools over a Director tile (from #1081).** FX builds, "use the ref as the tile"
+    and Use my image still write the fixed `useroutput_<region>.png` and replace a Director tile
+    as the region's tile (the versioned file stays; ⟲ AI gen leaves it). *Suggested default:*
+    accept: a person's explicit action wins, and the Director's file stays recoverable.
+
+16. **`hold_selection` writes `manifest_path` for a Director create (from #1081).** It writes the
+    atlas people were already seeing, only when the selection is blank or stale. *Suggested
+    default:* accept as the one exception to "a Director never writes the config".
+
 ## Answered
 
 - **2026-10-06: Phase 8 card 8A merge (#1078). Owner decision.**

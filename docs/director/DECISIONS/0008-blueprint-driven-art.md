@@ -47,7 +47,9 @@ That model is wrong for the tool the agents drive. What Atlas Maker actually is,
   per-scope selector is the region's `pipeline` override (`/saveadv`). A blueprint's exposed params
   are saved per atlas (`manifest.settings.bpParams[<id>]`) but applied only when that blueprint is
   the ACTIVE pipeline (`batch_atlas.main`, `resolve_blueprint_workflow`): a region whose own
-  `pipeline` differs from the atlas's renders that blueprint at its baked defaults. The generation
+  `pipeline` differs from the atlas's renders its own blueprint with the ACTIVE pipeline's saved
+  `bpParams`, matched by param key; keys the active pipeline did not save fall back to the
+  blueprint's baked defaults (amended after 8B, #1081). The generation
   size (`gen_width`/`gen_height`) is per atlas, not per region.
 - **One image often takes a chain,** and the tool has the pieces: `/duplicateatlas` (the same
   setup under a new name and a region tag, for a second pass; built for extraction passes),
@@ -344,8 +346,11 @@ stored) and advanced by the worker as steps run:
   `queue_variants` calls by (atlas, pipeline, genPx, per-atlas settings) and the validator refuses
   a step whose pipeline, size OR per-atlas settings differ between regions of one atlas; per-region
   settings (`ADV_FIELDS`) may differ and go through `set_region_pipeline`. A region with its own
-  `pipeline` override renders that blueprint at its baked defaults until 8B keys `bpParams` by the
-  effective pipeline.
+  `pipeline` override renders its own blueprint with the active pipeline's saved `bpParams`, matched
+  by key (baked defaults for keys not saved). Since 8B (#1081), on an atlas with its own pipeline
+  (`settings.pipeline`, set only by a Director run) the region uses `bpParams[<its own pipeline>]`
+  when present, else the same active-pipeline params; a person's atlas keeps the old rule byte for
+  byte. The validator plans against this rule.
 - **Code validates a recipe before storing it:** every `pipeline` has a reviewed card (`""` only on
   `finish`); a `generate` step's card has `inputs.prompt ≠ none`; a `process` step has a source; a
   card with `inputs.sourceImage: required` gets one; `genPx` within the card's `width` range;
