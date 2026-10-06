@@ -19,5 +19,8 @@
 		"eslint": "9.21.0",
 		"eslint-config-custom": "workspace:*",
 		"typescript": "5.9.3"
+	},
+	"dependencies": {
+		"pixi.js": "8.21.0"
 	}
 }
