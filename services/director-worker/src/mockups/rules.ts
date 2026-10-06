@@ -56,21 +56,48 @@ export const tokens = (text: string): string =>
 		.trim()
 		.toLowerCase();
 
+/** Words before a font's name that say the note is NOT naming it, or only something near it. */
+const HEDGE_BEFORE = new Set([
+	'not',
+	'no',
+	'nor',
+	'unlike',
+	'without',
+	'like',
+	'similar',
+	'inspired',
+]);
+/** Words after it that make it a likeness: "Cinzel Decorative-like", "…style". */
+const HEDGE_AFTER = new Set(['like', 'ish', 'esque', 'style', 'inspired', 'alike']);
+
 /**
  * The font of a catalogue a style note names, or null: every word of the font's name, in order and
  * as whole words, inside the note's words (so "Cinzel Decorative, carved" names `CinzelDecorative`
- * and "carved serif capitals" names nothing). Conservative on purpose: a gap dropped for a font
- * the mockup does not use would hide a font the owner needs, while a gap kept for a font the
- * project has costs one line in the review. A name shorter than three letters is never matched.
+ * and "carved serif capitals" names nothing). A mention that is hedged — negated ("not …",
+ * "without …"), or a likeness ("like …", "similar to …", "inspired by …", "…-like", "… style") —
+ * does not count. Conservative on purpose: a gap dropped for a font the mockup does not use would
+ * hide a font the owner needs, while a gap kept for a font the project has costs one line in the
+ * review. A name shorter than three letters is never matched.
  */
 export function catalogueFontNamed<F extends { name: string }>(
 	styleNote: string,
 	fonts: readonly F[],
 ): F | null {
-	const note = ` ${tokens(styleNote)} `;
+	const words = tokens(styleNote).split(' ');
 	for (const font of fonts) {
-		const name = tokens(font.name);
-		if (name.length >= 3 && note.includes(` ${name} `)) return font;
+		const name = tokens(font.name).split(' ');
+		if (name.join('').length < 3) continue;
+		for (let at = 0; at + name.length <= words.length; at++) {
+			if (!name.every((w, k) => words[at + k] === w)) continue;
+			const before = words[at - 1];
+			const beforeTwo = words[at - 2] === 'similar' || words[at - 2] === 'inspired';
+			const after = words[at + name.length];
+			const hedged =
+				HEDGE_BEFORE.has(before) ||
+				((before === 'to' || before === 'by') && beforeTwo) ||
+				HEDGE_AFTER.has(after);
+			if (!hedged) return font;
+		}
 	}
 	return null;
 }

@@ -459,7 +459,7 @@ console.log('font gaps');
 		'a gap naming a catalogue font is not reported',
 	);
 	check(
-		(await gapsOf([{ text: 'SUNKEN', styleNote: 'looks like TEMPLE-GOLD bold' }])).length === 0,
+		(await gapsOf([{ text: 'SUNKEN', styleNote: 'set in TEMPLE-GOLD bold' }])).length === 0,
 		'…whatever the spelling or case, and a project font counts like a shared one',
 	);
 	check(
@@ -470,6 +470,24 @@ console.log('font gaps');
 		(await gapsOf([{ text: 'Cinzel Decorative', styleNote: 'carved serif capitals' }])).join() ===
 			'Cinzel Decorative',
 		'only the style note counts: lettering that happens to spell a font’s name is still a gap',
+	);
+	for (const note of [
+		'not Cinzel Decorative',
+		'Cinzel Decorative-like capitals',
+		'like Cinzel Decorative',
+		'similar to Cinzel Decorative',
+		'inspired by Cinzel Decorative',
+		'Cinzel Decorative style',
+		'without Cinzel Decorative',
+	]) {
+		check(
+			(await gapsOf([{ text: 'A', styleNote: note }])).join() === 'A',
+			`"${note}" is hedged: the gap stays`,
+		);
+	}
+	check(
+		(await gapsOf([{ text: 'A', styleNote: 'not serif, Cinzel Decorative' }])).length === 0,
+		'a negation that is not about the font does not hedge it',
 	);
 	check(
 		(await gapsOf([{ text: 'A', styleNote: 'cinzel only' }])).join() === 'A',

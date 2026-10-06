@@ -37,13 +37,10 @@
  *     once, billed, without re-running the pass; the resume runs it again;
  *  9. an owner's pause pressed during the LAST image applies before the submission; the resume
  *     rebuilds the breakdown from the stored answers — no image re-asked — and submits it;
- * 10. an answer's bill and its stored `breakdown_image` row are ONE transaction: when the row's
- *     insert fails (a trigger raises once), nothing is billed and nothing is stored, the drive
- *     fails and is retried, and the retry — whose model answer carries a different id — bills each
- *     image once, stores each answer once and opens the checkpoint once.
- *
- * Every answer is stored as it arrives (`breakdown_image` rows), so 3, 6, 8 and 9 all show a
- * stopped pass asking again only for the images it lacks.
+ * 10. an answer's bill survives a failed answer write: when the `breakdown_image` insert fails (a
+ *     trigger raises once) its savepoint rolls back but the spend row and event commit — the call
+ *     was paid for — the drive fails and is retried, and the retry asks again and bills that too:
+ *     every call billed, each answer stored once, the checkpoint opened once.
  */
 import type {
 	BetaMessage,
@@ -961,7 +958,9 @@ try {
 	}
 
 	// ── 10. The bill and the stored answer are one write ──────────────────────
-	console.log('10. a failed insert of the stored answer rolls the bill back: billed once overall');
+	console.log(
+		'10. a failed insert of the stored answer leaves its bill standing: every call billed',
+	);
 	{
 		const runId = await newRun();
 		const vision = fakeVision();
@@ -983,38 +982,31 @@ try {
 			await sql.unsafe('drop function if exists proof_fail_answer()');
 		}
 		check(
-			'the failed insert fails the drive: the first image was asked, nothing is billed, nothing stored',
+			'the failed insert fails the drive: the first image was asked, billed, and not stored',
 			[vision.calls(), (await spendRows(runId)).length, await storedAnswers(runId)],
-			[1, 0, 0],
+			[1, 1, 0],
 		);
 		check(
-			'…no spend event, no checkpoint, and the owner is told a retry is coming',
+			'…with its spend event, no checkpoint, and the owner told a retry is coming',
 			[
 				(await events(runId, 'spend')).length,
 				(await breakdownOpens(runId)).length,
 				(await events(runId, 'error')).map((e) => e.payload.type),
 			],
-			[0, 0, ['retrying']],
+			[1, 0, ['retrying']],
 		);
 		await expireLease(runId);
 		await drive(runId, deps(turns.transport, vision.transport, gate.launcher));
-		const [lostId, ...billedIds] = vision.ids;
 		check('the retry asks for both images again', vision.calls(), 3);
-		const spend = await spendRows(runId);
 		check(
-			'each image is billed exactly once, under the id of the answer that was kept',
-			spend.map((r) => r.request_id).sort(),
-			billedIds.sort(),
-		);
-		check(
-			'…the answer lost with the failed insert is not billed',
-			spend.some((r) => r.request_id === lostId),
-			false,
+			'every call is billed, the lost answer’s included: the re-ask is never unrecorded spend',
+			(await spendRows(runId)).map((r) => r.request_id).sort(),
+			[...vision.ids].sort(),
 		);
 		check(
 			'…with one spend event per bill, and one stored answer per image',
 			[(await events(runId, 'spend')).length, await storedAnswers(runId)],
-			[2, 2],
+			[3, 2],
 		);
 		check(
 			'the checkpoint opens once, and the run waits on it',

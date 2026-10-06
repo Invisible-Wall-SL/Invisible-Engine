@@ -710,9 +710,10 @@ async function takeTurn(ctx: Ctx, name: string): Promise<boolean> {
  * money, and the error carries the usage so it can still be priced by hand. A turn's message and
  * the analysis's vision answers are billed alike.
  *
- * `alsoWrite` runs in the same transaction, for what must exist exactly when the bill does: a
- * failure rolls all of it back, so a retry that asks again is billed once, whatever id the new
- * answer carries — never twice for one image, never an answer stored without its bill.
+ * `alsoWrite` runs in the same transaction on the happy path, inside a savepoint: if it throws, only
+ * its own writes are undone, the bill still commits, and the error is rethrown after the commit.
+ * A re-ask after a failed answer write is unavoidable, but it is always billed — a rolled-back bill
+ * would leave the money spent unrecorded, and the cap blind to it if the write kept failing.
  */
 async function billResponse(
 	ctx: Ctx,
@@ -734,6 +735,7 @@ async function billResponse(
 		});
 		return false;
 	}
+	let writeFailure: unknown = null;
 	await ctx.sql.begin(async (tx) => {
 		const written = await recordSpend(tx, {
 			runId: ctx.run.id,
@@ -751,8 +753,15 @@ async function billResponse(
 				requestId: response.id,
 			});
 		}
-		await alsoWrite?.(tx);
+		if (alsoWrite) {
+			try {
+				await tx.savepoint((sp) => alsoWrite(sp));
+			} catch (error) {
+				writeFailure = error;
+			}
+		}
 	});
+	if (writeFailure) throw writeFailure;
 	return true;
 }
 
@@ -907,7 +916,8 @@ const answerFrom = (cached: CachedAnswer): VisionAnswer => ({
  * run is still running (an owner's pause or stop pressed since the last call applies first), only
  * under the cap, and with the drive's signal; the answer is billed as soon as it arrives — a
  * refused or malformed answer included, since its tokens are spent all the same — and, in the same
- * transaction, stored as a `breakdown_image` row for the passes to come. A refusal, an answer that
+ * transaction, stored as a `breakdown_image` row for the passes to come (if that write fails the bill
+ * stands and the drive is retried, which asks again and bills again). A refusal, an answer that
  * cannot be used, or an API error a retry cannot fix pauses the run here, once, for a person.
  */
 function visionFor(
@@ -968,8 +978,8 @@ function visionFor(
 					response: { id: answer.id, model: answer.model, usage: answer.usage },
 					output: answer.output,
 				};
-				// Stored with the bill, in one transaction, and kept whatever happens next: the answer is
-				// paid for, and a pass that dies after this finds it and does not ask again.
+				// Stored with the bill, and kept whatever happens next: the answer is paid for, and a pass
+				// that dies after this finds it and does not ask again.
 				const billed = await billResponse(ctx, analyst.name, answer, pricing, (tx) =>
 					insertEvent(tx, ctx.run.id, analyst.name, 'activity', {
 						type: 'breakdown_image',
