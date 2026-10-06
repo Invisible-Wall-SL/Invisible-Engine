@@ -221,7 +221,7 @@ export async function analyzeMockups(deps: AnalyzeDeps): Promise<Breakdown> {
 			effort: agent.effort,
 			system,
 			prompt: imagePrompt(image, got, listing.fidelity, deps.notes),
-			image: { mediaType: got.mediaType, base64: got.base64 },
+			image: { id: image.id, mediaType: got.mediaType, base64: got.base64 },
 		});
 		usages.push(answer.usageSummary);
 		const elements = applyCodeRules(answer.output.elements, {

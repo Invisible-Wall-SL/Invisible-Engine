@@ -1,7 +1,8 @@
 import type { BetaContentBlockParam } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import type { Sql, TransactionSql } from 'postgres';
 import { WAKING_KINDS, type ClaimedRun } from './lease.ts';
-import type { Breakdown } from './mockups/analyze.ts';
+import type { AnalystOutput } from './mockups/schema.ts';
+import type { BilledResponse } from './mockups/vision.ts';
 import {
 	checkpointSettings,
 	type Checkpoint,
@@ -242,22 +243,25 @@ export async function breakdownPasses(db: Db, runId: string): Promise<number> {
 	return row.n;
 }
 
-/** A breakdown produced but not submitted, because the run had left `running` under it. */
-export interface HeldBreakdown {
-	attempt: number;
-	pass: number;
-	breakdown: Breakdown;
+/** One answer the analyst's model gave for one image, as billed and as parsed. */
+export interface CachedAnswer {
+	response: BilledResponse;
+	output: AnalystOutput;
 }
 
-/** The latest `breakdown_held` row of the run, or null. The caller checks it is still current. */
-export async function heldBreakdown(db: Db, runId: string): Promise<HeldBreakdown | null> {
-	const [row] = await db<{ payload: HeldBreakdown }[]>`
+/**
+ * The answers already given for this run (`breakdown_image` rows), by the driver's key — the
+ * attempt, the image and its bytes, the system block and prompt. A pass that stopped part-way (a
+ * pause, the cap, a transient failure, a lost lease) asks again only for the images it lacks.
+ */
+export async function breakdownAnswers(db: Db, runId: string): Promise<Map<string, CachedAnswer>> {
+	const rows = await db<{ payload: { key: string } & CachedAnswer }[]>`
 		select payload_json as payload from director_events
-		where run_id = ${runId} and kind = 'activity' and payload_json->>'type' = 'breakdown_held'
-		order by id desc limit 1`;
-	if (!row) return null;
-	const { attempt, pass, breakdown } = row.payload;
-	return { attempt: Number(attempt), pass: Number(pass), breakdown };
+		where run_id = ${runId} and kind = 'activity' and payload_json->>'type' = 'breakdown_image'
+		order by id`;
+	return new Map(
+		rows.map((r) => [r.payload.key, { response: r.payload.response, output: r.payload.output }]),
+	);
 }
 
 /**

@@ -354,6 +354,10 @@ console.log('calls');
 		requests[0].prompt.includes('1280×800') && requests[0].prompt.includes('"Base game"'),
 		'the prompt names the image size and tag',
 	);
+	check(
+		requests.map((r) => r.image.id).join() === 'a1b2c3d4e5f60001,a1b2c3d4e5f60002',
+		'each request carries its mockup id, for the record of the answer',
+	);
 	const style = breakdown.images.find((i) => i.styleOnly)!;
 	check(style.elements.length === 0 && style.model === null, 'the style reference gets no call');
 	check(
@@ -560,6 +564,12 @@ console.log('rules about the element');
 		'a gamble button the model ties to bet modes on a template that cannot buy is needs_you, never left_out on the model’s word',
 		JSON.stringify(gamble),
 	);
+	check(
+		['buybonus', 'bonusbuy', 'featurebuy', 'Purchase'].every(
+			(name) => judge({ name, regions: ['BetPanel'] }).status === 'left_out',
+		),
+		'a join with no boundary (buybonus, featurebuy) still meets the buy rule',
+	);
 	const shop = judge({ name: 'Bonus shop', regions: ['buy_button'] });
 	check(
 		shop.status === 'left_out' && shop.lockedItem?.id === 'bet_modes',
@@ -672,9 +682,12 @@ console.log('checkpoint');
 		waitingOn: null,
 		checkpoints: checkpointSettings({ breakdown: false }),
 	};
+	const offEvents = breakdownEvents(off, breakdown, 1);
+	check(offEvents.length === 1, 'with the checkpoint off only the activity row is written');
 	check(
-		breakdownEvents(off, breakdown, 1).length === 1,
-		'with the checkpoint off only the activity row is written',
+		(offEvents[0].payload as { breakdown?: Breakdown }).breakdown === breakdown &&
+			(events[0].payload as { breakdown?: Breakdown }).breakdown === undefined,
+		'…and it then carries the breakdown itself, which the checkpoint row carries otherwise',
 	);
 	check(
 		breakdownReport(off, breakdown, 2).includes('now in the style_pack step') &&

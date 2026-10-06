@@ -18,7 +18,8 @@ export interface VisionRequest {
 	system: string;
 	/** This image's instructions: its tag, size and the fidelity mode. */
 	prompt: string;
-	image: { mediaType: 'image/png' | 'image/jpeg'; base64: string };
+	/** `id` is the mockup's, for the caller's record of the answer; the model never sees it. */
+	image: { id: string; mediaType: 'image/png' | 'image/jpeg'; base64: string };
 }
 
 export const VISION_MAX_TOKENS = 16_000;

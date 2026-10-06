@@ -35,8 +35,11 @@
  *     system block) and opens the checkpoint a second time, once, as attempt 2;
  *  8. an API error a retry cannot fix (413) and an answer off the schema each pause the run at
  *     once, billed, without re-running the pass; the resume runs it again;
- *  9. an owner's pause pressed during the LAST image applies before the submission: the finished
- *     breakdown is held, and the resume submits it as it is — no image re-asked, no crop re-saved.
+ *  9. an owner's pause pressed during the LAST image applies before the submission; the resume
+ *     rebuilds the breakdown from the stored answers — no image re-asked — and submits it.
+ *
+ * Every answer is stored as it arrives (`breakdown_image` rows), so 3, 6, 8 and 9 all show a
+ * stopped pass asking again only for the images it lacks.
  */
 import type {
 	BetaMessage,
@@ -409,8 +412,13 @@ const events = async (id: string, kind: string) =>
 		where run_id = ${id} and kind = ${kind} order by id`;
 const breakdownOpens = async (id: string) =>
 	(await events(id, 'checkpoint_open')).filter((e) => e.payload.checkpoint === 'breakdown');
+/** The feed without the per-image answer rows, which `storedAnswers` counts. */
 const activityTypes = async (id: string) =>
-	(await events(id, 'activity')).map((e) => e.payload.type ?? e.payload.message);
+	(await events(id, 'activity'))
+		.map((e) => e.payload.type ?? e.payload.message)
+		.filter((t) => t !== 'breakdown_image');
+const storedAnswers = async (id: string) =>
+	(await events(id, 'activity')).filter((e) => e.payload.type === 'breakdown_image').length;
 const messages = async (id: string, agent: string) =>
 	sql<{ role: string; content: { type: string; text?: string; content?: string }[] }[]>`
 		select role, content_json as content from director_messages
@@ -492,6 +500,7 @@ try {
 			'breakdown_pass',
 			'Mockup breakdown ready',
 		]);
+		check('…and holds one stored answer per image analysed', await storedAnswers(runId), 2);
 		const saves = gate.calls.filter((c) => c.id === 'mockups.save_crops');
 		check(
 			'the crops are saved once, in the worker’s name, under the pass’s opId',
@@ -625,6 +634,7 @@ try {
 		);
 		check('a retry is announced', (await events(runId, 'error'))[0]?.payload.type, 'retrying');
 		check('one pass started', await activityTypes(runId), ['breakdown_pass']);
+		check('…whose two answers are stored', await storedAnswers(runId), 2);
 
 		await expireLease(runId);
 		check(
@@ -645,9 +655,9 @@ try {
 		]);
 		check('the coordinator got one report', (await messages(runId, 'coordinator')).length, 2);
 		check(
-			'every vision call of both passes is billed',
+			'the second pass reused both stored answers: no new call, no new spend',
 			[vision.calls(), (await spendRows(runId)).length],
-			[4, 4],
+			[2, 2],
 		);
 	}
 
@@ -771,9 +781,9 @@ try {
 		await resume(runId);
 		await drive(runId, deps(turns.transport, vision.transport, gate.launcher));
 		check(
-			'the resume runs the step again, once',
+			'the resume asks only for the image that was missing, and opens the checkpoint once',
 			[(await runRow(runId)).waiting_on, vision.calls(), (await breakdownOpens(runId)).length],
-			['breakdown', 3, 1],
+			['breakdown', 2, 1],
 		);
 	}
 
@@ -864,9 +874,9 @@ try {
 		await resume(runId);
 		await drive(runId, deps(turns.transport, vision.transport, gate.launcher));
 		check(
-			'the resume runs the step again',
+			'the resume asks only for the image that failed',
 			[(await runRow(runId)).waiting_on, vision.calls(), (await breakdownOpens(runId)).length],
-			['breakdown', 4, 1],
+			['breakdown', 3, 1],
 		);
 
 		const badRun = await newRun();
@@ -896,7 +906,7 @@ try {
 	}
 
 	// ── 9. Pause during the last image ────────────────────────────────────────
-	console.log('9. a pause during the last image holds the breakdown for the resume');
+	console.log('9. a pause during the last image: the resume rebuilds from the stored answers');
 	{
 		const runId = await newRun();
 		const vision = fakeVision({
@@ -913,25 +923,31 @@ try {
 			['paused', 0],
 		);
 		check(
-			'…the finished breakdown is held, both answers billed, the crops saved once',
-			[await activityTypes(runId), (await spendRows(runId)).length, gate.effects.length],
-			[['breakdown_pass', 'breakdown_held'], 2, 1],
+			'…the breakdown is noted as held, both answers billed and stored, the crops saved once',
+			[
+				await activityTypes(runId),
+				(await spendRows(runId)).length,
+				await storedAnswers(runId),
+				gate.effects.length,
+			],
+			[['breakdown_pass', 'breakdown_held'], 2, 2, 1],
 		);
 		await resume(runId);
 		await drive(runId, deps(turns.transport, vision.transport, gate.launcher));
 		check(
-			'the resume submits the held breakdown',
+			'the resume opens the checkpoint from the stored answers',
 			[(await runRow(runId)).waiting_on, (await breakdownOpens(runId)).length],
 			['breakdown', 1],
 		);
 		check(
-			'…asking for no image again and saving no crop again',
-			[vision.calls(), gate.effects.length, (await spendRows(runId)).length],
-			[2, 1, 2],
+			'…asking for no image again and spending nothing more; the crops are saved under the new pass',
+			[vision.calls(), (await spendRows(runId)).length, gate.effects.length],
+			[2, 2, 2],
 		);
-		check('…with no second pass', await activityTypes(runId), [
+		check('…as a second pass', await activityTypes(runId), [
 			'breakdown_pass',
 			'breakdown_held',
+			'breakdown_pass',
 			'Mockup breakdown ready',
 		]);
 		check('…and the coordinator told once', (await messages(runId, 'coordinator')).length, 2);

@@ -36,7 +36,7 @@ export type RuleVerdict =
 
 export interface LockedRule {
 	id: string;
-	/** Elements this rule is about, matched against `tokens()` of the name and proposed regions. */
+	/** Elements this rule is about, matched anywhere in `tokens()` of the name and regions. */
 	element: RegExp;
 	/** What this template's facts say about such an element; null when it carries none to read. */
 	judge: (locked: LockedItem[]) => RuleVerdict;
@@ -45,6 +45,8 @@ export interface LockedRule {
 /**
  * A name or region as words: `BuyBonusButton`, `buy_button` and `bonus-buy` read as "buy bonus
  * button", "buy button" and "bonus buy", so a rule's pattern meets a control however it is spelled.
+ * A join with no boundary at all (`buybonus`, `featurebuy`) stays one word, which is why the
+ * patterns match inside a word rather than whole words.
  */
 export const tokens = (text: string): string =>
 	text
@@ -64,7 +66,7 @@ export const tokens = (text: string): string =>
 export const LOCKED_RULES: LockedRule[] = [
 	{
 		id: 'buy_without_buy_mode',
-		element: /\b(buy|purchase)\b/,
+		element: /buy|purchase/,
 		judge: (locked) => {
 			const item = locked.find((l) => l.id === 'bet_modes');
 			const modes = item?.facts?.betModes;

@@ -48,15 +48,22 @@ export function breakdownEvents(
 	breakdown: Breakdown,
 	attempt: number,
 ): BreakdownEvent[] {
+	const open = to.status === 'waiting' && to.waitingOn === 'breakdown';
 	const events: BreakdownEvent[] = [
 		{
 			agent: ANALYST_AGENT,
 			kind: 'activity',
 			tool: null,
-			payload: { message: 'Mockup breakdown ready', attempt, ...summarize(breakdown) },
+			// With the checkpoint off no other row would keep the breakdown itself.
+			payload: {
+				message: 'Mockup breakdown ready',
+				attempt,
+				...summarize(breakdown),
+				...(open ? {} : { breakdown }),
+			},
 		},
 	];
-	if (to.status === 'waiting' && to.waitingOn === 'breakdown') {
+	if (open) {
 		events.push({
 			agent: ANALYST_AGENT,
 			kind: 'checkpoint_open',
