@@ -3,10 +3,10 @@ import { AGENT_NAME } from '$lib/agentEdit';
 import type { PageServerLoad } from './$types';
 
 /**
- * The tool gate, as every tool page has it, plus what the Changes tab needs: whether this user may
- * approve a changed screen (`pipelineMerge`, resolved by the layout from the same override layers
- * as the tool list), the change a shared link names (`?change=<n>`) and the agent it names
- * (`?agent=<name>`, which opens the Agents tab).
+ * The tool gate, as every tool page has it, plus what the tabs need: whether this user may approve
+ * a changed screen, merge, roll back and edit an agent definition (`pipelineMerge`, resolved by the
+ * layout from the same override layers as the tool list), the change a shared link names
+ * (`?change=<n>`) and the agent it names (`?agent=<name>`, which opens the Agents tab).
  */
 export const load: PageServerLoad = async ({ locals, parent, url }) => {
 	if (!locals.user) throw redirect(303, '/login');

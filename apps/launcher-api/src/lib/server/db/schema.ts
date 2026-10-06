@@ -730,6 +730,55 @@ export const pipelineApprovals = pgTable(
 	],
 );
 
+/** One approved changed screen as it stood when a change merged (ADR-0007 "approvals snapshot"). */
+export interface MergeApproval {
+	diffId: string;
+	game: string;
+	screen: string;
+	approverId: string;
+	approver: string;
+	note: string | null;
+	at: string;
+}
+
+/**
+ * Invisible Pipeline Changes merges (ADR-0007): one row per pull request the launcher squash-merged
+ * into `main`. GitHub stays the record of the merge itself; this holds what GitHub cannot — the
+ * launcher user who merged, the approvals that counted at that moment, and which change a revert
+ * undoes. A row is written as a CLAIM (`merge_sha` null) before GitHub is asked to merge, and
+ * completed with the merge commit once GitHub has merged, so a merge GitHub made always has a row
+ * to complete. `pr_number` is unique because a pull request merges once (and so is claimed once);
+ * `request_id` makes a resent merge idempotent. `revert_pr` is the revert pull request the launcher
+ * itself opened for this merge, and `revert_of` the merge a revert undoes: a revert is known by the
+ * pull request the launcher opened, never by its branch name.
+ */
+export const pipelineMerges = pgTable(
+	'pipeline_merges',
+	{
+		id: text('id')
+			.primaryKey()
+			.$defaultFn(() => crypto.randomUUID()),
+		requestId: text('request_id').notNull(),
+		prNumber: integer('pr_number').notNull(),
+		title: text('title').notNull(),
+		headSha: text('head_sha').notNull(),
+		/** `null` while the row is a claim: GitHub has not answered the merge yet. */
+		mergeSha: text('merge_sha'),
+		mergedById: text('merged_by_id').notNull(),
+		mergedBy: text('merged_by').notNull(),
+		at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+		approvals: jsonb('approvals').$type<MergeApproval[]>().notNull().default([]),
+		revertOf: integer('revert_of'),
+		revertPr: integer('revert_pr'),
+	},
+	(table) => [
+		uniqueIndex('pipeline_merges_pr_number_idx').on(table.prNumber),
+		uniqueIndex('pipeline_merges_request_id_idx').on(table.requestId),
+		index('pipeline_merges_revert_of_idx').on(table.revertOf),
+		index('pipeline_merges_revert_pr_idx').on(table.revertPr),
+	],
+);
+
 export type User = typeof users.$inferSelect;
 export type Session = typeof sessions.$inferSelect;
 export type ToolInstall = typeof toolInstalls.$inferSelect;
@@ -754,3 +803,4 @@ export type DirectorRegion = typeof directorRegions.$inferSelect;
 export type DirectorOp = typeof directorOps.$inferSelect;
 export type DirectorAtlasJob = typeof directorAtlasJobs.$inferSelect;
 export type PipelineApproval = typeof pipelineApprovals.$inferSelect;
+export type PipelineMerge = typeof pipelineMerges.$inferSelect;

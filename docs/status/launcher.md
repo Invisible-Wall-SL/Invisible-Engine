@@ -22,7 +22,7 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - **Tool registry + docs** — `roles.ts` is the single registry; the launcher **serves the guides** at authed `/docs/[slug]` (rendered from `docs/tools/*.md`). `/onboarding` walks each role through its tools with a guide link per tool and saves each user's local-tool install paths (`tool_installs`). CLAUDE.md rule 9 keeps a new/renamed tool from shipping doc-less.
 - **Desktop launcher support** — the `.exe` (separate `invisible-launcher` repo) is served over open routes `/api/launcher/download` + `/api/launcher/latest`; it self-updates via the manifest. `/api/launcher/projects` (session-scoped project sync, with a **derived** build profile from the project's game kind when none is stored — `launcherProfile.ts`, `mockProtocol.ts`), `/api/launcher/game-upload` (the publish relay), `register-game`, `deploy-token` and `git-credentials` (`gamePublish`-gated).
 - **Saving together** — every authoring tool saves through `$lib/saveState.svelte.ts` with R2 conditional writes, holds a soft lease (`/api/lease`, `doc_leases`) with a presence banner, and keeps rolling backups of its whole-doc saves (`docBackups.ts`).
-- **DB migrations** — applied by the launcher at boot (`init` hook → `runMigrations()`); `0000`–`0026` are live, `0027_pipeline_approvals` ships with Director card 5A, and `/api/health` reports `schema: current`. **`db:push` is banned on prod** — `db:generate` + the boot migrator.
+- **DB migrations** — applied by the launcher at boot (`init` hook → `runMigrations()`); `0000`–`0027` are live, `0028_pipeline_merges` ships with Director card 5C, and `/api/health` reports `schema: current`. **`db:push` is banned on prod** — `db:generate` + the boot migrator.
 - **UI** — full-bleed home: online tools grouped into **game-making stage sections** (Create / Assets / Build / Files & Reference / Pipeline) plus Games and Local tools, Invisible Wall emblem branding. Stages are the single source `TOOL_STAGES` in `roles.ts`; the top-bar switcher tints each tool icon by its stage accent.
 
 ## Open items / next
@@ -103,6 +103,79 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     handed off) and compared with mockup 04.
   - Guide: `tools/director.md` § Live run. Inventory: `docs/ui-inventory.md` §14 (the variant
     gallery is the second A instance) and §18.
+- 2026-10-06 — **Invisible Pipeline Changes: merge, History, roll back** (Director card 5C, PLAN
+  5.3; ADR-0007). `POST /api/pipeline/changes/<n>/merge` (`pipelineMerge`, 403 otherwise; body
+  `{headSha, requestId}`) re-reads the change and, only when it is open, not a draft, Ready on that
+  very head (every Check 1 job passed, `current-games` success, no conflict), mergeable by GitHub's
+  own answer, and neither harness-editing nor file-truncated, calls GitHub's merge API as the App:
+  `merge_method: squash`, `sha` pinned to the head, `commit_title` `<title> (#n)` (GitHub's own
+  squash subject) and an explicit `commit_message` the launcher writes — never the PR body. A
+  title or merger name carrying a CI-skip directive (`[skip ci]` and its variants) is a 409 before
+  GitHub is asked: GitHub reads the whole squash message, and such a merge would skip main's push
+  workflows and the runtime release. A title without a commit scope is a 409 too, by the hook's
+  own rule — `scripts/commit-scope.mjs` now holds `SCOPES`, `subjectHasScope()` for the
+  `commit-msg` hook (`check-commit-scope.mjs`, unchanged) and `squashSubjectHasScope()` for the
+  launcher, so an API squash cannot land an unscoped subject on main: a `revert:` title passes, the
+  hook's other machinery forms (`Merge …`, `fixup!`, `squash!`, `amend!`) do not. Branch protection
+  stays the gate: a
+  ruleset unmet (405), the head moved under the pinned SHA (409) and 422 come back with GitHub's
+  status and sentence and nothing recorded. Anything short of Ready is a 409 before GitHub is asked
+  ("The head moved: you looked at <7> and the branch is now at <7>.", "Still testing: 7 of 8 checks
+  have passed.", the Blocked reason, the draft and conflict sentences). The record is two writes
+  in two systems, so it is CLAIMED first: a `pipeline_merges` row with `merge_sha` null goes in
+  before the PUT (unique `pr_number` and `request_id`, inserted with no conflict target, so any
+  clash answers null and is settled before GitHub is touched — a completed row is `already`, a
+  fresh claim by someone else is a 409 naming them, a claim older than 2 min is taken over) and is
+  completed from GitHub's answer; a refusal drops it, a transport error keeps it (GitHub may have
+  merged). A resend with the same `requestId` is answered from its row without GitHub (a request
+  that merged another PR is a 409); a retry or History's `reconcileClaims` finishes a stale claim
+  from the PR's own merge state — merged by THIS App's bot (`<slug>[bot]`, the slug read once per
+  process with the App JWT via `GET /app`, `githubApp.slug()`) on the claimed head → completed from
+  `merge_commit_sha`; merged by a person, by another App, on another head, or not merged → dropped —
+  and a merged PR with NO claim is a 409 "merged on GitHub, not from here", never recorded: a merge
+  the launcher made always has a claim. One merge per PR at a time in-process; the claim row is the
+  cross-process lock. The row: PR, title, head, merge commit, launcher user (id + name), time, the
+  approvals that counted (per screen the newest by an approver in standing: diff id, game, screen,
+  approver, note, time), `revert_pr` (the revert PR the launcher itself opened for this merge) and
+  `revert_of`, set when a PR merges only if a recorded merge names it as its `revert_pr` — a branch
+  or title that merely looks like a revert proves nothing. `GET /api/pipeline/merges` (History; the
+  `pipelineChanges` tool) first settles claims older than two minutes against GitHub (a write), then
+  answers from the table — completed rows only, 200 even with the App unconfigured — newest 200
+  first, each with its PR and commit links, `reverts` (what a revert undid), `revertedBy` (the
+  merged revert that undoes it NOW: a revert of the revert puts the change back, so it is live and
+  rollbackable again) and `revertOpen` (the recorded revert PR when the cached changes list shows it
+  open; the list cache carries a generation so a read in flight across a merge can no longer
+  re-cache the pre-merge list).
+  `POST /api/pipeline/merges/<n>/revert` (`pipelineMerge`; `{reason?}`) opens a revert PR: the
+  squash commit must have one parent; its parent's tree, its own and main's tip are read whole
+  (`?recursive=1`; a truncated one refuses) and every file the merge changed goes back to the
+  parent's entry — one already back is left alone, one changed again on main since is a conflict,
+  as is a file turned into a folder or a folder into a file, and the whole revert is a 409 "revert
+  by hand" with nothing written; a mode-only change counts, a submodule stays a `commit`. Then one
+  tree (`base_tree` main's, `sha: null` deletes), one commit
+  on main's tip in the launcher's words only (the typed reason goes in the PR body as its **Why**),
+  one branch `revert/<n>-<sha7>`, one PR `revert: <title>` into main — a pipeline change like any
+  other, merged from the Changes tab. A resend answers the branch's open PR (200 `existing`); a
+  closed or merged revert on the branch's tip is not opened again (one of an earlier branch by that
+  name, deleted on merge, is not in the way); a branch the launcher left without a PR, or an open
+  PR it never recorded, is used only when the tip is the launcher's own revert commit (one parent,
+  "This reverts commit <sha>"), else a 409 naming the branch to delete; a 422 on the ref or on the
+  PR (another request won) answers that request's PR and records it; a failed PR create keeps the
+  branch for the retry; an unrecorded merge is a 404 and one currently rolled back a 409. UI:
+  the header reads `can merge` / `read-only`; the Ready bar offers **Merge into main** (a
+  confirmation naming the 7-char and full head SHA and the squash subject, captured before the
+  dialog so a refresh cannot swap the head under it; the requestId is kept for **Try again** after
+  a 5xx or no answer; then "Merged into main as <7> by <who> · just now" and the list drops the PR;
+  any refusal re-reads the change), disabled for a draft, absent for by-hand changes and for
+  read-only users ("Merging needs the “Merge pipeline changes” permission."). **History · N**
+  (`HistoryPanel.svelte`): rows newest first with PR and commit links, "Merged by X · when", the
+  approvals fold, the `revert` tag with "Rolls back #m", "Rolled back by #m" or "Rollback #m is
+  open", and **Roll back** (an optional reason) → the page switches to the new change. Also: an
+  image asked with an `?artifact` id the cached walk does not hold re-walks only when the walk is
+  over 5 s old or the id is newer (the 5B follow-up). Fixture: `check:pipeline-changes` (3981
+  checks). Guide: `docs/tools/pipeline-changes.md`. INFRA: the App's Contents and Pull requests
+  permissions are now read & write; the App stays off the ruleset's bypass list; "Automatically
+  delete head branches" stays on. Not built: Discard branch, the Agents tab (5D).
 - 2026-10-06 — **Invisible Pipeline Changes: the Agents tab, agent-definition changes and their
   evaluation** (Director card 5D, PLAN 5.4; ADR-0007 "Agents tab"). `/pipeline`'s **Agents** tab
   lists Director's seven runtime agents as `main` holds them (`services/director-worker/agents/

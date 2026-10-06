@@ -5,10 +5,12 @@
 	import { roleLabel } from '$lib/roles';
 	import type { AgentDetail, AgentList, AgentSummary } from '$lib/server/pipelineAgents';
 	import type { ChangeDetail, ChangeList, ChangeSummary } from '$lib/server/pipelineChanges';
+	import type { MergeHistory } from '$lib/server/pipelineMerge';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import type { PageData } from './$types';
 	import AgentPanel from './AgentPanel.svelte';
 	import ChangeDetailPanel from './ChangeDetailPanel.svelte';
+	import HistoryPanel from './HistoryPanel.svelte';
 	import Pill from './Pill.svelte';
 	import {
 		apiErrorText,
@@ -29,12 +31,7 @@
 	const TABS = [
 		{ id: 'changes', label: 'Changes' },
 		{ id: 'agents', label: 'Agents' },
-		{
-			id: 'history',
-			label: 'History',
-			empty: 'Nothing has been merged yet.',
-			body: 'Merges, who approved them, and rollbacks will be listed here. Every merge can be rolled back.',
-		},
+		{ id: 'history', label: 'History' },
 	] as const;
 
 	type TabId = (typeof TABS)[number]['id'];
@@ -62,6 +59,10 @@
 	let detail = $state<ChangeDetail | null>(null);
 	let detailError = $state<string | null>(null);
 	let detailLoading = $state(initialSelected !== null);
+	let history = $state<MergeHistory | null>(null);
+	let historyError = $state<string | null>(null);
+	let historyLoading = $state(false);
+	let historyShown = false;
 	let agentList = $state<AgentList | null>(null);
 	let agentListError = $state<string | null>(null);
 	let agentListLoading = $state(false);
@@ -76,6 +77,7 @@
 	let now = $state(Date.now());
 	let listSeq = 0;
 	let detailSeq = 0;
+	let historySeq = 0;
 	let agentListSeq = 0;
 	let agentSeq = 0;
 
@@ -128,6 +130,25 @@
 		} finally {
 			if (seq === detailSeq) {
 				detailLoading = false;
+				now = Date.now();
+			}
+		}
+	}
+
+	/** Read each time the History tab is shown, and with every refresh once it has been. */
+	async function loadHistory(): Promise<void> {
+		const seq = ++historySeq;
+		historyLoading = true;
+		try {
+			const next = await getJson<MergeHistory>('/api/pipeline/merges');
+			if (seq !== historySeq) return;
+			history = next;
+			historyError = null;
+		} catch (err) {
+			if (seq === historySeq) historyError = errorText(err);
+		} finally {
+			if (seq === historySeq) {
+				historyLoading = false;
 				now = Date.now();
 			}
 		}
@@ -192,6 +213,7 @@
 				loadList(),
 				selected === null ? Promise.resolve(true) : loadDetail(selected, detail !== null),
 			];
+			if (historyShown) jobs.push(loadHistory());
 			if (tab === 'agents') {
 				jobs.push(
 					loadAgentList(),
@@ -206,10 +228,21 @@
 		}
 	}
 
-	/** After an approval: the detail the panel shows, and the status the list card carries. */
+	/** After an approval or a merge: the detail the panel shows, the status the list card carries,
+	 *  and the history once it has been read. */
 	function rereadDetail(): Promise<boolean> {
 		void loadList();
+		if (historyShown) void loadHistory();
 		return selected === null ? Promise.resolve(false) : loadDetail(selected, true);
+	}
+
+	/** A revert pull request was opened: it is a pipeline change like any other. */
+	function showRollback(number: number): void {
+		showTab('changes');
+		document.getElementById('tab-changes')?.focus();
+		select(number);
+		void loadList();
+		void loadHistory();
 	}
 
 	function select(number: number): void {
@@ -226,7 +259,10 @@
 	/** The address follows the tab that holds a selection; a tab with none leaves it alone. */
 	function showTab(id: TabId): void {
 		tab = id;
-		if (id === 'agents') {
+		if (id === 'history') {
+			historyShown = true;
+			void loadHistory();
+		} else if (id === 'agents') {
 			startAgents();
 			if (selectedAgent !== null) {
 				// A query on this same route: `resolve()` cannot carry one.
@@ -279,7 +315,9 @@
 	}
 
 	function tabLabel(t: (typeof TABS)[number]): string {
-		return t.id === 'changes' && changeCount !== null ? `Changes · ${changeCount}` : t.label;
+		if (t.id === 'changes' && changeCount !== null) return `Changes · ${changeCount}`;
+		if (t.id === 'history' && history) return `History · ${history.merges.length}`;
+		return t.label;
 	}
 
 	onMount(() => {
@@ -355,7 +393,7 @@
 		{#snippet meta()}
 			<span class="who">
 				{who} · <span class="role">{roleLabel(data.user.role)}</span> ·
-				{data.canMerge ? 'can approve' : 'read-only'}
+				{data.canMerge ? 'can merge' : 'read-only'}
 			</span>
 			<button type="button" class="refresh" disabled={refreshing} onclick={refreshAll}>
 				Refresh
@@ -460,6 +498,43 @@
 		</div>
 
 		<div
+			id="panel-history"
+			role="tabpanel"
+			aria-labelledby="tab-history"
+			hidden={tab !== 'history'}
+			tabindex="0"
+			class="history"
+		>
+			<div class="heading">
+				<h1>History</h1>
+				<p>
+					Merges made from here, newest first, with who approved their changed screens. Rolling back
+					opens a revert pull request that goes through the same checks and approvals as any change.
+				</p>
+			</div>
+			{#if historyError}<div class="error" role="alert">{historyError}</div>{/if}
+			{#if history && history.merges.length}
+				<HistoryPanel
+					merges={history.merges}
+					canMerge={data.canMerge}
+					{now}
+					onrollback={showRollback}
+					onreload={loadHistory}
+				/>
+			{:else if history}
+				<div class="empty">
+					<strong>Nothing has been merged yet.</strong>
+					<p>
+						Merges, who approved them, and rollbacks will be listed here. Every merge can be rolled
+						back.
+					</p>
+				</div>
+			{:else if historyLoading}
+				<p class="loading" aria-busy="true">Loading history…</p>
+			{/if}
+		</div>
+
+		<div
 			id="panel-agents"
 			role="tabpanel"
 			aria-labelledby="tab-agents"
@@ -517,22 +592,6 @@
 				</section>
 			</div>
 		</div>
-
-		{#each TABS as t (t.id)}
-			{#if 'empty' in t}
-				<div
-					id={`panel-${t.id}`}
-					class="empty wide"
-					role="tabpanel"
-					aria-labelledby={`tab-${t.id}`}
-					hidden={tab !== t.id}
-					tabindex="0"
-				>
-					<strong>{t.empty}</strong>
-					<p>{t.body}</p>
-				</div>
-			{/if}
-		{/each}
 	</main>
 </div>
 
@@ -615,7 +674,8 @@
 		display: none;
 	}
 
-	.changes {
+	.changes,
+	.history {
 		display: flex;
 		flex-direction: column;
 		gap: 16px;
@@ -793,8 +853,5 @@
 		color: #888;
 		font-size: 13px;
 		line-height: 1.5;
-	}
-	.empty.wide[hidden] {
-		display: none;
 	}
 </style>

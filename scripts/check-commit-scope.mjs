@@ -15,41 +15,7 @@
  * Rare one-off bypass:    git commit --no-verify
  */
 import { readFileSync } from 'node:fs';
-
-// Area scopes (map to repo regions — keep in sync with .github/CODEOWNERS) +
-// a few conventional types for cross-cutting work that isn't area-specific.
-const SCOPES = [
-	// engine + games
-	'engine',
-	'games',
-	'packages',
-	'rgs',
-	'editor',
-	// launcher / studio
-	'launcher',
-	'admin',
-	'localization',
-	// runtime-agent definitions (services/director-worker/agents), opened by Pipeline Changes
-	'agents',
-	// python pipeline tools
-	'pipeline',
-	'atlas',
-	'atlas-tool',
-	'sheet-tool',
-	'test-server',
-	// cross-cutting
-	'docs',
-	'infra',
-	'ci',
-	'build',
-	'deps',
-	'scripts',
-	'chore',
-	'refactor',
-	'test',
-	'fix',
-	'feat',
-];
+import { SCOPES, subjectHasScope } from './commit-scope.mjs';
 
 const msgPath = process.argv[2];
 if (!msgPath) {
@@ -66,13 +32,8 @@ const subject = raw
 
 if (!subject) process.exit(0); // empty commit message — let git handle it
 
-// Skip machinery commits.
-if (/^(merge\b|revert\b|fixup!|squash!|amend!)/i.test(subject)) process.exit(0);
-
-const scopeAlt = SCOPES.map((s) => s.replace(/[-]/g, '\\-')).join('|');
-const re = new RegExp(`^(?:${scopeAlt})(?:\\([^)]+\\))?!?:\\s.+`, 'i');
-
-if (re.test(subject)) process.exit(0);
+// A scoped subject, or a machinery commit (merge, revert, fixup!/squash!/amend!), passes.
+if (subjectHasScope(subject)) process.exit(0);
 
 console.error(`
 ✗ Commit subject needs a recognized scope prefix.
