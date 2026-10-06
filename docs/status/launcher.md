@@ -59,6 +59,53 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+- 2026-10-06 — **Invisible Pipeline Changes: merge, History, roll back** (Director card 5C, PLAN
+  5.3; ADR-0007). `POST /api/pipeline/changes/<n>/merge` (`pipelineMerge`, 403 otherwise; body
+  `{headSha, requestId}`) re-reads the change and, only when it is open, not a draft, Ready on that
+  very head (every Check 1 job passed, `current-games` success, no conflict), mergeable by GitHub's
+  own answer, and neither harness-editing nor file-truncated, calls GitHub's merge API as the App:
+  `merge_method: squash`, `sha` pinned to the head, `commit_title` `<title> (#n)` (GitHub's own
+  squash subject, so the scoped subject survives) and an explicit `commit_message` the launcher
+  writes — never the PR body, which could carry `[skip ci]`. Branch protection stays the gate: a
+  ruleset unmet (405), the head moved under the pinned SHA (409) and 422 come back with GitHub's
+  status and sentence and nothing recorded. Anything short of Ready is a 409 before GitHub is asked
+  ("The head moved: you looked at <7> and the branch is now at <7>.", "Still testing: 7 of 8 checks
+  have passed.", the Blocked reason, the draft and conflict sentences). One merge per PR at a time;
+  `requestId` makes a resend idempotent (answered from its row without GitHub; a request that merged
+  another PR is a 409); a crash between GitHub's merge and the row is recovered on the retry by
+  reading the PR first — merged by the App's bot on the confirmed head with no row → recorded from
+  `merge_commit_sha`; merged by a person on GitHub → 409, nothing recorded. The row
+  (`pipeline_merges`, migration `0028`): PR, title, head, merge commit, launcher user (id + name),
+  time, the approvals that counted (per screen the newest by an approver in standing: diff id,
+  game, screen, approver, note, time) and `revert_of`, read off the branch name `revert/<n>-<sha7>`
+  when a revert merges. `GET /api/pipeline/merges` (History; the `pipelineChanges` tool) answers
+  from the table alone — 200 even with the App unconfigured — newest 200 first, each with its PR and
+  commit links, `reverts` (what a revert undid), `revertedBy` (the merged revert of it) and
+  `revertOpen` (an open revert, best effort off the cached changes list).
+  `POST /api/pipeline/merges/<n>/revert` (`pipelineMerge`; `{reason?}`) opens a revert PR: the
+  squash commit must have one parent; its parent's tree, its own and main's tip are read whole
+  (`?recursive=1`; a truncated one refuses) and every file the merge changed goes back to the
+  parent's entry — one already back is left alone, one changed again on main since is a conflict and
+  the whole revert is a 409 "revert by hand" with nothing written; a mode-only change counts, a
+  submodule stays a `commit`. Then one tree (`base_tree` main's, `sha: null` deletes), one commit
+  on main's tip in the launcher's words only (the typed reason goes in the PR body as its **Why**),
+  one branch `revert/<n>-<sha7>`, one PR `revert: <title>` into main — a pipeline change like any
+  other, merged from the Changes tab. A resend answers the branch's open PR (200 `existing`); a
+  closed or merged revert is not opened again; a branch the launcher left without a PR gets its PR;
+  a 422 on the ref (another request won) answers that request's PR; an unrecorded merge is a 404
+  and one already rolled back a 409. UI: the header reads `can merge` / `read-only`; the Ready bar
+  offers **Merge into main** (a confirmation naming the 7-char and full head SHA and the squash
+  subject; the requestId is kept for **Try again** after a 5xx or no answer; then "Merged into main
+  as <7> by <who> · just now" and the list drops the PR; a 409 re-reads the change), disabled for a
+  draft, absent for by-hand changes and for read-only users (mockup 05's sentence). **History · N**
+  (`HistoryPanel.svelte`): rows newest first with PR and commit links, "Merged by X · when", the
+  approvals fold, the `revert` tag with "Rolls back #m", "Rolled back by #m" or "Rollback #m is
+  open", and **Roll back** (an optional reason) → the page switches to the new change. Also: an
+  image asked with an `?artifact` id the cached walk does not hold re-walks only when the walk is
+  over 5 s old or the id is newer (the 5B follow-up). Fixture: `check:pipeline-changes` (2289
+  checks). Guide: `docs/tools/pipeline-changes.md`. INFRA: the App's Contents and Pull requests
+  permissions are now read & write; the App stays off the ruleset's bypass list. Not built:
+  Discard branch, the Agents tab (5D).
 - 2026-10-06 — **Invisible Pipeline Changes screens: the Changes tab** (Director card 5B, PLAN 5.1
   + 5.2; ADR-0007). `/pipeline` now shows the list and the detail over the 5A endpoints, client-side
   fetched and refreshed every minute while visible, `?change=<n>` deep-links a change. The list:
