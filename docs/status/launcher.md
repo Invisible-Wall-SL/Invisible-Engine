@@ -67,7 +67,7 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     screen, then tails it (one `EventSource` per run id, `Last-Event-ID` on the browser's own
     reconnect, the 5 s polling fallback also reading the stream for refusals). The folding is a
     pure module, `routes/(app)/director/liveRun.ts`: every payload read by shape, nothing trusted,
-    nothing rendered as HTML. Fixture: `check:director-live` (43 checks; wired into Lint).
+    nothing rendered as HTML. Fixture: `check:director-live` (51 checks; wired into Lint).
   - **Steps rail** from the summary plus `run_status` rows: done / running / waiting / paused /
     failed / stopped / not reached, with the breakdown's figures and "n of m approved" on Regions.
     **Banner** per state: review n now (scrolls to the panel), the build to review, paused at the
@@ -96,7 +96,7 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     nosniff + CSP sandbox) and `GET …/variant?atlas=&region=&id=&size=` proxies a rendered variant
     out of the Atlas Maker (same gate, the adapter's own patterns, placeholder SVG → 404, 6 MB cap).
     `RunSummary` gains `r2Prefix` and `game.url` (the project's first game, for Play draft through
-    `asAuthoringLaunch`). `check:director-runs` grew to 407 checks (auth, IDOR across projects,
+    `asAuthoringLaunch`). `check:director-runs` grew to 408 checks (auth, IDOR across projects,
     traversal, content types, the variant proxy); `check:director-mockups` to 118.
   - Rendered in Chromium through the real adapter-node build against a local Postgres seeded with
     six runs (running, waiting on a batch, waiting before publish, paused at the cap, failed,

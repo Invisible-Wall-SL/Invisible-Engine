@@ -66,7 +66,8 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 			headers: {
 				'content-type': contentType,
 				'content-length': String(answer.bytes.length),
-				'cache-control': 'private, max-age=3600',
+				// Variant ids restart when a region's folder is cleared: the page's `v=` is the key.
+				'cache-control': 'private, max-age=300',
 				'x-content-type-options': 'nosniff',
 				'content-security-policy': "default-src 'none'; sandbox",
 			},

@@ -37,7 +37,8 @@ const isStep = (value: unknown): value is RunStep =>
 
 /** A region name as `ops/atlas.ts` `REGION` admits it; anything else is not a region. */
 const REGION_NAME = /^[A-Za-z0-9_][A-Za-z0-9_.()-]{0,119}$/;
-const ATLAS_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+/** An atlas id as `ops/atlas.ts` `ATLAS` admits it. */
+const ATLAS_ID = /^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,119}$/;
 const VARIANT_ID = /^[0-9]{1,8}$/;
 const JOB_REF = /^st_[0-9a-f]{16}$/;
 
@@ -283,7 +284,6 @@ interface Ctx {
 	regions: Map<string, RegionView>;
 	groupOf: Map<string, string>;
 	groupOrder: string[];
-	groupAtlas: Map<string, string | null>;
 	images: Map<string, ImageRef>;
 	jobs: Map<string, GpuJob>;
 	plan: Folded['plan'];
@@ -291,6 +291,8 @@ interface Ctx {
 	feed: FeedEntry[];
 	step: RunStep;
 	stepStartedAt: Partial<Record<RunStep, string>>;
+	/** The regions to review when the open `region_batch` checkpoint was opened. */
+	openBatch: Set<string> | null;
 }
 
 const OTHER_GROUP = 'Other regions';
@@ -551,6 +553,11 @@ function foldCheckpoint(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 		return push(ctx, event, 'opened the mockup breakdown for your review.', 'checkpoint');
 	}
 	if (checkpoint === 'region_batch') {
+		// The batch the owner is asked about is what waits for them now; a batch rendered while
+		// they review is the next one, not this one.
+		ctx.openBatch = new Set(
+			[...ctx.regions.values()].filter((r) => r.status === 'to_review').map((r) => r.name),
+		);
 		return push(ctx, event, `asks you to review a region batch. ${summary}`, 'checkpoint');
 	}
 	if (checkpoint === 'before_publish') {
@@ -574,17 +581,20 @@ function foldResolved(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 	const decision = str(p.decision, 20) ?? 'resolved';
 	const checkpoint = str(p.checkpoint, 40) ?? 'checkpoint';
 	const note = str(p.note);
-	// Approving a batch approves what was waiting in it; approving the build accepts the rest.
+	// Approving a batch approves what was waiting in it when it opened; approving the build
+	// accepts whatever is still to review.
 	if (
 		(checkpoint === 'region_batch' || checkpoint === 'before_publish') &&
 		decision === 'approve'
 	) {
+		const batch = checkpoint === 'region_batch' && ctx.openBatch?.size ? ctx.openBatch : null;
 		for (const region of ctx.regions.values()) {
-			if (region.status === 'to_review') {
-				region.status = 'approved';
-				touch(region, event.at, event.id);
-			}
+			if (region.status !== 'to_review') continue;
+			if (batch && !batch.has(region.name)) continue;
+			region.status = 'approved';
+			touch(region, event.at, event.id);
 		}
+		ctx.openBatch = null;
 	}
 	const verb = decision === 'approve' ? 'approved' : decision === 'revise' ? 'sent back' : decision;
 	const what =
@@ -647,7 +657,8 @@ function foldJobDone(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 			if (!region || !id || !REGION_NAME.test(region) || !VARIANT_ID.test(id)) continue;
 			if (!atlas || !ATLAS_ID.test(atlas)) continue;
 			const refs = rendered.get(region) ?? [];
-			refs.push({ atlas, region, id, slot: num(v.slot) });
+			// A callback is delivered at least once; a variant listed twice is one variant.
+			if (!refs.some((ref) => ref.id === id)) refs.push({ atlas, region, id, slot: num(v.slot) });
 			rendered.set(region, refs);
 		}
 	}
@@ -695,9 +706,7 @@ function foldStatus(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 	const status = str(to.status, 20) ?? '';
 	const cause = str(p.cause, 200);
 	if (isStep(to.step)) {
-		if (to.step !== ctx.step || !ctx.stepStartedAt[to.step]) {
-			ctx.stepStartedAt[to.step] ??= event.at;
-		}
+		ctx.stepStartedAt[to.step] ??= event.at;
 		ctx.step = to.step;
 	}
 	const stepLabel = RUN_STEPS.find((s) => s.id === to.step)?.label ?? '';
@@ -756,7 +765,6 @@ export function foldEvents(events: readonly RunEvent[], prefix: string): Folded 
 		regions: new Map(),
 		groupOf: new Map(),
 		groupOrder: [],
-		groupAtlas: new Map(),
 		images: new Map(),
 		jobs: new Map(),
 		plan: null,
@@ -764,6 +772,7 @@ export function foldEvents(events: readonly RunEvent[], prefix: string): Folded 
 		feed: [],
 		step: 'breakdown',
 		stepStartedAt: {},
+		openBatch: null,
 	};
 	for (const event of events) {
 		if (typeof event.id !== 'number' || typeof event.at !== 'string') continue;
@@ -963,4 +972,32 @@ export function insertEvent(events: RunEvent[], event: RunEvent): boolean {
 	if (events[lo]?.id === event.id) return false;
 	events.splice(lo, 0, event);
 	return true;
+}
+
+/** Rows the fold can do without: billing, the per-image analysis, notes and errors. */
+const DROPPABLE_ACTIVITY = new Set(['breakdown_image', 'note', 'question', 'assignment']);
+export function isDroppable(event: RunEvent): boolean {
+	if (event.kind === 'spend' || event.kind === 'error') return true;
+	if (event.kind !== 'activity') return false;
+	const type = isRecord(event.payload) ? event.payload.type : undefined;
+	return typeof type === 'string' && DROPPABLE_ACTIVITY.has(type);
+}
+
+/**
+ * Keep `events` within `max` rows by dropping the oldest droppable rows first: the plan, the
+ * renders, the checkpoints and the status rows are what the galleries and the rail are built
+ * from, so they go last, and only when the run has more structural rows than the cap.
+ */
+export function trimEvents(events: RunEvent[], max: number): void {
+	let over = events.length - max;
+	if (over <= 0) return;
+	for (let i = 0; i < events.length && over > 0;) {
+		if (isDroppable(events[i])) {
+			events.splice(i, 1);
+			over--;
+		} else {
+			i++;
+		}
+	}
+	if (over > 0) events.splice(0, over);
 }

@@ -138,6 +138,14 @@ fake('lib/server/r2.ts', {
 			? { body: new TextEncoder().encode(o.body), contentType: 'image/png', etag: o.etag }
 			: null;
 	},
+	headObject: async (key: string) => {
+		const bin = BIN.get(key);
+		if (bin) return { etag: '"bin"', size: bin.byteLength, lastModified: 0 };
+		const o = R2.get(key);
+		return o
+			? { etag: o.etag, size: new TextEncoder().encode(o.body).byteLength, lastModified: 0 }
+			: null;
+	},
 	deleteObject: async (key: string) => void R2.delete(key),
 	objectExists: async (key: string) => R2.has(key),
 	listAllKeys: async (prefix: string) => keysUnder(prefix),
@@ -1646,6 +1654,9 @@ console.log('images');
 	BIN.set(otherProject, PNG);
 	BIN.set('outside.png', PNG);
 	BIN.set(`${projectPrefix(C, NEW)}-sibling/a.png`, PNG);
+	const HUGE = new Uint8Array(6 * 1024 * 1024 + 1);
+	HUGE.set(PNG);
+	BIN.set(`${mine}/huge.png`, HUGE);
 	const image = (user: User | null, key: string, runId = RUN_ID, v = '1') =>
 		raw(
 			imageRoute.GET,
@@ -1654,6 +1665,12 @@ console.log('images');
 			runId,
 		);
 
+	const huge = await image(OWNER, `${mine}/huge.png`);
+	check(
+		'an image over the cap is 413 before its bytes are read',
+		[huge.status, (JSON.parse(new TextDecoder().decode(huge.bytes)) as { error: string }).error],
+		[413, 'too_large'],
+	);
 	const png = await image(OWNER, `${mine}/a.png`);
 	check(
 		'the owner reads a PNG with its own type, length and the hardening headers',
@@ -1826,7 +1843,7 @@ console.log('variants');
 			200,
 			'image/jpeg',
 			String(JPEG.length),
-			'private, max-age=3600',
+			'private, max-age=300',
 			'nosniff',
 			"default-src 'none'; sandbox",
 			[...JPEG],

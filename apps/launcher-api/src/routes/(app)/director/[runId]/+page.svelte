@@ -44,6 +44,7 @@
 		areaLabel,
 		foldEvents,
 		insertEvent,
+		trimEvents,
 		regionTitle,
 		stepViews,
 		type FeedEntry,
@@ -86,9 +87,11 @@
 			eventsVersion++;
 		}, 60);
 	};
+	/** Hoisted so a summary refresh does not re-fold the rows; only the prefix itself would. */
+	const r2Prefix = $derived(run?.r2Prefix ?? '');
 	const folded = $derived.by(() => {
 		void eventsVersion;
-		return foldEvents(events, run?.r2Prefix ?? '');
+		return foldEvents(events, r2Prefix);
 	});
 
 	const startingPoint = $derived(isStartingPoint(run?.startingPoint) ? run.startingPoint : null);
@@ -170,43 +173,53 @@
 		return url ? asAuthoringLaunch(url) : null;
 	});
 
-	/** Load the summary; the run as loaded, or null when the call failed. */
-	async function refresh(): Promise<RunSummary | null> {
+	/**
+	 * Load the summary; the run as loaded, or null when the call failed. Every loader takes the
+	 * run id it was asked for and writes nothing once the page has moved to another run: SvelteKit
+	 * keeps this component across `/director/A` → `/director/B`, so A's late answer must not land
+	 * on B. The first summary also fixes the baseline every later row is judged "news" against.
+	 */
+	async function refresh(id = runId): Promise<RunSummary | null> {
 		try {
 			const loaded = (
-				await api<{ run: RunSummary }>(`/api/director/runs/${encodeURIComponent(runId)}`)
+				await api<{ run: RunSummary }>(`/api/director/runs/${encodeURIComponent(id)}`)
 			).run;
+			if (id !== runId) return null;
 			run = loaded;
 			loadErr = '';
+			baselineEventId ||= loaded.lastEventId;
 			return loaded;
 		} catch (e) {
-			loadErr = describe(e);
+			if (id === runId) loadErr = describe(e);
 			return null;
 		}
 	}
 
-	async function loadProjectDocs() {
+	async function loadProjectDocs(id = runId) {
 		if (!run?.projectCreated) return;
 		const q = projectQuery(run.projectKey, run.clientKey);
+		let doc: MockupsAnswer | null;
 		try {
-			mockups = await api<MockupsAnswer>(`/api/director/mockups?${q}`);
+			doc = await api<MockupsAnswer>(`/api/director/mockups?${q}`);
 		} catch {
-			mockups = null;
+			doc = null;
 		}
-		await loadFonts();
+		if (id !== runId) return;
+		mockups = doc;
+		await loadFonts(id);
 	}
 
-	async function loadFonts() {
+	async function loadFonts(id = runId) {
 		if (!run?.projectCreated) return;
 		try {
-			fonts = (
-				await api<{ requests: FontRequestEntry[] }>(
-					`/api/director/fonts?project=${encodeURIComponent(run.projectKey)}`,
-				)
-			).requests;
+			const { requests } = await api<{ requests: FontRequestEntry[] }>(
+				`/api/director/fonts?project=${encodeURIComponent(run.projectKey)}`,
+			);
+			if (id !== runId) return;
+			fonts = requests;
 			fontsErr = '';
 		} catch (e) {
-			fontsErr = describe(e);
+			if (id === runId) fontsErr = describe(e);
 		}
 	}
 
@@ -255,12 +268,14 @@
 		if (typeof event.id !== 'number') return;
 		if (event.id > highWater) highWater = event.id;
 		if (!insertEvent(events, event)) return;
-		if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS);
+		trimEvents(events, MAX_EVENTS);
 		bumpFold();
-		if (event.id <= baselineEventId) return;
+		// Without a summary yet there is no baseline: the history is not news.
+		if (baselineEventId === 0 || event.id <= baselineEventId) return;
 		recent = [event, ...recent].slice(0, 8);
 		if (event.kind === 'error' && event.payload?.type === 'refused_request') {
-			refusals = [...refusals, String(event.payload.error ?? 'The request was refused.')];
+			const why = event.payload.error;
+			refusals = [...refusals, typeof why === 'string' ? why : 'The request was refused.'];
 		}
 		if (event.kind === 'checkpoint_resolved' || event.kind === 'run_status') void loadFonts();
 		scheduleRefresh();
@@ -280,6 +295,7 @@
 		const control = new AbortController();
 		const deadline = setTimeout(() => control.abort(), POLL_READ_MS);
 		try {
+			if (id !== runId) return;
 			const res = await fetch(eventsUrl(id, events.length ? highWater : 0), {
 				signal: control.signal,
 				headers: { accept: 'text/event-stream' },
@@ -292,6 +308,7 @@
 			for (;;) {
 				const { value, done } = await reader.read();
 				if (done) break;
+				if (id !== runId) return;
 				buffer += decoder.decode(value, { stream: true });
 				let at = buffer.indexOf('\n\n');
 				while (at >= 0) {
@@ -396,8 +413,8 @@
 			if (poll || disposed) return;
 			polling = true;
 			poll = setInterval(() => {
-				void refresh();
-				void loadFonts();
+				void refresh(id);
+				void loadFonts(id);
 				void pollEvents(id);
 				openStream();
 			}, 5_000);
@@ -405,11 +422,10 @@
 		const tick = setInterval(() => (now = Date.now()), 30_000);
 
 		void (async () => {
-			const loaded = await refresh();
-			await loadProjectDocs();
+			const loaded = await refresh(id);
+			await loadProjectDocs(id);
 			if (disposed) return;
 			if (!loaded) return startPolling();
-			baselineEventId = loaded.lastEventId;
 			openStream();
 		})();
 
@@ -597,7 +613,7 @@
 	/** What a tile shows: the art director's pick, else the first variant, else the mockup crop. */
 	function tileSrc(r: RegionView): string | null {
 		const shown = pickOf(r) ?? r.variants[0];
-		if (shown) return variantUrl(runId, shown);
+		if (shown) return variantUrl(runId, shown, 'thumb', r.version);
 		if (r.cropKey) return imageUrl(runId, r.cropKey, r.version);
 		return null;
 	}
@@ -822,14 +838,14 @@
 				</figure>
 			{/if}
 			{#each r.variants as v, i (v.id)}
-				{@const src = variantUrl(runId, v)}
+				{@const src = variantUrl(runId, v, 'thumb', r.version)}
 				<figure class="variant" class:picked={pick?.id === v.id}>
 					<button
 						type="button"
 						class="frame"
 						onclick={() =>
 							openImage(
-								variantUrl(runId, v, 'full'),
+								variantUrl(runId, v, 'full', r.version),
 								`Variant ${letter(i)} · ${regionTitle(r.name)}`,
 							)}
 					>

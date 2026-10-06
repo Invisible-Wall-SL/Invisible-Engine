@@ -27,6 +27,7 @@ import {
 	regionTitle,
 	stepViews,
 	toolLabel,
+	trimEvents,
 } from '../src/routes/(app)/director/liveRun.ts';
 
 let checks = 0;
@@ -669,6 +670,124 @@ console.log('helpers');
 		[bad.feed.length, bad.regions.size, bad.breakdown],
 		[5, 0, null],
 	);
+}
+
+console.log('batches, atlases and trimming');
+{
+	// Two batches: the first waits for the owner while the second renders; approving the first
+	// must not approve the second. Atlas ids are the Atlas Maker's own (`S_Gem`, `Derived`).
+	const two: RunEvent[] = [
+		row(
+			'activity',
+			'coordinator',
+			{
+				type: 'plan',
+				summary: 'x',
+				batches: [
+					{ name: 'A', regions: ['R1', 'R2'] },
+					{ name: 'B', regions: ['R3'] },
+				],
+			},
+			'run.set_plan',
+		),
+		row(
+			'job_queued',
+			'atlas-artist',
+			{ jobRef: 'st_00000000000000b1', atlas: 'S_Gem', regions: ['R1', 'R2'] },
+			'atlas.queue_variants',
+		),
+		row(
+			'job_done',
+			'atlas-artist',
+			{
+				jobRef: 'st_00000000000000b1',
+				atlas: 'S_Gem',
+				regions: ['R1', 'R2'],
+				status: 'finished',
+				via: 'callback',
+				result: {
+					variants: [
+						{ region: 'R1', variant: '00001', slot: 0 },
+						{ region: 'R1', variant: '00001', slot: 0 },
+						{ region: 'R2', variant: '00002', slot: 0 },
+					],
+				},
+			},
+			'atlas.queue_variants',
+		),
+		row(
+			'checkpoint_open',
+			'coordinator',
+			{ checkpoint: 'region_batch', step: 'regions', summary: 'A is ready.' },
+			'run.request_checkpoint',
+		),
+		row(
+			'job_queued',
+			'atlas-artist',
+			{ jobRef: 'st_00000000000000b2', atlas: 'Derived', regions: ['R3'] },
+			'atlas.queue_variants',
+		),
+		row(
+			'job_done',
+			'atlas-artist',
+			{
+				jobRef: 'st_00000000000000b2',
+				atlas: 'Derived',
+				regions: ['R3'],
+				status: 'finished',
+				via: 'callback',
+				result: { variants: [{ region: 'R3', variant: '00001', slot: 0 }] },
+			},
+			'atlas.queue_variants',
+		),
+		row('checkpoint_resolved', 'owner', {
+			requestId: 'rb',
+			by: { uid: 'o', name: 'Owner' },
+			decision: 'approve',
+			checkpoint: 'region_batch',
+		}),
+	];
+	const f = foldEvents(two, PREFIX);
+	check(
+		'the Atlas Maker’s own atlas ids are accepted',
+		[f.regions.get('R1')?.atlas, f.regions.get('R3')?.atlas],
+		['S_Gem', 'Derived'],
+	);
+	check('a variant listed twice is one variant', f.regions.get('R1')?.variants.length, 1);
+	check(
+		'approving the batch approves its regions only',
+		[f.regions.get('R1')?.status, f.regions.get('R2')?.status, f.regions.get('R3')?.status],
+		['approved', 'approved', 'to_review'],
+	);
+
+	const rows: RunEvent[] = [];
+	for (let i = 1; i <= 10; i++) {
+		rows.push({
+			id: i,
+			at: 'x',
+			agent: 'a',
+			kind: i % 2 ? 'spend' : 'job_queued',
+			tool: null,
+			payload: null,
+		});
+	}
+	trimEvents(rows, 7);
+	check(
+		'trimming drops the oldest droppable rows first',
+		rows.map((r) => `${r.id}${r.kind === 'spend' ? 's' : 'j'}`),
+		['2j', '4j', '6j', '7s', '8j', '9s', '10j'],
+	);
+	trimEvents(rows, 3);
+	check(
+		'…and structural rows only when nothing else is left',
+		rows.map((r) => r.id),
+		[6, 8, 10],
+	);
+	const few: RunEvent[] = [
+		{ id: 1, at: 'x', agent: 'a', kind: 'spend', tool: null, payload: null },
+	];
+	trimEvents(few, 5);
+	check('under the cap nothing is dropped', few.length, 1);
 }
 
 console.log(`\n${checks} checks, ${failures} failures`);

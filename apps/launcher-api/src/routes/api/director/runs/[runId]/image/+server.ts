@@ -1,8 +1,10 @@
-import { error } from '@sveltejs/kit';
+import { error, json } from '@sveltejs/kit';
 import { requireDirectorAccess, requireOwnedRun } from '$lib/server/director/access';
+import { NO_STORE } from '$lib/server/director/api';
 import { SERVED_IMAGE_TYPES, sniffServedImage } from '$lib/server/director/mockups';
+import { MAX_IMAGE_BYTES } from '$lib/server/director/ops/atlas';
 import { UNASSIGNED_CLIENT, projectPrefix } from '$lib/server/projectPaths';
-import { getObjectBytes } from '$lib/server/r2';
+import { getObjectBytes, headObject } from '$lib/server/r2';
 import type { RequestHandler } from './$types';
 
 const IMAGE_EXT = /\.(png|jpe?g|webp)$/i;
@@ -35,6 +37,16 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 	const key = url.searchParams.get('key') ?? '';
 	const prefix = `${projectPrefix(run.clientKey ?? UNASSIGNED_CLIENT, run.projectKey)}/`;
 	if (!isImageKeyUnder(prefix, key)) throw error(404, 'No such image.');
+	// An atlas page can run to tens of MB; the galleries show art, not pages, so the cap the variant
+	// route applies holds here too — checked on the head, before the bytes are read.
+	const head = await headObject(key);
+	if (!head) throw error(404, 'No such image.');
+	if (head.size > MAX_IMAGE_BYTES) {
+		return json(
+			{ error: 'too_large', message: 'The image is too large to show here.' },
+			{ status: 413, headers: NO_STORE },
+		);
+	}
 	const got = await getObjectBytes(key);
 	const type = got ? sniffServedImage(got.body) : null;
 	if (!got || !type) throw error(404, 'No such image.');

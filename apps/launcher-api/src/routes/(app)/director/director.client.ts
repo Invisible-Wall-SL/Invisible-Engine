@@ -350,13 +350,18 @@ export const safeGameUrl = (value: unknown): string | null =>
 export const imageUrl = (runId: string, key: string, version: number) =>
 	`/api/director/runs/${encodeURIComponent(runId)}/image?key=${encodeURIComponent(key)}&v=${version}`;
 
-/** A rendered variant out of the Atlas Maker (`/api/director/runs/[runId]/variant`). */
+/**
+ * A rendered variant out of the Atlas Maker (`/api/director/runs/[runId]/variant`). `v` is the
+ * region's last change: atlas-tool numbers variants per region and starts over when a region's
+ * folder is cleared, so an id alone is not a cache key.
+ */
 export const variantUrl = (
 	runId: string,
 	ref: { atlas: string; region: string; id: string },
 	size: 'thumb' | 'full' = 'thumb',
+	version = 0,
 ) =>
-	`/api/director/runs/${encodeURIComponent(runId)}/variant?atlas=${encodeURIComponent(ref.atlas)}&region=${encodeURIComponent(ref.region)}&id=${encodeURIComponent(ref.id)}&size=${size}`;
+	`/api/director/runs/${encodeURIComponent(runId)}/variant?atlas=${encodeURIComponent(ref.atlas)}&region=${encodeURIComponent(ref.region)}&id=${encodeURIComponent(ref.id)}&size=${size}&v=${version}`;
 
 /** The person or agent behind a row, as the feed names them. */
 export function agentName(agent: string): string {
