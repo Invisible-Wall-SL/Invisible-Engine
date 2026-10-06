@@ -4,7 +4,7 @@ CREATE TABLE "pipeline_merges" (
 	"pr_number" integer NOT NULL,
 	"title" text NOT NULL,
 	"head_sha" text NOT NULL,
-	"merge_sha" text NOT NULL,
+	"merge_sha" text,
 	"merged_by_id" text NOT NULL,
 	"merged_by" text NOT NULL,
 	"at" timestamp with time zone DEFAULT now() NOT NULL,

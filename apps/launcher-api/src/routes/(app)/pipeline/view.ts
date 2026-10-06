@@ -6,7 +6,7 @@ import type {
 	HarnessCheck,
 } from '$lib/server/pipelineChanges';
 import type { MergeHistoryEntry } from '$lib/server/pipelineMerge';
-import type { PipelineMerge } from '$lib/server/pipelineMerges';
+import type { CompletedMerge, PipelineMerge } from '$lib/server/pipelineMerges';
 import type { HarnessRow } from '$lib/server/pipelineReport';
 
 /**
@@ -21,8 +21,7 @@ export type PillTone = Exclude<Tone, 'text'>;
 export const NO_CHECKS_TEXT = 'No checks have reported on this head yet.';
 export const BLOCKED_CONFLICT_TEXT = 'Merge conflict with main: bring main in and resolve it.';
 export const APPROVE_HINT = 'Approve each changed screen below, or push a fix.';
-export const MERGE_NEEDS_CAPABILITY_TEXT =
-	'Merging needs the “Merge pipeline changes” permission. You can roll back from History.';
+export const MERGE_NEEDS_CAPABILITY_TEXT = 'Merging needs the “Merge pipeline changes” permission.';
 export const MERGE_DRAFT_TEXT = 'Mark the pull request ready for review on GitHub first.';
 export const MERGE_RETRY_TEXT = 'Try again resends the same request, so it never merges twice.';
 export const ROLLBACK_NEEDS_CAPABILITY_TEXT =
@@ -375,7 +374,7 @@ export function mergeBar(
 
 /** The bar after a merge: "Merged into main as <sha> by <who> · just now". */
 export function mergedText(
-	result: { merge: Pick<PipelineMerge, 'mergeSha' | 'mergedBy' | 'at'>; already: boolean },
+	result: { merge: Pick<CompletedMerge, 'mergeSha' | 'mergedBy' | 'at'>; already: boolean },
 	now: number,
 ): string {
 	const { merge } = result;
@@ -384,11 +383,11 @@ export function mergedText(
 }
 
 /** The branch the server opens a rollback on (`revertMerge` in `pipelineMerge.ts` names it so). */
-export const revertBranchOf = (merge: Pick<PipelineMerge, 'prNumber' | 'mergeSha'>): string =>
+export const revertBranchOf = (merge: Pick<CompletedMerge, 'prNumber' | 'mergeSha'>): string =>
 	`revert/${merge.prNumber}-${shortSha(merge.mergeSha)}`;
 
 export function rollbackConfirmMessage(
-	merge: Pick<PipelineMerge, 'prNumber' | 'title' | 'mergeSha'>,
+	merge: Pick<CompletedMerge, 'prNumber' | 'title' | 'mergeSha'>,
 ): string {
 	return `${merge.title}\n\nOpens a revert pull request of merge ${shortSha(merge.mergeSha)} on branch ${revertBranchOf(merge)}. It goes through the same checks and approvals; nothing changes on main until it merges.`;
 }

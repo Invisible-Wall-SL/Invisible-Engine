@@ -30,14 +30,22 @@
  *    cached walk does not hold walks again at once when it is newer, and after 5 s when older;
  *  - a merge needs `pipelineMerge`, is GitHub's squash merge of a Ready change pinned to the head the
  *    user confirmed, titled `<title> (#n)` with the launcher's own message (never the PR body), and
- *    records who merged and the approvals that counted; anything short of Ready is refused before
- *    GitHub is asked, and GitHub's own refusal keeps its status and its sentence; a resend, two
- *    clicks at once and a crash between GitHub's merge and the row each come out as one merge;
- *  - History reads the launcher's table alone, and GitHub only for the rollbacks still open;
+ *    records who merged and the approvals that counted; anything short of Ready, or a CI-skip
+ *    directive bound for main's history, is refused before GitHub is asked, and GitHub's own
+ *    refusal keeps its status and its sentence;
+ *  - the row is claimed before GitHub is asked: GitHub's refusal drops the claim, a lost answer
+ *    keeps it, and the retry completes it; a resend, two clicks at once and a crash between GitHub's
+ *    merge and the row each come out as one merge; a claim in flight refuses another user, one that
+ *    outlived its request gives way; History settles the old claims from GitHub and never lists one;
+ *    a merge with no claim was not made from here;
+ *  - History reads the launcher's table alone, and GitHub only for old claims and the rollbacks
+ *    still open; the list cache never keeps what `forgetChanges` forgot;
  *  - a rollback opens a revert PR built from three trees (the merge's parent, the merge, main):
- *    every file the merge changed goes back unless main changed it again, which refuses the whole
- *    revert with nothing written to GitHub; a resend answers the PR already open; the revert merges
- *    like any change and records what it undid.
+ *    every file the merge changed goes back unless main changed it again, or it would meet a
+ *    folder, which refuses the whole revert with nothing written to GitHub; a resend, a second click
+ *    and a racing request answer the one PR; a branch already there is opened only when it is the
+ *    launcher's revert of that merge; the revert merges like any change and records what it undid —
+ *    and a branch only named like a revert records nothing.
  */
 import { createHash, createVerify, generateKeyPairSync } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -46,6 +54,7 @@ import { fileURLToPath } from 'node:url';
 import { crc32, deflateRawSync } from 'node:zlib';
 import { isHttpError } from '@sveltejs/kit';
 import type { PipelineApproval, PipelineMerge } from '../src/lib/server/db/schema.ts';
+import type { CompletedMerge } from '../src/lib/server/pipelineMerges.ts';
 
 const src = (rel: string) => new URL(`../src/${rel}`, import.meta.url).href;
 
@@ -185,8 +194,14 @@ const gh = {
 	protectedPulls: new Set<number>(),
 	/** Runs once as a merge lands: a push to the branch landing first. */
 	beforeMerge: null as ((p: Pull) => void) | null,
-	/** Runs once as a branch is made: a parallel request making it first. */
-	beforeRef: null as (() => void) | null,
+	/** Whether the next merge, once made, loses its answer on the way back. */
+	failAfterMerge: false,
+	/** GitHub's answer to the next merge instead of merging (a 5xx, a permission refused). */
+	mergeAnswer: null as { status: number; message: string } | null,
+	/** Runs once as a branch is made, with what was asked: a parallel request making it first. */
+	beforeRef: null as ((body: Json) => void) | null,
+	/** Runs once as a PR is opened: a parallel request opening it first. */
+	beforePull: null as (() => void) | null,
 	/** Whether the open-PR list fails, as when GitHub is down. */
 	listFails: false,
 };
@@ -224,6 +239,8 @@ const filesAt = (commitSha: string): Record<string, GitFile> =>
 			f,
 		]),
 	);
+const without = (files: Record<string, GitFile>, path: string): Record<string, GitFile> =>
+	Object.fromEntries(Object.entries(files).filter(([p]) => p !== path));
 const mainTip = (): string => gh.refs.get('heads/main') as string;
 /** Someone's push to main, outside the launcher. */
 const pushMain = (files: Record<string, GitFile>): void => {
@@ -231,7 +248,7 @@ const pushMain = (files: Record<string, GitFile>): void => {
 };
 /** The App's own bot, as GitHub names it on what the App did. */
 const BOT = { login: 'invisible-pipeline[bot]', type: 'Bot' };
-let nextPull = 60;
+let nextPull = 100;
 
 const jsonResponse = (status: number, body: unknown): Response =>
 	new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -419,6 +436,9 @@ function mergePull(number: number, init: RequestInit | undefined): Response {
 			!(p.body && String(body.commit_message).includes(p.body)),
 		true,
 	);
+	const answer = gh.mergeAnswer;
+	gh.mergeAnswer = null;
+	if (answer) return jsonResponse(answer.status, { message: answer.message });
 	if (body.sha !== p.head.sha) {
 		return jsonResponse(409, {
 			message: 'Head branch was modified. Review and try the merge again.',
@@ -435,6 +455,10 @@ function mergePull(number: number, init: RequestInit | undefined): Response {
 	const mergeSha = commit(squash, [tip], `${body.commit_title}\n\n${body.commit_message}`);
 	gh.refs.set('heads/main', mergeSha);
 	Object.assign(p, { state: 'closed', merged: true, merged_by: BOT, merge_commit_sha: mergeSha });
+	if (gh.failAfterMerge) {
+		gh.failAfterMerge = false;
+		throw new TypeError('fetch failed');
+	}
 	return jsonResponse(200, {
 		sha: mergeSha,
 		merged: true,
@@ -442,13 +466,25 @@ function mergePull(number: number, init: RequestInit | undefined): Response {
 	});
 }
 
-/** `POST /pulls`: a PR on a branch that exists. */
+/** `POST /pulls`: a PR on a branch that exists, and the only one open from it into its base. */
 function openPull(init: RequestInit | undefined): Response {
+	const hook = gh.beforePull;
+	gh.beforePull = null;
+	hook?.();
 	const body = JSON.parse(String(init?.body)) as Json;
 	gh.pullPosts.push(body);
 	const branch = String(body.head);
 	const headSha = gh.refs.get(`heads/${branch}`);
 	if (!headSha) return jsonResponse(422, { message: 'Validation Failed' });
+	const taken = [...gh.pulls.values()].some(
+		(p) => p.state === 'open' && p.head.ref === branch && p.base.ref === body.base,
+	);
+	if (taken) {
+		return jsonResponse(422, {
+			message: 'Validation Failed',
+			errors: [{ message: `A pull request already exists for ${REPO.split('/')[0]}:${branch}.` }],
+		});
+	}
 	const { files: _files, ...opened } = pull(nextPull++, String(body.title), {
 		sha: headSha,
 		body: String(body.body),
@@ -544,7 +580,7 @@ function gitData(
 	if (rest[0] === 'refs') {
 		const hook = gh.beforeRef;
 		gh.beforeRef = null;
-		hook?.();
+		hook?.(body);
 		const name = String(body.ref).replace(/^refs\//, '');
 		if (gh.refs.has(name)) return jsonResponse(422, { message: 'Reference already exists' });
 		gh.refs.set(name, String(body.sha));
@@ -1294,17 +1330,22 @@ const accounts = new Map<string, { role: string; active: boolean; expiresAt: Dat
 ]);
 const userOverrides = new Map<string, Record<string, boolean>>();
 const mergeRows: PipelineMerge[] = [];
-/** Throws on the next record, once: the database failing after GitHub merged. */
-let failNextRecord = false;
-const newestFirst = (rows: PipelineMerge[]) => [...rows].sort((a, b) => +b.at - +a.at);
+let mergeIds = 0;
+/** Throws on the next completion, once: the database failing after GitHub merged. */
+let failNextComplete = false;
+const completedRows = (): CompletedMerge[] =>
+	mergeRows.filter((m): m is CompletedMerge => m.mergeSha !== null);
+const newestFirst = <T extends PipelineMerge>(rows: T[]): T[] =>
+	[...rows].sort((a, b) => +b.at - +a.at);
+const copyOf = (row: PipelineMerge | undefined): PipelineMerge | null => (row ? { ...row } : null);
 fake('lib/server/pipelineMerges.ts', {
-	listMerges: async () => newestFirst(mergeRows),
-	findMerge: async (prNumber: number) => mergeRows.find((m) => m.prNumber === prNumber) ?? null,
+	listMerges: async () => newestFirst(completedRows()),
+	findMerge: async (prNumber: number) => copyOf(mergeRows.find((m) => m.prNumber === prNumber)),
 	findMergeByRequest: async (requestId: string) =>
-		mergeRows.find((m) => m.requestId === requestId) ?? null,
+		copyOf(mergeRows.find((m) => m.requestId === requestId)),
 	revertsOf: async (prNumbers: number[]) => {
-		const byTarget = new Map<number, PipelineMerge>();
-		for (const row of newestFirst(mergeRows)) {
+		const byTarget = new Map<number, CompletedMerge>();
+		for (const row of newestFirst(completedRows())) {
 			if (
 				row.revertOf !== null &&
 				prNumbers.includes(row.revertOf) &&
@@ -1315,21 +1356,47 @@ fake('lib/server/pipelineMerges.ts', {
 		}
 		return byTarget;
 	},
-	recordMerge: async (input: Omit<PipelineMerge, 'id' | 'at'>) => {
-		if (failNextRecord) {
-			failNextRecord = false;
-			throw new Error('fixture: the database went away');
+	claimMerge: async (input: Omit<PipelineMerge, 'id' | 'at' | 'mergeSha'>) => {
+		if (mergeRows.some((m) => m.prNumber === input.prNumber || m.requestId === input.requestId)) {
+			return null;
 		}
-		const existing = mergeRows.find((m) => m.prNumber === input.prNumber);
-		if (existing) return existing;
 		const row: PipelineMerge = {
-			id: `mg-${mergeRows.length + 1}`,
-			at: new Date(Date.now() + mergeRows.length),
+			id: `mg-${++mergeIds}`,
+			at: new Date(Date.now() + mergeIds),
+			mergeSha: null,
 			...input,
 		};
 		mergeRows.push(row);
-		return row;
+		return { ...row };
 	},
+	completeMerge: async (claim: PipelineMerge, mergeSha: string) => {
+		if (failNextComplete) {
+			failNextComplete = false;
+			throw new Error('fixture: the database went away');
+		}
+		const row = mergeRows.find((m) => m.id === claim.id);
+		if (row) {
+			row.mergeSha = mergeSha;
+			return { ...row };
+		}
+		// The claim is gone: the completed row is written whole, unless another row holds the keys.
+		const taken = mergeRows.find(
+			(m) => m.prNumber === claim.prNumber || m.requestId === claim.requestId,
+		);
+		if (taken) {
+			if (taken.mergeSha !== null) return { ...taken };
+			throw new Error('fixture: the merge could not be recorded');
+		}
+		const again: PipelineMerge = { ...claim, mergeSha };
+		mergeRows.push(again);
+		return { ...again };
+	},
+	dropClaim: async (id: string) => {
+		const i = mergeRows.findIndex((m) => m.id === id && m.mergeSha === null);
+		if (i >= 0) mergeRows.splice(i, 1);
+	},
+	listClaims: async (olderThanMs: number) =>
+		mergeRows.filter((m) => m.mergeSha === null && Date.now() - +m.at > olderThanMs),
 });
 fake('lib/server/roleToolAccess.ts', { getRoleOverrides: async () => ({}) });
 fake('lib/server/userToolAccess.ts', {
@@ -2918,6 +2985,30 @@ check(
 	}
 }
 
+// ── The list cache across forgetChanges ───────────────────────────────────────
+{
+	const opens = () =>
+		gh.requests.filter((r) => r.startsWith(`GET /repos/${REPO}/pulls?state=open`)).length;
+	changes.forgetChanges();
+	const reading = changes.listChanges();
+	changes.forgetChanges();
+	await reading;
+	const before = opens();
+	await changes.listChanges();
+	check(
+		'a list read in flight as forgetChanges ran caches nothing: the next list reads GitHub again',
+		opens() - before,
+		1,
+	);
+	changes.forgetChanges();
+	const from = opens();
+	const first = changes.listChanges();
+	changes.forgetChanges();
+	const second = changes.listChanges();
+	await Promise.all([first, second]);
+	check('…and a list asked for after it does not join the read before it', opens() - from, 2);
+}
+
 // ── Merging: the main it merges into, and the changes ─────────────────────────
 const BASE_FILES: Record<string, GitFile> = {
 	'apps/lines/src/other.ts': file('other v1'),
@@ -2931,6 +3022,9 @@ const BASE_FILES: Record<string, GitFile> = {
 gh.refs.set('heads/main', commit(tree(BASE_FILES), []));
 const short = (s: string): string => s.slice(0, 7);
 const puts = (): string[] => gh.requests.filter((r) => r.startsWith('PUT '));
+/** Whether a pull request's row is a claim, standing uncompleted. */
+const claimStands = (prNumber: number): boolean =>
+	mergeRows.some((m) => m.prNumber === prNumber && m.mergeSha === null);
 /** A green change that reaches no game: Ready as soon as it is read. */
 function readyPull(
 	number: number,
@@ -2986,9 +3080,7 @@ pull(40, TITLE_40, {
 gh.squashTrees.set(
 	40,
 	tree({
-		...Object.fromEntries(
-			Object.entries(BASE_FILES).filter(([path]) => path !== 'services/atlas-tool/old.py'),
-		),
+		...without(BASE_FILES, 'services/atlas-tool/old.py'),
 		'scripts/build.sh': file('#!/bin/sh build', '100755'),
 		'scripts/pack.sh': file('#!/bin/sh v2', '100755'),
 		'services/atlas-tool/pack.py': file('pack v2'),
@@ -3010,13 +3102,17 @@ const H45 = readyPull(45, 'docs: merged by hand', {
 	merge_commit_sha: hash('merged by hand'),
 });
 const H46 = readyPull(46, 'docs: two clicks');
-// #53 — merged by another App's bot, on a head no one here confirmed.
-readyPull(53, 'docs: merged by another bot', {
+// #53 — merged by the App's own bot, with no claim: not a merge made from here.
+const H53 = readyPull(53, 'docs: merged by the bot, unclaimed', {
 	state: 'closed',
 	merged: true,
-	merged_by: { login: 'other-app[bot]', type: 'Bot' },
-	merge_commit_sha: hash('merged by another bot'),
+	merged_by: BOT,
+	merge_commit_sha: hash('merged by the bot, unclaimed'),
 });
+// #59 — ready, nothing to render: GitHub's answer to its merge is lost.
+const H59 = readyPull(59, 'docs: the lost answer');
+// #60 — ready, but its title would skip main's push workflows.
+const H60 = readyPull(60, 'docs: x [skip ci]');
 // #54 — GitHub has not worked out whether it merges; #55 — it says it does not.
 const H54 = readyPull(54, 'docs: mergeability unknown', { mergeable: null });
 const H55 = readyPull(55, 'docs: mergeability false', { mergeable: false });
@@ -3114,6 +3210,13 @@ check('no merge reached GitHub', puts(), []);
 		],
 		['#55: GitHub says it does not merge', '55', H55, 409, 'Merge conflict with main.'],
 		[
+			'#60 carries a CI-skip directive in its title',
+			'60',
+			H60,
+			409,
+			'The title carries a CI-skip directive ([skip ci]); remove it from the pull request title first.',
+		],
+		[
 			'#24 is from a fork',
 			'24',
 			sha(24),
@@ -3128,8 +3231,20 @@ check('no merge reached GitHub', puts(), []);
 		check(`merge refused: ${label}`, [res.status, res.body.error], [status, sentence]);
 	}
 	status25.state = 'failure';
+	const skipper: Locals = {
+		user: { ...(ADMIN.user as NonNullable<Locals['user']>), name: 'Gualtiero [CI SKIP]' },
+	};
+	const res = await mergeIt(skipper, '42', { headSha: H42, requestId: 'refused-name' });
+	check(
+		"merge refused: the merger's name carries a CI-skip directive, bound for the commit message",
+		[res.status, res.body.error],
+		[
+			409,
+			'Your name in the launcher carries a CI-skip directive ([CI SKIP]); change it before merging.',
+		],
+	);
 	check('no refusal reached GitHub', puts(), []);
-	check('…and none was recorded', mergeRows.length, 0);
+	check('…and none was recorded, nor claimed', mergeRows.length, 0);
 }
 
 // ── Merging: a Ready change ───────────────────────────────────────────────────
@@ -3148,8 +3263,17 @@ let row40: Json = {};
 		kind: 'ready',
 	});
 	const tip = mainTip();
+	let claimed: PipelineMerge | undefined;
+	gh.beforeMerge = () => {
+		claimed = copyOf(mergeRows.find((m) => m.prNumber === 40)) ?? undefined;
+	};
 	const res = await mergeIt(ADMIN, '40', { headSha: H40, requestId: 'merge-40' });
 	check('#40 merges', [res.status, res.body.already], [200, false]);
+	check(
+		'…under a claim written before GitHub was asked: the row, with no merge commit yet',
+		[claimed?.mergeSha === null, claimed?.requestId, claimed?.headSha, claimed?.mergedBy],
+		[true, 'merge-40', H40, 'Gualtiero'],
+	);
 	check('…in one PUT', puts(), [`PUT /repos/${REPO}/pulls/40/merge`]);
 	check(
 		"…a squash pinned to the head the checks ran on, under GitHub's own title, with the launcher's message",
@@ -3260,7 +3384,7 @@ let row40: Json = {};
 	);
 	check('…the merge went pinned to the head the launcher read', gh.merges.at(-1)?.body.sha, H42);
 	check(
-		'…and nothing was merged or recorded',
+		'…nothing was merged, and the claim was dropped',
 		[gh.pulls.get(42)?.merged, mergeRows.some((m) => m.prNumber === 42)],
 		[false, false],
 	);
@@ -3274,13 +3398,13 @@ let row40: Json = {};
 		[405, 'GitHub 405: Required status check "current-games" is expected.'],
 	);
 	check(
-		'…and nothing was merged or recorded',
+		'…nothing was merged, and the claim was dropped',
 		[gh.pulls.get(43)?.merged, mergeRows.some((m) => m.prNumber === 43)],
 		[false, false],
 	);
 }
 {
-	failNextRecord = true;
+	failNextComplete = true;
 	const crashed = await mergeIt(ADMIN, '44', { headSha: H44, requestId: 'merge-44' }).catch(
 		(err: unknown) => err,
 	);
@@ -3292,14 +3416,14 @@ let row40: Json = {};
 	thrown.push(String((crashed as Error).message));
 	const p44 = gh.pulls.get(44) as Pull;
 	check(
-		'…though GitHub merged it, as the App',
-		[p44.merged, p44.merged_by?.login, mergeRows.some((m) => m.prNumber === 44)],
-		[true, 'invisible-pipeline[bot]', false],
+		'…though GitHub merged it, as the App, and the claim stands uncompleted',
+		[p44.merged, p44.merged_by?.login, claimStands(44)],
+		[true, 'invisible-pipeline[bot]', true],
 	);
 	const resent = await mergeIt(ADMIN, '44', { headSha: H44, requestId: 'merge-44' });
 	const row = resent.body.merge as Json;
 	check(
-		"the click resent records it from GitHub's own answer, merging nothing",
+		"the click resent completes its claim from GitHub's own answer, merging nothing",
 		[resent.status, resent.body.already, row.prNumber, row.mergeSha, row.mergedBy, row.requestId],
 		[200, true, 44, p44.merge_commit_sha, 'Gualtiero', 'merge-44'],
 	);
@@ -3310,20 +3434,46 @@ let row40: Json = {};
 	);
 }
 {
+	gh.failAfterMerge = true;
+	const lost = await mergeIt(ADMIN, '59', { headSha: H59, requestId: 'merge-59' });
+	check(
+		"GitHub merged, and its answer was lost: a 502 with the launcher's sentence",
+		[lost.status, lost.body.error],
+		[502, 'GitHub did not answer (network error).'],
+	);
+	const p59 = gh.pulls.get(59) as Pull;
+	check(
+		'…the claim survives it, uncompleted, since GitHub may have merged — and it had',
+		[claimStands(59), p59.merged],
+		[true, true],
+	);
+	const resent = await mergeIt(ADMIN, '59', { headSha: H59, requestId: 'merge-59' });
+	check(
+		'the retry with the same request completes the claim from the pull request',
+		[resent.status, resent.body.already, (resent.body.merge as Json).mergeSha],
+		[200, true, p59.merge_commit_sha],
+	);
+	check(
+		'…one PUT in all',
+		puts().filter((r) => r.includes('/pulls/59/')),
+		[`PUT /repos/${REPO}/pulls/59/merge`],
+	);
+}
+{
 	const res = await mergeIt(ADMIN, '45', { headSha: H45, requestId: 'merge-45' });
 	check(
 		"a change a person merged on GitHub is not the launcher's to record",
 		[res.status, res.body.error],
 		[409, '#45 was merged on GitHub by someone, not from here; there is nothing to record.'],
 	);
-	const other = await mergeIt(ADMIN, '53', {
-		headSha: hash('a head no one confirmed'),
-		requestId: 'merge-53',
-	});
+	const unclaimed = await mergeIt(ADMIN, '53', { headSha: H53, requestId: 'merge-53' });
 	check(
-		'nor is one another bot merged on a head this click never saw',
-		[other.status, other.body.error],
-		[409, '#53 was merged on GitHub by other-app[bot], not from here; there is nothing to record.'],
+		"nor is one the App's own bot merged with no claim: every merge from here has one",
+		[unclaimed.status, unclaimed.body.error],
+		[
+			409,
+			'#53 was merged on GitHub by invisible-pipeline[bot], not from here; there is nothing to record.',
+		],
 	);
 	check(
 		'…and neither was recorded',
@@ -3361,7 +3511,7 @@ check('History without the tool is a 403', (await history(ARTIST)).status, 403);
 	check(
 		'History: every merge, newest first',
 		merges.map((m) => m.prNumber),
-		[46, 44, 40],
+		[46, 59, 44, 40],
 	);
 	const h40 = merges.find((m) => m.prNumber === 40) as Json;
 	check(
@@ -3432,10 +3582,7 @@ let revertSha40 = '';
 		'docs/new.md': file('new'),
 	});
 	const tip = mainTip();
-	const res = await rollBack(ADMIN, '40', {
-		requestId: 'rollback-40',
-		reason: '  The padding broke HotFruits.  ',
-	});
+	const res = await rollBack(ADMIN, '40', { reason: '  The padding broke HotFruits.  ' });
 	check('a rollback opens a revert PR', [res.status, res.body.existing], [201, false]);
 	check('…on a branch named after the merge', res.body.branch, BRANCH_40);
 	const w = gh.gitWrites;
@@ -3538,7 +3685,7 @@ let revertSha40 = '';
 	check(
 		'History answers with the App unconfigured, from the table alone',
 		[res.status, (res.body.merges as Json[]).length, h40?.revertOpen, gh.requests.length - before],
-		[200, 3, null, 0],
+		[200, 4, null, 0],
 	);
 	changes.forgetChanges();
 	gh.listFails = true;
@@ -3644,6 +3791,64 @@ let revertSha40 = '';
 	);
 }
 {
+	// #61 turned the file docs/d into a folder.
+	pushMain({ ...filesAt(mainTip()), 'docs/d': file('d') });
+	const H61 = readyPull(61, 'docs: d becomes a folder');
+	gh.squashTrees.set(61, tree({ ...without(filesAt(mainTip()), 'docs/d'), 'docs/d/x': file('x') }));
+	check(
+		'#61 merges',
+		(await mergeIt(ADMIN, '61', { headSha: H61, requestId: 'merge-61' })).status,
+		200,
+	);
+	// #62 deleted docs/x; main then put a folder by that name.
+	pushMain({ ...filesAt(mainTip()), 'docs/x': file('x') });
+	const H62 = readyPull(62, 'docs: x goes');
+	gh.squashTrees.set(62, tree(without(filesAt(mainTip()), 'docs/x')));
+	check(
+		'#62 merges',
+		(await mergeIt(ADMIN, '62', { headSha: H62, requestId: 'merge-62' })).status,
+		200,
+	);
+	pushMain({ ...filesAt(mainTip()), 'docs/x/y': file('y') });
+	// #71 turned the folder docs/q into a file.
+	pushMain({ ...filesAt(mainTip()), 'docs/q/r': file('r') });
+	const H71 = readyPull(71, 'docs: q becomes a file');
+	gh.squashTrees.set(71, tree({ ...without(filesAt(mainTip()), 'docs/q/r'), 'docs/q': file('q') }));
+	check(
+		'#71 merges',
+		(await mergeIt(ADMIN, '71', { headSha: H71, requestId: 'merge-71' })).status,
+		200,
+	);
+	const writes = gh.gitWrites.length;
+	const opened = gh.pullPosts.length;
+	const cases: [string, string, string][] = [
+		[
+			'a file the merge turned into a folder',
+			'61',
+			'The revert does not apply cleanly: docs/d cannot go back as a file, because main has a folder there or a file where its folder goes. Revert #61 by hand.',
+		],
+		[
+			'a file the merge deleted, where main has since put a folder',
+			'62',
+			'The revert does not apply cleanly: docs/x cannot go back as a file, because main has a folder there or a file where its folder goes. Revert #62 by hand.',
+		],
+		[
+			'a file whose folder the merge turned into a file',
+			'71',
+			'The revert does not apply cleanly: docs/q/r cannot go back as a file, because main has a folder there or a file where its folder goes. Revert #71 by hand.',
+		],
+	];
+	for (const [label, number, sentence] of cases) {
+		const res = await rollBack(ADMIN, number, {});
+		check(`rollback refused: ${label}`, [res.status, res.body.error], [409, sentence]);
+	}
+	check(
+		'…each with nothing written to GitHub',
+		[gh.gitWrites.length - writes, gh.pullPosts.length - opened],
+		[0, 0],
+	);
+}
+{
 	const writes = gh.gitWrites.length;
 	const opened = gh.pullPosts.length;
 	const tip = mainTip();
@@ -3701,9 +3906,18 @@ let revertSha40 = '';
 }
 
 // ── Rolling back: a branch GitHub already has ─────────────────────────────────
+/** A Ready change merged from here that adds one page: a merge a rollback can undo. */
+async function mergedPage(number: number, page: string): Promise<CompletedMerge> {
+	const headSha = readyPull(number, `docs: ${page}`);
+	gh.squashTrees.set(number, tree({ ...filesAt(mainTip()), [`docs/${page}.md`]: file(page) }));
+	const res = await mergeIt(ADMIN, String(number), { headSha, requestId: `merge-${number}` });
+	return res.body.merge as unknown as CompletedMerge;
+}
+const branchOf = (merge: CompletedMerge): string =>
+	`revert/${merge.prNumber}-${short(merge.mergeSha)}`;
 {
 	// A revert of #44 that someone closed.
-	const branch = `revert/44-${short(String(mergeRows.find((m) => m.prNumber === 44)?.mergeSha))}`;
+	const branch = branchOf(mergeRows.find((m) => m.prNumber === 44) as CompletedMerge);
 	gh.refs.set(`heads/${branch}`, mainTip());
 	const closed = pull(70, 'revert: docs: the crash', {
 		sha: mainTip(),
@@ -3721,44 +3935,302 @@ let revertSha40 = '';
 	);
 }
 {
-	// The launcher made #46's branch and died before its PR.
-	const branch = `revert/46-${short(String(mergeRows.find((m) => m.prNumber === 46)?.mergeSha))}`;
+	// A branch by #46's revert name that is no revert of it: it points at main's own tip.
+	const branch = branchOf(mergeRows.find((m) => m.prNumber === 46) as CompletedMerge);
 	gh.refs.set(`heads/${branch}`, mainTip());
 	const writes = gh.gitWrites.length;
+	const opened = gh.pullPosts.length;
 	const res = await rollBack(ADMIN, '46', {});
 	check(
-		'a branch with no PR gets its PR, and nothing else is made',
+		"a branch with no PR that is not the launcher's revert of the merge is refused",
+		[res.status, res.body.error],
+		[
+			409,
+			`Branch ${branch} is not the launcher's revert of #46; delete it on GitHub to roll back from here.`,
+		],
+	);
+	check(
+		'…with nothing written to GitHub',
+		[gh.gitWrites.length - writes, gh.pullPosts.length - opened],
+		[0, 0],
+	);
+}
+{
+	// The launcher made #52's branch, on its revert commit, and died before the PR.
+	const merge52 = await mergedPage(52, 'page-52');
+	const branch = branchOf(merge52);
+	const tip = commit(
+		tree(without(filesAt(mainTip()), 'docs/page-52.md')),
+		[mainTip()],
+		`revert: ${merge52.title}\n\nThis reverts commit ${merge52.mergeSha} (#52), merged from Invisible Pipeline Changes by Gualtiero.\nRolled back by Gualtiero.`,
+	);
+	gh.refs.set(`heads/${branch}`, tip);
+	const writes = gh.gitWrites.length;
+	const res = await rollBack(ADMIN, '52', {});
+	check(
+		"the launcher's own revert branch with no PR gets its PR, and nothing else is made",
 		[res.status, res.body.existing, res.body.branch, gh.gitWrites.length - writes],
 		[201, false, branch, 0],
 	);
-	check('…from that branch', gh.pullPosts.at(-1)?.head, branch);
+	check(
+		'…from that branch, on that commit',
+		[gh.pullPosts.at(-1)?.head, gh.pulls.get(Number(res.body.number))?.head.sha],
+		[branch, tip],
+	);
 }
 {
-	// #52's revert races another request, which makes the branch and its PR first.
-	const H52 = readyPull(52, 'docs: page 52');
-	gh.squashTrees.set(52, tree({ ...filesAt(mainTip()), 'docs/52.md': file('52') }));
-	const merged = await mergeIt(ADMIN, '52', { headSha: H52, requestId: 'merge-52' });
-	const branch = `revert/52-${short(String((merged.body.merge as Json).mergeSha))}`;
-	let winner = 0;
-	gh.beforeRef = () => {
-		gh.refs.set(`heads/${branch}`, mainTip());
-		winner = pull(nextPull++, 'revert: docs: page 52', {
-			sha: mainTip(),
-			head: { sha: mainTip(), ref: branch, repo: { full_name: REPO } },
-		}).number;
+	// #56's revert races another request, which makes the branch — on its own revert — first.
+	const merge56 = await mergedPage(56, 'page-56');
+	const branch = branchOf(merge56);
+	let racer = '';
+	gh.beforeRef = (body) => {
+		const ours = gh.commits.get(String(body.sha)) as { tree: string; parents: string[] };
+		const { message } = gh.commits.get(String(body.sha)) as { message: string };
+		racer = commit(ours.tree, ours.parents, message);
+		gh.refs.set(`heads/${branch}`, racer);
 	};
 	const writes = gh.gitWrites.length;
-	const opened = gh.pullPosts.length;
-	const res = await rollBack(ADMIN, '52', {});
+	const res = await rollBack(ADMIN, '56', {});
 	check(
-		'a branch another request made first is answered, not made twice',
+		"a branch another request made first is checked as the launcher's revert, and opened",
+		[res.status, res.body.existing, gh.pulls.get(Number(res.body.number))?.head.sha],
+		[201, false, racer],
+	);
+	check(
+		'…its own tree and commit made, its branch refused',
+		gh.gitWrites.slice(writes).map((x) => x.path),
+		['trees', 'commits', 'refs'],
+	);
+}
+{
+	// #72's revert races another request, which opens the PR first.
+	const merge72 = await mergedPage(72, 'page-72');
+	const branch = branchOf(merge72);
+	let winner = 0;
+	gh.beforePull = () => {
+		const tip = gh.refs.get(`heads/${branch}`) as string;
+		winner = pull(nextPull++, `revert: ${merge72.title}`, {
+			sha: tip,
+			head: { sha: tip, ref: branch, repo: { full_name: REPO } },
+		}).number;
+	};
+	const res = await rollBack(ADMIN, '72', {});
+	check(
+		'a PR another request opened first is the answer, after GitHub refuses a second',
 		[res.status, res.body.existing, res.body.number],
 		[200, true, winner],
 	);
 	check(
-		'…its own tree and commit made, its branch refused, and no PR opened',
-		[gh.gitWrites.slice(writes).map((x) => x.path), gh.pullPosts.length - opened],
-		[['trees', 'commits', 'refs'], 0],
+		'…one PR open from the branch',
+		[...gh.pulls.values()].filter((p) => p.state === 'open' && p.head.ref === branch).length,
+		1,
+	);
+}
+{
+	const merge57 = await mergedPage(57, 'page-57');
+	const branches = gh.gitWrites.filter((x) => x.path === 'refs').length;
+	const opened = gh.pullPosts.length;
+	const [a, b] = await Promise.all([rollBack(ADMIN, '57', {}), rollBack(TESTER, '57', {})]);
+	check(
+		'two rollbacks at once: one opens the revert, the other answers it',
+		[[a.status, b.status].sort(), [a.body.existing, b.body.existing].sort(), a.body.branch],
+		[[200, 201], [false, true], branchOf(merge57)],
+	);
+	check('…both naming the one PR', a.body.number, b.body.number);
+	check(
+		'…one branch, one PR',
+		[gh.gitWrites.filter((x) => x.path === 'refs').length - branches, gh.pullPosts.length - opened],
+		[1, 1],
+	);
+}
+{
+	// A title and a merger recorded with CI-skip directives: none reaches what the revert writes.
+	const tip = mainTip();
+	const mergeSha = commit(tree({ ...filesAt(tip), 'docs/70.md': file('70') }), [tip]);
+	gh.refs.set('heads/main', mergeSha);
+	mergeRows.push({
+		id: 'mg-70',
+		requestId: 'merge-70',
+		prNumber: 70,
+		title: 'docs: seventy [skip ci]',
+		headSha: hash('head 70'),
+		mergeSha,
+		mergedById: 'u-admin',
+		mergedBy: 'Gualtiero [no ci]',
+		at: new Date(),
+		approvals: [],
+		revertOf: null,
+	});
+	const res = await rollBack(ADMIN, '70', {});
+	check(
+		'a revert writes no CI-skip directive: not in its commit, not in its title',
+		[
+			res.status,
+			gh.gitWrites.filter((x) => x.path === 'commits').at(-1)?.body.message,
+			gh.pullPosts.at(-1)?.title,
+		],
+		[
+			201,
+			`revert: docs: seventy\n\nThis reverts commit ${mergeSha} (#70), merged from Invisible Pipeline Changes by Gualtiero.\nRolled back by Gualtiero.`,
+			'revert: docs: seventy',
+		],
+	);
+}
+{
+	// A branch only named like a revert of #40: its short SHA is no merge of #40's.
+	const H58 = readyPull(58, `revert: ${TITLE_40}`, {
+		head: { sha: hash('head 58'), ref: 'revert/40-badbad1', repo: { full_name: REPO } },
+	});
+	const res = await mergeIt(ADMIN, '58', { headSha: H58, requestId: 'merge-58' });
+	check(
+		'merging a branch only named like a revert records nothing as reverted',
+		[res.status, (res.body.merge as Json).revertOf],
+		[200, null],
+	);
+}
+
+// ── Merging: claims that outlived their request, and claims in flight ─────────
+const minutesAgo = (n: number): Date => new Date(Date.now() - n * 60_000);
+const claimOf = (prNumber: number, headSha: string, at: Date): PipelineMerge => ({
+	id: `claim-${prNumber}`,
+	requestId: `claim-${prNumber}`,
+	prNumber,
+	title: `docs: #${prNumber}`,
+	headSha,
+	mergeSha: null,
+	mergedById: 'u-tester',
+	mergedBy: 'tester',
+	at,
+	approvals: [],
+	revertOf: null,
+});
+{
+	// #63: GitHub merged it, as the App, under a claim whose request died.
+	const H63 = readyPull(63, 'docs: #63', {
+		state: 'closed',
+		merged: true,
+		merged_by: BOT,
+		merge_commit_sha: hash('merge 63'),
+	});
+	// #64: never merged. #65: a person merged it. #67: the App's bot merged another head.
+	const H64 = readyPull(64, 'docs: #64');
+	const H65 = readyPull(65, 'docs: #65', {
+		state: 'closed',
+		merged: true,
+		merged_by: { login: 'someone', type: 'User' },
+		merge_commit_sha: hash('merge 65'),
+	});
+	readyPull(67, 'docs: #67', {
+		state: 'closed',
+		merged: true,
+		merged_by: BOT,
+		merge_commit_sha: hash('merge 67'),
+	});
+	// #66: a merge in flight right now. #69: an old claim on a change never merged.
+	const H66 = readyPull(66, 'docs: #66');
+	const H69 = readyPull(69, 'docs: #69');
+	mergeRows.push(
+		claimOf(63, H63, minutesAgo(3)),
+		claimOf(64, H64, minutesAgo(3)),
+		claimOf(65, H65, minutesAgo(3)),
+		claimOf(67, hash('another head of 67'), minutesAgo(3)),
+		claimOf(66, H66, new Date()),
+		claimOf(69, H69, minutesAgo(3)),
+	);
+	const inFlight = await rollBack(ADMIN, '66', {});
+	check(
+		'a rollback of a merge in flight waits for it',
+		[inFlight.status, inFlight.body.error],
+		[409, 'tester is merging #66 right now; reload in a moment.'],
+	);
+	const never = await rollBack(ADMIN, '69', {});
+	check(
+		'a rollback of an old claim settles it from GitHub first: never merged, nothing to roll back',
+		[never.status, never.body.error, mergeRows.some((m) => m.prNumber === 69)],
+		[404, '#69 was not merged from here; roll it back by hand.', false],
+	);
+	const res = await history(ADMIN);
+	const listed = res.body.merges as Json[];
+	check(
+		"History settles the old claims: the App's merge is completed under the claim's user",
+		[
+			mergeRows.find((m) => m.prNumber === 63)?.mergeSha,
+			listed.find((m) => m.prNumber === 63)?.mergedBy,
+		],
+		[hash('merge 63'), 'tester'],
+	);
+	check(
+		'…the rest dropped: never merged, merged by a person, the bot on another head',
+		[64, 65, 67].map((n) => mergeRows.some((m) => m.prNumber === n)),
+		[false, false, false],
+	);
+	check('…the claim in flight left standing', claimStands(66), true);
+	check(
+		'History never lists a claim',
+		[
+			listed.some((m) => [64, 65, 66, 67, 69].includes(Number(m.prNumber))),
+			listed.every((m) => typeof m.mergeSha === 'string'),
+		],
+		[false, true],
+	);
+}
+{
+	// #68: another user's merge in flight refuses this one, until its claim outlived its request.
+	const H68 = readyPull(68, 'docs: #68');
+	const theirs = claimOf(68, H68, new Date());
+	mergeRows.push(theirs);
+	const before = puts().length;
+	const busy = await mergeIt(ADMIN, '68', { headSha: H68, requestId: 'merge-68' });
+	check(
+		"another user's merge in flight refuses this one, naming them, before GitHub is asked",
+		[busy.status, busy.body.error, puts().length - before],
+		[409, 'tester is merging #68 right now; reload in a moment.', 0],
+	);
+	theirs.at = minutesAgo(3);
+	const res = await mergeIt(ADMIN, '68', { headSha: H68, requestId: 'merge-68-again' });
+	check(
+		"once that claim outlived its request it gives way: this merge goes ahead as this user's",
+		[
+			res.status,
+			res.body.already,
+			(res.body.merge as Json | undefined)?.mergedBy,
+			mergeRows.filter((m) => m.prNumber === 68).length,
+		],
+		[200, false, 'Gualtiero', 1],
+	);
+}
+
+{
+	// #73: GitHub answers the merge with a 5xx. It may have merged: the claim stays for the retry.
+	const H73 = readyPull(73, 'docs: #73');
+	gh.mergeAnswer = { status: 502, message: 'Server Error' };
+	const failed = await mergeIt(ADMIN, '73', { headSha: H73, requestId: 'merge-73' });
+	check(
+		"a 5xx on the merge is a 502 with GitHub's sentence, and the claim stays",
+		[failed.status, failed.body.error, claimStands(73)],
+		[502, 'GitHub 502: Server Error', true],
+	);
+	const resent = await mergeIt(ADMIN, '73', { headSha: H73, requestId: 'merge-73' });
+	check(
+		'…and the retry merges under that same claim',
+		[
+			resent.status,
+			resent.body.already,
+			(resent.body.merge as Json | undefined)?.requestId,
+			mergeRows.filter((m) => m.prNumber === 73).length,
+		],
+		[200, false, 'merge-73', 1],
+	);
+}
+{
+	// #74: a 4xx that is not one of GitHub's merge refusals — the App lacks a permission.
+	const H74 = readyPull(74, 'docs: #74');
+	gh.mergeAnswer = { status: 403, message: 'Resource not accessible by integration' };
+	const res = await mergeIt(ADMIN, '74', { headSha: H74, requestId: 'merge-74' });
+	check(
+		"any other 4xx on the merge is a 502 with GitHub's sentence, and its claim is dropped",
+		[res.status, res.body.error, mergeRows.some((m) => m.prNumber === 74)],
+		[502, 'GitHub 403: Resource not accessible by integration', false],
 	);
 }
 
@@ -3776,8 +4248,7 @@ let revertSha40 = '';
 		view.mergeConfirmMessage(detail40),
 		`${TITLE_40}\n\nSquash-merges head ${short(H40)} (${H40}) into main as "${TITLE_40} (#40)". Branch protection still applies.`,
 	);
-	const readOnly =
-		'Merging needs the “Merge pipeline changes” permission. You can roll back from History.';
+	const readOnly = 'Merging needs the “Merge pipeline changes” permission.';
 	check(
 		'the bar under a Ready change: merge, draft, read-only, by hand — by hand said to everyone',
 		[
@@ -3806,7 +4277,7 @@ let revertSha40 = '';
 			},
 		],
 	);
-	const merge40 = row40 as unknown as PipelineMerge;
+	const merge40 = row40 as unknown as CompletedMerge;
 	const later = Date.parse(String(merge40.at)) + 30_000;
 	check(
 		'the bar after the merge names the commit, who merged, and when',
@@ -3849,8 +4320,50 @@ let revertSha40 = '';
 		);
 	check(
 		'a History row rolls back once: not after its revert merged, nor while one is open',
-		[stateOf(40), stateOf(46), stateOf(44)],
+		[stateOf(40), stateOf(52), stateOf(44)],
 		['reverted', 'revert-open', 'rollbackable'],
+	);
+}
+
+// ── A claim settled away under a merge in flight is written again, whole ──────
+{
+	const H75 = readyPull(75, 'docs: the claim dropped under the merge');
+	gh.beforeMerge = () => {
+		// History's reconcile, in another request, took the claim for stale and the PR for
+		// unmerged, and dropped it while GitHub was merging.
+		const i = mergeRows.findIndex((m) => m.prNumber === 75);
+		if (i >= 0) mergeRows.splice(i, 1);
+	};
+	const res = await mergeIt(ADMIN, '75', { headSha: H75, requestId: 'merge-75' });
+	check(
+		'the merge is still recorded, as the completed row',
+		[res.status, res.body.already, (res.body.merge as Json).mergeSha],
+		[200, false, (gh.pulls.get(75) as Pull).merge_commit_sha],
+	);
+	check(
+		'…one row for the change, completed, under its request',
+		mergeRows.filter((m) => m.prNumber === 75).map((m) => [m.requestId, m.mergeSha !== null]),
+		[['merge-75', true]],
+	);
+}
+
+// ── An open branch merely named after a change is not its rollback ────────────
+{
+	pull(nextPull++, 'revert: not really', {
+		sha: mainTip(),
+		head: { sha: mainTip(), ref: 'revert/44-badbad1', repo: { full_name: REPO } },
+	});
+	changes.forgetChanges();
+	const h44 = ((await history(ADMIN)).body.merges as Json[]).find((m) => m.prNumber === 44) as Json;
+	check(
+		"an open PR on a branch whose SHA is not #44's merge is not its rollback",
+		h44.revertOpen,
+		null,
+	);
+	check(
+		'…so the row still rolls back',
+		view.historyRowState(h44 as unknown as Parameters<typeof view.historyRowState>[0]),
+		'rollbackable',
 	);
 }
 

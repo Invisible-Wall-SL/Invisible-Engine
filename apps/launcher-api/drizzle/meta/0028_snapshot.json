@@ -1,5 +1,5 @@
 {
-  "id": "76c390f5-a585-4bea-a571-ab629afad0f3",
+  "id": "bf9f572b-e02b-4667-bd89-1e4043527181",
   "prevId": "c8fe951b-2248-4fa7-a790-5fb5ba7fe693",
   "version": "7",
   "dialect": "postgresql",
@@ -1387,7 +1387,7 @@
           "name": "merge_sha",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "merged_by_id": {
           "name": "merged_by_id",

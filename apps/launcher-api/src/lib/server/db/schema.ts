@@ -743,10 +743,12 @@ export interface MergeApproval {
 
 /**
  * Invisible Pipeline Changes merges (ADR-0007): one row per pull request the launcher squash-merged
- * into `main`, written in the same flow as GitHub's merge. GitHub stays the record of the merge
- * itself; this holds what GitHub cannot — the launcher user who merged, the approvals that counted
- * at that moment, and which change a revert undoes. `request_id` makes a resent merge idempotent;
- * `pr_number` is unique because a pull request merges once.
+ * into `main`. GitHub stays the record of the merge itself; this holds what GitHub cannot — the
+ * launcher user who merged, the approvals that counted at that moment, and which change a revert
+ * undoes. A row is written as a CLAIM (`merge_sha` null) before GitHub is asked to merge, and
+ * completed with the merge commit once GitHub has merged, so a merge GitHub made always has a row
+ * to complete. `pr_number` is unique because a pull request merges once (and so is claimed once);
+ * `request_id` makes a resent merge idempotent.
  */
 export const pipelineMerges = pgTable(
 	'pipeline_merges',
@@ -758,7 +760,8 @@ export const pipelineMerges = pgTable(
 		prNumber: integer('pr_number').notNull(),
 		title: text('title').notNull(),
 		headSha: text('head_sha').notNull(),
-		mergeSha: text('merge_sha').notNull(),
+		/** `null` while the row is a claim: GitHub has not answered the merge yet. */
+		mergeSha: text('merge_sha'),
 		mergedById: text('merged_by_id').notNull(),
 		mergedBy: text('merged_by').notNull(),
 		at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),

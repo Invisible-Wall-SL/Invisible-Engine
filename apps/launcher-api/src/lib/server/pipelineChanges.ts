@@ -505,21 +505,26 @@ function summaryOf(pull: GhPull, head: Head): ChangeSummary {
 }
 
 let listCache: { at: number; list: ChangeList } | null = null;
+/** Bumped by every `forgetChanges`: a read that started before the bump may hold what was
+ *  forgotten, so it neither caches its list nor is joined by a read that starts after. */
+let listGeneration = 0;
 const listFlight = createSingleFlight();
 
 /** Drop the cached list: an approval, a merge or a new revert changed what it shows. */
 export function forgetChanges(): void {
 	listCache = null;
+	listGeneration++;
 }
 
 /** Every open PR into `main`, bar Director games; Dependabot's apart. */
 export function listChanges(app: GithubApp = githubApp): Promise<ChangeList> {
 	if (listCache && Date.now() - listCache.at < LIST_TTL_MS) return Promise.resolve(listCache.list);
 	// Tabs opening together share one read: each PR costs four GitHub calls.
-	return listFlight('list', () => readChanges(app));
+	const generation = listGeneration;
+	return listFlight(`list:${generation}`, () => readChanges(app, generation));
 }
 
-async function readChanges(app: GithubApp): Promise<ChangeList> {
+async function readChanges(app: GithubApp, generation: number): Promise<ChangeList> {
 	const r = repo();
 	const open = (await openPulls(app)).filter((p) => !labelsOf(p).includes(DIRECTOR_GAME_LABEL));
 	const pulls = open.filter((p) => !isFork(p));
@@ -540,7 +545,7 @@ async function readChanges(app: GithubApp): Promise<ChangeList> {
 	summaries.forEach((s, i) =>
 		(isDependabot(pulls[i].user) ? list.dependabot : list.changes).push(s),
 	);
-	listCache = { at: Date.now(), list };
+	if (generation === listGeneration) listCache = { at: Date.now(), list };
 	return list;
 }
 
