@@ -76,14 +76,20 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     folder slug, with a 30 s `lock_timeout`. It is taken by `createProject`, which every creation
     path calls (Game Maker, Admin, desktop sync, duplicate / Director copy); by `createRun` around
     the mockup read and the draft insert; and by the cleanup, which re-checks "no project, no run"
-    inside it.
+    inside it. Every query inside the lock runs on the lock's own `tx`, so each holder needs ONE
+    pooled connection: `projectInFolder` / `runInFolder` compare by slug in SQL
+    (`r2SlugSql`), and `insertDraftRun` takes the `tx`.
+  - **Sweep cost:** project and run keys are read once, outside any lock. A folder with a project
+    is skipped. One with no mockup objects is skipped. One a run names, or with anything newer than
+    the cutoff (or of unknown age), is reported kept. Only the remaining candidates take the lock.
+    The banner names each kept folder and why.
   - **Uploads are not lost:** uploads stay lock-free. R2 has no conditional delete, so the cleanup
     first **seals** the doc: a CAS on the ETag it read, to an empty doc with `sealedAt`. Only then
     does it delete the doc. `updateDoc` will not write over a fresh seal: it waits, then answers
     409 `clearing`, and the seal lapses after 5 min if a cleanup died. The sweep also refuses
     (`changed`) a doc that moved since its listing.
-  - Fixture: `check:director-mockups` (now 140 checks), plus a `check:director-runs` check that
-    every draft insert holds the lock.
+  - Fixture: `check:director-mockups` (now 144 checks), plus a `check:director-runs` check that
+    every draft insert holds the lock and runs on its `tx`.
   - **Open:** `requireDirectorProjectScope` accepts a free key whose folder is an existing
     project's (`sunken_temple` vs `sunken-temple`), so a pending upload can land in that project's
     `director/` tree. The cleanup refuses to clear such a folder. The scope gate itself is

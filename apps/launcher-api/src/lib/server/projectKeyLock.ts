@@ -1,4 +1,5 @@
-import { sql } from 'drizzle-orm';
+import { sql, type SQL } from 'drizzle-orm';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { getDb } from './db';
 import { r2Slug } from './projectPaths';
 
@@ -14,6 +15,16 @@ const LOCK_WAIT = sql.raw(`SET LOCAL lock_timeout = '30s'`);
 
 type Db = ReturnType<typeof getDb>;
 export type LockTx = Parameters<Parameters<Db['transaction']>[0]>[0];
+/**
+ * What a query helper runs on: the pool, or the lock's transaction. Everything a lock holder reads
+ * or writes goes through the `tx` it is handed, so each holder needs exactly ONE pooled connection
+ * (a second one, taken while holding the first, deadlocks once the pool is full of holders).
+ */
+export type Queryer = Db | LockTx;
+
+/** `r2Slug(column)` in SQL — byte-identical for project keys, which are ASCII by their pattern. */
+export const r2SlugSql = (column: AnyPgColumn): SQL<string> =>
+	sql<string>`left(regexp_replace(lower(${column}), '[^a-z0-9]', '_', 'g'), 60)`;
 
 /**
  * Run `fn` holding the project key `projectKey`: a transaction-scoped Postgres advisory lock keyed

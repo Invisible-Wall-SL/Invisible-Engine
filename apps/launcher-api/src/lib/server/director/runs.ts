@@ -454,7 +454,7 @@ export async function createRun(user: User, input: CreateRunInput): Promise<Crea
 	// The mockups are read and the run that names them inserted under the key's lock: the
 	// pending-mockup cleanup clears a key only under it, after checking no run names the key, so
 	// it can neither delete what this run is starting from nor miss the run.
-	const { row, inserted } = await withProjectKeyLock(key, async () => {
+	const { row, inserted } = await withProjectKeyLock(key, async (tx) => {
 		const draft = {
 			id: runId,
 			projectKey: key,
@@ -465,7 +465,7 @@ export async function createRun(user: User, input: CreateRunInput): Promise<Crea
 			startingPointJson: await startingPointFor(clientKey, key, notes, user),
 			checkpointsJson: checkpoints,
 		};
-		return { row: draft, inserted: await insertDraftRun(draft) };
+		return { row: draft, inserted: await insertDraftRun(draft, tx) };
 	});
 	if (!inserted) {
 		// Lost a race with the same request id; that call made the run.

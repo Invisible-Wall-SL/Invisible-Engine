@@ -1,7 +1,7 @@
 import { listClients } from '../clients';
 import { UNASSIGNED_CLIENT, r2Slug } from '../projectPaths';
 import { withProjectKeyLock } from '../projectKeyLock';
-import { listDeletedProjects, listProjects } from '../projects';
+import { listDeletedProjects, listProjects, projectInFolder } from '../projects';
 import { deleteObject, deleteObjects, listAllObjects, listFolder, type ListedObject } from '../r2';
 import {
 	MockupError,
@@ -11,7 +11,7 @@ import {
 	mockupsDocKey,
 	sealMockupsDoc,
 } from './mockups';
-import { listRunProjectKeys } from './store';
+import { listRunProjectKeys, runInFolder } from './store';
 
 /**
  * Clearing a PENDING key's mockups (ADR-0005 storage): the doc, every original and any crops of a
@@ -60,6 +60,17 @@ export type KeptReason =
 	/** Nothing to clear. */
 	| 'empty';
 
+/** How the Admin banner names each reason a folder was kept. */
+export const KEPT_REASON_WORDS: Record<KeptReason, string> = {
+	project_exists: 'a project uses it',
+	run_exists: 'a Director run names it',
+	fresh: 'uploaded too recently',
+	in_use: 'it has mockups again',
+	changed: 'it changed while clearing',
+	bad_doc: 'its mockups.json is not valid JSON',
+	empty: 'nothing to clear',
+};
+
 export type ClearOutcome =
 	{ cleared: true; deleted: number } | { cleared: false; reason: KeptReason };
 
@@ -70,15 +81,20 @@ const mockupObjectPrefixes = (client: string, project: string) => [
 
 const stripQuotes = (etag: string) => etag.replace(/"/g, '');
 
-/** Whether any project row, live or soft-deleted, lives in the R2 folder `slug`. */
-async function projectInFolder(slug: string): Promise<boolean> {
-	const rows = [...(await listProjects()), ...(await listDeletedProjects())];
-	return rows.some((p) => r2Slug(p.key) === slug);
-}
+/**
+ * Written at or before `cutoff`. A listing that carries no `LastModified` (0) is NOT old: an
+ * object of unknown age is kept.
+ */
+const writtenBy = (o: ListedObject, cutoff: number) =>
+	o.lastModified > 0 && o.lastModified <= cutoff;
 
-/** Whether any Director run, in any state, names a key in the R2 folder `slug`. */
-async function runInFolder(slug: string): Promise<boolean> {
-	return (await listRunProjectKeys()).some((key) => r2Slug(key) === slug);
+/** The doc, originals and crops under one folder, as listed now. */
+async function listMockupObjects(client: string, project: string): Promise<ListedObject[]> {
+	const docKey = mockupsDocKey(client, project);
+	const prefixes = mockupObjectPrefixes(client, project);
+	return (await listAllObjects(`${directorPrefix(client, project)}/`)).filter(
+		(o) => o.key === docKey || prefixes.some((p) => o.key.startsWith(p)),
+	);
 }
 
 /**
@@ -86,7 +102,8 @@ async function runInFolder(slug: string): Promise<boolean> {
  * Without `olderThan` it is the emptied-doc path: the doc must list no images. With it (epoch ms)
  * it is the sweep: nothing under the key may be newer.
  *
- * Under the key's lock: re-check no project and no run, list, then seal the doc with a CAS on the
+ * Under the key's lock: re-check no project and no run — two targeted queries on the lock's own
+ * `tx`, so a holder never needs a second pooled connection — list, then seal the doc with a CAS on the
  * ETag just read (`sealMockupsDoc`), delete it, and delete the listed originals and crops. An
  * upload racing this either landed before the seal — the seal's CAS fails and nothing is deleted —
  * or after it, when it re-reads, waits out the delete and creates a new doc; its original has a
@@ -101,19 +118,17 @@ export async function clearPendingMockups(
 ): Promise<ClearOutcome> {
 	const kept = (reason: KeptReason): ClearOutcome => ({ cleared: false, reason });
 	const slug = r2Slug(project);
-	return withProjectKeyLock(slug, async () => {
-		if (await projectInFolder(slug)) return kept('project_exists');
-		if (await runInFolder(slug)) return kept('run_exists');
+	return withProjectKeyLock(slug, async (tx) => {
+		if (await projectInFolder(slug, tx)) return kept('project_exists');
+		if (await runInFolder(slug, tx)) return kept('run_exists');
 
 		const docKey = mockupsDocKey(client, project);
 		const prefixes = mockupObjectPrefixes(client, project);
-		const listed = (await listAllObjects(`${directorPrefix(client, project)}/`)).filter(
-			(o) => o.key === docKey || prefixes.some((p) => o.key.startsWith(p)),
-		);
+		const listed = await listMockupObjects(client, project);
 		if (listed.length === 0) return kept('empty');
 		const { olderThan } = opts;
 		const sweep = olderThan !== undefined;
-		if (sweep && listed.some((o) => o.lastModified > olderThan)) return kept('fresh');
+		if (sweep && !listed.every((o) => writtenBy(o, olderThan))) return kept('fresh');
 
 		let loaded: Awaited<ReturnType<typeof loadMockupsDoc>>;
 		try {
@@ -148,7 +163,7 @@ export async function clearPendingMockups(
 					o.key !== docKey &&
 					(o.key.startsWith(prefixes[1]) ||
 						docFiles.has(o.key) ||
-						o.lastModified <= now - STRAY_GRACE_MS),
+						writtenBy(o, now - STRAY_GRACE_MS)),
 			)
 			.map((o) => o.key);
 		if (etag === null && doomed.length === 0) return kept('empty');
@@ -177,8 +192,13 @@ async function projectFolders(client: string): Promise<string[]> {
 
 /**
  * The age sweep: every project folder under a known client's folder (and `unassigned`) that no
- * project row slugs to, cleared when nothing under its mockups was written for `days` days
- * ({@link clearPendingMockups} re-checks each under the lock; this listing only picks candidates).
+ * project row slugs to, cleared when nothing under its mockups was written for `days` days.
+ *
+ * The project and run keys are read ONCE, outside any lock, and each folder is pre-filtered there
+ * too — a project's folder is skipped unlisted; one with no mockup objects is skipped; one a run
+ * names, or with anything newer than the cutoff, is reported kept — so the lock and its narrow
+ * re-check ({@link clearPendingMockups}) are taken only for real candidates. The pre-filter only
+ * picks candidates: a project or run that appears after it is still caught under the lock.
  * Folders are reported by their slugs; ones with nothing to clear are not reported.
  */
 export async function sweepPendingMockups(days: number, now = Date.now()): Promise<SweepReport> {
@@ -186,17 +206,29 @@ export async function sweepPendingMockups(days: number, now = Date.now()): Promi
 	const taken = new Set(
 		[...(await listProjects()), ...(await listDeletedProjects())].map((p) => r2Slug(p.key)),
 	);
+	const withRun = new Set((await listRunProjectKeys()).map(r2Slug));
 	const clients = new Set(
 		[UNASSIGNED_CLIENT, ...(await listClients()).map((c) => c.key)].map(r2Slug),
 	);
 	const report: SweepReport = { cleared: [], kept: [] };
+	const keep = (client: string, project: string, reason: KeptReason) =>
+		reason !== 'empty' && report.kept.push({ client, project, reason });
 	for (const client of clients) {
 		for (const project of await projectFolders(client)) {
 			if (taken.has(project)) continue;
+			const listed = await listMockupObjects(client, project);
+			if (listed.length === 0) continue;
+			if (withRun.has(project)) {
+				keep(client, project, 'run_exists');
+				continue;
+			}
+			if (!listed.every((o) => writtenBy(o, olderThan))) {
+				keep(client, project, 'fresh');
+				continue;
+			}
 			const outcome = await clearPendingMockups(client, project, { olderThan, now });
 			if (outcome.cleared) report.cleared.push({ client, project, deleted: outcome.deleted });
-			else if (outcome.reason !== 'empty')
-				report.kept.push({ client, project, reason: outcome.reason });
+			else keep(client, project, outcome.reason);
 		}
 	}
 	return report;

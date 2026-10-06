@@ -180,8 +180,15 @@ const PROJECTS = new Map<string, string | null>([
 const GRANTS = new Map<string, Set<string>>([['art', new Set(['acme'])]]);
 fake('lib/server/projects.ts', {
 	DEFAULT_PROJECT_KEY: 'cloud',
-	listProjects: async () => [...PROJECTS.keys()].map((key) => ({ key })),
-	listDeletedProjects: async () => [{ key: 'deleted-game' }],
+	listProjects: async () => (
+		poolRead('listProjects'),
+		[...PROJECTS.keys()].map((key) => ({ key }))
+	),
+	listDeletedProjects: async () => (poolRead('listDeletedProjects'), [{ key: 'deleted-game' }]),
+	projectInFolder: async (folder: string, db: unknown) => (
+		txRead('projectInFolder', db),
+		[...PROJECTS.keys(), 'deleted-game'].some((key) => slug(key) === folder)
+	),
 	canAccessProject: async (userId: string, role: string, key: string) => {
 		if (!PROJECTS.has(key)) return false;
 		if (role === 'admin') return true;
@@ -227,7 +234,11 @@ const RUN: DirectorRun = {
 const RUN_KEYS = new Set<string>([RUN.projectKey]);
 fake('lib/server/director/store.ts', {
 	getRun: async (id: string) => (id === RUN.id ? RUN : null),
-	listRunProjectKeys: async () => [...RUN_KEYS],
+	listRunProjectKeys: async () => (poolRead('listRunProjectKeys'), [...RUN_KEYS]),
+	runInFolder: async (folder: string, db: unknown) => (
+		txRead('runInFolder', db),
+		[...RUN_KEYS].some((key) => slug(key) === folder)
+	),
 });
 /** `r2Slug`, which the real lock keys on (the fakes load before `projectPaths.ts` may). */
 const slug = (key: string) =>
@@ -238,6 +249,18 @@ const slug = (key: string) =>
 /** Folders whose lock is held now; `onLock` runs as it is granted (what committed meanwhile). */
 const LOCKED = new Set<string>();
 let onLock: ((folder: string) => void) | null = null;
+/** Every folder locked, in order. */
+const lockCalls: string[] = [];
+/** The transaction the held lock hands its callback; queries inside the lock must run on it. */
+const TX = { lockTx: true };
+/** Queries that took a second pool connection while a lock was held, or ran on the wrong handle. */
+const dbMisuse: string[] = [];
+function poolRead(name: string): void {
+	if (LOCKED.size > 0) dbMisuse.push(`${name} on the pool inside the lock`);
+}
+function txRead(name: string, db: unknown): void {
+	if (LOCKED.size > 0 && db !== TX) dbMisuse.push(`${name} not on the lock's tx`);
+}
 fake('lib/server/projectKeyLock.ts', {
 	withProjectKeyLock: async <T>(
 		projectKey: string,
@@ -246,9 +269,10 @@ fake('lib/server/projectKeyLock.ts', {
 		const key = slug(projectKey);
 		if (LOCKED.has(key)) throw new Error(`fixture: ${key} is already locked`);
 		LOCKED.add(key);
+		lockCalls.push(key);
 		onLock?.(key);
 		try {
-			return await fn(null);
+			return await fn(TX);
 		} finally {
 			LOCKED.delete(key);
 		}
@@ -1120,8 +1144,18 @@ console.log('cleanup');
 		if (folder === 'racing_key') PROJECTS.set('racing-key', 'acme');
 		if (folder === 'run_racing_key') RUN_KEYS.add('run-racing-key');
 	};
+	// An object the listing gives no LastModified (0) is of unknown age: kept, so its folder is.
+	await seed(C, 'unknown-age', 20 * DAY);
+	R2.get(mockups.mockupImageKey(C, 'unknown-age', 'abcdefabcdefabcd.png'))!.mtime = 0;
+	keptBefore['unknown-age'] = kept('unknown-age');
+	lockCalls.length = 0;
 	const report = await cleanup.sweepPendingMockups(14, now);
 	onLock = null;
+	check(
+		'the sweep pre-filters outside the lock: only the old, run-less, project-less folders lock',
+		[...lockCalls].sort(),
+		['loose_key', 'old_pending', 'racing_key', 'run_racing_key'],
+	);
 	const where = (r: { client: string; project: string }) => `${r.client}/${r.project}`;
 	// Keys other sections left behind are fresh; only the ones seeded here are asserted.
 	const seeded = new Set(Object.keys(keptBefore).map(slug));
@@ -1151,6 +1185,7 @@ console.log('cleanup');
 			[`${C}/old_with_run`, 'run_exists'],
 			[`${C}/racing_key`, 'project_exists'],
 			[`${C}/run_racing_key`, 'run_exists'],
+			[`${C}/unknown_age`, 'fresh'],
 		],
 	);
 	check(
@@ -1201,6 +1236,29 @@ console.log('cleanup');
 	);
 	// The emptied path refuses a doc that lists an image again.
 	await seed(C, 'refilled-key', 0);
+	const unknownStray = mockups.mockupImageKey(C, 'unknown-age', 'abcdefabcdefabcd.png');
+	await mockups.removeMockup(
+		C,
+		'unknown-age',
+		(await mockups.loadMockupsDoc(C, 'unknown-age')).doc.images[0].id,
+	);
+	await mockups.removeMockup(
+		C,
+		'unknown-age',
+		(await mockups.loadMockupsDoc(C, 'unknown-age')).doc.images[0].id,
+	);
+	check(
+		'the emptied-doc clear keeps a stray of unknown age, clearing the rest',
+		[await cleanup.clearPendingMockups(C, 'unknown-age'), keysUnder(dir(C, 'unknown-age'))],
+		[{ cleared: true, deleted: 2 }, [unknownStray]],
+	);
+	check(
+		'every kept reason has words for the Admin banner',
+		report.kept.every(
+			(r: { reason: string }) => typeof cleanup.KEPT_REASON_WORDS[r.reason] === 'string',
+		),
+		true,
+	);
 	check(
 		'the emptied-doc clear refuses a doc with images',
 		await cleanup.clearPendingMockups(C, 'refilled-key'),
@@ -1266,6 +1324,12 @@ console.log('cleanup');
 		1,
 	);
 }
+
+check(
+	'inside the lock every query ran on its tx — never a second pool connection',
+	[lockCalls.length > 0, dbMisuse],
+	[true, []],
+);
 
 console.log(`director-mockups: ${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);

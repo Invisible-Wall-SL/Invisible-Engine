@@ -157,12 +157,14 @@ fake('lib/server/director/mockupPixels.ts', { MODEL_LONG_EDGE: 1568 });
 /** Project keys whose lock is held now, and every draft insert's key with whether it was held. */
 const LOCKED = new Set<string>();
 const insertsLocked: boolean[] = [];
+/** The transaction the held lock hands its callback; the draft insert must run on it. */
+const TX = { lockTx: true };
 fake('lib/server/projectKeyLock.ts', {
 	withProjectKeyLock: async <T>(key: string, fn: (tx: unknown) => Promise<T>): Promise<T> => {
 		if (LOCKED.has(key)) throw new Error(`fixture: ${key} is already locked`);
 		LOCKED.add(key);
 		try {
-			return await fn(null);
+			return await fn(TX);
 		} finally {
 			LOCKED.delete(key);
 		}
@@ -369,8 +371,8 @@ fake('lib/server/director/store.ts', {
 	getRun: async (id: string) => RUNS.get(id) ?? null,
 	findOwnerRequest: async (runId: string, requestId: string) =>
 		OPS.get(`${runId}:owner:${requestId}`) ?? null,
-	insertDraftRun: async (row: Record<string, unknown>) => {
-		insertsLocked.push(LOCKED.has(row.projectKey as string));
+	insertDraftRun: async (row: Record<string, unknown>, db?: unknown) => {
+		insertsLocked.push(LOCKED.has(row.projectKey as string) && db === TX);
 		if (RUNS.has(row.id as string)) return false;
 		const at = new Date(2026, 9, 6, 0, 0, clock++);
 		if (raceOnNextInsert) {
@@ -2154,7 +2156,7 @@ console.log('pending project');
 
 console.log('key lock');
 check(
-	'every draft run is inserted holding its project key (the pending-mockup cleanup’s lock)',
+	'every draft run is inserted holding its project key, on the lock’s own tx',
 	[insertsLocked.length > 0, insertsLocked.every(Boolean)],
 	[true, true],
 );

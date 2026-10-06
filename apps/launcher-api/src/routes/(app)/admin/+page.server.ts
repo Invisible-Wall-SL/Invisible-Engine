@@ -130,7 +130,7 @@ import { parseCostImport } from '$lib/server/costs/importMonths';
 import { importMonths, setMonthEur, setMonthUsd, TOTAL_KEY } from '$lib/server/costs/months';
 import { isProviderId, type ProviderId } from '$lib/server/costs/types';
 import { FILE_PRICING, getDirectorPricing } from '$lib/server/costs/pricingConfig';
-import { sweepPendingMockups } from '$lib/server/director/mockupCleanup';
+import { KEPT_REASON_WORDS, sweepPendingMockups } from '$lib/server/director/mockupCleanup';
 import { mergePricing } from '$lib/server/costs/directorPricing';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -1249,7 +1249,9 @@ export const actions: Actions = {
 		const report = await sweepPendingMockups(days);
 		const files = report.cleared.reduce((n, c) => n + c.deleted, 0);
 		const kept = report.kept.length
-			? ` Kept ${report.kept.length} that changed or are in use.`
+			? ` Kept ${report.kept
+					.map((k) => `${k.client}/${k.project} (${KEPT_REASON_WORDS[k.reason]})`)
+					.join(', ')}.`
 			: '';
 		return {
 			action: 'sweepDirectorMockups',
