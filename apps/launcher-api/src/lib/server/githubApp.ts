@@ -3,7 +3,8 @@ import { ENV } from './env';
 
 /**
  * The GitHub App client Invisible Pipeline Changes acts as (ADR-0007): a JWT signed with the App's
- * private key buys a short-lived INSTALLATION token, and every REST call carries that token.
+ * private key buys a short-lived INSTALLATION token, and every REST call carries that token — bar
+ * `GET /app` (the App's slug), which answers to the App itself and so carries the JWT.
  *
  * Why an App and not another token: the App is installed on this one repository with exactly the
  * permissions the tool needs (pull requests, checks, statuses, actions), its tokens expire in an
@@ -68,6 +69,8 @@ export interface GithubApp {
 	/** A download GitHub answers with a redirect to a signed URL (an artifact): the redirect is
 	 *  followed WITHOUT the token, which belongs to GitHub's API and not to the blob store. */
 	download(path: string, init?: GithubRequestInit): Promise<Response>;
+	/** The App's slug, which names its bot (`<slug>[bot]`), as GitHub states it (`GET /app`). */
+	slug(): Promise<string>;
 }
 
 const ENV_CONFIG = (): GithubAppConfig => ({
@@ -117,6 +120,7 @@ export function createGithubApp(options: GithubAppOptions = {}): GithubApp {
 
 	let cached: { token: string; expiresAt: number } | null = null;
 	let minting: Promise<string> | null = null;
+	let slugOf: Promise<string> | null = null;
 
 	const missing = (): string | null => {
 		const names = missingAppConfig(config());
@@ -180,6 +184,19 @@ export function createGithubApp(options: GithubAppOptions = {}): GithubApp {
 		return body.token;
 	};
 
+	/** `GET /app` answers to the App itself, so it is asked with the App JWT, not an installation
+	 *  token. */
+	const readSlug = async (): Promise<string> => {
+		const c = config();
+		const unset = missing();
+		if (unset) throw new GithubAppError(unset, 503);
+		const res = await request(`${GITHUB_API}/app`, {}, mintAppJwt(c.appId, c.privateKey, now()));
+		if (!res.ok) throw await errorOf(res);
+		const body = (await res.json()) as { slug?: string };
+		if (!body.slug) throw new GithubAppError('GitHub named no slug for the App.');
+		return body.slug;
+	};
+
 	const token = async (): Promise<string> => {
 		if (cached && cached.expiresAt - TOKEN_MARGIN_MS > now()) return cached.token;
 		// Concurrent callers share one mint: a page load fans out a dozen calls at once, and each
@@ -222,6 +239,17 @@ export function createGithubApp(options: GithubAppOptions = {}): GithubApp {
 			}
 			// The signed URL is its own authorization: the token goes nowhere near it.
 			return request(location, { ...init, redirect: 'follow' }, null);
+		},
+		slug(): Promise<string> {
+			// Read once per process — the App behind a process does not change — and shared while
+			// in flight; a failed read is forgotten, so the next call asks again.
+			if (!slugOf) {
+				slugOf = readSlug().catch((err: unknown) => {
+					slugOf = null;
+					throw err;
+				});
+			}
+			return slugOf;
 		},
 	};
 }

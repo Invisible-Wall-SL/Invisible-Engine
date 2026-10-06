@@ -9,9 +9,11 @@ CREATE TABLE "pipeline_merges" (
 	"merged_by" text NOT NULL,
 	"at" timestamp with time zone DEFAULT now() NOT NULL,
 	"approvals" jsonb DEFAULT '[]'::jsonb NOT NULL,
-	"revert_of" integer
+	"revert_of" integer,
+	"revert_pr" integer
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX "pipeline_merges_pr_number_idx" ON "pipeline_merges" USING btree ("pr_number");--> statement-breakpoint
 CREATE UNIQUE INDEX "pipeline_merges_request_id_idx" ON "pipeline_merges" USING btree ("request_id");--> statement-breakpoint
-CREATE INDEX "pipeline_merges_revert_of_idx" ON "pipeline_merges" USING btree ("revert_of");
+CREATE INDEX "pipeline_merges_revert_of_idx" ON "pipeline_merges" USING btree ("revert_of");--> statement-breakpoint
+CREATE INDEX "pipeline_merges_revert_pr_idx" ON "pipeline_merges" USING btree ("revert_pr");

@@ -33,8 +33,10 @@
  *    records who merged and the approvals that counted; anything short of Ready, or a CI-skip
  *    directive bound for main's history, is refused before GitHub is asked, and GitHub's own
  *    refusal keeps its status and its sentence;
+ *  - a squash subject without the commit hook's scope is refused, by the hook's own rule;
  *  - the row is claimed before GitHub is asked: GitHub's refusal drops the claim, a lost answer
- *    keeps it, and the retry completes it; a resend, two clicks at once and a crash between GitHub's
+ *    keeps it, and the retry completes it; a claim is completed only for a merge by THIS App's bot
+ *    (its slug read once, as the App); a resend, two clicks at once and a crash between GitHub's
  *    merge and the row each come out as one merge; a claim in flight refuses another user, one that
  *    outlived its request gives way; History settles the old claims from GitHub and never lists one;
  *    a merge with no claim was not made from here;
@@ -45,7 +47,8 @@
  *    folder, which refuses the whole revert with nothing written to GitHub; a resend, a second click
  *    and a racing request answer the one PR; a branch already there is opened only when it is the
  *    launcher's revert of that merge; the revert merges like any change and records what it undid —
- *    and a branch only named like a revert records nothing.
+ *    known by the pull request the launcher opened, never by a branch name or a title; a revert of
+ *    a revert puts the change back, to be rolled back anew.
  */
 import { createHash, createVerify, generateKeyPairSync } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -55,6 +58,7 @@ import { crc32, deflateRawSync } from 'node:zlib';
 import { isHttpError } from '@sveltejs/kit';
 import type { PipelineApproval, PipelineMerge } from '../src/lib/server/db/schema.ts';
 import type { CompletedMerge } from '../src/lib/server/pipelineMerges.ts';
+import { subjectHasScope } from '../../../scripts/commit-scope.mjs';
 
 const src = (rel: string) => new URL(`../src/${rel}`, import.meta.url).href;
 
@@ -318,6 +322,17 @@ const fakeFetch: typeof fetch = async (input, init) => {
 		});
 	}
 
+	if (path === '/app') {
+		// Answers to the App itself: an App JWT, never an installation token.
+		const jwt = auth.replace(/^Bearer /, '');
+		if (jwt.split('.').length !== 3) {
+			return jsonResponse(401, { message: 'A JSON web token could not be decoded' });
+		}
+		gh.jwts.push(jwt);
+		check('the App is asked about itself as the App', verifyJwt(jwt).iss, APP_ID);
+		return jsonResponse(200, { id: Number(APP_ID), slug: 'invisible-pipeline' });
+	}
+
 	const token = auth.replace(/^Bearer /, '');
 	if (!gh.tokens.includes(token) || gh.revoked.has(token)) {
 		return jsonResponse(401, { message: 'Bad credentials' });
@@ -455,6 +470,8 @@ function mergePull(number: number, init: RequestInit | undefined): Response {
 	const mergeSha = commit(squash, [tip], `${body.commit_title}\n\n${body.commit_message}`);
 	gh.refs.set('heads/main', mergeSha);
 	Object.assign(p, { state: 'closed', merged: true, merged_by: BOT, merge_commit_sha: mergeSha });
+	// The repository deletes a head branch once its PR merges (`delete_branch_on_merge`).
+	gh.refs.delete(`heads/${p.head.ref}`);
 	if (gh.failAfterMerge) {
 		gh.failAfterMerge = false;
 		throw new TypeError('fetch failed');
@@ -1364,6 +1381,7 @@ fake('lib/server/pipelineMerges.ts', {
 			id: `mg-${++mergeIds}`,
 			at: new Date(Date.now() + mergeIds),
 			mergeSha: null,
+			revertPr: null,
 			...input,
 		};
 		mergeRows.push(row);
@@ -1391,6 +1409,12 @@ fake('lib/server/pipelineMerges.ts', {
 		mergeRows.push(again);
 		return { ...again };
 	},
+	setRevertPr: async (id: string, prNumber: number) => {
+		const row = mergeRows.find((m) => m.id === id);
+		if (row) row.revertPr = prNumber;
+	},
+	findMergeByRevertPr: async (prNumber: number) =>
+		copyOf(completedRows().find((m) => m.revertPr === prNumber)),
 	dropClaim: async (id: string) => {
 		const i = mergeRows.findIndex((m) => m.id === id && m.mergeSha === null);
 		if (i >= 0) mergeRows.splice(i, 1);
@@ -1423,7 +1447,6 @@ const approveRoute = await import(src('routes/api/pipeline/changes/[number]/appr
 const reportRoute = await import(
 	src('routes/api/pipeline/changes/[number]/report/[...path]/+server.ts')
 );
-const { revertTargetOf } = await import(src('lib/server/pipelineMerge.ts'));
 const mergeRoute = await import(src('routes/api/pipeline/changes/[number]/merge/+server.ts'));
 const historyRoute = await import(src('routes/api/pipeline/merges/+server.ts'));
 const revertRoute = await import(src('routes/api/pipeline/merges/[number]/revert/+server.ts'));
@@ -1608,6 +1631,21 @@ process.env.GITHUB_APP_PRIVATE_KEY = privateKey.replace(/\n/g, '\\n');
 	check('an unset config throws a 503 GithubAppError', (err2 as { status?: number }).status, 503);
 	check('…and nothing was fetched', gh.requests.length, requests);
 	thrown.push(String((err2 as Error).message));
+	const slugErr = await unset.slug().catch((e: unknown) => e);
+	check(
+		'…and so does asking for its slug, before anything is fetched',
+		[(slugErr as { status?: number }).status, gh.requests.length],
+		[503, requests],
+	);
+	thrown.push(String((slugErr as Error).message));
+	const asked = gh.requests.length;
+	const slugs = await Promise.all([app.slug(), app.slug()]);
+	await app.slug();
+	check(
+		'the slug is asked for once, with the App JWT, shared while in flight and then kept',
+		[slugs, gh.requests.slice(asked)],
+		[['invisible-pipeline', 'invisible-pipeline'], ['GET /app']],
+	);
 
 	const jwtA = mintAppJwt(APP_ID, privateKey, 1_700_000_000_000);
 	const jwtB = mintAppJwt(APP_ID, privateKey, 1_700_000_000_000);
@@ -3020,6 +3058,8 @@ const BASE_FILES: Record<string, GitFile> = {
 	'vendor/engine': { mode: '160000', type: 'commit', sha: hash('engine v1') },
 };
 gh.refs.set('heads/main', commit(tree(BASE_FILES), []));
+/** How many times GitHub was asked for the App's slug before the launcher's App merged anything. */
+const slugAsksBefore = gh.requests.filter((r) => r === 'GET /app').length;
 const short = (s: string): string => s.slice(0, 7);
 const puts = (): string[] => gh.requests.filter((r) => r.startsWith('PUT '));
 /** Whether a pull request's row is a claim, standing uncompleted. */
@@ -3113,6 +3153,8 @@ const H53 = readyPull(53, 'docs: merged by the bot, unclaimed', {
 const H59 = readyPull(59, 'docs: the lost answer');
 // #60 — ready, but its title would skip main's push workflows.
 const H60 = readyPull(60, 'docs: x [skip ci]');
+// #77 — ready, but its title has no commit scope.
+const H77 = readyPull(77, 'tweak the thing');
 // #54 — GitHub has not worked out whether it merges; #55 — it says it does not.
 const H54 = readyPull(54, 'docs: mergeability unknown', { mergeable: null });
 const H55 = readyPull(55, 'docs: mergeability false', { mergeable: false });
@@ -3171,6 +3213,14 @@ check(
 );
 check('no merge reached GitHub', puts(), []);
 
+check(
+	"the commit hook's own rule: a scoped subject and the machinery it skips pass, nothing else",
+	['launcher(pipeline): x', 'revert: x', 'Merge branch', 'fixup! x', 'nope: x', 'no colon'].map(
+		subjectHasScope,
+	),
+	[true, true, true, true, false, false],
+);
+
 // ── Merging: anything short of Ready, refused before GitHub is asked ──────────
 {
 	const h25 = gh.heads.get(sha(25)) as Head;
@@ -3215,6 +3265,13 @@ check('no merge reached GitHub', puts(), []);
 			H60,
 			409,
 			'The title carries a CI-skip directive ([skip ci]); remove it from the pull request title first.',
+		],
+		[
+			'#77 has no commit scope in its title',
+			'77',
+			H77,
+			409,
+			'The title has no commit scope ("tweak the thing"); the squash subject needs one — e.g. launcher(pipeline): … — see scripts/check-commit-scope.mjs.',
 		],
 		[
 			'#24 is from a fork',
@@ -3529,17 +3586,6 @@ check('History without the tool is a 403', (await history(ARTIST)).status, 403);
 
 // ── Rolling back ──────────────────────────────────────────────────────────────
 const BRANCH_40 = `revert/40-${short(String(row40.mergeSha))}`;
-check('a revert branch names the change it undoes', revertTargetOf(BRANCH_40), 40);
-check(
-	'…and no other branch does',
-	[
-		revertTargetOf('revert/40'),
-		revertTargetOf('revert/40-xyz1234'),
-		revertTargetOf('feat/revert/40-abcdef1'),
-		revertTargetOf('feat/40'),
-	],
-	[null, null, null, null],
-);
 check('rolling back without a session is a 401', (await rollBack(ANON, '40', {})).status, 401);
 check('rolling back without the tool is a 403', (await rollBack(ARTIST, '40', {})).status, 403);
 userOverrides.delete('u-tester');
@@ -3656,6 +3702,11 @@ let revertSha40 = '';
 	);
 	revert40 = Number(res.body.number);
 	check('the answer names the PR', [res.body.url], [`https://github.com/${REPO}/pull/${revert40}`]);
+	check(
+		"…recorded on #40's row as the revert the launcher opened for it",
+		mergeRows.find((m) => m.prNumber === 40)?.revertPr,
+		revert40,
+	);
 	const d = (await detail(ADMIN, String(revert40))).body;
 	check(
 		'the revert is a change like any other, its why the reason',
@@ -3742,6 +3793,94 @@ let revertSha40 = '';
 		'#40 cannot be rolled back a second time',
 		[third.status, third.body.error],
 		[409, `#40 was already rolled back by #${revert40}.`],
+	);
+}
+{
+	// The revert is rolled back in turn: #40's change is live again, and can be rolled back anew.
+	const undo = await rollBack(ADMIN, String(revert40), { reason: 'The padding was right.' });
+	check(
+		'a merged revert rolls back like any change',
+		[undo.status, undo.body.existing],
+		[201, false],
+	);
+	const undoNumber = Number(undo.body.number);
+	const undoSha = gh.refs.get(`heads/${String(undo.body.branch)}`) as string;
+	const touched = [
+		'scripts/build.sh',
+		'scripts/pack.sh',
+		'services/atlas-tool/old.py',
+		'services/atlas-tool/pack.py',
+		'services/atlas-tool/tests/test_padding.py',
+		'vendor/engine',
+	];
+	const as40 = filesAt(String(row40.mergeSha));
+	const undone = filesAt(undoSha);
+	check(
+		'…its tree puts every file #40 changed back as #40 left it',
+		touched.map((path) => undone[path] ?? null),
+		touched.map((path) => as40[path] ?? null),
+	);
+	head(undoSha, GREEN, { state: 'success', description: 'docs only: nothing to render' });
+	const merged = await mergeIt(ADMIN, String(undoNumber), {
+		headSha: undoSha,
+		requestId: `merge-${undoNumber}`,
+	});
+	check(
+		'…and merges, recorded as undoing the revert',
+		[merged.status, (merged.body.merge as Json | undefined)?.revertOf],
+		[200, revert40],
+	);
+	check('…its branch gone with its merge', gh.refs.has(`heads/${BRANCH_40}`), false);
+	const merges = (await history(ADMIN)).body.merges as Json[];
+	const h40 = merges.find((m) => m.prNumber === 40) as Json;
+	const hRevert = merges.find((m) => m.prNumber === revert40) as Json;
+	check(
+		'History: #40 is live again — undone by nothing, nothing open, rollbackable',
+		[
+			h40.revertedBy,
+			h40.revertOpen,
+			view.historyRowState(h40 as unknown as Parameters<typeof view.historyRowState>[0]),
+		],
+		[null, null, 'rollbackable'],
+	);
+	check(
+		'…and the revert is the one undone now, by the revert of it',
+		(hRevert.revertedBy as Json | null)?.number,
+		undoNumber,
+	);
+	// The launcher made #40's new revert branch — by the old one's name — and died before its PR.
+	const parent40 = filesAt(
+		(gh.commits.get(String(row40.mergeSha)) as { parents: string[] }).parents[0],
+	);
+	const restored = { ...filesAt(mainTip()) };
+	for (const path of touched) {
+		if (parent40[path]) restored[path] = parent40[path];
+		else delete restored[path];
+	}
+	const remade = commit(
+		tree(restored),
+		[mainTip()],
+		`revert: ${TITLE_40}\n\nThis reverts commit ${row40.mergeSha} (#40), merged from Invisible Pipeline Changes by Gualtiero.\nRolled back by Gualtiero.`,
+	);
+	gh.refs.set(`heads/${BRANCH_40}`, remade);
+	const writes = gh.gitWrites.length;
+	const again = await rollBack(ADMIN, '40', {});
+	check(
+		"#40 rolls back anew: the merged PR found by that branch name is the old branch's, so a new one opens on this branch",
+		[
+			again.status,
+			again.body.existing,
+			again.body.branch,
+			again.body.number === revert40,
+			gh.pulls.get(Number(again.body.number))?.head.sha,
+			gh.gitWrites.length - writes,
+		],
+		[201, false, BRANCH_40, false, remade, 0],
+	);
+	check(
+		"…recorded as #40's revert now",
+		mergeRows.find((m) => m.prNumber === 40)?.revertPr,
+		Number(again.body.number),
 	);
 }
 
@@ -3864,6 +4003,7 @@ let revertSha40 = '';
 		at: new Date(),
 		approvals: [],
 		revertOf: null,
+		revertPr: null,
 	});
 	const twoParents = commit(treeOf(tip), [tip, hash('another line')]);
 	mergeRows.push(row(48, twoParents));
@@ -4025,6 +4165,11 @@ const branchOf = (merge: CompletedMerge): string =>
 		[...gh.pulls.values()].filter((p) => p.state === 'open' && p.head.ref === branch).length,
 		1,
 	);
+	check(
+		"…recorded as #72's revert, its branch tip being the launcher's revert",
+		mergeRows.find((m) => m.prNumber === 72)?.revertPr,
+		winner,
+	);
 }
 {
 	const merge57 = await mergedPage(57, 'page-57');
@@ -4044,6 +4189,47 @@ const branchOf = (merge: CompletedMerge): string =>
 	);
 }
 {
+	// A revert PR made by hand — the right branch name and short SHA, a revert title — that the
+	// launcher did not open.
+	const merge76 = await mergedPage(76, 'page-76');
+	const branch = branchOf(merge76);
+	const handTip = commit(
+		tree(without(filesAt(mainTip()), 'docs/page-76.md')),
+		[mainTip()],
+		'Revert "docs: page-76"',
+	);
+	gh.refs.set(`heads/${branch}`, handTip);
+	head(handTip, GREEN, { state: 'success', description: 'docs only: nothing to render' });
+	pull(78, `revert: ${merge76.title}`, {
+		sha: handTip,
+		head: { sha: handTip, ref: branch, repo: { full_name: REPO } },
+	});
+	changes.forgetChanges();
+	const listed = ((await history(ADMIN)).body.merges as Json[]).find((m) => m.prNumber === 76);
+	check(
+		'a revert PR the launcher did not open never shows as the rollback open',
+		listed?.revertOpen,
+		null,
+	);
+	const refused = await rollBack(ADMIN, '76', {});
+	check(
+		"…nor is it taken for the rollback: its branch is not the launcher's revert",
+		[refused.status, refused.body.error],
+		[
+			409,
+			`Branch ${branch} is not the launcher's revert of #76; delete it on GitHub to roll back from here.`,
+		],
+	);
+	const merged = await mergeIt(ADMIN, '78', { headSha: handTip, requestId: 'merge-78' });
+	check(
+		'…and merged, it records nothing as reverted',
+		[merged.status, (merged.body.merge as Json | undefined)?.revertOf],
+		[200, null],
+	);
+	const after = ((await history(ADMIN)).body.merges as Json[]).find((m) => m.prNumber === 76);
+	check('…so History shows #76 undone by nothing', after?.revertedBy, null);
+}
+{
 	// A title and a merger recorded with CI-skip directives: none reaches what the revert writes.
 	const tip = mainTip();
 	const mergeSha = commit(tree({ ...filesAt(tip), 'docs/70.md': file('70') }), [tip]);
@@ -4060,6 +4246,7 @@ const branchOf = (merge: CompletedMerge): string =>
 		at: new Date(),
 		approvals: [],
 		revertOf: null,
+		revertPr: null,
 	});
 	const res = await rollBack(ADMIN, '70', {});
 	check(
@@ -4103,6 +4290,7 @@ const claimOf = (prNumber: number, headSha: string, at: Date): PipelineMerge => 
 	at,
 	approvals: [],
 	revertOf: null,
+	revertPr: null,
 });
 {
 	// #63: GitHub merged it, as the App, under a claim whose request died.
@@ -4126,6 +4314,13 @@ const claimOf = (prNumber: number, headSha: string, at: Date): PipelineMerge => 
 		merged_by: BOT,
 		merge_commit_sha: hash('merge 67'),
 	});
+	// #75: another App's bot merged it, on the claimed head.
+	const H75 = readyPull(75, 'docs: #75', {
+		state: 'closed',
+		merged: true,
+		merged_by: { login: 'other-app[bot]', type: 'Bot' },
+		merge_commit_sha: hash('merge 75'),
+	});
 	// #66: a merge in flight right now. #69: an old claim on a change never merged.
 	const H66 = readyPull(66, 'docs: #66');
 	const H69 = readyPull(69, 'docs: #69');
@@ -4136,6 +4331,7 @@ const claimOf = (prNumber: number, headSha: string, at: Date): PipelineMerge => 
 		claimOf(67, hash('another head of 67'), minutesAgo(3)),
 		claimOf(66, H66, new Date()),
 		claimOf(69, H69, minutesAgo(3)),
+		claimOf(75, H75, minutesAgo(3)),
 	);
 	const inFlight = await rollBack(ADMIN, '66', {});
 	check(
@@ -4160,15 +4356,15 @@ const claimOf = (prNumber: number, headSha: string, at: Date): PipelineMerge => 
 		[hash('merge 63'), 'tester'],
 	);
 	check(
-		'…the rest dropped: never merged, merged by a person, the bot on another head',
-		[64, 65, 67].map((n) => mergeRows.some((m) => m.prNumber === n)),
-		[false, false, false],
+		"…the rest dropped: never merged, merged by a person, this App's bot on another head, another App's bot on the claimed head",
+		[64, 65, 67, 75].map((n) => mergeRows.some((m) => m.prNumber === n)),
+		[false, false, false, false],
 	);
 	check('…the claim in flight left standing', claimStands(66), true);
 	check(
 		'History never lists a claim',
 		[
-			listed.some((m) => [64, 65, 66, 67, 69].includes(Number(m.prNumber))),
+			listed.some((m) => [64, 65, 66, 67, 69, 75].includes(Number(m.prNumber))),
 			listed.every((m) => typeof m.mergeSha === 'string'),
 		],
 		[false, true],
@@ -4233,6 +4429,12 @@ const claimOf = (prNumber: number, headSha: string, at: Date): PipelineMerge => 
 		[502, 'GitHub 403: Resource not accessible by integration', false],
 	);
 }
+
+check(
+	"the launcher's App asked GitHub for its slug once, however many claims it settled",
+	gh.requests.filter((r) => r === 'GET /app').length - slugAsksBefore,
+	1,
+);
 
 // ── The page's wording for merging and History (view.ts) ──────────────────────
 {
@@ -4320,7 +4522,7 @@ const claimOf = (prNumber: number, headSha: string, at: Date): PipelineMerge => 
 		);
 	check(
 		'a History row rolls back once: not after its revert merged, nor while one is open',
-		[stateOf(40), stateOf(52), stateOf(44)],
+		[stateOf(revert40), stateOf(52), stateOf(44)],
 		['reverted', 'revert-open', 'rollbackable'],
 	);
 }

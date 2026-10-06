@@ -748,7 +748,9 @@ export interface MergeApproval {
  * undoes. A row is written as a CLAIM (`merge_sha` null) before GitHub is asked to merge, and
  * completed with the merge commit once GitHub has merged, so a merge GitHub made always has a row
  * to complete. `pr_number` is unique because a pull request merges once (and so is claimed once);
- * `request_id` makes a resent merge idempotent.
+ * `request_id` makes a resent merge idempotent. `revert_pr` is the revert pull request the launcher
+ * itself opened for this merge, and `revert_of` the merge a revert undoes: a revert is known by the
+ * pull request the launcher opened, never by its branch name.
  */
 export const pipelineMerges = pgTable(
 	'pipeline_merges',
@@ -767,11 +769,13 @@ export const pipelineMerges = pgTable(
 		at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
 		approvals: jsonb('approvals').$type<MergeApproval[]>().notNull().default([]),
 		revertOf: integer('revert_of'),
+		revertPr: integer('revert_pr'),
 	},
 	(table) => [
 		uniqueIndex('pipeline_merges_pr_number_idx').on(table.prNumber),
 		uniqueIndex('pipeline_merges_request_id_idx').on(table.requestId),
 		index('pipeline_merges_revert_of_idx').on(table.revertOf),
+		index('pipeline_merges_revert_pr_idx').on(table.revertPr),
 	],
 );
 

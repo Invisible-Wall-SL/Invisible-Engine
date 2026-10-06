@@ -132,19 +132,21 @@ launcher adds only the approval of a changed screen and its record of each merge
    at `abc1234` and the branch is now at `def5678`. Reload the change." — the page re-reads it so
    you can look again. A title carrying a CI-skip directive (`[skip ci]` and its variants) is
    refused too: GitHub reads the whole squash message, title included, and such a merge would skip
-   main's own checks and the runtime release. If someone else is merging the same change at that
-   moment, the sentence names them; reload in a moment. GitHub's own refusal comes back verbatim as
+   main's own checks and the runtime release. So is a title without a commit scope ("The title has
+   no commit scope …"): the squash subject must pass the same rule as every local commit
+   (`launcher(pipeline): …`, `docs: …`; `revert: …` passes), so fix the pull request's title on
+   GitHub first. If someone else is merging the same change at that moment, the sentence names
+   them; reload in a moment. GitHub's own refusal comes back verbatim as
    `GitHub <status>: <its sentence>` — the `main` ruleset not satisfied ("Required status check
    "current-games" is expected."), or a head pushed in the instant between the read and the merge
    ("Head branch was modified. Review and try the merge again."). Nothing is recorded for a
    refusal. While GitHub is still working out whether the change merges cleanly, the sentence says
    to try again in a moment. On GitHub the squash commit is authored by the App's bot user, titled
-   `<title> (#<n>)` as GitHub's own merge button would title it (the title's scope is the
-   repository's convention; the page does not check it), and its message names who merged it from
-   here. The record is claimed before GitHub is asked and completed after it answers, so a merge
-   interrupted in between (the launcher restarting, the tab closed) is finished into History the
-   next time History is opened — and a merge made on GitHub by hand, or by another bot, is never
-   recorded here.
+   `<title> (#<n>)` as GitHub's own merge button would title it, and its message names who merged
+   it from here. The record is claimed before GitHub is asked and completed after it answers, so a
+   merge interrupted in between (the launcher restarting, the tab closed) is finished into History
+   the next time History is opened — only when GitHub shows the App's own bot merged that very
+   head; a merge made on GitHub by hand, or by another App, is never recorded here.
 
 7. **History · N** lists every merge made from this page, newest first (the newest 200). Each row
    shows `#<n>` and the merge commit (a link to it on GitHub), the title (a link to the pull
@@ -154,9 +156,11 @@ launcher adds only the approval of a changed screen and its record of each merge
    back ("Rolls back `#<m>` — `<title>`"); a change that was rolled back says "Rolled back by
    `#<m>` · `<when>`"; one whose revert has not merged yet says "Rollback `#<m>` is open". Before
    the first merge the tab says "Nothing has been merged yet." Merges made on GitHub by hand are
-   not listed: the page records only its own. The tab reads when you first open it and then with
-   every Refresh and the minute tick, from the launcher's own record, so it shows even while GitHub
-   cannot be read — only "Rollback `#<m>` is open" is then unknown.
+   not listed: the page records only its own. A change whose revert was itself rolled back is live
+   again: its row loses "Rolled back by" and offers Roll back once more. The tab reads when you
+   first open it and then with every Refresh and the minute tick — first finishing any merge
+   interrupted midway (see step 6), then from the launcher's own record, so it shows even while
+   GitHub cannot be read; only those and "Rollback `#<m>` is open" are then unknown.
 8. **Roll back** (needs Merge pipeline changes) on a History row. A dialog titled "Roll back `#<n>`"
    names the change, the merge it undoes and the branch `revert/<n>-<sha>`, says the revert goes
    through the same checks and approvals and that nothing changes on main until it merges, and
@@ -167,9 +171,11 @@ launcher adds only the approval of a changed screen and its record of each merge
    checks, the same approval of any changed screen, merged from its own bar like any other — and
    the reason you gave is its **Why**. Once it merges, its History row carries the `revert` tag
    and the original's says "Rolled back by `#<m>`".
-   - A merge rolls back once: a row already rolled back, or with a revert still open, offers no
+   - A merge rolls back once: a row currently rolled back, or with a revert still open, offers no
      Roll back. When a revert is already open by the time you click (the row was stale), the page
-     shows that one instead of opening another.
+     shows that one instead of opening another. Only a revert this page opened counts as the
+     change's rollback: a pull request someone else named or titled like one neither hides the
+     button nor marks the change rolled back when it merges.
    - When a file the merge touched has changed again on main since, the revert is refused — "The
      revert does not apply cleanly: 2 files changed on main since the merge (`<paths>`). Revert
      `#<n>` by hand." — and nothing is created, no branch and no pull request: revert it by hand

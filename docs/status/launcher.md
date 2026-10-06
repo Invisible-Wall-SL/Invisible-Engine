@@ -65,11 +65,14 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   very head (every Check 1 job passed, `current-games` success, no conflict), mergeable by GitHub's
   own answer, and neither harness-editing nor file-truncated, calls GitHub's merge API as the App:
   `merge_method: squash`, `sha` pinned to the head, `commit_title` `<title> (#n)` (GitHub's own
-  squash subject; the title's scope is the repo's convention, not checked here) and an explicit
-  `commit_message` the launcher writes — never the PR body. A title or merger name carrying a
-  CI-skip directive (`[skip ci]` and its variants) is a 409 before GitHub is asked: GitHub reads
-  the whole squash message, and such a merge would skip main's push workflows and the runtime
-  release. Branch protection stays the gate: a
+  squash subject) and an explicit `commit_message` the launcher writes — never the PR body. A
+  title or merger name carrying a CI-skip directive (`[skip ci]` and its variants) is a 409 before
+  GitHub is asked: GitHub reads the whole squash message, and such a merge would skip main's push
+  workflows and the runtime release. A title without a commit scope is a 409 too, by the hook's
+  own rule — `scripts/commit-scope.mjs` now holds `SCOPES` / `subjectHasScope()` for both the
+  `commit-msg` hook (`check-commit-scope.mjs`) and the launcher, so an API squash cannot land an
+  unscoped subject on main (`revert:` passes like any machinery subject). Branch protection stays
+  the gate: a
   ruleset unmet (405), the head moved under the pinned SHA (409) and 422 come back with GitHub's
   status and sentence and nothing recorded. Anything short of Ready is a 409 before GitHub is asked
   ("The head moved: you looked at <7> and the branch is now at <7>.", "Still testing: 7 of 8 checks
@@ -81,18 +84,23 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   completed from GitHub's answer; a refusal drops it, a transport error keeps it (GitHub may have
   merged). A resend with the same `requestId` is answered from its row without GitHub (a request
   that merged another PR is a 409); a retry or History's `reconcileClaims` finishes a stale claim
-  from the PR's own merge state — merged by a `[bot]` → completed from `merge_commit_sha`, merged
-  by a person or not merged → dropped — and a merged PR with NO claim is a 409 "merged on GitHub,
-  not from here", never recorded: a merge the launcher made always has a claim. One merge per PR
-  at a time in-process; the claim row is the cross-process lock. The row: PR, title, head, merge
-  commit, launcher user (id + name), time, the approvals that counted (per screen the newest by an
-  approver in standing: diff id, game, screen, approver, note, time) and `revert_of`, set when a
-  revert merges only if its branch `revert/<n>-<sha7>` names a recorded merge by its short SHA.
-  `GET /api/pipeline/merges` (History; the `pipelineChanges` tool) answers from the table alone —
-  completed rows only, 200 even with the App unconfigured — newest 200 first, each with its PR and
-  commit links, `reverts` (what a revert undid), `revertedBy` (the merged revert of it) and
-  `revertOpen` (an open revert, best effort off the cached changes list; the list cache carries a
-  generation so a read in flight across a merge can no longer re-cache the pre-merge list).
+  from the PR's own merge state — merged by THIS App's bot (`<slug>[bot]`, the slug read once per
+  process with the App JWT via `GET /app`, `githubApp.slug()`) on the claimed head → completed from
+  `merge_commit_sha`; merged by a person, by another App, on another head, or not merged → dropped —
+  and a merged PR with NO claim is a 409 "merged on GitHub, not from here", never recorded: a merge
+  the launcher made always has a claim. One merge per PR at a time in-process; the claim row is the
+  cross-process lock. The row: PR, title, head, merge commit, launcher user (id + name), time, the
+  approvals that counted (per screen the newest by an approver in standing: diff id, game, screen,
+  approver, note, time), `revert_pr` (the revert PR the launcher itself opened for this merge) and
+  `revert_of`, set when a PR merges only if a recorded merge names it as its `revert_pr` — a branch
+  or title that merely looks like a revert proves nothing. `GET /api/pipeline/merges` (History; the
+  `pipelineChanges` tool) first settles claims older than two minutes against GitHub (a write), then
+  answers from the table — completed rows only, 200 even with the App unconfigured — newest 200
+  first, each with its PR and commit links, `reverts` (what a revert undid), `revertedBy` (the
+  merged revert that undoes it NOW: a revert of the revert puts the change back, so it is live and
+  rollbackable again) and `revertOpen` (the recorded revert PR when the cached changes list shows it
+  open; the list cache carries a generation so a read in flight across a merge can no longer
+  re-cache the pre-merge list).
   `POST /api/pipeline/merges/<n>/revert` (`pipelineMerge`; `{reason?}`) opens a revert PR: the
   squash commit must have one parent; its parent's tree, its own and main's tip are read whole
   (`?recursive=1`; a truncated one refuses) and every file the merge changed goes back to the
@@ -103,10 +111,12 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   on main's tip in the launcher's words only (the typed reason goes in the PR body as its **Why**),
   one branch `revert/<n>-<sha7>`, one PR `revert: <title>` into main — a pipeline change like any
   other, merged from the Changes tab. A resend answers the branch's open PR (200 `existing`); a
-  closed or merged revert is not opened again; a branch the launcher left without a PR gets its PR
-  only when its tip is the launcher's own revert commit (one parent, "This reverts commit <sha>"),
-  else a 409 naming the branch to delete; a 422 on the ref or on the PR (another request won)
-  answers that request's PR; an unrecorded merge is a 404 and one already rolled back a 409. UI:
+  closed or merged revert on the branch's tip is not opened again (one of an earlier branch by that
+  name, deleted on merge, is not in the way); a branch the launcher left without a PR, or an open
+  PR it never recorded, is used only when the tip is the launcher's own revert commit (one parent,
+  "This reverts commit <sha>"), else a 409 naming the branch to delete; a 422 on the ref or on the
+  PR (another request won) answers that request's PR and records it; a failed PR create keeps the
+  branch for the retry; an unrecorded merge is a 404 and one currently rolled back a 409. UI:
   the header reads `can merge` / `read-only`; the Ready bar offers **Merge into main** (a
   confirmation naming the 7-char and full head SHA and the squash subject, captured before the
   dialog so a refresh cannot swap the head under it; the requestId is kept for **Try again** after
@@ -117,10 +127,10 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   approvals fold, the `revert` tag with "Rolls back #m", "Rolled back by #m" or "Rollback #m is
   open", and **Roll back** (an optional reason) → the page switches to the new change. Also: an
   image asked with an `?artifact` id the cached walk does not hold re-walks only when the walk is
-  over 5 s old or the id is newer (the 5B follow-up). Fixture: `check:pipeline-changes` (2289
+  over 5 s old or the id is newer (the 5B follow-up). Fixture: `check:pipeline-changes` (3792
   checks). Guide: `docs/tools/pipeline-changes.md`. INFRA: the App's Contents and Pull requests
-  permissions are now read & write; the App stays off the ruleset's bypass list. Not built:
-  Discard branch, the Agents tab (5D).
+  permissions are now read & write; the App stays off the ruleset's bypass list; "Automatically
+  delete head branches" stays on. Not built: Discard branch, the Agents tab (5D).
 - 2026-10-06 — **Invisible Pipeline Changes screens: the Changes tab** (Director card 5B, PLAN 5.1
   + 5.2; ADR-0007). `/pipeline` now shows the list and the detail over the 5A endpoints, client-side
   fetched and refreshed every minute while visible, `?change=<n>` deep-links a change. The list:

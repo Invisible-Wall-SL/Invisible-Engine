@@ -116,6 +116,20 @@ export async function completeMerge(
 	throw new Error(`the merge of #${claim.prNumber} (${mergeSha}) could not be recorded`);
 }
 
+/** Record the revert pull request the launcher opened for a merge. */
+export async function setRevertPr(id: string, prNumber: number): Promise<void> {
+	await getDb().update(pipelineMerges).set({ revertPr: prNumber }).where(eq(pipelineMerges.id, id));
+}
+
+/** The merge whose revert the launcher opened as this pull request, or `null`. */
+export async function findMergeByRevertPr(prNumber: number): Promise<CompletedMerge | null> {
+	const [row] = await getDb()
+		.select()
+		.from(pipelineMerges)
+		.where(and(eq(pipelineMerges.revertPr, prNumber), completed));
+	return row && isCompleted(row) ? row : null;
+}
+
 /** Drop a claim whose merge did not happen. A completed merge is never dropped. */
 export async function dropClaim(id: string): Promise<void> {
 	await getDb()

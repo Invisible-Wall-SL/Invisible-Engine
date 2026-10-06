@@ -1,4 +1,5 @@
 import { error } from '@sveltejs/kit';
+import { subjectHasScope } from '../../../../../scripts/commit-scope.mjs';
 import { createKeyedMutex } from './concurrency';
 import { githubApp, GithubAppError, type GithubApp } from './githubApp';
 import {
@@ -16,9 +17,11 @@ import {
 	dropClaim,
 	findMerge,
 	findMergeByRequest,
+	findMergeByRevertPr,
 	listClaims,
 	listMerges,
 	revertsOf,
+	setRevertPr,
 	type CompletedMerge,
 	type MergeApproval,
 	type NewClaim,
@@ -85,8 +88,6 @@ const BASE_BRANCH = 'main';
 const REQUEST_ID_MAX = 100;
 /** A merge is answered, or times out, in seconds: a claim this old outlived its request. */
 const CLAIM_STALE_MS = 2 * 60_000;
-/** How the launcher names a revert's branch: the merge it undoes, by number and short SHA. */
-const REVERT_BRANCH = /^revert\/(\d+)-([0-9a-f]{7,40})$/;
 /** What makes GitHub skip a push's workflows — Lint, Checks, Secrets, the runtime release — when
  *  it appears anywhere in the commit message, the subject included. */
 const CI_SKIP = /\[(?:skip ci|ci skip|no ci|skip actions|actions skip)\]/i;
@@ -106,22 +107,9 @@ const withoutCiSkip = (text: string): string =>
 const firstPaths = (paths: string[]): string =>
 	`${paths.slice(0, 3).join(', ')}${paths.length > 3 ? ', …' : ''}`;
 
-/** The change a launcher-made revert branch undoes, or `null` for any other branch. */
-export function revertTargetOf(branch: string): number | null {
-	const m = REVERT_BRANCH.exec(branch);
-	return m ? Number(m[1]) : null;
-}
-
-/**
- * The change a merge of this branch reverts, for the record: only a revert branch whose short SHA
- * starts the merge commit of the change it names. A branch merely named like one undoes nothing.
- */
-async function revertOfBranch(branch: string): Promise<number | null> {
-	const m = REVERT_BRANCH.exec(branch);
-	if (!m) return null;
-	const target = await findMerge(Number(m[1]));
-	return target?.mergeSha?.startsWith(m[2]) ? target.prNumber : null;
-}
+/** The branch the launcher opens a merge's revert on: the merge, by number and short SHA. */
+const revertBranchOf = (merge: CompletedMerge): string =>
+	`revert/${merge.prNumber}-${short(merge.mergeSha)}`;
 
 /** A merge request's own id, which makes its resend idempotent, or a 400. */
 export function parseRequestId(value: unknown): string {
@@ -172,7 +160,9 @@ const claimOf = async (
 	mergedById: input.user.id,
 	mergedBy: approverName(input.user),
 	approvals: approvalsOf(change),
-	revertOf: await revertOfBranch(change.branch),
+	// A pull request reverts a merge only when the launcher opened it as that merge's revert; its
+	// branch name or its title prove nothing.
+	revertOf: (await findMergeByRevertPr(change.number))?.prNumber ?? null,
 });
 
 /** What settles a claim: the pull request as GitHub shows it now. */
@@ -196,17 +186,21 @@ async function readMergeState(number: number, app: GithubApp): Promise<MergeStat
 }
 
 /**
- * Settle a claim against its pull request. Merged by the App's own bot on the head the claim
- * pinned: that is the claimed merge, completed under the claim's user whoever settles it. Anything
- * else — not merged, merged by a person, merged on another head — was not merged from here, and the
- * claim goes (`null`).
+ * Settle a claim against its pull request. Merged by THIS App's bot (`<slug>[bot]`, the slug as
+ * GitHub states it) on the head the claim pinned: that is the claimed merge, completed under the
+ * claim's user whoever settles it. Anything else — not merged, merged by a person or another App,
+ * merged on another head — was not merged from here, and the claim goes (`null`).
  */
-async function settleClaim(claim: PipelineMerge, pull: MergeState): Promise<CompletedMerge | null> {
+async function settleClaim(
+	claim: PipelineMerge,
+	pull: MergeState,
+	app: GithubApp,
+): Promise<CompletedMerge | null> {
 	if (
 		pull.merged &&
-		pull.mergedBy?.endsWith('[bot]') &&
 		pull.mergeCommitSha &&
-		pull.headSha === claim.headSha
+		pull.headSha === claim.headSha &&
+		pull.mergedBy === `${await app.slug()}[bot]`
 	) {
 		return completeMerge(claim, pull.mergeCommitSha);
 	}
@@ -218,7 +212,7 @@ async function settleClaim(claim: PipelineMerge, pull: MergeState): Promise<Comp
 async function reconcileClaims(app: GithubApp): Promise<void> {
 	for (const claim of await listClaims(CLAIM_STALE_MS)) {
 		try {
-			await settleClaim(claim, await readMergeState(claim.prNumber, app));
+			await settleClaim(claim, await readMergeState(claim.prNumber, app), app);
 		} catch (err) {
 			if (!(err instanceof GithubAppError)) throw err;
 		}
@@ -254,10 +248,10 @@ async function claimFor(number: number, input: NewClaim): Promise<PipelineMerge>
  * shows. No row at all: the launcher never asked GitHub to merge it — a merge it makes always has
  * a claim first — so there is nothing to record, whoever merged it.
  */
-async function mergedOnGithub(change: ChangeDetail): Promise<CompletedMerge> {
+async function mergedOnGithub(change: ChangeDetail, app: GithubApp): Promise<CompletedMerge> {
 	const row = await findMerge(change.number);
 	if (row && isCompleted(row)) return row;
-	const settled = row ? await settleClaim(row, change) : null;
+	const settled = row ? await settleClaim(row, change, app) : null;
 	if (settled) return settled;
 	throw error(
 		409,
@@ -290,7 +284,7 @@ export async function mergeChange(
 		}
 		if (byRequest && isCompleted(byRequest)) return { merge: byRequest, already: true };
 		const change = await getChange(number, app);
-		if (change.merged) return { merge: await mergedOnGithub(change), already: true };
+		if (change.merged) return { merge: await mergedOnGithub(change, app), already: true };
 		if (change.state !== 'open') throw error(409, `#${number} is closed.`);
 		if (headSha !== change.headSha) {
 			throw error(
@@ -331,6 +325,14 @@ export async function mergeChange(
 				`Your name in the launcher carries a CI-skip directive (${skipInName[0]}); change it before merging.`,
 			);
 		}
+		// The squash subject is `<title> (#n)`, and the hook's own rule holds for it: main stays
+		// filterable per area whoever merges.
+		if (!subjectHasScope(change.title)) {
+			throw error(
+				409,
+				`The title has no commit scope ("${change.title}"); the squash subject needs one — e.g. launcher(pipeline): … — see scripts/check-commit-scope.mjs.`,
+			);
+		}
 
 		const claim = byRequest ?? (await claimFor(number, await claimOf(change, input)));
 		if (isCompleted(claim)) return { merge: claim, already: true };
@@ -357,7 +359,7 @@ export async function mergeChange(
 			// A refusal — unless it refuses a merge this claim already made (an earlier attempt's
 			// answer lost): the pull request says which.
 			const refusal = await githubMessage(res);
-			const settled = await settleClaim(claim, await readMergeState(number, app));
+			const settled = await settleClaim(claim, await readMergeState(number, app), app);
 			if (settled) return { merge: settled, already: true };
 			throw error(res.status, refusal);
 		}
@@ -373,60 +375,93 @@ export async function mergeChange(
 }
 
 /**
- * The History tab: every merge made from here, newest first, each linked to the revert that undid
- * it or is open to undo it. Read from the launcher's own table, so it answers without GitHub: an
- * unconfigured App, or GitHub failing, leaves only the open reverts unknown and the claims that
- * outlived their request unsettled.
+ * Which merged revert undoes a change NOW: the newest merged revert of it, unless that revert is
+ * itself undone — a revert of the revert puts the change back. `known` holds what one batch read
+ * found for the numbers in `read`; anything else is read when asked. Memoised per resolver; the
+ * chains are short and never loop (a revert records only a merge made before it).
+ */
+function undoneByOf(
+	known: Map<number, CompletedMerge> = new Map(),
+	read: Set<number> = new Set(),
+): (number: number) => Promise<CompletedMerge | null> {
+	const memo = new Map<number, Promise<CompletedMerge | null>>();
+	const undoneBy = (number: number): Promise<CompletedMerge | null> => {
+		let result = memo.get(number);
+		if (!result) {
+			result = (async () => {
+				const revert = read.has(number)
+					? known.get(number)
+					: (await revertsOf([number])).get(number);
+				if (!revert) return null;
+				return (await undoneBy(revert.prNumber)) ? null : revert;
+			})();
+			memo.set(number, result);
+		}
+		return result;
+	};
+	return undoneBy;
+}
+
+/**
+ * The History tab: every merge made from here, newest first, each linked to the revert that undoes
+ * it or is open to undo it. Read from the launcher's own table: an unconfigured App, or GitHub
+ * failing, leaves only the open reverts unknown and the claims that outlived their request
+ * unsettled.
  */
 export async function listHistory(app: GithubApp = githubApp): Promise<MergeHistory> {
 	if (!app.missing()) await reconcileClaims(app);
 	const merges = await listMerges();
-	const revertedBy = await revertsOf(merges.map((m) => m.prNumber));
+	const numbers = merges.map((m) => m.prNumber);
+	const undoneBy = undoneByOf(await revertsOf(numbers), new Set(numbers));
 	const titles = new Map(merges.map((m) => [m.prNumber, m.title]));
 	const open = await openReverts(app, merges);
 	return {
-		merges: merges.map((m) => {
-			const by = revertedBy.get(m.prNumber);
-			return {
-				...m,
-				url: pullUrl(m.prNumber),
-				commitUrl: `https://github.com/${repo()}/commit/${m.mergeSha}`,
-				reverts:
-					m.revertOf === null
-						? null
-						: {
-								number: m.revertOf,
-								title: titles.get(m.revertOf) ?? null,
-								url: pullUrl(m.revertOf),
-							},
-				revertedBy: by
-					? { number: by.prNumber, mergeSha: by.mergeSha, at: by.at, url: pullUrl(by.prNumber) }
-					: null,
-				revertOpen: open.get(m.prNumber) ?? null,
-			};
-		}),
+		merges: await Promise.all(
+			merges.map(async (m) => {
+				const by = await undoneBy(m.prNumber);
+				return {
+					...m,
+					url: pullUrl(m.prNumber),
+					commitUrl: `https://github.com/${repo()}/commit/${m.mergeSha}`,
+					reverts:
+						m.revertOf === null
+							? null
+							: {
+									number: m.revertOf,
+									title: titles.get(m.revertOf) ?? null,
+									url: pullUrl(m.revertOf),
+								},
+					revertedBy: by
+						? { number: by.prNumber, mergeSha: by.mergeSha, at: by.at, url: pullUrl(by.prNumber) }
+						: null,
+					revertOpen: open.get(m.prNumber) ?? null,
+				};
+			}),
+		),
 		fetchedAt: new Date().toISOString(),
 	};
 }
 
 type OpenRevert = NonNullable<MergeHistoryEntry['revertOpen']>;
 
-/** The open revert pull requests, by the change each undoes, off the cached changes list. */
+/**
+ * The revert pull requests still open, by the change each undoes: a change's is the one the
+ * launcher opened for it (`revertPr`), found among the open changes (the cached list). A pull
+ * request named, titled or branched like a revert is not one unless the launcher opened it.
+ */
 async function openReverts(
 	app: GithubApp,
 	merges: CompletedMerge[],
 ): Promise<Map<number, OpenRevert>> {
 	const open = new Map<number, OpenRevert>();
-	if (app.missing()) return open;
-	const shaOf = new Map(merges.map((m) => [m.prNumber, m.mergeSha]));
+	const undoes = new Map(
+		merges.flatMap((m) => (m.revertPr === null ? [] : [[m.revertPr, m.prNumber]])),
+	);
+	if (!undoes.size || app.missing()) return open;
 	try {
 		for (const c of (await listChanges(app)).changes) {
-			// A branch counts only when its short SHA names the merge it claims to undo, as
-			// `revertOf` is accepted: a branch merely named after a change hides nothing.
-			const m = REVERT_BRANCH.exec(c.branch);
-			if (!m) continue;
-			const target = Number(m[1]);
-			if (!open.has(target) && shaOf.get(target)?.startsWith(m[2])) {
+			const target = undoes.get(c.number);
+			if (target !== undefined) {
 				open.set(target, { number: c.number, url: c.url, branch: c.branch });
 			}
 		}
@@ -442,6 +477,7 @@ interface GhPullRef {
 	html_url: string;
 	state: string;
 	merged_at: string | null;
+	head: { sha: string };
 }
 
 interface GhCommit {
@@ -462,14 +498,17 @@ const encodePath = (path: string): string => path.split('/').map(encodeURICompon
 
 /** What GitHub already holds of a revert: nothing, a branch alone, or its open pull request. */
 type OnGithub =
-	{ kind: 'none' } | { kind: 'branch'; tip: string } | { kind: 'open'; revert: RevertResult };
+	| { kind: 'none' }
+	| { kind: 'branch'; tip: string }
+	| { kind: 'open'; tip: string; revert: RevertResult };
 
 /**
- * What GitHub already holds of this revert. A branch with an open pull request is the answer to a
- * resend. A branch whose pull request was merged or closed is refused, not opened again — someone
- * decided, and the branch has to go before the launcher tries once more. A branch with no pull
- * request (the launcher died after making it, or another request is making it) comes back with
- * its tip, to be checked before a pull request is opened on it.
+ * What GitHub already holds of this revert. A branch with an open pull request comes back with it,
+ * as the answer to a resend once it proves to be this merge's revert. A branch whose pull request
+ * was merged or closed ON ITS TIP is refused, not opened again — someone decided, and the branch has
+ * to go before the launcher tries once more. A branch with no pull request (the launcher died after
+ * making it, another request is making it, or the pull request found is of an earlier branch by
+ * that name, deleted on merge) comes back with its tip, to be checked before one is opened on it.
  */
 async function revertOnGithub(app: GithubApp, number: number, branch: string): Promise<OnGithub> {
 	const r = repo();
@@ -483,17 +522,41 @@ async function revertOnGithub(app: GithubApp, number: number, branch: string): P
 		per_page: '1',
 	});
 	const [pull] = await app.json<GhPullRef[]>(`/repos/${r}/pulls?${query}`);
-	if (!pull) return { kind: 'branch', tip: object.sha };
-	if (pull.state === 'open') {
+	if (pull?.state === 'open') {
 		return {
 			kind: 'open',
+			tip: object.sha,
 			revert: { number: pull.number, url: pull.html_url, branch, existing: true },
 		};
 	}
+	if (!pull || pull.head.sha !== object.sha) return { kind: 'branch', tip: object.sha };
 	throw error(
 		409,
 		`A revert of #${number} (#${pull.number}) was already ${pull.merged_at ? 'merged' : 'closed'}; delete branch ${branch} on GitHub to try again.`,
 	);
+}
+
+const notTheLaunchers = (merge: CompletedMerge) =>
+	error(
+		409,
+		`Branch ${revertBranchOf(merge)} is not the launcher's revert of #${merge.prNumber}; delete it on GitHub to roll back from here.`,
+	);
+
+/**
+ * An open pull request on a revert's branch, as the answer to a rollback: the one the launcher
+ * recorded for this merge, or — opened by a request that died before recording it, or that raced
+ * this one — one whose branch tip is the launcher's revert of this merge, recorded now.
+ */
+async function answerOpen(
+	app: GithubApp,
+	merge: CompletedMerge,
+	open: { tip: string; revert: RevertResult },
+): Promise<RevertResult> {
+	if (merge.revertPr !== open.revert.number) {
+		if (!(await isRevertOf(app, merge, open.tip))) throw notTheLaunchers(merge);
+		await setRevertPr(merge.id, open.revert.number);
+	}
+	return open.revert;
 }
 
 /** Whether a commit is the launcher's revert of this merge: one parent, and it names the merge. */
@@ -625,7 +688,7 @@ async function mergeToRevert(number: number, app: GithubApp): Promise<CompletedM
 	const row = await findMerge(number);
 	if (!row || isCompleted(row)) return row;
 	if (!isStale(row)) throw busy(number, row);
-	return settleClaim(row, await readMergeState(number, app));
+	return settleClaim(row, await readMergeState(number, app), app);
 }
 
 /** Rollbacks of one merge run one at a time: two clicks open one revert. */
@@ -635,9 +698,9 @@ const reverting = createKeyedMutex();
  * Roll back a change merged from here (ADR-0007 "Rollback"): open a revert pull request of its
  * squash commit, on a branch named after the merge. It is a pipeline change like any other —
  * the same checks, the same approvals, the same merge — and nothing changes on `main` until it
- * merges; its row's `revertOf` is written then, never here. A resend finds the branch and answers
- * the pull request already open on it; a branch found without one is opened only when its tip is
- * the launcher's revert of this very merge.
+ * merges; its row's `revertOf` is written then, from the `revertPr` recorded here. A resend finds
+ * the branch and answers the pull request already open on it; a branch, or a pull request, the
+ * launcher did not record is used only when its tip is the launcher's revert of this very merge.
  */
 export async function revertMerge(
 	input: { number: number; reason: string | null; user: User },
@@ -647,10 +710,10 @@ export async function revertMerge(
 	return reverting(`revert:${number}`, async () => {
 		const merge = await mergeToRevert(number, app);
 		if (!merge) throw error(404, `#${number} was not merged from here; roll it back by hand.`);
-		const undone = (await revertsOf([number])).get(number);
+		const undone = await undoneByOf()(number);
 		if (undone) throw error(409, `#${number} was already rolled back by #${undone.prNumber}.`);
 		const r = repo();
-		const branch = `revert/${number}-${short(merge.mergeSha)}`;
+		const branch = revertBranchOf(merge);
 		let found = await revertOnGithub(app, number, branch);
 		if (found.kind === 'none') {
 			const sha = await revertCommit(app, merge, user);
@@ -667,12 +730,9 @@ export async function revertMerge(
 				throw new GithubAppError(await githubMessage(ref), ref.status);
 			}
 		}
-		if (found.kind === 'open') return found.revert;
+		if (found.kind === 'open') return answerOpen(app, merge, found);
 		if (found.kind === 'branch' && !(await isRevertOf(app, merge, found.tip))) {
-			throw error(
-				409,
-				`Branch ${branch} is not the launcher's revert of #${number}; delete it on GitHub to roll back from here.`,
-			);
+			throw notTheLaunchers(merge);
 		}
 		const body = [
 			`Reverts #${number} "${merge.title}" — merge ${short(merge.mergeSha)}, merged by ${merge.mergedBy} on ${merge.at.toISOString().slice(0, 10)} from Invisible Pipeline Changes.`,
@@ -680,6 +740,9 @@ export async function revertMerge(
 			`Rolled back from Invisible Pipeline Changes by ${approverName(user)}.`,
 			'This is a pipeline change like any other: it merges from Invisible Pipeline Changes once its checks pass.',
 		].join('\n\n');
+		// A failure here leaves the branch: the retry finds it with no pull request and opens one on
+		// it once it proves to be the launcher's revert. A "revert by hand" 409 still writes nothing,
+		// since every refusal comes before the first write.
 		const res = await app.fetch(`/repos/${r}/pulls`, {
 			method: 'POST',
 			body: JSON.stringify({
@@ -692,11 +755,12 @@ export async function revertMerge(
 		if (res.status === 422) {
 			// "A pull request already exists": another request opened it first.
 			const raced = await revertOnGithub(app, number, branch);
-			if (raced.kind === 'open') return raced.revert;
+			if (raced.kind === 'open') return answerOpen(app, merge, raced);
 			throw new GithubAppError(await githubMessage(res), res.status);
 		}
 		if (!res.ok) throw new GithubAppError(await githubMessage(res), res.status);
 		const pull = (await res.json()) as GhPullRef;
+		await setRevertPr(merge.id, pull.number);
 		forgetChanges();
 		return { number: pull.number, url: pull.html_url, branch, existing: false };
 	});

@@ -1077,7 +1077,13 @@ which the page shows verbatim and records nothing for. Keep the App **off** the 
 the launcher never asks to bypass, and a bypass would let a merge through a red check. A head pushed
 between the page's read and the merge is GitHub's `409 Head branch was modified`, never a merge. The
 squash commit's author is the App's bot user; `pipeline_merges` (migration `0028`) holds the launcher
-user who merged, the approvals that counted, and which change a revert undoes.
+user who merged, the approvals that counted, the revert PR the launcher opened, and which change a
+revert undoes. Two repository settings the tool leans on: **"Automatically delete head branches"
+stays on** (a change whose revert was itself reverted rolls back again on a branch of the same name,
+which must be gone), and the `main` ruleset keeps **no bypass actors**. The App's own bot login
+(`<slug>[bot]`) is read once per process with the App JWT (`GET /app`, no extra permission) and
+decides which merges were the launcher's: **restart the launcher after renaming the App** (a rename
+changes the slug) or interrupted merges would be settled as "not merged from here".
 
 - Unset (any of the three) → `/api/pipeline/changes` answers **503** naming the variable;
   `GITHUB_ACTIONS_TOKEN`, `GITHUB_ENGINE_READ_TOKEN` and `GIT_CLONE_TOKEN` are untouched.

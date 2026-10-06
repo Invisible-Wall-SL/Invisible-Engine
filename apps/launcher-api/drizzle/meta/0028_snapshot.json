@@ -1,5 +1,5 @@
 {
-  "id": "bf9f572b-e02b-4667-bd89-1e4043527181",
+  "id": "164668e5-70b3-4788-abaf-3423472285aa",
   "prevId": "c8fe951b-2248-4fa7-a790-5fb5ba7fe693",
   "version": "7",
   "dialect": "postgresql",
@@ -1420,6 +1420,12 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": false
+        },
+        "revert_pr": {
+          "name": "revert_pr",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -1458,6 +1464,21 @@
           "columns": [
             {
               "expression": "revert_of",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "pipeline_merges_revert_pr_idx": {
+          "name": "pipeline_merges_revert_pr_idx",
+          "columns": [
+            {
+              "expression": "revert_pr",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
