@@ -89,6 +89,7 @@ type Obj = { body: string; etag: string };
 const R2 = new Map<string, Obj>();
 let etagSeq = 0;
 let copies = 0;
+const byteReads: string[] = [];
 const etag = () => `"e${++etagSeq}"`;
 const keysUnder = (prefix: string) => [...R2.keys()].filter((k) => k.startsWith(prefix)).sort();
 
@@ -120,6 +121,7 @@ fake('lib/server/r2.ts', {
 		return o ? { text: o.body, etag: o.etag } : null;
 	},
 	getObjectBytes: async (key: string) => {
+		byteReads.push(key);
 		const o = R2.get(key);
 		return o ? { body: new TextEncoder().encode(o.body), etag: o.etag } : null;
 	},
@@ -306,7 +308,6 @@ const {
 	opId: opIdOf,
 } = await import(src('lib/server/director/registry.ts'));
 const { GAMEMAKER_OPS } = await import(src('lib/server/director/ops/gamemaker.ts'));
-const { ATLAS_OPS } = await import(src('lib/server/director/ops/atlas.ts'));
 const { defineOp, DIRECTOR_AGENTS } = await import(src('lib/server/director/adapter.ts'));
 const { refusedOp, refusedWriteTarget } = await import(src('lib/server/director/refusals.ts'));
 const { putObjectText, precondition } = await import(src('lib/server/r2.ts'));
@@ -649,10 +650,19 @@ for (const [tool, op, id] of REFUSED) {
 		true,
 	);
 }
+const declaredOps: unknown[] = [];
+for (const file of readdirSync(srcPath('lib/server/director/ops/')).filter((f) =>
+	f.endsWith('.ts'),
+)) {
+	const mod: Record<string, unknown> = await import(src(`lib/server/director/ops/${file}`));
+	for (const [name, value] of Object.entries(mod)) {
+		if (name.endsWith('_OPS') && Array.isArray(value)) declaredOps.push(...value);
+	}
+}
 check(
-	'no registered op is refused',
+	'every op the ops modules declare is registered',
 	[...ADAPTER_OPS.keys()].length,
-	GAMEMAKER_OPS.length + ATLAS_OPS.length + 14,
+	declaredOps.length,
 );
 
 // ── 2.2 Target-key guard, whatever op declares the key ────────────────────────
@@ -1934,7 +1944,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 						kind: 'componentInstance',
 						x: 0,
 						y: 0,
-						componentId: 'UiButton',
+						componentId: 'button',
 						params: { action: 'increase' },
 					},
 					{
@@ -1942,7 +1952,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 						kind: 'componentInstance',
 						x: 0,
 						y: 0,
-						componentId: 'UiButton',
+						componentId: 'button',
 						params: { action: 'spin' },
 					},
 					{
@@ -1956,7 +1966,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 								kind: 'componentInstance',
 								x: 0,
 								y: 0,
-								componentId: 'UiLabel',
+								componentId: 'textBox',
 								params: { source: 'bet' },
 							},
 						],
@@ -1972,10 +1982,44 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 					},
 					sprite('pinned', { locked: true }),
 					{ id: 'readout', kind: 'componentInstance', x: 0, y: 0, componentId: 'readout' },
+					{
+						id: 'oldMeter',
+						kind: 'componentInstance',
+						x: 0,
+						y: 0,
+						componentId: 'meter',
+						componentVersion: 1,
+					},
+					{ id: 'ghost', kind: 'componentInstance', x: 0, y: 0, componentId: 'ghost' },
+					{
+						id: 'perLayout',
+						kind: 'componentInstance',
+						x: 0,
+						y: 0,
+						componentId: 'button',
+						params: { action: 'spin' },
+						overrides: { portrait: { params: { action: 'buyFeature' } } },
+					},
 				],
 			},
 			{ id: 'buy', name: 'Buy', role: 'buyFeature', nodes: [sprite('card')] },
+			{ id: 'buyConfirm', name: 'Confirm', nodes: [sprite('confirmArt')] },
 		],
+	});
+	const meter = (version: number, source: string) =>
+		JSON.stringify({
+			id: 'meter',
+			name: 'Meter',
+			version,
+			scope: 'project',
+			category: 'ui',
+			root: { id: 'root', kind: 'container', x: 0, y: 0, children: [] },
+			params: [{ key: 'source', kind: 'string', default: source }],
+		});
+	R2.set(paths.projectComponentKey('tools', 'meter'), { body: meter(2, 'win'), etag: etag() });
+	R2.set(paths.projectComponentVersionKey('tools', 'meter', 1), {
+		body: meter(1, 'bet'),
+		etag: etag(),
 	});
 	R2.set(paths.projectComponentKey('tools', 'readout'), {
 		body: JSON.stringify({
@@ -2005,7 +2049,11 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		betWrap: true,
 		pinned: true,
 		readout: true,
+		oldMeter: true,
+		ghost: true,
+		perLayout: true,
 		card: true,
+		confirmArt: true,
 	});
 	const changes = [
 		{ screen: 'base', node: 'logo', x: 42, y: 7, assetKey: 'a::newlogo' },
@@ -2021,6 +2069,10 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		{ screen: 'base', node: 'betArt', assetKey: 'a::chip' },
 		{ screen: 'base', node: 'pinned', x: 1 },
 		{ screen: 'base', node: 'readout', x: 1 },
+		{ screen: 'base', node: 'oldMeter', x: 1 },
+		{ screen: 'base', node: 'ghost', x: 1 },
+		{ screen: 'base', node: 'perLayout', x: 1 },
+		{ screen: 'buyConfirm', node: 'confirmArt', assetKey: 'a::gold' },
 	];
 	const update = (baseEtag: string, list: unknown[] = changes) =>
 		tool('scene.update_nodes', 'builder', { changes: list, baseEtag }, true);
@@ -2030,7 +2082,34 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 	check(
 		'...refusing and listing every node bound to the math (or under a parent that is, or bound by its component), a locked node, and a field the node has not',
 		(updated.body.refused as { node: string }[]).map((r) => r.node),
-		['grid', 'plus', 'group', 'betLabel', 'card', 'logo', 'betArt', 'pinned', 'readout'],
+		[
+			'grid',
+			'plus',
+			'group',
+			'betLabel',
+			'card',
+			'logo',
+			'betArt',
+			'pinned',
+			'readout',
+			'oldMeter',
+			'ghost',
+			'perLayout',
+			'confirmArt',
+		],
+	);
+	const reasonOf = (node: string) =>
+		(updated.body.refused as { node: string; reason: string }[]).find((r) => r.node === node)!
+			.reason;
+	check(
+		'...reading the component version a node pins, failing closed on a def it cannot read, and locking a per-layout action and a buy screen found by its id alone',
+		[
+			reasonOf('oldMeter').includes('source defaults to "bet"'),
+			reasonOf('ghost').includes('could not be read'),
+			reasonOf('perLayout').includes('action on one layout is "buyFeature"'),
+			reasonOf('confirmArt').includes('"buyConfirm" screen'),
+		],
+		[true, true, true, true],
 	);
 	check(
 		'...and applying the rest',
@@ -2059,8 +2138,25 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		'...with the same screens and nodes as before',
 		scenes.map((s: { id: string; nodes: { id: string }[] }) => [s.id, s.nodes.map((n) => n.id)]),
 		[
-			['base', ['logo', 'grid', 'plus', 'spinBtn', 'group', 'bg', 'betWrap', 'pinned', 'readout']],
+			[
+				'base',
+				[
+					'logo',
+					'grid',
+					'plus',
+					'spinBtn',
+					'group',
+					'bg',
+					'betWrap',
+					'pinned',
+					'readout',
+					'oldMeter',
+					'ghost',
+					'perLayout',
+				],
+			],
 			['buy', ['card']],
+			['buyConfirm', ['confirmArt']],
 		],
 	);
 	stampOf(SCENE, 'builder');
@@ -2340,6 +2436,18 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		(await bake({ folder: 'b4' }, 'mockup-analyst')).status,
 		403,
 	);
+	const HUGE = `${P}/uploads/huge.ttf`;
+	R2.set(HUGE, {
+		body: '\u0000\u0001\u0000\u0000'.padEnd(20 * 1024 * 1024 + 1, 'x'),
+		etag: etag(),
+	});
+	const huge = await bake({ folder: 'b5', source: HUGE });
+	check(
+		'...and refuses a source over 20 MB without downloading it',
+		[huge.status, huge.body.error, byteReads.includes(HUGE), keysUnder(`${P}/director/fonts/b5/`)],
+		[413, 'too_large', false, []],
+	);
+	R2.delete(HUGE);
 
 	// Rigger
 	const RIG_DIR = `${P}/spines/hero`;
@@ -2349,6 +2457,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		slots: [
 			{ name: 'body', bone: 'root', attachment: 'body' },
 			{ name: 'hit', bone: 'root' },
+			{ name: 'glow', bone: 'root' },
 		],
 		skins: [
 			{
@@ -2356,6 +2465,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 				attachments: {
 					body: { body: { x: 1 } },
 					hit: { box: { type: 'boundingbox', vertexCount: 3, vertices: [0, 0, 1, 1, 2, 2] } },
+					glow: { fx: { name: 'body_gold' } },
 				},
 			},
 		],
@@ -2379,9 +2489,15 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		etag: etag(),
 	});
 	R2.set(`${RIG_DIR}/hero.png`, { body: 'PNG', etag: etag() });
+	seedDoc(`${RIG_DIR}/hero..v2.json`, skeleton);
 	const sourceBefore = R2.get(`${RIG_DIR}/hero.json`);
 	const rigs = await tool('rigger.list_rigs', 'animator', {});
 	const hero = (rigs.body.rigs as Record<string, unknown>[])[0];
+	check(
+		'rigger.list_rigs lists the rigs whose names rebind cannot address, apart',
+		[(rigs.body.rigs as unknown[]).length, rigs.body.unsupported, rigs.body.truncated],
+		[1, ['hero/hero..v2'], false],
+	);
 	check(
 		'rigger.list_rigs reads the rig, its atlas and what each attachment draws',
 		[
@@ -2402,6 +2518,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			[
 				{ skin: 'default', slot: 'body', attachment: 'body', type: 'region', region: 'body' },
 				{ skin: 'default', slot: 'hit', attachment: 'box', type: 'boundingbox', region: null },
+				{ skin: 'default', slot: 'glow', attachment: 'fx', type: 'region', region: 'body_gold' },
 			],
 			'new',
 		],
@@ -2489,6 +2606,34 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		'...and no animations',
 		(await rebind(R2.get(IRIG)!.etag, [], { animations: {} })).body.error,
 		'invalid_input',
+	);
+	const irigBefore = R2.get(IRIG);
+	const same = await rebind(irigBefore!.etag, [
+		{ slot: 'glow', attachment: 'fx', region: 'body_gold' },
+	]);
+	check(
+		'a rebind to the region an attachment already draws (by its name) is unchanged, and writes nothing',
+		[
+			same.status,
+			(same.body.applied as unknown[]).length,
+			(same.body.unchanged as { attachment: string }[]).map((r) => r.attachment),
+			R2.get(IRIG),
+			same.body.baseEtag,
+		],
+		[200, 0, ['fx'], irigBefore, irigBefore!.etag],
+	);
+	const back = await rebind(irigBefore!.etag, [
+		{ slot: 'body', attachment: 'body', region: 'body' },
+		{ slot: 'glow', attachment: 'fx', region: 'body' },
+	]);
+	check(
+		"a rebind sets `path` only where Spine needs it: dropped back to the key's own region, set over a `name`",
+		[
+			back.status,
+			stored(IRIG).skins[0].attachments.body.body,
+			stored(IRIG).skins[0].attachments.glow.fx,
+		],
+		[200, { x: 1 }, { name: 'body_gold', path: 'body' }],
 	);
 
 	// Flipbook

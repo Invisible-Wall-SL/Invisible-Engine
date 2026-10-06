@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
-import { defaultGradientStops, type GradientStop } from '../../../gradient';
+import { CHARSET_LABELS, type CharsetPreset } from '../../../../routes/(app)/fonts/charsets.client';
+import type { FontRecipeDoc } from '../../../../routes/(app)/fonts/fonts.client';
+import { defaultGradientStops } from '../../../gradient';
 import { etagDiffers } from '../../docBackups';
 import { loadRenderableFonts } from '../../fonts';
 import { projectPrefix } from '../../projectPaths';
@@ -14,6 +16,7 @@ import {
 	putObjectText,
 } from '../../r2';
 import { stampSavedBy, type SavedByStamp } from '../../savedBy';
+import { allowedPrefixes, isKeyAllowed } from '../../toolScope';
 import { AdapterError, defineOp, type AdapterContext } from '../adapter';
 import { baseEtagProp, baseOf, preconditionOf, projectOf } from './docs';
 
@@ -31,9 +34,8 @@ import { baseEtagProp, baseOf, preconditionOf, projectOf } from './docs';
 
 const FOLDER = '^[a-z0-9][a-z0-9_-]{0,59}$';
 const HEX = '^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$';
-const PRESETS = ['digits', 'currency', 'alphanumeric', 'ascii', 'custom'] as const;
+const PRESETS = Object.keys(CHARSET_LABELS) as CharsetPreset[];
 const MAX_FONT_BYTES = 20 * 1024 * 1024;
-const SHARED_FONTS = '_shared/fonts/';
 
 /** The sfnt signatures a TTF / OTF opens with: TrueType (2), CFF-flavoured OpenType. */
 const SFNT_SIGNATURES = ['00010000', '74727565', '4f54544f'];
@@ -51,23 +53,8 @@ export interface FontBakeRequest {
 	sourceFile: string;
 	/** Where the source was copied from. */
 	sourceKey: string;
-	/** The Font Maker's own re-bake recipe (`fonts.client.ts` `FontRecipeDoc`). */
-	recipe: {
-		version: 1;
-		face: string;
-		sourceFileName: string;
-		preset: (typeof PRESETS)[number];
-		custom: string;
-		bakeSize: number;
-		pageMaxWidth: number;
-		pageMaxHeight: number;
-		kerning: boolean;
-		effects: {
-			fill: { enabled: true; mode: 'solid'; color: string; stops: GradientStop[] };
-			outline: { enabled: boolean; width: number; color: string };
-			shadow: { enabled: false; offsetX: 0; offsetY: 2; blur: 4; color: string };
-		};
-	};
+	/** The Font Maker's own re-bake recipe. */
+	recipe: FontRecipeDoc;
 	saved_by?: SavedByStamp;
 }
 
@@ -133,7 +120,7 @@ interface BakeInput {
 	folder: string;
 	face: string;
 	source: string;
-	preset: (typeof PRESETS)[number];
+	preset: CharsetPreset;
 	custom?: string;
 	bakeSize: number;
 	kerning?: boolean;
@@ -183,11 +170,10 @@ export const bakeFromTtf = defineOp<
 	writes: (input, scope) => [`${requestsRoot(scope)}${input.folder}/`],
 	handler: async (ctx, input) => {
 		const scope = projectOf(ctx);
-		const own = `${projectPrefix(scope.clientKey, scope.projectKey)}/`;
-		if (
-			input.source.includes('..') ||
-			!(input.source.startsWith(own) || input.source.startsWith(SHARED_FONTS))
-		) {
+		const sources = allowedPrefixes(scope.clientKey, scope.projectKey, {
+			includeSharedFonts: true,
+		});
+		if (!isKeyAllowed(input.source, sources)) {
 			throw new AdapterError(
 				403,
 				'out_of_scope',
@@ -202,6 +188,11 @@ export const bakeFromTtf = defineOp<
 			throw new AdapterError(409, 'font_exists', `A font "${input.folder}" already exists.`);
 		}
 
+		const sourceHead = await headObject(input.source);
+		if (!sourceHead) throw new AdapterError(404, 'unknown_source', `No font at ${input.source}.`);
+		if (sourceHead.size > MAX_FONT_BYTES) {
+			throw new AdapterError(413, 'too_large', 'The source font is over 20 MB.');
+		}
 		const bytes = await getObjectBytes(input.source);
 		if (!bytes) throw new AdapterError(404, 'unknown_source', `No font at ${input.source}.`);
 		if (bytes.body.length > MAX_FONT_BYTES) {

@@ -76,9 +76,11 @@ Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger
   `rigger.rebind_attachments` (`apps/launcher-api/src/lib/server/director/ops/rigger.ts`) save
   through the Rigger's own `writeIrig`, under `If-Match`. A rebind only re-points a region
   attachment at another region of the rig's own atlas; bones, slots and timelines are never touched,
-  and a sequence or region-less attachment is refused. A rig with only its source `.json` is saved
-  as its `.irig`. The `.irig` ships verbatim, so its `saved_by` stamp names the agent and the run
-  but not the owner. The page is unchanged.
+  and a sequence or region-less attachment is refused. The region drawn is read as Spine reads it
+  (`path`, else `name`, else the key); a rebind to it is reported unchanged and writes nothing. A rig
+  with only its source `.json` is saved as its `.irig`. The `.irig` ships verbatim, so its
+  `saved_by` stamp names the agent and the run but not the owner. The page is unchanged; its save
+  (`/api/rigger/save`) drops a Director stamp the rig carried, as every other tool's save does.
 - 2026-10-01 — **The esbuild spikes resolve esbuild through the workspace** (was open item 14).
   `irig-save`, `rigtext`, `rigtext-runtime`, `rigtext-panel`, `reindex-preserve`,
   `cinematic-flow` and `cinematic-storage` hard-coded `.pnpm/esbuild@0.25.5/…`; they now

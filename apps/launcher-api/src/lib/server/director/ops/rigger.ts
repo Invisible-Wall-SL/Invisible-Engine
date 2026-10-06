@@ -1,3 +1,4 @@
+import { mapWithConcurrency } from '../../concurrency';
 import { SUB, projectPrefix } from '../../projectPaths';
 import { ConflictError, getObjectTextWithEtag, listAllKeys } from '../../r2';
 import { irigDocProblem } from '../../riggerIrig';
@@ -20,13 +21,24 @@ const SEGMENT = '[A-Za-z0-9_-][A-Za-z0-9_. -]{0,119}';
 // No `..` anywhere: `irigTarget` refuses one with a SvelteKit error, which is not an adapter answer.
 const DIR = `^(?!.*\\.\\.)(${SEGMENT}(/${SEGMENT}){0,7})?$`;
 const STEM = `^(?!.*\\.\\.)${SEGMENT}$`;
+const DIR_RE = new RegExp(DIR);
+const STEM_RE = new RegExp(STEM);
 const NAME = { type: 'string', minLength: 1, maxLength: 200 } as const;
 
 /** Attachment types drawn from an atlas region; Spine reads an absent type as `region`. */
 const REGION_TYPES = new Set(['region', 'mesh', 'linkedmesh']);
 const MAX_RIGS = 100;
+/** Skeleton-shaped files read per listing; past this the list is truncated rather than slow. */
+const MAX_CANDIDATES = 400;
+const RIG_READ_CONCURRENCY = 8;
 
-type Attachment = { type?: string; path?: string; sequence?: unknown; [k: string]: unknown };
+type Attachment = {
+	type?: string;
+	name?: string;
+	path?: string;
+	sequence?: unknown;
+	[k: string]: unknown;
+};
 interface Skin {
 	name: string;
 	attachments?: Record<string, Record<string, Attachment>>;
@@ -84,16 +96,37 @@ function atlasRegions(text: string): Set<string> {
 	return out;
 }
 
-/** The rig's atlas, matched as the skeleton index matches it: same stem, else the folder's first. */
-async function loadAtlasRegions(spinesPrefix: string, dir: string, stem: string) {
-	const folder = `${folderOf(spinesPrefix, dir)}/`;
-	const atlases = (await listAllKeys(folder))
-		.map((k) => k.slice(folder.length))
-		.filter((n) => !n.includes('/') && n.toLowerCase().endsWith('.atlas'));
+/**
+ * The rig's atlas among its folder's `.atlas` files, matched as the skeleton index matches it: same
+ * stem, else the folder's first.
+ */
+async function loadAtlasRegions(
+	spinesPrefix: string,
+	dir: string,
+	stem: string,
+	atlases: string[],
+) {
 	const atlas = atlases.find((n) => n.slice(0, -'.atlas'.length) === stem) ?? atlases[0];
-	const text = atlas ? await getObjectTextWithEtag(`${folder}${atlas}`) : null;
+	const text = atlas
+		? await getObjectTextWithEtag(`${folderOf(spinesPrefix, dir)}/${atlas}`)
+		: null;
 	return text ? { atlas, regions: atlasRegions(text.text) } : null;
 }
+
+/** The `.atlas` file names directly in each folder of a `spines/` listing, by folder. */
+function atlasesByDir(spinesPrefix: string, keys: string[]): Map<string, string[]> {
+	const out = new Map<string, string[]>();
+	for (const key of keys) {
+		const m = /^(?:(.*)\/)?([^/]+\.atlas)$/i.exec(key.slice(spinesPrefix.length + 1));
+		if (!m) continue;
+		const dir = m[1] ?? '';
+		out.set(dir, [...(out.get(dir) ?? []), m[2]]);
+	}
+	return out;
+}
+
+/** The region an attachment draws, as Spine resolves it: `path`, else `name`, else its key. */
+const drawnRegion = (a: Attachment, key: string) => a.path ?? a.name ?? key;
 
 const attachmentsOf = (rig: Rig) =>
 	(rig.skins ?? []).flatMap((skin) =>
@@ -103,7 +136,7 @@ const attachmentsOf = (rig: Rig) =>
 				slot,
 				attachment,
 				type: a.type ?? 'region',
-				region: REGION_TYPES.has(a.type ?? 'region') ? (a.path ?? attachment) : null,
+				region: REGION_TYPES.has(a.type ?? 'region') ? drawnRegion(a, attachment) : null,
 			})),
 		),
 	);
@@ -121,6 +154,8 @@ export const listRigs = defineOp<
 			attachments: ReturnType<typeof attachmentsOf>;
 			baseEtag: string;
 		}[];
+		/** Rigs whose folder or file name rigger.rebind_attachments cannot address. */
+		unsupported: string[];
 		truncated: boolean;
 	}
 >({
@@ -134,39 +169,48 @@ export const listRigs = defineOp<
 	write: false,
 	handler: async (ctx) => {
 		const prefix = spines(ctx);
+		const keys = await listAllKeys(`${prefix}/`);
+		const atlases = atlasesByDir(prefix, keys);
 		const seen = new Map<string, { dir: string; stem: string }>();
-		for (const key of await listAllKeys(`${prefix}/`)) {
+		const unsupported = new Set<string>();
+		for (const key of keys) {
 			const rel = key.slice(prefix.length + 1);
 			const m = /^(?:(.*)\/)?([^/]+)\.(irig|json)$/.exec(rel);
 			if (!m || rel === 'skeletons.json') continue;
 			const dir = m[1] ?? '';
-			if (!seen.has(`${dir}/${m[2]}`)) seen.set(`${dir}/${m[2]}`, { dir, stem: m[2] });
+			const name = dir ? `${dir}/${m[2]}` : m[2];
+			if (!DIR_RE.test(dir) || !STEM_RE.test(m[2])) unsupported.add(name);
+			else if (!seen.has(name)) seen.set(name, { dir, stem: m[2] });
 		}
-		const rigs = [];
-		let truncated = false;
-		for (const { dir, stem } of seen.values()) {
-			if (rigs.length === MAX_RIGS) {
-				truncated = true;
-				break;
-			}
-			const loaded = await loadRig(prefix, dir, stem).catch((e: unknown) => {
-				if (e instanceof AdapterError) return null;
-				throw e;
-			});
-			if (!loaded) continue;
-			const atlas = await loadAtlasRegions(prefix, dir, stem);
-			rigs.push({
-				dir,
-				stem,
-				file: loaded.file,
-				hasIrig: loaded.irigEtag !== null,
-				atlas: atlas?.atlas ?? null,
-				animations: Object.keys(loaded.rig.animations ?? {}),
-				attachments: attachmentsOf(loaded.rig),
-				baseEtag: baseOf(loaded.irigEtag),
-			});
-		}
-		return { rigs, truncated };
+		const candidates = [...seen.values()];
+		const read = await mapWithConcurrency(
+			candidates.slice(0, MAX_CANDIDATES),
+			RIG_READ_CONCURRENCY,
+			async ({ dir, stem }) => {
+				const loaded = await loadRig(prefix, dir, stem).catch((e: unknown) => {
+					if (e instanceof AdapterError) return null;
+					throw e;
+				});
+				if (!loaded) return null;
+				const atlas = await loadAtlasRegions(prefix, dir, stem, atlases.get(dir) ?? []);
+				return {
+					dir,
+					stem,
+					file: loaded.file,
+					hasIrig: loaded.irigEtag !== null,
+					atlas: atlas?.atlas ?? null,
+					animations: Object.keys(loaded.rig.animations ?? {}),
+					attachments: attachmentsOf(loaded.rig),
+					baseEtag: baseOf(loaded.irigEtag),
+				};
+			},
+		);
+		const rigs = read.filter((rig) => rig !== null);
+		return {
+			rigs: rigs.slice(0, MAX_RIGS),
+			unsupported: [...unsupported],
+			truncated: candidates.length > MAX_CANDIDATES || rigs.length > MAX_RIGS,
+		};
 	},
 });
 
@@ -183,6 +227,8 @@ export const rebindAttachments = defineOp<
 		dir: string;
 		stem: string;
 		applied: Required<Rebind>[];
+		/** Already drawing the region asked for: nothing to write. */
+		unchanged: Required<Rebind>[];
 		refused: (Rebind & { reason: string })[];
 		indexed: boolean;
 		message?: string;
@@ -192,7 +238,7 @@ export const rebindAttachments = defineOp<
 	tool: 'rigger',
 	name: 'rebind_attachments',
 	description:
-		"Re-point skin attachments at other regions of the rig's own atlas (new art, same rig). Only the attachment's region changes: no bone, slot, animation or timing is touched. Attachments that draw no region, and regions the atlas lacks, are refused and listed.",
+		"Re-point skin attachments at other regions of the rig's own atlas (new art, same rig). Only the attachment's region changes: no bone, slot, animation or timing is touched. Attachments that draw no region, sequences, and regions the atlas lacks are refused and listed; one already drawing the region asked for is listed as unchanged.",
 	inputSchema: {
 		type: 'object',
 		properties: {
@@ -235,12 +281,17 @@ export const rebindAttachments = defineOp<
 		const prefix = spines(ctx);
 		const loaded = await loadRig(prefix, dir, stem);
 		if (!loaded) throw new AdapterError(404, 'unknown_rig', `No rig "${stem}" in "${dir}".`);
-		const atlas = await loadAtlasRegions(prefix, dir, stem);
+		const folder = `${folderOf(prefix, dir)}/`;
+		const atlases = (await listAllKeys(folder))
+			.map((k) => k.slice(folder.length))
+			.filter((n) => !n.includes('/') && n.toLowerCase().endsWith('.atlas'));
+		const atlas = await loadAtlasRegions(prefix, dir, stem, atlases);
 		if (!atlas) {
 			throw new AdapterError(409, 'no_atlas', `The rig "${stem}" has no atlas to re-point into.`);
 		}
 		const { rig } = loaded;
 		const applied: Required<Rebind>[] = [];
+		const unchanged: Required<Rebind>[] = [];
 		const refused: (Rebind & { reason: string })[] = [];
 		for (const rebind of rebinds) {
 			const skin = rebind.skin ?? 'default';
@@ -264,11 +315,18 @@ export const rebindAttachments = defineOp<
 				refused.push({ ...rebind, reason });
 				continue;
 			}
-			if (rebind.region === rebind.attachment) delete found.path;
+			if (drawnRegion(found, rebind.attachment) === rebind.region) {
+				unchanged.push({ ...rebind, skin });
+				continue;
+			}
+			// Spine falls back from `path` to `name` to the key: set `path` only where it is needed.
+			if (rebind.region === (found.name ?? rebind.attachment)) delete found.path;
 			else found.path = rebind.region;
 			applied.push({ ...rebind, skin });
 		}
-		if (applied.length === 0) return { dir, stem, applied, refused, indexed: true, baseEtag };
+		if (applied.length === 0) {
+			return { dir, stem, applied, unchanged, refused, indexed: true, baseEtag };
+		}
 		const target = irigTarget(
 			clientKey,
 			projectKey,
@@ -281,7 +339,7 @@ export const rebindAttachments = defineOp<
 		const text = JSON.stringify(stampSavedBy(rig, { tool, agent, runId, at, rev }));
 		const res = await writeIrig(clientKey, projectKey, target, text, preconditionOf(baseEtag));
 		if (res.ok) {
-			return { dir, stem, applied, refused, indexed: true, baseEtag: baseOf(res.etag) };
+			return { dir, stem, applied, unchanged, refused, indexed: true, baseEtag: baseOf(res.etag) };
 		}
 		const body = (await res.response.json()) as {
 			error?: string;
@@ -299,6 +357,7 @@ export const rebindAttachments = defineOp<
 			dir,
 			stem,
 			applied,
+			unchanged,
 			refused,
 			indexed: false,
 			message: body.message,

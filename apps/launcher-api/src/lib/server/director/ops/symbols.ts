@@ -18,18 +18,8 @@ import { baseEtagProp, baseOf, preconditionOf, projectOf, validated } from './do
 
 const SYMBOL = '^[A-Za-z0-9_]{1,32}$';
 
-export interface SymbolBinding {
-	type: 'sprite' | 'spine' | 'flipbook';
-	assetKey: string;
-	animationName?: string;
-	clipId?: string;
-	sizeRatios?: { width: number; height: number };
-	loop?: boolean;
-	fps?: number;
-	direction?: 'forward' | 'reverse' | 'pingpong';
-	flipX?: boolean;
-	flipY?: boolean;
-}
+/** A cell as set_state takes it: its decoration layers are kept from the stored cell. */
+type SymbolBinding = Omit<SymbolCell, 'layers'>;
 
 async function loadForWrite(ctx: AdapterContext) {
 	const { clientKey, projectKey } = projectOf(ctx);
@@ -133,7 +123,7 @@ export const setState = defineOp<
 		const { doc } = await loadForWrite(ctx);
 		const states = { ...doc.symbols[symbol] } as Record<string, SymbolCell>;
 		const layers = states[state]?.layers;
-		states[state] = { ...binding, ...(layers ? { layers } : {}) } as SymbolCell;
+		states[state] = { ...binding, ...(layers ? { layers } : {}) };
 		const next = { ...doc, symbols: { ...doc.symbols, [symbol]: states } };
 		const saved = await validated(() =>
 			saveSymbolsDoc(clientKey, projectKey, next, preconditionOf(baseEtag), 'auto', {

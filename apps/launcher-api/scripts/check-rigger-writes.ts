@@ -181,6 +181,7 @@ const rigSave = await import(`${routes}/rigger/rigs/save/+server.ts`);
 const newRig = await import(`${routes}/rigger/new/+server.ts`);
 const upload = await import(`${routes}/rigger/upload/+server.ts`);
 const del = await import(`${routes}/rigger/delete/+server.ts`);
+const irigSave = await import(`${routes}/rigger/save/+server.ts`);
 const reindex = await import(`${routes}/editor/spines/reindex/+server.ts`);
 
 let checks = 0;
@@ -427,6 +428,24 @@ const PAGE = Buffer.from('png').toString('base64');
 	);
 }
 
+// ── A person's `.irig` save is theirs: the stamp a Director rebind left does not ride along ──────
+{
+	seedProject();
+	const key = `${SPINES}/A/A.irig`;
+	const saved_by = { tool: 'director', agent: 'animator', runId: 'r1', at: 't', rev: 'r' };
+	const res = await call(irigSave.POST, {
+		dir: b64('A'),
+		stem: 'A',
+		skeleton: { ...JSON.parse(skel('A')), saved_by },
+		baseEtag: bucket.get(key)?.etag,
+	});
+	check(
+		"save: a person's save drops the Director stamp the rig carried",
+		[res.status, 'saved_by' in JSON.parse(text(key) ?? '{}'), JSON.parse(text(key) ?? '{}').name],
+		[200, false, 'A'],
+	);
+}
+
 // ── 6b: `Hero` and `hero` created at once — at most one survives ─────────────────────────────
 /**
  * Resolves once `n` callers have arrived — or after a short wait, so a route that never arrives
@@ -574,10 +593,11 @@ for (const create of creates) {
 		seed();
 		const before = [...bucket.keys()].sort();
 		const res = await creates[0].run(name, 'solo');
-		check(`abandoned: ${label} — refused, nothing touched`, [res.status, [...bucket.keys()].sort()], [
-			409,
-			before,
-		]);
+		check(
+			`abandoned: ${label} — refused, nothing touched`,
+			[res.status, [...bucket.keys()].sort()],
+			[409, before],
+		);
 	};
 	await refused('a claim still young (a create in flight)', () =>
 		seedStore(`${SPINES}/Hero/Hero.irig`, skel('orphan'), 60_000),

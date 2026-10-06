@@ -1,10 +1,11 @@
-import type {
-	ComponentDef,
-	LayoutDoc,
-	LayoutNode,
-	LayoutType,
-	Point2D,
-	Scene,
+import {
+	isModeScene,
+	type ComponentDef,
+	type LayoutDoc,
+	type LayoutNode,
+	type LayoutType,
+	type Point2D,
+	type Scene,
 } from 'engine-layout';
 import { loadComponent } from '../../componentStorage';
 import { loadDocWithEtag, saveDoc } from '../../editorStorage';
@@ -25,20 +26,26 @@ import { baseEtagProp, baseOf, preconditionOf, projectOf } from './docs';
 const MATH_WORD =
 	/(bet|stake|payline|paytable|ways|coin|buy|bonus|feature|trigger|increase|decrease|level|mode|rtp|jackpot)/i;
 
-/** Screens that ARE math: the bet menu, the buy-feature menu and its confirm, a mode's screens. */
-const MATH_ROLES = new Set(['betMenu', 'buyFeature', 'buyConfirm', 'mode']);
+/**
+ * Screens that ARE math: the bet menu, the buy-feature menu and its confirm. The runtime finds each
+ * by its role, else by this legacy id (`engine-layout` `sceneByRole`), and the reference layouts
+ * seed the buy screens by id with no role, so either one locks the screen. A mode's screens are
+ * locked too (`isModeScene`).
+ */
+const MATH_SCREENS = new Set(['betMenu', 'buyFeature', 'buyConfirm']);
 
-/** How deep a component placed inside a component is followed. */
+/** How deep a component placed inside a component is followed; deeper is refused, not trusted. */
 const MAX_COMPONENT_DEPTH = 4;
 
-type DefLoader = (id: string) => Promise<ComponentDef | undefined>;
+type DefLoader = (id: string, version: number | undefined) => Promise<ComponentDef | undefined>;
 
-/** One load per component id for the whole call. */
+/** One load per component id and pinned version for the whole call. */
 function defLoader(projectKey: string): DefLoader {
 	const seen = new Map<string, Promise<ComponentDef | undefined>>();
-	return (id) => {
-		if (!seen.has(id)) seen.set(id, loadComponent(id, projectKey));
-		return seen.get(id)!;
+	return (id, version) => {
+		const key = `${id}@${version ?? 'latest'}`;
+		if (!seen.has(key)) seen.set(key, loadComponent(id, projectKey, version));
+		return seen.get(key)!;
 	};
 }
 
@@ -55,10 +62,16 @@ async function ownMathBinding(
 	if (node.kind === 'reelGrid') return 'it is the reel grid';
 	if (node.kind === 'repeater') return `it repeats the game's "${node.source}" data`;
 	const params = node.kind === 'componentInstance' ? (node.params ?? {}) : {};
+	// A layout's override can give the instance another action or source on that layout only.
+	const overrideParams = Object.values(node.overrides ?? {}).map((o) => o?.params ?? {});
 	const named: [string, unknown][] = [
 		['press action', node.pressAction],
 		['action', params.action],
 		['value source', params.source],
+		...overrideParams.flatMap((p): [string, unknown][] => [
+			['action on one layout', p.action],
+			['value source on one layout', p.source],
+		]),
 		['component', node.kind === 'componentInstance' ? node.componentId : undefined],
 		['bound component', node.bind?.component],
 		['bound action', node.bind?.props?.action],
@@ -72,9 +85,12 @@ async function ownMathBinding(
 	for (const [what, value] of named) {
 		if (typeof value === 'string' && MATH_WORD.test(value)) return `its ${what} is "${value}"`;
 	}
-	if (node.kind !== 'componentInstance' || depth >= MAX_COMPONENT_DEPTH) return null;
-	const def = await defs(node.componentId);
-	if (!def) return null;
+	if (node.kind !== 'componentInstance') return null;
+	if (depth >= MAX_COMPONENT_DEPTH) {
+		return `its component "${node.componentId}" nests too deep to check`;
+	}
+	const def = await defs(node.componentId, node.componentVersion);
+	if (!def) return `its component "${node.componentId}" could not be read to check`;
 	for (const param of def.params ?? []) {
 		const unset = params[param.key] === undefined;
 		if (unset && typeof param.default === 'string' && MATH_WORD.test(param.default)) {
@@ -98,9 +114,9 @@ async function mathBinding(node: LayoutNode, defs: DefLoader, depth = 0): Promis
 }
 
 function sceneMathBinding(scene: Scene): string | null {
-	return scene.role && MATH_ROLES.has(scene.role)
-		? `it is on the "${scene.role}" screen, which shows the bet and feature math`
-		: null;
+	if (isModeScene(scene)) return "it is on a game-mode screen, which shows the mode's math";
+	const screen = [scene.role, scene.id].find((name) => name && MATH_SCREENS.has(name));
+	return screen ? `it is on the "${screen}" screen, which shows the bet and feature math` : null;
 }
 
 /**

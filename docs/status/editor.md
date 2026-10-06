@@ -44,9 +44,11 @@ Shipped capabilities on `main`:
   `editorStorage.saveDoc`, under `If-Match`, stamping `saved_by` (`tool: 'director'`, the agent, the
   run). It moves and re-skins existing nodes only (a project with no layout, an unknown screen or
   node is refused), and refuses any node locked in the editor or bound to the math: the reel grid, a
-  repeater, a bet/buy/feature binding on the node, a parent, a child or its component def, and
-  anything on the bet-menu, buy-feature, buy-confirm or mode screens. A save without a stamp drops a
-  carried one (`savedBy.ts`). The page is unchanged.
+  repeater, a bet/buy/feature binding on the node (per-layout override params included), a parent, a
+  child or its component def (read at the version the node pins), and anything on the bet-menu,
+  buy-feature, buy-confirm or mode screens, found by role or by their legacy id as the runtime finds
+  them. A def it cannot read is refused, not trusted. A save without a stamp drops a carried one
+  (`savedBy.ts`). The page is unchanged.
 - 2026-10-02 — **A param can name a component** (Hold and Win 12c, #1006). A `component`-kind param
   (the Letters Strip's `tile`) is a select of the project's components in Properties, minus the
   instance's own. Detail: [hold-and-win](hold-and-win.md).

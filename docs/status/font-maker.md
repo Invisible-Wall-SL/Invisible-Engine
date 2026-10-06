@@ -29,7 +29,8 @@ Works today on `main` (code complete, most flows not yet browser-verified):
 - 2026-10-05 — **Invisible Director can drive this tool.** Invisible Director's `fonts.list` reads
   the fonts a game renders (`loadRenderableFonts`). Its `fonts.bake_from_ttf`
   (`apps/launcher-api/src/lib/server/director/ops/fonts.ts`) cannot bake, since the bake runs in the
-  browser, so it STAGES one for the owner: the source TTF/OTF and the Font Maker's own recipe in
+  browser, so it STAGES one for the owner: the source TTF/OTF (from the project or `_shared/fonts/`,
+  at most 20 MB) and the Font Maker's own recipe in
   `<client>/<project>/director/fonts/<folder>/request.json`, status `awaiting_owner`, stamped
   `saved_by` (`tool: 'director'`, the agent, the run). Nothing is added to `fonts.json`, so nothing
   ships until the owner bakes and saves it. The page is unchanged.
