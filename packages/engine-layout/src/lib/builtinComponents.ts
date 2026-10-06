@@ -241,7 +241,7 @@ export const BUTTON_DEF: ComponentDef = {
 	root: {
 		id: 'button-root',
 		kind: 'container',
-		x: 1,
+		x: 0,
 		y: 0,
 		children: [
 			{
