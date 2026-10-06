@@ -71,6 +71,9 @@ _HANDOFF_PARAMS = (LAUNCH_PARAM, "k", "client", "project", "user", "bp")
 
 ADMIN_ROLE = "admin"
 PUBLISH_CAP = "blueprintPublish"
+# Marking an Atlas Maker blueprint card `reviewed` (ADR-0008 §2): the owner's
+# approval of that blueprint for agents, so it is the pipeline-merge capability.
+REVIEW_CAP = "pipelineMerge"
 
 # An api token may say the call acts for an agent (Invisible Director, ADR 0002):
 # `act: {tool, agent, run}`. Only these values are ever trusted.

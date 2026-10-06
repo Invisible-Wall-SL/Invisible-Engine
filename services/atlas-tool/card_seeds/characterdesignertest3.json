@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "id": "characterdesignertest3",
+  "status": "draft",
+  "rev": 1,
+  "graphSha": "925171cf5051",
+  "purpose": "R&D: a comic-style character with a given face and pose, from one reference. Not for agents.",
+  "whenToUse": [],
+  "whenNotToUse": [
+    "any Director run: PuLID and antelopev2 are non-commercial and R&D-pod-only"
+  ],
+  "inputs": {
+    "prompt": "required",
+    "negative": "optional",
+    "reference": "required",
+    "shape": "none",
+    "sourceImage": "none",
+    "mask": "none",
+    "layer": "none"
+  },
+  "outputs": {
+    "kind": "image",
+    "alpha": false,
+    "count": 1,
+    "fixedPx": 512
+  },
+  "settings": [],
+  "chain": {
+    "position": "generate",
+    "follows": [],
+    "precedes": []
+  },
+  "gpu": {
+    "secondsPerImage": {
+      "512": 60
+    },
+    "coldStart": 240,
+    "source": "guess"
+  },
+  "variants": {
+    "draft": 0,
+    "final": 0,
+    "max": 0
+  },
+  "billing": "gpu",
+  "licence": "blocked",
+  "gotchas": [
+    "never reviewed: licence-blocked and not in the worker image",
+    "no models[] declared",
+    "the bound output is the 512 first pass"
+  ]
+}

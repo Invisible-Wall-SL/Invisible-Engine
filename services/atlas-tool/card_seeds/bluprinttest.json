@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "id": "bluprinttest",
+  "status": "draft",
+  "rev": 1,
+  "graphSha": "7a10c50da975",
+  "purpose": "Test graph: FLUX two-pass symbol shaped by a baked silhouette. Not for agents.",
+  "whenToUse": [],
+  "whenNotToUse": [
+    "any Director run: baked shape ref and theme, R&D LoRA; retire or re-publish"
+  ],
+  "inputs": {
+    "prompt": "required",
+    "negative": "none",
+    "reference": "none",
+    "shape": "none",
+    "sourceImage": "none",
+    "mask": "none",
+    "layer": "none"
+  },
+  "outputs": {
+    "kind": "image",
+    "alpha": true,
+    "count": 1,
+    "sizeRule": "baked shape ref size"
+  },
+  "settings": [],
+  "chain": {
+    "position": "generate",
+    "follows": [],
+    "precedes": []
+  },
+  "gpu": {
+    "secondsPerImage": {
+      "1024": 90
+    },
+    "coldStart": 180,
+    "source": "guess"
+  },
+  "variants": {
+    "draft": 0,
+    "final": 0,
+    "max": 0
+  },
+  "billing": "gpu",
+  "licence": "blocked",
+  "gotchas": [
+    "shape ref is baked, not a role",
+    "theme prompt baked",
+    "RMBG-2.0 and FLUX.1-dev licences blocked"
+  ]
+}

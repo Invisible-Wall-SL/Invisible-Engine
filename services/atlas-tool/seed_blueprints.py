@@ -24,6 +24,7 @@ from pathlib import Path
 
 import storage  # uses R2_* env
 
+import cards
 from blueprints import SHARED_BLUEPRINTS_PREFIX
 
 SRC = Path(os.environ.get("BLUEPRINTS_SRC", str(Path(__file__).resolve().parent / "blueprints_src")))
@@ -54,6 +55,12 @@ def main() -> None:
             n_files += 1
             print(f"[seed-bp]   + {key} ({p.stat().st_size} bytes)")
         n_bp += 1
+
+    # Cards after the blueprints, so a bundled blueprint's card pins the graph
+    # just uploaded. Create-only; an existing card is replaced only when nobody
+    # ever edited it — a reviewed card is never overwritten from the repo.
+    for bp_id, action in cards.sync_bundled_cards(SRC, log=lambda _m: None):
+        print(f"[seed-bp]   card {bp_id}: {action}")
 
     print(f"[seed-bp] done -> r2:{SHARED_BLUEPRINTS_PREFIX}/  "
           f"(blueprints={n_bp}, files={n_files})")

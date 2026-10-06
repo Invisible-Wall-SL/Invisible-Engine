@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "id": "flux",
+  "status": "draft",
+  "rev": 1,
+  "builtin": true,
+  "purpose": "Text-to-image with prose prompts and strong style transfer from a reference image.",
+  "whenToUse": [
+    "backgrounds and scenes with rembg off, reel frames, banner art, hero characters (check)",
+    "paragraph briefs; a crop that should drive the whole look (fidelity match)"
+  ],
+  "whenNotToUse": [
+    "small icons wanting the SDXL LoRA look (check)",
+    "briefs needing a negative prompt",
+    "tight budgets: ~3x SDXL seconds (check)"
+  ],
+  "inputs": {
+    "prompt": "required",
+    "negative": "none",
+    "reference": "optional",
+    "shape": "optional",
+    "sourceImage": "none",
+    "mask": "none",
+    "layer": "none"
+  },
+  "outputs": {
+    "kind": "image",
+    "alpha": true,
+    "count": 1
+  },
+  "settings": [
+    {
+      "key": "rembg",
+      "default": "on",
+      "note": "off for scenes"
+    },
+    {
+      "key": "gen_width",
+      "default": 1024,
+      "draft": 768,
+      "final": 1024,
+      "max": 2048
+    },
+    {
+      "key": "gen_height",
+      "default": 1024,
+      "draft": 768,
+      "final": 1024,
+      "max": 2048
+    },
+    {
+      "key": "redux_strength",
+      "default": 1.0,
+      "min": 0,
+      "max": 1.5,
+      "scope": "region",
+      "note": "0.3-0.8 for a fresh composition (check)"
+    },
+    {
+      "key": "flux_lora_strength",
+      "default": 0.9,
+      "min": 0,
+      "max": 1.2,
+      "scope": "region"
+    },
+    {
+      "key": "controlnet_strength",
+      "default": 0.6,
+      "min": 0.2,
+      "max": 0.9,
+      "scope": "region"
+    },
+    {
+      "key": "fit_mode",
+      "default": "",
+      "options": [
+        "",
+        "contain",
+        "cover",
+        "fill"
+      ],
+      "scope": "region"
+    }
+  ],
+  "chain": {
+    "position": "generate",
+    "follows": [],
+    "precedes": [
+      "upscale",
+      "birefnet",
+      "fx"
+    ]
+  },
+  "gpu": {
+    "secondsPerImage": {
+      "768": 18,
+      "1024": 32,
+      "1536": 75
+    },
+    "coldStart": 180,
+    "source": "guess"
+  },
+  "variants": {
+    "draft": 2,
+    "final": 1,
+    "max": 4
+  },
+  "billing": "gpu",
+  "licence": "blocked",
+  "gotchas": [
+    "FLUX.1-dev, ae and Redux licences are blocked (model-licences.md)",
+    "Redux at 1.0 reproduces the reference's subject",
+    "flux_steps and flux_guidance are global-only: not agent-settable",
+    "rembg on cuts a scene to a cut-out"
+  ]
+}

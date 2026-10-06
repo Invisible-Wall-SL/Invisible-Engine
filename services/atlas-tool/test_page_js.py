@@ -289,10 +289,24 @@ def test_no_lone_backslash_escape_survives_into_the_page() -> None:
     check("no unterminated single-quoted assignment", offenders, [])
 
 
+def test_injected_script_files_parse() -> None:
+    """The scripts injected as `.format()` VALUE slots are filled with `null` by
+    layer 2, so their own files are parsed here."""
+    for name in ("doc-guard.js", "card-editor.js"):
+        js = (SRC.parent / name).read_text(encoding="utf-8")
+        if name == "doc-guard.js":
+            js = js.replace("__IW_DOCS__", "{}").replace("__IW_ME__", "{}")
+        ok, err = node_check(js)
+        if not ok:
+            _say("       " + "\n       ".join(err.split("\n")[:10]))
+        check(f"{name} parses", ok, True)
+
+
 if __name__ == "__main__":
     tests = [test_no_escape_python_would_eat_in_any_template]
     if NODE:
-        tests += [test_every_inline_script_parses,
+        tests += [test_injected_script_files_parse,
+                  test_every_inline_script_parses,
                   test_every_other_template_script_parses,
                   test_the_harness_would_have_caught_the_real_bug,
                   test_no_lone_backslash_escape_survives_into_the_page]

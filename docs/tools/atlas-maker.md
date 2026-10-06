@@ -715,6 +715,66 @@ a model dropped on the pod's volume shows up without re-publishing the blueprint
 choice the live list lacks stays selected, marked *(not installed)*. With ComfyUI asleep, the
 list the blueprint was published with is shown.
 
+## Blueprints: cards — what agents are told about a blueprint
+
+A **card** is what a blueprint's author knows and `blueprint.json` does not: when to use it, what it
+needs, what it costs, what goes wrong ([ADR-0008](../director/DECISIONS/0008-blueprint-driven-art.md)
+§2). The Invisible Director's agents read cards, never graphs, and **only a reviewed card reaches an
+agent**: a blueprint without one is usable by people at once and invisible to agents. Nothing reads
+cards yet (the agents that will are a later card); writing them changes no render.
+
+**Where to edit one.**
+- **＋ New blueprint** has a collapsible **Card** section under the mapping. It is prefilled from the
+  graph you are mapping: the inputs from the roles you bound (a `positive` binding makes the prompt
+  required; a `style_ref` with no prompt makes it a required source image), the settings rows from
+  your exposed settings, the output kind from *Kind*. **↻ Prefill again** re-reads it after you change
+  the mapping. When the publish succeeds, a filled-in card is saved with it; if the card save fails,
+  the publish still stands and the status line says so.
+- **🗑 Manage blueprints** shows each entry's card state (**reviewed** / **draft** / **stale** /
+  **no card**) and a **✎ Card** button. The three built-in pipelines (`sdxl`, `flux`, `gpt_image`)
+  are listed there too, card-only: their cards describe the Python builders that run under those
+  ids, and they cannot be deleted.
+
+**The ✎ Card editor** shows the state, the revision, who saved it last, why it went back to draft
+(if it did), the **problems** (the card checked against the live blueprint: a setting that is not one
+of its exposed settings, a range wider than the setting's own, a required prompt on a graph with no
+prompt role, a required source image on a graph with no reference role, a kind that does not match),
+and the **history** (every earlier revision; click one to see it read-only). Fields: purpose, when to
+use / when not (one per line), the seven inputs (`required` / `optional` / `none`), outputs, settings
+(key, scope, default, range, options, note — for a built-in pipeline the keys are its per-atlas and
+per-region Settings keys, never a global-only one), chain position, variants (draft / final / max),
+GPU seconds per image by size and the cold start, billing (`gpu` / `credits`), **licence** (`ok` /
+`blocked` / `conditional`, from [model-licences](../reference/model-licences.md)) and gotchas.
+**Measured** seconds are read-only: they will be filled from billed renders by a later release; the
+figures you type are guesses and say so.
+
+**Who can do what.**
+- **Save draft** needs *Publish blueprints* (`blueprintPublish`), like publishing. Without it the
+  editor is read-only.
+- **Save and mark reviewed** needs *Merge pipeline changes* (`pipelineMerge`), the owner's capability:
+  a reviewed card changes what agents do in every later run, so the review *is* the approval of that
+  blueprint for agents. It only works when you opened the Atlas Maker from the launcher (a signed
+  launch). A card that bills comfy.org credits cannot be reviewed yet (the Director cannot count
+  credits), and neither can one with no GPU seconds.
+- **Any other save turns a reviewed card back into a draft** — an edit is a new proposal until it is
+  reviewed again.
+- **Re-publishing a blueprint turns its card back into a draft** ("blueprint re-published by … at …"),
+  and a card reviewed against an older graph shows **stale** and counts as a draft until re-reviewed.
+- Agents never write cards.
+
+**Two people on one card.** Saves are compare-and-swapped like an atlas: if someone saved the card
+after you opened it, you are asked (*Reload theirs* / *Overwrite with mine*). Each save keeps the
+previous version in the history; deleting a blueprint deletes its card and history with it.
+
+**Where cards come from.** The built-in and bundled cards ship with the tool
+(`services/atlas-tool/blueprints_src/<id>/card.json`) and are synced into the library at every start,
+never replacing a card someone has edited. The published blueprints that existed on 2026-10-06 get a
+draft card from the [catalogue draft](../director/blueprints/catalogue-draft.md) — once, only if the
+blueprint has no card and its graph is still the one the draft was written against. Every shipped
+card is a **draft**, with its guesses marked "(check)", for the owner to correct and review here.
+`GET /blueprints?kind=image` answers the reviewed cards (with each blueprint's roles, settings,
+staleness and the endpoint GPU) for the Director; `&all=1` lists every pipeline for the editor.
+
 ## Blueprints: authoring one yourself, end to end
 
 The section above describes the modal. This one is the **runbook** — the loop to

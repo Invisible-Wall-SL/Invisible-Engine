@@ -117,6 +117,19 @@ Works today on `main` / live:
 _Nothing._
 
 ## Recent changes
+- 2026-10-06 — **Blueprint cards (ADR-0008 card 8A).** A `card.json` beside each blueprint
+  (`_shared/blueprints/<id>/card.json`, previous versions in `card.history/<rev>.json`) says when to
+  use it, what it needs and costs, its licence and gotchas; `cards.py` validates it against the live
+  blueprint (or, for `sdxl`/`flux`/`gpt_image`, against `PER_ATLAS_KEYS`/`ADV_FIELDS`) and saves it
+  compare-and-swap through `iw_common/docsave.py`. Marking one **reviewed** needs `pipelineMerge`,
+  now carried in the atlas launch token's `caps` on browser launches only; any other save, and any
+  re-publish of the blueprint, returns it to draft, and a graph/map digest change makes it **stale**.
+  Editor: a Card section in ＋ New blueprint, ✎ Card in 🗑 Manage blueprints (`card-editor.js`).
+  `GET /blueprints` (reviewed only; always so for an agent token; `all=1` for the editor), `GET
+  /card`, `POST /card/save`. Bundled cards in `blueprints_src/` sync like the blueprints; the six
+  published blueprints get catalogue drafts (`card_seeds/`, `seed_cards.py`) create-only and only on
+  a matching `graphSha`. Inert: nothing consumes cards yet. `test_blueprint_cards.py`. ⏳ Owed: a
+  browser pass of the editor on the live tool, and the owner's review of the drafts.
 - 2026-10-05 — **Every still render reports its GPU time, for the Director to bill** (Director
   card 2.7, [ADR-0006](../director/DECISIONS/0006-costs-and-budgets.md)). RunPod's job status
   carries `executionTime` / `delayTime` / `workerId` but never the card, so

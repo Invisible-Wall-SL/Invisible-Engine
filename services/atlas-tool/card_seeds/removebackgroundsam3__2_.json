@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "id": "removebackgroundsam3__2_",
+  "status": "draft",
+  "rev": 1,
+  "graphSha": "def9d9e63ff6",
+  "purpose": "Cut named objects out of a source image onto alpha, by a text prompt.",
+  "whenToUse": [
+    "extract a character, logo or prop from a busy crop or frame",
+    "make a style_ref from a busy mockup",
+    "an extract step before a generate step under fidelity match (check)"
+  ],
+  "whenNotToUse": [
+    "a single subject on a plain background: birefnet (check)",
+    "hair and glow edges",
+    "when the atlas style would pollute the prompt"
+  ],
+  "inputs": {
+    "prompt": "required",
+    "negative": "none",
+    "reference": "none",
+    "shape": "none",
+    "sourceImage": "required",
+    "mask": "none",
+    "layer": "none"
+  },
+  "outputs": {
+    "kind": "image",
+    "alpha": true,
+    "count": 1,
+    "sizeRule": "source size"
+  },
+  "settings": [
+    {
+      "key": "GrowMask",
+      "default": 20,
+      "min": 0,
+      "max": 24,
+      "note": "4-12 (check)"
+    },
+    {
+      "key": "Switch",
+      "default": false,
+      "note": "true = remove the named objects instead"
+    },
+    {
+      "key": "Individualmasks",
+      "default": false
+    }
+  ],
+  "chain": {
+    "position": "extract",
+    "follows": [],
+    "precedes": [
+      "birefnet",
+      "sdxl",
+      "flux",
+      "finish"
+    ]
+  },
+  "gpu": {
+    "secondsPerImage": {
+      "1024": 6
+    },
+    "coldStart": 120,
+    "source": "guess"
+  },
+  "variants": {
+    "draft": 1,
+    "final": 1,
+    "max": 1
+  },
+  "billing": "gpu",
+  "licence": "conditional",
+  "gotchas": [
+    "positive = the detection prompt: set positive_replace or the atlas style pollutes it",
+    "hard object-mask edges",
+    "sam3.1_multiplex_fp16 licence unrecorded (check)",
+    "threshold 0.3 is baked (check)"
+  ]
+}

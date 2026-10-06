@@ -75,6 +75,7 @@
 
 	function label(id) {
 		if (id === 'atlas_config.json') return 'the shared settings';
+		if (id.indexOf('card:') === 0) return 'the card “' + id.slice(5) + '”';
 		var n = id.replace('manifests/', '').replace('atlas_manifest_', '').replace('.json', '');
 		return 'the atlas “' + n + '”';
 	}
