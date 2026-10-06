@@ -34,7 +34,7 @@ Online Spine 4.2 skeleton editor at `/rigger` (launcher-native, full-page, `rigg
 
 The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against Esoteric's; now against `engine-rig`). `.skel` binary is view-only. Offline suites live in `tools/rigger-spike/` (they extract the shipped functions from `view.html` and run them against `engine-rig`, bundled by `tools/rigger-spike/spine.mjs`).
 
-**Runtime parity gates** (`tools/rig-parity/`, not in check:all — they `npm pack` Esoteric's 4.2.120 runtime into a temp dir as a black-box oracle, never a repo dependency): `parity.mjs` (loaded data, poses, AnimationState, events — every repo rig plus Esoteric's 20 examples as `.json` and `.skel`), `fuzz.mjs` (generated rigs), `render.mjs` (Pixi pixels in Chromium) and `render-webgl.mjs` (the static tools' renderer). Run them on any `engine-rig` change.
+**Runtime parity gates** (`tools/rig-parity/`, not in check:all — they `npm pack` Esoteric's 4.2.120 runtime into a temp dir as a black-box oracle, never a repo dependency): `parity.mjs` (loaded data, poses, AnimationState, events — every repo rig plus Esoteric's 20 examples as `.json` and `.skel`), `fuzz.mjs` (generated rigs), `render.mjs` (Pixi pixels in Chromium; `--slot-objects` also attaches a marker to every other slot) and `render-webgl.mjs` (the static tools' renderer). Run them on any `engine-rig` change.
 
 ## Open items / next
 
@@ -90,7 +90,16 @@ Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger
   block is gone. Parity against Esoteric's 4.2.120 runtime (`tools/rig-parity/`), 0 failures: data,
   poses and state on all 153 repo rigs (~80k checks) and Esoteric's 20 examples as JSON and `.skel`;
   600 fuzzed rigs; Pixi pixels on 138 repo + 112 example frames (worst 0.00%); WebGL pixels on 276
-  repo + 224 example frames (≤ 0.05%). One deliberate viewer change: the Rigger and `/spine` used to
+  repo + 224 example frames (≤ 0.05%). The first current-games run caught slot objects (the
+  counters and win text the game attaches with `addSlotObject`) drawn under their slot's art, never
+  faded with the slot and placed without shear; `RigView` now follows spine-pixi-v8 4.2.120 there
+  too (full bone matrix, slot alpha, drawn after the slot's attachment, clipping masks, placed on
+  update). It also measures like `Spine`: `bounds` is the bounding-box attachments' box when one
+  shows, else every region and mesh unclipped and whatever its alpha, and Pixi's `getLocalBounds`
+  / `width` / hit-testing read that rather than the slot meshes. `render.mjs` now checks `bounds`
+  and `getLocalBounds()` on every frame too, and with `--slot-objects` holds everything at 0.00% on
+  every repo and example frame (the old view failed 67 frames and 51 bounds checks). One
+  deliberate viewer change: the Rigger and `/spine` used to
   pick `spine-webgl-4.1` for a 4.1 export, and now read it as the game always has (4.2 semantics).
   Only `apps/price/…/symbolsSpecial` notices — its 4.1-only bone `transform` (`onlyTranslation` /
   `noScale`) is ignored, exactly as in the game.

@@ -1,6 +1,6 @@
 // Browser side of render.mjs. Bundled twice: once against the reference Pixi runtime (RUNTIME=ref)
 // and once against engine-rig/pixi (RUNTIME=rig). Exposes window.renderPose → base64 RGBA pixels.
-import { Application, Assets, Rectangle } from 'pixi.js';
+import { Application, Assets, Graphics, Rectangle } from 'pixi.js';
 import * as R from 'RUNTIME';
 
 declare const RUNTIME_NAME: string;
@@ -12,6 +12,8 @@ interface Pose {
 	time: number;
 	size: number;
 	skin?: string;
+	/** Attach a marker shape to every other slot, as the game attaches text, effects and clips. */
+	slotObjects?: boolean;
 }
 
 let app: Application | null = null;
@@ -43,7 +45,21 @@ function toBase64(bytes: Uint8Array | Uint8ClampedArray): string {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const RT = R as any;
 
-(window as unknown as { renderPose: (p: Pose) => Promise<string> }).renderPose = async (
+interface Frame {
+	pixels: string;
+	/** `view.bounds` and Pixi's `getLocalBounds()`, as [minX, minY, maxX, maxY]. */
+	bounds: number[];
+	local: number[];
+}
+
+const box = (b: { minX: number; minY: number; maxX: number; maxY: number }): number[] => [
+	b.minX,
+	b.minY,
+	b.maxX,
+	b.maxY,
+];
+
+(window as unknown as { renderPose: (p: Pose) => Promise<Frame> }).renderPose = async (
 	pose: Pose,
 ) => {
 	const a = await ensureApp(pose.size);
@@ -60,9 +76,25 @@ const RT = R as any;
 		view.skeleton.setSkinByName(pose.skin);
 		view.skeleton.setSlotsToSetupPose();
 	}
+	if (pose.slotObjects) {
+		view.skeleton.slots.forEach((slot: { data: { index: number } }, i: number) => {
+			if (i % 2) return;
+			// An L, so a flip, a turn or a shear of the bone shows.
+			const marker = new Graphics()
+				.rect(0, 0, 40, 10)
+				.rect(0, 0, 10, 30)
+				.fill((i * 0x3a5f1d) & 0xffffff);
+			view.addSlotObject(slot, marker, {
+				followSlotColor: i % 4 === 0,
+				followAttachmentTimeline: i % 8 === 0,
+			});
+		});
+	}
 	if (pose.animation) view.state.setAnimation(0, pose.animation, true);
 	view.update(pose.time);
 	view.update(0);
+	const bounds = box(view.bounds);
+	const local = box(view.getLocalBounds());
 	// Fit the authored box (identical in both runtimes) into the canvas.
 	const w = data.width || 400;
 	const h = data.height || 400;
@@ -80,6 +112,6 @@ const RT = R as any;
 	});
 	a.stage.removeChildren();
 	view.destroy();
-	return toBase64(out.pixels);
+	return { pixels: toBase64(out.pixels), bounds, local };
 };
 (window as unknown as { ready: boolean }).ready = true;

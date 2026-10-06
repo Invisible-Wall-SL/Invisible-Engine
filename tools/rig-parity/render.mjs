@@ -2,6 +2,10 @@
 // Chromium (WebGL via SwiftShader) and pixel-diffs the frames.
 //
 //   node tools/rig-parity/render.mjs [--filter <substring>] [--dir <folder>] [--size 256] [--max 0.5]
+//                                    [--slot-objects]
+//
+// --slot-objects attaches a marker shape to every other slot (`addSlotObject`), so the frames also
+// cover where, how faded and in what order attached containers draw.
 //
 // Each rig is drawn at its authored box, for up to three animations at two times. A frame passes
 // when at most --max percent of its pixels differ beyond pixelmatch's default threshold.
@@ -22,6 +26,7 @@ const dir = resolve(arg('--dir', ROOT));
 const SIZE = Number(arg('--size', 256));
 const MAX = Number(arg('--max', 0.5));
 const dumpDir = arg('--dump', null);
+const slotObjects = args.includes('--slot-objects');
 
 const pixelmatch = (await import('pixelmatch')).default;
 const { PNG } = await import('pngjs');
@@ -82,7 +87,9 @@ async function renderAll(name, cases) {
 	const out = [];
 	for (const c of cases) {
 		try {
-			out.push(await browser.evaluate(`renderPose(${JSON.stringify({ ...c, size: SIZE })})`));
+			out.push(
+				await browser.evaluate(`renderPose(${JSON.stringify({ ...c, size: SIZE, slotObjects })})`),
+			);
 		} catch (e) {
 			out.push({ error: String(e.message ?? e) });
 		}
@@ -112,17 +119,28 @@ let worst = 0;
 for (let i = 0; i < cases.length; i++) {
 	const c = cases[i];
 	const label = `${c.rig} :: ${c.animation ?? 'setup'} @${c.time}`;
-	if (typeof refFrames[i] !== 'string') {
+	if (typeof refFrames[i]?.pixels !== 'string') {
 		console.log(`skip ${label}: reference failed (${refFrames[i]?.error})`);
 		continue;
 	}
-	if (typeof rigFrames[i] !== 'string') {
+	if (typeof rigFrames[i]?.pixels !== 'string') {
 		failures++;
 		console.log(`✗ ${label}: ${rigFrames[i]?.error}`);
 		continue;
 	}
-	const a = Buffer.from(refFrames[i], 'base64');
-	const b = Buffer.from(rigFrames[i], 'base64');
+	for (const key of ['bounds', 'local']) {
+		const want = refFrames[i][key];
+		const got = rigFrames[i][key];
+		const off = want.some(
+			(v, k) => !(v === got[k] || Math.abs(v - got[k]) <= 1e-3 * Math.max(1, Math.abs(v))),
+		);
+		if (off) {
+			failures++;
+			console.log(`✗ ${label}: ${key} ${JSON.stringify(got)} ≠ ${JSON.stringify(want)}`);
+		}
+	}
+	const a = Buffer.from(refFrames[i].pixels, 'base64');
+	const b = Buffer.from(rigFrames[i].pixels, 'base64');
 	if (coverage(a) === 0) empty++;
 	if (args.includes('--save') && i % 9 === 0 && dumpDir) {
 		const png = new PNG({ width: SIZE, height: SIZE });

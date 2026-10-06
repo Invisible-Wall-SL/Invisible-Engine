@@ -1,6 +1,8 @@
 import {
 	Bounds,
 	Container,
+	Graphics,
+	Matrix,
 	Mesh,
 	MeshGeometry,
 	Ticker,
@@ -11,7 +13,12 @@ import {
 	type Texture,
 } from 'pixi.js';
 import { AnimationState, AnimationStateData } from '../animationState';
-import { ClippingAttachment, MeshAttachment, RegionAttachment } from '../attachments';
+import {
+	BoundingBoxAttachment,
+	ClippingAttachment,
+	MeshAttachment,
+	RegionAttachment,
+} from '../attachments';
 import { BlendMode, type SkeletonData } from '../data';
 import { SkeletonClipping } from '../clipping';
 import { Physics } from '../physics';
@@ -38,6 +45,14 @@ interface SlotObject {
 	followSlotColor: boolean;
 }
 
+/** The mask a clipping slot puts on the slot objects it clips. */
+interface ClipMask {
+	slot: Slot;
+	mask: Graphics | null;
+	computed: boolean;
+	vertices: number[];
+}
+
 interface SlotMesh {
 	mesh: Mesh;
 	/** The two-color shader, for a slot drawn with a dark color. */
@@ -56,6 +71,7 @@ const BLEND: Record<BlendMode, 'normal' | 'add' | 'multiply' | 'screen'> = {
 };
 
 const channel = (v: number): number => Math.round(Math.max(0, Math.min(1, v)) * 255);
+const slotObjectMatrix = new Matrix();
 
 /** A skeleton drawn by Pixi: one mesh per visible slot, in draw order, with any slot objects placed
  * at their slot's depth. Coordinates inside are skeleton coordinates (y down). */
@@ -69,9 +85,17 @@ export class RigView extends Container {
 
 	private slotMeshes: Array<SlotMesh | undefined> = [];
 	private slotObjects = new Map<Slot, SlotObject>();
+	private clipMasks = new Map<Slot, ClipMask>();
 	private clipper = new SkeletonClipping();
 	private scratch: number[] = [];
 	private drawn: Container[] = [];
+	/** Carries `bounds` into Pixi's measuring, which reads a plain container's children: drawn never,
+	 * measured always, so the view measures like spine-pixi's `Spine` (its bounds plus its slot
+	 * objects) rather than by its clipped, alpha-culled slot meshes. */
+	private measure = new Graphics();
+	private measured = new Bounds();
+	private measuredKey = '';
+	private boundsScratch = new Float32Array(8);
 	private darkTint: boolean;
 	private _autoUpdate = false;
 	private neverUpdated = true;
@@ -92,6 +116,9 @@ export class RigView extends Container {
 		// Pose the setup skeleton so it can draw before the first update, without starting physics:
 		// the simulation begins at the first `update`, from the pose its animations give.
 		this.skeleton.updateWorldTransform(Physics.none);
+		this.measure.renderable = false;
+		this.measure.eventMode = 'none';
+		this.addChild(this.measure);
 		this.onRender = () => this.syncDisplay();
 		this.syncDisplay();
 	}
@@ -134,19 +161,88 @@ export class RigView extends Container {
 		this.beforeUpdateWorldTransforms(this);
 		skeleton.updateWorldTransform(Physics.update);
 		this.afterUpdateWorldTransforms(this);
+		this.updateSlotObjects();
 		this.syncDisplay();
 	}
 
-	/** Bounds of the current pose, in this container's local space. */
+	/** Bounds of the current pose, in this container's local space: the bounding-box attachments'
+	 * box when any is showing, else every region and mesh, unclipped and whatever its alpha (as
+	 * spine-pixi measures). Empty when there is nothing to measure. */
 	get bounds(): Bounds {
-		// Asked before any update: apply what is queued at time 0 first, so the bounds are those of
-		// the pose the first frame will show.
-		if (this.neverUpdated) this.internalUpdate(0);
-		const offset = new Vector2();
-		const size = new Vector2();
-		this.skeleton.getBounds(offset, size, this.scratch, this.clipper);
-		if (!Number.isFinite(offset.x)) return new Bounds(0, 0, 0, 0);
-		return new Bounds(offset.x, offset.y, offset.x + size.x, offset.y + size.y);
+		const bounds = new Bounds();
+		if (!this.boundingBoxBounds(bounds)) {
+			// Asked before any update: apply what is queued at time 0 first, so the bounds are
+			// those of the pose the first frame will show.
+			if (this.neverUpdated) this.internalUpdate(0);
+			this.attachmentBounds(bounds);
+		}
+		return bounds;
+	}
+
+	/** Hit-tests the bounds rectangle, as a Pixi view does. */
+	containsPoint(point: PointData): boolean {
+		const b = this.bounds;
+		return point.x >= b.minX && point.x <= b.maxX && point.y >= b.minY && point.y <= b.maxY;
+	}
+
+	private boundingBoxBounds(out: Bounds): boolean {
+		out.clear();
+		let found = false;
+		for (const slot of this.skeleton.slots) {
+			if (!slot.bone.active) continue;
+			const attachment = slot.getAttachment();
+			if (!(attachment instanceof BoundingBoxAttachment)) continue;
+			found = true;
+			const length = attachment.worldVerticesLength;
+			const vertices = this.verticesScratch(length);
+			attachment.computeWorldVertices(slot, 0, length, vertices, 0, 2);
+			for (let i = 0; i < length; i += 2) {
+				out.minX = Math.min(out.minX, vertices[i]);
+				out.minY = Math.min(out.minY, vertices[i + 1]);
+				out.maxX = Math.max(out.maxX, vertices[i]);
+				out.maxY = Math.max(out.maxY, vertices[i + 1]);
+			}
+		}
+		return found;
+	}
+
+	private attachmentBounds(out: Bounds): void {
+		out.clear();
+		for (const slot of this.skeleton.drawOrder) {
+			const attachment = slot.getAttachment();
+			if (attachment instanceof RegionAttachment) {
+				const vertices = this.verticesScratch(8);
+				attachment.computeWorldVertices(slot, vertices, 0, 2);
+				out.addVertexData(vertices, 0, 8);
+			} else if (attachment instanceof MeshAttachment) {
+				const length = attachment.worldVerticesLength;
+				const vertices = this.verticesScratch(length);
+				attachment.computeWorldVertices(slot, 0, length, vertices, 0, 2);
+				out.addVertexData(vertices, 0, length);
+			}
+		}
+	}
+
+	private verticesScratch(length: number): Float32Array {
+		if (this.boundsScratch.length < length) this.boundsScratch = new Float32Array(length);
+		return this.boundsScratch;
+	}
+
+	/** Keeps the measuring proxy on the current bounds. */
+	private syncMeasure(): void {
+		const b = this.measured;
+		if (!this.boundingBoxBounds(b)) this.attachmentBounds(b);
+		const measure = this.measure;
+		const empty = !(b.maxX >= b.minX && b.maxY >= b.minY);
+		measure.visible = !empty;
+		if (empty) return;
+		const key = `${b.minX},${b.minY},${b.maxX},${b.maxY}`;
+		if (this.measuredKey === key) return;
+		this.measuredKey = key;
+		measure
+			.clear()
+			.rect(b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY)
+			.fill(0xffffff);
 	}
 
 	/** World position of a bone, in this container's local space. */
@@ -210,12 +306,14 @@ export class RigView extends Container {
 		this.removeSlotObject(container);
 		const previous = this.slotObjects.get(s);
 		if (previous) this.removeSlotObject(previous.container);
-		this.slotObjects.set(s, {
+		const entry: SlotObject = {
 			slot: s,
 			container,
 			followAttachmentTimeline: options.followAttachmentTimeline ?? false,
 			followSlotColor: options.followSlotColor ?? false,
-		});
+		};
+		this.slotObjects.set(s, entry);
+		this.placeSlotObject(entry);
 		this.syncDisplay();
 	}
 
@@ -227,6 +325,7 @@ export class RigView extends Container {
 					: slot === this.resolveSlot(slotOrContainer);
 			if (!match) continue;
 			this.slotObjects.delete(slot);
+			entry.container.mask = null;
 			if (entry.container.parent === this) this.removeChild(entry.container);
 			this.drawn = this.drawn.filter((c) => c !== entry.container);
 			return;
@@ -241,26 +340,55 @@ export class RigView extends Container {
 		return this.slotObjects.get(this.resolveSlot(slot))?.container;
 	}
 
+	/** Places each slot object on its bone. Runs on `update` and when an object is added, so a
+	 * container's own transform, alpha and visibility hold between updates. */
+	private updateSlotObjects(): void {
+		for (const entry of this.slotObjects.values()) this.placeSlotObject(entry);
+	}
+
 	private placeSlotObject(entry: SlotObject): void {
 		const { slot, container } = entry;
+		const skeletonColor = this.skeleton.color;
+		const slotAlpha = skeletonColor.a * slot.color.a;
+		container.visible =
+			this.skeleton.drawOrder.includes(slot) &&
+			(!entry.followAttachmentTimeline || !!slot.attachment) &&
+			this.alpha > 0 &&
+			slotAlpha > 0;
+		if (!container.visible) return;
 		const bone = slot.bone;
-		container.position.set(bone.worldX, bone.worldY);
-		let sx = 1;
-		let sy = 1;
-		for (let b: Bone | null = bone; b; b = b.parent) {
-			sx *= b.scaleX;
-			sy *= b.scaleY;
-		}
-		container.angle = bone.getWorldRotationX() - (sx < 0 ? 180 : 0);
-		container.scale.set(
-			bone.getWorldScaleX() * Math.sign(sx || 1),
-			bone.getWorldScaleY() * Math.sign(sy || 1),
+		container.setFromMatrix(
+			slotObjectMatrix.set(bone.a, bone.c, -bone.b, -bone.d, bone.worldX, bone.worldY),
 		);
-		container.visible = bone.active && (!entry.followAttachmentTimeline || !!slot.attachment);
+		container.alpha = slotAlpha;
 		if (entry.followSlotColor) {
 			const c = slot.color;
-			container.tint = (channel(c.r) << 16) | (channel(c.g) << 8) | channel(c.b);
-			container.alpha = c.a * this.skeleton.color.a;
+			container.tint =
+				((255 * skeletonColor.r * c.r) << 16) |
+				((255 * skeletonColor.g * c.g) << 8) |
+				(255 * skeletonColor.b * c.b);
+		}
+	}
+
+	/** Masks a slot object that sits inside a clipping range with that clipping polygon. */
+	private maskSlotObject(slot: Slot, current: ClipMask | null): void {
+		const object = this.slotObjects.get(slot);
+		if (current && object) {
+			if (!current.mask) {
+				current.mask = new Graphics();
+				this.addChild(current.mask);
+			}
+			if (!current.computed) {
+				current.computed = true;
+				const clip = current.slot.attachment as ClippingAttachment;
+				const length = clip.worldVerticesLength;
+				current.vertices.length = length;
+				clip.computeWorldVertices(current.slot, 0, length, current.vertices, 0, 2);
+				current.mask.clear().poly(current.vertices).stroke({ width: 0 }).fill({ alpha: 0.25 });
+			}
+			object.container.mask = current.mask;
+		} else if (object?.container.mask) {
+			object.container.mask = null;
 		}
 	}
 
@@ -271,20 +399,22 @@ export class RigView extends Container {
 		const clipper = this.clipper;
 		const order: Container[] = [];
 		const used = new Set<number>();
+		let clipping: ClipMask | null = null;
+		for (const clip of this.clipMasks.values()) clip.computed = false;
 		for (const slot of skeleton.drawOrder) {
-			const object = this.slotObjects.get(slot);
-			if (object) {
-				this.placeSlotObject(object);
-				order.push(object.container);
-			}
 			const attachment = slot.getAttachment();
-			if (!slot.bone.active) {
-				clipper.clipEndWithSlot(slot);
-				continue;
-			}
 			if (attachment instanceof ClippingAttachment) {
-				clipper.clipStart(slot, attachment);
-				continue;
+				let clip = this.clipMasks.get(slot);
+				if (!clip) {
+					clip = { slot, mask: null, computed: false, vertices: [] };
+					this.clipMasks.set(slot, clip);
+				}
+				clipping = clip;
+			} else {
+				this.maskSlotObject(slot, clipping);
+				if (clipping && (clipping.slot.attachment as ClippingAttachment).endSlot === slot.data) {
+					clipping = null;
+				}
 			}
 			if (attachment instanceof RegionAttachment || attachment instanceof MeshAttachment) {
 				const shown = this.drawAttachment(slot, attachment);
@@ -293,13 +423,26 @@ export class RigView extends Container {
 					used.add(slot.data.index);
 				}
 			}
+			const object = this.slotObjects.get(slot);
+			if (object) order.push(object.container);
+			if (attachment instanceof ClippingAttachment) {
+				clipper.clipStart(slot, attachment);
+				continue;
+			}
 			clipper.clipEndWithSlot(slot);
 		}
 		clipper.clipEnd();
+		for (const [slot, clip] of this.clipMasks) {
+			if ((slot.attachment instanceof ClippingAttachment && clip.computed) || !clip.mask) continue;
+			this.removeChild(clip.mask);
+			clip.mask.destroy();
+			clip.mask = null;
+		}
 		this.slotMeshes.forEach((m, i) => {
 			if (m && !used.has(i)) m.mesh.visible = false;
 		});
 		this.restoreOrder(order);
+		this.syncMeasure();
 	}
 
 	private restoreOrder(order: Container[]): void {
@@ -390,6 +533,8 @@ export class RigView extends Container {
 		const mesh = darkShader
 			? new Mesh({ geometry, texture, shader: darkShader })
 			: new Mesh({ geometry, texture });
+		mesh.measurable = false;
+		mesh.eventMode = 'none';
 		const entry: SlotMesh = {
 			mesh: mesh as unknown as Mesh,
 			darkShader,
@@ -441,6 +586,7 @@ export class RigView extends Container {
 		this.removeSlotObjects();
 		for (const m of this.slotMeshes) m?.mesh.destroy();
 		this.slotMeshes = [];
+		this.measure.destroy();
 		this.state.clearListeners();
 		this.state.clearTracks();
 		super.destroy(options);
