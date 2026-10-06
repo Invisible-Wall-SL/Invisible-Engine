@@ -1070,7 +1070,8 @@ undocumented, so the plan does not rely on it.
    Railway, so either can be revoked alone). The App already has Commit statuses **write**; the
    verdict mints its token with `permission-statuses: write` only.
 3. **Check it worked:** the next PR's `current-games` status shows the App's avatar and the verdict
-   run's log says "posting as the GitHub App". Until then it says it posted as GitHub Actions.
+   run ("Current games verdict") ran its "Mint the App's token" step with no "no GitHub App secrets"
+   warning. Until then the status shows GitHub Actions and the run carries that warning.
 4. **Pin the check** — add `current-games` to the ruleset's `required_status_checks` with the App's id
    (GitHub → Settings → Rules → Rulesets → `main` → Require status checks → `current-games` → source:
    the App; or in the call above add
