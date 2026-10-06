@@ -87,7 +87,13 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   lists (`reportImagePaths`), so `report.json`, `index.html` and any traversal are 404s; the
   ready report state now carries `images: {artifactId, sizeInBytes, expiresAt} | null` (null once
   the full artifact expired while the report-only one still reads) and `?artifact=` pins the
-  answer to that artifact (409 once a re-run replaced it, cacheable 3 days when given).
+  answer to that artifact (409 once a re-run replaced it, cacheable 3 days when given). A branch
+  controls the artifact's bytes, so a streamed entry is cut off past the smaller of what it
+  declares and 32 MB, a whole-archive answer is bounded by its `content-length` and its bytes,
+  ZIP64 is refused, and every link the page renders passes `safeHref()` (GitHub pages only). The
+  central directory is cached per artifact (the report's own images alone) and read once for a
+  cold detail; the walk from a change to its images is single-flighted with a 30 s TTL and redone
+  at once for an artifact id it does not know, so a re-run's new images never 409 behind the cache.
   `$lib/server/zip.ts` gained the range helpers (`locateCentralDirectory`,
   `parseCentralDirectory`, `localDataOffset`). Fixture: `check:pipeline-changes` (987 checks: the
   route, the ranges, the whitelist, the expired-images state, the no-range fallback, a central

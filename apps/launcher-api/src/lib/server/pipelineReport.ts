@@ -1,5 +1,6 @@
 import { Readable, Transform, pipeline } from 'node:stream';
 import { createInflateRaw } from 'node:zlib';
+import { createSingleFlight } from './concurrency';
 import type { GithubApp } from './githubApp';
 import {
 	LOCAL_HEADER_BYTES,
@@ -406,12 +407,6 @@ async function fetchRange(
 	throw new Error(`GitHub ${res.status} downloading the report artifact`);
 }
 
-/**
- * One file of the full report artifact (`current-games-report`), by byte range so the archive is
- * never held: its tail for the central directory, then the entry alone, inflated as it streams.
- * `null` when the archive has no such file. A blob store that ignores the range and answers with
- * the whole archive is read whole only while the archive is small; a large one is refused.
- */
 interface Directory {
 	/** The archive's size as the blob store reports it (the listed size can be wrong). */
 	size: number;
@@ -419,6 +414,8 @@ interface Directory {
 }
 
 const directories = new Map<number, Directory>();
+/** A detail opens every image at once: the first read of an artifact's directory is shared. */
+const directoryFlight = createSingleFlight();
 
 /** The whole archive, when the blob store ignored a byte range. */
 type DirectoryAnswer = { kind: 'directory'; directory: Directory } | { kind: 'whole'; zip: Buffer };
@@ -426,15 +423,30 @@ type DirectoryAnswer = { kind: 'directory'; directory: Directory } | { kind: 'wh
 /**
  * The archive's central directory, read once per artifact: the tail first, then the directory's
  * own range when it is past the tail. An artifact never changes, so the directory is cached by
- * its id and every later image costs one range read.
+ * its id — only the entries in `keep`, the report's own images, when given — and every later
+ * image costs one range read.
  */
-async function readDirectory(
+function readDirectory(
 	app: GithubApp,
 	path: string,
 	images: ReportImages,
+	keep?: Set<string>,
 ): Promise<DirectoryAnswer> {
 	const cached = directories.get(images.artifactId);
-	if (cached) return { kind: 'directory', directory: cached };
+	if (cached) return Promise.resolve({ kind: 'directory', directory: cached });
+	return directoryFlight(String(images.artifactId), async () => {
+		const landed = directories.get(images.artifactId);
+		if (landed) return { kind: 'directory', directory: landed };
+		return fetchDirectory(app, path, images, keep);
+	});
+}
+
+async function fetchDirectory(
+	app: GithubApp,
+	path: string,
+	images: ReportImages,
+	keep?: Set<string>,
+): Promise<DirectoryAnswer> {
 	let size = images.sizeInBytes;
 	let tail = await fetchRange(app, path, Math.max(0, size - TAIL_BYTES), Math.max(0, size - 1));
 	// The listed size can disagree with the blob (a re-upload, a rounding): the blob's own total,
@@ -448,21 +460,22 @@ async function readDirectory(
 	const tailStart = size - tail.bytes.length;
 	const cd = locateCentralDirectory(tail.bytes, tailStart);
 	let entries: ZipEntry[] = [];
-	if (cd.count === 0 || cd.size === 0) {
-		entries = [];
-	} else if (cd.offset >= tailStart) {
-		entries = parseCentralDirectory(
-			tail.bytes.subarray(cd.offset - tailStart, cd.offset - tailStart + cd.size),
-			cd.count,
-		);
-	} else {
-		if (cd.size > MAX_CENTRAL_DIRECTORY_BYTES) {
-			throw new Error('the report artifact lists more files than a report holds');
+	if (cd.count > 0 && cd.size > 0) {
+		if (cd.offset >= tailStart) {
+			entries = parseCentralDirectory(
+				tail.bytes.subarray(cd.offset - tailStart, cd.offset - tailStart + cd.size),
+				cd.count,
+			);
+		} else {
+			if (cd.size > MAX_CENTRAL_DIRECTORY_BYTES) {
+				throw new Error('the report artifact lists more files than a report holds');
+			}
+			const answer = await fetchRange(app, path, cd.offset, cd.offset + cd.size - 1);
+			if (answer.kind !== 'range') throw new Error('the report artifact answers no byte range');
+			entries = parseCentralDirectory(answer.bytes, cd.count);
 		}
-		const answer = await fetchRange(app, path, cd.offset, cd.offset + cd.size - 1);
-		if (answer.kind !== 'range') throw new Error('the report artifact answers no byte range');
-		entries = parseCentralDirectory(answer.bytes, cd.count);
 	}
+	if (keep) entries = entries.filter((e) => keep.has(e.name));
 	const directory = { size, entries };
 	if (directories.size >= DIRECTORY_CACHE_SIZE) {
 		directories.delete(directories.keys().next().value as number);
@@ -483,9 +496,10 @@ export async function openReportEntry(
 	repo: string,
 	images: ReportImages,
 	name: string,
+	keep?: Set<string>,
 ): Promise<ReadableStream<Uint8Array> | null> {
 	const path = `/repos/${repo}/actions/artifacts/${images.artifactId}/zip`;
-	const answer = await readDirectory(app, path, images);
+	const answer = await readDirectory(app, path, images, keep);
 	if (answer.kind === 'whole') return wholeArchiveEntry(answer.zip, name);
 	const { size, entries } = answer.directory;
 	const entry = entries.find((e) => e.name === name);

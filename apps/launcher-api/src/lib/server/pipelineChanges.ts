@@ -705,7 +705,14 @@ export async function getReportEntry(
 	input: { number: number; path: string; artifact: number | null },
 	app: GithubApp = githubApp,
 ): Promise<ReportEntry> {
-	const report = await reportImagesOf(input.number, app);
+	let report = await reportImagesOf(input.number, app);
+	// The detail hands out a new artifact id the moment a push or a re-run lands; the walk cached
+	// here may still name the old one for a while, so a mismatch is looked up again, once, before
+	// it is called a replaced artifact.
+	if (input.artifact !== null && input.artifact !== report.images?.artifactId) {
+		imagesCache.delete(input.number);
+		report = await reportImagesOf(input.number, app);
+	}
 	if (!report.paths.has(input.path)) {
 		throw error(404, 'The report has no such image.');
 	}
@@ -720,7 +727,7 @@ export async function getReportEntry(
 	}
 	let body: ReadableStream<Uint8Array> | null;
 	try {
-		body = await openReportEntry(app, repo(), report.images, input.path);
+		body = await openReportEntry(app, repo(), report.images, input.path, report.paths);
 	} catch (err) {
 		if (err instanceof GithubAppError) throw err;
 		throw error(

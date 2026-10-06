@@ -1862,6 +1862,45 @@ check('a fork is not a change', (await detail(ADMIN, '24')).status, 404);
 	);
 }
 {
+	// A re-run replaces #35's artifacts under the same head: the detail names the new one at once,
+	// and an image asked for by the new id is served without waiting the cache out.
+	const [, NEW_35] = artifact(sha(35), REPORT_35);
+	const d = (await detail(ADMIN, '35')).body as { harness: Json };
+	const report = d.harness.report as Json & { images: Json };
+	check('#35: the detail names the re-run’s artifact', report.images.artifactId, NEW_35);
+	const diffs = d.harness.diffs as (Json & { images: Record<string, string> })[];
+	const fresh = await image(TESTER, '35', diffs[0].images.before, `?artifact=${NEW_35}`);
+	check(
+		'#35: the new id is served at once — the cached walk is dropped and redone',
+		[fresh.status, fresh.bytes.toString()],
+		[200, `PNG before ${diffs[0].images.before}`],
+	);
+	const stale = await image(TESTER, '35', diffs[0].images.before, `?artifact=${FULL_35}`);
+	check('#35: …and the old id is now the replaced one', stale.status, 409);
+}
+{
+	// A cold detail opens every image at once: the artifact's directory is read once for all.
+	const shared = zipOf({ 'screens/a.png': 'A', 'screens/b.png': 'B', 'screens/c.png': 'C' }, [
+		'screens/b.png',
+	]);
+	gh.zips.set(8004, shared);
+	const images = { artifactId: 8004, sizeInBytes: shared.length, expiresAt: null };
+	const from = gh.ranges.length;
+	const bodies = await Promise.all(
+		['screens/a.png', 'screens/b.png', 'screens/c.png'].map(async (name) =>
+			Buffer.from(
+				await new Response(await openReportEntry(githubApp, REPO, images, name)).arrayBuffer(),
+			).toString(),
+		),
+	);
+	check('three images at once all read', bodies, ['A', 'B', 'C']);
+	check(
+		'…with one tail read between them, then one range each',
+		gh.ranges.slice(from).filter((r) => r.id === 8004).length,
+		4,
+	);
+}
+{
 	// What a branch could put in its artifact: an entry that inflates past what it declares, one
 	// that declares more than any screen, a ZIP64 archive, an empty one.
 	const threw = async (fn: () => Promise<unknown>): Promise<string> => {
