@@ -139,7 +139,7 @@ export function parseAgent(file: string, text: string, catalog: AgentCatalog): P
 
 	const model = string('model');
 	if (model && !catalog.models.has(model)) {
-		errors.push(`model: ${model} is not in pricing.json`);
+		errors.push(`model: ${model} is not a model an agent may run`);
 	}
 
 	let effort: Effort | null = null;

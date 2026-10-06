@@ -553,6 +553,11 @@ const toChangeFiles = (files: GhFile[]): ChangeFile[] =>
 let listCache: { at: number; list: ChangeList } | null = null;
 const listFlight = createSingleFlight();
 
+/** After a write the next list is read fresh: an approval, an agent-definition change opened. */
+export function dropListCache(): void {
+	listCache = null;
+}
+
 /** Every open PR into `main`, bar Director games; Dependabot's apart. */
 export function listChanges(app: GithubApp = githubApp): Promise<ChangeList> {
 	if (listCache && Date.now() - listCache.at < LIST_TTL_MS) return Promise.resolve(listCache.list);
@@ -634,8 +639,17 @@ export async function getChange(number: number, app: GithubApp = githubApp): Pro
 			: unapprovableReason(report, diffs);
 	const standing = await standingOf(approvals);
 	const counted = countApprovals(diffs, approvals, standing);
+	const summary = summaryOf(pull, head);
+	// The list judges an agent-definition change by its `agent-eval` status alone; the detail has
+	// read the report, which is the fuller word: a capped or foreign report blocks whatever the
+	// status says (the status is anyone's to post).
+	const changeStatus: ChangeStatus =
+		agentEval?.blocking && summary.status.kind !== 'blocked'
+			? { kind: 'blocked', reason: `${EVAL_CONTEXT}: ${agentEval.blocking}` }
+			: summary.status;
 	return {
-		...summaryOf(pull, head),
+		...summary,
+		status: changeStatus,
 		state: pull.state,
 		body: pull.body,
 		why: whyFromBody(pull.body),
@@ -865,7 +879,7 @@ export async function approveDiff(
 			approver: approverName(input.user),
 			note: input.note,
 		});
-		listCache = null;
+		dropListCache();
 		const ids = new Set(harness.diffs.map((d) => d.id));
 		const recorded = (await listApprovals(sha)).filter((a) => ids.has(a.diffId));
 		const standing = await standingOf(recorded);

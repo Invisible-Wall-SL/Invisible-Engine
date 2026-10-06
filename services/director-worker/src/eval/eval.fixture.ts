@@ -927,7 +927,7 @@ console.log('runner: an edit the loader refuses');
 	await refused(
 		'a model pricing.json does not price',
 		{ afterText: unpriced },
-		(e) => json(e) === json(['model: nope is not in pricing.json']),
+		(e) => json(e) === json(['model: nope is not a model an agent may run']),
 	);
 	const twice = withModel(analystText, 'nope').replace('tools:\n', 'tools:\n  - nope.op\n');
 	await refused(

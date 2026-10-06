@@ -19,6 +19,7 @@ import { AGENT_FILE } from './pipelineAgentEval';
 import {
 	AGENT_DEFINITION_LABEL,
 	approverName,
+	dropListCache,
 	listAgentDefinitionChanges,
 	type ChangeStatus,
 } from './pipelineChanges';
@@ -168,7 +169,7 @@ export function changeBody(name: string, why: string, user: string): string {
 	return [
 		`**Why:** ${why}`,
 		'',
-		`Edits \`${agentPath(name)}\` and nothing else. Opened from Invisible Pipeline Changes by ${user}, as the launcher's GitHub App; the \`agent-eval\` check runs the edited definition and main's on the reference set before this merges (ADR-0007).`,
+		`Edits \`${agentPath(name)}\` and nothing else. Opened from Invisible Pipeline Changes by \`${user}\`, as the launcher's GitHub App; the \`agent-eval\` check runs the edited definition and main's on the reference set before this merges (ADR-0007).`,
 	].join('\n');
 }
 
@@ -384,9 +385,14 @@ export async function openAgentChange(
 	const path = agentPath(name);
 	const branch = branchFor(name, input.requestId);
 	const proposed = blobSha(text);
-	const author = approverName(input.user);
+	// One line, no backticks: the name goes into a commit message and, quoted, into the PR body,
+	// where a bare `@name` would page someone.
+	const author =
+		approverName(input.user)
+			.replace(/[`\s]+/g, ' ')
+			.trim() || 'a launcher user';
 
-	return opening(name, async () => {
+	const result = await opening(name, async () => {
 		const existing = await findExisting(app, branch, path, proposed);
 		if (existing.kind === 'pull') {
 			await ensureLabel(app, existing.number);
@@ -462,6 +468,10 @@ export async function openAgentChange(
 		await ensureLabel(app, opened.number);
 		return { number: opened.number, url: opened.html_url, branch, headSha, created: true };
 	});
+	// The change exists now, found or made: the next list and detail must show it.
+	listCache = null;
+	dropListCache();
+	return result;
 }
 
 type Existing =

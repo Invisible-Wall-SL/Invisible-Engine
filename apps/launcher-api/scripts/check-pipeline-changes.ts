@@ -1,5 +1,5 @@
 /**
- * Contract check for Invisible Pipeline Changes' backend (ADR-0007; PLAN 5.1–5.2):
+ * Contract check for Invisible Pipeline Changes' backend (ADR-0007; PLAN 5.1–5.2 and 5.4):
  *   pnpm --filter launcher-api check:pipeline-changes
  *
  * Runs the REAL modules — `githubApp.ts` (the App JWT and the installation token), `zip.ts`,
@@ -25,14 +25,35 @@
  *  - a changed screen's image is served only by a path the report itself lists, read out of the
  *    full artifact by byte range (the tail, the central directory when it is past the tail, then
  *    the entry alone) and never whole; the images artifact a re-run replaced is a 409.
+ *
+ * The Agents tab (ADR-0007 "Agents tab"; PLAN 5.4) runs here too: `pipelineAgents.ts`,
+ * `pipelineAgentEval.ts`, `agentEdit.ts` and the three routes under `/api/pipeline/agents`, against
+ * the same fake GitHub grown a git (refs, commits, trees, blobs), contents, PR creation and labels,
+ * seeded with the real definitions in `services/director-worker/agents/`. Pinned:
+ *  - the list and one definition are `main`'s files, read from one commit: model, effort, tools,
+ *    last change, and the open changes that edit each; a definition the loader or the adapter
+ *    allow-lists would refuse is refused before anything is written;
+ *  - a submit is ONE commit on a branch `agents/<name>-<hash of the request>` off main's tip,
+ *    changing that one file, and a PR labelled `agent-definition` (the label made if it is
+ *    missing), by the App with the user named, never their address; the same request finds its
+ *    change (or finishes a half-made one) instead of making another, and other content under it
+ *    is a 409; main moving mid-request is retried once, then refused; nothing ever writes to main;
+ *  - the eval report is read only through the run its status names, which must be the eval
+ *    workflow's own, and only when it is for this head and this agent; a state, never an error.
  */
-import { createVerify, generateKeyPairSync } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { createHash, createVerify, generateKeyPairSync } from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
 import { mock } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { crc32, deflateRawSync } from 'node:zlib';
 import { isHttpError } from '@sveltejs/kit';
 import type { PipelineApproval } from '../src/lib/server/db/schema.ts';
+import {
+	evalLine,
+	parseEvalReport,
+	type EvalReport,
+} from '../../../services/director-worker/src/eval/report.ts';
+import { KNOWN_TOOLS } from '../../../services/director-worker/src/tools.ts';
 
 const src = (rel: string) => new URL(`../src/${rel}`, import.meta.url).href;
 
@@ -145,10 +166,382 @@ const gh = {
 	blobRanges: true,
 	/** A `content-length` the blob claims on a whole answer instead of the archive's real size. */
 	blobClaimLength: null as number | null,
+	/** The labels the repository has. The App makes `agent-definition` the first time it is needed. */
+	labels: new Set<string>(),
+	/** Workflow runs by id, as `GET actions/runs/<id>` answers (the eval workflow's). */
+	runs: new Map<number, Json>(),
+	/** The next label create is answered 422: another request made the label first. */
+	labelRace: false,
 };
 
 const jsonResponse = (status: number, body: unknown): Response =>
 	new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+
+// ── A fake git: commits, trees and blobs, and the refs that name them ─────────
+const sha1 = (...parts: (string | Buffer)[]): string => {
+	const hash = createHash('sha1');
+	for (const part of parts) hash.update(part);
+	return hash.digest('hex');
+};
+/** Git's own id for a file's bytes: what `POST git/blobs` answers and a contents read lists. */
+const gitBlobId = (text: string): string => {
+	const bytes = Buffer.from(text, 'utf8');
+	return sha1(`blob ${bytes.length}\0`, bytes);
+};
+type Tree = Map<string, string>;
+interface GitWrite {
+	kind: 'blob' | 'tree' | 'commit' | 'ref' | 'pull' | 'label' | 'label-create';
+}
+const git = {
+	blobs: new Map<string, string>(),
+	trees: new Map<string, Tree>(),
+	commits: new Map<string, { tree: string; parents: string[]; message: string }>(),
+	/** `heads/main` → the commit it names. */
+	refs: new Map<string, string>(),
+	/** The last commit that touched a path, as `GET commits?path=` answers. */
+	lastChange: new Map<string, Json>(),
+	/** What the launcher wrote, in order. The fake's own doings are not here. */
+	writes: [] as GitWrite[],
+	/** Every `POST git/refs` asked for, made or refused. */
+	refAttempts: [] as string[],
+	/** The commits the FAKE moved `main` to (a push by someone else), oldest first. */
+	mainMoves: [] as string[],
+	/** Whether `main` moves, once or every time, while the launcher's commit is being made. */
+	moveMain: 'never' as 'never' | 'once' | 'always',
+	/** Runs once, just before the next branch is made: another request got there first. */
+	beforeRef: null as (() => void) | null,
+	/** Runs once, just before the next PR is opened: another instance opened it first. */
+	beforePull: null as (() => void) | null,
+};
+let commitSeq = 0;
+let pullSeq = 199;
+
+function putBlob(text: string): string {
+	const id = gitBlobId(text);
+	git.blobs.set(id, text);
+	return id;
+}
+function putTree(tree: Tree): string {
+	const entries = [...tree].sort(([a], [b]) => (a < b ? -1 : 1));
+	const id = sha1('tree', ...entries.map(([path, blob]) => `\0${path}\0${blob}`));
+	git.trees.set(id, new Map(tree));
+	return id;
+}
+function putCommit(tree: string, parents: string[], message: string): string {
+	const id = sha1('commit', tree, parents.join(','), message, String(++commitSeq));
+	git.commits.set(id, { tree, parents, message });
+	return id;
+}
+const treeOf = (commit: string): Tree => git.trees.get(git.commits.get(commit)?.tree ?? '') as Tree;
+/** A commit named by its id or by a branch. */
+const resolveCommit = (ref: string): string | null =>
+	git.commits.has(ref) ? ref : (git.refs.get(`heads/${ref}`) ?? null);
+/** The paths whose blob differs between two trees. */
+const changedPaths = (a: Tree, b: Tree): string[] =>
+	[...new Set([...a.keys(), ...b.keys()])].filter((path) => a.get(path) !== b.get(path)).sort();
+
+/** Someone else's commit on `main`: by default a file that is no agent's, else `path` as `text`. */
+function advanceMain(path = UNRELATED, text?: string): void {
+	const main = git.refs.get('heads/main') as string;
+	const tree = new Map(treeOf(main));
+	const revision = git.mainMoves.length + 2;
+	tree.set(path, putBlob(text ?? `not an agent, revision ${revision}\n`));
+	const next = putCommit(putTree(tree), [main], `docs: revision ${revision}`);
+	git.refs.set('heads/main', next);
+	git.mainMoves.push(next);
+}
+
+const lines = (text: string): string[] => (text === '' ? [] : text.split('\n'));
+function lineDiff(before: string, after: string): { additions: number; deletions: number } {
+	const left = new Map<string, number>();
+	for (const line of lines(before)) left.set(line, (left.get(line) ?? 0) + 1);
+	let additions = 0;
+	for (const line of lines(after)) {
+		const n = left.get(line) ?? 0;
+		if (n > 0) left.set(line, n - 1);
+		else additions++;
+	}
+	return { additions, deletions: [...left.values()].reduce((a, b) => a + b, 0) };
+}
+/** The files a one-commit PR changes: that commit's tree against its first parent's. */
+function filesOfCommit(commit: string): Json[] {
+	const parent = git.commits.get(commit)?.parents[0];
+	const before = parent ? treeOf(parent) : new Map<string, string>();
+	const after = treeOf(commit);
+	return changedPaths(before, after).map((filename) => {
+		const was = before.get(filename);
+		const now = after.get(filename);
+		return {
+			filename,
+			status: was === undefined ? 'added' : now === undefined ? 'removed' : 'modified',
+			...lineDiff(git.blobs.get(was ?? '') ?? '', git.blobs.get(now ?? '') ?? ''),
+		};
+	});
+}
+
+/** A branch, made behind the launcher's back: `text` at `path` on top of main's current commit. */
+function fakeBranch(branch: string, path: string, text: string): string {
+	const main = git.refs.get('heads/main') as string;
+	const tree = new Map(treeOf(main));
+	tree.set(path, putBlob(text));
+	const commit = putCommit(putTree(tree), [main], 'someone else, earlier');
+	git.refs.set(`heads/${branch}`, commit);
+	return commit;
+}
+
+/** A PR into main for `branch`, as GitHub holds it: open, no labels, the App as author. */
+function newPull(branch: string, headSha: string, title: string, body: string | null): Pull {
+	return pull(++pullSeq, title, {
+		sha: headSha,
+		body,
+		head: { sha: headSha, ref: branch, repo: { full_name: REPO } },
+		user: { login: 'invisible-pipeline[bot]', type: 'Bot' },
+		files: filesOfCommit(headSha),
+	});
+}
+
+/**
+ * The routes the Agents tab calls beyond the Changes tab's: refs, commits, trees and blobs (the
+ * Git Data API), contents, PR creation and lookup by head, labels and a run by id. `null` for any
+ * other route.
+ */
+function agentRoutes(
+	method: string,
+	rest: string[],
+	url: URL,
+	init?: RequestInit,
+): Response | null {
+	const body = (): Json => JSON.parse(String(init?.body)) as Json;
+	const notFound = () => jsonResponse(404, { message: 'Not Found' });
+	const invalid = (message: string) =>
+		jsonResponse(422, { message: 'Validation Failed', errors: [{ message }] });
+	const write = (kind: GitWrite['kind']): void => {
+		git.writes.push({ kind });
+	};
+	const stripped = (p: Pull): Json => {
+		const { files: _files, mergeable_state: _m, ...out } = p;
+		return out;
+	};
+
+	if (rest[0] === 'git' && rest[1] === 'ref' && rest[2] === 'heads' && method === 'GET') {
+		const name = rest.slice(3).join('/');
+		const commit = git.refs.get(`heads/${name}`);
+		if (!commit) return notFound();
+		return jsonResponse(200, {
+			ref: `refs/heads/${name}`,
+			object: { type: 'commit', sha: commit },
+		});
+	}
+	if (rest[0] === 'git' && rest[1] === 'commits' && rest.length === 3 && method === 'GET') {
+		const commit = git.commits.get(rest[2]);
+		if (!commit) return notFound();
+		return jsonResponse(200, {
+			sha: rest[2],
+			tree: { sha: commit.tree },
+			parents: commit.parents.map((sha) => ({ sha })),
+			message: commit.message,
+		});
+	}
+	if (rest[0] === 'git' && rest[1] === 'blobs' && method === 'POST') {
+		const { content, encoding } = body() as { content?: unknown; encoding?: unknown };
+		if (typeof content !== 'string' || (encoding !== 'utf-8' && encoding !== 'base64')) {
+			return invalid('content and encoding are required');
+		}
+		const text = encoding === 'base64' ? Buffer.from(content, 'base64').toString('utf8') : content;
+		const id = putBlob(text);
+		write('blob');
+		return jsonResponse(201, { sha: id });
+	}
+	if (rest[0] === 'git' && rest[1] === 'trees' && method === 'POST') {
+		const { base_tree, tree: entries } = body() as {
+			base_tree: string;
+			tree: { path: string; mode: string; type: string; sha: string }[];
+		};
+		const base = git.trees.get(base_tree);
+		if (!base) return invalid('base_tree does not exist');
+		const next = new Map(base);
+		for (const e of entries) {
+			if (e.mode !== '100644' || e.type !== 'blob' || !git.blobs.has(e.sha)) {
+				return invalid(`${e.path} is not a blob that exists`);
+			}
+			next.set(e.path, e.sha);
+		}
+		const id = putTree(next);
+		write('tree');
+		return jsonResponse(201, { sha: id });
+	}
+	if (rest[0] === 'git' && rest[1] === 'commits' && rest.length === 2 && method === 'POST') {
+		const { message, tree, parents } = body() as {
+			message: string;
+			tree: string;
+			parents: string[];
+		};
+		if (!git.trees.has(tree) || !parents.every((p) => git.commits.has(p))) {
+			return invalid('the tree or a parent does not exist');
+		}
+		const id = putCommit(tree, parents, message);
+		write('commit');
+		if (git.moveMain !== 'never') {
+			advanceMain();
+			if (git.moveMain === 'once') git.moveMain = 'never';
+		}
+		return jsonResponse(201, {
+			sha: id,
+			tree: { sha: tree },
+			parents: parents.map((sha) => ({ sha })),
+		});
+	}
+	if (rest[0] === 'git' && rest[1] === 'refs' && rest.length === 2 && method === 'POST') {
+		const { ref, sha } = body() as { ref: string; sha: string };
+		git.refAttempts.push(ref);
+		const name = /^refs\/(heads\/.+)$/.exec(ref)?.[1];
+		if (!name || !git.commits.has(sha)) return invalid('the ref or its sha is not valid');
+		const hook = git.beforeRef;
+		git.beforeRef = null;
+		hook?.();
+		if (git.refs.has(name)) return jsonResponse(422, { message: 'Reference already exists' });
+		git.refs.set(name, sha);
+		write('ref');
+		return jsonResponse(201, { ref, object: { type: 'commit', sha } });
+	}
+
+	if (rest[0] === 'contents' && method === 'GET') {
+		const path = rest.slice(1).map(decodeURIComponent).join('/');
+		const commit = resolveCommit(url.searchParams.get('ref') ?? 'main');
+		if (!commit) return jsonResponse(404, { message: 'No commit found for the specified ref' });
+		const tree = treeOf(commit);
+		const blob = tree.get(path);
+		if (blob !== undefined) {
+			const bytes = Buffer.from(git.blobs.get(blob) as string, 'utf8');
+			return jsonResponse(200, {
+				type: 'file',
+				name: path.split('/').pop(),
+				path,
+				sha: blob,
+				size: bytes.length,
+				encoding: 'base64',
+				// GitHub wraps the base64 at 60 columns, a newline after each line.
+				content: `${(bytes.toString('base64').match(/.{1,60}/g) ?? []).join('\n')}\n`,
+			});
+		}
+		const prefix = `${path}/`;
+		const entries = new Map<string, Json>();
+		for (const [p, id] of tree) {
+			if (!p.startsWith(prefix)) continue;
+			const [name, ...below] = p.slice(prefix.length).split('/');
+			entries.set(
+				name,
+				below.length
+					? { type: 'dir', name, path: prefix + name, sha: sha1('dir', prefix + name), size: 0 }
+					: {
+							type: 'file',
+							name,
+							path: p,
+							sha: id,
+							size: Buffer.byteLength(git.blobs.get(id) as string),
+						},
+			);
+		}
+		return entries.size ? jsonResponse(200, [...entries.values()]) : notFound();
+	}
+	if (rest[0] === 'commits' && rest.length === 1 && method === 'GET') {
+		check('the last change is asked for as one commit', url.searchParams.get('per_page'), '1');
+		if (!resolveCommit(url.searchParams.get('sha') ?? 'main')) {
+			return jsonResponse(404, { message: 'No commit found for SHA' });
+		}
+		const last = git.lastChange.get(url.searchParams.get('path') ?? '');
+		return jsonResponse(200, last ? [last] : []);
+	}
+
+	if (rest[0] === 'pulls' && rest.length === 1 && method === 'POST') {
+		const {
+			title,
+			head,
+			base,
+			body: text,
+			draft,
+		} = body() as { title: string; head: string; base: string; body: string; draft?: boolean };
+		const headSha = git.refs.get(`heads/${head}`);
+		if (!headSha || base !== 'main') return invalid('the head or the base does not exist');
+		const hook = git.beforePull;
+		git.beforePull = null;
+		hook?.();
+		const open = [...gh.pulls.values()].some((p) => p.state === 'open' && p.head.ref === head);
+		if (open) return invalid(`A pull request already exists for ${head}.`);
+		const made = newPull(head, headSha, title, text);
+		made.draft = draft === true;
+		write('pull');
+		return jsonResponse(201, stripped(made));
+	}
+	if (
+		rest[0] === 'pulls' &&
+		rest.length === 1 &&
+		method === 'GET' &&
+		url.searchParams.has('head')
+	) {
+		const [owner, ...branch] = String(url.searchParams.get('head')).split(':');
+		check('a head is named owner:branch', owner, REPO.split('/')[0]);
+		const state = url.searchParams.get('state') ?? 'open';
+		return jsonResponse(
+			200,
+			[...gh.pulls.values()]
+				.filter(
+					(p) =>
+						p.head.ref === branch.join(':') &&
+						p.head.repo?.full_name === REPO &&
+						(state === 'all' || p.state === state),
+				)
+				.sort((a, b) => b.number - a.number)
+				.map(stripped),
+		);
+	}
+
+	if (rest[0] === 'issues' && rest.length === 2 && method === 'GET') {
+		const labelled = gh.pulls.get(Number(rest[1]));
+		return labelled
+			? jsonResponse(200, { number: labelled.number, labels: labelled.labels })
+			: notFound();
+	}
+	if (rest[0] === 'issues' && rest[2] === 'labels' && method === 'POST') {
+		const labelled = gh.pulls.get(Number(rest[1]));
+		if (!labelled) return notFound();
+		const { labels } = body() as { labels: string[] };
+		// What GitHub says of a label the repository does not have, in this fake.
+		if (labels.some((l) => !gh.labels.has(l))) {
+			return jsonResponse(404, { message: 'Label does not exist' });
+		}
+		for (const name of labels) {
+			if (labelled.labels.some((l) => l.name === name)) continue;
+			labelled.labels.push({ name });
+			write('label');
+		}
+		return jsonResponse(200, labelled.labels);
+	}
+	if (rest[0] === 'labels' && rest.length === 1 && method === 'POST') {
+		const { name, color } = body() as { name: string; color: string };
+		if (!/^[0-9a-f]{6}$/i.test(color)) return invalid('a label colour is six hex digits, no #');
+		if (gh.labelRace) {
+			// Someone else made it between the failed add and this create.
+			gh.labelRace = false;
+			gh.labels.add(name);
+		}
+		if (gh.labels.has(name)) {
+			return jsonResponse(422, {
+				message: 'Validation Failed',
+				errors: [{ resource: 'Label', code: 'already_exists', field: 'name' }],
+			});
+		}
+		gh.labels.add(name);
+		write('label-create');
+		return jsonResponse(201, { name, color });
+	}
+
+	if (rest[0] === 'actions' && rest[1] === 'runs' && rest.length === 3 && method === 'GET') {
+		const run = gh.runs.get(Number(rest[2]));
+		return run ? jsonResponse(200, run) : notFound();
+	}
+	return null;
+}
 
 function verifyJwt(jwt: string): Json {
 	const [h, p, s] = jwt.split('.');
@@ -224,6 +617,8 @@ const fakeFetch: typeof fetch = async (input, init) => {
 		return jsonResponse(404, { message: 'Not Found' });
 	}
 	const rest = seg.slice(3);
+	const agentAnswer = agentRoutes(method, rest, url, init);
+	if (agentAnswer) return agentAnswer;
 	if (rest[0] === 'pulls' && rest.length === 1) {
 		check('pulls are asked for open PRs', url.searchParams.get('state'), 'open');
 		const base = url.searchParams.get('base');
@@ -618,6 +1013,139 @@ function artifact(
 	}
 	gh.artifacts.set(Number(run.id), list);
 	return [smallId, fullId];
+}
+
+// ── The repository's git, as the Agents tab reads and writes it ───────────────
+const AGENTS_DIR = 'services/director-worker/agents';
+/** A file on main that is no agent's: the one a push by someone else changes. */
+const UNRELATED = 'docs/unrelated.md';
+const agentFile = (name: string): string => `${AGENTS_DIR}/${name}.md`;
+/** The real definitions, read from disk: a real edit of one keeps the fixture honest. */
+const AGENT_TEXTS = new Map<string, string>(
+	readdirSync(new URL('../../../services/director-worker/agents/', import.meta.url))
+		.filter((file) => file.endsWith('.md'))
+		.map((file) => file.slice(0, -3))
+		.sort()
+		.map((name) => [
+			name,
+			readFileSync(
+				new URL(`../../../services/director-worker/agents/${name}.md`, import.meta.url),
+				'utf8',
+			),
+		]),
+);
+const SEED_MAIN = (() => {
+	const tree: Tree = new Map([[UNRELATED, putBlob('not an agent\n')]]);
+	for (const [name, text] of AGENT_TEXTS) tree.set(agentFile(name), putBlob(text));
+	return putCommit(putTree(tree), [], 'seed');
+})();
+git.refs.set('heads/main', SEED_MAIN);
+[...AGENT_TEXTS.keys()].forEach((name, i) => {
+	const id = sha(500 + i);
+	git.lastChange.set(agentFile(name), {
+		sha: id,
+		html_url: `https://github.com/${REPO}/commit/${id}`,
+		commit: {
+			message: `agents: ${name} — seeded as number ${i}\n\nThe longer message, never shown.`,
+			author: { name: `Author ${i}`, date: `2026-09-${String(i + 1).padStart(2, '0')}T09:00:00Z` },
+		},
+		// One commit GitHub cannot tie to an account: the name on the commit is used.
+		author: i === 2 ? null : { login: `author-${i}` },
+	});
+});
+
+// ── The agent-eval workflow's side: a status, a run, a report artifact ────────
+const evalRunUrl = (id: number): string => `https://github.com/${REPO}/actions/runs/${id}`;
+let evalRunSeq = 5000;
+/** A run of the eval workflow as the Actions API describes it; `over` makes it something else. */
+function evalRun(over: Json = {}): number {
+	const id = ++evalRunSeq;
+	gh.runs.set(id, {
+		id,
+		path: '.github/workflows/agent-eval.yml',
+		event: 'pull_request_target',
+		status: 'completed',
+		conclusion: 'success',
+		html_url: evalRunUrl(id),
+		repository: { full_name: REPO },
+		...over,
+	});
+	return id;
+}
+/** The artifact the workflow uploads on a run: a ZIP holding `report.json`. */
+function evalArtifact(run: number, files: Record<string, string>, over: Partial<Artifact> = {}) {
+	const id = ++artifactId;
+	const zip = zipOf(files, Object.keys(files));
+	gh.zips.set(id, zip);
+	gh.artifacts.set(run, [
+		{
+			id,
+			name: 'agent-eval-report',
+			expired: false,
+			expires_at: '2026-12-31T00:00:00Z',
+			size_in_bytes: zip.length,
+			...over,
+		},
+	]);
+	return id;
+}
+/** The `agent-eval` status on a head, as the workflow posts it. */
+function setEvalStatus(h: Head, state: string, description: string, url: string | null): void {
+	h.statuses = [
+		...h.statuses.filter((s) => s.context !== 'agent-eval'),
+		{ context: 'agent-eval', state, description, target_url: url, updated_at: AT },
+	];
+}
+/** A valid report, built the way the workflow's CLI builds one: `parseEvalReport` accepts it. */
+function evalReport(headSha: string, spec: { agent?: string; capped?: boolean } = {}): EvalReport {
+	const side = (score: number, costUsd: number) => ({
+		definition: { model: 'claude-opus-5-5', effort: 'high' },
+		score,
+		statusAgreement: score,
+		regionAgreement: score,
+		extraElements: 0,
+		calls: 6,
+		usage: {
+			inputTokens: 12_000,
+			outputTokens: 900,
+			cacheReadInputTokens: 0,
+			cacheCreationInputTokens: 0,
+		},
+		costUsd,
+	});
+	const view = { found: true, name: 'Spin', status: 'Matched', regions: ['ui.spin'] };
+	const capped = spec.capped === true;
+	const parts: Omit<EvalReport, 'version' | 'head' | 'base' | 'line'> = {
+		agent: spec.agent ?? 'qa',
+		result: capped ? 'capped' : 'scored',
+		capUsd: 20,
+		costUsd: capped ? 20.4 : 2.6,
+		capped,
+		set: { name: 'fixture-set', images: 2, elements: 4 },
+		before: side(0.5, capped ? 20 : 1.2),
+		after: capped ? null : side(0.75, 1.4),
+		items: capped
+			? []
+			: [
+					{
+						image: 'a.png',
+						n: 1,
+						name: 'Spin',
+						expected: { status: 'Matched', regions: ['ui.spin'] },
+						before: { ...view, statusMatch: true, regionScore: 0.5 },
+						after: { ...view, statusMatch: true, regionScore: 1 },
+						changed: true,
+					},
+				],
+		errors: capped ? ['stopped after 11 calls'] : [],
+	};
+	return parseEvalReport({
+		version: 1,
+		...parts,
+		head: { sha: headSha },
+		base: { sha: SEED_MAIN },
+		line: evalLine(parts),
+	});
 }
 
 // #10 — still testing: one Checks shard running, the harness rendering.
@@ -1055,6 +1583,13 @@ const reportRoute = await import(
 	src('routes/api/pipeline/changes/[number]/report/[...path]/+server.ts')
 );
 const view = await import(src('routes/(app)/pipeline/view.ts'));
+const agents = await import(src('lib/server/pipelineAgents.ts'));
+const agentEval = await import(src('lib/server/pipelineAgentEval.ts'));
+const agentEdit = await import(src('lib/agentEdit.ts'));
+const { ADAPTER_OPS, opId } = await import(src('lib/server/director/registry.ts'));
+const agentsListRoute = await import(src('routes/api/pipeline/agents/+server.ts'));
+const agentRoute = await import(src('routes/api/pipeline/agents/[name]/+server.ts'));
+const agentChangeRoute = await import(src('routes/api/pipeline/agents/[name]/changes/+server.ts'));
 
 type Locals = { user: App.Locals['user'] };
 const ADMIN: Locals = {
@@ -1088,7 +1623,13 @@ async function call(
 	} catch (err) {
 		if (isHttpError(err)) {
 			thrown.push(err.body.message);
-			return { status: err.status, body: { error: err.body.message } };
+			// A refusal that lists its reasons (the Agents tab's validator) carries them beside the sentence.
+			const errors = (err.body as { errors?: unknown }).errors;
+			if (errors !== undefined) thrown.push(JSON.stringify(errors));
+			return {
+				status: err.status,
+				body: { error: err.body.message, ...(errors === undefined ? {} : { errors }) },
+			};
 		}
 		throw err;
 	}
@@ -1430,6 +1971,416 @@ check(
 			harness: ok,
 		}),
 		{ kind: 'ready' },
+	);
+}
+
+// ── Agent definitions: the pure parts ─────────────────────────────────────────
+/** What a definition's frontmatter says, read the plain way, apart from the loader's parser. */
+function frontOf(text: string): {
+	model: string;
+	effort: string | null;
+	role: string;
+	tools: string[];
+} {
+	const head = text.split('\n---\n')[0].split('\n');
+	const scalar = (key: string): string | null =>
+		head
+			.find((l) => l.startsWith(`${key}: `))
+			?.slice(key.length + 2)
+			.trim() ?? null;
+	const tools: string[] = [];
+	for (let i = head.indexOf('tools:') + 1; head[i]?.startsWith('  - '); i++) {
+		tools.push(head[i].slice(4).trim());
+	}
+	return {
+		model: scalar('model') as string,
+		effort: scalar('effort'),
+		role: scalar('role') as string,
+		tools,
+	};
+}
+/** `text` with one line of its prompt (the first) extended by `suffix`. */
+function editPrompt(text: string, suffix: string): string {
+	const rows = text.split('\n');
+	const close = rows.indexOf('---', 1);
+	rows[rows.findIndex((l, i) => i > close && l.trim() !== '')] += suffix;
+	return rows.join('\n');
+}
+const AGENT_NAMES = [...AGENT_TEXTS.keys()];
+check(
+	'the fixture is seeded with the real definitions',
+	[
+		'animator',
+		'art-director',
+		'atlas-artist',
+		'builder',
+		'coordinator',
+		'mockup-analyst',
+		'qa',
+	].every((name) => AGENT_NAMES.includes(name)),
+	true,
+);
+{
+	check(
+		"blobSha is git's own id",
+		agents.blobSha('hello\n'),
+		'ce013625030ba8dba906f756967f9e9ca394464a', // pragma: allowlist secret
+	);
+	check(
+		'blobSha of nothing is the empty blob',
+		agents.blobSha(''),
+		'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391', // pragma: allowlist secret
+	);
+	check(
+		'blobSha counts bytes, not characters',
+		agents.blobSha('é'),
+		'4b04fff51468d8ab5201ab02b725dc477bc7cb45', // pragma: allowlist secret
+	);
+	check(
+		"blobSha agrees with the fake git's id and the tree's",
+		[
+			agents.blobSha(AGENT_TEXTS.get('qa')),
+			gitBlobId(AGENT_TEXTS.get('qa') as string),
+			treeOf(SEED_MAIN).get(agentFile('qa')),
+		].every((id, _i, all) => id === all[0]),
+		true,
+	);
+	const branch = agents.branchFor('qa', 'request-0001');
+	check('branchFor: agents/<name>-<8 hex>', /^agents\/qa-[0-9a-f]{8}$/.test(branch), true);
+	check('branchFor is deterministic', agents.branchFor('qa', 'request-0001'), branch);
+	check(
+		'branchFor differs per request, and per agent',
+		[
+			agents.branchFor('qa', 'request-0002') !== branch,
+			agents.branchFor('builder', 'request-0001') !== branch,
+			agents.branchFor('builder', 'request-0001').startsWith('agents/builder-'),
+		],
+		[true, true, true],
+	);
+	check(
+		'changeTitle',
+		agents.changeTitle('qa', 'Tighten the sheet-budget wording'),
+		'agents: qa — Tighten the sheet-budget wording',
+	);
+	const body = agents.changeBody('qa', 'Tighten the sheet-budget wording', 'Gualtiero');
+	check(
+		'changeBody leads with **Why:**, and the page reads the why back from it',
+		[body.startsWith('**Why:** Tighten the sheet-budget wording'), changes.whyFromBody(body)],
+		[true, 'Tighten the sheet-budget wording'],
+	);
+	check(
+		'changeBody names the file and the user, and no address',
+		[body.includes(agentFile('qa')), body.includes('Gualtiero'), body.includes('@')],
+		[true, true, false],
+	);
+	check('the agents are where the worker loads them from', agents.AGENTS_DIR, AGENTS_DIR);
+	check(
+		'the eval workflow the launcher trusts is agent-eval.yml',
+		agentEval.EVAL_WORKFLOW_PATH,
+		'.github/workflows/agent-eval.yml',
+	);
+	check(
+		'a request id is 8–64 URL-safe characters',
+		['abcdefgh', 'a'.repeat(64), 'abcdefg', 'a'.repeat(65), 'with space1', 'ok_id-123'].map((id) =>
+			agents.REQUEST_ID.test(id),
+		),
+		[true, true, false, false, false, true],
+	);
+}
+{
+	const ma = agents.agentEditRules('mockup-analyst');
+	check('rules: the models the worker can run, not the ones only priced', ma.models, [
+		'claude-opus-5-5',
+		'claude-sonnet-5-5',
+		'claude-haiku-4-5-20251001',
+	]);
+	check(
+		'rules: the adapter ops served to mockup-analyst, which its definition must name',
+		ma.fixedAdapterTools,
+		[
+			'atlas.list_regions',
+			'fonts.list',
+			'gamemaker.get_template',
+			'mockups.get_image',
+			'mockups.list',
+		],
+	);
+	const registered = [...ADAPTER_OPS.values()].map((op: { tool: string; name: string }) =>
+		opId(op),
+	);
+	check(
+		'rules: every registered op is served to it or to another agent, never both',
+		[
+			[...ma.fixedAdapterTools, ...ma.otherAdapterTools].sort(),
+			ma.fixedAdapterTools.some((id: string) => ma.otherAdapterTools.includes(id)),
+		],
+		[[...registered].sort(), false],
+	);
+	check(
+		'rules: the tools an agent may name are the worker catalogue, every registered op among them',
+		[ma.tools, registered.every((id: string) => ma.tools.includes(id))],
+		[[...KNOWN_TOOLS], true],
+	);
+	const qaNames = frontOf(AGENT_TEXTS.get('qa') as string).tools;
+	check(
+		'rules: qa is served the ops it names, bar the build.* and run.* ones',
+		agents.agentEditRules('qa').fixedAdapterTools,
+		qaNames.filter((t) => !/^(build|run)\./.test(t)).sort(),
+	);
+	check(
+		'rules: the real definitions meet their own, both ways',
+		AGENT_NAMES.every((name) => {
+			const r = agents.agentEditRules(name);
+			const named = frontOf(AGENT_TEXTS.get(name) as string).tools;
+			return (
+				r.fixedAdapterTools.every((id: string) => named.includes(id)) &&
+				r.otherAdapterTools.every((id: string) => !named.includes(id))
+			);
+		}),
+		true,
+	);
+
+	const MA = AGENT_TEXTS.get('mockup-analyst') as string;
+	const verdict = (text: string) => agentEdit.validateAgentEdit('mockup-analyst', text, ma);
+	const edits: boolean[] = [];
+	const changed = (text: string): string => {
+		edits.push(text !== MA);
+		return text;
+	};
+	const real = verdict(MA);
+	check(
+		'the real mockup-analyst.md can be submitted',
+		[real.ok, real.agent?.name, real.errors],
+		[true, 'mockup-analyst', []],
+	);
+	const model = verdict(changed(MA.replace(/^model: .*$/m, 'model: claude-opus-5')));
+	check(
+		'an unknown model is refused, naming the model (claude-opus-5 is priced but cannot run)',
+		[model.ok, model.errors.length, model.errors[0]?.includes('claude-opus-5')],
+		[false, 1, true],
+	);
+	const added = verdict(
+		changed(MA.replace('  - fonts.list\n', '  - fonts.list\n  - atlas.choose_variant\n')),
+	);
+	check(
+		'an adapter op it is not served is refused',
+		[
+			added.ok,
+			added.errors.length,
+			added.errors[0]?.includes('atlas.choose_variant is not served to mockup-analyst'),
+		],
+		[false, 1, true],
+	);
+	const dropped = verdict(changed(MA.replace('  - fonts.list\n', '')));
+	check(
+		'an adapter op it is served cannot be dropped',
+		[
+			dropped.ok,
+			dropped.errors.length,
+			dropped.errors[0]?.startsWith('tools: fonts.list is served to mockup-analyst'),
+		],
+		[false, 1, true],
+	);
+	const worker = verdict(
+		changed(MA.replace('  - fonts.list\n', '  - fonts.list\n  - run.post_activity\n')),
+	);
+	check(
+		'a worker tool is no adapter op: naming run.post_activity is allowed',
+		[worker.ok, worker.agent?.tools.includes('run.post_activity')],
+		[true, true],
+	);
+	const renamed = verdict(changed(MA.replace(/^name: .*$/m, 'name: other-agent')));
+	check(
+		'a renamed definition does not match its file',
+		[renamed.ok, renamed.errors.some((e: string) => e.includes('does not match'))],
+		[false, true],
+	);
+	const key = verdict(changed(MA.replace(/^role: /m, 'colour: red\nrole: ')));
+	check(
+		'an unknown key is refused',
+		[key.ok, key.errors.some((e: string) => e.includes('colour: unknown key'))],
+		[false, true],
+	);
+	const empty = verdict(changed(MA.slice(0, MA.indexOf('\n---\n', 4) + 5)));
+	check(
+		'an empty prompt is refused',
+		[empty.ok, empty.errors.some((e: string) => e.includes('system prompt'))],
+		[false, true],
+	);
+	check(
+		'each edit above really changed the definition',
+		[edits.length, edits.every(Boolean)],
+		[7, true],
+	);
+	check(
+		'a definition that is not a definition is refused, its errors listed',
+		agentEdit.validateAgentEdit('qa', 'just words', agents.agentEditRules('qa')).errors.length > 0,
+		true,
+	);
+
+	const why = agentEdit.whyProblem;
+	check(
+		'whyProblem: empty, blank, many lines and over 120 characters are refused',
+		[why(''), why('   '), why('one\ntwo'), why('x'.repeat(121))].map((p) => typeof p === 'string'),
+		[true, true, true, true],
+	);
+	check(
+		'whyProblem: a fine one, and the 120-character limit itself, are null',
+		[why('Tighten the sheet-budget wording'), why('x'.repeat(120)), why('  padded  ')],
+		[null, null, null],
+	);
+	const f = (
+		path: string,
+		status = 'modified',
+		previousPath: string | null = null,
+	): { path: string; previousPath: string | null; status: string } => ({
+		path,
+		previousPath,
+		status,
+	});
+	check(
+		'agentOfFiles: exactly one agent definition, edited or added, names the agent',
+		[
+			agentEval.agentOfFiles([f(agentFile('qa'))]),
+			agentEval.agentOfFiles([f(agentFile('new-agent'), 'added')]),
+		],
+		['qa', 'new-agent'],
+	);
+	check(
+		'agentOfFiles: two files, a removed one, a renamed one, a file that is no definition, none: null',
+		[
+			agentEval.agentOfFiles([f(agentFile('qa')), f(agentFile('builder'))]),
+			agentEval.agentOfFiles([f(agentFile('qa'), 'removed')]),
+			agentEval.agentOfFiles([f(agentFile('qa'), 'renamed', agentFile('old'))]),
+			agentEval.agentOfFiles([f('docs/qa.md')]),
+			agentEval.agentOfFiles([f(`${AGENTS_DIR}/Qa.md`)]),
+			agentEval.agentOfFiles([f(`${AGENTS_DIR}/nested/qa.md`)]),
+			agentEval.agentOfFiles([f(`${AGENTS_DIR}/qa.txt`)]),
+			agentEval.agentOfFiles([]),
+		],
+		[null, null, null, null, null, null, null, null],
+	);
+	const run = `https://github.com/${REPO}/actions/runs/123`;
+	check(
+		'runIdOfStatusUrl: a run page of this repository, with or without a job below it',
+		[agentEval.runIdOfStatusUrl(run, REPO), agentEval.runIdOfStatusUrl(`${run}/job/456`, REPO)],
+		[123, 123],
+	);
+	check(
+		'runIdOfStatusUrl: another repository, http, a page that is no run, a lookalike host, nothing: null',
+		[
+			agentEval.runIdOfStatusUrl('https://github.com/other/engine/actions/runs/123', REPO),
+			agentEval.runIdOfStatusUrl(`http://github.com/${REPO}/actions/runs/123`, REPO),
+			agentEval.runIdOfStatusUrl(`https://github.com/${REPO}/pull/123`, REPO),
+			agentEval.runIdOfStatusUrl(`https://github.com.evil.example/${REPO}/actions/runs/123`, REPO),
+			agentEval.runIdOfStatusUrl(`https://github.com/${REPO}-fork/actions/runs/123`, REPO),
+			agentEval.runIdOfStatusUrl(`https://github.com/${REPO}/actions/runs/abc`, REPO),
+			agentEval.runIdOfStatusUrl('https://github.com/axb/c/actions/runs/1', 'a.b/c'),
+			agentEval.runIdOfStatusUrl(null, REPO),
+		],
+		[null, null, null, null, null, null, null, null],
+	);
+}
+{
+	const group = (jobs: { name: string; state: string }[]) => ({
+		workflow: 'Lint',
+		url: null,
+		state: 'pass',
+		jobs: jobs.map((j) => ({ url: null, conclusion: null, ...j })),
+		passed: 0,
+		total: 0,
+	});
+	const pass = group([{ name: 'lint', state: 'pass' }]);
+	const ok = { state: 'success', description: 'ok' };
+	const input = (over: Json) => ({ mergeableState: 'clean', checks: [pass], harness: ok, ...over });
+	const capped = { state: 'failure', description: 'qa: capped at $20.00' };
+	check(
+		'deriveStatus: a failing agent-eval blocks an agent definition, with its description',
+		changes.deriveStatus(input({ agentDefinition: true, agentEval: capped })),
+		{ kind: 'blocked', reason: 'agent-eval: qa: capped at $20.00' },
+	);
+	check(
+		'deriveStatus: …an errored one too, and a description that is missing says "failed"',
+		changes.deriveStatus(
+			input({ agentDefinition: true, agentEval: { state: 'error', description: null } }),
+		),
+		{ kind: 'blocked', reason: 'agent-eval: failed' },
+	);
+	check(
+		'deriveStatus: an agent definition whose eval has not reported is testing, one more than the rest',
+		[
+			changes.deriveStatus(input({ harness: null })),
+			changes.deriveStatus(input({ harness: null, agentDefinition: true })),
+			changes.deriveStatus(input({ agentDefinition: true })),
+			changes.deriveStatus(input({ agentDefinition: true, agentEval: null })),
+		],
+		[
+			{ kind: 'testing', done: 1, total: 2 },
+			{ kind: 'testing', done: 1, total: 3 },
+			{ kind: 'testing', done: 2, total: 3 },
+			{ kind: 'testing', done: 2, total: 3 },
+		],
+	);
+	check(
+		'deriveStatus: a pending eval is still testing',
+		changes.deriveStatus(
+			input({ agentDefinition: true, agentEval: { state: 'pending', description: 'Evaluating…' } }),
+		),
+		{ kind: 'testing', done: 2, total: 3 },
+	);
+	check(
+		'deriveStatus: a successful eval counts as done, and with the rest green the change is ready',
+		[
+			changes.deriveStatus(
+				input({ agentDefinition: true, agentEval: { state: 'success', description: 'ok' } }),
+			),
+			changes.deriveStatus(
+				input({
+					harness: null,
+					agentDefinition: true,
+					agentEval: { state: 'success', description: 'ok' },
+				}),
+			),
+		],
+		[{ kind: 'ready' }, { kind: 'testing', done: 2, total: 3 }],
+	);
+	check(
+		'deriveStatus: for a change that is no agent definition the eval status is ignored entirely',
+		[
+			changes.deriveStatus(input({ agentDefinition: false, agentEval: capped })),
+			changes.deriveStatus(input({ agentEval: capped })),
+			changes.deriveStatus(
+				input({ harness: null, agentEval: { state: 'success', description: 'ok' } }),
+			),
+		],
+		[{ kind: 'ready' }, { kind: 'ready' }, { kind: 'testing', done: 1, total: 2 }],
+	);
+	check(
+		'deriveStatus: a conflict, a failed job and a failed harness are named before the eval',
+		[
+			changes.deriveStatus(
+				input({ mergeableState: 'dirty', agentDefinition: true, agentEval: capped }),
+			),
+			changes.deriveStatus(
+				input({
+					checks: [group([{ name: 'lint', state: 'fail' }])],
+					agentDefinition: true,
+					agentEval: capped,
+				}),
+			),
+			changes.deriveStatus(
+				input({
+					harness: { state: 'failure', description: '2 changed screen(s)' },
+					agentDefinition: true,
+					agentEval: capped,
+				}),
+			),
+		],
+		[
+			{ kind: 'blocked', reason: 'Merge conflict with main' },
+			{ kind: 'blocked', reason: 'Lint: lint failed' },
+			{ kind: 'blocked', reason: 'current-games: 2 changed screen(s)' },
+		],
 	);
 }
 
@@ -2558,6 +3509,1347 @@ check(
 		['unset', 'no', 'The request failed (500).'],
 	);
 }
+
+// ── The Agents tab: the list, one definition, a submitted edit ────────────────
+const agentList = (locals: Locals) => call(agentsListRoute.GET, locals);
+const agentDetail = (locals: Locals, name: string) => call(agentRoute.GET, locals, { name });
+const submit = (locals: Locals, name: string, body: unknown) =>
+	call(agentChangeRoute.POST, locals, { name }, body);
+/** What a run of requests wrote to the repository: everything that was not a read. */
+const writesSince = (from: number): string[] =>
+	gh.requests.slice(from).filter((r) => !r.startsWith('GET ') && r.includes('/repos/'));
+const kindsSince = (from: number): string[] => git.writes.slice(from).map((w) => w.kind);
+const api = (path: string): string => `/repos/${REPO}/${path}`;
+
+// Both lists are cached for 15 s by the clock the modules read; the fixture moves that clock on.
+let skew = 0;
+const realNow = Date.now.bind(Date);
+Date.now = () => realNow() + skew;
+const lapse = (): void => {
+	skew += 16_000;
+};
+// A Pipeline Tester sees the tool and holds no pipelineMerge unless an override grants it.
+userOverrides.delete('u-tester');
+const agentsStart = gh.requests.length;
+
+{
+	const savedKey = process.env.GITHUB_APP_PRIVATE_KEY;
+	delete process.env.GITHUB_APP_PRIVATE_KEY;
+	const from = gh.requests.length;
+	const answers = [
+		await agentList(ADMIN),
+		await agentDetail(ADMIN, 'qa'),
+		await submit(ADMIN, 'qa', {}),
+	];
+	check(
+		'the Agents routes without the App are a 503, naming the key, fetching nothing',
+		[answers.map((a) => a.status), answers.map((a) => a.body.error), gh.requests.length - from],
+		[
+			[503, 503, 503],
+			Array(3).fill(
+				'GITHUB_APP_PRIVATE_KEY is not set on the launcher, so Invisible Pipeline Changes cannot reach GitHub.',
+			),
+			0,
+		],
+	);
+	process.env.GITHUB_APP_PRIVATE_KEY = savedKey as string;
+	check(
+		'no session is a 401 on all three',
+		(await Promise.all([agentList(ANON), agentDetail(ANON, 'qa'), submit(ANON, 'qa', {})])).map(
+			(a) => a.status,
+		),
+		[401, 401, 401],
+	);
+	check(
+		'a role without the tool is a 403 on all three',
+		(
+			await Promise.all([agentList(ARTIST), agentDetail(ARTIST, 'qa'), submit(ARTIST, 'qa', {})])
+		).map((a) => a.status),
+		[403, 403, 403],
+	);
+}
+
+// ── The agents list ───────────────────────────────────────────────────────────
+lapse();
+const listFrom = gh.requests.length;
+const listed = await agentList(TESTER);
+check('a Pipeline Tester sees the agents', listed.status, 200);
+{
+	const body = listed.body as { agents: Json[]; mainSha: string; fetchedAt: string };
+	check(
+		'one agent per definition on main, sorted by name',
+		body.agents.map((a) => a.name),
+		[...AGENT_NAMES].sort(),
+	);
+	const reads = gh.requests.slice(listFrom).filter((r) => r.includes('/contents/'));
+	check(
+		'…every file read from the one commit the answer names',
+		[
+			body.mainSha,
+			reads.length > AGENT_NAMES.length,
+			reads.every((r) => r.endsWith(`?ref=${SEED_MAIN}`)),
+		],
+		[SEED_MAIN, true, true],
+	);
+	check('…stamped with when it was read', typeof body.fetchedAt, 'string');
+	for (const a of body.agents) {
+		const name = String(a.name);
+		const fm = frontOf(AGENT_TEXTS.get(name) as string);
+		const last = git.lastChange.get(agentFile(name)) as {
+			sha: string;
+			html_url: string;
+			commit: { message: string; author: { name: string; date: string } };
+			author: { login: string } | null;
+		};
+		check(
+			`${name}: valid, with the model, effort, tools and role of its frontmatter`,
+			[a.path, a.valid, a.errors, a.model, a.effort, a.tools, a.role],
+			[agentFile(name), true, [], fm.model, fm.effort, fm.tools, fm.role],
+		);
+		check(
+			`${name}: its last change, from the commits API (the commit's author when GitHub names no account)`,
+			[a.lastChange as Json],
+			[
+				{
+					sha: last.sha,
+					date: last.commit.author.date,
+					author: last.author?.login ?? last.commit.author.name,
+					message: last.commit.message.split('\n')[0],
+					url: last.html_url,
+				},
+			],
+		);
+		check(`${name}: no open change`, a.openChanges, []);
+	}
+	check(
+		'qa names no effort: null, not a guess',
+		body.agents.find((a) => a.name === 'qa')?.effort,
+		null,
+	);
+	check(
+		'a commit GitHub ties to no account falls back to the name on the commit',
+		body.agents.filter((a) => (a.lastChange as Json).author === 'Author 2').length,
+		1,
+	);
+	const afterFirst = gh.requests.length;
+	const second = await agentList(ADMIN);
+	check(
+		'a second list within 15 s is served from the cache',
+		[second.status, gh.requests.length],
+		[200, afterFirst],
+	);
+	check('…and answers the same', JSON.stringify(second.body) === JSON.stringify(listed.body), true);
+	lapse();
+	const costFrom = gh.requests.length;
+	await agentList(ADMIN);
+	const costOfOne = gh.requests.length - costFrom;
+	check('…and after 15 s it reads again', costOfOne > 0, true);
+	lapse();
+	const togetherFrom = gh.requests.length;
+	await Promise.all([agentList(TESTER), agentList(ADMIN), agentList(TESTER)]);
+	check('lists asked for together share one read', gh.requests.length - togetherFrom, costOfOne);
+	check('reading the list wrote nothing', writesSince(agentsStart), []);
+}
+
+// ── One definition ────────────────────────────────────────────────────────────
+{
+	const from = gh.requests.length;
+	check(
+		'a bad name is a 400, before GitHub is asked',
+		[(await agentDetail(ADMIN, 'Bad Name')).status, gh.requests.length - from],
+		[400, 0],
+	);
+	check('an agent main does not have is a 404', (await agentDetail(ADMIN, 'nobody')).status, 404);
+	for (const name of AGENT_NAMES) {
+		const text = AGENT_TEXTS.get(name) as string;
+		const res = await agentDetail(name === 'qa' ? ADMIN : TESTER, name);
+		const d = res.body as Json & { rules: Json };
+		check(
+			`${name}: the file as main holds it, its blob id (the base of a submit), main, the rules`,
+			[
+				res.status,
+				d.name,
+				d.text === text,
+				d.blobSha,
+				d.mainSha,
+				JSON.stringify(d.rules) === JSON.stringify(agents.agentEditRules(name)),
+				d.valid,
+			],
+			[200, name, true, agents.blobSha(text), SEED_MAIN, true, true],
+		);
+		check(
+			`${name}: …the blob id is the one git gives the file on main`,
+			d.blobSha,
+			treeOf(SEED_MAIN).get(agentFile(name)),
+		);
+	}
+	const readsFrom = gh.requests.length;
+	const d = (await agentDetail(ADMIN, 'qa')).body as Json & {
+		rules: { fixedAdapterTools: string[] };
+		openChanges: unknown[];
+	};
+	check(
+		'a definition is read from GitHub every time: its blob id is the base of a submit, never a cached one',
+		gh.requests.slice(readsFrom).filter((r) => r.includes(`/contents/${agentFile('qa')}`)).length,
+		1,
+	);
+	check(
+		'qa: its rules say which adapter ops its definition must keep',
+		[d.rules.fixedAdapterTools, d.openChanges],
+		[['atlas.get_variant_image', 'atlas.sheet_stats'], []],
+	);
+}
+
+// ── A submitted edit: what is refused before anything is written ──────────────
+const QA = AGENT_TEXTS.get('qa') as string;
+const QA_BLOB = agents.blobSha(QA);
+const QA_PATH = agentFile('qa');
+const WHY = 'Tighten the sheet-budget wording';
+const QA_EDIT = editPrompt(QA, ' Say how much of the sheet budget is left.');
+const REQ = 'req-qa-0001';
+const sendBody = (over: Json = {}): Json => ({
+	requestId: REQ,
+	baseSha: QA_BLOB,
+	text: QA_EDIT,
+	why: WHY,
+	...over,
+});
+const NOBODY = [
+	'---',
+	'name: nobody',
+	'model: claude-sonnet-5-5',
+	'role: Nobody.',
+	'tools:',
+	'  - run.post_activity',
+	'inputs: None.',
+	'outputs: None.',
+	'---',
+	'',
+	'Do nothing.',
+	'',
+].join('\n');
+{
+	const from = gh.requests.length;
+	const w0 = git.writes.length;
+	const refuse = async (
+		label: string,
+		locals: Locals,
+		name: string,
+		body: unknown,
+		status: number,
+		says?: string | null,
+	) => {
+		const res = await submit(locals, name, body);
+		check(
+			`${label} is a ${status}${says ? `, saying "${says}"` : ''}`,
+			[res.status, says ? String(res.body.error).includes(says) : true],
+			[status, true],
+		);
+		return res;
+	};
+	await refuse('no session', ANON, 'qa', sendBody(), 401);
+	await refuse('a role without the tool', ARTIST, 'qa', sendBody(), 403);
+	await refuse(
+		'a Pipeline Tester, who sees the tool but holds no pipelineMerge,',
+		TESTER,
+		'qa',
+		sendBody(),
+		403,
+		'Editing an agent definition needs',
+	);
+	await refuse('a bad agent name', ADMIN, 'Bad Name', sendBody(), 400);
+	await refuse('a body that is not JSON', ADMIN, 'qa', 'nope', 400, 'JSON');
+	for (const raw of ['null', '[]', '"text"']) {
+		await refuse(`a JSON body of ${raw}`, ADMIN, 'qa', raw, 400, 'requestId');
+	}
+	await refuse('no requestId', ADMIN, 'qa', sendBody({ requestId: undefined }), 400, 'requestId');
+	await refuse(
+		'a requestId that is a number',
+		ADMIN,
+		'qa',
+		sendBody({ requestId: 12345678 }),
+		400,
+		'requestId',
+	);
+	await refuse(
+		'a requestId too short',
+		ADMIN,
+		'qa',
+		sendBody({ requestId: 'short' }),
+		400,
+		'requestId',
+	);
+	await refuse(
+		'a requestId with spaces',
+		ADMIN,
+		'qa',
+		sendBody({ requestId: 'has some spaces' }),
+		400,
+		'requestId',
+	);
+	for (const baseSha of ['abc', 'A'.repeat(40), 'z'.repeat(40), 5, undefined]) {
+		await refuse(
+			`a baseSha of ${JSON.stringify(baseSha)}`,
+			ADMIN,
+			'qa',
+			sendBody({ baseSha }),
+			400,
+			'baseSha',
+		);
+	}
+	await refuse('no text', ADMIN, 'qa', sendBody({ text: undefined }), 400, 'text');
+	await refuse('no why', ADMIN, 'qa', sendBody({ why: undefined }), 400, 'why');
+	for (const why of ['', '   ', 'one\ntwo', 'x'.repeat(121)]) {
+		await refuse(
+			`a why of ${JSON.stringify(why.length > 20 ? `${why.length} characters` : why)}`,
+			ADMIN,
+			'qa',
+			sendBody({ why }),
+			400,
+			agentEdit.whyProblem(why),
+		);
+	}
+	await refuse(
+		'a text larger than any definition',
+		ADMIN,
+		'qa',
+		sendBody({ text: `${QA_EDIT}${'x'.repeat(256 * 1024)}` }),
+		400,
+		'larger',
+	);
+	const model = await submit(
+		ADMIN,
+		'qa',
+		sendBody({ text: QA_EDIT.replace(/^model: .*$/m, 'model: claude-opus-5') }),
+	);
+	check(
+		'a text the validator refuses is a 400 whose body lists every reason',
+		[
+			model.status,
+			String(model.body.error).startsWith('The definition cannot be submitted:'),
+			(model.body.errors as string[]).length,
+			(model.body.errors as string[])[0].includes('claude-opus-5'),
+		],
+		[400, true, 1, true],
+	);
+	const dropped = await submit(
+		ADMIN,
+		'qa',
+		sendBody({ text: QA_EDIT.replace('  - atlas.sheet_stats\n', '') }),
+	);
+	check(
+		'…an adapter op qa is served cannot be dropped, nor one it is not served added',
+		[
+			dropped.status,
+			(dropped.body.errors as string[])[0].startsWith('tools: atlas.sheet_stats is served to qa'),
+		],
+		[400, true],
+	);
+	const added = await submit(
+		ADMIN,
+		'qa',
+		sendBody({
+			text: QA_EDIT.replace(
+				'  - run.post_activity\n',
+				'  - run.post_activity\n  - atlas.choose_variant\n',
+			),
+		}),
+	);
+	check(
+		'…an adapter op it is not served',
+		[
+			added.status,
+			(added.body.errors as string[])[0].includes('atlas.choose_variant is not served to qa'),
+		],
+		[400, true],
+	);
+	await refuse('an unchanged text', ADMIN, 'qa', sendBody({ text: QA }), 409, 'unchanged');
+	await refuse(
+		'a baseSha that is not the file on main',
+		ADMIN,
+		'qa',
+		sendBody({ baseSha: '0'.repeat(40) }),
+		409,
+		'changed on main',
+	);
+	await refuse(
+		'a definition for an agent main does not have (the tab edits, it does not add)',
+		ADMIN,
+		'nobody',
+		sendBody({ text: NOBODY }),
+		404,
+		'no agent definition',
+	);
+	check(
+		'none of them wrote anything, or made a branch',
+		[writesSince(from), git.writes.length - w0, [...git.refs.keys()]],
+		[[], 0, ['heads/main']],
+	);
+}
+
+// ── A submitted edit: the change ──────────────────────────────────────────────
+const BRANCH = agents.branchFor('qa', REQ);
+const SENT_FROM = gh.requests.length;
+const SENT_WRITES = git.writes.length;
+const first = await submit(ADMIN, 'qa', sendBody());
+const FIRST = first.body as {
+	number: number;
+	url: string;
+	branch: string;
+	headSha: string;
+	created: boolean;
+};
+const FIRST_PULL = gh.pulls.get(FIRST.number) as Pull;
+{
+	check('an admin submits an edit of qa', first.status, 200);
+	check(
+		'…the answer: the PR, its branch off the request, the head, and that it was made',
+		[Object.keys(first.body).sort(), FIRST.url, FIRST.branch, FIRST.headSha, FIRST.created],
+		[
+			['branch', 'created', 'headSha', 'number', 'url'],
+			`https://github.com/${REPO}/pull/${FIRST.number}`,
+			BRANCH,
+			git.refs.get(`heads/${BRANCH}`),
+			true,
+		],
+	);
+	const n = FIRST.number;
+	check(
+		'…written in git order, as the App: blob, tree, commit, branch, PR, then the label',
+		writesSince(SENT_FROM),
+		[
+			`POST ${api('git/blobs')}`,
+			`POST ${api('git/trees')}`,
+			`POST ${api('git/commits')}`,
+			`POST ${api('git/refs')}`,
+			`POST ${api('pulls')}`,
+			`POST ${api(`issues/${n}/labels`)}`,
+			`POST ${api('labels')}`,
+			`POST ${api(`issues/${n}/labels`)}`,
+		],
+	);
+	check(
+		'…the label the repository lacked is made once, and added again',
+		[kindsSince(SENT_WRITES), [...gh.labels]],
+		[['blob', 'tree', 'commit', 'ref', 'pull', 'label-create', 'label'], ['agent-definition']],
+	);
+	const commit = git.commits.get(FIRST.headSha) as {
+		tree: string;
+		parents: string[];
+		message: string;
+	};
+	check(
+		"…ONE commit on main's tip",
+		[commit.parents, git.refs.get('heads/main')],
+		[[SEED_MAIN], SEED_MAIN],
+	);
+	check(
+		"…whose tree differs from main's in exactly the one definition",
+		changedPaths(treeOf(FIRST.headSha), treeOf(SEED_MAIN)),
+		[QA_PATH],
+	);
+	check(
+		'…and that file is the text that was sent, byte for byte',
+		git.blobs.get(treeOf(FIRST.headSha).get(QA_PATH) as string) === QA_EDIT,
+		true,
+	);
+	check(
+		'…the message is the PR title, then the user by name, never by address',
+		[
+			commit.message.startsWith(`${agents.changeTitle('qa', WHY)}\n`),
+			commit.message.includes('Gualtiero'),
+			commit.message.includes('owner@example.com'),
+		],
+		[true, true, false],
+	);
+	check(
+		'…the PR: title, base, head, not a draft',
+		[
+			FIRST_PULL.title,
+			FIRST_PULL.base.ref,
+			FIRST_PULL.head.ref,
+			FIRST_PULL.head.sha,
+			FIRST_PULL.draft,
+			FIRST_PULL.user?.login,
+		],
+		[
+			agents.changeTitle('qa', WHY),
+			'main',
+			BRANCH,
+			FIRST.headSha,
+			false,
+			'invisible-pipeline[bot]',
+		],
+	);
+	check(
+		'…its body leads with **Why:**, which the page reads back, and names the user, not the address',
+		[
+			String(FIRST_PULL.body).startsWith(`**Why:** ${WHY}`),
+			changes.whyFromBody(FIRST_PULL.body),
+			String(FIRST_PULL.body).includes('Gualtiero'),
+			String(FIRST_PULL.body).includes('@'),
+		],
+		[true, WHY, true, false],
+	);
+	check(
+		'…labelled agent-definition',
+		FIRST_PULL.labels.map((l) => l.name),
+		['agent-definition'],
+	);
+}
+// The list after it, without waiting for a cache to lapse: the edited agent shows it, nobody else.
+{
+	const body = (await agentList(ADMIN)).body as { agents: Json[] };
+	const row = (o: Json) => [o.number, o.title, o.url, o.branch, o.headSha, o.status, o.draft];
+	check(
+		'the edited agent lists the open change, with its status (the eval not yet reported: 0 of 2)',
+		(body.agents.find((a) => a.name === 'qa')?.openChanges as Json[]).map(row),
+		[
+			[
+				FIRST.number,
+				agents.changeTitle('qa', WHY),
+				FIRST.url,
+				BRANCH,
+				FIRST.headSha,
+				{ kind: 'testing', done: 0, total: 2 },
+				false,
+			],
+		],
+	);
+	check(
+		'…and no other agent lists it',
+		body.agents
+			.filter((a) => a.name !== 'qa')
+			.every((a) => (a.openChanges as unknown[]).length === 0),
+		true,
+	);
+	const d = (await agentDetail(ADMIN, 'qa')).body as { openChanges: Json[] };
+	check(
+		'…the definition itself lists it too',
+		d.openChanges.map((o) => o.number),
+		[FIRST.number],
+	);
+	check(
+		'…and a definition it does not edit does not',
+		((await agentDetail(ADMIN, 'builder')).body.openChanges as unknown[]).length,
+		0,
+	);
+}
+
+// ── The same request again ────────────────────────────────────────────────────
+{
+	const from = gh.requests.length;
+	const w0 = git.writes.length;
+	const again = await submit(ADMIN, 'qa', sendBody());
+	check(
+		'the same request again finds its change',
+		[
+			again.status,
+			again.body.number,
+			again.body.url,
+			again.body.branch,
+			again.body.headSha,
+			again.body.created,
+		],
+		[200, FIRST.number, FIRST.url, BRANCH, FIRST.headSha, false],
+	);
+	check(
+		'…and writes nothing: no blob, tree, commit, branch, PR or label',
+		[writesSince(from), git.writes.length - w0],
+		[[], 0],
+	);
+	const other = await submit(ADMIN, 'qa', sendBody({ text: editPrompt(QA, ' Other words.') }));
+	check(
+		'the same request id with other content is a 409, and writes nothing',
+		[
+			other.status,
+			String(other.body.error).includes('other content'),
+			writesSince(from),
+			git.writes.length - w0,
+		],
+		[409, true, [], 0],
+	);
+	const REQ2 = 'req-qa-0002';
+	const w1 = git.writes.length;
+	const second = await submit(ADMIN, 'qa', sendBody({ requestId: REQ2 }));
+	const S = second.body as { number: number; branch: string; created: boolean; headSha: string };
+	check(
+		'a new request with the same text is a new change, on a branch of its own',
+		[second.status, S.created, S.number !== FIRST.number, S.branch, S.branch !== BRANCH],
+		[200, true, true, agents.branchFor('qa', REQ2), true],
+	);
+	check('…the label now exists, so it is only added', kindsSince(w1), [
+		'blob',
+		'tree',
+		'commit',
+		'ref',
+		'pull',
+		'label',
+	]);
+	(gh.pulls.get(S.number) as Pull).state = 'closed';
+	const closed = await submit(ADMIN, 'qa', sendBody({ requestId: REQ2 }));
+	check(
+		'a request whose change was closed is a 409, not a second change',
+		[closed.status, String(closed.body.error).includes('already closed')],
+		[409, true],
+	);
+}
+{
+	// A text with Windows line ends is stored with Unix ones, and is the same request as its Unix twin.
+	const REQ3 = 'req-qa-0003';
+	const text = editPrompt(QA, ' Count sheets, not pages.');
+	const crlf = await submit(
+		ADMIN,
+		'qa',
+		sendBody({ requestId: REQ3, text: text.replace(/\n/g, '\r\n') }),
+	);
+	const branch = agents.branchFor('qa', REQ3);
+	check(
+		'a text with Windows line ends is stored with Unix ones',
+		[
+			crlf.status,
+			git.blobs.get(treeOf(git.refs.get(`heads/${branch}`) as string).get(QA_PATH) as string) ===
+				text,
+		],
+		[200, true],
+	);
+	const w0 = git.writes.length;
+	const lf = await submit(ADMIN, 'qa', sendBody({ requestId: REQ3, text }));
+	check(
+		'…and its Unix twin is the same request',
+		[lf.status, lf.body.created, lf.body.number === crlf.body.number, git.writes.length - w0],
+		[200, false, true, 0],
+	);
+}
+{
+	// The capability, not the role: an override grants it, and the user is named without the address.
+	userOverrides.set('u-tester', { pipelineMerge: true });
+	const REQ4 = 'req-qa-0004';
+	const text = editPrompt(QA, ' Name the sheet that is over.');
+	const res = await submit(TESTER, 'qa', sendBody({ requestId: REQ4, text }));
+	const pr = gh.pulls.get(Number(res.body.number)) as Pull;
+	const commit = git.commits.get(String(res.body.headSha)) as { message: string };
+	check(
+		'a Pipeline Tester granted pipelineMerge may submit, named by the local part of the address',
+		[
+			res.status,
+			String(pr.body).includes('by `tester`,'),
+			String(pr.body).includes('tester@example.com'),
+			commit.message.includes('by tester.'),
+			commit.message.includes('tester@example.com'),
+		],
+		[200, true, false, true, false],
+	);
+	userOverrides.delete('u-tester');
+}
+
+// ── A branch or a PR an earlier send left half-made ───────────────────────────
+{
+	const REQ5 = 'req-qa-0005';
+	const text = editPrompt(QA, ' Report the margin.');
+	const branch = agents.branchFor('qa', REQ5);
+	const orphan = fakeBranch(branch, QA_PATH, text);
+	const w0 = git.writes.length;
+	const refs0 = git.refAttempts.length;
+	const res = await submit(ADMIN, 'qa', sendBody({ requestId: REQ5, text }));
+	check(
+		'a branch with no PR (the earlier send died after it) gets its PR: created, on that very commit',
+		[res.status, res.body.created, res.body.headSha, res.body.branch],
+		[200, true, orphan, branch],
+	);
+	check(
+		'…with no new blob, tree, commit or branch',
+		[kindsSince(w0), git.refAttempts.length - refs0],
+		[['pull', 'label'], 0],
+	);
+	check(
+		'…the PR sits on the branch',
+		(gh.pulls.get(Number(res.body.number)) as Pull).head.sha,
+		orphan,
+	);
+}
+{
+	const REQ6 = 'req-qa-0006';
+	const text = editPrompt(QA, ' Round the margin up.');
+	const branch = agents.branchFor('qa', REQ6);
+	const commit = fakeBranch(branch, QA_PATH, text);
+	const made = newPull(
+		branch,
+		commit,
+		agents.changeTitle('qa', WHY),
+		agents.changeBody('qa', WHY, 'x'),
+	);
+	const w0 = git.writes.length;
+	const res = await submit(ADMIN, 'qa', sendBody({ requestId: REQ6, text }));
+	check(
+		'an open PR the earlier send never labelled is labelled, not duplicated',
+		[res.status, res.body.created, res.body.number, kindsSince(w0), made.labels.map((l) => l.name)],
+		[200, false, made.number, ['label'], ['agent-definition']],
+	);
+}
+{
+	// The same request landing twice at once: the other one made the branch between our check and our write.
+	const REQ7 = 'req-qa-0007';
+	const text = editPrompt(QA, ' Say when it is full.');
+	const branch = agents.branchFor('qa', REQ7);
+	let rival = '';
+	git.beforeRef = () => {
+		rival = fakeBranch(branch, QA_PATH, text);
+	};
+	const w0 = git.writes.length;
+	const res = await submit(ADMIN, 'qa', sendBody({ requestId: REQ7, text }));
+	check(
+		'a branch another request made first is used, not fought over: the PR opens on it',
+		[res.status, res.body.created, res.body.headSha === rival, kindsSince(w0)],
+		[200, true, true, ['blob', 'tree', 'commit', 'pull', 'label']],
+	);
+}
+{
+	// Another instance sent the same request and opened the PR between our look and our own open.
+	const REQ12 = 'req-qa-0012';
+	const text = editPrompt(QA, ' Say how much is free.');
+	const branch = agents.branchFor('qa', REQ12);
+	let rival = 0;
+	git.beforePull = () => {
+		const headSha = git.refs.get(`heads/${branch}`) as string;
+		rival = newPull(
+			branch,
+			headSha,
+			agents.changeTitle('qa', WHY),
+			agents.changeBody('qa', WHY, 'x'),
+		).number;
+	};
+	const w0 = git.writes.length;
+	const res = await submit(ADMIN, 'qa', sendBody({ requestId: REQ12, text }));
+	check(
+		'a PR another instance opened first (a 422 on open) is the change: found, labelled, no error',
+		[res.status, res.body.created, res.body.number === rival, kindsSince(w0)],
+		[200, false, true, ['blob', 'tree', 'commit', 'ref', 'label']],
+	);
+}
+{
+	const REQ8 = 'req-qa-0008';
+	const body = sendBody({ requestId: REQ8, text: editPrompt(QA, ' Never guess a size.') });
+	const w0 = git.writes.length;
+	const both = await Promise.all([submit(ADMIN, 'qa', body), submit(ADMIN, 'qa', body)]);
+	check(
+		'two clicks at once make one change: one made it, the other found it',
+		[
+			both.map((r) => r.status),
+			both.filter((r) => r.body.created === true).length,
+			both[0].body.number === both[1].body.number,
+			kindsSince(w0),
+		],
+		[[200, 200], 1, true, ['blob', 'tree', 'commit', 'ref', 'pull', 'label']],
+	);
+}
+
+{
+	// The label is gone from the repository, and another request makes it between our add and our create.
+	gh.labels.delete('agent-definition');
+	gh.labelRace = true;
+	const text = editPrompt(QA, ' Report the margin in sheets.');
+	const w0 = git.writes.length;
+	const res = await submit(ADMIN, 'qa', sendBody({ requestId: 'req-qa-0011', text }));
+	check(
+		'a label another request made first (a 422 on create) is just added again',
+		[
+			res.status,
+			kindsSince(w0),
+			(gh.pulls.get(Number(res.body.number)) as Pull).labels.map((l) => l.name),
+			gh.labelRace,
+		],
+		[200, ['blob', 'tree', 'commit', 'ref', 'pull', 'label'], ['agent-definition'], false],
+	);
+}
+
+// ── Main moves while the commit is made ───────────────────────────────────────
+{
+	const REQ9 = 'req-qa-0009';
+	const text = editPrompt(QA, ' Keep the margin in view.');
+	const start = git.refs.get('heads/main') as string;
+	const moves0 = git.mainMoves.length;
+	const w0 = git.writes.length;
+	git.moveMain = 'once';
+	const res = await submit(ADMIN, 'qa', sendBody({ requestId: REQ9, text }));
+	const tip = git.mainMoves[moves0];
+	const parents = (git.commits.get(String(res.body.headSha)) as { parents: string[] }).parents;
+	check(
+		'main moving while the commit is made: the change is made again on the new tip',
+		[res.status, res.body.created, git.mainMoves.length - moves0, parents, parents[0] !== start],
+		[200, true, 1, [tip], true],
+	);
+	check(
+		'…which differs from that tip in the one definition, keeping the push that moved it',
+		[
+			changedPaths(treeOf(String(res.body.headSha)), treeOf(tip)),
+			treeOf(String(res.body.headSha)).get(UNRELATED) === treeOf(tip).get(UNRELATED),
+		],
+		[[QA_PATH], true],
+	);
+	check('…two commits were made, one branch', kindsSince(w0), [
+		'blob',
+		'tree',
+		'commit',
+		'blob',
+		'tree',
+		'commit',
+		'ref',
+		'pull',
+		'label',
+	]);
+
+	const REQ10 = 'req-qa-0010';
+	const text10 = editPrompt(QA, ' Keep the margin in view, in numbers.');
+	const moves1 = git.mainMoves.length;
+	const w1 = git.writes.length;
+	git.moveMain = 'always';
+	const refused = await submit(ADMIN, 'qa', sendBody({ requestId: REQ10, text: text10 }));
+	git.moveMain = 'never';
+	check(
+		'main moving again on the second try is a 409, "moved twice"',
+		[
+			refused.status,
+			String(refused.body.error).includes('moved twice'),
+			git.mainMoves.length - moves1,
+		],
+		[409, true, 2],
+	);
+	check(
+		'…no branch and no PR was made, only the two unreferenced commits',
+		[git.refs.has(`heads/${agents.branchFor('qa', REQ10)}`), kindsSince(w1)],
+		[false, ['blob', 'tree', 'commit', 'blob', 'tree', 'commit']],
+	);
+	const retry = await submit(ADMIN, 'qa', sendBody({ requestId: REQ10, text: text10 }));
+	check(
+		'…and trying again, with main still, makes the change',
+		[retry.status, retry.body.created],
+		[200, true],
+	);
+}
+
+// ── A definition on main that the loader refuses ──────────────────────────────
+{
+	const BROKEN = agentFile('broken');
+	const text = 'just words, not a definition\n';
+	advanceMain(BROKEN, text);
+	lapse();
+	const body = (await agentList(ADMIN)).body as { agents: Json[] };
+	const row = body.agents.find((a) => a.name === 'broken') as Json;
+	check(
+		'a definition the loader refuses is listed, not hidden: invalid, with its errors, no model',
+		[row.valid, (row.errors as string[]).length > 0, row.model, row.effort, row.tools, row.role],
+		[false, true, null, null, [], null],
+	);
+	check(
+		'…with no last change when GitHub knows none, and the other definitions still valid',
+		[row.lastChange, row.path, body.agents.filter((a) => a.valid === true).length],
+		[null, BROKEN, AGENT_NAMES.length],
+	);
+	const d = (await agentDetail(ADMIN, 'broken')).body as Json;
+	check(
+		'…its text and blob id are served, as the base of a repair, with the main commit that holds them',
+		[d.text, d.blobSha, d.valid, d.mainSha],
+		[text, agents.blobSha(text), false, git.refs.get('heads/main')],
+	);
+	const repaired = NOBODY.replace('name: nobody', 'name: broken');
+	const res = await submit(ADMIN, 'broken', {
+		requestId: 'req-fix-0001',
+		baseSha: d.blobSha,
+		text: repaired,
+		why: 'Repair the definition',
+	});
+	const main = git.refs.get('heads/main') as string;
+	check(
+		'…and the tab repairs it: one commit on main, that one file',
+		[
+			res.status,
+			res.body.branch,
+			changedPaths(treeOf(String(res.body.headSha)), treeOf(main)),
+			(git.commits.get(String(res.body.headSha)) as { parents: string[] }).parents,
+		],
+		[200, agents.branchFor('broken', 'req-fix-0001'), [BROKEN], [main]],
+	);
+}
+
+// ── Never main ────────────────────────────────────────────────────────────────
+{
+	const requests = gh.requests.slice(agentsStart);
+	const allowed = [
+		/^POST \/git\/(blobs|trees|commits|refs)$/,
+		/^POST \/pulls$/,
+		/^POST \/issues\/\d+\/labels$/,
+		/^POST \/labels$/,
+	];
+	const shape = (r: string): string => r.replace(`/repos/${REPO}`, '');
+	check(
+		'every write the Agents tab made is a Git Data, PR or label write: no PATCH, PUT or DELETE, no merge',
+		requests.filter(
+			(r) =>
+				!r.startsWith('GET ') && r.includes('/repos/') && !allowed.some((re) => re.test(shape(r))),
+		),
+		[],
+	);
+	check(
+		'no write named refs/heads/main, and every branch asked for is an agent branch',
+		[
+			requests.some((r) => !r.startsWith('GET ') && r.includes('heads/main')),
+			git.refAttempts.length > 0 &&
+				git.refAttempts.every((r) => /^refs\/heads\/agents\/[a-z][a-z-]*-[0-9a-f]{8}$/.test(r)),
+		],
+		[false, true],
+	);
+	const lineage: string[] = [];
+	for (
+		let c: string | undefined = git.refs.get('heads/main');
+		c;
+		c = git.commits.get(c)?.parents[0]
+	) {
+		lineage.push(c);
+	}
+	check(
+		"main moved only when the fake moved it: its history is the seed and the fake's own commits",
+		lineage,
+		[...git.mainMoves].reverse().concat(SEED_MAIN),
+	);
+	const branches = [...git.refs].filter(([name]) => name.startsWith('heads/agents/'));
+	check('the branches the requests made are all there', branches.length >= 12, true);
+	check(
+		'every agent branch is one commit on a main commit, changing one definition file alone',
+		branches.every(([, head]) => {
+			const commit = git.commits.get(head) as { parents: string[] };
+			const parent = commit.parents[0];
+			const touched = changedPaths(treeOf(head), treeOf(parent));
+			return (
+				commit.parents.length === 1 &&
+				(parent === SEED_MAIN || git.mainMoves.includes(parent)) &&
+				touched.length === 1 &&
+				/^services\/director-worker\/agents\/[a-z][a-z-]*\.md$/.test(touched[0])
+			);
+		}),
+		true,
+	);
+	const written = [
+		...[...git.commits.values()].map((c) => c.message),
+		...[...gh.pulls.values()].filter((p) => p.number >= 200).map((p) => `${p.title}\n${p.body}`),
+	];
+	check(
+		'no email address was written to GitHub',
+		written.some((text) => /@/.test(text)),
+		false,
+	);
+}
+
+// ── The eval report, read back through the change ─────────────────────────────
+{
+	const workflow = readFileSync(
+		new URL('../../../.github/workflows/agent-eval.yml', import.meta.url),
+		'utf8',
+	);
+	check(
+		'agent-eval.yml says what the launcher reads: its trigger, status context, label, artifact and run link',
+		[
+			/^\s+pull_request_target:/m.test(workflow),
+			/STATUS_CONTEXT:\s*agent-eval\s*$/m.test(workflow),
+			workflow.includes("contains(github.event.pull_request.labels.*.name, 'agent-definition')"),
+			/name:\s*agent-eval-report\s*$/m.test(workflow),
+			/RUN_URL:\s*\$\{\{\s*github\.server_url\s*\}\}\/\$\{\{\s*github\.repository\s*\}\}\/actions\/runs\/\$\{\{\s*github\.run_id\s*\}\}/.test(
+				workflow,
+			),
+		],
+		[true, true, true, true, true],
+	);
+}
+const EVAL_HEAD = FIRST.headSha;
+const evalHead = head(EVAL_HEAD, GREEN, { state: 'success', description: 'ok' });
+type EvalAnswer = {
+	status: Json;
+	agentDefinition: boolean;
+	labels: string[];
+	author: string;
+	files: Json[];
+	agentEval: {
+		status: Json | null;
+		run: Json | null;
+		report: Json & { state: string; detail?: string; report?: Json; artifactId?: number };
+		agent: string | null;
+		blocking: string | null;
+	} | null;
+};
+const evalOf = async (number: number): Promise<EvalAnswer> =>
+	(await detail(ADMIN, String(number))).body as unknown as EvalAnswer;
+const evalRequests = (from: number): string[] =>
+	gh.requests
+		.slice(from)
+		.filter((r) => [...gh.runs.keys()].some((id) => r.includes(`/actions/runs/${id}`)));
+{
+	const d = await evalOf(FIRST.number);
+	const ae = d.agentEval;
+	check(
+		'an agent-definition change carries the eval: no status yet, no report, the agent it edits, nothing blocking',
+		[ae?.report.state, ae?.agent, ae?.blocking, ae?.status, ae?.run],
+		['none', 'qa', null, null, null],
+	);
+	check(
+		'…and it is testing, the eval counted in the total (the same change with no label would be 8)',
+		d.status,
+		{ kind: 'testing', done: 8, total: 9 },
+	);
+	check(
+		'…flagged as an agent definition, opened by the App, editing one file by one line',
+		[d.agentDefinition, d.labels, d.author, d.files],
+		[
+			true,
+			['agent-definition'],
+			'invisible-pipeline[bot]',
+			[
+				{
+					path: QA_PATH,
+					previousPath: null,
+					status: 'modified',
+					additions: 1,
+					deletions: 1,
+					url: null,
+				},
+			],
+		],
+	);
+}
+{
+	const run = evalRun({ status: 'in_progress', conclusion: null });
+	setEvalStatus(
+		evalHead,
+		'pending',
+		'Evaluating the edited agent on its reference set…',
+		evalRunUrl(run),
+	);
+	const from = gh.requests.length;
+	const d = await evalOf(FIRST.number);
+	const ae = d.agentEval;
+	check(
+		'a pending status: the run is running, nothing blocks, the change is still testing',
+		[ae?.report.state, ae?.run, ae?.blocking, d.status],
+		[
+			'running',
+			{ id: run, url: evalRunUrl(run), status: 'in_progress', conclusion: null },
+			null,
+			{ kind: 'testing', done: 8, total: 9 },
+		],
+	);
+	check(
+		'…and the report of a run still going is not looked for',
+		evalRequests(from).some((r) => r.includes('/artifacts')),
+		false,
+	);
+}
+{
+	const capped = evalReport(EVAL_HEAD, { capped: true });
+	const run = evalRun({ conclusion: 'failure' });
+	const artifact = evalArtifact(run, { 'report.json': JSON.stringify(capped) });
+	setEvalStatus(evalHead, 'failure', capped.line, evalRunUrl(run));
+	const d = await evalOf(FIRST.number);
+	const ae = d.agentEval;
+	check(
+		'a capped eval: its report reads, naming its artifact, for this head and this agent',
+		[
+			ae?.report.state,
+			ae?.report.artifactId,
+			(ae?.report.report as Json | undefined)?.result,
+			(ae?.report.report as Json | undefined)?.capped,
+			(ae?.report.report as Json | undefined)?.line,
+			((ae?.report.report as Json | undefined)?.head as Json | undefined)?.sha,
+		],
+		['ready', artifact, 'capped', true, capped.line, EVAL_HEAD],
+	);
+	check(
+		'…the run and the status as GitHub holds them',
+		[ae?.run, ae?.status],
+		[
+			{ id: run, url: evalRunUrl(run), status: 'completed', conclusion: 'failure' },
+			{ state: 'failure', description: capped.line, url: evalRunUrl(run), updatedAt: AT },
+		],
+	);
+	check("…it blocks, in the report's own line", ae?.blocking, capped.line);
+	check(
+		'…and the change is blocked, with the status description under the word agent-eval',
+		d.status,
+		{ kind: 'blocked', reason: `agent-eval: ${capped.line}` },
+	);
+}
+{
+	// A status is anyone's to post; the report the launcher verified is what the detail judges by.
+	const capped = evalReport(EVAL_HEAD, { capped: true });
+	const run = evalRun({ conclusion: 'failure' });
+	evalArtifact(run, { 'report.json': JSON.stringify(capped) });
+	setEvalStatus(evalHead, 'success', 'all good', evalRunUrl(run));
+	const d = await evalOf(FIRST.number);
+	check(
+		'a success status beside a capped report: the detail is blocked by the report, not ready',
+		[d.agentEval?.blocking, d.status],
+		[capped.line, { kind: 'blocked', reason: `agent-eval: ${capped.line}` }],
+	);
+}
+{
+	const scored = evalReport(EVAL_HEAD);
+	const run = evalRun();
+	const artifact = evalArtifact(run, { 'report.json': JSON.stringify(scored) });
+	setEvalStatus(evalHead, 'success', scored.line, evalRunUrl(run));
+	const zips = () => gh.requests.filter((r) => r.includes(`/artifacts/${artifact}/zip`)).length;
+	const d = await evalOf(FIRST.number);
+	const ae = d.agentEval;
+	check(
+		'a scored eval with a success status: the report reads, nothing blocks',
+		[
+			ae?.report.state,
+			ae?.report.artifactId,
+			(ae?.report.report as Json | undefined)?.result,
+			ae?.blocking,
+		],
+		['ready', artifact, 'scored', null],
+	);
+	check('…and with every other check green on that head the change is ready', d.status, {
+		kind: 'ready',
+	});
+	await evalOf(FIRST.number);
+	await evalOf(FIRST.number);
+	check('a report read three times is downloaded once', zips(), 1);
+}
+{
+	// A success status beside a capped report: the report is the fuller word on what blocks.
+	const capped = evalReport(EVAL_HEAD, { capped: true });
+	const run = evalRun();
+	evalArtifact(run, { 'report.json': JSON.stringify(capped) });
+	setEvalStatus(evalHead, 'success', 'ok', evalRunUrl(run));
+	const ae = (await evalOf(FIRST.number)).agentEval;
+	check(
+		'a success status beside a capped report: the report still reads, and still says it blocks',
+		[ae?.report.state, ae?.blocking],
+		['ready', capped.line],
+	);
+}
+{
+	// What the report must be before it is shown, whatever the status says.
+	const statusOk = (run: number, line = 'qa: 50% → 75% on 4 elements') =>
+		setEvalStatus(evalHead, 'success', line, evalRunUrl(run));
+	const read = async () => {
+		const from = gh.requests.length;
+		const d = await evalOf(FIRST.number);
+		return { ae: d.agentEval, requests: evalRequests(from) };
+	};
+
+	let run = evalRun();
+	evalArtifact(run, { 'report.json': JSON.stringify(evalReport('b'.repeat(40))) });
+	statusOk(run);
+	let got = await read();
+	check(
+		'a report for another commit is stale, and says which',
+		[got.ae?.report.state, String(got.ae?.report.detail).includes('bbbbbbb'), got.ae?.blocking],
+		['stale', true, null],
+	);
+
+	run = evalRun();
+	evalArtifact(run, { 'report.json': JSON.stringify(evalReport(EVAL_HEAD, { agent: 'builder' })) });
+	statusOk(run);
+	got = await read();
+	check(
+		'a report for another agent is stale, and says which',
+		[got.ae?.report.state, got.ae?.report.detail],
+		['stale', 'The report is for builder, not qa.'],
+	);
+
+	run = evalRun();
+	const expired = evalArtifact(
+		run,
+		{ 'report.json': JSON.stringify(evalReport(EVAL_HEAD)) },
+		{ expired: true },
+	);
+	gh.zips.delete(expired);
+	statusOk(run);
+	got = await read();
+	check(
+		'an expired artifact is a state, with when it expired, and is never downloaded',
+		[
+			got.ae?.report.state,
+			got.ae?.report.expiresAt,
+			String(got.ae?.report.detail).includes('expired'),
+			got.requests.some((r) => r.includes('/zip')),
+		],
+		['expired', '2026-12-31T00:00:00Z', true, false],
+	);
+
+	for (const [label, over] of [
+		['another workflow', { path: '.github/workflows/evil.yml' }],
+		['another event', { event: 'pull_request' }],
+		['another repository', { repository: { full_name: 'other/engine' } }],
+	] as [string, Json][]) {
+		run = evalRun(over);
+		evalArtifact(run, { 'report.json': JSON.stringify(evalReport(EVAL_HEAD)) });
+		statusOk(run);
+		got = await read();
+		check(
+			`a status naming a run of ${label} is unreadable, and that run's artifacts are not looked at`,
+			[
+				got.ae?.report.state,
+				String(got.ae?.report.detail).includes('not the eval workflow'),
+				got.requests.some((r) => r.includes('/artifacts')),
+				got.ae?.blocking,
+			],
+			['unreadable', true, false, null],
+		);
+	}
+
+	const real = evalRun();
+	evalArtifact(real, { 'report.json': JSON.stringify(evalReport(EVAL_HEAD)) });
+	for (const url of [
+		null,
+		`https://github.com/${REPO}/pull/${FIRST.number}`,
+		`https://github.com/other/engine/actions/runs/${real}`,
+		`http://github.com/${REPO}/actions/runs/${real}`,
+	]) {
+		setEvalStatus(evalHead, 'success', 'ok', url);
+		got = await read();
+		check(
+			`a status linking ${url ?? 'nothing'} names no run of this repository: unreadable, no run fetched`,
+			[got.ae?.report.state, got.ae?.run, got.requests],
+			['unreadable', null, []],
+		);
+	}
+
+	setEvalStatus(evalHead, 'success', 'ok', evalRunUrl(999_999));
+	got = await read();
+	check(
+		'a status naming a run that is gone is missing',
+		[got.ae?.report.state, got.ae?.run],
+		['missing', null],
+	);
+
+	run = evalRun();
+	statusOk(run);
+	got = await read();
+	check(
+		'a finished run that made no report artifact is missing',
+		[got.ae?.report.state, String(got.ae?.report.detail).includes('made no report')],
+		['missing', true],
+	);
+
+	const parts = evalReport(EVAL_HEAD) as unknown as Json;
+	const { items: _items, ...noItems } = parts;
+	for (const [label, files, over, says] of [
+		[
+			'a report.json missing its items',
+			{ 'report.json': JSON.stringify(noItems) },
+			{},
+			'the report has no items',
+		],
+		[
+			'an artifact without a report.json',
+			{ 'other.json': '{}' },
+			{},
+			'the artifact holds no report.json',
+		],
+		['a report.json that is not JSON', { 'report.json': 'not json' }, {}, null],
+		[
+			'an artifact larger than any report',
+			{ 'report.json': JSON.stringify(parts) },
+			{ size_in_bytes: 5 * 1024 * 1024 },
+			'the artifact is larger than a report',
+		],
+	] as [string, Record<string, string>, Partial<Artifact>, string | null][]) {
+		run = evalRun();
+		const artifact = evalArtifact(run, files, over);
+		statusOk(run);
+		got = await read();
+		check(
+			`${label} is unreadable${says ? `, with the parser's words "${says}"` : ''}`,
+			[
+				got.ae?.report.state,
+				says
+					? got.ae?.report.detail === `The report could not be read: ${says}`
+					: String(got.ae?.report.detail).startsWith('The report could not be read: '),
+				got.ae?.blocking,
+			],
+			['unreadable', true, null],
+		);
+		if (over.size_in_bytes) {
+			check(
+				'…and is never downloaded',
+				gh.requests.some((r) => r.includes(`/artifacts/${artifact}/zip`)),
+				false,
+			);
+		}
+	}
+}
+{
+	// A change that carries the label but does not edit exactly one definition.
+	const two = pull(++pullSeq, 'agents: two at once', {
+		sha: sha(301),
+		labels: ['agent-definition'],
+		files: [QA_PATH, agentFile('builder')].map((filename) => ({
+			filename,
+			status: 'modified',
+			additions: 1,
+			deletions: 1,
+		})),
+	});
+	const h = head(sha(301), GREEN, { state: 'success', description: 'ok' });
+	let d = await evalOf(two.number);
+	check(
+		'a labelled change editing two files has no agent, and the eval says why it blocks',
+		[
+			d.agentEval?.agent,
+			String(d.agentEval?.blocking).includes('exactly one agent definition'),
+			String(d.agentEval?.blocking).includes('2 files'),
+			d.agentEval?.report.state,
+		],
+		[null, true, true, 'none'],
+	);
+	const refusal = 'agent-eval: it edits exactly one agent definition; this one edits 2 files';
+	setEvalStatus(h, 'failure', refusal, null);
+	d = await evalOf(two.number);
+	check('…and the failure the workflow posts for it blocks the change in its own words', d.status, {
+		kind: 'blocked',
+		reason: `agent-eval: ${refusal}`,
+	});
+
+	// The same edit without the label: the eval is not its word, whatever a status says.
+	const plain = pull(++pullSeq, 'agents: qa, unlabelled', {
+		sha: sha(302),
+		files: [{ filename: QA_PATH, status: 'modified', additions: 1, deletions: 1 }],
+	});
+	setEvalStatus(
+		head(sha(302), GREEN, { state: 'success', description: 'ok' }),
+		'failure',
+		'qa: capped',
+		null,
+	);
+	const p = await evalOf(plain.number);
+	check(
+		'a change without the label has no agent evaluation, and an agent-eval status on it is ignored',
+		[p.agentEval, p.agentDefinition, p.status],
+		[null, false, { kind: 'ready' }],
+	);
+
+	// The list and the detail say the same of a change.
+	setEvalStatus(evalHead, 'failure', 'qa: capped at $20.00', evalRunUrl(1));
+	lapse();
+	const listedNow = (await list(ADMIN)).body as { changes: Json[] };
+	const by = (n: number) => listedNow.changes.find((c) => c.number === n) as Json;
+	check(
+		'the list flags the agent definitions, and gives them the status the detail gives',
+		[
+			[by(FIRST.number).agentDefinition, by(FIRST.number).status],
+			[by(two.number).agentDefinition, by(two.number).status],
+			[by(plain.number).agentDefinition, by(plain.number).status],
+		],
+		[
+			[true, { kind: 'blocked', reason: 'agent-eval: qa: capped at $20.00' }],
+			[true, d.status],
+			[false, { kind: 'ready' }],
+		],
+	);
+}
+userOverrides.set('u-tester', { pipelineMerge: true });
+Date.now = realNow;
 
 // ── No secret anywhere ────────────────────────────────────────────────────────
 {
