@@ -15,6 +15,33 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-06 · Phases 1–3 · coordinator
+- **Did:** recorded the merges below. Each card's own HISTORY entry is in its PR description.
+  - **#1061 (1F):** the current-games harness is calibrated on the live games. Main vs main gives
+    0 changed screens on 161 of 161 screens, twice; a seeded 1 px win-line shift is caught on 21
+    screens. Root causes: no WebGL in CI, Typekit and web-font races, and HUD text drawn twice per
+    frame. The fixes apply only in the harness's test mode.
+  - **#1062 (1H):** re-runs `current-games` jobs GitHub never started, once. A Typekit mirror exists
+    but stays off (licensing).
+  - **#1063 (1G):** built-in component changes are also rendered "as republished"; an unknown
+    published engine fails closed.
+  - **#1056 (2D, PLAN 2.6):** 14 adapter ops for Symbols, Scene, Win Text, Localization, Fonts,
+    Rigger and Flipbook, all through the tools' storage modules with `baseEtag`.
+  - **#1058 (3B, PLAN 3.4/3.5/3.7):** the worker drives runs: turn loop, resume by `opId`,
+    LISTEN/NOTIFY wake, checkpoints, spend ledger and budget cap.
+  - **#1064 (2.7):** RunPod GPU time is billed and the cap fails closed.
+  - **#1065:** the worker's `/healthz` is liveness.
+- **Found:**
+  - The launcher had a Watch Path set, so it skipped three deploys. The owner removed it.
+  - #1061's PR description contained the skip-CI token, so no push workflow ran on its squash. Since
+    then the coordinator writes each squash commit's message itself.
+  - `cloud` is broken for players (see OPEN_QUESTIONS 3).
+- **Decisions:** ADR-0001 amended (manual turn loop); ADR-0004 amended (refused row, artifacts,
+  Typekit, retry; untouched and republished renders approved); ADR-0006 amended (GPU billing, cap
+  fails closed). See OPEN_QUESTIONS "Answered, 2026-10-06".
+- **Next:** #1059 (3C: mockups + event stream) after it brings in main; then Phase 4 (4A run API,
+  then 4B/4C screens).
+
 ## 2026-10-05 · Phase 5 · coordinator
 - **Did:** the owner approved ADR-0007 (pipeline-change mechanics), changing the eval cap to $20.
 - **Decisions:**

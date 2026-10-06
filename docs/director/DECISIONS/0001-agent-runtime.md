@@ -111,3 +111,13 @@ MCP-shaped so that a later move is cheap.
 
 - The choice of option 3 over the brief's default (option 1).
 - A new Railway service.
+
+## Amendments
+
+- **2026-10-06 (#1058):** the turn loop is a manual loop over the same streamed `messages` call the
+  SDK tool runner makes, with the same request shape, not the runner itself. The worker has to
+  persist every turn before acting on it, derive each tool call's `opId` from the stored turn,
+  settle unsettled calls from the database after a crash, and check the lease, the budget and the
+  owner's pause between calls. The runner keeps the conversation in memory and gives no such
+  boundary.
+

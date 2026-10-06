@@ -88,3 +88,15 @@ It is shown as a range, e.g. "~$6–12".
 
 - Prices in a repo file (a pipeline change to edit) with an Admin override.
 - The cap is snapshotted per run.
+
+## Amendments
+
+- **2026-10-06 (#1064):** RunPod spend is billed as `executionTime + delayTime` per job, so cold
+  starts are counted (over-counting the queue wait is accepted). The cap fails closed:
+  - before a run's first billed render, each queued render is projected at
+    `runpod.seedSecondsPerRender` (placeholder 600 s) at the dearest GPU;
+  - jobs that never reported their time are billed as flagged estimates;
+  - renders in flight count toward the projection;
+  - with no GPU named (`RUNPOD_ENDPOINT_GPU` unset on atlas-tool), GPU submits are blocked and the
+    run pauses until the owner resumes it.
+
