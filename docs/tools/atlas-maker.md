@@ -785,28 +785,35 @@ staleness and the endpoint GPU) for the Director; `&all=1` lists every pipeline 
 
 The Director's agents use the same routes as this page, under a token that names the run
 ([ADR-0008](../director/DECISIONS/0008-blueprint-driven-art.md) §3). A few routes behave
-differently for them, and three of the differences show on this page:
+differently for them. Four of the differences show on this page, and only on an atlas a run
+configured; every other atlas behaves exactly as before:
 
 - **An atlas a Director run configured renders on its own pipeline, whatever the global Pipeline
   control says.** The run sets the atlas's pipeline (`settings.pipeline` in its manifest); the
   ⚙ Global settings → Pipeline control still sets every other atlas, and changing it does nothing
-  to this one. 🧩 Atlas settings shows it read-only as **Pipeline · this atlas**, and a region's
-  ✎ advanced popup names it as the pipeline a blank override inherits. Only a Director run sets or
-  clears it; people keep the global control.
-- **A region with its own pipeline renders with that pipeline's saved settings.** Blueprint
-  settings are saved per atlas and per blueprint. A region whose ✎ Pipeline differs from the atlas's
-  now uses the settings saved for *its* blueprint on this atlas, when there are any; before, it got
-  the atlas pipeline's. An atlas with no settings saved for the region's blueprint renders exactly
-  as before.
-- **A tile a run commits gets its own file**, `refs/useroutput_<region>_<run>_<id>.png` (the id is
-  the image's fingerprint), so it never overwrites a tile you committed: the card shows it as
-  "★ your image" like any other, Create Atlas and Deploy use it, and ✕ revert works as usual.
-  Your own **Use my image** still writes `refs/useroutput_<region>.png`.
+  to this one. 🧩 Atlas settings shows it read-only as **Pipeline · this atlas**, a region's ✎
+  advanced popup names it as the pipeline a blank override inherits, and the **Blueprint
+  settings** panel shows and saves the settings of that pipeline. Only a Director run sets or
+  clears it: you cannot, and ⧉ Duplicate atlas copies it to the duplicate.
+- **On such an atlas, a region with its own pipeline renders with that pipeline's saved
+  settings.** Blueprint settings are saved per atlas and per blueprint. On a run's atlas, a region
+  whose ✎ Pipeline differs from the atlas's uses the settings saved for *its* blueprint there,
+  when there are any. On any other atlas such a region keeps getting the settings of the
+  pipeline the atlas renders on, as it always has.
+- **A tile a run commits gets its own file**, `refs/useroutput/<region>_<run>_<id>.png` (the id
+  is the image's fingerprint), so it never overwrites a tile you committed: the card shows it as
+  "★ your image" like any other, Create Atlas and Deploy use it, and ✕ revert removes it from the
+  region (the file is kept). Your own **Use my image**, an FX build and "use the ref as the tile"
+  still write `refs/useroutput_<region>.png`, and replace a run's tile on that region.
+- **Publishing a blueprint with "Use it for this atlas straight away" on a run's atlas** sets the
+  global Pipeline, and the status line says this atlas keeps its own.
 
-Not visible on the page: a run never moves your selected atlas (＋ New atlas and ⧉ Duplicate atlas
-create the atlas but leave the dropdown where it was), never writes ⚙ Global settings, and renders
-only on RunPod: with **Run generation on** set to *My computer*, its renders are refused and
-nothing starts. Your own renders are unaffected.
+Not visible on the page: a run never moves your selected atlas (＋ New atlas, ⧉ Duplicate atlas and
+the `/?atlas=` link create or open the atlas but leave the dropdown where it was; if nothing was
+selected, the atlas you were seeing is written down as the selection first), never writes
+⚙ Global settings or the blueprint library, must name the atlas it works on, and renders only on
+RunPod: with **Run generation on** set to *My computer*, its renders are refused and nothing
+starts. Your own renders are unaffected.
 
 ## Blueprints: authoring one yourself, end to end
 

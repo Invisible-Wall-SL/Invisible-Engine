@@ -12,18 +12,22 @@ What must hold:
      Pipeline says; a Director save carries no global key and never rewrites
      atlas_config.json; a person's `/saveconfig` is exactly as before, and a
      person cannot send `atlas_pipeline`;
-  2. a blueprint region renders with the saved params of its EFFECTIVE pipeline
-     (region > atlas > global); every existing manifest shape renders the same
-     graph, byte for byte, as before; the resolved-workflow export agrees;
+  2. on an atlas with its own pipeline (a Director-configured one), a blueprint
+     region renders with the saved params of its EFFECTIVE pipeline (region >
+     atlas > global); on any other atlas every region renders the same graph,
+     byte for byte, as before (the active pipeline's params), including a region
+     overriding to a blueprint that has params saved from an earlier global
+     choice; the resolved-workflow export agrees;
   3. `/render` refuses a Director token when the render would go over the
      `http` transport, and starts nothing; a person's render is unchanged;
-  4. a Director `/setoutput` writes `refs/useroutput_<region>_<run>_<id>.png`
+  4. a Director `/setoutput` writes `refs/useroutput/<region>_<run>_<id>.png`
      create-only and points `output_override` at it, never overwriting a tile;
      compose and the card read that name from the manifest; a person's
      `/setoutput` writes `refs/useroutput_<region>.png` as before;
   5. `/newatlas` and `/duplicateatlas` under a Director token create the atlas
      but leave the project's active atlas (`manifest_path`) where it was; a
-     person's still switch to it.
+     person's still switch to it; a Director POST that names no atlas, and a
+     Director blueprint upload, are refused.
 
 ASCII only in the labels (cp1252 console).
 """
@@ -297,7 +301,8 @@ def _bp(bp_id: str) -> dict:
 
 BLUEPRINTS = {"bp_a": _bp("bp_a"), "bp_b": _bp("bp_b")}
 
-# Every shape a manifest could have before 8B: (atlas pipeline, bpParams, regions).
+# A person's atlas, every shape: (global pipeline, bpParams, regions). The last two
+# carry params saved for a region's own blueprint from an earlier global choice.
 FIXTURES = {
     "built-in atlas, no overrides": (
         "sdxl", {"bp_a": {"steps": 33}}, [{"name": "R1", "seed": 5}]),
@@ -312,6 +317,12 @@ FIXTURES = {
     "blueprint atlas, a region on a built-in": (
         "bp_a", {"bp_a": {"steps": 33}, "sdxl": {"steps": 9}},
         [{"name": "R1", "seed": 5, "pipeline": "bp_a"}]),
+    "built-in atlas, a region on a blueprint with saved params": (
+        "sdxl", {"bp_a": {"steps": 33, "cfg": "4.5"}},
+        [{"name": "R1", "seed": 5, "pipeline": "bp_a"}]),
+    "blueprint atlas, a region on another blueprint with saved params": (
+        "bp_a", {"bp_a": {"steps": 33}, "bp_b": {"steps": 50, "cfg": "2"}},
+        [{"name": "R1", "seed": 5}, {"name": "R2", "seed": 6, "pipeline": "bp_b"}]),
 }
 
 
@@ -340,7 +351,9 @@ def _before_8b(region: dict) -> dict:
         region, {}, bp, batch_atlas.BP_PARAM_OVERRIDES)[0]
 
 
-def _with_fixture(pipe: str, bp_params: dict, fn):
+def _with_fixture(pipe: str, bp_params: dict, fn, director: bool = False):
+    """Load a manifest as main() does. A person's atlas takes `pipe` from the
+    global config; a Director-configured one carries it as `settings.pipeline`."""
     saved = (batch_atlas.PIPELINE, batch_atlas.blueprints.get_blueprint,
              batch_atlas.assert_models_named, dict(batch_atlas.BP_PARAM_OVERRIDES),
              dict(batch_atlas.BP_PARAMS_ALL))
@@ -350,8 +363,9 @@ def _with_fixture(pipe: str, bp_params: dict, fn):
     try:
         batch_atlas.blueprints.get_blueprint = lambda bp_id: copy.deepcopy(BLUEPRINTS.get(bp_id))
         batch_atlas.assert_models_named = _stop
-        batch_atlas.PIPELINE = "sdxl"
-        manifest = {"settings": {"pipeline": pipe, "bpParams": bp_params}}
+        batch_atlas.PIPELINE = "sdxl" if director else pipe
+        manifest = {"settings": dict({"bpParams": bp_params},
+                                     **({"pipeline": pipe} if director else {}))}
         batch_atlas.apply_manifest_settings(manifest)
         batch_atlas.load_bp_params(manifest)
         return fn()
@@ -376,16 +390,19 @@ def test_existing_manifests_render_byte_identically() -> None:
                   json.dumps(want, sort_keys=True).encode())
 
 
-def test_region_renders_its_own_pipelines_params() -> None:
+def test_director_atlas_region_renders_its_own_pipelines_params() -> None:
     bp_params = {"bp_a": {"steps": 33, "cfg": "4.5"}, "bp_b": {"steps": 50}}
     region = {"name": "R2", "seed": 6, "pipeline": "bp_b"}
-    wf = _with_fixture("bp_a", bp_params, lambda: _rendered("bp_a", bp_params, region))
-    check("a region on bp_b renders bp_b's saved params, not the atlas's",
+    wf = _with_fixture("bp_a", bp_params, lambda: _rendered("bp_a", bp_params, region), True)
+    check("on a Director atlas a region on bp_b renders bp_b's saved params",
           (wf["2"]["inputs"]["steps"], wf["2"]["inputs"]["cfg"]), (50, 7.0))
-    wf = _with_fixture("sdxl", bp_params, lambda: _rendered("sdxl", bp_params, region))
-    check("...on a built-in atlas too", wf["2"]["inputs"]["steps"], 50)
+    wf = _with_fixture("sdxl", bp_params, lambda: _rendered("sdxl", bp_params, region), True)
+    check("...on a Director atlas on a built-in too", wf["2"]["inputs"]["steps"], 50)
+    wf = _with_fixture("bp_a", bp_params, lambda: _rendered("bp_a", bp_params, region))
+    check("a person's atlas keeps the active pipeline's params for it",
+          (wf["2"]["inputs"]["steps"], wf["2"]["inputs"]["cfg"]), (33, 4.5))
     wf = _with_fixture("bp_a", bp_params,
-                       lambda: _rendered("bp_a", bp_params, {"name": "R1", "seed": 5}))
+                       lambda: _rendered("bp_a", bp_params, {"name": "R1", "seed": 5}), True)
     check("a region on the atlas's blueprint keeps the atlas's params",
           (wf["2"]["inputs"]["steps"], wf["2"]["inputs"]["cfg"]), (33, 4.5))
 
@@ -395,7 +412,8 @@ def test_resolved_export_agrees() -> None:
     manifest = {"settings": {"pipeline": "bp_a", "bpParams": bp_params},
                 "regions": [{"name": "R1", "seed": 5},
                             {"name": "R2", "seed": 6, "pipeline": "bp_b"}]}
-    saved = (batch_atlas.blueprints.get_blueprint, batch_atlas.refresh_config_globals)
+    saved = (batch_atlas.blueprints.get_blueprint, batch_atlas.refresh_config_globals,
+             batch_atlas.PIPELINE)
     try:
         batch_atlas.blueprints.get_blueprint = lambda bp_id: copy.deepcopy(BLUEPRINTS.get(bp_id))
         batch_atlas.refresh_config_globals = lambda: {}
@@ -408,8 +426,16 @@ def test_resolved_export_agrees() -> None:
         wf = batch_atlas.resolve_blueprint_workflow(manifest, "R1", "bp_b")[0]
         check("...and an explicit blueprint's own params, as the page asks for them",
               wf["2"]["inputs"]["steps"], 50)
+        person = {"settings": {"bpParams": bp_params}, "regions": manifest["regions"]}
+        batch_atlas.PIPELINE = "bp_a"
+        wf = batch_atlas.resolve_blueprint_workflow(person, "R2")[0]
+        check("on a person's atlas the export keeps the active pipeline's params",
+              wf["2"]["inputs"]["steps"], 33)
+        wf = batch_atlas.resolve_blueprint_workflow(person, "R1", "bp_b")[0]
+        check("...also for an explicit blueprint", wf["2"]["inputs"]["steps"], 33)
     finally:
-        batch_atlas.blueprints.get_blueprint, batch_atlas.refresh_config_globals = saved
+        (batch_atlas.blueprints.get_blueprint, batch_atlas.refresh_config_globals,
+         batch_atlas.PIPELINE) = saved
 
 
 # --- 3. /render on the http transport ----------------------------------------
@@ -484,8 +510,8 @@ def test_setoutput_versioned_for_director() -> None:
                          {"name": "H1", "data": _png((255, 0, 0, 255))})
         rel = _manifest(SYMBOLS)["regions"][0].get("output_override", "")
         check("a Director commit answers OK", (st, body[:1]), (200, "✓"))
-        check("...under refs/useroutput_<region>_<run>_<id>.png",
-              (rel.startswith("refs/useroutput_H1_run-07-abc-9_"), rel.endswith(".png"),
+        check("...under refs/useroutput/<region>_<run>_<id>.png",
+              (rel.startswith("refs/useroutput/H1_run-07-abc-9_"), rel.endswith(".png"),
                len(rel.rsplit("_", 1)[1]) == len("0123456789ab.png")), (True, True, True))
         written = (u.INPUT_DIR / rel).read_bytes()
         check("...whose id is the tile's content digest",
@@ -594,6 +620,43 @@ def test_new_and_duplicate_keep_selection_for_director() -> None:
               (body[:1], [r["name"] for r in json.loads(dup.read_text())["regions"]]),
               ("✓", ["cut_H1", "cut_H2"]))
         check("...without switching the active atlas", u.CONFIG_PATH.read_bytes(), cfg_before)
+
+
+def test_director_create_holds_a_fallback_selection() -> None:
+    """With `manifest_path` blank, the people see the first manifest; a Director
+    atlas that sorts first must not take its place."""
+    _seed({"manifest_path": ""})
+    with _Bucket(), _Server() as s:
+        s.req("POST", "/newatlas", s.agent, {"name": "aaa_scratch"})
+        check("a Director /newatlas writes down the fallback the people saw",
+              json.loads(u.CONFIG_PATH.read_text(encoding="utf-8"))["manifest_path"], MAIN)
+    _seed()
+    with _Bucket(), _Server() as s:
+        before = u.CONFIG_PATH.read_bytes()
+        s.req("POST", "/newatlas", s.agent, {"name": "aaa_other"})
+        check("...and writes nothing when the selection is real",
+              u.CONFIG_PATH.read_bytes(), before)
+
+
+def test_director_unpinned_writes_and_library_refused() -> None:
+    _seed()
+    with _Bucket(), _Server() as s:
+        before = (u.MANIFEST_DIR / MAIN).read_bytes()
+        for path, body in (("/saveconfig", {"gen_width": "512"}),
+                           ("/setoutput", {"name": "H1", "data": _png((1, 1, 1, 255))}),
+                           ("/render", {"names": ["H1"], "variants": 1})):
+            st, ans = s.req("POST", path, s.agent, body)
+            check(f"a Director {path} naming no atlas is refused",
+                  (st, "names its atlas" in ans), (400, True))
+        check("...and the selected atlas is untouched",
+              (u.MANIFEST_DIR / MAIN).read_bytes(), before)
+        st, ans = s.req("POST", f"/uploadblueprint?manifest={SYMBOLS}", s.agent,
+                        {"name": "x", "workflow_text": "{}", "bindings": {}})
+        check("a Director blueprint upload is refused", ans.startswith("✖"), True)
+        st, ans = s.req("POST", "/saveconfig", s.person, {"manifest_path": SYMBOLS})
+        st, ans = s.req("POST", "/saveconfig", s.person, {"bpParams": {"BP_A": {"steps": "40"}}})
+        check("bpParams ids are stored lowercase, as they are read",
+              _manifest(SYMBOLS)["settings"]["bpParams"], {"bp_a": {"steps": "40"}})
 
 
 def test_new_and_duplicate_person_unchanged() -> None:

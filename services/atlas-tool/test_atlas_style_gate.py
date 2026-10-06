@@ -70,7 +70,7 @@ def main() -> int:
     check("collect() sends no style keys",
           any(k in collect for k in ("gpre", "gsuf", "gneg", "positive_prefix")), False)
     check("...so the panel's own button is still the only writer",
-          text.count("/saveglobalstyle"), 2)   # the fetch + the route
+          text.count("fetch('/saveglobalstyle'"), 1)
 
     print("\n-- the render is gated, and gated BEFORE anything is written")
     # Comments are stripped first: the gate's own comment names saveAll(), and an

@@ -2041,6 +2041,19 @@ def region_pipeline(region: dict) -> str:
     return rp or str(PIPELINE).lower()
 
 
+def region_bp_params(manifest: dict) -> dict:
+    """The saved params `bp_overrides_for` may key by a region's own pipeline:
+    all of `settings.bpParams` on an atlas that has its own pipeline
+    (`settings.pipeline`, which only a Director run sets), none anywhere else.
+    A person's atlas keeps the old rule byte for byte: every blueprint region
+    renders with the ACTIVE pipeline's params, whatever it saved for others."""
+    settings = manifest.get("settings") or {}
+    bp_params = settings.get("bpParams")
+    if not str(settings.get("pipeline") or "").strip() or not isinstance(bp_params, dict):
+        return {}
+    return bp_params
+
+
 def load_bp_params(manifest: dict) -> None:
     """Load this manifest's blueprint exposed-param overrides (B43 Phase 8) into
     the globals the generic runner reads: BP_PARAMS_ALL (every blueprint's,
@@ -2050,9 +2063,8 @@ def load_bp_params(manifest: dict) -> None:
     overrides leaves the latter empty (defaults apply)."""
     BP_PARAM_OVERRIDES.clear()
     BP_PARAMS_ALL.clear()
+    BP_PARAMS_ALL.update(region_bp_params(manifest))
     _bp_params = ((manifest.get("settings") or {}).get("bpParams") or {})
-    if isinstance(_bp_params, dict):
-        BP_PARAMS_ALL.update(_bp_params)
     _active_pipe = str(PIPELINE).strip().lower()
     if _active_pipe not in ("sdxl", "flux", "gpt_image"):
         _this = _bp_params.get(_active_pipe)
@@ -2068,13 +2080,11 @@ def load_bp_params(manifest: dict) -> None:
 def bp_overrides_for(region: dict, bp_params, atlas_overrides) -> dict | None:
     """The exposed-param overrides a region's blueprint renders with, keyed by
     the region's EFFECTIVE pipeline (its own override > the atlas's > the
-    global): `bp_params[<that id>]` when the manifest saved any for it.
+    global): `bp_params[<that id>]` when there are any for it.
 
-    Otherwise `atlas_overrides` — the atlas pipeline's params, which is what
-    every region got before (main() loads them for the active pipeline only).
-    So a region on the atlas's pipeline, or whose own blueprint has no saved
-    params, renders byte-identically to before; only a region whose own
-    pipeline has saved params changes, which is the point."""
+    Otherwise `atlas_overrides`, the active pipeline's params, which is what
+    every region got before 8B. `bp_params` comes from `region_bp_params`, so
+    it is empty on any atlas a Director run did not configure."""
     pipe = region_pipeline(region)
     own = bp_params.get(pipe) if isinstance(bp_params, dict) else None
     if pipe != str(PIPELINE).strip().lower() and isinstance(own, dict):
@@ -2645,18 +2655,18 @@ def resolve_blueprint_workflow(
                     f"blueprint '{bp_id}' not found in the shared library")
 
             # Overrides EXACTLY as a real run picks them (`bp_overrides_for`
-            # in run_region): the region's own pipeline's saved params when it
-            # has any, else the active pipeline's, which main() loads into
+            # in run_region): on a Director-configured atlas the region's own
+            # pipeline's saved params when it has any, else the active
+            # pipeline's, which main() loads into
             # BP_PARAM_OVERRIDES. Passed explicitly so we never touch either
             # global.
             active_pipe = str(PIPELINE).strip().lower()
-            bp_params = (manifest.get("settings") or {}).get("bpParams") or {}
-            overrides = (bp_params.get(active_pipe)
-                         if isinstance(bp_params, dict) else None)
+            overrides = ((manifest.get("settings") or {})
+                         .get("bpParams") or {}).get(active_pipe)
             if not isinstance(overrides, dict):
                 overrides = None
-            overrides = bp_overrides_for(dict(region, pipeline=bp_id), bp_params,
-                                         overrides)
+            overrides = bp_overrides_for(dict(region, pipeline=bp_id),
+                                         region_bp_params(manifest), overrides)
 
             baked = copy.deepcopy(blueprint.get("graph") or {})
             wf, out_node_id = build_workflow_blueprint(
