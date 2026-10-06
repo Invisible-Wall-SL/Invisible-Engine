@@ -1,0 +1,140 @@
+{
+  "version": 1,
+  "id": "wanloopingvideo__3_",
+  "status": "draft",
+  "rev": 1,
+  "graphSha": "4806b0dca8e7",
+  "purpose": "A short clip that returns to its first frame: seamless idle and win loops.",
+  "whenToUse": [
+    "continuous symbol and UI loops (check)",
+    "from the Flipbook video session only"
+  ],
+  "whenNotToUse": [
+    "one-shot animations (wan22_i2v_flipbook)",
+    "halves over ~2 s",
+    "until shape_ref is unbound and models are declared"
+  ],
+  "inputs": {
+    "prompt": "required",
+    "negative": "optional",
+    "reference": "none",
+    "shape": "none",
+    "sourceImage": "required",
+    "mask": "none",
+    "layer": "none"
+  },
+  "outputs": {
+    "kind": "video",
+    "alpha": true,
+    "count": 1
+  },
+  "settings": [
+    {
+      "key": "SetTurbo",
+      "default": false,
+      "note": "true for drafts (check)"
+    },
+    {
+      "key": "SetWidth",
+      "default": 1024,
+      "min": 512,
+      "max": 1024,
+      "note": "640 recommended (check)"
+    },
+    {
+      "key": "SetHeight",
+      "default": 1024,
+      "min": 512,
+      "max": 1024
+    },
+    {
+      "key": "DurationStart",
+      "default": 1,
+      "min": 0.5,
+      "max": 2
+    },
+    {
+      "key": "DurationEnd",
+      "default": 1,
+      "min": 0.5,
+      "max": 2
+    },
+    {
+      "key": "Gen FPS",
+      "default": 12,
+      "min": 12,
+      "max": 16
+    },
+    {
+      "key": "ExportFPS",
+      "default": 12,
+      "min": 12,
+      "max": 16
+    },
+    {
+      "key": "ResizeWidth",
+      "default": 320,
+      "min": 128,
+      "max": 512
+    },
+    {
+      "key": "ResizeHeight",
+      "default": 320,
+      "min": 128,
+      "max": 512
+    },
+    {
+      "key": "RemoveBackground",
+      "default": true
+    },
+    {
+      "key": "bck model",
+      "default": "BiRefNet-general"
+    },
+    {
+      "key": "bck offset",
+      "default": 0,
+      "min": 0,
+      "max": 10
+    },
+    {
+      "key": "Text2ndHalf",
+      "default": ""
+    }
+  ],
+  "chain": {
+    "position": "generate",
+    "follows": [
+      "sdxl",
+      "flux",
+      "gpt_image"
+    ],
+    "precedes": [
+      "flipbook-pack"
+    ]
+  },
+  "gpu": {
+    "secondsPerImage": {
+      "640": 120
+    },
+    "qualityModeSeconds": {
+      "1024": 1200
+    },
+    "coldStart": 240,
+    "minVramGb": 48,
+    "source": "guess"
+  },
+  "variants": {
+    "draft": 2,
+    "final": 1,
+    "max": 3
+  },
+  "billing": "gpu",
+  "licence": "conditional",
+  "gotchas": [
+    "BLOCKING: shape_ref bound beside style_ref on node 97 (silhouette trap): re-publish",
+    "BLOCKING: models[] empty: rescan",
+    "ExportFPS must equal Gen FPS",
+    "Text2ndHalf must describe a return to the start pose"
+  ]
+}

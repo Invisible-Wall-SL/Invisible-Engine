@@ -187,6 +187,7 @@ def hydrate(force: bool = False) -> None:
         # After the pull, so the comparison is against what the library really
         # holds rather than a stale local mirror.
         _sync_bundled()
+        _seed_library_cards()
     except Exception as e:  # noqa: BLE001 — first run / empty bucket / transient
         # Say it out loud. This used to be wholly silent, which meant a service
         # that could not reach R2 served stale staging copies forever with no
@@ -223,7 +224,32 @@ def _sync_bundled() -> None:
       * present, still ours (author unchanged) and BYTES DIFFER -> update it
       * present, someone else's author -> leave it completely alone
       * present and identical -> no write at all (so this is a cheap no-op)
+
+    Each bundled `card.json` is synced as a step of its own (`cards`), so a card
+    edited in the repo ships even when its blueprint is byte-identical — the
+    blueprint loop below skips those.
     """
+    _sync_bundled_blueprints()
+    try:
+        import cards  # local: cards imports this module
+        cards.sync_bundled_cards(BUNDLED_SRC)
+    except Exception as e:  # noqa: BLE001 — a card must never stop the library loading
+        print(f"[blueprints] bundled card sync failed ({type(e).__name__}): {e}",
+              flush=True)
+
+
+def _seed_library_cards() -> None:
+    """First draft cards for the published library blueprints (`card_seeds/`).
+    Create-only, so an owner's edit always wins; best-effort and logged."""
+    try:
+        import cards  # local: cards imports this module
+        cards.seed_catalogue_cards()
+    except Exception as e:  # noqa: BLE001 — a card must never stop the library loading
+        print(f"[blueprints] catalogue card seed failed ({type(e).__name__}): {e}",
+              flush=True)
+
+
+def _sync_bundled_blueprints() -> None:
     if not BUNDLED_SRC.is_dir():
         return
     for d in sorted(x for x in BUNDLED_SRC.iterdir() if x.is_dir()):
@@ -267,6 +293,22 @@ def _sync_bundled() -> None:
             print(f"[blueprints] {action} bundled blueprint '{d.name}'", flush=True)
         except Exception as e:  # noqa: BLE001 — one bad blueprint, keep going
             print(f"[blueprints] could not sync bundled '{d.name}': {e}", flush=True)
+            continue
+        if action == "updated":
+            _reset_card_after_change(d.name)
+
+
+def _reset_card_after_change(bp_id: str) -> None:
+    """The library's copy of a bundled blueprint just changed under its card, so
+    a reviewed card goes back to draft, as on a re-publish. Best-effort."""
+    try:
+        import cards  # local: cards imports this module
+        if cards.reset_on_republish(bp_id, None, what="updated from the bundled copy",
+                                    by="the boot sync"):
+            print(f"[blueprints] card of '{bp_id}' returned to draft (bundled update)",
+                  flush=True)
+    except Exception as e:  # noqa: BLE001 — never stop the library loading
+        print(f"[blueprints] could not reset the card of '{bp_id}': {e}", flush=True)
 
 
 def library_status() -> dict:
@@ -816,6 +858,32 @@ def _read_blueprint_dir(d: Path) -> dict | None:
     except (ValueError, OSError) as e:
         print(f"[blueprints] skipped '{bp_id}': {e}", flush=True)
         return None
+    return _load_blueprint(bp_id, manifest, graph)
+
+
+def read_blueprint_r2(blueprint_id: str) -> dict | None:
+    """`get_blueprint`, read straight from R2 instead of the staging mirror —
+    same shape, same validation, same digests. For a caller that must not act
+    on a stale mirror or trigger a hydrate (the card seed runs INSIDE one, and
+    its CLI must not). None when absent or invalid; raises
+    `storage.ObjectUnreadable` when R2 could not be asked, so "could not read"
+    never passes for "not there"."""
+    bp_id = r2_slug(blueprint_id or "")
+    prefix = f"{SHARED_BLUEPRINTS_PREFIX}/{bp_id}"
+    man = storage.get_strict(f"{prefix}/blueprint.json")
+    wf = storage.get_strict(f"{prefix}/workflow.json")
+    if man is None or wf is None:
+        return None
+    try:
+        manifest = json.loads(man)
+        graph = json.loads(wf)
+    except ValueError as e:
+        print(f"[blueprints] skipped '{bp_id}' (R2): {e}", flush=True)
+        return None
+    return _load_blueprint(bp_id, manifest, graph)
+
+
+def _load_blueprint(bp_id: str, manifest, graph) -> dict | None:
     try:
         _validate_manifest(bp_id, manifest)
     except ValueError as e:
@@ -887,7 +955,9 @@ def get_blueprint(blueprint_id: str) -> dict | None:
 
 def delete_blueprint(blueprint_id: str) -> dict:
     """Remove a shared blueprint: every object under
-    `_shared/blueprints/<id>/` in R2 PLUS its staging mirror dir. Returns
+    `_shared/blueprints/<id>/` in R2 — its `card.json` and `card.history/` too,
+    so a later blueprint under the same id never inherits a review — PLUS its
+    staging mirror dir. Returns
     `{id, deleted, existed}` (deleted = R2 objects removed). Raises ValueError
     only on an empty id. Best-effort per object / on the local rmtree — a
     partially-present blueprint still gets cleaned up as far as possible, and a
@@ -900,8 +970,12 @@ def delete_blueprint(blueprint_id: str) -> dict:
     try:
         keys = [o["key"] for o in storage.list_keys(prefix)]
     except Exception:  # noqa: BLE001 — R2 hiccup: fall back to the known files
+        # `card.history/<rev>.json` cannot be named without a listing. Deleting
+        # card.json is what matters (no card = nothing offered to agents); the
+        # orphaned history is harmless — a later card under this id files its
+        # history above it (`cards._write_history`) — and a re-delete cleans it.
         keys = [f"{prefix}blueprint.json", f"{prefix}workflow.json",
-                f"{prefix}thumb.png"]
+                f"{prefix}thumb.png", f"{prefix}card.json"]
     deleted = 0
     for k in keys:
         try:

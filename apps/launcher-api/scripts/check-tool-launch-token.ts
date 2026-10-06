@@ -182,3 +182,66 @@ test('signing secret unset: the legacy sheet query, unchanged', () => {
 		project: 'slots_one',
 	});
 });
+
+function atlasCaps(
+	via: 'query' | 'header',
+	flags: { canPublishBlueprints: boolean; canMergePipeline?: boolean },
+	tool: 'atlas' | 'sheet' = 'atlas',
+): unknown {
+	const h = buildToolHandoff(
+		{ tool, user: USER, clientKey: 'acme', projectKey: 'slots_one', ...flags },
+		secrets(SECRET),
+		via,
+		NOW,
+	);
+	return payloadOf(
+		via === 'header' ? h.headers[LAUNCH_HEADER] : (h.params.get(LAUNCH_QUERY_PARAM) ?? ''),
+	).caps;
+}
+
+test('a holder of both caps gets both on a browser launch, publish first', () => {
+	const both = { canPublishBlueprints: true, canMergePipeline: true };
+	assert.deepEqual(atlasCaps('query', both), ['blueprintPublish', 'pipelineMerge']);
+	assert.deepEqual(atlasCaps('query', { canPublishBlueprints: false, canMergePipeline: true }), [
+		'pipelineMerge',
+	]);
+});
+
+test('a header (api) launch never carries pipelineMerge', () => {
+	assert.deepEqual(atlasCaps('header', { canPublishBlueprints: true, canMergePipeline: true }), [
+		'blueprintPublish',
+	]);
+	assert.deepEqual(
+		atlasCaps('header', { canPublishBlueprints: false, canMergePipeline: true }),
+		[],
+	);
+});
+
+test('sheet never carries pipelineMerge', () => {
+	const both = { canPublishBlueprints: true, canMergePipeline: true };
+	assert.deepEqual(atlasCaps('query', both, 'sheet'), []);
+	assert.deepEqual(atlasCaps('header', both, 'sheet'), []);
+});
+
+test('a non-holder gets neither cap', () => {
+	assert.deepEqual(
+		atlasCaps('query', { canPublishBlueprints: false, canMergePipeline: false }),
+		[],
+	);
+	assert.deepEqual(atlasCaps('query', { canPublishBlueprints: false }), []);
+});
+
+test('signing secret unset: pipelineMerge has no legacy carrier', () => {
+	const h = buildToolHandoff(
+		{
+			tool: 'atlas',
+			user: USER,
+			clientKey: 'acme',
+			projectKey: 'slots_one',
+			canPublishBlueprints: true,
+			canMergePipeline: true,
+		},
+		secrets(''),
+	);
+	assert.deepEqual([...h.params.keys()], ['k', 'client', 'project', 'user', 'bp']);
+});

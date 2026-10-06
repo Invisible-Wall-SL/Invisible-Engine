@@ -41,6 +41,7 @@ import atlas_format  # noqa: E402
 import atlas_writers  # noqa: E402  (TexturePacker JSON for game-loadable deploy)
 import batch_atlas  # noqa: E402  (reuse the geometry resolver — single source)
 import blueprints  # noqa: E402  (shared, data-driven ComfyUI pipeline library)
+import cards as bp_cards  # noqa: E402  (blueprint cards: what agents may know about a pipeline)
 import comfy_catalog  # noqa: E402  (model lists that survive a dead/serverless ComfyUI)
 import shine  # noqa: E402  (local *_shine derivation, no ComfyUI)
 import pack  # noqa: E402  (MaxRects bin packer for from-scratch auto-pack atlases)
@@ -665,6 +666,9 @@ PER_ATLAS_KEYS = {
     "controlnet_end_percent", "ksampler_steps", "ksampler_cfg",
     "padding_pct", "shape_ref_fill_pct", "gen_width", "gen_height",
 }
+# The Settings keys a built-in pipeline's card may name (ADR-0008 §2): per atlas
+# or per region, never global-only.
+CARD_BUILTIN_KEYS = bp_cards.builtin_keys(PER_ATLAS_KEYS, ADV_FIELDS)
 
 # Editable manifest["atlas"] geometry, surfaced in the Settings panel.
 # UI key -> manifest atlas key. Always per-manifest (no global fallback).
@@ -4678,6 +4682,11 @@ except OSError:
 DOC_GUARD_JS = (Path(__file__).resolve().parent / "doc-guard.js").read_text(
     encoding="utf-8")
 
+# The blueprint card editor (ADR-0008 §2). A file for the same reason, and not
+# optional either: the Manage modal's ✎ Card buttons call into it.
+CARD_EDITOR_JS = (Path(__file__).resolve().parent / "card-editor.js").read_text(
+    encoding="utf-8")
+
 
 def doc_guard_js(docs: dict, me: dict, doc: str) -> str:
     """The fetch wrapper, preceded by the "X is editing this atlas" heartbeat on
@@ -5600,6 +5609,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
 <title>Invisible Atlas Maker</title>
 <script>{doc_guard_js}</script>
 <script>{color_field_js}</script>
+<script>{card_editor_js}</script>
 <script>
 /* Every region paints two thumbs (output + reference), so a 60-region atlas
    asks for ~120 images. Whatever drops one of them — the proxy, a worker
@@ -5983,6 +5993,12 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
     <label style="display:flex;align-items:center;gap:7px;color:#aaa;font-size:12px;margin-top:4px"><input type="checkbox" id="bpUseNow" checked>
      Use it for this atlas straight away (sets ⚙ Settings → Pipeline)</label>
     <div style="color:#666;font-size:11px;margin-top:-4px">Publishing only adds the blueprint to the shared library. Until something selects it, this atlas keeps rendering with the pipeline it already had — which is how a processing blueprint gets published and the next render still comes out of the built-in SDXL generator.</div>
+    <details id="bpCardSec" ontoggle="bpCardToggle(this)" style="border:1px solid #2a2a2e;border-radius:6px;padding:8px 10px;margin-top:4px">
+     <summary style="cursor:pointer;color:#aaa;font-weight:600">Card (optional) — what agents read about this blueprint</summary>
+     <div style="color:#888;font-size:11px;margin:6px 0">When to use it, what it needs, what it costs. Prefilled from the bindings and settings above (<button type="button" onclick="bpCardPrefill()" style="font-size:11px;padding:1px 6px">↻ Prefill again</button>). Saved with the publish when a purpose is filled in; agents only see it once the owner marks it reviewed.</div>
+     <div id="bpCardForm"></div>
+     <label id="bpCardReviewRow" style="display:none;align-items:center;gap:7px;color:#aaa;font-size:12px;margin-top:6px"><input type="checkbox" id="bpCardReview"> Mark reviewed (offered to agents)</label>
+    </details>
    </div>
   </div>
   <div id="bpfoot" class="modalfoot" style="display:none">
@@ -5998,6 +6014,21 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
    <div style="color:#888;font-size:12px">Shared blueprints in the library. Deleting one removes it for everyone; any atlas whose pipeline is set to it will need a different pipeline.</div>
    <div id="bpManageList" style="display:flex;flex-direction:column;gap:6px"></div>
    <span id="bpManageStat" style="color:#999"></span>
+  </div>
+ </div>
+</div>
+<div id="cardModal" class="modal" onclick="if(event.target===this)closeCardEditor()">
+ <div class="modalbox" style="width:min(760px,96vw)">
+  <div class="modalhdr"><span id="cardTitle">Card</span><button onclick="closeCardEditor()">✕ close</button></div>
+  <div class="modalbody" style="padding:14px 18px 18px;display:flex;flex-direction:column;gap:10px;font-size:13px">
+   <div id="cardHead" style="display:flex;flex-direction:column;gap:6px"></div>
+   <div id="cardForm"></div>
+   <div id="cardHistory" style="display:flex;flex-direction:column;gap:2px"></div>
+  </div>
+  <div class="modalfoot" style="display:flex">
+   <button id="cardSaveDraft" onclick="cardEditorSave(false)" style="display:none">Save draft</button>
+   <button id="cardSaveReview" onclick="cardEditorSave(true)" style="display:none" title="The owner's approval: agents may use this blueprint">Save and mark reviewed</button>
+   <span id="cardStat" style="color:#999;white-space:pre-line"></span>
   </div>
  </div>
 </div>
@@ -6257,6 +6288,8 @@ const BP_PARAM_VALUES={bp_param_values_js};
 // drives the manage/delete list in the New-blueprint modal.
 const BP_LIST={bp_list_js};
 const BP_CAN_PUBLISH={bp_can_publish_js};
+// May this person mark a blueprint card reviewed (pipelineMerge) — card-editor.js.
+const CARD_CAN_REVIEW={card_can_review_js};
 function isBlueprintPipe(p){{ return !!p && BUILTIN_PIPES.indexOf(p)<0; }}
 function bpBinds(p,role){{
  let r=BP_BOUND_ROLES[p]; return !!r && r.indexOf(role)>=0;
@@ -6768,6 +6801,7 @@ function openNewBlueprint(){{
  document.getElementById('bpDesc').value='';
  bpStat('');
  let pw=document.getElementById('bpParams'); if(pw)pw.innerHTML='';
+ bpCardReset();
  ['bpGates','bpRoleNote','bpBindNote'].forEach(id=>{{
   let w=document.getElementById(id);
   if(w){{ w.innerHTML=''; w.style.display='none'; }}
@@ -6780,6 +6814,7 @@ function openManageBlueprints(){{
  document.getElementById('bpManageStat').textContent='';
  renderBpManage();
  document.getElementById('bpManageModal').classList.add('open');
+ cardDecorateManage();
 }}
 function closeManageBp(){{document.getElementById('bpManageModal').classList.remove('open');}}
 
@@ -6831,7 +6866,7 @@ function renderBpManage(){{
  box.innerHTML='';
  if(!BP_LIST || !BP_LIST.length){{
   let e=document.createElement('div'); e.style.cssText='color:#888';
-  e.textContent='No blueprints in the library yet — upload one first.';
+  e.textContent='No blueprints in the library yet — upload one first. The cards of the built-in pipelines are listed above.';
   box.appendChild(e); return;
  }}
  BP_LIST.forEach(bp=>{{
@@ -6856,8 +6891,13 @@ function renderBpManage(){{
   let del=document.createElement('button'); del.type='button'; del.textContent='🗑 Delete';
   del.style.cssText='font-size:11px;padding:4px 9px';
   del.onclick=()=>deleteBlueprint(bp.id,bp.name);
-  row.appendChild(nm); row.appendChild(sha); row.appendChild(cnt);
-  row.appendChild(scan); row.appendChild(del); box.appendChild(row);
+  let st=document.createElement('span'); st.dataset.cardChip=bp.id;
+  let card=document.createElement('button'); card.type='button'; card.textContent='✎ Card';
+  card.style.cssText='font-size:11px;padding:4px 9px';
+  card.title='What agents read about this blueprint (draft / reviewed)';
+  card.onclick=()=>openCardEditor(bp.id);
+  row.appendChild(nm); row.appendChild(st); row.appendChild(sha); row.appendChild(cnt);
+  row.appendChild(card); row.appendChild(scan); row.appendChild(del); box.appendChild(row);
  }});
 }}
 // Blueprints authored before models[] was derived at import declare nothing, so
@@ -7425,9 +7465,10 @@ async function saveBlueprint(overwrite){{
   // The server sets the pipeline itself — it is the side that knows the slugged
   // id, so nothing has to parse one back out of the reply text.
   use_for_atlas:!!(document.getElementById('bpUseNow')||{{}}).checked}};
- let msg;
+ let msg, bpId='';
  try{{ let r=await fetch('/uploadblueprint',{{method:'POST',body:JSON.stringify(body)}});
   msg=(r.status===404)?'Upload endpoint missing — restart the service':await r.text();
+  bpId=r.headers.get('X-IW-Blueprint-Id')||'';
  }}catch(e){{ msg='Publish failed: '+e; }}
  // A pre-existing id prompts to overwrite (mirror the .atlas confirm style).
  if(msg.indexOf('⚠')===0 && msg.indexOf('already exists')>=0 && !overwrite){{
@@ -7435,8 +7476,15 @@ async function saveBlueprint(overwrite){{
   if(confirm(msg.replace('⚠ ','')+'\\n\\nOverwrite it?')) return saveBlueprint(true);
   return;
  }}
+ if(msg.indexOf('✓')===0){{
+  // The publish has landed; a card that fails to save says so and never undoes it.
+  bpStat(msg+' — saving the card…');
+  let cardMsg=await cardAfterPublish(bpId);
+  bpStat(msg+cardMsg);
+  if(cardMsg.indexOf('⚠')<0) setTimeout(()=>location.reload(),1600);
+  return;
+ }}
  bpStat(msg);
- if(msg.indexOf('✓')===0) setTimeout(()=>location.reload(),1600);
 }}
 async function sliceAtlas(){{
  if(!confirm('Cut the Atlas source image into per-region crops and set each as its IPAdapter style ref? Existing prompts/seeds are kept.'))return;
@@ -8706,6 +8754,12 @@ class Handler(BaseHTTPRequestHandler):
                            qs.get("blueprint", [""])[0]))
         elif path == "/cardsdata":
             self._send(200, "application/json", self._cardsdata())
+        elif path == "/blueprints":
+            self._get_blueprints()
+        elif path == "/card":
+            self._get_card()
+        elif path == "/card/history":
+            self._get_card_history()
         # --- Flipbook video sessions (docs/design/invisible-flipbook-video.md).
         # Stateless + session-scoped: none of these touch the active manifest,
         # so a video session and an atlas render can't clobber each other.
@@ -8818,6 +8872,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, "text/plain",
                        b"Blueprint upload too large (max ~4 MB).")
             return
+        if post_path == "/card/save" and length > 256_000:
+            self._send_json(413, {"ok": False, "error": "Card too large (max ~256 KB)."})
+            return
         raw = self.rfile.read(length).decode("utf-8")
         if post_path == "/taxonomy/get":
             self._send(200, "application/json",
@@ -8922,8 +8979,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, "text/plain",
                            b"Invalid request body (not JSON).")
                 return
-            self._send(200, "text/plain",
-                       self._uploadblueprint(payload).encode())
+            self._published_bp_id = ""
+            msg = self._uploadblueprint(payload)
+            # The slugged id, so the page saves the card under the id the server
+            # chose rather than re-deriving it from the name it typed.
+            self._send(200, "text/plain", msg.encode(),
+                       {"X-IW-Blueprint-Id": self._published_bp_id}
+                       if self._published_bp_id else None)
+        elif post_path == "/card/save":
+            self._post_card_save(raw)
         elif post_path == "/deleteblueprint":
             self._send(200, "text/plain",
                        self._deleteblueprint(json.loads(raw)).encode())
@@ -9528,6 +9592,8 @@ class Handler(BaseHTTPRequestHandler):
             return (f"⚠ Saved '{bp_id}' but it didn't reload cleanly — check the "
                     "bindings and try again.")
         verb = "Updated" if overwrite else "Published"
+        self._published_bp_id = bp_id
+        card_note = self._reset_card_on_republish(bp_id) if existing is not None else ""
         # Publishing only puts a blueprint in the shared library. Nothing SELECTS
         # it, so the next render still went through whatever pipeline the atlas
         # already had — reported as "I published my background-removal blueprint
@@ -9546,8 +9612,22 @@ class Handler(BaseHTTPRequestHandler):
         else:
             selected = (" — select it in ⚙ Settings → Pipeline, or it will not "
                         "run (reload to refresh the list)")
-        return (f"✓ {verb} blueprint '{bp_id}'{selected}."
+        return (f"✓ {verb} blueprint '{bp_id}'{selected}." + card_note
                 + _models_note(manifest["models"], dropped_models) + mirror_note)
+
+    def _reset_card_on_republish(self, bp_id: str, what: str = "re-published") -> str:
+        """A re-publish changes what a reviewed card was approved against, so it
+        goes back to draft. Never fails the publish that already landed."""
+        try:
+            if bp_cards.reset_on_republish(bp_id, getattr(self, "_identity", None),
+                                           what=what):
+                return " Its card returns to draft until re-reviewed."
+        except Exception as e:  # noqa: BLE001 — the publish itself succeeded
+            print(f"[cards] could not reset the card of '{bp_id}' after a "
+                  f"re-publish: {type(e).__name__}: {e}", flush=True)
+            return (" ⚠ Its card could not be returned to draft — re-save it from "
+                    "✎ Card before agents use it.")
+        return ""
 
     def _deleteblueprint(self, payload: dict) -> str:
         """Remove a blueprint from the shared library (R2 + staging). Gated on
@@ -9578,6 +9658,99 @@ class Handler(BaseHTTPRequestHandler):
         return (f"✓ Deleted blueprint '{res['id']}' ({res['deleted']} file(s) "
                 "removed). Any atlas still set to it will need a different "
                 "pipeline.")
+
+    # --- Blueprint cards (ADR-0008 §2) ------------------------------------
+    def _send_json(self, code: int, obj) -> None:
+        self._send(code, "application/json", json.dumps(obj).encode("utf-8"))
+
+    def _get_blueprints(self) -> None:
+        """`GET /blueprints?kind=image|video[&all=1]`: the pipelines agents may use
+        (effectively reviewed cards), or every pipeline id for the editor. An
+        agent always gets the reviewed list, whatever it asks for."""
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        try:
+            body = bp_cards.list_entries(
+                kind=q.get("kind", [""])[0] or None,
+                include_all=q.get("all", [""])[0] in ("1", "true"),
+                identity=getattr(self, "_identity", None),
+                builtin_keys=CARD_BUILTIN_KEYS,
+                gpu=batch_atlas.runpod_endpoint_gpu())
+        except storage.ObjectUnreadable as e:
+            self._send_json(503, {"error": "Could not read the blueprint cards from "
+                                           f"storage, so the list would be incomplete ({e})."})
+            return
+        self._send_json(200, body)
+
+    def _refuse_agent_card_read(self) -> bool:
+        """Only reviewed cards reach an agent, and only through `/blueprints`: a
+        draft is a proposal the owner has not approved. Answers and returns True
+        when refused."""
+        if bp_cards.is_agent(getattr(self, "_identity", None)):
+            self._send_json(403, {"error": "Agents read reviewed cards through "
+                                           "/blueprints only."})
+            return True
+        return False
+
+    def _get_card(self) -> None:
+        if self._refuse_agent_card_read():
+            return
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        try:
+            view = bp_cards.card_view(q.get("id", [""])[0],
+                                      identity=getattr(self, "_identity", None),
+                                      can_publish=bool(getattr(self, "can_publish", False)),
+                                      builtin_keys=CARD_BUILTIN_KEYS)
+        except storage.ObjectUnreadable as e:
+            self._send_json(503, {"error": f"Could not read the card from storage ({e})."})
+            return
+        if view is None:
+            self._send_json(404, {"error": "no such blueprint"})
+        else:
+            self._send_json(200, view)
+
+    def _get_card_history(self) -> None:
+        if self._refuse_agent_card_read():
+            return
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        try:
+            card = bp_cards.get_history_version(q.get("id", [""])[0], q.get("rev", [""])[0])
+        except storage.ObjectUnreadable as e:
+            self._send_json(503, {"error": f"Could not read the card from storage ({e})."})
+            return
+        if card is None:
+            self._send_json(404, {"error": "no such version"})
+        else:
+            self._send_json(200, {"card": card})
+
+    def _post_card_save(self, raw: str) -> None:
+        """`POST /card/save {id, card, review}`. The page's base is its
+        `card:<id>` entry in `X-IW-Doc-Bases`; a conflict raises `DocConflict`,
+        which `_dispatch` answers 409 for doc-guard.js to ask about."""
+        try:
+            payload = json.loads(raw or "{}")
+        except ValueError:
+            self._send_json(400, {"ok": False, "error": "Invalid request body (not JSON)."})
+            return
+        if not isinstance(payload, dict):
+            self._send_json(400, {"ok": False, "error": "Expected {id, card, review}."})
+            return
+        bp_id = bp_cards.norm_id(payload.get("id"))
+        bases = doc_sync.ctx().bases
+        try:
+            res = bp_cards.save_card(
+                bp_id, payload.get("card"),
+                base=(bases or {}).get(bp_cards.doc_id(bp_id)),
+                identity=getattr(self, "_identity", None),
+                can_publish=bool(getattr(self, "can_publish", False)),
+                review=bool(payload.get("review")),
+                builtin_keys=CARD_BUILTIN_KEYS)
+        except bp_cards.CardRefused as e:
+            self._send_json(403, {"ok": False, "error": str(e)})
+            return
+        if res.get("ok"):
+            # So the page's next save is based on the version it just wrote.
+            doc_sync.ctx().versions[bp_cards.doc_id(bp_id)] = res["version"]
+        self._send_json(200, res)
 
     def _rescanblueprintmodels(self, payload: dict) -> str:
         """Re-derive an EXISTING blueprint's `models[]` from its stored graph and
@@ -9643,7 +9816,10 @@ class Handler(BaseHTTPRequestHandler):
             blueprints.hydrate(force=True)
         except Exception:  # noqa: BLE001 — staging copy already written
             pass
-        return (f"✓ Rescanned '{bp_id}'."
+        # The manifest changed (its mapSha with it), so a reviewed card goes back
+        # to draft exactly as on a re-publish.
+        card_note = self._reset_card_on_republish(bp_id, what="models rescanned")
+        return (f"✓ Rescanned '{bp_id}'." + card_note
                 + _models_note(manifest["models"], dropped) + mirror_note)
 
     def _publish_author(self) -> str:
@@ -11477,6 +11653,8 @@ class Handler(BaseHTTPRequestHandler):
         return PAGE.format(
             doc_guard_js=doc_guard_js(page_docs, me, active_doc),
             color_field_js=COLOR_FIELD_JS,
+            card_editor_js=CARD_EDITOR_JS,
+            card_can_review_js=json.dumps(bp_cards.can_review(getattr(self, "_identity", None))),
             iw_toolbar=IW_TOOLBAR,
             iw_toolbar_css=IW_TOOLBAR_CSS,
             cards="".join(cards),

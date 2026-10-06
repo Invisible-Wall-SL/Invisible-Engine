@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "id": "gpt_image",
+  "status": "draft",
+  "rev": 1,
+  "builtin": true,
+  "purpose": "Edit or restyle a given image with a written instruction; legible text.",
+  "whenToUse": [
+    "variations of an existing asset",
+    "logos and wordmarks where lettering must read (check)",
+    "a quick restyle of a mockup crop under fidelity match (check)"
+  ],
+  "whenNotToUse": [
+    "many drafts",
+    "assets needing model-side transparency",
+    "reproducible renders",
+    "tag-list briefs"
+  ],
+  "inputs": {
+    "prompt": "required",
+    "negative": "none",
+    "reference": "required",
+    "shape": "none",
+    "sourceImage": "none",
+    "mask": "none",
+    "layer": "none"
+  },
+  "outputs": {
+    "kind": "image",
+    "alpha": true,
+    "count": 1,
+    "sizeRule": "global gpt_image_size"
+  },
+  "settings": [
+    {
+      "key": "gpt_rembg",
+      "default": "",
+      "options": [
+        "",
+        "on",
+        "off"
+      ],
+      "scope": "region"
+    },
+    {
+      "key": "fit_mode",
+      "default": "",
+      "options": [
+        "",
+        "contain",
+        "cover",
+        "fill"
+      ],
+      "scope": "region"
+    }
+  ],
+  "chain": {
+    "position": "generate",
+    "follows": [
+      "sdxl",
+      "flux"
+    ],
+    "precedes": [
+      "birefnet",
+      "fx"
+    ]
+  },
+  "gpu": {
+    "secondsPerImage": {
+      "1024": 2
+    },
+    "apiWallSeconds": 40,
+    "coldStart": 60,
+    "source": "guess"
+  },
+  "variants": {
+    "draft": 1,
+    "final": 1,
+    "max": 2
+  },
+  "billing": "credits",
+  "licence": "conditional",
+  "gotchas": [
+    "needs COMFY_ORG_API_KEY; serverless authentication unverified",
+    "returns opaque images: RMBG runs on everything unless gpt_rembg is off",
+    "uses gpt_prompt, not the atlas prompt",
+    "policy refusals fail the job (check)",
+    "third-party API: owner's call for client mockups",
+    "billed in comfy.org credits per image; the figure is not recorded (check)"
+  ]
+}

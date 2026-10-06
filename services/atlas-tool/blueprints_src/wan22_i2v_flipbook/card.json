@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "id": "wan22_i2v_flipbook",
+  "status": "draft",
+  "rev": 1,
+  "graphSha": "",
+  "purpose": "Animate a still into a short clip whose frames become a Flipbook clip.",
+  "whenToUse": [
+    "symbol win loops, coin spins, banner shimmer with no Spine rig (check)",
+    "from the Flipbook video session only"
+  ],
+  "whenNotToUse": [
+    "rigged animation (Rigger)",
+    "stills",
+    "loops over ~5 s",
+    "clips that must end where they start (wanloopingvideo__3_)"
+  ],
+  "inputs": {
+    "prompt": "required",
+    "negative": "optional",
+    "reference": "none",
+    "shape": "none",
+    "sourceImage": "required",
+    "mask": "none",
+    "layer": "none"
+  },
+  "outputs": {
+    "kind": "video",
+    "alpha": true,
+    "count": 1,
+    "frames": 81,
+    "fps": 16
+  },
+  "settings": [
+    {
+      "key": "duration",
+      "default": 5,
+      "min": 1,
+      "max": 6
+    },
+    {
+      "key": "fps",
+      "default": 16,
+      "min": 8,
+      "max": 24
+    },
+    {
+      "key": "gen_width",
+      "default": 640,
+      "min": 512,
+      "max": 768
+    },
+    {
+      "key": "gen_height",
+      "default": 640,
+      "min": 512,
+      "max": 768
+    },
+    {
+      "key": "fast_lora",
+      "default": true
+    },
+    {
+      "key": "out_width",
+      "default": 320,
+      "min": 128,
+      "max": 512
+    },
+    {
+      "key": "out_height",
+      "default": 320,
+      "min": 128,
+      "max": 512
+    },
+    {
+      "key": "remove_background",
+      "default": true
+    },
+    {
+      "key": "birefnet_model",
+      "default": "BiRefNet_toonout"
+    },
+    {
+      "key": "mask_offset",
+      "default": 5,
+      "min": 0,
+      "max": 10
+    }
+  ],
+  "chain": {
+    "position": "generate",
+    "follows": [
+      "sdxl",
+      "flux",
+      "gpt_image"
+    ],
+    "precedes": [
+      "flipbook-pack"
+    ]
+  },
+  "gpu": {
+    "secondsPerImage": {
+      "640": 200
+    },
+    "qualityModeSeconds": {
+      "640": 750
+    },
+    "coldStart": 240,
+    "minVramGb": 48,
+    "source": "guess"
+  },
+  "variants": {
+    "draft": 2,
+    "final": 1,
+    "max": 4
+  },
+  "billing": "gpu",
+  "licence": "conditional",
+  "gotchas": [
+    "width/height must stay unbound",
+    "steps/cfg ignored while fast_lora is on",
+    "lossless WEBP can exceed the payload cap",
+    "keep background Alpha"
+  ],
+  "mapSha": ""
+}

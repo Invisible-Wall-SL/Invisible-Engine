@@ -1,0 +1,135 @@
+{
+  "version": 1,
+  "id": "sdxl",
+  "status": "draft",
+  "rev": 1,
+  "builtin": true,
+  "purpose": "Text-to-image for icon-style game art on transparency, with optional style and silhouette refs.",
+  "whenToUse": [
+    "symbols, coins, jackpot icons, buttons, plaques, single-object logos",
+    "default generate step for Symbols, Coins & jackpots, UI kit (check)",
+    "shape_ref = the template tile's silhouette under fidelity match (check)"
+  ],
+  "whenNotToUse": [
+    "scenes and plates with rembg on",
+    "styles the icon LoRA fights (check)",
+    "lettering"
+  ],
+  "inputs": {
+    "prompt": "required",
+    "negative": "optional",
+    "reference": "optional",
+    "shape": "optional",
+    "sourceImage": "none",
+    "mask": "none",
+    "layer": "none"
+  },
+  "outputs": {
+    "kind": "image",
+    "alpha": true,
+    "count": 1
+  },
+  "settings": [
+    {
+      "key": "ksampler_steps",
+      "default": 35,
+      "min": 20,
+      "max": 45,
+      "note": "22-28 for drafts (check)"
+    },
+    {
+      "key": "ksampler_cfg",
+      "default": 8.5,
+      "min": 6,
+      "max": 9
+    },
+    {
+      "key": "lora_strength",
+      "default": 0.85,
+      "min": 0.4,
+      "max": 0.85,
+      "note": "lower for painterly (check)"
+    },
+    {
+      "key": "rembg",
+      "default": "on",
+      "note": "off for scenes and plates"
+    },
+    {
+      "key": "gen_width",
+      "default": 1024,
+      "draft": 512,
+      "final": 1024,
+      "max": 1536
+    },
+    {
+      "key": "gen_height",
+      "default": 1024,
+      "draft": 512,
+      "final": 1024,
+      "max": 1536
+    },
+    {
+      "key": "ipadapter_weight",
+      "default": 0.35,
+      "min": 0.2,
+      "max": 0.6,
+      "scope": "region"
+    },
+    {
+      "key": "controlnet_strength",
+      "default": 0.6,
+      "min": 0.3,
+      "max": 0.9,
+      "scope": "region"
+    },
+    {
+      "key": "controlnet_end_percent",
+      "default": 0.6,
+      "min": 0.4,
+      "max": 0.8,
+      "scope": "region"
+    },
+    {
+      "key": "fit_mode",
+      "default": "",
+      "options": [
+        "",
+        "contain",
+        "cover",
+        "fill"
+      ],
+      "scope": "region"
+    }
+  ],
+  "chain": {
+    "position": "generate",
+    "follows": [],
+    "precedes": [
+      "birefnet",
+      "fx"
+    ]
+  },
+  "gpu": {
+    "secondsPerImage": {
+      "512": 5,
+      "1024": 12,
+      "1536": 28
+    },
+    "coldStart": 120,
+    "source": "guess"
+  },
+  "variants": {
+    "draft": 3,
+    "final": 1,
+    "max": 6
+  },
+  "billing": "gpu",
+  "licence": "blocked",
+  "gotchas": [
+    "LoRA and RMBG-2.0 licences are blocked, checkpoint conditional (model-licences.md)",
+    "IPAdapter copies colour and texture, not composition",
+    "shape_ref is normalised to a silhouette at shape_ref_fill_pct",
+    "a locked region is skipped by Render selected"
+  ]
+}

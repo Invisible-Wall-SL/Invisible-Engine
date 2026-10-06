@@ -1,0 +1,85 @@
+{
+  "version": 1,
+  "id": "birefnet",
+  "status": "draft",
+  "rev": 1,
+  "graphSha": "f097cbda71df",
+  "purpose": "Cut a still to alpha with BiRefNet; cleaner than RMBG-2.0 on toon art (check).",
+  "whenToUse": [
+    "the cutout step after a generate step with a dirty RMBG edge",
+    "cutting a crop or hand-made image to alpha"
+  ],
+  "whenNotToUse": [
+    "scenes and plates",
+    "photo-real art (check)",
+    "images already on clean alpha"
+  ],
+  "inputs": {
+    "prompt": "none",
+    "negative": "none",
+    "reference": "none",
+    "shape": "none",
+    "sourceImage": "required",
+    "mask": "none",
+    "layer": "none"
+  },
+  "outputs": {
+    "kind": "image",
+    "alpha": true,
+    "count": 1,
+    "sizeRule": "source size"
+  },
+  "settings": [
+    {
+      "key": "blur",
+      "default": 10,
+      "min": 0,
+      "max": 16,
+      "note": "1-3 crisp toon, 6-12 soft painted (check)"
+    },
+    {
+      "key": "offset",
+      "default": 20,
+      "min": 0,
+      "max": 20,
+      "note": "2-6; 20 leaves a halo (check)"
+    },
+    {
+      "key": "invert",
+      "default": false
+    }
+  ],
+  "chain": {
+    "position": "process",
+    "follows": [
+      "sdxl",
+      "flux",
+      "gpt_image",
+      "removebackgroundsam3__2_"
+    ],
+    "precedes": [
+      "finish",
+      "fx"
+    ]
+  },
+  "gpu": {
+    "secondsPerImage": {
+      "1024": 3
+    },
+    "coldStart": 60,
+    "source": "guess"
+  },
+  "variants": {
+    "draft": 1,
+    "final": 1,
+    "max": 1
+  },
+  "billing": "gpu",
+  "licence": "conditional",
+  "gotchas": [
+    "no prompt role: atlas style does nothing",
+    "output = source size",
+    "every region on this pipeline needs a style_ref",
+    "BiRefNet_toonout licence unrecorded"
+  ]
+}

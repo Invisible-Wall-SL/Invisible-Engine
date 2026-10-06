@@ -1,0 +1,150 @@
+{
+  "version": 1,
+  "id": "composite4layers_sam_",
+  "status": "draft",
+  "rev": 1,
+  "graphSha": "49137d7e549d",
+  "purpose": "Cut up to four named parts out of a frame with per-part edge and opacity, as one RGBA image.",
+  "whenToUse": [
+    "multi-part subjects with different edge treatments",
+    "extraction passes over a duplicated atlas (check)"
+  ],
+  "whenNotToUse": [
+    "one subject",
+    "more than four parts",
+    "parts SAM3 cannot name",
+    "hair and glow edges"
+  ],
+  "inputs": {
+    "prompt": "required",
+    "negative": "none",
+    "reference": "none",
+    "shape": "none",
+    "sourceImage": "required",
+    "mask": "none",
+    "layer": "none"
+  },
+  "outputs": {
+    "kind": "image",
+    "alpha": true,
+    "count": 1,
+    "sizeRule": "source size"
+  },
+  "settings": [
+    {
+      "key": "GrowMaskLAYER1",
+      "default": 0,
+      "min": -20,
+      "max": 20
+    },
+    {
+      "key": "MaskBlurLAYER1",
+      "default": 2,
+      "min": 0,
+      "max": 100
+    },
+    {
+      "key": "InvertMaskLAYER1",
+      "default": true
+    },
+    {
+      "key": "OpacityLAYER1",
+      "default": 1,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "key": "GrowMaskLAYER2",
+      "default": 0,
+      "min": -20,
+      "max": 20
+    },
+    {
+      "key": "MaskBlurLAYER2",
+      "default": 2,
+      "min": 0,
+      "max": 100
+    },
+    {
+      "key": "InvertMaskLAYER2",
+      "default": true
+    },
+    {
+      "key": "OpacityLAYER2",
+      "default": 1,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "key": "GrowMaskLAYER3",
+      "default": -5,
+      "min": -20,
+      "max": 20
+    },
+    {
+      "key": "MaskBlurLAYER3",
+      "default": 75,
+      "min": 0,
+      "max": 100
+    },
+    {
+      "key": "InvertMaskLAYER3",
+      "default": true
+    },
+    {
+      "key": "OpacityLAYER3",
+      "default": 0.5,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "key": "GrowMaskLAYER4",
+      "default": -5,
+      "min": -20,
+      "max": 20
+    },
+    {
+      "key": "MaskBlurLAYER4",
+      "default": 0,
+      "min": 0,
+      "max": 100
+    },
+    {
+      "key": "InvertMaskLAYER4",
+      "default": true
+    },
+    {
+      "key": "OpacityLAYER4",
+      "default": 1,
+      "min": 0,
+      "max": 1
+    }
+  ],
+  "chain": {
+    "position": "extract",
+    "follows": [],
+    "precedes": [
+      "finish",
+      "birefnet"
+    ]
+  },
+  "gpu": {
+    "secondsPerImage": {
+      "1024": 8
+    },
+    "coldStart": 120,
+    "source": "guess"
+  },
+  "variants": {
+    "draft": 1,
+    "final": 1,
+    "max": 1
+  },
+  "billing": "gpu",
+  "licence": "conditional",
+  "gotchas": [
+    "positive = the detection prompt: set positive_replace",
+    "layer order follows SAM3's instance order (check)",
+    "threshold 0.1 picks up faint objects and false positives"
+  ]
+}
