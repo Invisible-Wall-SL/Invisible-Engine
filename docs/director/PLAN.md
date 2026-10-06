@@ -36,19 +36,19 @@ starts once A and B are merged.
 | B | merged #1036 | 1.2 | — |
 | C | merged #1037 (+ follow-up #1038) | 1.7–1.10 | — |
 | D | merged #1040 | 1.11–1.12 | C (merged) |
-| E | merged #1041. **Not yet run on live games: 5 secrets missing** | 1.3–1.6 | A, B |
+| E | merged #1041; calibrated by 1F (#1061) | 1.3–1.6 | A, B |
 
-The current-games harness is the priority: every later merge depends on it. 1.3–1.6 stay `review` until its first green run on the live games.
+The harness is calibrated (#1061): main vs main gives 0 changed screens on the live games, twice in a row, and a seeded 1 px change is caught. Follow-ups: #1057 (skip untouched changes), #1062 (CI retry), #1063 (renders as republished).
 A change that cannot reach a game (docs only, or nothing in the `lines` runtime's workspace closure, the gates' inputs or the harness itself) passes `current-games` without a build or a render, so launcher, atlas-tool and director-worker cards are not held by it.
 
 | # | Task | Card | Owner | Status | Acceptance |
 |---|---|---|---|---|---|
 | 1.1 | Game-list source for CI: `/api/pipeline/games` (CI-token gated, read-only) | A | platform-integrator | done | A `check:` fixture shows 401 without the token; the list equals `listGames()` |
 | 1.2 | Determinism hook in the runtime: a test-only flag for clock, seed and GSAP stepping | B | regression-guardian (+ engine-pixi-svelte) | done | With the flag off, the bundle behaves the same and screenshots are unchanged; with it on, two runs give pixel-identical captures |
-| 1.3 | Screen scripts per game type (`scripts/current-games/screens/<type>.json`) with forced books | E | regression-guardian | review | Every live game type covered; 12–14 screens each; reviewed by the owner |
-| 1.4 | Harness runner: build both runtimes, serve snapshots, capture, pixelmatch with `tolerance.json`, report JSON/HTML | E | regression-guardian | review | main vs main → 0 differences on every game, twice in a row; per-screen noise measured and recorded |
-| 1.5 | `current-games.yml` workflow + commit status + artifact | E | regression-guardian | review | The status can be made required; sharded; runs in under 15 min |
-| 1.6 | Seeded proof: an intentional 1 px engine change is caught | E | regression-guardian | review | The harness reports exactly the changed screens, and the revert turns it green |
+| 1.3 | Screen scripts per game type (`scripts/current-games/screens/<type>.json`) with forced books | E | regression-guardian | done | Every live game type covered; 12–14 screens each; reviewed by the owner |
+| 1.4 | Harness runner: build both runtimes, serve snapshots, capture, pixelmatch with `tolerance.json`, report JSON/HTML | E | regression-guardian | done | main vs main → 0 differences on every game, twice in a row; per-screen noise measured and recorded |
+| 1.5 | `current-games.yml` workflow + commit status + artifact | E | regression-guardian | done | The status can be made required; sharded; runs in under 15 min |
+| 1.6 | Seeded proof: an intentional 1 px engine change is caught | E | regression-guardian | done | The harness reports exactly the changed screens, and the revert turns it green |
 | 1.7 | `director` and `pipelineChanges` in `TOOLS`; new `pipeline` stage; "new" badge; icons in the 4 toolbar twins | C | platform-integrator | done | `check:toolbar-icons` passes; the launcher shows CREATE and PIPELINE as in mockup 01 |
 | 1.8 | `pipelineMerge` capability and role defaults | C | platform-integrator | done | The Admin › Roles matrix matches mockup 06; a fixture covers defaults, role overrides and user overrides |
 | 1.9 | Empty `/director` and `/pipeline` pages: full width, `ToolTopBar`, gated | C | platform-integrator | done | 403 for a role without the tool; no iframe |
@@ -63,22 +63,22 @@ A change that cannot reach a game (docs only, or nothing in the `lines` runtime'
 | 2.1 | Adapter gate: service token, run scope, per-agent allow-list, `director_ops` idempotency | director-backend | done | Fixtures: wrong token 401; out-of-scope project 403; disallowed op 403; replayed `opId` returns the same result |
 | 2.2 | Hard refusals (publish, game-config, roles, merge, agent defs, `published/**`) | director-backend | done | One failing-on-purpose fixture per refusal |
 | 2.3 | Game Maker adapters: get template, duplicate as project (Game Maker path) | director-backend | done | Creates the same `projects` row + R2 tree as the `create` action + `duplicate full` |
-| 2.4 | Atlas Maker adapters: list/get region, set prompt, queue variants (returns a jobRef), list variants, choose variant, pack/compose | director-backend (+ atlas-python-tools) | todo | Works against a test project; writes go through CAS; no model-side polling |
+| 2.4 | Atlas Maker adapters: list/get region, set prompt, queue variants (returns a jobRef), list variants, choose variant, pack/compose | director-backend (+ atlas-python-tools) | done | Works against a test project; writes go through CAS; no model-side polling |
 | 2.5 | atlas-tool pipeline change: render completion callback + resumable still queue | atlas-python-tools | done | Restart during a render → the job resumes or re-queues once; Python tests pass |
-| 2.6 | Symbols, Scene Editor, Win Text, Localization, Font Maker, Rigger and Flipbook adapters | director-backend | todo | Each goes through the existing storage module with `baseEtag`; a 409 is surfaced as `conflict` |
+| 2.6 | Symbols, Scene Editor, Win Text, Localization, Font Maker, Rigger and Flipbook adapters | director-backend | done | Each goes through the existing storage module with `baseEtag`; a 409 is surfaced as `conflict` |
 
 ## Phase 3 — Director runtime · branch `director/worker`
 
 | # | Task | Owner | Status | Acceptance |
 |---|---|---|---|---|
-| 3.1 | `services/director-worker` skeleton (Node 22, pnpm workspace, Railway service, `/healthz`) | director-backend (+ infra-railway) | review | Deploys; no key in logs; `docs/INFRA.md` updated |
-| 3.2 | Agent-definition loader + schema validation | director-backend | review | Rejects unknown tools and models; fixtures |
-| 3.3 | Run tables + state machine (pure) + lease claim | director-backend | review | Transition-table fixture; two workers never drive one run |
-| 3.4 | Turn loop: Anthropic SDK tool runner, caching, fallbacks, persisted history, resume | director-backend | todo | Kill mid-run → resumes from stored messages with no duplicate ops |
-| 3.5 | Checkpoints, pause, stop, owner messages via `LISTEN/NOTIFY` | director-backend | todo | An idle run makes zero model calls |
-| 3.6 | Mockup storage + analysis + code-side conflict rules + palette check | director-backend | todo | Reference mockup set → stable breakdown; Buy bonus forced `left_out` |
-| 3.7 | Spend ledger + budget cap pause | director-backend | todo | A run at its cap pauses before the next call |
-| 3.8 | SSE event stream | director-backend | todo | Lossless reconnect with `Last-Event-ID`; heartbeats |
+| 3.1 | `services/director-worker` skeleton (Node 22, pnpm workspace, Railway service, `/healthz`) | director-backend (+ infra-railway) | done | Deploys; no key in logs; `docs/INFRA.md` updated |
+| 3.2 | Agent-definition loader + schema validation | director-backend | done | Rejects unknown tools and models; fixtures |
+| 3.3 | Run tables + state machine (pure) + lease claim | director-backend | done | Transition-table fixture; two workers never drive one run |
+| 3.4 | Turn loop: Anthropic SDK tool runner, caching, fallbacks, persisted history, resume | director-backend | done | Kill mid-run → resumes from stored messages with no duplicate ops |
+| 3.5 | Checkpoints, pause, stop, owner messages via `LISTEN/NOTIFY` | director-backend | done | An idle run makes zero model calls |
+| 3.6 | Mockup storage + analysis + code-side conflict rules + palette check | director-backend | review | Reference mockup set → stable breakdown; Buy bonus forced `left_out` |
+| 3.7 | Spend ledger + budget cap pause | director-backend | done | A run at its cap pauses before the next call |
+| 3.8 | SSE event stream | director-backend | review | Lossless reconnect with `Last-Event-ID`; heartbeats |
 
 ## Phase 4 — Director UI · branch `director/ui`
 

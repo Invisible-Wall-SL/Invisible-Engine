@@ -5,15 +5,31 @@ with the default.
 
 ## Open
 
-1. **Merging before the harness has run.** #1042 and #1043 merged while `current-games` was red only
-   because its secrets are missing.
-   - *Suggested default:* from now on, nothing merges until `current-games` is green on the live
-     games, except changes that cannot reach a game (docs only, or nothing in the runtime's
-     closure, the gates' inputs or the harness: the workflow passes those without rendering). Once
-     it has run green once, make `current-games` a required check on `main`, with ruleset source
-     **any**.
+1. **Typekit kit files in our R2.** Adobe Fonts' terms generally forbid self-hosting kit files.
+   - *Suggested default:* no mirror. CI loads fonts from Adobe like players do; the CI retry covers
+     short outages. The mirror code (#1062) stays off unless the owner confirms the licence allows it.
+2. **Republish the live games once.** Every live snapshot carries built-in component copies from
+   an older engine (e29a993), so its next publish picks up every built-in change since.
+   - *Suggested default:* republish them once after the next built-in change lands, so the
+     as-republished check (#1063) covers all of them from then on.
+3. **`cloud` is broken for players.** Its snapshot has no `basegame` scene and the runtime refuses
+   it. *Suggested default:* the owner republishes it, or unpublishes it if it's a test project.
+4. **RunPod rates.** `pricing.json`'s RunPod $/s and `seedSecondsPerRender` are placeholders.
+   *Suggested default:* the owner sends real rates; until then the cap uses the placeholders.
 
 ## Answered
+
+- **2026-10-06: harness and merges (#1056–#1065). Owner decisions.**
+  - The harness is calibrated; `current-games` gates every merge and is to be made a required
+    check on `main` (ruleset source **any**). Docs-only and untouched changes pass without
+    rendering.
+  - The `refused` row kind is accepted (ADR-0004 amended).
+  - Artifacts: option (b). The repo is public, so per-shard screenshots are deleted after the
+    compare and the report keeps changed screens only, for 3 days.
+  - Built-in component changes are checked "as republished" (card 1G, #1063).
+  - CI keeps `--enable-unsafe-swiftshader` and re-runs jobs GitHub never started, once.
+  - The launcher has **no** Watch Paths (it had been given one by mistake; fixed).
+  - The worker's `/healthz` is liveness (#1065): a missing secret reads `driving: false`.
 
 - **2026-10-04: card questions from #1040–#1044. Defaults adopted.**
   - **Pricing:**

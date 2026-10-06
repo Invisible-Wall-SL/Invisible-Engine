@@ -125,12 +125,12 @@ A GitHub Actions workflow `current-games.yml`, triggered on every pipeline branc
   rendered. Their row reports build + tests only, because comparing their own bundle with itself
   proves nothing. Rows that weren't rendered (no snapshot, not published, desktop-built) never count
   as a pass and never fail the run.
-- **2026-10-05, proposed:** a change that touches none of the runtime's inputs is not built or
+- **2026-10-05, approved (#1057):** a change that touches none of the runtime's inputs is not built or
   rendered; `current-games` posts success from the diff alone. The inputs are computed from the
   workspace graph (`apps/lines` and every package it reaches), plus the root build files, what the
   gates read and the harness itself (`scripts/current-games/lib/touched.mjs`). A diff that cannot
   be decided renders everything.
-- **2026-10-05, proposed (card 1G):** a published snapshot carries its own copies of the built-in
+- **2026-10-06, approved (card 1G, #1063):** a published snapshot carries its own copies of the built-in
   component defs it uses, so a change to them reaches a game only at its next publish and the
   as-published render cannot see it. When a change touches what the publish bake reads from the repo
   (the built-in defs and what they import) and the two runtimes' built-ins differ, the harness also
@@ -141,3 +141,11 @@ A GitHub Actions workflow `current-games.yml`, triggered on every pipeline branc
   pointer records; a game whose engine is unknown fails closed); the rest is the author's and is
   loaded as the bake loads it, with each side's coded params merged in under a built-in's id. A
   change that cannot alter what a publish bakes never pays for it.
+- **2026-10-06, approved (card 1F, #1061):** a game whose published snapshot main's runtime
+  refuses, on both sides and for the same reason in every scenario, is its own row:
+  `not rendered (main's runtime refuses the snapshot)`. It never passes and doesn't blame the branch.
+  A branch that *fixes* a refusal still fails that row; this is deliberately cautious.
+- **2026-10-06, approved (#1061, #1062):** the repo is public, so artifacts are public. Per-shard
+  screenshots are deleted once compared; the report keeps changed screens only, for 3 days. CI
+  loads Typekit from Adobe (a mirror exists but stays off until the licence is confirmed); jobs
+  GitHub never starts are re-run once, never a job that ran and failed.
