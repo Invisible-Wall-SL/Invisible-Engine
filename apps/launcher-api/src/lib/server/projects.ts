@@ -363,7 +363,10 @@ export async function renameProject(key: string, name: string): Promise<void> {
  */
 export async function softDeleteProject(key: string, when: Date): Promise<string[]> {
 	return getDb().transaction(async (tx) => {
-		const owned = await tx.select({ key: games.key }).from(games).where(eq(games.projectKey, key));
+		const owned = await tx
+			.select({ key: games.key })
+			.from(games)
+			.where(eq(games.projectKey, key));
 		await tx.delete(games).where(eq(games.projectKey, key));
 		await tx
 			.update(sessions)

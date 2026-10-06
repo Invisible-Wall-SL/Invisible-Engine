@@ -348,6 +348,39 @@ console.log('ownership');
 		'string',
 	);
 	await mockups.removeMockup(C, P, afterUpload.id);
+	check(
+		'a confirm on a doc with no images is 400',
+		await refused(() => mockups.confirmOwnership(C, 'empty-key', by)),
+		400,
+	);
+	check(
+		'…and leaves no doc behind to hold the key',
+		R2.has(mockups.mockupsDocKey(C, 'empty-key')),
+		false,
+	);
+	{
+		// The check goes with the last image: confirm, remove everything, and the key is anyone's.
+		const { doc: lone } = await mockups.addMockup({
+			client: C,
+			project: 'lone-key',
+			bytes: basePng,
+			tag: 'Base game',
+			styleOnly: false,
+			by,
+		});
+		const held = await mockups.confirmOwnership(C, 'lone-key', by);
+		check(
+			'the check holds the key for its uploader',
+			mockups.pendingDocOwnedBy(held, 'other'),
+			false,
+		);
+		const freed = await mockups.removeMockup(C, 'lone-key', lone.images[0].id);
+		check(
+			'removing the last image clears the check and frees the key',
+			[freed.ownershipConfirmed, mockups.pendingDocOwnedBy(freed, 'other')],
+			[null, true],
+		);
+	}
 	const reconfirmed = await mockups.confirmOwnership(C, P, by);
 	const again = await mockups.confirmOwnership(C, P, { uid: 'later', name: 'Later' });
 	check(
@@ -792,19 +825,71 @@ console.log('route');
 		403,
 	);
 	check('A still reads it', (await image(admin, 'pending-key&client=acme', stakedId)).status, 200);
+	// Two first uploads that both passed the gate on the empty doc: the mutator re-checks on the
+	// doc the CAS writes, so B's lands nowhere — not in the doc, not in R2 — and B's confirm, retag
+	// and remove through the module are refused the same way.
+	const objectsBefore = keysUnder(`${SUB.director('acme', 'pending-key')}/mockups/`).length;
+	check(
+		'B’s upload that raced A’s is 403 inside the write',
+		await refused(() =>
+			mockups.addMockup({
+				client: 'acme',
+				project: 'pending-key',
+				bytes: basePng,
+				tag: 'Base game',
+				styleOnly: false,
+				by: { uid: 'adm2', name: 'Other admin' },
+				owner: 'adm2',
+			}),
+		),
+		403,
+	);
+	check(
+		'…and its image is neither listed nor left in R2',
+		[
+			(await mockups.loadMockupsDoc('acme', 'pending-key')).doc.images.length,
+			keysUnder(`${SUB.director('acme', 'pending-key')}/mockups/`).length,
+		],
+		[1, objectsBefore],
+	);
+	check(
+		'B’s confirm that raced A’s upload is 403 inside the write',
+		await refused(() =>
+			mockups.confirmOwnership('acme', 'pending-key', { uid: 'adm2', name: 'B' }, 'adm2'),
+		),
+		403,
+	);
+	check(
+		'…the same for a retag and a remove',
+		[
+			await refused(() =>
+				mockups.setMockupTag('acme', 'pending-key', stakedId, 'Big win', false, 'adm2'),
+			),
+			await refused(() => mockups.removeMockup('acme', 'pending-key', stakedId, 'adm2')),
+		],
+		[403, 403],
+	);
+	const confirmedByA = await call('POST', admin, 'pending-key&client=acme', confirm);
+	check('A confirms the key', confirmedByA.body!.startRefusal, null);
+	check(
+		'B is still 403 after A’s confirm',
+		(await call('GET', other, 'pending-key&client=acme')).status,
+		403,
+	);
 	check(
 		'…and A’s image is still there, untouched by B',
-		(await call('GET', admin, 'pending-key&client=acme')).body!.doc,
-		staked.body!.doc,
+		(await call('GET', admin, 'pending-key&client=acme')).body!.doc.images,
+		staked.body!.doc.images,
 	);
 	const gone = new FormData();
 	gone.set('action', 'remove');
 	gone.set('id', stakedId);
 	await call('POST', admin, 'pending-key&client=acme', gone);
+	const freedDoc = await call('GET', other, 'pending-key&client=acme');
 	check(
-		'once the images are gone the key is anyone’s again',
-		(await call('GET', other, 'pending-key&client=acme')).status,
-		200,
+		'once the images are gone the key is anyone’s again, confirm and all',
+		[freedDoc.status, (freedDoc.body!.doc as { ownershipConfirmed: unknown }).ownershipConfirmed],
+		[200, null],
 	);
 }
 

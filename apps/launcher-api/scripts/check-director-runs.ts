@@ -1699,6 +1699,18 @@ console.log('pending project');
 	);
 	const form = new FormData();
 	form.set('action', 'confirm_ownership');
+	check(
+		'a confirm on a pending key with no images is 400',
+		(
+			await call(mockupsRoute.POST, {
+				user: OWNER,
+				url: '/api/director/mockups?project=coral-reef&client=acme',
+				form,
+			})
+		).status,
+		400,
+	);
+	seedMockups('coral-reef', [image('a1b2c3d4e5f6072a')], null);
 	const confirmed = await call(mockupsRoute.POST, {
 		user: OWNER,
 		url: '/api/director/mockups?project=coral-reef&client=acme',

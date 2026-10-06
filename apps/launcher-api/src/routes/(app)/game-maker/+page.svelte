@@ -692,7 +692,8 @@
 			// Licensing is surfaced ONCE, here — the moment a build goes out is when "who owns this
 			// audio" stops being paperwork, and the only moment everyone is looking.
 			const sounds = out?.sounds as
-				{ bound: number; missingLicence: string[]; nonCommercial: string[] } | undefined;
+				| { bound: number; missingLicence: string[]; nonCommercial: string[] }
+				| undefined;
 			if (sounds?.nonCommercial?.length) {
 				publishNote = {
 					...publishNote,
@@ -718,7 +719,8 @@
 				};
 			}
 			const spinesMissing = out?.spinesMissing as
-				{ scene: string[]; symbols: string[] } | undefined;
+				| { scene: string[]; symbols: string[] }
+				| undefined;
 			const strandedSpines = [
 				...new Set([...(spinesMissing?.scene ?? []), ...(spinesMissing?.symbols ?? [])]),
 			];
@@ -1267,8 +1269,8 @@
 											<span class="stale-dot"></span>
 											<div class="stale-body">
 												<strong>Engine update available.</strong>
-												The shared engine runtime shipped after this game was last published, so the running
-												game may still be on the old engine. Republish to re-hydrate it.
+												The shared engine runtime shipped after this game was last published, so the
+												running game may still be on the old engine. Republish to re-hydrate it.
 											</div>
 											<button
 												class="stale-cta"

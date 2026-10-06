@@ -11,6 +11,7 @@
 	} from '$lib/projectKey';
 	import {
 		AGENT_BLURBS,
+		ApiRefusal,
 		NetworkLost,
 		api,
 		describe,
@@ -284,11 +285,13 @@
 
 	// ── Create, then start ────────────────────────────────────────────────────
 	/**
-	 * One create request per (key, client, template), kept with the body as FIRST sent until it is
-	 * answered: the server derives the run id from the request id and replays a resend to the run
-	 * it made, so a retry after a lost answer never creates twice, and the same id with another
-	 * body would be refused. A name or note edited meanwhile does not travel; the run page says
-	 * so. A different trio is another request.
+	 * One create request per (key, client, template), kept with the body as FIRST sent while its
+	 * answer may still be recorded (a lost connection, `in_progress`, a 5xx): the server derives
+	 * the run id from the request id and replays a resend to the run it made, so a retry after a
+	 * lost answer never creates twice, and the same id with another body would be refused. A name
+	 * or note edited meanwhile does not travel; the run page says so. A refusal that recorded
+	 * nothing drops the request, so the corrected form is sent next; a different trio is another
+	 * request.
 	 */
 	let createPending: { requestId: string; body: Record<string, unknown> } | null = null;
 	/** The start request id per run, kept for the resend of a lost answer. */
@@ -355,11 +358,11 @@
 				createErr = `${e.message} Press the button again: the same request is resent, never a second one.`;
 			} else if (isRefusal(e, 'in_progress')) {
 				createErr = 'This request is still being created. Try again in a moment.';
-			} else if (isRefusal(e, 'project_exists')) {
-				createErr = 'A project with that key was created meanwhile. Pick another key.';
 			} else {
-				if (isRefusal(e, 'request_id_reused')) createPending = null;
-				createErr = describe(e);
+				if (!(e instanceof ApiRefusal && e.status >= 500)) createPending = null;
+				createErr = isRefusal(e, 'project_exists')
+					? 'A project with that key was created meanwhile. Pick another key.'
+					: describe(e);
 			}
 		} finally {
 			creating = false;

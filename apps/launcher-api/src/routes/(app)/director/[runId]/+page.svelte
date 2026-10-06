@@ -3,6 +3,7 @@
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import { askConfirm } from '$lib/dialogs.svelte';
 	import {
+		ApiRefusal,
 		NetworkLost,
 		RUN_STEPS,
 		api,
@@ -12,6 +13,7 @@
 		isBreakdown,
 		isRecord,
 		isRefusal,
+		isStartingPoint,
 		mockupImageUrl,
 		newRequestId,
 		projectQuery,
@@ -50,7 +52,7 @@
 	let polling = $state(false);
 	let now = $state(Date.now());
 
-	const startingPoint = $derived((run?.startingPoint ?? null) as StartingPoint | null);
+	const startingPoint = $derived(isStartingPoint(run?.startingPoint) ? run.startingPoint : null);
 	const mockupCount = $derived(startingPoint?.mockups.filter((m) => !m.styleOnly).length ?? 0);
 	const styleCount = $derived(startingPoint?.mockups.filter((m) => m.styleOnly).length ?? 0);
 	const stepN = $derived(run ? stepNumber(run.step) : 1);
@@ -150,14 +152,20 @@
 	const SEEN_IDS = 64;
 	let seenIds: number[] = [];
 	let baselineEventId = 0;
+	/** The newest row id seen, where a poll's read of the stream picks up. */
+	let highWater = 0;
 
 	function onEvent(raw: MessageEvent<string>) {
-		let event: RunEvent;
 		try {
-			event = JSON.parse(raw.data) as RunEvent;
+			handleEvent(JSON.parse(raw.data) as RunEvent);
 		} catch {
-			return;
+			// Not a row: the stream only sends what `frameEvent` wrote, so this is noise.
 		}
+	}
+
+	function handleEvent(event: RunEvent) {
+		if (typeof event.id !== 'number') return;
+		if (event.id > highWater) highWater = event.id;
 		if (seenIds.includes(event.id)) return;
 		seenIds.push(event.id);
 		if (seenIds.length > SEEN_IDS) seenIds.shift();
@@ -168,6 +176,61 @@
 		}
 		if (event.kind === 'checkpoint_resolved' || event.kind === 'run_status') void loadFonts();
 		scheduleRefresh();
+	}
+
+	const eventsUrl = (id: string, after: number) =>
+		`${resolve('/(app)/director/[runId]/events', { runId: id })}?after=${after}`;
+	const POLL_READ_MS = 1500;
+
+	/**
+	 * A poll's read of the stream, for the rows — a `refused_request` above all — that polling the
+	 * summary alone would miss: the same endpoint, fetched with `after=` the newest id seen and
+	 * read for {@link POLL_READ_MS}, which is long enough for its catch-up frames and then cut.
+	 * Where the stream cannot be had at all this yields nothing, which is no worse than before.
+	 */
+	async function pollEvents(id: string) {
+		const control = new AbortController();
+		const deadline = setTimeout(() => control.abort(), POLL_READ_MS);
+		try {
+			const res = await fetch(eventsUrl(id, highWater), {
+				signal: control.signal,
+				headers: { accept: 'text/event-stream' },
+				credentials: 'same-origin',
+			});
+			if (!res.ok || !res.body) return;
+			const reader = res.body.getReader();
+			const decoder = new TextDecoder();
+			let buffer = '';
+			for (;;) {
+				const { value, done } = await reader.read();
+				if (done) break;
+				buffer += decoder.decode(value, { stream: true });
+				let at = buffer.indexOf('\n\n');
+				while (at >= 0) {
+					handleFrame(buffer.slice(0, at));
+					buffer = buffer.slice(at + 2);
+					at = buffer.indexOf('\n\n');
+				}
+			}
+		} catch {
+			// The read's deadline, or no stream to read: the next poll tries again.
+		} finally {
+			clearTimeout(deadline);
+		}
+	}
+
+	function handleFrame(frame: string) {
+		const data = frame
+			.split('\n')
+			.filter((line) => line.startsWith('data:'))
+			.map((line) => line.slice(5).trim())
+			.join('\n');
+		if (!data) return;
+		try {
+			handleEvent(JSON.parse(data) as RunEvent);
+		} catch {
+			// Not a row.
+		}
 	}
 
 	/**
@@ -194,6 +257,7 @@
 		polling = false;
 		seenIds = [];
 		baselineEventId = 0;
+		highWater = 0;
 		note = '';
 		capRaise = null;
 		notice = '';
@@ -216,9 +280,7 @@
 
 		const openStream = () => {
 			if (disposed || (source && source.readyState !== EventSource.CLOSED)) return;
-			source = new EventSource(
-				`${resolve('/(app)/director/[runId]/events', { runId: id })}?after=${baselineEventId}`,
-			);
+			source = new EventSource(eventsUrl(id, highWater));
 			for (const kind of KINDS) source.addEventListener(kind, onEvent as EventListener);
 			source.onopen = () => {
 				streaming = true;
@@ -240,6 +302,7 @@
 			poll = setInterval(() => {
 				void refresh();
 				void loadFonts();
+				void pollEvents(id);
 				openStream();
 			}, 5_000);
 		};
@@ -251,6 +314,7 @@
 			if (disposed) return;
 			if (!loaded) return startPolling();
 			baselineEventId = loaded.lastEventId;
+			highWater = loaded.lastEventId;
 			openStream();
 		})();
 
@@ -269,7 +333,9 @@
 	 * One request per intent until it is answered: the id AND the body as first sent, because the
 	 * server replays an id to the answer it recorded and refuses the same id with another body.
 	 * The note and the cap lock while their request is outstanding, so nothing edited is left
-	 * behind; an id the server reports as reused is dropped, so the next press starts afresh.
+	 * behind. The request is kept only while its answer may still be recorded — a lost
+	 * connection, `in_progress`, a 5xx; a refusal that recorded nothing (a 4xx, the reused id
+	 * included) drops it, so the next press sends the inputs as they are then.
 	 */
 	const pending: Record<string, { requestId: string; body: Record<string, unknown> }> = {};
 	/** The intents with a request outstanding, for the inputs that lock meanwhile. */
@@ -310,10 +376,8 @@
 			} else if (isRefusal(e, 'in_progress')) {
 				actionErr = 'This request is still being written. Try again in a moment.';
 			} else {
-				if (isRefusal(e, 'request_id_reused')) {
-					settle();
-					scheduleRefresh();
-				}
+				if (!(e instanceof ApiRefusal && e.status >= 500)) settle();
+				if (isRefusal(e, 'request_id_reused')) scheduleRefresh();
 				actionErr = describe(e);
 			}
 		} finally {

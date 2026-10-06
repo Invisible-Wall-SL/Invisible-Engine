@@ -155,6 +155,10 @@ export function isBreakdown(value: unknown): value is Breakdown {
 	);
 }
 
+/** The run's starting point as the summary carries it (`runs.ts` `StartingPoint`). */
+export const isStartingPoint = (value: unknown): value is StartingPoint =>
+	isRecord(value) && Array.isArray(value.mockups) && typeof value.notes === 'string';
+
 /** A swatch colour as a CSS value: the analyst's hex, or nothing when it is not one. */
 export const safeHex = (hex: string): string =>
 	/^#[0-9A-Fa-f]{6}$/.test(hex) ? hex : 'transparent';
