@@ -121,7 +121,7 @@ export function sniffImage(bytes: Uint8Array): MockupExt | null {
 /** A refusal the endpoints answer with `{ error: code, message }` at `status`. */
 export class MockupError extends Error {
 	constructor(
-		readonly status: 400 | 404 | 409 | 413 | 415,
+		readonly status: 400 | 403 | 404 | 409 | 413 | 415,
 		readonly code: string,
 		message: string,
 	) {
@@ -140,6 +140,33 @@ export function ownershipRefusal(
 ): string | null {
 	if (!doc || doc.images.length === 0 || doc.ownershipConfirmed) return null;
 	return 'Confirm that these designs belong to us or to the client before the run starts.';
+}
+
+/**
+ * Whether `uid` may act on a PENDING project's mockups: every image and the ownership check are
+ * theirs, or the doc has no images. Until the project exists there is no project row to grant
+ * access to, so the uploads say whose the key is: anyone else gets the same 403 as an
+ * inaccessible project — a free key is not a licence to read, retag or claim another person's
+ * unpublished art — and the key is anyone's again once its images are removed (the check goes
+ * with the last image, and cannot be made without one, so a check alone never holds a key).
+ *
+ * The gate asks this before a request; every mutator asks it AGAIN inside `updateDoc`, on the
+ * doc as the CAS will write it, so two first uploads that both passed the gate on an empty doc
+ * cannot both land: the second re-reads, finds the first's image and is refused.
+ */
+export function pendingDocOwnedBy(doc: MockupsDoc, uid: string): boolean {
+	return (
+		doc.images.length === 0 ||
+		(doc.images.every((img) => img.uploadedBy.uid === uid) &&
+			(doc.ownershipConfirmed === null || doc.ownershipConfirmed.by.uid === uid))
+	);
+}
+
+/** The mutators' re-check for a pending project (`owner` = the caller); a project that exists passes. */
+function requireOwner(doc: MockupsDoc, owner: string | undefined, project: string): void {
+	if (owner !== undefined && !pendingDocOwnedBy(doc, owner)) {
+		throw new MockupError(403, 'forbidden', `You do not have access to the project "${project}".`);
+	}
 }
 
 function readDoc(text: string): MockupsDoc {
@@ -223,6 +250,8 @@ export interface AddMockupInput {
 	tag: unknown;
 	styleOnly: boolean;
 	by: Stamp;
+	/** The caller's uid while the project is pending: the write is theirs only if the doc is. */
+	owner?: string;
 }
 
 /**
@@ -264,6 +293,7 @@ export async function addMockup(input: AddMockupInput): Promise<{ doc: MockupsDo
 	await putObjectBytes(key, bytes, image.mediaType, { ifNoneMatch: '*' });
 	try {
 		const { doc } = await updateDoc(client, project, (d) => {
+			requireOwner(d, input.owner, project);
 			if (d.images.length >= MAX_MOCKUPS) {
 				throw new MockupError(409, 'too_many', `At most ${MAX_MOCKUPS} mockups per project.`);
 			}
@@ -277,28 +307,67 @@ export async function addMockup(input: AddMockupInput): Promise<{ doc: MockupsDo
 	}
 }
 
+/** Remove an image; the ownership check goes with the last one, so an empty doc holds nothing. */
 export async function removeMockup(
 	client: string,
 	project: string,
 	id: string,
+	owner?: string,
 ): Promise<MockupsDoc> {
 	if (!isUploadId(id)) throw new MockupError(404, 'unknown_mockup', 'No such mockup.');
 	const { doc, value: removed } = await updateDoc(client, project, (d) => {
+		requireOwner(d, owner, project);
 		const at = d.images.findIndex((img) => img.id === id);
 		if (at < 0) throw new MockupError(404, 'unknown_mockup', 'No such mockup.');
-		return d.images.splice(at, 1)[0];
+		const [gone] = d.images.splice(at, 1);
+		if (d.images.length === 0) d.ownershipConfirmed = null;
+		return gone;
 	});
 	await deleteObject(mockupImageKey(client, project, removed.file)).catch(() => undefined);
 	return doc;
 }
 
-/** Record the ownership check once; a second confirmation keeps the first's name and time. */
+/** Re-tag a listed image. The ownership check stays: the images are the same. */
+export async function setMockupTag(
+	client: string,
+	project: string,
+	id: string,
+	tag: unknown,
+	styleOnly: boolean,
+	owner?: string,
+): Promise<MockupsDoc> {
+	if (!isUploadId(id)) throw new MockupError(404, 'unknown_mockup', 'No such mockup.');
+	const clean = cleanTag(tag, styleOnly);
+	const { doc } = await updateDoc(client, project, (d) => {
+		requireOwner(d, owner, project);
+		const image = d.images.find((img) => img.id === id);
+		if (!image) throw new MockupError(404, 'unknown_mockup', 'No such mockup.');
+		image.tag = clean;
+		image.styleOnly = styleOnly;
+	});
+	return doc;
+}
+
+/**
+ * Record the ownership check once; a second confirmation keeps the first's name and time. There
+ * must be an image to confirm: a check on an empty doc would say nothing and, on a pending key,
+ * would hold it.
+ */
 export async function confirmOwnership(
 	client: string,
 	project: string,
 	by: Stamp,
+	owner?: string,
 ): Promise<MockupsDoc> {
 	const { doc } = await updateDoc(client, project, (d) => {
+		requireOwner(d, owner, project);
+		if (d.images.length === 0) {
+			throw new MockupError(
+				400,
+				'nothing_to_confirm',
+				'Upload a mockup first; there is nothing to confirm.',
+			);
+		}
 		d.ownershipConfirmed ??= { by, at: new Date().toISOString() };
 	});
 	return doc;
@@ -308,11 +377,13 @@ export async function setFidelity(
 	client: string,
 	project: string,
 	fidelity: unknown,
+	owner?: string,
 ): Promise<MockupsDoc> {
 	if (!(FIDELITIES as readonly unknown[]).includes(fidelity)) {
 		throw new MockupError(400, 'bad_fidelity', `Fidelity is one of ${FIDELITIES.join(', ')}.`);
 	}
 	const { doc } = await updateDoc(client, project, (d) => {
+		requireOwner(d, owner, project);
 		d.fidelity = fidelity as Fidelity;
 	});
 	return doc;
@@ -323,7 +394,7 @@ export async function readMockup(
 	client: string,
 	project: string,
 	image: MockupImage,
-): Promise<Uint8Array | null> {
+): Promise<Uint8Array<ArrayBuffer> | null> {
 	const got = await getObjectBytes(mockupImageKey(client, project, image.file));
 	return got?.body ?? null;
 }

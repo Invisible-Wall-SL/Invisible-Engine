@@ -6,6 +6,7 @@ import {
 	type DirectorPricing,
 	type RunEstimate,
 } from 'director-costs';
+import { PROJECT_KEY_WORDS } from '$lib/projectKey';
 import { roleHasTool } from '$lib/roles';
 import profilesFile from '../../../../../../services/director-worker/estimate-profiles.json';
 import type { Checkpoint } from '../../../../../../services/director-worker/src/runState';
@@ -29,7 +30,13 @@ import {
 	projectName,
 } from '../projects';
 import { DIRECTOR_AGENTS } from './adapter';
-import { MAX_MOCKUPS, loadMockupsDoc, ownershipRefusal, type MockupsDoc } from './mockups';
+import {
+	MAX_MOCKUPS,
+	loadMockupsDoc,
+	ownershipRefusal,
+	pendingDocOwnedBy,
+	type MockupsDoc,
+} from './mockups';
 import {
 	MAX_MESSAGE_LENGTH,
 	MAX_NOTE_LENGTH,
@@ -233,14 +240,25 @@ function parseNotes(raw: unknown): string {
 /**
  * The project's mockups as a run may start from them: the ownership check is required whenever
  * there are mockups (SPEC §1.1), and notes are required when there are none — a style board needs
- * something to go on.
+ * something to go on. At a create the project is still PENDING, so its mockups must be the
+ * creator's own (`pendingDocOwnedBy`, the rule every pending-scope request passes): another
+ * person's uploads under a free key are theirs, and the create is refused like an inaccessible
+ * project. At a start the project exists and its own access rule has applied.
  */
 async function startingPointFor(
 	clientKey: string | null,
 	projectKey: string,
 	notes: string,
+	creator: User | null,
 ): Promise<StartingPoint> {
 	const { doc } = await loadMockupsDoc(clientKey ?? UNASSIGNED_CLIENT, projectKey);
+	if (creator && !pendingDocOwnedBy(doc, creator.id)) {
+		throw new RunError(
+			403,
+			'project_forbidden',
+			`You do not have access to the project "${projectKey}".`,
+		);
+	}
 	const refusal = ownershipRefusal(doc);
 	if (refusal) throw new RunError(409, 'ownership_required', refusal);
 	if (doc.images.length === 0 && !notes) {
@@ -377,7 +395,7 @@ export async function createRun(user: User, input: CreateRunInput): Promise<Crea
 	const templateKey = String(input.template ?? '').trim();
 
 	// The same checks, in the same words, as Game Maker's `create` action.
-	if (!isValidProjectKey(key)) throw bad('bad_key', 'Key must match a-z, 0-9, _ or - (max 64).');
+	if (!isValidProjectKey(key)) throw bad('bad_key', PROJECT_KEY_WORDS);
 	if (!name) throw bad('name_required', 'Name is required.');
 	if (gameType !== '' && !(await selectableGameKinds()).some((k) => k.id === gameType)) {
 		throw bad('unknown_game_kind', 'Unknown game kind.');
@@ -431,7 +449,7 @@ export async function createRun(user: User, input: CreateRunInput): Promise<Crea
 	const pricing = (await getDirectorPricing()).pricing;
 	const preset = parsePreset(input.preset, pricing);
 	const checkpoints = parseCheckpoints(input.checkpoints);
-	const startingPoint = await startingPointFor(clientKey, key, notes);
+	const startingPoint = await startingPointFor(clientKey, key, notes, user);
 
 	const row = {
 		id: runId,
@@ -568,7 +586,7 @@ export async function performOwnerAction(
 		const notes = (run.startingPointJson as Partial<StartingPoint> | null)?.notes ?? '';
 		await updateDraftStartingPoint(
 			run.id,
-			await startingPointFor(run.clientKey, run.projectKey, notes),
+			await startingPointFor(run.clientKey, run.projectKey, notes, null),
 		);
 	}
 
@@ -636,6 +654,21 @@ export interface RunSummary {
 }
 
 const AGENTS = DIRECTOR_AGENTS.filter((a) => a !== 'worker');
+
+/**
+ * The agents a run is priced for, each at the model its definition names (the fixture pins the
+ * profiles to the definitions), in registry order: what the New-game panel lists under "Agents".
+ */
+export function agentProfiles(): { agent: string; model: string }[] {
+	const models = new Map<string, string>();
+	for (const profiles of Object.values(ESTIMATE_PROFILES.claude)) {
+		for (const profile of profiles) models.set(profile.agent, profile.model);
+	}
+	return AGENTS.filter((agent) => models.has(agent)).map((agent) => ({
+		agent,
+		model: models.get(agent)!,
+	}));
+}
 
 const round = (usd: number) => Math.round(usd * 10000) / 10000;
 

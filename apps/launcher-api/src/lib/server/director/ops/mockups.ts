@@ -29,7 +29,7 @@ import {
 const UPLOAD_ID = '^[a-f0-9]{16}$';
 // The same shape Atlas Maker accepts for a region, and a single path segment under `crops/`; `..`
 // is refused outright so a crop key can never read as a path escape.
-const REGION = '^(?!.*\\.\\.)[A-Za-z0-9_][A-Za-z0-9_.()-]{0,119}$';
+export const REGION = '^(?!.*\\.\\.)[A-Za-z0-9_][A-Za-z0-9_.()-]{0,119}$';
 const MAX_CROPS = 128;
 
 const scope = (ctx: AdapterContext) => ctx.scope!;
