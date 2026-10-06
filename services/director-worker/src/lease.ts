@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
+import { log } from './log.ts';
 import type { Checkpoint, RunState, RunStatus, RunStep } from './runState.ts';
 import { checkpointSettings } from './runState.ts';
 
@@ -122,6 +123,23 @@ export async function claimRun(
 		)
 		returning r.id, r.status, r.step, r.waiting_on, r.checkpoints_json, r.lease_holder`;
 	return rows[0] ? toClaimed(rows[0]) : null;
+}
+
+/**
+ * Whether the run tables answer, without claiming anything: the columns a claim reads, and no rows.
+ * What `/healthz` asks while no wake loop sweeps (a secret unset at boot). A database that answers
+ * but whose schema is behind fails here too, as a sweep would.
+ */
+export async function probeRunTables(sql: Sql): Promise<boolean> {
+	try {
+		await sql`
+			select id, status, step, waiting_on, checkpoints_json, updated_at, lease_holder, lease_until
+			from director_runs where false`;
+		return true;
+	} catch (error) {
+		log.warn('run tables do not answer', { code: (error as { code?: unknown }).code ?? null });
+		return false;
+	}
 }
 
 /** Extend a lease this claim still holds. False = it was lost: stop driving the run. */

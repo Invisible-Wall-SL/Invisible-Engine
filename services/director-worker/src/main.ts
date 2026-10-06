@@ -4,7 +4,9 @@ import postgres from 'postgres';
 import { loadAgents, pricedModels } from './agents.ts';
 import { driveRun } from './driver.ts';
 import { describeEnv, readEnv } from './env.ts';
+import { healthReport } from './health.ts';
 import { httpLauncher } from './launcher.ts';
+import { probeRunTables } from './lease.ts';
 import { log } from './log.ts';
 import { anthropicTransport, modelProfile } from './model.ts';
 import { pricingSource } from './pricing.ts';
@@ -14,7 +16,8 @@ import { CONCURRENCY, startWake, type Wake } from './wake.ts';
 /**
  * Invisible Director worker (ADR-0001). Boot order: environment, agent definitions (a bad one stops
  * the boot), the database and its wake-up listener, then `/healthz`. Runs are driven only when the
- * Anthropic key and the launcher's service token are both set.
+ * Anthropic key and the launcher's service token are both set; without them the worker is up and
+ * idle, and `/healthz` says so (`driving: false`) rather than failing the deploy.
  */
 
 const root = (rel: string) => fileURLToPath(new URL(`../${rel}`, import.meta.url));
@@ -80,19 +83,16 @@ else if (!env.anthropicApiKey || !env.directorServiceToken) {
 	}
 }
 
-/** 200 when the agents loaded and the database answers; 503 otherwise, naming which. */
-const server = createServer((req, res) => {
+/** Liveness (`health.ts`): 200 when the process is up and the run tables answer, driving or not. */
+const server = createServer(async (req, res) => {
 	if (req.method === 'GET' && req.url === '/healthz') {
-		const db =
-			sql === null
-				? 'unconfigured'
-				: wake === null
-					? 'not_driving'
-					: wake.healthy()
-						? 'up'
-						: 'down';
-		res.writeHead(db === 'up' ? 200 : 503, { 'content-type': 'application/json' });
-		res.end(JSON.stringify({ ok: db === 'up', agents: agents.size, db, workerId: env.workerId }));
+		const dbUp = sql === null ? false : wake !== null ? wake.healthy() : await probeRunTables(sql);
+		const { status, body } = healthReport(
+			{ configured: sql !== null, driving: wake !== null, dbUp },
+			{ agents: agents.size, workerId: env.workerId },
+		);
+		res.writeHead(status, { 'content-type': 'application/json' });
+		res.end(JSON.stringify(body));
 		return;
 	}
 	res.writeHead(404, { 'content-type': 'application/json' });

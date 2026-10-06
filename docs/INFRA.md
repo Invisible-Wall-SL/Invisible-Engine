@@ -211,7 +211,12 @@ Then, on the new service:
    - If the build log shows **Railpack** instead of Docker steps, the Builder isn't set to
      Dockerfile yet.
 2. **Networking:** no public domain. Nothing calls the worker; it only calls out.
-3. **Deploy → Healthcheck Path** `/healthz`, timeout 120 s.
+3. **Deploy → Healthcheck Path** `/healthz`, timeout 120 s. It is liveness: 200 when the process is
+   up and the run tables answer, whether or not runs are driven. `"driving": false` in its body
+   means `ANTHROPIC_API_KEY` or `DIRECTOR_SERVICE_TOKEN` is unset, so the worker claims nothing
+   until both are set; that is a state to read, not a failed deploy. 503 is reserved for no
+   `DATABASE_URL` or run tables that do not answer (a schema still behind), so Railway then keeps
+   the previous worker.
 4. **Variables:** `DATABASE_URL` = `${{Postgres.DATABASE_URL}}`; `DIRECTOR_SERVICE_TOKEN` = the
    launcher's value (or make it a Shared Variable both reference); `ANTHROPIC_API_KEY` = the agents'
    key. Then **Apply changes / Deploy**.
@@ -219,8 +224,12 @@ Then, on the new service:
    and the service's commit status reads `Success -`.
    - `/healthz` 503 with **`"msg":"DATABASE_URL is unset"`** in the log means `DATABASE_URL` is
      missing. If `${{Postgres…}}` doesn't autocomplete, the service is in the wrong project.
-   - `/healthz` 503 with **`"msg":"sweep failed"`** means the launcher hasn't applied migration 0022
-     yet. Redeploy the launcher, then the worker.
+   - `/healthz` 503 with **`"msg":"sweep failed"`** (or **`"run tables do not answer"`** while not
+     driving) means the launcher hasn't applied the Director migrations yet. Redeploy the launcher,
+     then the worker.
+   - `/healthz` 200 with **`"driving":false`** and **`"msg":"ANTHROPIC_API_KEY or
+     DIRECTOR_SERVICE_TOKEN is unset"`** in the log: the worker is up and idle. Set both
+     (`DIRECTOR_SERVICE_TOKEN` must equal the launcher's), then redeploy.
 
 ## ComfyUI tunnel (optional — a person's own GPU)
 
