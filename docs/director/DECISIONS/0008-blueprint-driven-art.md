@@ -1,7 +1,10 @@
 # ADR-0008 — Agents plan the art with the Atlas Maker blueprint library
 
 - **Status:** proposed
-- **Date:** 2026-10-06 (revised the same day after a design review and an atlas-tool fact-check)
+- **Date:** 2026-10-06 (revised the same day after a design review, an atlas-tool fact-check and the
+  coordinator's review of head a6a5961)
+- **Scope:** image pipelines for a run's regions. Video cards (`kind: video`) and loop/flipbook
+  chains are catalogued but out of scope for the technician; they are the animator's, in a later ADR.
 - **Builds on:** ADR-0002 (tool adapters), ADR-0003 (run state and events), ADR-0005 (mockup
   analysis), ADR-0006 (costs and budgets). Amends ADR-0003, ADR-0005 and ADR-0006 and SPEC §1.1
   (see "Amendments" at the end).
@@ -111,9 +114,12 @@ the `preset` key of the create and estimate requests and of `/api/director/templ
 that still sends `preset` is refused `400 bad_request` naming the key, so a stale page fails
 loudly. SPEC §1.1 "Preset" and `docs/tools/director.md` §3 change in the same card (rule 9).
 
-**Migration, expand then contract.** Card 8C stops reading and writing `preset_json` (launcher
-`runs.ts`, worker `store.ts` and `driver.ts`) but keeps the column, so the change is revertable and
-a worker on the previous build still boots; a later cleanup card drops the column. **In-flight
+**Migration, expand then contract.** The Preset UI goes LAST (card 8C, after the technician and
+the chain pricing are live): until then the stored preset is read only as the fallback default
+recipe (`sdxl`, the preset's final size, its variants) so every card before it ships inert. 8C
+stops reading and writing `preset_json` (launcher `runs.ts`, worker `store.ts` and `driver.ts`)
+but keeps the column, so the change is revertable and a worker on the previous build still boots;
+a later cleanup card drops the column. **In-flight
 runs:** ADR-0003 re-claims running, waiting and paused runs after a deploy, and a mid-batch
 `atlas-artist` would wake to `job_done` without the tools it queued with. So 8C deploys only when
 no run is non-terminal (a `scripts/check-director-idle.ts` the deploy checklist runs); if one is,
@@ -155,15 +161,25 @@ change.
   "variants": { "draft": 1, "final": 1, "max": 1 },
   "billing": "gpu",                  // gpu | credits — credits-billed cards cannot be reviewed for
                                      // agents until ADR-0006 has a `credits` spend kind (§6)
+  "licence": "conditional",          // ok | blocked | conditional, from docs/reference/model-licences.md;
+                                     // carried into every recipe step and listed at before-publish (§7)
   "gotchas": ["the atlas style prefix/suffix do nothing here: no prompt role", "…"]
 }
 ```
 
 Rules:
-- **Who edits.** The owner, in Atlas Maker: the ＋ New blueprint modal gains a **Card** section
-  (prefilled from the graph: `inputs` from the bound roles, `settings` from `params`, `outputs.kind`
-  from `kind`) and 🗑 Manage blueprints gains **✎ Card** on every entry, both behind
-  `blueprintPublish`. Atlas Maker validates a card against its blueprint on save
+- **Who edits, and why a card review is the owner's approval.** Anyone with `blueprintPublish`
+  may draft a card in Atlas Maker: the ＋ New blueprint modal gains a **Card** section (prefilled
+  from the graph: `inputs` from the bound roles, `settings` from `params`, `outputs.kind` from
+  `kind`, `gpu.secondsPerImage` from `director_blueprint_timings` with `source: measured` when
+  there are measurements) and 🗑 Manage blueprints gains **✎ Card** on every entry. **Marking a
+  card `reviewed` needs the owner's capability (`pipelineMerge`)**, because a reviewed card changes
+  what agents do in every later run with no PR: the review IS the approval that SPEC rule 2 asks
+  for on a blueprint change, done where the blueprint lives instead of on a branch (a branch
+  cannot carry an R2-published graph; the card's `rev` + history give the revert). The technician
+  may PROPOSE a card draft for a blueprint it finds useful but unreviewed, written to the run's own
+  project (`<C>/<P>/director/card-proposals/<id>.json`, inside ADR-0002's write scope) for the
+  owner to copy into the editor; it never writes under `_shared/`. Atlas Maker validates a card against its blueprint on save
   (`blueprints.validate_card`): every `settings[].key` is a param of that blueprint or, for a
   built-in id, a `PER_ATLAS_KEYS` / `ADV_FIELDS` key (never a global-only key); ranges sit inside
   the param's own min/max; `inputs.prompt` is not `required` on a graph with no `positive`
@@ -228,7 +244,11 @@ from the artist to the technician; the artist keeps `atlas.list_regions`, `atlas
   already has (`<base>_glow` and the like are ordinary regions to it) and requests any new one
   through the coordinator (`run.request_pipeline_change`).
 - **Never delete art.** No adapter calls `/delvariants`, `/clearoutput` or `/delregion` on a
-  region the run did not create; `remove_layer` never touches variant files.
+  region the run did not create; `remove_layer` never touches variant files. `/setoutput` writes
+  ONE file per region (`input/refs/useroutput_<region>.png`, overwritten each call), so
+  `set_output` refuses a template region that already carries an `output_override` this run did
+  not write, unless the owner's checkpoint answer allows it; card 8B versions the file name
+  (`useroutput_<region>_<run>_<id>.png`) so a committed tile is never overwritten in place.
 - **Never switch "Run generation on".** `run_on` is a global config key; no adapter writes any
   global key, and atlas-tool refuses a `/render` from a Director token (`act.tool = 'director'`,
   `Identity.act_tool`) when `effective_run_on()` is `http`: the Director renders only on RunPod.
@@ -257,23 +277,24 @@ written version from `X-IW-Doc-Versions`. Full input schemas are in Appendix A.
 | Op | Agents | What it does | Endpoint | Writes | GPU |
 |---|---|---|---|---|---|
 | `list_blueprints` | technician, coordinator | The reviewed `image` cards, each with its blueprint's bound roles and params, plus the endpoint GPU | `GET /blueprints?kind=image` (new, 8A) | — | no |
-| `set_atlas_pipeline` | technician | Set the ATLAS's pipeline, generation size and that pipeline's settings: for a built-in id the per-atlas keys the card names; for a blueprint `bpParams[<id>]` | `POST /saveconfig?manifest=` with a positive whitelist: `pipeline` (per atlas, needs 8B: add it to `PER_ATLAS_KEYS`; `apply_manifest_settings` already honours it), `gen_width`, `gen_height`, `bpParams`, and the card's `PER_ATLAS_KEYS`; everything else refused before the call | the manifest | no |
-| `set_region_pipeline` | technician | A region's own pipeline override (`""` = the atlas's) and fit mode | `GET /regionadv/<name>` then `POST /saveadv` with the FULL field set, only `pipeline` and `fit_mode` changed (a missing key is cleared by the route) | the manifest | no |
+| `set_atlas_pipeline` | technician | Set the ATLAS's pipeline, generation size and that pipeline's per-atlas settings: for a built-in id the `PER_ATLAS_KEYS` the card names; for a blueprint `bpParams[<id>]` | `POST /saveconfig?manifest=` with a positive whitelist: `atlas_pipeline` (a NEW key, 8B, stored as `manifest.settings.pipeline`, which `apply_manifest_settings` already honours; the human Settings page keeps its global `pipeline` control untouched), `gen_width`, `gen_height`, `bpParams`, and the card's `PER_ATLAS_KEYS`; everything else refused before the call | the manifest | no |
+| `set_region_pipeline` | technician | A region's own pipeline override (`""` = the atlas's), fit mode and per-REGION settings: the `ADV_FIELDS` keys the card marks `scope: region` (`ipadapter_weight`, `redux_strength`, `flux_lora_strength`, `controlnet_strength`, `controlnet_end_percent`, `checkpoint`) | `GET /regionadv/<name>` then `POST /saveadv` with the FULL field set, only the named keys changed (a missing key is cleared by the route); a key the card does not name is refused | the manifest | no |
 | `set_refs` | technician | A region's `style_ref` and `shape_ref`. Each is `keep`, `clear`, a Sheet Maker key (`sheets/…`, `sheet_src/…`), a rendered variant (`atlas/region/id`, copied by the adapter to `<C>/<P>/input/refs/director_<region>_<id>.png` and stored as `refs/director_<region>_<id>.png`) or the run's mockup crop (copied the same way). Any other key resolves nowhere in the render subprocess and is refused | `GET /regionadv/<name>` then `POST /saveadv` with the full field set; the copies are create-only `putObject`s | the manifest, `input/refs/director_*` | no |
 | `add_layer` | technician | An AI layer (`/addlayer {base, suffix}`) or an FX layer (`/addregion {name: <base>_<mode>}` then `/setmode {name, mode}`) on a SCRATCH atlas only; FX pixels appear on `pack_sheet` | as named; the two-call FX form is resumed from the second call on a replay | the scratch manifest | no |
 | `remove_layer` | technician | Remove a layer this run's `add_layer` created on a scratch atlas | `POST /delregion {name}` | the scratch manifest | no |
 | `duplicate_atlas` | technician | A scratch copy of an atlas under a new name with a region tag (setup copied, results dropped, refs shared; refused on a `.atlas`-bound atlas and on an existing name) | `POST /duplicateatlas {name, prefix: tag}`; the adapter computes `regions[{from,to}]` from the `<tag>_<name>` rule | the new manifest | no |
 | `queue_variants` (changed) | technician | Render regions of one atlas, `variants` each, for an APPROVED recipe step; the gate refuses when no approved step matches atlas, region, pipeline, `genPx` and `variants`, or while `art_plan` is open | `POST /render {names, variants, callback}` as today; busy → recorded wait, re-wake by code | as today | **yes** |
 | `choose_variant` (changed) | technician | Make a variant the region's tile and lock it or not; round-trips `negative`, `gpt_prompt` and the replace flags (`/save` clears a blank one) | `POST /save` (the card, with `lock` and the variant's seed) | the manifest | no |
-| `set_output` | technician | Commit a rendered variant (from any atlas of the project) as a TEMPLATE region's tile, verbatim, no RMBG: how a chain's last step lands on the region the game reads | `POST /setoutput {name, data}` with the variant's PNG | the manifest, `input/refs/useroutput_<region>.png` | no |
+| `set_output` | technician | Commit a rendered variant (from any atlas of the project) as a TEMPLATE region's tile, verbatim, no RMBG: how a chain's last step lands on the region the game reads; refused when the region carries an `output_override` this run did not write (§3) | `POST /setoutput {name, data}` with the variant's PNG; 8B names the file `useroutput_<region>_<run>_<id>.png` | the manifest, `input/refs/useroutput_*` | no |
 | `pack_sheet` (unchanged) | technician | Create Atlas on a template atlas (FX layers are rebuilt here) | `POST /createatlas` | as today | no (CPU) |
 | `deploy_atlas` | technician | Deploy a template atlas's composed page: `<C>/<P>/deploy/<subpath>/<base>.{webp,atlas,json}` where the subpath comes from the manifest's `deploy_path`, else `asset-map.json`, else `sprites/`/`spines/` | `POST /deployatlas?manifest=`; refused by the adapter when the manifest's `deploy_path` is a fully-qualified key outside `deploy/` | `deploy/`, the manifest (`deploy_page_only`) | no |
 | `list_regions`, `get_region`, `list_variants`, `get_variant_image`, `sheet_stats`, `comfyui.job_status` | as today, plus technician where it needs them | `get_region` also returns `pipeline`, `styleRef`, `shapeRef`, `layerOf`, `mode`, `fitMode`, `outputOverride` from the manifest | | | |
 
 Idempotency: every write claims its `opId`. `duplicate_atlas` and `add_layer` are the creates; a
-replay returns the stored result, and the routes refuse an existing name anyway. `set_output` and
-`set_refs` copy bytes with create-only writes keyed by `(region, variant id)`, so a retry finds the
-copy and only re-sends the manifest write. Conflicts: a stale base is `conflict` on every route and
+replay returns the stored result, and the routes refuse an existing name anyway. `set_refs` copies
+bytes with create-only writes keyed by `(region, variant id)`, so a retry finds the copy and only
+re-sends the manifest write; `set_output` is idempotent through its `opId` and, after 8B, through
+the versioned file name. Conflicts: a stale base is `conflict` on every route and
 the technician re-reads. A human edit always wins.
 
 ### 5. The recipe: how a region is made, on the run
@@ -318,16 +339,20 @@ stored) and advanced by the worker as steps run:
   variant as `style_ref`; the chain's last step is `finish`: `set_output` of the scratch region's
   chosen variant onto the template region. Scratch atlases are never packed or deployed; they
   stay in the project as the run's working files.
-- **Per-atlas facts the plan respects:** one pipeline, one generation size and one `bpParams` set
-  per atlas at a time, so the technician groups `queue_variants` calls by (atlas, pipeline, genPx)
-  and the validator refuses a plan that needs two pipelines on one atlas in one step; a region
-  with its own `pipeline` override renders that blueprint at its baked defaults.
+- **Per-atlas facts the plan respects:** one pipeline, one generation size and one set of
+  per-atlas settings (`PER_ATLAS_KEYS`, `bpParams`) per atlas at a time, so the technician groups
+  `queue_variants` calls by (atlas, pipeline, genPx, per-atlas settings) and the validator refuses
+  a step whose pipeline, size OR per-atlas settings differ between regions of one atlas; per-region
+  settings (`ADV_FIELDS`) may differ and go through `set_region_pipeline`. A region with its own
+  `pipeline` override renders that blueprint at its baked defaults until 8B keys `bpParams` by the
+  effective pipeline.
 - **Code validates a recipe before storing it:** every `pipeline` has a reviewed card (`""` only on
   `finish`); a `generate` step's card has `inputs.prompt ≠ none`; a `process` step has a source; a
   card with `inputs.sourceImage: required` gets one; `genPx` within the card's `width` range;
-  `variants ≤ card.variants.max`; settings keys and ranges per the card; a `finish` step targets a
-  template region and nothing else writes one; `billing: credits` cards are refused until ADR-0006
-  tracks credits; `projected` is recomputed by code from the cards. A recipe that fails is answered
+  `variants ≤ card.variants.max`; settings keys, scopes and ranges per the card; a `finish` step
+  targets a template region and nothing else writes one; `billing: credits` cards are refused
+  until ADR-0006 tracks credits; each step carries its card's `licence`; `projected` is recomputed
+  by code from the cards (§6). A recipe that fails is answered
   with the reasons and not stored.
 - **The owner sees recipes** at the Art plan checkpoint (§7) and on the Review panel ("How this was
   made": one line per step, the intermediate images as thumbnails, the finished tile beside the
@@ -340,17 +365,23 @@ stored) and advanced by the worker as steps run:
   technician, who writes `rev + 1`. **A revision after the Art plan needs re-approval when it
   changes a pipeline or raises the projected cost**; otherwise it runs and is shown.
 - **Reuse.** The technician plans the first region of a group fully and copies the chain to its
-  siblings; an approved group recipe is stored as the template's default
-  (`<C>/<P>/director/recipes.json` on the TEMPLATE project, written as the run's owner) and is what
-  the next run on that template starts from.
+  siblings. An approved group recipe becomes the template's default in a launcher table,
+  `director_template_recipes` (keyed by the template project id and group; versioned, each row
+  naming the run and Art plan approval it came from, revertable to the previous version), written
+  by the worker only after the owner approves an Art plan. Nothing is written into the template
+  project: it is a pipeline-change target (SPEC rule 2) outside ADR-0002's write scope. Before any
+  row exists, the fallback default is the old preset's shape (`sdxl` at the preset's final size,
+  its variants, then `birefnet`), read from `estimate-profiles.json`.
 
 ### 6. The estimate: price per chain (ADR-0006 amendment)
 
-- **Price of a step** = `card.gpu.secondsPerImage[genPx]` (interpolated by pixel count) ×
-  `variants` × the endpoint GPU's `$/s`. The GPU is the one atlas-tool reports in
-  `GET /blueprints` (`RUNPOD_ENDPOINT_GPU`), never a run setting and not a second copy in
-  `pricing.json`; with none reported the estimate says so and the cap keeps its dearest-GPU
-  fallback.
+- **Price of a step** = (`card.gpu.secondsPerImage[genPx]` interpolated by pixel count +
+  the measured mean delay per job for that pipeline, else the seed delay) × `variants` × the
+  endpoint GPU's `$/s`, plus `card.gpu.coldStart` once per (atlas, pipeline) batch. Billing is
+  execution plus delay (#1064), so an estimate that priced execution alone would under-count. The
+  GPU is the one atlas-tool reports in `GET /blueprints` (`RUNPOD_ENDPOINT_GPU`), never a run
+  setting and not a second copy in `pricing.json`; with none reported the estimate says so and the
+  cap keeps its dearest-GPU fallback.
 - **Price of a region** = Σ its steps + the Claude profiles per region and per variant; the
   technician gets its own lines in `estimate-profiles.json` (per run for the plan, per region per
   step). **Price of a run** = Σ regions + the per-run, per-mockup and per-checkpoint profiles.
@@ -359,9 +390,11 @@ stored) and advanced by the worker as steps run:
   `estimate-profiles.json`, priced from the reviewed cards; a default naming an unreviewed card
   falls back to `secondsPerVariantAt1024` and sets `placeholder`.
 - **After the Art plan** the run's `projected` total is recomputed from the real recipes and shown
-  beside the plan. The cap projection (`projectQueuedGpu`) prices a queued render at its step's
-  card seconds when the card has them, else the run mean, else the seed: the cap keeps failing
-  closed. Billed time is still execution plus delay (#1064).
+  beside the plan. **The cap keeps failing closed (ADR-0006):** the projection for a queued render
+  is the HIGHEST of the step's card seconds plus delay, the run's measured average for that
+  pipeline, and `seedSecondsPerRender`; only a card with `source: measured` may lower a projection
+  below the seed, a guessed card never does. The run refuses to start a batch whose projection
+  crosses the remaining cap and opens the `budget` checkpoint.
 - **Credits.** `gpt_image` and any API node bill comfy.org credits, outside `director_spend`'s
   `claude | runpod` kinds. Until ADR-0006 gains a `credits` kind (priced from a `comfyOrg.usdPerCredit`
   entry), a `billing: credits` card cannot be reviewed for agents, and whether the serverless
@@ -375,8 +408,9 @@ stored) and advanced by the worker as steps run:
   `director_runs.waiting_on` accepts it; ADR-0003 amendment). **Code opens it**: when every region
   the coordinator's `run.set_plan` names has a stored recipe, the worker opens `art_plan` and no
   `queue_variants` passes the gate until it is resolved. With the checkpoint off, the plan is still
-  stored and shown and the run does not stop on it. "Nothing is submitted to RunPod until the owner
-  confirms" (ADR-0005) now covers the plan.
+  stored and shown, and the worker marks it `approved.by = 'auto'` once its projection fits the
+  remaining cap, so the gate's "approved step" rule never deadlocks. "Nothing is submitted to
+  RunPod until the owner confirms" (ADR-0005) now covers the plan whenever the checkpoint is on.
 - **What the owner sees:** the recipes grouped by region group and collapsed by identical chain
   ("11 symbols: sdxl 1024 ×3 → birefnet → finish"), each pipeline with its card's one-line purpose,
   the projected GPU and Claude spend against the cap, and the regions the plan skips. Actions:
@@ -386,7 +420,8 @@ stored) and advanced by the worker as steps run:
 - **Region batches** are unchanged in shape. The Review panel adds the recipe, the step thumbnails
   and, once the chain has run, the finished tile beside the pick; the art director confirms the
   tile matches the pick before `pack_sheet`, and the owner can "Redo" it. The before-publish
-  checkpoint lists every finished tile.
+  checkpoint lists every finished tile and **every step whose card's `licence` is `blocked` or
+  `conditional`**, so no licence-encumbered art reaches Game Maker unnoticed.
 - The Live run's five steps stay; `art_plan` is a checkpoint inside **Style pack**, so the strip
   reads Mockup breakdown → Style pack (Art plan ✓) → Regions → Build → Hand-off.
 
@@ -403,9 +438,12 @@ stored) and advanced by the worker as steps run:
   `atlas.delete_card`, a write under `_shared/`, a `/saveconfig` carrying `run_on` or any key off
   the whitelist, `remove_layer` on a template atlas, and `add_layer` on a template atlas, each
   refused.
-- **atlas-tool pipeline changes** (card 8B, each with a Python test): `pipeline` in
-  `PER_ATLAS_KEYS` and `bpParams` keyed by the region's EFFECTIVE pipeline; `/render` refuses a
-  Director token on the `http` transport; `/duplicateatlas` and `/newatlas` do not switch
+- **atlas-tool pipeline changes** (card 8B, each with a Python test): a new `/saveconfig` key
+  `atlas_pipeline` → `manifest.settings.pipeline` (the human page's global Pipeline control is
+  untouched; the human-visible effect, that an atlas a Director run configured renders on its own
+  pipeline whatever the global control says, is stated in `docs/tools/atlas-maker.md` in the same
+  card and is an open question) and `bpParams` keyed by the region's EFFECTIVE pipeline; `/render`
+  refuses a Director token on the `http` transport; `/setoutput` versions its file name; `/duplicateatlas` and `/newatlas` do not switch
   `manifest_path` under a Director token; `GET /blueprints` with cards, staleness and the endpoint
   GPU; card.json read / validate / save / history / delete, the modal section and ✎ Card;
   `seed_blueprints.py` and `_sync_bundled` ship `card.json`. (The doc-base checks need no change:
@@ -416,9 +454,16 @@ stored) and advanced by the worker as steps run:
   turn through the fake transport (like `prove:breakdown`) and checks the §5 rules on its output;
   it also runs under PLAN 5.4's before/after evaluation when `atlas-technician.md` or
   `atlas-artist.md` changes.
+- **Build order, each card shippable and revertable alone:** 8A card schema, validation, storage,
+  history, `GET /blueprints`, seed/sync of bundled cards (inert without a consumer); 8B the render
+  and duplicate safety changes, `atlas_pipeline`, `bpParams` by effective pipeline, versioned
+  `/setoutput`; 8D the technician, the adapter ops, recipes, validation, gate, refusals,
+  `prove:art-plan`, the idle-deploy check, with the old preset as the fallback default recipe; 8E
+  the Art plan checkpoint UI, "How this was made", chain pricing and timings; 8C LAST: the Preset
+  UI out and `preset_json` unread; 8F drops the column.
 - **No current game changes.** Everything here is launcher, worker, docs and atlas-tool paths a
   human render never takes (a Director token is the only thing that triggers the new refusals and
-  the per-atlas `pipeline` is inert until a manifest carries it). The current-games harness passes
+  `settings.pipeline` is inert until a manifest carries it). The current-games harness passes
   without a render.
 
 ## Consequences
@@ -445,7 +490,12 @@ stored) and advanced by the worker as steps run:
 - Finals are the approved pick or derived from it, never re-sampled.
 - Credit-billed blueprints excluded until ADR-0006 tracks credits; third-party API use of mockup
   crops is the owner's call.
-- 8C deploys only when no run is non-terminal.
+- Marking a card `reviewed` needs `pipelineMerge` and counts as the owner's approval of that
+  blueprint for agents.
+- Default recipes live in `director_template_recipes`, never in the template project.
+- The `atlas_pipeline` key: an atlas a run configured renders on its own pipeline regardless of the
+  global Settings control.
+- The idle-deploy rule for the technician card (no run non-terminal).
 
 ## Amendments to earlier ADRs (take effect when this ADR is approved)
 
@@ -472,7 +522,7 @@ omitted, so no field is optional unless marked. Union-typed fields are avoided: 
 | `atlas.list_regions` (existing) | `{atlas?}` | 1 | 0 |
 | `atlas.get_region` | `{atlas, region}` | 0 | 0 |
 | `atlas.set_atlas_pipeline` | `{atlas, pipeline, genPx, settings: [{key, value}], base}` | 0 | 0 |
-| `atlas.set_region_pipeline` | `{atlas, region, pipeline, fitMode, base}` (`""` = inherit / default) | 0 | 0 |
+| `atlas.set_region_pipeline` | `{atlas, region, pipeline, fitMode, settings: [{key, value}], base}` (`""` = inherit / default; `settings` keys = the card's `scope: region` keys) | 0 | 0 |
 | `atlas.set_refs` | `{atlas, region, style: {source, value}, shape: {source, value}, base}` with `source ∈ keep, clear, key, variant, mockupCrop` | 0 | 0 |
 | `atlas.add_layer` | `{atlas, base, suffix, kind, mode}` (`kind ∈ ai, fx`; `mode` `""` for `ai`) | 0 | 0 |
 | `atlas.remove_layer` | `{atlas, name, base}` | 0 | 0 |
@@ -490,3 +540,6 @@ omitted, so no field is optional unless marked. Union-typed fields are avoided: 
 
 `settings` values are strings coerced by code from the card's declared type; `pipeline` is a
 string the gate checks against the reviewed cards (`""` only where the table says).
+
+**Coordinator:** 10 tools today plus `atlas.list_blueprints` = 11, adding 0 optional parameters
+and 0 unions to its request.

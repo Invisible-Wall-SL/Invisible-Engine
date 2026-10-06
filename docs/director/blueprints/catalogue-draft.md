@@ -72,7 +72,7 @@ RMBG-2.0) unless `rembg` is off → variant PNG.
   ],
   "chain": {"position": "generate", "follows": [], "precedes": ["birefnet", "fx"]},
   "gpu": {"secondsPerImage": {"512": 5, "1024": 12, "1536": 28}, "coldStart": 120, "source": "guess"},
-  "variants": {"draft": 3, "final": 1, "max": 6}, "billing": "gpu",
+  "variants": {"draft": 3, "final": 1, "max": 6}, "billing": "gpu", "licence": "blocked",
   "gotchas": ["LoRA and RMBG-2.0 licences are blocked, checkpoint conditional (model-licences.md)",
               "IPAdapter copies colour and texture, not composition",
               "shape_ref is normalised to a silhouette at shape_ref_fill_pct",
@@ -123,7 +123,7 @@ when the region has a `shape_ref` → KSampler (`flux_steps`, `flux_guidance`, `
   ],
   "chain": {"position": "generate", "follows": [], "precedes": ["upscale", "birefnet", "fx"]},
   "gpu": {"secondsPerImage": {"768": 18, "1024": 32, "1536": 75}, "coldStart": 180, "source": "guess"},
-  "variants": {"draft": 2, "final": 1, "max": 4}, "billing": "gpu",
+  "variants": {"draft": 2, "final": 1, "max": 4}, "billing": "gpu", "licence": "blocked",
   "gotchas": ["FLUX.1-dev, ae and Redux licences are blocked (model-licences.md)",
               "Redux at 1.0 reproduces the reference's subject",
               "flux_steps and flux_guidance are global-only: not agent-settable",
@@ -166,7 +166,7 @@ What runs: `build_workflow_gpt`: the region's reference image (`style_ref`, else
   ],
   "chain": {"position": "generate", "follows": ["sdxl", "flux"], "precedes": ["birefnet", "fx"]},
   "gpu": {"secondsPerImage": {"1024": 2}, "apiWallSeconds": 40, "creditsPerImage": "(check)", "coldStart": 60, "source": "guess"},
-  "variants": {"draft": 1, "final": 1, "max": 2}, "billing": "credits",
+  "variants": {"draft": 1, "final": 1, "max": 2}, "billing": "credits", "licence": "conditional",
   "gotchas": ["needs COMFY_ORG_API_KEY; serverless authentication unverified",
               "returns opaque images: RMBG runs on everything unless gpt_rembg is off",
               "uses gpt_prompt, not the atlas prompt", "policy refusals fail the job (check)",
@@ -211,7 +211,7 @@ Params: `blur` 0–64 (10), `offset` −20…20 (20), `invert` (false). Publishe
   ],
   "chain": {"position": "process", "follows": ["sdxl", "flux", "gpt_image", "removebackgroundsam3__2_"], "precedes": ["finish", "fx"]},
   "gpu": {"secondsPerImage": {"1024": 3}, "coldStart": 60, "source": "guess"},
-  "variants": {"draft": 1, "final": 1, "max": 1}, "billing": "gpu",
+  "variants": {"draft": 1, "final": 1, "max": 1}, "billing": "gpu", "licence": "conditional",
   "gotchas": ["no prompt role: atlas style does nothing", "output = source size",
               "every region on this pipeline needs a style_ref", "BiRefNet_toonout licence unrecorded"] }
 ```
@@ -254,7 +254,7 @@ keep everything else) → `GrowMask` (`expand` 20) → `InvertMask` → `JoinIma
   ],
   "chain": {"position": "extract", "follows": [], "precedes": ["birefnet", "sdxl", "flux", "finish"]},
   "gpu": {"secondsPerImage": {"1024": 6}, "coldStart": 120, "source": "guess"},
-  "variants": {"draft": 1, "final": 1, "max": 1}, "billing": "gpu",
+  "variants": {"draft": 1, "final": 1, "max": 1}, "billing": "gpu", "licence": "conditional",
   "gotchas": ["positive = the detection prompt: set positive_replace or the atlas style pollutes it",
               "hard object-mask edges", "sam3.1_multiplex_fp16 licence unrecorded (check)",
               "threshold 0.3 is baked (check)"] }
@@ -304,7 +304,7 @@ Published 2026-09-17.
   ],
   "chain": {"position": "extract", "follows": [], "precedes": ["finish", "birefnet"]},
   "gpu": {"secondsPerImage": {"1024": 8}, "coldStart": 120, "source": "guess"},
-  "variants": {"draft": 1, "final": 1, "max": 1}, "billing": "gpu",
+  "variants": {"draft": 1, "final": 1, "max": 1}, "billing": "gpu", "licence": "conditional",
   "gotchas": ["positive = the detection prompt: set positive_replace", "layer order follows SAM3's instance order (check)",
               "threshold 0.1 picks up faint objects and false positives"] }
 ```
@@ -341,7 +341,7 @@ models is owed). Published 2026-08-11.
   "outputs": {"kind": "image", "alpha": false, "count": 1, "fixedPx": 512},
   "settings": [], "chain": {"position": "generate", "follows": [], "precedes": []},
   "gpu": {"secondsPerImage": {"512": 60}, "coldStart": 240, "source": "guess"},
-  "variants": {"draft": 0, "final": 0, "max": 0}, "billing": "gpu",
+  "variants": {"draft": 0, "final": 0, "max": 0}, "billing": "gpu", "licence": "blocked",
   "gotchas": ["never reviewed: licence-blocked and not in the worker image", "no models[] declared",
               "the bound output is the 512 first pass"] }
 ```
@@ -375,7 +375,7 @@ params, no models declared. Description "test". Published 2026-06-17.
   "outputs": {"kind": "image", "alpha": true, "count": 1, "sizeRule": "baked shape ref size"},
   "settings": [], "chain": {"position": "generate", "follows": [], "precedes": []},
   "gpu": {"secondsPerImage": {"1024": 90}, "coldStart": 180, "source": "guess"},
-  "variants": {"draft": 0, "final": 0, "max": 0}, "billing": "gpu",
+  "variants": {"draft": 0, "final": 0, "max": 0}, "billing": "gpu", "licence": "blocked",
   "gotchas": ["shape ref is baked, not a role", "theme prompt baked", "RMBG-2.0 and FLUX.1-dev licences blocked"] }
 ```
 
@@ -419,7 +419,7 @@ Models: Wan 2.2 A14B high+low fp8, umT5, Wan 2.1 VAE, two lightx2v LoRAs (all cl
   ],
   "chain": {"position": "generate", "follows": ["sdxl", "flux", "gpt_image"], "precedes": ["flipbook-pack"]},
   "gpu": {"secondsPerImage": {"640": 200}, "qualityModeSeconds": {"640": 750}, "coldStart": 240, "minVramGb": 48, "source": "guess"},
-  "variants": {"draft": 2, "final": 1, "max": 4}, "billing": "gpu",
+  "variants": {"draft": 2, "final": 1, "max": 4}, "billing": "gpu", "licence": "conditional",
   "gotchas": ["width/height must stay unbound", "steps/cfg ignored while fast_lora is on", "lossless WEBP can exceed the payload cap", "keep background Alpha"] }
 ```
 
@@ -469,7 +469,7 @@ to a `PrimitiveInt`. Params: `SetTurbo` (false), `RemoveBackground` (true), `Set
   ],
   "chain": {"position": "generate", "follows": ["sdxl", "flux", "gpt_image"], "precedes": ["flipbook-pack"]},
   "gpu": {"secondsPerImage": {"640": 120}, "qualityModeSeconds": {"1024": 1200}, "coldStart": 240, "minVramGb": 48, "source": "guess"},
-  "variants": {"draft": 2, "final": 1, "max": 3}, "billing": "gpu",
+  "variants": {"draft": 2, "final": 1, "max": 3}, "billing": "gpu", "licence": "conditional",
   "gotchas": ["BLOCKING: shape_ref bound beside style_ref on node 97 (silhouette trap): re-publish",
               "BLOCKING: models[] empty: rescan", "ExportFPS must equal Gen FPS",
               "Text2ndHalf must describe a return to the start pose"] }
@@ -487,7 +487,16 @@ technician fills an FX layer the template already has like any region (it has no
 pixels follow the base), and may add one only on a scratch atlas (ADR-0008 §3). No GPU glow or
 relight blueprint is in the library today.
 
-## D. What the library is missing for the default recipes
+## D. Owner actions on the library (found while drafting)
+
+| Blueprint | Action |
+|---|---|
+| `wanloopingvideo__3_` | **Re-publish** with `shape_ref` unbound (it is bound beside `style_ref` on node 97, so the source still arrives as a silhouette) and run ⟳ Rescan models (`models[]` is empty). |
+| `bluprinttest` | Stays `draft`: retire it, or rebuild as a real "FLUX shaped symbol" blueprint (bind `shape_ref` to node 30, move the theme to a `text` param, swap the R&D LoRA). |
+| `characterdesignertest3` | Stays `draft` permanently: PuLID and antelopev2 are non-commercial and R&D-pod-only. Its card exists only to say why. |
+| every generate card | `licence: blocked` (SDXL LoRA, RMBG-2.0, FLUX.1-dev) until `model-licences.md` is settled; the before-publish checkpoint lists each blocked step. |
+
+## E. What the library is missing for the default recipes
 
 Cards the default recipes want and no reviewed blueprint provides (owner to publish, or the
 recipes stay on the built-ins):
@@ -502,7 +511,7 @@ recipes stay on the built-ins):
   (the SDXL LoRA, RMBG-2.0, FLUX.1-dev). Until `model-licences.md` is settled, no generate card can
   be `reviewed` for shipped art without the owner's explicit acceptance (check).
 
-## E. Default recipes per region group (for the New-game estimate, ADR-0008 §6)
+## F. Default recipes per region group (for the New-game estimate, ADR-0008 §6)
 
 Starting values for `estimate-profiles.json` `recipes`, all (check), using only cards that can
 exist today. Drafts render at the final size where the pick is the final.
