@@ -77,6 +77,7 @@ export async function recordMerge(input: NewMerge): Promise<PipelineMerge> {
 		.returning();
 	if (inserted) return inserted;
 	const existing = await findMerge(input.prNumber);
-	if (!existing) throw new Error(`the merge of #${input.prNumber} vanished between insert and read`);
+	if (!existing)
+		throw new Error(`the merge of #${input.prNumber} vanished between insert and read`);
 	return existing;
 }
