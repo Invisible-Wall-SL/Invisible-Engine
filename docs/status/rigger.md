@@ -98,7 +98,11 @@ Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger
   shows, else every region and mesh unclipped and whatever its alpha, and Pixi's `getLocalBounds`
   / `width` / hit-testing read that rather than the slot meshes. `render.mjs` now checks `bounds`
   and `getLocalBounds()` on every frame too, and with `--slot-objects` holds everything at 0.00% on
-  every repo and example frame (the old view failed 67 frames and 51 bounds checks). One
+  every repo and example frame (the old view failed 67 frames and 51 bounds checks). The second run
+  caught one more: like `Spine`, a `RigView` is not posed until its first `update` (every world
+  transform is zero, so a mounted, not yet played rig draws nothing); posing it in the constructor
+  had shown the `lines` symbol explosion's first frame behind each win. `render.mjs --fresh` holds
+  that, and `--all-animations` renders every animation (596 repo frames, 0.00%). One
   deliberate viewer change: the Rigger and `/spine` used to
   pick `spine-webgl-4.1` for a 4.1 export, and now read it as the game always has (4.2 semantics).
   Only `apps/price/…/symbolsSpecial` notices — its 4.1-only bone `transform` (`onlyTranslation` /

@@ -3,7 +3,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, relative, dirname, basename, extname } from 'node:path';
 
-const SKIP = ['node_modules', '.git', '.turbo', '.svelte-kit', 'build', 'dist'];
+const SKIP = ['node_modules', '.git', '.turbo', '.svelte-kit', '.cache', 'build', 'dist'];
 
 /** `[{ rel, skeleton, atlas, animations }]` — URLs are root-relative to `dir`; `animations` is null
  * for a binary skeleton (its names are not read here). */

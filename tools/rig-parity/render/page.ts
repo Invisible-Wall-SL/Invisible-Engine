@@ -14,6 +14,9 @@ interface Pose {
 	skin?: string;
 	/** Attach a marker shape to every other slot, as the game attaches text, effects and clips. */
 	slotObjects?: boolean;
+	/** Draw the view as constructed, before any `update` (as a game shows a rig it has mounted
+	 * but not yet played). */
+	fresh?: boolean;
 }
 
 let app: Application | null = null;
@@ -91,10 +94,10 @@ const box = (b: { minX: number; minY: number; maxX: number; maxY: number }): num
 		});
 	}
 	if (pose.animation) view.state.setAnimation(0, pose.animation, true);
-	view.update(pose.time);
-	view.update(0);
-	const bounds = box(view.bounds);
-	const local = box(view.getLocalBounds());
+	if (!pose.fresh) {
+		view.update(pose.time);
+		view.update(0);
+	}
 	// Fit the authored box (identical in both runtimes) into the canvas.
 	const w = data.width || 400;
 	const h = data.height || 400;
@@ -110,6 +113,9 @@ const box = (b: { minX: number; minY: number; maxX: number; maxY: number }): num
 		target: a.stage,
 		frame: new Rectangle(0, 0, pose.size, pose.size),
 	});
+	// Measured after drawing: asking a never-updated view for its bounds updates it.
+	const bounds = box(view.bounds);
+	const local = box(view.getLocalBounds());
 	a.stage.removeChildren();
 	view.destroy();
 	return { pixels: toBase64(out.pixels), bounds, local };

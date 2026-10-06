@@ -73,6 +73,32 @@ const BLEND: Record<BlendMode, 'normal' | 'add' | 'multiply' | 'screen'> = {
 const channel = (v: number): number => Math.round(Math.max(0, Math.min(1, v)) * 255);
 const slotObjectMatrix = new Matrix();
 
+/** Carries a view's `bounds` into Pixi's measuring, which reads a plain container's children:
+ * never drawn, and read only when Pixi asks, so measuring a never-updated view updates it first, as
+ * it does spine-pixi's `Spine`. */
+class BoundsProxy extends Graphics {
+	private key = '';
+
+	constructor(private readonly read: () => Bounds) {
+		super();
+		this.renderable = false;
+		this.eventMode = 'none';
+	}
+
+	override get bounds(): Bounds {
+		const b = this.read();
+		const key = `${b.minX},${b.minY},${b.maxX},${b.maxY}`;
+		if (key !== this.key) {
+			this.key = key;
+			this.clear();
+			if (b.maxX >= b.minX && b.maxY >= b.minY) {
+				this.rect(b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY).fill(0xffffff);
+			}
+		}
+		return super.bounds;
+	}
+}
+
 /** A skeleton drawn by Pixi: one mesh per visible slot, in draw order, with any slot objects placed
  * at their slot's depth. Coordinates inside are skeleton coordinates (y down). */
 export class RigView extends Container {
@@ -89,12 +115,9 @@ export class RigView extends Container {
 	private clipper = new SkeletonClipping();
 	private scratch: number[] = [];
 	private drawn: Container[] = [];
-	/** Carries `bounds` into Pixi's measuring, which reads a plain container's children: drawn never,
-	 * measured always, so the view measures like spine-pixi's `Spine` (its bounds plus its slot
-	 * objects) rather than by its clipped, alpha-culled slot meshes. */
-	private measure = new Graphics();
-	private measured = new Bounds();
-	private measuredKey = '';
+	/** The view measures like spine-pixi's `Spine` (its bounds plus its slot objects), not by its
+	 * clipped, alpha-culled slot meshes, which are left out of measuring. */
+	private measure = new BoundsProxy(() => this.bounds);
 	private boundsScratch = new Float32Array(8);
 	private darkTint: boolean;
 	private _autoUpdate = false;
@@ -113,11 +136,8 @@ export class RigView extends Container {
 		this.darkTint = darkTint;
 		this._ticker = ticker ?? Ticker.shared;
 		this.autoUpdate = autoUpdate;
-		// Pose the setup skeleton so it can draw before the first update, without starting physics:
-		// the simulation begins at the first `update`, from the pose its animations give.
-		this.skeleton.updateWorldTransform(Physics.none);
-		this.measure.renderable = false;
-		this.measure.eventMode = 'none';
+		// No pose until the first `update`, as spine-pixi: every world transform is zero, so a view
+		// shown before it is updated draws nothing.
 		this.addChild(this.measure);
 		this.onRender = () => this.syncDisplay();
 		this.syncDisplay();
@@ -226,23 +246,6 @@ export class RigView extends Container {
 	private verticesScratch(length: number): Float32Array {
 		if (this.boundsScratch.length < length) this.boundsScratch = new Float32Array(length);
 		return this.boundsScratch;
-	}
-
-	/** Keeps the measuring proxy on the current bounds. */
-	private syncMeasure(): void {
-		const b = this.measured;
-		if (!this.boundingBoxBounds(b)) this.attachmentBounds(b);
-		const measure = this.measure;
-		const empty = !(b.maxX >= b.minX && b.maxY >= b.minY);
-		measure.visible = !empty;
-		if (empty) return;
-		const key = `${b.minX},${b.minY},${b.maxX},${b.maxY}`;
-		if (this.measuredKey === key) return;
-		this.measuredKey = key;
-		measure
-			.clear()
-			.rect(b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY)
-			.fill(0xffffff);
 	}
 
 	/** World position of a bone, in this container's local space. */
@@ -442,7 +445,6 @@ export class RigView extends Container {
 			if (m && !used.has(i)) m.mesh.visible = false;
 		});
 		this.restoreOrder(order);
-		this.syncMeasure();
 	}
 
 	private restoreOrder(order: Container[]): void {

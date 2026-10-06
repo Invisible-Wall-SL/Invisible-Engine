@@ -2,10 +2,11 @@
 // Chromium (WebGL via SwiftShader) and pixel-diffs the frames.
 //
 //   node tools/rig-parity/render.mjs [--filter <substring>] [--dir <folder>] [--size 256] [--max 0.5]
-//                                    [--slot-objects] [--all-animations]
+//                                    [--slot-objects] [--all-animations] [--fresh]
 //
 // --slot-objects attaches a marker shape to every other slot (`addSlotObject`), so the frames also
-// cover where, how faded and in what order attached containers draw.
+// cover where, how faded and in what order attached containers draw. --fresh draws each view as
+// constructed, before its first update.
 //
 // Each rig is drawn at its authored box, for up to three animations at two times. A frame passes
 // when at most --max percent of its pixels differ beyond pixelmatch's default threshold.
@@ -27,6 +28,7 @@ const SIZE = Number(arg('--size', 256));
 const MAX = Number(arg('--max', 0.5));
 const dumpDir = arg('--dump', null);
 const slotObjects = args.includes('--slot-objects');
+const fresh = args.includes('--fresh');
 
 const pixelmatch = (await import('pixelmatch')).default;
 const { PNG } = await import('pngjs');
@@ -88,7 +90,9 @@ async function renderAll(name, cases) {
 	for (const c of cases) {
 		try {
 			out.push(
-				await browser.evaluate(`renderPose(${JSON.stringify({ ...c, size: SIZE, slotObjects })})`),
+				await browser.evaluate(
+					`renderPose(${JSON.stringify({ ...c, size: SIZE, slotObjects, fresh })})`,
+				),
 			);
 		} catch (e) {
 			out.push({ error: String(e.message ?? e) });
