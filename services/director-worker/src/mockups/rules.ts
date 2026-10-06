@@ -2,10 +2,16 @@ import type { AnalystElement, AnalystSwatch, ElementStatus } from './schema.ts';
 
 /**
  * Code has the final word (ADR-0005 "Conflict handling", "Palette"). The model proposes; these pure
- * rules decide:
+ * rules decide, in three verdicts, each on the template's facts and never on the model's claim:
  *
- * - an element tied to a LOCKED item is `left_out` and names the item — the model's own `left_out`
- *   claim counts for nothing unless a rule here confirms it, and a rule fires whatever the model said;
+ * - **clash** — a rule ABOUT the element (its pattern matches the tokens of the element's name or
+ *   its proposed regions) finds the locked item's facts confirm the clash: `left_out`, naming the
+ *   item, whatever the model said;
+ * - **cleared** — a rule about the element finds the facts clear it: the model's `left_out` or
+ *   `lockedItem` claim is dismissed and the element is matched as its regions allow;
+ * - **unjudged** — no rule is about the element, or the template carries no facts for it: a claim
+ *   the model made (a `left_out`, or a named `lockedItem`) is capped at `needs_you`, for a person.
+ *   The model naming a locked item is never a verdict, and never makes a rule fire;
  * - a `matched` claim holds only for region names the template really has; an unknown region
  *   (or no region at all) is `needs_you`;
  * - a palette colour the image's k-means does not support is dropped.
@@ -20,55 +26,79 @@ export interface LockedItem {
 	facts?: { betModes?: { id: string; buyBonus: boolean }[] };
 }
 
+/** What a rule read off the template's facts about an element; null when the facts are missing. */
+export type RuleVerdict =
+	/** The facts confirm the clash: the element is left out, naming the item. */
+	| { verdict: 'clash'; item: LockedItem }
+	/** The facts clear it: the element does not depend on the locked item on this template. */
+	| { verdict: 'cleared'; item: LockedItem }
+	| null;
+
 export interface LockedRule {
 	id: string;
-	/** The locked item this rule guards; the model naming it in `lockedItem` makes the rule run. */
-	lockedItemId: string;
-	/** Elements this rule is about, by their name and proposed regions. */
+	/** Elements this rule is about, matched anywhere in `tokens()` of the name and regions. */
 	element: RegExp;
-	/** The locked item the element clashes with given this template, or null when it does not. */
-	clashes: (locked: LockedItem[]) => LockedItem | null;
+	/** What this template's facts say about such an element; null when it carries none to read. */
+	judge: (locked: LockedItem[]) => RuleVerdict;
 }
+
+/**
+ * A name or region as words: `BuyBonusButton`, `buy_button` and `bonus-buy` read as "buy bonus
+ * button", "buy button" and "bonus buy", so a rule's pattern meets a control however it is spelled.
+ * A join with no boundary at all (`buybonus`, `featurebuy`) stays one word, which is why the
+ * patterns match inside a word rather than whole words.
+ */
+export const tokens = (text: string): string =>
+	text
+		.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+		.replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+		.replace(/[^A-Za-z0-9]+/g, ' ')
+		.trim()
+		.toLowerCase();
 
 /**
  * The rules. Each names the template fact it reads, so a false `left_out` can be traced to one line.
  * A buy / purchase control needs a bet mode with `buyBonus` — the FLAG, never the mode's name
  * (`scatter.json` buys through a mode called `bonus`). A template whose facts are missing cannot
- * confirm a clash, so no rule fires on it: code only ever forces `left_out` on evidence.
+ * confirm a clash, nor clear one, so no rule decides on it: code forces or dismisses a `left_out`
+ * only on evidence.
  */
 export const LOCKED_RULES: LockedRule[] = [
 	{
 		id: 'buy_without_buy_mode',
-		lockedItemId: 'bet_modes',
-		element: /\b(buy|purchase|bonus buy|feature buy)\b/i,
-		clashes: (locked) => {
+		element: /buy|purchase/,
+		judge: (locked) => {
 			const item = locked.find((l) => l.id === 'bet_modes');
 			const modes = item?.facts?.betModes;
 			if (!item || !Array.isArray(modes)) return null;
-			return modes.some((m) => m.buyBonus === true) ? null : item;
+			return modes.some((m) => m.buyBonus === true)
+				? { verdict: 'cleared', item }
+				: { verdict: 'clash', item };
 		},
 	},
 ];
 
 /**
- * The locked item `element` clashes with, or null. A rule is tried when its pattern matches the
- * element's name, any region it proposes, or the locked item the model itself named — the model's
- * `lockedItem` is a reason to EVALUATE a rule, never a verdict — so a renamed control ("Shop",
- * "Get bonus") still meets the rule through its region or the model's own claim.
+ * The rules' verdict on `element`: a clash with a locked item, a clearance by the template's facts,
+ * or null when no rule could judge it. Only a rule ABOUT the element is tried — its pattern matches
+ * the tokens of the element's name or of a region it proposes, so a renamed control ("Shop") still
+ * meets the rule through a region such as `buy_button`. The locked item the model itself named is
+ * not read here: evidence about buy controls says nothing about some other control the model tied
+ * to the same item. A clash from any rule wins.
  */
-export function lockedClash(
-	element: Pick<AnalystElement, 'name' | 'regions' | 'lockedItem'>,
+export function judgeLocked(
+	element: Pick<AnalystElement, 'name' | 'regions'>,
 	locked: LockedItem[],
-): LockedItem | null {
-	const text = [element.name, ...element.regions].join(' ');
+): RuleVerdict {
+	const text = tokens([element.name, ...element.regions].join(' '));
+	let cleared: RuleVerdict = null;
 	for (const rule of LOCKED_RULES) {
-		const named = element.lockedItem !== null && rule.lockedItemId === element.lockedItem;
-		if (named || rule.element.test(text)) {
-			const clash = rule.clashes(locked);
-			if (clash) return clash;
-		}
+		if (!rule.element.test(text)) continue;
+		const verdict = rule.judge(locked);
+		if (verdict?.verdict === 'clash') return verdict;
+		cleared ??= verdict;
 	}
-	return null;
+	return cleared;
 }
 
 export interface CodedElement {
@@ -110,16 +140,17 @@ export function applyCodeRules(elements: AnalystElement[], ctx: RuleContext): Co
 	for (const el of elements) {
 		const box = clamp(el.box, ctx.image.w, ctx.image.h);
 		if (!box) continue;
-		const clash = lockedClash(el, ctx.locked);
-		if (clash) {
+		const judged = judgeLocked(el, ctx.locked);
+		if (judged?.verdict === 'clash') {
+			const { item } = judged;
 			out.push({
 				n: out.length + 1,
 				box,
 				name: el.name,
 				regions: [],
 				status: 'left_out',
-				reason: `Clashes with the locked ${clash.label.toLowerCase()} (${clash.detail}). ${MATH_NOTE}`,
-				lockedItem: { id: clash.id, label: clash.label },
+				reason: `Clashes with the locked ${item.label.toLowerCase()} (${item.detail}). ${MATH_NOTE}`,
+				lockedItem: { id: item.id, label: item.label },
 			});
 			continue;
 		}
@@ -133,15 +164,29 @@ export function applyCodeRules(elements: AnalystElement[], ctx: RuleContext): Co
 		const notes: string[] = [];
 		if (unknown.length)
 			notes.push(`no region ${unknown.map((u) => `"${u}"`).join(', ')} in the template`);
-		if (el.status === 'left_out') {
+		// The model asserts a clash when it says `left_out` or names a locked item. The claim is
+		// dismissed only on evidence — a rule about the element read the template's facts and found
+		// no clash with the item the model named (or the model named none); otherwise nobody here
+		// can confirm or deny it, and a person decides.
+		const claim = el.status === 'left_out' || el.lockedItem !== null;
+		const dismissed =
+			claim &&
+			judged?.verdict === 'cleared' &&
+			(el.lockedItem === null || el.lockedItem === judged.item.id);
+		if (claim) {
 			notes.push(
-				`the analyst saw a clash with ${el.lockedItem ?? 'a locked item'}; nothing locked in the template confirms it, so it is your call`,
+				dismissed
+					? `the analyst saw a clash with the ${judged.item.label.toLowerCase()}, but the template's ${judged.item.label.toLowerCase()} (${judged.item.detail}) allow it`
+					: `the analyst saw a clash with ${el.lockedItem ?? 'a locked item'}; nothing locked in the template confirms it, so it is your call`,
 			);
 		}
-		// Code never promotes: a `matched` claim holds only for real regions, and the model's own
-		// `needs_you` stays `needs_you` even when it also listed a region.
+		// Code never promotes a `needs_you`: a `matched` claim (or a dismissed clash) holds only for
+		// real regions, and the model's own `needs_you` stays `needs_you` even when it also listed
+		// a region.
 		const status: ElementStatus =
-			el.status === 'matched' && known.length > 0 ? 'matched' : 'needs_you';
+			!(claim && !dismissed) && el.status !== 'needs_you' && known.length > 0
+				? 'matched'
+				: 'needs_you';
 		const reason = [el.reason, ...notes].filter(Boolean).join(' — ');
 		out.push({
 			n: out.length + 1,

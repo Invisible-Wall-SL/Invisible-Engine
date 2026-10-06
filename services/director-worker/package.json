@@ -16,7 +16,8 @@
 		"check:model": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/model.fixture.ts",
 		"check:health": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/health.fixture.ts",
 		"check:mockups": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/mockups/analyze.fixture.ts",
-		"prove:turns": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/prove-turns.ts"
+		"prove:turns": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/prove-turns.ts",
+		"prove:breakdown": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/prove-breakdown.ts"
 	},
 	"dependencies": {
 		"@anthropic-ai/sdk": "0.128.0",

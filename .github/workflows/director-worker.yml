@@ -8,6 +8,9 @@
 #   prove:lease  two workers never drive one run (it needs an empty `director_runs`, so it runs first)
 #   prove:turns  kill mid-turn → no duplicate op; idle → zero calls; refusal and cap pause; spend
 #                written once; checkpoints; job_done; the NOTIFY trigger
+#   prove:breakdown  the breakdown step is the worker's (ADR-0005): the checkpoint opens once, with
+#                the code rules' output; unconfirmed ownership never reaches the model; a crash
+#                before the submission re-runs the pass without a second store
 #
 # Not a required check, so it runs only when something it covers changes.
 name: Director worker
@@ -73,3 +76,6 @@ jobs:
 
       - name: prove the turn loop
         run: pnpm --filter director-worker prove:turns
+
+      - name: prove the breakdown step
+        run: pnpm --filter director-worker prove:breakdown

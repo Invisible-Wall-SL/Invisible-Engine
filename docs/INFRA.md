@@ -190,8 +190,9 @@ naming the cause. On SIGTERM it stops claiming and gives turns in flight 20 s to
   `pnpm --filter director-worker build` is the typecheck.
 - **Replicas:** safe to scale. The lease keeps one driver per run, and
   `pnpm --filter director-worker prove:lease` proves it against a scratch database;
-  `prove:turns` proves the turn loop there with a fake model. Both run in the `Director worker`
-  workflow on a `postgres:16` service container.
+  `prove:turns` proves the turn loop there with a fake model, and `prove:breakdown` the worker-run
+  mockup breakdown step (the checkpoint opens once, with the code rules' output). All three run in
+  the `Director worker` workflow on a `postgres:16` service container.
 
 ### Live run stream (PLAN 3.8, 2026-10-05)
 

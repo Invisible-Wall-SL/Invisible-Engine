@@ -6,7 +6,9 @@
  *   `check:director-adapters` fails if the registry holds an op this list lacks. The `build.*` ops
  *   are not served yet.
  * - `WORKER_TOOLS` are served by the worker itself, from the run tables: run state, checkpoints,
- *   the owner conversation and the spend ledger.
+ *   the owner conversation and the spend ledger. There is no tool that submits a mockup breakdown:
+ *   the worker's own code produces it (`mockups/analyze.ts`), so no model output ever sets an
+ *   element's status.
  *
  * Plain data with no imports, so the launcher's fixture can read it.
  */
@@ -55,7 +57,6 @@ export const WORKER_TOOLS = [
 	'run.ask_owner',
 	'run.assign_task',
 	'run.request_pipeline_change',
-	'run.submit_breakdown',
 	'run.submit_review',
 	'run.submit_qa',
 	'costs.get_run_spend',

@@ -69,6 +69,7 @@ import { driveRun, MAX_FAILURES, type DriverDeps } from '../src/driver.ts';
 import type { AdapterResult, AdapterSpec, Launcher } from '../src/launcher.ts';
 import { claimRun, deferLease } from '../src/lease.ts';
 import { PartialResponse, toolName, type ModelTransport } from '../src/model.ts';
+import type { VisionTransport } from '../src/mockups/vision.ts';
 import { pricingSource } from '../src/pricing.ts';
 import { recordSpend, runSpend } from '../src/store.ts';
 import { startWake } from '../src/wake.ts';
@@ -178,6 +179,14 @@ function fakeLauncher(
 			return new Map(SPECS.map((s) => [s.id, s]));
 		},
 		async call(id, body) {
+			// None of these runs has mockups: the breakdown step reads the listing and leaves the
+			// step to the coordinator (`prove:breakdown` covers the runs that have them).
+			if (id === 'mockups.list') {
+				return {
+					status: 200,
+					body: { fidelity: 'match', ownershipConfirmed: null, modelLongEdge: 1568, images: [] },
+				};
+			}
 			sent.push(`${id}@${body.opId}`);
 			const scripted = answer?.(id, sent.length);
 			if (scripted) return scripted;
@@ -276,6 +285,12 @@ const event = (
 
 /** Failed drives in a row, shared like a worker process shares it. */
 const retries = new Map<string, number>();
+/** No run here has mockups, so the analysis never calls the vision model. */
+const noVision: VisionTransport = {
+	analyze: async () => {
+		throw new Error('the vision model was called, but no run here has mockups');
+	},
+};
 const RETRY_BASE_MS = 20;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** Long enough for any deferral these scenarios cause to run out. */
@@ -288,6 +303,7 @@ const deps = (
 ): DriverDeps => ({
 	sql,
 	transport,
+	vision: noVision,
 	launcher,
 	agents: AGENTS,
 	pricing: async () => pricing,

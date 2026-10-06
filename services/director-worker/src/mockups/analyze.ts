@@ -9,7 +9,7 @@ import {
 	type PaletteCheck,
 } from './rules.ts';
 import type { AnalystFontGap, AnalystSwatch } from './schema.ts';
-import { sumUsage, type ModelTransport, type Usage } from './vision.ts';
+import { sumUsage, type Usage, type VisionTransport } from './vision.ts';
 
 /**
  * The mockup breakdown (ADR-0005; SPEC §1.2), run by the worker's own code around one Opus vision
@@ -17,7 +17,15 @@ import { sumUsage, type ModelTransport, type Usage } from './vision.ts';
  * locked items and region catalogue; the model proposes; `rules.ts` decides; the crops of what was
  * matched are saved through `mockups.save_crops`; the caller submits the result as the `breakdown`
  * checkpoint (`checkpoint.ts`). Nothing here touches a GPU queue — rendering waits for the owner.
+ *
+ * This is the ONLY way a breakdown comes to exist: the driver runs it as the run's breakdown step
+ * (`driver.ts` `breakdownStep`) whenever the run has mockups, and no agent tool takes a status —
+ * the model's `matched` / `left_out` claims reach the stored breakdown only through
+ * `applyCodeRules`.
  */
+
+/** The agent whose model and prompt the analysis runs with; it never takes a tool turn itself. */
+export const ANALYST_AGENT = 'mockup-analyst';
 
 // ── What the adapters return (the launcher's `ops/mockups.ts`, `ops/gamemaker.ts`, `ops/atlas.ts`) ──
 
@@ -108,14 +116,24 @@ export function ownershipRefusal(listing: Pick<MockupListing, 'images' | 'owners
 }
 
 export interface AnalyzeDeps {
-	adapters: AdapterClient;
-	model: ModelTransport;
+	adapters: {
+		/** The analyst's reads — the listing, the images, the template, the regions — in its name. */
+		analyst: AdapterClient;
+		/** The worker's own writes — the crops. The model never saves anything. */
+		worker: AdapterClient;
+	};
+	model: VisionTransport;
 	/** The `mockup-analyst` definition: its model, effort and system prompt. */
 	agent: AgentDefinition;
 	run: { id: string; templateProjectKey: string };
-	/** Which breakdown attempt this is (1 on the first pass, +1 per owner "revise"): the crops'
-	 *  write gets a fresh opId per attempt and the same one on a retry of the same attempt. */
-	attempt: number;
+	/**
+	 * A number unique to this pass over the run's mockups (a retry after a crash is a new pass): the
+	 * crops' write gets a fresh opId per pass, because the model's answers — and so the crops — can
+	 * differ between passes, and the gate refuses an opId reused with a different input.
+	 */
+	pass: number;
+	/** The owner's notes from earlier breakdowns of this run (one per "revise"), oldest first. */
+	notes?: readonly string[];
 }
 
 const FIDELITY_TEXT = {
@@ -146,18 +164,30 @@ export function imagePrompt(
 	image: MockupListing['images'][number],
 	model: { w: number; h: number },
 	fidelity: MockupListing['fidelity'],
+	notes: readonly string[] = [],
 ): string {
-	return [
+	const parts = [
 		`This mockup is tagged "${image.tag}". The image you see is ${model.w}×${model.h} pixels; give every box in these pixel coordinates.`,
 		FIDELITY_TEXT[fidelity],
 		'List every distinct element you can see, map each to the template regions it would replace (an element may stand for several regions), and give a short reason. Use `left_out` only for an element that depends on a locked item, naming the item’s id in `lockedItem`; the worker verifies that against the template. Propose at most 8 palette colours as hex, and list lettering with no obvious Font Maker match as font gaps.',
-	].join('\n\n');
+	];
+	if (notes.length) {
+		parts.push(
+			[
+				'The owner reviewed an earlier breakdown of these mockups and asked:',
+				...notes.map((note) => `- ${note}`),
+				'Take the notes into account where they bear on this image. The worker still verifies every status against the template.',
+			].join('\n'),
+		);
+	}
+	return parts.join('\n\n');
 }
 
 export async function analyzeMockups(deps: AnalyzeDeps): Promise<Breakdown> {
-	const { adapters, model, agent, run } = deps;
+	const { model, agent, run } = deps;
+	const { analyst, worker } = deps.adapters;
 
-	const listing = await adapters.call<MockupListing>('mockups', 'list', {});
+	const listing = await analyst.call<MockupListing>('mockups', 'list', {});
 	const refusal = ownershipRefusal(listing);
 	if (refusal) throw new AnalysisRefused('ownership', refusal);
 	if (listing.images.length === 0) {
@@ -165,8 +195,8 @@ export async function analyzeMockups(deps: AnalyzeDeps): Promise<Breakdown> {
 	}
 
 	const [template, regions] = await Promise.all([
-		adapters.call<TemplateSummary>('gamemaker', 'get_template', { key: run.templateProjectKey }),
-		adapters.call<RegionListing>('atlas', 'list_regions', {}),
+		analyst.call<TemplateSummary>('gamemaker', 'get_template', { key: run.templateProjectKey }),
+		analyst.call<RegionListing>('atlas', 'list_regions', {}),
 	]);
 	const regionNames = regions.atlases.flatMap((a) => a.regions.map((r) => r.name));
 	const index = regionIndex(regionNames);
@@ -180,7 +210,7 @@ export async function analyzeMockups(deps: AnalyzeDeps): Promise<Breakdown> {
 	const crops: { imageId: string; region: string; box: CodedElement['box'] }[] = [];
 
 	for (const image of listing.images) {
-		const got = await adapters.call<MockupImageResult>('mockups', 'get_image', { id: image.id });
+		const got = await analyst.call<MockupImageResult>('mockups', 'get_image', { id: image.id });
 		support.push(got.dominantColors);
 		if (image.styleOnly) {
 			images.push({ ...pick(image), w: got.w, h: got.h, elements: [], model: null });
@@ -190,10 +220,10 @@ export async function analyzeMockups(deps: AnalyzeDeps): Promise<Breakdown> {
 			model: agent.model,
 			effort: agent.effort,
 			system,
-			prompt: imagePrompt(image, got, listing.fidelity),
-			image: { mediaType: got.mediaType, base64: got.base64 },
+			prompt: imagePrompt(image, got, listing.fidelity, deps.notes),
+			image: { id: image.id, mediaType: got.mediaType, base64: got.base64 },
 		});
-		usages.push(answer.usage);
+		usages.push(answer.usageSummary);
 		const elements = applyCodeRules(answer.output.elements, {
 			regions: index,
 			locked: template.lockedItems,
@@ -225,11 +255,11 @@ export async function analyzeMockups(deps: AnalyzeDeps): Promise<Breakdown> {
 	const saved =
 		cropList.length === 0
 			? null
-			: await adapters.call<SaveCropsResult>(
+			: await worker.call<SaveCropsResult>(
 					'mockups',
 					'save_crops',
 					{ crops: cropList },
-					{ opId: opIdFor(run.id, 'breakdown_crops', deps.attempt) },
+					{ opId: opIdFor(run.id, 'breakdown_crops', deps.pass) },
 				);
 
 	return {

@@ -1,6 +1,8 @@
 import type { BetaContentBlockParam } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import type { Sql, TransactionSql } from 'postgres';
 import { WAKING_KINDS, type ClaimedRun } from './lease.ts';
+import type { AnalystOutput } from './mockups/schema.ts';
+import type { BilledResponse } from './mockups/vision.ts';
 import {
 	checkpointSettings,
 	type Checkpoint,
@@ -203,6 +205,63 @@ export async function unhandledEvents(db: Db, runId: string): Promise<WakingEven
 
 export async function markHandled(tx: Db, eventId: number): Promise<void> {
 	await tx`update director_events set handled_at = now() where id = ${eventId}`;
+}
+
+// ── The breakdown step ────────────────────────────────────────────────────────
+
+export interface BreakdownRevisions {
+	/** How many times the owner sent the breakdown back: the `run_status` rows of a revise that
+	 *  returned the run to the breakdown step. The next analysis is attempt `revisions + 1`. */
+	revisions: number;
+	/** The owner's notes on those revisions, oldest first, blanks left out; they go into the prompt. */
+	notes: string[];
+}
+
+export async function breakdownRevisions(db: Db, runId: string): Promise<BreakdownRevisions> {
+	const [{ n }] = await db<{ n: number }[]>`
+		select count(*)::int as n from director_events
+		where run_id = ${runId} and kind = 'run_status'
+			and payload_json->>'cause' = 'owner revise'
+			and payload_json->'to'->>'step' = 'breakdown'`;
+	const rows = await db<{ note: string | null }[]>`
+		select payload_json->>'note' as note from director_events
+		where run_id = ${runId} and kind = 'checkpoint_resolved' and handled_at is not null
+			and payload_json->>'checkpoint' = 'breakdown' and payload_json->>'decision' = 'revise'
+		order by id`;
+	return { revisions: n, notes: rows.map((r) => r.note?.trim() ?? '').filter(Boolean) };
+}
+
+/**
+ * How many analysis passes the run has started (`breakdown_pass` activity rows), finished or not:
+ * a pass that died before its submission still counts, so the next one takes a new number — and
+ * with it a new opId for its crops.
+ */
+export async function breakdownPasses(db: Db, runId: string): Promise<number> {
+	const [row] = await db<{ n: number }[]>`
+		select count(*)::int as n from director_events
+		where run_id = ${runId} and kind = 'activity' and payload_json->>'type' = 'breakdown_pass'`;
+	return row.n;
+}
+
+/** One answer the analyst's model gave for one image, as billed and as parsed. */
+export interface CachedAnswer {
+	response: BilledResponse;
+	output: AnalystOutput;
+}
+
+/**
+ * The answers already given for this run (`breakdown_image` rows), by the driver's key — the
+ * attempt, the image and its bytes, the system block and prompt. A pass that stopped part-way (a
+ * pause, the cap, a transient failure, a lost lease) asks again only for the images it lacks.
+ */
+export async function breakdownAnswers(db: Db, runId: string): Promise<Map<string, CachedAnswer>> {
+	const rows = await db<{ payload: { key: string } & CachedAnswer }[]>`
+		select payload_json as payload from director_events
+		where run_id = ${runId} and kind = 'activity' and payload_json->>'type' = 'breakdown_image'
+		order by id`;
+	return new Map(
+		rows.map((r) => [r.payload.key, { response: r.payload.response, output: r.payload.output }]),
+	);
 }
 
 /**
