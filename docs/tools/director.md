@@ -1,12 +1,11 @@
 # Invisible Director
 
-> **Early access.** The New game and Mockup breakdown screens work. The Live run screen (steps 2–5
-> in detail, region review, the activity feed, messages to the coordinator) is the next card; until
-> it lands, a run past the breakdown shows its state and the owner actions only.
-
 Invisible Director makes a new game by re-theming a game that already works. Runtime agents do the
 work inside the existing tools, and the run stops at checkpoints for you to review. Agents never
 publish and never change the template's math. You publish in Invisible Game Maker.
+
+Three screens: **New game** (`/director`), then the run's page (`/director/<run id>`), which is the
+**Mockup breakdown** while the first checkpoint waits and the **Live run** screen from then on.
 
 - **Where it runs:** the launcher itself, at `/director` (a run at `/director/<run id>`). It opens
   full-page behind the launcher's sign-in, never in an iframe. On the launcher home it sits in the
@@ -17,7 +16,8 @@ publish and never change the template's math. You publish in Invisible Game Make
   - Not signed in: you are sent to the sign-in page.
   - Signed in without access: the page shows a 403 error, "Your role does not have access to
     Invisible Director."
-  - A run answers only to the person who created it: anyone else gets "No such run."
+  - A run answers only to the person who created it: anyone else gets "No such run." The same
+    rule covers every image the run page shows (variants, crops, exported art).
 
 ## Before you start: mark a template
 
@@ -80,12 +80,10 @@ The same project setup as Game Maker's "Create a game", plus what the agents nee
 The first checkpoint. The Mockup analyst reads each mockup, and the run waits for you before
 anything renders.
 
-- **Header:** the game, its key, the state pill ("Waiting for you · step 1 of 5"), the client,
-  template and mockup count, who confirmed ownership; elapsed time, Claude API and RunPod spend
-  ("Idle until you confirm" before the first render), spend against the cap; **Pause** and
-  **Stop** when the run allows them (Stop asks first).
-- **Steps:** the five steps with the current one marked.
-- **Banner:** what the run is waiting for. "Nothing renders until you confirm."
+- **Header, meters and steps:** the same as on the Live run screen (below). Here the pill reads
+  "Waiting for you · step 1 of 5" and the RunPod meter "Idle until you confirm".
+- **Banner:** "Waiting for you: check what the agents found in your mockups. Nothing renders until
+  you confirm."
 - **Images:** one tab per mockup ("Base game · 8 found", "Style reference"). The picture shows the
   numbered dashed boxes the analyst found: amber dotted for one that needs you, red for one that
   clashes with a locked item.
@@ -97,7 +95,8 @@ anything renders.
   the agents design from your notes and the palette.
 - **Fonts to bake:** the bakes the Builder staged. Bake and save each one in Invisible Font Maker
   (**Open Font Maker** opens the project there), then **Mark done**. Marking is refused until a
-  font with that folder is in the project's fonts.
+  font with that folder is in the project's fonts. The card stays on the Live run screen too, so
+  a bake staged later is never out of sight.
 - **Crops per region:** what was cut from your mockups for each matched region; the art director
   judges every variant against these.
 - **Palette from your mockups:** the swatches the images support; proposed colours the images do
@@ -107,19 +106,123 @@ anything renders.
   required for that). A 200 means recorded: the page follows the run's live stream and shows the
   worker's answer, including a refusal when the run had already moved on ("The worker refused your
   last request: …"). Pressing again after a lost connection resends the same request.
+- **Latest:** under the banner, the newest row of the run's stream while you are here, with
+  "reconnecting" when the stream dropped (the browser reopens it) or "the live stream could not be
+  opened; polling every 5 s" when it never opened.
 
 Without mockups the checkpoint shows the coordinator's **style board** text with the same two
-buttons.
+buttons. A breakdown the page cannot read still opens the checkpoint, with its text and the two
+buttons of the generic checkpoint panel (see below).
 
-**Other states on this page.** A draft shows **Start agents** (and why a start was refused, such as
-a missing ownership check). A paused run shows the reason and **Resume**, with a field to raise the
-cap when the budget stopped it (never above what Settings allows). A run waiting at a later
-checkpoint shows **Approve** only; the review panels for those are the Live run screen. Stopped,
-failed and handed-off runs say so.
+Every other state of the run — not started, agents working, a later checkpoint, paused, stopped,
+failed, handed off — is the Live run screen.
 
-**Live updates.** The page subscribes to the run's event stream and refreshes on every event; if the
-stream cannot be opened it polls the run every few seconds and says "polling" beside the latest
-event.
+## Live run (`/director/<run id>`)
+
+The same page once the breakdown is confirmed (or whenever no breakdown is waiting): the galleries
+fill in as the agents render, each region batch stops for your review, and the run ends in your
+hands. Everything on it is read from the run's event stream, so it is the same picture on a reload.
+
+- **Header:** the game, its key and the state pill — "Not started", "Agents working · step 3 of 5",
+  "Waiting for you · step 3 of 5", "Paused · step 3 of 5", "Stopping", "Stopped", "Failed",
+  "Handed off". Under them: client · "from `<template key>`" · the mockup count (and style
+  references) · "ownership confirmed by …" · **Open in Game Maker ↗** (once the project exists) ·
+  **Play draft ↗** when the project has a game URL. Play draft is the authoring Live link in a new
+  tab, never a publish.
+- **Meters:** **Elapsed** since the run was created; **Claude API** spend; **RunPod `<GPU>`**
+  (the preset's GPU) spend with "· n jobs queued" while renders wait on the GPU ("Idle until you
+  confirm" before the first);
+  **Cap** — "$x of $y" with a bar, marked over once the cap is reached. Then **Pause** and
+  **Stop**, each shown only when the run allows it. Stop asks first — "Stop this run? The agents
+  stop after their current call and every queued render is cancelled. The project stays as it is."
+  — and the button to confirm is **Stop the run**.
+- **Steps:** five cards — **1 · Mockup breakdown**, **2 · Style pack**, **3 · Regions**,
+  **4 · Build**, **5 · Hand-off**. A done step shows ✓; the current one is outlined in amber. The
+  line under each is its figures ("3 mockups · 34 of 39 regions matched", "Palette and refs taken
+  from your mockups", "21 of 39 approved" with a progress bar on Regions, "Scene Editor, Symbols
+  SM, Win Text", "You publish it in Game Maker") or its state in words first: "Waiting for you · …",
+  "Paused · …", "Failed · …", "Stopped · …", and "Not reached · …" on the steps a stopped or
+  failed run never got to. A handed-off run shows all five done.
+- **Banner:** one line for the run's state, with the one button that matters there.
+  - Waiting on a region batch: "Waiting for you: 6 regions are ready to review. The agents keep
+    working on the rest." **Review 6 now** opens the first region in the review panel.
+  - Waiting before publish: "Waiting for you: the draft is built. Play it, then approve to hand it
+    off — you publish it in Game Maker." **Review the build**.
+  - Waiting at a checkpoint this page has no panel for: "Waiting for you at the … checkpoint."
+    **Review now**.
+  - Not started: "Not started. Start the agents when the mockups are ready." **Start agents**. A
+    draft whose project was never created cannot start; the banner says to create the game again.
+  - Agents working: "Agents are working on step 3, Regions." then "n renders queued on RunPod" or
+    the latest thing an agent did.
+  - Paused at the budget cap: "Paused at the budget cap: $x of $y spent." with a **New cap, $**
+    field and **Raise cap and resume** (enabled once a figure is typed; never above what Settings
+    allows).
+  - Paused for you: "Paused for you." with the worker's reason, and **Resume**.
+  - "Stopping. The agents finish their current call and every queued render is cancelled." ·
+    "Failed." with the last error · "Stopped. Nothing more happens on this run; the project stays
+    as it is." · "Done: the draft is yours. Publish it in Invisible Game Maker when you are happy
+    with it." with **Play draft ↗** and **Open in Game Maker ↗**.
+  - Under the banner: a red "The worker refused your last request: …" when the run had moved on
+    before the worker read your action; a green "Recorded. …" line after each action that was
+    taken; a red line when a request failed ("Press the button again: the same request is resent,
+    never a second one." after a lost connection).
+- **Region groups:** one tab per batch of the coordinator's plan, with its count — "7 of 11 · 2 to
+  review", "2 of 2 · done", "4 of 6 · 1 to redo", "9 of 14 · drafting", "0 of 4 · queued",
+  "3 of 6 · 1 failed". Regions
+  no batch names sit under **Other regions**. The page opens on the first tab with something to
+  review.
+- **The group card:** the group's name with an **Atlas Maker · `<atlas>`** chip when all its
+  regions render on one atlas, and the filters **All · n**, **To review · n** (only while there is
+  something to review), **Approved · n**, **Drafting · n** (drafting and queued together), and
+  **Redo · n** / **Failed · n** when there are any. One
+  tile per region: the thumbnail is the art director's pick, else the first variant, else your
+  mockup's crop, else the region's short name; under it the region ("H2 · Coral mask") and a status
+  chip — **Queued**, **Drafting** (a render is on RunPod; the tile pulses), **To review**,
+  **Approved**, **Redo** (the art director rejected the latest variants; they go back to the
+  queue) or **Failed** (the render failed, was cancelled or produced nothing; hover for why). Click
+  a tile to open it below.
+- **Region review** (under the tiles while a batch waits): "TO REVIEW · 1 of 6" with ‹ › to step
+  through the batch, the region's name, then **Your mockup** (the crop) beside **Variant A**,
+  **Variant B**, **Variant C**… with **Art director's pick** on the one the art director chose.
+  Click any image for full size (click or Escape closes it). Under them, **Art director:** the
+  verdict and its reason, and **QA:** when QA looked at it. **Your note** is optional for approving
+  and needed to redo. **Approve these 6 regions** (or **Approve this region**) approves the whole
+  batch — "Approved art goes into this project's Atlas Maker sheet." **Redo with my note** sends
+  the batch back to the agents with your note. If the batch's renders have not reached the page,
+  the panel shows the coordinator's words and offers **Approve the batch** / **Redo with my note**
+  instead. When no batch is waiting, clicking a tile opens the same panel without the note and
+  buttons.
+- **Before hand-off** (while the run waits before publishing): "The draft is built", the
+  coordinator's summary, **Play draft ↗** (or "No game URL is recorded for this project yet, so
+  there is nothing to play."), **Open in Game Maker ↗** and **The agents' link ↗** when the
+  checkpoint names one. Your note is optional for approving and needed to send it back. **Approve
+  and hand off** / **Send back with my note**. "Approving ends the run. Director never publishes:
+  you do, in Game Maker."
+- **Any other checkpoint:** its name and the agents' text, the note, **Approve** / **Send back
+  with my note**. This is also the panel for a breakdown the page could not read.
+- **Fonts to bake:** as on the breakdown (above).
+- **As they land:** one gallery per place the agents saved an image under the project — **Atlas
+  pages**, **Sheets**, **Atlases**, **Symbols**, **Scenes**, **Renders**, **References**,
+  **Spines**, **Fonts** — newest first, up to 60 each; click one for full size. A region's mockup
+  crop is on its tile and in its review, not here. Until the first image lands, **Your mockups**
+  shows the uploads instead: "The galleries fill in as the agents' renders land."
+- **Activity** (right column): the run's rows newest first, grouped under the step they happened
+  in, each with the time, who (**You**, **Coordinator**, **Mockup analyst**, **Art director**,
+  **Atlas artist**, **Animator**, **Builder**, **QA**, **Worker**), what they did, a tool chip
+  when a tool was used (Atlas Maker, ComfyUI · RunPod, Game Maker, Scene Editor, Symbols SM, Win
+  Text, Localization, Font Maker, Rigger, Flipbook, Build) and a cost chip on billing rows
+  ("$0.22 · RunPod 4090 · 38 s", "$0.40 · Opus 5.5"). **hide costs** hides the billing rows. The
+  pill says **Live** while the stream is open, **Reconnecting** while the browser reopens a dropped
+  one, **Polling** when it could not be opened (the page then asks for the run every 5 s). 150 rows
+  show at a time; **Show older · n more** pages back.
+- **Message the coordinator:** a text box and **Send**, while the run is running, waiting or
+  paused. Otherwise the box is disabled and says "The run is not live, so nobody reads a message
+  now." Your message appears in the feed as **You** "…", and the coordinator answers there with
+  what changed in the plan ("Sent. The coordinator answers in the activity feed.").
+
+Every button here is one request with one id: a double click or a retry after a lost connection
+resends the same request and is recorded once. The note, the message and the cap field lock while
+their request is outstanding, so nothing you typed is lost.
 
 ## How a run works
 
@@ -128,7 +231,7 @@ event.
   The project's math contract is recorded at that moment, so the agents can never move it
   unnoticed.
 - **The budget cap is fixed when the run starts**, from Settings' `DIRECTOR_RUN_BUDGET_USD`.
-  Changing the setting later never moves a run that has started.
+  Changing the setting later never moves a run that has started; raising it on a resume does.
 - **Your actions each leave one entry** that the agents' worker reads: start, pause, resume
   (optionally raising the cap), stop, approve or redo a checkpoint, and a message to the
   coordinator. An action the run cannot take right now is refused with the reason, and nothing is
@@ -136,17 +239,26 @@ event.
   moved on by the time the worker reads an entry, the worker refuses that entry and the page shows
   it.
 - **Nothing renders before you confirm the breakdown.**
+- **You approve a batch, the art director picks the variant.** Approving a region batch approves
+  every region in it; the variant that goes into the project's Atlas Maker sheet is the art
+  director's pick unless your note says otherwise. Approving the build before hand-off accepts
+  whatever was still to review.
 - **Fonts stay yours to bake** (see "Fonts to bake" above).
 - **A run is its owner's.** Someone else with access to the project sees the live stream; the run's
-  page and actions answer only to the person who created it.
+  page, its actions and its images answer only to the person who created it.
 
 ## Known limitations / TODOs
 
-- **The Live run screen is not built yet** (PLAN 4.3): steps 2–5 show their state and the owner
-  actions, not the region galleries, the activity feed or the message box.
 - Named presets ("Save as preset") are not stored yet.
 - A mockup's tag can be changed on its card; its stored name is the upload id, not the file name
   you uploaded.
 - "Skip it" / "Request an FX region" shortcuts for a needs-you element are not actions yet: say it
   in the note and send the breakdown back.
+- You approve a whole region batch, not one variant. To take a variant other than the art
+  director's pick, say which in the note (for example "use B for H2") — that is what the agents
+  read; there is no per-variant Approve button yet.
+- The galleries show what the agents' events name. A tool that writes an image without posting an
+  event does not appear there (the image is still in the project, and in its own tool).
+- The page keeps the newest ~6000 rows of a run; on a longer run the feed and the galleries start
+  from there.
 - The build plan and progress live in `docs/director/PLAN.md` and `docs/director/HISTORY.md`.

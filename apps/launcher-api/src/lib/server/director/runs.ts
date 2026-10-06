@@ -20,7 +20,7 @@ import { duplicateProject } from '../duplicateProject';
 import { loadGameConfigDocWithEtag } from '../gameConfigStorage';
 import { selectableGameKinds } from '../gameKinds';
 import { listGamesOwnedByProject } from '../games';
-import { UNASSIGNED_CLIENT } from '../projectPaths';
+import { UNASSIGNED_CLIENT, projectPrefix } from '../projectPaths';
 import {
 	canAccessProject,
 	isValidProjectKey,
@@ -630,6 +630,10 @@ export interface RunSummary {
 	startingPoint: unknown;
 	/** False until the template copy made the project (a draft whose create died mid-way). */
 	projectCreated: boolean;
+	/** The run's project prefix in R2: the image route accepts only keys under it. */
+	r2Prefix: string;
+	/** The project's first game, for the page's "Play draft" link; null while it owns none. */
+	game: { url: string | null };
 	spend: {
 		claudeUsd: number;
 		runpodUsd: number;
@@ -673,9 +677,10 @@ export function agentProfiles(): { agent: string; model: string }[] {
 const round = (usd: number) => Math.round(usd * 10000) / 10000;
 
 export async function summarizeRun(run: DirectorRun): Promise<RunSummary> {
-	const [name, created, spendByRun, latest, conversations, lastId] = await Promise.all([
+	const [name, created, games, spendByRun, latest, conversations, lastId] = await Promise.all([
 		projectName(run.projectKey),
 		projectExists(run.projectKey),
+		listGamesOwnedByProject(run.projectKey),
 		runSpendTotals([run.id]),
 		latestCheckpointOpen(run.id),
 		agentConversations(run.id),
@@ -717,6 +722,8 @@ export async function summarizeRun(run: DirectorRun): Promise<RunSummary> {
 		preset: run.presetJson,
 		startingPoint: run.startingPointJson,
 		projectCreated: created,
+		r2Prefix: projectPrefix(run.clientKey ?? UNASSIGNED_CLIENT, run.projectKey),
+		game: { url: games[0]?.url || null },
 		spend: {
 			claudeUsd: round(spend.claudeUsd),
 			runpodUsd: round(spend.runpodUsd),

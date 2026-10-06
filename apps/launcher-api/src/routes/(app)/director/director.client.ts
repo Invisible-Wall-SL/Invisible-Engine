@@ -328,3 +328,47 @@ export function elapsed(fromIso: string, now: number): string {
 	if (hours < 48) return `${hours} h ${mins % 60} min`;
 	return `${Math.floor(hours / 24)} d`;
 }
+
+/**
+ * A link a run's rows may name, as an `href`, or null: a same-origin path (`/…`, never `//…`) or a
+ * page on github.com. Anything else — another host, a scheme, a word — is not a link the page
+ * follows, whoever wrote it.
+ */
+export function safeHref(value: unknown): string | null {
+	if (typeof value !== 'string' || value.length > 2048) return null;
+	const text = value.trim();
+	if (/^\/(?!\/)[^\s<>"'\\]*$/.test(text)) return text;
+	if (/^https:\/\/github\.com\/[^\s<>"'\\]*$/.test(text)) return text;
+	return null;
+}
+
+/** A game URL as the launcher stores it: http(s) only, or null. */
+export const safeGameUrl = (value: unknown): string | null =>
+	typeof value === 'string' && /^https?:\/\/[^\s<>"'\\]+$/.test(value) ? value : null;
+
+/** One of the run's images by R2 key (`/api/director/runs/[runId]/image`); `v` busts a rewrite. */
+export const imageUrl = (runId: string, key: string, version: number) =>
+	`/api/director/runs/${encodeURIComponent(runId)}/image?key=${encodeURIComponent(key)}&v=${version}`;
+
+/** A rendered variant out of the Atlas Maker (`/api/director/runs/[runId]/variant`). */
+export const variantUrl = (
+	runId: string,
+	ref: { atlas: string; region: string; id: string },
+	size: 'thumb' | 'full' = 'thumb',
+) =>
+	`/api/director/runs/${encodeURIComponent(runId)}/variant?atlas=${encodeURIComponent(ref.atlas)}&region=${encodeURIComponent(ref.region)}&id=${encodeURIComponent(ref.id)}&size=${size}`;
+
+/** The person or agent behind a row, as the feed names them. */
+export function agentName(agent: string): string {
+	if (agent === 'owner') return 'You';
+	if (agent === 'worker') return 'Worker';
+	return AGENT_BLURBS[agent]?.name ?? agent;
+}
+
+/** `11:42` in the viewer's clock. */
+export const clock = (iso: string): string => {
+	const d = new Date(iso);
+	return Number.isNaN(d.getTime())
+		? ''
+		: d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+};

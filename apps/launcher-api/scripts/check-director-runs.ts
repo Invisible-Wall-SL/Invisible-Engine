@@ -22,7 +22,10 @@
  *    the model its definition names;
  *  - create derives the run id from the request id, copies the ownership stamp into the starting
  *    point, snapshots the budget cap, and leaves nothing behind when the copy fails;
- *  - font requests list and mark done, once the font is in the catalog.
+ *  - font requests list and mark done, once the font is in the catalog;
+ *  - the run's image and variant routes serve only the owner's own project's images, as the type
+ *    the bytes are, and a key or name that is not one is the same 404;
+ *  - the summary names the project's first game's URL, or null.
  */
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -114,6 +117,8 @@ function put(key: string, body: string, cond: Cond): string {
 	R2.set(key, next);
 	return next.etag;
 }
+/** Objects with real bytes (the text map above cannot hold a PNG header). */
+const BIN = new Map<string, Uint8Array>();
 const keysUnder = (prefix: string) => [...R2.keys()].filter((k) => k.startsWith(prefix)).sort();
 fake('lib/server/r2.ts', {
 	ConflictError,
@@ -126,6 +131,8 @@ fake('lib/server/r2.ts', {
 	},
 	putObjectText: async (key: string, s: string, _type: string, cond?: Cond) => put(key, s, cond),
 	getObjectBytes: async (key: string) => {
+		const bin = BIN.get(key);
+		if (bin) return { body: bin, contentType: 'application/octet-stream', etag: '"bin"' };
 		const o = R2.get(key);
 		return o
 			? { body: new TextEncoder().encode(o.body), contentType: 'image/png', etag: o.etag }
@@ -193,8 +200,11 @@ fake('lib/server/clients.ts', {
 	mayCreateUnderClient: async (userId: string, role: string, client: string | null) =>
 		role === 'admin' || client === null || (GRANTS.get(userId)?.has(client) ?? false),
 });
+/** Games a project owns beyond the published templates', in the order the DB lists them. */
+const OWNED_GAMES = new Map<string, { key: string; url: string }[]>();
 fake('lib/server/games.ts', {
-	listGamesOwnedByProject: async (key: string) => (PUBLISHED.has(key) ? [{ key }] : []),
+	listGamesOwnedByProject: async (key: string) =>
+		OWNED_GAMES.get(key) ?? (PUBLISHED.has(key) ? [{ key, url: `https://play.test/${key}/` }] : []),
 });
 fake('lib/server/gameKinds.ts', {
 	selectableGameKinds: async () => [
@@ -244,7 +254,38 @@ fake('lib/server/director/templates.ts', {
 		configEtag: null,
 	}),
 });
-fake('lib/server/director/atlasClient.ts', {});
+// Atlas-tool, as the variant route reaches it: every call is recorded and answered by `atlasAnswer`.
+type AtlasCtx = {
+	agent: string;
+	owner: { id: string };
+	scope: { clientKey: string; projectKey: string } | null;
+	run: { id: string };
+	savedBy: { tool: string; agent: string; runId: string; uid: string };
+};
+type AtlasCallIn = {
+	method: string;
+	path: string;
+	atlas?: string;
+	query?: Record<string, string>;
+};
+const ATLAS_CALLS: { ctx: AtlasCtx; call: AtlasCallIn }[] = [];
+const atlasBytes = (contentType: string, bytes: Uint8Array) => ({
+	status: 200,
+	contentType,
+	headers: new Headers({ 'content-type': contentType }),
+	bytes,
+	text: () => new TextDecoder().decode(bytes),
+	json: () => JSON.parse(new TextDecoder().decode(bytes)),
+});
+let atlasAnswer: (call: AtlasCallIn) => ReturnType<typeof atlasBytes> = () => {
+	throw new Error('fixture: no atlas answer set');
+};
+fake('lib/server/director/atlasClient.ts', {
+	atlasFetch: async (ctx: AtlasCtx, call: AtlasCallIn) => {
+		ATLAS_CALLS.push({ ctx, call });
+		return atlasAnswer(call);
+	},
+});
 
 // The duplicate path: a new project row and a marker object, or a failure on demand.
 let failNextDuplicate = false;
@@ -419,8 +460,11 @@ const estimateRoute = await import(src('routes/api/director/estimate/+server.ts'
 const templatesRoute = await import(src('routes/api/director/templates/+server.ts'));
 const fontsRoute = await import(src('routes/api/director/fonts/+server.ts'));
 const cropRoute = await import(src('routes/api/director/runs/[runId]/crop/+server.ts'));
+const imageRoute = await import(src('routes/api/director/runs/[runId]/image/+server.ts'));
+const variantRoute = await import(src('routes/api/director/runs/[runId]/variant/+server.ts'));
 const mockupsRoute = await import(src('routes/api/director/mockups/+server.ts'));
 const { projectPrefix } = await import(src('lib/server/projectPaths.ts'));
+const { AdapterError } = await import(src('lib/server/director/adapter.ts'));
 
 type User = {
 	id: string;
@@ -1224,6 +1268,7 @@ console.log('summary');
 		},
 	]);
 	const s = (await summary(OWNER, RUN_ID)).body.run as Record<string, unknown>;
+	check('the run’s project prefix in R2', s.r2Prefix, projectPrefix(C, NEW));
 	check('spend against the cap', s.spend, {
 		claudeUsd: 0.4,
 		runpodUsd: 0.05,
@@ -1549,6 +1594,311 @@ console.log('crops');
 		[(await crop(OWNER, RUN_ID, '../mockups.json')).status, (await crop(OWNER, RUN_ID, '')).status],
 		[404, 404],
 	);
+}
+
+// ── Run images ────────────────────────────────────────────────────────────────
+type Raw = { status: number; headers: Headers; bytes: Uint8Array };
+/** A route called directly, for the headers and bytes `call()` does not read. */
+async function raw(
+	handler: (event: never) => Promise<Response>,
+	user: User | null,
+	path: string,
+	runId: string,
+): Promise<Raw> {
+	const url = new URL(`http://x${path}`);
+	try {
+		const res = await handler({
+			request: new Request(url),
+			url,
+			locals: { user },
+			params: { runId },
+		} as never);
+		return {
+			status: res.status,
+			headers: res.headers,
+			bytes: new Uint8Array(await res.arrayBuffer()),
+		};
+	} catch (e) {
+		const s = status(e);
+		if (typeof s !== 'number') throw e;
+		return { status: s, headers: new Headers(), bytes: new Uint8Array() };
+	}
+}
+
+console.log('images');
+{
+	const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+	const JPEG = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0, 16, 74, 70, 73, 70]);
+	const WEBP = Uint8Array.from([
+		...[0x52, 0x49, 0x46, 0x46, 0x1a, 0, 0, 0],
+		...[0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x20],
+	]);
+	const TEXT = new TextEncoder().encode('{"not":"an image"}');
+	const mine = `${projectPrefix(C, NEW)}/director/mockups`;
+	const otherProject = `${projectPrefix(C, 'hw')}/director/mockups/a.png`;
+	BIN.set(`${mine}/a.png`, PNG);
+	BIN.set(`${mine}/b.JPG`, JPEG);
+	BIN.set(`${mine}/c.jpeg`, JPEG);
+	BIN.set(`${mine}/d.webp`, WEBP);
+	BIN.set(`${mine}/fake.png`, TEXT);
+	BIN.set(`${mine}/data.json`, PNG);
+	BIN.set(`${projectPrefix(C, NEW)}/director/crops/x.png`, PNG);
+	BIN.set(otherProject, PNG);
+	BIN.set('outside.png', PNG);
+	BIN.set(`${projectPrefix(C, NEW)}-sibling/a.png`, PNG);
+	const image = (user: User | null, key: string, runId = RUN_ID, v = '1') =>
+		raw(
+			imageRoute.GET,
+			user,
+			`/api/director/runs/${runId}/image?key=${encodeURIComponent(key)}&v=${v}`,
+			runId,
+		);
+
+	const png = await image(OWNER, `${mine}/a.png`);
+	check(
+		'the owner reads a PNG with its own type, length and the hardening headers',
+		[
+			png.status,
+			png.headers.get('content-type'),
+			png.headers.get('content-length'),
+			png.headers.get('cache-control'),
+			png.headers.get('x-content-type-options'),
+			png.headers.get('content-security-policy'),
+			[...png.bytes],
+		],
+		[
+			200,
+			'image/png',
+			String(PNG.length),
+			'private, max-age=300',
+			'nosniff',
+			"default-src 'none'; sandbox",
+			[...PNG],
+		],
+	);
+	check(
+		'a JPEG, under an upper-case or .jpeg name, is served as JPEG',
+		await Promise.all(
+			['b.JPG', 'c.jpeg'].map(async (f) => {
+				const r = await image(OWNER, `${mine}/${f}`);
+				return [r.status, r.headers.get('content-type')];
+			}),
+		),
+		[
+			[200, 'image/jpeg'],
+			[200, 'image/jpeg'],
+		],
+	);
+	const webp = await image(OWNER, `${mine}/d.webp`);
+	check(
+		'a WebP is served as WebP',
+		[webp.status, webp.headers.get('content-type')],
+		[200, 'image/webp'],
+	);
+	check(
+		'the cache-buster’s value is ignored',
+		(await image(OWNER, `${mine}/a.png`, RUN_ID, 'whatever')).status,
+		200,
+	);
+	check(
+		'a crop of the same project is an image too',
+		(await image(OWNER, `${projectPrefix(C, NEW)}/director/crops/x.png`)).status,
+		200,
+	);
+
+	check('no session is 401', (await image(null, `${mine}/a.png`)).status, 401);
+	check(
+		'a non-owner who can reach the project gets the run’s 404',
+		(await image(ADMIN, `${mine}/a.png`)).status,
+		404,
+	);
+	check('an unknown run is 404', (await image(OWNER, `${mine}/a.png`, 'no-such-run')).status, 404);
+	check(
+		'another project the owner can reach is 404, though the object is there',
+		(await image(OWNER, otherProject)).status,
+		404,
+	);
+	const refused: [string, string][] = [
+		['a `..` segment', `${mine}/../../hw/director/mockups/a.png`],
+		['a `..` that stays inside the prefix', `${mine}/x/../a.png`],
+		['a leading slash', `/${mine}/a.png`],
+		['a `//`', `${mine}//a.png`],
+		['a backslash', `${mine}\\a.png`],
+		['a control character', `${mine}/a\u0000.png`],
+		['a key outside the prefix', 'outside.png'],
+		['a sibling that only shares the prefix text', `${projectPrefix(C, NEW)}-sibling/a.png`],
+		['the prefix alone', `${projectPrefix(C, NEW)}/`],
+		['a .json key holding PNG bytes', `${mine}/data.json`],
+		['a .png key holding text', `${mine}/fake.png`],
+		['a key with no object', `${mine}/missing.png`],
+		['no key', ''],
+	];
+	for (const [what, key] of refused) {
+		const r = await image(OWNER, key);
+		check(`${what} is 404`, [r.status, r.headers.get('content-type')], [404, null]);
+	}
+	const refusal = await call(imageRoute.GET, {
+		user: OWNER,
+		url: `/api/director/runs/${RUN_ID}/image?key=${encodeURIComponent(`${mine}/fake.png`)}`,
+		params: { runId: RUN_ID },
+	});
+	check('the refusal says only that there is no such image', refusal, {
+		status: 404,
+		body: { error: 'No such image.' },
+	});
+	check(
+		'a WebP mockup upload is still refused',
+		[mockups.sniffImage(WEBP), mockups.sniffServedImage(WEBP), mockups.sniffServedImage(PNG)],
+		[null, 'webp', 'png'],
+	);
+}
+
+// ── Variants ──────────────────────────────────────────────────────────────────
+console.log('variants');
+{
+	const JPEG = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+	const variant = (user: User | null, query: string, runId = RUN_ID) =>
+		raw(variantRoute.GET, user, `/api/director/runs/${runId}/variant?${query}`, runId);
+	const q = (over: Record<string, string> = {}) =>
+		new URLSearchParams({ atlas: 'symbols', region: 'Logo', id: '3', ...over }).toString();
+	atlasAnswer = () => atlasBytes('image/jpeg', JPEG);
+
+	let calls = ATLAS_CALLS.length;
+	const refusedBeforeAtlas: [string, Raw][] = [
+		['no session', await variant(null, q())],
+		['a non-owner', await variant(ADMIN, q())],
+		['an unknown run', await variant(OWNER, q(), 'no-such-run')],
+		['no atlas', await variant(OWNER, q({ atlas: '' }))],
+		['an atlas with a slash', await variant(OWNER, q({ atlas: '../x' }))],
+		['a region with a space', await variant(OWNER, q({ region: 'Big Win' }))],
+		['a region that climbs', await variant(OWNER, q({ region: '../Logo' }))],
+		['no region', await variant(OWNER, q({ region: '' }))],
+		['a non-numeric id', await variant(OWNER, q({ id: 'abc' }))],
+		['an id with a path in it', await variant(OWNER, q({ id: '1/2' }))],
+		['no id', await variant(OWNER, q({ id: '' }))],
+		['a size that is neither', await variant(OWNER, q({ size: 'huge' }))],
+	];
+	check(
+		'no session is 401; a non-owner, an unknown run and every malformed name are 404',
+		refusedBeforeAtlas.map(([, r]) => r.status),
+		[401, 404, 404, 404, 404, 404, 404, 404, 404, 404, 404, 404],
+	);
+	check('…and none of them reached atlas-tool', ATLAS_CALLS.length, calls);
+
+	const thumb = await variant(OWNER, q());
+	check(
+		'the size defaults to the thumb, as the owner, for the run’s project',
+		[
+			ATLAS_CALLS.at(-1)?.call,
+			ATLAS_CALLS.at(-1)?.ctx.agent,
+			ATLAS_CALLS.at(-1)?.ctx.owner.id,
+			ATLAS_CALLS.at(-1)?.ctx.scope,
+			ATLAS_CALLS.at(-1)?.ctx.run.id,
+			ATLAS_CALLS.at(-1)?.ctx.savedBy.tool,
+			ATLAS_CALLS.at(-1)?.ctx.savedBy.agent,
+			ATLAS_CALLS.at(-1)?.ctx.savedBy.runId,
+			ATLAS_CALLS.at(-1)?.ctx.savedBy.uid,
+		],
+		[
+			{ method: 'GET', path: '/vthumb/Logo', atlas: 'symbols', query: { id: '3' } },
+			'worker',
+			'owner',
+			{ clientKey: C, projectKey: NEW },
+			RUN_ID,
+			'director',
+			'worker',
+			RUN_ID,
+			'owner',
+		],
+	);
+	check(
+		'the thumb is served with its type, length, an hour-long cache and the hardening headers',
+		[
+			thumb.status,
+			thumb.headers.get('content-type'),
+			thumb.headers.get('content-length'),
+			thumb.headers.get('cache-control'),
+			thumb.headers.get('x-content-type-options'),
+			thumb.headers.get('content-security-policy'),
+			[...thumb.bytes],
+		],
+		[
+			200,
+			'image/jpeg',
+			String(JPEG.length),
+			'private, max-age=3600',
+			'nosniff',
+			"default-src 'none'; sandbox",
+			[...JPEG],
+		],
+	);
+	await variant(OWNER, q({ size: 'thumb' }));
+	check('size=thumb is the thumb', ATLAS_CALLS.at(-1)?.call.path, '/vthumb/Logo');
+	calls = ATLAS_CALLS.length;
+	atlasAnswer = () => atlasBytes('image/png', Uint8Array.from([0x89, 0x50, 0x4e, 0x47]));
+	const full = await variant(OWNER, q({ size: 'full', region: 'Wild(1)' }));
+	check(
+		'size=full asks for the full image',
+		[
+			ATLAS_CALLS.length - calls,
+			ATLAS_CALLS.at(-1)?.call.path,
+			full.status,
+			full.headers.get('content-type'),
+		],
+		[1, '/vfull/Wild(1)', 200, 'image/png'],
+	);
+
+	atlasAnswer = () =>
+		atlasBytes('image/svg+xml; charset=utf-8', new TextEncoder().encode('<svg/>'));
+	const placeholder = await variant(OWNER, q({ id: '99' }));
+	check('the placeholder SVG for an unknown id is 404', placeholder.status, 404);
+
+	atlasAnswer = () => atlasBytes('image/png', new Uint8Array(6 * 1024 * 1024 + 1));
+	const huge = await call(variantRoute.GET, {
+		user: OWNER,
+		url: `/api/director/runs/${RUN_ID}/variant?${q({ size: 'full' })}`,
+		params: { runId: RUN_ID },
+	});
+	check('a body over the cap is 413 too_large', [huge.status, huge.body.error], [413, 'too_large']);
+
+	const failWith = (e: unknown) => {
+		atlasAnswer = () => {
+			throw e;
+		};
+		return call(variantRoute.GET, {
+			user: OWNER,
+			url: `/api/director/runs/${RUN_ID}/variant?${q()}`,
+			params: { runId: RUN_ID },
+		});
+	};
+	const gone = await failWith(new AdapterError(404, 'not_found', '/vthumb/Logo: not found.'));
+	check(
+		'an adapter refusal keeps its status, code and message',
+		[gone.status, gone.body.error, gone.body.message],
+		[404, 'not_found', '/vthumb/Logo: not found.'],
+	);
+	const down = await failWith(new AdapterError(503, 'atlas_unavailable', 'Could not reach.'));
+	check('…an outage is 503', [down.status, down.body.error], [503, 'atlas_unavailable']);
+	const lost = await failWith(new ConflictError('manifests/x.json'));
+	check('…a lost conditional write is 409', [lost.status, lost.body.error], [409, 'conflict']);
+	const crash = await failWith(new Error('boom')).catch((e: Error) => e.message);
+	check('…anything else is not swallowed', crash, 'boom');
+}
+
+// ── The game link ─────────────────────────────────────────────────────────────
+console.log('game link');
+{
+	const game = async () =>
+		((await summary(OWNER, RUN_ID)).body.run as { game: { url: string | null } }).game;
+	check('a project with no game has no URL', await game(), { url: null });
+	OWNED_GAMES.set(NEW, [
+		{ key: 'sunken-temple', url: '/play/sunken-temple/?runtime=1' },
+		{ key: 'sunken-temple-b', url: '/play/b/' },
+	]);
+	check('the first game’s URL', await game(), { url: '/play/sunken-temple/?runtime=1' });
+	OWNED_GAMES.set(NEW, [{ key: 'sunken-temple', url: '' }]);
+	check('a game with no URL yet is null', await game(), { url: null });
+	OWNED_GAMES.delete(NEW);
 }
 
 // ── Fonts ─────────────────────────────────────────────────────────────────────

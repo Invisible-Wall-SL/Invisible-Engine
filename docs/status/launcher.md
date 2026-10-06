@@ -59,6 +59,50 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+- 2026-10-06 — **Invisible Director: the Live run screen** (Director card 4C, PLAN 4.3; over
+  #1069, #1067 and #1072).
+  - `/director/[runId]` is now the Live run screen (mockup 04) for every state past the breakdown;
+    the Mockup breakdown panel of #1072 stays the view while the run waits on that checkpoint.
+    The page asks the run's event stream from id 0 on open, so the whole history folds into the
+    screen, then tails it (one `EventSource` per run id, `Last-Event-ID` on the browser's own
+    reconnect, the 5 s polling fallback also reading the stream for refusals). The folding is a
+    pure module, `routes/(app)/director/liveRun.ts`: every payload read by shape, nothing trusted,
+    nothing rendered as HTML. Fixture: `check:director-live` (43 checks; wired into Lint).
+  - **Steps rail** from the summary plus `run_status` rows: done / running / waiting / paused /
+    failed / stopped / not reached, with the breakdown's figures and "n of m approved" on Regions.
+    **Banner** per state: review n now (scrolls to the panel), the build to review, paused at the
+    cap with **Raise cap and resume** (`resume` + `budgetCapUsd`), paused for a person with the
+    worker's reason, stopping / stopped / failed (with the last error) / handed off (Play draft +
+    Open in Game Maker). Spend against the cap as a bar in the header; RunPod meter adds "n jobs
+    queued".
+  - **Region groups and galleries** from the coordinator's `plan` activity (batches → groups),
+    `job_queued` / `job_done` (drafting → variants to review; a failed render says why), the art
+    director's `review` findings (its pick by variant id or letter; a reject sends the region back)
+    and the owner's `region_batch` approval. Tiles show the pick (else the first variant, else the
+    mockup crop); filters All / To review / Approved / Drafting; click opens the region detail —
+    the mockup crop beside the variants, the art director's and QA's words — and any image opens
+    full size in a `<dialog>` lightbox. "As they land" galleries list every image key an event
+    names under the project (atlas, sheets, symbols, editor, …).
+  - **Review panels** for `region_batch` (Approve these n regions / Redo with my note),
+    `before_publish` (Play draft, Open in Game Maker, Approve and hand off / Send back) and any
+    checkpoint the page does not know (its text and the two buttons), all through the existing
+    request-id client; inputs lock while a request is outstanding; refusals shown.
+  - **Activity feed** newest first, grouped by the step the row was written in, agent name, text,
+    tool chip and the cost of a spend row (a "hide costs" toggle); capped at 150 with "Show older".
+    **Message box** sends the existing `message` owner action. Pause / Stop (confirmed) / Resume
+    gated by `allowedActions`.
+  - Server: `GET /api/director/runs/[runId]/image?key=` serves one image of the run's project out
+    of R2 (owner-only, key under the project prefix, no traversal, PNG/JPEG/WebP by magic bytes,
+    nosniff + CSP sandbox) and `GET …/variant?atlas=&region=&id=&size=` proxies a rendered variant
+    out of the Atlas Maker (same gate, the adapter's own patterns, placeholder SVG → 404, 6 MB cap).
+    `RunSummary` gains `r2Prefix` and `game.url` (the project's first game, for Play draft through
+    `asAuthoringLaunch`). `check:director-runs` grew to 407 checks (auth, IDOR across projects,
+    traversal, content types, the variant proxy); `check:director-mockups` to 118.
+  - Rendered in Chromium through the real adapter-node build against a local Postgres seeded with
+    six runs (running, waiting on a batch, waiting before publish, paused at the cap, failed,
+    handed off) and compared with mockup 04.
+  - Guide: `tools/director.md` § Live run. Inventory: `docs/ui-inventory.md` §14 (the variant
+    gallery is the second A instance) and §18.
 - 2026-10-06 — **Invisible Director: New game and Mockup breakdown screens** (Director card 4B,
   PLAN 4.1 + 4.2; over the owner API of #1069 and the breakdown step of #1067).
   - `/director` is the New game screen (mockup 02): Game Maker's project fields and validation

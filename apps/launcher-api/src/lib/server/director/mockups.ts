@@ -118,6 +118,21 @@ export function sniffImage(bytes: Uint8Array): MockupExt | null {
 	return null;
 }
 
+/** What the run image route serves: a mockup's types, plus the WebP an atlas or export may hold. */
+export const SERVED_IMAGE_TYPES = { ...MOCKUP_TYPES, webp: 'image/webp' } as const;
+
+/**
+ * {@link sniffImage}, and WebP too (`RIFF....WEBP`). For serving an object back, never for what an
+ * upload accepts: a WebP mockup is still refused, as `addMockup` takes only what `sniffImage` names.
+ */
+export function sniffServedImage(bytes: Uint8Array): keyof typeof SERVED_IMAGE_TYPES | null {
+	const known = sniffImage(bytes);
+	if (known) return known;
+	const tag = (at: number, text: string) =>
+		[...text].every((c, i) => bytes[at + i] === c.charCodeAt(0));
+	return bytes.length >= 12 && tag(0, 'RIFF') && tag(8, 'WEBP') ? 'webp' : null;
+}
+
 /** A refusal the endpoints answer with `{ error: code, message }` at `status`. */
 export class MockupError extends Error {
 	constructor(

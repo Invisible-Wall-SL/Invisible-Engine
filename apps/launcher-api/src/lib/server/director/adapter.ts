@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import type { DirectorRun } from '../db/schema';
 
 /**
@@ -130,6 +131,23 @@ export interface DirectorSavedBy {
 	runId: string;
 	at: string;
 	rev: string;
+}
+
+/** The stamp a Director write by `agent` carries, as the run's `owner`: who, which agent, when. */
+export function directorSavedBy(
+	run: DirectorRun,
+	owner: NonNullable<App.Locals['user']>,
+	agent: DirectorAgent,
+): DirectorSavedBy {
+	return {
+		uid: owner.id,
+		name: owner.name ?? owner.email,
+		tool: 'director',
+		agent,
+		runId: run.id,
+		at: new Date().toISOString(),
+		rev: randomBytes(6).toString('hex'),
+	};
 }
 
 /** The project scope an op is checked against on every call. */

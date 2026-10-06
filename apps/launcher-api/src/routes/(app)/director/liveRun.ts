@@ -1,0 +1,966 @@
+import {
+	RUN_STEPS,
+	isBreakdown,
+	isRecord,
+	modelLabel,
+	usd,
+	type Breakdown,
+	type RunEvent,
+	type RunSummary,
+} from './director.client';
+
+/**
+ * The Live run screen's view of a run (PLAN 4.3, ADR-0003 "Live UI"): the run's event rows folded
+ * into the steps rail, the region groups and their galleries, the images the events name, the GPU
+ * queue and the activity feed. Pure over the event rows the stream delivers (`RunEvent`, ascending
+ * by id) and the summary the API answers, so a fixture drives it without a browser.
+ *
+ * Every payload field is read by shape, never trusted: the rows are the worker's, and a worker of
+ * another version — or a model's own words inside an activity row — degrades to text, never to a
+ * crash or to markup. Nothing here is rendered as HTML; the page prints the strings as text.
+ */
+
+export type RunStep = RunSummary['step'];
+
+// ── Shape readers ─────────────────────────────────────────────────────────────
+
+const str = (value: unknown, max = 4000): string | null =>
+	typeof value === 'string' ? value.slice(0, max) : null;
+const num = (value: unknown): number | null =>
+	typeof value === 'number' && Number.isFinite(value) ? value : null;
+const strings = (value: unknown, max = 200): string[] =>
+	Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string').slice(0, max) : [];
+
+const STEP_IDS: readonly string[] = RUN_STEPS.map((s) => s.id);
+const isStep = (value: unknown): value is RunStep =>
+	typeof value === 'string' && STEP_IDS.includes(value);
+
+/** A region name as `ops/atlas.ts` `REGION` admits it; anything else is not a region. */
+const REGION_NAME = /^[A-Za-z0-9_][A-Za-z0-9_.()-]{0,119}$/;
+const ATLAS_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const VARIANT_ID = /^[0-9]{1,8}$/;
+const JOB_REF = /^st_[0-9a-f]{16}$/;
+
+// ── Steps ─────────────────────────────────────────────────────────────────────
+
+export type StepState =
+	'done' | 'running' | 'waiting' | 'paused' | 'failed' | 'stopped' | 'skipped' | 'todo';
+
+export interface StepView {
+	id: RunStep;
+	n: number;
+	label: string;
+	state: StepState;
+	/** One line under the label: the figures for a step, or its state in words. */
+	detail: string;
+	/** 0–1 for a step with measurable progress (regions approved), else null. */
+	progress: number | null;
+}
+
+// ── Regions and galleries ─────────────────────────────────────────────────────
+
+export type RegionStatus = 'queued' | 'drafting' | 'to_review' | 'approved' | 'rejected' | 'failed';
+
+export interface VariantRef {
+	atlas: string;
+	region: string;
+	id: string;
+	slot: number | null;
+}
+
+export interface Verdict {
+	verdict: string;
+	note: string;
+	/** The variant the verdict names, when one of the region's ids or a letter A–H is in it. */
+	variant: string | null;
+	at: string;
+}
+
+export interface RegionView {
+	name: string;
+	group: string;
+	atlas: string | null;
+	status: RegionStatus;
+	variants: VariantRef[];
+	/** The art director's latest verdict on it. */
+	pick: Verdict | null;
+	/** QA's latest verdict on it. */
+	qa: Verdict | null;
+	jobRef: string | null;
+	/** The breakdown's crop for it, as an R2 key, when one was saved. */
+	cropKey: string | null;
+	/** Why its last render failed, when it did. */
+	error: string | null;
+	updatedAt: string;
+	/** The id of the event that last changed it: a cache version for its images. */
+	version: number;
+}
+
+export interface GroupCounts {
+	total: number;
+	approved: number;
+	toReview: number;
+	drafting: number;
+	queued: number;
+	rejected: number;
+	failed: number;
+}
+
+export interface GroupView {
+	name: string;
+	atlas: string | null;
+	regions: RegionView[];
+	counts: GroupCounts;
+}
+
+/** An image an event named by its R2 key, under the run's project. */
+export interface ImageRef {
+	key: string;
+	/** The subtree under the project the key lives in: `director`, `atlas`, `sheets`, … */
+	area: string;
+	/** The file name without its extension. */
+	label: string;
+	eventId: number;
+	at: string;
+}
+
+export interface GpuJob {
+	jobRef: string;
+	atlas: string | null;
+	regions: string[];
+	status: 'queued' | 'finished' | 'failed' | 'cancelled';
+	variants: number;
+	seconds: number | null;
+	agent: string;
+	queuedAt: string;
+	doneAt: string | null;
+}
+
+// ── Feed ──────────────────────────────────────────────────────────────────────
+
+export type FeedTone = 'plain' | 'owner' | 'error' | 'checkpoint' | 'spend' | 'job' | 'status';
+
+export interface FeedEntry {
+	id: number;
+	at: string;
+	agent: string;
+	kind: string;
+	/** The run's step when the row was written. */
+	step: RunStep;
+	text: string;
+	/** The tool used, as a short label, when the row names one. */
+	tool: string | null;
+	/** What the row cost, when it is a spend row. */
+	cost: string | null;
+	tone: FeedTone;
+}
+
+export interface Folded {
+	groups: GroupView[];
+	regions: Map<string, RegionView>;
+	images: ImageRef[];
+	jobs: GpuJob[];
+	/** Renders queued and not yet done. */
+	gpuQueued: number;
+	breakdown: { images: number; regionsMatched: number; regionsTotal: number } | null;
+	plan: { summary: string; batches: { name: string; regions: string[] }[] } | null;
+	/** The feed, oldest first; the page reverses and caps it. */
+	feed: FeedEntry[];
+	/** When each step was first entered, from the `run_status` rows. */
+	stepStartedAt: Partial<Record<RunStep, string>>;
+}
+
+// ── Labels ────────────────────────────────────────────────────────────────────
+
+/** `atlas.queue_variants` → `Atlas Maker`, `run.post_activity` → null (the agent's own words). */
+export function toolLabel(tool: string | null): string | null {
+	if (!tool) return null;
+	const [prefix] = tool.split('.');
+	switch (prefix) {
+		case 'atlas':
+			return tool === 'atlas.queue_variants' ? 'ComfyUI · RunPod' : 'Atlas Maker';
+		case 'comfyui':
+			return 'ComfyUI';
+		case 'mockups':
+			return 'Mockups';
+		case 'gamemaker':
+			return 'Game Maker';
+		case 'scene':
+			return 'Scene Editor';
+		case 'symbols':
+			return 'Symbols SM';
+		case 'wintext':
+			return 'Win Text';
+		case 'localization':
+			return 'Localization';
+		case 'fonts':
+			return 'Font Maker';
+		case 'rigger':
+			return 'Rigger';
+		case 'flipbook':
+			return 'Flipbook';
+		case 'build':
+			return 'Build';
+		case 'run':
+		case 'costs':
+			return null;
+		default:
+			return prefix.slice(0, 40);
+	}
+}
+
+/** `H2_Coral_Mask` → `H2 · Coral Mask`; `BG_Base` → `BG · Base`; `Wild` → `Wild`. */
+export function regionTitle(name: string): string {
+	const parts = name.split(/[_\s]+/).filter(Boolean);
+	if (parts.length >= 2 && /^[A-Z]{1,3}\d{0,2}$/.test(parts[0])) {
+		return `${parts[0]} · ${parts.slice(1).join(' ')}`;
+	}
+	return parts.join(' ');
+}
+
+export const STATUS_WORDS: Record<RegionStatus, string> = {
+	queued: 'Queued',
+	drafting: 'Drafting',
+	to_review: 'To review',
+	approved: 'Approved',
+	rejected: 'Redo',
+	failed: 'Failed',
+};
+
+const clip = (text: string, max: number) =>
+	text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
+
+/** `H2_Coral_Mask`, `h2 coral mask` and `H2 · Coral mask` all compare equal. */
+const normal = (text: string) => text.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+const emptyCounts = (): GroupCounts => ({
+	total: 0,
+	approved: 0,
+	toReview: 0,
+	drafting: 0,
+	queued: 0,
+	rejected: 0,
+	failed: 0,
+});
+
+const IMAGE_EXT = /\.(png|jpe?g|webp)$/i;
+
+/**
+ * Whether `key` is an image key under `prefix` the page may ask the image route for: the route
+ * refuses the same shapes, so a key that fails here would only make a 404.
+ */
+export function isProjectImageKey(key: string, prefix: string): boolean {
+	return (
+		key.startsWith(`${prefix}/`) &&
+		key.length <= 1024 &&
+		!key.includes('..') &&
+		!key.includes('//') &&
+		!key.includes('\\') &&
+		!/\p{Cc}/u.test(key) &&
+		IMAGE_EXT.test(key)
+	);
+}
+
+const AREA_LABELS: Record<string, string> = {
+	director: 'Mockup crops',
+	atlas: 'Atlas pages',
+	sheets: 'Sheets',
+	manifests: 'Atlases',
+	symbols: 'Symbols',
+	editor: 'Scenes',
+	input: 'References',
+	batch: 'Renders',
+	spines: 'Spines',
+	fonts: 'Fonts',
+};
+
+export const areaLabel = (area: string): string => AREA_LABELS[area] ?? area;
+
+// ── Folding ───────────────────────────────────────────────────────────────────
+
+interface Ctx {
+	prefix: string;
+	regions: Map<string, RegionView>;
+	groupOf: Map<string, string>;
+	groupOrder: string[];
+	groupAtlas: Map<string, string | null>;
+	images: Map<string, ImageRef>;
+	jobs: Map<string, GpuJob>;
+	plan: Folded['plan'];
+	breakdown: Folded['breakdown'];
+	feed: FeedEntry[];
+	step: RunStep;
+	stepStartedAt: Partial<Record<RunStep, string>>;
+}
+
+const OTHER_GROUP = 'Other regions';
+
+function regionOf(ctx: Ctx, name: string, at: string, version: number): RegionView | null {
+	if (!REGION_NAME.test(name)) return null;
+	let region = ctx.regions.get(name);
+	if (!region) {
+		region = {
+			name,
+			group: ctx.groupOf.get(name) ?? OTHER_GROUP,
+			atlas: null,
+			status: 'queued',
+			variants: [],
+			pick: null,
+			qa: null,
+			jobRef: null,
+			cropKey: null,
+			error: null,
+			updatedAt: at,
+			version,
+		};
+		ctx.regions.set(name, region);
+	}
+	return region;
+}
+
+function touch(region: RegionView, at: string, version: number) {
+	region.updatedAt = at;
+	region.version = version;
+}
+
+/** Every image key the payload names, at any depth the worker writes (crops are three deep). */
+function collectImageKeys(value: unknown, ctx: Ctx, event: RunEvent, depth = 0) {
+	if (depth > 6) return;
+	if (typeof value === 'string') {
+		if (isProjectImageKey(value, ctx.prefix)) {
+			const rest = value.slice(ctx.prefix.length + 1);
+			const area = rest.split('/')[0] ?? '';
+			const file = rest.split('/').pop() ?? rest;
+			ctx.images.set(value, {
+				key: value,
+				area,
+				label: file.replace(IMAGE_EXT, ''),
+				eventId: event.id,
+				at: event.at,
+			});
+		}
+		return;
+	}
+	if (Array.isArray(value)) {
+		for (const item of value.slice(0, 500)) collectImageKeys(item, ctx, event, depth + 1);
+	} else if (isRecord(value)) {
+		for (const item of Object.values(value)) collectImageKeys(item, ctx, event, depth + 1);
+	}
+}
+
+/** The region a finding is about: its subject names one of the known regions, or none. */
+function findRegion(ctx: Ctx, subject: string): RegionView | null {
+	const wanted = normal(subject);
+	if (!wanted) return null;
+	let best: RegionView | null = null;
+	for (const region of ctx.regions.values()) {
+		const name = normal(region.name);
+		if (name === wanted) return region;
+		if (name.length >= 3 && (wanted.includes(name) || name.includes(wanted))) {
+			if (!best || name.length > normal(best.name).length) best = region;
+		}
+	}
+	return best;
+}
+
+const LETTERS = 'ABCDEFGH';
+
+/** The variant a verdict names: one of the region's ids, or a letter in render order. */
+function variantNamed(region: RegionView, text: string): string | null {
+	for (const v of region.variants) {
+		if (new RegExp(`(^|[^0-9])${v.id}([^0-9]|$)`).test(text)) return v.id;
+	}
+	const letter = /\b(?:variant\s+)?([A-H])\b/.exec(text)?.[1];
+	if (letter) {
+		const index = LETTERS.indexOf(letter);
+		const sorted = [...region.variants].sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0));
+		return sorted[index]?.id ?? null;
+	}
+	return null;
+}
+
+const PICK = /\b(pick|picked|approve|approved|accept|accepted|pass|passed|choose|chose|chosen)\b/i;
+const REJECT = /\b(reject|rejected|fail|failed|redo|retry|again)\b/i;
+
+function applyFindings(
+	ctx: Ctx,
+	event: RunEvent,
+	findings: unknown,
+	field: 'pick' | 'qa',
+): { subjects: number } {
+	if (!Array.isArray(findings)) return { subjects: 0 };
+	let subjects = 0;
+	for (const finding of findings.slice(0, 200)) {
+		if (!isRecord(finding)) continue;
+		const subject = str(finding.subject, 200);
+		const verdict = str(finding.verdict, 40) ?? '';
+		const note = str(finding.note, 2000) ?? '';
+		if (!subject) continue;
+		subjects++;
+		const region = findRegion(ctx, subject);
+		if (!region) continue;
+		const named = variantNamed(region, `${verdict} ${note}`);
+		region[field] = { verdict, note, variant: named, at: event.at };
+		if (field === 'pick') {
+			if (REJECT.test(verdict) && !PICK.test(verdict)) {
+				if (region.status === 'to_review') region.status = 'rejected';
+			}
+		}
+		touch(region, event.at, event.id);
+	}
+	return { subjects };
+}
+
+const costOf = (payload: Record<string, unknown>): string | null => {
+	const amount = num(payload.usd);
+	if (amount === null) return null;
+	const model = str(payload.model, 60);
+	if (payload.kind === 'runpod') {
+		const seconds = num(payload.seconds);
+		const gpu = model ? `RunPod ${model}` : 'RunPod';
+		const est = payload.estimated === true ? ' (estimated)' : '';
+		return `${usd(amount)} · ${gpu}${seconds !== null ? ` · ${Math.round(seconds)} s` : ''}${est}`;
+	}
+	return `${usd(amount)}${model ? ` · ${modelLabel(model)}` : ''}`;
+};
+
+function push(ctx: Ctx, event: RunEvent, text: string, tone: FeedTone, cost: string | null = null) {
+	ctx.feed.push({
+		id: event.id,
+		at: event.at,
+		agent: event.agent,
+		kind: event.kind,
+		step: ctx.step,
+		text: clip(text, 1200),
+		tool: toolLabel(event.tool),
+		cost,
+		tone,
+	});
+}
+
+const list = (names: string[]) =>
+	names.length <= 3
+		? names.map(regionTitle).join(', ')
+		: `${names.slice(0, 2).map(regionTitle).join(', ')} and ${names.length - 2} more`;
+
+function foldActivity(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
+	switch (p.type) {
+		case 'note':
+			return push(ctx, event, str(p.text) ?? str(p.message) ?? '', 'plain');
+		case 'question':
+			return push(ctx, event, `asks you: ${str(p.question) ?? ''}`, 'checkpoint');
+		case 'plan': {
+			const summary = str(p.summary) ?? '';
+			const batches: { name: string; regions: string[] }[] = [];
+			if (Array.isArray(p.batches)) {
+				for (const b of p.batches.slice(0, 64)) {
+					if (!isRecord(b)) continue;
+					const name = str(b.name, 120);
+					if (!name) continue;
+					batches.push({ name, regions: strings(b.regions).filter((r) => REGION_NAME.test(r)) });
+				}
+			}
+			ctx.plan = { summary, batches };
+			ctx.groupOf.clear();
+			ctx.groupOrder = [];
+			for (const b of batches) {
+				if (!ctx.groupOrder.includes(b.name)) ctx.groupOrder.push(b.name);
+				for (const name of b.regions) {
+					ctx.groupOf.set(name, b.name);
+					const region = regionOf(ctx, name, event.at, event.id);
+					if (region) region.group = b.name;
+				}
+			}
+			for (const region of ctx.regions.values()) {
+				region.group = ctx.groupOf.get(region.name) ?? OTHER_GROUP;
+			}
+			return push(
+				ctx,
+				event,
+				`set the plan: ${summary}${batches.length ? ` (${batches.length} batches)` : ''}`,
+				'plain',
+			);
+		}
+		case 'assignment':
+			return push(
+				ctx,
+				event,
+				`gave ${str(p.to, 40) ?? 'an agent'} a task: ${clip(str(p.task) ?? '', 240)}`,
+				'plain',
+			);
+		case 'pipeline_change_request':
+			return push(
+				ctx,
+				event,
+				`asks for a pipeline change: ${str(p.what) ?? ''}${p.reason ? ` — ${str(p.reason)}` : ''}`,
+				'checkpoint',
+			);
+		case 'review': {
+			const { subjects } = applyFindings(ctx, event, p.findings, 'pick');
+			return push(
+				ctx,
+				event,
+				`reviewed ${subjects} region${subjects === 1 ? '' : 's'}: ${str(p.summary) ?? ''}`,
+				'plain',
+			);
+		}
+		case 'qa': {
+			const { subjects } = applyFindings(ctx, event, p.findings, 'qa');
+			return push(
+				ctx,
+				event,
+				`QA on ${subjects} item${subjects === 1 ? '' : 's'}: ${str(p.summary) ?? ''}`,
+				'plain',
+			);
+		}
+		case 'breakdown_image':
+			// One per mockup per pass, each carrying the model's full answer: noise in the feed.
+			return;
+		default: {
+			if (isBreakdown(p.breakdown)) readBreakdown(ctx, event, p.breakdown);
+			const images = num(p.images);
+			const matched = num(p.regionsMatched);
+			const total = num(p.regionsTotal);
+			if (images !== null && matched !== null && total !== null) {
+				ctx.breakdown = { images, regionsMatched: matched, regionsTotal: total };
+			}
+			const text = str(p.message) ?? str(p.text) ?? str(p.summary);
+			return push(ctx, event, text ?? `${str(p.type, 40) ?? 'activity'}`, 'plain');
+		}
+	}
+}
+
+function readBreakdown(ctx: Ctx, event: RunEvent, breakdown: Breakdown) {
+	ctx.breakdown = {
+		images: breakdown.images.length,
+		regionsMatched: breakdown.regionsMatched,
+		regionsTotal: breakdown.regionsTotal,
+	};
+	for (const crop of breakdown.crops?.saved ?? []) {
+		if (!isProjectImageKey(crop.key, ctx.prefix)) continue;
+		const region = regionOf(ctx, crop.region, event.at, event.id);
+		if (region) region.cropKey = crop.key;
+	}
+}
+
+function foldCheckpoint(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
+	const checkpoint = str(p.checkpoint, 40) ?? 'checkpoint';
+	const summary = str(p.summary) ?? str(p.message) ?? '';
+	if (checkpoint === 'breakdown') {
+		if (isBreakdown(p.breakdown)) readBreakdown(ctx, event, p.breakdown);
+		return push(ctx, event, 'opened the mockup breakdown for your review.', 'checkpoint');
+	}
+	if (checkpoint === 'region_batch') {
+		return push(ctx, event, `asks you to review a region batch. ${summary}`, 'checkpoint');
+	}
+	if (checkpoint === 'before_publish') {
+		return push(
+			ctx,
+			event,
+			`asks you to review the build before hand-off. ${summary}`,
+			'checkpoint',
+		);
+	}
+	if (checkpoint === 'budget') {
+		const spent = num(p.spentUsd);
+		const cap = num(p.capUsd);
+		const figures = spent !== null && cap !== null ? ` ${usd(spent)} of ${usd(cap)} spent.` : '';
+		return push(ctx, event, `${summary}${figures}`, 'error');
+	}
+	return push(ctx, event, `opened the ${checkpoint} checkpoint. ${summary}`, 'checkpoint');
+}
+
+function foldResolved(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
+	const decision = str(p.decision, 20) ?? 'resolved';
+	const checkpoint = str(p.checkpoint, 40) ?? 'checkpoint';
+	const note = str(p.note);
+	// Approving a batch approves what was waiting in it; approving the build accepts the rest.
+	if (
+		(checkpoint === 'region_batch' || checkpoint === 'before_publish') &&
+		decision === 'approve'
+	) {
+		for (const region of ctx.regions.values()) {
+			if (region.status === 'to_review') {
+				region.status = 'approved';
+				touch(region, event.at, event.id);
+			}
+		}
+	}
+	const verb = decision === 'approve' ? 'approved' : decision === 'revise' ? 'sent back' : decision;
+	const what =
+		checkpoint === 'breakdown'
+			? 'the mockup breakdown'
+			: checkpoint === 'region_batch'
+				? 'the region batch'
+				: checkpoint === 'before_publish'
+					? 'the build'
+					: `the ${checkpoint} checkpoint`;
+	push(ctx, event, `${verb} ${what}${note ? `: “${note}”` : '.'}`, 'owner');
+}
+
+function foldJobQueued(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
+	const jobRef = str(p.jobRef, 40) ?? '';
+	const atlas = str(p.atlas, 64);
+	const regions = strings(p.regions, 64).filter((r) => REGION_NAME.test(r));
+	if (JOB_REF.test(jobRef)) {
+		ctx.jobs.set(jobRef, {
+			jobRef,
+			atlas: ATLAS_ID.test(atlas ?? '') ? atlas : null,
+			regions,
+			status: 'queued',
+			variants: 0,
+			seconds: null,
+			agent: event.agent,
+			queuedAt: event.at,
+			doneAt: null,
+		});
+	}
+	for (const name of regions) {
+		const region = regionOf(ctx, name, event.at, event.id);
+		if (!region) continue;
+		region.status = 'drafting';
+		region.jobRef = JOB_REF.test(jobRef) ? jobRef : null;
+		region.error = null;
+		if (atlas && ATLAS_ID.test(atlas)) region.atlas = atlas;
+		touch(region, event.at, event.id);
+	}
+	push(
+		ctx,
+		event,
+		`queued a render of ${regions.length} region${regions.length === 1 ? '' : 's'}${atlas ? ` on ${atlas}` : ''}: ${list(regions)}.`,
+		'job',
+	);
+}
+
+function foldJobDone(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
+	const jobRef = str(p.jobRef, 40) ?? '';
+	const atlas = str(p.atlas, 64);
+	const regions = strings(p.regions, 64).filter((r) => REGION_NAME.test(r));
+	const status = p.status === 'finished' || p.status === 'cancelled' ? p.status : 'failed';
+	const result = isRecord(p.result) ? p.result : {};
+	const rendered = new Map<string, VariantRef[]>();
+	if (Array.isArray(result.variants)) {
+		for (const v of result.variants.slice(0, 512)) {
+			if (!isRecord(v)) continue;
+			const region = str(v.region, 120);
+			const id = str(v.variant, 8) ?? str(v.id, 8);
+			if (!region || !id || !REGION_NAME.test(region) || !VARIANT_ID.test(id)) continue;
+			if (!atlas || !ATLAS_ID.test(atlas)) continue;
+			const refs = rendered.get(region) ?? [];
+			refs.push({ atlas, region, id, slot: num(v.slot) });
+			rendered.set(region, refs);
+		}
+	}
+	const error = str(result.error, 400);
+	const runpod = isRecord(result.runpod) ? result.runpod : {};
+	const seconds = num(runpod.seconds);
+	const job = ctx.jobs.get(jobRef);
+	let variants = 0;
+	for (const refs of rendered.values()) variants += refs.length;
+	if (job) {
+		job.status = status;
+		job.variants = variants;
+		job.seconds = seconds;
+		job.doneAt = event.at;
+	}
+	for (const name of new Set([...regions, ...rendered.keys()])) {
+		const region = regionOf(ctx, name, event.at, event.id);
+		if (!region) continue;
+		const refs = rendered.get(name) ?? [];
+		if (refs.length) {
+			// A new render replaces the last: the owner judges what is there now.
+			region.variants = [...refs].sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0));
+			region.status = 'to_review';
+			region.pick = null;
+			region.qa = null;
+			region.error = null;
+		} else if (status !== 'finished' || regions.includes(name)) {
+			region.status = region.variants.length ? 'to_review' : 'failed';
+			region.error =
+				error ??
+				(status === 'cancelled' ? 'The render was cancelled.' : 'The render produced nothing.');
+		}
+		if (atlas && ATLAS_ID.test(atlas)) region.atlas = atlas;
+		touch(region, event.at, event.id);
+	}
+	const text =
+		status === 'finished'
+			? `rendered ${variants} variant${variants === 1 ? '' : 's'} of ${list([...rendered.keys()])}${seconds !== null ? ` in ${Math.round(seconds)} s of GPU time` : ''}.`
+			: `render ${jobRef || ''} ${status}${error ? `: ${error}` : '.'}`;
+	push(ctx, event, text, status === 'finished' ? 'job' : 'error');
+}
+
+function foldStatus(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
+	const to = isRecord(p.to) ? p.to : {};
+	const status = str(to.status, 20) ?? '';
+	const cause = str(p.cause, 200);
+	if (isStep(to.step)) {
+		if (to.step !== ctx.step || !ctx.stepStartedAt[to.step]) {
+			ctx.stepStartedAt[to.step] ??= event.at;
+		}
+		ctx.step = to.step;
+	}
+	const stepLabel = RUN_STEPS.find((s) => s.id === to.step)?.label ?? '';
+	const waitingOn = str(to.waitingOn, 40);
+	const words =
+		status === 'waiting'
+			? `the run waits for you${waitingOn ? ` at the ${waitingOn.replace('_', ' ')} checkpoint` : ''}`
+			: status === 'running'
+				? `the run is working on ${stepLabel || 'the next step'}`
+				: status === 'paused'
+					? 'the run paused'
+					: status === 'handed_off'
+						? 'the run is handed off: the draft is yours to publish'
+						: status === 'failed'
+							? 'the run failed'
+							: status === 'stopped'
+								? 'the run stopped'
+								: status === 'stopping'
+									? 'the run is stopping'
+									: `the run is ${status}`;
+	push(ctx, event, `${words}${cause ? ` (${cause})` : ''}.`, 'status');
+}
+
+function foldOwnerRequest(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
+	const action = str(p.action, 20) ?? 'request';
+	const cap = num(p.budgetCapUsd);
+	const words =
+		action === 'start'
+			? 'started the agents'
+			: action === 'pause'
+				? 'asked the run to pause'
+				: action === 'resume'
+					? `resumed the run${cap !== null ? `, cap raised to ${usd(cap)}` : ''}`
+					: action === 'stop'
+						? 'asked the run to stop'
+						: `asked to ${action}`;
+	push(ctx, event, `${words}.`, 'owner');
+}
+
+function foldError(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
+	const type = str(p.type, 40) ?? 'error';
+	const message = str(p.message) ?? str(p.error) ?? type;
+	if (type === 'refused_request') {
+		return push(ctx, event, `refused a request: ${message}`, 'error');
+	}
+	push(ctx, event, message, 'error');
+}
+
+/**
+ * Fold the run's rows, oldest first, into the screen's views. `prefix` is the run's project
+ * prefix in R2 (`<client>/<project>`), the only place an image the events name may live.
+ */
+export function foldEvents(events: readonly RunEvent[], prefix: string): Folded {
+	const ctx: Ctx = {
+		prefix,
+		regions: new Map(),
+		groupOf: new Map(),
+		groupOrder: [],
+		groupAtlas: new Map(),
+		images: new Map(),
+		jobs: new Map(),
+		plan: null,
+		breakdown: null,
+		feed: [],
+		step: 'breakdown',
+		stepStartedAt: {},
+	};
+	for (const event of events) {
+		if (typeof event.id !== 'number' || typeof event.at !== 'string') continue;
+		const p = isRecord(event.payload) ? event.payload : {};
+		collectImageKeys(p, ctx, event);
+		switch (event.kind) {
+			case 'activity':
+				foldActivity(ctx, event, p);
+				break;
+			case 'owner_message':
+				push(ctx, event, `“${str(p.text) ?? ''}”`, 'owner');
+				break;
+			case 'owner_request':
+				foldOwnerRequest(ctx, event, p);
+				break;
+			case 'checkpoint_open':
+				foldCheckpoint(ctx, event, p);
+				break;
+			case 'checkpoint_resolved':
+				foldResolved(ctx, event, p);
+				break;
+			case 'job_queued':
+				foldJobQueued(ctx, event, p);
+				break;
+			case 'job_done':
+				foldJobDone(ctx, event, p);
+				break;
+			case 'spend':
+				push(
+					ctx,
+					event,
+					p.kind === 'runpod' ? 'GPU time billed' : 'model call billed',
+					'spend',
+					costOf(p),
+				);
+				break;
+			case 'run_status':
+				foldStatus(ctx, event, p);
+				break;
+			case 'error':
+				foldError(ctx, event, p);
+				break;
+			case 'region_status': {
+				const name = str(p.region, 120);
+				const region = name ? regionOf(ctx, name, event.at, event.id) : null;
+				const status = str(p.status, 20);
+				if (region && status && status in STATUS_WORDS) {
+					region.status = status as RegionStatus;
+					touch(region, event.at, event.id);
+				}
+				push(
+					ctx,
+					event,
+					`${name ? regionTitle(name) : 'a region'} is ${status ?? 'updated'}.`,
+					'plain',
+				);
+				break;
+			}
+			default:
+				push(ctx, event, str(p.message) ?? str(p.text) ?? event.kind, 'plain');
+		}
+	}
+
+	// Groups: the plan's batches in order, then any other group a region landed in.
+	const order = [...ctx.groupOrder];
+	for (const region of ctx.regions.values()) {
+		if (!order.includes(region.group)) order.push(region.group);
+	}
+	const groups: GroupView[] = order.map((name) => {
+		const regions = [...ctx.regions.values()].filter((r) => r.group === name);
+		const planned = ctx.plan?.batches.find((b) => b.name === name)?.regions ?? [];
+		regions.sort((a, b) => {
+			const ia = planned.indexOf(a.name);
+			const ib = planned.indexOf(b.name);
+			if (ia !== -1 || ib !== -1) return (ia === -1 ? 1e9 : ia) - (ib === -1 ? 1e9 : ib);
+			return a.name.localeCompare(b.name);
+		});
+		const counts = emptyCounts();
+		for (const r of regions) {
+			counts.total++;
+			if (r.status === 'approved') counts.approved++;
+			else if (r.status === 'to_review') counts.toReview++;
+			else if (r.status === 'drafting') counts.drafting++;
+			else if (r.status === 'queued') counts.queued++;
+			else if (r.status === 'rejected') counts.rejected++;
+			else counts.failed++;
+		}
+		const atlases = new Set(regions.map((r) => r.atlas).filter((a): a is string => a !== null));
+		return { name, atlas: atlases.size === 1 ? [...atlases][0] : null, regions, counts };
+	});
+
+	const jobs = [...ctx.jobs.values()].sort((a, b) => b.queuedAt.localeCompare(a.queuedAt));
+	return {
+		groups,
+		regions: ctx.regions,
+		images: [...ctx.images.values()].sort((a, b) => b.eventId - a.eventId),
+		jobs,
+		gpuQueued: jobs.filter((j) => j.status === 'queued').length,
+		breakdown: ctx.breakdown,
+		plan: ctx.plan,
+		feed: ctx.feed,
+		stepStartedAt: ctx.stepStartedAt,
+	};
+}
+
+// ── The steps rail ────────────────────────────────────────────────────────────
+
+const TERMINAL: readonly RunSummary['status'][] = ['stopped', 'failed', 'handed_off'];
+
+export function stepViews(run: RunSummary, folded: Folded, mockupCount: number): StepView[] {
+	const current = RUN_STEPS.find((s) => s.id === run.step)?.n ?? 1;
+	const approved = [...folded.regions.values()].filter((r) => r.status === 'approved').length;
+	const regionsTotal = folded.breakdown?.regionsTotal ?? folded.regions.size;
+	return RUN_STEPS.map((step) => {
+		let state: StepState;
+		if (run.status === 'handed_off') state = 'done';
+		else if (step.n < current) state = 'done';
+		else if (step.n > current) {
+			state = TERMINAL.includes(run.status) || run.status === 'stopping' ? 'skipped' : 'todo';
+		} else {
+			switch (run.status) {
+				case 'running':
+					state = 'running';
+					break;
+				case 'waiting':
+					state = 'waiting';
+					break;
+				case 'paused':
+					state = 'paused';
+					break;
+				case 'failed':
+					state = 'failed';
+					break;
+				case 'stopped':
+				case 'stopping':
+					state = 'stopped';
+					break;
+				default:
+					state = 'todo';
+			}
+		}
+		let detail: string;
+		let progress: number | null = null;
+		switch (step.id) {
+			case 'breakdown':
+				detail = folded.breakdown
+					? `${folded.breakdown.images} mockup${folded.breakdown.images === 1 ? '' : 's'} · ${folded.breakdown.regionsMatched} of ${folded.breakdown.regionsTotal} regions matched`
+					: mockupCount
+						? `${mockupCount} mockup${mockupCount === 1 ? '' : 's'} to read`
+						: 'A style board from your notes';
+				break;
+			case 'style_pack':
+				detail = mockupCount
+					? 'Palette and refs taken from your mockups'
+					: 'Palette and refs from your notes';
+				break;
+			case 'regions':
+				detail = regionsTotal
+					? `${approved} of ${regionsTotal} approved`
+					: 'Variants to review, group by group';
+				if (regionsTotal) progress = Math.min(1, approved / regionsTotal);
+				break;
+			case 'build':
+				detail = 'Scene Editor, Symbols SM, Win Text';
+				break;
+			default:
+				detail = 'You publish it in Game Maker';
+		}
+		const stateWord: Partial<Record<StepState, string>> = {
+			waiting: 'Waiting for you',
+			paused: 'Paused',
+			failed: 'Failed',
+			stopped: 'Stopped',
+			skipped: 'Not reached',
+		};
+		const word = stateWord[state];
+		return {
+			id: step.id,
+			n: step.n,
+			label: step.label,
+			state,
+			detail: word && step.id !== 'regions' ? `${word} · ${detail}` : detail,
+			progress,
+		};
+	});
+}
+
+/** Insert `event` into `events` (ascending by id) unless its id is already there. */
+export function insertEvent(events: RunEvent[], event: RunEvent): boolean {
+	let lo = 0;
+	let hi = events.length;
+	while (lo < hi) {
+		const mid = (lo + hi) >> 1;
+		if (events[mid].id < event.id) lo = mid + 1;
+		else hi = mid;
+	}
+	if (events[lo]?.id === event.id) return false;
+	events.splice(lo, 0, event);
+	return true;
+}

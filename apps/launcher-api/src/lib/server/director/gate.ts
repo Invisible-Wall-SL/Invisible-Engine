@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { isHttpError } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
 import { bearerToken } from '$lib/launcherGates';
@@ -11,6 +11,7 @@ import { projectKeyTaken } from '../projects';
 import { ConflictError, listObjects } from '../r2';
 import {
 	AdapterError,
+	directorSavedBy,
 	isDirectorAgent,
 	schemaErrors,
 	type AdapterContext,
@@ -185,15 +186,7 @@ export async function runAdapterCall(
 		owner,
 		agent,
 		scope,
-		savedBy: {
-			uid: owner.id,
-			name: owner.name ?? owner.email,
-			tool: 'director',
-			agent,
-			runId: run.id,
-			at: new Date().toISOString(),
-			rev: randomBytes(6).toString('hex'),
-		},
+		savedBy: directorSavedBy(run, owner, agent),
 	};
 	if (!op.write) return execute(op, ctx, input);
 

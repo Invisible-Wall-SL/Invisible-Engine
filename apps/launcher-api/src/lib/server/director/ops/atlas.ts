@@ -19,12 +19,12 @@ import { getAtlasJob, insertAtlasJob } from '../store';
  * here deploys an atlas, publishes, or writes Game Config.
  */
 
-const ATLAS = '^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,119}$';
+export const ATLAS = '^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,119}$';
 // No space: atlas-tool's variant routes take the region from the raw, undecoded path.
-const REGION = '^[A-Za-z0-9_][A-Za-z0-9_.()-]{0,119}$';
-const VARIANT_ID = '^[0-9]{1,8}$';
+export const REGION = '^[A-Za-z0-9_][A-Za-z0-9_.()-]{0,119}$';
+export const VARIANT_ID = '^[0-9]{1,8}$';
 /** atlas-tool's variant tiles: a JPEG thumb, or the full PNG. */
-const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
+export const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 
 const atlasProp = {
 	type: 'string',
