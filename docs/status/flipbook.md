@@ -106,6 +106,11 @@ each piece is in [flipbook-history.md](flipbook-history.md) ("Build detail by fe
 
 Detail for each entry is in [flipbook-history.md](flipbook-history.md).
 
+- 2026-10-05 — **Invisible Director can drive this tool.** Invisible Director's adapters (PLAN 2.6,
+  `apps/launcher-api/src/lib/server/director/ops/`) now read and write this tool's clips
+  (`flipbook.list_clips` / `flipbook.save_clip`) through its own storage module, under `If-Match`,
+  stamping `saved_by` (`tool: 'director'`, the agent, the run). A save without a stamp drops a
+  carried one (`savedBy.ts`), so `saved_by` always names the last save. The page is unchanged.
 - 2026-10-01 — **A RunPod job is addressed on the endpoint it was submitted to.** Status, cancel,
   re-attach and every orphan cancel (Stop, delete, blueprint-gone adopt) built their URL from the
   CURRENT `RUNPOD_ENDPOINT_ID`, so after a rotation an old job 404ed, its cancel missed, and it

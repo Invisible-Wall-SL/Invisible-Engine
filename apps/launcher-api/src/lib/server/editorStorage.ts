@@ -16,6 +16,7 @@ import { repairLayoutDocAtlasRefs } from './atlasRefRepair';
 import { putDocWithBackup, type BackupMode } from './docBackups';
 import { editorDocBackupTarget, editorDocKey } from './projectPaths';
 import { getObjectTextWithEtag } from './r2';
+import { stampSavedBy, type SavedByStamp } from './savedBy';
 
 /** Sensible base sizes per layoutType; mirrors `utils-layout`'s `mainSizesMap`. */
 const DEFAULT_MAIN_SIZES: Record<LayoutType, { width: number; height: number }> = {
@@ -134,7 +135,7 @@ function seedFreshDoc(projectKey: string, gameType?: string): LayoutDoc {
  * ({@link BackupMode}); `'always'` is for a save that is destroying a layout on purpose
  * (a scaffold/reference load being committed, a restore). The copy-before-PUT,
  * prune-after-PUT ordering — and why a lost CAS leaves only an inert orphan — is owned by
- * `docBackups.putDocWithBackup`.
+ * `docBackups.putDocWithBackup`. `savedBy` stamps the stored doc's `saved_by` (`savedBy.ts`).
  */
 export async function saveDoc(
 	clientKey: string,
@@ -142,12 +143,13 @@ export async function saveDoc(
 	doc: LayoutDoc,
 	baseEtag?: string | null,
 	backup: BackupMode = 'auto',
+	savedBy?: SavedByStamp,
 ): Promise<{ doc: LayoutDoc; etag: string | null }> {
 	const next = normalizeDoc(doc, projectKey);
 	next.updatedAt = new Date().toISOString();
 	const etag = await putDocWithBackup(
 		editorDocBackupTarget(clientKey, projectKey),
-		JSON.stringify(next, null, 2),
+		JSON.stringify(stampSavedBy(next, savedBy), null, 2),
 		baseEtag,
 		backup,
 	);

@@ -19,6 +19,7 @@ import {
 	precondition,
 	putObjectText,
 } from './r2';
+import { stampSavedBy, type SavedByStamp } from './savedBy';
 
 /**
  * R2 load/save for Invisible Flipbook clips (design doc `invisible-flipbook.md`), mirroring
@@ -156,12 +157,15 @@ export async function loadClip(
  * `baseEtag: null` asserts the clip does not exist yet, which stops the CREATE clobber: a new
  * clip's id is slugged from its NAME, so without the guard "Save" on a clip sharing a
  * colleague's name would silently replace theirs (the exact bug `saveEffect` documents).
+ *
+ * `savedBy` stamps the stored doc's `saved_by` (`savedBy.ts`); the clip returned omits it.
  */
 export async function saveClip(
 	clientKey: string,
 	projectKey: string,
 	rawClip: unknown,
 	baseEtag?: string | null,
+	savedBy?: SavedByStamp,
 ): Promise<{ id: string; clip: FlipbookClip; etag: string | null }> {
 	const requestedId = isObject(rawClip) && typeof rawClip.id === 'string' ? rawClip.id : 'clip';
 	const id = r2Slug(requestedId);
@@ -172,7 +176,7 @@ export async function saveClip(
 	}
 	const etag = await putObjectText(
 		clipDocKey(clientKey, projectKey, id),
-		JSON.stringify(clip, null, 2),
+		JSON.stringify(stampSavedBy(clip, savedBy), null, 2),
 		'application/json',
 		precondition(baseEtag),
 	);

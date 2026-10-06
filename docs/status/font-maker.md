@@ -20,11 +20,20 @@ Works today on `main` (code complete, most flows not yet browser-verified):
 ## Open items / next
 1. **Browser live-verify** — Import / Generate / delete / web-import / shared-library all landed **code-only (2026-06-12)** and have not all been smoke-tested live.
 2. **Rename deferred** — changing a font's `id` means moving its R2 objects; for now delete + re-save. Its own task.
+3. **Open a Director bake request** — `fonts.bake_from_ttf` stages a bake at `<client>/<project>/director/fonts/<folder>/request.json` (the recipe the Generate tab reopens, plus its source font), but the Font Maker cannot list or open one yet; the owner's approval step needs it (Director Phase 4).
 
 ## Blocked (owner / external)
 - None.
 
 ## Recent changes
+- 2026-10-05 — **Invisible Director can drive this tool.** Invisible Director's `fonts.list` reads
+  the fonts a game renders (`loadRenderableFonts`). Its `fonts.bake_from_ttf`
+  (`apps/launcher-api/src/lib/server/director/ops/fonts.ts`) cannot bake, since the bake runs in the
+  browser, so it STAGES one for the owner: the source TTF/OTF (from the project or `_shared/fonts/`,
+  at most 20 MB) and the Font Maker's own recipe in
+  `<client>/<project>/director/fonts/<folder>/request.json`, status `awaiting_owner`, stamped
+  `saved_by` (`tool: 'director'`, the agent, the run). Nothing is added to `fonts.json`, so nothing
+  ships until the owner bakes and saves it. The page is unchanged.
 - 2026-10-02 — **The `_shared/fonts/` library is merged into every project's renderable fonts**
   (editor, Symbols, export — `loadRenderableFonts`), not read only by a project with no catalog; the
   Font Maker's own list is unchanged. First library font: `Tungsten-Bold`. Detail:

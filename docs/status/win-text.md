@@ -296,6 +296,12 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
 
 ## Recent changes
 
+- 2026-10-05 — **Invisible Director can drive this tool.** Invisible Director's `wintext.get_doc` /
+  `wintext.update_doc` (`apps/launcher-api/src/lib/server/director/ops/wintext.ts`) save through
+  `saveWinTextDoc`, under `If-Match`, stamping `saved_by` (`tool: 'director'`, the agent, the run).
+  Templates are set by path; a path the schema lacks is refused rather than dropped, and an
+  unreadable doc is refused rather than overwritten (`loadWinTextDocWithEtag` now flags `corrupt`).
+  A save without a stamp drops a carried one (`savedBy.ts`). The page is unchanged.
 - 2026-10-02 — **A pots overlay gets a Pots section; a Hold and Win block lights the Hold and Win
   sections on any kind** (Pots overlay Phase 5d). The page and Localization's harvest take the
   config's add-ons (`$lib/addOns.ts`, `projectAddOns`). A `potsOverlay` host without Hold and Win shows
