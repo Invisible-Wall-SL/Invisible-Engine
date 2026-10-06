@@ -9,8 +9,18 @@
 # `current-games` (it can be made a required check) and uploads the report as an artifact.
 #
 # READ-ONLY by construction: the R2 key it is given must be an Object Read-only token (R2 scopes
-# tokens per bucket, not per key prefix; the harness only reads `*/published/**` and
-# `test_server/games.json`), and nothing here writes to R2 or to production.
+# tokens per bucket, not per key prefix; the harness only reads `*/published/**`,
+# `test_server/games.json` and `_ci/typekit-mirror/**`), and nothing here writes to R2 or to
+# production.
+#
+# WEB FONTS come from the Typekit mirror in R2 once it exists (scripts/current-games/lib/typekit.mjs):
+# the plan pins its hash, and fails, naming the "Typekit mirror" workflow, when the mirror lacks
+# the runtime's kit. With no mirror uploaded yet the renders load from Adobe as players do, and the
+# plan says so in a warning and the report. Players keep loading from Adobe either way.
+#
+# A run whose jobs GitHub failed to START (no runner acquired, or one lost before the job's body
+# ran) is re-run once by current-games-retry.yml; a job that ran and failed never is, a failed
+# set-up step included.
 #
 # SECRETS (Settings → Secrets and variables → Actions; the owner adds them, values never committed):
 #   PIPELINE_GAMES_URL                   https://<launcher>/api/pipeline/games
@@ -30,6 +40,22 @@
 # diff by scripts/current-games/lib/touched.mjs, which computes the closure from the workspace graph;
 # an undecidable diff renders everything). A PR from a fork gets no secrets and no write token, so
 # it does not run at all.
+#
+# AS REPUBLISHED: a published snapshot carries its own copies of the built-in component defs it uses,
+# so a change to `builtinComponents.ts` reaches a game only at its next publish, and the as-published
+# render cannot see it. When the diff touches what the bake reads from the repo (touched.mjs's
+# `republish` verdict) and the two builds' built-in defs differ (`builtins.json`, written beside each
+# runtime build), the plan also renders each AFFECTED game — one whose snapshot ships a copy of a def
+# the sides disagree on — a second time with those copies replaced by each side's built-ins, exactly
+# as a republish would bake it, as a row of its own ("as republished"). An untouched PR never pays
+# for it.
+#
+# NOISE CALIBRATION: a manual run (workflow_dispatch) with `self_compare` renders the chosen ref
+# against ITSELF — two independent renders of the same runtime, the main-vs-main measurement a
+# calibration needs — and always renders, as there is no change to read. It posts its own status
+# context, `current-games/self-compare`, so it never stands in for a branch's real comparison.
+# Without `self_compare`, `base` names the commit to compare against instead of main's merge-base:
+# a seeded proof renders a deliberate change against the commit before it.
 
 name: Current games
 
@@ -37,9 +63,25 @@ on:
   pull_request:
   push:
     branches-ignore: [main]
+  workflow_dispatch:
+    inputs:
+      self_compare:
+        description: Render the ref against itself (noise calibration)
+        type: boolean
+        default: true
+      log_images:
+        description: Print a crop of every changed screen into the log (base64 PNG)
+        type: boolean
+        default: false
+      base:
+        description: Without self_compare, compare against this commit instead of main's merge-base
+        type: string
+        default: ''
 
 concurrency:
-  group: current-games-${{ github.event_name }}-${{ github.event.pull_request.head.sha || github.sha }}
+  # A manual run's inputs are part of its group: a self-compare and a seeded proof on one commit post
+  # different contexts, and cancelling one would leave its context pending.
+  group: current-games-${{ github.event_name }}-${{ github.event.pull_request.head.sha || github.sha }}-${{ inputs.self_compare && 'self-compare' || inputs.base }}
   cancel-in-progress: true
 
 permissions:
@@ -51,15 +93,18 @@ env:
   # The commit the status is posted on: the PR head, not its merge commit.
   STATUS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-  SHARDS: 6
+  # A manual run never stands in for a branch's comparison: it posts a context of its own.
+  STATUS_CONTEXT: ${{ github.event_name != 'workflow_dispatch' && 'current-games' || inputs.self_compare && 'current-games/self-compare' || 'current-games/manual' }}
+  SHARDS: 20
 
 jobs:
   prepare:
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
       render: ${{ steps.owner.outputs.run == 'true' && steps.touched.outputs.render || 'false' }}
+      republish: ${{ steps.owner.outputs.run == 'true' && steps.touched.outputs.republish || 'false' }}
       base: ${{ steps.base.outputs.sha }}
     steps:
       - name: Stand down for a branch with an open PR
@@ -93,15 +138,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state=pending \
-            -f context=current-games -f description='Rendering every live game…' -f target_url="$RUN_URL"
+            -f context="$STATUS_CONTEXT" -f description='Rendering every live game…' -f target_url="$RUN_URL"
 
       # The base the renders compare against is also the base the diff is read from, so a push of a
       # docs commit onto an engine branch still renders: the branch as a whole is what main would get.
       - name: Pick the base commit
         id: base
         if: steps.owner.outputs.run == 'true'
+        env:
+          SELF_COMPARE: ${{ inputs.self_compare }}
+          BASE: ${{ inputs.base }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+          if [ "$SELF_COMPARE" = true ]; then
+            sha="$(git rev-parse HEAD)"
+          elif [ -n "$BASE" ]; then
+            sha="$(git rev-parse -q --verify "$BASE^{commit}")" || { echo "::error::base '$BASE' is not a commit"; exit 1; }
+          elif [ "$GITHUB_EVENT_NAME" = pull_request ]; then
             sha="$(git rev-parse HEAD^1)"
           else
             git fetch -q --no-tags origin main
@@ -115,7 +167,15 @@ jobs:
         if: steps.owner.outputs.run == 'true'
         env:
           BASE: ${{ steps.base.outputs.sha }}
-        run: node scripts/current-games/lib/touched.mjs --base "$BASE"
+          SELF_COMPARE: ${{ inputs.self_compare }}
+        run: |
+          # A self-compare has no change to read: rendering the ref against itself is the point (its
+          # two builds' built-ins are the same, so it plans no republished render).
+          if [ "$SELF_COMPARE" = true ]; then
+            printf 'render=true\nrepublish=true\ndescription=self-compare: every live game renders\n' >> "$GITHUB_OUTPUT"
+          else
+            node scripts/current-games/lib/touched.mjs --base "$BASE"
+          fi
 
       - name: Nothing to render
         if: steps.owner.outputs.run == 'true' && steps.touched.outputs.render != 'true'
@@ -125,7 +185,7 @@ jobs:
         run: |
           echo "### current-games: ${DESCRIPTION}" >> "$GITHUB_STEP_SUMMARY"
           gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state=success \
-            -f context=current-games -f description="${DESCRIPTION:0:140}" -f target_url="$RUN_URL"
+            -f context="$STATUS_CONTEXT" -f description="${DESCRIPTION:0:140}" -f target_url="$RUN_URL"
 
       - name: Check the secrets
         id: secrets
@@ -151,7 +211,7 @@ jobs:
             # whose error names every one.
             description="Missing secret(s):$missing"
             [ "${#description}" -le 140 ] || description="Missing $(wc -w <<<"$missing") secrets (named in the run log):$missing"
-            gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state=failure -f context=current-games \
+            gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state=failure -f context="$STATUS_CONTEXT" \
               -f description="${description:0:140}" -f target_url="$RUN_URL"
             exit 1
           fi
@@ -163,7 +223,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state=failure -f context=current-games \
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state=failure -f context="$STATUS_CONTEXT" \
             -f description='The harness could not start: see the prepare job' -f target_url="$RUN_URL"
 
   build:
@@ -185,13 +245,14 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # Main's runtime never changes for a SHA, so it is built once per base commit.
+      # Main's runtime never changes for a SHA, so it is built once per base commit. The key's
+      # version changes when a build gains a file (v2: `builtins.json`), so an older entry rebuilds.
       - name: Restore the base runtime
         id: base-cache
         uses: actions/cache@v4
         with:
           path: .cache/current-games/runtimes/${{ needs.prepare.outputs.base }}
-          key: current-games-runtime-${{ needs.prepare.outputs.base }}
+          key: current-games-runtime-v2-${{ needs.prepare.outputs.base }}
 
       - name: Build the base runtime
         run: |
@@ -208,8 +269,30 @@ jobs:
             console.log(buildWorkingTree(process.cwd(), '.cache/current-games'));
           "
 
-      - name: Run every game type's gates once
-        run: node scripts/current-games/lib/gates.mjs .cache/current-games/gates.json
+      # The plan is made ONCE, here: every shard renders the same snapshot of each game even if it
+      # is republished mid-run, and the same split of render units. The two builds' built-ins decide
+      # the republished units, so the plan is made after the builds.
+      - name: Plan the run
+        env:
+          CURRENT_GAMES_REPUBLISH: ${{ needs.prepare.outputs.republish == 'true' && '1' || '0' }}
+          PIPELINE_GAMES_URL: ${{ secrets.PIPELINE_GAMES_URL }}
+          PIPELINE_CI_TOKEN: ${{ secrets.PIPELINE_CI_TOKEN }}
+          CURRENT_GAMES_R2_ENDPOINT: ${{ secrets.CURRENT_GAMES_R2_ENDPOINT }}
+          CURRENT_GAMES_R2_BUCKET: ${{ secrets.CURRENT_GAMES_R2_BUCKET }}
+          CURRENT_GAMES_R2_ACCESS_KEY_ID: ${{ secrets.CURRENT_GAMES_R2_ACCESS_KEY_ID }}
+          CURRENT_GAMES_R2_SECRET_ACCESS_KEY: ${{ secrets.CURRENT_GAMES_R2_SECRET_ACCESS_KEY }}
+          CURRENT_GAMES_HEAD_SHA: ${{ env.STATUS_SHA }}
+          CURRENT_GAMES_BASE_SHA: ${{ needs.prepare.outputs.base }}
+        run: |
+          set +e
+          mkdir -p .cache/current-games/plan
+          node scripts/current-games/run.mjs --phase plan --out .cache/current-games/plan-out \
+            --base-build ".cache/current-games/runtimes/${{ needs.prepare.outputs.base }}" \
+            --head-build .cache/current-games/runtimes/working-tree
+          code=$?
+          # The plan and, beside it, the published engines' built-ins the shards classify with.
+          cp -r .cache/current-games/plan-out/. .cache/current-games/plan/
+          exit $code
 
       - uses: actions/upload-artifact@v4
         with:
@@ -218,8 +301,48 @@ jobs:
           path: |
             .cache/current-games/runtimes/${{ needs.prepare.outputs.base }}
             .cache/current-games/runtimes/working-tree
-            .cache/current-games/gates.json
 
+      # Also after a failure: a plan that could not be made says why (a missing secret, …).
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: current-games-plan
+          retention-days: 1
+          path: .cache/current-games/plan
+
+  # Every game type's `check:*` gates, once, beside the build: they test the branch's source, not
+  # its runtime, so they need not hold up the renders.
+  gates:
+    needs: prepare
+    if: needs.prepare.outputs.render == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run every game type's gates once
+        run: |
+          mkdir -p gates
+          node scripts/current-games/lib/gates.mjs gates/gates.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: current-games-gates
+          retention-days: 1
+          path: gates
+
+  # A render unit is one side of one scenario of one game; the plan balances the units across the
+  # shards by their measured cost (`costs.json`). One at a time: SwiftShader already uses every
+  # core, so a second lane only halved each unit's speed (measured 2026-10-05).
   render:
     needs: [prepare, build]
     runs-on: ubuntu-latest
@@ -227,7 +350,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
     steps:
       - uses: actions/checkout@v7
 
@@ -255,52 +378,69 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: current-games-runtimes
-          path: .cache/current-games
+          path: .cache/current-games/runtimes
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: current-games-plan
+          path: .cache/current-games/plan
 
       - name: Render shard ${{ matrix.shard }}/${{ env.SHARDS }}
         env:
-          PIPELINE_GAMES_URL: ${{ secrets.PIPELINE_GAMES_URL }}
-          PIPELINE_CI_TOKEN: ${{ secrets.PIPELINE_CI_TOKEN }}
           CURRENT_GAMES_R2_ENDPOINT: ${{ secrets.CURRENT_GAMES_R2_ENDPOINT }}
           CURRENT_GAMES_R2_BUCKET: ${{ secrets.CURRENT_GAMES_R2_BUCKET }}
           CURRENT_GAMES_R2_ACCESS_KEY_ID: ${{ secrets.CURRENT_GAMES_R2_ACCESS_KEY_ID }}
           CURRENT_GAMES_R2_SECRET_ACCESS_KEY: ${{ secrets.CURRENT_GAMES_R2_SECRET_ACCESS_KEY }}
           CURRENT_GAMES_HEAD_SHA: ${{ env.STATUS_SHA }}
-        # A failing game is reported by the merge job; this step fails only when it cannot run.
+          CURRENT_GAMES_LOG_IMAGES: ${{ inputs.log_images && '1' || '' }}
+        # A unit that fails still writes its result (the compare names it); a non-zero exit is the
+        # runner itself dying.
         run: |
-          set +e
-          node scripts/current-games/run.mjs \
+          node scripts/current-games/run.mjs --phase render \
+            --plan .cache/current-games/plan/plan.json --shard "${{ matrix.shard }}/$SHARDS" \
             --base-build ".cache/current-games/runtimes/${{ needs.prepare.outputs.base }}" \
             --head-build .cache/current-games/runtimes/working-tree \
-            --gates-file .cache/current-games/gates.json \
-            --shard "${{ matrix.shard }}/$SHARDS" --out "report-part-${{ matrix.shard }}"
-          code=$?
-          # 0 = every game passed, 1 = a game failed (the report says which). Any exit without a
-          # report is the runner itself dying, which must fail here rather than pass as "ran".
-          if [ ! -f "report-part-${{ matrix.shard }}/report.json" ]; then
-            echo "::error title=current-games shard ${{ matrix.shard }}::run.mjs exited $code without writing a report"
-            exit 1
-          fi
-          [ "$code" -le 1 ] || exit "$code"
+            --jobs 1 --out "part-${{ matrix.shard }}"
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: current-games-part-${{ matrix.shard }}
-          retention-days: 3
-          path: report-part-${{ matrix.shard }}
+          retention-days: 1
+          path: part-${{ matrix.shard }}
 
   report:
-    needs: [prepare, build, render]
+    needs: [prepare, build, gates, render]
     if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.render == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      statuses: write
+      actions: write # deletes the per-shard captures once compared
     steps:
       - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
 
       - uses: actions/setup-node@v7
         with:
           node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: current-games-plan
+          path: plan
+
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: current-games-gates
+          path: gates
 
       - uses: actions/download-artifact@v4
         continue-on-error: true
@@ -311,7 +451,7 @@ jobs:
       # GitHub masks secrets in the LOG only: the step summary, the report artifact and the status
       # description publish their text as given, so every one goes through lib/redact.mjs, which
       # needs the values to name them.
-      - name: Merge the shards
+      - name: Compare
         env:
           PIPELINE_GAMES_URL: ${{ secrets.PIPELINE_GAMES_URL }}
           PIPELINE_CI_TOKEN: ${{ secrets.PIPELINE_CI_TOKEN }}
@@ -319,11 +459,17 @@ jobs:
           CURRENT_GAMES_R2_BUCKET: ${{ secrets.CURRENT_GAMES_R2_BUCKET }}
           CURRENT_GAMES_R2_ACCESS_KEY_ID: ${{ secrets.CURRENT_GAMES_R2_ACCESS_KEY_ID }}
           CURRENT_GAMES_R2_SECRET_ACCESS_KEY: ${{ secrets.CURRENT_GAMES_R2_SECRET_ACCESS_KEY }}
+          CURRENT_GAMES_HEAD_SHA: ${{ env.STATUS_SHA }}
+          CURRENT_GAMES_LOG_IMAGES: ${{ inputs.log_images && '1' || '' }}
         run: |
           set +e
-          node scripts/current-games/lib/report.mjs merge report \
-            $(for i in $(seq 1 "$SHARDS"); do echo "parts/current-games-part-$i"; done)
-          { echo '### Current games'; tail -n 1 report/summary.txt || echo 'no report was merged'; } \
+          units="$(ls -d parts/current-games-part-* 2>/dev/null | paste -sd, -)"
+          node scripts/current-games/run.mjs --phase compare --plan plan/plan.json \
+            --gates-file gates/gates.json --units "$units" --out report
+          # Every non-pass row's cause, for reading without downloading the artifact.
+          cat report/digest.txt 2>/dev/null
+          cat report/crops.txt 2>/dev/null
+          { echo '### Current games'; tail -n 1 report/summary.txt || echo 'no report was made'; } \
             >> "$GITHUB_STEP_SUMMARY"
           true
 
@@ -331,7 +477,7 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           name: current-games-report
-          retention-days: 14
+          retention-days: 3
           path: report
 
       - name: Post the status
@@ -339,6 +485,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           BUILD: ${{ needs.build.result }}
+          GATES: ${{ needs.gates.result }}
+          RENDER: ${{ needs.render.result }}
           PIPELINE_GAMES_URL: ${{ secrets.PIPELINE_GAMES_URL }}
           PIPELINE_CI_TOKEN: ${{ secrets.PIPELINE_CI_TOKEN }}
           CURRENT_GAMES_R2_ENDPOINT: ${{ secrets.CURRENT_GAMES_R2_ENDPOINT }}
@@ -348,9 +496,28 @@ jobs:
         run: |
           verdict="$(head -n 1 report/summary.txt 2>/dev/null || echo fail)"
           line="$(tail -n 1 report/summary.txt 2>/dev/null || echo 'no report')"
-          [ "$BUILD" = success ] || { verdict=fail; line="the runtime build or the gates job failed"; }
+          aborted="$(node -p "require('./report/report.json').aborted ?? ''" 2>/dev/null || true)"
+          if [ "$BUILD" != success ]; then
+            verdict=fail; line="${aborted:-the runtime build failed}"
+          elif [ "$GATES" != success ]; then
+            verdict=fail; line="the gates job did not finish"
+          elif [ "$RENDER" != success ]; then
+            verdict=fail; line="a render shard died ($line)"
+          fi
           line="$(printf %s "$line" | node scripts/current-games/lib/redact.mjs)" || line='the report could not be redacted'
           state=failure; [ "$verdict" = pass ] && state=success
-          gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state="$state" -f context=current-games \
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state="$state" -f context="$STATUS_CONTEXT" \
             -f description="${line:0:139}" -f target_url="$RUN_URL"
           [ "$state" = success ]
+
+      # The parts hold every capture of every live game, and the repository is public: once every
+      # shard's units are compared they are deleted, not left for their day. A run with a shard
+      # missing keeps them, so "Re-run failed jobs" can finish the compare.
+      - name: Delete the per-shard captures
+        if: ${{ !cancelled() && needs.render.result == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
+            --jq '.artifacts[] | select(.name | startswith("current-games-part-")) | .id' |
+            while read -r id; do gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id"; done

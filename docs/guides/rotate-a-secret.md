@@ -103,7 +103,7 @@ first row. Pattern: **overlap**.
 **Consumers.** The INFRA row names them in short. In full:
 
 - **Railway:** the launcher, atlas-tool, sheet-tool and Invisible-test-Server.
-- **GitHub Actions repo secrets:** `runtime-release.yml` and `runtime-rollback.yml` both read and
+- **GitHub Actions repo secrets:** `runtime-release.yml`, `runtime-rollback.yml` and `typekit-mirror.yml` (the current-games Typekit mirror refresh) read and
   write R2 with them. Miss these and the next engine merge fails its release. Online games stay on
   the old engine, and the "Runtime release failed: lines" issue opens.
 - **Owner-run scripts,** from the owner's shell:

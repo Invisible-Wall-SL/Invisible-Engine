@@ -71,12 +71,17 @@ export function compareScreens(beforePng, afterPng, tolerance) {
 	const blocksX = Math.ceil(a.width / size);
 	const blocks = new Uint32Array(blocksX * Math.ceil(a.height / size));
 	let diffPixels = 0;
+	const box = { x0: a.width, y0: a.height, x1: -1, y1: -1 };
 	for (let y = 0; y < a.height; y++)
 		for (let x = 0; x < a.width; x++) {
 			const o = (y * a.width + x) * 4;
 			const red = diff.data[o] === 255 && diff.data[o + 1] === 0 && diff.data[o + 2] === 0;
 			if (!red || inMask(masks, x, y)) continue;
 			diffPixels++;
+			box.x0 = Math.min(box.x0, x);
+			box.y0 = Math.min(box.y0, y);
+			box.x1 = Math.max(box.x1, x);
+			box.y1 = Math.max(box.y1, y);
 			blocks[Math.floor(y / size) * blocksX + Math.floor(x / size)]++;
 		}
 	// An edge block is cut short by the image border: its ratio is over its real area.
@@ -89,6 +94,30 @@ export function compareScreens(beforePng, afterPng, tolerance) {
 				(Math.min(size, a.height - by * size) || size);
 			maxBlockRatio = Math.max(maxBlockRatio, blocks[by * blocksX + bx] / area);
 		}
+	// Where the difference is, 64×24 cells: ' ' none, '.' under 1 % of the cell, ':' under 10 %, '#'
+	// more — readable in a job log, where the images are not.
+	const [hx, hy] = [64, 24];
+	const heat = new Uint32Array(hx * hy);
+	if (diffPixels)
+		for (let y = 0; y < a.height; y++)
+			for (let x = 0; x < a.width; x++) {
+				const o = (y * a.width + x) * 4;
+				if (
+					diff.data[o] === 255 &&
+					diff.data[o + 1] === 0 &&
+					diff.data[o + 2] === 0 &&
+					!inMask(masks, x, y)
+				)
+					heat[Math.floor((y * hy) / a.height) * hx + Math.floor((x * hx) / a.width)]++;
+			}
+	const cell = (a.width / hx) * (a.height / hy);
+	const heatmap = diffPixels
+		? Array.from({ length: hy }, (_, r) =>
+				Array.from(heat.subarray(r * hx, r * hx + hx), (n) =>
+					!n ? ' ' : n / cell < 0.01 ? '.' : n / cell < 0.1 ? ':' : '#',
+				).join(''),
+			)
+		: undefined;
 	const diffRatio = diffPixels / total;
 	const pass = diffRatio <= tolerance.maxDiffRatio && maxBlockRatio <= tolerance.blockThreshold;
 	return {
@@ -101,6 +130,8 @@ export function compareScreens(beforePng, afterPng, tolerance) {
 		diffPixels,
 		diffRatio,
 		maxBlockRatio,
+		box: diffPixels ? box : undefined,
+		heatmap,
 		diffPng: diffPixels ? PNG.sync.write(diff) : undefined,
 		diffHash: diffPixels ? pairHash(a, b) : undefined,
 	};
@@ -108,3 +139,35 @@ export function compareScreens(beforePng, afterPng, tolerance) {
 
 /** Byte-identical captures need no decode. */
 export const identical = (a, b) => a.equals(b);
+
+/**
+ * A `w`×`h` window of before / after / diff around the densest part of a difference, as PNGs —
+ * small enough to print into a job log as base64 when the artifact cannot be fetched.
+ */
+export function cropAround(beforePng, afterPng, diffPng, w = 256, h = 128) {
+	const imgs = [beforePng, afterPng, diffPng].map((b) => PNG.sync.read(b));
+	const d = imgs[2];
+	// Half-overlapping windows, the last one flush with the far edge so no row or column is missed.
+	const starts = (size, win) => {
+		const out = [];
+		for (let p = 0; p + win < size; p += win / 2) out.push(p);
+		return [...out, Math.max(0, size - win)];
+	};
+	let best = { n: -1, x: 0, y: 0 };
+	for (const y of starts(d.height, h))
+		for (const x of starts(d.width, w)) {
+			let n = 0;
+			for (let yy = y; yy < y + h; yy++)
+				for (let xx = x; xx < x + w; xx++) {
+					const o = (yy * d.width + xx) * 4;
+					if (d.data[o] === 255 && d.data[o + 1] === 0 && d.data[o + 2] === 0) n++;
+				}
+			if (n > best.n) best = { n, x, y };
+		}
+	const crop = (img) => {
+		const c = new PNG({ width: w, height: h });
+		PNG.bitblt(img, c, best.x, best.y, w, h, 0, 0);
+		return PNG.sync.write(c).toString('base64');
+	};
+	return { x: best.x, y: best.y, w, h, images: imgs.map(crop) };
+}

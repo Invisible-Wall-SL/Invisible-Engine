@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import type { JSONValue, Sql } from 'postgres';
+import type { Sql } from 'postgres';
+import { log } from './log.ts';
 import type { Checkpoint, RunState, RunStatus, RunStep } from './runState.ts';
 import { checkpointSettings } from './runState.ts';
 
@@ -11,9 +12,12 @@ import { checkpointSettings } from './runState.ts';
  * - the claim stores a token unique to THAT claim (`<workerId>#<uuid>`) as `lease_holder`, so a
  *   second claim of the same run by the same process — its sweep re-claiming a run whose first
  *   driver stalled — is a different holder, not the same one twice;
- * - every later write (**renew**, **writeState**, **release**) is conditional on `lease_holder` still
- *   being that token AND `lease_until` still in the future. A driver that stalled past its lease
- *   finds its write refused (another claim may hold the run by then) and must drop the run.
+ * - every later write is conditional on `lease_holder` still being that token AND `lease_until`
+ *   still in the future: **renew** here, and every state write through `withLease` (`store.ts`),
+ *   which checks both in the transaction that writes. A driver that stalled past its lease finds its
+ *   write refused (another claim may hold the run by then) and must drop the run;
+ * - a claim ends with **release**, or with **defer** after a failed drive, which keeps the token and
+ *   pushes `lease_until` out, so nobody claims the run before the retry delay has passed.
  *
  * Time is always the database's `now()`, never this process's clock, so workers on machines whose
  * clocks disagree still agree on whether a lease has expired.
@@ -23,8 +27,6 @@ export const LEASE_MS = 60_000;
 
 /** Statuses no worker drives again. */
 const ENDED: readonly RunStatus[] = ['stopped', 'failed', 'handed_off'];
-/** Statuses a worker keeps driving with no new event: there is work in flight. */
-const ACTIVE: readonly RunStatus[] = ['running', 'stopping'];
 /** Event kinds that need the worker to act: the owner's rows and finished GPU jobs. */
 export const WAKING_KINDS = [
 	'owner_message',
@@ -63,24 +65,44 @@ const toClaimed = (row: RunRow): ClaimedRun => ({
 /** A constant list as one text parameter, split server-side: `= any(string_to_array(…))`. */
 const list = (values: readonly string[]) => values.join(',');
 
-/** A run `c` that needs driving and that no live lease holds. */
+/**
+ * A run `c` that has work and that no live lease holds. Work is an unhandled waking event, or — in a
+ * `running` run — an agent whose last message wants a model call (the user's) or tool results (an
+ * assistant turn with calls). A run with neither — waiting on the owner or on a GPU job, paused,
+ * stopping until its jobs finish — is never claimed, so it costs nothing between wakes. An ended
+ * run is claimed only to settle a `job_done` that landed as it ended, so the job is still billed.
+ */
 const claimable = (sql: Sql) => sql`
-	c.status <> all(string_to_array(${list(ENDED)}, ','))
-	and (c.lease_until is null or c.lease_until < now())
+	(c.lease_until is null or c.lease_until < now())
 	and (
-		c.status = any(string_to_array(${list(ACTIVE)}, ','))
-		or exists (
+		exists (
 			select 1 from director_events e
 			where e.run_id = c.id
 				and e.handled_at is null
-				and e.kind = any(string_to_array(${list(WAKING_KINDS)}, ','))
+				and (
+					(c.status <> all(string_to_array(${list(ENDED)}, ','))
+						and e.kind = any(string_to_array(${list(WAKING_KINDS)}, ',')))
+					or e.kind = 'job_done'
+				)
+		)
+		or (
+			c.status = 'running'
+			and exists (
+				select 1 from director_messages m
+				where m.run_id = c.id
+					and m.seq = (
+						select max(l.seq) from director_messages l
+						where l.run_id = c.id and l.agent = m.agent
+					)
+					and (m.role = 'user' or m.content_json @> '[{"type":"tool_use"}]'::jsonb)
+			)
 		)
 	)`;
 
 /**
- * Claim one run that needs driving — active, or with an unhandled waking event — and whose lease is
- * free or expired. `runId` narrows it to that run (a `director_wake` NOTIFY names one). Null when
- * there is nothing to claim, or every candidate is locked by a worker claiming it right now.
+ * Claim one run that has work (see `claimable`) and whose lease is free or expired. `runId` narrows
+ * it to that run (a `director_wake` NOTIFY names one). Null when there is nothing to claim, or every
+ * candidate is locked by a worker claiming it right now.
  */
 export async function claimRun(
 	sql: Sql,
@@ -101,6 +123,23 @@ export async function claimRun(
 		)
 		returning r.id, r.status, r.step, r.waiting_on, r.checkpoints_json, r.lease_holder`;
 	return rows[0] ? toClaimed(rows[0]) : null;
+}
+
+/**
+ * Whether the run tables answer, without claiming anything: the columns a claim reads, and no rows.
+ * What `/healthz` asks while no wake loop sweeps (a secret unset at boot). A database that answers
+ * but whose schema is behind fails here too, as a sweep would.
+ */
+export async function probeRunTables(sql: Sql): Promise<boolean> {
+	try {
+		await sql`
+			select id, status, step, waiting_on, checkpoints_json, updated_at, lease_holder, lease_until
+			from director_runs where false`;
+		return true;
+	} catch (error) {
+		log.warn('run tables do not answer', { code: (error as { code?: unknown }).code ?? null });
+		return false;
+	}
 }
 
 /** Extend a lease this claim still holds. False = it was lost: stop driving the run. */
@@ -130,60 +169,20 @@ export async function releaseLease(
 	return rows.length === 1;
 }
 
-/** An event a transition appends alongside its `run_status` row, in the same transaction. */
-export interface WriteEvent {
-	agent: string;
-	kind: string;
-	tool: string | null;
-	payload: unknown;
-}
-
 /**
- * Persist a transition `transition()` returned, with its `run_status` event and any `events` that
- * belong to it (a checkpoint opening with its content), as one transaction — only if this claim
- * still holds a live lease AND the run is still in `from` (so a stale view of the run can never
- * overwrite a newer one). False = nothing was written; drop the run.
+ * End a claim whose drive failed without giving the run back yet: the token stays, and the lease
+ * now runs out after `ms`, so no claim, this process's included, takes the run before then. The
+ * delay lives in the run row, so every worker honours it.
  */
-export async function writeState(
+export async function deferLease(
 	sql: Sql,
 	run: Pick<ClaimedRun, 'id' | 'lease'>,
-	from: RunState,
-	to: RunState,
-	cause: string,
-	events: WriteEvent[] = [],
+	ms: number,
 ): Promise<boolean> {
-	return sql.begin(async (tx) => {
-		const rows = await tx`
-			update director_runs
-			set status = ${to.status}, step = ${to.step}, waiting_on = ${to.waitingOn}, updated_at = now()
-			where id = ${run.id}
-				and lease_holder = ${run.lease} and lease_until > now()
-				and status = ${from.status} and step = ${from.step}
-				and waiting_on is not distinct from ${from.waitingOn}
-			returning id`;
-		if (rows.length !== 1) return false;
-		await tx`
-			insert into director_events (run_id, agent, kind, payload_json)
-			values (${run.id}, 'worker', 'run_status', ${tx.json({
-				from: { status: from.status, step: from.step, waitingOn: from.waitingOn },
-				to: { status: to.status, step: to.step, waitingOn: to.waitingOn },
-				cause,
-			})})`;
-		for (const event of events) {
-			await tx`
-				insert into director_events (run_id, agent, kind, tool, payload_json)
-				values (${run.id}, ${event.agent}, ${event.kind}, ${event.tool}, ${tx.json(
-					event.payload as JSONValue,
-				)})`;
-		}
-		return true;
-	});
-}
-
-/** Runs the sweep would claim now — for the skeleton's log line. */
-export async function countClaimable(sql: Sql): Promise<number> {
-	const [row] = await sql<{ n: number }[]>`
-		select count(*)::int as n from director_runs c
-		where ${claimable(sql)}`;
-	return row.n;
+	const rows = await sql`
+		update director_runs
+		set lease_until = now() + ${ms} * interval '1 millisecond'
+		where id = ${run.id} and lease_holder = ${run.lease}
+		returning id`;
+	return rows.length === 1;
 }

@@ -1,0 +1,75 @@
+# Director worker against a real Postgres (PLAN 3.3–3.7).
+#
+# The lease, the turn loop's resume, the unique spend `request_id` and the `director_wake` trigger are
+# database behaviour, so they are proved on a real Postgres 16 with the launcher's own migrations —
+# the same migrations production applies at boot. The model and the launcher are fakes: no
+# Anthropic call, no secret.
+#
+#   prove:lease  two workers never drive one run (it needs an empty `director_runs`, so it runs first)
+#   prove:turns  kill mid-turn → no duplicate op; idle → zero calls; refusal and cap pause; spend
+#                written once; checkpoints; job_done; the NOTIFY trigger
+#
+# Not a required check, so it runs only when something it covers changes.
+name: Director worker
+
+on:
+  pull_request:
+    paths:
+      - 'services/director-worker/**'
+      - 'packages/director-costs/**'
+      - 'apps/launcher-api/drizzle/**'
+      - 'apps/launcher-api/src/lib/server/db/schema.ts'
+      - '.github/workflows/director-worker.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'services/director-worker/**'
+      - 'packages/director-costs/**'
+      - 'apps/launcher-api/drizzle/**'
+      - 'apps/launcher-api/src/lib/server/db/schema.ts'
+      - '.github/workflows/director-worker.yml'
+
+concurrency:
+  group: director-worker-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  postgres-proofs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          # A throwaway container reachable only from this job: no password to leak.
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: director_proof
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres@localhost:5432/director_proof
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: typecheck
+        run: pnpm --filter director-worker build
+
+      - name: launcher migrations
+        run: pnpm --filter launcher-api db:migrate
+
+      - name: prove the lease
+        run: pnpm --filter director-worker prove:lease
+
+      - name: prove the turn loop
+        run: pnpm --filter director-worker prove:turns

@@ -8,7 +8,7 @@ import {
 	writtenVersions,
 	type DocBase,
 } from '../atlasClient';
-import { JOB_REF, callbackFor, readJobView, startAtlasJobWatch } from '../atlasJobs';
+import { JOB_REF, callbackFor, readJobView, runpodUsageOf, startAtlasJobWatch } from '../atlasJobs';
 import { getAtlasJob, insertAtlasJob } from '../store';
 
 /**
@@ -581,7 +581,7 @@ export const jobStatus = defineOp<{ jobRef: string }, Record<string, unknown>>({
 	tool: 'comfyui',
 	name: 'job_status',
 	description:
-		"One look at a queued render's progress (jobs done of total, variants so far). Do not call it in a loop: the run is told when the job is done.",
+		"One look at a queued render's progress (jobs done of total, variants so far, GPU seconds spent). Do not call it in a loop: the run is told when the job is done.",
 	inputSchema: {
 		type: 'object',
 		properties: { jobRef: { type: 'string', pattern: JOB_REF } },
@@ -606,6 +606,7 @@ export const jobStatus = defineOp<{ jobRef: string }, Record<string, unknown>>({
 			done: jobs.filter((j) => j.status === 'done').length,
 			failed: jobs.filter((j) => ['failed', 'lost', 'abandoned'].includes(j.status)).length,
 			variants: view.variants ?? [],
+			runpod: runpodUsageOf(view.runpod),
 			error: view.error ?? null,
 		};
 	},

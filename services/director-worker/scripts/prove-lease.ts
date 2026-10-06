@@ -9,9 +9,12 @@
  * SCRATCH DATABASE ONLY: it refuses to run when `director_runs` holds any row, and it installs a
  * logging trigger on `director_runs` for its duration.
  *
- * WORKERS drivers on separate connections (two per worker id, as two loops of one process) race over RUNS runs (fewer runs than workers, so most claims
- * contend) for DURATION_MS. Each claims with the real `claimRun`, then makes a few guarded writes
- * with the real `writeState` / `renewLease`, sometimes stalling past its lease first, and releases.
+ * WORKERS drivers on separate connections (two per worker id, as two loops of one process) race
+ * over RUNS runs (fewer runs than workers, so most claims contend) for DURATION_MS. Each run has a
+ * pending conversation, so it always has work to claim. Each driver claims with the real `claimRun`,
+ * then makes a few guarded writes — a state write through the real `withLease` + `applyTransition`,
+ * as the turn loop makes them, or a `renewLease` — sometimes stalling past its lease first, and
+ * releases.
  * A trigger logs every change to a run's lease or state in the SAME transaction, under the row lock,
  * so the log's order per run is the order the writes really happened in. The proof replays it:
  *
@@ -21,9 +24,10 @@
  *  3. the contention and the stalls really happened (claims were refused, leases were stolen,
  *     stale writes were refused), so the run exercised the paths it claims to prove.
  */
-import postgres from 'postgres';
-import { claimRun, releaseLease, renewLease, writeState } from '../src/lease.ts';
+import postgres, { type Sql } from 'postgres';
+import { claimRun, releaseLease, renewLease, type ClaimedRun } from '../src/lease.ts';
 import { checkpointSettings, type RunState } from '../src/runState.ts';
+import { applyTransition, LeaseLost, withLease } from '../src/store.ts';
 
 const WORKERS = 8;
 const RUNS = 3;
@@ -57,6 +61,18 @@ const running: RunState = {
 	checkpoints: checkpointSettings({}),
 };
 
+/** A state write as the turn loop makes it; false when the lease was lost and nothing was written. */
+const guardedWrite = (sql: Sql, claimed: ClaimedRun) =>
+	withLease(sql, claimed, (tx) =>
+		applyTransition(tx, claimed.id, running, running, 'lease proof'),
+	).then(
+		() => true,
+		(error: unknown) => {
+			if (error instanceof LeaseLost) return false;
+			throw error;
+		},
+	);
+
 /**
  * One driver: claim, drive a few guarded steps (sometimes stalling past the lease), release. Drivers
  * share a worker id in pairs, as two loops of one process would (the sweep and a NOTIFY): the lease
@@ -89,9 +105,7 @@ async function worker(index: number, deadline: number) {
 				}
 				// A same-state write still bumps updated_at under the guard: a "drive" step.
 				held =
-					i % 2 === 0
-						? await writeState(sql, claimed, running, running, 'lease proof')
-						: await renewLease(sql, claimed, LEASE_MS);
+					i % 2 === 0 ? await guardedWrite(sql, claimed) : await renewLease(sql, claimed, LEASE_MS);
 				if (held) stats.writes++;
 				else stats.refusedWrites++;
 			}
@@ -176,6 +190,9 @@ try {
 	for (const id of runIds) {
 		await admin`insert into director_runs (id, project_key, template_project_key, owner_user_id, status, step)
 			values (${id}, ${`${id}-p`}, 'template', ${userId}, 'running', 'regions')`;
+		// A pending conversation: work the run is claimed for, which these drivers never consume.
+		await admin`insert into director_messages (run_id, agent, seq, role, content_json)
+			values (${id}, 'coordinator', 0, 'user', ${admin.json([{ type: 'text', text: 'work' }])})`;
 	}
 
 	const deadline = Date.now() + DURATION_MS;

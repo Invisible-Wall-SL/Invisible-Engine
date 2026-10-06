@@ -56,6 +56,45 @@ const fail = (status: number, error: string, message: string, extra: object = {}
 	body: { error, message, ...extra },
 });
 
+/** One served op as the worker turns it into a model tool: what it is and what it takes. */
+export interface CatalogEntry {
+	id: string;
+	description: string;
+	inputSchema: AdapterOp['inputSchema'];
+	write: boolean;
+	agents: readonly string[];
+}
+
+/**
+ * `GET /api/director/adapter`: every op this launcher serves, for the worker, which offers an agent
+ * only the ops listed here (OPEN_QUESTIONS #1044) and never starts one whose tools are missing.
+ * Same service token as a call; sorted by id so the answer is byte-stable between deploys that
+ * change nothing, which keeps the agents' cached prompt prefix valid.
+ */
+export function catalogAnswer(
+	authorization: string | null,
+	registry: ReadonlyMap<string, AdapterOp>,
+	configuredToken: string,
+): AdapterAnswer {
+	if (!configuredToken) {
+		return fail(503, 'disabled', 'DIRECTOR_SERVICE_TOKEN is not set on the launcher.');
+	}
+	const presented = bearerToken(authorization);
+	if (presented === undefined || !tokensMatch(presented, configuredToken)) {
+		return fail(401, 'unauthorized', 'Unauthorized');
+	}
+	const ops: CatalogEntry[] = [...registry.entries()]
+		.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+		.map(([id, op]) => ({
+			id,
+			description: op.description,
+			inputSchema: op.inputSchema,
+			write: op.write,
+			agents: op.agents,
+		}));
+	return { status: 200, body: { ops } };
+}
+
 const OP_ID_TAIL = /^[a-z0-9_-]{1,64}:\d{1,9}$/;
 
 interface CallBody {

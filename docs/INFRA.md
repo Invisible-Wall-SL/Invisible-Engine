@@ -79,7 +79,7 @@ GitHub Releases during install. Two consequences for a deploy:
 | **atlas-tool**            | `/services/atlas-tool/**`, `/services/_shared/**`           |
 | **sheet-tool**            | `/services/sheet-tool/**`, `/services/_shared/**`           |
 | **Invisible-test-Server** | `/services/test-server/**`, `/scripts/mock-rgs-server*.mjs` |
-| **director-worker**       | `/services/director-worker/**`                              |
+| **director-worker**       | `/services/director-worker/**`, `/packages/director-costs/**` |
 
 Each list is exactly what that service's Dockerfile `COPY`s, so **a new build input needs a new watch path** or the service will quietly keep deploying the old code. The **launcher** deliberately has none: it builds from the whole pnpm workspace (`apps/`, `packages/`, the lockfile, turbo config), and a partial list there would strand a real change.
 
@@ -167,34 +167,40 @@ The launcher now applies pending Drizzle migrations **itself**, at server startu
 `services/director-worker` drives Invisible Director runs (ADR-0001, ADR-0003). It loads the runtime
 agent definitions (`agents/*.md`, validated against `pricing.json` and the tool catalogue
 `src/tools.ts`), claims runs from `director_runs` with a lease (`SELECT … FOR UPDATE SKIP LOCKED`),
-and wakes on Postgres `LISTEN director_wake` plus a 60 s sweep. As of PLAN 3.3 it only logs what it
-would act on; the turn loop that calls the Anthropic API is PLAN 3.4.
+and wakes on Postgres `LISTEN director_wake` (an AFTER INSERT trigger on `director_events` sends it
+for owner rows and `job_done`, migration 0025) plus a 60 s sweep. It then drives the run's turn loop
+(PLAN 3.4–3.7): one streamed Anthropic call per agent turn, the history stored after every turn, the
+adapters called on the launcher with a deterministic `opId`, one `director_spend` row per response
+(unique `request_id`), and a pause before any call or GPU submit that would reach the run's cap. It
+offers an agent only the ops `GET /api/director/adapter` lists, and claims only runs with work, so a
+run waiting on the owner or a GPU job costs nothing. A drive that fails (the launcher or the API
+unreachable, an adapter answer that leaves an op's outcome unknown) changes nothing and holds the
+run back 15 s, doubling to 2 min; after 6 failures in a row the run pauses with an `error` event
+naming the cause. On SIGTERM it stops claiming and gives turns in flight 20 s to finish.
 
 - **Database:** the launcher's Postgres. The worker owns no migrations: its tables are in the
   launcher schema, and the **launcher applies them at boot**. So on a push that adds a Director
   migration the worker can come up first and see the old schema. Its sweep fails, `/healthz` is
   503, and with the healthcheck set Railway keeps the previous worker. Redeploy the worker once the
   launcher is up if it stays stuck.
-- **Image:** `node:22-slim` with the service folder only, `npm install --omit=dev` of its two pinned
-  runtime dependencies (`postgres` and `@anthropic-ai/sdk`; the service has no workspace deps), and
-  the TypeScript run directly with `--experimental-strip-types`. Locally:
-  `pnpm --filter director-worker start`; `pnpm --filter director-worker build` is the typecheck.
-- **Launcher adapters:** the worker reaches the platform only through
-  `POST {LAUNCHER_URL}/api/director/adapter/<tool>/<op>` with `DIRECTOR_SERVICE_TOKEN`
-  (`src/adapters.ts`). `LAUNCHER_URL` has a code default (`https://app.invisiblewall.org`); set it
-  only for a staging launcher. Image work (the model-sized copy of a mockup, its dominant colours,
-  the crops) runs in the launcher's `mockups.*` adapters, so the worker image carries no image
-  library.
+- **Image:** `node:22-slim` with the service folder, `npm install --omit=dev` of its npm
+  dependencies (`postgres`, `@anthropic-ai/sdk`), and the one workspace package it uses,
+  `packages/director-costs`, copied to `/packages` and linked into `node_modules` (Node strips
+  types only outside `node_modules`). The TypeScript runs directly with `--experimental-strip-types`. Locally: `pnpm --filter director-worker start`;
+  `pnpm --filter director-worker build` is the typecheck.
 - **Replicas:** safe to scale. The lease keeps one driver per run, and
-  `pnpm --filter director-worker prove:lease` proves it against a scratch database.
+  `pnpm --filter director-worker prove:lease` proves it against a scratch database;
+  `prove:turns` proves the turn loop there with a fake model. Both run in the `Director worker`
+  workflow on a `postgres:16` service container.
 
 ### Live run stream (PLAN 3.8, 2026-10-05)
 
 The Live run page tails a run through `GET /director/[runId]/events`, Server-Sent Events from
-`director_events` after `Last-Event-ID`. Migration `0024_director_events_notify` adds an
-`AFTER INSERT` trigger that NOTIFYs the `director_events` channel with `<run_id>:<id>`; the launcher
-holds ONE `LISTEN` connection per process (`eventListener.ts`) and fans it out to the open streams.
-Every stream sends a heartbeat comment every 15 s and re-reads the run's table rows on each
+`director_events` after `Last-Event-ID`. Migration `0026_director_events_notify` adds an
+`AFTER INSERT` trigger that NOTIFYs the `director_events` channel with `<run_id>:<id>` for EVERY row
+(the worker's own `director_wake` trigger, migration 0025, fires only for the kinds it acts on); the
+launcher holds ONE `LISTEN` connection per process (`eventListener.ts`) and fans it out to the open
+streams. Every stream sends a heartbeat comment every 15 s and re-reads the run's rows on each
 heartbeat, so a NOTIFY lost while the listen connection reconnected costs at most 15 s.
 
 **Railway's edge and a long response** ([Specs & Limits](https://docs.railway.com/networking/public-networking/specs-and-limits)):
@@ -222,14 +228,19 @@ Then, on the new service:
 
 1. **Name** `director-worker`. **Settings → Source:** Root Directory = repo root (empty), branch
    `main`. **Build:** Builder = Dockerfile, Dockerfile Path = `services/director-worker/Dockerfile`.
-   **Watch Paths:** `/services/director-worker/**`.
+   **Watch Paths:** `/services/director-worker/**` and `/packages/director-costs/**`.
    - Root Directory **must stay empty**. With `/services/director-worker` there, the build fails with
      `"/services/director-worker/pricing.json": not found`, because every `COPY` path in the
      Dockerfile starts at the repo root.
    - If the build log shows **Railpack** instead of Docker steps, the Builder isn't set to
      Dockerfile yet.
 2. **Networking:** no public domain. Nothing calls the worker; it only calls out.
-3. **Deploy → Healthcheck Path** `/healthz`, timeout 120 s.
+3. **Deploy → Healthcheck Path** `/healthz`, timeout 120 s. It is liveness: 200 when the process is
+   up and the run tables answer, whether or not runs are driven. `"driving": false` in its body
+   means `ANTHROPIC_API_KEY` or `DIRECTOR_SERVICE_TOKEN` is unset, so the worker claims nothing
+   until both are set; that is a state to read, not a failed deploy. 503 is reserved for no
+   `DATABASE_URL` or run tables that do not answer (a schema still behind), so Railway then keeps
+   the previous worker.
 4. **Variables:** `DATABASE_URL` = `${{Postgres.DATABASE_URL}}`; `DIRECTOR_SERVICE_TOKEN` = the
    launcher's value (or make it a Shared Variable both reference); `ANTHROPIC_API_KEY` = the agents'
    key. Then **Apply changes / Deploy**.
@@ -237,8 +248,12 @@ Then, on the new service:
    and the service's commit status reads `Success -`.
    - `/healthz` 503 with **`"msg":"DATABASE_URL is unset"`** in the log means `DATABASE_URL` is
      missing. If `${{Postgres…}}` doesn't autocomplete, the service is in the wrong project.
-   - `/healthz` 503 with **`"msg":"sweep failed"`** means the launcher hasn't applied migration 0022
-     yet. Redeploy the launcher, then the worker.
+   - `/healthz` 503 with **`"msg":"sweep failed"`** (or **`"run tables do not answer"`** while not
+     driving) means the launcher hasn't applied the Director migrations yet. Redeploy the launcher,
+     then the worker.
+   - `/healthz` 200 with **`"driving":false`** and **`"msg":"ANTHROPIC_API_KEY or
+     DIRECTOR_SERVICE_TOKEN is unset"`** in the log: the worker is up and idle. Set both
+     (`DIRECTOR_SERVICE_TOKEN` must equal the launcher's), then redeploy.
 
 ## ComfyUI tunnel (optional — a person's own GPU)
 
@@ -437,6 +452,13 @@ These were needed to get the artist's FLUX/PuLID blueprint running on a hand-bui
 - Key layout:
   - `test_server/games.json` + `test_server/<key>/…` — the test server's manifest and each desktop-built game's own bundle
   - `test_server/_runtime/lines@<version>/…` — one immutable online-engine release each; `test_server/_runtime/lines/current.json` is the pointer the test server serves (`releases.json` = history, `release.json` = the launcher's status stamp). Written only by the **Runtime release** Action, flipped by the **Runtime rollback** Action; see "Runtime releases" in [design/games-deploy](design/games-deploy.md). `games.invisiblewall.org/healthz` shows the served version; every runtime response carries `X-Runtime-Release`.
+  - `_ci/typekit-mirror/current.json` + `_ci/typekit-mirror/blobs/<sha256>` — the Typekit kit
+    (stylesheet, script, font files) the current-games harness renders with instead of asking
+    Adobe; players still load from `use.typekit.net`. Written only by the **Typekit mirror** Action
+    (`.github/workflows/typekit-mirror.yml`, the release's `R2_*` key; blobs are never overwritten,
+    the manifest is one write), read by the harness's read-only key. Private on purpose: Adobe's
+    fonts are licensed, so they are mirrored into this bucket and never into the public repo. How
+    and when to refresh: `docs/playtest/current-games.md` ("Typekit mirror").
   - `atlas/manifests/loader.json` — Svelte-era manifest (legacy path)
   - `spines/hotfruits/…` — spine assets
   - `atlas_maker/cloud/<project>/{manifests,input,output,deploy}/…` — the ported tool's store
@@ -482,7 +504,8 @@ code default, so the dashboard need not set it):
 - **Current-games harness (GitHub Actions secrets, `.github/workflows/current-games.yml`):**
   `PIPELINE_GAMES_URL` (the launcher's `/api/pipeline/games` URL), `PIPELINE_CI_TOKEN` (above), and
   an R2 API token with **Object Read only** on the bucket (R2 scopes tokens per bucket, not per key
-  prefix; the harness reads only `*/published/**` and `test_server/games.json`):
+  prefix; the harness reads only `*/published/**`, `test_server/games.json` and
+  `_ci/typekit-mirror/**`):
   `CURRENT_GAMES_R2_ENDPOINT`, `CURRENT_GAMES_R2_BUCKET`, `CURRENT_GAMES_R2_ACCESS_KEY_ID`,
   `CURRENT_GAMES_R2_SECRET_ACCESS_KEY`. Deliberately NOT the release's read-write `R2_*`: the harness
   never writes. A missing one fails the run and the `current-games` commit status, naming it. The
@@ -510,10 +533,11 @@ code default, so the dashboard need not set it):
 
 **Invisible Director worker** (`services/director-worker`, read in `src/env.ts`; ADR-0001):
 `DATABASE_URL` (reference the Postgres service's, `${{Postgres.DATABASE_URL}}` — the run tables live
-in the launcher's database and its migrations), `ANTHROPIC_API_KEY` (the agents' key; read but unused
-until the turn loop, PLAN 3.4, and never logged — the worker logs only `anthropicApiKeySet`),
-`DIRECTOR_SERVICE_TOKEN` (the launcher's value, for the adapter gate), `LAUNCHER_URL` (optional; the
-launcher the adapters are served by, default `https://app.invisiblewall.org`). `PORT` is injected by
+in the launcher's database and its migrations), `ANTHROPIC_API_KEY` (the agents' key, never logged —
+the worker logs only `anthropicApiKeySet`), `DIRECTOR_SERVICE_TOKEN` (the launcher's value, for the
+adapter gate and catalog), `DIRECTOR_LAUNCHER_URL` (optional; code default
+`https://app.invisiblewall.org`). Without the key or the token the worker claims no run and
+`/healthz` answers 200 with `"driving": false` (liveness, not readiness). `PORT` is injected by
 Railway. With `DATABASE_URL` unset the worker still boots but claims nothing and `/healthz` answers
 503 `db: unconfigured`. See "Invisible Director worker" below.
 
@@ -570,7 +594,7 @@ Railway. With `DATABASE_URL` unset the worker still boots but claims nothing and
 
 > **`ADDRESS_HEADER=x-forwarded-for` + `XFF_DEPTH=1` let the login throttle (B38) see real client IPs** — they default in `apps/launcher-api/scripts/start.mjs` (a dashboard value still wins, so the vars no longer need setting). They are read by `adapter-node` itself (not `env.ts`) so `getClientAddress()` parses the `X-Forwarded-For` Railway's edge adds instead of returning the proxy's address. `XFF_DEPTH=1` = one trusted hop (Railway's edge; `app.` is DNS-only on Cloudflare, so nothing else sits in front); raise it only if another proxy is added. Without them every request looks like one shared IP and the per-IP bucket collapses into a global counter. Railway also documents an `X-Real-IP` header with the client address. A local `node scripts/start.mjs` needs an `X-Forwarded-For` on login requests (or `ADDRESS_HEADER=` blank).
 
-**atlas-tool:** `COMFY_URL`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`, `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `COMFY_ORG_API_KEY` (optional, gpt_image). **atlas-tool also:** `COMFY_TRANSPORT` + `RUNPOD_ENDPOINT_ID` + `RUNPOD_API_KEY` (generation target — below), `ATLAS_PROJECT`, `ATLAS_OUTPUT_PREFIX`, `ATLAS_TOOL_SIGNING_SECRET`, `ATLAS_TOOL_SECRET` + `ATLAS_BLUEPRINT_SECRET` (legacy, until the cut-over), `ATLAS_STAGING`, `COMFY_CATALOG_URL` (optional — see the env table), `BLUEPRINT_AUTO_INSTALL_MODELS`, the `VIDEO_*` knobs below, `ATLAS_CALLBACK_SECRET` (optional — signs/verifies still-render completion callbacks; unset = every `/render` callback is refused, see [atlas-maker status](status/atlas-maker.md) 2026-10-04) and `STILL_RESUME_WINDOW_HOURS` (default 12 — how old an interrupted still render may be and still be resumed or have its callback redelivered). **sheet-tool:** `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `SHEET_PROJECT`, `SHEET_STAGING`. **atlas-tool + sheet-tool:** `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_SAMPLE_RATE` (optional, error reporting; release = Railway's own `RAILWAY_GIT_COMMIT_SHA`), `IW_LEGACY_TOOL_KEY_UNTIL` (optional, moves or ends the legacy-handoff window). **sheet-tool also:** `SHEET_TOOL_SIGNING_SECRET`, `SHEET_TOOL_SECRET` (legacy, until the cut-over).
+**atlas-tool:** `COMFY_URL`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`, `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `COMFY_ORG_API_KEY` (optional, gpt_image). **atlas-tool also:** `COMFY_TRANSPORT` + `RUNPOD_ENDPOINT_ID` + `RUNPOD_API_KEY` (generation target — below), `ATLAS_PROJECT`, `ATLAS_OUTPUT_PREFIX`, `ATLAS_TOOL_SIGNING_SECRET`, `ATLAS_TOOL_SECRET` + `ATLAS_BLUEPRINT_SECRET` (legacy, until the cut-over), `ATLAS_STAGING`, `COMFY_CATALOG_URL` (optional — see the env table), `BLUEPRINT_AUTO_INSTALL_MODELS`, the `VIDEO_*` knobs below, `ATLAS_CALLBACK_SECRET` (optional — signs/verifies still-render completion callbacks; unset = every `/render` callback is refused, see [atlas-maker status](status/atlas-maker.md) 2026-10-04), `STILL_RESUME_WINDOW_HOURS` (default 12 — how old an interrupted still render may be and still be resumed or have its callback redelivered) and `RUNPOD_ENDPOINT_GPU` (optional — the GPU the serverless endpoint runs on, spelled as `services/director-worker/pricing.json` prices it, e.g. `L40S (48 GB)`; RunPod's job status never names the card, so this is what a still render's reported time — execution plus delay, since RunPod bills the worker's uptime, cold start included — is billed by in the Director worker (ADR-0006); unset, the time is still reported with no card, nothing is billed, and the worker pauses the run before its next GPU submit until it is set — see [atlas-maker status](status/atlas-maker.md) 2026-10-05). **sheet-tool:** `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `SHEET_PROJECT`, `SHEET_STAGING`. **atlas-tool + sheet-tool:** `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_SAMPLE_RATE` (optional, error reporting; release = Railway's own `RAILWAY_GIT_COMMIT_SHA`), `IW_LEGACY_TOOL_KEY_UNTIL` (optional, moves or ends the legacy-handoff window). **sheet-tool also:** `SHEET_TOOL_SIGNING_SECRET`, `SHEET_TOOL_SECRET` (legacy, until the cut-over).
 
 > **The blueprint importers and the live settings refresh read node CONTRACTS the same way** (Flipbook video mode + the Atlas Maker's 🎛 Blueprint settings, via `POST /video/nodespecs` → `comfy_specs`): a node's full `/object_info` declaration — an input's min/max/step, a COMBO's option list — not only the model lists above, and **for the target the render will run on**: the Atlas Maker follows ⚙ _Run generation on_; a video render always runs on the service default (`COMFY_TRANSPORT`), so the Flipbook reads the pod's contracts in production. Same source rules as ⟳ (`comfy_catalog._probe_sources`): _RunPod_ = a pinned `COMFY_CATALOG_URL` or a discovered running pod, never `COMFY_URL`; _My computer_ = `COMFY_URL` only. Nothing answering is normal: the importer says so in the modal and types the setting from the baked value (no range, no list), the panels keep the list the blueprint was published with, and in between sits the target's catalog — **⟳ Refresh model lists also caches every published blueprint's select lists** for its target, so a blueprint's dropdown shows the last-seen pod list while no pod is running.
 
@@ -791,7 +815,7 @@ node scripts/sentry-sourcemaps.mjs runtime apps/lines/build --dry-run
 | --- | --- | --- |
 | `https://app.invisiblewall.org/api/health` | 200 `{"ok":true,"db":"ok","migrations":{"boot":"ok","schema":"current"}}` — Postgres answered (3s budget) and `max(created_at)` in `drizzle.__drizzle_migrations` reaches the newest journal entry this build ships. | 503 otherwise, with `db: down/unconfigured` or `schema: behind/unknown`. Public, so it names states only — no error text. `boot` is reported, not gated on (a boot that failed only because the DB blinked must not stay red once the schema is current). |
 | `https://games.invisiblewall.org/healthz` | 200 `{"ok":true,…}`; **503 `"ok":false`** when it serves nothing because its boot read of R2 failed | the test server / online games host. `lastHydrate.succeeded: false` with `ok:true` = a later refresh failed and it still serves the previous games (publishes are not landing — see the log). |
-| director-worker `/healthz` (private; Railway's healthcheck) | 200 `{"ok":true,"agents":7,"db":"up","workerId":…}` — every agent definition loaded and validated, and the last Postgres round-trip (the `LISTEN director_wake` connect or the 60 s sweep) succeeded. | 503 with `db: down/unconfigured`. A definition that fails validation stops the boot outright, so a bad agent edit shows as a failed deploy, never as a worker running without it. |
+| director-worker `/healthz` (private; Railway's healthcheck) | 200 `{"ok":true,"agents":7,"db":"up","driving":true,"workerId":…}` — every agent definition loaded and validated, and the run tables answer (the last `LISTEN director_wake` connect or 60 s sweep while driving; a `where false` select of the claim columns while not). `"driving":false` = `ANTHROPIC_API_KEY` or `DIRECTOR_SERVICE_TOKEN` unset: up and idle, still 200. | 503 with `db: down/unconfigured` only. A definition that fails validation stops the boot outright, so a bad agent edit shows as a failed deploy, never as a worker running without it. |
 | `https://atlas-tool-production.up.railway.app/healthz`, `https://sheet-tool-production.up.railway.app/healthz` | 200 `{"ok":true,"service":…,"build":…,"commit":…}` | Gate-exempt (the only path that is); `commit` = the first 12 chars of `RAILWAY_GIT_COMMIT_SHA`, so it also answers "which commit is running?". |
 
 ### Uptime — Better Stack Uptime (free plan)
@@ -1026,7 +1050,7 @@ apply staged vars.
 
 | Secret | Lives in / read by | How to rotate | Redeploy after |
 | --- | --- | --- | --- |
-| **R2 access key** (`R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`, bucket `invisibleassets`) | Cloudflare R2 → API Tokens. Read by: Railway **launcher**, **atlas-tool**, **sheet-tool**, **Invisible-test-Server**; GitHub Actions repo secrets (`runtime-release.yml`, `runtime-rollback.yml` — miss those and every engine release fails); the owner's desktop launcher only if its Settings opt-in *Publish games straight to R2* (or the owner-only model/node/tunnel publishing, *Seed Atlas*, `build_and_publish.py`) is used; owner-run maintenance scripts (`apps/launcher-api/scripts/*`, `scripts/seed-comfyui-models.py`); a RunPod pod while `pull-models.py` / `push-models.py` runs. Full consumer list: [rotate-a-secret](guides/rotate-a-secret.md). | Create a new token scoped to `invisibleassets` (read+write), switch every consumer, then delete the old token. | Each Railway service → Apply changes / Deploy; update the two Actions secrets; re-enter it in the owner's launcher via *R2 credentials…*. Since launcher v1.0.56 no publisher desktop needs it — ☁ Publish goes through the portal (`api/launcher/game-upload`), and a desktop still holding the old key falls back to the portal on its first rejected publish. |
+| **R2 access key** (`R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`, bucket `invisibleassets`) | Cloudflare R2 → API Tokens. Read by: Railway **launcher**, **atlas-tool**, **sheet-tool**, **Invisible-test-Server**; GitHub Actions repo secrets (`runtime-release.yml`, `runtime-rollback.yml` — miss those and every engine release fails; `typekit-mirror.yml`); the owner's desktop launcher only if its Settings opt-in *Publish games straight to R2* (or the owner-only model/node/tunnel publishing, *Seed Atlas*, `build_and_publish.py`) is used; owner-run maintenance scripts (`apps/launcher-api/scripts/*`, `scripts/seed-comfyui-models.py`); a RunPod pod while `pull-models.py` / `push-models.py` runs. Full consumer list: [rotate-a-secret](guides/rotate-a-secret.md). | Create a new token scoped to `invisibleassets` (read+write), switch every consumer, then delete the old token. | Each Railway service → Apply changes / Deploy; update the two Actions secrets; re-enter it in the owner's launcher via *R2 credentials…*. Since launcher v1.0.56 no publisher desktop needs it — ☁ Publish goes through the portal (`api/launcher/game-upload`), and a desktop still holding the old key falls back to the portal on its first rejected publish. |
 | **Postgres password** | Inside `DATABASE_URL` on the **launcher** (and `BACKUP_DATABASE_URL` if it holds that role — see the backup row). | Railway Postgres service → Variables → regenerate credentials (or `ALTER USER … WITH PASSWORD …`). | Launcher → Apply changes / Deploy; `/api/health` must read `db: ok`. |
 | **CF Access service token** (`CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET`) | Cloudflare Zero Trust → Access → Service Auth (the token in front of `comfy.invisiblewall.org`). Read by **atlas-tool**. | Rotate/regenerate the service token, or create a new one, allow it in the Access policy, then delete the old. | atlas-tool → Apply changes / Deploy. Verify with `curl -H "CF-Access-Client-Id: …" -H "CF-Access-Client-Secret: …" https://comfy.invisiblewall.org/system_stats`. |
 | **Tool signing secrets** (`ATLAS_TOOL_SIGNING_SECRET`, `SHEET_TOOL_SIGNING_SECRET`) | Railway Shared Variables → launcher + the one tool each. | New random value (see "Tool launch tokens"); set the tool side, then the launcher. | Both services. Everyone is signed out of that tool and reopens it from the launcher. |

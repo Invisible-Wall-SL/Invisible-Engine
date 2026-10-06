@@ -2,6 +2,7 @@ import { error, json } from '@sveltejs/kit';
 import { headObject } from '$lib/server/r2';
 import { irigDocProblem } from '$lib/server/riggerIrig';
 import { irigTarget, scopeMismatch, writeIrig } from '$lib/server/riggerIrigWrite';
+import { stampSavedBy } from '$lib/server/savedBy';
 import { gate } from '$lib/server/toolScope';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
@@ -82,7 +83,9 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	}
 
 	const baseEtag = writeBaseEtagJson(body);
-	const res = await writeIrig(clientKey, projectKey, target, JSON.stringify(doc), baseEtag);
+	// A person's save is not Director's: drop the stamp a Director rebind left on the rig.
+	const saved = JSON.stringify(stampSavedBy(doc as object, undefined));
+	const res = await writeIrig(clientKey, projectKey, target, saved, baseEtag);
 	if (!res.ok) return res.response;
 	return json({
 		ok: true,

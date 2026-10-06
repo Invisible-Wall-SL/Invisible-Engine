@@ -3,17 +3,22 @@
 	"perMTok": {
 		"claude-opus-5-5": { "input": 4, "output": 20 },
 		"claude-sonnet-5-5": { "input": 2, "output": 10 },
-		"claude-haiku-4-5-20251001": { "input": 1, "output": 5 }
+		"claude-haiku-4-5-20251001": { "input": 1, "output": 5 },
+		"claude-opus-5": { "input": 5, "output": 25 },
+		"claude-opus-4-8": { "input": 5, "output": 25 },
+		"claude-sonnet-5": { "input": 2, "output": 10 }
 	},
+	"fallbackNote": "claude-opus-5, claude-opus-4-8 and claude-sonnet-5 are priced only because the server-side refusal fallback can serve an agent's turn on them. No agent can run on them: src/model.ts has no request profile for them, so the worker refuses to boot with one.",
 	"cacheReadMultiplier": 0.1,
 	"cacheWriteMultiplier": 1.25,
 	"runpod": {
 		"placeholder": true,
-		"note": "PLACEHOLDER — the owner has not confirmed these. Replace them with the serverless endpoint's real $/s per GPU, then set placeholder to false.",
+		"note": "PLACEHOLDER — the owner has not confirmed these. Replace them with the serverless endpoint's real $/s per GPU and a measured seedSecondsPerRender, then set placeholder to false.",
 		"perSecondByGpu": {
 			"RTX 4090 (24 GB)": 0.00031,
 			"L40S (48 GB)": 0.00053,
 			"A100 (80 GB)": 0.00076
-		}
+		},
+		"seedSecondsPerRender": 600
 	}
 }

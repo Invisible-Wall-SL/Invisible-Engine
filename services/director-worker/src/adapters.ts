@@ -1,15 +1,13 @@
+import type { Launcher } from './launcher.ts';
+
 /**
- * The worker's client for the launcher's adapter gate (ADR-0002):
+ * The adapter gate as the worker's own code calls it (ADR-0002), over the same `Launcher` the turn
+ * loop uses: one op by `<tool>.<op>`, the run and the agent declared by the worker (never by model
+ * output), and a non-2xx answer raised as an error that carries the gate's `{ error, message }`.
  *
- *   POST {launcherUrl}/api/director/adapter/<tool>/<op>
- *     Authorization: Bearer <DIRECTOR_SERVICE_TOKEN>
- *     { runId, agent, opId?, input }
- *
- * `agent` is set by the worker from the definition it runs (or `worker` for its own code), never
- * from model output — the gate's allow-lists rely on that. A write names an `opId`
- * (`<runId>:<step>:<seq>`); replaying one returns the stored result, and reusing one with a
- * different input is a 409 the gate refuses, so a retry of the same step keeps its opId and a new
- * attempt takes a new one.
+ * A write names an `opId` (`<runId>:<step>:<seq>`); replaying one returns the stored result, and
+ * reusing one with a different input is a 409 the gate refuses, so a retry of the same step keeps
+ * its opId and a new attempt takes a new one.
  */
 
 export interface AdapterClient {
@@ -43,47 +41,35 @@ export class AdapterCallError extends Error {
 
 export const opIdFor = (runId: string, step: string, seq: number) => `${runId}:${step}:${seq}`;
 
-export function createAdapterClient(opts: {
-	launcherUrl: string;
-	token: string;
-	runId: string;
-	agent: string;
-	fetchImpl?: typeof fetch;
-}): AdapterClient {
-	const doFetch = opts.fetchImpl ?? fetch;
+export function adapterClient(
+	launcher: Launcher,
+	run: { runId: string; agent: string },
+	signal: AbortSignal = new AbortController().signal,
+): AdapterClient {
 	return {
-		async call<T>(tool: string, op: string, input: unknown, callOpts?: { opId?: string }) {
-			const res = await doFetch(`${opts.launcherUrl}/api/director/adapter/${tool}/${op}`, {
-				method: 'POST',
-				headers: {
-					authorization: `Bearer ${opts.token}`,
-					'content-type': 'application/json',
-				},
-				body: JSON.stringify({
-					runId: opts.runId,
-					agent: opts.agent,
-					...(callOpts?.opId ? { opId: callOpts.opId } : {}),
+		async call<T>(tool: string, op: string, input: unknown, opts?: { opId?: string }) {
+			const res = await launcher.call(
+				`${tool}.${op}`,
+				{
+					runId: run.runId,
+					agent: run.agent,
+					...(opts?.opId ? { opId: opts.opId } : {}),
 					input,
-				}),
-			});
-			let body: unknown = null;
-			try {
-				body = await res.json();
-			} catch {
-				body = null;
-			}
-			if (!res.ok) {
-				const b = (body ?? {}) as { error?: unknown; message?: unknown };
+				},
+				signal,
+			);
+			if (res.status < 200 || res.status >= 300) {
+				const b = (res.body ?? {}) as { error?: unknown; message?: unknown };
 				throw new AdapterCallError(
 					tool,
 					op,
 					res.status,
 					typeof b.error === 'string' ? b.error : 'http_error',
-					typeof b.message === 'string' ? b.message : res.statusText,
-					body,
+					typeof b.message === 'string' ? b.message : `The adapter answered ${res.status}.`,
+					res.body,
 				);
 			}
-			return body as T;
+			return res.body as T;
 		},
 	};
 }

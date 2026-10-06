@@ -2757,7 +2757,15 @@ export function componentOfferedForKind(
  */
 export function mergeBuiltinCodedParams(def: ComponentDef): ComponentDef {
 	const builtin = BUILTIN_COMPONENTS.find((b) => b.id === def.id);
-	if (!builtin) return def;
+	return builtin ? mergeCodedParams(def, builtin) : def;
+}
+
+/**
+ * {@link mergeBuiltinCodedParams} against a GIVEN coded twin instead of this build's
+ * `BUILTIN_COMPONENTS` — the same merge for a caller that holds another engine's built-ins (the
+ * current-games harness, which bakes a game as a republish on each side of a PR would).
+ */
+export function mergeCodedParams(def: ComponentDef, builtin: ComponentDef): ComponentDef {
 	const have = new Set((def.params ?? []).map((p) => p.key));
 	const missing = (builtin.params ?? []).filter((p) => !have.has(p.key));
 	// Also refresh each node's `paramBindings` from the coded twin (additive, author wins),

@@ -130,3 +130,14 @@ A GitHub Actions workflow `current-games.yml`, triggered on every pipeline branc
   workspace graph (`apps/lines` and every package it reaches), plus the root build files, what the
   gates read and the harness itself (`scripts/current-games/lib/touched.mjs`). A diff that cannot
   be decided renders everything.
+- **2026-10-05, proposed (card 1G):** a published snapshot carries its own copies of the built-in
+  component defs it uses, so a change to them reaches a game only at its next publish and the
+  as-published render cannot see it. When a change touches what the publish bake reads from the repo
+  (the built-in defs and what they import) and the two runtimes' built-ins differ, the harness also
+  renders each affected game **as republished** — its snapshot with the baked copies of built-ins
+  replaced by each side's built-ins, the closure re-resolved as the bake does — as a row of its own,
+  compared the same way and failing the run the same way. A baked def is a copy of a built-in when
+  it equals, by content, the built-in of the engine the game was published with (the commit its
+  pointer records; a game whose engine is unknown fails closed); the rest is the author's and is
+  loaded as the bake loads it, with each side's coded params merged in under a built-in's id. A
+  change that cannot alter what a publish bakes never pays for it.

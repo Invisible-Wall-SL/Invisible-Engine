@@ -3119,6 +3119,38 @@ def runpod_endpoint_id() -> str:
     return (os.environ.get("RUNPOD_ENDPOINT_ID") or "").strip()
 
 
+def runpod_endpoint_gpu() -> str:
+    """The GPU the serverless endpoint runs on, named as `pricing.json` prices it
+    (`RUNPOD_ENDPOINT_GPU`, e.g. `L40S (48 GB)`). RunPod's job status names the worker,
+    never its card, so this is what a job's time is billed by (ADR-0006). Unset, a
+    job's time is still reported — only unpriced."""
+    return (os.environ.get("RUNPOD_ENDPOINT_GPU") or "").strip()
+
+
+def runpod_usage(st: dict) -> dict | None:
+    """What a settled job cost in time, off its `/status` read. RunPod bills a worker's
+    uptime, cold start included, so the billed `seconds` are `executionTime` PLUS
+    `delayTime` (both ms): counting the queue wait too over-counts, which is accepted —
+    under-counting is what would let a run past its cap. The two parts are kept as
+    `executionSeconds` / `delaySeconds`, with the `workerId`. None when the read
+    carries no execution time — a job that never ran, or a record RunPod dropped."""
+    if not isinstance(st, dict):
+        return None
+    ms = st.get("executionTime")
+    if isinstance(ms, bool) or not isinstance(ms, (int, float)) or ms < 0:
+        return None
+    delay = st.get("delayTime")
+    delay_ms = (float(delay) if isinstance(delay, (int, float))
+                and not isinstance(delay, bool) and delay >= 0 else 0.0)
+    usage: dict = {"seconds": round((float(ms) + delay_ms) / 1000.0, 3),
+                   "executionSeconds": round(float(ms) / 1000.0, 3)}
+    if delay_ms:
+        usage["delaySeconds"] = round(delay_ms / 1000.0, 3)
+    if st.get("workerId"):
+        usage["workerId"] = str(st["workerId"])[:64]
+    return usage
+
+
 def job_endpoint(recorded: str, job_id: str) -> str:
     """The endpoint `job_id` lives on: the one recorded when it was submitted. A
     record from before endpoints were recorded has none, so the current
@@ -3198,12 +3230,17 @@ def _runpod_get(path: str, endpoint: str) -> dict:
         raise RuntimeError(f"Cannot reach RunPod endpoint at {base}{path}: {e}")
 
 
-def _runpod_run_and_wait(job: dict, region_name: str, on_submit=None) -> dict:
+def _runpod_run_and_wait(job: dict, region_name: str, on_submit=None,
+                         on_settle=None) -> dict:
     """Submit a job to /run and poll /status until it finishes. Returns the
     worker's `output` on COMPLETED; raises a clear RuntimeError on
     FAILED/CANCELLED/TIMED_OUT (with any error detail) and TimeoutError on the
     overall cap. IN_QUEUE / IN_PROGRESS mean keep waiting (cold starts load
     models to VRAM, so allow ~30 min).
+
+    `on_settle(status)` gets the read that ended the job — COMPLETED or not, since a
+    failed job's GPU time was spent too — so its `executionTime` can be recorded
+    for billing before the outcome is acted on. Bookkeeping: it never fails the job.
 
     An unreadable poll is not a failed job — the same lesson the video path had to
     learn twice. RunPod's status API returns the odd 500, and a job it has not
@@ -3295,6 +3332,11 @@ def _runpod_run_and_wait(job: dict, region_name: str, on_submit=None) -> dict:
         ever_read = True
         rechecks = 0
         recheck_at = 0.0
+        if status in ("COMPLETED", "FAILED", "CANCELLED", "TIMED_OUT") and on_settle:
+            try:
+                on_settle(st)
+            except Exception as e:  # noqa: BLE001 — a billing note must not lose a render
+                print(f"[still-jobs] could not note the usage of job {jid} ({e})", flush=True)
         if status == "COMPLETED":
             return st.get("output") or {}
         if status in ("FAILED", "CANCELLED", "TIMED_OUT"):
@@ -3347,24 +3389,34 @@ def _run_region_serverless(region: dict, wf: dict,
     images = _serverless_workflow_images(wf)
     job = {"input": {"workflow": wf, "images": images}}
     seq = next(_JOB_SEQ) if JOB_REF else 0
+    # The job's GPU time, noted off the status read that settled it: what the render's
+    # completion report bills by (still_jobs.runpod_summary), whether it was collected or not.
+    usage: dict = {}
 
     def _record(jid: str, eid: str) -> None:
         still_jobs.record_submitted(JOB_REF, seq, region=region["name"], job_id=jid,
-                                    endpoint=eid, payload=job, provenance=provenance)
+                                    endpoint=eid, gpu=runpod_endpoint_gpu(), payload=job,
+                                    provenance=provenance)
+
+    def _settle(st: dict) -> None:
+        usage.update(runpod_usage(st) or {})
 
     try:
         out = _runpod_run_and_wait(job, region["name"],
-                                   on_submit=_record if JOB_REF else None)
+                                   on_submit=_record if JOB_REF else None,
+                                   on_settle=_settle if JOB_REF else None)
         filename, blob = persist_serverless_output(
             region["name"], out, provenance=provenance,
             claim=(lambda name: still_jobs.claim_collect(JOB_REF, seq, name))
             if JOB_REF else None)
     except Exception as e:
         if JOB_REF:
-            still_jobs.record_settled(JOB_REF, seq, "failed", error=str(e))
+            still_jobs.record_settled(JOB_REF, seq, "failed", error=str(e),
+                                      usage=usage or None)
         raise
     if JOB_REF and filename:
-        still_jobs.record_settled(JOB_REF, seq, "done", variant=filename)
+        still_jobs.record_settled(JOB_REF, seq, "done", variant=filename,
+                                  usage=usage or None)
     return Image.open(io.BytesIO(blob)).convert("RGBA")
 
 

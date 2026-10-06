@@ -143,6 +143,12 @@ AND `bake-editor-doc.mjs`, or the effect is pruned as an orphan.
 
 ## Recent changes
 
+- 2026-10-05 — **Invisible Director can drive this tool.** Invisible Director's adapters (PLAN 2.6,
+  `apps/launcher-api/src/lib/server/director/ops/`) now read and write this tool's doc
+  (`symbols.get_map` / `symbols.set_state`: one symbol × state cell at a time, keeping its layers)
+  through its own storage module, under `If-Match`, stamping `saved_by` (`tool: 'director'`, the
+  agent, the run). A save without a stamp drops a carried one (`savedBy.ts`), so `saved_by` always
+  names the last save. The page is unchanged.
 - 2026-10-02 — **The page reads the Game Config add-on blocks** (Pots overlay Phase 5d). The kind's
   capabilities now take the config's add-ons (`$lib/addOns.ts`: `projectAddOns` for the
   `holdAndWin` / `potsOverlay` presence flags and the meter ids, `overlayTokenPots` for each overlay
