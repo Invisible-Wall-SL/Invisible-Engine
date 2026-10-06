@@ -4,7 +4,8 @@
 //
 //   node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/current-games/lib/republish.mjs \
 //     extract --source <checkout>/packages/engine-layout/src/lib/builtinComponents.ts --out <builtins.json>
-//   … variants --bundle <snapshot runtime.json> --base-builtins <json> --head-builtins <json> --out <dir>
+//   … variants --bundle <snapshot runtime.json> --base-builtins <json> --head-builtins <json> \
+//     --published-builtins <json> --out <dir>
 //
 // WHICH BAKED DEFS ARE REPLACED. A snapshot carries no provenance: `runtimeBundle.ts` resolves each
 // referenced id through project ◁ shared ◁ built-in and writes the def it found. The bake leaves a
@@ -13,26 +14,37 @@
 // drops a built-in's `capability`/`defaultInstanceParams` and reorders its fields, and an edit
 // changes its content. So a baked def equal (by content) to the built-in of the same id AS IT WAS
 // WHEN THE GAME WAS PUBLISHED is a copy of the built-in, and is replaced by each side's built-in;
-// every other def is the author's and is kept as baked. The published engine's built-ins come from
-// the engine commit the snapshot's pointer records (`builtins.mjs` extracts them from that commit);
-// when it is unknown, main's built-ins stand in, which misses a copy main has changed since the
-// publish. One set decides on both sides, so the two variants replace the same ids. The case this
-// cannot tell apart is recorded in docs/playtest/current-games.md: a shared-library save of an
-// unchanged built-in (replaced, though a republish would keep it).
+// every other def is the author's. The published engine's built-ins come from the engine commit
+// the snapshot's pointer records (`builtins.mjs` extracts them from that commit) and are REQUIRED:
+// without them a copy main has changed since the publish would read as the author's, so the plan
+// fails closed on a game whose engine it cannot tell (an error row, never a quiet pass). One set
+// decides on both sides, so the two variants replace the same ids. The cases this cannot tell
+// apart are recorded in docs/playtest/current-games.md § "As republished".
 //
-// WHAT A REPUBLISH DOES NEXT. The bake re-resolves the component CLOSURE — the instances the doc
-// places, the defs those nest and the components their `component`-kind params name — so a built-in
-// that newly nests another def ships it. The same `resolveComponentClosure` runs here, loading an
-// authored id from the snapshot and any other from the side's built-ins, seeded with every id the
-// snapshot shipped (the bake's config-assigned card ids among them). Pinned non-latest versions
-// (`componentVersions`) follow the same copy rule. Per-project param defaults stay as baked: they
-// are project data, which the harness does not read.
+// WHAT A REPUBLISH DOES NEXT. An authored def under a built-in's id is loaded through
+// `mergeBuiltinCodedParams` (`componentStorage.ts#loadComponent`): the side's built-in lends it the
+// coded params, node `paramBindings` and `standsFor` the author's frozen copy lacks. The same merge
+// (`mergeCodedParams`, against the side's built-ins) runs here, so a PR that adds a coded param to a
+// built-in changes what a republish bakes for every game that ships an edited copy of it, and the
+// row sees it. The bake then re-resolves the component CLOSURE — the instances the doc places, the
+// defs those nest and the components their `component`-kind params name — so a built-in that newly
+// nests another def ships it. The same `resolveComponentClosure` runs here, loading an authored id
+// from the snapshot and any other from the side's built-ins, seeded with every id the snapshot
+// shipped (the bake's config-assigned card ids among them). Pins follow `resolveReferencedDefs`: a
+// pin the latest def's version satisfies ships nothing; any other ships the exact pinned def — the
+// snapshot's authored one (merged like a latest load), else the side's built-in, which
+// `loadComponent` returns for a built-in at any version. Per-project param defaults stay as baked:
+// they are project data, which the harness does not read.
 
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { resolveComponentClosure } from '../../../packages/engine-layout/src/lib/collectComponentIds.ts';
+import { mergeCodedParams } from '../../../packages/engine-layout/src/lib/builtinComponents.ts';
+import {
+	collectComponentPins,
+	resolveComponentClosure,
+} from '../../../packages/engine-layout/src/lib/collectComponentIds.ts';
 import { canonical } from './builtins.mjs';
 
 /** `BUILTIN_COMPONENTS` of `source` (a `builtinComponents.ts`), keyed by id. */
@@ -59,23 +71,43 @@ export function classifyBaked(bundle, publishedBuiltins) {
 }
 
 /**
+ * An authored def as a republish on the side whose built-ins are `sideBuiltins` loads it: under a
+ * built-in's id, with that built-in's coded params, bindings and `standsFor` merged in, as
+ * `loadComponent` does through `mergeBuiltinCodedParams`; otherwise as it is.
+ */
+const bakeAuthored = (def, sideBuiltins) =>
+	sideBuiltins[def.id] ? mergeCodedParams(def, sideBuiltins[def.id]) : def;
+
+/**
  * `bundle` as a republish on the side whose built-ins are `sideBuiltins` would bake it: the copies
- * of the published engine's built-ins (`publishedBuiltins`) replaced, the closure re-resolved.
+ * of the published engine's built-ins (`publishedBuiltins`) replaced, the authored defs merged with
+ * the side's coded params, the closure and the pins re-resolved.
  */
 export async function republishWith(bundle, publishedBuiltins, sideBuiltins) {
 	const { copies, authored } = classifyBaked(bundle, publishedBuiltins);
-	const kept = Object.fromEntries(authored.map((id) => [id, bundle.componentDefs[id]]));
+	const kept = Object.fromEntries(
+		authored.map((id) => [id, bakeAuthored(bundle.componentDefs[id], sideBuiltins)]),
+	);
 	const load = (id) => kept[id] ?? sideBuiltins[id];
 	const nodes = (bundle.doc?.scenes ?? []).flatMap((scene) => scene.nodes ?? []);
 	const componentDefs = await resolveComponentClosure(nodes, load, {
 		extraSeedIds: Object.keys(bundle.componentDefs ?? {}),
 		defaultsFor: (id) => bundle.componentDefaults?.[id],
 	});
-	// A pinned copy of a built-in resolves the side's single coded def, as `loadComponent` does for
-	// a built-in at any version; the bake then drops a pin the latest def already satisfies.
-	const componentVersions = (bundle.componentVersions ?? [])
-		.map((def) => (isCopyOf(def, publishedBuiltins) ? sideBuiltins[def.id] : def))
-		.filter((def) => def && componentDefs[def.id]?.version !== def.version);
+	// `resolveReferencedDefs`: a pin the resolved def's version satisfies ships nothing; any other
+	// ships the exact pinned def — the snapshot's authored one at that version, else the built-in.
+	const componentVersions = [];
+	for (const pin of collectComponentPins(nodes)) {
+		if (componentDefs[pin.id]?.version === pin.version) continue;
+		const shipped = (bundle.componentVersions ?? []).find(
+			(def) => def.id === pin.id && def.version === pin.version,
+		);
+		const pinned =
+			shipped && !isCopyOf(shipped, publishedBuiltins)
+				? bakeAuthored(shipped, sideBuiltins)
+				: sideBuiltins[pin.id];
+		if (pinned) componentVersions.push(pinned);
+	}
 	const variant = { ...bundle, componentDefs };
 	delete variant.componentVersions;
 	if (componentVersions.length) variant.componentVersions = componentVersions;
@@ -84,17 +116,16 @@ export async function republishWith(bundle, publishedBuiltins, sideBuiltins) {
 
 /**
  * Both sides' republished variants of `bundle`, and what separates them: `changed` is every id whose
- * def the two variants disagree on (one side lacking it included); `affected` says whether rendering
- * the republished variant can show anything the as-published render cannot. `publishedBuiltins`
- * (the engine the game was published with) classifies the baked defs; main's stand in when it is
- * not known.
+ * def the two variants disagree on (one side lacking it included); `merged` the authored ids a
+ * side's coded-params merge altered; `affected` says whether rendering the republished variant can
+ * show anything the as-published render cannot. `publishedBuiltins` (the engine the game was
+ * published with) classifies the baked defs and is required.
  */
-export async function republish(
-	bundle,
-	baseBuiltins,
-	headBuiltins,
-	publishedBuiltins = baseBuiltins,
-) {
+export async function republish(bundle, baseBuiltins, headBuiltins, publishedBuiltins) {
+	if (!publishedBuiltins)
+		throw new Error(
+			"the built-ins of the engine the game was published with are required: without them a baked def cannot be told a copy from the author's",
+		);
 	const base = await republishWith(bundle, publishedBuiltins, baseBuiltins);
 	const head = await republishWith(bundle, publishedBuiltins, headBuiltins);
 	const ids = new Set([
@@ -107,6 +138,13 @@ export async function republish(
 				canonical(base.variant.componentDefs[id]) !== canonical(head.variant.componentDefs[id]),
 		)
 		.sort();
+	const merged = base.authored
+		.filter((id) =>
+			[base, head].some(
+				(side) => canonical(side.variant.componentDefs[id]) !== canonical(bundle.componentDefs[id]),
+			),
+		)
+		.sort();
 	const versionsChanged =
 		canonical(base.variant.componentVersions ?? []) !==
 		canonical(head.variant.componentVersions ?? []);
@@ -116,22 +154,20 @@ export async function republish(
 		meta: {
 			copies: base.copies,
 			authored: base.authored,
+			merged,
 			changed,
 			versionsChanged,
 			affected: changed.length > 0 || versionsChanged,
-			classifiedAgainst: publishedBuiltins === baseBuiltins ? 'main' : 'published',
 		},
 	};
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
 	const [command, ...rest] = process.argv.slice(2);
-	const opt = (name, required = true) => {
+	const opt = (name) => {
 		const i = rest.indexOf(name);
-		if (i < 0 || rest[i + 1] === undefined) {
-			if (!required) return undefined;
+		if (i < 0 || rest[i + 1] === undefined)
 			throw new Error(`${command}: ${name} <value> is required`);
-		}
 		return rest[i + 1];
 	};
 	const readJson = (file) => JSON.parse(readFileSync(file, 'utf8'));
@@ -142,15 +178,12 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
 		console.log(`${Object.keys(defs).length} built-in component def(s)`);
 	} else if (command === 'variants') {
 		const bundle = readJson(opt('--bundle'));
-		const base = readJson(opt('--base-builtins')).defs;
-		const head = readJson(opt('--head-builtins')).defs;
-		const publishedFile = opt('--published-builtins', false);
 		const out = opt('--out');
 		const made = await republish(
 			bundle,
-			base,
-			head,
-			publishedFile ? readJson(publishedFile).defs : base,
+			readJson(opt('--base-builtins')).defs,
+			readJson(opt('--head-builtins')).defs,
+			readJson(opt('--published-builtins')).defs,
 		);
 		for (const side of ['base', 'head']) {
 			mkdirSync(join(out, side), { recursive: true });
@@ -163,7 +196,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
 		);
 	} else {
 		console.error(
-			'usage: republish.mjs extract --source <ts> --out <json> | variants --bundle <json> --base-builtins <json> --head-builtins <json> [--published-builtins <json>] --out <dir>',
+			'usage: republish.mjs extract --source <ts> --out <json> | variants --bundle <json> --base-builtins <json> --head-builtins <json> --published-builtins <json> --out <dir>',
 		);
 		process.exit(2);
 	}

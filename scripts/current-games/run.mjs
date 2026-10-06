@@ -171,8 +171,8 @@ const variantsDir = (planned) =>
 
 /**
  * Both sides' republished variants of `planned`'s snapshot, from the two builds' built-ins, the
- * baked defs classified against `publishedBuiltinsFile` (the engine the game was published with)
- * when given.
+ * baked defs classified against `publishedBuiltinsFile` (the engine the game was published with,
+ * required: a game whose engine is unknown fails closed in the plan).
  */
 const makeVariants = (planned, bundleFile, runtimes, publishedBuiltinsFile) =>
 	republishVariants({
@@ -187,7 +187,8 @@ const makeVariants = (planned, bundleFile, runtimes, publishedBuiltinsFile) =>
  * The built-ins to tell `planned`'s baked copies by (`publishedBuiltinsFor` in `builtins.mjs`): an
  * engine's are extracted into `<out>/builtins/<sha>.json`, read from there now (`file`) and
  * recorded relative to the plan's folder (`stored`), which travels to the shards as the plan
- * artifact; a fixture's own is the absolute path it is, on both counts.
+ * artifact; a fixture's own is the absolute path it is, on both counts. An unknown engine comes
+ * back as `{ unknown }`, which `planRepublished` fails closed.
  */
 function publishedBuiltinsSource(planned) {
 	const found = publishedBuiltinsFor(planned, { builtinsDir: join(out, 'builtins'), cache });
@@ -195,6 +196,7 @@ function publishedBuiltinsSource(planned) {
 	if (found.file && !planned.game.local?.publishedBuiltins)
 		found.stored = relative(out, found.file);
 	if (found.note) found.note = redactText(found.note);
+	if (found.unknown) found.unknown = redactText(found.unknown);
 	return found;
 }
 

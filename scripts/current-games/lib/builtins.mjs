@@ -131,30 +131,28 @@ export function extractBuiltinsAt(sha, outFile, { repo = ROOT, cache } = {}) {
 /**
  * The built-ins to tell a planned game's baked copies by, as `{ file, note }`: a fixture's own
  * (`game.local.publishedBuiltins`), else the built-ins of the engine commit its pointer records
- * (`snapshot.engine.shortCommit`, extracted once into `<builtinsDir>/<sha>.json`), else no file —
- * main's stand in — with `note` saying which, for the report. A missing or unreadable engine never
- * fails the run: it narrows what the republished row can see, and the note says so.
+ * (`snapshot.engine.shortCommit`, extracted once into `<builtinsDir>/<sha>.json`), `note` saying
+ * which, for the report. When the pointer records no engine, the commit is not in this checkout or
+ * its built-ins cannot be read, the result is `{ unknown }` — the cause — and no file: the plan then
+ * fails that game closed (`planRepublished`), since against any other built-ins a copy main has
+ * changed since the publish would read as the author's and pass quietly.
  */
 export function publishedBuiltinsFor(planned, { builtinsDir, cache, repo = ROOT }) {
 	const { game, snapshot } = planned;
 	if (game.local?.publishedBuiltins)
 		return { file: game.local.publishedBuiltins, note: 'the built-ins the fixture was baked from' };
 	const engine = snapshot?.engine;
-	if (!engine?.shortCommit)
-		return { note: "main's built-ins, since the pointer records no engine for this snapshot" };
+	if (!engine?.shortCommit) return { unknown: 'the pointer records no engine for this snapshot' };
 	const sha = resolveCommit(engine.shortCommit, repo);
-	if (!sha)
-		return {
-			note: `main's built-ins, since engine ${engine.shortCommit} is not a commit in this checkout`,
-		};
+	if (!sha) return { unknown: `engine ${engine.shortCommit} is not a commit in this checkout` };
 	const file = join(builtinsDir, `${sha}.json`);
 	if (!existsSync(file)) {
 		try {
 			extractBuiltinsAt(sha, file, { repo, cache });
 		} catch (e) {
 			return {
-				note:
-					`main's built-ins, since the built-ins at engine ${engine.shortCommit} could not be read ` +
+				unknown:
+					`the built-ins at engine ${engine.shortCommit} could not be read ` +
 					`(${e.message.split('\n')[0].slice(0, 200)})`,
 			};
 		}
@@ -170,10 +168,11 @@ export function publishedBuiltinsFor(planned, { builtinsDir, cache, repo = ROOT 
 /**
  * Make both sides' republished variants of one snapshot under `outDir` (`base/runtime.json`,
  * `head/runtime.json`) and return the classification (`republish.json`): `copies` (baked defs that
- * are copies of the published engine's built-ins — `publishedBuiltinsFile`, else main's),
- * `authored` (kept as baked), `changed` (ids the two variants disagree on), `affected` and
- * `classifiedAgainst`. Deterministic in its inputs, so the plan and every render shard compute the
- * same variants.
+ * are copies of the published engine's built-ins, `publishedBuiltinsFile`, which is required),
+ * `authored` (kept, merged with each side's coded params where the id is a built-in's), `merged`
+ * (the authored ids that merge altered), `changed` (ids the two variants disagree on) and
+ * `affected`. Deterministic in its inputs, so the plan and every render shard compute the same
+ * variants.
  */
 export function republishVariants({
 	bundleFile,
@@ -182,6 +181,10 @@ export function republishVariants({
 	publishedBuiltinsFile,
 	outDir,
 }) {
+	if (!publishedBuiltinsFile)
+		throw new Error(
+			'the built-ins of the engine the game was published with are required to tell its copies',
+		);
 	mkdirSync(outDir, { recursive: true });
 	republishCli(ROOT, [
 		'variants',
@@ -191,7 +194,8 @@ export function republishVariants({
 		resolve(baseBuiltinsFile),
 		'--head-builtins',
 		resolve(headBuiltinsFile),
-		...(publishedBuiltinsFile ? ['--published-builtins', resolve(publishedBuiltinsFile)] : []),
+		'--published-builtins',
+		resolve(publishedBuiltinsFile),
 		'--out',
 		resolve(outDir),
 	]);

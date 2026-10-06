@@ -164,30 +164,40 @@ export async function makePlan({ games, manifest, only, scenarioIds }) {
  * its snapshot (`republishVariants` in `builtins.mjs`) from the `runtime.json` that
  * `bundleFor(entry)` fetched, classifying the baked defs against the built-ins
  * `publishedBuiltinsFor(entry)` names (`{ file, stored, note }`: the engine the game was published
- * with, or main's when unknown, `note` saying which; `file` is read now, `stored` — the same file
- * as the shards will find it, beside the plan — is what the entry records), and the game is
- * rendered a second time only when the two variants differ — a built-in the snapshot ships as a
- * copy changed between the sides.
- * Each entry records the classification (`entry.republished`: `copies`, `authored`, `changed`,
- * `affected`, `classifiedAgainst`, `publishedBuiltins`, `note`), and an entry whose variants could
- * not be made gets `status: 'error'`, which the compare turns into a failing row rather than a
- * silent gap. `reason` is kept on `plan.republish` for the report.
+ * with; `file` is read now, `stored` — the same file as the shards will find it, beside the plan —
+ * is what the entry records). A game whose published engine cannot be told (`{ unknown }`) FAILS
+ * CLOSED: its republished entry is an error, which the compare turns into a failing row, since
+ * against any other built-ins a copy main has changed since the publish would read as the author's
+ * and pass quietly. The game is rendered a second time only when the two variants differ — a
+ * built-in the snapshot ships as a copy changed between the sides, or the sides' coded params
+ * merged into an authored def differently.
+ * Each entry records the classification (`entry.republished`: `copies`, `authored`, `merged`,
+ * `changed`, `affected`, `publishedBuiltins`, `note`), and an entry whose variants could not be
+ * made gets `status: 'error'`, which the compare turns into a failing row rather than a silent gap.
+ * `reason` is kept on `plan.republish` for the report.
  */
 export async function planRepublished(plan, { bundleFor, variantsFor, publishedBuiltinsFor }) {
 	for (const entry of plan.games) {
 		if (entry.status !== 'render') continue;
 		try {
-			const bundleFile = await bundleFor(entry);
 			const published = (await publishedBuiltinsFor?.(entry)) ?? {};
+			if (!published.file)
+				throw new Error(
+					'the engine this game was published with is unknown ' +
+						`(${published.unknown ?? 'no built-ins were named for it'}), so its baked copies of ` +
+						"built-in defs cannot be told from the author's: failing closed. Republish the game " +
+						'so its pointer records an engine this checkout has',
+				);
+			const bundleFile = await bundleFor(entry);
 			const meta = await variantsFor(entry, bundleFile, published.file);
 			entry.republished = {
 				status: 'planned',
 				affected: Boolean(meta.affected),
 				copies: meta.copies,
 				authored: meta.authored,
+				merged: meta.merged ?? [],
 				changed: meta.changed,
-				classifiedAgainst: meta.classifiedAgainst ?? 'main',
-				...(published.file ? { publishedBuiltins: published.stored ?? published.file } : {}),
+				publishedBuiltins: published.stored ?? published.file,
 				...(published.note ? { note: published.note } : {}),
 			};
 			if (entry.republished.affected) plan.units.push(...unitsOf(entry, 'republished'));

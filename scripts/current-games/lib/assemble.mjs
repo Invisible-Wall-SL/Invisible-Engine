@@ -58,13 +58,20 @@ function republishNotes(planned, variant) {
 	const r = planned.republished;
 	if (!r || r.status !== 'planned') return [];
 	const toldBy = r.note ? ` A copy is a baked def equal to ${r.note}.` : '';
-	if (variant === 'republished')
+	if (variant === 'republished') {
+		const merged = r.merged ?? [];
 		return [
 			`as republished: the snapshot's ${r.copies.length} baked cop${r.copies.length === 1 ? 'y' : 'ies'} of ` +
 				`built-in component defs (${list(r.copies)}) are replaced by each side's built-ins, and the ` +
-				`sides differ on ${list(r.changed)}; ${r.authored.length} authored def(s) kept as baked ` +
-				`(${list(r.authored)}).${toldBy}`,
+				`sides differ on ${list(r.changed)}; ${r.authored.length} authored def(s) kept ` +
+				`(${list(r.authored)})` +
+				(merged.length
+					? `, ${merged.length} of them under a built-in's id with the coded params, bindings and ` +
+						`standsFor the side's built-in adds merged in, as the bake does (${list(merged)})`
+					: '') +
+				`.${toldBy}`,
 		];
+	}
 	if (r.affected)
 		return [
 			`as published: the baked component defs as the snapshot has them. A republish would change ` +

@@ -59,7 +59,8 @@ and `lib/republish.mjs` (the TypeScript half, run under the TS loader).
   a build from before this file is rebuilt.
 - **Which baked defs are copies.** A snapshot carries no provenance, so a baked def equal by content
   to the built-in of the same id **as it was when the game was published** is a copy of the
-  built-in; every other def is the author's and is kept as baked. The bake leaves a built-in's copy
+  built-in; every other def is the author's and is loaded as the bake loads it (next bullet). The
+  bake leaves a built-in's copy
   byte-equal (its spine keys and atlas refs are bare names, which the post-resolve fixups skip),
   while a saved def goes through `normalizeComponent` (which drops a built-in's `capability` and
   `defaultInstanceParams` and reorders fields) and an edit changes its content. The published
@@ -67,38 +68,59 @@ and `lib/republish.mjs` (the TypeScript half, run under the TS loader).
   (`SnapshotMeta.engine.shortCommit`): the plan checks that commit out into a bare worktree and
   reads its defs (no install needed, 0.4 s), keeps them beside the plan (`builtins/<sha>.json`, so
   the shards classify alike), and the row says so. When the pointer records no engine, or the
-  commit is not in the checkout (this repository's history begins on 2026-10-02), **main's**
-  built-ins stand in and the row says that instead, which misses a copy main has changed since the
-  publish. One set decides on both sides, so the two variants replace the same ids.
-- **What a republish does next.** The bake re-resolves the component closure (the instances the doc
-  places, the defs those nest, the components `component`-kind params name), so a built-in that
-  newly nests another def ships it. The same `resolveComponentClosure` runs here, loading an authored
-  id from the snapshot and any other from the side's built-ins, seeded with every id the snapshot
-  shipped. Pinned non-latest versions follow the same copy rule. Per-project param defaults stay as
-  baked: they are project data the harness does not read.
+  commit is not in the checkout (this repository's history begins on 2026-10-02), the game **fails
+  closed**: its as-republished row is an error row naming the cause, and the run fails, because
+  against any other built-ins a copy main has changed since the publish would read as the author's
+  and pass quietly. Republishing the game records an engine the checkout has. One set decides on
+  both sides, so the two variants replace the same ids.
+- **What a republish does next.** The bake loads an authored def that sits under a built-in's id
+  through `mergeBuiltinCodedParams` (`componentStorage.ts#loadComponent`): the built-in of the
+  moment lends it the coded params, node `paramBindings` and `standsFor` the author's frozen copy
+  lacks. The same merge runs here against each side's built-ins (`mergeCodedParams`), so a PR that
+  adds a coded param or a binding to `freeSpinCounter` changes what a republish bakes for every
+  game that ships an edited copy of it, and the row sees it (the as-republished note lists the
+  authored defs the merge altered). The bake then re-resolves the component closure (the instances
+  the doc places, the defs those nest, the components `component`-kind params name), so a built-in
+  that newly nests another def ships it. The same `resolveComponentClosure` runs here, loading an
+  authored id from the snapshot and any other from the side's built-ins, seeded with every id the
+  snapshot shipped. Pins follow the bake's `resolveReferencedDefs`: a pin the resolved def's version
+  satisfies ships nothing; any other ships the exact pinned def, the snapshot's authored one at
+  that version (merged like a latest load) or else the side's built-in, which `loadComponent`
+  returns for a built-in at any version. Per-project param defaults stay as baked: they are project
+  data the harness does not read.
 - **Who pays.** Nothing, unless the change can have altered what a publish bakes. `touched.mjs`'s
   `republish` verdict says whether the diff touches the bake's repo inputs — `builtinComponents.ts`
   and every module it takes a value from, followed import by import (`bakeInputs`) — and when it
   does, the plan reads both builds' `builtins.json`; only when they differ does it read each
   rendered game's `runtime.json` (one R2 read per game) and make both variants. A game is
-  **affected** when the two variants disagree on a def: one of its baked copies changed, or a changed
-  built-in now ships a def it did not. Only affected games render a second time; the others get a
-  note saying a republish would not change them. A comment-only edit to the defs file plans nothing.
+  **affected** when the two variants disagree on a def: one of its baked copies changed, a changed
+  built-in now ships a def it did not, or the sides' coded params merge into one of its authored
+  defs differently. Only affected games render a second time; the others get a note saying a
+  republish would not change them. A comment-only edit to the defs file plans nothing.
 - **Two rows, kept apart.** An affected game has an **as published** row and an **as republished**
   row. The republished row's screens, files and ids carry `<game key>@republished`
   (`<sha>:bookofborut@republished:fs-board:<hash>`), so a Phase 5 approval of one row never covers
   the other, and the summary line ends `· N row(s) as republished`. Both rows count: a changed
   republished screen fails the run like any other.
-- **Blind spots that remain.** A saved shared-library copy of an unchanged built-in reads as a copy
-  and is replaced, though a republish would keep it (a false difference the owner can see as such).
-  For a snapshot whose published engine is unknown, a copy of a built-in that main changed since
-  the publish reads as authored and is kept, though a republish would replace it (no row, until the
-  game is republished or the bake records where each def came from — an open question for the
-  owner). Against main's built-ins alone the live games showed it (measured below): their baked
-  copies of `loadingBar`, `button` and the rest are the published engine's, not main's. Their
-  pointers record the engine they were published with (`e29a993`), which is in the checkout, so
-  with that engine's built-ins each copy classifies as the copy it is, and each authored def (every
-  live `freeSpinCounter`, for one) as the author's.
+- **Blind spots that remain.** The classification is by content, since a snapshot carries no
+  provenance (recording it at publish is an open question for the owner), so two saves read as
+  copies though a republish would keep them, and are replaced: a shared-library save of an
+  unchanged built-in, and a project save of an unchanged built-in that has no `capability` and no
+  `defaultInstanceParams` (the two fields `normalizeComponent` drops; with either present the save
+  differs from the built-in and reads as the author's). Both are false differences the owner can
+  see as such, never a missed one. The variants are made from the snapshot and the two sides'
+  built-ins alone, with no R2 read: a project or shared def that a head built-in **newly** nests
+  cannot be resolved here, so the republished variant ships without it where a republish would
+  ship it (the built-in itself still changed, so the game is affected and the row shows the rest).
+  The copies are replaced as the built-ins are in code, with no `rewriteSpineKeys` or
+  `repairComponentDefsAtlasRefs` pass: this assumes a built-in's spine keys and atlas refs are
+  bare names those passes leave alone, as every built-in's are today (a built-in that referenced
+  project art by a scoped key would bake differently from how it is replaced here). Against main's
+  built-ins alone the live games showed why the published engine's are required (measured below):
+  their baked copies of `loadingBar`, `button` and the rest are the published engine's, not main's.
+  Their pointers record the engine they were published with (`e29a993`), which is in the checkout,
+  so with that engine's built-ins each copy classifies as the copy it is, and each authored def
+  (every live `freeSpinCounter`, for one) as the author's.
 
 ## Screen scripts
 
@@ -359,9 +381,10 @@ against its merge-base with main instead of counting as "change set unknown".
   wrong until it changes. That is a real bug class, and this harness cannot catch it.
 - **A change to a built-in component definition reaches a published game only when it is
   republished.** The as-republished row (above) shows what that republish would change, with the
-  blind spots listed there: a shared-library save of an unchanged built-in is replaced though a
-  republish would keep it, and, for a snapshot whose published engine is unknown, a copy of a
-  built-in that main changed since the game's publish is kept though a republish would replace it.
+  blind spots listed there: a shared or project save of an unchanged built-in is replaced though a
+  republish would keep it; a project or shared def a head built-in newly nests is not resolved; the
+  replacement assumes built-ins use bare asset names; and a game whose published engine is unknown
+  fails closed rather than being classified against main's built-ins.
 
 ## Measured on the live games (CI, 2026-10-05)
 

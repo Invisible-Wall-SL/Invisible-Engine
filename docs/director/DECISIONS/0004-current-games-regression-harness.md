@@ -138,5 +138,6 @@ A GitHub Actions workflow `current-games.yml`, triggered on every pipeline branc
   replaced by each side's built-ins, the closure re-resolved as the bake does — as a row of its own,
   compared the same way and failing the run the same way. A baked def is a copy of a built-in when
   it equals, by content, the built-in of the engine the game was published with (the commit its
-  pointer records; main's built-ins stand in when that is unknown); the rest is the author's and
-  stays as baked. A change that cannot alter what a publish bakes never pays for it.
+  pointer records; a game whose engine is unknown fails closed); the rest is the author's and is
+  loaded as the bake loads it, with each side's coded params merged in under a built-in's id. A
+  change that cannot alter what a publish bakes never pays for it.
