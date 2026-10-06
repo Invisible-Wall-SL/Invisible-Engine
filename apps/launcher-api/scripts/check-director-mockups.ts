@@ -202,6 +202,7 @@ const { allowedPrefixes, isKeyAllowed } = await import(src('lib/server/toolScope
 const { SUB } = await import(src('lib/server/projectPaths.ts'));
 const { planDuplicate } = await import(src('lib/server/projectDuplicate.ts'));
 const route = await import(src('routes/api/director/mockups/+server.ts'));
+const imageRoute = await import(src('routes/api/director/mockups/image/+server.ts'));
 
 const C = 'acme';
 const P = 'sunken-temple';
@@ -320,6 +321,25 @@ console.log('ownership');
 	check('the check records who', confirmed.ownershipConfirmed?.by, by);
 	check('…and when', typeof confirmed.ownershipConfirmed?.at, 'string');
 	check('a checked doc may start', mockups.ownershipRefusal(confirmed), null);
+	const retagged = await mockups.setMockupTag(C, P, doc.images[0].id, 'Hold and Win bonus', false);
+	check(
+		'a retag changes the tag and keeps the check',
+		[retagged.images[0].tag, retagged.images[0].styleOnly, retagged.ownershipConfirmed?.by],
+		['Hold and Win bonus', false, by],
+	);
+	const asStyle = await mockups.setMockupTag(C, P, doc.images[0].id, 'ignored', true);
+	check('a retag to style-only is tagged `style`', asStyle.images[0].tag, 'style');
+	await mockups.setMockupTag(C, P, doc.images[0].id, 'Base game', false);
+	check(
+		'a retag with a blank tag is 400',
+		await refused(() => mockups.setMockupTag(C, P, doc.images[0].id, '', false)),
+		400,
+	);
+	check(
+		'a retag of an unknown id is 404',
+		await refused(() => mockups.setMockupTag(C, P, 'ffffffffffffffff', 'Base game', false)),
+		404,
+	);
 	const afterUpload = await add(basePng, 'Added later');
 	check('a new upload clears the check', afterUpload.doc.ownershipConfirmed, null);
 	check(
@@ -328,6 +348,39 @@ console.log('ownership');
 		'string',
 	);
 	await mockups.removeMockup(C, P, afterUpload.id);
+	check(
+		'a confirm on a doc with no images is 400',
+		await refused(() => mockups.confirmOwnership(C, 'empty-key', by)),
+		400,
+	);
+	check(
+		'…and leaves no doc behind to hold the key',
+		R2.has(mockups.mockupsDocKey(C, 'empty-key')),
+		false,
+	);
+	{
+		// The check goes with the last image: confirm, remove everything, and the key is anyone's.
+		const { doc: lone } = await mockups.addMockup({
+			client: C,
+			project: 'lone-key',
+			bytes: basePng,
+			tag: 'Base game',
+			styleOnly: false,
+			by,
+		});
+		const held = await mockups.confirmOwnership(C, 'lone-key', by);
+		check(
+			'the check holds the key for its uploader',
+			mockups.pendingDocOwnedBy(held, 'other'),
+			false,
+		);
+		const freed = await mockups.removeMockup(C, 'lone-key', lone.images[0].id);
+		check(
+			'removing the last image clears the check and frees the key',
+			[freed.ownershipConfirmed, mockups.pendingDocOwnedBy(freed, 'other')],
+			[null, true],
+		);
+	}
 	const reconfirmed = await mockups.confirmOwnership(C, P, by);
 	const again = await mockups.confirmOwnership(C, P, { uid: 'later', name: 'Later' });
 	check(
@@ -643,6 +696,20 @@ console.log('route');
 		],
 		['adm', null],
 	);
+	const retag = new FormData();
+	retag.set('action', 'retag');
+	retag.set('id', (up.body!.doc as { images: { id: string }[] }).images[0].id);
+	retag.set('tag', 'Big win');
+	const retagged = await call('POST', admin, 'other-game', retag);
+	check(
+		'POST retag changes the tag and leaves the check as it was',
+		[
+			retagged.status,
+			(retagged.body!.doc as { images: { tag: string }[] }).images[0].tag,
+			retagged.body!.startRefusal,
+		],
+		[200, 'Big win', null],
+	);
 	const bad = new FormData();
 	bad.set('action', 'fidelity');
 	bad.set('fidelity', 'loose');
@@ -662,6 +729,167 @@ console.log('route');
 		'POST without the tool is 403',
 		(await call('POST', dev, 'other-game', confirm)).status,
 		403,
+	);
+
+	// The image route: the same gate as the doc, the original bytes back.
+	const image = async (user: App.Locals['user'], project: string, id: string) => {
+		const url = new URL(`http://x/api/director/mockups/image?project=${project}&id=${id}`);
+		try {
+			const res = await imageRoute.GET({
+				request: new Request(url),
+				url,
+				locals: { user },
+				cookies,
+				params: {},
+			} as never);
+			return {
+				status: res.status,
+				type: res.headers.get('content-type'),
+				bytes: new Uint8Array(await res.arrayBuffer()),
+			};
+		} catch (e) {
+			return { status: status(e), type: null, bytes: null };
+		}
+	};
+	const uploaded = (up.body!.doc as { images: { id: string }[] }).images[0].id;
+	check('image without a session is 401', (await image(null, 'other-game', uploaded)).status, 401);
+	check('image without the tool is 403', (await image(dev, 'other-game', uploaded)).status, 403);
+	check(
+		'image on an inaccessible project is 403',
+		(await image({ ...admin, role: 'artist' as const }, 'other-game', uploaded)).status,
+		403,
+	);
+	const got = await image(admin, 'other-game', uploaded);
+	check(
+		'image answers the original bytes with their type',
+		[got.status, got.type, got.bytes!.length, got.bytes![0]],
+		[200, 'image/png', basePng.length, basePng[0]],
+	);
+	check(
+		'an id the doc does not list is 404',
+		(await image(admin, 'other-game', 'ffffffffffffffff')).status,
+		404,
+	);
+	check('a malformed id is 404', (await image(admin, 'other-game', '../x')).status, 404);
+	check(
+		'a pending project has no images, so any id is 404',
+		(await image(admin, 'nope&client=acme', uploaded)).status,
+		404,
+	);
+	R2.delete(mockups.mockupImageKey('other', 'other-game', `${uploaded}.png`));
+	check(
+		'a listed image whose object is gone is 404',
+		(await image(admin, 'other-game', uploaded)).status,
+		404,
+	);
+
+	// A pending key is whoever uploaded under it first: another user — even another admin, who
+	// could create under the client — gets the inaccessible-project 403 on the doc, on every
+	// action and on the image, until the images are gone.
+	const other = { id: 'adm2', email: 'b@x', name: 'Other admin', role: 'admin' as const };
+	const mine = new FormData();
+	mine.set('action', 'upload');
+	mine.set('tag', 'Base game');
+	mine.set('file', new File([basePng], 'mine.png', { type: 'image/png' }));
+	const staked = await call('POST', admin, 'pending-key&client=acme', mine);
+	check('A uploads under a pending key', staked.status, 200);
+	const stakedId = (staked.body!.doc as { images: { id: string }[] }).images[0].id;
+	check(
+		'B reading A’s pending key is 403',
+		(await call('GET', other, 'pending-key&client=acme')).status,
+		403,
+	);
+	for (const [label, form] of [
+		['confirm_ownership', confirm],
+		['upload', mine],
+		['retag', retag],
+		[
+			'remove',
+			(() => {
+				const f = new FormData();
+				f.set('action', 'remove');
+				f.set('id', stakedId);
+				return f;
+			})(),
+		],
+	] as const) {
+		check(
+			`B’s ${label} on A’s pending key is 403`,
+			(await call('POST', other, 'pending-key&client=acme', form)).status,
+			403,
+		);
+	}
+	check(
+		'B reading A’s image is 403',
+		(await image(other, 'pending-key&client=acme', stakedId)).status,
+		403,
+	);
+	check('A still reads it', (await image(admin, 'pending-key&client=acme', stakedId)).status, 200);
+	// Two first uploads that both passed the gate on the empty doc: the mutator re-checks on the
+	// doc the CAS writes, so B's lands nowhere — not in the doc, not in R2 — and B's confirm, retag
+	// and remove through the module are refused the same way.
+	const objectsBefore = keysUnder(`${SUB.director('acme', 'pending-key')}/mockups/`).length;
+	check(
+		'B’s upload that raced A’s is 403 inside the write',
+		await refused(() =>
+			mockups.addMockup({
+				client: 'acme',
+				project: 'pending-key',
+				bytes: basePng,
+				tag: 'Base game',
+				styleOnly: false,
+				by: { uid: 'adm2', name: 'Other admin' },
+				owner: 'adm2',
+			}),
+		),
+		403,
+	);
+	check(
+		'…and its image is neither listed nor left in R2',
+		[
+			(await mockups.loadMockupsDoc('acme', 'pending-key')).doc.images.length,
+			keysUnder(`${SUB.director('acme', 'pending-key')}/mockups/`).length,
+		],
+		[1, objectsBefore],
+	);
+	check(
+		'B’s confirm that raced A’s upload is 403 inside the write',
+		await refused(() =>
+			mockups.confirmOwnership('acme', 'pending-key', { uid: 'adm2', name: 'B' }, 'adm2'),
+		),
+		403,
+	);
+	check(
+		'…the same for a retag and a remove',
+		[
+			await refused(() =>
+				mockups.setMockupTag('acme', 'pending-key', stakedId, 'Big win', false, 'adm2'),
+			),
+			await refused(() => mockups.removeMockup('acme', 'pending-key', stakedId, 'adm2')),
+		],
+		[403, 403],
+	);
+	const confirmedByA = await call('POST', admin, 'pending-key&client=acme', confirm);
+	check('A confirms the key', confirmedByA.body!.startRefusal, null);
+	check(
+		'B is still 403 after A’s confirm',
+		(await call('GET', other, 'pending-key&client=acme')).status,
+		403,
+	);
+	check(
+		'…and A’s image is still there, untouched by B',
+		(await call('GET', admin, 'pending-key&client=acme')).body!.doc.images,
+		staked.body!.doc.images,
+	);
+	const gone = new FormData();
+	gone.set('action', 'remove');
+	gone.set('id', stakedId);
+	await call('POST', admin, 'pending-key&client=acme', gone);
+	const freedDoc = await call('GET', other, 'pending-key&client=acme');
+	check(
+		'once the images are gone the key is anyone’s again, confirm and all',
+		[freedDoc.status, (freedDoc.body!.doc as { ownershipConfirmed: unknown }).ownershipConfirmed],
+		[200, null],
 	);
 }
 

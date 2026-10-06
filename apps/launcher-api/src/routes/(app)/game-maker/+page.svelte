@@ -16,6 +16,7 @@
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import { askConfirm } from '$lib/dialogs.svelte';
+	import { slugifyProjectKey } from '$lib/projectKey';
 	import {
 		LAUNCH_LOCALES,
 		LAUNCH_CURRENCIES,
@@ -89,20 +90,11 @@
 		return `${years} year${years === 1 ? '' : 's'} ago`;
 	}
 
-	/** Slugify a typed name into a project key (shared by the create + duplicate forms). */
-	function slugify(value: string): string {
-		return value
-			.toLowerCase()
-			.replace(/[^a-z0-9]+/g, '-')
-			.replace(/^-+|-+$/g, '')
-			.slice(0, 64);
-	}
-
 	// Auto-derive a key slug from the typed name until the user edits the key.
 	let keyTouched = $state(false);
 	function onNameInput(value: string) {
 		name = value;
-		if (!keyTouched) key = slugify(value);
+		if (!keyTouched) key = slugifyProjectKey(value);
 	}
 
 	// ---------------------------------------------------------------------------------------------
@@ -255,7 +247,7 @@
 
 	function onDupNameInput(value: string) {
 		dupName = value;
-		if (!dupKeyTouched) dupKey = slugify(value);
+		if (!dupKeyTouched) dupKey = slugifyProjectKey(value);
 	}
 
 	async function runDuplicate() {

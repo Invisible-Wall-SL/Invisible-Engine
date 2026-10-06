@@ -4,6 +4,7 @@ import {
 	POTS_OVERLAY_PRESET_IDS,
 	type PotsOverlayPresetId,
 } from 'game-config';
+import { PROJECT_KEY_WORDS } from '$lib/projectKey';
 import { ADMIN_PANEL_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import { mayTargetClient } from '$lib/accessRules';
 import { SESSION_COOKIE, sessionIdFromToken } from '$lib/server/auth';
@@ -274,7 +275,7 @@ export const actions: Actions = {
 		const rawOverlay = String(data.get('potsOverlayPreset') ?? '').trim();
 
 		if (!isValidProjectKey(key)) {
-			return fail(400, { action: 'create', error: 'Key must match a-z, 0-9, _ or - (max 64).' });
+			return fail(400, { action: 'create', error: PROJECT_KEY_WORDS });
 		}
 		if (!name) return fail(400, { action: 'create', error: 'Name is required.' });
 		const known = new Set((await selectableGameKinds()).map((k) => k.id));
