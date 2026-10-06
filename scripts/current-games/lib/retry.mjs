@@ -39,6 +39,7 @@ export const JOBS = {
 	gates: { needs: ['prepare'], body: ["Run every game type's gates once"] },
 	render: { needs: ['prepare', 'build'], body: ['Render shard '] },
 	report: { needs: ['prepare', 'build', 'gates', 'render'], body: ['Compare', 'Verdict'] },
+	'verdict-proof': { needs: ['prepare', 'build', 'gates', 'render', 'report'], body: [] },
 };
 
 /** Conclusions that make a job a failed one for "re-run failed jobs". */

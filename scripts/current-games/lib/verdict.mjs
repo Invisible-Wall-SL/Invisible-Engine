@@ -290,7 +290,8 @@ async function runRemote(opt, repository) {
 		if (!d.post) return stop(d.why);
 		decision = d.post;
 	} else {
-		if (run.status !== 'completed') return stop('the run has not completed');
+		if (run.status !== 'completed' && !process.env.VERDICT_PROOF)
+			return stop('the run has not completed');
 		if (run.conclusion === 'cancelled')
 			return stop('the run was cancelled; a newer run owns the head');
 		const attempt = Number(opt.attempt ?? run.run_attempt);
