@@ -15,6 +15,49 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-06 · Phases 5, 4, 8 · coordinator (merges #1074, #1076, #1078)
+- **Did:**
+  - **#1074 (card 5C, Phase 5: merge & history & rollback):** pipelineMerge endpoint pins a SHA and
+    fetches the GitHub App token (server re-reads; scoped title via shared scripts/commit-scope.mjs,
+    only revert exempt; explicit commit message; never bypasses protection; serialized; requestId;
+    `pipeline_merges` migration 0028 with the approvals snapshot; settled only by the App's own
+    bot). The History tab shows past merges with rollback as a 3-way file-level revert PR onto
+    main's tip (recorded by revert_pr). Agent-eval verdict on agent-definition PRs gates their
+    merge.
+  - **#1076 (card 4C, Phase 4: live run screen):** the Live run screen shows steps rail, actionable
+    banner (pause/resume/stop with refused approvals), galleries, review panels, activity feed and
+    message box. Plan names matched by normalised spelling; scratch-atlas regions kept out of counts
+    (the ADR-0008 hook). Two owner-scoped image routes with sniffing, nosniff and CSP. Test:
+    check:director-live.
+  - **#1078 (card 8A, Phase 8: blueprint cards):** card schema, validation, CAS storage and history;
+    editor UI with seeded drafts (unreviewed by default). Review needs a fresh (≤30 min) signed
+    browser launch with pipelineMerge. Resets on re-publish, rescan and bundled sync. R2 digests
+    recorded. `GET /blueprints` serves agents reviewed and problem-free cards only; `/card` is 403
+    for agents. Inert (no agent consumes them yet).
+- **Files:**
+  - #1074: `apps/launcher-api/src/lib/server/director/{merge,pipelineMerge,history}.ts`,
+    `src/routes/api/director/{merge,history}/*`, `db/drizzle/0028_pipeline_merges.sql`,
+    `agents/coordinator.md` (verdict check added).
+  - #1076: `apps/launcher-api/src/lib/{director/liveRun,components/activity-feed,components/review-panel}.svelte`,
+    `src/lib/server/director/liveRun.ts`, `scripts/check-director-live.ts`,
+    `docs/tools/director.md`.
+  - #1078: `services/atlas-tool/blueprints/{card,edit,save,history}*.py`, `apps/launcher-api/src/routes/api/blueprints/*`,
+    `src/lib/server/director/blueprintCards.ts`, `docs/director/blueprints/catalogue-draft.json`.
+- **Tests:**
+  - #1074: check:director-merge 142/142, agent-eval report fixture.
+  - #1076: check:director-live 38/38, launcher gates, svelte-check.
+  - #1078: check:director-adapters (blueprint routes), check:python atlas-tool 41/41.
+- **Decisions:**
+  - #1074: pipeline merges are API-driven; History is per-merge; rollback is a revert PR; agent
+    verdicts gate agent-definition merges.
+  - #1076: Phase 4 requires normalised plan name matching; CSP restricts live image sources.
+  - #1078: blueprint cards inert; review right lasts ≤30 min after a signed launch (default:
+    accepted); agents use reviewed cards only.
+- **Next:** Phase 4 backend complete (4A, 4.1–4.3); Phase 5 backend complete (5.1–5.4, 5.3 now
+  done); Phase 8 on roadmap with 8A done, 8B–8F to follow. Open questions 11 (answered 2026-10-06)
+  and two new items added to OPEN_QUESTIONS.
+- **Owner approval:** All three PRs merged with owner approval (recorded 2026-10-06).
+
 ## 2026-10-06 · Phases 5, 4, 2 · coordinator (merges #1070, #1072, #1073, #1075)
 - **Did:**
   - **#1070 (card 5.2, Phase 5: changes list/detail & checks):** the `/pipeline Changes` tab shows

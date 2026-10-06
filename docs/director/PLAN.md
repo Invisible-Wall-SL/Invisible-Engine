@@ -88,7 +88,9 @@ A change that cannot reach a game (docs only, or nothing in the `lines` runtime'
 | 4.A | Owner API: run actions (create, start, pause, resume, approve, stop) + estimate + font requests | director-backend | done | Create (needs Director + Game Maker), start/pause/resume/approve/stop idempotent via requestId, estimate returns budgetCapUsd, fonts listed by R2 key; #1069 |
 | 4.1 | New game screen + estimate panel | director-frontend | done | Matches mockup 02; same fields and validation as Game Maker; ownership check required; #1072 |
 | 4.2 | Mockup breakdown screen | director-frontend | done | Matches mockup 03; no RunPod call before confirm; #1072 |
-| 4.3 | Live run screen (steps, banner, galleries, review, activity, message box) | director-frontend | todo | Matches mockup 04; live via SSE; full width |
+| 4.3 | Live run screen (steps, banner, galleries, review, activity, message box) | director-frontend | done (#1076) | Matches mockup 04; live via SSE; full width |
+
+**Phase 4 complete.** Backend done (4A #1069), UI done (4.1–4.3 #1072 #1076).
 
 ## Phase 5 — Pipeline Changes · branch `pipeline/ui`
 
@@ -97,15 +99,17 @@ A change that cannot reach a game (docs only, or nothing in the `lines` runtime'
 | 5.0 | ADR-0007: pipeline-change mechanics (GitHub PR as the change record, merge strategy, revert) | director-architect | done | Approved before 5.1 (2026-10-05; eval cap $20) |
 | 5.1 | Changes list + detail (files, diff link, why) | director-frontend + director-backend | done (#1070) | Matches mockup 05 |
 | 5.2 | Check 1 (CI gates grouped) + Check 2 (harness report) + diff approval | director-backend + director-frontend | done (#1070) | A visible difference blocks merge until approved; approval is invalidated by a new commit |
-| 5.3 | Merge with `pipelineMerge` + History + rollback (revert) | director-backend | review (#1074) | A roll back produces a revert that passes the harness |
+| 5.3 | Merge with `pipelineMerge` + History + rollback (revert) | director-backend | done (#1074) | A roll back produces a revert that passes the harness |
 | 5.4 | Agents tab: edit definition → branch → evaluation before/after | director-backend + director-frontend | done (#1073) | Evaluation on a fixed reference mockup set; results stored on the change |
+
+**Phase 5 complete.** Backend done (5A #1068, 5.2 #1070, 5.3 #1074), UI done (5.1 #1070, 5.4 #1073).
 
 ## Phase 8 — Blueprint-driven art · ADR-0008 (approved 2026-10-06, all defaults)
 
 | Card | Tasks | Owner | Status | Acceptance |
 |---|---|---|---|---|
-| 8A | Card schema, validation, storage, history, editor + `GET /blueprints` (read adapter op) + bundled and seeded cards | atlas-python-tools | in progress (#1075) | Cards inert (no agent consumes them yet); catalogue draft is 7 library + 3 built-in; sync runs at boot |
-| 8B | atlas-tool: render completion callback, `/saveconfig atlas_pipeline` key, `bpParams` by effective pipeline, versioned `/setoutput` file, `/duplicateatlas` safe | atlas-python-tools | todo | Director token on http 400; `/render` refuses http; scratch atlases manage layers; new per-atlas key not in human Settings |
+| 8A | Card schema, validation, storage, history, editor + `GET /blueprints` (read adapter op) + bundled and seeded cards | atlas-python-tools | done (#1078) | Cards inert (no agent consumes them yet); catalogue draft is 7 library + 3 built-in; sync runs at boot |
+| 8B | atlas-tool: render completion callback, `/saveconfig atlas_pipeline` key, `bpParams` by effective pipeline, versioned `/setoutput` file, `/duplicateatlas` safe | atlas-python-tools | in progress | Director token on http 400; `/render` refuses http; scratch atlases manage layers; new per-atlas key not in human Settings |
 | 8D | `atlas-technician` agent + adapter ops (18 tools) + recipes with validation + gate + refusals (library, layers, template rect, template add, global config, run-on, art deletion) + `prove:art-plan` + idle-deploy check + old preset as fallback | director-backend + regression-guardian | todo | Technician on Sonnet 5.5 high effort; recipes stored per region with approval; plan validation before store; old preset fallback until 8C |
 | 8E | Art plan checkpoint UI + "How this was made" (recipe steps, chain images, finished tile) + chain pricing in estimate + `director_blueprint_timings` measured per (pipeline, genPx) | director-frontend + director-backend | todo | Owner sees recipe groups, projects/card; can edit within card ranges; re-approval when pipeline or cost changes; before-publish lists licence-blocked steps |
 | 8C | Preset UI gone, `preset_json` unread (fallback from estimate-profiles), launcher runs.ts/worker store.ts/driver.ts not read | director-frontend + director-backend | todo | Deploy only when no run non-terminal; pause and message any if needed; inert and revertable |

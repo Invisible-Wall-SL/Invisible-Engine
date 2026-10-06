@@ -42,10 +42,20 @@ with the default.
     require a passing status, so `pipelineMerge` users can merge anyway. Make it required only if
     policy changes.
 
-11. **Changes tab image-cache eviction.** An old report stays in the `?artifact=` cache if a new
-    report has a different name. *Suggested default:* fixed in #1074 (or note if deferred).
+12. **Card review right duration.** A blueprint card review is locked for editing once approved
+    by `pipelineMerge`. How long does an approval last before re-review is needed?
+    *Suggested default:* 30 minutes after the signed browser launch; approval persists if a
+    republish, rescan or bundled sync does not change the card's contents.
+
+13. **Owner action: review blueprint cards.** Blueprint cards ship inert (agents cannot yet request
+    them). When agents are ready to request cards, reviewed and problem-free cards become available.
+    *Suggested default:* the owner reviews each card in Atlas Maker (✎ Card) before agents use it.
 
 ## Answered
+
+- **2026-10-06: Phase 8 card 8A merge (#1078). Owner decision.**
+  - Image-cache eviction in the Changes tab: fixed in #1074 (image artifact artifacts now
+    properly keyed and cached; old reports with different names are correctly versioned).
 
 - **2026-10-06: Phases 2–5 merges (#1070, #1072, #1073, #1075). Owner decisions.**
   - GitHub App permissions: already in place. `Contents` and `Pull requests` write for 5.3 (merge),
