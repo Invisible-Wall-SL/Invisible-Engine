@@ -204,6 +204,11 @@ node scripts/current-games/run.mjs --phase render --plan plan/plan.json --shard 
   --base-build <dir> --head-build <dir> --out part-1
 node scripts/current-games/run.mjs --phase compare --plan plan/plan.json --units part-1,part-2 \
   --no-gates --out report
+# Web fonts: stand-in games load them from Adobe (`--typekit network`, the default without R2); the
+# live games render through the R2 mirror (`mirror`, the default with R2); a local mirror dir
+# (`node scripts/current-games/typekit-mirror.mjs refresh --dry-run --out <dir>`, on a machine
+# that reaches Adobe) stands in for R2.
+node scripts/current-games/run.mjs --games-file <json> --typekit <dir>
 # The republish proof: snapshots baked from MAIN's built-ins (a publish from before the change), then a
 # branch whose built-in def changed renders the affected games as republished too.
 node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/current-games/fixtures.mjs \
@@ -223,8 +228,8 @@ at a time halved each unit's speed on a 4-vCPU runner.
 crop of each changed screen, around its densest difference, as base64 PNG lines.
 
 To run against the real live games, set `PIPELINE_GAMES_URL` and `PIPELINE_CI_TOKEN` (or pass
-`--games-file`) and the read-only `CURRENT_GAMES_R2_*` key ([INFRA](../INFRA.md)). The run never
-writes to R2. It needs the Playwright headless shell (see "The headless real clock" in
+`--games-file`) and the read-only `CURRENT_GAMES_R2_*` key ([INFRA](../INFRA.md)); the Typekit
+mirror must exist in R2 (below). The run never writes to R2. It needs the Playwright headless shell (see "The headless real clock" in
 [README.md](README.md)). The report goes to `.cache/current-games/report/` (`--out`).
 
 ## Reading the report
@@ -326,6 +331,32 @@ run with a shard missing keeps them for GitHub's 1-day minimum, so "Re-run faile
 the compare. The plan and gate results are kept 1 day; the report, which holds the changed screens
 only, is kept 3 days; `log_images` prints changed screens' crops into the log.
 
+**Jobs GitHub fails to start are re-run once.** `.github/workflows/current-games-retry.yml` runs
+after every completed `Current games` run (from `main`'s copy of the file, as `workflow_run`
+always does, so a branch cannot change what is retried) with `actions: write` and nothing else. Its
+decision is `scripts/current-games/lib/retry.mjs`: a failed first attempt is re-run ("re-run failed
+jobs": the failed jobs and their dependents) only when every failed job either **never got to run**
+— the hosted runner was never acquired (the job is `cancelled` after ~15 min with no runner and no
+steps: "The job was not acquired by Runner of type hosted even after multiple attempts"), or the
+runner was lost before the job's body step (its steps end `in_progress` or `cancelled`, none
+`failure`) — or is downstream of one that did not (the report job fails whenever a shard is
+missing). Everything else is a result and blocks the retry: a body step that **started** — a build,
+the gates, a `Render shard`, the `Compare` — whatever its conclusion, and a set-up step that
+concluded `failure` (a stale lockfile at `pnpm install`, a bad `base`, a missing secret, a broken
+headless-shell install). `prepare` has no body, so only a lost runner retries it. A run is retried
+at most once: attempt 2 completes without a decision, as does any run that did not conclude
+`failure` (a cancelled run stays cancelled). `retry.fixture.mjs` (run on every PR by the Checks
+workflow's `check-all`, which discovers it) holds these cases on the job shapes GitHub's API gave
+on 2026-10-05, and proves the job table (`needs`, body step names) matches `current-games.yml`, so
+a renamed step cannot quietly become retryable. A manual run of the workflow decides on any run id
+and prints the decision (`apply` makes it act); the step summary shows what it decided.
+
+**Web fonts come from the mirror, once it exists.** Every render answers `use.typekit.net` from the
+Typekit mirror in R2 and `p.typekit.net` (the kit's beacons) locally, so an Adobe outage cannot
+stall a frame and a kit republish cannot change a comparison. Until the mirror's first upload the
+renders load from Adobe as players do, and the plan says so in a warning and the report. Below,
+"Typekit mirror".
+
 **A change that cannot reach a game is not rendered.** `prepare` diffs the branch against the same
 base the renders would compare with and classifies it with `scripts/current-games/lib/touched.mjs`.
 The runtime's inputs are computed, not listed: `apps/lines` plus every workspace package reachable
@@ -349,6 +380,60 @@ them goes through `lib/redact.mjs`, which replaces each secret env's value with 
 backstop where the values are not known, any 32+ hex or token-shaped base64 run. A
 malformed `PIPELINE_GAMES_URL` fails up front with a fixed message that never quotes it.
 `redact.fixture.mjs` (run by `check:all`) proves each secret stays out of all three.
+
+## Typekit mirror
+
+The runtime loads its web fonts from Adobe twice over: the app template's kit stylesheet
+(`apps/lines/src/app.html`, `use.typekit.net/aba0ebl.css`) and WebFontLoader's typekit module
+(`pixi-svelte`'s `preloadFont`, `use.typekit.net/aba0ebl.js`). Each render then fetches the kit's
+five faces from `use.typekit.net/af/…` and pings `p.typekit.net` twice (`p.css`, `p.gif`). That
+is what players do, and it stays so: **nothing here changes what a player loads.** Determinism
+mode waits for stylesheets, scripts and `FontFace.load()`, so in CI an Adobe outage stalls every
+frame (a 30 s stall per load, then a `stall` that fails the game), and a kit republish mid-run
+could hand the two sides two fonts.
+
+So, once the mirror exists, the harness's browser never asks Adobe (`scripts/current-games/lib/typekit.mjs`,
+`lib/browser.mjs`): CDP's `Fetch` domain pauses every request to the two Typekit hosts;
+`use.typekit.net` is answered from a **mirror** of the kit (its stylesheet, its script and every
+file the stylesheet names, by exact URL), `p.typekit.net` with an empty stylesheet or a 1×1 gif
+(nothing waits on a beacon, and nothing should reach Adobe). The mirror lives in R2 under
+`_ci/typekit-mirror/`: `current.json` (kits, every URL with its sha256, content type and size,
+and a `hash` over the lot) and `blobs/<sha256>` (immutable by name). The **plan pins the hash**
+the way it pins a snapshot; a shard downloads the pinned mirror once (cached by hash) and a
+manifest that changed mid-run fails the units it would have changed. The report and the digest
+say which mirror a run used (`typekit: mirror <hash> (N files, kits …, fetched …)`), and the
+diagnostics (`log_images`) list each render's external requests as `mirror <url>`.
+
+**What fails, and what to do:**
+
+| The plan or a render says | Why | Fix |
+|---|---|---|
+| `typekit: network — … the Typekit mirror is missing from R2` (a warning and the report's line; the run goes on) | Nothing was ever uploaded, so the renders loaded from Adobe as players do. | Run the **Typekit mirror** workflow once (Actions → Typekit mirror → Run workflow, on `main`) to remove the dependency. |
+| `the Typekit mirror (kits …) lacks kit(s) the runtime loads` (the plan fails) | A kit id changed in `app.html` or `pixi-svelte` (`kitIds()` harvests both, and `typekit.fixture.mjs` proves they agree). | Run the workflow from `main` with `extra_kits` naming the new id (it only runs on `main`); run it again plain once the branch has merged. |
+| `the Typekit mirror has no entry for <url>` | The page asked for a kit URL the mirror does not hold: a face was added, or the kit's script asks for something new. | Run the workflow; if the URL is not in the kit's stylesheet or script, extend `crawlKit`. |
+| `the Typekit mirror changed during the run` | A refresh landed between the plan and this render. | Re-run the failed jobs. |
+| `Typekit mirror unavailable: …` on every unit of a shard (`the Typekit mirror is gone from R2`, or a blob that does not match its name) | The pinned mirror could not be downloaded whole on that runner. | Re-run the failed jobs; if it repeats, `typekit-mirror.mjs show` and refresh. |
+
+**Refreshing it.** `.github/workflows/typekit-mirror.yml` (`workflow_dispatch`, on `main` only;
+`dry_run` fetches and reports only) runs `scripts/current-games/typekit-mirror.mjs refresh`: it
+harvests the kit ids, fetches each kit from Adobe (a GitHub runner reaches it; the Claude Code
+container does not), uploads the blobs it does not have yet and then `current.json`, in one write,
+last. It is the only harness-side thing that writes to R2 and it uses the release's read-write
+`R2_*` secrets, which is why it runs `main`'s code only; the harness keeps its read-only key. There is no schedule: a render never reaches Adobe, so the
+mirror cannot go stale on its own — Adobe republishing the kit changes what players get, not
+what the harness compares, since both sides render the same mirrored faces. Refresh when the
+table above says so. `typekit-mirror.mjs show` prints what R2 holds.
+
+**Why R2 and not the repo.** Adobe Fonts are licensed for serving by Adobe; the repository is
+public. The mirror is a private copy for CI's own renders, in the bucket the harness already
+reads, never committed. Whether Adobe's terms allow even that copy is the owner's call (an open
+question of card 1H): until it is made, nothing is uploaded and the harness renders from Adobe
+with the warning above.
+
+`typekit.fixture.mjs` (run by `check:all`) proves the crawl, the manifest and its hash, the pin,
+and — against a fake kit on 127.0.0.1 with the real headless shell — that the browser loads both
+faces from the mirror, that neither host is asked over the network, that a URL the mirror lacks
+is refused and named, and that the beacons are answered locally.
 
 ## Calibration on the live games (2026-10-05, Director card 1F)
 

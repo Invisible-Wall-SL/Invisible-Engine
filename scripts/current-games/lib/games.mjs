@@ -3,7 +3,8 @@
 // List: `GET $PIPELINE_GAMES_URL` with `Authorization: Bearer $PIPELINE_CI_TOKEN` (the launcher's
 // `/api/pipeline/games`), or `--games-file` for a local run. Snapshot: from R2 with a read-only key
 // (`CURRENT_GAMES_R2_*`) — `publishedPointerKey` → `<id>/runtime.json` + `<id>/deploy/**` — and the
-// game's mock contract from `test_server/games.json`. Nothing here writes to R2.
+// game's mock contract from `test_server/games.json`. The Typekit mirror (`typekit.mjs`) reads
+// `_ci/typekit-mirror/**` through the same key. Nothing here writes to R2.
 
 import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
@@ -61,7 +62,8 @@ async function r2() {
 
 const isMissing = (e) => e?.name === 'NoSuchKey' || e?.$metadata?.httpStatusCode === 404;
 
-async function getText(key) {
+/** An object's text, or `null` when it does not exist. */
+export async function getText(key) {
 	const { s3, bucket, send } = await r2();
 	try {
 		const got = await send.send(new s3.GetObjectCommand({ Bucket: bucket, Key: key }));
@@ -72,7 +74,8 @@ async function getText(key) {
 	}
 }
 
-async function download(key, file) {
+/** Save an object to `file`, creating its folder. */
+export async function download(key, file) {
 	const { s3, bucket, send } = await r2();
 	const got = await send.send(new s3.GetObjectCommand({ Bucket: bucket, Key: key }));
 	mkdirSync(dirname(file), { recursive: true });

@@ -36,8 +36,9 @@ const fillBeat = (beat, contract) =>
 /**
  * Render `unit` of `planned` (a plan entry) with `runtimeDir`, dealt from `contract` (the game's
  * mock contract, checked against the plan's hash). `snapshotDir` is the downloaded snapshot;
- * `bundleFile`, when given, the `runtime.json` to serve instead of the snapshot's own. Returns the
- * result it wrote.
+ * `bundleFile`, when given, the `runtime.json` to serve instead of the snapshot's own. `intercept`
+ * answers the Typekit hosts from the mirror (`typekit.mjs`); without it the browser loads fonts
+ * from Adobe. Returns the result it wrote.
  */
 export async function renderUnit({
 	unit,
@@ -51,6 +52,7 @@ export async function renderUnit({
 	cache,
 	out,
 	trace,
+	intercept,
 }) {
 	const { game } = planned;
 	const scenario = loadScript(planned.script).scenarios.find((sc) => sc.id === unit.scenario);
@@ -156,7 +158,7 @@ export async function renderUnit({
 			assetBase: game.local?.assetBase === 'runtime' ? `${server.origin}/${game.key}/` : undefined,
 		});
 		profile = mkdtempSync(join(tmpdir(), 'cg-profile-'));
-		page = await openPage(chrome, profile);
+		page = await openPage(chrome, profile, { intercept });
 		await play();
 	} catch (e) {
 		error = e.message;
@@ -176,6 +178,14 @@ export async function renderUnit({
 	// browser) draws through other code and proves nothing about theirs.
 	if (!error && final?.renderer && final.renderer !== 'webgl')
 		error = `the page rendered with Pixi's ${final.renderer} renderer, not WebGL`;
+	// A kit URL the mirror lacks was refused, so a text may have drawn in a fallback face on this
+	// side only: not a comparison, a mirror to refresh.
+	const unmirrored = page?.unmirrored ?? [];
+	if (!error && unmirrored.length)
+		error =
+			`the Typekit mirror has no entry for ${unmirrored.slice(0, 3).join(', ')}` +
+			(unmirrored.length > 3 ? ` (+${unmirrored.length - 3} more)` : '') +
+			' — refresh it (the "Typekit mirror" workflow)';
 	const result = {
 		unit,
 		draw,

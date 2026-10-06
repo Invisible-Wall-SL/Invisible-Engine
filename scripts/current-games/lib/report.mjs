@@ -9,6 +9,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { redactReport } from './redact.mjs';
+import { describeTypekit } from './typekit.mjs';
 
 /** A row's key, distinct per variant: `<game key>` as published, `<game key>@republished`. */
 export const rowKey = (row) => (row.variant === 'republished' ? `${row.key}@republished` : row.key);
@@ -153,7 +154,7 @@ small,.tol{color:var(--muted)}code{word-break:break-all}details{margin:12px 0}
 ${report.republish?.reason ? `<p><small>republished renders: ${esc(report.republish.reason)}</small></p>` : ''}
 ${Object.entries(report.browser ?? {})
 	.map(([name, paths]) => `<p><small>browser (${esc(name)}): ${esc(paths)}</small></p>`)
-	.join('')}
+	.join('')}${report.typekit ? `<p><small>${esc(describeTypekit(report.typekit))}</small></p>` : ''}
 <table><thead><tr><th>Game</th><th>Type</th><th>Build</th><th>Tests</th><th>Looks the same</th><th>Notes</th></tr></thead><tbody>
 ${rows}
 </tbody></table>
@@ -193,6 +194,7 @@ export function digest(report) {
 	const lines = Object.entries(report.browser ?? {}).map(
 		([name, paths]) => `browser (${name}): ${paths}`,
 	);
+	if (report.typekit) lines.push(describeTypekit(report.typekit));
 	// The per-screen noise over the screens both sides captured: a passing screen that is not
 	// byte-identical differed within its tolerance, and is named with what was measured.
 	if (report.republish?.reason) lines.push(`republished renders: ${report.republish.reason}`);

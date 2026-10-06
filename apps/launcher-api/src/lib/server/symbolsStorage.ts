@@ -16,6 +16,7 @@ import { putDocWithBackup, type BackupMode } from './docBackups';
 import { createAtlasRefResolver } from './manifestBasename';
 import { symbolsDocBackupTarget, symbolsDocKey } from './projectPaths';
 import { getObjectTextWithEtag } from './r2';
+import { stampSavedBy, type SavedByStamp } from './savedBy';
 import { stripUnknownKeysWithWarning, type UnknownValues } from './stripUnknownKeys';
 import { storedUnknownBlocks, unknownTopLevelBlocks } from './unknownBlocks';
 
@@ -1253,6 +1254,8 @@ export async function canonicalizeSymbolsDocForExport(
  * `If-Match` save ({@link storedUnknownBlocks}); the returned doc omits them. A backup restore
  * passes `{ unknownFrom: 'doc' }` to keep the RESTORED bytes' unknown blocks instead — it
  * replaces the live doc wholesale, so the live doc's blocks are not the author's to keep.
+ *
+ * `savedBy` stamps the doc's `saved_by` (`savedBy.ts`); a save without one drops a carried stamp.
  */
 export async function saveSymbolsDoc(
 	clientKey: string,
@@ -1263,7 +1266,8 @@ export async function saveSymbolsDoc(
 	{
 		unknownValues = 'reject',
 		unknownFrom = 'stored',
-	}: { unknownValues?: UnknownValues; unknownFrom?: 'stored' | 'doc' } = {},
+		savedBy,
+	}: { unknownValues?: UnknownValues; unknownFrom?: 'stored' | 'doc'; savedBy?: SavedByStamp } = {},
 ): Promise<{ doc: SymbolsDoc; etag: string | null }> {
 	const next = normalizeSymbolsDoc(doc, unknownValues);
 	const kept =
@@ -1273,7 +1277,7 @@ export async function saveSymbolsDoc(
 	const updatedAt = new Date().toISOString();
 	const etag = await putDocWithBackup(
 		symbolsDocBackupTarget(clientKey, projectKey),
-		JSON.stringify({ ...next, ...kept, updatedAt }, null, 2),
+		JSON.stringify(stampSavedBy({ ...next, ...kept, updatedAt }, savedBy), null, 2),
 		baseEtag,
 		backup,
 	);
