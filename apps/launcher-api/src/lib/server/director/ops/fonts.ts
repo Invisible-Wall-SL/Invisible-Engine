@@ -33,6 +33,8 @@ import { baseEtagProp, baseOf, preconditionOf, projectOf } from './docs';
  */
 
 const FOLDER = '^[a-z0-9][a-z0-9_-]{0,59}$';
+/** A request's key under the root: `<folder>/request.json`, one level down, nothing deeper. */
+export const FONT_REQUEST_KEY = /^([a-z0-9][a-z0-9_-]{0,59})\/request\.json$/;
 const HEX = '^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$';
 const PRESETS = Object.keys(CHARSET_LABELS) as CharsetPreset[];
 const MAX_FONT_BYTES = 20 * 1024 * 1024;
@@ -42,7 +44,8 @@ const SFNT_SIGNATURES = ['00010000', '74727565', '4f54544f'];
 const isSfnt = (bytes: Uint8Array) =>
 	SFNT_SIGNATURES.includes(Buffer.from(bytes.subarray(0, 4)).toString('hex'));
 
-export type FontRequestStatus = 'awaiting_owner';
+/** `awaiting_owner` until the owner bakes the font in Font Maker and marks the request done. */
+export type FontRequestStatus = 'awaiting_owner' | 'done';
 
 /** The pending request a bake leaves for the owner. */
 export interface FontBakeRequest {
@@ -55,23 +58,30 @@ export interface FontBakeRequest {
 	sourceKey: string;
 	/** The Font Maker's own re-bake recipe. */
 	recipe: FontRecipeDoc;
+	/** Who marked it done, and when (`fontRequests.ts`). */
+	done?: { by: { uid: string; name: string }; at: string };
+	/** Which run and agent staged it, kept when the owner's mark replaces `saved_by`. */
+	requested?: { agent?: string; runId?: string; at?: string };
 	saved_by?: SavedByStamp;
 }
 
-const requestsRoot = (scope: { clientKey: string; projectKey: string }) =>
+/** Where a project's staged font requests live: `<folder>/request.json` under it. */
+export const fontRequestsRoot = (scope: { clientKey: string; projectKey: string }) =>
 	`${projectPrefix(scope.clientKey, scope.projectKey)}/director/fonts/`;
 
 async function listRequests(ctx: AdapterContext) {
-	const root = requestsRoot(projectOf(ctx));
-	const keys = (await listAllKeys(root)).filter((k) => k.endsWith('/request.json'));
+	const root = fontRequestsRoot(projectOf(ctx));
 	const out = [];
-	for (const key of keys) {
+	for (const key of await listAllKeys(root)) {
+		// The folder is the key's, as this adapter wrote it; a doc's own `folder` field is data.
+		const folder = FONT_REQUEST_KEY.exec(key.slice(root.length))?.[1];
+		if (!folder) continue;
 		const got = await getObjectTextWithEtag(key);
 		if (!got) continue;
 		try {
 			const doc = JSON.parse(got.text) as FontBakeRequest;
 			out.push({
-				folder: doc.folder,
+				folder,
 				face: doc.recipe.face,
 				status: doc.status,
 				preset: doc.recipe.preset,
@@ -167,7 +177,7 @@ export const bakeFromTtf = defineOp<
 	agents: ['builder'],
 	scope: 'project',
 	write: true,
-	writes: (input, scope) => [`${requestsRoot(scope)}${input.folder}/`],
+	writes: (input, scope) => [`${fontRequestsRoot(scope)}${input.folder}/`],
 	handler: async (ctx, input) => {
 		const scope = projectOf(ctx);
 		const sources = allowedPrefixes(scope.clientKey, scope.projectKey, {
@@ -211,7 +221,7 @@ export const bakeFromTtf = defineOp<
 		// Named by its bytes, so restaging another font in this folder never replaces a source an
 		// earlier request still names.
 		const sourceFile = `_src-${hash}.${ext}`;
-		const folderKey = `${requestsRoot(scope)}${input.folder}/`;
+		const folderKey = `${fontRequestsRoot(scope)}${input.folder}/`;
 		const key = `${folderKey}request.json`;
 		// Settle the precondition before anything is written, so a conflict leaves nothing behind. A
 		// save racing in after this still loses at the PUT; it then leaves only an unreferenced copy.

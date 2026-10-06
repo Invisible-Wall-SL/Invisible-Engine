@@ -162,8 +162,13 @@ export const createFromTemplate = defineOp<{ name: string }, CreateFromTemplateR
 		]);
 		// The template's math moved while it was being copied: the copy may hold either version, so
 		// the lock would vouch for a config nobody chose. Recorded as unknown; QA fails the run.
-		// A resumed create cannot know which template version it copied, so it is unknown too.
-		const templateConfigEtag = !resumed && before.etag === after.etag ? before.etag : null;
+		// A resumed create cannot know which template version it copied: it keeps what the attempt
+		// that copied recorded, never overwriting that with unknown.
+		const templateConfigEtag = resumed
+			? run.templateConfigEtag
+			: before.etag === after.etag
+				? before.etag
+				: null;
 		await setRunConfigEtags(run.id, { template: templateConfigEtag, project: copy.etag });
 		return {
 			projectKey: outcome.key,

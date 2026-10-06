@@ -51,6 +51,43 @@ Director starts every new game from a **template**: a published game an admin ha
 Only admins see Admin › Projects. A template must be a project the person running Director can
 open; Director never lists or copies a template they cannot reach.
 
+## How a run works (the server side exists; the screens come next)
+
+The owner API behind the three screens is built, so these rules already hold. Until the screens
+ship, nothing on the page calls it.
+
+- **Creating a run creates the game.** A run takes the same fields as Game Maker's "Create a game"
+  (name, key, client, game type) plus the template to re-theme, your notes, the art preset and the
+  checkpoints. It creates the project the way Game Maker does — the template is copied with
+  "Duplicate · full" — and the run starts in `draft`. The project's math contract is recorded at
+  that moment, so the agents can never move it unnoticed.
+- **Mockups come first.** You upload mockups and tag them before the run exists, under the key and
+  client of the game you are about to create. If there are mockups, the run cannot be created, and
+  cannot start, until you have ticked "These designs belong to us or to the client". Every new upload
+  clears the tick, so no image is covered by a check made before it existed. The check is copied
+  onto the run and shown in the run header. Without mockups, the notes are required: that is the
+  style board.
+- **The budget cap is fixed when the run starts**, from Settings' `DIRECTOR_RUN_BUDGET_USD`.
+  Changing the setting later never moves a run that has started; the New-game panel shows the
+  estimate against the cap a run started now would get.
+- **Your actions each leave one entry** that the agents' worker reads: start, pause, resume
+  (optionally raising the cap, never above what Settings allows), stop, approve or redo a
+  checkpoint, and a message to the coordinator. An action the run cannot take right now is refused
+  with the reason, and nothing is written. Sending the same action twice (a double click, a retry)
+  records it once. If the run has moved on by the time the worker reads an entry — the agents
+  finished the step first — the worker refuses that entry and says so in the activity feed.
+- **Nothing renders before you confirm the breakdown.** Approving the Mockup breakdown checkpoint is
+  the one action that lets RunPod work begin. "Redo with my note" sends the analyst back instead.
+- **The estimate is a range**, computed from the template's regions, your mockups, the preset and
+  the checkpoints — never from a RunPod or model call. Its figures are placeholders until the pilot
+  measures real runs; the panel says so.
+- **Fonts stay yours to bake.** When the Builder needs a font that Font Maker does not have, it stages
+  a request (the source TTF and the exact bake recipe) under the project. You bake and save it in
+  Invisible Font Maker, then mark the request done. Marking is refused until a font with that
+  folder is in the project's fonts.
+- **A run is its owner's.** Someone else with access to the project sees the live run stream, but
+  the run's summary and actions answer only to the person who created it.
+
 ## What's coming
 
 This is the plan, not working features. Source: `docs/director/SPEC.md` §1.
@@ -67,6 +104,9 @@ This is the plan, not working features. Source: `docs/director/SPEC.md` §1.
 
 ## Known limitations / TODOs
 
-- The page is an explanation only: no form, no runs, no agents. The template flag above and the
-  server-side tool adapters exist; nothing in the UI starts a run yet.
+- The page is an explanation only: no form, no runs, no agents. The template flag above, the
+  server-side tool adapters and the owner API (runs, actions, estimate, font requests) exist;
+  nothing in the UI calls them yet.
+- Named presets ("Save as preset") are not stored yet: a run takes its preset fields directly, with
+  the built-in `sdxl` blueprint as the default.
 - The build plan and progress live in `docs/director/PLAN.md` and `docs/director/HISTORY.md`.
