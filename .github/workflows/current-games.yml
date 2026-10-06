@@ -506,28 +506,3 @@ jobs:
           gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
             --jq '.artifacts[] | select(.name | startswith("current-games-part-")) | .id' |
             while read -r id; do gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id"; done
-
-  # TEMPORARY (reverted before merge): the verdict workflow fires only from main's copy, so this
-  # dry-runs the same script against THIS run once every other job is done. Posts nothing.
-  verdict-proof:
-    needs: [prepare, build, gates, render, report]
-    if: ${{ always() && github.event_name == 'pull_request' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      actions: read
-      pull-requests: read
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-      - name: Dry-run the verdict on this run
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          VERDICT_PROOF: '1'
-        run: node scripts/current-games/lib/verdict.mjs --run "$GITHUB_RUN_ID" --event completed --attempt "$GITHUB_RUN_ATTEMPT"
