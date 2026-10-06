@@ -157,7 +157,7 @@ How the two tools plug into the platform. §1 maps what exists today (Phase 0 ex
         │  form actions + SSE                │
         ▼                                    ▼
  launcher-api (SvelteKit)  ── Postgres: director_runs, director_events, director_spend,
-        │                                    pipeline_changes, pipeline_checks, pipeline_merges
+        │                                    pipeline_approvals (GitHub is the record)
         │  enqueue / signal (DB rows)        │  GitHub REST (branches, PRs, revert)
         ▼                                    ▼
  director-worker (new Railway service, Node)   GitHub Actions: pipeline tests +
@@ -166,6 +166,10 @@ How the two tools plug into the platform. §1 maps what exists today (Phase 0 ex
                            ──► atlas-tool HTTP (launch token)
    GPU jobs: submit → persist job id → resume on completion event (no LLM polling)
 ```
+
+**Note:** Pipeline changes are GitHub PRs; pipeline checks are GitHub workflow statuses and
+harness reports; approvals are stored in Postgres `pipeline_approvals` (unique per diff+approver)
+but the source of truth is the GitHub PR's statuses and reviews.
 
 - **Runtime agents** are markdown with YAML frontmatter in
   `services/director-worker/agents/*.md`. Changing one is a pipeline change: a branch, then an

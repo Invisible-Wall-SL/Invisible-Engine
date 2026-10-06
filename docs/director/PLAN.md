@@ -76,14 +76,16 @@ A change that cannot reach a game (docs only, or nothing in the `lines` runtime'
 | 3.3 | Run tables + state machine (pure) + lease claim | director-backend | done | Transition-table fixture; two workers never drive one run |
 | 3.4 | Turn loop: Anthropic SDK tool runner, caching, fallbacks, persisted history, resume | director-backend | done | Kill mid-run → resumes from stored messages with no duplicate ops |
 | 3.5 | Checkpoints, pause, stop, owner messages via `LISTEN/NOTIFY` | director-backend | done | An idle run makes zero model calls |
-| 3.6 | Mockup storage + analysis + code-side conflict rules + palette check | director-backend | review | Reference mockup set → stable breakdown; Buy bonus forced `left_out` |
+| 3.6 | Mockup storage + analysis + code-side conflict rules + palette check | director-backend | done | Reference mockup set → stable breakdown; Buy bonus forced `left_out` |
 | 3.7 | Spend ledger + budget cap pause | director-backend | done | A run at its cap pauses before the next call |
-| 3.8 | SSE event stream | director-backend | review | Lossless reconnect with `Last-Event-ID`; heartbeats |
+| 3.8 | SSE event stream | director-backend | done | Lossless reconnect with `Last-Event-ID`; heartbeats |
+| 3.9 | Breakdown step: worker-driven analysis, per-image storage, conflict rules | director-backend | done | analyzeMockups + submitBreakdown before agent turn, once per attempt; answers stored per image keyed by attempt+hashes; three verdicts on facts; model-named items capped; regions list; #1067 |
 
 ## Phase 4 — Director UI · branch `director/ui`
 
 | # | Task | Owner | Status | Acceptance |
 |---|---|---|---|---|
+| 4.A | Owner API: run actions (create, start, pause, resume, approve, stop) + estimate + font requests | director-backend | done | Create (needs Director + Game Maker), start/pause/resume/approve/stop idempotent via requestId, estimate returns budgetCapUsd, fonts listed by R2 key; #1069 |
 | 4.1 | New game screen + estimate panel | director-frontend | todo | Matches mockup 02; same fields and validation as Game Maker; ownership check required |
 | 4.2 | Mockup breakdown screen | director-frontend | todo | Matches mockup 03; no RunPod call before confirm |
 | 4.3 | Live run screen (steps, banner, galleries, review, activity, message box) | director-frontend | todo | Matches mockup 04; live via SSE; full width |
@@ -93,8 +95,8 @@ A change that cannot reach a game (docs only, or nothing in the `lines` runtime'
 | # | Task | Owner | Status | Acceptance |
 |---|---|---|---|---|
 | 5.0 | ADR-0007: pipeline-change mechanics (GitHub PR as the change record, merge strategy, revert) | director-architect | done | Approved before 5.1 (2026-10-05; eval cap $20) |
-| 5.1 | Changes list + detail (files, diff link, why) | director-frontend + director-backend | todo | Matches mockup 05 |
-| 5.2 | Check 1 (CI gates grouped) + Check 2 (harness report) + diff approval | director-backend | todo | A visible difference blocks merge until approved; approval is invalidated by a new commit |
+| 5.1 | Changes list + detail (files, diff link, why) | director-frontend + director-backend | backend done (#1068); screens in review (#1070) | Matches mockup 05 |
+| 5.2 | Check 1 (CI gates grouped) + Check 2 (harness report) + diff approval | director-backend | backend done (#1068); screens in review (#1070) | A visible difference blocks merge until approved; approval is invalidated by a new commit |
 | 5.3 | Merge with `pipelineMerge` + History + rollback (revert) | director-backend | todo | A roll back produces a revert that passes the harness |
 | 5.4 | Agents tab: edit definition → branch → evaluation before/after | director-backend + director-frontend | todo | Evaluation on a fixed reference mockup set; results stored on the change |
 
