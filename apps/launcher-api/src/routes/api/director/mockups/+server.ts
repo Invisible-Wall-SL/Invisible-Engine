@@ -11,6 +11,7 @@ import {
 	ownershipRefusal,
 	removeMockup,
 	setFidelity,
+	setMockupTag,
 	type MockupsDoc,
 } from '$lib/server/director/mockups';
 import type { RequestHandler } from './$types';
@@ -21,6 +22,7 @@ import type { RequestHandler } from './$types';
  *   GET  /api/director/mockups?project=<key>[&client=<key>]   the doc, the limits, the start refusal
  *   POST /api/director/mockups?project=<key>[&client=<key>]  (multipart)
  *        action=upload   file=<png|jpg> tag=<screen> [styleOnly=1]    (one file per request)
+ *        action=retag    id=<mockup id> tag=<screen> [styleOnly=1]     the ownership check stays
  *        action=confirm_ownership                                   records who and when, once
  *        action=fidelity fidelity=match|start
  *        action=remove   id=<mockup id>
@@ -92,6 +94,17 @@ export const POST: RequestHandler = async ({ request, url, locals }) => {
 				});
 				return answer(doc, pending);
 			}
+			case 'retag':
+				return answer(
+					await setMockupTag(
+						clientKey,
+						projectKey,
+						String(form.get('id') ?? ''),
+						form.get('tag'),
+						['1', 'true', 'on'].includes(String(form.get('styleOnly') ?? '')),
+					),
+					pending,
+				);
 			case 'confirm_ownership':
 				return answer(await confirmOwnership(clientKey, projectKey, by), pending);
 			case 'fidelity':

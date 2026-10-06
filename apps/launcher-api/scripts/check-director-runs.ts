@@ -125,6 +125,12 @@ fake('lib/server/r2.ts', {
 		return o ? { text: o.body, etag: o.etag } : null;
 	},
 	putObjectText: async (key: string, s: string, _type: string, cond?: Cond) => put(key, s, cond),
+	getObjectBytes: async (key: string) => {
+		const o = R2.get(key);
+		return o
+			? { body: new TextEncoder().encode(o.body), contentType: 'image/png', etag: o.etag }
+			: null;
+	},
 	deleteObject: async (key: string) => void R2.delete(key),
 	objectExists: async (key: string) => R2.has(key),
 	listAllKeys: async (prefix: string) => keysUnder(prefix),
@@ -181,6 +187,8 @@ fake('lib/server/projects.ts', {
 		[...PROJECTS].filter(([, p]) => p.template && !p.deleted).map(([k, p]) => asProject(k, p)),
 });
 fake('lib/server/clients.ts', {
+	listClients: async () => [...CLIENTS].sort().map((key) => ({ key, name: `Client ${key}` })),
+	clientGrantsOf: async (userId: string) => [...(GRANTS.get(userId) ?? [])],
 	clientExists: async (key: string) => CLIENTS.has(key),
 	mayCreateUnderClient: async (userId: string, role: string, client: string | null) =>
 		role === 'admin' || client === null || (GRANTS.get(userId)?.has(client) ?? false),
@@ -410,6 +418,7 @@ const actionsRoute = await import(src('routes/api/director/runs/[runId]/actions/
 const estimateRoute = await import(src('routes/api/director/estimate/+server.ts'));
 const templatesRoute = await import(src('routes/api/director/templates/+server.ts'));
 const fontsRoute = await import(src('routes/api/director/fonts/+server.ts'));
+const cropRoute = await import(src('routes/api/director/runs/[runId]/crop/+server.ts'));
 const mockupsRoute = await import(src('routes/api/director/mockups/+server.ts'));
 const { projectPrefix } = await import(src('lib/server/projectPaths.ts'));
 
@@ -1482,6 +1491,63 @@ console.log('templates');
 				.templates as unknown[]
 		).length,
 		0,
+	);
+	check(
+		'the clients are those the caller may create under, as Game Maker lists them',
+		hw.body.clients as { key: string; name: string }[],
+		[{ key: 'acme', name: 'Client acme' }],
+	);
+	check(
+		'…every client for an admin',
+		(
+			(await call(templatesRoute.GET, { user: ADMIN, url: '/api/director/templates' })).body
+				.clients as { key: string }[]
+		).map((c) => c.key),
+		[...CLIENTS].sort(),
+	);
+	const agents = hw.body.agents as { agent: string; model: string }[];
+	check(
+		'the agents the run is priced for, at the model each definition names',
+		agents.map((a) => a.agent),
+		['coordinator', 'mockup-analyst', 'art-director', 'atlas-artist', 'animator', 'builder', 'qa'],
+	);
+	check(
+		'…and the worker is not one of them',
+		agents.every((a) => a.agent !== 'worker' && a.model.startsWith('claude-')),
+		true,
+	);
+}
+
+// ── Crops ─────────────────────────────────────────────────────────────────────
+console.log('crops');
+{
+	const crop = (user: User | null, id: string, region: string) =>
+		call(cropRoute.GET, {
+			user,
+			url: `/api/director/runs/${id}/crop?region=${encodeURIComponent(region)}`,
+			params: { runId: id },
+		});
+	const key = `${projectPrefix(C, NEW)}/director/crops/${RUN_ID}/Logo.png`;
+	check('a region with no crop is 404', (await crop(OWNER, RUN_ID, 'Logo')).status, 404);
+	put(key, 'PNGBYTES', undefined);
+	const url = new URL(`http://x/api/director/runs/${RUN_ID}/crop?region=Logo`);
+	const res = await cropRoute.GET({
+		request: new Request(url),
+		url,
+		locals: { user: OWNER },
+		params: { runId: RUN_ID },
+	} as never);
+	check(
+		'the owner reads the crop as a PNG',
+		[res.status, res.headers.get('content-type'), await res.text()],
+		[200, 'image/png', 'PNGBYTES'],
+	);
+	check('a non-owner gets the run’s 404', (await crop(ADMIN, RUN_ID, 'Logo')).status, 404);
+	check('no session is 401', (await crop(null, RUN_ID, 'Logo')).status, 401);
+	check(
+		'a region name outside the adapter’s pattern is 404, never a key',
+		[(await crop(OWNER, RUN_ID, '../mockups.json')).status, (await crop(OWNER, RUN_ID, '')).status],
+		[404, 404],
 	);
 }
 

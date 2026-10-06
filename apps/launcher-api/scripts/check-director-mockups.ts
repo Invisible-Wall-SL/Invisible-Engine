@@ -202,6 +202,7 @@ const { allowedPrefixes, isKeyAllowed } = await import(src('lib/server/toolScope
 const { SUB } = await import(src('lib/server/projectPaths.ts'));
 const { planDuplicate } = await import(src('lib/server/projectDuplicate.ts'));
 const route = await import(src('routes/api/director/mockups/+server.ts'));
+const imageRoute = await import(src('routes/api/director/mockups/image/+server.ts'));
 
 const C = 'acme';
 const P = 'sunken-temple';
@@ -320,6 +321,25 @@ console.log('ownership');
 	check('the check records who', confirmed.ownershipConfirmed?.by, by);
 	check('…and when', typeof confirmed.ownershipConfirmed?.at, 'string');
 	check('a checked doc may start', mockups.ownershipRefusal(confirmed), null);
+	const retagged = await mockups.setMockupTag(C, P, doc.images[0].id, 'Hold and Win bonus', false);
+	check(
+		'a retag changes the tag and keeps the check',
+		[retagged.images[0].tag, retagged.images[0].styleOnly, retagged.ownershipConfirmed?.by],
+		['Hold and Win bonus', false, by],
+	);
+	const asStyle = await mockups.setMockupTag(C, P, doc.images[0].id, 'ignored', true);
+	check('a retag to style-only is tagged `style`', asStyle.images[0].tag, 'style');
+	await mockups.setMockupTag(C, P, doc.images[0].id, 'Base game', false);
+	check(
+		'a retag with a blank tag is 400',
+		await refused(() => mockups.setMockupTag(C, P, doc.images[0].id, '', false)),
+		400,
+	);
+	check(
+		'a retag of an unknown id is 404',
+		await refused(() => mockups.setMockupTag(C, P, 'ffffffffffffffff', 'Base game', false)),
+		404,
+	);
 	const afterUpload = await add(basePng, 'Added later');
 	check('a new upload clears the check', afterUpload.doc.ownershipConfirmed, null);
 	check(
@@ -643,6 +663,20 @@ console.log('route');
 		],
 		['adm', null],
 	);
+	const retag = new FormData();
+	retag.set('action', 'retag');
+	retag.set('id', (up.body!.doc as { images: { id: string }[] }).images[0].id);
+	retag.set('tag', 'Big win');
+	const retagged = await call('POST', admin, 'other-game', retag);
+	check(
+		'POST retag changes the tag and leaves the check as it was',
+		[
+			retagged.status,
+			(retagged.body!.doc as { images: { tag: string }[] }).images[0].tag,
+			retagged.body!.startRefusal,
+		],
+		[200, 'Big win', null],
+	);
 	const bad = new FormData();
 	bad.set('action', 'fidelity');
 	bad.set('fidelity', 'loose');
@@ -662,6 +696,58 @@ console.log('route');
 		'POST without the tool is 403',
 		(await call('POST', dev, 'other-game', confirm)).status,
 		403,
+	);
+
+	// The image route: the same gate as the doc, the original bytes back.
+	const image = async (user: App.Locals['user'], project: string, id: string) => {
+		const url = new URL(`http://x/api/director/mockups/image?project=${project}&id=${id}`);
+		try {
+			const res = await imageRoute.GET({
+				request: new Request(url),
+				url,
+				locals: { user },
+				cookies,
+				params: {},
+			} as never);
+			return {
+				status: res.status,
+				type: res.headers.get('content-type'),
+				bytes: new Uint8Array(await res.arrayBuffer()),
+			};
+		} catch (e) {
+			return { status: status(e), type: null, bytes: null };
+		}
+	};
+	const uploaded = (up.body!.doc as { images: { id: string }[] }).images[0].id;
+	check('image without a session is 401', (await image(null, 'other-game', uploaded)).status, 401);
+	check('image without the tool is 403', (await image(dev, 'other-game', uploaded)).status, 403);
+	check(
+		'image on an inaccessible project is 403',
+		(await image({ ...admin, role: 'artist' as const }, 'other-game', uploaded)).status,
+		403,
+	);
+	const got = await image(admin, 'other-game', uploaded);
+	check(
+		'image answers the original bytes with their type',
+		[got.status, got.type, got.bytes!.length, got.bytes![0]],
+		[200, 'image/png', basePng.length, basePng[0]],
+	);
+	check(
+		'an id the doc does not list is 404',
+		(await image(admin, 'other-game', 'ffffffffffffffff')).status,
+		404,
+	);
+	check('a malformed id is 404', (await image(admin, 'other-game', '../x')).status, 404);
+	check(
+		'a pending project has no images, so any id is 404',
+		(await image(admin, 'nope&client=acme', uploaded)).status,
+		404,
+	);
+	R2.delete(mockups.mockupImageKey('other', 'other-game', `${uploaded}.png`));
+	check(
+		'a listed image whose object is gone is 404',
+		(await image(admin, 'other-game', uploaded)).status,
+		404,
 	);
 }
 

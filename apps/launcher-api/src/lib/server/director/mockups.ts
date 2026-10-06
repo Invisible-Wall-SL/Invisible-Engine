@@ -292,6 +292,25 @@ export async function removeMockup(
 	return doc;
 }
 
+/** Re-tag a listed image. The ownership check stays: the images are the same. */
+export async function setMockupTag(
+	client: string,
+	project: string,
+	id: string,
+	tag: unknown,
+	styleOnly: boolean,
+): Promise<MockupsDoc> {
+	if (!isUploadId(id)) throw new MockupError(404, 'unknown_mockup', 'No such mockup.');
+	const clean = cleanTag(tag, styleOnly);
+	const { doc } = await updateDoc(client, project, (d) => {
+		const image = d.images.find((img) => img.id === id);
+		if (!image) throw new MockupError(404, 'unknown_mockup', 'No such mockup.');
+		image.tag = clean;
+		image.styleOnly = styleOnly;
+	});
+	return doc;
+}
+
 /** Record the ownership check once; a second confirmation keeps the first's name and time. */
 export async function confirmOwnership(
 	client: string,
@@ -323,7 +342,7 @@ export async function readMockup(
 	client: string,
 	project: string,
 	image: MockupImage,
-): Promise<Uint8Array | null> {
+): Promise<Uint8Array<ArrayBuffer> | null> {
 	const got = await getObjectBytes(mockupImageKey(client, project, image.file));
 	return got?.body ?? null;
 }

@@ -637,6 +637,21 @@ export interface RunSummary {
 
 const AGENTS = DIRECTOR_AGENTS.filter((a) => a !== 'worker');
 
+/**
+ * The agents a run is priced for, each at the model its definition names (the fixture pins the
+ * profiles to the definitions), in registry order: what the New-game panel lists under "Agents".
+ */
+export function agentProfiles(): { agent: string; model: string }[] {
+	const models = new Map<string, string>();
+	for (const profiles of Object.values(ESTIMATE_PROFILES.claude)) {
+		for (const profile of profiles) models.set(profile.agent, profile.model);
+	}
+	return AGENTS.filter((agent) => models.has(agent)).map((agent) => ({
+		agent,
+		model: models.get(agent)!,
+	}));
+}
+
 const round = (usd: number) => Math.round(usd * 10000) / 10000;
 
 export async function summarizeRun(run: DirectorRun): Promise<RunSummary> {
