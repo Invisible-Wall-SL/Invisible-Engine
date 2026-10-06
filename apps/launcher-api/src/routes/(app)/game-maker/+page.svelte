@@ -16,6 +16,7 @@
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import { askConfirm } from '$lib/dialogs.svelte';
+	import { slugifyProjectKey } from '$lib/projectKey';
 	import {
 		LAUNCH_LOCALES,
 		LAUNCH_CURRENCIES,
@@ -89,20 +90,11 @@
 		return `${years} year${years === 1 ? '' : 's'} ago`;
 	}
 
-	/** Slugify a typed name into a project key (shared by the create + duplicate forms). */
-	function slugify(value: string): string {
-		return value
-			.toLowerCase()
-			.replace(/[^a-z0-9]+/g, '-')
-			.replace(/^-+|-+$/g, '')
-			.slice(0, 64);
-	}
-
 	// Auto-derive a key slug from the typed name until the user edits the key.
 	let keyTouched = $state(false);
 	function onNameInput(value: string) {
 		name = value;
-		if (!keyTouched) key = slugify(value);
+		if (!keyTouched) key = slugifyProjectKey(value);
 	}
 
 	// ---------------------------------------------------------------------------------------------
@@ -255,7 +247,7 @@
 
 	function onDupNameInput(value: string) {
 		dupName = value;
-		if (!dupKeyTouched) dupKey = slugify(value);
+		if (!dupKeyTouched) dupKey = slugifyProjectKey(value);
 	}
 
 	async function runDuplicate() {
@@ -700,8 +692,7 @@
 			// Licensing is surfaced ONCE, here — the moment a build goes out is when "who owns this
 			// audio" stops being paperwork, and the only moment everyone is looking.
 			const sounds = out?.sounds as
-				| { bound: number; missingLicence: string[]; nonCommercial: string[] }
-				| undefined;
+				{ bound: number; missingLicence: string[]; nonCommercial: string[] } | undefined;
 			if (sounds?.nonCommercial?.length) {
 				publishNote = {
 					...publishNote,
@@ -727,8 +718,7 @@
 				};
 			}
 			const spinesMissing = out?.spinesMissing as
-				| { scene: string[]; symbols: string[] }
-				| undefined;
+				{ scene: string[]; symbols: string[] } | undefined;
 			const strandedSpines = [
 				...new Set([...(spinesMissing?.scene ?? []), ...(spinesMissing?.symbols ?? [])]),
 			];
@@ -1277,8 +1267,8 @@
 											<span class="stale-dot"></span>
 											<div class="stale-body">
 												<strong>Engine update available.</strong>
-												The shared engine runtime shipped after this game was last published, so the
-												running game may still be on the old engine. Republish to re-hydrate it.
+												The shared engine runtime shipped after this game was last published, so the running
+												game may still be on the old engine. Republish to re-hydrate it.
 											</div>
 											<button
 												class="stale-cta"

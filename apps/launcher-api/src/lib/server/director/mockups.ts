@@ -142,6 +142,20 @@ export function ownershipRefusal(
 	return 'Confirm that these designs belong to us or to the client before the run starts.';
 }
 
+/**
+ * Whether `uid` may act on a PENDING project's mockups: every image and the ownership check are
+ * theirs, or the doc is empty. Until the project exists there is no project row to grant access
+ * to, so the uploads say whose the key is: anyone else gets the same 403 as an inaccessible
+ * project — a free key is not a licence to read, retag or claim another person's unpublished
+ * art — and the key is anyone's again once its images are removed.
+ */
+export function pendingDocOwnedBy(doc: MockupsDoc, uid: string): boolean {
+	return (
+		doc.images.every((img) => img.uploadedBy.uid === uid) &&
+		(doc.ownershipConfirmed === null || doc.ownershipConfirmed.by.uid === uid)
+	);
+}
+
 function readDoc(text: string): MockupsDoc {
 	const raw = JSON.parse(text) as Partial<MockupsDoc>;
 	const images = Array.isArray(raw.images) ? raw.images : [];

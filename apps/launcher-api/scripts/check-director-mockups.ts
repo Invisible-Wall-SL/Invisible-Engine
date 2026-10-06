@@ -749,6 +749,63 @@ console.log('route');
 		(await image(admin, 'other-game', uploaded)).status,
 		404,
 	);
+
+	// A pending key is whoever uploaded under it first: another user — even another admin, who
+	// could create under the client — gets the inaccessible-project 403 on the doc, on every
+	// action and on the image, until the images are gone.
+	const other = { id: 'adm2', email: 'b@x', name: 'Other admin', role: 'admin' as const };
+	const mine = new FormData();
+	mine.set('action', 'upload');
+	mine.set('tag', 'Base game');
+	mine.set('file', new File([basePng], 'mine.png', { type: 'image/png' }));
+	const staked = await call('POST', admin, 'pending-key&client=acme', mine);
+	check('A uploads under a pending key', staked.status, 200);
+	const stakedId = (staked.body!.doc as { images: { id: string }[] }).images[0].id;
+	check(
+		'B reading A’s pending key is 403',
+		(await call('GET', other, 'pending-key&client=acme')).status,
+		403,
+	);
+	for (const [label, form] of [
+		['confirm_ownership', confirm],
+		['upload', mine],
+		['retag', retag],
+		[
+			'remove',
+			(() => {
+				const f = new FormData();
+				f.set('action', 'remove');
+				f.set('id', stakedId);
+				return f;
+			})(),
+		],
+	] as const) {
+		check(
+			`B’s ${label} on A’s pending key is 403`,
+			(await call('POST', other, 'pending-key&client=acme', form)).status,
+			403,
+		);
+	}
+	check(
+		'B reading A’s image is 403',
+		(await image(other, 'pending-key&client=acme', stakedId)).status,
+		403,
+	);
+	check('A still reads it', (await image(admin, 'pending-key&client=acme', stakedId)).status, 200);
+	check(
+		'…and A’s image is still there, untouched by B',
+		(await call('GET', admin, 'pending-key&client=acme')).body!.doc,
+		staked.body!.doc,
+	);
+	const gone = new FormData();
+	gone.set('action', 'remove');
+	gone.set('id', stakedId);
+	await call('POST', admin, 'pending-key&client=acme', gone);
+	check(
+		'once the images are gone the key is anyone’s again',
+		(await call('GET', other, 'pending-key&client=acme')).status,
+		200,
+	);
 }
 
 console.log(`director-mockups: ${checks - failures}/${checks} checks passed`);

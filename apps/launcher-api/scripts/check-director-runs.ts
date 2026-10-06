@@ -1714,6 +1714,31 @@ console.log('pending project');
 		[200, 'owner'],
 	);
 	check('…stored under the pending key', R2.has(docKey('coral-reef')), true);
+	check(
+		'a pending key another user confirmed is 403, for an admin too',
+		(await get(ADMIN, 'project=coral-reef&client=acme')).status,
+		403,
+	);
+	// Mockups uploaded by someone else under a free key: the create is refused like an
+	// inaccessible project, and nothing is created.
+	seedMockups(
+		'lagoon',
+		[{ ...image('a1b2c3d4e5f60720'), uploadedBy: { uid: 'art', name: 'Art' } }],
+		{ by: { uid: 'art', name: 'Art' }, at: '2026-10-06T00:00:00Z' },
+	);
+	const before = [RUNS.size, duplicates];
+	const theirs = await create(OWNER, createBody({ key: 'lagoon', requestId: 'lagoon-0001' }));
+	check(
+		'a create over another person’s pending mockups is 403',
+		[theirs.status, theirs.body.error],
+		[403, 'project_forbidden'],
+	);
+	check('…and creates nothing', [RUNS.size, duplicates], before);
+	check(
+		'the uploader may create it',
+		(await create(ART, createBody({ key: 'lagoon', requestId: 'lagoon-0002' }))).status,
+		201,
+	);
 }
 
 console.log(`\n${checks} checks, ${failures} failures`);

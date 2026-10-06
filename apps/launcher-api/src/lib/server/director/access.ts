@@ -7,6 +7,7 @@ import { isValidProjectKey, projectExists, projectKeyTaken } from '../projects';
 import { getRoleOverrides } from '../roleToolAccess';
 import { requireProjectScope } from '../toolScope';
 import { getToolOverrides } from '../userToolAccess';
+import { loadMockupsDoc, pendingDocOwnedBy } from './mockups';
 import { getRun } from './store';
 
 /**
@@ -74,8 +75,10 @@ export interface DirectorProjectScope {
  * in, whose mockups are uploaded and whose ownership is confirmed before the run is created
  * (ADR-0005 "Ownership": the run cannot be created without the check). A pending project is one
  * the caller could create in Game Maker: a valid, free key (a deleted project's key is taken) under
- * a client they may create under, `client` naming it (none = unassigned). Anything else is the same
- * 403 as an inaccessible project, so the answer says nothing about which keys exist.
+ * a client they may create under, `client` naming it (none = unassigned) — and whose mockups, if
+ * any, are the caller's own (`pendingDocOwnedBy`): a key another person has started uploading
+ * under is theirs until the project exists. Anything else is the same 403 as an inaccessible
+ * project, so the answer says nothing about which keys exist or who is preparing one.
  */
 export async function requireDirectorProjectScope(
 	user: User,
@@ -92,6 +95,10 @@ export async function requireDirectorProjectScope(
 		!(await projectKeyTaken(projectKey)) &&
 		(clientKey === null || (await clientExists(clientKey))) &&
 		(await mayCreateUnderClient(user.id, user.role, clientKey));
-	if (!creatable) throw error(403, `You do not have access to the project "${projectKey}".`);
-	return { clientKey: clientKey ?? UNASSIGNED_CLIENT, projectKey, pending: true };
+	const forbidden = () => error(403, `You do not have access to the project "${projectKey}".`);
+	if (!creatable) throw forbidden();
+	const scope = { clientKey: clientKey ?? UNASSIGNED_CLIENT, projectKey, pending: true };
+	const { doc } = await loadMockupsDoc(scope.clientKey, scope.projectKey);
+	if (!pendingDocOwnedBy(doc, user.id)) throw forbidden();
+	return scope;
 }

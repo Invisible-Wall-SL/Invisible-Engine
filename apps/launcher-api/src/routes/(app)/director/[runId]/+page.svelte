@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import { askConfirm } from '$lib/dialogs.svelte';
@@ -10,11 +9,14 @@
 		cropUrl,
 		describe,
 		elapsed,
+		isBreakdown,
+		isRecord,
 		isRefusal,
 		mockupImageUrl,
 		newRequestId,
 		projectQuery,
 		resend,
+		safeHex,
 		statusLabel,
 		stepNumber,
 		usd,
@@ -41,9 +43,11 @@
 	let fontsErr = $state('');
 	/** The last few stream rows, newest first, for the "latest" line under the banner. */
 	let recent = $state<RunEvent[]>([]);
-	/** `refused_request` errors the worker posted: an owner row it could not apply. */
+	/** `refused_request` errors the worker posted since this page opened: a row it could not apply. */
 	let refusals = $state<string[]>([]);
 	let streaming = $state(false);
+	/** The stream could not be opened at all; the summary and the fonts are polled instead. */
+	let polling = $state(false);
 	let now = $state(Date.now());
 
 	const startingPoint = $derived((run?.startingPoint ?? null) as StartingPoint | null);
@@ -52,31 +56,41 @@
 	const stepN = $derived(run ? stepNumber(run.step) : 1);
 	const waitingOnBreakdown = $derived(run?.status === 'waiting' && run.waitingOn === 'breakdown');
 	const checkpointPayload = $derived(
-		(run?.checkpoint?.payload ?? null) as Record<string, unknown> | null,
+		isRecord(run?.checkpoint?.payload) ? run.checkpoint.payload : null,
 	);
 	/** The analyst's breakdown at the open checkpoint; absent for the coordinator's style board. */
 	const breakdown = $derived(
-		waitingOnBreakdown && checkpointPayload && typeof checkpointPayload.breakdown === 'object'
-			? (checkpointPayload.breakdown as Breakdown)
+		waitingOnBreakdown && isBreakdown(checkpointPayload?.breakdown)
+			? checkpointPayload.breakdown
 			: null,
+	);
+	/** A `breakdown` the page cannot read: the checkpoint still opens, with its text and buttons. */
+	const breakdownUnreadable = $derived(
+		waitingOnBreakdown && checkpointPayload?.breakdown !== undefined && breakdown === null,
 	);
 	const styleBoard = $derived(
 		waitingOnBreakdown && !breakdown && typeof checkpointPayload?.summary === 'string'
-			? (checkpointPayload.summary as string)
+			? checkpointPayload.summary
 			: '',
 	);
 	const terminal = $derived(
 		run !== null && ['stopped', 'failed', 'handed_off'].includes(run.status),
 	);
-	const can = (action: string) =>
-		(run?.allowedActions as readonly string[] | undefined)?.includes(action) ?? false;
+	const can = (action: RunSummary['allowedActions'][number]) =>
+		run?.allowedActions.includes(action) ?? false;
 
-	async function refresh() {
+	/** Load the summary; the run as loaded, or null when the call failed. */
+	async function refresh(): Promise<RunSummary | null> {
 		try {
-			run = (await api<{ run: RunSummary }>(`/api/director/runs/${encodeURIComponent(runId)}`)).run;
+			const loaded = (
+				await api<{ run: RunSummary }>(`/api/director/runs/${encodeURIComponent(runId)}`)
+			).run;
+			run = loaded;
 			loadErr = '';
+			return loaded;
 		} catch (e) {
 			loadErr = describe(e);
+			return null;
 		}
 	}
 
@@ -134,7 +148,7 @@
 	 * opened with is news: an old refusal is history, not the answer to a button pressed here.
 	 */
 	const SEEN_IDS = 64;
-	const seenIds: number[] = [];
+	let seenIds: number[] = [];
 	let baselineEventId = 0;
 
 	function onEvent(raw: MessageEvent<string>) {
@@ -156,52 +170,96 @@
 		scheduleRefresh();
 	}
 
-	onMount(() => {
+	/**
+	 * One subscription per run id: opening another run from this page tears the first down and
+	 * starts afresh, so no row of one run reaches the other. The stream opens after the summary
+	 * (its `lastEventId` is where the stream picks up); a closed stream — a 404, a proxy that will
+	 * not stream — is final for `EventSource`, so the page polls the summary and the fonts every
+	 * 5 s and tries the stream again on each poll. Nothing is opened once the page is gone.
+	 */
+	$effect(() => {
+		const id = runId;
 		let source: EventSource | null = null;
 		let poll: ReturnType<typeof setInterval> | null = null;
 		let disposed = false;
-		const tick = setInterval(() => (now = Date.now()), 30_000);
-		const startPolling = () => {
-			if (poll || disposed) return;
-			poll = setInterval(() => void refresh(), 5_000);
-		};
+
+		run = null;
+		loadErr = '';
+		mockups = null;
+		fonts = [];
+		fontsErr = '';
+		recent = [];
+		refusals = [];
+		streaming = false;
+		polling = false;
+		seenIds = [];
+		baselineEventId = 0;
+		note = '';
+		capRaise = null;
+		notice = '';
+		actionErr = '';
+		recorded = '';
+		for (const key of Object.keys(pending)) delete pending[key];
+		outstanding = {};
+		selectedImage = '';
+
 		// What the New-game screen left for this run: a start it could not record, or a create that
 		// was replayed as first sent.
 		for (const kind of ['start-refusal', 'note'] as const) {
-			const key = `director:${kind}:${runId}`;
+			const key = `director:${kind}:${id}`;
 			const text = sessionStorage.getItem(key);
 			if (!text) continue;
 			sessionStorage.removeItem(key);
 			if (kind === 'start-refusal') actionErr = text;
 			else notice = text;
 		}
-		void (async () => {
-			await refresh();
-			await loadProjectDocs();
-			if (disposed) return;
-			if (!run) return startPolling();
-			baselineEventId = run.lastEventId;
+
+		const openStream = () => {
+			if (disposed || (source && source.readyState !== EventSource.CLOSED)) return;
 			source = new EventSource(
-				`${resolve('/(app)/director/[runId]/events', { runId })}?after=${run.lastEventId}`,
+				`${resolve('/(app)/director/[runId]/events', { runId: id })}?after=${baselineEventId}`,
 			);
 			for (const kind of KINDS) source.addEventListener(kind, onEvent as EventListener);
 			source.onopen = () => {
 				streaming = true;
+				if (poll) clearInterval(poll);
+				poll = null;
+				polling = false;
 				// Catch up on anything that landed while the stream was down.
 				scheduleRefresh();
 			};
 			source.onerror = () => {
 				streaming = false;
-				// EventSource retries a dropped connection itself; a closed one (a 404, a proxy that
-				// will not stream) is final, and the page polls instead.
+				// EventSource retries a dropped connection itself; a closed one is final.
 				if (source?.readyState === EventSource.CLOSED) startPolling();
 			};
+		};
+		const startPolling = () => {
+			if (poll || disposed) return;
+			polling = true;
+			poll = setInterval(() => {
+				void refresh();
+				void loadFonts();
+				openStream();
+			}, 5_000);
+		};
+		const tick = setInterval(() => (now = Date.now()), 30_000);
+
+		void (async () => {
+			const loaded = await refresh();
+			await loadProjectDocs();
+			if (disposed) return;
+			if (!loaded) return startPolling();
+			baselineEventId = loaded.lastEventId;
+			openStream();
 		})();
+
 		return () => {
 			disposed = true;
 			source?.close();
 			if (poll) clearInterval(poll);
 			if (refreshTimer) clearTimeout(refreshTimer);
+			refreshTimer = null;
 			clearInterval(tick);
 		};
 	});
@@ -209,11 +267,13 @@
 	// ── Owner actions, each with its own request id kept across retries ───────
 	/**
 	 * One request per intent until it is answered: the id AND the body as first sent, because the
-	 * server replays an id to the answer it recorded and refuses the same id with another body. A
-	 * note edited between a lost answer and the next press therefore does not travel; the page
-	 * says so. An id the server reports as reused is dropped, so the next press starts afresh.
+	 * server replays an id to the answer it recorded and refuses the same id with another body.
+	 * The note and the cap lock while their request is outstanding, so nothing edited is left
+	 * behind; an id the server reports as reused is dropped, so the next press starts afresh.
 	 */
 	const pending: Record<string, { requestId: string; body: Record<string, unknown> }> = {};
+	/** The intents with a request outstanding, for the inputs that lock meanwhile. */
+	let outstanding = $state<Record<string, true>>({});
 	let acting = $state('');
 	let actionErr = $state('');
 	let recorded = $state('');
@@ -225,10 +285,16 @@
 		done = 'Recorded. The agents pick it up now.',
 	) {
 		const sent = (pending[intent] ??= { requestId: newRequestId(), body });
+		outstanding = { ...outstanding, [intent]: true };
 		const asFirstSent = JSON.stringify(sent.body) !== JSON.stringify(body);
 		acting = intent;
 		actionErr = '';
 		recorded = '';
+		const settle = () => {
+			delete pending[intent];
+			const { [intent]: _done, ...rest } = outstanding;
+			outstanding = rest;
+		};
 		try {
 			const answer = await resend<ActionAnswer>(
 				`/api/director/runs/${encodeURIComponent(runId)}/actions`,
@@ -237,14 +303,17 @@
 			run = answer.run;
 			refusals = [];
 			recorded = asFirstSent ? `${done} The earlier request was resent as first written.` : done;
-			delete pending[intent];
+			settle();
 		} catch (e) {
 			if (e instanceof NetworkLost) {
 				actionErr = `${e.message} Press the button again: the same request is resent, never a second one.`;
 			} else if (isRefusal(e, 'in_progress')) {
 				actionErr = 'This request is still being written. Try again in a moment.';
 			} else {
-				if (isRefusal(e, 'request_id_reused')) delete pending[intent];
+				if (isRefusal(e, 'request_id_reused')) {
+					settle();
+					scheduleRefresh();
+				}
 				actionErr = describe(e);
 			}
 		} finally {
@@ -255,10 +324,13 @@
 	let note = $state('');
 	/** The cap a resume raises to; null while the number field is empty. */
 	let capRaise = $state<number | null>(null);
+	const approveIntent = $derived(`approve:${run?.checkpoint?.id ?? 0}`);
+	const reviseIntent = $derived(`revise:${run?.checkpoint?.id ?? 0}`);
+	const noteLocked = $derived(Boolean(outstanding[approveIntent] || outstanding[reviseIntent]));
 
 	const approve = () =>
 		act(
-			`approve:${run?.checkpoint?.id ?? 0}`,
+			approveIntent,
 			{
 				action: 'approve',
 				checkpoint: run?.waitingOn,
@@ -268,7 +340,7 @@
 		);
 	const revise = () =>
 		act(
-			`revise:${run?.checkpoint?.id ?? 0}`,
+			reviseIntent,
 			{ action: 'revise', checkpoint: run?.waitingOn, note: note.trim() },
 			'Recorded. The Mockup analyst reads your note and looks again.',
 		);
@@ -504,7 +576,12 @@
 				<div class="banner waiting" role="status">
 					<span>
 						<strong>Waiting for you at the {run.waitingOn?.replace('_', ' ')} checkpoint.</strong>
-						The review panel for it is the Live run screen, the next card.
+						{#if breakdownUnreadable}
+							The breakdown the analyst stored could not be read by this page; approve it or send it
+							back below.
+						{:else}
+							The review panel for it is the Live run screen, the next card.
+						{/if}
 						{#if typeof checkpointPayload?.summary === 'string'}{checkpointPayload.summary}{/if}
 					</span>
 					<span class="row">
@@ -536,6 +613,7 @@
 									step="1"
 									placeholder="New cap, $"
 									bind:value={capRaise}
+									disabled={Boolean(outstanding.resume)}
 									aria-label="Raise the cap to"
 								/>
 							{/if}
@@ -570,13 +648,19 @@
 			{#if recorded}<p class="ok" role="status">{recorded}</p>{/if}
 			{#if notice}<p class="ok" role="status">{notice}</p>{/if}
 			{#if loadErr}<p class="err">{loadErr}</p>{/if}
-			{#if recent.length}
+			{#if recent.length || polling}
 				{@const last = recent[0]}
 				<p class="latest">
 					<span class="k">Latest</span>
-					<span class="mono small">{last.agent} · {last.kind}</span>
-					{#if typeof last.payload?.message === 'string'}{last.payload.message}{/if}
-					{#if !streaming}<span class="muted">· polling</span>{/if}
+					{#if last}
+						<span class="mono small">{last.agent} · {last.kind}</span>
+						{#if typeof last.payload?.message === 'string'}{last.payload.message}{/if}
+					{/if}
+					{#if polling}
+						<span class="muted">· the live stream could not be opened; polling every 5 s</span>
+					{:else if !streaming}
+						<span class="muted">· reconnecting</span>
+					{/if}
 				</p>
 			{/if}
 
@@ -777,7 +861,7 @@
 								<div class="palette">
 									{#each breakdown.palette as swatch (swatch.hex)}
 										<span class="swatch">
-											<span class="color" style="background:{swatch.hex}"></span>
+											<span class="color" style="background:{safeHex(swatch.hex)}"></span>
 											<span class="small light">{swatch.name}</span>
 											<span class="mono small">{swatch.hex}</span>
 										</span>
@@ -801,6 +885,7 @@
 								<textarea
 									rows="2"
 									bind:value={note}
+									disabled={noteLocked}
 									placeholder="e.g. The plaques belong to the bonus screen, not the base game"
 								></textarea>
 							</label>
@@ -834,7 +919,7 @@
 						<section class="card" aria-label="Confirm">
 							<label class="field">
 								Tell the coordinator what to change (needed to send it back)
-								<textarea rows="2" bind:value={note}></textarea>
+								<textarea rows="2" bind:value={note} disabled={noteLocked}></textarea>
 							</label>
 							<div class="row">
 								<button

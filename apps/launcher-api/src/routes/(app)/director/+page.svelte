@@ -4,6 +4,12 @@
 	import { resolve } from '$app/paths';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import {
+		PROJECT_KEY_HTML_PATTERN,
+		PROJECT_KEY_PATTERN,
+		PROJECT_KEY_WORDS,
+		slugifyProjectKey,
+	} from '$lib/projectKey';
+	import {
 		AGENT_BLURBS,
 		NetworkLost,
 		api,
@@ -28,9 +34,6 @@
 
 	let { data }: { data: PageData } = $props();
 
-	// Game Maker's own key rule (`isValidProjectKey`), checked here so the words come before a call.
-	const KEY_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
-	const KEY_WORDS = 'Key must match a-z, 0-9, _ or - (max 64).';
 	const STYLE = '__style__';
 	const SCREEN_TAGS = [
 		'Base game',
@@ -55,17 +58,22 @@
 	let gameType = $state('');
 	let templateKey = $state('');
 
-	/** Slugify a typed name into a project key, as Game Maker does. */
-	function slugify(value: string): string {
-		return value
-			.toLowerCase()
-			.replace(/[^a-z0-9]+/g, '-')
-			.replace(/^-+|-+$/g, '')
-			.slice(0, 64);
-	}
 	function onNameInput(value: string) {
 		name = value;
-		if (!keyTouched) key = slugify(value);
+		if (!keyTouched) setKey(slugifyProjectKey(value));
+	}
+	/** The key, client and template name the create request: changing one starts a new one. */
+	function setKey(value: string) {
+		key = value;
+		createPending = null;
+	}
+	function onClientChange(value: string) {
+		clientKey = value;
+		createPending = null;
+	}
+	function onTemplateChange(value: string) {
+		templateKey = value;
+		createPending = null;
 	}
 
 	const templatesOf = (kind: string) => offer?.templates.filter((t) => t.gameType === kind) ?? [];
@@ -77,7 +85,7 @@
 
 	function onGameTypeChange(kind: string) {
 		gameType = kind;
-		templateKey = templatesOf(kind)[0]?.key ?? '';
+		onTemplateChange(templatesOf(kind)[0]?.key ?? '');
 	}
 
 	// ── Preset and checkpoints ────────────────────────────────────────────────
@@ -94,7 +102,7 @@
 	const checkpointsBody = $derived({ breakdown: cpBreakdown, regionBatch: cpRegionBatch });
 
 	// ── Mockups, under the key and client of the game about to be created ────
-	const scopeKey = $derived(KEY_PATTERN.test(key) ? key : '');
+	const scopeKey = $derived(PROJECT_KEY_PATTERN.test(key) ? key : '');
 	const scopeClient = $derived(clientKey || null);
 	const scopeQuery = $derived(projectQuery(scopeKey, scopeClient));
 	let mockups = $state<MockupsAnswer | null>(null);
@@ -139,7 +147,10 @@
 		} catch (e) {
 			if (k !== scopeKey || c !== scopeClient) return;
 			mockups = null;
-			keyHint = isRefusal(e) && e.status === 403 ? 'That key is not free.' : '';
+			keyHint =
+				isRefusal(e) && e.status === 403
+					? 'That key is not free: a project has it, had it, or someone else is preparing a game under it.'
+					: '';
 			if (!keyHint) mockupsErr = describe(e);
 		}
 	}
@@ -280,12 +291,6 @@
 	 * so. A different trio is another request.
 	 */
 	let createPending: { requestId: string; body: Record<string, unknown> } | null = null;
-	$effect(() => {
-		void key;
-		void clientKey;
-		void templateKey;
-		createPending = null;
-	});
 	/** The start request id per run, kept for the resend of a lost answer. */
 	const startRequestIds: Record<string, string> = {};
 	const startRequestIdFor = (runId: string): string => (startRequestIds[runId] ??= newRequestId());
@@ -299,7 +304,7 @@
 	async function createAndStart() {
 		createErr = '';
 		const k = key.toLowerCase().trim();
-		if (!KEY_PATTERN.test(k)) return void (createErr = KEY_WORDS);
+		if (!PROJECT_KEY_PATTERN.test(k)) return void (createErr = PROJECT_KEY_WORDS);
 		if (!name.trim()) return void (createErr = 'Name is required.');
 		if (!templateKey) return void (createErr = 'Pick a template game to re-theme.');
 		if (mockups?.startRefusal) return void (createErr = mockups.startRefusal);
@@ -424,10 +429,10 @@
 								value={key}
 								oninput={(e) => {
 									keyTouched = true;
-									key = e.currentTarget.value.toLowerCase();
+									setKey(e.currentTarget.value.toLowerCase());
 								}}
 								placeholder="sunken-temple"
-								pattern="[a-z0-9][a-z0-9_\-]{'{'}0,63}"
+								pattern={PROJECT_KEY_HTML_PATTERN}
 								spellcheck="false"
 								disabled={scopeLocked || uploading > 0}
 								required
@@ -436,7 +441,11 @@
 						</label>
 						<label>
 							Client
-							<select bind:value={clientKey} disabled={scopeLocked || uploading > 0}>
+							<select
+								value={clientKey}
+								onchange={(e) => onClientChange(e.currentTarget.value)}
+								disabled={scopeLocked || uploading > 0}
+							>
 								<option value="">Unassigned</option>
 								{#each offer?.clients ?? [] as c (c.key)}
 									<option value={c.key}>{c.name}</option>
@@ -471,7 +480,11 @@
 							template in Admin › Projects.
 						</p>
 					{:else}
-						<select bind:value={templateKey} aria-label="Template">
+						<select
+							value={templateKey}
+							onchange={(e) => onTemplateChange(e.currentTarget.value)}
+							aria-label="Template"
+						>
 							{#each templates as t (t.key)}
 								<option value={t.key}>{t.name} · {t.key}</option>
 							{/each}

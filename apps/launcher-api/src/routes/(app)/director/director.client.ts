@@ -55,7 +55,7 @@ export interface Breakdown {
 	fidelity: 'match' | 'start';
 	images: BreakdownImage[];
 	palette: { name: string; hex: string }[];
-	paletteDropped: { name: string; hex: string; nearest: string; distance: number }[];
+	paletteDropped: { name: string; hex: string; nearest: string | null; distance: number }[];
 	fontGaps: { text: string; styleNote: string; imageId: string }[];
 	uncoveredRegions: string[];
 	regionsTotal: number;
@@ -106,6 +106,58 @@ export interface RunEvent {
 }
 
 export type { RunPreset, RunCheckpoints, StartingPoint };
+
+export const isRecord = (value: unknown): value is Record<string, unknown> =>
+	typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/**
+ * Whether a checkpoint payload's `breakdown` has the shape the page reads: the worker's stored
+ * breakdown, checked field by field rather than trusted, so a payload from another version of the
+ * worker degrades to the checkpoint's text and buttons instead of a crash.
+ */
+export function isBreakdown(value: unknown): value is Breakdown {
+	if (!isRecord(value)) return false;
+	const { images, palette, paletteDropped, fontGaps, uncoveredRegions, crops } = value;
+	const elementOk = (el: unknown) =>
+		isRecord(el) &&
+		typeof el.n === 'number' &&
+		isRecord(el.box) &&
+		typeof el.box.x === 'number' &&
+		typeof el.box.y === 'number' &&
+		typeof el.box.w === 'number' &&
+		typeof el.box.h === 'number' &&
+		typeof el.name === 'string' &&
+		Array.isArray(el.regions) &&
+		(el.status === 'matched' || el.status === 'needs_you' || el.status === 'left_out') &&
+		typeof el.reason === 'string';
+	const imageOk = (img: unknown) =>
+		isRecord(img) &&
+		typeof img.id === 'string' &&
+		typeof img.file === 'string' &&
+		typeof img.tag === 'string' &&
+		typeof img.w === 'number' &&
+		typeof img.h === 'number' &&
+		Array.isArray(img.elements) &&
+		img.elements.every(elementOk);
+	return (
+		Array.isArray(images) &&
+		images.every(imageOk) &&
+		Array.isArray(palette) &&
+		palette.every((p) => isRecord(p) && typeof p.name === 'string' && typeof p.hex === 'string') &&
+		Array.isArray(paletteDropped) &&
+		Array.isArray(fontGaps) &&
+		fontGaps.every((g) => isRecord(g) && typeof g.text === 'string') &&
+		Array.isArray(uncoveredRegions) &&
+		typeof value.regionsTotal === 'number' &&
+		typeof value.regionsMatched === 'number' &&
+		(crops === null ||
+			(isRecord(crops) && Array.isArray(crops.saved) && Array.isArray(crops.skipped)))
+	);
+}
+
+/** A swatch colour as a CSS value: the analyst's hex, or nothing when it is not one. */
+export const safeHex = (hex: string): string =>
+	/^#[0-9A-Fa-f]{6}$/.test(hex) ? hex : 'transparent';
 
 /** A refusal the server answered: `{ error: code, message }` at a 4xx or 5xx. */
 export class ApiRefusal extends Error {
