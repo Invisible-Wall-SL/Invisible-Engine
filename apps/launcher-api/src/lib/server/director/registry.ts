@@ -4,6 +4,7 @@ import { FLIPBOOK_OPS } from './ops/flipbook';
 import { FONTS_OPS } from './ops/fonts';
 import { GAMEMAKER_OPS } from './ops/gamemaker';
 import { LOCALIZATION_OPS } from './ops/localization';
+import { MOCKUP_OPS } from './ops/mockups';
 import { RIGGER_OPS } from './ops/rigger';
 import { SCENE_OPS } from './ops/scene';
 import { SYMBOLS_OPS } from './ops/symbols';
@@ -58,6 +59,7 @@ export function buildRegistry(ops: readonly AdapterOp[]): ReadonlyMap<string, Ad
 export const ADAPTER_OPS = buildRegistry([
 	...GAMEMAKER_OPS,
 	...ATLAS_OPS,
+	...MOCKUP_OPS,
 	...SYMBOLS_OPS,
 	...SCENE_OPS,
 	...WINTEXT_OPS,

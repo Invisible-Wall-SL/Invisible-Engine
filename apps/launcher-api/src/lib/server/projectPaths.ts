@@ -59,6 +59,9 @@ export const SUB = {
 	config: (c: string, p: string) => `${projectPrefix(c, p)}/config`,
 	cinematics: (c: string, p: string) => `${projectPrefix(c, p)}/cinematics`,
 	storybook: (c: string, p: string) => `${projectPrefix(c, p)}/storybook`,
+	// Invisible Director's mockups and crops (ADR-0005). Not an asset class a game ships: deploy,
+	// bake, pull and the duplicate path all leave it alone.
+	director: (c: string, p: string) => `${projectPrefix(c, p)}/director`,
 } as const;
 
 /** A project's published-snapshot pointer: `<client>/<project>/published/pointer.json`. */

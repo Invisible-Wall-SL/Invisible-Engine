@@ -183,6 +183,13 @@
       "when": 1791200944566,
       "tag": "0025_director_wake_trigger",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1791270570458,
+      "tag": "0026_director_events_notify",
+      "breakpoints": true
     }
   ]
 }

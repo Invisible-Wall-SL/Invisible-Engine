@@ -309,6 +309,7 @@ const {
 	opId: opIdOf,
 } = await import(src('lib/server/director/registry.ts'));
 const { GAMEMAKER_OPS } = await import(src('lib/server/director/ops/gamemaker.ts'));
+const { lockedItemsOf } = await import(src('lib/server/director/templates.ts'));
 const { defineOp, DIRECTOR_AGENTS } = await import(src('lib/server/director/adapter.ts'));
 const { refusedOp, refusedWriteTarget } = await import(src('lib/server/director/refusals.ts'));
 const { putObjectText, precondition } = await import(src('lib/server/r2.ts'));
@@ -908,7 +909,7 @@ check(
 	const templates = res.body.templates as {
 		key: string;
 		chips: { game: { text: string }[]; using: { text: string }[] };
-		lockedItems: { id: string; detail: string }[];
+		lockedItems: { id: string; detail: string; facts?: unknown }[];
 		regionGroups: { atlas: string; regions: number }[];
 	}[];
 	check(
@@ -927,6 +928,37 @@ check(
 		'...the locked items',
 		t.lockedItems.map((l) => l.id),
 		['math', 'paytable', 'bet_modes', 'paylines', 'feature_rules'],
+	);
+	check(
+		'...bet modes carry their buyBonus flag as data',
+		t.lockedItems.find((l) => l.id === 'bet_modes')?.facts,
+		{
+			betModes: [
+				{ id: 'base', buyBonus: false },
+				{ id: 'bonus', buyBonus: false },
+			],
+		},
+	);
+	const scatterLike = lockedItemsOf({
+		rtp: 0.97,
+		numReels: 5,
+		numRows: [3, 3, 3, 3, 3],
+		symbols: {},
+		paylines: {},
+		betModes: { base: { buyBonus: false }, bonus: { buyBonus: true } },
+	} as never).find((l) => l.id === 'bet_modes')!;
+	check(
+		'...a buy mode is told by its flag, not its name (scatter.json buys through `bonus`)',
+		[scatterLike.detail, scatterLike.facts],
+		[
+			'base, bonus (buy)',
+			{
+				betModes: [
+					{ id: 'base', buyBonus: false },
+					{ id: 'bonus', buyBonus: true },
+				],
+			},
+		],
 	);
 	check(
 		'...described from the config',

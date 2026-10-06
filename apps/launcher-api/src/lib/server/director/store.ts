@@ -1,4 +1,4 @@
-import { and, eq, lt } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, lt, lte } from 'drizzle-orm';
 import { getDb } from '../db';
 import {
 	directorAtlasJobs,
@@ -7,6 +7,7 @@ import {
 	directorRuns,
 	users,
 	type DirectorAtlasJob,
+	type DirectorEvent,
 	type DirectorOp,
 	type DirectorRun,
 } from '../db/schema';
@@ -198,4 +199,43 @@ export async function settleAtlasJob(done: {
 		});
 		return row;
 	});
+}
+
+/** The run's events after `afterId`, oldest first — the live stream's catch-up read. */
+export async function listEventsAfter(
+	runId: string,
+	afterId: number,
+	limit: number,
+): Promise<DirectorEvent[]> {
+	return getDb()
+		.select()
+		.from(directorEvents)
+		.where(and(eq(directorEvents.runId, runId), gt(directorEvents.id, afterId)))
+		.orderBy(asc(directorEvents.id))
+		.limit(limit);
+}
+
+/**
+ * The id just before the run's `count` most recent events with `id <= upTo`, or 0 when there are no
+ * more than `count` — the stream's look-back start, counted in THIS run's rows (`id` is shared by
+ * every run).
+ */
+export async function eventAnchor(runId: string, upTo: number, count: number): Promise<number> {
+	const [row] = await getDb()
+		.select({ id: directorEvents.id })
+		.from(directorEvents)
+		.where(and(eq(directorEvents.runId, runId), lte(directorEvents.id, upTo)))
+		.orderBy(desc(directorEvents.id))
+		.offset(count)
+		.limit(1);
+	return row?.id ?? 0;
+}
+
+/** One event of the run, or null — a NOTIFY names it and the stream fetches it. */
+export async function getEvent(runId: string, id: number): Promise<DirectorEvent | null> {
+	const [row] = await getDb()
+		.select()
+		.from(directorEvents)
+		.where(and(eq(directorEvents.runId, runId), eq(directorEvents.id, id)));
+	return row ?? null;
 }
