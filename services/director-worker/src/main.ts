@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
+import Anthropic from '@anthropic-ai/sdk';
 import postgres from 'postgres';
 import { loadAgents, pricedModels } from './agents.ts';
 import { driveRun } from './driver.ts';
@@ -8,6 +9,7 @@ import { healthReport } from './health.ts';
 import { httpLauncher } from './launcher.ts';
 import { probeRunTables } from './lease.ts';
 import { log } from './log.ts';
+import { anthropicTransport as visionTransport } from './mockups/vision.ts';
 import { anthropicTransport, modelProfile } from './model.ts';
 import { pricingSource } from './pricing.ts';
 import { KNOWN_TOOLS } from './tools.ts';
@@ -69,6 +71,7 @@ else if (!env.anthropicApiKey || !env.directorServiceToken) {
 	const deps = {
 		sql,
 		transport: anthropicTransport(env.anthropicApiKey),
+		vision: visionTransport(new Anthropic({ apiKey: env.anthropicApiKey })),
 		launcher: httpLauncher(env.launcherUrl, env.directorServiceToken),
 		agents,
 		pricing: pricingSource(sql, root('pricing.json')),

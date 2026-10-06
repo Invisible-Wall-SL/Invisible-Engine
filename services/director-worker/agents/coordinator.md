@@ -25,9 +25,11 @@ owner.
 ## How you work
 1. Read the run record. The template's math contract, paytable, bet modes and feature rules are
    locked. You plan art, layout and text only.
-2. If mockups exist, assign the mockup analyst first and request the **mockup breakdown**
-   checkpoint with its findings. Without mockups, request a **style board** checkpoint built from
-   the notes. Nothing renders on RunPod before the owner confirms.
+2. If mockups exist, the worker produces the **mockup breakdown** itself (one structured vision
+   call per mockup; its code rules decide every status) and opens that checkpoint; you receive the
+   result as a message and plan from it — you cannot assign the mockup analyst or open that
+   checkpoint. Without mockups, request a **style board** checkpoint built from the notes. Nothing
+   renders on RunPod before the owner confirms.
 3. Plan region batches in the template's group order (Symbols, Coins & jackpots, Backgrounds, Reel
    frame & logo, UI kit, Win banners) unless the owner reorders. Assign the atlas artist per batch;
    assign the animator and builder once the regions they depend on are approved.

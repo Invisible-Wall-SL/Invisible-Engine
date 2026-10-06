@@ -33,6 +33,33 @@ export function projectCall(
 }
 
 /**
+ * Tokens one mockup image costs at most: the model copy is at most 1568 px on its long edge, and an
+ * image costs about width × height / 750 tokens, so a square one is the ceiling. Errs high.
+ */
+export const IMAGE_TOKENS = 3_300;
+
+/**
+ * Projected USD of one of the mockup analysis's vision calls (`mockups/vision.ts`): the system
+ * block and the prompt priced uncached, the image at its ceiling, and the output as `projectCall`
+ * projects it — the analyst's largest answer so far, or the default before its first.
+ */
+export function projectVisionCall(
+	request: { model: string; system: string; prompt: string },
+	maxTokens: number,
+	pricing: DirectorPricing,
+	maxOutputSoFar: number | undefined,
+): number {
+	const rate = Object.hasOwn(pricing.perMTok, request.model)
+		? pricing.perMTok[request.model]
+		: undefined;
+	if (!rate) throw new Error(`pricing: no price for model "${request.model}"`);
+	const inputTokens =
+		Math.ceil((request.system.length + request.prompt.length) / CHARS_PER_TOKEN) + IMAGE_TOKENS;
+	const outputTokens = Math.min(maxTokens, maxOutputSoFar || DEFAULT_OUTPUT_TOKENS);
+	return (inputTokens * rate.input + outputTokens * rate.output) / 1_000_000;
+}
+
+/**
  * Projected USD of `renders` GPU renders whose cost has not landed — the ones in flight, plus any
  * about to be submitted — each at the run's mean billed render so far, or at `seedUsd`
  * (`seedRenderUsd`: pricing.json's seed seconds at the dearest GPU) before the first is billed. A

@@ -205,6 +205,34 @@ export async function markHandled(tx: Db, eventId: number): Promise<void> {
 	await tx`update director_events set handled_at = now() where id = ${eventId}`;
 }
 
+// ── The breakdown step ────────────────────────────────────────────────────────
+
+/**
+ * The owner's notes from each "revise" of the run's breakdown checkpoint the worker has applied,
+ * oldest first. Their count is how many times the breakdown was sent back, so the next analysis is
+ * attempt `length + 1`, and the notes go into its prompt.
+ */
+export async function breakdownRevisions(db: Db, runId: string): Promise<string[]> {
+	const rows = await db<{ note: string | null }[]>`
+		select payload_json->>'note' as note from director_events
+		where run_id = ${runId} and kind = 'checkpoint_resolved' and handled_at is not null
+			and payload_json->>'checkpoint' = 'breakdown' and payload_json->>'decision' = 'revise'
+		order by id`;
+	return rows.map((r) => r.note?.trim() ?? '').filter(Boolean);
+}
+
+/**
+ * How many analysis passes the run has started (`breakdown_pass` activity rows), finished or not:
+ * a pass that died before its submission still counts, so the next one takes a new number — and
+ * with it a new opId for its crops.
+ */
+export async function breakdownPasses(db: Db, runId: string): Promise<number> {
+	const [row] = await db<{ n: number }[]>`
+		select count(*)::int as n from director_events
+		where run_id = ${runId} and kind = 'activity' and payload_json->>'type' = 'breakdown_pass'`;
+	return row.n;
+}
+
 /**
  * What the launcher's gate recorded for a write's `opId` (`director_ops`, ADR-0002): `done` with
  * the op's stored result, `pending` while it runs (or since it was lost mid-run), or null when it

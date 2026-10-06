@@ -16,11 +16,27 @@ import {
 	seedRenderUsd,
 	type DirectorPricing,
 } from 'director-costs';
+import { adapterClient } from './adapters.ts';
 import type { AgentDefinition } from './agents.ts';
-import { overCap, projectCall, projectQueuedGpu, unreportedSeconds } from './budget.ts';
+import {
+	overCap,
+	projectCall,
+	projectQueuedGpu,
+	projectVisionCall,
+	unreportedSeconds,
+} from './budget.ts';
 import type { AdapterSpec, Launcher } from './launcher.ts';
 import { deferLease, LEASE_MS, releaseLease, renewLease, type ClaimedRun } from './lease.ts';
 import { log } from './log.ts';
+import { AnalysisRefused, analyzeMockups, type Breakdown } from './mockups/analyze.ts';
+import { submitBreakdown } from './mockups/checkpoint.ts';
+import {
+	VISION_MAX_TOKENS,
+	VisionError,
+	type BilledResponse,
+	type ModelTransport as VisionTransport,
+	type VisionAnswer,
+} from './mockups/vision.ts';
 import {
 	buildRequest,
 	echoable,
@@ -35,6 +51,8 @@ import {
 	appendMessage,
 	appSetting,
 	applyTransition,
+	breakdownPasses,
+	breakdownRevisions,
 	hasToolUse,
 	insertEvent,
 	LeaseLost,
@@ -73,8 +91,14 @@ import { runWorkerTool, workerToolSpecs, type WorkerToolId } from './workerTools
  *    row, then the assistant message and the tool results. The history is append-only and written
  *    after every turn, so a restart rebuilds the next request from the rows — nothing is replayed.
  *
+ * While the run is `running` in the `breakdown` step and has mockups, the step is the worker's, not
+ * an agent's (ADR-0005): `breakdownStep` runs the analysis — the model proposes, the code rules
+ * decide — and submits it as the `breakdown` checkpoint before any agent takes a turn. Only a run
+ * without mockups reaches the coordinator in that step, for the style board.
+ *
  * A run with nothing pending — waiting on the owner, on a GPU job, paused — makes no model call:
- * the only way to a call is a pending conversation in a `running` run.
+ * the only way to a call is a pending conversation in a `running` run, or the breakdown step of a
+ * run with mockups.
  *
  * What cannot be finished now is retried, never guessed at: a model call that failed transiently,
  * an adapter call whose outcome is unknown (`RetryLater`), or the launcher unreachable stores
@@ -86,6 +110,8 @@ import { runWorkerTool, workerToolSpecs, type WorkerToolId } from './workerTools
 export interface DriverDeps {
 	sql: Sql;
 	transport: ModelTransport;
+	/** The mockup analysis's vision calls (`mockups/vision.ts`), one per image. */
+	vision: VisionTransport;
 	launcher: Launcher;
 	agents: ReadonlyMap<string, AgentDefinition>;
 	pricing: () => Promise<DirectorPricing>;
@@ -142,6 +168,8 @@ interface Ctx extends DriverDeps {
 	run: Pick<ClaimedRun, 'id' | 'lease'>;
 	signal: AbortSignal;
 	workerSpecs: ReturnType<typeof workerToolSpecs>;
+	/** Whether the run has mockups, read once per drive (`runHasMockups`). */
+	mockups?: Promise<boolean>;
 }
 
 export async function driveRun(deps: DriverDeps, claimed: ClaimedRun): Promise<void> {
@@ -177,6 +205,10 @@ export async function driveRun(deps: DriverDeps, claimed: ClaimedRun): Promise<v
 			if (controller.signal.aborted) throw controller.signal.reason;
 			const live = await withLease(ctx.sql, ctx.run, async (_tx, l) => l);
 			if (live.state.status !== 'running') break;
+			if (await breakdownStep(ctx, live)) {
+				await handleEvents(ctx);
+				continue;
+			}
 			const [agent] = await pendingAgents(ctx.sql, ctx.run.id);
 			if (!agent || !(await takeTurn(ctx, agent))) break;
 			await handleEvents(ctx);
@@ -284,8 +316,12 @@ async function settle(
 	content: BetaContentBlockParam[],
 ) {
 	const calls = content.filter((b): b is BetaToolUseBlock => b.type === 'tool_use');
-	const { status } = (await withLease(ctx.sql, ctx.run, async (_tx, l) => l)).state;
+	const { state } = await withLease(ctx.sql, ctx.run, async (_tx, l) => l);
+	const status = state.status;
 	const served = status === 'running' ? await catalog(ctx) : new Map<string, AdapterSpec>();
+	// In the breakdown step the tools must know whose step it is before the turn's calls run.
+	const hasMockups =
+		status === 'running' && state.step === 'breakdown' ? await runHasMockups(ctx) : false;
 	const results = new Map<string, BetaToolResultBlockParam>();
 	let budgetStop: BudgetFigures | null = null;
 
@@ -384,6 +420,7 @@ async function settle(
 			tx,
 			live,
 			agent: agent.name,
+			hasMockups,
 			missingTools: (name: string) => {
 				const other = ctx.agents.get(name);
 				return other ? toolsFor(ctx, other, served).missing : [name];
@@ -658,12 +695,13 @@ async function takeTurn(ctx: Ctx, name: string): Promise<boolean> {
  * Write the response's spend row and its `spend` event, together. Written whatever happens next,
  * lease or not: the money is spent. The response id is the row's `requestId`, so a repeat is
  * ignored. False when the response can't be priced; the run pauses rather than spend unrecorded
- * money, and the error carries the usage so it can still be priced by hand.
+ * money, and the error carries the usage so it can still be priced by hand. A turn's message and
+ * the analysis's vision answers are billed alike.
  */
 async function billResponse(
 	ctx: Ctx,
 	agent: string,
-	response: BetaMessage,
+	response: BilledResponse,
 	pricing: DirectorPricing,
 ) {
 	let cost;
@@ -698,6 +736,180 @@ async function billResponse(
 		}
 	});
 	return true;
+}
+
+// ── The breakdown step ────────────────────────────────────────────────────────
+
+const ANALYST = 'mockup-analyst';
+
+/**
+ * Whether the run has mockups, read once per drive through `mockups.list` in the analyst's name. A
+ * listing that cannot be read is not "no mockups": the drive fails and is retried, because a style
+ * board opened in its place would be a breakdown the rules never saw.
+ */
+function runHasMockups(ctx: Ctx): Promise<boolean> {
+	ctx.mockups ??= adapterClient(ctx.launcher, { runId: ctx.run.id, agent: ANALYST }, ctx.signal)
+		.call<{ images: unknown[] }>('mockups', 'list', {})
+		.then((listing) => listing.images.length > 0);
+	return ctx.mockups;
+}
+
+/** The step stopped before it was done: the run was paused or stopped under it. */
+class StepStopped extends Error {
+	constructor(why: string) {
+		super(`the breakdown step stopped: ${why}`);
+		this.name = 'StepStopped';
+	}
+}
+
+/**
+ * The run's breakdown step when it has mockups (ADR-0005): the worker's own code — not an agent's
+ * turn — runs the analysis and submits the result as the `breakdown` checkpoint. The model proposes
+ * inside `analyzeMockups`, `rules.ts` decides every status, and `submitBreakdown` opens the
+ * checkpoint in one lease-checked transaction, only from `running` in `breakdown` — so it opens
+ * once per attempt, and a pass that died before its submission leaves the run where it was: the
+ * next claim runs it again under a new pass number (new crops opId). An owner who has not
+ * confirmed the mockups' ownership pauses the run before any model call. A run without mockups is
+ * the coordinator's, which builds the style board and asks for the checkpoint itself.
+ *
+ * True when the step was the worker's here (the run moved, paused, or kept its state for a retry);
+ * false when it is not — the loop then gives an agent its turn.
+ */
+async function breakdownStep(ctx: Ctx, live: LiveRun): Promise<boolean> {
+	if (live.state.step !== 'breakdown' || !(await runHasMockups(ctx))) return false;
+	const analyst = ctx.agents.get(ANALYST);
+	if (!analyst) {
+		await pauseWithError(ctx, 'worker', { type: 'unknown_agent', agent: ANALYST });
+		return true;
+	}
+	const notes = await breakdownRevisions(ctx.sql, ctx.run.id);
+	const attempt = notes.length + 1;
+	const pass = (await breakdownPasses(ctx.sql, ctx.run.id)) + 1;
+	await withLease(ctx.sql, ctx.run, (tx, l) =>
+		insertEvent(tx, l.id, 'worker', 'activity', {
+			type: 'breakdown_pass',
+			attempt,
+			pass,
+			message:
+				attempt > 1
+					? `Analysing the mockups again with the owner's notes (attempt ${attempt}).`
+					: 'Analysing the mockups.',
+		}),
+	);
+	const client = (agent: string) =>
+		adapterClient(ctx.launcher, { runId: ctx.run.id, agent }, ctx.signal);
+	let breakdown: Breakdown;
+	try {
+		breakdown = await analyzeMockups({
+			adapters: { analyst: client(ANALYST), worker: client('worker') },
+			model: visionFor(ctx, analyst),
+			agent: analyst,
+			run: { id: ctx.run.id, templateProjectKey: live.templateProjectKey },
+			pass,
+			notes,
+		});
+	} catch (error) {
+		if (error instanceof StepStopped) return true;
+		if (error instanceof AnalysisRefused) {
+			if (error.code === 'no_mockups') {
+				// Gone between the listing and the analysis: the step is the coordinator's after all.
+				ctx.mockups = Promise.resolve(false);
+				return false;
+			}
+			await pauseWithError(ctx, 'worker', {
+				type: 'ownership_unconfirmed',
+				message: `${error.message} Then resume the run.`,
+			});
+			return true;
+		}
+		if (error instanceof VisionError && error.code === 'refusal') {
+			await withLease(ctx.sql, ctx.run, async (tx, l) => {
+				await insertEvent(tx, l.id, ANALYST, 'error', {
+					type: 'refusal',
+					model: error.response?.model ?? analyst.model,
+					message: `The mockup analyst's call was refused: ${error.message}`,
+				});
+				await pause(tx, l, 'refusal', `${ANALYST}: refusal`);
+			});
+			return true;
+		}
+		// Anything else — a transport failure, an adapter down, an answer that is not the schema — is
+		// retried by the drive's failure path, and pauses the run after MAX_FAILURES in a row.
+		throw error;
+	}
+	const result = await submitBreakdown(ctx.sql, ctx.run, breakdown, attempt);
+	if (!result.ok) {
+		await withLease(ctx.sql, ctx.run, (tx, l) =>
+			insertEvent(tx, l.id, 'worker', 'error', {
+				type: 'breakdown_discarded',
+				message: `The breakdown was not submitted: ${result.error}. It is produced again once the run is running in the breakdown step.`,
+			}),
+		);
+	}
+	return true;
+}
+
+/**
+ * The analyst's vision calls as the driver makes them: each goes out only while the run is still
+ * running (an owner's pause or stop pressed since the last call applies first) and only under the
+ * cap, and is billed as soon as it is answered — a refused or malformed answer included, since its
+ * tokens are spent all the same.
+ */
+function visionFor(ctx: Ctx, analyst: AgentDefinition): VisionTransport {
+	return {
+		async analyze(request) {
+			await handleEvents(ctx, { ownerRequestsOnly: true });
+			const pricing = await ctx.pricing();
+			const spend = await runSpend(ctx.sql, ctx.run.id);
+			const queuedGpuUsd = projectQueuedGpu(
+				spend.rendersInFlight,
+				spend.meanRunpodJobUsd,
+				seedRenderUsd(pricing),
+			);
+			const projectedUsd =
+				projectVisionCall(
+					request,
+					VISION_MAX_TOKENS,
+					pricing,
+					spend.maxOutputByAgent[analyst.name],
+				) + queuedGpuUsd;
+			const stop = await withLease(ctx.sql, ctx.run, async (tx, live) => {
+				if (live.state.status !== 'running') return `the run is ${live.state.status}`;
+				if (!overCap(spend.totalUsd, projectedUsd, capOf(live))) return null;
+				await pauseForBudget(
+					tx,
+					live,
+					analyst.name,
+					{
+						reason: 'cap',
+						spentUsd: spend.totalUsd,
+						projectedUsd,
+						rendersInFlight: spend.rendersInFlight,
+						queuedGpuUsd,
+						capUsd: capOf(live),
+					},
+					'model_call',
+				);
+				return 'the budget cap';
+			});
+			if (stop) throw new StepStopped(stop);
+			let answer: VisionAnswer;
+			try {
+				answer = await ctx.vision.analyze(request);
+			} catch (error) {
+				if (error instanceof VisionError && error.response) {
+					if (!(await billResponse(ctx, analyst.name, error.response, pricing))) {
+						throw new StepStopped('an unpriced response');
+					}
+				}
+				throw error;
+			}
+			if (!(await billResponse(ctx, analyst.name, answer, pricing))) {
+				throw new StepStopped('an unpriced response');
+			}
+			return answer;
+		},
+	};
 }
 
 // ── Owner rows and finished jobs ──────────────────────────────────────────────

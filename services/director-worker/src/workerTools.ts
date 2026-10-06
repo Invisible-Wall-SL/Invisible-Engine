@@ -12,7 +12,10 @@ import type { WORKER_TOOLS } from './tools.ts';
  * resumed turn runs it once.
  *
  * Agents ask; the worker decides. `run.request_checkpoint` is a request to `transition()` — the
- * state machine opens the checkpoint, and refuses a step the run is not in.
+ * state machine opens the checkpoint, and refuses a step the run is not in. When the run has
+ * mockups, its breakdown step is the worker's own (`driver.ts` `breakdownStep`, ADR-0005): the
+ * coordinator can neither open that checkpoint itself nor assign the mockup analyst, so the
+ * checkpoint only ever opens with the breakdown the code rules passed.
  */
 
 export type WorkerToolId = (typeof WORKER_TOOLS)[number];
@@ -24,6 +27,8 @@ export interface ToolContext {
 	agent: string;
 	/** For an agent, the tools it names that are not served now; empty = it can start. */
 	missingTools: (agent: string) => string[];
+	/** Whether the run has mockups: its breakdown step is then the worker's, not an agent's. */
+	hasMockups: boolean;
 }
 
 export interface ToolOutcome {
@@ -53,19 +58,19 @@ const findings = {
 	items: object(
 		{
 			subject: text('What this is about: a region, a mockup element, an asset, a screen.', 200),
-			verdict: text(
-				'The verdict, e.g. matched / left_out / needs_you, pick / reject, pass / fail.',
-				40,
-			),
+			verdict: text('The verdict, e.g. pick / reject, pass / fail.', 40),
 			note: text('One or two sentences: why, with measured values where there are any.', 2000),
 		},
 		['subject', 'verdict', 'note'],
 	),
 };
 
+const UNASSIGNABLE: ReadonlySet<string> = new Set(['coordinator', 'mockup-analyst']);
+
 /** The specs, in a fixed order. `agentNames` fills `run.assign_task`'s enum. */
 export function workerToolSpecs(agentNames: readonly string[]): Record<WorkerToolId, ToolSpec> {
-	const assignable = agentNames.filter((name) => name !== 'coordinator').sort();
+	// The mockup analyst is run by the worker's own code, never as an assigned turn.
+	const assignable = agentNames.filter((name) => !UNASSIGNABLE.has(name)).sort();
 	return {
 		'run.get_state': {
 			id: 'run.get_state',
@@ -96,7 +101,7 @@ export function workerToolSpecs(agentNames: readonly string[]): Record<WorkerToo
 		'run.request_checkpoint': {
 			id: 'run.request_checkpoint',
 			description:
-				"Say the current step's work is done (`step_done`) or, in the regions step, that a region batch is drafted and reviewed (`batch_done`). The worker opens the checkpoint the run's settings require and the owner reviews it; end your turn after calling this.",
+				"Say the current step's work is done (`step_done`) or, in the regions step, that a region batch is drafted and reviewed (`batch_done`). The worker opens the checkpoint the run's settings require and the owner reviews it; end your turn after calling this. Not for the breakdown of a run with mockups: the worker produces that breakdown and opens its checkpoint itself.",
 			inputSchema: object(
 				{
 					kind: { type: 'string', enum: ['step_done', 'batch_done'] },
@@ -139,14 +144,6 @@ export function workerToolSpecs(agentNames: readonly string[]): Record<WorkerToo
 				},
 				['what', 'reason'],
 			),
-		},
-		'run.submit_breakdown': {
-			id: 'run.submit_breakdown',
-			description: 'Submit the mockup breakdown for the owner.',
-			inputSchema: object({ summary: text('The breakdown in brief.', 4000), findings }, [
-				'summary',
-				'findings',
-			]),
 		},
 		'run.submit_review': {
 			id: 'run.submit_review',
@@ -221,7 +218,6 @@ export async function runWorkerTool(
 				reason: str(input, 'reason'),
 			});
 			return ok({ requested: true });
-		case 'run.submit_breakdown':
 		case 'run.submit_review':
 		case 'run.submit_qa':
 			await activity(ctx, id, {
@@ -233,6 +229,11 @@ export async function runWorkerTool(
 		case 'run.request_checkpoint': {
 			const kind = input.kind === 'batch_done' ? 'batch_done' : 'step_done';
 			const from = ctx.live.state;
+			if (kind === 'step_done' && from.step === 'breakdown' && ctx.hasMockups) {
+				return refused(
+					'Refused: this run has mockups, so the worker produces the mockup breakdown itself and opens its checkpoint. You will be told the result.',
+				);
+			}
 			const error = await move(ctx, { type: kind }, `${ctx.agent}: ${kind}`);
 			if (error) return refused(`Refused: ${error}.`);
 			const to = ctx.live.state;
@@ -253,6 +254,11 @@ export async function runWorkerTool(
 			const agent = str(input, 'agent');
 			if (agent === 'coordinator' || agent === ctx.agent)
 				return refused('Assign to another agent.');
+			if (agent === 'mockup-analyst') {
+				return refused(
+					'Refused: the mockup analyst is not assigned. The worker runs the mockup breakdown itself when the run has mockups.',
+				);
+			}
 			const missing = ctx.missingTools(agent);
 			if (missing.length) {
 				return refused(

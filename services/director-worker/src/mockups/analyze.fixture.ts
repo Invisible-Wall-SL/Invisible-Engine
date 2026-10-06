@@ -18,10 +18,15 @@
  *    `needs_you`; a box outside the image is dropped; region names are canonicalised;
  *  - one vision call per non-style image, none for the style reference, and the image bytes the
  *    transport sees are the files; `uncoveredRegions` is computed across images;
- *  - crops: one per matched region, saved through `mockups.save_crops` with the attempt's opId;
+ *  - crops: one per matched region, saved through `mockups.save_crops` in the WORKER's name with the
+ *    pass's opId, while every read is made in the analyst's name;
  *  - a run whose mockups lack the ownership check is refused before any model call;
+ *  - the model's own verdict never reaches the breakdown: a buy control the model calls `left_out`
+ *    on a template that CAN buy comes out `matched`;
+ *  - the owner's revision notes go into the image prompt, never the cached system block;
  *  - the checkpoint submission is `step_done`: waiting on `breakdown` with the checkpoint on, and the
- *    `checkpoint_open` event carries the breakdown; with it off the run moves on to style_pack;
+ *    `checkpoint_open` event carries the breakdown; with it off the run moves on to style_pack; the
+ *    coordinator's report names the figures and the open checkpoint;
  *  - the schema parser refuses a malformed answer with a reason.
  */
 import assert from 'node:assert/strict';
@@ -34,15 +39,22 @@ import { KNOWN_TOOLS } from '../tools.ts';
 import {
 	AnalysisRefused,
 	analyzeMockups,
+	imagePrompt,
+	type AnalyzeDeps,
 	type Breakdown,
 	type MockupListing,
 	type RegionListing,
 	type TemplateSummary,
 } from './analyze.ts';
-import { breakdownEvents } from './checkpoint.ts';
+import { breakdownEvents, breakdownReport } from './checkpoint.ts';
 import { verifyPalette } from './rules.ts';
 import { ANALYST_OUTPUT_SCHEMA, parseAnalystOutput, type AnalystOutput } from './schema.ts';
-import { readAnswerText, type ModelTransport, type VisionRequest } from './vision.ts';
+import {
+	readAnswerText,
+	summarizeUsage,
+	type ModelTransport,
+	type VisionRequest,
+} from './vision.ts';
 
 const root = (rel: string) => fileURLToPath(new URL(`../../${rel}`, import.meta.url));
 const EVAL = root('../../docs/director/eval/mockups/');
@@ -80,6 +92,8 @@ const analyst = agents.get('mockup-analyst')!;
 // ── Fakes ─────────────────────────────────────────────────────────────────────
 
 interface Call {
+	/** Whose name the call was made in. */
+	as: 'analyst' | 'worker';
 	tool: string;
 	op: string;
 	input: unknown;
@@ -88,9 +102,9 @@ interface Call {
 
 function fakeLauncher(over: Partial<Pick<Reference, 'ownershipConfirmed' | 'template'>> = {}) {
 	const calls: Call[] = [];
-	const adapters: AdapterClient = {
+	const client = (as: Call['as']): AdapterClient => ({
 		async call<T>(tool: string, op: string, input: unknown, opts?: { opId?: string }) {
-			calls.push({ tool, op, input, opId: opts?.opId });
+			calls.push({ as, tool, op, input, opId: opts?.opId });
 			const id = `${tool}.${op}`;
 			switch (id) {
 				case 'mockups.list':
@@ -138,12 +152,18 @@ function fakeLauncher(over: Partial<Pick<Reference, 'ownershipConfirmed' | 'temp
 					throw new Error(`fixture: no fake for ${id}`);
 			}
 		},
+	});
+	const adapters: AnalyzeDeps['adapters'] = {
+		analyst: client('analyst'),
+		worker: client('worker'),
 	};
 	return { adapters, calls };
 }
 
-function fakeTransport() {
+/** `answers` overrides the canned analyst output per image id. */
+function fakeTransport(answers: Partial<Record<string, AnalystOutput>> = {}) {
 	const requests: VisionRequest[] = [];
+	let n = 0;
 	const transport: ModelTransport = {
 		async analyze(request) {
 			requests.push(request);
@@ -153,15 +173,18 @@ function fakeTransport() {
 			if (!img) throw new Error('fixture: the transport got an image it does not know');
 			// Through the real text parser, as the SDK transport does, so a canned answer that the
 			// schema would not produce fails here too.
-			const output = readAnswerText(JSON.stringify(reference.answers[img.id]));
+			const output = readAnswerText(JSON.stringify(answers[img.id] ?? reference.answers[img.id]));
+			const usage = {
+				input_tokens: 1000,
+				output_tokens: 400,
+				cache_read_input_tokens: 0,
+				cache_creation_input_tokens: 0,
+			};
 			return {
+				id: `vmsg_${++n}`,
 				output,
-				usage: {
-					inputTokens: 1000,
-					outputTokens: 400,
-					cacheReadInputTokens: 0,
-					cacheCreationInputTokens: 0,
-				},
+				usage,
+				usageSummary: summarizeUsage(usage),
 				model: request.model,
 			};
 		},
@@ -184,18 +207,22 @@ const asAdapterError = (adapters: AdapterClient): AdapterClient => ({
 		}
 	},
 });
+const withErrors = (adapters: AnalyzeDeps['adapters']): AnalyzeDeps['adapters'] => ({
+	analyst: asAdapterError(adapters.analyst),
+	worker: asAdapterError(adapters.worker),
+});
 
 const run = { id: 'run-1', templateProjectKey: reference.template.key };
 
-async function analyze(attempt = 1) {
+async function analyze(pass = 1) {
 	const launcher = fakeLauncher();
 	const model = fakeTransport();
 	const breakdown = await analyzeMockups({
-		adapters: asAdapterError(launcher.adapters),
+		adapters: withErrors(launcher.adapters),
 		model: model.transport,
 		agent: analyst,
 		run,
-		attempt,
+		pass,
 	});
 	return { breakdown, calls: launcher.calls, requests: model.requests };
 }
@@ -334,12 +361,17 @@ console.log('calls');
 	const crops = (save.input as { crops: { region: string }[] }).crops;
 	check(
 		save.opId === 'run-1:breakdown_crops:1',
-		'crops are saved under the attempt’s opId',
+		'crops are saved under the pass’s opId',
 		save.opId,
 	);
 	check(
 		(await analyze(2)).calls.find((c) => c.op === 'save_crops')!.opId === 'run-1:breakdown_crops:2',
-		'a second attempt takes a new opId',
+		'a second pass takes a new opId',
+	);
+	check(save.as === 'worker', 'the crops are written in the worker’s name');
+	check(
+		calls.filter((c) => c.op !== 'save_crops').every((c) => c.as === 'analyst'),
+		'every read is made in the analyst’s name',
 	);
 	const regions = crops.map((c) => c.region).sort();
 	check(regions.length === new Set(regions).size, 'one crop per region');
@@ -388,11 +420,11 @@ console.log('a template that can buy');
 	};
 	const launcher = fakeLauncher({ template: withBuy });
 	const result = await analyzeMockups({
-		adapters: asAdapterError(launcher.adapters),
+		adapters: withErrors(launcher.adapters),
 		model: fakeTransport().transport,
 		agent: analyst,
 		run,
-		attempt: 1,
+		pass: 1,
 	});
 	const els = elementsOf(result, 'base-game.png');
 	const buy = els.find((e) => e.name === 'Buy bonus button')!;
@@ -409,14 +441,41 @@ console.log('a template that can buy');
 	);
 	check(!els.some((e) => e.status === 'left_out'), 'nothing is left out on that template');
 
+	// The model gets it wrong the other way: it leaves the buy button out although the template buys.
+	const base = reference.images[0].id;
+	const wrong = structuredClone(reference.answers[base]);
+	const claim = wrong.elements.find((e) => e.name === 'Buy bonus button')!;
+	claim.status = 'left_out';
+	claim.lockedItem = 'bet_modes';
+	claim.reason = 'The math has no buy feature.';
+	const overruled = elementsOf(
+		await analyzeMockups({
+			adapters: withErrors(fakeLauncher({ template: withBuy }).adapters),
+			model: fakeTransport({ [base]: wrong }).transport,
+			agent: analyst,
+			run,
+			pass: 1,
+		}),
+		'base-game.png',
+	).find((e) => e.name === 'Buy bonus button')!;
+	check(
+		overruled.status === 'matched' && overruled.regions.join() === 'BetPanel',
+		'a buy control the model calls left_out on a template that can buy is matched: the model’s verdict counts for nothing',
+		JSON.stringify(overruled),
+	);
+	check(
+		overruled.lockedItem === null && /no buy feature/.test(overruled.reason),
+		'…with no locked item, and the model’s reason kept as a reason only',
+	);
+
 	const noFacts = structuredClone(reference.template);
 	delete noFacts.lockedItems.find((l) => l.id === 'bet_modes')!.facts;
 	const bare = await analyzeMockups({
-		adapters: asAdapterError(fakeLauncher({ template: noFacts }).adapters),
+		adapters: withErrors(fakeLauncher({ template: noFacts }).adapters),
 		model: fakeTransport().transport,
 		agent: analyst,
 		run,
-		attempt: 1,
+		pass: 1,
 	});
 	check(
 		!elementsOf(bare, 'base-game.png').some((e) => e.status === 'left_out'),
@@ -435,7 +494,7 @@ console.log('ownership');
 			model: model.transport,
 			agent: analyst,
 			run,
-			attempt: 1,
+			pass: 1,
 		});
 	} catch (e) {
 		refused = e;
@@ -451,6 +510,20 @@ console.log('ownership');
 	);
 }
 
+// ── Owner notes ───────────────────────────────────────────────────────────────
+console.log('owner notes');
+{
+	const image = reference.images[0];
+	const plain = imagePrompt(image, { w: 1280, h: 800 }, 'match');
+	const noted = imagePrompt(image, { w: 1280, h: 800 }, 'match', ['Keep the fish; drop the logo.']);
+	check(noted.startsWith(plain), 'the notes are appended to the image prompt');
+	check(noted.includes('- Keep the fish; drop the logo.'), '…one per line');
+	check(
+		!first.requests[0].system.includes('Keep the fish'),
+		'…and never in the system block, which is cached across the run',
+	);
+}
+
 // ── Checkpoint ────────────────────────────────────────────────────────────────
 console.log('checkpoint');
 {
@@ -460,15 +533,36 @@ console.log('checkpoint');
 		waitingOn: 'breakdown',
 		checkpoints: checkpointSettings({}),
 	};
-	const events = breakdownEvents(on, breakdown);
+	const events = breakdownEvents(on, breakdown, 1);
 	check(
 		events.length === 2 && events[1].kind === 'checkpoint_open',
 		'the submission opens the breakdown checkpoint',
 	);
-	const payload = events[1].payload as { checkpoint: string; breakdown: Breakdown };
+	const payload = events[1].payload as {
+		checkpoint: string;
+		attempt: number;
+		breakdown: Breakdown;
+	};
 	check(
-		payload.checkpoint === 'breakdown' && payload.breakdown === breakdown,
-		'…carrying the breakdown',
+		payload.checkpoint === 'breakdown' && payload.breakdown === breakdown && payload.attempt === 1,
+		'…carrying the breakdown and the attempt',
+	);
+	const report = breakdownReport(on, breakdown, 1);
+	check(
+		report.includes('21 of 23 template regions matched') &&
+			report.includes('4 element(s) need the owner') &&
+			report.includes('2 left out'),
+		'the coordinator’s report carries the figures',
+		report,
+	);
+	check(
+		report.includes('Buy bonus button → Bet modes') &&
+			report.includes('MegaWinBanner, EpicWinBanner'),
+		'…the locked clashes and the uncovered regions',
+	);
+	check(
+		report.includes('reviewing it at the breakdown checkpoint'),
+		'…and that the owner is reviewing it',
 	);
 	const activity = events[0].payload as {
 		regionsMatched: number;
@@ -486,8 +580,13 @@ console.log('checkpoint');
 		checkpoints: checkpointSettings({ breakdown: false }),
 	};
 	check(
-		breakdownEvents(off, breakdown).length === 1,
+		breakdownEvents(off, breakdown, 1).length === 1,
 		'with the checkpoint off only the activity row is written',
+	);
+	check(
+		breakdownReport(off, breakdown, 2).includes('now in the style_pack step') &&
+			breakdownReport(off, breakdown, 2).includes('attempt 2'),
+		'…and the report says the run moved on, naming the attempt',
 	);
 }
 
