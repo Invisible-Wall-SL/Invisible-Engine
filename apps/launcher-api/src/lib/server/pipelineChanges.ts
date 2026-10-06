@@ -98,6 +98,14 @@ interface GhPull {
 	labels?: { name: string }[];
 	/** Only on `GET /pulls/{n}`: `dirty` is a conflict, `unknown` is GitHub still computing. */
 	mergeable_state?: string;
+	/** Only on `GET /pulls/{n}`: `null` while GitHub is still computing it. */
+	mergeable?: boolean | null;
+	/** Only on `GET /pulls/{n}`. */
+	merged?: boolean;
+	/** Only on `GET /pulls/{n}`: the App's own bot when the launcher merged it. */
+	merged_by?: GhUser | null;
+	/** Once merged, the commit the merge made on `main`; while open, GitHub's test merge. */
+	merge_commit_sha: string | null;
 }
 
 interface GhCheckRun {
@@ -240,6 +248,12 @@ export interface ChangeDetail extends ChangeSummary {
 	why: string | null;
 	baseBranch: string;
 	mergeableState: string | null;
+	/** GitHub's own answer: `null` while it is still working out whether the head merges cleanly. */
+	mergeable: boolean | null;
+	merged: boolean;
+	/** The GitHub login that merged it: the App's bot when the launcher did. */
+	mergedBy: string | null;
+	mergeCommitSha: string | null;
 	files: ChangeFile[];
 	filesTruncated: boolean;
 	checks: CheckGroup[];
@@ -449,7 +463,8 @@ const clip = (s: string): string => {
 
 // ── GitHub reads ───────────────────────────────────────────────────────────────
 
-const repo = (): string => ENV.GITHUB_ENGINE_REPO;
+/** The repository every change lives in, `owner/name`. */
+export const repo = (): string => ENV.GITHUB_ENGINE_REPO;
 
 async function openPulls(app: GithubApp): Promise<GhPull[]> {
 	const pulls: GhPull[] = [];
@@ -586,21 +601,26 @@ const toChangeFiles = (files: GhFile[]): ChangeFile[] =>
 	}));
 
 let listCache: { at: number; list: ChangeList } | null = null;
+/** Bumped by every `forgetChanges`: a read that started before the bump may hold what was
+ *  forgotten, so it neither caches its list nor is joined by a read that starts after. */
+let listGeneration = 0;
 const listFlight = createSingleFlight();
 
-/** After a write the next list is read fresh: an approval, an agent-definition change opened. */
-export function dropListCache(): void {
+/** Drop the cached list: an approval, a merge or a new revert changed what it shows. */
+export function forgetChanges(): void {
 	listCache = null;
+	listGeneration++;
 }
 
 /** Every open PR into `main`, bar Director games; Dependabot's apart. */
 export function listChanges(app: GithubApp = githubApp): Promise<ChangeList> {
 	if (listCache && Date.now() - listCache.at < LIST_TTL_MS) return Promise.resolve(listCache.list);
 	// Tabs opening together share one read: each PR costs four GitHub calls.
-	return listFlight('list', () => readChanges(app));
+	const generation = listGeneration;
+	return listFlight(`list:${generation}`, () => readChanges(app, generation));
 }
 
-async function readChanges(app: GithubApp): Promise<ChangeList> {
+async function readChanges(app: GithubApp, generation: number): Promise<ChangeList> {
 	const r = repo();
 	const open = (await openPulls(app)).filter((p) => !labelsOf(p).includes(DIRECTOR_GAME_LABEL));
 	const pulls = open.filter((p) => !isFork(p));
@@ -625,7 +645,7 @@ async function readChanges(app: GithubApp): Promise<ChangeList> {
 	summaries.forEach((s, i) =>
 		(isDependabot(pulls[i].user) ? list.dependabot : list.changes).push(s),
 	);
-	listCache = { at: Date.now(), list };
+	if (generation === listGeneration) listCache = { at: Date.now(), list };
 	return list;
 }
 
@@ -683,6 +703,10 @@ export async function getChange(number: number, app: GithubApp = githubApp): Pro
 		why: whyFromBody(pull.body),
 		baseBranch: pull.base.ref,
 		mergeableState: pull.mergeable_state ?? null,
+		mergeable: pull.mergeable ?? null,
+		merged: pull.merged ?? false,
+		mergedBy: pull.merged_by?.login ?? null,
+		mergeCommitSha: pull.merge_commit_sha,
 		files: changeFiles,
 		filesTruncated: truncated,
 		checks: groupCheckRuns(head.checkRuns, head.workflowRuns),
@@ -766,6 +790,9 @@ interface ReportImagesEntry {
 /** A detail opens every changed screen's three images at once; the walk from the change's number
  *  to its report (the PR, its head, the artifacts) is done once for all of them. */
 const IMAGES_TTL_MS = 30_000;
+/** A cached walk younger than this is trusted against an artifact id it does not know, unless
+ *  that id is newer than the one it holds. */
+const IMAGES_RECHECK_MS = 5_000;
 const IMAGES_CACHE_SIZE = 64;
 const imagesCache = new Map<number, ReportImagesEntry>();
 const imagesFlight = createSingleFlight();
@@ -808,10 +835,17 @@ export async function getReportEntry(
 	let report = await reportImagesOf(input.number, app);
 	// The detail hands out a new artifact id the moment a push or a re-run lands; the walk cached
 	// here may still name the old one for a while, so a mismatch is looked up again, once, before
-	// it is called a replaced artifact.
+	// it is called a replaced artifact — but only when the cache could be behind: an id GREATER
+	// than the one it holds (artifact ids only grow, so this is a newer upload), or a walk older
+	// than a few seconds. A page still asking for an artifact a re-run replaced would otherwise
+	// cost GitHub one whole walk per image it reloads.
 	if (input.artifact !== null && input.artifact !== report.images?.artifactId) {
-		imagesCache.delete(input.number);
-		report = await reportImagesOf(input.number, app);
+		const stale = Date.now() - report.at > IMAGES_RECHECK_MS;
+		const newer = input.artifact > (report.images?.artifactId ?? 0);
+		if (stale || newer) {
+			imagesCache.delete(input.number);
+			report = await reportImagesOf(input.number, app);
+		}
 	}
 	if (!report.paths.has(input.path)) {
 		throw error(404, 'The report has no such image.');
@@ -907,7 +941,7 @@ export async function approveDiff(
 			approver: approverName(input.user),
 			note: input.note,
 		});
-		dropListCache();
+		forgetChanges();
 		const ids = new Set(harness.diffs.map((d) => d.id));
 		const recorded = (await listApprovals(sha)).filter((a) => ids.has(a.diffId));
 		const standing = await standingOf(recorded);

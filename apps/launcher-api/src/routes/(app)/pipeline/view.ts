@@ -7,6 +7,8 @@ import type {
 	CheckJob,
 	HarnessCheck,
 } from '$lib/server/pipelineChanges';
+import type { MergeHistoryEntry } from '$lib/server/pipelineMerge';
+import type { CompletedMerge, PipelineMerge } from '$lib/server/pipelineMerges';
 import type { HarnessRow } from '$lib/server/pipelineReport';
 import type {
 	EvalElementView,
@@ -15,9 +17,9 @@ import type {
 } from '../../../../../../services/director-worker/src/eval/report';
 
 /**
- * Pure helpers for the Changes tab: wording, tones and URLs derived from what
- * `/api/pipeline/changes` answers. No Svelte and no browser globals, so a Node fixture can import
- * it as it is.
+ * Pure helpers for the Changes, Agents and History tabs: wording, tones and URLs derived from what
+ * `/api/pipeline/changes`, `/api/pipeline/agents` and `/api/pipeline/merges` answer. No Svelte and no browser globals, so a
+ * Node fixture can import it as it is.
  */
 
 export type Tone = 'green' | 'red' | 'blue' | 'amber' | 'muted' | 'text';
@@ -26,6 +28,11 @@ export type PillTone = Exclude<Tone, 'text'>;
 export const NO_CHECKS_TEXT = 'No checks have reported on this head yet.';
 export const BLOCKED_CONFLICT_TEXT = 'Merge conflict with main: bring main in and resolve it.';
 export const APPROVE_HINT = 'Approve each changed screen below, or push a fix.';
+export const MERGE_NEEDS_CAPABILITY_TEXT = 'Merging needs the “Merge pipeline changes” permission.';
+export const MERGE_DRAFT_TEXT = 'Mark the pull request ready for review on GitHub first.';
+export const MERGE_RETRY_TEXT = 'Try again resends the same request, so it never merges twice.';
+export const ROLLBACK_NEEDS_CAPABILITY_TEXT =
+	'Rolling back needs the Merge pipeline changes capability.';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -344,14 +351,86 @@ export function approvalBlocker(harness: HarnessCheck): ApprovalBlocker | null {
 	return null;
 }
 
+export const shortSha = (sha: string): string => sha.slice(0, 7);
+
+export function mergeConfirmMessage(
+	detail: Pick<ChangeDetail, 'number' | 'title' | 'headSha'>,
+): string {
+	return `${detail.title}\n\nSquash-merges head ${shortSha(detail.headSha)} (${detail.headSha}) into main as "${detail.title} (#${detail.number})". Branch protection still applies.`;
+}
+
+export interface MergeBar {
+	/** `draft` shows the button disabled; `null` shows none. */
+	action: 'merge' | 'draft' | null;
+	text: string;
+}
+
+/**
+ * What the bar under a Ready change offers. Nobody merges a by-hand change from here, so that is
+ * said before the capability; a draft is said only to someone who could merge it.
+ */
+export function mergeBar(
+	detail: Pick<ChangeDetail, 'draft' | 'headSha' | 'filesTruncated'>,
+	canMerge: boolean,
+	byHand: boolean,
+): MergeBar {
+	if (byHand) {
+		const why = detail.filesTruncated ? 'is too large to check' : 'edits the harness';
+		return { action: null, text: `Merge by hand on GitHub after review: this change ${why}.` };
+	}
+	if (!canMerge) return { action: null, text: MERGE_NEEDS_CAPABILITY_TEXT };
+	if (detail.draft) return { action: 'draft', text: MERGE_DRAFT_TEXT };
+	return {
+		action: 'merge',
+		text: `Squash-merges head ${shortSha(detail.headSha)} into main. You can roll back from History.`,
+	};
+}
+
+/** The bar after a merge: "Merged into main as <sha> by <who> · just now". */
+export function mergedText(
+	result: { merge: Pick<CompletedMerge, 'mergeSha' | 'mergedBy' | 'at'>; already: boolean },
+	now: number,
+): string {
+	const { merge } = result;
+	const verb = result.already ? 'Already merged' : 'Merged';
+	return `${verb} into main as ${shortSha(merge.mergeSha)} by ${merge.mergedBy} · ${timeAgo(merge.at, now)}`;
+}
+
+/** The branch the server opens a rollback on (`revertMerge` in `pipelineMerge.ts` names it so). */
+export const revertBranchOf = (merge: Pick<CompletedMerge, 'prNumber' | 'mergeSha'>): string =>
+	`revert/${merge.prNumber}-${shortSha(merge.mergeSha)}`;
+
+export function rollbackConfirmMessage(
+	merge: Pick<CompletedMerge, 'prNumber' | 'title' | 'mergeSha'>,
+): string {
+	return `${merge.title}\n\nOpens a revert pull request of merge ${shortSha(merge.mergeSha)} on branch ${revertBranchOf(merge)}. It goes through the same checks and approvals; nothing changes on main until it merges.`;
+}
+
+/** "No changed screens", or "2 approved screens · by Gualtiero, tester". */
+export function approvalsSummary(merge: Pick<PipelineMerge, 'approvals'>): string {
+	const { approvals } = merge;
+	if (!approvals.length) return 'No changed screens';
+	const names = [...new Set(approvals.map((a) => a.approver))];
+	return `${approvals.length} approved ${plural(approvals.length, 'screen')} · by ${listNames(names)}`;
+}
+
+export type HistoryRowState = 'reverted' | 'revert-open' | 'rollbackable';
+
+/** A merge rolls back once: not after its revert merged, nor while a revert of it is open. */
+export function historyRowState(
+	entry: Pick<MergeHistoryEntry, 'revertedBy' | 'revertOpen'>,
+): HistoryRowState {
+	if (entry.revertedBy) return 'reverted';
+	if (entry.revertOpen) return 'revert-open';
+	return 'rollbackable';
+}
+
 // ── Agents tab and the "Agent evaluation" check ────────────────────────────────
 
 /** A 0..1 score as a whole percent: the same rounding the status line uses. */
 export const pct = (score: number): string => `${Math.round(score * 100)}%`;
 
 export const money = (usd: number): string => `$${usd.toFixed(2)}`;
-
-export const shortSha = (sha: string): string => sha.slice(0, 7);
 
 /** An agent's effort, or what steers a model that has none (Haiku's thinking budget). */
 export const effortWord = (effort: string | null): string => effort ?? 'thinking budget';

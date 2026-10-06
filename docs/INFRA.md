@@ -1073,9 +1073,10 @@ check it from a terminal:
 ### GitHub App (Pipeline Changes)
 
 Invisible Pipeline Changes (`/pipeline`, `docs/director/DECISIONS/0007-pipeline-change-mechanics.md`)
-reads pull requests, check runs, workflow runs and the current-games report artifact, and posts the
-`current-games` commit status once every changed screen on a head is approved, as a **GitHub App**
-the owner created and installed on this repository only. Three env vars, all secrets with no code
+reads pull requests, check runs, workflow runs and the current-games report artifact, posts the
+`current-games` commit status once every changed screen on a head is approved, squash-merges a Ready
+change with its head pinned, and opens revert pull requests (a branch, one commit and a PR through the
+Git Data API), as a **GitHub App** the owner created and installed on this repository only. Three env vars, all secrets with no code
 default, set on the **launcher-api** Railway service and nowhere else (no other service, no GitHub
 Actions secret, and never the browser — `apps/launcher-api/src/lib/server/githubApp.ts` turns them
 into short-lived installation tokens server-side and logs neither):
@@ -1086,18 +1087,38 @@ into short-lived installation tokens server-side and logs neither):
 | `GITHUB_APP_INSTALLATION_ID` | The App → **Install App** → the gear beside the organisation → the number at the end of that page's URL (`…/settings/installations/<id>`). Changes only if the App is uninstalled and installed again. |
 | `GITHUB_APP_PRIVATE_KEY` | The App → **General** → **Private keys** → *Generate a private key*: a `.pem` download (an RSA private key in PEM form). Paste the whole file, header and footer lines included. Railway keeps the newlines; a key pasted as ONE line with `\n` written out is unescaped by the launcher, so either form works. |
 
-Permissions the App needs (Repository): Pull requests **read & write**, Checks **read**, Commit
-statuses **read & write**, Actions **read** (the report artifacts), Contents **read & write**,
-Metadata **read**. Write on Contents and Pull requests is what the Agents tab (card 5D) uses: an
-edited runtime-agent definition becomes a branch `agents/<name>-<short>` off `main`, one commit
-changing only `services/director-worker/agents/<name>.md` (the Git Data API: blob → tree → commit →
-ref, never a push to `main`), and a PR titled `agents: <name> — <why>` labelled `agent-definition`,
-all as the App; the launcher user is named in the body. The label is added through the issues
-endpoint (Pull requests write covers a PR's labels); if that add is refused because the repository
-has no `agent-definition` label yet, the launcher creates it, which needs Issues **write** — or the
-owner creates the label once by hand (Issues → Labels) and the App needs no Issues permission. The merge (card 5C) uses
-the same two write permissions. The status the launcher posts comes through the API, like the
+Permissions the App needs (Repository): Pull requests **read & write** (the list and detail; the
+merge; opening a revert PR; the agent-edit PRs of the Agents tab), Contents **read & write** (the
+revert branch and its commit; the agent-definition commits), Commit statuses **read & write**,
+Checks **read**, Actions **read** (the report artifacts), Metadata **read**. The Agents tab (card 5D)
+turns an edited runtime-agent definition into a branch `agents/<name>-<short>` off `main`, one
+commit changing only `services/director-worker/agents/<name>.md` (the Git Data API: blob → tree →
+commit → ref, never a push to `main`), and a PR titled `agents: <name> — <why>` labelled
+`agent-definition`, all as the App; the launcher user is named in the body. The label is added
+through the issues endpoint (Pull requests write covers a PR's labels); if that add is refused
+because the repository has no `agent-definition` label yet, the launcher creates it, which needs
+Issues **write** — or the owner creates the label once by hand (Issues → Labels) and the App needs
+no Issues permission. Raising a permission in the App's
+settings asks the installation to accept it (the App → Install App → the gear → "Review request");
+until it is accepted, a merge or a rollback answers `GitHub 403: Resource not accessible by
+integration` and nothing else changes. The status the launcher posts comes through the API, like the
 harness's own, so the `main` ruleset's required check `current-games` keeps source **any**.
+
+**Branch protection is the gate, the App is not above it.** The merge is `PUT …/pulls/<n>/merge`
+with `merge_method: squash` and `sha` pinned to the head the checks ran on; the `main` ruleset's
+required checks and reviews apply to the App's token like anyone's, so a ruleset that is not satisfied
+answers `405 Required status check "…" is expected` (or "At least 1 approving review is required"),
+which the page shows verbatim and records nothing for. Keep the App **off** the ruleset's bypass list;
+the launcher never asks to bypass, and a bypass would let a merge through a red check. A head pushed
+between the page's read and the merge is GitHub's `409 Head branch was modified`, never a merge. The
+squash commit's author is the App's bot user; `pipeline_merges` (migration `0028`) holds the launcher
+user who merged, the approvals that counted, the revert PR the launcher opened, and which change a
+revert undoes. Two repository settings the tool leans on: **"Automatically delete head branches"
+stays on** (a change whose revert was itself reverted rolls back again on a branch of the same name,
+which must be gone), and the `main` ruleset keeps **no bypass actors**. The App's own bot login
+(`<slug>[bot]`) is read once per process with the App JWT (`GET /app`, no extra permission) and
+decides which merges were the launcher's: **restart the launcher after renaming the App** (a rename
+changes the slug) or interrupted merges would be settled as "not merged from here".
 
 - Unset (any of the three) → `/api/pipeline/changes` answers **503** naming the variable;
   `GITHUB_ACTIONS_TOKEN`, `GITHUB_ENGINE_READ_TOKEN` and `GIT_CLONE_TOKEN` are untouched.

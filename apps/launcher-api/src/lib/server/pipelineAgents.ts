@@ -19,7 +19,7 @@ import { AGENT_FILE } from './pipelineAgentEval';
 import {
 	AGENT_DEFINITION_LABEL,
 	approverName,
-	dropListCache,
+	forgetChanges,
 	listAgentDefinitionChanges,
 	type ChangeStatus,
 } from './pipelineChanges';
@@ -478,7 +478,7 @@ export async function openAgentChange(
 	});
 	// The change exists now, found or made: the next list and detail must show it.
 	listCache = null;
-	dropListCache();
+	forgetChanges();
 	return result;
 }
 
