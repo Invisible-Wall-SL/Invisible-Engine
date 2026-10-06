@@ -357,19 +357,26 @@ function head(
 			updated_at: AT,
 		});
 		if (harness.run !== 'none') {
-			const status = harness.run ?? 'completed';
-			h.workflowRuns.push({
-				id: ++runId,
-				name: 'Current games',
-				event: 'pull_request',
-				status,
-				conclusion:
-					status === 'completed' ? (harness.state === 'success' ? 'success' : 'failure') : null,
-				head_sha: shaValue,
-				check_suite_id: ++suite,
-				html_url: `https://github.com/${REPO}/actions/runs/${runId}`,
-				created_at: AT,
-			});
+			// The harness's jobs are check runs on the head too, and its `report` job exits
+			// non-zero on a failed verdict: Check 1 must leave them out.
+			const running = harness.run === 'in_progress';
+			const failed = harness.state !== 'success';
+			workflow(
+				h,
+				'Current games',
+				[
+					{ name: 'prepare' },
+					{ name: 'build', status: running ? 'in_progress' : 'completed' },
+					{ name: 'gates', status: running ? 'in_progress' : 'completed' },
+					{ name: 'render (1/20)', status: running ? 'queued' : 'completed' },
+					{
+						name: 'report',
+						status: running ? 'queued' : 'completed',
+						conclusion: failed ? 'failure' : 'success',
+					},
+				],
+				{ head_sha: shaValue },
+			);
 		}
 	}
 	gh.heads.set(shaValue, h);
@@ -476,38 +483,60 @@ function report(headSha: string, rows: RowSpec[]): Json {
 			notRendered: verdicts.filter((v) => v === null).length,
 			rendered: verdicts.filter((v) => v !== null).length,
 			changedScreens,
-			line: `${verdicts.filter((v) => v === 'pass').length} pass · ${verdicts.filter((v) => v === 'fail').length} fail`,
+			line:
+				`${verdicts.filter((v) => v === 'pass').length} pass · ${verdicts.filter((v) => v === 'fail').length} fail · ` +
+				`${verdicts.filter((v) => v === null).length} not rendered · ${changedScreens.length} changed screen(s)`,
 		},
 	};
 }
 
 let artifactId = 9000;
-function artifact(headSha: string, reportJson: Json | null, over: Partial<Artifact> = {}): number {
+/**
+ * The report job's artifacts on a head's harness run: `current-games-report` (the report with the
+ * images) and, unless `fullOnly` (a run older than that upload), `current-games-report-json`.
+ * Returns the ids `[json, full]`.
+ */
+function artifact(
+	headSha: string,
+	reportJson: Json | null,
+	over: Partial<Artifact> & { fullOnly?: boolean } = {},
+): [number, number] {
+	const { fullOnly, ...rest } = over;
 	const run = harnessRun(headSha);
-	const id = ++artifactId;
-	const zip = reportJson
-		? zipOf(
-				{
-					'report.json': JSON.stringify(reportJson),
-					'index.html': '<html>',
-					'screens/x.png': 'PNG',
-				},
-				['report.json'],
-			)
+	const text = reportJson ? JSON.stringify(reportJson) : '';
+	const full = reportJson
+		? zipOf({ 'report.json': text, 'index.html': '<html>', 'screens/x.png': 'PNG' }, [
+				'report.json',
+			])
 		: Buffer.alloc(0);
-	gh.artifacts.set(Number(run.id), [
+	const small = reportJson ? zipOf({ 'report.json': text }, ['report.json']) : Buffer.alloc(0);
+	const fullId = ++artifactId;
+	const smallId = ++artifactId;
+	const list: Artifact[] = [
 		{ id: 9, name: 'current-games-plan', expired: true, expires_at: AT, size_in_bytes: 1 },
 		{
-			id,
+			id: fullId,
 			name: 'current-games-report',
 			expired: false,
 			expires_at: '2026-10-09T10:00:00Z',
-			size_in_bytes: zip.length,
-			...over,
+			size_in_bytes: full.length,
+			...rest,
 		},
-	]);
-	gh.zips.set(id, zip);
-	return id;
+	];
+	gh.zips.set(fullId, full);
+	if (!fullOnly) {
+		list.push({
+			id: smallId,
+			name: 'current-games-report-json',
+			expired: false,
+			expires_at: '2026-10-09T10:00:00Z',
+			size_in_bytes: small.length,
+			...rest,
+		});
+		gh.zips.set(smallId, small);
+	}
+	gh.artifacts.set(Number(run.id), list);
+	return [smallId, fullId];
 }
 
 // #10 — still testing: one Checks shard running, the harness rendering.
@@ -538,10 +567,13 @@ head(sha(13), GREEN, { state: 'success', description: 'ok' });
 pull(13, 'release: hotfix', { sha: sha(13), base: { ref: 'release' } });
 
 // #14 — green gates, two changed screens on Book of Borut: the approval case.
-const h14 = head(sha(14), GREEN, {
-	state: 'failure',
-	description: '12 pass · 1 fail · 1 not rendered · 2 changed screen(s)',
-});
+const REPORT_14 = report(sha(14), [
+	{ key: 'bookofborut', name: 'Book of Borut', looks: 'changed', changed: ['win', 'bigwin'] },
+	{ key: 'hotfruits', name: 'HotFruits', looks: 'same' },
+	{ key: 'globalgame', name: 'Global', looks: 'no-snapshot' },
+]);
+const LINE_14 = (REPORT_14.summary as { line: string }).line;
+const h14 = head(sha(14), GREEN, { state: 'failure', description: LINE_14 });
 // A push run that stood down for the PR, newer than the PR run: never the one read.
 h14.workflowRuns.push({
 	id: ++runId,
@@ -554,29 +586,16 @@ h14.workflowRuns.push({
 	html_url: `https://github.com/${REPO}/actions/runs/${runId}`,
 	created_at: AT,
 });
-const REPORT_14 = report(sha(14), [
-	{ key: 'bookofborut', name: 'Book of Borut', looks: 'changed', changed: ['win', 'bigwin'] },
-	{ key: 'hotfruits', name: 'HotFruits', looks: 'same' },
-	{ key: 'globalgame', name: 'Global', looks: 'no-snapshot' },
-]);
 const PR_RUN_14 = Number(
 	(gh.heads.get(sha(14))?.workflowRuns ?? []).find(
 		(r) => r.name === 'Current games' && r.event === 'pull_request',
 	)?.id,
 );
-gh.artifacts.set(PR_RUN_14, [
-	{
-		id: 9014,
-		name: 'current-games-report',
-		expired: false,
-		expires_at: '2026-10-09T10:00:00Z',
-		size_in_bytes: 1000,
-	},
-]);
-gh.zips.set(
-	9014,
-	zipOf({ 'report.json': JSON.stringify(REPORT_14), 'index.html': '<html>' }, ['report.json']),
-);
+// `artifact()` writes to the newest harness run, here the push run that stood down; the report
+// job uploaded on the PR run, so its artifacts move there.
+const [JSON_14, FULL_14] = artifact(sha(14), REPORT_14);
+gh.artifacts.set(PR_RUN_14, gh.artifacts.get(Number(harnessRun(sha(14)).id)) as Artifact[]);
+gh.artifacts.delete(Number(harnessRun(sha(14)).id));
 const DIFF_14 = (REPORT_14.summary as { changedScreens: string[] }).changedScreens;
 pull(14, 'launcher(pipeline): 1 px colour bleed at region edges', {
 	sha: sha(14),
@@ -614,8 +633,8 @@ pull(17, 'agents(director): sharper art director brief', {
 	labels: ['agent-definition'],
 });
 
-// #18 — a changed screen beside a build failure: approvals cannot clear it.
-head(sha(18), GREEN, { state: 'failure', description: '11 pass · 2 fail · 1 changed screen(s)' });
+// #18 — a changed screen beside a build failure: approvals cannot clear it. A run from before
+// the report-only artifact: the full one is read.
 const REPORT_18 = report(sha(18), [
 	{ key: 'bookofborut', name: 'Book of Borut', looks: 'changed', changed: ['win'] },
 	{
@@ -626,7 +645,11 @@ const REPORT_18 = report(sha(18), [
 		detail: 'the branch runtime did not build',
 	},
 ]);
-artifact(sha(18), REPORT_18);
+head(sha(18), GREEN, {
+	state: 'failure',
+	description: (REPORT_18.summary as { line: string }).line,
+});
+artifact(sha(18), REPORT_18, { fullOnly: true });
 pull(18, 'engine: new reel strip', { sha: sha(18) });
 
 // #19 — the report expired.
@@ -639,14 +662,38 @@ head(sha(20), GREEN);
 pull(20, 'launcher: a tweak', { sha: sha(20) });
 
 // #21 — a report for another commit.
-head(sha(21), GREEN, { state: 'failure', description: '1 changed screen(s)' });
-artifact(
-	sha(21),
-	report(sha(99), [
-		{ key: 'bookofborut', name: 'Book of Borut', looks: 'changed', changed: ['win'] },
-	]),
-);
+const REPORT_21 = report(sha(99), [
+	{ key: 'bookofborut', name: 'Book of Borut', looks: 'changed', changed: ['win'] },
+]);
+head(sha(21), GREEN, {
+	state: 'failure',
+	description: (REPORT_21.summary as { line: string }).line,
+});
+artifact(sha(21), REPORT_21);
 pull(21, 'engine: stale report', { sha: sha(21) });
+
+// #22 — a re-run posted a new verdict but left the previous attempt's report.
+const REPORT_22 = report(sha(22), [
+	{ key: 'bookofborut', name: 'Book of Borut', looks: 'changed', changed: ['win'] },
+	{ key: 'hotfruits', name: 'HotFruits', looks: 'same' },
+]);
+head(sha(22), GREEN, {
+	state: 'failure',
+	description: '1 pass · 1 fail · 0 not rendered · 3 changed screen(s)',
+});
+artifact(sha(22), REPORT_22);
+pull(22, 'engine: re-run report', { sha: sha(22) });
+
+// #23 — two changed screens approved at the same moment.
+const REPORT_23 = report(sha(23), [
+	{ key: 'bookofborut', name: 'Book of Borut', looks: 'changed', changed: ['win', 'bigwin'] },
+]);
+head(sha(23), GREEN, {
+	state: 'failure',
+	description: (REPORT_23.summary as { line: string }).line,
+});
+artifact(sha(23), REPORT_23);
+pull(23, 'engine: two at once', { sha: sha(23) });
 
 // ── Replaced boundaries ───────────────────────────────────────────────────────
 const approvals: PipelineApproval[] = [];
@@ -681,7 +728,7 @@ const { createGithubApp, GithubAppError, mintAppJwt } = await import(
 	src('lib/server/githubApp.ts')
 );
 const changes = await import(src('lib/server/pipelineChanges.ts'));
-const { readZipEntry, listZipEntries } = await import(src('lib/server/zip.ts'));
+const { readZipEntry } = await import(src('lib/server/zip.ts'));
 const listRoute = await import(src('routes/api/pipeline/changes/+server.ts'));
 const detailRoute = await import(src('routes/api/pipeline/changes/[number]/+server.ts'));
 const approveRoute = await import(src('routes/api/pipeline/changes/[number]/approvals/+server.ts'));
@@ -767,23 +814,26 @@ process.env.GITHUB_APP_PRIVATE_KEY = privateKey.replace(/\n/g, '\\n');
 		now: () => fakeNow,
 	});
 	const before = gh.mints;
-	const [t1, t2] = await Promise.all([app.token(), app.token()]);
-	check('two concurrent callers share one mint', gh.mints - before, 1);
-	check('…and get the same token', t1 === t2, true);
-	check('a later call is served from the cache', await app.token(), t1);
-	check('…with no mint', gh.mints - before, 1);
+	const path = `/repos/${REPO}/pulls/14`;
+	const [r1, r2] = await Promise.all([app.fetch(path), app.fetch(path)]);
+	check(
+		'two concurrent callers share one mint',
+		[r1.status, r2.status, gh.mints - before],
+		[200, 200, 1],
+	);
+	await app.fetch(path);
+	check('a later call is served from the cache', gh.mints - before, 1);
 	fakeNow += 50 * 60_000;
-	await app.token();
+	await app.fetch(path);
 	check('50 minutes in, the token is still used', gh.mints - before, 1);
 	fakeNow += 6 * 60_000;
-	const t3 = await app.token();
+	await app.fetch(path);
 	check('56 minutes in (5 before expiry), it is minted again', gh.mints - before, 2);
-	check('…a new one', t3 !== t1, true);
-	gh.revoked.add(t3);
-	const res = await app.fetch(`/repos/${REPO}/pulls/14`);
+	gh.revoked.add(gh.tokens[gh.tokens.length - 1]);
+	const res = await app.fetch(path);
 	check('a 401 on a cached token mints once more and retries', res.status, 200);
 	check('…one extra mint', gh.mints - before, 3);
-	const again = await app.fetch(`/repos/${REPO}/pulls/14`);
+	const again = await app.fetch(path);
 	check('…and the new token is then cached', [again.status, gh.mints - before], [200, 3]);
 
 	const bad = createGithubApp({
@@ -791,7 +841,7 @@ process.env.GITHUB_APP_PRIVATE_KEY = privateKey.replace(/\n/g, '\\n');
 		transport: fakeFetch,
 	});
 	const requests = gh.requests.length;
-	const err = await bad.token().catch((e: unknown) => e);
+	const err = await bad.fetch(path).catch((e: unknown) => e);
 	check('a bad key is a GithubAppError', err instanceof GithubAppError, true);
 	check(
 		'…naming the variable, not the value',
@@ -805,7 +855,7 @@ process.env.GITHUB_APP_PRIVATE_KEY = privateKey.replace(/\n/g, '\\n');
 		config: () => ({ appId: '', installationId: '', privateKey: '' }),
 		transport: fakeFetch,
 	});
-	const err2 = await unset.token().catch((e: unknown) => e);
+	const err2 = await unset.fetch(path).catch((e: unknown) => e);
 	check('an unset config throws a 503 GithubAppError', (err2 as { status?: number }).status, 503);
 	check('…and nothing was fetched', gh.requests.length, requests);
 	thrown.push(String((err2 as Error).message));
@@ -825,17 +875,29 @@ process.env.GITHUB_APP_PRIVATE_KEY = privateKey.replace(/\n/g, '\\n');
 // ── The zip reader ────────────────────────────────────────────────────────────
 {
 	const zip = zipOf({ 'a.txt': 'stored', 'dir/b.json': '{"deflated":true}' }, ['dir/b.json']);
-	check('listZipEntries', listZipEntries(zip), ['a.txt', 'dir/b.json']);
-	check('a stored entry', readZipEntry(zip, 'a.txt')?.toString(), 'stored');
-	check('a deflated entry', readZipEntry(zip, 'dir/b.json')?.toString(), '{"deflated":true}');
-	check('a missing entry is null', readZipEntry(zip, 'nope'), null);
-	let msg = '';
-	try {
-		readZipEntry(Buffer.from('not a zip at all, not even close'), 'x');
-	} catch (e) {
-		msg = (e as Error).message;
-	}
-	check('not a zip throws', msg.includes('not a ZIP'), true);
+	check('a stored entry', readZipEntry(zip, 'a.txt', 1024)?.toString(), 'stored');
+	check('a deflated entry', readZipEntry(zip, 'dir/b.json', 1024)?.toString(), '{"deflated":true}');
+	check('a missing entry is null', readZipEntry(zip, 'nope', 1024), null);
+	const threw = (fn: () => unknown): string => {
+		try {
+			fn();
+			return '';
+		} catch (e) {
+			return (e as Error).message;
+		}
+	};
+	check(
+		'not a zip throws',
+		threw(() => readZipEntry(Buffer.from('not a zip at all, not even close'), 'x', 1024)).includes(
+			'not a ZIP',
+		),
+		true,
+	);
+	check(
+		'a deflated entry over the bound throws',
+		threw(() => readZipEntry(zip, 'dir/b.json', 4)) !== '',
+		true,
+	);
 }
 
 // ── Pure parts ────────────────────────────────────────────────────────────────
@@ -860,25 +922,6 @@ check(
 		changes.checkState('completed', 'cancelled'),
 	],
 	['pending', 'pass', 'skipped', 'skipped', 'fail', 'fail'],
-);
-check(
-	'testsInSummary',
-	[
-		changes.testsInSummary('118 of 118 passed'),
-		changes.testsInSummary('7 of 9 tests'),
-		changes.testsInSummary('12 passed, 2 failed'),
-		changes.testsInSummary('checks (1/3)'),
-		changes.testsInSummary('all green'),
-		changes.testsInSummary(null),
-	],
-	[
-		{ passed: 118, total: 118 },
-		{ passed: 7, total: 9 },
-		{ passed: 12, total: 14 },
-		null,
-		null,
-		null,
-	],
 );
 check(
 	'headOfDiffId',
@@ -909,6 +952,19 @@ check(
 	[changes.whyFromBody(null), changes.whyFromBody('   ')],
 	[null, null],
 );
+check(
+	'whyFromBody: "Why not" is not a lead-in',
+	changes.whyFromBody('Why not try it.\n\nSecond.'),
+	'Why not try it.',
+);
+check(
+	'approverName: the name, else the local part of the email',
+	[
+		changes.approverName({ name: ' Gualtiero ', email: 'g@example.com' }),
+		changes.approverName({ name: null, email: 'tester@example.com' }),
+	],
+	['Gualtiero', 'tester'],
+);
 {
 	const group = (jobs: { state: string; name: string; conclusion?: string | null }[]) => ({
 		workflow: 'Lint',
@@ -917,7 +973,6 @@ check(
 		jobs: jobs.map((j) => ({ url: null, conclusion: null, ...j })),
 		passed: 0,
 		total: 0,
-		tests: null,
 	});
 	const pass = group([{ name: 'lint', state: 'pass' }]);
 	const ok = { state: 'success', description: 'ok' };
@@ -1017,7 +1072,7 @@ check('a role without the tool is a 403', (await list(ARTIST)).status, 403);
 	check(
 		'every open PR into main, newest first, bar Director games and Dependabot',
 		body.changes.map((c) => c.number),
-		[21, 20, 19, 18, 17, 16, 15, 14, 10],
+		[23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 10],
 	);
 	check(
 		'Dependabot apart',
@@ -1041,10 +1096,14 @@ check('a role without the tool is a 403', (await list(ARTIST)).status, 403);
 		total: 5,
 	});
 	check('#10 is a draft', by(10).draft, true);
-	check('#14 blocked by the harness, with its description', by(14).status, {
-		kind: 'blocked',
-		reason: 'current-games: 12 pass · 1 fail · 1 not rendered · 2 changed screen(s)',
-	});
+	check(
+		'#14 blocked by the harness, with its description, not by its failed report job',
+		by(14).status,
+		{
+			kind: 'blocked',
+			reason: `current-games: ${LINE_14}`,
+		},
+	);
 	check('#15 blocked by a conflict despite green checks', by(15).status, {
 		kind: 'blocked',
 		reason: 'Merge conflict with main',
@@ -1100,22 +1159,36 @@ check('a bad number is a 400', (await detail(ADMIN, 'x')).status, 400);
 	check('why', d.why, 'QA in Director spotted a 1 px bleed on H2 and L3.');
 	check('the body comes along', String(d.body).startsWith('Raises sheet padding'), true);
 	check(
-		'Check 1: grouped by workflow, pass counts from the summaries',
-		d.checks.map((g) => [g.workflow, g.state, g.passed, g.total, g.tests]),
+		'Check 1: grouped by workflow with job counts, the harness left out',
+		d.checks.map((g) => [g.workflow, g.state, g.passed, g.total]),
 		[
-			['Lint', 'pass', 1, 1, { passed: 118, total: 118 }],
-			['Checks', 'pass', 3, 3, null],
-			['svelte-check', 'pass', 1, 1, null],
-			['Python', 'pass', 1, 1, { passed: 8, total: 8 }],
-			['Secrets', 'pass', 1, 1, null],
+			['Lint', 'pass', 1, 1],
+			['Checks', 'pass', 3, 3],
+			['svelte-check', 'pass', 1, 1],
+			['Python', 'pass', 1, 1],
+			['Secrets', 'pass', 1, 1],
 		],
+	);
+	check(
+		'…though its jobs are check runs on the head',
+		h14.checkRuns.some((r) => r.name === 'report' && r.conclusion === 'failure'),
+		true,
 	);
 	check(
 		'Check 2: the PR run, not the push run that stood down',
 		(d.harness.run as Json).id,
 		PR_RUN_14,
 	);
-	check('Check 2: the report is read from the artifact', (d.harness.report as Json).state, 'ready');
+	check(
+		'Check 2: the report is read from the report-only artifact',
+		[(d.harness.report as Json).state, (d.harness.report as Json).artifactId],
+		['ready', JSON_14],
+	);
+	check(
+		'…and the full artifact is never downloaded',
+		gh.requests.some((r) => r.includes(`/artifacts/${FULL_14}/zip`)),
+		false,
+	);
 	check('Check 2: the status', (d.harness.status as Json).state, 'failure');
 	check(
 		'Check 2: the changed screens, none approved',
@@ -1175,6 +1248,21 @@ check('a bad number is a 400', (await detail(ADMIN, 'x')).status, 400);
 		d.harness.unapprovable,
 		'Not a difference an approval can clear — HotFruits: the build failed; HotFruits: the branch runtime did not build',
 	);
+	check(
+		'#18: an older run is read from its full artifact',
+		(d.harness.report as Json).state,
+		'ready',
+	);
+}
+{
+	const d = (await detail(ADMIN, '22')).body as { harness: Json };
+	check("#22: a report from another attempt is 'stale'", (d.harness.report as Json).state, 'stale');
+	check(
+		'#22: …saying what the two say',
+		String((d.harness.report as Json).detail).includes('another attempt'),
+		true,
+	);
+	check('#22: …with no diffs to approve', d.harness.diffs, []);
 }
 
 // ── Approvals ─────────────────────────────────────────────────────────────────
@@ -1287,17 +1375,18 @@ check('nothing posted so far', gh.posts, []);
 }
 
 // ── A new push: the old approvals are void ────────────────────────────────────
+userOverrides.set('u-tester', { pipelineMerge: true });
 {
 	const p14 = gh.pulls.get(14) as Pull;
 	p14.head = { sha: sha(140), ref: p14.head.ref };
-	head(sha(140), GREEN, {
-		state: 'failure',
-		description: '12 pass · 1 fail · 2 changed screen(s)',
-	});
 	const report140 = report(sha(140), [
 		{ key: 'bookofborut', name: 'Book of Borut', looks: 'changed', changed: ['win', 'bigwin'] },
 		{ key: 'hotfruits', name: 'HotFruits', looks: 'same' },
 	]);
+	head(sha(140), GREEN, {
+		state: 'failure',
+		description: (report140.summary as { line: string }).line,
+	});
 	artifact(sha(140), report140);
 	const diffs140 = (report140.summary as { changedScreens: string[] }).changedScreens;
 	const d = (await detail(ADMIN, '14')).body as { harness: Json; status: Json; headSha: string };
@@ -1313,13 +1402,19 @@ check('nothing posted so far', gh.posts, []);
 	check('an approval of the old head is void', stale.status, 409);
 	check('…saying so', String(stale.body.error).includes('new head'), true);
 	check('…and posts nothing', gh.posts.length, 1);
-	await approve(ADMIN, '14', { diffId: diffs140[0] });
+	const first = await approve(TESTER, '14', { diffId: diffs140[0] });
+	check('a user override grants the approval', first.status, 200);
 	check('one of the new diffs posts nothing', gh.posts.length, 1);
 	const done = await approve(ADMIN, '14', { diffId: diffs140[1] });
 	check(
 		'both new diffs approved posts on the NEW sha, once',
 		[done.body.statusPosted, gh.posts.length, gh.posts[1].sha],
 		[true, 2, sha(140)],
+	);
+	check(
+		'…naming every approver, a nameless one by the local part of the email',
+		gh.posts[1].body.description,
+		'All 2 changed screens approved by Gualtiero, tester',
 	);
 }
 
@@ -1350,19 +1445,51 @@ check(
 	check('…but never posts success', [res.body.statusPosted, gh.posts.length], [false, 2]);
 }
 
-// ── The capability through a user override ───────────────────────────────────
-userOverrides.set('u-tester', { pipelineMerge: true });
 {
 	const res = await approve(TESTER, '18', {
 		diffId: (REPORT_18.summary as { changedScreens: string[] }).changedScreens[0],
 	});
-	check('a user override grants the approval', res.status, 200);
 	check(
-		'…though the approval already recorded is kept',
-		(res.body.approval as Json).approver,
-		'Gualtiero',
+		'a second approver of an approved diff gets the first approval back',
+		[res.status, (res.body.approval as Json).approver],
+		[200, 'Gualtiero'],
 	);
 }
+check(
+	'a report from another attempt refuses an approval',
+	(
+		await approve(ADMIN, '22', {
+			diffId: (REPORT_22.summary as { changedScreens: string[] }).changedScreens[0],
+		})
+	).status,
+	409,
+);
+
+// ── Two approvals at once complete the set exactly once ───────────────────────
+{
+	const [a, b] = (REPORT_23.summary as { changedScreens: string[] }).changedScreens;
+	const posts = gh.posts.length;
+	const [ra, rb] = await Promise.all([
+		approve(ADMIN, '23', { diffId: a }),
+		approve(TESTER, '23', { diffId: b }),
+	]);
+	check('both approvals land', [ra.status, rb.status], [200, 200]);
+	check(
+		'exactly one of them posts',
+		[ra.body.statusPosted, rb.body.statusPosted].filter(Boolean).length,
+		1,
+	);
+	check(
+		"…one post, on #23's head, naming both",
+		[gh.posts.length - posts, gh.posts[posts].sha, gh.posts[posts].body.description],
+		[1, sha(23), 'All 2 changed screens approved by tester, Gualtiero'],
+	);
+}
+check(
+	'no email address was ever posted to GitHub',
+	gh.posts.some((p) => String(p.body.description).includes('@')),
+	false,
+);
 
 // ── No secret anywhere ────────────────────────────────────────────────────────
 {

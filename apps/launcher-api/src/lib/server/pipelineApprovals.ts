@@ -43,5 +43,6 @@ export async function recordApproval(input: NewApproval): Promise<PipelineApprov
 		.select()
 		.from(pipelineApprovals)
 		.where(eq(pipelineApprovals.diffId, input.diffId));
+	if (!existing) throw new Error(`approval of ${input.diffId} vanished between insert and read`);
 	return existing;
 }

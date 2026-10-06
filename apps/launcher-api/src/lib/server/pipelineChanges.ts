@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { mapWithConcurrency } from './concurrency';
+import { createKeyedMutex, createSingleFlight, mapWithConcurrency } from './concurrency';
 import { ENV } from './env';
 import { githubApp, type GithubApp } from './githubApp';
 import { listApprovals, recordApproval, type PipelineApproval } from './pipelineApprovals';
@@ -67,7 +67,6 @@ interface GhCheckRun {
 	html_url: string | null;
 	check_suite: { id: number } | null;
 	app: { slug?: string; name?: string } | null;
-	output: { title: string | null; summary: string | null } | null;
 }
 
 interface GhWorkflowRun {
@@ -146,8 +145,6 @@ export interface CheckGroup {
 	jobs: CheckJob[];
 	passed: number;
 	total: number;
-	/** `N of M` as the jobs' own summaries count it, when they say. */
-	tests: { passed: number; total: number } | null;
 }
 
 export interface HarnessStatus {
@@ -222,25 +219,11 @@ function groupState(jobs: CheckJob[]): CheckState {
 }
 
 /**
- * `118 of 118`, `118 passed, 2 failed`: the counts a job's SUMMARY carries, if it wrote one. A
- * bare `1/3` is not read: that is how a matrix job is named (`checks (1/3)`), not a count.
- */
-export function testsInSummary(
-	text: string | null | undefined,
-): { passed: number; total: number } | null {
-	if (!text) return null;
-	const ofTotal = /(\d+)\s+of\s+(\d+)/.exec(text);
-	if (ofTotal) return { passed: Number(ofTotal[1]), total: Number(ofTotal[2]) };
-	const passed = /(\d+)\s+pass(?:ed|ing)?\b/i.exec(text);
-	if (!passed) return null;
-	const failed = /(\d+)\s+fail(?:ed|ing|ures?)?\b/i.exec(text);
-	const n = Number(passed[1]);
-	return { passed: n, total: n + (failed ? Number(failed[1]) : 0) };
-}
-
-/**
- * Check runs grouped by the workflow that ran them (`check_suite.id` → workflow run); a check
- * another App posts groups under that App's name. Order: the workflows as GitHub lists them.
+ * Check 1: the check runs grouped by the workflow that ran them (`check_suite.id` → workflow
+ * run); a check another App posts groups under that App's name. Order: as GitHub lists them.
+ * The harness's own jobs are left out — they are Check 2: its `report` job exits non-zero on a
+ * failed verdict by design, and the verdict is the `current-games` status, which an approval can
+ * turn green. Counting those jobs here would hold a change Blocked after every diff was approved.
  */
 export function groupCheckRuns(
 	checkRuns: GhCheckRun[],
@@ -250,6 +233,7 @@ export function groupCheckRuns(
 	const groups = new Map<string, CheckGroup>();
 	for (const run of checkRuns) {
 		const workflow = run.check_suite ? bySuite.get(run.check_suite.id) : undefined;
+		if (workflow?.name === HARNESS_WORKFLOW) continue;
 		const name = workflow?.name ?? run.app?.name ?? run.name;
 		let group = groups.get(name);
 		if (!group) {
@@ -260,7 +244,6 @@ export function groupCheckRuns(
 				jobs: [],
 				passed: 0,
 				total: 0,
-				tests: null,
 			};
 			groups.set(name, group);
 		}
@@ -270,13 +253,6 @@ export function groupCheckRuns(
 			conclusion: run.conclusion,
 			url: run.html_url,
 		});
-		const tests = testsInSummary(run.output?.summary);
-		if (tests) {
-			group.tests = {
-				passed: (group.tests?.passed ?? 0) + tests.passed,
-				total: (group.tests?.total ?? 0) + tests.total,
-			};
-		}
 	}
 	for (const group of groups.values()) {
 		group.state = groupState(group.jobs);
@@ -336,7 +312,7 @@ export function whyFromBody(body: string | null): string | null {
 	const heading = /(?:^|\n)#{1,6}[ \t]*why\b[^\n]*\n+([\s\S]*?)(?=\n#{1,6}[ \t]|$)/i.exec(text);
 	if (heading) return clip(heading[1]);
 	const lead =
-		/(?:^|\n)[ \t]*(?:\*\*|__)?why:?(?:\*\*|__)?:?[ \t]*([^\n]+(?:\n(?![ \t]*\n)[^\n]+)*)/i.exec(
+		/(?:^|\n)[ \t]*(?:\*\*why:?\*\*:?|__why:?__:?|why:)[ \t]*([^\n]+(?:\n(?![ \t]*\n)[^\n]+)*)/i.exec(
 			text,
 		);
 	if (lead) return clip(lead[1]);
@@ -434,10 +410,16 @@ function summaryOf(pull: GhPull, head: Head): ChangeSummary {
 }
 
 let listCache: { at: number; list: ChangeList } | null = null;
+const listFlight = createSingleFlight();
 
 /** Every open PR into `main`, bar Director games; Dependabot's apart. */
-export async function listChanges(app: GithubApp = githubApp): Promise<ChangeList> {
-	if (listCache && Date.now() - listCache.at < LIST_TTL_MS) return listCache.list;
+export function listChanges(app: GithubApp = githubApp): Promise<ChangeList> {
+	if (listCache && Date.now() - listCache.at < LIST_TTL_MS) return Promise.resolve(listCache.list);
+	// Tabs opening together share one read: each PR costs four GitHub calls.
+	return listFlight('list', () => readChanges(app));
+}
+
+async function readChanges(app: GithubApp): Promise<ChangeList> {
 	const r = repo();
 	const pulls = (await openPulls(app)).filter((p) => !labelsOf(p).includes(DIRECTOR_GAME_LABEL));
 	const summaries = await mapWithConcurrency(pulls, PER_CHANGE_CONCURRENCY, async (listed) => {
@@ -475,8 +457,9 @@ export async function getChange(number: number, app: GithubApp = githubApp): Pro
 		app.json<GhFile[]>(`/repos/${r}/pulls/${number}/files?per_page=${PAGE}`),
 	]);
 	const run = harnessRunOf(head, sha);
+	const status = harnessStatusOf(head);
 	const [report, approvals] = await Promise.all([
-		loadHarnessReport(app, r, run, sha),
+		loadHarnessReport(app, r, run, sha, status),
 		listApprovals(sha),
 	]);
 	const diffs = visibleDiffs(report);
@@ -498,7 +481,7 @@ export async function getChange(number: number, app: GithubApp = githubApp): Pro
 		filesTruncated: files.length >= PAGE,
 		checks: groupCheckRuns(head.checkRuns, head.workflowRuns),
 		harness: {
-			status: harnessStatusOf(head),
+			status,
 			run: run && { id: run.id, url: run.html_url, status: run.status, conclusion: run.conclusion },
 			report,
 			diffs: diffs.map((d) => ({ ...d, approval: byId.get(d.id) ?? null })),
@@ -524,10 +507,21 @@ export function headOfDiffId(diffId: string): string | null {
 }
 
 /**
+ * How an approver is named on GitHub and in the row: the account's name, else the local part of
+ * its email. The repository is public, so never the address itself.
+ */
+export function approverName(user: { name: string | null; email: string }): string {
+	return user.name?.trim() || user.email.split('@')[0];
+}
+
+/** Approvals on one head run one at a time, so the last two cannot both post the status. */
+const approving = createKeyedMutex();
+
+/**
  * Approve one changed screen (ADR-0007 "Diff approval"). The caller has passed the
  * `pipelineMerge` gate. When this approval completes the set on the head — and only a run whose
  * sole failures are changed screens can be completed — `success` goes to the `current-games`
- * context on that exact SHA, naming the approver, once: a context already green is left alone.
+ * context on that exact SHA, naming the approvers, once: a context already green is left alone.
  */
 export async function approveDiff(
 	input: {
@@ -540,53 +534,48 @@ export async function approveDiff(
 ): Promise<ApproveResult> {
 	const sha = headOfDiffId(input.diffId);
 	if (!sha) throw error(400, 'diffId must be the screen id from the current-games report.');
-	const change = await getChange(input.number, app);
-	if (sha !== change.headSha) {
-		throw error(
-			409,
-			`This change has a new head (${change.headSha.slice(0, 7)}); approvals on ${sha.slice(0, 7)} are void.`,
-		);
-	}
-	const { harness } = change;
-	if (harness.report.state !== 'ready') throw error(409, harness.report.detail);
-	if (!harness.diffs.some((d) => d.id === input.diffId)) {
-		throw error(404, 'No such changed screen on this head.');
-	}
-	const approver = input.user.name?.trim() || input.user.email;
-	const approval = await recordApproval({
-		diffId: input.diffId,
-		prNumber: input.number,
-		headSha: sha,
-		approverId: input.user.id,
-		approver,
-		note: input.note,
-	});
-	listCache = null;
-	const approved = new Set((await listApprovals(sha)).map((a) => a.diffId));
-	const done = harness.diffs.filter((d) => approved.has(d.id)).length;
-	const of = harness.diffs.length;
-	let statusPosted = false;
-	if (done === of && !harness.unapprovable && harness.status?.state !== 'success') {
-		const approvers = [
-			...new Set(
-				harness.diffs.map((d) => (d.id === input.diffId ? approver : d.approval?.approver)),
-			),
-		].filter((a): a is string => !!a);
-		const description =
-			`All ${of} changed screen${of === 1 ? '' : 's'} approved by ${approvers.join(', ')}`.slice(
-				0,
-				140,
+	return approving(sha, async () => {
+		const change = await getChange(input.number, app);
+		if (sha !== change.headSha) {
+			throw error(
+				409,
+				`This change has a new head (${change.headSha.slice(0, 7)}); approvals on ${sha.slice(0, 7)} are void.`,
 			);
-		await app.json(`/repos/${repo()}/statuses/${sha}`, {
-			method: 'POST',
-			body: JSON.stringify({
-				state: 'success',
-				context: HARNESS_CONTEXT,
-				description,
-				target_url: change.url,
-			}),
+		}
+		const { harness } = change;
+		if (harness.report.state !== 'ready') throw error(409, harness.report.detail);
+		if (!harness.diffs.some((d) => d.id === input.diffId)) {
+			throw error(404, 'No such changed screen on this head.');
+		}
+		const approval = await recordApproval({
+			diffId: input.diffId,
+			prNumber: input.number,
+			headSha: sha,
+			approverId: input.user.id,
+			approver: approverName(input.user),
+			note: input.note,
 		});
-		statusPosted = true;
-	}
-	return { approval, approved: done, of, statusPosted };
+		listCache = null;
+		const ids = new Set(harness.diffs.map((d) => d.id));
+		const rows = (await listApprovals(sha)).filter((a) => ids.has(a.diffId));
+		const done = new Set(rows.map((a) => a.diffId)).size;
+		const of = harness.diffs.length;
+		let statusPosted = false;
+		if (done === of && !harness.unapprovable && harness.status?.state !== 'success') {
+			const approvers = [...new Set(rows.map((a) => a.approver))].join(', ');
+			const description =
+				`All ${of} changed screen${of === 1 ? '' : 's'} approved by ${approvers}`.slice(0, 140);
+			await app.json(`/repos/${repo()}/statuses/${sha}`, {
+				method: 'POST',
+				body: JSON.stringify({
+					state: 'success',
+					context: HARNESS_CONTEXT,
+					description,
+					target_url: change.url,
+				}),
+			});
+			statusPosted = true;
+		}
+		return { approval, approved: done, of, statusPosted };
+	});
 }

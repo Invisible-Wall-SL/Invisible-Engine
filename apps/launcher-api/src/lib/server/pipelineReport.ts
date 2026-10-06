@@ -11,13 +11,19 @@ import type { GithubApp } from './githubApp';
  * and a new push brings a new one.
  */
 
-/** The artifact `current-games.yml` uploads from the report job. */
+/** The artifacts `current-games.yml` uploads from the report job: the report alone, and the full
+ *  one with every changed screen's images. */
+export const REPORT_JSON_ARTIFACT = 'current-games-report-json';
 export const REPORT_ARTIFACT = 'current-games-report';
-/** The report is a JSON file plus the changed screens' images; past this it is not an artifact
- *  of ours. */
-const MAX_ARTIFACT_BYTES = 64 * 1024 * 1024;
-/** Artifact zips kept in memory, by artifact id: a report never changes once uploaded. */
-const ZIP_CACHE_SIZE = 8;
+/** `report.json` is a few hundred KB for the live games; past this it is not the harness's. */
+const MAX_REPORT_JSON_BYTES = 32 * 1024 * 1024;
+/** The full artifact is read only for a run older than `current-games-report-json`, and only
+ *  when it is small: it holds every changed screen's images and the launcher is memory-tight. */
+const MAX_FULL_ARTIFACT_BYTES = 64 * 1024 * 1024;
+/** A download of the full artifact may take a while; the body counts. */
+const ARTIFACT_TIMEOUT_MS = 120_000;
+/** Parsed reports kept in memory, by artifact id: a report never changes once uploaded. */
+const REPORT_CACHE_SIZE = 32;
 
 export interface HarnessScreen {
 	screen: string;
@@ -111,29 +117,48 @@ export function rowVerdict(row: HarnessRow): 'pass' | 'fail' | null {
 	return null;
 }
 
-const zips = new Map<number, Buffer>();
+const reports = new Map<number, HarnessReport>();
 
-/** The artifact's bytes, cached; `null` once it is gone from GitHub. */
-async function artifactZip(app: GithubApp, repo: string, artifact: GhArtifact): Promise<Buffer> {
-	const hit = zips.get(artifact.id);
+/** The parsed `report.json` of an artifact, cached; throws when it cannot be read. */
+async function readReport(
+	app: GithubApp,
+	repo: string,
+	artifact: GhArtifact,
+): Promise<HarnessReport> {
+	const hit = reports.get(artifact.id);
 	if (hit) return hit;
-	const res = await app.fetch(`/repos/${repo}/actions/artifacts/${artifact.id}/zip`);
+	// GitHub answers with a 302 to a signed blob-store URL. Node's fetch follows it and, being a
+	// cross-origin redirect, drops the `Authorization` header on the way — which the blob store
+	// requires: a bearer header beside its signed URL is refused.
+	const res = await app.fetch(`/repos/${repo}/actions/artifacts/${artifact.id}/zip`, {
+		timeoutMs: ARTIFACT_TIMEOUT_MS,
+	});
 	if (!res.ok) throw new Error(`GitHub ${res.status} downloading the report artifact`);
 	const zip = Buffer.from(await res.arrayBuffer());
-	if (zips.size >= ZIP_CACHE_SIZE) zips.delete(zips.keys().next().value as number);
-	zips.set(artifact.id, zip);
-	return zip;
+	const json = readZipEntry(zip, 'report.json', MAX_REPORT_JSON_BYTES);
+	if (!json) throw new Error('the artifact holds no report.json');
+	const report = JSON.parse(json.toString('utf8')) as HarnessReport;
+	if (!Array.isArray(report.games) || !report.summary?.line) {
+		throw new Error('the report is not in the shape the harness writes');
+	}
+	if (reports.size >= REPORT_CACHE_SIZE) reports.delete(reports.keys().next().value as number);
+	reports.set(artifact.id, report);
+	return report;
 }
+
+/** The harness's own summary line, as `current-games.yml` posts it (140 characters at most). */
+const HARNESS_LINE = /^\d+ pass · \d+ fail · /;
 
 /**
  * The report of `run` for `headSha`, or why there is none. `run` is the "Current games" workflow
- * run on the head, `null` when none has started.
+ * run on the head, `null` when none has started; `status` the `current-games` context on it.
  */
 export async function loadHarnessReport(
 	app: GithubApp,
 	repo: string,
 	run: WorkflowRunLike | null,
 	headSha: string,
+	status: { state: string; description: string | null } | null,
 ): Promise<HarnessReportState> {
 	if (!run) return { state: 'none', detail: 'current-games has not started on this head.' };
 	if (run.status !== 'completed') {
@@ -142,7 +167,9 @@ export async function loadHarnessReport(
 	const { artifacts } = await app.json<{ artifacts: GhArtifact[] }>(
 		`/repos/${repo}/actions/runs/${run.id}/artifacts?per_page=100`,
 	);
-	const artifact = artifacts.find((a) => a.name === REPORT_ARTIFACT);
+	const small = artifacts.find((a) => a.name === REPORT_JSON_ARTIFACT);
+	const full = artifacts.find((a) => a.name === REPORT_ARTIFACT);
+	const artifact = small ?? full;
 	if (!artifact) {
 		return run.conclusion === 'success'
 			? {
@@ -159,27 +186,39 @@ export async function loadHarnessReport(
 			expiresAt: artifact.expires_at ?? undefined,
 		};
 	}
-	if (artifact.size_in_bytes > MAX_ARTIFACT_BYTES) {
-		return { state: 'unreadable', detail: 'The report artifact is too large to read.' };
+	if (!small && artifact.size_in_bytes > MAX_FULL_ARTIFACT_BYTES) {
+		return {
+			state: 'unreadable',
+			detail: `The run is older than the report-only artifact and its full report (${Math.round(artifact.size_in_bytes / 1_048_576)} MB of images) is too large to read. A new push makes a readable one.`,
+		};
 	}
 	let report: HarnessReport;
 	try {
-		const json = readZipEntry(await artifactZip(app, repo, artifact), 'report.json');
-		if (!json) return { state: 'unreadable', detail: 'The artifact holds no report.json.' };
-		report = JSON.parse(json.toString('utf8')) as HarnessReport;
+		report = await readReport(app, repo, artifact);
 	} catch (err) {
 		return {
 			state: 'unreadable',
 			detail: `The report could not be read: ${err instanceof Error ? err.message : String(err)}`,
 		};
 	}
-	if (!Array.isArray(report.games) || !report.summary) {
-		return { state: 'unreadable', detail: 'The report is not in the shape the harness writes.' };
-	}
 	if (report.head?.sha && report.head.sha !== headSha) {
 		return {
 			state: 'stale',
 			detail: `The report is for ${report.head.sha.slice(0, 7)}, not this head.`,
+		};
+	}
+	// A re-run whose upload failed leaves the previous attempt's report beside the new attempt's
+	// status. The status description is the harness's summary line, so the two must agree when
+	// the harness posted it (an approval's `success` reads differently and is left alone).
+	if (
+		status &&
+		status.state !== 'success' &&
+		HARNESS_LINE.test(status.description ?? '') &&
+		status.description !== report.summary.line.slice(0, 139)
+	) {
+		return {
+			state: 'stale',
+			detail: `The report is from another attempt of this run: the status reads "${status.description}" but the report says "${report.summary.line}".`,
 		};
 	}
 	return { state: 'ready', report, artifactId: artifact.id, expiresAt: artifact.expires_at };

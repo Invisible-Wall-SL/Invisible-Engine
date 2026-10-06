@@ -51,16 +51,20 @@ export class GithubAppError extends Error {
 	}
 }
 
+export interface GithubRequestInit extends RequestInit {
+	/** How long the whole exchange may take, the body included; the default suits a JSON answer. */
+	timeoutMs?: number;
+}
+
 export interface GithubApp {
 	/** The variables that are unset, as one sentence; `null` when the App can act. */
 	missing(): string | null;
-	/** The current installation token — cached, minted again shortly before it expires. */
-	token(): Promise<string>;
-	/** A REST call as the installation. `path` is `/repos/...`; a full URL passes through. Throws
-	 *  `GithubAppError` when the request cannot be made at all; a non-2xx answer is returned as is. */
-	fetch(path: string, init?: RequestInit): Promise<Response>;
+	/** A REST call as the installation, with its token minted, cached and renewed here. `path` is
+	 *  `/repos/...`; a full URL passes through. Throws `GithubAppError` when the request cannot be
+	 *  made at all; a non-2xx answer is returned as is. */
+	fetch(path: string, init?: GithubRequestInit): Promise<Response>;
 	/** A 2xx answer's JSON; any other answer throws `GithubAppError` with GitHub's message. */
-	json<T>(path: string, init?: RequestInit): Promise<T>;
+	json<T>(path: string, init?: GithubRequestInit): Promise<T>;
 }
 
 const ENV_CONFIG = (): GithubAppConfig => ({
@@ -118,30 +122,33 @@ export function createGithubApp(options: GithubAppOptions = {}): GithubApp {
 			: null;
 	};
 
-	const request = async (url: string, init: RequestInit, auth: string): Promise<Response> => {
+	const request = async (url: string, init: GithubRequestInit, auth: string): Promise<Response> => {
+		const { timeoutMs = FETCH_TIMEOUT_MS, ...rest } = init;
 		const controller = new AbortController();
-		const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+		// Left running once the headers are in: the body is read under the same deadline, so a
+		// stalled download cannot hang a request. Unref'd, so a finished exchange holds nothing.
+		const timer = setTimeout(() => controller.abort(), timeoutMs);
+		timer.unref();
 		try {
 			return await transport(url, {
-				...init,
+				...rest,
 				headers: {
 					Authorization: `Bearer ${auth}`,
 					Accept: 'application/vnd.github+json',
 					'X-GitHub-Api-Version': '2022-11-28',
 					'User-Agent': 'invisible-launcher',
-					...(init.body ? { 'content-type': 'application/json' } : {}),
-					...(init.headers ?? {}),
+					...(rest.body ? { 'content-type': 'application/json' } : {}),
+					...(rest.headers ?? {}),
 				},
 				signal: controller.signal,
 			});
 		} catch (err) {
+			clearTimeout(timer);
 			// A transport error could quote the request; the URL is public and the header is not
 			// in any message undici produces, but the message is replaced rather than trusted.
 			throw new GithubAppError(
 				`GitHub did not answer (${err instanceof Error && err.name === 'AbortError' ? 'timed out' : 'network error'}).`,
 			);
-		} finally {
-			clearTimeout(timer);
 		}
 	};
 
@@ -170,7 +177,7 @@ export function createGithubApp(options: GithubAppOptions = {}): GithubApp {
 		return minting;
 	};
 
-	const call = async (path: string, init: RequestInit = {}): Promise<Response> => {
+	const call = async (path: string, init: GithubRequestInit = {}): Promise<Response> => {
 		const url = /^https?:\/\//.test(path) ? path : `${GITHUB_API}${path}`;
 		let res = await request(url, init, await token());
 		// A 401 on a token that was valid a moment ago means GitHub revoked it (the App was
@@ -184,9 +191,8 @@ export function createGithubApp(options: GithubAppOptions = {}): GithubApp {
 
 	return {
 		missing,
-		token,
 		fetch: call,
-		async json<T>(path: string, init?: RequestInit): Promise<T> {
+		async json<T>(path: string, init?: GithubRequestInit): Promise<T> {
 			const res = await call(path, init);
 			if (!res.ok) throw await errorOf(res);
 			return (await res.json()) as T;

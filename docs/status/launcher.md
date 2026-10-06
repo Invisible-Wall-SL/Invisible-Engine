@@ -63,13 +63,18 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   `GET /api/pipeline/changes` lists every open PR into `main` bar `director-game`, Dependabot's
   apart, each Testing (*n* of *m*) / Blocked (the failing row's reason) / Ready; `GET
   /api/pipeline/changes/<n>` adds files, the diff link, the body's "why", Check 1 (check runs
-  grouped by workflow, pass counts from their summaries) and Check 2 (the `current-games-report`
-  artifact read through `$lib/server/zip.ts`; an expired artifact is a state, not an error).
+  grouped by workflow, with job counts; the harness's own jobs are Check 2's) and Check 2 (the
+  report read from the new `current-games-report-json` artifact — `report.json` alone, so the
+  launcher never holds the images in memory; a run older than that upload falls back to the full
+  artifact while it is small — through `$lib/server/zip.ts`; an expired artifact, a report for
+  another head or another attempt is a state, not an error).
   `POST /api/pipeline/changes/<n>/approvals` (`pipelineMerge`, 403 otherwise) records a changed
   screen's approval in `pipeline_approvals` (migration `0027`, ids embed the head SHA so a push
   voids them) and, once every diff on that exact head is approved and the run's only failures are
-  changed screens, posts `success` to `current-games` on that SHA naming the approver. Both gates
-  in `$lib/server/pipelineAccess.ts`. The `/pipeline` tabs are still empty (card 5B). Fixture:
+  changed screens, posts `success` to `current-games` on that SHA naming the approvers (never an
+  email address; approvals on one head run one at a time). Both gates in
+  `$lib/server/pipelineAccess.ts`. `current-games.yml` uploads the report-only artifact beside
+  the full one and overwrites both on a re-run. The `/pipeline` tabs are still empty (card 5B). Fixture:
   `check:pipeline-changes`. Env: INFRA "GitHub App (Pipeline Changes)".
 - 2026-10-04 — **Anthropic (agents) cost card + Director run budget** (Director Phase 1, tasks
   1.11–1.12; ADR-0006).

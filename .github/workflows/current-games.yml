@@ -473,12 +473,26 @@ jobs:
             >> "$GITHUB_STEP_SUMMARY"
           true
 
+      # Both uploads replace a previous attempt's artifact (`overwrite`): a re-run then leaves the
+      # report of the attempt whose status was posted, never an older one beside a newer status.
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
           name: current-games-report
           retention-days: 3
+          overwrite: true
           path: report
+
+      # The report alone, for Invisible Pipeline Changes (ADR-0007, Check 2): the full artifact
+      # carries every changed screen's before / after / diff images and can run to hundreds of
+      # megabytes, which the launcher must not hold in memory to read one JSON file.
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: current-games-report-json
+          retention-days: 3
+          overwrite: true
+          path: report/report.json
 
       - name: Post the status
         if: ${{ !cancelled() }}

@@ -50,13 +50,11 @@ function* entries(zip: Buffer): Generator<Entry> {
 	}
 }
 
-/** Every file name in the archive, in directory order. */
-export function listZipEntries(zip: Buffer): string[] {
-	return [...entries(zip)].map((e) => e.name);
-}
-
-/** The bytes of `name`, or `null` when the archive has no such file. */
-export function readZipEntry(zip: Buffer, name: string): Buffer | null {
+/**
+ * The bytes of `name`, or `null` when the archive has no such file. `maxBytes` bounds what a
+ * deflated entry may inflate to, whatever its directory entry claims.
+ */
+export function readZipEntry(zip: Buffer, name: string, maxBytes: number): Buffer | null {
 	for (const entry of entries(zip)) {
 		if (entry.name !== name) continue;
 		const at = entry.localOffset;
@@ -66,8 +64,7 @@ export function readZipEntry(zip: Buffer, name: string): Buffer | null {
 		const start = at + 30 + zip.readUInt16LE(at + 26) + zip.readUInt16LE(at + 28);
 		const raw = zip.subarray(start, start + entry.compressedSize);
 		if (entry.method === 0) return Buffer.from(raw);
-		if (entry.method === 8)
-			return inflateRawSync(raw, { maxOutputLength: entry.size || undefined });
+		if (entry.method === 8) return inflateRawSync(raw, { maxOutputLength: maxBytes });
 		throw new Error(`ZIP entry ${name} uses compression method ${entry.method}`);
 	}
 	return null;
