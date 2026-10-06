@@ -1,12 +1,15 @@
 // One headless-shell page over CDP, pinned the way every harness capture must be: 1280×720, DPR 1,
 // time zone UTC, locale en-US, focused. The launch itself is `scripts/playtest/headless-shell.mjs`.
+// With `intercept`, requests to the Typekit hosts never reach the network: the mirror answers them
+// (`typekit.mjs`), and a kit URL it lacks is refused and recorded in `unmirrored`.
 
 import { spawnHeadlessShell } from '../../playtest/headless-shell.mjs';
+import { TYPEKIT_HOSTS } from './typekit.mjs';
 
 const VIEWPORT = { width: 1280, height: 720, deviceScaleFactor: 1 };
 
 /** Console errors and uncaught exceptions are kept (the last 50) for the report. */
-export async function openPage(chromePath, profile) {
+export async function openPage(chromePath, profile, { intercept } = {}) {
 	const chrome = spawnHeadlessShell(chromePath, {
 		profile,
 		width: VIEWPORT.width,
@@ -15,9 +18,12 @@ export async function openPage(chromePath, profile) {
 	const pending = new Map();
 	const consoleLines = [];
 	// Every request the page makes to a host other than the harness's own (127.0.0.1): its
-	// outcome, in order. A third-party host answers each render on its own terms.
+	// outcome, in order. A third-party host answers each render on its own terms; one the mirror
+	// answered says `mirror`, one it lacked says `unmirrored`.
 	const external = [];
+	const unmirrored = [];
 	const requests = new Map();
+	const answered = new Set();
 	const keep = (line) => {
 		consoleLines.push(line);
 		if (consoleLines.length > 50) consoleLines.shift();
@@ -25,6 +31,7 @@ export async function openPage(chromePath, profile) {
 	let nextId = 1;
 	let buf = Buffer.alloc(0);
 	let exited = false;
+	let onPaused;
 	const gone = () => {
 		exited = true;
 		for (const resolve of pending.values()) resolve({ error: { message: 'browser exited' } });
@@ -49,9 +56,15 @@ export async function openPage(chromePath, profile) {
 			} else if (msg.method === 'Runtime.exceptionThrown') {
 				const d = msg.params.exceptionDetails;
 				keep(`[exception] ${d.exception?.description ?? d.text}`);
+			} else if (msg.method === 'Fetch.requestPaused') {
+				onPaused?.(msg.params);
 			} else if (msg.method === 'Network.requestWillBeSent') {
 				const url = msg.params.request.url;
-				if (/^https?:/.test(url) && new URL(url).hostname !== '127.0.0.1')
+				if (
+					/^https?:/.test(url) &&
+					new URL(url).hostname !== '127.0.0.1' &&
+					!answered.has(msg.params.requestId)
+				)
 					requests.set(msg.params.requestId, url);
 			} else if (msg.method === 'Network.responseReceived' && requests.has(msg.params.requestId)) {
 				external.push(`${msg.params.response.status} ${requests.get(msg.params.requestId)}`);
@@ -89,6 +102,37 @@ export async function openPage(chromePath, profile) {
 	await page('Runtime.enable');
 	await page('Page.enable');
 	await page('Network.enable');
+	if (intercept) {
+		// `intercept(url)`: `{ contentType, body }` to serve, `null` to refuse (a kit URL the mirror
+		// lacks), `undefined` to let through. Fonts are CORS requests, hence the allow-origin.
+		onPaused = ({ requestId, request, networkId }) => {
+			const answer = intercept(request.url);
+			if (answer === undefined) return page('Fetch.continueRequest', { requestId });
+			if (networkId) {
+				answered.add(networkId);
+				requests.delete(networkId);
+			}
+			if (answer === null) {
+				unmirrored.push(request.url);
+				external.push(`unmirrored ${request.url}`);
+				return page('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' });
+			}
+			external.push(`mirror ${request.url}`);
+			return page('Fetch.fulfillRequest', {
+				requestId,
+				responseCode: 200,
+				responseHeaders: [
+					{ name: 'Content-Type', value: answer.contentType },
+					{ name: 'Access-Control-Allow-Origin', value: '*' },
+					{ name: 'Cache-Control', value: 'no-store' },
+				],
+				body: answer.body.toString('base64'),
+			});
+		};
+		await page('Fetch.enable', {
+			patterns: TYPEKIT_HOSTS.map((host) => ({ urlPattern: `*://${host}/*` })),
+		});
+	}
 	await page('Emulation.setDeviceMetricsOverride', { ...VIEWPORT, mobile: false });
 	await page('Emulation.setFocusEmulationEnabled', { enabled: true });
 	await page('Emulation.setTimezoneOverride', { timezoneId: 'UTC' });
@@ -127,6 +171,7 @@ export async function openPage(chromePath, profile) {
 		screenshot,
 		consoleLines,
 		external,
+		unmirrored,
 		/** Chrome's GPU feature status (`chrome://gpu`): which paths this browser renders with. */
 		gpuStatus: async () => (await send('SystemInfo.getInfo')).result?.gpu?.featureStatus ?? {},
 		navigate: (url) => page('Page.navigate', { url }),

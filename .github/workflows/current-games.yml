@@ -9,8 +9,18 @@
 # `current-games` (it can be made a required check) and uploads the report as an artifact.
 #
 # READ-ONLY by construction: the R2 key it is given must be an Object Read-only token (R2 scopes
-# tokens per bucket, not per key prefix; the harness only reads `*/published/**` and
-# `test_server/games.json`), and nothing here writes to R2 or to production.
+# tokens per bucket, not per key prefix; the harness only reads `*/published/**`,
+# `test_server/games.json` and `_ci/typekit-mirror/**`), and nothing here writes to R2 or to
+# production.
+#
+# WEB FONTS come from the Typekit mirror in R2 once it exists (scripts/current-games/lib/typekit.mjs):
+# the plan pins its hash, and fails, naming the "Typekit mirror" workflow, when the mirror lacks
+# the runtime's kit. With no mirror uploaded yet the renders load from Adobe as players do, and the
+# plan says so in a warning and the report. Players keep loading from Adobe either way.
+#
+# A run whose jobs GitHub failed to START (no runner acquired, or one lost before the job's body
+# ran) is re-run once by current-games-retry.yml; a job that ran and failed never is, a failed
+# set-up step included.
 #
 # SECRETS (Settings → Secrets and variables → Actions; the owner adds them, values never committed):
 #   PIPELINE_GAMES_URL                   https://<launcher>/api/pipeline/games
