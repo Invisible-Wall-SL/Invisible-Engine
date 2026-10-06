@@ -3,6 +3,8 @@
 //
 //   node tools/rig-parity/parity.mjs [--filter <substring>] [--verbose]
 //
+//   node tools/rig-parity/parity.mjs --dir <folder>   (any other folder of skeleton + atlas pairs)
+//
 // For each skeleton (+ its atlas) both runtimes read the same JSON, then every animation is posed at
 // sampled times — directly through `Animation.apply`, and through an `AnimationState` playing a
 // scripted sequence of sets, queues, mixes and an additive layer — and after each pose the bone
@@ -16,6 +18,7 @@ import { loadRig, ROOT } from './load.mjs';
 const args = process.argv.slice(2);
 const filter = args.includes('--filter') ? args[args.indexOf('--filter') + 1] : null;
 const verbose = args.includes('--verbose');
+const extraDir = args.includes('--dir') ? args[args.indexOf('--dir') + 1] : null;
 
 const RIG = await loadRig();
 const REF = await import(SPINE_CORE);
@@ -36,7 +39,11 @@ function findSkeletons() {
 			const p = join(d, n);
 			const s = statSync(p);
 			if (s.isDirectory()) walk(p);
-			else if (n.endsWith('.json') && s.size > 200 && s.size < 50e6) {
+			else if (n.endsWith('.skel')) {
+				const atlases = readdirSync(dirname(p)).filter((f) => f.endsWith('.atlas'));
+				const atlas = atlases.find((a) => basename(a, '.atlas') === basename(n, '.skel')) ?? atlases[0];
+				if (atlas) out.push({ json: p, atlas: join(dirname(p), atlas), binary: true });
+			} else if (n.endsWith('.json') && s.size > 200 && s.size < 50e6) {
 				let j;
 				try {
 					j = JSON.parse(readFileSync(p, 'utf8'));
@@ -51,17 +58,18 @@ function findSkeletons() {
 			}
 		}
 	};
-	walk(ROOT);
+	walk(extraDir ?? ROOT);
 	return out;
 }
 
 const stubTexture = { getImage() {}, setFilters() {}, setWraps() {}, dispose() {} };
 
-function load(X, jsonText, atlasText) {
+function load(X, source, atlasText) {
 	const atlas = new X.TextureAtlas(atlasText);
 	for (const page of atlas.pages) page.setTexture(stubTexture);
-	const reader = new X.SkeletonJson(new X.AtlasAttachmentLoader(atlas));
-	return reader.readSkeletonData(JSON.parse(jsonText));
+	const loader = new X.AtlasAttachmentLoader(atlas);
+	if (source instanceof Uint8Array) return new X.SkeletonBinary(loader).readSkeletonData(source);
+	return new X.SkeletonJson(loader).readSkeletonData(JSON.parse(source));
 }
 
 /** Everything observable about a posed skeleton, flattened to numbers and strings. */
@@ -251,8 +259,8 @@ function stateScenario(name, refData, rigData) {
 const rigs = findSkeletons().filter((r) => !filter || r.json.includes(filter));
 let loaded = 0;
 for (const r of rigs) {
-	const name = relative(ROOT, r.json);
-	const jsonText = readFileSync(r.json, 'utf8');
+	const name = relative(extraDir ?? ROOT, r.json);
+	const jsonText = r.binary ? new Uint8Array(readFileSync(r.json)) : readFileSync(r.json, 'utf8');
 	const atlasText = readFileSync(r.atlas, 'utf8');
 	let refData;
 	try {

@@ -12,3 +12,4 @@ export * from './src/animation';
 export * from './src/animationState';
 export * from './src/skeletonJson';
 export * from './src/clipping';
+export * from './src/skeletonBinary';
