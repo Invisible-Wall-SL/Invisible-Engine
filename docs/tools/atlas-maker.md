@@ -781,6 +781,33 @@ card is a **draft**, with its guesses marked "(check)", for the owner to correct
 `GET /blueprints?kind=image` answers the reviewed cards (with each blueprint's roles, settings,
 staleness and the endpoint GPU) for the Director; `&all=1` lists every pipeline for the editor.
 
+## When an Invisible Director run works on an atlas
+
+The Director's agents use the same routes as this page, under a token that names the run
+([ADR-0008](../director/DECISIONS/0008-blueprint-driven-art.md) §3). A few routes behave
+differently for them, and three of the differences show on this page:
+
+- **An atlas a Director run configured renders on its own pipeline, whatever the global Pipeline
+  control says.** The run sets the atlas's pipeline (`settings.pipeline` in its manifest); the
+  ⚙ Global settings → Pipeline control still sets every other atlas, and changing it does nothing
+  to this one. 🧩 Atlas settings shows it read-only as **Pipeline · this atlas**, and a region's
+  ✎ advanced popup names it as the pipeline a blank override inherits. Only a Director run sets or
+  clears it; people keep the global control.
+- **A region with its own pipeline renders with that pipeline's saved settings.** Blueprint
+  settings are saved per atlas and per blueprint. A region whose ✎ Pipeline differs from the atlas's
+  now uses the settings saved for *its* blueprint on this atlas, when there are any; before, it got
+  the atlas pipeline's. An atlas with no settings saved for the region's blueprint renders exactly
+  as before.
+- **A tile a run commits gets its own file**, `refs/useroutput_<region>_<run>_<id>.png` (the id is
+  the image's fingerprint), so it never overwrites a tile you committed: the card shows it as
+  "★ your image" like any other, Create Atlas and Deploy use it, and ✕ revert works as usual.
+  Your own **Use my image** still writes `refs/useroutput_<region>.png`.
+
+Not visible on the page: a run never moves your selected atlas (＋ New atlas and ⧉ Duplicate atlas
+create the atlas but leave the dropdown where it was), never writes ⚙ Global settings, and renders
+only on RunPod: with **Run generation on** set to *My computer*, its renders are refused and
+nothing starts. Your own renders are unaffected.
+
 ## Blueprints: authoring one yourself, end to end
 
 The section above describes the modal. This one is the **runbook** — the loop to

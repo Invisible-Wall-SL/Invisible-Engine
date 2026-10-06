@@ -117,6 +117,28 @@ Works today on `main` / live:
 _Nothing._
 
 ## Recent changes
+- 2026-10-06 — **Director safety changes (ADR-0008 card 8B).** Five route changes the Director's
+  agents need, each keyed on `act_tool == 'director'` (`is_director`) so a person's call is
+  unchanged: (1) `/saveconfig` `atlas_pipeline` writes `manifest.settings.pipeline`, which
+  `apply_manifest_settings` already honours, so that atlas renders on its own pipeline whatever the
+  global control says; a person cannot send the key, and a Director save is refused whole if it
+  carries anything outside `PER_ATLAS_KEYS` + `atlas_pipeline` + `bpParams`, and never re-saves
+  `atlas_config.json`. The page shows it read-only (**Pipeline · this atlas**), and `_regionadv` /
+  `_index` read the atlas's pipeline through `atlas_pipeline(m, cfg)`. (2) `bpParams` follow the
+  region's EFFECTIVE pipeline (`batch_atlas.bp_overrides_for`, `load_bp_params`,
+  `BP_PARAMS_ALL`; the resolved-workflow export agrees): a region whose own blueprint has saved
+  params uses them, anything else gets the active pipeline's as before, so every earlier manifest
+  shape renders the same graph byte for byte (proved on fixtures). (3) `/render` refuses a Director
+  token with 403 when `effective_run_on()` maps to `http`, before claiming the slot. (4) A Director
+  `/setoutput` writes `refs/useroutput_<region>_<run>_<sha12>.png` create-only
+  (`_put_create_only`, `If-None-Match: *`; a replay with the same bytes is accepted, other bytes
+  refused, an R2 failure refused rather than staged), never adds a region, and points
+  `output_override` at it; compose, `_outpath` and the layer resolver already read that field.
+  (5) `/newatlas` and `/duplicateatlas` go through `select_manifest`, which never moves
+  `manifest_path` for a Director. GET `/blueprints` (endpoint GPU, staleness), the card routes and
+  the bundled-card sync were 8A. `test_director_safety.py`; `test_director_calls.py` now renders
+  under `COMFY_TRANSPORT=serverless`. ⏳ Owed: one Director-token pass on the live tool once the
+  adapter ops (8D) exist.
 - 2026-10-06 — **Blueprint cards (ADR-0008 card 8A).** A `card.json` beside each blueprint
   (`_shared/blueprints/<id>/card.json`, previous versions in `card.history/<rev>.json`) says when to
   use it, what it needs and costs, its licence and gotchas; `cards.py` validates it against the live

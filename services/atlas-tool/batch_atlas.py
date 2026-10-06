@@ -551,6 +551,10 @@ ATLAS_META: dict = {}
 # Empty by default so headless/built-in paths and a blueprint with no params are
 # byte-identical (build_workflow_blueprint falls back to each param's default).
 BP_PARAM_OVERRIDES: dict = {}
+# Every blueprint's saved overrides on this manifest (`settings.bpParams`), so a
+# region whose own pipeline differs from the atlas's renders with ITS saved
+# params (`bp_overrides_for`, ADR-0008 card 8B). Set in main() beside the above.
+BP_PARAMS_ALL: dict = {}
 
 # Sentinel: "no usable value" — _effective_param_value returns this when even the
 # param's default can't be coerced, so the runner leaves the node input at the
@@ -2037,6 +2041,47 @@ def region_pipeline(region: dict) -> str:
     return rp or str(PIPELINE).lower()
 
 
+def load_bp_params(manifest: dict) -> None:
+    """Load this manifest's blueprint exposed-param overrides (B43 Phase 8) into
+    the globals the generic runner reads: BP_PARAMS_ALL (every blueprint's,
+    for `bp_overrides_for`) and BP_PARAM_OVERRIDES (the ACTIVE pipeline's, when
+    it is a blueprint; namespaced so switching blueprints doesn't
+    cross-contaminate). A built-in pipeline or a blueprint with no saved
+    overrides leaves the latter empty (defaults apply)."""
+    BP_PARAM_OVERRIDES.clear()
+    BP_PARAMS_ALL.clear()
+    _bp_params = ((manifest.get("settings") or {}).get("bpParams") or {})
+    if isinstance(_bp_params, dict):
+        BP_PARAMS_ALL.update(_bp_params)
+    _active_pipe = str(PIPELINE).strip().lower()
+    if _active_pipe not in ("sdxl", "flux", "gpt_image"):
+        _this = _bp_params.get(_active_pipe)
+        if isinstance(_this, dict):
+            BP_PARAM_OVERRIDES.update(_this)
+            if BP_PARAM_OVERRIDES:
+                print("Blueprint param overrides for "
+                      f"'{_active_pipe}': "
+                      + ", ".join(f"{k}={v}"
+                                  for k, v in BP_PARAM_OVERRIDES.items()))
+
+
+def bp_overrides_for(region: dict, bp_params, atlas_overrides) -> dict | None:
+    """The exposed-param overrides a region's blueprint renders with, keyed by
+    the region's EFFECTIVE pipeline (its own override > the atlas's > the
+    global): `bp_params[<that id>]` when the manifest saved any for it.
+
+    Otherwise `atlas_overrides` — the atlas pipeline's params, which is what
+    every region got before (main() loads them for the active pipeline only).
+    So a region on the atlas's pipeline, or whose own blueprint has no saved
+    params, renders byte-identically to before; only a region whose own
+    pipeline has saved params changes, which is the point."""
+    pipe = region_pipeline(region)
+    own = bp_params.get(pipe) if isinstance(bp_params, dict) else None
+    if pipe != str(PIPELINE).strip().lower() and isinstance(own, dict):
+        return own
+    return atlas_overrides
+
+
 def gpt_reference_image(region: dict) -> str | None:
     """ComfyUI LoadImage path for the image GPT-Image-1 edits — the SAME
     reference the card shows: a painted shape_ref wins, else the style_ref /
@@ -2599,19 +2644,19 @@ def resolve_blueprint_workflow(
                 raise ValueError(
                     f"blueprint '{bp_id}' not found in the shared library")
 
-            # Overrides EXACTLY as main() loads them: main() reads
-            # settings.bpParams[<active GLOBAL pipeline>] into BP_PARAM_OVERRIDES
-            # (apply_manifest_settings just put that pipeline on PIPELINE) and
-            # feeds the SAME dict to every region — regardless of a per-region
-            # `pipeline` override. So key overrides by the active pipeline, NOT
-            # by bp_id, or the export would diverge from a real run for a region
-            # whose pipeline differs from the manifest's. Passed explicitly so we
-            # never touch the BP_PARAM_OVERRIDES global.
+            # Overrides EXACTLY as a real run picks them (`bp_overrides_for`
+            # in run_region): the region's own pipeline's saved params when it
+            # has any, else the active pipeline's, which main() loads into
+            # BP_PARAM_OVERRIDES. Passed explicitly so we never touch either
+            # global.
             active_pipe = str(PIPELINE).strip().lower()
-            overrides = ((manifest.get("settings") or {})
-                         .get("bpParams") or {}).get(active_pipe)
+            bp_params = (manifest.get("settings") or {}).get("bpParams") or {}
+            overrides = (bp_params.get(active_pipe)
+                         if isinstance(bp_params, dict) else None)
             if not isinstance(overrides, dict):
                 overrides = None
+            if not (blueprint_id or "").strip():
+                overrides = bp_overrides_for(region, bp_params, overrides)
 
             baked = copy.deepcopy(blueprint.get("graph") or {})
             wf, out_node_id = build_workflow_blueprint(
@@ -3533,7 +3578,8 @@ def run_region(region: dict, style: dict, atlas_path: str, client_id: str) -> Im
                 f"didn't hydrate. Fix or re-import the blueprint, or pick a "
                 f"valid pipeline, then retry.")
         wf, out_node = build_workflow_blueprint(
-            region, style, bp, BP_PARAM_OVERRIDES)
+            region, style, bp,
+            bp_overrides_for(region, BP_PARAMS_ALL, BP_PARAM_OVERRIDES))
     # Last gate before the graph costs anything — covers the built-in pipelines
     # and blueprints alike, whatever produced the empty name.
     assert_models_named(wf)
@@ -4451,24 +4497,7 @@ def main() -> None:
         print("Per-atlas settings overriding globals: "
               + ", ".join(f"{k}={v}" for k, v in applied.items()))
 
-    # Blueprint exposed-param overrides (B43 Phase 8): when the active pipeline
-    # is a blueprint, pull this manifest's saved overrides for THAT blueprint id
-    # (namespaced so switching blueprints doesn't cross-contaminate) into the
-    # module global the generic runner reads. A built-in pipeline or a blueprint
-    # with no saved overrides leaves it empty (defaults apply) — no behavior
-    # change for the proven paths.
-    BP_PARAM_OVERRIDES.clear()
-    _active_pipe = str(PIPELINE).strip().lower()
-    if _active_pipe not in ("sdxl", "flux", "gpt_image"):
-        _bp_params = ((manifest.get("settings") or {}).get("bpParams") or {})
-        _this = _bp_params.get(_active_pipe)
-        if isinstance(_this, dict):
-            BP_PARAM_OVERRIDES.update(_this)
-            if BP_PARAM_OVERRIDES:
-                print("Blueprint param overrides for "
-                      f"'{_active_pipe}': "
-                      + ", ".join(f"{k}={v}"
-                                  for k, v in BP_PARAM_OVERRIDES.items()))
+    load_bp_params(manifest)
 
     if atlas_bound:
         # Rotation is per-region metadata from the `.atlas`; everything is
