@@ -94,3 +94,4 @@ over the shared files:
 At the end of the session, add a HISTORY entry and update PLAN. The ground rules are in the root
 `CLAUDE.md` § "Invisible Director + Invisible Pipeline Changes project" and in
 [`SPEC.md`](SPEC.md) §3.
+
