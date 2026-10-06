@@ -44,19 +44,21 @@ export type JobDone =
 
 /**
  * A render's GPU time as atlas-tool reports it (`still_jobs.runpod_summary`), in the shape the
- * worker bills from (ADR-0006): `result.runpod = { gpu, seconds }`, seconds × the GPU's $/s in
- * `pricing.json`. The price never travels on the wire; only the time does.
+ * worker bills from (ADR-0006): `result.runpod = { gpu, seconds, jobs, unreported }`, the
+ * seconds × the GPU's $/s in `pricing.json`, and the unreported jobs as an estimate. The price
+ * never travels on the wire; only the time does.
  */
 export interface RunpodUsage {
 	/** The GPU the jobs ran on, as `pricing.json` names it; null when atlas-tool could not name
 	 *  one (`RUNPOD_ENDPOINT_GPU` unset, or jobs on different cards), so nothing is priced by a
-	 *  guess. */
+	 *  guess — and the worker blocks the run's GPU submits until the owner sets it. */
 	gpu: string | null;
-	/** Execution seconds, summed over the jobs that reported a time. */
+	/** Billed seconds, execution plus delay (RunPod bills the worker's uptime, cold start
+	 *  included), summed over the jobs that reported a time. */
 	seconds: number;
-	/** Seconds the jobs waited in RunPod's queue: not billed, kept for the estimate. */
+	executionSeconds?: number;
 	delaySeconds?: number;
-	/** Jobs that reported a time, and RunPod jobs that ended without one. */
+	/** Jobs that reported a time, and RunPod jobs that ended without one (billed as an estimate). */
 	jobs?: number;
 	unreported?: number;
 }
@@ -72,7 +74,7 @@ export function runpodUsageOf(raw: unknown): RunpodUsage | null {
 	if (seconds === null) return null;
 	const gpu = typeof raw.gpu === 'string' && raw.gpu.trim() ? raw.gpu.trim() : null;
 	const usage: RunpodUsage = { gpu, seconds };
-	for (const key of ['delaySeconds', 'jobs', 'unreported'] as const) {
+	for (const key of ['executionSeconds', 'delaySeconds', 'jobs', 'unreported'] as const) {
 		const n = count(raw[key]);
 		if (n !== null) usage[key] = n;
 	}

@@ -48,8 +48,12 @@
  * 23. tokens streamed before a failure are billed;
  * 24. a job_done that reports no usable GPU time writes no spend row, is logged, and a finished
  *     render among them is an `error` event the owner can see;
- * 25. the renders queued and not yet billed count toward the cap, before a model call and before
- *     a GPU submit.
+ * 25. the renders in flight (queued, or settled with a job_done not yet applied) count toward the
+ *     cap, before a model call and before a GPU submit; before any is billed, pricing.json's seed
+ *     stands in, so a run cannot submit without limit until its first render is billed;
+ * 26. a render that reported GPU time with no GPU to price it by pauses the run before its next
+ *     GPU submit, naming the env to set, until the owner resumes;
+ * 27. jobs that ended without reporting a time are billed as an estimate, flagged as such.
  */
 import type {
 	BetaMessage,
@@ -57,7 +61,7 @@ import type {
 } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import Anthropic from '@anthropic-ai/sdk';
 import postgres from 'postgres';
-import { parsePricing } from 'director-costs';
+import { parsePricing, seedRenderUsd } from 'director-costs';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { AgentDefinition } from '../src/agents.ts';
@@ -66,7 +70,7 @@ import type { AdapterResult, AdapterSpec, Launcher } from '../src/launcher.ts';
 import { claimRun, deferLease } from '../src/lease.ts';
 import { PartialResponse, toolName, type ModelTransport } from '../src/model.ts';
 import { pricingSource } from '../src/pricing.ts';
-import { recordSpend } from '../src/store.ts';
+import { recordSpend, runSpend } from '../src/store.ts';
 import { startWake } from '../src/wake.ts';
 
 const url = process.env.DATABASE_URL;
@@ -1264,7 +1268,7 @@ try {
 			'the budget checkpoint shows the renders in flight and what they project',
 			[
 				budget?.payload.before,
-				budget?.payload.queuedJobs,
+				budget?.payload.rendersInFlight,
 				budget?.payload.queuedGpuUsd,
 				budget?.payload.spentUsd,
 			],
@@ -1291,11 +1295,187 @@ try {
 			'the GPU budget checkpoint projects this render on top of the ones in flight',
 			[
 				stop?.payload.before,
-				stop?.payload.queuedJobs,
+				stop?.payload.rendersInFlight,
 				stop?.payload.queuedGpuUsd,
 				stop?.payload.projectedUsd,
 			],
 			['gpu_submit', 2, 1, 1.5],
+		);
+
+		// Before any render is billed the seed stands in: $0.60 of Claude spend, cap $1, no RunPod
+		// row (so no mean). The call fits; the submit projects pricing.json's seed and does not.
+		const seedRun = await newRun({ cap: 1, step: 'regions' });
+		await userMessage(seedRun, 'atlas-artist', 'Draw.');
+		await recordSpend(sql, {
+			runId: seedRun,
+			agent: 'coordinator',
+			model: 'claude-opus-5-5',
+			kind: 'claude',
+			requestId: `${seedRun}-c`,
+			usd: 0.6,
+		});
+		const seedModel = fakeModel([{ content: [use('q1', 'atlas.queue_variants')] }]);
+		const seedGate = fakeLauncher();
+		await drive(seedRun, deps(seedModel.transport, seedGate.launcher));
+		const [seedStop] = await events(seedRun, 'checkpoint_open');
+		check(
+			'with no billed render to go by, a submit projects the seed and is not sent at the cap',
+			[
+				seedModel.calls(),
+				seedGate.effects,
+				seedStop?.payload.before,
+				seedStop?.payload.rendersInFlight,
+				seedStop?.payload.projectedUsd,
+			],
+			[1, [], 'gpu_submit', 0, seedRenderUsd(pricing)],
+		);
+
+		// A render the launcher settled whose job_done this worker has not applied is in flight too.
+		const lateRun = await newRun({ step: 'regions' });
+		await sql`insert into director_atlas_jobs (job_ref, run_id, agent, atlas, regions, status, done_at)
+			values (${`${lateRun}-done`}, ${lateRun}, 'atlas-artist', 'symbols', ${sql.json(['H1'])},
+				'finished', now())`;
+		await event(
+			lateRun,
+			'atlas-artist',
+			'job_done',
+			{
+				jobRef: `${lateRun}-done`,
+				status: 'finished',
+				result: { runpod: { gpu: 'L40S (48 GB)', seconds: 10 } },
+			},
+			'atlas.queue_variants',
+		);
+		check(
+			'a render settled but not yet billed counts as in flight',
+			(await runSpend(sql, lateRun)).rendersInFlight,
+			1,
+		);
+		await drive(
+			lateRun,
+			deps(
+				fakeModel([{ content: [say('Seen.')] }, { content: [say('Noted.')] }]).transport,
+				fakeLauncher().launcher,
+			),
+		);
+		check(
+			'…and no longer once its job_done is applied and billed',
+			[(await runSpend(sql, lateRun)).rendersInFlight, (await spendRows(lateRun)).length],
+			[0, 3],
+		);
+	}
+
+	// ── 26. No GPU to price by: submits blocked until the owner resumes ──────
+	console.log('26. a render with no GPU to price by blocks GPU submits until the owner resumes');
+	{
+		const runId = await newRun({ step: 'regions' });
+		await userMessage(runId, 'atlas-artist', 'Draw.');
+		await event(
+			runId,
+			'atlas-artist',
+			'job_done',
+			{
+				jobRef: `${runId}-blind`,
+				status: 'finished',
+				result: { runpod: { gpu: null, seconds: 42, jobs: 1, unreported: 0 } },
+			},
+			'atlas.queue_variants',
+		);
+		const model = fakeModel([
+			{ content: [use('q1', 'atlas.queue_variants')] },
+			{ content: [use('q2', 'atlas.queue_variants')] },
+			{ content: [say('Queued.')] },
+			{ content: [say('Noted.')] },
+		]);
+		const gate = fakeLauncher();
+		await drive(runId, deps(model.transport, gate.launcher));
+		check(
+			'the submit is not sent and the run pauses',
+			[gate.effects, (await runRow(runId)).status],
+			[[], 'paused'],
+		);
+		const [opened] = await events(runId, 'checkpoint_open');
+		check(
+			'the owner is told what to set',
+			[
+				(await events(runId, 'error')).map((e) => e.payload.type),
+				opened?.payload.reason,
+				String(opened?.payload.message).includes('RUNPOD_ENDPOINT_GPU'),
+			],
+			[['unbilled_job', 'gpu_submit_blocked'], 'unpriced_gpu', true],
+		);
+		check(
+			'nothing is billed by a guess',
+			(await spendRows(runId)).filter((r) => r.kind === 'runpod'),
+			[],
+		);
+		await event(runId, 'owner', 'owner_request', { action: 'resume' });
+		await drive(runId, deps(model.transport, gate.launcher));
+		check('after the owner resumes, the next submit goes out', gate.effects, [
+			'atlas.queue_variants',
+		]);
+	}
+
+	// ── 27. Jobs that ended without a time are billed as an estimate ─────────
+	console.log('27. unreported jobs are billed as an estimate, flagged');
+	{
+		const runId = await newRun({ step: 'regions' });
+		const rate = pricing.runpod.perSecondByGpu['L40S (48 GB)'];
+		const done = (jobRef: string, status: string, runpod: Record<string, unknown>) =>
+			event(
+				runId,
+				'atlas-artist',
+				'job_done',
+				{ jobRef, status, result: { runpod } },
+				'atlas.queue_variants',
+			);
+		await done(`${runId}-part`, 'finished', {
+			gpu: 'L40S (48 GB)',
+			seconds: 100,
+			jobs: 4,
+			unreported: 2,
+		});
+		await done(`${runId}-lost`, 'failed', {
+			gpu: 'L40S (48 GB)',
+			seconds: 0,
+			jobs: 0,
+			unreported: 3,
+		});
+		await drive(
+			runId,
+			deps(
+				fakeModel([{ content: [say('Seen.')] }, { content: [say('Noted.')] }]).transport,
+				fakeLauncher().launcher,
+			),
+		);
+		const rows = (await spendRows(runId))
+			.filter((r) => r.kind === 'runpod')
+			.map((r) => [r.request_id.replace(runId, 'run'), r.usd])
+			.sort();
+		check(
+			"the reported time is billed, and the unreported jobs at the render's mean per job, or at the seed when none reported",
+			rows,
+			[
+				['runpod:run-lost:unreported', 3 * pricing.runpod.seedSecondsPerRender * rate],
+				['runpod:run-part', 100 * rate],
+				['runpod:run-part:unreported', 50 * rate],
+			],
+		);
+		check(
+			'the estimates are flagged on their spend events and explained to the owner',
+			[
+				(await events(runId, 'spend'))
+					.filter((e) => e.payload.estimated)
+					.map((e) => e.payload.unreported),
+				(await events(runId, 'error')).map((e) => [e.payload.type, e.payload.seconds]),
+			],
+			[
+				[2, 3],
+				[
+					['estimated_gpu_time', 50],
+					['estimated_gpu_time', 1800],
+				],
+			],
 		);
 	}
 

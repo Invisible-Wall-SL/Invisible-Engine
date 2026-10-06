@@ -32,6 +32,12 @@ export interface DirectorPricing {
 		note?: string;
 		/** USD per second of serverless execution, per GPU type. */
 		perSecondByGpu: Record<string, number>;
+		/**
+		 * Seconds one render is projected at while the run has no billed render to go by, priced at
+		 * the dearest GPU in the table (`seedRenderUsd`), and what a job that ended without reporting
+		 * its time is billed at when none of its render's jobs did. The cap fails closed, never open.
+		 */
+		seedSecondsPerRender: number;
 	};
 }
 
@@ -93,6 +99,7 @@ export function parsePricing(raw: unknown): DirectorPricing {
 			placeholder: raw.runpod.placeholder,
 			note: typeof raw.runpod.note === 'string' ? raw.runpod.note : undefined,
 			perSecondByGpu: priceTable(raw.runpod.perSecondByGpu, 'runpod.perSecondByGpu'),
+			seedSecondsPerRender: price(raw.runpod.seedSecondsPerRender, 'runpod.seedSecondsPerRender'),
 		},
 	};
 }
@@ -136,6 +143,12 @@ export function mergePricing(base: DirectorPricing, override: unknown): Director
 			}
 			runpod.placeholder = override.runpod.placeholder;
 		}
+		if (override.runpod.seedSecondsPerRender !== undefined) {
+			runpod.seedSecondsPerRender = price(
+				override.runpod.seedSecondsPerRender,
+				'override runpod.seedSecondsPerRender',
+			);
+		}
 	}
 
 	return {
@@ -176,7 +189,20 @@ export function costOfUsage(model: string, usage: ClaudeUsage, pricing: Director
 	);
 }
 
-/** USD cost of a serverless job: its `executionTime` (seconds) × the GPU's $/s. */
+/**
+ * USD one render is projected at before any of the run's renders is billed: the seed seconds at
+ * the dearest GPU priced, so the figure errs high. 0 only when no GPU is priced at all, and then
+ * nothing can be billed either.
+ */
+export function seedRenderUsd(pricing: DirectorPricing): number {
+	const rates = Object.values(pricing.runpod.perSecondByGpu);
+	return rates.length ? pricing.runpod.seedSecondsPerRender * Math.max(...rates) : 0;
+}
+
+/**
+ * USD cost of a serverless job: its billed seconds × the GPU's $/s. RunPod bills a worker's
+ * uptime, cold start included, so the seconds are the job's `executionTime` plus its `delayTime`.
+ */
 export function costOfRunpodJob(gpu: string, seconds: number, pricing: DirectorPricing): number {
 	const rate = Object.hasOwn(pricing.runpod.perSecondByGpu, gpu)
 		? pricing.runpod.perSecondByGpu[gpu]

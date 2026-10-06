@@ -1668,9 +1668,10 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			runpod: {
 				gpu: 'L40S (48 GB)',
 				seconds: 100,
+				executionSeconds: 96.5,
 				delaySeconds: 3.5,
 				jobs: 2,
-				unreported: 0,
+				unreported: 1,
 				usd: 999,
 			},
 		});
@@ -1681,7 +1682,14 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			[ATLAS_JOBS.get(jobRef)?.status, ATLAS_JOBS.get(jobRef)?.doneVia],
 			['finished', 'callback'],
 		);
-		const usage = { gpu: 'L40S (48 GB)', seconds: 100, delaySeconds: 3.5, jobs: 2, unreported: 0 };
+		const usage = {
+			gpu: 'L40S (48 GB)',
+			seconds: 100,
+			executionSeconds: 96.5,
+			delaySeconds: 3.5,
+			jobs: 2,
+			unreported: 1,
+		};
 		check(
 			"...carrying the render's GPU time for the worker to bill, and no price off the wire",
 			(ATLAS_JOBS.get(jobRef)?.result as { runpod?: unknown }).runpod,
