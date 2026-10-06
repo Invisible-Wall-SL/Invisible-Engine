@@ -516,6 +516,16 @@ code default, so the dashboard need not set it):
   status is posted through the API, so making it required means adding `current-games` to the `main`
   ruleset with source **any** (not "GitHub Actions"). How to run and read it:
   `docs/playtest/current-games.md`.
+- **Agent eval (GitHub Actions secret, `.github/workflows/agent-eval.yml`):** `ANTHROPIC_API_KEY` —
+  the key the evaluation of a runtime-agent definition change spends (Director card 5D, ADR-0007
+  "Agents tab"). **The owner must add it** (Settings → Secrets and variables → Actions); it is a
+  separate copy of the key the `director-worker` service holds, scoped to Actions, and nothing else
+  in CI reads it. The workflow runs only on a same-repository PR labelled `agent-definition` that
+  edits exactly one `services/director-worker/agents/<name>.md`, from **main's** workflow file and
+  code (`pull_request_target`), with a hard cap of **$20 per run** enforced in the eval's own code
+  from the usage the API returns. Missing → the run posts `agent-eval` as a failure naming the
+  secret, without printing anything. The value is never echoed: the runner logs usage and dollars
+  only. See "GitHub App (Pipeline Changes)" for how the launcher opens those PRs.
 - **Director adapters:** `DIRECTOR_SERVICE_TOKEN` (secret, no default) — the bearer token the
   Invisible Director worker sends to `POST /api/director/adapter/<tool>/<op>`
   (`docs/director/DECISIONS/0002-tool-adapters.md`). Every call also names a run and an agent, and
@@ -1008,6 +1018,13 @@ satisfy the check. Verify afterwards with
 — six names. With no bypass, a direct `git push origin main` is refused: every change lands through
 a PR.
 
+**Not required, by decision pending: `agent-eval`** — `.github/workflows/agent-eval.yml` posts it
+as a commit status (through the API, like `current-games`, so it would need source **any**) on an
+`agent-definition` PR's head. Invisible Pipeline Changes already treats a failed or capped eval as
+**Blocked** for such a change (ADR-0007 "Agents tab"); whether GitHub itself should refuse the merge
+is an open question for the owner (card 5D), and the ruleset above is unchanged until it is
+answered.
+
 **Candidate, not yet required: `svelte-check (1/2)` · `svelte-check (2/2)`** —
 `.github/workflows/svelte-check.yml`, the type-check ratchet against `svelte-check-baseline.json`
 (`pnpm check:svelte`). It already follows the pattern above (no `paths-ignore`, `code-changed`
@@ -1059,11 +1076,18 @@ into short-lived installation tokens server-side and logs neither):
 | `GITHUB_APP_INSTALLATION_ID` | The App → **Install App** → the gear beside the organisation → the number at the end of that page's URL (`…/settings/installations/<id>`). Changes only if the App is uninstalled and installed again. |
 | `GITHUB_APP_PRIVATE_KEY` | The App → **General** → **Private keys** → *Generate a private key*: a `.pem` download (an RSA private key in PEM form). Paste the whole file, header and footer lines included. Railway keeps the newlines; a key pasted as ONE line with `\n` written out is unescaped by the launcher, so either form works. |
 
-Permissions the App needs for this card (Repository): Pull requests **read**, Checks **read**,
-Commit statuses **read & write**, Actions **read** (the report artifact), Contents **read**,
-Metadata **read**. The merge and the agent-edit PRs (PLAN 5.3 / 5.4) will raise Contents and Pull
-requests to **write**, as ADR-0007 lists. The status the launcher posts comes through the API, like
-the harness's own, so the `main` ruleset's required check `current-games` keeps source **any**.
+Permissions the App needs (Repository): Pull requests **read & write**, Checks **read**, Commit
+statuses **read & write**, Actions **read** (the report artifacts), Contents **read & write**,
+Metadata **read**. Write on Contents and Pull requests is what the Agents tab (card 5D) uses: an
+edited runtime-agent definition becomes a branch `agents/<name>-<short>` off `main`, one commit
+changing only `services/director-worker/agents/<name>.md` (the Git Data API: blob → tree → commit →
+ref, never a push to `main`), and a PR titled `agents: <name> — <why>` labelled `agent-definition`,
+all as the App; the launcher user is named in the body. The label is added through the issues
+endpoint (Pull requests write covers a PR's labels); if the repository has no `agent-definition`
+label yet the launcher creates it, which needs Issues **write** — or the owner creates the label
+once by hand (Issues → Labels) and the App needs no Issues permission. The merge (card 5C) uses
+the same two write permissions. The status the launcher posts comes through the API, like the
+harness's own, so the `main` ruleset's required check `current-games` keeps source **any**.
 
 - Unset (any of the three) → `/api/pipeline/changes` answers **503** naming the variable;
   `GITHUB_ACTIONS_TOKEN`, `GITHUB_ENGINE_READ_TOKEN` and `GIT_CLONE_TOKEN` are untouched.
