@@ -175,12 +175,9 @@
 					},
 					"name": "Shop",
 					"regions": [],
-					"status": "left_out",
-					"reason": "Clashes with the locked bet modes (base). Math changes are made by a person in Invisible Game Config, outside Director.",
-					"lockedItem": {
-						"id": "bet_modes",
-						"label": "Bet modes"
-					}
+					"status": "needs_you",
+					"reason": "A coin-shaped shortcut to buy the feature. — the analyst saw a clash with bet_modes; nothing locked in the template confirms it, so it is your call",
+					"lockedItem": null
 				},
 				{
 					"n": 11,

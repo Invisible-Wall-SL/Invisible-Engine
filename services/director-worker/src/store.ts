@@ -1,6 +1,7 @@
 import type { BetaContentBlockParam } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import type { Sql, TransactionSql } from 'postgres';
 import { WAKING_KINDS, type ClaimedRun } from './lease.ts';
+import type { Breakdown } from './mockups/analyze.ts';
 import {
 	checkpointSettings,
 	type Checkpoint,
@@ -239,6 +240,24 @@ export async function breakdownPasses(db: Db, runId: string): Promise<number> {
 		select count(*)::int as n from director_events
 		where run_id = ${runId} and kind = 'activity' and payload_json->>'type' = 'breakdown_pass'`;
 	return row.n;
+}
+
+/** A breakdown produced but not submitted, because the run had left `running` under it. */
+export interface HeldBreakdown {
+	attempt: number;
+	pass: number;
+	breakdown: Breakdown;
+}
+
+/** The latest `breakdown_held` row of the run, or null. The caller checks it is still current. */
+export async function heldBreakdown(db: Db, runId: string): Promise<HeldBreakdown | null> {
+	const [row] = await db<{ payload: HeldBreakdown }[]>`
+		select payload_json as payload from director_events
+		where run_id = ${runId} and kind = 'activity' and payload_json->>'type' = 'breakdown_held'
+		order by id desc limit 1`;
+	if (!row) return null;
+	const { attempt, pass, breakdown } = row.payload;
+	return { attempt: Number(attempt), pass: Number(pass), breakdown };
 }
 
 /**

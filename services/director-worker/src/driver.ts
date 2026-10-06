@@ -60,6 +60,7 @@ import {
 	breakdownPasses,
 	breakdownRevisions,
 	hasToolUse,
+	heldBreakdown,
 	insertEvent,
 	LeaseLost,
 	loadMessages,
@@ -778,7 +779,10 @@ class StepStopped extends Error {
  * inside `analyzeMockups`, `rules.ts` decides every status, and `submitBreakdown` opens the
  * checkpoint in one lease-checked transaction, only from `running` in `breakdown` — so it opens
  * once per attempt, and a pass that died before its submission leaves the run where it was: the
- * next claim runs it again under a new pass number (new crops opId). An owner who has not
+ * next claim runs it again under a new pass number (new crops opId). A breakdown that was produced
+ * but could not be submitted — the owner paused the run during its last image — is held (a
+ * `breakdown_held` row) and submitted, unchanged, when the run is next running in the step at the
+ * same attempt with the same mockups: nothing is re-asked or re-billed. An owner who has not
  * confirmed the mockups' ownership pauses the run before any model call, and before the pass is
  * announced. A run without mockups is the coordinator's, which builds the style board and asks for
  * the checkpoint itself.
@@ -805,6 +809,15 @@ async function breakdownStep(ctx: Ctx, live: LiveRun): Promise<boolean> {
 	}
 	const { revisions, notes } = await breakdownRevisions(ctx.sql, ctx.run.id);
 	const attempt = revisions + 1;
+	const held = await heldBreakdown(ctx.sql, ctx.run.id);
+	if (
+		held &&
+		held.attempt === attempt &&
+		held.breakdown.images.map((i) => i.id).join() === listing.images.map((i) => i.id).join()
+	) {
+		await submitOrHold(ctx, held.breakdown, attempt, held.pass, true);
+		return true;
+	}
 	const pass = (await breakdownPasses(ctx.sql, ctx.run.id)) + 1;
 	await withLease(ctx.sql, ctx.run, (tx, l) =>
 		insertEvent(tx, l.id, 'worker', 'activity', {
@@ -848,16 +861,35 @@ async function breakdownStep(ctx: Ctx, live: LiveRun): Promise<boolean> {
 		// the run after MAX_FAILURES in a row.
 		throw error;
 	}
-	const result = await submitBreakdown(ctx.sql, ctx.run, breakdown, attempt);
-	if (!result.ok) {
-		await withLease(ctx.sql, ctx.run, (tx, l) =>
-			insertEvent(tx, l.id, 'worker', 'error', {
-				type: 'breakdown_discarded',
-				message: `The breakdown was not submitted: ${result.error}. It is produced again once the run is running in the breakdown step.`,
-			}),
-		);
-	}
+	// A pause or stop pressed during the last image applies before the submission, as it would
+	// before a turn's tool calls; the breakdown is then held for the resume, not thrown away.
+	await handleEvents(ctx, { ownerRequestsOnly: true });
+	await submitOrHold(ctx, breakdown, attempt, pass, false);
 	return true;
+}
+
+/**
+ * Submit the breakdown, or — when the run is no longer running in the step — hold it as a
+ * `breakdown_held` row for the next time it is (`alreadyHeld` skips writing the same row again).
+ */
+async function submitOrHold(
+	ctx: Ctx,
+	breakdown: Breakdown,
+	attempt: number,
+	pass: number,
+	alreadyHeld: boolean,
+): Promise<void> {
+	const result = await submitBreakdown(ctx.sql, ctx.run, breakdown, attempt);
+	if (result.ok || alreadyHeld) return;
+	await withLease(ctx.sql, ctx.run, (tx, l) =>
+		insertEvent(tx, l.id, 'worker', 'activity', {
+			type: 'breakdown_held',
+			attempt,
+			pass,
+			breakdown,
+			message: `The breakdown is ready but was not submitted (${result.error}); it is submitted when the run is running in the breakdown step again.`,
+		}),
+	);
 }
 
 /**
@@ -913,11 +945,17 @@ function visionFor(ctx: Ctx, analyst: AgentDefinition): VisionTransport {
 				}
 				return answer;
 			} catch (error) {
-				if (error instanceof StepStopped || ctx.signal.aborted) throw error;
+				if (error instanceof StepStopped) throw error;
+				// Billed first, whatever happens next: an answer that arrived was paid for.
+				if (
+					error instanceof VisionError &&
+					error.response &&
+					!(await billResponse(ctx, analyst.name, error.response, pricing))
+				) {
+					throw new StepStopped('an unpriced response');
+				}
+				if (ctx.signal.aborted) throw error;
 				if (error instanceof VisionError) {
-					if (error.response && !(await billResponse(ctx, analyst.name, error.response, pricing))) {
-						throw new StepStopped('an unpriced response');
-					}
 					const model = error.response?.model ?? analyst.model;
 					await withLease(ctx.sql, ctx.run, async (tx, live) => {
 						await insertEvent(

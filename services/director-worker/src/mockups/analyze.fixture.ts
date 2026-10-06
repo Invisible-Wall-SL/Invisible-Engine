@@ -12,10 +12,13 @@
  * Pinned:
  *  - the breakdown is STABLE: two runs give byte-identical JSON, and it equals the committed snapshot;
  *  - the buy button is forced `left_out` naming Bet modes, although the model called it matched;
+ *    a buy control is met however it is spelled (`buy_button`, `BuyBonusButton`, "Bonus buy");
+ *  - a control the model ties to a locked item that no rule is about ("Shop" → SpinButton naming
+ *    bet modes) is capped at `needs_you`: the model's claim is never a verdict, either way;
  *  - a palette colour the images' k-means does not support (magenta) is dropped; the supported ones
  *    stay, and one supported only by the style reference stays too;
- *  - an unknown region is `needs_you`; a `left_out` the model claims but no rule confirms is
- *    `needs_you`; a box outside the image is dropped; region names are canonicalised;
+ *  - an unknown region is `needs_you`; a `left_out` the model claims but no rule about the element
+ *    confirms is `needs_you`; a box outside the image is dropped; region names are canonicalised;
  *  - one vision call per non-style image, none for the style reference, and the image bytes the
  *    transport sees are the files; `uncoveredRegions` is computed across images;
  *  - crops: one per matched region, saved through `mockups.save_crops` in the WORKER's name with the
@@ -48,7 +51,7 @@ import {
 	type TemplateSummary,
 } from './analyze.ts';
 import { breakdownEvents, breakdownReport } from './checkpoint.ts';
-import { verifyPalette } from './rules.ts';
+import { applyCodeRules, regionIndex, tokens, verifyPalette, type CodedElement } from './rules.ts';
 import { ANALYST_OUTPUT_SCHEMA, parseAnalystOutput, type AnalystOutput } from './schema.ts';
 import {
 	readAnswerText,
@@ -284,8 +287,8 @@ console.log('code rules');
 
 	const shop = base.find((e) => e.name === 'Shop')!;
 	check(
-		shop.status === 'left_out' && shop.lockedItem?.id === 'bet_modes',
-		'a renamed buy control is still left out when the model names the locked item',
+		shop.status === 'needs_you' && shop.lockedItem === null && /your call/.test(shop.reason),
+		'a control the model ties to bet modes that no rule is about is the owner’s call, not left out on the model’s word',
 		JSON.stringify(shop),
 	);
 	const info = base.find((e) => e.name === 'Paytable button')!;
@@ -436,8 +439,8 @@ console.log('a template that can buy');
 	);
 	const shop = els.find((e) => e.name === 'Shop')!;
 	check(
-		shop.status === 'matched',
-		'…and so is the renamed buy control the model flagged',
+		shop.status === 'needs_you' && shop.lockedItem === null,
+		'…while the control the model tied to bet modes that no rule is about stays the owner’s call',
 		JSON.stringify(shop),
 	);
 	check(!els.some((e) => e.status === 'left_out'), 'nothing is left out on that template');
@@ -520,6 +523,86 @@ console.log('ownership');
 	);
 }
 
+// ── Rules are about elements, spelled any way ─────────────────────────────────
+console.log('rules about the element');
+{
+	check(
+		[
+			tokens('BuyBonusButton'),
+			tokens('buy_button'),
+			tokens('bonus-buy'),
+			tokens('FEATURE_Buy'),
+		].join('|') === 'buy bonus button|buy button|bonus buy|feature buy',
+		'names and regions are read as words',
+	);
+	const names = reference.regions.atlases.flatMap((a) => a.regions.map((r) => r.name));
+	const box = { x: 0, y: 0, w: 10, h: 10 };
+	const judge = (
+		el: Partial<AnalystOutput['elements'][number]> & { name: string },
+		locked = reference.template.lockedItems,
+	): CodedElement =>
+		applyCodeRules(
+			[{ n: 1, box, regions: [], status: 'matched', reason: '', lockedItem: null, ...el }],
+			{
+				regions: regionIndex([...names, 'buy_button', 'BuyBonusButton']),
+				locked,
+				image: { w: 100, h: 100 },
+			},
+		)[0];
+	const gamble = judge({
+		name: 'Gamble button',
+		regions: ['BetPanel'],
+		status: 'left_out',
+		lockedItem: 'bet_modes',
+	});
+	check(
+		gamble.status === 'needs_you' && gamble.lockedItem === null,
+		'a gamble button the model ties to bet modes on a template that cannot buy is needs_you, never left_out on the model’s word',
+		JSON.stringify(gamble),
+	);
+	const shop = judge({ name: 'Bonus shop', regions: ['buy_button'] });
+	check(
+		shop.status === 'left_out' && shop.lockedItem?.id === 'bet_modes',
+		'a control mapped to a buy region is a buy control: left out on a template that cannot buy, with no claim from the model',
+		JSON.stringify(shop),
+	);
+	check(
+		judge({ name: 'Shop', regions: ['BuyBonusButton'] }).status === 'left_out',
+		'…and so through a camel-cased region',
+	);
+	check(
+		judge({ name: 'Buy', regions: ['BetPanel'] }).status === 'left_out',
+		'…or through the element’s own name',
+	);
+	const claimed = judge({ name: 'Shop', regions: ['SpinButton'], lockedItem: 'bet_modes' });
+	check(
+		claimed.status === 'needs_you' && claimed.lockedItem === null,
+		'a matched element the model nevertheless ties to a locked item that no rule is about is the owner’s call',
+		JSON.stringify(claimed),
+	);
+	const buying = structuredClone(reference.template.lockedItems);
+	buying.find((l) => l.id === 'bet_modes')!.facts = {
+		betModes: [
+			{ id: 'base', buyBonus: false },
+			{ id: 'bonus', buyBonus: true },
+		],
+	};
+	const cleared = judge(
+		{ name: 'Bonus shop', regions: ['buy_button'], status: 'left_out', lockedItem: 'bet_modes' },
+		buying,
+	);
+	check(
+		cleared.status === 'matched' && cleared.regions.join() === 'buy_button',
+		'on a template that can buy, the same control the model leaves out is matched: the facts clear it',
+		JSON.stringify(cleared),
+	);
+	check(
+		judge({ name: 'Bonus shop', regions: ['buy_button'], status: 'needs_you' }, buying).status ===
+			'needs_you',
+		'…but a model needs_you is never promoted by a clearance',
+	);
+}
+
 // ── Owner notes ───────────────────────────────────────────────────────────────
 console.log('owner notes');
 {
@@ -560,8 +643,8 @@ console.log('checkpoint');
 	const report = breakdownReport(on, breakdown, 1);
 	check(
 		report.includes('21 of 23 template regions matched') &&
-			report.includes('4 element(s) need the owner') &&
-			report.includes('2 left out'),
+			report.includes('5 element(s) need the owner') &&
+			report.includes('1 left out'),
 		'the coordinator’s report carries the figures',
 		report,
 	);
@@ -580,7 +663,7 @@ console.log('checkpoint');
 		needsYou: number;
 	};
 	check(
-		activity.regionsMatched === 21 && activity.leftOut === 2 && activity.needsYou === 4,
+		activity.regionsMatched === 21 && activity.leftOut === 1 && activity.needsYou === 5,
 		'the activity row summarises it',
 	);
 	const off: RunState = {

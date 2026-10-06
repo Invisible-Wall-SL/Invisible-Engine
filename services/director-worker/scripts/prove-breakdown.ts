@@ -34,7 +34,9 @@
  *  7. a revise re-runs the step with the owner's note in the image prompt (never in the cached
  *     system block) and opens the checkpoint a second time, once, as attempt 2;
  *  8. an API error a retry cannot fix (413) and an answer off the schema each pause the run at
- *     once, billed, without re-running the pass; the resume runs it again.
+ *     once, billed, without re-running the pass; the resume runs it again;
+ *  9. an owner's pause pressed during the LAST image applies before the submission: the finished
+ *     breakdown is held, and the resume submits it as it is — no image re-asked, no crop re-saved.
  */
 import type {
 	BetaMessage,
@@ -464,9 +466,9 @@ try {
 			['needs_you', null],
 		);
 		check(
-			'the renamed buy control the model flagged is matched too',
-			byName(breakdown, 'Shop').status,
-			'matched',
+			'a matched control the model tied to bet modes that no rule is about is the owner’s call',
+			[byName(breakdown, 'Shop').status, byName(breakdown, 'Shop').lockedItem],
+			['needs_you', null],
 		);
 		check(
 			'nothing is left out on that template',
@@ -891,6 +893,48 @@ try {
 			(await spendRows(badRun)).map((r) => r.agent),
 			['mockup-analyst'],
 		);
+	}
+
+	// ── 9. Pause during the last image ────────────────────────────────────────
+	console.log('9. a pause during the last image holds the breakdown for the resume');
+	{
+		const runId = await newRun();
+		const vision = fakeVision({
+			during: (n) =>
+				n === 2 ? event(runId, 'owner', 'owner_request', { action: 'pause' }) : undefined,
+		});
+		const turns = fakeTurnModel();
+		const gate = fakeLauncher({ template: buyTemplate });
+		await start(runId);
+		await drive(runId, deps(turns.transport, vision.transport, gate.launcher));
+		check(
+			'the pause applied before the submission',
+			[(await runRow(runId)).status, (await breakdownOpens(runId)).length],
+			['paused', 0],
+		);
+		check(
+			'…the finished breakdown is held, both answers billed, the crops saved once',
+			[await activityTypes(runId), (await spendRows(runId)).length, gate.effects.length],
+			[['breakdown_pass', 'breakdown_held'], 2, 1],
+		);
+		await resume(runId);
+		await drive(runId, deps(turns.transport, vision.transport, gate.launcher));
+		check(
+			'the resume submits the held breakdown',
+			[(await runRow(runId)).waiting_on, (await breakdownOpens(runId)).length],
+			['breakdown', 1],
+		);
+		check(
+			'…asking for no image again and saving no crop again',
+			[vision.calls(), gate.effects.length, (await spendRows(runId)).length],
+			[2, 1, 2],
+		);
+		check('…with no second pass', await activityTypes(runId), [
+			'breakdown_pass',
+			'breakdown_held',
+			'Mockup breakdown ready',
+		]);
+		check('…and the coordinator told once', (await messages(runId, 'coordinator')).length, 2);
 	}
 } finally {
 	await sql`delete from director_spend where run_id like ${`${tag}-%`}`;
