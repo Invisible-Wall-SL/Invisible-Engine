@@ -698,6 +698,34 @@ export const directorAtlasJobs = pgTable(
 	],
 );
 
+/**
+ * Invisible Pipeline Changes: an owner's approval of one changed screen the current-games harness
+ * found (ADR-0004 "Approving an intended difference", ADR-0007). `diffId` is the screen's stable id
+ * from the report, `<head sha>:<game key>:<screen>:<diff hash>`: it embeds the head, so a new push
+ * leaves every approval of the old head behind, and the hash, so a screen whose picture changed
+ * again needs approving again. The approver is a snapshot (`approver`, the name or email at the
+ * time) beside the user id: the row is a record, and outlives a renamed or deleted account.
+ */
+export const pipelineApprovals = pgTable(
+	'pipeline_approvals',
+	{
+		id: text('id')
+			.primaryKey()
+			.$defaultFn(() => crypto.randomUUID()),
+		diffId: text('diff_id').notNull(),
+		prNumber: integer('pr_number').notNull(),
+		headSha: text('head_sha').notNull(),
+		approverId: text('approver_id').notNull(),
+		approver: text('approver').notNull(),
+		note: text('note'),
+		at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(table) => [
+		uniqueIndex('pipeline_approvals_diff_id_idx').on(table.diffId),
+		index('pipeline_approvals_head_sha_idx').on(table.headSha),
+	],
+);
+
 export type User = typeof users.$inferSelect;
 export type Session = typeof sessions.$inferSelect;
 export type ToolInstall = typeof toolInstalls.$inferSelect;
@@ -721,3 +749,4 @@ export type DirectorMessage = typeof directorMessages.$inferSelect;
 export type DirectorRegion = typeof directorRegions.$inferSelect;
 export type DirectorOp = typeof directorOps.$inferSelect;
 export type DirectorAtlasJob = typeof directorAtlasJobs.$inferSelect;
+export type PipelineApproval = typeof pipelineApprovals.$inferSelect;

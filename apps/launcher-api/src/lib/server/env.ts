@@ -337,6 +337,23 @@ export const ENV = {
 	get GITHUB_ENGINE_REPO() {
 		return env.GITHUB_ENGINE_REPO ?? 'Invisible-Wall-SL/Invisible-Engine';
 	},
+	// The GitHub App Invisible Pipeline Changes acts as (ADR-0007): the App's numeric id, the id of
+	// its installation on GITHUB_ENGINE_REPO, and its private key (PEM). All three are secrets with
+	// no code default, held by the LAUNCHER ONLY: `githubApp.ts` mints a short-lived installation
+	// token from the key and never sends either to the browser or a log. Unset ⇒ the pipeline-change
+	// endpoints answer 503 naming the variable; GITHUB_ACTIONS_TOKEN and the other token paths above
+	// are untouched. Railway keeps a multi-line value, but a key pasted as ONE line with its newlines
+	// written as `\n` is unescaped here, so either form signs. Where to find each: docs/INFRA.md
+	// "GitHub App (Pipeline Changes)".
+	get GITHUB_APP_ID() {
+		return (env.GITHUB_APP_ID ?? '').trim();
+	},
+	get GITHUB_APP_INSTALLATION_ID() {
+		return (env.GITHUB_APP_INSTALLATION_ID ?? '').trim();
+	},
+	get GITHUB_APP_PRIVATE_KEY() {
+		return (env.GITHUB_APP_PRIVATE_KEY ?? '').replace(/\\n/g, '\n').trim();
+	},
 	// Invisible Test Server origin the Game Config tool hits to read a game's REAL paylines from its
 	// mock RGS (`rgsConfig.ts`). Our own infra (not the Cloudflare-blocked production Play4Fun), so a
 	// best-effort server-side fetch is safe. Non-secret → code default; env overrides. Same host as

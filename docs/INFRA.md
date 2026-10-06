@@ -501,6 +501,9 @@ code default, so the dashboard need not set it):
   regression harness (`docs/director/DECISIONS/0004-current-games-regression-harness.md`) sends to
   the read-only `GET /api/pipeline/games` to list every live game. Held by the launcher and by the
   GitHub Actions secret of the same name. Unset → that endpoint answers 503; nothing else uses it.
+- **Pipeline Changes (GitHub App):** `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`,
+  `GITHUB_APP_PRIVATE_KEY` (all secrets, no default; the launcher only) — see "GitHub App
+  (Pipeline Changes)" below.
 - **Current-games harness (GitHub Actions secrets, `.github/workflows/current-games.yml`):**
   `PIPELINE_GAMES_URL` (the launcher's `/api/pipeline/games` URL), `PIPELINE_CI_TOKEN` (above), and
   an R2 API token with **Object Read only** on the bucket (R2 scopes tokens per bucket, not per key
@@ -1039,6 +1042,38 @@ check it from a terminal:
 → `enabled`, and `gh api -i repos/Invisible-Wall-SL/Invisible-Engine/vulnerability-alerts` → `204`
 (alerts on; `404` = off). **State (2026-09-30):** both off, so this step is owed.
 
+### GitHub App (Pipeline Changes)
+
+Invisible Pipeline Changes (`/pipeline`, `docs/director/DECISIONS/0007-pipeline-change-mechanics.md`)
+reads pull requests, check runs, workflow runs and the current-games report artifact, and posts the
+`current-games` commit status once every changed screen on a head is approved, as a **GitHub App**
+the owner created and installed on this repository only. Three env vars, all secrets with no code
+default, set on the **launcher-api** Railway service and nowhere else (no other service, no GitHub
+Actions secret, and never the browser — `apps/launcher-api/src/lib/server/githubApp.ts` turns them
+into short-lived installation tokens server-side and logs neither):
+
+| Var | Where to find it |
+| --- | --- |
+| `GITHUB_APP_ID` | GitHub → Settings → Developer settings → GitHub Apps → the App → **General** → "App ID". Never changes. |
+| `GITHUB_APP_INSTALLATION_ID` | The App → **Install App** → the gear beside the organisation → the number at the end of that page's URL (`…/settings/installations/<id>`). Changes only if the App is uninstalled and installed again. |
+| `GITHUB_APP_PRIVATE_KEY` | The App → **General** → **Private keys** → *Generate a private key*: a `.pem` download (an RSA private key in PEM form). Paste the whole file, header and footer lines included. Railway keeps the newlines; a key pasted as ONE line with `\n` written out is unescaped by the launcher, so either form works. |
+
+Permissions the App needs for this card (Repository): Pull requests **read**, Checks **read**,
+Commit statuses **read & write**, Actions **read** (the report artifact), Contents **read**,
+Metadata **read**. The merge and the agent-edit PRs (PLAN 5.3 / 5.4) will raise Contents and Pull
+requests to **write**, as ADR-0007 lists. The status the launcher posts comes through the API, like
+the harness's own, so the `main` ruleset's required check `current-games` keeps source **any**.
+
+- Unset (any of the three) → `/api/pipeline/changes` answers **503** naming the variable;
+  `GITHUB_ACTIONS_TOKEN`, `GITHUB_ENGINE_READ_TOKEN` and `GIT_CLONE_TOKEN` are untouched.
+- The installation token lives an hour and is minted again 5 minutes before it expires; a 401 on a
+  cached token (the key was rotated, the App reinstalled) mints once more. Fixture:
+  `pnpm --filter launcher-api check:pipeline-changes` (run by `check:all`).
+- **Rotate the key:** the App → Private keys → *Generate a private key* (the old key stays valid
+  until deleted), set the new PEM on the launcher → Apply changes / Deploy, open `/pipeline` (or
+  `GET /api/pipeline/changes`) and see the list load, then **delete the old key** in the App's
+  settings. No overlap is lost: GitHub accepts every undeleted key.
+
 ## Security / secret rotation
 
 A rotation runbook: where each secret lives, who reads it, and what to redeploy. Never paste a
@@ -1057,6 +1092,7 @@ apply staged vars.
 | **Deploy token** | Admin → Settings → Deploy token (`app_settings`); `EDITOR_DOC_SECRET` is only its env fallback. Held by the build runners. | Admin → Settings → Rotate. | None for the portal; desktop launchers fetch the new value on their next Sync. |
 | **`TEST_SERVER_SECRET`** | Invisible-test-Server; the **launcher** (sends it as a header on its `/refresh` pokes); the GitHub Actions secret of the same name; the owner's portal-publish script. | New random value in every place at once, while no Runtime release or rollback is running. | Test server + launcher → Apply changes / Deploy. A launcher left on the old value still publishes, but the game goes live only on the test server's next hydrate. |
 | **`PIPELINE_CI_TOKEN`** | The **launcher**; the GitHub Actions secret of the same name (the current-games harness). Grants only the read-only game list `GET /api/pipeline/games`. | New random value (e.g. `openssl rand -hex 32`) in both places. | Launcher → Apply changes / Deploy. Harness runs between the two updates get a 401. |
+| **`GITHUB_APP_PRIVATE_KEY`** (the Pipeline Changes App; with `GITHUB_APP_ID` / `GITHUB_APP_INSTALLATION_ID`, which are ids, not secrets to rotate) | The **launcher** only. Signs the App JWT that buys the installation tokens `/pipeline` reads GitHub with and posts `current-games` approvals as. | GitHub → the App → Private keys → generate a new key, set it on the launcher, then delete the old one (both are valid meanwhile) — "GitHub App (Pipeline Changes)" above. | Launcher → Apply changes / Deploy. Verify: `/api/pipeline/changes` answers 200. |
 | **`DIRECTOR_SERVICE_TOKEN`** | The **launcher**; the `director-worker` service once it exists (PLAN 3.x). Lets the worker call the Director adapters as a run's owner; no publish, Game Config, roles or merge op exists behind it. | New random value (e.g. `openssl rand -hex 32`) in both places. | Launcher + worker → Apply changes / Deploy. Adapter calls between the two updates get a 401; the worker retries them with the same `opId`. |
 | **`RUNPOD_API_KEY`** | RunPod → Settings → API Keys. Read by the launcher, atlas-tool and the Serverless endpoint's own env. | Create a new key, switch all three, delete the old. | Launcher + atlas-tool; edit the endpoint's env in RunPod. |
 | **`COMFY_ORG_API_KEY`** (gpt_image) | platform.comfy.org → API Keys. Read by atlas-tool, and locally by the desktop Atlas Maker. | Create a new key, switch consumers, revoke the old. | atlas-tool → Apply changes / Deploy. |

@@ -73,7 +73,7 @@ cheaper than a leaked write key.
 | Holder | What it holds |
 | --- | --- |
 | Railway Shared Variables (`production`) | `R2_ACCESS_KEY_ID` + `R2_SECRET_ACCESS_KEY`, `CF_ACCESS_CLIENT_ID` + `CF_ACCESS_CLIENT_SECRET`, `COMFY_ORG_API_KEY`, `ATLAS_TOOL_SIGNING_SECRET`, `SHEET_TOOL_SIGNING_SECRET`, and until the cut-over the legacy `ATLAS_TOOL_SECRET` / `SHEET_TOOL_SECRET` |
-| Railway **launcher** | `DATABASE_URL`, `EDITOR_DOC_SECRET`, `RUNPOD_API_KEY`, `GIT_CLONE_TOKEN`, `GITHUB_ENGINE_READ_TOKEN`, `GITHUB_ACTIONS_TOKEN`, `CF_API_TOKEN`, `CF_ANALYTICS_TOKEN`, `RAILWAY_API_TOKEN`, `ANTHROPIC_API_KEY`, `LOCALIZATION_LLM_API_KEY`, `ANTHROPIC_ADMIN_API_KEY`, `OPENAI_ADMIN_API_KEY`, `PARTNER_RGS`, `ATLAS_BLUEPRINT_SECRET` (legacy), `SENTRY_DSN`, `PUBLIC_SENTRY_DSN`, `TEST_SERVER_SECRET` if set, `PIPELINE_CI_TOKEN` |
+| Railway **launcher** | `DATABASE_URL`, `EDITOR_DOC_SECRET`, `RUNPOD_API_KEY`, `GIT_CLONE_TOKEN`, `GITHUB_ENGINE_READ_TOKEN`, `GITHUB_ACTIONS_TOKEN`, `CF_API_TOKEN`, `CF_ANALYTICS_TOKEN`, `RAILWAY_API_TOKEN`, `ANTHROPIC_API_KEY`, `LOCALIZATION_LLM_API_KEY`, `ANTHROPIC_ADMIN_API_KEY`, `OPENAI_ADMIN_API_KEY`, `PARTNER_RGS`, `ATLAS_BLUEPRINT_SECRET` (legacy), `SENTRY_DSN`, `PUBLIC_SENTRY_DSN`, `TEST_SERVER_SECRET` if set, `PIPELINE_CI_TOKEN`, `GITHUB_APP_PRIVATE_KEY` (+ the ids `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`) |
 | Railway **atlas-tool** | the shared R2, CF Access, comfy.org and atlas signing vars; `RUNPOD_API_KEY`; `ATLAS_BLUEPRINT_SECRET` (legacy); `SENTRY_DSN` |
 | Railway **sheet-tool** | the shared R2 and sheet signing vars; `SENTRY_DSN` |
 | Railway **Invisible-test-Server** | `R2_*` (it only reads); `TEST_SERVER_SECRET` if set |
@@ -455,6 +455,21 @@ each token does and which permissions it needs is in
 - **`GITHUB_ACTIONS_TOKEN`** powers **Rebuild image** on `/comfyui`.
   - Verify: the **Pod image** line lists the newest CI build. A 403 in that panel names the
     missing permission.
+
+### GitHub App private key (`GITHUB_APP_PRIVATE_KEY`, Pipeline Changes)
+
+Pattern: **overlap**, and GitHub makes it easy: an App may hold several keys at once, and every
+undeleted key signs. Read by the launcher only ([INFRA § GitHub App (Pipeline
+Changes)](../INFRA.md#github-app-pipeline-changes)).
+
+1. GitHub → Settings → Developer settings → GitHub Apps → the App → Private keys → *Generate a
+   private key*. Keep the `.pem` download out of the repo.
+2. Set `GITHUB_APP_PRIVATE_KEY` on the launcher to the file's contents → Apply changes / Deploy.
+3. Verify: `/pipeline` lists the open changes (`GET /api/pipeline/changes` answers 200, not 502).
+4. Delete the old key on the same page.
+
+`GITHUB_APP_ID` and `GITHUB_APP_INSTALLATION_ID` are identifiers, not secrets: the first never
+changes, the second only if the App is uninstalled from the repository and installed again.
 
 ### Cloudflare API tokens (`CF_API_TOKEN`, `CF_ANALYTICS_TOKEN`)
 

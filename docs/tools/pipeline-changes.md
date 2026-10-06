@@ -54,5 +54,7 @@ This is the plan, not working features. Source: `docs/director/SPEC.md` §2.
 
 ## Known limitations / TODOs
 
-- All three tabs are empty states. No branches, checks, merges or rollbacks are wired up yet.
+- All three tabs are empty states. The Changes data already exists behind the launcher's
+  `/api/pipeline/changes` endpoints (the list, a change's detail with both checks, and diff
+  approval); the screens that show it come next. Merges and rollbacks are not wired up yet.
 - The build plan and progress live in `docs/director/PLAN.md` and `docs/director/HISTORY.md`.
