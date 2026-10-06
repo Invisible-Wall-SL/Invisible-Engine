@@ -278,6 +278,17 @@ export async function deleteDraftRun(runId: string): Promise<void> {
 		.where(and(eq(directorRuns.id, runId), eq(directorRuns.status, 'draft')));
 }
 
+/**
+ * Every project key a run names, in any state — a key with a run is the run's, never a pending
+ * key's to clear (`mockupCleanup.ts`, which compares them by R2 folder).
+ */
+export async function listRunProjectKeys(): Promise<string[]> {
+	const rows = await getDb()
+		.selectDistinct({ projectKey: directorRuns.projectKey })
+		.from(directorRuns);
+	return rows.map((r) => r.projectKey);
+}
+
 /** Refresh a draft's starting point; a run the worker has moved since keeps what it started with. */
 export async function updateDraftStartingPoint(runId: string, startingPointJson: unknown) {
 	await getDb()

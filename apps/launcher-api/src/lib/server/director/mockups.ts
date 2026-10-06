@@ -25,6 +25,9 @@ import { MODEL_LONG_EDGE, imageDimensions } from './mockupPixels';
  * create (`docs/design/multi-user-concurrency.md`). Two people uploading at once both go through
  * `updateDoc`, which re-reads and re-applies on a lost CAS, so the second never drops the first's
  * image and the 12-file limit holds across both.
+ *
+ * A PENDING key's tree is deleted again when it is abandoned (`mockupCleanup.ts`): emptied by its
+ * uploader, or idle past the retention with no project and no run.
  */
 
 export const MAX_MOCKUP_BYTES = 20 * 1024 * 1024;
@@ -206,16 +209,58 @@ function readDoc(text: string): MockupsDoc {
 	};
 }
 
+/** When the doc was sealed for cleanup ({@link sealMockupsDoc}); null for an ordinary doc. */
+function sealedAtOf(text: string): number | null {
+	const raw = JSON.parse(text) as { sealedAt?: unknown };
+	const at = typeof raw.sealedAt === 'string' ? Date.parse(raw.sealedAt) : NaN;
+	return Number.isFinite(at) ? at : null;
+}
+
 export async function loadMockupsDoc(
 	client: string,
 	project: string,
-): Promise<{ doc: MockupsDoc; etag: string | null }> {
+): Promise<{ doc: MockupsDoc; etag: string | null; sealedAt: number | null }> {
 	const got = await getObjectTextWithEtag(mockupsDocKey(client, project));
-	if (!got) return { doc: emptyMockupsDoc(), etag: null };
+	if (!got) return { doc: emptyMockupsDoc(), etag: null, sealedAt: null };
 	try {
-		return { doc: readDoc(got.text), etag: got.etag };
+		return { doc: readDoc(got.text), etag: got.etag, sealedAt: sealedAtOf(got.text) };
 	} catch {
 		throw new MockupError(409, 'bad_doc', 'The mockups document is not valid JSON.');
+	}
+}
+
+/**
+ * How long a seal holds the doc. The cleanup deletes the doc right after sealing it, so a seal
+ * outlives this only when the cleanup died in between; then the doc is an ordinary empty one again.
+ */
+export const SEAL_HOLD_MS = 5 * 60_000;
+const SEAL_RETRY_MS = 250;
+
+/**
+ * Seal a pending key's doc before the cleanup deletes it (`mockupCleanup.ts`): a CAS on the ETag
+ * the cleanup read, to a doc listing no images and saying when. R2 has no conditional delete, so
+ * this is what keeps an upload racing the cleanup from being lost — an upload that read the doc
+ * before the seal loses its CAS and re-reads; one that reads the seal waits for the delete
+ * (`updateDoc`) and then creates the doc afresh. False when the doc moved since `etag`: something
+ * landed, and the cleanup must not delete it.
+ */
+export async function sealMockupsDoc(
+	client: string,
+	project: string,
+	etag: string,
+): Promise<boolean> {
+	const sealed = { ...emptyMockupsDoc(), sealedAt: new Date().toISOString() };
+	try {
+		await putObjectText(
+			mockupsDocKey(client, project),
+			JSON.stringify(sealed, null, '\t'),
+			'application/json',
+			{ ifMatch: etag },
+		);
+		return true;
+	} catch (e) {
+		if (e instanceof ConflictError) return false;
+		throw e;
 	}
 }
 
@@ -224,7 +269,8 @@ const CAS_ATTEMPTS = 3;
 /**
  * Read, change and CAS-save the doc, re-reading on a lost race. `mutate` sees the CURRENT doc each
  * attempt, so a limit it checks holds against what others saved meanwhile, not what this caller
- * first read.
+ * first read. A doc sealed for cleanup is not written over: it waits a moment for the delete, and
+ * refuses with 409 `clearing` if the seal still holds.
  */
 async function updateDoc<T = void>(
 	client: string,
@@ -232,7 +278,18 @@ async function updateDoc<T = void>(
 	mutate: (doc: MockupsDoc) => T,
 ): Promise<{ doc: MockupsDoc; value: T }> {
 	for (let attempt = 1; ; attempt++) {
-		const { doc, etag } = await loadMockupsDoc(client, project);
+		const { doc, etag, sealedAt } = await loadMockupsDoc(client, project);
+		if (sealedAt !== null && Date.now() - sealedAt < SEAL_HOLD_MS) {
+			if (attempt >= CAS_ATTEMPTS) {
+				throw new MockupError(
+					409,
+					'clearing',
+					'These mockups are being cleared. Try again in a moment.',
+				);
+			}
+			await new Promise((resolve) => setTimeout(resolve, SEAL_RETRY_MS));
+			continue;
+		}
 		const value = mutate(doc);
 		try {
 			await putObjectText(

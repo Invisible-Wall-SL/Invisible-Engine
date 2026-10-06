@@ -141,6 +141,12 @@ that path to actually load.
 - **Override (optional)** — JSON in the same shape as `pricing.json`, every field optional (e.g.
   `{"perMTok":{"claude-opus-5-5":{"output":18}}}`), so a price can change without a deploy. It is
   validated on save; empty clears it. Nothing in code carries a price.
+- **Abandoned mockups** — mockups uploaded on Director's New-game screen under a game key that was
+  never created. **Clear abandoned mockups** deletes every such key's mockups, originals and crops
+  when there is no project with that key (live or deleted), no Director run for it, and nothing
+  uploaded for **Older than (days)** — default **14**, 1–365; the value is kept for next time. The
+  banner says how many keys and files were cleared and how many were kept because they changed or
+  are in use. An existing project's files are never touched.
 
 ### Admin → Settings → Engine boot mark
 

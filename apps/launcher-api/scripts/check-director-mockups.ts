@@ -2,10 +2,11 @@
  * Contract check for Invisible Director's mockup storage and adapters (ADR-0005; PLAN 3.6):
  *   pnpm --filter launcher-api check:director-mockups
  *
- * Runs the REAL `director/mockups.ts`, `mockupPixels.ts` (sharp), `ops/mockups.ts`, the route
- * `POST /api/director/mockups`, `requireProjectScope`, the refusals, and `planDuplicate`. Replaced at
- * their boundaries: R2 (an in-memory bucket that records each write's precondition) and the
- * Postgres-backed modules (projects, overrides, the Director store, sessions).
+ * Runs the REAL `director/mockups.ts`, `mockupPixels.ts` (sharp), `ops/mockups.ts`,
+ * `mockupCleanup.ts`, the route `POST /api/director/mockups`, `requireProjectScope`, the refusals,
+ * and `planDuplicate`. Replaced at their boundaries: R2 (an in-memory bucket that records each
+ * write's precondition) and the Postgres-backed modules (projects, overrides, the Director store,
+ * sessions, the project-key lock — the real advisory-lock SQL needs a database and is not run here).
  *
  * Pinned:
  *  - PNG and JPG are accepted by their bytes; anything else is 415; an empty file 400; a file over
@@ -20,7 +21,14 @@
  *    ones (the k-means is deterministic);
  *  - the adapters: `list`, `get_image`, `save_crops` (under `director/crops/<runId>/`, a key the
  *    write guard allows), `get_crop`;
- *  - the `director/` subtree is outside every shipped prefix and the duplicate path skips it.
+ *  - the `director/` subtree is outside every shipped prefix and the duplicate path skips it;
+ *  - the pending-key cleanup (`mockupCleanup.ts`): emptying a pending key clears its doc, originals
+ *    and crops but keeps a stray younger than the grace; emptying a REAL project — or a pending
+ *    alias whose R2 folder is a real project's (`sunken_temple` vs `sunken-temple`) — removes only
+ *    the images; the age sweep clears old pending folders and keeps a fresh one, one a run names,
+ *    a deleted project's and an existing project's; a project or run that commits while the
+ *    cleanup waits for the lock is seen under it; an upload landing after the listing or just
+ *    before the seal keeps the key; a seal refuses writers (409 `clearing`) until it lapses.
  */
 import { readFileSync } from 'node:fs';
 import { mock } from 'node:test';
@@ -77,7 +85,7 @@ function fake(rel: string, impl: Record<string, unknown>): void {
 }
 
 // ── In-memory R2, bytes-capable, recording each write's precondition ──────────
-type Obj = { body: Uint8Array; etag: string; contentType: string };
+type Obj = { body: Uint8Array; etag: string; contentType: string; mtime: number };
 type Cond = { ifMatch?: string; ifNoneMatch?: string } | undefined;
 const R2 = new Map<string, Obj>();
 const writes: { key: string; cond: Cond }[] = [];
@@ -98,14 +106,21 @@ function put(key: string, body: Uint8Array, contentType: string, cond: Cond): st
 	if (failNextDocPut && key.endsWith('mockups.json')) {
 		failNextDocPut = false;
 		// Someone else saved in between: the stored doc moves on and this write loses.
-		R2.set(key, { body: cur?.body ?? body, etag: `"e${++etagSeq}"`, contentType });
+		R2.set(key, {
+			body: cur?.body ?? body,
+			etag: `"e${++etagSeq}"`,
+			contentType,
+			mtime: Date.now(),
+		});
 		throw new ConflictError(key);
 	}
-	const next = { body, etag: `"e${++etagSeq}"`, contentType };
+	const next = { body, etag: `"e${++etagSeq}"`, contentType, mtime: Date.now() };
 	R2.set(key, next);
 	return next.etag;
 }
 const keysUnder = (prefix: string) => [...R2.keys()].filter((k) => k.startsWith(prefix)).sort();
+/** Runs once right after the next recursive listing: something landing between it and the seal. */
+let afterNextList: (() => Promise<void>) | null = null;
 fake('lib/server/r2.ts', {
 	ConflictError,
 	precondition: (base: string | null | undefined) =>
@@ -131,6 +146,22 @@ fake('lib/server/r2.ts', {
 	objectExists: async (key: string) => R2.has(key),
 	listAllKeys: async (prefix: string) => keysUnder(prefix),
 	listObjects: async (prefix: string) => ({ keys: keysUnder(prefix), prefixes: [] }),
+	listAllObjects: async (prefix: string) => {
+		const listed = keysUnder(prefix).map((key) => {
+			const o = R2.get(key)!;
+			return { key, size: o.body.length, lastModified: o.mtime, etag: o.etag.replace(/"/g, '') };
+		});
+		const hook = afterNextList;
+		afterNextList = null;
+		await hook?.();
+		return listed;
+	},
+	listFolder: async (prefix: string) => ({
+		files: [],
+		folders: [...new Set(keysUnder(prefix).map((k) => k.slice(prefix.length).split('/')[0]))].map(
+			(seg) => `${prefix}${seg}/`,
+		),
+	}),
 	copyObject: async (from: string, to: string) => {
 		const o = R2.get(from);
 		if (!o) return false;
@@ -149,6 +180,8 @@ const PROJECTS = new Map<string, string | null>([
 const GRANTS = new Map<string, Set<string>>([['art', new Set(['acme'])]]);
 fake('lib/server/projects.ts', {
 	DEFAULT_PROJECT_KEY: 'cloud',
+	listProjects: async () => [...PROJECTS.keys()].map((key) => ({ key })),
+	listDeletedProjects: async () => [{ key: 'deleted-game' }],
 	canAccessProject: async (userId: string, role: string, key: string) => {
 		if (!PROJECTS.has(key)) return false;
 		if (role === 'admin') return true;
@@ -161,6 +194,7 @@ fake('lib/server/projects.ts', {
 	isValidProjectKey: (value: string) => /^[a-z0-9][a-z0-9_-]{0,63}$/.test(value),
 });
 fake('lib/server/clients.ts', {
+	listClients: async () => [{ key: 'acme' }, { key: 'other' }],
 	clientExists: async (key: string) => ['acme', 'other'].includes(key),
 	mayCreateUnderClient: async (userId: string, role: string, client: string | null) =>
 		role === 'admin' || client === null || (GRANTS.get(userId)?.has(client) ?? false),
@@ -189,8 +223,36 @@ const RUN: DirectorRun = {
 	createdAt: new Date('2026-10-05T00:00:00Z'),
 	updatedAt: new Date('2026-10-05T00:00:00Z'),
 };
+/** Project keys a Director run names. */
+const RUN_KEYS = new Set<string>([RUN.projectKey]);
 fake('lib/server/director/store.ts', {
 	getRun: async (id: string) => (id === RUN.id ? RUN : null),
+	listRunProjectKeys: async () => [...RUN_KEYS],
+});
+/** `r2Slug`, which the real lock keys on (the fakes load before `projectPaths.ts` may). */
+const slug = (key: string) =>
+	key
+		.toLowerCase()
+		.replace(/[^a-z0-9]/g, '_')
+		.slice(0, 60);
+/** Folders whose lock is held now; `onLock` runs as it is granted (what committed meanwhile). */
+const LOCKED = new Set<string>();
+let onLock: ((folder: string) => void) | null = null;
+fake('lib/server/projectKeyLock.ts', {
+	withProjectKeyLock: async <T>(
+		projectKey: string,
+		fn: (tx: unknown) => Promise<T>,
+	): Promise<T> => {
+		const key = slug(projectKey);
+		if (LOCKED.has(key)) throw new Error(`fixture: ${key} is already locked`);
+		LOCKED.add(key);
+		onLock?.(key);
+		try {
+			return await fn(null);
+		} finally {
+			LOCKED.delete(key);
+		}
+	},
 });
 
 const sharp = (await import('sharp')).default;
@@ -899,6 +961,309 @@ console.log('route');
 		'once the images are gone the key is anyone’s again, confirm and all',
 		[freedDoc.status, (freedDoc.body!.doc as { ownershipConfirmed: unknown }).ownershipConfirmed],
 		[200, null],
+	);
+}
+
+// ── Pending-key cleanup ───────────────────────────────────────────────────────
+console.log('cleanup');
+{
+	const DAY = 24 * 60 * 60_000;
+	const UNASSIGNED = 'unassigned';
+	const now = Date.now();
+	const cleanup = await import(src('lib/server/director/mockupCleanup.ts'));
+	const admin = { id: 'adm', email: 'a@x', name: 'Admin', role: 'admin' as const };
+	const cookies = { get: () => undefined } as unknown as Cookies;
+	const post = async (project: string, form: FormData) => {
+		const url = new URL(`http://x/api/director/mockups?project=${project}`);
+		const request = new Request(url, { method: 'POST', body: form });
+		const res = await route.POST({
+			request,
+			url,
+			locals: { user: admin },
+			cookies,
+			params: {},
+		} as never);
+		return {
+			status: res.status,
+			body: (await res.json()) as { doc: { images: { id: string }[] } },
+		};
+	};
+	const upload = (project: string) => {
+		const f = new FormData();
+		f.set('action', 'upload');
+		f.set('tag', 'Base game');
+		f.set('file', new File([basePng], 'base.png', { type: 'image/png' }));
+		return post(project, f);
+	};
+	const remove = (project: string, id: string) => {
+		const f = new FormData();
+		f.set('action', 'remove');
+		f.set('id', id);
+		return post(project, f);
+	};
+	/** Back-date everything under a prefix, as if it was written `ageMs` ago. */
+	const age = (prefix: string, ageMs: number) => {
+		for (const k of keysUnder(prefix)) R2.get(k)!.mtime = now - ageMs;
+	};
+	const plant = (key: string, ageMs: number) => {
+		put(key, basePng, 'image/png', undefined);
+		R2.get(key)!.mtime = now - ageMs;
+	};
+	/** A pending key with two images, a crop and a stray original, all written `ageMs` ago. */
+	const seed = async (client: string, project: string, ageMs: number) => {
+		const one = await mockups.addMockup({
+			client,
+			project,
+			bytes: basePng,
+			tag: 'Base',
+			styleOnly: false,
+			by,
+		});
+		await mockups.addMockup({ client, project, bytes: styleJpg, tag: 'x', styleOnly: true, by });
+		plant(mockups.cropKey(client, project, 'run-x', 'logo'), ageMs);
+		plant(mockups.mockupImageKey(client, project, 'abcdefabcdefabcd.png'), ageMs);
+		age(`${SUB.director(client, project)}/`, ageMs);
+		return one.id;
+	};
+	const dir = (client: string, project: string) => `${SUB.director(client, project)}/`;
+
+	// (a) The uploader removes the last image of a pending key: doc, originals, crops and old
+	// strays go; a stray younger than the grace (an upload between its original and its CAS) stays.
+	const k = 'emptied-key';
+	const first = await upload(`${k}&client=acme`);
+	const second = await upload(`${k}&client=acme`);
+	plant(mockups.cropKey(C, k, 'run-old', 'logo'), 0);
+	plant(mockups.mockupImageKey(C, k, '0123456789abcdef.png'), cleanup.STRAY_GRACE_MS + 1000);
+	const inFlight = mockups.mockupImageKey(C, k, 'fedcba9876543210.png');
+	plant(inFlight, 0);
+	check('a pending key holds its doc, originals and a crop', keysUnder(dir(C, k)).length, 6);
+	const firstId = first.body.doc.images[0].id;
+	await remove(`${k}&client=acme`, firstId);
+	check('removing one of two images clears nothing else', keysUnder(dir(C, k)).length, 5);
+	await remove(`${k}&client=acme`, second.body.doc.images[1].id);
+	check(
+		'removing the last image of a pending key clears its doc, originals and crops',
+		keysUnder(dir(C, k)),
+		[inFlight],
+	);
+	check('…keeping only a stray younger than the grace', R2.has(inFlight), true);
+
+	// The same on a REAL project removes the images and nothing else.
+	const realCrop = mockups.cropKey(C, P, 'run-1', 'reel');
+	plant(realCrop, 30 * DAY);
+	plant(mockups.mockupImageKey(C, P, '00000000deadbeef.png'), 30 * DAY);
+	const { doc: realDoc } = await mockups.loadMockupsDoc(C, P);
+	const realOriginals = new Set(
+		realDoc.images.map((img) => mockups.mockupImageKey(C, P, img.file)),
+	);
+	const realExpected = keysUnder(dir(C, P)).filter((key) => !realOriginals.has(key));
+	for (const img of realDoc.images) await remove(P, img.id);
+	check(
+		'emptying a REAL project removes its originals and nothing more (doc, crop, stray stay)',
+		[realDoc.images.length > 0, keysUnder(dir(C, P))],
+		[true, realExpected],
+	);
+	check(
+		'…and a direct clear of it refuses',
+		await cleanup.clearPendingMockups(C, P, { olderThan: now }),
+		{ cleared: false, reason: 'project_exists' },
+	);
+	// R2 folders are slugs: `sunken_temple` is not a project key, but it is the real project's
+	// folder. Emptying it as a pending key, or sweeping it, must clear nothing.
+	const alias = 'sunken_temple';
+	check('the alias shares the real project’s folder', dir(C, alias), dir(C, P));
+	const aliasUp = await upload(`${alias}&client=acme`);
+	const aliasKeys = keysUnder(dir(C, P));
+	await remove(`${alias}&client=acme`, aliasUp.body.doc.images[0].id);
+	check(
+		'emptying a pending alias of a real project’s folder removes only its own image',
+		keysUnder(dir(C, P)),
+		aliasKeys.filter((key) => !key.endsWith(`${aliasUp.body.doc.images[0].id}.png`)),
+	);
+	check(
+		'…and a direct clear of the alias refuses',
+		await cleanup.clearPendingMockups(C, alias, { olderThan: now }),
+		{ cleared: false, reason: 'project_exists' },
+	);
+	await seed(C, 'slug_run', 20 * DAY);
+	RUN_KEYS.add('slug-run');
+	const slugRunBefore = keysUnder(dir(C, 'slug_run'));
+	check(
+		'a run whose key slugs to the folder holds it too',
+		[
+			await cleanup.clearPendingMockups(C, 'slug_run', { olderThan: now - 14 * DAY, now }),
+			keysUnder(dir(C, 'slug_run')),
+		],
+		[{ cleared: false, reason: 'run_exists' }, slugRunBefore],
+	);
+
+	// (b) The age sweep.
+	await seed(C, 'old-pending', 20 * DAY);
+	await seed(UNASSIGNED, 'loose-key', 20 * DAY);
+	await seed(C, 'fresh-pending', 2 * DAY);
+	await seed(C, 'old-with-run', 20 * DAY);
+	RUN_KEYS.add('old-with-run');
+	await seed(C, 'deleted-game', 20 * DAY);
+	await seed(C, 'racing-key', 20 * DAY);
+	await seed(C, 'run-racing-key', 20 * DAY);
+	age(dir(C, P), 20 * DAY);
+	const realKeys = keysUnder(dir(C, P));
+	const kept = (project: string) => keysUnder(dir(C, project)).length;
+	const keptBefore = Object.fromEntries(
+		['fresh-pending', 'old-with-run', 'deleted-game', 'racing-key', 'run-racing-key'].map((p) => [
+			p,
+			kept(p),
+		]),
+	);
+	// A project (or a run) that commits while the sweep waits for the key's lock is seen under it.
+	onLock = (folder) => {
+		if (folder === 'racing_key') PROJECTS.set('racing-key', 'acme');
+		if (folder === 'run_racing_key') RUN_KEYS.add('run-racing-key');
+	};
+	const report = await cleanup.sweepPendingMockups(14, now);
+	onLock = null;
+	const where = (r: { client: string; project: string }) => `${r.client}/${r.project}`;
+	// Keys other sections left behind are fresh; only the ones seeded here are asserted.
+	const seeded = new Set(Object.keys(keptBefore).map(slug));
+	check(
+		'the sweep clears the old pending keys (doc, 2 originals, a crop, a stray each)',
+		report.cleared.map((r: { client: string; project: string; deleted: number }) => [
+			where(r),
+			r.deleted,
+		]),
+		[
+			[`${UNASSIGNED}/loose_key`, 5],
+			[`${C}/old_pending`, 5],
+		],
+	);
+	check(
+		'…leaving nothing under them',
+		[kept('old-pending'), keysUnder(dir(UNASSIGNED, 'loose-key')).length],
+		[0, 0],
+	);
+	check(
+		'…and reports what it kept and why',
+		report.kept
+			.filter((r: { project: string }) => seeded.has(r.project))
+			.map((r: { client: string; project: string; reason: string }) => [where(r), r.reason]),
+		[
+			[`${C}/fresh_pending`, 'fresh'],
+			[`${C}/old_with_run`, 'run_exists'],
+			[`${C}/racing_key`, 'project_exists'],
+			[`${C}/run_racing_key`, 'run_exists'],
+		],
+	);
+	check(
+		'fresh, with a run, deleted, or became a project or run under the lock: every object kept',
+		Object.fromEntries(Object.keys(keptBefore).map((p) => [p, kept(p)])),
+		keptBefore,
+	);
+	check(
+		'an existing project’s old doc and objects are never touched',
+		keysUnder(dir(C, P)),
+		realKeys,
+	);
+	PROJECTS.delete('racing-key');
+
+	// An upload landing between the listing and the seal: the doc names an original the listing
+	// did not see, so the key is left whole.
+	await seed(C, 'landing-key', 20 * DAY);
+	afterNextList = async () => {
+		await mockups.addMockup({
+			client: C,
+			project: 'landing-key',
+			bytes: basePng,
+			tag: 'Big win',
+			styleOnly: false,
+			by,
+		});
+	};
+	const landingBefore = kept('landing-key') + 1;
+	check(
+		'an upload landing after the listing keeps the key',
+		[
+			await cleanup.clearPendingMockups(C, 'landing-key', { olderThan: now - 14 * DAY, now }),
+			kept('landing-key'),
+		],
+		[{ cleared: false, reason: 'changed' }, landingBefore],
+	);
+	// …and one whose CAS lands just before the seal's: the seal loses, nothing is deleted.
+	await seed(C, 'cas-key', 20 * DAY);
+	const casBefore = kept('cas-key');
+	failNextDocPut = true;
+	check(
+		'a doc saved just before the seal keeps the key',
+		[
+			await cleanup.clearPendingMockups(C, 'cas-key', { olderThan: now - 14 * DAY, now }),
+			kept('cas-key'),
+		],
+		[{ cleared: false, reason: 'changed' }, casBefore],
+	);
+	// The emptied path refuses a doc that lists an image again.
+	await seed(C, 'refilled-key', 0);
+	check(
+		'the emptied-doc clear refuses a doc with images',
+		await cleanup.clearPendingMockups(C, 'refilled-key'),
+		{ cleared: false, reason: 'in_use' },
+	);
+
+	// A seal holds the doc against writers until the delete, then lapses.
+	const sealedKey = 'sealed-key';
+	await mockups.addMockup({
+		client: C,
+		project: sealedKey,
+		bytes: basePng,
+		tag: 'Base',
+		styleOnly: false,
+		by,
+	});
+	const { etag: sealEtag } = await mockups.loadMockupsDoc(C, sealedKey);
+	check(
+		'the seal is a CAS on the doc',
+		await mockups.sealMockupsDoc(C, sealedKey, sealEtag!),
+		true,
+	);
+	check('a stale ETag cannot seal', await mockups.sealMockupsDoc(C, sealedKey, '"stale"'), false);
+	const sealedObjects = kept(sealedKey);
+	check(
+		'an upload onto a fresh seal is refused 409 clearing and leaves no object',
+		[
+			await mockups
+				.addMockup({
+					client: C,
+					project: sealedKey,
+					bytes: basePng,
+					tag: 'Base',
+					styleOnly: false,
+					by,
+				})
+				.then(
+					() => 'stored',
+					(e: unknown) => (e instanceof mockups.MockupError ? [e.status, e.code] : String(e)),
+				),
+			kept(sealedKey),
+		],
+		[[409, 'clearing'], sealedObjects],
+	);
+	const docKey = mockups.mockupsDocKey(C, sealedKey);
+	const lapsed = JSON.parse(new TextDecoder().decode(R2.get(docKey)!.body)) as Record<
+		string,
+		unknown
+	>;
+	lapsed.sealedAt = new Date(now - mockups.SEAL_HOLD_MS - 1000).toISOString();
+	put(docKey, text(JSON.stringify(lapsed)), 'application/json', undefined);
+	const relisted = await mockups.addMockup({
+		client: C,
+		project: sealedKey,
+		bytes: basePng,
+		tag: 'Base',
+		styleOnly: false,
+		by,
+	});
+	check(
+		'a lapsed seal (a cleanup that died) is an ordinary empty doc again',
+		relisted.doc.images.length,
+		1,
 	);
 }
 

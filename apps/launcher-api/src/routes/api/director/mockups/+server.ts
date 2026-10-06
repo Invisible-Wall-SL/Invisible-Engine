@@ -1,5 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import { requireDirectorAccess, requireDirectorProjectScope } from '$lib/server/director/access';
+import { clearPendingMockups } from '$lib/server/director/mockupCleanup';
 import {
 	FIDELITIES,
 	MAX_MOCKUPS,
@@ -25,7 +26,7 @@ import type { RequestHandler } from './$types';
  *        action=retag    id=<mockup id> tag=<screen> [styleOnly=1]     the ownership check stays
  *        action=confirm_ownership                                   records who and when, once (needs an image)
  *        action=fidelity fidelity=match|start
- *        action=remove   id=<mockup id>
+ *        action=remove   id=<mockup id>      the last one of a PENDING key clears the key's tree
  *
  * Session-gated on the `director` tool, then on the project the request names — the tool grant
  * alone is not a project grant. The project may be PENDING (`requireDirectorProjectScope`): the
@@ -116,11 +117,17 @@ export const POST: RequestHandler = async ({ request, url, locals }) => {
 					await setFidelity(clientKey, projectKey, form.get('fidelity'), owner),
 					pending,
 				);
-			case 'remove':
-				return answer(
-					await removeMockup(clientKey, projectKey, String(form.get('id') ?? ''), owner),
-					pending,
-				);
+			case 'remove': {
+				const doc = await removeMockup(clientKey, projectKey, String(form.get('id') ?? ''), owner);
+				if (pending && doc.images.length === 0) {
+					// The last image of a pending key: nothing holds the key now, so its tree goes too.
+					// Best effort — a key it could not clear is the Admin sweep's.
+					await clearPendingMockups(clientKey, projectKey).catch((e: unknown) =>
+						console.warn('[director] pending mockups not cleared:', e),
+					);
+				}
+				return answer(doc, pending);
+			}
 			default:
 				throw error(400, 'Unknown action.');
 		}

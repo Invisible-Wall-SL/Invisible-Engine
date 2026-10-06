@@ -25,7 +25,9 @@
  *  - font requests list and mark done, once the font is in the catalog;
  *  - the run's image and variant routes serve only the owner's own project's images, as the type
  *    the bytes are, and a key or name that is not one is the same 404;
- *  - the summary names the project's first game's URL, or null.
+ *  - the summary names the project's first game's URL, or null;
+ *  - every draft run is inserted under its project key's lock, which the pending-mockup cleanup
+ *    takes too.
  */
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -152,6 +154,20 @@ fake('lib/server/r2.ts', {
 	listObjects: async (prefix: string) => ({ keys: keysUnder(prefix), prefixes: [] }),
 });
 fake('lib/server/director/mockupPixels.ts', { MODEL_LONG_EDGE: 1568 });
+/** Project keys whose lock is held now, and every draft insert's key with whether it was held. */
+const LOCKED = new Set<string>();
+const insertsLocked: boolean[] = [];
+fake('lib/server/projectKeyLock.ts', {
+	withProjectKeyLock: async <T>(key: string, fn: (tx: unknown) => Promise<T>): Promise<T> => {
+		if (LOCKED.has(key)) throw new Error(`fixture: ${key} is already locked`);
+		LOCKED.add(key);
+		try {
+			return await fn(null);
+		} finally {
+			LOCKED.delete(key);
+		}
+	},
+});
 
 // ── Projects, clients, templates ──────────────────────────────────────────────
 type Proj = { client: string | null; gameType: string; template: boolean; deleted?: boolean };
@@ -354,6 +370,7 @@ fake('lib/server/director/store.ts', {
 	findOwnerRequest: async (runId: string, requestId: string) =>
 		OPS.get(`${runId}:owner:${requestId}`) ?? null,
 	insertDraftRun: async (row: Record<string, unknown>) => {
+		insertsLocked.push(LOCKED.has(row.projectKey as string));
 		if (RUNS.has(row.id as string)) return false;
 		const at = new Date(2026, 9, 6, 0, 0, clock++);
 		if (raceOnNextInsert) {
@@ -2134,6 +2151,13 @@ console.log('pending project');
 		201,
 	);
 }
+
+console.log('key lock');
+check(
+	'every draft run is inserted holding its project key (the pending-mockup cleanup’s lock)',
+	[insertsLocked.length > 0, insertsLocked.every(Boolean)],
+	[true, true],
+);
 
 console.log(`\n${checks} checks, ${failures} failures`);
 process.exit(failures === 0 ? 0 : 1);

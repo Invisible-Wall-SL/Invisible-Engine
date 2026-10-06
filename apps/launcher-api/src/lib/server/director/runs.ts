@@ -20,6 +20,7 @@ import { duplicateProject } from '../duplicateProject';
 import { loadGameConfigDocWithEtag } from '../gameConfigStorage';
 import { selectableGameKinds } from '../gameKinds';
 import { listGamesOwnedByProject } from '../games';
+import { withProjectKeyLock } from '../projectKeyLock';
 import { UNASSIGNED_CLIENT, projectPrefix } from '../projectPaths';
 import {
 	canAccessProject,
@@ -449,19 +450,24 @@ export async function createRun(user: User, input: CreateRunInput): Promise<Crea
 	const pricing = (await getDirectorPricing()).pricing;
 	const preset = parsePreset(input.preset, pricing);
 	const checkpoints = parseCheckpoints(input.checkpoints);
-	const startingPoint = await startingPointFor(clientKey, key, notes, user);
 
-	const row = {
-		id: runId,
-		projectKey: key,
-		clientKey,
-		templateProjectKey: template.key,
-		ownerUserId: user.id,
-		presetJson: preset,
-		startingPointJson: startingPoint,
-		checkpointsJson: checkpoints,
-	};
-	if (!(await insertDraftRun(row))) {
+	// The mockups are read and the run that names them inserted under the key's lock: the
+	// pending-mockup cleanup clears a key only under it, after checking no run names the key, so
+	// it can neither delete what this run is starting from nor miss the run.
+	const { row, inserted } = await withProjectKeyLock(key, async () => {
+		const draft = {
+			id: runId,
+			projectKey: key,
+			clientKey,
+			templateProjectKey: template.key,
+			ownerUserId: user.id,
+			presetJson: preset,
+			startingPointJson: await startingPointFor(clientKey, key, notes, user),
+			checkpointsJson: checkpoints,
+		};
+		return { row: draft, inserted: await insertDraftRun(draft) };
+	});
+	if (!inserted) {
 		// Lost a race with the same request id; that call made the run.
 		const made = await getRun(runId);
 		if (!made) throw new RunError(409, 'in_progress', 'This request is still being created.');

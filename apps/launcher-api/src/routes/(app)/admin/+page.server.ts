@@ -97,6 +97,10 @@ import {
 import { ENV } from '$lib/server/env';
 import {
 	DEPLOY_TOKEN_KEY,
+	DIRECTOR_PENDING_MOCKUP_DAYS_DEFAULT,
+	DIRECTOR_PENDING_MOCKUP_DAYS_KEY,
+	DIRECTOR_PENDING_MOCKUP_DAYS_MAX,
+	DIRECTOR_PENDING_MOCKUP_DAYS_MIN,
 	DIRECTOR_PRICING_OVERRIDE_KEY,
 	DIRECTOR_RUN_BUDGET_DEFAULT_USD,
 	DIRECTOR_RUN_BUDGET_KEY,
@@ -108,6 +112,7 @@ import {
 	RUNPOD_PODS_KEY,
 	deleteAppSetting,
 	getDeployToken,
+	getDirectorPendingMockupDays,
 	getDirectorRunBudget,
 	getRunpodIdleConfig,
 	getRunpodPods,
@@ -125,6 +130,7 @@ import { parseCostImport } from '$lib/server/costs/importMonths';
 import { importMonths, setMonthEur, setMonthUsd, TOTAL_KEY } from '$lib/server/costs/months';
 import { isProviderId, type ProviderId } from '$lib/server/costs/types';
 import { FILE_PRICING, getDirectorPricing } from '$lib/server/costs/pricingConfig';
+import { sweepPendingMockups } from '$lib/server/director/mockupCleanup';
 import { mergePricing } from '$lib/server/costs/directorPricing';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -231,9 +237,10 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const runpodStored = await getRunpodPods();
 	const runpodPods = runpodConfigured ? await probeFleet() : [];
 
-	const [directorBudgetUsd, directorPricing] = await Promise.all([
+	const [directorBudgetUsd, directorPricing, directorPendingMockupDays] = await Promise.all([
 		getDirectorRunBudget(),
 		getDirectorPricing(),
+		getDirectorPendingMockupDays(),
 	]);
 
 	return {
@@ -318,6 +325,10 @@ export const load: PageServerLoad = async ({ locals }) => {
 			pricingSource: directorPricing.source,
 			pricingOverrideError: directorPricing.overrideError ?? null,
 			pricingOverride: directorPricing.overrideRaw ?? '',
+			pendingMockupDays: directorPendingMockupDays,
+			pendingMockupDaysDefault: DIRECTOR_PENDING_MOCKUP_DAYS_DEFAULT,
+			pendingMockupDaysMin: DIRECTOR_PENDING_MOCKUP_DAYS_MIN,
+			pendingMockupDaysMax: DIRECTOR_PENDING_MOCKUP_DAYS_MAX,
 		},
 	};
 };
@@ -1214,6 +1225,36 @@ export const actions: Actions = {
 		await setAppSetting(DIRECTOR_PRICING_OVERRIDE_KEY, raw, admin.id);
 		invalidateCosts();
 		return { action: 'setDirectorPricingOverride', ok: 'Price override saved.' };
+	},
+
+	/**
+	 * Clear abandoned Director mockups: every PENDING key (no project, no run) with nothing written
+	 * for `days` days. The days are kept as the retention, so the form opens on the last value.
+	 */
+	sweepDirectorMockups: async ({ request, locals }) => {
+		const admin = await requireAdmin(locals);
+		const data = await request.formData();
+		const days = Number(String(data.get('days') ?? '').trim());
+		if (
+			!Number.isInteger(days) ||
+			days < DIRECTOR_PENDING_MOCKUP_DAYS_MIN ||
+			days > DIRECTOR_PENDING_MOCKUP_DAYS_MAX
+		) {
+			return fail(400, {
+				action: 'sweepDirectorMockups',
+				error: `Enter whole days between ${DIRECTOR_PENDING_MOCKUP_DAYS_MIN} and ${DIRECTOR_PENDING_MOCKUP_DAYS_MAX}.`,
+			});
+		}
+		await setAppSetting(DIRECTOR_PENDING_MOCKUP_DAYS_KEY, String(days), admin.id);
+		const report = await sweepPendingMockups(days);
+		const files = report.cleared.reduce((n, c) => n + c.deleted, 0);
+		const kept = report.kept.length
+			? ` Kept ${report.kept.length} that changed or are in use.`
+			: '';
+		return {
+			action: 'sweepDirectorMockups',
+			ok: `Cleared ${report.cleared.length} abandoned key(s), ${files} file(s).${kept}`,
+		};
 	},
 
 	/** Re-poll every provider now, bypassing the 10-minute snapshot cache. */

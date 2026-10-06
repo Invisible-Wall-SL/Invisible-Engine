@@ -14,6 +14,7 @@ import type { Project } from './db/schema';
 import type { Role } from '$lib/roles';
 import { DEFAULT_GAME_KIND } from 'constants-shared/gameKinds';
 import { getDeployToken } from './appSettings';
+import { withProjectKeyLock } from './projectKeyLock';
 import { UNASSIGNED_CLIENT } from './projectPaths';
 
 /** The default project every user can always reach; null session = this key. */
@@ -335,15 +336,19 @@ export async function revokeProjectAccess(userId: string, projectKey: string): P
 		.where(and(eq(userProjectAccess.userId, userId), eq(userProjectAccess.projectKey, projectKey)));
 }
 
+/**
+ * Insert a project row, holding its key ({@link withProjectKeyLock}): the pending-mockup cleanup
+ * re-checks "no project" under the same lock, so it never clears a key this insert is claiming.
+ */
 export async function createProject(
 	key: string,
 	name: string,
 	clientKey: string | null = null,
 	gameType?: string,
 ): Promise<void> {
-	await getDb()
-		.insert(projects)
-		.values({ key, name, clientKey, gameType: gameType ?? null });
+	await withProjectKeyLock(key, async (tx) => {
+		await tx.insert(projects).values({ key, name, clientKey, gameType: gameType ?? null });
+	});
 }
 
 export async function renameProject(key: string, name: string): Promise<void> {

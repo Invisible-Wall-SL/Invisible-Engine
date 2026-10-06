@@ -2064,6 +2064,28 @@
 					<button type="submit">Save budget</button>
 				</form>
 
+				<h4 class="director-sub">Abandoned mockups</h4>
+				<p class="muted hint">
+					Mockups uploaded under a key that never became a game. Clears every such key with no
+					project, no run and nothing uploaded for the days below (default
+					<strong>{data.director.pendingMockupDaysDefault}</strong>). An existing project's files
+					are never touched.
+				</p>
+				<form method="POST" action="?/sweepDirectorMockups" use:enhance class="runpod-idle">
+					<label class="minutes">
+						Older than (days)
+						<input
+							name="days"
+							type="number"
+							min={data.director.pendingMockupDaysMin}
+							max={data.director.pendingMockupDaysMax}
+							step="1"
+							value={data.director.pendingMockupDays}
+						/>
+					</label>
+					<button type="submit">Clear abandoned mockups</button>
+				</form>
+
 				<h4 class="director-sub">
 					Prices
 					{#if data.director.pricingSource === 'override'}
