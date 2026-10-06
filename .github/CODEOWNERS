@@ -33,3 +33,10 @@
 /docs/                              @GuiltyForever   # docs
 /scripts/                          @GuiltyForever   # scripts / ci / build
 /.github/                           @GuiltyForever   # ci
+
+# ── What runs with a secret (ci(director): agent-eval) ────────────────────
+# The workflows, and the eval code agent-eval.yml runs from main with ANTHROPIC_API_KEY: a change
+# here is reviewed by the owner before it can run beside the key.
+/.github/workflows/                 @GuiltyForever   # ci: every workflow
+/services/director-worker/scripts/  @GuiltyForever   # ci(director): the eval CLI
+/services/director-worker/src/eval/ @GuiltyForever   # ci(director): the eval runner

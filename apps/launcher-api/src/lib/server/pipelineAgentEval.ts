@@ -26,6 +26,8 @@ import { readZipEntry } from './zip';
 export const EVAL_WORKFLOW_PATH = '.github/workflows/agent-eval.yml';
 /** The event the workflow runs on; its workflow file and code come from `main`. */
 const EVAL_RUN_EVENT = 'pull_request_target';
+/** A `pull_request_target` run's `head_branch` is the PR's BASE: only `main`'s workflow counts. */
+const EVAL_RUN_BRANCH = 'main';
 /** A report is a few KB; past this it is not the workflow's. */
 const MAX_REPORT_BYTES = 4 * 1024 * 1024;
 const ARTIFACT_TIMEOUT_MS = 30_000;
@@ -72,6 +74,7 @@ interface GhRun {
 	id: number;
 	path: string;
 	event: string;
+	head_branch: string | null;
 	status: string | null;
 	conclusion: string | null;
 	html_url: string;
@@ -188,11 +191,12 @@ export async function loadAgentEval(
 	if (
 		ghRun.path !== EVAL_WORKFLOW_PATH ||
 		ghRun.event !== EVAL_RUN_EVENT ||
+		ghRun.head_branch !== EVAL_RUN_BRANCH ||
 		ghRun.repository?.full_name !== repo
 	) {
 		return check(run, {
 			state: 'unreadable',
-			detail: 'The run the agent-eval status names is not the eval workflow of this repository.',
+			detail: `The run the agent-eval status names is not the eval workflow of this repository on ${EVAL_RUN_BRANCH}.`,
 		});
 	}
 	if (ghRun.status !== 'completed') {
@@ -242,7 +246,10 @@ export async function loadAgentEval(
 
 /**
  * Why the eval blocks the merge (ADR-0007: a failed or capped eval blocks an agent-definition
- * change). The status is what GitHub gates on; the report, when it reads, is the fuller word.
+ * change). Fail closed: the status is anyone's to post, so only a report the launcher read and
+ * verified clears a change — a report that is missing, expired, for another head or unreadable
+ * blocks it, whatever the status says. Not yet reported, or still running, is pending, not
+ * blocked (`evalVerdict`).
  */
 function blockingOf(
 	agent: string | null,
@@ -253,9 +260,21 @@ function blockingOf(
 	if (agent === null) {
 		return `This change carries the agent-definition label but does not edit exactly one agent definition (${files.length} file${files.length === 1 ? '' : 's'}): remove the label or split the change.`;
 	}
-	if (report.state === 'ready' && !evalPasses(report.report.result)) return report.report.line;
+	if (report.state === 'ready') {
+		return evalPasses(report.report.result) ? null : report.report.line;
+	}
 	if (status && (status.state === 'failure' || status.state === 'error')) {
 		return status.description ?? 'agent-eval failed';
 	}
-	return null;
+	if (report.state === 'none' || report.state === 'running') return null;
+	return `No report the launcher can read backs the agent-eval status: ${report.detail}`;
+}
+
+export type EvalVerdict = 'pass' | 'pending' | 'fail';
+
+/** What the eval says about merging: passed on a verified report, blocked, or not in yet. */
+export function evalVerdict(check: AgentEvalCheck): EvalVerdict {
+	if (check.blocking !== null) return 'fail';
+	if (check.report.state === 'ready') return 'pass';
+	return 'pending';
 }

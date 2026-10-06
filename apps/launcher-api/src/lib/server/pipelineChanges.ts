@@ -24,7 +24,13 @@ import {
 	AGENT_DEFINITION_LABEL,
 	EVAL_STATUS_CONTEXT,
 } from '../../../../../services/director-worker/src/eval/report';
-import { EVAL_WORKFLOW_PATH, loadAgentEval, type AgentEvalCheck } from './pipelineAgentEval';
+import {
+	EVAL_WORKFLOW_PATH,
+	evalVerdict,
+	loadAgentEval,
+	type AgentEvalCheck,
+	type EvalVerdict,
+} from './pipelineAgentEval';
 import { getRoleOverrides } from './roleToolAccess';
 import { getToolOverrides } from './userToolAccess';
 
@@ -354,8 +360,8 @@ export interface StatusInput {
 	checks: CheckGroup[];
 	/** The `current-games` context on the head; `null` when it has not reported. */
 	harness: { state: string; description: string | null } | null;
-	/** An agent-definition change: its `agent-eval` context on the head, `null` until it reports. */
-	agentEval?: { state: string; description: string | null } | null;
+	/** An agent-definition change: what its evaluation says (`evalVerdict`), `null` until read. */
+	agentEval?: { verdict: EvalVerdict; reason: string | null } | null;
 	agentDefinition?: boolean;
 }
 
@@ -369,9 +375,10 @@ const failedStatus = (s: { state: string } | null | undefined): boolean =>
  * Testing / Blocked / Ready to merge (ADR-0007). Blocked wins over Testing: a failed gate is
  * something to fix now, whatever else is still running. `current-games` is required on `main`,
  * so a head it has not reported on is still testing however green the rest is. An
- * agent-definition change has one more required word, `agent-eval`: a failed or capped eval
- * blocks it (the workflow posts `failure` for both), and a head it has not reported on is still
- * testing. The ruleset on `main` does not require `agent-eval` today; the tool does.
+ * agent-definition change has one more required word, `agent-eval`, judged by its verified
+ * report rather than its status (`pipelineAgentEval.ts`): a failed or capped eval, or one whose
+ * report cannot be read, blocks it, and one not in yet is still testing. The ruleset on `main`
+ * does not require `agent-eval` today; the tool does.
  */
 export function deriveStatus({
 	mergeableState,
@@ -393,14 +400,14 @@ export function deriveStatus({
 	if (failedStatus(harness)) {
 		return { kind: 'blocked', reason: `${HARNESS_CONTEXT}: ${harness?.description ?? 'failed'}` };
 	}
-	if (agentDefinition && failedStatus(agentEval)) {
-		return { kind: 'blocked', reason: `${EVAL_CONTEXT}: ${agentEval?.description ?? 'failed'}` };
+	if (agentDefinition && agentEval?.verdict === 'fail') {
+		return { kind: 'blocked', reason: `${EVAL_CONTEXT}: ${agentEval.reason ?? 'failed'}` };
 	}
 	const jobs = checks.flatMap((g) => g.jobs).filter((j) => j.state !== 'skipped');
 	const done =
 		jobs.filter((j) => j.state === 'pass').length +
 		(harness?.state === 'success' ? 1 : 0) +
-		(agentDefinition && agentEval?.state === 'success' ? 1 : 0);
+		(agentDefinition && agentEval?.verdict === 'pass' ? 1 : 0);
 	const total = jobs.length + 1 + (agentDefinition ? 1 : 0);
 	if (done < total) return { kind: 'testing', done, total };
 	return { kind: 'ready' };
@@ -499,7 +506,8 @@ const harnessRunOf = (head: Head, sha: string): GhWorkflowRun | null =>
 			r.head_repository?.full_name === repo(),
 	) ?? null;
 
-function summaryOf(pull: GhPull, head: Head): ChangeSummary {
+/** `agentEval` is the change's evaluation, read for an agent-definition change; null otherwise. */
+function summaryOf(pull: GhPull, head: Head, agentEval: AgentEvalCheck | null): ChangeSummary {
 	const checks = groupCheckRuns(head.checkRuns, head.workflowRuns);
 	const labels = labelsOf(pull);
 	return {
@@ -519,10 +527,21 @@ function summaryOf(pull: GhPull, head: Head): ChangeSummary {
 			mergeableState: pull.mergeable_state ?? null,
 			checks,
 			harness: harnessStatusOf(head),
-			agentEval: statusOf(head, EVAL_CONTEXT),
+			agentEval: agentEval && { verdict: evalVerdict(agentEval), reason: agentEval.blocking },
 			agentDefinition: labels.includes(AGENT_DEFINITION_LABEL),
 		}),
 	};
+}
+
+/** The evaluation of an agent-definition change, or null for any other change. */
+async function agentEvalOf(
+	app: GithubApp,
+	pull: GhPull,
+	head: Head,
+	files: () => Promise<ChangeFile[]>,
+): Promise<AgentEvalCheck | null> {
+	if (!labelsOf(pull).includes(AGENT_DEFINITION_LABEL)) return null;
+	return loadAgentEval(app, repo(), pull.head.sha, head.statuses, await files());
 }
 
 /** Every open agent-definition change (the label), with the files each edits. */
@@ -575,7 +594,11 @@ async function readChanges(app: GithubApp): Promise<ChangeList> {
 			app.json<GhPull>(`/repos/${r}/pulls/${listed.number}`),
 			readHead(app, listed.head.sha),
 		]);
-		return summaryOf(pull, head);
+		// The list judges an agent-definition change by its verified report, like the detail.
+		const agentEval = await agentEvalOf(app, pull, head, async () =>
+			toChangeFiles((await pullFiles(app, pull.number)).files),
+		);
+		return summaryOf(pull, head, agentEval);
 	});
 	const list: ChangeList = {
 		changes: [],
@@ -628,9 +651,7 @@ export async function getChange(number: number, app: GithubApp = githubApp): Pro
 	]);
 	const diffs = visibleDiffs(report);
 	const changeFiles = toChangeFiles(files);
-	const agentEval = labelsOf(pull).includes(AGENT_DEFINITION_LABEL)
-		? await loadAgentEval(app, r, sha, head.statuses, changeFiles)
-		: null;
+	const agentEval = await agentEvalOf(app, pull, head, async () => changeFiles);
 	const harnessFiles = harnessFilesOf(changeFiles);
 	const unapprovable = truncated
 		? `This change has more files than GitHub lists (${MAX_FILES}), so what it edits cannot be checked: it needs a manual merge after review.`
@@ -639,17 +660,8 @@ export async function getChange(number: number, app: GithubApp = githubApp): Pro
 			: unapprovableReason(report, diffs);
 	const standing = await standingOf(approvals);
 	const counted = countApprovals(diffs, approvals, standing);
-	const summary = summaryOf(pull, head);
-	// The list judges an agent-definition change by its `agent-eval` status alone; the detail has
-	// read the report, which is the fuller word: a capped or foreign report blocks whatever the
-	// status says (the status is anyone's to post).
-	const changeStatus: ChangeStatus =
-		agentEval?.blocking && summary.status.kind !== 'blocked'
-			? { kind: 'blocked', reason: `${EVAL_CONTEXT}: ${agentEval.blocking}` }
-			: summary.status;
 	return {
-		...summary,
-		status: changeStatus,
+		...summaryOf(pull, head, agentEval),
 		state: pull.state,
 		body: pull.body,
 		why: whyFromBody(pull.body),

@@ -164,7 +164,7 @@ export function blockedReason(detail: ChangeDetail): BlockedReason | null {
 	if (agentEval?.blocking) {
 		return {
 			text: `agent-eval: ${agentEval.blocking}`,
-			url: safeHref(agentEval.status?.url) ?? safeHref(agentEval.run?.url),
+			url: safeHref(agentEval.run?.url) ?? (agentEval.run ? safeHref(agentEval.status?.url) : null),
 		};
 	}
 	const { harness } = detail;

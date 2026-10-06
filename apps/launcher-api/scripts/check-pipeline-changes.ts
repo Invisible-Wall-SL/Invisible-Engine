@@ -1064,6 +1064,7 @@ function evalRun(over: Json = {}): number {
 		id,
 		path: '.github/workflows/agent-eval.yml',
 		event: 'pull_request_target',
+		head_branch: 'main',
 		status: 'completed',
 		conclusion: 'success',
 		html_url: evalRunUrl(id),
@@ -2073,6 +2074,39 @@ check(
 		[body.includes(agentFile('qa')), body.includes('Gualtiero'), body.includes('@')],
 		[true, true, false],
 	);
+	{
+		const WORD_JOINER = '\u2060';
+		const risky = agents.changeBody('qa', "fix @alice's #12 wording", 'tester');
+		check(
+			'changeBody keeps @mentions and #refs from paging anyone or linking an issue: a word joiner follows the mark',
+			[
+				risky.startsWith(`**Why:** fix @${WORD_JOINER}alice's #${WORD_JOINER}12 wording\n`),
+				/@(?=\w)|#(?=\w)/.test(risky),
+				risky.includes('by `tester`,'),
+			],
+			[true, false, true],
+		);
+		check(
+			'…the page still reads the why back from it, joiners and all',
+			changes.whyFromBody(risky),
+			`fix @${WORD_JOINER}alice's #${WORD_JOINER}12 wording`,
+		);
+		check(
+			'…the user name is joined too, inside its backticks; a mark with no word after it is left alone',
+			[
+				agents.changeBody('qa', 'x', '@bob').includes(`by \`@${WORD_JOINER}bob\`,`),
+				agents
+					.changeBody('qa', 'cost # 5 @ noon', 'tester')
+					.startsWith('**Why:** cost # 5 @ noon\n'),
+			],
+			[true, true],
+		);
+		check(
+			'…and the title is untouched',
+			agents.changeTitle('qa', "fix @alice's #12 wording"),
+			"agents: qa — fix @alice's #12 wording",
+		);
+	}
 	check('the agents are where the worker loads them from', agents.AGENTS_DIR, AGENTS_DIR);
 	check(
 		'the eval workflow the launcher trusts is agent-eval.yml',
@@ -2293,16 +2327,17 @@ check(
 	const pass = group([{ name: 'lint', state: 'pass' }]);
 	const ok = { state: 'success', description: 'ok' };
 	const input = (over: Json) => ({ mergeableState: 'clean', checks: [pass], harness: ok, ...over });
-	const capped = { state: 'failure', description: 'qa: capped at $20.00' };
+	const capped = { verdict: 'fail', reason: 'qa: capped at $20.00' };
+	const passed = { verdict: 'pass', reason: null };
 	check(
-		'deriveStatus: a failing agent-eval blocks an agent definition, with its description',
+		'deriveStatus: a failing agent-eval blocks an agent definition, with its reason',
 		changes.deriveStatus(input({ agentDefinition: true, agentEval: capped })),
 		{ kind: 'blocked', reason: 'agent-eval: qa: capped at $20.00' },
 	);
 	check(
-		'deriveStatus: …an errored one too, and a description that is missing says "failed"',
+		'deriveStatus: …a failure with no reason says "failed"',
 		changes.deriveStatus(
-			input({ agentDefinition: true, agentEval: { state: 'error', description: null } }),
+			input({ agentDefinition: true, agentEval: { verdict: 'fail', reason: null } }),
 		),
 		{ kind: 'blocked', reason: 'agent-eval: failed' },
 	);
@@ -2324,34 +2359,24 @@ check(
 	check(
 		'deriveStatus: a pending eval is still testing',
 		changes.deriveStatus(
-			input({ agentDefinition: true, agentEval: { state: 'pending', description: 'Evaluating…' } }),
+			input({ agentDefinition: true, agentEval: { verdict: 'pending', reason: null } }),
 		),
 		{ kind: 'testing', done: 2, total: 3 },
 	);
 	check(
-		'deriveStatus: a successful eval counts as done, and with the rest green the change is ready',
+		'deriveStatus: a passed eval counts as done, and with the rest green the change is ready',
 		[
-			changes.deriveStatus(
-				input({ agentDefinition: true, agentEval: { state: 'success', description: 'ok' } }),
-			),
-			changes.deriveStatus(
-				input({
-					harness: null,
-					agentDefinition: true,
-					agentEval: { state: 'success', description: 'ok' },
-				}),
-			),
+			changes.deriveStatus(input({ agentDefinition: true, agentEval: passed })),
+			changes.deriveStatus(input({ harness: null, agentDefinition: true, agentEval: passed })),
 		],
 		[{ kind: 'ready' }, { kind: 'testing', done: 2, total: 3 }],
 	);
 	check(
-		'deriveStatus: for a change that is no agent definition the eval status is ignored entirely',
+		'deriveStatus: for a change that is no agent definition the eval is ignored entirely',
 		[
 			changes.deriveStatus(input({ agentDefinition: false, agentEval: capped })),
 			changes.deriveStatus(input({ agentEval: capped })),
-			changes.deriveStatus(
-				input({ harness: null, agentEval: { state: 'success', description: 'ok' } }),
-			),
+			changes.deriveStatus(input({ harness: null, agentEval: passed })),
 		],
 		[{ kind: 'ready' }, { kind: 'ready' }, { kind: 'testing', done: 1, total: 2 }],
 	);
@@ -2381,6 +2406,51 @@ check(
 			{ kind: 'blocked', reason: 'Lint: lint failed' },
 			{ kind: 'blocked', reason: 'current-games: 2 changed screen(s)' },
 		],
+	);
+}
+{
+	// What the eval says about merging, over checks built by hand: only the verified report passes.
+	const reportOf = (state: string, extra: Json = {}) => ({ state, detail: 'x', ...extra });
+	const ck = (blocking: string | null, report: Json): Json => ({
+		status: null,
+		run: null,
+		report,
+		agent: 'qa',
+		blocking,
+	});
+	const ready = (result: 'scored' | 'capped') => ({
+		state: 'ready',
+		report: evalReport(sha(1), { capped: result === 'capped' }),
+		artifactId: 1,
+		expiresAt: null,
+	});
+	const verdict = (c: Json) => agentEval.evalVerdict(c);
+	check(
+		'evalVerdict: a blocking reason is a fail, whatever the report says',
+		[
+			verdict(ck('capped', ready('capped'))),
+			verdict(ck('no report', reportOf('missing'))),
+			verdict(ck('one file only', reportOf('none'))),
+			verdict(ck('failed', reportOf('running'))),
+		],
+		['fail', 'fail', 'fail', 'fail'],
+	);
+	check(
+		'evalVerdict: nothing blocking and a verified report is a pass',
+		verdict(ck(null, ready('scored'))),
+		'pass',
+	);
+	check(
+		'evalVerdict: nothing blocking and no report yet, or a run still going, is pending',
+		[verdict(ck(null, reportOf('none'))), verdict(ck(null, reportOf('running')))],
+		['pending', 'pending'],
+	);
+	check(
+		'evalVerdict: only a report in the ready state passes, so a missing, expired, stale or unreadable one is never a pass',
+		['missing', 'expired', 'stale', 'unreadable'].map((state) =>
+			verdict(ck(null, reportOf(state))),
+		),
+		['pending', 'pending', 'pending', 'pending'],
 	);
 }
 
@@ -2453,6 +2523,14 @@ check('a role without the tool is a 403', (await list(ARTIST)).status, 403);
 		['feat/14', `https://github.com/${REPO}/pull/14/files`, sha(14)],
 	);
 	check('the list read GitHub', gh.requests.length > beforeFirstList, true);
+	check(
+		'the list reads the files of a labelled change only: #17 wears agent-definition, no other PR is asked for its files',
+		gh.requests
+			.slice(beforeFirstList)
+			.filter((r) => /\/pulls\/\d+\/files/.test(r))
+			.map((r) => /\/pulls\/(\d+)\/files/.exec(r)?.[1]),
+		['17'],
+	);
 	const afterFirst = gh.requests.length;
 	const second = await list(ADMIN);
 	check('a second list within 15 s is served from the cache', gh.requests.length, afterFirst);
@@ -4628,14 +4706,76 @@ const evalRequests = (from: number): string[] =>
 	);
 }
 {
+	// The list reads the eval of a labelled change too, so it says what the detail says.
+	const listOf = async () => {
+		lapse();
+		const from = gh.requests.length;
+		const res = await list(ADMIN);
+		const changesNow = (res.body as { changes: Json[] }).changes;
+		return {
+			status: (changesNow.find((c) => c.number === FIRST.number) as Json).status,
+			files: gh.requests
+				.slice(from)
+				.map((r) => /\/pulls\/(\d+)\/files/.exec(r)?.[1])
+				.filter((n): n is string => n !== undefined)
+				.map(Number)
+				.sort((a, b) => a - b),
+			labelled: changesNow
+				.filter((c) => c.agentDefinition)
+				.map((c) => c.number as number)
+				.sort((a, b) => a - b),
+			all: changesNow.length,
+		};
+	};
+	const capped = evalReport(EVAL_HEAD, { capped: true });
+	let run = evalRun({ conclusion: 'failure' });
+	evalArtifact(run, { 'report.json': JSON.stringify(capped) });
+	setEvalStatus(evalHead, 'success', 'all good', evalRunUrl(run));
+	const blockedList = await listOf();
+	check(
+		'the list: a labelled change with a capped report is blocked, whatever its status says',
+		blockedList.status,
+		{ kind: 'blocked', reason: `agent-eval: ${capped.line}` },
+	);
+	check(
+		'…and the list asks for the files of the labelled changes only, none of the other pull requests',
+		[
+			blockedList.files,
+			blockedList.labelled.includes(FIRST.number),
+			blockedList.labelled.length < blockedList.all,
+		],
+		[blockedList.labelled, true, true],
+	);
+	const scored = evalReport(EVAL_HEAD);
+	run = evalRun();
+	evalArtifact(run, { 'report.json': JSON.stringify(scored) });
+	setEvalStatus(evalHead, 'success', scored.line, evalRunUrl(run));
+	check(
+		'the list: a labelled change with a scored report and every other check green is ready',
+		(await listOf()).status,
+		{ kind: 'ready' },
+	);
+	evalHead.statuses = evalHead.statuses.filter((s) => s.context !== 'agent-eval');
+	check(
+		'the list: a labelled change the eval has not reported on is testing, the eval counted in the total',
+		(await listOf()).status,
+		{ kind: 'testing', done: 8, total: 9 },
+	);
+}
+{
 	// What the report must be before it is shown, whatever the status says.
 	const statusOk = (run: number, line = 'qa: 50% → 75% on 4 elements') =>
 		setEvalStatus(evalHead, 'success', line, evalRunUrl(run));
 	const read = async () => {
 		const from = gh.requests.length;
 		const d = await evalOf(FIRST.number);
-		return { ae: d.agentEval, requests: evalRequests(from) };
+		return { ae: d.agentEval, status: d.status, requests: evalRequests(from) };
 	};
+	// Fail closed: a report the launcher cannot read blocks the change, whatever the status says.
+	const unbacked = (detail: unknown) => ({
+		kind: 'blocked',
+		reason: `agent-eval: No report the launcher can read backs the agent-eval status: ${detail}`,
+	});
 
 	let run = evalRun();
 	evalArtifact(run, { 'report.json': JSON.stringify(evalReport('b'.repeat(40))) });
@@ -4643,8 +4783,18 @@ const evalRequests = (from: number): string[] =>
 	let got = await read();
 	check(
 		'a report for another commit is stale, and says which',
-		[got.ae?.report.state, String(got.ae?.report.detail).includes('bbbbbbb'), got.ae?.blocking],
-		['stale', true, null],
+		[
+			got.ae?.report.state,
+			String(got.ae?.report.detail).includes('bbbbbbb'),
+			got.ae?.blocking,
+			got.status,
+		],
+		[
+			'stale',
+			true,
+			'No report the launcher can read backs the agent-eval status: The report is for bbbbbbb, not this head.',
+			unbacked('The report is for bbbbbbb, not this head.'),
+		],
 	);
 
 	run = evalRun();
@@ -4653,8 +4803,8 @@ const evalRequests = (from: number): string[] =>
 	got = await read();
 	check(
 		'a report for another agent is stale, and says which',
-		[got.ae?.report.state, got.ae?.report.detail],
-		['stale', 'The report is for builder, not qa.'],
+		[got.ae?.report.state, got.ae?.report.detail, got.status],
+		['stale', 'The report is for builder, not qa.', unbacked('The report is for builder, not qa.')],
 	);
 
 	run = evalRun();
@@ -4673,28 +4823,44 @@ const evalRequests = (from: number): string[] =>
 			got.ae?.report.expiresAt,
 			String(got.ae?.report.detail).includes('expired'),
 			got.requests.some((r) => r.includes('/zip')),
+			got.status,
 		],
-		['expired', '2026-12-31T00:00:00Z', true, false],
+		[
+			'expired',
+			'2026-12-31T00:00:00Z',
+			true,
+			false,
+			unbacked('The report expired. A new push makes a new one.'),
+		],
 	);
 
 	for (const [label, over] of [
 		['another workflow', { path: '.github/workflows/evil.yml' }],
 		['another event', { event: 'pull_request' }],
 		['another repository', { repository: { full_name: 'other/engine' } }],
+		['a branch other than main', { head_branch: 'feature' }],
+		['no branch', { head_branch: null }],
 	] as [string, Json][]) {
 		run = evalRun(over);
 		evalArtifact(run, { 'report.json': JSON.stringify(evalReport(EVAL_HEAD)) });
 		statusOk(run);
 		got = await read();
 		check(
-			`a status naming a run of ${label} is unreadable, and that run's artifacts are not looked at`,
+			`a status naming a run of ${label} is unreadable and blocks, and that run's artifacts are not looked at`,
 			[
 				got.ae?.report.state,
 				String(got.ae?.report.detail).includes('not the eval workflow'),
 				got.requests.some((r) => r.includes('/artifacts')),
-				got.ae?.blocking,
+				got.status,
 			],
-			['unreadable', true, false, null],
+			[
+				'unreadable',
+				true,
+				false,
+				unbacked(
+					'The run the agent-eval status names is not the eval workflow of this repository on main.',
+				),
+			],
 		);
 	}
 
@@ -4709,27 +4875,34 @@ const evalRequests = (from: number): string[] =>
 		setEvalStatus(evalHead, 'success', 'ok', url);
 		got = await read();
 		check(
-			`a status linking ${url ?? 'nothing'} names no run of this repository: unreadable, no run fetched`,
-			[got.ae?.report.state, got.ae?.run, got.requests],
-			['unreadable', null, []],
+			`a status linking ${url ?? 'nothing'} names no run of this repository: unreadable and blocking, no run fetched`,
+			[got.ae?.report.state, got.ae?.run, got.requests, got.status],
+			[
+				'unreadable',
+				null,
+				[],
+				unbacked(
+					'The agent-eval status names no run of this repository, so its report cannot be read.',
+				),
+			],
 		);
 	}
 
 	setEvalStatus(evalHead, 'success', 'ok', evalRunUrl(999_999));
 	got = await read();
 	check(
-		'a status naming a run that is gone is missing',
-		[got.ae?.report.state, got.ae?.run],
-		['missing', null],
+		'a status naming a run that is gone is missing, and blocks',
+		[got.ae?.report.state, got.ae?.run, got.status],
+		['missing', null, unbacked('The run the agent-eval status names is gone.')],
 	);
 
 	run = evalRun();
 	statusOk(run);
 	got = await read();
 	check(
-		'a finished run that made no report artifact is missing',
-		[got.ae?.report.state, String(got.ae?.report.detail).includes('made no report')],
-		['missing', true],
+		'a finished run that made no report artifact is missing, and blocks',
+		[got.ae?.report.state, String(got.ae?.report.detail).includes('made no report'), got.status],
+		['missing', true, unbacked('The run made no report; see its log.')],
 	);
 
 	const parts = evalReport(EVAL_HEAD) as unknown as Json;
@@ -4766,9 +4939,9 @@ const evalRequests = (from: number): string[] =>
 				says
 					? got.ae?.report.detail === `The report could not be read: ${says}`
 					: String(got.ae?.report.detail).startsWith('The report could not be read: '),
-				got.ae?.blocking,
+				got.status,
 			],
-			['unreadable', true, null],
+			['unreadable', true, unbacked(got.ae?.report.detail)],
 		);
 		if (over.size_in_bytes) {
 			check(
@@ -4806,10 +4979,18 @@ const evalRequests = (from: number): string[] =>
 	const refusal = 'agent-eval: it edits exactly one agent definition; this one edits 2 files';
 	setEvalStatus(h, 'failure', refusal, null);
 	d = await evalOf(two.number);
-	check('…and the failure the workflow posts for it blocks the change in its own words', d.status, {
-		kind: 'blocked',
-		reason: `agent-eval: ${refusal}`,
-	});
+	check(
+		"…and it blocks the change with the launcher's own reason, not the status description, even when the workflow posts a failure for it",
+		[d.status, d.agentEval?.blocking === refusal],
+		[
+			{
+				kind: 'blocked',
+				reason:
+					'agent-eval: This change carries the agent-definition label but does not edit exactly one agent definition (2 files): remove the label or split the change.',
+			},
+			false,
+		],
+	);
 
 	// The same edit without the label: the eval is not its word, whatever a status says.
 	const plain = pull(++pullSeq, 'agents: qa, unlabelled', {

@@ -31,9 +31,10 @@
 	const listed = $derived(changedOnly ? items.filter((i) => i.changed) : items);
 	const visible = $derived(showAll ? listed : listed.slice(0, ITEMS_SHOWN));
 	const rows = $derived(report ? evalRows(report) : []);
-	const url = $derived(safeHref(check.status?.url) ?? safeHref(check.run?.url));
+	// The run's page is the one the launcher verified; the status's own link only beside it.
 	const runUrl = $derived(safeHref(check.run?.url));
-	const statusUrl = $derived(safeHref(check.status?.url));
+	const statusUrl = $derived(check.run ? safeHref(check.status?.url) : null);
+	const url = $derived(runUrl ?? statusUrl);
 </script>
 
 <section class="card" aria-labelledby="agent-eval">

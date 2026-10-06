@@ -70,7 +70,7 @@
 	let agentError = $state<string | null>(null);
 	let agentLoading = $state(false);
 	/** The open editor holds text that is not yet a change. */
-	let agentDirty = $state(false);
+	let agentPanel = $state<{ isDirty: () => boolean } | null>(null);
 	let agentsStarted = false;
 	let refreshing = $state(false);
 	let now = $state(Date.now());
@@ -242,7 +242,7 @@
 	async function selectAgent(name: string): Promise<void> {
 		if (name === selectedAgent) return;
 		if (
-			agentDirty &&
+			agentPanel?.isDirty() &&
 			!(await askConfirm({
 				title: `Discard your edits to ${selectedAgent}?`,
 				message:
@@ -254,7 +254,6 @@
 			return;
 		}
 		selectedAgent = name;
-		agentDirty = false;
 		// A query on this same route: `resolve()` cannot carry one.
 		// eslint-disable-next-line svelte/no-navigation-without-resolve
 		replaceState(agentUrl(name), {});
@@ -504,7 +503,7 @@
 								{now}
 								onreload={rereadAgent}
 								onopenchange={openChange}
-								bind:dirty={agentDirty}
+								bind:this={agentPanel}
 							/>
 						{/key}
 					{:else if agentLoading}

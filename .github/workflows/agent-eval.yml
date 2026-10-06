@@ -18,7 +18,10 @@
 # executed. The same trigger hands secrets to a fork's PR, so the job runs only for a branch of THIS
 # repository, and only for a PR that carries the `agent-definition` label (anyone who can label or
 # push here is already trusted with this repo). Adding some other label does not re-run it, and
-# does not cancel a run in progress.
+# does not cancel a run in progress. The workflow file is the PR's BASE branch's, so it runs only
+# for PRs into `main` (`branches: [main]`): a PR into any other branch would run that branch's copy
+# of this file with the key. The key is an ENVIRONMENT secret (`agent-eval`, deployment branches
+# `main` only), so a side-branch workflow is handed nothing even if it names it.
 #
 # THE SINGLE-FILE RULE: the change must edit exactly one file, an agent definition
 # (services/director-worker/agents/<name>.md, added or modified). Anything else is not an
@@ -30,9 +33,10 @@
 # further call once the total has reached the cap; a response that carries the total past it ends
 # the run. "Capped" is a failure. The figure is in the report and the status description.
 #
-# SECRET (Settings → Secrets and variables → Actions; the owner adds it, the value is never
-# committed): ANTHROPIC_API_KEY. Only the eval step receives it. It is never printed: the CLI
-# prints the report's one-line summary, nothing else, and error text is scrubbed of key-shaped
+# SECRET (Settings → Environments → `agent-eval`, deployment branches: `main` only; the owner adds
+# it, the value is never committed): ANTHROPIC_API_KEY. Only the eval step receives it. It is never
+# printed: the CLI prints the report's one-line summary, nothing else, inside a stop-commands span
+# so nothing it prints can be read as a workflow command, and error text is scrubbed of key-shaped
 # strings. A missing secret fails the run, and the status, naming it. See docs/INFRA.md.
 #
 # WHERE THE REPORT IS READ: the artifact `agent-eval-report` (report.json, the shape in
@@ -45,6 +49,7 @@ name: Agent eval
 on:
   pull_request_target:
     types: [opened, synchronize, reopened, labeled]
+    branches: [main]
 
 concurrency:
   # A new push to the PR replaces its run. A label that is not `agent-definition` gets a group of its
@@ -71,12 +76,17 @@ jobs:
       (github.event.action != 'labeled' || github.event.label.name == 'agent-definition')
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # The environment holds the key and hands it only to a run of `main`'s workflow.
+    environment: agent-eval
     steps:
-      # MAIN's code, whatever the PR changes: this is the checkout every later step runs from.
+      # MAIN's code, whatever the PR changes: this is the checkout every later step runs from. No
+      # token is left in the checkout: the repo is public, so the later fetch of the PR head needs
+      # none, and nothing that runs here should find one.
       - uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 1
+          persist-credentials: false
 
       - name: Post the pending status
         env:
@@ -86,18 +96,19 @@ jobs:
             -f context="$STATUS_CONTEXT" -f description='Evaluating the edited agent on its reference set…' \
             -f target_url="$RUN_URL"
 
-      # Before the secret is used: one file, an agent definition. The file list is GitHub's, and the
-      # only text taken from it is checked against a fixed pattern before it is used anywhere.
+      # Before the secret is used: one file, an agent definition. The file list is GitHub's for
+      # THIS head (main compared with HEAD_SHA, the commit the definition is then read from), not
+      # the PR's current files, which a push between the event and this step could have changed.
+      # The only text taken from it is checked against a fixed pattern before it is used anywhere.
       - name: Check the change edits one agent definition
         id: files
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           mkdir -p "$RUNNER_TEMP/agent-eval"
           files="$RUNNER_TEMP/agent-eval/files.tsv"
-          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" \
-            --jq '.[] | [.status, .filename] | @tsv' > "$files"
+          gh api --paginate "repos/$GITHUB_REPOSITORY/compare/main...$HEAD_SHA?per_page=100" \
+            --jq '.files[] | [.status, .filename] | @tsv' > "$files"
 
           refuse() {
             echo "::error title=agent-eval::$1"
@@ -121,9 +132,9 @@ jobs:
           echo "path=$path" >> "$GITHUB_OUTPUT"
           echo "agent=$(basename "$path" .md)" >> "$GITHUB_OUTPUT"
 
-      # The only bytes taken from the PR. `git show` prints a blob's content and follows no link, so
-      # even a symlink committed under that name arrives as its target's text, to be refused by the
-      # loader. Nothing here executes it.
+      # The only bytes taken from the PR. `git show` prints the blob at that path: for a symlink
+      # committed under the name it prints the link's target path, which the loader refuses as a
+      # definition. Nothing here executes it.
       - name: Take the edited definition from the PR head
         env:
           AGENT_PATH: ${{ steps.files.outputs.path }}
@@ -172,9 +183,15 @@ jobs:
           if [ -f "services/director-worker/agents/$AGENT.md" ]; then
             args+=(--before "services/director-worker/agents/$AGENT.md")
           fi
+          # Nothing the CLI prints can be read as a workflow command (::set-output, ::add-mask…):
+          # its output is fenced off with a one-off token.
+          token="$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')"
+          echo "::stop-commands::$token"
           node --experimental-strip-types --no-warnings=ExperimentalWarning \
             services/director-worker/scripts/agent-eval.ts "${args[@]}"
-          echo "code=$?" >> "$GITHUB_OUTPUT"
+          code=$?
+          echo "::$token::"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
           { echo '### Agent eval'; sed -n 2p "$out/summary.txt" 2>/dev/null || echo 'no report was made'; } \
             >> "$GITHUB_STEP_SUMMARY"
           exit 0

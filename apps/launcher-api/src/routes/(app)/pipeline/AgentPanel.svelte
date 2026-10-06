@@ -27,7 +27,6 @@
 		now,
 		onreload,
 		onopenchange,
-		dirty = $bindable(false),
 	}: {
 		detail: AgentDetail;
 		canMerge: boolean;
@@ -36,8 +35,6 @@
 		onreload: () => Promise<AgentDetail | null>;
 		/** Shows a pull request in the Changes tab. */
 		onopenchange: (number: number) => void;
-		/** Whether the editor holds text that is not yet open as a change. */
-		dirty?: boolean;
 	} = $props();
 
 	type Outcome =
@@ -83,9 +80,11 @@
 	);
 	const lastUrl = $derived(safeHref(detail.lastChange?.url));
 
-	$effect(() => {
-		dirty = !unchanged && !alreadyOpen;
-	});
+	/** Whether the editor holds text that is not yet open as a change; the page asks before it
+	 *  swaps the agent out from under it. */
+	export function isDirty(): boolean {
+		return !unchanged && !alreadyOpen;
+	}
 
 	const isChangeResult = (v: unknown): v is AgentChangeResult =>
 		typeof v === 'object' && v !== null && typeof (v as { number?: unknown }).number === 'number';

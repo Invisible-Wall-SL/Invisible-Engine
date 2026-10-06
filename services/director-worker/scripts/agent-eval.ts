@@ -76,7 +76,9 @@ const report = await runAgentEval({
 	model: () => {
 		const apiKey = process.env.ANTHROPIC_API_KEY;
 		if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set');
-		return anthropicTransport(new Anthropic({ apiKey }));
+		// No SDK retries: every attempt the API answers is billed, and only a response the transport
+		// sees goes through the cap. A long vision call still fits in ten minutes.
+		return anthropicTransport(new Anthropic({ apiKey, maxRetries: 0, timeout: 10 * 60_000 }));
 	},
 	pricing,
 	catalog: { models: pricedModels(pricingFile), tools: KNOWN_TOOLS },

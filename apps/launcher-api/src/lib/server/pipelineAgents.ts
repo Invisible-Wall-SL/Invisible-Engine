@@ -165,11 +165,15 @@ export function branchFor(name: string, requestId: string): string {
 /** The PR title ADR-0007 names; the squash merge makes it the commit on `main`. */
 export const changeTitle = (name: string, why: string): string => `agents: ${name} — ${why}`;
 
+/** `@name` and `#123` in a PR body page people and link issues; a word joiner after the mark
+ *  keeps the text as written without either. */
+const unlinked = (text: string): string => text.replace(/([@#])(?=\w)/g, '$1\u2060');
+
 export function changeBody(name: string, why: string, user: string): string {
 	return [
-		`**Why:** ${why}`,
+		`**Why:** ${unlinked(why)}`,
 		'',
-		`Edits \`${agentPath(name)}\` and nothing else. Opened from Invisible Pipeline Changes by \`${user}\`, as the launcher's GitHub App; the \`agent-eval\` check runs the edited definition and main's on the reference set before this merges (ADR-0007).`,
+		`Edits \`${agentPath(name)}\` and nothing else. Opened from Invisible Pipeline Changes by \`${unlinked(user)}\`, as the launcher's GitHub App; the \`agent-eval\` check runs the edited definition and main's on the reference set before this merges (ADR-0007).`,
 	].join('\n');
 }
 
@@ -481,7 +485,10 @@ type Existing =
 
 /**
  * What an earlier send of the same request left: nothing, the branch alone (it died before the
- * PR), or the PR. Either must hold the content being sent now — a request id is one edit.
+ * PR), or the PR. Either must hold the content being sent now — a request id is one edit. The
+ * reason is not matched: it names the change (the title) and is not in the branch; the editor
+ * makes a new request id when the reason changes, so the same id with another reason is a resend
+ * that keeps the first title.
  */
 async function findExisting(
 	app: GithubApp,
