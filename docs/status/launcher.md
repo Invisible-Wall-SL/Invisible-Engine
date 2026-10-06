@@ -65,39 +65,54 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   very head (every Check 1 job passed, `current-games` success, no conflict), mergeable by GitHub's
   own answer, and neither harness-editing nor file-truncated, calls GitHub's merge API as the App:
   `merge_method: squash`, `sha` pinned to the head, `commit_title` `<title> (#n)` (GitHub's own
-  squash subject, so the scoped subject survives) and an explicit `commit_message` the launcher
-  writes — never the PR body, which could carry `[skip ci]`. Branch protection stays the gate: a
+  squash subject; the title's scope is the repo's convention, not checked here) and an explicit
+  `commit_message` the launcher writes — never the PR body. A title or merger name carrying a
+  CI-skip directive (`[skip ci]` and its variants) is a 409 before GitHub is asked: GitHub reads
+  the whole squash message, and such a merge would skip main's push workflows and the runtime
+  release. Branch protection stays the gate: a
   ruleset unmet (405), the head moved under the pinned SHA (409) and 422 come back with GitHub's
   status and sentence and nothing recorded. Anything short of Ready is a 409 before GitHub is asked
   ("The head moved: you looked at <7> and the branch is now at <7>.", "Still testing: 7 of 8 checks
-  have passed.", the Blocked reason, the draft and conflict sentences). One merge per PR at a time;
-  `requestId` makes a resend idempotent (answered from its row without GitHub; a request that merged
-  another PR is a 409); a crash between GitHub's merge and the row is recovered on the retry by
-  reading the PR first — merged by the App's bot on the confirmed head with no row → recorded from
-  `merge_commit_sha`; merged by a person on GitHub → 409, nothing recorded. The row
-  (`pipeline_merges`, migration `0028`): PR, title, head, merge commit, launcher user (id + name),
-  time, the approvals that counted (per screen the newest by an approver in standing: diff id,
-  game, screen, approver, note, time) and `revert_of`, read off the branch name `revert/<n>-<sha7>`
-  when a revert merges. `GET /api/pipeline/merges` (History; the `pipelineChanges` tool) answers
-  from the table alone — 200 even with the App unconfigured — newest 200 first, each with its PR and
+  have passed.", the Blocked reason, the draft and conflict sentences). The record is two writes
+  in two systems, so it is CLAIMED first: a `pipeline_merges` row with `merge_sha` null goes in
+  before the PUT (unique `pr_number` and `request_id`, inserted with no conflict target, so any
+  clash answers null and is settled before GitHub is touched — a completed row is `already`, a
+  fresh claim by someone else is a 409 naming them, a claim older than 2 min is taken over) and is
+  completed from GitHub's answer; a refusal drops it, a transport error keeps it (GitHub may have
+  merged). A resend with the same `requestId` is answered from its row without GitHub (a request
+  that merged another PR is a 409); a retry or History's `reconcileClaims` finishes a stale claim
+  from the PR's own merge state — merged by a `[bot]` → completed from `merge_commit_sha`, merged
+  by a person or not merged → dropped — and a merged PR with NO claim is a 409 "merged on GitHub,
+  not from here", never recorded: a merge the launcher made always has a claim. One merge per PR
+  at a time in-process; the claim row is the cross-process lock. The row: PR, title, head, merge
+  commit, launcher user (id + name), time, the approvals that counted (per screen the newest by an
+  approver in standing: diff id, game, screen, approver, note, time) and `revert_of`, set when a
+  revert merges only if its branch `revert/<n>-<sha7>` names a recorded merge by its short SHA.
+  `GET /api/pipeline/merges` (History; the `pipelineChanges` tool) answers from the table alone —
+  completed rows only, 200 even with the App unconfigured — newest 200 first, each with its PR and
   commit links, `reverts` (what a revert undid), `revertedBy` (the merged revert of it) and
-  `revertOpen` (an open revert, best effort off the cached changes list).
+  `revertOpen` (an open revert, best effort off the cached changes list; the list cache carries a
+  generation so a read in flight across a merge can no longer re-cache the pre-merge list).
   `POST /api/pipeline/merges/<n>/revert` (`pipelineMerge`; `{reason?}`) opens a revert PR: the
   squash commit must have one parent; its parent's tree, its own and main's tip are read whole
   (`?recursive=1`; a truncated one refuses) and every file the merge changed goes back to the
-  parent's entry — one already back is left alone, one changed again on main since is a conflict and
-  the whole revert is a 409 "revert by hand" with nothing written; a mode-only change counts, a
-  submodule stays a `commit`. Then one tree (`base_tree` main's, `sha: null` deletes), one commit
+  parent's entry — one already back is left alone, one changed again on main since is a conflict,
+  as is a file turned into a folder or a folder into a file, and the whole revert is a 409 "revert
+  by hand" with nothing written; a mode-only change counts, a submodule stays a `commit`. Then one
+  tree (`base_tree` main's, `sha: null` deletes), one commit
   on main's tip in the launcher's words only (the typed reason goes in the PR body as its **Why**),
   one branch `revert/<n>-<sha7>`, one PR `revert: <title>` into main — a pipeline change like any
   other, merged from the Changes tab. A resend answers the branch's open PR (200 `existing`); a
-  closed or merged revert is not opened again; a branch the launcher left without a PR gets its PR;
-  a 422 on the ref (another request won) answers that request's PR; an unrecorded merge is a 404
-  and one already rolled back a 409. UI: the header reads `can merge` / `read-only`; the Ready bar
-  offers **Merge into main** (a confirmation naming the 7-char and full head SHA and the squash
-  subject; the requestId is kept for **Try again** after a 5xx or no answer; then "Merged into main
-  as <7> by <who> · just now" and the list drops the PR; a 409 re-reads the change), disabled for a
-  draft, absent for by-hand changes and for read-only users (mockup 05's sentence). **History · N**
+  closed or merged revert is not opened again; a branch the launcher left without a PR gets its PR
+  only when its tip is the launcher's own revert commit (one parent, "This reverts commit <sha>"),
+  else a 409 naming the branch to delete; a 422 on the ref or on the PR (another request won)
+  answers that request's PR; an unrecorded merge is a 404 and one already rolled back a 409. UI:
+  the header reads `can merge` / `read-only`; the Ready bar offers **Merge into main** (a
+  confirmation naming the 7-char and full head SHA and the squash subject, captured before the
+  dialog so a refresh cannot swap the head under it; the requestId is kept for **Try again** after
+  a 5xx or no answer; then "Merged into main as <7> by <who> · just now" and the list drops the PR;
+  any refusal re-reads the change), disabled for a draft, absent for by-hand changes and for
+  read-only users ("Merging needs the “Merge pipeline changes” permission."). **History · N**
   (`HistoryPanel.svelte`): rows newest first with PR and commit links, "Merged by X · when", the
   approvals fold, the `revert` tag with "Rolls back #m", "Rolled back by #m" or "Rollback #m is
   open", and **Roll back** (an optional reason) → the page switches to the new change. Also: an
