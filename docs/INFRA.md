@@ -516,18 +516,17 @@ code default, so the dashboard need not set it):
   status is posted through the API, so making it required means adding `current-games` to the `main`
   ruleset with source **any** (not "GitHub Actions"). How to run and read it:
   `docs/playtest/current-games.md`.
-- **Agent eval (GitHub Actions ENVIRONMENT secret, `.github/workflows/agent-eval.yml`):**
-  `ANTHROPIC_API_KEY` — the key the evaluation of a runtime-agent definition change spends
-  (Director card 5D, ADR-0007 "Agents tab"). **The owner must set it up**, as an environment
-  secret and not a repository one, so a workflow on any branch but `main` is handed nothing:
-  1. Settings → Environments → **New environment** → name `agent-eval` (the name the job's
-     `environment:` key names).
-  2. In it, **Deployment branches and tags** → *Selected branches and tags* → add `main`. A run of
-     a workflow whose ref is another branch is then refused the environment and its secrets.
-  3. In it, **Environment secrets** → add `ANTHROPIC_API_KEY`: a key of its own (not the
-     `director-worker` service's), ideally in an Anthropic workspace with its own spend limit, so
-     the account bounds a run a second time after the code's **$20 per run** cap. Nothing else in CI
-     reads it.
+- **Agent eval (GitHub Actions secret, `.github/workflows/agent-eval.yml`):** `ANTHROPIC_API_KEY`
+  — the key the evaluation of a runtime-agent definition change spends (Director card 5D, ADR-0007
+  "Agents tab"). **The owner must add it** (Settings → Secrets and variables → Actions): a
+  **repository secret today**, a key of its own (not the `director-worker` service's), ideally in
+  an Anthropic workspace with its own spend limit, so the account bounds a run a second time after
+  the code's **$20 per run** cap. Nothing else in CI reads it. The eval job runs under the
+  `agent-eval` environment (GitHub creates it on first use; a repository secret still reaches it).
+  *Optional hardening, no code change:* move the key into that environment — Settings →
+  Environments → `agent-eval` → **Deployment branches and tags** → *Selected* → `main`, then
+  **Environment secrets** → `ANTHROPIC_API_KEY` — and delete the repository secret, so a workflow
+  on any branch but `main` is handed nothing.
   The workflow runs only on a same-repository PR **into `main`** labelled `agent-definition` that
   edits exactly one `services/director-worker/agents/<name>.md`, from **main's** workflow file and
   code (`pull_request_target`, `branches: [main]`), with the cap enforced in the eval's own code
@@ -535,8 +534,8 @@ code default, so the dashboard need not set it):
   secret, without printing anything. The value is never echoed: the runner prints the report's
   one-line summary (scores and dollars) and nothing else, inside a stop-commands span. What runs
   beside the key (`.github/workflows/**`, `services/director-worker/{scripts,src/eval}/**`) is
-  owned by the owner in `CODEOWNERS`. See "GitHub App (Pipeline Changes)" for how the launcher
-  opens those PRs.
+  mapped to the owner in `CODEOWNERS` (review is auto-requested; it is not a required review).
+  See "GitHub App (Pipeline Changes)" for how the launcher opens those PRs.
 - **Director adapters:** `DIRECTOR_SERVICE_TOKEN` (secret, no default) — the bearer token the
   Invisible Director worker sends to `POST /api/director/adapter/<tool>/<op>`
   (`docs/director/DECISIONS/0002-tool-adapters.md`). Every call also names a run and an agent, and

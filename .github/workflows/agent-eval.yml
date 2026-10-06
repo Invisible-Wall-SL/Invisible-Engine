@@ -20,8 +20,9 @@
 # push here is already trusted with this repo). Adding some other label does not re-run it, and
 # does not cancel a run in progress. The workflow file is the PR's BASE branch's, so it runs only
 # for PRs into `main` (`branches: [main]`): a PR into any other branch would run that branch's copy
-# of this file with the key. The key is an ENVIRONMENT secret (`agent-eval`, deployment branches
-# `main` only), so a side-branch workflow is handed nothing even if it names it.
+# of this file with the key. The job runs under the `agent-eval` environment: a repository secret
+# reaches it today, and the owner can move the key into that environment with a deployment-branch
+# policy of `main` only, without a code change, so a side-branch workflow is handed nothing.
 #
 # THE SINGLE-FILE RULE: the change must edit exactly one file, an agent definition
 # (services/director-worker/agents/<name>.md, added or modified). Anything else is not an
@@ -33,8 +34,9 @@
 # further call once the total has reached the cap; a response that carries the total past it ends
 # the run. "Capped" is a failure. The figure is in the report and the status description.
 #
-# SECRET (Settings → Environments → `agent-eval`, deployment branches: `main` only; the owner adds
-# it, the value is never committed): ANTHROPIC_API_KEY. Only the eval step receives it. It is never
+# SECRET (Settings → Secrets and variables → Actions, a repository secret today — see docs/INFRA.md
+# for the optional environment hardening; the owner adds it, the value is never committed):
+# ANTHROPIC_API_KEY. Only the eval step receives it. It is never
 # printed: the CLI prints the report's one-line summary, nothing else, inside a stop-commands span
 # so nothing it prints can be read as a workflow command, and error text is scrubbed of key-shaped
 # strings. A missing secret fails the run, and the status, naming it. See docs/INFRA.md.
@@ -76,7 +78,7 @@ jobs:
       (github.event.action != 'labeled' || github.event.label.name == 'agent-definition')
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # The environment holds the key and hands it only to a run of `main`'s workflow.
+    # The environment the key can be moved into later (docs/INFRA.md "Agent eval").
     environment: agent-eval
     steps:
       # MAIN's code, whatever the PR changes: this is the checkout every later step runs from. No
