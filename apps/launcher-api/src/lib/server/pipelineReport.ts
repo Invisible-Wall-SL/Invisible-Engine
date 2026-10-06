@@ -184,7 +184,8 @@ async function readReport(
 	return report;
 }
 
-/** The harness's own summary line, as `current-games.yml` posts it (140 characters at most). */
+/** The harness's own summary line, as the verdict workflow posts it as the status description
+ *  (`report.summary.line`, cut to 139 characters). */
 const HARNESS_LINE = /^\d+ pass · \d+ fail · /;
 
 /**
@@ -249,7 +250,7 @@ export async function loadHarnessReport(
 	}
 	// A re-run whose upload failed leaves the previous attempt's report beside the new attempt's
 	// status. The status description is the harness's summary line, so the two must agree when
-	// the harness posted it (an approval's `success` reads differently and is left alone).
+	// the verdict workflow posted it (an approval's `success` reads differently and is left alone).
 	if (
 		status &&
 		status.state !== 'success' &&
