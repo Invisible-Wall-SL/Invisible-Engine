@@ -424,8 +424,9 @@ async function openReverts(
 			// A branch counts only when its short SHA names the merge it claims to undo, as
 			// `revertOf` is accepted: a branch merely named after a change hides nothing.
 			const m = REVERT_BRANCH.exec(c.branch);
-			const target = m ? Number(m[1]) : null;
-			if (target !== null && !open.has(target) && shaOf.get(target)?.startsWith(m[2])) {
+			if (!m) continue;
+			const target = Number(m[1]);
+			if (!open.has(target) && shaOf.get(target)?.startsWith(m[2])) {
 				open.set(target, { number: c.number, url: c.url, branch: c.branch });
 			}
 		}
