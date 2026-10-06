@@ -15,6 +15,35 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-06 · Phases 3, 4, 5 follow-ups · coordinator (merges #1085)
+- **Did:** #1085 (Director follow-ups batch).
+  - A breakdown answer row is written with its bill, inside a savepoint: a failed answer write
+    rolls back only itself, the bill always commits and the error is rethrown, so a re-ask is
+    always billed and the cap sees it (OPEN_QUESTIONS 6).
+  - Abandoned pending-key mockups are cleared when the uploader removes the last image, or by an
+    Admin sweep (Settings › Invisible Director › Clear abandoned mockups) after
+    `DIRECTOR_PENDING_MOCKUP_DAYS` (default 14) with no run (OPEN_QUESTIONS 7). Per R2 folder
+    (`r2Slug`), under a per-folder advisory lock (`withProjectKeyLock`) that `createProject` and
+    Director's run create also take; every in-lock query runs on the lock's transaction; the sweep
+    pre-filters before locking; the doc is sealed by CAS before deletion.
+  - Font gaps are dropped when the style note names a project or `_shared` font from
+    `fonts.list`, unless the mention is hedged ("not X", "X-like", …).
+  - agent-eval actions pinned to commit SHAs (OPEN_QUESTIONS 9); the secret scanner exempts
+    `uses: owner/repo@<sha>` pins.
+- **Files:** `services/director-worker/src/{driver,mockups/analyze,mockups/rules,eval/mockupSet}.ts`,
+  `scripts/prove-breakdown.ts`; `apps/launcher-api/src/lib/server/{projectKeyLock,projects,appSettings}.ts`,
+  `director/{mockupCleanup,mockups,runs,store}.ts`, Admin route, `scripts/check-director-{mockups,runs}.ts`;
+  `.github/workflows/agent-eval.yml`, `scripts/check-secrets{,.test}.mjs`; `docs/status/launcher.md`,
+  `docs/tools/{director,launcher}.md`.
+- **Branch / PR:** `claude/lucid-allen-8x3dap` → #1085 (squash 9db117f1).
+- **Tests:** prove:breakdown 79/79 (scenario 10: 3 calls, 3 billed, 2 stored), check:mockups
+  105/105, check:director-mockups 144/144, check:director-runs 411, check:agent-eval 161/161; CI
+  green. Reviewed twice; the first round's blocker (a rolled-back bill left a paid call
+  unrecorded, so the cap could fail open) and the pool-deadlock risk were fixed.
+- **Decisions:** OPEN_QUESTIONS 6, 7, 9 answered (see there). New: 17 (pending keys aliasing a real
+  project's folder), 18 (sweep scope).
+- **Next:** a small follow-up for OPEN_QUESTIONS 17.
+
 ## 2026-10-06 · Phase 8 · coordinator (merges #1081)
 - **Did:** #1081 (card 8B, Atlas Maker safety changes for the Director). atlas-tool only; nothing
   changes on a person's atlas.
