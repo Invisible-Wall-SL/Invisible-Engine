@@ -94,10 +94,11 @@ and `lib/republish.mjs` (the TypeScript half, run under the TS loader).
   For a snapshot whose published engine is unknown, a copy of a built-in that main changed since
   the publish reads as authored and is kept, though a republish would replace it (no row, until the
   game is republished or the bake records where each def came from — an open question for the
-  owner). Against main's built-ins alone every live game was in that case (measured below): each
-  live snapshot's baked `freeSpinCounter` is older than main's. Their pointers do record the engine
-  they were published with, and that commit is in the checkout, so with the published engine's
-  built-ins every one of them classifies as the copy it is.
+  owner). Against main's built-ins alone the live games showed it (measured below): their baked
+  copies of `loadingBar`, `button` and the rest are the published engine's, not main's. Their
+  pointers record the engine they were published with (`e29a993`), which is in the checkout, so
+  with that engine's built-ins each copy classifies as the copy it is, and each authored def (every
+  live `freeSpinCounter`, for one) as the author's.
 
 ## Screen scripts
 
@@ -430,11 +431,20 @@ before the change, and rendered with main's runtime (`89407ba`) against the work
   byte-identical, no republished row. Every live snapshot's baked `freeSpinCounter` differs from
   main's built-in (the def has changed since the games were published), so against main's built-ins
   it read as the author's and was kept. With the classification against the engine each pointer
-  records (run
-  [37395802976](https://github.com/Invisible-Wall-SL/Invisible-Engine/actions/runs/37395802976), the
-  second seed), the plan found **all 13 rendered live games affected** and planned their republished
-  rows; that run's rows then failed on a path the plan handed to the variant maker relative to the
-  wrong folder, fixed in the next commit; a third seed's run records the rows themselves (below).
+  records, the second seed's run
+  ([37395802976](https://github.com/Invisible-Wall-SL/Invisible-Engine/actions/runs/37395802976))
+  resolved every live pointer's engine commit (all record `e29a993`) and then failed every game's
+  variant on a path the plan handed to the variant maker relative to the wrong folder (13 error
+  rows, fixed in the next commit). The third seed's run
+  ([37397853432](https://github.com/Invisible-Wall-SL/Invisible-Engine/actions/runs/37397853432))
+  classified each live snapshot against `e29a993`'s built-ins: every rendered game ships copies
+  (`loadingBar` on all 12; `tapToContinue`, `textBox`, `button`, `confirmDialog` and the Hold and
+  Win parts on the games that place them), but **`freeSpinCounter` is the author's in every live
+  game that has one** (bookofborutpartner, bookofborutremake, borut-pots-sample, lines, test1,
+  test6 each carry an edited copy, beside their own `c_…` components), so a republish would not
+  change it and no republished row was planned: `12 pass · 0 fail · 9 not rendered · 0 changed`,
+  161 of 161 byte-identical, each passing row saying so. The live proof therefore seeds a def the
+  live games do ship as a copy (below).
 - **The revert, which is also main vs main.** With the frame back at `x: 0` the working tree's
   engine source equals main's, so its runtime (built again from the restored source) against main's
   cached build is two independent builds and renders of one engine. The plan found the two builds'
