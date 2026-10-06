@@ -67,13 +67,15 @@ ship, nothing on the page calls it.
   clears the tick, so no image is covered by a check made before it existed. The check is copied
   onto the run and shown in the run header. Without mockups, the notes are required: that is the
   style board.
-- **The budget cap is fixed when the run is created**, from Settings' `DIRECTOR_RUN_BUDGET_USD`.
-  Changing the setting later never moves a run that already exists.
+- **The budget cap is fixed when the run starts**, from Settings' `DIRECTOR_RUN_BUDGET_USD`.
+  Changing the setting later never moves a run that has started; the New-game panel shows the
+  estimate against the cap a run started now would get.
 - **Your actions each leave one entry** that the agents' worker reads: start, pause, resume
   (optionally raising the cap, never above what Settings allows), stop, approve or redo a
   checkpoint, and a message to the coordinator. An action the run cannot take right now is refused
   with the reason, and nothing is written. Sending the same action twice (a double click, a retry)
-  records it once.
+  records it once. If the run has moved on by the time the worker reads an entry — the agents
+  finished the step first — the worker refuses that entry and says so in the activity feed.
 - **Nothing renders before you confirm the breakdown.** Approving the Mockup breakdown checkpoint is
   the one action that lets RunPod work begin. "Redo with my note" sends the analyst back instead.
 - **The estimate is a range**, computed from the template's regions, your mockups, the preset and

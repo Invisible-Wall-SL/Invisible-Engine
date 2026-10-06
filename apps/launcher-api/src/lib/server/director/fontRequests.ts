@@ -68,12 +68,13 @@ function requestedBy(doc: FontBakeRequest): FontRequestEntry['requestedBy'] {
 
 function entryOf(
 	key: string,
+	folder: string,
 	doc: FontBakeRequest,
 	etag: string | null,
 	inCatalog: boolean,
 ): FontRequestEntry {
 	return {
-		folder: doc.folder,
+		folder,
 		status: doc.status,
 		face: doc.recipe.face,
 		preset: doc.recipe.preset,
@@ -102,15 +103,22 @@ async function readRequest(
 	}
 }
 
-/** Every staged request of the project, awaiting ones first, then by folder. */
+/** A request's key under the root: `<folder>/request.json`, one level down, nothing deeper. */
+const REQUEST_KEY = /^([a-z0-9][a-z0-9_-]{0,59})\/request\.json$/;
+
+/**
+ * Every staged request of the project, awaiting ones first, then by folder. The folder is the
+ * KEY's, as the adapter wrote it; a doc's own `folder` field is data it could get wrong.
+ */
 export async function listFontRequests(scope: Scope): Promise<FontRequestEntry[]> {
 	const root = fontRequestsRoot(scope);
-	const keys = (await listAllKeys(root)).filter((k) => k.endsWith('/request.json'));
 	const folders = await catalogFolders(scope);
 	const out: FontRequestEntry[] = [];
-	for (const key of keys) {
+	for (const key of await listAllKeys(root)) {
+		const folder = REQUEST_KEY.exec(key.slice(root.length))?.[1];
+		if (!folder) continue;
 		const got = await readRequest(key);
-		if (got) out.push(entryOf(key, got.doc, got.etag, folders.has(got.doc.folder)));
+		if (got) out.push(entryOf(key, folder, got.doc, got.etag, folders.has(folder)));
 	}
 	return out.sort(
 		(a, b) =>
@@ -135,7 +143,8 @@ export async function markFontRequestDone(
 	if (!got) throw new FontRequestError(404, 'unknown_request', 'No such request.');
 	if (baseEtag !== null && etagDiffers(got.etag, baseEtag)) throw new ConflictError(key);
 	const folders = await catalogFolders(scope);
-	if (got.doc.status === 'done') return entryOf(key, got.doc, got.etag, folders.has(folder));
+	if (got.doc.status === 'done')
+		return entryOf(key, folder, got.doc, got.etag, folders.has(folder));
 	if (!folders.has(folder)) {
 		throw new FontRequestError(
 			409,
@@ -162,5 +171,5 @@ export async function markFontRequestDone(
 		'application/json',
 		precondition(got.etag),
 	);
-	return entryOf(key, stamped, etag, true);
+	return entryOf(key, folder, stamped, etag, true);
 }

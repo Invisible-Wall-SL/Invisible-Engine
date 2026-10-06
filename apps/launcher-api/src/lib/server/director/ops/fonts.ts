@@ -66,10 +66,9 @@ export interface FontBakeRequest {
 /** Where a project's staged font requests live: `<folder>/request.json` under it. */
 export const fontRequestsRoot = (scope: { clientKey: string; projectKey: string }) =>
 	`${projectPrefix(scope.clientKey, scope.projectKey)}/director/fonts/`;
-const requestsRoot = fontRequestsRoot;
 
 async function listRequests(ctx: AdapterContext) {
-	const root = requestsRoot(projectOf(ctx));
+	const root = fontRequestsRoot(projectOf(ctx));
 	const keys = (await listAllKeys(root)).filter((k) => k.endsWith('/request.json'));
 	const out = [];
 	for (const key of keys) {
@@ -174,7 +173,7 @@ export const bakeFromTtf = defineOp<
 	agents: ['builder'],
 	scope: 'project',
 	write: true,
-	writes: (input, scope) => [`${requestsRoot(scope)}${input.folder}/`],
+	writes: (input, scope) => [`${fontRequestsRoot(scope)}${input.folder}/`],
 	handler: async (ctx, input) => {
 		const scope = projectOf(ctx);
 		const sources = allowedPrefixes(scope.clientKey, scope.projectKey, {
@@ -218,7 +217,7 @@ export const bakeFromTtf = defineOp<
 		// Named by its bytes, so restaging another font in this folder never replaces a source an
 		// earlier request still names.
 		const sourceFile = `_src-${hash}.${ext}`;
-		const folderKey = `${requestsRoot(scope)}${input.folder}/`;
+		const folderKey = `${fontRequestsRoot(scope)}${input.folder}/`;
 		const key = `${folderKey}request.json`;
 		// Settle the precondition before anything is written, so a conflict leaves nothing behind. A
 		// save racing in after this still loses at the PUT; it then leaves only an unreferenced copy.

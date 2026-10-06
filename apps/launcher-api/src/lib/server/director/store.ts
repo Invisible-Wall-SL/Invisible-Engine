@@ -254,13 +254,13 @@ export interface NewRun {
 	presetJson: unknown;
 	startingPointJson: unknown;
 	checkpointsJson: unknown;
-	budgetCapUsd: number;
 }
 
 /**
  * Insert a draft run that has claimed its project key: `project_create_started_at` is set, so a
  * `gamemaker.create_from_template` that finds the project already there resumes rather than
- * refuses. False when the id exists — a replayed create, which returns the run it made.
+ * refuses. The budget cap stays null: the worker copies Settings onto the run at start
+ * (ADR-0006). False when the id exists — a replayed create, which returns the run it made.
  */
 export async function insertDraftRun(row: NewRun): Promise<boolean> {
 	const inserted = await getDb()
@@ -278,11 +278,12 @@ export async function deleteDraftRun(runId: string): Promise<void> {
 		.where(and(eq(directorRuns.id, runId), eq(directorRuns.status, 'draft')));
 }
 
-export async function updateRunStartingPoint(runId: string, startingPointJson: unknown) {
+/** Refresh a draft's starting point; a run the worker has moved since keeps what it started with. */
+export async function updateDraftStartingPoint(runId: string, startingPointJson: unknown) {
 	await getDb()
 		.update(directorRuns)
 		.set({ startingPointJson, updatedAt: new Date() })
-		.where(eq(directorRuns.id, runId));
+		.where(and(eq(directorRuns.id, runId), eq(directorRuns.status, 'draft')));
 }
 
 /** A user's runs, newest first, within one project when `projectKey` is given. */
@@ -368,6 +369,18 @@ export async function agentConversations(runId: string): Promise<AgentConversati
 		.where(eq(directorMessages.runId, runId))
 		.orderBy(directorMessages.agent, desc(directorMessages.seq));
 	return rows.map((r) => ({ ...r, hasToolUse: r.lastRole === 'assistant' && r.hasToolUse }));
+}
+
+/** The ledger row an owner request claimed (`appendOwnerEvent`), or null: what a resend is answered from. */
+export async function findOwnerRequest(
+	runId: string,
+	requestId: string,
+): Promise<DirectorOp | null> {
+	const [row] = await getDb()
+		.select()
+		.from(directorOps)
+		.where(eq(directorOps.opId, `${runId}:owner:${requestId}`));
+	return row ?? null;
 }
 
 export type OwnerEventOutcome =

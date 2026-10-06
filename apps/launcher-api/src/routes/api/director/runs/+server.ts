@@ -13,12 +13,14 @@ import type { RequestHandler } from './$types';
  *        { requestId, key, name, clientKey?, gameType?, template, notes?, preset?, checkpoints? }
  *        → 200 { run: <summary>, replayed }   (201 on the first answer)
  *
- * Session-gated on the `director` tool. A create takes the same fields and validation as Game
- * Maker's "Create a game", plus the template to re-theme; it creates the project the way Game
- * Maker does and refuses (409 `ownership_required`) while the project's mockups lack the
- * ownership check. `requestId` makes it idempotent: the same id creates nothing twice. The list
- * is the caller's own runs; a project named is checked like every Director project (a pending
- * one answers its draft runs).
+ * Session-gated on the `director` tool, and a create on Game Maker's too (403
+ * `game_maker_required`): it takes the same fields and validation as Game Maker's "Create a
+ * game", plus the template to re-theme, creates the project the way Game Maker does, and refuses
+ * (409 `ownership_required`) while the project's mockups lack the ownership check. The budget
+ * cap is copied onto the run when it starts, not here. `requestId` makes a create idempotent: the
+ * same id with the same key, client and template answers the run it made; another is 409. The
+ * list is the caller's own runs; a project named is checked like every Director project (a
+ * pending one answers its draft runs).
  */
 export const GET: RequestHandler = async ({ url, locals }) => {
 	const user = await requireDirectorAccess(locals);

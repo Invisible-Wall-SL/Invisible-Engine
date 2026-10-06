@@ -6,11 +6,14 @@ import {
 	type DirectorPricing,
 	type RunEstimate,
 } from 'director-costs';
+import { roleHasTool } from '$lib/roles';
 import profilesFile from '../../../../../../services/director-worker/estimate-profiles.json';
 import type { Checkpoint } from '../../../../../../services/director-worker/src/runState';
 import { getDirectorRunBudget } from '../appSettings';
 import { clientExists, mayCreateUnderClient } from '../clients';
 import { getDirectorPricing } from '../costs/pricingConfig';
+import { getRoleOverrides } from '../roleToolAccess';
+import { getToolOverrides } from '../userToolAccess';
 import type { DirectorRun, Project } from '../db/schema';
 import { duplicateProject } from '../duplicateProject';
 import { loadGameConfigDocWithEtag } from '../gameConfigStorage';
@@ -26,7 +29,7 @@ import {
 	projectName,
 } from '../projects';
 import { DIRECTOR_AGENTS } from './adapter';
-import { loadMockupsDoc, ownershipRefusal, type MockupsDoc } from './mockups';
+import { MAX_MOCKUPS, loadMockupsDoc, ownershipRefusal, type MockupsDoc } from './mockups';
 import {
 	MAX_MESSAGE_LENGTH,
 	MAX_NOTE_LENGTH,
@@ -45,6 +48,7 @@ import {
 	agentConversations,
 	appendOwnerEvent,
 	deleteDraftRun,
+	findOwnerRequest,
 	getRun,
 	insertDraftRun,
 	lastEventId,
@@ -52,7 +56,7 @@ import {
 	listRuns,
 	runSpendTotals,
 	setRunConfigEtags,
-	updateRunStartingPoint,
+	updateDraftStartingPoint,
 } from './store';
 import { loadSummaryContext, summarizeProject, type ProjectSummary } from './templates';
 
@@ -70,7 +74,12 @@ import { loadSummaryContext, summarizeProject, type ProjectSummary } from './tem
  *
  * Every write takes a client-supplied `requestId` and replays to the same answer: a create's run
  * id is derived from it, so the second insert finds the first; an action is claimed in
- * `director_ops` (`store.ts` `appendOwnerEvent`).
+ * `director_ops` (`store.ts` `appendOwnerEvent`), and a resend is answered from that ledger BEFORE
+ * any other check — the worker is woken by NOTIFY, so by the time a resend arrives the run has
+ * usually moved on, and judging the resend by the new state would refuse what was recorded.
+ *
+ * The budget cap is the worker's to copy onto the run at start (ADR-0006), not the launcher's at
+ * create; the estimate reports the cap a run started now would get.
  */
 
 /** The estimate profiles beside `pricing.json`, validated once at load. */
@@ -308,8 +317,9 @@ function parseRequestId(raw: unknown): string {
 /**
  * Copy the template into the run's project, as `gamemaker.create_from_template` does: through
  * Game Maker's duplicate path, recording the template's config ETag before and after so the
- * math-lock QA can tell a copy nobody chose (null when the template moved meanwhile). A run whose
- * project already exists is a resumed create: nothing is copied again.
+ * math-lock QA can tell a copy nobody chose (null when the template moved meanwhile). Always a
+ * copy: a project that exists by now is another request's (409 `project_exists`), never this
+ * run's to adopt. A replayed create resumes only by calling this while its project is missing.
  */
 async function copyTemplate(
 	user: User,
@@ -319,33 +329,43 @@ async function copyTemplate(
 ): Promise<void> {
 	const templateClient = template.clientKey ?? UNASSIGNED_CLIENT;
 	const before = await loadGameConfigDocWithEtag(templateClient, template.key);
-	const resumed = await projectExists(run.projectKey);
-	if (!resumed) {
-		const made = await duplicateProject(user, {
-			source: template.key,
-			key: run.projectKey,
-			name,
-			clientKey: run.clientKey,
-			scope: 'full',
-		});
-		if (!made.ok) {
-			throw new RunError(
-				made.status,
-				made.status === 409 ? 'project_exists' : 'create_failed',
-				made.error,
-			);
-		}
+	const made = await duplicateProject(user, {
+		source: template.key,
+		key: run.projectKey,
+		name,
+		clientKey: run.clientKey,
+		scope: 'full',
+	});
+	if (!made.ok) {
+		throw new RunError(
+			made.status,
+			made.status === 409 ? 'project_exists' : 'create_failed',
+			made.error,
+		);
 	}
 	const [after, copy] = await Promise.all([
 		loadGameConfigDocWithEtag(templateClient, template.key),
 		loadGameConfigDocWithEtag(run.clientKey ?? UNASSIGNED_CLIENT, run.projectKey),
 	]);
-	const templateConfigEtag = !resumed && before.etag === after.etag ? before.etag : null;
+	const templateConfigEtag = before.etag === after.etag ? before.etag : null;
 	await setRunConfigEtags(run.id, { template: templateConfigEtag, project: copy.etag });
+}
+
+/** Creating a game is Game Maker's to allow: the duplicate path assumes its caller holds it. */
+async function holdsGameMaker(user: User): Promise<boolean> {
+	return roleHasTool(
+		user.role,
+		'gameMaker',
+		await getRoleOverrides(user.role),
+		await getToolOverrides(user.id),
+	);
 }
 
 export async function createRun(user: User, input: CreateRunInput): Promise<CreatedRun> {
 	const requestId = parseRequestId(input.requestId);
+	if (!(await holdsGameMaker(user))) {
+		throw new RunError(403, 'game_maker_required', 'Creating a game needs Invisible Game Maker.');
+	}
 	const key = String(input.key ?? '')
 		.toLowerCase()
 		.trim();
@@ -376,8 +396,16 @@ export async function createRun(user: User, input: CreateRunInput): Promise<Crea
 	const runId = runIdFor(user.id, requestId);
 	const existing = await getRun(runId);
 	if (existing) {
-		// The same request again. Its project is finished if the first attempt died mid-copy.
-		if (existing.ownerUserId !== user.id) throw new RunError(404, 'unknown_run', 'No such run.');
+		// The same request again — and it must be the same request: another key, client or
+		// template under this id is a client bug, refused like a reused opId.
+		const same =
+			existing.projectKey === key &&
+			(existing.clientKey ?? null) === clientKey &&
+			existing.templateProjectKey === template.key;
+		if (!same) {
+			throw new RunError(409, 'request_id_reused', `${requestId} already created another run.`);
+		}
+		// Its project is finished if the first attempt died mid-copy.
 		if (existing.status === 'draft' && !(await projectExists(existing.projectKey))) {
 			await copyTemplate(user, existing, template, name);
 		}
@@ -397,8 +425,6 @@ export async function createRun(user: User, input: CreateRunInput): Promise<Crea
 	const preset = parsePreset(input.preset, pricing);
 	const checkpoints = parseCheckpoints(input.checkpoints);
 	const startingPoint = await startingPointFor(clientKey, key, notes);
-	// Snapshotted now (ADR-0006): a later change in Settings never moves this run's cap.
-	const budgetCapUsd = await getDirectorRunBudget();
 
 	const row = {
 		id: runId,
@@ -409,7 +435,6 @@ export async function createRun(user: User, input: CreateRunInput): Promise<Crea
 		presetJson: preset,
 		startingPointJson: startingPoint,
 		checkpointsJson: checkpoints,
-		budgetCapUsd,
 	};
 	if (!(await insertDraftRun(row))) {
 		// Lost a race with the same request id; that call made the run.
@@ -479,6 +504,10 @@ function parseAction(raw: unknown): OwnerActionRequest {
  * `not_allowed`). A start also needs the project to exist and the mockups' ownership confirmed
  * — the New-game form may have added mockups after the run was created — and refreshes the
  * run's starting point from the project's doc before the row goes in.
+ *
+ * A resend is answered first, from the ledger, whatever the run's state by now: the same
+ * `requestId` with the same body (hashed as SENT, before the defaults and the clamp below) gets
+ * the recorded event id with `replayed: true`; with another body it is `request_id_reused`.
  */
 export async function performOwnerAction(
 	user: User,
@@ -486,6 +515,24 @@ export async function performOwnerAction(
 	raw: unknown,
 ): Promise<OwnerActionOutcome> {
 	const req = parseAction(raw);
+	const { requestId, ...sent } = req;
+	const inputHash = createHash('sha256').update(JSON.stringify(sent)).digest('hex');
+	const prior = await findOwnerRequest(run.id, requestId);
+	if (prior) {
+		if (prior.op !== `owner.${req.action}` || prior.inputHash !== inputHash) {
+			throw new RunError(
+				409,
+				'request_id_reused',
+				`${requestId} was already used for another action.`,
+			);
+		}
+		if (prior.status !== 'done') {
+			throw new RunError(409, 'in_progress', `${requestId} is still being written.`);
+		}
+		const { eventId } = prior.result as { eventId: number };
+		return { action: req.action, eventId, replayed: true };
+	}
+
 	const state = runStateOf(run);
 	const refusal = actionRefusal(state, req.action, req.checkpoint ?? state.waitingOn);
 	if (refusal) throw new RunError(409, 'not_allowed', `Refused: ${refusal}.`);
@@ -508,7 +555,7 @@ export async function performOwnerAction(
 			);
 		}
 		const notes = (run.startingPointJson as Partial<StartingPoint> | null)?.notes ?? '';
-		await updateRunStartingPoint(
+		await updateDraftStartingPoint(
 			run.id,
 			await startingPointFor(run.clientKey, run.projectKey, notes),
 		);
@@ -516,12 +563,11 @@ export async function performOwnerAction(
 
 	const by: Stamp = { uid: user.id, name: user.name ?? user.email };
 	const row = ownerEventRow(req, by);
-	const { requestId, ...input } = req;
 	const outcome = await appendOwnerEvent({
 		runId: run.id,
 		requestId,
 		action: req.action,
-		inputHash: createHash('sha256').update(JSON.stringify(input)).digest('hex'),
+		inputHash,
 		kind: row.kind,
 		payload: row.payload,
 	});
@@ -709,6 +755,8 @@ export interface EstimateRequest {
 
 export interface EstimateAnswer {
 	estimate: RunEstimate;
+	/** The cap a run started now would get (Settings), for the panel to show the estimate against. */
+	budgetCapUsd: number;
 	template: {
 		key: string;
 		name: string;
@@ -733,6 +781,7 @@ export async function estimateForTemplate(
 	if (typeof mockups !== 'number' || !Number.isInteger(mockups) || mockups < 0) {
 		throw bad('bad_mockups', 'mockups is a count.');
 	}
+	const budgetCapUsd = await getDirectorRunBudget();
 	const pricing = (await getDirectorPricing()).pricing;
 	const preset = parsePreset(raw.preset, pricing);
 	const checkpoints = parseCheckpoints(raw.checkpoints);
@@ -742,7 +791,8 @@ export async function estimateForTemplate(
 		estimate: estimateRun(
 			{
 				regions,
-				mockups,
+				// No more can be uploaded, so no more can be analysed.
+				mockups: Math.min(mockups, MAX_MOCKUPS),
 				variantsPerRegion: preset.variantsPerRegion,
 				draftPx: preset.draftPx,
 				finalPx: preset.finalPx,
@@ -752,6 +802,7 @@ export async function estimateForTemplate(
 			ESTIMATE_PROFILES,
 			pricing,
 		),
+		budgetCapUsd,
 		template: {
 			key: template.key,
 			name: template.name,

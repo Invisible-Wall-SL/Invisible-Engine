@@ -193,11 +193,15 @@ fake('lib/server/gameKinds.ts', {
 		{ id: 'holdAndWin', name: 'Hold and Win' },
 	],
 });
-// Artists hold Invisible Director here, so a non-admin owner exercises the project rules.
+// Artists hold Invisible Director and Game Maker here, so a non-admin owner exercises the project
+// rules; `nogm` had Game Maker revoked.
 fake('lib/server/roleToolAccess.ts', {
-	getRoleOverrides: async (role: string) => (role === 'artist' ? { director: true } : {}),
+	getRoleOverrides: async (role: string) =>
+		role === 'artist' ? { director: true, gameMaker: true } : {},
 });
-fake('lib/server/userToolAccess.ts', { getToolOverrides: async () => ({}) });
+fake('lib/server/userToolAccess.ts', {
+	getToolOverrides: async (userId: string) => (userId === 'nogm' ? { gameMaker: false } : {}),
+});
 fake('lib/server/auth.ts', { SESSION_COOKIE: 'iw_session' });
 fake('lib/server/appSettings.ts', {
 	getAppSetting: async () => undefined,
@@ -280,15 +284,30 @@ const CONVOS = new Map<
 >();
 let eventSeq = 0;
 let clock = 0;
+/** Another request's create lands right after the next draft is inserted (a double submit). */
+let raceOnNextInsert = false;
 fake('lib/server/director/store.ts', {
 	getRun: async (id: string) => RUNS.get(id) ?? null,
+	findOwnerRequest: async (runId: string, requestId: string) =>
+		OPS.get(`${runId}:owner:${requestId}`) ?? null,
 	insertDraftRun: async (row: Record<string, unknown>) => {
 		if (RUNS.has(row.id as string)) return false;
 		const at = new Date(2026, 9, 6, 0, 0, clock++);
+		if (raceOnNextInsert) {
+			raceOnNextInsert = false;
+			const key = row.projectKey as string;
+			PROJECTS.set(key, {
+				client: row.clientKey as string | null,
+				gameType: 'holdAndWin',
+				template: false,
+			});
+			put(`${row.clientKey ?? '_unassigned'}/${key}/config/config.json`, '{}', undefined);
+		}
 		RUNS.set(
 			row.id as string,
 			{
 				...(row as object),
+				budgetCapUsd: null,
 				status: 'draft',
 				step: 'breakdown',
 				waitingOn: null,
@@ -314,8 +333,9 @@ fake('lib/server/director/store.ts', {
 		run.templateConfigEtag = etags.template;
 		run.projectConfigEtag = etags.project;
 	},
-	updateRunStartingPoint: async (id: string, startingPointJson: unknown) => {
-		RUNS.get(id)!.startingPointJson = startingPointJson;
+	updateDraftStartingPoint: async (id: string, startingPointJson: unknown) => {
+		const run = RUNS.get(id)!;
+		if (run.status === 'draft') run.startingPointJson = startingPointJson;
 	},
 	listRuns: async (filter: { ownerUserId: string; projectKey?: string }) =>
 		[...RUNS.values()]
@@ -394,6 +414,7 @@ const OWNER: User = { id: 'owner', email: 'o@x', name: 'Owner', role: 'artist' }
 const ART: User = { id: 'art', email: 'r@x', name: 'Art', role: 'artist' };
 const DEV: User = { id: 'dev', email: 'd@x', name: 'Dev', role: 'developer' };
 const NOBODY: User = { id: 'nobody', email: 'n@x', name: 'Nobody', role: 'artist' };
+const NOGM: User = { id: 'nogm', email: 'g@x', name: 'No Game Maker', role: 'artist' };
 
 type Answer = { status: number; body: Record<string, unknown> };
 const status = (e: unknown) => (isHttpError(e) ? e.status : e);
@@ -556,6 +577,7 @@ console.log('create');
 		return [r.status, r.body.error];
 	};
 	check('a missing request id', await refused({ requestId: undefined }), [400, 'bad_request_id']);
+	check('without Game Maker it is 403', await refused({}, NOGM), [403, 'game_maker_required']);
 	check('a bad key', await refused({ key: 'Bad Key' }), [400, 'bad_key']);
 	check(
 		'…in Game Maker’s words',
@@ -618,7 +640,11 @@ console.log('create');
 		['acme', 'holdAndWin', 1],
 	);
 	check('the project is reported created', run.projectCreated, true);
-	check('the budget cap is snapshotted', (run.spend as { capUsd: number }).capUsd, 25);
+	check(
+		'the cap is null until the worker copies Settings at start',
+		(run.spend as { capUsd: unknown }).capUsd,
+		null,
+	);
 	const sp = run.startingPoint as Record<string, unknown>;
 	check(
 		'the ownership stamp is copied into the starting point',
@@ -668,6 +694,31 @@ console.log('create');
 	);
 	check('…and made nothing new', [RUNS.size, duplicates], [1, 1]);
 	check('another request for the same key is key_exists', await refused({}), [400, 'key_exists']);
+	const other = await create(OWNER, { ...body, template: 'lines-sample', gameType: 'lines' });
+	check(
+		'a replay naming another template is refused',
+		[other.status, other.body.error],
+		[409, 'request_id_reused'],
+	);
+	check('…and still one run, one project', [RUNS.size, duplicates], [1, 1]);
+
+	// A double submit: another request's create lands between the key check and the copy. The
+	// second run must not adopt that project: it is refused and leaves nothing behind.
+	seedMockups('raced', [], null);
+	raceOnNextInsert = true;
+	const copiesBefore = duplicates;
+	const raced = await create(OWNER, createBody({ key: 'raced', requestId: 'raced-0001' }));
+	check(
+		'a create whose key was taken meanwhile is refused',
+		[raced.status, raced.body.error],
+		[409, 'project_exists'],
+	);
+	check(
+		'…copies nothing and leaves no draft',
+		[duplicates - copiesBefore, RUNS.has(runsMod.runIdFor('owner', 'raced-0001'))],
+		[0, false],
+	);
+	PROJECTS.delete('raced');
 
 	// A create whose copy fails leaves no draft behind.
 	seedMockups('reef', [], null);
@@ -783,13 +834,16 @@ console.log('start');
 		((runRow().startingPointJson as { mockups: unknown[] }).mockups as unknown[]).length,
 		3,
 	);
+	// The worker has applied the row by the time the click is resent: the resend is still replayed.
+	Object.assign(runRow(), { status: 'running' });
 	const replay = await act(OWNER, RUN_ID, { action: 'start', requestId: id });
 	check(
-		'a replayed start answers the same event',
+		'a replayed start answers the same event after the run moved',
 		[replay.status, replay.body.replayed, replay.body.eventId],
 		[200, true, started.body.eventId],
 	);
 	check('…and writes nothing new', rowsOf(RUN_ID).length, 1);
+	Object.assign(runRow(), { status: 'draft' });
 	const reused = await act(OWNER, RUN_ID, { action: 'stop', requestId: id });
 	check(
 		'the same id for another action is refused',
@@ -969,6 +1023,37 @@ console.log('actions × statuses');
 	);
 	check('a non-JSON body is 400', (await act(OWNER, RUN_ID, 'not json')).status, 400);
 
+	{
+		// An approve sent without the checkpoint (the open one is filled in) and resent after the
+		// worker closed it: the resend is replayed, because the hash covers the body as sent.
+		Object.assign(run, { status: 'waiting', step: 'breakdown', waitingOn: 'breakdown' });
+		const approveId = requestId();
+		const rows = rowsOf(RUN_ID).length;
+		const approved = await act(OWNER, RUN_ID, { action: 'approve', requestId: approveId });
+		check(
+			'approve without a checkpoint resolves the open one',
+			[approved.status, (rowsOf(RUN_ID).at(-1)!.payloadJson as { checkpoint: string }).checkpoint],
+			[200, 'breakdown'],
+		);
+		Object.assign(run, { status: 'running', step: 'style_pack', waitingOn: null });
+		const resent = await act(OWNER, RUN_ID, { action: 'approve', requestId: approveId });
+		check(
+			'…and its resend after the checkpoint closed is replayed',
+			[resent.status, resent.body.replayed, resent.body.eventId, rowsOf(RUN_ID).length - rows],
+			[200, true, approved.body.eventId, 1],
+		);
+		const otherBody = await act(OWNER, RUN_ID, {
+			action: 'approve',
+			requestId: approveId,
+			note: 'now with a note',
+		});
+		check(
+			'…while another body under that id is refused',
+			[otherBody.status, otherBody.body.error],
+			[409, 'request_id_reused'],
+		);
+	}
+
 	// Resume with a raised cap.
 	Object.assign(run, { status: 'paused', step: 'regions', waitingOn: null, budgetCapUsd: 25 });
 	const lower = await act(OWNER, RUN_ID, {
@@ -981,9 +1066,10 @@ console.log('actions × statuses');
 		[lower.status, lower.body.error],
 		[400, 'cap_not_raised'],
 	);
+	const raiseId = requestId();
 	const raised = await act(OWNER, RUN_ID, {
 		action: 'resume',
-		requestId: requestId(),
+		requestId: raiseId,
 		budgetCapUsd: 9999,
 	});
 	check(
@@ -991,6 +1077,22 @@ console.log('actions × statuses');
 		[raised.status, (rowsOf(RUN_ID).at(-1)!.payloadJson as { budgetCapUsd: number }).budgetCapUsd],
 		[200, 500],
 	);
+	{
+		// The worker raised the cap and resumed the run; the resend is replayed, not cap_not_raised.
+		Object.assign(run, { status: 'running', budgetCapUsd: 500 });
+		const rows = rowsOf(RUN_ID).length;
+		const resent = await act(OWNER, RUN_ID, {
+			action: 'resume',
+			requestId: raiseId,
+			budgetCapUsd: 9999,
+		});
+		check(
+			'a resent resume after the worker raised the cap is replayed',
+			[resent.status, resent.body.replayed, resent.body.eventId, rowsOf(RUN_ID).length - rows],
+			[200, true, raised.body.eventId, 0],
+		);
+		Object.assign(run, { status: 'paused', budgetCapUsd: 25 });
+	}
 	const plain = await act(OWNER, RUN_ID, { action: 'resume', requestId: requestId() });
 	check(
 		'a plain resume carries no cap',
@@ -1130,6 +1232,20 @@ console.log('estimate');
 		placeholder: boolean;
 	};
 	check('regions are the template’s', (answer.body.template as { regions: number }).regions, 25);
+	check('the cap a run started now would get', answer.body.budgetCapUsd, 25);
+	{
+		const at = async (mockups: number) =>
+			(
+				(
+					await call(estimateRoute.POST, {
+						user: OWNER,
+						url: '/api/director/estimate',
+						body: { template: 'hw', mockups },
+					})
+				).body.estimate as { claude: { byAgent: Record<string, unknown> } }
+			).claude.byAgent['mockup-analyst'];
+		check('the mockup count is capped at the upload limit', await at(99), await at(12));
+	}
 	check('it is a placeholder until measured', est.placeholder, true);
 	check('three checkpoints by default', est.checkpoints, 3);
 	const r = (x: unknown) => x as { low: number; high: number };
@@ -1324,10 +1440,13 @@ console.log('fonts');
 	});
 	put(`${root}title/request.json`, JSON.stringify(request('title')), undefined);
 	put(`${root}numbers/request.json`, JSON.stringify(request('numbers')), undefined);
+	// A doc whose own `folder` field lies, and a request.json nested too deep to be one.
+	put(`${root}liar/request.json`, JSON.stringify(request('title')), undefined);
+	put(`${root}deep/er/request.json`, JSON.stringify(request('deep')), undefined);
 	const fontsUrl = `/api/director/fonts?project=${NEW}`;
 	const list = await call(fontsRoute.GET, { user: OWNER, url: fontsUrl });
 	check(
-		'the staged requests are listed',
+		'the staged requests are listed, by the key’s folder, one level down only',
 		(
 			list.body.requests as {
 				folder: string;
@@ -1337,6 +1456,7 @@ console.log('fonts');
 			}[]
 		).map((r) => [r.folder, r.status, r.inCatalog, r.requestedBy.agent]),
 		[
+			['liar', 'awaiting_owner', false, 'builder'],
 			['numbers', 'awaiting_owner', false, 'builder'],
 			['title', 'awaiting_owner', false, 'builder'],
 		],
@@ -1391,7 +1511,7 @@ console.log('fonts');
 	check(
 		'awaiting requests list first',
 		(after.body.requests as { folder: string }[]).map((r) => r.folder),
-		['numbers', 'title'],
+		['liar', 'numbers', 'title'],
 	);
 	check(
 		'…and a done request still names the agent that staged it',

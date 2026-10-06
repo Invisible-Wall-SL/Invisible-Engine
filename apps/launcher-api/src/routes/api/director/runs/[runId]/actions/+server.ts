@@ -16,9 +16,13 @@ import type { RequestHandler } from './$types';
  *   { action: 'message', requestId, text }                   to the coordinator
  *   → 200 { action, eventId, replayed, run: <summary> }
  *
- * Owner-only (404 otherwise, like an unknown id). An action the run's state does not allow is
- * refused with the worker's own reason (409 `not_allowed`) and writes nothing. `requestId` replays
- * to the same event id without a second row.
+ * A 200 means RECORDED: the row is in `director_events` for the worker to apply. A run that has
+ * moved on by the time the worker reads it is refused there, as an `error` event whose
+ * `payload.type` is `refused_request`, which the Live-run page should watch for on the stream.
+ * Owner-only (404 otherwise, like an unknown id). An action the run's state does not allow when
+ * it arrives is refused with the worker's own reason (409 `not_allowed`) and writes nothing. A
+ * resend — the same `requestId` with the same body — answers the recorded event id with
+ * `replayed: true`, whatever the run's state by then; another body under that id is 409.
  */
 export const POST: RequestHandler = async ({ params, request, locals }) => {
 	const user = await requireDirectorAccess(locals);
