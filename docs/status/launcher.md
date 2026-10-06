@@ -132,6 +132,51 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   checks). Guide: `docs/tools/pipeline-changes.md`. INFRA: the App's Contents and Pull requests
   permissions are now read & write; the App stays off the ruleset's bypass list; "Automatically
   delete head branches" stays on. Not built: Discard branch, the Agents tab (5D).
+- 2026-10-06 — **Invisible Pipeline Changes: the Agents tab, agent-definition changes and their
+  evaluation** (Director card 5D, PLAN 5.4; ADR-0007 "Agents tab"). `/pipeline`'s **Agents** tab
+  lists Director's seven runtime agents as `main` holds them (`services/director-worker/agents/
+  <name>.md`, read through the GitHub App: model, effort, tools, the last commit touching the file,
+  the open agent-definition changes editing it; `?agent=<name>` deep-links one) and opens one in a
+  text editor. The **Validation** panel re-runs, on every keystroke, the worker's own frontmatter
+  loader (moved to the pure `services/director-worker/src/agentDefinition.ts`, imported by the
+  browser and the server alike; `agents.ts` re-exports it), the runnable-model list
+  (`src/models.ts`, what `model.ts` has a request profile for — a priced-only fallback model is
+  refused like the worker's boot would) and the adapter allow-lists `check:director-adapters`
+  pins: an edit that adds or drops an adapter op is refused as a launcher change, not a
+  definition change (`$lib/agentEdit.ts` `validateAgentEdit`, the same verdict on submit). A
+  valid, changed definition with a one-line why is **submitted as a pipeline change** (needs
+  `pipelineMerge`; read-only otherwise): `POST /api/pipeline/agents/<name>/changes` opens, as the
+  App, a branch `agents/<name>-<short>` off main's current commit, ONE commit changing only that
+  file (the Git Data API: blob → tree → commit → ref; never a push to `main`), and a PR titled
+  `agents: <name> — <why>` labelled `agent-definition` (the label is created if the repo lacks
+  it), the launcher user named in the body and never by email. `requestId` is the idempotency
+  key (`<short>` is derived from it, so a resend finds its branch and PR — or finishes a branch
+  whose PR never got opened — and a resend with other content is a 409); a `baseSha` that is
+  not main's blob (the editor is stale), an unchanged file, and a `main` that moved twice while
+  the commit was made are 409s; the commit is made again once when main moved under it.
+  `GET /api/pipeline/agents[/<name>]` are session-gated like the Changes tab;
+  `scripts/check-commit-scope.mjs` accepts the `agents` scope. **The evaluation**:
+  `.github/workflows/agent-eval.yml` runs on `pull_request_target` (main's workflow file and
+  code; the PR contributes one Markdown file by `git show`, never executed) for a same-repo PR
+  with the label that edits exactly one agent definition, runs main's definition and the edited
+  one over the agent's reference set (`services/director-worker/src/eval/`: today only
+  `mockup-analyst`, over `docs/director/eval/mockups/` scored against `expected-breakdown.json`
+  — per expected element ½ status agreement + ½ region agreement, elements matched by box
+  overlap; any other agent gets "no eval set" and passes), with a **$20 hard cap** enforced in
+  code from the usage the API returns (stop before the next call once the total reaches it;
+  "capped" is a failure), posts the commit status `agent-eval` on the PR head and uploads
+  `report.json` as the `agent-eval-report` artifact (the shape in `src/eval/report.ts`, kept 90
+  days). It needs the `ANTHROPIC_API_KEY` Actions secret (INFRA "Agent eval"; the owner adds
+  it; never printed). The change detail of an `agent-definition` PR shows an **Agent evaluation**
+  section between the two checks (read from that artifact through the run the status names,
+  verified to be the eval workflow's from this repo with a report for this head and agent;
+  bounded read, same `safeHref` rules): before/after scores, cost of cap, capped, the per-item
+  diff; a failed or capped eval, or a labelled change that does not edit exactly one definition,
+  is **Blocked** with `agent-eval: …` (the list counts the status like `current-games`). Merge
+  is not here (card 5C); `agent-eval` is not a GitHub-required check (open question). Fixtures:
+  `check:pipeline-changes` (the fake GitHub grew the Git Data, labels and eval-run routes),
+  the worker's `check:agent-eval` (the scorer and the runner over a fake model, the cap paths),
+  `check:agents`. Guide: `docs/tools/pipeline-changes.md`.
 - 2026-10-06 — **Invisible Director: New game and Mockup breakdown screens** (Director card 4B,
   PLAN 4.1 + 4.2; over the owner API of #1069 and the breakdown step of #1067).
   - `/director` is the New game screen (mockup 02): Game Maker's project fields and validation

@@ -15,7 +15,7 @@ import type { RequestHandler } from './$types';
  * sentence; any other GitHub failure is a 502.
  */
 export const POST: RequestHandler = async ({ locals, params, request }) => {
-	const user = await requirePipelineMerge(locals);
+	const user = await requirePipelineMerge(locals, 'Merging');
 	const number = parseChangeNumber(params.number);
 	const missing = githubApp.missing();
 	if (missing) return json({ error: missing }, { status: 503 });

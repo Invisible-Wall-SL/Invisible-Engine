@@ -16,7 +16,7 @@ const REASON_MAX = 500;
  * apply cleanly is a 409 to do by hand, with nothing written to GitHub. Needs `pipelineMerge`.
  */
 export const POST: RequestHandler = async ({ locals, params, request }) => {
-	const user = await requirePipelineMerge(locals);
+	const user = await requirePipelineMerge(locals, 'Rolling back');
 	const number = parseChangeNumber(params.number);
 	const missing = githubApp.missing();
 	if (missing) return json({ error: missing }, { status: 503 });

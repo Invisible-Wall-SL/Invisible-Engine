@@ -3,6 +3,7 @@
 	import type { PipelineApproval } from '$lib/server/pipelineApprovals';
 	import type { ApproveResult, ChangeDetail } from '$lib/server/pipelineChanges';
 	import type { MergeResult } from '$lib/server/pipelineMerge';
+	import AgentEvalSection from './AgentEvalSection.svelte';
 	import Pill from './Pill.svelte';
 	import ScreenCompare from './ScreenCompare.svelte';
 	import {
@@ -348,6 +349,8 @@
 			</details>
 		{/if}
 	</section>
+
+	{#if detail.agentEval}<AgentEvalSection check={detail.agentEval} />{/if}
 
 	<section class="card" aria-labelledby="check2">
 		<div class="card-head">

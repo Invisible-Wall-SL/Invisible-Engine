@@ -7,6 +7,7 @@ import type {
 	BetaTool,
 } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import type { AgentDefinition } from './agents.ts';
+import type { RunnableModel } from './models.ts';
 
 /**
  * How one agent turn is asked of the model (ADR-0001): one streamed Messages call, built only from
@@ -32,7 +33,8 @@ interface ModelProfile {
 	fallbacks: boolean;
 }
 
-const PROFILES: Record<string, ModelProfile> = {
+// Keyed by `RUNNABLE_MODELS`, so a model added to one and not the other is a type error here.
+const PROFILES: Record<RunnableModel, ModelProfile> = {
 	'claude-opus-5-5': {
 		maxTokens: 64_000,
 		thinking: { type: 'adaptive' },
@@ -55,7 +57,7 @@ const PROFILES: Record<string, ModelProfile> = {
 
 /** The model's request profile; throws for a model the worker does not know how to call. */
 export function modelProfile(model: string): ModelProfile {
-	const profile = Object.hasOwn(PROFILES, model) ? PROFILES[model] : undefined;
+	const profile = Object.hasOwn(PROFILES, model) ? PROFILES[model as RunnableModel] : undefined;
 	if (!profile) throw new Error(`no request profile for model ${model} (src/model.ts)`);
 	return profile;
 }

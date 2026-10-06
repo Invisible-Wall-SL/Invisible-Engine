@@ -20,8 +20,23 @@ import {
 	type HarnessReportState,
 	type ReportImages,
 } from './pipelineReport';
+import {
+	AGENT_DEFINITION_LABEL,
+	EVAL_STATUS_CONTEXT,
+} from '../../../../../services/director-worker/src/eval/report';
+import {
+	EVAL_WORKFLOW_PATH,
+	evalVerdict,
+	githubErrorText,
+	loadAgentEval,
+	unreadableAgentEval,
+	type AgentEvalCheck,
+	type EvalVerdict,
+} from './pipelineAgentEval';
 import { getRoleOverrides } from './roleToolAccess';
 import { getToolOverrides } from './userToolAccess';
+
+export type { AgentEvalCheck };
 
 /**
  * Invisible Pipeline Changes over GitHub (ADR-0007, "GitHub is the record"): the changes are the
@@ -46,8 +61,10 @@ export const HARNESS_WORKFLOW_PATH = '.github/workflows/current-games.yml';
 export const HARNESS_SOURCES = [/^\.github\/workflows\//, /^scripts\/current-games\//];
 /** Reserved for Director games, which never make a PR; a PR wearing it is not a change. */
 export const DIRECTOR_GAME_LABEL = 'director-game';
-/** An Agents-tab change (PLAN 5.4); listed like any other, flagged for the UI. */
-export const AGENT_DEFINITION_LABEL = 'agent-definition';
+/** An Agents-tab change (PLAN 5.4); listed like any other, flagged for the UI. The label and the
+ *  eval's status context are the workflow's own constants (`eval/report.ts`). */
+export { AGENT_DEFINITION_LABEL };
+export const EVAL_CONTEXT = EVAL_STATUS_CONTEXT;
 const BASE_BRANCH = 'main';
 const PER_CHANGE_CONCURRENCY = 4;
 const PAGE = 100;
@@ -241,6 +258,8 @@ export interface ChangeDetail extends ChangeSummary {
 	filesTruncated: boolean;
 	checks: CheckGroup[];
 	harness: HarnessCheck;
+	/** The agent evaluation; null unless the change carries the `agent-definition` label. */
+	agentEval: AgentEvalCheck | null;
 }
 
 export interface ApproveResult {
@@ -311,7 +330,9 @@ function groupState(jobs: CheckJob[]): CheckState {
  * The harness's own jobs (by its workflow file, not its name) are left out — they are Check 2: its
  * `report` job exits non-zero on a failed verdict by design, and the verdict is the `current-games`
  * status, which an approval can turn green. Counting those jobs here would hold a change Blocked
- * after every diff was approved. A workflow a PR adds under the same name stays in Check 1.
+ * after every diff was approved. The eval workflow's job is left out the same way: its verdict is
+ * the `agent-eval` status, with the reason in its description, and its job exits non-zero on a
+ * failed one. A workflow a PR adds under the same name stays in Check 1.
  */
 export function groupCheckRuns(
 	checkRuns: GhCheckRun[],
@@ -321,7 +342,7 @@ export function groupCheckRuns(
 	const groups = new Map<string, CheckGroup>();
 	for (const run of checkRuns) {
 		const workflow = run.check_suite ? bySuite.get(run.check_suite.id) : undefined;
-		if (workflow?.path === HARNESS_WORKFLOW_PATH) continue;
+		if (workflow?.path === HARNESS_WORKFLOW_PATH || workflow?.path === EVAL_WORKFLOW_PATH) continue;
 		const name = workflow?.name ?? run.app?.name ?? run.name;
 		let group = groups.get(name);
 		if (!group) {
@@ -355,17 +376,33 @@ export interface StatusInput {
 	checks: CheckGroup[];
 	/** The `current-games` context on the head; `null` when it has not reported. */
 	harness: { state: string; description: string | null } | null;
+	/** An agent-definition change: what its evaluation says (`evalVerdict`), `null` until read. */
+	agentEval?: { verdict: EvalVerdict; reason: string | null } | null;
+	agentDefinition?: boolean;
 }
 
 const conclusionWord = (c: string | null): string =>
 	c === 'failure' || !c ? 'failed' : c.replace(/_/g, ' ');
 
+const failedStatus = (s: { state: string } | null | undefined): boolean =>
+	s?.state === 'failure' || s?.state === 'error';
+
 /**
  * Testing / Blocked / Ready to merge (ADR-0007). Blocked wins over Testing: a failed gate is
  * something to fix now, whatever else is still running. `current-games` is required on `main`,
- * so a head it has not reported on is still testing however green the rest is.
+ * so a head it has not reported on is still testing however green the rest is. An
+ * agent-definition change has one more required word, `agent-eval`, judged by its verified
+ * report rather than its status (`pipelineAgentEval.ts`): a failed or capped eval, or one whose
+ * report cannot be read, blocks it, and one not in yet is still testing. The ruleset on `main`
+ * does not require `agent-eval` today; the tool does.
  */
-export function deriveStatus({ mergeableState, checks, harness }: StatusInput): ChangeStatus {
+export function deriveStatus({
+	mergeableState,
+	checks,
+	harness,
+	agentEval = null,
+	agentDefinition = false,
+}: StatusInput): ChangeStatus {
 	if (mergeableState === 'dirty') return { kind: 'blocked', reason: 'Merge conflict with main' };
 	for (const group of checks) {
 		const failed = group.jobs.find((j) => j.state === 'fail');
@@ -376,13 +413,18 @@ export function deriveStatus({ mergeableState, checks, harness }: StatusInput): 
 			};
 		}
 	}
-	if (harness && (harness.state === 'failure' || harness.state === 'error')) {
-		return { kind: 'blocked', reason: `${HARNESS_CONTEXT}: ${harness.description ?? 'failed'}` };
+	if (failedStatus(harness)) {
+		return { kind: 'blocked', reason: `${HARNESS_CONTEXT}: ${harness?.description ?? 'failed'}` };
+	}
+	if (agentDefinition && agentEval?.verdict === 'fail') {
+		return { kind: 'blocked', reason: `${EVAL_CONTEXT}: ${agentEval.reason ?? 'failed'}` };
 	}
 	const jobs = checks.flatMap((g) => g.jobs).filter((j) => j.state !== 'skipped');
 	const done =
-		jobs.filter((j) => j.state === 'pass').length + (harness?.state === 'success' ? 1 : 0);
-	const total = jobs.length + 1;
+		jobs.filter((j) => j.state === 'pass').length +
+		(harness?.state === 'success' ? 1 : 0) +
+		(agentDefinition && agentEval?.verdict === 'pass' ? 1 : 0);
+	const total = jobs.length + 1 + (agentDefinition ? 1 : 0);
 	if (done < total) return { kind: 'testing', done, total };
 	return { kind: 'ready' };
 }
@@ -393,9 +435,12 @@ export function deriveStatus({ mergeableState, checks, harness }: StatusInput): 
  */
 export function whyFromBody(body: string | null): string | null {
 	if (!body) return null;
+	// The word joiner an agent-definition change's body carries after `@` and `#` (so nobody is
+	// paged) is not part of the reason.
 	const text = body
 		.replace(/\r\n/g, '\n')
 		.replace(/<!--[\s\S]*?-->/g, '')
+		.replace(/\u2060/g, '')
 		.trim();
 	const heading = /(?:^|\n)#{1,6}[ \t]*why\b[^\n]*\n+([\s\S]*?)(?=\n#{1,6}[ \t]|$)/i.exec(text);
 	if (heading) return clip(heading[1]);
@@ -458,12 +503,13 @@ async function readHead(app: GithubApp, sha: string): Promise<Head> {
 	};
 }
 
-const harnessStatusOf = (head: Head): HarnessStatus | null => {
-	const s = head.statuses.find((x) => x.context === HARNESS_CONTEXT);
+const statusOf = (head: Head, context: string): HarnessStatus | null => {
+	const s = head.statuses.find((x) => x.context === context);
 	return s
 		? { state: s.state, description: s.description, url: s.target_url, updatedAt: s.updated_at }
 		: null;
 };
+const harnessStatusOf = (head: Head): HarnessStatus | null => statusOf(head, HARNESS_CONTEXT);
 
 /**
  * The harness run that owns this head's status: the one the harness's own workflow file made for
@@ -480,7 +526,8 @@ const harnessRunOf = (head: Head, sha: string): GhWorkflowRun | null =>
 			r.head_repository?.full_name === repo(),
 	) ?? null;
 
-function summaryOf(pull: GhPull, head: Head): ChangeSummary {
+/** `agentEval` is the change's evaluation, read for an agent-definition change; null otherwise. */
+function summaryOf(pull: GhPull, head: Head, agentEval: AgentEvalCheck | null): ChangeSummary {
 	const checks = groupCheckRuns(head.checkRuns, head.workflowRuns);
 	const labels = labelsOf(pull);
 	return {
@@ -500,9 +547,58 @@ function summaryOf(pull: GhPull, head: Head): ChangeSummary {
 			mergeableState: pull.mergeable_state ?? null,
 			checks,
 			harness: harnessStatusOf(head),
+			agentEval: agentEval && { verdict: evalVerdict(agentEval), reason: agentEval.blocking },
+			agentDefinition: labels.includes(AGENT_DEFINITION_LABEL),
 		}),
 	};
 }
+
+/**
+ * The evaluation of an agent-definition change, or null for any other change. A GitHub failure
+ * on the way (the files, the run) is that change's `unreadable` eval, so one bad answer never
+ * fails the whole list; a 404 of the change itself is not caught here (`readPull` says why).
+ */
+async function agentEvalOf(
+	app: GithubApp,
+	pull: GhPull,
+	head: Head,
+	files: () => Promise<ChangeFile[]>,
+): Promise<AgentEvalCheck | null> {
+	if (!labelsOf(pull).includes(AGENT_DEFINITION_LABEL)) return null;
+	try {
+		return await loadAgentEval(app, repo(), pull.head.sha, head.statuses, await files());
+	} catch (err) {
+		return unreadableAgentEval(
+			head.statuses,
+			`GitHub did not answer for this change: ${githubErrorText(err)}`,
+		);
+	}
+}
+
+/** Every open agent-definition change (the label), with the files each edits. */
+export async function listAgentDefinitionChanges(
+	app: GithubApp = githubApp,
+): Promise<{ change: ChangeSummary; files: ChangeFile[] }[]> {
+	const { changes } = await listChanges(app);
+	return mapWithConcurrency(
+		changes.filter((c) => c.agentDefinition),
+		PER_CHANGE_CONCURRENCY,
+		async (change) => ({
+			change,
+			files: toChangeFiles((await pullFiles(app, change.number)).files),
+		}),
+	);
+}
+
+const toChangeFiles = (files: GhFile[]): ChangeFile[] =>
+	files.map((f) => ({
+		path: f.filename,
+		previousPath: f.previous_filename ?? null,
+		status: f.status,
+		additions: f.additions,
+		deletions: f.deletions,
+		url: f.blob_url ?? null,
+	}));
 
 let listCache: { at: number; list: ChangeList } | null = null;
 /** Bumped by every `forgetChanges`: a read that started before the bump may hold what was
@@ -534,7 +630,11 @@ async function readChanges(app: GithubApp, generation: number): Promise<ChangeLi
 			app.json<GhPull>(`/repos/${r}/pulls/${listed.number}`),
 			readHead(app, listed.head.sha),
 		]);
-		return summaryOf(pull, head);
+		// The list judges an agent-definition change by its verified report, like the detail.
+		const agentEval = await agentEvalOf(app, pull, head, async () =>
+			toChangeFiles((await pullFiles(app, pull.number)).files),
+		);
+		return summaryOf(pull, head, agentEval);
 	});
 	const list: ChangeList = {
 		changes: [],
@@ -586,14 +686,8 @@ export async function getChange(number: number, app: GithubApp = githubApp): Pro
 		listApprovals(sha),
 	]);
 	const diffs = visibleDiffs(report);
-	const changeFiles: ChangeFile[] = files.map((f) => ({
-		path: f.filename,
-		previousPath: f.previous_filename ?? null,
-		status: f.status,
-		additions: f.additions,
-		deletions: f.deletions,
-		url: f.blob_url ?? null,
-	}));
+	const changeFiles = toChangeFiles(files);
+	const agentEval = await agentEvalOf(app, pull, head, async () => changeFiles);
 	const harnessFiles = harnessFilesOf(changeFiles);
 	const unapprovable = truncated
 		? `This change has more files than GitHub lists (${MAX_FILES}), so what it edits cannot be checked: it needs a manual merge after review.`
@@ -603,7 +697,7 @@ export async function getChange(number: number, app: GithubApp = githubApp): Pro
 	const standing = await standingOf(approvals);
 	const counted = countApprovals(diffs, approvals, standing);
 	return {
-		...summaryOf(pull, head),
+		...summaryOf(pull, head, agentEval),
 		state: pull.state,
 		body: pull.body,
 		why: whyFromBody(pull.body),
@@ -630,6 +724,7 @@ export async function getChange(number: number, app: GithubApp = githubApp): Pro
 			approvals: approvals.map((a) => ({ ...a, standing: standing.has(a.approverId) })),
 			unapprovable,
 		},
+		agentEval,
 	};
 }
 

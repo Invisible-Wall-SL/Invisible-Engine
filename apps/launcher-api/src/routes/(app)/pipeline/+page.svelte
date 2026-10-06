@@ -1,15 +1,28 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
 	import { replaceState } from '$app/navigation';
+	import { askConfirm } from '$lib/dialogs.svelte';
 	import { roleLabel } from '$lib/roles';
+	import type { AgentDetail, AgentList, AgentSummary } from '$lib/server/pipelineAgents';
 	import type { ChangeDetail, ChangeList, ChangeSummary } from '$lib/server/pipelineChanges';
 	import type { MergeHistory } from '$lib/server/pipelineMerge';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import type { PageData } from './$types';
+	import AgentPanel from './AgentPanel.svelte';
 	import ChangeDetailPanel from './ChangeDetailPanel.svelte';
 	import HistoryPanel from './HistoryPanel.svelte';
 	import Pill from './Pill.svelte';
-	import { apiErrorText, plural, statusPill, timeAgo } from './view';
+	import {
+		apiErrorText,
+		changedText,
+		effortLabel,
+		openChangesWord,
+		plural,
+		shortSha,
+		statusPill,
+		timeAgo,
+		toolsWord,
+	} from './view';
 
 	let { data }: { data: PageData } = $props();
 
@@ -17,25 +30,13 @@
 
 	const TABS = [
 		{ id: 'changes', label: 'Changes' },
-		{
-			id: 'agents',
-			label: 'Agents',
-			empty: 'No agent definitions to show yet.',
-			body: "Director's runtime-agent definitions will be shown and edited here. An edit creates a pipeline change, and its check runs a short evaluation on a fixed sample before and after.",
-		},
+		{ id: 'agents', label: 'Agents' },
 		{ id: 'history', label: 'History' },
 	] as const;
 
 	type TabId = (typeof TABS)[number]['id'];
-	let tab = $state<TabId>('changes');
-
-	function show(id: TabId): void {
-		tab = id;
-		if (id === 'history') {
-			historyShown = true;
-			void loadHistory();
-		}
-	}
+	const initialAgent = untrack(() => data.agent);
+	let tab = $state<TabId>(initialAgent !== null ? 'agents' : 'changes');
 
 	function onTabKeydown(e: KeyboardEvent) {
 		const i = TABS.findIndex((t) => t.id === tab);
@@ -46,7 +47,7 @@
 		else if (e.key === 'End') next = TABS.length - 1;
 		else return;
 		e.preventDefault();
-		show(TABS[next].id);
+		showTab(TABS[next].id);
 		document.getElementById(`tab-${TABS[next].id}`)?.focus();
 	}
 
@@ -62,11 +63,23 @@
 	let historyError = $state<string | null>(null);
 	let historyLoading = $state(false);
 	let historyShown = false;
+	let agentList = $state<AgentList | null>(null);
+	let agentListError = $state<string | null>(null);
+	let agentListLoading = $state(false);
+	let selectedAgent = $state<string | null>(initialAgent);
+	let agentDetail = $state<AgentDetail | null>(null);
+	let agentError = $state<string | null>(null);
+	let agentLoading = $state(false);
+	/** The open editor holds text that is not yet a change. */
+	let agentPanel = $state<{ isDirty: () => boolean } | null>(null);
+	let agentsStarted = false;
 	let refreshing = $state(false);
 	let now = $state(Date.now());
 	let listSeq = 0;
 	let detailSeq = 0;
 	let historySeq = 0;
+	let agentListSeq = 0;
+	let agentSeq = 0;
 
 	const who = $derived(data.user.name?.trim() || data.user.email.split('@')[0]);
 	const changeCount = $derived(list ? list.changes.length : null);
@@ -141,15 +154,75 @@
 		}
 	}
 
+	async function loadAgentList(): Promise<void> {
+		const seq = ++agentListSeq;
+		try {
+			const next = await getJson<AgentList>('/api/pipeline/agents');
+			if (seq !== agentListSeq) return;
+			agentList = next;
+			agentListError = null;
+		} catch (err) {
+			if (seq === agentListSeq) agentListError = errorText(err);
+		} finally {
+			if (seq === agentListSeq) {
+				agentListLoading = false;
+				now = Date.now();
+			}
+		}
+	}
+
+	/** Resolves what it read, or `null`; `quiet` keeps what is shown while the answer is awaited. */
+	async function loadAgent(name: string, quiet: boolean): Promise<AgentDetail | null> {
+		const seq = ++agentSeq;
+		if (!quiet) {
+			agentDetail = null;
+			agentError = null;
+			agentLoading = true;
+		}
+		try {
+			const next = await getJson<AgentDetail>(`/api/pipeline/agents/${encodeURIComponent(name)}`);
+			if (seq !== agentSeq) return null;
+			agentDetail = next;
+			agentError = null;
+			return next;
+		} catch (err) {
+			if (seq === agentSeq) agentError = errorText(err);
+			return null;
+		} finally {
+			if (seq === agentSeq) {
+				agentLoading = false;
+				now = Date.now();
+			}
+		}
+	}
+
+	/** The Agents tab reads nothing until it is first shown. */
+	function startAgents(): void {
+		if (agentsStarted) return;
+		agentsStarted = true;
+		agentListLoading = true;
+		void loadAgentList();
+		if (selectedAgent !== null) void loadAgent(selectedAgent, false);
+	}
+
 	async function refreshAll(): Promise<void> {
 		if (refreshing) return;
 		refreshing = true;
 		try {
-			await Promise.all([
+			const jobs: Promise<unknown>[] = [
 				loadList(),
 				selected === null ? Promise.resolve(true) : loadDetail(selected, detail !== null),
-				historyShown ? loadHistory() : Promise.resolve(),
-			]);
+			];
+			if (historyShown) jobs.push(loadHistory());
+			if (tab === 'agents') {
+				jobs.push(
+					loadAgentList(),
+					selectedAgent === null
+						? Promise.resolve(null)
+						: loadAgent(selectedAgent, agentDetail !== null),
+				);
+			}
+			await Promise.all(jobs);
 		} finally {
 			refreshing = false;
 		}
@@ -165,7 +238,7 @@
 
 	/** A revert pull request was opened: it is a pipeline change like any other. */
 	function showRollback(number: number): void {
-		show('changes');
+		showTab('changes');
 		document.getElementById('tab-changes')?.focus();
 		select(number);
 		void loadList();
@@ -181,6 +254,66 @@
 		void loadDetail(number, false);
 	}
 
+	const agentUrl = (name: string): string => `/pipeline?agent=${encodeURIComponent(name)}`;
+
+	/** The address follows the tab that holds a selection; a tab with none leaves it alone. */
+	function showTab(id: TabId): void {
+		tab = id;
+		if (id === 'history') {
+			historyShown = true;
+			void loadHistory();
+		} else if (id === 'agents') {
+			startAgents();
+			if (selectedAgent !== null) {
+				// A query on this same route: `resolve()` cannot carry one.
+				// eslint-disable-next-line svelte/no-navigation-without-resolve
+				replaceState(agentUrl(selectedAgent), {});
+			}
+		} else if (id === 'changes' && selected !== null) {
+			// eslint-disable-next-line svelte/no-navigation-without-resolve
+			replaceState(`/pipeline?change=${selected}`, {});
+		}
+	}
+
+	async function selectAgent(name: string): Promise<void> {
+		if (name === selectedAgent) return;
+		if (
+			agentPanel?.isDirty() &&
+			!(await askConfirm({
+				title: `Discard your edits to ${selectedAgent}?`,
+				message:
+					'The text you changed is not saved anywhere, and no change has been opened for it.',
+				confirmLabel: 'Discard',
+				danger: true,
+			}))
+		) {
+			return;
+		}
+		selectedAgent = name;
+		// A query on this same route: `resolve()` cannot carry one.
+		// eslint-disable-next-line svelte/no-navigation-without-resolve
+		replaceState(agentUrl(name), {});
+		void loadAgent(name, false);
+	}
+
+	/** After a submit or a reload: the list card's tag and the detail's open changes. */
+	function rereadAgent(): Promise<AgentDetail | null> {
+		void loadAgentList();
+		return selectedAgent === null ? Promise.resolve(null) : loadAgent(selectedAgent, true);
+	}
+
+	/** Shows a pull request the Agents tab points at in the Changes tab. */
+	function openChange(number: number): void {
+		const same = number === selected;
+		tab = 'changes';
+		selected = number;
+		// A query on this same route: `resolve()` cannot carry one.
+		// eslint-disable-next-line svelte/no-navigation-without-resolve
+		replaceState(`/pipeline?change=${number}`, {});
+		void loadList();
+		void loadDetail(number, same && detail !== null);
+	}
+
 	function tabLabel(t: (typeof TABS)[number]): string {
 		if (t.id === 'changes' && changeCount !== null) return `Changes · ${changeCount}`;
 		if (t.id === 'history' && history) return `History · ${history.merges.length}`;
@@ -190,6 +323,7 @@
 	onMount(() => {
 		void loadList();
 		if (selected !== null) void loadDetail(selected, false);
+		if (tab === 'agents') startAgents();
 		const timer = setInterval(() => {
 			if (document.visibilityState === 'visible') void refreshAll();
 		}, REFRESH_MS);
@@ -224,6 +358,36 @@
 	</button>
 {/snippet}
 
+{#snippet agentCard(a: AgentSummary)}
+	<button
+		type="button"
+		class="change"
+		class:on={selectedAgent === a.name}
+		aria-pressed={selectedAgent === a.name}
+		onclick={() => selectAgent(a.name)}
+	>
+		<span class="change-top">
+			<span class="mono">{a.name}</span>
+			{#if a.openChanges.length || !a.valid}
+				<span class="tags">
+					{#if a.openChanges.length}
+						<Pill tone="amber" tag>{openChangesWord(a.openChanges.length)}</Pill>
+					{/if}
+					{#if !a.valid}<Pill tone="red" tag>invalid</Pill>{/if}
+				</span>
+			{/if}
+		</span>
+		{#if a.valid && a.model}
+			<span class="agent-spec">
+				<span class="mono">{a.model}</span>
+				<span>{effortLabel(a.effort)}</span>
+				<span>{toolsWord(a.tools.length)}</span>
+			</span>
+		{/if}
+		<span class="change-meta">{changedText(a.lastChange, now)}</span>
+	</button>
+{/snippet}
+
 <div class="page">
 	<ToolTopBar current="pipelineChanges" tools={data.tools}>
 		{#snippet meta()}
@@ -255,7 +419,7 @@
 					aria-selected={tab === t.id}
 					aria-controls={`panel-${t.id}`}
 					tabindex={tab === t.id ? 0 : -1}
-					onclick={() => show(t.id)}
+					onclick={() => showTab(t.id)}
 				>
 					{tabLabel(t)}
 				</button>
@@ -370,21 +534,64 @@
 			{/if}
 		</div>
 
-		{#each TABS as t (t.id)}
-			{#if 'empty' in t}
-				<div
-					id={`panel-${t.id}`}
-					class="empty wide"
-					role="tabpanel"
-					aria-labelledby={`tab-${t.id}`}
-					hidden={tab !== t.id}
-					tabindex="0"
-				>
-					<strong>{t.empty}</strong>
-					<p>{t.body}</p>
-				</div>
-			{/if}
-		{/each}
+		<div
+			id="panel-agents"
+			role="tabpanel"
+			aria-labelledby="tab-agents"
+			hidden={tab !== 'agents'}
+			tabindex="0"
+			class="changes"
+		>
+			<div class="heading">
+				<h1>Agents</h1>
+				<p>
+					Director's runtime agents, read from main. Editing one opens a pipeline change; an agent
+					with a reference set is evaluated before and after the edit.
+				</p>
+			</div>
+
+			<div class="cols">
+				<section class="list" aria-label="Agents">
+					{#if agentListError}<div class="error" role="alert">{agentListError}</div>{/if}
+					{#if agentListLoading && !agentList}
+						<p class="loading" aria-busy="true">Loading agents…</p>
+					{:else if agentList}
+						{#if !agentList.agents.length}
+							<div class="empty"><strong>No agent definitions on main.</strong></div>
+						{/if}
+						{#each agentList.agents as a (a.name)}
+							{@render agentCard(a)}
+						{/each}
+						<p class="note">
+							Read from main at <span class="mono">{shortSha(agentList.mainSha)}</span>.
+						</p>
+					{/if}
+				</section>
+
+				<section class="detail" aria-label="Agent details">
+					{#if agentError}<div class="error" role="alert">{agentError}</div>{/if}
+					{#if agentDetail}
+						{#key agentDetail.name}
+							<AgentPanel
+								detail={agentDetail}
+								canMerge={data.canMerge}
+								{now}
+								onreload={rereadAgent}
+								onopenchange={openChange}
+								bind:this={agentPanel}
+							/>
+						{/key}
+					{:else if agentLoading}
+						<div class="loading card" aria-busy="true">Loading {selectedAgent}…</div>
+					{:else if selectedAgent === null}
+						<div class="empty">
+							<strong>Select an agent</strong>
+							<p>Its definition, open changes and editor appear here.</p>
+						</div>
+					{/if}
+				</section>
+			</div>
+		</div>
 	</main>
 </div>
 
@@ -575,6 +782,17 @@
 		font-size: 12px;
 		color: #9a9aa6;
 	}
+	.agent-spec {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 2px 10px;
+		font-size: 12px;
+		color: #b9b9c4;
+	}
+	.agent-spec .mono {
+		font-size: 11px;
+		color: #9a9aa6;
+	}
 	.dependabot summary {
 		cursor: pointer;
 		padding: 6px 2px;
@@ -635,8 +853,5 @@
 		color: #888;
 		font-size: 13px;
 		line-height: 1.5;
-	}
-	.empty.wide[hidden] {
-		display: none;
 	}
 </style>

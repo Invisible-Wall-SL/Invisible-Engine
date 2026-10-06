@@ -516,6 +516,26 @@ code default, so the dashboard need not set it):
   status is posted through the API, so making it required means adding `current-games` to the `main`
   ruleset with source **any** (not "GitHub Actions"). How to run and read it:
   `docs/playtest/current-games.md`.
+- **Agent eval (GitHub Actions secret, `.github/workflows/agent-eval.yml`):** `ANTHROPIC_API_KEY`
+  — the key the evaluation of a runtime-agent definition change spends (Director card 5D, ADR-0007
+  "Agents tab"). **The owner must add it** (Settings → Secrets and variables → Actions): a
+  **repository secret today**, a key of its own (not the `director-worker` service's), ideally in
+  an Anthropic workspace with its own spend limit, so the account bounds a run a second time after
+  the code's **$20 per run** cap. Nothing else in CI reads it. The eval job runs under the
+  `agent-eval` environment (GitHub creates it on first use; a repository secret still reaches it).
+  *Optional hardening, no code change:* move the key into that environment — Settings →
+  Environments → `agent-eval` → **Deployment branches and tags** → *Selected* → `main`, then
+  **Environment secrets** → `ANTHROPIC_API_KEY` — and delete the repository secret, so a workflow
+  on any branch but `main` is handed nothing.
+  The workflow runs only on a same-repository PR **into `main`** labelled `agent-definition` that
+  edits exactly one `services/director-worker/agents/<name>.md`, from **main's** workflow file and
+  code (`pull_request_target`, `branches: [main]`), with the cap enforced in the eval's own code
+  from the usage the API returns. Missing → the run posts `agent-eval` as a failure naming the
+  secret, without printing anything. The value is never echoed: the runner prints the report's
+  one-line summary (scores and dollars) and nothing else, inside a stop-commands span. What runs
+  beside the key (`.github/workflows/**`, `services/director-worker/{scripts,src/eval}/**`) is
+  mapped to the owner in `CODEOWNERS` (review is auto-requested; it is not a required review).
+  See "GitHub App (Pipeline Changes)" for how the launcher opens those PRs.
 - **Director adapters:** `DIRECTOR_SERVICE_TOKEN` (secret, no default) — the bearer token the
   Invisible Director worker sends to `POST /api/director/adapter/<tool>/<op>`
   (`docs/director/DECISIONS/0002-tool-adapters.md`). Every call also names a run and an agent, and
@@ -1008,6 +1028,13 @@ satisfy the check. Verify afterwards with
 — six names. With no bypass, a direct `git push origin main` is refused: every change lands through
 a PR.
 
+**Not required, by decision pending: `agent-eval`** — `.github/workflows/agent-eval.yml` posts it
+as a commit status (through the API, like `current-games`, so it would need source **any**) on an
+`agent-definition` PR's head. Invisible Pipeline Changes already treats a failed or capped eval as
+**Blocked** for such a change (ADR-0007 "Agents tab"); whether GitHub itself should refuse the merge
+is an open question for the owner (card 5D), and the ruleset above is unchanged until it is
+answered.
+
 **Candidate, not yet required: `svelte-check (1/2)` · `svelte-check (2/2)`** —
 `.github/workflows/svelte-check.yml`, the type-check ratchet against `svelte-check-baseline.json`
 (`pnpm check:svelte`). It already follows the pattern above (no `paths-ignore`, `code-changed`
@@ -1061,9 +1088,17 @@ into short-lived installation tokens server-side and logs neither):
 | `GITHUB_APP_PRIVATE_KEY` | The App → **General** → **Private keys** → *Generate a private key*: a `.pem` download (an RSA private key in PEM form). Paste the whole file, header and footer lines included. Railway keeps the newlines; a key pasted as ONE line with `\n` written out is unescaped by the launcher, so either form works. |
 
 Permissions the App needs (Repository): Pull requests **read & write** (the list and detail; the
-merge; opening a revert PR; the agent-edit PRs of PLAN 5.4), Contents **read & write** (the revert
-branch and its commit; the agent-definition commits of 5.4), Commit statuses **read & write**, Checks
-**read**, Actions **read** (the report artifact), Metadata **read**. Raising a permission in the App's
+merge; opening a revert PR; the agent-edit PRs of the Agents tab), Contents **read & write** (the
+revert branch and its commit; the agent-definition commits), Commit statuses **read & write**,
+Checks **read**, Actions **read** (the report artifacts), Metadata **read**. The Agents tab (card 5D)
+turns an edited runtime-agent definition into a branch `agents/<name>-<short>` off `main`, one
+commit changing only `services/director-worker/agents/<name>.md` (the Git Data API: blob → tree →
+commit → ref, never a push to `main`), and a PR titled `agents: <name> — <why>` labelled
+`agent-definition`, all as the App; the launcher user is named in the body. The label is added
+through the issues endpoint (Pull requests write covers a PR's labels); if that add is refused
+because the repository has no `agent-definition` label yet, the launcher creates it, which needs
+Issues **write** — or the owner creates the label once by hand (Issues → Labels) and the App needs
+no Issues permission. Raising a permission in the App's
 settings asks the installation to accept it (the App → Install App → the gear → "Review request");
 until it is accepted, a merge or a rollback answers `GitHub 403: Resource not accessible by
 integration` and nothing else changes. The status the launcher posts comes through the API, like the
