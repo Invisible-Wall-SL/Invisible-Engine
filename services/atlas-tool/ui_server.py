@@ -16,6 +16,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import copy
+import hashlib
 import html
 import io
 import json
@@ -282,6 +283,51 @@ def _precheck_doc(p: Path) -> None:
     manifest save, which a later refusal could not take back."""
     key, rel, _name = _doc_ref(p)
     doc_sync.precheck(key, rel)
+
+
+def _put_create_only(p: Path, body: bytes) -> bool:
+    """Write a staging file and its R2 key ONLY if nothing else holds the name
+    (`If-None-Match: *`). True when written or already holding exactly these
+    bytes (a replay); False when different bytes hold it. Unlike `_mirror`, an
+    R2 failure raises: a file that never reached R2 is lost to the next
+    container, and its caller is about to point the manifest at it."""
+    if p.exists() and p.read_bytes() != body:
+        return False
+    r2_prefix = str(R2_PREFIX)
+    if r2_prefix and STAGING_ROOT:
+        rel = p.resolve().relative_to(Path(STAGING_ROOT).resolve()).as_posix()
+        key = f"{r2_prefix}/{rel}"
+        try:
+            storage.put(key, body, "image/png", if_none_match="*")
+        except storage.Conflict:
+            held = storage.get_with_etag(key)  # raises when R2 cannot be read
+            if held is None or held[0] != body:
+                return False
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(body)
+    return True
+
+
+def _output_region_part(name: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", name).strip("._") or "region"
+
+
+def versioned_output_rel(name: str, run: str, body: bytes) -> str:
+    """`refs/useroutput/<region>_<run>_<id>.png` — a Director run's committed
+    tile (ADR-0008 card 8B). `<id>` is the PNG's content digest, so a name only
+    ever holds one image: a commit never overwrites a tile in place, and a
+    replay of the same commit lands on the same file. A folder of its own, so
+    no person's `refs/useroutput_<name>.png` can ever be one of these names."""
+    run_id = re.sub(r"[^A-Za-z0-9-]+", "-", run or "").strip("-") or "run"
+    return (f"refs/useroutput/{_output_region_part(name)}_{run_id}_"
+            f"{hashlib.sha256(body).hexdigest()[:12]}.png")
+
+
+def is_versioned_output(rel: str, name: str) -> bool:
+    """Is `rel` a Director run's committed tile for region `name`?"""
+    region = re.escape(_output_region_part(name))
+    pattern = rf"refs/useroutput/{region}_[A-Za-z0-9-]+_[0-9a-f]{{12}}\.png"
+    return bool(re.fullmatch(pattern, str(rel or "")))
 
 
 def _unmirror(p: Path) -> None:
@@ -633,6 +679,53 @@ def run_on_env(target: str) -> dict:
                                                     RUN_ON_TRANSPORT[_env_run_on()])}
 
 
+def is_director(identity) -> bool:
+    """A Director agent's call: a signed api token whose `act` names the
+    Director (ADR-0002). The ADR-0008 card 8B rules below apply to it alone."""
+    return getattr(identity, "act_tool", "") == "director"
+
+
+def director_render_refusal(identity, cfg: dict | None = None) -> str:
+    """Why a `/render` must not start, or "". The Director renders only on
+    RunPod: a render that would go over the `http` transport (someone's own
+    ComfyUI over the tunnel) is refused for it, whatever the config says.
+    Nobody else is ever refused here."""
+    if not is_director(identity):
+        return ""
+    if RUN_ON_TRANSPORT.get(effective_run_on(cfg)) != "http":
+        return ""
+    return ("✖ The Director renders only on RunPod, and this project's ⚙ Run "
+            "generation on is 'My computer'. Nothing was started.")
+
+
+def refuse_config_edits(edits: dict, director: bool) -> str:
+    """Why a `/saveconfig` must not be applied at all, or "". Checked before
+    anything is written, so a refused save changes nothing."""
+    if "atlas_pipeline" in edits and not director:
+        return ("✖ atlas_pipeline is set by a Director run only; use the Pipeline "
+                "control. Nothing was saved.")
+    if director:
+        stray = sorted(k for k in edits if k not in DIRECTOR_CONFIG_KEYS)
+        if stray:
+            return ("✖ A Director run may change only this atlas's settings, not "
+                    f"{', '.join(stray)}. Nothing was saved.")
+    if "atlas_pipeline" in edits:
+        pipe = str(edits["atlas_pipeline"]).strip().lower()
+        if pipe and pipe not in PIPELINE_OPTIONS and pipe not in {
+                str(b.get("id") or "") for b in blueprints.list_blueprints(kind="image")}:
+            return (f"✖ No pipeline '{pipe}': not a built-in and not an image "
+                    "blueprint in the library. Nothing was saved.")
+    return ""
+
+
+def atlas_pipeline(m: dict, cfg: dict) -> str:
+    """The pipeline an atlas renders on: its own `settings.pipeline` (written
+    only by a Director run, `/saveconfig` `atlas_pipeline`), else the global
+    Pipeline — what `batch_atlas.apply_manifest_settings` resolves."""
+    own = str((m.get("settings") or {}).get("pipeline") or "").strip().lower()
+    return own or str(cfg.get("pipeline", "sdxl")).lower() or "sdxl"
+
+
 def _run_on_options_html(cur: str) -> str:
     """<option>s for the run_on <select>: the blank service default (named, so
     the user can see what blank means), then the two targets. An unknown
@@ -669,6 +762,11 @@ PER_ATLAS_KEYS = {
 # The Settings keys a built-in pipeline's card may name (ADR-0008 §2): per atlas
 # or per region, never global-only.
 CARD_BUILTIN_KEYS = bp_cards.builtin_keys(PER_ATLAS_KEYS, ADV_FIELDS)
+
+# What a Director `/saveconfig` may carry: this atlas's own settings. A global
+# key (the Pipeline control, ⚙ Run generation on, the active atlas) is the
+# project's, and its agents never write it (ADR-0008 §3).
+DIRECTOR_CONFIG_KEYS = PER_ATLAS_KEYS | {"atlas_pipeline", "bpParams"}
 
 # Editable manifest["atlas"] geometry, surfaced in the Settings panel.
 # UI key -> manifest atlas key. Always per-manifest (no global fallback).
@@ -1653,6 +1751,34 @@ def save_config(cfg: dict, *, user: bool = False) -> None:
     overwriting the other's settings."""
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     _store_doc(Path(CONFIG_PATH), cfg, user=user)
+
+
+def hold_selection() -> None:
+    """Before a Director call adds an atlas: when the people's selection is only
+    the first-manifest fallback (`manifest_path` blank or naming nothing this
+    project owns), write that fallback down, so the new atlas cannot become the
+    selection by sorting first. The one config write a Director call makes, and
+    it changes nothing anyone sees."""
+    cfg = load_config()
+    name = Path(str(cfg.get("manifest_path", ""))).name
+    owned = list_manifests()
+    if not owned or name in owned:
+        return
+    cfg["manifest_path"] = owned[0]
+    save_config(cfg)
+
+
+def select_manifest(identity, fname: str) -> bool:
+    """Make `fname` the project's active atlas (`manifest_path`), as New and
+    Duplicate atlas do for a person. Never for a Director call: the selection
+    is the people's on this project, and an agent names its atlas per request
+    (`?manifest=`). Returns whether it switched."""
+    if is_director(identity):
+        return False
+    cfg = load_config()
+    cfg["manifest_path"] = fname
+    save_config(cfg)
+    return True
 
 
 def active_manifest_name() -> str:
@@ -3336,6 +3462,20 @@ def run_render(names: list[str], variants: int = 1,
         _run_render(names, variants, user, job_ref, callback)
 
 
+# Who the render on THIS worker thread is for — `_render_job` re-checks the
+# Director's transport rule against the setting it actually reads.
+_render_caller = threading.local()
+
+
+def run_render_as_director(*args) -> None:
+    """`run_render` for a Director call (the worker thread's target)."""
+    _render_caller.director = True
+    try:
+        run_render(*args)
+    finally:
+        _render_caller.director = False
+
+
 def _run_render(names: list[str], variants: int, user: str, job_ref: str,
                 callback: dict | None) -> None:
     global _stopped
@@ -3391,10 +3531,18 @@ def _run_render(names: list[str], variants: int, user: str, job_ref: str,
 def _render_job(names: list[str], variants: int, user: str,
                 job_ref: str = "") -> int | None:
     """The render itself. Returns the subprocess's exit code, or None when it
-    never ran (a "My computer" target that is not reachable)."""
+    never ran (a "My computer" target that is not reachable, or a Director
+    render the setting moved to it after `/render` answered)."""
     comfy_env = resolve_user_comfy_env(user)
     chosen = str(load_config().get("run_on") or "").strip().lower()
     target = chosen if chosen in RUN_ON_OPTIONS else _env_run_on()
+    if getattr(_render_caller, "director", False) and RUN_ON_TRANSPORT.get(target) == "http":
+        with _render_lock:
+            _render_state.update(running=False, done=True, cur=0, total=0,
+                                 log="The Director renders only on RunPod, and ⚙ Run "
+                                     "generation on is now 'My computer'. Nothing was "
+                                     "rendered.\n", diagnostics=[])
+        return None
     comfy_env.update(run_on_env(target))
     total = len(names) * max(1, variants)
     # RunPod on-demand: if the pod is asleep, wake it and wait for ComfyUI before
@@ -6284,6 +6432,8 @@ const BP_BOUND_ROLES={bp_bound_roles_js};
 // manifest's saved overrides (id -> {{key: value}}), namespaced by blueprint id.
 const BP_PARAMS={bp_params_js};
 const BP_PARAM_VALUES={bp_param_values_js};
+// This atlas's own pipeline (`settings.pipeline`, set by a Director run), or ''.
+const ATLAS_PIPE={atlas_pipe_js};
 // [{{id,name}}] of every shared blueprint + whether this user may delete them —
 // drives the manage/delete list in the New-blueprint modal.
 const BP_LIST={bp_list_js};
@@ -6304,12 +6454,14 @@ function globalPipe(){{
  let ps=document.querySelector('[data-cfg="pipeline"]');
  return (ps&&ps.value)||'sdxl';
 }}
+// What this atlas renders on: its own pipeline, else the global one.
+function atlasPipe(){{ return ATLAS_PIPE||globalPipe(); }}
 function applyPipe(){{                 // Settings panel (global + per-atlas)
  let p=globalPipe();
  document.querySelectorAll('.cfggrid [data-pipe]').forEach(l=>{{
   l.style.display=pipeVisible(l.getAttribute('data-pipe'),p)?'':'none';
  }});
- renderBpParams(p);  // exposed-param controls for the active blueprint
+ renderBpParams(atlasPipe());  // exposed-param controls for the active blueprint
  applyCardPipes();   // a card inheriting the global pipeline follows it
 }}
 // The SAME rule as data-pipe, for the geometry rows of 🧩 Atlas settings: a row
@@ -6457,7 +6609,7 @@ async function saveBpParams(btn){{
  let panel=document.getElementById('bpParamsPanel');
  let stat=document.getElementById('bpParamsStat');
  if(!panel) return;
- let bpid=panel.dataset.bpid||globalPipe();
+ let bpid=panel.dataset.bpid||atlasPipe();
  let vals={{}};
  document.querySelectorAll('#bpParamsGrid [data-bpparam]').forEach(el=>{{
   vals[el.dataset.bpparam]=el.value;
@@ -6488,7 +6640,7 @@ async function resolveBpWorkflow(btn){{
  let stat=document.getElementById('bpResStat');
  let out=document.getElementById('bpResOut');
  let panel=document.getElementById('bpParamsPanel');
- let bpid=(panel&&panel.dataset.bpid)||globalPipe();
+ let bpid=(panel&&panel.dataset.bpid)||atlasPipe();
  let man=activeManifestName();
  if(!man){{ if(stat)stat.textContent='No active manifest.'; return; }}
  let reg=(document.getElementById('bpResRegion')||{{}}).value||'';
@@ -6551,7 +6703,7 @@ function bpResDownload(){{
  setTimeout(()=>{{ URL.revokeObjectURL(a.href); a.remove(); }},0);
 }}
 function applyCardPipes(){{            // each card uses its OWN effective pipe
- let gp=globalPipe();
+ let gp=atlasPipe();
  document.querySelectorAll('.card').forEach(c=>{{
   let p=c.dataset.effpipe||gp;
   c.querySelectorAll('[data-pipe]').forEach(l=>{{
@@ -7861,7 +8013,7 @@ async function saveAdv(){{
  // update its effective pipeline + GPT badge, then re-apply card show/hide.
  let card=document.querySelector('.card[data-name="'+_advName+'"]');
  if(card){{
-  let eff=(vals.pipeline||'').trim().toLowerCase()||globalPipe();
+  let eff=(vals.pipeline||'').trim().toLowerCase()||atlasPipe();
   card.dataset.effpipe=eff;
   let h=card.querySelector('h3'), b=h&&h.querySelector('.gptbadge');
   if(eff==='gpt_image'&&!b){{
@@ -8425,6 +8577,30 @@ class Handler(BaseHTTPRequestHandler):
         self._user_id = ident.sub
         project_paths.switch_context(ident.client, ident.project)
 
+    # The POSTs that act on "the atlas" (the selected one, unless pinned): a
+    # Director call must name it. Library, video and create-by-name routes
+    # are not here; each answers for itself.
+    _DIRECTOR_PINNED_POSTS = {
+        "/save", "/saveconfig", "/render", "/createatlas", "/delvariants",
+        "/duplicateatlas", "/addregion", "/addlayer", "/delregion", "/saveadv",
+        "/saveglobalstyle", "/uploadatlas", "/deployatlas", "/setref", "/clearref",
+        "/setoutput", "/userefimg", "/userefall", "/clearoutput", "/shinefrom",
+        "/shinemode", "/copyfrom", "/setmode", "/fxbuild", "/sliceatlas",
+    }
+
+    def _refuse_unpinned_director_write(self) -> bool:
+        """A Director POST that does not name its atlas (`?manifest=`) would land
+        on whichever atlas people have selected. Answers 400 and returns True."""
+        if not is_director(getattr(self, "_identity", None)):
+            return False
+        parsed = urllib.parse.urlparse(self.path)
+        if (parsed.path not in self._DIRECTOR_PINNED_POSTS
+                or urllib.parse.parse_qs(parsed.query).get("manifest", [""])[0]):
+            return False
+        self._send(400, "application/json",
+                   b'{"error":"a Director call names its atlas (?manifest=)"}')
+        return True
+
     def _pin_requested_manifest(self) -> bool:
         """An agent's call (an api token's `act` claim) names the manifest it
         works on with `?manifest=`, pinned for this request only: the selection
@@ -8526,6 +8702,8 @@ class Handler(BaseHTTPRequestHandler):
         # Defaults so _index() can read these unconditionally.
         self._deeplink_region = ""
         self._deeplink_notice = ""
+        if is_director(getattr(self, "_identity", None)):
+            return False  # it activates an atlas: the people's selection
         try:
             atlas = (qs.get("atlas", [""])[0] or "").strip()
             if not atlas:
@@ -8851,6 +9029,8 @@ class Handler(BaseHTTPRequestHandler):
         self._resolve_publish()
         if not self._pin_requested_manifest():
             return
+        if self._refuse_unpinned_director_write():
+            return
         # A page that knows about saving safely says which version of each doc it
         # is showing; a request without the header (a tab opened before this
         # shipped, a script) is still compare-and-swapped, just never asked.
@@ -8895,6 +9075,15 @@ class Handler(BaseHTTPRequestHandler):
             variants = int(payload.get("variants", 1))
             wants_json = "application/json" in (self.headers.get("Accept") or "")
             callback, refused = still_jobs.parse_callback(payload)
+            transport = director_render_refusal(getattr(self, "_identity", None))
+            if transport:
+                if wants_json:
+                    self._send(403, "application/json", json.dumps(
+                        {"started": False, "refused": "transport",
+                         "message": transport}).encode())
+                else:
+                    self._send(403, "text/plain", transport.encode())
+                return
             if refused:
                 if wants_json:
                     self._send(400, "application/json", json.dumps(
@@ -8907,7 +9096,8 @@ class Handler(BaseHTTPRequestHandler):
             if started:
                 ctx = (project_paths.client_name(), project_paths.project_name())
                 user = getattr(self, "_user_id", "") or ""
-                threading.Thread(target=run_render,
+                director = is_director(getattr(self, "_identity", None))
+                threading.Thread(target=run_render_as_director if director else run_render,
                                  args=(names, variants, ctx, user, job_ref, callback,
                                        getattr(_pinned_manifest, "path", None)),
                                  daemon=True).start()
@@ -9311,8 +9501,8 @@ class Handler(BaseHTTPRequestHandler):
         cfg = load_config()
         region = next((r for r in all_regions(m) if r["name"] == name), None) or {}
         g_neg = m.get("style", {}).get("negative", "")
-        g_pipe = str(cfg.get("pipeline", "sdxl")).lower() or "sdxl"
-        # Effective pipeline for this slot: its own override, else the global.
+        g_pipe = atlas_pipeline(m, cfg)
+        # Effective pipeline for this slot: its own override, else the atlas's.
         # Drives which fields the popup shows (client-side, live on change).
         effective = str(region.get("pipeline", "")).strip().lower() or g_pipe
         fields = []
@@ -9436,6 +9626,8 @@ class Handler(BaseHTTPRequestHandler):
         library is re-hydrated so the new blueprint is immediately selectable in
         the pipeline picker, and the new id is returned. Never raises a 500 —
         every failure path returns a readable string."""
+        if is_director(getattr(self, "_identity", None)):
+            return "✖ A Director run never writes the blueprint library."
         if not getattr(self, "can_publish", False):
             return ("✖ You're not allowed to publish blueprints. Ask an admin "
                     "for the 'Publish blueprints' permission.")
@@ -9603,9 +9795,16 @@ class Handler(BaseHTTPRequestHandler):
         selected = ""
         if payload.get("use_for_atlas"):
             try:
-                self._saveconfig({"pipeline": bp_id})
-                selected = (" and selected it as this atlas's pipeline "
-                            "(⚙ Settings → Pipeline)")
+                said = self._saveconfig({"pipeline": bp_id})
+                own = str((load_manifest().get("settings") or {}).get("pipeline") or "")
+                if said.startswith("✖"):
+                    selected = f" — but could not select it as the pipeline ({said})"
+                elif own:
+                    selected = (" and selected it as the global Pipeline; this atlas "
+                                f"keeps its own pipeline ({own}), set by a Director run")
+                else:
+                    selected = (" and selected it as this atlas's pipeline "
+                                "(⚙ Settings → Pipeline)")
             except Exception as e:  # noqa: BLE001 — the publish itself succeeded
                 selected = (f" — but could not select it as the pipeline ({e}); "
                             "pick it in ⚙ Settings → Pipeline yourself")
@@ -10744,6 +10943,8 @@ class Handler(BaseHTTPRequestHandler):
         if not slug:
             return "✖ Couldn't derive an atlas name from that — use letters/numbers."
         fname = f"atlas_manifest_{slug}.json"
+        if is_director(getattr(self, "_identity", None)):
+            hold_selection()
         # Manifests authored elsewhere (the Sheet Maker keeps case) would be a
         # SECOND file next to the lowercase slug on Linux, so an existing name
         # is matched ignoring case and its spelling reused.
@@ -10752,9 +10953,8 @@ class Handler(BaseHTTPRequestHandler):
         dest = MANIFEST_DIR / fname
         if dest.exists() and not bool(payload.get("overwrite", False)):
             # Don't clobber an existing atlas — switch to it instead.
-            cfg = load_config()
-            cfg["manifest_path"] = fname
-            save_config(cfg)
+            if not select_manifest(getattr(self, "_identity", None), fname):
+                return f"⚠ An atlas '{shown}' already exists — nothing was created."
             return (f"⚠ An atlas '{shown}' already exists — switched to it rather "
                     f"than overwriting. ✓ reload.")
         manifest = {
@@ -10774,16 +10974,14 @@ class Handler(BaseHTTPRequestHandler):
             if payload.get("overwrite", False):
                 raise
             _sync_doc(dest, force=True)
-            cfg = load_config()
-            cfg["manifest_path"] = fname
-            save_config(cfg)
+            if not select_manifest(getattr(self, "_identity", None), fname):
+                return (f"⚠ An atlas '{shown}' was just created by someone else — "
+                        f"nothing was created.")
             return (f"⚠ An atlas '{shown}' was just created by someone else — "
                     f"switched to it rather than overwriting. ✓ reload.")
         except OSError as e:
             return f"✖ Couldn't create the atlas: {e}"
-        cfg = load_config()
-        cfg["manifest_path"] = fname
-        save_config(cfg)
+        select_manifest(getattr(self, "_identity", None), fname)
         return f"✓ Created atlas '{shown}' — add regions, generate, then Create Atlas."
 
     # Per-region results that belong to the atlas they were made in, never to
@@ -10854,6 +11052,8 @@ class Handler(BaseHTTPRequestHandler):
             return (f"⚠ An atlas '{shown}' already exists — pick another name. "
                     f"(Duplicate never overwrites: the copy would take the "
                     f"other atlas's place while its images stayed behind.)")
+        if is_director(getattr(self, "_identity", None)):
+            hold_selection()
         renamed = {r["name"]: _sanitize_region_name(f"{prefix}_{r['name']}")
                    for r in regions}
         clash = sorted(n for n in renamed.values()
@@ -10892,9 +11092,7 @@ class Handler(BaseHTTPRequestHandler):
                     f"pick another name.")
         except OSError as e:
             return f"✖ Couldn't create the atlas: {e}"
-        cfg = load_config()
-        cfg["manifest_path"] = fname
-        save_config(cfg)
+        select_manifest(getattr(self, "_identity", None), fname)
         return (f"✓ Duplicated into '{shown}' — {len(out)} region(s) as "
                 f"'{prefix}_*', same source refs, prompts ready to edit. "
                 f"Deploy target cleared.")
@@ -11305,7 +11503,7 @@ class Handler(BaseHTTPRequestHandler):
         _style = m.get("style", {})
         cfg = load_config()
         cards = []
-        g_pipe = str(cfg.get("pipeline", "sdxl")).lower() or "sdxl"
+        g_pipe = atlas_pipeline(m, cfg)
         # A from-scratch atlas (`pack` or `grid`) owns its regions in the
         # manifest, so each card gets a delete affordance. An `.atlas`-bound
         # atlas takes its regions from the geometry file — deleting one here is
@@ -11406,7 +11604,7 @@ class Handler(BaseHTTPRequestHandler):
                 rneg_replace="checked" if rneg_replace else "",
                 rpos_replace="checked" if rpos_replace else "",
                 neg_badge=(" <span class='negbadge'>● has region negative</span>"
-                           if rneg and str(cfg.get("pipeline", "sdxl")).lower() != "flux"
+                           if rneg and g_pipe != "flux"
                            else ""),
                 gpt_badge=(
                     "<span class='gptbadge' title='This slot is edited by "
@@ -11474,6 +11672,14 @@ class Handler(BaseHTTPRequestHandler):
                     f'<label data-pipe="{pipe}"><span class="lblrow">'
                     f'{html.escape(label)}{qm}</span>{ctrl}</label>'
                 )
+        own_pipe = str(msettings.get("pipeline") or "").strip()
+        if own_pipe:
+            atlas_fields.append(
+                '<label><span class="lblrow">Pipeline '
+                '<span style="color:#888;font-size:10px">· this atlas</span></span>'
+                f'<input type="text" readonly value="{html.escape(own_pipe, quote=True)}"'
+                ' title="Set by a Director run. This atlas renders on it whatever '
+                'the global Pipeline control says."></label>')
         # NOT ATLAS_GEOM_FIELDS directly: `atlas_layout` is withheld from a
         # `.atlas`-bound atlas, which can therefore never be handed to the
         # packer. See `atlas_geom_fields_for`, and `atlas_geom_rows_html` for
@@ -11663,6 +11869,8 @@ class Handler(BaseHTTPRequestHandler):
             bp_bound_roles_js=json.dumps(bp_bound),
             bp_params_js=json.dumps(bp_params),
             bp_param_values_js=json.dumps(bp_param_values),
+            atlas_pipe_js=json.dumps(str((m.get("settings") or {}).get("pipeline") or "")
+                                     .strip().lower()).replace("</", "<\\/"),
             bp_list_js=json.dumps(bp_list),
             bp_can_publish_js=json.dumps(bool(getattr(self, "can_publish", False))),
             global_fields="".join(global_fields),
@@ -11824,6 +12032,9 @@ class Handler(BaseHTTPRequestHandler):
             return _diag("SOURCE_IMAGE_INVALID", err=f"{type(e).__name__}: {e}")
         m = load_manifest()
         _precheck_doc(manifest_path())  # before the committed tile is replaced
+        ident = getattr(self, "_identity", None)
+        if is_director(ident):
+            return self._setoutput_versioned(m, name, img, ident.act_run)
         (INPUT_DIR / "refs").mkdir(parents=True, exist_ok=True)
         rel = f"refs/useroutput_{name}.png"
         img.convert("RGBA").save(INPUT_DIR / rel)
@@ -11836,6 +12047,30 @@ class Handler(BaseHTTPRequestHandler):
         save_manifest(m)
         return (f"Using your image for {name} (not processed). "
                 f"Create Atlas to apply; ✕ revert to generate again.")
+
+    def _setoutput_versioned(self, m: dict, name: str, img: Image.Image,
+                             run: str) -> str:
+        """A Director run's `/setoutput`: the tile goes to its own versioned
+        file (`versioned_output_rel`), written create-only, so a tile committed
+        earlier — by a person or another run — is never overwritten in place.
+        Compose and deploy read the name from `output_override`. The region must
+        already exist: a run never adds one."""
+        if not any(r.get("name") == name for r in all_regions(m)):
+            return _diag("REGION_NOT_FOUND", name=name)
+        buf = io.BytesIO()
+        img.convert("RGBA").save(buf, "PNG")
+        body = buf.getvalue()
+        rel = versioned_output_rel(name, run, body)
+        try:
+            if not _put_create_only(INPUT_DIR / rel, body):
+                return f"✖ {rel} already holds a different image. Nothing was changed."
+        except Exception as e:  # noqa: BLE001 — R2 did not take it
+            return f"✖ Couldn't store the tile ({type(e).__name__}: {e}). Nothing was changed."
+        r = self._ensure_region(m, name)
+        r["output_override"] = rel
+        save_manifest(m)
+        _drop_fx_snapshot(name)
+        return f"✓ Committed {rel} as the tile of {name} (not processed)."
 
     def _bind_ref_as_output(self, m: dict, region: dict) -> tuple[bool, str]:
         """Core of "use this region's reference image as its atlas tile":
@@ -11986,11 +12221,19 @@ class Handler(BaseHTTPRequestHandler):
         name = payload.get("name", "")
         m = load_manifest()
         cleared = False
+        versioned = False
         for bucket in ("regions", "rotated_regions"):
             for r in m.get(bucket, []):
                 if r.get("name") == name and "output_override" in r:
+                    versioned = is_versioned_output(r["output_override"], name)
                     del r["output_override"]
                     cleared = True
+        if cleared and versioned:
+            # A Director run's committed tile: the pointer goes, the file stays
+            # (versioned files are never rewritten or deleted).
+            save_manifest(m)
+            _drop_fx_snapshot(name)
+            return f"Reverted {name} — it will be generated again on render"
         if cleared:
             save_manifest(m)
             _drop_fx_snapshot(name)
@@ -12199,6 +12442,10 @@ class Handler(BaseHTTPRequestHandler):
         return msg
 
     def _saveconfig(self, edits: dict) -> str:
+        director = is_director(getattr(self, "_identity", None))
+        refused = refuse_config_edits(edits, director)
+        if refused:
+            return refused
         cfg = load_config()
         # Did the Session dropdown switch the ACTIVE manifest? (compare against
         # the value BEFORE we apply edits). Used to auto-seed sheet-derived
@@ -12236,7 +12483,17 @@ class Handler(BaseHTTPRequestHandler):
         _num = cfg_num
 
         for k, v in edits.items():
-            if k == "bpParams":
+            if k == "atlas_pipeline":
+                # The ATLAS's own pipeline (ADR-0008 card 8B), checked by
+                # `refuse_config_edits`. `apply_manifest_settings` already
+                # honours `settings.pipeline`, so it wins over the global one.
+                sv = str(v).strip().lower()
+                if sv:
+                    settings["pipeline"] = sv
+                else:
+                    settings.pop("pipeline", None)
+                manifest_dirty = True
+            elif k == "bpParams":
                 # Blueprint exposed-param overrides (B43 Phase 8). Namespaced by
                 # blueprint id under settings["bpParams"][<bpId>] so switching
                 # blueprints never cross-contaminates. The client posts only the
@@ -12251,6 +12508,8 @@ class Handler(BaseHTTPRequestHandler):
                 for bp_id, vals in v.items():
                     if not isinstance(vals, dict):
                         continue
+                    # Lowercase, as every reader looks it up (region_pipeline).
+                    bp_id = str(bp_id).strip().lower()
                     cur = bp_all.get(str(bp_id))
                     if not isinstance(cur, dict):
                         cur = {}
@@ -12330,6 +12589,10 @@ class Handler(BaseHTTPRequestHandler):
             m.pop("settings", None)
         if manifest_dirty:
             save_manifest(m)
+        if director:
+            # It may write nothing global (`refuse_config_edits`), so the
+            # config is not re-saved under its name either.
+            return "✓ Atlas settings saved."
         # Only the Settings panel's own fields are an author's edit of the
         # config; a bare dropdown switch is a selection (see save_config).
         save_config(cfg, user=global_dirty)

@@ -161,10 +161,13 @@ def _seed() -> None:
 
 
 def test_manifest_pin_end_to_end() -> None:
-    env_keys = ("ATLAS_TOOL_SIGNING_SECRET", "ATLAS_TOOL_SECRET")
+    env_keys = ("ATLAS_TOOL_SIGNING_SECRET", "ATLAS_TOOL_SECRET", "COMFY_TRANSPORT")
     saved = {k: os.environ.get(k) for k in env_keys}
     os.environ["ATLAS_TOOL_SIGNING_SECRET"] = SIGNING
     os.environ.pop("ATLAS_TOOL_SECRET", None)
+    # Production renders on RunPod; the Director is refused anything else
+    # (test_director_safety.py).
+    os.environ["COMFY_TRANSPORT"] = "serverless"
 
     _seed()
     config_before = u.CONFIG_PATH.read_bytes()

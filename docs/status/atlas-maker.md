@@ -117,6 +117,43 @@ Works today on `main` / live:
 _Nothing._
 
 ## Recent changes
+- 2026-10-06 — **Director safety changes (ADR-0008 card 8B).** Route changes the Director's
+  agents need, each keyed on `act_tool == 'director'` (`is_director`); a person's call and every
+  atlas no run configured behave as before.
+  - **`/saveconfig` `atlas_pipeline`** writes `manifest.settings.pipeline`, which
+    `apply_manifest_settings` already honours, so that atlas renders on its own pipeline whatever
+    the global control says. A person cannot send the key; a Director save carrying anything
+    outside `PER_ATLAS_KEYS` + `atlas_pipeline` + `bpParams` is refused whole and never re-saves
+    `atlas_config.json`; only built-in ids and image blueprints are accepted. The page reads the
+    atlas's pipeline through `atlas_pipeline(m, cfg)` (`_regionadv`, `_index`, the read-only
+    **Pipeline · this atlas** row) and `ATLAS_PIPE`/`atlasPipe()` (Blueprint settings panel, card
+    pipes, the ✎ popup fallback, the resolved-workflow button). `bpParams` ids are stored lowercase.
+  - **`bpParams` by the region's EFFECTIVE pipeline, on a Director-configured atlas only**
+    (`batch_atlas.region_bp_params`, `bp_overrides_for`, `load_bp_params`; the resolved-workflow
+    export agrees). Anywhere else every blueprint region keeps the active pipeline's params
+    (`BP_PARAM_OVERRIDES`), byte for byte, including a region overriding to a blueprint with
+    params saved from an earlier global choice (fixtures in `test_director_safety.py`). Note for
+    ADR-0008 §Context / §5: before 8B, and still on a person's atlas, such a region renders with the
+    ACTIVE pipeline's saved params matched by key, not its own blueprint's baked defaults.
+  - **`/render`** refuses a Director token with 403 when `effective_run_on()` maps to `http`, before
+    claiming the slot; the worker (`run_render_as_director`) re-checks the setting it reads.
+  - **A Director `/setoutput`** writes `refs/useroutput/<region>_<run>_<sha12>.png` (a folder of its
+    own, so no person's `useroutput_<name>.png` can collide) create-only (`_put_create_only`,
+    `If-None-Match: *`; the same bytes again is a replay), never adds a region, and points
+    `output_override` at it; compose, `_outpath` and the layer resolver read that field. Its
+    refusals (a name holding other bytes, the tile not reaching R2) are 200 `✖` prose; a manifest
+    save R2 did not take is a 503 (`doc_sync.commit` `strict`, every Director write). ✕ revert of
+    such a tile drops the pointer and keeps the file (`is_versioned_output`); FX builds, "use the
+    ref as the tile" and `_setmode('ai')` still use the fixed `useroutput_<region>.png`.
+  - **Selection:** `/newatlas`, `/duplicateatlas` and the `/?atlas=` deep link never move
+    `manifest_path` for a Director (`select_manifest`); before a Director create, a blank or stale
+    `manifest_path` is written down as the fallback people were seeing (`hold_selection`), so the
+    new atlas cannot become the selection by sorting first.
+  - **Refusals:** a Director POST to a route that acts on "the atlas" without `?manifest=` is 400
+    (`_DIRECTOR_PINNED_POSTS`); a Director `/uploadblueprint` is refused.
+  - GET `/blueprints` (endpoint GPU, staleness), the card routes and the bundled-card sync were 8A.
+    `test_director_safety.py`; `test_director_calls.py` renders under `COMFY_TRANSPORT=serverless`.
+    ⏳ Owed: one Director-token pass on the live tool once the adapter ops (8D) exist.
 - 2026-10-06 — **Blueprint cards (ADR-0008 card 8A).** A `card.json` beside each blueprint
   (`_shared/blueprints/<id>/card.json`, previous versions in `card.history/<rev>.json`) says when to
   use it, what it needs and costs, its licence and gotchas; `cards.py` validates it against the live

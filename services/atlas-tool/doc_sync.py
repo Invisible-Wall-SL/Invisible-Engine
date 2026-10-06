@@ -298,6 +298,9 @@ def commit(key: str | None, doc_id: str, local: Path, doc: dict, *,
     no R2 (local dev). Returns the new ETag, or None when R2 was not written."""
     c = ctx()
     page_edit = user and c.bases is not None
+    # A write the caller must not be told landed when only staging holds it: a
+    # page's edit, and any Director write (its next read of R2 would lose it).
+    strict = page_edit or getattr(c.identity, "act_tool", "") == "director"
     if user and c.request:
         docsave.stamp(doc, c.identity, TOOL)
     if not key:
@@ -306,7 +309,7 @@ def commit(key: str | None, doc_id: str, local: Path, doc: dict, *,
     try:
         expected, loaded_doc = _expected(c, key, doc_id)
     except storage.ObjectUnreadable:
-        if page_edit:
+        if strict:
             raise  # a page edit is refused (503) rather than written unchecked
         return _local_only(local, doc_id, doc)
     if page_edit:
@@ -330,7 +333,7 @@ def commit(key: str | None, doc_id: str, local: Path, doc: dict, *,
             loaded_doc, expected = copy.deepcopy(cur_doc), cur_etag
             continue
         except Exception as e:  # noqa: BLE001 — R2 did not answer
-            if page_edit:
+            if strict:
                 # Answering 200 for an edit that lives only in staging would be a
                 # silent loss the moment anyone else writes: refuse, say so.
                 raise storage.ObjectUnreadable(f"{doc_id}: write failed: {e}") from e
