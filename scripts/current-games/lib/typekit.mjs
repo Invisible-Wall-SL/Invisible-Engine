@@ -56,16 +56,16 @@ export function kitIds(root) {
 export const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
 
 // The kit stylesheet names each face's files as `url("https://use.typekit.net/af/…")`; the kit
-// script is mirrored whole, plus any such URL it spells out. The beacon host is not crawled: it is
-// answered locally.
+// script is mirrored whole and not parsed (minified, it spells URLs in pieces): on every live
+// render it loaded exactly the stylesheet's faces, and a render it asks for anything else fails
+// naming the URL. The beacon host is not crawled: it is answered locally.
 const URL_IN_CSS = /url\(\s*(['"]?)(https?:\/\/use\.typekit\.net\/[^'")\s]+)\1\s*\)/g;
-const URL_IN_JS = /https?:\/\/use\.typekit\.net\/[^'"\s)]+/g;
 // What the harness's browser is: Adobe serves the same kit to every modern browser, and the mirror
 // records what a Chrome asked for.
 const USER_AGENT =
 	'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
 
-/** Fetch `kitId`'s stylesheet, script and every file the stylesheet names: `[{ url, contentType, body }]`. */
+/** Fetch `kitId`'s stylesheet, its script and every file the stylesheet names: `[{ url, contentType, body }]`. */
 export async function crawlKit(kitId, fetchImpl = fetch) {
 	const get = async (url) => {
 		const res = await fetchImpl(url, {
@@ -85,7 +85,6 @@ export async function crawlKit(kitId, fetchImpl = fetch) {
 	const js = await get(`https://${KIT_HOST}/${kitId}.js`);
 	const urls = new Set();
 	for (const m of css.body.toString('utf8').matchAll(URL_IN_CSS)) urls.add(m[2]);
-	for (const m of js.body.toString('utf8').matchAll(URL_IN_JS)) urls.add(m[0]);
 	urls.delete(css.url);
 	urls.delete(js.url);
 	const files = [css, js];
@@ -104,7 +103,9 @@ export const manifestHash = (entries) =>
 
 /** The manifest for `files` (from `crawlKit`) of `kits`. */
 export function manifestFor(kits, files, fetchedAt = new Date().toISOString()) {
-	const entries = files
+	// A URL two kits share (a face in both) is one entry.
+	const byUrl = new Map(files.map((f) => [f.url, f]));
+	const entries = [...byUrl.values()]
 		.map((f) => ({
 			url: f.url,
 			sha256: sha256(f.body),
@@ -218,7 +219,13 @@ const pinOf = (manifest, source) => ({
  */
 export async function planTypekit(mode, root, { read = readMirrorManifest } = {}) {
 	if (mode === 'network') return { mode: 'network' };
-	if (mode !== 'mirror') return pinOf(readMirrorDir(mode), mode);
+	if (mode !== 'mirror') {
+		if (!existsSync(join(mode, MANIFEST_FILE)))
+			throw new Error(
+				`--typekit must be auto, mirror, network or a mirror dir holding ${MANIFEST_FILE}; got ${JSON.stringify(mode)}`,
+			);
+		return pinOf(readMirrorDir(mode), mode);
+	}
 	const manifest = await read();
 	// Also a commit-status description, which GitHub cuts at 140 characters: the fix must fit.
 	const refresh = 'run the "Typekit mirror" workflow';
@@ -238,10 +245,9 @@ export async function planTypekit(mode, root, { read = readMirrorManifest } = {}
 /** The interceptor a render uses for the plan's decision, or `undefined` for `network`. */
 export async function mirrorInterceptor(typekit, cache) {
 	if (!typekit || typekit.mode === 'network') return undefined;
-	const dir =
-		typekit.source === 'r2'
-			? await fetchMirror(typekit, cache)
-			: (checkPinned(readMirrorDir(typekit.source), typekit, typekit.source), typekit.source);
+	let dir = typekit.source;
+	if (dir === 'r2') dir = await fetchMirror(typekit, cache);
+	else checkPinned(readMirrorDir(dir), typekit, dir);
 	return interceptorFor(readMirrorDir(dir), dir);
 }
 

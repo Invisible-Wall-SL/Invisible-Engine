@@ -316,6 +316,7 @@ diagnostics (`log_images`) list each render's external requests as `mirror <url>
 | `the Typekit mirror (kits …) lacks kit(s) the runtime loads` (the plan fails) | A kit id changed in `app.html` or `pixi-svelte` (`kitIds()` harvests both, and `typekit.fixture.mjs` proves they agree). | Run the workflow from `main` with `extra_kits` naming the new id (it only runs on `main`); run it again plain once the branch has merged. |
 | `the Typekit mirror has no entry for <url>` | The page asked for a kit URL the mirror does not hold: a face was added, or the kit's script asks for something new. | Run the workflow; if the URL is not in the kit's stylesheet or script, extend `crawlKit`. |
 | `the Typekit mirror changed during the run` | A refresh landed between the plan and this render. | Re-run the failed jobs. |
+| `Typekit mirror unavailable: …` on every unit of a shard (`the Typekit mirror is gone from R2`, or a blob that does not match its name) | The pinned mirror could not be downloaded whole on that runner. | Re-run the failed jobs; if it repeats, `typekit-mirror.mjs show` and refresh. |
 
 **Refreshing it.** `.github/workflows/typekit-mirror.yml` (`workflow_dispatch`, on `main` only;
 `dry_run` fetches and reports only) runs `scripts/current-games/typekit-mirror.mjs refresh`: it

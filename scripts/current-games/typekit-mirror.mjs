@@ -81,6 +81,9 @@ async function show() {
 }
 
 async function refresh() {
+	for (const id of opt.kit)
+		if (!/^[a-z0-9]+$/.test(id))
+			throw new Error(`--kit ${JSON.stringify(id)}: a kit id is lowercase letters and digits`);
 	const kits = [...new Set([...kitIds(ROOT), ...opt.kit])].sort();
 	if (!kits.length)
 		throw new Error('no kit id: none harvested from the runtime, none given with --kit');

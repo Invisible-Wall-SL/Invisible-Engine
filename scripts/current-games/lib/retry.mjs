@@ -84,7 +84,7 @@ export function classifyJob(job) {
 		};
 	const failed = steps.find((s) => s.conclusion === 'failure');
 	if (failed) return { kind, outcome: 'real', why: `a set-up step failed: "${failed.name}"` };
-	const last = steps.at(-1);
+	const last = steps.findLast((s) => s.conclusion !== 'skipped');
 	return {
 		kind,
 		outcome: 'infrastructure',
@@ -184,8 +184,6 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
 			process.env.GITHUB_STEP_SUMMARY,
 			`### current-games retry\n\`\`\`\n${lines.join('\n')}\n\`\`\`\n`,
 		);
-	if (process.env.GITHUB_OUTPUT)
-		appendFileSync(process.env.GITHUB_OUTPUT, `retry=${decision.retry}\n`);
 	if (decision.retry && opt.apply) {
 		await api(`/repos/${repository}/actions/runs/${opt.run}/rerun-failed-jobs`, { method: 'POST' });
 		console.log(`re-run of the failed jobs requested for run ${opt.run}`);

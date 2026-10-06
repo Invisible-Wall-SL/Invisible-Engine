@@ -162,6 +162,11 @@ try {
 		manifestFor(['kit'], files.slice(1)).hash,
 		'a file more or less is another mirror',
 	);
+	assert.deepEqual(
+		manifestFor(['kit', 'other'], [...files, files[0]], '2026-10-06T00:00:00.000Z').files,
+		manifest.files,
+		'a URL two kits share is one entry',
+	);
 	const entry = manifest.files.find((f) => f.url.includes('/af/1111/l'));
 	assert.equal(entry.sha256, sha256(KIT['/af/1111/l'].body));
 	assert.equal(entry.size, KIT['/af/1111/l'].body.length);
@@ -179,6 +184,10 @@ try {
 		files: 8,
 	});
 	assert.deepEqual(await planTypekit('network', ROOT), { mode: 'network' });
+	await assert.rejects(
+		planTypekit('mirrror', ROOT),
+		/--typekit must be auto, mirror, network or a mirror dir/,
+	);
 	// No mirror in R2 yet: the run goes on from Adobe, loudly, with the reason on record.
 	const bootstrap = await planTypekit('mirror', ROOT, { read: async () => null });
 	assert.equal(bootstrap.mode, 'network');
