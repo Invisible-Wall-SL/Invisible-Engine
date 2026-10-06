@@ -1,0 +1,219 @@
+# Agent eval — the extra check on a runtime-agent definition change (ADR-0007 "Agents tab",
+# docs/director/DECISIONS/0007-pipeline-change-mechanics.md; PLAN 5.4).
+#
+# Invisible Pipeline Changes' Agents tab opens a PR that edits ONE file,
+# services/director-worker/agents/<name>.md, and labels it `agent-definition`. This workflow runs
+# the edited agent and `main`'s version of it over the agent's reference set (today only
+# `mockup-analyst` has one: the mockups in docs/director/eval/mockups/, scored against
+# expected-breakdown.json) and posts the commit status `agent-eval` plus a report. An agent with no
+# reference set passes with "nothing to compare"; a definition the worker's loader would refuse
+# fails, before any model call.
+#
+# WHY `pull_request_target`, not `pull_request`: this job holds ANTHROPIC_API_KEY. Under
+# `pull_request` the workflow file and every script it runs come from the PR, so a branch could
+# change what runs next to the key. Under `pull_request_target` the workflow FILE and the checkout
+# are `main`'s: the code that runs (scripts/agent-eval.ts, the loader, the scorer, the reference
+# set, pnpm-lock.yaml) is main's and a PR cannot change it. The only bytes taken from the PR are the
+# text of the one definition file, read with `git show` into a temp file and parsed as data, never
+# executed. The same trigger hands secrets to a fork's PR, so the job runs only for a branch of THIS
+# repository, and only for a PR that carries the `agent-definition` label (anyone who can label or
+# push here is already trusted with this repo). Adding some other label does not re-run it, and
+# does not cancel a run in progress.
+#
+# THE SINGLE-FILE RULE: the change must edit exactly one file, an agent definition
+# (services/director-worker/agents/<name>.md, added or modified). Anything else is not an
+# agent-definition change and is refused before the secret is used, so one run is one agent's
+# before / after, and nothing but a text file crosses over from the branch.
+#
+# THE CAP: $20 per run, a hard stop (ADR-0007), enforced in code from REAL usage. The runner prices
+# every response the API returns (a refused or malformed one included, they are billed) and makes no
+# further call once the total has reached the cap; a response that carries the total past it ends
+# the run. "Capped" is a failure. The figure is in the report and the status description.
+#
+# SECRET (Settings → Secrets and variables → Actions; the owner adds it, the value is never
+# committed): ANTHROPIC_API_KEY. Only the eval step receives it. It is never printed: the CLI
+# prints the report's one-line summary, nothing else, and error text is scrubbed of key-shaped
+# strings. A missing secret fails the run, and the status, naming it. See docs/INFRA.md.
+#
+# WHERE THE REPORT IS READ: the artifact `agent-eval-report` (report.json, the shape in
+# services/director-worker/src/eval/report.ts) and the `agent-eval` status on the PR head, by
+# Invisible Pipeline Changes, in the change's "Agent evaluation" section. To run the same CLI by
+# hand, see the header of services/director-worker/scripts/agent-eval.ts (`eval:agent`).
+
+name: Agent eval
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, labeled]
+
+concurrency:
+  # A new push to the PR replaces its run. A label that is not `agent-definition` gets a group of its
+  # own: its run is skipped, and must not cancel a real run and leave that run's status pending.
+  group: agent-eval-${{ github.event.pull_request.number }}${{ github.event.action == 'labeled' && github.event.label.name != 'agent-definition' && '-other-label' || '' }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  statuses: write
+  pull-requests: read
+
+env:
+  # The commit the status is posted on and the definition is read from: the PR head.
+  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+  STATUS_CONTEXT: agent-eval
+
+jobs:
+  eval:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(github.event.pull_request.labels.*.name, 'agent-definition') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'agent-definition')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # MAIN's code, whatever the PR changes: this is the checkout every later step runs from.
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Post the pending status
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" -f state=pending \
+            -f context="$STATUS_CONTEXT" -f description='Evaluating the edited agent on its reference set…' \
+            -f target_url="$RUN_URL"
+
+      # Before the secret is used: one file, an agent definition. The file list is GitHub's, and the
+      # only text taken from it is checked against a fixed pattern before it is used anywhere.
+      - name: Check the change edits one agent definition
+        id: files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/agent-eval"
+          files="$RUNNER_TEMP/agent-eval/files.tsv"
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" \
+            --jq '.[] | [.status, .filename] | @tsv' > "$files"
+
+          refuse() {
+            echo "::error title=agent-eval::$1"
+            echo "### Agent eval did not run: $1" >> "$GITHUB_STEP_SUMMARY"
+            gh api "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" -f state=failure -f context="$STATUS_CONTEXT" \
+              -f description="${1:0:140}" -f target_url="$RUN_URL"
+            echo 'STATUS_FINAL=1' >> "$GITHUB_ENV"
+            exit 1
+          }
+
+          count="$(wc -l < "$files")"
+          [ "$count" -eq 1 ] ||
+            refuse "agent-eval: an agent-definition change edits exactly one agent definition; this one edits $count files"
+          IFS=$'\t' read -r status path < "$files"
+          [[ "$path" =~ ^services/director-worker/agents/[a-z][a-z-]*\.md$ ]] ||
+            refuse 'agent-eval: an agent-definition change edits exactly one agent definition; this one edits another file'
+          case "$status" in
+            added | modified) ;;
+            *) refuse "agent-eval: the agent definition is $status, not edited: the eval compares an edit with main" ;;
+          esac
+          echo "path=$path" >> "$GITHUB_OUTPUT"
+          echo "agent=$(basename "$path" .md)" >> "$GITHUB_OUTPUT"
+
+      # The only bytes taken from the PR. `git show` prints a blob's content and follows no link, so
+      # even a symlink committed under that name arrives as its target's text, to be refused by the
+      # loader. Nothing here executes it.
+      - name: Take the edited definition from the PR head
+        env:
+          AGENT_PATH: ${{ steps.files.outputs.path }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$HEAD_SHA"
+          git show "$HEAD_SHA:$AGENT_PATH" > "$RUNNER_TEMP/agent-eval/after.md"
+
+      - name: Check the secret
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error title=agent-eval: missing secret::Add the ANTHROPIC_API_KEY repository secret (see docs/INFRA.md and .github/workflows/agent-eval.yml)"
+            echo '### Agent eval did not run: the ANTHROPIC_API_KEY secret is missing' >> "$GITHUB_STEP_SUMMARY"
+            gh api "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" -f state=failure -f context="$STATUS_CONTEXT" \
+              -f description='Missing secret ANTHROPIC_API_KEY: see docs/INFRA.md' -f target_url="$RUN_URL"
+            echo 'STATUS_FINAL=1' >> "$GITHUB_ENV"
+            exit 1
+          fi
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # main's lockfile: what the eval's code depends on is main's too.
+      - run: pnpm install --frozen-lockfile
+
+      # The one step that holds the key. `set +e` so the status is posted whatever the exit code; the
+      # CLI's own code (0 pass, 1 fail, 2 usage) is kept for the status step to end the job with.
+      # `--before` only when main has the agent: a new agent is evaluated alone.
+      - name: Run the eval
+        id: eval
+        timeout-minutes: 20
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AGENT: ${{ steps.files.outputs.agent }}
+        run: |
+          set +e
+          out="$RUNNER_TEMP/agent-eval/report"
+          args=(--agent "$AGENT" --after "$RUNNER_TEMP/agent-eval/after.md" --head "$HEAD_SHA"
+            --base "$(git rev-parse HEAD)" --out "$out" --cap 20)
+          if [ -f "services/director-worker/agents/$AGENT.md" ]; then
+            args+=(--before "services/director-worker/agents/$AGENT.md")
+          fi
+          node --experimental-strip-types --no-warnings=ExperimentalWarning \
+            services/director-worker/scripts/agent-eval.ts "${args[@]}"
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+          { echo '### Agent eval'; sed -n 2p "$out/summary.txt" 2>/dev/null || echo 'no report was made'; } \
+            >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+
+      # The report alone, for Invisible Pipeline Changes. Replaces a previous attempt's, so a re-run
+      # leaves the report of the attempt whose status was posted. Skipped when the eval never ran:
+      # an earlier step has already posted why.
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() && steps.eval.outcome != 'skipped' }}
+        with:
+          name: agent-eval-report
+          path: ${{ runner.temp }}/agent-eval/report/report.json
+          retention-days: 90
+          overwrite: true
+
+      - name: Post the status
+        id: status
+        if: ${{ !cancelled() && steps.eval.outcome != 'skipped' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CODE: ${{ steps.eval.outputs.code }}
+        run: |
+          summary="$RUNNER_TEMP/agent-eval/report/summary.txt"
+          verdict="$(sed -n 1p "$summary" 2>/dev/null)"
+          line="$(sed -n 2p "$summary" 2>/dev/null)"
+          [ -n "$line" ] || line='The eval wrote no report: see the run log'
+          state=failure
+          if [ "$verdict" = pass ] && [ "${CODE:-1}" = 0 ]; then state=success; fi
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" -f state="$state" -f context="$STATUS_CONTEXT" \
+            -f description="${line:0:140}" -f target_url="$RUN_URL"
+          echo 'STATUS_FINAL=1' >> "$GITHUB_ENV"
+          exit "${CODE:-1}"
+
+      # Any other failure (the checkout, the install, a runner that died) must not leave the status
+      # pending forever. A step that posted its own verdict has said so; this stands down.
+      - name: Post the failure
+        if: ${{ failure() && env.STATUS_FINAL != '1' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" -f state=failure -f context="$STATUS_CONTEXT" \
+            -f description='The eval could not run: see the run log' -f target_url="$RUN_URL"
