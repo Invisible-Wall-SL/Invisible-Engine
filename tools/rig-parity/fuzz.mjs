@@ -5,11 +5,12 @@
 //
 //   node tools/rig-parity/fuzz.mjs [--seeds N] [--seed S] [--verbose]
 import fs from 'node:fs';
-import { SPINE_CORE } from '../rigger-spike/spine.mjs';
+import { reference } from './reference.mjs';
 import { loadRig } from './load.mjs';
 
 const args = process.argv.slice(2);
-const opt = (name, fallback) => (args.includes(name) ? Number(args[args.indexOf(name) + 1]) : fallback);
+const opt = (name, fallback) =>
+	args.includes(name) ? Number(args[args.indexOf(name) + 1]) : fallback;
 const SEEDS = opt('--seeds', 400);
 const ONLY = args.includes('--seed') ? opt('--seed', 0) : null;
 const verbose = args.includes('--verbose');
@@ -17,7 +18,7 @@ const trace = args.includes('--trace');
 const dumpDir = args.includes('--dump') ? args[args.indexOf('--dump') + 1] : null;
 
 const RIG = await loadRig();
-const REF = await import(SPINE_CORE);
+const REF = await import((await reference()).core);
 
 function mulberry32(seed) {
 	return () => {
@@ -36,11 +37,18 @@ function generator(seed) {
 	const pick = (list) => list[Math.floor(r() * list.length)];
 	const chance = (p) => r() < p;
 	const round = (v, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
-	const hex = (n) => Array.from({ length: n }, () => int(0, 255).toString(16).padStart(2, '0')).join('');
+	const hex = (n) =>
+		Array.from({ length: n }, () => int(0, 255).toString(16).padStart(2, '0')).join('');
 	return { r, range, int, pick, chance, round, hex };
 }
 
-const INHERITS = ['normal', 'onlyTranslation', 'noRotationOrReflection', 'noScale', 'noScaleOrReflection'];
+const INHERITS = [
+	'normal',
+	'onlyTranslation',
+	'noRotationOrReflection',
+	'noScale',
+	'noScaleOrReflection',
+];
 
 function makeRig(seed) {
 	const g = generator(seed);
@@ -69,7 +77,13 @@ function makeRig(seed) {
 	const boneCount = int(5, 14);
 	for (let i = 1; i < boneCount; i++) {
 		const parent = bones[int(0, i - 1)].name;
-		const b = { name: `b${i}`, parent, length: round(range(0, 120)), x: round(range(-80, 80)), y: round(range(-80, 80)) };
+		const b = {
+			name: `b${i}`,
+			parent,
+			length: round(range(0, 120)),
+			x: round(range(-80, 80)),
+			y: round(range(-80, 80)),
+		};
 		if (chance(0.6)) b.rotation = round(range(-180, 180));
 		if (chance(0.4)) b.scaleX = round(range(-1.6, 1.6));
 		if (chance(0.4)) b.scaleY = round(range(-1.6, 1.6));
@@ -79,14 +93,52 @@ function makeRig(seed) {
 		bones.push(b);
 	}
 	// A guaranteed normal chain for 2-bone IK: chainA → chainB → chainC.
-	bones.push({ name: 'chainA', parent: pick(bones).name, length: round(range(40, 100)), x: round(range(-40, 40)), rotation: round(range(-90, 90)) });
-	bones.push({ name: 'chainB', parent: 'chainA', length: round(range(40, 100)), x: round(range(30, 90)), rotation: round(range(-60, 60)) });
-	bones.push({ name: 'chainC', parent: 'chainB', length: round(range(20, 60)), x: round(range(30, 90)) });
+	bones.push({
+		name: 'chainA',
+		parent: pick(bones).name,
+		length: round(range(40, 100)),
+		x: round(range(-40, 40)),
+		rotation: round(range(-90, 90)),
+	});
+	bones.push({
+		name: 'chainB',
+		parent: 'chainA',
+		length: round(range(40, 100)),
+		x: round(range(30, 90)),
+		rotation: round(range(-60, 60)),
+	});
+	bones.push({
+		name: 'chainC',
+		parent: 'chainB',
+		length: round(range(20, 60)),
+		x: round(range(30, 90)),
+	});
 	if (chance(0.5)) bones[bones.length - 2].scaleX = round(range(0.5, 1.5));
-	bones.push({ name: 'target1', parent: 'root', x: round(range(-150, 150)), y: round(range(-150, 150)) });
-	bones.push({ name: 'target2', parent: pick(bones.slice(0, boneCount)).name, x: round(range(-150, 150)), y: round(range(-150, 150)) });
-	bones.push({ name: 'skinBone', parent: 'root', skin: true, x: round(range(-50, 50)), length: 50 });
-	bones.push({ name: 'phys', parent: pick(bones.slice(0, boneCount)).name, length: round(range(30, 90)), rotation: round(range(-90, 90)) });
+	bones.push({
+		name: 'target1',
+		parent: 'root',
+		x: round(range(-150, 150)),
+		y: round(range(-150, 150)),
+	});
+	bones.push({
+		name: 'target2',
+		parent: pick(bones.slice(0, boneCount)).name,
+		x: round(range(-150, 150)),
+		y: round(range(-150, 150)),
+	});
+	bones.push({
+		name: 'skinBone',
+		parent: 'root',
+		skin: true,
+		x: round(range(-50, 50)),
+		length: 50,
+	});
+	bones.push({
+		name: 'phys',
+		parent: pick(bones.slice(0, boneCount)).name,
+		length: round(range(30, 90)),
+		rotation: round(range(-90, 90)),
+	});
 	bones.push({ name: 'physChild', parent: 'phys', length: 40, x: round(range(20, 60)) });
 	const boneNames = bones.map((b) => b.name);
 	const plain = boneNames.filter((n) => !['skinBone'].includes(n));
@@ -128,7 +180,12 @@ function makeRig(seed) {
 					for (let k = 0; k < n; k++) {
 						const w = k === n - 1 ? left : round(left * range(0.2, 0.8), 3);
 						left = round(left - w, 3);
-						vertices.push(int(0, plain.length - 1), round(px + range(-20, 20)), round(py + range(-20, 20)), w);
+						vertices.push(
+							int(0, plain.length - 1),
+							round(px + range(-20, 20)),
+							round(py + range(-20, 20)),
+							w,
+						);
 					}
 				}
 			}
@@ -138,7 +195,16 @@ function makeRig(seed) {
 				const i = y * (cols + 1) + x;
 				triangles.push(i, i + 1, i + cols + 1, i + 1, i + cols + 2, i + cols + 1);
 			}
-		return { type: 'mesh', uvs, vertices, triangles, hull: (cols + rows) * 2, width: region.w, height: region.h, color: chance(0.3) ? hex(4) : undefined };
+		return {
+			type: 'mesh',
+			uvs,
+			vertices,
+			triangles,
+			hull: (cols + rows) * 2,
+			width: region.w,
+			height: region.h,
+			color: chance(0.3) ? hex(4) : undefined,
+		};
 	};
 
 	// Region and mesh slots.
@@ -151,26 +217,80 @@ function makeRig(seed) {
 		if (chance(0.5)) {
 			const weighted = chance(0.5);
 			const att = meshFor(region, weighted);
-			const name = addSlot(bone, { [region.name]: att, alt: { ...meshFor(region, weighted), path: region.name } }, region.name);
-			meshSlots.push({ slot: name, att: region.name, weighted, count: att.uvs.length / 2, influences: weighted ? countInfluences(att.vertices) : 0 });
-			if (chance(0.5)) altSkin[name] = { [region.name]: { type: 'linkedmesh', parent: region.name, skin: 'default', timelines: chance(0.5), path: region.name } };
+			const name = addSlot(
+				bone,
+				{ [region.name]: att, alt: { ...meshFor(region, weighted), path: region.name } },
+				region.name,
+			);
+			meshSlots.push({
+				slot: name,
+				att: region.name,
+				weighted,
+				count: att.uvs.length / 2,
+				influences: weighted ? countInfluences(att.vertices) : 0,
+			});
+			if (chance(0.5))
+				altSkin[name] = {
+					[region.name]: {
+						type: 'linkedmesh',
+						parent: region.name,
+						skin: 'default',
+						timelines: chance(0.5),
+						path: region.name,
+					},
+				};
 		} else {
-			const att = { width: region.w, height: region.h, x: round(range(-20, 20)), y: round(range(-20, 20)) };
+			const att = {
+				width: region.w,
+				height: region.h,
+				x: round(range(-20, 20)),
+				y: round(range(-20, 20)),
+			};
 			if (chance(0.5)) att.rotation = round(range(-180, 180));
 			if (chance(0.3)) att.scaleX = round(range(0.5, 1.5));
 			if (chance(0.3)) att.color = hex(4);
-			const name = addSlot(bone, { [region.name]: att, other: { ...att, path: region.name, x: 5 } }, chance(0.8) ? region.name : null);
-			if (chance(0.4)) altSkin[name] = { [region.name]: { ...att, x: att.x + 10, path: region.name } };
+			const name = addSlot(
+				bone,
+				{ [region.name]: att, other: { ...att, path: region.name, x: 5 } },
+				chance(0.8) ? region.name : null,
+			);
+			if (chance(0.4))
+				altSkin[name] = { [region.name]: { ...att, x: att.x + 10, path: region.name } };
 		}
 	}
 	// A sequence slot.
 	const seqCount = int(2, 5);
 	const seqStart = int(0, 2);
 	for (let i = 0; i < seqCount; i++) addRegion(`seq${String(seqStart + i).padStart(2, '0')}`);
-	const seqSlot = addSlot(pick(plain), { seq: { width: 40, height: 40, sequence: { count: seqCount, start: seqStart, digits: 2, setup: int(0, seqCount - 1) } } }, 'seq');
+	const seqSlot = addSlot(
+		pick(plain),
+		{
+			seq: {
+				width: 40,
+				height: 40,
+				sequence: { count: seqCount, start: seqStart, digits: 2, setup: int(0, seqCount - 1) },
+			},
+		},
+		'seq',
+	);
 	// Point, bounding box, and a clipping slot.
-	addSlot(pick(plain), { pt: { type: 'point', x: round(range(-30, 30)), y: round(range(-30, 30)), rotation: round(range(0, 360)) } }, 'pt');
-	addSlot(pick(plain), { bb: { type: 'boundingbox', vertexCount: 4, vertices: [-20, -20, 20, -20, 25, 20, -20, 20] } }, 'bb');
+	addSlot(
+		pick(plain),
+		{
+			pt: {
+				type: 'point',
+				x: round(range(-30, 30)),
+				y: round(range(-30, 30)),
+				rotation: round(range(0, 360)),
+			},
+		},
+		'pt',
+	);
+	addSlot(
+		pick(plain),
+		{ bb: { type: 'boundingbox', vertexCount: 4, vertices: [-20, -20, 20, -20, 25, 20, -20, 20] } },
+		'bb',
+	);
 	const skinSlot = addSlot('skinBone', { sk: { width: 30, height: 30 } }, null);
 	altSkin[skinSlot] = { sk: { width: 30, height: 30, path: regionNames[0] } };
 	skin[skinSlot] = {};
@@ -182,9 +302,23 @@ function makeRig(seed) {
 	for (let i = 0; i < vertexCount * 2; i++) pathVerts.push(round(range(-200, 200)));
 	const lengths = [];
 	for (let i = 0, acc = 0; i < vertexCount / 3; i++) lengths.push(round((acc += range(50, 200))));
-	const pathSlot = addSlot(pick(plain), { path: { type: 'path', closed, constantSpeed: chance(0.6), vertexCount, vertices: pathVerts, lengths } }, 'path');
+	const pathSlot = addSlot(
+		pick(plain),
+		{
+			path: {
+				type: 'path',
+				closed,
+				constantSpeed: chance(0.6),
+				vertexCount,
+				vertices: pathVerts,
+				lengths,
+			},
+		},
+		'path',
+	);
 
-	for (const [, map] of Object.entries(skin)) for (const k of Object.keys(map)) if (map[k]?.color === undefined) delete map[k].color;
+	for (const [, map] of Object.entries(skin))
+		for (const k of Object.keys(map)) if (map[k]?.color === undefined) delete map[k].color;
 
 	// Constraints, with unique orders.
 	const orders = [];
@@ -194,15 +328,50 @@ function makeRig(seed) {
 		return nextOrder++;
 	};
 	const ik = [];
-	const oneBone = pick(plain.filter((n) => n !== 'root' && !n.startsWith('target') && !n.startsWith('chain') && !n.startsWith('phys')));
+	const oneBone = pick(
+		plain.filter(
+			(n) =>
+				n !== 'root' && !n.startsWith('target') && !n.startsWith('chain') && !n.startsWith('phys'),
+		),
+	);
 	if (oneBone)
-		ik.push({ name: 'ik1', order: order(), bones: [oneBone], target: 'target1', mix: round(range(0.3, 1)), compress: chance(0.5), stretch: chance(0.5), uniform: chance(0.5), bendPositive: chance(0.5) });
-	ik.push({ name: 'ik2', order: order(), bones: ['chainA', 'chainB'], target: 'target2', mix: round(range(0.3, 1)), softness: chance(0.5) ? round(range(0, 40)) : 0, stretch: chance(0.5), uniform: chance(0.5), bendPositive: chance(0.5) });
-	ik.push({ name: 'ikSkin', order: order(), skin: true, bones: ['chainC'], target: 'target1', mix: 0.5 });
+		ik.push({
+			name: 'ik1',
+			order: order(),
+			bones: [oneBone],
+			target: 'target1',
+			mix: round(range(0.3, 1)),
+			compress: chance(0.5),
+			stretch: chance(0.5),
+			uniform: chance(0.5),
+			bendPositive: chance(0.5),
+		});
+	ik.push({
+		name: 'ik2',
+		order: order(),
+		bones: ['chainA', 'chainB'],
+		target: 'target2',
+		mix: round(range(0.3, 1)),
+		softness: chance(0.5) ? round(range(0, 40)) : 0,
+		stretch: chance(0.5),
+		uniform: chance(0.5),
+		bendPositive: chance(0.5),
+	});
+	ik.push({
+		name: 'ikSkin',
+		order: order(),
+		skin: true,
+		bones: ['chainC'],
+		target: 'target1',
+		mix: 0.5,
+	});
 
 	const transform = [];
 	for (let i = 0; i < int(1, 3); i++) {
-		const candidates = plain.filter((n) => !['root', 'target1', 'target2', 'phys', 'physChild'].includes(n) && !n.startsWith('chain'));
+		const candidates = plain.filter(
+			(n) =>
+				!['root', 'target1', 'target2', 'phys', 'physChild'].includes(n) && !n.startsWith('chain'),
+		);
 		const bone = pick(candidates);
 		const target = pick(['target1', 'target2']);
 		transform.push({
@@ -277,7 +446,11 @@ function makeRig(seed) {
 	const shuffled = all.map((c) => c.order).sort(() => g.r() - 0.5);
 	all.forEach((c, i) => (c.order = shuffled[i]));
 
-	const events = { ev1: { int: int(0, 9) }, ev2: { float: round(range(0, 1)), string: 'hello' }, ev3: {} };
+	const events = {
+		ev1: { int: int(0, 9) },
+		ev2: { float: round(range(0, 1)), string: 'hello' },
+		ev3: {},
+	};
 
 	// Bezier handles sit inside the key interval (absolute times) and near the two keyed values,
 	// as the editor writes them; a curve with no numeric value to follow eases between 0 and 1.
@@ -290,7 +463,12 @@ function makeRig(seed) {
 			const v1 = from[i] ?? 0;
 			const v2 = to[i] ?? 1;
 			const at = (f) => round(v1 + (v2 - v1) * f, 4);
-			out.push(round(t1 + (t2 - t1) * range(0, 0.5), 4), at(range(-0.3, 1.3)), round(t1 + (t2 - t1) * range(0.5, 1), 4), at(range(-0.3, 1.3)));
+			out.push(
+				round(t1 + (t2 - t1) * range(0, 0.5), 4),
+				at(range(-0.3, 1.3)),
+				round(t1 + (t2 - t1) * range(0.5, 1), 4),
+				at(range(-0.3, 1.3)),
+			);
 		}
 		return out;
 	};
@@ -307,7 +485,13 @@ function makeRig(seed) {
 			const k = { time, ...values[i] };
 			if (time === 0 && chance(0.5)) delete k.time;
 			if (i < count - 1) {
-				const c = curve(Object.keys(values[i]).length || 1, time, times[i + 1], numbers(values[i]), numbers(values[i + 1]));
+				const c = curve(
+					Object.keys(values[i]).length || 1,
+					time,
+					times[i + 1],
+					numbers(values[i]),
+					numbers(values[i + 1]),
+				);
 				if (c !== undefined) k.curve = c;
 			}
 			return k;
@@ -315,20 +499,37 @@ function makeRig(seed) {
 	};
 
 	const animation = () => {
-		const a = { bones: {}, slots: {}, ik: {}, transform: {}, path: {}, physics: {}, attachments: { default: {} } };
+		const a = {
+			bones: {},
+			slots: {},
+			ik: {},
+			transform: {},
+			path: {},
+			physics: {},
+			attachments: { default: {} },
+		};
 		for (const b of g.r() < 1 ? plain.filter(() => chance(0.5)) : []) {
 			const tl = {};
 			if (chance(0.6)) tl.rotate = keys(int(1, 4), () => ({ value: round(range(-270, 270)) }));
-			if (chance(0.4)) tl.translate = keys(int(1, 4), () => ({ x: round(range(-60, 60)), y: round(range(-60, 60)) }));
+			if (chance(0.4))
+				tl.translate = keys(int(1, 4), () => ({
+					x: round(range(-60, 60)),
+					y: round(range(-60, 60)),
+				}));
 			if (chance(0.2)) tl.translatex = keys(int(1, 3), () => ({ value: round(range(-60, 60)) }));
 			if (chance(0.2)) tl.translatey = keys(int(1, 3), () => ({ value: round(range(-60, 60)) }));
-			if (chance(0.4)) tl.scale = keys(int(1, 4), () => ({ x: round(range(-2, 2)), y: round(range(-2, 2)) }));
+			if (chance(0.4))
+				tl.scale = keys(int(1, 4), () => ({ x: round(range(-2, 2)), y: round(range(-2, 2)) }));
 			if (chance(0.2)) tl.scalex = keys(int(1, 3), () => ({ value: round(range(-2, 2)) }));
 			if (chance(0.2)) tl.scaley = keys(int(1, 3), () => ({ value: round(range(-2, 2)) }));
-			if (chance(0.3)) tl.shear = keys(int(1, 3), () => ({ x: round(range(-40, 40)), y: round(range(-40, 40)) }));
+			if (chance(0.3))
+				tl.shear = keys(int(1, 3), () => ({ x: round(range(-40, 40)), y: round(range(-40, 40)) }));
 			if (chance(0.15)) tl.shearx = keys(int(1, 3), () => ({ value: round(range(-40, 40)) }));
 			if (chance(0.15)) tl.sheary = keys(int(1, 3), () => ({ value: round(range(-40, 40)) }));
-			if (chance(0.15)) tl.inherit = keys(int(1, 3), () => ({ inherit: pick(INHERITS) })).map(({ curve: _c, ...k }) => k);
+			if (chance(0.15))
+				tl.inherit = keys(int(1, 3), () => ({ inherit: pick(INHERITS) })).map(
+					({ curve: _c, ...k }) => k,
+				);
 			if (Object.keys(tl).length) a.bones[b] = tl;
 		}
 		for (const s of slotNames) {
@@ -337,27 +538,61 @@ function makeRig(seed) {
 			if (chance(0.15)) tl.rgb = keys(int(1, 3), () => ({ color: hex(3) }));
 			if (chance(0.2)) tl.alpha = keys(int(1, 3), () => ({ value: round(range(0, 1)) }));
 			const slot = slots.find((x) => x.name === s);
-			if (slot.dark && chance(0.4)) tl[pick(['rgba2', 'rgb2'])] = keys(int(1, 3), () => ({ light: hex(tl.rgb2 ? 3 : 4), dark: hex(3) }));
-			if (tl.rgba2) tl.rgba2.forEach((k) => (k.light = k.light.length === 6 ? k.light + 'ff' : k.light));
+			if (slot.dark && chance(0.4))
+				tl[pick(['rgba2', 'rgb2'])] = keys(int(1, 3), () => ({
+					light: hex(tl.rgb2 ? 3 : 4),
+					dark: hex(3),
+				}));
+			if (tl.rgba2)
+				tl.rgba2.forEach((k) => (k.light = k.light.length === 6 ? k.light + 'ff' : k.light));
 			if (tl.rgb2) tl.rgb2.forEach((k) => (k.light = k.light.slice(0, 6)));
 			const names = Object.keys(skin[s]);
 			if (chance(0.3) && names.length)
-				tl.attachment = keys(int(1, 4), () => ({ name: chance(0.2) ? null : pick(names) })).map(({ curve: _c, ...k }) => k);
+				tl.attachment = keys(int(1, 4), () => ({ name: chance(0.2) ? null : pick(names) })).map(
+					({ curve: _c, ...k }) => k,
+				);
 			if (Object.keys(tl).length) a.slots[s] = tl;
 		}
 		if (chance(0.7))
-			a.ik.ik2 = keys(int(1, 3), () => ({ mix: round(range(0, 1)), softness: round(range(0, 30)), bendPositive: chance(0.5), stretch: chance(0.5), compress: chance(0.5) }));
-		if (chance(0.5) && ik.find((c) => c.name === 'ik1')) a.ik.ik1 = keys(int(1, 3), () => ({ mix: round(range(0, 1)) }));
+			a.ik.ik2 = keys(int(1, 3), () => ({
+				mix: round(range(0, 1)),
+				softness: round(range(0, 30)),
+				bendPositive: chance(0.5),
+				stretch: chance(0.5),
+				compress: chance(0.5),
+			}));
+		if (chance(0.5) && ik.find((c) => c.name === 'ik1'))
+			a.ik.ik1 = keys(int(1, 3), () => ({ mix: round(range(0, 1)) }));
 		for (const tc of transform)
 			if (chance(0.5))
-				a.transform[tc.name] = keys(int(1, 3), () => ({ mixRotate: round(range(0, 1)), mixX: round(range(0, 1)), mixY: round(range(0, 1)), mixScaleX: round(range(0, 1)), mixShearY: round(range(0, 1)) }));
-		if (chance(0.5)) a.path.pc = { position: keys(int(1, 3), () => ({ value: round(range(-0.2, 1.2)) })) };
-		if (chance(0.4)) (a.path.pc ??= {}).spacing = keys(int(1, 3), () => ({ value: round(range(0, 0.5)) }));
-		if (chance(0.4)) (a.path.pc ??= {}).mix = keys(int(1, 3), () => ({ mixRotate: round(range(0, 1)), mixX: round(range(0, 1)) }));
+				a.transform[tc.name] = keys(int(1, 3), () => ({
+					mixRotate: round(range(0, 1)),
+					mixX: round(range(0, 1)),
+					mixY: round(range(0, 1)),
+					mixScaleX: round(range(0, 1)),
+					mixShearY: round(range(0, 1)),
+				}));
+		if (chance(0.5))
+			a.path.pc = { position: keys(int(1, 3), () => ({ value: round(range(-0.2, 1.2)) })) };
+		if (chance(0.4))
+			(a.path.pc ??= {}).spacing = keys(int(1, 3), () => ({ value: round(range(0, 0.5)) }));
+		if (chance(0.4))
+			(a.path.pc ??= {}).mix = keys(int(1, 3), () => ({
+				mixRotate: round(range(0, 1)),
+				mixX: round(range(0, 1)),
+			}));
 		const physName = chance(0.5) ? 'ph' : '';
 		for (const field of ['inertia', 'strength', 'damping', 'mass', 'wind', 'gravity', 'mix'])
-			if (chance(0.25)) (a.physics[physName] ??= {})[field] = keys(int(1, 3), () => ({ value: round(field === 'mass' ? range(0.5, 3) : field === 'strength' ? range(20, 200) : range(0, 1)) }));
-		if (chance(0.3)) (a.physics[physName] ??= {}).reset = keys(int(1, 2), () => ({})).map(({ curve: _c, ...k }) => k);
+			if (chance(0.25))
+				(a.physics[physName] ??= {})[field] = keys(int(1, 3), () => ({
+					value: round(
+						field === 'mass' ? range(0.5, 3) : field === 'strength' ? range(20, 200) : range(0, 1),
+					),
+				}));
+		if (chance(0.3))
+			(a.physics[physName] ??= {}).reset = keys(int(1, 2), () => ({})).map(
+				({ curve: _c, ...k }) => k,
+			);
 		for (const m of meshSlots)
 			if (chance(0.5)) {
 				const len = m.weighted ? m.influences * 2 : m.count * 2;
@@ -372,7 +607,19 @@ function makeRig(seed) {
 			}
 		if (chance(0.6))
 			(a.attachments.default[seqSlot] ??= {}).seq = {
-				sequence: keys(int(1, 3), () => ({ mode: pick(['hold', 'once', 'loop', 'pingpong', 'onceReverse', 'loopReverse', 'pingpongReverse']), index: int(0, seqCount - 1), delay: round(range(0.03, 0.2)) })).map(({ curve: _c, ...k }) => k),
+				sequence: keys(int(1, 3), () => ({
+					mode: pick([
+						'hold',
+						'once',
+						'loop',
+						'pingpong',
+						'onceReverse',
+						'loopReverse',
+						'pingpongReverse',
+					]),
+					index: int(0, seqCount - 1),
+					delay: round(range(0.03, 0.2)),
+				})).map(({ curve: _c, ...k }) => k),
 			};
 		if (chance(0.5))
 			a.drawOrder = keys(int(1, 3), () => {
@@ -387,8 +634,14 @@ function makeRig(seed) {
 				return offsets.length ? { offsets } : {};
 			}).map(({ curve: _c, ...k }) => k);
 		if (chance(0.7))
-			a.events = keys(int(1, 4), () => ({ name: pick(Object.keys(events)), ...(chance(0.3) ? { int: int(0, 5) } : {}), ...(chance(0.3) ? { string: 'x' } : {}) })).map(({ curve: _c, ...k }) => k);
-		for (const k of Object.keys(a)) if (a[k] && typeof a[k] === 'object' && !Array.isArray(a[k]) && !Object.keys(a[k]).length) delete a[k];
+			a.events = keys(int(1, 4), () => ({
+				name: pick(Object.keys(events)),
+				...(chance(0.3) ? { int: int(0, 5) } : {}),
+				...(chance(0.3) ? { string: 'x' } : {}),
+			})).map(({ curve: _c, ...k }) => k);
+		for (const k of Object.keys(a))
+			if (a[k] && typeof a[k] === 'object' && !Array.isArray(a[k]) && !Object.keys(a[k]).length)
+				delete a[k];
 		if (a.attachments && !Object.keys(a.attachments.default).length) delete a.attachments;
 		return a;
 	};
@@ -435,7 +688,7 @@ function makeRig(seed) {
 
 function countInfluences(vertices) {
 	let n = 0;
-	for (let i = 0; i < vertices.length; ) {
+	for (let i = 0; i < vertices.length;) {
 		const c = vertices[i++];
 		n += c;
 		i += c * 4;
@@ -462,17 +715,55 @@ function snapshot(X, sk, clipper) {
 	const nums = [];
 	const keys = [];
 	const strs = [];
-	const add = (key, ...values) => values.forEach((v, i) => (nums.push(v), keys.push(values.length > 1 ? `${key}[${i}]` : key)));
+	const add = (key, ...values) =>
+		values.forEach((v, i) => (nums.push(v), keys.push(values.length > 1 ? `${key}[${i}]` : key)));
 	for (const b of sk.bones) {
 		add(`bone ${b.data.name} abcdxy`, b.a, b.b, b.c, b.d, b.worldX, b.worldY);
 		strs.push(`${b.data.name} active=${b.active} inherit=${b.inherit}`);
 	}
-	for (const c of sk.ikConstraints) add(`ik ${c.data.name}`, c.mix, c.softness, c.bendDirection, c.compress ? 1 : 0, c.stretch ? 1 : 0, c.active ? 1 : 0);
-	for (const c of sk.transformConstraints) add(`tc ${c.data.name}`, c.mixRotate, c.mixX, c.mixY, c.mixScaleX, c.mixScaleY, c.mixShearY);
-	for (const c of sk.pathConstraints) add(`pc ${c.data.name}`, c.position, c.spacing, c.mixRotate, c.mixX, c.mixY);
+	for (const c of sk.ikConstraints)
+		add(
+			`ik ${c.data.name}`,
+			c.mix,
+			c.softness,
+			c.bendDirection,
+			c.compress ? 1 : 0,
+			c.stretch ? 1 : 0,
+			c.active ? 1 : 0,
+		);
+	for (const c of sk.transformConstraints)
+		add(`tc ${c.data.name}`, c.mixRotate, c.mixX, c.mixY, c.mixScaleX, c.mixScaleY, c.mixShearY);
+	for (const c of sk.pathConstraints)
+		add(`pc ${c.data.name}`, c.position, c.spacing, c.mixRotate, c.mixX, c.mixY);
 	for (const c of sk.physicsConstraints) {
-		add(`ph ${c.data.name}`, c.inertia, c.strength, c.damping, c.massInverse, c.wind, c.gravity, c.mix);
-		for (const f of ['ux', 'uy', 'cx', 'cy', 'tx', 'ty', 'xOffset', 'xVelocity', 'yOffset', 'yVelocity', 'rotateOffset', 'rotateVelocity', 'scaleOffset', 'scaleVelocity', 'remaining', 'lastTime'])
+		add(
+			`ph ${c.data.name}`,
+			c.inertia,
+			c.strength,
+			c.damping,
+			c.massInverse,
+			c.wind,
+			c.gravity,
+			c.mix,
+		);
+		for (const f of [
+			'ux',
+			'uy',
+			'cx',
+			'cy',
+			'tx',
+			'ty',
+			'xOffset',
+			'xVelocity',
+			'yOffset',
+			'yVelocity',
+			'rotateOffset',
+			'rotateVelocity',
+			'scaleOffset',
+			'scaleVelocity',
+			'remaining',
+			'lastTime',
+		])
 			add(`ph ${c.data.name} ${f}`, c[f]);
 	}
 	for (const s of sk.slots) {
@@ -493,7 +784,8 @@ function snapshot(X, sk, clipper) {
 			const p = a.computeWorldPosition(s.bone, new X.Vector2());
 			// Rotation is left out: the reference's returns radians scaled by degRad (atan2Deg bug).
 			v.push(p.x, p.y);
-		} else if (a instanceof X.VertexAttachment) a.computeWorldVertices(s, 0, a.worldVerticesLength, v, 0, 2);
+		} else if (a instanceof X.VertexAttachment)
+			a.computeWorldVertices(s, 0, a.worldVerticesLength, v, 0, 2);
 		add(`slot ${s.data.name} verts`, ...v);
 	}
 	strs.push('order:' + sk.drawOrder.map((s) => s.data.index).join(','));
@@ -502,7 +794,8 @@ function snapshot(X, sk, clipper) {
 	sk.getBounds(off, size, [], clipper);
 	// A degenerate pose (a zero-scale parent) leaves NaN vertices in both runtimes; the reference's
 	// bounds then turn NaN while ours skip them, so bounds are compared only for finite poses.
-	if (nums.every(Number.isFinite) && Number.isFinite(off.x)) add('bounds', off.x, off.y, size.x, size.y);
+	if (nums.every(Number.isFinite) && Number.isFinite(off.x))
+		add('bounds', off.x, off.y, size.x, size.y);
 	return { nums, keys, strs };
 }
 
@@ -520,7 +813,9 @@ function isDegenerate(sk) {
 			(Math.abs(b.a * b.d - b.b * b.c) < 1e-6 ||
 				Math.max(Math.abs(b.worldX), Math.abs(b.worldY)) > 1e5 ||
 				Math.max(Math.abs(b.a), Math.abs(b.b), Math.abs(b.c), Math.abs(b.d)) > 1e3 ||
-				![b.ax, b.ay, b.arotation, b.ascaleX, b.ascaleY, b.ashearX, b.ashearY].every(Number.isFinite)),
+				![b.ax, b.ay, b.arotation, b.ascaleX, b.ascaleY, b.ashearX, b.ashearY].every(
+					Number.isFinite,
+				)),
 	);
 }
 function same(a, b) {
@@ -538,9 +833,11 @@ function compare(label, a, b) {
 			const onlyB = [...kb].filter((k) => !ka.has(k)).slice(0, 4);
 			return `shape ${a.nums.length}/${a.strs.length} vs ${b.nums.length}/${b.strs.length}; ref-only ${onlyA}; rig-only ${onlyB}`;
 		}
-		for (let i = 0; i < a.strs.length; i++) if (a.strs[i] !== b.strs[i]) return `${a.strs[i]} ≠ ${b.strs[i]}`;
+		for (let i = 0; i < a.strs.length; i++)
+			if (a.strs[i] !== b.strs[i]) return `${a.strs[i]} ≠ ${b.strs[i]}`;
 		const bad = [];
-		for (let i = 0; i < a.nums.length; i++) if (!close(a.nums[i], b.nums[i])) bad.push(`${a.keys[i]}: ${a.nums[i]} ≠ ${b.nums[i]}`);
+		for (let i = 0; i < a.nums.length; i++)
+			if (!close(a.nums[i], b.nums[i])) bad.push(`${a.keys[i]}: ${a.nums[i]} ≠ ${b.nums[i]}`);
 		if (!bad.length) return null;
 		return verbose ? '\n      ' + bad.slice(0, 40).join('\n      ') : bad[0];
 	})();
@@ -558,7 +855,10 @@ function recorder(log) {
 		end: (e) => log.push('end ' + tag(e)),
 		dispose: (e) => log.push('dispose ' + tag(e)),
 		complete: (e) => log.push('complete ' + tag(e)),
-		event: (e, ev) => log.push(`event ${tag(e)} ${ev.data.name}@${ev.time.toFixed(4)} ${ev.intValue} ${ev.floatValue} ${ev.stringValue}`),
+		event: (e, ev) =>
+			log.push(
+				`event ${tag(e)} ${ev.data.name}@${ev.time.toFixed(4)} ${ev.intValue} ${ev.floatValue} ${ev.stringValue}`,
+			),
 	};
 }
 
@@ -613,7 +913,18 @@ function runSeed(seed) {
 			const t = (d * k) / 7;
 			for (const r of runs) {
 				r.sk.setToSetupPose();
-				r.data.findAnimation(name).apply(r.sk, last, t, true, (r.events = []), 1, r.X.MixBlend.setup, r.X.MixDirection.mixIn);
+				r.data
+					.findAnimation(name)
+					.apply(
+						r.sk,
+						last,
+						t,
+						true,
+						(r.events = []),
+						1,
+						r.X.MixBlend.setup,
+						r.X.MixDirection.mixIn,
+					);
 				r.sk.updateWorldTransform(r.X.Physics.pose);
 			}
 			if (isDegenerate(runs[0].sk) && !same(snapshot(REF, runs[0].sk), snapshot(RIG, runs[1].sk))) {
@@ -621,7 +932,14 @@ function runSeed(seed) {
 				last = t;
 				continue;
 			}
-			if (!compare(`seed ${seed} ${name} @${t.toFixed(3)}`, snapshot(REF, runs[0].sk), snapshot(RIG, runs[1].sk))) return false;
+			if (
+				!compare(
+					`seed ${seed} ${name} @${t.toFixed(3)}`,
+					snapshot(REF, runs[0].sk),
+					snapshot(RIG, runs[1].sk),
+				)
+			)
+				return false;
 			const ea = runs[0].events.map((e) => e.data.name + e.time).join();
 			const eb = runs[1].events.map((e) => e.data.name + e.time).join();
 			checks++;
@@ -704,13 +1022,18 @@ function runSeed(seed) {
 				const d = Math.abs(v - b.nums[i]);
 				if (d > worst) [worst, key] = [d, `${a.keys[i]} (${v})`];
 			});
-			const ops = script.filter((x) => x.f === f).map((x) => `${x.op}:${x.track}:${x.anim}`).join(' ');
+			const ops = script
+				.filter((x) => x.f === f)
+				.map((x) => `${x.op}:${x.track}:${x.anim}`)
+				.join(' ');
 			console.log(`  frame ${f} worst ${worst.toExponential(2)} ${key} ${ops}`);
 			if (process.env.PH)
 				for (const r of runs.slice(0, 2)) {
 					const c = r.sk.physicsConstraints[0];
 					const b = c.bone;
-					console.log(`     ${r.X === REF ? 'REF' : 'RIG'} rot=${c.rotateOffset.toFixed(6)} rv=${c.rotateVelocity.toFixed(5)} sc=${c.scaleOffset.toFixed(6)} xo=${c.xOffset.toFixed(5)} yo=${c.yOffset.toFixed(5)} rem=${c.remaining.toFixed(6)} t=${c.lastTime.toFixed(4)} cx=${c.cx.toFixed(4)} tx=${c.tx.toFixed(4)} bone=${[b.a, b.c, b.worldX, b.worldY].map((v) => v.toFixed(5))} mix=${c.mix.toFixed(4)} in=${c.inertia.toFixed(4)}`);
+					console.log(
+						`     ${r.X === REF ? 'REF' : 'RIG'} rot=${c.rotateOffset.toFixed(6)} rv=${c.rotateVelocity.toFixed(5)} sc=${c.scaleOffset.toFixed(6)} xo=${c.xOffset.toFixed(5)} yo=${c.yOffset.toFixed(5)} rem=${c.remaining.toFixed(6)} t=${c.lastTime.toFixed(4)} cx=${c.cx.toFixed(4)} tx=${c.tx.toFixed(4)} bone=${[b.a, b.c, b.worldX, b.worldY].map((v) => v.toFixed(5))} mix=${c.mix.toFixed(4)} in=${c.inertia.toFixed(4)}`,
+					);
 				}
 		}
 		const ref = snapshot(REF, runs[0].sk, runs[0].clipper);
@@ -757,5 +1080,7 @@ for (const seed of seeds) {
 	if (!ok) failedSeeds.push(seed);
 }
 REF.Skeleton.yDown = false;
-console.log(`${failures ? '✗' : '✓'} rig fuzz parity: ${seeds.length} seeds, ${checks} checks, ${failures} failures, ${chaotic.length} chaotic (cut short), ${new Set(degenerate).size} with degenerate poses skipped${failedSeeds.length ? ` (seeds ${failedSeeds.slice(0, 20).join(', ')}${failedSeeds.length > 20 ? ', …' : ''})` : ''}`);
+console.log(
+	`${failures ? '✗' : '✓'} rig fuzz parity: ${seeds.length} seeds, ${checks} checks, ${failures} failures, ${chaotic.length} chaotic (cut short), ${new Set(degenerate).size} with degenerate poses skipped${failedSeeds.length ? ` (seeds ${failedSeeds.slice(0, 20).join(', ')}${failedSeeds.length > 20 ? ', …' : ''})` : ''}`,
+);
 process.exit(failures ? 1 : 0);

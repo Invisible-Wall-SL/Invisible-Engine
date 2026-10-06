@@ -58,7 +58,7 @@ export interface EditorRegionSet {
  *
  * 1. **Convert `off_y`.** `_tp_frame_to_region` copies TexturePacker's
  *    `spriteSourceSize.y` raw, which is Y-DOWN from the frame's top. Spine's
- *    `offsets` offY is Y-UP from the bottom — `spine-webgl-4.2.js` does
+ *    `offsets` offY is Y-UP from the bottom — the rig runtime's mesh UV math does
  *    `v -= (originalHeight - offsetY - height) / textureHeight`. The correct value is
  *    `orig_h - h - sss.y`. Reading the raw field applies a wrong vertical offset.
  * 2. **Migrate existing rigs.** Emitting `offsets:` (see `regionsToSpineAtlas`)

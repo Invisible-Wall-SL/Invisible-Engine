@@ -52,7 +52,10 @@ export class AssetManager {
 		const url = this.start(path);
 		this.fetchOk(url)
 			.then((r) => r.text())
-			.then((t) => this.succeed(success, url, t), (e: Error) => this.fail(error, url, e.message));
+			.then(
+				(t) => this.succeed(success, url, t),
+				(e: Error) => this.fail(error, url, e.message),
+			);
 	}
 
 	loadJson(path: string, success?: Done<unknown>, error?: Failed): void {
@@ -109,7 +112,8 @@ export class AssetManager {
 				const atlas = new TextureAtlas(text);
 				await Promise.all(
 					atlas.pages.map(async (page) => {
-						const imagePath = this.pathPrefix + (fileAlias ? fileAlias[page.name] : parent + page.name);
+						const imagePath =
+							this.pathPrefix + (fileAlias ? fileAlias[page.name] : parent + page.name);
 						const img = await this.image(imagePath).catch(() => {
 							throw new Error(`Couldn't load texture atlas ${url} page image: ${imagePath}`);
 						});
@@ -142,7 +146,8 @@ export class AssetManager {
 	}
 
 	removeAll(): void {
-		for (const key of Object.keys(this.assets)) (this.assets[key] as { dispose?(): void })?.dispose?.();
+		for (const key of Object.keys(this.assets))
+			(this.assets[key] as { dispose?(): void })?.dispose?.();
 		this.assets = {};
 	}
 

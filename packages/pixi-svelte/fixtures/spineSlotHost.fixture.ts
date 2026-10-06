@@ -1,7 +1,7 @@
 /**
  * Repro fixture for "on the H1 animation I can only see the FX and not the flipbook".
  *
- * Models spine-pixi's one-object-per-slot rule (`addSlotObject` evicts the slot's previous
+ * Models RigView's one-object-per-slot rule (`addSlotObject` evicts the slot's previous
  * container from the spine) and drives two bindings onto one slot through `attachToSlot`, the
  * way `<RiggedFlipbook>` does for a clip keyed on `slot1` in two animations. Asserts that both
  * stay inside the rig, that spine only ever sees ONE object on the slot, and that the host goes
@@ -34,7 +34,7 @@ class FakeContainer {
 	}
 }
 
-/** spine-pixi's slot-object rule, verbatim: registering on a slot evicts the previous object. */
+/** RigView's slot-object rule, verbatim: registering on a slot evicts the previous object. */
 class FakeSpine extends FakeContainer {
 	slotObjects = new Map<string, FakeContainer>();
 	registrations = 0;

@@ -43,7 +43,11 @@ export class Vector3 {
 	}
 
 	cross(v: Vector3): this {
-		return this.set(this.y * v.z - this.z * v.y, this.z * v.x - this.x * v.z, this.x * v.y - this.y * v.x);
+		return this.set(
+			this.y * v.z - this.z * v.y,
+			this.z * v.x - this.x * v.z,
+			this.x * v.y - this.y * v.x,
+		);
 	}
 
 	distance(v: Vector3): number {

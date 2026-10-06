@@ -61,7 +61,7 @@ packages/      → 30 shared libraries
 | Rendering | PixiJS 8 |
 | Svelte↔Pixi bridge | pixi-svelte (internal package) |
 | State machines | XState 5 |
-| Animation | GSAP, Spine 4.2 (@esotericsoftware) |
+| Animation | GSAP, Spine 4.2 data via our own runtime (`engine-rig`) |
 | Particles | @barvynkoa/particle-emitter |
 | Filters | pixi-filters 6 |
 | Build | Vite 6 + Turbo 2 |
@@ -130,7 +130,7 @@ When you finish meaningful work, write it up per **rule 6**: the detail goes in 
 - Use `new Application()` with `await app.init({...})` (async init — breaking change from v7)
 - `Sprite.from()` is synchronous; prefer asset bundles loaded via `Assets.load()`
 - Filters: import from `pixi-filters` or `pixi.js` — check version compat
-- Spine runtime: `@esotericsoftware/spine-pixi-v8` for PixiJS 8 compatibility
+- Spine runtime: our own license-free `engine-rig` (`engine-rig/pixi` → `RigView`; `engine-rig/webgl` for the static tools). Never add an `@esotericsoftware/*` package — `scripts/check-spine-runtime-free.mjs` fails it
 - Avoid deprecated v7 APIs: `PIXI.Loader`, `PIXI.utils`, `PIXI.Container.sortableChildren` (use `sortChildren()`)
 
 ## Where the project stands

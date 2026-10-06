@@ -15,7 +15,7 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 	// unified tool bar is fed the role-gated tool list (`home` + `tools`); the
 	// viewer is same-origin, so every switcher link is a launcher URL.
 	const params = toolBarParams(tools, 'spineViewer');
-	// Cache-bust the stable-name static app (view.html + vendored spine-webgl-*.js): a new deploy
+	// Cache-bust the stable-name static app (view.html + vendored invisible-rig.js): a new deploy
 	// changes BUILD_ID, so the browser fetches the fresh files instead of serving stale ones.
 	params.set('v', BUILD_ID);
 	throw redirect(303, `/spine/view.html?${params.toString()}`);

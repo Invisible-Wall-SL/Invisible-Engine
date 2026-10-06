@@ -67,12 +67,18 @@ interface Program {
 	texture: WebGLUniformLocation | null;
 }
 
-function compile(gl: WebGLRenderingContext, vs: string, fs: string, attributes: Array<[string, number]>): Program {
+function compile(
+	gl: WebGLRenderingContext,
+	vs: string,
+	fs: string,
+	attributes: Array<[string, number]>,
+): Program {
 	const shader = (type: number, src: string): WebGLShader => {
 		const s = gl.createShader(type) as WebGLShader;
 		gl.shaderSource(s, src);
 		gl.compileShader(s);
-		if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(`Shader: ${gl.getShaderInfoLog(s)}`);
+		if (!gl.getShaderParameter(s, gl.COMPILE_STATUS))
+			throw new Error(`Shader: ${gl.getShaderInfoLog(s)}`);
 		return s;
 	};
 	const program = gl.createProgram() as WebGLProgram;
@@ -80,7 +86,8 @@ function compile(gl: WebGLRenderingContext, vs: string, fs: string, attributes: 
 	gl.attachShader(program, shader(gl.FRAGMENT_SHADER, fs));
 	attributes.forEach(([name], i) => gl.bindAttribLocation(program, i, name));
 	gl.linkProgram(program);
-	if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(`Program: ${gl.getProgramInfoLog(program)}`);
+	if (!gl.getProgramParameter(program, gl.LINK_STATUS))
+		throw new Error(`Program: ${gl.getProgramInfoLog(program)}`);
 	return {
 		program,
 		attributes: attributes.map(([, size], i) => ({ location: i, size })),
@@ -237,25 +244,42 @@ export class SceneRenderer {
 		gl.enable(gl.BLEND);
 		gl.blendFuncSeparate(this.srcColor, this.dstColor, this.srcAlpha, this.dstAlpha);
 		gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
-		gl.bufferData(gl.ARRAY_BUFFER, this.vertices.subarray(0, this.vertexCount * program.stride), gl.DYNAMIC_DRAW);
+		gl.bufferData(
+			gl.ARRAY_BUFFER,
+			this.vertices.subarray(0, this.vertexCount * program.stride),
+			gl.DYNAMIC_DRAW,
+		);
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.ibo);
-		gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, this.indices.subarray(0, this.indexCount), gl.DYNAMIC_DRAW);
+		gl.bufferData(
+			gl.ELEMENT_ARRAY_BUFFER,
+			this.indices.subarray(0, this.indexCount),
+			gl.DYNAMIC_DRAW,
+		);
 		let offset = 0;
 		for (const a of program.attributes) {
 			gl.enableVertexAttribArray(a.location);
 			gl.vertexAttribPointer(a.location, a.size, gl.FLOAT, false, program.stride * 4, offset * 4);
 			offset += a.size;
 		}
-		for (let i = program.attributes.length; i < this.textured.attributes.length; i++) gl.disableVertexAttribArray(i);
+		for (let i = program.attributes.length; i < this.textured.attributes.length; i++)
+			gl.disableVertexAttribArray(i);
 		gl.drawElements(this.mode, this.indexCount, gl.UNSIGNED_SHORT, 0);
 		this.vertexCount = 0;
 		this.indexCount = 0;
 	}
 
 	/** Appends `count` vertices (`stride` floats each, via `write`) and their indices. */
-	private push(count: number, indices: ArrayLike<number>, write: (v: Float32Array, at: number, i: number) => void): void {
+	private push(
+		count: number,
+		indices: ArrayLike<number>,
+		write: (v: Float32Array, at: number, i: number) => void,
+	): void {
 		const program = this.program as Program;
-		if (this.vertexCount + count > MAX_VERTICES || this.indexCount + indices.length > this.indices.length) this.flush();
+		if (
+			this.vertexCount + count > MAX_VERTICES ||
+			this.indexCount + indices.length > this.indices.length
+		)
+			this.flush();
 		const base = this.vertexCount;
 		for (let i = 0; i < count; i++) write(this.vertices, (base + i) * program.stride, i);
 		for (let i = 0; i < indices.length; i++) this.indices[this.indexCount + i] = base + indices[i];
@@ -280,7 +304,12 @@ export class SceneRenderer {
 
 	/** Draws a skeleton's regions and meshes in draw order, clipped by its clipping attachments.
 	 * Only slots whose draw-order position is in [slotRangeStart, slotRangeEnd] when given. */
-	drawSkeleton(skeleton: Skeleton, premultipliedAlpha = false, slotRangeStart = -1, slotRangeEnd = -1): void {
+	drawSkeleton(
+		skeleton: Skeleton,
+		premultipliedAlpha = false,
+		slotRangeStart = -1,
+		slotRangeEnd = -1,
+	): void {
 		const clipper = this.clipper;
 		const pma = premultipliedAlpha;
 		const sc = skeleton.color;
@@ -350,7 +379,12 @@ export class SceneRenderer {
 				const dg = dark ? dark.g * (pma ? a : 1) : 0;
 				const db = dark ? dark.b * (pma ? a : 1) : 0;
 				const da = dark ? (pma ? 1 : 0) : 1;
-				this.use(this.textured, this.gl.TRIANGLES, texture, this.blendFunc(slot.data.blendMode, pma));
+				this.use(
+					this.textured,
+					this.gl.TRIANGLES,
+					texture,
+					this.blendFunc(slot.data.blendMode, pma),
+				);
 				const p = positions;
 				const t = uvs;
 				this.push(uvs.length >> 1, triangles, (v, at, k) => {
@@ -375,7 +409,12 @@ export class SceneRenderer {
 
 	private shape(mode: number): void {
 		const gl = this.gl;
-		this.use(this.shapes, mode, null, [gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA]);
+		this.use(this.shapes, mode, null, [
+			gl.SRC_ALPHA,
+			gl.ONE_MINUS_SRC_ALPHA,
+			gl.ONE,
+			gl.ONE_MINUS_SRC_ALPHA,
+		]);
 	}
 
 	private colored(points: number[], indices: number[], color: Color, color2?: Color): void {
@@ -391,13 +430,27 @@ export class SceneRenderer {
 		});
 	}
 
-	line(x: number, y: number, x2: number, y2: number, color: Color = Color.WHITE, color2?: Color): void {
+	line(
+		x: number,
+		y: number,
+		x2: number,
+		y2: number,
+		color: Color = Color.WHITE,
+		color2?: Color,
+	): void {
 		this.shape(this.gl.LINES);
 		this.colored([x, y, x2, y2], [0, 1], color, color2);
 	}
 
 	/** A circle outline, or a filled disc. `segments` 0 picks a count from the radius. */
-	circle(filled: boolean, x: number, y: number, radius: number, color: Color = Color.WHITE, segments = 0): void {
+	circle(
+		filled: boolean,
+		x: number,
+		y: number,
+		radius: number,
+		color: Color = Color.WHITE,
+		segments = 0,
+	): void {
 		const n = segments > 0 ? segments : Math.max(1, Math.floor(6 * Math.cbrt(radius)));
 		const points: number[] = [];
 		for (let i = 0; i < n; i++) {
@@ -418,18 +471,41 @@ export class SceneRenderer {
 		}
 	}
 
-	rect(filled: boolean, x: number, y: number, width: number, height: number, color: Color = Color.WHITE): void {
+	rect(
+		filled: boolean,
+		x: number,
+		y: number,
+		width: number,
+		height: number,
+		color: Color = Color.WHITE,
+	): void {
 		this.polygon([x, y, x + width, y, x + width, y + height, x, y + height], 0, 4, color, filled);
 	}
 
-	triangle(filled: boolean, x: number, y: number, x2: number, y2: number, x3: number, y3: number, color: Color = Color.WHITE): void {
+	triangle(
+		filled: boolean,
+		x: number,
+		y: number,
+		x2: number,
+		y2: number,
+		x3: number,
+		y3: number,
+		color: Color = Color.WHITE,
+	): void {
 		this.polygon([x, y, x2, y2, x3, y3], 0, 3, color, filled);
 	}
 
 	/** A closed polygon outline from `count` points starting at point `offset`, or a filled fan. */
-	polygon(vertices: ArrayLike<number>, offset: number, count: number, color: Color = Color.WHITE, filled = false): void {
+	polygon(
+		vertices: ArrayLike<number>,
+		offset: number,
+		count: number,
+		color: Color = Color.WHITE,
+		filled = false,
+	): void {
 		const points: number[] = [];
-		for (let i = 0; i < count; i++) points.push(vertices[(offset + i) * 2], vertices[(offset + i) * 2 + 1]);
+		for (let i = 0; i < count; i++)
+			points.push(vertices[(offset + i) * 2], vertices[(offset + i) * 2 + 1]);
 		const indices: number[] = [];
 		if (filled) for (let i = 1; i < count - 1; i++) indices.push(0, i, i + 1);
 		else for (let i = 0; i < count; i++) indices.push(i, (i + 1) % count);
@@ -438,7 +514,11 @@ export class SceneRenderer {
 	}
 
 	/** Bones, attachment outlines, mesh hulls/triangles, bounding boxes, paths and clip polygons. */
-	drawSkeletonDebug(skeleton: Skeleton, _premultipliedAlpha = false, ignoredBones?: string[]): void {
+	drawSkeletonDebug(
+		skeleton: Skeleton,
+		_premultipliedAlpha = false,
+		ignoredBones?: string[],
+	): void {
 		const d = this.skeletonDebugRenderer;
 		const world = this.world;
 		const s = d.scale;
@@ -464,7 +544,16 @@ export class SceneRenderer {
 						const a = t[i] * 2;
 						const b = t[i + 1] * 2;
 						const c = t[i + 2] * 2;
-						this.triangle(false, world[a], world[a + 1], world[b], world[b + 1], world[c], world[c + 1], d.triangleLineColor);
+						this.triangle(
+							false,
+							world[a],
+							world[a + 1],
+							world[b],
+							world[b + 1],
+							world[c],
+							world[c + 1],
+							d.triangleLineColor,
+						);
 					}
 				}
 				if (d.drawMeshHull && att.hullLength > 0) {
@@ -536,6 +625,7 @@ function pageTexture(region: TextureRegion | null): GLTexture | null {
 	if (!region) return null;
 	const own = region.texture as GLTexture | null;
 	if (own && 'bind' in own) return own;
-	const page = (region as unknown as { page?: { texture?: unknown } }).page?.texture as GLTexture | undefined;
+	const page = (region as unknown as { page?: { texture?: unknown } }).page?.texture as
+		GLTexture | undefined;
 	return page && 'bind' in page ? page : null;
 }

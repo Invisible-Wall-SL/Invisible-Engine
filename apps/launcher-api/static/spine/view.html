@@ -268,17 +268,18 @@ let showMesh = false, showClip = false;
 let curEntry = null, dragging = false, lastXY = null;
 let skeletons = [], selected = null, bgColor = {r:0.106,g:0.114,b:0.133,a:1};
 
-// ---- runtime loading (one spine-webgl global at a time) -------------------
+// ---- runtime loading (the Invisible rig runtime, loaded once) -------------
+// One runtime reads every rig, 4.1 and 4.2 exports alike — the same skeleton code the game runs.
 function loadRuntime(line){
   return new Promise((resolve, reject) => {
-    if (loadedLine === line && window.spine){ SPINE = window.spine; return resolve(); }
+    if (window.spine){ SPINE = window.spine; loadedLine = line; return resolve(); }
     const s = document.createElement("script");
     // Cache-bust the stable-name vendored runtime with the deploy version `?v=` the /spine route
-    // passed in (see buildId.ts) — else the browser serves a stale spine-webgl-*.js after a redeploy.
+    // passed in (see buildId.ts) — else the browser serves a stale invisible-rig.js after a redeploy.
     const _v = new URLSearchParams(location.search).get("v");
-    s.src = "/spine/vendor/spine-webgl-" + line + ".js" + (_v ? "?v=" + encodeURIComponent(_v) : "");
+    s.src = "/spine/vendor/invisible-rig.js" + (_v ? "?v=" + encodeURIComponent(_v) : "");
     s.onload = () => { SPINE = window.spine; loadedLine = line; resolve(); };
-    s.onerror = () => reject(new Error("Failed to load runtime " + line));
+    s.onerror = () => reject(new Error("Failed to load the rig runtime"));
     document.head.appendChild(s);
   });
 }

@@ -61,7 +61,8 @@ export class BoneData {
 	skinRequired = false;
 	color = new Color();
 	icon?: string;
-	visible = true;
+	/** Editor display flag (nonessential data); false unless the file says otherwise. */
+	visible = false;
 
 	constructor(
 		public index: number,
@@ -348,38 +349,65 @@ export class SkeletonData {
 	audioPath: string | null = null;
 
 	findBone(name: string): BoneData | null {
-		return this.bones.find((b) => b.name === name) ?? null;
+		if (!name) throw new Error('boneName cannot be null.');
+		// Compared as strings: skeleton JSON may name a bone or slot with a number.
+		const key = String(name);
+		return this.bones.find((b) => b.name === key) ?? null;
 	}
 
 	findSlot(name: string): SlotData | null {
-		return this.slots.find((s) => s.name === name) ?? null;
+		if (!name) throw new Error('slotName cannot be null.');
+		// Compared as strings: skeleton JSON may name a bone or slot with a number.
+		const key = String(name);
+		return this.slots.find((s) => s.name === key) ?? null;
 	}
 
 	findSkin(name: string): Skin | null {
-		return this.skins.find((s) => s.name === name) ?? null;
+		if (!name) throw new Error('skinName cannot be null.');
+		// Compared as strings: skeleton JSON may name a bone or slot with a number.
+		const key = String(name);
+		return this.skins.find((s) => s.name === key) ?? null;
 	}
 
 	findEvent(name: string): EventData | null {
-		return this.events.find((e) => e.name === name) ?? null;
+		if (!name) throw new Error('eventDataName cannot be null.');
+		// Compared as strings: skeleton JSON may name a bone or slot with a number.
+		const key = String(name);
+		return this.events.find((e) => e.name === key) ?? null;
 	}
 
 	findAnimation(name: string): Animation | null {
-		return this.animations.find((a) => a.name === name) ?? null;
+		if (!name) throw new Error('animationName cannot be null.');
+		// Compared as strings: skeleton JSON may name a bone or slot with a number.
+		const key = String(name);
+		return this.animations.find((a) => a.name === key) ?? null;
 	}
 
 	findIkConstraint(name: string): IkConstraintData | null {
-		return this.ikConstraints.find((c) => c.name === name) ?? null;
+		if (!name) throw new Error('constraintName cannot be null.');
+		// Compared as strings: skeleton JSON may name a bone or slot with a number.
+		const key = String(name);
+		return this.ikConstraints.find((c) => c.name === key) ?? null;
 	}
 
 	findTransformConstraint(name: string): TransformConstraintData | null {
-		return this.transformConstraints.find((c) => c.name === name) ?? null;
+		if (!name) throw new Error('constraintName cannot be null.');
+		// Compared as strings: skeleton JSON may name a bone or slot with a number.
+		const key = String(name);
+		return this.transformConstraints.find((c) => c.name === key) ?? null;
 	}
 
 	findPathConstraint(name: string): PathConstraintData | null {
-		return this.pathConstraints.find((c) => c.name === name) ?? null;
+		if (!name) throw new Error('constraintName cannot be null.');
+		// Compared as strings: skeleton JSON may name a bone or slot with a number.
+		const key = String(name);
+		return this.pathConstraints.find((c) => c.name === key) ?? null;
 	}
 
 	findPhysicsConstraint(name: string): PhysicsConstraintData | null {
-		return this.physicsConstraints.find((c) => c.name === name) ?? null;
+		if (!name) throw new Error('constraintName cannot be null.');
+		// Compared as strings: skeleton JSON may name a bone or slot with a number.
+		const key = String(name);
+		return this.physicsConstraints.find((c) => c.name === key) ?? null;
 	}
 }

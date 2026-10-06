@@ -1,50 +1,44 @@
-// Where every Rigger spike gets the Spine runtime. Resolved the way the game gets it — from
-// `packages/pixi-svelte`, which pins it — and refused unless it is 4.2.x:
+// Where every Rigger spike gets the rig runtime: `packages/engine-rig`, the one the games, the
+// editor and the Rigger itself run (held to the Spine 4.2 reference by `tools/rig-parity`).
+// esbuild bundles its TypeScript into a single ESM file per process, which the spike imports:
 //
-//   import { SPINE_CORE } from './spine.mjs';
-//   const { SkeletonJson, … } = await import(SPINE_CORE);
+//   import { RIG_CORE } from './spine.mjs';
+//   const { SkeletonJson, … } = await import(RIG_CORE);
 //
-// WHY 4.2 ONLY: a Spine runtime reads exactly one editor version's data. Every exported skeleton and
-// the Rigger's `.irig` are Spine 4.2 JSON, so a spike that loads them through a 4.3 runtime is not
-// checking what ships. The spikes used to hard-code `.pnpm/@esotericsoftware+spine-core@4.2.74/…`,
-// which failed a Dependabot 4.3 bump only by accident (ERR_MODULE_NOT_FOUND); this fails it on
-// purpose, and keeps working across 4.2.x patches. See `.github/dependabot.yml`.
-import { existsSync, readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
+// `rigPixi()` bundles the Pixi side (`engine-rig/pixi`) with `pixi.js` left external, and
+// re-exports pixi's `Ticker` from that same import, so a spike's ticker is the one a `RigView` uses.
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { resolveFromPackage } from './resolve.mjs';
+import { ESBUILD } from './esbuild.mjs';
 
-const REQUIRED = /^4\.2\.\d+$/;
+const RIG = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'packages', 'engine-rig');
+// Under the package's node_modules so a bundle importing `pixi.js` resolves the package's copy.
+const OUT = join(RIG, 'node_modules', '.spike', String(process.pid));
+mkdirSync(OUT, { recursive: true });
+process.on('exit', () => rmSync(OUT, { recursive: true, force: true }));
 
-function spinePackage(name) {
-	const found = resolveFromPackage(name, 'pixi-svelte');
-	const { version } = JSON.parse(readFileSync(join(found.pkgDir, 'package.json'), 'utf8'));
-	if (!REQUIRED.test(version)) {
-		console.error(
-			`✗ ${name} ${version} found, spikes require 4.2.x — the runtime must match the Spine ` +
-				`4.2 data we export (see .github/dependabot.yml)`,
-		);
-		process.exit(1);
-	}
-	return found;
+const esbuild = await import(ESBUILD);
+
+async function bundle(file, contents) {
+	const outfile = join(OUT, file);
+	const result = await esbuild.build({
+		stdin: { contents, resolveDir: RIG, loader: 'ts', sourcefile: file },
+		bundle: true,
+		format: 'esm',
+		platform: 'node',
+		external: ['pixi.js'],
+		keepNames: true,
+		write: false,
+		logLevel: 'error',
+	});
+	writeFileSync(outfile, result.outputFiles[0].text);
+	return pathToFileURL(outfile).href;
 }
 
-/** spine-core's entry, as a file URL for `import()`. */
-export const SPINE_CORE = pathToFileURL(spinePackage('@esotericsoftware/spine-core').entry).href;
+/** The renderer-free runtime (`engine-rig`), as a file URL for `import()`. */
+export const RIG_CORE = await bundle('rig-core.mjs', "export * from './index.ts';");
 
-/** A file inside the spine-pixi-v8 package, e.g. `dist/Spine.js`, as a file URL. */
-export const spinePixiFile = (sub) =>
-	pathToFileURL(join(spinePackage('@esotericsoftware/spine-pixi-v8').pkgDir, sub));
-
-/**
- * pixi.js's ESM entry as spine-pixi-v8 resolves it — the instance its `Spine` imports, so its
- * `Ticker.shared` is the one a `Spine` registers on.
- */
-export function pixiEntry() {
-	const spinePkg = fileURLToPath(spinePixiFile('package.json'));
-	let dir = dirname(createRequire(spinePkg).resolve('pixi.js'));
-	while (!existsSync(join(dir, 'package.json'))) dir = dirname(dir);
-	const entry = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).exports['.'].import;
-	return pathToFileURL(join(dir, typeof entry === 'string' ? entry : entry.default)).href;
-}
+/** The Pixi runtime (`engine-rig/pixi`) plus pixi's `Ticker`, as a file URL for `import()`. */
+export const rigPixi = () =>
+	bundle('rig-pixi.mjs', "export * from './pixi.ts';\nexport { Ticker } from 'pixi.js';");

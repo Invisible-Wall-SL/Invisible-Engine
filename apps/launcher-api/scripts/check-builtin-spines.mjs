@@ -1,32 +1,23 @@
 /**
- * Guard that every BUILT-IN spine (`static/builtin/spines/*`) loads under the ONE runtime line the
- * editor previews with — 4.2, the line the game runs.
+ * Guard that every BUILT-IN spine (`static/builtin/spines/*`) loads, poses and measures under the
+ * rig runtime (`packages/engine-rig`) — the one the editor previews with and the game runs.
  *
  * Run: `pnpm --filter launcher-api run check:builtin-spines`
  *
- * WHY. The built-ins are Spine 4.1 exports. The editor used to load one vendored runtime per
- * requested line and let "the first to finish" own `window.spine`; a cold /symbols load requested
- * 4.1 (these) and 4.2 (a Rigger rig) at once, both scripts injected, and skeletons built by one
- * runtime were posed and drawn by the other — every 4.2 cell threw "physics is undefined" and stayed
- * blank until a reload reordered the scripts. `spineRuntime.client.ts` now loads 4.2 only, which is
- * safe exactly as long as what is asserted here stays true: each built-in parses, poses through
- * `Physics.update`, and measures a positive extent under a 4.2 reader. Add a built-in, and this is
- * the check that says whether it may ship.
+ * WHY. The built-ins are Spine 4.1 exports, and one runtime reads every skeleton (4.1 and 4.2 data
+ * alike). That is safe exactly as long as what is asserted here stays true: each built-in parses,
+ * poses through `Physics.update`, and measures a positive extent. Add a built-in, and this is the
+ * check that says whether it may ship.
  *
- * Uses `@esotericsoftware/spine-core` 4.2 (the same major.minor as the vendored `spine-webgl-4.2.js`)
- * with a stub texture, so it runs headless in Node.
+ * Uses the rig runtime with a stub texture, so it runs headless in Node (under tsx, which loads the
+ * runtime's TypeScript).
  */
 import { readdirSync, readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
+import * as spine from 'engine-rig';
 
 const appRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-const require = createRequire(import.meta.url);
-const corePath = require.resolve('@esotericsoftware/spine-core', {
-	paths: [join(appRoot, '..', '..', 'packages', 'pixi-svelte')],
-});
-const spine = await import(pathToFileURL(corePath).href);
 
 const root = join(appRoot, 'static', 'builtin', 'spines');
 const stubTexture = {
@@ -68,7 +59,7 @@ for (const dir of readdirSync(root, { withFileTypes: true }).filter((d) => d.isD
 		}
 		if (!(worst > 0)) throw new Error('an animation measured a degenerate extent');
 		console.log(
-			`ok ${dir.name}: exported ${json.skeleton?.spine}, ${data.bones.length} bones, ${data.animations.length} animations pose under 4.2`,
+			`ok ${dir.name}: exported ${json.skeleton?.spine}, ${data.bones.length} bones, ${data.animations.length} animations pose`,
 		);
 	} catch (e) {
 		console.error(`FAIL ${dir.name}: ${e instanceof Error ? e.message : e}`);
@@ -76,7 +67,7 @@ for (const dir of readdirSync(root, { withFileTypes: true }).filter((d) => d.isD
 	}
 }
 if (fails) {
-	console.error(`${fails} built-in spine(s) do not load under the 4.2 runtime`);
+	console.error(`${fails} built-in spine(s) do not load under the rig runtime`);
 	process.exit(1);
 }
-console.log('builtin spines: all load under the editor runtime (4.2)');
+console.log('builtin spines: all load under the rig runtime');

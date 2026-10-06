@@ -60,7 +60,8 @@ export function triangulate(polygon: ArrayLike<number>): number[] {
 
 /** Merges triangles of a triangulated polygon into larger convex polygons (counter-clockwise). */
 export function decompose(polygon: ArrayLike<number>, triangles: number[]): number[][] {
-	const pts = (idx: number[]): number[] => idx.flatMap((i) => [polygon[i << 1], polygon[(i << 1) + 1]]);
+	const pts = (idx: number[]): number[] =>
+		idx.flatMap((i) => [polygon[i << 1], polygon[(i << 1) + 1]]);
 	const isConvex = (idx: number[]): boolean => {
 		const p = pts(idx);
 		const n = idx.length;
@@ -154,7 +155,11 @@ export class SkeletonClipping {
 	}
 
 	/** Positions only (`x, y` pairs in `vertices`). */
-	clipTriangles(vertices: ArrayLike<number>, triangles: ArrayLike<number>, trianglesLength: number): void {
+	clipTriangles(
+		vertices: ArrayLike<number>,
+		triangles: ArrayLike<number>,
+		trianglesLength: number,
+	): void {
 		this.clip(vertices, triangles, trianglesLength, null);
 	}
 

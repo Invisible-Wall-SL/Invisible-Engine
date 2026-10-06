@@ -63,8 +63,9 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   going down passes with a notice to lower it. A crashed run (no `COMPLETED` line) fails.
 - **Dependabot** (`.github/dependabot.yml`): weekly grouped npm / pip / github-actions updates, capped
   open PRs, gated by the same required checks. Its security updates wait on the owner switch
-  (Blocked). The Spine runtimes (`@esotericsoftware/*`) get 4.2.x patches only, and
-  `scripts/check-spine-version.mjs` (check:all) fails a hand bump past 4.2 (2026-10-01 below).
+  (Blocked). There is no Spine runtime package to pin any more — rigs run on our own
+  `packages/engine-rig` — and `scripts/check-spine-runtime-free.mjs` (check:all) fails any
+  `@esotericsoftware/*` manifest entry, lockfile entry, import or vendored file (2026-10-06 below).
 
 ## Open items / next
 1. **Pin a Railway `/data` persistent volume** on atlas-tool + sheet-tool — the incremental-hydrate
@@ -123,6 +124,10 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-10-06 — **Spine runtime gate replaced.** `scripts/check-spine-version.mjs` (which pinned
+  `@esotericsoftware/*` to 4.2.x) is gone with the packages themselves; the new
+  `scripts/check-spine-runtime-free.mjs` fails any of them coming back, and `.github/dependabot.yml`
+  drops its Spine ignore block. Detail: `docs/status/rigger.md` (Phase 6, `engine-rig`).
 - 2026-10-01 — **The runtime release verifier accepts an inlined bundle.** #936's release
   (`lines@e81c0c21ce3f`) went red at "verify the served bundle" after 15 min and opened #940, though
   every game was already serving it. SvelteKit 2.70 deletes the emitted `bundle.<hash>.js` once it

@@ -172,9 +172,6 @@ importers:
       '@barvynkoa/particle-emitter':
         specifier: 0.0.1
         version: 0.0.1(pixi.js@8.21.0)
-      '@esotericsoftware/spine-pixi-v8':
-        specifier: 4.2.120
-        version: 4.2.120(pixi.js@8.21.0)
       '@sentry/node':
         specifier: 11.1.0
         version: 11.1.0(@babel/core@7.28.0)(rollup@4.63.5)
@@ -214,6 +211,9 @@ importers:
       engine-layout:
         specifier: workspace:*
         version: link:../../packages/engine-layout
+      engine-rig:
+        specifier: workspace:*
+        version: link:../../packages/engine-rig
       error-tracking:
         specifier: workspace:*
         version: link:../../packages/error-tracking
@@ -984,9 +984,6 @@ importers:
 
   packages/components-shared:
     dependencies:
-      '@esotericsoftware/spine-pixi-v8':
-        specifier: 4.2.120
-        version: 4.2.120(pixi.js@8.21.0)
       '@sveltejs/kit':
         specifier: 2.70.3
         version: 2.70.3(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@5.0.3(svelte@5.57.1(@typescript-eslint/types@8.70.1))(vite@6.2.0(@types/node@26.2.0)(jiti@1.21.7)(sass-embedded@1.89.2)(sass@1.105.0)(tsx@4.23.15)))(svelte@5.57.1(@typescript-eslint/types@8.70.1))(typescript@5.9.3)(vite@6.2.0(@types/node@26.2.0)(jiti@1.21.7)(sass-embedded@1.89.2)(sass@1.105.0)(tsx@4.23.15))
@@ -996,6 +993,9 @@ importers:
       delivery-profile:
         specifier: workspace:*
         version: link:../delivery-profile
+      engine-rig:
+        specifier: workspace:*
+        version: link:../engine-rig
       error-tracking:
         specifier: workspace:*
         version: link:../error-tracking
@@ -1610,9 +1610,6 @@ importers:
 
   packages/engine-layout:
     dependencies:
-      '@esotericsoftware/spine-pixi-v8':
-        specifier: 4.2.120
-        version: 4.2.120(pixi.js@8.21.0)
       components-layout:
         specifier: workspace:*
         version: link:../components-layout
@@ -1622,6 +1619,9 @@ importers:
       engine-cinematic:
         specifier: workspace:*
         version: link:../engine-cinematic
+      engine-rig:
+        specifier: workspace:*
+        version: link:../engine-rig
       pixi-svelte:
         specifier: workspace:*
         version: link:../pixi-svelte
@@ -1807,12 +1807,6 @@ importers:
       '@barvynkoa/particle-emitter':
         specifier: 0.0.1
         version: 0.0.1(pixi.js@8.21.0)
-      '@esotericsoftware/spine-core':
-        specifier: 4.2.120
-        version: 4.2.120
-      '@esotericsoftware/spine-pixi-v8':
-        specifier: 4.2.120
-        version: 4.2.120(pixi.js@8.21.0)
       '@lingui/core':
         specifier: 5.2.0
         version: 5.2.0(@lingui/babel-plugin-lingui-macro@5.2.0(babel-plugin-macros@3.1.0)(typescript@5.9.3))(babel-plugin-macros@3.1.0)
@@ -1828,6 +1822,9 @@ importers:
       engine-fx:
         specifier: workspace:*
         version: link:../engine-fx
+      engine-rig:
+        specifier: workspace:*
+        version: link:../engine-rig
       pixi-filters:
         specifier: 6.1.5
         version: 6.1.5(pixi.js@8.21.0)
@@ -2376,12 +2373,12 @@ importers:
       '@barvynkoa/particle-emitter':
         specifier: 0.0.1
         version: 0.0.1(pixi.js@8.21.0)
-      '@esotericsoftware/spine-core':
-        specifier: 4.2.120
-        version: 4.2.120
       engine-fx:
         specifier: workspace:*
         version: link:../../packages/engine-fx
+      engine-rig:
+        specifier: workspace:*
+        version: link:../../packages/engine-rig
       pixi.js:
         specifier: 8.21.0
         version: 8.21.0
@@ -3414,17 +3411,6 @@ packages:
   '@eslint/plugin-kit@0.4.1':
     resolution: {integrity: sha512-43/qtrDUokr7LJqoF2c3+RInu/t4zfrpYdoSDfYyhg52rwLV6TnOvdG4fXm7IkSB3wErkcmJS9iEhjVtOSEjjA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
-
-  '@esotericsoftware/spine-canvas@4.2.120':
-    resolution: {integrity: sha512-9a3QmIwNqBJSxEwoR0DYp7mkDqgbvuJlaR246ArpmslsBxVcku2t/3tFyO+fS0IN2pYOxeeBhqEjX4Tt0JDW3g==}
-
-  '@esotericsoftware/spine-core@4.2.120':
-    resolution: {integrity: sha512-X62MPnfiZTWok4Wk5Q5DqaAUBUFypKpb94IVd1W/j4eLHhg0HH3tve4HvIlkgxDpls2NokHaAtzjxX12rJknOA==}
-
-  '@esotericsoftware/spine-pixi-v8@4.2.120':
-    resolution: {integrity: sha512-5Upjk0mlqEMWGpJgJ2aEM7R4Uy8ODmYi2MYKyiqYNNLngH0korvVSZ8+Y7WiWqM5uMRQ6fo8Q0rtjoWfJt28Fg==}
-    peerDependencies:
-      pixi.js: ^8.16.0
 
   '@humanfs/core@0.19.1':
     resolution: {integrity: sha512-5DyQ4+1JEUzejeK1JGICcideyfUbGixgS9jNgex5nqkW+cY7WZhxBigmieN5Qnw9ZosSNVC9KQKyb+GUaGyKUA==}
@@ -7410,17 +7396,6 @@ snapshots:
     dependencies:
       '@eslint/core': 0.17.0
       levn: 0.4.1
-
-  '@esotericsoftware/spine-canvas@4.2.120':
-    dependencies:
-      '@esotericsoftware/spine-core': 4.2.120
-
-  '@esotericsoftware/spine-core@4.2.120': {}
-
-  '@esotericsoftware/spine-pixi-v8@4.2.120(pixi.js@8.21.0)':
-    dependencies:
-      '@esotericsoftware/spine-canvas': 4.2.120
-      pixi.js: 8.21.0
 
   '@humanfs/core@0.19.1': {}
 

@@ -12,7 +12,7 @@
 // fired events and listener callbacks are compared. Exit code 1 on any mismatch.
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, dirname, basename } from 'node:path';
-import { SPINE_CORE } from '../rigger-spike/spine.mjs';
+import { reference } from './reference.mjs';
 import { loadRig, ROOT } from './load.mjs';
 
 const args = process.argv.slice(2);
@@ -21,7 +21,7 @@ const verbose = args.includes('--verbose');
 const extraDir = args.includes('--dir') ? args[args.indexOf('--dir') + 1] : null;
 
 const RIG = await loadRig();
-const REF = await import(SPINE_CORE);
+const REF = await import((await reference()).core);
 
 const ABS = 2e-3;
 const REL = 2e-4;
@@ -41,7 +41,8 @@ function findSkeletons() {
 			if (s.isDirectory()) walk(p);
 			else if (n.endsWith('.skel')) {
 				const atlases = readdirSync(dirname(p)).filter((f) => f.endsWith('.atlas'));
-				const atlas = atlases.find((a) => basename(a, '.atlas') === basename(n, '.skel')) ?? atlases[0];
+				const atlas =
+					atlases.find((a) => basename(a, '.atlas') === basename(n, '.skel')) ?? atlases[0];
 				if (atlas) out.push({ json: p, atlas: join(dirname(p), atlas), binary: true });
 			} else if (n.endsWith('.json') && s.size > 200 && s.size < 50e6) {
 				let j;
@@ -53,7 +54,8 @@ function findSkeletons() {
 				if (!j?.skeleton || !j.bones) continue;
 				const atlases = readdirSync(dirname(p)).filter((f) => f.endsWith('.atlas'));
 				if (!atlases.length) continue;
-				const atlas = atlases.find((a) => basename(a, '.atlas') === basename(n, '.json')) ?? atlases[0];
+				const atlas =
+					atlases.find((a) => basename(a, '.atlas') === basename(n, '.json')) ?? atlases[0];
 				out.push({ json: p, atlas: join(dirname(p), atlas) });
 			}
 		}
@@ -84,7 +86,16 @@ function snapshot(X, sk) {
 		}
 	};
 	for (const b of sk.bones)
-		add(`bone ${b.data.name} a,b,c,d,x,y,active`, b.a, b.b, b.c, b.d, b.worldX, b.worldY, b.active ? 1 : 0);
+		add(
+			`bone ${b.data.name} a,b,c,d,x,y,active`,
+			b.a,
+			b.b,
+			b.c,
+			b.d,
+			b.worldX,
+			b.worldY,
+			b.active ? 1 : 0,
+		);
 	for (const s of sk.slots) {
 		add(`slot ${s.data.name} rgba`, s.color.r, s.color.g, s.color.b, s.color.a);
 		if (s.darkColor) add(`slot ${s.data.name} dark`, s.darkColor.r, s.darkColor.g, s.darkColor.b);
@@ -117,7 +128,12 @@ let checks = 0;
 function compare(label, a, b) {
 	checks++;
 	if (a.strs.length !== b.strs.length || a.nums.length !== b.nums.length) {
-		fail(label, `shape differs: ${a.nums.length}/${a.strs.length} vs ${b.nums.length}/${b.strs.length}`, a, b);
+		fail(
+			label,
+			`shape differs: ${a.nums.length}/${a.strs.length} vs ${b.nums.length}/${b.strs.length}`,
+			a,
+			b,
+		);
 		return false;
 	}
 	for (let i = 0; i < a.strs.length; i++)
@@ -142,8 +158,92 @@ function fail(label, msg) {
 	if (list.length < 3) list.push(`${label} — ${msg}`);
 }
 
+/** Plain fields of a data object (numbers, strings, booleans, null/undefined), sorted by key. */
+function fields(o, skip = []) {
+	const out = {};
+	for (const k of Object.keys(o).sort()) {
+		if (k.startsWith('_') || skip.includes(k)) continue;
+		const v = o[k];
+		if (v === null || v === undefined || ['number', 'string', 'boolean'].includes(typeof v))
+			out[k] = v;
+	}
+	return out;
+}
+
+/** Everything read off the file that is not a pose: header, setup data, skins and events. */
+function compareData(name, a, b) {
+	const rows = [];
+	const add = (label, x, y) => rows.push([label, JSON.stringify(x), JSON.stringify(y)]);
+	add('header', fields(a, ['name']), fields(b, ['name']));
+	a.bones.forEach((d, i) => add(`bone ${d.name}`, fields(d), fields(b.bones[i] ?? {})));
+	a.slots.forEach((d, i) =>
+		add(
+			`slot ${d.name}`,
+			{ ...fields(d), color: fields(d.color), dark: d.darkColor && fields(d.darkColor) },
+			{
+				...fields(b.slots[i] ?? {}),
+				color: fields(b.slots[i]?.color ?? {}),
+				dark: b.slots[i]?.darkColor && fields(b.slots[i].darkColor),
+			},
+		),
+	);
+	for (const k of [
+		'ikConstraints',
+		'transformConstraints',
+		'pathConstraints',
+		'physicsConstraints',
+	])
+		a[k].forEach((d, i) => add(`${k} ${d.name}`, fields(d), fields(b[k][i] ?? {})));
+	a.events.forEach((d, i) => add(`event ${d.name}`, fields(d), fields(b.events[i] ?? {})));
+	a.skins.forEach((skin, i) => {
+		const list = (s) =>
+			s
+				.getAttachments()
+				.map((e) => {
+					const at = e.attachment;
+					const extra = {
+						...fields(at, ['id', 'kind']),
+						color: at.color && fields(at.color),
+						sequence: at.sequence && fields(at.sequence, ['id']),
+						hull: at.hullLength,
+						edges: at.edges ? [...at.edges] : null,
+						triangles: at.triangles ? [...at.triangles] : null,
+						lengths: at.lengths ? [...at.lengths].map((v) => +v.toFixed(3)) : null,
+						endSlot: at.endSlot ? at.endSlot.name : null,
+						parentMesh: at.getParentMesh?.()?.name ?? null,
+					};
+					return `${e.slotIndex}/${e.name}/${JSON.stringify(extra)}`;
+				})
+				.sort();
+		const la = list(skin);
+		const lb = b.skins[i] ? list(b.skins[i]) : [];
+		const at = la.findIndex((v, k) => v !== lb[k]);
+		add(
+			`skin ${skin.name}`,
+			at === -1 && la.length === lb.length ? null : la[at],
+			at === -1 ? null : (lb[at] ?? null),
+		);
+	});
+	add(
+		'animations',
+		a.animations.map((x) => x.name),
+		b.animations.map((x) => x.name),
+	);
+	for (const [label, x, y] of rows) {
+		checks++;
+		if (x !== y) {
+			fail(`${name} :: data`, `${label}: ${x} ≠ ${y}`);
+			return;
+		}
+	}
+}
+
 function eventLog(list) {
-	return list.map((e) => `${e.data.name}@${e.time.toFixed(4)}:${e.intValue}:${e.floatValue}:${e.stringValue}`).join('|');
+	return list
+		.map(
+			(e) => `${e.data.name}@${e.time.toFixed(4)}:${e.intValue}:${e.floatValue}:${e.stringValue}`,
+		)
+		.join('|');
 }
 
 function directPoses(name, refData, rigData, flipY) {
@@ -154,7 +254,8 @@ function directPoses(name, refData, rigData, flipY) {
 			continue;
 		}
 		checks++;
-		if (!close(refAnim.duration, rigAnim.duration)) fail(`${name} :: ${refAnim.name}`, `duration ${refAnim.duration} ≠ ${rigAnim.duration}`);
+		if (!close(refAnim.duration, rigAnim.duration))
+			fail(`${name} :: ${refAnim.name}`, `duration ${refAnim.duration} ≠ ${rigAnim.duration}`);
 		const refSk = new REF.Skeleton(refData);
 		const rigSk = new RIG.Skeleton(rigData);
 		if (flipY) {
@@ -172,7 +273,16 @@ function directPoses(name, refData, rigData, flipY) {
 				[RIG, rigSk, rigAnim],
 			]) {
 				sk.setToSetupPose();
-				anim.apply(sk, last, t, true, (sk.__events = []), 1, X.MixBlend.setup, X.MixDirection.mixIn);
+				anim.apply(
+					sk,
+					last,
+					t,
+					true,
+					(sk.__events = []),
+					1,
+					X.MixBlend.setup,
+					X.MixDirection.mixIn,
+				);
 				sk.updateWorldTransform(X.Physics.update);
 			}
 			const label = `${name} :: ${refAnim.name} @${t.toFixed(3)}${flipY ? ' flipped' : ''}`;
@@ -278,6 +388,7 @@ for (const r of rigs) {
 	}
 	loaded++;
 	try {
+		compareData(name, refData, rigData);
 		directPoses(name, refData, rigData, false);
 		directPoses(name, refData, rigData, true);
 		stateScenario(name, refData, rigData);

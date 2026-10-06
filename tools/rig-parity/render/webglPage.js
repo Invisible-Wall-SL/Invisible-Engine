@@ -11,7 +11,12 @@
 		canvas = document.createElement('canvas');
 		canvas.width = canvas.height = size;
 		document.body.appendChild(canvas);
-		gl = canvas.getContext('webgl', { alpha: true, premultipliedAlpha: false, preserveDrawingBuffer: true, antialias: false });
+		gl = canvas.getContext('webgl', {
+			alpha: true,
+			premultipliedAlpha: false,
+			preserveDrawingBuffer: true,
+			antialias: false,
+		});
 		renderer = new SPINE.SceneRenderer(canvas, gl);
 	}
 
@@ -29,7 +34,8 @@
 
 	function toBase64(bytes) {
 		let s = '';
-		for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+		for (let i = 0; i < bytes.length; i += 0x8000)
+			s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
 		return btoa(s);
 	}
 
@@ -53,7 +59,8 @@
 		skeleton.update(pose.time);
 		skeleton.updateWorldTransform(SPINE.Physics.update);
 		if (pose.hideBlend !== undefined)
-			for (const slot of skeleton.slots) if (slot.data.blendMode === pose.hideBlend) slot.setAttachment(null);
+			for (const slot of skeleton.slots)
+				if (slot.data.blendMode === pose.hideBlend) slot.setAttachment(null);
 		const w = data.width || 400;
 		const h = data.height || 400;
 		const cam = renderer.camera;

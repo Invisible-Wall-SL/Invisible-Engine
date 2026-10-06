@@ -13,8 +13,8 @@
  *
  * THE POOL IS INJECTABLE. The bookkeeping (pre-warm, take/return, per-particle lifecycle, no-leak)
  * is decoupled from the renderer through a {@link SpineBackingFactory}: the runtime injects a real
- * pixi-v8 `Spine`-backed factory, while the headless harness injects a spine-core backing (the
- * un-mangled animation machinery the spike used). The behavior class itself is renderer-agnostic.
+ * `RigView`-backed factory, while the headless harness injects an engine-rig core backing
+ * (no renderer). The behavior class itself is renderer-agnostic.
  *
  * Registration is owned here so a single `import` from a consumer (e.g. `<EffectLayer>`) ensures
  * the `'spineParticle'` type is known to every `Emitter` before it inits.

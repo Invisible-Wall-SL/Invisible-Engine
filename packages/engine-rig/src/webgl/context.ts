@@ -5,7 +5,8 @@ export class ManagedWebGLRenderingContext {
 	private restorables: Array<{ restore(): void }> = [];
 
 	constructor(
-		canvasOrContext: HTMLCanvasElement | OffscreenCanvas | WebGLRenderingContext | WebGL2RenderingContext,
+		canvasOrContext:
+			HTMLCanvasElement | OffscreenCanvas | WebGLRenderingContext | WebGL2RenderingContext,
 		contextConfig: WebGLContextAttributes = { alpha: true },
 	) {
 		if (canvasOrContext instanceof WebGLRenderingContext || isWebGL2(canvasOrContext)) {
@@ -13,9 +14,8 @@ export class ManagedWebGLRenderingContext {
 			this.canvas = this.gl.canvas as HTMLCanvasElement;
 		} else {
 			const canvas = canvasOrContext as HTMLCanvasElement;
-			const gl = (canvas.getContext('webgl2', contextConfig) ?? canvas.getContext('webgl', contextConfig)) as
-				| WebGLRenderingContext
-				| null;
+			const gl = (canvas.getContext('webgl2', contextConfig) ??
+				canvas.getContext('webgl', contextConfig)) as WebGLRenderingContext | null;
 			if (!gl) throw new Error('WebGL is not available.');
 			this.gl = gl;
 			this.canvas = canvas;
@@ -40,8 +40,11 @@ function isWebGL2(value: unknown): boolean {
 	return typeof WebGL2RenderingContext !== 'undefined' && value instanceof WebGL2RenderingContext;
 }
 
-export type ContextLike = ManagedWebGLRenderingContext | WebGLRenderingContext | WebGL2RenderingContext;
+export type ContextLike =
+	ManagedWebGLRenderingContext | WebGLRenderingContext | WebGL2RenderingContext;
 
 export function managed(context: ContextLike): ManagedWebGLRenderingContext {
-	return context instanceof ManagedWebGLRenderingContext ? context : new ManagedWebGLRenderingContext(context);
+	return context instanceof ManagedWebGLRenderingContext
+		? context
+		: new ManagedWebGLRenderingContext(context);
 }

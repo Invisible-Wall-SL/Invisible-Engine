@@ -4,7 +4,7 @@ import { defineConfig } from 'vite';
 /**
  * Dedicated library build for the Rigger's rig-TEXT rasteriser — a standalone IIFE bundle the
  * raw-WebGL Rigger `view.html` loads via a `<script>` tag (like `rigger-fx.js` and the vendored
- * `spine-webgl-*.js`), exposing `window.RiggerText`. Bundles ALL deps (pixi.js + the shared
+ * `invisible-rig.js`), exposing `window.RiggerText`. Bundles ALL deps (pixi.js + the shared
  * `$lib/fontLoad.client.ts` / `$lib/shelfPack.ts` / `$lib/text/rigTextRaster.client.ts`) — NO
  * externals — so it runs as a plain script with no import map.
  *

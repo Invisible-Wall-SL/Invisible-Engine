@@ -115,7 +115,7 @@ class BinaryInput {
 		if (byteCount === 1) return '';
 		byteCount--;
 		let chars = '';
-		for (let i = 0; i < byteCount; ) {
+		for (let i = 0; i < byteCount;) {
 			const b = this.readUnsignedByte();
 			switch (b >> 4) {
 				case 12:
@@ -196,7 +196,8 @@ export class SkeletonBinary {
 
 		const lowHash = input.readInt32();
 		const highHash = input.readInt32();
-		data.hash = highHash === 0 && lowHash === 0 ? null : highHash.toString(16) + lowHash.toString(16);
+		data.hash =
+			highHash === 0 && lowHash === 0 ? null : highHash.toString(16) + lowHash.toString(16);
 		data.version = input.readString();
 		data.x = input.readFloat();
 		data.y = input.readFloat();
@@ -240,7 +241,7 @@ export class SkeletonBinary {
 			const slot = new SlotData(i, name, data.bones[input.readInt(true)]);
 			Color.rgba8888ToColor(slot.color, input.readInt32());
 			const dark = input.readInt32();
-			if (dark !== -1) Color.rgb888ToColor((slot.darkColor = new Color(0, 0, 0, 1)), dark);
+			if (dark !== -1) Color.rgb888ToColor((slot.darkColor = new Color()), dark);
 			slot.attachmentName = input.readStringRef();
 			slot.blendMode = input.readInt(true) as BlendMode;
 			if (nonessential) slot.visible = input.readBoolean();
@@ -249,7 +250,8 @@ export class SkeletonBinary {
 
 		const readBones = (): BoneData[] => {
 			const out: BoneData[] = [];
-			for (let i = 0, n = input.readInt(true); i < n; i++) out.push(data.bones[input.readInt(true)]);
+			for (let i = 0, n = input.readInt(true); i < n; i++)
+				out.push(data.bones[input.readInt(true)]);
 			return out;
 		};
 
@@ -271,7 +273,9 @@ export class SkeletonBinary {
 		}
 
 		for (let i = 0, n = input.readInt(true); i < n; i++) {
-			const c = new TransformConstraintData(required(input.readString(), 'Transform constraint name'));
+			const c = new TransformConstraintData(
+				required(input.readString(), 'Transform constraint name'),
+			);
 			c.order = input.readInt(true);
 			c.bones = readBones();
 			c.target = data.bones[input.readInt(true)];
@@ -309,7 +313,8 @@ export class SkeletonBinary {
 			c.position = input.readFloat();
 			if (c.positionMode === PositionMode.Fixed) c.position *= scale;
 			c.spacing = input.readFloat();
-			if (c.spacingMode === SpacingMode.Length || c.spacingMode === SpacingMode.Fixed) c.spacing *= scale;
+			if (c.spacingMode === SpacingMode.Length || c.spacingMode === SpacingMode.Fixed)
+				c.spacing *= scale;
 			c.mixRotate = input.readFloat();
 			c.mixX = input.readFloat();
 			c.mixY = input.readFloat();
@@ -360,7 +365,8 @@ export class SkeletonBinary {
 		for (const linked of this.linkedMeshes) {
 			const skin = data.skins[linked.skinIndex];
 			const parent = linked.parent ? skin.getAttachment(linked.slotIndex, linked.parent) : null;
-			if (!(parent instanceof MeshAttachment)) throw new Error(`Parent mesh not found: ${linked.parent}`);
+			if (!(parent instanceof MeshAttachment))
+				throw new Error(`Parent mesh not found: ${linked.parent}`);
 			linked.mesh.timelineAttachment = linked.inheritTimelines ? parent : linked.mesh;
 			linked.mesh.setParentMesh(parent);
 			if (linked.mesh.region) linked.mesh.updateRegion();
@@ -387,7 +393,12 @@ export class SkeletonBinary {
 		return data;
 	}
 
-	private readSkin(input: BinaryInput, data: SkeletonData, isDefault: boolean, nonessential: boolean): Skin | null {
+	private readSkin(
+		input: BinaryInput,
+		data: SkeletonData,
+		isDefault: boolean,
+		nonessential: boolean,
+	): Skin | null {
 		let skin: Skin;
 		let slotCount: number;
 		if (isDefault) {
@@ -397,11 +408,14 @@ export class SkeletonBinary {
 		} else {
 			skin = new Skin(required(input.readString(), 'Skin name'));
 			if (nonessential) Color.rgba8888ToColor(skin.color, input.readInt32());
-			for (let i = 0, n = input.readInt(true); i < n; i++) skin.bones.push(data.bones[input.readInt(true)]);
-			for (let i = 0, n = input.readInt(true); i < n; i++) skin.constraints.push(data.ikConstraints[input.readInt(true)]);
+			for (let i = 0, n = input.readInt(true); i < n; i++)
+				skin.bones.push(data.bones[input.readInt(true)]);
+			for (let i = 0, n = input.readInt(true); i < n; i++)
+				skin.constraints.push(data.ikConstraints[input.readInt(true)]);
 			for (let i = 0, n = input.readInt(true); i < n; i++)
 				skin.constraints.push(data.transformConstraints[input.readInt(true)]);
-			for (let i = 0, n = input.readInt(true); i < n; i++) skin.constraints.push(data.pathConstraints[input.readInt(true)]);
+			for (let i = 0, n = input.readInt(true); i < n; i++)
+				skin.constraints.push(data.pathConstraints[input.readInt(true)]);
 			for (let i = 0, n = input.readInt(true); i < n; i++)
 				skin.constraints.push(data.physicsConstraints[input.readInt(true)]);
 			slotCount = input.readInt(true);
@@ -436,7 +450,10 @@ export class SkeletonBinary {
 		const scale = this.scale;
 		const loader = this.attachmentLoader;
 		const flags = input.readByte();
-		const name = required((flags & 8) !== 0 ? input.readStringRef() : attachmentName, 'Attachment name');
+		const name = required(
+			(flags & 8) !== 0 ? input.readStringRef() : attachmentName,
+			'Attachment name',
+		);
 		switch (flags & 0b111) {
 			case ATTACHMENT_REGION: {
 				let path = (flags & 16) !== 0 ? input.readStringRef() : null;
@@ -513,7 +530,10 @@ export class SkeletonBinary {
 				return mesh;
 			}
 			case ATTACHMENT_LINKEDMESH: {
-				const path = required((flags & 16) !== 0 ? input.readStringRef() : name, 'Linked mesh path');
+				const path = required(
+					(flags & 16) !== 0 ? input.readStringRef() : name,
+					'Linked mesh path',
+				);
 				const color = (flags & 32) !== 0 ? input.readInt32() : 0xffffffff;
 				const sequence = (flags & 64) !== 0 ? this.readSequence(input) : null;
 				const inheritTimelines = (flags & 128) !== 0;
@@ -534,7 +554,9 @@ export class SkeletonBinary {
 					mesh.width = width * scale;
 					mesh.height = height * scale;
 				}
-				this.linkedMeshes.push(new LinkedMesh(mesh, skinIndex, slotIndex, parent, inheritTimelines));
+				this.linkedMeshes.push(
+					new LinkedMesh(mesh, skinIndex, slotIndex, parent, inheritTimelines),
+				);
 				return mesh;
 			}
 			case ATTACHMENT_PATH: {
@@ -589,7 +611,12 @@ export class SkeletonBinary {
 		const scale = this.scale;
 		const vertexCount = input.readInt(true);
 		const length = vertexCount << 1;
-		if (!weighted) return { length, bones: null, vertices: new Float32Array(this.readFloats(input, length, scale)) };
+		if (!weighted)
+			return {
+				length,
+				bones: null,
+				vertices: new Float32Array(this.readFloats(input, length, scale)),
+			};
 		const weights: number[] = [];
 		const bones: number[] = [];
 		for (let i = 0; i < vertexCount; i++) {
@@ -621,13 +648,22 @@ export class SkeletonBinary {
 		const scale = this.scale;
 
 		/** One curve per frame transition: stepped, or a bezier for each value. */
-		const readCurve = (timeline: CurveTimeline, frame: number, time1: number, time2: number, from: number[], to: number[], scales: number[]): void => {
+		const readCurve = (
+			timeline: CurveTimeline,
+			frame: number,
+			time1: number,
+			time2: number,
+			from: number[],
+			to: number[],
+			scales: number[],
+		): void => {
 			switch (input.readByte()) {
 				case CURVE_STEPPED:
 					timeline.setStepped(frame);
 					break;
 				case CURVE_BEZIER:
-					for (let v = 0; v < from.length; v++) this.setBezier(input, timeline, frame, v, time1, time2, from[v], to[v], scales[v]);
+					for (let v = 0; v < from.length; v++)
+						this.setBezier(input, timeline, frame, v, time1, time2, from[v], to[v], scales[v]);
 			}
 		};
 		/** Frames of `values` floats (or unsigned bytes / 255 for colors), each followed by a curve. */
@@ -649,8 +685,14 @@ export class SkeletonBinary {
 				values = values2;
 			}
 		};
-		const floats = (n: number, s = 1): (() => number[]) => () => Array.from({ length: n }, () => input.readFloat() * s);
-		const bytes = (n: number): (() => number[]) => () => Array.from({ length: n }, () => input.readUnsignedByte() / 255);
+		const floats =
+			(n: number, s = 1): (() => number[]) =>
+			() =>
+				Array.from({ length: n }, () => input.readFloat() * s);
+		const bytes =
+			(n: number): (() => number[]) =>
+			() =>
+				Array.from({ length: n }, () => input.readUnsignedByte() / 255);
 		const timeline1 = (t: CurveTimeline1, s: number): Timeline => {
 			readFrames(t, floats(1, s), [s]);
 			return t;
@@ -667,7 +709,8 @@ export class SkeletonBinary {
 				const frameCount = input.readInt(true);
 				if (type === 0) {
 					const t = new AttachmentTimeline(frameCount, slotIndex);
-					for (let f = 0; f < frameCount; f++) t.setFrame(f, input.readFloat(), input.readStringRef());
+					for (let f = 0; f < frameCount; f++)
+						t.setFrame(f, input.readFloat(), input.readStringRef());
 					timelines.push(t);
 					continue;
 				}
@@ -714,7 +757,8 @@ export class SkeletonBinary {
 				const frameCount = input.readInt(true);
 				if (type === 10) {
 					const t = new InheritTimeline(frameCount, boneIndex);
-					for (let f = 0; f < frameCount; f++) t.setFrame(f, input.readFloat(), input.readByte() as Inherit);
+					for (let f = 0; f < frameCount; f++)
+						t.setFrame(f, input.readFloat(), input.readByte() as Inherit);
 					timelines.push(t);
 					continue;
 				}
@@ -724,13 +768,19 @@ export class SkeletonBinary {
 						timelines.push(timeline1(new RotateTimeline(frameCount, bezierCount, boneIndex), 1));
 						break;
 					case 1:
-						timelines.push(timeline2(new TranslateTimeline(frameCount, bezierCount, boneIndex), scale));
+						timelines.push(
+							timeline2(new TranslateTimeline(frameCount, bezierCount, boneIndex), scale),
+						);
 						break;
 					case 2:
-						timelines.push(timeline1(new TranslateXTimeline(frameCount, bezierCount, boneIndex), scale));
+						timelines.push(
+							timeline1(new TranslateXTimeline(frameCount, bezierCount, boneIndex), scale),
+						);
 						break;
 					case 3:
-						timelines.push(timeline1(new TranslateYTimeline(frameCount, bezierCount, boneIndex), scale));
+						timelines.push(
+							timeline1(new TranslateYTimeline(frameCount, bezierCount, boneIndex), scale),
+						);
 						break;
 					case 4:
 						timelines.push(timeline2(new ScaleTimeline(frameCount, bezierCount, boneIndex), 1));
@@ -760,12 +810,21 @@ export class SkeletonBinary {
 			const last = frameCount - 1;
 			const t = new IkConstraintTimeline(frameCount, input.readInt(true), index);
 			let flags = input.readByte();
-			const mixOf = (f: number): number => ((f & 1) !== 0 ? ((f & 2) !== 0 ? input.readFloat() : 1) : 0);
+			const mixOf = (f: number): number =>
+				(f & 1) !== 0 ? ((f & 2) !== 0 ? input.readFloat() : 1) : 0;
 			let time = input.readFloat();
 			let mix = mixOf(flags);
 			let softness = (flags & 4) !== 0 ? input.readFloat() * scale : 0;
 			for (let frame = 0; ; frame++) {
-				t.setFrame(frame, time, mix, softness, (flags & 8) !== 0 ? 1 : -1, (flags & 16) !== 0, (flags & 32) !== 0);
+				t.setFrame(
+					frame,
+					time,
+					mix,
+					softness,
+					(flags & 8) !== 0 ? 1 : -1,
+					(flags & 16) !== 0,
+					(flags & 32) !== 0,
+				);
 				if (frame === last) break;
 				flags = input.readByte();
 				const time2 = input.readFloat();
@@ -811,7 +870,8 @@ export class SkeletonBinary {
 						timelines.push(
 							timeline1(
 								new PathConstraintSpacingTimeline(frameCount, bezierCount, index),
-								constraint.spacingMode === SpacingMode.Length || constraint.spacingMode === SpacingMode.Fixed
+								constraint.spacingMode === SpacingMode.Length ||
+									constraint.spacingMode === SpacingMode.Fixed
 									? scale
 									: 1,
 							),
@@ -891,11 +951,23 @@ export class SkeletonBinary {
 						timelines.push(t);
 					} else if (type === 1) {
 						if (!attachment) throw new Error(`Sequence attachment not found: ${attachmentName}`);
-						const t = new SequenceTimeline(frameCount, slotIndex, attachment as Attachment & HasTextureRegion);
+						if (!(attachment as Partial<HasTextureRegion>).sequence)
+							throw new Error(`Sequence keys on an attachment with no sequence: ${attachmentName}`);
+						const t = new SequenceTimeline(
+							frameCount,
+							slotIndex,
+							attachment as Attachment & HasTextureRegion,
+						);
 						for (let f = 0; f < frameCount; f++) {
 							const time = input.readFloat();
 							const modeAndIndex = input.readInt32();
-							t.setFrame(f, time, SequenceModeValues[modeAndIndex & 0xf], modeAndIndex >> 4, input.readFloat());
+							t.setFrame(
+								f,
+								time,
+								SequenceModeValues[modeAndIndex & 0xf],
+								modeAndIndex >> 4,
+								input.readFloat(),
+							);
 						}
 						timelines.push(t);
 					}
@@ -920,7 +992,8 @@ export class SkeletonBinary {
 					order[original + input.readInt(true)] = original++;
 				}
 				while (original < slotCount) unchanged[u++] = original++;
-				for (let ii = slotCount - 1; ii >= 0; ii--) if (order[ii] === -1) order[ii] = unchanged[--u];
+				for (let ii = slotCount - 1; ii >= 0; ii--)
+					if (order[ii] === -1) order[ii] = unchanged[--u];
 				t.setFrame(i, time, order);
 			}
 			timelines.push(t);

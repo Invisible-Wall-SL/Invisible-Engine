@@ -6,7 +6,7 @@
 // It drives the REAL modules — `apps/launcher-api/src/lib/server/riggerText.ts`,
 // `shelfPack.ts` and `spineBundleSync.ts` (esbuild-bundled against an in-memory R2 and a
 // fake region set, the `cinematic-storage.mjs` technique) — and validates the composed
-// `.atlas` with the OFFICIAL `@esotericsoftware/spine-core` loader, not with our own parser.
+// `.atlas` with the rig runtime's atlas loader (the one the game runs), not with the composer's own parser.
 //
 // WHAT IT CAN AND CANNOT SEE. It proves DATA contracts: that the atlas composes, that spine
 // resolves the text regions, that a skeleton referencing them loads as region/mesh/weighted
@@ -19,14 +19,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './spine.mjs';
 import { ESBUILD } from './esbuild.mjs';
 
 const ROOT = new URL('../../', import.meta.url);
 const LIB = fileURLToPath(new URL('apps/launcher-api/src/lib/', ROOT));
 
 const esbuild = await import(ESBUILD);
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(SPINE_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(RIG_CORE);
 
 let pass = 0;
 let fail = 0;
@@ -272,7 +272,7 @@ console.log('\n3. textAtlasBlock — a second page the official parser reads');
 	ok('the ship chain enumerates BOTH pages (rule 8 — the text page travels)', pages.length === 2 && pages[1] === 'rigtext-deadbeefcafe1234.png', pages.join());
 
 	const atlas = parseAtlas(composed);
-	ok('spine-core parses it (2 pages)', atlas.pages.length === 2, atlas.pages.length);
+	ok('engine-rig parses it (2 pages)', atlas.pages.length === 2, atlas.pages.length);
 	const en = atlas.findRegion('text/title/en');
 	const de = atlas.findRegion('text/title/de');
 	ok('the en region resolves', !!en);

@@ -6,7 +6,7 @@
 // Bundles the REAL `riggerIrig.ts` + `riggerIrigWrite.ts` with esbuild and runs them against an
 // in-memory R2 that implements the precondition semantics (`If-Match` / `If-None-Match: *` →
 // ConflictError). The skeleton index + atlas sync are stubbed: they are covered by
-// `reindex-preserve.mjs`. The structural check is held against the OFFICIAL spine-core loader —
+// `reindex-preserve.mjs`. The structural check is held against the engine-rig loader —
 // every doc it accepts must load, every reference break it names must make the loader throw — on
 // a synthetic rig, and on every skeleton checked into the repo (loaded with one stand-in region
 // for every atlas lookup: the check is about references, not art).
@@ -14,14 +14,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './spine.mjs';
 import { ESBUILD } from './esbuild.mjs';
 
 const ROOT = new URL('../../', import.meta.url);
 const APP = fileURLToPath(new URL('apps/launcher-api/', ROOT));
 const SERVER_DIR = join(APP, 'src/lib/server');
 const esbuild = await import(ESBUILD);
-const { SkeletonJson, AtlasAttachmentLoader, TextureAtlas } = await import(SPINE_CORE);
+const { SkeletonJson, AtlasAttachmentLoader, TextureAtlas } = await import(RIG_CORE);
 
 // ── in-memory R2 ────────────────────────────────────────────────────────────────────────────
 const fakeR2 = `
@@ -239,18 +239,18 @@ console.log('\n1. irigDocProblem agrees with the official loader');
 		'a linked mesh with no skin, whose parent only its own skin has': [(d) => { delete d.skins[1].attachments.cape.redflap.skin; }, /Parent mesh not found: redcape/, /"redflap".*"redcape", which skin "default" does not have/],
 		'a linked mesh whose parent is on another slot': [(d) => { d.skins[0].attachments.head.face = mesh(); d.skins[0].attachments.cape.flap.parent = 'face'; }, /Parent mesh not found: face/, /"flap".*"face", which skin "default" does not have/],
 		'a "mesh" with a parent is linked too, so its parent must exist': [(d) => { Object.assign(d.skins[0].attachments.cape.flap, { type: 'mesh', parent: 'ghost' }); }, /Parent mesh not found: ghost/, /"flap".*"ghost", which skin "default" does not have/],
-		'a linked mesh whose parent is not a mesh': [(d) => { d.skins[0].attachments.cape.plate = { path: 'head', width: 32, height: 32 }; d.skins[0].attachments.cape.flap.parent = 'plate'; }, /reading 'length'/, /"plate", which is a region, not a mesh/],
+		'a linked mesh whose parent is not a mesh': [(d) => { d.skins[0].attachments.cape.plate = { path: 'head', width: 32, height: 32 }; d.skins[0].attachments.cape.flap.parent = 'plate'; }, /Linked mesh parent is not a mesh: plate/, /"plate", which is a region, not a mesh/],
 		'no skin means the LAST skin named "default"': [(d) => { d.skins.push({ name: 'default', attachments: { head: { head: { width: 32, height: 32 } } } }); }, /Parent mesh not found: cape/, /"flap".*"cape", which skin "default" does not have/],
 		'a named skin is the FIRST with that name': [(d) => { d.skins.push({ name: 'red', attachments: { cape: { other: mesh() } } }); d.skins[1].attachments.cape.redflap.parent = 'other'; }, /Parent mesh not found: other/, /"redflap".*"other", which skin "red" does not have/],
 		'a skin named ""': [(d) => { d.skins.push({ name: '' }); }, /name cannot be null/, /skin #2 has no name/],
 		'an animation keys attachments in a skin that does not exist': [(d) => { d.animations.idle.attachments.ghost = {}; }, /Skin not found: ghost/, /keys attachments in skin "ghost"/],
 		'an animation keys attachments on a slot that does not exist': [(d) => { d.animations.idle.attachments.default.ghost = {}; }, /Slot not found: ghost/, /keys attachments on slot "ghost"/],
-		"an animation deforms an attachment its skin lacks (default's, keyed under red)": [(d) => { d.animations.idle.attachments.red.cape.cape = { deform: [{}] }; }, /reading 'bones'/, /attachment "cape" on slot "cape", which skin "red" does not have/],
-		'an animation keys a sequence on an attachment its skin lacks': [(d) => { d.animations.idle.attachments.default.cape.ghost = { sequence: [{}] }; }, /reading 'sequence'/, /attachment "ghost" on slot "cape", which skin "default" does not have/],
-		'an animation deforms a region, which has no vertices': [(d) => { d.animations.idle.attachments.default.head = { head: { deform: [{}] } }; }, /reading 'length'/, /attachment "head" on slot "head" with deform keys, but it is a region/],
-		'an animation keys a sequence on a mesh that declares none': [(d) => { d.animations.idle.attachments.default.cape.cape = { sequence: [{}] }; }, /reading 'id'/, /attachment "cape" on slot "cape" with sequence keys, but it has no sequence/],
-		'an attachment typed null is one the loader skips, so its sequence keys find nothing': [(d) => { d.skins[0].attachments.cape.nul = { type: null, path: 'seq', sequence: { count: 1 }, width: 32, height: 32 }; d.animations.idle.attachments.default.cape.nul = { sequence: [{}] }; }, /reading 'sequence'/, /attachment "nul" on slot "cape" with sequence keys, but it has no sequence/],
-		'an animation keys a sequence on a bounding box (only a region or mesh reads one)': [(d) => { d.skins[0].attachments.cape.box = { type: 'boundingbox', vertexCount: 3, vertices: [0, 0, 32, 0, 32, 32], sequence: { count: 1 } }; d.animations.idle.attachments.default.cape.box = { sequence: [{}] }; }, /reading 'id'/, /attachment "box" on slot "cape" with sequence keys, but it has no sequence/],
+		"an animation deforms an attachment its skin lacks (default's, keyed under red)": [(d) => { d.animations.idle.attachments.red.cape.cape = { deform: [{}] }; }, /Deform attachment not found: cape/, /attachment "cape" on slot "cape", which skin "red" does not have/],
+		'an animation keys a sequence on an attachment its skin lacks': [(d) => { d.animations.idle.attachments.default.cape.ghost = { sequence: [{}] }; }, /Sequence attachment not found: ghost/, /attachment "ghost" on slot "cape", which skin "default" does not have/],
+		'an animation deforms a region, which has no vertices': [(d) => { d.animations.idle.attachments.default.head = { head: { deform: [{}] } }; }, /Deform keys on an attachment with no vertices: head/, /attachment "head" on slot "head" with deform keys, but it is a region/],
+		'an animation keys a sequence on a mesh that declares none': [(d) => { d.animations.idle.attachments.default.cape.cape = { sequence: [{}] }; }, /Sequence keys on an attachment with no sequence: cape/, /attachment "cape" on slot "cape" with sequence keys, but it has no sequence/],
+		'an attachment typed null is one the loader skips, so its sequence keys find nothing': [(d) => { d.skins[0].attachments.cape.nul = { type: null, path: 'seq', sequence: { count: 1 }, width: 32, height: 32 }; d.animations.idle.attachments.default.cape.nul = { sequence: [{}] }; }, /Sequence attachment not found: nul/, /attachment "nul" on slot "cape" with sequence keys, but it has no sequence/],
+		'an animation keys a sequence on a bounding box (only a region or mesh reads one)': [(d) => { d.skins[0].attachments.cape.box = { type: 'boundingbox', vertexCount: 3, vertices: [0, 0, 32, 0, 32, 32], sequence: { count: 1 } }; d.animations.idle.attachments.default.cape.box = { sequence: [{}] }; }, /Sequence keys on an attachment with no sequence: box/, /attachment "box" on slot "cape" with sequence keys, but it has no sequence/],
 		// A skin's bone and constraint lists, and an animation's constraint keys, draw order and events.
 		'a skin lists a bone that does not exist': [(d) => { d.skins[1].bones.push('ghost'); }, /Couldn't find bone ghost for skin red/, /skin "red" lists bone "ghost"/],
 		'a skin lists an IK constraint that does not exist': [(d) => { d.skins[1].ik = ['ghost']; }, /Couldn't find IK constraint ghost for skin red/, /skin "red" lists ik constraint "ghost"/],
@@ -267,8 +267,8 @@ console.log('\n1. irigDocProblem agrees with the official loader');
 		'an animation keys a physics constraint that does not exist, even with no keys': [(d) => { d.animations.idle.physics.ghost = {}; }, /Physics constraint not found: ghost/, /animation "idle" keys physics constraint "ghost"/],
 		'an animation keys an IK constraint named "" (only a physics "" means all)': [(d) => { d.ik.push({ name: '', bones: ['arm'], target: 'root' }); d.animations.idle.ik[''] = [{}]; }, /constraintName cannot be null/, /animation "idle" keys ik constraint ""/],
 		'a renamed constraint strands the animation that keys it': [(d) => { d.path[0].name = 'moved'; d.skins[1].path = ['moved']; }, /Path constraint not found: rail/, /animation "idle" keys path constraint "rail"/],
-		'a draw-order key names a slot that does not exist': [(d) => { d.animations.idle.drawOrder[0].offsets[0].slot = 'ghost'; }, /Slot not found: null/, /animation "idle" keys draw order for slot "ghost"/],
-		'a later draw-order key names a slot that does not exist': [(d) => { d.animations.idle.drawOrder.push({ time: 1, offsets: [{ slot: 'ghost', offset: 0 }] }); }, /Slot not found: null/, /animation "idle" keys draw order for slot "ghost"/],
+		'a draw-order key names a slot that does not exist': [(d) => { d.animations.idle.drawOrder[0].offsets[0].slot = 'ghost'; }, /Slot not found: ghost/, /animation "idle" keys draw order for slot "ghost"/],
+		'a later draw-order key names a slot that does not exist': [(d) => { d.animations.idle.drawOrder.push({ time: 1, offsets: [{ slot: 'ghost', offset: 0 }] }); }, /Slot not found: ghost/, /animation "idle" keys draw order for slot "ghost"/],
 		'a draw-order offset names no slot': [(d) => { delete d.animations.idle.drawOrder[0].offsets[0].slot; }, /slotName cannot be null/, /animation "idle" keys draw order for slot "undefined"/],
 		'an event key names an event that is not defined': [(d) => { d.animations.idle.events[0].name = 'ghost'; }, /Event not found: ghost/, /animation "idle" keys event "ghost"/],
 		'the event an animation keys is no longer defined': [(d) => { delete d.events; }, /Event not found: hit/, /animation "idle" keys event "hit"/],
@@ -324,11 +324,11 @@ console.log('\n1. irigDocProblem agrees with the official loader');
 			ok(`${field} = ${JSON.stringify(v)}: the loader reads it as absent AND so does the check`, loads(d) === null && M.irigDocProblem(d) === null, `loader=${loads(d)} check=${M.irigDocProblem(d)}`);
 		}
 	}
-	// A missing/late parent does not throw in spine-core — it silently makes the bone a ROOT, i.e.
+	// A missing/late parent does not throw in engine-rig — it silently makes the bone a ROOT, i.e.
 	// a corrupted hierarchy. The check refuses it; the Rigger itself always topo-sorts.
 	const orphan = good();
 	orphan.bones[2].parent = 'ghost';
-	ok('an undefined parent is refused (spine-core would silently re-root it)', /ghost/.test(M.irigDocProblem(orphan) ?? ''));
+	ok('an undefined parent is refused (engine-rig would silently re-root it)', /ghost/.test(M.irigDocProblem(orphan) ?? ''));
 	ok('no bones is refused', M.irigDocProblem({ bones: [] }) !== null);
 	ok('a non-object is refused', M.irigDocProblem('x') !== null && M.irigDocProblem(null) !== null);
 	const dup = good();

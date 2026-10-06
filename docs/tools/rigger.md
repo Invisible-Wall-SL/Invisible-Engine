@@ -10,14 +10,15 @@ reads). You can also build a rig from scratch and import images.
 A browser-based rigging tool, comparable in scope to the desktop Spine Editor,
 that we own end-to-end — no Spine licence needed to rig or animate. Its native
 file is a Spine **4.2 runtime export JSON** saved under our own `.irig`
-extension, so rigs round-trip with the official runtime and the desktop Spine
+extension, so rigs play in our own runtime (`engine-rig`, no Spine licence
+needed there either), Esoteric's runtime reads them unchanged, and the desktop Spine
 Editor stays usable alongside it (it can _import_ the JSON, though not a lossless
 `.spine` project round-trip).
 
 It is built on the existing Invisible Spine Viewer — the WebGL renderer, pan/zoom,
 animation scrubber and debug overlay are forked from it, and it reuses the
 viewer's `/spine/skeletons` + `/spine/file` endpoints and the same vendored
-`spine-webgl-4.2` runtime. The Rigger's added value is the structured **Inspector**
+runtime (`invisible-rig.js`, built from `packages/engine-rig`). The Rigger's added value is the structured **Inspector**
 (bone hierarchy, slots, skins, animations, constraints), bone/slot/mesh
 **selection + editing**, mesh + weight authoring, and animation keyframing.
 
@@ -1105,11 +1106,10 @@ they appear in no scene.
 
 - **Live verification is the main gap.** Most of the editing/authoring/animation
   surface is "code landed, build GREEN, not browser-verified" — the headless test
-  spikes (`tools/rigger-spike/`) use the un-mangled `spine-core` loader, not the
-  minified vendored `spine-webgl` runtime, so they can be false-green. Several
-  browser-only bugs have already been found and fixed during owner live-testing
-  (e.g. attachment type checks via `constructor.name` failing under the minified
-  runtime, and a double-flipped Y in canvas placement). Verify each action in the
+  spikes (`tools/rigger-spike/`) run `engine-rig` in node, not the page, so they
+  can be false-green. Several browser-only bugs have already been found and fixed
+  during owner live-testing (e.g. attachment type checks via `constructor.name`
+  failing under a minified runtime, and a double-flipped Y in canvas placement). Verify each action in the
   browser before relying on it.
 - **Auto-weights is proximity-only.** **Auto-weight to chain** weights by distance to
   the bones, which does not know about the mesh's shape (an arm vertex near the torso

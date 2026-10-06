@@ -7,11 +7,11 @@
  * harness pins the PRODUCTION class (`packages/pixi-svelte/src/lib/spineParticleBehavior.ts`) — the
  * pool/lifecycle/no-leak bookkeeping — driving the REAL `@barvynkoa` `Emitter` at a real particle
  * count. The pool is renderer-agnostic by design (a `SpineBackingFactory` injection), so here we
- * inject a spine-core backing (the un-mangled animation machinery the spike used) where the runtime
+ * inject an engine-rig backing (the un-mangled animation machinery the spike used) where the runtime
  * injects a pixi-v8 `Spine`. Rendering pixels + GPU perf at count remain owner-verify-live.
  *
  * The behavior module imports `./spineBacking` ONLY as types (erased at runtime), so importing it
- * here never drags in `@esotericsoftware/spine-pixi-v8` (which needs a renderer).
+ * here never drags in `engine-rig/pixi` (which needs a renderer).
  */
 
 import { Container } from 'pixi.js';
@@ -24,7 +24,7 @@ import {
 	SkeletonData,
 	SkeletonJson,
 	type AttachmentLoader,
-} from '@esotericsoftware/spine-core';
+} from 'engine-rig';
 
 import {
 	SpineParticleBehavior,
@@ -44,7 +44,7 @@ const assert = (cond: boolean, msg: string): void => {
 };
 
 // ---------------------------------------------------------------------------
-// A real (synthetic) Spine skeleton + clip via the UN-MANGLED spine-core (genuine state machine).
+// A real (synthetic) Spine skeleton + clip via the engine-rig core (genuine state machine).
 // The `spin` clip rotates a bone 0→360° over a real 1s timeline.
 // ---------------------------------------------------------------------------
 const nullAttachmentLoader = {
@@ -79,7 +79,7 @@ const skeletonData: SkeletonData = new SkeletonJson(nullAttachmentLoader).readSk
 );
 
 // ---------------------------------------------------------------------------
-// The injected spine-core backing — implements the production `SpineBacking` interface (the SAME
+// The injected engine-rig backing — implements the production `SpineBacking` interface (the SAME
 // interface the runtime pixi-v8 backing implements). ALLOCATION IS COUNTED.
 // ---------------------------------------------------------------------------
 let skeletonsAllocated = 0;

@@ -43,13 +43,16 @@ function toBase64(bytes: Uint8Array | Uint8ClampedArray): string {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const RT = R as any;
 
-(window as unknown as { renderPose: (p: Pose) => Promise<string> }).renderPose = async (pose: Pose) => {
+(window as unknown as { renderPose: (p: Pose) => Promise<string> }).renderPose = async (
+	pose: Pose,
+) => {
 	const a = await ensureApp(pose.size);
 	const loaded = await Assets.load([pose.atlas, pose.skeleton]);
 	const atlas = loaded[pose.atlas];
 	const raw = loaded[pose.skeleton];
 	const loader = new RT.AtlasAttachmentLoader(atlas);
-	const reader = raw instanceof Uint8Array ? new RT.SkeletonBinary(loader) : new RT.SkeletonJson(loader);
+	const reader =
+		raw instanceof Uint8Array ? new RT.SkeletonBinary(loader) : new RT.SkeletonJson(loader);
 	const data = reader.readSkeletonData(raw instanceof Uint8Array ? raw : structuredClone(raw));
 	const View = RUNTIME_NAME === 'ref' ? RT.Spine : RT.RigView;
 	const view = new View({ skeletonData: data, autoUpdate: false });
@@ -71,7 +74,10 @@ const RT = R as any;
 	a.stage.removeChildren();
 	a.stage.addChild(view);
 	a.renderer.render(a.stage);
-	const out = a.renderer.extract.pixels({ target: a.stage, frame: new Rectangle(0, 0, pose.size, pose.size) });
+	const out = a.renderer.extract.pixels({
+		target: a.stage,
+		frame: new Rectangle(0, 0, pose.size, pose.size),
+	});
 	a.stage.removeChildren();
 	view.destroy();
 	return toBase64(out.pixels);

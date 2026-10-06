@@ -27,7 +27,11 @@ export interface RigAtlasMetadata {
 export const rigAtlasAsset: AssetExtension<TextureAtlas, RigAtlasMetadata> = {
 	extension: ExtensionType.Asset,
 	loader: {
-		extension: { type: ExtensionType.LoadParser, priority: LoaderParserPriority.Normal, name: 'invisibleRigAtlas' },
+		extension: {
+			type: ExtensionType.LoadParser,
+			priority: LoaderParserPriority.Normal,
+			name: 'invisibleRigAtlas',
+		},
 		name: 'invisibleRigAtlas',
 		id: 'invisibleRigAtlas',
 		test: (url: string) => checkExtension(url, '.atlas'),
@@ -37,7 +41,11 @@ export const rigAtlasAsset: AssetExtension<TextureAtlas, RigAtlasMetadata> = {
 		},
 		testParse: async (asset: unknown, resolved?: ResolvedAsset) =>
 			typeof asset === 'string' && !!resolved?.src && checkExtension(resolved.src, '.atlas'),
-		async parse(asset: string, resolved?: ResolvedAsset<RigAtlasMetadata>, loader?: Loader): Promise<TextureAtlas> {
+		async parse(
+			asset: string,
+			resolved?: ResolvedAsset<RigAtlasMetadata>,
+			loader?: Loader,
+		): Promise<TextureAtlas> {
 			const atlas = new TextureAtlas(asset);
 			const src = resolved?.src ?? '';
 			const base = path.dirname(src);
@@ -81,7 +89,11 @@ const isSkeletonJson = (value: unknown): boolean =>
 export const rigSkeletonAsset: AssetExtension<Uint8Array | object> = {
 	extension: ExtensionType.Asset,
 	loader: {
-		extension: { type: ExtensionType.LoadParser, priority: LoaderParserPriority.Normal, name: 'invisibleRigSkeleton' },
+		extension: {
+			type: ExtensionType.LoadParser,
+			priority: LoaderParserPriority.Normal,
+			name: 'invisibleRigSkeleton',
+		},
 		name: 'invisibleRigSkeleton',
 		id: 'invisibleRigSkeleton',
 		test: (url: string) => checkExtension(url, '.skel') || checkExtension(url, '.irig'),

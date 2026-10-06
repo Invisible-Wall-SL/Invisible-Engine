@@ -1,5 +1,4 @@
-// Render parity for the static tools' runtime: draws rigs with the vendored reference WebGL runtime
-// (`static/spine/vendor/spine-webgl-4.2.js`) and with engine-rig/webgl (as the `spine` global) in
+// Render parity for the static tools' runtime: draws rigs with the reference WebGL runtime and with engine-rig/webgl (as the `spine` global) in
 // headless Chromium through each one's SceneRenderer, and pixel-diffs the frames — plain, and with
 // the mesh debug overlay the Rigger draws.
 //
@@ -12,6 +11,7 @@ import { ESBUILD } from '../rigger-spike/esbuild.mjs';
 import { launchChrome } from '../rigger-spike/chrome.mjs';
 import { ROOT } from './load.mjs';
 import { findRigs, poseCases } from './rigs.mjs';
+import { reference } from './reference.mjs';
 
 const args = process.argv.slice(2);
 const arg = (n, d) => (args.includes(n) ? args[args.indexOf(n) + 1] : d);
@@ -33,15 +33,26 @@ await esbuild.build({
 	outfile: join(work, 'rig.js'),
 	logLevel: 'error',
 });
-writeFileSync(join(work, 'ref.js'), readFileSync(join(ROOT, 'apps/launcher-api/static/spine/vendor/spine-webgl-4.2.js')));
+writeFileSync(join(work, 'ref.js'), readFileSync((await reference()).webglScript));
 for (const name of ['ref', 'rig'])
 	writeFileSync(
 		join(work, `${name}.html`),
 		`<!doctype html><body style="margin:0"><script src="/__work/${name}.js"></script><script src="/__work/page.js"></script></body>`,
 	);
-writeFileSync(join(work, 'page.js'), readFileSync(join(ROOT, 'tools/rig-parity/render/webglPage.js')));
+writeFileSync(
+	join(work, 'page.js'),
+	readFileSync(join(ROOT, 'tools/rig-parity/render/webglPage.js')),
+);
 
-const types = { '.js': 'text/javascript', '.html': 'text/html', '.png': 'image/png', '.webp': 'image/webp', '.json': 'application/json', '.atlas': 'text/plain', '.skel': 'application/octet-stream' };
+const types = {
+	'.js': 'text/javascript',
+	'.html': 'text/html',
+	'.png': 'image/png',
+	'.webp': 'image/webp',
+	'.json': 'application/json',
+	'.atlas': 'text/plain',
+	'.skel': 'application/octet-stream',
+};
 const server = createServer((req, res) => {
 	const url = decodeURIComponent(new URL(req.url, 'http://x').pathname);
 	const file = url.startsWith('/__work/') ? join(work, url.slice(8)) : join(dir, url);
@@ -59,7 +70,11 @@ if (!cases.length) {
 	console.log('no rigs found');
 	process.exit(1);
 }
-const browser = await launchChrome({ name: 'rig-render-webgl', url: 'about:blank', args: [`--window-size=${SIZE + 50},${SIZE + 50}`] });
+const browser = await launchChrome({
+	name: 'rig-render-webgl',
+	url: 'about:blank',
+	args: [`--window-size=${SIZE + 50},${SIZE + 50}`],
+});
 async function renderAll(name) {
 	await browser.evaluate(`location.href = 'http://127.0.0.1:${port}/__work/${name}.html'`);
 	await browser.waitFor('window.ready === true', 60_000);
@@ -105,13 +120,22 @@ for (let i = 0; i < cases.length; i++) {
 		console.log(`✗ ${label}: ${pct.toFixed(2)}% pixels differ`);
 		if (dumpDir) {
 			const { PNG } = await import('pngjs');
-			for (const [tag, buf] of [['ref', a], ['rig', b], ['diff', diff]]) {
+			for (const [tag, buf] of [
+				['ref', a],
+				['rig', b],
+				['diff', diff],
+			]) {
 				const png = new PNG({ width: SIZE, height: SIZE });
 				png.data = buf;
-				writeFileSync(join(dumpDir, `${label.replace(/[^a-z0-9]+/gi, '_')}.${tag}.png`), PNG.sync.write(png));
+				writeFileSync(
+					join(dumpDir, `${label.replace(/[^a-z0-9]+/gi, '_')}.${tag}.png`),
+					PNG.sync.write(png),
+				);
 			}
 		}
 	}
 }
-console.log(`${failures ? '✗' : '✓'} rig WebGL render parity: ${compared} frames, ${failures} over ${MAX}% (worst ${worst.toFixed(2)}%)`);
+console.log(
+	`${failures ? '✗' : '✓'} rig WebGL render parity: ${compared} frames, ${failures} over ${MAX}% (worst ${worst.toFixed(2)}%)`,
+);
 process.exit(failures ? 1 : 0);

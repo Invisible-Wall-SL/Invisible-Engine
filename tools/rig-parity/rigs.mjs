@@ -31,11 +31,15 @@ export function findRigs(dir, filter = null) {
 				if (!json?.skeleton || !json.bones) continue;
 			}
 			const atlases = readdirSync(dirname(p)).filter((f) => f.endsWith('.atlas'));
-			const atlas = atlases.find((a) => basename(a, '.atlas') === basename(n, extname(n))) ?? atlases[0];
+			const atlas =
+				atlases.find((a) => basename(a, '.atlas') === basename(n, extname(n))) ?? atlases[0];
 			if (!atlas) continue;
 			const rel = relative(dir, p);
 			if (filter && !rel.includes(filter)) continue;
-			const hash = createHash('sha1').update(readFileSync(p)).update(readFileSync(join(dirname(p), atlas))).digest('hex');
+			const hash = createHash('sha1')
+				.update(readFileSync(p))
+				.update(readFileSync(join(dirname(p), atlas)))
+				.digest('hex');
 			if (seen.has(hash)) continue;
 			seen.add(hash);
 			rigs.push({

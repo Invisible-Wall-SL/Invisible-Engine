@@ -4,8 +4,8 @@
 //   node tools/rigger-spike/sequence.mjs <skeleton.json> <skeleton.atlas>
 //
 // ========================= EMPIRICAL FINDINGS =========================
-// (read off @esotericsoftware/spine-core@4.2.74 — SkeletonJson L975-987 and
-//  SequenceTimeline.apply in Animation.js — and then EXERCISED below, not taken from memory.)
+// (the Spine 4.2 sequence fields and SequenceTimeline semantics, as the rig runtime implements
+//  them — and then EXERCISED below, not taken from memory.)
 //
 // JSON shape — the SAME node deform lives in:
 //   animations.<a>.attachments.<skin>.<slot>.<att>.sequence = [{ time?, mode?, index?, delay? }]
@@ -34,9 +34,9 @@
 
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './spine.mjs';
 
-const SPINE_NS = await import(SPINE_CORE);
+const SPINE_NS = await import(RIG_CORE);
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, MixBlend, MixDirection } = SPINE_NS;
 
 const [, , jsonPath, atlasPath] = process.argv;

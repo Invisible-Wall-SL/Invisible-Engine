@@ -13,7 +13,6 @@ import type { Skin } from './data';
 export enum TextureFilter {
 	Nearest = 9728,
 	Linear = 9729,
-	MipMap = 9987,
 	MipMapNearestNearest = 9984,
 	MipMapLinearNearest = 9985,
 	MipMapNearestLinear = 9986,
@@ -77,7 +76,7 @@ export class TextureAtlasRegion extends TextureAtlasRegionBase {
 const filterByName: Record<string, TextureFilter> = {
 	nearest: TextureFilter.Nearest,
 	linear: TextureFilter.Linear,
-	mipmap: TextureFilter.MipMap,
+	mipmap: TextureFilter.MipMapLinearLinear,
 	mipmapnearestnearest: TextureFilter.MipMapNearestNearest,
 	mipmaplinearnearest: TextureFilter.MipMapLinearNearest,
 	mipmapnearestlinear: TextureFilter.MipMapNearestLinear,

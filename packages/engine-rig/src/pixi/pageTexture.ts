@@ -2,13 +2,19 @@ import { Texture, type TextureSource } from 'pixi.js';
 import { TextureFilter, TextureWrap, type AtlasPageTexture } from '../atlas';
 
 const scaleMode = (filter: TextureFilter): 'nearest' | 'linear' =>
-	filter === TextureFilter.Nearest || filter === TextureFilter.MipMapNearestNearest ? 'nearest' : 'linear';
+	filter === TextureFilter.Nearest || filter === TextureFilter.MipMapNearestNearest
+		? 'nearest'
+		: 'linear';
 
 const usesMipmaps = (filter: TextureFilter): boolean =>
 	filter !== TextureFilter.Nearest && filter !== TextureFilter.Linear;
 
 const addressMode = (wrap: TextureWrap): 'repeat' | 'mirror-repeat' | 'clamp-to-edge' =>
-	wrap === TextureWrap.Repeat ? 'repeat' : wrap === TextureWrap.MirroredRepeat ? 'mirror-repeat' : 'clamp-to-edge';
+	wrap === TextureWrap.Repeat
+		? 'repeat'
+		: wrap === TextureWrap.MirroredRepeat
+			? 'mirror-repeat'
+			: 'clamp-to-edge';
 
 /** An atlas page's Pixi texture: the page's `TextureSource`, and a `Texture` covering all of it
  * (attachment UVs are page-relative). */

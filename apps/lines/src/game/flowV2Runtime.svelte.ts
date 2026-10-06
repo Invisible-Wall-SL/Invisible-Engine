@@ -266,7 +266,7 @@ export type LinesFlowV2 = {
 };
 
 /** A structural narrow for a loaded Spine `SkeletonData` — just the `findAnimation` we read, so this
- *  module needs no `@esotericsoftware/spine-*` type import to measure a clip's duration. */
+ *  module needs no `engine-rig` type import to measure a clip's duration. */
 type SkeletonDataLike = { findAnimation(name: string): { duration: number } | null };
 const isSkeletonData = (v: unknown): v is SkeletonDataLike =>
 	typeof v === 'object' &&

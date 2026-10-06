@@ -12,7 +12,7 @@ import {
 } from 'pixi.js';
 import { AnimationState, AnimationStateData } from '../animationState';
 import { ClippingAttachment, MeshAttachment, RegionAttachment } from '../attachments';
-import { BlendMode, SkeletonData } from '../data';
+import { BlendMode, type SkeletonData } from '../data';
 import { SkeletonClipping } from '../clipping';
 import { Physics } from '../physics';
 import { Skeleton } from '../skeleton';
@@ -79,7 +79,8 @@ export class RigView extends Container {
 	private readonly tick = (ticker: Ticker): void => this.internalUpdate(ticker.deltaMS / 1000);
 
 	constructor(options: RigViewOptions | SkeletonData) {
-		const opts: RigViewOptions = options instanceof SkeletonData ? { skeletonData: options } : options;
+		// Structural, not instanceof: data read by another copy of the runtime is still data.
+		const opts: RigViewOptions = 'skeletonData' in options ? options : { skeletonData: options };
 		const { skeletonData, autoUpdate = true, ticker, darkTint = false, ...containerOptions } = opts;
 		super(containerOptions);
 		this.skeleton = new Skeleton(skeletonData);
@@ -251,7 +252,10 @@ export class RigView extends Container {
 			sy *= b.scaleY;
 		}
 		container.angle = bone.getWorldRotationX() - (sx < 0 ? 180 : 0);
-		container.scale.set(bone.getWorldScaleX() * Math.sign(sx || 1), bone.getWorldScaleY() * Math.sign(sy || 1));
+		container.scale.set(
+			bone.getWorldScaleX() * Math.sign(sx || 1),
+			bone.getWorldScaleY() * Math.sign(sy || 1),
+		);
 		container.visible = bone.active && (!entry.followAttachmentTimeline || !!slot.attachment);
 		if (entry.followSlotColor) {
 			const c = slot.color;
@@ -300,7 +304,8 @@ export class RigView extends Container {
 
 	private restoreOrder(order: Container[]): void {
 		const same =
-			order.length === this.drawn.length && order.every((c, i) => c === this.drawn[i] && c.parent === this);
+			order.length === this.drawn.length &&
+			order.every((c, i) => c === this.drawn[i] && c.parent === this);
 		if (same) return;
 		for (const c of this.drawn) if (c.parent === this && !order.includes(c)) this.removeChild(c);
 		order.forEach((c, i) => {

@@ -6,11 +6,11 @@ Browse and play back Spine skeletons and animations in the browser.
 
 A web viewer for [Spine](https://esotericsoftware.com/) skeletal-animation
 assets. It lists the skeletons of your active project, loads one onto a WebGL
-canvas, and lets you scrub through and play its animations. Built on the Spine
-WebGL runtime (versions 4.1 and 4.2 are bundled).
+canvas, and lets you scrub through and play its animations. Built on our own
+license-free rig runtime (`engine-rig`), the same skeleton code the games run.
 
 - **Source:** static document at `apps/launcher-api/static/spine/view.html`,
-  with bundled runtimes under `static/spine/vendor/`. Skeleton data is served by
+  with the runtime bundled as `static/spine/vendor/invisible-rig.js`. Skeleton data is served by
   launcher endpoints under `src/routes/(app)/spine/`.
 - **Where it runs:** cloud — served **directly by the launcher** (no separate
   service), full-page, behind the launcher's sign-in. Assets stream from
@@ -58,8 +58,9 @@ never iframed.)
 
 ## Known limitations / TODOs
 
-- Bundled runtimes are Spine **4.1 and 4.2**; skeletons exported from other Spine
-  versions may not load.
+- Skeletons are read with Spine **4.2** semantics, as the games read them. A 4.1
+  export loads and looks as it does in the game (a 4.1-only bone `transform` is
+  ignored there too); exports from other versions may not load.
 - The viewer does not switch projects itself; the launcher owns the active
   project.
 - This is the **viewer** only — authoring is done in Invisible Rigger or the

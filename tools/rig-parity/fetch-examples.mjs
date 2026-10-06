@@ -70,7 +70,8 @@ for (const [folder, name] of Object.entries(RIGS)) {
 	const skel = await get(`${folder}/export/${name}.skel`);
 	const json = await get(`${folder}/export/${name}.json`);
 	let atlas = null;
-	for (const candidate of [folder, `${folder}-pma`, name]) if ((atlas = await get(`${folder}/export/${candidate}.atlas`))) break;
+	for (const candidate of [folder, `${folder}-pma`, name])
+		if ((atlas = await get(`${folder}/export/${candidate}.atlas`))) break;
 	if (!skel || !json || !atlas) {
 		console.error(`skipped ${name} (not all files found)`);
 		continue;

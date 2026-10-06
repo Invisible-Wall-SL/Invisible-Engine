@@ -1,6 +1,6 @@
 // ⚠️ WHAT THIS GATE CANNOT PROVE (learned the hard way, 2026-08-17)
 //
-// It verifies the POSE contract against spine-pixi-v8 — which hook runs when, what an emptied
+// It verifies the POSE contract against the game's `RigView` — which hook runs when, what an emptied
 // AnimationState does, what a leftover track does. It has NO PIXI RENDER LOOP, so it cannot
 // prove that a posed skeleton produces a CHANGED FRAME.
 //
@@ -17,18 +17,18 @@
 //
 //   node tools/rigger-spike/cinematic-pixi.mjs
 //
-// The question (design §8 gate 3): can the shared evaluator drive a spine object rendered by
-// `@esotericsoftware/spine-pixi-v8` — i.e. the game's renderer — with the object's own
+// The question (design §8 gate 3): can the shared evaluator drive a rig rendered by
+// `engine-rig/pixi`'s `RigView` — i.e. the game's renderer — with the object's own
 // AnimationState bypassed? **If this fails, design decision 2 (a live in-game player) is wrong**
 // and the fallback is per-actor AnimationState scheduling, which cannot express strip alpha,
 // bone masks or deterministic scrubbing.
 //
 // It is proved in two halves, because Pixi 8 needs a GPU:
-//   A. BEHAVIOURAL (real, headless) — `_updateAndApplyState`'s exact call sequence is replayed
-//      with real spine-core objects, and the resulting pose is compared against the evaluator's.
+//   A. BEHAVIOURAL (real, headless) — `RigView.update`'s exact call sequence is replayed
+//      with real runtime objects, and the resulting pose is compared against the evaluator's.
 //      This is where the actual risk lives: does an idle AnimationState corrupt our pose?
-//   B. CALL-ORDER (asserted against the shipped dist source, not from memory) — that the
-//      sequence replayed in A really is what Spine.js does, and that the view is marked dirty.
+//   B. CALL-ORDER (observed on a real `RigView`, not from memory) — that the sequence replayed
+//      in A really is what `update(dt)` does, ending with the slot meshes rebuilt.
 //
 // The residual — that Pixi re-uploads the geometry and the frame visibly changes — is a LIVE
 // check, listed in docs/status/cinematic.md. Do not read this gate as "verified in a browser".
@@ -44,9 +44,8 @@
 //   //   → updateWorldTransform → slot objects → view dirty
 //
 // Part C proves the ticker half against the real runtime: one registration, one update per tick,
-// and no second registration when `autoUpdate = true` is set again. spine-pixi-v8 4.2.74
-// registered twice on a repeated `true` (a double-speed rig); 4.2.120 made the setter idempotent
-// and the ticker configurable (`ticker`, default Ticker.shared).
+// and no second registration when `autoUpdate = true` is set again (a double registration would
+// run the rig at double speed). The ticker is configurable (`ticker`, default Ticker.shared).
 //
 // WHY `beforeUpdateWorldTransforms` AND NOT `after`: the hook runs AFTER `state.apply(skeleton)`
 // and BEFORE `skeleton.updateWorldTransform()`. That is the only window where a pose both
@@ -68,13 +67,11 @@
 
 import { readFileSync } from 'node:fs';
 import { evaluateActor } from '../../packages/engine-cinematic/src/cinematicEval.js';
-import { SPINE_CORE, pixiEntry, spinePixiFile } from './spine.mjs';
+import { RIG_CORE, rigPixi } from './spine.mjs';
 
-const SPINE = await import(SPINE_CORE);
+const SPINE = await import(RIG_CORE);
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, AnimationState, AnimationStateData, MixBlend, MixDirection, Physics } = SPINE;
 const spineNs = { MixBlend, MixDirection, Physics };
-
-const SPINE_PIXI_DIST = spinePixiFile('dist/Spine.js');
 
 let pass = 0;
 let fail = 0;
@@ -122,15 +119,15 @@ const actor = {
 const resolveClip = (strip) => skeletonData.findAnimation(strip.clip);
 
 // =========================================================================
-section('A. Behavioural — the evaluator survives Spine.js\'s update sequence');
+section('A. Behavioural — the evaluator survives RigView\'s update sequence');
 // =========================================================================
 {
 	// The evaluator's pose, standing alone (the reference).
 	evaluateActor(spineNs, actor, 2.4, resolveClip);
 	const reference = poseSnapshot(skeleton);
 
-	// Replay `_updateAndApplyState(dt)` exactly, with the evaluator installed as
-	// `beforeUpdateWorldTransforms`. (Order asserted against the dist source in part B.)
+	// Replay `RigView.update(dt)` exactly, with the evaluator installed as
+	// `beforeUpdateWorldTransforms`. (Order observed on a real RigView in part B.)
 	const state = new AnimationState(new AnimationStateData(skeletonData));
 	const replayUpdateAndApplyState = (dt, t, beforeUpdateWorldTransforms) => {
 		state.update(dt);
@@ -204,76 +201,75 @@ section('A. Behavioural — the evaluator survives Spine.js\'s update sequence')
 }
 
 // =========================================================================
-section('B. Call order — asserted against the SHIPPED spine-pixi-v8 dist');
+section('B. Call order — observed on a real RigView');
 // =========================================================================
+// Ticker.shared starts itself on its first listener; Node has no rAF to schedule with.
+globalThis.requestAnimationFrame ??= () => 0;
+globalThis.cancelAnimationFrame ??= () => {};
+const { RigView, Ticker } = await import(await rigPixi());
 {
-	const src = readFileSync(SPINE_PIXI_DIST, 'utf8');
-	const body = src.slice(src.indexOf('_updateAndApplyState(time)'));
-	const at = (needle) => body.indexOf(needle);
-
-	const iStateUpdate = at('this.state.update(time)');
-	const iSkelUpdate = at('this.skeleton.update(time)');
-	const iApply = at('this.state.apply(skeleton)');
-	const iBefore = at('this.beforeUpdateWorldTransforms(this)');
-	const iWorld = at('skeleton.updateWorldTransform(Physics.update)');
-	const iAfter = at('this.afterUpdateWorldTransforms(this)');
-	const iSlots = at('this.updateSlotObjects()');
-	const iDirty = at('this._stateChanged = true');
-	const iView = at('this.onViewUpdate()');
-
-	ok('all nine steps found in the shipped source', [iStateUpdate, iSkelUpdate, iApply, iBefore, iWorld, iAfter, iSlots, iDirty, iView].every((i) => i > 0));
+	const view = new RigView({ skeletonData, autoUpdate: false });
+	const calls = [];
+	const spy = (target, name, label) => {
+		const original = target[name].bind(target);
+		target[name] = (...args) => {
+			calls.push(label);
+			return original(...args);
+		};
+	};
+	spy(view.state, 'update', 'state.update');
+	spy(view.skeleton, 'update', 'skeleton.update');
+	spy(view.state, 'apply', 'state.apply');
+	spy(view.skeleton, 'updateWorldTransform', 'updateWorldTransform');
+	spy(view, 'syncDisplay', 'syncDisplay');
+	view.beforeUpdateWorldTransforms = () => calls.push('BEFORE hook');
+	view.afterUpdateWorldTransforms = () => calls.push('AFTER hook');
+	view.update(1 / 60);
+	const expected = ['state.update', 'skeleton.update', 'state.apply', 'BEFORE hook', 'updateWorldTransform', 'AFTER hook', 'syncDisplay'];
 	ok(
-		'order is state.update → skeleton.update → state.apply → BEFORE hook → updateWorldTransform → AFTER hook → slots',
-		iStateUpdate < iSkelUpdate && iSkelUpdate < iApply && iApply < iBefore && iBefore < iWorld && iWorld < iAfter && iAfter < iSlots,
+		'order is state.update → skeleton.update → state.apply → BEFORE hook → updateWorldTransform → AFTER hook → meshes',
+		calls.join() === expected.join(),
+		calls.join(' → '),
 	);
-	ok('the update marks the view dirty (so the pose we wrote actually re-renders)', iDirty > iSlots && iView > iDirty);
-
-	ok('`update(dt)` is public and routes into that sequence', /update\(dt\)\s*\{\s*this\.internalUpdate\(0, dt\)/.test(src));
-	ok('`skeleton` and `state` are public fields we may drive', /^\s*skeleton;/m.test(src) && /^\s*state;/m.test(src));
-	ok('`beforeUpdateWorldTransforms` is an assignable no-op hook', /beforeUpdateWorldTransforms = \(\) => \{/.test(src) || /beforeUpdateWorldTransforms\s*=/.test(src));
+	ok('`skeleton` and `state` are public fields we may drive', !!view.skeleton && !!view.state);
+	view.destroy();
 }
 
 // =========================================================================
-section('C. Ticker — the real Spine on the real Ticker.shared (what <CinematicActor> relies on)');
+section('C. Ticker — the real RigView on the real Ticker.shared (what <CinematicActor> relies on)');
 // =========================================================================
 {
-	// Ticker.shared starts itself on its first listener; Node has no rAF to schedule with.
-	globalThis.requestAnimationFrame ??= () => 0;
-	globalThis.cancelAnimationFrame ??= () => {};
-	const { Ticker } = await import(pixiEntry());
-	const { Spine } = await import(spinePixiFile('dist/index.js').href);
-
 	const base = Ticker.shared.count;
 	const registered = () => Ticker.shared.count - base;
 	let frame = performance.now();
 	const tick = () => Ticker.shared.update((frame += 1000 / 60));
 
-	const spine = new Spine(skeletonData);
+	const view = new RigView(skeletonData);
 	let updates = 0;
 	let hooks = 0;
-	const run = spine._updateAndApplyState.bind(spine);
-	spine._updateAndApplyState = (dt) => {
+	const run = view.internalUpdate.bind(view);
+	view.internalUpdate = (dt) => {
 		updates++;
 		run(dt);
 	};
-	spine.beforeUpdateWorldTransforms = () => hooks++;
+	view.beforeUpdateWorldTransforms = () => hooks++;
 
-	ok('a default Spine registers exactly ONE update on Ticker.shared', spine.autoUpdate === true && registered() === 1, `${registered()} registrations`);
+	ok('a default RigView registers exactly ONE update on Ticker.shared', view.autoUpdate === true && registered() === 1, `${registered()} registrations`);
 	tick();
 	ok('one tick runs the update once and the BEFORE hook once (no double update)', updates === 1 && hooks === 1, `${updates} updates, ${hooks} hooks`);
 
-	spine.autoUpdate = true;
+	view.autoUpdate = true;
 	tick();
 	ok('re-asserting `autoUpdate = true` adds no second registration', registered() === 1 && updates === 2, `${registered()} registrations, ${updates} updates`);
 
-	spine.autoUpdate = false;
+	view.autoUpdate = false;
 	tick();
 	ok('`autoUpdate = false` detaches it from Ticker.shared (spineBacking, the FX stage)', registered() === 0 && updates === 2, `${registered()} registrations, ${updates} updates`);
-	spine.update(1 / 60);
+	view.update(1 / 60);
 	ok('`update(dt)` still drives it by hand once detached', updates === 3 && hooks === 3);
 
-	spine.autoUpdate = true;
-	spine.destroy();
+	view.autoUpdate = true;
+	view.destroy();
 	ok('destroy() leaves nothing on Ticker.shared', registered() === 0, `${registered()} registrations`);
 }
 

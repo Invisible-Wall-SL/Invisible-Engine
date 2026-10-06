@@ -1,11 +1,11 @@
 <script lang="ts" module>
 	import * as PIXI from 'pixi.js';
-	import * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
+	import * as RIG from 'engine-rig/pixi';
 	import type { Snippet } from 'svelte';
 
 	export type Props = {
 		/** The bone to follow (resolved on the host `SpineProvider`'s playing skeleton). */
-		boneName: Parameters<SPINE_PIXI.Spine['skeleton']['findBone']>[0];
+		boneName: Parameters<RIG.RigView['skeleton']['findBone']>[0];
 		/** Pixel offset added to the bone position, in the spine's local space. */
 		offset?: { x: number; y: number };
 		/** Also rotate the child subtree with the bone's world rotation (default: position only). */
@@ -69,9 +69,9 @@
 
 	// Cache the resolved bone (findBone is a linear scan). `resolvedFor` lets a boneName change
 	// re-resolve, and leaves us retrying each frame until the skeleton is ready.
-	let bone: SPINE_PIXI.Bone | null = null;
+	let bone: RIG.Bone | null = null;
 	let resolvedFor: string | null = null;
-	function resolveBone(): SPINE_PIXI.Bone | null {
+	function resolveBone(): RIG.Bone | null {
 		if (resolvedFor !== props.boneName) {
 			bone = spine?.skeleton?.findBone(props.boneName) ?? null;
 			resolvedFor = bone ? props.boneName : null;

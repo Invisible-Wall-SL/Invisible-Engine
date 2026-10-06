@@ -105,17 +105,19 @@ export class SkeletonJson {
 		if (skeletonMap) {
 			data.hash = skeletonMap.hash ?? null;
 			data.version = skeletonMap.spine ?? null;
-			data.x = get(skeletonMap, 'x', 0);
-			data.y = get(skeletonMap, 'y', 0);
-			data.width = get(skeletonMap, 'width', 0);
-			data.height = get(skeletonMap, 'height', 0);
+			// Copied as written: a header with no x/y leaves them undefined, which consumers read as
+			// "box centred on the origin" (see `authoredSpineBox`).
+			data.x = skeletonMap.x;
+			data.y = skeletonMap.y;
+			data.width = skeletonMap.width;
+			data.height = skeletonMap.height;
 			data.referenceScale = get(skeletonMap, 'referenceScale', 100) * scale;
-			data.fps = get(skeletonMap, 'fps', 0);
+			data.fps = skeletonMap.fps;
 			data.imagesPath = get(skeletonMap, 'images', null);
 			data.audioPath = get(skeletonMap, 'audio', null);
 		}
 
-		for (const boneMap of root.bones ?? []) {
+		for (const boneMap of root.bones || []) {
 			let parent: BoneData | null = null;
 			const parentName = get<string | null>(boneMap, 'parent', null);
 			if (parentName) {
@@ -135,12 +137,10 @@ export class SkeletonJson {
 			bone.skinRequired = get(boneMap, 'skin', false);
 			const color = get<string | null>(boneMap, 'color', null);
 			if (color) bone.color.setFromString(color);
-			bone.icon = get(boneMap, 'icon', undefined);
-			bone.visible = get(boneMap, 'visible', true);
 			data.bones.push(bone);
 		}
 
-		for (const slotMap of root.slots ?? []) {
+		for (const slotMap of root.slots || []) {
 			const boneData = data.findBone(slotMap.bone);
 			if (!boneData) throw new Error(`Couldn't find slot bone: ${slotMap.bone}`);
 			const slot = new SlotData(data.slots.length, slotMap.name, boneData);
@@ -155,19 +155,26 @@ export class SkeletonJson {
 		}
 
 		const bonesOf = (names: string[] | undefined, what: string): BoneData[] =>
-			(names ?? []).map((name) => {
+			(names || []).map((name) => {
 				const bone = data.findBone(name);
 				if (!bone) throw new Error(`Couldn't find bone ${name} for ${what}`);
 				return bone;
 			});
+		/** A constraint must have a `bones` key; a falsy one (0, "", false) lists no bones. */
+		const constrained = (map: Json, what: string): BoneData[] => {
+			if (map.bones === undefined || map.bones === null)
+				throw new Error(`${what} has no bones list.`);
+			return bonesOf(map.bones, what);
+		};
 
-		for (const map of root.ik ?? []) {
+		for (const map of root.ik || []) {
 			const c = new IkConstraintData(map.name);
 			c.order = get(map, 'order', 0);
 			c.skinRequired = get(map, 'skin', false);
-			c.bones = bonesOf(map.bones, `IK constraint ${map.name}`);
+			c.bones = constrained(map, `IK constraint ${map.name}`);
 			const target = data.findBone(map.target);
-			if (!target) throw new Error(`Couldn't find target bone ${map.target} for IK constraint ${map.name}.`);
+			if (!target)
+				throw new Error(`Couldn't find target bone ${map.target} for IK constraint ${map.name}.`);
 			c.target = target;
 			c.mix = get(map, 'mix', 1);
 			c.softness = get(map, 'softness', 0) * scale;
@@ -178,14 +185,16 @@ export class SkeletonJson {
 			data.ikConstraints.push(c);
 		}
 
-		for (const map of root.transform ?? []) {
+		for (const map of root.transform || []) {
 			const c = new TransformConstraintData(map.name);
 			c.order = get(map, 'order', 0);
 			c.skinRequired = get(map, 'skin', false);
-			c.bones = bonesOf(map.bones, `transform constraint ${map.name}`);
+			c.bones = constrained(map, `transform constraint ${map.name}`);
 			const target = data.findBone(map.target);
 			if (!target)
-				throw new Error(`Couldn't find target bone ${map.target} for transform constraint ${map.name}.`);
+				throw new Error(
+					`Couldn't find target bone ${map.target} for transform constraint ${map.name}.`,
+				);
 			c.target = target;
 			c.local = get(map, 'local', false);
 			c.relative = get(map, 'relative', false);
@@ -204,17 +213,30 @@ export class SkeletonJson {
 			data.transformConstraints.push(c);
 		}
 
-		for (const map of root.path ?? []) {
+		for (const map of root.path || []) {
 			const c = new PathConstraintData(map.name);
 			c.order = get(map, 'order', 0);
 			c.skinRequired = get(map, 'skin', false);
-			c.bones = bonesOf(map.bones, `path constraint ${map.name}`);
+			c.bones = constrained(map, `path constraint ${map.name}`);
 			const target = data.findSlot(map.target);
-			if (!target) throw new Error(`Couldn't find target slot ${map.target} for path constraint ${map.name}.`);
+			if (!target)
+				throw new Error(`Couldn't find target slot ${map.target} for path constraint ${map.name}.`);
 			c.target = target;
-			c.positionMode = enumFromName(PositionMode, get(map, 'positionMode', 'percent'), PositionMode.Percent);
-			c.spacingMode = enumFromName(SpacingMode, get(map, 'spacingMode', 'length'), SpacingMode.Length);
-			c.rotateMode = enumFromName(RotateMode, get(map, 'rotateMode', 'tangent'), RotateMode.Tangent);
+			c.positionMode = enumFromName(
+				PositionMode,
+				get(map, 'positionMode', 'percent'),
+				PositionMode.Percent,
+			);
+			c.spacingMode = enumFromName(
+				SpacingMode,
+				get(map, 'spacingMode', 'length'),
+				SpacingMode.Length,
+			);
+			c.rotateMode = enumFromName(
+				RotateMode,
+				get(map, 'rotateMode', 'tangent'),
+				RotateMode.Tangent,
+			);
 			c.offsetRotation = get(map, 'rotation', 0);
 			c.position = get(map, 'position', 0);
 			if (c.positionMode === PositionMode.Fixed) c.position *= scale;
@@ -227,7 +249,7 @@ export class SkeletonJson {
 			data.pathConstraints.push(c);
 		}
 
-		for (const map of root.physics ?? []) {
+		for (const map of root.physics || []) {
 			const c = new PhysicsConstraintData(map.name);
 			c.order = get(map, 'order', 0);
 			c.skinRequired = get(map, 'skin', false);
@@ -260,14 +282,19 @@ export class SkeletonJson {
 
 		const skins: Json[] = Array.isArray(root.skins)
 			? root.skins
-			: Object.entries(root.skins ?? {}).map(([name, attachments]) => ({ name, attachments }));
+			: Object.entries(root.skins || {}).map(([name, attachments]) => ({ name, attachments }));
 		for (const skinMap of skins) {
 			const skin = new Skin(skinMap.name);
 			skin.bones.push(...bonesOf(skinMap.bones, `skin ${skinMap.name}`));
-			const constraint = <T>(names: string[] | undefined, find: (n: string) => T | null, kind: string): T[] =>
-				(names ?? []).map((n) => {
+			const constraint = <T>(
+				names: string[] | undefined,
+				find: (n: string) => T | null,
+				kind: string,
+			): T[] =>
+				(names || []).map((n) => {
 					const c = find(n);
-					if (!c) throw new Error(`Skin ${kind} constraint not found: ${n}`);
+					if (!c)
+						throw new Error(`Couldn't find ${kind} constraint ${n} for skin ${skinMap.name}.`);
 					return c;
 				});
 			skin.constraints.push(
@@ -276,12 +303,18 @@ export class SkeletonJson {
 				...constraint(skinMap.path, (n) => data.findPathConstraint(n), 'path'),
 				...constraint(skinMap.physics, (n) => data.findPhysicsConstraint(n), 'physics'),
 			);
-			for (const slotName of Object.keys(skinMap.attachments ?? {})) {
+			for (const slotName of Object.keys(skinMap.attachments || {})) {
 				const slot = data.findSlot(slotName);
 				if (!slot) throw new Error(`Slot not found: ${slotName}`);
 				const slotMap = skinMap.attachments[slotName];
 				for (const entryName of Object.keys(slotMap)) {
-					const attachment = this.readAttachment(slotMap[entryName], skin, slot.index, entryName, data);
+					const attachment = this.readAttachment(
+						slotMap[entryName],
+						skin,
+						slot.index,
+						entryName,
+						data,
+					);
 					if (attachment) skin.setAttachment(slot.index, entryName, attachment);
 				}
 			}
@@ -293,14 +326,16 @@ export class SkeletonJson {
 			const skin = linked.skin ? data.findSkin(linked.skin) : data.defaultSkin;
 			if (!skin) throw new Error(`Skin not found: ${linked.skin}`);
 			const parent = skin.getAttachment(linked.slotIndex, linked.parent);
-			if (!(parent instanceof MeshAttachment)) throw new Error(`Parent mesh not found: ${linked.parent}`);
+			if (!parent) throw new Error(`Parent mesh not found: ${linked.parent}`);
+			if (!(parent instanceof MeshAttachment))
+				throw new Error(`Linked mesh parent is not a mesh: ${linked.parent}`);
 			linked.mesh.timelineAttachment = linked.inheritTimelines ? parent : linked.mesh;
 			linked.mesh.setParentMesh(parent);
 			if (linked.mesh.region) linked.mesh.updateRegion();
 		}
 		this.linkedMeshes.length = 0;
 
-		for (const name of Object.keys(root.events ?? {})) {
+		for (const name of Object.keys(root.events || {})) {
 			const map = root.events[name];
 			const event = new EventData(name);
 			event.intValue = get(map, 'int', 0);
@@ -314,7 +349,7 @@ export class SkeletonJson {
 			data.events.push(event);
 		}
 
-		for (const name of Object.keys(root.animations ?? {}))
+		for (const name of Object.keys(root.animations || {}))
 			this.readAnimation(root.animations[name], name, data);
 
 		return data;
@@ -383,7 +418,13 @@ export class SkeletonJson {
 				const parent = get<string | null>(map, 'parent', null);
 				if (parent) {
 					this.linkedMeshes.push(
-						new LinkedMesh(mesh, get(map, 'skin', null), slotIndex, parent, get(map, 'timelines', true)),
+						new LinkedMesh(
+							mesh,
+							get(map, 'skin', null),
+							slotIndex,
+							parent,
+							get(map, 'timelines', true),
+						),
 					);
 					return mesh;
 				}
@@ -445,7 +486,7 @@ export class SkeletonJson {
 		}
 		const weights: number[] = [];
 		const bones: number[] = [];
-		for (let i = 0; i < vertices.length; ) {
+		for (let i = 0; i < vertices.length;) {
 			const boneCount = vertices[i++];
 			bones.push(boneCount);
 			for (const end = i + boneCount * 4; i < end; i += 4) {
@@ -461,7 +502,7 @@ export class SkeletonJson {
 		const scale = this.scale;
 		const timelines: Timeline[] = [];
 
-		for (const slotName of Object.keys(map.slots ?? {})) {
+		for (const slotName of Object.keys(map.slots || {})) {
 			const slotMap = map.slots[slotName];
 			const slot = data.findSlot(slotName);
 			if (!slot) throw new Error(`Slot not found: ${slotName}`);
@@ -518,7 +559,7 @@ export class SkeletonJson {
 			}
 		}
 
-		for (const boneName of Object.keys(map.bones ?? {})) {
+		for (const boneName of Object.keys(map.bones || {})) {
 			const boneMap = map.bones[boneName];
 			const bone = data.findBone(boneName);
 			if (!bone) throw new Error(`Bone not found: ${boneName}`);
@@ -532,16 +573,31 @@ export class SkeletonJson {
 						timelines.push(readTimeline1(keys, new RotateTimeline(frames, frames, b), 0, 1));
 						break;
 					case 'translate':
-						timelines.push(readTimeline2(keys, new TranslateTimeline(frames, frames << 1, b), 'x', 'y', 0, scale));
+						timelines.push(
+							readTimeline2(
+								keys,
+								new TranslateTimeline(frames, frames << 1, b),
+								'x',
+								'y',
+								0,
+								scale,
+							),
+						);
 						break;
 					case 'translatex':
-						timelines.push(readTimeline1(keys, new TranslateXTimeline(frames, frames, b), 0, scale));
+						timelines.push(
+							readTimeline1(keys, new TranslateXTimeline(frames, frames, b), 0, scale),
+						);
 						break;
 					case 'translatey':
-						timelines.push(readTimeline1(keys, new TranslateYTimeline(frames, frames, b), 0, scale));
+						timelines.push(
+							readTimeline1(keys, new TranslateYTimeline(frames, frames, b), 0, scale),
+						);
 						break;
 					case 'scale':
-						timelines.push(readTimeline2(keys, new ScaleTimeline(frames, frames << 1, b), 'x', 'y', 1, 1));
+						timelines.push(
+							readTimeline2(keys, new ScaleTimeline(frames, frames << 1, b), 'x', 'y', 1, 1),
+						);
 						break;
 					case 'scalex':
 						timelines.push(readTimeline1(keys, new ScaleXTimeline(frames, frames, b), 1, 1));
@@ -550,7 +606,9 @@ export class SkeletonJson {
 						timelines.push(readTimeline1(keys, new ScaleYTimeline(frames, frames, b), 1, 1));
 						break;
 					case 'shear':
-						timelines.push(readTimeline2(keys, new ShearTimeline(frames, frames << 1, b), 'x', 'y', 0, 1));
+						timelines.push(
+							readTimeline2(keys, new ShearTimeline(frames, frames << 1, b), 'x', 'y', 0, 1),
+						);
 						break;
 					case 'shearx':
 						timelines.push(readTimeline1(keys, new ShearXTimeline(frames, frames, b), 0, 1));
@@ -561,7 +619,11 @@ export class SkeletonJson {
 					case 'inherit': {
 						const t = new InheritTimeline(frames, b);
 						keys.forEach((k, f) =>
-							t.setFrame(f, get(k, 'time', 0), enumFromName(Inherit, get(k, 'inherit', 'normal'), Inherit.Normal)),
+							t.setFrame(
+								f,
+								get(k, 'time', 0),
+								enumFromName(Inherit, get(k, 'inherit', 'normal'), Inherit.Normal),
+							),
 						);
 						timelines.push(t);
 						break;
@@ -570,12 +632,16 @@ export class SkeletonJson {
 			}
 		}
 
-		for (const constraintName of Object.keys(map.ik ?? {})) {
+		for (const constraintName of Object.keys(map.ik || {})) {
 			const keys: Json[] = map.ik[constraintName];
 			if (!keys[0]) continue;
 			const constraint = data.findIkConstraint(constraintName);
 			if (!constraint) throw new Error(`IK Constraint not found: ${constraintName}`);
-			const t = new IkConstraintTimeline(keys.length, keys.length << 1, data.ikConstraints.indexOf(constraint));
+			const t = new IkConstraintTimeline(
+				keys.length,
+				keys.length << 1,
+				data.ikConstraints.indexOf(constraint),
+			);
 			keys.forEach((k, f) =>
 				t.setFrame(
 					f,
@@ -587,11 +653,16 @@ export class SkeletonJson {
 					get(k, 'stretch', false),
 				),
 			);
-			readCurves(keys, t, [(k) => get(k, 'mix', 1), (k) => get(k, 'softness', 0) * scale], [1, scale]);
+			readCurves(
+				keys,
+				t,
+				[(k) => get(k, 'mix', 1), (k) => get(k, 'softness', 0) * scale],
+				[1, scale],
+			);
 			timelines.push(t);
 		}
 
-		for (const constraintName of Object.keys(map.transform ?? {})) {
+		for (const constraintName of Object.keys(map.transform || {})) {
 			const keys: Json[] = map.transform[constraintName];
 			if (!keys[0]) continue;
 			const constraint = data.findTransformConstraint(constraintName);
@@ -617,11 +688,16 @@ export class SkeletonJson {
 				const v = values(k);
 				t.setFrame(f, get(k, 'time', 0), v[0], v[1], v[2], v[3], v[4], v[5]);
 			});
-			readCurves(keys, t, [0, 1, 2, 3, 4, 5].map((i) => (k: Json) => values(k)[i]), [1, 1, 1, 1, 1, 1]);
+			readCurves(
+				keys,
+				t,
+				[0, 1, 2, 3, 4, 5].map((i) => (k: Json) => values(k)[i]),
+				[1, 1, 1, 1, 1, 1],
+			);
 			timelines.push(t);
 		}
 
-		for (const constraintName of Object.keys(map.path ?? {})) {
+		for (const constraintName of Object.keys(map.path || {})) {
 			const constraintMap = map.path[constraintName];
 			const constraint = data.findPathConstraint(constraintName);
 			if (!constraint) throw new Error(`Path constraint not found: ${constraintName}`);
@@ -632,13 +708,18 @@ export class SkeletonJson {
 				const frames = keys.length;
 				if (timelineName === 'position') {
 					const s = constraint.positionMode === PositionMode.Fixed ? scale : 1;
-					timelines.push(readTimeline1(keys, new PathConstraintPositionTimeline(frames, frames, index), 0, s));
+					timelines.push(
+						readTimeline1(keys, new PathConstraintPositionTimeline(frames, frames, index), 0, s),
+					);
 				} else if (timelineName === 'spacing') {
 					const s =
-						constraint.spacingMode === SpacingMode.Length || constraint.spacingMode === SpacingMode.Fixed
+						constraint.spacingMode === SpacingMode.Length ||
+						constraint.spacingMode === SpacingMode.Fixed
 							? scale
 							: 1;
-					timelines.push(readTimeline1(keys, new PathConstraintSpacingTimeline(frames, frames, index), 0, s));
+					timelines.push(
+						readTimeline1(keys, new PathConstraintSpacingTimeline(frames, frames, index), 0, s),
+					);
 				} else if (timelineName === 'mix') {
 					const t = new PathConstraintMixTimeline(frames, frames * 3, index);
 					const values = (k: Json): number[] => {
@@ -649,13 +730,18 @@ export class SkeletonJson {
 						const v = values(k);
 						t.setFrame(f, get(k, 'time', 0), v[0], v[1], v[2]);
 					});
-					readCurves(keys, t, [0, 1, 2].map((i) => (k: Json) => values(k)[i]), [1, 1, 1]);
+					readCurves(
+						keys,
+						t,
+						[0, 1, 2].map((i) => (k: Json) => values(k)[i]),
+						[1, 1, 1],
+					);
 					timelines.push(t);
 				}
 			}
 		}
 
-		for (const constraintName of Object.keys(map.physics ?? {})) {
+		for (const constraintName of Object.keys(map.physics || {})) {
 			const constraintMap = map.physics[constraintName];
 			let index = -1;
 			if (constraintName.length > 0) {
@@ -673,7 +759,10 @@ export class SkeletonJson {
 					timelines.push(t);
 					continue;
 				}
-				const make: Record<string, new (f: number, b: number, i: number) => PhysicsConstraintTimeline> = {
+				const make: Record<
+					string,
+					new (f: number, b: number, i: number) => PhysicsConstraintTimeline
+				> = {
 					inertia: PhysicsConstraintInertiaTimeline,
 					strength: PhysicsConstraintStrengthTimeline,
 					damping: PhysicsConstraintDampingTimeline,
@@ -687,7 +776,7 @@ export class SkeletonJson {
 			}
 		}
 
-		for (const skinName of Object.keys(map.attachments ?? {})) {
+		for (const skinName of Object.keys(map.attachments || {})) {
 			const skinMap = map.attachments[skinName];
 			const skin = data.findSkin(skinName);
 			if (!skin) throw new Error(`Skin not found: ${skinName}`);
@@ -702,11 +791,16 @@ export class SkeletonJson {
 						const keys: Json[] = attachmentMap[timelineName];
 						if (!keys[0]) continue;
 						if (timelineName === 'deform') {
+							if (!attachment) throw new Error(`Deform attachment not found: ${attachmentName}`);
 							if (!(attachment instanceof VertexAttachment))
-								throw new Error(`Deform attachment not found: ${attachmentName}`);
+								throw new Error(`Deform keys on an attachment with no vertices: ${attachmentName}`);
 							timelines.push(this.readDeform(keys, slot.index, attachment));
 						} else if (timelineName === 'sequence') {
 							if (!attachment) throw new Error(`Sequence attachment not found: ${attachmentName}`);
+							if (!(attachment as Partial<HasTextureRegion>).sequence)
+								throw new Error(
+									`Sequence keys on an attachment with no sequence: ${attachmentName}`,
+								);
 							const t = new SequenceTimeline(
 								keys.length,
 								slot.index,
@@ -776,7 +870,11 @@ export class SkeletonJson {
 		data.animations.push(new Animation(name, timelines, duration));
 	}
 
-	private readDeform(keys: Json[], slotIndex: number, attachment: VertexAttachment): DeformTimeline {
+	private readDeform(
+		keys: Json[],
+		slotIndex: number,
+		attachment: VertexAttachment,
+	): DeformTimeline {
 		const scale = this.scale;
 		const weighted = !!attachment.bones;
 		const setup = attachment.vertices;
@@ -836,7 +934,12 @@ function readCurves(
 	}
 }
 
-function readTimeline1(keys: Json[], timeline: CurveTimeline1, defaultValue: number, scale: number): CurveTimeline1 {
+function readTimeline1(
+	keys: Json[],
+	timeline: CurveTimeline1,
+	defaultValue: number,
+	scale: number,
+): CurveTimeline1 {
 	const value = (k: Json): number => get(k, 'value', defaultValue) * scale;
 	keys.forEach((k, f) => timeline.setFrame(f, get(k, 'time', 0), value(k)));
 	readCurves(keys, timeline, [value], [scale]);

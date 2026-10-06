@@ -128,7 +128,9 @@ export class TrackEntry {
 	setMixDurationWithDelay(mixDuration: number, delay: number): void {
 		this._mixDuration = mixDuration;
 		if (delay <= 0) {
-			delay = this.previous ? Math.max(delay + this.previous.getTrackComplete() - mixDuration, 0) : 0;
+			delay = this.previous
+				? Math.max(delay + this.previous.getTrackComplete() - mixDuration, 0)
+				: 0;
 		}
 		this.delay = delay;
 	}
@@ -409,7 +411,15 @@ export class AnimationState {
 					if (timeline instanceof AttachmentTimeline)
 						this.applyAttachmentTimeline(timeline, skeleton, applyTime, blend, attachments);
 					else
-						timeline.apply(skeleton, animationLast, applyTime, applyEvents, alpha, blend, MixDirection.mixIn);
+						timeline.apply(
+							skeleton,
+							animationLast,
+							applyTime,
+							applyEvents,
+							alpha,
+							blend,
+							MixDirection.mixIn,
+						);
 				}
 			} else {
 				const modes = current.timelineMode;
@@ -493,7 +503,15 @@ export class AnimationState {
 
 		if (blend === MixBlend.add) {
 			for (const timeline of timelines)
-				timeline.apply(skeleton, animationLast, applyTime, events, alphaMix, blend, MixDirection.mixOut);
+				timeline.apply(
+					skeleton,
+					animationLast,
+					applyTime,
+					events,
+					alphaMix,
+					blend,
+					MixDirection.mixOut,
+				);
 		} else {
 			const modes = from.timelineMode;
 			const holdMix = from.timelineHoldMix;
@@ -551,9 +569,21 @@ export class AnimationState {
 						attachments && alpha >= from.alphaAttachmentThreshold,
 					);
 				else {
-					if (drawOrder && timeline instanceof DrawOrderTimeline && timelineBlend === MixBlend.setup)
+					if (
+						drawOrder &&
+						timeline instanceof DrawOrderTimeline &&
+						timelineBlend === MixBlend.setup
+					)
 						direction = MixDirection.mixIn;
-					timeline.apply(skeleton, animationLast, applyTime, events, alpha, timelineBlend, direction);
+					timeline.apply(
+						skeleton,
+						animationLast,
+						applyTime,
+						events,
+						alpha,
+						timelineBlend,
+						direction,
+					);
 				}
 			}
 		}
@@ -586,7 +616,12 @@ export class AnimationState {
 		if (slot.attachmentState <= this.unkeyedState) slot.attachmentState = this.unkeyedState + SETUP;
 	}
 
-	private setAttachment(skeleton: Skeleton, slot: Slot, name: string | null, attachments: boolean): void {
+	private setAttachment(
+		skeleton: Skeleton,
+		slot: Slot,
+		name: string | null,
+		attachments: boolean,
+	): void {
 		slot.setAttachment(name ? skeleton.getAttachment(slot.data.index, name) : null);
 		if (attachments) slot.attachmentState = this.unkeyedState + CURRENT;
 	}
@@ -723,10 +758,8 @@ export class AnimationState {
 		this.queue.start(current);
 	}
 
-	setAnimation(trackIndex: number, animationName: string, loop?: boolean): TrackEntry;
-	setAnimation(trackIndex: number, animation: Animation, loop?: boolean): TrackEntry;
-	setAnimation(trackIndex: number, animation: string | Animation, loop = false): TrackEntry {
-		return this.setAnimationWith(trackIndex, this.resolve(animation), loop);
+	setAnimation(trackIndex: number, animationName: string, loop = false): TrackEntry {
+		return this.setAnimationWith(trackIndex, this.resolve(animationName), loop);
 	}
 
 	setAnimationWith(trackIndex: number, animation: Animation, loop = false): TrackEntry {
@@ -750,10 +783,8 @@ export class AnimationState {
 		return entry;
 	}
 
-	addAnimation(trackIndex: number, animationName: string, loop?: boolean, delay?: number): TrackEntry;
-	addAnimation(trackIndex: number, animation: Animation, loop?: boolean, delay?: number): TrackEntry;
-	addAnimation(trackIndex: number, animation: string | Animation, loop = false, delay = 0): TrackEntry {
-		return this.addAnimationWith(trackIndex, this.resolve(animation), loop, delay);
+	addAnimation(trackIndex: number, animationName: string, loop = false, delay = 0): TrackEntry {
+		return this.addAnimationWith(trackIndex, this.resolve(animationName), loop, delay);
 	}
 
 	/** Queues an animation after the track's last entry. A delay <= 0 is relative to the end of the
@@ -794,15 +825,16 @@ export class AnimationState {
 	setEmptyAnimations(mixDuration = 0): void {
 		const old = this.queue.drainDisabled;
 		this.queue.drainDisabled = true;
-		for (const current of this.tracks) if (current) this.setEmptyAnimation(current.trackIndex, mixDuration);
+		for (const current of this.tracks)
+			if (current) this.setEmptyAnimation(current.trackIndex, mixDuration);
 		this.queue.drainDisabled = old;
 		this.queue.drain();
 	}
 
-	private resolve(animation: string | Animation): Animation {
-		if (typeof animation !== 'string') return animation;
-		const found = this.data.skeletonData.findAnimation(animation);
-		if (!found) throw new Error('Animation not found: ' + animation);
+	private resolve(animationName: string): Animation {
+		if (!animationName) throw new Error('animationName cannot be null.');
+		const found = this.data.skeletonData.findAnimation(animationName);
+		if (!found) throw new Error('Animation not found: ' + animationName);
 		return found;
 	}
 

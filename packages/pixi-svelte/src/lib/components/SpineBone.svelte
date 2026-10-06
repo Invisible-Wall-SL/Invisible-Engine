@@ -1,8 +1,8 @@
 <script lang="ts" module>
-	import * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
+	import * as RIG from 'engine-rig/pixi';
 
-	export type Props = Partial<SPINE_PIXI.Bone> & {
-		boneName: Parameters<SPINE_PIXI.Spine['skeleton']['findBone']>[0];
+	export type Props = Partial<RIG.Bone> & {
+		boneName: Parameters<RIG.RigView['skeleton']['findBone']>[0];
 	};
 </script>
 

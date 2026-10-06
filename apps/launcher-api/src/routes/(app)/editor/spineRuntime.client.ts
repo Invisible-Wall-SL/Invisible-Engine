@@ -1,13 +1,9 @@
 /**
- * Thin typed access to the vendored `spine-webgl` runtime — the SAME runtime the
- * Invisible Spine Viewer uses (`static/spine/vendor/spine-webgl-<line>.js`). The
- * launcher app has no `pixi.js` / `@esotericsoftware/spine-pixi-v8` npm deps, so
- * the editor preview reuses this already-shipped global-script runtime instead of
- * adding deps. Each runtime line is a separate global build owning `window.spine`, so the
- * editor loads exactly ONE — 4.2, the line the game runs — see `loadSpineRuntime`.
+ * Thin typed access to the Invisible rig runtime's WebGL renderer (`engine-rig/webgl`) — the same
+ * runtime the Invisible Spine Viewer and Rigger load as `static/spine/vendor/invisible-rig.js`, and
+ * the same skeleton code the game runs. Loaded lazily, so pages without a rig preview never fetch it.
  *
- * We type only the handful of members the editor overlay touches. Everything is
- * structural — the global is `unknown` until narrowed here.
+ * We type only the handful of members the editor overlay touches.
  */
 
 export interface SpineVector2 {
@@ -31,7 +27,7 @@ export interface SpineCamera {
 /** A posed bone — its world transform AFTER `skeleton.updateWorldTransform`. `worldX`/`worldY`
  * are the world origin (the Symbols-SM live FX overlay projects it to screen to ride the bound
  * bone, mirroring the Rigger's `fxBoneWorld`). The rotation/scale accessors mirror the underlying
- * spine-webgl `Bone` — the Scene Editor's bone-ridden symbol preview reads them to honour a
+ * runtime `Bone` — the Scene Editor's bone-ridden symbol preview reads them to honour a
  * component's `followRotation` / `followScale` (the SAME values the runtime `<SpineBoneAttach>`
  * uses: `-getWorldRotationX()*DEG_TO_RAD` for rotation, `getWorldScaleX()/getWorldScaleY()` for
  * scale). Read only once a rider is present, so non-rider previews touch none of them. */
@@ -91,7 +87,7 @@ export interface SpineAnimationState {
 export interface SpineAnimationMeta {
 	name: string;
 	duration: number;
-	/** spine-core `Animation.apply` — the value-binding preview poses a scrub with it. `blend` and
+	/** engine-rig `Animation.apply` — the value-binding preview poses a scrub with it. `blend` and
 	 *  `direction` are the runtime's `MixBlend` / `MixDirection` enum values. */
 	apply(
 		skeleton: SpineSkeleton,
@@ -182,54 +178,28 @@ export interface SpineSceneRenderer {
 	dispose(): void;
 }
 
-/**
- * The ONE vendored runtime line the editor previews with. It is the line the GAME runs
- * (`@esotericsoftware/spine-pixi-v8` 4.2), and a 4.2 reader loads a 4.1 export — the two built-in
- * 4.1 skeletons (anticipation, reelhouse) parse and pose under it, guarded by
- * `scripts/check-builtin-spines.mjs` — so every skeleton on a page is built, posed and drawn by
- * the same runtime object.
- *
- * There used to be one script per requested line, "first line loaded wins". That rule was enforced
- * only once a script had FINISHED loading, so a page that asked for 4.1 (the built-ins) and 4.2 (a
- * Rigger `.irig`) before either arrived injected BOTH, and whichever finished last owned
- * `window.spine`. Skeletons built by one runtime were then posed with the other's `Physics` token
- * and drawn by the other's `SceneRenderer`: on a cold /symbols load every 4.2 cell threw
- * "physics is undefined" each frame and stayed blank until a reload happened to order the scripts
- * the other way.
- */
-const SPINE_RUNTIME_LINE = '4.2';
 let runtimePromise: Promise<SpineRuntime> | null = null;
 let runtime: SpineRuntime | null = null;
 
 /** Load the runtime once per page; every caller shares the same promise and the same object. */
 export function loadSpineRuntime(): Promise<SpineRuntime> {
 	if (runtimePromise) return runtimePromise;
-	runtimePromise = new Promise<SpineRuntime>((resolve, reject) => {
-		const w = window as unknown as { spine?: SpineRuntime };
-		const script = document.createElement('script');
-		script.src = `/spine/vendor/spine-webgl-${SPINE_RUNTIME_LINE}.js`;
-		script.onload = () => {
-			if (w.spine) {
-				runtime = w.spine;
-				resolve(w.spine);
-			} else {
-				reject(new Error(`spine runtime ${SPINE_RUNTIME_LINE} did not expose a global`));
-			}
-		};
-		script.onerror = () => {
+	runtimePromise = import('engine-rig/webgl').then(
+		(mod) => {
+			const loaded: SpineRuntime = mod;
+			runtime = loaded;
+			return loaded;
+		},
+		(error: unknown) => {
 			// Let the next caller retry instead of pinning every later load to this failure.
 			runtimePromise = null;
-			reject(new Error(`failed to load spine runtime ${SPINE_RUNTIME_LINE}`));
-		};
-		document.head.appendChild(script);
-	});
+			throw error;
+		},
+	);
 	return runtimePromise;
 }
 
-/**
- * The loaded runtime object, or `null` before `loadSpineRuntime` resolves. Captured at load —
- * never read live off `window.spine`, which any later script on the page could replace.
- */
+/** The loaded runtime object, or `null` before `loadSpineRuntime` resolves. */
 export function getActiveRuntime(): SpineRuntime | null {
 	return runtime;
 }
@@ -244,7 +214,7 @@ export function createSceneRenderer(
 	return new spine.SceneRenderer(canvas, gl);
 }
 
-/** The runtime's `Physics.update` token (4.2+) or `undefined` (4.1). */
+/** The runtime's `Physics.update` token. */
 export function getSpinePhysics(): unknown {
 	return getActiveRuntime()?.Physics?.update;
 }

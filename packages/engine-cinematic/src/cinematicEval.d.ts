@@ -7,7 +7,7 @@
 import type { CinematicKey, CinematicStrip, CinematicTrack } from '../types';
 
 /** The spine runtime enums the evaluator needs. It constructs nothing, so any runtime that
- *  exposes these (spine-core headless, the vendored WebGL bundle, spine-pixi-v8) works. */
+ *  exposes these (engine-rig headless, the vendored WebGL bundle, engine-rig/pixi) works. */
 export interface SpineNamespace {
 	MixBlend: { setup: number; first: number; replace: number; add: number };
 	MixDirection: { mixIn: number; mixOut: number };

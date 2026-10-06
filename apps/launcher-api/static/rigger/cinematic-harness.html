@@ -13,7 +13,7 @@
   premultiplied alpha. That needs a GPU, so it needs a page.
 
   It also exercises the real `/shared/cinematicEval.mjs` in a BROWSER against the vendored
-  runtime, rather than in node against spine-core — the exact gap that has produced browser-only
+  runtime, rather than in node — the exact gap that has produced browser-only
   Rigger bugs before (mangled constructor names, a double-flipped canvas Y).
 
   Deliberately auth-free: it reads only `/builtin/spines/**` and `/shared/**`, never R2 and never
@@ -68,7 +68,7 @@
   </aside>
 </div>
 
-<script src="/spine/vendor/spine-webgl-4.2.js"></script>
+<script src="/spine/vendor/invisible-rig.js"></script>
 <script type="module">
 import { evaluateActor, clipLocalTime, blendEnvelope } from '/shared/cinematicEval.mjs';
 
@@ -207,7 +207,7 @@ function evaluate(t) {
 	}
 }
 
-// Evaluator sanity IN THE BROWSER (the vendored runtime, not spine-core).
+// Evaluator sanity IN THE BROWSER (the vendored bundle, not the node build).
 if (actors.length) {
 	const snap = () => actors.flatMap((a) => a.skeleton.bones.flatMap((b) => [b.a, b.b, b.c, b.d, b.worldX, b.worldY]));
 	evaluate(1.234);

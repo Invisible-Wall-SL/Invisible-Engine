@@ -1,5 +1,5 @@
 import { i18n } from '@lingui/core';
-import type * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
+import type * as RIG from 'engine-rig/pixi';
 
 /**
  * Rig text = LOCALIZED ART, and localization is an ATTACHMENT SWAP (design
@@ -63,10 +63,7 @@ export function onSpineLocaleChange(fn: () => void): () => void {
  * Candidates are tried most-specific first: the exact tag, then its language-only prefix
  * (`pt-BR` → `pt`), so a rig baked for `pt` still serves a `pt-BR` player.
  */
-export function applyLocaleAttachments(
-	skeleton: SPINE_PIXI.Skeleton | undefined,
-	locale: string,
-): number {
+export function applyLocaleAttachments(skeleton: RIG.Skeleton | undefined, locale: string): number {
 	if (!skeleton || !locale) return 0;
 	const skin = skeleton.skin ?? skeleton.data.defaultSkin;
 	if (!skin) return 0;

@@ -6,9 +6,9 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
 import { parseSkeleton, serializeSkeleton } from './spineModel.mjs';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './spine.mjs';
 
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(SPINE_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(RIG_CORE);
 
 const r = (n) => (typeof n === 'number' ? Math.round(n * 1000) / 1000 : n);
 const hex = (c) => (c ? `${c.r.toFixed(3)},${c.g.toFixed(3)},${c.b.toFixed(3)},${c.a.toFixed(3)}` : null);
@@ -126,4 +126,4 @@ console.log(`feature coverage across corpus:`);
 console.log(`   region=${featureTotals.region}  mesh=${featureTotals.mesh} (weighted=${featureTotals.weightedMesh}, ${featureTotals.influences} influences)  ` +
 	`linkedmesh=${featureTotals.linkedmesh}  clipping=${featureTotals.clipping}  boundingbox=${featureTotals.boundingbox}  path=${featureTotals.path}  point=${featureTotals.point}`);
 if (failures.length) { console.log(`\nfailures:`); for (const f of failures.slice(0, 25)) console.log('   ' + f); process.exit(1); }
-else console.log(`\n✅ ALL PASS — every skeleton round-trips identically through the official spine-core loader.`);
+else console.log(`\n✅ ALL PASS — every skeleton round-trips identically through the engine-rig loader.`);

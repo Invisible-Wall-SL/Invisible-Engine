@@ -13,6 +13,7 @@ import { ESBUILD } from '../rigger-spike/esbuild.mjs';
 import { launchChrome } from '../rigger-spike/chrome.mjs';
 import { ROOT } from './load.mjs';
 import { findRigs, poseCases } from './rigs.mjs';
+import { reference } from './reference.mjs';
 
 const args = process.argv.slice(2);
 const arg = (n, d) => (args.includes(n) ? args[args.indexOf(n) + 1] : d);
@@ -27,7 +28,8 @@ const { PNG } = await import('pngjs');
 
 const esbuild = await import(ESBUILD);
 const work = mkdtempSync(join(tmpdir(), 'rig-render-'));
-const nodePaths = [join(ROOT, 'packages/pixi-svelte/node_modules'), join(ROOT, 'packages/engine-rig/node_modules')];
+const ref = await reference();
+const nodePaths = [join(ROOT, 'packages/engine-rig/node_modules'), ref.nodeModules];
 for (const name of ['ref', 'rig']) {
 	await esbuild.build({
 		entryPoints: [join(ROOT, 'tools/rig-parity/render/page.ts')],
@@ -36,14 +38,25 @@ for (const name of ['ref', 'rig']) {
 		platform: 'browser',
 		outfile: join(work, `${name}.js`),
 		nodePaths,
-		alias: { RUNTIME: name === 'ref' ? '@esotericsoftware/spine-pixi-v8' : join(ROOT, 'packages/engine-rig/pixi.ts') },
+		alias: { RUNTIME: name === 'ref' ? ref.pixiEntry : join(ROOT, 'packages/engine-rig/pixi.ts') },
 		define: { RUNTIME_NAME: JSON.stringify(name) },
 		logLevel: 'error',
 	});
-	writeFileSync(join(work, `${name}.html`), `<!doctype html><body style="margin:0"><script src="/__work/${name}.js"></script></body>`);
+	writeFileSync(
+		join(work, `${name}.html`),
+		`<!doctype html><body style="margin:0"><script src="/__work/${name}.js"></script></body>`,
+	);
 }
 
-const types = { '.js': 'text/javascript', '.html': 'text/html', '.png': 'image/png', '.webp': 'image/webp', '.json': 'application/json', '.atlas': 'text/plain', '.skel': 'application/octet-stream' };
+const types = {
+	'.js': 'text/javascript',
+	'.html': 'text/html',
+	'.png': 'image/png',
+	'.webp': 'image/webp',
+	'.json': 'application/json',
+	'.atlas': 'text/plain',
+	'.skel': 'application/octet-stream',
+};
 const server = createServer((req, res) => {
 	const url = decodeURIComponent(new URL(req.url, 'http://x').pathname);
 	const file = url.startsWith('/__work/') ? join(work, url.slice(8)) : join(dir, url);
@@ -77,9 +90,13 @@ async function renderAll(name, cases) {
 	return out;
 }
 
-const browser = await launchChrome({ name: 'rig-render', url: 'about:blank', args: [`--window-size=${SIZE + 50},${SIZE + 50}`] });
-const ref = await renderAll('ref', cases);
-const rig = await renderAll('rig', cases);
+const browser = await launchChrome({
+	name: 'rig-render',
+	url: 'about:blank',
+	args: [`--window-size=${SIZE + 50},${SIZE + 50}`],
+});
+const refFrames = await renderAll('ref', cases);
+const rigFrames = await renderAll('rig', cases);
 await browser.close();
 server.close();
 
@@ -95,17 +112,17 @@ let worst = 0;
 for (let i = 0; i < cases.length; i++) {
 	const c = cases[i];
 	const label = `${c.rig} :: ${c.animation ?? 'setup'} @${c.time}`;
-	if (typeof ref[i] !== 'string') {
-		console.log(`skip ${label}: reference failed (${ref[i]?.error})`);
+	if (typeof refFrames[i] !== 'string') {
+		console.log(`skip ${label}: reference failed (${refFrames[i]?.error})`);
 		continue;
 	}
-	if (typeof rig[i] !== 'string') {
+	if (typeof rigFrames[i] !== 'string') {
 		failures++;
-		console.log(`✗ ${label}: ${rig[i]?.error}`);
+		console.log(`✗ ${label}: ${rigFrames[i]?.error}`);
 		continue;
 	}
-	const a = Buffer.from(ref[i], 'base64');
-	const b = Buffer.from(rig[i], 'base64');
+	const a = Buffer.from(refFrames[i], 'base64');
+	const b = Buffer.from(rigFrames[i], 'base64');
 	if (coverage(a) === 0) empty++;
 	if (args.includes('--save') && i % 9 === 0 && dumpDir) {
 		const png = new PNG({ width: SIZE, height: SIZE });
@@ -121,13 +138,22 @@ for (let i = 0; i < cases.length; i++) {
 		failures++;
 		console.log(`✗ ${label}: ${pct.toFixed(2)}% pixels differ`);
 		if (dumpDir) {
-			for (const [tag, buf] of [['ref', a], ['rig', b], ['diff', diff]]) {
+			for (const [tag, buf] of [
+				['ref', a],
+				['rig', b],
+				['diff', diff],
+			]) {
 				const png = new PNG({ width: SIZE, height: SIZE });
 				png.data = buf;
-				writeFileSync(join(dumpDir, `${label.replace(/[^a-z0-9]+/gi, '_')}.${tag}.png`), PNG.sync.write(png));
+				writeFileSync(
+					join(dumpDir, `${label.replace(/[^a-z0-9]+/gi, '_')}.${tag}.png`),
+					PNG.sync.write(png),
+				);
 			}
 		}
 	}
 }
-console.log(`${failures ? '✗' : '✓'} rig render parity: ${rigs.length} rigs, ${compared} frames (${empty} empty in the reference), ${failures} over ${MAX}% (worst ${worst.toFixed(2)}%)`);
+console.log(
+	`${failures ? '✗' : '✓'} rig render parity: ${rigs.length} rigs, ${compared} frames (${empty} empty in the reference), ${failures} over ${MAX}% (worst ${worst.toFixed(2)}%)`,
+);
 process.exit(failures ? 1 : 0);

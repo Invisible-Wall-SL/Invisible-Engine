@@ -4,7 +4,7 @@
 	 *
 	 * Mounts inside a `<SpineProvider>` and takes over that rig's posing. The contract below is
 	 * not a guess — it is what Phase 0's gate 3 (`tools/rigger-spike/cinematic-pixi.mjs`) measured
-	 * against `spine-pixi-v8`:
+	 * against `engine-rig`:
 	 *
 	 *   1. `autoUpdate` stays ON — see below; the gate proves Pixi then updates it once per tick.
 	 *   2. `state.clearTracks()` — mandatory for EVENT reasons, not pose reasons. A leftover track
@@ -14,7 +14,7 @@
 	 *      frame's pose — proved, not assumed.
 	 */
 	import { onDestroy } from 'svelte';
-	import * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
+	import * as RIG from 'engine-rig/pixi';
 	import { evaluateActor, resolvePlace, type CinematicTrack } from 'engine-cinematic';
 	import { getContextSpine } from 'pixi-svelte';
 
@@ -32,9 +32,9 @@
 
 	// The spine runtime namespace the evaluator needs (enums only — it constructs nothing).
 	const spineNs = {
-		MixBlend: SPINE_PIXI.MixBlend,
-		MixDirection: SPINE_PIXI.MixDirection,
-		Physics: SPINE_PIXI.Physics,
+		MixBlend: RIG.MixBlend,
+		MixDirection: RIG.MixDirection,
+		Physics: RIG.Physics,
 	};
 
 	/**

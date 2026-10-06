@@ -391,7 +391,14 @@ export class RotateTimeline extends CurveTimeline1 implements BoneTimeline {
 		super(frameCount, bezierCount, [id(Property.rotate, boneIndex)]);
 	}
 
-	apply(skeleton: Skeleton, _l: number, time: number, _e: Event[] | null, alpha: number, blend: MixBlend): void {
+	apply(
+		skeleton: Skeleton,
+		_l: number,
+		time: number,
+		_e: Event[] | null,
+		alpha: number,
+		blend: MixBlend,
+	): void {
 		const bone = skeleton.bones[this.boneIndex];
 		if (bone.active)
 			bone.rotation = this.getRelativeValue(time, alpha, blend, bone.rotation, bone.data.rotation);
@@ -410,7 +417,14 @@ abstract class RelativePairTimeline extends CurveTimeline2 implements BoneTimeli
 		super(frameCount, bezierCount, propertyIds);
 	}
 
-	apply(skeleton: Skeleton, _l: number, time: number, _e: Event[] | null, alpha: number, blend: MixBlend): void {
+	apply(
+		skeleton: Skeleton,
+		_l: number,
+		time: number,
+		_e: Event[] | null,
+		alpha: number,
+		blend: MixBlend,
+	): void {
 		const bone = skeleton.bones[this.boneIndex];
 		if (!bone.active) return;
 		const [fx, fy] = this.fields;
@@ -446,7 +460,13 @@ abstract class RelativePairTimeline extends CurveTimeline2 implements BoneTimeli
 
 export class TranslateTimeline extends RelativePairTimeline {
 	constructor(frameCount: number, bezierCount: number, boneIndex: number) {
-		super(frameCount, bezierCount, boneIndex, [id(Property.x, boneIndex), id(Property.y, boneIndex)], ['x', 'y']);
+		super(
+			frameCount,
+			bezierCount,
+			boneIndex,
+			[id(Property.x, boneIndex), id(Property.y, boneIndex)],
+			['x', 'y'],
+		);
 	}
 }
 
@@ -477,10 +497,23 @@ abstract class BoneValueTimeline extends CurveTimeline1 implements BoneTimeline 
 }
 
 abstract class RelativeValueTimeline extends BoneValueTimeline {
-	apply(skeleton: Skeleton, _l: number, time: number, _e: Event[] | null, alpha: number, blend: MixBlend): void {
+	apply(
+		skeleton: Skeleton,
+		_l: number,
+		time: number,
+		_e: Event[] | null,
+		alpha: number,
+		blend: MixBlend,
+	): void {
 		const bone = skeleton.bones[this.boneIndex];
 		if (bone.active)
-			bone[this.field] = this.getRelativeValue(time, alpha, blend, bone[this.field], bone.data[this.field]);
+			bone[this.field] = this.getRelativeValue(
+				time,
+				alpha,
+				blend,
+				bone[this.field],
+				bone.data[this.field],
+			);
 	}
 }
 
@@ -514,7 +547,10 @@ export class ScaleTimeline extends CurveTimeline2 implements BoneTimeline {
 		bezierCount: number,
 		public boneIndex: number,
 	) {
-		super(frameCount, bezierCount, [id(Property.scaleX, boneIndex), id(Property.scaleY, boneIndex)]);
+		super(frameCount, bezierCount, [
+			id(Property.scaleX, boneIndex),
+			id(Property.scaleY, boneIndex),
+		]);
 	}
 
 	apply(
@@ -668,7 +704,14 @@ export class RGBATimeline extends CurveTimeline implements SlotTimeline {
 		this.put(frame, time, r, g, b, a);
 	}
 
-	apply(skeleton: Skeleton, _l: number, time: number, _e: Event[] | null, alpha: number, blend: MixBlend): void {
+	apply(
+		skeleton: Skeleton,
+		_l: number,
+		time: number,
+		_e: Event[] | null,
+		alpha: number,
+		blend: MixBlend,
+	): void {
 		const slot = skeleton.slots[this.slotIndex];
 		if (!slot.bone.active) return;
 		const color = slot.color;
@@ -692,7 +735,12 @@ export class RGBATimeline extends CurveTimeline implements SlotTimeline {
 		if (alpha === 1) color.set(r, g, b, a);
 		else {
 			if (blend === MixBlend.setup) color.setFromColor(setup);
-			color.add((r - color.r) * alpha, (g - color.g) * alpha, (b - color.b) * alpha, (a - color.a) * alpha);
+			color.add(
+				(r - color.r) * alpha,
+				(g - color.g) * alpha,
+				(b - color.b) * alpha,
+				(a - color.a) * alpha,
+			);
 		}
 	}
 }
@@ -716,7 +764,14 @@ export class RGBTimeline extends CurveTimeline implements SlotTimeline {
 		this.put(frame, time, r, g, b);
 	}
 
-	apply(skeleton: Skeleton, _l: number, time: number, _e: Event[] | null, alpha: number, blend: MixBlend): void {
+	apply(
+		skeleton: Skeleton,
+		_l: number,
+		time: number,
+		_e: Event[] | null,
+		alpha: number,
+		blend: MixBlend,
+	): void {
 		const slot = skeleton.slots[this.slotIndex];
 		if (!slot.bone.active) return;
 		const color = slot.color;
@@ -763,7 +818,14 @@ export class AlphaTimeline extends CurveTimeline1 implements SlotTimeline {
 		super(frameCount, bezierCount, [id(Property.alpha, slotIndex)]);
 	}
 
-	apply(skeleton: Skeleton, _l: number, time: number, _e: Event[] | null, alpha: number, blend: MixBlend): void {
+	apply(
+		skeleton: Skeleton,
+		_l: number,
+		time: number,
+		_e: Event[] | null,
+		alpha: number,
+		blend: MixBlend,
+	): void {
 		const slot = skeleton.slots[this.slotIndex];
 		if (!slot.bone.active) return;
 		const color = slot.color;
@@ -815,7 +877,14 @@ export class RGBA2Timeline extends CurveTimeline implements SlotTimeline {
 		this.put(frame, time, r, g, b, a, r2, g2, b2);
 	}
 
-	apply(skeleton: Skeleton, _l: number, time: number, _e: Event[] | null, alpha: number, blend: MixBlend): void {
+	apply(
+		skeleton: Skeleton,
+		_l: number,
+		time: number,
+		_e: Event[] | null,
+		alpha: number,
+		blend: MixBlend,
+	): void {
 		const slot = skeleton.slots[this.slotIndex];
 		if (!slot.bone.active) return;
 		const light = slot.color;
@@ -856,7 +925,12 @@ export class RGBA2Timeline extends CurveTimeline implements SlotTimeline {
 				dark.g = setupDark.g;
 				dark.b = setupDark.b;
 			}
-			light.add((v[0] - light.r) * alpha, (v[1] - light.g) * alpha, (v[2] - light.b) * alpha, (v[3] - light.a) * alpha);
+			light.add(
+				(v[0] - light.r) * alpha,
+				(v[1] - light.g) * alpha,
+				(v[2] - light.b) * alpha,
+				(v[3] - light.a) * alpha,
+			);
 			dark.r += (v[4] - dark.r) * alpha;
 			dark.g += (v[5] - dark.g) * alpha;
 			dark.b += (v[6] - dark.b) * alpha;
@@ -878,12 +952,28 @@ export class RGB2Timeline extends CurveTimeline implements SlotTimeline {
 		return 7;
 	}
 
-	setFrame(frame: number, time: number, r: number, g: number, b: number, r2: number, g2: number, b2: number): void {
+	setFrame(
+		frame: number,
+		time: number,
+		r: number,
+		g: number,
+		b: number,
+		r2: number,
+		g2: number,
+		b2: number,
+	): void {
 		frame *= 7;
 		this.put(frame, time, r, g, b, r2, g2, b2);
 	}
 
-	apply(skeleton: Skeleton, _l: number, time: number, _e: Event[] | null, alpha: number, blend: MixBlend): void {
+	apply(
+		skeleton: Skeleton,
+		_l: number,
+		time: number,
+		_e: Event[] | null,
+		alpha: number,
+		blend: MixBlend,
+	): void {
 		const slot = skeleton.slots[this.slotIndex];
 		if (!slot.bone.active) return;
 		const light = slot.color;
@@ -1033,11 +1123,19 @@ export class DeformTimeline extends CurveTimeline implements SlotTimeline {
 		return y + ((1 - y) * (time - x)) / (frames[frame + 1] - x);
 	}
 
-	apply(skeleton: Skeleton, _l: number, time: number, _e: Event[] | null, alpha: number, blend: MixBlend): void {
+	apply(
+		skeleton: Skeleton,
+		_l: number,
+		time: number,
+		_e: Event[] | null,
+		alpha: number,
+		blend: MixBlend,
+	): void {
 		const slot = skeleton.slots[this.slotIndex];
 		if (!slot.bone.active) return;
 		const current = slot.getAttachment();
-		if (!(current instanceof VertexAttachment) || current.timelineAttachment !== this.attachment) return;
+		if (!(current instanceof VertexAttachment) || current.timelineAttachment !== this.attachment)
+			return;
 		const deform = slot.deform;
 		if (deform.length === 0) blend = MixBlend.setup;
 		const keyed = this.vertices;
@@ -1078,7 +1176,8 @@ export class DeformTimeline extends CurveTimeline implements SlotTimeline {
 
 		if (alpha === 1) {
 			if (blend === MixBlend.add) {
-				if (setupVertices) for (let i = 0; i < count; i++) deform[i] += sample(i) - setupVertices[i];
+				if (setupVertices)
+					for (let i = 0; i < count; i++) deform[i] += sample(i) - setupVertices[i];
 				else for (let i = 0; i < count; i++) deform[i] += sample(i);
 			} else for (let i = 0; i < count; i++) deform[i] = sample(i);
 			return;
@@ -1404,7 +1503,14 @@ export class TransformConstraintTimeline extends CurveTimeline implements Constr
 		this.put(frame, time, mixRotate, mixX, mixY, mixScaleX, mixScaleY, mixShearY);
 	}
 
-	apply(skeleton: Skeleton, _l: number, time: number, _e: Event[] | null, alpha: number, blend: MixBlend): void {
+	apply(
+		skeleton: Skeleton,
+		_l: number,
+		time: number,
+		_e: Event[] | null,
+		alpha: number,
+		blend: MixBlend,
+	): void {
 		const c = skeleton.transformConstraints[this.constraintIndex];
 		if (!c.active) return;
 		const data = c.data;
@@ -1432,9 +1538,17 @@ export class PathConstraintPositionTimeline extends CurveTimeline1 implements Co
 		super(frameCount, bezierCount, [id(Property.pathConstraintPosition, constraintIndex)]);
 	}
 
-	apply(skeleton: Skeleton, _l: number, time: number, _e: Event[] | null, alpha: number, blend: MixBlend): void {
+	apply(
+		skeleton: Skeleton,
+		_l: number,
+		time: number,
+		_e: Event[] | null,
+		alpha: number,
+		blend: MixBlend,
+	): void {
 		const c = skeleton.pathConstraints[this.constraintIndex];
-		if (c.active) c.position = this.getAbsoluteValue(time, alpha, blend, c.position, c.data.position);
+		if (c.active)
+			c.position = this.getAbsoluteValue(time, alpha, blend, c.position, c.data.position);
 	}
 }
 
@@ -1447,7 +1561,14 @@ export class PathConstraintSpacingTimeline extends CurveTimeline1 implements Con
 		super(frameCount, bezierCount, [id(Property.pathConstraintSpacing, constraintIndex)]);
 	}
 
-	apply(skeleton: Skeleton, _l: number, time: number, _e: Event[] | null, alpha: number, blend: MixBlend): void {
+	apply(
+		skeleton: Skeleton,
+		_l: number,
+		time: number,
+		_e: Event[] | null,
+		alpha: number,
+		blend: MixBlend,
+	): void {
 		const c = skeleton.pathConstraints[this.constraintIndex];
 		if (c.active) c.spacing = this.getAbsoluteValue(time, alpha, blend, c.spacing, c.data.spacing);
 	}
@@ -1471,7 +1592,14 @@ export class PathConstraintMixTimeline extends CurveTimeline implements Constrai
 		this.put(frame, time, mixRotate, mixX, mixY);
 	}
 
-	apply(skeleton: Skeleton, _l: number, time: number, _e: Event[] | null, alpha: number, blend: MixBlend): void {
+	apply(
+		skeleton: Skeleton,
+		_l: number,
+		time: number,
+		_e: Event[] | null,
+		alpha: number,
+		blend: MixBlend,
+	): void {
 		const c = skeleton.pathConstraints[this.constraintIndex];
 		if (!c.active) return;
 		const data = c.data;
@@ -1494,7 +1622,10 @@ type PhysicsField = 'inertia' | 'strength' | 'damping' | 'wind' | 'gravity' | 'm
 
 /** Keys one physics setting of one constraint, or (index -1) of every constraint that has the
  * setting marked global. */
-export abstract class PhysicsConstraintTimeline extends CurveTimeline1 implements ConstraintTimeline {
+export abstract class PhysicsConstraintTimeline
+	extends CurveTimeline1
+	implements ConstraintTimeline
+{
 	constructor(
 		frameCount: number,
 		bezierCount: number,
@@ -1505,7 +1636,14 @@ export abstract class PhysicsConstraintTimeline extends CurveTimeline1 implement
 		super(frameCount, bezierCount, [id(property, constraintIndex)]);
 	}
 
-	apply(skeleton: Skeleton, _l: number, time: number, _e: Event[] | null, alpha: number, blend: MixBlend): void {
+	apply(
+		skeleton: Skeleton,
+		_l: number,
+		time: number,
+		_e: Event[] | null,
+		alpha: number,
+		blend: MixBlend,
+	): void {
 		if (this.constraintIndex === -1) {
 			const value = time >= this.frames[0] ? this.getCurveValue(time) : 0;
 			for (const c of skeleton.physicsConstraints)
@@ -1514,7 +1652,8 @@ export abstract class PhysicsConstraintTimeline extends CurveTimeline1 implement
 			return;
 		}
 		const c = skeleton.physicsConstraints[this.constraintIndex];
-		if (c.active) this.set(c, this.getAbsoluteValue(time, alpha, blend, this.get(c), this.setup(c)));
+		if (c.active)
+			this.set(c, this.getAbsoluteValue(time, alpha, blend, this.get(c), this.setup(c)));
 	}
 
 	private get(c: PhysicsConstraint): number {

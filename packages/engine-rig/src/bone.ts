@@ -172,10 +172,7 @@ export class Bone {
 				za *= s;
 				zc *= s;
 				s = Math.sqrt(za * za + zc * zc);
-				if (
-					this.inherit === Inherit.NoScale &&
-					pa * pd - pb * pc < 0 !== (sx < 0 !== sy < 0)
-				)
+				if (this.inherit === Inherit.NoScale && pa * pd - pb * pc < 0 !== (sx < 0 !== sy < 0))
 					s = -s;
 				const zr = Math.PI / 2 + Math.atan2(zc, za);
 				const zb = Math.cos(zr) * s;
@@ -224,8 +221,7 @@ export class Bone {
 			this.ascaleY = Math.sqrt(this.b * this.b + this.d * this.d);
 			this.ashearX = 0;
 			this.ashearY =
-				Math.atan2(this.a * this.b + this.c * this.d, this.a * this.d - this.b * this.c) *
-				RAD_DEG;
+				Math.atan2(this.a * this.b + this.c * this.d, this.a * this.d - this.b * this.c) * RAD_DEG;
 			return;
 		}
 		let pa = parent.a;
@@ -261,10 +257,7 @@ export class Bone {
 				pid = 1 / (pa * pd - pb * pc);
 				ia = pd * pid;
 				ib = pb * pid;
-			} else if (
-				this.inherit === Inherit.NoScale ||
-				this.inherit === Inherit.NoScaleOrReflection
-			) {
+			} else if (this.inherit === Inherit.NoScale || this.inherit === Inherit.NoScaleOrReflection) {
 				const cos = Math.cos(this.rotation * DEG_RAD);
 				const sin = Math.sin(this.rotation * DEG_RAD);
 				pa = (pa * cos + pb * sin) / skeleton.scaleX;

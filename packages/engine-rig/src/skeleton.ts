@@ -115,14 +115,17 @@ export class Skeleton {
 		};
 		const inSkin = (c: ConstraintData): boolean =>
 			!c.skinRequired || (!!this.skin && this.skin.constraints.includes(c));
-		const sortPathAttachment = (attachment: Attachment | null | undefined, slotBone: Bone): void => {
+		const sortPathAttachment = (
+			attachment: Attachment | null | undefined,
+			slotBone: Bone,
+		): void => {
 			if (!(attachment instanceof PathAttachment)) return;
 			const pathBones = attachment.bones;
 			if (!pathBones) {
 				sortBone(slotBone);
 				return;
 			}
-			for (let i = 0; i < pathBones.length; ) {
+			for (let i = 0; i < pathBones.length;) {
 				const n = pathBones[i++];
 				for (const end = i + n; i < end; i++) sortBone(this.bones[pathBones[i]]);
 			}

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
+	import * as RIG from 'engine-rig/pixi';
 	import { Application, Assets, Container } from 'pixi.js';
 	import {
 		BOOT_SPLASH_DEFAULT_SIZE,
@@ -86,20 +86,20 @@
 				// shape `pixi-svelte`'s `getProcessed` indexes with `rawAsset[src.atlas]`. Destructuring
 				// it as a tuple yields `undefined` and silently skips the splash.
 				const loaded = (await Assets.load(urls)) as Record<string, unknown>;
-				const atlas = loaded[urls[0]] as SPINE_PIXI.TextureAtlas | undefined;
+				const atlas = loaded[urls[0]] as RIG.TextureAtlas | undefined;
 				const skeletonRaw = loaded[urls[1]];
 				if (disposed) return;
 				if (!atlas || skeletonRaw == null) throw new Error('boot spine assets missing');
 
-				const attachmentLoader = new SPINE_PIXI.AtlasAttachmentLoader(atlas);
+				const attachmentLoader = new RIG.AtlasAttachmentLoader(atlas);
 				const parser =
 					skeletonRaw instanceof Uint8Array
-						? new SPINE_PIXI.SkeletonBinary(attachmentLoader)
-						: new SPINE_PIXI.SkeletonJson(attachmentLoader);
+						? new RIG.SkeletonBinary(attachmentLoader)
+						: new RIG.SkeletonJson(attachmentLoader);
 				parser.scale = entry.scale || 1;
 				const skeletonData = parser.readSkeletonData(skeletonRaw as never);
 
-				const spine = new SPINE_PIXI.Spine(skeletonData);
+				const spine = new RIG.RigView(skeletonData);
 				const holder = new Container();
 				holder.addChild(spine);
 				app.stage.addChild(holder);

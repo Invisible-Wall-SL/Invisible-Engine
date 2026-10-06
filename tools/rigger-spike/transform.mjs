@@ -3,7 +3,7 @@
 //   node tools/rigger-spike/transform.mjs <skeleton.json> <skeleton.atlas>
 //
 // ============================ EMPIRICAL FINDINGS ============================
-// (validated below against @esotericsoftware/spine-core@4.2.74's SkeletonJson loader,
+// (validated below against the rig runtime's SkeletonJson loader (engine-rig, held to the Spine 4.2 reference),
 //  TransformConstraint, and TransformConstraintTimeline — NOT from memory. Read off
 //  SkeletonJson.js: setup at L151-184, timeline at L761-813.)
 //
@@ -53,9 +53,9 @@
 //   • Authoring v1: we key the SIX MIXES (the FK→follow reveal). Linear by default, bezier via
 //     the shared curve menu — ONE easing baked into all six channels. Offsets stay setup-only.
 import { readFileSync } from 'node:fs';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './spine.mjs';
 
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = await import(SPINE_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = await import(RIG_CORE);
 
 const [, , jsonPath, atlasPath] = process.argv;
 const atlasText = readFileSync(atlasPath, 'utf8');

@@ -244,7 +244,7 @@ export class IkConstraint implements Updatable {
 		let ty = (y * a - x * c) * id - py;
 		let dd = tx * tx + ty * ty;
 		if (softness !== 0) {
-			softness *= (psx * (csx + 1)) * 0.5;
+			softness *= psx * (csx + 1) * 0.5;
 			const td = Math.sqrt(dd);
 			const sd = td - l1 - l2 * psx + softness;
 			if (sd > 0) {
@@ -415,8 +415,7 @@ export class TransformConstraint implements Updatable {
 		for (const bone of this.bones) {
 			if (mixRotate !== 0) {
 				const r =
-					wrapRadians(Math.atan2(tc, ta) - Math.atan2(bone.c, bone.a) + offsetRotation) *
-					mixRotate;
+					wrapRadians(Math.atan2(tc, ta) - Math.atan2(bone.c, bone.a) + offsetRotation) * mixRotate;
 				rotateBoneWorld(bone, r);
 			}
 			if (translate) {
@@ -509,8 +508,7 @@ export class TransformConstraint implements Updatable {
 			if (mixScaleY !== 0 && scaleY !== 0)
 				scaleY = (scaleY + (target.ascaleY - scaleY + data.offsetScaleY) * mixScaleY) / scaleY;
 			let shearY = bone.ashearY;
-			if (mixShearY !== 0)
-				shearY += (target.ashearY - shearY + data.offsetShearY) * mixShearY;
+			if (mixShearY !== 0) shearY += (target.ashearY - shearY + data.offsetShearY) * mixShearY;
 			bone.updateWorldTransformWith(x, y, rotation, scaleX, scaleY, bone.ashearX, shearY);
 		}
 	}
@@ -675,7 +673,8 @@ export class PathConstraint implements Updatable {
 					} else {
 						const length = boneLength(bone);
 						if (scale) lengths[i] = length;
-						spaces[i + 1] = ((lengthSpacing ? setupLength + spacing : spacing) * length) / setupLength;
+						spaces[i + 1] =
+							((lengthSpacing ? setupLength + spacing : spacing) * length) / setupLength;
 					}
 				}
 			}
@@ -778,7 +777,7 @@ export class PathConstraint implements Updatable {
 					addAfterPosition(p - pathLength, world, 0, out, o);
 					continue;
 				}
-				for (;; curve++) {
+				for (; ; curve++) {
 					const length = lengths[curve];
 					if (p > length) continue;
 					if (curve === 0) p /= length;
@@ -881,7 +880,7 @@ export class PathConstraint implements Updatable {
 				addAfterPosition(p - pathLength, world, verticesLength - 4, out, o);
 				continue;
 			}
-			for (;; curve++) {
+			for (; ; curve++) {
 				const length = curves[curve];
 				if (p > length) continue;
 				if (curve === 0) p /= length;
@@ -907,7 +906,7 @@ export class PathConstraint implements Updatable {
 				segment = 0;
 			}
 			p *= curveLength;
-			for (;; segment++) {
+			for (; ; segment++) {
 				const length = segments[segment];
 				if (p > length) continue;
 				if (segment === 0) p /= length;

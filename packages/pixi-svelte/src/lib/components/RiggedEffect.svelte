@@ -14,7 +14,7 @@
 		/** Host bone on the rig; absent ⇒ the rig origin. Resolved on the host `<SpineProvider>`. */
 		bone?: string;
 		/**
-		 * Draw the burst at THIS slot's depth in the skeleton draw order (spine-pixi `addSlotObject`),
+		 * Draw the burst at THIS slot's depth in the skeleton draw order (RigView `addSlotObject`),
 		 * instead of on top of the whole rig. An unknown slot name falls back to on-top.
 		 *
 		 * With no `bone`, the slot's own bone hosts the burst (a slot is a bone plus a depth). With a
@@ -76,7 +76,7 @@
 	 * until then). No-op when there is no host spine in context (never crashes).
 	 */
 	import * as PIXI from 'pixi.js';
-	import * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
+	import * as RIG from 'engine-rig/pixi';
 	import { onDestroy } from 'svelte';
 
 	import {
@@ -173,7 +173,7 @@
 	// not the shared rebroadcast bus — otherwise any other rig firing an event of the same name
 	// would cross-trigger this effect. And only on THIS binding's beat: the manifest carries the
 	// keyframe's animation + time beside the name, so two keys of one name are two bindings.
-	const listener: SPINE_PIXI.AnimationStateListener = {
+	const listener: RIG.AnimationStateListener = {
 		event: (entry, ev) => {
 			if (
 				riggedBeatMatches(
