@@ -8,14 +8,34 @@ with the default.
 1. **Typekit kit files in our R2.** Adobe Fonts' terms generally forbid self-hosting kit files.
    - *Suggested default:* no mirror. CI loads fonts from Adobe like players do; the CI retry covers
      short outages. The mirror code (#1062) stays off unless the owner confirms the licence allows it.
+
 2. **Republish the live games once.** Every live snapshot carries built-in component copies from
    an older engine (e29a993), so its next publish picks up every built-in change since.
    - *Suggested default:* republish them once after the next built-in change lands, so the
      as-republished check (#1063) covers all of them from then on.
+
 3. **`cloud` is broken for players.** Its snapshot has no `basegame` scene and the runtime refuses
    it. *Suggested default:* the owner republishes it, or unpublishes it if it's a test project.
+
 4. **RunPod rates.** `pricing.json`'s RunPod $/s and `seedSecondsPerRender` are placeholders.
    *Suggested default:* the owner sends real rates; until then the cap uses the placeholders.
+
+5. **Required check source ("any", per ADR-0007).** The `current-games` check is mandated by GitHub
+   via ruleset source `any` (2026-10-06, owner setup). A same-repo workflow could post `success`
+   to spoof approval. *Suggested default:* accept for now; a follow-up card scopes source to a
+   trusted `workflow_run` verdict from `main`'s harness, pinning approval to real results.
+
+6. **Double-bill risk in #1067.** If writing a `breakdown_image` row fails after the vision call
+   was billed, the retry asks for (and bills) that image again. *Suggested default:* a small
+   follow-up that writes the spend row and the answer row in one transaction.
+
+7. **Pending-project mockup cleanup.** Mockups uploaded to a project never deployed can be written
+   under a free-key subtree and accumulate indefinitely. *Suggested default:* a cleanup follow-up
+   to remove mockups / mockups.json on project deletion.
+
+8. **GitHub App permissions for 5.3/5.4.** Tasks 5.3 (merge with GitHub) and 5.4 (edit agent
+   definitions) need `Contents` and `Pull requests` write access on the App. *Suggested default:*
+   the owner raises permissions when 5.3 lands.
 
 ## Answered
 

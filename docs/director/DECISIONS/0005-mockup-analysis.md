@@ -87,3 +87,32 @@ The run cannot be created without the checkbox. The confirmation is recorded on 
 - The R2 location.
 - The upload limits.
 - The rule that code (not the model) has the final word on `left_out`.
+
+## Amendments
+
+### 2026-10-06 (PR #1067)
+The breakdown step is now entirely worker-driven:
+
+1. **One vision call per image.** `analyzeMockups` + `submitBreakdown` run before any agent turn.
+   A single checkpoint, `breakdown`, opens once per attempt. Each call is preceded by the owner's
+   pause/stop check and the cap check, carries the drive signal (`driving: true`), and is billed
+   before anything else. A refusal, unusable answer or permanent API error pauses at once. A
+   stopped pass re-asks only missing images.
+
+2. **Per-image storage.** Every vision answer is stored as a `breakdown_image` activity row, keyed
+   by attempt ID, image-bytes hash and `blake2b(system + prompt)`. Answers are not regenerated
+   unless the hash changes or a stopped pass drops them.
+
+3. **Three verdicts on conflict.** Code (not the model) has the final word. A rule is applied only
+   if it mentions the element (tokenized names, joined tokens). Three outcomes:
+   - `clash`: the rule forbids the element. It is forced to `left_out` with the rule's name.
+   - `cleared`: the model's region claim or feature is disallowed. The element's region is matched
+     as regions allow, and its `status` does not become `matched` from the model claim alone.
+   - `unjudged`: no rule governs this element + region pair. The model's claim stands, unless it
+     names a locked item, in which case it is capped at `needs_you`.
+
+4. **Regions is a list.** The `regions[]` field on each element's brief is unordered; it is the
+   model's preference. `uncoveredRegions[]` is computed by code, never by the model.
+
+5. **Owner revise.** When the owner revises a breakdown (e.g. to resolve conflicts), the run
+   re-runs as the next attempt; the owner's notes are added to every image's prompt for that pass.
