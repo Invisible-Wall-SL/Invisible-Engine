@@ -18,6 +18,7 @@ import {
 	visibleDiffs,
 	type HarnessDiff,
 	type HarnessReportState,
+	type ReportImages,
 } from './pipelineReport';
 import { getRoleOverrides } from './roleToolAccess';
 import { getToolOverrides } from './userToolAccess';
@@ -450,10 +451,6 @@ const harnessStatusOf = (head: Head): HarnessStatus | null => {
 };
 
 /**
- * The harness run that owns this head's status: a `pull_request` run first (a push run stands
- * down when the PR exists), else the newest.
- */
-/**
  * The harness run that owns this head's status: the one the harness's own workflow file made for
  * the PR, from this repository, on this head. Not a push run (it stands down when the PR exists)
  * and not a run that merely carries the name.
@@ -659,6 +656,44 @@ const CONTENT_TYPES: Record<string, string> = {
 	gif: 'image/gif',
 };
 
+interface ReportImagesEntry {
+	at: number;
+	images: ReportImages | null;
+	/** The paths the report names: the whole set the launcher serves. */
+	paths: Set<string>;
+}
+
+/** A detail opens every changed screen's three images at once; the walk from the change's number
+ *  to its report (the PR, its head, the artifacts) is done once for all of them. */
+const IMAGES_TTL_MS = 30_000;
+const IMAGES_CACHE_SIZE = 64;
+const imagesCache = new Map<number, ReportImagesEntry>();
+const imagesFlight = createSingleFlight();
+
+/** The images artifact and image list of a change's ready report, or the 404 that says why not. */
+async function reportImagesOf(number: number, app: GithubApp): Promise<ReportImagesEntry> {
+	const fresh = (e: ReportImagesEntry | undefined): e is ReportImagesEntry =>
+		e !== undefined && Date.now() - e.at < IMAGES_TTL_MS;
+	const hit = imagesCache.get(number);
+	if (fresh(hit)) return hit;
+	return imagesFlight(String(number), async () => {
+		const landed = imagesCache.get(number);
+		if (fresh(landed)) return landed;
+		const pull = await readPull(number, app);
+		const sha = pull.head.sha;
+		const head = await readHead(app, sha);
+		const run = harnessRunOf(head, sha);
+		const report = await loadHarnessReport(app, repo(), run, sha, harnessStatusOf(head));
+		if (report.state !== 'ready') throw error(404, report.detail);
+		const entry = { at: Date.now(), images: report.images, paths: reportImagePaths(report.report) };
+		if (imagesCache.size >= IMAGES_CACHE_SIZE) {
+			imagesCache.delete(imagesCache.keys().next().value as number);
+		}
+		imagesCache.set(number, entry);
+		return entry;
+	});
+}
+
 /**
  * One image of a change's current-games report — a changed screen before, after or as a diff —
  * streamed out of the run's full artifact. Served only when the report the detail shows is ready
@@ -670,13 +705,8 @@ export async function getReportEntry(
 	input: { number: number; path: string; artifact: number | null },
 	app: GithubApp = githubApp,
 ): Promise<ReportEntry> {
-	const pull = await readPull(input.number, app);
-	const sha = pull.head.sha;
-	const head = await readHead(app, sha);
-	const run = harnessRunOf(head, sha);
-	const report = await loadHarnessReport(app, repo(), run, sha, harnessStatusOf(head));
-	if (report.state !== 'ready') throw error(404, report.detail);
-	if (!reportImagePaths(report.report).has(input.path)) {
+	const report = await reportImagesOf(input.number, app);
+	if (!report.paths.has(input.path)) {
 		throw error(404, 'The report has no such image.');
 	}
 	if (!report.images) {

@@ -28,6 +28,15 @@ const NAMES_SHOWN = 3;
 export const plural = (n: number, one: string, many = `${one}s`): string => (n === 1 ? one : many);
 
 /**
+ * A link the page will render: GitHub's own pages, nothing else. A check run, a commit status or
+ * a file URL is written by whatever posted it — a branch's own workflow can post a status with any
+ * `target_url` — so anything but `https://github.com/…` renders as text.
+ */
+export function safeHref(url: string | null | undefined): string | null {
+	return typeof url === 'string' && /^https:\/\/github\.com\//.test(url) ? url : null;
+}
+
+/**
  * "just now", "5 min ago", "2 h ago", "yesterday", "3 days ago", else the UTC date. A `Date` is
  * accepted because the server's row types say `Date` for what JSON delivers as a string.
  */
@@ -132,20 +141,22 @@ export interface BlockedReason {
 /** Why a Blocked change is blocked, in the order the server decides it; `null` when it is not. */
 export function blockedReason(detail: ChangeDetail): BlockedReason | null {
 	if (detail.status.kind !== 'blocked') return null;
-	if (detail.mergeableState === 'dirty') return { text: BLOCKED_CONFLICT_TEXT, url: detail.url };
+	if (detail.mergeableState === 'dirty') {
+		return { text: BLOCKED_CONFLICT_TEXT, url: safeHref(detail.url) };
+	}
 	for (const group of detail.checks) {
 		const failed = group.jobs.find((j) => j.state === 'fail');
 		if (failed) {
 			return {
 				text: `${group.workflow}: ${failed.name} ${jobWord(failed)}`,
-				url: failed.url ?? group.url,
+				url: safeHref(failed.url ?? group.url),
 			};
 		}
 	}
 	const { harness } = detail;
 	const status = harness.status;
 	if (status && (status.state === 'failure' || status.state === 'error')) {
-		const url = status.url ?? harness.run?.url ?? null;
+		const url = safeHref(status.url) ?? safeHref(harness.run?.url);
 		const sentences = breakages(harness);
 		if (sentences.length) {
 			const hint = harness.unapprovable === null ? ` ${APPROVE_HINT}` : '';
@@ -153,7 +164,7 @@ export function blockedReason(detail: ChangeDetail): BlockedReason | null {
 		}
 		return { text: `current-games: ${status.description ?? 'failed'}`, url };
 	}
-	return { text: detail.status.reason, url: detail.url };
+	return { text: detail.status.reason, url: safeHref(detail.url) };
 }
 
 export function blockedSentence(detail: ChangeDetail): string {

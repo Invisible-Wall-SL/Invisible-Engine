@@ -30,7 +30,10 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
 		return new Response(entry.body, {
 			headers: {
 				'content-type': entry.contentType,
-				'cache-control': artifact === null ? 'private, no-store' : 'private, max-age=259200',
+				'cache-control':
+					artifact === null ? 'private, no-store' : 'private, max-age=259200, immutable',
+				// The bytes are a branch's: never a document, never a script, whatever they claim.
+				'content-security-policy': "default-src 'none'; sandbox",
 				'x-content-type-options': 'nosniff',
 			},
 		});

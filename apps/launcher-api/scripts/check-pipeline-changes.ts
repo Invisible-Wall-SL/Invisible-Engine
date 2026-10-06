@@ -143,6 +143,8 @@ const gh = {
 	ranges: [] as { id: number; range: string }[],
 	/** Whether the blob honours a byte range; off, it answers 200 with the whole archive. */
 	blobRanges: true,
+	/** A `content-length` the blob claims on a whole answer instead of the archive's real size. */
+	blobClaimLength: null as number | null,
 };
 
 const jsonResponse = (status: number, body: unknown): Response =>
@@ -188,7 +190,10 @@ const fakeFetch: typeof fetch = async (input, init) => {
 				headers: { 'content-range': `bytes ${start}-${end}/${zip.length}` },
 			});
 		}
-		return new Response(new Uint8Array(zip), { status: 200 });
+		return new Response(new Uint8Array(zip), {
+			status: 200,
+			headers: { 'content-length': String(gh.blobClaimLength ?? zip.length) },
+		});
 	}
 	if (url.origin !== 'https://api.github.com') return jsonResponse(500, { message: 'wrong host' });
 	check(`${url.pathname}: API version header`, headers['X-GitHub-Api-Version'], '2022-11-28');
@@ -964,6 +969,39 @@ const [, FULL_34] = artifact(sha(34), REPORT_34);
 }
 pull(34, 'engine: images expired', { sha: sha(34) });
 
+// #35 — a listed artifact size far below the blob's, and a diff image of an unknown type.
+const REPORT_35 = report(sha(35), [
+	{ key: 'bookofborut', name: 'Book of Borut', looks: 'changed', changed: ['win'] },
+]);
+(REPORT_35.games as { screens: { images?: Record<string, string> }[] }[])[0].screens[1].images = {
+	before: 'screens/bookofborut--win.before.png',
+	after: 'screens/bookofborut--win.after.png',
+	diff: 'screens/bookofborut--win.diff.dat',
+};
+head(sha(35), GREEN, {
+	state: 'failure',
+	description: (REPORT_35.summary as { line: string }).line,
+});
+const [, FULL_35] = artifact(sha(35), REPORT_35, { size_in_bytes: 10 });
+pull(35, 'engine: odd sizes', { sha: sha(35) });
+
+// #36 — a listed artifact size far above the blob's.
+const REPORT_36 = report(sha(36), [
+	{ key: 'bookofborut', name: 'Book of Borut', looks: 'changed', changed: ['win'] },
+]);
+head(sha(36), GREEN, {
+	state: 'failure',
+	description: (REPORT_36.summary as { line: string }).line,
+});
+const [, FULL_36] = artifact(sha(36), REPORT_36);
+{
+	const listed = (gh.artifacts.get(Number(harnessRun(sha(36)).id)) ?? []).find(
+		(a) => a.id === FULL_36,
+	) as Artifact;
+	listed.size_in_bytes = (gh.zips.get(FULL_36) as Buffer).length + 1_000_000;
+}
+pull(36, 'engine: a size too large', { sha: sha(36) });
+
 // ── Replaced boundaries ───────────────────────────────────────────────────────
 const approvals: PipelineApproval[] = [];
 fake('lib/server/pipelineApprovals.ts', {
@@ -1006,7 +1044,9 @@ const { createGithubApp, GithubAppError, githubApp, mintAppJwt } = await import(
 	src('lib/server/githubApp.ts')
 );
 const changes = await import(src('lib/server/pipelineChanges.ts'));
-const { openReportEntry } = await import(src('lib/server/pipelineReport.ts'));
+const { MAX_IMAGE_BYTES, openReportEntry, readBounded } = await import(
+	src('lib/server/pipelineReport.ts')
+);
 const { locateCentralDirectory, readZipEntry } = await import(src('lib/server/zip.ts'));
 const listRoute = await import(src('routes/api/pipeline/changes/+server.ts'));
 const detailRoute = await import(src('routes/api/pipeline/changes/[number]/+server.ts'));
@@ -1403,7 +1443,7 @@ check('a role without the tool is a 403', (await list(ARTIST)).status, 403);
 	check(
 		'every open PR into main, newest first, bar Director games and Dependabot',
 		body.changes.map((c) => c.number),
-		[34, 33, 32, 31, 30, 29, 28, 27, 26, 25, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 10],
+		[36, 35, 34, 33, 32, 31, 30, 29, 28, 27, 26, 25, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 10],
 	);
 	check(
 		'Dependabot apart',
@@ -1657,9 +1697,14 @@ check('a fork is not a change', (await detail(ADMIN, '24')).status, 404);
 	check(
 		'…cacheable, since that artifact never changes',
 		res.headers.get('cache-control'),
-		'private, max-age=259200',
+		'private, max-age=259200, immutable',
 	);
 	check('…the stored bytes', res.bytes.toString(), `PNG before ${before}`);
+	check(
+		'…never a document or a script, whatever the bytes claim',
+		[res.headers.get('x-content-type-options'), res.headers.get('content-security-policy')],
+		['nosniff', "default-src 'none'; sandbox"],
+	);
 	const ranges = gh.ranges.slice(from);
 	check(
 		'…read in two ranges of the full artifact: its tail, then the entry',
@@ -1673,8 +1718,14 @@ check('a fork is not a change', (await detail(ADMIN, '24')).status, 404);
 		gh.ranges.some((r) => r.id === FULL_14 && r.range === ''),
 		false,
 	);
+	const beforeSecond = gh.requests.length;
 	const deflated = await image(TESTER, '14', after, `?artifact=${FULL_14}`);
 	check('a deflated entry inflates as it streams', deflated.bytes.toString(), `PNG after ${after}`);
+	check(
+		'…and a second image of the same change costs one download: the PR, its head, the artifacts and the directory are remembered',
+		gh.requests.slice(beforeSecond),
+		[`GET /repos/${REPO}/actions/artifacts/${FULL_14}/zip`, `GET /artifacts/${FULL_14}`],
+	);
 	check(
 		'without ?artifact the answer is not cached',
 		(await image(TESTER, '14', before)).headers.get('cache-control'),
@@ -1739,8 +1790,6 @@ check('a fork is not a change', (await detail(ADMIN, '24')).status, 404);
 	const d = (await detail(ADMIN, '14')).body as { harness: Json };
 	const before = (d.harness.diffs as (Json & { images: Record<string, string> })[])[0].images
 		.before;
-	const listed = (gh.artifacts.get(PR_RUN_14) ?? []).find((a) => a.id === FULL_14) as Artifact;
-	const realSize = listed.size_in_bytes;
 	gh.blobRanges = false;
 	const whole = await image(TESTER, '14', before, `?artifact=${FULL_14}`);
 	check(
@@ -1748,31 +1797,148 @@ check('a fork is not a change', (await detail(ADMIN, '24')).status, 404);
 		[whole.status, whole.bytes.toString()],
 		[200, `PNG before ${before}`],
 	);
-	listed.size_in_bytes = 65 * 1024 * 1024;
+	gh.blobClaimLength = 65 * 1024 * 1024;
 	const big = await image(TESTER, '14', before, `?artifact=${FULL_14}`);
 	check(
-		'…but a large one is refused rather than read whole',
+		'…but a large one is refused by its content-length before a byte is read',
 		[big.status, String(big.body.error).includes('too large')],
 		[502, true],
 	);
+	gh.blobClaimLength = null;
 	gh.blobRanges = true;
-	// A listed size the blob disagrees with is corrected from the blob's own total, once.
-	for (const wrong of [10, realSize + 1000, realSize + 1_000_000]) {
-		listed.size_in_bytes = wrong;
-		const from = gh.ranges.length;
-		const fixed = await image(TESTER, '14', before, `?artifact=${FULL_14}`);
-		check(
-			`a listed size of ${wrong} for an archive of ${realSize} is corrected from the blob's total`,
-			[fixed.status, fixed.bytes.toString()],
-			[200, `PNG before ${before}`],
-		);
-		check(
-			'…with one extra range for the correction',
-			gh.ranges.slice(from).filter((r) => r.id === FULL_14).length,
-			3,
-		);
-	}
-	listed.size_in_bytes = realSize;
+	const threw = async (fn: () => Promise<unknown>): Promise<string> => {
+		try {
+			await fn();
+			return '';
+		} catch (e) {
+			return (e as Error).message;
+		}
+	};
+	const body = new Uint8Array(1000);
+	check(
+		'a whole answer is refused by its bytes too, when the header lies',
+		(await threw(() => readBounded(new Response(body), 100))).includes('too large'),
+		true,
+	);
+	check('…and read when it fits', (await readBounded(new Response(body), 1000)).length, 1000);
+}
+{
+	// A listed artifact size the blob disagrees with is corrected from the blob's own total, once,
+	// on the first read of that artifact; the directory is then remembered.
+	const d35 = (await detail(ADMIN, '35')).body as { harness: Json };
+	const diffs35 = d35.harness.diffs as (Json & { images: Record<string, string> })[];
+	let from = gh.ranges.length;
+	const first = await image(TESTER, '35', diffs35[0].images.before, `?artifact=${FULL_35}`);
+	check(
+		'#35: a size listed far too small is corrected from the total',
+		[first.status, first.bytes.toString()],
+		[200, `PNG before ${diffs35[0].images.before}`],
+	);
+	check(
+		'#35: …with one extra range for the correction',
+		gh.ranges.slice(from).filter((r) => r.id === FULL_35).length,
+		3,
+	);
+	from = gh.ranges.length;
+	const dat = await image(TESTER, '35', diffs35[0].images.diff, `?artifact=${FULL_35}`);
+	check(
+		'#35: an image of no known type is served as bytes',
+		[dat.status, dat.headers.get('content-type'), dat.bytes.toString()],
+		[200, 'application/octet-stream', `PNG diff ${diffs35[0].images.diff}`],
+	);
+	check('#35: …in one range, the directory remembered', gh.ranges.slice(from).length, 1);
+	const d36 = (await detail(ADMIN, '36')).body as { harness: Json };
+	const diffs36 = d36.harness.diffs as (Json & { images: Record<string, string> })[];
+	from = gh.ranges.length;
+	const big = await image(TESTER, '36', diffs36[0].images.before, `?artifact=${FULL_36}`);
+	check(
+		'#36: a size listed far too large is corrected from the 416',
+		[
+			big.status,
+			big.bytes.toString(),
+			gh.ranges.slice(from).filter((r) => r.id === FULL_36).length,
+		],
+		[200, `PNG before ${diffs36[0].images.before}`, 3],
+	);
+}
+{
+	// What a branch could put in its artifact: an entry that inflates past what it declares, one
+	// that declares more than any screen, a ZIP64 archive, an empty one.
+	const threw = async (fn: () => Promise<unknown>): Promise<string> => {
+		try {
+			await fn();
+			return '';
+		} catch (e) {
+			return (e as Error).message;
+		}
+	};
+	const readAll = (stream: ReadableStream<Uint8Array> | null) =>
+		stream ? new Response(stream).arrayBuffer() : Promise.resolve(new ArrayBuffer(0));
+	const bomb = zipOf({ 'screens/bomb.png': Buffer.alloc(MAX_IMAGE_BYTES + 1024) }, [
+		'screens/bomb.png',
+	]);
+	check('the bomb is small on the wire', bomb.length < 1024 * 1024, true);
+	gh.zips.set(8001, bomb);
+	const bombImages = { artifactId: 8001, sizeInBytes: bomb.length, expiresAt: null };
+	check(
+		'an entry that would inflate past the cap is cut off and the download torn down',
+		(
+			await threw(async () =>
+				readAll(await openReportEntry(githubApp, REPO, bombImages, 'screens/bomb.png')),
+			)
+		).includes('larger than it declares'),
+		true,
+	);
+	const liar = zipOf({ 'screens/liar.png': Buffer.alloc(1024 * 1024) }, ['screens/liar.png']);
+	// The directory says 1,000 bytes; the data inflates to a megabyte.
+	liar.writeUInt32LE(1000, locateCentralDirectory(liar, 0).offset + 24);
+	gh.zips.set(8002, liar);
+	check(
+		'an entry that inflates past what it declares is cut off at the declaration',
+		(
+			await threw(async () =>
+				readAll(
+					await openReportEntry(
+						githubApp,
+						REPO,
+						{ artifactId: 8002, sizeInBytes: liar.length, expiresAt: null },
+						'screens/liar.png',
+					),
+				),
+			)
+		).includes('larger than it declares'),
+		true,
+	);
+	const zip64 = zipOf({ 'a.txt': 'x' });
+	zip64.writeUInt16LE(0xffff, zip64.length - 22 + 10);
+	check(
+		'a ZIP64 archive is refused, not misread',
+		(await threw(async () => readZipEntry(zip64, 'a.txt', 10))).includes('ZIP64'),
+		true,
+	);
+	const zip64entry = zipOf({ 'a.txt': 'x' });
+	zip64entry.writeUInt32LE(0xffffffff, locateCentralDirectory(zip64entry, 0).offset + 24);
+	check(
+		'…and so is a ZIP64 entry',
+		(await threw(async () => readZipEntry(zip64entry, 'a.txt', 10))).includes('ZIP64'),
+		true,
+	);
+	const empty = zipOf({});
+	gh.zips.set(8003, empty);
+	const from = gh.ranges.length;
+	check(
+		'an empty archive has no entry and asks for no directory range',
+		[
+			await openReportEntry(
+				githubApp,
+				REPO,
+				{ artifactId: 8003, sizeInBytes: empty.length, expiresAt: null },
+				'screens/x.png',
+			),
+			gh.ranges.slice(from).length,
+		],
+		[null, 1],
+	);
 }
 {
 	// A central directory bigger than the tail is fetched by its own range.
@@ -2307,6 +2473,41 @@ check(
 			view.timeAgo('2026-09-01T09:00:00Z', t),
 		],
 		['just now', '30 min ago', '3 h ago', 'yesterday', '3 days ago', '2026-09-01'],
+	);
+	check(
+		'only a GitHub page is a link; anything else renders as text',
+		[
+			view.safeHref('https://github.com/iw/engine/pull/14'),
+			view.safeHref('https://github.com/iw/engine/actions/runs/1/job/2'),
+			view.safeHref('javascript:alert(1)'),
+			view.safeHref('http://github.com/iw/engine'),
+			view.safeHref('https://github.com.evil.example/x'),
+			view.safeHref('https://raw.githubusercontent.com/x'),
+			view.safeHref(null),
+			view.safeHref(undefined),
+		],
+		[
+			'https://github.com/iw/engine/pull/14',
+			'https://github.com/iw/engine/actions/runs/1/job/2',
+			null,
+			null,
+			null,
+			null,
+			null,
+			null,
+		],
+	);
+	check(
+		'a blocked reason never links off GitHub',
+		view.blockedReason({
+			...(await detailOf('19')),
+			harness: {
+				...(await detailOf('19')).harness,
+				status: { state: 'failure', description: 'x', url: 'javascript:alert(1)', updatedAt: AT },
+				run: null,
+			},
+		})?.url,
+		null,
 	);
 	check(
 		'an error answer reads its sentence',

@@ -18,6 +18,7 @@
 		plural,
 		reportImageUrl,
 		rowCells,
+		safeHref,
 		statusPill,
 		timeAgo,
 	} from './view';
@@ -76,8 +77,12 @@
 	const rows = $derived(ready ? ready.report.games : []);
 	const visibleRows = $derived(showAllGames ? rows : rows.slice(0, GAMES_SHOWN));
 	const visibleFiles = $derived(showAllFiles ? detail.files : detail.files.slice(0, FILES_SHOWN));
-	const canApprove = $derived(canMerge && harness.unapprovable === null);
 	const open = $derived(detail.state === 'open');
+	const canApprove = $derived(canMerge && open && harness.unapprovable === null);
+	const prUrl = $derived(safeHref(detail.url));
+	const diffUrl = $derived(safeHref(detail.diffUrl));
+	const runUrl = $derived(safeHref(harness.run?.url));
+	const statusUrl = $derived(safeHref(harness.status?.url));
 
 	const groupWord = (state: string): string =>
 		state === 'fail' ? 'failed' : state === 'pending' ? 'running' : state;
@@ -173,7 +178,11 @@
 		</div>
 		<p class="byline">
 			Opened by {detail.author || 'unknown'} · {timeAgo(detail.openedAt, now)} ·
-			<a href={detail.url} target="_blank" rel="external noopener">#{detail.number} ↗</a>
+			{#if prUrl}
+				<a href={prUrl} target="_blank" rel="external noopener">#{detail.number} ↗</a>
+			{:else}
+				#{detail.number}
+			{/if}
 		</p>
 		{#if !open}<p class="byline">This pull request is {detail.state}.</p>{/if}
 
@@ -192,11 +201,12 @@
 		<div class="files">
 			<span class="label">Files · {detail.files.length} changed</span>
 			{#each visibleFiles as f (f.path)}
+				{@const fileUrl = safeHref(f.url)}
 				<div class="file">
 					<span class="path">
 						{#if f.previousPath}<span class="dim">{f.previousPath} →</span>{/if}
-						{#if f.url}
-							<a class="plain" href={f.url} target="_blank" rel="external noopener">{f.path}</a>
+						{#if fileUrl}
+							<a class="plain" href={fileUrl} target="_blank" rel="external noopener">{f.path}</a>
 						{:else}
 							{f.path}
 						{/if}
@@ -224,9 +234,11 @@
 				<p class="dim note">GitHub lists only the first 3000 files of this change.</p>
 			{/if}
 		</div>
-		<div>
-			<a class="btn" href={detail.diffUrl} target="_blank" rel="external noopener">View diff</a>
-		</div>
+		{#if diffUrl}
+			<div>
+				<a class="btn" href={diffUrl} target="_blank" rel="external noopener">View diff</a>
+			</div>
+		{/if}
 	</section>
 
 	<section class="card" aria-labelledby="check1">
@@ -239,8 +251,9 @@
 		{:else}
 			<div class="tiles">
 				{#each detail.checks as g (g.workflow)}
-					{#if g.url}
-						<a class="tile {g.state}" href={g.url} target="_blank" rel="external noopener">
+					{@const groupUrl = safeHref(g.url)}
+					{#if groupUrl}
+						<a class="tile {g.state}" href={groupUrl} target="_blank" rel="external noopener">
 							<span class="t-name">{g.workflow}</span>
 							<span class="t-val">{g.passed} / {g.total}</span>
 							{#if g.state !== 'pass'}<span class="t-state">{groupWord(g.state)}</span>{/if}
@@ -260,10 +273,11 @@
 					<h4>{g.workflow}</h4>
 					<ul>
 						{#each g.jobs as job, i (`${job.name}:${i}`)}
+							{@const jobUrl = safeHref(job.url)}
 							<li>
 								<span class="job-state {job.state}">{jobWord(job)}</span>
-								{#if job.url}
-									<a href={job.url} target="_blank" rel="external noopener">{job.name}</a>
+								{#if jobUrl}
+									<a href={jobUrl} target="_blank" rel="external noopener">{job.name}</a>
 								{:else}
 									{job.name}
 								{/if}
@@ -295,14 +309,9 @@
 		{#if notReady}
 			<p class="detail">
 				{notReady.detail}
-				{#if harness.run}<a href={harness.run.url} target="_blank" rel="external noopener"
-						>View the run ↗</a
-					>
-				{/if}
-				{#if harness.status?.url}
-					<a href={harness.status.url} target="_blank" rel="external noopener"
-						>current-games status ↗</a
-					>
+				{#if runUrl}<a href={runUrl} target="_blank" rel="external noopener">View the run ↗</a>{/if}
+				{#if statusUrl}
+					<a href={statusUrl} target="_blank" rel="external noopener">current-games status ↗</a>
 				{/if}
 			</p>
 		{/if}
@@ -366,7 +375,7 @@
 						<span
 							>Every changed screen is approved, but a re-run reset current-games on this head.</span
 						>
-						{#if canMerge}
+						{#if canMerge && open}
 							<button type="button" class="btn" disabled={busy !== null} onclick={postAgain}>
 								{busy === 'repost' ? 'Posting…' : 'Post approval again'}
 							</button>
@@ -443,7 +452,7 @@
 					</div>
 				{/each}
 
-				{#if !canMerge}
+				{#if !canMerge && !blocker?.byHand}
 					<p class="dim">Approving needs the Merge pipeline changes capability.</p>
 				{/if}
 			</div>

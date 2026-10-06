@@ -1,4 +1,4 @@
-import { Readable } from 'node:stream';
+import { Readable, Transform, pipeline } from 'node:stream';
 import { createInflateRaw } from 'node:zlib';
 import type { GithubApp } from './githubApp';
 import {
@@ -39,6 +39,11 @@ const REPORT_CACHE_SIZE = 32;
 const TAIL_BYTES = 64 * 1024;
 /** A central directory past this is not a report's (one entry is under 200 bytes). */
 const MAX_CENTRAL_DIRECTORY_BYTES = 8 * 1024 * 1024;
+/** No screen image inflates past this, whatever the archive claims: a branch controls the
+ *  artifact's bytes, so a deflate bomb is a possibility, not a corruption. */
+export const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
+/** Parsed central directories kept in memory, by artifact id: an artifact never changes. */
+const DIRECTORY_CACHE_SIZE = 32;
 
 export interface HarnessScreen {
 	screen: string;
@@ -407,13 +412,29 @@ async function fetchRange(
  * `null` when the archive has no such file. A blob store that ignores the range and answers with
  * the whole archive is read whole only while the archive is small; a large one is refused.
  */
-export async function openReportEntry(
+interface Directory {
+	/** The archive's size as the blob store reports it (the listed size can be wrong). */
+	size: number;
+	entries: ZipEntry[];
+}
+
+const directories = new Map<number, Directory>();
+
+/** The whole archive, when the blob store ignored a byte range. */
+type DirectoryAnswer = { kind: 'directory'; directory: Directory } | { kind: 'whole'; zip: Buffer };
+
+/**
+ * The archive's central directory, read once per artifact: the tail first, then the directory's
+ * own range when it is past the tail. An artifact never changes, so the directory is cached by
+ * its id and every later image costs one range read.
+ */
+async function readDirectory(
 	app: GithubApp,
-	repo: string,
+	path: string,
 	images: ReportImages,
-	name: string,
-): Promise<ReadableStream<Uint8Array> | null> {
-	const path = `/repos/${repo}/actions/artifacts/${images.artifactId}/zip`;
+): Promise<DirectoryAnswer> {
+	const cached = directories.get(images.artifactId);
+	if (cached) return { kind: 'directory', directory: cached };
 	let size = images.sizeInBytes;
 	let tail = await fetchRange(app, path, Math.max(0, size - TAIL_BYTES), Math.max(0, size - 1));
 	// The listed size can disagree with the blob (a re-upload, a rounding): the blob's own total,
@@ -422,22 +443,52 @@ export async function openReportEntry(
 		size = tail.total;
 		tail = await fetchRange(app, path, Math.max(0, size - TAIL_BYTES), Math.max(0, size - 1));
 	}
-	if (tail.kind === 'whole') return wholeArchiveEntry(tail.res, size, name);
+	if (tail.kind === 'whole') return { kind: 'whole', zip: await readBounded(tail.res) };
 	if (tail.kind !== 'range') throw new Error('the report artifact answers no byte range');
 	const tailStart = size - tail.bytes.length;
 	const cd = locateCentralDirectory(tail.bytes, tailStart);
-	let directory: Buffer;
-	if (cd.offset >= tailStart) {
-		directory = tail.bytes.subarray(cd.offset - tailStart, cd.offset - tailStart + cd.size);
+	let entries: ZipEntry[] = [];
+	if (cd.count === 0 || cd.size === 0) {
+		entries = [];
+	} else if (cd.offset >= tailStart) {
+		entries = parseCentralDirectory(
+			tail.bytes.subarray(cd.offset - tailStart, cd.offset - tailStart + cd.size),
+			cd.count,
+		);
 	} else {
 		if (cd.size > MAX_CENTRAL_DIRECTORY_BYTES) {
 			throw new Error('the report artifact lists more files than a report holds');
 		}
 		const answer = await fetchRange(app, path, cd.offset, cd.offset + cd.size - 1);
 		if (answer.kind !== 'range') throw new Error('the report artifact answers no byte range');
-		directory = answer.bytes;
+		entries = parseCentralDirectory(answer.bytes, cd.count);
 	}
-	const entry = parseCentralDirectory(directory, cd.count).find((e) => e.name === name);
+	const directory = { size, entries };
+	if (directories.size >= DIRECTORY_CACHE_SIZE) {
+		directories.delete(directories.keys().next().value as number);
+	}
+	directories.set(images.artifactId, directory);
+	return { kind: 'directory', directory };
+}
+
+/**
+ * One file of the full report artifact (`current-games-report`), by byte range so the archive is
+ * never held: its central directory (cached per artifact), then the entry alone, inflated as it
+ * streams and cut off past what it declares. `null` when the archive has no such file. A blob
+ * store that ignores the range and answers with the whole archive is read whole only while the
+ * archive is small; a large one is refused.
+ */
+export async function openReportEntry(
+	app: GithubApp,
+	repo: string,
+	images: ReportImages,
+	name: string,
+): Promise<ReadableStream<Uint8Array> | null> {
+	const path = `/repos/${repo}/actions/artifacts/${images.artifactId}/zip`;
+	const answer = await readDirectory(app, path, images);
+	if (answer.kind === 'whole') return wholeArchiveEntry(answer.zip, name);
+	const { size, entries } = answer.directory;
+	const entry = entries.find((e) => e.name === name);
 	if (!entry) return null;
 	if (entry.method !== 0 && entry.method !== 8) {
 		throw new Error(`ZIP entry ${name} uses compression method ${entry.method}`);
@@ -452,38 +503,82 @@ export async function openReportEntry(
 		headers: { Range: `bytes=${entry.localOffset}-${end}` },
 		timeoutMs: ARTIFACT_TIMEOUT_MS,
 	});
-	if (res.status === 200) return wholeArchiveEntry(res, size, name);
+	if (res.status === 200) return wholeArchiveEntry(await readBounded(res), name);
 	if (res.status !== 206 || !res.body) {
 		throw new Error(`GitHub ${res.status} downloading the report artifact`);
 	}
 	return streamEntry(res.body, entry);
 }
 
-/** The blob store sent the whole archive: read it only while it is small. */
-async function wholeArchiveEntry(
-	res: Response,
-	size: number,
-	name: string,
-): Promise<ReadableStream<Uint8Array> | null> {
-	if (size > MAX_FULL_ARTIFACT_BYTES) {
-		await res.body?.cancel().catch(() => undefined);
-		throw new Error(
-			`the report artifact (${Math.round(size / 1_048_576)} MB) answers no byte range and is too large to read whole`,
+/**
+ * A whole answer's bytes, refused past `cap` — by its `content-length` before a byte is read,
+ * and by the bytes themselves as they come, since a header is a claim.
+ */
+export async function readBounded(res: Response, cap = MAX_FULL_ARTIFACT_BYTES): Promise<Buffer> {
+	const tooLarge = (bytes: number): Error =>
+		new Error(
+			`the report artifact (${Math.round(bytes / 1_048_576)} MB) answers no byte range and is too large to read whole`,
 		);
+	const claimed = Number(res.headers.get('content-length'));
+	if (claimed > cap) {
+		await res.body?.cancel().catch(() => undefined);
+		throw tooLarge(claimed);
 	}
-	const zip = Buffer.from(await res.arrayBuffer());
-	const bytes = readZipEntry(zip, name, MAX_FULL_ARTIFACT_BYTES);
+	if (!res.body) return Buffer.alloc(0);
+	const reader = res.body.getReader();
+	const chunks: Buffer[] = [];
+	let total = 0;
+	try {
+		for (;;) {
+			const { value, done } = await reader.read();
+			if (done) break;
+			total += value.byteLength;
+			if (total > cap) throw tooLarge(total);
+			chunks.push(Buffer.from(value.buffer, value.byteOffset, value.byteLength));
+		}
+	} finally {
+		await reader.cancel().catch(() => undefined);
+	}
+	return Buffer.concat(chunks);
+}
+
+/** The blob store sent the whole archive: the entry out of it, bounded like a streamed one. */
+function wholeArchiveEntry(zip: Buffer, name: string): ReadableStream<Uint8Array> | null {
+	const bytes = readZipEntry(zip, name, MAX_IMAGE_BYTES);
 	return bytes ? new Blob([new Uint8Array(bytes)]).stream() : null;
 }
 
-/** The entry's bytes out of a range answer that starts at its local header. */
+/**
+ * The entry's bytes out of a range answer that starts at its local header, inflated as they
+ * stream and cut off — the whole pipeline torn down — past the smaller of what the directory
+ * declares and `MAX_IMAGE_BYTES`.
+ */
 function streamEntry(
 	body: ReadableStream<Uint8Array>,
 	entry: ZipEntry,
 ): ReadableStream<Uint8Array> {
+	const limit = Math.min(entry.size, MAX_IMAGE_BYTES);
+	let seen = 0;
 	const raw = Readable.from(compressedBytes(body, entry), { objectMode: false });
-	const out = entry.method === 8 ? raw.pipe(createInflateRaw()) : raw;
-	return Readable.toWeb(out) as ReadableStream<Uint8Array>;
+	const capped = new Transform({
+		transform(chunk: Buffer, _encoding, callback) {
+			seen += chunk.length;
+			if (seen > limit) {
+				callback(
+					new Error(
+						`ZIP entry ${entry.name} is larger than it declares (past ${limit} bytes); refused`,
+					),
+				);
+				return;
+			}
+			callback(null, chunk);
+		},
+	});
+	// `pipeline` destroys every stage on an error, so a refused entry stops the download too; the
+	// web stream below carries the error to the response.
+	if (entry.method === 8) pipeline(raw, createInflateRaw(), capped, () => undefined);
+	else pipeline(raw, capped, () => undefined);
+	return Readable.toWeb(capped) as ReadableStream<Uint8Array>;
 }
 
 async function* compressedBytes(

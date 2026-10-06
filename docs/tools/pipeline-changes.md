@@ -27,7 +27,7 @@ pull requests and their checks; the launcher adds only the approval of a changed
 - **Approving and merging** are a separate capability, **Merge pipeline changes**
   (`pipelineMerge`). By default only `admin` has it; it is also set in Admin › Roles. Seeing this
   tool does not mean you can approve: without the capability the page is read-only, and the header
-  says so (`<your name> · <role> · read-only` instead of `· can merge`).
+  says so (`<your name> · <role> · read-only` instead of `· can approve`).
 - **Needs the GitHub App.** The launcher reads GitHub as an App installed on the engine
   repository (`GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, `GITHUB_APP_PRIVATE_KEY`, see
   `docs/INFRA.md` "GitHub App (Pipeline Changes)"). Until they are set, the Changes tab shows one

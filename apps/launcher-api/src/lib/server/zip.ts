@@ -52,6 +52,9 @@ export function locateCentralDirectory(tail: Buffer, tailOffset: number): Centra
 	const count = tail.readUInt16LE(eocd + 10);
 	const size = tail.readUInt32LE(eocd + 12);
 	const offset = tail.readUInt32LE(eocd + 16);
+	if (count === 0xffff || size === 0xffffffff || offset === 0xffffffff) {
+		throw new Error('ZIP64 is not supported');
+	}
 	if (offset + size > tailOffset + eocd) throw new Error('corrupt ZIP central directory');
 	return { offset, size, count };
 }
@@ -67,13 +70,17 @@ export function parseCentralDirectory(cd: Buffer, count: number): ZipEntry[] {
 		const nameLength = cd.readUInt16LE(offset + 28);
 		const extraLength = cd.readUInt16LE(offset + 30);
 		const commentLength = cd.readUInt16LE(offset + 32);
-		entries.push({
+		const entry: ZipEntry = {
 			name: cd.toString('utf8', offset + 46, offset + 46 + nameLength),
 			method: cd.readUInt16LE(offset + 10),
 			compressedSize: cd.readUInt32LE(offset + 20),
 			size: cd.readUInt32LE(offset + 24),
 			localOffset: cd.readUInt32LE(offset + 42),
-		});
+		};
+		if ([entry.compressedSize, entry.size, entry.localOffset].includes(0xffffffff)) {
+			throw new Error('ZIP64 is not supported');
+		}
+		entries.push(entry);
 		offset += 46 + nameLength + extraLength + commentLength;
 	}
 	return entries;
@@ -110,8 +117,9 @@ export function readZipEntry(zip: Buffer, name: string, maxBytes: number): Buffe
 	for (const entry of entries(zip)) {
 		if (entry.name !== name) continue;
 		const at = entry.localOffset;
-		if (at + LOCAL_HEADER_BYTES > zip.length)
+		if (at + LOCAL_HEADER_BYTES > zip.length) {
 			throw new Error(`corrupt ZIP local header for ${name}`);
+		}
 		const start = at + localDataOffset(zip.subarray(at, at + LOCAL_HEADER_BYTES), name);
 		return unpackEntry(entry, zip.subarray(start, start + entry.compressedSize), maxBytes);
 	}

@@ -186,7 +186,7 @@
 		{#snippet meta()}
 			<span class="who">
 				{who} · <span class="role">{roleLabel(data.user.role)}</span> ·
-				{data.canMerge ? 'can merge' : 'read-only'}
+				{data.canMerge ? 'can approve' : 'read-only'}
 			</span>
 			<button type="button" class="refresh" disabled={refreshing} onclick={refreshAll}>
 				Refresh
