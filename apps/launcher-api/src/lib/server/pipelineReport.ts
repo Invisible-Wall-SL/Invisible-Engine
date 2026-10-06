@@ -201,10 +201,12 @@ export async function loadHarnessReport(
 			detail: `The report could not be read: ${err instanceof Error ? err.message : String(err)}`,
 		};
 	}
-	if (report.head?.sha && report.head.sha !== headSha) {
+	if (report.head?.sha !== headSha) {
 		return {
 			state: 'stale',
-			detail: `The report is for ${report.head.sha.slice(0, 7)}, not this head.`,
+			detail: report.head?.sha
+				? `The report is for ${report.head.sha.slice(0, 7)}, not this head.`
+				: 'The report names no head commit.',
 		};
 	}
 	// A re-run whose upload failed leaves the previous attempt's report beside the new attempt's
@@ -222,6 +224,35 @@ export async function loadHarnessReport(
 		};
 	}
 	return { state: 'ready', report, artifactId: artifact.id, expiresAt: artifact.expires_at };
+}
+
+interface GhJob {
+	name: string;
+	status: string;
+	conclusion: string | null;
+}
+
+/**
+ * A second witness before `success` is posted, read from the jobs API rather than the report:
+ * every job of the run but `report` must have succeeded — `report` alone fails on changed screens,
+ * and it is the report that an approval answers. `null` when so; else why not.
+ */
+export async function harnessJobsBlocker(
+	app: GithubApp,
+	repo: string,
+	runId: number,
+): Promise<string | null> {
+	const { jobs } = await app.json<{ jobs: GhJob[] }>(
+		`/repos/${repo}/actions/runs/${runId}/jobs?per_page=100`,
+	);
+	const bad = jobs.filter(
+		(j) => !/^report\b/.test(j.name) && (j.status !== 'completed' || j.conclusion !== 'success'),
+	);
+	if (bad.length) {
+		return `The run's ${bad.map((j) => `${j.name} (${j.conclusion ?? j.status})`).join(', ')} did not succeed, so its report cannot be approved.`;
+	}
+	if (!jobs.some((j) => /^render\b/.test(j.name))) return 'The run rendered nothing.';
+	return null;
 }
 
 /** Every changed screen with an id — what an owner can approve. */

@@ -1,6 +1,7 @@
 import { desc, eq } from 'drizzle-orm';
+import type { Role } from '$lib/roles';
 import { getDb } from './db';
-import { pipelineApprovals, type PipelineApproval } from './db/schema';
+import { pipelineApprovals, users, type PipelineApproval } from './db/schema';
 
 /**
  * Postgres access for diff approvals (ADR-0007, `pipeline_approvals`). Kept to this one module so
@@ -25,6 +26,17 @@ export async function listApprovals(headSha: string): Promise<PipelineApproval[]
 		.from(pipelineApprovals)
 		.where(eq(pipelineApprovals.headSha, headSha))
 		.orderBy(desc(pipelineApprovals.at));
+}
+
+/** The account behind an approval, as it stands now; `null` when it is gone. */
+export async function getApprover(
+	userId: string,
+): Promise<{ role: Role; active: boolean; expiresAt: Date | null } | null> {
+	const [row] = await getDb()
+		.select({ role: users.role, active: users.active, expiresAt: users.expiresAt })
+		.from(users)
+		.where(eq(users.id, userId));
+	return row ?? null;
 }
 
 /**

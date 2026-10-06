@@ -1,15 +1,24 @@
 import { error } from '@sveltejs/kit';
+import { PIPELINE_MERGE_CAPABILITY, roleHasCapability } from '$lib/roles';
 import { createKeyedMutex, createSingleFlight, mapWithConcurrency } from './concurrency';
 import { ENV } from './env';
 import { githubApp, type GithubApp } from './githubApp';
-import { listApprovals, recordApproval, type PipelineApproval } from './pipelineApprovals';
 import {
+	getApprover,
+	listApprovals,
+	recordApproval,
+	type PipelineApproval,
+} from './pipelineApprovals';
+import {
+	harnessJobsBlocker,
 	loadHarnessReport,
 	unapprovableReason,
 	visibleDiffs,
 	type HarnessDiff,
 	type HarnessReportState,
 } from './pipelineReport';
+import { getRoleOverrides } from './roleToolAccess';
+import { getToolOverrides } from './userToolAccess';
 
 /**
  * Invisible Pipeline Changes over GitHub (ADR-0007, "GitHub is the record"): the changes are the
@@ -23,6 +32,15 @@ import {
 export const HARNESS_CONTEXT = 'current-games';
 /** The harness workflow's `name:`, as the Actions API reports a run. */
 export const HARNESS_WORKFLOW = 'Current games';
+/** The harness workflow's file: a run counts only when THIS file made it — a name is a claim any
+ *  workflow a PR adds can make. */
+export const HARNESS_WORKFLOW_PATH = '.github/workflows/current-games.yml';
+/**
+ * What makes the report: a PR that edits any of it runs its own harness on itself, so its report
+ * proves nothing and the launcher refuses to approve it (such a change is merged by hand after
+ * review). The workflows as a whole, because `pull_request` runs the PR's copy of each.
+ */
+export const HARNESS_SOURCES = [/^\.github\/workflows\//, /^scripts\/current-games\//];
 /** Reserved for Director games, which never make a PR; a PR wearing it is not a change. */
 export const DIRECTOR_GAME_LABEL = 'director-game';
 /** An Agents-tab change (PLAN 5.4); listed like any other, flagged for the UI. */
@@ -51,7 +69,8 @@ interface GhPull {
 	draft?: boolean;
 	created_at: string;
 	updated_at: string;
-	head: { sha: string; ref: string };
+	/** `repo` is null when the head's fork was deleted; never this repository then. */
+	head: { sha: string; ref: string; repo: { full_name: string } | null };
 	base: { ref: string };
 	user: GhUser | null;
 	labels?: { name: string }[];
@@ -72,6 +91,8 @@ interface GhCheckRun {
 interface GhWorkflowRun {
 	id: number;
 	name: string;
+	/** The workflow file, repository-relative. */
+	path: string;
 	event: string;
 	status: string | null;
 	conclusion: string | null;
@@ -80,6 +101,8 @@ interface GhWorkflowRun {
 	html_url: string;
 	run_attempt?: number;
 	created_at: string;
+	repository: { full_name: string };
+	head_repository: { full_name: string } | null;
 }
 
 interface GhStatus {
@@ -125,6 +148,9 @@ export interface ChangeList {
 	changes: ChangeSummary[];
 	/** Dependabot's PRs, kept apart: they are updates, not pipeline changes anyone wrote. */
 	dependabot: ChangeSummary[];
+	/** PRs from forks, which are never listed: the harness does not run on them and the
+	 *  launcher never approves them. */
+	forksSkipped: number;
 	fetchedAt: string;
 }
 
@@ -187,10 +213,13 @@ export interface ChangeDetail extends ChangeSummary {
 
 export interface ApproveResult {
 	approval: PipelineApproval;
+	/** Diffs approved by someone who holds `pipelineMerge` today. */
 	approved: number;
 	of: number;
 	/** Whether this approval completed the set and `success` went to `current-games`. */
 	statusPosted: boolean;
+	/** Why the set is complete and yet nothing was posted: the run's jobs disagree with its report. */
+	withheld: string | null;
 }
 
 // ── Pure parts ─────────────────────────────────────────────────────────────────
@@ -203,6 +232,14 @@ export function isDependabot(user: GhUser | null): boolean {
 }
 
 const labelsOf = (pull: GhPull): string[] => (pull.labels ?? []).map((l) => l.name);
+
+/** A PR whose head is not a branch of this repository. */
+const isFork = (pull: GhPull): boolean => pull.head.repo?.full_name !== repo();
+
+/** The files of a change that make the harness's report. */
+export function harnessFilesOf(paths: string[]): string[] {
+	return paths.filter((p) => HARNESS_SOURCES.some((re) => re.test(p)));
+}
 
 export function checkState(status: string, conclusion: string | null): CheckState {
 	if (status !== 'completed') return 'pending';
@@ -221,9 +258,10 @@ function groupState(jobs: CheckJob[]): CheckState {
 /**
  * Check 1: the check runs grouped by the workflow that ran them (`check_suite.id` → workflow
  * run); a check another App posts groups under that App's name. Order: as GitHub lists them.
- * The harness's own jobs are left out — they are Check 2: its `report` job exits non-zero on a
- * failed verdict by design, and the verdict is the `current-games` status, which an approval can
- * turn green. Counting those jobs here would hold a change Blocked after every diff was approved.
+ * The harness's own jobs (by its workflow file, not its name) are left out — they are Check 2: its
+ * `report` job exits non-zero on a failed verdict by design, and the verdict is the `current-games`
+ * status, which an approval can turn green. Counting those jobs here would hold a change Blocked
+ * after every diff was approved. A workflow a PR adds under the same name stays in Check 1.
  */
 export function groupCheckRuns(
 	checkRuns: GhCheckRun[],
@@ -233,7 +271,7 @@ export function groupCheckRuns(
 	const groups = new Map<string, CheckGroup>();
 	for (const run of checkRuns) {
 		const workflow = run.check_suite ? bySuite.get(run.check_suite.id) : undefined;
-		if (workflow?.name === HARNESS_WORKFLOW) continue;
+		if (workflow?.path === HARNESS_WORKFLOW_PATH) continue;
 		const name = workflow?.name ?? run.app?.name ?? run.name;
 		let group = groups.get(name);
 		if (!group) {
@@ -380,10 +418,20 @@ const harnessStatusOf = (head: Head): HarnessStatus | null => {
  * The harness run that owns this head's status: a `pull_request` run first (a push run stands
  * down when the PR exists), else the newest.
  */
-const harnessRunOf = (head: Head, sha: string): GhWorkflowRun | null => {
-	const runs = head.workflowRuns.filter((r) => r.name === HARNESS_WORKFLOW && r.head_sha === sha);
-	return runs.find((r) => r.event === 'pull_request') ?? runs[0] ?? null;
-};
+/**
+ * The harness run that owns this head's status: the one the harness's own workflow file made for
+ * the PR, from this repository, on this head. Not a push run (it stands down when the PR exists)
+ * and not a run that merely carries the name.
+ */
+const harnessRunOf = (head: Head, sha: string): GhWorkflowRun | null =>
+	head.workflowRuns.find(
+		(r) =>
+			r.path === HARNESS_WORKFLOW_PATH &&
+			r.event === 'pull_request' &&
+			r.head_sha === sha &&
+			r.repository?.full_name === repo() &&
+			r.head_repository?.full_name === repo(),
+	) ?? null;
 
 function summaryOf(pull: GhPull, head: Head): ChangeSummary {
 	const checks = groupCheckRuns(head.checkRuns, head.workflowRuns);
@@ -421,7 +469,8 @@ export function listChanges(app: GithubApp = githubApp): Promise<ChangeList> {
 
 async function readChanges(app: GithubApp): Promise<ChangeList> {
 	const r = repo();
-	const pulls = (await openPulls(app)).filter((p) => !labelsOf(p).includes(DIRECTOR_GAME_LABEL));
+	const open = (await openPulls(app)).filter((p) => !labelsOf(p).includes(DIRECTOR_GAME_LABEL));
+	const pulls = open.filter((p) => !isFork(p));
 	const summaries = await mapWithConcurrency(pulls, PER_CHANGE_CONCURRENCY, async (listed) => {
 		// The list omits mergeability; the PR itself carries it.
 		const [pull, head] = await Promise.all([
@@ -430,7 +479,12 @@ async function readChanges(app: GithubApp): Promise<ChangeList> {
 		]);
 		return summaryOf(pull, head);
 	});
-	const list: ChangeList = { changes: [], dependabot: [], fetchedAt: new Date().toISOString() };
+	const list: ChangeList = {
+		changes: [],
+		dependabot: [],
+		forksSkipped: open.length - pulls.length,
+		fetchedAt: new Date().toISOString(),
+	};
 	summaries.forEach((s, i) =>
 		(isDependabot(pulls[i].user) ? list.dependabot : list.changes).push(s),
 	);
@@ -451,6 +505,12 @@ export async function getChange(number: number, app: GithubApp = githubApp): Pro
 	if (pull.base.ref !== BASE_BRANCH || labelsOf(pull).includes(DIRECTOR_GAME_LABEL)) {
 		throw error(404, `#${number} is not a pipeline change.`);
 	}
+	if (isFork(pull)) {
+		throw error(
+			404,
+			`#${number} is from a fork; pipeline changes come from this repository's branches.`,
+		);
+	}
 	const sha = pull.head.sha;
 	const [head, files] = await Promise.all([
 		readHead(app, sha),
@@ -464,6 +524,10 @@ export async function getChange(number: number, app: GithubApp = githubApp): Pro
 	]);
 	const diffs = visibleDiffs(report);
 	const byId = new Map(approvals.map((a) => [a.diffId, a]));
+	const harnessFiles = harnessFilesOf(files.map((f) => f.filename));
+	const unapprovable = harnessFiles.length
+		? `This change edits the harness (${harnessFiles.slice(0, 3).join(', ')}${harnessFiles.length > 3 ? ', …' : ''}), so its report proves nothing about it: harness changes need a manual merge after review.`
+		: unapprovableReason(report, diffs);
 	return {
 		...summaryOf(pull, head),
 		state: pull.state,
@@ -486,9 +550,31 @@ export async function getChange(number: number, app: GithubApp = githubApp): Pro
 			report,
 			diffs: diffs.map((d) => ({ ...d, approval: byId.get(d.id) ?? null })),
 			approvals,
-			unapprovable: unapprovableReason(report, diffs),
+			unapprovable,
 		},
 	};
+}
+
+/**
+ * The approvers among `rows` who hold `pipelineMerge` TODAY: an approval from an account that
+ * has since lost the capability, been disabled, expired or deleted no longer counts, so a set
+ * is complete only by the people entitled to complete it at the moment it is posted.
+ */
+async function approversInStanding(rows: PipelineApproval[]): Promise<Set<string>> {
+	const standing = new Set<string>();
+	for (const id of new Set(rows.map((a) => a.approverId))) {
+		const account = await getApprover(id);
+		if (!account || !account.active) continue;
+		if (account.expiresAt && account.expiresAt.getTime() <= Date.now()) continue;
+		const [roleOverrides, overrides] = await Promise.all([
+			getRoleOverrides(account.role),
+			getToolOverrides(id),
+		]);
+		if (roleHasCapability(account.role, PIPELINE_MERGE_CAPABILITY, roleOverrides, overrides)) {
+			standing.add(id);
+		}
+	}
+	return standing;
 }
 
 /** The number of the change in a URL, or a 400. */
@@ -544,6 +630,9 @@ export async function approveDiff(
 		}
 		const { harness } = change;
 		if (harness.report.state !== 'ready') throw error(409, harness.report.detail);
+		if (harnessFilesOf(change.files.map((f) => f.path)).length) {
+			throw error(409, harness.unapprovable ?? 'This change edits the harness.');
+		}
 		if (!harness.diffs.some((d) => d.id === input.diffId)) {
 			throw error(404, 'No such changed screen on this head.');
 		}
@@ -557,11 +646,19 @@ export async function approveDiff(
 		});
 		listCache = null;
 		const ids = new Set(harness.diffs.map((d) => d.id));
-		const rows = (await listApprovals(sha)).filter((a) => ids.has(a.diffId));
+		const recorded = (await listApprovals(sha)).filter((a) => ids.has(a.diffId));
+		const standing = await approversInStanding(recorded);
+		const rows = recorded.filter((a) => standing.has(a.approverId));
 		const done = new Set(rows.map((a) => a.diffId)).size;
 		const of = harness.diffs.length;
 		let statusPosted = false;
+		let withheld: string | null = null;
 		if (done === of && !harness.unapprovable && harness.status?.state !== 'success') {
+			withheld = harness.run
+				? await harnessJobsBlocker(app, repo(), harness.run.id)
+				: 'No harness run of this repository on this head.';
+		}
+		if (done === of && !harness.unapprovable && harness.status?.state !== 'success' && !withheld) {
 			const approvers = [...new Set(rows.map((a) => a.approver))].join(', ');
 			const description =
 				`All ${of} changed screen${of === 1 ? '' : 's'} approved by ${approvers}`.slice(0, 140);
@@ -576,6 +673,6 @@ export async function approveDiff(
 			});
 			statusPosted = true;
 		}
-		return { approval, approved: done, of, statusPosted };
+		return { approval, approved: done, of, statusPosted, withheld };
 	});
 }

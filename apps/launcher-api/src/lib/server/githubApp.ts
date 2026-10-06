@@ -178,6 +178,11 @@ export function createGithubApp(options: GithubAppOptions = {}): GithubApp {
 	};
 
 	const call = async (path: string, init: GithubRequestInit = {}): Promise<Response> => {
+		// The token goes to GitHub's API and nowhere else: a full URL (an artifact's download
+		// link, read from a GitHub answer) passes only when it is one of the API's own.
+		if (/^https?:\/\//.test(path) && !path.startsWith(`${GITHUB_API}/`)) {
+			throw new GithubAppError("Refusing to send the App's token to a URL outside api.github.com.");
+		}
 		const url = /^https?:\/\//.test(path) ? path : `${GITHUB_API}${path}`;
 		let res = await request(url, init, await token());
 		// A 401 on a token that was valid a moment ago means GitHub revoked it (the App was
