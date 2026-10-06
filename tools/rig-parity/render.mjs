@@ -2,7 +2,7 @@
 // Chromium (WebGL via SwiftShader) and pixel-diffs the frames.
 //
 //   node tools/rig-parity/render.mjs [--filter <substring>] [--dir <folder>] [--size 256] [--max 0.5]
-//                                    [--slot-objects]
+//                                    [--slot-objects] [--all-animations]
 //
 // --slot-objects attaches a marker shape to every other slot (`addSlotObject`), so the frames also
 // cover where, how faded and in what order attached containers draw.
@@ -75,7 +75,7 @@ const server = createServer((req, res) => {
 const port = server.address().port;
 
 const rigs = findRigs(dir, filter);
-const cases = poseCases(rigs);
+const cases = poseCases(rigs, { all: args.includes('--all-animations') });
 if (!cases.length) {
 	console.log('no rigs found');
 	process.exit(1);

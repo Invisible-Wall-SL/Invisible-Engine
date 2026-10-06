@@ -54,12 +54,12 @@ export function findRigs(dir, filter = null) {
 }
 
 /** Up to three animations per rig at two times each (a binary rig: its setup pose). */
-export function poseCases(rigs) {
+export function poseCases(rigs, { all = false } = {}) {
 	const cases = [];
 	for (const r of rigs) {
-		const anims = r.animations?.length ? r.animations.slice(0, 3) : [null];
+		const anims = r.animations?.length ? r.animations.slice(0, all ? undefined : 3) : [null];
 		for (const animation of anims)
-			for (const time of animation ? [0.1, 0.55] : [0])
+			for (const time of animation ? (all ? [0.05, 0.3, 0.7, 1.3] : [0.1, 0.55]) : [0])
 				cases.push({ rig: r.rel, atlas: r.atlas, skeleton: r.skeleton, animation, time });
 	}
 	return cases;
