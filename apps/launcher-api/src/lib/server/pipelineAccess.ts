@@ -9,10 +9,10 @@ import { getRoleOverrides } from './roleToolAccess';
 import { getToolOverrides } from './userToolAccess';
 
 /**
- * The session gates for Invisible Pipeline Changes' own endpoints (`/api/pipeline/changes/*`):
- * logged in + entitled to the `pipelineChanges` tool, role and per-user overrides applied — the
- * SAME entitlement the `/pipeline` page checks. Not the CI gate (`pipelineGames.ts`), which the
- * harness passes with a bearer token and never a session.
+ * The session gates for Invisible Pipeline Changes' own endpoints (`/api/pipeline/changes/*`,
+ * `/api/pipeline/merges/*`): logged in + entitled to the `pipelineChanges` tool, role and per-user
+ * overrides applied — the SAME entitlement the `/pipeline` page checks. Not the CI gate
+ * (`pipelineGames.ts`), which the harness passes with a bearer token and never a session.
  */
 export async function requirePipelineAccess(locals: App.Locals): Promise<User> {
 	return (await entitled(locals)).user;
@@ -34,14 +34,14 @@ async function entitled(
 }
 
 /**
- * The extra gate for approving a changed screen (and, later, merging): the `pipelineMerge`
- * capability, default-ON for admin only. Seeing the tool — Pipeline Testers do by default — never
- * implies it (SPEC §3).
+ * The extra gate for approving a changed screen, merging a change and rolling one back: the
+ * `pipelineMerge` capability, default-ON for admin only. Seeing the tool — Pipeline Testers do by
+ * default — never implies it (SPEC §3).
  */
 export async function requirePipelineMerge(locals: App.Locals): Promise<User> {
 	const { user, roleOverrides, overrides } = await entitled(locals);
 	if (!roleHasCapability(user.role, PIPELINE_MERGE_CAPABILITY, roleOverrides, overrides)) {
-		throw error(403, 'Approving a changed screen needs the "Merge pipeline changes" capability.');
+		throw error(403, 'This needs the "Merge pipeline changes" capability.');
 	}
 	return user;
 }

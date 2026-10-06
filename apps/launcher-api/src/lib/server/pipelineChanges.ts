@@ -81,6 +81,14 @@ interface GhPull {
 	labels?: { name: string }[];
 	/** Only on `GET /pulls/{n}`: `dirty` is a conflict, `unknown` is GitHub still computing. */
 	mergeable_state?: string;
+	/** Only on `GET /pulls/{n}`: `null` while GitHub is still computing it. */
+	mergeable?: boolean | null;
+	/** Only on `GET /pulls/{n}`. */
+	merged?: boolean;
+	/** Only on `GET /pulls/{n}`: the App's own bot when the launcher merged it. */
+	merged_by?: GhUser | null;
+	/** Once merged, the commit the merge made on `main`; while open, GitHub's test merge. */
+	merge_commit_sha: string | null;
 }
 
 interface GhCheckRun {
@@ -223,6 +231,12 @@ export interface ChangeDetail extends ChangeSummary {
 	why: string | null;
 	baseBranch: string;
 	mergeableState: string | null;
+	/** GitHub's own answer: `null` while it is still working out whether the head merges cleanly. */
+	mergeable: boolean | null;
+	merged: boolean;
+	/** The GitHub login that merged it: the App's bot when the launcher did. */
+	mergedBy: string | null;
+	mergeCommitSha: string | null;
 	files: ChangeFile[];
 	filesTruncated: boolean;
 	checks: CheckGroup[];
@@ -404,7 +418,8 @@ const clip = (s: string): string => {
 
 // ── GitHub reads ───────────────────────────────────────────────────────────────
 
-const repo = (): string => ENV.GITHUB_ENGINE_REPO;
+/** The repository every change lives in, `owner/name`. */
+export const repo = (): string => ENV.GITHUB_ENGINE_REPO;
 
 async function openPulls(app: GithubApp): Promise<GhPull[]> {
 	const pulls: GhPull[] = [];
@@ -491,6 +506,11 @@ function summaryOf(pull: GhPull, head: Head): ChangeSummary {
 
 let listCache: { at: number; list: ChangeList } | null = null;
 const listFlight = createSingleFlight();
+
+/** Drop the cached list: an approval, a merge or a new revert changed what it shows. */
+export function forgetChanges(): void {
+	listCache = null;
+}
 
 /** Every open PR into `main`, bar Director games; Dependabot's apart. */
 export function listChanges(app: GithubApp = githubApp): Promise<ChangeList> {
@@ -584,6 +604,10 @@ export async function getChange(number: number, app: GithubApp = githubApp): Pro
 		why: whyFromBody(pull.body),
 		baseBranch: pull.base.ref,
 		mergeableState: pull.mergeable_state ?? null,
+		mergeable: pull.mergeable ?? null,
+		merged: pull.merged ?? false,
+		mergedBy: pull.merged_by?.login ?? null,
+		mergeCommitSha: pull.merge_commit_sha,
 		files: changeFiles,
 		filesTruncated: truncated,
 		checks: groupCheckRuns(head.checkRuns, head.workflowRuns),
@@ -817,7 +841,7 @@ export async function approveDiff(
 			approver: approverName(input.user),
 			note: input.note,
 		});
-		listCache = null;
+		forgetChanges();
 		const ids = new Set(harness.diffs.map((d) => d.id));
 		const recorded = (await listApprovals(sha)).filter((a) => ids.has(a.diffId));
 		const standing = await standingOf(recorded);

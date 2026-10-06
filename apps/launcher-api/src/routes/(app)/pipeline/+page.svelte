@@ -3,9 +3,11 @@
 	import { replaceState } from '$app/navigation';
 	import { roleLabel } from '$lib/roles';
 	import type { ChangeDetail, ChangeList, ChangeSummary } from '$lib/server/pipelineChanges';
+	import type { MergeHistory } from '$lib/server/pipelineMerge';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import type { PageData } from './$types';
 	import ChangeDetailPanel from './ChangeDetailPanel.svelte';
+	import HistoryPanel from './HistoryPanel.svelte';
 	import Pill from './Pill.svelte';
 	import { apiErrorText, plural, statusPill, timeAgo } from './view';
 
@@ -21,16 +23,19 @@
 			empty: 'No agent definitions to show yet.',
 			body: "Director's runtime-agent definitions will be shown and edited here. An edit creates a pipeline change, and its check runs a short evaluation on a fixed sample before and after.",
 		},
-		{
-			id: 'history',
-			label: 'History',
-			empty: 'Nothing has been merged yet.',
-			body: 'Merges, who approved them, and rollbacks will be listed here. Every merge can be rolled back.',
-		},
+		{ id: 'history', label: 'History' },
 	] as const;
 
 	type TabId = (typeof TABS)[number]['id'];
 	let tab = $state<TabId>('changes');
+
+	function show(id: TabId): void {
+		tab = id;
+		if (id === 'history') {
+			historyShown = true;
+			void loadHistory();
+		}
+	}
 
 	function onTabKeydown(e: KeyboardEvent) {
 		const i = TABS.findIndex((t) => t.id === tab);
@@ -41,7 +46,7 @@
 		else if (e.key === 'End') next = TABS.length - 1;
 		else return;
 		e.preventDefault();
-		tab = TABS[next].id;
+		show(TABS[next].id);
 		document.getElementById(`tab-${TABS[next].id}`)?.focus();
 	}
 
@@ -53,10 +58,15 @@
 	let detail = $state<ChangeDetail | null>(null);
 	let detailError = $state<string | null>(null);
 	let detailLoading = $state(initialSelected !== null);
+	let history = $state<MergeHistory | null>(null);
+	let historyError = $state<string | null>(null);
+	let historyLoading = $state(false);
+	let historyShown = false;
 	let refreshing = $state(false);
 	let now = $state(Date.now());
 	let listSeq = 0;
 	let detailSeq = 0;
+	let historySeq = 0;
 
 	const who = $derived(data.user.name?.trim() || data.user.email.split('@')[0]);
 	const changeCount = $derived(list ? list.changes.length : null);
@@ -112,6 +122,25 @@
 		}
 	}
 
+	/** Read each time the History tab is shown, and with every refresh once it has been. */
+	async function loadHistory(): Promise<void> {
+		const seq = ++historySeq;
+		historyLoading = true;
+		try {
+			const next = await getJson<MergeHistory>('/api/pipeline/merges');
+			if (seq !== historySeq) return;
+			history = next;
+			historyError = null;
+		} catch (err) {
+			if (seq === historySeq) historyError = errorText(err);
+		} finally {
+			if (seq === historySeq) {
+				historyLoading = false;
+				now = Date.now();
+			}
+		}
+	}
+
 	async function refreshAll(): Promise<void> {
 		if (refreshing) return;
 		refreshing = true;
@@ -119,16 +148,28 @@
 			await Promise.all([
 				loadList(),
 				selected === null ? Promise.resolve(true) : loadDetail(selected, detail !== null),
+				historyShown ? loadHistory() : Promise.resolve(),
 			]);
 		} finally {
 			refreshing = false;
 		}
 	}
 
-	/** After an approval: the detail the panel shows, and the status the list card carries. */
+	/** After an approval or a merge: the detail the panel shows, the status the list card carries,
+	 *  and the history once it has been read. */
 	function rereadDetail(): Promise<boolean> {
 		void loadList();
+		if (historyShown) void loadHistory();
 		return selected === null ? Promise.resolve(false) : loadDetail(selected, true);
+	}
+
+	/** A revert pull request was opened: it is a pipeline change like any other. */
+	function showRollback(number: number): void {
+		show('changes');
+		document.getElementById('tab-changes')?.focus();
+		select(number);
+		void loadList();
+		void loadHistory();
 	}
 
 	function select(number: number): void {
@@ -141,7 +182,9 @@
 	}
 
 	function tabLabel(t: (typeof TABS)[number]): string {
-		return t.id === 'changes' && changeCount !== null ? `Changes · ${changeCount}` : t.label;
+		if (t.id === 'changes' && changeCount !== null) return `Changes · ${changeCount}`;
+		if (t.id === 'history' && history) return `History · ${history.merges.length}`;
+		return t.label;
 	}
 
 	onMount(() => {
@@ -186,7 +229,7 @@
 		{#snippet meta()}
 			<span class="who">
 				{who} · <span class="role">{roleLabel(data.user.role)}</span> ·
-				{data.canMerge ? 'can approve' : 'read-only'}
+				{data.canMerge ? 'can merge' : 'read-only'}
 			</span>
 			<button type="button" class="refresh" disabled={refreshing} onclick={refreshAll}>
 				Refresh
@@ -212,7 +255,7 @@
 					aria-selected={tab === t.id}
 					aria-controls={`panel-${t.id}`}
 					tabindex={tab === t.id ? 0 : -1}
-					onclick={() => (tab = t.id)}
+					onclick={() => show(t.id)}
 				>
 					{tabLabel(t)}
 				</button>
@@ -288,6 +331,43 @@
 					{/if}
 				</section>
 			</div>
+		</div>
+
+		<div
+			id="panel-history"
+			role="tabpanel"
+			aria-labelledby="tab-history"
+			hidden={tab !== 'history'}
+			tabindex="0"
+			class="history"
+		>
+			<div class="heading">
+				<h1>History</h1>
+				<p>
+					Merges made from here, newest first, with who approved their changed screens. Rolling back
+					opens a revert pull request that goes through the same checks and approvals as any change.
+				</p>
+			</div>
+			{#if historyError}<div class="error" role="alert">{historyError}</div>{/if}
+			{#if history && history.merges.length}
+				<HistoryPanel
+					merges={history.merges}
+					canMerge={data.canMerge}
+					{now}
+					onrollback={showRollback}
+					onreload={loadHistory}
+				/>
+			{:else if history}
+				<div class="empty">
+					<strong>Nothing has been merged yet.</strong>
+					<p>
+						Merges, who approved them, and rollbacks will be listed here. Every merge can be rolled
+						back.
+					</p>
+				</div>
+			{:else if historyLoading}
+				<p class="loading" aria-busy="true">Loading history…</p>
+			{/if}
 		</div>
 
 		{#each TABS as t (t.id)}
@@ -387,7 +467,8 @@
 		display: none;
 	}
 
-	.changes {
+	.changes,
+	.history {
 		display: flex;
 		flex-direction: column;
 		gap: 16px;

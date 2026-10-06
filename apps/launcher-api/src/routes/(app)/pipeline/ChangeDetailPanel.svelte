@@ -1,10 +1,12 @@
 <script lang="ts">
-	import { askText } from '$lib/dialogs.svelte';
+	import { askConfirm, askText } from '$lib/dialogs.svelte';
 	import type { PipelineApproval } from '$lib/server/pipelineApprovals';
 	import type { ApproveResult, ChangeDetail } from '$lib/server/pipelineChanges';
+	import type { MergeResult } from '$lib/server/pipelineMerge';
 	import Pill from './Pill.svelte';
 	import ScreenCompare from './ScreenCompare.svelte';
 	import {
+		MERGE_RETRY_TEXT,
 		NO_CHECKS_TEXT,
 		apiErrorText,
 		approvalBlocker,
@@ -15,6 +17,9 @@
 		imagesArtifactId,
 		jobWord,
 		lapsedApprovals,
+		mergeBar,
+		mergeConfirmMessage,
+		mergedText,
 		plural,
 		reportImageUrl,
 		rowCells,
@@ -48,6 +53,11 @@
 	let notice = $state<{ tone: 'amber' | 'green'; text: string } | null>(null);
 	/** Approvals made on this page, shown until a re-read brings the server's own. */
 	let approvedHere = $state<Record<string, PipelineApproval>>({});
+	/** The confirmed merge, kept while its answer is unknown: Try again resends the same request id
+	 *  and head, and the server answers a resend with the merge it already made. */
+	let mergeRequest = $state<{ requestId: string; headSha: string } | null>(null);
+	let mergeError = $state<{ text: string; retry: boolean } | null>(null);
+	let merged = $state<MergeResult | null>(null);
 
 	const harness = $derived({
 		...detail.harness,
@@ -83,6 +93,7 @@
 	const diffUrl = $derived(safeHref(detail.diffUrl));
 	const runUrl = $derived(safeHref(harness.run?.url));
 	const statusUrl = $derived(safeHref(harness.status?.url));
+	const bar = $derived(mergeBar(detail, canMerge, blocker?.byHand ?? false));
 
 	const groupWord = (state: string): string =>
 		state === 'fail' ? 'failed' : state === 'pending' ? 'running' : state;
@@ -133,6 +144,48 @@
 			await reread();
 		} catch (err) {
 			failures = { ...failures, [diffId]: err instanceof Error ? err.message : String(err) };
+		} finally {
+			busy = null;
+		}
+	}
+
+	async function merge(): Promise<void> {
+		if (busy) return;
+		const confirmed = await askConfirm({
+			title: `Merge #${detail.number} into main`,
+			message: mergeConfirmMessage(detail),
+			confirmLabel: 'Merge',
+		});
+		if (!confirmed) return;
+		mergeRequest = { requestId: crypto.randomUUID(), headSha: detail.headSha };
+		await sendMerge();
+	}
+
+	async function sendMerge(): Promise<void> {
+		const request = mergeRequest;
+		if (busy || !request) return;
+		busy = 'merge';
+		mergeError = null;
+		try {
+			const res = await fetch(`/api/pipeline/changes/${detail.number}/merge`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify(request),
+			});
+			const body: unknown = await res.json().catch(() => null);
+			if (!res.ok) {
+				const retry = res.status >= 500;
+				mergeError = { text: apiErrorText(res.status, body), retry };
+				if (!retry) mergeRequest = null;
+				// A refusal means the change is not what this page shows (the head moved, it closed).
+				if (res.status === 409) await reread();
+				return;
+			}
+			merged = body as MergeResult;
+			mergeRequest = null;
+			await reread();
+		} catch (err) {
+			mergeError = { text: err instanceof Error ? err.message : String(err), retry: true };
 		} finally {
 			busy = null;
 		}
@@ -459,17 +512,50 @@
 		{/if}
 	</section>
 
-	{#if open && detail.status.kind === 'ready'}
+	{#if merged}
+		<div class="bar green" role="status">
+			<div class="bar-text">
+				<span class="bar-title">{mergedText(merged, now)}</span>
+				<span class="bar-sub">You can roll back from History.</span>
+			</div>
+		</div>
+	{:else if open && detail.status.kind === 'ready'}
 		<div class="bar green">
-			<span class="bar-title">All checks passed</span>
-			<span class="bar-sub">
-				Merging needs the “Merge pipeline changes” permission. Merging from this page comes with
-				History; until then the pull request is merged on GitHub.
-			</span>
+			<div class="bar-text">
+				<span class="bar-title">All checks passed</span>
+				<span class="bar-sub">{bar.text}</span>
+			</div>
+			{#if bar.action}
+				<button
+					type="button"
+					class="btn primary large"
+					disabled={bar.action === 'draft' || busy !== null}
+					onclick={merge}
+				>
+					<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+						<circle cx="4.5" cy="3.5" r="1.5"></circle>
+						<circle cx="4.5" cy="12.5" r="1.5"></circle>
+						<circle cx="11.5" cy="8.5" r="1.5"></circle>
+						<path d="M4.5 5v6M4.5 5c0 2.5 2.5 3.5 5.5 3.5"></path>
+					</svg>
+					{busy === 'merge' ? 'Merging…' : 'Merge into main'}
+				</button>
+			{/if}
 		</div>
 	{:else if open && detail.status.kind === 'testing'}
 		<div class="bar blue">
 			<span class="bar-title">Still testing · {detail.status.done} of {detail.status.total}</span>
+		</div>
+	{/if}
+	{#if mergeError}
+		<div class="callout red" role="alert">
+			<span>{mergeError.text}</span>
+			{#if mergeError.retry && mergeRequest}
+				<span>{MERGE_RETRY_TEXT}</span>
+				<button type="button" class="btn" disabled={busy !== null} onclick={sendMerge}>
+					{busy === 'merge' ? 'Merging…' : 'Try again'}
+				</button>
+			{/if}
 		</div>
 	{/if}
 </div>
@@ -709,6 +795,19 @@
 	.btn.primary:hover:not(:disabled) {
 		background: #26846a;
 	}
+	.btn.large {
+		gap: 6px;
+		min-height: 36px;
+		padding: 0 16px;
+		font-size: 13px;
+	}
+	.btn svg {
+		fill: none;
+		stroke: currentColor;
+		stroke-width: 1.5;
+		stroke-linecap: round;
+		stroke-linejoin: round;
+	}
 
 	.tiles {
 		display: grid;
@@ -924,11 +1023,19 @@
 
 	.bar {
 		display: flex;
-		flex-direction: column;
-		gap: 3px;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: 14px;
 		padding: 18px 20px;
 		border: 1px solid;
 		border-radius: 12px;
+	}
+	.bar-text {
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+		min-width: 0;
 	}
 	.bar.green {
 		background: #121f1a;
