@@ -331,14 +331,14 @@ export function elapsed(fromIso: string, now: number): string {
 
 /**
  * A link a run's rows may name, as an `href`, or null: a same-origin path (`/…`, never `//…`) or a
- * page on github.com. Anything else — another host, a scheme, a word — is not a link the page
- * follows, whoever wrote it.
+ * page under our own GitHub organisation. Anything else — another host, another org, a scheme,
+ * a word — is not a link the page follows, whoever wrote it.
  */
 export function safeHref(value: unknown): string | null {
 	if (typeof value !== 'string' || value.length > 2048) return null;
 	const text = value.trim();
 	if (/^\/(?!\/)[^\s<>"'\\]*$/.test(text)) return text;
-	if (/^https:\/\/github\.com\/[^\s<>"'\\]*$/.test(text)) return text;
+	if (/^https:\/\/github\.com\/Invisible-Wall-SL\/[^\s<>"'\\]*$/.test(text)) return text;
 	return null;
 }
 

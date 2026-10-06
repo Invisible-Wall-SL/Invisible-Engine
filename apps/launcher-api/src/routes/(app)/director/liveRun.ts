@@ -93,8 +93,17 @@ export interface RegionView {
 	/** Why its last render failed, when it did. */
 	error: string | null;
 	updatedAt: string;
-	/** The id of the event that last changed it: a cache version for its images. */
+	/** The id of the event that last changed it: a cache version for its crop. */
 	version: number;
+	/** The id of the `job_done` that last rendered it: the cache version for its variants. */
+	renderVersion: number;
+	/**
+	 * Named by the coordinator's plan (or no plan yet). A region outside the plan — a scratch
+	 * atlas's layer under ADR-0008, a name only a finding mentioned — is shown under "Other
+	 * regions" but never counted toward the template's total nor approved with a batch. The hook
+	 * for 8E: key regions by (atlas, region) here once scratch atlases carry template names.
+	 */
+	planned: boolean;
 }
 
 export interface GroupCounts {
@@ -293,9 +302,38 @@ interface Ctx {
 	stepStartedAt: Partial<Record<RunStep, string>>;
 	/** The regions to review when the open `region_batch` checkpoint was opened. */
 	openBatch: Set<string> | null;
+	/** Ids of owner rows the worker refused (`refused_request`), collected before the fold. */
+	refused: Set<number>;
 }
 
 const OTHER_GROUP = 'Other regions';
+
+/** With a plan, a region is the template's when the plan names it; before one, every region is. */
+const isPlanned = (ctx: Ctx, name: string) => ctx.plan === null || ctx.groupOf.has(name);
+
+/** A `refused_request` error row: the worker could not apply the owner row it names. */
+export function isRefusal(event: RunEvent): event is RunEvent & { payload: { eventId: number } } {
+	return (
+		event.kind === 'error' &&
+		isRecord(event.payload) &&
+		event.payload.type === 'refused_request' &&
+		typeof event.payload.eventId === 'number'
+	);
+}
+
+/** The ids of the owner rows the run's `refused_request` rows name. */
+export function refusedIds(events: readonly RunEvent[]): Set<number> {
+	const ids = new Set<number>();
+	for (const event of events) if (isRefusal(event)) ids.add(event.payload.eventId);
+	return ids;
+}
+
+/**
+ * Whether a row is news to the page: newer than the summary it opened with. Before that summary
+ * (`baseline` null) nothing is; a run with no rows yet has baseline 0, and everything after is.
+ */
+export const isNews = (baseline: number | null, id: number): boolean =>
+	baseline !== null && id > baseline;
 
 function regionOf(ctx: Ctx, name: string, at: string, version: number): RegionView | null {
 	if (!REGION_NAME.test(name)) return null;
@@ -314,6 +352,8 @@ function regionOf(ctx: Ctx, name: string, at: string, version: number): RegionVi
 			error: null,
 			updatedAt: at,
 			version,
+			renderVersion: 0,
+			planned: isPlanned(ctx, name),
 		};
 		ctx.regions.set(name, region);
 	}
@@ -351,15 +391,29 @@ function collectImageKeys(value: unknown, ctx: Ctx, event: RunEvent, depth = 0) 
 }
 
 /** The region a finding is about: its subject names one of the known regions, or none. */
+/** `H2 · Coral mask` → `h2 coral mask`, as whole tokens. */
+const tokens = (text: string) =>
+	text
+		.toLowerCase()
+		.split(/[^a-z0-9]+/)
+		.filter(Boolean);
+
+/**
+ * The region a finding is about: its subject IS a region name (however punctuated), or every
+ * token of a region's name appears as a whole token of the subject, the longest such name
+ * winning. A one-word subject under three characters names nothing: "A" is a letter, not a
+ * region, and no substring ever matches.
+ */
 function findRegion(ctx: Ctx, subject: string): RegionView | null {
 	const wanted = normal(subject);
-	if (!wanted) return null;
+	if (wanted.length < 3) return null;
+	const words = new Set(tokens(subject));
 	let best: RegionView | null = null;
 	for (const region of ctx.regions.values()) {
-		const name = normal(region.name);
-		if (name === wanted) return region;
-		if (name.length >= 3 && (wanted.includes(name) || name.includes(wanted))) {
-			if (!best || name.length > normal(best.name).length) best = region;
+		if (normal(region.name) === wanted) return region;
+		const parts = tokens(region.name);
+		if (parts.length && parts.every((part) => words.has(part))) {
+			if (!best || parts.length > tokens(best.name).length) best = region;
 		}
 	}
 	return best;
@@ -367,12 +421,15 @@ function findRegion(ctx: Ctx, subject: string): RegionView | null {
 
 const LETTERS = 'ABCDEFGH';
 
-/** The variant a verdict names: one of the region's ids, or a letter in render order. */
+/**
+ * The variant a verdict names: one of the region's ids, or "variant B" / "option C" in render
+ * order. A bare letter is never one: a sentence starting with "A" names nothing.
+ */
 function variantNamed(region: RegionView, text: string): string | null {
 	for (const v of region.variants) {
 		if (new RegExp(`(^|[^0-9])${v.id}([^0-9]|$)`).test(text)) return v.id;
 	}
-	const letter = /\b(?:variant\s+)?([A-H])\b/.exec(text)?.[1];
+	const letter = /\b(?:variant|option)\s+([A-H])\b/i.exec(text)?.[1]?.toUpperCase();
 	if (letter) {
 		const index = LETTERS.indexOf(letter);
 		const sorted = [...region.variants].sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0));
@@ -475,6 +532,7 @@ function foldActivity(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 			}
 			for (const region of ctx.regions.values()) {
 				region.group = ctx.groupOf.get(region.name) ?? OTHER_GROUP;
+				region.planned = isPlanned(ctx, region.name);
 			}
 			return push(
 				ctx,
@@ -581,22 +639,32 @@ function foldResolved(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 	const decision = str(p.decision, 20) ?? 'resolved';
 	const checkpoint = str(p.checkpoint, 40) ?? 'checkpoint';
 	const note = str(p.note);
+	// A row the worker refused (the run had moved on) resolved nothing: its `refused_request`
+	// error row says so in the feed, and the regions stay as they were.
+	const refused = ctx.refused.has(event.id);
 	// Approving a batch approves what was waiting in it when it opened; approving the build
-	// accepts whatever is still to review.
+	// accepts whatever is still to review. Only the plan's regions: see `RegionView.planned`.
 	if (
+		!refused &&
 		(checkpoint === 'region_batch' || checkpoint === 'before_publish') &&
 		decision === 'approve'
 	) {
 		const batch = checkpoint === 'region_batch' && ctx.openBatch?.size ? ctx.openBatch : null;
 		for (const region of ctx.regions.values()) {
-			if (region.status !== 'to_review') continue;
+			if (region.status !== 'to_review' || !region.planned) continue;
 			if (batch && !batch.has(region.name)) continue;
 			region.status = 'approved';
 			touch(region, event.at, event.id);
 		}
 		ctx.openBatch = null;
 	}
-	const verb = decision === 'approve' ? 'approved' : decision === 'revise' ? 'sent back' : decision;
+	const verb = refused
+		? `asked to ${decision}`
+		: decision === 'approve'
+			? 'approved'
+			: decision === 'revise'
+				? 'sent back'
+				: decision;
 	const what =
 		checkpoint === 'breakdown'
 			? 'the mockup breakdown'
@@ -605,7 +673,12 @@ function foldResolved(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 				: checkpoint === 'before_publish'
 					? 'the build'
 					: `the ${checkpoint} checkpoint`;
-	push(ctx, event, `${verb} ${what}${note ? `: “${note}”` : '.'}`, 'owner');
+	push(
+		ctx,
+		event,
+		`${verb} ${what}${note ? `: “${note}”` : ''}${refused ? ' — the worker refused it.' : note ? '' : '.'}`,
+		'owner',
+	);
 }
 
 function foldJobQueued(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
@@ -681,6 +754,7 @@ function foldJobDone(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 		if (refs.length) {
 			// A new render replaces the last: the owner judges what is there now.
 			region.variants = [...refs].sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0));
+			region.renderVersion = event.id;
 			region.status = 'to_review';
 			region.pick = null;
 			region.qa = null;
@@ -773,6 +847,7 @@ export function foldEvents(events: readonly RunEvent[], prefix: string): Folded 
 		step: 'breakdown',
 		stepStartedAt: {},
 		openBatch: null,
+		refused: refusedIds(events),
 	};
 	for (const event of events) {
 		if (typeof event.id !== 'number' || typeof event.at !== 'string') continue;
@@ -884,8 +959,9 @@ const TERMINAL: readonly RunSummary['status'][] = ['stopped', 'failed', 'handed_
 
 export function stepViews(run: RunSummary, folded: Folded, mockupCount: number): StepView[] {
 	const current = RUN_STEPS.find((s) => s.id === run.step)?.n ?? 1;
-	const approved = [...folded.regions.values()].filter((r) => r.status === 'approved').length;
-	const regionsTotal = folded.breakdown?.regionsTotal ?? folded.regions.size;
+	const planned = [...folded.regions.values()].filter((r) => r.planned);
+	const approved = planned.filter((r) => r.status === 'approved').length;
+	const regionsTotal = folded.breakdown?.regionsTotal ?? planned.length;
 	return RUN_STEPS.map((step) => {
 		let state: StepState;
 		if (run.status === 'handed_off') state = 'done';
@@ -977,7 +1053,9 @@ export function insertEvent(events: RunEvent[], event: RunEvent): boolean {
 /** Rows the fold can do without: billing, the per-image analysis, notes and errors. */
 const DROPPABLE_ACTIVITY = new Set(['breakdown_image', 'note', 'question', 'assignment']);
 export function isDroppable(event: RunEvent): boolean {
-	if (event.kind === 'spend' || event.kind === 'error') return true;
+	if (event.kind === 'spend') return true;
+	// A refusal is structural: without it a refused approval would read as an approval.
+	if (event.kind === 'error') return !isRefusal(event);
 	if (event.kind !== 'activity') return false;
 	const type = isRecord(event.payload) ? event.payload.type : undefined;
 	return typeof type === 'string' && DROPPABLE_ACTIVITY.has(type);

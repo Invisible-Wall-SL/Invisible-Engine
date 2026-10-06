@@ -255,8 +255,8 @@ their request is outstanding, so nothing you typed is lost.
 - "Skip it" / "Request an FX region" shortcuts for a needs-you element are not actions yet: say it
   in the note and send the breakdown back.
 - You approve a whole region batch, not one variant. To take a variant other than the art
-  director's pick, say which in the note (for example "use B for H2") — that is what the agents
-  read; there is no per-variant Approve button yet.
+  director's pick, say which in the note (for example "use variant B for H2") — that is what the
+  agents read; there is no per-variant Approve button yet.
 - The galleries show what the agents' events name. A tool that writes an image without posting an
   event does not appear there (the image is still in the project, and in its own tool).
 - The page keeps the newest ~6000 rows of a run; on a longer run the feed and the galleries start

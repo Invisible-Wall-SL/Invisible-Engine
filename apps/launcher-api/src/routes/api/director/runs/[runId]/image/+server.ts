@@ -19,7 +19,7 @@ function isImageKeyUnder(prefix: string, key: string): boolean {
 		IMAGE_EXT.test(key) &&
 		!CONTROL_OR_BACKSLASH.test(key) &&
 		!key.includes('//') &&
-		!key.split('/').includes('..')
+		key.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..')
 	);
 }
 
@@ -50,6 +50,13 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 	const got = await getObjectBytes(key);
 	const type = got ? sniffServedImage(got.body) : null;
 	if (!got || !type) throw error(404, 'No such image.');
+	// The head is advisory: an object rewritten between the two reads is capped on its bytes too.
+	if (got.body.byteLength > MAX_IMAGE_BYTES) {
+		return json(
+			{ error: 'too_large', message: 'The image is too large to show here.' },
+			{ status: 413, headers: NO_STORE },
+		);
+	}
 	return new Response(got.body, {
 		headers: {
 			'content-type': SERVED_IMAGE_TYPES[type],

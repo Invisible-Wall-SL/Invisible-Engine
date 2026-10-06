@@ -44,6 +44,7 @@
 		areaLabel,
 		foldEvents,
 		insertEvent,
+		isNews,
 		trimEvents,
 		regionTitle,
 		stepViews,
@@ -187,7 +188,7 @@
 			if (id !== runId) return null;
 			run = loaded;
 			loadErr = '';
-			baselineEventId ||= loaded.lastEventId;
+			baselineEventId ??= loaded.lastEventId;
 			return loaded;
 		} catch (e) {
 			if (id === runId) loadErr = describe(e);
@@ -252,7 +253,7 @@
 	 * summary this page opened with is news: an old refusal is history, not the answer to a button
 	 * pressed here.
 	 */
-	let baselineEventId = 0;
+	let baselineEventId: number | null = null;
 	/** The newest row id seen, where a poll's read of the stream picks up. */
 	let highWater = 0;
 
@@ -270,8 +271,7 @@
 		if (!insertEvent(events, event)) return;
 		trimEvents(events, MAX_EVENTS);
 		bumpFold();
-		// Without a summary yet there is no baseline: the history is not news.
-		if (baselineEventId === 0 || event.id <= baselineEventId) return;
+		if (!isNews(baselineEventId, event.id)) return;
 		recent = [event, ...recent].slice(0, 8);
 		if (event.kind === 'error' && event.payload?.type === 'refused_request') {
 			const why = event.payload.error;
@@ -291,11 +291,12 @@
 	 * read for {@link POLL_READ_MS}, which is long enough for its catch-up frames and then cut.
 	 * Where the stream cannot be had at all this yields nothing, which is no worse than before.
 	 */
-	async function pollEvents(id: string) {
+	async function pollEvents(id: string, signal: AbortSignal) {
 		const control = new AbortController();
 		const deadline = setTimeout(() => control.abort(), POLL_READ_MS);
+		signal.addEventListener('abort', () => control.abort(), { once: true });
 		try {
-			if (id !== runId) return;
+			if (id !== runId || signal.aborted) return;
 			const res = await fetch(eventsUrl(id, events.length ? highWater : 0), {
 				signal: control.signal,
 				headers: { accept: 'text/event-stream' },
@@ -352,6 +353,8 @@
 		let source: EventSource | null = null;
 		let poll: ReturnType<typeof setInterval> | null = null;
 		let disposed = false;
+		/** Aborts a poll's read of the stream still open when the page leaves this run. */
+		const polls = new AbortController();
 
 		run = null;
 		loadErr = '';
@@ -364,7 +367,7 @@
 		polling = false;
 		events = [];
 		bumpFold();
-		baselineEventId = 0;
+		baselineEventId = null;
 		highWater = 0;
 		note = '';
 		message = '';
@@ -415,7 +418,7 @@
 			poll = setInterval(() => {
 				void refresh(id);
 				void loadFonts(id);
-				void pollEvents(id);
+				void pollEvents(id, polls.signal);
 				openStream();
 			}, 5_000);
 		};
@@ -431,6 +434,7 @@
 
 		return () => {
 			disposed = true;
+			polls.abort();
 			source?.close();
 			if (poll) clearInterval(poll);
 			if (refreshTimer) clearTimeout(refreshTimer);
@@ -613,7 +617,7 @@
 	/** What a tile shows: the art director's pick, else the first variant, else the mockup crop. */
 	function tileSrc(r: RegionView): string | null {
 		const shown = pickOf(r) ?? r.variants[0];
-		if (shown) return variantUrl(runId, shown, 'thumb', r.version);
+		if (shown) return variantUrl(runId, shown, 'thumb', r.renderVersion);
 		if (r.cropKey) return imageUrl(runId, r.cropKey, r.version);
 		return null;
 	}
@@ -838,14 +842,14 @@
 				</figure>
 			{/if}
 			{#each r.variants as v, i (v.id)}
-				{@const src = variantUrl(runId, v, 'thumb', r.version)}
+				{@const src = variantUrl(runId, v, 'thumb', r.renderVersion)}
 				<figure class="variant" class:picked={pick?.id === v.id}>
 					<button
 						type="button"
 						class="frame"
 						onclick={() =>
 							openImage(
-								variantUrl(runId, v, 'full', r.version),
+								variantUrl(runId, v, 'full', r.renderVersion),
 								`Variant ${letter(i)} · ${regionTitle(r.name)}`,
 							)}
 					>
@@ -861,9 +865,11 @@
 					<p class="muted">
 						{r.status === 'failed'
 							? (r.error ?? 'The render failed.')
-							: r.status === 'drafting'
-								? 'Rendering on RunPod now.'
-								: 'Nothing rendered yet.'}
+							: terminal
+								? 'The run ended before this rendered.'
+								: r.status === 'drafting'
+									? 'Rendering on RunPod now.'
+									: 'Nothing rendered yet.'}
 					</p>
 				{/if}
 			{/each}

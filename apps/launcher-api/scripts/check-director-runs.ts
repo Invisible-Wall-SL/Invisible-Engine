@@ -1852,7 +1852,8 @@ console.log('variants');
 	await variant(OWNER, q({ size: 'thumb' }));
 	check('size=thumb is the thumb', ATLAS_CALLS.at(-1)?.call.path, '/vthumb/Logo');
 	calls = ATLAS_CALLS.length;
-	atlasAnswer = () => atlasBytes('image/png', Uint8Array.from([0x89, 0x50, 0x4e, 0x47]));
+	const PNG_FULL = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 9]);
+	atlasAnswer = () => atlasBytes('image/png', PNG_FULL);
 	const full = await variant(OWNER, q({ size: 'full', region: 'Wild(1)' }));
 	check(
 		'size=full asks for the full image',
@@ -1869,8 +1870,22 @@ console.log('variants');
 		atlasBytes('image/svg+xml; charset=utf-8', new TextEncoder().encode('<svg/>'));
 	const placeholder = await variant(OWNER, q({ id: '99' }));
 	check('the placeholder SVG for an unknown id is 404', placeholder.status, 404);
+	atlasAnswer = () => atlasBytes('image/png', new TextEncoder().encode('<svg/>'));
+	check(
+		'bytes that are not an image are 404 whatever atlas-tool’s header says',
+		(await variant(OWNER, q({ id: '98' }))).status,
+		404,
+	);
+	atlasAnswer = () => atlasBytes('image/png', JPEG);
+	check(
+		'the type served is the one the bytes sniff as',
+		(await variant(OWNER, q({ id: '97' }))).headers.get('content-type'),
+		'image/jpeg',
+	);
 
-	atlasAnswer = () => atlasBytes('image/png', new Uint8Array(6 * 1024 * 1024 + 1));
+	const HUGE_PNG = new Uint8Array(6 * 1024 * 1024 + 1);
+	HUGE_PNG.set(PNG_FULL);
+	atlasAnswer = () => atlasBytes('image/png', HUGE_PNG);
 	const huge = await call(variantRoute.GET, {
 		user: OWNER,
 		url: `/api/director/runs/${RUN_ID}/variant?${q({ size: 'full' })}`,
@@ -1890,9 +1905,9 @@ console.log('variants');
 	};
 	const gone = await failWith(new AdapterError(404, 'not_found', '/vthumb/Logo: not found.'));
 	check(
-		'an adapter refusal keeps its status, code and message',
+		'an adapter refusal keeps its status and code; atlas-tool’s own text never reaches the browser',
 		[gone.status, gone.body.error, gone.body.message],
-		[404, 'not_found', '/vthumb/Logo: not found.'],
+		[404, 'not_found', 'The Atlas Maker could not serve this variant.'],
 	);
 	const down = await failWith(new AdapterError(503, 'atlas_unavailable', 'Could not reach.'));
 	check('…an outage is 503', [down.status, down.body.error], [503, 'atlas_unavailable']);

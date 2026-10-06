@@ -23,7 +23,10 @@ import type { RunEvent, RunSummary } from '../src/routes/(app)/director/director
 import {
 	foldEvents,
 	insertEvent,
+	isDroppable,
+	isNews,
 	isProjectImageKey,
+	refusedIds,
 	regionTitle,
 	stepViews,
 	toolLabel,
@@ -244,6 +247,8 @@ const events: RunEvent[] = [
 				{ subject: 'L3_Q', verdict: 'reject', note: 'The letter came out warped.' },
 				{ subject: 'H1_Jade_Idol', verdict: 'pick 00002', note: 'Clean silhouette.' },
 				{ subject: 'Unknown thing', verdict: 'pick', note: 'x' },
+				{ subject: 'A', verdict: 'pick', note: 'A clean one.' },
+				{ subject: 'Mask', verdict: 'reject', note: 'A substring is not a region.' },
 				'not a finding',
 			],
 		},
@@ -569,6 +574,141 @@ console.log('steps');
 			['todo', 'Scene Editor, Symbols SM, Win Text'],
 			['todo', 'You publish it in Game Maker'],
 		],
+	);
+}
+
+console.log('refusals, matching and the baseline');
+{
+	// The owner's approval arrived after the run moved on: the worker refused it, so the batch is
+	// still to review, and the refusal row survives trimming.
+	const base = events.slice(0, 20); // up to and including the region_batch checkpoint_open
+	const refusedApprove = foldEvents(
+		[
+			...base,
+			row('checkpoint_resolved', 'owner', {
+				requestId: 'rr',
+				by: { uid: 'o', name: 'Owner' },
+				decision: 'approve',
+				checkpoint: 'region_batch',
+			}),
+			{
+				id: seq + 1,
+				at: at(),
+				agent: 'worker',
+				kind: 'error',
+				tool: null,
+				payload: {
+					type: 'refused_request',
+					eventId: seq,
+					error: 'resolve is not allowed while running (step regions)',
+				},
+			},
+		],
+		PREFIX,
+	);
+	check(
+		'a refused approval approves nothing',
+		[
+			refusedApprove.regions.get('H1_Jade_Idol')?.status,
+			refusedApprove.regions.get('H2_Coral_Mask')?.status,
+		],
+		['to_review', 'to_review'],
+	);
+	check(
+		'…and the feed says so on the owner row',
+		refusedApprove.feed.find((f) => f.kind === 'checkpoint_resolved' && f.id === seq)?.text,
+		'asked to approve the region batch — the worker refused it.',
+	);
+	const refusal: RunEvent = {
+		id: 7,
+		at: 'x',
+		agent: 'worker',
+		kind: 'error',
+		tool: null,
+		payload: { type: 'refused_request', eventId: 3, error: 'x' },
+	};
+	check(
+		'refused ids are collected; a refusal row is never dropped',
+		[
+			[...refusedIds([refusal])],
+			isDroppable(refusal),
+			isDroppable({ ...refusal, payload: { type: 'retrying' } }),
+		],
+		[[3], false, true],
+	);
+
+	const r = (name: string) => folded.regions.get(name)!;
+	check(
+		'a bare letter does not name a variant; "Variant B" does',
+		[r('H2_Coral_Mask').pick?.variant, r('H1_Jade_Idol').pick?.variant],
+		['00005', '00002'],
+	);
+	check(
+		'a one-letter subject and a substring name no region',
+		[...folded.regions.values()].filter(
+			(x) => x.pick?.note === 'A clean one.' || x.pick?.note === 'A substring is not a region.',
+		).length,
+		0,
+	);
+
+	// Regions outside the plan (a scratch atlas's layers under ADR-0008) are shown but never
+	// counted toward the template's total nor approved with a batch.
+	const scratch = foldEvents(
+		[
+			...base,
+			row(
+				'job_queued',
+				'atlas-artist',
+				{ jobRef: 'st_00000000000000cc', atlas: 'scratch', regions: ['cut_H1'] },
+				'atlas.queue_variants',
+			),
+			row(
+				'job_done',
+				'atlas-artist',
+				{
+					jobRef: 'st_00000000000000cc',
+					atlas: 'scratch',
+					regions: ['cut_H1'],
+					status: 'finished',
+					via: 'callback',
+					result: { variants: [{ region: 'cut_H1', variant: '00001', slot: 0 }] },
+				},
+				'atlas.queue_variants',
+			),
+			row('checkpoint_resolved', 'owner', {
+				requestId: 'rs',
+				by: { uid: 'o', name: 'Owner' },
+				decision: 'approve',
+				checkpoint: 'region_batch',
+			}),
+		],
+		PREFIX,
+	);
+	check(
+		'a region outside the plan sits under Other regions, unplanned, and is not approved with the batch',
+		[
+			scratch.regions.get('cut_H1')?.group,
+			scratch.regions.get('cut_H1')?.planned,
+			scratch.regions.get('cut_H1')?.status,
+			scratch.regions.get('H1_Jade_Idol')?.status,
+		],
+		['Other regions', false, 'to_review', 'approved'],
+	);
+	check(
+		'…and the rail counts the plan’s regions only',
+		stepViews(summary({}), scratch, 3)[2].detail,
+		'2 of 39 approved',
+	);
+	check(
+		'the render version moves on a render only',
+		[r('H1_Jade_Idol').renderVersion, r('H1_Jade_Idol').version > r('H1_Jade_Idol').renderVersion],
+		[16, true],
+	);
+
+	check(
+		'nothing is news before the summary; everything after a run with no rows is',
+		[isNews(null, 1), isNews(0, 1), isNews(5, 5), isNews(5, 6)],
+		[false, true, false, true],
 	);
 }
 
