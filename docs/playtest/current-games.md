@@ -94,9 +94,10 @@ and `lib/republish.mjs` (the TypeScript half, run under the TS loader).
   For a snapshot whose published engine is unknown, a copy of a built-in that main changed since
   the publish reads as authored and is kept, though a republish would replace it (no row, until the
   game is republished or the bake records where each def came from — an open question for the
-  owner). **Every live game is in that case today** (measured below): its snapshot predates this
-  repository's history, and its baked `freeSpinCounter` is not main's, so the 1 px proof flagged
-  nothing on the live games. A republish of each game makes the row exact for it from then on.
+  owner). Against main's built-ins alone every live game was in that case (measured below): each
+  live snapshot's baked `freeSpinCounter` is older than main's. Their pointers do record the engine
+  they were published with, and that commit is in the checkout, so with the published engine's
+  built-ins every one of them classifies as the copy it is.
 
 ## Screen scripts
 
@@ -427,10 +428,13 @@ before the change, and rendered with main's runtime (`89407ba`) against the work
   the two builds' built-ins differ and classified every live snapshot, and **no live game was
   affected**: 12 pass · 0 fail · 9 not rendered · 0 changed, 161 of 161 compared screens
   byte-identical, no republished row. Every live snapshot's baked `freeSpinCounter` differs from
-  main's built-in (the games were published on an engine from before this repository's history, and
-  the def has changed since), so against main's built-ins it reads as the author's and is kept. The
-  classification now prefers the built-ins of the engine the pointer records, which fixes this for
-  every snapshot published since the history began; the live games need a republish first.
+  main's built-in (the def has changed since the games were published), so against main's built-ins
+  it read as the author's and was kept. With the classification against the engine each pointer
+  records (run
+  [37395802976](https://github.com/Invisible-Wall-SL/Invisible-Engine/actions/runs/37395802976), the
+  second seed), the plan found **all 13 rendered live games affected** and planned their republished
+  rows; that run's rows then failed on a path the plan handed to the variant maker relative to the
+  wrong folder, fixed in the next commit; a third seed's run records the rows themselves (below).
 - **The revert, which is also main vs main.** With the frame back at `x: 0` the working tree's
   engine source equals main's, so its runtime (built again from the restored source) against main's
   cached build is two independent builds and renders of one engine. The plan found the two builds'

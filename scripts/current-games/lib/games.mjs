@@ -113,7 +113,9 @@ const CONCURRENCY = 12;
  * plan), so every render of the run uses the same snapshot even if the game is republished mid-run.
  */
 export async function currentSnapshot(game) {
-	if (game.local?.snapshot) return { id: 'local' };
+	// A fixture may declare the engine it was "published" with, as a live pointer records it.
+	if (game.local?.snapshot)
+		return { id: 'local', ...(game.local.engine ? { engine: game.local.engine } : {}) };
 	// The key arrives from the launcher and names a folder on this disk: plain segments only.
 	const segments = String(game.publishedPointerKey).split('/');
 	if (!POINTER_KEY.test(game.publishedPointerKey) || segments.some((p) => /^\.+$/.test(p)))

@@ -184,13 +184,16 @@ const makeVariants = (planned, bundleFile, runtimes, publishedBuiltinsFile) =>
 	});
 
 /**
- * The built-ins to tell `planned`'s baked copies by (`publishedBuiltinsFor` in `builtins.mjs`), an
- * engine's extracted into `<out>/builtins/<sha>.json` and named relative to the plan's folder, which
- * travels to the shards as the plan artifact; a fixture's own stays the absolute path it is.
+ * The built-ins to tell `planned`'s baked copies by (`publishedBuiltinsFor` in `builtins.mjs`): an
+ * engine's are extracted into `<out>/builtins/<sha>.json`, read from there now (`file`) and
+ * recorded relative to the plan's folder (`stored`), which travels to the shards as the plan
+ * artifact; a fixture's own is the absolute path it is, on both counts.
  */
 function publishedBuiltinsSource(planned) {
 	const found = publishedBuiltinsFor(planned, { builtinsDir: join(out, 'builtins'), cache });
-	if (found.file && !planned.game.local) found.file = relative(out, found.file);
+	if (found.file && !isAbsolute(found.file)) throw new Error(`not absolute: ${found.file}`);
+	if (found.file && !planned.game.local?.publishedBuiltins)
+		found.stored = relative(out, found.file);
 	if (found.note) found.note = redactText(found.note);
 	return found;
 }

@@ -366,7 +366,11 @@ await test('the plan renders only an affected game as republished, and a variant
 		bundleFor: async (entry) => `${entry.game.key}/runtime.json`,
 		publishedBuiltinsFor: (entry) =>
 			entry.game.key === 'affected'
-				? { file: 'builtins/abc.json', note: 'the built-ins of engine 7 (abc1234)' }
+				? {
+						file: '/plan-out/builtins/abc.json',
+						stored: 'builtins/abc.json',
+						note: 'the built-ins of engine 7 (abc1234)',
+					}
 				: { note: "main's built-ins, since the pointer records no engine for this snapshot" },
 		variantsFor: async (entry, bundleFile, published) => {
 			publishedFiles.push(published);
@@ -374,7 +378,8 @@ await test('the plan renders only an affected game as republished, and a variant
 			return metas[entry.game.key];
 		},
 	});
-	assert.deepEqual(publishedFiles, ['builtins/abc.json', undefined, undefined]);
+	// The variants read the file where it is now; the entry records it as the shards will find it.
+	assert.deepEqual(publishedFiles, ['/plan-out/builtins/abc.json', undefined, undefined]);
 	assert.equal(plan.games[0].republished.publishedBuiltins, 'builtins/abc.json');
 	assert.equal(plan.games[0].republished.classifiedAgainst, 'published');
 	assert.match(plan.games[0].republished.note, /engine 7/);

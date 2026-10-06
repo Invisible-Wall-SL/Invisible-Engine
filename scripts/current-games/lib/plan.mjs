@@ -163,9 +163,11 @@ export async function makePlan({ games, manifest, only, scenarioIds }) {
  * `variantsFor(entry, bundleFile, publishedBuiltinsFile)` makes both sides' republished variants of
  * its snapshot (`republishVariants` in `builtins.mjs`) from the `runtime.json` that
  * `bundleFor(entry)` fetched, classifying the baked defs against the built-ins
- * `publishedBuiltinsFor(entry)` names (`{ file, note }`: the engine the game was published with,
- * or main's when unknown, `note` saying which), and the game is rendered a second time only when
- * the two variants differ — a built-in the snapshot ships as a copy changed between the sides.
+ * `publishedBuiltinsFor(entry)` names (`{ file, stored, note }`: the engine the game was published
+ * with, or main's when unknown, `note` saying which; `file` is read now, `stored` — the same file
+ * as the shards will find it, beside the plan — is what the entry records), and the game is
+ * rendered a second time only when the two variants differ — a built-in the snapshot ships as a
+ * copy changed between the sides.
  * Each entry records the classification (`entry.republished`: `copies`, `authored`, `changed`,
  * `affected`, `classifiedAgainst`, `publishedBuiltins`, `note`), and an entry whose variants could
  * not be made gets `status: 'error'`, which the compare turns into a failing row rather than a
@@ -185,7 +187,7 @@ export async function planRepublished(plan, { bundleFor, variantsFor, publishedB
 				authored: meta.authored,
 				changed: meta.changed,
 				classifiedAgainst: meta.classifiedAgainst ?? 'main',
-				...(published.file ? { publishedBuiltins: published.file } : {}),
+				...(published.file ? { publishedBuiltins: published.stored ?? published.file } : {}),
 				...(published.note ? { note: published.note } : {}),
 			};
 			if (entry.republished.affected) plan.units.push(...unitsOf(entry, 'republished'));
