@@ -14,6 +14,9 @@ WHAT IS PINNED:
   * A save is a compare-and-swap: of two editors on one version exactly one
     lands, a create racing a create is EXISTS, the previous version goes to
     `card.history/<rev>.json` create-only, and a refused save writes nothing.
+    A history slot already holding a different version (a reused rev) never
+    wedges the card: the replaced version is filed above the newest entry.
+    A re-publish reset that loses to a person's save never clobbers it.
   * Only `pipelineMerge` (signed, not an agent) marks a card reviewed; an agent
     cannot write one at all; any plain save, and any re-publish of the
     blueprint, drops a reviewed card to draft; a changed graph makes it stale;
@@ -409,9 +412,50 @@ def test_cas() -> None:
           and (stored("matte")["status"], stored("matte")["rev"], stored("matte")["gpu"]["source"]),
           ("draft", 3, "guess"))
     R2.objects[cards.history_key("matte", 3)] = (b'{"other":"version"}', '"x"')
-    e = conflict_of(lambda: save("matte", matte_card(purpose="later still"),
-                                 docsave.Base(docsave.norm_etag(etag_of("matte")))))
-    check("a DIFFERENT version under that history rev is a conflict", e and e.reason, "stale")
+    base = docsave.Base(docsave.norm_etag(etag_of("matte")))
+    kept = R2.objects[cards.card_key("matte")][0]
+    res = save("matte", matte_card(purpose="later still"), base)
+    check("a DIFFERENT version under that history rev is a reused rev, not a wedge",
+          (res["ok"], res["card"]["rev"], stored("matte")["purpose"]), (True, 5, "later still"))
+    check("...the replaced version is filed above it, renumbered, the stranger untouched",
+          (cards.get_history_version("matte", 4),
+           R2.objects[cards.history_key("matte", 3)][0]),
+          ({**json.loads(kept), "rev": 4}, b'{"other":"version"}'))
+
+    # A card replaced by the bundled sync after a save filed history but lost the
+    # card write: the overwrite must land, keeping both earlier versions.
+    reset()
+    cards.sync_bundled_cards(log=lambda _m: None)
+    first = R2.objects[cards.card_key("sdxl")]
+    src = Path(tempfile.mkdtemp(prefix="bp-src-"))
+    shutil.copytree(blueprints.BUNDLED_SRC / "sdxl", src / "sdxl")
+    f = src / "sdxl" / "card.json"
+    f.write_text(json.dumps({**json.loads(f.read_text(encoding="utf-8")),
+                             "purpose": "new in the repo"}), encoding="utf-8")
+    on_card_put("sdxl", lambda: cards.sync_bundled_cards(src, log=lambda _m: None))
+    mine = dict(stored("sdxl"), purpose="mine")
+    e = conflict_of(lambda: save("sdxl", mine, docsave.Base(docsave.norm_etag(first[1]))))
+    check("a save racing the bundled sync loses STALE",
+          (e and e.reason, stored("sdxl")["purpose"]), ("stale", "new in the repo"))
+    res = save("sdxl", mine, docsave.Base(e.etag))
+    check("...and its overwrite lands instead of wedging on history/1",
+          (res["ok"], stored("sdxl")["purpose"], stored("sdxl")["rev"]), (True, "mine", 3))
+    check("...with both earlier versions in history",
+          (R2.objects[cards.history_key("sdxl", 1)][0] == first[0],
+           cards.get_history_version("sdxl", 2)["purpose"]), (True, "new in the repo"))
+
+    # History left behind by a deleted blueprint (a delete that could not list).
+    reset()
+    matte()
+    save("matte", matte_card(purpose="old life"), docsave.Base(""))
+    save("matte", matte_card(purpose="old life 2"), base_of("matte"))
+    R2.delete(cards.card_key("matte"))
+    save("matte", matte_card(purpose="new life"), docsave.Base(""))
+    res = save("matte", matte_card(purpose="new life 2"), base_of("matte"))
+    check("leftover history from a deleted card does not wedge the new one",
+          (res["ok"], res["card"]["rev"], cards.get_history_version("matte", 2)["purpose"],
+           cards.get_history_version("matte", 1)["purpose"]),
+          (True, 3, "new life", "old life"))
 
 
 # --------------------------------------------------------------------------
@@ -491,6 +535,46 @@ def upload(name: str, graph: dict) -> str:
         "params": [], "overwrite": True, "use_for_atlas": False})
 
 
+def on_card_put(bp_id: str, fn) -> None:
+    """Run `fn` just before the next write of `bp_id`'s card.json lands."""
+    def hook(key):
+        if key == cards.card_key(bp_id):
+            fn()
+        else:
+            R2.before_put = hook
+    R2.before_put = hook
+
+
+def test_reset_races_a_save() -> None:
+    reset()
+    matte()
+    save("matte", matte_card(), base_of("matte"), OWNER, review=True)
+    loaded = base_of("matte")
+    on_card_put("matte", lambda: save("matte", matte_card(purpose="edited"), loaded, ARTIST))
+    check("a reset that loses to a person's draft save resets nothing",
+          cards.reset_on_republish("matte", OWNER), False)
+    card = stored("matte")
+    check("...and the person's save stands untouched",
+          (card["purpose"], card["status"], card["rev"], card.get("resetReason"),
+           card["saved_by"]["name"]), ("edited", "draft", 2, None, "Artist"))
+    check("...history complete", history_keys("matte"), [cards.history_key("matte", 1)])
+
+    reset()
+    matte()
+    save("matte", matte_card(), base_of("matte"), OWNER, review=True)
+    loaded = base_of("matte")
+    on_card_put("matte", lambda: save("matte", matte_card(purpose="re-reviewed"), loaded,
+                                      OWNER, review=True))
+    check("a reset that loses to a person's review retries on THEIR card",
+          cards.reset_on_republish("matte", OWNER), True)
+    card = stored("matte")
+    check("...keeping their content and stamp, rev after theirs",
+          (card["purpose"], card["status"], card["rev"], card["saved_by"]["name"]),
+          ("re-reviewed", "draft", 3, "Owner"))
+    check("...their reviewed version is in history",
+          cards.get_history_version("matte", 2)["status"], "reviewed")
+
+
 def test_republish_resets_review() -> None:
     reset()
     msg = upload("Matte", MATTE_GRAPH)
@@ -546,6 +630,18 @@ def test_bundled_sync() -> None:
           (done["flux"], stored("flux")["purpose"] != "changed in the repo"),
           ("kept: edited in the tool", True))
 
+    rogue = Path(tempfile.mkdtemp(prefix="bp-src-"))
+    shutil.copytree(blueprints.BUNDLED_SRC / "gpt_image", rogue / "gpt_image")
+    f = rogue / "gpt_image" / "card.json"
+    c = json.loads(f.read_text(encoding="utf-8"))
+    c["status"] = "reviewed"
+    f.write_text(json.dumps(c), encoding="utf-8")
+    before = stored("gpt_image")
+    done = dict(cards.sync_bundled_cards(rogue, log=lambda _m: None))
+    check("a repo file cannot ship a review",
+          (done["gpt_image"], stored("gpt_image") == before),
+          ("refused: shipped as reviewed", True))
+
     reset()
     blueprints._HYDRATED = False
     blueprints.hydrate()
@@ -577,6 +673,16 @@ def test_catalogue_seed() -> None:
     save("matte", matte_card(purpose="owner's"), base_of("matte"), OWNER)
     cards.seed_catalogue_cards(seeds, log=lambda _m: None)
     check("an edited card is never overwritten", stored("matte")["purpose"], "owner's")
+
+    reset()
+    matte()
+    rogue = Path(tempfile.mkdtemp(prefix="card-seeds-"))
+    c = full_card("matte", matte_card(settings=[]), id="matte", graphSha=bp["graph_sha"],
+                  mapSha="", status="reviewed")
+    (rogue / "matte.json").write_text(json.dumps(c), encoding="utf-8")
+    done = dict(cards.seed_catalogue_cards(rogue, log=lambda _m: None))
+    check("a seed cannot ship a review", (done["matte"], stored("matte")),
+          ("refused: shipped as reviewed", None))
 
     for f in sorted(list(blueprints.BUNDLED_SRC.glob("*/card.json"))
                     + list(cards.CARD_SEEDS.glob("*.json"))):
@@ -759,8 +865,8 @@ def test_doc_guard_names_a_card() -> None:
 
 if __name__ == "__main__":
     for fn in (test_schema, test_blueprint_rules, test_cas, test_review,
-               test_republish_resets_review, test_bundled_sync, test_catalogue_seed,
-               test_listing, test_delete, test_doc_guard_names_a_card):
+               test_reset_races_a_save, test_republish_resets_review, test_bundled_sync,
+               test_catalogue_seed, test_listing, test_delete, test_doc_guard_names_a_card):
         print(f"\n-- {fn.__name__}")
         fn()
     print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")

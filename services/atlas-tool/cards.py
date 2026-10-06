@@ -540,23 +540,49 @@ def _put(key: str, body: bytes, *, if_match: str | None = None,
 
 
 class _HistoryTaken(Exception):
-    """`card.history/<rev>.json` already holds a DIFFERENT version."""
+    """Even the renumbered history slot holds a different version."""
 
 
-def _write_history(bp_id: str, rev: int, body: bytes) -> None:
-    """Keep the version being replaced, create-only. A collision whose stored
-    bytes are IDENTICAL is that same version, left by a save whose card write
-    then lost (or by a writer racing us from the same base — the card's own
-    If-Match picks the winner); refusing it would wedge the card for good. Any
-    other collision means history and card disagree: refuse the save."""
-    key = history_key(bp_id, rev)
+def _filed(key: str, body: bytes) -> bool:
+    """Create-only history write; True when `key` now holds exactly `body`. A
+    collision with IDENTICAL bytes is that same version, left by a save whose
+    card write then lost (or by a writer racing us from the same base — the
+    card's own If-Match picks the winner)."""
     try:
         _put(key, body, if_none_match="*")
+        return True
     except storage.Conflict:
         got = storage.get_with_etag(key)
-        if got is not None and got[0] == body:
-            return
-        raise _HistoryTaken(key) from None
+        return got is not None and got[0] == body
+
+
+def _history_revs(bp_id: str) -> list[int]:
+    revs = []
+    for obj in storage.list_keys(history_prefix(bp_id)):
+        name = str(obj.get("key", "")).rsplit("/", 1)[-1]
+        stem = name[:-5] if name.endswith(".json") else ""
+        if stem.isdigit():
+            revs.append(int(stem))
+    return revs
+
+
+def _write_history(bp_id: str, rev: int, body: bytes) -> int:
+    """Keep the version being replaced, create-only; returns the rev it is filed
+    under. A DIFFERENT version already under `rev` is never a concurrent saver
+    (one from the same base files identical bytes) but a reused rev — history
+    left by a deleted blueprint, or an unedited card the bundled sync replaced
+    after a save that never landed. Refusing would wedge the card for good, so
+    the version is filed above the newest history entry instead; the card's
+    If-Match still decides who wins."""
+    if _filed(history_key(bp_id, rev), body):
+        return rev
+    filed = max(_history_revs(bp_id) + [rev]) + 1
+    doc = docsave.parse_doc(body)
+    if doc is not None:
+        body = _dump({**doc, "rev": filed})
+    if not _filed(history_key(bp_id, filed), body):
+        raise _HistoryTaken(history_key(bp_id, filed))
+    return filed
 
 
 def _conflict(bp_id: str, reason: str) -> docsave.DocConflict:
@@ -575,7 +601,7 @@ def _replace(bp_id: str, new: dict, cur_body: bytes | None, cur_etag: str | None
     on a refusal before the card write, and the card write is the last step."""
     if cur_etag is not None and cur_body is not None:
         try:
-            _write_history(bp_id, cur_rev, cur_body)
+            new["rev"] = _write_history(bp_id, cur_rev, cur_body) + 1
         except _HistoryTaken:
             raise _conflict(bp_id, docsave.STALE) from None
     try:
@@ -728,13 +754,7 @@ def card_history(bp_id: str) -> list[dict]:
     cur, _ = read_card(bp_id)
     if cur:
         out.append(entry(cur))
-    revs = []
-    for obj in storage.list_keys(history_prefix(bp_id)):
-        name = str(obj.get("key", "")).rsplit("/", 1)[-1]
-        stem = name[:-5] if name.endswith(".json") else ""
-        if stem.isdigit():
-            revs.append(int(stem))
-    for rev in sorted(revs, reverse=True)[:HISTORY_LIMIT]:
+    for rev in sorted(_history_revs(bp_id), reverse=True)[:HISTORY_LIMIT]:
         doc = docsave.parse_doc(storage.get_strict(history_key(bp_id, rev)))
         if doc:
             out.append(entry(doc))
@@ -889,6 +909,12 @@ def card_view(bp_id: str, *, identity, can_publish: bool, builtin_keys: dict) ->
 # Bundled cards and the catalogue seed
 # --------------------------------------------------------------------------
 
+def _shipped_review(card) -> bool:
+    """A card file in the repo may only ever be a draft: a review is the owner's
+    act in the editor, stamped by `pipelineMerge`, never a value in a file."""
+    return isinstance(card, dict) and card.get("status", "draft") != "draft"
+
+
 def sync_bundled_cards(src: Path = blueprints.BUNDLED_SRC, *, dry_run: bool = False,
                        log=print) -> list[tuple[str, str]]:
     """Ship each `blueprints_src/<id>/card.json` to the library: create it when
@@ -908,6 +934,11 @@ def sync_bundled_cards(src: Path = blueprints.BUNDLED_SRC, *, dry_run: bool = Fa
             card = json.loads(f.read_text(encoding="utf-8"))
         except (OSError, ValueError) as e:
             log(f"[cards] bundled card '{bp_id}' unreadable: {e}")
+            continue
+        if _shipped_review(card):
+            log(f"[cards] bundled card '{bp_id}' says status '{card.get('status')}', not "
+                "shipped: only the editor's pipelineMerge review makes a card reviewed")
+            done.append((bp_id, "refused: shipped as reviewed"))
             continue
         if bp_id not in BUILTIN_IDS:
             bp = blueprints.read_blueprint_r2(bp_id)
@@ -963,6 +994,11 @@ def seed_catalogue_cards(seeds: Path = CARD_SEEDS, *, dry_run: bool = False,
             log(f"[cards] seed '{f.name}' is not a JSON object")
             continue
         bp_id = norm_id(seed.get("id")) or f.stem
+        if _shipped_review(seed):
+            log(f"[cards] seed '{bp_id}' says status '{seed.get('status')}', not written: "
+                "only the editor's pipelineMerge review makes a card reviewed")
+            done.append((bp_id, "refused: shipped as reviewed"))
+            continue
         bp = blueprints.read_blueprint_r2(bp_id)
         if bp is None:
             done.append((bp_id, "skipped: not in the library"))

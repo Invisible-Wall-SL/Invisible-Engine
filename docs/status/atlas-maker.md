@@ -128,7 +128,10 @@ _Nothing._
   `GET /blueprints` (reviewed only; always so for an agent token; `all=1` for the editor), `GET
   /card`, `POST /card/save`. Bundled cards in `blueprints_src/` sync like the blueprints; the six
   published blueprints get catalogue drafts (`card_seeds/`, `seed_cards.py`) create-only and only on
-  a matching `graphSha`. Inert: nothing consumes cards yet. `test_blueprint_cards.py`. ⏳ Owed: a
+  a matching `graphSha`; a repo file or seed that says anything but `draft` is refused (a review is
+  only ever the editor's). A history slot already holding a DIFFERENT version (a rev rewound by the
+  bundled sync, or left by a partial delete) is never a wedge: the old version is filed at the next
+  free rev and `rev` continues from there. Inert: nothing consumes cards yet. `test_blueprint_cards.py`. ⏳ Owed: a
   browser pass of the editor on the live tool, and the owner's review of the drafts.
 - 2026-10-05 — **Every still render reports its GPU time, for the Director to bill** (Director
   card 2.7, [ADR-0006](../director/DECISIONS/0006-costs-and-budgets.md)). RunPod's job status
