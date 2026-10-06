@@ -151,13 +151,16 @@
 
 	async function merge(): Promise<void> {
 		if (busy) return;
+		// The head the dialog names is the head the request pins: a refresh while the dialog is
+		// open must not swap a newer head in under a confirmation given for this one.
+		const { number, title, headSha } = detail;
 		const confirmed = await askConfirm({
-			title: `Merge #${detail.number} into main`,
-			message: mergeConfirmMessage(detail),
+			title: `Merge #${number} into main`,
+			message: mergeConfirmMessage({ number, title, headSha }),
 			confirmLabel: 'Merge',
 		});
 		if (!confirmed) return;
-		mergeRequest = { requestId: crypto.randomUUID(), headSha: detail.headSha };
+		mergeRequest = { requestId: crypto.randomUUID(), headSha };
 		await sendMerge();
 	}
 
@@ -176,9 +179,13 @@
 			if (!res.ok) {
 				const retry = res.status >= 500;
 				mergeError = { text: apiErrorText(res.status, body), retry };
-				if (!retry) mergeRequest = null;
-				// A refusal means the change is not what this page shows (the head moved, it closed).
-				if (res.status === 409) await reread();
+				// A refusal — the launcher's or GitHub's — means the change is not what this page
+				// shows (the head moved, it closed, protection changed): the request is dropped and
+				// the change read again.
+				if (!retry) {
+					mergeRequest = null;
+					await reread();
+				}
 				return;
 			}
 			merged = body as MergeResult;
