@@ -25,18 +25,6 @@ with the default.
    to spoof approval. *Suggested default:* accept for now; a follow-up card scopes source to a
    trusted `workflow_run` verdict from `main`'s harness, pinning approval to real results.
 
-6. **Double-bill risk in #1067.** If writing a `breakdown_image` row fails after the vision call
-   was billed, the retry asks for (and bills) that image again. *Suggested default:* a small
-   follow-up that writes the spend row and the answer row in one transaction.
-
-7. **Pending-project mockup cleanup.** Mockups uploaded to a project never deployed can be written
-   under a free-key subtree and accumulate indefinitely. *Suggested default:* a cleanup follow-up
-   to remove mockups / mockups.json on project deletion.
-
-9. **Pin agent-eval actions to commit SHAs.** `agent-eval.yml` uses action versions that float
-   (e.g. `@v4`). *Suggested default:* a follow-up touching only that workflow to pin to major version
-   SHAs and enable Dependabot.
-
 10. **Agent-eval as a GitHub required check.** Should `agent-eval` block a merge if it fails?
     *Suggested default:* no; the launcher's merge gate reads the evaluation report but does not
     require a passing status, so `pipelineMerge` users can merge anyway. Make it required only if
@@ -64,7 +52,26 @@ with the default.
     atlas people were already seeing, only when the selection is blank or stale. *Suggested
     default:* accept as the one exception to "a Director never writes the config".
 
+17. **Pending keys that alias a real project's folder (from #1085, gap since #1069).**
+    `requireDirectorProjectScope` treats `sunken_temple` as a free pending key, but its R2 folder
+    (`r2Slug`) is the real `sunken-temple`'s, so a pending upload can write into that project's
+    `director/` tree. `createProject` has the same blind spot (`my_game` next to `my-game`). The
+    mockup cleanup refuses such folders. *Suggested default:* a follow-up that refuses any new key
+    whose `r2Slug` matches an existing project's.
+
+18. **Abandoned-mockup sweep scope (from #1085).** Mockups under a deleted client are never swept,
+    the sweep has no dry run, and a generic catalogue font name (e.g. "Serif") drops any unhedged
+    gap naming it. *Suggested default:* accept all three (the safe side / owner's own catalogue).
+
 ## Answered
+
+- **2026-10-06: follow-ups batch (#1085).**
+  - #6 double bill: a re-ask after a failed answer write is unavoidable; it is now always billed
+    (answer row in a savepoint beside the spend row, so the cap sees every paid call).
+  - #7 pending mockups: built as cleanup of abandoned pending keys (uploader empties the key, or
+    the Admin sweep after `DIRECTOR_PENDING_MOCKUP_DAYS`, default 14), not "on project deletion".
+  - #9 agent-eval actions pinned to commit SHAs; Dependabot's github-actions entry keeps them
+    current.
 
 - **2026-10-06: Phase 8 card 8A merge (#1078). Owner decision.**
   - Image-cache eviction in the Changes tab: fixed in #1074 (image artifact artifacts now
