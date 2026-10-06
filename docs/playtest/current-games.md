@@ -394,7 +394,24 @@ against its merge-base with main instead of counting as "change set unknown".
 The fixtures were baked from main's built-ins (`fixtures.mjs --builtins`), as snapshots published
 before the change, and rendered with main's runtime (`89407ba`) against the working tree.
 
-- **The 1 px proof, the revert and main vs main** are being measured in
+- **The 1 px proof.** The built-in `freeSpinCounter` frame moved from `x: 0` to `x: 1` on the
+  branch. The plan read both builds' `builtins.json`, found them different, and made both variants
+  of every fixture: the four whose docs place the counter (`cg-lines`, `cg-ways`, `cg-bookof`,
+  `cg-bookof-pots`) were affected and rendered as republished too; the other four got the "a
+  republish would not change it" note. The eight **as-published** rows: `looks the same`, 0 changed
+  screens (the snapshots carry main's copy of the def, so the change cannot reach them: the 1F
+  finding, reproduced). The four **as-republished** rows: 6 changed screens, `fs-spin` on bookOf and
+  on bookOf + pots, `fs-board` and `fs-spin` on lines and on ways, each 1,185–1,318 px in the same
+  box (x 93–324, y 223–395, the counter panel), both sides on the same frame, worst block
+  28.5–29.3 %. These are the six screens the 2026-10-04 proof flagged on the as-published rows,
+  when the fixtures carried no baked defs. 156 of 162 compared screens were byte-identical, and the
+  status line read `8 pass · 4 fail · 0 not rendered · 6 changed screen(s) · 4 row(s) as
+  republished`. Evidence:
+  [`current-games/proof-1px-republished.png`](current-games/proof-1px-republished.png) (before |
+  after | diff, cropped to the panel). The repo's own gate caught the seed too:
+  `packages/engine-layout/scripts/test-hold-and-win-template.mjs` failed on the seeded commit
+  (`components.freeSpinCounter changed`), as it should for an unintended built-in change.
+- **The revert and main vs main** are being measured in
   [#1063](https://github.com/Invisible-Wall-SL/Invisible-Engine/pull/1063); the counts land here in
   that PR.
 
