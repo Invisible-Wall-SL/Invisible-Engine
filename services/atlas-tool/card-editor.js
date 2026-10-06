@@ -9,6 +9,7 @@
    A save is a compare-and-swap: opening a card puts `card:<id>` into
    window.IW_DOCS, doc-guard.js sends it as the base and adopts the version
    the save hands back; a conflict is its reload / overwrite prompt. */
+/* global CARD_CAN_REVIEW, collectBpParams */
 (function () {
 	var INPUTS = ['prompt', 'negative', 'reference', 'shape', 'sourceImage', 'mask', 'layer'];
 	var INPUT_VALUES = ['required', 'optional', 'none'];
@@ -18,7 +19,7 @@
 		reviewed: ['reviewed', '#1f3d22', '#7fd88a'],
 		draft: ['draft', '#3a3320', '#e2c46a'],
 		stale: ['stale', '#40221f', '#f19a8e'],
-		none: ['no card', '#2a2a2e', '#999']
+		none: ['no card', '#2a2a2e', '#999'],
 	};
 
 	function el(tag, css, text) {
@@ -38,7 +39,7 @@
 		var s = el(
 			'span',
 			'font-size:11px;padding:1px 7px;border-radius:9px;background:' + c[1] + ';color:' + c[2],
-			c[0]
+			c[0],
 		);
 		s.title =
 			status === 'stale'
@@ -109,7 +110,11 @@
 	}
 
 	function labelled(text, ctl, note) {
-		var l = el('label', 'display:flex;flex-direction:column;gap:3px;color:#aaa;font-size:12px', text);
+		var l = el(
+			'label',
+			'display:flex;flex-direction:column;gap:3px;color:#aaa;font-size:12px',
+			text,
+		);
 		l.appendChild(ctl);
 		if (note) l.appendChild(el('span', 'color:#666;font-size:11px', note));
 		return l;
@@ -155,7 +160,9 @@
 		wrap.appendChild(heading('Outputs'));
 		var out = card.outputs || {};
 		var r = row();
-		r.appendChild(el('span', 'color:#888;font-size:12px', 'kind: ' + (ctx.kind || out.kind || 'image')));
+		r.appendChild(
+			el('span', 'color:#888;font-size:12px', 'kind: ' + (ctx.kind || out.kind || 'image')),
+		);
 		var alpha = el('input');
 		alpha.type = 'checkbox';
 		alpha.checked = !!out.alpha;
@@ -177,8 +184,8 @@
 				'color:#888;font-size:11px',
 				ctx.builtin
 					? 'Per-atlas (scope atlas) or per-region (scope region) Settings keys only — global-only keys are not agent-settable.'
-					: "This blueprint's exposed settings. Ranges must sit inside the setting's own min/max."
-			)
+					: "This blueprint's exposed settings. Ranges must sit inside the setting's own min/max.",
+			),
 		);
 		var setBox = el('div', 'display:flex;flex-direction:column;gap:5px');
 		wrap.appendChild(setBox);
@@ -199,7 +206,14 @@
 			if (s.key && opts.indexOf(s.key) < 0) opts.unshift(s.key);
 			if (!s.key) opts.unshift('');
 			var key = select(opts, s.key || '');
-			var scope = select([['', 'scope: atlas'], ['atlas', 'atlas'], ['region', 'region']], s.scope || '');
+			var scope = select(
+				[
+					['', 'scope: atlas'],
+					['atlas', 'atlas'],
+					['region', 'region'],
+				],
+				s.scope || '',
+			);
 			var f = {};
 			['default', 'min', 'max', 'draft', 'final'].forEach(function (n) {
 				f[n] = input(s[n], n, '62px');
@@ -211,9 +225,11 @@
 			rm.onclick = function () {
 				line.remove();
 			};
-			[key, scope, f.default, f.min, f.max, f.draft, f.final, optsIn, note, rm].forEach(function (c) {
-				line.appendChild(c);
-			});
+			[key, scope, f.default, f.min, f.max, f.draft, f.final, optsIn, note, rm].forEach(
+				function (c) {
+					line.appendChild(c);
+				},
+			);
 			line._collect = function () {
 				if (!key.value) return null;
 				var p = paramOf(key.value);
@@ -236,7 +252,11 @@
 			setBox.appendChild(line);
 		}
 		(card.settings || []).forEach(addSetting);
-		var addSet = el('button', 'font-size:11px;padding:3px 8px;align-self:flex-start', '＋ Add setting');
+		var addSet = el(
+			'button',
+			'font-size:11px;padding:3px 8px;align-self:flex-start',
+			'＋ Add setting',
+		);
 		addSet.type = 'button';
 		addSet.onclick = function () {
 			addSetting();
@@ -248,7 +268,11 @@
 		var r2 = row();
 		var position = select(['generate', 'process', 'extract'], ch.position || 'generate');
 		var follows = input((ch.follows || []).join(', '), 'follows (ids, comma separated)', '200px');
-		var precedes = input((ch.precedes || []).join(', '), 'precedes (ids, comma separated)', '200px');
+		var precedes = input(
+			(ch.precedes || []).join(', '),
+			'precedes (ids, comma separated)',
+			'200px',
+		);
 		[position, follows, precedes].forEach(function (c) {
 			r2.appendChild(c);
 		});
@@ -263,11 +287,16 @@
 		var billing = select(['gpu', 'credits'], card.billing || 'gpu');
 		var licence = select(['ok', 'conditional', 'blocked'], card.licence || 'conditional');
 		[
-			el('span', 'color:#888;font-size:12px', 'drafts'), vd,
-			el('span', 'color:#888;font-size:12px', 'finals'), vf,
-			el('span', 'color:#888;font-size:12px', 'max'), vm,
-			el('span', 'color:#888;font-size:12px', 'billing'), billing,
-			el('span', 'color:#888;font-size:12px', 'licence'), licence
+			el('span', 'color:#888;font-size:12px', 'drafts'),
+			vd,
+			el('span', 'color:#888;font-size:12px', 'finals'),
+			vf,
+			el('span', 'color:#888;font-size:12px', 'max'),
+			vm,
+			el('span', 'color:#888;font-size:12px', 'billing'),
+			billing,
+			el('span', 'color:#888;font-size:12px', 'licence'),
+			licence,
 		].forEach(function (c) {
 			r3.appendChild(c);
 		});
@@ -281,8 +310,8 @@
 				'color:#888;font-size:11px',
 				'Warm execution seconds for one image at each size (source: ' +
 					(gpu.source || 'guess') +
-					'). The cold start is paid by the first job of a batch.'
-			)
+					'). The cold start is paid by the first job of a batch.',
+			),
 		);
 		var gpuBox = el('div', 'display:flex;flex-direction:column;gap:4px');
 		wrap.appendChild(gpuBox);
@@ -327,8 +356,8 @@
 			el(
 				'div',
 				'color:#777;font-size:11px;font-style:italic',
-				'Measured: No measurements yet — filled from billed renders in a later release.'
-			)
+				'Measured: No measurements yet — filled from billed renders in a later release.',
+			),
 		);
 
 		var gotchas = area(card.gotchas, 3);
@@ -360,13 +389,13 @@
 				var outputs = Object.assign({}, card.outputs || {}, {
 					kind: ctx.kind || (card.outputs || {}).kind || 'image',
 					alpha: alpha.checked,
-					count: num(count.value) == null ? 1 : num(count.value)
+					count: num(count.value) == null ? 1 : num(count.value),
 				});
 				if (sizeRule.value.trim()) outputs.sizeRule = sizeRule.value.trim();
 				else delete outputs.sizeRule;
 				var gpuOut = Object.assign({}, card.gpu || {}, {
 					secondsPerImage: spi,
-					coldStart: num(cold.value) == null ? 0 : num(cold.value)
+					coldStart: num(cold.value) == null ? 0 : num(cold.value),
 				});
 				delete gpuOut.source;
 				var inputs = {};
@@ -380,14 +409,18 @@
 					inputs: inputs,
 					outputs: outputs,
 					settings: settings,
-					chain: { position: position.value, follows: commas(follows.value), precedes: commas(precedes.value) },
+					chain: {
+						position: position.value,
+						follows: commas(follows.value),
+						precedes: commas(precedes.value),
+					},
 					gpu: gpuOut,
 					variants: { draft: num(vd.value), final: num(vf.value), max: num(vm.value) },
 					billing: billing.value,
 					licence: licence.value,
-					gotchas: lines(gotchas.value)
+					gotchas: lines(gotchas.value),
 				};
-			}
+			},
 		};
 	}
 
@@ -412,7 +445,7 @@
 		var r = await fetch('/card/save', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ id: id, card: card, review: !!review })
+			body: JSON.stringify({ id: id, card: card, review: !!review }),
 		});
 		var text = await r.text();
 		try {
@@ -456,17 +489,23 @@
 		}
 		var pre = el(
 			'pre',
-			'display:none;max-height:260px;overflow:auto;background:#111;color:#ccc;border:1px solid #333;border-radius:4px;padding:8px;font-size:11px'
+			'display:none;max-height:260px;overflow:auto;background:#111;color:#ccc;border:1px solid #333;border-radius:4px;padding:8px;font-size:11px',
 		);
 		history.forEach(function (h, i) {
 			var who = (h.savedBy && (h.savedBy.name || h.savedBy.tool)) || 'unstamped';
 			var line = el(
 				'div',
 				'font-size:12px;color:#bbb;cursor:pointer;padding:2px 0',
-				'rev ' + h.rev + ' · ' + h.status + ' · ' + who + (h.savedBy && h.savedBy.at ? ' · ' + h.savedBy.at : '') +
+				'rev ' +
+					h.rev +
+					' · ' +
+					h.status +
+					' · ' +
+					who +
+					(h.savedBy && h.savedBy.at ? ' · ' + h.savedBy.at : '') +
 					(h.reviewedBy ? ' · reviewed by ' + h.reviewedBy : '') +
 					(h.resetReason ? ' · ' + h.resetReason : '') +
-					(i === 0 ? ' (current)' : '')
+					(i === 0 ? ' (current)' : ''),
 			);
 			line.title = 'View this version (read-only)';
 			line.onclick = async function () {
@@ -515,22 +554,39 @@
 				'span',
 				'color:#999;font-size:12px',
 				c
-					? 'rev ' + c.rev + (c.saved_by ? ' · saved by ' + (c.saved_by.name || c.saved_by.sub || '?') + ' at ' + c.saved_by.at : ' · never edited in the tool') +
+					? 'rev ' +
+							c.rev +
+							(c.saved_by
+								? ' · saved by ' +
+									(c.saved_by.name || c.saved_by.sub || '?') +
+									' at ' +
+									c.saved_by.at
+								: ' · never edited in the tool') +
 							(c.reviewedBy ? ' · reviewed by ' + c.reviewedBy + ' at ' + c.reviewedAt : '')
-					: 'No card yet — prefilled from the graph. Nothing is saved until you press Save.'
-			)
+					: 'No card yet — prefilled from the graph. Nothing is saved until you press Save.',
+			),
 		);
 		head.appendChild(top);
-		if (c && c.resetReason) head.appendChild(el('div', 'color:#e2c46a;font-size:12px', '↺ Back to draft: ' + c.resetReason));
+		if (c && c.resetReason)
+			head.appendChild(
+				el('div', 'color:#e2c46a;font-size:12px', '↺ Back to draft: ' + c.resetReason),
+			);
 		head.appendChild(list('Problems against the live blueprint', v.problems, '#f19a8e'));
 		head.appendChild(list('Blocks review', v.reviewProblems, '#e2c46a'));
-		if (!v.canEdit) head.appendChild(el('div', 'color:#888;font-size:12px', 'Read-only: editing cards needs the “Publish blueprints” permission.'));
+		if (!v.canEdit)
+			head.appendChild(
+				el(
+					'div',
+					'color:#888;font-size:12px',
+					'Read-only: editing cards needs the “Publish blueprints” permission.',
+				),
+			);
 		editor.form = buildForm(document.getElementById('cardForm'), {
 			card: c || v.prefill,
 			kind: v.blueprint.kind,
 			builtin: v.blueprint.builtin,
 			keys: keysOf(v.blueprint),
-			readOnly: !v.canEdit
+			readOnly: !v.canEdit,
 		});
 		renderHistory(document.getElementById('cardHistory'), v.id, v.history);
 		document.getElementById('cardSaveDraft').style.display = v.canEdit ? '' : 'none';
@@ -571,7 +627,7 @@
 			var r = await fetch('/blueprints?all=1');
 			data = await r.json();
 			if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status);
-		} catch (e) {
+		} catch {
 			box.querySelectorAll('[data-card-chip]').forEach(function (s) {
 				s.textContent = 'card state unreadable';
 			});
@@ -591,7 +647,7 @@
 			if (!bp.builtin) return;
 			var line = el(
 				'div',
-				'display:flex;align-items:center;gap:8px;border:1px solid #2a2a2e;border-radius:5px;padding:7px 9px'
+				'display:flex;align-items:center;gap:8px;border:1px solid #2a2a2e;border-radius:5px;padding:7px 9px',
 			);
 			line.className = 'cardbuiltin';
 			line.appendChild(el('span', 'flex:1;color:#ddd', bp.name + ' (' + bp.id + ')'));
@@ -649,12 +705,12 @@
 				variants: { draft: 1, final: 1, max: 1 },
 				billing: 'gpu',
 				licence: 'conditional',
-				gotchas: []
+				gotchas: [],
 			},
 			kind: kind,
 			keys: params.map(function (p) {
 				return { key: p.key, param: p };
-			})
+			}),
 		};
 	}
 
@@ -687,7 +743,11 @@
 	// section was left empty.
 	window.cardAfterPublish = async function (name) {
 		if (!newForm || !newForm.purposeFilled()) return '';
-		var id = String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 60) || 'default';
+		var id =
+			String(name || '')
+				.toLowerCase()
+				.replace(/[^a-z0-9]/g, '_')
+				.slice(0, 60) || 'default';
 		window.IW_DOCS = window.IW_DOCS || {};
 		window.IW_DOCS['card:' + id] = { etag: '', rev: '' };
 		var review = !!(canReview() && (document.getElementById('bpCardReview') || {}).checked);
@@ -698,6 +758,9 @@
 			res = { ok: false, error: String(e) };
 		}
 		if (res.ok) return ' ✓ Card saved as ' + res.card.status + '.';
-		return ' ⚠ The blueprint is published, but its card was not saved — open 🗑 Manage blueprints → ✎ Card. ' + failText(res);
+		return (
+			' ⚠ The blueprint is published, but its card was not saved — open 🗑 Manage blueprints → ✎ Card. ' +
+			failText(res)
+		);
 	};
 })();
