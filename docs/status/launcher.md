@@ -67,7 +67,7 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     screen, then tails it (one `EventSource` per run id, `Last-Event-ID` on the browser's own
     reconnect, the 5 s polling fallback also reading the stream for refusals). The folding is a
     pure module, `routes/(app)/director/liveRun.ts`: every payload read by shape, nothing trusted,
-    nothing rendered as HTML. Fixture: `check:director-live` (60 checks; wired into Lint).
+    nothing rendered as HTML. Fixture: `check:director-live` (63 checks; wired into Lint).
   - **Steps rail** from the summary plus `run_status` rows: done / running / waiting / paused /
     failed / stopped / not reached, with the breakdown's figures and "n of m approved" on Regions.
     **Banner** per state: review n now (scrolls to the panel), the build to review, paused at the

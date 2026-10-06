@@ -291,7 +291,10 @@ export const areaLabel = (area: string): string => AREA_LABELS[area] ?? area;
 interface Ctx {
 	prefix: string;
 	regions: Map<string, RegionView>;
+	/** Batch name by the NORMALISED region name the plan wrote (`normal`). */
 	groupOf: Map<string, string>;
+	/** The atlases the plan's regions rendered on: a region there is the template's too. */
+	planAtlases: Set<string>;
 	groupOrder: string[];
 	images: Map<string, ImageRef>;
 	jobs: Map<string, GpuJob>;
@@ -308,11 +311,28 @@ interface Ctx {
 
 const OTHER_GROUP = 'Other regions';
 
-/** With a plan, a region is the template's when the plan names it; before one, every region is. */
-const isPlanned = (ctx: Ctx, name: string) => ctx.plan === null || ctx.groupOf.has(name);
+/**
+ * With a plan, a region is the template's when the plan names it — however the coordinator
+ * spelled it: `H2 Coral Mask` and `H2_Coral_Mask` are one name — or when it rendered on an atlas
+ * the plan's regions render on. Before a plan, every region is. What is left is the scratch-atlas
+ * case: a layer on an atlas no planned region uses.
+ */
+const isPlanned = (ctx: Ctx, region: Pick<RegionView, 'name' | 'atlas'>) =>
+	ctx.plan === null ||
+	ctx.groupOf.has(normal(region.name)) ||
+	(region.atlas !== null && ctx.planAtlases.has(region.atlas));
+
+/** A region's atlas became known: a planned region's atlas plans every region on it. */
+function noteAtlas(ctx: Ctx, region: RegionView, atlas: string) {
+	region.atlas = atlas;
+	if (ctx.groupOf.has(normal(region.name))) ctx.planAtlases.add(atlas);
+	for (const other of ctx.regions.values()) other.planned = isPlanned(ctx, other);
+}
 
 /** A `refused_request` error row: the worker could not apply the owner row it names. */
-export function isRefusal(event: RunEvent): event is RunEvent & { payload: { eventId: number } } {
+export function isRefusedRequest(
+	event: RunEvent,
+): event is RunEvent & { payload: { eventId: number } } {
 	return (
 		event.kind === 'error' &&
 		isRecord(event.payload) &&
@@ -324,7 +344,7 @@ export function isRefusal(event: RunEvent): event is RunEvent & { payload: { eve
 /** The ids of the owner rows the run's `refused_request` rows name. */
 export function refusedIds(events: readonly RunEvent[]): Set<number> {
 	const ids = new Set<number>();
-	for (const event of events) if (isRefusal(event)) ids.add(event.payload.eventId);
+	for (const event of events) if (isRefusedRequest(event)) ids.add(event.payload.eventId);
 	return ids;
 }
 
@@ -341,7 +361,7 @@ function regionOf(ctx: Ctx, name: string, at: string, version: number): RegionVi
 	if (!region) {
 		region = {
 			name,
-			group: ctx.groupOf.get(name) ?? OTHER_GROUP,
+			group: ctx.groupOf.get(normal(name)) ?? OTHER_GROUP,
 			atlas: null,
 			status: 'queued',
 			variants: [],
@@ -353,8 +373,9 @@ function regionOf(ctx: Ctx, name: string, at: string, version: number): RegionVi
 			updatedAt: at,
 			version,
 			renderVersion: 0,
-			planned: isPlanned(ctx, name),
+			planned: true,
 		};
+		region.planned = isPlanned(ctx, region);
 		ctx.regions.set(name, region);
 	}
 	return region;
@@ -390,7 +411,6 @@ function collectImageKeys(value: unknown, ctx: Ctx, event: RunEvent, depth = 0) 
 	}
 }
 
-/** The region a finding is about: its subject names one of the known regions, or none. */
 /** `H2 · Coral mask` → `h2 coral mask`, as whole tokens. */
 const tokens = (text: string) =>
 	text
@@ -516,24 +536,29 @@ function foldActivity(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 					if (!isRecord(b)) continue;
 					const name = str(b.name, 120);
 					if (!name) continue;
-					batches.push({ name, regions: strings(b.regions).filter((r) => REGION_NAME.test(r)) });
+					// The plan's names are the coordinator's words (`run.set_plan` only bounds them), so
+					// they are kept as written for grouping and matched normalised; a name that is also
+					// a region name as the adapter admits it stands for the region itself.
+					batches.push({ name, regions: strings(b.regions, 200) });
 				}
 			}
 			ctx.plan = { summary, batches };
 			ctx.groupOf.clear();
+			ctx.planAtlases.clear();
 			ctx.groupOrder = [];
 			for (const b of batches) {
 				if (!ctx.groupOrder.includes(b.name)) ctx.groupOrder.push(b.name);
 				for (const name of b.regions) {
-					ctx.groupOf.set(name, b.name);
-					const region = regionOf(ctx, name, event.at, event.id);
-					if (region) region.group = b.name;
+					if (!normal(name)) continue;
+					ctx.groupOf.set(normal(name), b.name);
+					if (REGION_NAME.test(name)) regionOf(ctx, name, event.at, event.id);
 				}
 			}
 			for (const region of ctx.regions.values()) {
-				region.group = ctx.groupOf.get(region.name) ?? OTHER_GROUP;
-				region.planned = isPlanned(ctx, region.name);
+				region.group = ctx.groupOf.get(normal(region.name)) ?? OTHER_GROUP;
+				if (region.atlas && ctx.groupOf.has(normal(region.name))) ctx.planAtlases.add(region.atlas);
 			}
+			for (const region of ctx.regions.values()) region.planned = isPlanned(ctx, region);
 			return push(
 				ctx,
 				event,
@@ -704,7 +729,7 @@ function foldJobQueued(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 		region.status = 'drafting';
 		region.jobRef = JOB_REF.test(jobRef) ? jobRef : null;
 		region.error = null;
-		if (atlas && ATLAS_ID.test(atlas)) region.atlas = atlas;
+		if (atlas && ATLAS_ID.test(atlas)) noteAtlas(ctx, region, atlas);
 		touch(region, event.at, event.id);
 	}
 	push(
@@ -765,7 +790,7 @@ function foldJobDone(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 				error ??
 				(status === 'cancelled' ? 'The render was cancelled.' : 'The render produced nothing.');
 		}
-		if (atlas && ATLAS_ID.test(atlas)) region.atlas = atlas;
+		if (atlas && ATLAS_ID.test(atlas)) noteAtlas(ctx, region, atlas);
 		touch(region, event.at, event.id);
 	}
 	const text =
@@ -838,6 +863,7 @@ export function foldEvents(events: readonly RunEvent[], prefix: string): Folded 
 		prefix,
 		regions: new Map(),
 		groupOf: new Map(),
+		planAtlases: new Set(),
 		groupOrder: [],
 		images: new Map(),
 		jobs: new Map(),
@@ -918,10 +944,10 @@ export function foldEvents(events: readonly RunEvent[], prefix: string): Folded 
 	}
 	const groups: GroupView[] = order.map((name) => {
 		const regions = [...ctx.regions.values()].filter((r) => r.group === name);
-		const planned = ctx.plan?.batches.find((b) => b.name === name)?.regions ?? [];
+		const planned = (ctx.plan?.batches.find((b) => b.name === name)?.regions ?? []).map(normal);
 		regions.sort((a, b) => {
-			const ia = planned.indexOf(a.name);
-			const ib = planned.indexOf(b.name);
+			const ia = planned.indexOf(normal(a.name));
+			const ib = planned.indexOf(normal(b.name));
 			if (ia !== -1 || ib !== -1) return (ia === -1 ? 1e9 : ia) - (ib === -1 ? 1e9 : ib);
 			return a.name.localeCompare(b.name);
 		});
@@ -1055,7 +1081,7 @@ const DROPPABLE_ACTIVITY = new Set(['breakdown_image', 'note', 'question', 'assi
 export function isDroppable(event: RunEvent): boolean {
 	if (event.kind === 'spend') return true;
 	// A refusal is structural: without it a refused approval would read as an approval.
-	if (event.kind === 'error') return !isRefusal(event);
+	if (event.kind === 'error') return !isRefusedRequest(event);
 	if (event.kind !== 'activity') return false;
 	const type = isRecord(event.payload) ? event.payload.type : undefined;
 	return typeof type === 'string' && DROPPABLE_ACTIVITY.has(type);

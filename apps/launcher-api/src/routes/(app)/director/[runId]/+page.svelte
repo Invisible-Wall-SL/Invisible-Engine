@@ -45,6 +45,7 @@
 		foldEvents,
 		insertEvent,
 		isNews,
+		isRefusedRequest,
 		trimEvents,
 		regionTitle,
 		stepViews,
@@ -273,7 +274,7 @@
 		bumpFold();
 		if (!isNews(baselineEventId, event.id)) return;
 		recent = [event, ...recent].slice(0, 8);
-		if (event.kind === 'error' && event.payload?.type === 'refused_request') {
+		if (isRefusedRequest(event)) {
 			const why = event.payload.error;
 			refusals = [...refusals, typeof why === 'string' ? why : 'The request was refused.'];
 		}
@@ -592,8 +593,9 @@
 
 	const groups = $derived(folded.groups);
 	/** Every region waiting for the owner, in the plan's order. */
+	/** Every region waiting for the owner, in the plan's order; a scratch region is not one. */
 	const toReview = $derived(
-		groups.flatMap((g) => g.regions.filter((r) => r.status === 'to_review')),
+		groups.flatMap((g) => g.regions.filter((r) => r.status === 'to_review' && r.planned)),
 	);
 	const group = $derived(
 		groups.find((g) => g.name === selectedGroup) ??

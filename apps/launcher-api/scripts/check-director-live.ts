@@ -361,10 +361,10 @@ const folded = foldEvents(events, PREFIX);
 		regionsTotal: 39,
 	});
 	check(
-		'the plan keeps the well-formed batches',
+		'the plan keeps the well-formed batches, with their names as the coordinator wrote them',
 		folded.plan?.batches.map((b) => [b.name, b.regions]),
 		[
-			['Symbols', ['H1_Jade_Idol', 'H2_Coral_Mask', 'L3_Q']],
+			['Symbols', ['H1_Jade_Idol', 'H2_Coral_Mask', 'L3_Q', 'bad name!']],
 			['Backgrounds', ['BG_Base']],
 		],
 	);
@@ -698,6 +698,110 @@ console.log('refusals, matching and the baseline');
 		'…and the rail counts the plan’s regions only',
 		stepViews(summary({}), scratch, 3)[2].detail,
 		'2 of 39 approved',
+	);
+
+	// The coordinator's plan spells a region its own way; the render uses the adapter's name.
+	const spelled = foldEvents(
+		[
+			row(
+				'activity',
+				'coordinator',
+				{
+					type: 'plan',
+					summary: 'x',
+					batches: [{ name: 'Symbols', regions: ['H2 Coral Mask', 'l3 q'] }],
+				},
+				'run.set_plan',
+			),
+			row(
+				'job_queued',
+				'atlas-artist',
+				{
+					jobRef: 'st_00000000000000dd',
+					atlas: 'symbols',
+					regions: ['H2_Coral_Mask', 'L3_Q', 'Wild'],
+				},
+				'atlas.queue_variants',
+			),
+			row(
+				'job_done',
+				'atlas-artist',
+				{
+					jobRef: 'st_00000000000000dd',
+					atlas: 'symbols',
+					regions: ['H2_Coral_Mask', 'L3_Q', 'Wild'],
+					status: 'finished',
+					via: 'callback',
+					result: {
+						variants: [
+							{ region: 'H2_Coral_Mask', variant: '00001', slot: 0 },
+							{ region: 'L3_Q', variant: '00002', slot: 0 },
+							{ region: 'Wild', variant: '00003', slot: 0 },
+						],
+					},
+				},
+				'atlas.queue_variants',
+			),
+			row(
+				'job_queued',
+				'atlas-artist',
+				{ jobRef: 'st_00000000000000de', atlas: 'scratch', regions: ['cut_Wild'] },
+				'atlas.queue_variants',
+			),
+			row(
+				'job_done',
+				'atlas-artist',
+				{
+					jobRef: 'st_00000000000000de',
+					atlas: 'scratch',
+					regions: ['cut_Wild'],
+					status: 'finished',
+					via: 'callback',
+					result: { variants: [{ region: 'cut_Wild', variant: '00001', slot: 0 }] },
+				},
+				'atlas.queue_variants',
+			),
+			row(
+				'checkpoint_open',
+				'coordinator',
+				{ checkpoint: 'region_batch', step: 'regions', summary: 'x' },
+				'run.request_checkpoint',
+			),
+			row('checkpoint_resolved', 'owner', {
+				requestId: 'rp',
+				by: { uid: 'o', name: 'Owner' },
+				decision: 'approve',
+				checkpoint: 'region_batch',
+			}),
+		],
+		PREFIX,
+	);
+	const sp = (name: string) => spelled.regions.get(name)!;
+	check(
+		'a plan name spelled differently still groups, plans and approves the rendered region',
+		[
+			sp('H2_Coral_Mask').group,
+			sp('H2_Coral_Mask').planned,
+			sp('H2_Coral_Mask').status,
+			sp('L3_Q').status,
+		],
+		['Symbols', true, 'approved', 'approved'],
+	);
+	check(
+		'a region the plan did not name but on a planned atlas is the template’s; a scratch atlas’s is not',
+		[
+			sp('Wild').group,
+			sp('Wild').planned,
+			sp('Wild').status,
+			sp('cut_Wild').planned,
+			sp('cut_Wild').status,
+		],
+		['Other regions', true, 'approved', false, 'to_review'],
+	);
+	check(
+		'the plan’s free-text names make no region of their own',
+		spelled.regions.has('H2 Coral Mask'),
+		false,
 	);
 	check(
 		'the render version moves on a render only',
