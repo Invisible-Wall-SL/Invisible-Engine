@@ -6,130 +6,32 @@
  * We type only the handful of members the editor overlay touches.
  */
 
-export interface SpineVector2 {
-	x: number;
-	y: number;
-	/** `Skeleton.getBounds` writes its result by CALLING `offset.set()/size.set()`
-	 * (it expects real spine `Vector2` instances) — a plain `{x,y}` makes it throw.
-	 * Callers must pass an object that implements this. */
-	set(x: number, y: number): void;
-}
+import type * as RIG from 'engine-rig/webgl';
 
-export interface SpineCamera {
-	position: { x: number; y: number; z: number };
-	up: { x: number; y: number; z: number };
-	zoom: number;
-	viewportWidth: number;
-	viewportHeight: number;
-	update(): void;
-}
-
-/** A posed bone — its world transform AFTER `skeleton.updateWorldTransform`. `worldX`/`worldY`
- * are the world origin (the Symbols-SM live FX overlay projects it to screen to ride the bound
- * bone, mirroring the Rigger's `fxBoneWorld`). The rotation/scale accessors mirror the underlying
- * runtime `Bone` — the Scene Editor's bone-ridden symbol preview reads them to honour a
- * component's `followRotation` / `followScale` (the SAME values the runtime `<SpineBoneAttach>`
- * uses: `-getWorldRotationX()*DEG_TO_RAD` for rotation, `getWorldScaleX()/getWorldScaleY()` for
- * scale). Read only once a rider is present, so non-rider previews touch none of them. */
-export interface SpineBone {
-	/** The local pose a value-binding preview offsets (`pixi-svelte/spineBoneOffset`). */
-	x: number;
-	y: number;
-	rotation: number;
-	scaleX: number;
-	scaleY: number;
-	worldX: number;
-	worldY: number;
-	/** World rotation about X in DEGREES (skeleton space, CCW) — negate + `DEG_TO_RAD` for Pixi. */
-	getWorldRotationX(): number;
-	/** Accumulated world scale along the bone's local X (the bone chain scale). */
-	getWorldScaleX(): number;
-	/** Accumulated world scale along the bone's local Y (the bone chain scale). */
-	getWorldScaleY(): number;
-}
-
-export interface SpineSkeleton {
-	x: number;
-	y: number;
-	scaleX: number;
-	scaleY: number;
-	/** The parsed skeleton data — the authored box lives here (`data.x/y/width/height`). */
-	data: SpineSkeletonData;
-	/** Setup-order bones; `bones[0]` is the root (== the rig origin when an fx binding has no bone). */
-	bones: SpineBone[];
-	setToSetupPose(): void;
-	setSkinByName(name: string): void;
-	setSlotsToSetupPose(): void;
-	updateWorldTransform(physics?: unknown): void;
-	getBounds(offset: SpineVector2, size: SpineVector2, temp: number[]): void;
-	/** Bone by name, or `null` when the rig has none by that name (a stale fx binding). */
-	findBone(name: string): SpineBone | null;
-}
-
-/** The live track's playhead — read (not accumulated) so the FX crossing stays in lockstep with the
- * pose `animationState.apply` produced this frame. `trackTime` grows unbounded for a looping entry;
- * the wrapped time is `trackTime % animation.duration`. */
-export interface SpineTrackEntry {
-	trackTime: number;
-	animation: { duration: number } | null;
-}
-
-export interface SpineAnimationState {
-	timeScale: number;
-	setAnimation(track: number, name: string, loop: boolean): unknown;
-	setEmptyAnimation(track: number, mixDuration: number): unknown;
-	update(delta: number): void;
-	apply(skeleton: SpineSkeleton): boolean;
-	/** The current entry on `track` (its playhead + animation), or `null` when the track is empty. */
-	getCurrent(track: number): SpineTrackEntry | null;
-}
-
-export interface SpineAnimationMeta {
-	name: string;
-	duration: number;
-	/** engine-rig `Animation.apply` — the value-binding preview poses a scrub with it. `blend` and
-	 *  `direction` are the runtime's `MixBlend` / `MixDirection` enum values. */
-	apply(
-		skeleton: SpineSkeleton,
-		lastTime: number,
-		time: number,
-		loop: boolean,
-		events: unknown[] | null,
-		alpha: number,
-		blend: number,
-		direction: number,
-	): void;
-}
-export interface SpineSkinMeta {
-	name: string;
-}
-export interface SpineSlotMeta {
-	name: string;
-}
-export interface SpineBoneMeta {
-	name: string;
-}
-export interface SpineSkeletonData {
-	/** The AUTHORED skeleton box (`skeleton.{x,y,width,height}`) — the pose-independent
-	 * sizing rect, and the SAME rect the game's `spineSizeScale` fits against. `x`/`y` is its
-	 * bottom-left corner in y-up skeleton coords; a Spine-editor rig centres it on the origin, a
-	 * Rigger rig need not (read it through `authoredSpineBox`, never assume). `width`/`height`
-	 * are `0` when the export omits them, which is why {@link measureSpineBounds} falls back to
-	 * a live `getBounds`. NOTE: the runtime does NOT scale any of these by the loader's
-	 * `parser.scale` — only the geometry. */
-	x?: number;
-	y?: number;
-	width: number;
-	height: number;
-	animations: SpineAnimationMeta[];
-	skins: SpineSkinMeta[];
-	/** Setup-pose slots (`skeleton.data.slots`) — surfaced so the editor can offer a
-	 * slot dropdown for spine-related component params (e.g. the free-spin count slot). */
-	slots: SpineSlotMeta[];
-	/** Setup-pose bones (`skeleton.data.bones`) — surfaced so the editor can offer a bone
-	 * dropdown for spine-related component params (e.g. the symbol-reveal attach bone). */
-	bones: SpineBoneMeta[];
-}
+/** `Skeleton.getBounds` writes its result by CALLING `offset.set()/size.set()`, so callers pass a
+ * real `Vector2`, never a plain `{x,y}`. */
+export type SpineVector2 = RIG.Vector2;
+export type SpineCamera = RIG.OrthoCamera;
+/** A posed bone — its world transform AFTER `skeleton.updateWorldTransform`. The Symbols-SM live
+ * FX overlay projects `worldX`/`worldY` to screen; the Scene Editor's bone-ridden preview reads
+ * `getWorldRotationX()` (degrees, CCW, y-up) and `getWorldScaleX/Y()` exactly as the runtime
+ * `<SpineBoneAttach>` does. */
+export type SpineBone = RIG.Bone;
+export type SpineSkeleton = RIG.Skeleton;
+/** The live track's playhead: `trackTime` grows unbounded for a looping entry, so the wrapped time
+ * is `trackTime % animation.duration`. */
+export type SpineTrackEntry = RIG.TrackEntry;
+export type SpineAnimationState = RIG.AnimationState;
+/** The AUTHORED skeleton box (`x`/`y`/`width`/`height`) is the pose-independent sizing rect the
+ * game's `spineSizeScale` fits against. `x`/`y` is its bottom-left corner in y-up skeleton coords; a
+ * Spine-editor rig centres it on the origin, a Rigger rig need not (read it through
+ * `authoredSpineBox`). `width`/`height` are `0` when the export omits them, which is why
+ * {@link measureSpineBounds} falls back to a live `getBounds`. The loader's `scale` scales none of
+ * these — only the geometry. */
+export type SpineSkeletonData = RIG.SkeletonData;
+export type SpineTextureAtlas = RIG.TextureAtlas;
+export type SpineSceneRenderer = RIG.SceneRenderer;
+export type SpineRuntime = typeof RIG;
 
 /** Per-`assetKey` metadata the editor publishes for each loaded spine bundle — the
  * animation / skin / slot / bone name lists the Properties panel turns into dropdowns. */
@@ -140,44 +42,6 @@ export interface SpineMeta {
 	bones: string[];
 }
 
-export interface SpineTexturePage {
-	name: string;
-	setTexture(texture: unknown): void;
-}
-export interface SpineTextureAtlas {
-	pages: SpineTexturePage[];
-	dispose(): void;
-}
-
-export interface SpineRuntime {
-	SceneRenderer: new (canvas: HTMLCanvasElement, gl: WebGLRenderingContext) => SpineSceneRenderer;
-	GLTexture: new (gl: WebGLRenderingContext, image: TexImageSource) => unknown;
-	TextureAtlas: new (atlasText: string) => SpineTextureAtlas;
-	AtlasAttachmentLoader: new (atlas: SpineTextureAtlas) => unknown;
-	// `scale` (settable) pre-multiplies the skeleton geometry on read — the SAME knob the
-	// game's loader uses (`assetLoad.ts#parser.scale`) so the editor preview can match.
-	SkeletonJson: new (loader: unknown) => {
-		scale: number;
-		readSkeletonData(json: unknown): SpineSkeletonData;
-	};
-	SkeletonBinary: new (loader: unknown) => {
-		scale: number;
-		readSkeletonData(bytes: Uint8Array): SpineSkeletonData;
-	};
-	Skeleton: new (data: SpineSkeletonData) => SpineSkeleton;
-	AnimationState: new (data: unknown) => SpineAnimationState;
-	AnimationStateData: new (data: SpineSkeletonData) => unknown;
-	Physics?: { update: unknown };
-}
-
-export interface SpineSceneRenderer {
-	camera: SpineCamera;
-	begin(): void;
-	end(): void;
-	drawSkeleton(skeleton: SpineSkeleton, premultipliedAlpha: boolean): void;
-	dispose(): void;
-}
-
 let runtimePromise: Promise<SpineRuntime> | null = null;
 let runtime: SpineRuntime | null = null;
 
@@ -186,9 +50,8 @@ export function loadSpineRuntime(): Promise<SpineRuntime> {
 	if (runtimePromise) return runtimePromise;
 	runtimePromise = import('engine-rig/webgl').then(
 		(mod) => {
-			const loaded: SpineRuntime = mod;
-			runtime = loaded;
-			return loaded;
+			runtime = mod;
+			return mod;
 		},
 		(error: unknown) => {
 			// Let the next caller retry instead of pinning every later load to this failure.
@@ -214,7 +77,9 @@ export function createSceneRenderer(
 	return new spine.SceneRenderer(canvas, gl);
 }
 
-/** The runtime's `Physics.update` token. */
-export function getSpinePhysics(): unknown {
-	return getActiveRuntime()?.Physics?.update;
+/** The runtime's `Physics.update` token. Only a skeleton the loaded runtime built is ever posed. */
+export function getSpinePhysics(): RIG.Physics {
+	const spine = getActiveRuntime();
+	if (!spine) throw new Error('rig runtime not loaded');
+	return spine.Physics.update;
 }
