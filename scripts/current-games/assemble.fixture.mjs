@@ -12,7 +12,7 @@ import { PNG } from 'pngjs';
 
 import { assembleReport } from './lib/assemble.mjs';
 import { makePlan, unitId, unitsForShard } from './lib/plan.mjs';
-import { digest, rowVerdict } from './lib/report.mjs';
+import { digest, rowKey, rowVerdict } from './lib/report.mjs';
 
 let failures = 0;
 const test = async (name, fn) => {
@@ -44,15 +44,25 @@ const png = (shade) => {
 	return PNG.sync.write(img);
 };
 
-/** One planned game rendered: `units[scenario][side]` is a result (screens: { name: shade }). */
-function scenarioRun(name, units) {
+/**
+ * One planned game rendered: `units[scenario][side]` is a result (screens: { name: shade });
+ * `units[scenario].republished[side]` the same for the game's republished variant, planned as
+ * `republished` says. Returns the whole report.
+ */
+function scenarioReport(name, units, republished) {
 	const dir = join(tmp, name);
 	const scenarios = Object.keys(units);
 	for (const scenario of scenarios)
-		for (const side of ['base', 'head']) {
-			const u = units[scenario][side];
+		for (const [side, variant] of [
+			['base', 'published'],
+			['head', 'published'],
+			['base', 'republished'],
+			['head', 'republished'],
+		]) {
+			const u =
+				variant === 'republished' ? units[scenario].republished?.[side] : units[scenario][side];
 			if (!u) continue;
-			const id = unitId('g', scenario, side);
+			const id = unitId('g', scenario, side, variant);
 			mkdirSync(join(dir, 'units', id), { recursive: true });
 			const screens = {};
 			for (const [screen, shade] of Object.entries(u.screens ?? {})) {
@@ -62,7 +72,7 @@ function scenarioRun(name, units) {
 			writeFileSync(
 				join(dir, 'units', id, 'result.json'),
 				JSON.stringify({
-					unit: { id },
+					unit: { id, variant },
 					draw: 'last',
 					screens,
 					error: u.error,
@@ -84,13 +94,16 @@ function scenarioRun(name, units) {
 				snapshot: { id: 's1' },
 				notes: [],
 				scenarios: scenarios.map((id) => ({ id })),
+				...(republished ? { republished } : {}),
 			},
 		],
 	};
 	const out = join(dir, 'report');
-	const report = assembleReport({ plan, unitDirs: [dir], out, tolerance: TOLERANCE, gates: false });
-	return report.games[0];
+	return assembleReport({ plan, unitDirs: [dir], out, tolerance: TOLERANCE, gates: false });
 }
+
+/** The as-published row of `scenarioReport`. */
+const scenarioRun = (name, units, republished) => scenarioReport(name, units, republished).games[0];
 
 const REFUSED = 'runtime bundle shape invalid (no assetBase / basegame scene)';
 const refusal = { bootStopped: REFUSED, error: `the runtime refused to boot: ${REFUSED}` };
@@ -187,6 +200,79 @@ await test('a branch that boots a snapshot main refuses still fails', () => {
 	});
 	assert.notEqual(row.looks.status, 'refused');
 	assert.equal(rowVerdict(row), 'fail');
+});
+
+const REPUBLISHED = {
+	status: 'planned',
+	affected: true,
+	copies: ['freeSpinCounter', 'loadingBar'],
+	authored: ['hudReadout'],
+	changed: ['freeSpinCounter'],
+};
+
+await test('a game rendered as republished too gets a second row, paired from its own units', () => {
+	const report = scenarioReport(
+		'republished',
+		{
+			base: {
+				base: { screens: { a: 1 } },
+				head: { screens: { a: 1 } },
+				republished: { base: { screens: { a: 1 } }, head: { screens: { a: 200 } } },
+			},
+		},
+		REPUBLISHED,
+	);
+	assert.equal(report.games.length, 2);
+	const [published, republished] = report.games;
+	assert.equal(published.variant, 'published');
+	assert.equal(rowVerdict(published), 'pass', 'the as-published render saw nothing');
+	assert.ok(
+		published.notes.some((n) => n.startsWith('as published:') && n.includes('freeSpinCounter')),
+	);
+	assert.equal(republished.variant, 'republished');
+	assert.equal(rowKey(republished), 'g@republished');
+	assert.equal(republished.looks.status, 'changed');
+	assert.equal(rowVerdict(republished), 'fail');
+	assert.match(republished.screens[0].id, /^a{40}:g@republished:a:[0-9a-f]{16}$/);
+	assert.match(republished.screens[0].images.after, /^screens\/g_republished--a\.after\.png$/);
+	assert.ok(
+		republished.notes.some(
+			(n) =>
+				n.startsWith('as republished:') && n.includes('hudReadout') && n.includes('loadingBar'),
+		),
+	);
+	assert.equal(report.summary.verdict, 'fail');
+	assert.match(
+		report.summary.line,
+		/1 pass · 1 fail · 0 not rendered · 1 changed screen\(s\) · 1 row\(s\) as republished$/,
+	);
+	const text = digest(report);
+	assert.match(text, /^pass · g \(as published\)/m);
+	assert.match(text, /^fail · g@republished \(as republished\)/m);
+});
+
+await test('a game whose republished variant could not be made is an error row, never a gap', () => {
+	const report = scenarioReport(
+		'republished-error',
+		{ base: { base: { screens: { a: 1 } }, head: { screens: { a: 1 } } } },
+		{ status: 'error', detail: 'the republished variant could not be made: boom' },
+	);
+	assert.equal(report.games.length, 2);
+	assert.equal(rowVerdict(report.games[0]), 'pass');
+	assert.equal(report.games[1].looks.status, 'error');
+	assert.match(report.games[1].looks.detail, /could not be made: boom/);
+	assert.equal(rowVerdict(report.games[1]), 'fail');
+});
+
+await test('a game a republish would not change keeps one row and says so', () => {
+	const report = scenarioReport(
+		'republished-unaffected',
+		{ base: { base: { screens: { a: 1 } }, head: { screens: { a: 1 } } } },
+		{ ...REPUBLISHED, affected: false, changed: [] },
+	);
+	assert.equal(report.games.length, 1);
+	assert.ok(report.games[0].notes.some((n) => n.includes('no republished render')));
+	assert.doesNotMatch(report.summary.line, /as republished/);
 });
 
 await test('every unit goes to exactly one shard, and every shard agrees', () => {

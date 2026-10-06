@@ -4,18 +4,27 @@
 // They are NOT the live games: CI renders the real published snapshots.
 //
 //   node --experimental-strip-types --import ./scripts/ts-loader.mjs \
-//     scripts/current-games/fixtures.mjs [--out .cache/current-games/fixtures]
+//     scripts/current-games/fixtures.mjs [--out .cache/current-games/fixtures] [--builtins <json>]
 //
 // Writes `<out>/games.json` in the `/api/pipeline/games` shape, each game carrying `local`: its
 // snapshot folder, its test-server manifest entry (the mock contract) and `assetBase: 'runtime'`
 // (the reference layouts' art ships inside the runtime build). Then:
 //
 //   node scripts/current-games/run.mjs --games-file .cache/current-games/fixtures/games.json …
+//
+// Like a publish (`runtimeBundle.ts`), each snapshot BAKES the component defs its doc references —
+// the closure of its placed instances, resolved from the built-ins — so a built-in change reaches
+// a fixture the way it reaches a live game: not until it is "republished", which the harness renders
+// as a row of its own (`lib/builtins.mjs`). `--builtins` bakes from another build's `builtins.json`
+// (main's, for the 1 px proof: the snapshots must predate the change); without it the working
+// tree's built-ins are baked.
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
+import { BUILTIN_COMPONENTS } from '../../packages/engine-layout/src/lib/builtinComponents.ts';
+import { resolveComponentClosure } from '../../packages/engine-layout/src/lib/collectComponentIds.ts';
 import {
 	bookofReferenceLayout,
 	clusterReferenceLayout,
@@ -26,6 +35,7 @@ import {
 } from '../../packages/engine-layout/src/lib/referenceLayouts/index.ts';
 import {
 	addPotsOverlay,
+	betModeCardIds,
 	HOLD_AND_WIN_PRESETS,
 	holdAndWinMockInputs,
 	normalizeGameConfigDoc,
@@ -34,9 +44,25 @@ import {
 
 const ROOT = resolve(import.meta.dirname, '../..');
 const { values: opt } = parseArgs({
-	options: { out: { type: 'string', default: join(ROOT, '.cache/current-games/fixtures') } },
+	options: {
+		out: { type: 'string', default: join(ROOT, '.cache/current-games/fixtures') },
+		builtins: { type: 'string' },
+	},
 });
 const out = resolve(opt.out);
+
+/** The built-in defs a "publish" of these fixtures resolves from, keyed by id. */
+const builtins = opt.builtins
+	? JSON.parse(readFileSync(resolve(opt.builtins), 'utf8')).defs
+	: Object.fromEntries(BUILTIN_COMPONENTS.map((def) => [def.id, def]));
+
+/** The defs a publish bakes for `doc`: the placed instances' closure plus the config's card ids. */
+const bakeComponentDefs = (doc, config) =>
+	resolveComponentClosure(
+		doc.scenes.flatMap((scene) => scene.nodes),
+		(id) => builtins[id],
+		{ extraSeedIds: config ? betModeCardIds(config) : [] },
+	);
 
 const committedDefault = (name) =>
 	normalizeGameConfigDoc(
@@ -158,7 +184,17 @@ for (const [key, make] of Object.entries(FIXTURES)) {
 	const { gameType, doc, config, entry } = make();
 	const dir = join(out, 'snapshots', key);
 	mkdirSync(join(dir, 'deploy'), { recursive: true });
-	writeFileSync(join(dir, 'runtime.json'), JSON.stringify({ doc, ...(config ? { config } : {}) }));
+	const componentDefs = await bakeComponentDefs(doc, config);
+	writeFileSync(
+		join(dir, 'runtime.json'),
+		JSON.stringify({ doc, componentDefs, componentDefaults: {}, ...(config ? { config } : {}) }),
+	);
+	// What a live pointer records as the engine the game was published with, as data: the built-ins
+	// this snapshot was baked from, which the harness tells the baked copies by.
+	writeFileSync(
+		join(dir, 'published-builtins.json'),
+		JSON.stringify({ version: 1, defs: builtins }),
+	);
 	games.push({
 		key,
 		name: `Fixture ${key.slice(3)}`,
@@ -171,6 +207,7 @@ for (const [key, make] of Object.entries(FIXTURES)) {
 		hasOwnBuiltBundle: false,
 		local: {
 			snapshot: dir,
+			publishedBuiltins: join(dir, 'published-builtins.json'),
 			assetBase: 'runtime',
 			manifestEntry: { ...entry, name: `Fixture ${key.slice(3)}`, projectKey: key },
 		},

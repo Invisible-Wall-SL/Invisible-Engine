@@ -1,7 +1,9 @@
 // The compare: pairs every scenario's two render units (base = main, head = the branch), compares
 // each screen under `tolerance.json`, and builds one row per planned game — build / tests / looks
 // the same — then writes the report (`report.mjs`). Runs where the units meet: in-process for a
-// local run, in CI's report job over every shard's units.
+// local run, in CI's report job over every shard's units. A game planned for a republished render
+// too (`planned.republished.affected`, see `plan.mjs`) gets a second row, `variant: 'republished'`,
+// paired from its republished units and kept apart from the as-published row in every id and file.
 
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -11,7 +13,7 @@ import { compareScreens, cropAround, identical, toleranceFor } from './compare.m
 import { gatesFor, runGate } from './gates.mjs';
 import { safe, unitId } from './plan.mjs';
 import { redactSecrets } from './redact.mjs';
-import { writeReport } from './report.mjs';
+import { rowKey, writeReport } from './report.mjs';
 
 /** The id half for a screen only one side captured: the side plus that capture's bytes. */
 const oneSidedHash = (png, side) =>
@@ -46,13 +48,51 @@ const failureOf = (r, side, scenario) =>
 			}
 		: undefined;
 
+const list = (ids) => (ids.length ? ids.join(', ') : 'none');
+
+/**
+ * What the two rows of a game planned for a republished render say about it: the as-published row
+ * names the defs a republish would change, the as-republished row what was replaced and what kept.
+ */
+function republishNotes(planned, variant) {
+	const r = planned.republished;
+	if (!r || r.status !== 'planned') return [];
+	const toldBy = r.note ? ` A copy is a baked def equal to ${r.note}.` : '';
+	if (variant === 'republished') {
+		const merged = r.merged ?? [];
+		return [
+			`as republished: the snapshot's ${r.copies.length} baked cop${r.copies.length === 1 ? 'y' : 'ies'} of ` +
+				`built-in component defs (${list(r.copies)}) are replaced by each side's built-ins, and the ` +
+				`sides differ on ${list(r.changed)}; ${r.authored.length} authored def(s) kept ` +
+				`(${list(r.authored)})` +
+				(merged.length
+					? `, ${merged.length} of them under a built-in's id with the coded params, bindings and ` +
+						`standsFor the side's built-in adds merged in, as the bake does (${list(merged)})`
+					: '') +
+				`.${toldBy}`,
+		];
+	}
+	if (r.affected)
+		return [
+			`as published: the baked component defs as the snapshot has them. A republish would change ` +
+				`${list(r.changed)} — see this game's "as republished" row.`,
+		];
+	return [
+		'the built-in component defs differ between the sides, but on none this snapshot ships as a ' +
+			`copy (copies: ${list(r.copies)}; authored: ${list(r.authored)}), so a republish would not ` +
+			`change it: no republished render.${toldBy}`,
+	];
+}
+
 function gameRow(
 	planned,
 	{ unitDirs, out, tolerance, headSha, buildStatus, gates, keepScreens, crops },
+	variant = 'published',
 ) {
 	const { game, script } = planned;
 	const row = {
 		key: game.key,
+		variant,
 		name: game.name,
 		gameType: game.gameType,
 		projectKey: game.projectKey,
@@ -62,11 +102,15 @@ function gameRow(
 		tests: { status: 'skip', gates: [] },
 		looks: { status: 'skip' },
 		screens: [],
-		notes: [...planned.notes],
+		notes: [...planned.notes, ...republishNotes(planned, variant)],
 	};
 	if (gates) {
 		row.tests.gates = gatesFor(script).map(runGate);
 		row.tests.status = row.tests.gates.every((g) => g.pass) ? 'pass' : 'fail';
+	}
+	if (variant === 'republished' && planned.republished?.status !== 'planned') {
+		row.looks = { status: 'error', detail: planned.republished?.detail ?? 'not planned' };
+		return row;
 	}
 	if (planned.status !== 'render') {
 		row.looks =
@@ -90,7 +134,7 @@ function gameRow(
 	for (const { id: scenario } of planned.scenarios) {
 		const sides = {};
 		for (const side of ['base', 'head']) {
-			sides[side] = loadUnit(unitDirs, unitId(game.key, scenario, side));
+			sides[side] = loadUnit(unitDirs, unitId(game.key, scenario, side, variant));
 			if (!sides[side]) missing.push(`${scenario}/${side}`);
 		}
 		if (!sides.base || !sides.head) continue;
@@ -130,7 +174,7 @@ function gameRow(
 				tolerance: tol,
 				state: { base: pick(sides.base.screens[screen]), head: pick(sides.head.screens[screen]) },
 			};
-			const stem = `${safe(game.key)}--${safe(screen)}`;
+			const stem = `${safe(rowKey(row))}--${safe(screen)}`;
 			if (!before || !after) {
 				shot.pass = false;
 				shot.reason = `captured on ${before ? 'main' : 'the branch'} only — no diff`;
@@ -184,7 +228,9 @@ function gameRow(
 					shot.images = { diff: `screens/${stem}.diff.png` };
 				}
 			}
-			if (shot.diffHash) shot.id = `${headSha}:${game.key}:${screen}:${shot.diffHash}`;
+			// The republished row's ids carry `@republished` on the game key, so an approval (Phase 5)
+			// of the one row never covers the other.
+			if (shot.diffHash) shot.id = `${headSha}:${rowKey(row)}:${screen}:${shot.diffHash}`;
 			if (!shot.pass || keepScreens)
 				for (const [side, png] of [
 					['before', before],
@@ -255,36 +301,43 @@ export function assembleReport({
 	mkdirSync(join(out, 'screens'), { recursive: true });
 	const crops = [];
 	const buildStatus = plan.buildStatus ?? { status: 'pass' };
+	const context = {
+		unitDirs,
+		out,
+		tolerance,
+		headSha: plan.head?.sha,
+		buildStatus,
+		gates,
+		keepScreens,
+		crops,
+	};
+	// A game rendered as republished too gets its second row right after its first; a game whose
+	// republished variant could not be made gets an error row, never a silent gap.
+	const republishedToo = (planned) =>
+		planned.republished?.affected || planned.republished?.status === 'error';
 	const games = plan.aborted
 		? []
-		: plan.games.map((planned) =>
-				gameRow(planned, {
-					unitDirs,
-					out,
-					tolerance,
-					headSha: plan.head?.sha,
-					buildStatus,
-					gates,
-					keepScreens,
-					crops,
-				}),
-			);
+		: plan.games.flatMap((planned) => [
+				gameRow(planned, context),
+				...(republishedToo(planned) ? [gameRow(planned, context, 'republished')] : []),
+			]);
 	// Opt-in (`CURRENT_GAMES_LOG_IMAGES`): never inside the report, whose redaction would mask the
 	// base64 as token-shaped.
 	if (crops.length) writeFileSync(join(out, 'crops.txt'), `${crops.join('\n')}\n`);
 	const seconds = Object.fromEntries(
 		games.map((g) => [
-			g.key,
+			rowKey(g),
 			Math.round(Object.values(g.timings ?? {}).reduce((sum, t) => sum + t.base + t.head, 0)),
 		]),
 	);
 	return writeReport(out, {
-		version: 2,
+		version: 3,
 		head: plan.head,
 		base: plan.base,
 		seed: plan.seed,
 		viewport: '1280x720@1 UTC en-US',
 		aborted: plan.aborted,
+		republish: plan.republish,
 		...extra,
 		renderSeconds: seconds,
 		games,

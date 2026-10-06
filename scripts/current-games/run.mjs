@@ -15,12 +15,21 @@
 // Rows: build / tests / looks the same. Writes `report.json` + `index.html` (+ `summary.txt`,
 // `digest.txt`) to --out.
 //
+// A game whose snapshot ships a copy of a built-in component def the two sides disagree on is
+// rendered a second time AS REPUBLISHED — the snapshot with those copies replaced by each side's
+// built-ins (`lib/builtins.mjs`) — as a row of its own, because a built-in change reaches a
+// published game only at its next publish and the as-published render cannot see it. Planned only
+// when the bake's inputs changed (`CURRENT_GAMES_REPUBLISH`, from `lib/touched.mjs`; unset = decide
+// from the built-ins alone) and the two builds' `builtins.json` differ.
+//
 // Phases. `all` (the default, a local run) does everything in one process. CI splits it:
 //   plan     list the games, pin each one's snapshot, list the render units → `<out>/plan.json`
+//            (`--base-build`/`--head-build` name the builds whose built-ins decide the republished
+//            units; without them none are planned)
 //   render   render this shard's units (`--plan`, `--shard i/n`) → `<out>/units/<id>/`
 //   compare  pair the units of every shard (`--units`), compare, write the report
-// A unit is one side of one scenario of one game; the two sides of a comparison are independent
-// renders (fresh test server, fresh browser), so they need not share a runner.
+// A unit is one side of one variant of one scenario of one game; the two sides of a comparison are
+// independent renders (fresh test server, fresh browser), so they need not share a runner.
 // Web fonts: the live games' renders answer Adobe's Typekit hosts from the R2 mirror
 // (`lib/typekit.mjs`, pinned by hash in the plan: `--typekit mirror`, the default when the games
 // come from R2); a local run of stand-in games loads them from Adobe (`network`); a local mirror
@@ -29,16 +38,30 @@
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
 import { headlessShell } from '../playtest/headless-shell.mjs';
 import { assembleReport } from './lib/assemble.mjs';
 import { openPage } from './lib/browser.mjs';
+import {
+	BUILTINS_FILE,
+	canonical,
+	publishedBuiltinsFor,
+	readBuiltins,
+	republishVariants,
+} from './lib/builtins.mjs';
 import { loadTolerance } from './lib/compare.mjs';
 import { loadGateResults } from './lib/gates.mjs';
-import { fetchManifest, fetchSnapshot, listGames } from './lib/games.mjs';
-import { contractFor, contractHash, makePlan, unitsForShard } from './lib/plan.mjs';
+import { fetchManifest, fetchRuntimeJson, fetchSnapshot, listGames } from './lib/games.mjs';
+import {
+	contractFor,
+	contractHash,
+	makePlan,
+	planRepublished,
+	safe,
+	unitsForShard,
+} from './lib/plan.mjs';
 import { redactText } from './lib/redact.mjs';
 import { renderUnit } from './lib/render.mjs';
 import { writeSummaryFiles } from './lib/report.mjs';
@@ -144,7 +167,7 @@ async function plan() {
 		);
 		const baseSha = process.env.CURRENT_GAMES_BASE_SHA;
 		return {
-			version: 2,
+			version: 3,
 			seed: opt.seed,
 			head: { sha: headSha },
 			base: baseSha ? { sha: baseSha } : undefined,
@@ -154,6 +177,93 @@ async function plan() {
 	} catch (e) {
 		abort(e.message);
 	}
+}
+
+/** Where a game's republished variants are made (`base/`, `head/`, `republish.json`). */
+const variantsDir = (planned) =>
+	join(cache, 'republished', safe(planned.game.key), safe(planned.snapshot.id));
+
+/**
+ * Both sides' republished variants of `planned`'s snapshot, from the two builds' built-ins, the
+ * baked defs classified against `publishedBuiltinsFile` (the engine the game was published with,
+ * required: a game whose engine is unknown fails closed in the plan).
+ */
+const makeVariants = (planned, bundleFile, runtimes, publishedBuiltinsFile) =>
+	republishVariants({
+		bundleFile,
+		baseBuiltinsFile: join(runtimes.base, BUILTINS_FILE),
+		headBuiltinsFile: join(runtimes.head, BUILTINS_FILE),
+		publishedBuiltinsFile,
+		outDir: variantsDir(planned),
+	});
+
+/**
+ * The built-ins to tell `planned`'s baked copies by (`publishedBuiltinsFor` in `builtins.mjs`): an
+ * engine's are extracted into `<out>/builtins/<sha>.json`, read from there now (`file`) and
+ * recorded relative to the plan's folder (`stored`), which travels to the shards as the plan
+ * artifact; a fixture's own is the absolute path it is, on both counts. An unknown engine comes
+ * back as `{ unknown }`, which `planRepublished` fails closed.
+ */
+function publishedBuiltinsSource(planned) {
+	const found = publishedBuiltinsFor(planned, { builtinsDir: join(out, 'builtins'), cache });
+	if (found.file && !isAbsolute(found.file)) throw new Error(`not absolute: ${found.file}`);
+	if (found.file && !planned.game.local?.publishedBuiltins)
+		found.stored = relative(out, found.file);
+	if (found.note) found.note = redactText(found.note);
+	if (found.unknown) found.unknown = redactText(found.unknown);
+	return found;
+}
+
+/** A plan entry's `publishedBuiltins` as a path: a fixture's absolute one, else beside the plan. */
+const publishedBuiltinsFile = (planned, planDir) => {
+	const file = planned.republished?.publishedBuiltins;
+	if (!file) return undefined;
+	return isAbsolute(file) ? file : join(planDir, file);
+};
+
+/**
+ * Add the republished units to `thePlan`, when the change can have altered what a publish bakes.
+ * `CURRENT_GAMES_REPUBLISH` is `touched.mjs`'s verdict on the bake's inputs (`0`: untouched, so
+ * nothing is read; `1` or unset: decide from the two builds' built-ins). With the inputs touched,
+ * a build that carries no `builtins.json` is a harness fault and fails the run; without that
+ * verdict (a local run against an older build) it is a note.
+ */
+async function planRepublish(thePlan, runtimes) {
+	const verdict = process.env.CURRENT_GAMES_REPUBLISH;
+	if (verdict === '0') {
+		thePlan.republish = { reason: "the bake's inputs are untouched: no republished render" };
+		log(thePlan.republish.reason);
+		return;
+	}
+	for (const side of ['base', 'head']) {
+		if (runtimes[side] && readBuiltins(runtimes[side])) continue;
+		const reason = runtimes[side]
+			? `the ${side} build carries no ${BUILTINS_FILE}: republished renders cannot be planned`
+			: `no --${side}-build: republished renders cannot be planned`;
+		if (verdict === '1') abort(reason);
+		thePlan.republish = { reason };
+		log(reason);
+		return;
+	}
+	if (canonical(readBuiltins(runtimes.base).defs) === canonical(readBuiltins(runtimes.head).defs)) {
+		thePlan.republish = {
+			reason: 'the built-in component defs are the same on both sides: no republished render',
+		};
+		log(thePlan.republish.reason);
+		return;
+	}
+	thePlan.republish = { reason: 'the built-in component defs differ between the sides' };
+	await planRepublished(thePlan, {
+		bundleFor: (planned) => fetchRuntimeJson(planned.game, cache, planned.snapshot),
+		publishedBuiltinsFor: publishedBuiltinsSource,
+		variantsFor: (planned, bundleFile, published) =>
+			makeVariants(planned, bundleFile, runtimes, published),
+	});
+	const affected = thePlan.games.filter((p) => p.republished?.affected);
+	log(
+		`${thePlan.republish.reason}: ${affected.length} game(s) also render as republished` +
+			(affected.length ? ` (${affected.map((p) => p.game.key).join(', ')})` : ''),
+	);
 }
 
 /** A unit that never rendered still writes a result, so the compare names why. */
@@ -223,6 +333,22 @@ async function render(thePlan, units, runtimes) {
 			snapshots.set(planned.game.key, fetchSnapshot(planned.game, cache, planned.snapshot));
 		return snapshots.get(planned.game.key);
 	};
+	// A game's republished variants, once per shard, from the same inputs the plan used (its
+	// published built-ins travel beside the plan).
+	const planDir = opt.plan ? dirname(resolve(opt.plan)) : out;
+	const variants = new Map();
+	const variantOf = (planned, snapshot) => {
+		if (!variants.has(planned.game.key)) {
+			makeVariants(
+				planned,
+				join(snapshot.dir, 'runtime.json'),
+				runtimes,
+				publishedBuiltinsFile(planned, planDir),
+			);
+			variants.set(planned.game.key, variantsDir(planned));
+		}
+		return variants.get(planned.game.key);
+	};
 	let next = 0;
 	const lane = async () => {
 		while (next < units.length) {
@@ -243,12 +369,22 @@ async function render(thePlan, units, runtimes) {
 				writeFailedUnit(unit, `snapshot fetch failed: ${e.message}`);
 				continue;
 			}
+			let bundleFile;
+			if (unit.variant === 'republished') {
+				try {
+					bundleFile = join(variantOf(planned, snapshot), unit.side, 'runtime.json');
+				} catch (e) {
+					writeFailedUnit(unit, `the republished variant could not be made: ${e.message}`);
+					continue;
+				}
+			}
 			const r = await renderUnit({
 				unit,
 				planned,
 				contract,
 				runtimeDir: runtimes[unit.side],
 				snapshotDir: snapshot.dir,
+				bundleFile,
 				chrome,
 				seed: thePlan.seed,
 				cache,
@@ -300,6 +436,10 @@ const readPlan = () => {
 
 if (opt.phase === 'plan') {
 	const thePlan = await plan();
+	await planRepublish(thePlan, {
+		base: opt['base-build'] && resolve(opt['base-build']),
+		head: opt['head-build'] && resolve(opt['head-build']),
+	});
 	writeFileSync(join(out, 'plan.json'), JSON.stringify(thePlan, null, '\t'));
 	log(`${thePlan.games.length} game(s), ${thePlan.units.length} render unit(s)`);
 	log(describeTypekit(thePlan.typekit));
@@ -340,6 +480,10 @@ if (opt.phase === 'plan') {
 	} catch (e) {
 		thePlan.buildStatus = { status: 'fail', detail: e.message };
 	}
-	if (headDir) await render(thePlan, thePlan.units, { base: base.dir, head: headDir });
+	if (headDir) {
+		const runtimes = { base: base.dir, head: headDir };
+		await planRepublish(thePlan, runtimes);
+		await render(thePlan, thePlan.units, runtimes);
+	}
 	compare(thePlan, [out]);
 }

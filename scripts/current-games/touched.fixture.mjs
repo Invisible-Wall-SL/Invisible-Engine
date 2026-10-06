@@ -11,8 +11,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 
+import { BUILTIN_DEFS_SOURCE } from './lib/builtins.mjs';
 import { ALL_GATES } from './lib/gates.mjs';
 import {
+	bakeInputs,
 	changedFiles,
 	classifyChange,
 	describe,
@@ -21,6 +23,7 @@ import {
 	runtimeClosure,
 	runtimeInputs,
 	RUNTIME_APP,
+	valueImports,
 } from './lib/touched.mjs';
 
 const ROOT = resolve(import.meta.dirname, '../..');
@@ -137,6 +140,56 @@ for (const file of [
 assert.equal(kind(['apps/lines-tools/x.ts']), 'untouched');
 assert.equal(kind(['scripts-old/x.mjs']), 'untouched');
 
+// 3b. The bake's inputs: the built-in defs and every module they take a value from, and nothing
+//     outside their package — so a runtime change that cannot alter a def plans no republished render.
+{
+	const bake = bakeInputs();
+	assert.ok(bake.files.includes(BUILTIN_DEFS_SOURCE));
+	for (const file of [
+		'packages/engine-layout/src/lib/builtinRegions.ts',
+		'packages/engine-layout/src/lib/componentCatalog.ts',
+		'packages/engine-layout/src/lib/kindCapabilities.ts',
+	])
+		assert.ok(bake.files.includes(file), `${file} is a bake input (builtinComponents.ts reads it)`);
+	for (const file of bake.files)
+		assert.ok(file.startsWith('packages/engine-layout/src/lib/'), `${file} is inside the package`);
+	assert.ok(!bake.dirs.includes('apps/lines'));
+	// Every value import of the defs file resolves into the set, so a new module they read counts.
+	for (const spec of valueImports(readFileSync(join(ROOT, BUILTIN_DEFS_SOURCE), 'utf8')))
+		if (spec.startsWith('.'))
+			assert.ok(
+				bake.files.some((f) => f === `packages/engine-layout/src/lib/${spec.slice(2)}.ts`),
+				`${spec} resolved into the bake inputs`,
+			);
+	assert.deepEqual(
+		valueImports(
+			[
+				"import type { A } from './types';",
+				"import { type B, C } from './mixed';",
+				"import './side';",
+				"export { d } from './re';",
+				"export type { E } from './types2';",
+				" * {@link import('./doc').X} in a comment",
+				'import {',
+				'\tF,',
+				"} from 'workspace-pkg';",
+			].join('\n'),
+		),
+		['./mixed', './side', './re', 'workspace-pkg'],
+	);
+	const bakeOf = (files) => classifyChange(files, inputs).bake;
+	assert.deepEqual(bakeOf([BUILTIN_DEFS_SOURCE, 'apps/lines/src/x.ts']), [BUILTIN_DEFS_SOURCE]);
+	assert.deepEqual(bakeOf(['packages/engine-layout/src/lib/builtinRegions.ts']), [
+		'packages/engine-layout/src/lib/builtinRegions.ts',
+	]);
+	assert.deepEqual(
+		bakeOf(['apps/lines/src/game/config.ts', 'packages/pixi-svelte/src/index.ts']),
+		[],
+	);
+	assert.deepEqual(bakeOf(['apps/launcher-api/src/x.ts']), []);
+	assert.deepEqual(bakeOf(['docs/a.md']), []);
+}
+
 for (const text of [describe({ kind: 'docs' }, 3), describe({ kind: 'untouched' }, 1234)])
 	assert.ok(text.length <= 140, `status description fits: ${text}`);
 
@@ -183,7 +236,21 @@ const cli = (args, input) => {
 	const r = cli(['--files', '-'], 'apps/launcher-api/src/x.ts\ndocs/a.md\n');
 	assert.equal(r.status, 0, r.stderr);
 	assert.match(r.written, /^render=false$/m);
+	assert.match(r.written, /^republish=false$/m);
 	assert.match(r.written, /^description=Runtime untouched: no game can differ \(1 changed files/m);
+}
+{
+	// A runtime change that cannot alter a built-in def renders, but plans no republished render.
+	const r = cli(['--files', '-'], 'apps/lines/src/x.ts\n');
+	assert.match(r.written, /^render=true$/m);
+	assert.match(r.written, /^republish=false$/m);
+	assert.doesNotMatch(r.stdout, /bake's inputs changed/);
+}
+{
+	const r = cli(['--files', '-'], `${BUILTIN_DEFS_SOURCE}\napps/lines/src/x.ts\n`);
+	assert.match(r.written, /^render=true$/m);
+	assert.match(r.written, /^republish=true$/m);
+	assert.match(r.stdout, /bake's inputs changed[^\n]*\n[^\n]*builtinComponents\.ts/);
 }
 {
 	const r = cli(['--files', '-'], 'docs/a.md\n');
@@ -203,6 +270,7 @@ const cli = (args, input) => {
 	const r = cli(['--base', 'no-such-ref']);
 	assert.equal(r.status, 0, r.stderr);
 	assert.match(r.written, /^render=true$/m);
+	assert.match(r.written, /^republish=true$/m);
 	assert.match(r.stdout, /change set unknown/);
 }
 {
@@ -210,6 +278,7 @@ const cli = (args, input) => {
 	const r = cli(['--base', 'HEAD', '--head', 'HEAD']);
 	assert.equal(r.status, 0, r.stderr);
 	assert.match(r.written, /^render=false$/m);
+	assert.match(r.written, /^republish=false$/m);
 	assert.match(r.written, /^description=Docs-only change/m);
 }
 {

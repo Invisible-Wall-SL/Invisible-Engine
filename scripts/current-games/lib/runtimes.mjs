@@ -4,10 +4,16 @@
 // so main's is built once per main commit and reused (CI restores the folder with actions/cache).
 // The Sentry and build-SHA env are left out: without a DSN the bundle carries no SDK, and a SHA
 // stamped into one side only would be a difference the harness put there.
+//
+// Beside each build sits `builtins.json`, the checkout's built-in component defs as data
+// (`builtins.mjs`): what a publish on that commit would bake into a game, which the "as republished"
+// render needs from both sides.
 
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { BUILTINS_FILE, extractBuiltins } from './builtins.mjs';
 
 export const RELEASE_ENV = { PUBLIC_RGS_TRANSPORT: 'play4fun', PUBLIC_DELIVERY_PROFILES: '*' };
 
@@ -30,6 +36,9 @@ export const gitSha = (repo, ref) => {
 
 const DONE = '.current-games-complete';
 
+/** A complete build: the runtime and its built-ins (a build from before the latter is rebuilt). */
+const complete = (out) => existsSync(join(out, DONE)) && existsSync(join(out, BUILTINS_FILE));
+
 /** Build `checkout`'s runtime into `out` (replacing it). */
 function buildInto(checkout, out) {
 	run('pnpm', ['--filter', 'lines^...', 'build'], checkout);
@@ -37,6 +46,7 @@ function buildInto(checkout, out) {
 	rmSync(out, { recursive: true, force: true });
 	mkdirSync(out, { recursive: true });
 	cpSync(join(checkout, 'apps/lines/build'), out, { recursive: true });
+	extractBuiltins(checkout, join(out, BUILTINS_FILE));
 	writeFileSync(join(out, DONE), new Date().toISOString());
 }
 
@@ -53,7 +63,7 @@ export function buildWorkingTree(repo, cache) {
 export function runtimeForRef(repo, cache, ref) {
 	const sha = gitSha(repo, ref);
 	const out = join(cache, 'runtimes', sha);
-	if (existsSync(join(out, DONE))) return { sha, dir: out, cached: true };
+	if (complete(out)) return { sha, dir: out, cached: true };
 	const worktree = join(cache, 'worktrees', sha);
 	rmSync(worktree, { recursive: true, force: true });
 	run('git', ['worktree', 'add', '--detach', '--force', worktree, sha], repo);

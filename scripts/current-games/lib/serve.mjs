@@ -48,9 +48,11 @@ const listen = (server) =>
 /**
  * Serve one snapshot folder (`runtime.json` + `deploy/`). `assetBase(origin)` overrides where the
  * game fetches its files — a fixture whose assets ship inside the runtime build points it there.
+ * `bundleFile` serves another `runtime.json` over the same `deploy/` files: the "as republished"
+ * variant of the snapshot (`builtins.mjs`).
  */
-export async function serveSnapshot({ dir, name, snapshotId, assetBase }) {
-	const bundle = JSON.parse(readFileSync(join(dir, 'runtime.json'), 'utf8'));
+export async function serveSnapshot({ dir, name, snapshotId, assetBase, bundleFile }) {
+	const bundle = JSON.parse(readFileSync(bundleFile ?? join(dir, 'runtime.json'), 'utf8'));
 	const deploy = resolve(dir, 'deploy');
 	const cors = { 'Access-Control-Allow-Origin': '*' };
 	const server = createServer((req, res) => {

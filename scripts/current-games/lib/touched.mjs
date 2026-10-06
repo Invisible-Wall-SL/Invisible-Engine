@@ -13,15 +13,25 @@
 // cannot decide — git cannot diff it, or this script cannot read the workspace — is touched: the
 // rule only ever skips, never widens.
 //
+// A second verdict, `republish`, says whether the change can have altered what a PUBLISH bakes from
+// the repo: the built-in component defs (`builtinComponents.ts`) and every module they take a value
+// from, followed import by import. A published snapshot carries its own copies of those defs, so a
+// change to them reaches a game only at its next publish; when this verdict is true the harness also
+// renders each affected game as republished (`builtins.mjs`), and when it is false it never spends
+// the read that would decide that. The bake's repo inputs lie inside the runtime's closure, so
+// `republish` implies `render`.
+//
 //   node scripts/current-games/lib/touched.mjs --base <sha> [--head <ref>]   classify git's diff
 //   … --files -                                                               classify stdin's list
 //
-// With $GITHUB_OUTPUT set it writes `render`, `reason` and `description` (the status text).
+// With $GITHUB_OUTPUT set it writes `render`, `republish` and `description` (the status text).
 
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, posix, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+
+import { BUILTIN_DEFS_SOURCE } from './builtins.mjs';
 
 const ROOT = resolve(import.meta.dirname, '../../..');
 
@@ -108,11 +118,75 @@ export function runtimeClosure(repo = ROOT, app = RUNTIME_APP) {
 	return [...seen].sort();
 }
 
-/** Every path a change must stay out of to leave the runtime, its gates and the harness alone. */
+/** The workspace's packages by name → repo-relative directory. */
+function workspaceByName(repo) {
+	const byName = new Map();
+	for (const dir of workspaceDirs(repo)) {
+		const pkg = readJson(join(repo, dir, 'package.json'));
+		if (pkg.name) byName.set(pkg.name, dir);
+	}
+	return byName;
+}
+
+/**
+ * The specifiers a module takes a VALUE from: `import`/`export … from` statements at the start of a
+ * line, less `import type` ones (a type changes no def). `import { type A, B }` counts; so does a
+ * side-effect `import './x'`.
+ */
+const IMPORT_RE = /^\s*(?:import|export)\s+(?!type\s)(?:[^;'"]*?\sfrom\s+)?['"]([^'"]+)['"]/gm;
+export const valueImports = (source) => [...source.matchAll(IMPORT_RE)].map((m) => m[1]);
+
+/** A relative specifier as a repo-relative file: `.ts` as written, `<spec>.ts` or `<spec>/index.ts`. */
+function resolveRelative(repo, fromDir, spec) {
+	const base = posix.join(fromDir, spec);
+	for (const candidate of [
+		base,
+		`${base}.ts`,
+		posix.join(base, 'index.ts'),
+		base.replace(/\.js$/, '.ts'),
+	])
+		if (existsSync(join(repo, candidate)) && candidate.endsWith('.ts')) return candidate;
+	return undefined;
+}
+
+/**
+ * What a publish bakes from the repo: `builtinComponents.ts` and, followed import by import, every
+ * module it takes a value from — as files inside its package, and as whole directories for a
+ * workspace package it imports by name. Computed, not listed, so a new module a def reads counts
+ * from the day it is imported.
+ */
+export function bakeInputs(repo = ROOT) {
+	const byName = workspaceByName(repo);
+	const files = new Set();
+	const dirs = new Set();
+	const visit = (rel) => {
+		if (files.has(rel)) return;
+		files.add(rel);
+		for (const spec of valueImports(readFileSync(join(repo, rel), 'utf8'))) {
+			if (spec.startsWith('.')) {
+				const target = resolveRelative(repo, dirname(rel), spec);
+				if (target) visit(target);
+			} else {
+				const name = spec.startsWith('@')
+					? spec.split('/').slice(0, 2).join('/')
+					: spec.split('/')[0];
+				if (byName.has(name)) dirs.add(byName.get(name));
+			}
+		}
+	};
+	visit(BUILTIN_DEFS_SOURCE);
+	return { files: [...files].sort(), dirs: [...dirs].sort() };
+}
+
+/**
+ * Every path a change must stay out of to leave the runtime, its gates and the harness alone, and
+ * (`bake`) the subset whose change can alter what a publish bakes.
+ */
 export function runtimeInputs(repo = ROOT) {
 	return {
 		dirs: [...new Set([...runtimeClosure(repo), ...GATE_DIRS])].sort(),
 		files: [...ROOT_BUILD_FILES, ...HARNESS_FILES].sort(),
+		bake: bakeInputs(repo),
 	};
 }
 
@@ -120,16 +194,20 @@ export function runtimeInputs(repo = ROOT) {
 export const inDir = (file, dir) => file === dir || file.startsWith(`${dir}/`);
 
 /**
- * `{ kind, touching }`: `docs` when every changed file is docs (or nothing changed), `untouched`
- * when none of the rest is an input, `touched` otherwise with the files that are.
+ * `{ kind, touching, bake }`: `docs` when every changed file is docs (or nothing changed),
+ * `untouched` when none of the rest is an input, `touched` otherwise with the files that are;
+ * `bake` is the changed files among the bake's inputs (`inputs.bake`, when given).
  */
 export function classifyChange(files, inputs) {
 	const code = files.filter((f) => f && !isDoc(f));
 	const touching = code.filter(
 		(f) => inputs.files.includes(f) || inputs.dirs.some((dir) => inDir(f, dir)),
 	);
-	if (touching.length) return { kind: 'touched', touching };
-	return { kind: code.length ? 'untouched' : 'docs', touching: [] };
+	const bake = code.filter(
+		(f) => inputs.bake?.files.includes(f) || inputs.bake?.dirs.some((dir) => inDir(f, dir)),
+	);
+	if (touching.length) return { kind: 'touched', touching, bake };
+	return { kind: code.length ? 'untouched' : 'docs', touching: [], bake: [] };
 }
 
 /** The commit-status description (≤ 140 characters) for a change that is not rendered. */
@@ -179,11 +257,20 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
 	}
 	const result = classify(files);
 	const render = result.kind === 'touched' || result.kind === 'unknown';
+	// Undecidable ⇒ both verdicts err towards rendering.
+	const republish = result.kind === 'unknown' || result.bake.length > 0;
 	const description = render ? '' : describe(result, files.filter((f) => !isDoc(f)).length);
 	if (result.kind === 'unknown') console.log('::notice::change set unknown — rendering every game');
-	else if (render)
+	else if (render) {
 		console.log(`runtime inputs changed:\n${result.touching.slice(0, 20).join('\n')}`);
-	else console.log(`::notice::${description}`);
+		if (republish)
+			console.log(
+				`the bake's inputs changed (affected games also render as republished):\n${result.bake.slice(0, 20).join('\n')}`,
+			);
+	} else console.log(`::notice::${description}`);
 	if (process.env.GITHUB_OUTPUT)
-		appendFileSync(process.env.GITHUB_OUTPUT, `render=${render}\ndescription=${description}\n`);
+		appendFileSync(
+			process.env.GITHUB_OUTPUT,
+			`render=${render}\nrepublish=${render && republish}\ndescription=${description}\n`,
+		);
 }
