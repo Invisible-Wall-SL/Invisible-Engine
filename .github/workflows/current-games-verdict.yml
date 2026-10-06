@@ -1,0 +1,99 @@
+# Posts the commit status `current-games` — the required check of ADR-0004 — from what a run of
+# "Current games" (current-games.yml, the harness) found. Why it is a separate workflow: the harness
+# runs the pull request's own tree, so a PR could make it post whatever it likes. `workflow_run` fires
+# from the DEFAULT branch's copy of this file, in the base repository's context, so a PR cannot change
+# what decides or what posts. The decision is scripts/current-games/lib/verdict.mjs, proved by
+# verdict.fixture.mjs. Doc: docs/playtest/current-games.md ("CI").
+#
+# What it checks before it posts (any failure posts nothing and says why): the run is a run of
+# current-games.yml in THIS repository; for a pull request, the PR is open, from this repository and
+# still at the run's head commit (a fork gets no status, a stale run never overwrites a newer one);
+# whether the change can reach a game is decided by main's touched.mjs over a diff of commit objects
+# fetched from the PR (a run that rendered nothing for a change that can reach a game fails). Then
+# the jobs of that attempt and `report.json`, read as DATA ONLY. Nothing from the PR or from an
+# artifact is ever checked out, installed, imported or executed: the checkout below is main, with no
+# `ref:`, and there is no `pnpm install`.
+#
+# A push run posts no status (a branch's PR owns it); a manual run posts `current-games/manual` or
+# `current-games/self-compare`, never `current-games`.
+#
+# IDENTITY. With the GitHub App secrets below, the status is posted as that App, which only this
+# workflow holds: a ruleset can then require `current-games` FROM THAT APP, so a status any other
+# workflow posts as "GitHub Actions" does not satisfy it. Without them it falls back to
+# `github.token`, which posts as GitHub Actions — the same identity any workflow in the repository
+# can post as — and says so in a warning. The owner's steps (create the App, the secrets, the
+# `current-games-verdict` environment limited to `main`, the ruleset): docs/INFRA.md.
+#   CURRENT_GAMES_VERDICT_APP_ID, CURRENT_GAMES_VERDICT_APP_PRIVATE_KEY   (environment secrets)
+#
+# A manual run (`workflow_dispatch`, only from main) decides on any past run id and, unless `apply`
+# is set, only prints the decision: how a past run is checked.
+
+name: Current games verdict
+
+on:
+  workflow_run:
+    workflows: [Current games]
+    types: [requested, completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: The Current games run to decide on
+        type: string
+        required: true
+      apply:
+        description: Post the status (else only print the decision)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+  statuses: write
+
+concurrency:
+  group: current-games-verdict-${{ github.event.workflow_run.id || inputs.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  verdict:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: current-games-verdict
+    env:
+      HAS_APP: ${{ secrets.CURRENT_GAMES_VERDICT_APP_ID != '' && secrets.CURRENT_GAMES_VERDICT_APP_PRIVATE_KEY != '' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Mint the App's token
+        id: app
+        if: env.HAS_APP == 'true'
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.CURRENT_GAMES_VERDICT_APP_ID }}
+          private-key: ${{ secrets.CURRENT_GAMES_VERDICT_APP_PRIVATE_KEY }}
+          permission-statuses: write
+
+      - name: Decide, and post the status
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          STATUS_TOKEN: ${{ steps.app.outputs.token || github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
+          ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          PHASE: ${{ github.event.action || 'completed' }}
+          POST: ${{ github.event_name == 'workflow_run' || inputs.apply }}
+        run: |
+          if [ "$HAS_APP" != true ]; then
+            echo "::warning::no GitHub App secrets: the status is posted as GitHub Actions, which any workflow in this repository can also post as"
+          fi
+          args=(--run "$RUN_ID" --event "$PHASE")
+          [ -z "$ATTEMPT" ] || args+=(--attempt "$ATTEMPT")
+          [ "$POST" = true ] && args+=(--post)
+          node scripts/current-games/lib/verdict.mjs "${args[@]}"

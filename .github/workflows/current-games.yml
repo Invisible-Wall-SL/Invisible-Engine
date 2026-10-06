@@ -5,8 +5,15 @@
 # For every live game (the launcher's `/api/pipeline/games`): render its PUBLISHED snapshot
 # (read-only from R2) with main's runtime and with this branch's runtime, play its game type's
 # screen script with the same seed and forced books, compare every screen under
-# scripts/current-games/tolerance.json, and run its type's `check:*` gates. Posts the commit status
-# `current-games` (it can be made a required check) and uploads the report as an artifact.
+# scripts/current-games/tolerance.json, and run its type's `check:*` gates, then uploads the report
+# as an artifact.
+#
+# THIS WORKFLOW POSTS NOTHING. It runs the pull request's own tree, so no word it writes can be the
+# required answer: the commit status `current-games` (the required check) is posted by
+# current-games-verdict.yml, which runs MAIN's copy after this run and decides from the run's jobs and
+# its report, never from anything this workflow said. The `Verdict` step of the report job computes
+# the same decision (scripts/current-games/lib/verdict.mjs) only to fail the job when the status will
+# be a failure. It has no `statuses` permission.
 #
 # READ-ONLY by construction: the R2 key it is given must be an Object Read-only token (R2 scopes
 # tokens per bucket, not per key prefix; the harness only reads `*/published/**`,
@@ -29,17 +36,17 @@
 #   CURRENT_GAMES_R2_BUCKET              the bucket
 #   CURRENT_GAMES_R2_ACCESS_KEY_ID       an Object Read-only R2 token's key id
 #   CURRENT_GAMES_R2_SECRET_ACCESS_KEY   …and its secret
-# A missing one fails the run (and the status) naming it.
+# A missing one fails the run naming it, and the verdict's status says which.
 #
 # WHAT IS COMPARED: on a pull request, the PR merge commit against its first parent (the base
 # branch tip it merges into), so only this change shows; on a push, the branch tip against its
 # merge-base with main. A push to a branch that has an open PR stands down: the PR's run owns the
-# status, so the two never race on one commit. Main's runtime is cached by SHA. A change that cannot
-# reach a game posts success without building or rendering anything: docs only, or nothing inside
-# the `lines` runtime's workspace closure, the gates' inputs or this harness (decided from that same
-# diff by scripts/current-games/lib/touched.mjs, which computes the closure from the workspace graph;
-# an undecidable diff renders everything). A PR from a fork gets no secrets and no write token, so
-# it does not run at all.
+# early feedback, and no status is posted for a push at all. Main's runtime is cached by SHA. A change
+# that cannot reach a game builds and renders nothing, and its status is success: docs only, or
+# nothing inside the `lines` runtime's workspace closure, the gates' inputs or this harness (decided
+# from that same diff by scripts/current-games/lib/touched.mjs, which computes the closure from the
+# workspace graph; an undecidable diff renders everything; the verdict re-decides it with main's
+# copy). A PR from a fork gets no secrets, so it does not run at all and is given no status.
 #
 # AS REPUBLISHED: a published snapshot carries its own copies of the built-in component defs it uses,
 # so a change to `builtinComponents.ts` reaches a game only at its next publish, and the as-published
@@ -52,12 +59,16 @@
 #
 # NOISE CALIBRATION: a manual run (workflow_dispatch) with `self_compare` renders the chosen ref
 # against ITSELF — two independent renders of the same runtime, the main-vs-main measurement a
-# calibration needs — and always renders, as there is no change to read. It posts its own status
-# context, `current-games/self-compare`, so it never stands in for a branch's real comparison.
+# calibration needs — and always renders, as there is no change to read. Its run title says so, and
+# the verdict posts it as the context `current-games/self-compare`, so it never stands in for a
+# branch's real comparison (a manual run without `self_compare` posts `current-games/manual`).
 # Without `self_compare`, `base` names the commit to compare against instead of main's merge-base:
 # a seeded proof renders a deliberate change against the commit before it.
 
 name: Current games
+
+# The context a manual run's verdict will post is in its title (GitHub's default title otherwise).
+run-name: "${{ github.event_name == 'workflow_dispatch' && (inputs.self_compare && 'Current games: self-compare' || 'Current games: manual') || '' }}"
 
 on:
   pull_request:
@@ -79,22 +90,19 @@ on:
         default: ''
 
 concurrency:
-  # A manual run's inputs are part of its group: a self-compare and a seeded proof on one commit post
+  # A manual run's inputs are part of its group: a self-compare and a seeded proof on one commit get
   # different contexts, and cancelling one would leave its context pending.
   group: current-games-${{ github.event_name }}-${{ github.event.pull_request.head.sha || github.sha }}-${{ inputs.self_compare && 'self-compare' || inputs.base }}
   cancel-in-progress: true
 
 permissions:
   contents: read
-  statuses: write
   pull-requests: read
 
 env:
-  # The commit the status is posted on: the PR head, not its merge commit.
-  STATUS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  # The commit the run is about: the PR head, not its merge commit.
+  HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-  # A manual run never stands in for a branch's comparison: it posts a context of its own.
-  STATUS_CONTEXT: ${{ github.event_name != 'workflow_dispatch' && 'current-games' || inputs.self_compare && 'current-games/self-compare' || 'current-games/manual' }}
   SHARDS: 20
 
 jobs:
@@ -131,14 +139,6 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 22
-
-      - name: Post the pending status
-        if: steps.owner.outputs.run == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state=pending \
-            -f context="$STATUS_CONTEXT" -f description='Rendering every live game…' -f target_url="$RUN_URL"
 
       # The base the renders compare against is also the base the diff is read from, so a push of a
       # docs commit onto an engine branch still renders: the branch as a whole is what main would get.
@@ -180,18 +180,14 @@ jobs:
       - name: Nothing to render
         if: steps.owner.outputs.run == 'true' && steps.touched.outputs.render != 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
           DESCRIPTION: ${{ steps.touched.outputs.description }}
         run: |
           echo "### current-games: ${DESCRIPTION}" >> "$GITHUB_STEP_SUMMARY"
-          gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state=success \
-            -f context="$STATUS_CONTEXT" -f description="${DESCRIPTION:0:140}" -f target_url="$RUN_URL"
 
       - name: Check the secrets
         id: secrets
         if: steps.owner.outputs.run == 'true' && steps.touched.outputs.render == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
           PIPELINE_GAMES_URL: ${{ secrets.PIPELINE_GAMES_URL }}
           PIPELINE_CI_TOKEN: ${{ secrets.PIPELINE_CI_TOKEN }}
           CURRENT_GAMES_R2_ENDPOINT: ${{ secrets.CURRENT_GAMES_R2_ENDPOINT }}
@@ -207,24 +203,19 @@ jobs:
           if [ -n "$missing" ]; then
             echo "::error title=current-games: missing secret(s)::Add these repository secrets:$missing (see .github/workflows/current-games.yml)"
             echo "### current-games did not run: missing secret(s):$missing" >> "$GITHUB_STEP_SUMMARY"
-            # A status description is at most 140 characters: past that, it points at the run log,
-            # whose error names every one.
-            description="Missing secret(s):$missing"
-            [ "${#description}" -le 140 ] || description="Missing $(wc -w <<<"$missing") secrets (named in the run log):$missing"
-            gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state=failure -f context="$STATUS_CONTEXT" \
-              -f description="${description:0:140}" -f target_url="$RUN_URL"
+            # Data for the verdict workflow, which names them in the status: the names only.
+            mkdir -p prepare
+            printf '{"missingSecrets":[%s]}\n' "$(printf '"%s",' $missing | sed 's/,$//')" > prepare/prepare.json
             exit 1
           fi
 
-      # Any other failure in this job must not leave the status pending forever. (A missing secret
-      # posted its own, naming it.)
-      - name: Post the failure
-        if: failure() && steps.secrets.outcome != 'failure'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state=failure -f context="$STATUS_CONTEXT" \
-            -f description='The harness could not start: see the prepare job' -f target_url="$RUN_URL"
+      - uses: actions/upload-artifact@v4
+        if: failure() && steps.secrets.outcome == 'failure'
+        with:
+          name: current-games-prepare
+          retention-days: 3
+          overwrite: true
+          path: prepare/prepare.json
 
   build:
     needs: prepare
@@ -281,7 +272,7 @@ jobs:
           CURRENT_GAMES_R2_BUCKET: ${{ secrets.CURRENT_GAMES_R2_BUCKET }}
           CURRENT_GAMES_R2_ACCESS_KEY_ID: ${{ secrets.CURRENT_GAMES_R2_ACCESS_KEY_ID }}
           CURRENT_GAMES_R2_SECRET_ACCESS_KEY: ${{ secrets.CURRENT_GAMES_R2_SECRET_ACCESS_KEY }}
-          CURRENT_GAMES_HEAD_SHA: ${{ env.STATUS_SHA }}
+          CURRENT_GAMES_HEAD_SHA: ${{ env.HEAD_SHA }}
           CURRENT_GAMES_BASE_SHA: ${{ needs.prepare.outputs.base }}
         run: |
           set +e
@@ -391,7 +382,7 @@ jobs:
           CURRENT_GAMES_R2_BUCKET: ${{ secrets.CURRENT_GAMES_R2_BUCKET }}
           CURRENT_GAMES_R2_ACCESS_KEY_ID: ${{ secrets.CURRENT_GAMES_R2_ACCESS_KEY_ID }}
           CURRENT_GAMES_R2_SECRET_ACCESS_KEY: ${{ secrets.CURRENT_GAMES_R2_SECRET_ACCESS_KEY }}
-          CURRENT_GAMES_HEAD_SHA: ${{ env.STATUS_SHA }}
+          CURRENT_GAMES_HEAD_SHA: ${{ env.HEAD_SHA }}
           CURRENT_GAMES_LOG_IMAGES: ${{ inputs.log_images && '1' || '' }}
         # A unit that fails still writes its result (the compare names it); a non-zero exit is the
         # runner itself dying.
@@ -416,7 +407,6 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
-      statuses: write
       actions: write # deletes the per-shard captures once compared
     steps:
       - uses: actions/checkout@v7
@@ -459,7 +449,7 @@ jobs:
           CURRENT_GAMES_R2_BUCKET: ${{ secrets.CURRENT_GAMES_R2_BUCKET }}
           CURRENT_GAMES_R2_ACCESS_KEY_ID: ${{ secrets.CURRENT_GAMES_R2_ACCESS_KEY_ID }}
           CURRENT_GAMES_R2_SECRET_ACCESS_KEY: ${{ secrets.CURRENT_GAMES_R2_SECRET_ACCESS_KEY }}
-          CURRENT_GAMES_HEAD_SHA: ${{ env.STATUS_SHA }}
+          CURRENT_GAMES_HEAD_SHA: ${{ env.HEAD_SHA }}
           CURRENT_GAMES_LOG_IMAGES: ${{ inputs.log_images && '1' || '' }}
         run: |
           set +e
@@ -494,35 +484,16 @@ jobs:
           overwrite: true
           path: report/report.json
 
-      - name: Post the status
+      # The status itself is posted by current-games-verdict.yml; this fails the job when it will be a
+      # failure, from the same decision.
+      - name: Verdict
         if: ${{ !cancelled() }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          PREPARE: ${{ needs.prepare.result }}
           BUILD: ${{ needs.build.result }}
           GATES: ${{ needs.gates.result }}
           RENDER: ${{ needs.render.result }}
-          PIPELINE_GAMES_URL: ${{ secrets.PIPELINE_GAMES_URL }}
-          PIPELINE_CI_TOKEN: ${{ secrets.PIPELINE_CI_TOKEN }}
-          CURRENT_GAMES_R2_ENDPOINT: ${{ secrets.CURRENT_GAMES_R2_ENDPOINT }}
-          CURRENT_GAMES_R2_BUCKET: ${{ secrets.CURRENT_GAMES_R2_BUCKET }}
-          CURRENT_GAMES_R2_ACCESS_KEY_ID: ${{ secrets.CURRENT_GAMES_R2_ACCESS_KEY_ID }}
-          CURRENT_GAMES_R2_SECRET_ACCESS_KEY: ${{ secrets.CURRENT_GAMES_R2_SECRET_ACCESS_KEY }}
-        run: |
-          verdict="$(head -n 1 report/summary.txt 2>/dev/null || echo fail)"
-          line="$(tail -n 1 report/summary.txt 2>/dev/null || echo 'no report')"
-          aborted="$(node -p "require('./report/report.json').aborted ?? ''" 2>/dev/null || true)"
-          if [ "$BUILD" != success ]; then
-            verdict=fail; line="${aborted:-the runtime build failed}"
-          elif [ "$GATES" != success ]; then
-            verdict=fail; line="the gates job did not finish"
-          elif [ "$RENDER" != success ]; then
-            verdict=fail; line="a render shard died ($line)"
-          fi
-          line="$(printf %s "$line" | node scripts/current-games/lib/redact.mjs)" || line='the report could not be redacted'
-          state=failure; [ "$verdict" = pass ] && state=success
-          gh api "repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -f state="$state" -f context="$STATUS_CONTEXT" \
-            -f description="${line:0:139}" -f target_url="$RUN_URL"
-          [ "$state" = success ]
+        run: node scripts/current-games/lib/verdict.mjs --local --report report/report.json
 
       # The parts hold every capture of every live game, and the repository is public: once every
       # shard's units are compared they are deleted, not left for their day. A run with a shard
