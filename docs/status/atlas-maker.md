@@ -124,16 +124,20 @@ _Nothing._
   (`_runpod_run_and_wait`'s new `on_settle` hook in the subprocess, `still_jobs._await` on a
   resume) and `record_submitted` keeps the GPU the endpoint runs on from the new env
   **`RUNPOD_ENDPOINT_GPU`** (spelled as `pricing.json` prices it, e.g. `L40S (48 GB)`; recorded per
-  job at submit, so a re-queue after an endpoint rotation carries the card it actually ran on). A
-  failed job's time is kept too: it was spent. `still_jobs.runpod_summary` sums the jobs that
-  reported a time into `{gpu, seconds, delaySeconds, jobs, unreported}` on the closed render, in
-  `/progress?jobRef=` (live, so a watcher sees the time so far) and in the callback body — present
-  only when a job reported one, and with `gpu: null` when the jobs disagree or no card is
-  configured, so the worker never prices a sum by a guess. No price is computed here. Launcher
-  side: `atlasJobs.runpodUsageOf` reduces it to the `{gpu, seconds}` the worker's `billJob` reads,
-  `comfyui.job_status` shows it, and a finished render with nothing to bill is logged. **Owner:**
-  set `RUNPOD_ENDPOINT_GPU` on atlas-tool (Railway). Fixtures: `test_still_jobs.py` (25 tests, +3),
-  `check:director-adapters` 230.
+  job at submit, so a re-queue after an endpoint rotation carries the card it actually ran on). The
+  billed `seconds` are execution PLUS delay — RunPod bills the worker's uptime, cold start
+  included, so over-counting the queue wait is accepted and under-counting is not — with the two
+  parts kept beside it; a failed job's time is kept too: it was spent. `still_jobs.runpod_summary`
+  puts `{gpu, seconds, executionSeconds, delaySeconds, jobs, unreported}` on the closed render, in
+  `/progress?jobRef=` (live, so a watcher sees the time so far) and in the callback body whenever
+  the render had a RunPod job; `unreported` counts the jobs that settled without a time (lost,
+  abandoned, timed out), which the worker bills as an estimate; `gpu` is `null` when the jobs
+  disagree or no card is configured, so the worker never prices a sum by a guess — it pauses the
+  run before its next GPU submit instead, until the owner sets the env and resumes. No price is
+  computed here. Launcher side: `atlasJobs.runpodUsageOf` reduces it to the shape the worker's
+  `billJob` reads, `comfyui.job_status` shows it, and a finished render with nothing to bill is
+  logged. **Owner:** set `RUNPOD_ENDPOINT_GPU` on atlas-tool (Railway). Fixtures:
+  `test_still_jobs.py` (25 tests, +3), `check:director-adapters` 230.
 - 2026-10-04 — **Invisible Director can drive the Atlas Maker as a run's owner** (Director task
   2.4, [ADR-0002](../director/DECISIONS/0002-tool-adapters.md)). Three additive changes, all gated
   on a signed `act` claim that only an `api` launch token may carry (`iw_common/launch.py`; any other
