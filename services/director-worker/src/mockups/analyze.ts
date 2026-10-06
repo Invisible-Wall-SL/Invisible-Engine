@@ -9,7 +9,7 @@ import {
 	type PaletteCheck,
 } from './rules.ts';
 import type { AnalystFontGap, AnalystSwatch } from './schema.ts';
-import { sumUsage, type ModelTransport, type Usage } from './vision.ts';
+import { sumUsage, type Usage, type VisionTransport } from './vision.ts';
 
 /**
  * The mockup breakdown (ADR-0005; SPEC §1.2), run by the worker's own code around one Opus vision
@@ -23,6 +23,9 @@ import { sumUsage, type ModelTransport, type Usage } from './vision.ts';
  * the model's `matched` / `left_out` claims reach the stored breakdown only through
  * `applyCodeRules`.
  */
+
+/** The agent whose model and prompt the analysis runs with; it never takes a tool turn itself. */
+export const ANALYST_AGENT = 'mockup-analyst';
 
 // ── What the adapters return (the launcher's `ops/mockups.ts`, `ops/gamemaker.ts`, `ops/atlas.ts`) ──
 
@@ -119,7 +122,7 @@ export interface AnalyzeDeps {
 		/** The worker's own writes — the crops. The model never saves anything. */
 		worker: AdapterClient;
 	};
-	model: ModelTransport;
+	model: VisionTransport;
 	/** The `mockup-analyst` definition: its model, effort and system prompt. */
 	agent: AgentDefinition;
 	run: { id: string; templateProjectKey: string };

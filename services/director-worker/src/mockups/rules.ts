@@ -69,7 +69,10 @@ export const LOCKED_RULES: LockedRule[] = [
  * or null when no rule could judge it. A rule is tried when its pattern matches the element's name,
  * any region it proposes, or the locked item the model itself named — the model's `lockedItem` is
  * a reason to EVALUATE a rule, never a verdict — so a renamed control ("Shop", "Get bonus") still
- * meets the rule through its region or the model's own claim. A clash from any rule wins.
+ * meets the rule through its region or the model's own claim. A clash from any rule wins. A
+ * clearance counts only from a rule whose pattern matched the element: the model naming an item
+ * makes the rule run, but evidence about buy controls says nothing about some other control the
+ * model tied to the same item.
  */
 export function judgeLocked(
 	element: Pick<AnalystElement, 'name' | 'regions' | 'lockedItem'>,
@@ -78,12 +81,12 @@ export function judgeLocked(
 	const text = [element.name, ...element.regions].join(' ');
 	let cleared: RuleVerdict = null;
 	for (const rule of LOCKED_RULES) {
+		const about = rule.element.test(text);
 		const named = element.lockedItem !== null && rule.lockedItemId === element.lockedItem;
-		if (named || rule.element.test(text)) {
-			const verdict = rule.judge(locked);
-			if (verdict?.verdict === 'clash') return verdict;
-			cleared ??= verdict;
-		}
+		if (!about && !named) continue;
+		const verdict = rule.judge(locked);
+		if (verdict?.verdict === 'clash') return verdict;
+		if (about) cleared ??= verdict;
 	}
 	return cleared;
 }

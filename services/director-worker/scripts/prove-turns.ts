@@ -69,7 +69,7 @@ import { driveRun, MAX_FAILURES, type DriverDeps } from '../src/driver.ts';
 import type { AdapterResult, AdapterSpec, Launcher } from '../src/launcher.ts';
 import { claimRun, deferLease } from '../src/lease.ts';
 import { PartialResponse, toolName, type ModelTransport } from '../src/model.ts';
-import type { ModelTransport as VisionTransport } from '../src/mockups/vision.ts';
+import type { VisionTransport } from '../src/mockups/vision.ts';
 import { pricingSource } from '../src/pricing.ts';
 import { recordSpend, runSpend } from '../src/store.ts';
 import { startWake } from '../src/wake.ts';

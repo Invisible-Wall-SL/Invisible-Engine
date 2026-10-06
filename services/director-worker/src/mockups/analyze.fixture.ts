@@ -22,7 +22,8 @@
  *    pass's opId, while every read is made in the analyst's name;
  *  - a run whose mockups lack the ownership check is refused before any model call;
  *  - the model's own verdict never reaches the breakdown: a buy control the model calls `left_out`
- *    on a template that CAN buy comes out `matched`;
+ *    on a template that CAN buy comes out `matched`, while another control the model tied to the
+ *    same locked item stays `needs_you` — a rule clears only an element it is about;
  *  - the owner's revision notes go into the image prompt, never the cached system block;
  *  - the checkpoint submission is `step_done`: waiting on `breakdown` with the checkpoint on, and the
  *    `checkpoint_open` event carries the breakdown; with it off the run moves on to style_pack; the
@@ -52,8 +53,8 @@ import { ANALYST_OUTPUT_SCHEMA, parseAnalystOutput, type AnalystOutput } from '.
 import {
 	readAnswerText,
 	summarizeUsage,
-	type ModelTransport,
 	type VisionRequest,
+	type VisionTransport,
 } from './vision.ts';
 
 const root = (rel: string) => fileURLToPath(new URL(`../../${rel}`, import.meta.url));
@@ -164,7 +165,7 @@ function fakeLauncher(over: Partial<Pick<Reference, 'ownershipConfirmed' | 'temp
 function fakeTransport(answers: Partial<Record<string, AnalystOutput>> = {}) {
 	const requests: VisionRequest[] = [];
 	let n = 0;
-	const transport: ModelTransport = {
+	const transport: VisionTransport = {
 		async analyze(request) {
 			requests.push(request);
 			const img = reference.images.find(
@@ -441,14 +442,16 @@ console.log('a template that can buy');
 	);
 	check(!els.some((e) => e.status === 'left_out'), 'nothing is left out on that template');
 
-	// The model gets it wrong the other way: it leaves the buy button out although the template buys.
+	// The model gets it wrong the other way: it leaves the buy button out although the template
+	// buys — and ties the gamble button to the same bet modes.
 	const base = reference.images[0].id;
 	const wrong = structuredClone(reference.answers[base]);
 	const claim = wrong.elements.find((e) => e.name === 'Buy bonus button')!;
 	claim.status = 'left_out';
 	claim.lockedItem = 'bet_modes';
 	claim.reason = 'The math has no buy feature.';
-	const overruled = elementsOf(
+	wrong.elements.find((e) => e.name === 'Gamble button')!.lockedItem = 'bet_modes';
+	const judged = elementsOf(
 		await analyzeMockups({
 			adapters: withErrors(fakeLauncher({ template: withBuy }).adapters),
 			model: fakeTransport({ [base]: wrong }).transport,
@@ -457,7 +460,8 @@ console.log('a template that can buy');
 			pass: 1,
 		}),
 		'base-game.png',
-	).find((e) => e.name === 'Buy bonus button')!;
+	);
+	const overruled = judged.find((e) => e.name === 'Buy bonus button')!;
 	check(
 		overruled.status === 'matched' && overruled.regions.join() === 'BetPanel',
 		'a buy control the model calls left_out on a template that can buy is matched: the model’s verdict counts for nothing',
@@ -466,6 +470,12 @@ console.log('a template that can buy');
 	check(
 		overruled.lockedItem === null && /no buy feature/.test(overruled.reason),
 		'…with no locked item, and the model’s reason kept as a reason only',
+	);
+	const gamble = judged.find((e) => e.name === 'Gamble button')!;
+	check(
+		gamble.status === 'needs_you' && gamble.lockedItem === null && /your call/.test(gamble.reason),
+		'…but a control the buy rule is not about stays needs_you although the model named bet modes: a rule clears only its own elements',
+		JSON.stringify(gamble),
 	);
 
 	const noFacts = structuredClone(reference.template);

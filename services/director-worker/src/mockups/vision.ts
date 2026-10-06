@@ -7,8 +7,8 @@ import { ANALYST_OUTPUT_SCHEMA, parseAnalystOutput, type AnalystOutput } from '.
  * The one model call the analysis makes per image (ADR-0005): a vision message held to the
  * structured-output schema, behind a transport seam so the fixture can answer from a file. The real
  * transport is the Anthropic SDK; nothing else in the analysis knows the API exists — except the
- * spend ledger, which gets each response's id and usage as the API returned them (`id`,
- * `apiUsage`), because every response is billed, a refused or malformed one included.
+ * spend ledger, which gets each response's id and usage as the API returned them
+ * (`BilledResponse`), because every response is billed, a refused or malformed one included.
  */
 
 export interface VisionRequest {
@@ -40,13 +40,13 @@ export interface BilledResponse {
 
 export interface VisionAnswer extends BilledResponse {
 	output: AnalystOutput;
-	usage: ClaudeResponseUsage['usage'];
 	/** The same usage summed for the breakdown's own record. */
 	usageSummary: Usage;
 }
 
-export interface ModelTransport {
-	analyze(request: VisionRequest): Promise<VisionAnswer>;
+export interface VisionTransport {
+	/** `signal` is the drive's: a worker shutting down or losing its lease stops the call. */
+	analyze(request: VisionRequest, signal?: AbortSignal): Promise<VisionAnswer>;
 }
 
 export type VisionErrorCode = 'refusal' | 'truncated' | 'no_text' | 'bad_json' | 'bad_shape';
@@ -100,36 +100,39 @@ export function readAnswerText(text: string): AnalystOutput {
  * `effort`; the system block is cached because it repeats for every image of a run; a refusal is
  * routed by the server's default fallback chain, and the answering model is reported.
  */
-export function anthropicTransport(client: Anthropic): ModelTransport {
+export function anthropicTransport(client: Anthropic): VisionTransport {
 	return {
-		async analyze(request) {
-			const response = await client.beta.messages.create({
-				model: request.model,
-				max_tokens: VISION_MAX_TOKENS,
-				betas: ['server-side-fallback-2026-07-01'],
-				fallbacks: 'default',
-				system: [{ type: 'text', text: request.system, cache_control: { type: 'ephemeral' } }],
-				messages: [
-					{
-						role: 'user',
-						content: [
-							{
-								type: 'image',
-								source: {
-									type: 'base64',
-									media_type: request.image.mediaType,
-									data: request.image.base64,
+		async analyze(request, signal) {
+			const response = await client.beta.messages.create(
+				{
+					model: request.model,
+					max_tokens: VISION_MAX_TOKENS,
+					betas: ['server-side-fallback-2026-07-01'],
+					fallbacks: 'default',
+					system: [{ type: 'text', text: request.system, cache_control: { type: 'ephemeral' } }],
+					messages: [
+						{
+							role: 'user',
+							content: [
+								{
+									type: 'image',
+									source: {
+										type: 'base64',
+										media_type: request.image.mediaType,
+										data: request.image.base64,
+									},
 								},
-							},
-							{ type: 'text', text: request.prompt },
-						],
+								{ type: 'text', text: request.prompt },
+							],
+						},
+					],
+					output_config: {
+						...(request.effort ? { effort: request.effort } : {}),
+						format: { type: 'json_schema', schema: ANALYST_OUTPUT_SCHEMA },
 					},
-				],
-				output_config: {
-					...(request.effort ? { effort: request.effort } : {}),
-					format: { type: 'json_schema', schema: ANALYST_OUTPUT_SCHEMA },
 				},
-			});
+				{ signal },
+			);
 			const billed: BilledResponse = {
 				id: response.id,
 				model: response.model,

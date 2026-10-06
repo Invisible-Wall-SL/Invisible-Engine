@@ -28,14 +28,20 @@ import {
 import type { AdapterSpec, Launcher } from './launcher.ts';
 import { deferLease, LEASE_MS, releaseLease, renewLease, type ClaimedRun } from './lease.ts';
 import { log } from './log.ts';
-import { AnalysisRefused, analyzeMockups, type Breakdown } from './mockups/analyze.ts';
+import {
+	AnalysisRefused,
+	analyzeMockups,
+	ANALYST_AGENT,
+	ownershipRefusal,
+	type Breakdown,
+	type MockupListing,
+} from './mockups/analyze.ts';
 import { submitBreakdown } from './mockups/checkpoint.ts';
 import {
 	VISION_MAX_TOKENS,
 	VisionError,
 	type BilledResponse,
-	type ModelTransport as VisionTransport,
-	type VisionAnswer,
+	type VisionTransport,
 } from './mockups/vision.ts';
 import {
 	buildRequest,
@@ -168,8 +174,8 @@ interface Ctx extends DriverDeps {
 	run: Pick<ClaimedRun, 'id' | 'lease'>;
 	signal: AbortSignal;
 	workerSpecs: ReturnType<typeof workerToolSpecs>;
-	/** Whether the run has mockups, read once per drive (`runHasMockups`). */
-	mockups?: Promise<boolean>;
+	/** The run's mockup listing, read once per drive (`mockupListing`). */
+	mockups?: Promise<MockupSummary>;
 }
 
 export async function driveRun(deps: DriverDeps, claimed: ClaimedRun): Promise<void> {
@@ -740,19 +746,23 @@ async function billResponse(
 
 // ── The breakdown step ────────────────────────────────────────────────────────
 
-const ANALYST = 'mockup-analyst';
+type MockupSummary = Pick<MockupListing, 'images' | 'ownershipConfirmed'>;
 
 /**
- * Whether the run has mockups, read once per drive through `mockups.list` in the analyst's name. A
+ * The run's mockup listing, read once per drive through `mockups.list` in the analyst's name. A
  * listing that cannot be read is not "no mockups": the drive fails and is retried, because a style
  * board opened in its place would be a breakdown the rules never saw.
  */
-function runHasMockups(ctx: Ctx): Promise<boolean> {
-	ctx.mockups ??= adapterClient(ctx.launcher, { runId: ctx.run.id, agent: ANALYST }, ctx.signal)
-		.call<{ images: unknown[] }>('mockups', 'list', {})
-		.then((listing) => listing.images.length > 0);
+function mockupListing(ctx: Ctx): Promise<MockupSummary> {
+	ctx.mockups ??= adapterClient(
+		ctx.launcher,
+		{ runId: ctx.run.id, agent: ANALYST_AGENT },
+		ctx.signal,
+	).call<MockupSummary>('mockups', 'list', {});
 	return ctx.mockups;
 }
+
+const runHasMockups = async (ctx: Ctx) => (await mockupListing(ctx)).images.length > 0;
 
 /** The step stopped before it was done: the run was paused or stopped under it. */
 class StepStopped extends Error {
@@ -769,21 +779,32 @@ class StepStopped extends Error {
  * checkpoint in one lease-checked transaction, only from `running` in `breakdown` — so it opens
  * once per attempt, and a pass that died before its submission leaves the run where it was: the
  * next claim runs it again under a new pass number (new crops opId). An owner who has not
- * confirmed the mockups' ownership pauses the run before any model call. A run without mockups is
- * the coordinator's, which builds the style board and asks for the checkpoint itself.
+ * confirmed the mockups' ownership pauses the run before any model call, and before the pass is
+ * announced. A run without mockups is the coordinator's, which builds the style board and asks for
+ * the checkpoint itself.
  *
  * True when the step was the worker's here (the run moved, paused, or kept its state for a retry);
  * false when it is not — the loop then gives an agent its turn.
  */
 async function breakdownStep(ctx: Ctx, live: LiveRun): Promise<boolean> {
-	if (live.state.step !== 'breakdown' || !(await runHasMockups(ctx))) return false;
-	const analyst = ctx.agents.get(ANALYST);
-	if (!analyst) {
-		await pauseWithError(ctx, 'worker', { type: 'unknown_agent', agent: ANALYST });
+	if (live.state.step !== 'breakdown') return false;
+	const listing = await mockupListing(ctx);
+	if (listing.images.length === 0) return false;
+	const refusal = ownershipRefusal(listing);
+	if (refusal) {
+		await pauseWithError(ctx, 'worker', {
+			type: 'ownership_unconfirmed',
+			message: `${refusal} Then resume the run.`,
+		});
 		return true;
 	}
-	const notes = await breakdownRevisions(ctx.sql, ctx.run.id);
-	const attempt = notes.length + 1;
+	const analyst = ctx.agents.get(ANALYST_AGENT);
+	if (!analyst) {
+		await pauseWithError(ctx, 'worker', { type: 'unknown_agent', agent: ANALYST_AGENT });
+		return true;
+	}
+	const { revisions, notes } = await breakdownRevisions(ctx.sql, ctx.run.id);
+	const attempt = revisions + 1;
 	const pass = (await breakdownPasses(ctx.sql, ctx.run.id)) + 1;
 	await withLease(ctx.sql, ctx.run, (tx, l) =>
 		insertEvent(tx, l.id, 'worker', 'activity', {
@@ -801,7 +822,7 @@ async function breakdownStep(ctx: Ctx, live: LiveRun): Promise<boolean> {
 	let breakdown: Breakdown;
 	try {
 		breakdown = await analyzeMockups({
-			adapters: { analyst: client(ANALYST), worker: client('worker') },
+			adapters: { analyst: client(ANALYST_AGENT), worker: client('worker') },
 			model: visionFor(ctx, analyst),
 			agent: analyst,
 			run: { id: ctx.run.id, templateProjectKey: live.templateProjectKey },
@@ -810,10 +831,10 @@ async function breakdownStep(ctx: Ctx, live: LiveRun): Promise<boolean> {
 		});
 	} catch (error) {
 		if (error instanceof StepStopped) return true;
+		// The listing changed between this drive's read and the analysis's own.
 		if (error instanceof AnalysisRefused) {
 			if (error.code === 'no_mockups') {
-				// Gone between the listing and the analysis: the step is the coordinator's after all.
-				ctx.mockups = Promise.resolve(false);
+				ctx.mockups = Promise.resolve({ images: [], ownershipConfirmed: null });
 				return false;
 			}
 			await pauseWithError(ctx, 'worker', {
@@ -822,19 +843,9 @@ async function breakdownStep(ctx: Ctx, live: LiveRun): Promise<boolean> {
 			});
 			return true;
 		}
-		if (error instanceof VisionError && error.code === 'refusal') {
-			await withLease(ctx.sql, ctx.run, async (tx, l) => {
-				await insertEvent(tx, l.id, ANALYST, 'error', {
-					type: 'refusal',
-					model: error.response?.model ?? analyst.model,
-					message: `The mockup analyst's call was refused: ${error.message}`,
-				});
-				await pause(tx, l, 'refusal', `${ANALYST}: refusal`);
-			});
-			return true;
-		}
-		// Anything else — a transport failure, an adapter down, an answer that is not the schema — is
-		// retried by the drive's failure path, and pauses the run after MAX_FAILURES in a row.
+		// Anything else — the launcher unreachable, a transient API failure — is retried by the
+		// drive's failure path, which asks for every image again (and bills them again), and pauses
+		// the run after MAX_FAILURES in a row.
 		throw error;
 	}
 	const result = await submitBreakdown(ctx.sql, ctx.run, breakdown, attempt);
@@ -851,9 +862,11 @@ async function breakdownStep(ctx: Ctx, live: LiveRun): Promise<boolean> {
 
 /**
  * The analyst's vision calls as the driver makes them: each goes out only while the run is still
- * running (an owner's pause or stop pressed since the last call applies first) and only under the
- * cap, and is billed as soon as it is answered — a refused or malformed answer included, since its
- * tokens are spent all the same.
+ * running (an owner's pause or stop pressed since the last call applies first), only under the
+ * cap, and with the drive's signal, and is billed as soon as it is answered — a refused or
+ * malformed answer included, since its tokens are spent all the same. A refusal, an answer that
+ * cannot be used, or an API error a retry cannot fix pauses the run here, once, for a person: a
+ * failed drive would ask for every image again.
  */
 function visionFor(ctx: Ctx, analyst: AgentDefinition): VisionTransport {
 	return {
@@ -893,21 +906,58 @@ function visionFor(ctx: Ctx, analyst: AgentDefinition): VisionTransport {
 				return 'the budget cap';
 			});
 			if (stop) throw new StepStopped(stop);
-			let answer: VisionAnswer;
 			try {
-				answer = await ctx.vision.analyze(request);
+				const answer = await ctx.vision.analyze(request, ctx.signal);
+				if (!(await billResponse(ctx, analyst.name, answer, pricing))) {
+					throw new StepStopped('an unpriced response');
+				}
+				return answer;
 			} catch (error) {
-				if (error instanceof VisionError && error.response) {
-					if (!(await billResponse(ctx, analyst.name, error.response, pricing))) {
+				if (error instanceof StepStopped || ctx.signal.aborted) throw error;
+				if (error instanceof VisionError) {
+					if (error.response && !(await billResponse(ctx, analyst.name, error.response, pricing))) {
 						throw new StepStopped('an unpriced response');
 					}
+					const model = error.response?.model ?? analyst.model;
+					await withLease(ctx.sql, ctx.run, async (tx, live) => {
+						await insertEvent(
+							tx,
+							live.id,
+							analyst.name,
+							'error',
+							error.code === 'refusal'
+								? {
+										type: 'refusal',
+										model,
+										message: `The mockup analyst's call was refused: ${error.message}`,
+									}
+								: {
+										type: 'bad_answer',
+										code: error.code,
+										model,
+										message: `The mockup analyst's answer for a mockup could not be used (${error.code}): ${error.message} Resume the run to analyse the mockups again.`,
+									},
+						);
+						await pause(
+							tx,
+							live,
+							error.code === 'refusal' ? 'refusal' : 'error',
+							`${analyst.name}: ${error.code}`,
+						);
+					});
+					throw new StepStopped(error.code);
+				}
+				const status = permanentApiError(error);
+				if (status !== null) {
+					await pauseWithError(ctx, analyst.name, {
+						type: 'api_error',
+						status,
+						message: `${analyst.name}'s call was rejected (${status}): ${(error as Error).message}`,
+					});
+					throw new StepStopped(`a ${status} from the API`);
 				}
 				throw error;
 			}
-			if (!(await billResponse(ctx, analyst.name, answer, pricing))) {
-				throw new StepStopped('an unpriced response');
-			}
-			return answer;
 		},
 	};
 }

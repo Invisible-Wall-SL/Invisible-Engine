@@ -1,6 +1,7 @@
 import type { TransactionSql } from 'postgres';
 import type { BetaContentBlockParam } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import type { ToolSpec } from './model.ts';
+import { ANALYST_AGENT } from './mockups/analyze.ts';
 import { transition, type RunEvent } from './runState.ts';
 import { appendMessage, applyTransition, insertEvent, runSpend, type LiveRun } from './store.ts';
 import type { WORKER_TOOLS } from './tools.ts';
@@ -65,7 +66,7 @@ const findings = {
 	),
 };
 
-const UNASSIGNABLE: ReadonlySet<string> = new Set(['coordinator', 'mockup-analyst']);
+const UNASSIGNABLE: ReadonlySet<string> = new Set(['coordinator', ANALYST_AGENT]);
 
 /** The specs, in a fixed order. `agentNames` fills `run.assign_task`'s enum. */
 export function workerToolSpecs(agentNames: readonly string[]): Record<WorkerToolId, ToolSpec> {
@@ -254,7 +255,7 @@ export async function runWorkerTool(
 			const agent = str(input, 'agent');
 			if (agent === 'coordinator' || agent === ctx.agent)
 				return refused('Assign to another agent.');
-			if (agent === 'mockup-analyst') {
+			if (agent === ANALYST_AGENT) {
 				return refused(
 					'Refused: the mockup analyst is not assigned. The worker runs the mockup breakdown itself when the run has mockups.',
 				);

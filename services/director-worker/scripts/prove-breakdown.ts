@@ -32,12 +32,15 @@
  *  6. an owner's pause pressed between two images stops the step before the next call; the resume
  *     runs it again;
  *  7. a revise re-runs the step with the owner's note in the image prompt (never in the cached
- *     system block) and opens the checkpoint a second time, once, as attempt 2.
+ *     system block) and opens the checkpoint a second time, once, as attempt 2;
+ *  8. an API error a retry cannot fix (413) and an answer off the schema each pause the run at
+ *     once, billed, without re-running the pass; the resume runs it again.
  */
 import type {
 	BetaMessage,
 	BetaMessageStreamParams,
 } from '@anthropic-ai/sdk/resources/beta/messages/messages';
+import Anthropic from '@anthropic-ai/sdk';
 import postgres from 'postgres';
 import { parsePricing } from 'director-costs';
 import { readFileSync } from 'node:fs';
@@ -51,8 +54,9 @@ import type { AnalystOutput } from '../src/mockups/schema.ts';
 import {
 	readAnswerText,
 	summarizeUsage,
-	type ModelTransport as VisionTransport,
+	VisionError,
 	type VisionRequest,
+	type VisionTransport,
 } from '../src/mockups/vision.ts';
 import { toolName, type ModelTransport } from '../src/model.ts';
 import { recordSpend } from '../src/store.ts';
@@ -130,13 +134,17 @@ const buyTemplate = structuredClone(reference.template);
 	};
 }
 
-/** The canned base-game answer, but the model leaves the buy button OUT, naming Bet modes. */
+/**
+ * The canned base-game answer, but the model leaves the buy button OUT naming Bet modes, and ties
+ * the gamble button (which no rule is about) to Bet modes too.
+ */
 const wrongBuy = structuredClone(reference.answers[BASE]);
 {
 	const buy = wrongBuy.elements.find((e) => e.name === 'Buy bonus button')!;
 	buy.status = 'left_out';
 	buy.lockedItem = 'bet_modes';
 	buy.reason = 'The math has no buy feature.';
+	wrongBuy.elements.find((e) => e.name === 'Gamble button')!.lockedItem = 'bet_modes';
 }
 
 // ── Fakes ─────────────────────────────────────────────────────────────────────
@@ -145,6 +153,8 @@ interface VisionOptions {
 	answers?: Partial<Record<string, AnalystOutput>>;
 	/** Runs while the n-th call (1-based) is in flight — e.g. the owner pressing Pause. */
 	during?: (n: number) => Promise<unknown> | void;
+	/** The n-th call (1-based) fails with this instead of answering. */
+	fail?: (n: number, id: string) => unknown;
 }
 
 /** The analyst's model: answers each image from `reference.json`, counts and keeps every request. */
@@ -160,6 +170,9 @@ function fakeVision(options: VisionOptions = {}) {
 			);
 			if (!img) throw new Error('proof: the vision model got an image it does not know');
 			await options.during?.(n);
+			const id = `vmsg_${tag}_${Math.random().toString(36).slice(2)}`;
+			const failure = options.fail?.(n, id);
+			if (failure) throw failure;
 			const output = readAnswerText(
 				JSON.stringify(options.answers?.[img.id] ?? reference.answers[img.id]),
 			);
@@ -169,7 +182,6 @@ function fakeVision(options: VisionOptions = {}) {
 				cache_read_input_tokens: 0,
 				cache_creation_input_tokens: 0,
 			};
-			const id = `vmsg_${tag}_${Math.random().toString(36).slice(2)}`;
 			ids.push(id);
 			return { id, model: request.model, usage, usageSummary: summarizeUsage(usage), output };
 		},
@@ -447,7 +459,7 @@ try {
 		);
 		const gamble = byName(breakdown, 'Gamble button');
 		check(
-			'a left_out no rule confirms is needs_you',
+			'a left_out no rule about the element can judge is needs_you, although the model named the same bet modes',
 			[gamble.status, gamble.lockedItem],
 			['needs_you', null],
 		);
@@ -808,6 +820,77 @@ try {
 			],
 		);
 		check('no agent turn in all of it', turns.calls(), 0);
+	}
+
+	// ── 8. Permanent errors pause once ────────────────────────────────────────
+	console.log('8. a permanent API error or a bad answer pauses the run once, billed');
+	{
+		const runId = await newRun();
+		const tooLarge = Anthropic.APIError.generate(
+			413,
+			undefined,
+			'request too large',
+			new Headers(),
+		);
+		const vision = fakeVision({ fail: (n) => (n === 2 ? tooLarge : undefined) });
+		const turns = fakeTurnModel();
+		const gate = fakeLauncher({ template: buyTemplate });
+		await start(runId);
+		await drive(runId, deps(turns.transport, vision.transport, gate.launcher));
+		check('a 413 on the second image pauses the run', (await runRow(runId)).status, 'paused');
+		const [error] = await events(runId, 'error');
+		check(
+			'…with the status shown',
+			[error?.payload.type, error?.payload.status],
+			['api_error', 413],
+		);
+		check(
+			'…the first answer billed, no checkpoint',
+			[(await spendRows(runId)).length, (await breakdownOpens(runId)).length],
+			[1, 0],
+		);
+		check(
+			'…and no retry: two calls, one pass',
+			[vision.calls(), await activityTypes(runId)],
+			[2, ['breakdown_pass']],
+		);
+		check(
+			'a paused run is not claimed again',
+			await drive(runId, deps(turns.transport, vision.transport, gate.launcher)),
+			false,
+		);
+		await resume(runId);
+		await drive(runId, deps(turns.transport, vision.transport, gate.launcher));
+		check(
+			'the resume runs the step again',
+			[(await runRow(runId)).waiting_on, vision.calls(), (await breakdownOpens(runId)).length],
+			['breakdown', 4, 1],
+		);
+
+		const badRun = await newRun();
+		const bad = fakeVision({
+			fail: (n, id) =>
+				n === 1
+					? new VisionError('bad_shape', 'elements[0].box: expected integer x, y, w, h', {
+							id,
+							model: 'claude-opus-5-5',
+							usage: { input_tokens: 1500, output_tokens: 50 },
+						})
+					: undefined,
+		});
+		await start(badRun);
+		await drive(badRun, deps(turns.transport, bad.transport, gate.launcher));
+		const [badError] = await events(badRun, 'error');
+		check(
+			'an answer off the schema pauses the run at once, naming the code',
+			[(await runRow(badRun)).status, badError?.payload.type, badError?.payload.code, bad.calls()],
+			['paused', 'bad_answer', 'bad_shape', 1],
+		);
+		check(
+			'…and the unusable answer is still billed',
+			(await spendRows(badRun)).map((r) => r.agent),
+			['mockup-analyst'],
+		);
 	}
 } finally {
 	await sql`delete from director_spend where run_id like ${`${tag}-%`}`;

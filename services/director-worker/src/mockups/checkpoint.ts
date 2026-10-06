@@ -8,7 +8,7 @@ import {
 	withLease,
 	type EventKind,
 } from '../store.ts';
-import type { Breakdown } from './analyze.ts';
+import { ANALYST_AGENT, type Breakdown } from './analyze.ts';
 
 /**
  * The breakdown as the `breakdown` checkpoint (ADR-0003, ADR-0005). The analysis is the breakdown
@@ -30,8 +30,6 @@ export interface BreakdownEvent {
 	payload: Record<string, unknown>;
 }
 
-const ANALYST = 'mockup-analyst';
-
 function summarize(breakdown: Breakdown) {
 	const elements = breakdown.images.flatMap((i) => i.elements);
 	return {
@@ -52,7 +50,7 @@ export function breakdownEvents(
 ): BreakdownEvent[] {
 	const events: BreakdownEvent[] = [
 		{
-			agent: ANALYST,
+			agent: ANALYST_AGENT,
 			kind: 'activity',
 			tool: null,
 			payload: { message: 'Mockup breakdown ready', attempt, ...summarize(breakdown) },
@@ -60,7 +58,7 @@ export function breakdownEvents(
 	];
 	if (to.status === 'waiting' && to.waitingOn === 'breakdown') {
 		events.push({
-			agent: ANALYST,
+			agent: ANALYST_AGENT,
 			kind: 'checkpoint_open',
 			tool: null,
 			payload: { checkpoint: 'breakdown', attempt, breakdown },

@@ -207,18 +207,26 @@ export async function markHandled(tx: Db, eventId: number): Promise<void> {
 
 // ── The breakdown step ────────────────────────────────────────────────────────
 
-/**
- * The owner's notes from each "revise" of the run's breakdown checkpoint the worker has applied,
- * oldest first. Their count is how many times the breakdown was sent back, so the next analysis is
- * attempt `length + 1`, and the notes go into its prompt.
- */
-export async function breakdownRevisions(db: Db, runId: string): Promise<string[]> {
+export interface BreakdownRevisions {
+	/** How many times the owner sent the breakdown back: the `run_status` rows of a revise that
+	 *  returned the run to the breakdown step. The next analysis is attempt `revisions + 1`. */
+	revisions: number;
+	/** The owner's notes on those revisions, oldest first, blanks left out; they go into the prompt. */
+	notes: string[];
+}
+
+export async function breakdownRevisions(db: Db, runId: string): Promise<BreakdownRevisions> {
+	const [{ n }] = await db<{ n: number }[]>`
+		select count(*)::int as n from director_events
+		where run_id = ${runId} and kind = 'run_status'
+			and payload_json->>'cause' = 'owner revise'
+			and payload_json->'to'->>'step' = 'breakdown'`;
 	const rows = await db<{ note: string | null }[]>`
 		select payload_json->>'note' as note from director_events
 		where run_id = ${runId} and kind = 'checkpoint_resolved' and handled_at is not null
 			and payload_json->>'checkpoint' = 'breakdown' and payload_json->>'decision' = 'revise'
 		order by id`;
-	return rows.map((r) => r.note?.trim() ?? '').filter(Boolean);
+	return { revisions: n, notes: rows.map((r) => r.note?.trim() ?? '').filter(Boolean) };
 }
 
 /**
