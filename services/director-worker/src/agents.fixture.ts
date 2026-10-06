@@ -84,7 +84,7 @@ console.log('refused fixtures');
 {
 	const badModel = throws(() => loadAgents(here('fixtures/agents/bad-model'), catalog));
 	check(
-		badModel.includes('painter.md: model: claude-imaginary-9 is not in pricing.json'),
+		badModel.includes('painter.md: model: claude-imaginary-9 is not a model an agent may run'),
 		'an unknown model is refused',
 		` — ${badModel}`,
 	);

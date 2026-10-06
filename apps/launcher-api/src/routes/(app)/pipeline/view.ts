@@ -1,4 +1,6 @@
+import type { AgentLastChange } from '$lib/server/pipelineAgents';
 import type {
+	AgentEvalCheck,
 	ChangeDetail,
 	ChangeStatus,
 	CheckGroup,
@@ -6,6 +8,11 @@ import type {
 	HarnessCheck,
 } from '$lib/server/pipelineChanges';
 import type { HarnessRow } from '$lib/server/pipelineReport';
+import type {
+	EvalElementView,
+	EvalReport,
+	EvalSide,
+} from '../../../../../../services/director-worker/src/eval/report';
 
 /**
  * Pure helpers for the Changes tab: wording, tones and URLs derived from what
@@ -152,6 +159,13 @@ export function blockedReason(detail: ChangeDetail): BlockedReason | null {
 				url: safeHref(failed.url ?? group.url),
 			};
 		}
+	}
+	const agentEval = detail.agentEval;
+	if (agentEval?.blocking) {
+		return {
+			text: `agent-eval: ${agentEval.blocking}`,
+			url: safeHref(agentEval.run?.url) ?? (agentEval.run ? safeHref(agentEval.status?.url) : null),
+		};
 	}
 	const { harness } = detail;
 	const status = harness.status;
@@ -328,4 +342,156 @@ export function approvalBlocker(harness: HarnessCheck): ApprovalBlocker | null {
 		return { text, byHand: false };
 	}
 	return null;
+}
+
+// ── Agents tab and the "Agent evaluation" check ────────────────────────────────
+
+/** A 0..1 score as a whole percent: the same rounding the status line uses. */
+export const pct = (score: number): string => `${Math.round(score * 100)}%`;
+
+export const money = (usd: number): string => `$${usd.toFixed(2)}`;
+
+export const shortSha = (sha: string): string => sha.slice(0, 7);
+
+/** An agent's effort, or what steers a model that has none (Haiku's thinking budget). */
+export const effortWord = (effort: string | null): string => effort ?? 'thinking budget';
+
+/** The same, for a chip or a card line: "medium effort" or "thinking budget". */
+export const effortLabel = (effort: string | null): string =>
+	effort ? `${effort} effort` : effortWord(effort);
+
+export const toolsWord = (n: number): string => `${n} ${plural(n, 'tool')}`;
+
+export const openChangesWord = (n: number): string => `${n} open ${plural(n, 'change')}`;
+
+export const charsWord = (n: number): string =>
+	`${n.toLocaleString('en-US')} ${plural(n, 'character')}`;
+
+/** "Changed 2 h ago by Ana", "Changed on 2026-08-01 by Ana", or "no change recorded". */
+export function changedText(
+	last: Pick<AgentLastChange, 'date' | 'author'> | null,
+	now: number = Date.now(),
+): string {
+	if (!last) return 'no change recorded';
+	const when = timeAgo(last.date, now);
+	const parts = ['Changed'];
+	if (when) parts.push(/^\d{4}-\d{2}-\d{2}$/.test(when) ? `on ${when}` : when);
+	if (last.author) parts.push(`by ${last.author}`);
+	return parts.join(' ');
+}
+
+export interface EvalPill {
+	tone: PillTone;
+	label: string;
+}
+
+/** The pill on the "Agent evaluation" card: the score move, or where the evaluation stands. */
+export function evalPill(check: AgentEvalCheck): EvalPill {
+	const state = check.report;
+	if (state.state === 'ready') {
+		const { report } = state;
+		switch (report.result) {
+			case 'scored': {
+				const { before, after } = report;
+				if (!after) return { tone: 'amber', label: 'scored' };
+				if (!before) return { tone: 'green', label: `new · after ${pct(after.score)}` };
+				return {
+					tone: after.score >= before.score ? 'green' : 'amber',
+					label: `before ${pct(before.score)} → after ${pct(after.score)}`,
+				};
+			}
+			case 'no-eval-set':
+				return { tone: 'muted', label: 'no eval set' };
+			case 'invalid':
+				return { tone: 'red', label: 'invalid' };
+			case 'capped':
+				return { tone: 'red', label: 'capped' };
+			default:
+				return { tone: 'red', label: 'failed' };
+		}
+	}
+	if (check.status?.state === 'failure' || check.status?.state === 'error') {
+		return { tone: 'red', label: 'failed' };
+	}
+	switch (state.state) {
+		case 'running':
+			return { tone: 'blue', label: 'running' };
+		case 'none':
+			return check.status?.state === 'pending'
+				? { tone: 'blue', label: 'running' }
+				: { tone: 'muted', label: 'not started' };
+		default:
+			return { tone: 'amber', label: state.state };
+	}
+}
+
+/** The reference set as one line: "mockups · 2 images · 13 elements". */
+export function evalSetText(set: EvalReport['set']): string {
+	if (!set) return 'No reference set';
+	const { name, images, elements } = set;
+	return `${name} · ${images} ${plural(images, 'image')} · ${elements} ${plural(elements, 'element')}`;
+}
+
+/** "$3.20 of $20.00": what the run spent against its hard cap. */
+export const evalCostText = (report: Pick<EvalReport, 'costUsd' | 'capUsd'>): string =>
+	`${money(report.costUsd)} of ${money(report.capUsd)}`;
+
+/** A side's definition as one line: "claude-sonnet-5-5 · medium". */
+export const evalSideText = (side: EvalSide | null): string =>
+	side ? `${side.definition.model} · ${effortWord(side.definition.effort)}` : 'no definition';
+
+export interface EvalRow {
+	label: string;
+	before: string;
+	after: string;
+}
+
+/** The before/after summary table; a side that did not run reads "—". */
+export function evalRows(report: Pick<EvalReport, 'before' | 'after'>): EvalRow[] {
+	const row = (label: string, read: (side: EvalSide) => string): EvalRow => ({
+		label,
+		before: report.before ? read(report.before) : '—',
+		after: report.after ? read(report.after) : '—',
+	});
+	return [
+		row('Score', (s) => pct(s.score)),
+		row('Status agreement', (s) => pct(s.statusAgreement)),
+		row('Region agreement', (s) => pct(s.regionAgreement)),
+		row('Extra elements', (s) => String(s.extraElements)),
+		row('Calls', (s) => String(s.calls)),
+		row('Cost', (s) => money(s.costUsd)),
+	];
+}
+
+export interface EvalCell {
+	text: string;
+	/** The regions the side named, and how much of the expected set it got. */
+	detail: string;
+	tone: Tone;
+}
+
+/** One side's answer for one expected element. */
+export function evalCell(view: EvalElementView | null): EvalCell {
+	if (!view) return { text: '—', detail: '', tone: 'muted' };
+	if (!view.found) return { text: 'not found', detail: '', tone: 'red' };
+	const regions = view.regions.length ? view.regions.join(', ') : 'no regions';
+	const exact = view.regionScore >= 1;
+	return {
+		text: view.status ?? 'no status',
+		detail: exact ? regions : `${regions} · regions ${pct(view.regionScore)}`,
+		tone: !view.statusMatch ? 'red' : exact ? 'green' : 'amber',
+	};
+}
+
+/** The first line of a commit message: what a log shows. */
+export const firstLine = (message: string): string => message.split(/\r?\n/, 1)[0] ?? '';
+
+/** The pull request title the server gives an agent-definition change. */
+export const agentChangeTitle = (name: string, why: string): string => `agents: ${name} — ${why}`;
+
+/** The `errors` list of a 400 answer, as the server's strings. */
+export function errorListOf(body: unknown): string[] {
+	if (!body || typeof body !== 'object') return [];
+	const { errors } = body as { errors?: unknown };
+	return Array.isArray(errors) ? errors.filter((e): e is string => typeof e === 'string') : [];
 }

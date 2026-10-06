@@ -29,6 +29,8 @@ const SCOPES = [
 	'launcher',
 	'admin',
 	'localization',
+	// runtime-agent definitions (services/director-worker/agents), opened by Pipeline Changes
+	'agents',
 	// python pipeline tools
 	'pipeline',
 	'atlas',
