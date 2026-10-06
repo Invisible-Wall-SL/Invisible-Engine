@@ -445,6 +445,23 @@ before the change, and rendered with main's runtime (`89407ba`) against the work
   change it and no republished row was planned: `12 pass · 0 fail · 9 not rendered · 0 changed`,
   161 of 161 byte-identical, each passing row saying so. The live proof therefore seeds a def the
   live games do ship as a copy (below).
+- **The live proof: the built-in `button` moved 1 px** (the fourth seed, `45be9a1`, run
+  [37399652334](https://github.com/Invisible-Wall-SL/Invisible-Engine/actions/runs/37399652334); one
+  render shard lost its runner and was re-run once). `button` is a copy in seven of the twelve
+  rendered live games, so the plan rendered those seven twice and the other five once, each row
+  saying why: `12 pass · 7 fail · 9 not rendered · 72 changed screen(s) · 7 row(s) as republished`,
+  182 of 254 compared screens byte-identical. The twelve **as-published** rows: `looks the same`, 0
+  changed (bookofborutpartner, bookofborutremake, borut-pots-sample, lines and test1 ship copies of
+  `loadingBar`, `tapToContinue`, `textBox` and the Hold and Win parts but not of `button`, so they
+  got the "a republish would not change it" note and no second row). The seven **as-republished**
+  rows all changed: hw-3pots-sample 11 of 14 screens, hw-classic-sample 9 of 12, hw-collector-sample
+  8 of 11, test2, test2build, test3 and test6 11 of 14 each, 1,855–2,462 px (0.20–0.27 %) inside the
+  HUD bar's box (x 158–1152, y 611–708) on six of them and a 16×16 block 22–25 % different in
+  test6's HUD corner (x 33–214, y 20–87), both sides on the same frame every time. On every one of
+  the seven the three screens that did not change are `loaded`, `idle` and `spin`; every screen from
+  the settled board on did. The as-published rows of the same games were byte-identical: today's
+  published games cannot see the change, a republish would, and the harness now shows both.
+  Rendering cost 10,572 s across the shards, 4,136 s of it the seven republished units.
 - **The revert, which is also main vs main.** With the frame back at `x: 0` the working tree's
   engine source equals main's, so its runtime (built again from the restored source) against main's
   cached build is two independent builds and renders of one engine. The plan found the two builds'
