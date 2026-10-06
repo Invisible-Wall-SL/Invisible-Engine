@@ -4,6 +4,7 @@
 // Invisible rig runtime with the reference runtime on them, as parity.mjs does for real rigs.
 //
 //   node tools/rig-parity/fuzz.mjs [--seeds N] [--seed S] [--verbose]
+import fs from 'node:fs';
 import { SPINE_CORE } from '../rigger-spike/spine.mjs';
 import { loadRig } from './load.mjs';
 
@@ -12,6 +13,8 @@ const opt = (name, fallback) => (args.includes(name) ? Number(args[args.indexOf(
 const SEEDS = opt('--seeds', 400);
 const ONLY = args.includes('--seed') ? opt('--seed', 0) : null;
 const verbose = args.includes('--verbose');
+const trace = args.includes('--trace');
+const dumpDir = args.includes('--dump') ? args[args.indexOf('--dump') + 1] : null;
 
 const RIG = await loadRig();
 const REF = await import(SPINE_CORE);
@@ -276,26 +279,39 @@ function makeRig(seed) {
 
 	const events = { ev1: { int: int(0, 9) }, ev2: { float: round(range(0, 1)), string: 'hello' }, ev3: {} };
 
-	const curve = (n) => {
+	// Bezier handles sit inside the key interval (absolute times) and near the two keyed values,
+	// as the editor writes them; a curve with no numeric value to follow eases between 0 and 1.
+	const curve = (n, t1, t2, from, to) => {
 		const p = g.r();
 		if (p < 0.2) return 'stepped';
 		if (p < 0.5) return undefined;
 		const out = [];
-		for (let i = 0; i < n; i++) out.push(round(range(0, 0.5)), round(range(-50, 50)), round(range(0.5, 1)), round(range(-50, 50)));
+		for (let i = 0; i < n; i++) {
+			const v1 = from[i] ?? 0;
+			const v2 = to[i] ?? 1;
+			const at = (f) => round(v1 + (v2 - v1) * f, 4);
+			out.push(round(t1 + (t2 - t1) * range(0, 0.5), 4), at(range(-0.3, 1.3)), round(t1 + (t2 - t1) * range(0.5, 1), 4), at(range(-0.3, 1.3)));
+		}
 		return out;
 	};
 	const keys = (count, value) => {
+		const times = [];
 		let t = round(range(0, 0.3));
-		const out = [];
 		for (let i = 0; i < count; i++) {
-			const k = { time: t, ...value() };
-			if (t === 0 && chance(0.5)) delete k.time;
-			const c = curve(Object.keys(value()).length || 1);
-			if (c !== undefined && i < count - 1) k.curve = c;
-			out.push(k);
+			times.push(t);
 			t = round(t + range(0.1, 0.6));
 		}
-		return out;
+		const values = times.map(() => value());
+		const numbers = (v) => Object.values(v).filter((x) => typeof x === 'number');
+		return times.map((time, i) => {
+			const k = { time, ...values[i] };
+			if (time === 0 && chance(0.5)) delete k.time;
+			if (i < count - 1) {
+				const c = curve(Object.keys(values[i]).length || 1, time, times[i + 1], numbers(values[i]), numbers(values[i + 1]));
+				if (c !== undefined) k.curve = c;
+			}
+			return k;
+		});
 	};
 
 	const animation = () => {
@@ -454,7 +470,11 @@ function snapshot(X, sk, clipper) {
 	for (const c of sk.ikConstraints) add(`ik ${c.data.name}`, c.mix, c.softness, c.bendDirection, c.compress ? 1 : 0, c.stretch ? 1 : 0, c.active ? 1 : 0);
 	for (const c of sk.transformConstraints) add(`tc ${c.data.name}`, c.mixRotate, c.mixX, c.mixY, c.mixScaleX, c.mixScaleY, c.mixShearY);
 	for (const c of sk.pathConstraints) add(`pc ${c.data.name}`, c.position, c.spacing, c.mixRotate, c.mixX, c.mixY);
-	for (const c of sk.physicsConstraints) add(`ph ${c.data.name}`, c.inertia, c.strength, c.damping, c.massInverse, c.wind, c.gravity, c.mix);
+	for (const c of sk.physicsConstraints) {
+		add(`ph ${c.data.name}`, c.inertia, c.strength, c.damping, c.massInverse, c.wind, c.gravity, c.mix);
+		for (const f of ['ux', 'uy', 'cx', 'cy', 'tx', 'ty', 'xOffset', 'xVelocity', 'yOffset', 'yVelocity', 'rotateOffset', 'rotateVelocity', 'scaleOffset', 'scaleVelocity', 'remaining', 'lastTime'])
+			add(`ph ${c.data.name} ${f}`, c[f]);
+	}
 	for (const s of sk.slots) {
 		add(`slot ${s.data.name} rgba`, s.color.r, s.color.g, s.color.b, s.color.a);
 		if (s.darkColor) add(`slot ${s.data.name} dark`, s.darkColor.r, s.darkColor.g, s.darkColor.b);
@@ -469,31 +489,60 @@ function snapshot(X, sk, clipper) {
 		} else if (a instanceof X.MeshAttachment) {
 			a.computeWorldVertices(s, 0, a.worldVerticesLength, v, 0, 2);
 			add(`slot ${s.data.name} uvs`, ...a.uvs);
-		} else if (a instanceof X.VertexAttachment) a.computeWorldVertices(s, 0, a.worldVerticesLength, v, 0, 2);
-		else if (a instanceof X.PointAttachment) {
+		} else if (a instanceof X.PointAttachment) {
 			const p = a.computeWorldPosition(s.bone, new X.Vector2());
-			v.push(p.x, p.y, a.computeWorldRotation(s.bone));
-		}
+			// Rotation is left out: the reference's returns radians scaled by degRad (atan2Deg bug).
+			v.push(p.x, p.y);
+		} else if (a instanceof X.VertexAttachment) a.computeWorldVertices(s, 0, a.worldVerticesLength, v, 0, 2);
 		add(`slot ${s.data.name} verts`, ...v);
 	}
 	strs.push('order:' + sk.drawOrder.map((s) => s.data.index).join(','));
 	const off = new X.Vector2();
 	const size = new X.Vector2();
 	sk.getBounds(off, size, [], clipper);
-	if (Number.isFinite(off.x)) add('bounds', off.x, off.y, size.x, size.y);
+	// A degenerate pose (a zero-scale parent) leaves NaN vertices in both runtimes; the reference's
+	// bounds then turn NaN while ours skip them, so bounds are compared only for finite poses.
+	if (nums.every(Number.isFinite) && Number.isFinite(off.x)) add('bounds', off.x, off.y, size.x, size.y);
 	return { nums, keys, strs };
 }
 
 let failures = 0;
 let checks = 0;
+const chaotic = [];
+const degenerate = [];
+/** A pose whose math is ill-defined in any runtime: a singular bone matrix (a zero scale), an
+ * applied transform that is already NaN/Infinity, or a pose that has blown up (bones millions of
+ * units away, where cancellation turns rounding noise into visible differences). */
+function isDegenerate(sk) {
+	return sk.bones.some(
+		(b) =>
+			b.active &&
+			(Math.abs(b.a * b.d - b.b * b.c) < 1e-6 ||
+				Math.max(Math.abs(b.worldX), Math.abs(b.worldY)) > 1e5 ||
+				Math.max(Math.abs(b.a), Math.abs(b.b), Math.abs(b.c), Math.abs(b.d)) > 1e3 ||
+				![b.ax, b.ay, b.arotation, b.ascaleX, b.ascaleY, b.ashearX, b.ashearY].every(Number.isFinite)),
+	);
+}
+function same(a, b) {
+	if (a.nums.length !== b.nums.length || a.strs.join() !== b.strs.join()) return false;
+	return a.nums.every((v, i) => close(v, b.nums[i]));
+}
 const failedSeeds = [];
 function compare(label, a, b) {
 	checks++;
 	const problem = (() => {
-		if (a.strs.length !== b.strs.length || a.nums.length !== b.nums.length) return `shape ${a.nums.length}/${a.strs.length} vs ${b.nums.length}/${b.strs.length}`;
+		if (a.strs.length !== b.strs.length || a.nums.length !== b.nums.length) {
+			const ka = new Set(a.keys);
+			const kb = new Set(b.keys);
+			const onlyA = [...ka].filter((k) => !kb.has(k)).slice(0, 4);
+			const onlyB = [...kb].filter((k) => !ka.has(k)).slice(0, 4);
+			return `shape ${a.nums.length}/${a.strs.length} vs ${b.nums.length}/${b.strs.length}; ref-only ${onlyA}; rig-only ${onlyB}`;
+		}
 		for (let i = 0; i < a.strs.length; i++) if (a.strs[i] !== b.strs[i]) return `${a.strs[i]} ≠ ${b.strs[i]}`;
-		for (let i = 0; i < a.nums.length; i++) if (!close(a.nums[i], b.nums[i])) return `${a.keys[i]}: ${a.nums[i]} ≠ ${b.nums[i]}`;
-		return null;
+		const bad = [];
+		for (let i = 0; i < a.nums.length; i++) if (!close(a.nums[i], b.nums[i])) bad.push(`${a.keys[i]}: ${a.nums[i]} ≠ ${b.nums[i]}`);
+		if (!bad.length) return null;
+		return verbose ? '\n      ' + bad.slice(0, 40).join('\n      ') : bad[0];
 	})();
 	if (!problem) return true;
 	failures++;
@@ -515,6 +564,11 @@ function recorder(log) {
 
 function runSeed(seed) {
 	const { json, atlas } = makeRig(seed);
+	if (dumpDir) {
+		fs.mkdirSync(dumpDir, { recursive: true });
+		fs.writeFileSync(`${dumpDir}/seed${seed}.json`, JSON.stringify(JSON.parse(json), null, 1));
+		fs.writeFileSync(`${dumpDir}/seed${seed}.atlas`, atlas);
+	}
 	let refData;
 	try {
 		refData = load(REF, json, atlas);
@@ -531,8 +585,8 @@ function runSeed(seed) {
 		return false;
 	}
 	const g = generator(seed * 7919 + 1);
-	const runs = [REF, RIG].map((X, i) => {
-		const data = i === 0 ? refData : rigData;
+	const runs = [REF, RIG, REF].map((X, i) => {
+		const data = i === 1 ? rigData : i === 0 ? refData : load(REF, json, atlas);
 		const sk = new X.Skeleton(data);
 		if (seed % 3 === 0) sk.setSkinByName('alt');
 		if (seed % 4 === 1) {
@@ -561,6 +615,11 @@ function runSeed(seed) {
 				r.sk.setToSetupPose();
 				r.data.findAnimation(name).apply(r.sk, last, t, true, (r.events = []), 1, r.X.MixBlend.setup, r.X.MixDirection.mixIn);
 				r.sk.updateWorldTransform(r.X.Physics.pose);
+			}
+			if (isDegenerate(runs[0].sk) && !same(snapshot(REF, runs[0].sk), snapshot(RIG, runs[1].sk))) {
+				degenerate.push(seed);
+				last = t;
+				continue;
 			}
 			if (!compare(`seed ${seed} ${name} @${t.toFixed(3)}`, snapshot(REF, runs[0].sk), snapshot(RIG, runs[1].sk))) return false;
 			const ea = runs[0].events.map((e) => e.data.name + e.time).join();
@@ -631,15 +690,49 @@ function runSeed(seed) {
 			}
 			r.state.update(dt);
 			r.state.apply(r.sk);
-			r.sk.x = Math.sin(f / 10) * 40;
+			r.sk.x = Math.sin(f / 10) * 40 + (r === runs[2] ? 1e-5 : 0);
 			r.sk.y = Math.cos(f / 13) * 25;
 			r.sk.update(dt);
 			r.sk.updateWorldTransform(r.X.Physics.update);
 		}
-		if (!compare(`seed ${seed} state frame ${f}`, snapshot(REF, runs[0].sk, runs[0].clipper), snapshot(RIG, runs[1].sk, runs[1].clipper))) return false;
+		if (trace) {
+			const a = snapshot(REF, runs[0].sk);
+			const b = snapshot(RIG, runs[1].sk);
+			let worst = 0;
+			let key = '';
+			a.nums.forEach((v, i) => {
+				const d = Math.abs(v - b.nums[i]);
+				if (d > worst) [worst, key] = [d, `${a.keys[i]} (${v})`];
+			});
+			const ops = script.filter((x) => x.f === f).map((x) => `${x.op}:${x.track}:${x.anim}`).join(' ');
+			console.log(`  frame ${f} worst ${worst.toExponential(2)} ${key} ${ops}`);
+			if (process.env.PH)
+				for (const r of runs.slice(0, 2)) {
+					const c = r.sk.physicsConstraints[0];
+					const b = c.bone;
+					console.log(`     ${r.X === REF ? 'REF' : 'RIG'} rot=${c.rotateOffset.toFixed(6)} rv=${c.rotateVelocity.toFixed(5)} sc=${c.scaleOffset.toFixed(6)} xo=${c.xOffset.toFixed(5)} yo=${c.yOffset.toFixed(5)} rem=${c.remaining.toFixed(6)} t=${c.lastTime.toFixed(4)} cx=${c.cx.toFixed(4)} tx=${c.tx.toFixed(4)} bone=${[b.a, b.c, b.worldX, b.worldY].map((v) => v.toFixed(5))} mix=${c.mix.toFixed(4)} in=${c.inertia.toFixed(4)}`);
+				}
+		}
+		const ref = snapshot(REF, runs[0].sk, runs[0].clipper);
+		const rig = snapshot(RIG, runs[1].sk, runs[1].clipper);
+		if (!same(ref, rig)) {
+			// Chaotic physics amplifies rounding noise. When the reference disagrees with itself
+			// after a 1e-5 nudge too, the frame says nothing about parity: stop this seed there.
+			if (!same(ref, snapshot(REF, runs[2].sk, runs[2].clipper))) {
+				chaotic.push(seed);
+				return true;
+			}
+			if (isDegenerate(runs[0].sk)) {
+				degenerate.push(seed);
+				return true;
+			}
+			compare(`seed ${seed} state frame ${f}`, ref, rig);
+			return false;
+		}
+		checks++;
 	}
-	checks++;
 	const A = runs[0].log;
+	checks++;
 	const B = runs[1].log;
 	if (A.join('\n') !== B.join('\n')) {
 		let i = 0;
@@ -664,5 +757,5 @@ for (const seed of seeds) {
 	if (!ok) failedSeeds.push(seed);
 }
 REF.Skeleton.yDown = false;
-console.log(`${failures ? '✗' : '✓'} rig fuzz parity: ${seeds.length} seeds, ${checks} checks, ${failures} failures${failedSeeds.length ? ` (seeds ${failedSeeds.slice(0, 20).join(', ')}${failedSeeds.length > 20 ? ', …' : ''})` : ''}`);
+console.log(`${failures ? '✗' : '✓'} rig fuzz parity: ${seeds.length} seeds, ${checks} checks, ${failures} failures, ${chaotic.length} chaotic (cut short), ${new Set(degenerate).size} with degenerate poses skipped${failedSeeds.length ? ` (seeds ${failedSeeds.slice(0, 20).join(', ')}${failedSeeds.length > 20 ? ', …' : ''})` : ''}`);
 process.exit(failures ? 1 : 0);

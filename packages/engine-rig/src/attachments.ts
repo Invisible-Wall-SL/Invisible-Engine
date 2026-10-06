@@ -447,7 +447,9 @@ export class PathAttachment extends VertexAttachment {
 	}
 }
 
-export class PointAttachment extends Attachment {
+/** A point and direction on a bone (a vertex attachment with no vertices, like the format's
+ * other runtimes model it, so hierarchy checks agree). */
+export class PointAttachment extends VertexAttachment {
 	readonly kind = 'point' as const;
 	x = 0;
 	y = 0;
@@ -471,6 +473,7 @@ export class PointAttachment extends Attachment {
 
 	copy(): PointAttachment {
 		const copy = new PointAttachment(this.name);
+		this.copyTo(copy);
 		copy.x = this.x;
 		copy.y = this.y;
 		copy.rotation = this.rotation;

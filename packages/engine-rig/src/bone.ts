@@ -131,12 +131,15 @@ export class Bone {
 				break;
 			}
 			case Inherit.NoRotationOrReflection: {
+				// Measured with the skeleton's own scale taken out of the parent.
+				const isx = 1 / sx;
+				const isy = 1 / sy;
+				pa *= isx;
+				pc *= isy;
 				let s = pa * pa + pc * pc;
 				let prx: number;
 				if (s > 0.0001) {
-					s = Math.abs(pa * pd - pb * pc) / s;
-					pa /= sx;
-					pc /= sy;
+					s = Math.abs(pa * pd * isy - pb * isx * pc) / s;
 					pb = pc * s;
 					pd = pa * s;
 					prx = Math.atan2(pc, pa) * RAD_DEG;
@@ -174,7 +177,7 @@ export class Bone {
 					pa * pd - pb * pc < 0 !== (sx < 0 !== sy < 0)
 				)
 					s = -s;
-				const zr = PI / 2 + Math.atan2(zc, za);
+				const zr = Math.PI / 2 + Math.atan2(zc, za);
 				const zb = Math.cos(zr) * s;
 				const zd = Math.sin(zr) * s;
 				const rx = shearX * DEG_RAD;
@@ -360,7 +363,7 @@ export class Bone {
 	}
 
 	localToWorldRotation(localRotation: number): number {
-		localRotation -= this.rotation - this.shearX;
+		localRotation -= this.rotation + this.shearX;
 		const sin = Math.sin(localRotation * DEG_RAD);
 		const cos = Math.cos(localRotation * DEG_RAD);
 		return Math.atan2(cos * this.c + sin * this.d, cos * this.a + sin * this.b) * RAD_DEG;
