@@ -84,7 +84,7 @@ jobs:
       # MAIN's code, whatever the PR changes: this is the checkout every later step runs from. No
       # token is left in the checkout: the repo is public, so the later fetch of the PR head needs
       # none, and nothing that runs here should find one.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: main
           fetch-depth: 1
@@ -158,9 +158,9 @@ jobs:
             exit 1
           fi
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
           cache: pnpm
@@ -201,7 +201,7 @@ jobs:
       # The report alone, for Invisible Pipeline Changes. Replaces a previous attempt's, so a re-run
       # leaves the report of the attempt whose status was posted. Skipped when the eval never ran:
       # an earlier step has already posted why.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: ${{ !cancelled() && steps.eval.outcome != 'skipped' }}
         with:
           name: agent-eval-report
