@@ -9,7 +9,9 @@
 // hosts itself: `use.typekit.net` from a mirror of the kit (R2, `_ci/typekit-mirror/`), and the
 // `p.typekit.net` beacons locally, with empty bodies — nothing waits on them and nothing reaches
 // Adobe. A URL the mirror lacks fails the render, naming it: the fix is a refresh, never a quiet
-// fallback to the network.
+// fallback to the network. The one loud fallback: no mirror in R2 at all (before its first upload)
+// renders from Adobe as players do and says so in a warning, so the harness works before the
+// mirror exists and the dependency is visible in every report until it does.
 //
 // Layout in R2 (and in a local mirror dir): `current.json` (the manifest: kits, every URL with its
 // sha256, content type and size, and a `hash` over the lot) and `blobs/<sha256>` (immutable by
@@ -195,6 +197,10 @@ export function interceptorFor(manifest, dir) {
 	};
 }
 
+/** A GitHub annotation on a runner, a plain line elsewhere. */
+const warn = (message) =>
+	console.log(`${process.env.GITHUB_ACTIONS ? '::warning::' : 'warning: '}${message}`);
+
 const pinOf = (manifest, source) => ({
 	mode: 'mirror',
 	source,
@@ -206,21 +212,25 @@ const pinOf = (manifest, source) => ({
 
 /**
  * The plan's Typekit decision. `mode`: `network` (Adobe, as players: a local run with no R2),
- * `mirror` (R2, pinned by hash: the live games), or a local mirror dir. The R2 mirror must exist
- * and cover every kit the runtime at `root` names; a missing or stale one names the refresh.
+ * `mirror` (R2, pinned by hash: the live games), or a local mirror dir. No mirror in R2 yet means
+ * `network` with a warning and the reason on record; a mirror that lacks a kit the runtime at
+ * `root` names fails the plan, naming the refresh.
  */
-export async function planTypekit(mode, root) {
+export async function planTypekit(mode, root, { read = readMirrorManifest } = {}) {
 	if (mode === 'network') return { mode: 'network' };
 	if (mode !== 'mirror') return pinOf(readMirrorDir(mode), mode);
-	const manifest = await readMirrorManifest();
+	const manifest = await read();
 	// Also a commit-status description, which GitHub cuts at 140 characters: the fix must fit.
-	const refresh = 'run the "Typekit mirror" workflow, then re-run';
-	if (!manifest)
-		throw new Error(`the Typekit mirror is missing from R2 (${MANIFEST_KEY}): ${refresh}`);
+	const refresh = 'run the "Typekit mirror" workflow';
+	if (!manifest) {
+		const reason = `the Typekit mirror is missing from R2 (${MANIFEST_KEY}): fonts come from Adobe until it is uploaded (${refresh})`;
+		warn(reason);
+		return { mode: 'network', reason };
+	}
 	const missing = kitIds(root).filter((id) => !manifest.kits.includes(id));
 	if (missing.length)
 		throw new Error(
-			`the Typekit mirror (kits ${manifest.kits.join(', ')}) lacks kit(s) the runtime loads (${missing.join(', ')}): ${refresh}`,
+			`the Typekit mirror (kits ${manifest.kits.join(', ')}) lacks kit(s) the runtime loads (${missing.join(', ')}): ${refresh}, then re-run`,
 		);
 	return pinOf(manifest, 'r2');
 }
@@ -238,5 +248,5 @@ export async function mirrorInterceptor(typekit, cache) {
 /** One line for the digest and the report. */
 export const describeTypekit = (typekit) =>
 	!typekit || typekit.mode === 'network'
-		? 'typekit: network — fonts came from use.typekit.net (no mirror)'
+		? `typekit: network — fonts came from use.typekit.net (${typekit?.reason ?? 'no mirror'})`
 		: `typekit: mirror ${typekit.hash} (${typekit.files} files, kits ${typekit.kits.join(', ')}, fetched ${typekit.fetchedAt}, from ${typekit.source})`;

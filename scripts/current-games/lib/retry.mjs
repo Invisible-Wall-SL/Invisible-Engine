@@ -1,9 +1,11 @@
 // Retry a `current-games` run whose jobs GitHub failed to START: a hosted runner never acquired
 // ("The job was not acquired by Runner of type hosted even after multiple attempts", the job is
 // `cancelled` after ~15 min with no runner and no steps), or a runner lost before the job's body
-// ran (checkout, toolchain, install, artifact download). Never a job that ran and failed: a step
-// that exercised the branch — a build, the gates, a render shard, the compare — with any
-// conclusion is a real result, and a real failure is never retried.
+// ran (its steps end `in_progress` or `cancelled`, none of them `failure`). Never a job that ran
+// and failed: a body step that started — a build, the gates, a render shard, the compare — is a
+// result whatever its conclusion, and so is a set-up step that concluded `failure` (a stale
+// lockfile, a bad `base` input, a missing secret, a broken headless-shell install). A real failure
+// is never retried.
 //
 // `.github/workflows/current-games-retry.yml` runs this on every completed `Current games` run and
 // re-runs the failed jobs at most ONCE per run (attempt 1 only). GitHub's "re-run failed jobs"
@@ -23,9 +25,10 @@ export const WORKFLOW = 'Current games';
 /**
  * The jobs of `current-games.yml`: what each `needs`, and the names (prefixes) of the steps that
  * exercise the branch — its BODY. Steps before the body (checkout, pnpm, node, install, the
- * headless shell, artifact downloads) are set-up: a job that dies there tested nothing. `prepare`
- * has no body: it posts a status, picks a base and classifies the diff, and tests nothing.
- * `retry.fixture.mjs` proves this table matches the workflow file.
+ * headless shell, artifact downloads) are set-up: a runner lost there tested nothing, while a
+ * set-up step that failed is still a failure of its own. `prepare` has no body (it posts a status,
+ * picks a base and classifies the diff), so only a lost runner retries it. `retry.fixture.mjs`
+ * proves this table matches the workflow file.
  */
 export const JOBS = {
 	prepare: { needs: [], body: [] },
@@ -58,32 +61,34 @@ const started = (step) => !['queued', 'pending', 'waiting'].includes(step.status
 const isBody = (kind, step) => (JOBS[kind]?.body ?? []).some((p) => step.name.startsWith(p));
 
 /**
- * How one failed job died: `infrastructure` (no runner, or lost before its body), `real` (a body
- * step started), or `unknown` (a job this table does not know: never retried). The `why` is for
- * the log.
+ * How one failed job died: `infrastructure` (no runner ever, or a runner lost before its body:
+ * no started step concluded `failure`), `real` (a body step started, or a set-up step failed), or
+ * `unknown` (a job this table does not know: never retried). The `why` is for the log.
  */
 export function classifyJob(job) {
 	const kind = jobKind(job.name);
 	if (!JOBS[kind]) return { kind, outcome: 'unknown', why: 'not a job of current-games.yml' };
-	const steps = job.steps ?? [];
-	const body = steps.filter((s) => isBody(kind, s) && started(s) && s.conclusion !== 'skipped');
-	if (body.length)
-		return {
-			kind,
-			outcome: 'real',
-			why: `its body ran: "${body[0].name}" ${body[0].conclusion ?? body[0].status}`,
-		};
-	if (!steps.some(started) && !job.runner_name)
+	const steps = (job.steps ?? []).filter(started);
+	if (!steps.length && !job.runner_name)
 		return {
 			kind,
 			outcome: 'infrastructure',
 			why: `never acquired a runner (${job.conclusion}, no steps)`,
 		};
-	const last = [...steps].reverse().find(started);
+	const body = steps.find((s) => isBody(kind, s) && s.conclusion !== 'skipped');
+	if (body)
+		return {
+			kind,
+			outcome: 'real',
+			why: `its body ran: "${body.name}" ${body.conclusion ?? body.status}`,
+		};
+	const failed = steps.find((s) => s.conclusion === 'failure');
+	if (failed) return { kind, outcome: 'real', why: `a set-up step failed: "${failed.name}"` };
+	const last = steps.at(-1);
 	return {
 		kind,
 		outcome: 'infrastructure',
-		why: `died before its body ran${last ? ` (last step "${last.name}" ${last.conclusion ?? last.status})` : ''}`,
+		why: `the runner was lost before its body ran${last ? ` (last step "${last.name}" ${last.conclusion ?? last.status})` : ''}`,
 	};
 }
 

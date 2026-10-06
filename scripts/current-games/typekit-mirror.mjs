@@ -95,10 +95,10 @@ async function refresh() {
 	if (opt.out) log(`written to ${writeMirrorDir(resolve(opt.out), manifest, files)}`);
 	if (opt['dry-run']) return log('dry run: nothing written to R2');
 	const { s3, bucket, client } = await r2(WRITE_ENV);
-	const bySha = new Map(manifest.files.map((f) => [f.sha256, f]));
+	const byUrl = new Map(manifest.files.map((f) => [f.url, f]));
 	let uploaded = 0;
 	for (const file of files) {
-		const entry = bySha.get(manifest.files.find((f) => f.url === file.url).sha256);
+		const entry = byUrl.get(file.url);
 		const key = blobKey(entry.sha256);
 		const exists = await client.send(new s3.HeadObjectCommand({ Bucket: bucket, Key: key })).then(
 			() => true,

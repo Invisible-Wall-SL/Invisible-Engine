@@ -3,17 +3,20 @@
 # (`_ci/typekit-mirror/`, see scripts/current-games/lib/typekit.mjs) so an Adobe outage cannot
 # stall a frame or fail a comparison. Players are not touched: they keep loading from Adobe.
 #
-# WHEN TO RUN IT: once, before the first harness run after this lands; again whenever the harness
-# fails with "the Typekit mirror is missing" / "lacks kit(s)" / "has no entry for <url>" — a kit id
-# changed in the runtime's sources, or a face was added. Nothing in a render ever reaches Adobe, so
+# WHEN TO RUN IT: once, to make the harness independent of Adobe (until then every run warns "the
+# Typekit mirror is missing from R2" and renders from Adobe); again whenever the harness fails with
+# "lacks kit(s)" / "has no entry for <url>" — a kit id changed in the runtime's sources, or a face
+# was added. Nothing in a render ever reaches Adobe, so
 # the mirror does not go stale on its own: Adobe republishing the kit changes what players get, not
 # what the harness compares (both sides render the same mirrored faces). A branch that changes the
-# kit runs this with `extra_kits` naming the OLD id too, until it merges (main's runtime still loads
-# it). Doc: docs/playtest/current-games.md ("Typekit mirror").
+# kit cannot run this (main only, below): run it from main with `extra_kits` naming the NEW id, and
+# again plain once the branch has merged. Doc: docs/playtest/current-games.md ("Typekit mirror").
 #
 # WRITES to R2 with the release's read-write key (`R2_*`, the runtime-release secrets), the only
 # harness-side thing that does: blobs are content-addressed (never overwritten) and `current.json`
-# is one write, last. The harness itself keeps its read-only key.
+# is one write, last. The harness itself keeps its read-only key. It runs MAIN's code only: a
+# dispatch on any other ref ends at the job's `if`, so a branch cannot run its own code with the
+# write key.
 
 name: Typekit mirror
 
@@ -38,6 +41,7 @@ permissions:
 
 jobs:
   refresh:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

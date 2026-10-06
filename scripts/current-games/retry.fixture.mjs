@@ -49,7 +49,7 @@ const renderFailed = (n) => ({
 		step('Complete job'),
 	],
 });
-/** A runner lost mid-install: the job fails with its body never started. */
+/** A runner lost mid-install: the job fails with its body never started and no step failed. */
 const lostInSetup = (
 	name,
 	last = step('Run pnpm install --frozen-lockfile', null, 'in_progress'),
@@ -58,6 +58,13 @@ const lostInSetup = (
 	conclusion: 'failure',
 	runner_name: 'GitHub Actions 1000006736',
 	steps: [...SETUP.slice(0, 4), last],
+});
+/** A set-up step that concluded `failure` before the body: a failure of its own. */
+const setupFailed = (name, failedStep, before = SETUP.slice(0, 4)) => ({
+	name,
+	conclusion: 'failure',
+	runner_name: 'GitHub Actions 1000006738',
+	steps: [...before, step(failedStep, 'failure'), step('Complete job')],
 });
 /** The report job after a shard went missing: its compare ran and posted the failure. */
 const reportFailed = () => ({
@@ -85,12 +92,36 @@ assert.deepEqual([...needsOf('prepare')], []);
 assert.equal(classifyJob(neverAcquired('prepare')).outcome, 'infrastructure');
 assert.match(classifyJob(neverAcquired('render (6)')).why, /never acquired a runner/);
 assert.equal(classifyJob(lostInSetup('render (3)')).outcome, 'infrastructure');
-assert.match(classifyJob(lostInSetup('render (3)')).why, /before its body ran.*pnpm install/);
+assert.match(classifyJob(lostInSetup('render (3)')).why, /lost before its body ran.*pnpm install/);
 assert.equal(
-	classifyJob(lostInSetup('build', step('Run pnpm install --frozen-lockfile', 'failure'))).outcome,
+	classifyJob(lostInSetup('build', step('Run actions/checkout@v7', 'cancelled'))).outcome,
 	'infrastructure',
-	'a set-up step marked failed still never ran the body',
+	'a lost runner may leave its step cancelled',
 );
+assert.equal(
+	classifyJob({ name: 'gates', conclusion: 'failure', runner_name: 'GitHub Actions 1', steps: [] })
+		.outcome,
+	'infrastructure',
+	'a runner acquired and lost before any step',
+);
+// A set-up step that concluded failure is a failure of its own, in every job, whatever the step.
+for (const [name, failedStep, before] of [
+	['render (3)', 'Run pnpm install --frozen-lockfile'],
+	['render (3)', 'Install the headless shell', SETUP],
+	['render (3)', 'Run actions/download-artifact@v4', SETUP],
+	['build', 'Run actions/checkout@v7', SETUP.slice(0, 1)],
+	['build', 'Restore the base runtime', SETUP],
+	['gates', 'Run pnpm install --frozen-lockfile'],
+	['prepare', 'Check the secrets', SETUP.slice(0, 1)],
+	['prepare', 'Pick the base commit', SETUP.slice(0, 1)],
+	['prepare', 'Can this change reach a game?', SETUP.slice(0, 1)],
+	['prepare', 'Stand down for a branch with an open PR', SETUP.slice(0, 1)],
+]) {
+	const c = classifyJob(setupFailed(name, failedStep, before));
+	assert.equal(c.outcome, 'real', `${name}: "${failedStep}" failed`);
+	assert.ok(c.why.includes(`a set-up step failed: "${failedStep}"`), c.why);
+	assert.equal(decideRetry(failedRun([setupFailed(name, failedStep, before)])).retry, false);
+}
 assert.equal(classifyJob(renderFailed(14)).outcome, 'real');
 assert.match(classifyJob(renderFailed(14)).why, /"Render shard 14\/20" failure/);
 assert.equal(classifyJob(reportFailed()).outcome, 'real');
@@ -216,6 +247,23 @@ assert.equal(classifyJob({ name: 'publish', conclusion: 'failure', steps: [] }).
 	const beside = decideRetry(failedRun([unknown, neverAcquired('prepare')]));
 	assert.equal(beside.retry, false);
 	assert.match(beside.reason, /publish/);
+}
+
+{
+	// A lost runner on one shard and a failed set-up step on another: the set-up failure is real.
+	const d = decideRetry(
+		failedRun([
+			ok('prepare'),
+			ok('build'),
+			ok('gates'),
+			...shards([3, 7]),
+			lostInSetup('render (3)'),
+			setupFailed('render (7)', 'Install the headless shell', SETUP),
+			reportFailed(),
+		]),
+	);
+	assert.equal(d.retry, false);
+	assert.match(d.reason, /render \(7\)/);
 }
 
 // Already retried → no retry.

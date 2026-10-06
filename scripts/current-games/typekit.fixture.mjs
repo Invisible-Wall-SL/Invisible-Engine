@@ -126,6 +126,15 @@ const origin = `http://127.0.0.1:${server.address().port}`;
 // The crawl fetches Adobe's host; here that host is the fake kit.
 const local = (url, init) => fetch(url.replace(`https://${KIT_HOST}`, origin), init);
 
+/** Chrome's helpers can still be writing the profile when the shell has exited: insist, then let go. */
+const removeProfile = (dir) => {
+	try {
+		rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+	} catch {
+		// A leftover temp dir is not a finding.
+	}
+};
+
 const work = mkdtempSync(join(tmpdir(), 'cg-typekit-'));
 try {
 	// ---- 3. the crawl and the manifest ----
@@ -170,6 +179,22 @@ try {
 		files: 8,
 	});
 	assert.deepEqual(await planTypekit('network', ROOT), { mode: 'network' });
+	// No mirror in R2 yet: the run goes on from Adobe, loudly, with the reason on record.
+	const bootstrap = await planTypekit('mirror', ROOT, { read: async () => null });
+	assert.equal(bootstrap.mode, 'network');
+	assert.match(bootstrap.reason, /missing from R2 .*fonts come from Adobe until it is uploaded/);
+	assert.match(describeTypekit(bootstrap), /^typekit: network — .*missing from R2/);
+	// A mirror that exists but lacks the runtime's kit is a plan failure that names the fix.
+	await assert.rejects(
+		planTypekit('mirror', ROOT, { read: async () => ({ ...manifest, kits: ['someotherkit'] }) }),
+		/lacks kit\(s\) the runtime loads \(aba0ebl\): run the "Typekit mirror" workflow/,
+	);
+	const live = await planTypekit('mirror', ROOT, {
+		read: async () => ({ ...manifest, kits: ['aba0ebl', 'kit'] }),
+	});
+	assert.equal(live.mode, 'mirror');
+	assert.equal(live.source, 'r2');
+	assert.equal(live.hash, manifest.hash);
 	assert.match(describeTypekit(pin), /^typekit: mirror [0-9a-f]{16} \(8 files, kits kit/);
 	assert.match(describeTypekit({ mode: 'network' }), /^typekit: network/);
 	await assert.rejects(
@@ -254,7 +279,7 @@ try {
 			assert.equal(kitHits(), before, 'the fake Adobe got no request while the page rendered');
 		} finally {
 			await page.close();
-			rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
+			removeProfile(profile);
 		}
 		// A kit URL the mirror lacks is refused and named, never fetched.
 		profile = mkdtempSync(join(tmpdir(), 'cg-typekit-profile-'));
@@ -268,7 +293,7 @@ try {
 			assert.equal(kitHits(), before, 'nothing reached the network');
 		} finally {
 			await page.close();
-			rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
+			removeProfile(profile);
 		}
 		// Without an interceptor the browser is as before: nothing is paused or recorded. (A page with
 		// no Typekit reference: a check must not reach for Adobe.)
@@ -280,7 +305,7 @@ try {
 			assert.deepEqual(page.unmirrored, []);
 		} finally {
 			await page.close();
-			rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
+			removeProfile(profile);
 		}
 	}
 } finally {
