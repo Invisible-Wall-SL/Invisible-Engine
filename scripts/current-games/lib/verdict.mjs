@@ -218,7 +218,9 @@ export function decide({ run, jobs, report, prepare, reach, baseOnMain }) {
 		);
 	if (baseOnMain === false)
 		return fail(
-			`The report compared against ${String(report.base?.sha ?? 'no commit').slice(0, 7)}, which is not on ${BASE_BRANCH}`,
+			report.base?.sha
+				? `The report compared against ${String(report.base.sha).slice(0, 7)}, which is not on ${BASE_BRANCH}`
+				: `The report names no base commit, so it cannot show it compared against ${BASE_BRANCH}`,
 		);
 	return {
 		state: report.summary?.verdict === 'pass' ? 'success' : 'failure',
@@ -296,6 +298,17 @@ function prReach(pr, headSha) {
 	return reachOf(changedFiles(base.stdout.trim(), headSha), runtimeInputs);
 }
 
+/**
+ * Whether a PR's report compared against main (a base off main could hide the change): `undefined`
+ * when there is nothing to ask (not a PR, no report, an aborted one), and `false` for a report that
+ * names no base — it cannot show what it compared against.
+ */
+export function baseOnMainOf(run, report, onBranch) {
+	if (run.event !== 'pull_request' || !report || report.aborted) return undefined;
+	const sha = report.base?.sha;
+	return sha ? onBranch(String(sha)) : false;
+}
+
 /** Is `sha` on the base branch? Fetched first; one that cannot be fetched is not. */
 function onBaseBranch(sha) {
 	// Report data reaches git as an argument: only a full commit id, never an option.
@@ -335,11 +348,7 @@ async function decideCompleted(run, checked, attempt, repository, lines) {
 	);
 	const report = await artifactJson(repository, run.id, REPORT_ARTIFACT, 'report.json');
 	const prepare = await artifactJson(repository, run.id, PREPARE_ARTIFACT, 'prepare.json');
-	// A PR's report must compare against main: a base off main could hide the change.
-	const baseOnMain =
-		run.event === 'pull_request' && report?.base?.sha
-			? onBaseBranch(String(report.base.sha))
-			: undefined;
+	const baseOnMain = baseOnMainOf(run, report, onBaseBranch);
 	return decide({ run, jobs, report, prepare, reach, baseOnMain });
 }
 
@@ -405,7 +414,11 @@ async function runRemote(opt, repository) {
 				`/repos/${repository}/actions/runs?head_sha=${run.head_sha}&per_page=100`,
 			);
 			const newer = runs.some(
-				(r) => r.id > run.id && r.path === WORKFLOW_PATH && r.event === run.event,
+				(r) =>
+					r.id > run.id &&
+					r.path === WORKFLOW_PATH &&
+					r.event === run.event &&
+					r.head_repository?.full_name === repository,
 			);
 			const d = decideCancelled({ run, newer });
 			if (!d.post) return stop(d.why);

@@ -13,6 +13,7 @@ import { join, resolve } from 'node:path';
 import { SECRET_ENV } from './lib/redact.mjs';
 import { runtimeInputs } from './lib/touched.mjs';
 import {
+	baseOnMainOf,
 	checkRun,
 	decide,
 	decideCancelled,
@@ -292,6 +293,24 @@ const verdict = (over = {}) =>
 // A report must compare against main: a base off main could already carry the change.
 {
 	assert.equal(verdict({ baseOnMain: true }).state, 'success');
+	const noBase = verdict({ baseOnMain: false, report: report({ base: undefined }) });
+	assert.deepEqual(
+		[noBase.state, noBase.description],
+		['failure', 'The report names no base commit, so it cannot show it compared against main'],
+	);
+	// What the CLI asks: a PR's report with no base is NOT on main (it fails closed); nothing is
+	// asked of a manual run, an aborted report or a missing one.
+	const yes = () => true;
+	assert.equal(baseOnMainOf(run(), report({ base: undefined }), yes), false);
+	assert.equal(baseOnMainOf(run(), report({ base: { sha: '' } }), yes), false);
+	assert.equal(baseOnMainOf(run(), report({ base: { sha: 'f'.repeat(40) } }), yes), true);
+	assert.equal(
+		baseOnMainOf(run(), report({ base: { sha: 'f'.repeat(40) } }), () => false),
+		false,
+	);
+	assert.equal(baseOnMainOf(run(), report({ aborted: 'no plan' }), yes), undefined);
+	assert.equal(baseOnMainOf(run(), undefined, yes), undefined);
+	assert.equal(baseOnMainOf(run({ event: 'workflow_dispatch' }), report(), yes), undefined);
 	const off = verdict({ baseOnMain: false, report: report({ base: { sha: 'e'.repeat(40) } }) });
 	assert.deepEqual(
 		[off.state, off.description],

@@ -326,8 +326,8 @@ is `lib/verdict.mjs`'s `decide` over the jobs of that attempt (the API's, not th
 `current-games-report-json` artifact and, after a missing secret, `current-games-prepare`. Both are
 parsed as JSON only; nothing from the PR or an artifact is ever installed, imported or executed (the
 workflow has no `pnpm install` and no `ref:`). The description is the report's summary line cut to
-139 characters and the target is the harness run, as the launcher expects. A report whose base
-commit is not on `main` fails. A push run posts nothing;
+139 characters and the target is the harness run, as the launcher expects. A PR's report whose base
+commit is not on `main`, or that names none, fails. A push run posts nothing;
 a manual run posts `current-games/self-compare` or `current-games/manual` (its run title says which),
 never `current-games`. The harness's `Verdict` step calls the same `decide`, so the two cannot drift.
 

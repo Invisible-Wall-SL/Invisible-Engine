@@ -1101,15 +1101,20 @@ accepts `current-games` twice with two sources is undocumented.
    `{"context":"current-games","integration_id":<APP_ID>}`, replacing the source-less entry). Do this
    only after step 2, or every PR waits on a status nobody can satisfy.
 
-**Bootstrapping the PR that adds the verdict.** That PR's harness no longer posts, and the verdict
-cannot run until it is on `main`, so its `current-games` never arrives; Pipeline Changes refuses to
-approve a workflow edit, so an approval cannot post it either. The owner posts it by hand on that
-PR's head (source is still **any** then), after reviewing it:
+**Merging a PR that edits the harness or a workflow — the PR that adds the verdict included.** Its
+`current-games` is a `failure` ("Edits the harness …: merge after review"), or for the PR that adds
+the verdict never arrives (its harness no longer posts and the verdict is not on `main` yet), and
+Pipeline Changes refuses to approve a workflow edit, so an approval cannot clear it either. After
+reviewing it, the owner posts `success` by hand on that PR's head — the same command every time:
 
 ```bash
 gh api repos/Invisible-Wall-SL/Invisible-Engine/statuses/<head-sha> -f state=success \
   -f context=current-games -f description="owner: trusted-verdict bootstrap"
 ```
+
+(For a later harness PR, a description such as `"owner: harness change reviewed"`.) Once the
+required check is pinned to an App, a hand-posted status no longer satisfies it: the owner then
+merges such a PR through the ruleset's bypass, or lifts the check for that one merge.
 
 **What stays open after this:** a PR that edits the harness now fails outright, so the residual is
 code the harness run executes without being the harness — a package's install scripts, the build
