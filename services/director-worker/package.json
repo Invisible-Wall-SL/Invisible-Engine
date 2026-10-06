@@ -12,9 +12,13 @@
 		"build": "tsc -p tsconfig.json",
 		"check:agents": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/agents.fixture.ts",
 		"check:run-state": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/runState.fixture.ts",
-		"prove:lease": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/prove-lease.ts"
+		"prove:lease": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/prove-lease.ts",
+		"check:model": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/model.fixture.ts",
+		"prove:turns": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/prove-turns.ts"
 	},
 	"dependencies": {
+		"@anthropic-ai/sdk": "0.128.0",
+		"director-costs": "workspace:*",
 		"postgres": "3.4.9"
 	},
 	"devDependencies": {

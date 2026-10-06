@@ -4,7 +4,7 @@
  *
  * ```
  * draft ─start→ running ─(gated step / batch done)→ waiting ─owner approve|revise→ running
- * running ─owner pause / budget cap→ paused ─resume→ running
+ * running ─owner pause / budget cap / refusal / error→ paused ─resume→ running
  * any live ─stop→ stopping ─(in-flight GPU jobs cancelled)→ stopped
  * build done → waiting(before_publish, always) ─approve→ handed_off
  * ```
@@ -71,7 +71,9 @@ export type RunEvent =
 	| { type: 'batch_done' }
 	/** The owner resolves the open checkpoint. `revise` sends the step back to work. */
 	| { type: 'resolve'; checkpoint: Checkpoint; decision: 'approve' | 'revise' }
-	| { type: 'pause'; reason: 'owner' | 'budget_cap' }
+	/** `refusal`: the model's final answer was a refusal; `error`: the worker cannot go on (a
+	 *  missing tool, an unpriced model) until someone fixes it. */
+	| { type: 'pause'; reason: 'owner' | 'budget_cap' | 'refusal' | 'error' }
 	| { type: 'resume' }
 	| { type: 'stop' }
 	/** Every in-flight GPU job of a stopping run is cancelled. */

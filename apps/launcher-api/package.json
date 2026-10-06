@@ -151,6 +151,7 @@
 		"engine-layout": "workspace:*",
 		"error-tracking": "workspace:*",
 		"ffmpeg-static": "^5.2.0",
+		"director-costs": "workspace:*",
 		"game-config": "workspace:*",
 		"ktx2-encoder": "^0.6.0",
 		"marked": "^18.0.14",

@@ -169,6 +169,20 @@
       "when": 1791191555984,
       "tag": "0023_director_atlas_jobs",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791200937090,
+      "tag": "0024_director_spend_request_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1791200944566,
+      "tag": "0025_director_wake_trigger",
+      "breakpoints": true
     }
   ]
 }

@@ -404,7 +404,7 @@ export const costMonths = pgTable(
  * once by the worker, never updated. Admin › Costs sums the `claude` rows month-to-date for
  * the "Anthropic (agents)" card; RunPod rows are already inside the RunPod account card.
  *
- * `runId` has no foreign key yet: the run tables arrive with the worker (PLAN 3.3).
+ * `runId` has no foreign key (OPEN_QUESTIONS, #1044): the ledger outlives a deleted run.
  */
 export const directorSpend = pgTable(
 	'director_spend',
@@ -425,8 +425,12 @@ export const directorSpend = pgTable(
 		cacheWriteTokens: integer('cache_write_tokens').notNull().default(0),
 		usd: doublePrecision('usd').notNull(),
 		kind: text('kind').$type<'claude' | 'runpod'>().notNull(),
+		/** What was billed: the Messages response id, or `runpod:<jobRef>`. Unique, so a retried
+		 *  write of the same response or job is ignored instead of billed twice. */
+		requestId: text('request_id'),
 	},
 	(table) => [
+		uniqueIndex('director_spend_request_id_idx').on(table.requestId),
 		index('director_spend_at_idx').on(table.at),
 		index('director_spend_run_idx').on(table.runId),
 		check('director_spend_kind_check', sql`${table.kind} in ('claude', 'runpod')`),
@@ -479,7 +483,9 @@ export const directorRuns = pgTable(
 			.default('breakdown'),
 		/** The open checkpoint while `waiting`; null otherwise. */
 		waitingOn: text('waiting_on').$type<'breakdown' | 'region_batch' | 'before_publish'>(),
-		/** Null = no cap. The worker pauses the run before the call that would cross it (ADR-0006). */
+		/** Null until the run starts, when the worker copies `DIRECTOR_RUN_BUDGET_USD` onto it; a run
+		 *  that somehow has none gets the default. The worker pauses the run before the call or GPU
+		 *  submit that would reach it (ADR-0006). */
 		budgetCapUsd: doublePrecision('budget_cap_usd'),
 		/** The worker driving the run, and until when. Both null = nobody. */
 		leaseHolder: text('lease_holder'),
@@ -519,7 +525,8 @@ export const directorRuns = pgTable(
  * Everything that happens in a run, append-only (ADR-0003): the Activity feed, checkpoints, region
  * statuses, GPU jobs, spend and errors, plus the owner's own rows — the launcher's form actions only
  * ever INSERT here (`owner_message`, `checkpoint_resolved`, `owner_request` for start / pause /
- * resume / stop) and NOTIFY `director_wake`; the worker reacts. `run_status` records each transition
+ * resume / stop), and an AFTER INSERT trigger (migration 0025) NOTIFYs `director_wake` with the
+ * run id for those and for `job_done`; the worker reacts. `run_status` records each transition
  * the worker makes. The live page streams this table after `Last-Event-ID` (= `id`).
  *
  * A row's content never changes. The one column written later is `handled_at`, which the worker
