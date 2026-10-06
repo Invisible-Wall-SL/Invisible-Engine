@@ -12,7 +12,14 @@ import { join, resolve } from 'node:path';
 
 import { SECRET_ENV } from './lib/redact.mjs';
 import { runtimeInputs } from './lib/touched.mjs';
-import { checkRun, decide, decideRequested, reachOf } from './lib/verdict.mjs';
+import {
+	checkRun,
+	decide,
+	decideCancelled,
+	decideRequested,
+	prIntoBase,
+	reachOf,
+} from './lib/verdict.mjs';
 
 const ROOT = resolve(import.meta.dirname, '../..');
 const read = (rel) => readFileSync(join(ROOT, rel), 'utf8');
@@ -33,14 +40,14 @@ const run = (over = {}) => ({
 	display_title: 'some PR',
 	repository: { full_name: REPO },
 	head_repository: { full_name: REPO },
-	pull_requests: [{ number: 7 }],
+	pull_requests: [{ number: 7, base: { ref: 'main' } }],
 	...over,
 });
 const pr = (over = {}) => ({
 	number: 7,
 	state: 'open',
 	head: { sha: SHA, repo: { full_name: REPO } },
-	base: { sha: 'b'.repeat(40) },
+	base: { sha: 'b'.repeat(40), ref: 'main' },
 	...over,
 });
 const check = (r, p = pr()) => checkRun({ run: r, pr: p, repository: REPO });
@@ -62,6 +69,28 @@ assert.match(
 	/moved on.*newer run posts/,
 );
 assert.match(checkRun({ run: run(), repository: REPO }).why, /could not be read/);
+// A status belongs to the head commit, so it is shared by every PR with that head: only the PR
+// into main may answer for it, never one into another branch that already carries the change.
+assert.match(
+	check(run({ pull_requests: [{ number: 8, base: { ref: 'x' } }] })).why,
+	/no pull request into main/,
+);
+assert.match(
+	check(run(), pr({ base: { sha: 'b'.repeat(40), ref: 'x' } })).why,
+	/targets x, not main/,
+);
+assert.equal(
+	prIntoBase(
+		run({
+			pull_requests: [
+				{ number: 8, base: { ref: 'x' } },
+				{ number: 7, base: { ref: 'main' } },
+			],
+		}),
+	).number,
+	7,
+	'the PR into main, not the first one listed',
+);
 // A manual run posts a context of its own, never `current-games`.
 {
 	const self = check(
@@ -103,6 +132,7 @@ assert.match(checkRun({ run: run(), repository: REPO }).why, /could not be read/
 {
 	assert.deepEqual(reachOf(['docs/a.md', '.claude/agents/x.md'], runtimeInputs), {
 		render: false,
+		files: ['docs/a.md', '.claude/agents/x.md'],
 		description: 'Docs-only change: no game can differ',
 	});
 	const untouched = reachOf(['apps/launcher-api/src/x.ts', 'docs/a.md'], runtimeInputs);
@@ -259,6 +289,61 @@ const verdict = (over = {}) =>
 	);
 	assert.equal(verdict({ report: report({ head: undefined }) }).state, 'failure');
 }
+// A report must compare against main: a base off main could already carry the change.
+{
+	assert.equal(verdict({ baseOnMain: true }).state, 'success');
+	const off = verdict({ baseOnMain: false, report: report({ base: { sha: 'e'.repeat(40) } }) });
+	assert.deepEqual(
+		[off.state, off.description],
+		['failure', 'The report compared against eeeeeee, which is not on main'],
+	);
+}
+// A PR that edits the harness wrote the report it would be judged by; one whose diff cannot be
+// read might have.
+{
+	for (const f of ['scripts/current-games/lib/compare.mjs', '.github/workflows/lint.yml']) {
+		const d = verdict({ reach: { render: true, files: ['packages/x/a.ts', f] } });
+		assert.equal(d.state, 'failure', f);
+		assert.match(d.description, /^Edits the harness \(.+\): its own run cannot vouch for it/);
+		assert.ok(d.description.length <= 139);
+	}
+	assert.match(
+		verdict({
+			reach: { render: true, files: ['scripts/current-games/a.mjs', '.github/workflows/b.yml'] },
+		}).description,
+		/\(scripts\/current-games\/a\.mjs, \+1\)/,
+	);
+	assert.equal(
+		verdict({ reach: { render: true, files: ['scripts/check-x.mjs'] } }).state,
+		'success',
+	);
+	const unknown = verdict({ reach: reachOf(null) });
+	assert.deepEqual(
+		[unknown.state, unknown.description],
+		[
+			'failure',
+			'The change set could not be read, so the report cannot be trusted: re-run the verdict',
+		],
+	);
+}
+// A cancelled run leaves no pending status behind, unless a newer run on its head will post.
+{
+	assert.deepEqual(decideCancelled({ run: run({ conclusion: 'cancelled' }), newer: false }).post, {
+		state: 'failure',
+		description: 'The harness run was cancelled: re-run it',
+		target_url: URL,
+	});
+	assert.equal(decideCancelled({ run: run(), newer: true }).post, undefined);
+}
+// An aborted reason that is not a string still makes a string description.
+{
+	const d = verdict({
+		jobs: [job('prepare'), job('build', 'failure'), job('gates'), ...shards()],
+		report: report({ aborted: { odd: 1 } }),
+	});
+	assert.equal(typeof d.description, 'string');
+	assert.equal(d.state, 'failure');
+}
 // The harness's own report job takes the same decision, from the jobs' results in env.
 {
 	const local = (BUILD, GATES, RENDER, rep = report()) =>
@@ -289,6 +374,12 @@ const verdict = (over = {}) =>
 	assert.match(yml, /name: Verdict\n[\s\S]*verdict\.mjs --local/);
 	assert.match(yml, /name: current-games-prepare/);
 	assert.match(yml, /^run-name:.*Current games: self-compare/m);
+	assert.match(
+		yml,
+		/^on:\n {2}pull_request:\n {4}branches: \[main\]\n/m,
+		'only PRs into main run it',
+	);
+	assert.match(yml, /group: current-games-.*github\.event\.pull_request\.number/);
 }
 {
 	const file = read('.github/workflows/current-games-verdict.yml');
@@ -304,6 +395,10 @@ const verdict = (over = {}) =>
 	assert.match(yml, /environment: current-games-verdict/);
 	assert.match(yml, /scripts\/current-games\/lib\/verdict\.mjs/);
 	assert.match(yml, /^permissions:\n(?: {2}.+\n)*? {2}statuses: write\n/m);
+	for (const [, ref] of yml.matchAll(/uses: [^@\s]+@(\S+)/g)) {
+		if (!/^v\d+$/.test(ref)) assert.match(ref, /^[0-9a-f]{40}$/, `pinned: ${ref}`);
+	}
+	assert.match(yml, /create-github-app-token@[0-9a-f]{40}/, 'the App-token action is pinned');
 	assert.ok(
 		!/actions\/download-artifact|upload-artifact/.test(yml),
 		'it never downloads an artifact',

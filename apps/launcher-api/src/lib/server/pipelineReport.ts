@@ -214,7 +214,7 @@ export async function loadHarnessReport(
 			? {
 					state: 'skipped',
 					detail:
-						'No report: this change cannot reach a game, so current-games passed without rendering one.',
+						"No report: this run's own harness found no game the change can reach, so it rendered nothing. The current-games status, decided by main's harness, is the verdict.",
 				}
 			: { state: 'missing', detail: 'The run made no report; see its log.' };
 	}

@@ -70,8 +70,10 @@ name: Current games
 # The context a manual run's verdict will post is in its title (GitHub's default title otherwise).
 run-name: "${{ github.event_name == 'workflow_dispatch' && (inputs.self_compare && 'Current games: self-compare' || 'Current games: manual') || '' }}"
 
+# A PR into main only: a status belongs to the head commit, which a PR into another branch shares.
 on:
   pull_request:
+    branches: [main]
   push:
     branches-ignore: [main]
   workflow_dispatch:
@@ -92,7 +94,7 @@ on:
 concurrency:
   # A manual run's inputs are part of its group: a self-compare and a seeded proof on one commit get
   # different contexts, and cancelling one would leave its context pending.
-  group: current-games-${{ github.event_name }}-${{ github.event.pull_request.head.sha || github.sha }}-${{ inputs.self_compare && 'self-compare' || inputs.base }}
+  group: current-games-${{ github.event_name }}-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha || github.sha }}-${{ inputs.self_compare && 'self-compare' || inputs.base }}
   cancel-in-progress: true
 
 permissions:

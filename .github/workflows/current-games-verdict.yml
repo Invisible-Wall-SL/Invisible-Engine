@@ -6,11 +6,14 @@
 # verdict.fixture.mjs. Doc: docs/playtest/current-games.md ("CI").
 #
 # What it checks before it posts (any failure posts nothing and says why): the run is a run of
-# current-games.yml in THIS repository; for a pull request, the PR is open, from this repository and
-# still at the run's head commit (a fork gets no status, a stale run never overwrites a newer one);
+# current-games.yml in THIS repository; for a pull request, the PR is into main, open, from this
+# repository and still at the run's head commit (a fork gets no status, a stale run never overwrites
+# a newer one, and a PR into another branch never answers for the head it shares with one into main);
 # whether the change can reach a game is decided by main's touched.mjs over a diff of commit objects
-# fetched from the PR (a run that rendered nothing for a change that can reach a game fails). Then
-# the jobs of that attempt and `report.json`, read as DATA ONLY. Nothing from the PR or from an
+# fetched from the PR (a run that rendered nothing for a change that can reach a game fails, and a PR
+# that edits the harness fails: it wrote its own report). Then the jobs of that attempt and
+# `report.json`, read as DATA ONLY, whose base must be on main. A cancelled run fails unless a newer
+# run on its head will post. Nothing from the PR or from an
 # artifact is ever checked out, installed, imported or executed: the checkout below is main, with no
 # `ref:`, and there is no `pnpm install`.
 #
@@ -75,7 +78,7 @@ jobs:
       - name: Mint the App's token
         id: app
         if: env.HAS_APP == 'true'
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2 (a commit pin) pragma: allowlist secret
         with:
           app-id: ${{ secrets.CURRENT_GAMES_VERDICT_APP_ID }}
           private-key: ${{ secrets.CURRENT_GAMES_VERDICT_APP_PRIVATE_KEY }}

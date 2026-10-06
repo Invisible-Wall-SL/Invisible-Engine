@@ -6,14 +6,19 @@
 //
 // What it trusts, and what it checks:
 //   - the run itself, read from the API: its workflow file, its repository, its head commit, and for
-//     a pull request that the PR is open, from this repository and still at that commit;
+//     a pull request that the PR is INTO MAIN, open, from this repository and still at that commit
+//     (a status belongs to the head commit, which a PR into another branch would share);
 //   - the jobs of that attempt, as GitHub recorded them (a job's result is not the PR's to write);
 //   - `report.json` and `prepare.json`, parsed as DATA ONLY: they are never imported, required,
 //     evaluated or executed, and the zip is unpacked by `unzip -p` into memory;
 //   - whether the change can reach a game, decided by MAIN's `touched.mjs` over a diff of commit
 //     objects fetched (never checked out) from the PR. The run's own decision is not believed: a run
-//     that rendered nothing for a change main says can reach a game is a failure.
-// It never executes anything from the PR or from an artifact.
+//     that rendered nothing for a change main says can reach a game is a failure. A PR whose diff
+//     edits the harness (`HARNESS_SOURCES`) wrote the report it would be judged by, so it fails
+//     without reading it, and so does one whose diff cannot be read; a report whose base is not on
+//     main fails too.
+// A cancelled run fails, unless a newer run on its head will post. It never executes anything from
+// the PR or from an artifact.
 //
 // The harness's report job calls the same `decide` (`--local`) to fail the job exactly when the
 // status will be a failure, so the two cannot drift.
@@ -42,6 +47,10 @@ import { SECRET_ENV } from './redact.mjs';
 import { changedFiles, classifyChange, describe, isDoc, runtimeInputs } from './touched.mjs';
 
 export const WORKFLOW_PATH = '.github/workflows/current-games.yml';
+/** The branch whose required check this is: a PR into any other branch shares its head's status. */
+export const BASE_BRANCH = 'main';
+/** What makes the report (the launcher's `HARNESS_SOURCES`): a PR editing it wrote its own report. */
+export const HARNESS_SOURCES = [/^\.github\/workflows\//, /^scripts\/current-games\//];
 export const CONTEXT = 'current-games';
 export const SELF_COMPARE_TITLE = 'Current games: self-compare';
 export const REPORT_ARTIFACT = 'current-games-report-json';
@@ -75,13 +84,44 @@ export function checkRun({ run, pr, repository }) {
 	}
 	if (run.event !== 'pull_request') return { ok: false, why: `a ${run.event} run posts no status` };
 	if (!run.pull_requests?.length) return { ok: false, why: 'the run names no pull request' };
+	if (!prIntoBase(run))
+		return { ok: false, why: `the run names no pull request into ${BASE_BRANCH}` };
 	if (!pr) return { ok: false, why: 'the pull request could not be read' };
 	if (pr.state !== 'open') return { ok: false, why: 'PR not open, nothing posted' };
+	if (pr.base?.ref !== BASE_BRANCH)
+		return { ok: false, why: `the pull request targets ${pr.base?.ref}, not ${BASE_BRANCH}` };
 	if (pr.head?.repo?.full_name !== repository)
 		return { ok: false, why: 'the pull request is from a fork' };
 	if (pr.head.sha !== run.head_sha)
 		return { ok: false, why: `the PR moved on (${pr.head.sha.slice(0, 7)}); the newer run posts` };
 	return { ok: true, context: CONTEXT, sha: run.head_sha, pr };
+}
+
+/**
+ * The run's pull request into the base branch. A commit status belongs to the head commit, so it is
+ * shared by every PR with that head: a run for a PR into another branch compared against that
+ * branch, and must never answer for the PR into main.
+ */
+export const prIntoBase = (run) =>
+	run.pull_requests?.find((p) => p.base?.ref === BASE_BRANCH) ?? null;
+
+/** The changed files that make the harness's own report, by `HARNESS_SOURCES`. */
+export const harnessFiles = (files) =>
+	(files ?? []).filter((f) => HARNESS_SOURCES.some((re) => re.test(f)));
+
+/**
+ * A cancelled run: nothing when a newer run of the harness exists for the same head (it posts),
+ * else a failure — the status would otherwise stay `pending` forever.
+ */
+export function decideCancelled({ run, newer }) {
+	if (newer) return { why: 'the run was cancelled; a newer run on this head posts' };
+	return {
+		post: {
+			state: 'failure',
+			description: 'The harness run was cancelled: re-run it',
+			target_url: run.html_url,
+		},
+	};
 }
 
 /** The `requested` phase: the pending status, unless the run already finished. */
@@ -93,16 +133,17 @@ export function decideRequested({ run }) {
 
 /** What can a change reach? `files` is git's diff, or null when git cannot say (render). */
 export function reachOf(files, inputs) {
-	if (!files) return { render: true, why: 'the change set is unknown' };
+	if (!files) return { render: true, files: null, why: 'the change set is unknown' };
 	let result;
 	try {
 		result = classifyChange(files, inputs());
 	} catch (error) {
-		return { render: true, why: `the workspace cannot be read (${error.message})` };
+		return { render: true, files, why: `the workspace cannot be read (${error.message})` };
 	}
-	if (result.kind === 'touched') return { render: true, why: 'the change reaches a game' };
+	if (result.kind === 'touched') return { render: true, files, why: 'the change reaches a game' };
 	return {
 		render: false,
+		files,
 		description: describe(result, files.filter((f) => !isDoc(f)).length),
 	};
 }
@@ -118,7 +159,7 @@ const SECRET_NAMES = new Set(SECRET_ENV);
  * The description is the report's summary line, which the harness already redacted before writing
  * it (`writeReport`); this job holds no secret to redact with.
  */
-export function decide({ run, jobs, report, prepare, reach }) {
+export function decide({ run, jobs, report, prepare, reach, baseOnMain }) {
 	const target_url = run.html_url;
 	const fail = (description) => ({
 		state: 'failure',
@@ -127,6 +168,17 @@ export function decide({ run, jobs, report, prepare, reach }) {
 	});
 	if (reach && !reach.render)
 		return { state: 'success', description: reach.description.slice(0, 140), target_url };
+	// Without the diff it cannot be told whether the PR wrote the report it would be judged by.
+	if (reach && reach.files === null)
+		return fail(
+			'The change set could not be read, so the report cannot be trusted: re-run the verdict',
+		);
+	// The PR wrote the report it would be judged by: the launcher refuses to approve it too.
+	const edits = harnessFiles(reach?.files);
+	if (edits.length)
+		return fail(
+			`Edits the harness (${edits[0]}${edits.length > 1 ? `, +${edits.length - 1}` : ''}): its own run cannot vouch for it; merge after review`,
+		);
 
 	const result = (kind) => {
 		const of = jobs.filter((j) => jobKind(j.name) === kind);
@@ -155,13 +207,18 @@ export function decide({ run, jobs, report, prepare, reach }) {
 		return fail(
 			"This change can reach a game, but the run rendered nothing (main's harness decides what renders)",
 		);
-	if (result('build') !== 'success') return fail(aborted || 'the runtime build failed');
+	if (result('build') !== 'success')
+		return fail(aborted ? String(aborted) : 'the runtime build failed');
 	if (result('gates') !== 'success') return fail('the gates job did not finish');
 	if (result('render') !== 'success') return fail(`a render shard died (${line})`);
 	if (!report) return fail('no report');
 	if (stale)
 		return fail(
 			`The report is for ${String(report.head?.sha ?? 'no commit').slice(0, 7)}, not this head`,
+		);
+	if (baseOnMain === false)
+		return fail(
+			`The report compared against ${String(report.base?.sha ?? 'no commit').slice(0, 7)}, which is not on ${BASE_BRANCH}`,
 		);
 	return {
 		state: report.summary?.verdict === 'pass' ? 'success' : 'failure',
@@ -239,6 +296,53 @@ function prReach(pr, headSha) {
 	return reachOf(changedFiles(base.stdout.trim(), headSha), runtimeInputs);
 }
 
+/** Is `sha` on the base branch? Fetched first; one that cannot be fetched is not. */
+function onBaseBranch(sha) {
+	// Report data reaches git as an argument: only a full commit id, never an option.
+	if (!/^[0-9a-f]{40}$/.test(sha)) return false;
+	const fetched = spawnSync(
+		'git',
+		[
+			'fetch',
+			'-q',
+			'--no-tags',
+			'origin',
+			`+refs/heads/${BASE_BRANCH}:refs/remotes/origin/${BASE_BRANCH}`,
+			sha,
+		],
+		{ encoding: 'utf8' },
+	);
+	if (fetched.status !== 0) return false;
+	return (
+		spawnSync('git', ['merge-base', '--is-ancestor', sha, `origin/${BASE_BRANCH}`]).status === 0
+	);
+}
+
+/** The `completed` phase of a run that was not cancelled. */
+async function decideCompleted(run, checked, attempt, repository, lines) {
+	let reach = { render: true, why: 'a manual run renders what it was asked to' };
+	if (run.event === 'pull_request') reach = prReach(checked.pr, run.head_sha);
+	else if (run.display_title === SELF_COMPARE_TITLE) reach = { render: true, why: 'self-compare' };
+	lines.push(
+		reach.render
+			? `main's touched.mjs: renders (${reach.why})`
+			: `main's touched.mjs: ${reach.description}`,
+	);
+	if (!reach.render) return decide({ run, jobs: [], reach });
+	const jobs = await paginate(
+		`/repos/${repository}/actions/runs/${run.id}/attempts/${attempt}/jobs`,
+		'jobs',
+	);
+	const report = await artifactJson(repository, run.id, REPORT_ARTIFACT, 'report.json');
+	const prepare = await artifactJson(repository, run.id, PREPARE_ARTIFACT, 'prepare.json');
+	// A PR's report must compare against main: a base off main could hide the change.
+	const baseOnMain =
+		run.event === 'pull_request' && report?.base?.sha
+			? onBaseBranch(String(report.base.sha))
+			: undefined;
+	return decide({ run, jobs, report, prepare, reach, baseOnMain });
+}
+
 const summarize = (lines) => {
 	console.log(lines.join('\n'));
 	if (process.env.GITHUB_STEP_SUMMARY)
@@ -275,7 +379,7 @@ async function runRemote(opt, repository) {
 	const stop = (why) => {
 		summarize([...lines, `nothing posted: ${why}`]);
 	};
-	const prNumber = run.pull_requests?.[0]?.number;
+	const prNumber = prIntoBase(run)?.number;
 	const pr =
 		run.event === 'pull_request' && prNumber
 			? await json(`/repos/${repository}/pulls/${prNumber}`)
@@ -291,35 +395,22 @@ async function runRemote(opt, repository) {
 		decision = d.post;
 	} else {
 		if (run.status !== 'completed') return stop('the run has not completed');
-		if (run.conclusion === 'cancelled')
-			return stop('the run was cancelled; a newer run owns the head');
 		const attempt = Number(opt.attempt ?? run.run_attempt);
 		if (attempt !== run.run_attempt)
 			return stop(
 				`attempt ${attempt} is not the latest (${run.run_attempt}); its own event decides`,
 			);
-		let reach = { render: true, why: 'a manual run renders what it was asked to' };
-		if (run.event === 'pull_request') reach = prReach(checked.pr, run.head_sha);
-		else if (run.display_title === SELF_COMPARE_TITLE)
-			reach = { render: true, why: 'self-compare' };
-		lines.push(
-			reach.render
-				? `main's touched.mjs: renders (${reach.why})`
-				: `main's touched.mjs: ${reach.description}`,
-		);
-		const jobs = reach.render
-			? await paginate(
-					`/repos/${repository}/actions/runs/${run.id}/attempts/${attempt}/jobs`,
-					'jobs',
-				)
-			: [];
-		const report = reach.render
-			? await artifactJson(repository, run.id, REPORT_ARTIFACT, 'report.json')
-			: undefined;
-		const prepare = reach.render
-			? await artifactJson(repository, run.id, PREPARE_ARTIFACT, 'prepare.json')
-			: undefined;
-		decision = decide({ run, jobs, report, prepare, reach });
+		if (run.conclusion === 'cancelled') {
+			const { workflow_runs: runs } = await json(
+				`/repos/${repository}/actions/runs?head_sha=${run.head_sha}&per_page=100`,
+			);
+			const newer = runs.some(
+				(r) => r.id > run.id && r.path === WORKFLOW_PATH && r.event === run.event,
+			);
+			const d = decideCancelled({ run, newer });
+			if (!d.post) return stop(d.why);
+			decision = d.post;
+		} else decision = await decideCompleted(run, checked, attempt, repository, lines);
 	}
 	lines.push(`${decision.state}: ${decision.description}`);
 	if (!opt.post) return summarize([...lines, 'dry run: nothing posted']);

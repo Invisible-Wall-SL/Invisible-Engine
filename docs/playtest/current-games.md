@@ -278,7 +278,7 @@ rendered. A run that cannot start (a missing secret, a failed build) fails and n
 
 ## CI
 
-`current-games.yml` runs on every PR and on pushes to non-main branches. It has five jobs and posts
+`current-games.yml` runs on every PR into `main` and on pushes to non-main branches. It has five jobs and posts
 no status (next section):
 
 1. **`prepare`** picks the base commit, decides whether the change can reach a
@@ -312,16 +312,22 @@ status `current-games` is posted by `.github/workflows/current-games-verdict.yml
 workflow GitHub runs from **main's** copy in the base repository's context, so a PR cannot change what
 decides or what posts. It runs on `requested` (posts `pending`, unless the run already completed) and
 `completed` of a "Current games" run and, before posting anything, checks that the run is
-`current-games.yml` of this repository; for a PR, that it is open, from this repository and still at
-the run's head commit (a newer commit's run posts its own; a fork gets no status); and, for the
-completed phase, not cancelled. Whether the change can reach a game is decided again by main's
+`current-games.yml` of this repository; for a PR, that it is **into `main`**, open, from this
+repository and still at the run's head commit (a newer commit's run posts its own; a fork gets no
+status; a status belongs to the head commit, so a PR into another branch with the same head must
+never answer for the one into main). A cancelled run fails ("re-run it") unless a newer run on its
+head will post. Whether the change can reach a game is decided again by main's
 `touched.mjs` over commit objects fetched from the PR (nothing is checked out): a run that rendered
-nothing for a change that can reach a game fails ("the run rendered nothing"). Otherwise the status
+nothing for a change that can reach a game fails ("the run rendered nothing"), and so does a PR whose
+diff edits `.github/workflows/**` or `scripts/current-games/**` ("Edits the harness …: merge after
+review") — it wrote the report it would be judged by, so the report is not read — or whose diff
+cannot be read. Otherwise the status
 is `lib/verdict.mjs`'s `decide` over the jobs of that attempt (the API's, not the PR's), the
 `current-games-report-json` artifact and, after a missing secret, `current-games-prepare`. Both are
 parsed as JSON only; nothing from the PR or an artifact is ever installed, imported or executed (the
 workflow has no `pnpm install` and no `ref:`). The description is the report's summary line cut to
-139 characters and the target is the harness run, as the launcher expects. A push run posts nothing;
+139 characters and the target is the harness run, as the launcher expects. A report whose base
+commit is not on `main` fails. A push run posts nothing;
 a manual run posts `current-games/self-compare` or `current-games/manual` (its run title says which),
 never `current-games`. The harness's `Verdict` step calls the same `decide`, so the two cannot drift.
 
