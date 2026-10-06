@@ -709,12 +709,17 @@ async function takeTurn(ctx: Ctx, name: string): Promise<boolean> {
  * ignored. False when the response can't be priced; the run pauses rather than spend unrecorded
  * money, and the error carries the usage so it can still be priced by hand. A turn's message and
  * the analysis's vision answers are billed alike.
+ *
+ * `alsoWrite` runs in the same transaction, for what must exist exactly when the bill does: a
+ * failure rolls all of it back, so a retry that asks again is billed once, whatever id the new
+ * answer carries — never twice for one image, never an answer stored without its bill.
  */
 async function billResponse(
 	ctx: Ctx,
 	agent: string,
 	response: BilledResponse,
 	pricing: DirectorPricing,
+	alsoWrite?: (tx: Db) => Promise<void>,
 ) {
 	let cost;
 	try {
@@ -746,6 +751,7 @@ async function billResponse(
 				requestId: response.id,
 			});
 		}
+		await alsoWrite?.(tx);
 	});
 	return true;
 }
@@ -900,9 +906,9 @@ const answerFrom = (cached: CachedAnswer): VisionAnswer => ({
  * holds (`answers`, by `answerKey`) is not asked again. Otherwise each call goes out only while the
  * run is still running (an owner's pause or stop pressed since the last call applies first), only
  * under the cap, and with the drive's signal; the answer is billed as soon as it arrives — a
- * refused or malformed answer included, since its tokens are spent all the same — and then stored
- * as a `breakdown_image` row for the passes to come. A refusal, an answer that cannot be used, or
- * an API error a retry cannot fix pauses the run here, once, for a person.
+ * refused or malformed answer included, since its tokens are spent all the same — and, in the same
+ * transaction, stored as a `breakdown_image` row for the passes to come. A refusal, an answer that
+ * cannot be used, or an API error a retry cannot fix pauses the run here, once, for a person.
  */
 function visionFor(
 	ctx: Ctx,
@@ -958,22 +964,23 @@ function visionFor(
 			if (stop) throw new StepStopped(stop);
 			try {
 				const answer = await ctx.vision.analyze(request, ctx.signal);
-				if (!(await billResponse(ctx, analyst.name, answer, pricing))) {
-					throw new StepStopped('an unpriced response');
-				}
 				const stored: CachedAnswer = {
 					response: { id: answer.id, model: answer.model, usage: answer.usage },
 					output: answer.output,
 				};
-				// Kept whatever happens next, like the spend row: the answer is paid for.
-				await insertEvent(ctx.sql, ctx.run.id, analyst.name, 'activity', {
-					type: 'breakdown_image',
-					attempt,
-					imageId: request.image.id,
-					key,
-					...stored,
-					message: `Mockup ${request.image.id} analysed.`,
-				});
+				// Stored with the bill, in one transaction, and kept whatever happens next: the answer is
+				// paid for, and a pass that dies after this finds it and does not ask again.
+				const billed = await billResponse(ctx, analyst.name, answer, pricing, (tx) =>
+					insertEvent(tx, ctx.run.id, analyst.name, 'activity', {
+						type: 'breakdown_image',
+						attempt,
+						imageId: request.image.id,
+						key,
+						...stored,
+						message: `Mockup ${request.image.id} analysed.`,
+					}),
+				);
+				if (!billed) throw new StepStopped('an unpriced response');
 				answers.set(key, stored);
 				return answer;
 			} catch (error) {

@@ -36,7 +36,11 @@
  *  8. an API error a retry cannot fix (413) and an answer off the schema each pause the run at
  *     once, billed, without re-running the pass; the resume runs it again;
  *  9. an owner's pause pressed during the LAST image applies before the submission; the resume
- *     rebuilds the breakdown from the stored answers — no image re-asked — and submits it.
+ *     rebuilds the breakdown from the stored answers — no image re-asked — and submits it;
+ * 10. an answer's bill and its stored `breakdown_image` row are ONE transaction: when the row's
+ *     insert fails (a trigger raises once), nothing is billed and nothing is stored, the drive
+ *     fails and is retried, and the retry — whose model answer carries a different id — bills each
+ *     image once, stores each answer once and opens the checkpoint once.
  *
  * Every answer is stored as it arrives (`breakdown_image` rows), so 3, 6, 8 and 9 all show a
  * stopped pass asking again only for the images it lacks.
@@ -106,6 +110,7 @@ interface Reference {
 		}[];
 	};
 	regions: unknown;
+	fonts: { fonts: { id: string; name: string; kind: string; folder: string; shared: boolean }[] };
 	fidelity: 'match' | 'start';
 	ownershipConfirmed: { by: { uid: string; name: string }; at: string } | null;
 	images: {
@@ -287,6 +292,8 @@ function fakeLauncher(options: GateOptions = {}) {
 					return ok(options.template ?? reference.template);
 				case 'atlas.list_regions':
 					return ok(reference.regions);
+				case 'fonts.list':
+					return ok({ fonts: reference.fonts.fonts, pending: [] });
 				case 'mockups.save_crops': {
 					if (!body.opId) return { status: 400, body: { error: 'bad_op_id' } };
 					const [done] = await sql<{ result: unknown }[]>`
@@ -951,6 +958,69 @@ try {
 			'Mockup breakdown ready',
 		]);
 		check('…and the coordinator told once', (await messages(runId, 'coordinator')).length, 2);
+	}
+
+	// ── 10. The bill and the stored answer are one write ──────────────────────
+	console.log('10. a failed insert of the stored answer rolls the bill back: billed once overall');
+	{
+		const runId = await newRun();
+		const vision = fakeVision();
+		const turns = fakeTurnModel();
+		const gate = fakeLauncher({ template: buyTemplate });
+		await start(runId);
+		// Raises for this run's first `breakdown_image` row only: dropped before the retry.
+		await sql.unsafe(`
+			create or replace function proof_fail_answer() returns trigger language plpgsql as $$
+			begin raise exception 'proof: breakdown_image insert failed'; end $$`);
+		await sql.unsafe(`
+			create trigger proof_fail_answer before insert on director_events
+			for each row when (new.run_id = '${runId}' and new.payload_json->>'type' = 'breakdown_image')
+			execute function proof_fail_answer()`);
+		try {
+			await drive(runId, deps(turns.transport, vision.transport, gate.launcher));
+		} finally {
+			await sql.unsafe('drop trigger if exists proof_fail_answer on director_events');
+			await sql.unsafe('drop function if exists proof_fail_answer()');
+		}
+		check(
+			'the failed insert fails the drive: the first image was asked, nothing is billed, nothing stored',
+			[vision.calls(), (await spendRows(runId)).length, await storedAnswers(runId)],
+			[1, 0, 0],
+		);
+		check(
+			'…no spend event, no checkpoint, and the owner is told a retry is coming',
+			[
+				(await events(runId, 'spend')).length,
+				(await breakdownOpens(runId)).length,
+				(await events(runId, 'error')).map((e) => e.payload.type),
+			],
+			[0, 0, ['retrying']],
+		);
+		await expireLease(runId);
+		await drive(runId, deps(turns.transport, vision.transport, gate.launcher));
+		const [lostId, ...billedIds] = vision.ids;
+		check('the retry asks for both images again', vision.calls(), 3);
+		const spend = await spendRows(runId);
+		check(
+			'each image is billed exactly once, under the id of the answer that was kept',
+			spend.map((r) => r.request_id).sort(),
+			billedIds.sort(),
+		);
+		check(
+			'…the answer lost with the failed insert is not billed',
+			spend.some((r) => r.request_id === lostId),
+			false,
+		);
+		check(
+			'…with one spend event per bill, and one stored answer per image',
+			[(await events(runId, 'spend')).length, await storedAnswers(runId)],
+			[2, 2],
+		);
+		check(
+			'the checkpoint opens once, and the run waits on it',
+			[(await breakdownOpens(runId)).length, (await runRow(runId)).waiting_on],
+			[1, 'breakdown'],
+		);
 	}
 } finally {
 	await sql`delete from director_spend where run_id like ${`${tag}-%`}`;
