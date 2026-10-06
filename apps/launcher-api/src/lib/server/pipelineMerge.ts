@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { subjectHasScope } from '../../../../../scripts/commit-scope.mjs';
+import { squashSubjectHasScope } from '../../../../../scripts/commit-scope.mjs';
 import { createKeyedMutex } from './concurrency';
 import { githubApp, GithubAppError, type GithubApp } from './githubApp';
 import {
@@ -325,9 +325,10 @@ export async function mergeChange(
 				`Your name in the launcher carries a CI-skip directive (${skipInName[0]}); change it before merging.`,
 			);
 		}
-		// The squash subject is `<title> (#n)`, and the hook's own rule holds for it: main stays
-		// filterable per area whoever merges.
-		if (!subjectHasScope(change.title)) {
+		// The squash subject is `<title> (#n)`, and the hook's own rule holds for it — a scope, or a
+		// revert; the hook's other machinery forms are no squash subject — so main stays filterable
+		// per area whoever merges.
+		if (!squashSubjectHasScope(change.title)) {
 			throw error(
 				409,
 				`The title has no commit scope ("${change.title}"); the squash subject needs one — e.g. launcher(pipeline): … — see scripts/check-commit-scope.mjs.`,

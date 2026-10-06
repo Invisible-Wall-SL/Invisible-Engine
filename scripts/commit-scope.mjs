@@ -57,3 +57,14 @@ export const SUBJECT_RE = new RegExp(
 export function subjectHasScope(subject) {
 	return MACHINERY_RE.test(subject) || SUBJECT_RE.test(subject);
 }
+
+/**
+ * Whether a pull request title may become a squash subject on `main`: a recognized scope, or a
+ * revert. The other machinery forms (`Merge …`, `fixup!`, `squash!`, `amend!`) describe commits
+ * git makes along the way, never a squash of a whole change, so the merge gate refuses them.
+ * @param {string} title
+ * @returns {boolean}
+ */
+export function squashSubjectHasScope(title) {
+	return /^revert\b/i.test(title) || SUBJECT_RE.test(title);
+}

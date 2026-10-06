@@ -58,7 +58,7 @@ import { crc32, deflateRawSync } from 'node:zlib';
 import { isHttpError } from '@sveltejs/kit';
 import type { PipelineApproval, PipelineMerge } from '../src/lib/server/db/schema.ts';
 import type { CompletedMerge } from '../src/lib/server/pipelineMerges.ts';
-import { subjectHasScope } from '../../../scripts/commit-scope.mjs';
+import { squashSubjectHasScope, subjectHasScope } from '../../../scripts/commit-scope.mjs';
 
 const src = (rel: string) => new URL(`../src/${rel}`, import.meta.url).href;
 
@@ -3155,6 +3155,11 @@ const H59 = readyPull(59, 'docs: the lost answer');
 const H60 = readyPull(60, 'docs: x [skip ci]');
 // #77 — ready, but its title has no commit scope.
 const H77 = readyPull(77, 'tweak the thing');
+// #79–#82 — titles the commit hook lets through as machinery, which no squash subject may be.
+const H79 = readyPull(79, "Merge branch 'feat/x' into main");
+const H80 = readyPull(80, 'fixup! launcher: x');
+const H81 = readyPull(81, 'squash! launcher: x');
+const H82 = readyPull(82, 'amend! launcher: x');
 // #54 — GitHub has not worked out whether it merges; #55 — it says it does not.
 const H54 = readyPull(54, 'docs: mergeability unknown', { mergeable: null });
 const H55 = readyPull(55, 'docs: mergeability false', { mergeable: false });
@@ -3220,6 +3225,20 @@ check(
 	),
 	[true, true, true, true, false, false],
 );
+check(
+	'the squash rule: a scoped subject or a revert, never the other machinery forms',
+	[
+		'launcher(pipeline): x',
+		'revert: x',
+		'Revert "launcher: x"',
+		'Merge branch',
+		'fixup! x',
+		'squash! x',
+		'amend! x',
+		'nope: x',
+	].map(squashSubjectHasScope),
+	[true, true, true, false, false, false, false, false],
+);
 
 // ── Merging: anything short of Ready, refused before GitHub is asked ──────────
 {
@@ -3272,6 +3291,34 @@ check(
 			H77,
 			409,
 			'The title has no commit scope ("tweak the thing"); the squash subject needs one — e.g. launcher(pipeline): … — see scripts/check-commit-scope.mjs.',
+		],
+		[
+			"#79's title is a merge subject",
+			'79',
+			H79,
+			409,
+			'The title has no commit scope ("Merge branch \'feat/x\' into main"); the squash subject needs one — e.g. launcher(pipeline): … — see scripts/check-commit-scope.mjs.',
+		],
+		[
+			"#80's title is a fixup!",
+			'80',
+			H80,
+			409,
+			'The title has no commit scope ("fixup! launcher: x"); the squash subject needs one — e.g. launcher(pipeline): … — see scripts/check-commit-scope.mjs.',
+		],
+		[
+			"#81's title is a squash!",
+			'81',
+			H81,
+			409,
+			'The title has no commit scope ("squash! launcher: x"); the squash subject needs one — e.g. launcher(pipeline): … — see scripts/check-commit-scope.mjs.',
+		],
+		[
+			"#82's title is an amend!",
+			'82',
+			H82,
+			409,
+			'The title has no commit scope ("amend! launcher: x"); the squash subject needs one — e.g. launcher(pipeline): … — see scripts/check-commit-scope.mjs.',
 		],
 		[
 			'#24 is from a fork',

@@ -69,10 +69,11 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   title or merger name carrying a CI-skip directive (`[skip ci]` and its variants) is a 409 before
   GitHub is asked: GitHub reads the whole squash message, and such a merge would skip main's push
   workflows and the runtime release. A title without a commit scope is a 409 too, by the hook's
-  own rule — `scripts/commit-scope.mjs` now holds `SCOPES` / `subjectHasScope()` for both the
-  `commit-msg` hook (`check-commit-scope.mjs`) and the launcher, so an API squash cannot land an
-  unscoped subject on main (`revert:` passes like any machinery subject). Branch protection stays
-  the gate: a
+  own rule — `scripts/commit-scope.mjs` now holds `SCOPES`, `subjectHasScope()` for the
+  `commit-msg` hook (`check-commit-scope.mjs`, unchanged) and `squashSubjectHasScope()` for the
+  launcher, so an API squash cannot land an unscoped subject on main: a `revert:` title passes, the
+  hook's other machinery forms (`Merge …`, `fixup!`, `squash!`, `amend!`) do not. Branch protection
+  stays the gate: a
   ruleset unmet (405), the head moved under the pinned SHA (409) and 422 come back with GitHub's
   status and sentence and nothing recorded. Anything short of Ready is a 409 before GitHub is asked
   ("The head moved: you looked at <7> and the branch is now at <7>.", "Still testing: 7 of 8 checks
