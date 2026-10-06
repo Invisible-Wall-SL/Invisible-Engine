@@ -42,6 +42,9 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
    409); the signed-in refusals of the 2026-09-28 access pass (a non-admin `adminPanel` holder, a
    user without a client grant, a role without a lease's tool) — pinned offline, not yet clicked
    through with non-admin test accounts.
+6. **`<DataTable>` extraction** (`docs/ui-inventory.md` §2): the Pipeline Changes Check 2 games
+   table is the 4th matrix instance and the first read-only one, so it is the cheapest to move
+   first; localization, win-text and the admin tables follow.
 
 ## Blocked (owner / external)
 - **Secret rotation (owner):** rotate the secrets in `docs/INFRA.md` "Security / secret rotation";
@@ -87,6 +90,45 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   - Guide: `tools/director.md`. Client types mirror the worker's `Breakdown` in
     `routes/(app)/director/director.client.ts` because the worker's sources import with `.ts`
     extensions the launcher's tsconfig does not accept.
+- 2026-10-06 — **Invisible Pipeline Changes screens: the Changes tab** (Director card 5B, PLAN 5.1
+  + 5.2; ADR-0007). `/pipeline` now shows the list and the detail over the 5A endpoints, client-side
+  fetched and refreshed every minute while visible, `?change=<n>` deep-links a change. The list:
+  Testing (*n* of *m*) / Blocked (the failing row's reason in red) / Ready, Dependabot's folded
+  apart, a note when forks were skipped. The detail: the Blocked reason in mockup 05's wording
+  ("Breaks <game>: 2 of 12 screens look different (win, bigwin)", "Merge conflict with main",
+  "Lint: lint failed"), the PR body's "why" as plain text, the files (renames as `old → new`, the
+  3000-file truncation named), the diff link, Check 1 as tiles per workflow with job counts and a
+  jobs fold, Check 2 as the games table (Build / Game tests / Looks the same, "Show all N") or one
+  plain sentence per report state (none / running / skipped / missing / expired / stale /
+  unreadable), and under it every changed screen with before / after / diff images
+  (`ScreenCompare.svelte`, side by side or one at a time). Approve per diff only with
+  `pipelineMerge` — the `(app)` layout resolves it as `canPipelineMerge` beside `canAdmin`, from
+  the override layers it already reads, so the page adds no query (the header says `can approve`
+  or `read-only`); each block shows who approved and
+  when, a lapsed approval in amber, the `withheld` reason, "current-games was posted" once a set
+  completes, and **Post approval again** when a re-run reset the status on the same head. A change
+  that edits the harness, has more files than GitHub lists, or fails a build/test shows "Merge by
+  hand after review" and no Approve button. No Merge / Discard / History (5C) and no Agents (5D).
+  New: `GET /api/pipeline/changes/<n>/report/<path>?artifact=<id>` streams one image of the
+  current-games report out of the run's full artifact (`current-games-report`) through the App's
+  `download()` by byte range — the archive's tail for the central directory (its own range when it
+  is bigger than the 64 KB tail), then the entry alone, inflated as it streams — so the launcher
+  never holds the artifact; a blob store that ignores the range gets a small archive read whole and
+  a large one refused. Same session gate as the detail; the path must be one the report itself
+  lists (`reportImagePaths`), so `report.json`, `index.html` and any traversal are 404s; the
+  ready report state now carries `images: {artifactId, sizeInBytes, expiresAt} | null` (null once
+  the full artifact expired while the report-only one still reads) and `?artifact=` pins the
+  answer to that artifact (409 once a re-run replaced it, cacheable 3 days when given). A branch
+  controls the artifact's bytes, so a streamed entry is cut off past the smaller of what it
+  declares and 32 MB, a whole-archive answer is bounded by its `content-length` and its bytes,
+  ZIP64 is refused, and every link the page renders passes `safeHref()` (GitHub pages only). The
+  central directory is cached per artifact (the report's own images alone) and read once for a
+  cold detail; the walk from a change to its images is single-flighted with a 30 s TTL and redone
+  at once for an artifact id it does not know, so a re-run's new images never 409 behind the cache.
+  `$lib/server/zip.ts` gained the range helpers (`locateCentralDirectory`,
+  `parseCentralDirectory`, `localDataOffset`). Fixture: `check:pipeline-changes` (987 checks: the
+  route, the ranges, the whitelist, the expired-images state, the no-range fallback, a central
+  directory past the tail). Guide: `docs/tools/pipeline-changes.md`; inventory §2 and §18.
 - 2026-10-06 — **Invisible Pipeline Changes backend: GitHub App, changes list + detail, diff
   approvals** (Director card 5A, PLAN 5.1 + 5.2; ADR-0007). `$lib/server/githubApp.ts` turns
   `GITHUB_APP_ID` / `GITHUB_APP_INSTALLATION_ID` / `GITHUB_APP_PRIVATE_KEY` into an installation

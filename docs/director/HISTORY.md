@@ -15,6 +15,72 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-06 · Phases 3, 5, 4 · coordinator (merges #1067, #1068, #1069)
+- **Did:**
+  - **#1067 (card 3.9, PLAN 3.6 follow-up):** the breakdown step moves entirely to the worker.
+    `analyzeMockups` + `submitBreakdown` run before any agent turn; the checkpoint opens once per
+    attempt. One vision call per image carries the analyst's model and prompt, is preceded by
+    owner pause/stop check and cap check, and is billed before anything else. Every answer stored
+    per image as `breakdown_image` activity rows, keyed by attempt, image-bytes hash and
+    system+prompt hash; a stopped pass re-asks only missing images. A refusal, unusable answer
+    or permanent API error pauses at once. Conflict handling has three verdicts on LockedItem.facts
+    (clash → left_out; cleared → model claim dismissed, element matched; unjudged → claim capped
+    at needs_you), tried only for rules ABOUT the element. A model-named locked item is capped at
+    needs_you. Regions is a list; uncoveredRegions computed by code. Owner revise re-runs as
+    next attempt with notes in the image prompt. run.submit_breakdown and coordinator's
+    step_done/assign_task in breakdown are retired. Test: prove:breakdown 73/73.
+    Owner approved the merge on 2026-10-06.
+  - **#1068 (card 5A, Phase 5: changes & approvals):** GitHub App client in `githubApp.ts`,
+    api.github.com only; artifact redirect is followed without the token. Changes list/detail view.
+    `pipeline_approvals` table (migration 0027), unique per diff+approver. Approval endpoint
+    behind `pipelineMerge` capability, posting `success` to `current-games` status once every diff
+    is approved by users still in standing and the harness attempt's jobs agree (refuse forks,
+    harness-editing via .github/workflows/**, scripts/current-games/**, renames and truncated
+    file lists). `current-games.yml` uploads `report.json` as a second artifact. Owner approved
+    the merge on 2026-10-06.
+  - **#1069 (card 4A, Phase 4: owner API):** create action (`duplicateProject` scope; needs
+    Director + Game Maker; fresh create never adopts existing project). start/pause/resume/
+    approve/stop as `owner_request` events with `requestId` idempotency answered from
+    `director_ops` first; stale pending reclaimed after `STALE_CLAIM_MS`. A resent create during
+    the copy answers `in_progress`. Estimate returns `budgetCapUsd`. Font requests listed one
+    level deep by R2 key. Budget cap copied by worker at start per ADR-0006. Test: check:director-runs.
+    Owner approved the merge on 2026-10-06.
+- **Files:**
+  - #1067: `services/director-worker/src/{driver,store,tools,workerTools,budget,main}.ts`,
+    `src/mockups/{analyze,checkpoint,rules,vision}.ts`, `scripts/prove-breakdown.ts`,
+    `agents/{mockup-analyst,coordinator}.md`, `.github/workflows/director-worker.yml`,
+    `docs/INFRA.md`, `docs/director/eval/mockups/expected-breakdown.json`.
+  - #1068: `apps/launcher-api/src/lib/server/{githubApp,zip,pipelineReport,pipelineChanges,
+    pipelineApprovals,pipelineAccess,env}.ts`, `db/schema.ts`, `drizzle/0027_pipeline_approvals.sql`,
+    `src/routes/api/pipeline/changes/**`, `scripts/check-pipeline-changes.ts`,
+    `.github/workflows/current-games.yml`, `docs/INFRA.md`, `docs/guides/rotate-a-secret.md`,
+    `docs/status/launcher.md`, `docs/tools/pipeline-changes.md`, `docs/playtest/current-games.md`.
+  - #1069: `apps/launcher-api/src/lib/server/director/{runs,ownerActions,store,access,fontRequests}.ts`,
+    `director/ops/{fonts,gamemaker}.ts`, `src/routes/api/director/**`,
+    `scripts/check-director-runs.ts`, `packages/director-costs/src`, `docs/tools/director.md`.
+- **Tests:**
+  - #1067: prove:breakdown 73/73, prove:turns 120/120, check:mockups 85/85, check:run-state 1112.
+  - #1068: check:pipeline-changes 767 (under check:all), launcher gates, svelte-check at baseline.
+  - #1069: check:director-runs 353/353, check:director-mockups, check:launcher-gates 350/350.
+  - Each PR had a code-reviewer pass and two or three coordinator review rounds before merge.
+- **Decisions:**
+  - #1067 amends ADR-0005: breakdown is worker-driven, vision answers stored per image keyed by
+    attempt+hashes, three verdicts (clash/cleared/unjudged) on facts only for element-touching
+    rules, model-named items capped at needs_you, regions is a list/uncoveredRegions computed,
+    owner revise re-runs as next attempt.
+  - #1068, #1069 implement ADRs approved 2026-10-05.
+- **Next:** Phase 4 backend-done (4A via #1069); Phase 5 backend-done (5.2 via #1068); now 5.1
+  (changes list/detail screens) and 4.1–4.3 (UI for estimate, breakdown, live run).
+- **Open items from merges (Answered, 2026-10-06):**
+  - GitHub App set up: done by the owner; `current-games` as a required check: source is "any"
+    (default: accept for now; follow-up card for a trusted workflow_run verdict pinning source).
+  - #1067's double-bill risk on `breakdown_image` DB failure: a small follow-up to make spend +
+    row atomic.
+  - Pending-project mockups can be written under a free key and are never cleaned up: a cleanup
+    follow-up.
+  - App permissions: Contents and Pull requests write needed for 5.3/5.4; owner raises when 5.3
+    lands.
+
 ## 2026-10-06 · Phases 1–3 · coordinator
 - **Did:** recorded the merges below. Each card's own HISTORY entry is in its PR description.
   - **#1061 (1F):** the current-games harness is calibrated on the live games. Main vs main gives

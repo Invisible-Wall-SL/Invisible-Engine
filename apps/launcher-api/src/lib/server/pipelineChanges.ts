@@ -2,7 +2,7 @@ import { error } from '@sveltejs/kit';
 import { PIPELINE_MERGE_CAPABILITY, roleHasCapability } from '$lib/roles';
 import { createKeyedMutex, createSingleFlight, mapWithConcurrency } from './concurrency';
 import { ENV } from './env';
-import { githubApp, type GithubApp } from './githubApp';
+import { githubApp, GithubAppError, type GithubApp } from './githubApp';
 import {
 	getApprovers,
 	listApprovals,
@@ -12,10 +12,13 @@ import {
 import {
 	harnessJobsBlocker,
 	loadHarnessReport,
+	openReportEntry,
+	reportImagePaths,
 	unapprovableReason,
 	visibleDiffs,
 	type HarnessDiff,
 	type HarnessReportState,
+	type ReportImages,
 } from './pipelineReport';
 import { getRoleOverrides } from './roleToolAccess';
 import { getToolOverrides } from './userToolAccess';
@@ -448,10 +451,6 @@ const harnessStatusOf = (head: Head): HarnessStatus | null => {
 };
 
 /**
- * The harness run that owns this head's status: a `pull_request` run first (a push run stands
- * down when the PR exists), else the newest.
- */
-/**
  * The harness run that owns this head's status: the one the harness's own workflow file made for
  * the PR, from this repository, on this head. Not a push run (it stands down when the PR exists)
  * and not a run that merely carries the name.
@@ -525,10 +524,9 @@ async function readChanges(app: GithubApp): Promise<ChangeList> {
 	return list;
 }
 
-/** One change in full: files, why, Check 1, Check 2 with its approvals. Always fresh. */
-export async function getChange(number: number, app: GithubApp = githubApp): Promise<ChangeDetail> {
-	const r = repo();
-	const res = await app.fetch(`/repos/${r}/pulls/${number}`);
+/** The PR behind a change number, or the 404 that says why it is not a change. */
+async function readPull(number: number, app: GithubApp): Promise<GhPull> {
+	const res = await app.fetch(`/repos/${repo()}/pulls/${number}`);
 	if (res.status === 404) throw error(404, `There is no change #${number}.`);
 	if (!res.ok) {
 		const body = (await res.json().catch(() => null)) as { message?: string } | null;
@@ -544,6 +542,13 @@ export async function getChange(number: number, app: GithubApp = githubApp): Pro
 			`#${number} is from a fork; pipeline changes come from this repository's branches.`,
 		);
 	}
+	return pull;
+}
+
+/** One change in full: files, why, Check 1, Check 2 with its approvals. Always fresh. */
+export async function getChange(number: number, app: GithubApp = githubApp): Promise<ChangeDetail> {
+	const r = repo();
+	const pull = await readPull(number, app);
 	const sha = pull.head.sha;
 	const [head, { files, truncated }] = await Promise.all([
 		readHead(app, sha),
@@ -636,6 +641,103 @@ async function standingOf(rows: PipelineApproval[]): Promise<Set<string>> {
 		}
 	}
 	return standing;
+}
+
+export interface ReportEntry {
+	body: ReadableStream<Uint8Array>;
+	contentType: string;
+}
+
+const CONTENT_TYPES: Record<string, string> = {
+	png: 'image/png',
+	jpg: 'image/jpeg',
+	jpeg: 'image/jpeg',
+	webp: 'image/webp',
+	gif: 'image/gif',
+};
+
+interface ReportImagesEntry {
+	at: number;
+	images: ReportImages | null;
+	/** The paths the report names: the whole set the launcher serves. */
+	paths: Set<string>;
+}
+
+/** A detail opens every changed screen's three images at once; the walk from the change's number
+ *  to its report (the PR, its head, the artifacts) is done once for all of them. */
+const IMAGES_TTL_MS = 30_000;
+const IMAGES_CACHE_SIZE = 64;
+const imagesCache = new Map<number, ReportImagesEntry>();
+const imagesFlight = createSingleFlight();
+
+/** The images artifact and image list of a change's ready report, or the 404 that says why not. */
+async function reportImagesOf(number: number, app: GithubApp): Promise<ReportImagesEntry> {
+	const fresh = (e: ReportImagesEntry | undefined): e is ReportImagesEntry =>
+		e !== undefined && Date.now() - e.at < IMAGES_TTL_MS;
+	const hit = imagesCache.get(number);
+	if (fresh(hit)) return hit;
+	return imagesFlight(String(number), async () => {
+		const landed = imagesCache.get(number);
+		if (fresh(landed)) return landed;
+		const pull = await readPull(number, app);
+		const sha = pull.head.sha;
+		const head = await readHead(app, sha);
+		const run = harnessRunOf(head, sha);
+		const report = await loadHarnessReport(app, repo(), run, sha, harnessStatusOf(head));
+		if (report.state !== 'ready') throw error(404, report.detail);
+		const entry = { at: Date.now(), images: report.images, paths: reportImagePaths(report.report) };
+		if (imagesCache.size >= IMAGES_CACHE_SIZE) {
+			imagesCache.delete(imagesCache.keys().next().value as number);
+		}
+		imagesCache.set(number, entry);
+		return entry;
+	});
+}
+
+/**
+ * One image of a change's current-games report — a changed screen before, after or as a diff —
+ * streamed out of the run's full artifact. Served only when the report the detail shows is ready
+ * and names that exact path (`reportImagePaths`): the report's own list is the whitelist, so no
+ * path reaches the archive that the harness did not write. `artifact`, when the caller names the
+ * artifact it read the report from, must still be the current one: a re-run replaces it (409).
+ */
+export async function getReportEntry(
+	input: { number: number; path: string; artifact: number | null },
+	app: GithubApp = githubApp,
+): Promise<ReportEntry> {
+	let report = await reportImagesOf(input.number, app);
+	// The detail hands out a new artifact id the moment a push or a re-run lands; the walk cached
+	// here may still name the old one for a while, so a mismatch is looked up again, once, before
+	// it is called a replaced artifact.
+	if (input.artifact !== null && input.artifact !== report.images?.artifactId) {
+		imagesCache.delete(input.number);
+		report = await reportImagesOf(input.number, app);
+	}
+	if (!report.paths.has(input.path)) {
+		throw error(404, 'The report has no such image.');
+	}
+	if (!report.images) {
+		throw error(
+			404,
+			'The screen images are gone: GitHub keeps them for 3 days. The report still lists the differences; a new push makes new images.',
+		);
+	}
+	if (input.artifact !== null && input.artifact !== report.images.artifactId) {
+		throw error(409, 'The report was replaced by a re-run of current-games; reload the change.');
+	}
+	let body: ReadableStream<Uint8Array> | null;
+	try {
+		body = await openReportEntry(app, repo(), report.images, input.path, report.paths);
+	} catch (err) {
+		if (err instanceof GithubAppError) throw err;
+		throw error(
+			502,
+			`The report artifact could not be read: ${err instanceof Error ? err.message : String(err)}`,
+		);
+	}
+	if (!body) throw error(404, 'The report artifact holds no such image.');
+	const ext = /\.([a-z0-9]+)$/i.exec(input.path)?.[1]?.toLowerCase() ?? '';
+	return { body, contentType: CONTENT_TYPES[ext] ?? 'application/octet-stream' };
 }
 
 /** The number of the change in a URL, or a 400. */

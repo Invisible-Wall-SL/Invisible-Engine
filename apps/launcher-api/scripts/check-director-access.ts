@@ -123,12 +123,15 @@ for (const id of ['director', 'pipelineChanges']) {
 
 // ── Page loaders: 403 without the tool, through with it ────────────────────────
 type Load = (event: unknown) => Promise<unknown>;
+/** The event a page loader gets: the layout's manifest and capability, and the page's URL. */
+const event = (tools: ToolDef[], canPipelineMerge = false, search = '') => ({
+	locals: { user: { id: 'u', role: 'developer' } },
+	parent: async () => ({ tools, canPipelineMerge }),
+	url: new URL(`https://app.example/pipeline${search}`),
+});
 async function loadStatus(load: Load, tools: ToolDef[]): Promise<number> {
 	try {
-		await load({
-			locals: { user: { id: 'u', role: 'developer' } },
-			parent: async () => ({ tools }),
-		});
+		await load(event(tools));
 		return 200;
 	} catch (e) {
 		return (e as { status?: number }).status ?? -1;
@@ -156,6 +159,25 @@ check(
 	'/director: pipelineTester manifest → 403',
 	await loadStatus(directorLoad as Load, manifestForRole('pipelineTester')),
 	403,
+);
+
+// ── /pipeline hands the page what the Changes tab needs ────────────────────────
+const pipelineData = (canPipelineMerge: boolean, search: string) =>
+	pipelineLoad(event(manifestForRole('admin'), canPipelineMerge, search) as never);
+check(
+	"/pipeline: canMerge is the layout's pipelineMerge, never recomputed from the role",
+	[(await pipelineData(true, '')).canMerge, (await pipelineData(false, '')).canMerge],
+	[true, false],
+);
+check(
+	'/pipeline: ?change=<n> selects a change; anything else selects none',
+	[
+		(await pipelineData(true, '?change=1070')).selected,
+		(await pipelineData(true, '?change=0')).selected,
+		(await pipelineData(true, '?change=abc')).selected,
+		(await pipelineData(true, '')).selected,
+	],
+	[1070, null, null, null],
 );
 
 if (failures) {
