@@ -2792,5 +2792,61 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 	);
 }
 
+// ── Every agent's request fits the strict tool-use limits: 20 strict tools, 24 optional parameters
+//    and 16 union-type parameters per request (the API's Structured outputs docs). No CI run calls
+//    the API, so a registry op that pushes an agent past one would only fail live, as a 400. ──
+{
+	const worker = (rel: string) =>
+		new URL(`../../../services/director-worker/${rel}`, import.meta.url);
+	const loader: typeof import('../../../services/director-worker/src/agents.ts') = await import(
+		worker('src/agents.ts').href
+	);
+	const workerTools: typeof import('../../../services/director-worker/src/workerTools.ts') =
+		await import(worker('src/workerTools.ts').href);
+	const model: typeof import('../../../services/director-worker/src/model.ts') = await import(
+		worker('src/model.ts').href
+	);
+	const catalogue: typeof import('../../../services/director-worker/src/tools.ts') = await import(
+		worker('src/tools.ts').href
+	);
+	const agents = loader.loadAgents(fileURLToPath(worker('agents')), {
+		models: loader.pricedModels(fileURLToPath(worker('pricing.json'))),
+		tools: catalogue.KNOWN_TOOLS,
+	});
+	type Schema = { [key: string]: unknown };
+	const specs: Partial<Record<string, { description: string; inputSchema: Schema }>> =
+		workerTools.workerToolSpecs([...agents.keys()]);
+	const tally = (schema: Schema, totals: { tools: number; optional: number; unions: number }) => {
+		if (Array.isArray(schema.anyOf) || Array.isArray(schema.type)) totals.unions++;
+		const required = new Set((schema.required ?? []) as string[]);
+		for (const [key, child] of Object.entries(
+			(schema.properties ?? {}) as Record<string, Schema>,
+		)) {
+			if (!required.has(key)) totals.optional++;
+			tally(child, totals);
+		}
+		if (schema.items && typeof schema.items === 'object') tally(schema.items as Schema, totals);
+	};
+	const over: string[] = [];
+	for (const agent of agents.values()) {
+		const totals = { tools: 0, optional: 0, unions: 0 };
+		for (const id of agent.tools) {
+			const spec = specs[id] ?? ADAPTER_OPS.get(id);
+			if (!spec) continue;
+			const tool = model.apiTool({
+				id,
+				description: spec.description,
+				inputSchema: spec.inputSchema,
+			});
+			totals.tools++;
+			tally(tool.input_schema as Schema, totals);
+		}
+		if (totals.tools > 20 || totals.optional > 24 || totals.unions > 16) {
+			over.push(`${agent.name} ${JSON.stringify(totals)}`);
+		}
+	}
+	check("every agent's request fits the strict tool-use limits", over, []);
+}
+
 console.log(`director-adapters: ${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);
