@@ -299,7 +299,8 @@ rendered. A run that cannot start (a missing secret, a failed build) fails and n
    24.04 its sandbox cannot start and it exits at launch. A unit that fails still writes its result,
    so the report names it; a unit with no result at all is its game's error.
 5. **`report`** pairs every shard's units (`--phase compare`), compares, uploads the
-   `current-games-report` artifact, prints the **digest** to the log and posts the final status.
+   `current-games-report` artifact (and `report.json` alone as `current-games-report-json`, what
+   Invisible Pipeline Changes reads), prints the **digest** to the log and posts the final status.
 
 **The digest** is every non-pass row's cause, written for a reader who cannot download the artifact:
 the browser's render paths (`chrome://gpu`: WebGL, 2D canvas, compositing), failing gates, each

@@ -22,7 +22,7 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - **Tool registry + docs** — `roles.ts` is the single registry; the launcher **serves the guides** at authed `/docs/[slug]` (rendered from `docs/tools/*.md`). `/onboarding` walks each role through its tools with a guide link per tool and saves each user's local-tool install paths (`tool_installs`). CLAUDE.md rule 9 keeps a new/renamed tool from shipping doc-less.
 - **Desktop launcher support** — the `.exe` (separate `invisible-launcher` repo) is served over open routes `/api/launcher/download` + `/api/launcher/latest`; it self-updates via the manifest. `/api/launcher/projects` (session-scoped project sync, with a **derived** build profile from the project's game kind when none is stored — `launcherProfile.ts`, `mockProtocol.ts`), `/api/launcher/game-upload` (the publish relay), `register-game`, `deploy-token` and `git-credentials` (`gamePublish`-gated).
 - **Saving together** — every authoring tool saves through `$lib/saveState.svelte.ts` with R2 conditional writes, holds a soft lease (`/api/lease`, `doc_leases`) with a presence banner, and keeps rolling backups of its whole-doc saves (`docBackups.ts`).
-- **DB migrations** — applied by the launcher at boot (`init` hook → `runMigrations()`); `0000`–`0019` are live and `0020_director_spend` ships with Director Phase 1 card D and `/api/health` reports `schema: current`. **`db:push` is banned on prod** — `db:generate` + the boot migrator.
+- **DB migrations** — applied by the launcher at boot (`init` hook → `runMigrations()`); `0000`–`0026` are live, `0027_pipeline_approvals` ships with Director card 5A, and `/api/health` reports `schema: current`. **`db:push` is banned on prod** — `db:generate` + the boot migrator.
 - **UI** — full-bleed home: online tools grouped into **game-making stage sections** (Create / Assets / Build / Files & Reference / Pipeline) plus Games and Local tools, Invisible Wall emblem branding. Stages are the single source `TOOL_STAGES` in `roles.ts`; the top-bar switcher tints each tool icon by its stage accent.
 
 ## Open items / next
@@ -56,6 +56,33 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+- 2026-10-06 — **Invisible Pipeline Changes backend: GitHub App, changes list + detail, diff
+  approvals** (Director card 5A, PLAN 5.1 + 5.2; ADR-0007). `$lib/server/githubApp.ts` turns
+  `GITHUB_APP_ID` / `GITHUB_APP_INSTALLATION_ID` / `GITHUB_APP_PRIVATE_KEY` into an installation
+  token (minted once, shared, renewed 5 min before expiry, once more after a 401; never logged).
+  `GET /api/pipeline/changes` lists every open PR into `main` bar `director-game`, Dependabot's
+  apart, each Testing (*n* of *m*) / Blocked (the failing row's reason) / Ready; `GET
+  /api/pipeline/changes/<n>` adds files, the diff link, the body's "why", Check 1 (check runs
+  grouped by workflow, with job counts; the harness's own jobs are Check 2's) and Check 2 (the
+  report read from the new `current-games-report-json` artifact — `report.json` alone, so the
+  launcher never holds the images in memory; a run older than that upload falls back to the full
+  artifact while it is small — through `$lib/server/zip.ts`; an expired artifact, a report for
+  another head or another attempt is a state, not an error).
+  `POST /api/pipeline/changes/<n>/approvals` (`pipelineMerge`, 403 otherwise) records a changed
+  screen's approval in `pipeline_approvals` (migration `0027`, ids embed the head SHA so a push
+  voids them) and, once every diff on that exact head is approved and the run's only failures are
+  changed screens, posts `success` to `current-games` on that SHA naming the approvers (never an
+  email address; approvals on one head run one at a time; one row per diff per approver). What
+  the post trusts: only the run the harness's own workflow file made for the PR from this
+  repository; a report naming this head; the run's jobs read from the jobs API for that attempt
+  (every job but `report` succeeded); approvers who hold `pipelineMerge` at post time (a lapsed
+  approval is named and someone in standing approves beside it). Forks are never listed or
+  approved; a change that edits `.github/workflows/**` or `scripts/current-games/**` — anywhere in
+  its paged file list, renames included — or has more files than GitHub lists cannot be approved
+  through the launcher (its report is its own). The artifact download follows GitHub's redirect
+  without the token. Both gates in `$lib/server/pipelineAccess.ts`. `current-games.yml` uploads
+  the report-only artifact beside the full one and overwrites both on a re-run. The `/pipeline` tabs are still empty (card 5B). Fixture:
+  `check:pipeline-changes`. Env: INFRA "GitHub App (Pipeline Changes)".
 - 2026-10-04 — **Anthropic (agents) cost card + Director run budget** (Director Phase 1, tasks
   1.11–1.12; ADR-0006).
   - Prices live in `services/director-worker/pricing.json` (Claude $/MTok, cache ×0.1 read /
