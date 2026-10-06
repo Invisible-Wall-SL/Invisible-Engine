@@ -1,12 +1,14 @@
 import { error, json } from '@sveltejs/kit';
 import { ConflictError } from '../r2';
+import { AdapterError } from './adapter';
 import { FontRequestError } from './fontRequests';
 import { MockupError } from './mockups';
 import { RunError } from './runs';
 
 /**
  * What the Director owner endpoints share: a JSON body (400 when it is not one), and the mapping
- * of a refusal thrown by `runs.ts`, `fontRequests.ts` or `mockups.ts` — and of a lost conditional
+ * of a refusal thrown by `runs.ts`, `fontRequests.ts` or `mockups.ts` (or an adapter call's own
+ * `AdapterError`, as the variant image route makes one) — and of a lost conditional
  * write — onto `{ error: code, message }` at its status. Anything else is a 500, as it should be.
  */
 
@@ -26,7 +28,12 @@ export async function jsonBody(request: Request): Promise<Record<string, unknown
 }
 
 export function refusalResponse(e: unknown): Response | null {
-	if (e instanceof RunError || e instanceof FontRequestError || e instanceof MockupError) {
+	if (
+		e instanceof RunError ||
+		e instanceof FontRequestError ||
+		e instanceof MockupError ||
+		e instanceof AdapterError
+	) {
 		return json({ error: e.code, message: e.message }, { status: e.status, headers: NO_STORE });
 	}
 	if (e instanceof ConflictError) {

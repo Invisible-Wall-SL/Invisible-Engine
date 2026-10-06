@@ -35,6 +35,8 @@
 		"check:director-events": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-director-events.ts",
 		"precheck:director-runs": "node scripts/ensure-svelte-kit.mjs",
 		"check:director-runs": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-director-runs.ts",
+		"precheck:director-live": "node scripts/ensure-svelte-kit.mjs",
+		"check:director-live": "tsx --tsconfig tsconfig.scripts.json scripts/check-director-live.ts",
 		"precheck:pipeline-games": "node scripts/ensure-svelte-kit.mjs",
 		"check:pipeline-games": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-pipeline-games.ts",
 		"precheck:pipeline-changes": "node scripts/ensure-svelte-kit.mjs",

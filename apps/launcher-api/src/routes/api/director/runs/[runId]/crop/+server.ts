@@ -29,6 +29,8 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 			'content-type': 'image/png',
 			'content-length': String(got.body.byteLength),
 			'cache-control': 'private, max-age=300',
+			'x-content-type-options': 'nosniff',
+			'content-security-policy': "default-src 'none'; sandbox",
 		},
 	});
 };

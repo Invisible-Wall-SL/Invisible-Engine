@@ -71,6 +71,7 @@ add a source that ends in a ref the tool already resolves.**
 |---|---|---|---|
 | Atlas Maker per-region variant gallery (thumbs + seed lock + delete) | B | `services/atlas-tool/ui_server.py` (`/vthumb/`, `/vfull/`, `_serve_variant`) | reference B impl |
 | Flipbook **Video mode** results grid (self-playing animated-WEBP tiles on a checkerboard, seed copy, per-tile status/error) | A | `apps/launcher-api/src/routes/(app)/flipbook/VideoMode.svelte` | first A impl |
+| Director **Live run region gallery** (per-group tiles with a status chip and the art director's pick as the thumb; the region detail puts the mockup crop beside the variants A–H on a checkerboard, marks the pick, and opens any image full size in a `<dialog>` lightbox; images come through owner-scoped launcher routes `…/runs/<id>/{image,variant}`, never from R2 or atlas-tool directly) | A | `apps/launcher-api/src/routes/(app)/director/[runId]/+page.svelte` (`regionDetail` snippet, `.tiles`, `.variants`, `.lightbox`) + `liveRun.ts` (the event folding) | 2nd A instance — extract a `<VariantGallery>` with the Flipbook grid on the 3rd |
 
 → Same idea either side of the A/B line (generate N, browse, pick one), so keep them visually
 consistent like §4 — but they cannot share code. The A impl needs no `<video>`: an animated WEBP
@@ -287,6 +288,6 @@ value and only a second click works. Set it on the `FormData` inside the enhance
 ### 18. Before / after / diff screen compare
 | Impl | Domain | File(s) | Status |
 |---|---|---|---|
-| **`ScreenCompare.svelte`** — the three images of one changed screen (before = main, after = the branch, diff) side by side on a checkerboard, a segmented switch to one large view, each image a link to itself, "image unavailable" when the artifact expired | A | `apps/launcher-api/src/routes/(app)/pipeline/ScreenCompare.svelte` | first instance (Pipeline Changes, Check 2). Director's Live run review galleries (PLAN 4.3) compare renders the same way: build them on this and move it to `$lib/` on that second use |
+| **`ScreenCompare.svelte`** — the three images of one changed screen (before = main, after = the branch, diff) side by side on a checkerboard, a segmented switch to one large view, each image a link to itself, "image unavailable" when the artifact expired | A | `apps/launcher-api/src/routes/(app)/pipeline/ScreenCompare.svelte` | first instance (Pipeline Changes, Check 2). Director's Live run (PLAN 4.3) turned out not to be a second use: a region review is one mockup crop beside N variants with a pick, not a before/after/diff of one screen, so it went into §14 instead; the checkerboard frame and the "open the image itself" link are kept visually identical |
 
 → The images come through the launcher (`GET /api/pipeline/changes/<n>/report/<path>?artifact=<id>`), never from GitHub directly: the artifact store needs the App's token, which never reaches the browser.

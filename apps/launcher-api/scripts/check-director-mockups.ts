@@ -228,7 +228,16 @@ check('sniff: PNG', mockups.sniffImage(basePng), 'png');
 check('sniff: JPG', mockups.sniffImage(styleJpg), 'jpg');
 check('sniff: GIF is not accepted', mockups.sniffImage(text('GIF89a....')), null);
 check('sniff: text is not accepted', mockups.sniffImage(text('<svg/>')), null);
+check(
+	'sniff: WebP is not accepted as a mockup, though the run image route serves it',
+	[
+		mockups.sniffImage(text('RIFF\0\0\0\0WEBPVP8 ')),
+		mockups.sniffServedImage(text('RIFF\0\0\0\0WEBPVP8 ')),
+	],
+	[null, 'webp'],
+);
 check('a GIF upload is 415', await refused(() => add(text('GIF89a........'))), 415);
+check('a WebP upload is 415', await refused(() => add(text('RIFF\0\0\0\0WEBPVP8 '))), 415);
 check('an empty file is 400', await refused(() => add(new Uint8Array())), 400);
 check('a missing tag is 400', await refused(() => add(basePng, '')), 400);
 check('a 61-character tag is 400', await refused(() => add(basePng, 'x'.repeat(61))), 400);
