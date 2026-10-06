@@ -15,9 +15,15 @@
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { costOfResponse, parsePricing } from 'director-costs';
+import { costOfResponse, parsePricing, seedRenderUsd } from 'director-costs';
 import { loadAgents, pricedModels } from './agents.ts';
-import { DEFAULT_OUTPUT_TOKENS, overCap, projectCall } from './budget.ts';
+import {
+	DEFAULT_OUTPUT_TOKENS,
+	overCap,
+	projectCall,
+	projectQueuedGpu,
+	unreportedSeconds,
+} from './budget.ts';
 import {
 	buildRequest,
 	modelProfile,
@@ -201,6 +207,48 @@ try {
 check('an unpriced model cannot be projected', threw, true);
 check('at the cap is over it', overCap(24, 1, 25), true);
 check('below the cap is not', overCap(23.99, 1, 25), false);
+check(
+	'renders in flight project at the mean billed render each',
+	projectQueuedGpu(2, 0.25, 9),
+	0.5,
+);
+check(
+	'a submit projects itself on top of the renders in flight',
+	projectQueuedGpu(2, 0.25, 9) + projectQueuedGpu(1, 0.25, 9),
+	0.75,
+);
+check(
+	'before the first billed render each projects at the seed, so the cap fails closed',
+	projectQueuedGpu(3, null, 0.5),
+	1.5,
+);
+check(
+	'the seed is a stand-in only: a billed mean replaces it',
+	projectQueuedGpu(3, 0.25, 0.5),
+	0.75,
+);
+check('nothing in flight projects nothing', projectQueuedGpu(0, 5, 9), 0);
+const dearest = Math.max(...Object.values(pricing.runpod.perSecondByGpu));
+check(
+	"the seed is pricing.json's seed seconds at the dearest GPU",
+	seedRenderUsd(pricing),
+	pricing.runpod.seedSecondsPerRender * dearest,
+);
+check(
+	'a pricing with no GPU priced seeds nothing (and can bill nothing)',
+	seedRenderUsd({ ...pricing, runpod: { ...pricing.runpod, perSecondByGpu: {} } }),
+	0,
+);
+check(
+	"unreported jobs are estimated at the render's own mean per reported job",
+	unreportedSeconds(2, 4, 100, 600),
+	50,
+);
+check(
+	'…or at the seed seconds when none of its jobs reported a time',
+	unreportedSeconds(3, 0, 0, 600),
+	1800,
+);
 
 // ── Cost of a response ──
 const usage = {

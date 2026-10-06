@@ -13,10 +13,11 @@ import {
 	costOfRunpodJob,
 	DIRECTOR_RUN_BUDGET_DEFAULT_USD,
 	DIRECTOR_RUN_BUDGET_KEY,
+	seedRenderUsd,
 	type DirectorPricing,
 } from 'director-costs';
 import type { AgentDefinition } from './agents.ts';
-import { overCap, projectCall } from './budget.ts';
+import { overCap, projectCall, projectQueuedGpu, unreportedSeconds } from './budget.ts';
 import type { AdapterSpec, Launcher } from './launcher.ts';
 import { deferLease, LEASE_MS, releaseLease, renewLease, type ClaimedRun } from './lease.ts';
 import { log } from './log.ts';
@@ -46,6 +47,7 @@ import {
 	runSpend,
 	setBudgetCap,
 	unhandledEvents,
+	unpricedSinceResume,
 	withLease,
 	type Db,
 	type LiveRun,
@@ -285,7 +287,7 @@ async function settle(
 	const { status } = (await withLease(ctx.sql, ctx.run, async (_tx, l) => l)).state;
 	const served = status === 'running' ? await catalog(ctx) : new Map<string, AdapterSpec>();
 	const results = new Map<string, BetaToolResultBlockParam>();
-	let budgetStop: { spentUsd: number; projectedUsd: number; capUsd: number } | null = null;
+	let budgetStop: BudgetFigures | null = null;
 
 	for (const [index, call] of calls.entries()) {
 		const id = toolId(call.name);
@@ -311,13 +313,45 @@ async function settle(
 		// answered with an error the model would work around by calling again under a new opId.
 		if (!spec) throw new RetryLater(`${id} is not served by the launcher now`);
 		if (GPU_OPS.has(id)) {
-			const [live, spend] = await Promise.all([
-				withLease(ctx.sql, ctx.run, async (_tx, l) => l),
-				runSpend(ctx.sql, ctx.run.id),
-			]);
-			const projectedUsd = spend.meanRunpodJobUsd ?? 0;
+			const live = await withLease(ctx.sql, ctx.run, async (_tx, l) => l);
+			const spend = await runSpend(ctx.sql, ctx.run.id);
+			const unpriced = await unpricedSinceResume(ctx.sql, ctx.run.id);
+			// A render billed as nothing leaves the cap blind to GPU spend: no submit until the owner
+			// has named the endpoint's GPU and resumed.
+			if (unpriced > 0) {
+				budgetStop = {
+					reason: 'unpriced_gpu',
+					spentUsd: spend.totalUsd,
+					projectedUsd: 0,
+					rendersInFlight: spend.rendersInFlight,
+					queuedGpuUsd: 0,
+					capUsd: capOf(live),
+					unpriced,
+				};
+				results.set(
+					call.id,
+					resultBlock(
+						call.id,
+						'Not run: a render of this run reported GPU time with no GPU to price it by, so GPU submits are blocked until the owner sets RUNPOD_ENDPOINT_GPU on atlas-tool and resumes the run.',
+						true,
+					),
+				);
+				continue;
+			}
+			// This render and the ones in flight: none is billed before its job_done, and before the
+			// first is, each projects at the seed.
+			const seed = seedRenderUsd(await ctx.pricing());
+			const queuedGpuUsd = projectQueuedGpu(spend.rendersInFlight, spend.meanRunpodJobUsd, seed);
+			const projectedUsd = queuedGpuUsd + projectQueuedGpu(1, spend.meanRunpodJobUsd, seed);
 			if (overCap(spend.totalUsd, projectedUsd, capOf(live))) {
-				budgetStop = { spentUsd: spend.totalUsd, projectedUsd, capUsd: capOf(live) };
+				budgetStop = {
+					reason: 'cap',
+					spentUsd: spend.totalUsd,
+					projectedUsd,
+					rendersInFlight: spend.rendersInFlight,
+					queuedGpuUsd,
+					capUsd: capOf(live),
+				};
 				results.set(
 					call.id,
 					resultBlock(call.id, 'Not run: the run paused at its budget cap.', true),
@@ -431,20 +465,50 @@ async function pause(
 	return true;
 }
 
+/**
+ * What a budget pause tells the owner: `projectedUsd` includes the `queuedGpuUsd` in flight. The
+ * reason is the cap, or GPU spend the cap cannot see (`unpriced` renders billed as nothing since
+ * the last resume).
+ */
+interface BudgetFigures {
+	reason: 'cap' | 'unpriced_gpu';
+	spentUsd: number;
+	projectedUsd: number;
+	rendersInFlight: number;
+	queuedGpuUsd: number;
+	capUsd: number;
+	unpriced?: number;
+}
+
 async function pauseForBudget(
 	tx: Db,
 	live: LiveRun,
 	agent: string,
-	figures: { spentUsd: number; projectedUsd: number; capUsd: number },
+	figures: BudgetFigures,
 	before: 'model_call' | 'gpu_submit',
 ): Promise<void> {
-	if (!(await pause(tx, live, 'budget_cap', `budget cap before ${agent}'s ${before}`))) return;
+	const cause =
+		figures.reason === 'cap'
+			? `budget cap before ${agent}'s ${before}`
+			: `unpriced GPU spend before ${agent}'s ${before}`;
+	if (!(await pause(tx, live, 'budget_cap', cause))) return;
+	if (figures.reason === 'unpriced_gpu') {
+		await insertEvent(tx, live.id, 'worker', 'error', {
+			type: 'gpu_submit_blocked',
+			agent,
+			unpriced: figures.unpriced,
+			message: `${agent}'s GPU submit was not sent: ${figures.unpriced} render(s) of this run reported GPU time with no GPU to price it by, so the cap cannot see GPU spend. Set RUNPOD_ENDPOINT_GPU on atlas-tool to a GPU pricing.json prices.`,
+		});
+	}
 	await insertEvent(tx, live.id, 'worker', 'checkpoint_open', {
 		checkpoint: 'budget',
 		agent,
 		before,
 		...figures,
-		message: 'The run reached its budget cap. Raise the cap and resume, or stop the run.',
+		message:
+			figures.reason === 'cap'
+				? 'The run reached its budget cap. Raise the cap and resume, or stop the run.'
+				: 'A render reported GPU time with no GPU to price it by, so its spend cannot count toward the cap. Set RUNPOD_ENDPOINT_GPU on atlas-tool to a GPU pricing.json prices, then resume; or stop the run.',
 	});
 }
 
@@ -502,7 +566,14 @@ async function takeTurn(ctx: Ctx, name: string): Promise<boolean> {
 	const pricing = await ctx.pricing();
 	const request = buildRequest(agent, specs, toParams(history));
 	const spend = await runSpend(ctx.sql, ctx.run.id);
-	const projectedUsd = projectCall(request, pricing, spend.maxOutputByAgent[name]);
+	// The call, plus the renders in flight: a run at its cap must not keep talking while their
+	// cost is still to land.
+	const queuedGpuUsd = projectQueuedGpu(
+		spend.rendersInFlight,
+		spend.meanRunpodJobUsd,
+		seedRenderUsd(pricing),
+	);
+	const projectedUsd = projectCall(request, pricing, spend.maxOutputByAgent[name]) + queuedGpuUsd;
 	const stopped = await withLease(ctx.sql, ctx.run, async (tx, live) => {
 		if (live.state.status !== 'running') return true;
 		if (!overCap(spend.totalUsd, projectedUsd, capOf(live))) return false;
@@ -510,7 +581,14 @@ async function takeTurn(ctx: Ctx, name: string): Promise<boolean> {
 			tx,
 			live,
 			name,
-			{ spentUsd: spend.totalUsd, projectedUsd, capUsd: capOf(live) },
+			{
+				reason: 'cap',
+				spentUsd: spend.totalUsd,
+				projectedUsd,
+				rendersInFlight: spend.rendersInFlight,
+				queuedGpuUsd,
+				capUsd: capOf(live),
+			},
 			'model_call',
 		);
 		return true;
@@ -788,10 +866,20 @@ async function applyEvent(
 	}
 }
 
+const finiteCount = (v: unknown): number | null =>
+	typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
+
 /**
- * The RunPod row for a finished job (ADR-0006): its execution seconds × the GPU's $/s, keyed
- * `runpod:<jobRef>` so a redelivered `job_done` is billed once. Written only when the job reports
- * both (`result.runpod = { gpu, seconds }`); atlas-tool does not report them yet.
+ * The RunPod rows for a settled render (ADR-0006), from what atlas-tool reports
+ * (`result.runpod = { gpu, seconds, jobs, unreported }`: the billed seconds, execution plus
+ * delay, read off RunPod's own job status, and the GPU from the endpoint's `RUNPOD_ENDPOINT_GPU`)
+ * at `pricing.json`'s $/s, never a price from the wire. Keyed `runpod:<jobRef>` so a redelivered
+ * `job_done` is billed once. Jobs that ended without reporting a time (`unreported`) are billed
+ * too, as an estimate flagged as such (`unreportedSeconds`): under-counting is what lets a run
+ * past its cap. A render with no GPU to price by gets no row — a figure made up here could not
+ * be told from a real one — and is an `unbilled_job` error event, which blocks the run's GPU
+ * submits until the owner resumes (`unpricedSinceResume`); a render that reported nothing and
+ * did not finish is only logged, since nothing is known to have been spent.
  */
 async function billJob(
 	tx: Db,
@@ -799,36 +887,91 @@ async function billJob(
 	event: WakingEvent,
 	pricing: DirectorPricing,
 ): Promise<void> {
-	const runpod = (event.payload.result as { runpod?: { gpu?: unknown; seconds?: unknown } } | null)
-		?.runpod;
-	if (typeof runpod?.gpu !== 'string' || typeof runpod.seconds !== 'number') return;
+	const raw = (event.payload.result as { runpod?: Record<string, unknown> } | null)?.runpod;
+	const jobRef = String(event.payload.jobRef);
+	const gpu = typeof raw?.gpu === 'string' && raw.gpu ? raw.gpu : null;
+	const seconds = finiteCount(raw?.seconds);
+	const jobs = finiteCount(raw?.jobs) ?? 0;
+	const unreported = finiteCount(raw?.unreported) ?? 0;
+	if (gpu === null || seconds === null) {
+		log.warn('GPU job not billed: no usage reported', {
+			runId: live.id,
+			jobRef,
+			status: event.payload.status,
+			gpu,
+			seconds,
+		});
+		// Time was spent (or jobs ran unseen) with nothing to price it by, or a finished render
+		// reported nothing at all: the cap is blind to it, and the owner is told.
+		const spent = raw !== undefined && ((seconds ?? 0) > 0 || unreported > 0);
+		if (spent || event.payload.status === 'finished') {
+			await insertEvent(tx, live.id, 'worker', 'error', {
+				type: 'unbilled_job',
+				jobRef,
+				seconds,
+				message:
+					seconds === null
+						? `Render ${jobRef} ended without reporting its GPU time, so it does not count toward the cap.`
+						: `Render ${jobRef} reports ${seconds} s of GPU time but no GPU to price it by (RUNPOD_ENDPOINT_GPU on atlas-tool), so it does not count toward the cap. GPU submits are blocked until it is set and the run resumed.`,
+			});
+		}
+		return;
+	}
+	const estimate = unreportedSeconds(
+		unreported,
+		jobs,
+		seconds,
+		pricing.runpod.seedSecondsPerRender,
+	);
 	let usd: number;
+	let estimateUsd: number;
 	try {
-		usd = costOfRunpodJob(runpod.gpu, runpod.seconds, pricing);
+		usd = costOfRunpodJob(gpu, seconds, pricing);
+		estimateUsd = costOfRunpodJob(gpu, estimate, pricing);
 	} catch (error) {
 		await insertEvent(tx, live.id, 'worker', 'error', {
 			type: 'unpriced',
-			jobRef: event.payload.jobRef,
+			jobRef,
 			message: (error as Error).message,
 		});
 		return;
 	}
-	const requestId = `runpod:${String(event.payload.jobRef)}`;
-	if (
-		await recordSpend(tx, {
+	const bill = async (requestId: string, amount: number, extra: Record<string, unknown>) => {
+		const written = await recordSpend(tx, {
 			runId: live.id,
 			agent: event.agent,
-			model: runpod.gpu,
+			model: gpu,
 			kind: 'runpod',
 			requestId,
-			usd,
-		})
-	) {
-		await insertEvent(tx, live.id, event.agent, 'spend', {
-			kind: 'runpod',
-			model: runpod.gpu,
-			usd,
-			requestId,
+			usd: amount,
 		});
+		if (written) {
+			await insertEvent(tx, live.id, event.agent, 'spend', {
+				kind: 'runpod',
+				model: gpu,
+				usd: amount,
+				requestId,
+				...extra,
+			});
+		}
+		return written;
+	};
+	if (seconds > 0) await bill(`runpod:${jobRef}`, usd, { seconds });
+	if (unreported > 0) {
+		const written = await bill(`runpod:${jobRef}:unreported`, estimateUsd, {
+			estimated: true,
+			unreported,
+			seconds: estimate,
+		});
+		if (written) {
+			await insertEvent(tx, live.id, 'worker', 'error', {
+				type: 'estimated_gpu_time',
+				jobRef,
+				unreported,
+				seconds: estimate,
+				usd: estimateUsd,
+				message: `${unreported} job(s) of render ${jobRef} ended without reporting their GPU time (lost, abandoned or timed out); billed as an estimate of ${Math.round(estimate)} s on ${gpu}.`,
+			});
+		}
 	}
 }

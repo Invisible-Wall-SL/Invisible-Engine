@@ -32,6 +32,34 @@ export function projectCall(
 	return (inputTokens * rate.input + outputTokens * rate.output) / 1_000_000;
 }
 
+/**
+ * Projected USD of `renders` GPU renders whose cost has not landed — the ones in flight, plus any
+ * about to be submitted — each at the run's mean billed render so far, or at `seedUsd`
+ * (`seedRenderUsd`: pricing.json's seed seconds at the dearest GPU) before the first is billed. A
+ * render is billed only at its `job_done`, so without this a run at its cap could keep calling
+ * the model, and submitting, while its renders' cost was still to come; and without the seed a
+ * run could submit without limit until its first render was billed. The cap fails closed.
+ */
+export const projectQueuedGpu = (
+	renders: number,
+	meanRunpodJobUsd: number | null,
+	seedUsd: number,
+): number => Math.max(0, renders) * (meanRunpodJobUsd ?? seedUsd);
+
+/**
+ * Seconds to bill for a render's jobs that ended without reporting a time (lost, abandoned,
+ * timed out): each at the render's own mean per reported job, or at the seed seconds when none of
+ * its jobs reported one. An estimate, flagged as such where it is written; it errs high.
+ */
+export const unreportedSeconds = (
+	unreported: number,
+	reportedJobs: number,
+	reportedSeconds: number,
+	seedSecondsPerRender: number,
+): number =>
+	Math.max(0, unreported) *
+	(reportedJobs > 0 ? reportedSeconds / reportedJobs : seedSecondsPerRender);
+
 /** Whether a step costing `projectedUsd` must not run. */
 export const overCap = (spentUsd: number, projectedUsd: number, capUsd: number): boolean =>
 	spentUsd + projectedUsd >= capUsd;

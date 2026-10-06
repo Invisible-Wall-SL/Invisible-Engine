@@ -227,6 +227,37 @@ export async function queuedJobs(db: Db, runId: string): Promise<number> {
 	return row.n;
 }
 
+/**
+ * Renders whose cost has not landed: still queued, or settled by the launcher with a `job_done`
+ * this worker has not applied yet (the window between `settleAtlasJob` and `billJob`).
+ */
+export async function rendersInFlight(db: Db, runId: string): Promise<number> {
+	const [row] = await db<{ n: number }[]>`
+		select count(*)::int as n from director_atlas_jobs j
+		where j.run_id = ${runId} and (j.status = 'queued' or exists (
+			select 1 from director_events e
+			where e.run_id = j.run_id and e.kind = 'job_done' and e.handled_at is null
+				and e.payload_json->>'jobRef' = j.job_ref))`;
+	return row.n;
+}
+
+/**
+ * Renders billed as nothing since the owner last resumed the run: they reported GPU time with no
+ * GPU to price it by, or finished reporting nothing (`billJob`'s `unbilled_job`). While there is
+ * one, the cap is blind to GPU spend, so no GPU submit goes out until the owner has set the
+ * endpoint's GPU and resumed.
+ */
+export async function unpricedSinceResume(db: Db, runId: string): Promise<number> {
+	const [row] = await db<{ n: number }[]>`
+		select count(*)::int as n from director_events
+		where run_id = ${runId} and kind = 'error' and payload_json->>'type' = 'unbilled_job'
+			and id > coalesce((
+				select max(id) from director_events
+				where run_id = ${runId} and kind = 'owner_request'
+					and payload_json->>'action' = 'resume'), 0)`;
+	return row.n;
+}
+
 export async function setBudgetCap(tx: Db, runId: string, usd: number): Promise<void> {
 	await tx`update director_runs set budget_cap_usd = ${usd} where id = ${runId}`;
 }
@@ -274,6 +305,8 @@ export interface RunSpend {
 	maxOutputByAgent: Record<string, number>;
 	/** Mean cost of one GPU job so far; null before the first. */
 	meanRunpodJobUsd: number | null;
+	/** Renders whose cost is still to land: queued, or settled with a `job_done` not yet applied. */
+	rendersInFlight: number;
 }
 
 export async function runSpend(db: Db, runId: string): Promise<RunSpend> {
@@ -287,6 +320,7 @@ export async function runSpend(db: Db, runId: string): Promise<RunSpend> {
 		byAgent: {},
 		maxOutputByAgent: {},
 		meanRunpodJobUsd: null,
+		rendersInFlight: await rendersInFlight(db, runId),
 	};
 	let gpuUsd = 0;
 	let gpuJobs = 0;
