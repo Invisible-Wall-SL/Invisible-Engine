@@ -513,7 +513,7 @@ in the launcher's database and its migrations), `ANTHROPIC_API_KEY` (the agents'
 the worker logs only `anthropicApiKeySet`), `DIRECTOR_SERVICE_TOKEN` (the launcher's value, for the
 adapter gate and catalog), `DIRECTOR_LAUNCHER_URL` (optional; code default
 `https://app.invisiblewall.org`). Without the key or the token the worker claims no run and
-`/healthz` answers 503 `db: not_driving`. `PORT` is injected by
+`/healthz` answers 200 with `"driving": false` (liveness, not readiness). `PORT` is injected by
 Railway. With `DATABASE_URL` unset the worker still boots but claims nothing and `/healthz` answers
 503 `db: unconfigured`. See "Invisible Director worker" below.
 
@@ -791,7 +791,7 @@ node scripts/sentry-sourcemaps.mjs runtime apps/lines/build --dry-run
 | --- | --- | --- |
 | `https://app.invisiblewall.org/api/health` | 200 `{"ok":true,"db":"ok","migrations":{"boot":"ok","schema":"current"}}` — Postgres answered (3s budget) and `max(created_at)` in `drizzle.__drizzle_migrations` reaches the newest journal entry this build ships. | 503 otherwise, with `db: down/unconfigured` or `schema: behind/unknown`. Public, so it names states only — no error text. `boot` is reported, not gated on (a boot that failed only because the DB blinked must not stay red once the schema is current). |
 | `https://games.invisiblewall.org/healthz` | 200 `{"ok":true,…}`; **503 `"ok":false`** when it serves nothing because its boot read of R2 failed | the test server / online games host. `lastHydrate.succeeded: false` with `ok:true` = a later refresh failed and it still serves the previous games (publishes are not landing — see the log). |
-| director-worker `/healthz` (private; Railway's healthcheck) | 200 `{"ok":true,"agents":7,"db":"up","workerId":…}` — every agent definition loaded and validated, and the last Postgres round-trip (the `LISTEN director_wake` connect or the 60 s sweep) succeeded. | 503 with `db: down/unconfigured/not_driving` (`not_driving` = `ANTHROPIC_API_KEY` or `DIRECTOR_SERVICE_TOKEN` unset). A definition that fails validation stops the boot outright, so a bad agent edit shows as a failed deploy, never as a worker running without it. |
+| director-worker `/healthz` (private; Railway's healthcheck) | 200 `{"ok":true,"agents":7,"db":"up","driving":true,"workerId":…}` — every agent definition loaded and validated, and the run tables answer (the last `LISTEN director_wake` connect or 60 s sweep while driving; a `where false` select of the claim columns while not). `"driving":false` = `ANTHROPIC_API_KEY` or `DIRECTOR_SERVICE_TOKEN` unset: up and idle, still 200. | 503 with `db: down/unconfigured` only. A definition that fails validation stops the boot outright, so a bad agent edit shows as a failed deploy, never as a worker running without it. |
 | `https://atlas-tool-production.up.railway.app/healthz`, `https://sheet-tool-production.up.railway.app/healthz` | 200 `{"ok":true,"service":…,"build":…,"commit":…}` | Gate-exempt (the only path that is); `commit` = the first 12 chars of `RAILWAY_GIT_COMMIT_SHA`, so it also answers "which commit is running?". |
 
 ### Uptime — Better Stack Uptime (free plan)
