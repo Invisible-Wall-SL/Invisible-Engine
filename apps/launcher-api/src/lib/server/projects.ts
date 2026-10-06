@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { PROJECT_KEY_PATTERN } from '$lib/projectKey';
 import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm';
 import { getDb } from './db';
 import {
@@ -19,7 +20,7 @@ import { UNASSIGNED_CLIENT } from './projectPaths';
 export const DEFAULT_PROJECT_KEY = 'cloud';
 
 /** Project key slug: `^[a-z0-9][a-z0-9_-]{0,63}$` (shared tool contract). */
-const PROJECT_KEY_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const PROJECT_KEY_RE = PROJECT_KEY_PATTERN;
 
 export function isValidProjectKey(value: string): boolean {
 	return PROJECT_KEY_RE.test(value);

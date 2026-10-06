@@ -11,6 +11,7 @@ import {
 	ownershipRefusal,
 	removeMockup,
 	setFidelity,
+	setMockupTag,
 	type MockupsDoc,
 } from '$lib/server/director/mockups';
 import type { RequestHandler } from './$types';
@@ -21,7 +22,8 @@ import type { RequestHandler } from './$types';
  *   GET  /api/director/mockups?project=<key>[&client=<key>]   the doc, the limits, the start refusal
  *   POST /api/director/mockups?project=<key>[&client=<key>]  (multipart)
  *        action=upload   file=<png|jpg> tag=<screen> [styleOnly=1]    (one file per request)
- *        action=confirm_ownership                                   records who and when, once
+ *        action=retag    id=<mockup id> tag=<screen> [styleOnly=1]     the ownership check stays
+ *        action=confirm_ownership                                   records who and when, once (needs an image)
  *        action=fidelity fidelity=match|start
  *        action=remove   id=<mockup id>
  *
@@ -75,6 +77,8 @@ export const POST: RequestHandler = async ({ request, url, locals }) => {
 		throw error(400, 'Expected a multipart form.');
 	}
 	const by = { uid: user.id, name: user.name ?? user.email };
+	// A pending key's doc is re-checked as the caller's inside each write, on the doc the CAS writes.
+	const owner = pending ? user.id : undefined;
 	const action = form.get('action');
 	try {
 		switch (action) {
@@ -89,16 +93,32 @@ export const POST: RequestHandler = async ({ request, url, locals }) => {
 					tag: form.get('tag'),
 					styleOnly,
 					by,
+					owner,
 				});
 				return answer(doc, pending);
 			}
+			case 'retag':
+				return answer(
+					await setMockupTag(
+						clientKey,
+						projectKey,
+						String(form.get('id') ?? ''),
+						form.get('tag'),
+						['1', 'true', 'on'].includes(String(form.get('styleOnly') ?? '')),
+						owner,
+					),
+					pending,
+				);
 			case 'confirm_ownership':
-				return answer(await confirmOwnership(clientKey, projectKey, by), pending);
+				return answer(await confirmOwnership(clientKey, projectKey, by, owner), pending);
 			case 'fidelity':
-				return answer(await setFidelity(clientKey, projectKey, form.get('fidelity')), pending);
+				return answer(
+					await setFidelity(clientKey, projectKey, form.get('fidelity'), owner),
+					pending,
+				);
 			case 'remove':
 				return answer(
-					await removeMockup(clientKey, projectKey, String(form.get('id') ?? '')),
+					await removeMockup(clientKey, projectKey, String(form.get('id') ?? ''), owner),
 					pending,
 				);
 			default:

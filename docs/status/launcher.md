@@ -104,6 +104,37 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   `check:pipeline-changes` (the fake GitHub grew the Git Data, labels and eval-run routes),
   the worker's `check:agent-eval` (the scorer and the runner over a fake model, the cap paths),
   `check:agents`. Guide: `docs/tools/pipeline-changes.md`.
+- 2026-10-06 — **Invisible Director: New game and Mockup breakdown screens** (Director card 4B,
+  PLAN 4.1 + 4.2; over the owner API of #1069 and the breakdown step of #1067).
+  - `/director` is the New game screen (mockup 02): Game Maker's project fields and validation
+    (the key slugified from the name, Game Maker's own words on a bad or taken key), the Director
+    templates per game type with their GAME / USING / LOCKED chips, the preset fields, mockup
+    upload (one request per file, retag, remove, fidelity, the ownership check), notes, the
+    checkpoints, and the estimate panel against the cap. Create = `POST /api/director/runs` with a
+    request id made once per (key, client, template) and resent unchanged on a lost connection;
+    then `start` with its own id; then the run page. Mockups upload under the pending key and
+    client, which lock while any are stored. A "Your runs" table links each run.
+  - `/director/[runId]` (owner-only, the API's 404 otherwise) renders the `breakdown` checkpoint
+    (mockup 03): one tab per mockup, the analyst's numbered boxes over the original (red = a
+    confirmed clash with a locked item, amber = needs you), the found list with regions and
+    status, "Needs your call", font gaps, the staged font requests with **Mark done** through
+    `/api/director/fonts`, crops per region, the palette with dropped swatches, and Approve /
+    Revise-with-note (note required to revise). The run's other states show the banner and the
+    allowed actions only (Start with the New-game refusal carried over, Pause, Resume with a cap
+    raise, Stop behind `askConfirm`); the Live run panels are card 4C. Live updates: the page
+    follows `/director/[runId]/events` (SSE) and refreshes the summary on every event; `error`
+    events of type `refused_request` are shown; a closed stream falls back to polling every 5 s.
+  - Server bits: `GET /api/director/templates` also answers the clients the caller may create
+    under (`mayTargetClient`, as Game Maker's loader) and the agents the estimate prices with
+    their models; `GET /api/director/mockups/image?project=&client=&id=` serves an original
+    (same gate as the doc, pending project allowed); `POST /api/director/mockups` takes
+    `action=retag`; `GET /api/director/runs/[runId]/crop?region=` serves a crop (owner-only).
+    Fixtures: `check:director-runs` (362 checks) and `check:director-mockups` (96) cover them.
+  - Rendered in Chromium against mocked API answers and compared with mockups 02 and 03; the
+    draft, paused and refused-request states were exercised the same way.
+  - Guide: `tools/director.md`. Client types mirror the worker's `Breakdown` in
+    `routes/(app)/director/director.client.ts` because the worker's sources import with `.ts`
+    extensions the launcher's tsconfig does not accept.
 - 2026-10-06 — **Invisible Pipeline Changes screens: the Changes tab** (Director card 5B, PLAN 5.1
   + 5.2; ADR-0007). `/pipeline` now shows the list and the detail over the 5A endpoints, client-side
   fetched and refreshed every minute while visible, `?change=<n>` deep-links a change. The list:
