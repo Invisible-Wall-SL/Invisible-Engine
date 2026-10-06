@@ -39,11 +39,13 @@ the caller's finish hook, which goes through `_write_manifest_at`.
 Fails open throughout: R2 that cannot be read or written costs the resumability of
 this render, never the render.
 
-Billing (ADR-0006): each settled job keeps the `executionTime` RunPod reported for it
-and the GPU the endpoint ran it on (`RUNPOD_ENDPOINT_GPU`, recorded at submit). The
-render's `runpod` summary — `{gpu, seconds, delaySeconds, jobs, unreported}` — is what
-`/progress?jobRef=` and the completion callback carry, so the Director worker can price
-the render from `pricing.json`. No price is computed here.
+Billing (ADR-0006): each settled job keeps the time RunPod reported for it (execution
+plus delay, since RunPod bills a worker's uptime, cold start included) and the GPU the
+endpoint ran it on (`RUNPOD_ENDPOINT_GPU`, recorded at submit). The render's `runpod`
+summary — `{gpu, seconds, executionSeconds, delaySeconds, jobs, unreported}` — is what
+`/progress?jobRef=` and the completion callback carry whenever the render had a RunPod
+job, so the Director worker can price the render from `pricing.json`, and estimate the
+`unreported` jobs that ended without a time. No price is computed here.
 """
 from __future__ import annotations
 
@@ -232,27 +234,29 @@ def _seconds_of(job: dict) -> float | None:
 
 
 def runpod_summary(jobs: list[dict]) -> dict | None:
-    """The render's GPU time, for billing (ADR-0006): the execution seconds of every
-    RunPod job that reported one — a failed job's time was spent too — and the GPU
-    they ran on. None when no job reported any (a receiver then has nothing to bill
-    and says so). `gpu` is None unless every reported job names the same one, so a
-    sum is never priced by the wrong card; `unreported` counts the RunPod jobs that
-    settled without a time (lost, abandoned, never read to the end)."""
-    reported = [j for j in jobs if _seconds_of(j) is not None]
-    if not reported:
+    """The render's GPU time, for billing (ADR-0006): the billed seconds (execution plus
+    delay) of every RunPod job that reported a time — a failed job's time was spent too —
+    and the GPU they ran on. None only when the render had no RunPod job at all. `gpu` is
+    None unless every RunPod job names the same one, so a sum is never priced by the
+    wrong card; `unreported` counts the RunPod jobs that settled without a time (lost,
+    abandoned, timed out), which the worker bills as an estimate."""
+    runpod_jobs = [j for j in jobs if j.get("transport") == "runpod"]
+    if not runpod_jobs:
         return None
-    gpus = {str(j.get("gpu") or "") for j in reported}
+    reported = [j for j in runpod_jobs if _seconds_of(j) is not None]
+    gpus = {str(j.get("gpu") or "") for j in runpod_jobs}
     gpu = gpus.pop() if len(gpus) == 1 and "" not in gpus else None
-    delay = sum(float((j.get("usage") or {}).get("delaySeconds") or 0) for j in reported)
+
+    def _part(key: str) -> float:
+        return round(sum(float((j.get("usage") or {}).get(key) or 0) for j in reported), 3)
     return {
         "gpu": gpu,
         "seconds": round(sum(_seconds_of(j) or 0.0 for j in reported), 3),
-        "delaySeconds": round(delay, 3),
+        "executionSeconds": _part("executionSeconds"),
+        "delaySeconds": _part("delaySeconds"),
         "jobs": len(reported),
-        "unreported": sum(1 for j in jobs
-                          if j.get("transport") == "runpod"
-                          and j.get("status") not in SETTLEABLE
-                          and _seconds_of(j) is None),
+        "unreported": sum(1 for j in runpod_jobs
+                          if j.get("status") not in SETTLEABLE and _seconds_of(j) is None),
     }
 
 
@@ -951,7 +955,7 @@ def _post(url: str, body: bytes, headers: dict) -> int:
 
 def deliver_callback(doc: dict) -> bool:
     """POST `{jobRef, status, variants, runpod?}` to the render's callback, signed —
-    `runpod` only when a job reported its time. A render with no callback does
+    `runpod` whenever the render had a RunPod job. A render with no callback does
     nothing. Never raises; never logs the token or secret. Delivery is recorded on
     the render, and the boot sweep redelivers one that never landed."""
     cb = doc.get("callback") or {}

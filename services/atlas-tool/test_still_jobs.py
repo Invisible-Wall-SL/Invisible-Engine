@@ -15,10 +15,11 @@ What each group stands for:
   * NO CALLBACK — the render, its `/render` answer and `/progress` stay as they
     were; a CLI run of batch_atlas records nothing.
   * BILLING — each job keeps the GPU it was submitted to (RUNPOD_ENDPOINT_GPU) and
-    the `executionTime` RunPod reported, a failed job's too; the render's `runpod`
-    summary reaches `/progress` and the callback, and is absent when no job reported
-    a time. No price is computed here (ADR-0006: that is the worker's, from
-    pricing.json).
+    the time RunPod reported (execution plus delay: RunPod bills the worker's uptime),
+    a failed job's too; the render's `runpod` summary reaches `/progress` and the
+    callback whenever the render had a RunPod job, counting the jobs that ended with
+    no time as `unreported`. No price is computed here (ADR-0006: that is the
+    worker's, from pricing.json).
 
 ASCII only in the labels: a non-Latin-1 glyph aborts the suite on a cp1252 console.
 """
@@ -418,9 +419,12 @@ def test_the_callback_fires_once_signed_and_never_logs_secrets() -> None:
     target, body, headers = posts[0]
     msg = json.loads(body)
     check("it POSTs to the callback URL", target, url)
-    check("with {jobRef, status, variants} - and no runpod when no job reported a time",
+    check("with {jobRef, status, variants, runpod} - the job's time unreported, so the"
+          " worker can estimate it",
           msg, {"jobRef": ref, "status": "finished",
-                "variants": [{"region": "H1", "variant": "H1_00007_.png", "slot": 1}]})
+                "variants": [{"region": "H1", "variant": "H1_00007_.png", "slot": 1}],
+                "runpod": {"gpu": None, "seconds": 0.0, "executionSeconds": 0.0,
+                           "delaySeconds": 0.0, "jobs": 0, "unreported": 1}})
     check("signed with the server secret",
           still_jobs.verify_signature(body, headers["X-Atlas-Signature"], SECRET), True)
     check("carrying the caller's token back", headers["X-Atlas-Callback-Token"], token)
@@ -722,10 +726,11 @@ def test_a_resumed_job_keeps_its_gpu_time_for_billing() -> None:
     still_jobs.resume_orphans(wait=True)
     job = R2.doc(f"{ROOT}/{ref}/job_001.json")
     check("the job record names the GPU it was submitted to", job["gpu"], "L40S (48 GB)")
-    check("...and keeps the time RunPod reported, in seconds", job["usage"],
-          {"seconds": 12.345, "delaySeconds": 1.5, "workerId": "w1"})
-    want = {"gpu": "L40S (48 GB)", "seconds": 12.345, "delaySeconds": 1.5,
-            "jobs": 1, "unreported": 0}
+    check("...and keeps the time RunPod reported: execution plus delay, in seconds",
+          job["usage"], {"seconds": 13.845, "executionSeconds": 12.345,
+                         "delaySeconds": 1.5, "workerId": "w1"})
+    want = {"gpu": "L40S (48 GB)", "seconds": 13.845, "executionSeconds": 12.345,
+            "delaySeconds": 1.5, "jobs": 1, "unreported": 0}
     check("the closed render sums it as its runpod usage",
           R2.doc(f"{ROOT}/{ref}/render.json")["runpod"], want)
     check("the callback carries it", json.loads(posts[0]).get("runpod"), want)
@@ -743,8 +748,20 @@ def test_a_resumed_job_keeps_its_gpu_time_for_billing() -> None:
     doc = R2.doc(f"{ROOT}/{ref}/render.json")
     check("a job that ended without a time is counted, not summed",
           (doc["status"], doc["runpod"]),
-          ("failed", {"gpu": "L40S (48 GB)", "seconds": 1.0, "delaySeconds": 0.0,
-                      "jobs": 1, "unreported": 1}))
+          ("failed", {"gpu": "L40S (48 GB)", "seconds": 1.0, "executionSeconds": 1.0,
+                      "delaySeconds": 0.0, "jobs": 1, "unreported": 1}))
+
+    # Every job lost: nothing to sum, but the card is still named and the count sent,
+    # so the worker can bill an estimate rather than nothing.
+    install()
+    os.environ["RUNPOD_ENDPOINT_GPU"] = "L40S (48 GB)"
+    RunPod({"job-1": [404], "requeued-1": [404]}).install()
+    ref = interrupted_render("st_00000000000000a6", gpu="L40S (48 GB)")
+    still_jobs.resume_orphans(wait=True)
+    check("a render whose every job was lost still names its GPU and the lost count",
+          R2.doc(f"{ROOT}/{ref}/render.json")["runpod"],
+          {"gpu": "L40S (48 GB)", "seconds": 0.0, "executionSeconds": 0.0,
+           "delaySeconds": 0.0, "jobs": 0, "unreported": 1})
 
     # A re-queued job is billed by the GPU of the endpoint that ran it the second time.
     install()
@@ -770,7 +787,8 @@ def test_a_resumed_job_keeps_its_gpu_time_for_billing() -> None:
     still_jobs.resume_orphans(wait=True)
     check("jobs on different GPUs leave the card unnamed rather than guessed",
           R2.doc(f"{ROOT}/{ref}/render.json")["runpod"],
-          {"gpu": None, "seconds": 4.0, "delaySeconds": 0.0, "jobs": 2, "unreported": 0})
+          {"gpu": None, "seconds": 4.0, "executionSeconds": 4.0, "delaySeconds": 0.0,
+           "jobs": 2, "unreported": 0})
 
     # No GPU configured: the time is still reported, just with no card to price it by.
     install()
@@ -779,7 +797,8 @@ def test_a_resumed_job_keeps_its_gpu_time_for_billing() -> None:
     still_jobs.resume_orphans(wait=True)
     check("without RUNPOD_ENDPOINT_GPU the seconds are reported with gpu null",
           R2.doc(f"{ROOT}/{ref}/render.json")["runpod"],
-          {"gpu": None, "seconds": 0.5, "delaySeconds": 0.0, "jobs": 1, "unreported": 0})
+          {"gpu": None, "seconds": 0.5, "executionSeconds": 0.5, "delaySeconds": 0.0,
+           "jobs": 1, "unreported": 0})
 
 
 def test_the_subprocess_keeps_a_jobs_time_even_when_it_fails() -> None:
@@ -816,13 +835,15 @@ def test_the_subprocess_keeps_a_jobs_time_even_when_it_fails() -> None:
     j1, j2 = R2.doc(f"{ROOT}/{ref}/job_001.json"), R2.doc(f"{ROOT}/{ref}/job_002.json")
     check("a collected job keeps its GPU and time",
           (j1["status"], j1["gpu"], j1["usage"]),
-          ("done", "L40S (48 GB)", {"seconds": 2.5, "delaySeconds": 0.1, "workerId": "w9"}))
+          ("done", "L40S (48 GB)", {"seconds": 2.6, "executionSeconds": 2.5,
+                                    "delaySeconds": 0.1, "workerId": "w9"}))
     check("a failed job keeps its time too: it was spent",
-          (j2["status"], j2["usage"]), ("failed", {"seconds": 4.0}))
+          (j2["status"], j2["usage"]),
+          ("failed", {"seconds": 4.0, "executionSeconds": 4.0}))
     closed = still_jobs.close_render(ref, "failed", "the render exited with code 1")
     check("the render bills both", closed["runpod"],
-          {"gpu": "L40S (48 GB)", "seconds": 6.5, "delaySeconds": 0.1,
-           "jobs": 2, "unreported": 0})
+          {"gpu": "L40S (48 GB)", "seconds": 6.6, "executionSeconds": 6.5,
+           "delaySeconds": 0.1, "jobs": 2, "unreported": 0})
 
 
 def test_the_poll_loop_hands_the_settling_read_to_billing() -> None:
@@ -842,7 +863,8 @@ def test_the_poll_loop_hands_the_settling_read_to_billing() -> None:
                                                on_settle=settled.append)
         check("the COMPLETED read is handed over, once, before the output is returned",
               (len(settled), batch_atlas.runpod_usage(settled[0]), "images" in out),
-              (1, {"seconds": 7.0, "delaySeconds": 0.25, "workerId": "w2"}, True))
+              (1, {"seconds": 7.25, "executionSeconds": 7.0, "delaySeconds": 0.25,
+                   "workerId": "w2"}, True))
 
         settled.clear()
         reads = iter([{"status": "FAILED", "executionTime": 900, "error": "boom"}])
@@ -853,7 +875,8 @@ def test_the_poll_loop_hands_the_settling_read_to_billing() -> None:
         except RuntimeError:
             pass
         check("...and its read is handed over too: the time was spent",
-              [batch_atlas.runpod_usage(s) for s in settled], [{"seconds": 0.9}])
+              [batch_atlas.runpod_usage(s) for s in settled],
+              [{"seconds": 0.9, "executionSeconds": 0.9}])
 
         reads = iter([completed()])
         batch_atlas._runpod_get = lambda path, endpoint: next(reads)
@@ -872,9 +895,9 @@ def test_the_poll_loop_hands_the_settling_read_to_billing() -> None:
             {"status": "COMPLETED", "executionTime": -1},
             {"status": "COMPLETED", "executionTime": True}, None)],
           [None, None, None, None, None])
-    check("delay and worker are optional",
+    check("delay and worker are optional; a bad delay counts as none",
           batch_atlas.runpod_usage({"executionTime": 1234.5, "delayTime": "x"}),
-          {"seconds": 1.234})
+          {"seconds": 1.234, "executionSeconds": 1.234})
 
 
 if __name__ == "__main__":

@@ -3128,19 +3128,24 @@ def runpod_endpoint_gpu() -> str:
 
 
 def runpod_usage(st: dict) -> dict | None:
-    """What a settled job cost in time, off its `/status` read: `executionTime`
-    (billed, ms) as `seconds`, `delayTime` (queued, not billed) as `delaySeconds`, and
-    the `workerId`. None when the read carries no execution time — a job that
-    never ran, or a record RunPod has already dropped."""
+    """What a settled job cost in time, off its `/status` read. RunPod bills a worker's
+    uptime, cold start included, so the billed `seconds` are `executionTime` PLUS
+    `delayTime` (both ms): counting the queue wait too over-counts, which is accepted —
+    under-counting is what would let a run past its cap. The two parts are kept as
+    `executionSeconds` / `delaySeconds`, with the `workerId`. None when the read
+    carries no execution time — a job that never ran, or a record RunPod dropped."""
     if not isinstance(st, dict):
         return None
     ms = st.get("executionTime")
     if isinstance(ms, bool) or not isinstance(ms, (int, float)) or ms < 0:
         return None
-    usage: dict = {"seconds": round(float(ms) / 1000.0, 3)}
     delay = st.get("delayTime")
-    if isinstance(delay, (int, float)) and not isinstance(delay, bool) and delay >= 0:
-        usage["delaySeconds"] = round(float(delay) / 1000.0, 3)
+    delay_ms = (float(delay) if isinstance(delay, (int, float))
+                and not isinstance(delay, bool) and delay >= 0 else 0.0)
+    usage: dict = {"seconds": round((float(ms) + delay_ms) / 1000.0, 3),
+                   "executionSeconds": round(float(ms) / 1000.0, 3)}
+    if delay_ms:
+        usage["delaySeconds"] = round(delay_ms / 1000.0, 3)
     if st.get("workerId"):
         usage["workerId"] = str(st["workerId"])[:64]
     return usage
