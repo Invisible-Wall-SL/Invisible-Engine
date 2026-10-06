@@ -2,7 +2,7 @@ import { error } from '@sveltejs/kit';
 import { PIPELINE_MERGE_CAPABILITY, roleHasCapability } from '$lib/roles';
 import { createKeyedMutex, createSingleFlight, mapWithConcurrency } from './concurrency';
 import { ENV } from './env';
-import { githubApp, type GithubApp } from './githubApp';
+import { githubApp, GithubAppError, type GithubApp } from './githubApp';
 import {
 	getApprovers,
 	listApprovals,
@@ -12,6 +12,8 @@ import {
 import {
 	harnessJobsBlocker,
 	loadHarnessReport,
+	openReportEntry,
+	reportImagePaths,
 	unapprovableReason,
 	visibleDiffs,
 	type HarnessDiff,
@@ -525,10 +527,9 @@ async function readChanges(app: GithubApp): Promise<ChangeList> {
 	return list;
 }
 
-/** One change in full: files, why, Check 1, Check 2 with its approvals. Always fresh. */
-export async function getChange(number: number, app: GithubApp = githubApp): Promise<ChangeDetail> {
-	const r = repo();
-	const res = await app.fetch(`/repos/${r}/pulls/${number}`);
+/** The PR behind a change number, or the 404 that says why it is not a change. */
+async function readPull(number: number, app: GithubApp): Promise<GhPull> {
+	const res = await app.fetch(`/repos/${repo()}/pulls/${number}`);
 	if (res.status === 404) throw error(404, `There is no change #${number}.`);
 	if (!res.ok) {
 		const body = (await res.json().catch(() => null)) as { message?: string } | null;
@@ -544,6 +545,13 @@ export async function getChange(number: number, app: GithubApp = githubApp): Pro
 			`#${number} is from a fork; pipeline changes come from this repository's branches.`,
 		);
 	}
+	return pull;
+}
+
+/** One change in full: files, why, Check 1, Check 2 with its approvals. Always fresh. */
+export async function getChange(number: number, app: GithubApp = githubApp): Promise<ChangeDetail> {
+	const r = repo();
+	const pull = await readPull(number, app);
 	const sha = pull.head.sha;
 	const [head, { files, truncated }] = await Promise.all([
 		readHead(app, sha),
@@ -636,6 +644,63 @@ async function standingOf(rows: PipelineApproval[]): Promise<Set<string>> {
 		}
 	}
 	return standing;
+}
+
+export interface ReportEntry {
+	body: ReadableStream<Uint8Array>;
+	contentType: string;
+}
+
+const CONTENT_TYPES: Record<string, string> = {
+	png: 'image/png',
+	jpg: 'image/jpeg',
+	jpeg: 'image/jpeg',
+	webp: 'image/webp',
+	gif: 'image/gif',
+};
+
+/**
+ * One image of a change's current-games report — a changed screen before, after or as a diff —
+ * streamed out of the run's full artifact. Served only when the report the detail shows is ready
+ * and names that exact path (`reportImagePaths`): the report's own list is the whitelist, so no
+ * path reaches the archive that the harness did not write. `artifact`, when the caller names the
+ * artifact it read the report from, must still be the current one: a re-run replaces it (409).
+ */
+export async function getReportEntry(
+	input: { number: number; path: string; artifact: number | null },
+	app: GithubApp = githubApp,
+): Promise<ReportEntry> {
+	const pull = await readPull(input.number, app);
+	const sha = pull.head.sha;
+	const head = await readHead(app, sha);
+	const run = harnessRunOf(head, sha);
+	const report = await loadHarnessReport(app, repo(), run, sha, harnessStatusOf(head));
+	if (report.state !== 'ready') throw error(404, report.detail);
+	if (!reportImagePaths(report.report).has(input.path)) {
+		throw error(404, 'The report has no such image.');
+	}
+	if (!report.images) {
+		throw error(
+			404,
+			'The screen images are gone: GitHub keeps them for 3 days. The report still lists the differences; a new push makes new images.',
+		);
+	}
+	if (input.artifact !== null && input.artifact !== report.images.artifactId) {
+		throw error(409, 'The report was replaced by a re-run of current-games; reload the change.');
+	}
+	let body: ReadableStream<Uint8Array> | null;
+	try {
+		body = await openReportEntry(app, repo(), report.images, input.path);
+	} catch (err) {
+		if (err instanceof GithubAppError) throw err;
+		throw error(
+			502,
+			`The report artifact could not be read: ${err instanceof Error ? err.message : String(err)}`,
+		);
+	}
+	if (!body) throw error(404, 'The report artifact holds no such image.');
+	const ext = /\.([a-z0-9]+)$/i.exec(input.path)?.[1]?.toLowerCase() ?? '';
+	return { body, contentType: CONTENT_TYPES[ext] ?? 'application/octet-stream' };
 }
 
 /** The number of the change in a URL, or a 400. */

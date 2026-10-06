@@ -1,5 +1,15 @@
-import { readZipEntry } from './zip';
+import { Readable } from 'node:stream';
+import { createInflateRaw } from 'node:zlib';
 import type { GithubApp } from './githubApp';
+import {
+	LOCAL_HEADER_BYTES,
+	LOCAL_HEADER_MAX_EXTRA,
+	locateCentralDirectory,
+	localDataOffset,
+	parseCentralDirectory,
+	readZipEntry,
+	type ZipEntry,
+} from './zip';
 
 /**
  * Check 2 of a pipeline change (ADR-0007): the current-games harness report, read from the
@@ -24,6 +34,11 @@ const MAX_FULL_ARTIFACT_BYTES = 64 * 1024 * 1024;
 const ARTIFACT_TIMEOUT_MS = 120_000;
 /** Parsed reports kept in memory, by artifact id: a report never changes once uploaded. */
 const REPORT_CACHE_SIZE = 32;
+/** The archive's tail read first for one image: the end-of-central-directory record and, for a
+ *  report of a few hundred screens, the whole central directory with it. */
+const TAIL_BYTES = 64 * 1024;
+/** A central directory past this is not a report's (one entry is under 200 bytes). */
+const MAX_CENTRAL_DIRECTORY_BYTES = 8 * 1024 * 1024;
 
 export interface HarnessScreen {
 	screen: string;
@@ -71,13 +86,27 @@ export interface HarnessReport {
 	};
 }
 
+/** The full artifact, where a changed screen's images are; `null` when it is gone (expired or
+ *  never uploaded) while the report alone still reads. */
+export interface ReportImages {
+	artifactId: number;
+	sizeInBytes: number;
+	expiresAt: string | null;
+}
+
 export type HarnessReportState =
 	| {
 			state: 'none' | 'running' | 'skipped' | 'missing' | 'expired' | 'stale' | 'unreadable';
 			detail: string;
 			expiresAt?: string;
 	  }
-	| { state: 'ready'; report: HarnessReport; artifactId: number; expiresAt: string | null };
+	| {
+			state: 'ready';
+			report: HarnessReport;
+			artifactId: number;
+			expiresAt: string | null;
+			images: ReportImages | null;
+	  };
 
 /** One changed screen of the report, as an approval names it. */
 export interface HarnessDiff {
@@ -226,7 +255,16 @@ export async function loadHarnessReport(
 			detail: `The report is from another attempt of this run: the status reads "${status.description}" but the report says "${report.summary.line}".`,
 		};
 	}
-	return { state: 'ready', report, artifactId: artifact.id, expiresAt: artifact.expires_at };
+	return {
+		state: 'ready',
+		report,
+		artifactId: artifact.id,
+		expiresAt: artifact.expires_at,
+		images:
+			full && !full.expired
+				? { artifactId: full.id, sizeInBytes: full.size_in_bytes, expiresAt: full.expires_at }
+				: null,
+	};
 }
 
 interface GhJob {
@@ -307,4 +345,174 @@ export function unapprovableReason(state: HarnessReportState, diffs: HarnessDiff
 			return out;
 		});
 	return blockers.length ? `Not a difference an approval can clear — ${blockers.join('; ')}` : null;
+}
+
+/**
+ * The files of the full artifact a report shows: every changed screen's before / after / diff
+ * image, by the path the report wrote. This is the whole set the launcher serves out of the
+ * artifact — a path not in it, `report.json` included, is not served — so the set is the check
+ * against traversal, and a path the harness could never write is dropped besides.
+ */
+export function reportImagePaths(report: HarnessReport): Set<string> {
+	const paths = new Set<string>();
+	for (const row of report.games) {
+		for (const screen of row.screens) {
+			for (const image of Object.values(screen.images ?? {})) {
+				if (typeof image === 'string' && isArtifactPath(image)) paths.add(image);
+			}
+		}
+	}
+	return paths;
+}
+
+/** A relative path of plain segments: no leading slash, no `.`/`..` segment, no backslash. */
+const isArtifactPath = (p: string): boolean =>
+	/^(?:[^/\\\0]+\/)*[^/\\\0]+$/.test(p) && !p.split('/').some((s) => s === '.' || s === '..');
+
+type RangeAnswer =
+	| { kind: 'range'; bytes: Buffer; total: number | null }
+	| { kind: 'whole'; res: Response }
+	| { kind: 'unsatisfiable'; total: number | null };
+
+const totalOf = (res: Response): number | null => {
+	const m = /\/(\d+)\s*$/.exec(res.headers.get('content-range') ?? '');
+	return m ? Number(m[1]) : null;
+};
+
+/** The artifact download answered for one byte range — or, when the blob store ignored the
+ *  range, the whole archive, left unread. */
+async function fetchRange(
+	app: GithubApp,
+	path: string,
+	start: number,
+	end: number,
+): Promise<RangeAnswer> {
+	const res = await app.download(path, {
+		headers: { Range: `bytes=${start}-${end}` },
+		timeoutMs: ARTIFACT_TIMEOUT_MS,
+	});
+	if (res.status === 206)
+		return { kind: 'range', bytes: Buffer.from(await res.arrayBuffer()), total: totalOf(res) };
+	if (res.status === 200) return { kind: 'whole', res };
+	if (res.status === 416) {
+		await res.body?.cancel().catch(() => undefined);
+		return { kind: 'unsatisfiable', total: totalOf(res) };
+	}
+	throw new Error(`GitHub ${res.status} downloading the report artifact`);
+}
+
+/**
+ * One file of the full report artifact (`current-games-report`), by byte range so the archive is
+ * never held: its tail for the central directory, then the entry alone, inflated as it streams.
+ * `null` when the archive has no such file. A blob store that ignores the range and answers with
+ * the whole archive is read whole only while the archive is small; a large one is refused.
+ */
+export async function openReportEntry(
+	app: GithubApp,
+	repo: string,
+	images: ReportImages,
+	name: string,
+): Promise<ReadableStream<Uint8Array> | null> {
+	const path = `/repos/${repo}/actions/artifacts/${images.artifactId}/zip`;
+	let size = images.sizeInBytes;
+	let tail = await fetchRange(app, path, Math.max(0, size - TAIL_BYTES), Math.max(0, size - 1));
+	// The listed size can disagree with the blob (a re-upload, a rounding): the blob's own total,
+	// from the range answer, settles it, once.
+	if (tail.kind !== 'whole' && tail.total !== null && tail.total !== size) {
+		size = tail.total;
+		tail = await fetchRange(app, path, Math.max(0, size - TAIL_BYTES), Math.max(0, size - 1));
+	}
+	if (tail.kind === 'whole') return wholeArchiveEntry(tail.res, size, name);
+	if (tail.kind !== 'range') throw new Error('the report artifact answers no byte range');
+	const tailStart = size - tail.bytes.length;
+	const cd = locateCentralDirectory(tail.bytes, tailStart);
+	let directory: Buffer;
+	if (cd.offset >= tailStart) {
+		directory = tail.bytes.subarray(cd.offset - tailStart, cd.offset - tailStart + cd.size);
+	} else {
+		if (cd.size > MAX_CENTRAL_DIRECTORY_BYTES) {
+			throw new Error('the report artifact lists more files than a report holds');
+		}
+		const answer = await fetchRange(app, path, cd.offset, cd.offset + cd.size - 1);
+		if (answer.kind !== 'range') throw new Error('the report artifact answers no byte range');
+		directory = answer.bytes;
+	}
+	const entry = parseCentralDirectory(directory, cd.count).find((e) => e.name === name);
+	if (!entry) return null;
+	if (entry.method !== 0 && entry.method !== 8) {
+		throw new Error(`ZIP entry ${name} uses compression method ${entry.method}`);
+	}
+	// The local header's extra field can differ from the directory's, so the range covers the
+	// largest header there can be; the stream stops at the entry's end and drops the rest.
+	const end = Math.min(
+		size - 1,
+		entry.localOffset + LOCAL_HEADER_BYTES + LOCAL_HEADER_MAX_EXTRA + entry.compressedSize - 1,
+	);
+	const res = await app.download(path, {
+		headers: { Range: `bytes=${entry.localOffset}-${end}` },
+		timeoutMs: ARTIFACT_TIMEOUT_MS,
+	});
+	if (res.status === 200) return wholeArchiveEntry(res, size, name);
+	if (res.status !== 206 || !res.body) {
+		throw new Error(`GitHub ${res.status} downloading the report artifact`);
+	}
+	return streamEntry(res.body, entry);
+}
+
+/** The blob store sent the whole archive: read it only while it is small. */
+async function wholeArchiveEntry(
+	res: Response,
+	size: number,
+	name: string,
+): Promise<ReadableStream<Uint8Array> | null> {
+	if (size > MAX_FULL_ARTIFACT_BYTES) {
+		await res.body?.cancel().catch(() => undefined);
+		throw new Error(
+			`the report artifact (${Math.round(size / 1_048_576)} MB) answers no byte range and is too large to read whole`,
+		);
+	}
+	const zip = Buffer.from(await res.arrayBuffer());
+	const bytes = readZipEntry(zip, name, MAX_FULL_ARTIFACT_BYTES);
+	return bytes ? new Blob([new Uint8Array(bytes)]).stream() : null;
+}
+
+/** The entry's bytes out of a range answer that starts at its local header. */
+function streamEntry(
+	body: ReadableStream<Uint8Array>,
+	entry: ZipEntry,
+): ReadableStream<Uint8Array> {
+	const raw = Readable.from(compressedBytes(body, entry), { objectMode: false });
+	const out = entry.method === 8 ? raw.pipe(createInflateRaw()) : raw;
+	return Readable.toWeb(out) as ReadableStream<Uint8Array>;
+}
+
+async function* compressedBytes(
+	body: ReadableStream<Uint8Array>,
+	entry: ZipEntry,
+): AsyncGenerator<Buffer> {
+	const reader = body.getReader();
+	let header = Buffer.alloc(0);
+	let inData = false;
+	let remaining = entry.compressedSize;
+	try {
+		while (remaining > 0) {
+			const { value, done } = await reader.read();
+			if (done) throw new Error(`the report artifact ends inside ${entry.name}`);
+			let chunk = Buffer.from(value.buffer, value.byteOffset, value.byteLength);
+			if (!inData) {
+				header = Buffer.concat([header, chunk]);
+				if (header.length < LOCAL_HEADER_BYTES) continue;
+				const at = localDataOffset(header, entry.name);
+				if (header.length < at) continue;
+				chunk = header.subarray(at);
+				inData = true;
+			}
+			const take = chunk.subarray(0, remaining);
+			remaining -= take.length;
+			if (take.length) yield take;
+		}
+	} finally {
+		// The range ran past the entry (the header allowance): the rest is never read.
+		await reader.cancel().catch(() => undefined);
+	}
 }
