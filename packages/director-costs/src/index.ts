@@ -293,3 +293,15 @@ export function budgetFromSetting(raw: string | undefined | null): number {
 	if (raw == null || raw.trim() === '') return DIRECTOR_RUN_BUDGET_DEFAULT_USD;
 	return clampDirectorBudget(Number(raw)) ?? DIRECTOR_RUN_BUDGET_DEFAULT_USD;
 }
+
+export {
+	checkpointCount,
+	estimateRun,
+	parseEstimateProfiles,
+	profileModels,
+	type EstimateInput,
+	type EstimateProfiles,
+	type Range,
+	type RunEstimate,
+	type TokenProfile,
+} from './estimate';

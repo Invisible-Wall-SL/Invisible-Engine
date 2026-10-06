@@ -42,7 +42,8 @@ const SFNT_SIGNATURES = ['00010000', '74727565', '4f54544f'];
 const isSfnt = (bytes: Uint8Array) =>
 	SFNT_SIGNATURES.includes(Buffer.from(bytes.subarray(0, 4)).toString('hex'));
 
-export type FontRequestStatus = 'awaiting_owner';
+/** `awaiting_owner` until the owner bakes the font in Font Maker and marks the request done. */
+export type FontRequestStatus = 'awaiting_owner' | 'done';
 
 /** The pending request a bake leaves for the owner. */
 export interface FontBakeRequest {
@@ -55,11 +56,17 @@ export interface FontBakeRequest {
 	sourceKey: string;
 	/** The Font Maker's own re-bake recipe. */
 	recipe: FontRecipeDoc;
+	/** Who marked it done, and when (`fontRequests.ts`). */
+	done?: { by: { uid: string; name: string }; at: string };
+	/** Which run and agent staged it, kept when the owner's mark replaces `saved_by`. */
+	requested?: { agent?: string; runId?: string; at?: string };
 	saved_by?: SavedByStamp;
 }
 
-const requestsRoot = (scope: { clientKey: string; projectKey: string }) =>
+/** Where a project's staged font requests live: `<folder>/request.json` under it. */
+export const fontRequestsRoot = (scope: { clientKey: string; projectKey: string }) =>
 	`${projectPrefix(scope.clientKey, scope.projectKey)}/director/fonts/`;
+const requestsRoot = fontRequestsRoot;
 
 async function listRequests(ctx: AdapterContext) {
 	const root = requestsRoot(projectOf(ctx));

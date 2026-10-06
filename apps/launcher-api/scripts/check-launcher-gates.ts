@@ -213,9 +213,10 @@ for (const file of handlers) {
  * win-text, symbols, sounds and the component routes once resolved any key they were handed, and
  * single publish took any key that merely existed, so anyone with the tool could read and write
  * another client's project by editing the request. Accepted checks: `requireProjectScope` /
- * `requireOptionalProjectKey` (their behaviour is `check-project-scope.ts`), `canAccessProject`,
- * or a token — `projectAllowsRead` is per project, the deploy token is the build runner's and spans
- * them all.
+ * `requireOptionalProjectKey` (their behaviour is `check-project-scope.ts`),
+ * `requireDirectorProjectScope` (the same rule, or a PENDING project the caller could create —
+ * `check-director-runs.ts`), `canAccessProject`, or a token — `projectAllowsRead` is per project,
+ * the deploy token is the build runner's and spans them all.
  *
  * Judged PER HANDLER, not per file, so a checked GET cannot vouch for an unchecked PUT beside it.
  */
@@ -227,6 +228,7 @@ const PROJECT_READS = [
 const PROJECT_CHECKS = [
 	'requireProjectScope(',
 	'requireOptionalProjectKey(',
+	'requireDirectorProjectScope(',
 	'canAccessProject(',
 	'projectAllowsRead(',
 	'getDeployToken(',

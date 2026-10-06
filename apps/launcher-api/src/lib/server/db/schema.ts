@@ -630,11 +630,13 @@ export const directorRegions = pgTable(
 );
 
 /**
- * Director adapter idempotency (ADR-0002): one row per WRITE op, keyed by the worker's
- * `runId:step:seq`. A row is claimed `pending` before the op runs and becomes `done` with its
- * result after; a replayed `opId` returns that stored result instead of running again. A failed op
- * releases its row, so only successes are remembered. A `pending` row older than the stale window
- * (a crash between the write and its record) is reclaimed by the next call with that `opId`.
+ * Director write idempotency (ADR-0002): one row per WRITE, keyed by the worker's
+ * `runId:step:seq` for an adapter op, or by `runId:owner:<requestId>` for one of the owner's own
+ * rows (`director/store.ts` `appendOwnerEvent`; the two shapes cannot collide). A row is claimed
+ * `pending` before the write runs and becomes `done` with its result after; a replayed `opId`
+ * returns that stored result instead of running again. A failed write releases its row, so only
+ * successes are remembered. A `pending` row older than the stale window (a crash between the write
+ * and its record) is reclaimed by the next call with that `opId`.
  */
 export const directorOps = pgTable(
 	'director_ops',

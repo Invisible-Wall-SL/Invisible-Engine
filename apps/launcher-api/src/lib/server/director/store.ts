@@ -1,10 +1,12 @@
-import { and, asc, desc, eq, gt, lt, lte } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, lt, lte, sql } from 'drizzle-orm';
 import { getDb } from '../db';
 import {
 	directorAtlasJobs,
 	directorEvents,
+	directorMessages,
 	directorOps,
 	directorRuns,
+	directorSpend,
 	users,
 	type DirectorAtlasJob,
 	type DirectorEvent,
@@ -13,9 +15,10 @@ import {
 } from '../db/schema';
 
 /**
- * Postgres access for the Director adapter gate (ADR-0002): the run stub, the run owner the
- * adapters act as, and the `director_ops` idempotency ledger. Kept in one module so the gate's
- * fixture can replace the database at a single seam.
+ * Postgres access for Invisible Director's launcher side: the adapter gate (ADR-0002) — the run
+ * stub, the run owner the adapters act as, the `director_ops` idempotency ledger — and the owner
+ * API (PLAN 4A) — the draft run, the owner's rows, and what the run summary reads. Kept in one
+ * module so each fixture can replace the database at a single seam.
  */
 
 export async function getRun(runId: string): Promise<DirectorRun | null> {
@@ -238,4 +241,183 @@ export async function getEvent(runId: string, id: number): Promise<DirectorEvent
 		.from(directorEvents)
 		.where(and(eq(directorEvents.runId, runId), eq(directorEvents.id, id)));
 	return row ?? null;
+}
+
+// ── The owner API (PLAN 4A) ───────────────────────────────────────────────────
+
+export interface NewRun {
+	id: string;
+	projectKey: string;
+	clientKey: string | null;
+	templateProjectKey: string;
+	ownerUserId: string;
+	presetJson: unknown;
+	startingPointJson: unknown;
+	checkpointsJson: unknown;
+	budgetCapUsd: number;
+}
+
+/**
+ * Insert a draft run that has claimed its project key: `project_create_started_at` is set, so a
+ * `gamemaker.create_from_template` that finds the project already there resumes rather than
+ * refuses. False when the id exists — a replayed create, which returns the run it made.
+ */
+export async function insertDraftRun(row: NewRun): Promise<boolean> {
+	const inserted = await getDb()
+		.insert(directorRuns)
+		.values({ ...row, status: 'draft', step: 'breakdown', projectCreateStartedAt: new Date() })
+		.onConflictDoNothing({ target: directorRuns.id })
+		.returning({ id: directorRuns.id });
+	return inserted.length === 1;
+}
+
+/** Drop a draft whose project could not be created; its (empty) event history goes with it. */
+export async function deleteDraftRun(runId: string): Promise<void> {
+	await getDb()
+		.delete(directorRuns)
+		.where(and(eq(directorRuns.id, runId), eq(directorRuns.status, 'draft')));
+}
+
+export async function updateRunStartingPoint(runId: string, startingPointJson: unknown) {
+	await getDb()
+		.update(directorRuns)
+		.set({ startingPointJson, updatedAt: new Date() })
+		.where(eq(directorRuns.id, runId));
+}
+
+/** A user's runs, newest first, within one project when `projectKey` is given. */
+export async function listRuns(filter: {
+	ownerUserId: string;
+	projectKey?: string;
+}): Promise<DirectorRun[]> {
+	const where =
+		filter.projectKey === undefined
+			? eq(directorRuns.ownerUserId, filter.ownerUserId)
+			: and(
+					eq(directorRuns.ownerUserId, filter.ownerUserId),
+					eq(directorRuns.projectKey, filter.projectKey),
+				);
+	return getDb().select().from(directorRuns).where(where).orderBy(desc(directorRuns.createdAt));
+}
+
+export interface RunSpendTotals {
+	claudeUsd: number;
+	runpodUsd: number;
+}
+
+/** Spend so far per run, by kind, for the runs named; a run with no rows is absent. */
+export async function runSpendTotals(runIds: string[]): Promise<Map<string, RunSpendTotals>> {
+	const out = new Map<string, RunSpendTotals>();
+	if (runIds.length === 0) return out;
+	const usd = sql<number>`coalesce(sum(${directorSpend.usd}), 0)`.mapWith(Number);
+	const rows = await getDb()
+		.select({ runId: directorSpend.runId, kind: directorSpend.kind, usd })
+		.from(directorSpend)
+		.where(inArray(directorSpend.runId, runIds))
+		.groupBy(directorSpend.runId, directorSpend.kind);
+	for (const row of rows) {
+		const totals = out.get(row.runId) ?? { claudeUsd: 0, runpodUsd: 0 };
+		if (row.kind === 'claude') totals.claudeUsd += row.usd;
+		else totals.runpodUsd += row.usd;
+		out.set(row.runId, totals);
+	}
+	return out;
+}
+
+/** The run's most recent `checkpoint_open` row, or null. */
+export async function latestCheckpointOpen(runId: string): Promise<DirectorEvent | null> {
+	const [row] = await getDb()
+		.select()
+		.from(directorEvents)
+		.where(and(eq(directorEvents.runId, runId), eq(directorEvents.kind, 'checkpoint_open')))
+		.orderBy(desc(directorEvents.id))
+		.limit(1);
+	return row ?? null;
+}
+
+/** The id of the run's newest event, or 0: where a page's stream picks up. */
+export async function lastEventId(runId: string): Promise<number> {
+	const [row] = await getDb()
+		.select({ id: directorEvents.id })
+		.from(directorEvents)
+		.where(eq(directorEvents.runId, runId))
+		.orderBy(desc(directorEvents.id))
+		.limit(1);
+	return row?.id ?? 0;
+}
+
+export interface AgentConversation {
+	agent: string;
+	/** Whose message is last: the user's means a model call is owed. */
+	lastRole: 'user' | 'assistant';
+	/** An assistant message whose tool calls have no results yet. */
+	hasToolUse: boolean;
+	at: Date;
+}
+
+/** Each agent's last message in the run, as the worker's `pendingAgents` reads them. */
+export async function agentConversations(runId: string): Promise<AgentConversation[]> {
+	const rows = await getDb()
+		.selectDistinctOn([directorMessages.agent], {
+			agent: directorMessages.agent,
+			lastRole: directorMessages.role,
+			hasToolUse: sql<boolean>`${directorMessages.contentJson} @> '[{"type":"tool_use"}]'::jsonb`,
+			at: directorMessages.createdAt,
+		})
+		.from(directorMessages)
+		.where(eq(directorMessages.runId, runId))
+		.orderBy(directorMessages.agent, desc(directorMessages.seq));
+	return rows.map((r) => ({ ...r, hasToolUse: r.lastRole === 'assistant' && r.hasToolUse }));
+}
+
+export type OwnerEventOutcome =
+	{ eventId: number; replayed: boolean } | { conflict: 'reused' | 'in_progress' };
+
+/**
+ * Append ONE owner row for `requestId`, once: the request is claimed in `director_ops` under
+ * `<runId>:owner:<requestId>` (the same ledger a worker write uses, so the two can never collide:
+ * a worker's tail is `<step>:<seq>`), the row is inserted and the claim completed with its id in one
+ * transaction, and a replay — the same request id with the same input — returns that id without
+ * inserting again. The same id with another input is `reused`; one still being written is
+ * `in_progress`.
+ */
+export async function appendOwnerEvent(args: {
+	runId: string;
+	requestId: string;
+	action: string;
+	inputHash: string;
+	kind: 'owner_request' | 'owner_message' | 'checkpoint_resolved';
+	payload: Record<string, unknown>;
+}): Promise<OwnerEventOutcome> {
+	const opId = `${args.runId}:owner:${args.requestId}`;
+	const op = `owner.${args.action}`;
+	const claim = await claimOp({
+		opId,
+		runId: args.runId,
+		agent: 'owner',
+		op,
+		inputHash: args.inputHash,
+	});
+	if (!claim.claimed) {
+		const { existing } = claim;
+		if (existing.op !== op || existing.inputHash !== args.inputHash) return { conflict: 'reused' };
+		if (existing.status !== 'done') return { conflict: 'in_progress' };
+		return { eventId: (existing.result as { eventId: number }).eventId, replayed: true };
+	}
+	try {
+		return await getDb().transaction(async (tx) => {
+			const [row] = await tx
+				.insert(directorEvents)
+				.values({ runId: args.runId, agent: 'owner', kind: args.kind, payloadJson: args.payload })
+				.returning({ id: directorEvents.id });
+			await tx
+				.update(directorOps)
+				.set({ status: 'done', result: { eventId: row.id }, completedAt: new Date() })
+				.where(eq(directorOps.opId, opId));
+			return { eventId: row.id, replayed: false };
+		});
+	} catch (e) {
+		await releaseOp(opId);
+		throw e;
+	}
 }

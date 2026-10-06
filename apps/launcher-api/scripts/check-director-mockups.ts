@@ -157,6 +157,13 @@ fake('lib/server/projects.ts', {
 	},
 	projectClientKey: async (key: string) => PROJECTS.get(key) ?? null,
 	projectExists: async (key: string) => PROJECTS.has(key),
+	projectKeyTaken: async (key: string) => PROJECTS.has(key) || key === 'deleted-game',
+	isValidProjectKey: (value: string) => /^[a-z0-9][a-z0-9_-]{0,63}$/.test(value),
+});
+fake('lib/server/clients.ts', {
+	clientExists: async (key: string) => ['acme', 'other'].includes(key),
+	mayCreateUnderClient: async (userId: string, role: string, client: string | null) =>
+		role === 'admin' || client === null || (GRANTS.get(userId)?.has(client) ?? false),
 });
 fake('lib/server/roleToolAccess.ts', { getRoleOverrides: async () => ({}) });
 fake('lib/server/userToolAccess.ts', { getToolOverrides: async () => ({}) });
@@ -573,7 +580,21 @@ console.log('route');
 		(await call('GET', { ...admin, role: 'artist' as const }, P)).status,
 		403,
 	);
-	check('GET on an unknown project is 403', (await call('GET', admin, 'nope')).status, 403);
+	// An unknown key is a PENDING project (the game the New-game form is about to create) when the
+	// caller could create it; `project` is spliced into the query, so `&client=` rides along.
+	const pending = await call('GET', admin, 'nope&client=acme');
+	check(
+		'GET on a creatable key is a pending project with an empty doc',
+		[pending.status, pending.body!.pending, (pending.body!.doc as { images: unknown[] }).images],
+		[200, true, []],
+	);
+	check(
+		'GET on a key under a client the caller may not create under is 403',
+		(await call('GET', { ...admin, role: 'artist' as const }, 'nope&client=acme')).status,
+		403,
+	);
+	check('GET on a deleted key is 403', (await call('GET', admin, 'deleted-game')).status, 403);
+	check('GET on a malformed key is 403', (await call('GET', admin, 'No%20Pe')).status, 403);
 	const ok = await call('GET', admin, P);
 	check(
 		'GET answers the doc, the limits and no start refusal',

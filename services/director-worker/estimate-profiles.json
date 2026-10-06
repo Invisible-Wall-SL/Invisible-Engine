@@ -1,0 +1,74 @@
+{
+	"placeholder": true,
+	"note": "PLACEHOLDER — a conservative guess, not a measured run. PLAN 6.3 replaces every figure here with profiles measured on the pilot (within ±30 % on a second run). Token ranges are [low, high] per unit, priced uncached at pricing.json; RunPod seconds are per rendered variant at 1024 px and scale with the pixel count.",
+	"claude": {
+		"perRun": [
+			{
+				"agent": "coordinator",
+				"model": "claude-opus-5-5",
+				"input": [60000, 160000],
+				"output": [8000, 24000]
+			},
+			{
+				"agent": "builder",
+				"model": "claude-sonnet-5-5",
+				"input": [80000, 200000],
+				"output": [12000, 30000]
+			},
+			{
+				"agent": "qa",
+				"model": "claude-haiku-4-5-20251001",
+				"input": [40000, 120000],
+				"output": [6000, 16000]
+			}
+		],
+		"perMockup": [
+			{
+				"agent": "mockup-analyst",
+				"model": "claude-opus-5-5",
+				"input": [6000, 12000],
+				"output": [1500, 4000]
+			}
+		],
+		"perRegion": [
+			{
+				"agent": "atlas-artist",
+				"model": "claude-sonnet-5-5",
+				"input": [6000, 14000],
+				"output": [800, 2000]
+			},
+			{
+				"agent": "animator",
+				"model": "claude-sonnet-5-5",
+				"input": [2000, 5000],
+				"output": [300, 900]
+			},
+			{
+				"agent": "qa",
+				"model": "claude-haiku-4-5-20251001",
+				"input": [1500, 4000],
+				"output": [200, 600]
+			}
+		],
+		"perVariant": [
+			{
+				"agent": "art-director",
+				"model": "claude-sonnet-5-5",
+				"input": [3000, 6000],
+				"output": [400, 1000]
+			}
+		],
+		"perCheckpoint": [
+			{
+				"agent": "coordinator",
+				"model": "claude-opus-5-5",
+				"input": [10000, 25000],
+				"output": [1500, 4000]
+			}
+		]
+	},
+	"runpod": {
+		"secondsPerVariantAt1024": [12, 30],
+		"finalRendersPerRegion": 1
+	}
+}
