@@ -10,7 +10,11 @@ declare global {
 				role: Role;
 			} | null;
 		}
-		// interface Error {}
+		/** A thrown `error()` body: the sentence, and for a refused definition every reason. */
+		interface Error {
+			message: string;
+			errors?: string[];
+		}
 		// interface PageData {}
 		// interface PageState {}
 		// interface Platform {}

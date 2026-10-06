@@ -34,14 +34,17 @@ async function entitled(
 }
 
 /**
- * The extra gate for approving a changed screen (and, later, merging): the `pipelineMerge`
- * capability, default-ON for admin only. Seeing the tool — Pipeline Testers do by default — never
- * implies it (SPEC §3).
+ * The extra gate for approving a changed screen, editing an agent definition (and, later,
+ * merging): the `pipelineMerge` capability, default-ON for admin only. Seeing the tool — Pipeline
+ * Testers do by default — never implies it (SPEC §3). `action` names what was refused.
  */
-export async function requirePipelineMerge(locals: App.Locals): Promise<User> {
+export async function requirePipelineMerge(
+	locals: App.Locals,
+	action = 'Approving a changed screen',
+): Promise<User> {
 	const { user, roleOverrides, overrides } = await entitled(locals);
 	if (!roleHasCapability(user.role, PIPELINE_MERGE_CAPABILITY, roleOverrides, overrides)) {
-		throw error(403, 'Approving a changed screen needs the "Merge pipeline changes" capability.');
+		throw error(403, `${action} needs the "Merge pipeline changes" capability.`);
 	}
 	return user;
 }

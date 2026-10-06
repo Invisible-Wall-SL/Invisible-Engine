@@ -1,7 +1,9 @@
 # Reference mockups
 
-A small, fixed set of mockups **we own**, for the Director mockup analysis fixtures (ADR-0005) and,
-later, the agent evaluation before/after a definition change (ADR-0007, PLAN 5.4). Every image is
+A small, fixed set of mockups **we own**, for the Director mockup analysis fixtures (ADR-0005) and
+for the agent evaluation of a `mockup-analyst` definition change (ADR-0007, PLAN 5.4:
+`.github/workflows/agent-eval.yml` runs main's definition and the edited one over this set and
+scores each against `expected-breakdown.json`, per element's status and regions). Every image is
 drawn by `apps/launcher-api/scripts/generate-director-eval-mockups.mjs` from flat shapes, so there is
 no third-party art here and the "these designs belong to us or to the client" rule holds for the
 tests too.
