@@ -1,6 +1,6 @@
 # ADR-0008 — Agents plan the art with the Atlas Maker blueprint library
 
-- **Status:** proposed
+- **Status:** approved (2026-10-06, owner, with every suggested default; relayed by the coordinator)
 - **Date:** 2026-10-06 (revised the same day after a design review, an atlas-tool fact-check and the
   coordinator's review of head a6a5961)
 - **Scope:** image pipelines for a run's regions. Video cards (`kind: video`) and loop/flipbook
@@ -497,7 +497,34 @@ stored) and advanced by the worker as steps run:
   global Settings control.
 - The idle-deploy rule for the technician card (no run non-terminal).
 
-## Amendments to earlier ADRs (take effect when this ADR is approved)
+## Owner decision (2026-10-06)
+
+The owner approved the ADR with every suggested default, recorded here per question:
+
+1. **Card review as approval.** Marking a card `reviewed` needs `pipelineMerge` and stands in for
+   the PR a blueprint change would otherwise get; `rev` + `card.history/` are the revert; PLAN 5.4
+   pins the catalogue snapshot it evaluated against.
+2. **`atlas_pipeline`.** A dedicated per-atlas key only a Director call writes; an atlas a run
+   configured renders on its own pipeline whatever the global Pipeline control says;
+   `docs/tools/atlas-maker.md` says so in card 8B.
+3. **Technician model.** Sonnet 5.5 at high effort; Opus by a definition edit (5.4) if plans keep
+   needing correction.
+4. **Per-run budget cap** on the New game screen, within the Settings bounds; the worker copies
+   Settings only when the row has none.
+5. **Credits and third-party API use.** Credit-billed cards cannot be reviewed for agents until
+   ADR-0006 gains a `credits` kind; sending client mockup crops to OpenAI stays the owner's call
+   per run.
+6. **Licences.** Cards carry `licence`; the before-publish checkpoint lists blocked steps; no
+   generate card is reviewed until the owner accepts the position or swaps the models.
+7. **Library defects.** Re-publish `wanloopingvideo__3_` with `shape_ref` unbound and rescan its
+   models; `bluprinttest` and `characterdesignertest3` stay permanent draft cards.
+8. **In-flight runs at the technician deploy (8D).** Deploy only when no run is non-terminal;
+   otherwise pause them with a message.
+9. **Re-approval after the Art plan** when a revision changes a pipeline or raises the projected
+   cost.
+10. **The Art plan sits** inside the Style pack step, opened by code.
+
+## Amendments to earlier ADRs (take effect now that this ADR is approved)
 
 - **ADR-0003:** checkpoint ids and `waiting_on` gain `art_plan`; `checkpoints_json` gains
   `artPlan`; `director_regions` gains `recipe_json` / `recipe_rev`; owner recipe edits are
