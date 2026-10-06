@@ -65,6 +65,9 @@ export interface GithubApp {
 	fetch(path: string, init?: GithubRequestInit): Promise<Response>;
 	/** A 2xx answer's JSON; any other answer throws `GithubAppError` with GitHub's message. */
 	json<T>(path: string, init?: GithubRequestInit): Promise<T>;
+	/** A download GitHub answers with a redirect to a signed URL (an artifact): the redirect is
+	 *  followed WITHOUT the token, which belongs to GitHub's API and not to the blob store. */
+	download(path: string, init?: GithubRequestInit): Promise<Response>;
 }
 
 const ENV_CONFIG = (): GithubAppConfig => ({
@@ -122,7 +125,11 @@ export function createGithubApp(options: GithubAppOptions = {}): GithubApp {
 			: null;
 	};
 
-	const request = async (url: string, init: GithubRequestInit, auth: string): Promise<Response> => {
+	const request = async (
+		url: string,
+		init: GithubRequestInit,
+		auth: string | null,
+	): Promise<Response> => {
 		const { timeoutMs = FETCH_TIMEOUT_MS, ...rest } = init;
 		const controller = new AbortController();
 		// Left running once the headers are in: the body is read under the same deadline, so a
@@ -133,9 +140,13 @@ export function createGithubApp(options: GithubAppOptions = {}): GithubApp {
 			return await transport(url, {
 				...rest,
 				headers: {
-					Authorization: `Bearer ${auth}`,
-					Accept: 'application/vnd.github+json',
-					'X-GitHub-Api-Version': '2022-11-28',
+					...(auth === null
+						? {}
+						: {
+								Authorization: `Bearer ${auth}`,
+								Accept: 'application/vnd.github+json',
+								'X-GitHub-Api-Version': '2022-11-28',
+							}),
 					'User-Agent': 'invisible-launcher',
 					...(rest.body ? { 'content-type': 'application/json' } : {}),
 					...(rest.headers ?? {}),
@@ -201,6 +212,16 @@ export function createGithubApp(options: GithubAppOptions = {}): GithubApp {
 			const res = await call(path, init);
 			if (!res.ok) throw await errorOf(res);
 			return (await res.json()) as T;
+		},
+		async download(path: string, init: GithubRequestInit = {}): Promise<Response> {
+			const res = await call(path, { ...init, redirect: 'manual' });
+			if (res.status < 300 || res.status >= 400) return res;
+			const location = res.headers.get('location');
+			if (!location?.startsWith('https://')) {
+				throw new GithubAppError('GitHub redirected the download to no usable URL.');
+			}
+			// The signed URL is its own authorization: the token goes nowhere near it.
+			return request(location, { ...init, redirect: 'follow' }, null);
 		},
 	};
 }

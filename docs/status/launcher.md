@@ -72,13 +72,16 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   screen's approval in `pipeline_approvals` (migration `0027`, ids embed the head SHA so a push
   voids them) and, once every diff on that exact head is approved and the run's only failures are
   changed screens, posts `success` to `current-games` on that SHA naming the approvers (never an
-  email address; approvals on one head run one at a time). What the post trusts: only the run
-  the harness's own workflow file made for the PR from this repository; a report naming this
-  head; the run's jobs read from the jobs API (every job but `report` succeeded); approvers who
-  hold `pipelineMerge` at post time. Forks are never listed or approved, and a change that edits
-  `.github/workflows/**` or `scripts/current-games/**` cannot be approved through the launcher
-  (its report is its own). Both gates in `$lib/server/pipelineAccess.ts`. `current-games.yml`
-  uploads the report-only artifact beside the full one and overwrites both on a re-run. The `/pipeline` tabs are still empty (card 5B). Fixture:
+  email address; approvals on one head run one at a time; one row per diff per approver). What
+  the post trusts: only the run the harness's own workflow file made for the PR from this
+  repository; a report naming this head; the run's jobs read from the jobs API for that attempt
+  (every job but `report` succeeded); approvers who hold `pipelineMerge` at post time (a lapsed
+  approval is named and someone in standing approves beside it). Forks are never listed or
+  approved; a change that edits `.github/workflows/**` or `scripts/current-games/**` — anywhere in
+  its paged file list, renames included — or has more files than GitHub lists cannot be approved
+  through the launcher (its report is its own). The artifact download follows GitHub's redirect
+  without the token. Both gates in `$lib/server/pipelineAccess.ts`. `current-games.yml` uploads
+  the report-only artifact beside the full one and overwrites both on a re-run. The `/pipeline` tabs are still empty (card 5B). Fixture:
   `check:pipeline-changes`. Env: INFRA "GitHub App (Pipeline Changes)".
 - 2026-10-04 — **Anthropic (agents) cost card + Director run budget** (Director Phase 1, tasks
   1.11–1.12; ADR-0006).

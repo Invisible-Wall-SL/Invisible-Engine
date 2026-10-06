@@ -1,5 +1,5 @@
 {
-  "id": "563df85e-f57f-496d-9a5d-68c2df1d72e0",
+  "id": "c8fe951b-2248-4fa7-a790-5fb5ba7fe693",
   "prevId": "7e9c2460-dc46-43b0-a9c2-13f034da34c1",
   "version": "7",
   "dialect": "postgresql",
@@ -1305,11 +1305,17 @@
         }
       },
       "indexes": {
-        "pipeline_approvals_diff_id_idx": {
-          "name": "pipeline_approvals_diff_id_idx",
+        "pipeline_approvals_diff_approver_idx": {
+          "name": "pipeline_approvals_diff_approver_idx",
           "columns": [
             {
               "expression": "diff_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "approver_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

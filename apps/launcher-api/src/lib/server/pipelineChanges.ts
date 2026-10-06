@@ -4,7 +4,7 @@ import { createKeyedMutex, createSingleFlight, mapWithConcurrency } from './conc
 import { ENV } from './env';
 import { githubApp, type GithubApp } from './githubApp';
 import {
-	getApprover,
+	getApprovers,
 	listApprovals,
 	recordApproval,
 	type PipelineApproval,
@@ -49,6 +49,8 @@ const BASE_BRANCH = 'main';
 const PER_CHANGE_CONCURRENCY = 4;
 const PAGE = 100;
 const MAX_PAGES = 5;
+/** GitHub lists at most this many files of a PR; past it the list is cut, not paged. */
+const MAX_FILES = 3000;
 /** The list is read on every page load; a cache this short saves nothing a user would notice
  *  missing and spares GitHub a burst when several tabs open at once. */
 const LIST_TTL_MS = 15_000;
@@ -115,6 +117,8 @@ interface GhStatus {
 
 interface GhFile {
 	filename: string;
+	/** On a rename: where the file was. */
+	previous_filename?: string;
 	status: string;
 	additions: number;
 	deletions: number;
@@ -183,16 +187,27 @@ export interface HarnessStatus {
 /** Check 2: the harness on this head. */
 export interface HarnessCheck {
 	status: HarnessStatus | null;
-	run: { id: number; url: string; status: string | null; conclusion: string | null } | null;
+	run: {
+		id: number;
+		url: string;
+		status: string | null;
+		conclusion: string | null;
+		attempt: number;
+	} | null;
 	report: HarnessReportState;
+	/** Each diff with the approval that counts for it — by an approver who holds `pipelineMerge`
+	 *  today — or none. */
 	diffs: (HarnessDiff & { approval: PipelineApproval | null })[];
-	approvals: PipelineApproval[];
+	/** Every approval recorded on this head; `standing` is whether its approver still counts. */
+	approvals: (PipelineApproval & { standing: boolean })[];
 	/** `null` when approving every diff can clear the run; else why it cannot. */
 	unapprovable: string | null;
 }
 
 export interface ChangeFile {
 	path: string;
+	/** On a rename: where the file was. */
+	previousPath: string | null;
 	status: string;
 	additions: number;
 	deletions: number;
@@ -236,9 +251,27 @@ const labelsOf = (pull: GhPull): string[] => (pull.labels ?? []).map((l) => l.na
 /** A PR whose head is not a branch of this repository. */
 const isFork = (pull: GhPull): boolean => pull.head.repo?.full_name !== repo();
 
-/** The files of a change that make the harness's report. */
-export function harnessFilesOf(paths: string[]): string[] {
-	return paths.filter((p) => HARNESS_SOURCES.some((re) => re.test(p)));
+/** The files of a change that make the harness's report — where they are, or were (a rename). */
+export function harnessFilesOf(files: { path: string; previousPath: string | null }[]): string[] {
+	return files
+		.flatMap((f) => [f.path, ...(f.previousPath ? [f.previousPath] : [])])
+		.filter((p) => HARNESS_SOURCES.some((re) => re.test(p)));
+}
+
+/** Every file of a PR, paged; `truncated` when GitHub's own limit cut the list. */
+async function pullFiles(
+	app: GithubApp,
+	number: number,
+): Promise<{ files: GhFile[]; truncated: boolean }> {
+	const files: GhFile[] = [];
+	for (let page = 1; page <= MAX_FILES / PAGE; page++) {
+		const batch = await app.json<GhFile[]>(
+			`/repos/${repo()}/pulls/${number}/files?per_page=${PAGE}&page=${page}`,
+		);
+		files.push(...batch);
+		if (batch.length < PAGE) break;
+	}
+	return { files, truncated: files.length >= MAX_FILES };
 }
 
 export function checkState(status: string, conclusion: string | null): CheckState {
@@ -512,9 +545,9 @@ export async function getChange(number: number, app: GithubApp = githubApp): Pro
 		);
 	}
 	const sha = pull.head.sha;
-	const [head, files] = await Promise.all([
+	const [head, { files, truncated }] = await Promise.all([
 		readHead(app, sha),
-		app.json<GhFile[]>(`/repos/${r}/pulls/${number}/files?per_page=${PAGE}`),
+		pullFiles(app, number),
 	]);
 	const run = harnessRunOf(head, sha);
 	const status = harnessStatusOf(head);
@@ -523,11 +556,22 @@ export async function getChange(number: number, app: GithubApp = githubApp): Pro
 		listApprovals(sha),
 	]);
 	const diffs = visibleDiffs(report);
-	const byId = new Map(approvals.map((a) => [a.diffId, a]));
-	const harnessFiles = harnessFilesOf(files.map((f) => f.filename));
-	const unapprovable = harnessFiles.length
-		? `This change edits the harness (${harnessFiles.slice(0, 3).join(', ')}${harnessFiles.length > 3 ? ', …' : ''}), so its report proves nothing about it: harness changes need a manual merge after review.`
-		: unapprovableReason(report, diffs);
+	const changeFiles: ChangeFile[] = files.map((f) => ({
+		path: f.filename,
+		previousPath: f.previous_filename ?? null,
+		status: f.status,
+		additions: f.additions,
+		deletions: f.deletions,
+		url: f.blob_url ?? null,
+	}));
+	const harnessFiles = harnessFilesOf(changeFiles);
+	const unapprovable = truncated
+		? `This change has more files than GitHub lists (${MAX_FILES}), so what it edits cannot be checked: it needs a manual merge after review.`
+		: harnessFiles.length
+			? `This change edits the harness (${harnessFiles.slice(0, 3).join(', ')}${harnessFiles.length > 3 ? ', …' : ''}), so its report proves nothing about it: harness changes need a manual merge after review.`
+			: unapprovableReason(report, diffs);
+	const standing = await standingOf(approvals);
+	const counted = countApprovals(diffs, approvals, standing);
 	return {
 		...summaryOf(pull, head),
 		state: pull.state,
@@ -535,24 +579,41 @@ export async function getChange(number: number, app: GithubApp = githubApp): Pro
 		why: whyFromBody(pull.body),
 		baseBranch: pull.base.ref,
 		mergeableState: pull.mergeable_state ?? null,
-		files: files.map((f) => ({
-			path: f.filename,
-			status: f.status,
-			additions: f.additions,
-			deletions: f.deletions,
-			url: f.blob_url ?? null,
-		})),
-		filesTruncated: files.length >= PAGE,
+		files: changeFiles,
+		filesTruncated: truncated,
 		checks: groupCheckRuns(head.checkRuns, head.workflowRuns),
 		harness: {
 			status,
-			run: run && { id: run.id, url: run.html_url, status: run.status, conclusion: run.conclusion },
+			run: run && {
+				id: run.id,
+				url: run.html_url,
+				status: run.status,
+				conclusion: run.conclusion,
+				attempt: run.run_attempt ?? 1,
+			},
 			report,
-			diffs: diffs.map((d) => ({ ...d, approval: byId.get(d.id) ?? null })),
-			approvals,
+			diffs: diffs.map((d) => ({ ...d, approval: counted.get(d.id) ?? null })),
+			approvals: approvals.map((a) => ({ ...a, standing: standing.has(a.approverId) })),
 			unapprovable,
 		},
 	};
+}
+
+/**
+ * The approval that counts for each diff: the newest by an approver in standing, or none. The
+ * detail and the post count the same way.
+ */
+function countApprovals(
+	diffs: HarnessDiff[],
+	rows: PipelineApproval[],
+	standing: Set<string>,
+): Map<string, PipelineApproval> {
+	const counted = new Map<string, PipelineApproval>();
+	for (const d of diffs) {
+		const row = rows.find((a) => a.diffId === d.id && standing.has(a.approverId));
+		if (row) counted.set(d.id, row);
+	}
+	return counted;
 }
 
 /**
@@ -560,11 +621,11 @@ export async function getChange(number: number, app: GithubApp = githubApp): Pro
  * has since lost the capability, been disabled, expired or deleted no longer counts, so a set
  * is complete only by the people entitled to complete it at the moment it is posted.
  */
-async function approversInStanding(rows: PipelineApproval[]): Promise<Set<string>> {
+async function standingOf(rows: PipelineApproval[]): Promise<Set<string>> {
 	const standing = new Set<string>();
-	for (const id of new Set(rows.map((a) => a.approverId))) {
-		const account = await getApprover(id);
-		if (!account || !account.active) continue;
+	const accounts = await getApprovers([...new Set(rows.map((a) => a.approverId))]);
+	for (const [id, account] of accounts) {
+		if (!account.active) continue;
 		if (account.expiresAt && account.expiresAt.getTime() <= Date.now()) continue;
 		const [roleOverrides, overrides] = await Promise.all([
 			getRoleOverrides(account.role),
@@ -630,7 +691,7 @@ export async function approveDiff(
 		}
 		const { harness } = change;
 		if (harness.report.state !== 'ready') throw error(409, harness.report.detail);
-		if (harnessFilesOf(change.files.map((f) => f.path)).length) {
+		if (change.filesTruncated || harnessFilesOf(change.files).length) {
 			throw error(409, harness.unapprovable ?? 'This change edits the harness.');
 		}
 		if (!harness.diffs.some((d) => d.id === input.diffId)) {
@@ -647,19 +708,29 @@ export async function approveDiff(
 		listCache = null;
 		const ids = new Set(harness.diffs.map((d) => d.id));
 		const recorded = (await listApprovals(sha)).filter((a) => ids.has(a.diffId));
-		const standing = await approversInStanding(recorded);
-		const rows = recorded.filter((a) => standing.has(a.approverId));
-		const done = new Set(rows.map((a) => a.diffId)).size;
+		const standing = await standingOf(recorded);
+		const counted = countApprovals(harness.diffs, recorded, standing);
+		const done = counted.size;
 		const of = harness.diffs.length;
 		let statusPosted = false;
 		let withheld: string | null = null;
+		if (done < of) {
+			// Diffs with an approval on record that no longer counts: say whose, rather than leave
+			// a set that looks complete with nothing posted.
+			const lapsed = recorded.filter((a) => !counted.has(a.diffId) && !standing.has(a.approverId));
+			if (lapsed.length) {
+				const who = [...new Set(lapsed.map((a) => a.approver))].join(', ');
+				const screens = [...new Set(lapsed.map((a) => a.diffId.split(':')[2]))].join(', ');
+				withheld = `The approval of ${screens} by ${who} no longer counts: ${who} no longer holds "Merge pipeline changes". Someone who does must approve it again.`;
+			}
+		}
 		if (done === of && !harness.unapprovable && harness.status?.state !== 'success') {
 			withheld = harness.run
-				? await harnessJobsBlocker(app, repo(), harness.run.id)
+				? await harnessJobsBlocker(app, repo(), harness.run.id, harness.run.attempt)
 				: 'No harness run of this repository on this head.';
 		}
 		if (done === of && !harness.unapprovable && harness.status?.state !== 'success' && !withheld) {
-			const approvers = [...new Set(rows.map((a) => a.approver))].join(', ');
+			const approvers = [...new Set([...counted.values()].map((a) => a.approver))].join(', ');
 			const description =
 				`All ${of} changed screen${of === 1 ? '' : 's'} approved by ${approvers}`.slice(0, 140);
 			await app.json(`/repos/${repo()}/statuses/${sha}`, {

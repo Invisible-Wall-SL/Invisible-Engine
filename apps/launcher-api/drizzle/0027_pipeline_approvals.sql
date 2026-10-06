@@ -9,5 +9,5 @@ CREATE TABLE "pipeline_approvals" (
 	"at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX "pipeline_approvals_diff_id_idx" ON "pipeline_approvals" USING btree ("diff_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "pipeline_approvals_diff_approver_idx" ON "pipeline_approvals" USING btree ("diff_id","approver_id");--> statement-breakpoint
 CREATE INDEX "pipeline_approvals_head_sha_idx" ON "pipeline_approvals" USING btree ("head_sha");

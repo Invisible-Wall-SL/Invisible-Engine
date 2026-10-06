@@ -97,6 +97,10 @@ interface WorkflowRunLike {
 	conclusion: string | null;
 }
 
+/** Jobs per page of the jobs API; a run has a few dozen. */
+const JOBS_PAGE = 100;
+const JOBS_MAX_PAGES = 10;
+
 interface GhArtifact {
 	id: number;
 	name: string;
@@ -127,10 +131,9 @@ async function readReport(
 ): Promise<HarnessReport> {
 	const hit = reports.get(artifact.id);
 	if (hit) return hit;
-	// GitHub answers with a 302 to a signed blob-store URL. Node's fetch follows it and, being a
-	// cross-origin redirect, drops the `Authorization` header on the way — which the blob store
-	// requires: a bearer header beside its signed URL is refused.
-	const res = await app.fetch(`/repos/${repo}/actions/artifacts/${artifact.id}/zip`, {
+	// GitHub answers with a redirect to a signed blob-store URL, which `download` follows without
+	// the token: the blob store refuses a bearer header beside its signed URL.
+	const res = await app.download(`/repos/${repo}/actions/artifacts/${artifact.id}/zip`, {
 		timeoutMs: ARTIFACT_TIMEOUT_MS,
 	});
 	if (!res.ok) throw new Error(`GitHub ${res.status} downloading the report artifact`);
@@ -233,20 +236,27 @@ interface GhJob {
 }
 
 /**
- * A second witness before `success` is posted, read from the jobs API rather than the report:
- * every job of the run but `report` must have succeeded — `report` alone fails on changed screens,
- * and it is the report that an approval answers. `null` when so; else why not.
+ * A second witness before `success` is posted, read from the jobs API rather than the report, for
+ * the run's attempt the report came from: every job of that attempt but `report` must have
+ * succeeded — `report` alone fails on changed screens, and it is the report that an approval
+ * answers. `null` when so; else why not.
  */
 export async function harnessJobsBlocker(
 	app: GithubApp,
 	repo: string,
 	runId: number,
+	attempt: number,
 ): Promise<string | null> {
-	const { jobs } = await app.json<{ jobs: GhJob[] }>(
-		`/repos/${repo}/actions/runs/${runId}/jobs?per_page=100`,
-	);
+	const jobs: GhJob[] = [];
+	for (let page = 1; page <= JOBS_MAX_PAGES; page++) {
+		const batch = await app.json<{ jobs: GhJob[] }>(
+			`/repos/${repo}/actions/runs/${runId}/attempts/${attempt}/jobs?per_page=${JOBS_PAGE}&page=${page}`,
+		);
+		jobs.push(...batch.jobs);
+		if (batch.jobs.length < JOBS_PAGE) break;
+	}
 	const bad = jobs.filter(
-		(j) => !/^report\b/.test(j.name) && (j.status !== 'completed' || j.conclusion !== 'success'),
+		(j) => j.name !== 'report' && (j.status !== 'completed' || j.conclusion !== 'success'),
 	);
 	if (bad.length) {
 		return `The run's ${bad.map((j) => `${j.name} (${j.conclusion ?? j.status})`).join(', ')} did not succeed, so its report cannot be approved.`;

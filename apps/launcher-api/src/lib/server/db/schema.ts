@@ -703,8 +703,10 @@ export const directorAtlasJobs = pgTable(
  * found (ADR-0004 "Approving an intended difference", ADR-0007). `diffId` is the screen's stable id
  * from the report, `<head sha>:<game key>:<screen>:<diff hash>`: it embeds the head, so a new push
  * leaves every approval of the old head behind, and the hash, so a screen whose picture changed
- * again needs approving again. The approver is a snapshot (`approver`, the name or email at the
- * time) beside the user id: the row is a record, and outlives a renamed or deleted account.
+ * again needs approving again. One row per diff per approver: an approval counts only while its approver holds
+ * `pipelineMerge`, so another approver can add theirs beside one that lapsed. The approver is a
+ * snapshot (`approver`, the name at the time) beside the user id: the row is a record, and
+ * outlives a renamed or deleted account.
  */
 export const pipelineApprovals = pgTable(
 	'pipeline_approvals',
@@ -721,7 +723,7 @@ export const pipelineApprovals = pgTable(
 		at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
 	},
 	(table) => [
-		uniqueIndex('pipeline_approvals_diff_id_idx').on(table.diffId),
+		uniqueIndex('pipeline_approvals_diff_approver_idx').on(table.diffId, table.approverId),
 		index('pipeline_approvals_head_sha_idx').on(table.headSha),
 	],
 );

@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import type { Role } from '$lib/roles';
 import { getDb } from './db';
 import { pipelineApprovals, users, type PipelineApproval } from './db/schema';
@@ -19,6 +19,12 @@ export interface NewApproval {
 	note: string | null;
 }
 
+export interface ApproverAccount {
+	role: Role;
+	active: boolean;
+	expiresAt: Date | null;
+}
+
 /** Every approval on this head, newest first. A head the harness never ran on has none. */
 export async function listApprovals(headSha: string): Promise<PipelineApproval[]> {
 	return getDb()
@@ -28,33 +34,37 @@ export async function listApprovals(headSha: string): Promise<PipelineApproval[]
 		.orderBy(desc(pipelineApprovals.at));
 }
 
-/** The account behind an approval, as it stands now; `null` when it is gone. */
-export async function getApprover(
-	userId: string,
-): Promise<{ role: Role; active: boolean; expiresAt: Date | null } | null> {
-	const [row] = await getDb()
-		.select({ role: users.role, active: users.active, expiresAt: users.expiresAt })
+/** The accounts behind approvals, as they stand now, by id; a deleted account is absent. */
+export async function getApprovers(userIds: string[]): Promise<Map<string, ApproverAccount>> {
+	if (!userIds.length) return new Map();
+	const rows = await getDb()
+		.select({ id: users.id, role: users.role, active: users.active, expiresAt: users.expiresAt })
 		.from(users)
-		.where(eq(users.id, userId));
-	return row ?? null;
+		.where(inArray(users.id, userIds));
+	return new Map(rows.map(({ id, ...account }) => [id, account]));
 }
 
 /**
- * Record an approval. A diff is approved once: a second approval of the same id — a double click,
- * a second approver — returns the first, unchanged.
+ * Record an approval. One row per diff per approver: the same approver's second click returns
+ * their first row unchanged, while another approver adds a row of their own.
  */
 export async function recordApproval(input: NewApproval): Promise<PipelineApproval> {
 	const db = getDb();
 	const [inserted] = await db
 		.insert(pipelineApprovals)
 		.values(input)
-		.onConflictDoNothing({ target: pipelineApprovals.diffId })
+		.onConflictDoNothing({ target: [pipelineApprovals.diffId, pipelineApprovals.approverId] })
 		.returning();
 	if (inserted) return inserted;
 	const [existing] = await db
 		.select()
 		.from(pipelineApprovals)
-		.where(eq(pipelineApprovals.diffId, input.diffId));
+		.where(
+			and(
+				eq(pipelineApprovals.diffId, input.diffId),
+				eq(pipelineApprovals.approverId, input.approverId),
+			),
+		);
 	if (!existing) throw new Error(`approval of ${input.diffId} vanished between insert and read`);
 	return existing;
 }

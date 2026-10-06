@@ -154,9 +154,18 @@ const fakeFetch: typeof fetch = async (input, init) => {
 	const url = new URL(String(input));
 	const method = init?.method ?? 'GET';
 	gh.requests.push(`${method} ${url.pathname}${url.search}`);
-	if (url.origin !== 'https://api.github.com') return jsonResponse(500, { message: 'wrong host' });
 	const headers = (init?.headers ?? {}) as Record<string, string>;
 	const auth = headers.Authorization ?? '';
+	if (url.origin === 'https://blob.example') {
+		// The signed URL is the authorization: a bearer header beside it is refused, as the real
+		// blob store refuses it.
+		if (auth) return jsonResponse(401, { message: 'blob: a bearer header beside a signed URL' });
+		const zip = gh.zips.get(Number(url.pathname.split('/').pop()));
+		return zip
+			? new Response(new Uint8Array(zip), { status: 200 })
+			: jsonResponse(404, { message: 'blob: no such artifact' });
+	}
+	if (url.origin !== 'https://api.github.com') return jsonResponse(500, { message: 'wrong host' });
 	check(`${url.pathname}: API version header`, headers['X-GitHub-Api-Version'], '2022-11-28');
 	const path = url.pathname;
 
@@ -203,7 +212,10 @@ const fakeFetch: typeof fetch = async (input, init) => {
 	}
 	if (rest[0] === 'pulls' && rest[2] === 'files') {
 		const pull = gh.pulls.get(Number(rest[1]));
-		return pull ? jsonResponse(200, pull.files) : jsonResponse(404, { message: 'Not Found' });
+		if (!pull) return jsonResponse(404, { message: 'Not Found' });
+		const perPage = Number(url.searchParams.get('per_page') ?? 30);
+		const page = Number(url.searchParams.get('page') ?? 1);
+		return jsonResponse(200, pull.files.slice((page - 1) * perPage, page * perPage));
 	}
 	if (rest[0] === 'commits' && rest[2] === 'check-runs') {
 		const head = gh.heads.get(rest[1]);
@@ -220,13 +232,20 @@ const fakeFetch: typeof fetch = async (input, init) => {
 	if (rest[0] === 'actions' && rest[1] === 'runs' && rest[3] === 'artifacts') {
 		return jsonResponse(200, { artifacts: gh.artifacts.get(Number(rest[2])) ?? [] });
 	}
-	if (rest[0] === 'actions' && rest[1] === 'runs' && rest[3] === 'jobs') {
-		return jsonResponse(200, { jobs: gh.jobs.get(Number(rest[2])) ?? [] });
+	if (rest[0] === 'actions' && rest[1] === 'runs' && rest[3] === 'attempts' && rest[5] === 'jobs') {
+		if (rest[4] !== '1') return jsonResponse(404, { message: 'no such attempt' });
+		const perPage = Number(url.searchParams.get('per_page') ?? 30);
+		const page = Number(url.searchParams.get('page') ?? 1);
+		const jobs = gh.jobs.get(Number(rest[2])) ?? [];
+		return jsonResponse(200, { jobs: jobs.slice((page - 1) * perPage, page * perPage) });
 	}
 	if (rest[0] === 'actions' && rest[1] === 'artifacts' && rest[3] === 'zip') {
-		const zip = gh.zips.get(Number(rest[2]));
-		if (!zip) return jsonResponse(410, { message: 'Gone' });
-		return new Response(new Uint8Array(zip), { status: 200 });
+		if (!gh.zips.has(Number(rest[2]))) return jsonResponse(410, { message: 'Gone' });
+		check('the download is asked for with redirects left to the caller', init?.redirect, 'manual');
+		return new Response(null, {
+			status: 302,
+			headers: { location: `https://blob.example/artifacts/${rest[2]}` },
+		});
 	}
 	if (rest[0] === 'statuses' && method === 'POST') {
 		const body = JSON.parse(String(init?.body)) as Json;
@@ -318,6 +337,7 @@ function workflow(head: Head, name: string, jobs: JobSpec[], extra: Json = {}): 
 	head.workflowRuns.push({
 		id,
 		name,
+		run_attempt: 1,
 		path: `.github/workflows/${name === 'Current games' ? 'current-games' : name.toLowerCase()}.yml`,
 		repository: { full_name: REPO },
 		head_repository: { full_name: REPO },
@@ -807,13 +827,94 @@ head(sha(29), GREEN, {
 artifact(sha(29), REPORT_29);
 pull(29, 'engine: a revoked approver', { sha: sha(29) });
 
+// #30 — the harness edit hides on the second page of files.
+const REPORT_30 = report(sha(30), [
+	{ key: 'bookofborut', name: 'Book of Borut', looks: 'changed', changed: ['win'] },
+]);
+head(sha(30), GREEN, {
+	state: 'failure',
+	description: (REPORT_30.summary as { line: string }).line,
+});
+artifact(sha(30), REPORT_30);
+pull(30, 'engine: many files', {
+	sha: sha(30),
+	files: [
+		...Array.from({ length: 140 }, (_, i) => ({
+			filename: `apps/lines/src/${i}.ts`,
+			status: 'modified',
+			additions: 1,
+			deletions: 0,
+		})),
+		{
+			filename: 'scripts/current-games/lib/compare.mjs',
+			status: 'modified',
+			additions: 1,
+			deletions: 1,
+		},
+	],
+});
+
+// #31 — a harness file renamed away.
+const REPORT_31 = report(sha(31), [
+	{ key: 'bookofborut', name: 'Book of Borut', looks: 'changed', changed: ['win'] },
+]);
+head(sha(31), GREEN, {
+	state: 'failure',
+	description: (REPORT_31.summary as { line: string }).line,
+});
+artifact(sha(31), REPORT_31);
+pull(31, 'engine: a rename', {
+	sha: sha(31),
+	files: [
+		{
+			filename: 'docs/old-report.mjs',
+			previous_filename: 'scripts/current-games/lib/report.mjs',
+			status: 'renamed',
+			additions: 0,
+			deletions: 0,
+		},
+	],
+});
+
+// #32 — more files than GitHub lists.
+const REPORT_32 = report(sha(32), [
+	{ key: 'bookofborut', name: 'Book of Borut', looks: 'changed', changed: ['win'] },
+]);
+head(sha(32), GREEN, {
+	state: 'failure',
+	description: (REPORT_32.summary as { line: string }).line,
+});
+artifact(sha(32), REPORT_32);
+pull(32, 'engine: a huge change', {
+	sha: sha(32),
+	files: Array.from({ length: 3000 }, (_, i) => ({
+		filename: `apps/lines/src/${i}.ts`,
+		status: 'modified',
+		additions: 1,
+		deletions: 0,
+	})),
+});
+
+// #33 — an approver whose account is disabled before the set completes.
+const REPORT_33 = report(sha(33), [
+	{ key: 'bookofborut', name: 'Book of Borut', looks: 'changed', changed: ['win', 'bigwin'] },
+]);
+head(sha(33), GREEN, {
+	state: 'failure',
+	description: (REPORT_33.summary as { line: string }).line,
+});
+artifact(sha(33), REPORT_33);
+pull(33, 'engine: a disabled approver', { sha: sha(33) });
+
 // ── Replaced boundaries ───────────────────────────────────────────────────────
 const approvals: PipelineApproval[] = [];
 fake('lib/server/pipelineApprovals.ts', {
 	listApprovals: async (headSha: string) =>
 		approvals.filter((a) => a.headSha === headSha).sort((a, b) => +b.at - +a.at),
 	recordApproval: async (input: Omit<PipelineApproval, 'id' | 'at'>) => {
-		const existing = approvals.find((a) => a.diffId === input.diffId);
+		const existing = approvals.find(
+			(a) => a.diffId === input.diffId && a.approverId === input.approverId,
+		);
 		if (existing) return existing;
 		const row: PipelineApproval = {
 			id: `ap-${approvals.length + 1}`,
@@ -823,7 +924,8 @@ fake('lib/server/pipelineApprovals.ts', {
 		approvals.push(row);
 		return row;
 	},
-	getApprover: async (userId: string) => accounts.get(userId) ?? null,
+	getApprovers: async (userIds: string[]) =>
+		new Map(userIds.flatMap((id) => (accounts.has(id) ? [[id, accounts.get(id)]] : []))),
 });
 const accounts = new Map<string, { role: string; active: boolean; expiresAt: Date | null }>([
 	['u-admin', { role: 'admin', active: true, expiresAt: null }],
@@ -1203,7 +1305,7 @@ check('a role without the tool is a 403', (await list(ARTIST)).status, 403);
 	check(
 		'every open PR into main, newest first, bar Director games and Dependabot',
 		body.changes.map((c) => c.number),
-		[29, 28, 27, 26, 25, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 10],
+		[33, 32, 31, 30, 29, 28, 27, 26, 25, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 10],
 	);
 	check(
 		'Dependabot apart',
@@ -1279,6 +1381,7 @@ check('a bad number is a 400', (await detail(ADMIN, 'x')).status, 400);
 	check('files', d.files, [
 		{
 			path: 'services/atlas-tool/pack.py',
+			previousPath: null,
 			status: 'modified',
 			additions: 30,
 			deletions: 5,
@@ -1286,6 +1389,7 @@ check('a bad number is a 400', (await detail(ADMIN, 'x')).status, 400);
 		},
 		{
 			path: 'services/atlas-tool/tests/test_padding.py',
+			previousPath: null,
 			status: 'added',
 			additions: 10,
 			deletions: 0,
@@ -1576,9 +1680,9 @@ userOverrides.set('u-tester', { pipelineMerge: true });
 		[true, 2, sha(140)],
 	);
 	check(
-		'…naming every approver, a nameless one by the local part of the email',
+		'…naming every approver in diff order, a nameless one by the local part of the email',
 		gh.posts[1].body.description,
-		'All 2 changed screens approved by Gualtiero, tester',
+		'All 2 changed screens approved by tester, Gualtiero',
 	);
 }
 
@@ -1614,9 +1718,9 @@ check(
 		diffId: (REPORT_18.summary as { changedScreens: string[] }).changedScreens[0],
 	});
 	check(
-		'a second approver of an approved diff gets the first approval back',
-		[res.status, (res.body.approval as Json).approver],
-		[200, 'Gualtiero'],
+		'a second approver of an approved diff adds an approval of their own',
+		[res.status, (res.body.approval as Json).approver, res.body.approved],
+		[200, 'tester', 1],
 	);
 }
 check(
@@ -1646,7 +1750,7 @@ check(
 	check(
 		"…one post, on #23's head, naming both",
 		[gh.posts.length - posts, gh.posts[posts].sha, gh.posts[posts].body.description],
-		[1, sha(23), 'All 2 changed screens approved by tester, Gualtiero'],
+		[1, sha(23), 'All 2 changed screens approved by Gualtiero, tester'],
 	);
 }
 // ── What an approval must refuse, whatever the report says ───────────────────
@@ -1665,6 +1769,87 @@ check(
 		'…and records nothing',
 		approvals.some((a) => a.headSha === sha(25)),
 		false,
+	);
+}
+{
+	const d = (await detail(ADMIN, '30')).body as { harness: Json; files: Json[] };
+	check('#30: every page of files is read', d.files.length, 141);
+	check(
+		'#30: a harness edit on the second page is seen',
+		String(d.harness.unapprovable).includes('scripts/current-games/lib/compare.mjs'),
+		true,
+	);
+	check(
+		'#30: …and refuses an approval',
+		(
+			await approve(ADMIN, '30', {
+				diffId: (REPORT_30.summary as { changedScreens: string[] }).changedScreens[0],
+			})
+		).status,
+		409,
+	);
+}
+{
+	const d = (await detail(ADMIN, '31')).body as { harness: Json; files: Json[] };
+	check(
+		'#31: a file renamed out of the harness is seen where it was',
+		[
+			(d.files[0] as Json).previousPath,
+			String(d.harness.unapprovable).includes('scripts/current-games/lib/report.mjs'),
+		],
+		['scripts/current-games/lib/report.mjs', true],
+	);
+	check(
+		'#31: …and refuses an approval',
+		(
+			await approve(ADMIN, '31', {
+				diffId: (REPORT_31.summary as { changedScreens: string[] }).changedScreens[0],
+			})
+		).status,
+		409,
+	);
+}
+{
+	const d = (await detail(ADMIN, '32')).body as { harness: Json; filesTruncated: boolean };
+	check(
+		'#32: more files than GitHub lists is truncated and unapprovable',
+		[d.filesTruncated, String(d.harness.unapprovable).includes('more files than GitHub lists')],
+		[true, true],
+	);
+	const res = await approve(ADMIN, '32', {
+		diffId: (REPORT_32.summary as { changedScreens: string[] }).changedScreens[0],
+	});
+	check(
+		'#32: …and refuses an approval',
+		[res.status, String(res.body.error).includes('manual merge')],
+		[409, true],
+	);
+}
+{
+	const [a, b] = (REPORT_33.summary as { changedScreens: string[] }).changedScreens;
+	const posts = gh.posts.length;
+	check(
+		'#33: the tester approves the first diff',
+		(await approve(TESTER, '33', { diffId: a })).status,
+		200,
+	);
+	accounts.set('u-tester', { role: 'pipelineTester', active: false, expiresAt: null });
+	const second = await approve(ADMIN, '33', { diffId: b });
+	check(
+		'#33: a disabled approver no longer counts',
+		[
+			second.body.approved,
+			second.body.statusPosted,
+			String(second.body.withheld).includes('tester'),
+		],
+		[1, false, true],
+	);
+	accounts.set('u-tester', { role: 'pipelineTester', active: true, expiresAt: null });
+	const again = await approve(ADMIN, '33', { diffId: b });
+	check(
+		'#33: …and counts again once the account is back',
+		[again.body.approved, again.body.statusPosted, gh.posts.length - posts],
+		[2, true, 1],
 	);
 }
 check(
@@ -1712,25 +1897,38 @@ check(
 		[second.body.approved, second.body.of, second.body.statusPosted, gh.posts.length - posts],
 		[1, 2, false, 0],
 	);
+	check(
+		'…and the answer says whose',
+		String(second.body.withheld),
+		'The approval of win by tester no longer counts: tester no longer holds "Merge pipeline changes". Someone who does must approve it again.',
+	);
+	const d = (await detail(ADMIN, '29')).body as { harness: Json };
+	check(
+		'the detail counts the same way: that diff shows no approval, the row shows it lapsed',
+		[
+			(d.harness.diffs as Json[]).map((x) => (x.approval as Json | null)?.approver ?? null),
+			(d.harness.approvals as Json[]).map((x) => [x.approver, x.standing]),
+		],
+		[
+			[null, 'Gualtiero'],
+			[
+				['Gualtiero', true],
+				['tester', false],
+			],
+		],
+	);
+	const replaced = await approve(ADMIN, '29', { diffId: a });
+	check(
+		'someone in standing approves it again beside the lapsed one, and the set completes',
+		[
+			replaced.body.approved,
+			replaced.body.statusPosted,
+			gh.posts.length - posts,
+			gh.posts[posts]?.body.description,
+		],
+		[2, true, 1, 'All 2 changed screens approved by Gualtiero'],
+	);
 	userOverrides.set('u-tester', { pipelineMerge: true });
-	const again = await approve(ADMIN, '29', { diffId: b });
-	check(
-		'…and counts again once it is back',
-		[again.body.approved, again.body.statusPosted, gh.posts.length - posts],
-		[2, true, 1],
-	);
-	accounts.set('u-tester', { role: 'pipelineTester', active: false, expiresAt: null });
-	const h = gh.heads.get(sha(29)) as Head;
-	h.statuses = h.statuses.map((st) =>
-		st.context === 'current-games' ? { ...st, state: 'failure' } : st,
-	);
-	const disabled = await approve(ADMIN, '29', { diffId: b });
-	check(
-		'a disabled approver no longer counts either',
-		[disabled.body.approved, disabled.body.statusPosted],
-		[1, false],
-	);
-	accounts.set('u-tester', { role: 'pipelineTester', active: true, expiresAt: null });
 }
 
 check(
