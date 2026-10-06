@@ -730,6 +730,48 @@ export const pipelineApprovals = pgTable(
 	],
 );
 
+/** One approved changed screen as it stood when a change merged (ADR-0007 "approvals snapshot"). */
+export interface MergeApproval {
+	diffId: string;
+	game: string;
+	screen: string;
+	approverId: string;
+	approver: string;
+	note: string | null;
+	at: string;
+}
+
+/**
+ * Invisible Pipeline Changes merges (ADR-0007): one row per pull request the launcher squash-merged
+ * into `main`, written in the same flow as GitHub's merge. GitHub stays the record of the merge
+ * itself; this holds what GitHub cannot — the launcher user who merged, the approvals that counted
+ * at that moment, and which change a revert undoes. `request_id` makes a resent merge idempotent;
+ * `pr_number` is unique because a pull request merges once.
+ */
+export const pipelineMerges = pgTable(
+	'pipeline_merges',
+	{
+		id: text('id')
+			.primaryKey()
+			.$defaultFn(() => crypto.randomUUID()),
+		requestId: text('request_id').notNull(),
+		prNumber: integer('pr_number').notNull(),
+		title: text('title').notNull(),
+		headSha: text('head_sha').notNull(),
+		mergeSha: text('merge_sha').notNull(),
+		mergedById: text('merged_by_id').notNull(),
+		mergedBy: text('merged_by').notNull(),
+		at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+		approvals: jsonb('approvals').$type<MergeApproval[]>().notNull().default([]),
+		revertOf: integer('revert_of'),
+	},
+	(table) => [
+		uniqueIndex('pipeline_merges_pr_number_idx').on(table.prNumber),
+		uniqueIndex('pipeline_merges_request_id_idx').on(table.requestId),
+		index('pipeline_merges_revert_of_idx').on(table.revertOf),
+	],
+);
+
 export type User = typeof users.$inferSelect;
 export type Session = typeof sessions.$inferSelect;
 export type ToolInstall = typeof toolInstalls.$inferSelect;
@@ -754,3 +796,4 @@ export type DirectorRegion = typeof directorRegions.$inferSelect;
 export type DirectorOp = typeof directorOps.$inferSelect;
 export type DirectorAtlasJob = typeof directorAtlasJobs.$inferSelect;
 export type PipelineApproval = typeof pipelineApprovals.$inferSelect;
+export type PipelineMerge = typeof pipelineMerges.$inferSelect;

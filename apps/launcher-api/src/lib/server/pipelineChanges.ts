@@ -666,6 +666,9 @@ interface ReportImagesEntry {
 /** A detail opens every changed screen's three images at once; the walk from the change's number
  *  to its report (the PR, its head, the artifacts) is done once for all of them. */
 const IMAGES_TTL_MS = 30_000;
+/** A cached walk younger than this is trusted against an artifact id it does not know, unless
+ *  that id is newer than the one it holds. */
+const IMAGES_RECHECK_MS = 5_000;
 const IMAGES_CACHE_SIZE = 64;
 const imagesCache = new Map<number, ReportImagesEntry>();
 const imagesFlight = createSingleFlight();
@@ -708,10 +711,17 @@ export async function getReportEntry(
 	let report = await reportImagesOf(input.number, app);
 	// The detail hands out a new artifact id the moment a push or a re-run lands; the walk cached
 	// here may still name the old one for a while, so a mismatch is looked up again, once, before
-	// it is called a replaced artifact.
+	// it is called a replaced artifact — but only when the cache could be behind: an id GREATER
+	// than the one it holds (artifact ids only grow, so this is a newer upload), or a walk older
+	// than a few seconds. A page still asking for an artifact a re-run replaced would otherwise
+	// cost GitHub one whole walk per image it reloads.
 	if (input.artifact !== null && input.artifact !== report.images?.artifactId) {
-		imagesCache.delete(input.number);
-		report = await reportImagesOf(input.number, app);
+		const stale = Date.now() - report.at > IMAGES_RECHECK_MS;
+		const newer = input.artifact > (report.images?.artifactId ?? 0);
+		if (stale || newer) {
+			imagesCache.delete(input.number);
+			report = await reportImagesOf(input.number, app);
+		}
 	}
 	if (!report.paths.has(input.path)) {
 		throw error(404, 'The report has no such image.');

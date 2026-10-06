@@ -1046,9 +1046,10 @@ check it from a terminal:
 ### GitHub App (Pipeline Changes)
 
 Invisible Pipeline Changes (`/pipeline`, `docs/director/DECISIONS/0007-pipeline-change-mechanics.md`)
-reads pull requests, check runs, workflow runs and the current-games report artifact, and posts the
-`current-games` commit status once every changed screen on a head is approved, as a **GitHub App**
-the owner created and installed on this repository only. Three env vars, all secrets with no code
+reads pull requests, check runs, workflow runs and the current-games report artifact, posts the
+`current-games` commit status once every changed screen on a head is approved, squash-merges a Ready
+change with its head pinned, and opens revert pull requests (a branch, one commit and a PR through the
+Git Data API), as a **GitHub App** the owner created and installed on this repository only. Three env vars, all secrets with no code
 default, set on the **launcher-api** Railway service and nowhere else (no other service, no GitHub
 Actions secret, and never the browser — `apps/launcher-api/src/lib/server/githubApp.ts` turns them
 into short-lived installation tokens server-side and logs neither):
@@ -1059,11 +1060,24 @@ into short-lived installation tokens server-side and logs neither):
 | `GITHUB_APP_INSTALLATION_ID` | The App → **Install App** → the gear beside the organisation → the number at the end of that page's URL (`…/settings/installations/<id>`). Changes only if the App is uninstalled and installed again. |
 | `GITHUB_APP_PRIVATE_KEY` | The App → **General** → **Private keys** → *Generate a private key*: a `.pem` download (an RSA private key in PEM form). Paste the whole file, header and footer lines included. Railway keeps the newlines; a key pasted as ONE line with `\n` written out is unescaped by the launcher, so either form works. |
 
-Permissions the App needs for this card (Repository): Pull requests **read**, Checks **read**,
-Commit statuses **read & write**, Actions **read** (the report artifact), Contents **read**,
-Metadata **read**. The merge and the agent-edit PRs (PLAN 5.3 / 5.4) will raise Contents and Pull
-requests to **write**, as ADR-0007 lists. The status the launcher posts comes through the API, like
-the harness's own, so the `main` ruleset's required check `current-games` keeps source **any**.
+Permissions the App needs (Repository): Pull requests **read & write** (the list and detail; the
+merge; opening a revert PR; the agent-edit PRs of PLAN 5.4), Contents **read & write** (the revert
+branch and its commit; the agent-definition commits of 5.4), Commit statuses **read & write**, Checks
+**read**, Actions **read** (the report artifact), Metadata **read**. Raising a permission in the App's
+settings asks the installation to accept it (the App → Install App → the gear → "Review request");
+until it is accepted, a merge or a rollback answers `GitHub 403: Resource not accessible by
+integration` and nothing else changes. The status the launcher posts comes through the API, like the
+harness's own, so the `main` ruleset's required check `current-games` keeps source **any**.
+
+**Branch protection is the gate, the App is not above it.** The merge is `PUT …/pulls/<n>/merge`
+with `merge_method: squash` and `sha` pinned to the head the checks ran on; the `main` ruleset's
+required checks and reviews apply to the App's token like anyone's, so a ruleset that is not satisfied
+answers `405 Required status check "…" is expected` (or "At least 1 approving review is required"),
+which the page shows verbatim and records nothing for. Keep the App **off** the ruleset's bypass list;
+the launcher never asks to bypass, and a bypass would let a merge through a red check. A head pushed
+between the page's read and the merge is GitHub's `409 Head branch was modified`, never a merge. The
+squash commit's author is the App's bot user; `pipeline_merges` (migration `0028`) holds the launcher
+user who merged, the approvals that counted, and which change a revert undoes.
 
 - Unset (any of the three) → `/api/pipeline/changes` answers **503** naming the variable;
   `GITHUB_ACTIONS_TOKEN`, `GITHUB_ENGINE_READ_TOKEN` and `GIT_CLONE_TOKEN` are untouched.

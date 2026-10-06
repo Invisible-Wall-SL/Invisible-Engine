@@ -197,6 +197,13 @@
       "when": 1791282781618,
       "tag": "0027_pipeline_approvals",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1791288903677,
+      "tag": "0028_pipeline_merges",
+      "breakpoints": true
     }
   ]
 }
