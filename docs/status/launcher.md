@@ -71,7 +71,9 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   plain sentence per report state (none / running / skipped / missing / expired / stale /
   unreadable), and under it every changed screen with before / after / diff images
   (`ScreenCompare.svelte`, side by side or one at a time). Approve per diff only with
-  `pipelineMerge` (the header says `can merge` or `read-only`); each block shows who approved and
+  `pipelineMerge` — the `(app)` layout now resolves it as `canPipelineMerge` beside `canAdmin`, from
+  the override layers it already reads, so the page adds no query (the header says `can merge` or
+  `read-only`); each block shows who approved and
   when, a lapsed approval in amber, the `withheld` reason, "current-games was posted" once a set
   completes, and **Post approval again** when a re-run reset the status on the same head. A change
   that edits the harness, has more files than GitHub lists, or fails a build/test shows "Merge by
