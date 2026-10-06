@@ -7,7 +7,7 @@
  * imports this file by relative path, the way it imports `runState.ts`: its typecheck refuses the
  * `./x.ts` specifiers the worker's loader needs, so a file it shares must need none.
  *
- * The cap is a HARD stop on real usage: the runner sums `costOfUsage` over every response the API
+ * The cap is a HARD stop on real usage: the runner sums `costOfResponse` over every response the API
  * returns and stops before the next call once the sum reaches `capUsd`; a response that carries the
  * sum past the cap is the last one, so the overshoot is at most one call. "Capped" is a failure.
  */
@@ -114,7 +114,7 @@ export function evalLine(
 	switch (report.result) {
 		case 'scored': {
 			const n = report.set?.elements ?? report.items.length;
-			const before = report.before ? pct(report.before.score) : 'no definition on main';
+			const before = report.before ? pct(report.before.score) : 'no usable definition on main';
 			const after = report.after ? pct(report.after.score) : '—';
 			line = `${report.agent}: ${before} → ${after} on ${n} element${n === 1 ? '' : 's'} · ${money(report.costUsd)} of ${money(report.capUsd)}`;
 			break;

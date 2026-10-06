@@ -1,4 +1,4 @@
-import { costOfUsage, type DirectorPricing } from 'director-costs';
+import { costOfResponse, type DirectorPricing } from 'director-costs';
 import { parseAgent, type AgentCatalog, type AgentDefinition } from '../agents.ts';
 import { ANALYST_AGENT, analyzeMockups, type Breakdown } from '../mockups/analyze.ts';
 import {
@@ -67,6 +67,14 @@ class EvalCapped extends Error {
 	}
 }
 
+/** The model could not be reached at all (no key, no client): no side made a call. */
+class ModelUnavailable extends Error {
+	constructor(cause: unknown) {
+		super(cause instanceof Error ? cause.message : String(cause));
+		this.name = 'ModelUnavailable';
+	}
+}
+
 /**
  * A definition as the worker would boot with it: it parses, and its model has a request profile
  * (`model.ts`), which the loader's catalogue (every PRICED model) does not check on its own.
@@ -98,26 +106,37 @@ function safeMessage(error: unknown): string {
 }
 
 /**
- * The cap, in code. Every response the API returns is priced as it arrives (`costOfUsage`, the same
- * arithmetic as the spend ledger), a refused or malformed one included — those are billed too.
+ * The cap, in code. Every response the API returns is priced as it arrives (`costOfResponse`, the
+ * same arithmetic as the spend ledger, so a refusal fallback's declined attempt counts), a refused or
+ * malformed one included — those are billed too.
  * A call is not made once the total has reached the cap; a response that carries the total past it
  * is the last, so the run overshoots by at most one call.
  */
 function capTransport(
-	inner: VisionTransport,
+	model: () => VisionTransport,
 	pricing: DirectorPricing,
 	capUsd: number,
 	ledgers: Record<Side, Ledger>,
 ): (side: Side) => VisionTransport {
 	const spent = () => ledgers.before.costUsd + ledgers.after.costUsd;
+	// Made on the first call that passes the cap, not before: a run the cap stops at once, or one
+	// that never calls, needs no key.
+	let inner: VisionTransport | null = null;
 	return (side) => ({
 		async analyze(request, signal) {
 			const ledger = ledgers[side];
 			if (spent() >= capUsd) {
 				throw new EvalCapped(`stopped before call ${ledger.calls + 1} of side ${side}`);
 			}
+			if (!inner) {
+				try {
+					inner = model();
+				} catch (error) {
+					throw new ModelUnavailable(error);
+				}
+			}
 			const bill = (response: BilledResponse) => {
-				ledger.costUsd += costOfUsage(response.model, response.usage, pricing);
+				ledger.costUsd += costOfResponse(response, pricing).usd;
 				ledger.calls++;
 				ledger.usages.push(summarizeUsage(response.usage));
 				if (spent() > capUsd) {
@@ -192,8 +211,13 @@ export async function runAgentEval(input: EvalInput): Promise<EvalReport> {
 
 	try {
 		expected = expectedBreakdown();
-		const inner = typeof input.model === 'function' ? input.model() : input.model;
-		const transportFor = capTransport(inner, input.pricing, input.capUsd, ledgers);
+		const model = input.model;
+		const transportFor = capTransport(
+			typeof model === 'function' ? model : () => model,
+			input.pricing,
+			input.capUsd,
+			ledgers,
+		);
 		const run = { id: 'eval', templateProjectKey: referenceTemplateKey() };
 		for (const [side, pass] of [
 			['before', 1],
@@ -239,7 +263,8 @@ export async function runAgentEval(input: EvalInput): Promise<EvalReport> {
 	const errors = [...notes];
 	if (failure) {
 		const message = safeMessage(failure.error);
-		errors.unshift(capped || !failure.side ? message : `side ${failure.side}: ${message}`);
+		const unattributed = capped || !failure.side || failure.error instanceof ModelUnavailable;
+		errors.unshift(unattributed ? message : `side ${failure.side}: ${message}`);
 	}
 	const images = expected?.images.filter((image) => !image.styleOnly) ?? [];
 	return finish(input, {
