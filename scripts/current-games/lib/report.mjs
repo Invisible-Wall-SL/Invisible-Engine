@@ -223,7 +223,13 @@ export function digest(report) {
 					? ` · ${report.renderSeconds[rowKey(g)]} s rendering`
 					: ''),
 		);
-		if (v === 'pass') continue;
+		if (v === 'pass') {
+			// What the republish check made of a passing game is worth reading: which baked defs it
+			// took for copies, and against which engine's built-ins.
+			for (const note of (g.notes ?? []).filter((n) => /republish/.test(n)))
+				lines.push(`    note: ${note}`);
+			continue;
+		}
 		for (const note of g.notes ?? []) lines.push(`    note: ${note}`);
 		if (g.looks.detail) lines.push(`    looks: ${short(g.looks.detail)}`);
 		for (const gate of failedGates)

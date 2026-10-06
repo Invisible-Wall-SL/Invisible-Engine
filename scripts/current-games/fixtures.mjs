@@ -189,6 +189,12 @@ for (const [key, make] of Object.entries(FIXTURES)) {
 		join(dir, 'runtime.json'),
 		JSON.stringify({ doc, componentDefs, componentDefaults: {}, ...(config ? { config } : {}) }),
 	);
+	// What a live pointer records as the engine the game was published with, as data: the built-ins
+	// this snapshot was baked from, which the harness tells the baked copies by.
+	writeFileSync(
+		join(dir, 'published-builtins.json'),
+		JSON.stringify({ version: 1, defs: builtins }),
+	);
 	games.push({
 		key,
 		name: `Fixture ${key.slice(3)}`,
@@ -201,6 +207,7 @@ for (const [key, make] of Object.entries(FIXTURES)) {
 		hasOwnBuiltBundle: false,
 		local: {
 			snapshot: dir,
+			publishedBuiltins: join(dir, 'published-builtins.json'),
 			assetBase: 'runtime',
 			manifestEntry: { ...entry, name: `Fixture ${key.slice(3)}`, projectKey: key },
 		},

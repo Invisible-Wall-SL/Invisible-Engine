@@ -33,13 +33,19 @@
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
 import { headlessShell } from '../playtest/headless-shell.mjs';
 import { assembleReport } from './lib/assemble.mjs';
 import { openPage } from './lib/browser.mjs';
-import { BUILTINS_FILE, canonical, readBuiltins, republishVariants } from './lib/builtins.mjs';
+import {
+	BUILTINS_FILE,
+	canonical,
+	publishedBuiltinsFor,
+	readBuiltins,
+	republishVariants,
+} from './lib/builtins.mjs';
 import { loadTolerance } from './lib/compare.mjs';
 import { loadGateResults } from './lib/gates.mjs';
 import { fetchManifest, fetchRuntimeJson, fetchSnapshot, listGames } from './lib/games.mjs';
@@ -163,14 +169,38 @@ async function plan() {
 const variantsDir = (planned) =>
 	join(cache, 'republished', safe(planned.game.key), safe(planned.snapshot.id));
 
-/** Both sides' republished variants of `planned`'s snapshot, from the two builds' built-ins. */
-const makeVariants = (planned, bundleFile, runtimes) =>
+/**
+ * Both sides' republished variants of `planned`'s snapshot, from the two builds' built-ins, the
+ * baked defs classified against `publishedBuiltinsFile` (the engine the game was published with)
+ * when given.
+ */
+const makeVariants = (planned, bundleFile, runtimes, publishedBuiltinsFile) =>
 	republishVariants({
 		bundleFile,
 		baseBuiltinsFile: join(runtimes.base, BUILTINS_FILE),
 		headBuiltinsFile: join(runtimes.head, BUILTINS_FILE),
+		publishedBuiltinsFile,
 		outDir: variantsDir(planned),
 	});
+
+/**
+ * The built-ins to tell `planned`'s baked copies by (`publishedBuiltinsFor` in `builtins.mjs`), an
+ * engine's extracted into `<out>/builtins/<sha>.json` and named relative to the plan's folder, which
+ * travels to the shards as the plan artifact; a fixture's own stays the absolute path it is.
+ */
+function publishedBuiltinsSource(planned) {
+	const found = publishedBuiltinsFor(planned, { builtinsDir: join(out, 'builtins'), cache });
+	if (found.file && !planned.game.local) found.file = relative(out, found.file);
+	if (found.note) found.note = redactText(found.note);
+	return found;
+}
+
+/** A plan entry's `publishedBuiltins` as a path: a fixture's absolute one, else beside the plan. */
+const publishedBuiltinsFile = (planned, planDir) => {
+	const file = planned.republished?.publishedBuiltins;
+	if (!file) return undefined;
+	return isAbsolute(file) ? file : join(planDir, file);
+};
 
 /**
  * Add the republished units to `thePlan`, when the change can have altered what a publish bakes.
@@ -206,7 +236,9 @@ async function planRepublish(thePlan, runtimes) {
 	thePlan.republish = { reason: 'the built-in component defs differ between the sides' };
 	await planRepublished(thePlan, {
 		bundleFor: (planned) => fetchRuntimeJson(planned.game, cache, planned.snapshot),
-		variantsFor: (planned, bundleFile) => makeVariants(planned, bundleFile, runtimes),
+		publishedBuiltinsFor: publishedBuiltinsSource,
+		variantsFor: (planned, bundleFile, published) =>
+			makeVariants(planned, bundleFile, runtimes, published),
 	});
 	const affected = thePlan.games.filter((p) => p.republished?.affected);
 	log(
@@ -273,11 +305,18 @@ async function render(thePlan, units, runtimes) {
 			snapshots.set(planned.game.key, fetchSnapshot(planned.game, cache, planned.snapshot));
 		return snapshots.get(planned.game.key);
 	};
-	// A game's republished variants, once per shard, from the same inputs the plan used.
+	// A game's republished variants, once per shard, from the same inputs the plan used (its
+	// published built-ins travel beside the plan).
+	const planDir = opt.plan ? dirname(resolve(opt.plan)) : out;
 	const variants = new Map();
 	const variantOf = (planned, snapshot) => {
 		if (!variants.has(planned.game.key)) {
-			makeVariants(planned, join(snapshot.dir, 'runtime.json'), runtimes);
+			makeVariants(
+				planned,
+				join(snapshot.dir, 'runtime.json'),
+				runtimes,
+				publishedBuiltinsFile(planned, planDir),
+			);
 			variants.set(planned.game.key, variantsDir(planned));
 		}
 		return variants.get(planned.game.key);

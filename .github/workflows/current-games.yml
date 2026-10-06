@@ -280,7 +280,8 @@ jobs:
             --base-build ".cache/current-games/runtimes/${{ needs.prepare.outputs.base }}" \
             --head-build .cache/current-games/runtimes/working-tree
           code=$?
-          cp .cache/current-games/plan-out/plan.json .cache/current-games/plan/plan.json
+          # The plan and, beside it, the published engines' built-ins the shards classify with.
+          cp -r .cache/current-games/plan-out/. .cache/current-games/plan/
           exit $code
 
       - uses: actions/upload-artifact@v4

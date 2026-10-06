@@ -14,8 +14,8 @@
 // module is what the plain-node runner, build and plan call.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '../../..');
 const REPUBLISH = join(import.meta.dirname, 'republish.mjs');
@@ -92,14 +92,96 @@ export function readBuiltins(runtimeDir) {
 	return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : null;
 }
 
+/** The full sha `ref` names in `repo`, or null when it names no commit there. */
+export function resolveCommit(ref, repo = ROOT) {
+	if (!/^[\w.~^/-]+$/.test(String(ref))) return null;
+	const r = spawnSync('git', ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], {
+		cwd: repo,
+		encoding: 'utf8',
+	});
+	return r.status === 0 ? r.stdout.trim() : null;
+}
+
+/**
+ * The built-in defs as they were at commit `sha` (the engine a game was published with), written to
+ * `outFile`: a detached worktree of that commit, read with its own loader, removed again. Needs no
+ * install, since the defs import only their own package's sources. Throws when the commit cannot be
+ * checked out or read.
+ */
+export function extractBuiltinsAt(sha, outFile, { repo = ROOT, cache } = {}) {
+	const worktree = join(
+		cache ?? join(repo, '.cache/current-games'),
+		'worktrees',
+		`builtins-${sha}`,
+	);
+	rmSync(worktree, { recursive: true, force: true });
+	const add = spawnSync('git', ['worktree', 'add', '--detach', '--force', worktree, sha], {
+		cwd: repo,
+		encoding: 'utf8',
+	});
+	if (add.status !== 0) throw new Error(`git worktree add ${sha}: ${add.stderr.trim()}`);
+	try {
+		mkdirSync(dirname(resolve(outFile)), { recursive: true });
+		extractBuiltins(worktree, outFile);
+	} finally {
+		spawnSync('git', ['worktree', 'remove', '--force', worktree], { cwd: repo });
+	}
+}
+
+/**
+ * The built-ins to tell a planned game's baked copies by, as `{ file, note }`: a fixture's own
+ * (`game.local.publishedBuiltins`), else the built-ins of the engine commit its pointer records
+ * (`snapshot.engine.shortCommit`, extracted once into `<builtinsDir>/<sha>.json`), else no file —
+ * main's stand in — with `note` saying which, for the report. A missing or unreadable engine never
+ * fails the run: it narrows what the republished row can see, and the note says so.
+ */
+export function publishedBuiltinsFor(planned, { builtinsDir, cache, repo = ROOT }) {
+	const { game, snapshot } = planned;
+	if (game.local?.publishedBuiltins)
+		return { file: game.local.publishedBuiltins, note: 'the built-ins the fixture was baked from' };
+	const engine = snapshot?.engine;
+	if (!engine?.shortCommit)
+		return { note: "main's built-ins, since the pointer records no engine for this snapshot" };
+	const sha = resolveCommit(engine.shortCommit, repo);
+	if (!sha)
+		return {
+			note: `main's built-ins, since engine ${engine.shortCommit} is not a commit in this checkout`,
+		};
+	const file = join(builtinsDir, `${sha}.json`);
+	if (!existsSync(file)) {
+		try {
+			extractBuiltinsAt(sha, file, { repo, cache });
+		} catch (e) {
+			return {
+				note:
+					`main's built-ins, since the built-ins at engine ${engine.shortCommit} could not be read ` +
+					`(${e.message.split('\n')[0].slice(0, 200)})`,
+			};
+		}
+	}
+	return {
+		file,
+		note:
+			`the built-ins of engine ${engine.version || engine.shortCommit} (${engine.shortCommit}), ` +
+			'the one this game was published with',
+	};
+}
+
 /**
  * Make both sides' republished variants of one snapshot under `outDir` (`base/runtime.json`,
  * `head/runtime.json`) and return the classification (`republish.json`): `copies` (baked defs that
- * are copies of main's built-ins), `authored` (kept as baked), `changed` (ids the two variants
- * disagree on) and `affected`. Deterministic in its inputs, so the plan and every render shard
- * compute the same variants.
+ * are copies of the published engine's built-ins — `publishedBuiltinsFile`, else main's),
+ * `authored` (kept as baked), `changed` (ids the two variants disagree on), `affected` and
+ * `classifiedAgainst`. Deterministic in its inputs, so the plan and every render shard compute the
+ * same variants.
  */
-export function republishVariants({ bundleFile, baseBuiltinsFile, headBuiltinsFile, outDir }) {
+export function republishVariants({
+	bundleFile,
+	baseBuiltinsFile,
+	headBuiltinsFile,
+	publishedBuiltinsFile,
+	outDir,
+}) {
 	mkdirSync(outDir, { recursive: true });
 	republishCli(ROOT, [
 		'variants',
@@ -109,6 +191,7 @@ export function republishVariants({ bundleFile, baseBuiltinsFile, headBuiltinsFi
 		resolve(baseBuiltinsFile),
 		'--head-builtins',
 		resolve(headBuiltinsFile),
+		...(publishedBuiltinsFile ? ['--published-builtins', resolve(publishedBuiltinsFile)] : []),
 		'--out',
 		resolve(outDir),
 	]);

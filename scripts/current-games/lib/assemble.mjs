@@ -57,12 +57,13 @@ const list = (ids) => (ids.length ? ids.join(', ') : 'none');
 function republishNotes(planned, variant) {
 	const r = planned.republished;
 	if (!r || r.status !== 'planned') return [];
+	const toldBy = r.note ? ` A copy is a baked def equal to ${r.note}.` : '';
 	if (variant === 'republished')
 		return [
 			`as republished: the snapshot's ${r.copies.length} baked cop${r.copies.length === 1 ? 'y' : 'ies'} of ` +
 				`built-in component defs (${list(r.copies)}) are replaced by each side's built-ins, and the ` +
 				`sides differ on ${list(r.changed)}; ${r.authored.length} authored def(s) kept as baked ` +
-				`(${list(r.authored)}).`,
+				`(${list(r.authored)}).${toldBy}`,
 		];
 	if (r.affected)
 		return [
@@ -71,7 +72,8 @@ function republishNotes(planned, variant) {
 		];
 	return [
 		'the built-in component defs differ between the sides, but on none this snapshot ships as a ' +
-			`copy (${list(r.copies)}), so a republish would not change it: no republished render.`,
+			`copy (copies: ${list(r.copies)}; authored: ${list(r.authored)}), so a republish would not ` +
+			`change it: no republished render.${toldBy}`,
 	];
 }
 

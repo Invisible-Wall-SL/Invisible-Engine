@@ -58,12 +58,18 @@ and `lib/republish.mjs` (the TypeScript half, run under the TS loader).
   cached build and the branch's from its own. The CI cache key is `current-games-runtime-v2-<sha>`:
   a build from before this file is rebuilt.
 - **Which baked defs are copies.** A snapshot carries no provenance, so a baked def equal by content
-  to **main's** built-in of the same id is a copy of the built-in; every other def is the author's
-  and is kept as baked. The bake leaves a built-in's copy byte-equal (its spine keys and atlas refs
-  are bare names, which the post-resolve fixups skip), while a saved def goes through
-  `normalizeComponent` (which drops a built-in's `capability` and `defaultInstanceParams` and
-  reorders fields) and an edit changes its content. Main's built-ins decide on both sides, so the
-  two variants replace the same ids.
+  to the built-in of the same id **as it was when the game was published** is a copy of the
+  built-in; every other def is the author's and is kept as baked. The bake leaves a built-in's copy
+  byte-equal (its spine keys and atlas refs are bare names, which the post-resolve fixups skip),
+  while a saved def goes through `normalizeComponent` (which drops a built-in's `capability` and
+  `defaultInstanceParams` and reorders fields) and an edit changes its content. The published
+  engine's built-ins come from the engine commit the game's pointer records at publish
+  (`SnapshotMeta.engine.shortCommit`): the plan checks that commit out into a bare worktree and
+  reads its defs (no install needed, 0.4 s), keeps them beside the plan (`builtins/<sha>.json`, so
+  the shards classify alike), and the row says so. When the pointer records no engine, or the
+  commit is not in the checkout (this repository's history begins on 2026-10-02), **main's**
+  built-ins stand in and the row says that instead, which misses a copy main has changed since the
+  publish. One set decides on both sides, so the two variants replace the same ids.
 - **What a republish does next.** The bake re-resolves the component closure (the instances the doc
   places, the defs those nest, the components `component`-kind params name), so a built-in that
   newly nests another def ships it. The same `resolveComponentClosure` runs here, loading an authored
@@ -84,10 +90,13 @@ and `lib/republish.mjs` (the TypeScript half, run under the TS loader).
   the other, and the summary line ends `· N row(s) as republished`. Both rows count: a changed
   republished screen fails the run like any other.
 - **Blind spots that remain.** A saved shared-library copy of an unchanged built-in reads as a copy
-  and is replaced, though a republish would keep it (a false difference the owner can see as such); a
-  copy of a built-in that main changed since the game's publish reads as authored and is kept,
-  though a republish would replace it (no row, until the game is republished or the bake records
-  where each def came from — an open question for the owner).
+  and is replaced, though a republish would keep it (a false difference the owner can see as such).
+  For a snapshot whose published engine is unknown, a copy of a built-in that main changed since
+  the publish reads as authored and is kept, though a republish would replace it (no row, until the
+  game is republished or the bake records where each def came from — an open question for the
+  owner). **Every live game is in that case today** (measured below): its snapshot predates this
+  repository's history, and its baked `freeSpinCounter` is not main's, so the 1 px proof flagged
+  nothing on the live games. A republish of each game makes the row exact for it from then on.
 
 ## Screen scripts
 
@@ -347,10 +356,10 @@ against its merge-base with main instead of counting as "change set unknown".
   before its face arrives keeps that measurement (Pixi caches `CanvasTextMetrics`), so it can sit
   wrong until it changes. That is a real bug class, and this harness cannot catch it.
 - **A change to a built-in component definition reaches a published game only when it is
-  republished.** The as-republished row (above) shows what that republish would change, with the two
+  republished.** The as-republished row (above) shows what that republish would change, with the
   blind spots listed there: a shared-library save of an unchanged built-in is replaced though a
-  republish would keep it, and a copy of a built-in that main changed since the game's publish is
-  kept though a republish would replace it.
+  republish would keep it, and, for a snapshot whose published engine is unknown, a copy of a
+  built-in that main changed since the game's publish is kept though a republish would replace it.
 
 ## Measured on the live games (CI, 2026-10-05)
 
@@ -411,6 +420,17 @@ before the change, and rendered with main's runtime (`89407ba`) against the work
   after | diff, cropped to the panel). The repo's own gate caught the seed too:
   `packages/engine-layout/scripts/test-hold-and-win-template.mjs` failed on the seeded commit
   (`components.freeSpinCounter changed`), as it should for an unintended built-in change.
+- **The same seed on the live games** (PR runs
+  [37391326347](https://github.com/Invisible-Wall-SL/Invisible-Engine/actions/runs/37391326347) and
+  [37391385875](https://github.com/Invisible-Wall-SL/Invisible-Engine/actions/runs/37391385875), on
+  the seeded heads of #1063, before the published-engine classification existed): the plan found
+  the two builds' built-ins differ and classified every live snapshot, and **no live game was
+  affected**: 12 pass · 0 fail · 9 not rendered · 0 changed, 161 of 161 compared screens
+  byte-identical, no republished row. Every live snapshot's baked `freeSpinCounter` differs from
+  main's built-in (the games were published on an engine from before this repository's history, and
+  the def has changed since), so against main's built-ins it reads as the author's and is kept. The
+  classification now prefers the built-ins of the engine the pointer records, which fixes this for
+  every snapshot published since the history began; the live games need a republish first.
 - **The revert and main vs main** are being measured in
   [#1063](https://github.com/Invisible-Wall-SL/Invisible-Engine/pull/1063); the counts land here in
   that PR.

@@ -106,10 +106,11 @@ const POINTER_KEY = /^[\w.-]+(\/[\w.-]+)*\/pointer\.json$/;
 const CONCURRENCY = 12;
 
 /**
- * The game's current published snapshot: `{ id, prefix }`, or `null` when its pointer does not
- * exist (never published). A game in the list with `local.snapshot` (a fixture) has the id `local`. Read
- * once per run (the plan), so every render of the run uses the same snapshot even if the game is
- * republished mid-run.
+ * The game's current published snapshot: `{ id, prefix, engine }`, or `null` when its pointer does
+ * not exist (never published). `engine` is the pointer's record of the engine release the game was
+ * published with (`{ version, shortCommit }`, `publishedRuntime.ts`), absent on older snapshots. A
+ * game in the list with `local.snapshot` (a fixture) has the id `local`. Read once per run (the
+ * plan), so every render of the run uses the same snapshot even if the game is republished mid-run.
  */
 export async function currentSnapshot(game) {
 	if (game.local?.snapshot) return { id: 'local' };
@@ -122,9 +123,17 @@ export async function currentSnapshot(game) {
 	const pointer = JSON.parse(text);
 	if (typeof pointer.current !== 'string' || !/^[\w-]+$/.test(pointer.current))
 		throw new Error(`${game.publishedPointerKey}: no valid current snapshot`);
+	const meta = Array.isArray(pointer.snapshots)
+		? pointer.snapshots.find((s) => s?.id === pointer.current)
+		: undefined;
+	const engine =
+		meta?.engine && typeof meta.engine.shortCommit === 'string'
+			? { version: String(meta.engine.version ?? ''), shortCommit: meta.engine.shortCommit }
+			: undefined;
 	return {
 		id: pointer.current,
 		prefix: `${game.publishedPointerKey.replace(/pointer\.json$/, '')}${pointer.current}/`,
+		...(engine ? { engine } : {}),
 	};
 }
 

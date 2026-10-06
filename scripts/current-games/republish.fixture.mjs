@@ -15,8 +15,11 @@ import {
 	BUILTINS_FILE,
 	canonical,
 	extractBuiltins,
+	extractBuiltinsAt,
+	publishedBuiltinsFor,
 	readBuiltins,
 	republishVariants,
+	resolveCommit,
 } from './lib/builtins.mjs';
 import { planRepublished, unitId } from './lib/plan.mjs';
 import { classifyBaked, republish } from './lib/republish.mjs';
@@ -123,6 +126,7 @@ await test("the head variant carries the branch's built-in, the base variant the
 		changed: ['freeSpinCounter'],
 		versionsChanged: false,
 		affected: true,
+		classifiedAgainst: 'main',
 	});
 	assert.equal(
 		made.head.componentDefs.freeSpinCounter.root.children[0].x,
@@ -140,6 +144,98 @@ await test("the head variant carries the branch's built-in, the base variant the
 	assert.deepEqual(made.head.doc, bundle.doc);
 	assert.deepEqual(made.head.editorArt, bundle.editorArt);
 	assert.equal('componentVersions' in made.head, false);
+});
+
+await test("a copy of a built-in that main changed since the publish is told by the published engine's built-ins", async () => {
+	// The game was published on an engine whose counter frame was narrower; main has since widened it,
+	// and the branch moves it. Against main's built-ins the baked copy reads as authored (kept, so the
+	// branch's change is missed); against the published engine's it is the copy it is.
+	const published = clone(base);
+	published.freeSpinCounter.root.children[0].width -= 10;
+	const bundle = snapshot();
+	bundle.componentDefs.freeSpinCounter = clone(published.freeSpinCounter);
+	const missed = await republish(bundle, base, headMoved());
+	assert.equal(missed.meta.affected, false, "main's built-ins miss the stale copy");
+	assert.deepEqual(missed.meta.authored, ['freeSpinCounter', 'hudReadout']);
+	assert.equal(missed.meta.classifiedAgainst, 'main');
+	const told = await republish(bundle, base, headMoved(), published);
+	assert.equal(told.meta.classifiedAgainst, 'published');
+	assert.deepEqual(told.meta.copies, ['freeSpinCounter', 'loadingBar']);
+	assert.deepEqual(told.meta.changed, ['freeSpinCounter']);
+	// Both variants carry a current def: main's on the base side, the branch's on the head side.
+	assert.equal(
+		told.base.componentDefs.freeSpinCounter.root.children[0].width,
+		base.freeSpinCounter.root.children[0].width,
+	);
+	assert.equal(
+		told.head.componentDefs.freeSpinCounter.root.children[0].x,
+		base.freeSpinCounter.root.children[0].x + 1,
+	);
+});
+
+await test('the built-ins of a commit are read from a bare worktree of it', () => {
+	const sha = resolveCommit('HEAD', ROOT);
+	assert.match(sha, /^[0-9a-f]{40}$/);
+	assert.equal(resolveCommit('no-such-ref-0000', ROOT), null);
+	assert.equal(resolveCommit('bad ref; rm -rf', ROOT), null);
+	const file = join(tmp, 'at', 'builtins.json');
+	extractBuiltinsAt(sha, file, { repo: ROOT, cache: join(tmp, 'cache') });
+	assert.equal(canonical(readBuiltins(join(tmp, 'at')).defs), canonical(base));
+	assert.equal(
+		existsSync(join(tmp, 'cache', 'worktrees', `builtins-${sha}`)),
+		false,
+		'the worktree is removed',
+	);
+	assert.throws(
+		() =>
+			extractBuiltinsAt('0'.repeat(40), join(tmp, 'at2', 'b.json'), {
+				repo: ROOT,
+				cache: join(tmp, 'cache'),
+			}),
+		/worktree add/,
+	);
+});
+
+await test("which built-ins tell a game's copies: the fixture's own, the published engine's, else main's", () => {
+	const options = {
+		builtinsDir: join(tmp, 'plan', 'builtins'),
+		cache: join(tmp, 'cache'),
+		repo: ROOT,
+	};
+	const fixture = publishedBuiltinsFor(
+		{
+			game: { local: { publishedBuiltins: '/x/published-builtins.json' } },
+			snapshot: { id: 'local' },
+		},
+		options,
+	);
+	assert.deepEqual(fixture, {
+		file: '/x/published-builtins.json',
+		note: 'the built-ins the fixture was baked from',
+	});
+	const sha = resolveCommit('HEAD', ROOT);
+	const short = sha.slice(0, 7);
+	const engine = publishedBuiltinsFor(
+		{ game: {}, snapshot: { id: 's1', engine: { version: '12', shortCommit: short } } },
+		options,
+	);
+	assert.equal(engine.file, join(options.builtinsDir, `${sha}.json`));
+	assert.match(engine.note, /^the built-ins of engine 12 \(/);
+	assert.equal(canonical(JSON.parse(readFileSync(engine.file, 'utf8')).defs), canonical(base));
+	const again = publishedBuiltinsFor(
+		{ game: {}, snapshot: { id: 's2', engine: { version: '12', shortCommit: short } } },
+		options,
+	);
+	assert.equal(again.file, engine.file, 'an engine is extracted once per plan');
+	const none = publishedBuiltinsFor({ game: {}, snapshot: { id: 's3' } }, options);
+	assert.equal(none.file, undefined);
+	assert.match(none.note, /records no engine/);
+	const unknown = publishedBuiltinsFor(
+		{ game: {}, snapshot: { id: 's4', engine: { version: '3', shortCommit: 'deadbeef' } } },
+		options,
+	);
+	assert.equal(unknown.file, undefined);
+	assert.match(unknown.note, /deadbeef is not a commit in this checkout/);
 });
 
 await test('the same built-ins on both sides: nothing is affected, and the variants equal the snapshot', async () => {
@@ -209,12 +305,21 @@ await test('the CLI writes both variants and the classification', () => {
 		outDir: dir,
 	});
 	assert.deepEqual(meta.changed, ['freeSpinCounter']);
+	assert.equal(meta.classifiedAgainst, 'main');
 	assert.ok(existsSync(join(dir, 'base', 'runtime.json')));
 	const head = JSON.parse(readFileSync(join(dir, 'head', 'runtime.json'), 'utf8'));
 	assert.equal(
 		head.componentDefs.freeSpinCounter.root.children[0].x,
 		base.freeSpinCounter.root.children[0].x + 1,
 	);
+	const told = republishVariants({
+		bundleFile: join(tmp, 'bundle.json'),
+		baseBuiltinsFile: join(tmp, BUILTINS_FILE),
+		headBuiltinsFile: join(tmp, 'head-builtins.json'),
+		publishedBuiltinsFile: join(tmp, BUILTINS_FILE),
+		outDir: join(tmp, 'cli-published'),
+	});
+	assert.equal(told.classifiedAgainst, 'published');
 	assert.throws(
 		() =>
 			republishVariants({
@@ -252,16 +357,29 @@ await test('the plan renders only an affected game as republished, and a variant
 			copies: ['freeSpinCounter'],
 			authored: [],
 			changed: ['freeSpinCounter'],
+			classifiedAgainst: 'published',
 		},
 		same: { affected: false, copies: ['button'], authored: ['hudReadout'], changed: [] },
 	};
+	const publishedFiles = [];
 	await planRepublished(plan, {
 		bundleFor: async (entry) => `${entry.game.key}/runtime.json`,
-		variantsFor: async (entry) => {
+		publishedBuiltinsFor: (entry) =>
+			entry.game.key === 'affected'
+				? { file: 'builtins/abc.json', note: 'the built-ins of engine 7 (abc1234)' }
+				: { note: "main's built-ins, since the pointer records no engine for this snapshot" },
+		variantsFor: async (entry, bundleFile, published) => {
+			publishedFiles.push(published);
 			if (entry.game.key === 'broken') throw new Error('secret-free reason');
 			return metas[entry.game.key];
 		},
 	});
+	assert.deepEqual(publishedFiles, ['builtins/abc.json', undefined, undefined]);
+	assert.equal(plan.games[0].republished.publishedBuiltins, 'builtins/abc.json');
+	assert.equal(plan.games[0].republished.classifiedAgainst, 'published');
+	assert.match(plan.games[0].republished.note, /engine 7/);
+	assert.equal(plan.games[1].republished.classifiedAgainst, 'main');
+	assert.equal('publishedBuiltins' in plan.games[1].republished, false);
 	assert.deepEqual(
 		plan.units.map((u) => u.id).sort(),
 		['base', 'head']
@@ -311,6 +429,17 @@ await test('the stand-in fixtures bake the given built-ins, like a publish', () 
 	const { copies, authored } = classifyBaked(lines, headMoved());
 	assert.equal(authored.length, 0, 'every baked def is a copy of the built-ins it was baked from');
 	assert.ok(copies.includes('freeSpinCounter'));
+	// The fixture records the built-ins it was baked from, as a live pointer records its engine.
+	const games = JSON.parse(readFileSync(join(out, 'games.json'), 'utf8')).games;
+	const game = games.find((g) => g.key === 'cg-lines');
+	assert.equal(
+		game.local.publishedBuiltins,
+		join(out, 'snapshots', 'cg-lines', 'published-builtins.json'),
+	);
+	assert.equal(
+		canonical(JSON.parse(readFileSync(game.local.publishedBuiltins, 'utf8')).defs),
+		canonical(headMoved()),
+	);
 });
 
 rmSync(tmp, { recursive: true, force: true });
