@@ -133,14 +133,26 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     rendered or in-flight step loses its approval at any price, so nothing is queued and paid for
     twice unseen (the round-one blocker of 8D's review). Steps are compared field by
     field (`stepKey`): `jsonb` stores object keys in its own order, so a stringified stored step
-    never matched a new one. The technician's estimate profile is held to ADR-0008's model until its
-    definition lands in its own PR.
+    never matched a new one. The technician's estimate profile prices it at its definition's model
+    (`atlas-technician.md`, Sonnet 5.5), held to it by `check:director-runs`.
   - **Deploy:** atlas-tool's `RUNPOD_ENDPOINT_GPU` must be set and priced, or no Director run can
     start (`docs/INFRA.md`).
   - **Open:** the Atlas Maker card editor does not yet show the measured timings (ADR-0008 §2);
     adding a step, or editing one region of a shared row, goes through "Send my changes"; the cap's
     queued-render projection (`projectQueuedGpu`) still uses the run's mean or the seed, not a
     step's card.
+- 2026-10-07 — **Director 8D transition closed.** With all three definitions on main (technician,
+  artist, coordinator), `TRANSITION_TOOLS`, `transitionProblem`, the Agents tab's
+  `transitionTools` rule and the `CLEANUP OWED` notice are gone: every adapter op's allow-list
+  again matches exactly the definitions that name it, both ways, with no exceptions.
+
+- 2026-10-07 — **Director 8D cleanup: the artist's render tools are the technician's alone.** With
+  the narrowed `atlas-artist.md` on main, `queue_variants`, `choose_variant`, `pack_sheet` and
+  `comfyui.job_status` serve only `atlas-technician`; the ungated artist path in `queue_variants`
+  is gone (`step` is required again); `TRANSITION_TOOLS` keeps only the coordinator's
+  `atlas.list_blueprints`, dropped after the coordinator's definition lands; `AWAITING_DEFINITION`
+  is gone (the technician's definition is on main), so every known agent must have a definition.
+
 - 2026-10-07 — **Invisible Director: the atlas technician** (ADR-0008 card 8D). Inert for a person
   and for every current game: only a Director run reaches any of it.
   - **Agents:** the code lands first, with NO change under `services/director-worker/agents/`;
@@ -151,11 +163,11 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     `atlas-technician` but nothing assigns it (`run.assign_task` refuses an agent with no
     definition), the artist keeps `queue_variants` / `choose_variant` / `pack_sheet` /
     `job_status` and renders the pre-8D way (no `step`, no recipe gate; `lock` omitted keeps the
-    pin), and the five transition allowances live in `TRANSITION_TOOLS` (`registry.ts`), per agent all or
-    none (main's definition or the new one, never a mix), read by the Agents tab's rules and
-    `check:director-adapters` (with `AWAITING_DEFINITION` for the technician). **Follow-up owed:** once
-    the three definition PRs land, a final small PR empties `TRANSITION_TOOLS`, removes
-    `AWAITING_DEFINITION` and the artist's pre-8D branch in `queue_variants`.
+    pin), and the five transition allowances live in `TRANSITION_TOOLS` (`registry.ts`), per agent
+    all or none (main's definition or the new one, never a mix), read by the Agents tab's rules
+    and `check:director-adapters` (with `AWAITING_DEFINITION` for the technician). **Follow-up
+    (done 2026-10-07, entries above):** once the three definition PRs land, remove
+    `TRANSITION_TOOLS`, `AWAITING_DEFINITION` and the artist's pre-8D branch in `queue_variants`.
   - **Adapter ops** (`director/ops/atlasSetup.ts`): `list_blueprints` (reviewed image cards from
     atlas-tool `GET /blueprints`, cached a minute), `set_atlas_pipeline` (`/saveconfig` with only
     `atlas_pipeline`, the size and the card's per-atlas keys or `bpParams[<id>]`), `set_region_pipeline`

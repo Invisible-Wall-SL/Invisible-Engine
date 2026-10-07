@@ -2618,9 +2618,8 @@ check(
 	);
 
 	{
-		// ADR-0008 card 8D's transition: each agent's moving ops are accepted all named (main's
-		// definition) or none (the new one), never a mix. Both states are built from whichever
-		// definition the tree holds, so this holds before and after the definition PRs land.
+		// ADR-0008 card 8D moved the artist's render tools to the technician and gave the
+		// coordinator the blueprint catalogue; the Agents tab holds both definitions to that.
 		const agentsDir = fileURLToPath(
 			new URL('../../../services/director-worker/agents/', import.meta.url),
 		);
@@ -2646,25 +2645,25 @@ check(
 		const verdict = (name: string, text: string) =>
 			agentEdit.validateAgentEdit(name, text, agents.agentEditRules(name)).ok;
 		check(
-			"the artist's moving tools: all named, none named, or a mix refused",
+			"the artist's former render tools: refused, named or in part; the narrowed definition passes",
 			[
 				verdict('atlas-artist', withTools(artist, moving)),
 				verdict('atlas-artist', without(artist, moving)),
 				verdict('atlas-artist', withTools(without(artist, moving), moving.slice(1))),
 			],
-			[true, true, false],
+			[false, true, false],
 		);
 		const coordinator = readFileSync(`${agentsDir}coordinator.md`, 'utf8');
 		check(
-			"the coordinator's catalogue: named or not both pass; any other adapter op added is refused",
+			"the coordinator's catalogue: dropping it or adding another adapter op is refused",
 			[
+				verdict('coordinator', coordinator),
 				verdict('coordinator', without(coordinator, ['atlas.list_blueprints'])),
-				verdict('coordinator', withTools(coordinator, ['atlas.list_blueprints'])),
 				verdict('coordinator', withTools(coordinator, ['atlas.set_output'])),
 				agentEdit.validateAgentEdit('atlas-artist', withTools(artist, ['atlas.set_output']), rules)
 					.ok,
 			],
-			[true, true, false, false],
+			[true, false, false, false],
 		);
 	}
 
