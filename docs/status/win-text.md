@@ -296,6 +296,18 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
 
 ## Recent changes
 
+- 2026-10-07 — **The grid lists exactly the symbols `/symbols` lists.** The rows were
+  `Object.keys` of the published (or committed) symbol defaults, so a symbol `/config` badges unused
+  still had a row, and a stale publish listed symbols the config no longer has. `+page.server.ts`
+  now takes `symbolsPageConfig`'s `symbols` and `coins` over the config `resolveGameConfig` already
+  gave it (the project's own, else its kind's template): `symbolsUsed`, in the order `/symbols` draws
+  it (symbols, then coins in pot order). The win-line grid lists no coin (a pots overlay drops it
+  over a cell, never along a line; the page names them beside the scatter note). A hidden symbol's
+  `bySymbol` / `byCell` strings stay in the doc (the page saves the whole doc; the save prunes
+  blanks only) and return with its row; they are still harvested for Localization, as before. Gate:
+  `check:symbols-follow-config` now also proves `/win-text`'s rows are `symbolsUsed` in `/symbols`'
+  drawn order for every kind × setup × defaults source, that the strings survive a save, and pins
+  the wiring (rows, the coin-free grid, the whole-doc save). Guide: [The win-line message grid](../tools/win-text.md#the-win-line-message-grid).
 - 2026-10-05 — **Invisible Director can drive this tool.** Invisible Director's `wintext.get_doc` /
   `wintext.update_doc` (`apps/launcher-api/src/lib/server/director/ops/wintext.ts`) save through
   `saveWinTextDoc`, under `If-Match`, stamping `saved_by` (`tool: 'director'`, the agent, the run).
