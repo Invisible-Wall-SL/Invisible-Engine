@@ -2,8 +2,8 @@ import { error, isHttpError } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
 import type { DirectorRun } from '../db/schema';
 import { clientExists, mayCreateUnderClient } from '../clients';
-import { UNASSIGNED_CLIENT } from '../projectPaths';
-import { isValidProjectKey, projectExists, projectKeyTaken } from '../projects';
+import { FOLDER_TAKEN_WORDS, UNASSIGNED_CLIENT, r2Slug } from '../projectPaths';
+import { isValidProjectKey, projectExists, projectInFolder, projectKeyTaken } from '../projects';
 import { getRoleOverrides } from '../roleToolAccess';
 import { requireProjectScope } from '../toolScope';
 import { getToolOverrides } from '../userToolAccess';
@@ -78,7 +78,10 @@ export interface DirectorProjectScope {
  * a client they may create under, `client` naming it (none = unassigned) — and whose mockups, if
  * any, are the caller's own (`pendingDocOwnedBy`): a key another person has started uploading
  * under is theirs until the project exists. Anything else is the same 403 as an inaccessible
- * project, so the answer says nothing about which keys exist or who is preparing one.
+ * project, so the answer says nothing about which keys exist or who is preparing one — except a
+ * creatable key whose R2 folder is already a project's under that client (`sunken_temple` beside
+ * `sunken-temple`, live or deleted): its uploads would land in that project's `director/` tree, so
+ * it is a 409 — one that does not name the project, which the caller may have no grant on.
  */
 export async function requireDirectorProjectScope(
 	user: User,
@@ -98,6 +101,8 @@ export async function requireDirectorProjectScope(
 	const forbidden = () => error(403, `You do not have access to the project "${projectKey}".`);
 	if (!creatable) throw forbidden();
 	const scope = { clientKey: clientKey ?? UNASSIGNED_CLIENT, projectKey, pending: true };
+	const holder = await projectInFolder(r2Slug(projectKey), { client: scope.clientKey });
+	if (holder) throw error(409, FOLDER_TAKEN_WORDS);
 	const { doc } = await loadMockupsDoc(scope.clientKey, scope.projectKey);
 	if (!pendingDocOwnedBy(doc, user.id)) throw forbidden();
 	return scope;

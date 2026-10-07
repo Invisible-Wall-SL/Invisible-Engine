@@ -27,7 +27,8 @@
  *    the bytes are, and a key or name that is not one is the same 404;
  *  - the summary names the project's first game's URL, or null;
  *  - every draft run is inserted under its project key's lock, which the pending-mockup cleanup
- *    takes too.
+ *    takes too; a key whose R2 folder is a project's under the run's client is refused there, on
+ *    the lock's transaction, before any run names it (409 `key_folder_taken`).
  */
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -172,6 +173,13 @@ fake('lib/server/projectKeyLock.ts', {
 });
 
 // ── Projects, clients, templates ──────────────────────────────────────────────
+const slug = (key: string) =>
+	key
+		.toLowerCase()
+		.replace(/[^a-z0-9]/g, '_')
+		.slice(0, 60);
+/** Every `projectInFolder` question, and whether it ran on the held lock's transaction. */
+const folderReads: { folder: string; client: string | undefined; onLockTx: boolean }[] = [];
 type Proj = { client: string | null; gameType: string; template: boolean; deleted?: boolean };
 const PROJECTS = new Map<string, Proj>([
 	['cloud', { client: null, gameType: 'lines', template: false }],
@@ -215,6 +223,18 @@ fake('lib/server/projects.ts', {
 	projectClientKey: async (key: string) => live(key)?.client ?? null,
 	projectExists: async (key: string) => live(key) !== undefined,
 	projectKeyTaken: async (key: string) => PROJECTS.has(key),
+	projectInFolder: async (
+		folder: string,
+		{ client, db }: { client?: string; db?: unknown } = {},
+	) => {
+		folderReads.push({ folder, client, onLockTx: db === TX && LOCKED.size > 0 });
+		const holders = [...PROJECTS]
+			.filter(([key]) => slug(key) === folder)
+			.filter(([, p]) => client === undefined || slug(p.client ?? 'unassigned') === slug(client))
+			.map(([key]) => key)
+			.sort();
+		return holders[0] ?? null;
+	},
 	projectName: async (key: string) => (live(key) ? `Project ${key}` : null),
 	listDirectorTemplateProjects: async () =>
 		[...PROJECTS].filter(([, p]) => p.template && !p.deleted).map(([k, p]) => asProject(k, p)),
@@ -694,6 +714,22 @@ console.log('create');
 	]);
 	check('an existing key', await refused({ key: 'other-game' }), [400, 'key_exists']);
 	check('a deleted key', await refused({ key: 'gone' }), [400, 'key_deleted']);
+	// OPEN_QUESTIONS 17: `lines_sample` is free as a key, but its R2 folder is `lines-sample`'s.
+	const alias = await create(OWNER, createBody({ key: 'lines_sample' }));
+	check(
+		'a key whose folder is a project’s under the client is 409, naming no project',
+		[alias.status, alias.body.error, alias.body.message],
+		[
+			409,
+			'key_folder_taken',
+			"That key's folder is already used by an existing project; choose another key.",
+		],
+	);
+	check(
+		'…asked under the key’s lock, on its transaction, for the run’s client',
+		folderReads.at(-1),
+		{ folder: 'lines_sample', client: 'acme', onLockTx: true },
+	);
 	check('no mockups and no notes', await refused({ notes: '' }), [400, 'notes_required']);
 	check('a bad preset', await refused({ preset: { variantsPerRegion: 0 } }), [400, 'bad_preset']);
 	check('an unpriced GPU', await refused({ preset: { gpu: 'Abacus' } }), [400, 'bad_preset']);

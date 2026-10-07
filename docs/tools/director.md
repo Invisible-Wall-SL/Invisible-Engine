@@ -41,6 +41,8 @@ The same project setup as Game Maker's "Create a game", plus what the agents nee
 1. **Project.** Name, key (filled in from the name until you edit it; `a-z`, `0-9`, `_`, `-`, 64
    at most), client (the clients you may create under, as Game Maker lists them) and game type.
    The key must be free: a key that names an existing project is refused with Game Maker's words.
+   So is a key that differs from a project's under the same client only by `-` vs `_` (`my_game`
+   beside `my-game`): both would store their files in one folder, so the hint asks for another key.
 2. **Template.** The published games marked for Director, for the game type you picked. Under the
    pick, the template's **GAME** and **USING** chips (the same as its Game Maker card) and its
    **LOCKED** items: math contract, paytable, bet modes, paylines, feature rules. The agents never

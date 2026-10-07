@@ -5,7 +5,7 @@ import {
 	type DuplicateResult,
 	type DuplicateScope,
 } from './projectDuplicate';
-import { UNASSIGNED_CLIENT } from './projectPaths';
+import { ProjectFolderTakenError, UNASSIGNED_CLIENT } from './projectPaths';
 import { scaffoldProject } from './projectScaffold';
 import {
 	canAccessProject,
@@ -80,7 +80,12 @@ export async function duplicateProject(
 	// otherwise a duplicated cluster game would scaffold (and profile) as `lines`.
 	const gameType = await projectGameType(source);
 
-	await createProject(key, name, clientKey, gameType);
+	try {
+		await createProject(key, name, clientKey, gameType);
+	} catch (e) {
+		if (e instanceof ProjectFolderTakenError) return { ok: false, status: 409, error: e.message };
+		throw e;
+	}
 	try {
 		const result = await duplicateProjectData(
 			{ clientKey: sourceClient, projectKey: source },

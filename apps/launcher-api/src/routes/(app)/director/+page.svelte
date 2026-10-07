@@ -148,10 +148,13 @@
 		} catch (e) {
 			if (k !== scopeKey || c !== scopeClient) return;
 			mockups = null;
-			keyHint =
-				isRefusal(e) && e.status === 403
+			keyHint = !isRefusal(e)
+				? ''
+				: e.status === 403
 					? 'That key is not free: a project has it, had it, or someone else is preparing a game under it.'
-					: '';
+					: e.status === 409
+						? e.message
+						: '';
 			if (!keyHint) mockupsErr = describe(e);
 		}
 	}

@@ -17,6 +17,12 @@
  * that `gate()`, `resolveToolScope` and `sessionProjectScope` hand back the default instead, clear
  * the stale value (only while it still names the key that failed), and never check the default.
  *
+ * The Director's scope gate (`requireDirectorProjectScope`) is pinned here too: a PENDING key —
+ * a game the New-game form is about to create — whose R2 folder is already a project's under the
+ * same client (`sunken_temple` beside `sunken-temple`, live or deleted) is a 409 that does not name
+ * it (the caller may hold no grant on it), asked
+ * only after the caller is known to be able to create under that client (OPEN_QUESTIONS 17).
+ *
  * Runs the REAL module. Only the Postgres boundary is replaced: `projects.ts` by a table of which
  * user may reach which project, `auth.ts`'s session reads by a token → stored-key table, and the
  * two tool-override tables by "no overrides", so the check needs no database. If `toolScope.ts`
@@ -37,7 +43,19 @@ const PROJECTS = new Map<string, string | null>([
 	['bookofborut', 'borut'],
 	['hotfruits', 'eagaming'],
 	['sandbox', null],
+	['sunken-temple', 'borut'],
 ]);
+/** Soft-deleted projects → their client: absent to every rule, but their keys and folders taken. */
+const DELETED = new Map<string, string | null>([['old-game', 'borut']]);
+/** userId → the clients they may create projects under. */
+const CREATE_GRANTS = new Map<string, Set<string>>([['artist-borut', new Set(['borut'])]]);
+const slug = (s: string) =>
+	s
+		.toLowerCase()
+		.replace(/[^a-z0-9]/g, '_')
+		.slice(0, 60);
+/** Every `projectInFolder` question: the folder and the client it was limited to. */
+const folderAsks: { folder: string; client: string | undefined }[] = [];
 /** userId → the project keys `accessibleProjects` would list for them. */
 const ACCESS = new Map<string, Set<string>>([
 	['artist-borut', new Set(['cloud', 'bookofborut'])],
@@ -58,7 +76,38 @@ mock.module(new URL('../src/lib/server/projects.ts', import.meta.url).href, {
 			resolved.push(key);
 			return PROJECTS.get(key) ?? null;
 		},
+		isValidProjectKey: (v: string) => /^[a-z0-9][a-z0-9_-]{0,63}$/.test(v),
+		projectExists: async (key: string) => PROJECTS.has(key),
+		projectKeyTaken: async (key: string) => PROJECTS.has(key) || DELETED.has(key),
+		projectInFolder: async (folder: string, { client }: { client?: string } = {}) => {
+			folderAsks.push({ folder, client });
+			const holders = [...PROJECTS, ...DELETED]
+				.filter(([key]) => slug(key) === folder)
+				.filter(([, owner]) => client === undefined || slug(owner ?? 'unassigned') === slug(client))
+				.map(([key]) => key)
+				.sort();
+			return holders[0] ?? null;
+		},
 	},
+});
+mock.module(new URL('../src/lib/server/clients.ts', import.meta.url).href, {
+	namedExports: {
+		clientExists: async (key: string) => ['borut', 'eagaming'].includes(key),
+		mayCreateUnderClient: async (userId: string, _role: string, client: string | null) =>
+			client === null || (CREATE_GRANTS.get(userId)?.has(client) ?? false),
+	},
+});
+mock.module(new URL('../src/lib/server/director/mockups.ts', import.meta.url).href, {
+	namedExports: {
+		loadMockupsDoc: async () => ({
+			doc: { version: 1, fidelity: 'match', ownershipConfirmed: null, images: [] },
+			etag: null,
+		}),
+		pendingDocOwnedBy: (doc: { images: unknown[] }) => doc.images.length === 0,
+	},
+});
+mock.module(new URL('../src/lib/server/director/store.ts', import.meta.url).href, {
+	namedExports: { getRun: async () => null },
 });
 
 const { UNASSIGNED_CLIENT, projectPrefix } = await import('../src/lib/server/projectPaths.ts');
@@ -101,6 +150,8 @@ const {
 	resolveToolScope,
 	sessionProjectScope,
 } = await import('../src/lib/server/toolScope.ts');
+const { requireDirectorProjectScope } = await import('../src/lib/server/director/access.ts');
+const { FOLDER_TAKEN_WORDS } = await import('../src/lib/server/projectPaths.ts');
 
 let checks = 0;
 let failures = 0;
@@ -363,6 +414,62 @@ check(
 	'a save with no ?project= writes to the re-checked session project',
 	await save(borutArtist),
 	DEFAULT_SCOPE,
+);
+
+// ── requireDirectorProjectScope: a PENDING key may not alias a project's R2 folder (OQ 17) ──
+const director = async (u: User, project: string, client: string | null) => {
+	try {
+		return await requireDirectorProjectScope(u, project, client);
+	} catch (e) {
+		if (!isHttpError(e)) throw e;
+		return { status: e.status, message: e.body.message };
+	}
+};
+reset();
+check(
+	'a free key under a client the user may create under is a pending project',
+	await director(borutArtist, 'new-game', 'borut'),
+	{ clientKey: 'borut', projectKey: 'new-game', pending: true },
+);
+check(
+	"a free key whose folder is a live project's under that client is a 409 that names no project",
+	await director(borutArtist, 'sunken_temple', 'borut'),
+	{ status: 409, message: FOLDER_TAKEN_WORDS },
+);
+check('…asked about that folder under the request’s client', folderAsks.at(-1), {
+	folder: 'sunken_temple',
+	client: 'borut',
+});
+check(
+	"…and a soft-deleted project's folder is taken too",
+	await director(borutArtist, 'old_game', 'borut'),
+	{ status: 409, message: FOLDER_TAKEN_WORDS },
+);
+check(
+	'the same slug in another client folder (here: unassigned) is free',
+	await director(borutArtist, 'sunken_temple', null),
+	{ clientKey: UNASSIGNED_CLIENT, projectKey: 'sunken_temple', pending: true },
+);
+folderAsks.length = 0;
+check(
+	'a client the user may not create under stays a bare 403 — the folder is never looked at',
+	[await director(borutArtist, 'sunken_temple', 'eagaming'), folderAsks],
+	[{ status: 403, message: 'You do not have access to the project "sunken_temple".' }, []],
+);
+check(
+	'so do a malformed key and a deleted key',
+	[
+		(await director(borutArtist, 'Sunken Temple', 'borut')) as { status?: number },
+		(await director(borutArtist, 'old-game', 'borut')) as { status?: number },
+		folderAsks,
+	].map((x) => (Array.isArray(x) ? x : x.status)),
+	[403, 403, []],
+);
+grant(true);
+check(
+	'an existing project goes through requireProjectScope, never the folder check',
+	[await director(borutArtist, 'bookofborut', null), folderAsks],
+	[{ clientKey: 'borut', projectKey: 'bookofborut', pending: false }, []],
 );
 
 console.log();

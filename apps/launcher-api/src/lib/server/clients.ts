@@ -3,6 +3,9 @@ import { getDb } from './db';
 import { clients, projects, userClientAccess } from './db/schema';
 import type { Client } from './db/schema';
 import { mayTargetClient } from '$lib/accessRules';
+import { withProjectKeyLock } from './projectKeyLock';
+import { ProjectFolderTakenError, UNASSIGNED_CLIENT, r2Slug } from './projectPaths';
+import { projectInFolder } from './projects';
 import type { Role } from '$lib/roles';
 
 /** Client key slug: same rule as project keys (`^[a-z0-9][a-z0-9_-]{0,63}$`). */
@@ -37,12 +40,24 @@ export async function deleteClient(key: string): Promise<void> {
 	await getDb().delete(clients).where(eq(clients.key, key));
 }
 
-/** Assign (or clear, with `null`) a project's owning client. */
+/**
+ * Assign (or clear, with `null`) a project's owning client. Holding the key's folder lock, like
+ * `createProject`: throws {@link ProjectFolderTakenError} when another project, live or deleted,
+ * already holds the key's R2 folder under the target client (`my_game` moved beside `my-game`).
+ * Only the column changes; no R2 data moves.
+ */
 export async function assignProjectToClient(
 	projectKey: string,
 	clientKey: string | null,
 ): Promise<void> {
-	await getDb().update(projects).set({ clientKey }).where(eq(projects.key, projectKey));
+	await withProjectKeyLock(projectKey, async (tx) => {
+		const holder = await projectInFolder(r2Slug(projectKey), {
+			client: clientKey ?? UNASSIGNED_CLIENT,
+			db: tx,
+		});
+		if (holder && holder !== projectKey) throw new ProjectFolderTakenError(projectKey, holder);
+		await tx.update(projects).set({ clientKey }).where(eq(projects.key, projectKey));
+	});
 }
 
 /** Per-user client grants, keyed by userId (for the admin table). */

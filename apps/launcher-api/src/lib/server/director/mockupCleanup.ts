@@ -119,7 +119,7 @@ export async function clearPendingMockups(
 	const kept = (reason: KeptReason): ClearOutcome => ({ cleared: false, reason });
 	const slug = r2Slug(project);
 	return withProjectKeyLock(slug, async (tx) => {
-		if (await projectInFolder(slug, tx)) return kept('project_exists');
+		if (await projectInFolder(slug, { db: tx })) return kept('project_exists');
 		if (await runInFolder(slug, tx)) return kept('run_exists');
 
 		const docKey = mockupsDocKey(client, project);
