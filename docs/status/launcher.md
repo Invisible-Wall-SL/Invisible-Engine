@@ -139,19 +139,59 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     region detail with the finished tile beside the variants, and the before-publish licence
     list (`routes/(app)/director/artPlan.ts`, pure). `atlasFetch` takes an `AtlasCaller` so the
     estimate can read the catalogue with no run.
-  - Tests: `check:director-runs` 458 (estimate per chain, unpriced refusals, start refusal, the
-    Art plan actions), `check:director-live` 98 (the fold, the panel's view and edits, licences,
-    how-made), worker `check:recipes` 63, `prove:art-plan` 39 (stale approval, owner edits,
-    step progress and timings measured once, a dropped region).
+  - Tests: `check:director-runs` 465 (estimate per chain, unpriced refusals, start refusal, the
+    Art plan actions and edit shapes), `check:director-live` 105 (the fold, the panel's view and
+    edits, drafts, licences, how-made), worker `check:recipes` 78, `prove:art-plan` 49 (stale
+    approval, owner edits incl. a group size edit, a stale and a malformed edit, a failed render
+    queued again, timings measured once, a dropped region, re-approval on one pricing basis).
+  - **After review** (code-reviewer, four blockers reproduced on the real modules):
+    - owner edits are validated against the plan with every edit applied (a group size edit no
+      longer refuses itself one region at a time), name the revision they were made on, are
+      parsed strictly by `parseStepInput` on both sides (a malformed step is a reason, never a
+      throw that wedged the run's event queue), and keep what unchanged leading steps rendered
+      (`carryProgress`); a refused edit stays on the page;
+    - a failed step is queued again under its approval and recorded like the first render;
+    - a revision is compared with the approved recipe priced on the SAME basis (re-approval no
+      longer slips through when the timings fell since), and the approval itself prices the plan
+      again (worker and launcher), storing the price it was approved at;
+    - Art plan decisions read the catalogue before the transaction and are refused, not retried,
+      when it cannot be read, so they never hold a later stop;
+    - `pricing.json` gains `runpod.seedDelaySecondsPerJob` (ADR-0008 §6's seed delay, 15 s
+      placeholder); template defaults price the atlases their recipes ran on, at the dearest
+      candidate; a start ignores a Preset GPU since gone from `pricing.json`;
+    - the before-publish list also covers art a dropped region committed and uses the worse of the
+      planned and current licence, and "Approve and hand off" waits for it; the Live run reloads
+      recipes on recipe, plan, pick and render rows only.
+  - **Merged with 8D's review fixes** (dc14db2…05f6a06): one pricing rule — a step's image is the
+    card's seconds or the measured execution mean, never below `seedSecondsPerRender` for a guessed
+    card (8D's floor), plus the measured delay or `seedDelaySecondsPerJob` (the slot 8D left at 0
+    for 8E), via `floorOf(pricing.runpod)` on both sides; the New game estimate prices card figures
+    without the seed floor (its high end already falls back to the profiles). Carrying a step's
+    state over is one rule for the technician's revisions and the owner's edits (`carryProgress`):
+    an unchanged rendered step is never re-opened (8D's B1), and every step after the first changed
+    one starts again, since it worked from an image that will change. Steps are compared field by
+    field (`stepKey`): `jsonb` stores object keys in its own order, so a stringified stored step
+    never matched a new one. The technician's estimate profile is held to ADR-0008's model until its
+    definition lands in its own PR.
+  - **Deploy:** atlas-tool's `RUNPOD_ENDPOINT_GPU` must be set and priced, or no Director run can
+    start (`docs/INFRA.md`).
   - **Open:** the Atlas Maker card editor does not yet show the measured timings (ADR-0008 §2);
-    adding a step from the Art plan panel goes through "Send my changes"; the cap's queued-render
-    projection (`projectQueuedGpu`) still uses the run's mean or the seed, not a step's card.
+    adding a step, or editing one region of a shared row, goes through "Send my changes"; the cap's
+    queued-render projection (`projectQueuedGpu`) still uses the run's mean or the seed, not a
+    step's card.
 - 2026-10-07 — **Invisible Director: the atlas technician** (ADR-0008 card 8D). Inert for a person
   and for every current game: only a Director run reaches any of it.
-  - **Agent:** `services/director-worker/agents/atlas-technician.md` (Sonnet 5.5, high effort, the
-    18 tools of ADR-0008 Appendix A). `atlas-artist` is narrowed to prompts and curation (adds
-    `gptPrompt`); the coordinator gains `atlas.list_blueprints` and plans the Art plan.
-    `DIRECTOR_AGENTS` gains `atlas-technician`.
+  - **Agents:** the code lands first, with NO change under `services/director-worker/agents/`;
+    the three definitions follow as one PR each (agent-eval takes exactly one file): add
+    `atlas-technician.md` (Sonnet 5.5, high, `TECHNICIAN_TOOLS` in `recipes.ts`), narrow
+    `atlas-artist.md` to prompts and curation (`gptPrompt`), extend `coordinator.md`
+    (`atlas.list_blueprints`, the Art plan). Until then the code is inert: `DIRECTOR_AGENTS` knows
+    `atlas-technician` but nothing assigns it (`run.assign_task` refuses an agent with no
+    definition), the artist keeps `queue_variants` / `choose_variant` / `pack_sheet` /
+    `job_status` and renders the pre-8D way (no `step`, no recipe gate; `lock` omitted keeps the
+    pin), and `check:director-adapters` lists these as named transition allowances
+    (`AWAITING_DEFINITION`, `TRANSITION`) — remove them, and the artist's pre-8D branch in
+    `queue_variants`, once the artist's narrowed definition has landed.
   - **Adapter ops** (`director/ops/atlasSetup.ts`): `list_blueprints` (reviewed image cards from
     atlas-tool `GET /blueprints`, cached a minute), `set_atlas_pipeline` (`/saveconfig` with only
     `atlas_pipeline`, the size and the card's per-atlas keys or `bpParams[<id>]`), `set_region_pipeline`
@@ -164,6 +204,17 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     `refs/useroutput/<region>_<run>_<sha12>.png`), `deploy_atlas` (never a scratch atlas, never a
     fully-qualified `deploy_path` outside `deploy/`). `queue_variants`, `choose_variant` (now with
     `lock` and the variant's seed), `pack_sheet` and `comfyui.job_status` move to the technician.
+  - **Rendered once:** a resent recipe keeps the status, job and pick of every step it leaves
+    unchanged (same n, kind, pipeline, atlas, region, size, variants), so a rendered step is never
+    re-opened; the launcher answers the steps its gate matched and the worker marks exactly those
+    `queued` at once, so a second queue in the same turn is refused. Scratch atlases are known
+    across the project's runs (`projectOpResults`): an earlier run's is never packed, deployed or
+    given a tile. Ref copies are `director_<atlas>_<sha12 of atlas/region/id>.png` (crops
+    `director_crop_<sha12>.png`); a crop is named by a region. Projections fail closed: an unknown
+    size is unpriced, a guessed card is priced at no less than `seedSecondsPerRender`, more variants
+    or a bigger size need re-approval, and the cap check counts every recipe still to render,
+    against the default cap when the run has none. atlas-tool refuses a Director deploy whose
+    resolved key (an asset-map target too) is not under `<project>/deploy/`.
   - **Queue gate:** `atlas.queue_variants` takes `step` and refuses (`409 no_approved_step`) any
     region with no APPROVED, not yet rendered recipe step on that atlas at the atlas's own pipeline
     (or the region's override), generation size, variant count and the step's settings as the
@@ -186,13 +237,17 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     the template defaults, a revision that changes a pipeline or raises the cost drops its
     approval, a queued render marks its steps `queued`. The technician's task carries the
     template's defaults, else the old preset's chain (the fallback until 8C).
-  - **Deploy:** `pnpm --filter director-worker check:idle [--pause]` (the deploy skill runs it).
-  - Tests: `check:director-adapters` 423, `check:director-runs` 411, `check:recipes` 37,
-    `check:run-state`, `check:agents`, `prove:art-plan` 27, `prove:idle` 6 (both in the Director
+  - **Deploy:** `pnpm --filter director-worker check:idle [--pause]` (the deploy skill runs it)
+    before the deploy of the artist's narrowed definition (a running artist would wake without
+    `queue_variants`).
+  - Tests: `check:director-adapters` 439, `check:director-runs` 413, `check:recipes` 42,
+    `check:run-state`, `check:agents`, `prove:art-plan` 31, `prove:idle` 6 (both in the Director
     worker workflow).
   - **Open (8E):** the Art plan's own panel and `recipeEdits`, chain pricing in the estimate,
     timings from `job_done`. Recipes of regions a later `run.set_plan` drops stay stored and
-    approved (the queue gate does not read the plan). ⏳ Owed: a live pass with a Director token (no signing secret here).
+    approved (the queue gate does not read the plan). A revision that needs re-approval during
+    `build` cannot reopen `art_plan` (`plan_ready` is allowed in style_pack and regions only). ⏳ Owed: a live pass with a Director token (no signing secret here).
+
 - 2026-10-07 — **A new key can no longer alias a project's R2 folder** (OPEN_QUESTIONS 17, the
   #1085 follow-up). A project's files live under `r2Slug(client)/r2Slug(key)`, so `my_game` beside
   `my-game` (or `x_y` under client `acme_co` beside `x-y` under `acme-co`) would read and write one

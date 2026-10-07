@@ -40,6 +40,11 @@ export interface DirectorPricing {
 		 * its time is billed at when none of its render's jobs did. The cap fails closed, never open.
 		 */
 		seedSecondsPerRender: number;
+		/**
+		 * Queue delay one image is priced at while a pipeline has no measured delay (ADR-0008 §6):
+		 * billing is execution plus delay, so leaving it out would under-count every first run.
+		 */
+		seedDelaySecondsPerJob: number;
 	};
 }
 
@@ -102,6 +107,10 @@ export function parsePricing(raw: unknown): DirectorPricing {
 			note: typeof raw.runpod.note === 'string' ? raw.runpod.note : undefined,
 			perSecondByGpu: priceTable(raw.runpod.perSecondByGpu, 'runpod.perSecondByGpu'),
 			seedSecondsPerRender: price(raw.runpod.seedSecondsPerRender, 'runpod.seedSecondsPerRender'),
+			seedDelaySecondsPerJob: price(
+				raw.runpod.seedDelaySecondsPerJob,
+				'runpod.seedDelaySecondsPerJob',
+			),
 		},
 	};
 }
@@ -144,6 +153,12 @@ export function mergePricing(base: DirectorPricing, override: unknown): Director
 				throw new Error('pricing override: runpod.placeholder must be true or false');
 			}
 			runpod.placeholder = override.runpod.placeholder;
+		}
+		if (override.runpod.seedDelaySecondsPerJob !== undefined) {
+			runpod.seedDelaySecondsPerJob = price(
+				override.runpod.seedDelaySecondsPerJob,
+				'override runpod.seedDelaySecondsPerJob',
+			);
 		}
 		if (override.runpod.seedSecondsPerRender !== undefined) {
 			runpod.seedSecondsPerRender = price(

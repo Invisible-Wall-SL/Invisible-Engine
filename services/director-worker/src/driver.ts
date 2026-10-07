@@ -84,6 +84,7 @@ import {
 	type StoredMessage,
 	type WakingEvent,
 } from './store.ts';
+import { floorOf } from 'director-costs/recipe';
 import {
 	MAX_RECIPE_EDITS,
 	applyRecipeEdits,
@@ -351,7 +352,6 @@ async function settle(
 		status === 'running' && state.step === 'breakdown' ? await runHasMockups(ctx) : false;
 	const results = new Map<string, BetaToolResultBlockParam>();
 	let budgetStop: BudgetFigures | null = null;
-	const queued: { atlas: string; regions: string[]; jobRef: string }[] = [];
 	const chosen: { atlas: string; region: string; id: string }[] = [];
 	const committed: { atlas: string; region: string; from: string }[] = [];
 	const recipes =
@@ -477,14 +477,15 @@ async function settle(
 				});
 			}
 		}
+		// Marked at once, in its own lease-checked write, so a second queue call later in this turn
+		// already finds the step queued and the launcher's gate refuses it. A replayed call returns
+		// the stored result and marks nothing new.
 		if (id === 'atlas.queue_variants' && answer.status === 200) {
-			const job = answer.body as { atlas?: unknown; regions?: unknown; jobRef?: unknown };
-			if (
-				typeof job.atlas === 'string' &&
-				Array.isArray(job.regions) &&
-				typeof job.jobRef === 'string'
-			) {
-				queued.push({ atlas: job.atlas, regions: job.regions.map(String), jobRef: job.jobRef });
+			const job = answer.body as { steps?: unknown; jobRef?: unknown };
+			if (Array.isArray(job.steps) && job.steps.length && typeof job.jobRef === 'string') {
+				const steps = job.steps as { recipe: string; n: number }[];
+				const jobRef = job.jobRef;
+				await withLease(ctx.sql, ctx.run, (tx, live) => markQueued(tx, live.id, steps, jobRef));
 			}
 		}
 		results.set(call.id, resultBlock(call.id, JSON.stringify(answer.body), answer.status !== 200));
@@ -493,10 +494,11 @@ async function settle(
 	await withLease(ctx.sql, ctx.run, async (tx, live) => {
 		// The pause first, so a worker tool later in the turn (a checkpoint request) sees it.
 		if (budgetStop) await pauseForBudget(tx, live, agent.name, budgetStop, 'gpu_submit');
-		for (const job of queued) await markQueued(tx, live.id, job.atlas, job.regions, job.jobRef);
-		for (const pick of chosen) await markChosen(tx, live.id, pick.atlas, pick.region, pick.id);
+		for (const pick of chosen) {
+			await markChosen(tx, live.id, agent.name, pick.atlas, pick.region, pick.id);
+		}
 		for (const tile of committed) {
-			await markCommitted(tx, live.id, tile.atlas, tile.region, tile.from);
+			await markCommitted(tx, live.id, agent.name, tile.atlas, tile.region, tile.from);
 		}
 		const toolCtx = {
 			tx,
@@ -551,12 +553,16 @@ async function recipeDeps(ctx: Ctx): Promise<RecipeDeps | undefined> {
 	}
 	if (answer.status !== 200) return undefined;
 	const catalogue = answer.body as RecipeDeps['catalogue'];
-	const rates = (await ctx.pricing()).runpod.perSecondByGpu;
+	const { runpod } = await ctx.pricing();
+	const rates = runpod.perSecondByGpu;
 	const perSecond = Object.hasOwn(rates, catalogue.gpu) ? rates[catalogue.gpu] : undefined;
 	return {
 		catalogue,
 		usdPerSecond: typeof perSecond === 'number' ? perSecond : null,
 		timings: await loadTimings(ctx.sql),
+		// A guessed card never projects below the seed per render; a job's delay is the measured
+		// one where the timings have it, else this seed.
+		floor: floorOf(runpod),
 	};
 }
 
@@ -1164,9 +1170,11 @@ async function handleEvents(ctx: Ctx, { ownerRequestsOnly = false } = {}): Promi
 	if (events.length === 0) return;
 	const pricing = await ctx.pricing();
 	for (const event of events) {
-		// The owner's Art plan edits are validated against the catalogue and the timings, read
-		// before the transaction for the same reason.
-		const deps = carriesRecipeEdits(event) ? await recipeDeps(ctx) : undefined;
+		// An Art plan decision is priced and validated on the catalogue and the timings, read
+		// before the transaction for the same reason. When they cannot be read the decision is
+		// refused, never retried: a retry would hold every later row of the owner's (a stop
+		// included) behind the launcher.
+		const deps = decidesArtPlan(event) ? await recipeDepsOrNull(ctx) : undefined;
 		await withLease(ctx.sql, ctx.run, async (tx, live) => {
 			await applyEvent(ctx, tx, live, event, pricing, deps);
 			await markHandled(tx, event.id);
@@ -1174,12 +1182,20 @@ async function handleEvents(ctx: Ctx, { ownerRequestsOnly = false } = {}): Promi
 	}
 }
 
-const carriesRecipeEdits = (event: WakingEvent): boolean =>
+const decidesArtPlan = (event: WakingEvent): boolean =>
 	event.kind === 'checkpoint_resolved' &&
 	event.payload.checkpoint === 'art_plan' &&
-	event.payload.decision === 'revise' &&
-	Array.isArray(event.payload.recipeEdits) &&
-	event.payload.recipeEdits.length > 0;
+	(event.payload.decision === 'approve' ||
+		(event.payload.decision === 'revise' && event.payload.recipeEdits !== undefined));
+
+async function recipeDepsOrNull(ctx: Ctx): Promise<RecipeDeps | null> {
+	try {
+		return (await recipeDeps(ctx)) ?? null;
+	} catch (error) {
+		if (error instanceof RetryLater) return null;
+		throw error;
+	}
+}
 
 async function move(tx: Db, live: LiveRun, event: RunEvent, cause: string): Promise<string | null> {
 	const result = transition(live.state, event);
@@ -1222,7 +1238,7 @@ async function applyEvent(
 	live: LiveRun,
 	event: WakingEvent,
 	pricing: DirectorPricing,
-	deps?: RecipeDeps,
+	deps?: RecipeDeps | null,
 ): Promise<void> {
 	const p = event.payload;
 	const refuse = (error: string) =>
@@ -1287,20 +1303,19 @@ async function applyEvent(
 			const checkpoint = p.checkpoint as Checkpoint;
 			// The owner approves the plan they saw: a revision since, or a plan with no price, is
 			// refused before the run moves, and the Art plan stays open.
-			if (
-				checkpoint === 'art_plan' &&
-				decision === 'approve' &&
-				live.state.waitingOn === 'art_plan'
-			) {
-				const why = await artPlanApprovalRefusal(tx, live.id, p.recipeRevs);
+			const unreadable =
+				'the blueprint catalogue could not be read, so the Art plan cannot be priced now; send it again in a moment';
+			const approvingPlan =
+				checkpoint === 'art_plan' && decision === 'approve' && live.state.waitingOn === 'art_plan';
+			if (approvingPlan) {
+				if (!deps) return refuse(unreadable);
+				const why = await artPlanApprovalRefusal(tx, live.id, p.recipeRevs, deps);
 				if (why) return refuse(why);
 			}
 			const edits =
 				checkpoint === 'art_plan' && decision === 'revise' ? recipeEditsOf(p.recipeEdits) : null;
 			if (edits === undefined) return refuse('the recipe edits are not a list of region chains');
-			if (edits?.length && !deps) {
-				return refuse('the blueprint catalogue could not be read; try again');
-			}
+			if (edits?.length && !deps) return refuse(unreadable);
 			const error = await move(
 				tx,
 				live,
@@ -1310,9 +1325,7 @@ async function applyEvent(
 			if (error) return refuse(error);
 			const by = (p.by as { name?: unknown; uid?: unknown } | undefined) ?? {};
 			const owner = String(by.uid ?? by.name ?? 'owner');
-			if (checkpoint === 'art_plan' && decision === 'approve') {
-				await approveArtPlan(tx, live, owner);
-			}
+			if (approvingPlan && deps) await approveArtPlan(tx, live, owner, deps);
 			if (edits?.length && deps) {
 				// The owner's own edits go back to the owner, not to an agent: stored as the next
 				// revisions and the Art plan re-opened on them, or refused with every reason and the
@@ -1323,7 +1336,20 @@ async function applyEvent(
 					: `Your Art plan edits were not stored:\n- ${applied.errors.join('\n- ')}`;
 				await insertEvent(tx, live.id, 'worker', 'activity', { type: 'note', text });
 				await reviewPlanGate(tx, live);
-				if (!p.note) return;
+				// A note with the edits is kept for the coordinator, who reads it once the owner
+				// approves the plan: the run waits on the owner until then.
+				if (p.note) {
+					await appendMessage(
+						tx,
+						live.id,
+						COORDINATOR,
+						'user',
+						userText(
+							`The owner edited the Art plan (${applied.ok ? 'stored; it waits for their approval again' : 'not stored'}). Their note: ${String(p.note)}`,
+						),
+					);
+				}
+				return;
 			}
 			const note = p.note ? `\nTheir note: ${String(p.note)}` : '';
 			const what = decision === 'approve' ? 'approved' : 'asked for revisions at';
@@ -1373,9 +1399,10 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 	typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /**
- * The owner's Art plan edits as the launcher wrote them (`ownerActions.ts` checks the same shape):
- * null when there are none, undefined when they are not a list of region chains. Each chain is
- * checked step by step by the recipe rules before anything is stored.
+ * The owner's Art plan edits as the launcher wrote them (`runs.ts` checks the same shape): null
+ * when there are none, undefined when they are not a list of region chains, each with the
+ * revision it was edited on. Every step is parsed by the recipe rules before anything is stored
+ * (`applyRecipeEdits`), so a malformed one is a reason, never a throw.
  */
 function recipeEditsOf(raw: unknown): RecipeEdit[] | null | undefined {
 	if (raw === undefined || raw === null) return null;
@@ -1383,8 +1410,8 @@ function recipeEditsOf(raw: unknown): RecipeEdit[] | null | undefined {
 	const edits: RecipeEdit[] = [];
 	for (const e of raw) {
 		if (!isRecord(e) || typeof e.region !== 'string' || !Array.isArray(e.steps)) return undefined;
-		if (!e.steps.every(isRecord)) return undefined;
-		edits.push({ region: e.region, steps: e.steps as unknown as RecipeEdit['steps'] });
+		if (!Number.isInteger(e.rev) || e.steps.length > 8) return undefined;
+		edits.push({ region: e.region, rev: e.rev as number, steps: e.steps });
 	}
 	return edits;
 }
