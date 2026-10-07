@@ -1,17 +1,17 @@
-import * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
+import * as RIG from 'engine-rig/pixi';
 import { BitmapFont, Cache } from 'pixi.js';
 import type { RawType, RawAsset, RawSpine, RawSprites, SpineSrc, RawAudio } from './types';
 import { setSpineLoadScale } from './spineLoadScale';
 
 const PROCESS_METHOD_MAP = {
 	spine: ({ key, rawAsset, src }: { key: string; rawAsset: RawSpine; src: SpineSrc }) => {
-		const atlasAsset = rawAsset[src.atlas] as SPINE_PIXI.TextureAtlas;
+		const atlasAsset = rawAsset[src.atlas] as RIG.TextureAtlas;
 		const skeletonAsset = rawAsset[src.skeleton] as Uint8Array;
-		const attachmentLoader = new SPINE_PIXI.AtlasAttachmentLoader(atlasAsset);
+		const attachmentLoader = new RIG.AtlasAttachmentLoader(atlasAsset);
 		const parser =
 			skeletonAsset instanceof Uint8Array
-				? new SPINE_PIXI.SkeletonBinary(attachmentLoader)
-				: new SPINE_PIXI.SkeletonJson(attachmentLoader);
+				? new RIG.SkeletonBinary(attachmentLoader)
+				: new RIG.SkeletonJson(attachmentLoader);
 		const scale = src?.scale ?? 1;
 		parser.scale = scale;
 		// Remember it: the skeleton's `data.width/height` come through UNSCALED, so nothing

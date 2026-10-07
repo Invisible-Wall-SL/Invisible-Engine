@@ -4,7 +4,7 @@
  * transforms and pin emitters onto bones).
  *
  * `FxStage` drives Pixi imperatively (its own `Application`), so it can't mount the
- * declarative `<SpineProvider>`/`<SpineBone>`. Instead this builds a `spine-pixi-v8` `Spine`
+ * declarative `<SpineProvider>`/`<SpineBone>`. Instead this builds an engine-rig `RigView`
  * the way the Invisible Spine Viewer's `view.html` builds its skeleton — fetch the atlas +
  * skeleton + page images ourselves (through `/spine/file`, the same per-file endpoint the
  * Viewer uses) and assemble `SkeletonData` by hand. We CAN'T lean on the package's Pixi
@@ -19,7 +19,7 @@
  * imperatively here.
  */
 
-import * as SPINE from '@esotericsoftware/spine-pixi-v8';
+import * as RIG from 'engine-rig/pixi';
 import type { TextureSource } from 'pixi.js';
 import { loadPageSource } from '$lib/fx/effectEmitter.client';
 
@@ -41,8 +41,8 @@ export interface FxSkeletonEntry {
  * particle skeletons share the page textures already wired here, allocating only their own
  * `Spine`. */
 export interface LoadedFxSpine {
-	spine: SPINE.Spine;
-	skeletonData: SPINE.SkeletonData;
+	spine: RIG.RigView;
+	skeletonData: RIG.SkeletonData;
 	animations: string[];
 	skins: string[];
 	bones: string[];
@@ -63,7 +63,7 @@ export interface LoadSpineOptions {
 }
 
 /**
- * Load a skeleton entry into a live `spine-pixi-v8` `Spine`. Fetches the atlas text, wires
+ * Load a skeleton entry into a live engine-rig `RigView`. Fetches the atlas text, wires
  * each atlas page to a Pixi `TextureSource` (loaded through `/spine/file`), then reads the
  * skeleton (`.json`/`.irig` via `SkeletonJson`, `.skel` via `SkeletonBinary`).
  */
@@ -79,7 +79,7 @@ export async function loadFxSpine(
 	const atlasText = await (
 		await fetch(fileUrl(entry.dir_b64, entry.atlas_file, true, shared))
 	).text();
-	const atlas = new SPINE.TextureAtlas(atlasText);
+	const atlas = new RIG.TextureAtlas(atlasText);
 
 	// Wire each atlas page to its texture. The page `name` is the image filename the atlas
 	// references, loaded through `/spine/file`.
@@ -92,26 +92,26 @@ export async function loadFxSpine(
 	const pageCache = new Map<string, TextureSource>();
 	for (const page of atlas.pages) {
 		const url = fileUrl(entry.dir_b64, page.name, false, shared);
-		page.setTexture(SPINE.SpineTexture.from(await loadPageSource(url, pageCache)));
+		page.setTexture(RIG.RigPageTexture.from(await loadPageSource(url, pageCache)));
 	}
 
-	const attachmentLoader = new SPINE.AtlasAttachmentLoader(atlas);
-	let skeletonData: SPINE.SkeletonData;
+	const attachmentLoader = new RIG.AtlasAttachmentLoader(atlas);
+	let skeletonData: RIG.SkeletonData;
 	if (entry.format === 'skel') {
 		const bytes = new Uint8Array(
 			await (await fetch(fileUrl(entry.dir_b64, entry.skeleton_file, false, shared))).arrayBuffer(),
 		);
-		const binary = new SPINE.SkeletonBinary(attachmentLoader);
+		const binary = new RIG.SkeletonBinary(attachmentLoader);
 		skeletonData = binary.readSkeletonData(bytes);
 	} else {
 		const json = await (
 			await fetch(fileUrl(entry.dir_b64, entry.skeleton_file, false, shared))
 		).json();
-		const reader = new SPINE.SkeletonJson(attachmentLoader);
+		const reader = new RIG.SkeletonJson(attachmentLoader);
 		skeletonData = reader.readSkeletonData(json);
 	}
 
-	const spine = new SPINE.Spine(skeletonData);
+	const spine = new RIG.RigView(skeletonData);
 	// We drive the skeleton ourselves from the stage ticker (play/pause-aware), so disable
 	// the runtime's own auto-update.
 	spine.autoUpdate = false;
@@ -128,14 +128,14 @@ export async function loadFxSpine(
 /** Play an animation on track 0 (looping by default); a no-op if the name is empty or not on
  * this skeleton (the picker can still hold a clip from a previously-loaded skeleton — calling
  * `setAnimation` with an unknown name throws, which would abort a backdrop switch). */
-export function playFxAnimation(spine: SPINE.Spine, animation: string, loop = true): void {
+export function playFxAnimation(spine: RIG.RigView, animation: string, loop = true): void {
 	if (!animation) return;
 	if (!spine.skeleton.data.findAnimation(animation)) return;
 	spine.state.setAnimation(0, animation, loop);
 }
 
 /** Apply a skin by name (best-effort — an unknown skin is swallowed, the current skin kept). */
-export function applyFxSkin(spine: SPINE.Spine, skin: string): void {
+export function applyFxSkin(spine: RIG.RigView, skin: string): void {
 	if (!skin) return;
 	try {
 		spine.skeleton.setSkinByName(skin);

@@ -4,7 +4,7 @@
 //   mergeRigInto(dst, src)  — drop imported root, re-parent its children onto dst's
 //                             root, append + topo-sort bones, append slots/skins/
 //                             constraints/animations.
-// Then load the merged skeleton through the OFFICIAL spine-core loader and assert:
+// Then load the merged skeleton through the engine-rig loader and assert:
 //   - loader accepts it (no dangling ref);
 //   - parent-precedes-child invariant holds;
 //   - no bone/slot/skin/anim name collisions;
@@ -18,9 +18,9 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
 import vm from 'node:vm';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './spine.mjs';
 
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(SPINE_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(RIG_CORE);
 
 function load(obj, atlasText) {
 	const atlas = new TextureAtlas(atlasText);

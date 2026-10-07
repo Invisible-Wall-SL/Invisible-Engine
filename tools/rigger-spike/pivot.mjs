@@ -1,4 +1,4 @@
-// Verify the ✥ IMAGE PIVOT contract headlessly, against the OFFICIAL spine-core loader and against
+// Verify the ✥ IMAGE PIVOT contract headlessly, against the engine-rig loader and against
 // the code that actually ships: the pivot functions are extracted verbatim out of
 // `static/rigger/view.html` and run in a vm sandbox with the editor's globals stubbed, so a drift
 // between this test and the tool is impossible.
@@ -18,10 +18,10 @@
 //   node tools/rigger-spike/pivot.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './spine.mjs';
 
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Vector2, Physics, RegionAttachment } =
-	await import(SPINE_CORE);
+	await import(RIG_CORE);
 
 const [, , jsonPath, atlasPath] = process.argv;
 if (!jsonPath || !atlasPath) {

@@ -7,7 +7,7 @@
 // component. It is therefore written as a portable ES module with NO imports — the caller
 // injects the spine enums + resolved clips (`ctx`), so it runs headless (this spike), in
 // `static/rigger/cinematic.js` against the vendored minified runtime, and in the engine
-// against `@esotericsoftware/spine-pixi-v8`, without a fork.
+// against `engine-rig`, without a fork.
 //
 // THERE IS EXACTLY ONE COPY OF THIS FILE and it lives here, under `static/`, because that is the
 // only place all three consumers can reach: the browser loads it as `/shared/cinematicEval.mjs`
@@ -19,7 +19,7 @@
 // ======================= WHAT THE GATE ESTABLISHED (cinematic.mjs) =======================
 //
 // MIX BLEND per strip — the rule that makes layering correct (mirrors how AnimationState
-// treats track 0 vs tracks 1+, read off spine-core AnimationState.applyAnimation):
+// treats track 0 vs tracks 1+, read off engine-rig AnimationState.applyAnimation):
 //   • the FIRST non-additive strip applied to an actor this frame → MixBlend.setup
 //   • every later non-additive strip                              → MixBlend.replace
 //   • an additive strip                                           → MixBlend.add,
@@ -37,7 +37,7 @@
 //
 // A LAYER PASSES THROUGH BEFORE ITS OWN FIRST KEY. Under `MixBlend.replace`, a bone timeline
 // applied at a time earlier than its first keyframe returns WITHOUT touching the property
-// (spine-core `CurveTimeline*.apply`, the `if (time < frames[0])` branch) — while the same
+// (engine-rig `CurveTimeline*.apply`, the `if (time < frames[0])` branch) — while the same
 // timeline under `MixBlend.setup` snaps the property to its setup value. So a partial-body
 // layer leaves properties it has not started keying at whatever the layer below set, instead
 // of punching a setup-pose hole in the stack. That is the behaviour authors want, it falls out
@@ -260,7 +260,7 @@ function applyStrip(spine, skeleton, clip, local, alpha, blend, maskNames) {
  * Pose ONE actor at cinematic time `t`. Pure in `t` — see the determinism note in the header.
  *
  * @param spine    the runtime namespace ({ MixBlend, MixDirection, Physics }) — injected so the
- *                 module is identical headless / vendored-minified / spine-pixi-v8.
+ *                 module is identical headless / vendored bundle / RigView.
  * @param actor    { skeleton, tracks } — `tracks` are this actor's tracks, any order.
  * @param t        cinematic time in seconds.
  * @param resolveClip (strip, actor) => runtime `Animation` (or null to skip the strip).

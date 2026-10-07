@@ -28,9 +28,9 @@ import {
 	resolveVisible,
 	putKey,
 } from '../../packages/engine-cinematic/src/cinematicEval.js';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './spine.mjs';
 
-const SPINE = await import(SPINE_CORE);
+const SPINE = await import(RIG_CORE);
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, MixBlend, MixDirection, Physics } = SPINE;
 
 const spineNs = { MixBlend, MixDirection, Physics };
@@ -386,7 +386,7 @@ section('4. Layering — additive, alpha, crossfade');
  * Bone properties a clip is actively driving AT `localTime`.
  *
  * The `frames[0] <= localTime` filter is not a nicety — a bone timeline applied BEFORE its first
- * keyframe behaves differently per blend mode (spine-core `CurveTimeline*.apply`, the
+ * keyframe behaves differently per blend mode (engine-rig `CurveTimeline*.apply`, the
  * `if (time < frames[0])` branch): `MixBlend.setup` snaps the property to the SETUP value, while
  * `MixBlend.replace` returns without touching it. So a layer legitimately passes through whatever
  * is underneath it until its own first key. Comparing an un-started property against a

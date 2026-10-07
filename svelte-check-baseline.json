@@ -151,7 +151,7 @@
 		}
 	},
 	"apps/launcher-api": {
-		"errors": 53,
+		"errors": 48,
 		"byFile": {
 			"apps/launcher-api/src/lib/server/atlasManifestCheck.ts": {
 				"ts:2352": 1
@@ -178,9 +178,6 @@
 			"apps/launcher-api/src/routes/(app)/editor/EditorProperties.svelte": {
 				"ts:2352": 5
 			},
-			"apps/launcher-api/src/routes/(app)/editor/EditorSpineLayer.svelte": {
-				"ts:2339": 1
-			},
 			"apps/launcher-api/src/routes/(app)/editor/EditorTextLayer.svelte": {
 				"ts:2339": 3,
 				"ts:2345": 4
@@ -205,9 +202,6 @@
 			"apps/launcher-api/src/routes/(app)/symbols/+page.svelte": {
 				"ts:2448": 6,
 				"ts:2454": 6
-			},
-			"apps/launcher-api/src/routes/(app)/symbols/SymbolSpineStage.svelte": {
-				"ts:2339": 4
 			},
 			"apps/launcher-api/src/routes/api/launcher/comfyui-nodes/+server.ts": {
 				"ts:2345": 1
@@ -968,7 +962,7 @@
 		}
 	},
 	"packages/components-shared": {
-		"errors": 25,
+		"errors": 10,
 		"byFile": {
 			"packages/components-shared/src/components/Authenticate.svelte": {
 				"ts:2339": 1
@@ -977,27 +971,10 @@
 				"ts:2339": 1
 			},
 			"packages/components-shared/src/components/LoaderSpine.svelte": {
-				"ts:2339": 4,
-				"ts:2694": 1
-			},
-			"packages/pixi-svelte/src/lib/assetLoad.ts": {
-				"ts:2339": 3,
-				"ts:2694": 1
+				"ts:2339": 1
 			},
 			"packages/pixi-svelte/src/lib/index.ts": {
 				"ts:2308": 1
-			},
-			"packages/pixi-svelte/src/lib/spineBacking.ts": {
-				"ts:2694": 2
-			},
-			"packages/pixi-svelte/src/lib/spineBounds.ts": {
-				"ts:2694": 2
-			},
-			"packages/pixi-svelte/src/lib/spineLocale.ts": {
-				"ts:2694": 1
-			},
-			"packages/pixi-svelte/src/lib/types.ts": {
-				"ts:2694": 2
 			},
 			"packages/rgs-fetcher/src/rgsFetcher.ts": {
 				"ts:2536": 5

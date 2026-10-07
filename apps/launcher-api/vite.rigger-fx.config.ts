@@ -3,7 +3,7 @@ import { defineConfig } from 'vite';
 
 /**
  * Dedicated library build for the Rigger's LIVE FX overlay — a standalone IIFE bundle the raw-WebGL
- * Rigger `view.html` loads via a `<script>` tag (like the vendored `spine-webgl-*.js`), exposing
+ * Rigger `view.html` loads via a `<script>` tag (like the vendored `invisible-rig.js`), exposing
  * `window.RiggerFx`. Bundles ALL deps (pixi.js + `@barvynkoa/particle-emitter` + the reused
  * `engine-fx` / art-helper code) — NO externals — so it runs as a plain script with no import map.
  *

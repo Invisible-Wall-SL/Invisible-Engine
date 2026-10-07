@@ -12,17 +12,17 @@
  * reader baked into the geometry scales that pivot, y is flipped into pixi's y-down local space,
  * and a header with a size but no `x`/`y` keeps the origin-centred reading.
  *
- * Run: node --experimental-strip-types packages/pixi-svelte/fixtures/spineBox.fixture.ts
+ * Run: pnpm --filter launcher-api exec tsx ../../packages/pixi-svelte/fixtures/spineBox.fixture.ts
  */
 import assert from 'node:assert/strict';
 
-import { SkeletonJson } from '@esotericsoftware/spine-core';
+import { SkeletonJson, type AttachmentLoader } from 'engine-rig';
 
 import { authoredSpineBox, type SpineBox } from '../../constants-shared/spine.ts';
 import { spineBoxPivot } from '../src/lib/spineBox.ts';
 
 /** No skins in these skeletons, so the attachment loader is never consulted. */
-const loader = {} as unknown as ConstructorParameters<typeof SkeletonJson>[0];
+const loader = {} as AttachmentLoader;
 
 function parse(header: Record<string, number | string>) {
 	const json = new SkeletonJson(loader);

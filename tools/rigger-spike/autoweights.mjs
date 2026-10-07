@@ -17,9 +17,9 @@
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './spine.mjs';
 
-const spine = await import(SPINE_CORE);
+const spine = await import(RIG_CORE);
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics } = spine;
 
 const MAX_BONES = 4;

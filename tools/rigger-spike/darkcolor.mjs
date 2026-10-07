@@ -4,7 +4,7 @@
 //   node tools/rigger-spike/darkcolor.mjs <skeleton.json> <skeleton.atlas>
 //
 // ============================ EMPIRICAL FINDINGS ============================
-// (validated below against @esotericsoftware/spine-core@4.2.74's SkeletonJson loader +
+// (validated below against the rig runtime's SkeletonJson loader (engine-rig, held to the Spine 4.2 reference) +
 //  Color.setFromString + RGBA2Timeline.apply — NOT from memory. Read off SkeletonJson.js
 //  setup L114-116 + rgba2 timeline L591-623; Animation.js RGBA2Timeline L950-1058;
 //  Utils.js Color.setFromString L102-109.)
@@ -41,10 +41,10 @@
 // ===========================================================================
 
 import { readFileSync } from 'node:fs';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './spine.mjs';
 
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } =
-	await import(SPINE_CORE);
+	await import(RIG_CORE);
 
 const [, , jsonPath, atlasPath] = process.argv;
 if (!jsonPath || !atlasPath) {

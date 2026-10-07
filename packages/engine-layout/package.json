@@ -44,7 +44,7 @@
 		"svelte-check": "4.7.6"
 	},
 	"dependencies": {
-		"@esotericsoftware/spine-pixi-v8": "4.2.120",
+		"engine-rig": "workspace:*",
 		"components-layout": "workspace:*",
 		"constants-shared": "workspace:*",
 		"engine-cinematic": "workspace:*",

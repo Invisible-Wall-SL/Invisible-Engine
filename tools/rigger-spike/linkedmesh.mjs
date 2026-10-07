@@ -1,6 +1,6 @@
 // Verify linked-mesh and skin authoring headlessly, on the SHIPPED code: every function the actions
 // reach is pulled out of view.html (transitively), the rebuild runs as shipped but through the
-// strict spine-core 4.2 loader, and each action must leave a rig that LOADS with every linked mesh
+// strict engine-rig loader, and each action must leave a rig that LOADS with every linked mesh
 // bound to the parent the author meant, in the skin on stage — replacing nothing it was not asked to.
 //
 // The crux, read off SkeletonJson ("Linked meshes"): the parent is looked up by NAME in the linked
@@ -46,9 +46,9 @@
 //   node tools/rigger-spike/linkedmesh.mjs [<skeleton.json> <skeleton.atlas>]
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './spine.mjs';
 
-const SPINE = await import(SPINE_CORE);
+const SPINE = await import(RIG_CORE);
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = SPINE;
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
@@ -287,7 +287,7 @@ function drawnBySkin(slot) {
 	}));
 }
 // ＋ add image of `region` on the selected slot: it lands in the skin on stage, placed like the image
-// the slot showed — as spine-core resolves it, that skin's else default's — the stage draws it, and
+// the slot showed — as engine-rig resolves it, that skin's else default's — the stage draws it, and
 // that skin stays on stage. In default it is a new attachment under the region's name and the
 // slot's setup attachment. In any other skin it is that skin's override of the setup name (a slot
 // without one gets a name no skin holds there), and every other skin draws exactly what it drew.
@@ -397,7 +397,7 @@ function stageImage(slot) {
 	return { name, att, quad, bone: sandbox.skeleton.slots[si].bone };
 }
 // Where a point of the image (u across, v down, 0..1 of the UNTRIMMED image, which is what a pivot
-// names) sits in the world, read off the quad spine-core draws — which covers the trimmed ink only.
+// names) sits in the world, read off the quad engine-rig draws — which covers the trimmed ink only.
 function imagePoint({ att, quad }, [u, v]) {
 	const r = att.region, s = (u * r.originalWidth - r.offsetX) / r.width, t = ((1 - v) * r.originalHeight - r.offsetY) / r.height;
 	return [quad[0] + s * (quad[6] - quad[0]) + t * (quad[2] - quad[0]), quad[1] + s * (quad[7] - quad[1]) + t * (quad[3] - quad[1])];

@@ -4,9 +4,9 @@
 // old gone, and a renamed bone's child parent + slot bone updated.
 //   node tools/rigger-spike/rename.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './spine.mjs';
 
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(SPINE_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(RIG_CORE);
 
 const [, , jsonPath, atlasPath] = process.argv;
 const atlasText = readFileSync(atlasPath, 'utf8');

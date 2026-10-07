@@ -110,6 +110,11 @@ Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide
 4. Smaller: **Rigger Phase 3.6d** (hull-loop reordering — the 3.6c permutation primitive exists,
    no UI yet).
 
+**Recently closed** (2026-10-06): **no Spine license needed to run a rig** — our own runtime,
+`packages/engine-rig`, replaces every `@esotericsoftware/*` package and vendored runtime in the games
+and tools, parity-gated against Esoteric's 4.2 runtime (`tools/rig-parity`).
+([status/rigger](status/rigger.md))
+
 **Recently closed** (2026-09-28 → 09-29, #811–#870):
 
 - **Players boot a frozen published snapshot**, with rollback and an honest boot-failure screen
@@ -169,6 +174,9 @@ conflict prompt and an "X is editing this atlas" banner, 2026-09-30, two-browser
   ([status/game-maker](status/game-maker.md))
 - **Approve the test2–test6 free-spin data migration** (their free-spin intro/outro broke when the
   coded screens were retired). ([status/flow](status/flow.md))
+- **Confirm the license-free Spine runtime** — have counsel confirm `engine-rig`'s clean-room
+  position, and live-look at the Rigger, `/spine`, the editor, `/fx` and a published game on it.
+  ([status/rigger](status/rigger.md))
 - **Model licences for shipped art** — decide the switches in the recommendation table; every
   built-in image default is non-commercial as wired today. ([reference/model-licences](reference/model-licences.md))
 - **Partner replay check** — run [the checks owed on the live

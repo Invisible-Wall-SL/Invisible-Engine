@@ -4,9 +4,9 @@
 // assert (a) it still loads, (b) the edit took, (c) nothing else changed.
 //   node tools/rigger-spike/editexport.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './spine.mjs';
 
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(SPINE_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(RIG_CORE);
 
 const [, , jsonPath, atlasPath] = process.argv;
 const atlasText = readFileSync(atlasPath, 'utf8');

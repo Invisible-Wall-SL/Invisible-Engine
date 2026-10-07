@@ -4,9 +4,9 @@
 //      re-parse: region count + on-page rects round-trip (what the server writes).
 //   node tools/rigger-spike/upload.mjs
 import { fileURLToPath } from 'node:url';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './spine.mjs';
 
-const { TextureAtlas } = await import(SPINE_CORE);
+const { TextureAtlas } = await import(RIG_CORE);
 
 // replicate spine.ts regionsToSpineAtlas
 function regionsToSpineAtlas(pageImage, pw, ph, regions) {

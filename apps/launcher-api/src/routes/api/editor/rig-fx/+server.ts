@@ -15,7 +15,7 @@ import type { RequestHandler } from './$types';
  * (`SymbolSpineStage.svelte`) reads this to fire an effect on the beat of a symbol's animation, at the
  * bound bone, mirroring the Rigger's `view.html`.
  *
- * WHY a server endpoint (not client-side parsing): spine-pixi discards the custom `event.fx` field on
+ * WHY a server endpoint (not client-side parsing): the runtime reader discards the custom `event.fx` field on
  * parse, so the compiled `SpineSkeletonData` the stage already holds can't surface it — the RAW
  * skeleton JSON must be read. Doing that here (server-side, via the SAME `resolveEditorSpine` the
  * descriptor endpoint uses + `fxTimelineFromSkeleton`) keeps the payload tiny (just the fx timeline)

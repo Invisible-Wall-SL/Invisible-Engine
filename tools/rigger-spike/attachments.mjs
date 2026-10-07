@@ -3,7 +3,7 @@
 //   node tools/rigger-spike/attachments.mjs <skeleton.json> <skeleton.atlas>
 //
 // ============================ EMPIRICAL FINDINGS ============================
-// (validated below against @esotericsoftware/spine-core@4.2.74's SkeletonJson loader +
+// (validated below against the rig runtime's SkeletonJson loader (engine-rig, held to the Spine 4.2 reference) +
 //  PointAttachment / BoundingBoxAttachment / ClippingAttachment / MeshAttachment — NOT from memory.
 //  Read off SkeletonJson.js: readAttachment L363-473 (boundingbox L389, mesh/linkedmesh L399,
 //  point L445, clipping L457), readVertices L483-510, LinkedMesh resolve L324-337 + class L1058.)
@@ -63,9 +63,9 @@
 //   worldVerticesLength/regionUVs/triangles/hullLength. parent must exist in the named (or default)
 //   skin at the SAME slot index, else loader THROWS "Parent mesh not found".
 import { readFileSync } from 'node:fs';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './spine.mjs';
 
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, Vector2 } = await import(SPINE_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, Vector2 } = await import(RIG_CORE);
 
 const [, , jsonPath, atlasPath] = process.argv;
 if (!jsonPath || !atlasPath) { console.log('usage: node tools/rigger-spike/attachments.mjs <skeleton.json> <skeleton.atlas>'); process.exit(1); }

@@ -5,9 +5,9 @@
 // (empty default skin + attachment-less slot), so an empty atlas suffices.
 //   node tools/rigger-spike/authoring.mjs
 import { fileURLToPath } from 'node:url';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './spine.mjs';
 
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(SPINE_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(RIG_CORE);
 
 function load(doc) {
 	const atlas = new TextureAtlas('\n'); // empty atlas — no regions needed

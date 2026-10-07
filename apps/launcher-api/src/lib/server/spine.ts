@@ -211,9 +211,9 @@ export function regionsToSpineAtlas(
  * (`PIL rotate(-90)` in `packer.compose` / `batch_atlas.fit_to_region`) — the PixiJS
  * Spritesheet convention, which the editor canvas, symbols and region thumbnails all
  * un-rotate correctly. The Spine atlas parser uses the OPPOSITE convention: a
- * `rotate:90` region must be packed COUNTER-clockwise to render upright (verified from
- * the `degrees == 90` UV math in the vendored `spine-webgl-4.2.js`). So a CW-packed
- * region renders 180° off — upside down — in the Rigger, and spine-webgl only honours
+ * `rotate:90` region must be packed COUNTER-clockwise to render upright (the `degrees == 90`
+ * UV math in the rig runtime, `RegionAttachment.updateRegion` in `packages/engine-rig`). So a
+ * CW-packed region renders 180° off — upside down — in the Rigger, and a region only honours
  * `degrees` 0/90 (270 falls through to the unrotated branch), so it can't be expressed
  * in the `.atlas`.
  *
@@ -650,7 +650,7 @@ export async function resolveEditorSpine(
 	// A ROTATED-region atlas must serve the bundle's OWN page, which `ensureBundleAtlasFresh`
 	// (called above) reorients 180° from the CW-packed source into Spine's CCW `rotate:90`
 	// convention. The DEPLOYED sheet page (deploy/sprites/…) is still CW-packed — serving it
-	// would render every rotated region upside-down in the editor's spine-webgl runtime, unlike
+	// would render every rotated region upside-down in the editor's rig runtime, unlike
 	// in-game (which loads the reoriented deploy/editor-art bundle copy). Non-rotated atlases
 	// keep preferring the latest deploy page (reorientation is a no-op there, so it's byte-safe).
 	const pageKeys = atlasHasRotatedRegion(atlas.body)

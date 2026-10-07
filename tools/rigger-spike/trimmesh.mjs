@@ -1,9 +1,9 @@
 // Gate for a mesh made from an image: it must draw the pixels the image drew — on a TRIMMED atlas
 // region, on one packed at 90 / 180 / 270°, and on an image SEQUENCE — and every tool that makes or
 // re-points a mesh must keep a sequence's frames. Rendered, not reasoned about: the shipped actions
-// are pulled out of view.html and run (on the vendored spine-webgl 4.2 runtime the page loads), and
-// the rigs they leave are drawn by that same runtime's WebGL renderer in a real Chromium and compared
-// pixel by pixel.
+// are pulled out of view.html and run (on the vendored rig runtime the page loads, invisible-rig.js),
+// and the rigs they leave are drawn by that same runtime's WebGL renderer in a real Chromium and
+// compared pixel by pixel.
 //
 // Why it broke (rigger.md, open items 10 and 12): a RegionAttachment's quad covers only the trimmed
 // ink, but a MeshAttachment's `uvs` are a fraction of the UNTRIMMED image — its updateRegion() adds
@@ -23,8 +23,8 @@
 //   2. ▸ Convert to mesh and ✎ Draw mesh (its four corners) on each image, placed plain, shifted,
 //      turned 90° and scaled ×2, and under a flipped, turned bone: the mesh draws exactly what the
 //      region drew, and what the untrimmed twin draws (the only reference on a 180 / 270° pack,
-//      which spine-core's RegionAttachment itself does not undo); its UVs agree with the region's
-//      through spine-core 4.2.74 too;
+//      which a RegionAttachment itself does not undo); its UVs agree with the region's through the
+//      game's runtime core too;
 //   3. sequences: Convert keeps the frames (same trim: every frame identical to the region's; trimmed
 //      differently: the author is asked, and every pixel of every frame's ink still draws), the setup
 //      frame and a keyed sequence timeline still drive it; ＋ Linked mesh onto it shows the same
@@ -45,7 +45,7 @@ import { fileURLToPath } from 'node:url';
 import { join, dirname, basename } from 'node:path';
 import vm from 'node:vm';
 import { launchChrome } from './chrome.mjs';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './spine.mjs';
 
 const ROOT = new URL('../../', import.meta.url);
 const STATIC = fileURLToPath(new URL('apps/launcher-api/static/', ROOT));
@@ -54,8 +54,8 @@ const html = readFileSync(VIEW, 'utf8').replace(/\r\n/g, '\n');
 const clone = (o) => JSON.parse(JSON.stringify(o));
 
 // ---- the two runtimes ------------------------------------------------------------------------
-const vendored = readFileSync(join(STATIC, 'spine/vendor/spine-webgl-4.2.js'), 'utf8');
-const CORE = await import(SPINE_CORE);
+const vendored = readFileSync(join(STATIC, 'spine/vendor/invisible-rig.js'), 'utf8');
+const CORE = await import(RIG_CORE);
 
 // ---- the synthetic atlas ---------------------------------------------------------------------
 const PAGE = 256, NOISE = 250;
@@ -207,7 +207,7 @@ const sandbox = {
 };
 for (const s of STUBS) sandbox[s] = () => {};
 vm.createContext(sandbox);
-vm.runInContext(vendored + '\n;globalThis.SPINE = spine;', sandbox, { filename: 'spine-webgl-4.2.js' });
+vm.runInContext(vendored + '\n;globalThis.SPINE = spine;', sandbox, { filename: 'invisible-rig.js' });
 vm.runInContext(pulled.join('\n'), sandbox, { filename: 'view.html#trimmesh' });
 const SPINE = sandbox.SPINE;
 const stubTexture = { getImage: () => ({ width: PAGE, height: PAGE }), setFilters() {}, setWraps() {}, dispose() {} };
@@ -251,23 +251,24 @@ const draw = (slot) => {
 	});
 };
 
-// ---- a real Chromium, drawing through the vendored WebGL runtime -------------------------------
+// ---- a real Chromium, drawing through the vendored rig runtime's WebGL renderer -----------------
 const server = createServer((req, res) => {
 	const p = new URL(req.url, 'http://x').pathname;
-	if (p === '/spine/vendor/spine-webgl-4.2.js') { res.writeHead(200, { 'content-type': 'text/javascript' }); return res.end(vendored); }
+	if (p === '/spine/vendor/invisible-rig.js') { res.writeHead(200, { 'content-type': 'text/javascript' }); return res.end(vendored); }
 	res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-	res.end('<!doctype html><meta charset="utf-8"><script src="/spine/vendor/spine-webgl-4.2.js"></script>');
+	res.end('<!doctype html><meta charset="utf-8"><script src="/spine/vendor/invisible-rig.js"></script>');
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const browser = await launchChrome({ name: 'trimmesh', url: `http://127.0.0.1:${server.address().port}/`, cdpTimeoutMs: 60000 });
 const { evaluate } = browser;
 for (let t0 = Date.now(); !(await evaluate('!!window.spine').catch(() => false)); ) {
-	if (Date.now() - t0 > 20000) throw new Error('the vendored runtime never loaded');
+	if (Date.now() - t0 > 20000) throw new Error('the vendored rig runtime never loaded');
 	await new Promise((r) => setTimeout(r, 100));
 }
 const FRAME = 160;
-// The page side: a 160 × 160 WebGL canvas drawn by spine-webgl's own SkeletonRenderer, one slot at a
-// time, with the page texture NEAREST-sampled so a pixel is a texel, and read back.
+// The page side: a 160 × 160 WebGL canvas drawn by the runtime's SceneRenderer, one slot at a time,
+// with the page texture NEAREST-sampled so a pixel is a texel, and read back. The camera maps world
+// (0..FRAME) onto the canvas, pixel for pixel.
 function harness(pageB64, atlasText, FRAME, panelSrc) {
 	const bytes = Uint8ClampedArray.from(atob(pageB64), (c) => c.charCodeAt(0));
 	const pageCanvas = document.createElement('canvas');
@@ -277,8 +278,11 @@ function harness(pageB64, atlasText, FRAME, panelSrc) {
 	canvas.width = canvas.height = FRAME;
 	const ctx = new spine.ManagedWebGLRenderingContext(canvas, { alpha: true, antialias: false, preserveDrawingBuffer: true, premultipliedAlpha: false });
 	const tex = new spine.GLTexture(ctx, pageCanvas);
-	const shader = spine.Shader.newTwoColoredTextured(ctx), batcher = new spine.PolygonBatcher(ctx), renderer = new spine.SkeletonRenderer(ctx);
-	const mvp = new spine.Matrix4(); mvp.ortho2d(0, 0, FRAME, FRAME);
+	const renderer = new spine.SceneRenderer(canvas, ctx);
+	const cam = renderer.camera;
+	cam.position.x = cam.position.y = FRAME / 2;
+	cam.viewportWidth = cam.viewportHeight = FRAME;
+	cam.zoom = 1;
 	const atlas = () => { const a = new spine.TextureAtlas(atlasText); for (const p of a.pages) p.setTexture(tex); return a; };
 	const b64 = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
 	window.renderJobs = (doc, jobs) => {
@@ -298,8 +302,7 @@ function harness(pageB64, atlasText, FRAME, panelSrc) {
 			sk.updateWorldTransform(spine.Physics.update);
 			const gl = ctx.gl;
 			gl.viewport(0, 0, FRAME, FRAME); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
-			shader.bind(); shader.setUniformi(spine.Shader.SAMPLER, 0); shader.setUniform4x4f(spine.Shader.MVP_MATRIX, mvp.values);
-			batcher.begin(shader); renderer.premultipliedAlpha = false; renderer.draw(batcher, sk); batcher.end(); shader.unbind();
+			renderer.begin(); renderer.drawSkeleton(sk, false); renderer.end();
 			const px = new Uint8Array(FRAME * FRAME * 4);
 			gl.readPixels(0, 0, FRAME, FRAME, gl.RGBA, gl.UNSIGNED_BYTE, px);
 			return b64(px);
@@ -350,7 +353,7 @@ function covers(got, want) {
 	return n ? `${n} ink pixels lost, e.g. ${first}` : '';
 }
 const inked = (px) => { let n = 0; for (let i = 3; i < px.length; i += 4) if (px[i]) n++; return n; };
-const regionReadsRight = (c) => c.im.deg === 0 || c.im.deg === 90; // spine-core's RegionAttachment undoes a 90° pack only
+const regionReadsRight = (c) => c.im.deg === 0 || c.im.deg === 90; // a RegionAttachment undoes a 90° pack only
 
 // 1. the base rig: the atlas is packed the way the runtime reads it
 const base = stillsRig();
@@ -378,7 +381,7 @@ for (const [label, run] of [['▸ Convert to mesh', convert], ['✎ Draw mesh', 
 		if (regionReadsRight(c)) log(!diff(px[i], regionPx[c.slot]), `${label} on ${c.slot} (${c.im.deg}° pack): the mesh ≠ the region — ${diff(px[i], regionPx[c.slot])}`);
 		log(!diff(px[i], truthPx[c.slot]), `${label} on ${c.slot} (${c.im.deg}° pack): the mesh ≠ the untrimmed image — ${diff(px[i], truthPx[c.slot])}`);
 	});
-	// spine-core's own math: at each vertex the mesh samples the texel the region sampled there
+	// the runtime core's own math: at each vertex the mesh samples the texel the region sampled there
 	const coreBase = strictLoad(base), coreMesh = strictLoad(doc);
 	for (const c of CASES.filter(regionReadsRight)) {
 		const find = (data, name) => data.defaultSkin.getAttachment(data.findSlot(c.slot).index, name);
@@ -392,9 +395,9 @@ for (const [label, run] of [['▸ Convert to mesh', convert], ['✎ Draw mesh', 
 			const want = [uv[2] + s * (uv[4] - uv[2]) + t * (uv[0] - uv[2]), uv[3] + s * (uv[5] - uv[3]) + t * (uv[1] - uv[3])];
 			worst = Math.max(worst, Math.abs(mesh.uvs[k * 2] - want[0]), Math.abs(mesh.uvs[k * 2 + 1] - want[1]));
 		}
-		log(worst < 1e-6, `${label} on ${c.slot}: through spine-core 4.2 the mesh samples up to ${(worst * PAGE).toFixed(2)} texels off the region's`);
+		log(worst < 1e-6, `${label} on ${c.slot}: through the runtime core the mesh samples up to ${(worst * PAGE).toFixed(2)} texels off the region's`);
 	}
-	console.log(`  ${label}: ${CASES.length} meshes drawn against their region (0/90°) and the untrimmed image (all four packs), UVs through spine-core`);
+	console.log(`  ${label}: ${CASES.length} meshes drawn against their region (0/90°) and the untrimmed image (all four packs), UVs through the runtime core`);
 }
 
 // 3. sequences

@@ -1151,10 +1151,9 @@ tell minor from major there: on the first run, 5 pip bumps came as 5 separate PR
 Open version-update PRs are capped at 5 / 3 / 3. Security updates are grouped per ecosystem too, but they arrive when an
 advisory lands, not on the schedule.
 
-**Spine is pinned to 4.2.x.** Dependabot ignores major and minor bumps of `@esotericsoftware/*`, so
-only 4.2.x patches arrive. A Spine runtime must match the editor version that exported the data, and
-semver calls 4.2 → 4.3 a minor. Moving to 4.3 is a deliberate project, not a dependency bump.
-`scripts/check-spine-version.mjs` (run by check:all) fails a hand bump the same way.
+**No Spine runtime dependency.** Rigs are read and drawn by our own `packages/engine-rig`, so there is
+no `@esotericsoftware/*` package for Dependabot to bump. `scripts/check-spine-runtime-free.mjs` (run
+by check:all) fails any manifest, lockfile entry, import or vendored file that brings one back.
 
 A Dependabot PR is gated like any other: it runs Checks, Lint and Secrets and cannot merge until
 the six required checks pass. None of those jobs needs a secret, so Dependabot's secret-less runs

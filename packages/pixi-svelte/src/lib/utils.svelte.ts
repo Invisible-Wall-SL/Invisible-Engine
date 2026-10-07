@@ -1,5 +1,5 @@
 import WebFont from 'webfontloader';
-import type * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
+import type * as RIG from 'engine-rig/pixi';
 
 import { SPINE_FALLBACK_NATURAL_SIZE } from 'constants-shared/spine';
 
@@ -89,7 +89,7 @@ export const preloadFont = () =>
  * Resolve the uniform scale a `Spine` needs so an explicit `width`/`height` renders at
  * that size — robust to animation/skin-driven art whose setup pose has no attachments.
  *
- * spine-pixi-v8's own `width`/`height` setters scale relative to the spine's CURRENT
+ * RigView's own `width`/`height` setters scale relative to the spine's CURRENT
  * frame bounds, which are degenerate (0) for art driven by an animation before it has
  * advanced — so the requested size silently does nothing and the spine renders raw
  * (oversized). We instead size against the pose-independent authored bounds
@@ -117,7 +117,7 @@ export function spineSizeScale({
 	height,
 	fit,
 }: {
-	spine: SPINE_PIXI.Spine;
+	spine: RIG.RigView;
 	width?: number;
 	height?: number;
 	/** Mirrors engine-layout's `CoverFit` (kept a literal here: pixi-svelte is a dependency of

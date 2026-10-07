@@ -1,12 +1,12 @@
 // Phase 5.4 spike — prove the SLOT timelines (attachment swap + rgba colour) the slot
-// animator will write load through spine-core and play as expected.
+// animator will write load through engine-rig and play as expected.
 //   slots[slot].attachment = [{time, name|null}]            (stepped)
 //   slots[slot].rgba       = [{time, color:"rrggbbaa", curve?}]
 //   node tools/rigger-spike/slotanim.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './spine.mjs';
 
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = await import(SPINE_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = await import(RIG_CORE);
 
 const [, , jsonPath, atlasPath] = process.argv;
 const atlasText = readFileSync(atlasPath, 'utf8');

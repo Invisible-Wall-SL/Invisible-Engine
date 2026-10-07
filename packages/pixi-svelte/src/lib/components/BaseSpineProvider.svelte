@@ -1,11 +1,11 @@
 <script lang="ts" module>
 	import type { Snippet } from 'svelte';
-	import * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
+	import * as RIG from 'engine-rig/pixi';
 
 	import type { OverwriteCursor } from '../types';
 
-	export type Props = OverwriteCursor<Omit<SPINE_PIXI.SpineOptions, 'children'>> & {
-		spineData: SPINE_PIXI.SkeletonData;
+	export type Props = OverwriteCursor<Omit<RIG.RigViewOptions, 'children'>> & {
+		spineData: RIG.SkeletonData;
 		children: Snippet;
 		/** Node anchor, used ONLY to pivot a spine exported without skeleton bounds (its
 		 * pivot can't be computed statically). Ignored when the skeleton has authored bounds. */
@@ -15,12 +15,12 @@
 		// `'width'`/`'height'` pin that uniform scale to the named axis instead of picking
 		// it by aspect. Absent = prior per-axis behaviour. See docs/design/invisible-editor.md §10.
 		fit?: 'cover' | 'contain' | 'width' | 'height';
-		// Skeleton skin name. When set + non-empty, applied via the spine-pixi-v8 API
+		// Skeleton skin name. When set + non-empty, applied via the RigView API
 		// after construction. Absent = the runtime's default-skin behaviour (untouched).
 		skin?: string;
 		/**
 		 * MULTIPLY tint applied to the whole skeleton, as an `0xRRGGBB` number. Applied via the
-		 * spine-pixi-v8 skeleton COLOUR (`skeleton.color`, a per-vertex multiply on every slot), NOT
+		 * RigView skeleton COLOUR (`skeleton.color`, a per-vertex multiply on every slot), NOT
 		 * the sprite `.tint` path — a `Spine` is not a `Sprite`. Reactive: a change re-applies, and
 		 * clearing it (undefined) resets to white `0xffffff` (no tint), byte-identical to before.
 		 */
@@ -48,7 +48,7 @@
 
 	const props: Props = $props();
 	const parentContext = getContextParent();
-	const spine = new SPINE_PIXI.Spine(props.spineData);
+	const spine = new RIG.RigView(props.spineData);
 
 	// Rebroadcast this rig's fired Spine animation EVENTS onto the shared event bus (opt-in), so an
 	// effect subscribed to the event name fires exactly when the animation reaches its timeline event
@@ -60,7 +60,7 @@
 			EmitterEventBase & { int: number; float: number; string: string | null }
 		>()?.eventEmitter;
 		if (eventEmitter) {
-			const listener: SPINE_PIXI.AnimationStateListener = {
+			const listener: RIG.AnimationStateListener = {
 				event: (_entry, event) => {
 					const name = event?.data?.name;
 					if (!name) return;
@@ -77,7 +77,7 @@
 		}
 	}
 
-	// `width`/`height` are handled here, NOT through `propsSyncEffect`: spine-pixi-v8's
+	// `width`/`height` are handled here, NOT through `propsSyncEffect`: RigView's
 	// width/height setters scale the skeleton so its CURRENT-FRAME bounds match the
 	// requested size, but animation/skin-driven art (e.g. a background spine) has no
 	// attachments in the setup pose, so those bounds are degenerate (0) before any
@@ -122,7 +122,7 @@
 
 	// Apply an authored skeleton skin by name. Reactive (re-applies if `skin` changes),
 	// a no-op when absent so the runtime keeps its default-skin behaviour. An unknown
-	// skin name throws in spine-pixi-v8; we swallow it and leave the current skin.
+	// skin name throws in RigView; we swallow it and leave the current skin.
 	$effect(() => {
 		const skin = props.skin;
 		if (!skin) return;

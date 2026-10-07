@@ -2,11 +2,11 @@
  * Invisible FX — Tier C: the pooled spine "backing" abstraction + its real pixi-v8 `Spine`
  * factory. A {@link SpineBacking} owns ONE skeleton instance and the display object the emitter
  * tracks; {@link SpineParticleBehavior} pools these. The interface is renderer-agnostic so the
- * pool bookkeeping is unit-coverable headlessly (the harness injects a spine-core backing), while
- * the runtime injects the real pixi-v8 `Spine`-backed one built here.
+ * pool bookkeeping is unit-coverable headlessly (the harness injects an engine-rig backing), while
+ * the runtime injects the real `RigView`-backed one built here.
  */
 
-import * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
+import * as RIG from 'engine-rig/pixi';
 
 /**
  * The minimal display-object surface the behavior writes per frame. A pixi-v8 `Spine` (which
@@ -56,10 +56,10 @@ export type SpineBackingFactory = () => SpineBacking;
  * clock — one `update(dt)` per frame, exactly the spike's shape.
  */
 class PixiSpineBacking implements SpineBacking {
-	readonly spine: SPINE_PIXI.Spine;
+	readonly spine: RIG.RigView;
 
-	constructor(spineData: SPINE_PIXI.SkeletonData) {
-		this.spine = new SPINE_PIXI.Spine(spineData);
+	constructor(spineData: RIG.SkeletonData) {
+		this.spine = new RIG.RigView(spineData);
 		// The emitter's ticker drives the clock; never let the shared ticker double-advance it.
 		this.spine.autoUpdate = false;
 		this.spine.visible = false;
@@ -103,8 +103,6 @@ class PixiSpineBacking implements SpineBacking {
  * `SpineProvider` does), then hand the factory to the behavior — every pooled particle shares the
  * one skeleton data, allocating only its own `Spine` instance.
  */
-export function createPixiSpineBackingFactory(
-	spineData: SPINE_PIXI.SkeletonData,
-): SpineBackingFactory {
+export function createPixiSpineBackingFactory(spineData: RIG.SkeletonData): SpineBackingFactory {
 	return () => new PixiSpineBacking(spineData);
 }

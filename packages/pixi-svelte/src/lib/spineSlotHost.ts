@@ -1,7 +1,7 @@
 /**
  * ONE slot object per slot, shared by every rig binding that draws at that slot's depth.
  *
- * spine-pixi allows exactly one Pixi container per slot: `addSlotObject(slot, c)` first calls
+ * RigView allows exactly one Pixi container per slot: `addSlotObject(slot, c)` first calls
  * `removeSlotObject(slot)`, which pulls whatever was registered there OUT of the spine's children.
  * Since a rig binding is one keyframe, a rig that binds the same clip on `slot1` in two animations
  * mounts two `<RiggedFlipbook>`s — and the second `addSlotObject` silently evicted the first, whose

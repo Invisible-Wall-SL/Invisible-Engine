@@ -4,16 +4,16 @@
 //
 // 1. Parse the real skeleton into our structured model, serialize it back.
 // 2. Load BOTH the original JSON and our re-serialized JSON through the official
-//    @esotericsoftware/spine-core loader (the gold-standard arbiter).
+//    rig runtime's loader (engine-rig, held to the Spine 4.2 reference by tools/rig-parity).
 // 3. Summarise each resulting SkeletonData and diff — focus on weighted-mesh
 //    vertex fidelity. If the loader gets identical data from our output, the
 //    serializer round-trips faithfully.
 
 import { readFileSync } from 'node:fs';
 import { parseSkeleton, serializeSkeleton } from './spineModel.mjs';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './spine.mjs';
 
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(SPINE_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(RIG_CORE);
 
 const [, , jsonPath, atlasPath] = process.argv;
 if (!jsonPath || !atlasPath) {
@@ -179,7 +179,7 @@ if (skA && skB) {
 	const out = [];
 	diff(sumA, sumB, 'skeleton', out);
 	if (out.length === 0) {
-		console.log('\n✅ PASS — official spine-core loader produced IDENTICAL SkeletonData from our output.');
+		console.log('\n✅ PASS — engine-rig loader produced IDENTICAL SkeletonData from our output.');
 		console.log('   Weighted-mesh vertices, bones, slots, skins, constraints all round-trip faithfully.');
 		console.log('   (Animations matched too, but via pass-through — model-based animation serialization is Phase 5.)');
 	} else {

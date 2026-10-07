@@ -7,7 +7,7 @@
  * that plumbing once means the two manifests can never disagree about which rigs exist or how a
  * rig's runtime key is derived.
  *
- * WHY THE RAW JSON. spine-pixi discards custom `event.*` fields at parse time, so a binding cannot
+ * WHY THE RAW JSON. the runtime reader discards custom `event.*` fields at parse time, so a binding cannot
  * be read back through the runtime event stream — it must come from the rig data directly. Only
  * JSON-format skeletons can carry one; a binary `.skel` is skipped fast.
  *
@@ -20,7 +20,7 @@
 import { getObjectText } from './r2';
 import { loadSkeletonIndex, resolveBundlePrefix } from './spine';
 
-/** One animation event as it sits in the rig JSON, before spine-pixi ever sees it. The custom
+/** One animation event as it sits in the rig JSON, before the runtime ever sees it. The custom
  * binding fields are `unknown` here — each export reads its own through its own clamp. */
 export interface RawRigEvent {
 	name?: unknown;

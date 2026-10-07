@@ -23,7 +23,7 @@
 	 * (`emitter.init` re-inits cleanly), so the preview always reflects the doc verbatim.
 	 */
 	import { Emitter } from '@barvynkoa/particle-emitter';
-	import type * as SPINE from '@esotericsoftware/spine-pixi-v8';
+	import type * as RIG from 'engine-rig/pixi';
 	import { bindArt, behaviorsOf, emitterDeltaSeconds, type EmitterLayer } from 'engine-fx';
 	import {
 		createPixiSpineBackingFactory,
@@ -250,7 +250,7 @@
 			if (!entry) continue;
 			const offset = layer.placement.offset ?? { x: 0, y: 0 };
 
-			let bone: SPINE.Bone | null = null;
+			let bone: RIG.Bone | null = null;
 			let boneWorld: { x: number; y: number } | null = null;
 			if (spine && layerFollowsBone(layer)) {
 				const pos = spine.getBonePosition(layer.placement.bone!, bonePoint);

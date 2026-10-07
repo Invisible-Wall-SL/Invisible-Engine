@@ -162,7 +162,7 @@ type BakedBundle = {
 	 * (parity — the checked-in placeholder bundle has none). */
 	effects?: EffectDoc[];
 	/** Rig-timeline direct FX bindings (`invisible-fx.md` "rig-timeline direct FX binding"). A rig's
-	 * OWN animation events → effects, read from the rig `.irig`/`.json` at bake (spine-pixi discards
+	 * OWN animation events → effects, read from the rig `.irig`/`.json` at bake (the runtime reader discards
 	 * the custom `event.fx` field, so it can't travel the event stream). Keyed by the rig's runtime
 	 * assetKey (its bundle folder — the value `LayoutNodeView` passes to `<SpineProvider key=…>`); the
 	 * game registers it via `registerRigFx(bakedRigFx())`, and each `<RiggedEffect>` plays its effect
@@ -180,7 +180,7 @@ type BakedBundle = {
 	flipbooks?: FlipbookClipEntry[];
 	/** Rig-timeline direct FLIPBOOK bindings — the frame-animation twin of {@link rigFx}. A rig's OWN
 	 * animation events → clips (`event.flipbook`, read from the rig `.irig`/`.json` at bake for the
-	 * same reason: spine-pixi discards the custom field). Keyed by the rig's runtime assetKey; the
+	 * same reason: the runtime reader discards the custom field). Keyed by the rig's runtime assetKey; the
 	 * game registers it via `registerRigFlipbooks(bakedRigFlipbooks())`, and each `<RiggedFlipbook>`
 	 * plays its clip on the beat of the rig's event. The clip itself travels in `flipbooks` — this
 	 * carries only the binding. Absent/empty ⇒ `resolveRigFlipbooks()` returns [] (parity). */
