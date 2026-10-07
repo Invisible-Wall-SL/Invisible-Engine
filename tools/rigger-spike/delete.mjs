@@ -1,6 +1,6 @@
 // Verify the delete cascade headlessly, on the SHIPPED code: every function the delete actions
 // reach is pulled out of view.html (transitively), the rebuild is stubbed with the official
-// spine-core loader, and each delete is asserted to leave a doc that
+// engine-rig loader, and each delete is asserted to leave a doc that
 //  - loads (SkeletonJson resolves every reference by NAME and throws on a missing one — a path
 //    constraint still naming a deleted slot, a timeline or skin list naming a removed constraint),
 //  - removed exactly the constraints that needed the deleted thing, TOLD the author which, and
@@ -18,10 +18,10 @@
 //   node tools/rigger-spike/delete.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
-const SPINE = await import(SPINE_CORE);
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, VertexAttachment, RegionAttachment, PointAttachment } = SPINE;
+const RIG = await import(RIG_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, VertexAttachment, RegionAttachment, PointAttachment } = RIG;
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
 function atlasOf(atlasText) {
@@ -45,7 +45,7 @@ function pull(name) {
 	return html.slice(at, end + (kind === 'const' ? 3 : 2));
 }
 // The UI around a delete: the rebuild is where the real tool would throw, so it LOADS the doc. The
-// bone delete's pose (`posedSetupWorlds`) is the shipped one, on spine-core and the rig's atlas.
+// bone delete's pose (`posedSetupWorlds`) is the shipped one, on engine-rig and the rig's atlas.
 const STUBS = new Set(['rebuildFromRawDoc', 'markDirty', 'selectSlot', 'showNotice', 'renderSlotDetail']);
 // (`posedSetupWorlds` is handed to the bone delete, not called by name, so it is listed here.)
 const ENTRY = ['deleteBone', 'deleteSlot', 'deleteAttachment', 'deleteSkin', 'deleteIkConstraint', 'deleteTransformConstraint', 'deletePathConstraint', 'deletePhysicsConstraint', 'posedSetupWorlds'];
@@ -65,7 +65,7 @@ for (const q = [...ENTRY]; q.length; ) {
 }
 const sandbox = {
 	rawDoc: null, skeletonData: null, meshCtx: null, collapsedBones: new Set(),
-	SPINE, skeleton: null, missingArt: [], selected: { atlas_file: 'atlas' }, assetMgr: { require: () => atlasOf(sandbox.__atlas) },
+	RIG, skeleton: null, missingArt: [], selected: { atlas_file: 'atlas' }, assetMgr: { require: () => atlasOf(sandbox.__atlas) },
 	selBone: null, selSlot: null, selIk: null, selTc: null, selPath: null, selPc: null, animsDirty: false,
 	markDirty() {}, selectSlot() {}, renderSlotDetail() {},
 	showNotice(msg) { sandbox.__notices.push(String(msg)); },
@@ -338,7 +338,7 @@ console.log('\n=== delete cascade — synthetic rig (ik · transform · path · 
 log(!!loadData(SYNTH, SYNTH_ATLAS), 'the synthetic rig loads before any delete');
 const del = (fn, ...a) => (s) => s[fn](...a);
 checkDelete('bone ctrl (IK target, in a skin bone list, weights the box)', SYNTH, SYNTH_ATLAS, del('deleteBone', 'ctrl'), { still: 'ctrl', expect: ['ik arm_ik'] });
-checkDelete('bone spine (transform target, weights the body)', SYNTH, SYNTH_ATLAS, del('deleteBone', 'spine'), { still: 'spine', expect: ['transform follow_tc'] });
+checkDelete('bone rig (transform target, weights the body)', SYNTH, SYNTH_ATLAS, del('deleteBone', 'spine'), { still: 'spine', expect: ['transform follow_tc'] });
 checkDelete('bone jiggle (physics bone)', SYNTH, SYNTH_ATLAS, del('deleteBone', 'jiggle'), { still: 'jiggle', expect: ['physics jiggle_phys'] });
 const afterP1 = checkDelete('bone p1 (one of two path bones)', SYNTH, SYNTH_ATLAS, del('deleteBone', 'p1'), { still: 'p1', expect: [] });
 if (afterP1) checkDelete('bone p2 (the path\'s last bone)', afterP1, SYNTH_ATLAS, del('deleteBone', 'p2'), { still: 'p2', expect: ['path tail_path'] });

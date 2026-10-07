@@ -20,7 +20,7 @@
 		coverTransform,
 		fillMaskRect,
 		hostedComponentSpace,
-		instancePreviewSpineBundle,
+		instancePreviewRigBundle,
 		isCoverFitKind,
 		isHudScene,
 		MAX_COMPONENT_DEPTH,
@@ -94,8 +94,8 @@
 	import BusyOverlay from '$lib/BusyOverlay.svelte';
 	import EditorItemOverlay from './EditorItemOverlay.svelte';
 	import EditorEffectLayer from './EditorEffectLayer.svelte';
-	import EditorSpineLayer from './EditorSpineLayer.svelte';
-	import type { SpineMeta } from './spineRuntime.client';
+	import EditorRigLayer from './EditorRigLayer.svelte';
+	import type { RigMeta } from './rigRuntime.client';
 	import EditorTextLayer from './EditorTextLayer.svelte';
 	import { clearFontCatalogCache } from './fonts.client';
 	import { clearPageImages } from './RegionThumb.svelte';
@@ -134,10 +134,10 @@
 	interface SymbolStaticCell {
 		type: 'sprite' | 'spine' | 'flipbook';
 		assetKey: string;
-		/** The animation the STATIC state plays in-game (`SymbolSpineMain`'s `animationName`) —
-		 * the spine layer auto-loops it so the board preview shows the same pose the game does. */
+		/** The animation the STATIC state plays in-game (`SymbolRigMain`'s `animationName`) —
+		 * the rig layer auto-loops it so the board preview shows the same pose the game does. */
 		animationName?: string;
-		/** Tool-only spine resolver hint on a CODED default cell (`<folder>/<stem>`) — the
+		/** Tool-only rig resolver hint on a CODED default cell (`<folder>/<stem>`) — the
 		 * specific skeleton inside a shared-atlas symbol bundle. Preferred over `assetKey`
 		 * when loading the rig, exactly as the Symbols grid does. */
 		previewKey?: string;
@@ -189,10 +189,10 @@
 		 * when a caller doesn't pass it (back-compat). */
 		standardBox?: { width: number; height: number };
 		/** The project's asset listing — used to resolve catalog-default preview art
-		 * for `bind` anchors (spine bundle by name, sprite region by manifest scan). */
+		 * for `bind` anchors (rig bundle by name, sprite region by manifest scan). */
 		assets: ProjectAssets;
 		/** The project's coded symbol defaults — the dense source of truth for each
-		 * symbol's STATIC binding (sprite frame / spine bundle). Lets the canvas draw the
+		 * symbol's STATIC binding (sprite frame / rig bundle). Lets the canvas draw the
 		 * real symbol art in each reel cell so the author sizes symbols in context. */
 		symbolDefaults?: SymbolDefaultsView | null;
 		/** The Symbols State Machine override doc — sparse per-symbol/state overrides
@@ -212,11 +212,11 @@
 		 * The editor canvas is its OWN renderer, so it reads this map (NOT the engine
 		 * registry). Absent / unknown id → a labelled placeholder. */
 		componentMap?: Map<string, ComponentDef>;
-		/** EDITOR-PREVIEW ONLY: forwarded to `EditorSpineLayer` — while the author focuses a spine
-		 * param in the Properties panel, override the selected instance's bind spine to this bundle +
-		 * animation (WYSIWYG). Applies only to {@link spinePreviewNodeId}. Never written to the doc. */
-		spinePreview?: { bundle?: string; animation?: string } | null;
-		spinePreviewNodeId?: string;
+		/** EDITOR-PREVIEW ONLY: forwarded to `EditorRigLayer` — while the author focuses a rig
+		 * param in the Properties panel, override the selected instance's bind rig to this bundle +
+		 * animation (WYSIWYG). Applies only to {@link rigPreviewNodeId}. Never written to the doc. */
+		rigPreview?: { bundle?: string; animation?: string } | null;
+		rigPreviewNodeId?: string;
 		onSpawn: (node: LayoutNode, pos: { x: number; y: number }) => void;
 		/** Hoisted selection — bound from the page. The LAST id is the "primary"
 		 * (drives the properties panel + transform handles); shift-click adds/removes. */
@@ -248,6 +248,10 @@
 		 * component part with no art bound draws nothing, as in the game, instead of its labelled
 		 * placeholder. Absent (the Component Editor) ⇒ no toggle and placeholders always draw. */
 		gameView?: boolean;
+		/** The game modes In-game view can show besides the base game. Empty ⇒ no mode menu. */
+		viewModes?: { id: string; label: string }[];
+		/** The mode In-game view shows (bindable; `undefined` = the base game). */
+		viewMode?: string;
 		/** The project's display name — the default HUD game-name shown on the canvas
 		 * when the author hasn't typed an override (not written to the doc). */
 		projectGameName?: string | null;
@@ -269,10 +273,10 @@
 		 * exactly as before — parity.
 		 */
 		componentDefaults?: Record<string, Record<string, unknown>>;
-		/** Bubbles the merged `assetKey → {animations,skins}` map for every ready spine
+		/** Bubbles the merged `assetKey → {animations,skins}` map for every ready rig
 		 * bundle (union across the per-scene sublayers) up to the page, so the Properties
 		 * panel can offer animation/skin dropdowns instead of free-text. */
-		onSpineMeta?: (meta: Map<string, SpineMeta>) => void;
+		onRigMeta?: (meta: Map<string, RigMeta>) => void;
 		/** Undo/redo wiring — when provided, the canvas-actions toolbar shows undo/redo
 		 * buttons next to "Reload art" (the history itself lives on the page). Omitted
 		 * by callers without a history stack (e.g. the Component Editor). */
@@ -302,8 +306,8 @@
 		gridDimensions = null,
 		repeaterSources = null,
 		componentMap = new Map(),
-		spinePreview = null,
-		spinePreviewNodeId,
+		rigPreview = null,
+		rigPreviewNodeId,
 		onSpawn,
 		selectedIds = $bindable([]),
 		onDirty,
@@ -313,10 +317,12 @@
 		fillRequest = null,
 		hiddenSceneIds = new Set<string>(),
 		gameView = $bindable(),
+		viewModes = [],
+		viewMode = $bindable(),
 		projectGameName = null,
 		componentParams = {},
 		componentDefaults = {},
-		onSpineMeta,
+		onRigMeta,
 		canUndo = false,
 		canRedo = false,
 		onUndo,
@@ -327,7 +333,7 @@
 	/** Each symbol's STATIC binding for the reel preview: the coded default's `static`
 	 * cell, with the override doc's `static` cell layered on top (sparse). Computed once
 	 * (not per draw), and cycled across the grid cells so the board looks populated. A
-	 * `spine` static is drawn by `EditorSpineLayer` (WebGL) — this list is the SAME one it
+	 * `spine` static is drawn by `EditorRigLayer` (WebGL) — this list is the SAME one it
 	 * receives, so both surfaces cycle the identical symbol into each cell. A `flipbook` static
 	 * stays on the 2D canvas: its frames are ordinary atlas regions, so `drawReelGrid` plays it
 	 * off the clip doc the same way a placed `flipbook` node does. Empty when no symbol data is
@@ -342,7 +348,7 @@
 			if (!cell?.assetKey) continue;
 			out.push({
 				type: cell.type,
-				// A coded default spine cell resolves through its `previewKey` (the specific
+				// A coded default rig cell resolves through its `previewKey` (the specific
 				// skeleton in a shared-atlas bundle) — the same key the Symbols grid loads. An
 				// authored override never carries one, and a sprite cell never needs one.
 				assetKey: (cell.type === 'spine' ? cell.previewKey : undefined) ?? cell.assetKey,
@@ -356,7 +362,7 @@
 
 	/** Any symbol whose STATIC binding is an Invisible Flipbook clip — a reel board then needs the
 	 * clip playback clock running, exactly as a placed `flipbook` node does. Declared beside
-	 * `symbolStatics` (not beside `hasSpineSymbol`) because `nodesHaveFlipbook` reads it. */
+	 * `symbolStatics` (not beside `hasRigSymbol`) because `nodesHaveFlipbook` reads it. */
 	const hasFlipbookSymbol = $derived(symbolStatics.some((c) => c.type === 'flipbook'));
 
 	/** The "primary" selected id — the last one picked. Drives the properties panel,
@@ -418,7 +424,7 @@
 		if (art) {
 			return placedArtTransform(node, t, art.placement);
 		}
-		// No resolvable preview art (e.g. the component's spine isn't in THIS project),
+		// No resolvable preview art (e.g. the component's rig isn't in THIS project),
 		// but a known overlay still has a catalog PLACEMENT — position its placeholder
 		// where the component actually plays (centred / board-relative) instead of
 		// stranding it at the anchor's raw origin (top-left). Universal across game
@@ -452,10 +458,10 @@
 		if (space === 'standard') {
 			return standardToWorld(t, sceneCtx);
 		}
-		// A `coverFit` sprite/spine/flipbook in a `canvas`-space (flow-gated) scene cover-fits the
+		// A `coverFit` sprite/rig/flipbook in a `canvas`-space (flow-gated) scene cover-fits the
 		// window with the SAME true-cover helper the `background` path uses — mirroring the
 		// runtime `LayoutNodeView` (`isCanvasCoverFit`), so the preview is WYSIWYG. Scoped to
-		// sprite/spine/flipbook (a componentInstance cover stays background-only). Checked BEFORE
+		// sprite/rig/flipbook (a componentInstance cover stays background-only). Checked BEFORE
 		// the plain canvas mapping below, which would otherwise place it at its raw transform.
 		if (space === 'canvas' && node.coverFit && isCoverFitKind(node)) {
 			return backgroundTransform(node, t);
@@ -498,7 +504,7 @@
 	}
 
 	/** {@link nodeTransform} with the value-binding preview folded on — what the draw-only overlays
-	 *  (spine, text, effects) place a top-level node by. Never used for a geometry edit. */
+	 *  (rig, text, effects) place a top-level node by. Never used for a geometry edit. */
 	function drawTransform(node: LayoutNode, sceneCtx: Scene = scene): ResolvedTransform {
 		return nodeTransform(node, sceneCtx, previewResolveTransform);
 	}
@@ -721,9 +727,9 @@
 			};
 		}
 		// cover / contain: centred, sized to the WINDOW via the shared `coverTransform`
-		// — the SAME true-cover helper the game runtime + the spine overlay use. The
+		// — the SAME true-cover helper the game runtime + the rig overlay use. The
 		// cover placement reads the node's DOC-DRIVEN fit + cover scale (§10.3 step 4)
-		// so this 2D path stays unified with `backgroundTransform` + the spine layer;
+		// so this 2D path stays unified with `backgroundTransform` + the rig layer;
 		// the contain placement (centred overlays) is always contain at scale 1.
 		const isCover = result.mode === 'cover';
 		const fit = isCover ? backgroundFit(node, layoutType) : 'contain';
@@ -874,7 +880,7 @@
 	 * authored), so the canvas must not drag/scale/rotate them — a write would store
 	 * the synthetic centre/size and break the cover. The cover scale is still editable
 	 * via the Properties `scale.x` control. This covers BOTH `background`-space sprite/
-	 * spine nodes AND a `cover`-placement preview anchor (the full-bleed Background).
+	 * rig nodes AND a `cover`-placement preview anchor (the full-bleed Background).
 	 *
 	 * Positioned/centred preview anchors (Win, Transition, FreeSpinIntro/Outro,
 	 * FreeSpinCounter) are NOT cover: their preview = placement + the node's stored x/y
@@ -897,14 +903,14 @@
 	}
 
 	let canvas: HTMLCanvasElement | null = $state(null);
-	// Top-most 2D layer for the HUD: it sits ABOVE the spine/FX overlay so the HUD
+	// Top-most 2D layer for the HUD: it sits ABOVE the rig/FX overlay so the HUD
 	// draws on top (matching the game, where the HUD is the top UI layer). The base
-	// `canvas` draws the game scenes + frame BELOW the spine layer.
+	// `canvas` draws the game scenes + frame BELOW the rig layer.
 	let hudCanvas: HTMLCanvasElement | null = $state(null);
 	let wrap: HTMLDivElement | null = $state(null);
 
 	// ---------- bone-ridden stand-in symbol overlay (Scene Editor preview) ----------
-	// SHARED, non-reactive sink the per-scene spine layers write each frame (they OWN the
+	// SHARED, non-reactive sink the per-scene rig layers write each frame (they OWN the
 	// skeleton↔screen mapping, so they resolve each reveal's followed bone and hand us a plain
 	// WORLD transform, keyed by host component-instance node id). This canvas's OWN rAF
 	// (`drawRiders`) reads it + draws the stand-in symbols on `riderCanvas`, sitting just above
@@ -959,16 +965,16 @@
 	let hoverNodeId = $state<string | null>(null);
 	let hoverHandle = $state<HandleHit | null>(null);
 	let snapLines = $state<SnapLine[]>([]);
-	/** Spine node ids whose preview animation is playing (static otherwise). */
-	let playingSpines = $state<Set<string>>(new Set());
-	/** `assetKey`s the spine overlay renders as real skeletons — the 2D canvas
+	/** Rig node ids whose preview animation is playing (static otherwise). */
+	let playingRigs = $state<Set<string>>(new Set());
+	/** `assetKey`s the rig overlay renders as real skeletons — the 2D canvas
 	 * skips their placeholder box so only the live preview shows. UNION across the
-	 * per-scene spine sublayers (each reports only its own scene's keys). */
-	let readySpineKeys = $state<Set<string>>(new Set());
-	/** Setup-pose natural size per spine `assetKey`, reported by the WebGL overlay —
-	 * lets the 2D canvas cover-fit `preview.art` spine anchors by the art's aspect.
-	 * MERGED across the per-scene spine sublayers. */
-	let spineNaturalSizes = $state<Map<string, { w: number; h: number }>>(new Map());
+	 * per-scene rig sublayers (each reports only its own scene's keys). */
+	let readyRigKeys = $state<Set<string>>(new Set());
+	/** Setup-pose natural size per rig `assetKey`, reported by the WebGL overlay —
+	 * lets the 2D canvas cover-fit `preview.art` rig anchors by the art's aspect.
+	 * MERGED across the per-scene rig sublayers. */
+	let rigNaturalSizes = $state<Map<string, { w: number; h: number }>>(new Map());
 	/** Node ids the PIXI text overlay (`EditorTextLayer`) now renders as real text — the
 	 * 2D canvas steps its HUD-text CHIP aside for these (the overlay owns the text). Text
 	 * NODES are overlay-only now (no 2D `fillText`), so this only gates HUD bind-anchor
@@ -982,7 +988,7 @@
 	/** Global play/pause for the live effect preview overlay (default playing). */
 	let playingEffects = $state(true);
 	/** When on, redraw the window + play-area (main box) outlines on the top-most HUD canvas,
-	 * ABOVE every art/spine/FX layer — so the screen bounds stay visible once stacked art buries
+	 * ABOVE every art/rig/FX layer — so the screen bounds stay visible once stacked art buries
 	 * the base-canvas guides (which sit at the bottom of the z-stack). Off by default. */
 	let showScreenBorder = $state(false);
 	/** Effect NODE ids the live particle overlay (`EditorEffectLayer`) now renders — the 2D canvas
@@ -998,9 +1004,9 @@
 	// Per-scene report buffers: each sublayer is filtered to one scene, so the 2D
 	// canvas folds their reports together (union of ready keys/ids + merged natural
 	// sizes; summed load tallies) to keep its placeholder/progress logic unchanged.
-	const spineReadyByScene = new Map<string, Set<string>>();
-	const spineNaturalByScene = new Map<string, Map<string, { w: number; h: number }>>();
-	const spineMetaByScene = new Map<string, Map<string, SpineMeta>>();
+	const rigReadyByScene = new Map<string, Set<string>>();
+	const rigNaturalByScene = new Map<string, Map<string, { w: number; h: number }>>();
+	const rigMetaByScene = new Map<string, Map<string, RigMeta>>();
 	const textReadyByScene = new Map<string, Set<string>>();
 	const textMeasuredByScene = new Map<string, Map<string, { w: number; h: number }>>();
 	const effectReadyByScene = new Map<string, Set<string>>();
@@ -1008,26 +1014,26 @@
 		string,
 		Map<string, { x: number; y: number; w: number; h: number }>
 	>();
-	const spineLoadByScene = new Map<string, { started: number; settled: number }>();
+	const rigLoadByScene = new Map<string, { started: number; settled: number }>();
 	const fontLoadByScene = new Map<string, { started: number; settled: number }>();
 
-	function mergeSpineReady(sceneId: string, keys: Set<string>): void {
-		spineReadyByScene.set(sceneId, keys);
+	function mergeRigReady(sceneId: string, keys: Set<string>): void {
+		rigReadyByScene.set(sceneId, keys);
 		const union = new Set<string>();
-		for (const set of spineReadyByScene.values()) for (const k of set) union.add(k);
-		readySpineKeys = union;
+		for (const set of rigReadyByScene.values()) for (const k of set) union.add(k);
+		readyRigKeys = union;
 	}
-	function mergeSpineNatural(sceneId: string, sizes: Map<string, { w: number; h: number }>): void {
-		spineNaturalByScene.set(sceneId, sizes);
+	function mergeRigNatural(sceneId: string, sizes: Map<string, { w: number; h: number }>): void {
+		rigNaturalByScene.set(sceneId, sizes);
 		const merged = new Map<string, { w: number; h: number }>();
-		for (const m of spineNaturalByScene.values()) for (const [k, v] of m) merged.set(k, v);
-		spineNaturalSizes = merged;
+		for (const m of rigNaturalByScene.values()) for (const [k, v] of m) merged.set(k, v);
+		rigNaturalSizes = merged;
 	}
-	function mergeSpineMeta(sceneId: string, meta: Map<string, SpineMeta>): void {
-		spineMetaByScene.set(sceneId, meta);
-		const merged = new Map<string, SpineMeta>();
-		for (const m of spineMetaByScene.values()) for (const [k, v] of m) merged.set(k, v);
-		onSpineMeta?.(merged);
+	function mergeRigMeta(sceneId: string, meta: Map<string, RigMeta>): void {
+		rigMetaByScene.set(sceneId, meta);
+		const merged = new Map<string, RigMeta>();
+		for (const m of rigMetaByScene.values()) for (const [k, v] of m) merged.set(k, v);
+		onRigMeta?.(merged);
 	}
 	function mergeTextReady(sceneId: string, ids: Set<string>): void {
 		textReadyByScene.set(sceneId, ids);
@@ -1056,16 +1062,16 @@
 		for (const m of effectBoundsByScene.values()) for (const [k, v] of m) merged.set(k, v);
 		effectBounds = merged;
 	}
-	function mergeSpineLoading(sceneId: string, c: { started: number; settled: number }): void {
-		spineLoadByScene.set(sceneId, c);
+	function mergeRigLoading(sceneId: string, c: { started: number; settled: number }): void {
+		rigLoadByScene.set(sceneId, c);
 		let started = 0;
 		let settled = 0;
-		for (const v of spineLoadByScene.values()) {
+		for (const v of rigLoadByScene.values()) {
 			started += v.started;
 			settled += v.settled;
 		}
-		spineStarted = started;
-		spineSettled = settled;
+		rigStarted = started;
+		rigSettled = settled;
 	}
 	function mergeFontLoading(sceneId: string, c: { started: number; settled: number }): void {
 		fontLoadByScene.set(sceneId, c);
@@ -1082,14 +1088,14 @@
 	/** Drop a scene's report buffers (when its group unmounts — hidden/removed) and
 	 * recompute the merged unions/sums so stale ready keys + load tallies don't linger. */
 	function forgetScene(id: string): void {
-		spineReadyByScene.delete(id);
-		spineNaturalByScene.delete(id);
-		spineMetaByScene.delete(id);
+		rigReadyByScene.delete(id);
+		rigNaturalByScene.delete(id);
+		rigMetaByScene.delete(id);
 		textReadyByScene.delete(id);
 		textMeasuredByScene.delete(id);
 		effectReadyByScene.delete(id);
 		effectBoundsByScene.delete(id);
-		spineLoadByScene.delete(id);
+		rigLoadByScene.delete(id);
 		fontLoadByScene.delete(id);
 		sceneFilters.delete(id);
 		delete blendRunCache[id];
@@ -1099,24 +1105,24 @@
 		// them too, else a removed scene's rigs stay "ready" forever and keep their placeholders off.
 		const blendPrefix = `${id}#blend:`;
 		for (const map of [
-			spineReadyByScene,
-			spineNaturalByScene,
-			spineMetaByScene,
+			rigReadyByScene,
+			rigNaturalByScene,
+			rigMetaByScene,
 			effectReadyByScene,
 			effectBoundsByScene,
-			spineLoadByScene,
+			rigLoadByScene,
 		] as Map<string, unknown>[]) {
 			for (const key of [...map.keys()]) if (key.startsWith(blendPrefix)) map.delete(key);
 		}
-		const meta = new Map<string, SpineMeta>();
-		for (const m of spineMetaByScene.values()) for (const [k, v] of m) meta.set(k, v);
-		onSpineMeta?.(meta);
+		const meta = new Map<string, RigMeta>();
+		for (const m of rigMetaByScene.values()) for (const [k, v] of m) meta.set(k, v);
+		onRigMeta?.(meta);
 		const keys = new Set<string>();
-		for (const set of spineReadyByScene.values()) for (const k of set) keys.add(k);
-		readySpineKeys = keys;
+		for (const set of rigReadyByScene.values()) for (const k of set) keys.add(k);
+		readyRigKeys = keys;
 		const nat = new Map<string, { w: number; h: number }>();
-		for (const m of spineNaturalByScene.values()) for (const [k, v] of m) nat.set(k, v);
-		spineNaturalSizes = nat;
+		for (const m of rigNaturalByScene.values()) for (const [k, v] of m) nat.set(k, v);
+		rigNaturalSizes = nat;
 		const ids = new Set<string>();
 		for (const set of textReadyByScene.values()) for (const tid of set) ids.add(tid);
 		readyTextIds = ids;
@@ -1131,12 +1137,12 @@
 		effectBounds = effBounds;
 		let ss = 0;
 		let sd = 0;
-		for (const v of spineLoadByScene.values()) {
+		for (const v of rigLoadByScene.values()) {
 			ss += v.started;
 			sd += v.settled;
 		}
-		spineStarted = ss;
-		spineSettled = sd;
+		rigStarted = ss;
+		rigSettled = sd;
 		let fs = 0;
 		let fd = 0;
 		for (const v of fontLoadByScene.values()) {
@@ -1163,30 +1169,30 @@
 			},
 		};
 	}
-	function toggleSpinePlay(node: LayoutNode): void {
-		const next = new Set(playingSpines);
+	function toggleRigPlay(node: LayoutNode): void {
+		const next = new Set(playingRigs);
 		if (next.has(node.id)) next.delete(node.id);
 		else next.add(node.id);
-		playingSpines = next;
+		playingRigs = next;
 	}
 
 	// ---------- asset-load progress (drives the loading overlay) ----------
 	// Monotonic counters across the three asset sources: images + atlas/sheet
-	// regions (this canvas) and spine bundles (the overlay child, via callback).
+	// regions (this canvas) and rig bundles (the overlay child, via callback).
 	// `started`/`settled` only grow; `pending` is the live in-flight count.
 	let imgStarted = $state(0);
 	let imgSettled = $state(0);
 	let regStarted = $state(0);
 	let regSettled = $state(0);
-	let spineStarted = $state(0);
-	let spineSettled = $state(0);
+	let rigStarted = $state(0);
+	let rigSettled = $state(0);
 	let fontStarted = $state(0);
 	let fontSettled = $state(0);
 	const loadPending = $derived(
 		imgStarted -
 			imgSettled +
 			(regStarted - regSettled) +
-			(spineStarted - spineSettled) +
+			(rigStarted - rigSettled) +
 			(fontStarted - fontSettled),
 	);
 	// High-water mark for the current load burst: grows as new refs are
@@ -1244,9 +1250,9 @@
 	// token: it stays constant across renders (the browser revalidates cheaply
 	// via If-None-Match) and changes ONLY on "Reload art" — forcing a fresh
 	// fetch after the underlying R2 art actually changed, without a page reload.
-	// `spineReload` is forwarded to the spine layer to drop its bundle cache.
+	// `rigReload` is forwarded to the rig layer to drop its bundle cache.
 	let assetVersion = $state(0);
-	let spineReload = $state(0);
+	let rigReload = $state(0);
 	let fontReload = $state(0);
 
 	// Content-version per resolved page key (filled as region sets resolve). Lets a page
@@ -1280,9 +1286,9 @@
 	}
 
 	/** "Reload art": drop the per-session image + region caches and bump the
-	 * cache-bust tokens so updated atlas/spine art is re-fetched from R2 — no full
+	 * cache-bust tokens so updated atlas/rig art is re-fetched from R2 — no full
 	 * page reload needed. The 2D images + region pages re-load on the next draw();
-	 * the spine layer re-loads via the forwarded `spineReload` token. */
+	 * the rig layer re-loads via the forwarded `rigReload` token. */
 	function refreshAssets(): void {
 		images.clear();
 		pageVersionByKey.clear();
@@ -1305,7 +1311,7 @@
 		spriteRegionIndex = new Map();
 		regionScanStarted = false;
 		assetVersion++;
-		spineReload++;
+		rigReload++;
 		fontReload++;
 		draw();
 	}
@@ -1405,7 +1411,7 @@
 		// (`Frame_FSCounter.png`, the `progressBar*.png` trio) is engine art every game app
 		// bundles + registers, so it renders fine in the shipped game — but it lives in no
 		// project atlas, so the scan above can never find it and the canvas drew a
-		// placeholder. Resolved from the launcher's vendored copy (the built-in SPINE
+		// placeholder. Resolved from the launcher's vendored copy (the built-in RIG
 		// precedent). Deliberately AFTER the project index, so a project atlas that packs the
 		// same name still wins and an author's own art keeps overriding the engine default.
 		const builtinId = builtinSheetIdForRegion(lookupName);
@@ -1531,7 +1537,7 @@
 
 	/** Does a scene carry a placed `kind:'flipbook'` node — or a reel board whose symbols bind a
 	 * clip — ANYWHERE in its tree (incl. nested in a container / component instance)? Gates the
-	 * playback clock above — mirroring `sceneHasEffect` / `sceneHasSpine`. */
+	 * playback clock above — mirroring `sceneHasEffect` / `sceneHasRig`. */
 	function sceneHasFlipbook(s: Scene): boolean {
 		return nodesHaveFlipbook(s.nodes, 0, []);
 	}
@@ -1596,18 +1602,18 @@
 	}
 
 	/** Resolved stand-in art for a `bind` anchor (explicit override → catalog default
-	 * against the project's assets). The 2D canvas + the spine overlay both resolve
+	 * against the project's assets). The 2D canvas + the rig overlay both resolve
 	 * through this so they agree on ONE art per anchor. Triggers the lazy sprite-region
 	 * scan when a node's catalog default is a sprite the index hasn't located yet. */
 	function anchorArt(
 		node: LayoutNode,
-		previewSpineBundle?: string,
+		previewRigBundle?: string,
 	): ResolvedPreviewArt | undefined {
 		const art = resolveAnchorPreviewArt(
 			node,
 			assets,
 			spriteRegionIndex,
-			previewSpineBundle,
+			previewRigBundle,
 			layoutType,
 		);
 		if (art?.kind === 'sprite' && !art.assetKey) ensureRegionIndex();
@@ -1615,10 +1621,10 @@
 	}
 
 	/** Natural draw size for a node — region size for region sprites, page/native otherwise.
-	 * `instanceSpineBundle` (threaded by `nodeBox`/`componentInstanceContentBox`) resolves a
-	 * nested spine bind's stand-in to the ENCLOSING instance's AUTHORED rig, so its box tracks
+	 * `instanceRigBundle` (threaded by `nodeBox`/`componentInstanceContentBox`) resolves a
+	 * nested rig bind's stand-in to the ENCLOSING instance's AUTHORED rig, so its box tracks
 	 * that rig's natural bounds instead of the fixed catalog bundle. */
-	function naturalSize(node: LayoutNode, instanceSpineBundle?: string): NaturalSize | null {
+	function naturalSize(node: LayoutNode, instanceRigBundle?: string): NaturalSize | null {
 		// A placed effect's "natural size" is its live particle SPREAD, reported by the overlay
 		// (`EditorEffectLayer` → `effectBounds`) in node-local / scene-world units. The spread is
 		// OFFSET from the node origin (a burst fanning upward has particles above/left of it), so we
@@ -1655,7 +1661,7 @@
 		}
 		// A `preview.art` bind anchor borrows the art's natural size (so box/hit-test
 		// math frames the rendered art, not an empty container).
-		const art = artNaturalSize(node, instanceSpineBundle);
+		const art = artNaturalSize(node, instanceRigBundle);
 		if (art) return art;
 		if (node.kind === 'sprite' && node.region) {
 			const found = findRegion(node.assetKey, node.region);
@@ -1681,13 +1687,13 @@
 			const found = findRegion(first.assetKey, first.region);
 			return found ? regionNaturalSize(found.region) : null;
 		}
-		// A directly-placed spine node's natural size comes from the WebGL overlay's
+		// A directly-placed rig node's natural size comes from the WebGL overlay's
 		// setup-pose bounds (the 2D canvas can't measure a skeleton), keyed by the bundle
-		// `assetKey` — the same map a `preview.art` spine anchor reads via `artNaturalSize`.
+		// `assetKey` — the same map a `preview.art` rig anchor reads via `artNaturalSize`.
 		// Without this the box/hit-test falls back to a tiny default (the assetKey is a
 		// bundle prefix, never an image key, so the `images` lookup below always misses).
 		if (node.kind === 'spine') {
-			const sz = spineNaturalSizes.get(node.assetKey);
+			const sz = rigNaturalSizes.get(node.assetKey);
 			if (sz) return sz;
 		}
 		if (node.kind === 'sprite' || node.kind === 'spine') {
@@ -1699,20 +1705,20 @@
 
 	/** Natural size of a `preview.art` payload, when the art is loaded:
 	 * - sprite art: the atlas region's native size (resolved like a region sprite);
-	 * - spine art: the skeleton's setup-pose bounds, reported by the WebGL overlay
+	 * - rig art: the skeleton's setup-pose bounds, reported by the WebGL overlay
 	 *   (the 2D canvas can't measure a skeleton). `null` until it resolves. */
 	function artNaturalSize(
 		node: LayoutNode,
-		instanceSpineBundle?: string,
+		instanceRigBundle?: string,
 	): { w: number; h: number } | null {
-		const art = anchorArt(node, instanceSpineBundle);
+		const art = anchorArt(node, instanceRigBundle);
 		if (!art) return null;
 		if (art.kind === 'sprite' && art.region && art.assetKey) {
 			const found = findRegion(art.assetKey, art.region);
 			return found ? regionNaturalSize(found.region) : null;
 		}
 		if (art.kind === 'spine') {
-			return spineNaturalSizes.get(art.assetKey) ?? null;
+			return rigNaturalSizes.get(art.assetKey) ?? null;
 		}
 		return null;
 	}
@@ -1760,44 +1766,44 @@
 	/**
 	 * Non-hidden GAME scenes in DOC ORDER — the per-scene composite groups (markup
 	 * below) are emitted one per entry, z-ordered by this index so ANY scene's
-	 * content (its 2D canvas + spine + text) sits above/below ANOTHER scene's
+	 * content (its 2D canvas + rig + text) sits above/below ANOTHER scene's
 	 * content strictly by screen order. (HUD scenes are drawn separately on the
-	 * top-most `hudCanvas`.) This is what makes a full-bleed Background SPINE render
-	 * BELOW the base-game 2D reels, instead of the spine layer always sitting on top.
+	 * top-most `hudCanvas`.) This is what makes a full-bleed Background RIG render
+	 * BELOW the base-game 2D reels, instead of the rig layer always sitting on top.
 	 */
 	function visibleGameScenes(): Scene[] {
 		return scenes.filter((s) => !hiddenSceneIds.has(s.id) && !isHudScene(s));
 	}
 
-	/** Does a scene carry a spine render target (a real spine node, a `bind` anchor whose
-	 * resolved preview art is a spine, or a reel BOARD whose symbols bind spine art)? Only
-	 * such scenes mount a (WebGL) spine sublayer in their group, so contexts stay bounded. */
-	function sceneHasSpine(s: Scene): boolean {
-		return nodesHaveSpine(s.nodes, 0, [], undefined);
+	/** Does a scene carry a rig render target (a real rig node, a `bind` anchor whose
+	 * resolved preview art is a rig, or a reel BOARD whose symbols bind rig art)? Only
+	 * such scenes mount a (WebGL) rig sublayer in their group, so contexts stay bounded. */
+	function sceneHasRig(s: Scene): boolean {
+		return nodesHaveRig(s.nodes, 0, [], undefined);
 	}
-	/** Any symbol whose STATIC binding is a spine — the reel board then needs the WebGL
+	/** Any symbol whose STATIC binding is a rig — the reel board then needs the WebGL
 	 * layer to draw its cells (the 2D canvas can only marker them). */
-	const hasSpineSymbol = $derived(symbolStatics.some((c) => c.type === 'spine'));
-	function nodesHaveSpine(
+	const hasRigSymbol = $derived(symbolStatics.some((c) => c.type === 'spine'));
+	function nodesHaveRig(
 		nodes: LayoutNode[],
 		depth: number,
 		stack: string[],
-		/** The enclosing componentInstance's AUTHORED preview spine bundle (its first `spine`-kind
-		 * param value), threaded EXACTLY like `collectNestedSpines` in `EditorSpineLayer`. Without it
+		/** The enclosing componentInstance's AUTHORED preview rig bundle (its first `spine`-kind
+		 * param value), threaded EXACTLY like `collectNestedRigs` in `EditorRigLayer`. Without it
 		 * this check resolved only the FIXED catalog bundle (the win overlay's `bigwin`); a project
-		 * whose authored rig differs (Borut's `R_WinScreen`) and that has no `bigwin` spine looked
-		 * "spine-less", so the WebGL spine layer never mounted and the authored rig showed only its 2D
+		 * whose authored rig differs (Borut's `R_WinScreen`) and that has no `bigwin` rig looked
+		 * "rig-less", so the WebGL rig layer never mounted and the authored rig showed only its 2D
 		 * placeholder — even though the renderer WOULD have drawn it. Mirrors the renderer so the
-		 * layer mounts exactly when there is real spine work. */
-		instanceSpineBundle: string | undefined,
+		 * layer mounts exactly when there is real rig work. */
+		instanceRigBundle: string | undefined,
 	): boolean {
 		for (const n of nodes) {
 			if (n.kind === 'spine') return true;
-			// A reel board with spine-bound symbols: its cells are drawn by the spine layer.
-			if (n.kind === 'reelGrid' && hasSpineSymbol) return true;
-			const art = anchorArt(n, instanceSpineBundle);
+			// A reel board with rig-bound symbols: its cells are drawn by the rig layer.
+			if (n.kind === 'reelGrid' && hasRigSymbol) return true;
+			const art = anchorArt(n, instanceRigBundle);
 			if (art?.kind === 'spine' && art.assetKey) return true;
-			if (n.kind === 'container' && nodesHaveSpine(n.children, depth, stack, instanceSpineBundle))
+			if (n.kind === 'container' && nodesHaveRig(n.children, depth, stack, instanceRigBundle))
 				return true;
 			if (n.kind === 'componentInstance') {
 				const def = componentMap.get(n.componentId);
@@ -1807,8 +1813,8 @@
 					resolveLayoutInstanceParams(n, layoutType),
 					componentDefaults[def.id],
 				);
-				const spineBundle = instancePreviewSpineBundle(def, params);
-				if (nodesHaveSpine(def.root.children, depth + 1, [...stack, def.id], spineBundle))
+				const rigBundle = instancePreviewRigBundle(def, params);
+				if (nodesHaveRig(def.root.children, depth + 1, [...stack, def.id], rigBundle))
 					return true;
 			}
 		}
@@ -1846,7 +1852,7 @@
 
 	/** Does a scene carry a placed `kind:'effect'` node ANYWHERE in its tree (incl. nested in a
 	 * container / component instance)? Only such scenes mount the (WebGL) effect sublayer, so Pixi
-	 * contexts stay bounded — mirroring `sceneHasSpine`. */
+	 * contexts stay bounded — mirroring `sceneHasRig`. */
 	function sceneHasEffect(s: Scene): boolean {
 		return nodesHaveEffect(s.nodes, 0, []);
 	}
@@ -1863,7 +1869,7 @@
 		return false;
 	}
 
-	/** Stable single-id `sceneFilter` per scene — memoized so the spine/text sublayers
+	/** Stable single-id `sceneFilter` per scene — memoized so the rig/text sublayers
 	 * don't see a fresh Set reference (and rebuild) on every parent re-render. */
 	const sceneFilters = new Map<string, Set<string>>();
 	function sceneFilterFor(id: string): Set<string> {
@@ -1897,31 +1903,31 @@
 		return hudTextFilter;
 	}
 
-	/** Synthetic scene key for the HUD spine overlay's report buffers — it covers ALL HUD
+	/** Synthetic scene key for the HUD rig overlay's report buffers — it covers ALL HUD
 	 * scenes on one overlay (the HUD draws on its own top layer), mirroring `HUD_TEXT_KEY`. */
-	const HUD_SPINE_KEY = '__hud-spine__';
+	const HUD_RIG_KEY = '__hud-rig__';
 
-	/** Non-hidden HUD scenes carrying a spine ANYWHERE in their tree (incl. nested in a
+	/** Non-hidden HUD scenes carrying a rig ANYWHERE in their tree (incl. nested in a
 	 * placed component — a spin button's `R_SpinButton`). The per-game-scene `{#each}`
-	 * excludes HUD scenes (they draw on `hudCanvas`), so without this the HUD's spines only
+	 * excludes HUD scenes (they draw on `hudCanvas`), so without this the HUD's rigs only
 	 * ever show their 2D placeholder box and never the live skeleton. */
-	function hudSpineScenes(): Scene[] {
-		return scenes.filter((s) => isHudScene(s) && !hiddenSceneIds.has(s.id) && sceneHasSpine(s));
+	function hudRigScenes(): Scene[] {
+		return scenes.filter((s) => isHudScene(s) && !hiddenSceneIds.has(s.id) && sceneHasRig(s));
 	}
 
-	/** Memoized multi-id `sceneFilter` for the HUD spine overlay — a stable Set reference
+	/** Memoized multi-id `sceneFilter` for the HUD rig overlay — a stable Set reference
 	 * (rebuilt only when membership changes) so the overlay doesn't churn each render. */
-	let hudSpineFilter = new Set<string>();
-	function hudSpineSceneFilter(): Set<string> {
-		const ids = hudSpineScenes().map((s) => s.id);
-		if (ids.length !== hudSpineFilter.size || ids.some((id) => !hudSpineFilter.has(id))) {
-			hudSpineFilter = new Set(ids);
+	let hudRigFilter = new Set<string>();
+	function hudRigSceneFilter(): Set<string> {
+		const ids = hudRigScenes().map((s) => s.id);
+		if (ids.length !== hudRigFilter.size || ids.some((id) => !hudRigFilter.has(id))) {
+			hudRigFilter = new Set(ids);
 		}
-		return hudSpineFilter;
+		return hudRigFilter;
 	}
 
 	/** Synthetic scene key for the HUD effect overlay's report buffers — it covers ALL HUD scenes on
-	 * one overlay (the HUD draws on its own top layer), mirroring `HUD_SPINE_KEY`. */
+	 * one overlay (the HUD draws on its own top layer), mirroring `HUD_RIG_KEY`. */
 	const HUD_EFFECT_KEY = '__hud-effect__';
 
 	/** Non-hidden HUD scenes carrying a placed effect ANYWHERE in their tree (incl. nested in a placed
@@ -1985,7 +1991,7 @@
 	 * included) — `'normal'` when unset, which is every node that predates this feature. */
 	function nodeBlendMode(n: LayoutNode): BlendMode {
 		// A kind that cannot blend in the GAME resolves to `normal` here, so an older doc that
-		// stored a mode on one (a spine, while the control was briefly offered there) previews
+		// stored a mode on one (a rig, while the control was briefly offered there) previews
 		// exactly as the game draws it — and, just as importantly, is NOT filtered off the base
 		// overlay into a blended layer that would never be mounted for it.
 		if (!canBlendKind(n.kind)) return 'normal';
@@ -2024,11 +2030,11 @@
 	}
 
 	/**
-	 * The blend GROUPS a scene's WebGL overlay (spine / FX) splits into: the un-blended nodes stay
+	 * The blend GROUPS a scene's WebGL overlay (rig / FX) splits into: the un-blended nodes stay
 	 * on the layer the editor already mounted (`nodeFilter: null` — byte-identical parity), and
 	 * each non-normal mode gets ONE extra layer. Unlike the 2D runs this collapses to one layer per
 	 * MODE rather than per run, because the overlays already sit in a fixed stack above the 2D art
-	 * (2D → spine → text → FX) and so make no intra-scene z-order promise to keep. That also keeps
+	 * (2D → rig → text → FX) and so make no intra-scene z-order promise to keep. That also keeps
 	 * the WebGL context count bounded: a scene adds a context per distinct blend mode it uses, and
 	 * blending is opt-in, so the common scene adds none.
 	 */
@@ -2163,8 +2169,8 @@
 
 		// GAME scenes are NOT drawn on this base canvas anymore: each is composited onto
 		// its OWN per-scene canvas (see `drawSceneCanvases`), z-ordered with that scene's
-		// spine + text sublayers by screen order — so e.g. a full-bleed Background spine
-		// renders BELOW the base-game 2D, instead of the spine layer always being on top.
+		// rig + text sublayers by screen order — so e.g. a full-bleed Background rig
+		// renders BELOW the base-game 2D, instead of the rig layer always being on top.
 		// This base canvas keeps only the frame backdrop + the interaction surface (input
 		// passes through the per-scene groups, which are `pointer-events:none`).
 		drawSceneCanvases();
@@ -2175,7 +2181,7 @@
 	 * Draw each non-hidden GAME scene's 2D node art onto its OWN registered canvas, in
 	 * the SAME world→screen mapping as everything else (`setTransform(dpr) · pan · zoom`).
 	 * Each per-scene canvas sits in a z-ordered group (markup below) between this base
-	 * canvas and the HUD, so intra-stack order follows screen order across the 2D/spine/
+	 * canvas and the HUD, so intra-stack order follows screen order across the 2D/rig/
 	 * text surfaces. The eye toggle is authoritative — a hidden scene never draws.
 	 */
 	function drawSceneCanvases(): void {
@@ -2203,9 +2209,9 @@
 	}
 
 	/**
-	 * Draw the HUD screens on the top-most `hudCanvas` — ABOVE the spine/FX overlay,
+	 * Draw the HUD screens on the top-most `hudCanvas` — ABOVE the rig/FX overlay,
 	 * so the HUD renders on top like the real game (the base canvas, which holds the
-	 * game scenes, sits below the spine layer). Also draws the selection overlay here
+	 * game scenes, sits below the rig layer). Also draws the selection overlay here
 	 * (top-most) so a selected node's handles are never hidden behind the FX.
 	 */
 	function drawHud(): void {
@@ -2253,7 +2259,7 @@
 		// Always-on-top screen-border overlay. The window frame + play-area (main box) are
 		// normally drawn on the BASE canvas (bottom of the z-stack), so stacked art buries
 		// them. When toggled on, re-draw them here on the top-most HUD canvas — above every
-		// art/spine/FX layer — as a brighter guide so the author can always see the bounds.
+		// art/rig/FX layer — as a brighter guide so the author can always see the bounds.
 		if (showScreenBorder) {
 			ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 			ctx.translate(panX, panY);
@@ -2364,13 +2370,13 @@
 		 */
 		nested = false,
 		/**
-		 * The ENCLOSING componentInstance's AUTHORED preview spine bundle (its first `spine`-kind
-		 * param value; see `instancePreviewSpineBundle`) — so a nested bound-component that previews a
-		 * SPINE (the win / free-spin VISUAL) stands in the authored rig, and its readiness check keys
+		 * The ENCLOSING componentInstance's AUTHORED preview rig bundle (its first `spine`-kind
+		 * param value; see `instancePreviewRigBundle`) — so a nested bound-component that previews a
+		 * RIG (the win / free-spin VISUAL) stands in the authored rig, and its readiness check keys
 		 * the SAME bundle the WebGL layer renders. Undefined for a top-level node or an instance
-		 * whose def declares no spine param ⇒ the catalog default (parity).
+		 * whose def declares no rig param ⇒ the catalog default (parity).
 		 */
-		instanceSpineBundle?: string,
+		instanceRigBundle?: string,
 	): void {
 		// DRAWN with the value-binding preview folded on (a scrubbed test value in "Bind to value") —
 		// here only: drags, hit-tests and the selection read the authored transform, so a preview
@@ -2446,18 +2452,18 @@
 						componentStack,
 						instanceParams,
 						true,
-						instanceSpineBundle,
+						instanceRigBundle,
 					);
 			drawPartSkin(ctx, skin, skinParams, t, true);
 		} else if (node.bind) {
 			// Bound nodes (HUD elements, Win/Transition anchors, mount slots) have no
 			// editor-renderable art — the game mounts the real component at runtime.
-			// A `preview.art` anchor (e.g. the animated Background) gets a real spine/
-			// sprite stand-in: spine art is drawn by the WebGL overlay (placeholder
-			// until ready, like a spine node); sprite art is drawn here on the 2D canvas.
+			// A `preview.art` anchor (e.g. the animated Background) gets a real rig/
+			// sprite stand-in: rig art is drawn by the WebGL overlay (placeholder
+			// until ready, like a rig node); sprite art is drawn here on the 2D canvas.
 			// HUD elements carry `preview.style` so we draw a faithful chip; others get
 			// a plain placeholder.
-			const art = anchorArt(node, instanceSpineBundle);
+			const art = anchorArt(node, instanceRigBundle);
 			// A coded TILE part the catalog says an instance can SKIN (the readout's Background —
 			// see `TileImageBinding`): the picked frame REPLACES the stand-in chip, drawn at the
 			// tile's coded box or the instance's size overrides, so a per-instance background
@@ -2492,7 +2498,7 @@
 				);
 			} else if (art?.kind === 'spine') {
 				// A bone-riding bind (the Scene Editor reveal preview) renders its rig from the
-				// ENCLOSING instance's spine param, not the catalog default — so check THAT key
+				// ENCLOSING instance's rig param, not the catalog default — so check THAT key
 				// for readiness, else the placeholder would linger over the real rig (or double it
 				// when the author picks a non-default bundle). Non-riding binds are unchanged.
 				let rigKey = art.assetKey;
@@ -2500,13 +2506,13 @@
 				if (rides && instanceParams) {
 					rigKey = resolveBoneRiderRigKey(rides, instanceParams, assets.spines) || art.assetKey;
 				}
-				if (!readySpineKeys.has(rigKey)) {
+				if (!readyRigKeys.has(rigKey)) {
 					drawPlaceholder(
 						ctx,
 						t.anchor?.x ?? 0.5,
 						t.anchor?.y ?? 0.5,
 						'#4a3a5a',
-						`spine: ${node.label ?? art.assetKey}`,
+						`rig: ${node.label ?? art.assetKey}`,
 					);
 				}
 			} else if (art?.kind === 'sprite' && art.region && art.assetKey) {
@@ -2644,13 +2650,13 @@
 				node.assetKey;
 			if (!rig && nested && gameView) {
 				// nothing bound
-			} else if (!readySpineKeys.has(node.assetKey)) {
+			} else if (!readyRigKeys.has(node.assetKey)) {
 				drawPlaceholder(
 					ctx,
 					t.anchor?.x ?? 0.5,
 					t.anchor?.y ?? 0.5,
 					'#4a3a5a',
-					`spine: ${node.label ?? node.assetKey}`,
+					`rig: ${node.label ?? node.assetKey}`,
 				);
 			}
 		} else if (node.kind === 'text') {
@@ -2678,7 +2684,7 @@
 					componentStack,
 					instanceParams,
 					true,
-					instanceSpineBundle,
+					instanceRigBundle,
 				);
 		} else if (node.kind === 'componentInstance') {
 			drawComponentInstance(ctx, node, sceneCtx, componentDepth, componentStack);
@@ -2764,14 +2770,14 @@
 	/** `nodeBox` with the `repeater` SAMPLE count threaded in from config, so a repeater's selection /
 	 * hit rect frames the SAME grid `drawRepeater` draws. Every canvas `nodeBox` call routes through
 	 * here, so the count is resolved in ONE place (non-repeater nodes are unaffected). */
-	function boxOf(node: LayoutNode, t: ResolvedTransform, spineBundle?: string): NodeBox {
+	function boxOf(node: LayoutNode, t: ResolvedTransform, rigBundle?: string): NodeBox {
 		return nodeBox(
 			node,
 			t,
 			naturalSize,
 			componentMap,
 			layoutType,
-			spineBundle,
+			rigBundle,
 			node.kind === 'repeater' ? repeaterItemCount(node) : undefined,
 			componentDefaults,
 		);
@@ -2809,9 +2815,9 @@
 		ctx.fillRect(left, top, g.w, g.h);
 
 		if (def && !(componentDepth >= MAX_COMPONENT_DEPTH || componentStack.includes(def.id))) {
-			// Expand the REAL component per box. The bind-spine preview bundle is resolved from the
-			// def's own params (the per-item values feed no spine param), like `drawComponentInstance`.
-			const spineBundle = instancePreviewSpineBundle(
+			// Expand the REAL component per box. The bind-rig preview bundle is resolved from the
+			// def's own params (the per-item values feed no rig param), like `drawComponentInstance`.
+			const rigBundle = instancePreviewRigBundle(
 				def,
 				resolveComponentParams(def, undefined, componentDefaults[def.id]),
 			);
@@ -2833,7 +2839,7 @@
 					stack,
 					box.params,
 					true,
-					spineBundle,
+					rigBundle,
 				);
 			}
 		} else {
@@ -2871,8 +2877,8 @@
 	 * (`reelPadding`/`rowPadding`, seats the whole cluster) and the per-cell SEAT
 	 * ALIGNMENT (`symbolAlignX/Y`, art within its own cell) move — mirroring the game's
 	 * `getSymbolX` / `getSymbolLead` exactly, so the preview matches the live board. The
-	 * geometry itself comes from the shared {@link reelGridGeometry} so the WebGL spine
-	 * layer (which draws the SPINE symbols) seats them identically.
+	 * geometry itself comes from the shared {@link reelGridGeometry} so the WebGL rig
+	 * layer (which draws the RIG symbols) seats them identically.
 	 */
 	function drawReelGrid(
 		ctx: CanvasRenderingContext2D,
@@ -2880,7 +2886,7 @@
 		t: ResolvedTransform,
 	): void {
 		// Board geometry (cell boxes + symbol seats) comes from the SHARED `reelGridGeometry`,
-		// the same resolver `EditorSpineLayer` reads — so a sprite symbol drawn here and a spine
+		// the same resolver `EditorRigLayer` reads — so a sprite symbol drawn here and a rig
 		// symbol drawn by the WebGL layer land on the SAME seat.
 		const geo = reelGridGeometry(node, t.anchor, gridDimensions);
 		const { left, top } = geo;
@@ -2920,8 +2926,8 @@
 
 		// Real symbol art per cell: the static binding drawn CENTRED on the seat, CLIPPED to the
 		// board window, and CONTAIN-fit to the cell by its own art (no size param — matches the
-		// engine's `Sprite`/`Spine` `contain`). The static list is cycled across cells so the
-		// board looks populated. A SPINE static is drawn by the WebGL spine layer (which reads the
+		// engine's `Sprite`/`RigView` `contain`). The static list is cycled across cells so the
+		// board looks populated. A RIG static is drawn by the WebGL rig layer (which reads the
 		// same geometry), so this path only marks the ones it can't render yet; a FLIPBOOK static
 		// plays here off its clip doc; an unresolved frame falls back to the amber marker square.
 		const statics = symbolStatics;
@@ -2950,10 +2956,10 @@
 				continue;
 			}
 			if (cell.type === 'spine') {
-				// The spine overlay renders this cell's real skeleton once the bundle is ready
-				// (it reports the key via `readySpineKeys`) — until then the amber marker stands in,
-				// exactly like a spine NODE's placeholder.
-				if (!readySpineKeys.has(cell.assetKey)) drawMarker(cx, cy, cellW, cellH, 'spine');
+				// The rig overlay renders this cell's real skeleton once the bundle is ready
+				// (it reports the key via `readyRigKeys`) — until then the amber marker stands in,
+				// exactly like a rig NODE's placeholder.
+				if (!readyRigKeys.has(cell.assetKey)) drawMarker(cx, cy, cellW, cellH, 'spine');
 				continue;
 			}
 			// A FLIPBOOK cell resolves through the clip doc, never through its own `assetKey` (which
@@ -2980,7 +2986,7 @@
 			}
 			// Symbol size comes from the ART, not a size param: CONTAIN-fit the region into
 			// the cell (single uniform scale, native aspect preserved), matching the game's
-			// `Sprite`/`Spine` `contain`. `sizeRatios` (per-cell or the reel global) was removed
+			// `Sprite`/`RigView` `contain`. `sizeRatios` (per-cell or the reel global) was removed
 			// from the result (owner direction), so it no longer affects the size here.
 			let drawW = cellW;
 			let drawH = cellH;
@@ -3208,12 +3214,12 @@
 			resolveLayoutInstanceParams(node, layoutType),
 			componentDefaults[def.id],
 		);
-		// A nested bound-component that previews a SPINE (the win / free-spin VISUAL) renders the
+		// A nested bound-component that previews a RIG (the win / free-spin VISUAL) renders the
 		// instance's AUTHORED rig (its first `spine`-kind param value, else the catalog bundle), so
 		// the real art shows here + its readiness key matches the rig the WebGL layer draws.
-		const spineBundle = instancePreviewSpineBundle(def, params);
+		const rigBundle = instancePreviewRigBundle(def, params);
 		for (const child of def.root.children) {
-			drawNode(ctx, child, sceneCtx, componentDepth + 1, stack, params, true, spineBundle);
+			drawNode(ctx, child, sceneCtx, componentDepth + 1, stack, params, true, rigBundle);
 		}
 	}
 
@@ -3597,7 +3603,7 @@
 
 	// ---------- bone-ridden stand-in symbol overlay draw ----------
 
-	/** rAF loop (runs continuously — cheap when idle): read the spine layers' published rider
+	/** rAF loop (runs continuously — cheap when idle): read the rig layers' published rider
 	 * transforms + draw each stand-in symbol on `riderCanvas`, in the SAME world→screen mapping
 	 * as everything else (`setTransform(dpr) · pan · zoom`). Self-sizes the canvas so it overlays
 	 * the base 1:1. When the map is empty it clears + early-outs, so it must NOT be gated on a
@@ -3685,7 +3691,7 @@
 
 	// Start the rider overlay's rAF once, unconditionally. It's cheap when no rider is published
 	// (clear + early-out), and gating it on a scene scan proved fragile — a stale `$derived`
-	// left the loop un-started so the stand-in never drew even though the spine layers were
+	// left the loop un-started so the stand-in never drew even though the rig layers were
 	// publishing bone transforms. The loop is torn down with the rest on unmount (onMount return).
 	$effect(() => {
 		if (!riderRaf) riderRaf = requestAnimationFrame(drawRiders);
@@ -4345,7 +4351,7 @@
 			return;
 		}
 		// Blank elements (the Library's "Elements" palette — `text`/`rect`)
-		// carry an empty `key` by design; only ASSET kinds (region/atlas-page/spine)
+		// carry an empty `key` by design; only ASSET kinds (region/atlas-page/rig)
 		// reference a key. Requiring a key here silently rejected the keyless drops.
 		if (!payload || !payload.kind) return;
 		const keyless = payload.kind === 'text' || payload.kind === 'rect';
@@ -4401,7 +4407,7 @@
 			// real `<EffectPlayer>`.
 			case 'effect':
 				return { ...base, kind: 'effect', effectId: p.key };
-			// An authored Invisible Flipbook clip (id in `key`). Spawned UNSIZED, like a spine and
+			// An authored Invisible Flipbook clip (id in `key`). Spawned UNSIZED, like a rig and
 			// unlike a region sprite: the frames are atlas art, so the node draws at the frames'
 			// native size until the author resizes it — and the sheet behind them may still be
 			// loading at drop time, so there is no native size to bake in yet.
@@ -4484,10 +4490,10 @@
 	 * (`coverBox`), so the GAME covers it by the box the editor actually previewed.
 	 *
 	 * The game cannot re-derive this box. Its `componentDesignSize` walk is fed an `intrinsic`
-	 * that sizes only a SPRITE, so a spine / text / flipbook / nested-instance child is skipped
+	 * that sizes only a SPRITE, so a rig / text / flipbook / nested-instance child is skipped
 	 * outright — an overlay built from those measured far smaller there than here, and one with
 	 * no sprite child at all measured nothing, lost its cover, and rendered at its raw authored
-	 * x/y. The editor is the only surface that HAS the measurements (spine setup-pose bounds
+	 * x/y. The editor is the only surface that HAS the measurements (rig setup-pose bounds
 	 * from the WebGL overlay, rendered glyph boxes, clip frame rects), so it writes the number
 	 * down rather than asking the runtime to guess it.
 	 *
@@ -4499,9 +4505,9 @@
 	$effect(() => {
 		void scenes;
 		void componentMap;
-		// The measurement maps this union is built from — reassigned wholesale when a spine's
+		// The measurement maps this union is built from — reassigned wholesale when a rig's
 		// bounds or a text node's glyph box lands, so the bake re-runs once the art is real.
-		void spineNaturalSizes;
+		void rigNaturalSizes;
 		void textMeasured;
 		if (layoutType !== baseLayoutType) return;
 		const r3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -4578,7 +4584,7 @@
 		const w = Math.round(box.w * (t.scale?.x ?? 1));
 		const h = Math.round(box.h * (t.scale?.y ?? 1));
 		// Resolved stand-in art (explicit override OR catalog default) — lets the
-		// overlay show the spine play toggle + a real subtitle for catalog anchors
+		// overlay show the rig play toggle + a real subtitle for catalog anchors
 		// that carry no baked `preview.art`.
 		const resolvedArt = anchorArt(node) ?? null;
 		return {
@@ -4727,10 +4733,10 @@
 	<canvas bind:this={canvas} onwheel={onWheel} onmousedown={onMouseDown}></canvas>
 
 	<!-- One z-ordered group per non-hidden GAME scene, in doc order. Each group stacks
-	     (bottom→top) its own 2D canvas, then its spine sublayer, then its text sublayer.
+	     (bottom→top) its own 2D canvas, then its rig sublayer, then its text sublayer.
 	     `z-index = scene index` makes a LATER scene's whole group sit above an EARLIER
-	     scene's whole group — so a Background spine renders below the base-game 2D. The
-	     spine/text sublayers are filtered to the one scene + mounted only when present
+	     scene's whole group — so a Background rig renders below the base-game 2D. The
+	     rig/text sublayers are filtered to the one scene + mounted only when present
 	     (keeps WebGL/pixi contexts bounded). -->
 	{#each visibleGameScenes() as s (s.id)}
 		<div class="scene-group">
@@ -4742,8 +4748,8 @@
 				<canvas class="scene-2d" style:mix-blend-mode={run.css} use:registerSceneCanvasAction={run}
 				></canvas>
 			{/each}
-			{#if sceneHasSpine(s)}
-				<EditorSpineLayer
+			{#if sceneHasRig(s)}
+				<EditorRigLayer
 					{scenes}
 					{mainSizesMap}
 					{layoutType}
@@ -4755,32 +4761,32 @@
 					{assets}
 					{componentMap}
 					{componentDefaults}
-					{spinePreview}
-					{spinePreviewNodeId}
+					{rigPreview}
+					{rigPreviewNodeId}
 					{symbolStatics}
 					{gridDimensions}
 					worldTransformOf={drawTransform}
-					reloadToken={spineReload}
+					reloadToken={rigReload}
 					{hiddenSceneIds}
 					sceneFilter={sceneFilterFor(s.id)}
 					nodeFilter={normalOverlayFilter(s)}
 					activeSceneId={scene.id}
-					playing={playingSpines}
+					playing={playingRigs}
 					{boneRiders}
 					onReadyKeysChange={(keys) => {
-						mergeSpineReady(s.id, keys);
+						mergeRigReady(s.id, keys);
 						schedule();
 					}}
 					onNaturalSizesChange={(sizes) => {
-						mergeSpineNatural(s.id, sizes);
+						mergeRigNatural(s.id, sizes);
 						schedule();
 					}}
-					onSpineMetaChange={(meta) => {
-						mergeSpineMeta(s.id, meta);
+					onRigMetaChange={(meta) => {
+						mergeRigMeta(s.id, meta);
 						schedule();
 					}}
 					onLoadingChange={(c) => {
-						mergeSpineLoading(s.id, c);
+						mergeRigLoading(s.id, c);
 					}}
 				/>
 			{/if}
@@ -4847,8 +4853,8 @@
 			     the surfaces it always has. Reports go under the group's synthetic key, which
 			     `forgetScene` purges with the scene.
 
-			     No blended SPINE layer: a Pixi blend cannot reach skeleton geometry (see
-			     `canBlendKind`), so `nodeBlendMode` resolves every spine to `normal` and such a
+			     No blended RIG layer: a Pixi blend cannot reach skeleton geometry (see
+			     `canBlendKind`), so `nodeBlendMode` resolves every rig to `normal` and such a
 			     layer could only ever be empty — while still costing a WebGL context, which the
 			     shared-canvas budget cannot spare. -->
 			{#each blendOverlayGroups(s) as g (g.key)}
@@ -4883,19 +4889,19 @@
 	{/each}
 
 	<!-- Bone-ridden stand-in symbol overlay (Scene Editor preview): sits ABOVE the scene groups
-	     (their spine layers included) so a reveal's symbol rides ON TOP of its rig, and BELOW the
+	     (their rig layers included) so a reveal's symbol rides ON TOP of its rig, and BELOW the
 	     HUD layers. Driven by `drawRiders`' own rAF reading the shared `boneRiders` map. -->
 	<canvas bind:this={riderCanvas} class="rider-layer"></canvas>
 
 	<canvas bind:this={hudCanvas} class="hud-layer"></canvas>
-	<!-- HUD spine overlay: like the HUD text overlay below, the HUD scenes draw on the
+	<!-- HUD rig overlay: like the HUD text overlay below, the HUD scenes draw on the
 	     top-most `hudCanvas` and are excluded from the per-game-scene `{#each}` above — so a
-	     spine nested in a placed HUD component (a spin button's `R_SpinButton`) would only
-	     ever show its 2D placeholder. This live spine layer (filtered to the HUD scenes) sits
+	     rig nested in a placed HUD component (a spin button's `R_SpinButton`) would only
+	     ever show its 2D placeholder. This live rig layer (filtered to the HUD scenes) sits
 	     just above the HUD's 2D canvas, so the editor reflects the in-game button. -->
-	{#if hudSpineScenes().length > 0}
-		<div class="hud-spine-layer">
-			<EditorSpineLayer
+	{#if hudRigScenes().length > 0}
+		<div class="hud-rig-layer">
+			<EditorRigLayer
 				{scenes}
 				{mainSizesMap}
 				{layoutType}
@@ -4907,28 +4913,28 @@
 				{assets}
 				{componentMap}
 				{componentDefaults}
-				{spinePreview}
-				{spinePreviewNodeId}
+				{rigPreview}
+				{rigPreviewNodeId}
 				worldTransformOf={drawTransform}
-				reloadToken={spineReload}
+				reloadToken={rigReload}
 				{hiddenSceneIds}
-				sceneFilter={hudSpineSceneFilter()}
+				sceneFilter={hudRigSceneFilter()}
 				activeSceneId={null}
-				playing={playingSpines}
+				playing={playingRigs}
 				onReadyKeysChange={(keys) => {
-					mergeSpineReady(HUD_SPINE_KEY, keys);
+					mergeRigReady(HUD_RIG_KEY, keys);
 					schedule();
 				}}
 				onNaturalSizesChange={(sizes) => {
-					mergeSpineNatural(HUD_SPINE_KEY, sizes);
+					mergeRigNatural(HUD_RIG_KEY, sizes);
 					schedule();
 				}}
-				onSpineMetaChange={(meta) => {
-					mergeSpineMeta(HUD_SPINE_KEY, meta);
+				onRigMetaChange={(meta) => {
+					mergeRigMeta(HUD_RIG_KEY, meta);
 					schedule();
 				}}
 				onLoadingChange={(c) => {
-					mergeSpineLoading(HUD_SPINE_KEY, c);
+					mergeRigLoading(HUD_RIG_KEY, c);
 				}}
 			/>
 		</div>
@@ -5008,8 +5014,8 @@
 			onScale={nudgeScale}
 			onForward={bringForward}
 			onBack={sendBack}
-			spinePlaying={playingSpines.has(overlayInfo.node.id)}
-			onToggleSpinePlay={toggleSpinePlay}
+			rigPlaying={playingRigs.has(overlayInfo.node.id)}
+			onToggleRigPlay={toggleRigPlay}
 		/>
 	{/if}
 	<div class="hint">
@@ -5047,7 +5053,7 @@
 				class="fit"
 				onclick={refreshAssets}
 				type="button"
-				title="Reload atlas + spine art from R2 (after you update a PNG) — no full page reload needed"
+				title="Reload atlas + rig art from R2 (after you update a PNG) — no full page reload needed"
 			>
 				↻ Reload art
 			</button>
@@ -5086,6 +5092,21 @@
 				>
 					🎮 In-game view
 				</button>
+				{#if gameView && viewModes.length > 0}
+					<select
+						class="fit"
+						class:on={viewMode !== undefined}
+						value={viewMode ?? ''}
+						onchange={(e) => (viewMode = e.currentTarget.value || undefined)}
+						aria-label="Game mode shown"
+						title="The game mode In-game view shows: the base game, or a mode with every screen it keeps on screen (its board, counter, total), whichever screen you edit. Its intro, outro and popups still draw only while you edit them."
+					>
+						<option value="">Base game</option>
+						{#each viewModes as mode (mode.id)}
+							<option value={mode.id}>{mode.label}</option>
+						{/each}
+					</select>
+				{/if}
 			{/if}
 		</div>
 	</div>
@@ -5155,9 +5176,9 @@
 		z-index: 1000;
 		pointer-events: none;
 	}
-	.hud-spine-layer {
-		/* The HUD's spine overlay — sits just ABOVE the HUD's 2D canvas (z-index 1000) so a
-		   placed HUD component's live spine (a spin button) draws over its 2D base sprite,
+	.hud-rig-layer {
+		/* The HUD's rig overlay — sits just ABOVE the HUD's 2D canvas (z-index 1000) so a
+		   placed HUD component's live rig (a spin button) draws over its 2D base sprite,
 		   mirroring the in-game button. Below the HUD text overlay (same z-index, earlier in
 		   the DOM) so readout text stays on top. Input passes through to the base canvas. */
 		position: absolute;
@@ -5195,7 +5216,7 @@
 		pointer-events: none;
 	}
 	.scene-2d {
-		/* Bottom of each group: this scene's 2D node art. The group's spine + text
+		/* Bottom of each group: this scene's 2D node art. The group's rig + text
 		   sublayers stack above it (later in the group's DOM order). */
 		position: absolute;
 		inset: 0;
@@ -5243,7 +5264,8 @@
 		   own line, never overlapping the device bar. */
 		margin-left: auto;
 	}
-	.canvas-actions button {
+	.canvas-actions button,
+	.canvas-actions select {
 		pointer-events: auto;
 	}
 	.fit {

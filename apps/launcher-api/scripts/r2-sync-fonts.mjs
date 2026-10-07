@@ -1,7 +1,7 @@
 // Sync a local game fonts folder to R2: uploads every font file and writes a
 // fonts.json catalog (the `FontCatalog` the editor + engine consume), so the
 // editor only has to serve files — no scanning at runtime. The font analogue of
-// r2-sync-spines.mjs.
+// r2-sync-rigs.mjs.
 //
 //   node scripts/r2-sync-fonts.mjs [fontsDir] [client] [project] [--dry-run]
 //
@@ -17,7 +17,7 @@
 // would write to the WRONG prefix the editor never reads. Same gotcha as
 // seed-game-editor.mjs.
 // Env for the real upload (NOT --dry-run): R2_ENDPOINT / R2_BUCKET /
-//   R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY (see r2-sync-spines.mjs).
+//   R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY (see r2-sync-rigs.mjs).
 import { readFile, readdir, writeFile, stat } from 'node:fs/promises';
 import { join, relative, basename, extname, sep } from 'node:path';
 

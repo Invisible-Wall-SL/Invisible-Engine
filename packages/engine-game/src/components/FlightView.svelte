@@ -56,8 +56,8 @@
 		return { x: x / trailScale, y: y / trailScale };
 	};
 	/**
-	 * A trail has no rig to ride: a bone-placed layer would mount `SpineBoneAttach` with no
-	 * `SpineProvider` and sit at the container's origin. Every trail layer is mounted FREE instead
+	 * A trail has no rig to ride: a bone-placed layer would mount `RigBoneAttach` with no
+	 * `RigProvider` and sit at the container's origin. Every trail layer is mounted FREE instead
 	 * (offset kept), so `ownerPos` drives it — what the `/symbols` preview shows.
 	 */
 	const freeTrailDoc = $derived(

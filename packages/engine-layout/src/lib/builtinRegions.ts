@@ -14,8 +14,8 @@
  * - `editorArtExport`'s dangling-region guard, which flagged them as "in NO shipped
  *   atlas and will render blank" — a false positive, since the engine bundle ships them.
  *
- * This registry is the one place both sides ask. It mirrors the built-in SPINE precedent
- * (`editorSpine.client.ts`'s `BUILTIN_SPINES`): the launcher vendors a copy of each sheet
+ * This registry is the one place both sides ask. It mirrors the built-in RIG precedent
+ * (`editorRig.client.ts`'s `BUILTIN_RIGS`): the launcher vendors a copy of each sheet
  * under `static/builtin/sheets/<id>/` so a tool can preview coded-default art that is not
  * (and should not be) in R2.
  *
@@ -113,7 +113,7 @@ export function isBuiltinRegion(region: string): boolean {
 }
 
 /** Prefix marking a `RegionSet` identifier that resolves from the vendored built-in
- *  sheets instead of R2. Mirrors `editorSpine.client.ts`'s `builtin:` spine keys. */
+ *  sheets instead of R2. Mirrors `editorRig.client.ts`'s `builtin:` rig keys. */
 export const BUILTIN_SHEET_PREFIX = 'builtin:';
 
 /** The `RegionSet` identifier for a built-in sheet id. */

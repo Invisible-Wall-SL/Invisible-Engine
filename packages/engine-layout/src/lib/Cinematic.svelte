@@ -3,7 +3,7 @@
 	 * Play an Invisible Cinematic in-game — the runtime twin of `/rigger`'s Cinematic mode.
 	 * Plan: `docs/design/invisible-cinematic.md` · State: `docs/status/cinematic.md`.
 	 *
-	 * Mounts one `<SpineProvider>` per cast member (keyed by the rig's FOLDER, which is the spine
+	 * Mounts one `<RigProvider>` per cast member (keyed by the rig's FOLDER, which is the rig
 	 * bundle name the game registered — the export seeds those bundles into the shipped art, so a
 	 * cast rig is always loadable) and drives them all from ONE clock through the shared
 	 * `engine-cinematic` evaluator. Same evaluator the editor preview runs, so what an author
@@ -15,7 +15,7 @@
 	 * doc format does not change.
 	 */
 	import { onDestroy } from 'svelte';
-	import { getContextApp, SpineProvider } from 'pixi-svelte';
+	import { getContextApp, RigProvider } from 'pixi-svelte';
 	import { cuesCrossed, resolveVisible, type CinematicTrack } from 'engine-cinematic';
 	import type { CinematicDoc, Scene } from './types';
 	import CinematicActor from './CinematicActor.svelte';
@@ -146,9 +146,9 @@
 			effect mid-play. `time` is reactive state, so this re-evaluates as the playhead moves.
 		-->
 		{#if layer.member.rigFolder && visibleAt(layer.member, time)}
-			<SpineProvider key={layer.member.rigFolder}>
+			<RigProvider key={layer.member.rigFolder}>
 				<CinematicActor cast={layer.member} tracks={tracksFor(layer.member.actorId)} {time} />
-			</SpineProvider>
+			</RigProvider>
 		{/if}
 	{/if}
 {/each}

@@ -442,10 +442,10 @@ window.RiggerCinematic = (function () {
 	 * Resolve a cast member to a rig entry.
 	 *
 	 * Keyed on `rigFolder`, NOT on the index `id`: `SkeletonIndexEntry.id` is a CONTIGUOUS ARRAY
-	 * POSITION reassigned on every scan (`spineIndex.ts` ends with `combined.map((e, id) => …)`),
+	 * POSITION reassigned on every scan (`rigIndex.ts` ends with `combined.map((e, id) => …)`),
 	 * so adding or renaming any rig renumbers all of them and a stored id would silently re-point
 	 * a saved cinematic at a DIFFERENT rig. The folder is the stable identity — and it is also the
-	 * spine BUNDLE NAME the game registers, which is what lets the export ship the right rig.
+	 * rig BUNDLE NAME the game registers, which is what lets the export ship the right rig.
 	 *
 	 * The `rigId` fallback migrates cinematics saved before this fix; it is a best-effort match
 	 * (a positional id only means anything against the list that produced it).
@@ -474,7 +474,7 @@ window.RiggerCinematic = (function () {
 		}
 		// One SkeletonData, one Skeleton PER ACTOR — casting the same rig twice must give two
 		// independently posable instances (Unreal calls this a spawnable).
-		const skeleton = new ctx.SPINE.Skeleton(data);
+		const skeleton = new ctx.RIG.Skeleton(data);
 		if (data.skins.length) {
 			const def = data.skins.find((s) => s.name === 'default') || data.skins[0];
 			skeleton.setSkinByName(def.name);
@@ -544,17 +544,17 @@ window.RiggerCinematic = (function () {
 	/** Pose every actor at cinematic time `t`. Pure in `t` — see the evaluator's header. */
 	function evaluate(t) {
 		if (!EV) return;
-		const spineNs = ctx.SPINE;
+		const rigNs = ctx.RIG;
 		for (const actor of actors) {
 			const cast = castOf(actor.actorId);
 			if (!cast) continue;
 			// The tweaked actor is posed by the ANIMATOR, not by its strips — that is what makes an
 			// in-progress edit visible on the stage instead of being overwritten every frame.
 			if (tweak && actor.actorId === tweak.actorId) continue;
-			EV.evaluateActor(spineNs, actor.evalTarget, t, resolveClip);
+			EV.evaluateActor(rigNs, actor.evalTarget, t, resolveClip);
 			applyPlace(actor, EV.resolvePlace(cast.place, propertyTracksOf(actor.actorId), t));
-			if (spineNs.Physics && spineNs.Physics.update !== undefined)
-				actor.skeleton.updateWorldTransform(spineNs.Physics.update);
+			if (rigNs.Physics && rigNs.Physics.update !== undefined)
+				actor.skeleton.updateWorldTransform(rigNs.Physics.update);
 			else actor.skeleton.updateWorldTransform();
 		}
 		applyCamera(t);
@@ -690,7 +690,7 @@ window.RiggerCinematic = (function () {
 	 * Strictly LOWER layers: the tweaked strip is the thing being authored, and a sibling strip on the
 	 * same layer is an alternative at that depth, not a base for it.
 	 *
-	 * The clips are resolved from the RIG EDITOR's `SkeletonData`, not the actor's: a spine timeline
+	 * The clips are resolved from the RIG EDITOR's `SkeletonData`, not the actor's: a rig timeline
 	 * addresses bones by index, and these are applied to the editor's skeleton, so both have to come
 	 * out of the same parse.
 	 */
@@ -703,7 +703,7 @@ window.RiggerCinematic = (function () {
 		const lower = tracksOf(tweak.actorId).filter((t) => t.kind === 'animation' && (t.layer || 0) < layer);
 		if (!lower.length) return null;
 		const resolve = (strip) => (strip.clip && strip.clip.src === 'rig' ? sd.findAnimation(strip.clip.name) : null);
-		return (sk) => EV.evaluateActor(ctx.SPINE, { skeleton: sk, skeletonData: sd, tracks: lower }, time, resolve);
+		return (sk) => EV.evaluateActor(ctx.RIG, { skeleton: sk, skeletonData: sd, tracks: lower }, time, resolve);
 	}
 
 	/**
@@ -1011,17 +1011,17 @@ window.RiggerCinematic = (function () {
 	/** Outline the screen box + its centre cross. Drawn INSIDE the actors' begin/end batch. */
 	function drawScreenFrame(renderer) {
 		const box = screenBox();
-		if (!box || typeof renderer.line !== 'function' || !ctx.SPINE.Color) return;
+		if (!box || typeof renderer.line !== 'function' || !ctx.RIG.Color) return;
 		const hw = box.w / 2;
 		const hh = box.h / 2;
-		const col = new ctx.SPINE.Color(0.36, 0.69, 1, 0.75); // the tool accent, so it reads as a guide
+		const col = new ctx.RIG.Color(0.36, 0.69, 1, 0.75); // the tool accent, so it reads as a guide
 		renderer.line(-hw, -hh, hw, -hh, col);
 		renderer.line(hw, -hh, hw, hh, col);
 		renderer.line(hw, hh, -hw, hh, col);
 		renderer.line(-hw, hh, -hw, -hh, col);
 		// Centre cross — the anchor a newly cast actor sits on, so placement reads at a glance.
 		const tick = Math.min(hw, hh) * 0.04;
-		const faint = new ctx.SPINE.Color(0.36, 0.69, 1, 0.35);
+		const faint = new ctx.RIG.Color(0.36, 0.69, 1, 0.35);
 		renderer.line(-tick, 0, tick, 0, faint);
 		renderer.line(0, -tick, 0, tick, faint);
 	}
@@ -1031,8 +1031,8 @@ window.RiggerCinematic = (function () {
 	/** Frame every actor, not just one — the rigger's own fitView only knows the open rig. */
 	function fitAll() {
 		if (!actors.length) return;
-		const off = new ctx.SPINE.Vector2();
-		const size = new ctx.SPINE.Vector2();
+		const off = new ctx.RIG.Vector2();
+		const size = new ctx.RIG.Vector2();
 		let minX = Infinity;
 		let minY = Infinity;
 		let maxX = -Infinity;
@@ -1059,7 +1059,7 @@ window.RiggerCinematic = (function () {
 	async function addActor(entry) {
 		const cast = {
 			actorId: uid('actor'),
-			// The FOLDER is the identity (see `rigEntryFor`) and doubles as the spine bundle name
+			// The FOLDER is the identity (see `rigEntryFor`) and doubles as the rig bundle name
 			// the ship chain needs. `rigId` is kept only so an older client can still read the doc.
 			rigFolder: entry.folder || String(entry.id),
 			rigId: entry.id,

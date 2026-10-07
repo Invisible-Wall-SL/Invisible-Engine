@@ -265,13 +265,14 @@ export async function releaseOp(opId: string): Promise<void> {
 		.where(and(eq(directorOps.opId, opId), eq(directorOps.status, 'pending')));
 }
 
-/** Record a still render a run queued, as atlas-tool named it. */
+/** Record a still render a run queued, as atlas-tool named it, with the recipe steps it runs. */
 export async function insertAtlasJob(row: {
 	jobRef: string;
 	runId: string;
 	agent: string;
 	atlas: string;
 	regions: string[];
+	steps: { recipe: string; n: number; region: string }[];
 }): Promise<void> {
 	await getDb().transaction(async (tx) => {
 		const inserted = await tx
@@ -288,6 +289,11 @@ export async function insertAtlasJob(row: {
 			payloadJson: { jobRef: row.jobRef, atlas: row.atlas, regions: row.regions },
 		});
 	});
+}
+
+/** Every render still queued, of every run: what the fallback watches at boot. */
+export async function queuedAtlasJobs(): Promise<DirectorAtlasJob[]> {
+	return getDb().select().from(directorAtlasJobs).where(eq(directorAtlasJobs.status, 'queued'));
 }
 
 export async function getAtlasJob(jobRef: string): Promise<DirectorAtlasJob | null> {

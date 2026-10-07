@@ -22,8 +22,8 @@ Mapping source:
   (otherwise)      DATABASE_URL is read with `psycopg`. Falls back to
                    `unassigned` for any row where `client_key` is NULL.
 
-Spines are NOT touched by default (they aren't project-keyed today).
-`--include-spines` is reserved and requires a manual --map row mapping spine
+Rigs (the `spines/` prefix) are NOT touched by default (they aren't project-keyed
+today). `--include-rigs` is reserved and requires a manual --map row mapping a rig
 bundle root to (client, project).
 
 Exits non-zero on any failure. Logs every action.
@@ -133,7 +133,7 @@ def head(s3, key: str) -> dict | None:
 
 
 def copy_phase(
-    s3, mapping: list[dict], dry_run: bool, include_spines: bool
+    s3, mapping: list[dict], dry_run: bool, include_rigs: bool
 ) -> tuple[int, int, int]:
     """Returns (copied, skipped, bytes_total)."""
     copied = skipped = total_bytes = 0
@@ -167,9 +167,9 @@ def copy_phase(
                 copied += 1
                 total_bytes += size
             print(f"  -> {n_copied} copied, {n_skipped} skipped")
-    if include_spines:
-        print("\n[spines] --include-spines is reserved — provide a manual --map "
-              "row per bundle. Today's spine bundles are not project-keyed so "
+    if include_rigs:
+        print("\n[spines] --include-rigs is reserved — provide a manual --map "
+              "row per bundle. Today's rig bundles are not project-keyed so "
               "the migration skips them by default.")
     return copied, skipped, total_bytes
 
@@ -214,8 +214,8 @@ def main(argv: list[str]) -> int:
                     help="Actually perform copy/delete operations.")
     ap.add_argument("--map", dest="map_path", default=None,
                     help="JSON mapping file (alternative to DATABASE_URL).")
-    ap.add_argument("--include-spines", action="store_true",
-                    help="Reserved. Spines stay untouched; pass with a manual --map.")
+    ap.add_argument("--include-rigs", action="store_true",
+                    help="Reserved. Rigs stay untouched; pass with a manual --map.")
     args = ap.parse_args(argv)
 
     if args.map_path:
@@ -237,7 +237,7 @@ def main(argv: list[str]) -> int:
     try:
         if args.phase in ("copy", "both"):
             copied, skipped, nbytes = copy_phase(
-                s3, mapping, args.dry_run, args.include_spines,
+                s3, mapping, args.dry_run, args.include_rigs,
             )
             print(f"\n[copy summary] copied={copied} skipped={skipped} "
                   f"bytes={nbytes}")

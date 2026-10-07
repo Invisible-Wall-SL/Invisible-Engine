@@ -23,7 +23,7 @@ An in-launcher, full-page file manager. There are **two modes, decided by role**
   `(app)`, behind the auth + role gate — not a redirect, not an iframe).
 - **Storage layout (scoped mode):** the project's one folder,
   `<client>/<project>/`, with everything the tools keep for it underneath (art
-  inputs, sheets, spines, fonts, sounds, config, the `deploy/` exports the game
+  inputs, sheets, rigs, fonts, sounds, config, the `deploy/` exports the game
   reads, …). That folder is the browser's root.
 - **Access:** `admin`, `developer`, `pipelineTester` and `audio` (Music / SFX) roles
   — artists/animators don't get it.

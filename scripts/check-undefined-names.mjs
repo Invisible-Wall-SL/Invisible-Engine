@@ -12,7 +12,7 @@
 //
 // `.svelte` FILES TOO. The same bug blanked the shared runtime's reels twice more, both times in a
 // component: #549 (`rigBeatKey()` called in an `{#each}` KEY in the markup, never imported) and
-// #567 (`getContextSpineLoadScale()` called in a `<script>`, never imported). The Svelte compiler
+// #567 (`getContextRigLoadScale()` called in a `<script>`, never imported). The Svelte compiler
 // reads a bare unknown identifier as a global, so the build stays green and the throw happens at
 // mount. Each component is converted with `svelte2tsx` — the transform `svelte-check` itself uses —
 // which turns the script AND every template expression into plain TypeScript, so a name used only

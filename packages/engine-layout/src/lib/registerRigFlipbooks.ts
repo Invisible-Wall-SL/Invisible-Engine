@@ -2,9 +2,9 @@
  * Invisible Flipbook rig-timeline binding registry — the render-time lookup that resolves the CLIPS
  * a placed rig plays directly off its OWN animation events (`event.flipbook = { clipId, bone? }`
  * authored in the Rigger). The exact sibling of {@link registerRigFx}: the game supplies the baked
- * bindings ONCE at boot (from `bakedRigFlipbooks()`), and `LayoutNodeView` / `SymbolSpineMain`
+ * bindings ONCE at boot (from `bakedRigFlipbooks()`), and `LayoutNodeView` / `SymbolRigMain`
  * resolve a rig's `assetKey` → its bindings here to mount a `<RiggedFlipbook>` per binding INSIDE
- * the rig's `<SpineProvider>`.
+ * the rig's `<RigProvider>`.
  *
  * WHY THIS EXISTS BESIDE THE FX ONE, rather than as a third `kind` on it. A binding's overrides are
  * the vocabulary of the thing it plays: an effect has emitters (`speed`, an emission `duration`), a
@@ -14,7 +14,7 @@
  * (`slot`/`bone`), the burst half (`alpha`/`scale`/`delay`/`duration`/`continuous`), and the
  * folder-tolerant key reduction — is shared as code (`bundleFolderOf`), not as a merged type.
  *
- * Same manifest rationale as FX: spine-pixi discards the custom `event.flipbook` field at parse
+ * Same manifest rationale as FX: the runtime reader discards the custom `event.flipbook` field at parse
  * time, so the binding cannot travel through the rebroadcast bus — it is baked from the rig
  * `.irig`/`.json` directly.
  *
@@ -46,7 +46,7 @@ import { installRigBoundContent } from './rigBoundContentInstall';
  */
 export interface RigFlipbookOverrides extends FlipbookPlaybackOverride {
 	/**
-	 * Draw the clip at this SLOT's depth in the skeleton's draw order (spine-pixi `addSlotObject`),
+	 * Draw the clip at this SLOT's depth in the skeleton's draw order (RigView `addSlotObject`),
 	 * instead of on top of the whole rig. Absent ⇒ on top.
 	 *
 	 * Also becomes the clip's HOST when no `bone` is given — a slot is a bone plus a depth, so
@@ -85,7 +85,7 @@ export interface RigFlipbookOverrides extends FlipbookPlaybackOverride {
 	continuous?: boolean;
 }
 
-/** One rig→clip binding: on a spine event named `event` — at the {@link RigBeat} it was keyed on —
+/** One rig→clip binding: on a rig event named `event` — at the {@link RigBeat} it was keyed on —
  * (re)play `clipId` from frame 0, hosted on `bone` (or the rig origin when absent), with any
  * authored {@link RigFlipbookOverrides} applied. One binding per KEYFRAME, as for FX. */
 export type RigFlipbookBinding = RigFlipbookOverrides &

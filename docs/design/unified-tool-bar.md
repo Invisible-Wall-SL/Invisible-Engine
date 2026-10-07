@@ -6,7 +6,7 @@
 
 Status: **SHIPPED** — all four build-plan steps: `ToolTopBar` in every launcher tool, the
 `tools=` redirect payload (`$lib/server/toolBar.ts`), the HTML twins (atlas, sheet, rigger and
-spine `view.html`) and the docs. Owner-agreed 2026-06-12. Current state in
+rig `view.html`) and the docs. Owner-agreed 2026-06-12. Current state in
 [status/launcher](../status/launcher.md).
 
 ## Why
@@ -45,7 +45,7 @@ every Domain-A consumer is inside launcher-api — same as `$lib/Emblem.svelte`.
 - **Tool name** → static label of the current tool.
 - **Switcher** → every **online** tool in the user's role manifest **except the
   current one**, icon + text. **Icon-only when the row gets tight** (label hidden,
-  `title=` tooltip). Local-install tools (Spine Editor, Invisible Launcher) and
+  `title=` tooltip). Local-install tools (an external rig editor, Invisible Launcher) and
   the admin panel never appear.
 
 ## Decisions (owner, 2026-06-12)
@@ -92,7 +92,7 @@ Two surfaces consume it differently, per owner decision (2026-07-27):
 The **HTML twins carry the tint too** (2026-07-27): `toolBarParams` bakes an
 `accent` per tool into the `tools=` payload, and each twin
 (`services/atlas-tool/ui_server.py`, `services/sheet-tool/ui.html`,
-`static/rigger/view.html`, `static/spine/view.html`) sets `ic.style.color = accent`
+`static/rigger/view.html`, `static/rig-viewer/view.html`) sets `ic.style.color = accent`
 (hex-validated) after building the icon — so the twin bar matches the Svelte bar.
 
 > Each twin keeps its OWN mirror of `TOOL_ICONS`; a tool missing from a twin's `ICON` map
@@ -121,7 +121,7 @@ bypass a gate.
 
 ## Full-page rule (reaffirmed)
 
-Every tool is full-page (no iframes) — already enforced (atlas/spine redirect).
+Every tool is full-page (no iframes) — already enforced (atlas/rig redirect).
 **New tools must render `<ToolTopBar>` as their header and be designed full-page
 from the start.** Captured in `apps/launcher-api/CLAUDE.md`.
 

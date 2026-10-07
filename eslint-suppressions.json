@@ -140,7 +140,7 @@
       "count": 3
     }
   },
-  "apps/launcher-api/src/routes/(app)/editor/EditorSpineLayer.svelte": {
+  "apps/launcher-api/src/routes/(app)/editor/EditorRigLayer.svelte": {
     "svelte/prefer-svelte-reactivity": {
       "count": 5
     }
@@ -227,7 +227,7 @@
       "count": 7
     }
   },
-  "apps/launcher-api/src/routes/(app)/spine/+page.svelte": {
+  "apps/launcher-api/src/routes/(app)/rig-viewer/+page.svelte": {
     "svelte/no-navigation-without-resolve": {
       "count": 1
     }
@@ -250,7 +250,7 @@
       "count": 4
     }
   },
-  "apps/launcher-api/src/routes/(app)/symbols/SymbolSpineStage.svelte": {
+  "apps/launcher-api/src/routes/(app)/symbols/SymbolRigStage.svelte": {
     "svelte/prefer-svelte-reactivity": {
       "count": 3
     }

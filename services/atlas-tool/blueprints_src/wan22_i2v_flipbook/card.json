@@ -6,7 +6,7 @@
   "graphSha": "",
   "purpose": "Animate a still into a short clip whose frames become a Flipbook clip.",
   "whenToUse": [
-    "symbol win loops, coin spins, banner shimmer with no Spine rig (check)",
+    "symbol win loops, coin spins, banner shimmer with no rig (check)",
     "from the Flipbook video session only"
   ],
   "whenNotToUse": [

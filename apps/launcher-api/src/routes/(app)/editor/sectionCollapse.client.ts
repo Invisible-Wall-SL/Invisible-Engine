@@ -1,6 +1,6 @@
 /**
  * localStorage-backed store for which left-panel sections (Screens, Elements,
- * Atlases, Spines, Sheets, …) the author has collapsed, so the open/closed state
+ * Atlases, rigs, Sheets, …) the author has collapsed, so the open/closed state
  * survives reloads. Editor view state only — never written to the doc. Keyed by a
  * stable section id. Default = OPEN (a key is present only when collapsed).
  *

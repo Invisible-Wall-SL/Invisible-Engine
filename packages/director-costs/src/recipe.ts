@@ -132,17 +132,21 @@ export interface StoredRecipe {
 	editedBy?: string;
 	steps: StoredStep[];
 	projected: Projection;
-	/** How often each step (by `n`) has failed since the recipe was last approved. */
+	/**
+	 * How often each step (by `n`) has failed since the owner last approved the recipe at the Art
+	 * plan: no revision and no other approval (automatic, or the owner's resume) resets it.
+	 */
 	failures?: Record<string, number>;
 }
 
 /**
- * Times a failed step is queued again under one approval. Its next failure withdraws the approval,
- * so the step renders again only once the plan is approved again (fails closed).
+ * Times a failed step is queued again before the owner must approve it again: its next failure
+ * withdraws the approval, so the step renders again only on the owner's approval at the Art plan
+ * (fails closed), which gives it one try and as many retries again.
  */
 export const RETRIES_PER_APPROVAL = 2;
 
-/** The steps (`n`) that have failed more often than one approval retries them. */
+/** The steps (`n`) that have failed more often than their retries since that approval. */
 export const retriesSpent = (recipe: Pick<StoredRecipe, 'failures'>): number[] =>
 	Object.entries(recipe.failures ?? {})
 		.filter(([, times]) => !(times <= RETRIES_PER_APPROVAL))
@@ -918,6 +922,12 @@ export function priceChains(
 	};
 }
 
+/** Why an Art plan approval cannot stand: a code (the launcher answers 409 with it) and the words. */
+export interface ApprovalProblem {
+	code: 'plan_changed' | 'plan_incomplete' | 'plan_unpriced';
+	reason: string;
+}
+
 /**
  * Why an owner's Art plan approval cannot stand, or null (§7): the approval names the revision of
  * every recipe the owner saw (`seen`, region → rev), so a plan that changed since never runs on
@@ -926,12 +936,6 @@ export function priceChains(
  * went fails it, money failing closed. The worker refuses on this, and the launcher refuses up
  * front with the same words.
  */
-/** Why an Art plan approval cannot stand: a code (the launcher answers 409 with it) and the words. */
-export interface ApprovalProblem {
-	code: 'plan_changed' | 'plan_incomplete' | 'plan_unpriced';
-	reason: string;
-}
-
 export function approvalProblem(
 	recipes: readonly StoredRecipe[],
 	plan: ReadonlySet<string>,

@@ -60,7 +60,7 @@ assert(
 	'small fired ⇒ big-win art STILL hidden',
 	isNodeRevealed('freeSpinOutroBigWin', smallBus) === false,
 );
-// Ungated node (no hiddenUntilSignal) is always revealed (parity — the count text / spine).
+// Ungated node (no hiddenUntilSignal) is always revealed (parity — the count text / rig).
 assert('ungated node always revealed', isNodeRevealed(undefined, {}) === true);
 
 // ---------------------------------------------------------------------------

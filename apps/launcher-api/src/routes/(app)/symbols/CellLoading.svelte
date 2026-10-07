@@ -1,6 +1,6 @@
 <script lang="ts">
 	// Indeterminate loading bar for a symbol grid cell — shown while its preview
-	// fetches from R2 (the sprite-sheet region scan, or the spine skeleton + pages).
+	// fetches from R2 (the sprite-sheet region scan, or the rig skeleton + pages).
 	// Sized to the cell so it reads at any grid scale.
 	let { size = 56 }: { size?: number } = $props();
 </script>

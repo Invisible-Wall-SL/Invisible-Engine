@@ -55,8 +55,8 @@ registry lives in `apps/launcher-api/src/lib/roles.ts` (`TOOLS` = every tool;
 | `admin` | Admin | all tools |
 | `developer` | Developer | every online tool except the Sheet Maker, Invisible Director and Invisible Pipeline Changes, plus the desktop Invisible Launcher |
 | `artist` | Artist | the art + authoring set: Atlas Maker, Sheet Maker, ComfyUI, Scene Editor, Flow, FX, Flipbook, Symbols SM, Component Editor, Font Maker, Game Config, Sound, Localization, Win Text, + the desktop Invisible Launcher |
-| `animator` | Animator | Invisible Spine Viewer, Invisible Rigger, Spine Editor |
-| `pipelineTester` | Pipeline Tester | the whole authoring + build chain to test it end to end (Game Maker, Game Config, Scene Editor, Flow, FX, Flipbook, Symbols SM, Component Editor, Atlas Maker, Sheet Maker, Font Maker, Sound, Spine Viewer, Localization, Win Text, FTP Browser, Storybook, desktop Invisible Launcher, Invisible Pipeline Changes) — **without** the publish capabilities or `pipelineMerge`, which stay admin-default |
+| `animator` | Animator | Invisible Rig Viewer, Invisible Rigger, an external rig editor |
+| `pipelineTester` | Pipeline Tester | the whole authoring + build chain to test it end to end (Game Maker, Game Config, Scene Editor, Flow, FX, Flipbook, Symbols SM, Component Editor, Atlas Maker, Sheet Maker, Font Maker, Sound, Rig Viewer, Localization, Win Text, FTP Browser, Storybook, desktop Invisible Launcher, Invisible Pipeline Changes) — **without** the publish capabilities or `pipelineMerge`, which stay admin-default |
 | `localizationReviewer` | Localization Reviewer | Invisible Localization, Invisible Win Text |
 | `audio` | Music / SFX | Invisible Sound (upload, audition and approve the game's music and SFX), Invisible FTP Browser, Invisible Storybook, desktop Invisible Launcher |
 
@@ -85,15 +85,15 @@ server `load` that:
 1. redirects to `/login` if you're not authenticated;
 2. returns **403** if your role isn't entitled to that tool;
 3. otherwise renders the tool inside the launcher — or, for the Atlas Maker,
-   Sheet Maker, Spine Viewer and Rigger, `throw redirect(303, …)` straight to it.
+   Sheet Maker, Rig Viewer and Rigger, `throw redirect(303, …)` straight to it.
 
 For the Atlas Maker, the redirect target is the external tool URL
 (`ATLAS_TOOL_URL`) with a short-lived **signed launch token** (`?iw_launch=`)
 naming you, your role and your current project; the tool turns it into its own
 session. The Sheet Maker works the same way (see [INFRA](../INFRA.md), "Tool
 launch tokens"). For the
-Spine Viewer and the Rigger it redirects to their static `view.html` documents
-(`/spine/view.html`, `/rigger/view.html`) served by the launcher itself.
+Rig Viewer and the Rigger it redirects to their static `view.html` documents
+(`/rig-viewer/view.html`, `/rigger/view.html`) served by the launcher itself.
 
 ## Other pages
 
@@ -150,17 +150,17 @@ that path to actually load.
 
 ### Admin → Settings → Engine boot mark
 
-The spine that opens **every** game — the engine's own logo, shown before the
+The rig that opens **every** game — the engine's own logo, shown before the
 game's own splash. This is what replaced the Invisible Engine loader, so it is
 deliberately admin-owned: a client editing their project cannot change it.
 
-Pick a bundle from the **shared** spine library (`_shared/spines/`), then set:
+Pick a bundle from the **shared** rig library (`_shared/spines/`), then set:
 
 | Field | Notes |
 |---|---|
-| **Spine bundle** | The `_shared/spines/<bundle>` folder. Only the shared root is offered — a same-named project bundle can never shadow the engine mark. `— none —` skips the engine splash entirely. |
+| **Rig bundle** | The `_shared/spines/<bundle>` folder. Only the shared root is offered — a same-named project bundle can never shadow the engine mark. `— none —` skips the engine splash entirely. |
 | **Animation** | A dropdown of the clips actually on the selected skeleton (read from the rig, so it can't disagree with it). A clip saved earlier that is no longer on the rig stays listed as `(not on this rig)` rather than silently snapping to another — the runtime falls back to the first clip, and you should know that happened. |
-| **Background** | Painted immediately, before the spine loads, so boot never flashes white. |
+| **Background** | Painted immediately, before the rig loads, so boot never flashes white. |
 | **Size** | Multiplier on the automatic fit, **not** an absolute size. `1.00×` is the mark scaled to sit inside a safe box, so one value holds on every screen. Above ~`1.6×` it can run past the viewport edges. Range `0.1×`–`3×`. |
 
 A **live preview** beside the fields plays the mark at the chosen animation,
@@ -174,18 +174,18 @@ are your working copy, this is the server's.
 A bundle that is renamed or removed keeps showing in the dropdown marked
 `(missing)` so you notice rather than silently getting a different logo.
 
-#### Getting a spine INTO the shared library
+#### Getting a rig INTO the shared library
 
 Rigs are authored inside a project, so a new mark starts life at
-`<client>/<project>/spines/`. **Bring a spine into the shared library** (same
+`<client>/<project>/spines/`. **Bring a rig into the shared library** (same
 card) copies one across: pick the project, pick the bundle, submit. It is a
 **copy, not a link** — the engine mark opens every game, so it must not break
 when that project is renamed or deleted. Re-promoting the same name overwrites
 it. This is the only writer of `_shared/spines/` **from the launcher UI** — the
 library's curated engine set is seeded out-of-band by
-`apps/launcher-api/scripts/seed-shared-engine-spines.mjs`, which merges its entries into
+`apps/launcher-api/scripts/seed-shared-engine-rigs.mjs`, which merges its entries into
 `skeletons.json` rather than rewriting it, so a promotion and a re-seed never clobber each
-other. See [the shared spine library](invisible-editor.md#the-shared-spine-library).
+other. See [the shared rig library](invisible-editor.md#the-shared-rig-library).
 
 The bundle must be listed in its project's `spines/skeletons.json`, which is
 what makes a folder of files loadable (it names the skeleton and the atlas). If
@@ -195,7 +195,7 @@ re-sync its atlas — first.
 > **`_shared/rigs/` is a different library.** It holds skeleton *documents*
 > (bones, slots, skins, animations) with **no atlas and no page textures** —
 > things you *apply* onto art in the Rigger. A game cannot load one, so a rig
-> there is not a boot mark. What you want is a spine **bundle**.
+> there is not a boot mark. What you want is a rig **bundle**.
 
 **When it takes effect:** on a game's **next publish** (or its next live runtime
 assemble), because the mark ships through that project's `deploy/_boot/` tree.

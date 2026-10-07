@@ -36,6 +36,8 @@
 		swapStyleUsesColumnStagger,
 		symbolHoldAndWinRoles,
 		symbolsInPlay,
+		symbolsUsed,
+		symbolUses,
 		validateGameConfigDoc,
 		type BetModeKind,
 		type FreeSpinsAward,
@@ -48,8 +50,8 @@
 	} from 'game-config';
 	import { findCapturedConfig } from 'rgs-translator-eagaming/paytable';
 	import {
-		BUILTIN_SPINE_NAMES,
-		builtinSpineMeta,
+		BUILTIN_RIG_NAMES,
+		builtinRigMeta,
 		kindCapabilities,
 		type ComponentParam,
 	} from 'engine-layout';
@@ -60,7 +62,7 @@
 	import AddOnsSection from './AddOnsSection.svelte';
 	import GameModesSection from './GameModesSection.svelte';
 	import HoldAndWinSection from './HoldAndWinSection.svelte';
-	import { projectAddOns } from '$lib/addOns';
+	import { overlayTokenPots, projectAddOns } from '$lib/addOns';
 	import { askConfirm } from '$lib/dialogs.svelte';
 	import type { PageData } from './$types';
 
@@ -89,6 +91,9 @@
 	/** THE GATE, live: what the strips actually deal. Every "is X in play?" the page asks reads this,
 	 *  never the dictionary — the one rule the whole tool exists to hold. */
 	const inPlay = $derived(new Set(symbolsInPlay(snapshot)));
+	/** Each symbol's badge: in play, a pots overlay token, or unused. Invisible Symbols lists exactly
+	 *  the symbols not badged unused — the same `symbolUses`, so the two tools cannot disagree. */
+	const uses = $derived(symbolUses(snapshot));
 	const issues = $derived(validateGameConfigDoc(snapshot));
 	const errors = $derived(issues.filter((i) => i.severity === 'error'));
 	const warnings = $derived(issues.filter((i) => i.severity === 'warning'));
@@ -98,6 +103,14 @@
 		issues.filter((i) => i.path === prefix || i.path.startsWith(`${prefix}.`));
 
 	const symbolNames = $derived(Object.keys(doc.symbols));
+	/** The pots overlay's coins (its tokens) get their own section, unbadged and in pot order: the
+	 *  overlay decides whether each one is used and which pot it fills. Every other symbol is badged
+	 *  by the strips. */
+	const coinNames = $derived(
+		symbolsUsed(snapshot).filter((name) => uses[name] === 'token' && symbolNames.includes(name)),
+	);
+	const reelSymbolNames = $derived(symbolNames.filter((name) => uses[name] !== 'token'));
+	const coinPots = $derived(overlayTokenPots(snapshot));
 
 	const capabilities = $derived(kindCapabilities(data.gameType, projectAddOns(doc).addOns));
 	const isHoldAndWin = $derived(capabilities.holdAndWin);
@@ -135,7 +148,7 @@
 	};
 
 	// ── Grid ────────────────────────────────────────────────────────────────────
-	// Reel count is the spine of the config: paylines and strips are indexed by it. Changing it
+	// Reel count is the rig of the config: paylines and strips are indexed by it. Changing it
 	// re-shapes `numRows` (pad with the first reel's height / truncate) AND auto-GROWS the strips and
 	// paylines to match, so widening the grid fills the new reels for you — no per-cell clicking, no
 	// dead-end error. Only growth is automatic (see `growGridToWidth`); shrinking would drop authored
@@ -312,7 +325,7 @@
 
 	// ── Per-mode card param overrides ──────────────────────────────────────────────
 	// The buy-feature repeater feeds each card instance its per-mode values; `cardParams` lets a mode
-	// override ANY of its card component's authored params (panel/icon/button frames, spine, tints, …),
+	// override ANY of its card component's authored params (panel/icon/button frames, rig, tints, …),
 	// so ONE shared card renders visually-distinct per mode. The editor resolves the mode's card def
 	// (its picked `card`, else the default `featureCard`) and renders a typed input per AUTHORABLE param
 	// (engine-fed values like title/price/icon are excluded — those aren't graphics to override here).
@@ -329,7 +342,7 @@
 		return (cardComponentFor(key)?.params ?? []).filter((p) => !p.engineProvided);
 	}
 
-	/** The card's authorable params bucketed by their declared `group` (Panel / Icon / Spine / Button
+	/** The card's authorable params bucketed by their declared `group` (Panel / Icon / rig / Button
 	 *  …), in declaration order, so the graphics editor reads as labelled clusters instead of one flat
 	 *  wrap. An ungrouped param falls into a trailing "Other" bucket rather than vanishing. */
 	function cardParamGroups(key: string): { name: string; params: ComponentParam[] }[] {
@@ -369,36 +382,36 @@
 		}
 	}
 
-	// ── Card-graphics spine bundle + animation resolution ──────────────────────────
+	// ── Card-graphics rig bundle + animation resolution ──────────────────────────
 	// A `spine`-kind card param stores a BUNDLE NAME; its paired `spineAnimation` param offers a
-	// dropdown of THAT bundle's animations — the same manifest-driven source the Scene Editor's spine
+	// dropdown of THAT bundle's animations — the same manifest-driven source the Scene Editor's rig
 	// dropdowns use, so the owner never types an animation name. A project/shared bundle's names come
-	// from `/api/editor/spine/meta` (fetched lazily, keyed by the bundle's R2 prefix); a coded builtin
-	// bundle's names ship with the engine (`builtinSpineMeta`). A `SvelteMap` so a fetched bundle
+	// from `/api/editor/rig/meta` (fetched lazily, keyed by the bundle's R2 prefix); a coded builtin
+	// bundle's names ship with the engine (`builtinRigMeta`). A `SvelteMap` so a fetched bundle
 	// re-renders its dropdown.
-	const spineAnimations = new SvelteMap<string, string[]>();
-	const requestedSpineKeys = new Set<string>();
+	const rigAnimations = new SvelteMap<string, string[]>();
+	const requestedRigKeys = new Set<string>();
 
 	/** The R2 prefix key for a bundle NAME (what a `spine` param stores), or undefined for a coded
 	 *  builtin / unknown bundle (which has no R2 presence to fetch a manifest from). */
-	function spineKeyForName(name: string | undefined): string | undefined {
+	function rigKeyForName(name: string | undefined): string | undefined {
 		return name ? data.spines.find((s) => s.name === name)?.key : undefined;
 	}
 
 	/** Animation names offered for a bundle NAME: the engine's coded list for a builtin, else the
 	 *  fetched manifest list. Empty until a fetch lands ⇒ the field falls back to a plain text box. */
-	function spineAnimationOptions(name: string | undefined): string[] {
+	function rigAnimationOptions(name: string | undefined): string[] {
 		if (!name) return [];
-		const builtin = builtinSpineMeta(name);
+		const builtin = builtinRigMeta(name);
 		if (builtin) return builtin.animations;
-		const key = spineKeyForName(name);
-		return key ? (spineAnimations.get(key) ?? []) : [];
+		const key = rigKeyForName(name);
+		return key ? (rigAnimations.get(key) ?? []) : [];
 	}
 
 	/** The bundle a mode's `spineAnimation` param reads its animation options from: the mode's OWN
 	 *  override of the sibling `spine` param (named in `p.spineParam`), else that sibling's authored
 	 *  default — so the dropdown populates before the bundle is explicitly overridden. */
-	function effectiveCardSpineBundle(key: string, p: ComponentParam): string | undefined {
+	function effectiveCardRigBundle(key: string, p: ComponentParam): string | undefined {
 		const sibling = p.spineParam;
 		if (!sibling) return undefined;
 		const override = betModeCardParamValue(key, sibling);
@@ -407,10 +420,10 @@
 		return typeof def?.default === 'string' ? def.default : undefined;
 	}
 
-	/** Every non-builtin spine bundle R2 key the card-graphics animation dropdowns need names for —
+	/** Every non-builtin rig bundle R2 key the card-graphics animation dropdowns need names for —
 	 *  the effective bundle of each mode's `spine` card params (its override, else the param default).
-	 *  Builtins are skipped: their names ship with the engine (`builtinSpineMeta`), no fetch. */
-	const neededCardSpineKeys = $derived.by(() => {
+	 *  Builtins are skipped: their names ship with the engine (`builtinRigMeta`), no fetch. */
+	const neededCardRigKeys = $derived.by(() => {
 		const keys = new Set<string>();
 		for (const key of Object.keys(doc.betModes)) {
 			for (const p of cardAuthorableParams(key)) {
@@ -418,7 +431,7 @@
 				const name =
 					(betModeCardParamValue(key, p.key) as string | undefined) ||
 					(typeof p.default === 'string' ? p.default : undefined);
-				const rkey = spineKeyForName(name);
+				const rkey = rigKeyForName(name);
 				if (rkey) keys.add(rkey);
 			}
 		}
@@ -428,15 +441,15 @@
 	// Prefetch manifest meta for each needed bundle once (hit OR miss). A key that later resolves
 	// re-renders its dropdown via the `SvelteMap`; a transient failure retries on a fresh key set.
 	$effect(() => {
-		for (const key of neededCardSpineKeys) {
-			if (requestedSpineKeys.has(key)) continue;
-			requestedSpineKeys.add(key);
+		for (const key of neededCardRigKeys) {
+			if (requestedRigKeys.has(key)) continue;
+			requestedRigKeys.add(key);
 			void (async () => {
 				try {
-					const res = await fetch(`/api/editor/spine/meta?key=${encodeURIComponent(key)}`);
+					const res = await fetch(`/api/editor/rig/meta?key=${encodeURIComponent(key)}`);
 					if (!res.ok) return;
 					const body = (await res.json()) as { found?: boolean; animations?: string[] };
-					if (body.found) spineAnimations.set(key, body.animations ?? []);
+					if (body.found) rigAnimations.set(key, body.animations ?? []);
 				} catch {
 					/* offline / transient — a later edit re-triggers via a fresh key set */
 				}
@@ -981,7 +994,7 @@
 	// ── Win tiers (big-win levels) ─────────────────────────────────────────────────
 	// OPTIONAL config-authored win tiers (an Invisible-Engine extension, not part of the math export).
 	// The owner sets the COUNT, names each tier, its amount THRESHOLD (win as a multiple of the total
-	// bet), its type, and — for a big tier — its intro/idle/outro spine animation. Stored SPARSELY like
+	// bet), its type, and — for a big tier — its intro/idle/outro rig animation. Stored SPARSELY like
 	// the payline colours: the whole `winLevels` block (and the escalation flags) exist ONLY once a
 	// tier is added, so an un-authored config is byte-identical to a paste-in and keeps the coded
 	// win-level table + facade ladder. `resolveWinLevels` assigns each tier its 1-based level.
@@ -1062,8 +1075,8 @@
 		[tiers[index], tiers[j]] = [tiers[j], tiers[index]];
 	}
 
-	// NOTE: a tier's PRESENTATION — spine bundle, intro/idle/outro animations, duration, sfx/bgm — is
-	// no longer authored here. It moved to the `win` COMPONENT in the Scene Editor (spine picker +
+	// NOTE: a tier's PRESENTATION — rig bundle, intro/idle/outro animations, duration, sfx/bgm — is
+	// no longer authored here. It moved to the `win` COMPONENT in the Scene Editor (rig picker +
 	// animation dropdowns + duration + sound per tier), which reads these tiers by alias so the two
 	// stay in sync (`docs/tools/component-editor.md`). The schema fields
 	// (`animation`/`spineKey`/`durationMs`/`sound`) survive as the coded FALLBACK — an un-authored
@@ -1317,7 +1330,9 @@
 		<div class="banner {source}">
 			{#if source === 'template'}
 				This project has <strong>not authored a config</strong> — you're looking at the
-				<strong>{data.gameType} template default</strong>. Save to make it this project's own.
+				<strong>{data.gameType} template default</strong>. Save to make it this project's own: until
+				then the game plays the engine's built-in lines config,
+				{data.templateIsBuiltIn ? 'which is this template' : 'not what this page shows'}.
 			{:else}
 				Editing this project's <strong>authored config</strong>.
 			{/if}
@@ -1662,7 +1677,7 @@
 										blank inherits its authored default</em
 									></span
 								>
-								<!-- Bucketed by the param's declared `group`, so Panel / Icon / Spine / Button read as
+								<!-- Bucketed by the param's declared `group`, so Panel / Icon / rig / Button read as
 								     clusters and the group is named ONCE instead of suffixing every field. -->
 								<div class="bm-pgroups">
 									{#each cardParamGroups(key) as g (g.name)}
@@ -1738,19 +1753,19 @@
 																	>
 																{/each}
 																<!-- Engine-shipped coded bundles, so a coded default is a real pickable option. A
-													     project spine of the same name wins (dropped here to avoid a dupe). -->
-																{#each BUILTIN_SPINE_NAMES.filter((n) => !data.spines.some((s) => s.name === n)) as n (n)}
+													     project rig of the same name wins (dropped here to avoid a dupe). -->
+																{#each BUILTIN_RIG_NAMES.filter((n) => !data.spines.some((s) => s.name === n)) as n (n)}
 																	<option value={n}>{n} [coded]</option>
 																{/each}
-																{#if cur && !data.spines.some((s) => s.name === cur) && !BUILTIN_SPINE_NAMES.includes(cur)}
+																{#if cur && !data.spines.some((s) => s.name === cur) && !BUILTIN_RIG_NAMES.includes(cur)}
 																	<option value={cur}>{cur} (custom)</option>
 																{/if}
 															</select>
 														{:else if p.kind === 'spineAnimation'}
 															{@const cur =
 																(betModeCardParamValue(key, p.key) as string | undefined) ?? ''}
-															{@const bundle = effectiveCardSpineBundle(key, p)}
-															{@const opts = spineAnimationOptions(bundle)}
+															{@const bundle = effectiveCardRigBundle(key, p)}
+															{@const opts = rigAnimationOptions(bundle)}
 															{#if opts.length > 0}
 																<select
 																	value={cur}
@@ -1780,7 +1795,7 @@
 																	type="text"
 																	placeholder={bundle
 																		? 'animation name'
-																		: 'pick a spine bundle first'}
+																		: 'pick a rig bundle first'}
 																	value={cur}
 																	oninput={(e) =>
 																		setBetModeCardParam(key, p.key, e.currentTarget.value)}
@@ -1839,8 +1854,11 @@
 				<span class="badge in">in play</span>
 				badge means the symbol appears on a reel strip and so can actually reach the board; a
 				<span class="badge out">unused</span> symbol is defined here but dealt by no strip (a payout
-				no one can win). <strong>Click the badge</strong> to put a symbol on the reels or take it
-				off. Paytable is <code>count:multiplier</code> pairs, e.g. <code>5:20, 4:10, 3:5</code>. A
+				no one can win), and Invisible Symbols does not list it. <strong>Click the badge</strong> to
+				put a symbol on the reels or take it off.
+				{#if coinNames.length}A pots overlay's coins are not reel symbols: they have their own
+					section, <strong>Coins</strong>, below.{/if} Paytable is
+				<code>count:multiplier</code> pairs, e.g. <code>5:20, 4:10, 3:5</code>. A
 				<strong>scatter</strong>'s paytable is its scatter pay — × the total bet, anywhere on the
 				board; left empty it pays <code>{formatPayRow(DEFAULT_SCATTER_PAYTABLE)}</code>.
 			</p>
@@ -1893,18 +1911,18 @@
 						</tr>
 					</thead>
 					<tbody>
-						{#each symbolNames as name (name)}
+						{#each reelSymbolNames as name (name)}
 							<tr>
 								<th class="row-head">{name}</th>
 								<td class="center">
 									<button
 										type="button"
-										class="badge toggle {inPlay.has(name) ? 'in' : 'out'}"
-										title={inPlay.has(name)
+										class="badge toggle {uses[name] === 'inPlay' ? 'in' : 'out'}"
+										title={uses[name] === 'inPlay'
 											? 'In play — click to take it off the reels'
 											: 'Unused — click to put it on the reels'}
 										onclick={() => toggleInPlay(name)}
-										>{inPlay.has(name) ? 'in play' : 'unused'}</button
+										>{uses[name] === 'inPlay' ? 'in play' : 'unused'}</button
 									>
 								</td>
 								<td
@@ -1957,6 +1975,55 @@
 				<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
 			{/each}
 		</section>
+
+		{#if coinNames.length}
+			<!-- Coins ------------------------------------------------------------------>
+			<section>
+				<h2>Coins</h2>
+				<p class="hint">
+					The pots overlay's <strong>coins</strong>: each one drops over a cell and flies into the
+					pot it fills. A coin is never dealt by a reel strip and never pays, and whether it is used
+					— and which pot it fills — is the overlay's to decide, under <strong>Add-ons</strong>, so
+					it carries no in play / unused badge. Its art is bound in Invisible Symbols.
+				</p>
+				<div class="grid-wrap">
+					<table class="grid">
+						<thead>
+							<tr>
+								<th>Coin</th>
+								<th>Fills</th>
+								<th>Special properties</th>
+								<th></th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each coinNames as name (name)}
+								<tr>
+									<th class="row-head">{name}</th>
+									<td>{(coinPots[name] ?? []).join(', ')}</td>
+									<td
+										><input
+											value={(doc.symbols[name].special_properties ?? []).join(', ')}
+											placeholder="meterSpecial"
+											oninput={(e) => setProperties(name, e.currentTarget.value)}
+										/></td
+									>
+									<td>
+										{#if doc.symbols[name].paytable?.length}
+											<button
+												class="linkish"
+												title="A pot's coin pays nothing, so its line pays are never paid"
+												onclick={() => clearPaytable(name)}>Drop line pays</button
+											>
+										{/if}
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			</section>
+		{/if}
 
 		<!-- Win model -------------------------------------------------------------->
 		<section>
@@ -2472,7 +2539,7 @@
 			<p class="hint">
 				The big-win celebrations, in ascending order. Each tier has a <strong>name</strong> and an
 				amount <strong>threshold</strong> (the win as a multiple of the total bet). Its
-				<strong>presentation</strong> — spine bundle, intro/idle/outro animations, duration and
+				<strong>presentation</strong> — rig bundle, intro/idle/outro animations, duration and
 				sound — is authored on the <strong>Win Overlay</strong> component in the Scene Editor, which
 				reads these tiers by alias so the two stay in sync. Smaller wins are handled automatically and
 				aren't shown here. Leave this empty to keep the game's built-in tiers (byte-identical).

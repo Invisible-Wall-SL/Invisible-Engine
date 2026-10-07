@@ -14,8 +14,8 @@
 		"trigger": "tsx trigger.ts",
 		"trigger-ui": "tsx triggerPicker.ts",
 		"particle-kind": "tsx particleKind.ts",
-		"spine-particle": "tsx spineParticle.ts",
-		"spine-particle-behavior": "tsx spineParticleBehavior.ts",
+		"rig-particle": "tsx rigParticle.ts",
+		"rig-particle-behavior": "tsx rigParticleBehavior.ts",
 		"variation": "tsx variation.ts",
 		"rig-bound": "tsx rigBound.ts"
 	},
@@ -24,7 +24,7 @@
 		"engine-fx": "workspace:*",
 		"utils-event-emitter": "workspace:*",
 		"@barvynkoa/particle-emitter": "0.0.1",
-		"@esotericsoftware/spine-core": "4.2.120",
+		"engine-rig": "workspace:*",
 		"pixi.js": "8.21.0"
 	}
 }

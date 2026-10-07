@@ -1,9 +1,10 @@
 import { ENV } from '../env';
 import type { DirectorAtlasJob } from '../db/schema';
-import type { AdapterContext } from './adapter';
+import { requireProjectScope } from '../toolScope';
+import { isDirectorAgent, type AdapterContext } from './adapter';
 import { mintCallbackToken } from './atlasCallback';
-import { atlasFetch } from './atlasClient';
-import { getAtlasJob, settleAtlasJob } from './store';
+import { atlasFetch, type AtlasCaller } from './atlasClient';
+import { getAtlasJob, getRun, getRunOwner, queuedAtlasJobs, settleAtlasJob } from './store';
 
 /**
  * When an Atlas Maker still render a Director run queued is DONE (ADR-0002 "GPU jobs"). Completion
@@ -139,7 +140,7 @@ export interface JobView {
 	error?: string;
 }
 
-export async function readJobView(ctx: AdapterContext, jobRef: string): Promise<JobView> {
+export async function readJobView(ctx: AtlasCaller, jobRef: string): Promise<JobView> {
 	const answer = await atlasFetch(ctx, { method: 'GET', path: '/progress', query: { jobRef } });
 	return answer.json<JobView>();
 }
@@ -156,15 +157,16 @@ export interface WatchDeps {
 }
 
 /**
- * The fallback: poll until the job settles by either signal, or the resume window passes. Stops as
- * soon as the job is no longer queued (the callback won). A read that fails is retried on the
- * next tick; it never settles the job by itself.
+ * The fallback: poll until the job settles by either signal, or the resume window passes, counted
+ * from when the render was queued (`queuedAt`, else now). Stops as soon as the job is no longer
+ * queued (the callback won). A read that fails is retried on the next tick; it never settles the
+ * job by itself.
  */
 export async function watchAtlasJob(
-	job: { jobRef: string; runId: string },
+	job: { jobRef: string; runId: string; queuedAt?: Date },
 	deps: WatchDeps,
 ): Promise<JobDone | null> {
-	const start = deps.now();
+	const start = job.queuedAt?.getTime() ?? deps.now();
 	for (let i = 0; ; i++) {
 		const wait = POLL_BACKOFF_SECONDS[Math.min(i, POLL_BACKOFF_SECONDS.length - 1)];
 		await deps.sleep(wait * 1000);
@@ -191,15 +193,45 @@ export async function watchAtlasJob(
 	}
 }
 
-/** Start the fallback for a render just queued. In-process: a launcher restart drops it, which
- *  costs only the fallback — atlas-tool redelivers an undelivered callback at its own boot. */
+/** Start the fallback for a render just queued. In-process: a launcher restart drops it, and
+ *  `resumeAtlasJobWatches` arms it again at boot. */
 export function startAtlasJobWatch(ctx: AdapterContext, jobRef: string): void {
-	void watchAtlasJob(
-		{ jobRef, runId: ctx.run.id },
-		{
-			sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms).unref()),
-			read: (ref) => readJobView(ctx, ref),
-			now: Date.now,
+	armWatch({ jobRef, runId: ctx.run.id }, ctx);
+}
+
+function armWatch(
+	job: { jobRef: string; runId: string; queuedAt?: Date },
+	caller: AtlasCaller | null,
+) {
+	void watchAtlasJob(job, {
+		sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms).unref()),
+		read: async (ref) => {
+			if (!caller)
+				throw new Error("the run, its owner or the owner's access to its project is gone");
+			return readJobView(caller, ref);
 		},
-	).catch((e) => console.error(`director atlas job ${jobRef}: fallback watch failed:`, e));
+		now: Date.now,
+	}).catch((e) => console.error(`director atlas job ${job.jobRef}: fallback watch failed:`, e));
+}
+
+/** Who a recorded render is read as: its run's owner in the run's project, or null when gone. */
+async function callerOf(job: DirectorAtlasJob): Promise<AtlasCaller | null> {
+	const run = await getRun(job.runId);
+	const owner = run && (await getRunOwner(run.ownerUserId));
+	if (!run || !owner || !isDirectorAgent(job.agent)) return null;
+	const scope = await requireProjectScope(owner, run.projectKey).catch(() => null);
+	return scope ? { run, owner, agent: job.agent, scope } : null;
+}
+
+/**
+ * Arm the fallback again for every render still queued, at launcher boot. The watches live in the
+ * process, so a restart drops them, and a render whose callback is lost would stay queued (holding
+ * the region step and a stop) until atlas-tool restarts. Each keeps its window from when the
+ * render was queued; one that can no longer be read as its owner is recorded failed when the
+ * window passes, never left queued.
+ */
+export async function resumeAtlasJobWatches(arm = armWatch): Promise<number> {
+	const queued = await queuedAtlasJobs();
+	for (const job of queued) arm(job, await callerOf(job));
+	return queued.length;
 }

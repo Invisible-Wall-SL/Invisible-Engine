@@ -12,7 +12,7 @@
  * `/api/localization/strings`). Those endpoints are all thin wrappers over
  * server-side functions, so this module calls those functions directly:
  *   - doc assembly mirrors `routes/api/editor/doc/+server.ts` (HUD name default +
- *     spine-key rewrite for the runtime + referenced ComponentDefs + per-project
+ *     rig-key rewrite for the runtime + referenced ComponentDefs + per-project
  *     component defaults),
  *   - `exportEditorArt` / `exportEditorFonts` / `exportEditorSymbols` are run fresh
  *     so the `deploy/` indices reflect the current doc, then their returned indices
@@ -74,7 +74,7 @@ import { exportRigFlipbooks } from './rigFlipbookExport';
 import { loadGameConfigDoc } from './gameConfigStorage';
 import { withoutPartnerPaytable } from './paytableDrift';
 import { loadWinTextDoc } from './winTextStorage';
-import { bundleFromAssetKey } from './spine';
+import { bundleFromAssetKey } from './rig';
 import { exportEditorSymbols, type SymbolExportResult } from './symbolExport';
 
 /**
@@ -106,7 +106,7 @@ export interface RuntimeBundle {
 	flowV2Library?: FlowV2LibraryDoc;
 	/** The authored Invisible Cinematic documents. Omitted unless the project authored one with at
 	 * least one actor — absent ⇒ `bakedCinematics()` returns [] (parity). A cinematic carries no
-	 * art of its own; the RIGS it casts ride the editor-art export via its `extraSpineNames` seed,
+	 * art of its own; the RIGS it casts ride the editor-art export via its `extraRigNames` seed,
 	 * because the static scene walk cannot see them. */
 	cinematics?: CinematicDoc[];
 	/** The authored Invisible FX effects (`invisible-fx.md` §8). Omitted unless the project
@@ -147,13 +147,13 @@ export interface RuntimeBundle {
 }
 
 /**
- * Rewrite each spine node's `assetKey` from its R2 bundle-prefix down to the plain
+ * Rewrite each rig node's `assetKey` from its R2 bundle-prefix down to the plain
  * bundle name the running game registers under — IDENTICAL to
- * `routes/api/editor/doc/+server.ts#resolveSpineKeysForGame`, so the doc this
+ * `routes/api/editor/doc/+server.ts#resolveRigKeysForGame`, so the doc this
  * module returns uses the SAME lookup keys the editor-doc endpoint would. Mutates
  * in place (the doc is freshly loaded per call).
  */
-function rewriteSpineKeys(node: unknown, clientKey: string, projectKey: string): void {
+function rewriteRigKeys(node: unknown, clientKey: string, projectKey: string): void {
 	if (!node || typeof node !== 'object') return;
 	const n = node as { kind?: string; assetKey?: unknown; children?: unknown };
 	if (n.kind === 'spine' && typeof n.assetKey === 'string') {
@@ -161,36 +161,36 @@ function rewriteSpineKeys(node: unknown, clientKey: string, projectKey: string):
 		if (bundle) n.assetKey = bundle;
 	}
 	if (Array.isArray(n.children))
-		for (const c of n.children) rewriteSpineKeys(c, clientKey, projectKey);
+		for (const c of n.children) rewriteRigKeys(c, clientKey, projectKey);
 }
 
-function resolveSpineKeysForGame(doc: unknown, clientKey: string, projectKey: string): void {
+function resolveRigKeysForGame(doc: unknown, clientKey: string, projectKey: string): void {
 	const scenes = (doc as { scenes?: unknown })?.scenes;
 	if (Array.isArray(scenes)) {
 		for (const scene of scenes) {
 			const nodes = (scene as { nodes?: unknown })?.nodes;
 			if (Array.isArray(nodes))
-				for (const node of nodes) rewriteSpineKeys(node, clientKey, projectKey);
+				for (const node of nodes) rewriteRigKeys(node, clientKey, projectKey);
 		}
 	}
 }
 
 /**
- * The component defs a game registers carry their OWN spine nodes (a button's
+ * The component defs a game registers carry their OWN rig nodes (a button's
  * `R_SpinButton`, a free-spin frame, …) — rewrite those `assetKey`s too, exactly as
- * {@link resolveSpineKeysForGame} does for the scene tree. Without this, `LayoutNodeView`
- * hands `<SpineProvider>` the full R2 bundle PREFIX while the game registered the bundle
- * under its bare NAME, so the lookup misses and the placed component's spine never loads.
+ * {@link resolveRigKeysForGame} does for the scene tree. Without this, `LayoutNodeView`
+ * hands `<RigProvider>` the full R2 bundle PREFIX while the game registered the bundle
+ * under its bare NAME, so the lookup misses and the placed component's rig never loads.
  * Must mirror `routes/api/editor/doc/+server.ts`.
  */
-function resolveSpineKeysForComponentDefs(
+function resolveRigKeysForComponentDefs(
 	resolved: { defs: Record<string, ComponentDef>; versions: ComponentDef[] } | undefined,
 	clientKey: string,
 	projectKey: string,
 ): void {
 	if (!resolved) return;
-	for (const def of Object.values(resolved.defs)) rewriteSpineKeys(def.root, clientKey, projectKey);
-	for (const def of resolved.versions) rewriteSpineKeys(def.root, clientKey, projectKey);
+	for (const def of Object.values(resolved.defs)) rewriteRigKeys(def.root, clientKey, projectKey);
+	for (const def of resolved.versions) rewriteRigKeys(def.root, clientKey, projectKey);
 }
 
 /**
@@ -330,11 +330,11 @@ async function assembleRuntimeBundle(
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
 
 	// 1. Doc — same assembly as /api/editor/doc?components=1 (HUD name default +
-	//    spine-key rewrite + referenced defs + per-project component defaults).
+	//    rig-key rewrite + referenced defs + per-project component defaults).
 	const doc = await step('doc', timings, async () => {
 		const loaded = (await loadEditorDoc(clientKey, projectKey)) as LayoutDoc;
 		applyHudGameNameDefault(loaded, await projectName(projectKey));
-		resolveSpineKeysForGame(loaded, clientKey, projectKey);
+		resolveRigKeysForGame(loaded, clientKey, projectKey);
 		// Bake the EFFECTIVE layout profile into the shipped doc: a project override (already
 		// on the doc) wins; otherwise stamp the admin global default so a non-overriding game
 		// still runs the pipeline's authored buckets without a runtime DB read. Absent global
@@ -360,9 +360,9 @@ async function assembleRuntimeBundle(
 		timings,
 		() => resolveReferencedDefs(doc, projectKey, storedComponentDefaults, cardComponentIds),
 	);
-	// A placed component's OWN spine nodes need the same prefix→bundle-name rewrite as the
-	// scene tree, or their spines never load in the built game (key mismatch).
-	resolveSpineKeysForComponentDefs(
+	// A placed component's OWN rig nodes need the same prefix→bundle-name rewrite as the
+	// scene tree, or their rigs never load in the built game (key mismatch).
+	resolveRigKeysForComponentDefs(
 		{ defs: componentDefs, versions: componentVersions },
 		clientKey,
 		projectKey,
@@ -546,12 +546,12 @@ async function ensureDeployExports(
 	const cinematicDocs = await step('cinematics:load', timings, () =>
 		loadAuthoredCinematics(client, projectKey),
 	);
-	const extraSpineNames = cinematicRigNames(cinematicDocs);
+	const extraRigNames = cinematicRigNames(cinematicDocs);
 
 	/**
 	 * ONE content-addressed page store for the whole pass, owned here.
 	 *
-	 * `art` and `symbols` both export spine bundles, in the same `Promise.all` below. While each
+	 * `art` and `symbols` both export rig bundles, in the same `Promise.all` below. While each
 	 * owned its own store (or, for symbols, none at all) a page used by both was written twice, and
 	 * a page shared by eight symbol rigs was written eight times — the very duplication `pageStore`
 	 * exists to collapse, and the one that OOM-crashed iOS by loading identical bytes as separate
@@ -572,7 +572,7 @@ async function ensureDeployExports(
 			// back in (`art:manifests` / `art:images` / `art:spines` / `art:prune:list`) is what says
 			// which loop to attack.
 			step('art', timings, () =>
-				exportEditorArt(client, projectKey, { extraSpineNames, timings, pageStore }),
+				exportEditorArt(client, projectKey, { extraRigNames, timings, pageStore }),
 			),
 			step('fonts', timings, () => exportEditorFonts(client, projectKey)),
 			step('sounds', timings, () => exportProjectSounds(client, projectKey)),

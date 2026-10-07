@@ -1,12 +1,12 @@
 // Phase 5.4 spike — prove the draw-order `offsets` we generate reconstruct to the exact
-// target order through spine-core (the reader interleaves "unchanged" slots, so a naive
+// target order through engine-rig (the reader interleaves "unchanged" slots, so a naive
 // offset list can silently produce the wrong order). Format:
 //   animations[a].drawOrder = [{ time, offsets:[{slot, offset}] }]   (offset = newDrawPos - setupIndex)
 //   node tools/rigger-spike/draworder.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = await import(SPINE_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = await import(RIG_CORE);
 
 const [, , jsonPath, atlasPath] = process.argv;
 const atlasText = readFileSync(atlasPath, 'utf8');
@@ -55,5 +55,5 @@ for (const seed of [1, 7, 42, 1000, 99999]){
 }
 log(bad === 0, `all ${tested} random permutations reconstruct exactly (${bad} mismatched)`);
 
-console.log(pass ? '\n✅ PASS — moved-only offsets reproduce the target draw order through spine-core.' : '\n✗ FAIL — need the full-list fallback.');
+console.log(pass ? '\n✅ PASS — moved-only offsets reproduce the target draw order through engine-rig.' : '\n✗ FAIL — need the full-list fallback.');
 process.exit(pass ? 0 : 1);

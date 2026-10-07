@@ -11,7 +11,7 @@
 The classic KA-Gaming / Elf-Castle "tall symbol" look: when a reel lands a contiguous vertical run
 of the same high symbol, draw **one tall picture** for that symbol over the run instead of N repeated
 icons. A partial stack shows part of the picture, **top-aligned**; a full stack shows all of it. It
-must be **authorable per symbol** (sprite / spine / flipbook), **Flow-activatable on demand**,
+must be **authorable per symbol** (sprite / rig / flipbook), **Flow-activatable on demand**,
 **scalable per game** (3×3 / 5×5 / 10×10), and target the **lines** template only.
 
 ## The mechanic (owner-confirmed)
@@ -86,19 +86,19 @@ is **no** reveal-path `computeArming` hook.
    `getSymbolInfo` falls the `stacked` state back to `static` when unauthored, so the mode renders the
    icon (stretched/cropped) before real tall art is bound in the Symbols State Machine.
 5. **Presentation** — `apps/lines/src/components/StackedPicture.svelte` renders the run symbol's
-   `stacked` binding (sprite/spine/flipbook) into a box `naturalCells` tall, **stretched to the box**
+   `stacked` binding (sprite/rig/flipbook) into a box `naturalCells` tall, **stretched to the box**
    (a tall picture authored at the box aspect is undistorted; a placeholder icon still fills+crops),
    then a `<Rectangle isMask>` reveals only the top `visibleCells`. `StackedPictures.svelte` maps the
    runs; mounted in `Board.svelte` inside the resting board container (shares `getSymbolX`/`symbolY`
-   coordinates + the board window mask). **A spine tall art is placed with `anchor={0}` + `centreBox`,
-   not the sprite/flipbook `anchor={0.5}`**: a spine pivots in its LOCAL skeleton frame, so anchor 0.5
+   coordinates + the board window mask). **A rig tall art is placed with `anchor={0}` + `centreBox`,
+   not the sprite/flipbook `anchor={0.5}`**: a rig pivots in its LOCAL skeleton frame, so anchor 0.5
    pivots by `box/2` and lifts the art by `boxH²/(2·skeleton.height)` — clipped at the top, gapped at
-   the bottom (see Known issues, #286). `<SpineProvider centreBox>` then drops the centre of the rig's
+   the bottom (see Known issues, #286). `<RigProvider centreBox>` then drops the centre of the rig's
    AUTHORED box on the box centre, so a rig whose skeleton origin is not its bounds centre lands right
-   too — the same convention `SymbolSpineMain` uses ([rigger status](../status/rigger.md), 2026-09-02).
+   too — the same convention `SymbolRigMain` uses ([rigger status](../status/rigger.md), 2026-09-02).
 6. **Two picture slots — resting + winning** (owner ask 2026-08-25). A stacked symbol authors `art`
    (the picture it normally shows — typically a still) and an optional `winArt` (what it becomes while
-   that stack is part of a **paying line** — the spine/flipbook it pays out with). Both are ordinary
+   that stack is part of a **paying line** — the rig/flipbook it pays out with). Both are ordinary
    `SymbolCell` bindings on the same stacked entry, so `winArt` ships through the identical
    export→bake→register chain as `art` and needs no new asset class.
    - **The win signal is the covered cells' own `symbolState`.** A covered cell mounts no `<Symbol>`,
@@ -161,13 +161,12 @@ per-project hardcode. Test data only — no protocol change; the default (mode-o
   EVERY run at the authored height, so an over-height column tiles consecutive M-tall pictures and any
   remainder shorter than M takes the ordinary partial path. A genuine partial (run < M) is untouched.
   Detail: [symbols status](../status/symbols.md).
-- **A spine tall art rendered vertically offset — FIXED (2026-08-10, #286).** A stacked symbol authored
-  as a SPINE rendered clipped at the top and gapped at the bottom instead of filling the run, because
+- **A rig tall art rendered vertically offset — FIXED (2026-08-10, #286).** A stacked symbol authored
+  as a RIG rendered clipped at the top and gapped at the bottom instead of filling the run, because
   `StackedPicture` mounted it with the sprite branch's `anchor={0.5}` (see §5 for the geometry). Fixed
-  by `anchor={0}` on the spine branch. **Generalised on 2026-09-02** by `<SpineProvider centreBox>`,
+  by `anchor={0}` on the rig branch. **Generalised on 2026-09-02** by `<RigProvider centreBox>`,
   which centres the rig's AUTHORED box instead of assuming the skeleton origin sits in it — this fix's
-  original reasoning ("symbol rigs are origin-centred") held only for the rigs we ship from the Spine
-  editor. The shared `SpineProvider` pivot was deliberately NOT rewritten: that would move every symbol
+  original reasoning ("symbol rigs are origin-centred") held only for the rigs we ship from an external rig editor. The shared `RigProvider` pivot was deliberately NOT rewritten: that would move every symbol
   in every game. Detail: [symbols status](../status/symbols.md) + [rigger status](../status/rigger.md).
 - **Win presentation hung on a covered cell — FIXED (2026-08-10).** A paying line crossing a stacked
   run stalled: `ReelSymbol` mounts no `<Symbol>` for a cell in `stackedCoverage()`, so its
@@ -175,8 +174,8 @@ per-project hardcode. Test data only — no protocol change; the default (mode-o
   round's per-win narration froze on the first such line (only a tap's `roundSkip` forced it on) and
   the resting win-cycle (no skip token) stuck on it permanently. Fix: a covered cell holds a fixed
   win beat (`STACKED_WIN_HOLD_MS`) instead of awaiting an animation that can't complete — its win
-  visual is the tall picture, not a per-icon spine. Non-stacked games have an empty coverage set ⇒
-  every cell awaits the spine exactly as before.
+  visual is the tall picture, not a per-icon rig. Non-stacked games have an empty coverage set ⇒
+  every cell awaits the rig exactly as before.
 - **1-tile snap at the roll↔settle boundary.** The scrolling scan reads the whole reel array (so tall
   blocks can roll) while the settled scan reads only the visible window (`1..numRows`, excluding the top
   padding row). When the padding row above a result matches that result's symbol, the scrolling scan

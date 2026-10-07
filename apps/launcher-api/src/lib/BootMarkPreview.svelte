@@ -2,22 +2,22 @@
 	import { Application, Container } from 'pixi.js';
 	import { BOOT_SPLASH_DEFAULT_SIZE } from 'constants-shared/bootSplash';
 	import {
-		loadFxSpine,
+		loadFxRig,
 		type FxSkeletonEntry,
-		type LoadedFxSpine,
-	} from '../routes/(app)/fx/fxSpine.client';
+		type LoadedFxRig,
+	} from '../routes/(app)/fx/fxRig.client';
 
 	/**
 	 * Live preview of a boot mark, so `size` / `animation` / `background` can be judged without a
 	 * publish–reload round trip.
 	 *
-	 * It reuses the FX tool's `loadFxSpine` rather than PIXI's atlas loader, for the reason that
+	 * It reuses the FX tool's `loadFxRig` rather than PIXI's atlas loader, for the reason that
 	 * module documents: the atlas loader resolves page images relative to `dirname(atlasURL)`, and
-	 * these arrive from `/spine/file?dir=…&name=…`, which has no real path — the pages would 404.
-	 * (That helper living under a tool route and being imported from `$lib` is a wart; it wants
-	 * hoisting to `$lib` once something else needs it too.)
+	 * these arrive from `/rig-viewer/file?dir=…&name=…`, which has no real path — the pages would
+	 * 404. (That helper living under a tool route and being imported from `$lib` is a wart; it
+	 * wants hoisting to `$lib` once something else needs it too.)
 	 *
-	 * FIDELITY IS THE POINT. Two things are matched to `LoaderSpine` deliberately, and must move
+	 * FIDELITY IS THE POINT. Two things are matched to `LoaderRig` deliberately, and must move
 	 * together with it or the preview quietly starts lying:
 	 *   - the fit formula (`0.6` of width, `0.45` of height, smaller axis wins, then × `size`);
 	 *   - `shared: true`, so the bundle resolves in `_shared/spines/` exactly as the export does.
@@ -40,7 +40,7 @@
 
 	let host: HTMLDivElement | undefined = $state();
 	let status = $state('');
-	let loaded: LoadedFxSpine | null = $state(null);
+	let loaded: LoadedFxRig | null = $state(null);
 
 	let app: Application | undefined;
 	let holder: Container | undefined;
@@ -49,7 +49,7 @@
 	 * and never retry — leaving a blank preview whenever a bundle was already selected on mount. */
 	let ready = $state(false);
 
-	/** Same box as `LoaderSpine`. Kept as a named constant pair so the two are visibly one rule. */
+	/** Same box as `LoaderRig`. Kept as a named constant pair so the two are visibly one rule. */
 	const FIT_W = 0.6;
 	const FIT_H = 0.45;
 
@@ -148,13 +148,13 @@
 		status = 'Loading…';
 		void (async () => {
 			try {
-				const result = await loadFxSpine(target, { shared: true });
+				const result = await loadFxRig(target, { shared: true });
 				if (cancelled || !app) return;
 				holder?.destroy({ children: true });
 				holder = new Container();
-				holder.addChild(result.spine);
+				holder.addChild(result.view);
 				app.stage.addChild(holder);
-				result.spine.autoUpdate = true;
+				result.view.autoUpdate = true;
 				loaded = result;
 				animations = result.animations;
 				status = result.animations.length === 0 ? 'This skeleton has no animations.' : '';
@@ -182,7 +182,7 @@
 			(animation ? loaded.skeletonData.findAnimation(animation) : null) ??
 			loaded.skeletonData.animations[0] ??
 			null;
-		if (clip) loaded.spine.state.setAnimation(0, clip.name, true);
+		if (clip) loaded.view.state.setAnimation(0, clip.name, true);
 	});
 
 	$effect(() => {

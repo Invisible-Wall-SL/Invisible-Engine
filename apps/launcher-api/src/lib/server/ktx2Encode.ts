@@ -50,7 +50,7 @@ export {
 
 /** `sharp` decoder the encoder calls to turn compressed page bytes into raw RGBA (the encoder
  *  requires this in Node for LDR inputs), resizing to `target` when the page is being
- *  downscaled. Mirrors the raw-buffer decode in `spine.ts`. */
+ *  downscaled. Mirrors the raw-buffer decode in `rig.ts`. */
 function makeDecoder(target: { width: number; height: number } | null) {
 	return async (
 		buffer: Uint8Array,

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import SymbolFlipbook from './SymbolFlipbook.svelte';
 	import SymbolLayer from './SymbolLayer.svelte';
-	import SymbolSpineMain from './SymbolSpineMain.svelte';
+	import SymbolRigMain from './SymbolRigMain.svelte';
 	import SymbolSprite from './SymbolSprite.svelte';
 	import SymbolWinFrame from './SymbolWinFrame.svelte';
 	import { symbolStateLoopsByDefault, WIN_HIGHLIGHT_SYMBOL_STATES } from 'engine-layout';
@@ -30,7 +30,7 @@
 		 * cell authored in the Symbols State Machine decides. */
 		loop?: boolean;
 		/** Hold this state on its FIRST frame instead of animating it — the symbol drawn as a still
-		 * picture, whatever it is bound to. A flipbook stops on frame 0 of its playback walk; a spine
+		 * picture, whatever it is bound to. A flipbook stops on frame 0 of its playback walk; a rig
 		 * holds the pose its animation opens on; a sprite is already one frame and is unaffected. Used
 		 * by the inline message symbol, where a moving icon inside a line of text pulls the eye off
 		 * the sentence it illustrates. */
@@ -75,7 +75,7 @@
 	const isFlipbook = $derived(symbolInfo.type === 'flipbook');
 	// No art bound for this symbol: draw no art at all — except a pot token or a Hold and Win coin,
 	// which draws a coded disc until art is bound (`symbolPlaceholder`). The `{:else}` arm below is
-	// the SPINE renderer, so falling through would hand it an undefined bundle — the blank-binding
+	// the RIG renderer, so falling through would hand it an undefined bundle — the blank-binding
 	// crash one layer down from the one `getSymbolInfo` now absorbs. Any value the symbol CARRIES (a
 	// multiplier) still draws, because that is the part the player needs to read.
 	const hasArt = $derived(!symbolInfo.missingArt);
@@ -102,7 +102,7 @@
 	 *
 	 * It used to be a flat `?? true` for every state, matching what a flipbook cell has always done
 	 * (`clip.loop ?? true`). That is safe for a flipbook — `SymbolFlipbook` times its `oncomplete` off
-	 * the clip's LENGTH, so a looping clip still completes after one cycle — but not for a spine,
+	 * the clip's LENGTH, so a looping clip still completes after one cycle — but not for a rig,
 	 * which reports completion only through the runtime's own `complete` event. A looping explosion
 	 * therefore had no end for the pop's beat to settle on and spent the whole win-beat budget.
 	 *
@@ -118,8 +118,8 @@
 	/**
 	 * The authored win-highlight frame is a property of the winning SYMBOL, not of one renderer, so
 	 * the decision lives here — beside the branch that picks the renderer — and the frame is drawn
-	 * over whichever arm won. It used to live inside the spine arm, which is why a symbol whose Win
-	 * cell was bound to a flipbook (or a sprite) paid with no frame while its spine-bound neighbour
+	 * over whichever arm won. It used to live inside the rig arm, which is why a symbol whose Win
+	 * cell was bound to a flipbook (or a sprite) paid with no frame while its rig-bound neighbour
 	 * on the same payline got one.
 	 *
 	 * A symbol with NO art gets no frame (it draws nothing, or an add-on's placeholder disc): a lone
@@ -190,8 +190,8 @@
 	};
 
 	/** `{#each}` key — the position PLUS the binding, so re-binding a layer REMOUNTS it (a fresh
-	 *  spine/flipbook/effect rather than one re-pointed mid-flight) while a pure blend or offset
-	 *  change updates in place. Position alone would reuse a spine renderer for a sprite layer. */
+	 *  rig/flipbook/effect rather than one re-pointed mid-flight) while a pure blend or offset
+	 *  change updates in place. Position alone would reuse a rig renderer for a sprite layer. */
 	const layerKey = (layer: SymbolLayerSpec, i: number): string =>
 		`${i}:${layer.kind}:${layer.assetKey ?? layer.clipId ?? layer.effectId ?? ''}`;
 </script>
@@ -199,7 +199,7 @@
 <!--
 	THE DIM IS APPLIED PER PIECE, and the two `<Container>`s below exist only to carry it (see the
 	`tint` prop). They are UNCONDITIONAL on purpose: wrapping only while dimmed would remount the art
-	every time the celebration started or ended — a spine would restart its animation mid-win — where
+	every time the celebration started or ended — a rig would restart its animation mid-win — where
 	an always-mounted container with no tint set is a transform-free no-op.
 
 	Draw order is unchanged: behind-layers, the cell's art, over-layers, then the win frame and the
@@ -238,7 +238,7 @@
 	{:else if isSprite}
 		<SymbolSprite {symbolInfo} x={props.x} y={props.y} oncomplete={props.oncomplete} />
 	{:else}
-		<SymbolSpineMain
+		<SymbolRigMain
 			{loop}
 			{symbolInfo}
 			frozen={props.frozen}

@@ -74,18 +74,16 @@
 		tapSurfaces.filter((t) => t.dim && !tapDimBehind(orderedNodeIds, t.id)),
 	);
 
-	// Per-rig bone hosting: an `effect` node with a `hostSpineId` that names a placed spine in THIS
-	// scene is mounted INSIDE that rig's `<SpineProvider>` (so a bone layer rides the rig's bone + the
-	// rig's timeline events time it), NOT at top level. We map each host spine id → its attached
+	// Per-rig bone hosting: an `effect` node with a `hostSpineId` that names a placed rig in THIS
+	// scene is mounted INSIDE that rig's `<RigProvider>` (so a bone layer rides the rig's bone + the
+	// rig's timeline events time it), NOT at top level. We map each host rig id → its attached
 	// effects, and skip those effects in the top-level walk. A dangling `hostSpineId` (no matching
-	// spine) falls back to a normal top-level render. Only top-level scene nodes participate.
-	const spineIds = $derived(
-		new Set(scene.nodes.filter((n) => n.kind === 'spine').map((n) => n.id)),
-	);
-	const attachedBySpine = $derived.by(() => {
+	// rig) falls back to a normal top-level render. Only top-level scene nodes participate.
+	const rigIds = $derived(new Set(scene.nodes.filter((n) => n.kind === 'spine').map((n) => n.id)));
+	const attachedByRig = $derived.by(() => {
 		const map = new Map<string, EffectNode[]>();
 		for (const n of scene.nodes) {
-			if (n.kind === 'effect' && n.hostSpineId && spineIds.has(n.hostSpineId)) {
+			if (n.kind === 'effect' && n.hostSpineId && rigIds.has(n.hostSpineId)) {
 				const list = map.get(n.hostSpineId);
 				if (list) list.push(n);
 				else map.set(n.hostSpineId, [n]);
@@ -94,7 +92,7 @@
 		return map;
 	});
 	const isHosted = (n: (typeof scene.nodes)[number]): boolean =>
-		n.kind === 'effect' && !!n.hostSpineId && spineIds.has(n.hostSpineId);
+		n.kind === 'effect' && !!n.hostSpineId && rigIds.has(n.hostSpineId);
 
 	// Screen lifecycle gate (§ screen `visibleSource`): when the scene names a registered
 	// visibility feed, show the WHOLE screen only while that state is active — so authored
@@ -135,12 +133,12 @@
 {#snippet nodes()}
 	{#each scene.nodes as node (node.id)}
 		{#if isHosted(node)}
-			<!-- rendered inside its host rig's <SpineProvider> (per-rig bone hosting) — skip here -->
+			<!-- rendered inside its host rig's <RigProvider> (per-rig bone hosting) — skip here -->
 		{:else}
 			<LayoutNodeView
 				{node}
 				{space}
-				attachedEffects={node.kind === 'spine' ? attachedBySpine.get(node.id) : undefined}
+				attachedEffects={node.kind === 'spine' ? attachedByRig.get(node.id) : undefined}
 			/>
 		{/if}
 	{/each}

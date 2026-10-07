@@ -40,7 +40,7 @@
 	 *
 	 * It is a BRANCH, not a straight swap, because a FLAT board must keep today's exact child order.
 	 * Reordering the loops reorders Pixi's children for every game, flat ones included, and symbols
-	 * can already overlap today (a spine symbol may overhang its cell) — so an unconditional swap
+	 * can already overlap today (a rig symbol may overhang its cell) — so an unconditional swap
 	 * would silently repaint every online game running the shared `_runtime/lines` bundle, with no
 	 * authored change to blame. Perspective is authored per project, so the branch is decided once,
 	 * when the layout doc loads, and never flips during play.

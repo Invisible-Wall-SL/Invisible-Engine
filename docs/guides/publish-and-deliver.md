@@ -102,7 +102,7 @@ but never published, or someone made an older version live.
    Only override when you know why the check is wrong for this game.
 4. **Read the notes under the card.** They do not block, but each one is something players will see:
    a sound with a non-commercial licence or no licence, *"no saved flow"* (the game plays without
-   the free-spin intro and outro), or *"spine bundle(s) resolved to nothing"* (they will be missing
+   the free-spin intro and outro), or *"rig bundle(s) resolved to nothing"* (they will be missing
    in the game). Fix these in the tool that owns them, then publish again.
 5. **Play what players get.** Press **Play ↗**, which opens the published version.
    *Check:* the change is there, and `X-IE-Runtime-Source` is `snapshot`. Players get the new

@@ -86,7 +86,7 @@ Both halves of the pipeline are further along than expected.
   `sheet_config.json`, `localization/strings.json`. Wired in the `/admin`
   `createProject` action (`admin/+page.server.ts:344-391`).
 - **Authoring doc + live fetch:** `GET /api/editor/doc?project=&components=1&k=<token>`
-  returns the doc + component defs, rewriting spine keys for the runtime
+  returns the doc + component defs, rewriting rig keys for the runtime
   (`api/editor/doc/+server.ts:89-127`).
 - **Asset export (server-side functions exist):** `exportEditorArt`
   (`editorArtExport.ts:239-401`) + `POST /api/editor/export-art`, plus export-fonts

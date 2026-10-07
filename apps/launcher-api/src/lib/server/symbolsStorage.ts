@@ -60,17 +60,17 @@ const offsetSchema = z.object({
  * A layer is one of four kinds, each carrying only the field it needs — a `.refine()` enforces that
  * required field is present so a half-authored layer can never round-trip:
  *   sprite   → `assetKey` (a sheet frame key)
- *   spine    → `assetKey` (bundle prefix) + `animationName`
+ *   rig    → `assetKey` (bundle prefix) + `animationName`
  *   flipbook → `clipId` (the Invisible Flipbook clip; `assetKey` optionally holds its primary sheet)
  *   fx       → `effectId` (an Invisible FX effect)
  * `sizeRatios`/`offset` are OPTIONAL fit hints (× cell), like `boardGlow.sizeRatios`.
  *
  * `blendMode` — how the layer's pixels combine with what is drawn beneath it. Stored for ANY kind
  * and honoured by the renderer for `sprite`/`flipbook`/`fx` only: a Pixi blend cannot reach
- * skeleton geometry, so a spine layer's mode is IGNORED rather than obeyed (`engine-layout`'s
+ * skeleton geometry, so a rig layer's mode is IGNORED rather than obeyed (`engine-layout`'s
  * `canBlendLayerKind()` is the one definition, and the tool hides the control there for the same
  * reason). Not rejected at save, deliberately — an author who switches a bound layer from flipbook
- * to spine and back should not lose the mode, and a `.refine()` that 400s a whole doc over a field
+ * to rig and back should not lose the mode, and a `.refine()` that 400s a whole doc over a field
  * the engine simply ignores is the publish double-fail this schema keeps being bitten by.
  *
  * `behind` — draw the layer UNDER the thing it decorates. Only a symbol CELL's layers have
@@ -133,13 +133,13 @@ const bookVfxLayerSchema = z
  */
 const SYMBOL_LAYER_MAX = 8;
 
-/** A single symbol×state binding — a static sprite frame, a spine animation, or an Invisible
+/** A single symbol×state binding — a static sprite frame, a rig animation, or an Invisible
  *  Flipbook clip. `sizeRatios` is OPTIONAL on an override cell: absent means the cell inherits
  *  the doc-level `defaultSizeRatios` global (and, failing that, the coded map size).
  *
- *  `flipbook` exists because Spine was previously the ONLY way to animate a state: a `sprite`
+ *  `flipbook` exists because rig was previously the ONLY way to animate a state: a `sprite`
  *  cell is one frozen frame, so any moving Spin/Land/Win had to be a skeleton. A frame animation
- *  off an atlas is far cheaper — and it is the cheaper fallback for the Tier-C spine-particle
+ *  off an atlas is far cheaper — and it is the cheaper fallback for the Tier-C rig-particle
  *  perf ceiling tracked in docs/status/fx.md.
  *
  *  A flipbook cell carries `clipId` instead of leaning on `assetKey`; the clip already names its
@@ -156,8 +156,8 @@ const symbolCellSchema = z
 		sizeRatios: sizeRatiosSchema.optional(),
 		/** Repeat this state’s animation instead of holding on its last frame. ABSENT MEANS LOOP, so
 		 * only a deliberate one-shot is stored — keeping the doc sparse, and matching what a flipbook
-		 * cell has always done (`clip.loop ?? true`). Spine cells had no way to say this at all, which
-		 * is why every spine state froze on its last frame. */
+		 * cell has always done (`clip.loop ?? true`). Rig cells had no way to say this at all, which
+		 * is why every rig state froze on its last frame. */
 		loop: z.boolean().optional(),
 		/**
 		 * `flipbook` cells only — PER-STATE playback overrides of the bound clip's own values.
@@ -244,8 +244,8 @@ const symbolSoundsSchema = z.record(
 	z.record(z.enum(SYMBOL_STATES), z.string().min(1)),
 );
 
-/** Global win-frame ("highlight") override — a single spine that loops over winning
- *  symbols. Optional + spine-only: absent means the game uses its built-in default.
+/** Global win-frame ("highlight") override — a single rig that loops over winning
+ *  symbols. Optional + rig-only: absent means the game uses its built-in default.
  *
  *  `tintMode`/`tintColor` are a MULTIPLY tint the frame applies to the symbols it loops over:
  *  `'fixed'` uses `tintColor` (a `#rrggbb` hex); `'winLine'` uses the paying line's authored colour
@@ -266,15 +266,15 @@ const highlightCellSchema = z
 	.strict();
 
 /**
- * Global free-spin BOARD-GLOW override — the reel-house backdrop spine behind the reels. Optional +
- * spine-only, mirroring {@link highlightCellSchema}: absent means the game keeps its coded
+ * Global free-spin BOARD-GLOW override — the reel-house backdrop rig behind the reels. Optional +
+ * rig-only, mirroring {@link highlightCellSchema}: absent means the game keeps its coded
  * `reelhouse` glow, so an untouched project ships no `boardGlow` and renders byte-identical.
  *
  * `animations` names the coded start→idle→exit chain's three tracks (the engine still OWNS the
  * chaining; this only renames the animations it plays), each sparse — an unset one falls through to
  * its coded `reelhouse_glow_*` name, so a rig that only renames the loop needs one field.
  *
- * `sizeRatios` is the asset's OWN fit ratio against the board box (the coded spine's 0.62×0.66),
+ * `sizeRatios` is the asset's OWN fit ratio against the board box (the coded rig's 0.62×0.66),
  * optional here — NOT a doc-level layout global. The doc-level `defaultSizeRatios` was deliberately
  * removed from this schema (design §S1) because reel LAYOUT belongs in the Scene Editor; this is the
  * per-asset ratio a swapped rig needs to fit the same box, the same thing `highlight.sizeRatios` is.
@@ -377,7 +377,7 @@ const winLineSchema = z
 /** One stacked symbol's authored config (Invisible Symbols State Machine → stacked-picture reel mode,
  *  `docs/design/stacked-picture-mode.md`). `height` is how many CELLS tall the picture is (the crop
  *  denominator); `art` is the tall picture itself, authored via the SAME per-cell binding schema the
- *  grid uses (sprite frame / spine bundle+animation / flipbook clip). `art` is the RESTING picture (the
+ *  grid uses (sprite frame / rig bundle+animation / flipbook clip). `art` is the RESTING picture (the
  *  default a stacked symbol shows) and `winArt` its optional winning variant. A tall picture is the ONLY
  *  thing a stacked symbol renders — all of its stacked config lives in this one block, no longer a
  *  per-cell `stacked` grid column. */
@@ -387,7 +387,7 @@ const stackedSymbolSchema = z
 		height: z.number().int().min(1),
 		art: symbolCellSchema,
 		/** The tall picture's WINNING variant — what the stack shows while it is part of a paying line
-		 *  (a spine/flipbook that animates the payout), authored with the same picker as `art`. Optional
+		 *  (a rig/flipbook that animates the payout), authored with the same picker as `art`. Optional
 		 *  and INHERITING: absent ⇒ the stack keeps showing `art` through the win, byte-identical to
 		 *  before this existed. `art` stays the default/resting picture. */
 		winArt: symbolCellSchema.optional(),
@@ -531,13 +531,13 @@ const tumblePatternSchema = z
  * Phase 5). The editable twin of the coded `codedTierFx` ramp in
  * `apps/lines/src/game/anticipationPresentation.ts` — the per-tier escalation the client-computed tease
  * mode plays (one entry per configured big-win tier, keyed by alias): camera `zoom`, the overlay
- * spine's `overlayScale`/`overlayAlpha`/
+ * rig's `overlayScale`/`overlayAlpha`/
  * `overlayTint`, and the `soundVolume` of the anticipation loop. OPTIONAL + sparse everywhere: an absent
  * `anticipation`, an absent tier, or an absent field all fall through to the coded default, so an
  * un-authored project ships nothing and the mode is byte-identical to Phase 4.
  *
- * `spineKey` optionally swaps WHICH spine drives the per-reel overlay (default the coded `anticipation`
- * spine). Like `boardGlow`/`highlight` it is a full R2 spine-bundle prefix — its bundle rides
+ * `spineKey` optionally swaps WHICH rig drives the per-reel overlay (default the coded `anticipation`
+ * rig). Like `boardGlow`/`highlight` it is a full R2 rig-bundle prefix — its bundle rides
  * `index.spines` (no new stranded asset class); the engine still owns the intro→loop→out chaining, so a
  * swapped rig must expose those animation names.
  *
@@ -564,7 +564,7 @@ const anticipationSchema = z
 	.object({
 		spineKey: z.string().min(1).optional(),
 		// The overlay animation SET — the base name the engine appends `_intro`/`_loop`/`_out` to (e.g.
-		// `anticipation3`). Unset ⇒ the coded unnumbered `anticipation_*` set. Free-form (a spine's
+		// `anticipation3`). Unset ⇒ the coded unnumbered `anticipation_*` set. Free-form (a rig's
 		// animation base), so no enum coupling to a specific rig's variant count.
 		animationSet: z.string().min(1).optional(),
 		// The per-reel overlay box size in CELLS (positive). Unset ⇒ the coded `0.56 × 1.6` beam. The
@@ -605,7 +605,7 @@ const winExplodeSchema = z
  * (`WIN_BEAT_CAP_MS` in `apps/lines/src/game/symbolBeat.ts`). That guard is sized ABOVE anything a
  * project plausibly authors, because — as that file says — a cap a real animation can hit stops
  * being a guard and starts being the timing. This field IS an author asking for the timing: a
- * cascading project whose every symbol wins on a 2 s spine pays that twice per tumble, and the
+ * cascading project whose every symbol wins on a 2 s rig pays that twice per tumble, and the
  * round reads as a long wait before the next spin is released. Absent ⇒ the art sets the pace,
  * byte-for-byte as before this existed; set ⇒ a longer animation is cut short.
  *

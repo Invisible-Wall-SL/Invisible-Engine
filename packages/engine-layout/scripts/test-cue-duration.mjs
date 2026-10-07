@@ -4,7 +4,7 @@
 //   node scripts/test-cue-duration.mjs
 //
 // Those cues travel the open component-signal bus, a bare `subscribe(run)` contract with no
-// completion channel (see test-cue-signal-bus.mjs) — so a spine it drives cannot report that it
+// completion channel (see test-cue-signal-bus.mjs) — so a rig it drives cannot report that it
 // finished, awaiting the emitter broadcast alone returned in the same microtask, and the tick was a
 // silent no-op. Measuring the clip the cue starts is the completion the bus cannot carry, so these
 // assertions pin the measurement: what counts, what is deliberately skipped, and the two rules that
@@ -55,14 +55,14 @@ const assert = (cond, msg) => {
 
 const { cueAnimationDurationMs } = mod;
 
-// A stand-in for the game's `spineClipMs`: the loaded skeleton's clip durations, in ms.
+// A stand-in for the game's `rigClipMs`: the loaded skeleton's clip durations, in ms.
 const CLIPS = { hero: { idle: 1000, spin: 2500, celebrate: 4000 }, pet: { wag: 600 } };
-const spineClipMs = (assetKey, animation) => (animation ? CLIPS[assetKey]?.[animation] : undefined);
+const rigClipMs = (assetKey, animation) => (animation ? CLIPS[assetKey]?.[animation] : undefined);
 const flipbookCycleMs = (clipId) => ({ sparkle: 750 })[clipId];
-const noComponents = { spineClipMs, flipbookCycleMs, resolveComponent: () => undefined };
+const noComponents = { rigClipMs, flipbookCycleMs, resolveComponent: () => undefined };
 
 const scene = (...nodes) => [{ id: 's1', nodes }];
-const spine = (over = {}) => ({
+const rig = (over = {}) => ({
 	id: 'n1',
 	kind: 'spine',
 	assetKey: 'hero',
@@ -74,7 +74,7 @@ const spine = (over = {}) => ({
 console.info('\n1. The clip a cue starts is the wait');
 assert(
 	cueAnimationDurationMs(
-		scene(spine({ cues: [{ signal: 'characterSpin', animation: 'spin' }] })),
+		scene(rig({ cues: [{ signal: 'characterSpin', animation: 'spin' }] })),
 		'characterSpin',
 		noComponents,
 	) === 2500,
@@ -82,7 +82,7 @@ assert(
 );
 assert(
 	cueAnimationDurationMs(
-		scene(spine({ cues: [{ signal: 'characterSpin', animation: 'spin', loop: true }] })),
+		scene(rig({ cues: [{ signal: 'characterSpin', animation: 'spin', loop: true }] })),
 		'characterSpin',
 		noComponents,
 	) === 2500,
@@ -90,14 +90,14 @@ assert(
 );
 assert(
 	cueAnimationDurationMs(
-		scene(spine({ cues: [{ signal: 'characterSpin', animation: 'spin' }] })),
+		scene(rig({ cues: [{ signal: 'characterSpin', animation: 'spin' }] })),
 		'characterIdle',
 		noComponents,
 	) === 0,
 	'a different cue name measures nothing',
 );
 assert(
-	cueAnimationDurationMs(scene(spine({ cues: [] })), '', noComponents) === 0,
+	cueAnimationDurationMs(scene(rig({ cues: [] })), '', noComponents) === 0,
 	'an empty cue name measures nothing (never matches a blank authored signal)',
 );
 
@@ -105,7 +105,7 @@ assert(
 console.info('\n2. The rules that keep an authored wait from hanging a round');
 assert(
 	cueAnimationDurationMs(
-		scene(spine({ cues: [{ signal: 'characterSpin', animation: 'notInTheSkeleton' }] })),
+		scene(rig({ cues: [{ signal: 'characterSpin', animation: 'notInTheSkeleton' }] })),
 		'characterSpin',
 		noComponents,
 	) === 0,
@@ -117,7 +117,7 @@ assert(
 );
 assert(
 	cueAnimationDurationMs(
-		scene(spine({ cues: [{ signal: 'characterSpin', animation: '' }] })),
+		scene(rig({ cues: [{ signal: 'characterSpin', animation: '' }] })),
 		'characterSpin',
 		noComponents,
 	) === 0,
@@ -125,7 +125,7 @@ assert(
 );
 assert(
 	cueAnimationDurationMs(
-		scene(spine({ cues: [{ signal: '', animation: 'spin' }] })),
+		scene(rig({ cues: [{ signal: '', animation: 'spin' }] })),
 		'characterSpin',
 		noComponents,
 	) === 0,
@@ -137,8 +137,8 @@ console.info('\n3. Several nodes may answer one cue — the longest wins');
 assert(
 	cueAnimationDurationMs(
 		scene(
-			spine({ id: 'a', cues: [{ signal: 'go', animation: 'spin' }] }),
-			spine({ id: 'b', assetKey: 'hero', cues: [{ signal: 'go', animation: 'celebrate' }] }),
+			rig({ id: 'a', cues: [{ signal: 'go', animation: 'spin' }] }),
+			rig({ id: 'b', assetKey: 'hero', cues: [{ signal: 'go', animation: 'celebrate' }] }),
 		),
 		'go',
 		noComponents,
@@ -150,7 +150,7 @@ assert(
 		scene({
 			id: 'box',
 			kind: 'container',
-			children: [spine({ cues: [{ signal: 'go', animation: 'spin' }] })],
+			children: [rig({ cues: [{ signal: 'go', animation: 'spin' }] })],
 		}),
 		'go',
 		noComponents,
@@ -160,10 +160,10 @@ assert(
 assert(
 	cueAnimationDurationMs(
 		[
-			{ id: 's1', nodes: [spine({ cues: [{ signal: 'go', animation: 'spin' }] })] },
+			{ id: 's1', nodes: [rig({ cues: [{ signal: 'go', animation: 'spin' }] })] },
 			{
 				id: 's2',
-				nodes: [spine({ id: 'n2', cues: [{ signal: 'go', animation: 'celebrate' }] })],
+				nodes: [rig({ id: 'n2', cues: [{ signal: 'go', animation: 'celebrate' }] })],
 			},
 		],
 		'go',
@@ -204,7 +204,7 @@ assert(
 			cues: [{ signal: 'go', clipId: 'sparkle' }],
 		}),
 		'go',
-		{ spineClipMs, resolveComponent: () => undefined },
+		{ rigClipMs, resolveComponent: () => undefined },
 	) === 0,
 	'no flipbook resolver supplied ⇒ skipped, never a crash',
 );
@@ -215,11 +215,11 @@ const def = {
 	root: {
 		id: 'root',
 		kind: 'container',
-		children: [spine({ id: 'inner', cues: [{ signal: 'defSignal', animation: 'spin' }] })],
+		children: [rig({ id: 'inner', cues: [{ signal: 'defSignal', animation: 'spin' }] })],
 	},
 };
 const withComponent = {
-	spineClipMs,
+	rigClipMs,
 	flipbookCycleMs,
 	resolveComponent: (id) => (id === 'character' ? def : undefined),
 };
@@ -272,7 +272,7 @@ const cyclic = {
 		id: 'root',
 		kind: 'container',
 		children: [
-			spine({ id: 'inner', cues: [{ signal: 'go', animation: 'spin' }] }),
+			rig({ id: 'inner', cues: [{ signal: 'go', animation: 'spin' }] }),
 			{ id: 'self', kind: 'componentInstance', componentId: 'loopy' },
 		],
 	},
@@ -281,7 +281,7 @@ assert(
 	cueAnimationDurationMs(
 		scene({ id: 'i', kind: 'componentInstance', componentId: 'loopy' }),
 		'go',
-		{ spineClipMs, flipbookCycleMs, resolveComponent: () => cyclic },
+		{ rigClipMs, flipbookCycleMs, resolveComponent: () => cyclic },
 	) === 2500,
 	'a self-containing def terminates via the cycle guard (and still measures its own cue)',
 );
@@ -293,7 +293,7 @@ const nested = (childInstanceId, cueSignal) => ({
 		id: 'root',
 		kind: 'container',
 		children: [
-			spine({ id: 'inner', cues: [{ signal: cueSignal, animation: 'spin' }] }),
+			rig({ id: 'inner', cues: [{ signal: cueSignal, animation: 'spin' }] }),
 			...(childInstanceId
 				? [{ id: 'child', kind: 'componentInstance', componentId: childInstanceId }]
 				: []),
@@ -307,7 +307,7 @@ const depthDefs = {
 	L2: nested(undefined, 'atDepth2'),
 };
 const withDepth = {
-	spineClipMs,
+	rigClipMs,
 	flipbookCycleMs,
 	resolveComponent: (id) => depthDefs[id],
 };
@@ -337,7 +337,7 @@ assert(
 		}),
 		'defSignal',
 		{
-			spineClipMs,
+			rigClipMs,
 			flipbookCycleMs,
 			resolveComponent: (id, version) => {
 				askedVersion = version;
@@ -350,40 +350,39 @@ assert(
 
 // --- 6. Per-layout visibility ---
 console.info('\n6. A node this layout hides never draws, so it never waits');
-const cuedSpine = spine({ cues: [{ signal: 'go', animation: 'spin' }] });
+const cuedRig = rig({ cues: [{ signal: 'go', animation: 'spin' }] });
 assert(
-	cueAnimationDurationMs(scene({ ...cuedSpine, visibleFor: ['desktop'] }), 'go', {
+	cueAnimationDurationMs(scene({ ...cuedRig, visibleFor: ['desktop'] }), 'go', {
 		...noComponents,
 		layoutType: 'portrait',
 	}) === 0,
 	'`visibleFor` excluding the current layout ⇒ not measured',
 );
 assert(
-	cueAnimationDurationMs(scene({ ...cuedSpine, visibleFor: ['desktop'] }), 'go', {
+	cueAnimationDurationMs(scene({ ...cuedRig, visibleFor: ['desktop'] }), 'go', {
 		...noComponents,
 		layoutType: 'desktop',
 	}) === 2500,
 	'…and measured in a layout it IS visible for',
 );
 assert(
-	cueAnimationDurationMs(scene({ ...cuedSpine, visibleFor: ['desktop'] }), 'go', noComponents) ===
+	cueAnimationDurationMs(scene({ ...cuedRig, visibleFor: ['desktop'] }), 'go', noComponents) ===
 		2500,
 	'no layoutType supplied ⇒ no gating at all (a headless caller with no layout)',
 );
 assert(
 	cueAnimationDurationMs(
-		scene({ ...cuedSpine, visibleFor: ['desktop'], overrides: { portrait: { visible: true } } }),
+		scene({ ...cuedRig, visibleFor: ['desktop'], overrides: { portrait: { visible: true } } }),
 		'go',
 		{ ...noComponents, layoutType: 'portrait' },
 	) === 2500,
 	'an explicit per-layout `visible: true` override beats the `visibleFor` gate (matching resolveTransform)',
 );
 assert(
-	cueAnimationDurationMs(
-		scene({ ...cuedSpine, overrides: { portrait: { visible: false } } }),
-		'go',
-		{ ...noComponents, layoutType: 'portrait' },
-	) === 0,
+	cueAnimationDurationMs(scene({ ...cuedRig, overrides: { portrait: { visible: false } } }), 'go', {
+		...noComponents,
+		layoutType: 'portrait',
+	}) === 0,
 	'…and an explicit `visible: false` hides an otherwise-visible node',
 );
 assert(
@@ -392,7 +391,7 @@ assert(
 			id: 'box',
 			kind: 'container',
 			visibleFor: ['desktop'],
-			children: [cuedSpine],
+			children: [cuedRig],
 		}),
 		'go',
 		{ ...noComponents, layoutType: 'portrait' },

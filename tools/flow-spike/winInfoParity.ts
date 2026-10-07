@@ -16,7 +16,7 @@
  * the real `createEventEmitter` from `utils-event-emitter`, and a `timeScale`/`waitForTimeout`
  * pair wired to the same shape as `stateBetDerived.timeScale()` + `waitForTimeout`. Both
  * paths share ONE recording emitter + ONE `boardWithAnimateSymbols` subscriber (the awaited
- * symbol-spine animation), so any divergence is the interpreter's, not the fixture's.
+ * symbol-rig animation), so any divergence is the interpreter's, not the fixture's.
  *
  * NOTE (model): authored under Opus 4.8 (Fable 5 unavailable). Per design doc §13 this
  * risks a subtle timing miss, so the harness logs the THREE broadcast shapes distinctly
@@ -93,7 +93,7 @@ const makeRig = () => {
 		},
 	});
 
-	// The awaited symbol-spine animation: `boardWithAnimateSymbols` resolves after every
+	// The awaited symbol-rig animation: `boardWithAnimateSymbols` resolves after every
 	// position's `oncomplete` (Promise.all). We model that with a microtask-tick per
 	// position so the await actually suspends (matching the coded subscriber's shape),
 	// and record start + per-position completion so an interleave change would surface.
@@ -103,7 +103,7 @@ const makeRig = () => {
 			log.push(`anim:start positions=${positions.length}`);
 			await Promise.all(
 				positions.map(async (p) => {
-					await Promise.resolve(); // suspend, like awaiting a spine `oncomplete`
+					await Promise.resolve(); // suspend, like awaiting a rig `oncomplete`
 					log.push(`anim:done reel=${p.reel} row=${p.row}`);
 				}),
 			);

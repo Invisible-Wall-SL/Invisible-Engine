@@ -3,8 +3,8 @@
 //
 //   node tools/rigger-spike/rigtext-runtime.mjs
 //
-// Drives the REAL `packages/pixi-svelte/src/lib/spineLocale.ts` against REAL skeletons built by
-// `@esotericsoftware/spine-core` from an atlas composed by the REAL launcher module
+// Drives the REAL `packages/pixi-svelte/src/lib/rigLocale.ts` against REAL skeletons built by
+// the rig runtime (engine-rig) from an atlas composed by the REAL launcher module
 // (`riggerText.ts`). What it pins is the pair of properties that decide whether this is safe to
 // run over every attachment of every rig in a shipped game:
 //
@@ -16,19 +16,19 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 import { ESBUILD } from './esbuild.mjs';
 
 const ROOT = new URL('../../', import.meta.url);
 
 const esbuild = await import(ESBUILD);
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton } = await import(SPINE_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton } = await import(RIG_CORE);
 
 const outdir = mkdtempSync(join(tmpdir(), 'rigtext-runtime-'));
 
-const localeOut = join(outdir, 'spineLocale.mjs');
+const localeOut = join(outdir, 'rigLocale.mjs');
 await esbuild.build({
-	entryPoints: [fileURLToPath(new URL('packages/pixi-svelte/src/lib/spineLocale.ts', ROOT))],
+	entryPoints: [fileURLToPath(new URL('packages/pixi-svelte/src/lib/rigLocale.ts', ROOT))],
 	bundle: true,
 	format: 'esm',
 	platform: 'node',

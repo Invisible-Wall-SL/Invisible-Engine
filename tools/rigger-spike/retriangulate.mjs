@@ -6,7 +6,7 @@
 // hull carves its notch (a point in the notch is left uncovered).
 //   node tools/rigger-spike/retriangulate.mjs [skeleton.json skeleton.atlas]
 import { readFileSync } from 'node:fs';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
 // ---- the EXACT functions ported into view.html ----------------------------
 function pointInPolygon(px, py, poly) {
@@ -140,10 +140,10 @@ console.log('\n=== Re-triangulation spike ===');
 	log(Math.abs(area - 7500) < 5, `concave-L: Σarea ${area.toFixed(1)} ≈ 7500 (L = 100·100 − 50·50)`);
 }
 
-// --- Test 4 (optional): swap into a real skeleton + load via spine-core ------
+// --- Test 4 (optional): swap into a real skeleton + load vian engine-rig ------
 const [, , jsonPath, atlasPath] = process.argv;
 if (jsonPath && atlasPath) {
-	const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(SPINE_CORE);
+	const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(RIG_CORE);
 	const atlasText = readFileSync(atlasPath, 'utf8');
 	const raw = JSON.parse(readFileSync(jsonPath, 'utf8'));
 	// find the first mesh attachment, retriangulate it from its own (local) verts
@@ -154,7 +154,7 @@ if (jsonPath && atlasPath) {
 		const a = sk.attachments[slot][an];
 		if (a.type === 'mesh' && Array.isArray(a.uvs) && a.uvs.length >= 8) { found = { sk, slot, an, a }; break outer; }
 	}
-	if (!found) { log(true, '(no mesh attachment in file — skipped spine-core load)'); }
+	if (!found) { log(true, '(no mesh attachment in file — skipped engine-rig load)'); }
 	else {
 		const a = found.a;
 		// reconstruct planar verts: for a non-weighted mesh `vertices` IS [x,y,...]
@@ -168,8 +168,8 @@ if (jsonPath && atlasPath) {
 			const atlas = new TextureAtlas(atlasText);
 			const stub = { getImage: () => ({ width: 2048, height: 2048 }), setFilters() {}, setWraps() {}, dispose() {} };
 			for (const p of atlas.pages) { p.width = 2048; p.height = 2048; try { p.setTexture(stub); } catch { p.texture = stub; } }
-			let ok = true; try { new SkeletonJson(new AtlasAttachmentLoader(atlas)).readSkeletonData(raw); } catch (e) { ok = false; console.log('   spine-core: ' + e.message); }
-			log(ok, `real mesh re-triangulated (${tris.length} tris) loads through spine-core`);
+			let ok = true; try { new SkeletonJson(new AtlasAttachmentLoader(atlas)).readSkeletonData(raw); } catch (e) { ok = false; console.log('   engine-rig: ' + e.message); }
+			log(ok, `real mesh re-triangulated (${tris.length} tris) loads through engine-rig`);
 		} else log(true, '(first mesh is weighted — planar reconstruct skipped)');
 	}
 }

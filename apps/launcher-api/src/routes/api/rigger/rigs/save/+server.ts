@@ -58,7 +58,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		animations,
 	};
 
-	// Force a valid Spine version on the stored skeleton so an applied rig always loads.
+	// Force a valid rig version on the stored skeleton so an applied rig always loads.
 	const skelBlock = (skeleton.skeleton ?? {}) as Record<string, unknown>;
 	skeleton.skeleton = {
 		...skelBlock,

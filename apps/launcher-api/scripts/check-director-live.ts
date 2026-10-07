@@ -22,8 +22,9 @@
  *    `docs/director/eval/blueprints/`): recipes collapse by group and chain; a row edit applies to
  *    every region of the row and is checked with the recipe rules at the field; every chain is
  *    priced again with the measured timings; an unpriced GPU, a recipe stored unpriced or a
- *    broken edit leaves the plan unapprovable; the licence list and "How this was made"; and the
- *    fold's `art_plan` open / approve / refused rows and the Style pack step's "Art plan ✓".
+ *    broken edit leaves the plan unapprovable; a region past its retries is named on its row with
+ *    how often it failed; the licence list and "How this was made"; and the fold's `art_plan`
+ *    open / approve / refused rows and the Style pack step's "Art plan ✓".
  */
 import { readFileSync } from 'node:fs';
 import {
@@ -40,6 +41,7 @@ import {
 	madeOf,
 	pipelineOptions,
 	sizeOptions,
+	spentLine,
 	type ArtPlanAnswer,
 } from '../src/routes/(app)/director/artPlan.ts';
 import type { RunEvent, RunSummary } from '../src/routes/(app)/director/director.client.ts';
@@ -1253,6 +1255,33 @@ console.log('batches, atlases and trimming');
 		[dropped.outside, dropped.missing],
 		[[stored[0].region], [stored[0].region]],
 	);
+	const failing = artPlanView({
+		...answer,
+		recipes: answer.recipes.map((r) =>
+			r.region === 'H1'
+				? { ...r, failures: { 1: 3 } }
+				: r.region === 'H2'
+					? { ...r, failures: { 1: 2 } }
+					: r,
+		),
+	});
+	const spentRows = failing.groups.flatMap((g) => g.rows).filter((r) => r.spent.length);
+	check(
+		'a region past its retries is named on its row with how often it failed; one within them is not',
+		[spentRows.map((r) => r.spent), spentRows.map(spentLine)],
+		[[[{ region: 'H1', times: 3 }]], ['H1 failed 3 times: approving lets it try 3 more times.']],
+	);
+	check(
+		'…each of them, on a row with more than one',
+		spentLine({
+			spent: [
+				{ region: 'H1', times: 3 },
+				{ region: 'H2', times: 4 },
+			],
+		}),
+		'H1 failed 3 times; H2 failed 4 times: approving lets each try 3 more times.',
+	);
+	check('…and a row with none says nothing', spentLine({ spent: [] }), '');
 
 	const flags = licenceList(answer);
 	check(
@@ -1422,6 +1451,32 @@ console.log('batches, atlases and trimming');
 		'L40S (48 GB)',
 	);
 	check('…in the owner’s words', done.feed.at(-1)?.text, 'approved the Art plan.');
+	const again = foldEvents(
+		[
+			...rows,
+			{
+				id: 7,
+				at: 'g',
+				agent: 'worker',
+				kind: 'checkpoint_open',
+				tool: null,
+				payload: {
+					checkpoint: 'art_plan',
+					step: 'regions',
+					reason: 'retries_spent',
+					summary:
+						'1 × Symbols: sdxl 1024 ×3 → birefnet → finish\nH1 step 1 failed again after 2 retries. Approve to let it try 3 more times.',
+					regions: ['H1'],
+				},
+			},
+		],
+		PREFIX,
+	);
+	check(
+		'a plan re-opened for a render that kept failing says so, and waits on the owner',
+		[again.artPlan, again.feed.at(-1)?.text.startsWith('asks you to approve again a render')],
+		['open', true],
+	);
 	const summary = {
 		status: 'running',
 		step: 'regions',

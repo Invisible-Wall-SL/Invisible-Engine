@@ -101,11 +101,6 @@ export const TOOL_ICONS: Record<string, string> = {
 	),
 	// rocket / launch glyph
 	invisibleLauncher: I('<path d="M12 3l4 6h-3v7h-2v-7H8z"/><line x1="7" y1="20" x2="17" y2="20"/>'),
-	// bone (two lobes each end)
-	spine: I(
-		'<circle cx="6" cy="9" r="1.9"/><circle cx="9" cy="6" r="1.9"/>' +
-			'<circle cx="18" cy="15" r="1.9"/><circle cx="15" cy="18" r="1.9"/><line x1="8" y1="8" x2="16" y2="16"/>',
-	),
 	// packed rectangles
 	sheetMaker: I(
 		'<rect x="3" y="3" width="9" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/>' +
@@ -218,10 +213,10 @@ export const TOOLS: Record<string, ToolDef> = {
 	},
 	spineViewer: {
 		id: 'spineViewer',
-		name: 'Invisible Spine Viewer',
-		description: 'Online viewer for Spine skeletons and animations.',
+		name: 'Invisible Rig Viewer',
+		description: 'Online viewer for rig skeletons and animations.',
 		kind: 'online',
-		url: '/spine',
+		url: '/rig-viewer',
 		handsOff: true,
 		icon: TOOL_ICONS.spineViewer,
 	},
@@ -229,7 +224,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		id: 'rigger',
 		name: 'Invisible Rigger',
 		description:
-			'Online rig editor — build bones, meshes and weights over your art, animate them on a dopesheet, and save a Spine-compatible rig the game plays.',
+			'Online rig editor — build bones, meshes and weights over your art, animate them on a dopesheet, and save a rig the game plays.',
 		kind: 'online',
 		url: '/rigger',
 		handsOff: true,
@@ -261,22 +256,6 @@ export const TOOLS: Record<string, ToolDef> = {
 		kind: 'online',
 		url: '/comfyui',
 		icon: TOOL_ICONS.comfyui,
-	},
-	spine: {
-		id: 'spine',
-		name: 'Spine Editor',
-		description: 'Local Esoteric Spine editor for skeletal animation.',
-		kind: 'local',
-		icon: TOOL_ICONS.spine,
-		install: {
-			package: 'spine',
-			download: 'https://esotericsoftware.com/spine-download',
-			steps: [
-				'Download the Spine installer (a licence is required to launch the editor).',
-				'Install Spine and sign in with the studio licence.',
-				'Save the install path below.',
-			],
-		},
 	},
 	sheetMaker: {
 		id: 'sheetMaker',
@@ -326,7 +305,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		id: 'editor',
 		name: 'Invisible Scene Editor',
 		description:
-			'Place art, spine, text and components on game screens and export the layout the engine renders.',
+			'Place art, rig, text and components on game screens and export the layout the engine renders.',
 		kind: 'online',
 		url: '/editor',
 		icon: TOOL_ICONS.editor,
@@ -371,7 +350,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		name: 'Invisible Symbols State Machine',
 		barName: 'Symbols SM',
 		description:
-			'Rebind each symbol×state to a sprite frame, a spine animation or a flipbook clip from R2.',
+			'Rebind each symbol×state to a sprite frame, a rig animation or a flipbook clip from R2.',
 		kind: 'online',
 		url: '/symbols',
 		icon: TOOL_ICONS.symbols,
@@ -400,7 +379,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		name: 'Invisible FX',
 		barName: 'FX',
 		description:
-			'Author particle effects — tune emitter layers live in a WebGL preview, draw particle art from project atlases, pin a layer to a Spine bone, and save an effect the game can fire.',
+			'Author particle effects — tune emitter layers live in a WebGL preview, draw particle art from project atlases, pin a layer to a rig bone, and save an effect the game can fire.',
 		kind: 'online',
 		url: '/fx',
 		icon: TOOL_ICONS.fx,
@@ -560,7 +539,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'fontMaker',
 		'sound',
 	],
-	animator: ['spineViewer', 'rigger', 'spine'],
+	animator: ['spineViewer', 'rigger'],
 	pipelineTester: [
 		'gameMaker',
 		'gameConfig',
@@ -752,10 +731,9 @@ export function localToolsForRole(
 const TOOL_DOC_SLUG: Record<string, string> = {
 	atlasTool: 'atlas-maker',
 	comfyui: 'comfyui',
-	spineViewer: 'spine-viewer',
+	spineViewer: 'rig-viewer',
 	rigger: 'rigger',
 	invisibleLauncher: 'invisible-launcher',
-	spine: 'spine-editor',
 	sheetMaker: 'sheet-maker',
 	localization: 'localization',
 	winText: 'win-text',

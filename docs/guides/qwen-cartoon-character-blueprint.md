@@ -2,7 +2,7 @@
 
 A workflow for generating **classic-American modern-cartoon characters** on the
 ComfyUI R&D pod ([docs/status/comfyui.md](../status/comfyui.md)), consistent enough
-to feed the **Spine / Invisible Rigger** for animation.
+to feed the **rig / Invisible Rigger** for animation.
 
 > **Why Qwen and not FLUX/PuLID:** we ship *commercial* games, and the FLUX+PuLID+
 > antelopev2 blueprint is **non-commercial** (FLUX.1/2 [dev] = paid BFL license;
@@ -63,7 +63,7 @@ Alternative for tighter identity: train a **per-character LoRA** on the sheet (1
 crops) — pure Apache-safe, no face-recognition model.
 
 ## Stage 3 — Export to the Rigger
-The plain-background turnaround/expression sheets → **Spine / the Invisible Rigger**
+The plain-background turnaround/expression sheets → **rig / the Invisible Rigger**
 (bones, mesh, weights, animation) → drops into the game slots.
 
 ## Making it a reusable blueprint

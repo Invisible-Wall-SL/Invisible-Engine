@@ -647,13 +647,20 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	 * so the pre-spin display uses the game's OWN in-play symbols instead of the sample's.
 	 *
 	 * The strip is cycled when shorter than the window (a short authored strip still fills the column),
-	 * and a game type with no strips falls back to the first dictionary symbol so the board is never
-	 * empty — a blank initial cell renders as nothing, the failure `warnOnGameConfigIssues` guards.
+	 * and a reel with no strip falls back to the first symbol of another basegame strip (else the
+	 * first in play, else the first in the dictionary) so the board is never empty — a blank initial
+	 * cell renders as nothing, the failure `warnOnGameConfigIssues` guards — and never shows a symbol
+	 * `/config` marks unused. A base-game symbol first: the in-play set spans every game type, and on
+	 * a Hold and Win game it leads with the respin strips' `BLANK`, which draws nothing.
 	 */
 	function initialBoard(): RawSymbol[][] {
 		const grid = activeGrid();
 		const strips = paddingReels('basegame');
-		const fallback = Object.keys(getActiveGameConfig().symbols)[0] ?? 'H1';
+		const fallback =
+			strips.flat()[0]?.name ??
+			getSymbolsInPlay()[0] ??
+			Object.keys(getActiveGameConfig().symbols)[0] ??
+			'H1';
 		return Array.from({ length: grid.reels }, (_unused, reel) => {
 			const strip = strips[reel] ?? [];
 			// `rows + 2` per COLUMN, not per board: the ±1 padding buffers this column's own window,
@@ -707,8 +714,8 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	// ---------------------------------------------------------------------------
 	// Win presentation overlay — per-tier DURATION + SOUND authored on the `win` componentInstance.
 	//
-	// The `win` component owns per-tier presentation (spine / intro-idle-outro / duration / sfx-bgm),
-	// keyed by tier ALIAS (`docs/tools/component-editor.md`). The ANIMATION + SPINE are consumed INSIDE
+	// The `win` component owns per-tier presentation (rig / intro-idle-outro / duration / sfx-bgm),
+	// keyed by tier ALIAS (`docs/tools/component-editor.md`). The ANIMATION + RIG are consumed INSIDE
 	// the win component tree (`WinVisual` reads its live params); DURATION + SOUND are consumed OUTSIDE
 	// it (`WinGate` reads `presentDuration`; `winLevelSoundsPlay` reads `sound`), so those two are bridged
 	// here — the game publishes the win instance's params at boot ({@link publishWinPresentation}, from
@@ -766,7 +773,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	/**
 	 * Overlay the win instance's per-tier DURATION + SOUND onto a resolved tier, keyed by its alias. The
 	 * per-tier value (`<alias>Duration`/`<alias>Sfx`/`<alias>Bgm`) wins; otherwise the config/coded value
-	 * is kept. Animation + spine are NOT overlaid here — `WinVisual` resolves those from its live params.
+	 * is kept. Animation + rig are NOT overlaid here — `WinVisual` resolves those from its live params.
 	 */
 	function withWinPresentation(data: WinLevelData): WinLevelData {
 		const alias = data.alias;

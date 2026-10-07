@@ -76,8 +76,9 @@ export type RunEvent =
 	/** One batch of regions is drafted and reviewed (only in `regions`). */
 	| { type: 'batch_done' }
 	/** Every region the plan names has a stored recipe that is not approved yet (worker code only,
-	 *  ADR-0008 §7). */
-	| { type: 'plan_ready' }
+	 *  ADR-0008 §7). `ownerOnly`: what waits is a step past its retries, which only the owner
+	 *  approves again, so the Art plan opens whatever its setting. */
+	| { type: 'plan_ready'; ownerOnly?: boolean }
 	/** The owner resolves the open checkpoint. `revise` sends the step back to work. */
 	| { type: 'resolve'; checkpoint: Checkpoint; decision: 'approve' | 'revise' }
 	/** `refusal`: the model's final answer was a refusal; `error`: the worker cannot go on (a
@@ -186,7 +187,7 @@ export function transition(state: RunState, event: RunEvent): TransitionResult {
 			if (state.status !== 'running' || (state.step !== 'style_pack' && state.step !== 'regions')) {
 				return illegal(state, event);
 			}
-			return ok(state.checkpoints.artPlan ? waiting(state, 'art_plan') : state);
+			return ok(state.checkpoints.artPlan || event.ownerOnly ? waiting(state, 'art_plan') : state);
 
 		case 'resolve':
 			if (state.status !== 'waiting') return illegal(state, event);

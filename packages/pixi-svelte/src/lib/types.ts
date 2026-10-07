@@ -1,5 +1,5 @@
 import type * as PIXI from 'pixi.js';
-import * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
+import * as RIG from 'engine-rig/pixi';
 
 export type PixiPoint = PIXI.PointData | number | undefined;
 
@@ -8,7 +8,7 @@ export type Sizes = {
 	height: number;
 };
 
-export type LoadedSpine = SPINE_PIXI.SkeletonData;
+export type LoadedRig = RIG.SkeletonData;
 export type LoadedFont = PIXI.BitmapFont;
 export type LoadedSprite = PIXI.Texture;
 export type LoadedSpriteSheet = PIXI.Texture[];
@@ -26,21 +26,21 @@ export type LoadedAudio<TSoundName extends string> = {
 	 */
 	format?: string[];
 };
-export type LoadedAsset = LoadedSpine | LoadedSprite | LoadedSpriteSheet | LoadedAudio<string>;
+export type LoadedAsset = LoadedRig | LoadedSprite | LoadedSpriteSheet | LoadedAudio<string>;
 export type LoadedAssets = PIXI.Dict<LoadedAsset>;
 
 export type RawAudio = LoadedAudio<string>;
-export type RawSpine = PIXI.Dict<SPINE_PIXI.TextureAtlas | Uint8Array>;
+export type RawRig = PIXI.Dict<RIG.TextureAtlas | Uint8Array>;
 export type RawSprite = LoadedSprite;
 export type RawSprites = { textures: PIXI.Dict<LoadedSprite> };
 export type RawSpriteSheet = { textures: PIXI.Dict<LoadedSprite> };
-export type RawAsset = RawSpine | RawSprite | RawSprites | RawSpriteSheet | RawAudio;
+export type RawAsset = RawRig | RawSprite | RawSprites | RawSpriteSheet | RawAudio;
 export type RawType = 'spine' | 'sprite' | 'sprites' | 'spriteSheet' | 'font' | 'audio';
 
-export type SpineSrc = { skeleton: string; atlas: string; scale?: number };
+export type RigSrc = { skeleton: string; atlas: string; scale?: number };
 export type Asset = {
 	type: RawType;
-	src: string | SpineSrc;
+	src: string | RigSrc;
 	preload?: boolean;
 	/** `sprites` only: a key prefix prepended to every frame's `loadedAssets` entry
 	 * (in addition to the bare frame name), so two sheets that reuse a frame name

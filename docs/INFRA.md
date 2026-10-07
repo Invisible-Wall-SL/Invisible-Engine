@@ -198,7 +198,10 @@ naming the cause. On SIGTERM it stops claiming and gives turns in flight 20 s to
   only the launcher new, the old worker drops the owner's Art plan edits (`recipeEdits`); with only
   the worker new, the old Live run page sends no `recipeRevs`, so the worker refuses every Art
   plan approval. A merge that touches both deploys both, minutes apart: check both deploys are up
-  before an owner approves or edits an Art plan.
+  before an owner approves or edits an Art plan. The launcher must be up first when it carries a
+  migration the worker writes to (8E's `0030_director_job_steps`: `settleJob` claims
+  `director_atlas_jobs.steps_settled_at`), or the worker retries every `job_done` until it is,
+  pausing the run after repeated failures.
 
 ### Live run stream (PLAN 3.8, 2026-10-05)
 
@@ -467,7 +470,7 @@ These were needed to get the artist's FLUX/PuLID blueprint running on a hand-bui
     fonts are licensed, so they are mirrored into this bucket and never into the public repo. How
     and when to refresh: `docs/playtest/current-games.md` ("Typekit mirror").
   - `atlas/manifests/loader.json` — Svelte-era manifest (legacy path)
-  - `spines/hotfruits/…` — spine assets
+  - `spines/hotfruits/…` — rig assets
   - `atlas_maker/cloud/<project>/{manifests,input,output,deploy}/…` — the ported tool's store
   - **Backed up nightly** (encrypted, to the separate bucket `invisible-backups`): everything here except `comfyui-models/`, `comfyui-nodes/`, `tools/`, `test_server/` (but `games.json` is), `_shared/storybook/` and each project's `published/`, `deploy/`, `batch/`, `video/` — see "Backups" below.
   - `<client>/<project>/published/` — **published runtime snapshots** (online Game Maker, 2026-09-29):
@@ -1151,10 +1154,9 @@ tell minor from major there: on the first run, 5 pip bumps came as 5 separate PR
 Open version-update PRs are capped at 5 / 3 / 3. Security updates are grouped per ecosystem too, but they arrive when an
 advisory lands, not on the schedule.
 
-**Spine is pinned to 4.2.x.** Dependabot ignores major and minor bumps of `@esotericsoftware/*`, so
-only 4.2.x patches arrive. A Spine runtime must match the editor version that exported the data, and
-semver calls 4.2 → 4.3 a minor. Moving to 4.3 is a deliberate project, not a dependency bump.
-`scripts/check-spine-version.mjs` (run by check:all) fails a hand bump the same way.
+**No rig runtime dependency.** Rigs are read and drawn by our own `packages/engine-rig`, so there is
+no third-party rig runtime package for Dependabot to bump. `scripts/check-rig-runtime-free.mjs` (run
+by check:all) fails any manifest, lockfile entry, import or vendored file that brings one back.
 
 A Dependabot PR is gated like any other: it runs Checks, Lint and Secrets and cannot merge until
 the six required checks pass. None of those jobs needs a secret, so Dependabot's secret-less runs

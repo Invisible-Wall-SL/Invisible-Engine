@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { SpineProvider, SpineTrack, Container, Sprite } from 'pixi-svelte';
+	import { RigProvider, RigTrack, Container, Sprite } from 'pixi-svelte';
 	import { FadeContainer, LoadingProgress } from 'components-pixi';
 	import { MainContainer } from 'components-layout';
 
@@ -24,9 +24,9 @@
 			x={context.stateLayoutDerived.mainLayout().width * 0.5}
 			y={context.stateLayoutDerived.mainLayout().height * 0.5}
 		>
-			<SpineProvider key="loader" width={300}>
-				<SpineTrack trackIndex={0} animationName="title_screen" loop timeScale={3} />
-			</SpineProvider>
+			<RigProvider key="loader" width={300}>
+				<RigTrack trackIndex={0} animationName="title_screen" loop timeScale={3} />
+			</RigProvider>
 			{#if !context.stateApp.loaded}
 				<LoadingProgress y={250} width={1967 * 0.2} height={346 * 0.2}>
 					{#snippet background(sizes)}

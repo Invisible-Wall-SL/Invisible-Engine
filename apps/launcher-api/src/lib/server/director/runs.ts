@@ -504,12 +504,17 @@ function parseAction(raw: unknown): OwnerActionRequest {
 			typeof r.recipeRevs !== 'object' ||
 			Array.isArray(r.recipeRevs) ||
 			entries.length > MAX_PLAN_REGIONS ||
-			!entries.every(
-				([region, rev]) =>
-					REGION_NAME.test(region) && typeof rev === 'number' && Number.isInteger(rev) && rev > 0,
-			)
+			!entries.every(([, rev]) => typeof rev === 'number' && Number.isInteger(rev) && rev > 0)
 		) {
 			throw bad('bad_recipe_revs', 'recipeRevs maps each region to the revision you saw.');
+		}
+		// A plan stored before region names were checked can name one no approval can carry.
+		const misnamed = entries.find(([region]) => !REGION_NAME.test(region));
+		if (misnamed) {
+			throw bad(
+				'bad_recipe_revs',
+				`The plan names ${JSON.stringify(misnamed[0].slice(0, 120))}, which is not a region name, so it cannot be approved as it stands. Send your changes asking for a plan without it.`,
+			);
 		}
 		req.recipeRevs = Object.fromEntries(entries) as Record<string, number>;
 	}

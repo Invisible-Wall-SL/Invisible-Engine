@@ -144,7 +144,7 @@ stops a build at three gates:
 - **an invalid flow**: Invisible Flow validation errors,
 - **a drifted paytable**: the authored paytable disagrees with the partner's
   captured one,
-- **missing art** (📦 Deliver only): placed regions or spines that no shipped atlas
+- **missing art** (📦 Deliver only): placed regions or rigs that no shipped atlas
   contains.
 
 The launcher shows a **Build refused** dialog with the engine's own reason and every

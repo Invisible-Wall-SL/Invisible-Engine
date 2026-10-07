@@ -1,6 +1,6 @@
 // Verify linked-mesh and skin authoring headlessly, on the SHIPPED code: every function the actions
 // reach is pulled out of view.html (transitively), the rebuild runs as shipped but through the
-// strict spine-core 4.2 loader, and each action must leave a rig that LOADS with every linked mesh
+// strict engine-rig loader, and each action must leave a rig that LOADS with every linked mesh
 // bound to the parent the author meant, in the skin on stage — replacing nothing it was not asked to.
 //
 // The crux, read off SkeletonJson ("Linked meshes"): the parent is looked up by NAME in the linked
@@ -46,10 +46,10 @@
 //   node tools/rigger-spike/linkedmesh.mjs [<skeleton.json> <skeleton.atlas>]
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
-const SPINE = await import(SPINE_CORE);
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = SPINE;
+const RIG = await import(RIG_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = RIG;
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
 // One parsed atlas per atlas text, with stand-in textures: every region resolves, nothing is drawn.
@@ -119,7 +119,7 @@ const picker = {
 };
 const element = (tag) => ({ tag, style: {}, children: [], appendChild(c) { this.children.push(c); return c; } });
 const sandbox = {
-	SPINE, rawDoc: null, skeletonData: null, skeleton: null, animState: null, meshSetupVerts: null, missingArt: [],
+	RIG, rawDoc: null, skeletonData: null, skeleton: null, animState: null, meshSetupVerts: null, missingArt: [],
 	selected: { name: 'rig', atlas_file: 'rig.atlas' }, selSlot: null, selBone: null, meshCtx: null,
 	selIk: null, selTc: null, selPath: null, selPc: null, animsDirty: false,
 	rigText: { elements: [] }, drawMeshMode: false, drawPoints: [], selDrawPoint: null,
@@ -278,7 +278,7 @@ const PLACEMENT = [['x', 0], ['y', 0], ['rotation', 0], ['scaleX', 1], ['scaleY'
 // What each skin draws on `slot` in the setup pose — the attachment's name, its art and where — as a
 // fresh skeleton of the loaded data shows it with that skin set.
 function drawnBySkin(slot) {
-	const sd = sandbox.skeletonData, si = sd.slots.findIndex((s) => s.name === slot), sk = new SPINE.Skeleton(sd);
+	const sd = sandbox.skeletonData, si = sd.slots.findIndex((s) => s.name === slot), sk = new RIG.Skeleton(sd);
 	return Object.fromEntries(sd.skins.map((skin) => {
 		sk.setSkin(skin);
 		sk.setSlotsToSetupPose();
@@ -287,7 +287,7 @@ function drawnBySkin(slot) {
 	}));
 }
 // ＋ add image of `region` on the selected slot: it lands in the skin on stage, placed like the image
-// the slot showed — as spine-core resolves it, that skin's else default's — the stage draws it, and
+// the slot showed — as engine-rig resolves it, that skin's else default's — the stage draws it, and
 // that skin stays on stage. In default it is a new attachment under the region's name and the
 // slot's setup attachment. In any other skin it is that skin's override of the setup name (a slot
 // without one gets a name no skin holds there), and every other skin draws exactly what it drew.
@@ -312,7 +312,7 @@ function checkAddImage(what, skin, region) {
 		const moved = Object.keys(drew).filter((k) => k !== skin && after[k] !== drew[k]);
 		log(!moved.length, `${what}: ＋ add image changed what ${moved.map((k) => `"${k}" draws on ${slot} (${drew[k]} → ${after[k]})`).join(', ')}`);
 	}
-	if (shown instanceof SPINE.RegionAttachment) {
+	if (shown instanceof RIG.RegionAttachment) {
 		const def = sandbox.rawDoc.skins.find((s) => s.name === skin).attachments[slot][name] ?? {};
 		const lost = PLACEMENT.filter(([k, d]) => (def[k] ?? d) !== shown[k]).map(([k, d]) => `${k} ${def[k] ?? d} ≠ ${shown[k]}`);
 		log(!lost.length, `${what}: ＋ add image on ${slot} did not keep the placement of the ${setup} it showed (${lost.join(', ')})`);
@@ -354,7 +354,7 @@ function checkToMesh(what, action, holder, linked = []) {
 	const name = sandbox.skeletonData.slots[si].attachmentName;
 	const shown = sandbox.skeleton.getAttachment(si, name);
 	const label = action === 'convert' ? '▸ Convert to mesh' : '✎ Draw mesh';
-	if (!log(shown instanceof SPINE.RegionAttachment, `${what}: the stage shows ${shown && shown.constructor.name} on ${slot}, not an image`)) return;
+	if (!log(shown instanceof RIG.RegionAttachment, `${what}: the stage shows ${shown && shown.constructor.name} on ${slot}, not an image`)) return;
 	const quad = new Array(8).fill(0);
 	shown.computeWorldVertices(sandbox.skeleton.slots[si], quad, 0, 2);
 	const clicked = [...quad, (quad[0] + quad[4]) / 2, (quad[1] + quad[5]) / 2];
@@ -370,7 +370,7 @@ function checkToMesh(what, action, holder, linked = []) {
 	log(JSON.stringify(changed) === JSON.stringify(expected), `${what}: ${label} on ${slot} rewrote [${changed.map(showChange).join(', ')}], expected [${expected.map(show).join(', ')}]`);
 	onStage(`${what}: ${label} on ${slot}`, skin);
 	const now = sandbox.skeleton.getAttachment(si, name);
-	if (!log(now instanceof SPINE.MeshAttachment, `${what}: after ${label} the stage shows ${now && now.constructor.name} on ${slot}, expected the new mesh`)) return;
+	if (!log(now instanceof RIG.MeshAttachment, `${what}: after ${label} the stage shows ${now && now.constructor.name} on ${slot}, expected the new mesh`)) return;
 	log(now.path === shown.path, `${what}: after ${label} the stage's mesh on ${slot} shows ${now.path}, expected ${shown.path}`);
 	// a drawn mesh has never taken the image's tint; a converted one does
 	if (action === 'convert') log(worst([now.color.r, now.color.g, now.color.b, now.color.a], [shown.color.r, shown.color.g, shown.color.b, shown.color.a]) < 1e-6, `${what}: after ${label} the stage's mesh on ${slot} lost the image's tint`);
@@ -393,11 +393,11 @@ function stageImage(slot) {
 	const name = sandbox.skeletonData.slots[si].attachmentName;
 	const att = name ? sandbox.skeleton.getAttachment(si, name) : null;
 	const quad = new Array(8).fill(0);
-	if (att instanceof SPINE.RegionAttachment) att.computeWorldVertices(sandbox.skeleton.slots[si], quad, 0, 2);
+	if (att instanceof RIG.RegionAttachment) att.computeWorldVertices(sandbox.skeleton.slots[si], quad, 0, 2);
 	return { name, att, quad, bone: sandbox.skeleton.slots[si].bone };
 }
 // Where a point of the image (u across, v down, 0..1 of the UNTRIMMED image, which is what a pivot
-// names) sits in the world, read off the quad spine-core draws — which covers the trimmed ink only.
+// names) sits in the world, read off the quad engine-rig draws — which covers the trimmed ink only.
 function imagePoint({ att, quad }, [u, v]) {
 	const r = att.region, s = (u * r.originalWidth - r.offsetX) / r.width, t = ((1 - v) * r.originalHeight - r.offsetY) / r.height;
 	return [quad[0] + s * (quad[6] - quad[0]) + t * (quad[2] - quad[0]), quad[1] + s * (quad[7] - quad[1]) + t * (quad[3] - quad[1])];
@@ -423,7 +423,7 @@ const PLACE = [['x', (v) => v + 7], ['y', (v) => v - 5], ['rotation', (v) => v +
 function checkPlace(what, holder) {
 	const skin = sandbox.skeleton.skin.name, slot = sandbox.selSlot;
 	let img = stageImage(slot);
-	if (!log(img.att instanceof SPINE.RegionAttachment, `${what}: the stage shows ${img.att && img.att.constructor.name} on ${slot}, not an image`)) return;
+	if (!log(img.att instanceof RIG.RegionAttachment, `${what}: the stage shows ${img.att && img.att.constructor.name} on ${slot}, not an image`)) return;
 	const want = [key(holder, slot, img.name)];
 	let before = snapshot(sandbox.rawDoc);
 	for (const [field, next] of PLACE) {
@@ -455,7 +455,7 @@ function checkPlace(what, holder) {
 const PIVOT_TO = [0, 1];
 function checkPivot(what, holder) {
 	const skin = sandbox.skeleton.skin.name, slot = sandbox.selSlot, img = stageImage(slot);
-	if (!log(img.att instanceof SPINE.RegionAttachment, `${what}: the stage shows ${img.att && img.att.constructor.name} on ${slot}, not an image`)) return;
+	if (!log(img.att instanceof RIG.RegionAttachment, `${what}: the stage shows ${img.att && img.att.constructor.name} on ${slot}, not an image`)) return;
 	const want = [key(holder, slot, img.name)], label = `${what}: pivot [${PIVOT_TO}] on ${slot}`;
 	const panel = () => JSON.stringify(sandbox.pivotUV(sandbox.pivotEditable()));
 	const was = pivotOf(entryOf(holder, slot, img.name)), pivot = imagePoint(img, was), before = snapshot(sandbox.rawDoc);

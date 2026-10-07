@@ -21,7 +21,7 @@ Per-project layout (T = tool namespace, C = client key, P = project key):
 | Sheet Maker    | `sheet_maker/<C>/<P>/`                   | `sheet_config.json` · `input/<sheet>/*.png` · `output/<sheet>/{sheet.png,coords.json,manifest.json}` |
 | Localization   | `localization/<C>/<P>/`                  | `strings.json`                                                                              |
 | Editor (future)| `editor/<C>/<P>/`                        | `scenes.json` · `assets/*`                                                                  |
-| Spine Viewer   | `spines/<C>/<P>/<bundle>/`               | atlas/png/skel — moved out of the hardcoded `spines/hotfruits`                              |
+| Rig Viewer   | `spines/<C>/<P>/<bundle>/`               | atlas/png/skel — moved out of the hardcoded `spines/hotfruits`                              |
 
 Seed files (written by `scaffoldProject` on create):
 
@@ -46,7 +46,7 @@ export function projectPrefix(tool: ToolNs, client: string, project: string): st
 }
 ```
 
-Callers: `localization.ts` (`docKey`), `spine.ts` (`SPINE_PREFIX` becomes per-project), future `editor.ts`. Each caller resolves `client` from the project row (`projects.clientKey ?? UNASSIGNED_CLIENT`).
+Callers: `localization.ts` (`docKey`), `rig.ts` (`RIG_PREFIX` becomes per-project), future `editor.ts`. Each caller resolves `client` from the project row (`projects.clientKey ?? UNASSIGNED_CLIENT`).
 
 ### Python (both tools) — embedded in each `cloud_paths.py`
 
@@ -87,7 +87,7 @@ Module state grows by one field: `_CURRENT_CLIENT` alongside `_CURRENT_PROJECT`.
 | --- | --- |
 | `apps/launcher-api/src/lib/server/projectPaths.ts` | NEW: `projectPrefix`, `UNASSIGNED_CLIENT`. |
 | `apps/launcher-api/src/lib/server/localization.ts` | `docKey(project)` → `docKey(client, project)`; callers resolve `client` from project row. |
-| `apps/launcher-api/src/lib/server/spine.ts` | `SPINE_PREFIX` removed; export `spinePrefix(client, project, bundle)`. Update `/spine` loader. |
+| `apps/launcher-api/src/lib/server/rig.ts` | `RIG_PREFIX` removed; export `rigPrefix(client, project, bundle)`. Update `/rig-viewer` loader. |
 | `apps/launcher-api/src/lib/server/projects.ts` | NEW: `scaffoldProject(clientKey, projectKey)` writing seed files via `putObjectText`. Called from `createProject` admin action. |
 | `apps/launcher-api/src/lib/server/r2.ts` | No change (generic). |
 | `apps/launcher-api/src/routes/(app)/admin/+page.server.ts` | After `await createProject(...)`, call `await scaffoldProject(clientKey, key)`. Add `rescaffoldProject` action. |
@@ -138,14 +138,14 @@ Admin "Rescaffold" button: same call, but with `objectExists` skip (idempotent).
 1. **DB:** ensure the `unassigned` client row exists (additive seed, no migration).
 2. **Phase A migration:** run `migrate-r2-client-isolation.py --phase=a`. Verify counts match.
 3. **Deploy code** (`main`, auto-deploy) — launcher writes new paths; tools read new paths. Behind a `FEATURE_OLD_PATHS_FALLBACK=1` env flag both tools also try the old prefix on a 404 read, for one deploy cycle.
-4. **Smoke test** atlas + sheet + localization + spine on at least one project per client.
+4. **Smoke test** atlas + sheet + localization + rig on at least one project per client.
 5. **Phase B cleanup:** `migrate-r2-client-isolation.py --phase=b --i-verified-cutover`.
 6. Remove `FEATURE_OLD_PATHS_FALLBACK` from env + code.
 
 ## 8. Open questions
 
 1. **Default client name** — `unassigned` vs `default` vs `cloud` (current project name collision risk)?
-2. **Spine bundles** — is HotFruits one bundle per project, or shared across projects? Affects whether `spines/<C>/<P>/<bundle>/` or `spines/<C>/_shared/<bundle>/`.
+2. **Rig bundles** — is HotFruits one bundle per project, or shared across projects? Affects whether `spines/<C>/<P>/<bundle>/` or `spines/<C>/_shared/<bundle>/`.
 3. **Atlas Maker `output_prefix`** — currently env-driven `HotFruits`; should the scaffold lock it to `<P>` going forward?
 4. **Client rename** — do we forbid renames (key is the slug everywhere), or write a key-rename migration too? Recommend forbid; rename `name` only.
 5. **`/api/projects/{P}/client` endpoint** — public-readable OK, or require the shared tool secret?

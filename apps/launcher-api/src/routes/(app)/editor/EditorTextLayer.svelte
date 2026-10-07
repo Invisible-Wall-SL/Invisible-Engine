@@ -49,10 +49,10 @@
 	import { previewResolveTransform, previewVersion } from './valuePreview.client.svelte';
 
 	interface Props {
-		/** All doc scenes — the composite the 2D canvas + spine layer also draw. */
+		/** All doc scenes — the composite the 2D canvas + rig layer also draw. */
 		scenes: Scene[];
 		layoutType: import('engine-layout').LayoutType;
-		/** Editor view transform — kept byte-identical with the 2D canvas + spine layer. */
+		/** Editor view transform — kept byte-identical with the 2D canvas + rig layer. */
 		panX: number;
 		panY: number;
 		zoom: number;

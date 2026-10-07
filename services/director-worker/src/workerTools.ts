@@ -11,7 +11,14 @@ import {
 	type RecipeDeps,
 } from './recipes.ts';
 import { transition, type RunEvent } from './runState.ts';
-import { appendMessage, applyTransition, insertEvent, runSpend, type LiveRun } from './store.ts';
+import {
+	appendMessage,
+	applyTransition,
+	insertEvent,
+	rendersInFlight,
+	runSpend,
+	type LiveRun,
+} from './store.ts';
 import type { WORKER_TOOLS } from './tools.ts';
 
 /**
@@ -343,6 +350,17 @@ export async function runWorkerTool(
 			if (kind === 'step_done' && from.step === 'breakdown' && ctx.hasMockups) {
 				return refused(
 					'Refused: this run has mockups, so the worker produces the mockup breakdown itself and opens its checkpoint. You will be told the result.',
+				);
+			}
+			// A render's failures are put to the owner at the Art plan, which opens only up to the
+			// region step: the step ends once nothing it queued can still fail.
+			const inFlight =
+				kind === 'step_done' && from.step === 'regions'
+					? await rendersInFlight(ctx.tx, ctx.live.id)
+					: 0;
+			if (inFlight) {
+				return refused(
+					`Refused: ${inFlight} render${inFlight === 1 ? ' is' : 's are'} still in flight. The region step ends once every render has landed; you are told as each one finishes.`,
 				);
 			}
 			const error = await move(ctx, { type: kind }, `${ctx.agent}: ${kind}`);

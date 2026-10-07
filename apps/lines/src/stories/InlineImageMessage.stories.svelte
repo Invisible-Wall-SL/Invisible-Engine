@@ -68,7 +68,7 @@
 		plainMessage: stringSource(plainMessage),
 	});
 	registerComponents({ [INFO_BAR_DEF.id]: INFO_BAR_DEF });
-	// What `Game.svelte` wires at boot: the game draws the symbol (sprite / spine / flipbook), the
+	// What `Game.svelte` wires at boot: the game draws the symbol (sprite / rig / flipbook), the
 	// engine only reserves the slot.
 	registerBoundComponents({ [INLINE_IMAGE_BOUND_COMPONENT]: MessageSymbol });
 	registerInlineImageResolver((token) => (token === SYMBOL ? token : undefined));

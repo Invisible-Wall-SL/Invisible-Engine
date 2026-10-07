@@ -324,7 +324,7 @@ export const updateNodes = defineOp<
 	tool: 'scene',
 	name: 'update_nodes',
 	description:
-		'Move (x, y, scale — for one layout when `layout` is given) and re-skin (sprite assetKey/region, spine assetKey/skin, flipbook clipId) nodes that already exist. It cannot add or remove screens or nodes. Nodes bound to the math are refused and listed in `refused`; the rest are saved together.',
+		'Move (x, y, scale — for one layout when `layout` is given) and re-skin (sprite assetKey/region, rig assetKey/skin, flipbook clipId) nodes that already exist. It cannot add or remove screens or nodes. Nodes bound to the math are refused and listed in `refused`; the rest are saved together.',
 	inputSchema: {
 		type: 'object',
 		properties: {

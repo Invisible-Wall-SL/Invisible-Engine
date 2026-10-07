@@ -15,8 +15,8 @@
  *
  * `AnimationCache` reads exactly `frames`, `delayPerUnit`, `loops` and `restoreOriginalFrame`,
  * and ignores every other key. So our extensions live IN the file under an `iw` prefix rather
- * than in a sidecar — same spirit as the Rigger's `.irig` (a pure Spine JSON any runtime eats,
- * with our extras kept where Spine ignores them), but without a second file to keep in sync.
+ * than in a sidecar — same spirit as the Rigger's `.irig` (a pure rig JSON any runtime eats,
+ * with our extras kept where rig ignores them), but without a second file to keep in sync.
  * Unknown keys we did not write are PRESERVED on round-trip, so another tool's extensions
  * survive a pass through ours.
  *

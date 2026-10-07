@@ -25,7 +25,7 @@ import {
 	type ValidationContext,
 } from 'director-costs/recipe';
 import { applyTransition, insertEvent, runSpend, type Db, type LiveRun } from './store.ts';
-import { transition } from './runState.ts';
+import { TERMINAL_STATUSES, transition, type RunState } from './runState.ts';
 
 /**
  * Recipes on the run (ADR-0008 §5, §7): the technician's plan per region, stored in
@@ -167,6 +167,13 @@ export async function setRecipe(
 	// re-opens a rendered step, and a revision that does needs the owner again, so nothing is
 	// queued (and paid for) again unseen.
 	const steps = prev ? carryProgress(prev.steps, result.steps) : result.steps;
+	const busy = prev ? rendering(prev.steps, steps) : [];
+	if (busy.length) {
+		return {
+			ok: false,
+			message: `Not stored: ${input.region} step ${busy.join(', ')} is rendering; revise it once it settles. You are told when it does.`,
+		};
+	}
 	const next = { steps, projected: result.projected };
 	// Compared on one basis: the stored figure predates the timings measured since.
 	const prevNow = prev && { ...prev, projected: project(prev.steps, basisOfDeps(deps)) };
@@ -178,7 +185,7 @@ export async function setRecipe(
 		group: input.group,
 		plannedBy: agent,
 		approved: keep && prev?.approved ? { ...prev.approved, rev } : null,
-		// Counted since the last approval: a revision is not one.
+		// Counted since the owner last approved it at the Art plan: a revision does not reset them.
 		...(prev?.failures ? { failures: prev.failures } : {}),
 		...next,
 	};
@@ -200,7 +207,7 @@ export async function setRecipe(
 		'run.set_recipe',
 	);
 	const all = [...recipes.filter((r) => r.region !== recipe.region), recipe];
-	const gate = await afterRecipe(tx, live, plan, all);
+	const gate = (await afterRecipe(tx, live, plan, all)).answer;
 	return {
 		ok: true,
 		value: {
@@ -216,6 +223,18 @@ export async function setRecipe(
 
 const unapproved = (r: StoredRecipe) => !r.approved || r.approved.rev !== r.rev;
 
+/**
+ * Steps a render is running that a revision would replan (`next` as `carryProgress` left it): the
+ * revision waits until they settle, so a render's failure is never left on a step it no longer
+ * holds.
+ */
+const rendering = (prev: readonly StoredStep[], next: readonly StoredStep[]) =>
+	prev.filter((s, i) => s.status === 'queued' && next[i]?.status !== 'queued').map((s) => s.n);
+
+/** "H1, H2, H3, H4, H5 and 18 more". */
+const listed = (names: readonly string[]) =>
+	`${names.slice(0, 5).join(', ')}${names.length > 5 ? ` and ${names.length - 5} more` : ''}`;
+
 /** "H1: step 2: "flux" has no GPU seconds for 2048 px; …", each reason once with its regions. */
 function unpricedReasons(recipes: readonly StoredRecipe[]): string {
 	const regions = new Map<string, string[]>();
@@ -224,47 +243,66 @@ function unpricedReasons(recipes: readonly StoredRecipe[]): string {
 			regions.set(why, [...(regions.get(why) ?? []), r.region]);
 		}
 	}
-	return [...regions]
-		.map(
-			([why, names]) =>
-				`${names.slice(0, 5).join(', ')}${names.length > 5 ? ` and ${names.length - 5} more` : ''}: ${why}`,
-		)
-		.join('; ');
+	return [...regions].map(([why, names]) => `${listed(names)}: ${why}`).join('; ');
+}
+
+/** What the plan gate did, and whether the owner was told of it in the feed. */
+export interface GateOutcome {
+	answer: string;
+	told: boolean;
+}
+const quiet = (answer: string): GateOutcome => ({ answer, told: false });
+const told = (answer: string): GateOutcome => ({ answer, told: true });
+
+/** A worker note, unless it says what the run's latest one already does. */
+async function noteOnce(tx: Db, runId: string, text: string) {
+	const [last] = await tx<{ text: string | null }[]>`
+		select payload_json->>'text' as text from director_events
+		where run_id = ${runId} and agent = 'worker' and kind = 'activity'
+			and payload_json->>'type' = 'note'
+		order by id desc limit 1`;
+	if (last?.text !== text)
+		await insertEvent(tx, runId, 'worker', 'activity', { type: 'note', text });
 }
 
 /**
  * Re-check the gate: after the owner's edits, a withdrawn approval, or the owner resuming the run
- * (`byOwner`: a raised cap may now fit the plan, and the resume approves again what failed past
- * its retries).
+ * (`owner`: a raised cap may now fit the plan, and the resume approves it as that owner).
  */
-export async function reviewPlanGate(tx: Db, live: LiveRun, byOwner = false): Promise<string> {
+export async function reviewPlanGate(tx: Db, live: LiveRun, owner?: string): Promise<GateOutcome> {
 	const plan = await planRegions(tx, live.id);
-	if (plan.size === 0) return 'no plan';
-	return afterRecipe(tx, live, plan, await loadRecipes(tx, live.id), byOwner);
+	if (plan.size === 0) return quiet('no plan');
+	return afterRecipe(tx, live, plan, await loadRecipes(tx, live.id), owner);
 }
 
 /**
  * Once every planned region has a recipe and any is unapproved: open `art_plan` (on by default) or,
- * with it off, approve the plan as `auto` when its projection fits what is left of the cap. A
- * recipe whose failures withdrew its approval is approved automatically only by the owner's
- * resume (`byOwner`); until then the run pauses for them.
+ * with it off, approve the plan as `auto` when its projection fits what is left of the cap, or as
+ * the `owner` whose resume asked. A recipe past its retries is approved again only by the owner at
+ * the Art plan, which opens for it whatever its setting; every pause names it.
  */
 async function afterRecipe(
 	tx: Db,
 	live: LiveRun,
 	plan: Map<string, string>,
 	recipes: StoredRecipe[],
-	byOwner = false,
-): Promise<string> {
+	owner?: string,
+): Promise<GateOutcome> {
+	// Nobody is left to ask: a stopping or ended run approves and opens nothing.
+	if (live.state.status === 'stopping' || TERMINAL_STATUSES.includes(live.state.status)) {
+		return quiet(`the run is ${live.state.status}: nothing is approved`);
+	}
 	const have = new Set(recipes.map((r) => r.region));
 	const missing = [...plan.keys()].filter((region) => !have.has(region));
 	if (missing.length)
-		return `waiting for ${missing.length} more region(s): ${missing.slice(0, 10).join(', ')}`;
+		return quiet(
+			`waiting for ${missing.length} more region(s): ${missing.slice(0, 10).join(', ')}`,
+		);
 	const order = [...plan.keys()];
 	const pending = recipes
 		.filter((r) => plan.has(r.region) && unapproved(r))
 		.sort((a, b) => order.indexOf(a.region) - order.indexOf(b.region));
-	if (pending.length === 0) return 'every recipe is approved';
+	if (pending.length === 0) return quiet('every recipe is approved');
 	// What is still to be paid for: every planned recipe with a step not yet rendered, approved
 	// or not (a recipe's whole projection, which over-counts a half-rendered one: fails closed).
 	const toRender = recipes.filter(
@@ -277,30 +315,23 @@ async function afterRecipe(
 	);
 	const projectedUsd = toRender.reduce((sum, r) => sum + (r.projected.gpuUsd ?? 0), 0);
 	const unpriced = toRender.filter((r) => r.projected.gpuUsd === null);
-	if (live.state.checkpoints.artPlan) {
-		const result = transition(live.state, { type: 'plan_ready' });
-		if (!result.ok) return `the Art plan cannot open now: ${result.error}`;
-		if (!(await applyTransition(tx, live.id, live.state, result.state, 'art plan ready'))) {
-			return 'the run changed while this turn ran';
-		}
-		const from = live.state.step;
-		live.state = result.state;
-		await insertEvent(tx, live.id, 'worker', 'checkpoint_open', {
-			checkpoint: 'art_plan',
-			step: from,
-			summary: artPlanSummary(pending),
-			regions: pending.map((r) => r.region),
-			projectedGpuUsd: Math.round(projectedUsd * 10000) / 10000,
-		});
-		return 'opened: the owner reviews the Art plan now. End your turn.';
-	}
+	// A step past its retries renders again only on the owner's approval at the Art plan,
+	// whatever its setting: no automatic approval and no resume approves it, and a pause names it.
+	const spent = pending.filter((r) => retriesSpent(r).length);
+	if (live.state.checkpoints.artPlan) return openArtPlan(tx, live, pending, spent, projectedUsd);
+	const fresh = pending.filter((r) => !retriesSpent(r).length);
+	const retried = spent.length
+		? ` ${failedPastRetries(spent)}: it waits for your approval in the Art plan.`
+		: '';
 	// Fails closed (ADR-0006): a plan the cap cannot price, or one over it, pauses for the owner.
 	const spend = await runSpend(tx, live.id);
 	const cap = live.budgetCapUsd ?? DIRECTOR_RUN_BUDGET_DEFAULT_USD;
 	if (unpriced.length || spend.totalUsd + projectedUsd > cap) {
-		const text = unpriced.length
-			? `The Art plan cannot be priced, so it is not approved automatically: ${unpricedReasons(unpriced)}. Fix that, or turn the Art plan checkpoint on, and resume.`
-			: `The Art plan projects $${projectedUsd.toFixed(2)} of GPU, more than is left of the $${cap.toFixed(2)} cap. Raise the cap and resume, or ask for a smaller plan.`;
+		const text = `${
+			unpriced.length
+				? `The Art plan cannot be priced, so it is not approved automatically: ${unpricedReasons(unpriced)}. Fix that, or turn the Art plan checkpoint on, and resume.`
+				: `The Art plan projects $${projectedUsd.toFixed(2)} of GPU, more than is left of the $${cap.toFixed(2)} cap. Raise the cap and resume, or ask for a smaller plan.`
+		}${retried}`;
 		await insertEvent(tx, live.id, 'worker', 'activity', { type: 'note', text });
 		const result = transition(live.state, { type: 'pause', reason: 'budget_cap' });
 		if (
@@ -317,24 +348,77 @@ async function afterRecipe(
 				capUsd: cap,
 			});
 		}
-		return 'not approved: the run paused for the owner (the plan is unpriced or crosses the cap)';
+		return told(
+			'not approved: the run paused for the owner (the plan is unpriced or crosses the cap)',
+		);
 	}
-	const spent = byOwner ? [] : pending.filter((r) => retriesSpent(r).length);
-	if (spent.length) {
-		const text = `${spent.map((r) => `${r.region} step ${retriesSpent(r).join(', ')}`).join('; ')} failed again after ${RETRIES_PER_APPROVAL} retries, so it is not approved automatically. Resume the run to approve it again, or stop it.`;
-		await insertEvent(tx, live.id, 'worker', 'error', { type: 'retries_spent', message: text });
-		const result = transition(live.state, { type: 'pause', reason: 'error' });
-		if (
-			result.ok &&
-			(await applyTransition(tx, live.id, live.state, result.state, 'retries spent'))
-		) {
-			live.state = result.state;
-		}
-		return 'not approved: the run paused for the owner (a step failed past its retries)';
+	if (fresh.length) await approve(tx, live.id, fresh, owner ?? 'auto');
+	if (spent.length === 0) {
+		return quiet(
+			owner
+				? 'approved: the owner resumed the run'
+				: 'approved automatically (the Art plan checkpoint is off and the projection fits the cap)',
+		);
 	}
-	await approve(tx, live.id, pending, 'auto');
-	return 'approved automatically (the Art plan checkpoint is off and the projection fits the cap)';
+	return openArtPlan(tx, live, spent, spent, projectedUsd);
 }
+
+/**
+ * Open the Art plan on `asked`, naming those of them past their retries (`spent`), which open it
+ * whatever its setting. Where the run cannot open it now, a note tells the owner what waits for
+ * them and when it can open: a gate the state machine refuses is never silent.
+ */
+async function openArtPlan(
+	tx: Db,
+	live: LiveRun,
+	asked: readonly StoredRecipe[],
+	spent: readonly StoredRecipe[],
+	projectedUsd: number,
+): Promise<GateOutcome> {
+	const result = transition(live.state, { type: 'plan_ready', ownerOnly: spent.length > 0 });
+	if (!result.ok) {
+		const failed = spent.length ? ` (${failedPastRetries(spent)})` : '';
+		const text = `${listed(asked.map((r) => r.region))} ${asked.length === 1 ? 'waits' : 'wait'} for your approval in the Art plan${failed}. ${whenArtPlanOpens(live.state, asked.length)}.`;
+		await noteOnce(tx, live.id, text);
+		return told(`not approved: the Art plan cannot open now (${result.error}); the owner is told`);
+	}
+	const why = spent.length ? 'retries spent' : 'art plan ready';
+	if (!(await applyTransition(tx, live.id, live.state, result.state, why))) {
+		return quiet('the run changed while this turn ran');
+	}
+	const from = live.state.step;
+	live.state = result.state;
+	const retry = spent.length
+		? `${failedPastRetries(spent)}. Approve to let ${spent.length === 1 ? 'it' : 'them'} try ${RETRIES_PER_APPROVAL + 1} more times.`
+		: '';
+	await insertEvent(tx, live.id, 'worker', 'checkpoint_open', {
+		checkpoint: 'art_plan',
+		step: from,
+		...(spent.length ? { reason: 'retries_spent' } : {}),
+		summary: [artPlanSummary(asked), retry].filter(Boolean).join('\n'),
+		regions: asked.map((r) => r.region),
+		projectedGpuUsd: Math.round(projectedUsd * 10000) / 10000,
+	});
+	return told('opened: the owner reviews the Art plan now. End your turn.');
+}
+
+/** When an Art plan the state machine refuses now asks the owner, for their note. */
+function whenArtPlanOpens(state: RunState, recipes: number): string {
+	if (state.waitingOn === 'art_plan') return 'The Art plan is open: approve it as it now stands';
+	const planning = state.step === 'style_pack' || state.step === 'regions';
+	if (planning && state.status === 'paused') return 'The Art plan opens when you resume the run';
+	if (state.waitingOn === 'breakdown' || state.waitingOn === 'region_batch') {
+		return `The Art plan opens once you resolve the ${state.waitingOn.replace('_', ' ')} checkpoint`;
+	}
+	// The run never goes back from building to the region step.
+	const past = state.step === 'build' || state.step === 'handoff';
+	const rest = recipes === 1 ? 'it renders' : 'they render';
+	return `The Art plan cannot open in the ${state.step} step${past ? `: ${rest} nothing more in this run` : ''}`;
+}
+
+/** "H1 step 1 failed again after 2 retries", for every recipe past its retries. */
+const failedPastRetries = (spent: readonly StoredRecipe[]) =>
+	`${spent.map((r) => `${r.region} step ${retriesSpent(r).join(', ')}`).join('; ')} failed again after ${RETRIES_PER_APPROVAL} retries`;
 
 /** "11 Symbols: sdxl 1024 ×3 → birefnet → finish", one line per (group, chain). */
 export function artPlanSummary(recipes: readonly StoredRecipe[]): string {
@@ -346,23 +430,25 @@ export function artPlanSummary(recipes: readonly StoredRecipe[]): string {
 	return [...lines].map(([line, n]) => `${n} × ${line}`).join('\n');
 }
 
+/**
+ * Approve `recipes` at their current revision. The owner's approval at the Art plan (`artPlan`,
+ * the basis it was priced on) holds each to its projection priced now, which a revision is held
+ * to, and starts its failures again; any other approval keeps them, so a step past its retries
+ * since the owner last approved it there still waits for them.
+ */
 async function approve(
 	tx: Db,
 	runId: string,
 	recipes: readonly StoredRecipe[],
 	by: string,
-	basis?: PriceBasis,
+	artPlan?: PriceBasis,
 ) {
 	const at = new Date().toISOString();
 	for (const r of recipes) {
-		// The owner approved the plan as priced now: that figure is what a revision is held to. A
-		// new approval retries every step afresh.
-		const projected = basis ? project(r.steps, basis) : r.projected;
 		await storeRecipe(tx, runId, {
 			...r,
-			projected,
+			...(artPlan ? { projected: project(r.steps, artPlan), failures: undefined } : {}),
 			approved: { by, at, rev: r.rev },
-			failures: undefined,
 		});
 	}
 }
@@ -481,7 +567,10 @@ export async function markQueued(
  * A finished render advances its steps: `done` with the variants it made, or `failed`. A failure is
  * counted against the recipe's approval; past `RETRIES_PER_APPROVAL` retries of a step the
  * approval is withdrawn (`withdrawn`), so the gate queues none of its steps until it is approved
- * again.
+ * again. A failure always counts: the launcher recorded the steps the render ran
+ * (`director_atlas_jobs.steps`), and one a revision has replanned since still takes the failure,
+ * or the recipe's first step when that step is gone (fails closed). The record is claimed once
+ * (`steps_settled_at`), so a redelivered `job_done` counts nothing twice.
  */
 export async function settleJob(
 	tx: Db,
@@ -495,24 +584,43 @@ export async function settleJob(
 }> {
 	const settled: { pipeline: string; genPx: number }[] = [];
 	const withdrawn: { region: string; steps: number[] }[] = [];
+	const [job] = await tx<{ steps: { recipe: string; n: number; region: string }[] | null }[]>`
+		update director_atlas_jobs set steps_settled_at = now()
+		where job_ref = ${jobRef} and run_id = ${runId} and steps_settled_at is null
+		returning steps`;
+	const recorded = job?.steps ?? [];
 	for (const recipe of await loadRecipes(tx, runId)) {
 		let changed = false;
 		const failures = { ...recipe.failures };
+		const fail = (n: number) => {
+			changed = true;
+			failures[n] = (failures[n] ?? 0) + 1;
+		};
 		const steps = recipe.steps.map((s) => {
 			if (s.jobRef !== jobRef || s.status !== 'queued') return s;
 			changed = true;
 			settled.push({ pipeline: s.pipeline, genPx: s.genPx });
 			const rendered = variants.filter((v) => v.region === s.region).map((v) => v.id);
 			if (finished && rendered.length) return { ...s, status: 'done' as const, rendered };
-			failures[s.n] = (failures[s.n] ?? 0) + 1;
+			fail(s.n);
 			return { ...s, status: 'failed' as const };
 		});
+		for (const run of recorded) {
+			if (run.recipe !== recipe.region) continue;
+			if (recipe.steps.some((s) => s.n === run.n && s.jobRef === jobRef)) continue;
+			if (finished && variants.some((v) => v.region === run.region)) continue;
+			fail(recipe.steps.some((s) => s.n === run.n) ? run.n : 1);
+		}
 		if (!changed) continue;
 		const spent = retriesSpent({ failures });
 		const approved = spent.length ? null : recipe.approved;
-		if (recipe.approved && !approved) withdrawn.push({ region: recipe.region, steps: spent });
+		const withdrawing = recipe.approved !== null && approved === null;
+		if (withdrawing) withdrawn.push({ region: recipe.region, steps: spent });
 		await storeRecipe(tx, runId, {
 			...recipe,
+			// A withdrawn approval is a new revision: an approval the owner made on what they saw
+			// before it (the recipe still approved) is refused as a plan changed since.
+			rev: withdrawing ? recipe.rev + 1 : recipe.rev,
 			steps,
 			approved,
 			...(Object.keys(failures).length ? { failures } : {}),
@@ -729,12 +837,18 @@ export async function applyRecipeEdits(
 			errors.push(...result.errors.map((e) => `${region}: ${e}`));
 			continue;
 		}
+		const carried = carryProgress(prev.steps, result.steps);
+		const busy = rendering(prev.steps, carried);
+		if (busy.length) {
+			errors.push(`${region}: step ${busy.join(', ')} is rendering; edit it once it settles`);
+			continue;
+		}
 		next.set(region, {
 			...prev,
 			rev: prev.rev + 1,
 			editedBy: by,
 			approved: null,
-			steps: carryProgress(prev.steps, result.steps),
+			steps: carried,
 			projected: result.projected,
 		});
 	}

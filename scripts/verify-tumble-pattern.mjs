@@ -585,7 +585,7 @@ const runExplode = async ({
 	emerge,
 	patternScope,
 	// How long each seat's explosion takes to report. `null` = it never does — the symbol whose
-	// state is bound to no art, or to a spine animation that is not in the skeleton.
+	// state is bound to no art, or to a rig animation that is not in the skeleton.
 	beatMs = BEAT_MS,
 	// Seats (`"reel:row"`) the WIN-EXPLOSION POP already took off the board before this step began
 	// (Invisible Symbols → "Winning symbols explode"). They sit on the survivor layer holding their
@@ -669,7 +669,7 @@ const runExplode = async ({
 		// The report and the cap are two different outcomes with two different consequences, so a stub
 		// where the report always wins cannot tell a correct implementation from one that marks the
 		// symbol after the `await` — which would take the cap path too, and cut a long pop off at 650 ms.
-		// `beatMs: null` is the symbol that can NEVER report (no art, a spine animation missing from
+		// `beatMs: null` is the symbol that can NEVER report (no art, a rig animation missing from
 		// the skeleton); a `beatMs` above the cap is the pop that is simply longer than the guard.
 		awaitBeat: (arm) => {
 			const started = clock.at();

@@ -1,10 +1,10 @@
-// Phase §18 item 5 spike (GATE) — nail the Spine 4.2 SLOT BLEND MODE setup property
+// Phase §18 item 5 spike (GATE) — nail the 4.2-format SLOT BLEND MODE setup property
 // (slot `blend`) against the official runtime before any UI is built. Blend mode is a
-// SETUP-ONLY property in Spine — there is NO blend timeline (it is not animated).
+// SETUP-ONLY property in rig — there is NO blend timeline (it is not animated).
 //   node tools/rigger-spike/blendmode.mjs <skeleton.json> <skeleton.atlas>
 //
 // ============================ EMPIRICAL FINDINGS ============================
-// (validated below against @esotericsoftware/spine-core@4.2.74's SkeletonJson loader +
+// (validated below against the rig runtime's SkeletonJson loader (engine-rig, held to the 4.2-format reference) +
 //  BlendMode enum + Utils.enumValue — NOT from memory. Read off SkeletonJson.js L118:
 //    data.blendMode = Utils.enumValue(BlendMode, getValue(slotMap, "blend", "normal"));
 //  SlotData.d.ts BlendMode enum L54-59; Utils.js enumValue L296-298.)
@@ -20,19 +20,19 @@
 //        "screen"   → BlendMode.Screen   = 3
 //   • The loader defaults to "normal" when `blend` is absent (getValue 3rd arg) → BlendMode.Normal.
 //     So an absent `blend` and `blend:"normal"` BOTH yield SlotData.blendMode === Normal (0).
-//   • Spine itself writes lowercase strings; enumValue only upper-cases the FIRST letter, so the
+//   • rig itself writes lowercase strings; enumValue only upper-cases the FIRST letter, so the
 //     accepted wire form is the lowercase token ("additive", not "Additive"/"ADDITIVE").
 //
 // PARITY: a slot with no `blend` (or "normal") ⇒ SlotData.blendMode === Normal, identical to
 // today. The Rigger therefore writes NO `blend` field for Normal (removes it) → byte-identical.
-// This is a setup-only property: NO `blend` timeline exists in the Spine format (verified — the
+// This is a setup-only property: NO `blend` timeline exists in the rig format (verified — the
 // loader never reads a per-animation blend channel), so there are no dopesheet/timeline changes.
 // ===========================================================================
 
 import { readFileSync } from 'node:fs';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, BlendMode } = await import(SPINE_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, BlendMode } = await import(RIG_CORE);
 
 const [, , jsonPath, atlasPath] = process.argv;
 if (!jsonPath || !atlasPath) {

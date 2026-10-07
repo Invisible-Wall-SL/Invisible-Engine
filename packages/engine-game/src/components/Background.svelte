@@ -15,7 +15,7 @@
 </script>
 
 <script lang="ts">
-	import { Rectangle, SpineProvider, SpineTrack, getContextApp } from 'pixi-svelte';
+	import { Rectangle, RigProvider, RigTrack, getContextApp } from 'pixi-svelte';
 	import { coverAnchorOffset } from 'engine-layout';
 	import { FadeContainer } from 'components-pixi';
 	import { SECOND } from 'constants-shared/time';
@@ -42,12 +42,12 @@
 	// active ⇒ `showDust` is true ⇒ byte-identical to before (the dust always played).
 	const showDust = $derived(stateUi.continuePressCount === 0);
 
-	// True full-bleed cover (§10): size each background spine to the WHOLE canvas via
+	// True full-bleed cover (§10): size each background rig to the WHOLE canvas via
 	// pixi-svelte's `fit` (uniform cover/contain from the skeleton's authored dims),
 	// instead of the old half-size, ratio-driven `normalBackgroundLayout({ scale: 0.5 })`.
 	// Defaults to exact edge-to-edge cover (scale 1, fit 'cover', stretch {1,1}); the
 	// editor's doc-driven cover scale/fit/stretch override it when provided. The free
-	// per-axis stretch rides on the `scale` prop, which `SpineProvider` multiplies onto
+	// per-axis stretch rides on the `scale` prop, which `RigProvider` multiplies onto
 	// the `fit` scale — default stretch {1,1} is identical to plain cover.
 	const coverScale = $derived(cover?.scale ?? 1);
 	const coverFit = $derived(cover?.fit ?? 'cover');
@@ -56,7 +56,7 @@
 	const appContext = getContextApp();
 	/**
 	 * Cover props for ONE background rig. The anchor ALIGNS the fitted art in the window
-	 * (0.5 = centred = every existing doc ⇒ a zero offset ⇒ byte-identical); `SpineProvider`
+	 * (0.5 = centred = every existing doc ⇒ a zero offset ⇒ byte-identical); `RigProvider`
 	 * sizes the rig from `skeleton.data`, so the shift is computed from those same dims via the
 	 * shared `coverAnchorOffset` — the one formula the sprite/component covers use, so the
 	 * coded background cannot align differently from an authored one. Dims unknown (bundle not
@@ -107,23 +107,23 @@
 <Rectangle {...context.stateLayoutDerived.canvasSizes()} backgroundColor={0x000000} zIndex={-3} />
 
 <FadeContainer show={showBaseBackground} duration={SECOND} zIndex={-2}>
-	<SpineProvider key="foregroundAnimation" {...baseBackgroundProps}>
-		<SpineTrack trackIndex={0} animationName="idle" loop />
-	</SpineProvider>
+	<RigProvider key="foregroundAnimation" {...baseBackgroundProps}>
+		<RigTrack trackIndex={0} animationName="idle" loop />
+	</RigProvider>
 </FadeContainer>
 <FadeContainer show={showBaseBackground && showDust} duration={SECOND} zIndex={-2}>
-	<SpineProvider key="foregroundAnimation" {...baseBackgroundProps}>
-		<SpineTrack trackIndex={0} animationName="dust" loop />
-	</SpineProvider>
+	<RigProvider key="foregroundAnimation" {...baseBackgroundProps}>
+		<RigTrack trackIndex={0} animationName="dust" loop />
+	</RigProvider>
 </FadeContainer>
 
 <FadeContainer show={showFeatureBackground} duration={SECOND} zIndex={-1}>
-	<SpineProvider key="foregroundFeatureAnimation" {...featureBackgroundProps}>
-		<SpineTrack trackIndex={0} animationName="idle" loop />
-	</SpineProvider>
+	<RigProvider key="foregroundFeatureAnimation" {...featureBackgroundProps}>
+		<RigTrack trackIndex={0} animationName="idle" loop />
+	</RigProvider>
 </FadeContainer>
 <FadeContainer show={showFeatureBackground && showDust} duration={SECOND} zIndex={-1}>
-	<SpineProvider key="foregroundFeatureAnimation" {...featureBackgroundProps}>
-		<SpineTrack trackIndex={0} animationName="dust" loop />
-	</SpineProvider>
+	<RigProvider key="foregroundFeatureAnimation" {...featureBackgroundProps}>
+		<RigTrack trackIndex={0} animationName="dust" loop />
+	</RigProvider>
 </FadeContainer>

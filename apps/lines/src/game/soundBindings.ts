@@ -182,7 +182,7 @@ export const playSymbolLandSound = (symbolName: string, scatterIndex: number): v
 };
 
 /**
- * The WILD's explosion, fired by a `wildExplode` EVENT on the symbol's spine timeline rather than by
+ * The WILD's explosion, fired by a `wildExplode` EVENT on the symbol's rig timeline rather than by
  * a state change — so it lands on the animation's own beat. Routed through the slot so the cue is
  * authorable; it used to be the literal `sfx_wild_explode` in three separate components.
  */

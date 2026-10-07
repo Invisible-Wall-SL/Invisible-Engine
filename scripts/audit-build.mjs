@@ -49,7 +49,7 @@ const jsonOut = arg('--json', '');
  *
  * Turns "what is in this build" into "what does this build ship and never load". Recorded by the
  * SERVER, so it catches every request whatever made it — howler fetching its own audio, the KTX2
- * transcoder pulling its wasm, a spine atlas pulling its page — not only what a Performance entry
+ * transcoder pulling its wasm, a rig atlas pulling its page — not only what a Performance entry
  * happens to show.
  *
  * READ IT AS A FLOOR, NOT A VERDICT. A file absent from the record was not reached BY THAT

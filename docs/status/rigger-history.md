@@ -69,7 +69,7 @@
     list of weighted, transformed source entries per new entry).
   - **Which pose.** The one the stage draws: `posedSetupWorlds` loads the doc through the
     runtime in the skin on stage, with constraints applied and physics off. `setupWorlds` (a pure
-    mirror of spine-core 4.2's `updateWorldTransformWith`) fills in any bone the skin leaves
+    mirror of the reference core runtime 4.2's `updateWorldTransformWith`) fills in any bone the skin leaves
     inactive. Two traps decide which doc is posed. First, the constraints the delete removes
     must already be gone, or the dependants keep a pose that vanishes with them. Second, D must
     still be in the constraints that stay: the cascade's predicate filters D out of their `bones`
@@ -80,7 +80,7 @@
     D's own keys go with it (the cascade since #880 drops `animations.*.bones[D]`), so its
     dependants no longer follow its motion. A child's own keys are offsets in its parent's
     space, so a translate key now moves it along G's axes. Mapping those through `M` would need
-    the x and y curves of a split or Bézier-eased translate to be combined, which Spine cannot
+    the x and y curves of a split or Bézier-eased translate to be combined, which rig cannot
     express, so the confirm says it instead. A local-space transform constraint reading a
     re-solved child's local values sees the new ones. A two-bone IK `[G, D]` survives as a
     one-bone IK on G, which poses G differently.
@@ -115,16 +115,16 @@
     When the atlas also held a region of that name with an FX layer beside it
     (`symbexpl__glow`), Auto FX duplicated the slot and `repointSlotSetupImage` set the copy's
     `path`. That re-aimed all 13 frames at `symbexpl__glow01`…, which do not exist, and stock
-    Spine refused the rig ("Region not found in atlas: symbexpl__glow01").
+    Rig refused the rig ("Region not found in atlas: symbexpl__glow01").
   - **Refuse, not carry.** Carrying the sequence would need the FX frames as their own numbered
-    run (`<path>_glow` + number). The Sheet Maker writes FX per image (`<frame>_glow`), and Spine
+    run (`<path>_glow` + number). The Sheet Maker writes FX per image (`<frame>_glow`), and rig
     names a sequence's frames `<path><number>`, so no declaration can name them.
     `fxRepointRefusal` is checked BEFORE the duplicate, so a refused layer leaves no orphan
     slot. `repointSlotSetupImage` refuses on its own too and returns why. A per-frame layer
     (`symbexpl_01_glow`) was reported as "base not slotted". `sequenceFrameSlots` now names it as
     one frame of the sequence on its slot.
   - **Proof.** `sequence.mjs` §F (CI, on `W`): the W atlas plus the trigger regions, through the
-    shipped `autoCreateFxSlots`. The rig still opens in stock Spine, there is no FX slot from the
+    shipped `autoCreateFxSlots`. The rig still opens in stock rig, there is no FX slot from the
     sequence slot, both skips are explained, and a plain image beside them (`wild_exp_w`) still
     gets its `_glow` slot (the control). With the refusal planted out, 4 checks go red, the load
     with "Region not found".
@@ -135,7 +135,7 @@
     `If-None-Match`, then list for a case clash, then write the page, the atlas and
     `skeletons.json`. A request that dies after the claim (or after the page) leaves a folder with
     no atlas, so the index never lists it: no Rigger surface can open or delete it, and
-    `spineBundleNameTaken` refuses the name, in every case spelling, for good.
+    `rigBundleNameTaken` refuses the name, in every case spelling, for good.
   - **Reclaim** (`riggerAbandonedClaim.ts` `reclaimAbandonedClaims`, called by both routes before
     the name check). A folder named like the new rig is abandoned when it is not in
     `skeletons.json`, has no `.atlas`, holds only `<folder>.irig` and page images (no subfolder,
@@ -175,14 +175,13 @@
     (`updateRegion` offsets it by `region.offsetX/Y`), but a `MeshAttachment`'s `uvs` are a fraction
     of the UNTRIMMED image, v down: its `updateRegion` subtracts the offsets and scales by
     `originalWidth/Height` against the page size, and undoes a 90/180/270° pack. Read off the
-    vendored `spine-webgl-4.2.js` and spine-core 4.2.74 (the same code). ▸ Convert to mesh wrote
+    vendored reference WebGL runtime and the reference core runtime 4.2.74 (the same code). ▸ Convert to mesh wrote
     UVs `[0,1, 0,0, 1,0, 1,1]` over the ink's quad and ✎ Draw mesh wrote `affineUV` (0..1 across
     that quad), so the whole image — and whatever the atlas packs beside the ink — was squeezed
     into the ink's box. Now both map through `regionInkUVs(region)` (the ink's place on the image:
     `u0 = offsetX/ow`, `v0 = (oh − offsetY − height)/oh`, …): Convert's corners take the ink's
     corners, a drawn point `(s, t)` on the ink's quad takes `inkToImageUV`. The vertices are
-    unchanged (the ink's quad), so the mesh draws exactly the region's pixels. That is also Spine
-    Editor's own UV space — its `ground_snow` in `symbols` (ink 70×134 of 192×134) has UVs
+    unchanged (the ink's quad), so the mesh draws exactly the region's pixels. That is also the format's own UV space — its `ground_snow` in `symbols` (ink 70×134 of 192×134) has UVs
     0.319–0.681, the ink's span — while its default region→mesh is a whole-image quad
     (`[1,1, 0,1, 0,0, 1,0]`, 115 of 118 checked-in 4-vertex meshes): it packs from untrimmed
     source images, whereas an atlas has no pixels outside the ink to give such a quad.
@@ -225,14 +224,14 @@
     image pixel it holds, the rest of the page reads as "atlas") and compared pixel by pixel. 8
     images (trimmed, 0 / 90 / 180 / 270° packs, one untrimmed) × 4 placings (plain, shifted, turned
     90° ×2, under a turned flipped bone): Convert and Draw each give a mesh identical to the region
-    (0 / 90°) and to an untrimmed twin (all four), and spine-core 4.2.74 agrees on the UVs at every
+    (0 / 90°) and to an untrimmed twin (all four), and the reference core runtime 4.2.74 agrees on the UVs at every
     vertex. Sequences: Convert on frames trimmed alike (identical per frame), frame by frame (asks
     once; every ink pixel of every frame kept; the union exceeds any single frame) and keyed (the
     key still drives it); Draw on a sequence; ＋ Linked mesh onto two sequence meshes (frames and a
     keyed frame match the source); a linked mesh's source switched to a sequence mesh and back. The
     repair: 12 stale meshes (old Convert unweighted and bone-bound, old Draw, a linked mesh) offered
     and drawing the region's pixels after 🩹, one repaired alone touching only its own; No to
-    Draw's question writing nothing and keeping the outline; not offered — a Spine-style whole-image quad on an
+    Draw's question writing nothing and keeping the outline; not offered — a plain whole-image quad on an
     ink of the image's aspect and of another, an old mesh reshaped so only flatness refuses it, an
     untrimmed one, the unevenly scaled ones it cannot tell, the fixed tools' 64 meshes, and all
     1,615 meshes of the 153 checked-in rigs. The UV panel's art is drawn by the shipped helpers in
@@ -247,7 +246,7 @@
     skipped them) and offers sequence sources to ＋ Linked mesh; `uvpanel.mjs` pulls the shipped
     `uvArtAspect` / `computeUvFit` instead of a hand copy.
   - **Found, not fixed** (open item 13): a region on a 180° pack draws upside down and on a 270°
-    pack transposed, in spine-core 4.2 itself — its `RegionAttachment.updateRegion` undoes a 90°
+    pack transposed, in the reference core runtime 4.2 itself — its `RegionAttachment.updateRegion` undoes a 90°
     pack only. Only `apps/price/…/symbolsSpecial` has such packs (18 regions).
 
 - 2026-09-30 — **Save residuals closed** (former open items 2 and 6).
@@ -258,9 +257,9 @@
     and the tab's confirmed retry is `If-Match` on that etag (a second concurrent overwrite is
     `409 conflict`). Nothing is written, blob or Postgres row, on either 409. A tab still running
     the old `view.html` sends no `baseEtag` and gets a 400 asking it to reload — loud, nothing lost.
-  - **Case-only New-rig clash (6b).** `spineBundleNameTaken` is a read and `claimNewIrig` is
+  - **Case-only New-rig clash (6b).** `rigBundleNameTaken` is a read and `claimNewIrig` is
     `If-None-Match` on the exact-case key, so `Hero` and `hero` created at once both passed.
-    `releaseClaimOnCaseClash` (`spineIndex.ts`) re-lists the spines folder after the claim and
+    `releaseClaimOnCaseClash` (`rigIndex.ts`) re-lists the rigs folder after the claim and
     before anything else is written; a top-level name differing only by case makes the route
     delete its own `.irig` and answer 409. Both creates claim before they list and an R2 listing is
     strongly consistent, so the later lister always sees the other: never both, at worst neither.
@@ -268,13 +267,13 @@
     lone `.irig` (as it could before).
   - **Index rebuilds (2).** `rigger/new`, `upload`, `delete` and `editor/spines/reindex` wrote
     `buildSkeletonsIndex`, which skips a folder with no `.atlas`, so any of them un-listed an
-    unrelated atlas-less rig. All of them and `writeIrig` now call `spineReindex.ts`
+    unrelated atlas-less rig. All of them and `writeIrig` now call `rigReindex.ts`
     `reindexProjectSkeletons` (the save's re-derive-then-preserve wiring, extracted);
     `buildSkeletonsIndex` had no callers left and is removed. The preserve step now keeps a prior
     entry only while its skeleton file still exists (`atlasMissingFiles`), so deleting one rig
     from a folder that still holds another atlas-less skeleton does not bring it back. The reindex
     response adds `rederived`, `preserved` and `atlasMissing`.
-  - **`irigDocProblem` (6c).** Added, matching spine-core 4.2.74 `SkeletonJson` exactly: a skin's
+  - **`irigDocProblem` (6c).** Added, matching the reference core runtime 4.2.74 `SkeletonJson` exactly: a skin's
     `bones` / `ik` / `transform` / `path` / `physics` lists; an animation's IK and transform keys
     (only with a first key, as the loader reads them), path keys (always), physics keys (except
     `""`, which keys every physics constraint); draw-order offsets' `slot`; event keys' `name`
@@ -297,7 +296,7 @@
   name AND set `slots[].attachment` to it — the setup attachment, one name for every skin — so with
   `skin1` on stage, `frame_radial1` (setup `radial1`) became `dust1` everywhere, and default, which
   has no `dust1` there, drew nothing (still nothing after `skin1` was deleted). Owner decision
-  (2026-09-30), option A: Spine's idiom of a same-named override.
+  (2026-09-30), option A: the format's idiom of a same-named override.
   - **Naming.** In a non-default skin the new entry is keyed by the slot's setup name (`radial1`)
     with `path: dust1`; the setup attachment is untouched, so the skin on stage resolves its own
     `radial1` and every other skin its own, else default's — exactly what it drew before. `path`
@@ -368,7 +367,7 @@
     every placement field in turn, chooses a pivot, and replaces the image with a region no skin's
     `body` draws. Each edit must be written into the stage image's entry alone (a snapshot diff of
     the whole rig) and show at once; a turn or scale must hold that image's pivot, measured off the
-    quad spine-core draws rather than the tool's pivot math; the pivot panel must show that image's
+    quad the reference core runtime draws rather than the tool's pivot math; the pivot panel must show that image's
     pivot before and the choice after, the point chosen taking the old pivot's place; and a rebuild
     must leave the image exactly where the edit put it, with the same skin on stage. The CLI rig gets
     all three on every slot showing a default-skin image (63 on `anticipation`, 34 on `S`), with a
@@ -559,7 +558,7 @@
     differential fuzzers agree with the loader: 1,078 generated attachment-kind docs, every one;
     and of 145,184 generated reference docs, none the loader rejects is accepted, and the only
     loadable ones refused are sequence linked meshes over a non-mesh parent, which crash on their
-    first frame. `rigmerge.mjs` (the shipped merge, loaded by spine-core) now imports a rig whose
+    first frame. `rigmerge.mjs` (the shipped merge, loaded by the reference core runtime) now imports a rig whose
     keys name an event the open rig lacks and one it defines differently: both load, each key
     names the imported definition; the old merge fails it ("Event not found: fx_hit"). The real
     `view.html` in a browser against a mock API backed by the real `irigDocProblem`, on `S`: the
@@ -618,7 +617,7 @@
     only the page writes. It adds a skin session on the synthetic rig (＋ Add skin, pick, ＋ add
     image, rig text, ⎘ Make skin-specific + replace image, rename, delete, import) and ＋ add image
     on every slot of the CLI rig in a skin added that session (68 slots on `anticipation`, 51 on
-    `S`), each checked against the placement spine-core resolves for the image the slot showed.
+    `S`), each checked against the placement the reference core runtime resolves for the image the slot showed.
     Eleven mutants — the picker not rebuilt or its value not set, the rebuild or the rename
     dropping the skin on stage, ＋ add image / rig text / the slot list / replace image reading the
     first or default skin, placement taken from the target skin only, a new name checked against
@@ -637,7 +636,7 @@
     attachment, which is one name for every skin, so added in a skin other than default it leaves
     that slot empty in default — and still empty after that skin is deleted, since the delete
     cannot know what the slot showed before. (This already happened for any skin the rig opened
-    with; now it is also the path in a skin added this session.) Spine's idiom is an override of
+    with; now it is also the path in a skin added this session.) The format's idiom is an override of
     the same attachment name in the skin, which is a behaviour decision. Separately, ⬡ Convert to
     mesh and ✎ Draw mesh rewrite the image in the first skin holding its name, not the one on
     stage: a two-skin probe of the shipped `convertRegionToMesh`, with `gold` on stage over
@@ -652,21 +651,21 @@
   whenever the parent's skin was the ACTIVE one, so with any other skin active the rebuild threw
   "Parent mesh not found" (the stage stopped updating and the save was refused) — or, when default
   held a same-named mesh on that slot, the linked mesh silently bound to default's. The vendored
-  `spine-webgl-4.2.js` has the same rule (read at its SkeletonJson, and the skin-only and
+  the reference WebGL runtime has the same rule (read at its SkeletonJson, and the skin-only and
   same-named cases behave identically when run through it headlessly).
   - **One rule, in the LINKED MESH section:** `linkedMeshParentSkin(def)` reads it
     (`skin || "default"`), `setLinkedMeshParentSkin(def, skin)` writes it (omitted only for
-    `default`), and `isRawLinkedMeshDef` is any mesh with a `parent` (Spine also accepts
+    `default`), and `isRawLinkedMeshDef` is any mesh with a `parent` (rig also accepts
     `type: "mesh"`). The delete cascade's copies of the rule (`detachLinkedMeshes`,
     `deleteBoneCore`) now call them.
   - **The same wrong model elsewhere.** `prefixRigNames` (rig import) renames the imported
-    `default` skin but prefixed only explicit refs, so importing any Spine-exported rig with linked
+    `default` skin but prefixed only explicit refs, so importing any rig-exported rig with linked
     meshes broke the open rig (`S`: 180, all implicit). The linked-mesh editor showed
     `skin || active skin` as the current source: the wrong mesh, or nothing.
   - **Skin rename.** It never moved the animations' `attachments` (deform / sequence) keys, which
     SkeletonJson resolves by skin name, so renaming a skin with deform keys broke the load ("Skin
     not found"). Renaming `default` also broke every implicit linked mesh ("Skin not found: null"),
-    and even where it loaded it was wrong: Spine draws the skin named `default` when no skin is set
+    and even where it loaded it was wrong: Rig draws the skin named `default` when no skin is set
     — how the game mounts a rig unless a `skin` prop names one — and falls back to it for every
     slot another skin leaves empty. So the default skin keeps its name: no ✎, and `renameSkin`
     refuses it.
@@ -683,7 +682,7 @@
     the save accepted that. The name is now also unique in the skin it is written into; the stale
     picker itself is open item 9.
   - `tools/rigger-spike/linkedmesh.mjs` pulls the shipped functions out of `view.html`
-    (transitively), stubs the rebuild with spine-core 4.2, models the picker as a browser `<select>`
+    (transitively), stubs the rebuild with the reference core runtime 4.2, models the picker as a browser `<select>`
     (options fixed at load; an unknown value reads `""`), and asserts every result loads with each
     linked mesh bound to the mesh the author picked: ＋ Linked mesh and the picker from every skin
     onto every source offered, the source the picker shows, ＋ Linked mesh in an imported skin, a
@@ -709,7 +708,7 @@
     dropping an influence without dropping its pair shifts every later vertex's key
     (`symbolsSpecial`'s `scatter_box_glow`). A linked mesh with `timelines: false` keeps its own
     keys in the same layout and now follows its parent's remap.
-  - **Deleting an IK or transform constraint left a hole in `order`.** Spine never runs a
+  - **Deleting an IK or transform constraint left a hole in `order`.** Rig never runs a
     constraint whose order is ≥ the constraint count, so a later one went silently inactive
     (`h1`: delete `rays1` and the `shake` path constraint stops).
   - **A slot delete scrambled animated draw order.** A draw-order key's offsets are relative to
@@ -754,8 +753,8 @@
     claim the `.irig` with `If-None-Match` before writing any page or atlas.
   - **Pre-save validation.** The tab re-parses the doc through the same tolerant `SkeletonJson`
     loader it opens with and refuses with the loader's own message; the server runs
-    `irigDocProblem` (`$lib/server/riggerIrig.ts`) — every by-name reference spine-core throws on,
-    plus undefined parents (which spine-core silently re-roots) and duplicate names. 422 with a
+    `irigDocProblem` (`$lib/server/riggerIrig.ts`) — every by-name reference the reference core runtime throws on,
+    plus undefined parents (which the reference core runtime silently re-roots) and duplicate names. 422 with a
     readable reason; the stored rig is untouched.
   - **Rolling backups + restore.** Every overwrite first copies the previous `.irig` to
     `<client>/<project>/rigger-backups/<dir>/<stem>/` (outside `spines/`, which the skeleton scan
@@ -766,7 +765,7 @@
     unsaved changes.
   - **Rig library save** creates only; a taken name shows who saved it and when, and the
     confirmed retry is `If-Match` on that entry.
-  - Verified: `tools/rigger-spike/irig-save.mjs` (45/45 — the check agrees with spine-core on
+  - Verified: `tools/rigger-spike/irig-save.mjs` (45/45 — the check agrees with the reference core runtime on
     every reference break and passes all 153 skeletons checked into the repo; CAS, backup-before-
     PUT ordering, retention, atlas-missing etag hand-back), the other rigger-spike suites
     unchanged (`rigtext-panel` 8/9 and the `$lib`-alias build failure of `cinematic-storage` are
@@ -791,7 +790,7 @@
   - **Animate mode** gains a `◆` on the sequence row (keys at the playhead, continuing from the key
     before rather than restarting at image 0) and a docked **key inspector**: plays / starts on
     image / hold each image, with the resulting images-per-second shown.
-  - **The reason this needed care:** Spine's `loadSequence` THROWS on the first frame it cannot
+  - **The reason this needed care:** The runtime's `loadSequence` THROWS on the first frame it cannot
     find, and the Rigger's tolerant loader explicitly excluded sequences — so a wrong declaration
     produced a rig that would not open **in the only tool that could repair it**. Measured against
     the official loader on a rig whose frames are `symbexpl_01`…`_13`: `count` 14, `start` 0 and
@@ -825,7 +824,7 @@
     edits each refused by name, the harmless one accepted, `◆` keying at 0.9s and inheriting
     mode/index/delay, and every inspector edit reaching the renderer — halving the hold time doubled
     the rate, `pingpong` made the image index come back down (`0,2,4,6,8,10,12,10,8,6,4,2`), `hold`
-    sat on image 7. The whole round trip sequence → plain image → sequence loads through Spine's
+    sat on image 7. The whole round trip sequence → plain image → sequence loads through rig's
     STOCK loader at every step.
   Files: `apps/launcher-api/static/rigger/view.html`, `tools/rigger-spike/sequence.mjs`,
   `tools/rigger-spike/sequence-all.mjs`.
@@ -883,7 +882,7 @@
   Files: `apps/launcher-api/static/rigger/view.html`, `tools/rigger-spike/stretch.mjs`.
 
 - 2026-09-23 — **The `sequence` timeline is now a dopesheet track, and `stretchAnimation` no longer
-  leaves five timeline kinds behind.** The stretch above shipped with a hole: a Spine 4.2
+  leaves five timeline kinds behind.** The stretch above shipped with a hole: a 4.2-format
   **sequence** (a flipbook of numbered atlas images) was invisible to `/rigger` — no track kind at
   all — so 21 rigs here had key times the dopesheet simply did not show.
   - **Now a first-class track.** `▩ <slot> · sequence` rows appear wherever a sequence is keyed, in
@@ -906,7 +905,7 @@
     all keys to N seconds" desynced them. Replaced by a structural `scaleKeyTimes` walk that cannot
     miss a timeline kind added later. Measured: the old walk left **36 key times** behind on
     `anticipation1_intro` alone. It guards per FIELD, not per key — a key-level `time` test skipped
-    `explosion.json`'s first sequence key entirely (Spine OMITS `time` at 0) along with the `delay`
+    `explosion.json`'s first sequence key entirely (rig OMITS `time` at 0) along with the `delay`
     it owns, which is how the runtime replay first failed.
   - `importAnimation` now runs `normalizeKeyTimes` on a clip arriving from the library or clipboard.
     The rig LOAD path normalizes for a reason — every reader treats `k.time` as a number — and a clip
@@ -925,7 +924,7 @@
     and drive `applyDopeScale` rather than the remap in isolation, which is how the interleaving bug
     had stayed green.
   - **Proved on 153 rigs** (`stretch.mjs`, 24,551 assertions) plus **21 rigs with a real sequence**
-    (`sequence.mjs`, 348 assertions, replayed through spine-core 4.2.74). Verified live: double-click
+    (`sequence.mjs`, 348 assertions, replayed through the reference core runtime 4.2.74). Verified live: double-click
     delete (with REAL pointer input — the first attempt at this check synthesised the very
     `click`/`dblclick` events whose dispatch was in question, and so proved nothing), the `sel`
     toggle, Escape-aborts, the clash warning, and a spreading stretch on a sequence row scaling an
@@ -942,12 +941,12 @@
   - **Now:** the pivot is the point of the image that SITS AT the slot's position. Choosing a new one
     moves the ART so that point takes the pivot's place, while the pivot itself stays put — pick
     bottom-centre and the picture jumps up until its bottom edge is on the pivot. Standard
-    sprite-editor behaviour. Spine places a region by its CENTRE, so this is an offset on the
+    sprite-editor behaviour. Rig places a region by its CENTRE, so this is an offset on the
     attachment's `x`/`y`: `setPivotUV` shifts the placement by however far the new pivot would
     otherwise have drifted from the old one, and mirrors it onto the live attachment so the canvas
     updates without a rig rebuild. Rotation and scale still turn around the pivot (unchanged), and a
     centred pivot is still a complete no-op.
-  - **The pivot is a fraction of the UNTRIMMED image** (Spine's `width`/`height`), not of the packed
+  - **The pivot is a fraction of the UNTRIMMED image** (rig's `width`/`height`), not of the packed
     atlas rect — deliberate, so that re-packing an atlas never moves anybody's pivot. Visible
     consequence: on a cropped region the rendered edge sits a pixel or two inside the pivot box.
     Measured on `radial` (`bounds:472,817,198,198` / `offsets:1,1,200,200`, load scale 2): clicking
@@ -971,18 +970,18 @@
   more like a new added bone! I think the 2 things should be very different and separated. It even
   added an extra bone called pivot in my skeleton when I edit it."_ Correct, and the first design was
   wrong: it realised the pivot by moving the slot's bone (or giving the slot a `<slot>-pivot` child),
-  on the reasoning that Spine's only real pivot IS a bone origin. True of the runtime, but it made a
+  on the reasoning that rig's only real pivot IS a bone origin. True of the runtime, but it made a
   skeleton edit out of an image property and left bones in people's rigs.
   - **Now:** the pivot is stored on the attachment as `pivot: [u, v]` (across, down; 0..1 of the
     image; absent = centred) and **nothing creates, moves or deletes a bone**. Setting it changes no
     placement at all, so the art cannot move; `applyAttachmentEdit` then HOLDS it — editing
     rotation / scaleX / scaleY recomputes x/y so the pivot point is the one point of the image that
-    stays put. Since Spine always rotates the quad about its own centre and then offsets by x/y,
+    stays put. Since rig always rotates the quad about its own centre and then offsets by x/y,
     holding another point is still just arithmetic on x/y; a **centred pivot cancels to a no-op**, so
     every image authored before this is byte-unchanged.
   - The key is non-standard but **inert**: the official 4.2 loader ignores it and the rendered
     geometry is byte-identical (measured across 90 region attachments), so the `.irig` still opens in
-    Spine with no sidecar. Regions only — a mesh's shape lives in its vertices, which is also what
+    Rig with no sidecar. Regions only — a mesh's shape lives in its vertices, which is also what
     "image pivot" means.
   - **Migration for the rigs the first version touched:** the panel detects a leftover
     `<slot>-pivot` bone (child, no children, no other slot, no constraint, no timeline, identity
@@ -1009,29 +1008,29 @@
   fixed via `/symbols`, which shares the factory; never reported here. Cause, measurements and the
   guard: `docs/status/symbols.md`, 2026-09-18.
 
-- 2026-09-04 — **A rig's bound FX / clips now play wherever the rig is mounted, not only on a placed `spine` node.** What you key here reached the game through exactly two mount sites; a rig used by a coded component (the big-win rig, backdrops, transitions, cinematic actors) read the binding nowhere. The join moved into `<SpineProvider>`. Authoring is unchanged. Detail in [fx status](fx.md).
+- 2026-09-04 — **A rig's bound FX / clips now play wherever the rig is mounted, not only on a placed `spine` node.** What you key here reached the game through exactly two mount sites; a rig used by a coded component (the big-win rig, backdrops, transitions, cinematic actors) read the binding nowhere. The join moved into `<RigProvider>`. Authoring is unchanged. Detail in [fx status](fx.md).
 - 2026-09-03 — **A carrier rig's bound clips and effects draw at their authored size in the game too.** Follow-up to the Bounds fix below: the frame was right but the lobster inside it was half-size on the board, because a symbol bundle is read at load scale 2 and a Pixi child riding a bone follows only the bone's scale. The engine now scales bound content by the host bundle's load scale, so what this tool (and /symbols) shows at load 1 is what the board draws. Details in [engine status](engine.md).
 - 2026-09-02 — **The Bounds box is now the frame that fills a symbol cell — centred — everywhere, so
   what you author here is what the board draws.** Reported as: "the rig bounds we build seem off; I
   author them in the Rigger to get the size right in the game, but the two don't match." They could
   not: every consumer read only `skeleton.width/height` and placed the box as if it were CENTRED ON
-  THE ORIGIN (`measureSpineBounds` returned `-w/2, -h/2`; `<SpineProvider>` pivoted on (0,0)). True
-  of every Spine-editor rig we ship (all 32 checked-in headers are `x = -w/2, y = -h/2`), false of a
+  THE ORIGIN (`measureRigBounds` returned `-w/2, -h/2`; `<RigProvider>` pivoted on (0,0)). True
+  of every externally authored rig we ship (all 32 checked-in headers are `x = -w/2, y = -h/2`), false of a
   Rigger rig: `ensureRigBounds` writes the measured setup-pose extent and a dragged frame writes
   wherever the author put it, so a rig whose root sits at its feet had a frame the game sized
   correctly and then hung from the wrong point — the origin at the cell centre, the frame's centre
   somewhere else. Shrinking or growing the frame to "get the size right" then moved the art as well,
   which is the "very difficult to match" in the report.
-  - **Fix: read the box where the header puts it.** `authoredSpineBox` (`constants-shared/spine`) is
-    the ONE reading of `skeleton.{x,y,width,height}`; `measureSpineBounds` (Scene Editor reel cells,
-    `/symbols` grid + preview) returns its real corner, and `<SpineProvider centreBox>` pivots the
+  - **Fix: read the box where the header puts it.** `authoredRigBox` (`constants-shared/rig`) is
+    the ONE reading of `skeleton.{x,y,width,height}`; `measureRigBounds` (Scene Editor reel cells,
+    `/symbols` grid + preview) returns its real corner, and `<RigProvider centreBox>` pivots the
     game's rig on the box centre — scaled by the bundle's load scale and y-flipped into pixi space
-    (`spineBoxPivot`), because the header stays unscaled while the geometry does not. Opted in by the
-    three cell-fit consumers (`SymbolSpineMain`, `StackedPicture`, the paytable's `InfoOverlay`); a
-    PLACED scene spine keeps origin-at-position, which is the convention the Scene Editor draws it
+    (`rigBoxPivot`), because the header stays unscaled while the geometry does not. Opted in by the
+    three cell-fit consumers (`SymbolRigMain`, `StackedPicture`, the paytable's `InfoOverlay`); a
+    PLACED scene rig keeps origin-at-position, which is the convention the Scene Editor draws it
     with, so nothing else moves. A header with a size but no `x`/`y` keeps the centred reading.
   - Parity: a centred box yields a `(0,0)` pivot, so every shipped rig is byte-identical.
-    Fixture `packages/pixi-svelte/fixtures/spineBox.fixture.ts` proves it against a real
+    Fixture `packages/pixi-svelte/fixtures/rigBox.fixture.ts` proves it against a real
     `SkeletonJson` parse (centred ⇒ no-op at load 1 and 2; feet-rooted frame ⇒ box centre; a
     missing `x` comes through `undefined`, not 0). Reaches online games via the automatic runtime
     release; the launcher side deploys with this commit. The Bounds button's tooltip now states the
@@ -1047,13 +1046,13 @@
     1s — and the first key's settings won for both. This was a documented limit (the 2026-08-27
     entry's "the limit the manifest imposes"), surfaced by an inspector warning telling the author
     to rename the event. That was the wrong answer: the author asked to control each key
-    separately, and a spine event already carries what identifies its key.
+    separately, and a rig event already carries what identifies its key.
   - **The fix: bake the BEAT.** A binding now carries `animation` + `time` beside the event name
     (`RigBeat` in `engine-layout`, read through `readRigBeat` at the same choke points as the
     overrides), one binding per keyframe; the runtime listener matches all three off the fire — the
-    track entry's animation and the spine `Event.time` (the keyframe time, verbatim from the rig
+    track entry's animation and the rig `Event.time` (the keyframe time, verbatim from the rig
     JSON). `riggedBeatMatches` in `pixi-svelte` is the one rule, extracted like
-    `shouldApplySpineAnimation` so it runs headless. Absent fields match anything, so a manifest
+    `shouldApplyRigAnimation` so it runs headless. Absent fields match anything, so a manifest
     baked before beats existed still registers and keeps its name-only firing until re-baked. The
     bakes and both live timelines now walk ONE `beatsOf` list; the only thing still de-duped is a
     literal duplicate (same beat, same effect/clip, same place). Each keyframe keeps its own
@@ -1063,10 +1062,10 @@
     and state changes (it stops when the rig unmounts), but a binding is one keyframe — so key an
     ambient effect ONCE, on the animation that starts it; the same effect keyed continuous in a
     second animation is a second instance.
-  - **What was wrong (2): a t=0 key fired before anyone listened.** The sibling `<SpineTrack>` sets
-    the animation and poses it with `spine.update(0)` from its `$effect`, and sibling effects run in
+  - **What was wrong (2): a t=0 key fired before anyone listened.** The sibling `<RigTrack>` sets
+    the animation and poses it with `rig.update(0)` from its `$effect`, and sibling effects run in
     template order — so the listeners `<RiggedEffect>` / `<RiggedFlipbook>` attached from THEIR
-    `$effect` landed after that first apply, which is exactly when spine fires a frame-0 event. A
+    `$effect` landed after that first apply, which is exactly when rig fires a frame-0 event. A
     key at 0.01s only ever worked because the ticker fired it a frame later. Both now attach the
     listener during init (removed in `onDestroy`), before any track is set.
   - **And the Rigger preview skipped it too**, for its own reason: the crossing is `(prev, cur]`,
@@ -1080,21 +1079,21 @@
     (Publish) for the new manifest to reach the game.
   - **Follow-up the same day (#549):** the first release blanked the reels on the first spin —
     `ReferenceError: rigBeatKey is not defined`. The `{#each}` keys in `LayoutNodeView` and
-    `SymbolSpineMain` called the helper but the patch that was meant to add its IMPORT never
+    `SymbolRigMain` called the helper but the patch that was meant to add its IMPORT never
     landed, and Svelte compiles a bare template identifier as a global, so `launcher build` (not a
     type-check) stayed green and the throw only surfaced when a rig with bindings rendered. Found by
     loading the republished game in the browser and reading the console, not by reasoning.
   - **Second follow-up the same day (#552): on H1 only the FX showed, not the clip.** Per-keyframe
-    bindings exposed a spine-pixi rule: ONE object per slot — `addSlotObject(slot)` first
-    `removeSlotObject(slot)`s, pulling the previous container out of the spine. The H1 rig
+    bindings exposed the reference Pixi runtime rule: ONE object per slot — `addSlotObject(slot)` first
+    `removeSlotObject(slot)`s, pulling the previous container out of the rig. The H1 rig
     (`R_TentacleFlip`) binds `f_tentacle_exit` on `slot1` in BOTH `animation` (tumble) and
     `animation_copy` (static/land), which are now two `<RiggedFlipbook>` mounts, so the second
     evicted the first and the tumble's clip played into a container the rig no longer contained;
-    the effect on `slot2` (one binding) still drew. Fix = `spineSlotHost.attachToSlot`: the slot
+    the effect on `slot2` (one binding) still drew. Fix = `rigSlotHost.attachToSlot`: the slot
     object is a shared HOST, first binding in creates + registers it, later ones nest under it, last
-    one out unregisters and destroys it. Both rigged players use it; `<SpineSlot>` (coded slot
+    one out unregisters and destroys it. Both rigged players use it; `<RigSlot>` (coded slot
     content) still registers directly and is untouched. Fixture
-    `packages/pixi-svelte/fixtures/spineSlotHost.fixture.ts` (mutation-verified: a host per
+    `packages/pixi-svelte/fixtures/rigSlotHost.fixture.ts` (mutation-verified: a host per
     binding fails the eviction case). Read off the baked `rigFlipbooks` for test6 via
     `/api/editor/runtime`, not guessed.
 - 2026-09-01 — **A carrier rig had no SIZE and its bound content previewed upside down** — two
@@ -1103,21 +1102,21 @@
   all, correct in the game, too big in `/symbols`, bigger still in the game.
   - **No natural size.** Every measuring path is `skeleton.getBounds()`, which sees only
     ATTACHMENTS. A binding is a timeline **event** and the slots hosting one are empty, so the
-    setup-pose measure, the animation union and the runtime's `spineNaturalBounds` all returned 0;
+    setup-pose measure, the animation union and the runtime's `rigNaturalBounds` all returned 0;
     `ensureRigBounds` no-opped and the rig kept the `{ spine: '4.2' }` it was scaffolded with. The
     Bounds box then could not draw (`rigBoundsRect` needs a positive width/height) — and its one
     rescue path calls the same `ensureRigBounds` — so the ONE control that could have given the rig
     a size was unusable on exactly the rigs that need it.
   - **The two consumers then guessed DIFFERENTLY**, which is why the same rig was two sizes:
-    `measureSpineBounds` fitted a 100×100 box while `spineSizeScale` returned `{1,1}`, silently
-    dropping the requested `cell × SYMBOL_SPINE_FILL` and drawing the rig raw. That disagreement
+    `measureRigBounds` fitted a 100×100 box while `rigSizeScale` returned `{1,1}`, silently
+    dropping the requested `cell × SYMBOL_RIG_FILL` and drawing the rig raw. That disagreement
     read as a sizing bug in one surface rather than as the missing bounds it was. The fallback is
-    now ONE number, `SPINE_FALLBACK_NATURAL_SIZE` in `constants-shared/spine`, used by both.
+    now ONE number, `RIG_FALLBACK_NATURAL_SIZE` in `constants-shared/rig`, used by both.
   - **Fix: measure what the rig CARRIES.** A third tier in `computeRigBounds` unions the declared
     box of every bound Flipbook clip, posed at the beat and placed through its host bone's world
-    matrix (the clip box is PIXI y-DOWN and the rig is spine y-UP, so the corner's y is flipped
+    matrix (the clip box is PIXI y-DOWN and the rig is rig y-UP, so the corner's y is flipped
     BEFORE the bone matrix — that is what puts an off-centre box on the side it draws on, and it is
-    exactly the composition `<SpineBoneAttach>` performs). FX contributes nothing on purpose:
+    exactly the composition `<RigBoneAttach>` performs). FX contributes nothing on purpose:
     particles have no declared extent, so there is no honest size to read. When nothing is
     measurable the Bounds button now SEEDS a placeholder frame (unlocked, so a clip that later
     gains a box still auto-fits over it) and says so in a notice.
@@ -1126,12 +1125,12 @@
     into a y-down canvas; the Symbols grid mirrors x too), so `d < 0` and `setFromMatrix` drew the
     burst flipped about its bone. Invisible for as long as FX has existed — a particle burst is
     near-symmetric — and glaring the moment a Flipbook clip, which has an up and a down, was bound
-    (2026-08-31, one day earlier). The game never did this: `<SpineBoneAttach followRotation
+    (2026-08-31, one day earlier). The game never did this: `<RigBoneAttach followRotation
 followScale>` takes `rotation = -getWorldRotationX()` and sizes by `Math.hypot` MAGNITUDES,
     with a comment saying why. One shared `fxMatrix` in `fxOverlay.client.ts` now strips the
     reflection and keeps rotation + magnitudes, so **`/symbols` is fixed by the same change** — it
     was flipped too, just hidden under the oversize.
-  - Proved offline against an independent implementation of the `<SpineBoneAttach>` rule (every
+  - Proved offline against an independent implementation of the `<RigBoneAttach>` rule (every
     rotation × per-axis scale) and verified live on the local launcher with a synthesised carrier
     rig: box seeds + draws (4 edges, 9 handles), every handle grabbable, drag locks it, the lock
     survives `ensureRigBounds`, a 512×512 clip box yields a 512×512 rig, `scale: 2` doubles it,
@@ -1145,7 +1144,7 @@ followScale>` takes `rotation = -getWorldRotationX()` and sizes by `Math.hypot` 
   `api/rigger/new` was a spliced 1×1 PNG (a grayscale+alpha IHDR carrying an RGBA IDAT ⇒ bad IDAT
   CRC, truncated zlib), so Chrome answered `InvalidStateError: The source image could not be
 decoded`, `Assets.load` failed the whole bundle, the rig was missing from `loadedAssets`, and
-  `<SpineProvider>` rendered nothing — **including its children**, which for a carrier rig is the
+  `<RigProvider>` rendered nothing — **including its children**, which for a carrier rig is the
   entire point of it (`<RiggedEffect>` / `<RiggedFlipbook>`). Every authoring surface stayed healthy
   because they read the `.irig` and preview clips off the TIMELINE, never through the loaded bundle:
   the one asymmetry that lets a rig look perfect in `/rigger` + `/symbols` and draw nothing in the
@@ -1158,7 +1157,7 @@ decoded`, `Assets.load` failed the whole bundle, the rig was missing from `loade
   mix rigs, flipbook and FX in the animator. we already added FX successfully, and we can use that as
   a reference"_ — so it is deliberately the same shape as the FX binding, end to end.
   - **`event.flipbook = { clipId, bone?, … }`** beside the existing `event.fx`. Same custom-field
-    trick, same reason it needs a baked manifest: spine-pixi discards custom event fields at parse
+    trick, same reason it needs a baked manifest: the reference Pixi runtime discards custom event fields at parse
     time, so the binding is read from the rig `.irig`/`.json` (`rigFlipbookExport.ts`) and shipped as
     `rigFlipbooks`, keyed by the rig's bundle folder — exactly as `rigFx` is.
   - **Two sections on one key, not a choice.** A key can fire an effect AND a clip: a hit that throws
@@ -1298,7 +1297,7 @@ decoded`, `Assets.load` failed the whole bundle, the rig was missing from `loade
   shipped, so a burst always drew on top of the whole rig at the effect's authored opacity, size and
   timing — the three things the owner hit at once on `test6`.
   - **Draw at slot.** `evtObj.fx.slot` names a slot; in game `<RiggedEffect>` hands its container to
-    spine-pixi's `addSlotObject`, so the burst renders at that slot's place in the draw order — behind
+    the reference Pixi runtime's `addSlotObject`, so the burst renders at that slot's place in the draw order — behind
     the head, in front of the body. An unknown slot name falls back to the old on-top mount instead of
     throwing (`getSlotFromRef` does throw, and a rig re-synced with that slot renamed must not take the
     game down). With no bone chosen the slot's own bone hosts the burst, which is also what the Rigger
@@ -1332,7 +1331,7 @@ decoded`, `Assets.load` failed the whole bundle, the rig was missing from `loade
     `static/rigger/vendor/rigger-fx.js` was rebuilt (+369 B) — it MUST be, or the stage keeps the old
     two-argument `play()` and silently ignores every override.
   - ⏳ **Not pixel-verified in a running game:** the `addSlotObject` depth, and `alpha`/`scale`/`delay`
-    riding the nested container, are verified by construction (against the spine-pixi 4.2.74 source,
+    riding the nested container, are verified by construction (against the reference Pixi runtime 4.2.74 source,
     which rewrites a slotted container's transform AND alpha every frame — hence the nesting) and by
     the build, not by looking at a published game. That check is owed.
 - 2026-08-27 — **A bound FX cue could be invisible on the stage two different ways; both fixed in
@@ -1355,7 +1354,7 @@ decoded`, `Assets.load` failed the whole bundle, the rig was missing from `loade
   - The single `updateFxPreview()` call also moved to **after** `updateWorld()`, so the bone
     transforms it projects are this frame's rather than the previous frame's.
   - Verified live on the local launcher against the 73-bone `anticipation` builtin (the no-login
-    recipe: builtin spine + fetch/XHR/`Image.src`/rAF shims, plus a recording `window.RiggerFx`
+    recipe: builtin rig + fetch/XHR/`Image.src`/rAF shims, plus a recording `window.RiggerFx`
     stub). Preview fires the keyframe once and rides the bone; looping fires once per loop;
     **non-looping fires once while `trackTime` runs to 4× the clip length**; animate is unchanged;
     setup is inert; an unbound clip generates zero overlay traffic; and `setFxDepth(false)` →
@@ -1363,7 +1362,7 @@ decoded`, `Assets.load` failed the whole bundle, the rig was missing from `loade
   - Untouched, and still the answer to the rest of that report: an fx binding is still only
     `{ effectId, bone? }`, so **draw order (which slot the burst sits in), opacity and timing are
     not authorable** — that is the un-built "placed/persistent FX slots" half of
-    [design §12.4a](../design/invisible-cinematic.md). `spine-pixi-v8` has `addSlotObject`, which
+    [design §12.4a](../design/invisible-cinematic.md). the reference Pixi runtime has `addSlotObject`, which
     is the primitive that build would use.
 - 2026-08-25 — **The fit rule shrank the pixels and the rig stretched them straight back — a
   translation still overflowed its button.** Reported live: `Acheter fonctionnalité` ran off the
@@ -1371,7 +1370,7 @@ decoded`, `Assets.load` failed the whole bundle, the rig was missing from `loade
   `fitTilesToSource` re-rasterised French at 28px inside English's width — but `width`/`height`
   on a region attachment was only ever written when the attachment was **created**.
   `placeTextAttachments` bailed on sight of an existing one (`if (bag[attName]) continue;`,
-  "keep an authored placement"), so the `.irig` kept declaring the pre-fit box and Spine scaled
+  "keep an authored placement"), so the `.irig` kept declaring the pre-fit box and rig scaled
   the new, narrower region right back up into it. On screen: unchanged, and slightly softer.
   Every rig baked before the fit was in this state, and re-baking by hand hit the same path.
   Fixed by splitting what the attachment owns: **size is the tool's** (the art's natural size,
@@ -1388,17 +1387,17 @@ decoded`, `Assets.load` failed the whole bundle, the rig was missing from `loade
   version of that gate matched SOURCE TEXT and let two of the five pass — case 17 now RUNS
   `placeTextAttachments` against a stubbed skeleton instead.
   **Known limit, not fixed here:** a text element converted to a **mesh** cannot be fitted at
-  all. Its other locales are Spine `linkedmesh` children, which inherit the parent's vertices by
+  all. Its other locales are rig `linkedmesh` children, which inherit the parent's vertices by
   definition, so a shrunk region is stretched back onto the source's hull whatever its own size
   says. Fitting a meshed element needs either a per-locale scale on the slot or dropping the
   linked-mesh share (and with it the one-deform-drives-all-locales promise of §12.4a) — a
   deliberate design call, not a patch. Region attachments (a plain button label) are unaffected.
   **Not retroactive:** a deployed game keeps its old rig until the rig is re-opened in `/rigger`
   (which now auto-repairs it) and the game is re-published.
-- 2026-08-20 — **⟳ Re-sync atlas flipped rotated regions 180°, and the cause was the boot-splash mirror shadowing the real page — a same-day regression, now fixed + guarded.** Symptom: re-syncing `R_InvisibleEngine` turned a rig that rendered CORRECTLY into one whose wordmark read `NI` instead of `IN`, with mirrored parts. Chain: `pickDeployedPage` answers "which deployed page IS this sheet?" by basename stem, newest-first, excluding only `deploy/editor-<kind>/` as derived bake output. The new `deploy/_boot/<tier>/` mirror (shipped that morning) copies a spine bundle's page under the SAME filename, **already reoriented 180° for Spine**, and rewrites it on every `ensureDeployExports` — so it was always the newest stem match and won the ranking. `ensureBundleAtlasFresh` then re-derived the bundle from that page and ran `reorientRotatedRegionsForSpine` a SECOND time, leaving every rotated region 180° out. Fix: the exclusion is now structural (`DERIVED_SUBTREE_RE` = `editor-<kind>` | `_boot` | `_pages`) with the rule stated as _a page we WROTE from another page can never be the source of truth for that other page_ — `_pages` joins it for the same reason even though its content-addressed names made a stem collision unlikely. **The convention itself was re-derived from the vendored runtime and is unchanged:** `spine-webgl-4.2.js` maps texture upper-left → displayed upper-RIGHT for `degrees == 90` (a 90° CW display rotation), so storage must be CCW while our packers store CW — the 180° reorient is right, it was just running twice. Also confirmed CORRECT and left alone: `regionsToSpineAtlas` writes `bounds` with UPRIGHT `w,h`, which is what the parser wants (it derives the `(h×w)` footprint itself at `u2 = (x + height)/pageWidth`). Guarded by `pnpm --filter launcher-api run check:deployed-page` (9 assertions), **mutation-verified** — restoring the old `editor-*`-only exclusion fails exactly the three `_boot`/`_pages` cases, and a `_bootcamp/` look-alike is asserted NOT excluded so the fix stays surgical. **Not retroactive:** any rig re-synced while the bug was live is still flipped; re-sync it once more after this deploys and it resolves the real `sprites/` page and reorients once.
+- 2026-08-20 — **⟳ Re-sync atlas flipped rotated regions 180°, and the cause was the boot-splash mirror shadowing the real page — a same-day regression, now fixed + guarded.** Symptom: re-syncing `R_InvisibleEngine` turned a rig that rendered CORRECTLY into one whose wordmark read `NI` instead of `IN`, with mirrored parts. Chain: `pickDeployedPage` answers "which deployed page IS this sheet?" by basename stem, newest-first, excluding only `deploy/editor-<kind>/` as derived bake output. The new `deploy/_boot/<tier>/` mirror (shipped that morning) copies a rig bundle's page under the SAME filename, **already reoriented 180° for rig**, and rewrites it on every `ensureDeployExports` — so it was always the newest stem match and won the ranking. `ensureBundleAtlasFresh` then re-derived the bundle from that page and ran `reorientRotatedRegionsForRig` a SECOND time, leaving every rotated region 180° out. Fix: the exclusion is now structural (`DERIVED_SUBTREE_RE` = `editor-<kind>` | `_boot` | `_pages`) with the rule stated as _a page we WROTE from another page can never be the source of truth for that other page_ — `_pages` joins it for the same reason even though its content-addressed names made a stem collision unlikely. **The convention itself was re-derived from the vendored runtime and is unchanged:** the reference WebGL runtime maps texture upper-left → displayed upper-RIGHT for `degrees == 90` (a 90° CW display rotation), so storage must be CCW while our packers store CW — the 180° reorient is right, it was just running twice. Also confirmed CORRECT and left alone: `regionsToRigAtlas` writes `bounds` with UPRIGHT `w,h`, which is what the parser wants (it derives the `(h×w)` footprint itself at `u2 = (x + height)/pageWidth`). Guarded by `pnpm --filter launcher-api run check:deployed-page` (9 assertions), **mutation-verified** — restoring the old `editor-*`-only exclusion fails exactly the three `_boot`/`_pages` cases, and a `_bootcamp/` look-alike is asserted NOT excluded so the fix stays surgical. **Not retroactive:** any rig re-synced while the bug was live is still flipped; re-sync it once more after this deploys and it resolves the real `sprites/` page and reorients once.
 - 2026-08-18 — **Two rig-editor crashes, found while building the cinematic's Tweak Mode** (which
   drives this file's animator, so its bugs are this tool's bugs). Both are old, both are one-line:
-  - **◆ Animate died on any freshly imported `.json` rig.** Spine JSON omits `time` on a keyframe
+  - **◆ Animate died on any freshly imported `.json` rig.** Rig JSON omits `time` on a keyframe
     at 0 — it is the format's default — and `sampleChannel` treats `k.time` as a number. A channel
     whose ONLY key is written that way made it walk off the end of the array and throw _from the
     frame loop_. Rigs saved by this tool always write the time, so it only ever bit imports; the
@@ -1438,7 +1437,7 @@ decoded`, `Assets.load` failed the whole bundle, the rig was missing from `loade
     `save()` now loads the font catalog itself if no caller did, since resolving fonts is the
     bake's own business and not a prerequisite each call site should have to remember.
 - 2026-08-18 — **A rig's localized text now follows `/localization` on its own, and the bake
-  finally SAVES the rig.** Owner: the remake's new Spine "Buy Feature" button stayed English in
+  finally SAVES the rig.** Owner: the remake's new rig "Buy Feature" button stayed English in
   a `lang=fr` game. Three faults in one chain, found by walking it end to end on live R2:
   - **The bake never persisted the skeleton.** `placeTextAttachments` wrote the slot/bone/
     attachments into `rawDoc` and called `markDirty()` — nothing else. So a bake that reported
@@ -1490,7 +1489,7 @@ decoded`, `Assets.load` failed the whole bundle, the rig was missing from `loade
   [tools/rigger](../tools/rigger.md#localized-text-setup-mode--text-localized-art)). Three
   commits: the text→region pipeline, the `/rigger` panel, and the game-side swap.
   - **Where the art lives, and why it ships.** The rasterised strings are packed onto a **second
-    page of the rig bundle's own `.atlas`**, not into the source sheet. `exportSpineBundle`
+    page of the rig bundle's own `.atlas`**, not into the source sheet. `exportRigBundle`
     already copies every page `atlasPageNames` finds, so the text page travels export →
     `deploy/` → bake → pull → register **with the rig, for free** — no new asset class, nothing
     stranded (rule 8). Packing into the source sheet would have re-packed it, moving every rect
@@ -1502,13 +1501,13 @@ decoded`, `Assets.load` failed the whole bundle, the rig was missing from `loade
     would short-circuit the freshness gate and every consumer would keep serving the pre-text
     atlas. A rig with no text composes a **byte-identical** atlas and an unchanged revision, so
     `new`'s recorded baseline stays valid.
-  - **Localization = attachment swap**, done in `BaseSpineProvider` so every rig in the game
-    gets it (`packages/pixi-svelte/src/lib/spineLocale.ts`). Guarded twice: the suffix must look
+  - **Localization = attachment swap**, done in `BaseRigProvider` so every rig in the game
+    gets it (`packages/pixi-svelte/src/lib/rigLocale.ts`). Guarded twice: the suffix must look
     like a locale (TWO-letter language + optional subtag), and — the guard that matters — the
     sibling `<base>@<locale>` must EXIST, so a coincidental name can never hide art. Unbaked
     language ⇒ the source art, never a blank slot.
   - **Mesh + weights + deform are authored ONCE.** Converting the source locale to a mesh
-    relinks the other locales as Spine `linkedmesh` (shared geometry, own `path`, `deform:true`);
+    relinks the other locales as rig `linkedmesh` (shared geometry, own `path`, `deform:true`);
     a locale arriving after a mesh exists is created as one. Without this a German player would
     have got an unrigged quad where the English one deforms.
   - **Reuse, not rebuild:** rasterisation is PIXI's own `BitmapText`/`Text` through the shared
@@ -1525,7 +1524,7 @@ decoded`, `Assets.load` failed the whole bundle, the rig was missing from `loade
     the re-bake's reload); `rigtext-browser.mjs` **32/32** drives the vendored bundle with
     metrics chosen to be sensitive (ink boxes not lit-pixel counts; a longer string must be
     measurably wider; two strings must differ in pixels); `rigtext.mjs` **58/58** composes the
-    atlas and loads it with spine-core as region / mesh+linkedmesh / weighted mesh;
+    atlas and loads it with the reference core runtime as region / mesh+linkedmesh / weighted mesh;
     `rigtext-runtime.mjs` **30/30** pins the swap. Four assertions failed first and each found a
     real bug — a 2–3 letter locale pattern classified `logo@big` as a locale; and the swap
     keyed "already right?" off the setup attachment, so switching BACK to the source language,
@@ -1542,7 +1541,7 @@ decoded`, `Assets.load` failed the whole bundle, the rig was missing from `loade
   actual page — e.g. `bookofborutremake/S_VFX` had `T_VFX_AnticipationLine_shine` cached as
   `rotated:false` at (0,428) while the page (and the sibling `S_VFX.atlas` + `S_VFX.json`
   TexturePacker output) have it `rotate:90` at (975,0); its `_zoom` sibling was cached with the
-  SWAPPED slot. `regionsToSpineAtlas` trusted the stale rect, so the Rigger sampled an un-rotated,
+  SWAPPED slot. `regionsToRigAtlas` trusted the stale rect, so the Rigger sampled an un-rotated,
   over-tall page rect that bled into the neighbour below (the frame with a circle-burst tacked
   underneath; siblings looked fine because their cache happened to match). Fix: `loadRegionSet`'s
   `backfillMissingGeometry` (`$lib/server/editorRegions.ts`) now RECONCILES each region's on-page
@@ -1559,9 +1558,9 @@ rotated` — **never trim** (`offX/offY/origW/origH`), per the `RawRegion` landm
 - 2026-07-28 — **Save can no longer silently un-ship a rig.** `POST /api/rigger/save` rebuilt
   the WHOLE project index via `buildSkeletonsIndex` and overwrote `skeletons.json`; that scan
   SILENTLY DROPS any skeleton folder whose `.atlas` is missing (`if (!atlases.length) continue`
-  in `spineIndex.ts`). So re-saving an atlas-less rig un-shipped it (blank in the editor, gone
+  in `rigIndex.ts`). So re-saving an atlas-less rig un-shipped it (blank in the editor, gone
   from the editor-art export + game), and saving rig A could drop a DIFFERENT atlas-less rig B.
-  Now `save` goes through **`reindexSkeletonsPreserving`** (`spineIndex.ts`): Layer 1 re-derives
+  Now `save` goes through **`reindexSkeletonsPreserving`** (`rigIndex.ts`): Layer 1 re-derives
   a missing `.atlas` from the folder's `source.json` via `ensureBundleAtlasFresh` (the `⟳ Re-sync
 atlas` path); Layer 2 preserves the prior `skeletons.json` entry for any folder it still can't
   rebuild (never drops) and, for the folder being SAVED, **fails 400 loudly** ("…has no atlas and

@@ -5,19 +5,19 @@ import {
 	flipbookTimelineFromSkeleton,
 	type RigFlipbookTimeline,
 } from '$lib/server/rigFlipbookExport';
-import { resolveEditorSpine } from '$lib/server/spine';
+import { resolveEditorRig } from '$lib/server/rig';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
 /**
- * Resolve a spine bundle's `assetKey` to its rig→FX-binding TIMELINE — `event.fx = { effectId, bone? }`
+ * Resolve a rig bundle's `assetKey` to its rig→FX-binding TIMELINE — `event.fx = { effectId, bone? }`
  * grouped by animation and carrying each keyframe's `time`. The Symbols State-Machine live FX overlay
- * (`SymbolSpineStage.svelte`) reads this to fire an effect on the beat of a symbol's animation, at the
+ * (`SymbolRigStage.svelte`) reads this to fire an effect on the beat of a symbol's animation, at the
  * bound bone, mirroring the Rigger's `view.html`.
  *
- * WHY a server endpoint (not client-side parsing): spine-pixi discards the custom `event.fx` field on
- * parse, so the compiled `SpineSkeletonData` the stage already holds can't surface it — the RAW
- * skeleton JSON must be read. Doing that here (server-side, via the SAME `resolveEditorSpine` the
+ * WHY a server endpoint (not client-side parsing): the runtime reader discards the custom `event.fx` field on
+ * parse, so the compiled `RigSkeletonData` the stage already holds can't surface it — the RAW
+ * skeleton JSON must be read. Doing that here (server-side, via the SAME `resolveEditorRig` the
  * descriptor endpoint uses + `fxTimelineFromSkeleton`) keeps the payload tiny (just the fx timeline)
  * instead of re-downloading + re-parsing a whole multi-MB skeleton on the client per bundle.
  *
@@ -27,16 +27,16 @@ import type { RequestHandler } from './$types';
  * its `rig-fx` name because that is what every existing caller asks for; read it as "a rig's timeline
  * bindings".
  *
- * Gated exactly like `/api/editor/spine` (the SAME endpoint the stage already loads skeletons through),
- * scope bound to the session's active project, shared spines opted in. Defensive by design: an unknown
+ * Gated exactly like `/api/editor/rig` (the SAME endpoint the stage already loads skeletons through),
+ * scope bound to the session's active project, shared rigs opted in. Defensive by design: an unknown
  * bundle, a binary `.skel` (which can't carry the field), or a parse error returns empty bindings —
- * never a 500 (the preview then simply renders the spine with no FX, byte-identical to today).
+ * never a 500 (the preview then simply renders the rig with no FX, byte-identical to today).
  */
 export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, {
 		tool: 'editor',
 		forbiddenMessage: 'Your role does not have access to the Invisible Editor.',
-		includeSharedSpines: true,
+		includeSharedRigs: true,
 	});
 
 	const key = url.searchParams.get('key');
@@ -45,7 +45,7 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 	let animations: RigFxTimeline = {};
 	let flipbooks: RigFlipbookTimeline = {};
 	try {
-		const descriptor = await resolveEditorSpine(clientKey, projectKey, key, false);
+		const descriptor = await resolveEditorRig(clientKey, projectKey, key, false);
 		// Only JSON-format skeletons carry the custom `event.*` fields (a binary `.skel` never does).
 		if (descriptor && descriptor.format === 'json') {
 			const text = await getObjectText(descriptor.skeletonKey);

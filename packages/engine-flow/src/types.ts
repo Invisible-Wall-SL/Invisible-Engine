@@ -147,7 +147,7 @@ export interface EventChoreography {
  *
  * Dynamic (derived from the screen's components):
  *  - `value`  ← `registerComponentValues` / `ENGINE_PARAM_CATALOG`  (input)
- *  - `signal` ← `registerComponentSignals` (a spine cue's `signal`)  (input)
+ *  - `signal` ← `registerComponentSignals` (a rig cue's `signal`)  (input)
  *  - `action` ← `registerComponentActions` (a button's `action`)     (output)
  *  - `gate`   ← `registerComponentVisibility` (`visibleSource`)       (input)
  * Fixed structural (every screen node, contents-independent — drive the macro flow):
@@ -203,7 +203,7 @@ export interface FlowPin {
 	role: FlowPinRole;
 	direction: FlowPinDirection;
 	/** The registry key the dynamic pin binds (the `source` / `action` / `visibleSource` /
-	 *  spine-cue `signal` value). Absent for structural pins. */
+	 *  rig-cue `signal` value). Absent for structural pins. */
 	key?: string;
 	/** The LayoutDoc component-instance id this pin derives from. Absent for structural pins. */
 	instanceId?: string;

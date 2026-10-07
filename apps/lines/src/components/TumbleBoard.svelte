@@ -246,7 +246,7 @@
 	 * Armed here instead, the two cases separate on their own. A symbol that reports LATE still
 	 * reports — the armed callback survives the lost race and fires into an already-settled promise
 	 * (`symbolBeat.ts` says so) — so a long explosion plays out in full and then vanishes on its own
-	 * last frame. A symbol that can never report at all (no art, a spine animation missing from the
+	 * last frame. A symbol that can never report at all (no art, a rig animation missing from the
 	 * skeleton) never sets it, and simply stays until the board-wide removal, exactly as it did
 	 * before this existed.
 	 */
@@ -377,7 +377,7 @@
 	const TRANSITION_Z_INDEX = 1;
 
 	/**
-	 * A RUNAWAY GUARD on an entry that never reports — a spine whose bound animation is not in the
+	 * A RUNAWAY GUARD on an entry that never reports — a rig whose bound animation is not in the
 	 * skeleton fires no `complete`, and an entry that stayed would draw its last frame over every
 	 * later seat until the reset. Sized like `WIN_BEAT_CAP_MS` (double the longest reference
 	 * animation) and for the same reason: a real authored transition always finishes first, so this
@@ -516,7 +516,7 @@
 			//
 			// `clearReel`, NOT `explosion`: the board taking a symbol OFF and the on-reel morph are
 			// separate bindings in /symbols (`engine-layout/symbolStates`), because they are separate
-			// moments and the engine's Spine set ships a separate skeleton for each. A project that
+			// moments and the engine's rig set ships a separate skeleton for each. A project that
 			// binds only the one inherits it here (`resolveSymbolState`), so this reads identically to
 			// before the split until someone actually authors the cascade's own.
 			//
@@ -855,7 +855,7 @@
 		cells, whoever is driving them — this component only tells them what to do
 		(`docs/design/board-cell-continuity.md`). What is left is the one layer that is genuinely the
 		step's own: the explosion → intro transitions, on the unmasked animating layer above the
-		symbols so a splash can overflow its seat the way a spine symbol can.
+		symbols so a splash can overflow its seat the way a rig symbol can.
 
 		That also retires the overlay's copies of the ground tiles and the board mask. With one board
 		on screen there is one of each, and it is the reel board's — which is what the tile layer's

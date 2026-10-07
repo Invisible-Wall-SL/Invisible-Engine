@@ -1,7 +1,7 @@
 /**
  * Invisible FX — the shared LIVE FX overlay CORE (framework-agnostic).
  *
- * A transparent Pixi `Application` that mounts OVER a raw `spine-webgl` stage and plays authored
+ * A transparent Pixi `Application` that mounts OVER a raw WebGL rig stage and plays authored
  * Invisible FX `EffectDoc`s as live particle bursts, riding a host bone via per-frame `follow()`.
  * It is deliberately plain TS / Pixi-only: the load-bearing logic (`engine-fx`'s
  * `normalizeEffectDoc`/`planLayer`/`bindArt`, the shared art helper `effectEmitter.client.ts`) is
@@ -10,8 +10,8 @@
  * ONE core, TWO hosts (the house "prefer reuse over duplication" rule):
  *  - the Invisible Rigger's static `view.html` — via `src/rigger-fx/main.ts`, a thin IIFE that
  *    creates one instance and exposes it as `window.RiggerFx` (built by `vite.rigger-fx.config.ts`);
- *  - the Invisible Symbols State-Machine stage — `SymbolSpineStage.svelte` creates its OWN instance
- *    and drives it from the same rAF loop that draws the grid's spine cells.
+ *  - the Invisible Symbols State-Machine stage — `SymbolRigStage.svelte` creates its OWN instance
+ *    and drives it from the same rAF loop that draws the grid's rig cells.
  * Making this a FACTORY (`createFxOverlay()`) rather than the module-singleton it used to be is what
  * lets each host own an independent overlay (independent Pixi context + effect handles) instead of
  * sharing hidden module state.
@@ -21,8 +21,8 @@
  * `bindArt` result — it holds live `Texture` objects (`bindArt` already deep-cloned the config).
  *
  * Scope: sprite-particle layers (Tiers A/B). A `particleKind:'spine'` layer (Tier C) is SKIPPED here
- * (it needs a pooled `Spine` host the overlay doesn't provide), matching the v1 preview scope — the
- * SAME scope both hosts share.
+ * (it needs a pooled `RigView` host the overlay doesn't provide), matching the v1 preview scope —
+ * the SAME scope both hosts share.
  *
  * It also plays Invisible Flipbook CLIPS ({@link FxOverlayApi.playFlipbook}), because the Rigger can
  * bind either to an animation event and both must ride the same bone through the same `follow()`.
@@ -59,7 +59,7 @@ export type { OverlayClip };
  * and `(a,b)` / `(c,d)` are the on-screen images of the bone's local +X / +Y axes — i.e. a Pixi
  * `Matrix` linear part. Carrying the full 2×2 (not just a uniform scale) lets an effect ride the
  * bone's position + ROTATION + per-axis SCALE, matching the game's
- * `<SpineBoneAttach followRotation followScale>`. Each host computes it by mapping the bone's world
+ * `<RigBoneAttach followRotation followScale>`. Each host computes it by mapping the bone's world
  * matrix through its own stage projection.
  *
  * That projection is a MIRROR on every host we have — both stages draw a y-up skeleton into a y-down
@@ -164,7 +164,7 @@ interface LiveEffect {
 	container: Container;
 	/** Child of `container`, where `scale` (and the layer offsets) actually live, precisely BECAUSE
 	 * the parent's matrix is rewritten per frame. Mirrors `<RiggedEffect>`'s `fxLocal`, which nests
-	 * for the same reason — there, spine rewrites the parent instead. */
+	 * for the same reason — there, rig rewrites the parent instead. */
 	inner: Container;
 	emitters: Emitter[];
 	/** Live flipbook sprites (a clip play builds one; an effect play builds none). Advanced from the
@@ -202,13 +202,13 @@ const DEFAULT_FLIPBOOK_FPS = 24;
  * bone — invisible on a near-symmetric particle burst, glaring on a flipbook clip, which has an up
  * and a down.
  *
- * The game is the arbiter and it does NOT mirror: `<SpineBoneAttach followRotation followScale>`
+ * The game is the arbiter and it does NOT mirror: `<RigBoneAttach followRotation followScale>`
  * takes `rotation = -bone.getWorldRotationX()` and sizes by `Math.hypot` MAGNITUDES, precisely so a
  * negative axis (a y-flip, a mirrored skin) sizes the attachment instead of flipping it. Same rule
  * here, so a preview and the shipped frame cannot disagree on which way up a clip plays.
  *
- * `atan2(b, a)` survives the flip untouched: a bone at spine rotation θ projects to `(z·cosθ,
- * −z·sinθ)`, so the angle reads back as `−θ` — the number `<SpineBoneAttach>` assigns directly.
+ * `atan2(b, a)` survives the flip untouched: a bone at rig rotation θ projects to `(z·cosθ,
+ * −z·sinθ)`, so the angle reads back as `−θ` — the number `<RigBoneAttach>` assigns directly.
  */
 function fxMatrix(t: FxTransform): Matrix {
 	const rotation = Math.atan2(t.b, t.a);
@@ -407,7 +407,7 @@ export function createFxOverlay(): FxOverlayApi {
 			loop: layer.art.loop,
 		});
 		// Honor the layer's placement OFFSET (authored in /fx). The game applies it via the layer's own
-		// offset `<Container>` / `<SpineBoneAttach offset>`; mirror that with a per-layer offset
+		// offset `<Container>` / `<RigBoneAttach offset>`; mirror that with a per-layer offset
 		// container nested in the zoom-scaled effect container, so the offset tracks stage scale.
 		const layerContainer = new Container();
 		layerContainer.position.set(plan.offset?.x ?? 0, plan.offset?.y ?? 0);
@@ -471,7 +471,7 @@ export function createFxOverlay(): FxOverlayApi {
 			const build = async (): Promise<void> => {
 				for (const layer of doc.layers) {
 					const plan = planLayer(layer);
-					// Skip non-rendering layers + Tier-C spine-particle layers (no pooled Spine host here).
+					// Skip non-rendering layers + Tier-C rig-particle layers (no pooled rig host here).
 					if (!plan.render || plan.particleKind === 'spine') continue;
 					await buildLayer(effect, layer, plan, holdMs);
 					if (effect.disposed) return;

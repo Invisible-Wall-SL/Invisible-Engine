@@ -5,7 +5,7 @@
  *
  *   pnpm --filter flipbook-spike run cover
  *
- * The bug this guards: the cover math was always right, but the GATE listed `sprite | spine` in
+ * The bug this guards: the cover math was always right, but the GATE listed `sprite | rig` in
  * five separate places, so a `flipbook` node reached none of them and a background clip drew at
  * its authored size — in the editor AND in the game. Proves the three contracts that decide
  * whether a covering clip is right or subtly wrong:

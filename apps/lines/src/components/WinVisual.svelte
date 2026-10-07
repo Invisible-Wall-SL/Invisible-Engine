@@ -19,8 +19,8 @@
 	import { winState } from '../game/winState.svelte';
 	import { bakedWinText } from '../editor-scenes';
 
-	// The board-relative VISUAL of the WIN overlay (big-win presentation): the tier spine (via
-	// `WinAnimation`) + the count number in the spine's slot, PLUS the small/medium plain-number
+	// The board-relative VISUAL of the WIN overlay (big-win presentation): the tier rig (via
+	// `WinAnimation`) + the count number in the rig's slot, PLUS the small/medium plain-number
 	// path + the authored win-level caption (Invisible Win Text) + the coin-fountain `WinCoins`
 	// (authorable via `showCoins`). Reads `winLevelData`/`amount`/`countUpAmount`/`coinsEmit` from
 	// `winState` (the GATE publishes them). `boundToInstance` makes it render at the `win` instance
@@ -28,7 +28,7 @@
 	// dim / press / round-await / count-up driver.
 	const {
 		boundToInstance = false,
-		winSpine: winSpineProp = 'bigwin',
+		winSpine: winRigProp = 'bigwin',
 		slotName: slotNameProp = 'slot_win_count',
 		showCoins: showCoinsProp = true,
 	}: {
@@ -49,7 +49,7 @@
 		return typeof value === 'boolean' ? value : undefined;
 	};
 
-	const winSpine = $derived(stringParam('winSpine') ?? winSpineProp);
+	const winRig = $derived(stringParam('winSpine') ?? winRigProp);
 	const slotName = $derived(stringParam('slotName') ?? slotNameProp);
 	const showCoins = $derived(booleanParam('showCoins') ?? showCoinsProp);
 
@@ -59,20 +59,20 @@
 	const amount = $derived(winState.amount);
 	const countUpAmount = $derived(winState.countUpAmount);
 
-	// Per-tier PRESENTATION resolution — the `win` component owns spine + intro/idle/outro per tier,
+	// Per-tier PRESENTATION resolution — the `win` component owns rig + intro/idle/outro per tier,
 	// keyed by the tier's ALIAS (generated from the config's big tiers; see `winComponentDef`). For a
-	// tier: `<alias>Spine`/`<alias>Intro/Idle/Outro` (per-tier) ?? the SHARED set
+	// tier: `<alias>rig`/`<alias>Intro/Idle/Outro` (per-tier) ?? the SHARED set
 	// (`winSpine`/`introAnimation`/`idleAnimation`/`exitAnimation`, all tiers) ?? the config/coded tier's
-	// own `spineKey`/`animation`. All params empty ⇒ the config/coded value ⇒ byte-identical. The spine
-	// fallback (`<alias>Spine` ?? tier.spineKey ?? winSpine) is what closes the single-tier gap where the
+	// own `spineKey`/`animation`. All params empty ⇒ the config/coded value ⇒ byte-identical. The rig
+	// fallback (`<alias>rig` ?? tier.spineKey ?? winSpine) is what closes the single-tier gap where the
 	// coded path used to ignore the config tier's `spineKey`. A tier with no animation anywhere ⇒
 	// `animationMap: undefined` (a small/medium tier presents as a plain number).
 	type TierPresentation = {
-		spine: string;
-		/** The count slot ON THAT TIER'S SPINE. Resolved per tier for the same reason the spine is: a
+		rigKey: string;
+		/** The count slot ON THAT TIER'S RIG. Resolved per tier for the same reason the rig is: a
 		 *  tier pointing at its own rig almost never repeats the base bundle's slot name, and the shared
 		 *  `slotName` applied to it silently failed to mount the count
-		 *  (`[SpineSlot] no slot "slot_win_count"`). Falls back to the shared value ⇒ parity. */
+		 *  (`[RigSlot] no slot "slot_win_count"`). Falls back to the shared value ⇒ parity. */
 		slotName: string;
 		animationMap?: { intro: string; idle: string; outro: string };
 	};
@@ -82,14 +82,14 @@
 		if (!data) return undefined;
 		const alias = data.alias;
 		const conv = data.animation;
-		const spine = stringParam(`${alias}Spine`) ?? data.spineKey ?? winSpine;
+		const rig = stringParam(`${alias}Spine`) ?? data.spineKey ?? winRig;
 		const tierSlot = stringParam(`${alias}Slot`) ?? slotName;
 		const intro = stringParam(`${alias}Intro`) ?? stringParam('introAnimation') ?? conv?.intro;
 		const idle = stringParam(`${alias}Idle`) ?? stringParam('idleAnimation') ?? conv?.idle;
 		const outro = stringParam(`${alias}Outro`) ?? stringParam('exitAnimation') ?? conv?.outro;
-		if (!intro && !idle && !outro) return { spine, slotName: tierSlot };
+		if (!intro && !idle && !outro) return { rigKey: rig, slotName: tierSlot };
 		return {
-			spine,
+			rigKey: rig,
 			slotName: tierSlot,
 			animationMap: { intro: intro ?? '', idle: idle ?? '', outro: outro ?? '' },
 		};
@@ -97,21 +97,21 @@
 
 	const activePresentation = $derived(resolveTierPresentation(winLevelData));
 	const resolvedAnimationMap = $derived(activePresentation?.animationMap);
-	/** The spine bundle for the active (single-tier) presentation: per-tier component spine ?? the
+	/** The rig bundle for the active (single-tier) presentation: per-tier component rig ?? the
 	 *  config/coded tier's `spineKey` ?? the shared `winSpine` — closing the single-tier `spineKey` gap. */
-	const activeSpine = $derived(activePresentation?.spine ?? winSpine);
+	const activeRig = $derived(activePresentation?.rigKey ?? winRig);
 	/** The count slot for the active (single-tier) presentation — per-tier `<alias>Slot` ?? the shared
-	 *  `slotName`. Resolved here so the single-tier path tracks its own spine exactly as the chain does. */
+	 *  `slotName`. Resolved here so the single-tier path tracks its own rig exactly as the chain does. */
 	const activeSlotName = $derived(activePresentation?.slotName ?? slotName);
 
 	/**
 	 * The SEQUENTIAL-ESCALATION chain (Invisible Game Config win tiers): the ordered tiers a win plays
-	 * before the winning one, each resolved through {@link resolveTierPresentation} so its spine bundle
+	 * before the winning one, each resolved through {@link resolveTierPresentation} so its rig bundle
 	 * + animation names honour the same per-tier ?? shared ?? config precedence. Present ONLY when the
 	 * config authors `winLevels` AND `escalateTiers` is on (`activeWinLevelChain` returns `undefined`
 	 * otherwise, so an un-authored / un-escalating game keeps the single-tier `resolvedAnimationMap`
 	 * path — byte-identical). Tiers with no animation are skipped (a small/medium tier in the range
-	 * presents no spine). A single-element chain (the winning tier is the escalation start) still routes
+	 * presents no rig). A single-element chain (the winning tier is the escalation start) still routes
 	 * through `WinAnimation`'s chain path, so its FINAL-tier outro plays on count-up completion.
 	 */
 	const escalationTiers = $derived.by<
@@ -128,7 +128,7 @@
 					!!entry.pres?.animationMap,
 			)
 			.map(({ tier, pres }) => ({
-				step: { key: pres.spine, slotName: pres.slotName, animationMap: pres.animationMap },
+				step: { key: pres.rigKey, slotName: pres.slotName, animationMap: pres.animationMap },
 				// The count-up amount (book units) of this tier — `threshold × BOOK_AMOUNT_MULTIPLIER` (a book
 				// amount IS the win-as-bet-multiplier × that constant; `threshold` is that multiplier). The GATE
 				// SEEKS the count here on a tap; the tier WALK is idle-complete driven (not this), so the walk is
@@ -150,7 +150,7 @@
 	 * localized + interpolated by `formatWinText`.
 	 *
 	 * OPT-IN: empty unless authored, and nothing is drawn when empty. The tier words a player sees
-	 * today are painted into the big-win SPINE ART, not drawn as text (`winLevelMap`'s `text` field
+	 * today are painted into the big-win RIG ART, not drawn as text (`winLevelMap`'s `text` field
 	 * is dead data nothing reads), so defaulting this to the coded literals would double the
 	 * caption on every existing game. Author it only for a game whose art carries no words — which
 	 * is also what lets a tier be translated without re-cutting art per language.
@@ -181,7 +181,7 @@
 </script>
 
 {#snippet content()}
-	<!-- Behind the tier spine / count number (rendered first), matching the pre-move z-order where
+	<!-- Behind the tier rig / count number (rendered first), matching the pre-move z-order where
 		the gate's coins sat behind the later-mounted visual. Emit while the count-up runs
 		(`winState.coinsEmit`); `showCoins` false ⇒ no fountain. -->
 	{#if showCoins}
@@ -194,7 +194,7 @@
 			previews — the instance node's transform is then the only thing that sizes/places it. -->
 		<WinAnimation
 			animationMap={resolvedAnimationMap}
-			key={activeSpine}
+			key={activeRig}
 			slotName={activeSlotName}
 			chain={escalationChain}
 			forceStep={winState.escalationForceStep}

@@ -35,9 +35,9 @@ export {
 	type LayoutBucketBox,
 } from 'constants-shared/layoutProfile';
 export * from './editorArtKey';
-export * from './spineLoadScale';
+export * from './rigLoadScale';
 export * from './builtinRegions';
-export * from './builtinSpineMeta';
+export * from './builtinRigMeta';
 export * from './coverTransform';
 export * from './componentDesignSize';
 export * from './blendMode';
@@ -79,7 +79,7 @@ export * from './rigBeat';
 export * from './registerRigFx';
 export * from './registerFlipbooks';
 export * from './registerRigFlipbooks';
-// Joins the two rig-timeline registries above to `<SpineProvider>`, so EVERY rig plays its bound
+// Joins the two rig-timeline registries above to `<RigProvider>`, so EVERY rig plays its bound
 // effects/clips. Installed by those registries themselves — exported for tests that tear it down.
 export * from './rigBoundContentInstall';
 export * from './registerComponentValues';

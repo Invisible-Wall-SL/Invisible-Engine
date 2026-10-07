@@ -28,12 +28,12 @@ import {
 	resolveVisible,
 	putKey,
 } from '../../packages/engine-cinematic/src/cinematicEval.js';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
-const SPINE = await import(SPINE_CORE);
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, MixBlend, MixDirection, Physics } = SPINE;
+const RIG = await import(RIG_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, MixBlend, MixDirection, Physics } = RIG;
 
-const spineNs = { MixBlend, MixDirection, Physics };
+const rigNs = { MixBlend, MixDirection, Physics };
 
 // ---- harness --------------------------------------------------------------
 
@@ -211,7 +211,7 @@ section('3. DETERMINISM — scrub(t) === play-to(t)  [THE GATE]');
 	const scrambled = grid.slice().sort((x, y) => Math.sin(x * 977) - Math.sin(y * 977));
 	const scrubbed = new Map();
 	for (const t of scrambled) {
-		evaluateActor(spineNs, actor, t, resolve);
+		evaluateActor(rigNs, actor, t, resolve);
 		scrubbed.set(t, poseSnapshot(actor.skeleton));
 	}
 
@@ -219,7 +219,7 @@ section('3. DETERMINISM — scrub(t) === play-to(t)  [THE GATE]');
 	let worst = 0;
 	let mismatches = 0;
 	for (const t of grid) {
-		evaluateActor(spineNs, actor, t, resolve);
+		evaluateActor(rigNs, actor, t, resolve);
 		const played = poseSnapshot(actor.skeleton);
 		const ref = scrubbed.get(t);
 		if (!poseEqual(played, ref, 0)) { mismatches++; worst = Math.max(worst, poseMaxDiff(played, ref)); }
@@ -231,15 +231,15 @@ section('3. DETERMINISM — scrub(t) === play-to(t)  [THE GATE]');
 	);
 
 	// (c) evaluating the SAME t twice must not drift (no accumulation into the skeleton)
-	evaluateActor(spineNs, actor, 2.75, resolve);
+	evaluateActor(rigNs, actor, 2.75, resolve);
 	const first = poseSnapshot(actor.skeleton);
-	evaluateActor(spineNs, actor, 2.75, resolve);
+	evaluateActor(rigNs, actor, 2.75, resolve);
 	const second = poseSnapshot(actor.skeleton);
 	ok('re-evaluating the same t is idempotent', poseEqual(first, second, 0));
 
 	// (d) reaching t via a different history must not change the pose
-	for (const t of [0, 6.9, 3.1, 0.2]) evaluateActor(spineNs, actor, t, resolve);
-	evaluateActor(spineNs, actor, 2.75, resolve);
+	for (const t of [0, 6.9, 3.1, 0.2]) evaluateActor(rigNs, actor, t, resolve);
+	evaluateActor(rigNs, actor, 2.75, resolve);
 	ok('pose at t is independent of the path taken to it', poseEqual(poseSnapshot(actor.skeleton), first, 0));
 }
 
@@ -253,7 +253,7 @@ section('4. Layering — additive, alpha, crossfade');
 	};
 	const resolve = (s) => clipA(s.clip);
 
-	evaluateActor(spineNs, baseOnly, 1.4, resolve);
+	evaluateActor(rigNs, baseOnly, 1.4, resolve);
 	const basePose = poseSnapshot(baseOnly.skeleton);
 
 	const withAdditive = {
@@ -263,7 +263,7 @@ section('4. Layering — additive, alpha, crossfade');
 			{ kind: 'animation', layer: 1, strips: [{ start: 0, length: 3, clip: 'epic_win_idle', loop: { mode: 'fill' }, blend: 'add', alpha: 0.5 }] },
 		],
 	};
-	evaluateActor(spineNs, withAdditive, 1.4, resolve);
+	evaluateActor(rigNs, withAdditive, 1.4, resolve);
 	ok('an additive layer changes the pose', !poseEqual(poseSnapshot(withAdditive.skeleton), basePose, 1e-6));
 
 	const zeroAlpha = {
@@ -273,7 +273,7 @@ section('4. Layering — additive, alpha, crossfade');
 			{ kind: 'animation', layer: 1, strips: [{ start: 0, length: 3, clip: 'epic_win_idle', loop: { mode: 'fill' }, blend: 'add', alpha: 0 }] },
 		],
 	};
-	evaluateActor(spineNs, zeroAlpha, 1.4, resolve);
+	evaluateActor(rigNs, zeroAlpha, 1.4, resolve);
 	ok('an alpha-0 layer is an exact no-op', poseEqual(poseSnapshot(zeroAlpha.skeleton), basePose, 0));
 
 	// An additive strip must not consume the "first non-additive" slot: with ONLY an additive
@@ -284,7 +284,7 @@ section('4. Layering — additive, alpha, crossfade');
 	};
 	rigA.skeleton.setToSetupPose();
 	const setupPose = poseSnapshot(rigA.skeleton);
-	evaluateActor(spineNs, additiveOnly, 1.4, resolve);
+	evaluateActor(rigNs, additiveOnly, 1.4, resolve);
 	ok('an additive-only stack still poses (does not sit at setup)', !poseEqual(poseSnapshot(rigA.skeleton), setupPose, 1e-6));
 
 	// Crossfade: two strips on ONE track overlapping. At the far ends the pose must equal each
@@ -293,16 +293,16 @@ section('4. Layering — additive, alpha, crossfade');
 	const B = { start: 1, length: 2, clip: 'big_win_idle', loop: { mode: 'fill' }, blendIn: 1 };
 	const fade = { skeleton: rigA.skeleton, tracks: [{ kind: 'animation', layer: 0, strips: [A, B] }] };
 
-	evaluateActor(spineNs, { skeleton: rigA.skeleton, tracks: [{ kind: 'animation', layer: 0, strips: [{ ...A, blendOut: 0 }] }] }, 0.5, resolve);
+	evaluateActor(rigNs, { skeleton: rigA.skeleton, tracks: [{ kind: 'animation', layer: 0, strips: [{ ...A, blendOut: 0 }] }] }, 0.5, resolve);
 	const aAlone = poseSnapshot(rigA.skeleton);
-	evaluateActor(spineNs, fade, 0.5, resolve);
+	evaluateActor(rigNs, fade, 0.5, resolve);
 	ok('before the overlap the pose is clip A alone', poseEqual(poseSnapshot(rigA.skeleton), aAlone, 1e-12));
 
-	evaluateActor(spineNs, fade, 1.5, resolve);
+	evaluateActor(rigNs, fade, 1.5, resolve);
 	const mid = poseSnapshot(rigA.skeleton);
-	evaluateActor(spineNs, { skeleton: rigA.skeleton, tracks: [{ kind: 'animation', layer: 0, strips: [{ ...A, blendOut: 0 }] }] }, 1.5, resolve);
+	evaluateActor(rigNs, { skeleton: rigA.skeleton, tracks: [{ kind: 'animation', layer: 0, strips: [{ ...A, blendOut: 0 }] }] }, 1.5, resolve);
 	const aMid = poseSnapshot(rigA.skeleton);
-	evaluateActor(spineNs, { skeleton: rigA.skeleton, tracks: [{ kind: 'animation', layer: 0, strips: [{ ...B, blendIn: 0 }] }] }, 1.5, resolve);
+	evaluateActor(rigNs, { skeleton: rigA.skeleton, tracks: [{ kind: 'animation', layer: 0, strips: [{ ...B, blendIn: 0 }] }] }, 1.5, resolve);
 	const bMid = poseSnapshot(rigA.skeleton);
 	ok('mid-overlap the pose is neither clip alone (it is blended)',
 		!poseEqual(mid, aMid, 1e-6) && !poseEqual(mid, bMid, 1e-6));
@@ -319,11 +319,11 @@ section('4. Layering — additive, alpha, crossfade');
 	const baseStrip = { start: 0, length: 3, clip: 'big_win_idle', loop: { mode: 'fill' } };
 	const topStrip = { start: 0, length: 3, clip: 'epic_win_idle', loop: { mode: 'fill' } };
 
-	evaluateActor(spineNs, { skeleton: rigA.skeleton, tracks: [{ kind: 'animation', layer: 0, strips: [baseStrip] }] }, 0.9, resolve);
+	evaluateActor(rigNs, { skeleton: rigA.skeleton, tracks: [{ kind: 'animation', layer: 0, strips: [baseStrip] }] }, 0.9, resolve);
 	const baseLocal = locals(rigA.skeleton);
-	evaluateActor(spineNs, { skeleton: rigA.skeleton, tracks: [{ kind: 'animation', layer: 0, strips: [topStrip] }] }, 0.9, resolve);
+	evaluateActor(rigNs, { skeleton: rigA.skeleton, tracks: [{ kind: 'animation', layer: 0, strips: [topStrip] }] }, 0.9, resolve);
 	const topLocal = locals(rigA.skeleton);
-	evaluateActor(spineNs, {
+	evaluateActor(rigNs, {
 		skeleton: rigA.skeleton,
 		tracks: [
 			{ kind: 'animation', layer: 0, strips: [baseStrip] },
@@ -345,7 +345,7 @@ section('4. Layering — additive, alpha, crossfade');
 		const props = written.get(i);
 		if (!props) continue;
 		for (const k of props) {
-			// Rotation blends along the SHORTEST ARC in spine, so a raw lerp is only the same
+			// Rotation blends along the SHORTEST ARC in rig, so a raw lerp is only the same
 			// identity while the two values are within half a turn. Skip the wrap cases.
 			if (PROP_KEYS[k] === 'rotation' && Math.abs(topLocal[i][k] - baseLocal[i][k]) > 180) continue;
 			const expect = baseLocal[i][k] + (topLocal[i][k] - baseLocal[i][k]) * 0.5;
@@ -386,7 +386,7 @@ section('4. Layering — additive, alpha, crossfade');
  * Bone properties a clip is actively driving AT `localTime`.
  *
  * The `frames[0] <= localTime` filter is not a nicety — a bone timeline applied BEFORE its first
- * keyframe behaves differently per blend mode (spine-core `CurveTimeline*.apply`, the
+ * keyframe behaves differently per blend mode (engine-rig `CurveTimeline*.apply`, the
  * `if (time < frames[0])` branch): `MixBlend.setup` snaps the property to the SETUP value, while
  * `MixBlend.replace` returns without touching it. So a layer legitimately passes through whatever
  * is underneath it until its own first key. Comparing an un-started property against a
@@ -439,11 +439,11 @@ section('5. Bone masks');
 	};
 	const baseOnly = { skeleton: rigA.skeleton, tracks: [{ kind: 'animation', layer: 0, strips: [base] }] };
 
-	evaluateActor(spineNs, baseOnly, 0.7, resolve);
+	evaluateActor(rigNs, baseOnly, 0.7, resolve);
 	const baseLocals = new Map(rigA.skeleton.bones.map((b) => [b.data.name, boneKey(b)]));
-	evaluateActor(spineNs, unmasked, 0.7, resolve);
+	evaluateActor(rigNs, unmasked, 0.7, resolve);
 	const unmaskedLocals = new Map(rigA.skeleton.bones.map((b) => [b.data.name, boneKey(b)]));
-	evaluateActor(spineNs, masked, 0.7, resolve);
+	evaluateActor(rigNs, masked, 0.7, resolve);
 	const maskedLocals = new Map(rigA.skeleton.bones.map((b) => [b.data.name, boneKey(b)]));
 
 	ok('masked bones take the layer', maskNames.every((n) => maskedLocals.get(n) === unmaskedLocals.get(n)));
@@ -493,18 +493,18 @@ section('6. Two rigs, DIFFERENT atlases — coexistence + independence  [GATE 2,
 	const actorA = { skeleton: rigA.skeleton, tracks: [{ kind: 'animation', layer: 0, strips: [{ start: 0, length: 3, clip: 'big_win_idle', loop: { mode: 'fill' } }] }] };
 	const actorB = { skeleton: rigB.skeleton, tracks: [{ kind: 'animation', layer: 0, strips: [{ start: 0, length: 3, clip: 'anticipation_loop', loop: { mode: 'fill' } }] }] };
 
-	evaluateActor(spineNs, actorA, 1.1, (s) => clipA(s.clip));
+	evaluateActor(rigNs, actorA, 1.1, (s) => clipA(s.clip));
 	const soloA = poseSnapshot(rigA.skeleton);
-	evaluateActor(spineNs, actorB, 1.1, (s) => clipB(s.clip));
+	evaluateActor(rigNs, actorB, 1.1, (s) => clipB(s.clip));
 	const soloB = poseSnapshot(rigB.skeleton);
 
 	// Now pose both in one pass, in both orders.
-	evaluateActor(spineNs, actorA, 1.1, (s) => clipA(s.clip));
-	evaluateActor(spineNs, actorB, 1.1, (s) => clipB(s.clip));
+	evaluateActor(rigNs, actorA, 1.1, (s) => clipA(s.clip));
+	evaluateActor(rigNs, actorB, 1.1, (s) => clipB(s.clip));
 	const abA = poseSnapshot(rigA.skeleton);
 	const abB = poseSnapshot(rigB.skeleton);
-	evaluateActor(spineNs, actorB, 1.1, (s) => clipB(s.clip));
-	evaluateActor(spineNs, actorA, 1.1, (s) => clipA(s.clip));
+	evaluateActor(rigNs, actorB, 1.1, (s) => clipB(s.clip));
+	evaluateActor(rigNs, actorA, 1.1, (s) => clipA(s.clip));
 	const baA = poseSnapshot(rigA.skeleton);
 
 	ok('actor A is unaffected by actor B being posed', poseEqual(abA, soloA, 0));

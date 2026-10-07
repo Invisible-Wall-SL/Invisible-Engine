@@ -149,7 +149,7 @@ interface BaseNode {
 	slotId?: string;
 	/**
 	 * Background cover fit (§10.4). Canonical fit for a plain `background`-SPACE
-	 * sprite/spine node — `'cover'` (default) fills the window edge-to-edge (may
+	 * sprite/rig node — `'cover'` (default) fills the window edge-to-edge (may
 	 * crop), `'contain'` scales the art to fit INSIDE the window keeping aspect, and
 	 * `'width'`/`'height'` pin the fit to that ONE axis whatever the window ratio
 	 * (see {@link CoverFit}). Per-layoutType overridable via {@link NodeOverride.fit}.
@@ -164,7 +164,7 @@ interface BaseNode {
 	fit?: CoverFit;
 	/**
 	 * Per-node opt-in to true cover-fit (aspect-preserving fill to the canvas/window)
-	 * for a cover-capable node (`isCoverFitKind` — sprite / spine / flipbook) in a normal
+	 * for a cover-capable node (`isCoverFitKind` — sprite / rig / flipbook) in a normal
 	 * `canvas`-space (flow-gated) scene — the SAME cover math the `background` space applies
 	 * ({@link coverTransform} + {@link BaseNode.coverScale}/{@link BaseNode.fit}/`scale`
 	 * stretch), but WITHOUT the always-on persistent-background mounting of
@@ -181,19 +181,19 @@ interface BaseNode {
 	 * (pre-scale) space, BAKED by the Scene Editor on save.
 	 *
 	 * It exists because the two surfaces cannot measure that union the same way. The editor
-	 * measures live art it has already rendered — a spine's setup-pose bounds from the WebGL
+	 * measures live art it has already rendered — a rig's setup-pose bounds from the WebGL
 	 * overlay, a text node's rendered glyph box, a clip's frame rect, a nested instance's own
 	 * union — and never skips a child (an unsizable one still contributes a placeholder box).
 	 * The runtime has none of that: `componentDesignSize` is fed an `intrinsic` that can only
-	 * size a SPRITE, so every spine / text / flipbook / nested-instance child is SKIPPED. A
-	 * spine-and-text overlay therefore measured much smaller in the game than in the editor —
+	 * size a SPRITE, so every rig / text / flipbook / nested-instance child is SKIPPED. A
+	 * rig-and-text overlay therefore measured much smaller in the game than in the editor —
 	 * or, with no sprite child at all, measured `null`, at which point `bgComponent` gave up
 	 * and the instance rendered at its raw authored x/y with NO cover. Editor and game framed
 	 * the same overlay at two different scales and two different centres.
 	 *
 	 * So the editor bakes the number instead of asking the runtime to re-derive it. Lives on
 	 * the INSTANCE, not the {@link ComponentDef}: params change what a component draws (text
-	 * length, the chosen spine), so two instances of one def legitimately have two different
+	 * length, the chosen rig), so two instances of one def legitimately have two different
 	 * unions and a single def-level size would be wrong for one of them. Re-baked on every
 	 * save, so editing the def refreshes it.
 	 *
@@ -233,7 +233,7 @@ interface BaseNode {
 	 *   just the ticker tile with NO text — used by a DECOMPOSED readout whose
 	 *   caption/value live in sibling `text` parts; `text` = a single line), so
 	 *   the author sees roughly the real HUD instead of a generic placeholder box.
-	 * - `art`: a real spine/sprite the editor draws in the anchor's place (e.g. the
+	 * - `art`: a real rig/sprite the editor draws in the anchor's place (e.g. the
 	 *   animated `Background`, which is full-bleed + crossfades in-game and so has
 	 *   to stay a coded `bind`). Lets "see the game composed" work without the
 	 *   editor running game code. `fit` controls how the art is sized to the scene
@@ -273,8 +273,8 @@ interface BaseNode {
 	paramBindings?: Record<string, string>;
 	/**
 	 * VALUE bindings (Hold and Win Phase 12b, `docs/design/hold-and-win.md` §8): numbers that drive
-	 * this node — a transform offset, a visibility threshold, a fill reveal, a clip frame, a spine
-	 * animation scrub or a spine bone. Each reads one number (an engine value source, which may name
+	 * this node — a transform offset, a visibility threshold, a fill reveal, a clip frame, a rig
+	 * animation scrub or a rig bone. Each reads one number (an engine value source, which may name
 	 * the owning instance's params as `{key}` placeholders, or a component param), maps it through
 	 * its own range, and applies it on top of the authored node, so the authored pose stays the rest
 	 * pose. Mapping and folding live in `valueBindings.ts`; the runtime applies them in
@@ -294,8 +294,8 @@ interface BaseNode {
 	/**
 	 * Reveal gate (Invisible Flow — intro-complete sequencing). When set, this node starts HIDDEN
 	 * and becomes visible only once the named component-scoped signal has FIRED for this instance —
-	 * so a "free spin amount" text or a tap prompt appears only AFTER a sibling spine's one-shot
-	 * completes (its {@link SpineCue.completeSignal}). The signal may also be a declared component
+	 * so a "free spin amount" text or a tap prompt appears only AFTER a sibling rig's one-shot
+	 * completes (its {@link RigCue.completeSignal}). The signal may also be a declared component
 	 * signal (e.g. `enter`, `win`). Re-arms on each fresh mount (re-hides on the next free-spin
 	 * entry). Only meaningful inside a `componentInstance` expansion (which provides the fired-signal
 	 * context); a top-level scene node has no provider ⇒ always visible. Absent ⇒ always visible
@@ -309,9 +309,9 @@ interface BaseNode {
  * per-ratio override still places it: `x`/`y` add pixels, `rotation` adds degrees (clockwise),
  * `scale`/`scaleX`/`scaleY` and `alpha` multiply. `visible` shows the node while the value passes
  * its threshold. `fill` reveals a sprite, flipbook or rect from one edge (0 = hidden, 1 = whole).
- * `frame` holds a flipbook on one frame. `animTime` holds a spine animation at a point (0 = first
+ * `frame` holds a flipbook on one frame. `animTime` holds a rig animation at a point (0 = first
  * frame, 1 = last), over whatever the rig is playing, firing none of its events. `bone` offsets one
- * bone of a spine on top of whatever it is playing.
+ * bone of a rig on top of whatever it is playing.
  */
 export const VALUE_BINDING_TARGETS = [
 	'x',
@@ -428,10 +428,10 @@ export interface SpriteNode extends BaseNode {
 	tint?: number;
 }
 
-export interface SpineCue {
+export interface RigCue {
 	/** A ComponentSignal key declared on the owning component (e.g. 'win','bigWin'). */
 	signal: string;
-	/** Animation name on this spine to play when the signal fires. */
+	/** Animation name on this rig to play when the signal fires. */
 	animation: string;
 	loop?: boolean;
 	/**
@@ -446,28 +446,28 @@ export interface SpineCue {
 }
 
 /** One state's playback: the animation to play (+ whether it loops while held). */
-export interface SpineStateAnimation {
-	/** Animation name on this spine. Empty/absent ⇒ that state is unmapped (the
+export interface RigStateAnimation {
+	/** Animation name on this rig. Empty/absent ⇒ that state is unmapped (the
 	 * cascade falls back to a neighbour, ultimately `defaultAnimation`). */
 	animation: string;
 	loop?: boolean;
 }
 
-/** Button-INTERACTION-state → spine animation map (the state-driven analogue of the
+/** Button-INTERACTION-state → rig animation map (the state-driven analogue of the
  * `image*` state cascade). Each entry is optional; an unmapped state cascades to a
  * neighbour exactly like the state-image cascade (pressed→hover→selected→resting),
  * where the resting animation is the node's `defaultAnimation`. */
 export interface ButtonStateAnimations {
-	hover?: SpineStateAnimation;
-	pressed?: SpineStateAnimation;
-	selected?: SpineStateAnimation;
-	disabled?: SpineStateAnimation;
-	spinning?: SpineStateAnimation;
-	spinningHover?: SpineStateAnimation;
-	spinningPressed?: SpineStateAnimation;
+	hover?: RigStateAnimation;
+	pressed?: RigStateAnimation;
+	selected?: RigStateAnimation;
+	disabled?: RigStateAnimation;
+	spinning?: RigStateAnimation;
+	spinningHover?: RigStateAnimation;
+	spinningPressed?: RigStateAnimation;
 }
 
-export interface SpineNode extends BaseNode {
+export interface RigNode extends BaseNode {
 	kind: 'spine';
 	assetKey: string;
 	width?: number;
@@ -475,33 +475,33 @@ export interface SpineNode extends BaseNode {
 	defaultAnimation?: string;
 	loop?: boolean;
 	skin?: string;
-	/** Signal-driven playback cues (design §8.5, narrowed to spine-only). When the
-	 * named component `signal` fires, this spine plays `animation` on track 0. The
+	/** Signal-driven playback cues (design §8.5, narrowed to rig-only). When the
+	 * named component `signal` fires, this rig plays `animation` on track 0. The
 	 * simplest behavior tier — no timeline/tween. Works BOTH inside a `componentInstance`
 	 * (the instance owns the bus and can also carry a cue's `completeSignal`) and on a
-	 * spine placed directly in a scene (`LayoutNodeView` subscribes the node's own cues).
+	 * rig placed directly in a scene (`LayoutNodeView` subscribes the node's own cues).
 	 * The signal resolves against the game's `registerComponentSignals` registry first,
 	 * then the open bus — so a name the game never registered still fires when a Flow
 	 * `fireCue` node broadcasts it. A signal nothing ever fires ⇒ `defaultAnimation`
 	 * (parity). */
-	cues?: SpineCue[];
-	/** Button-state-driven playback: when this spine is inside an INTERACTIVE button
+	cues?: RigCue[];
+	/** Button-state-driven playback: when this rig is inside an INTERACTIVE button
 	 * component, the engine resolves the current interaction state (hover / press /
 	 * selected / disabled / spinning) and plays the mapped animation, cascading like
 	 * the state-image cascade and returning to `defaultAnimation` when no state is
-	 * active. Lets a button BE a spine whose animation is driven purely by its state
+	 * active. Lets a button BE a rig whose animation is driven purely by its state
 	 * (the interaction analogue of `imageHover`/`imagePressed`/…). Only active when the
-	 * spine's `componentInstance` owns the press (an `action` feed, no coded bind part);
-	 * a scene-level spine ignores it (parity). */
+	 * rig's `componentInstance` owns the press (an `action` feed, no coded bind part);
+	 * a scene-level rig ignores it (parity). */
 	stateAnimations?: ButtonStateAnimations;
 	/**
 	 * Reveal-symbol rider — ride the chosen "reveal" symbol (`stateGame.specialSymbol`) on
-	 * one of THIS spine's OWN bones, WITHOUT spawning a second rig or a bound component. When
+	 * one of THIS rig's OWN bones, WITHOUT spawning a second rig or a bound component. When
 	 * set to a bone name AND the game registered a `revealSymbolRider` bound component,
-	 * `<LayoutNodeView>` mounts that rider on the named bone via `<SpineBoneAttach>` (the same
+	 * `<LayoutNodeView>` mounts that rider on the named bone via `<RigBoneAttach>` (the same
 	 * bone-hosting mechanism {@link EffectNode.hostSpineId} uses for effects), so the special
 	 * symbol banks/scales with the rig's animation. Lets an author place e.g. `R_Cage_Freespin`
-	 * as a normal spine node and show the book symbol on its `Socket` bone — the on-node
+	 * as a normal rig node and show the book symbol on its `Socket` bone — the on-node
 	 * alternative to the rig-spawning `freeSpinIntroSymbolReveal` component. Absent ⇒ no rider
 	 * mounts, byte-identical to today (parity). */
 	revealSymbolBone?: string;
@@ -510,14 +510,14 @@ export interface SpineNode extends BaseNode {
 	revealSymbolState?: string;
 	/** Uniform scale of the ridden symbol, applied on the rider's own container. Absent ⇒ 1. */
 	revealSymbolScale?: number;
-	/** Pixel offset added to the bone position (spine-local space), forwarded to
-	 * `<SpineBoneAttach offset>`. Absent ⇒ 0. */
+	/** Pixel offset added to the bone position (rig-local space), forwarded to
+	 * `<RigBoneAttach offset>`. Absent ⇒ 0. */
 	revealSymbolOffsetX?: number;
 	revealSymbolOffsetY?: number;
-	/** Rotate the ridden symbol with the bone's world rotation (`<SpineBoneAttach followRotation>`).
+	/** Rotate the ridden symbol with the bone's world rotation (`<RigBoneAttach followRotation>`).
 	 * Absent ⇒ true. */
 	revealSymbolFollowRotation?: boolean;
-	/** Scale the ridden symbol with the bone's world scale (`<SpineBoneAttach followScale>`).
+	/** Scale the ridden symbol with the bone's world scale (`<RigBoneAttach followScale>`).
 	 * Absent ⇒ true. */
 	revealSymbolFollowScale?: boolean;
 }
@@ -631,42 +631,42 @@ export interface ComponentInstanceNode extends BaseNode {
 	/** Author-set overrides for the component's {@link ComponentParam}s. */
 	params?: Record<string, unknown>;
 	/**
-	 * Per-instance overrides for a spine node's button {@link ButtonStateAnimations}
-	 * (its "Plays on button state" map), keyed by the spine node's `id` inside the
+	 * Per-instance overrides for a rig node's button {@link ButtonStateAnimations}
+	 * (its "Plays on button state" map), keyed by the rig node's `id` inside the
 	 * resolved {@link ComponentDef.root}. Each entry overlays the def's per-state
 	 * animation for THIS placement only — an absent state inherits the def — so two
-	 * placements of one button can play different state animations (the spine
+	 * placements of one button can play different state animations (the rig
 	 * analogue of overriding `imageHover`/`imagePressed`/… per instance). Merged at
 	 * runtime by `mergeButtonStateAnimations`; absent ⇒ the def map is used verbatim
 	 * (parity). */
 	stateAnimationOverrides?: Record<string, ButtonStateAnimations>;
 	/**
-	 * Per-instance overrides for a spine node's RESTING look — its
-	 * {@link SpineNode.defaultAnimation} / {@link SpineNode.loop} /
-	 * {@link SpineNode.skin} — keyed by the spine node's `id` in the resolved
+	 * Per-instance overrides for a rig node's RESTING look — its
+	 * {@link RigNode.defaultAnimation} / {@link RigNode.loop} /
+	 * {@link RigNode.skin} — keyed by the rig node's `id` in the resolved
 	 * {@link ComponentDef.root} (the at-rest sibling of {@link stateAnimationOverrides}).
-	 * Any field absent ⇒ inherit the def spine node's value, so two placements of one
+	 * Any field absent ⇒ inherit the def rig node's value, so two placements of one
 	 * component can show a different resting pose. Provided to `<LayoutNodeView>` via
-	 * `componentSpineRestContext`; absent ⇒ the def values are used verbatim (parity). */
-	spineRestOverrides?: Record<string, SpineRestOverride>;
+	 * `componentRigRestContext`; absent ⇒ the def values are used verbatim (parity). */
+	spineRestOverrides?: Record<string, RigRestOverride>;
 	/**
-	 * Per-instance rebinding of WHICH engine signal drives a spine node's
-	 * {@link SpineCue}s — keyed by the spine node's `id` in the resolved
+	 * Per-instance rebinding of WHICH engine signal drives a rig node's
+	 * {@link RigCue}s — keyed by the rig node's `id` in the resolved
 	 * {@link ComponentDef.root} (the signal-feed sibling of {@link spineRestOverrides}).
-	 * The inner map remaps a cue's ORIGINAL {@link SpineCue.signal} → the replacement
+	 * The inner map remaps a cue's ORIGINAL {@link RigCue.signal} → the replacement
 	 * engine-signal key, so two placements of one component can react to different
 	 * signals (e.g. one cue driven by `win`, another copy by `bigWin`) without forking
-	 * the def. Keyed by original signal (not cue index) so a spine carrying several
+	 * the def. Keyed by original signal (not cue index) so a rig carrying several
 	 * cues remaps cleanly. A cue not listed (or no entry for the node) ⇒ its def signal
 	 * is used verbatim, so an absent map is byte-identical to today (parity). Applied
 	 * when `<ComponentInstance>` builds its cue → `SignalSource` subscriptions. */
 	cueSignalOverrides?: Record<string, Record<string, string>>;
 }
 
-/** Per-instance overrides for a spine node's resting look (see
+/** Per-instance overrides for a rig node's resting look (see
  * {@link ComponentInstanceNode.spineRestOverrides}). Any field absent ⇒ inherit
- * the def spine node's corresponding value. */
-export interface SpineRestOverride {
+ * the def rig node's corresponding value. */
+export interface RigRestOverride {
 	defaultAnimation?: string;
 	loop?: boolean;
 	skin?: string;
@@ -775,10 +775,10 @@ export interface ReelGridNode extends BaseNode {
 	 */
 	spin?: ReelSpinTuning;
 	/**
-	 * Free-spin anticipation overlay tuning (the per-reel spine "hold" effect):
+	 * Free-spin anticipation overlay tuning (the per-reel rig "hold" effect):
 	 * optional per-field overrides of the game's coded `ANTICIPATION` config.
 	 * Absent / empty ⇒ the coded defaults are used unchanged (parity). The `*Ratio`
-	 * fields are multiples of one cell; `*Animation`/`spineKey` are the spine asset
+	 * fields are multiples of one cell; `*Animation`/`spineKey` are the rig asset
 	 * + track names; `sound` is the loop sfx name.
 	 */
 	anticipation?: AnticipationProfile;
@@ -876,7 +876,7 @@ export interface ReelSpinTuning {
  * Per-field overrides for the free-spin anticipation overlay — mirrors a game's
  * coded `ANTICIPATION` config (all optional; an unset field falls back to the
  * coded value). The `*Ratio` fields are multiples of one cell; `spineKey` +
- * `*Animation` are the spine asset key and its track names; `sound` is the loop
+ * `*Animation` are the rig asset key and its track names; `sound` is the loop
  * sfx name.
  */
 export interface AnticipationProfile {
@@ -900,7 +900,7 @@ export interface AnticipationProfile {
  * only the id + placement — never the layers.
  *
  * v1 constraint: a scene-placed effect is for FREE-layer effects. A `bone`-placed layer needs a host
- * `<SpineProvider>` a scene node doesn't provide (it falls back to origin+offset); bone effects are
+ * `<RigProvider>` a scene node doesn't provide (it falls back to origin+offset); bone effects are
  * mounted on their host rig via the game's `components/Effects.svelte` path instead.
  *
  * The editor can't run a WebGL emitter in its 2D canvas (same as `reelGrid`/`bind`), so it draws a
@@ -911,10 +911,10 @@ export interface EffectNode extends BaseNode {
 	/** The authored effect's id (file stem of its `.fx.json`), resolved via `registerEffects`. */
 	effectId: string;
 	/**
-	 * Optional — the `id` of a placed SPINE node in the SAME scene this effect ATTACHES to. When set
-	 * (and the target spine exists), the effect is mounted INSIDE that rig's `<SpineProvider>` instead
+	 * Optional — the `id` of a placed RIG node in the SAME scene this effect ATTACHES to. When set
+	 * (and the target rig exists), the effect is mounted INSIDE that rig's `<RigProvider>` instead
 	 * of at its own scene position, so a `placement.space:'bone'` layer rides that specific rig's bone
-	 * and the rig's animation-timeline events (rebroadcast — `BaseSpineProvider.rebroadcastEvents`) fire
+	 * and the rig's animation-timeline events (rebroadcast — `BaseRigProvider.rebroadcastEvents`) fire
 	 * the effect on the beat. The effect then RIDES the rig (its own node transform is ignored at
 	 * runtime; the rig drives position). Absent / dangling ⇒ a normal scene-placed effect at its
 	 * transform. `LayoutScene` does the pairing; only top-level scene nodes participate.
@@ -923,15 +923,15 @@ export interface EffectNode extends BaseNode {
 }
 
 /**
- * Signal-driven clip SWAP — the flipbook twin of {@link SpineCue}. When the named signal fires,
- * this node plays `clipId` instead of its own. Same authoring model as a spine cue and driven by
+ * Signal-driven clip SWAP — the flipbook twin of {@link RigCue}. When the named signal fires,
+ * this node plays `clipId` instead of its own. Same authoring model as a rig cue and driven by
  * the same bus (a game-registered signal, or an author-named one a Flow `fireCue` broadcasts), so
  * "the resting clip, then a different clip while the reels spin" reads identically for a rig and
  * for a frame animation.
  *
- * There is no `completeSignal` twin: a spine one-shot reports completion through `SpineTrack`,
+ * There is no `completeSignal` twin: a rig one-shot reports completion through `RigTrack`,
  * while `<Flipbook>` exposes no completion hook — a non-looping clip simply stops on its last
- * frame. And like a spine cue, a fired cue is never CLEARED: returning to the resting clip is a
+ * frame. And like a rig cue, a fired cue is never CLEARED: returning to the resting clip is a
  * second cue that names it, not a stop.
  */
 export interface FlipbookCue {
@@ -964,7 +964,7 @@ export interface FlipbookNode extends BaseNode {
 	/** The authored clip's id (file stem of its `.clip.json`), resolved via `registerFlipbooks`. */
 	clipId: string;
 	/**
-	 * Signal-driven clip swaps — the flipbook sibling of {@link SpineNode.cues}. Works BOTH on a
+	 * Signal-driven clip swaps — the flipbook sibling of {@link RigNode.cues}. Works BOTH on a
 	 * node placed directly in a scene and on one inside a `componentInstance`. A signal nothing
 	 * ever fires ⇒ `clipId` plays (parity).
 	 *
@@ -972,7 +972,7 @@ export interface FlipbookNode extends BaseNode {
 	 * it by holding the folded clip's identity: a LOOPING cue is NOT restarted (free spins fire a
 	 * spin cue once per spin while the idle cue fires once per round, so rewinding to frame 0 each
 	 * time would read as a stutter), while a ONE-SHOT IS replayed — re-firing a burst is asking for
-	 * it again, exactly as a spine cue replays off its own fire token.
+	 * it again, exactly as a rig cue replays off its own fire token.
 	 */
 	cues?: FlipbookCue[];
 	width?: number;
@@ -1032,7 +1032,7 @@ export interface RepeaterNode extends BaseNode {
 export type LayoutNode =
 	| ContainerNode
 	| SpriteNode
-	| SpineNode
+	| RigNode
 	| TextNode
 	| RectNode
 	| ComponentInstanceNode
@@ -1114,7 +1114,7 @@ export interface Scene {
 	 * - `background` — full-bleed cover layer: nodes cover-fit the canvas via true
 	 *   cover, the node's {@link BaseNode.coverScale} acting as the uniform cover
 	 *   multiplier (default 1 = exact edge-to-edge) and `scale.x`/`scale.y` as the
-	 *   free non-uniform stretch on top. Covers a background image, spine or flipbook
+	 *   free non-uniform stretch on top. Covers a background image, rig or flipbook
 	 *   clip (`isCoverFitKind`) and a componentInstance as one composed unit;
 	 *   animated multi-state crossfade stays coded.
 	 * Additive — absent = `game`.
@@ -1218,8 +1218,8 @@ export interface GameSettings {
 	/**
 	 * The project's own BOOT SPLASH — the second pre-canvas screen, shown after the
 	 * global engine mark (which is admin-owned and lives in `app_settings`, not here).
-	 * Names a spine bundle under `<client>/<project>/spines/`, falling back to
-	 * `_shared/spines/` like every other spine reference. Absent ⇒ the tier is skipped
+	 * Names a rig bundle under `<client>/<project>/spines/`, falling back to
+	 * `_shared/spines/` like every other rig reference. Absent ⇒ the tier is skipped
 	 * entirely and boot goes straight from the engine mark to the game.
 	 * See `constants-shared/bootSplash`.
 	 */
@@ -1404,7 +1404,7 @@ export interface ComponentDef {
  * All kinds are STRING values at runtime except `number`/`boolean`/`color`; the extra kinds are
  * EDITOR INPUT HINTS, so existing readers can ignore them:
  * - `image` — an atlas frame/region name, rendered with a region picker.
- * - `spine` — lists the project's spine bundles.
+ * - `spine` — lists the project's rig bundles.
  * - `spineAnimation` / `spineSlot` / `spineBone` — list the animations / slots / bones of the
  *   bundle selected by a sibling `spine`-kind param (named in {@link ComponentParam.spineParam}).
  * - `symbolState` — the fixed `SYMBOL_STATES` set (./symbolStates) the Invisible Symbols State
@@ -1518,7 +1518,7 @@ export interface ResolvedTransform {
  */
 export interface CinematicCast {
 	actorId: string;
-	/** The rig's folder under `<project>/spines/` — the STABLE identity, and the spine bundle
+	/** The rig's folder under `<project>/spines/` — the STABLE identity, and the rig bundle
 	 *  name the game registers. Never the skeleton index's positional `id`. */
 	rigFolder?: string;
 	rigId?: string | number;

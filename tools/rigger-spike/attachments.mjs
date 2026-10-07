@@ -1,9 +1,9 @@
-// Phase §18 item 9 spike (GATE) — nail the Spine 4.2 EXTRA ATTACHMENT types (point, boundingbox,
+// Phase §18 item 9 spike (GATE) — nail the 4.2-format EXTRA ATTACHMENT types (point, boundingbox,
 // clipping, linkedmesh) JSON format + loader behaviour against the official runtime, before any UI.
 //   node tools/rigger-spike/attachments.mjs <skeleton.json> <skeleton.atlas>
 //
 // ============================ EMPIRICAL FINDINGS ============================
-// (validated below against @esotericsoftware/spine-core@4.2.74's SkeletonJson loader +
+// (validated below against the rig runtime's SkeletonJson loader (engine-rig, held to the 4.2-format reference) +
 //  PointAttachment / BoundingBoxAttachment / ClippingAttachment / MeshAttachment — NOT from memory.
 //  Read off SkeletonJson.js: readAttachment L363-473 (boundingbox L389, mesh/linkedmesh L399,
 //  point L445, clipping L457), readVertices L483-510, LinkedMesh resolve L324-337 + class L1058.)
@@ -48,14 +48,14 @@
 //     skin?: "<sourceSkin>",      // optional, default null → source resolves in the DEFAULT skin
 //     timelines?: true,           // optional bool, default TRUE → inheritTimeline (deform-inherit):
 //                                 //   true ⇒ mesh.timelineAttachment = parent (shares deform keys);
-//                                 //   false ⇒ timelineAttachment = self (own deform). Spine editor's
+//                                 //   false ⇒ timelineAttachment = self (own deform). An external editor's
 //                                 //   "Inherit Deform/Timeline" checkbox. (field name is `timelines`,
 //                                 //   NOT `deform`/`inheritDeform` — those are pre-4.x.)
 //     path: "<atlasRegion>",      // ⚠ REQUIRED IN PRACTICE — a linkedmesh STILL goes through
 //                                 //   newMeshAttachment, which resolves `path` (default = name)
 //                                 //   against the atlas BEFORE the deferred parent-resolve. So it
 //                                 //   MUST carry a `path` pointing at the SAME region as its parent
-//                                 //   (Spine editor always exports this). Omit → "Region not found".
+//                                 //   (an external rig editor always exports this). Omit → "Region not found".
 //     width?, height?,            // optional editor dims (* scale)
 //     color?, sequence? }         // optional like a normal mesh
 //   ⚠ A linkedmesh has NO own vertices/uvs/triangles in JSON — the loader DEFERS it (pushes a
@@ -63,9 +63,9 @@
 //   worldVerticesLength/regionUVs/triangles/hullLength. parent must exist in the named (or default)
 //   skin at the SAME slot index, else loader THROWS "Parent mesh not found".
 import { readFileSync } from 'node:fs';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, Vector2 } = await import(SPINE_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, Vector2 } = await import(RIG_CORE);
 
 const [, , jsonPath, atlasPath] = process.argv;
 if (!jsonPath || !atlasPath) { console.log('usage: node tools/rigger-spike/attachments.mjs <skeleton.json> <skeleton.atlas>'); process.exit(1); }
@@ -235,8 +235,8 @@ const atlasRegion = (() => {
 	let raw = withAttachment(baseRaw, 'srcMesh', srcMesh);
 	// ⚠ a linkedmesh STILL goes through newMeshAttachment, which resolves its OWN `path` (default =
 	// name) against the atlas BEFORE the deferred parent-resolve. So it MUST carry a `path` pointing
-	// at the same region as its parent (Spine editor always exports this). Omitting path → name
-	// "spikeLinked" → "Region not found".
+	// at the same region as its parent (an external rig editor always exports this). Omitting path
+	// → name "spikeLinked" → "Region not found".
 	raw = withAttachment(raw, 'spikeLinked', { type: 'linkedmesh', path: atlasRegion, parent: 'srcMesh', skin: skinName, timelines: true, width: 80, height: 80 });
 	let data = null;
 	try { data = loadData(raw); } catch (e) { log(false, 'loader REJECTED linkedmesh — ' + e.message); }

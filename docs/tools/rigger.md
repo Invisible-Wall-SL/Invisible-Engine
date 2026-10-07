@@ -1,23 +1,23 @@
 # Invisible Rigger
 
-An online Spine skeleton editor — load a rig from the project's cloud storage,
+An online rig skeleton editor — load a rig from the project's cloud storage,
 inspect and edit its bones, slots, skins, meshes and weights, animate it, and
-save it back as an `.irig` (byte-valid Spine 4.2 JSON the official runtime
+save it back as an `.irig` (byte-valid 4.2-format JSON the official runtime
 reads). You can also build a rig from scratch and import images.
 
 ## What it is
 
-A browser-based rigging tool, comparable in scope to the desktop Spine Editor,
-that we own end-to-end — no Spine licence needed to rig or animate. Its native
-file is a Spine **4.2 runtime export JSON** saved under our own `.irig`
-extension, so rigs round-trip with the official runtime and the desktop Spine
-Editor stays usable alongside it (it can _import_ the JSON, though not a lossless
-`.spine` project round-trip).
+A browser-based rigging tool, comparable in scope to an external rig editor,
+that we own end-to-end — no third-party licence needed to rig or animate. Its native
+file is a rig **4.2 runtime export JSON** saved under our own `.irig`
+extension, so rigs play in our own runtime (`engine-rig`, no third-party licence
+needed there either), the reference runtime reads them unchanged, and an external rig editor stays usable alongside it (it can _import_ the JSON, though not as a lossless
+project round-trip).
 
-It is built on the existing Invisible Spine Viewer — the WebGL renderer, pan/zoom,
+It is built on the existing Invisible Rig Viewer — the WebGL renderer, pan/zoom,
 animation scrubber and debug overlay are forked from it, and it reuses the
-viewer's `/spine/skeletons` + `/spine/file` endpoints and the same vendored
-`spine-webgl-4.2` runtime. The Rigger's added value is the structured **Inspector**
+viewer's `/rig-viewer/skeletons` + `/rig-viewer/file` endpoints and the same vendored
+runtime (`invisible-rig.js`, built from `packages/engine-rig`). The Rigger's added value is the structured **Inspector**
 (bone hierarchy, slots, skins, animations, constraints), bone/slot/mesh
 **selection + editing**, mesh + weight authoring, and animation keyframing.
 
@@ -34,8 +34,8 @@ viewer's `/spine/skeletons` + `/spine/file` endpoints and the same vendored
 > localized text as rig art, and **Cinematic mode** have all landed. Shipping a rig
 > into a game works end-to-end. The standing caveat is unchanged: much of this is
 > **code + green builds, not browser-verified** on the live authed page — the
-> vendored spine runtime is minified, so the headless test spikes (which use the
-> un-mangled `spine-core`) can be false-green. Owner live-testing keeps turning up
+> vendored rig runtime is minified, so the headless test spikes (which use the
+> un-mangled reference core runtime) can be false-green. Owner live-testing keeps turning up
 > browser-only bugs (see Known limitations). Treat the feature list below as
 > "built, verify live."
 
@@ -49,7 +49,7 @@ you create are scoped to the project you have selected.
 
 ### Load an existing rig
 
-1. Click **⤓ Load spine** in the sidebar to open the **Load a spine** modal,
+1. Click **⤓ Load rig** in the sidebar to open the **Load a rig** modal,
    which lists the project's skeletons (`.json`, `.skel`, and saved `.irig`
    files; edited `.irig` rigs are tagged "irig · edited"). Use the **filter** box
    to narrow the list, or **rescan** to refresh it.
@@ -102,7 +102,7 @@ numeric time field, and a **Speed** control.
 ### Bounds (the rig's size frame)
 
 Every rig carries a **natural size** — `skeleton.{x,y,width,height}` — which is
-what sizes/anchors the spine in the editor and the game (so a placed spine has a
+what sizes/anchors the rig in the editor and the game (so a placed rig has a
 predictable size, not a guess). It is written automatically on every save: the
 **resting (setup) pose** is measured first, falling back to a union across all
 animations only when the setup pose is empty (art shown solely via animation
@@ -119,7 +119,7 @@ The **Bounds** toolbar button shows that frame as a teal rectangle on the canvas
 Drag its **edge / corner** handles to resize it or the **centre** handle to move
 it — this sets a **custom** frame and _locks_ it, so the auto-fit on save won't
 overwrite your choice. **Shift-click** the Bounds button to re-fit automatically
-(clears the lock and re-measures). Use this when you want the spine to size to a
+(clears the lock and re-measures). Use this when you want the rig to size to a
 deliberate frame (e.g. just the body) rather than the measured art extent.
 
 **A rig with no art of its own** — a *carrier* rig, whose slots exist only to host
@@ -202,7 +202,7 @@ attached to one of the rig's bones, rides it).
 - **Drag** to retime, **Alt-drag** to duplicate, **double-click** to delete —
   the same gestures as any other key.
 
-Authored events export in the `.irig` (Spine JSON) as
+Authored events export in the `.irig` (rig JSON) as
 `animations.<name>.events` and travel with the rig, so the game replays them.
 
 #### Bind an effect straight to the key
@@ -365,7 +365,7 @@ a rival answer to the same question. Move the box, or bind a different bone.
   cancel, Backspace removes the last point). Either one replaces the image you
   see (**Skins** above says which skin's that is) and draws exactly the pixels it
   drew — also when the atlas trimmed the image's empty edges or packed it rotated:
-  the mesh's UVs are in Spine's own space (a fraction of the whole, untrimmed
+  the mesh's UVs are in rig's own space (a fraction of the whole, untrimmed
   image), laid where the image's ink sits in it. On an **image sequence** the mesh
   keeps the frames (its ▩ declaration, setup frame and sequence keys). If the
   atlas trimmed the frames differently, you are asked first: a mesh has one set of
@@ -389,8 +389,8 @@ a rival answer to the same question. Move the box, or bind a different bone.
   Clicking the same first vertex again cancels the pick; clicking the two ends of
   an existing constraint again **lifts** it. A constraint **survives ⟁
   Re-triangulate** (it's fed into the triangulation and force-inserted if the
-  Delaunay pass didn't include it) and **saves with the mesh** (as the Spine
-  `edges` field), so it round-trips into the desktop Spine editor too. Constraint
+  Delaunay pass didn't include it) and **saves with the mesh** (as the rig
+  `edges` field), so it round-trips into an external rig editor too. Constraint
   edges draw **amber** on both the main canvas and the UV map panel, and the
   first-picked (armed) vertex is highlighted amber. **Hull boundary edges** are
   always kept and can't be toggled — the tool tells you so if you try.
@@ -448,11 +448,11 @@ nothing in the bone hierarchy — a bone stays a separate thing you add delibera
 stored on the attachment itself as `pivot: [u, v]`: across and down, 0..1 of the image, absent
 meaning centred.
 
-**Why it needs storing at all.** Spine has no pivot field. A region attachment always places and
+**Why it needs storing at all.** Rig has no pivot field. A region attachment always places and
 rotates its quad about its own image centre and only then offsets by x/y — which is why a fresh
 image hangs from, and turns about, its middle. The key we add is non-standard but inert: the
-official Spine 4.2 loader ignores it and the rendered geometry is byte-identical, so the `.irig`
-still opens in Spine, with no sidecar.
+official 4.2-format loader ignores it and the rendered geometry is byte-identical, so the `.irig`
+still opens in rig, with no sidecar.
 
 **What it does.** The pivot is the image's **anchor** — the point of the picture that sits at the
 slot's position. Choosing a new one **moves the image** so that point takes the pivot's place; the
@@ -471,7 +471,7 @@ complete no-op.
 - The **✥** marks the cell the pivot is on, and the readout (e.g. `50% × 100%`) is where it sits
   inside the image — across × down. While the mode is on, the canvas draws an orange crosshair at
   the pivot over a faint outline of the image.
-- **The fractions are of the _untrimmed_ image** (Spine's `width` / `height`), not of the packed
+- **The fractions are of the _untrimmed_ image** (rig's `width` / `height`), not of the packed
   atlas rect — so on a region the packer cropped, the rendered art's edge sits a pixel or two
   inside the pivot box: clicking the visible top-left corner of a region trimmed by 1px reads
   `1% × 1%`, not `0% × 0%`. That is deliberate — re-packing an atlas must never move anybody's
@@ -586,7 +586,7 @@ Three things to know before you use it:
     surprised by it, the bar turns **red** while it would happen and the status line
     counts them — `⚠ would OVERWRITE 2 unselected key(s)` — then reports what it
     actually overwrote on release.
-- **Image-sequence rows** — a slot animated with a Spine **sequence** (a flipbook of
+- **Image-sequence rows** — a slot animated with a rig **sequence** (a flipbook of
   numbered images baked into the atlas) gets its own `▩ <slot> · sequence` row, with
   **square** keys in the legend's `sequence` colour. Hover a key to read what it does:
   its play **mode** (`hold` / `once` / `loop` / `pingpong` and the reverse variants),
@@ -603,14 +603,14 @@ Three things to know before you use it:
   run. Once declared, four fields are editable:
 
   - **frames** — how many images the flipbook has.
-  - **first number** — the number on the *first* region. Spine defaults this to **1**,
+  - **first number** — the number on the *first* region. Rig defaults this to **1**,
     not 0, and real rigs use both.
   - **digits** — zero-padding width; 2 makes frame 1 read as `01`.
   - **setup frame** — which image (0-based) the setup pose shows.
 
   Underneath, the panel names the regions the declaration resolves to and whether
   each one is there — `✓ all 13 frames resolve: symbexpl_01 … symbexpl_13`. This is
-  not decoration. **Spine refuses to load a sequence with a missing frame**, so a
+  not decoration. **Rig refuses to load a sequence with a missing frame**, so a
   wrong count, first number or padding produces a rig that will not open at all.
   The editor therefore checks every frame against the atlas and **will not write a
   declaration that does not fully resolve**, telling you which region was missing.
@@ -649,7 +649,7 @@ Three things to know before you use it:
     fade. When a colour/opacity key sits at the playhead, **easing** buttons
     (Linear / Stepped / Ease In / Out / In-Out) shape the interpolation out of it.
 
-  Colour and opacity share one `rgba` timeline under the hood (byte-valid Spine
+  Colour and opacity share one `rgba` timeline under the hood (byte-valid rig
   4.2), so editing one never clobbers the other.
 
 #### Reuse animations across rigs
@@ -671,7 +671,7 @@ self-contained clips, so this is just a copy of the clip's keyframe data.
   source project, bone count) with a filter box. **Load** imports a clip onto the
   current rig; **🗑** deletes it from the library. Empty state tells you to use 📤.
 
-**Compatibility report (important).** Spine animations reference bones, slots,
+**Compatibility report (important).** Rig animations reference bones, slots,
 attachments and events **by name**. A pasted/loaded clip only fully drives a rig that
 has matching bone/slot names; channels that reference names the target rig lacks are
 imported harmlessly but **drive nothing** (silently). So before importing, if any
@@ -747,7 +747,7 @@ tools. Re-pointing a slot to an image that _is_ in the atlas clears it from the 
    blank skeleton), and either (the new rig opens in place of the open one, so unsaved
    changes to that one are asked about first):
    - pick an existing project **Atlas (images)** from the dropdown — the server
-     assembles a self-contained spine bundle (a synthesised `.atlas` + the packed
+     assembles a self-contained rig bundle (a synthesised `.atlas` + the packed
      page image + the chosen `.irig` body, blank or the applied rig) from that
      atlas's manifest; **or**
    - choose **— no atlas (attach images later) —** — the rig is created with a 1×1
@@ -784,12 +784,12 @@ tools. Re-pointing a slot to an image that _is_ in the atlas clears it from the 
   too, so a restore can be undone).
 - Closing or reloading the tab with unsaved rig or cinematic changes asks first —
   an undo counts as a change.
-- **⤓ .irig** downloads the skeleton locally as Spine 4.2 JSON under the `.irig`
+- **⤓ .irig** downloads the skeleton locally as 4.2-format JSON under the `.irig`
   extension.
 
 ### Re-sync a rig's atlas (after editing the source atlas)
 
-Each rig is a self-contained spine bundle (`spines/<rig>/`) that holds its OWN
+Each rig is a self-contained rig bundle (`spines/<rig>/`) that holds its OWN
 **copy** of the atlas page image, snapshotted when the rig was created. If that atlas
 is recoloured or re-packed afterwards, the copy is refreshed automatically the next
 time the Symbols State Machine, the Scene Editor or a game export reads the rig — as
@@ -994,7 +994,7 @@ Two consequences worth knowing:
   reach the rest. (Raising the clip's **working length** in the Animations panel
   extends how far past the last key you can go, as usual.)
 - **Tweaking opens that rig in the editor**, replacing whichever rig was open —
-  you are asked first if it had unsaved changes. A rig that needs a different Spine
+  you are asked first if it had unsaved changes. A rig that needs a different rig
   runtime line is refused with a message rather than reloading the page under you.
 
 ### Animate properties, the camera, and visibility
@@ -1093,7 +1093,7 @@ they appear in no scene.
   auto-fit), or keep the effect's attachment empty in the setup pose and key it on in the
   animation.
 - **＋ add image… in a skin other than `default` names the image after the slot, not the art.**
-  Spine picks a slot's image by NAME, then looks it up in the skin on stage, else in `default`. So
+  Rig picks a slot's image by NAME, then looks it up in the skin on stage, else in `default`. So
   to show new art in one skin only, the image is stored in that skin under the name the slot
   already shows (e.g. `radial1`), drawing the art you chose (e.g. `dust1`); the slot list shows it
   under that name. Adding again in the same skin replaces that skin's image, keeping where it sat;
@@ -1105,20 +1105,19 @@ they appear in no scene.
 
 - **Live verification is the main gap.** Most of the editing/authoring/animation
   surface is "code landed, build GREEN, not browser-verified" — the headless test
-  spikes (`tools/rigger-spike/`) use the un-mangled `spine-core` loader, not the
-  minified vendored `spine-webgl` runtime, so they can be false-green. Several
-  browser-only bugs have already been found and fixed during owner live-testing
-  (e.g. attachment type checks via `constructor.name` failing under the minified
-  runtime, and a double-flipped Y in canvas placement). Verify each action in the
+  spikes (`tools/rigger-spike/`) run `engine-rig` in node, not the page, so they
+  can be false-green. Several browser-only bugs have already been found and fixed
+  during owner live-testing (e.g. attachment type checks via `constructor.name`
+  failing under a minified runtime, and a double-flipped Y in canvas placement). Verify each action in the
   browser before relying on it.
 - **Auto-weights is proximity-only.** **Auto-weight to chain** weights by distance to
   the bones, which does not know about the mesh's shape (an arm vertex near the torso
   bone picks up torso weight). A shape-aware algorithm, checked against a real
   character mesh, is future work; the brush is the way to fix up the result.
-- **No lossless desktop-Spine project round-trip.** `.irig` is the Spine _runtime
-  export_ format; the desktop editor's proprietary `.spine` project file can't be
-  authored. Desktop Spine can _import_ our JSON, but that's an import, not a
-  pristine project round-trip — an Esoteric limitation, not ours.
+- **No lossless desktop-editor project round-trip.** `.irig` is the rig _runtime
+  export_ format; the desktop editor's proprietary project file can't be
+  authored. The desktop editor can _import_ our JSON, but that's an import, not a
+  pristine project round-trip — the desktop editor's limitation, not ours.
 - **JSON only for editing.** Editing writes/exports JSON `.irig`; binary `.skel`
   is view-only.
 - **Deferred:** hull-loop **reordering** (dragging to change the boundary order,

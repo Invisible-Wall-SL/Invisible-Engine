@@ -2,18 +2,18 @@ import { error, json } from '@sveltejs/kit';
 import { SUB } from './projectPaths';
 import { ConflictError, headObject, precondition, putObjectText } from './r2';
 import { backupIrigBeforeOverwrite, irigBackupsPrefix, pruneIrigBackups } from './riggerIrig';
-import { reindexProjectSkeletons, writeSkeletonsIndex } from './spineReindex';
+import { reindexProjectSkeletons, writeSkeletonsIndex } from './rigReindex';
 
 /**
  * Decode + path-guard the `{ dir, stem }` pair every `.irig` endpoint takes. `dir` is the
- * base64url bundle folder ('' = the spines root); `stem` is a single file-name segment.
+ * base64url bundle folder ('' = the rigs root); `stem` is a single file-name segment.
  */
 export function irigTarget(
 	clientKey: string,
 	projectKey: string,
 	dirB64: unknown,
 	stemRaw: unknown,
-): { dir: string; stem: string; key: string; backupsPrefix: string; spinesPrefix: string } {
+): { dir: string; stem: string; key: string; backupsPrefix: string; rigsPrefix: string } {
 	const stem = typeof stemRaw === 'string' ? stemRaw : '';
 	if (!stem) throw error(400, 'missing stem');
 	let dir = '';
@@ -26,14 +26,14 @@ export function irigTarget(
 	}
 	if (dir.includes('..') || stem.includes('..') || stem.includes('/'))
 		throw error(403, 'forbidden');
-	const spinesPrefix = SUB.spines(clientKey, projectKey);
-	const bundlePrefix = dir ? `${spinesPrefix}/${dir}` : spinesPrefix;
+	const rigsPrefix = SUB.spines(clientKey, projectKey);
+	const bundlePrefix = dir ? `${rigsPrefix}/${dir}` : rigsPrefix;
 	return {
 		dir,
 		stem,
 		key: `${bundlePrefix}/${stem}.irig`,
 		backupsPrefix: irigBackupsPrefix(clientKey, projectKey, dir, stem),
-		spinesPrefix,
+		rigsPrefix,
 	};
 }
 
@@ -114,10 +114,10 @@ export async function writeIrig(
 		console.warn('[rigger] irig backup prune failed (extra backups kept):', e),
 	);
 
-	const { spinesPrefix, dir, stem } = target;
+	const { rigsPrefix, dir, stem } = target;
 	// Re-derive the index so the `.irig` is listed — preserving, so THIS save can never drop a
 	// DIFFERENT atlas-less rig.
-	const outcome = await reindexProjectSkeletons(clientKey, projectKey, spinesPrefix);
+	const outcome = await reindexProjectSkeletons(clientKey, projectKey, rigsPrefix);
 
 	// The rig has no atlas AND no source to rebuild one: writing the rebuilt index would list it
 	// pointing at a missing atlas. Fail LOUDLY — the `.irig` is already saved, so no edit is lost;
@@ -141,6 +141,6 @@ export async function writeIrig(
 			),
 		};
 	}
-	await writeSkeletonsIndex(spinesPrefix, outcome.index);
+	await writeSkeletonsIndex(rigsPrefix, outcome.index);
 	return { ok: true, etag, backupId, count: outcome.index.skeletons.length };
 }

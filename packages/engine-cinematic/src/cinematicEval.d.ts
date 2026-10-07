@@ -6,9 +6,9 @@
  */
 import type { CinematicKey, CinematicStrip, CinematicTrack } from '../types';
 
-/** The spine runtime enums the evaluator needs. It constructs nothing, so any runtime that
- *  exposes these (spine-core headless, the vendored WebGL bundle, spine-pixi-v8) works. */
-export interface SpineNamespace {
+/** The rig runtime enums the evaluator needs. It constructs nothing, so any runtime that
+ *  exposes these (engine-rig headless, the vendored WebGL bundle, engine-rig/pixi) works. */
+export interface RigNamespace {
 	MixBlend: { setup: number; first: number; replace: number; add: number };
 	MixDirection: { mixIn: number; mixOut: number };
 	Physics?: { update?: unknown };
@@ -48,7 +48,7 @@ export function blendEnvelope(strip: CinematicStrip, t: number): number;
 
 /** Pose one actor at cinematic time `t`. Pure in `t` — re-evaluating is idempotent. */
 export function evaluateActor(
-	spine: SpineNamespace,
+	rig: RigNamespace,
 	target: CinematicEvalTarget,
 	t: number,
 	resolveClip: ClipResolver,
