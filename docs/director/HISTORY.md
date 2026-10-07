@@ -15,6 +15,75 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-07 · Phase 8 · coordinator (merge #1101 — card 8F)
+- **Did:** Dropped `preset_json` column from `director_runs`. Originally numbered migration 0030;
+  regenerated as 0031 after 8E's 0030, so its `when` comes later and drizzle can't skip it. Data
+  loss (presets of runs before 8C deploy) approved by owner. Restore steps recorded in
+  `docs/status/launcher.md`. Never code-revert; re-add column with new migration if needed.
+  Merged with both launcher and director-worker deploys on 8C and check:idle quiet.
+- **Files:** `apps/launcher-api/drizzle/0031_director_drop_preset_json.sql` + meta, `db/schema.ts`,
+  `scripts/check-director-{events,mockups,runs}.ts`; `services/director-worker/src/idle.ts`,
+  `scripts/{check-director-idle,prove-idle,prove-art-plan,prove-breakdown}.ts`; status, deploy skill.
+- **Branch / PR:** origin/main, #1101 (squash 14b8b64).
+- **Tests:** prove:idle 8, prove:art-plan 102, check:director-runs 471.
+- **Decisions:** (none).
+- **Next:** ADR-0008 is fully merged. The coordinator definition's `inputs` line still names the
+  preset (OPEN_QUESTIONS 25); per-job GPU pricing before any run can start (OPEN_QUESTIONS 24).
+
+## 2026-10-07 · Phase 8 · coordinator (merge #1095 — card 8C)
+- **Did:** Removed old Preset: New game Preset card deleted, nothing reads or writes
+  `preset_json`. Stale `preset` key gets 400. Fallback chain moved to
+  `estimate-profiles.json` `fallbackRecipe` (sdxl 1024×3 → birefnet). Added new `check:idle
+  --strict`. Owner ran it against prod before merge and after deploy; both quiet.
+- **Files:** `apps/launcher-api/src/lib/server/director/{runs,store}.ts`, `roles.ts`, the New
+  game page and `api/director/{templates,estimate,runs}`; `packages/director-costs/src/{index,
+  recipe}.ts`; `services/director-worker/{Dockerfile,estimate-profiles.json,src/{recipes,store,
+  driver,idle}.ts}`; deploy skill.
+- **Branch / PR:** origin/main, #1095 (squash ab8822f).
+- **Tests:** check:director-runs 471, check:recipes 94, prove:art-plan 102, prove:breakdown 80,
+  prove:idle 10.
+- **Decisions:** (none).
+- **Next:** 8F (drop column) merges immediately after.
+
+## 2026-10-07 · Phase 8 · coordinator (merge #1116 — 8E polish)
+- **Did:** Untracked render (`tracked: false`) leaves its steps planned. Revision refusal applies
+  only while a queued `director_atlas_jobs` row exists (not across the session). `settleJob`'s
+  SQLSTATE 42703 fallback guarded in a savepoint, so launcher and worker deploy in either
+  order. Boot re-arm isolates each row, staggered 2 s apart (no thundering herd on wake).
+- **Files:** `services/director-worker/src/{driver,recipes}.ts`,
+  `apps/launcher-api/src/lib/server/director/atlasJobs.ts`, `scripts/prove-art-plan.ts`,
+  `check-director-adapters.ts`; `docs/INFRA.md`, `docs/status/launcher.md`.
+- **Branch / PR:** origin/main, #1116 (squash 7e35883).
+- **Tests:** prove:art-plan 102/102.
+- **Decisions:** (none).
+- **Next:** 8C (preset removal) merges.
+
+## 2026-10-07 · Phase 8 · coordinator (merge #1093 — card 8E)
+- **Did:** Art plan checkpoint UI + "How this was made" (recipe steps, chain images, finished
+  tile) + chain pricing in estimate + `director_blueprint_timings` measured per (pipeline,
+  genPx). Five coordinator review rounds refined the money rules:
+  - An owner Art-plan approval allows 1 try + 2 retries per step.
+  - Only that approval resets the failure count; recipes past retries are re-approved by owner
+    only, regardless of checkpoint setting.
+  - Every render's failure counts against its step (migration `0030_director_job_steps`).
+  - A rendering step can't be revised.
+  - `step_done` waits for in-flight renders to settle.
+  - Re-rendering a rendered step always needs owner approval.
+  - Estimate's high end equals the plan's projection.
+- **Files:** `packages/director-costs/src/{recipe,index}.ts`; `services/director-worker/{src/
+  recipes,driver,runState,workerTools}.ts, scripts/prove-art-plan.ts, estimate-profiles.json,
+  pricing.json}`; `apps/launcher-api/src/lib/server/director/{artPlan,runs,ownerActions,store,
+  atlasJobs,ops/atlas}.ts`, the Live run and New game pages, `drizzle/0030_director_job_steps`.
+- **Branch / PR:** origin/main, #1093 (squash 5e2d8fd).
+- **Tests:** prove:art-plan 101/101, check:all 346/346.
+- **Decisions:** Differs from ADR-0008: two retries per step per approval, after which only the
+  owner's Art plan approval retries (§7 would auto-approve again with the checkpoint off); a
+  no-dearer revision that re-renders a rendered step still needs the owner (§5 lets it run). Deploy
+  blocked: `RUNPOD_ENDPOINT_GPU` must be set and priced before any Director run can start.
+- **Next:** 8E polish (#1116) → 8C preset removal (#1095) → 8F column drop (#1101).
+
+---
+
 ## 2026-10-07 · Phase 5 · coordinator (5.5 Catalogue tab)
 - **Did:** owner asked for the `atlas.list_blueprints` list to be visible and editable by hand,
   with an easy way to add new blueprints. The list is derived from reviewed cards, so the tab

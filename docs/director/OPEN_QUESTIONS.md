@@ -78,7 +78,28 @@ with the default.
     not been run against production. *Suggested default:* the owner runs it once; any pair found
     is resolved by hand (rename or delete one), never by code.
 
+24. **Per-job GPU pricing (from #1093).** No Director run can start until atlas-tool's GPU is
+    priced: `RUNPOD_ENDPOINT_GPU` is unset. The owner keeps all six RunPod GPUs enabled and chose
+    to price each job at the GPU that ran it, not one fixed GPU. *Suggested default:* the per-job
+    GPU pricing card (the handler reports its GPU; atlas-tool records it per job; `pricing.json`
+    maps the owner's GPUs at their rates; an unknown GPU bills at the dearest enabled one).
+
+25. **Coordinator agent definition inputs (ADR-0007).** The coordinator's `inputs` line still
+    names the preset, which 8C removed (harmless: the brief carries none). *Suggested default:* a
+    one-file agent-definition PR with the line: "inputs: The run record (project, template,
+    starting point, checkpoints), the owner's messages, task reports from the other agents, spend
+    so far and the budget cap."
+
+26. **`queue_variants` outside `style_pack`/`regions` (from #1093).** A render can be queued in
+    later run steps (e.g. build); a step there that fails three times renders nothing more in the
+    run, and the owner is told. No money depends on it. *Suggested default:* leave it for the
+    pilot; refuse queueing outside those steps if the pilot shows renders there are unwanted.
+
 ## Answered
+
+- **2026-10-07: card 8F's deploy window (#1101).** For the seconds between the launcher's boot
+  migration and the traffic swap, the previous build's Director routes return 500. The owner
+  accepted it: 8F merged with both deploys on 8C, `check:idle --strict` quiet and Director unused.
 
 - **2026-10-07: pending keys aliasing a project folder (#1090).** #17 closed as suggested: new
   keys (create, client re-assign, Director pending keys and run create) can't take a folder
