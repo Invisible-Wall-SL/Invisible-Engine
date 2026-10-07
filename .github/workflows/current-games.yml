@@ -356,8 +356,18 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # The install apt-gets the browser's system deps, and a stalled mirror used to hang it until the
+      # job's 30-minute limit cancelled the shard, failing the run before any game rendered. Each
+      # attempt is capped instead, so a stall costs one retry rather than the run.
       - name: Install the headless shell
-        run: pnpm dlx playwright@1.63.0 install --with-deps chromium-headless-shell
+        timeout-minutes: 12
+        run: |
+          for attempt in 1 2 3; do
+            timeout 180 pnpm dlx playwright@1.63.0 install --with-deps chromium-headless-shell && exit 0
+            echo "::warning::headless shell install attempt $attempt stalled or failed; retrying"
+            sleep 10
+          done
+          exit 1
 
       # Ubuntu 24.04 runners restrict unprivileged user namespaces through AppArmor, and only
       # binaries with an AppArmor profile (the system Chrome) are exempt. Playwright's headless
