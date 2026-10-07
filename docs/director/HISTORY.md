@@ -15,6 +15,30 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-07 · Phase 5 · coordinator (5.5 Catalogue tab)
+- **Did:** owner asked for the `atlas.list_blueprints` list to be visible and editable by hand,
+  with an easy way to add new blueprints. The list is derived from reviewed cards, so the tab
+  shows it as-is (offered / not offered, with why) and sends edits to the existing card editor
+  instead of adding a second write path. Added `/pipeline?tab=catalogue`,
+  `/api/pipeline/catalogue`, the `/atlas?card=<id>` deep link and its atlas-tool handler. After
+  the coordinator's review: `offered` is computed once in `cards.list_entries` and passed through;
+  a malformed answer is a 502 and unreadable entries are counted; the tab polls only while open.
+- **Files:** `apps/launcher-api/src/lib/blueprintCatalogue.ts`,
+  `src/lib/server/blueprintCatalogue.ts`, `src/routes/api/pipeline/catalogue/+server.ts`,
+  `src/routes/(app)/pipeline/{+page.svelte,+page.server.ts,CataloguePanel.svelte}`,
+  `src/routes/(app)/atlas/+page.server.ts`, `services/atlas-tool/card-editor.js`,
+  `scripts/check-blueprint-catalogue.ts`, `.github/workflows/lint.yml`.
+- **Branch / PR:** `claude/fervent-lovelace-rultbv`, #1110 (pipeline change, owner approval).
+- **Tests:** check:blueprint-catalogue 19; lint; check:undefined-names; launcher build;
+  svelte-check shows no new errors; atlas-tool test_page_js 29, test_blueprint_cards 182 (the
+  `offered` pin mutation-checked); the deep link driven in headless Chromium through the splash's
+  `document.write` swap against an R2-less local atlas-tool.
+- **Decisions:** no card writes from the launcher, so review gates (pipelineMerge, 30-min
+  launch) stay in one place; Catalogue is read on demand like History.
+- **Next:** owner live-check against the deployed atlas-tool.
+
+---
+
 ## 2026-10-07 · Phase 8 · coordinator (merges #1097, #1098, #1100, #1102, #1103, #1104)
 - **Did:** finished card 8D after the code (#1091), one agent definition per PR (ADR-0007):
   - #1097: the five `TRANSITION_TOOLS` allowances made all-or-none per agent and pinned.

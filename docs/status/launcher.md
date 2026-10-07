@@ -59,6 +59,25 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+- 2026-10-07 — **Pipeline Changes: the Catalogue tab.** `/pipeline?tab=catalogue` lists every
+  image pipeline atlas-tool knows (`GET /blueprints?kind=image&all=1`, read as the signed-in person
+  with an `api` token, `src/lib/server/blueprintCatalogue.ts` → `/api/pipeline/catalogue`), split
+  into **Offered to agents** (atlas-tool's own `offered` flag — the value `cards.list_entries`
+  filters an agent's list by, passed through, never re-derived) and **Not offered** (withheld /
+  stale / draft / no card, each saying why). An answer with no `blueprints` list is a 502, never an
+  empty catalogue; an unreadable entry is counted under the lists. The tab re-reads only while it
+  is open. Each row's
+  **✎ Edit card** / **＋ Add to catalogue** goes to `/atlas?card=<id>`; the launcher forwards
+  `card` (checked against `BLUEPRINT_ID`) and `card-editor.js` opens that card's editor on load,
+  then drops the param. A new card starts prefilled from the graph (`card_view`'s existing
+  `prefill`). No new write path: cards are still saved and reviewed only in the Atlas Maker's
+  editor (CAS, history, review gates unchanged). Pure mapping in `src/lib/blueprintCatalogue.ts`,
+  pinned by `check:blueprint-catalogue` (19 checks, wired into Lint). The deep link was driven in
+  headless Chromium against an R2-less local atlas-tool, through the boot splash's
+  `document.write` swap: `?card=sdxl` opens that editor and leaves the other params; a bad id or
+  none opens nothing. ⏳ Not yet seen against the live atlas-tool. The atlas-tool side is in
+  [atlas-maker](atlas-maker.md).
+
 - 2026-10-07 — **Invisible Director: the Preset is gone** (ADR-0008 card 8C, stacked on 8D and
   8E). Inert for a person and for every current game; revertable, no migration.
   - **New game** loses the Preset card (blueprint, draft/final size, variants, GPU).

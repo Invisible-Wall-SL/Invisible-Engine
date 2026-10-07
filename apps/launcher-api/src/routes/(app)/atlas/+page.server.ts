@@ -1,4 +1,5 @@
 import { error, redirect } from '@sveltejs/kit';
+import { BLUEPRINT_ID } from '$lib/blueprintCatalogue';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { ENV } from '$lib/server/env';
 import { toolBarParams } from '$lib/server/toolBar';
@@ -45,6 +46,9 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		if (atlas) params.set('atlas', atlas);
 		const region = url.searchParams.get('region');
 		if (region) params.set('region', region);
+		// Deep-link from the Pipeline Changes Catalogue tab: open that blueprint's card editor.
+		const card = url.searchParams.get('card');
+		if (card && BLUEPRINT_ID.test(card)) params.set('card', card);
 		throw redirect(303, `${base}/?${params.toString()}`);
 	}
 	return { configured: false };
