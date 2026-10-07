@@ -36,9 +36,9 @@ It mirrors the live in-game Symbol Debug overlay (`SymbolDebugOverlay.svelte`, g
   overridable per role/user from the admin panel like any other tool.
 
 **[Invisible Game Config](game-config.md) decides which rows the grid shows**, read live (save
-`/config`, then reload this page). The grid lists exactly the symbols its Symbols table does
-**not** badge **unused**: the **in play** ones (on a reel strip) and a pots overlay's **token**s
-(dropped over a cell, never on a strip, but drawn — see
+`/config`, then reload this page). The grid lists exactly the symbols its Symbols table badges
+**in play** (on a reel strip), then, grouped under a **Coins** heading, the pots overlay's coins
+from its **Coins** section (dropped over a cell, never on a strip, but drawn — see
 [Pots overlay projects](#pots-overlay-projects)). A symbol marked **unused** there does not appear
 here at all: it is never dealt, so art authored for it never renders. This holds for every kind,
 and for a project that has never saved its config too — the rows then follow the template `/config`
@@ -1213,9 +1213,10 @@ A project of any kind whose [Invisible Game Config](game-config.md) carries a `p
 lands on top of a cell's symbol and flies into its pot, which fills a level. The page adds what you
 need to dress them:
 
-- **Token rows.** Each pot's token symbol is listed as a row even though it is never on a reel strip
-  (it is drawn over a cell, never dealt). Its row head carries a gold **token → &lt;pot id&gt;** chip
-  per pot it fills.
+- **A Coins group.** Each pot's token (its coin) is listed as a row even though it is never on a
+  reel strip (it is drawn over a cell, never dealt): after the symbols, under a **Coins** heading,
+  as `/config` gives the coins a section of their own. Its row head carries a gold
+  **token → &lt;pot id&gt;** chip per pot it fills.
 - **Placeholders until you bind art.** The symbols the add-on brings have no art at first. Rather
   than drawing nothing, the game draws a coded disc for each one: a token in its pot's colour with
   the pot's name, a value coin as a gold disc under its value, and a jackpot or special as a disc

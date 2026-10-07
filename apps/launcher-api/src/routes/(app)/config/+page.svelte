@@ -53,7 +53,7 @@
 	import AddOnsSection from './AddOnsSection.svelte';
 	import GameModesSection from './GameModesSection.svelte';
 	import HoldAndWinSection from './HoldAndWinSection.svelte';
-	import { projectAddOns } from '$lib/addOns';
+	import { overlayTokenPots, projectAddOns } from '$lib/addOns';
 	import { askConfirm } from '$lib/dialogs.svelte';
 	import type { PageData } from './$types';
 
@@ -94,6 +94,11 @@
 		issues.filter((i) => i.path === prefix || i.path.startsWith(`${prefix}.`));
 
 	const symbolNames = $derived(Object.keys(doc.symbols));
+	/** The pots overlay's coins (its tokens) get their own section, unbadged: the overlay decides
+	 *  whether each one is used and which pot it fills. Every other symbol is badged by the strips. */
+	const coinNames = $derived(symbolNames.filter((name) => uses[name] === 'token'));
+	const reelSymbolNames = $derived(symbolNames.filter((name) => uses[name] !== 'token'));
+	const coinPots = $derived(overlayTokenPots(snapshot));
 
 	const capabilities = $derived(kindCapabilities(data.gameType, projectAddOns(doc).addOns));
 	const isHoldAndWin = $derived(capabilities.holdAndWin);
@@ -1700,9 +1705,9 @@
 				badge means the symbol appears on a reel strip and so can actually reach the board; a
 				<span class="badge out">unused</span> symbol is defined here but dealt by no strip (a payout
 				no one can win), and Invisible Symbols does not list it. <strong>Click the badge</strong> to
-				put a symbol on the reels or take it off. A <span class="badge token">token</span> is a pots
-				overlay's token: dropped over a cell rather than dealt, yet drawn, so not unused. Paytable
-				is <code>count:multiplier</code> pairs, e.g. <code>5:20, 4:10, 3:5</code>. A
+				put a symbol on the reels or take it off. A pots overlay's coins are not reel symbols: they
+				have their own section, <strong>Coins</strong>, below. Paytable is
+				<code>count:multiplier</code> pairs, e.g. <code>5:20, 4:10, 3:5</code>. A
 				<strong>scatter</strong>'s paytable is its scatter pay — × the total bet, anywhere on the
 				board; left empty it pays <code>{formatPayRow(DEFAULT_SCATTER_PAYTABLE)}</code>.
 			</p>
@@ -1755,27 +1760,19 @@
 						</tr>
 					</thead>
 					<tbody>
-						{#each symbolNames as name (name)}
+						{#each reelSymbolNames as name (name)}
 							<tr>
 								<th class="row-head">{name}</th>
 								<td class="center">
-									{#if uses[name] === 'token'}
-										<span
-											class="badge token"
-											title="A pots overlay token — dropped over a cell, never dealt by a reel. Remove its pot under Add-ons to stop using it."
-											>token</span
-										>
-									{:else}
-										<button
-											type="button"
-											class="badge toggle {uses[name] === 'inPlay' ? 'in' : 'out'}"
-											title={uses[name] === 'inPlay'
-												? 'In play — click to take it off the reels'
-												: 'Unused — click to put it on the reels'}
-											onclick={() => toggleInPlay(name)}
-											>{uses[name] === 'inPlay' ? 'in play' : 'unused'}</button
-										>
-									{/if}
+									<button
+										type="button"
+										class="badge toggle {uses[name] === 'inPlay' ? 'in' : 'out'}"
+										title={uses[name] === 'inPlay'
+											? 'In play — click to take it off the reels'
+											: 'Unused — click to put it on the reels'}
+										onclick={() => toggleInPlay(name)}
+										>{uses[name] === 'inPlay' ? 'in play' : 'unused'}</button
+									>
 								</td>
 								<td
 									><input
@@ -1827,6 +1824,45 @@
 				<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
 			{/each}
 		</section>
+
+		{#if coinNames.length}
+			<!-- Coins ------------------------------------------------------------------>
+			<section>
+				<h2>Coins</h2>
+				<p class="hint">
+					The pots overlay's <strong>coins</strong>: each one drops over a cell and flies into the
+					pot it fills. A coin is never dealt by a reel strip and never pays, and whether it is used
+					— and which pot it fills — is the overlay's to decide, under <strong>Add-ons</strong>, so
+					it carries no in play / unused badge. Its art is bound in Invisible Symbols.
+				</p>
+				<div class="grid-wrap">
+					<table class="grid">
+						<thead>
+							<tr>
+								<th>Coin</th>
+								<th>Fills</th>
+								<th>Special properties</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each coinNames as name (name)}
+								<tr>
+									<th class="row-head">{name}</th>
+									<td>{(coinPots[name] ?? []).join(', ')}</td>
+									<td
+										><input
+											value={(doc.symbols[name].special_properties ?? []).join(', ')}
+											placeholder="meterSpecial"
+											oninput={(e) => setProperties(name, e.currentTarget.value)}
+										/></td
+									>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			</section>
+		{/if}
 
 		<!-- Win model -------------------------------------------------------------->
 		<section>
@@ -2673,10 +2709,6 @@
 	.badge.out {
 		background: #33231a;
 		color: #d39b6f;
-	}
-	.badge.token {
-		background: #231a33;
-		color: #c8a3ff;
 	}
 	/* Clickable in-play badge: toggles the symbol on/off the reel strips. */
 	button.badge.toggle {

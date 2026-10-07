@@ -194,6 +194,10 @@
 	 */
 	const symbolNames = $derived(data.symbols);
 	const shownSymbols = $derived(new Set(symbolNames));
+	// The pots overlay's coins (its tokens) are drawn as their own group, after the symbols.
+	const coinSet = $derived(new Set(data.coins));
+	const symbolRows = $derived(symbolNames.filter((name) => !coinSet.has(name)));
+	const coinRows = $derived(symbolNames.filter((name) => coinSet.has(name)));
 
 	// Whether stacked-picture authoring is on for this project — a per-project master toggle (default
 	// OFF) that both shows the "Stacked pictures" config block below and gates whether the stacked config
@@ -5038,7 +5042,7 @@
 							</tr>
 						</thead>
 						<tbody>
-							{#each symbolNames as symbol (symbol)}
+							{#snippet gridRow(symbol: string)}
 								{@const named = doc.names?.[symbol]}
 								<tr>
 									<th class="rowhead">
@@ -5176,7 +5180,23 @@
 										</td>
 									{/each}
 								</tr>
+							{/snippet}
+							{#each symbolRows as symbol (symbol)}
+								{@render gridRow(symbol)}
 							{/each}
+							{#if coinRows.length}
+								<tr class="group">
+									<th colspan={visibleStates.length + 1}>
+										Coins <span class="group-note"
+											>— the pots overlay's tokens: each lands over a cell (Coin land), rests (Coin
+											idle) and flies into its pot (Fly to meter)</span
+										>
+									</th>
+								</tr>
+								{#each coinRows as symbol (symbol)}
+									{@render gridRow(symbol)}
+								{/each}
+							{/if}
 						</tbody>
 					</table>
 				{/if}
@@ -5825,6 +5845,19 @@
 	}
 	.grid th.corner {
 		text-align: left;
+	}
+	.grid tr.group th {
+		text-align: left;
+		color: #c8c8d0;
+		font-size: 15px;
+		font-weight: 700;
+		padding-top: 14px;
+		border-top: 1px solid #23232c;
+	}
+	.group-note {
+		font-size: 12px;
+		font-weight: 400;
+		color: #777;
 	}
 	.grid th.rowhead {
 		text-align: right;

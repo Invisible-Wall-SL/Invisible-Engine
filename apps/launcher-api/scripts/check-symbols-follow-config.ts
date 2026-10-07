@@ -16,9 +16,12 @@
  *      symbols `/config` does not badge unused over that same doc, each with a defaults entry, the
  *      published art kept, tokens in pot order — and nothing it shows depends on whether the config
  *      was saved.
+ *      The pots overlay's coins (its tokens) are a section of their own in `/config`, with no badge,
+ *      and the same coins are `/symbols`' coin group.
  *   3. THE WIRING — both pages resolve the config through `resolveGameConfig`, `/symbols` builds its
  *      data with `symbolsPageConfig` and renders its rows and nothing else, its stacked pictures list
- *      only those rows, and `/config` badges with `symbolUses`.
+ *      only those rows, `/config` badges with `symbolUses` — the symbols only, the coins in their own
+ *      unbadged section — and `/symbols` draws its coin rows as a group of their own.
  *
  * Run:  pnpm --filter launcher-api check:symbols-follow-config
  */
@@ -295,6 +298,11 @@ for (const kind of [...GAME_KINDS, 'myCustomKind']) {
 				overlayTokens.filter((name) => !source.defaults.symbols[name] && rows.has(name)),
 			);
 			check(
+				`${at} · the /symbols coin group is the coins /config lists in their own section`,
+				[page.coins, badged.filter((name) => uses[name] === 'token' && !page.coins.includes(name))],
+				[page.symbols.filter((name) => uses[name] === 'token'), []],
+			);
+			check(
 				`${at} · nothing shown depends on whether the config was saved`,
 				symbolsPageConfig(kind, source.defaults, { ...config, source: 'authored' }),
 				symbolsPageConfig(kind, source.defaults, { ...config, source: 'template' }),
@@ -384,8 +392,31 @@ check(
 	true,
 );
 check(
-	'/config badges each symbol with symbolUses (a token is not unused)',
-	/symbolUses\(snapshot\)/.test(configPage) && /uses\[name\] === 'token'/.test(configPage),
+	'/config badges with symbolUses — only the symbols that are not coins',
+	/symbolUses\(snapshot\)/.test(configPage) &&
+		/const reelSymbolNames = \$derived\(symbolNames\.filter\(\(name\) => uses\[name\] !== 'token'\)\);/.test(
+			configPage,
+		) &&
+		/\{#each reelSymbolNames as name \(name\)\}/.test(configPage),
+	true,
+);
+const coinsAt = configPage.indexOf('<h2>Coins</h2>');
+const coinsSection =
+	coinsAt < 0 ? '' : configPage.slice(coinsAt, configPage.indexOf('</section>', coinsAt));
+check(
+	'/config lists the coins in a section of their own, with no in play / unused badge',
+	/const coinNames = \$derived\(symbolNames\.filter\(\(name\) => uses\[name\] === 'token'\)\);/.test(
+		configPage,
+	) &&
+		/\{#each coinNames as name \(name\)\}/.test(coinsSection) &&
+		!/class="badge/.test(coinsSection),
+	true,
+);
+check(
+	'/symbols draws its coin rows as a group of their own',
+	/const coinRows = \$derived\(symbolNames\.filter\(\(name\) => coinSet\.has\(name\)\)\);/.test(
+		symbolsPage,
+	) && /\{#each coinRows as symbol \(symbol\)\}/.test(symbolsPage),
 	true,
 );
 

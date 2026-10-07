@@ -42,9 +42,10 @@ story of each feature is in [symbols-history.md](symbols-history.md) ("Build det
   symbols** / **Overwrite theirs**. **History…** restores any of the 20 newest backups
   (`$lib/DocHistoryModal.svelte`). `/api/editor/symbols` refuses a project the caller cannot
   access. **↻ Reload from R2** drops the spine and region caches (unsaved edits kept).
-- **Rows follow Invisible Game Config** — the grid lists exactly the symbols `/config` does not
-  badge **unused**: on a reel strip, then a pots overlay's tokens in pot order (`game-config`
-  `symbolUses` / `symbolsUsed`, laid over the defaults by `symbolGrid` in `symbolDefaults.ts`). The
+- **Rows follow Invisible Game Config** — the grid lists exactly the symbols `/config` badges
+  **in play** (on a reel strip), then, under a **Coins** heading, a pots overlay's coins (its
+  tokens: `/config`'s unbadged **Coins** section) in pot order (`game-config` `symbolUses` /
+  `symbolsUsed`, laid over the defaults by `symbolGrid` in `symbolDefaults.ts`). The
   page reads the config `/config` opens with (`resolveGameConfig`: the project's own, else its
   kind's template), and `$lib/server/symbolsPageConfig.ts` derives the rows and every config-driven
   gate (columns, add-ons, roles, jackpot and big tiers, meters) from that one doc, so a project that
@@ -153,26 +154,29 @@ AND `bake-editor-doc.mjs`, or the effect is pruned as an orphan.
 ## Recent changes
 
 - 2026-10-07 — **`/config` decides the rows, for every kind and setup.** The grid already hid a
-  symbol `/config` badges unused, but only when the project had SAVED its config: a project still
-  on its kind's template filtered nothing, so a never-saved scatter project listed `L4` (unused in
-  its template) and missed `M` (in play), a ways one missed `H5`, and a project whose published
-  defaults predate the in-play filter listed `W` and `H5`. The other contradiction was a pots
-  overlay's tokens: `/config` badged them unused while this page listed them (they need art). Now
-  both pages read one rule, `game-config`'s new `symbolUses` (`inPlay` / `token` / `unused`):
-  `/config` badges a token **token** (no longer offering to put it on the reels, a validator error),
-  and this page lists exactly the non-unused symbols, read from `resolveGameConfig` — the config
-  `/config` opens with — instead of the authored-only loader. Everything the page takes from the
-  config now comes from that one doc through `symbolsPageConfig`, so a never-saved scatter project
-  also gets `Clear reel`, as its template's cascade says, and the big tiers no longer cost a second
-  read (`resolveBigTiers` is gone; `bigTiersOf`). A never-saved project's live game still runs the
-  compiled template until `/config` is saved, so for ways and scatter the rows show the template it
-  will adopt, not the board it deals today. Stacked pictures list only shown symbols. Nothing is
-  deleted from the doc. Gate: `check:symbols-follow-config` runs the page's own composition over
-  `resolveGameConfig`'s precedence (`resolvedGameConfigFrom`) for every built-in kind and a custom
-  one × never saved / unreadable / saved / a symbol off or on the reels / dictionary-only / each
-  overlay and Hold and Win preset / an imported bonus × committed, wider and narrower published
-  defaults (2,300 checks); red on either old behaviour, on a page that reads the saved doc only, and
-  on token rows out of pot order.
+  symbol `/config` badges unused, but only when the project had SAVED its config: a project still on
+  its kind's template filtered nothing, so a never-saved scatter project listed `L4` (unused in its
+  template) and missed `M` (in play), a ways one missed `H5`, and a project whose published defaults
+  predate the in-play filter listed `W` and `H5`. The other contradiction was a pots overlay's
+  tokens: `/config` badged them unused while this page listed them (they need art). Now both pages
+  read one rule, `game-config`'s new `symbolUses` (`inPlay` / `token` / `unused`): `/config` lists
+  the tokens apart as **Coins**, unbadged (the overlay decides whether a coin is used; nothing
+  offers to put one on the reels, a validator error), and this page lists exactly the non-unused
+  symbols, the coins grouped under a **Coins** heading after the rest (`coins` from
+  `symbolsPageConfig`, one `gridRow` snippet for both groups), read from `resolveGameConfig` — the
+  config `/config` opens with — instead of the authored-only loader. Everything the page takes from
+  the config now comes from that one doc through `symbolsPageConfig`, so a never-saved scatter
+  project also gets `Clear reel`, as its template's cascade says, and the big tiers no longer cost a
+  second read (`resolveBigTiers` is gone; `bigTiersOf`). A never-saved project's live game still
+  runs the compiled template until `/config` is saved, so for ways and scatter the rows show the
+  template it will adopt, not the board it deals today. Stacked pictures list only shown symbols.
+  Nothing is deleted from the doc. Gate: `check:symbols-follow-config` runs the page's own
+  composition over `resolveGameConfig`'s precedence (`resolvedGameConfigFrom`) for every built-in
+  kind and a custom one × never saved / unreadable / saved / a symbol off or on the reels /
+  dictionary-only / each overlay and Hold and Win preset / an imported bonus × committed, wider and
+  narrower published defaults (2,569 checks); red on either old behaviour, on a page that reads the
+  saved doc only, on token rows out of pot order, on a badge in `/config`'s Coins section or a coin
+  in its Symbols table, and on coins left out of this page's Coins group.
 
 - 2026-10-05 — **Invisible Director can drive this tool.** Invisible Director's adapters (PLAN 2.6,
   `apps/launcher-api/src/lib/server/director/ops/`) now read and write this tool's doc
