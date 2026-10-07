@@ -35,30 +35,23 @@ It mirrors the live in-game Symbol Debug overlay (`SymbolDebugOverlay.svelte`, g
   name "Symbols SM"). Granted to `admin`, `developer`, `artist` and `pipelineTester` roles by default;
   overridable per role/user from the admin panel like any other tool.
 
-The grid is scaffolded from the **active project's** symbol set. The launcher is cloud
-and can't import a game's source, so each game publishes its coded `SYMBOL_INFO_MAP` to
-R2 at build time and the tool reads it. A project that has built once with a deploy token
-shows its own symbols; an un-published project (or `apps/lines` dev) falls back to the
-committed `lines` set.
-
-The published set is **filtered to the symbols the game actually uses** — the publish step
-reads the game config (`src/game/config.ts` → its `symbols` map, the authoritative in-play
-set) and drops any symbol present in `SYMBOL_INFO_MAP` but not in the config (e.g. an unused
-`H5`), so the grid mirrors the built game rather than every symbol the engine _can_ render.
-A project that published before this filter existed keeps its old full set until it
-**republishes** (any tokened build re-runs `publish:symbols`).
-
-On top of that, **[Invisible Game Config](game-config.md) decides which rows the grid shows**, read
-live (save `/config`, then reload this page). The grid lists exactly the symbols its Symbols table
-does **not** badge **unused**: the **in play** ones (on a reel strip) and a pots overlay's
-**token**s (dropped over a cell, never on a strip, but drawn — see
+**[Invisible Game Config](game-config.md) decides which rows the grid shows**, read live (save
+`/config`, then reload this page). The grid lists exactly the symbols its Symbols table does
+**not** badge **unused**: the **in play** ones (on a reel strip) and a pots overlay's **token**s
+(dropped over a cell, never on a strip, but drawn — see
 [Pots overlay projects](#pots-overlay-projects)). A symbol marked **unused** there does not appear
-here at all, because it can never reach the board and art authored for it can never render; a
-symbol in play that the game's published defaults do not cover gets a row of blank cells to bind.
-This holds for every kind, and for a project that has never saved its config too: it follows the
-template `/config` opens with. Nothing is deleted: a hidden symbol's authored states (and its
-stacked picture) stay in the doc untouched, and its row comes back with its art intact the moment
-you put the symbol back on a strip.
+here at all: it is never dealt, so art authored for it never renders. This holds for every kind,
+and for a project that has never saved its config too — the rows then follow the template `/config`
+opens with, which the game plays from the first save (until then the live game still runs the
+compiled template, as the Game Config guide explains). Nothing is deleted: a hidden symbol's
+authored states (and its stacked picture) stay in the doc untouched, and its row comes back with
+its art intact the moment you put the symbol back on a strip.
+
+Each row's **default art** comes from the **active project's** symbol set. The launcher is cloud and
+can't import a game's source, so each game publishes its coded `SYMBOL_INFO_MAP` to R2 at build time
+and the tool reads it; an un-published project (or `apps/lines` dev) falls back to the committed set
+for its kind. A symbol in play that this set does not cover gets a row of blank cells to bind, and a
+symbol it carries that the config does not use gets no row.
 
 ## How to use it
 
@@ -783,11 +776,9 @@ nothing against half a second for an ordinary line win, which is why the delay l
 the animation. The scatter is the likely shape of this in general: it pays "anywhere" rather than on
 a line, so it is the symbol most easily left unbound.)
 
-> **Only symbols that are IN PLAY matter here.** "In play" is what the game's reel strips actually
-> deal (Game Config → `paddingReels`), not everything listed in this tool. A leftover row for a
-> symbol the game no longer deals — `test6` carries two, `L4` and `L5`, the latter still pointing at
-> a placeholder mock-up — can never land, never win, and so can never affect a spin either way. Worth
-> deleting for tidiness, but it is not costing you anything.
+> **Only symbols that are IN PLAY matter here** — what the game's reel strips actually deal
+> (Game Config → `paddingReels`). A symbol the game no longer deals has no row in this tool (see the
+> top of this guide), so it can never land, never win, and never affect a spin either way.
 
 **Every paying spin, not just the last one of a round.** A free-spin feature is one round made of
 ten or more spins, and a cascade is one spin made of several boards; each of those that pays gets its
@@ -1209,10 +1200,11 @@ pictures**, **Explosion pattern** and **Transition** have nothing to act on in a
 another kind with a Hold and Win bonus keeps them. Each one
 stays visible while the project already authors it, so you can always switch it back off.
 
-**Defaults** — an un-published Hold and Win project starts from its own set: the sample line
-symbols plus `W`, `BONUS`, `JACKPOT`, `BOOST`, `COLLECT`, `MULTI`, `MYSTERY` and `BLANK` (the
-3 Pots preset's names), bound to placeholder art that ships with the engine. `BLANK` has no art —
-an empty respin cell draws nothing.
+**Default art** — an un-published Hold and Win project takes its default art from its own set:
+placeholder art for the sample line symbols, `W` and every Hold and Win special, shipped with the
+engine. Which of them get a row is still the config's call: the 3 Pots preset uses `BONUS`,
+`JACKPOT`, `BOOST`, `COLLECT`, `MULTI`, `MYSTERY` and `BLANK`, Classic and Collector fewer. `BLANK`
+has no art — an empty respin cell draws nothing.
 
 ### Pots overlay projects
 

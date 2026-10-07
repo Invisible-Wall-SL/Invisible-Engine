@@ -1767,12 +1767,12 @@
 									{:else}
 										<button
 											type="button"
-											class="badge toggle {inPlay.has(name) ? 'in' : 'out'}"
-											title={inPlay.has(name)
+											class="badge toggle {uses[name] === 'inPlay' ? 'in' : 'out'}"
+											title={uses[name] === 'inPlay'
 												? 'In play — click to take it off the reels'
 												: 'Unused — click to put it on the reels'}
 											onclick={() => toggleInPlay(name)}
-											>{inPlay.has(name) ? 'in play' : 'unused'}</button
+											>{uses[name] === 'inPlay' ? 'in play' : 'unused'}</button
 										>
 									{/if}
 								</td>

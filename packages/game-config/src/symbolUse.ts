@@ -14,6 +14,15 @@ import type { GameConfigDoc } from './types';
  */
 export type SymbolUse = 'inPlay' | 'token' | 'unused';
 
+/** A pots overlay's tokens in pot order, each once. */
+const overlayTokens = (doc: GameConfigDoc): string[] => [
+	...new Set(
+		resolveMeters(doc)
+			.filter((meter) => meter.source === 'overlay' && meter.symbol)
+			.map((meter) => meter.symbol),
+	),
+];
+
 /**
  * Every symbol the config names, with its use: each dictionary entry, plus any name a strip deals or
  * a pot drops without one (a validator error, but still drawn).
@@ -21,16 +30,14 @@ export type SymbolUse = 'inPlay' | 'token' | 'unused';
 export function symbolUses(doc: GameConfigDoc): Record<string, SymbolUse> {
 	const uses: Record<string, SymbolUse> = {};
 	for (const name of Object.keys(doc.symbols)) uses[name] = 'unused';
-	for (const meter of resolveMeters(doc)) {
-		if (meter.source === 'overlay' && meter.symbol) uses[meter.symbol] = 'token';
-	}
+	for (const name of overlayTokens(doc)) uses[name] = 'token';
 	for (const name of symbolsInPlay(doc)) uses[name] = 'inPlay';
 	return uses;
 }
 
-/** Every symbol the board can show, sorted: the strips' and the overlay's tokens. */
-export const symbolsUsed = (doc: GameConfigDoc): string[] =>
-	Object.entries(symbolUses(doc))
-		.filter(([, use]) => use !== 'unused')
-		.map(([name]) => name)
-		.sort();
+/** Every symbol the board can show: the strips' (sorted), then the overlay's tokens in pot order. */
+export function symbolsUsed(doc: GameConfigDoc): string[] {
+	const inPlay = symbolsInPlay(doc);
+	const dealt = new Set(inPlay);
+	return [...inPlay, ...overlayTokens(doc).filter((name) => !dealt.has(name))];
+}

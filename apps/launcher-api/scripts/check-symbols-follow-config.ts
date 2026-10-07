@@ -7,15 +7,18 @@
  *      token is `token`, anything else in the dictionary is `unused`; `symbolsUsed` is the set the
  *      board can show. Without an overlay it IS the in-play gate, and an overlay never changes the
  *      gate itself (the mock's deal pool never deals a token).
- *   2. THE TWO TOOLS AGREE — for every kind (built-in and custom) × every setup (never saved, saved
- *      as the template, a symbol taken off or put on the reels, a dictionary-only symbol, each pots
- *      overlay and Hold and Win bonus preset, an imported bonus) × every defaults source (the
- *      committed set, a published set that predates the in-play filter, a published set missing
- *      symbols): `symbolGrid` over the config `/config` opens with lists exactly the symbols that page
- *      does not badge unused, each with a defaults entry, the published art kept.
- *   3. THE WIRING — both pages resolve the config through `resolveGameConfig` (the authored doc, else
- *      the kind's template), `/symbols` renders `symbolGrid`'s rows and nothing else, its stacked
- *      pictures list only those rows, and `/config` badges with `symbolUses`.
+ *   2. THE TWO TOOLS AGREE — for every kind (built-in and custom) × every setup (never saved, an
+ *      unreadable `config.json`, saved as the template, a symbol taken off or put on the reels, a
+ *      dictionary-only symbol, each pots overlay and Hold and Win bonus preset, an imported bonus) ×
+ *      every defaults source (the committed set, a published set that predates the in-play filter,
+ *      a published set missing symbols): the page's own composition (`symbolsPageConfig`) over the
+ *      config `resolveGameConfig` gives (`resolvedGameConfigFrom`, its precedence) lists exactly the
+ *      symbols `/config` does not badge unused over that same doc, each with a defaults entry, the
+ *      published art kept, tokens in pot order — and nothing it shows depends on whether the config
+ *      was saved.
+ *   3. THE WIRING — both pages resolve the config through `resolveGameConfig`, `/symbols` builds its
+ *      data with `symbolsPageConfig` and renders its rows and nothing else, its stacked pictures list
+ *      only those rows, and `/config` badges with `symbolUses`.
  *
  * Run:  pnpm --filter launcher-api check:symbols-follow-config
  */
@@ -36,12 +39,12 @@ import {
 	type GameConfigDoc,
 } from 'game-config';
 import { readLF } from '../../../scripts/lib/read-lf.mjs';
-import { gameConfigDefaultFor } from '../src/lib/server/gameConfigDefaults.ts';
 import {
-	symbolDefaultsFor,
-	symbolGrid,
-	type SymbolDefaults,
-} from '../src/lib/server/symbolDefaults.ts';
+	gameConfigDefaultFor,
+	resolvedGameConfigFrom,
+} from '../src/lib/server/gameConfigDefaults.ts';
+import { symbolDefaultsFor, type SymbolDefaults } from '../src/lib/server/symbolDefaults.ts';
+import { symbolsPageConfig } from '../src/lib/server/symbolsPageConfig.ts';
 
 let failures = 0;
 let checks = 0;
@@ -54,9 +57,9 @@ const check = (label: string, actual: unknown, expected: unknown): void => {
 	console.log(`FAIL  ${label}\n        expected ${e}\n        actual   ${a}`);
 };
 
-/** What a save then a load does to a doc: the stored config is always the normalized one. */
-const saved = (doc: GameConfigDoc): GameConfigDoc => {
-	const out = normalizeGameConfigDoc(structuredClone(doc));
+/** What a save then a load does to a config: the stored doc is always the normalized one. */
+const saved = (raw: unknown): GameConfigDoc => {
+	const out = normalizeGameConfigDoc(structuredClone(raw));
 	if (!out) throw new Error('a setup config did not normalize');
 	return out;
 };
@@ -87,15 +90,18 @@ const unusedOf = (doc: GameConfigDoc): string[] =>
 		.filter(([, use]) => use === 'unused')
 		.map(([name]) => name);
 
-// ── 1. the rule ─────────────────────────────────────────────────────────────────────────────────
-const TEMPLATES: Record<string, GameConfigDoc> = {};
-for (const kind of GAME_KINDS) {
+const templateOf = (kind: string): GameConfigDoc => {
 	const template = gameConfigDefaultFor(kind);
 	if (!template) throw new Error(`no committed template for ${kind}`);
-	TEMPLATES[kind] = template;
-}
-for (const id of HOLD_AND_WIN_PRESET_IDS)
+	return template;
+};
+
+// ── 1. the rule ─────────────────────────────────────────────────────────────────────────────────
+const TEMPLATES: Record<string, GameConfigDoc> = {};
+for (const kind of GAME_KINDS) TEMPLATES[kind] = templateOf(kind);
+for (const id of HOLD_AND_WIN_PRESET_IDS) {
 	TEMPLATES[`holdAndWin.${id}`] = saved(HOLD_AND_WIN_PRESETS[id]);
+}
 
 for (const [id, doc] of Object.entries(TEMPLATES)) {
 	const inPlay = symbolsInPlay(doc);
@@ -122,9 +128,12 @@ const tokens = potsDoc.potsOverlay?.pots.map((pot) => pot.token) ?? [];
 check('threePots · three tokens', tokens.length, 3);
 for (const token of tokens) {
 	check(`threePots · ${token} is a token, never unused`, symbolUses(potsDoc)[token], 'token');
-	check(`threePots · ${token} is used`, symbolsUsed(potsDoc).includes(token), true);
 	check(`threePots · ${token} is not dealt`, symbolsInPlay(potsDoc).includes(token), false);
 }
+check('threePots · used: the strips, then the tokens in pot order', symbolsUsed(potsDoc), [
+	...symbolsInPlay(potsDoc),
+	...tokens,
+]);
 const freeSpinsPots = addPotsOverlay(lines, 'potsToFreeSpins');
 if (!freeSpinsPots.ok) throw new Error(`potsToFreeSpins on lines: ${freeSpinsPots.reason}`);
 check(
@@ -134,6 +143,7 @@ check(
 );
 const tokenOnStrip = putOnReels(potsDoc, tokens[0]);
 check('a token on a strip is dealt, so in play', symbolUses(tokenOnStrip)[tokens[0]], 'inPlay');
+check('…and used once', symbolsUsed(tokenOnStrip).filter((name) => name === tokens[0]).length, 1);
 
 const stripOnly = putOnReels(lines, 'NEW');
 check(
@@ -157,38 +167,44 @@ check('a dictionary-only symbol is unused', symbolUses(dictionaryOnly).EXTRA, 'u
 check('…and not used', symbolsUsed(dictionaryOnly).includes('EXTRA'), false);
 
 // ── 2. the two tools agree ──────────────────────────────────────────────────────────────────────
-/** Every setup a project of `kind` can be in: the doc `/config` opens with, or `null` when it was
- *  never saved (`/config` then opens on the kind's template). */
-function setups(kind: string): Array<{ label: string; authored: GameConfigDoc | null }> {
-	const template = gameConfigDefaultFor(kind);
-	if (!template) throw new Error(`no template for ${kind}`);
-	const out: Array<{ label: string; authored: GameConfigDoc | null }> = [
-		{ label: 'never saved', authored: null },
-		{ label: 'saved as the template', authored: saved(template) },
+/** A stored `config.json` as `loadGameConfigDocWithEtag` reads it: `doc: null` when there is none,
+ *  or it does not parse. */
+type Stored = { doc: GameConfigDoc | null; etag: string | null };
+
+/** Every setup a project of `kind` can be in, as the stored config it leaves behind. */
+function setups(kind: string): Array<{ label: string; stored: Stored }> {
+	const template = templateOf(kind);
+	const savedAs = (doc: GameConfigDoc): Stored => ({ doc: saved(doc), etag: '"e"' });
+	const out: Array<{ label: string; stored: Stored }> = [
+		{ label: 'never saved', stored: { doc: null, etag: null } },
+		{ label: 'an unreadable config.json', stored: { doc: null, etag: '"corrupt"' } },
+		{ label: 'saved as the template', stored: savedAs(template) },
 	];
 	const inPlay = symbolsInPlay(template);
-	const unused = unusedOf(template);
 	out.push({
 		label: `${inPlay[0]} taken off the reels`,
-		authored: saved(takeOffReels(template, inPlay[0])),
+		stored: savedAs(takeOffReels(template, inPlay[0])),
 	});
-	for (const name of unused) {
-		out.push({ label: `${name} put on the reels`, authored: saved(putOnReels(template, name)) });
+	for (const name of unusedOf(template)) {
+		out.push({ label: `${name} put on the reels`, stored: savedAs(putOnReels(template, name)) });
 	}
 	const withExtra = structuredClone(template);
 	withExtra.symbols.EXTRA = {};
-	out.push({ label: 'a dictionary-only symbol', authored: saved(withExtra) });
+	out.push({ label: 'a dictionary-only symbol', stored: savedAs(withExtra) });
 	for (const id of POTS_OVERLAY_PRESET_IDS) {
 		const result = addPotsOverlay(template, id);
-		if (result.ok) out.push({ label: `pots overlay ${id}`, authored: saved(result.doc) });
+		if (result.ok) out.push({ label: `pots overlay ${id}`, stored: savedAs(result.doc) });
 	}
 	for (const id of HOLD_AND_WIN_PRESET_IDS) {
 		const result = addHoldAndWinBonus(template, id);
-		if (result.ok) out.push({ label: `Hold and Win bonus ${id}`, authored: saved(result.doc) });
+		if (result.ok) out.push({ label: `Hold and Win bonus ${id}`, stored: savedAs(result.doc) });
 	}
 	if (kind === 'holdAndWin') {
 		for (const id of HOLD_AND_WIN_PRESET_IDS) {
-			out.push({ label: `Hold and Win preset ${id}`, authored: saved(HOLD_AND_WIN_PRESETS[id]) });
+			out.push({
+				label: `Hold and Win preset ${id}`,
+				stored: savedAs(saved(HOLD_AND_WIN_PRESETS[id])),
+			});
 		}
 	}
 	const host = addPotsOverlay(template, 'potsToFreeSpins');
@@ -199,7 +215,7 @@ function setups(kind: string): Array<{ label: string; authored: GameConfigDoc | 
 			at: '2026-10-07T00:00:00.000Z',
 		});
 		if (imported.ok)
-			out.push({ label: 'imported Hold and Win bonus', authored: saved(imported.doc) });
+			out.push({ label: 'imported Hold and Win bonus', stored: savedAs(imported.doc) });
 	}
 	return out;
 }
@@ -229,17 +245,18 @@ function defaultsSources(kind: string): Array<{ label: string; defaults: SymbolD
 let combos = 0;
 const kindsSeen = new Set<string>();
 for (const kind of [...GAME_KINDS, 'myCustomKind']) {
-	for (const { label, authored } of setups(kind)) {
-		// `resolveGameConfig`'s precedence: the authored doc, else the kind's template (section 3 pins
-		// that both pages go through it).
-		const shown = authored ?? gameConfigDefaultFor(kind);
+	for (const { label, stored } of setups(kind)) {
+		// What BOTH pages get from `resolveGameConfig` (section 3 pins that both call it).
+		const config = resolvedGameConfigFrom(stored, kind);
+		const shown = config.doc;
 		if (!shown) throw new Error(`no config for ${kind} · ${label}`);
 		const uses = symbolUses(shown);
 		const badged = Object.keys(shown.symbols);
+		const overlayTokens = shown.potsOverlay?.pots.map((pot) => pot.token) ?? [];
 		for (const source of defaultsSources(kind)) {
 			const at = `${kind} · ${label} · ${source.label}`;
-			const grid = symbolGrid(source.defaults, shown);
-			const rows = new Set(grid.symbols);
+			const page = symbolsPageConfig(kind, source.defaults, config);
+			const rows = new Set(page.symbols);
 			combos += 1;
 			kindsSeen.add(kind);
 			check(
@@ -255,27 +272,39 @@ for (const kind of [...GAME_KINDS, 'myCustomKind']) {
 			check(
 				`${at} · the rows are exactly what the board can show`,
 				[...rows].sort(),
-				symbolsUsed(shown),
+				[...symbolsUsed(shown)].sort(),
 			);
-			check(`${at} · each row listed once`, grid.symbols.length, rows.size);
+			check(`${at} · each row listed once`, page.symbols.length, rows.size);
 			check(
 				`${at} · every row has a defaults entry for its cells to read`,
-				grid.symbols.filter((name) => !grid.defaults.symbols[name]),
+				page.symbols.filter((name) => !page.defaults.symbols[name]),
 				[],
 			);
 			check(
 				`${at} · a row with published art keeps it`,
-				grid.symbols
+				page.symbols
 					.filter((name) => source.defaults.symbols[name])
-					.filter((name) => grid.defaults.symbols[name] !== source.defaults.symbols[name]),
+					.filter((name) => page.defaults.symbols[name] !== source.defaults.symbols[name]),
 				[],
+			);
+			check(
+				`${at} · tokens without published art follow pot order`,
+				page.symbols.filter(
+					(name) => overlayTokens.includes(name) && !source.defaults.symbols[name],
+				),
+				overlayTokens.filter((name) => !source.defaults.symbols[name] && rows.has(name)),
+			);
+			check(
+				`${at} · nothing shown depends on whether the config was saved`,
+				symbolsPageConfig(kind, source.defaults, { ...config, source: 'authored' }),
+				symbolsPageConfig(kind, source.defaults, { ...config, source: 'template' }),
 			);
 		}
 	}
 }
 check('every kind ran', [...kindsSeen].sort(), [...GAME_KINDS, 'myCustomKind'].sort());
 
-// The pots overlay and imported-bonus setups ran where the add-on applies.
+// The add-on setups ran where the add-on applies.
 const ran = (kind: string, label: string) => setups(kind).some((s) => s.label === label);
 for (const kind of GAME_KINDS.filter((k) => k !== 'holdAndWin')) {
 	check(`${kind} · the threePots overlay setup ran`, ran(kind, 'pots overlay threePots'), true);
@@ -289,37 +318,30 @@ for (const kind of GAME_KINDS.filter((k) => k !== 'holdAndWin')) {
 check('holdAndWin · a pots overlay setup ran', ran('holdAndWin', 'pots overlay threePots'), true);
 
 // The cases that were wrong before this gate, by name.
-const rowsFor = (
-	kind: string,
-	authored: GameConfigDoc | null,
-	defaults = symbolDefaultsFor(kind),
-) => symbolGrid(defaults, authored ?? gameConfigDefaultFor(kind)).symbols;
+const rowsFor = (kind: string, stored: Stored, defaults = symbolDefaultsFor(kind)) =>
+	symbolsPageConfig(kind, defaults, resolvedGameConfigFrom(stored, kind)).symbols;
+const neverSaved: Stored = { doc: null, etag: null };
 check(
 	'scatter never saved · L4 (unused in its template) hidden, M (in play) listed',
-	[rowsFor('scatter', null).includes('L4'), rowsFor('scatter', null).includes('M')],
+	[rowsFor('scatter', neverSaved).includes('L4'), rowsFor('scatter', neverSaved).includes('M')],
 	[false, true],
 );
 check(
 	'ways never saved · H5 (in play) listed, L5 (not in its config) hidden',
-	[rowsFor('ways', null).includes('H5'), rowsFor('ways', null).includes('L5')],
+	[rowsFor('ways', neverSaved).includes('H5'), rowsFor('ways', neverSaved).includes('L5')],
 	[true, false],
 );
 check(
 	'lines never saved, an old unfiltered publish · W and H5 hidden',
-	rowsFor('lines', null, defaultsSources('lines')[1].defaults).filter(
-		(n) => n === 'W' || n === 'H5',
+	rowsFor('lines', neverSaved, defaultsSources('lines')[1].defaults).filter(
+		(name) => name === 'W' || name === 'H5',
 	),
 	[],
 );
 check(
-	'a pots overlay · its tokens listed',
-	tokens.filter((t) => !rowsFor('lines', potsDoc).includes(t)),
-	[],
-);
-check(
-	'no config at all · every default listed, as before',
-	symbolGrid(symbolDefaultsFor('lines'), null).symbols,
-	Object.keys(symbolDefaultsFor('lines').symbols),
+	'a pots overlay · its tokens listed, in pot order',
+	rowsFor('lines', { doc: potsDoc, etag: '"e"' }).filter((name) => tokens.includes(name)),
+	tokens,
 );
 
 // ── 3. the wiring ───────────────────────────────────────────────────────────────────────────────
@@ -335,14 +357,20 @@ check(
 	true,
 );
 check(
-	'/symbols reads the SAME config: resolveGameConfig, never the authored-only loader',
-	[/resolveGameConfig\(/.test(symbolsServer), /loadGameConfigDoc\b/.test(symbolsServer)],
+	'/symbols reads the SAME config: resolveGameConfig, and no loader that skips the template',
+	[
+		/gameTypeLoad\.then\(\(type\) => resolveGameConfig\(clientKey, projectKey, type\)\)/.test(
+			symbolsServer,
+		),
+		/loadGameConfigDoc/.test(symbolsServer),
+	],
 	[true, false],
 );
 check(
-	'/symbols builds its rows with symbolGrid over that config',
-	/symbolGrid\(published \?\? symbolDefaultsFor\(gameType\), configDoc\)/.test(symbolsServer) &&
-		/symbols: grid\.symbols/.test(symbolsServer),
+	'/symbols builds everything config-driven with symbolsPageConfig over that resolution',
+	/\.\.\.symbolsPageConfig\(gameType, published \?\? symbolDefaultsFor\(gameType\), config\)/.test(
+		symbolsServer,
+	),
 	true,
 );
 check(

@@ -186,7 +186,7 @@
 	 * The symbols this page lists: exactly the ones Invisible Game Config does not badge unused — on a
 	 * reel strip, or a pots overlay's token — read from the config that page opens with, the project's
 	 * own or its kind's template (`symbolGrid`). /config is where a symbol's existence is decided; this
-	 * page follows it, for every kind. The owner's report was "I expect UNUSED not to show up here".
+	 * page follows it, for every kind.
 	 *
 	 * NOTHING IS DELETED. A hidden symbol keeps its authored states in the doc, untouched: only the
 	 * rendered rows narrow (no save path reads this — saving writes `doc`). Put the symbol back on a

@@ -128,7 +128,15 @@ export async function resolveGameConfig(
 	projectKey: string,
 	gameType: string | undefined,
 ): Promise<ResolvedGameConfig> {
-	const authored = await loadGameConfigDocWithEtag(clientKey, projectKey);
+	return resolvedGameConfigFrom(await loadGameConfigDocWithEtag(clientKey, projectKey), gameType);
+}
+
+/** {@link resolveGameConfig}'s precedence over a stored doc already read (`doc: null` when there is
+ *  none, or it is unreadable) — the authored doc, else the kind's template. */
+export function resolvedGameConfigFrom(
+	authored: { doc: GameConfigDoc | null; etag: string | null },
+	gameType: string | undefined,
+): ResolvedGameConfig {
 	if (authored.doc) return { doc: authored.doc, source: 'authored', etag: authored.etag };
 	return { doc: gameConfigDefaultFor(gameType), source: 'template', etag: authored.etag };
 }
@@ -151,23 +159,12 @@ export async function resolveGameConfigDoc(
 export type BigTier = { alias: string; name: string };
 
 /**
- * The project's BIG-win tiers (`alias` + `name`), ascending by threshold — the source the
- * reel-anticipation `/symbols` panel mirrors (one FX column per big tier, keyed by alias). Resolves
- * the same config the game does (authored R2 doc → committed template default) and applies the same
- * `type === 'big'` filter the engine's `activeBigTiers()` uses, so the panel's columns match the tiers
- * the game actually arms. Empty when the config authors no big tier (the panel then shows a note
- * asking the author to add big-win tiers in `/config` first).
+ * A config's BIG-win tiers (`alias` + `name`), ascending by threshold — the source the
+ * reel-anticipation `/symbols` panel mirrors (one FX column per big tier, keyed by alias). Applies the
+ * same `type === 'big'` filter the engine's `activeBigTiers()` uses, so the panel's columns match the
+ * tiers the game arms. Empty when the config authors no big tier (the panel then shows a note asking
+ * the author to add big-win tiers in `/config` first).
  */
-export async function resolveBigTiers(
-	clientKey: string,
-	projectKey: string,
-	gameType: string | undefined,
-): Promise<BigTier[]> {
-	const { doc } = await resolveGameConfig(clientKey, projectKey, gameType);
-	return bigTiersOf(doc);
-}
-
-/** {@link resolveBigTiers} for a config already in hand. */
 export function bigTiersOf(doc: GameConfigDoc | null): BigTier[] {
 	const tiers = doc ? resolveWinLevels(doc) : undefined;
 	if (!tiers) return [];
