@@ -26,6 +26,8 @@
  * OUR mock derive its answer from the project instead of from a stale copy of it.
  */
 import {
+	BOOK_FREE_SPINS_DEFAULTS,
+	DEFAULT_FREE_SPINS_TRIGGER_COUNT,
 	freeSpinsAwardsAreDefault,
 	freeSpinsTriggerIsDefault,
 	holdAndWinMockInputs,
@@ -387,6 +389,40 @@ function projectFreeSpins(doc: GameConfigDoc, projectKey: string): FreeSpinsFiel
 }
 
 /**
+ * The free-spins rule for the BOOK mock — the lines rule in its own terms. A Book-of game always
+ * triggers on its book (`docs/design/book-feature.md`, decision 9), so only the COUNT travels, as
+ * `SCAT`; an authored trigger symbol is ignored and said once. The award tables travel when they
+ * depart from the Book-of defaults (10, +10 on a retrigger), the deal the book mock has always made
+ * untold — so a Book-of project that authored nothing sends nothing and is dealt byte-identically.
+ */
+function projectBookFreeSpins(doc: GameConfigDoc, projectKey: string): FreeSpinsFields {
+	const freeSpins = resolveFreeSpins(doc, BOOK_FREE_SPINS_DEFAULTS);
+	if (!freeSpins.enabled) return { freeSpins: false };
+	const authored = doc.freeSpins?.triggerSymbol;
+	if (authored && authored !== inPlayScatterSymbol(doc.symbols, symbolsInPlay(doc))) {
+		warnOnce(
+			`${projectKey}:bookTrigger:${authored}`,
+			`[mock-contract] '${projectKey}' is a Book-of game, which always triggers free spins on its ` +
+				`book — the trigger symbol ${authored} is ignored. Clear it in /config.`,
+		);
+	}
+	const count = freeSpins.triggerCount;
+	const awards = freeSpinsAwardsAreDefault(doc, BOOK_FREE_SPINS_DEFAULTS)
+		? undefined
+		: {
+				awards: freeSpins.awards,
+				retrigger: freeSpins.retriggerAwards,
+				random: freeSpins.randomAwards,
+			};
+	return {
+		...(count !== DEFAULT_FREE_SPINS_TRIGGER_COUNT
+			? { freeSpinsTrigger: { symbol: 'SCAT', count } }
+			: {}),
+		...(awards ? { freeSpinsAwards: awards } : {}),
+	};
+}
+
+/**
  * The trigger in SERVER vocabulary, or `undefined` when it is the default 3+ scatter.
  *
  * The trigger symbol is translated through the SAME `linesMapping` the in-play pool and the
@@ -449,8 +485,9 @@ function projectGrid(
 	// deal). `cluster`/`scatter` additionally carry their `minCluster`/`adjacency`/`minCount` shape.
 	//
 	// `book` is the one real exception: it runs `createBookMock`, which owns its own board and
-	// paylines, and reads only `symbolPaytable`, `symbols` and `potsOverlay` — so that is all it gets
-	// beyond the shape the test server's `validGrid` requires. Without the table the book mock paid and
+	// paylines, and reads only `symbolPaytable`, `symbols`, `potsOverlay` and the free-spins rule
+	// (`projectBookFreeSpins`) — so that is all it gets beyond the shape the test server's `validGrid`
+	// requires. Without the table the book mock paid and
 	// DECLARED its captured table whatever `/config` authored, so the info page and the payouts could
 	// disagree; without the pool it dealt, and could expand, a symbol `/config` marks unused.
 	try {
@@ -472,9 +509,10 @@ function projectGrid(
 		// full-coverage set from the dimensions for its own reveal shape; the evaluator ignores it.
 		if (!Number.isFinite(reels)) return undefined;
 		if (protocol === 'book') {
-			// Neither an authored table, a narrower pool nor an overlay ⇒ no grid ⇒ the contract is
-			// exactly what it was before any existed; the pool is stated only when it leaves a symbol
-			// out, and an overlay goes LAST, so a project using neither is byte-identical.
+			// Neither an authored table, a narrower pool, an overlay nor a free-spins departure ⇒ no grid
+			// ⇒ the contract is exactly what it was before any existed; the pool is stated only when it
+			// leaves a symbol out, and the overlay and free spins go LAST, so a project using none of
+			// them is byte-identical.
 			const symbolPaytable = projectSymbolPaytable(doc, bookMapping);
 			const pool = projectLineSymbols(doc, bookMapping);
 			const symbols =
@@ -482,7 +520,11 @@ function projectGrid(
 					? pool
 					: undefined;
 			const potsOverlay = inServerNames(potsOverlayMockInputs(doc), bookMapping, projectKey);
-			if (!symbolPaytable && !symbols && !potsOverlay) return undefined;
+			// Last, after the overlay, so a project that departs from none of the free-spins defaults
+			// keeps its grid byte-identical.
+			const freeSpins = projectBookFreeSpins(doc, projectKey);
+			const departs = Object.keys(freeSpins).length > 0;
+			if (!symbolPaytable && !symbols && !potsOverlay && !departs) return undefined;
 			return {
 				reels,
 				rows,
@@ -490,6 +532,7 @@ function projectGrid(
 				...(symbolPaytable ? { symbolPaytable } : {}),
 				...(symbols ? { symbols } : {}),
 				...(potsOverlay ? { potsOverlay } : {}),
+				...freeSpins,
 			};
 		}
 		if ((protocol === 'lines' || protocol === 'holdAndWin') && !paylines.length) return undefined;

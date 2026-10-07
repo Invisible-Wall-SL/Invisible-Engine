@@ -87,9 +87,9 @@ before — an un-authored project still runs the compiled template.
   lines one. See _Making a ways game_ below. The same panel carries **Winners
   tumble** — see _Tumbling (cascade)_ below.
 - **Free spins** — whether the game has free spins at all, what triggers them
-  (which symbol, how many) and how many spins they award. Shown for lines, ways, cluster, scatter and custom kinds;
-  not for Hold and Win (no free spins) or Book-of (its free spins are the book
-  mechanic). See _Free spins_ below.
+  (which symbol, how many) and how many spins they award. Shown for every kind but
+  Hold and Win (no free spins); a Book-of game always triggers on its book. See
+  _Free spins_ below.
 - **Reel behaviour** — how a round **arrives** on the board: whether the reels roll
   at all, and if not, how the new symbols get there. See _Reel behaviour_ below.
 - **Game modes** — the modes a bonus switches into (base game, free spins, Hold and
@@ -530,7 +530,7 @@ Two small tables under the fields set **how many spins** are awarded:
 - **Free spins awarded** — the spins for entering the feature, one row per trigger
   count. Default: one row, _3+ S → 10_.
 - **Retrigger adds** — the spins added when the trigger lands again during free
-  spins, the same way. Default: _3+ S → 5_.
+  spins, the same way. Default: _3+ S → 5_ (a Book-of game: _3+ S → 10_).
 
 Each row is **Trigger symbols** (an editable count, shown as _3 + S_), **Spins** and,
 with Random amount on, **To** — the top of the range, both ends included. A row
@@ -555,6 +555,15 @@ spins, 4+ award 3–5; +5 when they land again during free spins_. The trigger i
 counted on its own: a scatter keeps paying its **scatter pay** whatever triggers the
 feature, and a trigger symbol that pays nothing is fine. The info page's rules state
 the trigger but not the award.
+
+**On a Book-of game.** The section is the same, with two differences. The
+**Trigger symbol** is shown, not picked — _the book — S_ — because a Book-of game
+always triggers on its book; **How many** still sets how many books it takes. And
+the retrigger default is **+10** (what Book of Borut has always dealt), so a
+Book-of game you have not touched plays exactly as before; editing the table back
+to _3+ S → 10_ leaves nothing stored. With free spins off, the buy also leaves the
+bet menu, and books still land but pay nothing (a Book-of book pays no scatter
+pay). The expanding special still starts every Book-of free spins round.
 
 **Turning free spins off.** No spin enters the feature on the Invisible Test
 Server — not a natural one, not a forced one. Scatters still land and still pay

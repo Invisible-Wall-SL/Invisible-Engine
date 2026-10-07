@@ -102,7 +102,7 @@ How the mapping is chosen today:
 today's rule unless its own config says otherwise (§3.4). Its tools gain the book parts from the
 config block instead of the kind.
 
-Open question 7 asks whether to add a field anyway.
+Decision 7: no field.
 
 Two small fixes ride along:
 
@@ -228,7 +228,7 @@ This is "make a copy of Book of Thermopylae" as one click. The preset holds:
 
 - **Board:** 5×3 and the ten captured paylines.
 - **Symbols:** `H1–H4` / `L1–L5` with the captured rows (`H1` `2:10 3:100 4:1000 5:5000` …).
-- **The book:** `S` with `['scatter', 'wild']`, its scatter row per open question 1.
+- **The book:** `S` with `['scatter', 'wild']`, its scatter row `3:2 4:20 5:200`, paid (decision 1).
 - **Strips:** padding strips of those ten symbols.
 - **Bet modes:** `base` at 1 and one buy at 100 (`max_win` 10000).
 - **Free spins:** `{ retriggerAwards: [{ count: 3, spins: 10 }], expandingSymbol: { weights:
@@ -257,8 +257,8 @@ It also makes the mechanic addable to any lines game. The new options on `create
     - `bonusWin` wrappers as today;
     - `spinStart.symbolsPay.scatter` gains the special.
   - The special never retriggers.
-- **`scatterWild: true`.** `SCAT` substitutes in the payline evaluator (the leading-book rule is
-  open question 2) and is declared in `wildSymbols`. The contract sends it when the in-play scatter
+- **`scatterWild: true`.** `SCAT` substitutes in the payline evaluator (leading books substitute too,
+  decision 2) and is declared in `wildSymbols`. The contract sends it when the in-play scatter
   is also wild. **`projectWild` must skip a scatter.** Today it would pick `S` (wild, with a
   paytable) and make the mock deal a separate `WILD` (mapped to `W`, with no art in a book project).
 - **Resume at boot.** For a session with an open round, the boot `config` carries the round's
@@ -266,9 +266,8 @@ It also makes the mechanic addable to any lines game. The new options on `create
   stores and replays actions per position. It just never told a reloading client. Without this, a
   migrated Borut would lose resume-on-reload. Today every lines game abandons an open round on
   reload, so this is a fix for all of them (`check:resume` grows a lines-mock section).
-- **A scatter that pays nothing**, only if open question 1 keeps Borut at 0. An authored scatter
-  row of all zeros (`normalizePaytable` already keeps zero pays) is sent as such and paid as
-  nothing. Today `normalizeWildPaytable` drops zeros, so the placeholder table would be paid.
+- **No "scatter pays nothing" rule is needed**: decision 1 pays the book's scatter row, so the
+  lines mock's existing authored scatter pays (`scatterPaytable`) cover it.
 - **Parity:** a configuration without these options draws no extra RNG value. The seeded responses
   of every existing configuration stay byte-identical. The `check:freespins` sections and a new
   `check:expanding-symbol` digest hold this.
@@ -458,7 +457,7 @@ migration needs. Duplicates made during the window are found by re-running it. F
 
 **The migration.** One-time and idempotent: a project already migrated is a no-op.
 
-- It is an **admin-only launcher action** with a dry-run preview (open question 6). It runs inside
+- It is an **admin-only launcher action** with a dry-run preview (decision 6). It runs inside
   the launcher with the launcher's own DB and R2 access, so no owner credential leaves the server.
   The `/admin` Re-scaffold backfill is the precedent.
 - The alternative is the same steps as a script the owner runs with `DATABASE_URL` and R2 keys.
@@ -470,8 +469,8 @@ Per project, in order:
    - add `'wild'` to the book scatter;
    - write the departures that make the lines mock deal what the book mock deals now: the 10
      captured paylines, `retriggerAwards` +10, and a bet modes table of base plus the one 100× buy
-     under its existing card name (open question 4);
-   - set the scatter row per open question 1.
+     under its existing card name (decision 4);
+   - set the scatter row to `3:2 4:20 5:200`, paid (decision 1).
    - An **un-authored** project gets the preset (the census flags these for the owner).
 
    Adding `'wild'` to `S` also lets anticipation count books as wilds (`anticipation.ts` `isWild`).
@@ -498,7 +497,7 @@ Per project, in order:
      a Phase 3+ engine.
    - `register-game` / `publish-game-bundle.mjs` stamp the build as table-capable, and
      `sellableGrid` keys on that stamp.
-   - Or they are retired (open question 5).
+   - (Decision 5: they are rebuilt, not retired.)
 
 **Transition window: yes, and it is explicit.** From Phase 2 to Phase 7 the `bookOf` kind, the
 `book` protocol and `bookReveal = kind OR block` all work side by side. That is the only window in
@@ -522,22 +521,22 @@ server deployed.
 
 0. **Plan and census** (S). This doc, plus the read-only census script, run by the owner.
 1. **Free spins for Book-of games, on the book mock** (S–M, no runtime release).
-   - The `book` branch of `projectGrid` sends `freeSpins: false`, `freeSpinsTrigger` (in
-     `bookMapping` names) and `freeSpinsAwards`, each only on a departure. This is the lines rule.
+   - The `book` branch of `projectGrid` sends `freeSpins: false`, `freeSpinsTrigger` (always
+     `SCAT`: decision 9) and `freeSpinsAwards`, each only on a departure from the BOOK defaults.
    - `mock-rgs-server-book.mjs` honours them:
      - off: no feature, and a buy is refused with errorCode 101;
-     - the trigger is counted on its own symbol, base and retrigger;
-     - a forced trigger places `count` copies;
+     - the trigger count is counted on the book, base and retrigger;
+     - a forced trigger places `count` books;
      - awards and the random range work as in the lines mock;
      - the pure `awardTable` / `drawAward` move out of the lines mock's closure so both mocks share
        one copy, which `check:freespins` holds to `freeSpinsAwardFor`.
-   - The book mock's own retrigger default becomes +5, the game-config default, so that "absent"
-     means the same thing everywhere.
+   - Defaults are per kind (decision 8): `freeSpinsDefaultsFor(kind)` gives `bookOf` 10 / +10 and
+     every other kind 10 / +5. `/config`, the contract and the mock all read it. The normalizer no
+     longer drops a table equal to a default (it cannot know the kind); `/config`, which does,
+     deletes a table edited back to its kind's default.
    - `/config`: `offersFreeSpins = capabilities.freeSpins`.
    - Gates: `check:freespins` gains a book section; `check:mock-contract`. Seeded book responses
-     with none of the fields are byte-identical.
-   - **Deploy prerequisite (owner, about 5 minutes):** set "Retrigger adds 10" on each Book-of
-     config (the raw JSON panel works before deploy), so Borut keeps +10.
+     with none of the fields are byte-identical to `main`'s book mock.
 2. **The contract** (M, no consumer change).
    - `freeSpins.expandingSymbol`: types, normalizer, `resolveExpandingSymbol`, the validator rules
      in §3.2, the scatter-wild rule.
@@ -613,30 +612,30 @@ Dependencies:
 - no `bookOf` kind or `book` protocol remains;
 - every current game passes the harness.
 
-## 8. Open questions for the owner
+## 8. Decisions (owner, 2026-10-07)
 
-1. **Does the book scatter pay?** The book mock pays 0 (`cf1db93`), while the info page and the
-   captured declaration say `3:2 4:20 5:200`. That is a standing lie (game-config open item 3).
-   **Recommend: pay 2/20/200** as declared, which is also what Book-of-Ra games do. Keeping 0 needs
-   the zero-row rule in §4.
-2. **Do leading books substitute on a line?** The book mock substitutes only after reel 1.
-   **Recommend: yes**, the generic wild rule (real Book-of behaviour). Confirm it against the next
-   Thermopylae capture.
-3. **The book mock afterwards. Recommend: keep it as the partner-dialect fixture only** (§4).
-   Alternatives: port its fixtures to the lines mock and delete it, or keep it selectable per
-   project.
-4. **Borut's buy menu.** The lines mock sells every authored buy mode; the book mock sold one
-   100× option. **Recommend: migrate to base plus the one 100× buy** under its current card name.
-   The menu stays as it is, and more cards are a `/config` edit later.
-5. **The desktop builds `bookofborut` and `bookofborutremakebuild`. Recommend: rebuild both on the
-   Phase 3+ engine** with the table-capable stamp before the migration. Retiring them is the
-   cheaper choice if they are no longer needed.
-6. **Who runs the migration. Recommend: a temporary admin-only launcher action** (no credentials
-   leave the server; deleted in Phase 7). The alternative is an owner-run script with
-   `DATABASE_URL` and R2 keys.
-7. **A "server game" field** on the config or project. **Recommend: no**, because the boot
-   `config` and the delivery profile already say which server a game talks to (§2). Add one only if
-   we later want our mock to imitate a named partner per project.
+1. **The book scatter pays its scatter pay**, `3:2 4:20 5:200` × total bet, as the info page and
+   the captured declaration say. This reverses the book mock's zero pay (`cf1db93`) when the game
+   moves to the lines mock; Phase 1 does not change it.
+2. **Books on a line count as wilds**, leading books included (the generic wild rule). Lines mock,
+   Phase 3; Phase 1 does not change it.
+3. **The book mock becomes a test fixture only** (§4) once no game is dealt by it.
+4. **Borut's buy menu stays base plus the one 100× buy**, under its current card name. More cards
+   are a `/config` edit later.
+5. **The desktop builds `bookofborut` and `bookofborutremakebuild` are rebuilt** on the Phase 3+
+   engine, with the table-capable stamp, before the migration.
+6. **The migration runs from an admin-only launcher button** (dry run, then apply), deleted in
+   Phase 7.
+7. **No "server game" field.** The boot `config` and the delivery profile already say which server
+   a game talks to (§2).
+8. **A Book-of game's default retrigger award is +10** (Borut's behaviour today), so nothing changes
+   until an author edits it. The lines default stays +5. The default is per kind until Phase 7,
+   when the migration writes +10 explicitly into each Book-of config and the per-kind default goes
+   with the kind.
+9. **Phase 1: the trigger symbol of a Book-of game is fixed to the book** (the in-play scatter).
+   `/config` shows it but offers no picker; the count, on/off and the awards are authorable. A
+   different trigger symbol on a book game would be a different game; it becomes possible once the
+   game runs on the lines mock (Phase 6), which already supports one.
 
 ## Not in this plan
 

@@ -13,12 +13,14 @@
 
 import { readFileSync } from 'node:fs';
 import {
+	BOOK_FREE_SPINS_DEFAULTS,
 	DEFAULT_FREE_SPINS_AWARD,
 	DEFAULT_FREE_SPINS_TRIGGER_COUNT,
 	DEFAULT_RETRIGGER_AWARD,
 	describeFreeSpinsAwards,
 	freeSpinsAwardFor,
 	freeSpinsAwardsAreDefault,
+	freeSpinsDefaultsFor,
 	freeSpinsTriggerIsDefault,
 	normalizeAwardTable,
 	normalizeFreeSpins,
@@ -406,12 +408,56 @@ check(
 	},
 );
 check(
-	'tables that agree with the default store no block at all',
-	normalizeFreeSpins({
-		awards: [{ count: 3, spins: 10 }],
-		retriggerAwards: [{ count: 3, spins: 5 }],
-	}),
+	'an entry table that agrees with the default stores no block at all',
+	normalizeFreeSpins({ awards: [{ count: 3, spins: 10 }] }),
 	undefined,
+);
+// The retrigger default is per KIND (+5 lines, +10 Book-of), which a config does not carry: a +5
+// table stored for a Book-of game must survive a normalize anywhere. `/config` drops a table equal
+// to its kind's default instead.
+check(
+	'a retrigger table is kept whatever it awards (its default depends on the kind)',
+	normalizeFreeSpins({ retriggerAwards: [{ count: 3, spins: 5 }] }),
+	{ retriggerAwards: [{ count: 3, spins: 5 }] },
+);
+
+console.log('\nper-kind defaults — a Book-of game retriggers +10 untold, lines +5');
+check('lines (and any other kind) ⇒ 10 / +5', freeSpinsDefaultsFor('lines'), {
+	award: 10,
+	retrigger: 5,
+});
+check('a custom kind ⇒ 10 / +5', freeSpinsDefaultsFor('myKind'), { award: 10, retrigger: 5 });
+check('bookOf ⇒ 10 / +10', freeSpinsDefaultsFor('bookOf'), { award: 10, retrigger: 10 });
+check(
+	'resolve with the book defaults ⇒ +10 at the trigger count',
+	resolveFreeSpins(doc(), BOOK_FREE_SPINS_DEFAULTS).retriggerAwards,
+	[{ count: 3, spins: 10 }],
+);
+check(
+	'…and with no defaults given, still +5 (every lines caller unchanged)',
+	resolveFreeSpins(doc()).retriggerAwards,
+	[{ count: 3, spins: 5 }],
+);
+check(
+	'a +5 retrigger table departs for a Book-of game',
+	freeSpinsAwardsAreDefault(
+		doc({ freeSpins: { retriggerAwards: [{ count: 3, spins: 5 }] } }),
+		BOOK_FREE_SPINS_DEFAULTS,
+	),
+	false,
+);
+check(
+	'…and is the default for a lines game',
+	freeSpinsAwardsAreDefault(doc({ freeSpins: { retriggerAwards: [{ count: 3, spins: 5 }] } })),
+	true,
+);
+check(
+	'a +10 retrigger table is the default for a Book-of game',
+	freeSpinsAwardsAreDefault(
+		doc({ freeSpins: { retriggerAwards: [{ count: 3, spins: 10 }] } }),
+		BOOK_FREE_SPINS_DEFAULTS,
+	),
+	true,
 );
 const awarded = doc({
 	freeSpins: { randomAwards: true, awards: ranged, retriggerAwards: [{ count: 3, spins: 2 }] },

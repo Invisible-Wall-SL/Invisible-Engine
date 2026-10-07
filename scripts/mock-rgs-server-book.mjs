@@ -38,7 +38,7 @@ import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
 
 import { createPlatformJackpot } from './mock-platform-jackpot.mjs';
-import { boardPayingAtLeast, parseWinX } from './mock-rgs-server.mjs';
+import { awardTableOf, boardPayingAtLeast, drawAwardFrom, parseWinX } from './mock-rgs-server.mjs';
 
 // ---------- pure game data (verified from the live config event) ----------
 
@@ -136,9 +136,15 @@ const SPECIAL_WEIGHTS = {
 	JACK: 0.14,
 	TEN: 0.195,
 };
+/** Free spins awarded on entering, when the project authors no table (game-config's
+ *  `BOOK_FREE_SPINS_DEFAULTS.award`). */
 const TOTAL_FS = 10;
-/** Extra free spins awarded when 3+ SCAT land during a free spin (retrigger). */
+/** Extra free spins awarded when the trigger lands again during a free spin, when the project
+ *  authors no retrigger table — the Book-of default, +10 (game-config's
+ *  `BOOK_FREE_SPINS_DEFAULTS.retrigger`; a lines game's is +5). */
 const RETRIGGER_FS = 10;
+/** Fewest books that trigger (and retrigger) the feature when the project states no count. */
+const FS_TRIGGER_MIN = 3;
 /**
  * The most spins an imported reels mode's round may reach through retriggers. Its spins are drawn
  * from its cosmetic padding strips, which can stack scatters far denser than a real reel set — one
@@ -159,11 +165,11 @@ function hashStr(s) {
  *  shape (availablePayLines + nested paytable {line,scatter}). `payTable` is the instance's
  *  `effectivePayTable`, so the declared line rows are the rows it pays; `pool` its `symbolPool`, so
  *  the declared symbols are the ones it deals. */
-const buildConfigContext = (payTable, pool) => ({
+const buildConfigContext = (payTable, pool, betOptions) => ({
 	symbols: dealtSymbols(pool),
 	availablePayLines: PAYLINES,
-	betOptions: BET_OPTIONS,
-	gameCost: BET_OPTIONS[0],
+	betOptions,
+	gameCost: betOptions[0],
 	lineAlign: 'left',
 	lineCoinciding: LINE_COINCIDING,
 	maxWinMp: [10000],
@@ -262,13 +268,16 @@ const scatterPositions = (reels) => {
 	return pos;
 };
 
-const evaluateScatterTrigger = (reels) => {
+const evaluateScatterTrigger = (reels, authoredMin) => {
 	const pos = scatterPositions(reels);
 	// SCATTER_PAY is now only the qualifying-count gate (3/4/5) — the scatter/book
 	// match TRIGGERS the free-spins feature, it does NOT pay out. The win is kept
 	// as a zero-pay entry so the scatter symbols still glow on the trigger spin and
-	// the trigger count/positions still flow to the client (freeSpinTrigger).
-	if (!SCATTER_PAY[pos.length]) return null;
+	// the trigger count/positions still flow to the client (freeSpinTrigger). A project that states
+	// its own count (`authoredMin`, from `/config`'s Free spins section) qualifies from that count
+	// up, with no top.
+	const qualifies = authoredMin ? pos.length >= authoredMin : SCATTER_PAY[pos.length];
+	if (!qualifies) return null;
 	return {
 		win: {
 			what: 'SCAT',
@@ -369,7 +378,7 @@ const bonusSnapshot = (round, extra = {}) => ({
 	...extra,
 });
 
-const spinStartEvent = (round, pool) => ({
+const spinStartEvent = (round, pool, betOptions) => ({
 	event: 'spinStart',
 	context: {
 		symbols: dealtSymbols(pool),
@@ -384,8 +393,8 @@ const spinStartEvent = (round, pool) => ({
 		wildSymbols: pool.scatter ? ['SCAT'] : [],
 		lineAlign: 'left',
 		lineCoinciding: LINE_COINCIDING,
-		gameCost: BET_OPTIONS[0],
-		betOptions: BET_OPTIONS,
+		gameCost: betOptions[0],
+		betOptions,
 		maxWinMp: [10000],
 	},
 });
@@ -449,11 +458,21 @@ const pathEndsWith = (pathname, route) => {
  *           bigWin?: boolean, autoCollect?: boolean, label?: string,
  *           symbolPaytable?: Record<string, Record<string, number>>,
  *           symbols?: string[],
+ *           freeSpins?: false, freeSpinsTrigger?: { symbol: string, count: number },
+ *           freeSpinsAwards?: { awards: object[], retrigger: object[], random: boolean },
  *           overlay?: (host: object) => object }} [opts]
  *
  * `symbolPaytable` is the project's authored line table in SERVER names (`PIC1`…`TEN`), as the
  * Invisible Test Server receives it in the project's live mock contract (`grid.symbolPaytable`).
  * `symbols` is the project's in-play pool in the same names (`grid.symbols`) — see `symbolPool`.
+ *
+ * The free-spins rule from the project's Invisible Game Config (`grid.freeSpins*`, sent only on a
+ * departure from the Book-of defaults: on, 3+ books, 10 spins, +10 on a retrigger, never random):
+ * `freeSpins: false` ⇒ the feature never opens (no base trigger, `FORCE_TRIGGER` inert, and the
+ * buy option leaves the table, so a buy is refused at `bet`); `freeSpinsTrigger.count` ⇒ the fewest
+ * books that trigger and retrigger it (a Book-of game always triggers on its book, so any other
+ * `symbol` is ignored); `freeSpinsAwards` ⇒ the award tables, read by the lines mock's own
+ * `awardTableOf` / `drawAwardFrom`. None of them ⇒ not one byte of an answer changes.
  *
  * `overlay` is the seam an add-on deals through (`withPotsOverlay`, `mock-pots-overlay.mjs`): called
  * once with this host's board and its `startFreeSpins` hook, it returns the hooks below. Absent, not
@@ -468,7 +487,9 @@ const pathEndsWith = (pathname, route) => {
 export function createMockRgs(opts = {}) {
 	const startBalance = Number(opts.startBalance ?? process.env.START_BALANCE ?? 500_000); // cents → $5000
 	const seed = opts.seed ?? process.env.SEED;
-	const forceTrigger = opts.forceTrigger ?? process.env.FORCE_TRIGGER === '1';
+	// Inert on a game with no free spins: there is no feature to force.
+	const forceTrigger =
+		opts.freeSpins !== false && (opts.forceTrigger ?? process.env.FORCE_TRIGGER === '1');
 	// BIG_WIN forces a full-screen PIC1 base spin (a top-tier win) so the
 	// big/mega/max WIN presentation can be verified on demand. Ignored when a
 	// bonus is triggered.
@@ -479,6 +500,24 @@ export function createMockRgs(opts = {}) {
 	const label = opts.label ?? 'mock-book';
 	const payTable = effectivePayTable(opts.symbolPaytable);
 	const pool = symbolPool(opts.symbols);
+	const freeSpinsOn = opts.freeSpins !== false;
+	const authoredTrigger = opts.freeSpinsTrigger;
+	if (authoredTrigger?.symbol && authoredTrigger.symbol !== 'SCAT') {
+		console.warn(
+			`[${label}] a Book-of game triggers free spins on its book; ignoring trigger symbol ${authoredTrigger.symbol}`,
+		);
+	}
+	/** The project's own trigger count, or null for the captured 3/4/5 gate. */
+	const authoredMin =
+		Number.isInteger(authoredTrigger?.count) && authoredTrigger.count >= 1
+			? authoredTrigger.count
+			: null;
+	const triggerMin = authoredMin ?? FS_TRIGGER_MIN;
+	const entryAwards = awardTableOf(opts.freeSpinsAwards?.awards, TOTAL_FS, triggerMin);
+	const retriggerAwards = awardTableOf(opts.freeSpinsAwards?.retrigger, RETRIGGER_FS, triggerMin);
+	const randomAwards = opts.freeSpinsAwards?.random === true;
+	/** The bet options this game sells: no buy when it has no free spins to buy. */
+	const betOptions = freeSpinsOn ? BET_OPTIONS : BET_OPTIONS.slice(0, 1);
 
 	const sessions = new Map();
 	/** Closed rounds by session + id, so a request re-posted under its `gid` replays after the round closed —
@@ -504,9 +543,11 @@ export function createMockRgs(opts = {}) {
 		if (pool.scatter && r < 0.05) return 'SCAT';
 		return pool.pay[Math.floor(nextRand() * pool.pay.length)];
 	};
-	/** Force ≥3 SCAT for a guaranteed trigger (buy / forceTrigger) — none when the Book is not in
-	 *  play: such a round still enters the free spins, on the board it was dealt. */
-	const spinReelsWithScatters = (n = 4) => {
+	/** Force `n` SCAT for a guaranteed trigger (buy / forceTrigger) — none when the Book is not in
+	 *  play: such a round still enters the free spins, on the board it was dealt. One per reel first
+	 *  (what it always drew); a count above the reel count goes on, left to right and top down, onto
+	 *  cells that hold no book yet. */
+	const spinReelsWithScatters = (n) => {
 		const reels = Array.from({ length: 5 }, () => Array.from({ length: 3 }, pickSymbol));
 		if (!pool.scatter) return reels;
 		let placed = 0;
@@ -514,8 +555,15 @@ export function createMockRgs(opts = {}) {
 			reels[reel][Math.floor(nextRand() * 3)] = 'SCAT';
 			placed++;
 		}
+		for (let row = 0; row < 3 && scatterPositions(reels).length < n; row++) {
+			for (let reel = 0; reel < 5 && scatterPositions(reels).length < n; reel++) {
+				reels[reel][row] = 'SCAT';
+			}
+		}
 		return reels;
 	};
+	/** The spins `landed` books win from `table` (the project's, else the Book-of default). */
+	const drawAward = (table, landed) => drawAwardFrom(table, landed, randomAwards, nextRand);
 	const spinReels = () => Array.from({ length: 5 }, () => Array.from({ length: 3 }, pickSymbol));
 	const specialWeights = Object.entries(SPECIAL_WEIGHTS).filter(([sym]) => pool.pay.includes(sym));
 	const pickSpecialSymbol = () => {
@@ -559,8 +607,11 @@ export function createMockRgs(opts = {}) {
 	const startFreeSpins = (
 		events,
 		round,
-		{ occurs, spins = TOTAL_FS, board, extra = {}, bonus = 'feature', strips, paytable },
+		{ occurs, spins: given, board, extra = {}, bonus = 'feature', strips, paytable },
 	) => {
+		// A pot's bonus may name no spin count: the host's own award table decides, as for a trigger.
+		// An imported reels mode keeps the plain default — the table is this book's, not the import's.
+		const spins = given ?? (strips ? TOTAL_FS : drawAward(entryAwards, occurs));
 		const special = strips ? null : pickSpecialSymbol();
 		round.bonus = {
 			active: true,
@@ -576,7 +627,12 @@ export function createMockRgs(opts = {}) {
 				spins: [{ prob: 1, spins }],
 				occurs,
 				bonus,
-				trigger: { occurs: [3, 4, 5], of: 'SCAT', mode: 'scatter', from: '' },
+				trigger: {
+					occurs: [triggerMin, triggerMin + 1, triggerMin + 2],
+					of: 'SCAT',
+					mode: 'scatter',
+					from: '',
+				},
 				...extra,
 			},
 		});
@@ -658,7 +714,7 @@ export function createMockRgs(opts = {}) {
 			session.configSent = true;
 			if (overlay) session.potsOverlay = true;
 			else delete session.potsOverlay;
-			const context = buildConfigContext(payTable, pool);
+			const context = buildConfigContext(payTable, pool, betOptions);
 			const config = {
 				event: 'config',
 				context: overlay ? { ...context, ...overlay.configContext(session) } : context,
@@ -713,7 +769,7 @@ export function createMockRgs(opts = {}) {
 				case 'bet': {
 					const ctx = Array.isArray(a.context) ? a.context : [0, 1];
 					const option = Number(ctx[0] ?? 0);
-					if (!Number.isInteger(option) || option < 0 || option >= BET_OPTIONS.length) {
+					if (!Number.isInteger(option) || option < 0 || option >= betOptions.length) {
 						return sendJson(req, res, 200, {
 							result: 0,
 							error: `invalid bet option ${ctx[0]}`,
@@ -723,7 +779,7 @@ export function createMockRgs(opts = {}) {
 					}
 					const isBuy = option > 0;
 					const betPerLine = Number(ctx[1]) || 1;
-					const total = BET_OPTIONS[option] * betPerLine;
+					const total = betOptions[option] * betPerLine;
 					if (session.balance < total) {
 						return sendJson(req, res, 200, {
 							result: 0,
@@ -779,7 +835,7 @@ export function createMockRgs(opts = {}) {
 					if (round.bonus?.active) {
 						const reels = round.bonus.strips ? spinStrips(round.bonus.strips) : spinReels();
 						const roundPays = round.bonus.payTable ?? payTable;
-						events.push(spinStartEvent(round, pool));
+						events.push(spinStartEvent(round, pool, betOptions));
 						// Book mechanic: the chosen special is an expanding symbol. If it
 						// covers enough reels it pays scatter-style (on the reel count, × BASE
 						// stake — adjacency-independent), THEN expands and lets the
@@ -819,16 +875,21 @@ export function createMockRgs(opts = {}) {
 						// Only the scatter retriggers — the special expanding symbol never does.
 						// Emitted BEFORE playedBonusSpin so the counter (total = played + left)
 						// already reflects the new total on this spin.
-						const retrig = evaluateScatterTrigger(reels);
-						const capped =
-							round.bonus.strips && round.bonus.total + RETRIGGER_FS > MAX_STRIPS_ROUND_SPINS;
-						if (retrig && retrig.count >= 3 && !capped) {
-							round.bonus.left += RETRIGGER_FS;
-							round.bonus.total += RETRIGGER_FS;
+						const retrig = evaluateScatterTrigger(reels, authoredMin);
+						const added =
+							retrig && retrig.count >= triggerMin
+								? round.bonus.strips
+									? RETRIGGER_FS
+									: drawAward(retriggerAwards, retrig.count)
+								: 0;
+						const capped = round.bonus.strips && round.bonus.total + added > MAX_STRIPS_ROUND_SPINS;
+						if (added > 0 && !capped) {
+							round.bonus.left += added;
+							round.bonus.total += added;
 							events.push({
 								event: 'retrigger',
 								context: {
-									spins: RETRIGGER_FS,
+									spins: added,
 									occurs: retrig.count,
 									total: round.bonus.total,
 									left: round.bonus.left,
@@ -854,7 +915,7 @@ export function createMockRgs(opts = {}) {
 					// the MAX special-case.
 					const forcedX = trigger ? undefined : winX[baseSpinsDealt++];
 					const reels = trigger
-						? spinReelsWithScatters(4)
+						? spinReelsWithScatters(Math.max(4, triggerMin))
 						: forcedX !== undefined
 							? boardPayingAtLeast(spinReels(), {
 									symbols: pool.pay,
@@ -870,19 +931,22 @@ export function createMockRgs(opts = {}) {
 							: bigWin
 								? bigWinBoard.map((column) => [...column])
 								: spinReels();
-					events.push(spinStartEvent(round, pool));
+					events.push(spinStartEvent(round, pool, betOptions));
 					const lineWins = evaluatePaylines(reels, round.betPerLine, payTable);
-					const scat = evaluateScatterTrigger(reels);
+					const scat = evaluateScatterTrigger(reels, authoredMin);
 					const wins = scat ? [...lineWins, scat.win] : lineWins;
 					for (const w of wins) {
 						events.push({ event: 'spinWin', context: w });
 						round.win += w.pay;
 					}
-					const triggered = (scat && scat.count >= 3) || trigger;
+					// A game with free spins off still lands and shows its books, but never enters the feature.
+					const triggered = (freeSpinsOn && scat && scat.count >= triggerMin) || trigger;
 
 					if (triggered) {
-						// Do NOT credit yet, do NOT close — free spins + collect follow.
-						startFreeSpins(events, round, { occurs: scat?.count ?? 4, board: reels });
+						// Do NOT credit yet, do NOT close — free spins + collect follow. The award is the
+						// row for the books on the board as dealt — forced and bought boards too.
+						const spins = drawAward(entryAwards, scatterPositions(reels).length);
+						startFreeSpins(events, round, { occurs: scat?.count ?? 4, spins, board: reels });
 						break;
 					}
 

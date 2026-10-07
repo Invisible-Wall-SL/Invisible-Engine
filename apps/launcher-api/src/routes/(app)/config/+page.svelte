@@ -20,8 +20,7 @@
 		normalizeFreeSpins,
 		normalizeAwardTable,
 		describeFreeSpinsAwards,
-		DEFAULT_FREE_SPINS_AWARD,
-		DEFAULT_RETRIGGER_AWARD,
+		freeSpinsDefaultsFor,
 		DEFAULT_SCATTER_PAYTABLE,
 		describePaytableDrift,
 		coinEntryLabel,
@@ -761,9 +760,11 @@
 	}
 
 	/**
-	 * FREE SPINS — the switch, the trigger and the awards. Offered only where the lines-family mock
-	 * deals the feature: a Hold and Win kind has none, and Book-of free spins are the book mechanic,
-	 * owned by its own mock.
+	 * FREE SPINS — the switch, the trigger and the awards. Offered wherever the mock deals the
+	 * feature: every kind but Hold and Win, which has none. A Book-of game (the book mock) always
+	 * triggers on its book, so its trigger symbol is shown, not picked
+	 * (`docs/design/book-feature.md`, decision 9), and its retrigger awards +10 untold, not +5
+	 * (`freeSpinsDefaultsFor`, decision 8).
 	 *
 	 * The single fields (on/off, trigger symbol and count, random amounts) go through
 	 * `normalizeFreeSpins` itself rather than mirroring it: choosing a default DELETES the field,
@@ -774,10 +775,13 @@
 	 * The award TABLES are edited in place instead: never sorted or de-duplicated under the cursor.
 	 * The save sorts them (the page takes back the saved doc), and a duplicate count is a validator
 	 * error shown inline first — this page validates the doc as edited, and Save stays off while it
-	 * stands. A table edited back to the default is dropped.
+	 * stands. A table edited back to its kind's default is dropped.
 	 */
-	const offersFreeSpins = $derived(capabilities.freeSpins && !capabilities.bookReveal);
-	const freeSpins = $derived(resolveFreeSpins(snapshot));
+	const offersFreeSpins = $derived(capabilities.freeSpins);
+	/** A Book-of game: its book is the trigger, and its mock deals no other. */
+	const triggerIsBook = $derived(capabilities.bookReveal);
+	const freeSpinsDefaults = $derived(freeSpinsDefaultsFor(data.gameType));
+	const freeSpins = $derived(resolveFreeSpins(snapshot, freeSpinsDefaults));
 	/** The symbol "Scatter (default)" stands for — what an unset trigger symbol resolves to. */
 	const defaultTriggerSymbol = $derived(
 		resolveFreeSpins({ ...snapshot, freeSpins: undefined }).triggerSymbol,
@@ -816,10 +820,10 @@
 	}
 
 	type AwardTableKey = 'awards' | 'retriggerAwards';
-	const AWARD_DEFAULTS: Record<AwardTableKey, number> = {
-		awards: DEFAULT_FREE_SPINS_AWARD,
-		retriggerAwards: DEFAULT_RETRIGGER_AWARD,
-	};
+	const AWARD_DEFAULTS: Record<AwardTableKey, number> = $derived({
+		awards: freeSpinsDefaults.award,
+		retriggerAwards: freeSpinsDefaults.retrigger,
+	});
 	const defaultAwardRow = (key: AwardTableKey): FreeSpinsAward => ({
 		count: freeSpins.triggerCount,
 		spins: AWARD_DEFAULTS[key],
@@ -2162,22 +2166,32 @@
 						</select></label
 					>
 					{#if freeSpins.enabled}
-						<label
-							><span>Trigger symbol</span><select
-								value={doc.freeSpins?.triggerSymbol ?? ''}
-								onchange={(e) => setTriggerSymbol(e.currentTarget.value)}
-								disabled={lease.readOnly}
+						{#if triggerIsBook}
+							<label
+								><span>Trigger symbol</span><input
+									value="the book — {defaultTriggerSymbol ?? 'none on the strips'}"
+									title="A Book-of game always triggers free spins on its book."
+									readonly
+								/></label
 							>
-								<option value=""
-									>Scatter (default) — {defaultTriggerSymbol ?? 'none on the strips'}</option
+						{:else}
+							<label
+								><span>Trigger symbol</span><select
+									value={doc.freeSpins?.triggerSymbol ?? ''}
+									onchange={(e) => setTriggerSymbol(e.currentTarget.value)}
+									disabled={lease.readOnly}
 								>
-								{#each triggerChoices as name (name)}
-									<option value={name}
-										>{name}{inPlay.has(name) ? '' : ' (not on the strips)'}</option
+									<option value=""
+										>Scatter (default) — {defaultTriggerSymbol ?? 'none on the strips'}</option
 									>
-								{/each}
-							</select></label
-						>
+									{#each triggerChoices as name (name)}
+										<option value={name}
+											>{name}{inPlay.has(name) ? '' : ' (not on the strips)'}</option
+										>
+									{/each}
+								</select></label
+							>
+						{/if}
 						<label
 							><span>How many</span><input
 								type="number"
@@ -2208,10 +2222,12 @@
 				{/if}
 				<p class="hint">
 					{#if !freeSpins.enabled}
-						<strong>This game has no free spins.</strong> On the Invisible Test Server no spin enters
-						the feature — scatters still land and pay their scatter pay, and to remove them altogether
-						take the scatter symbol off the reel strips. The info page's Scatter rule stops promising
-						free spins.
+						<strong>This game has no free spins.</strong> On the Invisible Test Server no spin
+						enters the feature{#if triggerIsBook}, and the buy leaves the bet menu — books still
+							land, and pay nothing{:else}
+							— scatters still land and pay their scatter pay{/if}, and to remove them altogether
+						take the scatter symbol off the reel strips. The info page's Scatter rule stops
+						promising free spins.
 					{:else if freeSpins.triggerSymbol}
 						On the Invisible Test Server, anywhere on the board: <strong>{entryRule}</strong>;
 						<strong>{retriggerRule}</strong> when they land again during free spins. A row awards for

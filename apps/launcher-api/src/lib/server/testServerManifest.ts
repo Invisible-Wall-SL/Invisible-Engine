@@ -353,18 +353,20 @@ export interface TestServerGameEntry {
 		 *  a line-config game (`[lines, betPerLine]`, no table), exactly as before. Not sent for `book`,
 		 *  whose mock owns its table. See `projectBetModes`. */
 		betModes?: { mode: string; cost: number; kind: 'base' | 'ante' | 'buy' }[];
-		/** `false` when the project turned free spins OFF in `/config` (lines-family mock only): the
-		 *  mock never enters the feature, and refuses a bought option, while scatters still land and
-		 *  pay. Absent ⇒ free spins on, exactly as before. See `projectFreeSpins`. */
+		/** `false` when the project turned free spins OFF in `/config` (lines-family and book mocks):
+		 *  the mock never enters the feature, and refuses a bought option, while scatters still land
+		 *  and pay (the book mock's pay nothing). Absent ⇒ free spins on, exactly as before. See
+		 *  `projectFreeSpins` / `projectBookFreeSpins`. */
 		freeSpins?: false;
 		/** The free-spins TRIGGER when it departs from 3+ SCAT (lines-family mock only): a SERVER symbol
 		 *  name and the fewest of it, anywhere on the board, that award (and retrigger) the feature.
-		 *  Absent ⇒ 3+ SCAT, exactly as before. See `projectFreeSpins`. */
+		 *  Absent ⇒ 3+ SCAT, exactly as before. The book mock always counts `SCAT` (its book) and
+		 *  reads only the count. See `projectFreeSpins` / `projectBookFreeSpins`. */
 		freeSpinsTrigger?: { symbol: string; count: number };
-		/** The free-spins AWARDS when they depart from 10 on entering, +5 on a retrigger, never random
-		 *  (lines-family mock only): both tables resolved (rows sorted by count; a row awards for its
-		 *  count and up, to the next row) and the random switch. Absent ⇒ 10 / +5, exactly as before.
-		 *  See `projectFreeSpins`. */
+		/** The free-spins AWARDS when they depart from the mock's defaults — 10 on entering, +5 on a
+		 *  retrigger (+10 on the book mock), never random: both tables resolved (rows sorted by count;
+		 *  a row awards for its count and up, to the next row) and the random switch. Absent ⇒ the
+		 *  defaults, exactly as before. See `projectFreeSpins` / `projectBookFreeSpins`. */
 		freeSpinsAwards?: {
 			awards: FreeSpinsAward[];
 			retrigger: FreeSpinsAward[];
