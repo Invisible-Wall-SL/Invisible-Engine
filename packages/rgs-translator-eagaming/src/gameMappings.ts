@@ -153,8 +153,15 @@ export const resolveActiveMapping = (): GameMapping => {
 	return (key && MAPPINGS[key]) || linesMapping;
 };
 
+/** The royals: the names only the Book-of vocabulary has. Our book mock declares only the symbols a
+ *  project's strips deal, so any of them can be missing; one is enough to mark a book server. A book
+ *  pool with none declares only `PIC1`-`PIC4` and `SCAT`, which the lines mapping reads identically. */
+const BOOK_ROYALS = Object.keys(bookMapping.symbols).filter(
+	(name) => !(name in linesMapping.symbols),
+);
+
 /** Detect the right mapping from the server's declared symbol vocabulary (the boot `config`'s
- *  `symbols`). Book-of games declare royal symbols (ACE/KING/QUEEN); Hot-Fruits-style lines games
+ *  `symbols`). Book-of games declare royal symbols (any of ACE…TEN); Hot-Fruits-style lines games
  *  declare PIC5-PIC7; a Hold and Win server sends the project's OWN names (`docs/reference/
  *  hold-and-win-wire.md`), so it maps by identity. A pots-overlay host keeps its HOST's mapping (a book
  *  host still speaks `ACE`/`PIC1`): its Hold and Win bonus and token names are none of those, so they
@@ -175,7 +182,7 @@ export const pickMappingForConfig = (cfg: {
 	const holdAndWinIsBase = Object.keys(roles).some((name) => cfg.symbols?.includes(name));
 	if (cfg.holdAndWin && (!overlayHost || holdAndWinIsBase)) return identityMapping;
 	const syms = new Set(cfg.symbols ?? []);
-	if (syms.has('ACE') || syms.has('KING') || syms.has('QUEEN')) return bookMapping;
+	if (BOOK_ROYALS.some((name) => syms.has(name))) return bookMapping;
 	if (syms.has('PIC5') || syms.has('PIC6') || syms.has('PIC7')) return linesMapping;
 	return cfg.holdAndWin ? identityMapping : null;
 };

@@ -1188,7 +1188,8 @@
 			{#if source === 'template'}
 				This project has <strong>not authored a config</strong> — you're looking at the
 				<strong>{data.gameType} template default</strong>. Save to make it this project's own: until
-				then the game plays the engine's built-in lines config, not what this page shows.
+				then the game plays the engine's built-in lines config,
+				{data.templateIsBuiltIn ? 'which is this template' : 'not what this page shows'}.
 			{:else}
 				Editing this project's <strong>authored config</strong>.
 			{/if}

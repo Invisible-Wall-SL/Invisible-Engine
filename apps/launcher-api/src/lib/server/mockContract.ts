@@ -122,22 +122,6 @@ function projectWild(doc: GameConfigDoc): { paytable: Record<string, number> } |
 }
 
 /**
- * The project's IN-PLAY line-symbol pool in the mock's SERVER vocabulary (`PIC*`/`SCAT`), or
- * `undefined` only when it is EMPTY (a misconfig). Keyed off the SAME `symbolsInPlay` gate as the
- * paytable/roll/wild. It is stated even when it equals the default set — the mock recognises that
- * case itself (`sameAsDefaultPool`) and keeps the weighted deal, so the answer no longer depends on
- * a mapping-table size that changes when the table grows.
- *
- * The space mismatch is the reason this lives HERE: `symbolsInPlay` answers in CLIENT symbol names
- * (`H1`, `L1`, `S`, …) but the mock deals SERVER names (`PIC1`, `PIC5`, `SCAT`, …). We translate with
- * the protocol's own mapping (`linesMapping`, or `bookMapping` for the book mock) — keep each server
- * symbol whose mapped client name is in play — so the mock consumes a plain server-space array with
- * ZERO mapping knowledge (no table duplicated into the `.mjs`). `SCAT` rides along only when its
- * client symbol (`S`) is in play. `WILD` is intentionally excluded: the existing `wild` field already
- * governs whether the mock deals a wild.
- * An empty pool (misconfig) ⇒ `undefined` ⇒ the mock keeps its full default (never deals a blank board).
- */
-/**
  * The project's in-play MULTIPLIER symbol, by name, or `undefined`.
  *
  * Gated on `symbolsInPlay` for the same reason `projectWild` is: a symbol that merely sits in
@@ -171,6 +155,24 @@ function projectMultiplier(doc: GameConfigDoc, symbols: SymbolFacts): boolean {
 	return name ? symbols.hasStaticArt(name) : false;
 }
 
+/**
+ * The project's IN-PLAY line-symbol pool in the mock's SERVER vocabulary (`PIC*`/`SCAT`), or
+ * `undefined` only when it is EMPTY (a misconfig). Keyed off the SAME `symbolsInPlay` gate as the
+ * paytable/roll/wild. It is stated even when it equals the default set — the mock recognises that
+ * case itself (`sameAsDefaultPool`) and keeps the weighted deal, so the answer no longer depends on
+ * a mapping-table size that changes when the table grows.
+ *
+ * The space mismatch is the reason this lives HERE: `symbolsInPlay` answers in CLIENT symbol names
+ * (`H1`, `L1`, `S`, …) but the mock deals SERVER names (`PIC1`, `PIC5`, `SCAT`, …). We translate with
+ * the protocol's own mapping (`linesMapping`, or `bookMapping` for the book mock) — keep each server
+ * symbol whose mapped client name is in play — so the mock consumes a plain server-space array with
+ * ZERO mapping knowledge (no table duplicated into the `.mjs`). `SCAT` rides along only when its
+ * client symbol (`S`) is in play. `WILD` is intentionally excluded: the existing `wild` field already
+ * governs whether the mock deals a wild.
+ * An empty pool (misconfig) ⇒ `undefined` ⇒ the mock keeps its full default (never deals a blank board).
+ * The BOOK contract states the pool only when it leaves a symbol out, so a book project dealing all
+ * ten keeps the contract it had.
+ */
 function projectLineSymbols(
 	doc: GameConfigDoc,
 	mapping: GameMapping = linesMapping,
@@ -416,7 +418,9 @@ function projectGrid(
 			const symbolPaytable = projectSymbolPaytable(doc, bookMapping);
 			const pool = projectLineSymbols(doc, bookMapping);
 			const symbols =
-				pool && pool.length < Object.keys(bookMapping.symbols).length ? pool : undefined;
+				pool && Object.keys(bookMapping.symbols).some((name) => !pool.includes(name))
+					? pool
+					: undefined;
 			const potsOverlay = inServerNames(potsOverlayMockInputs(doc), bookMapping, projectKey);
 			if (!symbolPaytable && !symbols && !potsOverlay) return undefined;
 			return {

@@ -1088,9 +1088,15 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - 2026-10-07 — **A role symbol on no strip is never dealt.** `holdAndWinMockInputs` passed every
   symbol with a Hold and Win role, so the mock dealt a coin, special, meter or unlock symbol that
   `/config` badges unused. It now passes only role symbols a strip deals: a special or meter whose
-  symbol is unused simply never lands, and with no coin or jackpot symbol in play the test server
-  deals the base game as lines. Every preset deals all its role symbols, so nothing changes for them
-  (`check:holdandwin` unchanged). Gate: `check:unused-symbols-in-game`.
+  symbol is unused never lands, and a forced meter (`force:meter:<id>`, `force:trigger:meter:<id>`)
+  whose symbol is unused is refused like a forced special the game lacks. A coin symbol is the one
+  role the feature cannot do without, so `/config` now refuses to save a config with no coin or
+  jackpot symbol on a strip, or with cash coins and no coin symbol on one (the mock would deal them
+  as the jackpot symbol, which the game values at nothing; this also covers a dictionary that tags
+  no coin at all). The client's respin board draws an empty cell with the blank symbol only while a
+  strip deals it, else the wire's `BLANK`, matching the mock. Every preset deals all its role
+  symbols, so nothing changes for them (`check:holdandwin` unchanged). Gate:
+  `check:unused-symbols-in-game`.
 
 - 2026-10-03 — **Phase 12c: the done-when rehearsed on the real game, locally** (#1006). All three
   pots pass. The live run on `hw-3pots-sample` is owed (Owner checklist 13).

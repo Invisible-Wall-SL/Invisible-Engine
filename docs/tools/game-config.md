@@ -595,10 +595,16 @@ appear at all. The overlay's coins get rows too, grouped under **Coins** after t
 symbols. Save here, then reload that page.
 
 They decide the game too: once saved, an **unused** symbol is never dealt by our test
-server (any kind, its Book-of expanding special and Hold and Win coins and specials
-included), never flickers past on the spinning reels and never shows in the book
-shuffle. Until a project saves its config the game plays the engine's built-in lines
-config, as the banner at the top says. A partner's own server deals what its math says.
+server (any kind, its Book-of expanding special and Hold and Win coins, specials and
+meters included, forced outcomes too), never flickers past on the spinning reels and
+never shows in the book shuffle. A Hold and Win game needs its coins, so taking its
+coin symbol off the reels is refused while its coin table pays cash coins. Until a
+project saves its config the game plays the engine's built-in lines config, as the
+banner at the top says (for lines, cluster, Book-of and custom kinds that is this
+template). A partner's own server deals what its math says. Our test server deals a
+lines or Book-of game only the engine's own symbol names (`H1`–`H5`, `L1`–`L5`, `S`,
+`W`): a symbol named otherwise is never dealt, and a project with none of those in play
+is dealt its default set.
 
 > The generated spin strips are **cosmetic** — the blur filler the reels cycle
 > through. They are **not** the real weighted math strips (the math team owns those,

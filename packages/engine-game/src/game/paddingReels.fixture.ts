@@ -9,8 +9,9 @@
  *  3. A game type of a reels mode of the project's own (an imported free spins,
  *     `docs/design/pots-overlay.md` §5 A) pads from its AUTHORED strips even then: the server declares
  *     only its own game, so those strips are the only ones that mode's symbols are on.
- *  4. The initial board fills a reel with no strip from the first symbol IN PLAY, never the first in
- *     the dictionary — a symbol Invisible Game Config marks unused is never on screen.
+ *  4. The initial board fills a reel with no strip from another basegame strip, else the first
+ *     symbol IN PLAY, never the first in the dictionary — a symbol Invisible Game Config marks unused
+ *     is never on screen — nor a respin strip's `BLANK`, which draws nothing.
  */
 
 import { createGameConfig } from './gameConfig.ts';
@@ -85,6 +86,24 @@ check(
 	'a reel with none takes the first symbol in play, not the unused first in the dictionary',
 	[...new Set(board[1].map((cell) => cell.name))],
 	['A'],
+);
+const holdAndWin = createGameConfig({
+	bakedConfig: () => null,
+	compiledConfig: {
+		...config,
+		numReels: 2,
+		numRows: [3, 3],
+		paylines: { '1': [1, 1] },
+		// `BLANK` leads the symbols in play, but only the respin strip deals it.
+		symbols: { BLANK: {}, H1: {}, L1: {} },
+		paddingReels: { basegame: [strip('L1', 'H1')], respin: [strip('BLANK', 'H1')] },
+		modes: [],
+	},
+});
+check(
+	"on a Hold and Win game it takes a base-game symbol, not the respin strip's BLANK",
+	[...new Set(holdAndWin.initialBoard()[1].map((cell) => cell.name))],
+	['L1'],
 );
 
 console.log(failures === 0 ? '\nAll padding-reel assertions passed.' : `\n${failures} FAILED`);

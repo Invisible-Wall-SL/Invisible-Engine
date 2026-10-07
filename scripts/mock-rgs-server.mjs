@@ -1364,18 +1364,20 @@ export function createMockRgs(opts = {}) {
 
 	/**
 	 * Stacked-picture test deal — engineered to showcase ALL crops every spin (the real math rarely
-	 * lands a partial at a board edge, which is the whole reason this mode exists):
-	 *  • reel 0    → a partial WILD run pinned to the TOP edge ⇒ the engine draws the BOTTOM of the tall
-	 *    Wild with its top running off-screen above (a top cutoff).
-	 *  • reel 1    → a partial WILD run pinned to the BOTTOM edge ⇒ the TOP of the Wild with its bottom
+	 * lands a partial at a board edge, which is the whole reason this mode exists), built around
+	 * `STACK_TALL` (WILD, or the top stacking symbol when the project deals no wild):
+	 *  • reel 0    → a partial run of it pinned to the TOP edge ⇒ the engine draws the BOTTOM of the
+	 *    tall picture with its top running off-screen above (a top cutoff).
+	 *  • reel 1    → a partial run pinned to the BOTTOM edge ⇒ the TOP of the picture with its bottom
 	 *    running off-screen below (a bottom cutoff).
-	 *  • last reel → a full-height WILD column ⇒ the whole picture (contrast).
+	 *  • last reel → a full-height column of it ⇒ the whole picture (contrast).
 	 *  • middle reels → an occasional random high-symbol run for variety.
 	 * WILD is the tallest picture (height ≫ a 2–3 cell run), so a short WILD run is ALWAYS a partial
-	 * regardless of the project's authored heights — the cutoffs are guaranteed, not probabilistic.
+	 * regardless of the project's authored heights — the cutoffs are guaranteed, not probabilistic. A
+	 * stacking symbol in its place is a partial only where its authored height exceeds the run.
 	 * Non-run cells fall back to the normal weighted draw. Only used when `stackedDeal` is on.
 	 */
-	const partialWildLen = (height) =>
+	const partialRunLen = (height) =>
 		Math.max(2, Math.min(height - 1, 2 + Math.floor(nextRand() * 2))); // 2..3, < that column's rows
 	const spinReelsStacked = () =>
 		Array.from({ length: reelCount }, (_ignored, reel) => {
@@ -1383,17 +1385,17 @@ export function createMockRgs(opts = {}) {
 			// the edges of the column the player actually sees. Uniform ⇒ identical to `rowCount`.
 			const rowCount = rowHeights[reel];
 			const column = Array.from({ length: rowCount }, pickSymbol);
-			// Last reel: the whole 5-tall Wild (checked first so a 1- or 2-reel grid still gets a full stack).
+			// Last reel: the whole tall picture (checked first so a 1- or 2-reel grid still gets a full stack).
 			if (reel === reelCount - 1) return Array.from({ length: rowCount }, () => STACK_TALL);
-			// Reel 0: partial WILD pinned to the TOP edge (rows 0..len-1) ⇒ bottom-of-picture cutoff.
+			// Reel 0: a partial run pinned to the TOP edge (rows 0..len-1) ⇒ bottom-of-picture cutoff.
 			if (reel === 0 && rowCount >= 2) {
-				const len = partialWildLen(rowCount);
+				const len = partialRunLen(rowCount);
 				for (let i = 0; i < len; i++) column[i] = STACK_TALL;
 				return column;
 			}
-			// Reel 1: partial WILD pinned to the BOTTOM edge (last len rows) ⇒ top-of-picture cutoff.
+			// Reel 1: a partial run pinned to the BOTTOM edge (last len rows) ⇒ top-of-picture cutoff.
 			if (reel === 1 && rowCount >= 3) {
-				const len = partialWildLen(rowCount);
+				const len = partialRunLen(rowCount);
 				for (let i = 0; i < len; i++) column[rowCount - len + i] = STACK_TALL;
 				return column;
 			}

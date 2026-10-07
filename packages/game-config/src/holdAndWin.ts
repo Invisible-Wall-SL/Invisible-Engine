@@ -17,7 +17,7 @@
  * reference — a jackpot name, a reel index, a role no symbol carries — is the validator's to report.
  */
 
-import { symbolsInPlayForGameType } from './inPlay';
+import { symbolsInPlay, symbolsInPlayForGameType } from './inPlay';
 import { BASE_GAME_MODE, HOLD_AND_WIN_MODE, gameModeById, gameTypeForMode } from './modes';
 import type { GameConfigDoc } from './types';
 import type { GameConfigIssue } from './validate';
@@ -837,9 +837,21 @@ export function validateHoldAndWin(doc: GameConfigDoc): GameConfigIssue[] {
 		}
 	});
 
-	// Coins
+	// Coins. A symbol on no strip is unused (`symbolUses`) and never dealt, so it carries no coin.
+	const inPlay = new Set(symbolsInPlay(doc));
+	const dealt = (role: HoldAndWinSymbolRole) => tagged(role).filter((name) => inPlay.has(name));
 	if (!tagged('coin').length && !tagged('jackpot').length) {
 		error('coins', 'No symbol is tagged coin or jackpot, so no coin can ever land.');
+	} else if (!dealt('coin').length && !dealt('jackpot').length) {
+		error('coins', 'No coin or jackpot symbol is on a reel strip, so no coin can ever land.');
+	} else if (!dealt('coin').length && block.coins.some((c) => c.kind === 'cash' && c.weight > 0)) {
+		// The mock would deal it as the jackpot symbol, which the game values at nothing.
+		error(
+			'coins',
+			tagged('coin').length
+				? `The coin table has cash coins, but no coin symbol is on a reel strip (${tagged('coin').join(', ')} is unused), so they can never land.`
+				: 'The coin table has cash coins, but no symbol is tagged coin, so they can never land.',
+		);
 	}
 	if (!block.coins.length) error('coins', 'The coin value table is empty.');
 	else if (!block.coins.some((c) => c.weight > 0)) {

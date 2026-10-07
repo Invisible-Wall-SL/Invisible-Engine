@@ -110,6 +110,9 @@ const rows = (row: Record<number, number>): PaytableRow[] =>
 	);
 	check('lines vocabulary picks the lines mapping', pickMappingForConfig(LINES_CONFIG) === linesMapping); // prettier-ignore
 	check('an undecidable vocabulary picks nothing', pickMappingForConfig({ symbols: ['PIC1', 'SCAT'] }) === null); // prettier-ignore
+	// The book mock declares only a project's in-play pool, which can leave out ACE, KING and QUEEN.
+	check('a Book pool without ACE, KING or QUEEN still picks the book mapping', pickMappingForConfig({ symbols: ['PIC1', 'JACK', 'TEN', 'SCAT'] }) === bookMapping); // prettier-ignore
+	check('a lone TEN marks a book server', pickMappingForConfig({ symbols: ['TEN'] }) === bookMapping); // prettier-ignore
 
 	const book = toImportedPaytable(readMappedPaytable(BOOK_CONFIG, bookMapping) ?? []);
 	check(

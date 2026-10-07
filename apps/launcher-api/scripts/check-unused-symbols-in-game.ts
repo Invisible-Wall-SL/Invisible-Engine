@@ -5,28 +5,46 @@
  * For each kind's mock — the lines mock (lines, ways, cluster, scatter), the book mock (bookOf) and
  * the Hold and Win mock — a project whose `/config` takes a symbol off every strip gets a contract
  * (`mockContractOfBundle`, the derivation a publish freezes and the test server reads) whose mock
- * never deals that symbol, never picks it as the Book's expanding special, and never declares it in
- * its boot `config` (the client builds its spinning reels from the declared symbols). Base spins,
- * forced features, forced wins, the forced big win and, with stacked pictures on, the stacked test
- * deal are all played. Every case is shown non-vacuous: with the symbol left in play, the same deal
- * shows it.
+ * never deals that symbol, never picks it as the Book's expanding special, never lands it through a
+ * forced meter, and never declares it in its boot `config` (the client builds its spinning reels from
+ * the declared symbols). Base spins, forced features, forced wins, the forced big win and, with
+ * stacked pictures on, the stacked test deal are all played. Every case is shown non-vacuous: with
+ * the symbol left in play, the same deal LANDS it on a board (a pick list naming the pool is not
+ * enough). The client reads every declared symbol as one `/config` puts in play — through the
+ * mapping it detects from that declaration, so a Book-of pool without `ACE`, `KING` and `QUEEN` is
+ * still read as a book. Each case's unused config is one `/config` saves; a Hold and Win coin symbol
+ * taken off the reels is refused there.
+ *
+ * The real Invisible Test Server (`services/test-server/server.mjs`, local mode) then deals every
+ * case from the same contracts through its own `validGrid` and `makeMock`, so the wiring the in-process
+ * mocks stand in for is proven too: it declares what they declare and never shows the unused symbol.
  *
  * The client's own surfaces: the spinning reels, the paytable and the info page read the in-play gate
- * (`getSymbolsInPlay` / `paddingReels`), the initial board's fallback is pinned by
- * `engine-game`'s `paddingReels.fixture.ts`, and the Book-of shuffle and the Symbol Debug grid are
- * pinned at the end of this file.
+ * (`getSymbolsInPlay` / `paddingReels`), the initial board's fallback is pinned by `engine-game`'s
+ * `paddingReels.fixture.ts`, and the Book-of shuffle and the Symbol Debug grid are pinned at the end
+ * of this file.
  *
  * Run:  pnpm --filter launcher-api check:unused-symbols-in-game
  */
 
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, request } from 'node:http';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
 	HOLD_AND_WIN_PRESETS,
+	gameConfigErrors,
 	normalizeGameConfigDoc,
 	symbolUses,
 	type GameConfigDoc,
 } from 'game-config';
+import {
+	linesMapping,
+	mapSymbol,
+	pickMappingForConfig,
+} from 'rgs-translator-eagaming/game-mappings';
+import { startTestServer } from '../../../scripts/current-games/lib/serve.mjs';
 import { createMockRgs as createBookMock } from '../../../scripts/mock-rgs-server-book.mjs';
 import { createMockRgs as createHoldAndWinMock } from '../../../scripts/mock-rgs-server-holdandwin.mjs';
 import { createMockRgs as createLinesMock } from '../../../scripts/mock-rgs-server.mjs';
@@ -47,6 +65,7 @@ const check = (label: string, ok: boolean, detail = ''): void => {
 
 type Mock = { handle: (req: unknown, res: unknown, url: URL) => Promise<void> };
 type Response = { events?: Array<{ event: string; context?: unknown }>; platform?: unknown };
+type Post = (path: string, body: unknown) => Promise<Response>;
 
 const boot = async (mock: Mock) => {
 	const server = createServer((req, res) =>
@@ -55,7 +74,7 @@ const boot = async (mock: Mock) => {
 	await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
 	const address = server.address();
 	const port = typeof address === 'object' && address ? address.port : 0;
-	const post = (path: string, body: unknown): Promise<Response> =>
+	const post: Post = (path, body) =>
 		new Promise((resolve, reject) => {
 			const payload = JSON.stringify(body);
 			const req = request(
@@ -104,66 +123,105 @@ const namesIn = (value: unknown, out: Set<string>, key = ''): Set<string> => {
 	return out;
 };
 
+type BootConfig = { symbols?: string[]; holdAndWin?: unknown; potsOverlay?: unknown };
+
 /** What a run saw: the names the mock DECLARED (its `config` and `spinStart` events — the client
- *  builds its spinning reels from them), the ones it DEALT or picked (every other event), and how
- *  many rounds reached their end. */
-type Seen = { declared: Set<string>; dealt: Set<string>; rounds: number };
+ *  builds its spinning reels from them), the ones it DEALT or picked (every other event), the ones
+ *  that LANDED on a board, its boot `config`, and how many rounds reached their end. */
+type Seen = {
+	declared: Set<string>;
+	dealt: Set<string>;
+	landed: Set<string>;
+	boot?: BootConfig;
+	rounds: number;
+};
+
+const seenNothing = (): Seen => ({
+	declared: new Set(),
+	dealt: new Set(),
+	landed: new Set(),
+	rounds: 0,
+});
 
 const DECLARING = new Set(['config', 'spinStart']);
+/** The events that carry a board: a base or bonus spin, a tumble, the coins a respin lands. */
+const LANDING = new Set(['playedSpin', 'playedBonusSpin', 'tumbleStep', 'coinsLand']);
 
 const record = (resp: Response, seen: Seen): void => {
 	for (const e of resp.events ?? []) {
 		namesIn(e.context, DECLARING.has(e.event) ? seen.declared : seen.dealt);
+		if (LANDING.has(e.event)) namesIn(e.context, seen.landed);
+		if (e.event === 'config') seen.boot ??= e.context as BootConfig;
 	}
 	if (has(resp, 'gameEnd')) seen.rounds += 1;
 };
 
 /**
- * Play `rounds` rounds of a mock the way the client does — `config` once, then bet + play, `play`
- * while a feature runs, `collect` when the round is left open. The stake is the client's: an option
- * index on a game that declares a bet table, else its line count. `play(i)` is round i's `play`
- * context: a force spec on the mocks that take one.
+ * Play `rounds` rounds against a mock the way the client does — `config` once, then bet + play,
+ * `play` while a feature runs, `collect` when the round is left open. The stake is the client's: an
+ * option index on a game that declares a bet table, else its line count. `play(i)` is round i's
+ * `play` context: a force spec on the mocks that take one.
  */
 const playRounds = async (
-	mock: Mock,
+	post: Post,
 	rounds: number,
 	seen: Seen,
 	play: (i: number) => string | null = () => null,
 ): Promise<void> => {
+	const sid = 'unused-in-game';
+	const booted = await post(`/rgs/engine?sid=${sid}&seq=0`, [{ action: 'config' }]);
+	record(booted, seen);
+	const config = booted.events?.find((e) => e.event === 'config')?.context as
+		{ betOptions?: unknown[]; paylines?: unknown[]; availablePayLines?: unknown[] } | undefined;
+	const lines = (config?.paylines ?? config?.availablePayLines ?? []).length;
+	const bet = [config?.betOptions?.length ? 0 : lines, 1];
+	for (let i = 0; i < rounds; i++) {
+		// `seq` is a position in the ROUND's stored actions, so every round starts at 0.
+		let seq = 0;
+		let resp = await post(`/rgs/engine?sid=${sid}&seq=${seq}`, [
+			{ action: 'bet', context: bet },
+			{ action: 'play', context: play(i) },
+		]);
+		seq += 2;
+		record(resp, seen);
+		const round = resp.platform as { gameRound?: { id?: string } } | undefined;
+		const gid = round?.gameRound?.id;
+		for (let guard = 0; gid && !has(resp, 'gameEnd') && guard < 300; guard++) {
+			resp = await post(`/rgs/engine?sid=${sid}&seq=${seq}&gid=${gid}`, [{ action: 'play' }]);
+			seq += 1;
+			record(resp, seen);
+		}
+		if (gid && !has(resp, 'gameRoundOver')) {
+			resp = await post(`/rgs/engine?sid=${sid}&seq=${seq}&gid=${gid}`, [{ action: 'collect' }]);
+			seq += 1;
+			record(resp, seen);
+		}
+	}
+};
+
+/** Boot an in-process mock, play it, close it. */
+const playMock = async (
+	mock: Mock,
+	rounds: number,
+	seen: Seen,
+	play?: (i: number) => string | null,
+): Promise<void> => {
 	const { post, close } = await boot(mock);
 	try {
-		const sid = 'unused-in-game';
-		const booted = await post(`/rgs/engine?sid=${sid}&seq=0`, [{ action: 'config' }]);
-		record(booted, seen);
-		const config = booted.events?.find((e) => e.event === 'config')?.context as
-			{ betOptions?: unknown[]; paylines?: unknown[]; availablePayLines?: unknown[] } | undefined;
-		const lines = (config?.paylines ?? config?.availablePayLines ?? []).length;
-		const bet = [config?.betOptions?.length ? 0 : lines, 1];
-		for (let i = 0; i < rounds; i++) {
-			// `seq` is a position in the ROUND's stored actions, so every round starts at 0.
-			let seq = 0;
-			let resp = await post(`/rgs/engine?sid=${sid}&seq=${seq}`, [
-				{ action: 'bet', context: bet },
-				{ action: 'play', context: play(i) },
-			]);
-			seq += 2;
-			record(resp, seen);
-			const round = resp.platform as { gameRound?: { id?: string } } | undefined;
-			const gid = round?.gameRound?.id;
-			for (let guard = 0; gid && !has(resp, 'gameEnd') && guard < 300; guard++) {
-				resp = await post(`/rgs/engine?sid=${sid}&seq=${seq}&gid=${gid}`, [{ action: 'play' }]);
-				seq += 1;
-				record(resp, seen);
-			}
-			if (gid && !has(resp, 'gameRoundOver')) {
-				resp = await post(`/rgs/engine?sid=${sid}&seq=${seq}&gid=${gid}`, [{ action: 'collect' }]);
-				seq += 1;
-				record(resp, seen);
-			}
-		}
+		await playRounds(post, rounds, seen, play);
 	} finally {
 		await close();
 	}
+};
+
+/**
+ * The names the client draws for a boot `config`'s declared symbols: mapped through the mapping the
+ * facade detects from that declaration, else the shared runtime's own (`lines` — it is built without
+ * `PUBLIC_RGS_GAME`).
+ */
+const drawnAs = (boot: BootConfig | undefined): string[] => {
+	const mapping = (boot && pickMappingForConfig(boot)) ?? linesMapping;
+	return (boot?.symbols ?? []).map((name) => mapSymbol(mapping, name));
 };
 
 /** What a save then a load does to a config: the stored doc is always the normalized one. */
@@ -192,6 +250,8 @@ const templateOf = (kind: string): GameConfigDoc => {
 	return saved(template);
 };
 
+type Drive = (make: (extra: Record<string, unknown>) => Mock, seen: Seen) => Promise<void>;
+
 type Case = {
 	label: string;
 	protocol: MockProtocol;
@@ -202,7 +262,7 @@ type Case = {
 	wire: string;
 	stacked?: boolean;
 	/** What each case's mock plays beyond plain base spins. */
-	drive: (make: (extra: Record<string, unknown>) => Mock, seen: Seen) => Promise<void>;
+	drive: Drive;
 };
 
 const contractOf = (c: Case, config: GameConfigDoc) =>
@@ -215,7 +275,8 @@ const contractOf = (c: Case, config: GameConfigDoc) =>
 		'unused-in-game',
 	);
 
-/** The mock the test server builds for a contract (`makeMock` in services/test-server/server.mjs). */
+/** The mock the test server builds for a contract (`makeMock` in services/test-server/server.mjs),
+ *  with the forcing options it reads from its environment passed in. */
 const mockFor = (c: Case, config: GameConfigDoc) => {
 	const { grid } = contractOf(c, config);
 	return (extra: Record<string, unknown>): Mock => {
@@ -238,25 +299,26 @@ const mockFor = (c: Case, config: GameConfigDoc) => {
 	};
 };
 
-const linesDrive = async (make: (extra: Record<string, unknown>) => Mock, seen: Seen) => {
-	await playRounds(make({}), 150, seen);
-	await playRounds(make({ forceTrigger: true }), 20, seen);
-	await playRounds(make({ winX: [5, 20, 60] }), 6, seen);
+const linesDrive: Drive = async (make, seen) => {
+	await playMock(make({}), 150, seen);
+	await playMock(make({ forceTrigger: true }), 20, seen);
+	await playMock(make({ winX: [5, 20, 60] }), 6, seen);
 };
 
-const bookDrive = async (make: (extra: Record<string, unknown>) => Mock, seen: Seen) => {
-	await playRounds(make({}), 150, seen);
-	await playRounds(make({ forceTrigger: true }), 25, seen);
-	await playRounds(make({ bigWin: true }), 2, seen);
-	await playRounds(make({ winX: [5, 20, 60] }), 6, seen);
+const bookDrive: Drive = async (make, seen) => {
+	await playMock(make({}), 150, seen);
+	await playMock(make({ forceTrigger: true }), 25, seen);
+	await playMock(make({ bigWin: true }), 2, seen);
+	await playMock(make({ winX: [5, 20, 60] }), 6, seen);
 };
 
-/** Natural rounds with a forced feature every third; then `force` — a spec the unused twin refuses,
- *  having no such special, so only its natural deal is played. */
+/** Natural rounds with a forced feature every third; then each of `forces` — specs the unused twin
+ *  refuses, having no such special or meter symbol, so only its natural deal is played. */
 const holdAndWinDrive =
-	(force: string) => async (make: (extra: Record<string, unknown>) => Mock, seen: Seen) => {
-		await playRounds(make({}), 60, seen, (i) => (i % 3 === 0 ? 'force:trigger' : null));
-		await playRounds(make({}), 6, seen, () => force);
+	(...forces: string[]): Drive =>
+	async (make, seen) => {
+		await playMock(make({}), 60, seen, (i) => (i % 3 === 0 ? 'force:trigger' : null));
+		for (const force of forces) await playMock(make({}), 6, seen, () => force);
 	};
 
 const lines = templateOf('lines');
@@ -268,6 +330,9 @@ const linesWithWild = (() => {
 	return saved(doc);
 })();
 const pots = saved(HOLD_AND_WIN_PRESETS.pots);
+/** The pots preset's meter that MULTI fills. */
+const multiMeter = pots.holdAndWin?.meters?.find((meter) => meter.symbol === 'MULTI')?.id;
+if (!multiMeter) throw new Error('the pots preset has no meter MULTI fills');
 
 const CASES: Case[] = [
 	{
@@ -328,12 +393,25 @@ const CASES: Case[] = [
 		drive: bookDrive,
 	},
 	{
-		label: 'holdAndWin · MULTI (a special)',
+		// Unused, the pool keeps no ACE, KING or QUEEN: the client must still read it as a book.
+		label: 'bookOf · L3 (QUEEN), with L1 and L2 already off',
+		protocol: 'book',
+		config: takeOffReels(takeOffReels(lines, 'L1'), 'L2'),
+		unused: 'L3',
+		wire: 'QUEEN',
+		drive: bookDrive,
+	},
+	{
+		label: 'holdAndWin · MULTI (a special and a meter symbol)',
 		protocol: 'holdAndWin',
 		config: pots,
 		unused: 'MULTI',
 		wire: 'MULTI',
-		drive: holdAndWinDrive('force:special:multiplier'),
+		drive: holdAndWinDrive(
+			'force:special:multiplier',
+			`force:meter:${multiMeter}`,
+			`force:trigger:meter:${multiMeter}`,
+		),
 	},
 	{
 		label: 'holdAndWin · L1 (a line symbol)',
@@ -356,48 +434,131 @@ const quiet = async <T>(run: () => Promise<T>): Promise<T> => {
 };
 
 const run = async (c: Case, config: GameConfigDoc): Promise<Seen> => {
-	const seen: Seen = { declared: new Set(), dealt: new Set(), rounds: 0 };
+	const seen = seenNothing();
 	await quiet(() => c.drive(mockFor(c, config), seen));
 	return seen;
 };
 
-for (const c of CASES) {
+/** The client draws every declared symbol as one `/config` puts in play. */
+const checkDrawn = (label: string, seen: Seen, config: GameConfigDoc): void => {
+	const uses = symbolUses(config);
+	const strays = drawnAs(seen.boot).filter((name) => uses[name] !== 'inPlay');
+	check(
+		`${label} · the client reads every declared symbol as one /config puts in play`,
+		Boolean(seen.boot?.symbols?.length) && !strays.length,
+		`declared ${JSON.stringify(seen.boot?.symbols)}, drawn as ${JSON.stringify(drawnAs(seen.boot))}`,
+	);
+};
+
+/** Each case's two contracts, as the real test server is about to deal them. */
+const served: Array<{ key: string; c: Case; config: GameConfigDoc; local: Seen; unused: boolean }> =
+	[];
+
+for (const [index, c] of CASES.entries()) {
 	const unusedConfig = takeOffReels(c.config, c.unused);
 	check(
 		`${c.label} · /config badges ${c.unused} in play, then unused once it is off the strips`,
 		symbolUses(c.config)[c.unused] === 'inPlay' && symbolUses(unusedConfig)[c.unused] === 'unused',
 	);
+	check(
+		`${c.label} · /config saves the config with ${c.unused} unused`,
+		!gameConfigErrors(unusedConfig).length,
+		JSON.stringify(gameConfigErrors(unusedConfig)),
+	);
 	const inPlay = await run(c, c.config);
 	check(`${c.label} · in play, rounds are played`, inPlay.rounds > 20, `${inPlay.rounds} rounds`);
 	check(
-		`${c.label} · in play, the deal shows ${c.wire} (the case is not vacuous)`,
-		inPlay.dealt.has(c.wire),
+		`${c.label} · in play, a board lands ${c.wire} (the case is not vacuous)`,
+		inPlay.landed.has(c.wire),
 	);
+	checkDrawn(`${c.label} · in play`, inPlay, c.config);
 	const unused = await run(c, unusedConfig);
 	check(`${c.label} · unused, rounds are played`, unused.rounds > 20, `${unused.rounds} rounds`);
 	check(`${c.label} · unused, ${c.wire} is never dealt or picked`, !unused.dealt.has(c.wire));
 	check(`${c.label} · unused, ${c.wire} is never declared`, !unused.declared.has(c.wire));
+	checkDrawn(`${c.label} · unused`, unused, unusedConfig);
+	served.push({ key: `case${index}-in`, c, config: c.config, local: inPlay, unused: false });
+	served.push({ key: `case${index}-out`, c, config: unusedConfig, local: unused, unused: true });
 }
 
-// The game's own surfaces that list symbols rather than read a dealt board.
-const here = fileURLToPath(new URL('.', import.meta.url));
-const appSource = (rel: string) => readLF(`${here}../../lines/src/${rel}`);
-check(
-	'the Book-of shuffle cycles only the symbols in play',
-	/const inPlay = new Set\(getSymbolsInPlay\(\)\);[\s\S]{0,200}\.filter\(\(name\) =>\s*inPlay\.has\(name\)/.test(
-		appSource('components/SpecialBook.svelte'),
-	),
+// A Hold and Win coin symbol off the reels leaves its cash coins nothing to land as but the jackpot
+// symbol, which the game values at nothing — so `/config` refuses to save it, and no mock is handed it.
+const coinSymbol = Object.keys(pots.symbols).find((name) =>
+	pots.symbols[name].special_properties?.includes('coin'),
 );
 check(
+	'holdAndWin · /config refuses to save the coin symbol unused',
+	Boolean(coinSymbol) &&
+		gameConfigErrors(takeOffReels(pots, coinSymbol ?? '')).some(
+			(issue) => issue.path === 'holdAndWin.coins',
+		),
+);
+
+// The real test server, dealing every case from the same contracts.
+const tree = mkdtempSync(join(tmpdir(), 'unused-in-game-'));
+try {
+	const games = Object.fromEntries(
+		served.map(({ key, c, config }) => [
+			key,
+			{ name: key, protocol: c.protocol, cascade: false, grid: contractOf(c, config).grid },
+		]),
+	);
+	writeFileSync(join(tree, 'games.json'), JSON.stringify({ games }));
+	const server = await startTestServer(tree, { SEED: 'unused-in-game' });
+	try {
+		for (const { key, c, local, unused } of served) {
+			const seen = seenNothing();
+			const post: Post = (path, body) =>
+				fetch(`${server.origin}/api/${key}${path}`, {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify(body),
+				}).then((res) => res.json() as Promise<Response>);
+			await playRounds(post, 40, seen, (i) =>
+				c.protocol === 'holdAndWin' && i % 3 === 0 ? 'force:trigger' : null,
+			);
+			const label = `${c.label} · ${unused ? 'unused' : 'in play'} · the test server`;
+			check(`${label} · rounds are played`, seen.rounds > 20, `${seen.rounds} rounds`);
+			check(
+				`${label} · declares what the contract's mock declares`,
+				JSON.stringify(seen.boot?.symbols) === JSON.stringify(local.boot?.symbols),
+				`${JSON.stringify(seen.boot?.symbols)} vs ${JSON.stringify(local.boot?.symbols)}`,
+			);
+			if (unused) {
+				check(
+					`${label} · never deals or declares ${c.wire}`,
+					!seen.dealt.has(c.wire) && !seen.declared.has(c.wire),
+				);
+			}
+		}
+	} finally {
+		server.stop();
+	}
+} finally {
+	rmSync(tree, { recursive: true, force: true });
+}
+
+// The game's own surfaces that list symbols rather than read a dealt board — matched over
+// whitespace-collapsed source, so a re-wrap does not break them, and each list must be used.
+const here = fileURLToPath(new URL('.', import.meta.url));
+const appSource = (rel: string) => readLF(`${here}../../lines/src/${rel}`).replace(/\s+/g, ' ');
+const specialBook = appSource('components/SpecialBook.svelte');
+check(
+	'the Book-of shuffle cycles only the symbols in play',
+	specialBook.includes('const inPlay = new Set(getSymbolsInPlay());') &&
+		specialBook.includes('.filter((name) => inPlay.has(name)') &&
+		/= symbolNames\(\);/.test(specialBook),
+);
+const debugGrid = appSource('components/debug/SymbolDebugTool.svelte');
+check(
 	'the Symbol Debug grid lists what Invisible Symbols lists',
-	/const symbols = symbolsUsed\(getActiveGameConfig\(\)\);/.test(
-		appSource('components/debug/SymbolDebugTool.svelte'),
-	),
+	debugGrid.includes('const symbols = symbolsUsed(getActiveGameConfig());') &&
+		debugGrid.includes('<SymbolDebugOverlay {symbols}'),
 );
 
 console.log(
 	failures === 0
-		? `\nunused symbols in game: OK (${checks} checks, ${CASES.length} kinds × cases)`
+		? `\nunused symbols in game: OK (${checks} checks, ${CASES.length} cases)`
 		: `\nunused symbols in game: ${failures} of ${checks} FAILED`,
 );
 process.exit(failures === 0 ? 0 : 1);

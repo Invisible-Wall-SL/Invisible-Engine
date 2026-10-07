@@ -88,6 +88,14 @@ export function gameConfigDefaultFor(gameType: string | undefined): GameConfigDo
 }
 
 /**
+ * Is this kind's template the config a never-saved project plays? Such a project plays the compiled
+ * lines config (its runtime bundle carries none), which is the template of every kind that falls
+ * back to `lines` — lines, cluster, Book-of, a custom kind — and not of ways, scatter or Hold and Win.
+ */
+export const templateIsBuiltIn = (gameType: string | undefined): boolean =>
+	gameConfigDefaultFor(gameType) === DEFAULTS_BY_GAME_TYPE[FALLBACK_GAME_TYPE];
+
+/**
  * The config a NEW project of this kind is scaffolded with, or `null` to leave it un-authored.
  *
  * Only a kind whose defaults are presets is seeded: its mock and runtime need the kind's block, and

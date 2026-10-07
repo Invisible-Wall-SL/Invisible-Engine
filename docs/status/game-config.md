@@ -705,11 +705,22 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
   play. The lines mock's **stacked-pictures test deal** put a WILD column on every board whatever the
   config said; it now uses WILD only when a wild is dealt, else the top stacking symbol. The **Hold
   and Win mock** dealt every role symbol (coin, special, meter, unlock) from the block, strips or not;
-  `holdAndWinMockInputs` now passes only role symbols a strip deals. The never-saved banner now says
-  the game plays the built-in lines config until the first save. Gate:
-  `check:unused-symbols-in-game` (each kind's mock, from `mockContractOfBundle`, over base, forced
-  feature, forced win and big-win rounds; red on each old path). Client surfaces:
-  [status/engine](engine.md).
+  `holdAndWinMockInputs` now passes only role symbols a strip deals, and a forced meter whose symbol
+  is unused is refused. The validator now refuses a Hold and Win config with no coin or jackpot
+  symbol on a strip, or with cash coins and no coin symbol on one (they would land as the jackpot
+  symbol, worth nothing in the game). The never-saved banner now says the game plays the built-in
+  lines config until the first save, and whether that is the template it shows (it is for lines,
+  cluster, Book-of and custom kinds; `templateIsBuiltIn`). Gate: `check:unused-symbols-in-game`
+  (each kind's mock, from `mockContractOfBundle`, over base, forced feature, forced meter, forced
+  win and big-win rounds; non-vacuous only on a symbol a BOARD lands; the client's mapping read over
+  every boot declaration; then the real test server, local mode, dealing every case from the same
+  contracts; red on each old path). Client surfaces: [status/engine](engine.md).
+  **Deploy note:** the test server works the contract out on demand, from a published snapshot too,
+  so on deploy every live Book-of or Hold and Win project whose strips leave a symbol out changes its
+  deal with no republish — e.g. a Book-of project with `S` off its strips stops triggering free spins
+  naturally (buys and forced triggers still work). Intended; check live Book-of projects' strips.
+  Not covered: our test server deals a lines-family or Book-of game only the engine's own symbol
+  names, so a project with none of them in play is dealt its default set, as before.
 - 2026-10-07 — **A pots overlay's coins get a section of their own, Coins, with no badge.** They
   were listed in the Symbols table badged **unused** (or, briefly on this branch, **token**), but a
   coin (a pot's token) is never on a strip and whether it is used is the overlay's call, so
