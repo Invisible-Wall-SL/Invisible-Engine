@@ -433,6 +433,16 @@ check(
 	null,
 );
 check(
+	'no card seconds for the size: not priced, whatever was measured at it',
+	secondsPerImage(
+		{ ...upscale, gpu: { ...upscale.gpu, secondsPerImage: {} } },
+		1024,
+		timing('fixture_upscale', 1024, 6, 2),
+		{ seedSecondsPerImage: 0, delaySecondsPerJob: 15 },
+	),
+	null,
+);
+check(
 	'a credit-billed card is never priced',
 	secondsPerImage({ ...upscale, billing: 'credits' }, 1024, null, {
 		seedSecondsPerImage: 0,
@@ -698,6 +708,45 @@ check(
 		stored[0].steps.map((st, i) => (i === 0 ? { ...st, variants: 2 } : st)),
 	).map((st) => st.status),
 	['planned', 'planned', 'planned'],
+);
+
+// A revision that re-opens a rendered step goes back to the owner, whatever its price.
+const progressedRecipe = { ...approved, steps: progressed };
+const revise = (from: typeof progressed, i: number, key: string) =>
+	carryProgress(
+		from,
+		stored[0].steps.map((st, k) =>
+			k === i ? { ...st, settings: [...st.settings, { key, value: '7' }] } : st,
+		),
+	);
+check(
+	'a revision that keeps the rendered steps and changes a later one keeps its approval',
+	needsReapproval(progressedRecipe, { ...progressedRecipe, steps: revise(progressed, 2, 'x') }),
+	false,
+);
+check(
+	'a revision that re-opens a rendered step needs the owner again, at the same price',
+	needsReapproval(progressedRecipe, {
+		...progressedRecipe,
+		steps: revise(progressed, 0, 'ksampler_seed'),
+	}),
+	true,
+);
+check(
+	'…and so does one that re-opens a render in flight',
+	needsReapproval(progressedRecipe, { ...progressedRecipe, steps: revise(progressed, 1, 'blur') }),
+	true,
+);
+const failedFirst = stored[0].steps.map((st, i) =>
+	i === 0 ? { ...st, status: 'failed' as const, jobRef: 'st_00000000000000a3' } : st,
+);
+check(
+	'a failed step it re-opens is queued again under the approval, as any retry is',
+	needsReapproval(
+		{ ...approved, steps: failedFirst },
+		{ ...approved, steps: revise(failedFirst, 0, 'ksampler_seed') },
+	),
+	false,
 );
 
 console.log(`recipes: ${checks - failures}/${checks} checks passed`);

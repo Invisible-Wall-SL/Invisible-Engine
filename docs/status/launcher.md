@@ -64,9 +64,11 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   - **Pricing rules** (`packages/director-costs/src/recipe.ts`): one image of a step costs the
     card's seconds at its size, or the measured execution mean when that is higher, plus the
     measured delay (`secondsPerImage`), with the card's cold start once per (atlas, pipeline)
-    batch. Fails closed: a step whose card is gone, has no figure for its size or bills credits
-    leaves the whole recipe unpriced (`gpuUsd: null`, `unpriced` says why), never priced at 0 s.
-    `needsReapproval` also re-approves a revision whose cost is now unpriced or higher in USD.
+    batch. Fails closed: a step whose card is gone, has no figure for its size (a measurement
+    never stands in for one) or bills credits leaves the whole recipe unpriced (`gpuUsd: null`,
+    `unpriced` says why), never priced at 0 s. `needsReapproval` also re-approves a revision whose
+    cost is now unpriced or higher in USD, or that re-opens a step that has rendered or is
+    rendering, at any price.
   - **Estimate** (`runs.ts` `estimateForTemplate`, `priceChains`): the GPU side is priced per chain
     from the reviewed cards (`GET /blueprints` through the same cached read agents get, at the GPU
     atlas-tool reports, never the Preset's GPU) and `director_blueprint_timings`; each template
@@ -98,9 +100,10 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     estimate can read the catalogue with no run.
   - Tests: `check:director-runs` 465 (estimate per chain, unpriced refusals, start refusal, the
     Art plan actions and edit shapes), `check:director-live` 105 (the fold, the panel's view and
-    edits, drafts, licences, how-made), worker `check:recipes` 78, `prove:art-plan` 49 (stale
+    edits, drafts, licences, how-made), worker `check:recipes` 83, `prove:art-plan` 52 (stale
     approval, owner edits incl. a group size edit, a stale and a malformed edit, a failed render
-    queued again, timings measured once, a dropped region, re-approval on one pricing basis).
+    queued again, timings measured once, a dropped region, re-approval on one pricing basis, a
+    same-price revision that re-opens a rendered step).
   - **After review** (code-reviewer, four blockers reproduced on the real modules):
     - owner edits are validated against the plan with every edit applied (a group size edit no
       longer refuses itself one region at a time), name the revision they were made on, are
@@ -126,7 +129,9 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     without the seed floor (its high end already falls back to the profiles). Carrying a step's
     state over is one rule for the technician's revisions and the owner's edits (`carryProgress`):
     an unchanged rendered step is never re-opened (8D's B1), and every step after the first changed
-    one starts again, since it worked from an image that will change. Steps are compared field by
+    one starts again, since it worked from an image that will change; a revision that so re-opens a
+    rendered or in-flight step loses its approval at any price, so nothing is queued and paid for
+    twice unseen (the round-one blocker of 8D's review). Steps are compared field by
     field (`stepKey`): `jsonb` stores object keys in its own order, so a stringified stored step
     never matched a new one. The technician's estimate profile is held to ADR-0008's model until its
     definition lands in its own PR.
