@@ -371,7 +371,7 @@
 				hiddenScenes = new Set(s.hiddenScenes.filter((x): x is string => typeof x === 'string'));
 			}
 			if (typeof s.gameView === 'boolean') gameView = s.gameView;
-			if (typeof s.viewMode === 'string') viewMode = s.viewMode;
+			if (typeof s.viewMode === 'string' && !activeSceneModeId) viewMode = s.viewMode;
 			// Restore the expanded Library atlases — <EditorAssetLibrary> hydrates each
 			// open key's regions on mount.
 			if (Array.isArray(s.libExpanded)) {
@@ -897,6 +897,11 @@
 		return out;
 	}
 
+	/** The game modes a `mode` screen can name, offered as suggestions — a project may add its own. */
+	const MODE_SUGGESTIONS = builtinGameModes({ holdAndWin: {} as never }).filter(
+		(mode) => mode.id !== BASE_GAME_MODE,
+	);
+
 	const activeScene = $derived(scenes[activeSceneIdx] ?? scenes[0]);
 	/** The modes In-game view can show besides the base game: those the doc has screens for. */
 	const viewModes = $derived(
@@ -908,8 +913,13 @@
 	);
 	/** The mode on the canvas — a persisted pick whose screens are gone falls back to the base game. */
 	const shownViewMode = $derived(viewModes.some((m) => m.id === viewMode) ? viewMode : undefined);
+	/** Keyed on strings, not the scene object: a node edit replaces the active scene's object and
+	 * must not undo a "Base game" pick. */
+	const activeSceneId = $derived(activeScene?.id);
+	const activeSceneModeId = $derived(activeScene?.role === 'mode' ? activeScene.modeId : undefined);
 	$effect(() => {
-		if (activeScene?.role === 'mode' && activeScene.modeId) viewMode = activeScene.modeId;
+		void activeSceneId;
+		if (activeSceneModeId) viewMode = activeSceneModeId;
 	});
 	/** Screens In-game view leaves off the canvas right now (not on screen in the shown mode, not
 	 * edited). */
@@ -1140,11 +1150,6 @@
 		scenes = [...scenes];
 		markDirty();
 	}
-
-	/** The game modes a `mode` screen can name, offered as suggestions — a project may add its own. */
-	const MODE_SUGGESTIONS = builtinGameModes({ holdAndWin: {} as never }).filter(
-		(mode) => mode.id !== BASE_GAME_MODE,
-	);
 
 	/** Name the game mode the active `mode` screen belongs to (`Scene.modeId`). `''` clears it. */
 	function setSceneModeId(value: string): void {
