@@ -18,6 +18,7 @@
 import { validateHoldAndWin } from './holdAndWin';
 import { validateGameModes } from './modes';
 import { validateBonusImports } from './bonusImports';
+import { validateExpandingSymbol } from './expandingSymbol';
 import { validateFreeSpins } from './freeSpins';
 import { validatePotsOverlay } from './potsOverlay';
 import { symbolsInPlay } from './inPlay';
@@ -305,6 +306,7 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 	}
 
 	issues.push(...validateFreeSpins(doc));
+	issues.push(...validateExpandingSymbol(doc));
 	issues.push(...validateHoldAndWin(doc));
 	issues.push(...validatePotsOverlay(doc));
 	issues.push(...validateGameModes(doc));

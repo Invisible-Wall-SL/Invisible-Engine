@@ -55,6 +55,8 @@ const PAY_SYMBOLS = ['PIC1', 'PIC2', 'PIC3', 'PIC4', 'ACE', 'KING', 'QUEEN', 'JA
  *  (10 lines), so M is the per-line stake. */
 const BET_OPTIONS = [10, 1000];
 const NUM_LINES = 10;
+/** The captured cap on a round's win, as a multiple of the base stake. */
+const MAX_WIN_MP = [10000];
 // When false (the production rule, surfaced in the config event), two paylines
 // whose winning combination lands on the IDENTICAL cells are the same win — it
 // must pay ONCE, not once per line that happens to cross those cells. E.g. lines
@@ -179,7 +181,7 @@ const buildConfigContext = (payTable, pool, betOptions) => ({
 	gameCost: betOptions[0],
 	lineAlign: 'left',
 	lineCoinciding: LINE_COINCIDING,
-	maxWinMp: [10000],
+	maxWinMp: MAX_WIN_MP,
 	paytable: {
 		line: pool.pay.map((of) => {
 			const counts = Object.keys(payTable[of])
@@ -313,7 +315,32 @@ const reelsCovering = (reels, special) => {
  *  (the top symbol) pays from 2-of-a-kind, so it expands from 2 — the Book-of-Ra
  *  deluxe rule. This gate MUST match the client morph gate in `engineFacade.ts`
  *  so the reels that visibly expand are exactly the reels that pay. */
-const specialExpandsAt = (special, reelCount) => reelCount >= (special === 'PIC1' ? 2 : 3);
+/** The captured thresholds: PIC1 expands from 2 reels, every other special from 3. */
+const SPECIAL_MIN_REELS = { PIC1: 2 };
+const SPECIAL_DEFAULT_MIN_REELS = 3;
+const specialExpandsAt = (special, reelCount) =>
+	reelCount >= (SPECIAL_MIN_REELS[special] ?? SPECIAL_DEFAULT_MIN_REELS);
+
+/**
+ * The captured Book of Thermopylae numbers this mock deals, as one read-only record — what
+ * game-config's Book of Thermopylae preset (`bookOfThermopylaePreset`) restates in a project's own
+ * names. `check:book-preset` holds the two equal through `bookMapping`, so neither can drift.
+ */
+export const BOOK_OF_THERMOPYLAE = Object.freeze({
+	window: { reels: 5, rows: 3 },
+	paylines: PAYLINES,
+	lineCoinciding: LINE_COINCIDING,
+	payTableLine: PAY_TABLE_LINE,
+	scatterPay: SCATTER_PAY,
+	betOptions: BET_OPTIONS,
+	maxWinMp: MAX_WIN_MP[0],
+	triggerMin: FS_TRIGGER_MIN,
+	totalFreeSpins: TOTAL_FS,
+	retriggerFreeSpins: RETRIGGER_FS,
+	specialWeights: SPECIAL_WEIGHTS,
+	specialMinReels: SPECIAL_MIN_REELS,
+	specialDefaultMinReels: SPECIAL_DEFAULT_MIN_REELS,
+});
 
 /** Free-spin expanding special (Book mechanic): when the chosen special covers
  *  enough reels (see `specialExpandsAt`) it expands to FILL each of those reels.
@@ -402,7 +429,7 @@ const spinStartEvent = (round, pool, betOptions) => ({
 		lineCoinciding: LINE_COINCIDING,
 		gameCost: betOptions[0],
 		betOptions,
-		maxWinMp: [10000],
+		maxWinMp: MAX_WIN_MP,
 	},
 });
 

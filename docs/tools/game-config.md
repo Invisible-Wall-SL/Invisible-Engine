@@ -562,6 +562,14 @@ counted on its own: a scatter keeps paying its **scatter pay** whatever triggers
 feature, and a trigger symbol that pays nothing is fine. The info page's rules state
 the trigger but not the award.
 
+**The expanding symbol (Book-of).** A config may switch on the Book-of expanding symbol —
+`freeSpins.expandingSymbol`, with optional draw `weights` and per-symbol `minReels` (the reels it
+must cover to expand, default 3). It has no controls of its own yet: set it in the raw JSON. Its
+problems show under the section — a game that does not pay by lines, a weight on a symbol that is not
+a paying line symbol on the strips, a threshold above the reel count, a symbol that would expand and
+pay nothing — and a project with it gets the book columns in Invisible Symbols and the expanded-win
+line in Win Text. A symbol that is both **scatter** and **wild** is a book; a game may have only one.
+
 **On a Book-of game.** The section is the same, with two differences. The
 **Trigger symbol** is shown, not picked — _the book — S_ — because a Book-of game
 always triggers on its book; **How many** still sets how many books it takes. And

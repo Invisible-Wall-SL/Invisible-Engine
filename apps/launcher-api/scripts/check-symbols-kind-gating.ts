@@ -33,7 +33,13 @@ import {
 	type KindCapabilities,
 	type KindCapabilityConfig,
 } from 'engine-layout';
-import { HOLD_AND_WIN_PRESETS, potsOverlayPreset, symbolHoldAndWinRoles } from 'game-config';
+import {
+	bookOfThermopylaePreset,
+	HOLD_AND_WIN_PRESETS,
+	normalizeGameConfigDoc,
+	potsOverlayPreset,
+	symbolHoldAndWinRoles,
+} from 'game-config';
 import { overlayTokenPots, projectAddOns } from '../src/lib/addOns.ts';
 import { symbolDefaultsFor } from '../src/lib/server/symbolDefaults.ts';
 import { visibleStatesFor } from '../src/routes/(app)/symbols/symbols.client.ts';
@@ -162,6 +168,23 @@ check(
 	[true, true, true],
 );
 
+// The Book-of expanding special as a config block (docs/design/book-feature.md §3.3): it turns the
+// book reveal on for any kind with free spins and moves nothing else; without it every answer above
+// stands, `bookOf` keeping its reveal through the kind until Phase 7.
+for (const kind of [...GAME_KINDS, 'myCustomKind', undefined]) {
+	const table = KIND_CAPS[kind ?? ''] ?? LINES_CAPS;
+	check(
+		`${kind} + expanding symbol · only bookReveal moves`,
+		kindCapabilities(kind, { expandingSymbol: true }),
+		{ ...table, bookReveal: true },
+	);
+	check(
+		`${kind} + expandingSymbol: false · the kind's own table`,
+		kindCapabilities(kind, { expandingSymbol: false }),
+		table,
+	);
+}
+
 // ── 2. columns ──────────────────────────────────────────────────────────────────────────────────
 const BASE = ['static', 'spin', 'land', 'win', 'postWinStatic', 'explosion'];
 /** The columns a kind showed before the Hold and Win states existed, in `SYMBOL_STATES` order. */
@@ -190,6 +213,16 @@ for (const kind of GAME_KINDS.filter((k) => k !== 'holdAndWin')) {
 		);
 	}
 }
+check(
+	'lines + expanding symbol · the two book columns join',
+	visibleStatesFor('lines', { expandingSymbol: true }).filter((s) => s.startsWith('book')),
+	['bookIntro', 'bookIdle'],
+);
+check(
+	'lines without it · no book columns',
+	visibleStatesFor('lines', { expandingSymbol: false }).filter((s) => s.startsWith('book')),
+	[],
+);
 check('holdAndWin · base columns plus the eight H&W ones', visibleStatesFor('holdAndWin'), [
 	...BASE,
 	...HOLD_AND_WIN_SYMBOL_STATES,
@@ -252,7 +285,7 @@ check(
 	'no config · no add-ons, no meter rows',
 	[projectAddOns(null).addOns, meterRows(null)],
 	[
-		{ holdAndWin: false, potsOverlay: false },
+		{ holdAndWin: false, potsOverlay: false, expandingSymbol: false },
 		{ meterIds: [], tokens: {} },
 	],
 );
@@ -265,6 +298,7 @@ for (const [presetId, preset] of Object.entries(HOLD_AND_WIN_PRESETS)) {
 	check(`${presetId} · add-ons`, projectAddOns(preset).addOns, {
 		holdAndWin: !!preset.holdAndWin,
 		potsOverlay: false,
+		expandingSymbol: false,
 	});
 }
 const threePots = potsOverlayPreset('threePots');
@@ -272,7 +306,28 @@ const borutPotsDoc = { potsOverlay: threePots.potsOverlay };
 check('threePots overlay · add-ons', projectAddOns(borutPotsDoc).addOns, {
 	holdAndWin: false,
 	potsOverlay: true,
+	expandingSymbol: false,
 });
+const thermopylae = normalizeGameConfigDoc(bookOfThermopylaePreset());
+check(
+	'the Book of Thermopylae preset · the expanding symbol add-on',
+	projectAddOns(thermopylae).addOns,
+	{
+		holdAndWin: false,
+		potsOverlay: false,
+		expandingSymbol: true,
+	},
+);
+check(
+	'…switched off with free spins',
+	projectAddOns(
+		normalizeGameConfigDoc({
+			...thermopylae,
+			freeSpins: { ...thermopylae?.freeSpins, enabled: false },
+		}),
+	).addOns.expandingSymbol,
+	false,
+);
 check('threePots overlay · a token row per pot, every pot a meter', meterRows(borutPotsDoc), {
 	meterIds: ['red', 'blue', 'green'],
 	tokens: { POT_RED: ['red'], POT_BLUE: ['blue'], POT_GREEN: ['green'] },

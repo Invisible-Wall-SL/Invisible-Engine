@@ -712,6 +712,32 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Recent changes
 
+- 2026-10-07 — **The expanding symbol as config** (Phase 2 of
+  [book-feature.md](../design/book-feature.md)). **Schema:** `freeSpins.expandingSymbol`
+  (`ExpandingSymbolConfig` — `weights?`, `minReels?`; `src/expandingSymbol.ts`): presence is the
+  feature (`{}` kept), bad weights / thresholds dropped, kept while free spins are off, last in the
+  block. `resolveExpandingSymbol` is the one reader: undefined without the block or with free spins
+  off, else the eligible symbols (dealt, a line paytable, not scatter / wild / Hold and Win role /
+  token) in dictionary order, weight 1 each unless `weights` names them, threshold
+  `DEFAULT_EXPAND_MIN_REELS` (3) unless stated. **Validator** (§3.2): not `lines`, a base-game Hold
+  and Win block, a weight on an ineligible / undealt / unknown symbol, nothing left to draw, a
+  threshold above the reel count ⇒ errors; a threshold on a symbol never drawn, a candidate with no
+  pay at its threshold, the block while free spins are off ⇒ warnings; and two symbols that are both
+  scatter and wild ⇒ an error at `symbols` (one book). **Preset:** `bookOfThermopylaePreset()`
+  (`src/bookOfPresets.ts`) — the captured numbers in client names, the book as scatter + wild paying
+  `3:2 4:20 5:200` (decision 1), +10 retrigger, the captured weights and `minReels: { H1: 2 }`; the
+  book mock exports its constants as `BOOK_OF_THERMOPYLAE` (no behaviour change) and
+  `pnpm check:book-preset` (in `check:rgs`) holds the two equal through `bookMapping`. Not offered
+  anywhere yet (Phase 5a/5c), so no committed JSON. **Capabilities:** `KindCapabilityConfig.expandingSymbol`;
+  `bookReveal = kind === 'bookOf' || block` (the transition shim, removed in Phase 7);
+  `projectAddOns` reports it, so `/symbols` (book columns), `/win-text` (expanded line) and the
+  Game Maker chip follow the block; `sceneSetOptionsFor` passes the same options as before.
+  `/config`'s read-only Book-of trigger now keys on the KIND, not the capability. **No UI** for the
+  block yet (Phase 5a); raw JSON sets it. **Byte-identity, pinned:** `expandingSymbol.fixture.ts` —
+  every committed default's normalized digest equals origin/main's; `check:symbols-kind-gating` —
+  every kind's capabilities without the block unchanged, with it only `bookReveal` moves;
+  `check:mock-contract` — the block changes no lines or book contract (the mocks deal it in Phase 3).
+
 - 2026-10-07 — **Every free-spins round ends** (review of #1114). An authorable trigger count let a
   retrigger add, on average, more spins than the spin used (two books with +10 ≈ 1.7 per spin), and
   neither mock capped a round, so a feature could never close. **Mocks:** one per-round cap,

@@ -570,6 +570,23 @@ await check('awards travel against the Book-of defaults: 10, +10 on a retrigger'
 	eq('freeSpinsAwards' in linesGrid(withFreeSpins({ retriggerAwards: [{ count: 3, spins: 5 }] })), false, 'lines: +5 stays the default'); // prettier-ignore
 });
 
+console.info('the expanding symbol (book-feature Phase 2: config only, no mock yet)');
+
+await check('the block changes no contract until the mocks deal it (Phase 3)', () => {
+	const special = { expandingSymbol: { weights: { H1: 1 }, minReels: { H1: 2 } } };
+	eq(linesGrid(withFreeSpins(special)), linesGrid(template('lines')), 'lines');
+	eq(bookGrid(withFreeSpins(special)), bookGrid(template('lines')), 'book');
+	eq(
+		mockContractOfBundle(
+			'lines',
+			{ config: withFreeSpins({ expandingSymbol: {} }, unpriced()), symbols: NO_SYMBOLS },
+			'x',
+		).grid,
+		mockContractOfBundle('lines', { config: unpriced(), symbols: NO_SYMBOLS }, 'x').grid,
+		'an unpriced lines doc',
+	);
+});
+
 console.info('the gate');
 
 await check('an unknown source is refused, not silently read as published', async () => {
