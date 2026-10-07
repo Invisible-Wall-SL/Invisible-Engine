@@ -509,6 +509,67 @@ await check(
 	},
 );
 
+console.info('the free-spins rule on a Book-of game (the book mock)');
+
+const bookGrid = (config: GameConfigDoc) =>
+	mockContractOfBundle('book', { config, symbols: NO_SYMBOLS }, 'bookfs').grid ?? {};
+/** A book config with no priced symbol, so the free-spins rule is the only thing it departs in. */
+const unpriced = (): GameConfigDoc => {
+	const lines = template('lines');
+	return normalizeGameConfigDoc({
+		...lines,
+		symbols: Object.fromEntries(
+			Object.entries(lines.symbols).map(([name, { paytable: _pays, ...symbol }]) => [name, symbol]),
+		),
+	})!;
+};
+
+await check('a Book-of project that never mentions free spins carries none of the fields', () => {
+	const grid = bookGrid(template('lines'));
+	eq(Object.keys(grid), ['reels', 'rows', 'paylines', 'symbolPaytable'], 'keys');
+	eq(mockContractOfBundle('book', { config: unpriced(), symbols: NO_SYMBOLS }, 'b').grid, undefined, 'no grid at all'); // prettier-ignore
+});
+
+await check('free spins OFF rides last on the book grid, and alone makes one', () => {
+	const off = bookGrid(withFreeSpins({ enabled: false }));
+	eq([off.freeSpins, Object.keys(off).at(-1)], [false, 'freeSpins'], 'switch');
+	eq(
+		Object.keys(bookGrid(withFreeSpins({ enabled: false }, unpriced()))),
+		['reels', 'rows', 'paylines', 'freeSpins'],
+		'the only departure',
+	);
+});
+
+await check('the book always triggers on SCAT: only a count travels', () => {
+	eq(bookGrid(withFreeSpins({ triggerCount: 4 })).freeSpinsTrigger, { symbol: 'SCAT', count: 4 }, 'count'); // prettier-ignore
+	const warnings: string[] = [];
+	const realWarn = console.warn;
+	console.warn = (message: string) => warnings.push(message);
+	try {
+		const grid = bookGrid(withFreeSpins({ triggerSymbol: 'H1' }));
+		eq('freeSpinsTrigger' in grid, false, 'another symbol at the default count sends nothing');
+		bookGrid(withFreeSpins({ triggerSymbol: 'H1' }));
+	} finally {
+		console.warn = realWarn;
+	}
+	eq(warnings.filter((w) => w.includes('H1')).length, 1, 'ignored and said once');
+});
+
+await check('awards travel against the Book-of defaults: 10, +10 on a retrigger', () => {
+	eq('freeSpinsAwards' in bookGrid(withFreeSpins({ retriggerAwards: [{ count: 3, spins: 10 }] })), false, '+10 is the default'); // prettier-ignore
+	eq(
+		bookGrid(withFreeSpins({ retriggerAwards: [{ count: 3, spins: 5 }] })).freeSpinsAwards,
+		{ awards: [{ count: 3, spins: 10 }], retrigger: [{ count: 3, spins: 5 }], random: false },
+		'+5 departs on a Book-of game',
+	);
+	eq(
+		bookGrid(withFreeSpins({ awards: [{ count: 3, spins: 7 }] })).freeSpinsAwards,
+		{ awards: [{ count: 3, spins: 7 }], retrigger: [{ count: 3, spins: 10 }], random: false },
+		'an entry table carries the +10 retrigger default with it',
+	);
+	eq('freeSpinsAwards' in linesGrid(withFreeSpins({ retriggerAwards: [{ count: 3, spins: 5 }] })), false, 'lines: +5 stays the default'); // prettier-ignore
+});
+
 console.info('the gate');
 
 await check('an unknown source is refused, not silently read as published', async () => {

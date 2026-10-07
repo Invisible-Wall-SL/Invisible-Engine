@@ -39,7 +39,11 @@ import { readdir, readFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { carrySession, createMockRgs as createLinesMock } from '../../scripts/mock-rgs-server.mjs';
+import {
+	carrySession,
+	createMockRgs as createLinesMock,
+	MAX_ROUND_FREE_SPINS,
+} from '../../scripts/mock-rgs-server.mjs';
 import { createMockRgs as createBookMock } from '../../scripts/mock-rgs-server-book.mjs';
 import { createMockRgs as createHoldAndWinMock } from '../../scripts/mock-rgs-server-holdandwin.mjs';
 import { createPlatformJackpot } from '../../scripts/mock-platform-jackpot.mjs';
@@ -320,7 +324,16 @@ const potsOverlayFallbackWarned = new Set();
  * and says so once, for the reason `makeHoldAndWinMock` gives.
  */
 const makeBookMock = (label, grid, gameKey, runtime, twin) => {
-	const opts = { label, symbolPaytable: grid?.symbolPaytable, symbols: grid?.symbols };
+	// The project's free-spins rule (`validGrid` shape-checked it), only where it departs: the overlay
+	// composes over this same host, so it is passed through `withPotsOverlay` too.
+	const opts = {
+		label,
+		symbolPaytable: grid?.symbolPaytable,
+		symbols: grid?.symbols,
+		...(grid?.freeSpins === false ? { freeSpins: false } : {}),
+		...(grid?.freeSpinsTrigger ? { freeSpinsTrigger: grid.freeSpinsTrigger } : {}),
+		...(grid?.freeSpinsAwards ? { freeSpinsAwards: grid.freeSpinsAwards } : {}),
+	};
 	if (!grid?.potsOverlay) return createBookMock(opts);
 	try {
 		// Forcing a beat is an authoring tool, as on the Hold and Win mock.
@@ -347,7 +360,7 @@ const makeMock = (protocol, label, grid, gameKey, cascade, runtime, twin = false
 	}
 	// `book` owns its board and paylines; what it reads of the contract is the project's authored line
 	// table, so it pays (and declares) what `/config` set rather than its captured one, its in-play
-	// pool, so it never deals a symbol `/config` marks unused, and its pots overlay.
+	// pool, so it never deals a symbol `/config` marks unused, its pots overlay and its free-spins rule.
 	if (protocol === 'book') return makeBookMock(label, grid, gameKey, runtime, twin);
 	// `holdAndWin` lands here only when its own mock could not be built (above).
 	// `ways` reuses the lines mock entirely and only swaps how wins are DECIDED — the session, round
@@ -518,23 +531,26 @@ const validGrid = (grid) => {
 		trigger.count >= 1
 			? { symbol: trigger.symbol, count: trigger.count }
 			: null;
-	// The free-spins AWARDS when they depart from 10 / +5 / never random: two tables of
-	// `{ count, spins, maxSpins? }` rows and the random switch. Validated WHOLE, like `betModes` —
-	// a table with a hole in it is worse than the default — so malformed ⇒ the mock's 10 / +5.
-	const awardRows = (rows) =>
-		Array.isArray(rows) &&
-		rows.length > 0 &&
-		rows.every(
+	// The free-spins AWARDS when they depart from the mock's own defaults (10 / +5 on the lines mock,
+	// 10 / +10 on the book mock) or random is on: two tables of `{ count, spins, maxSpins? }` rows and
+	// the random switch. Validated WHOLE, like `betModes` — a table with a hole in it is worse than
+	// the default — so malformed ⇒ the mock's own defaults.
+	// Bounded too: no row awards past a round's cap (`MAX_ROUND_FREE_SPINS`), and a table has no more
+	// rows than the board has cells — the count it could ever land.
+	const spinCount = (n) => Number.isInteger(n) && n >= 1 && n <= MAX_ROUND_FREE_SPINS;
+	const awardRows = (table) =>
+		Array.isArray(table) &&
+		table.length > 0 &&
+		table.length <= reels * rows &&
+		table.every(
 			(row) =>
 				row &&
 				Number.isInteger(row.count) &&
 				row.count >= 1 &&
-				Number.isInteger(row.spins) &&
-				row.spins >= 1 &&
-				(row.maxSpins === undefined ||
-					(Number.isInteger(row.maxSpins) && row.maxSpins >= row.spins)),
+				spinCount(row.spins) &&
+				(row.maxSpins === undefined || (spinCount(row.maxSpins) && row.maxSpins >= row.spins)),
 		)
-			? rows.map(({ count, spins, maxSpins }) => ({
+			? table.map(({ count, spins, maxSpins }) => ({
 					count,
 					spins,
 					...(maxSpins === undefined ? {} : { maxSpins }),

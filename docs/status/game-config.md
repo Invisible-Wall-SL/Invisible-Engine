@@ -690,12 +690,16 @@ Plan: [hold-and-win.md](../design/hold-and-win.md) §1.3/§5; hub: [hold-and-win
    (`engineFacade.ts`, `spinWin` case), so a custom trigger symbol gets no trigger highlight; the
    flow-only "N Scatters award N Free Spins" toast (`flowEffects.ts`) fires only on a zero-pay scatter
    entry, so it never misfires but never names a custom trigger either; `builtinGameModes` still
-   lists the `freeSpins` mode on a game with free spins off (the Game modes section shows it). The
-   book mock and partner servers ignore the block by design.
+   lists the `freeSpins` mode on a game with free spins off (the Game modes section shows it).
+   Partner servers ignore the block by design; the book mock honours it since 2026-10-07 (below).
 7. **The rules page does not state the free-spins AWARD** (from the 2026-10-07 award tables). It
    states the trigger (a FREE SPINS rule when it departs) but not how many spins are awarded or
    added on a retrigger, and so says nothing of a random award range either. The award is read from
    the server at runtime, so the game itself is right; only the copy is silent.
+8. **Free spins OFF does not stop a pots-overlay pot starting them.** A pot whose bonus is
+   `freeSpins` still starts the host's free spins on the book mock (`turn.hostFeature`) with the
+   section switched off, and the validator says nothing. Either the validator should refuse that
+   route while free spins are off, or the mock should refuse it; decide with the pots overlay.
 
 **Not a gap:** `packages/game-spec`'s generator emits const-based `paytable.ts`/`infoManifest.ts`,
 but it is a standalone CLI that `new-game.mjs` does NOT call — the scaffold copies `src/` from an
@@ -707,6 +711,58 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 - _None._
 
 ## Recent changes
+
+- 2026-10-07 — **Every free-spins round ends** (review of #1114). An authorable trigger count let a
+  retrigger add, on average, more spins than the spin used (two books with +10 ≈ 1.7 per spin), and
+  neither mock capped a round, so a feature could never close. **Mocks:** one per-round cap,
+  `MAX_ROUND_FREE_SPINS = 200` (exported by `scripts/mock-rgs-server.mjs`, used by the book mock too):
+  a retrigger that would take the round past it awards nothing, and award rows are held to it. An
+  imported reels mode keeps its stricter 50 (`MAX_STRIPS_ROUND_SPINS`). 200 because a default Book-of
+  round reaches 60 in the parity transcripts — a cap of 50 changed four of them. **Validator:** a
+  trigger count below `MIN_FREE_SPINS_TRIGGER_COUNT` (3) is an error, for any trigger symbol (any
+  symbol lands at least as often as a scatter); `/config`'s How many has `min="3"`. A strip-based
+  estimate of retrigger growth was not used: the mocks do not deal from the strips, so it would
+  measure a different game than the one dealt. **Bounds:** an award row (or its To) above
+  `MAX_FREE_SPINS_PER_ROUND` (200, held equal to the mocks' by `check:freespins`) and a table with
+  more rows than the board has cells are errors; the normalizer KEEPS such a row so the server
+  refuses the save rather than dropping it; the test server's `validGrid` drops such tables. **Book
+  trigger symbol:** `/config` ignores a stored one on a Book-of game (no issue, stripped on save), so
+  it can never block Save. **Partner note:** the Free spins section says, on every project, that a
+  partner-served game is dealt by the partner's math, not these settings (a reliable "partner-served"
+  fact is not available to the page). **Verified:** `check:freespins` — book §9 (two-book trigger:
+  12/12 rounds close, none past 200, 8/12 reach it) and lines §14 (one-scatter trigger, 12/12 close)
+  each FAIL with the cap removed (6/12 and 12/12 open); book §1's six digests unchanged against
+  origin/main; nine lines-mock configurations byte-identical to origin/main (see the PR);
+  `freeSpins.fixture.ts` (+10 bound/floor cases).
+
+- 2026-10-07 — **Free spins for Book-of games** (Phase 1 of
+  [book-feature.md](../design/book-feature.md)). The **Free spins** section now shows for every
+  kind but Hold and Win (`/config` `offersFreeSpins = capabilities.freeSpins`), and the **book mock**
+  deals what it says. **Per-kind defaults:** `freeSpinsDefaultsFor(kind)` — `bookOf` 10 / **+10**
+  on a retrigger (the captured Book of Thermopylae rule the Book of Borut remake is dealt), every other kind 10 / +5 (`FREE_SPINS_DEFAULTS`,
+  `BOOK_FREE_SPINS_DEFAULTS`); `resolveFreeSpins` and `freeSpinsAwardsAreDefault` take them as an
+  optional second argument, so every lines caller is unchanged. **Normalizer change:** a retrigger
+  table is now kept whatever it awards (its default depends on the kind, which the doc does not
+  carry, so a Book-of `+5` must survive); `/config` deletes a table edited back to its KIND's
+  default instead. No stored doc changes (none held a default table). **Trigger symbol:** fixed to
+  the book on a Book-of game (decision 9) — `/config` shows _the book — S_ read-only; the count,
+  on/off, awards and random amounts are authorable. **Contract:** `projectBookFreeSpins` adds
+  `freeSpins: false`, `freeSpinsTrigger: { symbol: 'SCAT', count }` (count departures only; an
+  authored trigger symbol is ignored and warned once) and `freeSpinsAwards` (departures from the
+  BOOK defaults) to the `book` grid, last; a book project departing in nothing else now gets a grid
+  for them. **Test server:** `makeBookMock` passes the three fields, through `withPotsOverlay` too.
+  **Book mock:** off ⇒ no base trigger, `FORCE_TRIGGER` inert, the boot `config` declares
+  `betOptions [10]` so the buy leaves the menu and `bet [1, M]` is refused (errorCode 101, nothing
+  charged); a count ⇒ books qualify from it (no top), forced boards hold `max(4, count)`, retrigger
+  needs it; awards through the lines mock's `awardTableOf` / `drawAwardFrom` (hoisted to module
+  scope, lines deal unchanged); a pot's bonus naming no count is awarded by the host's table.
+  **Verified:** new `scripts/check-book-freespin-protocol.mjs` (in `pnpm check:freespins`): §1 six
+  seeded transcripts — plain, forced, bought, a narrow pool + authored table, the pots overlay to
+  free spins with a pot forced, 3 Pots with a forced trigger — byte-identical to origin/main's book
+  mock (digests pinned, taken with `--print --mock` on main's copy); §2–§8 off, count, the +10
+  default, tables, random, retrigger table, the overlay composition. `check:mock-contract` (+4),
+  `freeSpins.fixture.ts` (+8), `check:rgs`, related `check:all` ids, svelte-check at baseline.
+  Not browser-tested. Expanding symbol, scatter pay and books-as-wilds are later phases.
 
 - 2026-10-07 — **A symbol this page marks unused never reaches the game we host.** The lines mock
   already dealt only the in-play pool; three paths did not. The **book mock** owned its ten symbols

@@ -17,7 +17,7 @@
 import { createServer, request } from 'node:http';
 
 import { freeSpinsAwardFor } from '../packages/game-config/src/freeSpins.ts';
-import { createMockRgs } from './mock-rgs-server.mjs';
+import { createMockRgs, MAX_ROUND_FREE_SPINS } from './mock-rgs-server.mjs';
 
 let failed = 0;
 const check = (ok, msg, extra = '') => {
@@ -88,7 +88,7 @@ const playRound = async (post, sid) => {
 	spins.push(resp);
 	const gid = resp?.platform?.gameRound?.id;
 	let guard = 0;
-	while (!ev(resp, 'gameEnd') && guard++ < 200) {
+	while (!ev(resp, 'gameEnd') && guard++ < MAX_ROUND_FREE_SPINS + 50) {
 		// Exactly what `engineFacade`'s drive loop posts — a bare `play` with NO context. Worth
 		// mirroring: a bare context is the AUTO-COLLECT signal in the base game, so a free spin that
 		// fell through to the base path would close the round here rather than continue the feature.
@@ -96,7 +96,7 @@ const playRound = async (post, sid) => {
 		seq += 1;
 		spins.push(resp);
 	}
-	const hung = guard >= 200;
+	const hung = guard >= MAX_ROUND_FREE_SPINS + 50;
 	const collect = ev(resp, 'gameRoundOver')
 		? resp
 		: await post(`/rgs/engine?sid=${sid}&seq=${seq}&gid=${gid}`, [{ action: 'collect' }]);
@@ -596,6 +596,33 @@ console.log("\n§13 — a retrigger table: a retrigger adds its row's award");
 	);
 	check(added.length > 0, 'retriggers happen', ` (${added.length})`);
 	check(!added.includes(5), 'none of them adds the default 5', ` (${[...new Set(added)]})`);
+}
+
+console.log('\n§14 — every round ends: a round never passes the free-spin cap');
+{
+	// `/config` refuses a count below 3; the mock must still end a round that asks for one. At one
+	// scatter (on about half the free spins) and +5 each, a retrigger adds ~2.3 spins per spin played.
+	const { post, close } = await boot({
+		forceTrigger: true,
+		freeSpinsTrigger: { symbol: 'SCAT', count: 1 },
+		startBalance: 100_000_000,
+		quiet: true,
+	});
+	const sid = (await post('/wallet/authenticate', { sessionID: 'demo' }))?.sid ?? 'demo';
+	let open = 0;
+	let over = 0;
+	let atCap = 0;
+	for (let i = 0; i < 12; i++) {
+		const round = await playRound(post, sid);
+		const f = featureOf(round);
+		if (round.hung || f.gameEnds !== 1) open++;
+		if (f.counters.length > MAX_ROUND_FREE_SPINS) over++;
+		if (f.counters.length + 5 > MAX_ROUND_FREE_SPINS) atCap++;
+	}
+	check(open === 0, 'every round at a one-scatter trigger closes', ` (${open}/12 open)`);
+	check(over === 0, `none plays more than ${MAX_ROUND_FREE_SPINS} free spins`, ` (${over})`);
+	check(atCap > 0, '…and they do reach the cap (the case is real)', ` (${atCap}/12)`);
+	await close();
 }
 
 console.log(failed === 0 ? '\nALL CHECKS PASSED' : `\n${failed} CHECK(S) FAILED`);

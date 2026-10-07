@@ -255,6 +255,69 @@ const TOTAL_FS = 10;
 const RETRIGGER_FS = 5;
 
 /**
+ * The most free spins ONE round may reach — its entry award plus every retrigger — on every mock that
+ * deals free spins (this one and `mock-rgs-server-book.mjs`). A retrigger that would take the round
+ * past it awards nothing: no `retrigger` event, the counter runs down, and the round ends, so a
+ * feature always closes. Without it an authorable trigger count can make a retrigger, on average,
+ * add more spins than the spin used — one measured round at two books never ended. High enough that
+ * a game on its default rule never meets it (a default Book-of round reached 60 in the parity
+ * transcripts), so every un-authored deal is unchanged. Award rows are held to it too
+ * (`awardTableOf`). An imported reels mode keeps its own, lower limit (the book mock's
+ * `MAX_STRIPS_ROUND_SPINS`). game-config's `MAX_FREE_SPINS_PER_ROUND` is the same number
+ * (`/config` refuses a row above it); `check:freespins` holds the two equal.
+ */
+export const MAX_ROUND_FREE_SPINS = 200;
+
+/**
+ * HOW MANY free spins the feature awards — the project's tables when it states them
+ * (`freeSpinsAwards`), else `spins` (the mock's own default) whatever the count. A row awards for
+ * its own trigger count and up, to the next row; with `random` on, a row with a range awards a
+ * uniform whole number across it (both ends included). Module scope so the book mock deals awards
+ * by the same rule (`mock-rgs-server-book.mjs`).
+ */
+export const awardTableOf = (rows, spins, triggerMin) => {
+	const usable = (Array.isArray(rows) ? rows : [])
+		.filter(
+			(row) =>
+				Number.isInteger(row?.count) &&
+				row.count >= 1 &&
+				Number.isInteger(row.spins) &&
+				row.spins >= 1,
+		)
+		.map(({ count, spins: rowSpins, maxSpins }) => {
+			const low = Math.min(rowSpins, MAX_ROUND_FREE_SPINS);
+			return Number.isInteger(maxSpins) && maxSpins > low
+				? { count, spins: low, maxSpins: Math.min(maxSpins, MAX_ROUND_FREE_SPINS) }
+				: { count, spins: low };
+		})
+		.sort((a, b) => a.count - b.count);
+	return usable.length ? usable : [{ count: triggerMin, spins }];
+};
+
+/**
+ * The row that awards for `landed` trigger symbols: the largest count at or below it, the first
+ * of them on a tie. Mirrors `game-config`'s `freeSpinsAwardFor` — this file is plain Node and
+ * cannot import it — and `check:freespins` holds every award dealt here to that function. A
+ * landing below every row takes the lowest one: a forced or bought round whose trigger symbol is
+ * never dealt lands none, and a table starting above the trigger is refused by `/config`.
+ */
+const awardRowFor = (table, landed) => {
+	let found = null;
+	for (const row of table) {
+		if (row.count <= landed && (!found || row.count > found.count)) found = row;
+	}
+	return found ?? table[0];
+};
+
+/** The spins `landed` trigger symbols win from `table`. `rand` is drawn ONLY for a real range with
+ *  `random` on, so a game that authored neither deals the stream it always has. */
+export const drawAwardFrom = (table, landed, random, rand) => {
+	const row = awardRowFor(table, landed);
+	const max = random ? (row.maxSpins ?? row.spins) : row.spins;
+	return max > row.spins ? row.spins + Math.floor(rand() * (max - row.spins + 1)) : row.spins;
+};
+
+/**
  * `WIN_X=10,20,40,70,120` — TEST-ONLY forcing for the current-games harness (each big-win tier on
  * demand): the n-th base spin a mock deals pays at least `WIN_X[n]` × the stake it is priced on.
  * Spins past the list deal normally. Absent or malformed ⇒ an empty list, and nothing changes.
@@ -1026,53 +1089,10 @@ export function createMockRgs(opts = {}) {
 	/** How many trigger symbols a board holds, anywhere on it. */
 	const triggerCount = (reels) => reels.flat().filter((cell) => cell === triggerSymbol).length;
 
-	/**
-	 * HOW MANY free spins the feature awards — the project's tables when it states them
-	 * (`opts.freeSpinsAwards`), else TOTAL_FS on entering and +RETRIGGER_FS on a retrigger, whatever
-	 * the count. A row awards for its own trigger count and up, to the next row; with `random` on, a
-	 * row with a range awards a uniform whole number across it (both ends included).
-	 */
-	const awardTable = (rows, spins) => {
-		const usable = (Array.isArray(rows) ? rows : [])
-			.filter(
-				(row) =>
-					Number.isInteger(row?.count) &&
-					row.count >= 1 &&
-					Number.isInteger(row.spins) &&
-					row.spins >= 1,
-			)
-			.map(({ count, spins: low, maxSpins }) =>
-				Number.isInteger(maxSpins) && maxSpins > low
-					? { count, spins: low, maxSpins }
-					: { count, spins: low },
-			)
-			.sort((a, b) => a.count - b.count);
-		return usable.length ? usable : [{ count: triggerMin, spins }];
-	};
-	const entryAwards = awardTable(opts.freeSpinsAwards?.awards, TOTAL_FS);
-	const retriggerAwards = awardTable(opts.freeSpinsAwards?.retrigger, RETRIGGER_FS);
+	const entryAwards = awardTableOf(opts.freeSpinsAwards?.awards, TOTAL_FS, triggerMin);
+	const retriggerAwards = awardTableOf(opts.freeSpinsAwards?.retrigger, RETRIGGER_FS, triggerMin);
 	const randomAwards = opts.freeSpinsAwards?.random === true;
-	/**
-	 * The row that awards for `landed` trigger symbols: the largest count at or below it, the first
-	 * of them on a tie. Mirrors `game-config`'s `freeSpinsAwardFor` — this file is plain Node and
-	 * cannot import it — and `check:freespins` holds every award dealt here to that function. A
-	 * landing below every row takes the lowest one: a forced or bought round whose trigger symbol is
-	 * never dealt lands none, and a table starting above the trigger is refused by `/config`.
-	 */
-	const awardRowFor = (table, landed) => {
-		let found = null;
-		for (const row of table) {
-			if (row.count <= landed && (!found || row.count > found.count)) found = row;
-		}
-		return found ?? table[0];
-	};
-	/** The spins `landed` trigger symbols win from `table`. The RNG is drawn ONLY for a real range
-	 *  with random awards on, so a game that authored neither deals the stream it always has. */
-	const drawAward = (table, landed) => {
-		const row = awardRowFor(table, landed);
-		const max = randomAwards ? (row.maxSpins ?? row.spins) : row.spins;
-		return max > row.spins ? row.spins + Math.floor(nextRand() * (max - row.spins + 1)) : row.spins;
-	};
+	const drawAward = (table, landed) => drawAwardFrom(table, landed, randomAwards, nextRand);
 	/**
 	 * Emit the cascade presentation fixture on every spin — see the note at its emit site.
 	 *
@@ -1804,12 +1824,13 @@ export function createMockRgs(opts = {}) {
 						pendingRound.bonus.played += 1;
 						pendingRound.bonus.left -= 1;
 						// RETRIGGER: the trigger landing again DURING a free spin awards more spins (the
-						// retrigger table's row for how many landed), added to the remaining count (chaining
-						// without limit). Emitted BEFORE `playedBonusSpin`, so the counter total the client
-						// reads already includes them.
+						// retrigger table's row for how many landed), added to the remaining count — up to
+						// MAX_ROUND_FREE_SPINS for the round; one that would pass it awards nothing. Emitted
+						// BEFORE `playedBonusSpin`, so the counter total the client reads already includes
+						// them.
 						const fsTriggers = triggerCount(fsReels);
-						if (fsTriggers >= triggerMin) {
-							const added = drawAward(retriggerAwards, fsTriggers);
+						const added = fsTriggers >= triggerMin ? drawAward(retriggerAwards, fsTriggers) : 0;
+						if (added > 0 && pendingRound.bonus.total + added <= MAX_ROUND_FREE_SPINS) {
 							pendingRound.bonus.left += added;
 							pendingRound.bonus.total += added;
 							events.push({

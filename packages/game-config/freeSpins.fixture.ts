@@ -13,12 +13,16 @@
 
 import { readFileSync } from 'node:fs';
 import {
+	BOOK_FREE_SPINS_DEFAULTS,
+	MAX_FREE_SPINS_PER_ROUND,
+	MIN_FREE_SPINS_TRIGGER_COUNT,
 	DEFAULT_FREE_SPINS_AWARD,
 	DEFAULT_FREE_SPINS_TRIGGER_COUNT,
 	DEFAULT_RETRIGGER_AWARD,
 	describeFreeSpinsAwards,
 	freeSpinsAwardFor,
 	freeSpinsAwardsAreDefault,
+	freeSpinsDefaultsFor,
 	freeSpinsTriggerIsDefault,
 	normalizeAwardTable,
 	normalizeFreeSpins,
@@ -406,12 +410,56 @@ check(
 	},
 );
 check(
-	'tables that agree with the default store no block at all',
-	normalizeFreeSpins({
-		awards: [{ count: 3, spins: 10 }],
-		retriggerAwards: [{ count: 3, spins: 5 }],
-	}),
+	'an entry table that agrees with the default stores no block at all',
+	normalizeFreeSpins({ awards: [{ count: 3, spins: 10 }] }),
 	undefined,
+);
+// The retrigger default is per KIND (+5 lines, +10 Book-of), which a config does not carry: a +5
+// table stored for a Book-of game must survive a normalize anywhere. `/config` drops a table equal
+// to its kind's default instead.
+check(
+	'a retrigger table is kept whatever it awards (its default depends on the kind)',
+	normalizeFreeSpins({ retriggerAwards: [{ count: 3, spins: 5 }] }),
+	{ retriggerAwards: [{ count: 3, spins: 5 }] },
+);
+
+console.log('\nper-kind defaults — a Book-of game retriggers +10 untold, lines +5');
+check('lines (and any other kind) ⇒ 10 / +5', freeSpinsDefaultsFor('lines'), {
+	award: 10,
+	retrigger: 5,
+});
+check('a custom kind ⇒ 10 / +5', freeSpinsDefaultsFor('myKind'), { award: 10, retrigger: 5 });
+check('bookOf ⇒ 10 / +10', freeSpinsDefaultsFor('bookOf'), { award: 10, retrigger: 10 });
+check(
+	'resolve with the book defaults ⇒ +10 at the trigger count',
+	resolveFreeSpins(doc(), BOOK_FREE_SPINS_DEFAULTS).retriggerAwards,
+	[{ count: 3, spins: 10 }],
+);
+check(
+	'…and with no defaults given, still +5 (every lines caller unchanged)',
+	resolveFreeSpins(doc()).retriggerAwards,
+	[{ count: 3, spins: 5 }],
+);
+check(
+	'a +5 retrigger table departs for a Book-of game',
+	freeSpinsAwardsAreDefault(
+		doc({ freeSpins: { retriggerAwards: [{ count: 3, spins: 5 }] } }),
+		BOOK_FREE_SPINS_DEFAULTS,
+	),
+	false,
+);
+check(
+	'…and is the default for a lines game',
+	freeSpinsAwardsAreDefault(doc({ freeSpins: { retriggerAwards: [{ count: 3, spins: 5 }] } })),
+	true,
+);
+check(
+	'a +10 retrigger table is the default for a Book-of game',
+	freeSpinsAwardsAreDefault(
+		doc({ freeSpins: { retriggerAwards: [{ count: 3, spins: 10 }] } }),
+		BOOK_FREE_SPINS_DEFAULTS,
+	),
+	true,
 );
 const awarded = doc({
 	freeSpins: { randomAwards: true, awards: ranged, retriggerAwards: [{ count: 3, spins: 2 }] },
@@ -513,6 +561,62 @@ check(
 		}),
 	).filter((issue) => issue.path !== 'freeSpins'),
 	[],
+);
+
+console.log('\nbounds — every free-spins round ends');
+check('the round cap is 200', MAX_FREE_SPINS_PER_ROUND, 200);
+check('the trigger floor is 3', MIN_FREE_SPINS_TRIGGER_COUNT, 3);
+check(
+	'a trigger count of 2 ⇒ an error (the feature would retrigger itself without end)',
+	issuesAt(doc({ freeSpins: { triggerCount: 2 } }), 'freeSpins.triggerCount'),
+	['error'],
+);
+check(
+	'…and of 1, for a symbol trigger too',
+	issuesAt(doc({ freeSpins: { triggerSymbol: 'H1', triggerCount: 1 } }), 'freeSpins.triggerCount'),
+	['error'],
+);
+check(
+	'…but not while free spins are off',
+	issuesAt(doc({ freeSpins: { enabled: false, triggerCount: 2 } }), 'freeSpins.triggerCount'),
+	[],
+);
+check(
+	'a row awarding more than the round cap ⇒ an error',
+	issuesAt(doc({ freeSpins: { awards: [{ count: 3, spins: 201 }] } }), 'freeSpins.awards'),
+	['error'],
+);
+check(
+	'…and a range topping out past it',
+	issuesAt(
+		doc({
+			freeSpins: { randomAwards: true, retriggerAwards: [{ count: 3, spins: 5, maxSpins: 260 }] },
+		}),
+		'freeSpins.retriggerAwards',
+	),
+	['error'],
+);
+check(
+	'a row at the cap is fine',
+	issuesAt(doc({ freeSpins: { awards: [{ count: 3, spins: 200 }] } }), 'freeSpins.awards'),
+	[],
+);
+check(
+	'more rows than the board has cells ⇒ an error',
+	issuesAt(
+		doc({
+			freeSpins: {
+				awards: Array.from({ length: 16 }, (_unused, i) => ({ count: 3 + i, spins: 10 + i })),
+			},
+		}),
+		'freeSpins.awards',
+	).includes('error'),
+	true,
+);
+check(
+	'the normalizer keeps a row past the cap, so the save is refused rather than the row lost',
+	normalizeFreeSpins({ awards: [{ count: 3, spins: 999 }] }),
+	{ awards: [{ count: 3, spins: 999 }] },
 );
 
 console.log(failures === 0 ? '\nAll free-spins assertions passed.\n' : `\n${failures} FAILED\n`);
