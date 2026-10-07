@@ -102,6 +102,8 @@ A change that cannot reach a game (docs only, or nothing in the `lines` runtime'
 | 5.3 | Merge with `pipelineMerge` + History + rollback (revert) | director-backend | done (#1074) | A roll back produces a revert that passes the harness |
 | 5.4 | Agents tab: edit definition → branch → evaluation before/after | director-backend + director-frontend | done (#1073) | Evaluation on a fixed reference mockup set; results stored on the change |
 
+| 5.5 | Catalogue tab: the blueprint catalogue agents read (`atlas.list_blueprints`), what is not offered and why, links to edit or add a card | director-frontend + platform-integrator | done (this branch) | Offered = exactly what an agent is served; editing stays in the Atlas Maker's card editor |
+
 **Phase 5 complete.** Backend done (5A #1068, 5.2 #1070, 5.3 #1074), UI done (5.1 #1070, 5.4 #1073).
 
 ## Phase 8 — Blueprint-driven art · ADR-0008 (approved 2026-10-06, all defaults)

@@ -770,4 +770,18 @@
 			failText(res)
 		);
 	};
+
+	// `?card=<id>`: the launcher's Pipeline Changes Catalogue opens this card's
+	// editor. Dropped from the address once read, so a reload does not reopen it.
+	function openFromAddress() {
+		var url = new URL(window.location.href);
+		var id = url.searchParams.get('card');
+		if (!id) return;
+		url.searchParams.delete('card');
+		history.replaceState(history.state, '', url.pathname + url.search + url.hash);
+		if (/^[a-z0-9_]{1,60}$/.test(id)) window.openCardEditor(id);
+	}
+	if (document.readyState === 'loading')
+		document.addEventListener('DOMContentLoaded', openFromAddress);
+	else openFromAddress();
 })();

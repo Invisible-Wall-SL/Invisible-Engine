@@ -3,12 +3,14 @@
 	import { replaceState } from '$app/navigation';
 	import { askConfirm } from '$lib/dialogs.svelte';
 	import { roleLabel } from '$lib/roles';
+	import type { CatalogueView } from '$lib/blueprintCatalogue';
 	import type { AgentDetail, AgentList, AgentSummary } from '$lib/server/pipelineAgents';
 	import type { ChangeDetail, ChangeList, ChangeSummary } from '$lib/server/pipelineChanges';
 	import type { MergeHistory } from '$lib/server/pipelineMerge';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import type { PageData } from './$types';
 	import AgentPanel from './AgentPanel.svelte';
+	import CataloguePanel from './CataloguePanel.svelte';
 	import ChangeDetailPanel from './ChangeDetailPanel.svelte';
 	import HistoryPanel from './HistoryPanel.svelte';
 	import Pill from './Pill.svelte';
@@ -32,11 +34,13 @@
 		{ id: 'changes', label: 'Changes' },
 		{ id: 'agents', label: 'Agents' },
 		{ id: 'history', label: 'History' },
+		{ id: 'catalogue', label: 'Catalogue' },
 	] as const;
 
 	type TabId = (typeof TABS)[number]['id'];
 	const initialAgent = untrack(() => data.agent);
-	let tab = $state<TabId>(initialAgent !== null ? 'agents' : 'changes');
+	const initialTab = untrack(() => data.tab);
+	let tab = $state<TabId>(initialAgent !== null ? 'agents' : (initialTab ?? 'changes'));
 
 	function onTabKeydown(e: KeyboardEvent) {
 		const i = TABS.findIndex((t) => t.id === tab);
@@ -73,6 +77,11 @@
 	/** The open editor holds text that is not yet a change. */
 	let agentPanel = $state<{ isDirty: () => boolean } | null>(null);
 	let agentsStarted = false;
+	let catalogue = $state<CatalogueView | null>(null);
+	let catalogueError = $state<string | null>(null);
+	let catalogueLoading = $state(false);
+	let catalogueShown = false;
+	let catalogueSeq = 0;
 	let refreshing = $state(false);
 	let now = $state(Date.now());
 	let listSeq = 0;
@@ -196,6 +205,25 @@
 		}
 	}
 
+	/** Read each time the Catalogue tab is shown, and with every refresh once it has been. */
+	async function loadCatalogue(): Promise<void> {
+		const seq = ++catalogueSeq;
+		catalogueLoading = true;
+		try {
+			const next = await getJson<CatalogueView>('/api/pipeline/catalogue');
+			if (seq !== catalogueSeq) return;
+			catalogue = next;
+			catalogueError = null;
+		} catch (err) {
+			if (seq === catalogueSeq) catalogueError = errorText(err);
+		} finally {
+			if (seq === catalogueSeq) {
+				catalogueLoading = false;
+				now = Date.now();
+			}
+		}
+	}
+
 	/** The Agents tab reads nothing until it is first shown. */
 	function startAgents(): void {
 		if (agentsStarted) return;
@@ -214,6 +242,7 @@
 				selected === null ? Promise.resolve(true) : loadDetail(selected, detail !== null),
 			];
 			if (historyShown) jobs.push(loadHistory());
+			if (catalogueShown) jobs.push(loadCatalogue());
 			if (tab === 'agents') {
 				jobs.push(
 					loadAgentList(),
@@ -259,9 +288,19 @@
 	/** The address follows the tab that holds a selection; a tab with none leaves it alone. */
 	function showTab(id: TabId): void {
 		tab = id;
+		if (id !== 'catalogue' && window.location.search.includes('tab=catalogue')) {
+			// eslint-disable-next-line svelte/no-navigation-without-resolve
+			replaceState('/pipeline', {});
+		}
 		if (id === 'history') {
 			historyShown = true;
 			void loadHistory();
+		} else if (id === 'catalogue') {
+			catalogueShown = true;
+			void loadCatalogue();
+			// A query on this same route: `resolve()` cannot carry one.
+			// eslint-disable-next-line svelte/no-navigation-without-resolve
+			replaceState('/pipeline?tab=catalogue', {});
 		} else if (id === 'agents') {
 			startAgents();
 			if (selectedAgent !== null) {
@@ -317,6 +356,9 @@
 	function tabLabel(t: (typeof TABS)[number]): string {
 		if (t.id === 'changes' && changeCount !== null) return `Changes · ${changeCount}`;
 		if (t.id === 'history' && history) return `History · ${history.merges.length}`;
+		if (t.id === 'catalogue' && catalogue) {
+			return `Catalogue · ${catalogue.rows.filter((r) => r.offered).length}`;
+		}
 		return t.label;
 	}
 
@@ -324,6 +366,10 @@
 		void loadList();
 		if (selected !== null) void loadDetail(selected, false);
 		if (tab === 'agents') startAgents();
+		if (tab === 'catalogue') {
+			catalogueShown = true;
+			void loadCatalogue();
+		}
 		const timer = setInterval(() => {
 			if (document.visibilityState === 'visible') void refreshAll();
 		}, REFRESH_MS);
@@ -531,6 +577,35 @@
 				</div>
 			{:else if historyLoading}
 				<p class="loading" aria-busy="true">Loading history…</p>
+			{/if}
+		</div>
+
+		<div
+			id="panel-catalogue"
+			role="tabpanel"
+			aria-labelledby="tab-catalogue"
+			hidden={tab !== 'catalogue'}
+			tabindex="0"
+			class="history"
+		>
+			<div class="heading">
+				<h1>Catalogue</h1>
+				<p>
+					The image pipelines Director's agents may use — what <span class="mono"
+						>atlas.list_blueprints</span
+					> serves. A pipeline is offered once its card is reviewed and still matches the blueprint. Edit
+					a card, or add one for a new blueprint (it starts prefilled from the graph), in the Atlas Maker's
+					card editor; changes reach agents within a minute.
+				</p>
+			</div>
+			{#if catalogueError}<div class="error" role="alert">{catalogueError}</div>{/if}
+			{#if catalogue}
+				<CataloguePanel
+					view={catalogue}
+					canOpenAtlas={data.tools.some((t) => t.id === 'atlasTool')}
+				/>
+			{:else if catalogueLoading}
+				<p class="loading" aria-busy="true">Loading the catalogue…</p>
 			{/if}
 		</div>
 

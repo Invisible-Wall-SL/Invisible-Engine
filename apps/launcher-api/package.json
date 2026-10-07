@@ -23,6 +23,8 @@
 		"db:seed": "node scripts/seed.mjs",
 		"gen:game-config-defaults": "tsx scripts/generate-game-config-defaults.ts",
 		"check:game-config-defaults": "tsx scripts/generate-game-config-defaults.ts --check",
+		"precheck:blueprint-catalogue": "node scripts/ensure-svelte-kit.mjs",
+		"check:blueprint-catalogue": "tsx --tsconfig tsconfig.scripts.json scripts/check-blueprint-catalogue.ts",
 		"check:game-bundle-relay": "tsx --tsconfig tsconfig.scripts.json scripts/check-game-bundle-relay.ts",
 		"precheck:launcher-gates": "node scripts/ensure-svelte-kit.mjs",
 		"check:launcher-gates": "tsx --tsconfig tsconfig.scripts.json scripts/check-launcher-gates.ts",

@@ -59,6 +59,19 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+- 2026-10-07 — **Pipeline Changes: the Catalogue tab.** `/pipeline?tab=catalogue` lists every
+  image pipeline atlas-tool knows (`GET /blueprints?kind=image&all=1`, read as the signed-in person
+  with an `api` token, `src/lib/server/blueprintCatalogue.ts` → `/api/pipeline/catalogue`), split
+  into **Offered to agents** (exactly what `atlas.list_blueprints` serves: reviewed, not stale, no
+  problems) and **Not offered** (withheld / stale / draft / no card, each saying why). Each row's
+  **✎ Edit card** / **＋ Add to catalogue** goes to `/atlas?card=<id>`; the launcher forwards
+  `card` (checked against `BLUEPRINT_ID`) and `card-editor.js` opens that card's editor on load,
+  then drops the param. A new card starts prefilled from the graph (`card_view`'s existing
+  `prefill`). No new write path: cards are still saved and reviewed only in the Atlas Maker's
+  editor (CAS, history, review gates unchanged). Pure mapping in `src/lib/blueprintCatalogue.ts`,
+  pinned by `check:blueprint-catalogue` (14 checks, wired into Lint). ⏳ Not yet seen against the
+  live atlas-tool. The atlas-tool side is in [atlas-maker](atlas-maker.md).
+
 - 2026-10-07 — **Director 8D transition closed.** With all three definitions on main (technician,
   artist, coordinator), `TRANSITION_TOOLS`, `transitionProblem`, the Agents tab's
   `transitionTools` rule and the `CLEANUP OWED` notice are gone: every adapter op's allow-list

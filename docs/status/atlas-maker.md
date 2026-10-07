@@ -117,6 +117,10 @@ Works today on `main` / live:
 _Nothing._
 
 ## Recent changes
+- 2026-10-07 — **`?card=<id>` opens a blueprint's card editor.** Used by the launcher's
+  Pipeline Changes Catalogue tab (`/atlas?card=<id>` re-launches and forwards it); `card-editor.js`
+  opens the editor once the page is loaded and removes the param, so a reload does not reopen it.
+  Ids outside the `r2_slug` shape are ignored. Details in [launcher](launcher.md).
 - 2026-10-07 — **Director card 8D, atlas-tool side.** A second line behind the launcher's
   `refusals.ts`: a Director token is refused on `/card/save` (403, before the body is read),
   `/deleteblueprint`, `/rescanblueprintmodels` and `/taxonomy/save`, even with the publish
