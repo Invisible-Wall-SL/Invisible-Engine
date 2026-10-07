@@ -58,7 +58,8 @@
  * 22. a third failure where the Art plan cannot open (the build step; a region batch waiting with
  *     the checkpoint on) tells the owner in the feed, once, what waits for them and when it is asked;
  * 23. a technician revision or an owner edit of a step while it renders is refused, and a render
- *     whose step was replanned anyway still counts its failure against it, once.
+ *     whose step was replanned anyway still counts its failure against it, once;
+ * 24. a render the launcher could not record leaves its step planned, never stuck queued.
  */
 import type {
 	BetaMessage,
@@ -261,13 +262,20 @@ const userId = `${tag}-owner`;
 const TEMPLATE = `${tag}-tpl`;
 let runSeq = 0;
 
-async function newRun(over: { cap?: number; artPlan?: boolean } = {}) {
+async function newRun(
+	over: {
+		cap?: number;
+		artPlan?: boolean;
+		template?: string;
+		stalePreset?: Record<string, string | number>;
+	} = {},
+) {
 	const id = `${tag}-run-${++runSeq}`;
 	const checkpoints = over.artPlan === false ? { artPlan: false } : {};
 	await sql`insert into director_runs (id, project_key, template_project_key, owner_user_id, status,
 			step, budget_cap_usd, checkpoints_json, preset_json)
-		values (${id}, ${`${id}-p`}, ${TEMPLATE}, ${userId}, 'running', 'style_pack', ${over.cap ?? 25},
-			${sql.json(checkpoints)}, ${sql.json({ blueprint: 'sdxl', finalPx: 1024, variantsPerRegion: 3 })})`;
+		values (${id}, ${`${id}-p`}, ${over.template ?? TEMPLATE}, ${userId}, 'running', 'style_pack',
+			${over.cap ?? 25}, ${sql.json(checkpoints)}, ${sql.json(over.stalePreset ?? {})})`;
 	await sql`insert into director_events (run_id, agent, kind, tool, payload_json)
 		values (${id}, 'coordinator', 'activity', 'run.set_plan',
 			${sql.json({ type: 'plan', summary: expected.plan.summary, batches: expected.plan.batches })})`;
@@ -831,6 +839,40 @@ try {
 				text.includes('fallback'),
 			],
 			[true, true, false],
+		);
+	}
+
+	// ── 5b. Without a template default, the fallback is the estimate profiles' ─
+	console.log('5b. a template with no default briefs the profiles fallback; preset_json is unread');
+	{
+		const fresh = await newRun({
+			template: `${tag}-tpl-new`,
+			stalePreset: { blueprint: 'flux', finalPx: 768, variantsPerRegion: 2 },
+		});
+		const model = fakeModel([
+			{
+				content: [use('run.assign_task', { agent: 'atlas-technician', task: 'Plan the recipes.' })],
+			},
+			{ content: [say('Assigned.')] },
+			{ content: [say('Reading the cards.')] },
+		]);
+		await message(fresh, 'coordinator', 'Plan the run.');
+		await drive(fresh, deps(model.transport, fakeLauncher().launcher));
+		const rows = await sql<{ content: { type: string; text?: string }[] }[]>`
+			select content_json as content from director_messages
+			where run_id = ${fresh} and agent = 'atlas-technician' and role = 'user' order by seq limit 1`;
+		const text = (rows[0]?.content ?? []).map((b) => b.text ?? '').join('\n');
+		check(
+			"the technician starts from the profiles' fallback chain, never the run's stored preset",
+			[
+				text.includes('fallback (the estimate profiles)'),
+				text.includes('"pipeline": "sdxl"'),
+				text.includes('"genPx": 1024'),
+				text.includes('"variants": 3'),
+				text.includes('flux'),
+				text.includes('768'),
+			],
+			[true, true, true, true, false, false],
 		);
 	}
 
@@ -1903,6 +1945,38 @@ try {
 		await event(run, 'atlas-technician', 'job_done', failed);
 		await drive(run, deps(fakeModel([]).transport, fakeLauncher().launcher));
 		check('…once, however often its job_done is delivered', (await h1Of(run)).failures, { 1: 3 });
+	}
+
+	// ── 24. A render the launcher could not record holds no step ──────────────
+	console.log('24. a render with no job record leaves its step planned');
+	{
+		const run = await plannedRun({ artPlan: false, cap: 40 });
+		const base = fakeLauncher().launcher;
+		const untracked: Launcher = {
+			catalog: () => base.catalog(),
+			async call(id, body, signal) {
+				const answer = await base.call(id, body, signal);
+				return id === 'atlas.queue_variants' && answer.status === 200
+					? { ...answer, body: { ...(answer.body as object), tracked: false } }
+					: answer;
+			},
+		};
+		await message(run, 'atlas-technician', 'Render H1.');
+		const h1 = await h1Of(run);
+		const queue = use('atlas.queue_variants', {
+			atlas: h1.atlas,
+			regions: ['H1'],
+			variants: h1.steps[0].variants,
+			step: 'H1#1',
+		});
+		await drive(run, deps(fakeModel([{ content: [queue] }]).transport, untracked));
+		await oneMoreVariant(run);
+		const after = await h1Of(run);
+		check(
+			'its step stays planned (no watch could ever settle it), so a revision of it is stored',
+			[after.steps[0].status, after.steps[0].jobRef, after.rev, after.steps[0].variants],
+			['planned', undefined, h1.rev + 1, h1.steps[0].variants + 1],
+		);
 	}
 } finally {
 	await sql`delete from director_template_recipes where template_project_key = ${TEMPLATE}`;

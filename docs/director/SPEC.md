@@ -20,12 +20,11 @@ across the existing tools. The owner reviews at checkpoints, then publishes in G
     - the math contract (`config/config.json`: symbols and payouts, paytable, paylines, bet modes, win model, feature blocks such as `holdAndWin` / `potsOverlay`)
     - the reel strips
     - feature rules
-- **Preset.** The art agents' settings:
-  - the Atlas Maker blueprint (an `_shared/blueprints/<id>` id)
-  - draft and final resolution
-  - variants per region
-  - the RunPod GPU
-  - Presets are saved and reusable ("Save as preset").
+- **Budget cap** for this run, pre-filled from Settings (ADR-0006, ADR-0008 §1). Not built yet:
+  today a run takes the Settings cap when it starts, and the estimate is shown against it. There is
+  no preset: the `atlas-technician` plans each region's recipe from the reviewed blueprint cards,
+  starting from the template's approved default recipes, and the owner approves that plan at the
+  **Art plan** checkpoint. The GPU is atlas-tool's, not a run setting.
 - **Starting point.** Mockups, a style description, or both.
   - Upload one or more PNG/JPG images. Tag each one with a screen (Base game, Hold and Win bonus, Big win, Paytable…) or mark it **Style reference only**.
   - Fidelity: **Match the mockups closely** or **Use them as a starting point**.
@@ -33,6 +32,7 @@ across the existing tools. The owner reviews at checkpoints, then publishes in G
   - Notes / style text. Optional when mockups are uploaded, required when there are none.
 - **Checkpoints.**
   - **Mockup breakdown** (a **style board** when there are no mockups). On by default.
+  - **Art plan** (the recipes per region and their projected GPU cost). On by default.
   - **After each region batch.** On by default.
   - **Before publishing.** Always on and not editable. Agents never publish.
 - **Summary panel:**

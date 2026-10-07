@@ -379,9 +379,9 @@ unregistered:
 - **The `/flow` emitter vocabulary** — without an entry, a project gets the generic default instead of
   the real cue list, and its codegen palette drifts.
 - **The `/flow-v2` node vocabulary and its starter seed** — the vocabulary falls back to the Book-of
-  contract, so a project is offered book surfaces its book events never fire and a symbol set it does
-  not deal; the seed then opens the canvas on validation errors over beats the runtime would never
-  send.
+  contract, so a project is offered book surfaces its book events never fire; the seed then opens
+  the canvas on validation errors over beats the runtime would never send. (Its symbols are not the
+  vocabulary's: every kind's pickers list the project's Game Config symbols.)
 - **A FILLED (art-bearing) reference layout** — without one, a project scaffolds from a bare skeleton
   and is not offered in "Import composed reference". Cheaper than it looks when the type shares the
   reference art: it is the same generator, told a second game type.

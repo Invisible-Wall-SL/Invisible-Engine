@@ -9,6 +9,8 @@ import { loadFlowV2LibraryWithEtag } from '$lib/server/flowV2LibraryStorage';
 import { listComponents } from '$lib/server/componentStorage';
 import { loadDoc } from '$lib/server/editorStorage';
 import { loadGameConfigDocWithEtag } from '$lib/server/gameConfigStorage';
+import { flowSymbolsFrom } from '$lib/server/flowV2Symbols';
+import { projectGameType } from '$lib/server/projects';
 import { flowAddOnsOf, resolveGameModes } from 'game-config';
 import { resolveToolScope } from '$lib/server/toolScope';
 import { projectContainerEvents, syncFlowContainers } from '$lib/flowV2Projection';
@@ -61,9 +63,11 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 	// Loaded BEFORE the flow doc because its `gameType` selects which starter an un-seeded project
 	// opens on (a ways project must not be handed the Book-of flow).
 	// The project's component defs load alongside: the cue harvest below walks the placed ones.
-	const [layout, components] = await Promise.all([
+	// The project's kind as `/config` and `/symbols` resolve it, for the symbol pickers below.
+	const [layout, components, gameType] = await Promise.all([
 		loadDoc(clientKey, projectKey),
 		listComponents({ projectKey }),
+		projectGameType(projectKey),
 	]);
 	const {
 		doc,
@@ -87,8 +91,12 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 	// Inside COMPONENTS too: a cue authored in a placed component, or a placement's signal override.
 	// The Game Config's add-ons count too: a pot signal the game drives on an overlay host is not the
 	// author's to fire.
-	const { doc: configDoc } = await loadGameConfigDocWithEtag(clientKey, projectKey);
+	const storedConfig = await loadGameConfigDocWithEtag(clientKey, projectKey);
+	const configDoc = storedConfig.doc;
 	const addOns = flowAddOnsOf(configDoc);
+	// SYMBOLS — what every symbol picker lists: the config `/config` opens with (saved, else the
+	// kind's template), in play then the pots overlay's coins. One R2 read serves both.
+	const symbols = flowSymbolsFrom(storedConfig, gameType);
 	const sceneCues = collectSceneCueNames(
 		layout.scenes ?? [],
 		components,
@@ -143,5 +151,7 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 		/** The Game Config add-ons (`flowAddOnsOf`) the vocabulary composes in (`withAddOns`), and
 		 *  what "＋ Add overlay steps" grafts. No block ⇒ the kind's vocabulary alone. */
 		addOns,
+		/** The project's symbols (`flowSymbolsFrom`), composed in by `withSymbols`. */
+		symbols,
 	};
 };

@@ -223,15 +223,31 @@ async function callerOf(job: DirectorAtlasJob): Promise<AtlasCaller | null> {
 	return scope ? { run, owner, agent: job.agent, scope } : null;
 }
 
+/** Between the boot re-arms, so a restart does not poll every queued render at once. */
+export const REARM_STAGGER_MS = 2000;
+
 /**
  * Arm the fallback again for every render still queued, at launcher boot. The watches live in the
  * process, so a restart drops them, and a render whose callback is lost would stay queued (holding
  * the region step and a stop) until atlas-tool restarts. Each keeps its window from when the
  * render was queued; one that can no longer be read as its owner is recorded failed when the
- * window passes, never left queued.
+ * window passes, never left queued. One row that cannot be armed leaves the others armed.
  */
-export async function resumeAtlasJobWatches(arm = armWatch): Promise<number> {
+export async function resumeAtlasJobWatches(
+	arm = armWatch,
+	stagger: (i: number) => Promise<void> = (i) =>
+		new Promise((resolve) => setTimeout(resolve, i * REARM_STAGGER_MS).unref()),
+): Promise<number> {
 	const queued = await queuedAtlasJobs();
-	for (const job of queued) arm(job, await callerOf(job));
-	return queued.length;
+	let armed = 0;
+	for (const [i, job] of queued.entries()) {
+		try {
+			await stagger(i);
+			arm(job, await callerOf(job));
+			armed++;
+		} catch (e) {
+			console.error(`director atlas job ${job.jobRef}: not re-armed:`, e);
+		}
+	}
+	return armed;
 }

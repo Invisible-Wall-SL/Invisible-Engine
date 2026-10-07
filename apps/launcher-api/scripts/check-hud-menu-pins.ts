@@ -206,7 +206,7 @@ ok(
 // author can read the autoplay state. Two surfaces have to agree for that: the vocabulary must
 // DECLARE the scalar (the inspector's `$engine` picker lists exactly what it declares) and the
 // validator must RESOLVE it.
-const vocab = standardVocabulary({ templateId: 'lines', symbolNames: ['L1'] });
+const vocab = standardVocabulary({ templateId: 'lines' });
 ok(
 	'the vocabulary declares the autoplay engine values',
 	['isAutoSpinning', 'autoSpinsRemaining'].every((name) =>

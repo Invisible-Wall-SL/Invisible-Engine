@@ -7,11 +7,13 @@ import type { RequestHandler } from './$types';
 /**
  * `POST /api/director/estimate` — the New-game panel's estimate (ADR-0006), before any run exists:
  *
- *   { template, mockups?: <count>, preset?, checkpoints? }
- *   → 200 { estimate: { claude, runpod, total, checkpoints, placeholder }, template, preset, checkpoints }
+ *   { template, mockups?: <count>, checkpoints? }
+ *   → 200 { estimate: { claude, runpod, total, checkpoints, placeholder }, template, chains, checkpoints }
  *
- * Computed from the template's region counts, the mockup count, the preset and the checkpoints
- * through `services/director-worker/estimate-profiles.json` at the current prices. It reads the
+ * Computed from the template's region counts, the mockup count, the checkpoints and each region
+ * group's default chain (the template's approved one, else the profiles' `fallbackRecipe`)
+ * through `services/director-worker/estimate-profiles.json` at the current prices. A body that
+ * still sends the retired `preset` is refused 400 `bad_request`. It reads the
  * template's manifests and nothing else: no RunPod call, no model call, no write. Session-gated
  * on the `director` tool; the template must be one the caller can open.
  */

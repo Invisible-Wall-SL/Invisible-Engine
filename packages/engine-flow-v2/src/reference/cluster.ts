@@ -22,12 +22,6 @@ import type { TemplateVocabulary } from '../types';
 
 import { SYMBOL, INT, list, insertAfter, standardVocabulary } from './standardVocab';
 
-/**
- * `apps/cluster` `config.symbols` keys. A cluster game deals no `L5` and no `H5` — the set is
- * genuinely its own, which is why it is passed in rather than shared with lines.
- */
-const CLUSTER_SYMBOLS = ['H1', 'H2', 'H3', 'H4', 'L1', 'L2', 'L3', 'L4', 'S', 'W'] as const;
-
 /** The cascade book events — the RGS drives each tumble step and the totals that ride along. */
 const CASCADE_EVENTS: TemplateVocabulary['events'] = [
 	{
@@ -90,7 +84,7 @@ const CASCADE_CUES: TemplateVocabulary['cues'] = [
 	{ name: 'tumbleBoardSlideDown', payload: [] },
 ];
 
-const standard = standardVocabulary({ templateId: 'cluster', symbolNames: CLUSTER_SYMBOLS });
+const standard = standardVocabulary({ templateId: 'cluster' });
 
 export const CLUSTER_VOCAB: TemplateVocabulary = {
 	...standard,

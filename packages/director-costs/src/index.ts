@@ -373,6 +373,18 @@ export interface EstimateProfiles {
 		 */
 		secondsPerVariantAt1024: Range;
 	};
+	/**
+	 * The default recipe a region group starts from, and is priced at, before its template has an
+	 * approved one (ADR-0008 §5 "Reuse"): `pipeline` at `genPx` × `variants`, then `process`.
+	 */
+	fallbackRecipe: FallbackRecipe;
+}
+
+export interface FallbackRecipe {
+	pipeline: string;
+	genPx: number;
+	variants: number;
+	process: string;
 }
 
 /** The GPU side as `priceChains` answers it. */
@@ -451,6 +463,29 @@ function profile(value: unknown, path: string): TokenProfile {
 	};
 }
 
+const PIPELINE_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+
+function fallbackRecipe(value: unknown): FallbackRecipe {
+	if (!isRecord(value)) throw new Error('estimate profiles: fallbackRecipe must be an object');
+	for (const key of ['pipeline', 'process'] as const) {
+		if (typeof value[key] !== 'string' || !PIPELINE_ID.test(value[key])) {
+			throw new Error(`estimate profiles: fallbackRecipe.${key} must be a pipeline id`);
+		}
+	}
+	for (const key of ['genPx', 'variants'] as const) {
+		const n = value[key];
+		if (typeof n !== 'number' || !Number.isInteger(n) || n < 1) {
+			throw new Error(`estimate profiles: fallbackRecipe.${key} must be a whole number ≥ 1`);
+		}
+	}
+	return {
+		pipeline: value.pipeline as string,
+		genPx: value.genPx as number,
+		variants: value.variants as number,
+		process: value.process as string,
+	};
+}
+
 function profiles(value: unknown, path: string): TokenProfile[] {
 	if (!Array.isArray(value)) throw new Error(`estimate profiles: ${path} must be a list`);
 	return value.map((v, i) => profile(v, `${path}[${i}]`));
@@ -481,6 +516,7 @@ export function parseEstimateProfiles(raw: unknown): EstimateProfiles {
 				'runpod.secondsPerVariantAt1024',
 			),
 		},
+		fallbackRecipe: fallbackRecipe(raw.fallbackRecipe),
 	};
 }
 

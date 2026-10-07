@@ -78,6 +78,31 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   none opens nothing. ⏳ Not yet seen against the live atlas-tool. The atlas-tool side is in
   [atlas-maker](atlas-maker.md).
 
+- 2026-10-07 — **Invisible Director: the Preset is gone** (ADR-0008 card 8C, stacked on 8D and
+  8E). Inert for a person and for every current game; revertable, no migration.
+  - **New game** loses the Preset card (blueprint, draft/final size, variants, GPU).
+    `/api/director/templates` no longer answers `preset`; a create or estimate body that still
+    sends `preset` is refused `400 bad_request` naming the key, so a stale page fails loudly.
+  - **Nothing reads or writes `director_runs.preset_json`**: the launcher's `runs.ts` (create,
+    estimate, summary, start) and the worker's `store.ts` (`withLease`) and `driver.ts` (the
+    coordinator's brief). New rows take the column's `{}` default; card 8F drops the column.
+  - **The fallback chain** comes from `estimate-profiles.json` `fallbackRecipe`
+    (`sdxl 1024 ×3 → birefnet`, validated by `parseEstimateProfiles`): the estimate prices an atlas
+    with no template default at it, and the worker's `FALLBACK_CHAIN` briefs the technician with
+    the same, labelled "fallback (the estimate profiles)". `presetDefaultChain` is replaced by
+    `fallbackDefaultChain`. The worker image now copies `estimate-profiles.json`.
+  - **Create replay:** the refusal comes after the request-id replay, so a tab open across the
+    deploy that resends a create the old build made gets its run back.
+  - **Deploy:** only when no started run is unended — `check:idle --strict` (new; waiting and
+    paused runs count, and so do drafts still holding a pre-8C preset, which a later start would
+    silently drop). See the deploy skill.
+  - **Open:** the per-run Budget cap input on New game (ADR-0008 §1, owner decision 4) is not
+    built; SPEC §1.1 says so.
+  - Tests: `check:director-runs` 460 (stale `preset` refused on create and estimate, nothing
+    stored or answered; a stale resend is still replayed), `check:recipes` 67, `prove:art-plan` 40 (a stale `preset_json` of
+    flux 768 ×2 is ignored; the brief carries the profiles' chain), `prove:breakdown` 80 (the
+    coordinator's brief names no preset), `prove:idle` 10 (`quiet`, preset drafts).
+
 - 2026-10-07 — **Invisible Director: the Art plan checkpoint, "How this was made" and chain
   pricing** (ADR-0008 card 8E, on top of 8D). Inert for a person and for every current game.
   - **Pricing rules** (`packages/director-costs/src/recipe.ts`): one image of a step costs the
@@ -120,8 +145,8 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   - Tests: `check:director-runs` 468 (estimate per chain, unpriced refusals, start refusal, the
     Art plan actions and edit shapes), `check:director-live` 109 (the fold, the panel's view and
     edits, drafts, licences, how-made, the regions past their retries), worker `check:recipes` 90,
-    `check:run-state` 1390, `check:director-adapters` 441 (the job's steps recorded, boot re-arms
-    the watches), `prove:art-plan` 101 (stale approval, owner edits incl. a group size
+    `check:run-state` 1390, `check:director-adapters` 442 (the job's steps recorded, boot re-arms
+    the watches), `prove:art-plan` 102 (stale approval, owner edits incl. a group size
     edit, a stale and a malformed edit, a failed render queued again, timings measured once, a
     dropped region, re-approval on one pricing basis, a same-price revision that re-opens a
     rendered step, an unreachable launcher, the retry cap with the checkpoint on and off, a third
@@ -129,7 +154,8 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     or during a region batch, an approval of a card that hid a withdrawal, plans the approval
     could not name, the failure count kept through every approval but the owner's at the Art
     plan, the region step held while a render is in flight, an Art plan that cannot open told to
-    the owner once, a rendering step that cannot be revised, a replanned step's render counted).
+    the owner once, a rendering step that cannot be revised, a replanned step's render counted, an untracked
+    render holding no step).
   - **After review** (code-reviewer, four blockers reproduced on the real modules):
     - owner edits are validated against the plan with every edit applied (a group size edit no
       longer refuses itself one region at a time), name the revision they were made on, are
@@ -220,11 +246,15 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     (`GateOutcome.told`): the withdrawal note is posted only when it did not, never on a stopping
     run, and a gate note equal to the run's latest worker note is not posted again. The panel's
     retry line shows only on the Art plan the owner can approve.
+  - **Polish round:** a render the launcher could not record (`tracked: false`) leaves its steps
+    planned, and a revision is refused only while the step's render still has a queued
+    `director_atlas_jobs` row; a worker that meets the schema before migration 0030 counts by the
+    steps that still hold the render, as before (SQLSTATE 42703, in a savepoint, logged); the boot
+    re-arm isolates each row and staggers them 2 s apart.
   - **Deploy:** atlas-tool's `RUNPOD_ENDPOINT_GPU` must be set and priced, or no Director run can
     start (`docs/INFRA.md`). The worker and the launcher go out together: an old worker drops the
     owner's `recipeEdits`, and an old Live run page sends no `recipeRevs`, so every Art plan
-    approval is refused. The launcher lands first: its boot applies `0030_director_job_steps`,
-    which the worker's `settleJob` writes to (a worker on the old schema retries every `job_done`, then pauses the run).
+    approval is refused. Deploy the launcher and the worker together; either order is safe.
   - **Open:** the Atlas Maker card editor does not yet show the measured timings (ADR-0008 §2);
     adding a step, or editing one region of a shared row, goes through "Send my changes"; the cap's
     queued-render projection (`projectQueuedGpu`) still uses the run's mean or the seed, not a

@@ -9,10 +9,8 @@
 		derivePins,
 		deriveGraphPins,
 		graftAddOnSteps,
-		templateVocabulary,
 		validateFlowDoc,
 		validateFunctionDef,
-		withAddOns,
 		assignable,
 		type ContainerEventDecl,
 		type FlowComment,
@@ -27,8 +25,7 @@
 		type PinDir,
 	} from 'engine-flow-v2';
 	import { askConfirm } from '$lib/dialogs.svelte';
-	import { withProjectSounds } from '$lib/soundOptions';
-	import { withSceneCues } from '$lib/sceneCues';
+	import { composeFlowV2Vocab } from '$lib/flowV2Vocab';
 	import { LIBRARY } from './sample';
 	import { MODE_NODES, modeNodeRef, offeredInSection, typeColor } from './palette';
 	import {
@@ -93,7 +90,7 @@
 	//
 	// Its three sound enums are then widened with the project's OWN uploaded sounds, so a cue can be
 	// pointed at one from the inspector. Options only: `validate.ts` tests an enum literal with
-	// `typeof value === 'string'` and never checks membership, so a graph naming a project sound was
+	// `typeof value === 'string'` and never checks a sound's membership, so a graph naming one was
 	// always valid — it just could not be authored. A project with no library gets the vocabulary
 	// back unchanged, object identity included.
 	//
@@ -106,14 +103,18 @@
 	// First of all, the Game Config's ADD-ONS (`data.addOns`) compose their surfaces onto the kind's —
 	// a Hold and Win bonus or the pots overlay on a Book-of project — exactly as the publish gate and
 	// the game do. No add-on block ⇒ the kind's vocabulary, object identity included.
+	//
+	// Then the project's SYMBOLS (`data.symbols`): every symbol picker lists what Invisible Game Config
+	// has in play, then the pots overlay's coins. The kind declares none of its own.
+	//
+	// `composeFlowV2Vocab` is the function the publish gate composes with too.
 	const vocab = $derived(
-		withSceneCues(
-			withProjectSounds(
-				withAddOns(templateVocabulary(doc.templateId), data.addOns),
-				data.soundOptions,
-			),
-			data.sceneCues ?? [],
-		),
+		composeFlowV2Vocab(doc.templateId, {
+			addOns: data.addOns,
+			symbols: data.symbols,
+			sounds: data.soundOptions,
+			sceneCues: data.sceneCues ?? [],
+		}),
 	);
 
 	// §6.1 — the container-event surface (ContainerId → its configured component-event decls). The

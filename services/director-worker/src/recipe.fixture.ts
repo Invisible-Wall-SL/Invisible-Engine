@@ -4,7 +4,7 @@
  *
  * The reference template's 23-region plan (`docs/director/eval/blueprints/expected-art-plan.json`)
  * passes against the fixture catalogue; then each rule is broken on purpose and must be refused
- * with its reason, and the projection, re-approval and preset fallback are pinned.
+ * with its reason, and the projection, re-approval and the estimate profiles' fallback chain are pinned.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -14,8 +14,8 @@ import {
 	carryProgress,
 	chainLine,
 	defaultChainOf,
+	fallbackDefaultChain,
 	needsReapproval,
-	presetDefaultChain,
 	priceChains,
 	project,
 	recipeInputOf,
@@ -31,6 +31,8 @@ import {
 	type StoredRecipe,
 	type ValidationContext,
 } from 'director-costs/recipe';
+import { parseEstimateProfiles } from 'director-costs';
+import { FALLBACK_CHAIN } from './recipes.ts';
 
 let checks = 0;
 let failures = 0;
@@ -46,6 +48,9 @@ const check = (name: string, actual: unknown, expected: unknown) => {
 };
 
 const EVAL = fileURLToPath(new URL('../../../docs/director/eval/blueprints/', import.meta.url));
+const profilesFile = JSON.parse(
+	readFileSync(new URL('../estimate-profiles.json', import.meta.url), 'utf8'),
+) as Record<string, unknown>;
 const catalogue = JSON.parse(readFileSync(`${EVAL}catalogue.json`, 'utf8')) as Catalogue;
 const expected = JSON.parse(readFileSync(`${EVAL}expected-art-plan.json`, 'utf8')) as {
 	plan: { batches: { name: string; regions: string[] }[] };
@@ -336,26 +341,42 @@ check(
 );
 
 check(
-	'the preset fallback chain',
-	presetDefaultChain({ blueprint: 'flux', finalPx: 768, variantsPerRegion: 2 }).map((s) => [
-		s.kind,
-		s.pipeline,
-		s.genPx,
-		s.variants,
-	]),
+	'the fallback chain comes from the estimate profiles',
+	FALLBACK_CHAIN.map((s) => [s.kind, s.pipeline, s.genPx, s.variants]),
+	[
+		['generate', 'sdxl', 1024, 3],
+		['process', 'birefnet', 1024, 1],
+		['finish', '', 0, 0],
+	],
+);
+check(
+	'the fallback chain is built from fallbackRecipe',
+	fallbackDefaultChain({ pipeline: 'flux', genPx: 768, variants: 2, process: 'birefnet' }).map(
+		(s) => [s.kind, s.pipeline, s.genPx, s.variants],
+	),
 	[
 		['generate', 'flux', 768, 2],
 		['process', 'birefnet', 768, 1],
 		['finish', '', 0, 0],
 	],
 );
-check('an empty preset falls back to sdxl 1024 ×3', presetDefaultChain(null)[0], {
-	kind: 'generate',
-	pipeline: 'sdxl',
-	genPx: 1024,
-	variants: 3,
-	settings: [],
-});
+for (const [what, bad] of [
+	['a missing fallbackRecipe', undefined],
+	[
+		'a pipeline that is not an id',
+		{ pipeline: 'SDXL!', genPx: 1024, variants: 3, process: 'birefnet' },
+	],
+	['zero variants', { pipeline: 'sdxl', genPx: 1024, variants: 0, process: 'birefnet' }],
+	['a fractional size', { pipeline: 'sdxl', genPx: 10.5, variants: 3, process: 'birefnet' }],
+] as const) {
+	let refused = false;
+	try {
+		parseEstimateProfiles({ ...profilesFile, fallbackRecipe: bad });
+	} catch {
+		refused = true;
+	}
+	check(`the profiles refuse ${what}`, refused, true);
+}
 
 // Pricing fails closed and measurements only raise a guess (card 8E, ADR-0008 §6).
 const cards = new Map<string, Card>(catalogue.blueprints.map((b) => [b.id, b.card]));

@@ -6,12 +6,12 @@
  * Proved: a running or stopping run blocks the deploy, a waiting or paused one is held, drafts and
  * ended runs are ignored; `pauseForDeploy` asks every running run to pause through the owner's own
  * request, notes the reason on every live run, and the worker's next drive applies the pause so
- * the check turns idle.
+ * the check turns idle; the strict form stays not quiet while a held run is unended.
  */
 import postgres from 'postgres';
 import { parsePricing } from 'director-costs';
 import { readFileSync } from 'node:fs';
-import { idleVerdict, liveRuns, pauseForDeploy } from '../src/idle.ts';
+import { idleVerdict, liveRuns, pauseForDeploy, presetDrafts } from '../src/idle.ts';
 import { driveRun } from '../src/driver.ts';
 import { claimRun } from '../src/lease.ts';
 
@@ -64,8 +64,20 @@ try {
 			running: [`${tag}-running`],
 			stopping: [],
 			held: [`${tag}-paused`, `${tag}-waiting`],
+			presetDrafts: [],
+			quiet: false,
 		},
 	);
+	check('the strict check is quiet only with no started run unended', idleVerdict([]).quiet, true);
+	await sql`insert into director_runs (id, project_key, template_project_key, owner_user_id, status,
+			step, preset_json)
+		values (${`${tag}-old-draft`}, ${`${tag}-old-draft`}, 'tpl', ${userId}, 'draft', 'breakdown',
+			${sql.json({ blueprint: 'flux', finalPx: 768 })})`;
+	const drafts = (await presetDrafts(sql)).filter((id) => id.startsWith(tag));
+	check('a draft the pre-8C screen stored a preset on is listed; a default draft is not', drafts, [
+		`${tag}-old-draft`,
+	]);
+	check('…and keeps the strict check from going quiet', idleVerdict([], drafts).quiet, false);
 	check(
 		'a stopping run blocks too',
 		idleVerdict([{ id: 's', status: 'stopping', step: 'regions', waiting_on: null }]).idle,
@@ -115,7 +127,9 @@ try {
 		{ status: string }[]
 	>`select status from director_runs where id = ${`${tag}-running`}`;
 	check('the worker applies the pause', row.status, 'paused');
-	check('...and the check turns idle', idleVerdict(mine(await liveRuns(sql))).idle, true);
+	const after = idleVerdict(mine(await liveRuns(sql)));
+	check('...and the check turns idle', after.idle, true);
+	check('...but not quiet while runs are held (the strict check, card 8C)', after.quiet, false);
 } finally {
 	await sql`delete from users where id = ${userId}`;
 	await sql.end();
