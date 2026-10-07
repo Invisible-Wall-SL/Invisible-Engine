@@ -47,13 +47,6 @@ with the default.
     atlas people were already seeing, only when the selection is blank or stale. *Suggested
     default:* accept as the one exception to "a Director never writes the config".
 
-17. **Pending keys that alias a real project's folder (from #1085, gap since #1069).**
-    `requireDirectorProjectScope` treats `sunken_temple` as a free pending key, but its R2 folder
-    (`r2Slug`) is the real `sunken-temple`'s, so a pending upload can write into that project's
-    `director/` tree. `createProject` has the same blind spot (`my_game` next to `my-game`). The
-    mockup cleanup refuses such folders. *Suggested default:* a follow-up that refuses any new key
-    whose `r2Slug` matches an existing project's.
-
 18. **Abandoned-mockup sweep scope (from #1085).** Mockups under a deleted client are never swept,
     the sweep has no dry run, and a generic catalogue font name (e.g. "Serif") drops any unhedged
     gap naming it. *Suggested default:* accept all three (the safe side / owner's own catalogue).
@@ -74,7 +67,22 @@ with the default.
     before the verdict posts can be overwritten ("Post approval again" recovers). *Suggested
     default:* accept both.
 
+22. **Re-homing leftovers (from #1090).** `deleteClient` (FK `ON DELETE SET NULL`) moves every
+    project of the deleted client to `unassigned`, where it can land beside a same-slug project;
+    and a pending `my_game` doc followed by a Game Maker `my-game` folds the doc into the new
+    project's `director/` tree (existing behaviour). *Suggested default:* leave both; refuse a
+    client delete that would alias if it ever happens.
+
+23. **Existing folder aliases in production (from #1090).** `pnpm --filter launcher-api
+    list:project-folder-aliases` (read-only) lists projects already sharing an R2 folder; it has
+    not been run against production. *Suggested default:* the owner runs it once; any pair found
+    is resolved by hand (rename or delete one), never by code.
+
 ## Answered
+
+- **2026-10-07: pending keys aliasing a project folder (#1090).** #17 closed as suggested: new
+  keys (create, client re-assign, Director pending keys and run create) can't take a folder
+  another project holds under the same client folder; existing aliases untouched (see 22, 23).
 
 - **2026-10-07: required check source (#1082).** #5 closed: only main's verdict workflow (and the
   launcher's approval) posts `current-games`; pinning the source to an App is the owner's
