@@ -2618,9 +2618,10 @@ check(
 	);
 
 	{
-		// ADR-0008 card 8D's transition: the artist's has ended (its render tools are the technician's);
-		// the coordinator's catalogue is accepted named (the new definition) or not (main's), never more. Both states are built from whichever
-		// definition the tree holds, so this holds before and after the definition PRs land.
+		// ADR-0008 card 8D's transition: the artist's has ended (its render tools are the
+		// technician's); the coordinator's catalogue is accepted named (the new definition) or not
+		// (main's), never more. Both states are built from whichever definition the tree holds, so
+		// this holds before and after the definition PRs land.
 		const agentsDir = fileURLToPath(
 			new URL('../../../services/director-worker/agents/', import.meta.url),
 		);
