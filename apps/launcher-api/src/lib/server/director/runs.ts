@@ -3,12 +3,14 @@ import { DEFAULT_GAME_KIND } from 'constants-shared/gameKinds';
 import { estimateRun, parseEstimateProfiles, type RunEstimate } from 'director-costs';
 import {
 	fallbackDefaultChain,
+	parseStepInput,
 	priceChains,
 	STEP_KINDS,
 	type Card,
 	type ChainGroup,
 	type ChainPrice,
 	type DefaultStep,
+	type StepInput,
 } from 'director-costs/recipe';
 import { PROJECT_KEY_WORDS } from '$lib/projectKey';
 import { roleHasTool } from '$lib/roles';
@@ -530,12 +532,13 @@ const MAX_EDIT_STEPS = 8;
 const MAX_EDITS_BYTES = 64 * 1024;
 
 /**
- * The owner's Art plan edits, checked for SHAPE only: each region's chain whole, as the panel
- * left it. Whether a chain is allowed is the recipe rules' call, made by the worker against the
- * reviewed cards when it applies them (`recipes.ts` `applyRecipeEdits`), with every reason sent
- * back to the owner.
+ * The owner's Art plan edits, checked for SHAPE: each region's chain whole, every step with exactly
+ * a step's fields and types (`parseStepInput`, the parser the worker applies them with), and the
+ * revision it was edited on. Whether a chain is allowed is the recipe rules' call, made by the
+ * worker against the reviewed cards when it applies them (`recipes.ts` `applyRecipeEdits`), with
+ * every reason sent back to the owner.
  */
-function parseRecipeEdits(raw: unknown): { region: string; steps: unknown[] }[] {
+function parseRecipeEdits(raw: unknown): { region: string; rev: number; steps: StepInput[] }[] {
 	const refuse = (why: string) => bad('bad_recipe_edits', why);
 	if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_EDITS) {
 		throw refuse(`recipeEdits is a list of 1 to ${MAX_EDITS} region chains.`);
@@ -548,22 +551,18 @@ function parseRecipeEdits(raw: unknown): { region: string; steps: unknown[] }[] 
 			throw refuse('Each edit names one region, once.');
 		}
 		seen.add(e.region);
+		if (typeof e.rev !== 'number' || !Number.isInteger(e.rev) || e.rev < 1) {
+			throw refuse('Each edit names the revision it was made on.');
+		}
 		if (!Array.isArray(e.steps) || e.steps.length === 0 || e.steps.length > MAX_EDIT_STEPS) {
 			throw refuse(`A chain has 1 to ${MAX_EDIT_STEPS} steps.`);
 		}
-		const kinds: readonly unknown[] = STEP_KINDS;
 		const steps = e.steps.map((step) => {
-			const st = record(step);
-			if (
-				!kinds.includes(st.kind) ||
-				typeof st.pipeline !== 'string' ||
-				!Array.isArray(st.settings)
-			) {
-				throw refuse('Each step has a kind, a pipeline and its settings.');
-			}
-			return st;
+			const parsed = parseStepInput(step);
+			if ('error' in parsed) throw refuse(`${e.region as string}: ${parsed.error}.`);
+			return parsed.step;
 		});
-		return { region: e.region, steps };
+		return { region: e.region, rev: e.rev, steps };
 	});
 }
 
@@ -612,7 +611,7 @@ export async function performOwnerAction(
 	if (req.action === 'approve' || req.action === 'revise') req.checkpoint ??= state.waitingOn!;
 	if (req.checkpoint === 'art_plan' && req.action === 'approve') {
 		// The worker refuses the same; asked here first so the owner hears it at the button.
-		const why = await artPlanApprovalRefusal(run.id, req.recipeRevs);
+		const why = await artPlanApprovalRefusal(user, run, req.recipeRevs);
 		if (why) throw new RunError(409, 'plan_changed', `Refused: ${why}.`);
 	}
 	if (req.recipeEdits && req.checkpoint !== 'art_plan') {
@@ -884,43 +883,54 @@ export interface EstimateAnswer {
 	checkpoints: RunCheckpoints;
 }
 
-const isDefaultChain = (value: unknown): value is DefaultStep[] =>
-	Array.isArray(value) &&
-	value.length > 0 &&
-	value.every(
-		(s) =>
-			typeof s === 'object' &&
-			s !== null &&
-			(STEP_KINDS as readonly unknown[]).includes((s as DefaultStep).kind) &&
-			typeof (s as DefaultStep).pipeline === 'string' &&
-			typeof (s as DefaultStep).genPx === 'number' &&
-			typeof (s as DefaultStep).variants === 'number',
+const isDefaultStep = (s: unknown): s is DefaultStep => {
+	if (typeof s !== 'object' || s === null) return false;
+	const step = s as DefaultStep;
+	if (!(STEP_KINDS as readonly unknown[]).includes(step.kind)) return false;
+	if (typeof step.pipeline !== 'string' || !Array.isArray(step.settings)) return false;
+	if (step.kind === 'finish') return true;
+	// A render step renders something: a size and at least one variant, or it would price at 0 s.
+	return (
+		Number.isInteger(step.genPx) &&
+		step.genPx > 0 &&
+		Number.isInteger(step.variants) &&
+		step.variants >= 1
 	);
+};
+const isDefaultChain = (value: unknown): value is DefaultStep[] =>
+	Array.isArray(value) && value.length > 0 && value.every(isDefaultStep);
 
 const groupKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, '');
 
 /**
- * The chain each atlas of the template is priced at before a plan exists (ADR-0008 §6): the
- * template's approved default for the group of that name, else the fallback the technician is
- * briefed with too (the estimate profiles' `fallbackRecipe`).
+ * The chains each atlas of the template may be priced at before a plan exists (ADR-0008 §6): the
+ * template's approved defaults of the groups whose recipes ran on that atlas (or of a group named
+ * like it), else the fallback the technician is briefed with too (the estimate profiles'
+ * `fallbackRecipe`). An atlas several groups shared is priced at its dearest candidate, so the
+ * estimate errs high: it does not know how the regions split between them.
  */
-export function chainGroupsFor(
+export function chainCandidates(
 	regionGroups: readonly { atlas: string; regions: number }[],
-	defaults: readonly { group: string; version: number; chain: unknown }[],
+	defaults: readonly { group: string; version: number; chain: unknown; atlases: string[] }[],
 	fallback: DefaultStep[],
-): ChainGroup[] {
+): { group: string; regions: number; candidates: ChainGroup[] }[] {
 	return regionGroups
 		.filter((g) => g.regions > 0)
 		.map((g) => {
-			const own = defaults.find((d) => groupKey(d.group) === groupKey(g.atlas));
-			return own && isDefaultChain(own.chain)
-				? {
+			const own = defaults.filter(
+				(d) =>
+					isDefaultChain(d.chain) &&
+					(d.atlases.includes(g.atlas) || groupKey(d.group) === groupKey(g.atlas)),
+			);
+			const candidates: ChainGroup[] = own.length
+				? own.map((d) => ({
 						group: g.atlas,
 						regions: g.regions,
-						chain: own.chain,
-						source: `template default v${own.version}`,
-					}
-				: { group: g.atlas, regions: g.regions, chain: fallback, source: 'fallback' };
+						chain: d.chain as DefaultStep[],
+						source: `template default v${d.version} (${d.group})`,
+					}))
+				: [{ group: g.atlas, regions: g.regions, chain: fallback, source: 'fallback' }];
+			return { group: g.atlas, regions: g.regions, candidates };
 		});
 }
 
@@ -959,19 +969,29 @@ export async function estimateForTemplate(
 	const cards = new Map<string, Card>(
 		(priced.catalogue?.blueprints ?? []).map((b) => [b.id, b.card]),
 	);
+	const facts = {
+		gpu: priced.catalogue?.gpu ?? '',
+		usdPerSecond: priced.catalogue?.usdPerSecond ?? null,
+		timings,
+		seedDelaySeconds: pricing.runpod.seedDelaySecondsPerJob,
+	};
+	const fallbackAt1024 = ESTIMATE_PROFILES.runpod.secondsPerVariantAt1024;
+	const dearest = (candidates: ChainGroup[]): ChainGroup =>
+		candidates.reduce((a, b) =>
+			priceChains([b], cards, facts, fallbackAt1024).seconds.high >
+			priceChains([a], cards, facts, fallbackAt1024).seconds.high
+				? b
+				: a,
+		);
 	const gpu = priceChains(
-		chainGroupsFor(
+		chainCandidates(
 			summary.regionGroups,
 			defaults,
 			fallbackDefaultChain(ESTIMATE_PROFILES.fallbackRecipe),
-		),
+		).map((g) => dearest(g.candidates)),
 		cards,
-		{
-			gpu: priced.catalogue?.gpu ?? '',
-			usdPerSecond: priced.catalogue?.usdPerSecond ?? null,
-			timings,
-		},
-		ESTIMATE_PROFILES.runpod.secondsPerVariantAt1024,
+		facts,
+		fallbackAt1024,
 	);
 	if (priced.error) {
 		// Without the catalogue no card prices anything: the GPU side is not known at all.

@@ -12,7 +12,7 @@ import {
 } from '$lib/agentEdit';
 import type { Effort } from '../../../../../services/director-worker/src/agentDefinition';
 import { createKeyedMutex, createSingleFlight, mapWithConcurrency } from './concurrency';
-import { ADAPTER_OPS, opId } from './director/registry';
+import { ADAPTER_OPS, TRANSITION_TOOLS, opId } from './director/registry';
 import { ENV } from './env';
 import { githubApp, type GithubApp } from './githubApp';
 import { AGENT_FILE } from './pipelineAgentEval';
@@ -191,6 +191,8 @@ export function agentEditRules(name: string): AgentEditRules {
 	const fixed: string[] = [];
 	const other: string[] = [];
 	for (const op of ADAPTER_OPS.values()) {
+		// Either way is fine while a transition entry stands (`TRANSITION_TOOLS`).
+		if (TRANSITION_TOOLS.has(`${opId(op)} ${name}`)) continue;
 		((op.agents as readonly string[]).includes(name) ? fixed : other).push(opId(op));
 	}
 	return {

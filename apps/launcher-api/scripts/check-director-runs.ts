@@ -394,7 +394,7 @@ let clock = 0;
 /** Another request's create lands right after the next draft is inserted (a double submit). */
 let raceOnNextInsert = false;
 /** The template's approved default chains, the measured timings and the plan (card 8E). */
-const DEFAULTS: { group: string; version: number; chain: unknown }[] = [];
+const DEFAULTS: { group: string; version: number; chain: unknown; atlases: string[] }[] = [];
 fake('lib/server/director/store.ts', {
 	templateDefaultChains: async () => DEFAULTS,
 	blueprintTimings: async () => [],
@@ -526,7 +526,7 @@ fake('lib/server/director/artPlan.ts', {
 		CATALOGUE_READS.push({ scope, runId });
 		return catalogueAnswer;
 	},
-	artPlanApprovalRefusal: async (_runId: string, seen: unknown) => {
+	artPlanApprovalRefusal: async (_user: unknown, _run: unknown, seen: unknown) => {
 		APPROVALS_ASKED.push(seen);
 		return approvalRefusal;
 	},
@@ -1365,6 +1365,19 @@ console.log('art plan');
 	const run = runRow();
 	Object.assign(run, { status: 'waiting', step: 'style_pack', waitingOn: 'art_plan' });
 	const revs = { H1: 2, H2: 1 };
+	const GOOD_STEP = {
+		n: 1,
+		kind: 'generate',
+		pipeline: 'flux',
+		atlas: 'symbols',
+		region: 'H1',
+		genPx: 1024,
+		variants: 2,
+		settings: [],
+		style: { source: 'keep', value: '' },
+		shape: { source: 'keep', value: '' },
+		note: '',
+	};
 	approvalRefusal = null;
 	const before = rowsOf(RUN_ID).length;
 	const approved = await act(OWNER, RUN_ID, {
@@ -1435,6 +1448,45 @@ console.log('art plan');
 			},
 			'bad_recipe_edits',
 		],
+		[
+			'an edit with no revision',
+			{ action: 'revise', recipeEdits: [{ region: 'H1', steps: [GOOD_STEP] }] },
+			'bad_recipe_edits',
+		],
+		[
+			'a step with no style',
+			{
+				action: 'revise',
+				recipeEdits: [{ region: 'H1', rev: 1, steps: [{ ...GOOD_STEP, style: null }] }],
+			},
+			'bad_recipe_edits',
+		],
+		[
+			'a setting value that is a number',
+			{
+				action: 'revise',
+				recipeEdits: [
+					{ region: 'H1', rev: 1, steps: [{ ...GOOD_STEP, settings: [{ key: 'k', value: 28 }] }] },
+				],
+			},
+			'bad_recipe_edits',
+		],
+		[
+			'a null setting',
+			{
+				action: 'revise',
+				recipeEdits: [{ region: 'H1', rev: 1, steps: [{ ...GOOD_STEP, settings: [null] }] }],
+			},
+			'bad_recipe_edits',
+		],
+		[
+			'a size that is text',
+			{
+				action: 'revise',
+				recipeEdits: [{ region: 'H1', rev: 1, steps: [{ ...GOOD_STEP, genPx: '1024' }] }],
+			},
+			'bad_recipe_edits',
+		],
 	] as const) {
 		const answer = await act(OWNER, RUN_ID, { ...body, requestId: requestId() });
 		check(`${label} is refused`, [answer.status, answer.body.error], [400, code]);
@@ -1457,19 +1509,37 @@ console.log('art plan');
 	const edited = await act(OWNER, RUN_ID, {
 		action: 'revise',
 		requestId: requestId(),
-		recipeEdits: [{ region: 'H1', steps }],
+		recipeEdits: [{ region: 'H1', rev: 3, steps }],
 	});
 	const editRow = rowsOf(RUN_ID).at(-1)!;
 	check(
-		'edits travel whole on a revise, for the worker to validate',
+		'edits travel whole on a revise, with the revision they were made on',
 		[edited.status, (editRow.payloadJson as { recipeEdits: unknown }).recipeEdits],
-		[200, [{ region: 'H1', steps }]],
+		[200, [{ region: 'H1', rev: 3, steps }]],
+	);
+	const extra = await act(OWNER, RUN_ID, {
+		action: 'revise',
+		requestId: requestId(),
+		recipeEdits: [
+			{ region: 'H1', rev: 3, steps: [{ ...steps[0], jobRef: 'st_0000000000000001' }] },
+		],
+	});
+	check(
+		"…and only a step's own fields travel: a jobRef sent with one is dropped",
+		[
+			extra.status,
+			(
+				(rowsOf(RUN_ID).at(-1)!.payloadJson as { recipeEdits: { steps: object[] }[] })
+					.recipeEdits[0].steps[0] as Record<string, unknown>
+			).jobRef,
+		],
+		[200, undefined],
 	);
 	Object.assign(run, { status: 'waiting', step: 'regions', waitingOn: 'region_batch' });
 	const elsewhere = await act(OWNER, RUN_ID, {
 		action: 'revise',
 		requestId: requestId(),
-		recipeEdits: [{ region: 'H1', steps }],
+		recipeEdits: [{ region: 'H1', rev: 3, steps }],
 	});
 	check(
 		'edits at another checkpoint are refused',
@@ -1692,6 +1762,7 @@ console.log('estimate');
 				{ kind: 'generate', pipeline: 'flux', genPx: 1024, variants: 2, settings: [] },
 				{ kind: 'finish', pipeline: '', genPx: 0, variants: 0, settings: [] },
 			],
+			atlases: [],
 		});
 		const withDefault = await call(estimateRoute.POST, {
 			user: OWNER,
@@ -1705,9 +1776,44 @@ console.log('estimate');
 				group: 'symbols',
 				regions: 11,
 				chain: 'flux 1024 ×2 → finish',
-				source: 'template default v2',
+				source: 'template default v2 (Symbols)',
 				seconds: (withDefault.body.chains as { seconds: unknown }[])[0].seconds,
 			},
+		);
+		// The groups whose recipes ran on an atlas price it, whatever they are called; an atlas
+		// two groups shared is priced at the dearer chain, since the split is not known.
+		DEFAULTS.push(
+			{
+				group: 'UI kit',
+				version: 1,
+				chain: [{ kind: 'generate', pipeline: 'flux', genPx: 1024, variants: 1, settings: [] }],
+				atlases: ['ui'],
+			},
+			{
+				group: 'Win banners',
+				version: 4,
+				chain: [{ kind: 'generate', pipeline: 'flux', genPx: 1536, variants: 4, settings: [] }],
+				atlases: ['ui'],
+			},
+			{
+				group: 'Broken',
+				version: 1,
+				chain: [{ kind: 'generate', pipeline: 'flux', genPx: 0, variants: 0, settings: [] }],
+				atlases: ['ui'],
+			},
+		);
+		const shared = await call(estimateRoute.POST, {
+			user: OWNER,
+			url: '/api/director/estimate',
+			body: { template: 'hw' },
+		});
+		check(
+			'an atlas the groups ran on is priced at the dearest of their chains; a chain that renders nothing is never one',
+			(shared.body.chains as { group: string; source: string }[]).map((c) => [c.group, c.source]),
+			[
+				['symbols', 'template default v2 (Symbols)'],
+				['ui', 'template default v4 (Win banners)'],
+			],
 		);
 		DEFAULTS.length = 0;
 	}
@@ -1838,7 +1944,9 @@ console.log('estimate');
 		[unpricedGpu.total.usd, unpricedGpu.unpriced],
 		[null, ['no GPU']],
 	);
-	// The profiles price each agent at the model its definition names.
+	// The profiles price each agent at the model its definition names. The technician's definition
+	// lands in its own PR (8D's split); until it does, its profile is held to ADR-0008 Appendix A's
+	// model, as `check-director-adapters.ts` holds its tools (`AWAITING_DEFINITION`).
 	const defined: Record<string, string> = {};
 	for (const file of readdirSync(AGENTS_DIR)) {
 		const text = readFileSync(`${AGENTS_DIR}${file}`, 'utf8');
@@ -1846,6 +1954,8 @@ console.log('estimate');
 		const model = /^model:\s*(\S+)/m.exec(text)?.[1];
 		if (name && model) defined[name] = model;
 	}
+	const AWAITING_DEFINITION: Record<string, string> = { 'atlas-technician': 'claude-sonnet-5-5' };
+	for (const [agent, model] of Object.entries(AWAITING_DEFINITION)) defined[agent] ??= model;
 	const profiled = costs.profileModels(profiles);
 	check(
 		'profile models match the agent definitions',

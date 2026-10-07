@@ -32,16 +32,16 @@
  *    writes nothing; every doc written carries the `saved_by` stamp; and each op's own refusals —
  *    Scene nodes bound to the math, source-only unreviewed strings, a font bake that waits for the
  *    owner, a rig rebind that cannot re-time.
- *  - OPEN_QUESTIONS 17: every `createProject` caller — Admin › Projects, Game Maker's create, the
- *    desktop launcher's project sync and the duplicate — answers a key whose R2 folder is another
- *    project's (live or deleted, same client) with a refusal naming that project, and leaves no
- *    row, scaffold or copy behind; Admin's re-assign and the sync's client change refuse the same
- *    move and change nothing. The rule itself is `check-project-create.ts`'s.
  *  - 8D (ADR-0008 §3, §4) the technician's ops against the fake atlas-tool: only reviewed image
  *    cards are listed; `/saveconfig` carries only atlas keys (run_on and off-card keys refused);
  *    `/saveadv` gets the whole card; refs are copied create-only; layers only on a scratch atlas
  *    this run made; `set_output` never over a tile the run did not commit; scratch atlases are
  *    never packed or deployed; and the queue gate renders only approved recipe steps.
+ *  - OPEN_QUESTIONS 17: every `createProject` caller — Admin › Projects, Game Maker's create, the
+ *    desktop launcher's project sync and the duplicate — answers a key whose R2 folder is another
+ *    project's (live or deleted, same client) with a refusal naming that project, and leaves no
+ *    row, scaffold or copy behind; Admin's re-assign and the sync's client change refuse the same
+ *    move and change nothing. The rule itself is `check-project-create.ts`'s.
  */
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -263,6 +263,12 @@ let claims = 0;
 fake('lib/server/director/store.ts', {
 	getRun: async (id: string) => RUNS.get(id) ?? null,
 	runRecipes: async (id: string) => RECIPES.get(id) ?? [],
+	projectOpResults: async (projectKey: string, op: string) =>
+		[...OPS.values()]
+			.filter(
+				(o) => RUNS.get(o.runId)?.projectKey === projectKey && o.op === op && o.status === 'done',
+			)
+			.map((o) => o.result),
 	doneOpResults: async (runId: string, op: string) =>
 		[...OPS.values()]
 			.filter((o) => o.runId === runId && o.op === op && o.status === 'done')
@@ -352,6 +358,7 @@ const { runAdapterCall } = await import(src('lib/server/director/gate.ts'));
 const {
 	ADAPTER_OPS,
 	buildRegistry,
+	TRANSITION_TOOLS,
 	opId: opIdOf,
 } = await import(src('lib/server/director/registry.ts'));
 const { GAMEMAKER_OPS } = await import(src('lib/server/director/ops/gamemaker.ts'));
@@ -1904,6 +1911,14 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		});
 		jobRef = String(queued.body.jobRef);
 		check(
+			'queue_variants answers the recipe steps it matched, for the worker to mark',
+			queued.body.steps,
+			[
+				{ recipe: 'H1', n: 1, region: 'H1' },
+				{ recipe: 'H2', n: 1, region: 'H2' },
+			],
+		);
+		check(
 			'queue_variants answers with a jobRef while the render is still running',
 			[queued.status, /^st_[0-9]{16}$/.test(jobRef), progress.get(jobRef)?.status],
 			[200, true, 'running'],
@@ -2371,6 +2386,11 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			).body.error,
 			'wrong_scope',
 		);
+		// The atlas in the name, then a digest of (atlas, region, id): names can never collide.
+		const variantRef = `refs/director_symbols_${createHash('sha256')
+			.update(['symbols', 'W', '00002'].join('\u0000'))
+			.digest('hex')
+			.slice(0, 12)}.png`;
 		const refs = await tech('set_refs', {
 			atlas: 'symbols',
 			region: 'H1',
@@ -2383,10 +2403,10 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			[
 				refs.status,
 				refs.body.styleRef,
-				R2.has('acme/atl/input/refs/director_symbols_W_00002.png'),
+				R2.has(`acme/atl/input/${variantRef}`),
 				JSON.parse(posted('/saveadv').at(-1)!.body).fields.checkpoint,
 			],
-			[200, 'refs/director_symbols_W_00002.png', true, 'mine.safetensors'],
+			[200, variantRef, true, 'mine.safetensors'],
 		);
 		const again = await tech('set_refs', {
 			atlas: 'symbols',
@@ -2403,6 +2423,20 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 					atlas: 'symbols',
 					region: 'H1',
 					style: { source: 'key', value: 'acme/atl/config/config.json' },
+					shape: { source: 'keep', value: '' },
+					base: await baseOf(),
+				})
+			).body.error,
+			'bad_ref',
+		);
+
+		check(
+			'a mockup crop named by anything but a region is refused before a key is built',
+			(
+				await tech('set_refs', {
+					atlas: 'symbols',
+					region: 'H1',
+					style: { source: 'mockupCrop', value: '../other' },
 					shape: { source: 'keep', value: '' },
 					base: await baseOf(),
 				})
@@ -2557,6 +2591,38 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			],
 			[true, false, false],
 		);
+		// A scratch atlas an earlier run of this project made is a scratch atlas too.
+		R2.set('acme/atl/manifests/atlas_manifest_old_scratch.json', {
+			body: JSON.stringify({ regions: [{ name: 'old_H1' }], saved_by: { rev: 'r' } }),
+			etag: etag(),
+		});
+		OPS.set('rb:dup:1', {
+			opId: 'rb:dup:1',
+			runId: 'rb',
+			agent: 'atlas-technician',
+			op: 'atlas.duplicate_atlas',
+			inputHash: 'x',
+			status: 'done',
+			result: { atlas: 'old_scratch' },
+			createdAt: new Date(),
+			completedAt: new Date(),
+		});
+		check(
+			"another run's scratch atlas is never packed, deployed or given a tile",
+			[
+				(await tech('pack_sheet', { atlas: 'old_scratch' })).body.error,
+				(await tech('deploy_atlas', { atlas: 'old_scratch' })).body.error,
+				(
+					await tech('set_output', {
+						atlas: 'old_scratch',
+						region: 'old_H1',
+						from: { atlas: 'symbols', region: 'W', id: '00002' },
+						base: await baseOf('old_scratch', 'old_H1'),
+					})
+				).body.error,
+			],
+			['scratch_atlas', 'scratch_atlas', 'scratch_atlas'],
+		);
 		const deployed = await tech('deploy_atlas', { atlas: 'symbols' });
 		check(
 			'deploy_atlas deploys a template atlas',
@@ -2573,6 +2639,13 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 				posted('/deployatlas').length,
 			],
 			['deploy_path', 1],
+		);
+		doc2.deploy_path = 'acme/atl';
+		R2.set(MANIFEST, { body: JSON.stringify(doc2), etag: etag() });
+		check(
+			"...nor to the project's root",
+			(await tech('deploy_atlas', { atlas: 'symbols' })).body.error,
+			'deploy_path',
 		);
 		delete doc2.deploy_path;
 		R2.set(MANIFEST, { body: JSON.stringify(doc2), etag: etag() });
@@ -2591,6 +2664,35 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 				JSON.parse(posted('/save').at(-1)!.body)[0].seed,
 			],
 			[200, true, '3'],
+		);
+		const noStep = await tech('queue_variants', { atlas: 'symbols', regions: ['H2'], variants: 3 });
+		check(
+			'the technician must name its recipe step',
+			[noStep.status, noStep.body.error],
+			[400, 'invalid_input'],
+		);
+		RECIPES.set('ra', []);
+		const legacy = await call('atlas', 'queue_variants', {
+			runId: 'ra',
+			agent: 'atlas-artist',
+			opId: 'ra:legacy:1',
+			input: { atlas: 'symbols', regions: ['H2'], variants: 1 },
+		});
+		check(
+			"until its narrowed definition ships, the artist's definition still queues the pre-8D way",
+			[legacy.status, typeof legacy.body.jobRef],
+			[200, 'string'],
+		);
+		const legacyPick = await call('atlas', 'choose_variant', {
+			runId: 'ra',
+			agent: 'atlas-artist',
+			opId: 'ra:legacy:2',
+			input: { atlas: 'symbols', region: 'H2', id: '00002' },
+		});
+		check(
+			"...and picks without `lock`, the region's pin left as it is",
+			[legacyPick.status, legacyPick.body.locked],
+			[200, true],
 		);
 		const unpin = await tech('choose_variant', {
 			atlas: 'symbols',
@@ -3575,10 +3677,16 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		tools.set(name, new Set([...list.matchAll(/-\s+(\S+)/g)].map((m) => m[1])));
 	}
 	const models = DIRECTOR_AGENTS.filter((agent: string) => agent !== 'worker');
+	// ADR-0008 card 8D ships its code before its three agent definitions, each its own PR (one file
+	// per agent-eval run). Until they land, these allow-list entries have no definition naming them:
+	// the technician has no definition yet, the artist still names the four ops it gives up, and the
+	// coordinator does not name the catalogue yet. Remove each entry with the PR that lands it.
+	const AWAITING_DEFINITION = new Set(['atlas-technician']);
+	const TRANSITION = TRANSITION_TOOLS;
 	check(
-		'every runtime agent definition is a known agent',
+		'every runtime agent definition is a known agent, and every known agent but those awaiting theirs has one',
 		[...tools.keys()].sort(),
-		[...models].sort(),
+		models.filter((agent: string) => tools.has(agent) || !AWAITING_DEFINITION.has(agent)).sort(),
 	);
 	const named = [...tools.values()].flatMap((set) => [...set]);
 	check(
@@ -3589,7 +3697,15 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 	for (const op of ADAPTER_OPS.values()) {
 		const id = opIdOf(op);
 		const listing = models.filter((agent: string) => tools.get(agent)?.has(id));
-		const allowed = op.agents.filter((agent: string) => agent !== 'worker');
+		const allowed = op.agents.filter(
+			(agent: string) =>
+				agent !== 'worker' &&
+				(tools.get(agent)?.has(id) ||
+					!(
+						(AWAITING_DEFINITION.has(agent) && !tools.has(agent)) ||
+						TRANSITION.has(`${id} ${agent}`)
+					)),
+		);
 		check(
 			`${id}: the allow-list matches the agents whose tools: name it`,
 			[...allowed].sort(),

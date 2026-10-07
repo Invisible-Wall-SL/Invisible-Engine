@@ -204,7 +204,7 @@ picture on a reload.
 - **Region review** (under the tiles while a batch waits): "TO REVIEW · 1 of 6" with ‹ › to step
   through the batch, the region's name, then **Your mockup** (the crop) beside **Variant A**,
   **Variant B**, **Variant C**… with **Art director's pick** on the one the art director chose,
-  then the **Finished tile** ("In the sheet") once the region's chain has committed it. Click any
+  then the **Finished tile** ("Committed") once the region's chain has committed it. Click any
   image for full size (click or Escape closes it). Under them, **Art director:** the verdict and
   its reason, and **QA:** when QA looked at it. **Your note** is optional for approving and needed
   to redo. **Approve these 6 regions** (or **Approve this region**) approves the whole batch —
@@ -221,10 +221,14 @@ picture on a reload.
   coordinator's summary, **Play draft ↗** (or "No game URL is recorded for this project yet, so
   there is nothing to play."), **Open in Game Maker ↗** and **The agents' link ↗** when the
   checkpoint names one. Your note is optional for approving and needed to send it back.
-  **Licence-flagged art in this build** lists every step of the plan's recipes whose blueprint
-  card's licence is blocked or conditional, grouped by blueprint (blocked first) and naming each
-  region and step ("H1 (step 2)"), for you to check before you publish; with none, a line says
-  so. **Approve and hand off** / **Send back with my note**. "Approving ends the run. Director
+  **Licence-flagged art in this build** lists every step of the plan's recipes, and every step
+  whose art reached the project even if a later plan dropped its region, whose blueprint is
+  blocked or conditional for its licence: the worse of the licence it was planned with and its
+  card's now (a card no longer reviewed counts as conditional). It is grouped by blueprint
+  (blocked first) and names each region and step ("H1 (step 2)"), for you to check before you
+  publish; with none, a line says so. **Approve and hand off** waits until the list is read
+  ("Reading the licence list…"; if it cannot be read, **Try again**). **Approve and hand off** /
+  **Send back with my note**. "Approving ends the run. Director
   never publishes: you do, in Game Maker."
 - **Any other checkpoint:** its name and the agents' text, the note, **Approve** / **Send back
   with my note**. This is also the panel for a breakdown the page could not read.
@@ -239,7 +243,10 @@ picture on a reload.
     or conditional. Beside the title, the plan's GPU projection against what is left of the cap
     ("GPU ~$0.62 · $11.40 left of the cap"), amber when it is more than that: the run will then
     pause for you before the render that crosses it. Every chain is priced again from the current
-    cards and the GPU seconds measured so far.
+    cards and the GPU seconds measured so far. It fails closed: a card whose GPU seconds are a
+    guess is priced at no less than `pricing.json`'s `seedSecondsPerRender` per image, and a
+    pipeline with no measured queue delay yet adds its `seedDelaySecondsPerJob`, so the plan can
+    read well above the New game estimate until real runs are measured.
   - **Edit a row** (an edit applies to every region in it): the pipeline (only reviewed image
     pipelines that fit the step, never one billed in credits; a new pipeline drops the step's
     settings), the size, the variants, a setting under **Settings** within the card's range (left
@@ -248,17 +255,24 @@ picture on a reload.
     under the chain and blocks sending.
   - **Looks right, start rendering** approves the plan as you see it. It is disabled while you
     have unsent edits, while the plan cannot be priced (a red box lists why) and while a planned
-    region has no recipe yet ("Not planned yet: …"). If the plan changed since you saw it, the
-    approval is refused ("the Art plan changed since you saw it") and the plan stays open.
-  - **Send my edits (N regions)** goes to the worker, not to an agent: it checks the edits again,
-    stores them as each region's next revision and brings the plan back for you to approve. If one
-    breaks a rule there, none is stored and Activity lists why; a note sent with them goes to the
-    coordinator. **Discard edits** drops them.
+    region has no recipe yet ("Not planned yet: …"). The plan is priced again when you approve: if
+    it changed since you saw it ("the Art plan changed since you saw it"), or can no longer be
+    priced (a card lost its review, the GPU lost its price, the catalogue cannot be read), the
+    approval is refused and the plan stays open.
+  - **Send my edits (N regions)** goes to the worker, not to an agent: it checks the edits again
+    against the plan with all of them applied (so a size or pipeline change across a whole row
+    passes as a whole), stores them as each region's next revision and brings the plan back for
+    you to approve. Each edit names the revision it was made on: one made on an older revision (a
+    second tab, or a technician's revision since) is refused. If one breaks a rule, none is
+    stored, Activity lists why, and your edits stay on the page to fix. Steps before the first one
+    you changed keep what they already rendered. A note sent with edits is read by the agents once
+    you approve the plan. **Discard edits** drops them.
   - With no edits, **Send my changes** sends your note (required) back to the agents: the atlas
     technician revises the plan and brings it back.
-  - A region a newer coordinator plan leaves out loses its recipe's approval and is listed as
-    "Left out of the plan (never rendered)". A later revision that changes a pipeline or costs
-    more needs your approval again.
+  - A region a newer coordinator plan leaves out loses its recipe's approval and is listed under
+    "Left out of the plan": its recipe no longer renders, and anything it already made stays in
+    the project. A later revision that changes a pipeline or where a step runs, or costs more on
+    today's prices, needs your approval again.
   - Outside the checkpoint — while the technician is still planning, after you approve, or with
     the checkpoint off — the same plan shows read-only below the region panel, folded behind one
     line ("Every recipe is approved · show the recipes", or how many still wait for approval).

@@ -1,6 +1,10 @@
 import type { DirectorPricing } from 'director-costs';
 import {
 	approvalProblem,
+	floorOf,
+	project,
+	type Card,
+	type ProjectionFloor,
 	type CatalogueEntry,
 	type StoredRecipe,
 	type Timing,
@@ -39,6 +43,8 @@ export interface ArtPlanAnswer {
 	catalogue: ArtPlanCatalogue | null;
 	catalogueError: string | null;
 	timings: Timing[];
+	/** What a projection never goes below (`pricing.json`): the seed seconds and the seed delay. */
+	floor: ProjectionFloor;
 }
 
 export const usdPerSecondOf = (pricing: DirectorPricing, gpu: string): number | null =>
@@ -58,7 +64,7 @@ export async function pricedCatalogue(
 ): Promise<{ catalogue: ArtPlanCatalogue | null; error: string | null }> {
 	try {
 		const read = await catalogue({ run: { id: runId }, owner: user, agent: 'worker', scope });
-		const pricing = (await getDirectorPricing()).pricing;
+		const { pricing } = await getDirectorPricing();
 		return {
 			catalogue: { ...read, usdPerSecond: usdPerSecondOf(pricing, read.gpu) },
 			error: null,
@@ -82,15 +88,17 @@ async function plannedRecipes(runId: string) {
 	return { recipes: rows.filter(isRecipe), plan };
 }
 
+const runScope = (run: DirectorRun) => ({
+	clientKey: run.clientKey ?? UNASSIGNED_CLIENT,
+	projectKey: run.projectKey,
+});
+
 export async function artPlanOf(user: User, run: DirectorRun): Promise<ArtPlanAnswer> {
-	const [{ recipes, plan }, timings, priced] = await Promise.all([
+	const [{ recipes, plan }, timings, priced, { pricing }] = await Promise.all([
 		plannedRecipes(run.id),
 		blueprintTimings(),
-		pricedCatalogue(
-			user,
-			{ clientKey: run.clientKey ?? UNASSIGNED_CLIENT, projectKey: run.projectKey },
-			run.id,
-		),
+		pricedCatalogue(user, runScope(run), run.id),
+		getDirectorPricing(),
 	]);
 	const order = [...plan.keys()];
 	const rank = (region: string) => {
@@ -105,11 +113,35 @@ export async function artPlanOf(user: User, run: DirectorRun): Promise<ArtPlanAn
 		catalogue: priced.catalogue,
 		catalogueError: priced.error,
 		timings,
+		floor: floorOf(pricing.runpod),
 	};
 }
 
-/** Why the owner's approval of the Art plan would be refused by the worker, or null. */
-export async function artPlanApprovalRefusal(runId: string, seen: unknown): Promise<string | null> {
-	const { recipes, plan } = await plannedRecipes(runId);
-	return approvalProblem(recipes, new Set(plan.keys()), seen);
+/**
+ * Why the owner's approval of the Art plan would be refused by the worker, or null: the same rule,
+ * every recipe priced again now on the catalogue, the GPU's rate and the timings. No catalogue,
+ * no price: the approval waits for one (money fails closed).
+ */
+export async function artPlanApprovalRefusal(
+	user: User,
+	run: DirectorRun,
+	seen: unknown,
+): Promise<string | null> {
+	const [{ recipes, plan }, timings, priced, { pricing }] = await Promise.all([
+		plannedRecipes(run.id),
+		blueprintTimings(),
+		pricedCatalogue(user, runScope(run), run.id),
+		getDirectorPricing(),
+	]);
+	if (!priced.catalogue) {
+		const why = priced.error ?? 'The blueprint catalogue could not be read.';
+		return `${why} The plan cannot be priced now, so it cannot be approved`;
+	}
+	const basis = {
+		cards: new Map<string, Card>(priced.catalogue.blueprints.map((b) => [b.id, b.card])),
+		usdPerSecond: priced.catalogue.usdPerSecond,
+		timings,
+		floor: floorOf(pricing.runpod),
+	};
+	return approvalProblem(recipes, new Set(plan.keys()), seen, (r) => project(r.steps, basis));
 }

@@ -698,6 +698,22 @@ def director_render_refusal(identity, cfg: dict | None = None) -> str:
             "generation on is 'My computer'. Nothing was started.")
 
 
+def director_deploy_refusal(identity, dest_prefix: str, deploy_root: str) -> str:
+    """Why a Director deploy must not write to `dest_prefix`, or "". A Director
+    run deploys only under the project's `deploy/` (ADR-0008 §4): a manifest
+    `deploy_path` or an asset-map entry naming any other key of the project
+    (or the project root itself) is refused before anything is copied. Nobody
+    else is ever refused here."""
+    if not is_director(identity):
+        return ""
+    dest = str(dest_prefix or "").rstrip("/")
+    root = str(deploy_root or "").rstrip("/")
+    if root and (dest == root or dest.startswith(root + "/")) and ".." not in dest:
+        return ""
+    return (f"✖ A Director run deploys only under {root}/; this atlas would deploy "
+            f"to {dest}. A person sets that target. Nothing was deployed.")
+
+
 def refuse_config_edits(edits: dict, director: bool) -> str:
     """Why a `/saveconfig` must not be applied at all, or "". Checked before
     anything is written, so a refused save changes nothing."""
@@ -10450,6 +10466,10 @@ class Handler(BaseHTTPRequestHandler):
             dest_prefix = raw  # caller gave a fully-qualified key inside the project
         else:
             dest_prefix = f"{base}/{raw}"  # nest the mirrored subpath under deploy/
+        refused = director_deploy_refusal(getattr(self, "_identity", None),
+                                          dest_prefix, base)
+        if refused:
+            return refused
         # PAGE-ONLY MODE — for a Spine target the deploy destination already holds
         # a `<base>.json` that is the SKELETON (~88 KB) plus a `<base>.atlas`; the
         # normal sprite-sheet path would write a TexturePacker `<base>.json` over

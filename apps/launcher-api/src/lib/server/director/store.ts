@@ -84,20 +84,40 @@ export async function blueprintTimings(): Promise<
 		.from(directorBlueprintTimings);
 }
 
-/** A template's latest default chain per region group (`director_template_recipes`). */
+/**
+ * A template's latest default chain per region group (`director_template_recipes`), with the
+ * atlases that group's recipes ran on in the run whose approval wrote it: what lets the New game
+ * estimate price a template atlas at the chain its regions were made with.
+ */
 export async function templateDefaultChains(
 	templateProjectKey: string,
-): Promise<{ group: string; version: number; chain: unknown }[]> {
-	const rows = await getDb()
+): Promise<{ group: string; version: number; chain: unknown; atlases: string[] }[]> {
+	const db = getDb();
+	const rows = await db
 		.selectDistinctOn([directorTemplateRecipes.regionGroup], {
 			group: directorTemplateRecipes.regionGroup,
 			version: directorTemplateRecipes.version,
 			chain: directorTemplateRecipes.chainJson,
+			runId: directorTemplateRecipes.runId,
 		})
 		.from(directorTemplateRecipes)
 		.where(eq(directorTemplateRecipes.templateProjectKey, templateProjectKey))
 		.orderBy(directorTemplateRecipes.regionGroup, desc(directorTemplateRecipes.version));
-	return rows;
+	return Promise.all(
+		rows.map(async ({ runId, ...row }) => {
+			const atlases = await db
+				.selectDistinct({ atlas: sql<string>`${directorRegions.recipeJson}->>'atlas'` })
+				.from(directorRegions)
+				.where(
+					and(
+						eq(directorRegions.runId, runId),
+						eq(directorRegions.regionGroup, row.group),
+						sql`${directorRegions.recipeJson} is not null`,
+					),
+				);
+			return { ...row, atlases: atlases.map((a) => a.atlas).filter(Boolean) };
+		}),
+	);
 }
 
 /** The stored results of this run's finished calls of `op` (`<tool>.<op>`), oldest first. */
@@ -107,6 +127,23 @@ export async function doneOpResults(runId: string, op: string): Promise<unknown[
 		.from(directorOps)
 		.where(
 			and(eq(directorOps.runId, runId), eq(directorOps.op, op), eq(directorOps.status, 'done')),
+		)
+		.orderBy(asc(directorOps.createdAt));
+	return rows.map((r) => r.result);
+}
+
+/** Like `doneOpResults`, over every run of the project `projectKey`. */
+export async function projectOpResults(projectKey: string, op: string): Promise<unknown[]> {
+	const rows = await getDb()
+		.select({ result: directorOps.result })
+		.from(directorOps)
+		.innerJoin(directorRuns, eq(directorRuns.id, directorOps.runId))
+		.where(
+			and(
+				eq(directorRuns.projectKey, projectKey),
+				eq(directorOps.op, op),
+				eq(directorOps.status, 'done'),
+			),
 		)
 		.orderBy(asc(directorOps.createdAt));
 	return rows.map((r) => r.result);
