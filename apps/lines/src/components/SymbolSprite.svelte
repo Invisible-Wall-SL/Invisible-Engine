@@ -33,7 +33,7 @@
 
 <!--
 	Sprite symbols contain-fit the cell by their art (native aspect preserved). No size param.
-	(Spine symbols are shrunk separately via SYMBOL_SPINE_FILL — they read visually bigger.)
+	(rig symbols are shrunk separately via SYMBOL_RIG_FILL — they read visually bigger.)
 -->
 <Sprite
 	x={props.x}

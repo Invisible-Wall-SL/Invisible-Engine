@@ -6,7 +6,7 @@ import type { RequestHandler } from './$types';
 /**
  * Serve the active project's font catalog (`fonts.json`) as the list of fonts the
  * editor can render — each file already routed through the editor-gated
- * `/api/editor/asset` streamer. The font analogue of `/api/editor/spine`.
+ * `/api/editor/asset` streamer. The font analogue of `/api/editor/rig`.
  * Defensive: a project without a synced catalog returns `{ fonts: [] }`, never a
  * 500, so the editor degrades to the system-font fallback.
  */

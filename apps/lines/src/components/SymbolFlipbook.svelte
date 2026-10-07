@@ -8,7 +8,7 @@
 	/**
 	 * A symbol state rendered as an Invisible Flipbook clip — the third binding kind beside
 	 * `sprite` (one frozen frame) and `spine`. Before this, ANY moving Spin/Land/Win had to be a
-	 * Spine skeleton; a frame animation off an atlas is far cheaper.
+	 * Rig skeleton; a frame animation off an atlas is far cheaper.
 	 *
 	 * Mirrors `SymbolSprite`: the same contain-fit against the reel's LIVE cell, so a flipbook
 	 * symbol can never overflow the board mask any more than a sprite one can.
@@ -85,12 +85,12 @@
 
 	/**
 	 * A flipbook symbol state COMPLETES when its clip has played through ONCE — the frame-animation
-	 * analogue of a spine symbol firing `complete` at the end of its win animation (`SymbolSpineMain`),
+	 * analogue of a rig symbol firing `complete` at the end of its win animation (`SymbolRigMain`),
 	 * NOT immediately on mount like `SymbolSprite` (a frozen frame with nothing to play).
 	 *
 	 * `Board.svelte`'s `boardWithAnimateSymbols` sets a winning cell to `win`, AWAITS `oncomplete`,
 	 * then reverts it to `postWinStatic`. Firing `oncomplete` on mount advanced that revert in the
-	 * SAME tick, so the win clip never got to play — the win animation "didn't show" (spine wins were
+	 * SAME tick, so the win clip never got to play — the win animation "didn't show" (rig wins were
 	 * unaffected, which is why Book of Borut worked). Completing after one CYCLE also means a
 	 * `loop:true` win clip can never hang the presentation: the sprite's own looped playback never
 	 * reports completion, so the beat is timed off the clip's length instead of waiting on an event

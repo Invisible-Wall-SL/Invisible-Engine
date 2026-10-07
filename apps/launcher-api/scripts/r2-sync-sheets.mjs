@@ -1,6 +1,6 @@
 // Sync a local sprite-sheet folder to R2 so the Invisible Editor + the Symbols
 // State Machine tool can LIST and PREVIEW its frames. The sibling of
-// `r2-sync-spines.mjs`, for sprite sheets instead of spine bundles.
+// `r2-sync-rigs.mjs`, for sprite sheets instead of rig bundles.
 //
 //   node scripts/r2-sync-sheets.mjs [spritesDir] [client] [project] [--dry-run]
 //

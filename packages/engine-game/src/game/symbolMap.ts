@@ -89,7 +89,7 @@ export function createSymbolMap(deps: SymbolMapDeps) {
 
 	/**
 	 * VESTIGIAL — symbol size no longer comes from a `sizeRatios` param (the render now
-	 * contain-fits each symbol to the cell by its own art; see `SymbolSprite`/`SymbolSpineMain`).
+	 * contain-fits each symbol to the cell by its own art; see `SymbolSprite`/`SymbolRigMain`).
 	 * Kept only so `getSymbolInfo`'s shape is unchanged for any caller that still reads it; the
 	 * returned ratio does NOT affect the rendered size. The reel "Symbol size (× cell)" control
 	 * and `reelGrid.symbolSizeRatios` were removed (owner direction — see

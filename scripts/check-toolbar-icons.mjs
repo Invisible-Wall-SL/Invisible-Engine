@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Guard against the exact bug that shipped once already: the four HTML "twin"
-// tool bars (rigger/spine static view.html + the atlas/sheet Python-served HTML)
+// tool bars (rigger/rig static view.html + the atlas/sheet Python-served HTML)
 // each hand-maintain a COPY of roles.ts `TOOL_ICONS`, keyed by tool id. When a new
 // online tool is added to roles.ts but not to a twin, that tool renders with a
 // blank icon in those bars. This asserts every online tool in the switcher order
@@ -24,7 +24,7 @@ const required = [...stagesBlock.matchAll(/tools:\s*\[([^\]]*)\]/g)].flatMap((m)
 
 const TWINS = [
 	'apps/launcher-api/static/rigger/view.html',
-	'apps/launcher-api/static/spine/view.html',
+	'apps/launcher-api/static/rig-viewer/view.html',
 	'services/atlas-tool/ui_server.py',
 	'services/sheet-tool/ui.html',
 ];

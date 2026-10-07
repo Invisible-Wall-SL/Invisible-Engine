@@ -514,12 +514,12 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 	},
 	{
 		id: 'highlight',
-		title: 'A custom win-frame spine looped over winning symbols.',
+		title: 'A custom win-frame rig looped over winning symbols.',
 		text: (ctx) => (ctx.symbols.highlight ? 'Win-frame highlight' : null),
 	},
 	{
 		id: 'boardGlow',
-		title: 'A custom free-spin board-glow spine behind the reels.',
+		title: 'A custom free-spin board-glow rig behind the reels.',
 		text: (ctx) => (ctx.symbols.boardGlow ? 'Free-spin board glow' : null),
 	},
 	{

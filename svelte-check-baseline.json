@@ -5,7 +5,7 @@
 			"apps/cluster/src/components/Game.svelte": {
 				"ts:2304": 1
 			},
-			"apps/cluster/src/components/SymbolSpineMain.svelte": {
+			"apps/cluster/src/components/SymbolRigMain.svelte": {
 				"ts:2339": 1
 			},
 			"apps/cluster/src/game/debugTools.ts": {
@@ -246,7 +246,7 @@
 				"ts:2322": 1,
 				"ts:2339": 8
 			},
-			"apps/lines/src/components/SymbolSpineMain.svelte": {
+			"apps/lines/src/components/SymbolRigMain.svelte": {
 				"ts:2322": 1,
 				"ts:2339": 1
 			},
@@ -477,7 +477,7 @@
 			"apps/price/src/components/Game.svelte": {
 				"ts:2304": 1
 			},
-			"apps/price/src/components/SymbolSpineMain.svelte": {
+			"apps/price/src/components/SymbolRigMain.svelte": {
 				"ts:2339": 1
 			},
 			"apps/price/src/game/debugTools.ts": {
@@ -640,7 +640,7 @@
 			"apps/scatter/src/components/Game.svelte": {
 				"ts:2304": 1
 			},
-			"apps/scatter/src/components/SymbolSpineMain.svelte": {
+			"apps/scatter/src/components/SymbolRigMain.svelte": {
 				"ts:2339": 1
 			},
 			"apps/scatter/src/game/debugTools.ts": {
@@ -791,7 +791,7 @@
 			"apps/ways/src/components/Game.svelte": {
 				"ts:2304": 1
 			},
-			"apps/ways/src/components/SymbolSpineMain.svelte": {
+			"apps/ways/src/components/SymbolRigMain.svelte": {
 				"ts:2339": 1
 			},
 			"apps/ways/src/game/debugTools.ts": {
@@ -970,7 +970,7 @@
 			"packages/components-shared/src/components/EnableHotkey.svelte": {
 				"ts:2339": 1
 			},
-			"packages/components-shared/src/components/LoaderSpine.svelte": {
+			"packages/components-shared/src/components/LoaderRig.svelte": {
 				"ts:2339": 1
 			},
 			"packages/pixi-svelte/src/lib/index.ts": {
@@ -1013,13 +1013,13 @@
 			"packages/pixi-svelte/src/lib/index.ts": {
 				"ts:2308": 1
 			},
-			"packages/pixi-svelte/src/lib/spineBacking.ts": {
+			"packages/pixi-svelte/src/lib/rigBacking.ts": {
 				"ts:2694": 2
 			},
-			"packages/pixi-svelte/src/lib/spineBounds.ts": {
+			"packages/pixi-svelte/src/lib/rigBounds.ts": {
 				"ts:2694": 2
 			},
-			"packages/pixi-svelte/src/lib/spineLocale.ts": {
+			"packages/pixi-svelte/src/lib/rigLocale.ts": {
 				"ts:2694": 1
 			},
 			"packages/pixi-svelte/src/lib/types.ts": {
@@ -1145,7 +1145,7 @@
 			"packages/engine-layout/scopedFrameRef.fixture.ts": {
 				"ts:2580": 1
 			},
-			"packages/engine-layout/scripts/gen-builtin-spines.mjs": {
+			"packages/engine-layout/scripts/gen-builtin-rigs.mjs": {
 				"ts:1378": 3,
 				"ts:2307": 4,
 				"ts:2339": 2,
@@ -1277,16 +1277,16 @@
 			"packages/pixi-svelte/fixtures/introRevealRetrigger.fixture.ts": {
 				"ts:2307": 1
 			},
+			"packages/pixi-svelte/fixtures/rigBox.fixture.ts": {
+				"ts:2307": 1
+			},
+			"packages/pixi-svelte/fixtures/rigSlotHost.fixture.ts": {
+				"ts:2307": 1
+			},
+			"packages/pixi-svelte/fixtures/rigTrackReplay.fixture.ts": {
+				"ts:2307": 1
+			},
 			"packages/pixi-svelte/fixtures/riggedBeat.fixture.ts": {
-				"ts:2307": 1
-			},
-			"packages/pixi-svelte/fixtures/spineBox.fixture.ts": {
-				"ts:2307": 1
-			},
-			"packages/pixi-svelte/fixtures/spineSlotHost.fixture.ts": {
-				"ts:2307": 1
-			},
-			"packages/pixi-svelte/fixtures/spineTrackReplay.fixture.ts": {
 				"ts:2307": 1
 			},
 			"packages/pixi-svelte/src/lib/components/AnimatedSprite.svelte": {

@@ -7,7 +7,13 @@ import {
 	type LayoutDoc,
 } from 'engine-layout';
 import { DEFAULT_GAME_KIND } from 'constants-shared/gameKinds';
-import { resolveBetModes, resolveGrid, resolveWinLevels, type GameConfigDoc } from 'game-config';
+import {
+	resolveBetModes,
+	resolveGameModes,
+	resolveGrid,
+	resolveWinLevels,
+	type GameConfigDoc,
+} from 'game-config';
 import type { RepeaterSourceMap, RepeaterSourcePreview } from './editorCanvas.helpers';
 import {
 	AUTO_SPINS_TEXT_OPTIONS,
@@ -39,7 +45,7 @@ import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
- * The editor is a client-only canvas/WebGL app (pixi-like 2D canvas + a spine
+ * The editor is a client-only canvas/WebGL app (pixi-like 2D canvas + a rig
  * WebGL preview). Server-rendering it is pointless AND fragile — certain saved
  * docs made the SSR render throw a 500 even though the `load` data was fine.
  * Disable SSR: `load` still runs server-side (data flows to the client), only
@@ -158,7 +164,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	const { doc: gameConfigDoc } = await resolveGameConfig(clientKey, projectKey, resolvedGameType);
 	const gridDimensions = gridDimensionsOf(gameConfigDoc);
 	const { addOns, potIds } = projectAddOns(gameConfigDoc);
-	// The `win` component authors its per-tier PRESENTATION (spine/animations/duration/sound) from the
+	// The `win` component authors its per-tier PRESENTATION (rig/animations/duration/sound) from the
 	// config's BIG tiers, keyed by alias — so the component's groups mirror the config. Null when the
 	// project hasn't authored `winLevels` ⇒ the client keeps the built-in default tiers (byte-identical).
 	const winTiers = gameConfigDoc
@@ -280,6 +286,10 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		// Per-source SAMPLE data for `repeater` placeholders (currently `featureCards` → the config's
 		// non-default bet modes). Empty ⇒ every repeater keeps its fixed fallback sample (parity).
 		repeaterSources,
+		// The names the Game Config gives the project's game modes, for In-game view's mode menu.
+		gameModeLabels: Object.fromEntries(
+			resolveGameModes(gameConfigDoc ?? undefined).map((mode) => [mode.id, mode.label ?? mode.id]),
+		),
 	};
 };
 

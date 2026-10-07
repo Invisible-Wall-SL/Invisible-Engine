@@ -10,7 +10,7 @@ import type { RequestHandler } from './$types';
 
 /**
  * Auth-gated static serving for published storybook builds (the same serve-from-R2
- * model as the Spine Viewer's `/spine/file`, but path-shaped: a storybook's
+ * model as the Rig Viewer's `/rig-viewer/file`, but path-shaped: a storybook's
  * internal links are RELATIVE, so `/storybook/view/<id>/index.html` must find its
  * siblings — `iframe.html`, `assets/…` — at the same URL directory).
  */

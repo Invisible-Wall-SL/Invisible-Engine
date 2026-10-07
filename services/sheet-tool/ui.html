@@ -347,7 +347,7 @@
       <div class="card">
         <h2>Save</h2>
         <div class="field"><label>AI manifest</label><input type="checkbox" id="f_manifest" checked></div>
-        <div class="field"><label>libGDX / Spine .atlas</label><input type="checkbox" id="f_libgdx" checked></div>
+        <div class="field"><label>libGDX / Spine-format .atlas</label><input type="checkbox" id="f_libgdx" checked></div>
         <div class="field"><label>TexturePacker JSON</label><input type="checkbox" id="f_tp" checked></div>
         <button class="wide" onclick="doSave()" title="Overwrites the loaded sheet in place (PNG/.atlas/JSON/manifest, incl. R2) — asks first. New sheets save as a new copy.">Save</button>
         <button class="sec wide" onclick="doSaveAs()" title="Writes a new copy under the current name — asks first if a sheet of that name already exists.">Save As (new copy)</button>
@@ -634,7 +634,7 @@ function setBrowseMode(m){
 }
 function updateBrowseHint(){
   $('browsehint').textContent = browseMode==='import'
-    ? 'Browse the whole project (input/, sheets/, spines, …) — open any .atlas / TexturePacker JSON / manifest. Save As to keep as a project.'
+    ? 'Browse the whole project (input/, sheets/, spines/, …) — open any .atlas / TexturePacker JSON / manifest. Save As to keep as a project.'
     : 'Open a saved project (atlas_manifest_*.json). Defaults to the project root.';
 }
 

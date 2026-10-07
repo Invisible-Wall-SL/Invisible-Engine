@@ -226,7 +226,7 @@ export const BOOK_OF_CHOREO: Record<string, ChoreoStep[]> = {
 	// `setTotalWin` — set the win-meter amount.
 	setTotalWin: [{ k: 'action', ref: 'setWinBookEventAmount', inputs: { amount: trig('amount') } }],
 
-	// `setExpandingSymbol` — set the special symbol, then await the reveal spine.
+	// `setExpandingSymbol` — set the special symbol, then await the reveal rig.
 	setExpandingSymbol: [
 		{ k: 'action', ref: 'setSpecialSymbol', inputs: { symbol: trig('symbol') } },
 		{ k: 'cue', ref: 'specialBookReveal', wait: true, inputs: { symbol: trig('symbol') } },

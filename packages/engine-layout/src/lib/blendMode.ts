@@ -59,10 +59,10 @@ export const BLEND_MODE_LABELS: Record<BlendMode, string> = {
  * two can't disagree about what blends.
  *
  * `spine` is absent deliberately. A Pixi blend cannot reach skeleton geometry:
- * `SpinePipe.addRenderable` batches every slot carrying the SLOT's own blend and never calls
- * `renderPipes.blendMode`, nor reads `groupBlendMode` — so neither `spine.blendMode` nor a blended
- * wrapper container does anything. Verified in a running game: `multiply` on a spine node renders
- * pixel-identical to `normal`. Spine art blends PER SLOT, authored in the Rigger (Spine's format
+ * `RigPipe.addRenderable` batches every slot carrying the SLOT's own blend and never calls
+ * `renderPipes.blendMode`, nor reads `groupBlendMode` — so neither `rig.blendMode` nor a blended
+ * wrapper container does anything. Verified in a running game: `multiply` on a rig node renders
+ * pixel-identical to `normal`. Rig art blends PER SLOT, authored in the Rigger (rig's format
  * offers normal/additive/multiply/screen only — no `overlay`, no `lighten`).
  *
  * `text`, `rect` and `container` are absent because the editor renders them on surfaces its blend
@@ -72,7 +72,7 @@ export const BLENDABLE_KINDS = ['sprite', 'flipbook', 'effect'] as const;
 
 /** True when a node of this kind blends in the GAME — see {@link BLENDABLE_KINDS}. A stored
  * `blendMode` on any other kind is ignored rather than honoured, so an old doc that saved one
- * (e.g. on a spine, when the control was briefly offered there) renders exactly as the game does. */
+ * (e.g. on a rig, when the control was briefly offered there) renders exactly as the game does. */
 export function canBlendKind(kind: string | undefined): boolean {
 	return (BLENDABLE_KINDS as readonly string[]).includes(kind ?? '');
 }
@@ -86,7 +86,7 @@ export function canBlendKind(kind: string | undefined): boolean {
  * decides whether to offer the control) and the game's `SymbolLayer.svelte` (which decides whether
  * to honour a stored one) cannot disagree — the same one-definition rule the editor's
  * `supportsBlend` follows. `spine` is excluded here for exactly the reason it is there: a Pixi
- * blend cannot reach skeleton geometry, so a blended spine layer would render identically to an
+ * blend cannot reach skeleton geometry, so a blended rig layer would render identically to an
  * unblended one and the control would be a lie.
  */
 export function canBlendLayerKind(kind: string | undefined): boolean {
@@ -121,7 +121,7 @@ export function canvasCompositeOp(mode: BlendMode | undefined): GlobalCompositeO
 }
 
 /**
- * The CSS `mix-blend-mode` value for a mode — how the editor's WebGL overlays (spine, FX)
+ * The CSS `mix-blend-mode` value for a mode — how the editor's WebGL overlays (rig, FX)
  * blend against the art beneath them. They render into their own transparent canvas, so
  * blending has to happen at COMPOSITE time on the element, not inside the overlay: a rig
  * set to `add` blended against its own empty backdrop is a no-op, which is exactly the

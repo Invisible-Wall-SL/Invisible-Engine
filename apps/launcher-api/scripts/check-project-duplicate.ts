@@ -131,7 +131,7 @@ const PROJECT_FILES: Record<string, string> = {
 	'sheets/S_Reels/page.png': 'SHEET-bytes',
 	'spines/hero/hero.json': '{"skeleton":{}}',
 	'spines/hero/hero.atlas': 'hero.png\nsize: 4,4',
-	'spines/hero/hero.png': 'SPINE-bytes',
+	'spines/hero/hero.png': 'RIG-bytes',
 	'fonts/fonts.json': '{"fonts":[]}',
 	'fonts/goldFont/gold.fnt': 'FONT-bytes',
 	'sounds/sounds.json': '{"sounds":[]}',

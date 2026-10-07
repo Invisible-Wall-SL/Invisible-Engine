@@ -27,7 +27,7 @@
  * the plain spinning frame, i.e. byte-identical to before.
  */
 
-import type { ButtonStateAnimations, SpineStateAnimation } from './types';
+import type { ButtonStateAnimations, RigStateAnimation } from './types';
 
 export interface ButtonStateFlags {
 	hovered: boolean;
@@ -50,7 +50,7 @@ export type ButtonVisualState =
 
 /**
  * The shared button-state cascade, parameterised over the looked-up value type so
- * BOTH state flavours (per-state IMAGE and per-state spine ANIMATION) resolve through
+ * BOTH state flavours (per-state IMAGE and per-state rig ANIMATION) resolve through
  * ONE function and can't drift. `get(state)` returns the authored value for a state
  * (or `undefined` when that state is unmapped). Cascade: spinning → disabled →
  * pressed (→hover→selected) → hovered (→selected) → active(selected). Returns
@@ -83,7 +83,7 @@ export function resolveButtonState<T>(
  * order the editor lists them (hover → pressed → selected → downstate → spinning →
  * stop hover → stop pressed). The resting state (`image` / `defaultAnimation`) is
  * the caller's fallback, not an entry here. Both authoring surfaces — the per-state
- * IMAGE picker AND the per-state spine ANIMATION picker — derive their lists from
+ * IMAGE picker AND the per-state rig ANIMATION picker — derive their lists from
  * this array so a newly added state can't reach one surface without the other
  * (8a2573a added the three `imageSpinning*` states to the cascade + built-in def but
  * MISSED the authored-def picker; the anim UI in turn lacked the two `spinning*`
@@ -154,7 +154,7 @@ export function resolveButtonStateImage(
 }
 
 /**
- * The spine-animation sibling of {@link resolveButtonStateImage}: resolve the current
+ * The rig-animation sibling of {@link resolveButtonStateImage}: resolve the current
  * interaction state to a `{ animation, loop }` from the node's `stateAnimations` map,
  * through the SAME cascade. An entry with an empty `animation` normalises to unset (a
  * cleared editor field behaves like an absent state). Returns `undefined` when the
@@ -163,7 +163,7 @@ export function resolveButtonStateImage(
 export function resolveButtonStateAnimation(
 	anims: ButtonStateAnimations | undefined,
 	state: ButtonStateFlags,
-): SpineStateAnimation | undefined {
+): RigStateAnimation | undefined {
 	if (!anims) return undefined;
 	return resolveButtonState((s) => {
 		const entry = anims[s];
@@ -179,7 +179,7 @@ export function resolveButtonStateAnimation(
  * field). Returns `undefined` when the merged result is empty so a button with
  * neither a def map nor an override stays byte-identical to today. Used by
  * `<ComponentInstance>` so a placement can drive different state animations than
- * the def declares (the spine analogue of overriding `imageHover`/… per instance).
+ * the def declares (the rig analogue of overriding `imageHover`/… per instance).
  */
 export function mergeButtonStateAnimations(
 	base: ButtonStateAnimations | undefined,

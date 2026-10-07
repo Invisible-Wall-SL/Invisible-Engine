@@ -1,4 +1,5 @@
 import { clampDirectorBudget } from 'director-costs';
+import type { StepInput } from 'director-costs/recipe';
 import type { DirectorRun } from '../db/schema';
 import {
 	checkpointSettings,
@@ -57,6 +58,12 @@ export interface OwnerActionRequest {
 	text?: string;
 	/** resume: the cap raised to this, within Settings' bounds; never lowered. */
 	budgetCapUsd?: number;
+	/** approve `art_plan`: the revision of every recipe the owner saw, by region. The worker
+	 *  refuses the approval when any differs, so a changed plan never runs on it. */
+	recipeRevs?: Record<string, number>;
+	/** revise `art_plan`: the owner's edited chains, each region's steps whole with the revision it
+	 *  was edited on, for the worker to validate and store as the next revisions (ADR-0008 §5). */
+	recipeEdits?: { region: string; rev: number; steps: StepInput[] }[];
 }
 
 /** The state-machine view of a stored run, as the worker reads it (`lease.ts` `toClaimed`). */
@@ -155,6 +162,8 @@ export function ownerEventRow(req: OwnerActionRequest, by: Stamp): OwnerEventRow
 					checkpoint: req.checkpoint,
 					decision: req.action,
 					...(req.note ? { note: req.note } : {}),
+					...(req.recipeRevs ? { recipeRevs: req.recipeRevs } : {}),
+					...(req.recipeEdits ? { recipeEdits: req.recipeEdits } : {}),
 				},
 			};
 	}

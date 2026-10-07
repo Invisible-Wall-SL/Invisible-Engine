@@ -59,7 +59,7 @@ this replaces (`loadedAudio.sprite[name]`) had the same hole.
   ETag-guarded read-modify-write shared by every author, a file is write-once immutable content.
   Holds the extension whitelist → content-type map, `soundExtension`, `mintSoundId`,
   `presignSoundUpload` / `getSoundFile`, and `parseRange`.
-- **`soundAccess.ts`** — `requireSoundAccess`, shared by both routes (mirroring `spine.ts`), so a
+- **`soundAccess.ts`** — `requireSoundAccess`, shared by both routes (mirroring `rig.ts`), so a
   second route cannot ship a slightly different gate. The `?project=` scope is the launcher-wide
   `requireProjectScope` (`toolScope.ts`) since 2026-09-28, which refuses a project the user cannot
   access.
@@ -428,7 +428,7 @@ the pickers are gone from `/config`, `/symbols` and the Scene Editor.
   upload") — because the truncated stream makes `request.formData()` reject, so the handler reported
   a parse failure and never saw a size. Every sound past a short blip therefore failed under a
   message pointing at the wrong thing, and the handler's own 25 MB cap was unreachable. This is the
-  exact wall the font, spine and flipbook imports already route around, and the fix is theirs: the
+  exact wall the font, rig and flipbook imports already route around, and the fix is theirs: the
   endpoint MINTS a presigned PUT (`presignSoundUpload`, 10 min TTL) and the browser uploads straight
   to R2. `putSoundFile` went with it — nothing else called it. `MAX_SOUND_BYTES` moved to
   `engine-layout`, so the page, the message and the mint endpoint share one number instead of the

@@ -14,7 +14,7 @@
  */
 
 import { isValidSoundFile } from 'engine-layout';
-import { BUNDLE_SEGMENT_RE } from '$lib/spineBundleKey';
+import { BUNDLE_SEGMENT_RE } from '$lib/rigBundleKey';
 
 export const UNASSIGNED_CLIENT = 'unassigned';
 
@@ -100,8 +100,8 @@ export function publishedPointerKey(client: string, project: string): string {
 /** The engine reference Storybook (apps/lines), outside any single project. */
 export const SHARED_ENGINE_STORYBOOK_PREFIX = '_shared/storybook/engine';
 
-/** Cross-project shared spines, outside any single project: `_shared/spines/<bundle>`. */
-export const sharedSpinesPrefix = (bundle: string) => `_shared/spines/${bundle}`;
+/** Cross-project shared rigs, outside any single project: `_shared/spines/<bundle>`. */
+export const sharedRigBundlePrefix = (bundle: string) => `_shared/spines/${bundle}`;
 
 /**
  * Cross-project shared SHEETS, outside any single project: `_shared/sheets/<folder>`.
@@ -271,7 +271,7 @@ export function editorDocKey(client: string, project: string): string {
  * docs is PUT whole — most of them by an autosave — so without the backups a bad edit, a bad
  * reference/scaffold load, an accepted "overwrite theirs" or a restore of the wrong thing is
  * UNRECOVERABLE (the Scene Editor's documented fallback was scavenging a `/api/editor/runtime`
- * dump and un-rewriting its spine keys).
+ * dump and un-rewriting its rig keys).
  */
 export type DocBackupStem = 'scenes' | 'flow-v2' | 'symbols' | 'config' | 'component-defaults';
 
@@ -607,29 +607,29 @@ export function sheetConfigKey(client: string, project: string): string {
 }
 
 /** Bundles can be nested folders (e.g. `loader/sub`); reject parent escapes only.
- * Spine folder names are legitimately camelCase (`foregroundAnimation`, `fsIntro`),
+ * Rig folder names are legitimately camelCase (`foregroundAnimation`, `fsIntro`),
  * so allow upper + lower case — the safety is the no-`..`/no-`/` checks, not case.
- * The segment rule itself lives with `parseSpineBundleKey`, which reads these paths
+ * The segment rule itself lives with `parseRigBundleKey`, which reads these paths
  * back, so the writer and the reader cannot drift apart. */
 function assertBundle(value: string): void {
 	if (!value || value.includes('..') || value.startsWith('/') || value.endsWith('/')) {
-		throw new Error(`Invalid spine bundle: ${JSON.stringify(value)}`);
+		throw new Error(`Invalid rig bundle: ${JSON.stringify(value)}`);
 	}
 	for (const seg of value.split('/')) {
 		if (!BUNDLE_SEGMENT_RE.test(seg)) {
-			throw new Error(`Invalid spine bundle segment: ${JSON.stringify(seg)}`);
+			throw new Error(`Invalid rig bundle segment: ${JSON.stringify(seg)}`);
 		}
 	}
 }
 
-/** Per-project spine bundle prefix, e.g. `borut/bookofborut/spines/loader`. */
-export function spineBundlePath(client: string, project: string, bundle: string): string {
+/** Per-project rig bundle prefix, e.g. `borut/bookofborut/spines/loader`. */
+export function rigBundlePath(client: string, project: string, bundle: string): string {
 	assertBundle(bundle);
 	return `${SUB.spines(client, project)}/${bundle}`;
 }
 
 /** Cross-project fallback for shared bundles: `_shared/spines/<bundle>`. */
-export function spineBundleSharedPath(bundle: string): string {
+export function rigBundleSharedPath(bundle: string): string {
 	assertBundle(bundle);
-	return sharedSpinesPrefix(bundle);
+	return sharedRigBundlePrefix(bundle);
 }

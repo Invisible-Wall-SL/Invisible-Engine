@@ -257,13 +257,15 @@ export interface InfoFreeSpinsTrigger {
 	role?: 'scatter' | 'wild';
 }
 
-/** How the game's free spins work, for the rules that describe them. Every field defaults to the
- *  game every rules page described before free spins were configurable. */
+/** How the game's free spins and wild work, for the rules that describe them. Every field defaults
+ *  to the game every rules page described before either was configurable. */
 export interface InfoRuleOptions {
 	/** `false` ⇒ the game has no free spins. Default `true`. */
 	freeSpins?: boolean;
 	/** The trigger, when it is not 3 or more scatters. Absent ⇒ it is. */
 	freeSpinsTrigger?: InfoFreeSpinsTrigger;
+	/** `false` ⇒ no symbol the game deals is a wild, so the WILD rule is dropped. Default `true`. */
+	wildInPlay?: boolean;
 }
 
 /** The FREE SPINS block's figure: `4+` and the symbol. A role-named symbol rides as the translated
@@ -282,7 +284,8 @@ const freeSpinsFigure = ({ count, symbol, role }: InfoFreeSpinsTrigger): UiInfoR
  *
  * `options` describes the free spins. Left at its defaults (on, 3 or more scatters) the page is
  * exactly what it always was. A game with none, or one triggered by something else, gets the
- * SCATTER rule without its free-spins promise; the latter also gains a FREE SPINS block.
+ * SCATTER rule without its free-spins promise; the latter also gains a FREE SPINS block. A game
+ * that deals no wild (`wildInPlay: false`) loses the WILD rule.
  */
 export function infoRulesWithFigures(
 	figures: InfoRuleFigures,
@@ -290,7 +293,9 @@ export function infoRulesWithFigures(
 ): UiInfoRule[] {
 	const freeSpins = options.freeSpins ?? true;
 	const trigger = freeSpins ? options.freeSpinsTrigger : undefined;
+	const wildInPlay = options.wildInPlay ?? true;
 	const rules = UI_INFO_RULES.flatMap((rule): UiInfoRule[] => {
+		if (rule.heading === 'WILD' && !wildInPlay) return [];
 		if (rule.heading === 'MAX WIN' && figures.maxWin) {
 			return [{ ...rule, figure: { value: `${figures.maxWin}×`, unit: UI_TEXT.bet } }];
 		}

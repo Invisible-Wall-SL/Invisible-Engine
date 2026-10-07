@@ -2,9 +2,9 @@
  * Repro fixture for "the big win steps its tiers but will not dismiss".
  *
  * Models the real chain around the two extracted decisions, both imported from source:
- * `tierHasExit` (`game/winEscalation.ts`) and `shouldApplySpineAnimation`
- * (`pixi-svelte/spineTrackReplay.ts`). `<WinAnimation>` walks a tier chain intro→idle→…→outro and
- * hands `<SpineTrack>` an animation name per phase; the gate's round-blocking
+ * `tierHasExit` (`game/winEscalation.ts`) and `shouldApplyRigAnimation`
+ * (`pixi-svelte/rigTrackReplay.ts`). `<WinAnimation>` walks a tier chain intro→idle→…→outro and
+ * hands `<RigTrack>` an animation name per phase; the gate's round-blocking
  * `waitForEscalationOutro` resolves only when the walk reports the final tier's outro complete.
  *
  * The authoring under test is the Book of Borut remake's, read off its live scene doc: three
@@ -17,9 +17,9 @@ import assert from 'node:assert/strict';
 
 import { tierHasExit, type TierAnimationMap } from '../src/game/winEscalation.ts';
 import {
-	shouldApplySpineAnimation,
-	type SpineTrackSnapshot,
-} from '../../pixi-svelte/src/lib/spineTrackReplay.ts';
+	shouldApplyRigAnimation,
+	type RigTrackSnapshot,
+} from '../../pixi-svelte/src/lib/rigTrackReplay.ts';
 
 type Tier = { key: string; animationMap: TierAnimationMap };
 type Phase = 'intro' | 'idle' | 'outro';
@@ -31,7 +31,7 @@ const EXIT_MS = 467;
 const IDLE_MS = 12_000;
 
 /**
- * The walk, as `<WinAnimation>` runs it, over a `<SpineTrack>` that applies by the real decision.
+ * The walk, as `<WinAnimation>` runs it, over a `<RigTrack>` that applies by the real decision.
  *
  * `withReplay` / `withIdleAsExitGuard` select the BEFORE and AFTER of this change:
  *  - `withReplay` — pass the (tier, phase) re-apply token, so a phase naming the clip that is
@@ -51,7 +51,7 @@ const runChain = ({
 	let stepIndex = 0;
 	let phase: Phase = 'intro';
 
-	let track: SpineTrackSnapshot = null;
+	let track: RigTrackSnapshot = null;
 	let appliedReplay: number | undefined;
 	const setAnimationCalls: string[] = [];
 	/** Wall-clock the ROUND spends blocked waiting on the final tier's `complete`. */
@@ -61,12 +61,12 @@ const runChain = ({
 	const finalMap = tiers[tiers.length - 1].animationMap;
 	const hasExit = withIdleAsExitGuard ? tierHasExit(finalMap) : !!finalMap.outro;
 
-	// `<SpineTrack>`'s $effect.
+	// `<RigTrack>`'s $effect.
 	const syncTrack = () => {
 		const animationName = tiers[stepIndex].animationMap[phase];
 		const replay = withReplay ? stepIndex * 3 + PHASE_ORDER[phase] : undefined;
 		if (
-			shouldApplySpineAnimation({
+			shouldApplyRigAnimation({
 				trackIndex: 0,
 				animationName,
 				then: undefined,

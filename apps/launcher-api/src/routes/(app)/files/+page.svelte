@@ -60,7 +60,7 @@
 		sheet_maker: 'Sheet Maker',
 		localization: 'Localization',
 		editor: 'Editor',
-		spines: 'Spines',
+		spines: 'Rigs',
 	};
 
 	/**

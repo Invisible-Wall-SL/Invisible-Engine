@@ -9,12 +9,23 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
+	NO_FLOOR,
+	approvalProblem,
+	carryProgress,
 	chainLine,
+	defaultChainOf,
 	needsReapproval,
 	presetDefaultChain,
+	priceChains,
 	project,
+	recipeInputOf,
+	parseStepInput,
+	removeStep,
+	retriesSpent,
 	secondsAt,
+	secondsPerImage,
 	validateRecipe,
+	type Card,
 	type Catalogue,
 	type RecipeInput,
 	type StoredRecipe,
@@ -54,6 +65,7 @@ for (const recipe of expected.recipes) {
 		planRegions,
 		others: stored,
 		usdPerSecond: USD,
+		floor: NO_FLOOR,
 	});
 	if (!result.ok) refused.push(`${recipe.region}: ${result.errors.join('; ')}`);
 	else {
@@ -83,7 +95,13 @@ check(
 	'sdxl 1024 ×3 → birefnet → finish',
 );
 
-const ctx: ValidationContext = { catalogue, planRegions, others: stored, usdPerSecond: USD };
+const ctx: ValidationContext = {
+	catalogue,
+	planRegions,
+	others: stored,
+	usdPerSecond: USD,
+	floor: NO_FLOOR,
+};
 const h1 = expected.recipes.find((r) => r.region === 'H1')!;
 const bg = expected.recipes.find((r) => r.region === 'Background')!;
 const variant = (recipe: RecipeInput, edit: (r: RecipeInput) => void) => {
@@ -100,6 +118,11 @@ const refusedFor = (name: string, recipe: RecipeInput, needle: string, over = {}
 	check(name, why.some((r) => r.includes(needle)) ? needle : why, needle);
 };
 
+refusedFor(
+	'a region named as no Atlas Maker region is (nor the owner could approve) is refused',
+	variant(h1, (r) => (r.region = '../H1')),
+	'"../H1" is not a region name',
+);
 refusedFor(
 	'a pipeline with no card is refused',
 	variant(h1, (r) => (r.steps[0].pipeline = 'nope')),
@@ -246,12 +269,12 @@ check('a guessed card marks the projection a placeholder', stored[0].projected.p
 	const floor = { seedSecondsPerImage: 600, delaySecondsPerJob: 5 };
 	check(
 		'a measured card is priced by its seconds plus the delay per job, above no floor',
-		project([up], cards, 1, floor).gpuSeconds,
+		project([up], { cards, usdPerSecond: 1, floor }).gpuSeconds,
 		6 + 5 + 30,
 	);
 	check(
 		'a guessed card never projects below the seed seconds per render',
-		project([h1.steps[1]], cards, 1, floor).gpuSeconds,
+		project([h1.steps[1]], { cards, usdPerSecond: 1, floor }).gpuSeconds,
 		600 + 5 + 60,
 	);
 	const noSeconds = new Map(cards);
@@ -261,7 +284,7 @@ check('a guessed card marks the projection a placeholder', stored[0].projected.p
 	});
 	check(
 		'a size the card has no seconds for leaves the cost unpriced (fails closed)',
-		project([up], noSeconds, 1, floor).gpuUsd,
+		project([up], { cards: noSeconds, usdPerSecond: 1, floor }).gpuUsd,
 		null,
 	);
 }
@@ -333,6 +356,490 @@ check('an empty preset falls back to sdxl 1024 ×3', presetDefaultChain(null)[0]
 	variants: 3,
 	settings: [],
 });
+
+// Pricing fails closed and measurements only raise a guess (card 8E, ADR-0008 §6).
+const cards = new Map<string, Card>(catalogue.blueprints.map((b) => [b.id, b.card]));
+const basis = { cards, usdPerSecond: USD, floor: NO_FLOOR };
+const timing = (pipeline: string, genPx: number, exec: number, delay: number) => ({
+	pipeline,
+	genPx,
+	jobs: 4,
+	meanExecSeconds: exec,
+	meanDelaySeconds: delay,
+});
+check(
+	'an image costs the card seconds plus the measured delay',
+	secondsPerImage(upscale, 1024, timing('fixture_upscale', 1024, 1, 5), {
+		seedSecondsPerImage: 0,
+		delaySecondsPerJob: 99,
+	}),
+	{ seconds: 11, guess: false },
+);
+check(
+	'a slower measurement raises the guess',
+	secondsPerImage(upscale, 1024, timing('fixture_upscale', 1024, 9, 0), {
+		seedSecondsPerImage: 0,
+		delaySecondsPerJob: 99,
+	})?.seconds,
+	9,
+);
+check(
+	'with nothing measured the figure is the guess',
+	secondsPerImage({ ...upscale, gpu: { ...upscale.gpu, source: 'guess' } }, 1024, null, {
+		seedSecondsPerImage: 0,
+		delaySecondsPerJob: 0,
+	}),
+	{
+		seconds: 6,
+		guess: true,
+	},
+);
+check(
+	'with nothing measured, the seed delay is priced per image (ADR-0008 §6)',
+	secondsPerImage({ ...upscale, gpu: { ...upscale.gpu, source: 'guess' } }, 1024, null, {
+		seedSecondsPerImage: 0,
+		delaySecondsPerJob: 15,
+	})?.seconds,
+	21,
+);
+check(
+	'…and a measured delay replaces it',
+	secondsPerImage(upscale, 1024, timing('fixture_upscale', 1024, 6, 2), {
+		seedSecondsPerImage: 0,
+		delaySecondsPerJob: 15,
+	})?.seconds,
+	8,
+);
+check(
+	'a guessed card never goes below the seed, even with a faster measurement beside it',
+	secondsPerImage(
+		{ ...upscale, gpu: { ...upscale.gpu, source: 'guess' } },
+		1024,
+		timing('fixture_upscale', 1024, 4, 1),
+		{
+			seedSecondsPerImage: 600,
+			delaySecondsPerJob: 15,
+		},
+	)?.seconds,
+	601,
+);
+check(
+	'…while a measured card may: its seconds, raised only by a slower measurement',
+	secondsPerImage(upscale, 1024, timing('fixture_upscale', 1024, 4, 1), {
+		seedSecondsPerImage: 600,
+		delaySecondsPerJob: 15,
+	})?.seconds,
+	7,
+);
+check(
+	'no card seconds and nothing measured: not priced',
+	secondsPerImage({ ...upscale, gpu: { ...upscale.gpu, secondsPerImage: {} } }, 1024, null, {
+		seedSecondsPerImage: 0,
+		delaySecondsPerJob: 15,
+	}),
+	null,
+);
+check(
+	'no card seconds for the size: not priced, whatever was measured at it',
+	secondsPerImage(
+		{ ...upscale, gpu: { ...upscale.gpu, secondsPerImage: {} } },
+		1024,
+		timing('fixture_upscale', 1024, 6, 2),
+		{ seedSecondsPerImage: 0, delaySecondsPerJob: 15 },
+	),
+	null,
+);
+check(
+	'a credit-billed card is never priced',
+	secondsPerImage({ ...upscale, billing: 'credits' }, 1024, null, {
+		seedSecondsPerImage: 0,
+		delaySecondsPerJob: 15,
+	}),
+	null,
+);
+const h1Steps = stored.find((r) => r.region === 'H1')!.steps;
+check(
+	'a step whose card is gone leaves the recipe unpriced',
+	project(h1Steps, { ...basis, cards: new Map([...cards].filter(([id]) => id !== 'birefnet')) })
+		.gpuUsd,
+	null,
+);
+check(
+	'…with the reason',
+	project(h1Steps, { ...basis, cards: new Map([...cards].filter(([id]) => id !== 'birefnet')) })
+		.unpriced?.[0]?.length !== undefined,
+	true,
+);
+check(
+	'an unpriced GPU leaves it unpriced',
+	project(h1Steps, { ...basis, usdPerSecond: null }).gpuUsd,
+	null,
+);
+const measured = project(h1Steps, { ...basis, timings: [timing('sdxl', 1024, 40, 10)] });
+check(
+	'a measured timing feeds the projection',
+	measured.gpuSeconds > project(h1Steps, basis).gpuSeconds,
+	true,
+);
+check(
+	'an approved recipe whose projection becomes unpriced needs re-approval',
+	needsReapproval(approved, {
+		...approved,
+		projected: { ...approved.projected, gpuUsd: null },
+	}),
+	true,
+);
+
+// The Art plan panel's helpers.
+const input = recipeInputOf(stored[0]);
+check('a stored recipe reads back as the input it came from', validateRecipe(input, ctx).ok, true);
+const without = removeStep(input.steps, 2);
+check(
+	'removing a step renumbers the chain',
+	without.map((s) => [s.n, s.kind]),
+	[
+		[1, 'generate'],
+		[2, 'finish'],
+	],
+);
+check('…and a step that took its image takes what it took', without[1].style, input.steps[1].style);
+
+// Chain pricing for the New-game estimate.
+const chain = [
+	{ kind: 'generate' as const, pipeline: 'sdxl', genPx: 1024, variants: 3, settings: [] },
+	{ kind: 'process' as const, pipeline: 'birefnet', genPx: 1024, variants: 1, settings: [] },
+	{ kind: 'finish' as const, pipeline: '', genPx: 0, variants: 0, settings: [] },
+];
+const facts = { gpu: 'RTX 4090 (24 GB)', usdPerSecond: USD, floor: NO_FLOOR };
+const fallback = { low: 12, high: 30 };
+const priced = priceChains(
+	[{ group: 'Symbols', regions: 10, chain, source: 'fallback' }],
+	cards,
+	facts,
+	fallback,
+);
+check('a chain is priced', priced.usd !== null && priced.usd.low <= priced.usd.high, true);
+check(
+	'renders, reviewed variants and steps count every region',
+	[priced.renders, priced.reviewedVariants, priced.steps],
+	[40, 30, 30],
+);
+check(
+	'a guessed card never shrinks the high end below the fallback',
+	priced.seconds.high >= 30 * 30,
+	true,
+);
+check(
+	'no GPU named: no price, and why',
+	(() => {
+		const p = priceChains(
+			[{ group: 'Symbols', regions: 1, chain, source: 'fallback' }],
+			cards,
+			{ gpu: '', usdPerSecond: null, floor: NO_FLOOR },
+			fallback,
+		);
+		return [p.usd, p.unpriced.length];
+	})(),
+	[null, 1],
+);
+check(
+	'a credit-billed card leaves the estimate unpriced',
+	priceChains(
+		[{ group: 'Symbols', regions: 1, chain, source: 'fallback' }],
+		new Map(
+			[...cards].map(([id, c]) => [id, id === 'sdxl' ? { ...c, billing: 'credits' as const } : c]),
+		),
+		facts,
+		fallback,
+	).usd,
+	null,
+);
+check(
+	'a pipeline with no reviewed card falls back to the profiles, as a placeholder',
+	(() => {
+		const p = priceChains(
+			[
+				{
+					group: 'Symbols',
+					regions: 1,
+					chain: [{ ...chain[0], pipeline: 'unreviewed' }],
+					source: 'fallback',
+				},
+			],
+			cards,
+			facts,
+			fallback,
+		);
+		return [p.placeholder, p.seconds];
+	})(),
+	[true, { low: 36, high: 90 }],
+);
+{
+	// The estimate's high end is what the Art plan of the same chains will project.
+	const floor = { seedSecondsPerImage: 600, delaySecondsPerJob: 15 };
+	const h1Recipe = stored.find((r) => r.region === 'H1')!;
+	const ten = priceChains(
+		[{ group: 'Symbols', regions: 10, chain: defaultChainOf(h1Recipe.steps), source: 'fallback' }],
+		cards,
+		{ ...facts, floor },
+		fallback,
+	);
+	check(
+		'a guessed card is a range: its own figures, up to the seed floor the plan is approved on',
+		ten.seconds,
+		// sdxl (12 s, guessed) ×3 and birefnet (3 s, guessed) ×1, +15 s delay each; cold starts
+		// 120 s + 60 s per region.
+		{ low: 10 * (3 * 27 + 18 + 180), high: 10 * (3 * 615 + 615 + 180) },
+	);
+	check(
+		"…the high end being the recipes' own projections, summed: cold start once per region",
+		ten.seconds.high,
+		10 * project(h1Recipe.steps, { cards, usdPerSecond: USD, floor }).gpuSeconds,
+	);
+	// The coordinator's case: 30 regions × sdxl 1024 ×3, the card guessing 30 s with a 60 s cold
+	// start, on an L40S.
+	const thirty = priceChains(
+		[
+			{
+				group: 'Symbols',
+				regions: 30,
+				chain: [{ ...chain[0] }, chain[2]],
+				source: 'fallback',
+			},
+		],
+		new Map([
+			[
+				'sdxl',
+				{
+					...cards.get('sdxl')!,
+					gpu: { ...cards.get('sdxl')!.gpu, secondsPerImage: { 1024: 30 }, coldStart: 60 },
+				},
+			],
+		]),
+		{ gpu: 'L40S (48 GB)', usdPerSecond: 0.00053, floor },
+		fallback,
+	);
+	check(
+		'…so 30 guessed regions estimate $3.10 to $30.29, not $2.18 to $2.18',
+		[thirty.usd!.low.toFixed(2), thirty.usd!.high.toFixed(2)],
+		['3.10', '30.29'],
+	);
+}
+
+// The owner approves the plan they saw (card 8E).
+const seen = Object.fromEntries(stored.map((r) => [r.region, r.rev]));
+/** Prices each recipe at its stored figure; `freshly` prices it again now. */
+const stays = (r: StoredRecipe) => r.projected;
+const freshly = (r: StoredRecipe) => project(r.steps, basis);
+/** The code a refusal answers with, by what it says. */
+const codeOf = (problem: { code: string } | null) => problem?.code ?? null;
+check(
+	'each refusal has its code: changed, incomplete or unpriced',
+	[
+		codeOf(approvalProblem(stored, planRegions, undefined, stays)),
+		codeOf(approvalProblem(stored.slice(1), planRegions, seen, stays)),
+		codeOf(
+			approvalProblem(
+				stored.map((r, i) => (i === 0 ? { ...r, projected: { ...r.projected, gpuUsd: null } } : r)),
+				planRegions,
+				seen,
+				stays,
+			),
+		),
+	],
+	['plan_changed', 'plan_incomplete', 'plan_unpriced'],
+);
+check(
+	'an approval of the plan as stored stands',
+	approvalProblem(stored, planRegions, seen, stays),
+	null,
+);
+check(
+	'an approval that names no revisions is refused',
+	approvalProblem(stored, planRegions, undefined, stays)?.reason.includes('revisions'),
+	true,
+);
+check(
+	'a recipe revised since it was seen refuses the approval',
+	approvalProblem(
+		stored.map((r, i) => (i === 0 ? { ...r, rev: 2 } : r)),
+		planRegions,
+		seen,
+		stays,
+	)?.reason.includes('changed since you saw it'),
+	true,
+);
+check(
+	'a region the plan dropped since refuses it too',
+	approvalProblem(
+		stored,
+		new Set([...planRegions].filter((x) => x !== stored[0].region)),
+		seen,
+		stays,
+	)?.reason.includes('not in it now'),
+	true,
+);
+check(
+	'an unpriced recipe is never approved',
+	approvalProblem(
+		stored.map((r, i) => (i === 0 ? { ...r, projected: { ...r.projected, gpuUsd: null } } : r)),
+		planRegions,
+		seen,
+		stays,
+	)?.reason.includes('cannot be priced'),
+	true,
+);
+check(
+	'the plan is priced again at approval: a card that lost its review refuses it',
+	approvalProblem(stored, planRegions, seen, (r) =>
+		project(r.steps, { ...basis, cards: new Map([...cards].filter(([id]) => id !== 'birefnet')) }),
+	)?.reason.includes('cannot be priced'),
+	true,
+);
+check(
+	'…and a recipe stored unpriced is approvable once it prices now',
+	approvalProblem(
+		stored.map((r, i) => (i === 0 ? { ...r, projected: { ...r.projected, gpuUsd: null } } : r)),
+		planRegions,
+		seen,
+		freshly,
+	),
+	null,
+);
+check(
+	'a planned region with no recipe refuses the approval',
+	approvalProblem(stored.slice(1), planRegions, seen, stays)?.reason.includes('has a recipe yet'),
+	true,
+);
+
+// A malformed step is a reason, never a throw (an owner's edit comes from outside).
+const malformed = (edit: (step: Record<string, unknown>) => void) => {
+	const copy = structuredClone(h1) as unknown as { steps: Record<string, unknown>[] };
+	edit(copy.steps[0]);
+	try {
+		const result = validateRecipe(copy as unknown as RecipeInput, ctx);
+		return result.ok ? 'passed' : 'refused';
+	} catch {
+		return 'threw';
+	}
+};
+check(
+	'a missing style, a null shape, a number setting value or a null setting is refused, not thrown on',
+	[
+		malformed((st) => delete st.style),
+		malformed((st) => (st.shape = null)),
+		malformed((st) => (st.settings = [{ key: 'ksampler_steps', value: 28 }])),
+		malformed((st) => (st.settings = [null])),
+		malformed((st) => (st.genPx = '1024')),
+	],
+	['refused', 'refused', 'refused', 'refused', 'refused'],
+);
+const extra = parseStepInput({ ...h1.steps[0], jobRef: 'st_0000000000000001', chosen: '7' });
+check(
+	'a step keeps only its own fields: a jobRef or a chosen sent with it is dropped',
+	'step' in extra && !('jobRef' in extra.step) && !('chosen' in extra.step),
+	true,
+);
+
+// What a revision keeps of what the previous one did.
+const progressed = stored[0].steps.map((st, i) =>
+	i === 0
+		? {
+				...st,
+				status: 'chosen' as const,
+				jobRef: 'st_00000000000000a1',
+				rendered: ['1', '2'],
+				chosen: '2',
+			}
+		: i === 1
+			? { ...st, status: 'queued' as const, jobRef: 'st_00000000000000a2' }
+			: st,
+);
+const later = stored[0].steps.map((st, i) => (i === 2 ? { ...st, note: 'changed' } : st));
+check(
+	'a revision keeps what its unchanged leading steps did: a rendered step is never re-opened',
+	carryProgress(progressed, later).map((st) => [st.status, st.jobRef ?? null, st.chosen ?? null]),
+	[
+		['chosen', 'st_00000000000000a1', '2'],
+		['queued', 'st_00000000000000a2', null],
+		['planned', null, null],
+	],
+);
+check(
+	'a step read back from the database (keys in jsonb order) is still the same work',
+	carryProgress(
+		progressed.map((st) => ({
+			...st,
+			style: { value: st.style.value, source: st.style.source } as typeof st.style,
+			shape: { value: st.shape.value, source: st.shape.source } as typeof st.shape,
+		})),
+		later,
+	).map((st) => st.status),
+	['chosen', 'queued', 'planned'],
+);
+check(
+	'a step that changed, and every step after it, starts again',
+	carryProgress(
+		progressed,
+		stored[0].steps.map((st, i) => (i === 0 ? { ...st, variants: 2 } : st)),
+	).map((st) => st.status),
+	['planned', 'planned', 'planned'],
+);
+
+// A revision that re-opens a rendered step goes back to the owner, whatever its price.
+const progressedRecipe = { ...approved, steps: progressed };
+const revise = (from: typeof progressed, i: number, key: string) =>
+	carryProgress(
+		from,
+		stored[0].steps.map((st, k) =>
+			k === i ? { ...st, settings: [...st.settings, { key, value: '7' }] } : st,
+		),
+	);
+check(
+	'a revision that keeps the rendered steps and changes a later one keeps its approval',
+	needsReapproval(progressedRecipe, { ...progressedRecipe, steps: revise(progressed, 2, 'x') }),
+	false,
+);
+check(
+	'a revision that re-opens a rendered step needs the owner again, at the same price',
+	needsReapproval(progressedRecipe, {
+		...progressedRecipe,
+		steps: revise(progressed, 0, 'ksampler_seed'),
+	}),
+	true,
+);
+check(
+	'…and so does one that re-opens a render in flight',
+	needsReapproval(progressedRecipe, { ...progressedRecipe, steps: revise(progressed, 1, 'blur') }),
+	true,
+);
+const failedFirst = stored[0].steps.map((st, i) =>
+	i === 0 ? { ...st, status: 'failed' as const, jobRef: 'st_00000000000000a3' } : st,
+);
+check(
+	'a failed step it re-opens is queued again under the approval, as any retry is',
+	needsReapproval(
+		{ ...approved, steps: failedFirst },
+		{ ...approved, steps: revise(failedFirst, 0, 'ksampler_seed') },
+	),
+	false,
+);
+
+// Two retries per step per approval.
+check(
+	'a step that failed twice may be queued again; the third failure spends its retries',
+	[
+		retriesSpent({}),
+		retriesSpent({ failures: { 1: 2 } }),
+		retriesSpent({ failures: { 1: 3, 2: 1 } }),
+	],
+	[[], [], [1]],
+);
+check(
+	'a count that is not a number spends them (fails closed)',
+	retriesSpent({ failures: { 2: 'x' as unknown as number } }),
+	[2],
+);
 
 console.log(`recipes: ${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);

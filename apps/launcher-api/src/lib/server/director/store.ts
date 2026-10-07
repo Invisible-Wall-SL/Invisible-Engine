@@ -1,14 +1,16 @@
-import { and, asc, desc, eq, gt, inArray, lt, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, lt, lte, or, sql } from 'drizzle-orm';
 import { getDb } from '../db';
 import { r2SlugSql, type Queryer } from '../projectKeyLock';
 import {
 	directorAtlasJobs,
+	directorBlueprintTimings,
 	directorEvents,
 	directorMessages,
 	directorOps,
 	directorRegions,
 	directorRuns,
 	directorSpend,
+	directorTemplateRecipes,
 	users,
 	type DirectorAtlasJob,
 	type DirectorEvent,
@@ -30,6 +32,102 @@ export async function runRecipes(runId: string): Promise<unknown[]> {
 		.from(directorRegions)
 		.where(and(eq(directorRegions.runId, runId), sql`${directorRegions.recipeJson} is not null`));
 	return rows.map((r) => r.recipe);
+}
+
+/**
+ * The regions the coordinator's latest `run.set_plan` names, in its order, each with its batch:
+ * the same row the worker reads (`recipes.ts` `planRegions`).
+ */
+export async function latestPlanRegions(runId: string): Promise<Map<string, string>> {
+	const [row] = await getDb()
+		.select({ payload: directorEvents.payloadJson })
+		.from(directorEvents)
+		.where(
+			and(
+				eq(directorEvents.runId, runId),
+				eq(directorEvents.kind, 'activity'),
+				sql`${directorEvents.payloadJson}->>'type' = 'plan'`,
+			),
+		)
+		.orderBy(desc(directorEvents.id))
+		.limit(1);
+	const out = new Map<string, string>();
+	const batches = (row?.payload as { batches?: unknown } | undefined)?.batches;
+	for (const batch of Array.isArray(batches) ? batches : []) {
+		const b = batch as { name?: unknown; regions?: unknown };
+		if (!Array.isArray(b.regions)) continue;
+		for (const region of b.regions) {
+			if (typeof region === 'string' && !out.has(region)) out.set(region, String(b.name ?? ''));
+		}
+	}
+	return out;
+}
+
+/** Measured GPU time per (pipeline, genPx), as the worker folds it in from every `job_done`. */
+export async function blueprintTimings(): Promise<
+	{
+		pipeline: string;
+		genPx: number;
+		jobs: number;
+		meanExecSeconds: number;
+		meanDelaySeconds: number;
+	}[]
+> {
+	return getDb()
+		.select({
+			pipeline: directorBlueprintTimings.pipeline,
+			genPx: directorBlueprintTimings.genPx,
+			jobs: directorBlueprintTimings.jobs,
+			meanExecSeconds: directorBlueprintTimings.meanExecSeconds,
+			meanDelaySeconds: directorBlueprintTimings.meanDelaySeconds,
+		})
+		.from(directorBlueprintTimings);
+}
+
+/**
+ * A template's latest default chain per region group (`director_template_recipes`), with the
+ * atlases that group's recipes ran on in the run whose approval wrote it: what lets the New game
+ * estimate price a template atlas at the chain its regions were made with.
+ */
+export async function templateDefaultChains(
+	templateProjectKey: string,
+): Promise<{ group: string; version: number; chain: unknown; atlases: string[] }[]> {
+	const db = getDb();
+	const rows = await db
+		.selectDistinctOn([directorTemplateRecipes.regionGroup], {
+			group: directorTemplateRecipes.regionGroup,
+			version: directorTemplateRecipes.version,
+			chain: directorTemplateRecipes.chainJson,
+			runId: directorTemplateRecipes.runId,
+		})
+		.from(directorTemplateRecipes)
+		.where(eq(directorTemplateRecipes.templateProjectKey, templateProjectKey))
+		.orderBy(directorTemplateRecipes.regionGroup, desc(directorTemplateRecipes.version));
+	if (rows.length === 0) return [];
+	// The atlases each default's recipes ran on, for every group in one read.
+	const ran = await db
+		.selectDistinct({
+			runId: directorRegions.runId,
+			group: directorRegions.regionGroup,
+			atlas: sql<string>`${directorRegions.recipeJson}->>'atlas'`,
+		})
+		.from(directorRegions)
+		.where(
+			and(
+				sql`${directorRegions.recipeJson} is not null`,
+				or(
+					...rows.map((r) =>
+						and(eq(directorRegions.runId, r.runId), eq(directorRegions.regionGroup, r.group)),
+					),
+				),
+			),
+		);
+	return rows.map(({ runId, ...row }) => ({
+		...row,
+		atlases: ran
+			.filter((a) => a.runId === runId && a.group === row.group && a.atlas)
+			.map((a) => a.atlas),
+	}));
 }
 
 /** The stored results of this run's finished calls of `op` (`<tool>.<op>`), oldest first. */
@@ -167,13 +265,14 @@ export async function releaseOp(opId: string): Promise<void> {
 		.where(and(eq(directorOps.opId, opId), eq(directorOps.status, 'pending')));
 }
 
-/** Record a still render a run queued, as atlas-tool named it. */
+/** Record a still render a run queued, as atlas-tool named it, with the recipe steps it runs. */
 export async function insertAtlasJob(row: {
 	jobRef: string;
 	runId: string;
 	agent: string;
 	atlas: string;
 	regions: string[];
+	steps: { recipe: string; n: number; region: string }[];
 }): Promise<void> {
 	await getDb().transaction(async (tx) => {
 		const inserted = await tx
@@ -190,6 +289,11 @@ export async function insertAtlasJob(row: {
 			payloadJson: { jobRef: row.jobRef, atlas: row.atlas, regions: row.regions },
 		});
 	});
+}
+
+/** Every render still queued, of every run: what the fallback watches at boot. */
+export async function queuedAtlasJobs(): Promise<DirectorAtlasJob[]> {
+	return getDb().select().from(directorAtlasJobs).where(eq(directorAtlasJobs.status, 'queued'));
 }
 
 export async function getAtlasJob(jobRef: string): Promise<DirectorAtlasJob | null> {

@@ -1,7 +1,7 @@
 /**
  * Invisible Flow v2 — the FULLY FLOW-DRIVEN starter seed a NEW project opens on, PER GAME TYPE.
  *
- * One builder, one seed per registered template. The lifecycle spine below (splash → tap-to-start →
+ * One builder, one seed per registered template. The lifecycle rig below (splash → tap-to-start →
  * mount the game → the buy-bonus subgraph) is a property of the SHARED RUNTIME, so it is identical
  * for every type; what varies is which book events the type receives and which overlay screens it
  * has. `buildDrivenSeed` therefore PROJECTS the canonical choreography onto the target template's
@@ -239,7 +239,7 @@ const CONFIRM_DIALOG = 'confirm-dialog';
  * Build the driven seed graph for one template.
  *
  * Parameterised by CHOREOGRAPHY and SCREEN SET rather than duplicated per game type: the whole
- * lifecycle spine (loading splash → tap-to-start → mount the game → the buy-bonus subgraph) is
+ * lifecycle rig (loading splash → tap-to-start → mount the game → the buy-bonus subgraph) is
  * identical for every type built on the shared runtime, and the only things that vary are which
  * book events the type receives and which overlay screens it has, reading `choreo`/`gameScreens`
  * rather than book-of constants.
@@ -493,7 +493,7 @@ const buildDrivenSeedGraph = ({
  * ids every reference layout seeds. Exported so the seed-validation callers (seed-flow-v2, the driven
  * harness) share ONE source of the buy pins rather than re-deriving them.
  *
- * The buy subgraph is part of the shared lifecycle spine, so this map is the same for every template.
+ * The buy subgraph is part of the shared lifecycle rig, so this map is the same for every template.
  */
 export const BOOK_OF_DRIVEN_SEED_CONTAINER_EVENTS: Record<string, ContainerEventDecl[]> = {
 	[BUY_FEATURE]: deriveContainerEvents([repeaterSelectConfiguredEvent(FEATURE_REPEATER)]),
@@ -509,7 +509,7 @@ export const BOOK_OF_DRIVEN_SEED_CONTAINER_EVENTS: Record<string, ContainerEvent
  * (modal), splash on top.
  *
  * A template declares the subset its screen set covers; the loading splash and the two buy
- * takeovers are part of the shared spine, so they are always present, and so are the two
+ * takeovers are part of the shared rig, so they are always present, and so are the two
  * round-holding free-spin screens for every template that has free spins.
  */
 const SEED_CONTAINERS: { id: string; z: number }[] = [
@@ -570,7 +570,7 @@ const buildDrivenSeed = (
 	}: {
 		choreo?: Record<string, ChoreoStep[]>;
 		around?: Readonly<Record<string, string>>;
-		/** Screens the doc shows from chains of its own (a mode's), beyond the game and spine. */
+		/** Screens the doc shows from chains of its own (a mode's), beyond the game and rig. */
 		declared?: readonly string[];
 	} = {},
 ): FlowDoc => {
@@ -664,7 +664,7 @@ export const buildEntryGraph = ({
 export const BOOK_OF_DRIVEN_SEED_DOC: FlowDoc = buildDrivenSeed(BOOK_OF_VOCAB, GAME_SCREENS);
 
 /**
- * The ways starter flow. Same lifecycle spine and same presentation; no `specialBook` screen, and no
+ * The ways starter flow. Same lifecycle rig and same presentation; no `specialBook` screen, and no
  * expanding-symbol beats — `choreoForVocabulary` drops the two book events outright and strips the
  * `specialBookHide` cue out of the middle of `freeSpinEnd`.
  */
@@ -741,7 +741,7 @@ export const holdAndWinModeGraph = (prefix: string): Graph => {
  * The Hold and Win starter flow: a new project plays the whole feature with the coded-default
  * presentation and zero authoring.
  *
- * - **Global graph**: the shared lifecycle spine and base-game presentation (no free spins and no
+ * - **Global graph**: the shared lifecycle rig and base-game presentation (no free spins and no
  *   special book; the kind has neither) with the jackpot bar and the pots on screen from the start,
  *   plus the base-game beats of the mechanic: the Lucky Spin intro (inside the `luckySpin` screen),
  *   the pots filling, the instant collect, a base-game jackpot. **On all modes finished** brings the
@@ -773,7 +773,7 @@ const holdAndWinDrivenSeed = (): FlowDoc => {
 		around: { luckySpin: LUCKY_SPIN },
 		declared: [...HOLD_AND_WIN_MODE_SCREENS, LUCKY_SPIN, WHEEL, JACKPOT_WIN],
 	});
-	// Right of the global spine (x 0) and the buy subgraph (x 500).
+	// Right of the global rig (x 0) and the buy subgraph (x 500).
 	const backToBase = buildEntryGraph({
 		prefix: 'base',
 		x: 900,

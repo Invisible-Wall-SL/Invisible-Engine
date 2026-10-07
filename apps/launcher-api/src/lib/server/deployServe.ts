@@ -6,7 +6,7 @@ import { SUB } from '$lib/server/projectPaths';
  * Shared serving for the read-only `deploy/` asset tree. Two routes use it:
  * `/api/deploy?project=&k=&rel=` (query form — build CI / pull scripts) and
  * `/api/deploy/f/<token>/<client>/<project>/<...rel>` (PATH form — the generic
- * runtime). The path form exists because a Spine atlas page, a multi-page
+ * runtime). The path form exists because a rig atlas page, a multi-page
  * spritesheet, and a bitmap-font page are all named INSIDE a parent file and
  * loaded by the runtime RELATIVE to that parent's URL. A query-string base
  * (`?…&rel=…`) breaks that relative resolution (the page resolves against the

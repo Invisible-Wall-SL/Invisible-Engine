@@ -8,7 +8,7 @@
 // The permute helpers below MIRROR reorderDeform + the uvs/vertices/triangles gather in
 //   apps/launcher-api/static/rigger/view.html  (permuteMeshVertices) — keep in sync.
 
-import { RIG_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
 let pass = true;
 const log = (ok, msg) => { console.log((ok ? '  ✅ ' : '  ✗ ') + msg); if (!ok) pass = false; };

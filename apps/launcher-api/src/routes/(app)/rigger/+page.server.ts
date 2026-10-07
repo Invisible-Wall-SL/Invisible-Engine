@@ -6,7 +6,7 @@ import type { PageServerLoad } from './$types';
 export const load: PageServerLoad = async ({ locals, parent }) => {
 	if (!locals.user) throw redirect(303, '/login');
 	// Reuse the parent layout's resolved tool manifest for both the gate and the
-	// shared tool-bar params (fewer queries) — same pattern as /spine.
+	// shared tool-bar params (fewer queries) — same pattern as /rig-viewer.
 	const { tools } = await parent();
 	if (!tools.some((t) => t.id === 'rigger')) {
 		throw error(403, 'Your role does not have access to the Invisible Rigger.');

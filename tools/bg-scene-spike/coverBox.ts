@@ -8,11 +8,11 @@
  * by two renderers, from two different sets of inputs:
  *
  *   - The EDITOR (`editorCanvas.helpers.nodeBox` → `componentInstanceContentBox`) measures art it
- *     has already rendered — a spine's setup-pose bounds from the WebGL overlay, a text node's
+ *     has already rendered — a rig's setup-pose bounds from the WebGL overlay, a text node's
  *     rendered glyph box, a clip's frame rect, a nested instance's own union — and never skips a
  *     child: one it cannot size still contributes a placeholder box.
  *   - The GAME (`LayoutNodeView` → `componentDesignSize`) is fed an `intrinsic` that can size only a
- *     SPRITE. Every spine / text / flipbook / nested-instance child is skipped outright.
+ *     SPRITE. Every rig / text / flipbook / nested-instance child is skipped outright.
  *
  * So the same overlay measured smaller in the game than in the editor — and one with no sprite child
  * at all measured `null`, at which point `bgComponent` gave up and the instance rendered at its raw
@@ -22,9 +22,9 @@
  * by that number instead of re-deriving one it cannot see.
  *
  * Proves:
- *   1. THE BUG, pinned deliberately — the runtime walk returns `null` for a spine+text overlay. Not
+ *   1. THE BUG, pinned deliberately — the runtime walk returns `null` for a rig+text overlay. Not
  *      because that is desirable, but because it is the whole reason the baked box has to exist. If
- *      someone later teaches `componentDesignSize` to measure a spine, this fails and sends them
+ *      someone later teaches `componentDesignSize` to measure a rig, this fails and sends them
  *      here to decide which mechanism wins, rather than leaving two that disagree.
  *   2. The editor measures a real union for that same def.
  *   3. The baked box reproduces the editor's placement in the game exactly — same centre, same
@@ -54,7 +54,7 @@ function ok(name: string, cond: boolean, extra = ''): void {
 
 const LT: LayoutType = 'desktop';
 
-/** A "Tap to Continue"-shaped def: one spine + one text, and deliberately NO sprite — the shape
+/** A "Tap to Continue"-shaped def: one rig + one text, and deliberately NO sprite — the shape
  * the runtime walk cannot see at all. */
 const def = {
 	id: 'tapToContinue',
@@ -90,12 +90,12 @@ const gameBox = componentDesignSize(
 	undefined,
 );
 ok(
-	'1. game walk cannot size a spine+text overlay (the bug the baked box exists for)',
+	'1. game walk cannot size a rig+text overlay (the bug the baked box exists for)',
 	gameBox === null,
 	`got ${JSON.stringify(gameBox)}`,
 );
 
-// 2. The EDITOR's measurement — `naturalSize` resolves the spine (WebGL bounds) + text (glyph box).
+// 2. The EDITOR's measurement — `naturalSize` resolves the rig (WebGL bounds) + text (glyph box).
 const measured = new Map<string, { w: number; h: number }>([
 	['bigwin', { w: 1200, h: 800 }],
 	['t1', { w: 620, h: 90 }],

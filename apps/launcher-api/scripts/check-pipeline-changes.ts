@@ -1462,7 +1462,7 @@ pull(14, 'launcher(pipeline): 1 px colour bleed at region edges', {
 
 // #15 — a merge conflict beats green checks.
 head(sha(15), GREEN, { state: 'success', description: 'ok' });
-pull(15, 'rigger: spine export scale', { sha: sha(15), mergeable_state: 'dirty' });
+pull(15, 'rigger: rig export scale', { sha: sha(15), mergeable_state: 'dirty' });
 
 // #16 — green, docs only: ready, no report.
 head(sha(16), GREEN, { state: 'success', description: 'docs only: nothing to render' });

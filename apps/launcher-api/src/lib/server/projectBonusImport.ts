@@ -8,7 +8,7 @@
  *  - **Symbols:** each imported symbol's `/symbols` cells, display name and sound overrides, from the
  *    source symbol to its name here; an imported symbol the source never bound gets a placeholder.
  *    A symbol the import no longer brings loses its binding.
- *  - **Spines:** a cell or a screen node that names a spine under the SOURCE project's prefix would
+ *  - **Rigs:** a cell or a screen node that names a rig under the SOURCE project's prefix would
  *    export nothing from here, so on every run the bundle is promoted to
  *    `_shared/spines/imported/<project>/<source>/<bundle>` and the reference rewritten; a bundle that
  *    cannot be promoted keeps its source reference. A shared bundle travels export → deploy → bake →
@@ -62,11 +62,11 @@ import { resolveGameConfig } from './gameConfigDefaults';
 import { InvalidGameConfigError, saveGameConfigDoc } from './gameConfigStorage';
 import { liveLeases } from './lease';
 import { leaseBlocker } from './projectAddOn';
-import { SUB, r2Slug, sharedSpinesPrefix, winTextDocKey } from './projectPaths';
+import { SUB, r2Slug, sharedRigBundlePrefix, winTextDocKey } from './projectPaths';
 import { projectGameType } from './projects';
 import { ConflictError, getObjectTextWithEtag } from './r2';
 import { invalidateRuntimeBundle } from './runtimeBundleCache';
-import { promoteSpineToShared } from './sharedSpinePromote';
+import { promoteRigToShared } from './sharedRigPromote';
 import { potsOverlaySymbolsSeed } from './symbolDefaults';
 import { loadSymbolsDocWithEtag, saveSymbolsDoc, type SymbolsDoc } from './symbolsStorage';
 import { normalizeWinTextDoc, saveWinTextDoc } from './winTextStorage';
@@ -112,24 +112,24 @@ async function guarded(write: () => Promise<AddOnPart>): Promise<AddOnPart> {
 	}
 }
 
-// ─── spines ───────────────────────────────────────────────────────────────────────────────────
+// ─── rigs ───────────────────────────────────────────────────────────────────────────────────
 
 /**
- * The shared bundle an imported spine is promoted to — namespaced by the importing project and its
+ * The shared bundle an imported rig is promoted to — namespaced by the importing project and its
  * source, so it never overwrites another project's shared bundle of the same name, and two projects
  * importing the same source bundle never share (or overwrite) one copy: each path has one writer
  * (project keys are lowercase slugs, so `r2Slug` maps distinct keys to distinct segments).
  */
-export const importedSpineBundle = (target: string, source: string, bundle: string): string =>
+export const importedRigBundle = (target: string, source: string, bundle: string): string =>
 	`imported/${r2Slug(target)}/${r2Slug(source)}/${bundle}`;
 
 /**
- * Every spine bundle a JSON value names under the SOURCE project's prefix, and the value with each
+ * Every rig bundle a JSON value names under the SOURCE project's prefix, and the value with each
  * such reference rewritten to its promoted shared bundle — except a bundle in `keep` (one whose
  * promotion failed), which keeps its source reference rather than naming a copy that is not there.
  * Pure; `value` is not mutated.
  */
-export function rewriteSourceSpines<T>(
+export function rewriteSourceRigs<T>(
 	value: T,
 	client: string,
 	source: string,
@@ -145,7 +145,7 @@ export function rewriteSourceSpines<T>(
 			if (!bundle) return v;
 			bundles.add(bundle);
 			if (keep.has(bundle)) return v;
-			return `${sharedSpinesPrefix(importedSpineBundle(target, source, bundle))}${slash ? '/' : ''}`;
+			return `${sharedRigBundlePrefix(importedRigBundle(target, source, bundle))}${slash ? '/' : ''}`;
 		}
 		if (Array.isArray(v)) return v.map(walk);
 		if (v && typeof v === 'object') {
@@ -157,20 +157,20 @@ export function rewriteSourceSpines<T>(
 }
 
 /**
- * Promote each of `bundles` once per run — every run, so a re-sync picks up a spine the source
+ * Promote each of `bundles` once per run — every run, so a re-sync picks up a rig the source
  * re-exported at the same path — BEFORE the doc naming it is written. A bundle that cannot be
- * promoted (not a loadable bundle in the source) is recorded with why, and {@link sourceSpines}
+ * promoted (not a loadable bundle in the source) is recorded with why, and {@link sourceRigs}
  * leaves its reference on the source.
  */
-async function promoteSpines(ctx: ImportContext, bundles: readonly string[]): Promise<void> {
+async function promoteRigs(ctx: ImportContext, bundles: readonly string[]): Promise<void> {
 	for (const bundle of bundles) {
 		if (ctx.spines.has(bundle)) continue;
 		try {
-			await promoteSpineToShared(
+			await promoteRigToShared(
 				ctx.client,
 				ctx.source,
 				bundle,
-				importedSpineBundle(ctx.project, ctx.source, bundle),
+				importedRigBundle(ctx.project, ctx.source, bundle),
 			);
 			ctx.spines.set(bundle, null);
 		} catch (e) {
@@ -179,12 +179,12 @@ async function promoteSpines(ctx: ImportContext, bundles: readonly string[]): Pr
 	}
 }
 
-/** `value` with its source spines promoted and rewritten; a failed one keeps its source key. */
-async function sourceSpines<T>(ctx: ImportContext, value: T): Promise<T> {
-	const { bundles } = rewriteSourceSpines(value, ctx.client, ctx.source, ctx.project);
-	await promoteSpines(ctx, bundles);
+/** `value` with its source rigs promoted and rewritten; a failed one keeps its source key. */
+async function sourceRigs<T>(ctx: ImportContext, value: T): Promise<T> {
+	const { bundles } = rewriteSourceRigs(value, ctx.client, ctx.source, ctx.project);
+	await promoteRigs(ctx, bundles);
 	const failed = new Set(bundles.filter((b) => ctx.spines.get(b) !== null));
-	return rewriteSourceSpines(value, ctx.client, ctx.source, ctx.project, failed).value;
+	return rewriteSourceRigs(value, ctx.client, ctx.source, ctx.project, failed).value;
 }
 
 // ─── symbols ──────────────────────────────────────────────────────────────────────────────────
@@ -349,7 +349,7 @@ type ImportContext = {
 	names: Record<string, string>;
 	/** Names the previous import brought that this one does not. */
 	dropped: string[];
-	/** Each spine bundle the copied pieces name under the source's prefix → `null` once promoted,
+	/** Each rig bundle the copied pieces name under the source's prefix → `null` once promoted,
 	 *  else why it could not be. */
 	spines: Map<string, string | null>;
 };
@@ -363,7 +363,7 @@ async function importSymbols(ctx: ImportContext, config: GameConfigDoc): Promise
 	if (source.corrupt) {
 		return part('skipped', [], `${ctx.source}'s Symbols doc could not be read.`);
 	}
-	// Only the imported symbols' bindings are read, so only their spines are promoted.
+	// Only the imported symbols' bindings are read, so only their rigs are promoted.
 	const imported: SymbolsDoc = { version: 1, symbols: {} };
 	for (const block of SYMBOL_BLOCKS) {
 		const entries = Object.keys(ctx.names)
@@ -373,7 +373,7 @@ async function importSymbols(ctx: ImportContext, config: GameConfigDoc): Promise
 	}
 	const merged = mergeImportedBindings(
 		target.doc,
-		await sourceSpines(ctx, imported),
+		await sourceRigs(ctx, imported),
 		ctx.names,
 		ctx.dropped,
 	);
@@ -425,11 +425,11 @@ async function importLayout(ctx: ImportContext): Promise<AddOnPart> {
 			`${ctx.source} has no screens for this mode: the ones here are kept.`,
 		);
 	}
-	// Only the copied screens are read, so only their spines are promoted.
+	// Only the copied screens are read, so only their rigs are promoted.
 	const copied = { ...source.doc, scenes: source.doc.scenes.filter((s) => ids.includes(s.id)) };
 	const merged = mergeImportedScreens(
 		target.doc,
-		await sourceSpines(ctx, copied),
+		await sourceRigs(ctx, copied),
 		ctx.mode,
 		ctx.sourceMode,
 	);
@@ -658,8 +658,8 @@ export async function applyBonusImport(
 	const failed = [...ctx.spines].filter(([, why]) => why !== null);
 	const promoted = [...ctx.spines]
 		.filter(([, why]) => why === null)
-		.map(([bundle]) => importedSpineBundle(project, source, bundle));
-	const spines = !ctx.spines.size
+		.map(([bundle]) => importedRigBundle(project, source, bundle));
+	const rigs = !ctx.spines.size
 		? part('present')
 		: part(
 				promoted.length ? 'added' : 'failed',
@@ -668,7 +668,7 @@ export async function applyBonusImport(
 					? `Not promoted, so they ship nothing: ${failed.map(([b, why]) => `${b} (${why})`).join('; ')}.`
 					: undefined,
 			);
-	const parts: BonusImportParts = { symbols, layout, flow, winText, spines };
+	const parts: BonusImportParts = { symbols, layout, flow, winText, spines: rigs };
 	// The config is an input to the runtime bundle, so a live game picks the bonus up at once.
 	invalidateRuntimeBundle(project);
 	return {

@@ -5,8 +5,8 @@
  * The case that matters is the one that took the live board down: a project's own multiplier symbol,
  * authored with every state EXCEPT `explosion`, on a cascading game. `explosion` is the only state
  * the tumble asks for, and a symbol that exists only as an override has no coded cell to inherit —
- * so the lookup returned nothing, `Symbol.svelte` fell through to its SPINE arm, and
- * `SpineProvider` did `key.match(...)` on `undefined`. A throw inside a render unmounts the board:
+ * so the lookup returned nothing, `Symbol.svelte` fell through to its RIG arm, and
+ * `RigProvider` did `key.match(...)` on `undefined`. A throw inside a render unmounts the board:
  * the player loses the reels because one symbol lacked one state.
  *
  * So these assert the rule end to end, including the shape that crashed, verbatim.
@@ -26,23 +26,23 @@ const check = (label: string, actual: unknown, expected: unknown): void => {
 	console.log(`FAIL  ${label}\n        expected ${e}\n        actual   ${a}`);
 };
 
-const spine = (assetKey: string) => ({ type: 'spine', assetKey });
+const rig = (assetKey: string) => ({ type: 'spine', assetKey });
 const sprite = (assetKey: string) => ({ type: 'sprite', assetKey });
 
 console.log('\na cell only counts when it names an asset');
-check('a bound spine cell is usable', isUsableCell(spine('m_spine')), true);
+check('a bound rig cell is usable', isUsableCell(rig('m_rig')), true);
 check('a missing cell is not', isUsableCell(undefined), false);
 // This is the crash shape: typed, but with nothing to render.
-check('a spine cell with NO assetKey is not', isUsableCell({ type: 'spine' }), false);
+check('a rig cell with NO assetKey is not', isUsableCell({ type: 'spine' }), false);
 check('...nor is an empty assetKey', isUsableCell({ type: 'spine', assetKey: '' }), false);
 
 console.log('\nthe live `test5` multiplier — every state but explosion');
 const M: StateMapLike = {
-	static: spine('m_static'),
-	spin: spine('m_spin'),
-	land: spine('m_land'),
-	win: spine('m_win'),
-	postWinStatic: spine('m_post'),
+	static: rig('m_static'),
+	spin: rig('m_spin'),
+	land: rig('m_land'),
+	win: rig('m_win'),
+	postWinStatic: rig('m_post'),
 };
 check('an authored state draws itself', resolveSymbolState(M, 'win'), 'win');
 check(
@@ -57,13 +57,13 @@ check(
 );
 
 console.log('\nthe inherited fallbacks stay');
-const book: StateMapLike = { static: sprite('s'), win: spine('w') };
+const book: StateMapLike = { static: sprite('s'), win: rig('w') };
 check('bookIntro inherits win', resolveSymbolState(book, 'bookIntro'), 'win');
 check('bookIdle inherits win', resolveSymbolState(book, 'bookIdle'), 'win');
 check('stacked inherits static', resolveSymbolState(book, 'stacked'), 'static');
 
 console.log('\nthe cascade explosion inherits the on-reel one');
-const oneExplosion: StateMapLike = { static: sprite('s'), explosion: spine('boom') };
+const oneExplosion: StateMapLike = { static: sprite('s'), explosion: rig('boom') };
 check(
 	'an UNBOUND tumble explosion plays the normal explosion — the pre-split behaviour, kept',
 	resolveSymbolState(oneExplosion, 'clearReel'),
@@ -71,12 +71,12 @@ check(
 );
 check(
 	'...and a bound one wins, which is the whole point of the second binding',
-	resolveSymbolState({ ...oneExplosion, clearReel: spine('cascade_boom') }, 'clearReel'),
+	resolveSymbolState({ ...oneExplosion, clearReel: rig('cascade_boom') }, 'clearReel'),
 	'clearReel',
 );
 check(
 	'the on-reel explosion is NEVER redirected to the cascade one',
-	resolveSymbolState({ static: sprite('s'), clearReel: spine('cascade_boom') }, 'explosion'),
+	resolveSymbolState({ static: sprite('s'), clearReel: rig('cascade_boom') }, 'explosion'),
 	'static',
 );
 check(
@@ -88,9 +88,9 @@ check(
 console.log('\nthe Hold and Win states replay what the coded presentation played');
 const coin: StateMapLike = {
 	static: sprite('c'),
-	land: spine('c_land'),
-	win: spine('c_win'),
-	explosion: spine('c_boom'),
+	land: rig('c_land'),
+	win: rig('c_win'),
+	explosion: rig('c_boom'),
 };
 for (const [state, donor] of [
 	['coinIdle', 'static'],
@@ -109,7 +109,7 @@ for (const [state, donor] of [
 }
 check(
 	'a bound H&W state draws itself',
-	resolveSymbolState({ ...coin, coinStick: spine('c_stick') }, 'coinStick'),
+	resolveSymbolState({ ...coin, coinStick: rig('c_stick') }, 'coinStick'),
 	'coinStick',
 );
 check(

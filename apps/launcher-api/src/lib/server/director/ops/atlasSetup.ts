@@ -21,6 +21,7 @@ import {
 	manifestDocId,
 	writtenVersions,
 	type AtlasAnswer,
+	type AtlasCaller,
 	type DocBase,
 } from '../atlasClient';
 import { doneOpResults } from '../store';
@@ -103,7 +104,7 @@ const CATALOGUE_TTL_MS = 60_000;
 let cached: { at: number; value: Catalogue } | null = null;
 
 /** The reviewed image cards atlas-tool serves to agents (`GET /blueprints?kind=image`), a minute. */
-export async function catalogue(ctx: AdapterContext, now = Date.now()): Promise<Catalogue> {
+export async function catalogue(ctx: AtlasCaller, now = Date.now()): Promise<Catalogue> {
 	if (cached && now - cached.at < CATALOGUE_TTL_MS) return cached.value;
 	const answer = await atlasFetch(ctx, {
 		method: 'GET',

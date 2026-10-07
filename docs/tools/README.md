@@ -28,7 +28,7 @@ full-page — never in an iframe). Local tools you install on your own machine.
 | **ComfyUI** (third-party)                     | `/comfyui`                                                                               | admin · developer · artist                                           | [comfyui.md](comfyui.md)                              |
 | **Invisible Component Editor**                | `/components`                                                                            | admin · developer · artist · pipeline tester                         | [component-editor.md](component-editor.md)            |
 | **Invisible Storybook**                       | `/storybook`                                                                             | admin · developer · pipeline tester · music/SFX                      | [storybook.md](storybook.md)                          |
-| **Invisible Spine Viewer**                    | `/spine`                                                                                 | admin · developer · animator · pipeline tester                       | [spine-viewer.md](spine-viewer.md)                    |
+| **Invisible Rig Viewer**                    | `/rig-viewer`                                                                                 | admin · developer · animator · pipeline tester                       | [rig-viewer.md](rig-viewer.md)                    |
 | **Invisible Rigger**                          | `/rigger`                                                                                | admin · developer · animator                                         | [rigger.md](rigger.md)                                |
 | **Invisible Cinematic**                       | `/rigger` → 🎬 Cinematic (a mode, not a separate tool — so no registry entry of its own) | admin · developer · animator                                         | [rigger.md §Cinematic mode](rigger.md#cinematic-mode) |
 | **Invisible Font Maker**                      | `/fonts`                                                                                 | admin · developer · artist · pipeline tester                         | [font-maker.md](font-maker.md)                        |
@@ -44,7 +44,6 @@ full-page — never in an iframe). Local tools you install on your own machine.
 | Tool                                                                                                 | Where it runs           | Default roles                                            | Doc                                            |
 | ---------------------------------------------------------------------------------------------------- | ----------------------- | -------------------------------------------------------- | ---------------------------------------------- |
 | **Invisible Launcher** (desktop ComfyUI + tunnel manager; also builds, publishes and delivers games) | your machine            | admin · developer · artist · pipeline tester · music/SFX | [invisible-launcher.md](invisible-launcher.md) |
-| **Spine Editor** (third-party)                                                                       | your machine (licensed) | admin · animator                                         | [spine-editor.md](spine-editor.md)             |
 
 ## Services behind the tools (no launcher card)
 

@@ -331,7 +331,7 @@ const ROWS = 3;
  * Build one round's world: the board, the emitter, and every sliced function bound to them.
  *
  * `art` maps a symbol STATE to how long its animation takes to report `oncomplete` — `null` is the
- * state bound to art that can never report (no art at all, a spine animation missing from the
+ * state bound to art that can never report (no art at all, a rig animation missing from the
  * skeleton), which is the case both bounded races exist for.
  */
 const buildRound = ({

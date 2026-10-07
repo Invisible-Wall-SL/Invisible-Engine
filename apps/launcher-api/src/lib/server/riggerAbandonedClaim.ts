@@ -8,7 +8,7 @@ import {
 	putObjectText,
 } from './r2';
 import { backupIrigBeforeOverwrite, irigBackupsPrefix } from './riggerIrig';
-import { bundleFoldersNamedLike, spineExt, type SkeletonsIndex } from './spineIndex';
+import { bundleFoldersNamedLike, rigExt, type SkeletonsIndex } from './rigIndex';
 
 /**
  * How long a create's claim may sit with nothing but its page beside it before it counts as
@@ -21,7 +21,7 @@ const PAGE_EXT = new Set(['.png', '.webp', '.jpg', '.jpeg']);
 
 /**
  * Free a rig name held only by an ABANDONED create. `＋ New rig` and upload claim
- * `<spines>/<name>/<name>.irig` first and write the page, the atlas and the index after; a request
+ * `<rigs>/<name>/<name>.irig` first and write the page, the atlas and the index after; a request
  * that dies in between leaves a folder the index never lists (it has no atlas), so nobody can open
  * or delete it — yet it keeps the name, case-insensitively, forever.
  *
@@ -39,27 +39,27 @@ const PAGE_EXT = new Set(['.png', '.webp', '.jpg', '.jpeg']);
 export async function reclaimAbandonedClaims(
 	clientKey: string,
 	projectKey: string,
-	spinesPrefix: string,
+	rigsPrefix: string,
 	name: string,
 	now = Date.now(),
 ): Promise<string[]> {
-	const folders = await bundleFoldersNamedLike(spinesPrefix, name);
+	const folders = await bundleFoldersNamedLike(rigsPrefix, name);
 	if (!folders.length) return [];
 
-	const indexed = await indexedFolders(spinesPrefix);
+	const indexed = await indexedFolders(rigsPrefix);
 	if (!indexed) return [];
 
 	const reclaimed: string[] = [];
 	for (const folder of folders) {
 		if (indexed.has(folder)) continue;
-		const folderPrefix = `${spinesPrefix}/${folder}/`;
+		const folderPrefix = `${rigsPrefix}/${folder}/`;
 		const irigKey = `${folderPrefix}${folder}.irig`;
 		const objects = await listAllObjects(folderPrefix);
 		const abandoned =
 			objects.some((o) => o.key === irigKey) &&
 			objects.every((o) => {
 				const rest = o.key.slice(folderPrefix.length);
-				const shape = o.key === irigKey || (!rest.includes('/') && PAGE_EXT.has(spineExt(rest)));
+				const shape = o.key === irigKey || (!rest.includes('/') && PAGE_EXT.has(rigExt(rest)));
 				return shape && o.lastModified > 0 && now - o.lastModified >= ABANDONED_CLAIM_MS;
 			});
 		if (!abandoned) continue;
@@ -90,8 +90,8 @@ export async function reclaimAbandonedClaims(
 }
 
 /** The folders `skeletons.json` lists; empty when there is none yet, null when it is unreadable. */
-async function indexedFolders(spinesPrefix: string): Promise<Set<string> | null> {
-	const text = await getObjectText(`${spinesPrefix}/skeletons.json`);
+async function indexedFolders(rigsPrefix: string): Promise<Set<string> | null> {
+	const text = await getObjectText(`${rigsPrefix}/skeletons.json`);
 	if (text === null) return new Set();
 	try {
 		const index = JSON.parse(text) as SkeletonsIndex;

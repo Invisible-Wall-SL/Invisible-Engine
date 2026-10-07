@@ -1,12 +1,12 @@
 /**
- * Mirror the two BOOT SPLASH spine bundles into the project's `deploy/_boot/` tree and
+ * Mirror the two BOOT SPLASH rig bundles into the project's `deploy/_boot/` tree and
  * write the index the splash reads at frame 0.
  *
  * This is deliberately the SMALLEST possible exporter: it owns no copying logic of its
- * own, it just calls `exportSpineBundle` — the same helper `editorArtExport` and
- * `symbolExport` use — twice, at fixed stems. A boot logo is an ordinary spine bundle
+ * own, it just calls `exportRigBundle` — the same helper `editorArtExport` and
+ * `symbolExport` use — twice, at fixed stems. A boot logo is an ordinary rig bundle
  * that happens to be read early; giving it a private production path would be a second
- * way to ship a spine, and there is already exactly one.
+ * way to ship a rig, and there is already exactly one.
  *
  * TWO THINGS THIS MUST NOT DO, both learned from the exporters next door:
  *
@@ -31,21 +31,21 @@ import {
 	type BootSplashTier,
 } from 'constants-shared/bootSplash';
 import { resolveBootSplashRefs } from './bootSplash';
-import { SUB, sharedSpinesPrefix } from './projectPaths';
+import { SUB, sharedRigBundlePrefix } from './projectPaths';
 import { deleteObjects, listAllKeys, putObjectText } from './r2';
 import {
-	exportSpineBundle,
+	exportRigBundle,
 	loadSharedSkeletonIndex,
 	loadSkeletonIndex,
 	type SkeletonIndexEntry,
-} from './spine';
+} from './rig';
 
 /**
- * Boot spines load at their AUTHORED size, not the editor's `EDITOR_SPINE_LOAD_SCALE`.
+ * Boot rigs load at their AUTHORED size, not the editor's `EDITOR_RIG_LOAD_SCALE`.
  * The splash fits the result to its own max width in CSS pixels, so a baked-in editor
  * scale would just be a constant this code has to divide back out.
  */
-const BOOT_SPINE_SCALE = 1;
+const BOOT_RIG_SCALE = 1;
 
 /** Export one tier, or `undefined` when it is unconfigured / unresolvable. */
 async function exportTier(
@@ -64,10 +64,10 @@ async function exportTier(
 	// whole difference between "the engine's mark" and "this game's mark".
 	const shared = tier === 'engine';
 	const assetKey = shared
-		? `${sharedSpinesPrefix(ref.bundle)}/`
+		? `${sharedRigBundlePrefix(ref.bundle)}/`
 		: `${SUB.spines(opts.clientKey, opts.projectKey)}/${ref.bundle}/`;
 
-	const exported = await exportSpineBundle({
+	const exported = await exportRigBundle({
 		clientKey: opts.clientKey,
 		projectKey: opts.projectKey,
 		assetKey,
@@ -75,7 +75,7 @@ async function exportTier(
 		subtree: BOOT_SPLASH_SUBTREE,
 		stem: BOOT_SPLASH_STEMS[tier],
 		skeletonIndex: opts.skeletonIndex,
-		scale: BOOT_SPINE_SCALE,
+		scale: BOOT_RIG_SCALE,
 		forceShared: shared,
 	});
 	if (!exported) {

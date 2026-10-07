@@ -1,6 +1,6 @@
 /**
  * Invisible FX — Tier C `/fx` particle-KIND mutators headless harness (the UI logic behind the
- * inspector's "Particle" section: the Sprite↔Spine toggle + the skeleton/animation/loop pickers).
+ * inspector's "Particle" section: the Sprite↔rig toggle + the skeleton/animation/loop pickers).
  * The live WebGL pixels are authed-page-only, so — as the sibling tools do — the PURE editing
  * logic + its save→reopen survival are pinned OFFLINE:
  *
@@ -8,23 +8,23 @@
  *
  * Proves:
  *  1. `setParticleKind` is pure/immutable, flips ONLY `particleKind` (never `config`/`art`/
- *     `placement`/`trigger`), and is NON-DESTRUCTIVE: a sprite↔spine toggle preserves the atlas
+ *     `placement`/`trigger`), and is NON-DESTRUCTIVE: a sprite↔rig toggle preserves the atlas
  *     `art` AND a drafted `spineParticle` block (the runtime + normalize ignore the dormant one).
- *  2. The `setSpineParticle*` setters force `particleKind:'spine'`, edit ONLY `spineParticle`
+ *  2. The `setRigParticle*` setters force `particleKind:'spine'`, edit ONLY `spineParticle`
  *     (never `config`), are immutable, and keep the other spineParticle fields.
- *  3. `spineParticleReady` gates a fully-bound spine layer (skeleton AND clip).
+ *  3. `rigParticleReady` gates a fully-bound rig layer (skeleton AND clip).
  *  4. The kind discipline holds through `normalizeEffectDoc` (the save→reopen gatekeeper): a true
- *     spine layer's spineParticle round-trips; a sprite layer's dormant spineParticle is DROPPED.
+ *     rig layer's spineParticle round-trips; a sprite layer's dormant spineParticle is DROPPED.
  */
 
 import { normalizeEffectDoc, type EffectDoc, type EmitterLayer } from 'engine-fx';
 import {
 	newLayer,
 	setParticleKind,
-	setSpineParticleAnimation,
-	setSpineParticleLoop,
-	setSpineParticleSkeleton,
-	spineParticleReady,
+	setRigParticleAnimation,
+	setRigParticleLoop,
+	setRigParticleSkeleton,
+	rigParticleReady,
 } from '../../apps/launcher-api/src/routes/(app)/fx/fxModel.client';
 
 let failures = 0;
@@ -49,58 +49,58 @@ const baseSnapshot = JSON.stringify(base);
 
 assert(base.particleKind === 'sprite', 'a new layer is `sprite` by default');
 
-const toSpine = setParticleKind(base, 'spine');
+const toRig = setParticleKind(base, 'spine');
 assert(JSON.stringify(base) === baseSnapshot, 'setParticleKind does not mutate its input');
-assert(toSpine.particleKind === 'spine', 'switching to spine sets particleKind=spine');
-assert(eq(toSpine.config, base.config), 'setParticleKind leaves `config` byte-identical');
-assert(eq(toSpine.art, base.art), 'setParticleKind leaves `art` byte-identical');
-assert(eq(toSpine.placement, base.placement), 'setParticleKind leaves `placement` byte-identical');
+assert(toRig.particleKind === 'spine', 'switching to rig sets particleKind=rig');
+assert(eq(toRig.config, base.config), 'setParticleKind leaves `config` byte-identical');
+assert(eq(toRig.art, base.art), 'setParticleKind leaves `art` byte-identical');
+assert(eq(toRig.placement, base.placement), 'setParticleKind leaves `placement` byte-identical');
 assert(
 	setParticleKind(base, 'sprite') === base,
 	'setParticleKind to the SAME kind returns the same layer (no-op)',
 );
 
-// Build a sprite layer with REAL atlas art, draft a spine binding, then toggle back and forth —
-// both the atlas art AND the spine draft must survive (non-destructive).
+// Build a sprite layer with REAL atlas art, draft a rig binding, then toggle back and forth —
+// both the atlas art AND the rig draft must survive (non-destructive).
 const spriteWithArt: EmitterLayer = {
 	...base,
 	art: { assetKey: 'atlas/fx.json', frames: ['s1', 's2'], animated: true },
 };
-const drafted = setSpineParticleAnimation(setSpineParticleSkeleton(spriteWithArt, SKEL), 'spin');
-assert(drafted.particleKind === 'spine', 'authoring a spineParticle forces spine kind');
+const drafted = setRigParticleAnimation(setRigParticleSkeleton(spriteWithArt, SKEL), 'spin');
+assert(drafted.particleKind === 'spine', 'authoring a spineParticle forces rig kind');
 const backToSprite = setParticleKind(drafted, 'sprite');
 assert(
 	eq(backToSprite.art, spriteWithArt.art),
-	'toggling spine→sprite preserves the atlas art (the sprite path is byte-identical again)',
+	'toggling rig→sprite preserves the atlas art (the sprite path is byte-identical again)',
 );
 assert(
 	eq(backToSprite.spineParticle, drafted.spineParticle),
-	'toggling spine→sprite KEEPS the drafted spineParticle (dormant; runtime/normalize ignore it)',
+	'toggling rig→sprite KEEPS the drafted spineParticle (dormant; runtime/normalize ignore it)',
 );
-const backToSpine = setParticleKind(backToSprite, 'spine');
+const backToRig = setParticleKind(backToSprite, 'spine');
 assert(
-	eq(backToSpine.spineParticle, drafted.spineParticle),
-	'toggling sprite→spine restores the same spineParticle (non-destructive round-trip)',
+	eq(backToRig.spineParticle, drafted.spineParticle),
+	'toggling sprite→rig restores the same spineParticle (non-destructive round-trip)',
 );
 
 // ---------------------------------------------------------------------------
-// 2. setSpineParticle* — force spine, edit ONLY spineParticle, immutable, keep siblings.
+// 2. setRigParticle* — force rig, edit ONLY spineParticle, immutable, keep siblings.
 // ---------------------------------------------------------------------------
 console.log('fx particle-kind — spineParticle setters');
 
-const skel = setSpineParticleSkeleton(base, SKEL);
-assert(JSON.stringify(base) === baseSnapshot, 'setSpineParticleSkeleton does not mutate its input');
-assert(skel.particleKind === 'spine', 'setSpineParticleSkeleton forces spine kind');
+const skel = setRigParticleSkeleton(base, SKEL);
+assert(JSON.stringify(base) === baseSnapshot, 'setRigParticleSkeleton does not mutate its input');
+assert(skel.particleKind === 'spine', 'setRigParticleSkeleton forces rig kind');
 assert(skel.spineParticle?.skeletonKey === SKEL, 'the skeletonKey is set');
 assert(skel.spineParticle?.animation === '', 'animation defaults empty until picked');
-assert(eq(skel.config, base.config), 'setSpineParticleSkeleton leaves `config` byte-identical');
+assert(eq(skel.config, base.config), 'setRigParticleSkeleton leaves `config` byte-identical');
 
-const anim = setSpineParticleAnimation(skel, 'spin');
+const anim = setRigParticleAnimation(skel, 'spin');
 assert(anim.spineParticle?.animation === 'spin', 'the animation is set');
 assert(anim.spineParticle?.skeletonKey === SKEL, 'setting animation keeps the skeletonKey');
 assert(skel.spineParticle?.animation === '', 'animation edit does not mutate the prior layer');
 
-const looped = setSpineParticleLoop(anim, true);
+const looped = setRigParticleLoop(anim, true);
 assert(looped.spineParticle?.loop === true, 'the loop flag is set');
 assert(
 	looped.spineParticle?.skeletonKey === SKEL && looped.spineParticle?.animation === 'spin',
@@ -108,19 +108,19 @@ assert(
 );
 
 // An empty skeleton/animation clears just that field (the fail-safe — never throws).
-const clearedSkel = setSpineParticleSkeleton(looped, '   ');
+const clearedSkel = setRigParticleSkeleton(looped, '   ');
 assert(clearedSkel.spineParticle?.skeletonKey === '', 'a blank skeletonKey clears the binding');
 assert(clearedSkel.spineParticle?.animation === 'spin', 'clearing the skeleton keeps the clip');
 
 // ---------------------------------------------------------------------------
-// 3. spineParticleReady — fully bound (skeleton AND clip).
+// 3. rigParticleReady — fully bound (skeleton AND clip).
 // ---------------------------------------------------------------------------
-console.log('fx particle-kind — spineParticleReady gate');
-assert(!spineParticleReady(base), 'a sprite layer is never spine-ready');
-assert(!spineParticleReady(skel), 'a spine layer with a skeleton but no clip is NOT ready');
-assert(!spineParticleReady(anim) === false, 'a spine layer with skeleton + clip IS ready');
+console.log('fx particle-kind — rigParticleReady gate');
+assert(!rigParticleReady(base), 'a sprite layer is never rig-ready');
+assert(!rigParticleReady(skel), 'a rig layer with a skeleton but no clip is NOT ready');
+assert(!rigParticleReady(anim) === false, 'a rig layer with skeleton + clip IS ready');
 assert(
-	!spineParticleReady(setSpineParticleSkeleton(anim, '')),
+	!rigParticleReady(setRigParticleSkeleton(anim, '')),
 	'clearing the skeleton makes it not-ready again',
 );
 
@@ -135,7 +135,7 @@ const doc: EffectDoc = {
 	id: 'coin_burst',
 	name: 'Coin Burst',
 	layers: [
-		// A true spine layer (skeleton + clip) — its spineParticle MUST survive.
+		// A true rig layer (skeleton + clip) — its spineParticle MUST survive.
 		{
 			key: 'coins',
 			config,
@@ -159,7 +159,7 @@ const doc: EffectDoc = {
 const normalized = normalizeEffectDoc(JSON.parse(JSON.stringify(doc)), 'coin_burst');
 assert(
 	eq(normalized.layers[0].spineParticle, { skeletonKey: SKEL, animation: 'spin', loop: true }),
-	'a true spine layer keeps its spineParticle through normalize',
+	'a true rig layer keeps its spineParticle through normalize',
 );
 assert(
 	!('spineParticle' in (normalized.layers[1] as unknown as Record<string, unknown>)),

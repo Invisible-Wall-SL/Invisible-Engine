@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { SpineProvider, SpineTrack } from 'pixi-svelte';
+	import { RigProvider, RigTrack } from 'pixi-svelte';
 	import { stateBetDerived } from 'state-shared';
 
 	import SymbolPrize from './SymbolPrize.svelte';
@@ -22,8 +22,8 @@
 	const props: Props = $props();
 </script>
 
-<SpineProvider x={props.x} y={props.y} key="symbols" height={SYMBOL_SIZE}>
-	<SpineTrack
+<RigProvider x={props.x} y={props.y} key="symbols" height={SYMBOL_SIZE}>
+	<RigTrack
 		trackIndex={0}
 		animationName={STICKY_SYMBOL_ANIMATION_MAP[props.stickySymbol.state]}
 		timeScale={stateBetDerived.timeScale()}
@@ -34,7 +34,7 @@
 			},
 		}}
 	/>
-</SpineProvider>
+</RigProvider>
 
 {#if props.stickySymbol.isOpen}
 	<SymbolPrize x={props.x} y={props.y} prize={props.stickySymbol.prize.prize} />

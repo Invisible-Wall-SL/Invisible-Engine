@@ -184,7 +184,7 @@ export const SOUND_SLOTS: readonly SoundSlot[] = [
 		label: 'Wild explodes',
 		kind: 'single',
 		description:
-			'Fired by a `wildExplode` EVENT on the symbol’s own spine timeline, so it lands on the animation’s beat rather than on the state change. A symbol whose art raises no such event never plays it.',
+			'Fired by a `wildExplode` EVENT on the symbol’s own rig timeline, so it lands on the animation’s beat rather than on the state change. A symbol whose art raises no such event never plays it.',
 		defaults: ['sfx_wild_explode'],
 	},
 ];

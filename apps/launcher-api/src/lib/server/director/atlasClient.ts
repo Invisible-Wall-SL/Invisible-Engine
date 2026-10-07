@@ -43,7 +43,12 @@ export interface AtlasAnswer {
 	json: <T>() => T;
 }
 
-export function launchHeaders(ctx: AdapterContext, now = Date.now()): Record<string, string> {
+/** Who an atlas-tool call acts as: the adapter's context, or a read with no run of its own. */
+export type AtlasCaller = Pick<AdapterContext, 'owner' | 'agent' | 'scope'> & {
+	run: Pick<AdapterContext['run'], 'id'>;
+};
+
+export function launchHeaders(ctx: AtlasCaller, now = Date.now()): Record<string, string> {
 	const secret = ENV.ATLAS_TOOL_SIGNING_SECRET;
 	// The legacy unsigned handoff cannot say who is acting, so no write could be attributed.
 	if (!secret) {
@@ -77,7 +82,7 @@ export function launchHeaders(ctx: AdapterContext, now = Date.now()): Record<str
 	return { [LAUNCH_HEADER]: token };
 }
 
-export async function atlasFetch(ctx: AdapterContext, call: AtlasCall): Promise<AtlasAnswer> {
+export async function atlasFetch(ctx: AtlasCaller, call: AtlasCall): Promise<AtlasAnswer> {
 	const base = ENV.ATLAS_TOOL_URL.replace(/\/$/, '');
 	const params = new URLSearchParams(call.query);
 	if (call.atlas) params.set('manifest', manifestFile(call.atlas));

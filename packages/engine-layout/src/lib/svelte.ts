@@ -56,7 +56,7 @@ export type {
 // (the bare `engine-layout` import stays Svelte-free). The editor canvas can
 // reuse the same provider/reader when it threads instance params (B3).
 export { setComponentParams, getComponentParams } from './componentParamsContext';
-// Signal-anim context (§8.5, spine-only) — the signal sibling of the param
+// Signal-anim context (§8.5, rig-only) — the signal sibling of the param
 // context, likewise Svelte-dependent so it lives on the component entry.
 export { setComponentSignalAnims, getComponentSignalAnims } from './componentSignalContext';
 export { setComponentSignalScope, getComponentSignalScope } from './componentSignalScopeContext';

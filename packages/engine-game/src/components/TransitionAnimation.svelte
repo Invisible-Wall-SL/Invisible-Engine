@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { SpineProvider, SpineTrack } from 'pixi-svelte';
+	import { RigProvider, RigTrack } from 'pixi-svelte';
 	import { getGameContext } from '../game/context';
 
 	type Props = {
 		oncomplete: () => void;
-		/** Spine position. Defaults to canvas-centre (the coded overlay's hardcode); the
+		/** Rig position. Defaults to canvas-centre (the coded overlay's hardcode); the
 		 * editor-owned `componentInstance` path passes `0,0` so the instance node's
 		 * transform places the wipe (see `boundToInstance`). Height stays viewport-relative
 		 * either way, so sizing is unchanged. */
@@ -19,17 +19,17 @@
 	const y = $derived(props.y ?? context.stateLayoutDerived.canvasSizes().height * 0.5);
 </script>
 
-<SpineProvider
+<RigProvider
 	key="transition"
 	{x}
 	{y}
 	height={context.stateLayoutDerived.canvasSizes().height * 1.7}
 >
-	<SpineTrack
+	<RigTrack
 		trackIndex={0}
 		animationName="animation"
 		listener={{
 			complete: props.oncomplete,
 		}}
 	/>
-</SpineProvider>
+</RigProvider>

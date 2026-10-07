@@ -5,7 +5,7 @@
  *   pnpm --filter flow-spike run fs7win
  *
  * Proves, HEADLESSLY against the REAL apps/lines modules, the seam that lets an author rebuild the WIN
- * overlay entirely from primitives (own dim / Text Box count / spine / tap), under a container of ANY
+ * overlay entirely from primitives (own dim / Text Box count / rig / tap), under a container of ANY
  * name, while the engine keeps only the load-bearing count-up:
  *
  *  A. `resolveWinMount` — the NON-NEGOTIABLE invariant: under a v2 flow there is ALWAYS EXACTLY ONE

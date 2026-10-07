@@ -27,7 +27,7 @@
 // the crash, so it was narrowed to what is actually true.
 //
 // The second failure mode is quieter and worth naming: `SymbolWrap` renders a symbol on exactly ONE
-// of the two layers (the split IS `animating` — a spine symbol overflows its cell and draws unmasked
+// of the two layers (the split IS `animating` — a rig symbol overflows its cell and draws unmasked
 // above the mask). A host that provides only ONE context silently hides whichever half of a project's
 // art it does not match. So a symbol host must provide BOTH.
 

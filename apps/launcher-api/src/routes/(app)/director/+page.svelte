@@ -96,11 +96,16 @@
 	let variantsPerRegion = $state(3);
 	let gpu = $state('');
 	let cpBreakdown = $state(true);
+	let cpArtPlan = $state(true);
 	let cpRegionBatch = $state(true);
 	let notes = $state('');
 
 	const presetBody = $derived({ blueprint, draftPx, finalPx, variantsPerRegion, gpu });
-	const checkpointsBody = $derived({ breakdown: cpBreakdown, regionBatch: cpRegionBatch });
+	const checkpointsBody = $derived({
+		breakdown: cpBreakdown,
+		artPlan: cpArtPlan,
+		regionBatch: cpRegionBatch,
+	});
 
 	// ── Mockups, under the key and client of the game about to be created ────
 	const scopeKey = $derived(PROJECT_KEY_PATTERN.test(key) ? key : '');
@@ -277,13 +282,16 @@
 		return () => clearTimeout(t);
 	});
 
+	const totalUsd = $derived(estimate?.estimate.total.usd ?? null);
+	/** Money fails closed: no run is created on an estimate that could not be priced. */
+	const unpriced = $derived(estimate !== null && totalUsd === null);
 	const overCap = $derived(
-		estimate !== null && estimate.estimate.total.usd.high > estimate.budgetCapUsd,
+		estimate !== null && totalUsd !== null && totalUsd.high > estimate.budgetCapUsd,
 	);
 	const capShare = $derived(
-		estimate === null
+		estimate === null || totalUsd === null
 			? 0
-			: Math.min(100, (estimate.estimate.total.usd.high / estimate.budgetCapUsd) * 100),
+			: Math.min(100, (totalUsd.high / estimate.budgetCapUsd) * 100),
 	);
 
 	// ── Create, then start ────────────────────────────────────────────────────
@@ -316,6 +324,11 @@
 		if (mockups?.startRefusal) return void (createErr = mockups.startRefusal);
 		if (images.length === 0 && !notes.trim()) {
 			return void (createErr = 'Describe the style in the notes, or upload mockups.');
+		}
+		if (!estimate || totalUsd === null) {
+			return void (createErr = estimate
+				? `The run's cost cannot be estimated: ${estimate.estimate.unpriced.join('; ')}.`
+				: 'Wait for the estimate: a run starts only on a priced estimate.');
 		}
 		const body = {
 			key: k,
@@ -387,6 +400,7 @@
 			variantsPerRegion = got.preset.default.variantsPerRegion;
 			gpu = got.preset.default.gpu;
 			cpBreakdown = got.checkpoints.breakdown;
+			cpArtPlan = got.checkpoints.artPlan;
 			cpRegionBatch = got.checkpoints.regionBatch;
 			// The first kind that has a template, so the form opens on something that can run.
 			const first = got.gameKinds.find((k) => got.templates.some((t) => t.gameType === k.id));
@@ -530,7 +544,12 @@
 
 				<section class="card" aria-label="Preset">
 					<h2>Preset</h2>
-					<p class="hint">Which Atlas Maker blueprint, render sizes and GPU the art agents use.</p>
+					<p class="hint">
+						The chain the atlas technician starts from when this template has no approved default
+						recipe yet. It plans each region from the reviewed blueprint cards, and you approve that
+						plan at the Art plan checkpoint. Renders run, and are priced, on the GPU atlas-tool
+						reports.
+					</p>
 					<div class="grid five">
 						<label>
 							Blueprint
@@ -722,6 +741,17 @@
 						<span class="chip feature">Recommended</span>
 					</label>
 					<label class="checkpoint">
+						<input type="checkbox" bind:checked={cpArtPlan} />
+						<span class="cp-text">
+							<strong>Art plan</strong>
+							<span>
+								See how each region will be made — the Atlas Maker pipelines, sizes and variants —
+								and what it will cost, before anything renders.
+							</span>
+						</span>
+						<span class="chip feature">Recommended</span>
+					</label>
+					<label class="checkpoint">
 						<input type="checkbox" bind:checked={cpRegionBatch} />
 						<span class="cp-text">
 							<strong>After each region batch</strong>
@@ -744,7 +774,7 @@
 					<button
 						type="button"
 						class="primary"
-						disabled={creating || !offer || !templateKey}
+						disabled={creating || !offer || !templateKey || unpriced}
 						onclick={createAndStart}
 					>
 						{createStage || 'Create project & start agents'}
@@ -824,10 +854,10 @@
 					<ul class="rows tight">
 						<li><span>Claude API</span><span>{usdRange(est.claude.usd)}</span></li>
 						<li>
-							<span>RunPod {est.runpod.gpu}</span>
+							<span>RunPod{est.runpod.gpu ? ` ${est.runpod.gpu}` : ''}</span>
 							<span>
 								~{Math.round(est.runpod.minutes.low)}–{Math.round(est.runpod.minutes.high)} min ·
-								{usdRange(est.runpod.usd)}
+								{est.runpod.usd ? usdRange(est.runpod.usd) : 'not priced'}
 							</span>
 						</li>
 						<li>
@@ -836,27 +866,56 @@
 						</li>
 						<li class="total">
 							<span>Total</span>
-							<span>{usdRange(est.total.usd)} of a {usd(estimate.budgetCapUsd)} cap</span>
+							<span>
+								{totalUsd
+									? `${usdRange(totalUsd)} of a ${usd(estimate.budgetCapUsd)} cap`
+									: 'Unknown'}
+							</span>
 						</li>
 					</ul>
-					<div
-						class="cap"
-						class:over={overCap}
-						title="The high end of the estimate against the cap"
-					>
-						<div class="fill" style="width:{capShare}%"></div>
-					</div>
+					{#if unpriced}
+						<p class="err">
+							The GPU side cannot be priced, so no run starts on this estimate: {est.unpriced.join(
+								'; ',
+							)}.
+						</p>
+					{:else}
+						<div
+							class="cap"
+							class:over={overCap}
+							title="The high end of the estimate against the cap"
+						>
+							<div class="fill" style="width:{capShare}%"></div>
+						</div>
+					{/if}
 					{#if overCap}
 						<p class="warn">
 							The high end is over the cap. The run pauses at {usd(estimate.budgetCapUsd)} and asks you
 							to raise it or stop.
 						</p>
 					{/if}
+					{#if estimate.chains.length}
+						<ul class="rows tight" aria-label="Recipes priced">
+							{#each estimate.chains as c (c.group)}
+								<li>
+									<span>{c.regions} × {c.group}</span>
+									<span
+										class="mono small"
+										title={c.source === 'fallback'
+											? 'No approved default for this template yet: the fallback chain'
+											: `This template's ${c.source}`}>{c.chain}</span
+									>
+								</li>
+							{/each}
+						</ul>
+					{/if}
 					{#if est.placeholder}
 						<p class="muted">
-							Placeholder figures until the pilot measures real runs. Analysing {analysedMockups}
-							mockup{analysedMockups === 1 ? '' : 's'}, {templateRegions} regions ×
-							{variantsPerRegion} variants.
+							Placeholder figures until the pilot measures real runs: blueprint cards whose GPU
+							seconds are a guess are priced up to the profiles' figure. Analysing {analysedMockups}
+							mockup{analysedMockups === 1 ? '' : 's'}, {templateRegions} regions, {est.runpod
+								.reviewedVariants}
+							variants to review.
 						</p>
 					{/if}
 				{:else if estimateErr}

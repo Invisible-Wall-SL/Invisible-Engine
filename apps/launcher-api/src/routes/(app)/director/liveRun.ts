@@ -8,6 +8,7 @@ import {
 	type RunEvent,
 	type RunSummary,
 } from './director.client';
+import { REGION_NAME } from 'director-costs/recipe';
 
 /**
  * The Live run screen's view of a run (PLAN 4.3, ADR-0003 "Live UI"): the run's event rows folded
@@ -35,12 +36,14 @@ const STEP_IDS: readonly string[] = RUN_STEPS.map((s) => s.id);
 const isStep = (value: unknown): value is RunStep =>
 	typeof value === 'string' && STEP_IDS.includes(value);
 
-/** A region name as `ops/atlas.ts` `REGION` admits it; anything else is not a region. */
-const REGION_NAME = /^[A-Za-z0-9_][A-Za-z0-9_.()-]{0,119}$/;
 /** An atlas id as `ops/atlas.ts` `ATLAS` admits it. */
 const ATLAS_ID = /^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,119}$/;
 const VARIANT_ID = /^[0-9]{1,8}$/;
 const JOB_REF = /^st_[0-9a-f]{16}$/;
+/** A GPU as `pricing.json` names one ("L40S (48 GB)"); anything else is not shown. */
+const GPU_NAME = /^[A-Za-z0-9][A-Za-z0-9 ()._-]{0,39}$/;
+export const isGpuName = (value: unknown): value is string =>
+	typeof value === 'string' && GPU_NAME.test(value);
 
 // ── Steps ─────────────────────────────────────────────────────────────────────
 
@@ -178,6 +181,14 @@ export interface Folded {
 	feed: FeedEntry[];
 	/** When each step was first entered, from the `run_status` rows. */
 	stepStartedAt: Partial<Record<RunStep, string>>;
+	/** Where the Art plan checkpoint stands (ADR-0008 §7): never opened, open, approved, sent back. */
+	artPlan: 'none' | 'open' | 'approved' | 'revised';
+	/** The id of the last row that changed a recipe: the cache version of the run's recipes. */
+	recipesVersion: number;
+	/** The id of the coordinator's last plan row: a new plan can take recipes' approval away. */
+	planVersion: number;
+	/** The GPU the run's latest render was billed on, as its spend row names it. */
+	gpu: string | null;
 }
 
 // ── Labels ────────────────────────────────────────────────────────────────────
@@ -280,7 +291,7 @@ const AREA_LABELS: Record<string, string> = {
 	editor: 'Scenes',
 	input: 'References',
 	batch: 'Renders',
-	spines: 'Spines',
+	spines: 'Rigs',
 	fonts: 'Fonts',
 };
 
@@ -307,6 +318,10 @@ interface Ctx {
 	openBatch: Set<string> | null;
 	/** Ids of owner rows the worker refused (`refused_request`), collected before the fold. */
 	refused: Set<number>;
+	artPlan: Folded['artPlan'];
+	recipesVersion: number;
+	planVersion: number;
+	gpu: string | null;
 }
 
 const OTHER_GROUP = 'Other regions';
@@ -543,6 +558,7 @@ function foldActivity(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 				}
 			}
 			ctx.plan = { summary, batches };
+			ctx.planVersion = event.id;
 			ctx.groupOf.clear();
 			ctx.planAtlases.clear();
 			ctx.groupOrder = [];
@@ -601,6 +617,23 @@ function foldActivity(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 		case 'breakdown_image':
 			// One per mockup per pass, each carrying the model's full answer: noise in the feed.
 			return;
+		case 'recipe_step':
+			// A pick or a committed tile, recorded on the recipe ("How this was made").
+			ctx.recipesVersion = event.id;
+			return push(ctx, event, str(p.text, 400) ?? 'recorded a step of a recipe', 'plain');
+		case 'recipe': {
+			ctx.recipesVersion = event.id;
+			const region = str(p.region, 120) ?? 'a region';
+			const chain = str(p.chain, 400) ?? '';
+			const rev = num(p.rev);
+			const by = str(p.editedBy, 120) ? 'stored your edit of' : 'planned';
+			return push(
+				ctx,
+				event,
+				`${by} ${regionTitle(region)}${rev !== null && rev > 1 ? ` (revision ${rev})` : ''}: ${chain}`,
+				'plain',
+			);
+		}
 		default: {
 			if (isBreakdown(p.breakdown)) readBreakdown(ctx, event, p.breakdown);
 			const images = num(p.images);
@@ -643,6 +676,14 @@ function foldCheckpoint(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 		);
 		return push(ctx, event, `asks you to review a region batch. ${summary}`, 'checkpoint');
 	}
+	if (checkpoint === 'art_plan') {
+		ctx.artPlan = 'open';
+		const ask =
+			str(p.reason, 40) === 'retries_spent'
+				? 'asks you to approve again a render that kept failing.'
+				: 'asks you to review the Art plan before anything renders.';
+		return push(ctx, event, `${ask}${summary ? ` ${summary}` : ''}`, 'checkpoint');
+	}
 	if (checkpoint === 'before_publish') {
 		return push(
 			ctx,
@@ -683,6 +724,9 @@ function foldResolved(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 		}
 		ctx.openBatch = null;
 	}
+	if (!refused && checkpoint === 'art_plan') {
+		ctx.artPlan = decision === 'approve' ? 'approved' : 'revised';
+	}
 	const verb = refused
 		? `asked to ${decision}`
 		: decision === 'approve'
@@ -693,11 +737,13 @@ function foldResolved(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 	const what =
 		checkpoint === 'breakdown'
 			? 'the mockup breakdown'
-			: checkpoint === 'region_batch'
-				? 'the region batch'
-				: checkpoint === 'before_publish'
-					? 'the build'
-					: `the ${checkpoint} checkpoint`;
+			: checkpoint === 'art_plan'
+				? 'the Art plan'
+				: checkpoint === 'region_batch'
+					? 'the region batch'
+					: checkpoint === 'before_publish'
+						? 'the build'
+						: `the ${checkpoint} checkpoint`;
 	push(
 		ctx,
 		event,
@@ -874,6 +920,10 @@ export function foldEvents(events: readonly RunEvent[], prefix: string): Folded 
 		stepStartedAt: {},
 		openBatch: null,
 		refused: refusedIds(events),
+		artPlan: 'none',
+		recipesVersion: 0,
+		planVersion: 0,
+		gpu: null,
 	};
 	for (const event of events) {
 		if (typeof event.id !== 'number' || typeof event.at !== 'string') continue;
@@ -902,6 +952,7 @@ export function foldEvents(events: readonly RunEvent[], prefix: string): Folded 
 				foldJobDone(ctx, event, p);
 				break;
 			case 'spend':
+				if (p.kind === 'runpod' && isGpuName(p.model)) ctx.gpu = p.model;
 				push(
 					ctx,
 					event,
@@ -976,6 +1027,10 @@ export function foldEvents(events: readonly RunEvent[], prefix: string): Folded 
 		plan: ctx.plan,
 		feed: ctx.feed,
 		stepStartedAt: ctx.stepStartedAt,
+		artPlan: ctx.artPlan,
+		recipesVersion: ctx.recipesVersion,
+		planVersion: ctx.planVersion,
+		gpu: ctx.gpu,
 	};
 }
 
@@ -1026,11 +1081,22 @@ export function stepViews(run: RunSummary, folded: Folded, mockupCount: number):
 						? `${mockupCount} mockup${mockupCount === 1 ? '' : 's'} to read`
 						: 'A style board from your notes';
 				break;
-			case 'style_pack':
+			case 'style_pack': {
 				detail = mockupCount
 					? 'Palette and refs taken from your mockups'
 					: 'Palette and refs from your notes';
+				// The Art plan is a checkpoint inside this step (ADR-0008 §7).
+				const plan =
+					folded.artPlan === 'approved'
+						? 'Art plan ✓'
+						: folded.artPlan === 'open'
+							? 'Art plan waiting'
+							: folded.artPlan === 'revised'
+								? 'Art plan being revised'
+								: '';
+				if (plan) detail = `${detail} · ${plan}`;
 				break;
+			}
 			case 'regions':
 				detail = regionsTotal
 					? `${approved} of ${regionsTotal} approved`

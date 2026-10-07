@@ -2,7 +2,7 @@
  * Content-addressed store of atlas PAGES, so a page shared by many rigs (and the editor-art
  * sheet) ships — and encodes — ONCE and the game loads it as a SINGLE GPU texture.
  *
- * Why: each rig spine bundle carried its OWN copy of its atlas page, and the game loaded each
+ * Why: each rig bundle carried its OWN copy of its atlas page, and the game loaded each
  * copy as a distinct texture. A full-screen background/UI page used by several rigs (e.g.
  * `S_Game_UI2` → R_SpinButtonNew + R_Turbo + R_Auto + the sheet) became 3–4 separate 32 MB
  * textures, and MORE loaded as features mounted over play — a monotonic VRAM climb that
@@ -13,7 +13,7 @@
  * Pages live at `deploy/_pages/<contentHash>.<ext>` (+ a `.ktx2` twin when `ENV.KTX2_ENCODE`).
  * Every atlas/sheet sits at `deploy/<subtree>/<stem>/…`, so it references a shared page by the
  * base-independent relative path {@link PAGE_REF_PREFIX} (`../../_pages/`) — which resolves the
- * same in baked (`static/assets/`) and runtime (`/api/deploy/…`) modes, and through Spine's own
+ * same in baked (`static/assets/`) and runtime (`/api/deploy/…`) modes, and through rig's own
  * atlas loader (which normalizes `page.dirname + pageName`) and the spritesheet loader
  * (`meta.image` relative to the JSON). The dedup KEY is the source object's ETag+size — a cheap
  * HEAD, no byte download; bytes are read only to encode a NEW page's KTX2 twin. A page that
@@ -78,7 +78,7 @@ export interface SharedPage {
 	 *  Its extension is the SHIPPED format, which is not always the source's: a PNG/JPEG source
 	 *  is re-encoded to `.webp` unless `PAGE_WEBP=0` or the encode failed to beat the original.
 	 *  Callers must reference this rather than deriving a name from the source key — PIXI and
-	 *  Spine both pick their loader by extension, so a name that disagrees with the bytes only
+	 *  Rig both pick their loader by extension, so a name that disagrees with the bytes only
 	 *  surfaces as a broken texture in the game. */
 	file: string;
 	/** The shared KTX2 twin filename (`<hash>.ktx2`), when it was encoded. */

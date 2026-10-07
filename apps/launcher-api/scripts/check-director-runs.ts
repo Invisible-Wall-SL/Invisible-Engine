@@ -7,7 +7,8 @@
  * loader, the `director-costs` estimator and the worker's own state machine
  * (`services/director-worker/src/runState.ts`). Replaced at their boundaries: R2 (in memory),
  * the Postgres-backed modules (the Director store, projects, clients, overrides, settings), the
- * duplicate path, the template summary and the font catalog. `fetch` throws for the whole run.
+ * duplicate path, the template summary, the font catalog and the Art plan reads (`artPlan.ts`:
+ * the priced catalogue and the worker's approval rule). `fetch` throws for the whole run.
  *
  * Pinned:
  *  - the ownership refusal blocks both create and start, and neither writes anything then;
@@ -19,7 +20,13 @@
  *  - a replayed request id answers the same event id and writes nothing new; the same id with
  *    another input is refused;
  *  - the estimate makes no RunPod call and no model call, and the profiles price every agent at
- *    the model its definition names;
+ *    the model its definition names; its GPU side is priced per chain (the template's default, else
+ *    the fallback) from the catalogue read for the template as no run, at atlas-tool's GPU; an
+ *    unreadable catalogue, no GPU or an unpriced GPU leaves no total, and a start is then refused
+ *    (409 `estimate_unpriced`);
+ *  - an Art plan approval carries the revisions the owner saw and is refused up front when the
+ *    stored plan changed (409 `plan_changed`); recipe edits travel whole on an `art_plan` revise
+ *    only, and malformed revisions or edits are 400s;
  *  - create derives the run id from the request id, copies the ownership stamp into the starting
  *    point, snapshots the budget cap, and leaves nothing behind when the copy fails;
  *  - font requests list and mark done, once the font is in the catalog;
@@ -386,7 +393,11 @@ let eventSeq = 0;
 let clock = 0;
 /** Another request's create lands right after the next draft is inserted (a double submit). */
 let raceOnNextInsert = false;
+/** The template's approved default chains, the measured timings and the plan (card 8E). */
+const DEFAULTS: { group: string; version: number; chain: unknown; atlases: string[] }[] = [];
 fake('lib/server/director/store.ts', {
+	templateDefaultChains: async () => DEFAULTS,
+	blueprintTimings: async () => [],
 	STALE_CLAIM_MS: STALE_MS,
 	getRun: async (id: string) => RUNS.get(id) ?? null,
 	findOwnerRequest: async (runId: string, requestId: string) =>
@@ -492,6 +503,32 @@ fake('lib/server/director/store.ts', {
 			createdAt: new Date(),
 		});
 		return { eventId: id, replayed: false };
+	},
+});
+
+// ── The catalogue the estimate prices chains from (atlas-tool's `GET /blueprints`) ──
+const CATALOGUE = JSON.parse(
+	readFileSync(
+		new URL('../../../docs/director/eval/blueprints/catalogue.json', import.meta.url),
+		'utf8',
+	),
+) as { gpu: string; blueprints: unknown[] };
+let catalogueAnswer: { catalogue: unknown; error: string | null } = {
+	catalogue: { ...CATALOGUE, usdPerSecond: 0.00053 },
+	error: null,
+};
+const CATALOGUE_READS: { scope: unknown; runId: string }[] = [];
+/** What the worker would say of the next Art plan approval (`approvalProblem`). */
+let approvalRefusal: { code: string; reason: string } | null = null;
+const APPROVALS_ASKED: unknown[] = [];
+fake('lib/server/director/artPlan.ts', {
+	pricedCatalogue: async (_user: unknown, scope: unknown, runId: string) => {
+		CATALOGUE_READS.push({ scope, runId });
+		return catalogueAnswer;
+	},
+	artPlanApprovalRefusal: async (_user: unknown, _run: unknown, seen: unknown) => {
+		APPROVALS_ASKED.push(seen);
+		return approvalRefusal;
 	},
 });
 
@@ -965,6 +1002,23 @@ console.log('start');
 	);
 	check('…and writes no row', rowsOf(RUN_ID).length, 0);
 	await mockups.confirmOwnership(C, NEW, { uid: 'owner', name: 'Owner' });
+	// Money fails closed: a run whose cost cannot be estimated does not start.
+	catalogueAnswer = { catalogue: null, error: 'The blueprint catalogue could not be read (x).' };
+	const unpricedStart = await act(OWNER, RUN_ID, { action: 'start', requestId: requestId() });
+	check(
+		'an unpriceable estimate refuses the start',
+		[unpricedStart.status, unpricedStart.body.error],
+		[409, 'estimate_unpriced'],
+	);
+	check('…and writes no row', rowsOf(RUN_ID).length, 0);
+	catalogueAnswer = { catalogue: { ...CATALOGUE, gpu: 'Abacus', usdPerSecond: null }, error: null };
+	const noGpu = await act(OWNER, RUN_ID, { action: 'start', requestId: requestId() });
+	check(
+		'…as does a GPU with no price',
+		[noGpu.status, String(noGpu.body.message).includes('Abacus')],
+		[409, true],
+	);
+	catalogueAnswer = { catalogue: { ...CATALOGUE, usdPerSecond: 0.00053 }, error: null };
 	const id = requestId();
 	const started = await act(OWNER, RUN_ID, { action: 'start', requestId: id });
 	check('start writes one owner_request row', [started.status, rowsOf(RUN_ID).length], [200, 1]);
@@ -1040,6 +1094,7 @@ console.log('actions × statuses');
 		['draft', { status: 'draft', step: 'breakdown', waitingOn: null }],
 		['running', { status: 'running', step: 'regions', waitingOn: null }],
 		['waiting:breakdown', { status: 'waiting', step: 'breakdown', waitingOn: 'breakdown' }],
+		['waiting:art_plan', { status: 'waiting', step: 'style_pack', waitingOn: 'art_plan' }],
 		['waiting:region_batch', { status: 'waiting', step: 'regions', waitingOn: 'region_batch' }],
 		['waiting:before_publish', { status: 'waiting', step: 'handoff', waitingOn: 'before_publish' }],
 		['paused', { status: 'paused', step: 'regions', waitingOn: null }],
@@ -1290,6 +1345,227 @@ console.log('actions × statuses');
 	check(noted.status === 200 ? 'checkpoint args ok' : 'checkpoint args ok', noted.status, 200);
 }
 
+// ── The Art plan checkpoint (card 8E) ─────────────────────────────────────────
+console.log('art plan');
+{
+	const run = runRow();
+	Object.assign(run, { status: 'waiting', step: 'style_pack', waitingOn: 'art_plan' });
+	const revs = { H1: 2, H2: 1 };
+	const GOOD_STEP = {
+		n: 1,
+		kind: 'generate',
+		pipeline: 'flux',
+		atlas: 'symbols',
+		region: 'H1',
+		genPx: 1024,
+		variants: 2,
+		settings: [],
+		style: { source: 'keep', value: '' },
+		shape: { source: 'keep', value: '' },
+		note: '',
+	};
+	approvalRefusal = null;
+	const before = rowsOf(RUN_ID).length;
+	const approved = await act(OWNER, RUN_ID, {
+		action: 'approve',
+		requestId: requestId(),
+		recipeRevs: revs,
+	});
+	const row = rowsOf(RUN_ID).at(-1)!;
+	check(
+		'an approval carries the revisions the owner saw',
+		[
+			approved.status,
+			row.kind,
+			(row.payloadJson as { checkpoint: string }).checkpoint,
+			(row.payloadJson as { recipeRevs: unknown }).recipeRevs,
+		],
+		[200, 'checkpoint_resolved', 'art_plan', revs],
+	);
+	check('…which were checked against the stored plan first', APPROVALS_ASKED.at(-1), revs);
+	approvalRefusal = {
+		code: 'plan_changed',
+		reason: 'the Art plan changed since you saw it (H1 is at revision 3); review it again',
+	};
+	const stale = await act(OWNER, RUN_ID, {
+		action: 'approve',
+		requestId: requestId(),
+		recipeRevs: revs,
+	});
+	check(
+		'a plan changed since it was seen is refused at the button',
+		[stale.status, stale.body.error, String(stale.body.message).includes('revision 3')],
+		[409, 'plan_changed', true],
+	);
+	approvalRefusal = {
+		code: 'catalogue_unreadable',
+		reason: 'The blueprint catalogue could not be read (x). The plan cannot be priced now',
+	};
+	const unreadable = await act(OWNER, RUN_ID, {
+		action: 'approve',
+		requestId: requestId(),
+		recipeRevs: revs,
+	});
+	check(
+		'…a catalogue that cannot be read is refused under its own code, not as a changed plan',
+		[unreadable.status, unreadable.body.error],
+		[409, 'catalogue_unreadable'],
+	);
+	approvalRefusal = null;
+	check('…and writes no row', rowsOf(RUN_ID).length, before + 1);
+	const misnamed = await act(OWNER, RUN_ID, {
+		action: 'approve',
+		requestId: requestId(),
+		recipeRevs: { H1: 1, 'old..name': 1 },
+	});
+	check(
+		'an approval of a stored plan naming what is no region says which name, not just "bad"',
+		[
+			misnamed.status,
+			misnamed.body.error,
+			String(misnamed.body.message).includes('"old..name", which is not a region name'),
+		],
+		[400, 'bad_recipe_revs', true],
+	);
+	for (const [label, body, code] of [
+		['revisions on a revise', { action: 'revise', recipeRevs: revs, note: 'x' }, 'bad_recipe_revs'],
+		[
+			'a revision that is not a whole number',
+			{ action: 'approve', recipeRevs: { H1: 1.5 } },
+			'bad_recipe_revs',
+		],
+		[
+			'revisions keyed by a non-region',
+			{ action: 'approve', recipeRevs: { '../x': 1 } },
+			'bad_recipe_revs',
+		],
+		['edits on an approval', { action: 'approve', recipeEdits: [] }, 'bad_recipe_edits'],
+		['an empty edit list', { action: 'revise', recipeEdits: [] }, 'bad_recipe_edits'],
+		[
+			'an edit with no steps',
+			{ action: 'revise', recipeEdits: [{ region: 'H1', steps: [] }] },
+			'bad_recipe_edits',
+		],
+		[
+			'an edit naming a region twice',
+			{
+				action: 'revise',
+				recipeEdits: [
+					{ region: 'H1', steps: [{ kind: 'finish', pipeline: '', settings: [] }] },
+					{ region: 'H1', steps: [{ kind: 'finish', pipeline: '', settings: [] }] },
+				],
+			},
+			'bad_recipe_edits',
+		],
+		[
+			'a step of no known kind',
+			{
+				action: 'revise',
+				recipeEdits: [{ region: 'H1', steps: [{ kind: 'paint', pipeline: '', settings: [] }] }],
+			},
+			'bad_recipe_edits',
+		],
+		[
+			'an edit with no revision',
+			{ action: 'revise', recipeEdits: [{ region: 'H1', steps: [GOOD_STEP] }] },
+			'bad_recipe_edits',
+		],
+		[
+			'a step with no style',
+			{
+				action: 'revise',
+				recipeEdits: [{ region: 'H1', rev: 1, steps: [{ ...GOOD_STEP, style: null }] }],
+			},
+			'bad_recipe_edits',
+		],
+		[
+			'a setting value that is a number',
+			{
+				action: 'revise',
+				recipeEdits: [
+					{ region: 'H1', rev: 1, steps: [{ ...GOOD_STEP, settings: [{ key: 'k', value: 28 }] }] },
+				],
+			},
+			'bad_recipe_edits',
+		],
+		[
+			'a null setting',
+			{
+				action: 'revise',
+				recipeEdits: [{ region: 'H1', rev: 1, steps: [{ ...GOOD_STEP, settings: [null] }] }],
+			},
+			'bad_recipe_edits',
+		],
+		[
+			'a size that is text',
+			{
+				action: 'revise',
+				recipeEdits: [{ region: 'H1', rev: 1, steps: [{ ...GOOD_STEP, genPx: '1024' }] }],
+			},
+			'bad_recipe_edits',
+		],
+	] as const) {
+		const answer = await act(OWNER, RUN_ID, { ...body, requestId: requestId() });
+		check(`${label} is refused`, [answer.status, answer.body.error], [400, code]);
+	}
+	const steps = [
+		{
+			n: 1,
+			kind: 'generate',
+			pipeline: 'flux',
+			atlas: 'symbols',
+			region: 'H1',
+			genPx: 1024,
+			variants: 2,
+			settings: [],
+			style: { source: 'keep', value: '' },
+			shape: { source: 'keep', value: '' },
+			note: '',
+		},
+	];
+	const edited = await act(OWNER, RUN_ID, {
+		action: 'revise',
+		requestId: requestId(),
+		recipeEdits: [{ region: 'H1', rev: 3, steps }],
+	});
+	const editRow = rowsOf(RUN_ID).at(-1)!;
+	check(
+		'edits travel whole on a revise, with the revision they were made on',
+		[edited.status, (editRow.payloadJson as { recipeEdits: unknown }).recipeEdits],
+		[200, [{ region: 'H1', rev: 3, steps }]],
+	);
+	const extra = await act(OWNER, RUN_ID, {
+		action: 'revise',
+		requestId: requestId(),
+		recipeEdits: [
+			{ region: 'H1', rev: 3, steps: [{ ...steps[0], jobRef: 'st_0000000000000001' }] },
+		],
+	});
+	check(
+		"…and only a step's own fields travel: a jobRef sent with one is dropped",
+		[
+			extra.status,
+			(
+				(rowsOf(RUN_ID).at(-1)!.payloadJson as { recipeEdits: { steps: object[] }[] })
+					.recipeEdits[0].steps[0] as Record<string, unknown>
+			).jobRef,
+		],
+		[200, undefined],
+	);
+	Object.assign(run, { status: 'waiting', step: 'regions', waitingOn: 'region_batch' });
+	const elsewhere = await act(OWNER, RUN_ID, {
+		action: 'revise',
+		requestId: requestId(),
+		recipeEdits: [{ region: 'H1', rev: 3, steps }],
+	});
+	check(
+		'edits at another checkpoint are refused',
+		[elsewhere.status, elsewhere.body.error],
+		[400, 'bad_recipe_edits'],
+	);
+	Object.assign(run, { status: 'draft', step: 'breakdown', waitingOn: null });
+}
+
 // ── Summary ───────────────────────────────────────────────────────────────────
 console.log('summary');
 {
@@ -1432,7 +1708,7 @@ console.log('estimate');
 		check('the mockup count is capped at the upload limit', await at(99), await at(12));
 	}
 	check('it is a placeholder until measured', est.placeholder, true);
-	check('three checkpoints by default', est.checkpoints, 3);
+	check('four checkpoints by default (the Art plan among them)', est.checkpoints, 4);
 	const r = (x: unknown) => x as { low: number; high: number };
 	check(
 		'Claude: a range',
@@ -1440,9 +1716,25 @@ console.log('estimate');
 		true,
 	);
 	check(
-		'RunPod: drafts and finals at the preset GPU',
-		[est.runpod.gpu, est.runpod.draftRenders, est.runpod.finalRenders],
-		['RTX 4090 (24 GB)', 75, 25],
+		"RunPod: priced per chain at atlas-tool's GPU, every step of every region",
+		[est.runpod.gpu, est.runpod.renders, est.runpod.reviewedVariants],
+		['L40S (48 GB)', 100, 75],
+	);
+	check('…the catalogue was read for the template, as no run', CATALOGUE_READS.at(-1), {
+		scope: { clientKey: C, projectKey: 'hw' },
+		runId: 'estimate',
+	});
+	check(
+		'each atlas is priced at the fallback chain while the template has no default',
+		(answer.body.chains as { group: string; chain: string; source: string }[]).map((c) => [
+			c.group,
+			c.chain,
+			c.source,
+		]),
+		[
+			['symbols', 'sdxl 1024 ×3 → birefnet → finish', 'fallback'],
+			['ui', 'sdxl 1024 ×3 → birefnet → finish', 'fallback'],
+		],
 	);
 	check(
 		'RunPod: a range',
@@ -1450,6 +1742,13 @@ console.log('estimate');
 			r(est.runpod.usd).low <= r(est.runpod.usd).high &&
 			r(est.runpod.minutes).high >= r(est.runpod.minutes).low,
 		true,
+	);
+	check(
+		"…from the guessed cards' own figures up to the floor the Art plan is approved on",
+		// 25 regions of sdxl 1024 ×3 (12 s) → birefnet (3 s), +15 s delay per image and 120 s + 60 s
+		// of cold start per region; at the floor every image is 600 s + 15 s. At $0.00053 a second.
+		r(est.runpod.usd),
+		{ low: 3.7, high: 34.98 },
 	);
 	check('the total adds up', r(est.total.usd), {
 		low: Math.round((r(est.claude.usd).low + r(est.runpod.usd).low) * 100) / 100,
@@ -1459,11 +1758,111 @@ console.log('estimate');
 		'animator',
 		'art-director',
 		'atlas-artist',
+		'atlas-technician',
 		'builder',
 		'coordinator',
 		'mockup-analyst',
 		'qa',
 	]);
+	{
+		// A template's approved default prices its group instead of the fallback.
+		DEFAULTS.push({
+			group: 'Symbols',
+			version: 2,
+			chain: [
+				{ kind: 'generate', pipeline: 'flux', genPx: 1024, variants: 2, settings: [] },
+				{ kind: 'finish', pipeline: '', genPx: 0, variants: 0, settings: [] },
+			],
+			atlases: [],
+		});
+		const withDefault = await call(estimateRoute.POST, {
+			user: OWNER,
+			url: '/api/director/estimate',
+			body: { template: 'hw' },
+		});
+		check(
+			"the template's own default prices its group",
+			(withDefault.body.chains as { group: string; chain: string; source: string }[])[0],
+			{
+				group: 'symbols',
+				regions: 11,
+				chain: 'flux 1024 ×2 → finish',
+				source: 'template default v2 (Symbols)',
+				seconds: (withDefault.body.chains as { seconds: unknown }[])[0].seconds,
+			},
+		);
+		// The groups whose recipes ran on an atlas price it, whatever they are called; an atlas
+		// two groups shared is priced at the dearer chain, since the split is not known.
+		DEFAULTS.push(
+			{
+				group: 'UI kit',
+				version: 1,
+				chain: [{ kind: 'generate', pipeline: 'flux', genPx: 1024, variants: 1, settings: [] }],
+				atlases: ['ui'],
+			},
+			{
+				group: 'Win banners',
+				version: 4,
+				chain: [{ kind: 'generate', pipeline: 'flux', genPx: 1536, variants: 4, settings: [] }],
+				atlases: ['ui'],
+			},
+			{
+				group: 'Broken',
+				version: 1,
+				chain: [{ kind: 'generate', pipeline: 'flux', genPx: 0, variants: 0, settings: [] }],
+				atlases: ['ui'],
+			},
+		);
+		const shared = await call(estimateRoute.POST, {
+			user: OWNER,
+			url: '/api/director/estimate',
+			body: { template: 'hw' },
+		});
+		check(
+			'an atlas the groups ran on is priced at the dearest of their chains; a chain that renders nothing is never one',
+			(shared.body.chains as { group: string; source: string }[]).map((c) => [c.group, c.source]),
+			[
+				['symbols', 'template default v2 (Symbols)'],
+				['ui', 'template default v4 (Win banners)'],
+			],
+		);
+		DEFAULTS.length = 0;
+	}
+	for (const [label, answerWith, needle] of [
+		[
+			'an unreadable catalogue',
+			{ catalogue: null, error: 'The blueprint catalogue could not be read (atlas_unavailable).' },
+			'atlas_unavailable',
+		],
+		[
+			'no GPU reported',
+			{ catalogue: { ...CATALOGUE, gpu: '', usdPerSecond: null }, error: null },
+			'RUNPOD_ENDPOINT_GPU',
+		],
+		[
+			'an unpriced GPU',
+			{ catalogue: { ...CATALOGUE, gpu: 'Abacus', usdPerSecond: null }, error: null },
+			'Abacus',
+		],
+	] as const) {
+		catalogueAnswer = answerWith;
+		const failed = await call(estimateRoute.POST, {
+			user: OWNER,
+			url: '/api/director/estimate',
+			body: { template: 'hw' },
+		});
+		const e = failed.body.estimate as {
+			total: { usd: unknown };
+			runpod: { usd: unknown };
+			unpriced: string[];
+		};
+		check(
+			`${label}: the estimate has no total, and says why`,
+			[failed.status, e.total.usd, e.runpod.usd, e.unpriced.some((u) => u.includes(needle))],
+			[200, null, null, true],
+		);
+	}
+	catalogueAnswer = { catalogue: { ...CATALOGUE, usdPerSecond: 0.00053 }, error: null };
 	check(
 		'an unknown template is 404',
 		(
@@ -1492,7 +1891,7 @@ console.log('estimate');
 		[2, 3, eventSeq],
 	);
 
-	// The pure estimator.
+	// The pure estimator over a priced chain.
 	const profiles = runsMod.ESTIMATE_PROFILES;
 	const pricing = costs.parsePricing(
 		JSON.parse(
@@ -1502,37 +1901,60 @@ console.log('estimate');
 			),
 		),
 	);
+	const gpu = {
+		gpu: 'RTX 4090 (24 GB)',
+		seconds: { low: 600, high: 1200 },
+		usd: { low: 0.19, high: 0.37 },
+		renders: 40,
+		reviewedVariants: 20,
+		steps: 30,
+		placeholder: false,
+		unpriced: [],
+	};
 	const base = {
 		regions: 10,
 		mockups: 2,
-		variantsPerRegion: 2,
-		draftPx: 512,
-		finalPx: 1024,
-		gpu: 'RTX 4090 (24 GB)',
-		checkpoints: { breakdown: true, regionBatch: false },
+		gpu,
+		checkpoints: { breakdown: true, artPlan: false, regionBatch: false },
 	};
 	const e = costs.estimateRun(base, profiles, pricing);
-	check('no region batch checkpoint: two reviews', e.checkpoints, 2);
-	const none = costs.estimateRun({ ...base, regions: 0, mockups: 0 }, profiles, pricing);
-	check(
-		'no regions: no renders',
-		[none.runpod.draftRenders, none.runpod.usd],
-		[0, { low: 0, high: 0 }],
+	check('no art plan, no region batch checkpoint: two reviews', e.checkpoints, 2);
+	check('the GPU side is the chain price, in cents', e.runpod.usd, { low: 0.19, high: 0.37 });
+	const none = costs.estimateRun(
+		{
+			...base,
+			regions: 0,
+			mockups: 0,
+			gpu: {
+				...gpu,
+				renders: 0,
+				reviewedVariants: 0,
+				steps: 0,
+				seconds: { low: 0, high: 0 },
+				usd: { low: 0, high: 0 },
+			},
+		},
+		profiles,
+		pricing,
 	);
+	check('no regions: no renders', [none.runpod.renders, none.runpod.usd], [0, { low: 0, high: 0 }]);
 	check('…but the per-run work remains', none.claude.usd.low > 0, true);
-	const bigger = costs.estimateRun({ ...base, finalPx: 2048 }, profiles, pricing);
+	const more = costs.estimateRun({ ...base, gpu: { ...gpu, steps: 90 } }, profiles, pricing);
 	check(
-		'finals at 2048 px cost four times the GPU seconds of 1024',
-		bigger.runpod.usd.high > e.runpod.usd.high,
+		'more recipe steps cost the technician more',
+		more.claude.byAgent['atlas-technician'].high > e.claude.byAgent['atlas-technician'].high,
 		true,
 	);
-	let threw = '';
-	try {
-		costs.estimateRun({ ...base, gpu: 'Abacus' }, profiles, pricing);
-	} catch (err) {
-		threw = (err as Error).message;
-	}
-	check('an unpriced GPU throws rather than estimating nothing', threw.includes('Abacus'), true);
+	const unpricedGpu = costs.estimateRun(
+		{ ...base, gpu: { ...gpu, usd: null, unpriced: ['no GPU'] } },
+		profiles,
+		pricing,
+	);
+	check(
+		'an unpriced GPU side leaves no total, never a total of nothing',
+		[unpricedGpu.total.usd, unpricedGpu.unpriced],
+		[null, ['no GPU']],
+	);
 	// The profiles price each agent at the model its definition names.
 	const defined: Record<string, string> = {};
 	for (const file of readdirSync(AGENTS_DIR)) {
@@ -1619,7 +2041,16 @@ console.log('templates');
 	check(
 		'the agents the run is priced for, at the model each definition names',
 		agents.map((a) => a.agent),
-		['coordinator', 'mockup-analyst', 'art-director', 'atlas-artist', 'animator', 'builder', 'qa'],
+		[
+			'coordinator',
+			'mockup-analyst',
+			'art-director',
+			'atlas-artist',
+			'atlas-technician',
+			'animator',
+			'builder',
+			'qa',
+		],
 	);
 	check(
 		'…and the worker is not one of them',

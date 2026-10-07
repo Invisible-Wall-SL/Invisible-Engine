@@ -62,7 +62,7 @@ and `lib/republish.mjs` (the TypeScript half, run under the TS loader).
   to the built-in of the same id **as it was when the game was published** is a copy of the
   built-in; every other def is the author's and is loaded as the bake loads it (next bullet). The
   bake leaves a built-in's copy
-  byte-equal (its spine keys and atlas refs are bare names, which the post-resolve fixups skip),
+  byte-equal (its rig keys and atlas refs are bare names, which the post-resolve fixups skip),
   while a saved def goes through `normalizeComponent` (which drops a built-in's `capability` and
   `defaultInstanceParams` and reorders fields) and an edit changes its content. The published
   engine's built-ins come from the engine commit the game's pointer records at publish
@@ -113,8 +113,8 @@ and `lib/republish.mjs` (the TypeScript half, run under the TS loader).
   built-ins alone, with no R2 read: a project or shared def that a head built-in **newly** nests
   cannot be resolved here, so the republished variant ships without it where a republish would
   ship it (the built-in itself still changed, so the game is affected and the row shows the rest).
-  The copies are replaced as the built-ins are in code, with no `rewriteSpineKeys` or
-  `repairComponentDefsAtlasRefs` pass: this assumes a built-in's spine keys and atlas refs are
+  The copies are replaced as the built-ins are in code, with no `rewriteRigKeys` or
+  `repairComponentDefsAtlasRefs` pass: this assumes a built-in's rig keys and atlas refs are
   bare names those passes leave alone, as every built-in's are today (a built-in that referenced
   project art by a scoped key would bake differently from how it is replaced here). Against main's
   built-ins alone the live games showed why the published engine's are required (measured below):

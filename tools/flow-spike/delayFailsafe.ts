@@ -5,7 +5,7 @@
  * (the `showContainer.durationMs` pin → Delay) never collapses the hold to 0 when the pin can't
  * measure the animation — it falls back to the node's authored literal floor instead. This is the
  * fix for the live regression where a wired duration pin on a runtime that couldn't resolve it
- * (unloaded asset / old bundle) tore the shown Spine/FX screen down the instant it mounted.
+ * (unloaded asset / old bundle) tore the shown rig/FX screen down the instant it mounted.
  *
  * Flow under test: event `reveal` → showContainer('screen') → delay(ms ⟵ screen.durationMs) →
  * hideContainer('screen'). We vary what the env's `containerAnimationMs` returns (a real length, 0,

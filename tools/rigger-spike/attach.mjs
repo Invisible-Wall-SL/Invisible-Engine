@@ -4,7 +4,7 @@
 //      rawDoc) produces a skeleton whose slot resolves to a RegionAttachment.
 //   node tools/rigger-spike/attach.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
-import { RIG_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(RIG_CORE);
 
@@ -17,7 +17,7 @@ function mkAtlas() {
 	return atlas;
 }
 
-// replicate spine.ts atlasRegionNames
+// replicate rig.ts atlasRegionNames
 function atlasRegionNames(t) { const out = []; let expectPage = true; for (const line of t.split(/\r?\n/)) { if (line.trim() === '') { expectPage = true; continue; } if (/^\s/.test(line) || line.includes(':')) { expectPage = false; continue; } if (expectPage) { expectPage = false; continue; } out.push(line.trim()); } return out; }
 
 let pass = true;

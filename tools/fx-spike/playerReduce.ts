@@ -97,7 +97,7 @@ assert(
 	'an ambient layer plan carries the `always` trigger mode',
 );
 
-const spineParticle = planLayer(
+const rigParticle = planLayer(
 	layer({
 		key: 'sp',
 		particleKind: 'spine',
@@ -105,17 +105,17 @@ const spineParticle = planLayer(
 	}),
 );
 assert(
-	spineParticle.render === true,
-	'a `spine` particle layer (Tier C) now RENDERS (Phase-0 verdict — native pooled SpineParticle)',
+	rigParticle.render === true,
+	'a `spine` particle layer (Tier C) now RENDERS (Phase-0 verdict — native pooled RigParticle)',
 );
 assert(
-	spineParticle.particleKind === 'spine',
-	'the plan marks a spine layer `particleKind: spine` (the runtime branches on it)',
+	rigParticle.particleKind === 'spine',
+	'the plan marks a rig layer `particleKind: rig` (the runtime branches on it)',
 );
 assert(
-	spineParticle.spineParticle?.skeletonKey === 'coin' &&
-		spineParticle.spineParticle?.animation === 'spin' &&
-		spineParticle.spineParticle?.loop === true,
+	rigParticle.spineParticle?.skeletonKey === 'coin' &&
+		rigParticle.spineParticle?.animation === 'spin' &&
+		rigParticle.spineParticle?.loop === true,
 	'the plan carries the spineParticle config (skeleton/clip/loop) through to the runtime',
 );
 assert(
@@ -150,11 +150,11 @@ assert(plan.length === 3, 'plan has one entry per layer, in document order');
 assert(plan.map((p) => p.key).join(',') === 'flame,embers,coins', 'plan preserves layer order');
 assert(
 	plan.filter((p) => p.render).length === 3,
-	'all three layers render now (two sprite + the native spine-particle layer)',
+	'all three layers render now (two sprite + the native rig-particle layer)',
 );
 assert(
 	plan[2].particleKind === 'spine' && plan[2].spineParticle?.skeletonKey === 'coin',
-	'the spine layer renders with its spineParticle config carried through',
+	'the rig layer renders with its spineParticle config carried through',
 );
 assert(plan[0].mount === 'bone' && plan[1].mount === 'free', 'mix of bone + free mounts resolved');
 

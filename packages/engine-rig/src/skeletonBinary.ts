@@ -67,7 +67,7 @@ import {
 import { Event } from './event';
 import type { AttachmentLoader } from './atlas';
 
-/** Big-endian reader for the Spine binary format: varints, length-prefixed UTF-8 and a string table. */
+/** Big-endian reader for the rig binary format: varints, length-prefixed UTF-8 and a string table. */
 class BinaryInput {
 	private view: DataView;
 	private index = 0;
@@ -180,7 +180,7 @@ const required = (s: string | null, what: string): string => {
 	return s;
 };
 
-/** Reads Spine 4.2 binary skeletons (`.skel`) into `SkeletonData`. */
+/** Reads 4.2-format binary skeletons (`.skel`) into `SkeletonData`. */
 export class SkeletonBinary {
 	/** Multiplies every length and position as it is read. */
 	scale = 1;

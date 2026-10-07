@@ -10,7 +10,7 @@
 	import { stateUrlDerived } from 'state-shared';
 	import { FadeContainer } from 'components-pixi';
 	import { waitForResolve } from 'utils-shared/wait';
-	import { BitmapText, SpineProvider, SpineSlot, SpineTrack, Sprite } from 'pixi-svelte';
+	import { BitmapText, RigProvider, RigSlot, RigTrack, Sprite } from 'pixi-svelte';
 
 	import { getComponentParams } from 'engine-layout/svelte';
 
@@ -22,9 +22,9 @@
 
 	// Standalone, board-centred free-spin intro overlay (it self-centres via
 	// `FreeSpinAnimation`'s own `<MainContainer>`). Props/defaults reproduce the
-	// hardcodes; the editor can override the spine bundle / animations / slot.
+	// hardcodes; the editor can override the rig bundle / animations / slot.
 	const {
-		introSpine: introSpineProp = 'fsIntroNumber',
+		introSpine: introRigProp = 'fsIntroNumber',
 		introAnimation: introAnimationProp = 'intro',
 		idleAnimation: idleAnimationProp = 'idle',
 		slotName: slotNameProp = 'slot_number',
@@ -42,7 +42,7 @@
 		return typeof value === 'string' && value.length > 0 ? value : undefined;
 	};
 
-	const introSpine = $derived(stringParam('introSpine') ?? introSpineProp);
+	const introRig = $derived(stringParam('introSpine') ?? introRigProp);
 	const introAnimation = $derived(stringParam('introAnimation') ?? introAnimationProp);
 	const idleAnimation = $derived(stringParam('idleAnimation') ?? idleAnimationProp);
 	const slotName = $derived(stringParam('slotName') ?? slotNameProp);
@@ -61,7 +61,7 @@
 		freeSpinIntroUpdate: async (emitterEvent) => {
 			// `introSpine` defaults to a real bundle so this guard never trips; it only
 			// keeps a deliberately-cleared overlay from blocking the press-gate.
-			if (!introSpine) return;
+			if (!introRig) return;
 			// if (emitterEvent.extraSpins) {
 			// 	context.eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_fs_respins' });
 			// }
@@ -72,7 +72,7 @@
 	});
 </script>
 
-{#if introSpine}
+{#if introRig}
 	<FadeContainer {show}>
 		<CanvasSizeRectangle backgroundColor={0x000000} backgroundAlpha={0.5} />
 
@@ -85,8 +85,8 @@
 					key="freespins_{stateUrlDerived.lang()}.png"
 				/>
 
-				<SpineProvider key={introSpine} width={sizes.width * 0.3}>
-					<SpineTrack
+				<RigProvider key={introRig} width={sizes.width * 0.3}>
+					<RigTrack
 						trackIndex={0}
 						{animationName}
 						loop={animationName === idleAnimation}
@@ -94,7 +94,7 @@
 							complete: () => (animationName = idleAnimation),
 						}}
 					/>
-					<SpineSlot {slotName}>
+					<RigSlot {slotName}>
 						<BitmapText
 							anchor={{ x: 0.5, y: 0.5 }}
 							text={freeSpinsFromEvent}
@@ -104,8 +104,8 @@
 								fontWeight: 'bold',
 							}}
 						/>
-					</SpineSlot>
-				</SpineProvider>
+					</RigSlot>
+				</RigProvider>
 
 				<Sprite anchor={{ x: 0.5, y: -3 }} width={183 * 2.2} height={42 * 2.2} key="freespins.png" />
 			{/snippet}

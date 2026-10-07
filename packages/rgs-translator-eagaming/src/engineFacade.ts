@@ -1041,7 +1041,7 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 				const spinWinCents = pendingWins.reduce((sum, c) => sum + (c.pay ?? 0), 0);
 				flushWins();
 				// A single FREE SPIN whose OWN win reaches the BIG tier gets the big-win
-				// overlay (setWin → Win.svelte bigwin spine), exactly as a base-game big
+				// overlay (setWin → Win.svelte bigwin rig), exactly as a base-game big
 				// win does at `gameEnd`. The RGS only sends per-spin `winInfo` + one
 				// aggregate `freeSpinEnd` for the whole feature, so without this a huge
 				// single-spin Book expansion celebrated only its win line and the big-win
@@ -1239,7 +1239,7 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 					specialRaw = undefined;
 				} else if (isBigWinLevel(winLevel)) {
 					// Base-game big win (≥ BIG tier): trigger the big/mega/… win
-					// presentation (setWin → Win.svelte → bigwin spine).
+					// presentation (setWin → Win.svelte → bigwin rig).
 					push({ type: 'setWin', amount, winLevel });
 				}
 				push({ type: 'setTotalWin', amount });

@@ -22,12 +22,12 @@ import {
 	projectComponentsPrefix,
 	r2Slug,
 	sharedComponentsPrefix,
-	sharedSpinesPrefix,
+	sharedRigBundlePrefix,
 	UNASSIGNED_CLIENT,
 } from './projectPaths';
-import { foreignSpineRefs } from '$lib/spineBundleKey';
+import { foreignRigRefs } from '$lib/rigBundleKey';
 import { projectClientKey } from './projects';
-import { loadSharedSkeletonIndex } from './spine';
+import { loadSharedSkeletonIndex } from './rig';
 import {
 	ConflictError,
 	deleteObject,
@@ -220,38 +220,38 @@ async function readComponentForWrite(
  * Nothing downstream can honour such a reference. The export resolves a bundle in this
  * project's `spines/` root then `_shared/spines/` only, so a foreign prefix copies NO files
  * into `deploy/`, while the doc keeps that prefix as its runtime lookup key — the game then
- * throws `Spine: key "…" is not found in loadedAssets` and the art is absent. That is how a
+ * throws `rig: key "…" is not found in loadedAssets` and the art is absent. That is how a
  * free-spin cage pinned to `invisible_wall/bookofborutremake/spines/R_Cage_Freespin/` reached
  * every game that placed the SHARED counter, months after it was authored.
  *
  * It is caught on SAVE because the shared library is resolved by every project, so a shared def
  * that depends on one project is a cross-project break waiting to happen — the same reason
- * `sharedSpinePromote` COPIES a bundle into `_shared/spines/` rather than pointing at the project
+ * `sharedRigPromote` COPIES a bundle into `_shared/spines/` rather than pointing at the project
  * that authored it.
  *
- * WHY IT MOSTLY REWRITES RATHER THAN REFUSING. There is no "re-point this spine node" control:
- * the only writers of a spine node's `assetKey` are the canvas drop that created it and
- * `unexposeSpineParam`. A bare refusal would therefore name a remedy the author cannot perform,
+ * WHY IT MOSTLY REWRITES RATHER THAN REFUSING. There is no "re-point this rig node" control:
+ * the only writers of a rig node's `assetKey` are the canvas drop that created it and
+ * `unexposeRigParam`. A bare refusal would therefore name a remedy the author cannot perform,
  * and deleting + re-dropping the node mints a new id — discarding its per-instance
  * `spineRestOverrides`, `stateAnimations` and `paramBindings`, all keyed by that id. So:
  *
  *  1. the bundle already exists in `_shared/spines/` ⇒ REPOINT at the shared copy. This is the
- *     supported way to borrow, and it makes "promote in /admin → Spines, then save again" a
+ *     supported way to borrow, and it makes "promote in /admin → rigs, then save again" a
  *     complete, self-healing path.
  *  2. the node's `assetKey` is PARAM-BOUND ⇒ CLEAR it. The static key is only the fallback for an
  *     empty param, and a foreign fallback can never resolve, so it is dead data either way —
- *     exactly the residue `exposeSpineParam` leaves behind by not clearing the key it supersedes.
+ *     exactly the residue `exposeRigParam` leaves behind by not clearing the key it supersedes.
  *  3. otherwise ⇒ refuse, naming the bundle and the promote path, which IS a real control.
  *
  * Mutates `def` in place (it is the freshly normalized copy) and returns what it changed, so the
  * caller can persist the healed def rather than the posted one.
  */
-async function healForeignSpineRefs(def: ComponentDef, projectKey?: string): Promise<string[]> {
+async function healForeignRigRefs(def: ComponentDef, projectKey?: string): Promise<string[]> {
 	// Pure pre-pass on EVERY save, so the common case costs no I/O: with no owner, every
 	// project-rooted bundle ref is "foreign", so an empty result here means nothing in this def
 	// could be foreign at any scope — and neither the client lookup nor the shared-index read
 	// below needs to happen. (`_shared/` refs are excluded at both passes.)
-	if (foreignSpineRefs(def.root, undefined).length === 0) return [];
+	if (foreignRigRefs(def.root, undefined).length === 0) return [];
 
 	const own =
 		def.scope === 'project' && projectKey
@@ -260,7 +260,7 @@ async function healForeignSpineRefs(def: ComponentDef, projectKey?: string): Pro
 					project: r2Slug(projectKey),
 				}
 			: undefined;
-	const refs = foreignSpineRefs(def.root, own);
+	const refs = foreignRigRefs(def.root, own);
 	if (refs.length === 0) return [];
 
 	const byId = new Map<string, LayoutNode>();
@@ -279,7 +279,7 @@ async function healForeignSpineRefs(def: ComponentDef, projectKey?: string): Pro
 	for (const ref of refs) {
 		const node = byId.get(ref.nodeId);
 		if (!node || node.kind !== 'spine') continue;
-		const shared = `${sharedSpinesPrefix(ref.bundle)}/`;
+		const shared = `${sharedRigBundlePrefix(ref.bundle)}/`;
 		if (sharedBundles.has(ref.bundle)) {
 			node.assetKey = shared;
 			healed.push(`${ref.assetKey} → ${shared}`);
@@ -298,9 +298,9 @@ async function healForeignSpineRefs(def: ComponentDef, projectKey?: string): Pro
 			? 'is never exported into a game built from this project'
 			: 'is never exported into ANY game that places this shared component';
 		throw new ComponentValidationError(
-			`This component places ${blocked.length} spine bundle(s) from another project: ` +
+			`This component places ${blocked.length} rig bundle(s) from another project: ` +
 				`${blocked.join(', ')}. That art ${reach}, so it would ship missing and the game would ` +
-				'throw at the lookup. Promote the rig to the shared spine library (/admin → Spines) ' +
+				'throw at the lookup. Promote the rig to the shared rig library (/admin → rigs) ' +
 				'and save again — this component will then point at the shared copy by itself.',
 		);
 	}
@@ -372,9 +372,9 @@ export async function saveComponent(
 	// compared for the version bump and before anything is serialized. Logged rather than
 	// silent: it edits the author's own data, and the version bump it can trigger is otherwise
 	// unexplained.
-	const healed = await healForeignSpineRefs(normalized, projectKey);
+	const healed = await healForeignRigRefs(normalized, projectKey);
 	if (healed.length > 0) {
-		console.info(`[component] ${normalized.id}: re-pointed cross-project spine refs —`, healed);
+		console.info(`[component] ${normalized.id}: re-pointed cross-project rig refs —`, healed);
 	}
 	const isProject = normalized.scope === 'project';
 	const key = isProject

@@ -497,12 +497,12 @@
 		SpecialBook,
 		// The board's chosen book expanding symbol as a POSITIONABLE part (the `expandingSymbol`
 		// def's bind) — renders `stateGame.specialSymbol` via `<Symbol>` WITHOUT the shuffle, so an
-		// author owns the reveal via their own spine + choreography (pure-hooks book reveal).
+		// author owns the reveal via their own rig + choreography (pure-hooks book reveal).
 		ExpandingSymbol,
 		// The inline symbol renderer for message strings (Invisible Win Text "show symbol as image").
 		// `engine-layout`'s `InlineImageText` mounts this by name (`INLINE_IMAGE_BOUND_COMPONENT`) per
 		// image token; it renders the symbol at text size via the SAME `<Symbol>` state machine, so
-		// spine high symbols show (a flat `<Sprite>` in the engine layer couldn't draw them). The key
+		// rig high symbols show (a flat `<Sprite>` in the engine layer couldn't draw them). The key
 		// MUST be `messageSymbol` to match `getBoundComponent(INLINE_IMAGE_BOUND_COMPONENT)`.
 		messageSymbol: MessageSymbol,
 		// The chosen symbol MERGED onto a bone of an authored intro rig (the
@@ -510,10 +510,10 @@
 		// chosen `stateGame.specialSymbol` on a named bone, driven by the same awaited
 		// `specialBookReveal` cue. The reusable "flip through → land on YOUR symbol" reveal node.
 		FreeSpinIntroSymbolReveal,
-		// Rides the chosen `stateGame.specialSymbol` on a bone of a PLACED spine node that sets
+		// Rides the chosen `stateGame.specialSymbol` on a bone of a PLACED rig node that sets
 		// `revealSymbolBone` — the on-node alternative to `FreeSpinIntroSymbolReveal` that brings NO
 		// rig of its own (the author places their own rig, e.g. `R_Cage_Freespin`, and the symbol
-		// shows on its `Socket` bone). `<LayoutNodeView>` mounts it via `<SpineBoneAttach>`; the key
+		// shows on its `Socket` bone). `<LayoutNodeView>` mounts it via `<RigBoneAttach>`; the key
 		// MUST be `revealSymbolRider` to match `getBoundComponent('revealSymbolRider')`.
 		revealSymbolRider: RevealSymbolRider,
 		// The ONE coded part of the `loadingIntro` splash def — the masked progress
@@ -708,7 +708,7 @@
 	// effects (parity). `components/Effects.svelte` still auto-mounts bone + unplaced free effects.
 	registerEffects(bakedEffects());
 	// Register the rig-timeline direct FX bindings so a rig plays its bound effects on the beat of
-	// its own animation events (`registerRigFx`/`resolveRigFx`; `<SpineProvider>` mounts a
+	// its own animation events (`registerRigFx`/`resolveRigFx`; `<RigProvider>` mounts a
 	// `<RiggedEffect>` per binding, for every rig wherever it is mounted — registering here is also
 	// what installs that seam). No-op when un-baked / no rig has a bound event (parity).
 	registerRigFx(bakedRigFx());
@@ -727,8 +727,8 @@
 	// Inline-image resolver for message strings (Invisible Win Text "show symbol as image"): a KNOWN
 	// symbol id resolves to itself, so the info-bar toast draws the paying symbol inline (engine-layout
 	// `InlineImageText` mounts the `messageSymbol` bound component below with this id). Any symbol type
-	// is renderable — the bound component goes through the `<Symbol>` state machine, so sprite, spine
-	// AND flipbook high symbols all show (the high symbols are spines, which a flat `<Sprite>` couldn't
+	// is renderable — the bound component goes through the `<Symbol>` state machine, so sprite, rig
+	// AND flipbook high symbols all show (the high symbols are rigs, which a flat `<Sprite>` couldn't
 	// draw — the reason this resolves an id, not a texture key). An unknown id ⇒ undefined ⇒ the
 	// message keeps the written name. Reads the LIVE merged map each call, so it tracks a runtime
 	// symbol-doc swap (`resetSymbolMapCache`).
@@ -962,7 +962,7 @@
 		winShow: boolSource(() => stateUi.winShow),
 		bigWinShow: boolSource(() => stateUi.bigWinShow),
 		// True while a book expanding symbol is chosen — gates the `expandingSymbol` component so
-		// the landed art shows only during the reveal (the author's own reveal spine + choreography
+		// the landed art shows only during the reveal (the author's own reveal rig + choreography
 		// own the timing; this simply mirrors `stateGame.specialSymbol`'s presence).
 		specialBookShow: boolSource(() => stateGame.specialSymbol !== null),
 		// Config-feature gates for the parametric turbo / auto-spin buttons (B6 M1) — mirror the
@@ -1084,7 +1084,7 @@
 	// Authored BOOK REVEAL (book-reveal authoring). The `specialBook` scene normally carries only
 	// the coded `SpecialBook` bind anchor (the shuffle-through-symbols reference reveal). When an
 	// author places their OWN reveal content there (an `expandingSymbol` instance + their reveal
-	// spine), `hasAuthoredBookReveal` is true ⇒ the author's reveal BECOMES the mechanic and the
+	// rig), `hasAuthoredBookReveal` is true ⇒ the author's reveal BECOMES the mechanic and the
 	// coded `<SpecialBook>` shuffle is suppressed. `apps/lines`' fallback ships only the coded
 	// anchor, so the flag is false ⇒ the coded shuffle still plays (parity). Mirrors
 	// `suppressCodedBackground` / `suppressCodedHud`.
@@ -1189,7 +1189,7 @@
 	// Authored free-spin BOARD GLOW (the reel-house backdrop behind the reels). Mirrors the
 	// background/book-reveal gates: the `boardGlow` scene ships only the coded `BoardFrame` bind
 	// anchor, so `hasAuthoredBoardGlow` is false and the coded pink glow renders unchanged
-	// (parity). Drop real art in the scene ⇒ the coded spine steps aside and the authored scene
+	// (parity). Drop real art in the scene ⇒ the coded rig steps aside and the authored scene
 	// mounts in its place, in the BELOW-reel slot (the anchor's own `zIndex:-1` position).
 	// TIMING is unchanged either way: both react to `boardFrameGlowShow`/`boardFrameGlowHide`
 	// (declared cues ⇒ a flow `fireCue` drives them; the coded free-spin handlers fire them when
@@ -1253,7 +1253,7 @@
 	let flowV2EnginePots = $state<EnginePotsScreen | undefined>(undefined);
 	// Authored background scenes (§ persistent-bg-scene). An author's "New background screen"
 	// gets a fresh-id scene with `space: 'background'` (NOT the coded `background`-id /
-	// `space:'canvas'` spine anchor above) carrying full-bleed art. `backgroundScenes` selects
+	// `space:'canvas'` rig anchor above) carrying full-bleed art. `backgroundScenes` selects
 	// them by SPACE (not id, so a custom scene id mounts) in editor order; `hasAuthoredBackground`
 	// is true only when one has real content (not just the coded `Background` bind anchor). Both
 	// are the engine-layout contract, shared with the editor + other games. `apps/lines`' fallback
@@ -1449,7 +1449,7 @@
 	// those — `flow.mounter.authoredScreenIds()` — so a Flow-mounted screen isn't also mounted
 	// here). `background`-space scenes aren't listed: `extraMountScenes` excludes them by
 	// space (they're handled by `backgroundScenes`/§25), and the coded `background`-id /
-	// `space:'canvas'` spine anchor IS listed so it never double-mounts.
+	// `space:'canvas'` rig anchor IS listed so it never double-mounts.
 	const RESERVED_SCENE_IDS = [
 		'basegame',
 		'basegameOverlays',
@@ -1628,7 +1628,7 @@
 		// broadcast the driver drives the count-up from (so the art reveals in lockstep with the
 		// count). Big vs small mirrors the `bigWin` signal's `winLevelData.type` test. An authored
 		// outro gates its big/small art with `hiddenUntilSignal: 'freeSpinOutroBigWin'`/`'…SmallWin'`
-		// (plain art) or plays a spine cue on them. Un-authored ⇒ nothing subscribes ⇒ inert (parity).
+		// (plain art) or plays a rig cue on them. Un-authored ⇒ nothing subscribes ⇒ inert (parity).
 		freeSpinOutroBigWin: eventSignal((run) =>
 			context.eventEmitter.subscribe({
 				freeSpinOutroCountUp: (e) => {
@@ -1656,7 +1656,7 @@
 			if (freeSpinOutroState.countUpComplete) run();
 			return context.eventEmitter.subscribe({ freeSpinOutroCountUpComplete: () => run() });
 		}),
-		// The book expanding-symbol reveal lifecycle — an authored spine cue on the author's own
+		// The book expanding-symbol reveal lifecycle — an authored rig cue on the author's own
 		// reveal component plays with the mechanic (mirrors `freeSpinStart`/`freeSpinEnd`). These
 		// are payload-less: the chosen symbol comes from the `specialSymbol` value source + the
 		// `expandingSymbol` def's live art, NOT through the signal.
@@ -1666,7 +1666,7 @@
 		specialBookHide: eventSignal((run) =>
 			context.eventEmitter.subscribe({ specialBookHide: () => run() }),
 		),
-		// The free-spin board-glow lifecycle — so an authored glow component's spine cues play the
+		// The free-spin board-glow lifecycle — so an authored glow component's rig cues play the
 		// enter/exit the coded `BoardFrame` hard-codes as `reelhouse_glow_start`→`_idle`→`_exit`.
 		// These ride the EXISTING `boardFrameGlow*` emitter events (no new event), which are both
 		// declared cues AND fired by the coded `freeSpinTrigger`/`freeSpinEnd` handlers — so an
@@ -2175,7 +2175,7 @@
 		owns visibility universally, so a background-space screen mounts through `<FlowV2Mount>`
 		like every other container (its space only sets the coordinate frame). Empty list ⇒
 		nothing renders (parity). When at least one such scene has real content, the coded
-		bundled `<Background>` spine is suppressed so the authored art REPLACES the reference
+		bundled `<Background>` rig is suppressed so the authored art REPLACES the reference
 		background; absent ⇒ the coded `<Background>` renders as today.
 	-->
 	{#each bgScenes as scene (scene.id)}
@@ -2275,10 +2275,10 @@
 		{/if}
 
 		<!-- Authored free-spin board glow — the BELOW-reel slot, so it draws behind the reels
-				 exactly where the coded `<BoardFrame>`'s `zIndex:-1` spine does. `game` space ⇒
+				 exactly where the coded `<BoardFrame>`'s `zIndex:-1` rig does. `game` space ⇒
 				 <LayoutScene> self-wraps in its own MainContainer, so do NOT wrap it again here
 				 (that double-scales it). Only mounts when the author put real content in the scene;
-				 that same condition suppresses the coded spine below, so the two never both draw. -->
+				 that same condition suppresses the coded rig below, so the two never both draw. -->
 		{#if suppressCodedBoardGlow && glowScene}
 			<LayoutScene scene={glowScene} />
 		{/if}
@@ -2318,11 +2318,11 @@
 		<MainContainer>
 			{#if stateGameDerived.anticipationActive()}
 				<!-- Reel-anticipation mode (Phase 3): a dedicated camera wraps the reel stack +
-						 the anticipation overlays (spine stack + grey-out) so the zoom/pan never fights
+						 the anticipation overlays (rig stack + grey-out) so the zoom/pan never fights
 						 MainContainer or the editor coordinate boxes. Both are inside the camera so they
 						 zoom together; the camera + overlays are identity until a reel arms. The camera is
 						 gated on the Flow-authored `anticipationZoom` toggle (default on ⇒ Phase 3 unchanged);
-						 off ⇒ the overlays render without the zoom (spine stack + grey-out only).
+						 off ⇒ the overlays render without the zoom (rig stack + grey-out only).
 
 						 `anticipationActive()` rather than the raw flag: on a swap-in-place board the whole
 						 feature stands down (there is no roll to hold), and the `{:else}` here is the exact
@@ -2636,7 +2636,7 @@
 
 	<!--
 			Invisible FX (§4.4 / §8) — play this project's baked effects. Free effects mount at
-			the scene level; bone-placed effects mount inside a host `<SpineProvider>` so they
+			the scene level; bone-placed effects mount inside a host `<RigProvider>` so they
 			ride the rig. Renders nothing when no effects are baked (parity, byte-identical).
 		-->
 	<Effects />

@@ -337,8 +337,8 @@ const normalizeWinTier = (raw: unknown): WinLevelTier | undefined => {
 	const tier: WinLevelTier = { alias, name: str(raw.name)?.trim() || alias, threshold, type };
 	const animation = normalizeWinTierAnimation(raw.animation);
 	if (animation) tier.animation = animation;
-	const spineKey = str(raw.spineKey)?.trim();
-	if (spineKey) tier.spineKey = spineKey;
+	const rigKey = str(raw.spineKey)?.trim();
+	if (rigKey) tier.spineKey = rigKey;
 	const sound = normalizeWinTierSound(raw.sound);
 	if (sound) tier.sound = sound;
 	const durationMs = num(raw.durationMs);

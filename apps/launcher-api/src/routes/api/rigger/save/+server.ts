@@ -16,10 +16,10 @@ const GATE = {
  * The precondition a later save of `<dir>/<stem>.irig` must carry: `{ projectKey, etag }`, where
  * `etag: null` means no `.irig` exists yet (the save will be a create).
  *
- * The Rigger loads the skeleton through `/spine/file`, which the Spine AssetManager reads without
- * exposing headers — so the tab asks for the ETag HERE, BEFORE it loads the bytes. That order
- * fails safe: a save landing between the two leaves the tab holding an OLDER etag than its bytes,
- * which is a spurious 409 (a prompt), never a silent overwrite.
+ * The Rigger loads the skeleton through `/rig-viewer/file`, which the rig AssetManager reads
+ * without exposing headers — so the tab asks for the ETag HERE, BEFORE it loads the bytes. That
+ * order fails safe: a save landing between the two leaves the tab holding an OLDER etag than its
+ * bytes, which is a spurious 409 (a prompt), never a silent overwrite.
  *
  * Query: `?dir=<base64url bundle dir>&stem=<file stem>`.
  */
@@ -38,7 +38,7 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 };
 
 /**
- * Save a Rigger-edited skeleton to R2 as `<bundle>/<stem>.irig` (Spine 4.2 JSON under our
+ * Save a Rigger-edited skeleton to R2 as `<bundle>/<stem>.irig` (4.2-format JSON under our
  * extension) WITHOUT clobbering the artist's source `.json`, then rebuild the project's
  * `skeletons.json` so the saved edit is listed + re-openable.
  *

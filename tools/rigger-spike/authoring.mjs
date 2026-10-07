@@ -5,7 +5,7 @@
 // (empty default skin + attachment-less slot), so an empty atlas suffices.
 //   node tools/rigger-spike/authoring.mjs
 import { fileURLToPath } from 'node:url';
-import { RIG_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(RIG_CORE);
 

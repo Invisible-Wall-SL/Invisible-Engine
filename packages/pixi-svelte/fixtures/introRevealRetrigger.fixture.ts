@@ -2,14 +2,14 @@
  * Repro fixture for "the book-reveal rig plays the FIRST free-spin feature and freezes on the
  * second" — `apps/lines/src/components/FreeSpinIntroSymbolReveal.svelte`.
  *
- * Unlike the signal-cue path (see `spineTrackReplay.fixture.ts`), this component drives
- * `<SpineTrack animationName>` DIRECTLY with a plain prop and NO replay token, so the a3d16cb
+ * Unlike the signal-cue path (see `rigTrackReplay.fixture.ts`), this component drives
+ * `<RigTrack animationName>` DIRECTLY with a plain prop and NO replay token, so the a3d16cb
  * fix does not touch it. The failure is a RACE, not a stale value:
  *
- *   The intro plays once, then the component swaps `animationName` to a LOOPING idle. Spine fires
+ *   The intro plays once, then the component swaps `animationName` to a LOOPING idle. Rig fires
  *   `complete` at the END OF EVERY idle loop. The reveal's `complete` listener runs the intro→idle
  *   hand-off whenever `phase === 'intro'`. On a retrigger, `play()` flips `phase` to 'intro'
- *   SYNCHRONOUSLY, but the SpineTrack `$effect` that actually applies the intro animation runs a
+ *   SYNCHRONOUSLY, but the RigTrack `$effect` that actually applies the intro animation runs a
  *   tick later. A stray idle-loop `complete` landing in that window (rig still on the looping idle)
  *   sees `phase === 'intro'`, runs the hand-off against an intro that never played — settling the
  *   reveal EARLY and pinning `animationName` back to idle before the effect can apply intro. The
@@ -18,37 +18,37 @@
  *
  * This models the persist scenario (the rig is NOT torn down between features — the live flow-v2
  * doc doesn't deliver `specialBookHide` to the mounted component, so `phase` stays 'idle', `show`
- * stays true, and FadeContainer never fades the SpineProvider out). See the fixture output.
+ * stays true, and FadeContainer never fades the RigProvider out). See the fixture output.
  *
  * The fix: the `complete` listener reacts ONLY to the INTRO animation completing
  * (`entry.animation.name === introAnimation`), so a stray idle-loop completion can't abort a fresh
- * intro. The real SpineTrack value guard (`shouldApplySpineAnimation`) is reused verbatim so the
+ * intro. The real RigTrack value guard (`shouldApplyRigAnimation`) is reused verbatim so the
  * "would the effect actually re-apply?" question is answered by the shipping code, not a mock.
  *
  * Run: node --experimental-strip-types packages/pixi-svelte/fixtures/introRevealRetrigger.fixture.ts
  */
 import assert from 'node:assert/strict';
 
-import { shouldApplySpineAnimation, type SpineTrackSnapshot } from '../src/lib/spineTrackReplay.ts';
+import { shouldApplyRigAnimation, type RigTrackSnapshot } from '../src/lib/rigTrackReplay.ts';
 
 const INTRO = 'intro';
 const IDLE = 'idle';
 
-/** A persistent Spine rig + its `<SpineTrack>` — the applied animation, the `complete` listener,
+/** A persistent rig + its `<RigTrack>` — the applied animation, the `complete` listener,
  *  and the deferred value-guarded apply that the component's `$effect` performs. */
 const createRig = (listener: (entry: { animation: { name: string } }) => void) => {
 	let applied: { name: string; loop: boolean } | null = null;
 	const setAnimationCalls: string[] = [];
 
-	const snapshot = (): SpineTrackSnapshot =>
+	const snapshot = (): RigTrackSnapshot =>
 		applied ? { trackIndex: 0, animationName: applied.name } : null;
 
 	return {
-		/** The deferred `<SpineTrack>` $effect: apply `animationName` iff the real value guard says
+		/** The deferred `<RigTrack>` $effect: apply `animationName` iff the real value guard says
 		 *  so (no replay token — this component doesn't pass one). */
 		applyEffect: (animationName: string, loop: boolean) => {
 			if (
-				shouldApplySpineAnimation({
+				shouldApplyRigAnimation({
 					trackIndex: 0,
 					animationName,
 					then: undefined,
@@ -61,7 +61,7 @@ const createRig = (listener: (entry: { animation: { name: string } }) => void) =
 				setAnimationCalls.push(animationName);
 			}
 		},
-		/** Spine fires `complete` at the end of the current animation (every cycle when looping). */
+		/** Rig fires `complete` at the end of the current animation (every cycle when looping). */
 		fireComplete: () => {
 			if (applied) listener({ animation: { name: applied.name } });
 		},
@@ -148,7 +148,7 @@ const runTwoFeatures = (fixed: boolean) => {
 		void reveal.play(); // sync: phase='intro', animationName='intro'
 		if (withStrayIdleComplete) rig.fireComplete(); // STRAY idle-loop complete in the race window
 		const applied = reveal.desired();
-		rig.applyEffect(applied.animationName, applied.loop); // the deferred SpineTrack $effect
+		rig.applyEffect(applied.animationName, applied.loop); // the deferred RigTrack $effect
 		rig.fireComplete(); // whatever is applied completes (intro → hand-off, or idle no-op)
 		const after = reveal.desired();
 		rig.applyEffect(after.animationName, after.loop); // effect re-runs after the hand-off

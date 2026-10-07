@@ -810,12 +810,12 @@ await check('a preset that does not fit: a readable refusal, no validator paths'
 
 console.log('\n6. the seeded art is not reported missing');
 
-await check('the overlay symbols export: no missing frame, no missing spine', async () => {
+await check('the overlay symbols export: no missing frame, no missing rig', async () => {
 	const symbols = storedJson<{ symbols: Record<string, unknown> }>(symbolsDocKey(CLIENT, 'book'));
 	assert(symbols.symbols.POT_RED && symbols.symbols.BONUS, 'section 4 seeded no overlay symbols');
 	const { index } = await exportEditorSymbols(CLIENT, 'book');
 	same(index.missing, [], 'missing frames');
-	same(index.spinesMissing, [], 'missing spines');
+	same(index.spinesMissing, [], 'missing rigs');
 });
 
 await check('a bound frame nothing ships is still reported', async () => {

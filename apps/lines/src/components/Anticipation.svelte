@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { SpineProvider, SpineTrack } from 'pixi-svelte';
+	import { RigProvider, RigTrack } from 'pixi-svelte';
 	import { stateBetDerived } from 'state-shared';
 
 	import type { Reel } from '../game/stateGame.svelte';
 	import {
 		resolveTierFx,
-		resolveAnticipationSpineKey,
+		resolveAnticipationRigKey,
 		resolveAnticipationAnimationBase,
 		reelCenterX,
 		overlayBaseWidth,
@@ -23,7 +23,7 @@
 
 	let phase = $state<Phase>('intro');
 	// Self-hide once `out` finishes: the reel keeps its `anticipationLevel` until the next spin (it
-	// clears in `createEnhanceBoardSpin`), so the parent keeps this mounted — stop rendering the spine
+	// clears in `createEnhanceBoardSpin`), so the parent keeps this mounted — stop rendering the rig
 	// after the out completes rather than leaving a frozen final frame on a settled reel.
 	let done = $state(false);
 
@@ -31,8 +31,8 @@
 	// choke point — the authored Symbols SM override ?? the coded ramp. A null tier (trigger-only arm)
 	// resolves to the ramp's lowest step.
 	const fx = $derived(resolveTierFx(props.reel.reelState.anticipationTier));
-	// The overlay spine key — authored `anticipation.spineKey` ?? the coded `anticipation` spine.
-	const spineKey = $derived(resolveAnticipationSpineKey());
+	// The overlay rig key — authored `anticipation.spineKey` ?? the coded `anticipation` rig.
+	const rigKey = $derived(resolveAnticipationRigKey());
 	// The overlay animation BASE — authored `anticipation.animationSet` ?? the coded `anticipation` set.
 	// The engine owns the intro→loop→out chaining, so the played name is `${base}_${phase}`.
 	const animationBase = $derived(resolveAnticipationAnimationBase());
@@ -46,8 +46,8 @@
 </script>
 
 {#if !done}
-	<SpineProvider
-		key={spineKey}
+	<RigProvider
+		key={rigKey}
 		width={overlayBaseWidth() * fx.overlayScale}
 		height={overlayBaseHeight() * fx.overlayScale}
 		x={reelCenterX(props.reel.reelIndex)}
@@ -55,7 +55,7 @@
 		alpha={fx.overlayAlpha}
 		tint={fx.overlayTint}
 	>
-		<SpineTrack
+		<RigTrack
 			trackIndex={0}
 			{animationName}
 			loop={phase === 'loop'}
@@ -72,5 +72,5 @@
 				},
 			}}
 		/>
-	</SpineProvider>
+	</RigProvider>
 {/if}

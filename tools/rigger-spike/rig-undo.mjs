@@ -31,7 +31,7 @@ import { launchChrome } from './chrome.mjs';
 
 const ROOT = new URL('../../', import.meta.url);
 const STATIC = fileURLToPath(new URL('apps/launcher-api/static/', ROOT));
-const SPINES = fileURLToPath(new URL('apps/lines/static/assets/spines/', ROOT));
+const RIG_ASSETS = fileURLToPath(new URL('apps/lines/static/assets/spines/', ROOT));
 const VIEW = join(STATIC, 'rigger/view.html');
 
 // ------------------------------------------------------------------ mutants ----
@@ -116,7 +116,7 @@ if (mutant) {
 
 // ------------------------------------------------------------------ the fake launcher ----
 
-const read = (dir, file) => JSON.parse(readFileSync(join(SPINES, dir, file), 'utf8'));
+const read = (dir, file) => JSON.parse(readFileSync(join(RIG_ASSETS, dir, file), 'utf8'));
 const anticipation = read('anticipation', 'anticipation.json');
 const rigDoc = (base, hash, mutate) => {
 	const d = structuredClone(base);
@@ -214,15 +214,15 @@ const server = createServer(async (req, res) => {
 	const jsonOut = (v, code = 200) => send(code, MIME['.json'], JSON.stringify(v));
 	try {
 		if (p === '/') return send(200, MIME['.html'], html);
-		if (p === '/spine/skeletons')
+		if (p === '/rig-viewer/skeletons')
 			return jsonOut({ client: 'c', project: 'p', root: 'c/p/spines', skeletons: ENTRIES });
-		if (p === '/spine/file') {
+		if (p === '/rig-viewer/file') {
 			const name = url.searchParams.get('name') ?? '';
 			const rig = Object.entries(RIGS).find(([n]) => b64(n) === url.searchParams.get('dir'))?.[1];
 			if (rig && name === rig.file) return jsonOut(rig.doc);
 			const stem = rig?.atlas.replace(/\.atlas$/, '');
 			if (rig && (name === rig.atlas || name === `${stem}.png` || name === `${stem}.webp`))
-				return send(200, MIME[extname(name)], readFileSync(join(SPINES, rig.dir, name)));
+				return send(200, MIME[extname(name)], readFileSync(join(RIG_ASSETS, rig.dir, name)));
 			return send(404, 'text/plain', 'no such bundle file: ' + name);
 		}
 		if (p === '/api/rigger/save' && req.method === 'GET')
@@ -347,7 +347,7 @@ const settle = () =>
 	waitFor('!document.getElementById("loadingOverlay").classList.contains("on")', 30000);
 async function openRig(name) {
 	const found = await evaluate(`(() => {
-		document.getElementById("loadSpineBtn").click();
+		document.getElementById("loadRigBtn").click();
 		const row = [...document.querySelectorAll("#list .item")].find((d) => d.querySelector(".nm").textContent === ${q(name)});
 		if (row) row.click();
 		return !!row;

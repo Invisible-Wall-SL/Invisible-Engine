@@ -13,7 +13,7 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 		throw error(403, 'Your role does not have access to ComfyUI.');
 	}
 
-	// Unlike /atlas + /spine we do NOT auto-redirect: the pods are external, on-demand
+	// Unlike /atlas + /rig-viewer we do NOT auto-redirect: the pods are external, on-demand
 	// RunPod resources that may be stopped, so a straight redirect would dump the artist
 	// on a RunPod error page with no context. Instead the page renders a launcher-framed
 	// FLEET control panel (kept full-page, no iframe) that lists every pod with start/

@@ -214,9 +214,9 @@ The start point is known only at runtime (whichever cell the symbol landed in), 
 
 **What we already have:**
 
-- **Trail — NOT as first written (measured 2026-10-01).** No renderer leaves a trail today: the `/fx` preview, `SpineBoneAttach`, `RiggedEffect`, the symbol `fx` layer and the launcher overlays all move the emitter's CONTAINER, so existing particles ride along rigidly (a 2026-07-14 change made bone layers rigid on purpose). The particle library does trail: hold the emitter's `parent` still and call `emitter.updateOwnerPos(x, y)` each tick — new spawns follow, old ones stay, and spawns within a frame are lerped. Nothing in the game calls it: `pixi-svelte` `ParticleEmitter.svelte` neither calls `updateOwnerPos` nor exposes the emitter. So `flyTo` needs a small hook there (an `ownerPos` getter prop, kept out of `propsSyncEffect`, applied before `update`; and remove its never-removed ticker callback). An unused coded trail config already exists (`constants-shared/particleConfig/trail.ts`); a radial-glow texture does not.
+- **Trail — NOT as first written (measured 2026-10-01).** No renderer leaves a trail today: the `/fx` preview, `RigBoneAttach`, `RiggedEffect`, the symbol `fx` layer and the launcher overlays all move the emitter's CONTAINER, so existing particles ride along rigidly (a 2026-07-14 change made bone layers rigid on purpose). The particle library does trail: hold the emitter's `parent` still and call `emitter.updateOwnerPos(x, y)` each tick — new spawns follow, old ones stay, and spawns within a frame are lerped. Nothing in the game calls it: `pixi-svelte` `ParticleEmitter.svelte` neither calls `updateOwnerPos` nor exposes the emitter. So `flyTo` needs a small hook there (an `ownerPos` getter prop, kept out of `propsSyncEffect`, applied before `update`; and remove its never-removed ticker callback). An unused coded trail config already exists (`constants-shared/particleConfig/trail.ts`); a radial-glow texture does not.
 - **Arrival.** Event-triggered effects (cue → effect).
-- **Heads.** Spine/flipbook/sprite rendering.
+- **Heads.** Rig/flipbook/sprite rendering.
 - **Precedent.** A coded "fly to a point" in scatter's `MultiplierBoard`.
 
 **What we don't have:** a flight primitive that computes the path.
@@ -234,14 +234,14 @@ The start point is known only at runtime (whichever cell the symbol landed in), 
 - **Arrival.** A cue per arrival (`flightArrive` with the target id), so the pot bump, the level up and the number increment happen on impact, not when the flight is fired.
 - **Z-order.** Flights draw in their own layer above the board and below celebration overlays. The layer uses a fixed zIndex seat, never mount order (pixi-svelte freezes child order at mount).
 - **Authoring — a `flights` block in the Symbols doc, keyed by flight kind** (`toMeter:<id>`, `toCollector`, `toTotal`, `boostBeam`):
-  - head art (sprite / flipbook / spine clip);
+  - head art (sprite / flipbook / rig clip);
   - trail effect (an `/fx` EffectDoc played as a moving emitter);
   - arrival effect;
   - path style (bend strength, over-route allowed, avoidance on/off with padding);
   - speed, ease and stagger;
   - which win rects to avoid.
   - It travels the normal ship chain (export → bake → pull → register), like `anticipation`. The `/fx` preview gets a "flight" mode: drag a start and an end and watch the route and trail.
-- **Beams** (Grand's boost star to each coin) are a sibling primitive: a stretched sprite/spine from A to B with the same avoidance and arrival cue.
+- **Beams** (Grand's boost star to each coin) are a sibling primitive: a stretched sprite/rig from A to B with the same avoidance and arrival cue.
 
 Phase 4 builds `flyTo` and a coded default (a plain glow trail) so unauthored games still read correctly. Phase 7 adds the `flights` authoring block and its `/fx` preview. Phase 5's vocabulary exposes `flyTo` as an action (source cell, target node, flight kind, await or not) plus the `flightArrive` event.
 
@@ -471,7 +471,7 @@ Two related things, kind-independent where possible:
 ## 8. Phase 12 — authorable feature parts (planned 2026-10-02)
 
 **Why.** Owner, looking at the Pot Meter in the Component Editor: it is "just a shape". An author
-cannot put their own bitmap art in it, and cannot make a character (a frog spine) play an animation
+cannot put their own bitmap art in it, and cannot make a character (a frog rig) play an animation
 plus an FX when *that* pot fills or triggers. They also cannot drive a bone from the pot's level. Measured
 2026-10-02 (origin/main 59d12ae6):
 
@@ -481,14 +481,14 @@ plus an FX when *that* pot fills or triggers. They also cannot drive a bone from
   coded parts in the same way.
 - **No per-pot signals.** The engine already broadcasts `potFill {meter, level, max, full}`,
   `potFull {meter}`, `potsConsume {meters, activates}` and `flightArrive {target:'meter:<id>'}`. None
-  of them reach spine or flipbook `cues`: the component-signal registry has no Hold and Win entries,
+  of them reach rig or flipbook `cues`: the component-signal registry has no Hold and Win entries,
   and only a Flow `fireCue` reaches the open bus. Inside the Component Editor a cue can only pick from
   the fixed `ENGINE_SIGNAL_CATALOG` (win, bigWin, freeSpin*…), with no pot signals and no free text.
   FX `trigger.on:'event'` matches on type only, so a "pot full" FX fires for **every** pot.
-- **Numbers drive only text.** `paramBindings` can drive text, a sprite region/tint and a spine's
+- **Numbers drive only text.** `paramBindings` can drive text, a sprite region/tint and a rig's
   asset/animation/loop. A value source (`meter.<id>.level`) feeds only text. Nothing maps a number to
   a transform, a fill or mask, a frame, an animation time or a **bone** (`pixi-svelte` has a
-  `SpineBone` primitive that no layout node uses).
+  `RigBone` primitive that no layout node uses).
 - **Missing moments.** There are no level-up or size-stage events, and no `meter.<id>.full` or stage
   visibility sources.
 
@@ -503,7 +503,7 @@ The slices are generic: they serve every kind. Hold and Win is the first consume
 
 ### 12a — signals: free names, engine signals reach components, scoped to an instance
 
-- **Free-text signals in the Component Editor** for spine/flipbook cues, `hiddenUntilSignal` and
+- **Free-text signals in the Component Editor** for rig/flipbook cues, `hiddenUntilSignal` and
   per-instance overrides, so any Flow cue name works inside a component, not only catalog names.
 - **Engine broadcasts reach components.** Register the engine's own feature events in the
   component-signal registry, and add them to `ENGINE_SIGNAL_CATALOG` grouped by kind:
@@ -535,8 +535,8 @@ The slices are generic: they serve every kind. Hold and Win is the first consume
   - visibility thresholds (`value ≥ n`);
   - a sprite **fill/mask** (crop or reveal 0–1, horizontal or vertical) for bars and pots;
   - a frame index (a flipbook or sprite sequence);
-  - a spine **animation scrub** (set a track's time from the value);
-  - a spine **bone** (x / y / rotation / scale of a named bone), through the existing `SpineBone`
+  - a rig **animation scrub** (set a track's time from the value);
+  - a rig **bone** (x / y / rotation / scale of a named bone), through the existing `RigBone`
     primitive.
 - **Value sources** may be normalized (`meter.<id>.level / max`). Add booleans `meter.<id>.full` and
   `meter.<id>.stage≥n`, and expose the respin, jackpot and feature numbers as sources wherever they
@@ -553,16 +553,16 @@ The slices are generic: they serve every kind. Hold and Win is the first consume
 - Two ways to skin:
   - **(1) Art params on the builtin.** Pot: background, fill (revealed by level, through 12b's
     mask), frame, an image per size stage, and a label style.
-  - **(2) Authored children inside the part.** Your own nodes: the frog spine, FX, text, wired to
+  - **(2) Authored children inside the part.** Your own nodes: the frog rig, FX, text, wired to
     12a signals and 12b bindings, with the coded drawing hidden when children exist.
 - Order: **Pot first** (the owner's example). Then the respin counter, jackpot bar/tile, total win bar,
   letters strip, wheel and respin cell tiles, with the same pattern for each.
-- All new art ships through the component image/spine export chain.
+- All new art ships through the component image/rig export chain.
 
 **Order:** 12a and 12b in parallel (the signal bus vs the binding engine). 12c after both, because it
 consumes them. The art params on the pot can start early.
 
 **Done when:** in the Component Editor, an author skins the Pot with their own bitmap fill and frame,
-puts a frog spine inside it that plays "celebrate" plus an FX on `potActivate` for *that* pot only,
+puts a frog rig inside it that plays "celebrate" plus an FX on `potActivate` for *that* pot only,
 and grows the frog's belly bone with the pot level. This must work on all three pots, with no Flow
 branches, live on hw-3pots-sample.

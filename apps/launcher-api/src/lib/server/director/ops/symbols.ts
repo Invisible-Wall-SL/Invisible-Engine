@@ -69,7 +69,7 @@ export const setState = defineOp<
 	tool: 'symbols',
 	name: 'set_state',
 	description:
-		"Bind one symbol's state to art: a sprite region, a Spine animation or a Flipbook clip. Replaces that one cell and keeps its decoration layers; every other binding is untouched.",
+		"Bind one symbol's state to art: a sprite region, a rig animation or a Flipbook clip. Replaces that one cell and keeps its decoration layers; every other binding is untouched.",
 	inputSchema: {
 		type: 'object',
 		properties: {
@@ -82,7 +82,7 @@ export const setState = defineOp<
 					assetKey: {
 						type: 'string',
 						description:
-							'The art: `<manifest key>::<region>` for a sprite, the Spine bundle for spine, the clip sheet for flipbook.',
+							'The art: `<manifest key>::<region>` for a sprite, the rig bundle for rig, the clip sheet for flipbook.',
 						minLength: 1,
 						maxLength: 400,
 					},

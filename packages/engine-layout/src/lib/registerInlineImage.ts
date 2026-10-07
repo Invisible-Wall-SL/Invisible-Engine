@@ -6,14 +6,14 @@
  * Sibling of {@link registerTextResolver}: the game registers ONE resolver at boot (a symbol id →
  * the id itself when that symbol exists, `undefined` otherwise), and {@link InlineImageText} calls
  * it for each image segment. When it returns an id, the segment is drawn by the game's registered
- * {@link INLINE_IMAGE_BOUND_COMPONENT} — which renders the real symbol (sprite / spine / flipbook)
+ * {@link INLINE_IMAGE_BOUND_COMPONENT} — which renders the real symbol (sprite / rig / flipbook)
  * at text size. When it returns `undefined`, the renderer shows the sentinel's plain-text
  * `fallback` (the symbol NAME) instead. No resolver registered ⇒ every token falls back to text
  * (parity: a game that never wired symbols renders the name, exactly as before this feature).
  *
  * The render is DELEGATED to a game component rather than done here because `engine-layout` can't
  * reach the game's `<Symbol>` renderer, and — the reason this whole file changed — the high-paying
- * symbols are SPINE animations, which a plain `<Sprite>` can't draw. A texture-key resolver only
+ * symbols are RIG animations, which a plain `<Sprite>` can't draw. A texture-key resolver only
  * ever worked for sprite symbols.
  *
  * Module-scoped + Svelte-free (each game bundles its own copy of this package), so it lives on the

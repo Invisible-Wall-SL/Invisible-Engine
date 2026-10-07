@@ -32,7 +32,7 @@ function isSafeName(name: string): boolean {
  * Mint presigned R2 PUT URLs for a Font Maker import. The browser PUTs the BMFont
  * descriptor + every page image DIRECTLY to R2 — BMFont page PNGs routinely exceed
  * adapter-node's tiny `BODY_SIZE_LIMIT` (512 KB), so a multipart POST through the
- * node server would 413. Mirrors the spine-upload pattern.
+ * node server would 413. Mirrors the rig-upload pattern.
  *
  * Every key is `${dest.bundleFor(folder)}/${name}` — the target's bundle helper
  * validates `folder` (rejects path escapes / bad segments) and `assertAllowed` then

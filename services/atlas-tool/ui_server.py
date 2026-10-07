@@ -482,7 +482,7 @@ ADV_TIPS = {
         "• cover: scale to fill, keep aspect, crop the overflow — never "
         "distorts and always fills; best for AI art whose aspect can't "
         "match the slot (e.g. a wide wordmark inside a square-ish GPT "
-        "image).  Blank = default: fill for Spine .atlas slots, contain "
+        "image).  Blank = default: fill for Spine-format .atlas slots, contain "
         "for legacy cell grids.",
     "shape_ref":
         "A silhouette image (this slot's own) fed to ControlNet so the "
@@ -1113,7 +1113,7 @@ SETTING_HELP = {
         "frame fill its cell on its own terms, so the art jumps between "
         "frames. Changing this takes effect on the next Create Atlas.",
     "atlas_file":
-        "Optional Spine/libGDX .atlas that owns region geometry (x/y/w/h). "
+        "Optional libGDX .atlas that owns region geometry (x/y/w/h). "
         "Browse to or paste an absolute path, or a name next to the manifests. "
         "Leave blank for the legacy cell-grid mode (slices by the settings "
         "cell size instead).",
@@ -2020,7 +2020,7 @@ def _normalize_converted_region(r: dict) -> dict | None:
     }
     # TRIM, only when the source ACTUALLY carries it. Defaulting orig_* to w/h
     # is not a harmless no-op: `fit_to_region` reads their mere PRESENCE as
-    # `spine_slot` and switches the default from `contain` to `fill`, so
+    # `rig_slot` and switches the default from `contain` to `fill`, so
     # synthesizing them turns an untrimmed cell-grid cell into a slot whose art
     # gets stretched to the rect. An absent trim must stay absent.
     ow = pick("orig_w", "origW")
@@ -2151,7 +2151,7 @@ def import_sheet_to_manifest(atlas: str) -> str | None:
         page_name = ""
         page_ref = ""
         width = height = 0
-        cell_grid = False        # editor/seed manifest -> cells, not Spine slots
+        cell_grid = False        # editor/seed manifest -> cells, not rig slots
         if isinstance(doc.get("frames"), (dict, list)):
             # Raw TexturePacker (frames + meta).
             for fname, f in _tp_frame_entries(doc.get("frames")):
@@ -2343,7 +2343,7 @@ def repair_sheet_fit_mode(m: dict) -> list[str]:
       * the raw-TexturePacker branch never had it — the Sheet Maker's own `.json`
         declares `sourceSize` = the full cell, so `_tp_frame_to_region` hands
         every cell an `orig_w`/`orig_h` whose mere PRESENCE `fit_to_region` reads
-        as `spine_slot`, defaulting it to `fill` = stretch to the rect.
+        as `rig_slot`, defaulting it to `fill` = stretch to the rect.
 
     Either way the rects stay right while the art inside them is re-derived from
     its ink bounds and rescaled, so it reads as a packing bug.
@@ -3698,7 +3698,7 @@ AUTO_PACK_PADDING = 2
 # anyway, because the readers on THIS side (`_normalize_converted_region`,
 # `_deployatlas`'s manifest-regions fallback) take either, and a surviving `orig_*`
 # is live input rather than a dead field: its mere PRESENCE is what `fit_to_region`
-# reads as `spine_slot`, flipping placement from `contain` to `fill`. A clear that
+# reads as `rig_slot`, flipping placement from `contain` to `fill`. A clear that
 # silently skips half the spellings it is aimed at is a wrong answer waiting for
 # the next producer that declares `pack`.
 _REPACK_CLEARED_KEYS = ("off_x", "off_y", "orig_w", "orig_h",
@@ -3815,7 +3815,7 @@ def _sanitize_region_name(raw: str) -> str:
 # placed branch had learned to clear. Dormant, but exactly the trap
 # `_REPACK_CLEARED_KEYS` exists to close: a surviving `orig_*` is live input,
 # not a dead field — its mere PRESENCE is what `fit_to_region` reads as
-# `spine_slot`, flipping placement from `contain` to `fill`. The rect itself
+# `rig_slot`, flipping placement from `contain` to `fill`. The rect itself
 # (and the legacy `rotate` spelling, per batch_atlas._GEOM_KEYS) is what this
 # adds on top: an unplaced region has no placement at all, not just no trim.
 _PACK_GEOM_KEYS = ("x", "y", "w", "h", "rotated", "rotate") + _REPACK_CLEARED_KEYS
@@ -4107,7 +4107,7 @@ def auto_pack_layout(m: dict) -> tuple[str | None, bool]:
             # (0, 0). Stamped rather than left to the default because the
             # default is read from the region — `_carried_trim` may have just
             # put an `orig_w`/`orig_h` back on it, which `fit_to_region` reads
-            # as `spine_slot` and answers with `fill`. Same pixels here (a 1:1
+            # as `rig_slot` and answers with `fill`. Same pixels here (a 1:1
             # stretch), but only by arithmetic: name the placement instead of
             # relying on it.
             r["fit_mode"] = "contain"
@@ -4165,7 +4165,7 @@ def auto_pack_layout(m: dict) -> tuple[str | None, bool]:
 # the authored cell, never a tight crop, so any trim record left on the region
 # describes a frame this layout does not have — and a surviving `orig_*` is live
 # input, not a dead field: its mere PRESENCE is what `fit_to_region` reads as
-# `spine_slot`, flipping an un-annotated region's placement from `contain` to
+# `rig_slot`, flipping an un-annotated region's placement from `contain` to
 # `fill`. Both spellings, for the reason spelled out on `_REPACK_CLEARED_KEYS`.
 # `rotated`/`rotate` go for the same reason the rect does: a grid cell is
 # upright by construction, and a stale flag makes every consumer compute the
@@ -5100,8 +5100,8 @@ def _placement_mode(r: dict, keep_full: bool = False) -> dict:
          whose bbox is centred, and only for a layer (an FX one visibly only
          when its drop shadow is offset; an AI one by default, its ink having
          nothing in common with its base's);
-      2. otherwise `mode = explicit or ("fill" if spine_slot else "contain")`,
-         where `spine_slot = "orig_w" in region and "orig_h" in region`;
+      2. otherwise `mode = explicit or ("fill" if rig_slot else "contain")`,
+         where `rig_slot = "orig_w" in region and "orig_h" in region`;
       3. that `mode` selects fill / cover / (else) the alpha-crop + letterbox
          "contain" — so an UNKNOWN explicit value silently lands on letterbox,
          which is why it gets its own label rather than being called "contain".
@@ -5121,7 +5121,7 @@ def _placement_mode(r: dict, keep_full: bool = False) -> dict:
     `key` is stable (for counting/CSS); `label` is prose for the UI.
     Module-level + pure so it can be exercised offline."""
     explicit = str(r.get("fit_mode", "")).strip().lower()
-    spine_slot = "orig_w" in r and "orig_h" in r
+    rig_slot = "orig_w" in r and "orig_h" in r
     if explicit == "contain" and not keep_full:
         return {"key": "parity", "label": "contain (explicit) → sheet parity",
                 "note": "replays packer.compose verbatim — a Sheet-Maker cell "
@@ -5129,11 +5129,11 @@ def _placement_mode(r: dict, keep_full: bool = False) -> dict:
     src = "the whole frame" if keep_full else "the alpha bbox"
     crop = ("no crop (Frame trim = keep the whole frame)" if keep_full
             else "crop to the alpha bbox")
-    mode = explicit or ("fill" if spine_slot else "contain")
+    mode = explicit or ("fill" if rig_slot else "contain")
     if mode == "fill":
         return {"key": "fill",
                 "label": "fill (explicit)" if explicit
-                         else "fill (spine-slot default)",
+                         else "fill (rig-slot default)",
                 "note": f"{crop}, then stretch {src} to the slot exactly"}
     if mode == "cover":
         return {"key": "cover", "label": "cover (explicit)",
@@ -5392,7 +5392,7 @@ __TOOLBAR__
  upscaled. Use it to SEE an element sitting small in its slot &mdash; not to infer provenance.
  Fill % and margins are in the region's <i>unrotated</i> (authored) axes.
  The untrimmed frame is drawn in the manifest's own TexturePacker Y-DOWN-from-top
- <code>off_y</code> convention (NOT Spine's Y-up) — as stored, uncorrected.
+ <code>off_y</code> convention (NOT rig's Y-up) — as stored, uncorrected.
 </div>
 <script>
 var REGIONS = __REGIONS__;
@@ -6000,7 +6000,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
   <button onclick="createAtlas()" id="abtn" style="background:#629432">🧩 Create Atlas</button>
   <button onclick="viewAtlas()" id="vbtn" class="alt" title="Open the Region Overlay Inspector: the composed page with every manifest rect outlined, plus each region's ACTUAL art alpha bbox re-measured from the pixels — shows whether the art fills its rect or sits inset in it.">🖼 View atlas</button>
   <button onclick="deployAtlas()" id="dbtn" class="alt" title="Copy the built atlas (.png/.webp) to this manifest's Deploy folder, overwriting <stem>.png/.webp there. Set the folder in Atlas settings.">📦 Deploy atlas</button>
-  {spine_link}
+  {rig_link}
  </div>
  <div class="bargrp" title="Generation/rendering controls — talks to ComfyUI">
   <span class="glbl">Processing</span>
@@ -9210,7 +9210,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, "text/plain", self._sliceatlas().encode())
         elif urllib.parse.urlparse(self.path).path == "/deployatlas":
             # `page_only=1` query param = explicit user override (the "Page-only
-            # (Spine page)" checkbox) forcing the spine-page deploy. OR-ed with
+            # (rig page)" checkbox) forcing the rig-page deploy. OR-ed with
             # the manifest-flag / asset-map / skeleton auto-detection inside
             # _deployatlas — auto-detect still wins when unchecked.
             _q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
@@ -9522,7 +9522,7 @@ class Handler(BaseHTTPRequestHandler):
         # Drives which fields the popup shows (client-side, live on change).
         effective = str(region.get("pipeline", "")).strip().lower() or g_pipe
         fields = []
-        spine = "orig_w" in region  # atlas-bound (drives fit_mode default)
+        rig = "orig_w" in region  # atlas-bound (drives fit_mode default)
         for key, label, cfg_key in ADV_FIELDS:
             is_bool = key in ADV_BOOL
             if key in ADV_SELECT:
@@ -9531,7 +9531,7 @@ class Handler(BaseHTTPRequestHandler):
                 if key == "pipeline":
                     ph = g_pipe
                 elif key == "fit_mode":
-                    ph = "fill" if spine else "contain"
+                    ph = "fill" if rig else "contain"
                 elif key == "gpt_rembg":
                     ph = "on" if cfg.get("gpt_image_rembg", True) else "off"
                 else:
@@ -10448,15 +10448,15 @@ class Handler(BaseHTTPRequestHandler):
         # SMART DEFAULT: still no subpath (no manifest value, no asset-map hit) →
         # mirror the game's static/assets/ layout with `<kind>/<out_base>` instead
         # of dumping to the flat deploy/ ROOT (which the game can't load from).
-        # Infer spine from the CHEAP signals already at hand — no R2 probe (the
+        # Infer rig from the CHEAP signals already at hand — no R2 probe (the
         # page-only skeleton probe below needs dest_prefix and runs later).
         if not raw and out_base:
-            likely_spine = bool(force_page_only or m.get("deploy_page_only")
+            likely_rig = bool(force_page_only or m.get("deploy_page_only")
                                 or m.get("page_only"))
-            if not likely_spine and isinstance(map_entry, dict):
-                likely_spine = str(
+            if not likely_rig and isinstance(map_entry, dict):
+                likely_rig = str(
                     map_entry.get("kind", "")).strip().lower() == "spine"
-            raw = f"{'spines' if likely_spine else 'sprites'}/{out_base}"
+            raw = f"{'spines' if likely_rig else 'sprites'}/{out_base}"
             note = (f"ℹ deploy_path defaulted → {raw} (mirrors static/assets/; "
                     f"set a Deploy prefix to override)")
             auto_note = f"{auto_note}  {note}" if auto_note else note
@@ -10470,17 +10470,17 @@ class Handler(BaseHTTPRequestHandler):
                                           dest_prefix, base)
         if refused:
             return refused
-        # PAGE-ONLY MODE — for a Spine target the deploy destination already holds
+        # PAGE-ONLY MODE — for a rig target the deploy destination already holds
         # a `<base>.json` that is the SKELETON (~88 KB) plus a `<base>.atlas`; the
         # normal sprite-sheet path would write a TexturePacker `<base>.json` over
-        # the skeleton and break the animation. When this is a spine page we deploy
+        # the skeleton and break the animation. When this is a rig page we deploy
         # ONLY the page image(s) and leave the skeleton + .atlas untouched. Trigger
         # on the first true of (cheap → best-effort):
-        #   0. the user's "Page-only (Spine page)" checkbox (`force_page_only`,
+        #   0. the user's "Page-only (rig page)" checkbox (`force_page_only`,
         #      from the `page_only=1` query param) — an explicit override,
         #   1. manifest flag `deploy_page_only` / `page_only`,
         #   2. the matched asset-map entry's `kind == "spine"`,
-        #   3. an existing `<dest>/<base>.json` in R2 parses as a Spine skeleton
+        #   3. an existing `<dest>/<base>.json` in R2 parses as a skeleton
         #      (top-level bones/skeleton/slots) rather than a TexturePacker map.
         page_only = bool(force_page_only or m.get("deploy_page_only")
                          or m.get("page_only"))
@@ -10494,16 +10494,16 @@ class Handler(BaseHTTPRequestHandler):
                     if isinstance(doc, dict):
                         is_tp = isinstance(doc.get("frames"), (dict, list)) \
                             and isinstance(doc.get("meta"), dict)
-                        is_spine = any(k in doc for k in
+                        is_rig = any(k in doc for k in
                                        ("bones", "skeleton", "slots"))
-                        if is_spine and not is_tp:
+                        if is_rig and not is_tp:
                             page_only = True
             except Exception:  # noqa: BLE001 — missing/invalid = not detectable
                 pass
         # STICKY PAGE-ONLY — once a deploy resolves to page-only (via any
         # auto-detect trigger above), persist `deploy_page_only` on the manifest
         # so the decision survives. Next deploy hits trigger #1 with no network
-        # probe. Net effect: a real spine target auto-detects on the first deploy
+        # probe. Net effect: a real rig target auto-detects on the first deploy
         # and stays page-only thereafter. Best-effort; a save failure must never
         # block the deploy.
         if page_only and not m.get("deploy_page_only"):
@@ -10515,7 +10515,7 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:  # noqa: BLE001 — persistence is a convenience
                 pass
         # Page-only deploys ship JUST the page image(s); never a `.atlas` (the
-        # spine target's own .atlas must stay intact). Normal deploys also carry
+        # rig target's own .atlas must stay intact). Normal deploys also carry
         # the composed `.atlas`.
         page_suffixes = {".png", ".webp"} if page_only else {".png", ".webp", ".atlas"}
         sources = sorted(p for p in ATLAS_DIR.glob(f"{stem}_new.*")
@@ -10597,7 +10597,7 @@ class Handler(BaseHTTPRequestHandler):
         elif measured:
             page_pick = measured[0][0]
         # Whatever lost is not uploaded: the loop below must not put a page in
-        # the bucket that this pre-pass just rejected. `.atlas` (spine geometry)
+        # the bucket that this pre-pass just rejected. `.atlas` (Spine-format geometry)
         # and any 0-byte file stay in `sources` — the loop reports those itself.
         rejected = ordered_out + [c for c, _ in measured if c is not page_pick]
         sources = [s for s in sources if s not in rejected]
@@ -10624,7 +10624,7 @@ class Handler(BaseHTTPRequestHandler):
         # `.webp` page is present we ship WebP-only: skip the `.png` page here and
         # delete any stale `.png` sibling from R2 below. The 0-byte guard still
         # falls back to the PNG page if the WebP is missing/broken (never ship a
-        # dead page). `.atlas` (spine geometry) is unaffected and still copied.
+        # dead page). `.atlas` (Spine-format geometry) is unaffected and still copied.
         have_webp_page = any(
             s.suffix.lower() == ".webp" and s.read_bytes() for s in sources)
         for src in sources:
@@ -10666,17 +10666,17 @@ class Handler(BaseHTTPRequestHandler):
         # they already carry per-region geometry). Additive: never blocks the
         # .png/.webp deploy above.
         json_note = ""
-        spine_note = ""
+        rig_note = ""
         if page_only:
-            # Spine target: page image(s) already deployed above. SKIP the
-            # TexturePacker `<base>.json` writer entirely so the spine skeleton
+            # Rig target: page image(s) already deployed above. SKIP the
+            # TexturePacker `<base>.json` writer entirely so the rig skeleton
             # (also named `<base>.json`) and its `<base>.atlas` are left intact.
             pages = ", ".join(
                 f"{out_base}{s.suffix}" for s in sources
                 if s.suffix.lower() in {".png", ".webp"})
-            spine_note = (
-                f"ℹ Spine page-only deploy — wrote {pages or out_base + '.png/.webp'}; "
-                f"skipped TexturePacker .json so the spine skeleton + .atlas "
+            rig_note = (
+                f"ℹ rig page-only deploy — wrote {pages or out_base + '.png/.webp'}; "
+                f"skipped TexturePacker .json so the rig skeleton + .atlas "
                 f"stay intact.\n")
         tp_regions: list[dict] | None = None  # normalized region dicts for the writer
         page_w = page_h = 0
@@ -10819,7 +10819,7 @@ class Handler(BaseHTTPRequestHandler):
                     if page_w <= 0 or page_h <= 0:
                         page_w, page_h = real_w, real_h
         if page_only:
-            pass  # page-only: no TexturePacker .json (see spine_note above)
+            pass  # page-only: no TexturePacker .json (see rig_note above)
         elif page_ink is False:
             # The page has no ink ANYWHERE, so every frame in the map would
             # address blank pixels. This is what a compose over a staging dir
@@ -10952,10 +10952,10 @@ class Handler(BaseHTTPRequestHandler):
                 "will NOT find these files. Set this manifest's Deploy prefix to "
                 "the asset's game path (mirrors static/assets/), e.g. "
                 "`sprites/<name>` or `spines/<group>`, then deploy again.")
-            return (f"{spine_note}{warning}\n"
+            return (f"{rig_note}{warning}\n"
                     f"✓ Deployed to R2: {', '.join(copied)}{json_note}")
         head = f"{auto_note}\n" if auto_note else ""
-        return (f"{spine_note}{head}"
+        return (f"{rig_note}{head}"
                 f"✓ Deployed to R2: {', '.join(copied)}{json_note}")
 
     def _newatlas(self, payload: dict) -> str:
@@ -11785,16 +11785,16 @@ class Handler(BaseHTTPRequestHandler):
             f'reopen this tool window for the project paths to fully '
             f'reload (Python module-level state).">{popts}</select>'
         )
-        # When this manifest came from the Spine Viewer, offer a jump back to
+        # When this manifest came from the Rig Viewer, offer a jump back to
         # the exact skeleton (it cache-busts, so freshly-deployed art shows).
-        _spine = (load_manifest().get("spine") or {})
-        spine_link = ""
-        if _spine.get("viewer_url"):
-            spine_link = (
-                f'<a href="{html.escape(_spine["viewer_url"], quote=True)}" target="spineviewer" '
+        _rig = (load_manifest().get("spine") or {})
+        rig_link = ""
+        if _rig.get("viewer_url"):
+            rig_link = (
+                f'<a href="{html.escape(_rig["viewer_url"], quote=True)}" target="rigviewer" '
                 f'class="btnlink alt" '
-                f'title="Open this skeleton in the Invisible Spine Viewer '
-                f'({html.escape(str(_spine.get("name", "")), quote=True)})">🦴 View in Spine</a>'
+                f'title="Open this skeleton in the Invisible Rig Viewer '
+                f'({html.escape(str(_rig.get("name", "")), quote=True)})">🦴 View in Rig Viewer</a>'
             )
         # Deep-link state (set by _handle_deeplink before render; defaults so a
         # plain page load is unaffected).
@@ -11904,7 +11904,7 @@ class Handler(BaseHTTPRequestHandler):
             global_fields="".join(global_fields),
             model_status=model_status,
             atlas_fields="".join(atlas_fields),
-            spine_link=spine_link,
+            rig_link=rig_link,
             manifest_select=manifest_select,
             project_select=project_select,
             proj_qm=f'<span class="qm" title="{html.escape(help_for("project", cfg), quote=True)}">&#9432;</span>',

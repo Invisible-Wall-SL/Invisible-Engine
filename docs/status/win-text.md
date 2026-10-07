@@ -198,11 +198,11 @@ still keeps the NAME as the clean fallback.
   path (parity).
 - **The image is drawn by the GAME, not a `<Sprite>` (fixed 2026-08-10).** The first cut resolved a
   symbol → its static sprite `assetKey` and drew a `<Sprite>` — which only works for sprite symbols.
-  The **high-paying symbols are SPINE animations**, so they fell back to the name (the reported bug:
+  The **high-paying symbols are RIG animations**, so they fell back to the name (the reported bug:
   "You win $0.50 with 2Cowboys", name as text, space swallowed). Now `InlineImageText` mounts a
   game bound component (`INLINE_IMAGE_BOUND_COMPONENT` = `messageSymbol`, `MessageSymbol.svelte`) that
-  renders the symbol through the SAME `<Symbol>` state machine the board uses — sprite, spine AND
-  flipbook — scaled by `size / SYMBOL_SIZE` (preserving the board's sprite↔spine visual match). The
+  renders the symbol through the SAME `<Symbol>` state machine the board uses — sprite, rig AND
+  flipbook — scaled by `size / SYMBOL_SIZE` (preserving the board's sprite↔rig visual match). The
   engine layer can't reach `<Symbol>`, hence the delegation; same pattern as `ExpandingSymbol`. Each
   image sits in a fixed square slot + side margin, because the template's space around the token is
   trimmed off the adjacent text runs (pixi drops boundary whitespace) and the symbol would otherwise
@@ -212,7 +212,7 @@ still keeps the NAME as the clean fallback.
 - **Verified offline** — Node fixtures over the built modules: sentinel round-trip
   (`wrapInlineImage`/`parse`/`strip`/`hasInlineImage`), `resolveWinText.toast.symbolAsImage`
   default-off/resolve-on, and `formatWinText` emitting the sentinel. `engine-layout` + `lines` +
-  `launcher-api` all build. `apps/lines` static states are SPRITES, so the spine path can't be
+  `launcher-api` all build. `apps/lines` static states are SPRITES, so the rig path can't be
   exercised there — it's proven by the identical `ExpandingSymbol` usage. **⏳ Owner: visual-verify
   the live render** (symbol size + vertical alignment + spacing) with the toggle on in a real project
   (needs a baked doc, which can't be flipped offline).
@@ -256,7 +256,7 @@ yet; needs a live look at the round's `winInfo` sequence.
 ### Two findings that shaped the build
 
 1. **`winLevelMap[].text` is DEAD DATA** — nothing reads it. The tier words players see are
-   painted into the big-win SPINE ART; `Win.svelte` draws only the count-up amount. So
+   painted into the big-win RIG ART; `Win.svelte` draws only the count-up amount. So
    `winLevels` defaults to `{}` and the caption is OPT-IN — seeding the coded literals would
    have drawn a second caption over art that already says it. Authoring one is only right for a
    game whose art carries no words (which is also the only way to translate a tier without
@@ -296,6 +296,18 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
 
 ## Recent changes
 
+- 2026-10-07 — **The grid lists exactly the symbols `/symbols` lists.** The rows were
+  `Object.keys` of the published (or committed) symbol defaults, so a symbol `/config` badges unused
+  still had a row, and a stale publish listed symbols the config no longer has. `+page.server.ts`
+  now takes `symbolsPageConfig`'s `symbols` and `coins` over the config `resolveGameConfig` already
+  gave it (the project's own, else its kind's template): `symbolsUsed`, in the order `/symbols` draws
+  it (symbols, then coins in pot order). The win-line grid lists no coin (a pots overlay drops it
+  over a cell, never along a line; the page names them beside the scatter note). A hidden symbol's
+  `bySymbol` / `byCell` strings stay in the doc (the page saves the whole doc; the save prunes
+  blanks only) and return with its row; they are still harvested for Localization, as before. Gate:
+  `check:symbols-follow-config` now also proves `/win-text`'s rows are `symbolsUsed` in `/symbols`'
+  drawn order for every kind × setup × defaults source, that the strings survive a save, and pins
+  the wiring (rows, the coin-free grid, the whole-doc save). Guide: [The win-line message grid](../tools/win-text.md#the-win-line-message-grid).
 - 2026-10-05 — **Invisible Director can drive this tool.** Invisible Director's `wintext.get_doc` /
   `wintext.update_doc` (`apps/launcher-api/src/lib/server/director/ops/wintext.ts`) save through
   `saveWinTextDoc`, under `If-Match`, stamping `saved_by` (`tool: 'director'`, the agent, the run).
@@ -410,10 +422,10 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
   asked for the symbol's NAME. `<Symbol>`/`<SymbolFlipbook>` gained a `frozen` prop (passes
   `play={false}` to `<Flipbook>` ⇒ `gotoAndStop(0)`), set by `MessageSymbol` only; every board state
   is untouched, so a game whose symbols are sprites is byte-identical. **Extended the same day to
-  SPINE symbols**, which animated inline for the same reason: `SymbolSpineMain` takes `frozen` too and
-  passes `timeScale={0}` to its `SpineTrack`, holding the pose `SpineTrack`'s existing `spine.update(0)`
+  RIG symbols**, which animated inline for the same reason: `SymbolRigMain` takes `frozen` too and
+  passes `timeScale={0}` to its `RigTrack`, holding the pose `RigTrack`'s existing `rig.update(0)`
   already establishes at the animation's first frame (not the setup pose, which is a different
-  picture). Files: `Symbol.svelte`, `SymbolFlipbook.svelte`, `SymbolSpineMain.svelte`,
+  picture). Files: `Symbol.svelte`, `SymbolFlipbook.svelte`, `SymbolRigMain.svelte`,
   `MessageSymbol.svelte`, `/win-text` toggle copy. `apps/lines` builds clean.
   ⏳ owner visual-verify the toast on a flipbook-bound symbol — **engine change, so the remake needs a
   runtime release.**

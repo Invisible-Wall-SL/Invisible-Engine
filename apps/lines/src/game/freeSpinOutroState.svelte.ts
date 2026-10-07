@@ -6,7 +6,7 @@ import type { WinLevelData } from 'engine-game';
  * tween) + the `freeSpinOutroCountUp` hold, and
  * WRITES the win level (on the `freeSpinOutroCountUp` event) and the live tweened `countUpAmount`
  * (per frame, via `OutroStatePublisher`) here. The count text READS `countUpAmount` — the coded
- * `FreeSpinOutroVisual`'s spine slot, OR an authored text node bound to the `freeSpinOutroTotalWin`
+ * `FreeSpinOutroVisual`'s rig slot, OR an authored text node bound to the `freeSpinOutroTotalWin`
  * value source (FS-7 decision C), both currency-formatted. `winLevelData` picks the big/small
  * sprite in the coded visual + gates its render; the authored art instead gates on the
  * `freeSpinOutroBigWin`/`freeSpinOutroSmallWin` signals (FS-7 decision D). A plain reactive rune in
