@@ -2246,6 +2246,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		// A launcher restart drops the in-process watches: boot arms one again per queued render.
 		const old = new Date(Date.now() - 13 * 3600 * 1000);
 		for (const [ref, runId] of [
+			['st_00000000000000b0', 'ra'],
 			['st_00000000000000b1', 'ra'],
 			['st_00000000000000b2', 'gone'],
 		]) {
@@ -2265,20 +2266,30 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			});
 		}
 		const armed: [string, string | null][] = [];
+		const staggers: number[] = [];
 		const count = await jobs.resumeAtlasJobWatches(
-			(job: { jobRef: string }, caller: { run: { id: string } } | null) =>
-				void armed.push([job.jobRef, caller?.run.id ?? null]),
+			(job: { jobRef: string }, caller: { run: { id: string } } | null) => {
+				if (job.jobRef === 'st_00000000000000b0') throw new Error('a bad row');
+				armed.push([job.jobRef, caller?.run.id ?? null]);
+			},
+			async (i: number) => void staggers.push(i),
 		);
+		const queuedNow = [...ATLAS_JOBS.values()].filter((j) => j.status === 'queued').length;
 		check(
 			'boot arms a watch for every queued render, read as its run owner (null when the run is gone)',
 			[count, armed.filter(([ref]) => ref.startsWith('st_00000000000000b')).sort()],
 			[
-				[...ATLAS_JOBS.values()].filter((j) => j.status === 'queued').length,
+				queuedNow - 1,
 				[
 					['st_00000000000000b1', 'ra'],
 					['st_00000000000000b2', null],
 				],
 			],
+		);
+		check(
+			'...one apart from the next, and a row that cannot be armed leaves the others armed',
+			staggers,
+			Array.from({ length: queuedNow }, (_, i) => i),
 		);
 		const expired = await jobs.watchAtlasJob(
 			{ jobRef: 'st_00000000000000b2', runId: 'gone', queuedAt: old },
@@ -2295,7 +2306,9 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			[expired?.recorded, ATLAS_JOBS.get('st_00000000000000b2')?.status],
 			[true, 'failed'],
 		);
-		for (const ref of ['st_00000000000000b1', 'st_00000000000000b2']) ATLAS_JOBS.delete(ref);
+		for (const ref of ['st_00000000000000b0', 'st_00000000000000b1', 'st_00000000000000b2']) {
+			ATLAS_JOBS.delete(ref);
+		}
 	}
 
 	// ── 8D: the technician's set-up ops (ADR-0008 §4) ──

@@ -24,6 +24,7 @@ import {
 	type ValidationContext,
 } from 'director-costs/recipe';
 import { applyTransition, insertEvent, runSpend, type Db, type LiveRun } from './store.ts';
+import { log } from './log.ts';
 import { TERMINAL_STATUSES, transition, type RunState } from './runState.ts';
 
 /**
@@ -166,7 +167,7 @@ export async function setRecipe(
 	// re-opens a rendered step, and a revision that does needs the owner again, so nothing is
 	// queued (and paid for) again unseen.
 	const steps = prev ? carryProgress(prev.steps, result.steps) : result.steps;
-	const busy = prev ? rendering(prev.steps, steps) : [];
+	const busy = prev ? rendering(prev.steps, steps, await queuedJobRefs(tx, live.id)) : [];
 	if (busy.length) {
 		return {
 			ok: false,
@@ -225,10 +226,31 @@ const unapproved = (r: StoredRecipe) => !r.approved || r.approved.rev !== r.rev;
 /**
  * Steps a render is running that a revision would replan (`next` as `carryProgress` left it): the
  * revision waits until they settle, so a render's failure is never left on a step it no longer
- * holds.
+ * holds. Only a render the launcher still has queued (`inFlight`, its `director_atlas_jobs` row)
+ * holds a step: one it never recorded or has settled never blocks a revision.
  */
-const rendering = (prev: readonly StoredStep[], next: readonly StoredStep[]) =>
-	prev.filter((s, i) => s.status === 'queued' && next[i]?.status !== 'queued').map((s) => s.n);
+const rendering = (
+	prev: readonly StoredStep[],
+	next: readonly StoredStep[],
+	inFlight: ReadonlySet<string>,
+) =>
+	prev
+		.filter(
+			(s, i) =>
+				s.status === 'queued' &&
+				s.jobRef !== undefined &&
+				inFlight.has(s.jobRef) &&
+				next[i]?.status !== 'queued',
+		)
+		.map((s) => s.n);
+
+/** The run's renders the launcher still has queued, by `jobRef`. */
+async function queuedJobRefs(tx: Db, runId: string): Promise<Set<string>> {
+	const rows = await tx<{ jobRef: string }[]>`
+		select job_ref as "jobRef" from director_atlas_jobs
+		where run_id = ${runId} and status = 'queued'`;
+	return new Set(rows.map((r) => r.jobRef));
+}
 
 /** "H1, H2, H3, H4, H5 and 18 more". */
 const listed = (names: readonly string[]) =>
@@ -572,11 +594,7 @@ export async function settleJob(
 }> {
 	const settled: { pipeline: string; genPx: number }[] = [];
 	const withdrawn: { region: string; steps: number[] }[] = [];
-	const [job] = await tx<{ steps: { recipe: string; n: number; region: string }[] | null }[]>`
-		update director_atlas_jobs set steps_settled_at = now()
-		where job_ref = ${jobRef} and run_id = ${runId} and steps_settled_at is null
-		returning steps`;
-	const recorded = job?.steps ?? [];
+	const recorded = await claimRecordedSteps(tx, runId, jobRef);
 	for (const recipe of await loadRecipes(tx, runId)) {
 		let changed = false;
 		const failures = { ...recipe.failures };
@@ -615,6 +633,35 @@ export async function settleJob(
 		});
 	}
 	return { settled, withdrawn };
+}
+
+/**
+ * The steps the launcher recorded `jobRef` as running, claimed once. A database without the record
+ * yet (a worker deployed before the launcher's migration 0030: SQLSTATE 42703) counts by the
+ * steps that still hold the render, as before it, inside a savepoint so the transaction goes on.
+ */
+async function claimRecordedSteps(
+	tx: Db,
+	runId: string,
+	jobRef: string,
+): Promise<{ recipe: string; n: number; region: string }[]> {
+	try {
+		type Row = { steps: { recipe: string; n: number; region: string }[] | null };
+		const claim = (sql: Db) => sql<Row[]>`
+			update director_atlas_jobs set steps_settled_at = now()
+			where job_ref = ${jobRef} and run_id = ${runId} and steps_settled_at is null
+			returning steps`;
+		// In a transaction the claim runs in a savepoint, so a refusal leaves the rest standing.
+		const [job] = 'savepoint' in tx ? await tx.savepoint((sp) => claim(sp)) : await claim(tx);
+		return job?.steps ?? [];
+	} catch (error) {
+		if ((error as { code?: unknown }).code !== '42703') throw error;
+		log.warn('director_atlas_jobs has no recorded steps yet (migration 0030 not applied)', {
+			runId,
+			jobRef,
+		});
+		return [];
+	}
 }
 
 /**
@@ -812,6 +859,7 @@ export async function applyRecipeEdits(
 		return e ? { ...r, steps: asPlanned(e.steps) } : r;
 	});
 	const next = new Map<string, StoredRecipe>();
+	const inFlight = await queuedJobRefs(tx, live.id);
 	for (const [region, { prev, steps }] of parsed) {
 		const result = validateRecipe(
 			{ region: prev.region, atlas: prev.atlas, group: prev.group, steps },
@@ -826,7 +874,7 @@ export async function applyRecipeEdits(
 			continue;
 		}
 		const carried = carryProgress(prev.steps, result.steps);
-		const busy = rendering(prev.steps, carried);
+		const busy = rendering(prev.steps, carried, inFlight);
 		if (busy.length) {
 			errors.push(`${region}: step ${busy.join(', ')} is rendering; edit it once it settles`);
 			continue;

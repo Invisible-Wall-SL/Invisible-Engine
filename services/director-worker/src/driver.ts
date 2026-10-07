@@ -480,10 +480,16 @@ async function settle(
 		}
 		// Marked at once, in its own lease-checked write, so a second queue call later in this turn
 		// already finds the step queued and the launcher's gate refuses it. A replayed call returns
-		// the stored result and marks nothing new.
+		// the stored result and marks nothing new. A render the launcher could not record
+		// (`tracked: false`) has no job row and no watch to settle it: its steps stay planned.
 		if (id === 'atlas.queue_variants' && answer.status === 200) {
-			const job = answer.body as { steps?: unknown; jobRef?: unknown };
-			if (Array.isArray(job.steps) && job.steps.length && typeof job.jobRef === 'string') {
+			const job = answer.body as { steps?: unknown; jobRef?: unknown; tracked?: unknown };
+			if (
+				Array.isArray(job.steps) &&
+				job.steps.length &&
+				typeof job.jobRef === 'string' &&
+				job.tracked !== false
+			) {
 				const steps = job.steps as { recipe: string; n: number }[];
 				const jobRef = job.jobRef;
 				await withLease(ctx.sql, ctx.run, (tx, live) => markQueued(tx, live.id, steps, jobRef));
