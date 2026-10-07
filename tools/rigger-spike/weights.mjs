@@ -3,14 +3,14 @@
 //      sum ≈ 1, and the vertex's setup-pose WORLD position is exactly Σ w'ᵢ·pᵢ, where pᵢ
 //      is influence i's offset through its bone. That equals the old position only when
 //      the influences agree: each offset is in its bone's BIND pose, and a bone moved in
-//      setup after binding (what Spine's "Update Bindings" fixes) makes them disagree —
+//      setup after binding (what rig's "Update Bindings" fixes) makes them disagree —
 //      by 20px on the lines l1–l4 symbols, so a 0.5 weight shift there moves the vertex
-//      10px. The edit keeps the bind pose (as Spine does), so that move is correct.
+//      10px. The edit keeps the bind pose (as rig does), so that move is correct.
 //  (b) bind an unweighted mesh to its slot bone → reload → now weighted, 1 influence
 //      per vertex at weight 1, world positions unchanged.
 //   node tools/rigger-spike/weights.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
-import { RIG_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics } = await import(
 	RIG_CORE

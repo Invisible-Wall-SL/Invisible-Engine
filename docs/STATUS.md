@@ -40,7 +40,7 @@ change piled back into one file. See [`docs/status/README.md`](status/README.md)
 | **Win Text** | [status/win-text](status/win-text.md) | [design/invisible-win-text](design/invisible-win-text.md) | [tools/win-text](tools/win-text.md) | — |
 | **Invisible Sound** | [status/sound](status/sound.md) | [design/invisible-sound](design/invisible-sound.md) | [tools/sound](tools/sound.md) | — |
 | **FTP Browser** | [status/ftp-browser](status/ftp-browser.md) | — | [tools/ftp-browser](tools/ftp-browser.md) | `invisible-ftp-browser` |
-| **Spine Viewer** | [status/spine-viewer](status/spine-viewer.md) | — | [tools/spine-viewer](tools/spine-viewer.md) | `launcher-studio` |
+| **Rig Viewer** | [status/rig-viewer](status/rig-viewer.md) | — | [tools/rig-viewer](tools/rig-viewer.md) | `launcher-studio` |
 | **Launcher / platform** | [status/launcher](status/launcher.md) | [design/unified-project-repo](design/unified-project-repo.md) | [tools/launcher](tools/launcher.md) | `launcher-studio` |
 | **Engine & games** (runtime) | [status/engine](status/engine.md) | [design/flow-driven-game](design/flow-driven-game.md) | — | `engine-pixi-svelte` |
 | **Hold and Win** (game kind — engine runtime, game modes, Scene Editor template, flow vocab + starter flow, Symbols, Win Text, Game Maker presets built; live Classic/Collector samples (9, owner login) and partner wire (10) open — session hub) | [status/hold-and-win](status/hold-and-win.md) | [design/hold-and-win](design/hold-and-win.md) | — | per phase |
@@ -49,7 +49,7 @@ change piled back into one file. See [`docs/status/README.md`](status/README.md)
 | **Invisible Director** + **Invisible Pipeline Changes** (planned; Phase 0 approved 2026-10-04, Phase 1 in progress) | [director/PLAN](director/PLAN.md) | [director/SPEC](director/SPEC.md) · [ADRs](director/DECISIONS/) | [tools/director](tools/director.md) · [tools/pipeline-changes](tools/pipeline-changes.md) | `director-*`, `platform-integrator`, `regression-guardian` |
 | **Infra** (Railway/CF/R2) | [status/infra](status/infra.md) | — | [INFRA.md](INFRA.md) | `infra-railway` |
 
-**Not tracked here (by design):** the third-party **Spine Editor** and **Storybook** keep their own
+**Not tracked here (by design):** the third-party **Storybook** keeps its own
 upstream docs (we only ship a `docs/tools/` guide for how we host/launch them); **ComfyUI** is
 listed above only for our hosting of it. The **desktop Invisible Launcher** (publish-only) is
 covered inside [status/launcher](status/launcher.md). **Invisible Blueprints** is an **Atlas Maker
@@ -110,9 +110,9 @@ Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide
 4. Smaller: **Rigger Phase 3.6d** (hull-loop reordering — the 3.6c permutation primitive exists,
    no UI yet).
 
-**Recently closed** (2026-10-06): **no Spine license needed to run a rig** — our own runtime,
-`packages/engine-rig`, replaces every `@esotericsoftware/*` package and vendored runtime in the games
-and tools, parity-gated against Esoteric's 4.2 runtime (`tools/rig-parity`).
+**Recently closed** (2026-10-06): **no third-party licence needed to run a rig** — our own runtime,
+`packages/engine-rig`, replaces every third-party rig runtime package and vendored runtime in the games
+and tools, parity-gated against the 4.2 reference runtime (`tools/rig-parity`).
 ([status/rigger](status/rigger.md))
 
 **Recently closed** (2026-09-28 → 09-29, #811–#870):
@@ -129,7 +129,7 @@ and tools, parity-gated against Esoteric's 4.2 runtime (`tools/rig-parity`).
   symbols, config and component defaults; flow-v2 undo/redo; conditional `.irig` saves with rig
   backups; a manual Save checks for a newer save again (#821, #832, #847, #857, #859).
   ([status/flow](status/flow.md), [status/editor](status/editor.md), [status/rigger](status/rigger.md))
-- **Publish gates** — an invalid flow, paytable drift, or missing art/spines now refuse a publish or
+- **Publish gates** — an invalid flow, paytable drift, or missing art/rigs now refuse a publish or
   delivery unless overridden (#833, #839, #855). ([status/flow](status/flow.md),
   [status/game-config](status/game-config.md), [status/game-maker](status/game-maker.md))
 - **Launcher authorization hardening + security headers** (#811, #812, #814, #818, #826, #827)
@@ -174,8 +174,8 @@ conflict prompt and an "X is editing this atlas" banner, 2026-09-30, two-browser
   ([status/game-maker](status/game-maker.md))
 - **Approve the test2–test6 free-spin data migration** (their free-spin intro/outro broke when the
   coded screens were retired). ([status/flow](status/flow.md))
-- **Confirm the license-free Spine runtime** — have counsel confirm `engine-rig`'s clean-room
-  position, and live-look at the Rigger, `/spine`, the editor, `/fx` and a published game on it.
+- **Confirm the license-free rig runtime** — have counsel confirm `engine-rig`'s clean-room
+  position, and live-look at the Rigger, `/rig-viewer`, the editor, `/fx` and a published game on it.
   ([status/rigger](status/rigger.md))
 - **Model licences for shipped art** — decide the switches in the recommendation table; every
   built-in image default is non-commercial as wired today. ([reference/model-licences](reference/model-licences.md))

@@ -132,7 +132,7 @@ async function preview(text: string, style: RigTextStyle): Promise<HTMLCanvasEle
  * Ordering is deliberate: the PAGE is uploaded FIRST and the document (which names it) only
  * after. A page with no document is an unreferenced object the endpoint's sweep collects; a
  * document naming a page that was never uploaded would compose an atlas whose second page
- * 404s — which a spine runtime reports as an opaque texture failure. The endpoint additionally
+ * 404s — which a rig runtime reports as an opaque texture failure. The endpoint additionally
  * refuses a document whose page does not exist, so this ordering is enforced, not just assumed.
  */
 async function save(args: SaveArgs): Promise<SaveResult> {

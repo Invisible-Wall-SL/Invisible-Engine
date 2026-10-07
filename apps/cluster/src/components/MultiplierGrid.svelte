@@ -7,7 +7,7 @@
 </script>
 
 <script lang="ts">
-	import { BitmapText, Container, SpineProvider, SpineTrack } from 'pixi-svelte';
+	import { BitmapText, Container, RigProvider, RigTrack } from 'pixi-svelte';
 
 	import BoardContainer from './BoardContainer.svelte';
 	import { getContext } from '../game/context';
@@ -41,9 +41,9 @@
 			{#each reel as multiplier, rowIndex}
 				{#if multiplier > 0}
 					<Container x={(reelIndex + 0.5) * SYMBOL_SIZE} y={(rowIndex + 0.5) * SYMBOL_SIZE}>
-						<SpineProvider key="anticipation" width={SYMBOL_SIZE * 0.19}>
-							<SpineTrack trackIndex={0} animationName="payframe" loop />
-						</SpineProvider>
+						<RigProvider key="anticipation" width={SYMBOL_SIZE * 0.19}>
+							<RigTrack trackIndex={0} animationName="payframe" loop />
+						</RigProvider>
 						{#if multiplier > 1}
 							<BitmapText
 								x={-SYMBOL_SIZE * 0.05}

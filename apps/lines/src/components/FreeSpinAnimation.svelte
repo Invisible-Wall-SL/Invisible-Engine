@@ -4,13 +4,13 @@
 	import {
 		anchorToPivot,
 		Container,
-		SpineProvider,
-		SpineSlot,
-		SpineTrack,
+		RigProvider,
+		RigSlot,
+		RigTrack,
 		type Sizes,
 	} from 'pixi-svelte';
 	import { MainContainer } from 'components-layout';
-	import { EDITOR_SPINE_LOAD_SCALE } from 'engine-layout';
+	import { EDITOR_RIG_LOAD_SCALE } from 'engine-layout';
 
 	import { getContext } from '../game/context';
 	import { SYMBOL_SIZE } from 'engine-game';
@@ -28,7 +28,7 @@
 		 */
 		boundToInstance?: boolean;
 		/**
-		 * Explicit display WIDTH for the frame rig (the spine is fitted to it). Unset, it falls
+		 * Explicit display WIDTH for the frame rig (the rig is fitted to it). Unset, it falls
 		 * back to the historical `PANEL_SIZES.width` fit on the coded/OFF composer path, and to
 		 * NO width on the AUTHORED componentInstance path — so the frame renders at its NATURAL
 		 * size, the same base the Scene Editor previews it at, leaving the instance node's own
@@ -59,10 +59,10 @@
 	// fit (its shipped size); the AUTHORED instance takes none, so the rig renders at the
 	// natural size the Scene Editor previews. An explicit `width` always wins.
 	const frameWidth = $derived(width ?? (boundToInstance ? undefined : PANEL_SIZES.width));
-	// Legacy authoring box (OFF composer only): the frame spine is placed at (0.5w, 0.4h) inside
+	// Legacy authoring box (OFF composer only): the frame rig is placed at (0.5w, 0.4h) inside
 	// a 0..PANEL rect and the wrapper's centring pivot takes it straight back out — the pair
 	// nearly annihilates (net (0, +5.2px)), so it compensates for nothing a sibling reads: the
-	// count spine and the caption sprites live INSIDE the frame's `slot_text_placeholder` and
+	// count rig and the caption sprites live INSIDE the frame's `slot_text_placeholder` and
 	// ride the RIG, not this container. The authored path drops both, putting the frame's
 	// SKELETON ORIGIN on the local origin — exactly where the editor draws it.
 	const frameX = $derived(boundToInstance ? undefined : PANEL_SIZES.width * 0.5);
@@ -72,20 +72,20 @@
 {#snippet block()}
 	<!--
 		`loadScaleBase` on the natural-size (authored) path only: the editor previews EVERY rig at
-		`EDITOR_SPINE_LOAD_SCALE`, while the game reads each bundle at whatever `parser.scale` its
+		`EDITOR_RIG_LOAD_SCALE`, while the game reads each bundle at whatever `parser.scale` its
 		asset index declares (the engine-bundled `fsIntro` is 2, an exported editor-art bundle is
-		1) — and Spine leaves `skeleton.data.width/height` un-scaled, so nothing downstream cancels
+		1) — and rig leaves `skeleton.data.width/height` un-scaled, so nothing downstream cancels
 		that. Dividing it out is what makes "natural size" mean the same thing on both surfaces.
 		The width-fitted OFF path is deliberately left alone: `parser.scale × width` is its size.
 	-->
-	<SpineProvider
+	<RigProvider
 		key="fsIntro"
 		width={frameWidth}
-		loadScaleBase={frameWidth === undefined ? EDITOR_SPINE_LOAD_SCALE : undefined}
+		loadScaleBase={frameWidth === undefined ? EDITOR_RIG_LOAD_SCALE : undefined}
 		x={frameX}
 		y={frameY}
 	>
-		<SpineTrack
+		<RigTrack
 			trackIndex={0}
 			{animationName}
 			loop={animationName === 'idle'}
@@ -93,10 +93,10 @@
 				complete: () => (animationName = 'idle'),
 			}}
 		/>
-		<SpineSlot slotName="slot_text_placeholder">
+		<RigSlot slotName="slot_text_placeholder">
 			{@render children({ sizes: BACKGROUND_SIZES })}
-		</SpineSlot>
-	</SpineProvider>
+		</RigSlot>
+	</RigProvider>
 {/snippet}
 
 {#if boundToInstance}

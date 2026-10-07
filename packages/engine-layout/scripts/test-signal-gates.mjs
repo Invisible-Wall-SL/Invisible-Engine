@@ -6,7 +6,7 @@
 // one ESM file Node can run, then assert the reveal/arm/complete-listener decisions. This is the
 // offline proof of the three authoring gates the runtime (`LayoutNodeView`/`ComponentInstance`) drive:
 //  (a) a node with `hiddenUntilSignal` is hidden until that signal fires, then shown;
-//  (b) a spine one-shot attaches its `completeSignal` listener only when non-looping;
+//  (b) a rig one-shot attaches its `completeSignal` listener only when non-looping;
 //  (c) a tap surface is inert before `tapArmAfterSignal` and armed after.
 import { rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -104,7 +104,7 @@ assert(
 );
 assert(
 	mod.wantsCompleteListener(false, false) === false,
-	'no callback ⇒ no listener (parity — unchanged spine behaviour)',
+	'no callback ⇒ no listener (parity — unchanged rig behaviour)',
 );
 
 // --- End-to-end micro-scenario: enter → intro plays → introDone fires → amount + tap appear ---

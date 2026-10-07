@@ -4,7 +4,7 @@
 	import {
 		BUILTIN_SHEETS,
 		builtinSheetKey,
-		builtinSpineMeta,
+		builtinRigMeta,
 		FLIGHT_EASE_LABELS,
 		FLIGHT_EASES,
 		FLIGHT_KIND_LABELS,
@@ -40,12 +40,12 @@
 		type EditorRegion,
 		type RegionSet,
 	} from '../editor/editorRegions.client';
-	import { builtinSpineKey, hasBuiltinSpine } from '../editor/editorSpine.client';
+	import { builtinRigKey, hasBuiltinRig } from '../editor/editorRig.client';
 	import DocHistoryModal from '$lib/DocHistoryModal.svelte';
 	import FlightPreview from './FlightPreview.svelte';
 	import SymbolFxPreview from './SymbolFxPreview.svelte';
-	import SymbolSpinePreview from './SymbolSpinePreview.svelte';
-	import SymbolSpineStage from './SymbolSpineStage.svelte';
+	import SymbolRigPreview from './SymbolRigPreview.svelte';
+	import SymbolRigStage from './SymbolRigStage.svelte';
 	import SymbolSpritePreview from './SymbolSpritePreview.svelte';
 	import {
 		POTS_TOKEN_STATE_HINTS,
@@ -67,7 +67,7 @@
 		SymbolsConflictError,
 		setAnticipationAnimationSet,
 		setAnticipationOverlayCells,
-		setAnticipationSpineKey,
+		setAnticipationRigKey,
 		setAnticipationTierFx,
 		setBoardGlow,
 		setBookVfxLayer,
@@ -303,19 +303,19 @@
 	});
 
 	/**
-	 * Cells whose EFFECTIVE binding is a SPINE left on `(first animation)`.
+	 * Cells whose EFFECTIVE binding is a RIG left on `(first animation)`.
 	 *
 	 * CANDIDATES, not warnings. Leaving the animation unpicked is a supported choice — it is an
-	 * option in this tool's own dropdown, `SymbolSpinePreview` honours it, and since
-	 * `pixi-svelte`'s `SpineTrack` gained its fallback the game plays
+	 * option in this tool's own dropdown, `SymbolRigPreview` honours it, and since
+	 * `pixi-svelte`'s `RigTrack` gained its fallback the game plays
 	 * `skeletonData.animations[0]` rather than drawing the setup pose. So a rig that carries ONE
 	 * animation (an explosion, most symbol rigs) renders exactly what picking it by hand would.
 	 *
 	 * It only bites when the skeleton does not make that choice for you — see
-	 * {@link spineAnimWarnings}. Keyed by `previewKey ?? assetKey` because a shared-atlas bundle
+	 * {@link rigAnimWarnings}. Keyed by `previewKey ?? assetKey` because a shared-atlas bundle
 	 * holds several skeletons and only the `previewKey` names the one this cell draws.
 	 */
-	const animlessSpineCells = $derived.by(() => {
+	const animlessRigCells = $derived.by(() => {
 		const out: { symbol: string; state: SymbolState; key: string }[] = [];
 		for (const symbol of symbolNames) {
 			for (const state of visibleStates) {
@@ -329,10 +329,10 @@
 	});
 
 	/** How many animations each candidate bundle carries, parsed from the skeleton in R2 (the same
-	 *  `/api/editor/spine/meta` the editor's spine dropdowns read — no WebGL, no bundle download).
+	 *  `/api/editor/rig/meta` the editor's rig dropdowns read — no WebGL, no bundle download).
 	 *  `null` = asked and could not tell (unknown bundle, or a binary `.skel` only a live render can
 	 *  read) ⇒ never warn. A banner that fires on "don't know" is what teaches an author to ignore it. */
-	let spineAnimCounts = $state<Record<string, number | null>>({});
+	let rigAnimCounts = $state<Record<string, number | null>>({});
 	/** Keys already requested. A plain record, deliberately NOT `$state`: the effect below reads it to
 	 *  decide what to fetch, and a reactive read-then-write of the same value re-triggers that effect
 	 *  forever. It also dedupes the key list, so the fetch runs once per bundle however many cells
@@ -340,17 +340,17 @@
 	const requestedAnimCounts: Record<string, true> = {};
 
 	$effect(() => {
-		for (const { key } of animlessSpineCells) {
+		for (const { key } of animlessRigCells) {
 			if (requestedAnimCounts[key]) continue;
 			requestedAnimCounts[key] = true;
 			void (async () => {
 				try {
-					const res = await fetch(`/api/editor/spine/meta?key=${encodeURIComponent(key)}`);
+					const res = await fetch(`/api/editor/rig/meta?key=${encodeURIComponent(key)}`);
 					const meta = res.ok ? await res.json() : null;
-					spineAnimCounts[key] =
+					rigAnimCounts[key] =
 						meta?.found && Array.isArray(meta.animations) ? meta.animations.length : null;
 				} catch {
-					spineAnimCounts[key] = null;
+					rigAnimCounts[key] = null;
 				}
 			})();
 		}
@@ -365,13 +365,13 @@
 	 *   check was written for (a UI rig bound to `W`) — silently WRONG, not blank.
 	 * - `1` (and an unresolved count) says nothing and is dropped.
 	 */
-	const spineAnimWarnings = $derived.by(() => {
+	const rigAnimWarnings = $derived.by(() => {
 		const groups: Record<
 			string,
 			{ symbol: string; bundle: string; count: number; states: string[] }
 		> = {};
-		for (const c of animlessSpineCells) {
-			const count = spineAnimCounts[c.key];
+		for (const c of animlessRigCells) {
+			const count = rigAnimCounts[c.key];
 			if (typeof count !== 'number' || count === 1) continue;
 			const id = `${c.symbol}\n${c.key}`;
 			const trimmed = c.key.replace(/\/$/, '');
@@ -438,8 +438,8 @@
 		name: id,
 	}));
 
-	/** Spine bundles available for spine cells (project + shared). */
-	const spineBundles = $derived(data.assets.spines.map((s) => ({ name: s.name, key: s.key })));
+	/** Rig bundles available for rig cells (project + shared). */
+	const rigBundles = $derived(data.assets.spines.map((s) => ({ name: s.name, key: s.key })));
 
 	/** Invisible Flipbook clips available for flipbook cells. Empty for a project that has
 	 *  never authored one — the Flipbook option then shows disabled with a pointer at /flipbook
@@ -475,18 +475,16 @@
 	/**
 	 * The bundle used to PREVIEW a coded default (the board glow, the win frame). Prefers a real R2
 	 * bundle matching the key, so a project carrying its own copy previews THAT; otherwise falls back
-	 * to the engine spine vendored into the launcher's `static/builtin/`. The coded defaults ship as
+	 * to the engine rig vendored into the launcher's `static/builtin/`. The coded defaults ship as
 	 * local game assets and are not in R2, so before that fallback they could only ever render a
 	 * "not in R2, can't be previewed" placeholder — the tool documented a default it couldn't show.
 	 */
 	function resolveBuiltinBundle(assetKey: string): { key: string; name: string } | undefined {
-		const fromR2 = spineBundles.find(
+		const fromR2 = rigBundles.find(
 			(b) => b.name === assetKey || b.key === assetKey || b.key.split('/').includes(assetKey),
 		);
 		if (fromR2) return fromR2;
-		return hasBuiltinSpine(assetKey)
-			? { key: builtinSpineKey(assetKey), name: assetKey }
-			: undefined;
+		return hasBuiltinRig(assetKey) ? { key: builtinRigKey(assetKey), name: assetKey } : undefined;
 	}
 
 	// Frame name → its region, built ONCE for the whole grid by fetching every sheet
@@ -629,10 +627,10 @@
 		return out.message ?? out.error ?? `Restore failed (${res.status}).`;
 	}
 
-	// "Reload from R2": after re-exporting/replacing a spine in R2 (e.g. from the
+	// "Reload from R2": after re-exporting/replacing a rig in R2 (e.g. from the
 	// Rigger), the previews + picker would otherwise keep the cached bundle — the
 	// skeleton/page fetches are HTTP-cached and the bundle list comes from the server
-	// `load`. Bumping `reloadToken` drops the in-session spine caches and re-fetches
+	// `load`. Bumping `reloadToken` drops the in-session rig caches and re-fetches
 	// with a fresh `?v=`; `invalidateAll()` re-runs `load` so a brand-new bundle
 	// (and refreshed animation names) shows up too. Local doc edits survive — `doc`
 	// is its own `$state`, not derived from `data`.
@@ -644,13 +642,13 @@
 		reloadToken++;
 		// Drop the module-level region cache (keyed by sheet key, survives `invalidateAll`)
 		// so the sprite-cell rects + page keys re-resolve from R2 — otherwise a re-authored
-		// sheet stays stale on the sprite path until a hard page reload. The spine path is
+		// sheet stays stale on the sprite path until a hard page reload. The rig path is
 		// busted by `reloadToken`; the server self-heals the frozen bundle geometry.
 		clearRegionCache();
 		// Same reason, for the animation COUNTS behind the no-animation warning: a re-exported rig can
 		// gain or lose animations, and both answers are cached per bundle key for the page's lifetime.
 		for (const key of Object.keys(requestedAnimCounts)) delete requestedAnimCounts[key];
-		spineAnimCounts = {};
+		rigAnimCounts = {};
 		try {
 			await invalidateAll();
 		} finally {
@@ -658,8 +656,8 @@
 		}
 	}
 
-	// The focused cell — opens the cell editor panel (with its single live spine
-	// preview). Grid spine cells animate via the shared <SymbolSpineStage>, not focus.
+	// The focused cell — opens the cell editor panel (with its single live rig
+	// preview). Grid rig cells animate via the shared <SymbolRigStage>, not focus.
 	let focus = $state<{ symbol: string; state: SymbolState } | null>(null);
 	const focusCell = $derived(
 		focus ? effectiveCell(doc, data.defaults, focus.symbol, focus.state) : null,
@@ -667,7 +665,7 @@
 
 	// Draft of the focused cell, edited in the panel before "Apply".
 	let draft = $state<SymbolCell | null>(null);
-	// Animation names of the draft's spine bundle (filled by the preview load).
+	// Animation names of the draft's rig bundle (filled by the preview load).
 	let draftAnimations = $state<string[]>([]);
 
 	function openCell(symbol: string, state: SymbolState): void {
@@ -695,7 +693,7 @@
 
 	function setDraftType(type: SymbolCellType): void {
 		if (!draft || draft.type === type) return;
-		// Switching kind clears the asset binding (a frame name ≠ a spine bundle ≠ a clip's
+		// Switching kind clears the asset binding (a frame name ≠ a rig bundle ≠ a clip's
 		// sheet) AND every field that no longer applies. That last part is load-bearing: the
 		// server schema is `.strict()` with a `.refine()` rejecting a flipbook cell without a
 		// `clipId`, so a leftover `animationName` (or a stale `clipId` on a sprite cell) would
@@ -740,9 +738,9 @@
 	// contract every other control in this panel has.
 
 	/** Which layer's editor is expanded (an index into `draft.layers`), or `null` for none. Only one
-	 *  at a time, so the spine-animation list below can be a single value. */
+	 *  at a time, so the rig-animation list below can be a single value. */
 	let layerEditing = $state<number | null>(null);
-	/** Animation names of the open layer's spine bundle (filled by its preview load), mirroring
+	/** Animation names of the open layer's rig bundle (filled by its preview load), mirroring
 	 *  `draftAnimations` for the cell's own binding. */
 	let layerAnimations = $state<string[]>([]);
 
@@ -998,7 +996,7 @@
 		}
 	}
 
-	/** Last path segment of a full spine-bundle R2 prefix, for a readable chip. The
+	/** Last path segment of a full rig-bundle R2 prefix, for a readable chip. The
 	 *  STORED `assetKey` stays the full prefix (resolution needs it); this is display
 	 *  only. Sprite frame keys have no trailing slash, so they pass through unchanged. */
 	function displayKey(cell: SymbolCell): string {
@@ -1038,11 +1036,11 @@
 	}
 
 	// ── Global highlight (win frame) ──────────────────────────────────────────
-	// A single spine that loops over winning symbols. The game's built-in default is the
+	// A single rig that loops over winning symbols. The game's built-in default is the
 	// engine's coded frame (`anticipation`/`payframe`, see SymbolWinFrame.svelte). That key
 	// ships as a LOCAL game asset, but most projects ALSO have the bundle in R2 — so when a
 	// matching R2 bundle exists we preview the real default; otherwise we fall back to a
-	// "Default (payframe)" label. The user can still OVERRIDE with any R2 spine.
+	// "Default (payframe)" label. The user can still OVERRIDE with any R2 rig.
 	const BUILTIN_FRAME = { assetKey: 'anticipation', animationName: 'payframe' };
 	const highlight = $derived(effectiveHighlight(doc, data.defaults));
 	// The project's R2 bundle that matches the built-in default frame, if any (matched by
@@ -1066,7 +1064,7 @@
 	const HIGHLIGHT_TINT_DEFAULT_COLOR = '#ffffff';
 
 	function openHighlight(): void {
-		// Seed the draft from an existing override, else a blank spine cell (we never
+		// Seed the draft from an existing override, else a blank rig cell (we never
 		// seed from the local default — it isn't an R2 bundle the picker can resolve).
 		// `$state.snapshot` (NOT `structuredClone`): `doc.highlight` is a `$state` proxy and
 		// `structuredClone` throws `DataCloneError` on a proxy (same bug as `openCell`).
@@ -1129,11 +1127,11 @@
 	}
 
 	// ── Free-spin board glow ──────────────────────────────────────────────────
-	// The reel-house backdrop spine BEHIND the reels during free spins. The game's built-in
+	// The reel-house backdrop rig BEHIND the reels during free spins. The game's built-in
 	// default is the coded `reelhouse` glow (BoardFrame.svelte), which plays a fixed
 	// start→idle→exit chain. That key ships as a LOCAL game asset, so — exactly like the
 	// highlight's payframe — we can only preview it when a matching R2 bundle happens to exist.
-	// An override swaps the ART (any R2 spine bundle, Rigger `.irig` rigs included) and may
+	// An override swaps the ART (any R2 rig bundle, Rigger `.irig` rigs included) and may
 	// rename the three tracks; the ENGINE still owns the chaining.
 	const BUILTIN_GLOW = {
 		assetKey: 'reelhouse',
@@ -1203,9 +1201,9 @@
 
 	// ── Book-symbol VFX (background + foreground layers) ───────────────────────
 	// Two authored presentation layers the game draws BEHIND / IN FRONT OF the book symbol during
-	// free spins. Each layer is one of four kinds (sprite / spine / flipbook / fx) and REUSES the
-	// pickers already on this page — RegionPicker (sprite), the spine-bundle select + animation
-	// (spine), the clip select (flipbook), plus a plain effect select (fx). Sparse: an unset slot
+	// free spins. Each layer is one of four kinds (sprite / rig / flipbook / fx) and REUSES the
+	// pickers already on this page — RegionPicker (sprite), the rig-bundle select + animation
+	// (rig), the clip select (flipbook), plus a plain effect select (fx). Sparse: an unset slot
 	// writes nothing; each layer carries only its kind's fields (the server `.refine()` enforces it).
 	const BOOK_VFX_SLOT_META: { slot: BookVfxSlot; label: string; sub: string }[] = [
 		{ slot: 'background', label: 'Background', sub: 'Drawn BEHIND the book symbol.' },
@@ -1228,7 +1226,7 @@
 	const FLIGHT_HEAD_LABELS: Record<FlightHeadKind, string> = {
 		glow: 'Glow',
 		sprite: 'Sprite',
-		spine: 'Spine',
+		spine: 'Rig',
 		flipbook: 'Flipbook',
 		none: 'None',
 	};
@@ -1882,21 +1880,21 @@
 	const bigTiers = $derived(data.bigTiers);
 	const anticipationOverridden = $derived(!!doc.anticipation);
 
-	/** The overlay spine bundles the author can swap in — the same R2 spine list the highlight /
-	 *  board-glow pickers use. Empty picks the coded `anticipation` spine. */
-	const anticipationSpineBundles = $derived(spineBundles);
+	/** The overlay rig bundles the author can swap in — the same R2 rig list the highlight /
+	 *  board-glow pickers use. Empty picks the coded `anticipation` rig. */
+	const anticipationRigBundles = $derived(rigBundles);
 
-	/** The animation names of the RESOLVED overlay spine — the coded `anticipation` spine's built-in
-	 *  meta (`builtinSpineMeta`, a pure static read, NO WebGL context: an always-mounted preview would
+	/** The animation names of the RESOLVED overlay rig — the coded `anticipation` rig's built-in
+	 *  meta (`builtinRigMeta`, a pure static read, NO WebGL context: an always-mounted preview would
 	 *  fight the page's other previews for the browser's ~16-context cap and lose). A swapped R2 `spineKey`
 	 *  isn't in the builtin meta, so it resolves to `[]` ⇒ the field falls back to a free-text base input
 	 *  (the swapped rig's animation names are author-known). */
-	const anticipationSpineKey = $derived(doc.anticipation?.spineKey || 'anticipation');
-	const anticipationAnimations = $derived(builtinSpineMeta(anticipationSpineKey)?.animations ?? []);
-	/** The COMPLETE animation SETS the resolved spine exposes — a base whose `_intro`/`_loop`/`_out` all
+	const anticipationRigKey = $derived(doc.anticipation?.spineKey || 'anticipation');
+	const anticipationAnimations = $derived(builtinRigMeta(anticipationRigKey)?.animations ?? []);
+	/** The COMPLETE animation SETS the resolved rig exposes — a base whose `_intro`/`_loop`/`_out` all
 	 *  exist (the engine chains all three). The unnumbered `anticipation` base is KEPT and listed
 	 *  explicitly (it sorts first) — selecting it clears the override (= the coded default), so the author
-	 *  can pick it by name instead of guessing it hides behind a "Default" label. Empty (spine not
+	 *  can pick it by name instead of guessing it hides behind a "Default" label. Empty (rig not
 	 *  enumerated) ⇒ the field falls back to a free-text base input. */
 	const anticipationSets = $derived.by(() => {
 		const names = new Set(anticipationAnimations);
@@ -1913,8 +1911,8 @@
 		doc = setAnticipationTierFx(doc, tier, patch);
 	}
 
-	function setAnticipationSpine(key: string): void {
-		doc = setAnticipationSpineKey(doc, key || undefined);
+	function setAnticipationRig(key: string): void {
+		doc = setAnticipationRigKey(doc, key || undefined);
 	}
 
 	function setAnticipationAnimation(base: string): void {
@@ -1943,7 +1941,7 @@
 	{#if layer.kind === 'sprite' && layer.assetKey}
 		<SymbolSpritePreview frame={layer.assetKey} index={spriteIndex} {size} />
 	{:else if layer.kind === 'spine' && layer.assetKey}
-		<SymbolSpinePreview
+		<SymbolRigPreview
 			assetKey={layer.assetKey}
 			animationName={layer.animationName}
 			{size}
@@ -1957,7 +1955,7 @@
 	{/if}
 {/snippet}
 
-<!-- Repeat-or-hold for one symbol state. Shared by the spine and flipbook editors because the
+<!-- Repeat-or-hold for one symbol state. Shared by the rig and flipbook editors because the
      question is about the STATE, not about which renderer draws it — a sprite cell is a single
      frame and has nothing to repeat, so it is the one kind that never shows this. -->
 {#snippet loopToggle()}
@@ -2104,7 +2102,7 @@
 					class="reload"
 					type="button"
 					disabled={reloading}
-					title="Re-fetch spine bundles + previews from R2 (after re-exporting art)"
+					title="Re-fetch rig bundles + previews from R2 (after re-exporting art)"
 					onclick={reloadFromR2}
 				>
 					{reloading ? 'Reloading…' : '↻ Reload from R2'}
@@ -2134,13 +2132,13 @@
 	<div class="body" class:has-panel={!!focus}>
 		<div class="grid-area">
 			<div class="grid-scroll" bind:this={gridScroll}>
-				{#if spineAnimWarnings.length}
+				{#if rigAnimWarnings.length}
 					<div class="anim-warn">
-						<strong>⚠ Spine binding with no animation picked</strong> — these cells are on
+						<strong>⚠ rig binding with no animation picked</strong> — these cells are on
 						<code>(first animation)</code>, and their rig does not make that choice for you. Pick
 						one explicitly (or switch the cell to a sprite/flipbook):
 						<ul>
-							{#each spineAnimWarnings as w (w.symbol + w.bundle)}
+							{#each rigAnimWarnings as w (w.symbol + w.bundle)}
 								<li>
 									<code>{w.symbol}</code> — {w.states.join(', ')}
 									<span class="why">
@@ -2162,7 +2160,7 @@
 						<div class="hl-title">
 							<h2>Highlight (win frame)</h2>
 							<p class="hl-sub">
-								A single global spine that loops over winning symbols. Shared by every symbol.
+								A single global rig that loops over winning symbols. Shared by every symbol.
 							</p>
 						</div>
 						<div class="hl-actions">
@@ -2184,7 +2182,7 @@
 						<div class="hl-current">
 							{#if highlight.overridden && highlight.cell}
 								<div class="hl-preview">
-									<SymbolSpinePreview
+									<SymbolRigPreview
 										assetKey={highlight.cell.assetKey}
 										animationName={highlight.cell.animationName}
 										size={96}
@@ -2212,7 +2210,7 @@
 								</div>
 							{:else if defaultFrameBundle}
 								<div class="hl-preview">
-									<SymbolSpinePreview
+									<SymbolRigPreview
 										assetKey={defaultFrameBundle.key}
 										animationName={BUILTIN_FRAME.animationName}
 										size={96}
@@ -2232,7 +2230,7 @@
 									<span class="hl-label">Default (payframe)</span>
 									<span class="hl-note">
 										The coded default ships with the game and still renders in-game; the launcher
-										just has no copy to preview. Pick an R2 spine to override it.
+										just has no copy to preview. Pick an R2 rig to override it.
 									</span>
 								</div>
 							{/if}
@@ -2241,7 +2239,7 @@
 						{#if highlightEditing && highlightDraft}
 							<div class="hl-editor">
 								<div class="field">
-									<span class="label">Spine bundle</span>
+									<span class="label">Rig bundle</span>
 									<select
 										value={highlightDraft.assetKey}
 										onchange={(e) => {
@@ -2252,7 +2250,7 @@
 										}}
 									>
 										<option value="">Pick a bundle…</option>
-										{#each spineBundles as b (b.key)}
+										{#each rigBundles as b (b.key)}
 											<option value={b.key}>{b.name}</option>
 										{/each}
 									</select>
@@ -2286,7 +2284,7 @@
 									<div class="field">
 										<span class="label">Preview</span>
 										<div class="hl-preview">
-											<SymbolSpinePreview
+											<SymbolRigPreview
 												assetKey={highlightDraft.assetKey}
 												animationName={highlightDraft.animationName}
 												size={96}
@@ -2342,7 +2340,7 @@
 						<div class="hl-title">
 							<h2>Free-spin board glow</h2>
 							<p class="hl-sub">
-								The glow behind the reels during free spins. Swap the art for any R2 spine bundle (a
+								The glow behind the reels during free spins. Swap the art for any R2 rig bundle (a
 								Rigger rig included); the game still plays it start → idle → exit.
 							</p>
 						</div>
@@ -2363,7 +2361,7 @@
 						<div class="hl-current">
 							{#if doc.boardGlow}
 								<div class="hl-preview">
-									<SymbolSpinePreview
+									<SymbolRigPreview
 										assetKey={doc.boardGlow.assetKey}
 										animationName={doc.boardGlow.animations?.idle ??
 											doc.boardGlow.animations?.start}
@@ -2382,7 +2380,7 @@
 								</div>
 							{:else if defaultGlowBundle}
 								<div class="hl-preview">
-									<SymbolSpinePreview
+									<SymbolRigPreview
 										assetKey={defaultGlowBundle.key}
 										animationName={BUILTIN_GLOW.animations.idle}
 										size={96}
@@ -2402,7 +2400,7 @@
 									<span class="hl-label">Default (reelhouse)</span>
 									<span class="hl-note">
 										The coded default ships with the game and still renders in-game; the launcher
-										just has no copy to preview. Pick an R2 spine to override it.
+										just has no copy to preview. Pick an R2 rig to override it.
 									</span>
 								</div>
 							{/if}
@@ -2411,7 +2409,7 @@
 						{#if glowEditing && glowDraft}
 							<div class="hl-editor">
 								<div class="field">
-									<span class="label">Spine bundle</span>
+									<span class="label">Rig bundle</span>
 									<select
 										value={glowDraft.assetKey}
 										onchange={(e) => {
@@ -2422,7 +2420,7 @@
 										}}
 									>
 										<option value="">Pick a bundle…</option>
-										{#each spineBundles as b (b.key)}
+										{#each rigBundles as b (b.key)}
 											<option value={b.key}>{b.name}</option>
 										{/each}
 									</select>
@@ -2456,7 +2454,7 @@
 									<div class="field">
 										<span class="label">Preview</span>
 										<div class="hl-preview">
-											<SymbolSpinePreview
+											<SymbolRigPreview
 												assetKey={glowDraft.assetKey}
 												animationName={glowDraft.animations?.idle ?? glowDraft.animations?.start}
 												size={96}
@@ -2636,7 +2634,7 @@
 
 								{#if transitionDraft.kind === 'spine'}
 									<div class="field">
-										<span class="label">Spine bundle</span>
+										<span class="label">Rig bundle</span>
 										<select
 											value={transitionDraft.assetKey ?? ''}
 											onchange={(e) => {
@@ -2647,7 +2645,7 @@
 											}}
 										>
 											<option value="">Pick a bundle…</option>
-											{#each spineBundles as b (b.key)}
+											{#each rigBundles as b (b.key)}
 												<option value={b.key}>{b.name}</option>
 											{/each}
 										</select>
@@ -2683,7 +2681,7 @@
 										<div class="field">
 											<span class="label">Preview</span>
 											<div class="panel-preview">
-												<SymbolSpinePreview
+												<SymbolRigPreview
 													assetKey={transitionDraft.assetKey}
 													animationName={transitionDraft.animationName}
 													size={110}
@@ -2831,7 +2829,7 @@
 								<h2>Book symbol VFX</h2>
 								<p class="hl-sub">
 									Two layers drawn behind and in front of the book symbol during free spins. Each
-									can be a sprite frame, a spine animation, an Invisible Flipbook clip, or an
+									can be a sprite frame, a rig animation, an Invisible Flipbook clip, or an
 									Invisible FX effect. Leave a layer unset to draw nothing.
 								</p>
 							</div>
@@ -2934,7 +2932,7 @@
 												{/if}
 											{:else if bookVfxDraft.kind === 'spine'}
 												<div class="field">
-													<span class="label">Spine bundle</span>
+													<span class="label">Rig bundle</span>
 													<select
 														value={bookVfxDraft.assetKey ?? ''}
 														onchange={(e) => {
@@ -2945,7 +2943,7 @@
 														}}
 													>
 														<option value="">Pick a bundle…</option>
-														{#each spineBundles as b (b.key)}
+														{#each rigBundles as b (b.key)}
 															<option value={b.key}>{b.name}</option>
 														{/each}
 													</select>
@@ -2981,7 +2979,7 @@
 													<div class="field">
 														<span class="label">Preview</span>
 														<div class="panel-preview">
-															<SymbolSpinePreview
+															<SymbolRigPreview
 																assetKey={bookVfxDraft.assetKey}
 																animationName={bookVfxDraft.animationName}
 																size={110}
@@ -3215,7 +3213,7 @@
 									</div>
 								{:else if flightHead?.kind === 'spine'}
 									<div class="field">
-										<span class="label">Spine bundle</span>
+										<span class="label">Rig bundle</span>
 										<select
 											value={flightHead.assetKey ?? ''}
 											onchange={(e) => {
@@ -3227,7 +3225,7 @@
 											}}
 										>
 											<option value="">Pick a bundle…</option>
-											{#each spineBundles as b (b.key)}
+											{#each rigBundles as b (b.key)}
 												<option value={b.key}>{b.name}</option>
 											{/each}
 										</select>
@@ -3256,7 +3254,7 @@
 												/>
 											{/if}
 											<div class="panel-preview">
-												<SymbolSpinePreview
+												<SymbolRigPreview
 													assetKey={flightHead.assetKey}
 													animationName={flightHead.animationName}
 													size={90}
@@ -3544,7 +3542,7 @@
 							<span class="chip">no frames</span>
 						{/if}
 					{:else}
-						<SymbolSpinePreview
+						<SymbolRigPreview
 							assetKey={art.assetKey}
 							animationName={art.animationName}
 							{size}
@@ -4738,10 +4736,9 @@
 								The escalating tease the game plays while a big win is still reachable on the reels
 								yet to stop. Pick the activation STING and the sustained LOOP sounds once for the
 								whole mode; then, per configured big-win tier, style the intensity (the camera zoom,
-								the overlay spine's scale / opacity / tint, and the loop + sting volumes), climbing
-								as the reachable win crosses each tier. The mode itself is turned on and off from
-								Flow; this only styles it. Leave a field at its default to keep the game's coded
-								value.
+								the overlay rig's scale / opacity / tint, and the loop + sting volumes), climbing as
+								the reachable win crosses each tier. The mode itself is turned on and off from Flow;
+								this only styles it. Leave a field at its default to keep the game's coded value.
 							</p>
 						</div>
 						{#if anticipationOverridden}
@@ -4758,19 +4755,19 @@
 						<div class="wl-group">
 							<div class="ant-fields">
 								<div class="field">
-									<span class="label">Overlay spine</span>
+									<span class="label">Overlay rig</span>
 									<select
 										value={doc.anticipation?.spineKey ?? ''}
-										onchange={(e) => setAnticipationSpine(e.currentTarget.value)}
+										onchange={(e) => setAnticipationRig(e.currentTarget.value)}
 									>
-										<option value="">Default (coded anticipation spine)</option>
-										{#each anticipationSpineBundles as b (b.key)}
+										<option value="">Default (coded anticipation rig)</option>
+										{#each anticipationRigBundles as b (b.key)}
 											<option value={b.key}>{b.name}</option>
 										{/each}
 									</select>
 									<span class="wl-note">
 										The per-reel overlay skeleton. The default is the game's built-in
-										<code>anticipation</code> spine; a swapped bundle must expose the
+										<code>anticipation</code> rig; a swapped bundle must expose the
 										<code>anticipation_intro / _loop / _out</code> animations (the game still owns the
 										intro → loop → out chaining).
 									</span>
@@ -4801,9 +4798,9 @@
 										/>
 									{/if}
 									<span class="wl-note">
-										Which animation SET the overlay plays — a spine's differently-sized
-										anticipations. The game appends <code>_intro / _loop / _out</code>, so this is
-										the base name (e.g. <code>anticipation3</code> →
+										Which animation SET the overlay plays — a rig's differently-sized anticipations.
+										The game appends <code>_intro / _loop / _out</code>, so this is the base name
+										(e.g. <code>anticipation3</code> →
 										<code>anticipation3_intro</code>). The unnumbered
 										<code>anticipation</code> is the game's default.
 									</span>
@@ -5109,10 +5106,10 @@
 															size={previewSize}
 														/>
 													{:else if eff.cell.type === 'flipbook'}
-														<!-- A STILL first frame, not a player. Grid spine cells animate (via the
-														     shared <SymbolSpineStage> WebGL surface); a flipbook deliberately does
+														<!-- A STILL first frame, not a player. Grid rig cells animate (via the
+														     shared <SymbolRigStage> WebGL surface); a flipbook deliberately does
 														     not: N cells each running their own ticker would cost far more than the
-														     one spine stage, and the thing the grid has to answer is "which clip is
+														     one rig stage, and the thing the grid has to answer is "which clip is
 														     bound here", which a first frame + the clip's name answers. Scrub
 														     playback lives in /flipbook, which owns the clip. -->
 														{@const frame = clipFirstFrame(eff.cell.clipId)}
@@ -5132,11 +5129,11 @@
 														</div>
 													{:else}
 														<div
-															class="spine-target"
-															data-spine-key={eff.cell.previewKey ?? eff.cell.assetKey}
-															data-spine-anim={eff.cell.animationName ?? ''}
+															class="rig-target"
+															data-rig-key={eff.cell.previewKey ?? eff.cell.assetKey}
+															data-rig-anim={eff.cell.animationName ?? ''}
 														>
-															<span class="chip spine" title={cellLabel(eff.cell)}>
+															<span class="chip rig" title={cellLabel(eff.cell)}>
 																<span class="chip-key">{displayKey(eff.cell)}</span>
 																{#if eff.cell.animationName}
 																	<span class="chip-anim">{eff.cell.animationName}</span>
@@ -5148,7 +5145,7 @@
 												<div class="cell-foot">
 													{#if eff.overridden}<span class="badge">edited</span>{/if}
 													<!-- The grid cannot COMPOSITE a cell's layers over its base art (one shared
-													     WebGL canvas for every spine cell), so it says how many there are
+													     WebGL canvas for every rig cell), so it says how many there are
 													     instead — the one thing about them a thumbnail could otherwise hide
 													     completely. -->
 													{#if eff.cell?.layers?.length}
@@ -5202,7 +5199,7 @@
 					</table>
 				{/if}
 			</div>
-			<SymbolSpineStage container={gridScroll} {reloadToken} />
+			<SymbolRigStage container={gridScroll} {reloadToken} />
 		</div>
 
 		{#if (focus || stackedEdit) && draft}
@@ -5283,8 +5280,8 @@
 						<div class="field">
 							<span class="label">Preview</span>
 							<div class="panel-preview">
-								<!-- First frame only — a still is fine and preferable here. The panel's SPINE
-								     preview is live because a spine cell's binding is (bundle, animation) and you
+								<!-- First frame only — a still is fine and preferable here. The panel's RIG
+								     preview is live because a rig cell's binding is (bundle, animation) and you
 								     cannot tell those apart without playing them; a clip's identity is its name +
 								     frame count, both shown above. /flipbook owns scrub playback. -->
 								{#if frame}
@@ -5301,7 +5298,7 @@
 					{/if}
 				{:else}
 					<div class="field">
-						<span class="label">Spine bundle</span>
+						<span class="label">Rig bundle</span>
 						<select
 							value={draft.assetKey}
 							onchange={(e) => {
@@ -5315,7 +5312,7 @@
 							}}
 						>
 							<option value="">Pick a bundle…</option>
-							{#each spineBundles as b (b.key)}
+							{#each rigBundles as b (b.key)}
 								<option value={b.key}>{b.name}</option>
 							{/each}
 						</select>
@@ -5350,7 +5347,7 @@
 						<div class="field">
 							<span class="label">Preview</span>
 							<div class="panel-preview">
-								<SymbolSpinePreview
+								<SymbolRigPreview
 									assetKey={draft.previewKey ?? draft.assetKey}
 									animationName={draft.animationName}
 									size={120}
@@ -5449,7 +5446,7 @@
 													</div>
 												{:else if layer.kind === 'spine'}
 													<div class="field">
-														<span class="label">Spine bundle</span>
+														<span class="label">Rig bundle</span>
 														<select
 															value={layer.assetKey ?? ''}
 															onchange={(e) => {
@@ -5459,7 +5456,7 @@
 															}}
 														>
 															<option value="">Pick a bundle…</option>
-															{#each spineBundles as b (b.key)}
+															{#each rigBundles as b (b.key)}
 																<option value={b.key}>{b.name}</option>
 															{/each}
 														</select>
@@ -5491,7 +5488,7 @@
 														<div class="field">
 															<span class="label">Preview</span>
 															<div class="panel-preview">
-																<SymbolSpinePreview
+																<SymbolRigPreview
 																	assetKey={layer.assetKey}
 																	animationName={layer.animationName}
 																	size={110}
@@ -5607,10 +5604,10 @@
 														</span>
 													{:else}
 														<span class="hint">
-															A <strong>Spine</strong> layer cannot blend. A Pixi blend never reaches
-															skeleton geometry, so the mode would do nothing in the game — Spine art
-															blends per SLOT, authored in the Invisible Rigger. Use a Sprite, Flipbook
-															or FX layer, or a spine whose own slots carry the blend.
+															A <strong>Rig</strong> layer cannot blend. A Pixi blend never reaches skeleton
+															geometry, so the mode would do nothing in the game — rig art blends per
+															SLOT, authored in the Invisible Rigger. Use a Sprite, Flipbook or FX layer,
+															or a rig whose own slots carry the blend.
 														</span>
 													{/if}
 												</div>
@@ -5796,7 +5793,7 @@
 		min-height: 0;
 		overflow: hidden;
 	}
-	/* Warns that a symbol's spine binding has no animation ⇒ it renders blank in-game. */
+	/* Warns that a symbol's rig binding has no animation ⇒ it renders blank in-game. */
 	.anim-warn {
 		margin: 0 0 12px;
 		padding: 10px 14px;
@@ -5950,9 +5947,9 @@
 		display: grid;
 		place-items: center;
 	}
-	/* Spine cells render a chip placeholder here; the shared <SymbolSpineStage> canvas
+	/* Rig cells render a chip placeholder here; the shared <SymbolRigStage> canvas
 	   draws the live animation ON TOP, tracking this box's screen rect as the grid scrolls. */
-	.spine-target {
+	.rig-target {
 		position: relative;
 		width: var(--cell, 56px);
 		height: var(--cell, 56px);
@@ -5974,7 +5971,7 @@
 		padding: 4px;
 		gap: 2px;
 	}
-	.chip.spine {
+	.chip.rig {
 		border-style: solid;
 		border-color: #2e2e6a;
 		background: #15152a;

@@ -88,7 +88,7 @@ class LinkedMesh {
 	) {}
 }
 
-/** Reads Spine 4.x skeleton JSON (and so `.irig`) into `SkeletonData`. */
+/** Reads rig 4.x skeleton JSON (and so `.irig`) into `SkeletonData`. */
 export class SkeletonJson {
 	/** Multiplies every length and position as it is read. */
 	scale = 1;
@@ -106,7 +106,7 @@ export class SkeletonJson {
 			data.hash = skeletonMap.hash ?? null;
 			data.version = skeletonMap.spine ?? null;
 			// Copied as written: a header with no x/y leaves them undefined, which consumers read as
-			// "box centred on the origin" (see `authoredSpineBox`).
+			// "box centred on the origin" (see `authoredRigBox`).
 			data.x = skeletonMap.x;
 			data.y = skeletonMap.y;
 			data.width = skeletonMap.width;

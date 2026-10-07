@@ -64,7 +64,7 @@
 		Scene,
 		SceneSetOptions,
 		SlotKind,
-		SpineRestOverride,
+		RigRestOverride,
 		TemplateSlot,
 	} from 'engine-layout';
 	import { onMount } from 'svelte';
@@ -77,7 +77,7 @@
 	import EditorTemplatePanel from './EditorTemplatePanel.svelte';
 	import PanelResizers from './PanelResizers.svelte';
 	import PanelSection from './PanelSection.svelte';
-	import type { SpineMeta } from './spineRuntime.client';
+	import type { RigMeta } from './rigRuntime.client';
 	import { fetchClips } from './editorFlipbooks.client';
 	import { findById, flattenSceneIds, genComponentId, removeNode } from './layoutTree.client';
 	import type { PageData } from './$types';
@@ -329,9 +329,9 @@
 			currentLayoutType = baseLayoutType;
 		}
 	});
-	/** Per-`assetKey` animation + skin lists for every loaded spine bundle, reported by
+	/** Per-`assetKey` animation + skin lists for every loaded rig bundle, reported by
 	 * the canvas's WebGL sublayers — lets the Properties panel offer dropdowns. */
-	let spineMeta = $state<Map<string, SpineMeta>>(new Map());
+	let rigMeta = $state<Map<string, RigMeta>>(new Map());
 	/** Right sidebar tab: which panel the properties column shows. The left column is
 	 * now purely the Screens list (each active screen expands to its outline tree), so
 	 * the Library, Components and (mode-gated) Template panels live here on the right.
@@ -507,7 +507,7 @@
 
 	/**
 	 * Rebuild the `win` component's per-tier PRESENTATION groups from the ACTIVE game config's big
-	 * tiers (`data.winTiers`, else the built-in {@link DEFAULT_WIN_TIERS}), so its spine/animation/
+	 * tiers (`data.winTiers`, else the built-in {@link DEFAULT_WIN_TIERS}), so its rig/animation/
 	 * duration/sound groups mirror the config panel's authored tiers (keyed by alias) AND its SFX / BGM
 	 * fields render as dropdowns of the game's real sounds. The base/shared params (before the first
 	 * per-tier group) are kept verbatim; only the generated tail is replaced. Options are an editor-only
@@ -908,9 +908,9 @@
 	const activeSceneSlots = $derived(
 		activeTemplate?.scenes.find((s) => s.id === activeScene?.id)?.slots ?? [],
 	);
-	/** The active scene's placed top-level SPINE nodes — the `effect` node's "attach to rig" targets
+	/** The active scene's placed top-level RIG nodes — the `effect` node's "attach to rig" targets
 	 * (per-rig bone hosting; `LayoutScene` pairs top-level scene nodes, so only these are valid). */
-	const activeSceneSpineNodes = $derived(
+	const activeSceneRigNodes = $derived(
 		(activeScene?.nodes ?? [])
 			.filter((n): n is Extract<LayoutNode, { kind: 'spine' }> => n.kind === 'spine')
 			.map((n) => ({ id: n.id, label: n.label || n.assetKey || n.id })),
@@ -926,25 +926,25 @@
 	);
 
 	/**
-	 * EDITOR-PREVIEW ONLY: while the author focuses a spine / spineAnimation param on the selected
-	 * componentInstance (e.g. a Win Overlay tier's spine or intro/idle/outro), the canvas previews
-	 * that bundle + animation on the instance's spine — WYSIWYG for the pick. Set by
-	 * `EditorProperties.onPreviewSpine`, forwarded to `EditorCanvas` → `EditorSpineLayer`. Never
+	 * EDITOR-PREVIEW ONLY: while the author focuses a rig / spineAnimation param on the selected
+	 * componentInstance (e.g. a Win Overlay tier's rig or intro/idle/outro), the canvas previews
+	 * that bundle + animation on the instance's rig — WYSIWYG for the pick. Set by
+	 * `EditorProperties.onPreviewRig`, forwarded to `EditorCanvas` → `EditorRigLayer`. Never
 	 * written to the doc. Cleared when the selection changes so a new node starts from its default.
 	 */
-	let spinePreview = $state<{ bundle?: string; animation?: string } | null>(null);
-	const spinePreviewNodeId = $derived(
+	let rigPreview = $state<{ bundle?: string; animation?: string } | null>(null);
+	const rigPreviewNodeId = $derived(
 		selectedNode?.kind === 'componentInstance' ? selectedNode.id : undefined,
 	);
 	$effect(() => {
 		// Reset the preview when the selected node changes (tracks the id only, so focusing a param on
 		// the SAME instance doesn't clear it).
 		selectedId;
-		spinePreview = null;
+		rigPreview = null;
 	});
 
 	/** Is the selected node a full-bleed background COVER node (§10.3 step 4)? Mirrors
-	 * `EditorCanvas.isBackgroundCover`: a `background`-space sprite/spine node, OR a
+	 * `EditorCanvas.isBackgroundCover`: a `background`-space sprite/rig node, OR a
 	 * `bind` anchor whose resolved preview art is a `cover` placement (the full-bleed
 	 * Background). Drives the Properties "Background" cover section (scale + fit). */
 	const isBackgroundCoverSelected = $derived.by(() => {
@@ -980,7 +980,7 @@
 		scenes.map((s, i) => ({ s, i })).filter(({ s }) => isHudScene(s)),
 	);
 	const atlasCount = $derived(data.assets.atlases.length);
-	const spineCount = $derived(data.assets.spines.length);
+	const rigCount = $derived(data.assets.spines.length);
 	const sheetCount = $derived(data.assets.sheets.length);
 
 	// The active profile's bucket ids — the ONE source for every per-bucket loop (no more
@@ -2391,49 +2391,49 @@
 			: { kind: 'error', message: templateState.message || 'Template save failed' };
 	}
 
-	// ---------- spine upload (sync a folder of Spine assets to R2) ----------
+	// ---------- rig upload (sync a folder of rig assets to R2) ----------
 
-	/** Allowed spine asset extensions — mirrors the server's SPINE_ASSET_EXT. */
-	const SPINE_EXT = ['.atlas', '.json', '.skel', '.png', '.webp', '.jpg', '.jpeg'];
+	/** Allowed rig asset extensions — mirrors the server's RIG_ASSET_EXT. */
+	const RIG_EXT = ['.atlas', '.json', '.skel', '.png', '.webp', '.jpg', '.jpeg'];
 
-	let spineFileInput = $state<HTMLInputElement | null>(null);
-	let spineUploadBusy = $state(false);
-	let spineUploadStatus = $state<{ kind: 'ok' | 'error' | 'busy'; message: string } | null>(null);
+	let rigFileInput = $state<HTMLInputElement | null>(null);
+	let rigUploadBusy = $state(false);
+	let rigUploadStatus = $state<{ kind: 'ok' | 'error' | 'busy'; message: string } | null>(null);
 
-	function hasSpineExt(name: string): boolean {
+	function hasRigExt(name: string): boolean {
 		const lower = name.toLowerCase();
-		return SPINE_EXT.some((ext) => lower.endsWith(ext));
+		return RIG_EXT.some((ext) => lower.endsWith(ext));
 	}
 
 	/** Map a picked file to its `spines/<bundle>/<file>` relpath. If a `spines`
 	 * folder is anywhere in the picked tree, take everything after it; otherwise
 	 * keep the full relative path — so picking the `spines` folder, a parent of it,
 	 * OR a single bundle folder all nest correctly (instead of flattening files to
-	 * the spines root, where the bundle-folder listing can't see them). */
+	 * the rigs root, where the bundle-folder listing can't see them). */
 	function relpathFor(file: File): string {
 		const raw = (file.webkitRelativePath || file.name).replace(/\\/g, '/');
-		const afterSpines = raw.match(/(?:^|\/)spines\/(.+)$/i);
-		return afterSpines ? afterSpines[1] : raw;
+		const afterRigs = raw.match(/(?:^|\/)spines\/(.+)$/i);
+		return afterRigs ? afterRigs[1] : raw;
 	}
 
-	async function onSpinesPicked(e: Event): Promise<void> {
+	async function onRigsPicked(e: Event): Promise<void> {
 		const input = e.currentTarget as HTMLInputElement;
 		const picked = input.files ? Array.from(input.files) : [];
 		input.value = '';
-		if (spineUploadBusy) return;
+		if (rigUploadBusy) return;
 
 		const files = picked
 			.map((f) => ({ file: f, relpath: relpathFor(f) }))
-			.filter((f) => f.relpath && hasSpineExt(f.relpath));
+			.filter((f) => f.relpath && hasRigExt(f.relpath));
 		if (files.length === 0) {
-			spineUploadStatus = { kind: 'error', message: 'No spine asset files in that folder.' };
+			rigUploadStatus = { kind: 'error', message: 'No rig asset files in that folder.' };
 			return;
 		}
 
-		spineUploadBusy = true;
-		spineUploadStatus = { kind: 'busy', message: `Uploading 0/${files.length}…` };
+		rigUploadBusy = true;
+		rigUploadStatus = { kind: 'busy', message: `Uploading 0/${files.length}…` };
 		try {
-			const presignRes = await fetch('/api/editor/spines/upload', {
+			const presignRes = await fetch('/api/editor/rigs/upload', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({ files: files.map((f) => f.relpath) }),
@@ -2456,26 +2456,26 @@
 				});
 				if (!put.ok) throw new Error(`Upload failed for ${relpath} (${put.status})`);
 				done += 1;
-				spineUploadStatus = { kind: 'busy', message: `Uploading ${done}/${files.length}…` };
+				rigUploadStatus = { kind: 'busy', message: `Uploading ${done}/${files.length}…` };
 			}
 
-			spineUploadStatus = { kind: 'busy', message: 'Building skeletons.json…' };
-			const reindexRes = await fetch('/api/editor/spines/reindex', { method: 'POST' });
+			rigUploadStatus = { kind: 'busy', message: 'Building skeletons.json…' };
+			const reindexRes = await fetch('/api/editor/rigs/reindex', { method: 'POST' });
 			if (!reindexRes.ok) throw new Error(await readApiError(reindexRes, 'Reindex failed'));
 			const reindex = (await reindexRes.json()) as { count: number };
 
-			spineUploadStatus = {
+			rigUploadStatus = {
 				kind: 'ok',
 				message: `Uploaded ${files.length} files · ${reindex.count} skeletons`,
 			};
 			await refreshAssets();
 		} catch (err) {
-			spineUploadStatus = {
+			rigUploadStatus = {
 				kind: 'error',
-				message: err instanceof Error ? err.message : 'Spine upload failed.',
+				message: err instanceof Error ? err.message : 'Rig upload failed.',
 			};
 		} finally {
-			spineUploadBusy = false;
+			rigUploadBusy = false;
 		}
 	}
 
@@ -2490,7 +2490,7 @@
 		return `${fallback} (${res.status})`;
 	}
 
-	/** Re-pull the editor route data so the freshly synced spines appear in the list. */
+	/** Re-pull the editor route data so the freshly synced rigs appear in the list. */
 	async function refreshAssets(): Promise<void> {
 		await invalidateAll();
 	}
@@ -2619,7 +2619,7 @@
 			<span class="counter">{sceneCount} {sceneCount === 1 ? 'scene' : 'scenes'}</span>
 			<span class="dot-sep">·</span>
 			<span class="counter">
-				{atlasCount} atlases · {spineCount} spines · {sheetCount} sheets
+				{atlasCount} atlases · {rigCount} rigs · {sheetCount} sheets
 			</span>
 		{/snippet}
 	</ToolTopBar>
@@ -3128,8 +3128,8 @@
 					repeaterSources={data.repeaterSources}
 					componentDefaults={data.componentDefaults}
 					{componentMap}
-					{spinePreview}
-					{spinePreviewNodeId}
+					{rigPreview}
+					{rigPreviewNodeId}
 					{onSpawn}
 					bind:selectedIds
 					onDirty={markDirty}
@@ -3140,7 +3140,7 @@
 					hiddenSceneIds={canvasHiddenScenes}
 					bind:gameView
 					projectGameName={data.gameName}
-					onSpineMeta={(meta) => (spineMeta = meta)}
+					onRigMeta={(meta) => (rigMeta = meta)}
 					{canUndo}
 					{canRedo}
 					onUndo={undo}
@@ -3204,31 +3204,31 @@
 					</PanelSection>
 
 					<input
-						bind:this={spineFileInput}
+						bind:this={rigFileInput}
 						type="file"
 						multiple
 						webkitdirectory
 						class="hidden-input"
-						onchange={(e) => void onSpinesPicked(e)}
+						onchange={(e) => void onRigsPicked(e)}
 					/>
-					{#if spineUploadStatus}
-						<p class="upload-status" class:error={spineUploadStatus.kind === 'error'}>
-							{spineUploadStatus.message}
+					{#if rigUploadStatus}
+						<p class="upload-status" class:error={rigUploadStatus.kind === 'error'}>
+							{rigUploadStatus.message}
 						</p>
 					{/if}
 					<EditorAssetLibrary assets={data.assets} bind:expanded>
-						{#snippet spineActions()}
+						{#snippet rigActions()}
 							<button
 								type="button"
 								class="upload-btn"
-								disabled={spineUploadBusy}
-								title="Pick a folder of Spine bundles to sync to this project (R2)"
+								disabled={rigUploadBusy}
+								title="Pick a folder of rig bundles to sync to this project (R2)"
 								onclick={(e) => {
 									e.stopPropagation();
-									spineFileInput?.click();
+									rigFileInput?.click();
 								}}
 							>
-								{spineUploadBusy ? 'Uploading…' : 'Upload spines'}
+								{rigUploadBusy ? 'Uploading…' : 'Upload rigs'}
 							</button>
 						{/snippet}
 					</EditorAssetLibrary>
@@ -3394,10 +3394,10 @@
 						{templateMode}
 						{slotMeta}
 						sceneSlots={activeSceneSlots}
-						sceneSpineNodes={activeSceneSpineNodes}
+						sceneRigNodes={activeSceneRigNodes}
 						projectGameName={data.gameName}
 						isBackgroundCover={isBackgroundCoverSelected}
-						{spineMeta}
+						{rigMeta}
 						spines={data.assets.spines}
 						{componentDefs}
 						instanceComponent={selectedNode?.kind === 'componentInstance'
@@ -3435,7 +3435,7 @@
 							selectedNode.params = Object.keys(params).length ? params : undefined;
 							markDirty();
 						}}
-						onPreviewSpine={(preview) => (spinePreview = preview)}
+						onPreviewRig={(preview) => (rigPreview = preview)}
 						onSetInstanceStateAnim={(nodeId, state, animation) => {
 							if (!selectedNode || selectedNode.kind !== 'componentInstance') return;
 							const all = { ...(selectedNode.stateAnimationOverrides ?? {}) };
@@ -3457,10 +3457,10 @@
 							selectedNode.stateAnimationOverrides = all;
 							markDirty();
 						}}
-						onSetInstanceSpineRest={(nodeId, patch) => {
+						onSetInstanceRigRest={(nodeId, patch) => {
 							if (!selectedNode || selectedNode.kind !== 'componentInstance') return;
 							const all = { ...(selectedNode.spineRestOverrides ?? {}) };
-							const cur: SpineRestOverride = { ...(all[nodeId] ?? {}) };
+							const cur: RigRestOverride = { ...(all[nodeId] ?? {}) };
 							if ('defaultAnimation' in patch) {
 								if (patch.defaultAnimation) cur.defaultAnimation = patch.defaultAnimation;
 								else delete cur.defaultAnimation;
@@ -3646,7 +3646,7 @@
 									is set once for the whole pipeline in Admin → Settings). Ships on publish.
 								</p>
 								<label class="gs-field">
-									<span class="gs-label">Spine</span>
+									<span class="gs-label">Rig</span>
 									<select
 										class="gs-select"
 										bind:value={bootLoaderBundle}
@@ -3693,7 +3693,7 @@
 									<p class="gs-note">
 										Size multiplies the automatic fit (1.00× = fits a safe box on every screen);
 										above ~1.6× it can run past the viewport. Set an explicit animation unless the
-										first clip is the right one — a spine left on its setup pose renders empty.
+										first clip is the right one — a rig left on its setup pose renders empty.
 									</p>
 								{/if}
 							</div>

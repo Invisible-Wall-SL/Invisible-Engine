@@ -95,7 +95,7 @@ eq(
 	[{ event: 'boom', animation: 'idle', time: 0, effectId: 'e1', slot: 'head', alpha: 0.4 }],
 );
 check(
-	'a keyframe with no time bakes as t=0 (spine omits a zero time)',
+	'a keyframe with no time bakes as t=0 (rig omits a zero time)',
 	bindingsFromSkeleton(skeleton([{ name: 'boom', fx: { effectId: 'e1' } }]))[0]?.time === 0,
 );
 // Rule 2 — two keys of one name are TWO bindings, each with its own beat and its own numbers.
@@ -164,7 +164,7 @@ eq(
 	[0.2, 0.9],
 );
 check(
-	'a keyframe with no time is t=0 (spine omits a zero time)',
+	'a keyframe with no time is t=0 (rig omits a zero time)',
 	fxTimelineFromSkeleton(skeleton([{ name: 'boom', fx: { effectId: 'e1' } }])).idle?.[0]?.time ===
 		0,
 );

@@ -159,7 +159,7 @@ client for a variant, a different client to reskin it for them. You choose:
     sounds or fonts**: the copy plays on placeholder art until you add your own, and
     everything that used the original's art draws blank. Pick it only when new art
     is coming. The message after the copy says so again.
-  - **Everything, including atlases, spines, fonts and sounds** — the whole project:
+  - **Everything, including atlases, rigs, fonts and sounds** — the whole project:
     every asset folder, the Atlas Maker's deployed pages, effects, clips and
     cinematics. The copy plays as the original does and you replace art in place.
     Use it to try something on a copy of a working game (the
@@ -288,7 +288,7 @@ project is only read.
 its symbols (a name this project already uses is renamed, listed under **Renamed**); those symbols'
 [Symbols](symbols-state-machine.md) art; the feature's screens, which replace this project's
 screens for that mode; its [Flow](flow.md) section, only into a flow the project has stored; and its
-[Win Text](win-text.md) lines, except the pot lines, which stay this project's. Spines the copied art
+[Win Text](win-text.md) lines, except the pot lines, which stay this project's. Rigs the copied art
 or screens use are copied into the shared library under `imported/<this project>/<source project>/…`, so they ship with
 the game. Options of the source that only work in its base game (buy, random metre, instant
 collect…) are left out, and the report lists them under **Left out**. A pot whose special the
@@ -306,7 +306,7 @@ card. It copies the feature again as the source is now. Only the imported pieces
 and their names stay the same; the pots that start it and everything else in the project stay.
 
 **Who else is editing.** Nothing is written while someone else has this project's Game Config,
-Symbols, Scene Editor, Flow or Win Text open. The report has one line per part (Symbols, Spines,
+Symbols, Scene Editor, Flow or Win Text open. The report has one line per part (Symbols, rigs,
 Screens, Flow, Win Text): _added_, _nothing to add_, _changed meanwhile_, _skipped_ or _failed_. A
 part that lost a race to someone else's save is filled in by running **Re-sync**.
 
@@ -370,7 +370,7 @@ A project with **no** saved flow still publishes, with a note under the card tha
 without the free-spin intro and outro (see [Flow](/docs/flow) for how to give it one).
 
 After a successful publish, notes under the card can also flag (never blocking): sounds with a
-non-commercial or missing licence, and **⚠ spine bundles that resolved to nothing** — a rig
+non-commercial or missing licence, and **⚠ rig bundles that resolved to nothing** — a rig
 placed in a scene or bound to a symbol that will be missing in-game. Re-pick the rig in the
 Scene Editor or Invisible Symbols and publish again. **⚠ The flow names N screens the Scene Editor
 no longer has** lists flow screens whose scene was deleted (or lost to a bad save): nothing draws

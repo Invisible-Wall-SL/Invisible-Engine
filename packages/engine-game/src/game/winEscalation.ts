@@ -18,13 +18,13 @@ export type TierAnimationMap = {
  * Whether a tier has a distinct EXIT clip — the animation whose `complete` is allowed to end the
  * presentation.
  *
- * The escalation chain concludes by playing the final tier's outro and waiting for the spine to
+ * The escalation chain concludes by playing the final tier's outro and waiting for the rig to
  * report `complete`. That wait BLOCKS THE ROUND, so it matters a great deal whether an exit exists
  * at all. Two authorings mean it does not, and they are the same case:
  *
  *  - an EMPTY outro name. Nothing is played, so nothing ever reports.
  *  - an outro name equal to that tier's own IDLE. The `win` component's outro dropdown makes an
- *    author pick SOMETHING from the tier's spine, so a rig with no exit clip gets the idle pointed
+ *    author pick SOMETHING from the tier's rig, so a rig with no exit clip gets the idle pointed
  *    at it. The two are different classes of art, not interchangeable takes on one: measured across
  *    the engine's reference `bigwin` rig, every `*_win_exit` is 467ms and every `*_win_idle` is
  *    12000ms — a resting loop, authored to be cut off by a hide, never to be waited out.

@@ -62,9 +62,9 @@ export interface EmitterArt {
 	loop?: boolean;
 }
 
-/** Where the emitter sits: free in the scene, or pinned to follow a Spine rig bone (Tier B). */
+/** Where the emitter sits: free in the scene, or pinned to follow a rig bone (Tier B). */
 export interface EmitterPlacement {
-	/** `free` = positioned in the scene; `bone` = wrap the emitter in `<SpineBone boneName=…>`. */
+	/** `free` = positioned in the scene; `bone` = wrap the emitter in `<RigBone boneName=…>`. */
 	space: 'free' | 'bone';
 	/** Bone name to follow when `space === 'bone'`. */
 	bone?: string;
@@ -72,9 +72,9 @@ export interface EmitterPlacement {
 	offset?: { x: number; y: number };
 }
 
-/** Spine-as-particle config (Tier C, Phase 0-gated) — only when `particleKind === 'spine'`. */
-export interface SpineParticleConfig {
-	/** A loaded Spine bundle key in `loadedAssets`. */
+/** Rig-as-particle config (Tier C, Phase 0-gated) — only when `particleKind === 'spine'`. */
+export interface RigParticleConfig {
+	/** A loaded rig bundle key in `loadedAssets`. */
 	skeletonKey: string;
 	/** The clip each pooled particle skeleton plays. */
 	animation: string;
@@ -124,7 +124,7 @@ export interface EmitterLayer {
 	/** `sprite` (Tiers A/B) or `spine` (Tier C, Phase 0-gated). */
 	particleKind: 'sprite' | 'spine';
 	/** Required when `particleKind === 'spine'`. */
-	spineParticle?: SpineParticleConfig;
+	spineParticle?: RigParticleConfig;
 	/** When this layer emits (optional — Flow may drive it externally). */
 	trigger?: EmitterTrigger;
 }

@@ -94,7 +94,7 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
     (`editor/+page.svelte:1442-1477`), and a scaffold load replaces the layout (`:1196-1240`).
 - **Cross-project — no import exists.**
   - `POST /api/game-maker/duplicate` copies a whole project onto a NEW key (`projectDuplicate.ts`).
-  - Spines under another project's prefix export nothing (`editorArtExport.ts:929-938`).
+  - Rigs under another project's prefix export nothing (`editorArtExport.ts:929-938`).
   - The runtime holds one `RuntimeBundle` (`apps/lines/src/editor-scenes.ts:496-497`).
 
 ## Decisions & findings
@@ -176,7 +176,7 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 - 2026-10-03 — **Phase 7, as built** (session "Pots overlay Phase 7 — bonus import from another
   project", #1022). Pinned by `packages/game-config/imports.fixture.ts`, `check:bonus-import`
-  (launcher), `check:shared-spine-promote` §4 and two new cases in `check:pots-overlay`.
+  (launcher), `check:shared-rig-promote` §4 and two new cases in `check:pots-overlay`.
   - **Only a Hold and Win feature imports (decided, conservative).** The facade turns every `reels`
     bonus into the host's own free spins on `freegame` (`bonusRoutes` keeps only `respins` vs
     `reels`), nothing sends spins inside a custom mode, and the book mock deals no strips. So an
@@ -223,13 +223,13 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
     - **Win Text:** `jackpots`, `respins`, `wheel` and the `feature` lines, but never a pot's
       (`meterFull`, `potLabel`, `potNames`).
     - A piece the source lacks leaves the host's as it is and says so. The source is only read.
-  - **Spines (rule 8).** A cell or a copied screen node naming a spine under the source's prefix is
+  - **Rigs (rule 8).** A cell or a copied screen node naming a rig under the source's prefix is
     promoted to `_shared/spines/imported/<project>/<source>/<bundle>` BEFORE the doc naming it is written, and
     the reference is rewritten. A `_shared` bundle already travels export → deploy → bake → pull →
     register (`bundleFromAssetKey`), so nothing new is needed down the chain. The namespace means an
     import never overwrites another project's shared bundle, and two projects importing the same
     source bundle each get their own copy (one writer per path; a re-sync of one never changes the
-    other's art). `promoteSpineToShared` gained `as`. Its shared-index merge is now a conditional
+    other's art). `promoteRigToShared` gained `as`. Its shared-index merge is now a conditional
     read-modify-write with retries (it was last-writer-wins), and an index that does not parse is
     refused rather than rewritten with one entry (that dropped every project's entry, the engine mark
     included). A plain promotion of a bundle named `imported/…` is refused, since its prune would
@@ -237,10 +237,10 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
   - **The `pipeline-concurrency` review** found those two index issues, and three should-fixes, all
     fixed: a re-sync now keeps a Win Text family the source lacks (Win Text has no backups and its
     families are not per mode); the symbols, layout and flow saves take a backup (`'always'`), as the
-    config does; and the spine copy is per importing project. A corrupt source flow now reports as
+    config does; and the rig copy is per importing project. A corrupt source flow now reports as
     unreadable.
-  - **The `code-reviewer` pass** (no blocker) found five should-fixes, all fixed: the spine copy is
-    promoted on EVERY run (a re-sync after the source re-exports a spine at the same path refreshes
+  - **The `code-reviewer` pass** (no blocker) found five should-fixes, all fixed: the rig copy is
+    promoted on EVERY run (a re-sync after the source re-exports a rig at the same path refreshes
     it); a bundle that cannot be promoted keeps its source reference instead of naming a shared copy
     that is not there; only the mode's own screens are replaced (a HUD or other host screen sharing an
     id is kept); the source's `hud` is not copied; a source whose stored config does not parse is
@@ -1017,7 +1017,7 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 - 2026-10-03 — **The sample is duplicated with Everything, not setup** (the hub's Duplicate fix). Owner checklist 2.1, the guide and the playbook said to Duplicate
   Book of Borut with scope **setup**. Setup copies the authored docs only and re-points every asset
   reference at the copy's prefix, where no art exists. Measured with `buildRuntimeBundle`, the copy
-  shipped 0 sheets, 0 spines and 0 fonts, so it played generic lines art with blank Borut nodes;
+  shipped 0 sheets, 0 rigs and 0 fonts, so it played generic lines art with blank Borut nodes;
   the owner reported "the game is broken". Corrected to **Everything** in all three. Everything now
   leaves out the source's `published/` snapshots, so the copy starts unpublished; detail in
   [game-maker.md](game-maker.md).
@@ -1040,7 +1040,7 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
     Win symbols, so the helper answers false.
   - Verified on a real clock (local mocks, the 3 Pots config on a book host): after `pot:red` the board
     at idle read `H…/L…/S` with no `BLANK`, and the money was right.
-  - Also: the runtime's warning about spines shipped with no files now names both causes: a rig not in
+  - Also: the runtime's warning about rigs shipped with no files now names both causes: a rig not in
     this project at all (e.g. a duplicate made without its art), or one under another project's prefix.
 
 - 2026-10-03 — **A tab open when the overlay is switched on keeps the game it booted with**
@@ -1098,11 +1098,11 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 - 2026-10-03 — **Phase 7: import a bonus from another project (#1022, draft).** Game Maker →
   **Import a bonus…** / **Re-sync** (`POST /api/game-maker/import`). It copies a same-client
   project's Hold and Win feature into an overlay host: the config with provenance and a stored rename
-  map, the `/symbols` art (source spines promoted to `_shared/spines/imported/…`), the mode's
+  map, the `/symbols` art (source rigs promoted to `_shared/spines/imported/…`), the mode's
   screens, its Flow section and its Win Text lines. A pot can route to it. Free spins and reels modes
-  are refused with the reason (open item 00). The shared spine index merge is now conditional. New
+  are refused with the reason (open item 00). The shared rig index merge is now conditional. New
   gates: `imports.fixture.ts`, `check:bonus-import`; extended: `check:pots-overlay`,
-  `check:shared-spine-promote`. Verified at real clock (Decisions). Left: open item 00, Owner
+  `check:shared-rig-promote`. Verified at real clock (Decisions). Left: open item 00, Owner
   checklist 3–4.
 - 2026-10-03 — **0–5 pots, and visible tokens and coins** (session "3 pots overlay config", branch
   `claude/three-pots-overlay-config-nedyqc`). From an owner report on Book of Borut: the game did not

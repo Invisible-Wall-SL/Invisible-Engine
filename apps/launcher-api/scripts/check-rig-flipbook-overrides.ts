@@ -197,7 +197,7 @@ const tl = flipbookTimelineFromSkeleton(
 	]),
 );
 check('both keyframes survive the timeline', tl.idle?.length === 2);
-// Spine OMITS `time` when it is 0, so an absent time must read as t=0 — not as "no time", which
+// Rig OMITS `time` when it is 0, so an absent time must read as t=0 — not as "no time", which
 // would drop the beat every author puts at the very start of a clip.
 eq(
 	'sorted, and an absent time IS t=0',

@@ -14,7 +14,7 @@ exports any of:
 > when naming regions — the engine keys behaviour off these names.
 
 
-- a **libGDX / Spine `.atlas`** (used by Spine + game runtimes),
+- a **libGDX / rig `.atlas`** (used by rig + game runtimes),
 - a **TexturePacker JSON** sheet descriptor,
 - the **Invisible AI manifest** (`atlas_manifest_<name>.json`) that the
   [Invisible Atlas Maker](atlas-maker.md) consumes.

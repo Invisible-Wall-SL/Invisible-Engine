@@ -1,7 +1,7 @@
 # Invisible Symbols State Machine
 
 The editable twin of the in-game **Symbol Debug** grid: for each symbol, in each
-animation state, rebind the cell to a sprite frame, a spine animation, or an Invisible
+animation state, rebind the cell to a sprite frame, a rig animation, or an Invisible
 Flipbook clip that already lives in R2 — then ship those bindings to the game through the
 standard deploy chain.
 
@@ -15,14 +15,14 @@ swap style is **Emerge**, the coin states on a game with **Hold and Win** (see
 [Hold and Win projects](#hold-and-win-projects)), and a token's three states on a game with a
 **pots overlay** (see [Pots overlay projects](#pots-overlay-projects)).
 This tool turns that map into an editable surface: each cell is a **sprite** (a sheet
-frame), a **spine** (a bundle + animation name), or a **flipbook** (an Invisible Flipbook
+frame), a **rig** (a bundle + animation name), or a **flipbook** (an Invisible Flipbook
 clip — an ordered, timed run of atlas frames). Edits are stored as a **sparse override
 doc** in R2 — only the cells you change are recorded; everything else falls through to the
 game's coded default.
 
-A `sprite` cell is ONE frozen frame, so Spine used to be the only way to animate a
+A `sprite` cell is ONE frozen frame, so rig used to be the only way to animate a
 Spin/Land/Win state. A flipbook clip is far cheaper than a skeleton, and is the fallback
-for the Tier-C spine-particle perf ceiling tracked in `docs/status/fx.md`.
+for the Tier-C rig-particle perf ceiling tracked in `docs/status/fx.md`.
 
 It mirrors the live in-game Symbol Debug overlay (`SymbolDebugOverlay.svelte`, gated on
 `localStorage.IE_DEBUG=1` + the `d` hotkey), which renders this exact grid read-only.
@@ -30,7 +30,7 @@ It mirrors the live in-game Symbol Debug overlay (`SymbolDebugOverlay.svelte`, g
 - **Where it runs:** the launcher itself, at `/symbols` — a real full-page route inside
   `(app)`, behind the auth + role gate. It is not a redirect and never an iframe. The
   grid is client-rendered (the route sets `ssr = false`) because each cell draws a canvas
-  thumbnail and the focused cell mounts a live WebGL spine preview.
+  thumbnail and the focused cell mounts a live WebGL rig preview.
 - **Access:** the `symbols` tool (registry name "Invisible Symbols State Machine", bar
   name "Symbols SM"). Granted to `admin`, `developer`, `artist` and `pipelineTester` roles by default;
   overridable per role/user from the admin panel like any other tool.
@@ -69,8 +69,8 @@ tool top bar). Switch projects from the launcher before opening the tool.
    Stacked-picture tall art is **not** a grid column — it is
    authored in the **Stacked pictures** section (below). Each cell shows its
    **effective binding** — your override if you've made one, otherwise the game's coded
-   default. Sprite cells render a frame thumbnail; spine cells render a live animation
-   on the shared spine canvas (a chip labels the bundle + animation); flipbook cells render
+   default. Sprite cells render a frame thumbnail; rig cells render a live animation
+   on the shared rig canvas (a chip labels the bundle + animation); flipbook cells render
    the clip's **first frame** as a still, captioned with the clip name + frame count. A cell
    with no binding shows `unset` — and the game falls back to that symbol's `Static` art
    rather than drawing nothing.
@@ -83,7 +83,7 @@ tool top bar). Switch projects from the launcher before opening the tool.
    replaces the borrowed art — leaving it alone is a legitimate answer, not an unfinished one.
 
    Flipbook cells are deliberately _not_ animated in the grid: N per-cell tickers would cost
-   far more than the one shared spine canvas, and the question the grid answers is "which
+   far more than the one shared rig canvas, and the question the grid answers is "which
    clip is bound here", which the first frame plus the clip name answers. If a clip is
    deleted in `/flipbook` after being bound here, the cell's caption reads
    `<clipId> (missing)` rather than going quietly blank.
@@ -94,15 +94,15 @@ tool top bar). Switch projects from the launcher before opening the tool.
    window.
 3. **Open the cell editor.** Click any cell to open the side panel for that
    `symbol · state`. The panel loads a draft of the cell's current binding.
-4. **Choose the type.** Toggle between **Sprite**, **Spine**, and **Flipbook**. Switching
+4. **Choose the type.** Toggle between **Sprite**, **rig**, and **Flipbook**. Switching
    type clears the asset binding _and_ every field that no longer applies (the animation
-   name when you leave Spine, the clip when you leave Flipbook), since a frame name is not
-   a spine bundle is not a clip.
+   name when you leave rig, the clip when you leave Flipbook), since a frame name is not
+   a rig bundle is not a clip.
 
    - **Sprite:** use the **Frame** picker (the same `RegionPicker` the editor uses) to
      choose a frame from any of the project's atlases/sheets — plus the **shared art
      library** (see below).
-   - **Spine:** pick a **Spine bundle** from the project's (and shared) bundles, then pick
+   - **Rig:** pick a **rig bundle** from the project's (and shared) bundles, then pick
      an **Animation**. Once the bundle loads, the animation list is populated from the
      skeleton; if it hasn't loaded yet you can type the animation name. Leaving it on
      **(first animation)** plays the skeleton's first — a fine answer for a rig that carries
@@ -115,7 +115,7 @@ tool top bar). Switch projects from the launcher before opening the tool.
      banner names the rig and its animation count. It stays quiet for a one-animation rig,
      because there the choice is already made for you.
 
-   - **Playback (Loop)** — on spine and flipbook cells. **Loop is on by default**: the state’s
+   - **Playback (Loop)** — on rig and flipbook cells. **Loop is on by default**: the state’s
      animation repeats for as long as the symbol is in that state. Untick it and the animation
      plays once and holds on its last frame.
 
@@ -174,13 +174,13 @@ tool top bar). Switch projects from the launcher before opening the tool.
    cancelling keeps your edits on screen, unsaved, and the next Save asks again.
    Leaving the page with unsaved edits asks first: a tool-bar switch or Back raises the app's
    own dialog (**Cancel** / **Leave anyway**), a reload or closing the tab the browser's prompt.
-7. **Reload from R2.** The header **↻ Reload from R2** button re-fetches the spine bundles
-   and their previews from R2. Use it after you re-export or replace a spine bundle (e.g.
+7. **Reload from R2.** The header **↻ Reload from R2** button re-fetches the rig bundles
+   and their previews from R2. Use it after you re-export or replace a rig bundle (e.g.
    re-rigging in the Invisible Rigger) — otherwise the grid + pickers keep showing the
-   _cached_ skeleton, because spine art is loaded once per bundle and the skeleton/page
+   _cached_ skeleton, because rig art is loaded once per bundle and the skeleton/page
    files are HTTP-cached. Reloading drops those caches (previews refresh with the new art +
    animation names) and re-reads the project's bundle list (a brand-new bundle appears in
-   the spine pickers). Your unsaved cell edits are preserved.
+   the rig pickers). Your unsaved cell edits are preserved.
 8. **History….** The header **History…** button lists earlier saved versions of this
    project's symbols, newest first. Every save keeps a copy of the version it replaces (at
    most one every five minutes while you work; the newest 20 are kept), so a bad edit or an
@@ -194,13 +194,13 @@ tool top bar). Switch projects from the launcher before opening the tool.
 
 A symbol state does not have to be one picture. The cell editor's **Layers** section adds
 extra art drawn _together with_ the cell's own — a glow sheet over a sprite symbol, a dust
-flipbook under it, a sparks effect on top of a spine — and each layer can carry its own
+flipbook under it, a sparks effect on top of a rig — and each layer can carry its own
 **blend mode**.
 
 **Add layer** appends a row. Each row is a collapsed chip (its thumbnail, its binding, and
 badges for `behind`, `no dim` and its blend mode); click it to open its editor:
 
-- **Type** — Sprite / Spine / Flipbook / FX, the same four kinds and the same pickers the
+- **Type** — Sprite / rig / Flipbook / FX, the same four kinds and the same pickers the
   Book-symbol VFX slots use. Retyping clears the fields the new kind does not use.
 - **Draw → Behind the symbol** — off (the default) draws the layer _over_ the cell's art;
   on draws it _under_.
@@ -228,15 +228,15 @@ Things worth knowing before you author:
 
 - **A layer decorates a bound cell; it never replaces one.** The cell still needs its own
   art. A cell with nothing bound draws nothing at all — layers included.
-- **A Spine layer cannot blend**, and the Blend control is replaced by a note saying so. A
+- **A rig layer cannot blend**, and the Blend control is replaced by a note saying so. A
   Pixi blend never reaches skeleton geometry, so the mode would be stored and then ignored.
-  Spine art blends **per slot**, authored in the [Invisible Rigger](./rigger.md).
+  Rig art blends **per slot**, authored in the [Invisible Rigger](./rigger.md).
   Use a Sprite, Flipbook or FX layer for a blend, or a rig whose own slots carry it.
 - **Layers never end a beat.** The round waits for the _cell's own_ art to finish its Win /
   Land / Explosion animation; a layer loops alongside and is never asked. So put the timing
   in the base binding, not in a layer.
 - **The masked/unmasked decision is the base cell's.** A cell is drawn on one board layer,
-  chosen by the base binding's type. A **spine layer authored bigger than its cell** on a
+  chosen by the base binding's type. A **rig layer authored bigger than its cell** on a
   sprite- or flipbook-based cell is therefore clipped at the board window, where the same
   rig bound as the cell's own art would not be.
 - **Apply is disabled while any layer is unbound**, with a note saying how many need art.
@@ -245,12 +245,12 @@ Things worth knowing before you author:
 
 **What the preview does and does not show.** The grid shows each cell's **base binding
 only** and adds a **+N layers** badge (hover it for the list) — it cannot composite, because
-every spine cell in the grid shares one WebGL canvas. In the panel, each layer previews **on
+every rig cell in the grid shares one WebGL canvas. In the panel, each layer previews **on
 its own**. Nothing in the tool stacks the layers over the symbol, and **blend modes are not
 previewed anywhere** — the composition is only real in the game. The panel says so under the
 list rather than showing you something that isn't true.
 
-Layers ship like any other binding: a layer's spine bundle / sheet travels the
+Layers ship like any other binding: a layer's rig bundle / sheet travels the
 export → bake → pull chain under the same key, and an FX layer's effect is kept out of the
 orphan sweep on both bundle paths. See
 [Saving is not the last step](#saving-is-not-the-last-step--shipping-a-rebind).
@@ -285,9 +285,9 @@ by its own art, keeping its proportions:
   for that region; a **flipbook** by its clip's
   [bounds box](./flipbook.md#the-bounds-box--declaring-the-size-a-clip-is-drawn-at) when it has
   one.
-- A **spine** fits by the rig's **declared box**, centred on the cell — the
+- A **rig** fits by the rig's **declared box**, centred on the cell — the
   [Bounds frame](./rigger.md#bounds-the-rigs-size-frame) in the Invisible Rigger, or the skeleton
-  size the Spine Editor wrote on export. Not by the pixels the rig happens to show.
+  size an external rig editor wrote on export. Not by the pixels the rig happens to show.
 
 So to make one symbol bigger or smaller, change its art: crop the sprite or set its Art bounds,
 box the clip, or resize the rig's Bounds frame. A per-cell `sizeRatios` left in an old doc is
@@ -296,15 +296,15 @@ still read but no longer changes the size.
 ### Highlight (win frame)
 
 Above the grid is a dedicated **Highlight (win frame)** section. The highlight is a
-single, **global** spine (not per-symbol, not per-state) that loops over the winning
+single, **global** rig (not per-symbol, not per-state) that loops over the winning
 symbols during a win — the win-frame animation. Every game ships a built-in default:
-the local `payframe` animation (spine key `anticipation`), which lives in the game's own
+the local `payframe` animation (rig key `anticipation`), which lives in the game's own
 repo, NOT in R2. The launcher vendors its own copy (`static/builtin/spines/`), so the
 default still **previews live** and is labelled **Default (payframe)**. A project that
 carries its own matching R2 bundle previews that one instead.
 
-- **Change** opens an inline editor: pick a **Spine bundle** from the project's (and
-  shared) R2 bundles — the same library the grid's spine cells use — then pick an
+- **Change** opens an inline editor: pick a **rig bundle** from the project's (and
+  shared) R2 bundles — the same library the grid's rig cells use — then pick an
   **Animation** (or type the name; blank plays the bundle's first animation). A live
   **Preview** plays the chosen animation.
 - **Tint** (below Preview) multiplies a colour over the winning symbols the frame loops
@@ -324,23 +324,23 @@ The override is a single optional top-level field on the doc:
 tintColor? }`. `tintMode` is `'fixed'` or `'winLine'`; `tintColor` (a `#rrggbb` hex) rides
 only the `fixed` mode. When no override is set, nothing is written and the game keeps its
 built-in `payframe` — so a project that never touches this section is byte-identical to
-before. On export/bake the chosen spine bundle travels the same chain as a per-symbol spine
+before. On export/bake the chosen rig bundle travels the same chain as a per-symbol rig
 cell (its bundle is copied into `deploy/editor-symbols/` and registered), and the bundle
 records the highlight pointer + tint so the game loads the authored win frame by `assetKey`
-and multiplies the tint via the spine's skeleton colour. The **win-line colour** is resolved
+and multiplies the tint via the rig's skeleton colour. The **win-line colour** is resolved
 in-game per win, so it needs no bake step — it reads the live game config at win time.
 
 ### Free-spin board glow
 
 Below the highlight is the **Free-spin board glow** section. The board glow is the
-single, **global** spine that lights up _behind the reels_ for the duration of a
+single, **global** rig that lights up _behind the reels_ for the duration of a
 free-spin session — the pink "reelhouse" backdrop in a stock game. Like the highlight, the
-built-in default (spine key `reelhouse`) lives in the game's own repo, NOT in R2 — and like
+built-in default (rig key `reelhouse`) lives in the game's own repo, NOT in R2 — and like
 the highlight it **previews live** from the launcher's vendored copy
 (`static/builtin/spines/`), labelled **Default (reelhouse)**. A project carrying its own
 matching R2 bundle previews that one instead.
 
-- **Change** opens an inline editor: pick a **Spine bundle** from the project's (and
+- **Change** opens an inline editor: pick a **rig bundle** from the project's (and
   shared) R2 bundles — **including a rig exported from the Invisible Rigger**, which ships
   correctly here because the exporter renames a `.irig` skeleton to `.json` on the way out.
 - The glow plays a three-step chain — **Start animation → Idle (loop) → Exit animation**.
@@ -351,14 +351,14 @@ matching R2 bundle previews that one instead.
 The override is one optional top-level field:
 `boardGlow: { type: 'spine', assetKey, animations?: { start?, idle?, exit? }, sizeRatios? }`.
 Nothing is written unless you set it, so an untouched project is byte-identical. The chosen
-bundle travels the same export/bake chain as a per-symbol spine cell.
+bundle travels the same export/bake chain as a per-symbol rig cell.
 
 **What this section does and doesn't control.** It owns the glow's **art** — the engine
 still owns the _sequence_ (start → idle → exit) and the _timing_. Timing is authored in
 **Invisible Flow** (`/flow-v2`): the coded free-spin handlers fire the glow on
 `freeSpinTrigger` / `freeSpinEnd`, and a flow that OWNS those events drives it with the
 `boardFrameGlowShow` / `boardFrameGlowHide` **Fire Cue** nodes. If you want to replace the
-glow _entirely_ — your own layered art, not one spine — use the **Board glow (free spins)**
+glow _entirely_ — your own layered art, not one rig — use the **Board glow (free spins)**
 screen in the Scene Editor instead; real content there suppresses the coded glow (and with
 it this section's override).
 
@@ -436,7 +436,7 @@ one appears and plays its `Intro`. That seam is a hard cut. The **Transition** i
 animation the game mounts **at each exploding seat**, a set number of milliseconds after the
 explosion fires, so it plays over the explosion's end and the intro's start.
 
-- **Add** opens an inline editor: pick **Spine** (bundle + animation), **Flipbook** (a clip), or
+- **Add** opens an inline editor: pick **rig** (bundle + animation), **Flipbook** (a clip), or
   **FX** (an Invisible FX effect) — the same pickers the Book symbol VFX use. There is no Sprite
   option: a transition has a duration, and a frame has none.
 - **Delay (ms)** — how long after the explosion fires the transition starts. `0` (the default)
@@ -448,14 +448,14 @@ explosion fires, so it plays over the explosion's end and the intro's start.
 
 What it does and does not do. It is **fire-and-forget**: the game never waits for it, so it cannot
 delay the intro, stretch a cascade step, or hang a round — the intro starts exactly when it does
-with the transition off. It plays **once** and unmounts itself when it finishes (a spine on its
+with the transition off. It plays **once** and unmounts itself when it finishes (a rig on its
 animation's end, a clip after one pass, an effect after its emit plus its particles' lifetime). A
 transition longer than the step is cut when the cascade overlay comes down — author it to the length
 of the seam, not the round. It draws **above the symbols**, centred on the seat and sized to the cell
 (and to the row's perspective scale); there is no size or offset knob.
 
 The binding is one optional top-level field, `transition: { kind, …, delayMs? }`; nothing is written
-unless you set it, so an untouched project is byte-identical. A spine or clip bound here travels the
+unless you set it, so an untouched project is byte-identical. A rig or clip bound here travels the
 same export/bake chain as a per-symbol cell; an FX effect is kept reachable at bake like a Book-VFX
 effect.
 
@@ -521,12 +521,12 @@ the stacked config lives here (there is no per-cell `Stacked picture` grid colum
   length and whatever the switch above says. Stacks away from the edges still follow the switch
   above.
 - For each stacked symbol, a **Height (cells tall)** number (≥ 1) — how many cells the picture spans
-  — and **two picture slots**, each with its own preview and its own **Sprite / Spine / Flipbook**
+  — and **two picture slots**, each with its own preview and its own **Sprite / rig / Flipbook**
   picker (the same one the grid cells use):
 
   - **Edit picture** — the _resting_ picture, what the stack shows by default. Usually the still.
   - **Add / Edit win picture** — the _winning_ picture, shown only while that stack is part of a
-    paying line: the spine or flipbook it pays out with. **Optional** — leave it unset (or **Clear**
+    paying line: the rig or flipbook it pays out with. **Optional** — leave it unset (or **Clear**
     it) and the stack simply keeps showing its resting picture through the win, exactly as before
     this slot existed.
 
@@ -536,7 +536,7 @@ the stacked config lives here (there is no per-cell `Stacked picture` grid colum
 
 Unlike the earlier version, this config **is shipped**: with the toggle on and at least one symbol
 authored it bakes as `bundle.symbols.stacked = { symbols: [{ name, height, art, winArt? }] }`, and
-each tall picture's asset travels the normal symbol export/bake chain (spine bundle / sprite sheet)
+each tall picture's asset travels the normal symbol export/bake chain (rig bundle / sprite sheet)
 exactly like a per-cell binding — so the picture that shows in the tool is the one the game loads.
 Everything is sparse: turn the toggle off (or author nothing) and the project bakes **no** `stacked`
 field and is byte-identical to before. (Whether the stacked-picture reel mode is armed in-game is
@@ -804,7 +804,7 @@ play `Clear reel` (or drain, or are simply replaced) exactly as they always did.
 The art is whatever the grid's **Explosion** column holds for that symbol. Nothing new to bind: a
 symbol with no explosion of its own falls back the way it always does (`Explosion` → `Static`), and
 the engine ships `engine-explosion` for exactly this if you have not commissioned one — see
-[The shared spine library](#the-shared-spine-library).
+[The shared rig library](#the-shared-rig-library).
 
 Four things it deliberately does NOT do:
 
@@ -851,7 +851,7 @@ range is **50–10000 ms**, and a number outside it is refused rather than quiet
 pulls what you type back into range as you leave the box.
 
 **When you want it.** A cascading game pays this per tumble. Measured on `test6`: every symbol's win
-is a 2.00 s spine and its explosion a further 0.50 s, so a three-step winning round spends about
+is a 2.00 s rig and its explosion a further 0.50 s, so a three-step winning round spends about
 7.5 s on symbol beats alone — on top of the reel spin and the cascade steps — before the next spin is
 released. Setting the ceiling to, say, 700 ms takes that to about 2 s without re-exporting a single
 animation.
@@ -890,9 +890,9 @@ for its tier, keyed by the tier's **alias**. If the project has **no** big-win t
 shows a note asking you to add them in `/config` first. Each column has the same controls:
 
 - **Zoom** — how far the camera pushes in toward the armed reels.
-- **Overlay scale** / **Overlay opacity** — the per-reel anticipation spine's size and alpha.
-- **Overlay tint** — a MULTIPLY tint over the overlay spine (a colour picker). White (`#ffffff`)
-  keeps the spine's own colours; a hotter tint tints them — the coded defaults ramp
+- **Overlay scale** / **Overlay opacity** — the per-reel anticipation rig's size and alpha.
+- **Overlay tint** — a MULTIPLY tint over the overlay rig (a colour picker). White (`#ffffff`)
+  keeps the rig's own colours; a hotter tint tints them — the coded defaults ramp
   white → hot orange as the tiers climb.
 - **Loop volume** — the sustained anticipation SFX **loop**'s target volume for that tier.
 - **Sting volume** — the one-shot activation **sting**'s per-play volume for that tier. Both volumes
@@ -905,14 +905,14 @@ is sensible no matter how many tiers the config defines.
 
 Above the tier columns are three global controls, one for the whole mode rather than per tier:
 
-- **Overlay spine** — swaps _which_ skeleton drives the per-reel overlay. The default is the game's
-  built-in `anticipation` spine; a swapped bundle must expose the chosen set's intro / loop / out
+- **Overlay rig** — swaps _which_ skeleton drives the per-reel overlay. The default is the game's
+  built-in `anticipation` rig; a swapped bundle must expose the chosen set's intro / loop / out
   animations (`anticipation_intro / _loop / _out` by default), since the game still owns the
-  intro → loop → out chaining (same contract as the board glow). Only R2 spine bundles already available to the project are offered — no new asset class.
+  intro → loop → out chaining (same contract as the board glow). Only R2 rig bundles already available to the project are offered — no new asset class.
   The tease's two cues — the activation **sting** and the sustained **loop** — are chosen in
   [Invisible Sound](sound.md) → **Reel anticipation**. Their per-tier **volumes** stay here: those are
   part of the intensity ramp below, not a choice of sound.
-- **Overlay animation** — which animation _set_ the overlay plays, for a spine that carries
+- **Overlay animation** — which animation _set_ the overlay plays, for a rig that carries
   several (e.g. differently sized anticipations). It is a base name: the game appends `_intro`,
   `_loop` and `_out`, so `anticipation3` plays `anticipation3_intro` and so on. The unnumbered
   `anticipation` is the default.
@@ -933,7 +933,7 @@ big-win tier **alias** (dynamic, sparse: only overridden tiers appear), each val
 `{ zoom?, overlayScale?, overlayAlpha?, overlayTint?, soundVolume?, stingVolume? }` (tint is a
 `#rrggbb` hex). Passed through verbatim to `bundle.symbols.anticipation` at export/bake; the engine
 resolves it in `apps/lines/src/game/anticipationPresentation.ts` (`resolveTierFx` /
-`resolveAnticipationSpineKey` / `resolveActivationSound` / `resolveLoopSound`), merging each authored
+`resolveAnticipationRigKey` / `resolveActivationSound` / `resolveLoopSound`), merging each authored
 field over the coded `codedTierFx` ramp for that tier's rank among the config big tiers
 (`activeBigTiers`). The two cue names resolve sound doc → this doc → the coded
 `sfx_anticipation_start` / `sfx_anticipation`.
@@ -974,9 +974,9 @@ On the left is the list of **flight kinds**:
 A row marked **set** has something authored. Pick a row to edit it on the right:
 
 - **Head** — what travels. **Built-in** (or **Inherit** for a single meter) is the gold glow; **Glow**
-  re-tints and re-sizes it; **Sprite**, **Spine** and **Flipbook** fly your own art (a spine plays the
+  re-tints and re-sizes it; **Sprite**, **rig** and **Flipbook** fly your own art (a rig plays the
   chosen animation on a loop while it flies); **None** flies only the trail. **Size** is × the glow
-  for a glow and × one cell for art; **Tint** colours it. A sprite / spine / flipbook head applies once
+  for a glow and × one cell for art; **Tint** colours it. A sprite / rig / flipbook head applies once
   its frame, bundle + animation, or clip is picked.
 - **Trail** — an Invisible FX effect left behind the head, or **No trail**. The effect is emitted from
   the moving head, so its particles stay where they were born and form a streak; once the head lands
@@ -1016,7 +1016,7 @@ Save only persists the override doc to R2. For a rebind to actually reach the ru
 game it must travel the standard live-assets chain, exactly like editor art and fonts:
 
 - **Export** — the bound assets are mirrored into the project's `deploy/editor-symbols/`
-  subtree: sprite cells export the frame's sheet (TexturePacker JSON + page); spine cells
+  subtree: sprite cells export the frame's sheet (TexturePacker JSON + page); rig cells
   copy the bundle's atlas + skeleton(s) + page(s) verbatim so the relative names still
   resolve. **Flipbook cells are skipped here on purpose** — a clip's art ships through the
   Invisible Flipbook export path, which owns the clip's full ordered frame list; this
@@ -1032,7 +1032,7 @@ game it must travel the standard live-assets chain, exactly like editor art and 
   `static/assets/` (build order: `bake:doc` runs **before** `pull:assets`).
 - **Register** — the engine's `bakedSymbolMap()` merges your overrides over the coded
   `SYMBOL_INFO_MAP`, and `bakedSymbolAssets()` registers any new sprite sheet / image /
-  spine bundle the overrides introduce. Un-baked repos render byte-identical to today.
+  rig bundle the overrides introduce. Un-baked repos render byte-identical to today.
 
 How a saved rebind reaches players depends on the game:
 
@@ -1062,12 +1062,12 @@ It is **read-only** from the tools: nothing in the launcher writes to `_shared/s
 so the library is curated out-of-band. To make art your own, export it into the
 project's own sheets with the Sheet Maker and rebind.
 
-### The shared spine library
+### The shared rig library
 
-The spine-bundle picker has the same two tiers. A bundle badged **shared** comes from
+The rig-bundle picker has the same two tiers. A bundle badged **shared** comes from
 `_shared/spines/`, resolves project-first (a project bundle of the same name shadows it),
 and ships through the same export chain. The full library — chrome and symbols alike — is
-listed in [the Scene Editor guide](invisible-editor.md#the-shared-spine-library); the
+listed in [the Scene Editor guide](invisible-editor.md#the-shared-rig-library); the
 bundles that matter here are:
 
 | Bundle                                           | Animations                                                      | Bind it to                                         |
@@ -1126,16 +1126,16 @@ cascade should look different from the in-place pop; the engine ships two explos
 skeletons for precisely that (`engine-explosion` is the tight symbol burst,
 `engine-win-meter-explosion` the larger one).
 
-It is a **Spine**, not a Flipbook clip, even though the animation is 13 frames: the frames
-are a Spine `sequence` attachment played on two slots, the second `additive`, and a clip's
+It is a **rig**, not a Flipbook clip, even though the animation is 13 frames: the frames
+are a rig `sequence` attachment played on two slots, the second `additive`, and a clip's
 single ordered frame list cannot carry that second layer. (There is also no shared clip
-library — clips are per-project only.) Bind it like any other spine cell: pick
+library — clips are per-project only.) Bind it like any other rig cell: pick
 `engine-explosion`, animation `explosion`.
 
 **One thing to watch on weight.** The symbol bundles were split out of one shared atlas, so
 each carries its own copy of that ~0.75MB page. The Scene Editor's export dedups identical
 pages; **the symbols export does not** — it copies a page per bound bundle. Binding all
-nine `engine-symbol-*` picture spines therefore ships ~6.6MB where one packed sheet would
+nine `engine-symbol-*` picture rigs therefore ships ~6.6MB where one packed sheet would
 ship ~0.75MB. Fine for getting a game readable; pack your own sheet before you ship.
 
 What is in it today:
@@ -1239,15 +1239,15 @@ Everything else on the page stays as the project's own kind has it.
 - **The wild never explodes.** The dynamite blast _is_ the wild's `Win` animation
   (`engine-symbol-w` → `wild_dynamite`) — there is no separate explosion mechanic. Bind `Win` to a
   still (such as the shared `w.png`) and the win beat still runs, showing a picture that never
-  changes, with no error anywhere. Bind `Win` to a spine. The blast _sound_ is fired by an event
+  changes, with no error anywhere. Bind `Win` to a rig. The blast _sound_ is fired by an event
   named `wildExplode` on that animation's timeline, so a custom wild rig needs that event too, or it
   explodes in silence.
-- **One spine symbol draws far smaller (or bigger) than the others.** A spine fits its cell by the
+- **One rig symbol draws far smaller (or bigger) than the others.** A rig fits its cell by the
   rig's declared box, not by what it visibly shows (see
   [Symbol size comes from the art](#symbol-size-comes-from-the-art)), so a box that covers more
   than the resting art shrinks the symbol and a tighter one lets it overflow. Fix the box, not a
-  number — see the Traps of the [Invisible Rigger](./rigger.md#traps) (for a Rigger rig) or the
-  [Spine Editor](./spine-editor.md#traps) (for a Spine export) — then **↻ Reload from R2** here.
+  number — see the Traps of the [Invisible Rigger](./rigger.md#traps) — then **↻ Reload from R2**
+  here.
 - **A custom anticipation overlay shows nothing while the reels tease.** The game plays exactly
   `<set>_intro`, then `<set>_loop`, then `<set>_out`, where `<set>` is the **Overlay animation**
   (default `anticipation`). If the rig has no `<set>_intro`, the loop never starts. Rename the rig's
@@ -1274,22 +1274,22 @@ Everything else on the page stays as the project's own kind has it.
   endpoints, the tool page, and the export/bake/pull chain) have landed, but the full
   round-trip has not yet been proven on a shipped game. That requires (1) keeping its symbol
   frame names unique across bound sheets (the bake step warns on collisions), (2) verifying
-  the shared-spine fallback, and (3) actually rebinding a symbol online, rebuilding,
+  the shared-rig fallback, and (3) actually rebinding a symbol online, rebuilding,
   republishing, and confirming the new asset/animation appears in-game.
-- **Preview endpoints are still `editor`-gated.** The sprite/spine preview endpoints
-  (`/api/editor/regions`, `/api/editor/spine`) are gated on the `editor` tool, so a user
+- **Preview endpoints are still `editor`-gated.** The sprite/rig preview endpoints
+  (`/api/editor/regions`, `/api/editor/rig`) are gated on the `editor` tool, so a user
   who holds **only** the `symbols` tool will get a 403 on previews. The default roles
   (`admin`, `developer`, `artist`, `pipelineTester`) hold both, so this only bites a
   narrowly-scoped role.
 - **Default-art cells render as placeholder chips until project assets are seeded.** The
   tool previews **only** from R2 (sprites under the project's `sheets/`/`manifests/`,
-  spines under `spines/`). A game's base symbol art lives in its repo, not those prefixes,
+  rigs under `spines/`). A game's base symbol art lives in its repo, not those prefixes,
   so until the art is synced into R2 a sprite default shows a labelled placeholder instead
-  of a thumbnail. Spine **default** cells also stay chips, because the coded map's short
+  of a thumbnail. Rig **default** cells also stay chips, because the coded map's short
   keys (e.g. `H1`) aren't real R2 bundle prefixes — only a **rebind** (which stores the
-  full bundle prefix) gets a live spine preview.
+  full bundle prefix) gets a live rig preview.
 - **Bindings only.** v1 edits asset bindings within the fixed symbol set and six states.
-  Payline geometry, adding/removing symbols or states, and creating/editing spine
+  Payline geometry, adding/removing symbols or states, and creating/editing rig
   animations are all out of scope (the tool only references existing animations).
 - **Existing standalone games must build once to publish their symbols.** A game that
   predates this tool needs one tokened build (or a manual `publish:symbols` run) before the

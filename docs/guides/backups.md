@@ -21,7 +21,7 @@ The workflow runs every night at 02:37 UTC. A normal run takes about 10 minutes.
 | --- | --- | --- | --- |
 | `postgres/<UTC stamp>.tar.age` | A `pg_dump` custom-format dump, plus `meta.json`: the row count of every table, taken in the dump's own snapshot | ~60 KB | 35 days |
 | `r2-docs/<stamp>.tar.gz.age` | Every selected object with a text/doc extension (`.json`, `.irig`, `.atlas`, `.xml`, …), plus `_backup/manifest.tsv` (key, size, ETag, last-modified) | ~2,200 objects, 42 MB → 5.4 MB | 90 days |
-| `r2-assets/<stamp>.tar.age` | Every other selected object: source images (`input/`, `sheet_src/`), spines, fonts, sounds, sheets, atlas pages, plus the same manifest | ~13,400 objects, 3.3 GB | 14 days |
+| `r2-assets/<stamp>.tar.age` | Every other selected object: source images (`input/`, `sheet_src/`), rigs, fonts, sounds, sheets, atlas pages, plus the same manifest | ~13,400 objects, 3.3 GB | 14 days |
 
 The archives go to their **own bucket**, `invisible-backups`, with **their own tokens**. The main
 `R2_*` token that every service holds can neither read nor delete them. Retention comes from that

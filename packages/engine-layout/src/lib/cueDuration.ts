@@ -5,12 +5,12 @@
  *
  * It is the value behind Invisible Flow v2's `fireCue.await` ("Wait for this cue to finish") for an
  * AUTHOR-NAMED cue. Those cues travel the open component-signal bus (`emitComponentSignal`), which
- * is a bare `subscribe(run)` event contract with no completion channel — a spine driven by one can
+ * is a bare `subscribe(run)` event contract with no completion channel — a rig driven by one can
  * never report back that it finished, so awaiting the emitter broadcast alone returned instantly
  * and the tick was a silent no-op. Measuring the clip is the completion signal the bus cannot carry.
  *
  * Deliberately RESOLVER-INJECTED and asset-free, exactly like its sibling
- * {@link sceneAnimationDurationMs}: the layout doc records only NAMES (a spine `assetKey` + clip,
+ * {@link sceneAnimationDurationMs}: the layout doc records only NAMES (a rig `assetKey` + clip,
  * a flipbook `clipId`), never durations. An unresolved name contributes nothing rather than
  * throwing, so a cue fired before its skeleton finished loading simply doesn't wait.
  *
@@ -47,9 +47,9 @@ import type { LayoutNode, LayoutType, Scene } from './types';
  * clip) — an undefined result is skipped, never treated as `0`.
  */
 export interface CueDurationResolvers {
-	/** A spine clip's wall-clock ms — `SkeletonData.findAnimation(animation)?.duration × 1000`.
+	/** A rig clip's wall-clock ms — `SkeletonData.findAnimation(animation)?.duration × 1000`.
 	 *  `undefined` when the skeleton isn't loaded or the clip name is unknown. */
-	spineClipMs(assetKey: string, animation: string | undefined): number | undefined;
+	rigClipMs(assetKey: string, animation: string | undefined): number | undefined;
 	/**
 	 * ONE CYCLE of a flipbook clip in wall-clock ms, IGNORING its loop flag — `flipbookCycleMs`
 	 * refuses to measure a looping clip (see this module's header for why that is right there and
@@ -66,7 +66,7 @@ export interface CueDurationResolvers {
 	resolveComponent(defId: string, version?: number): { root: LayoutNode } | undefined;
 	/**
 	 * The layout the game is currently drawing. Supplied ⇒ a node hidden for it is skipped, because
-	 * `<LayoutNodeView>` will not render it and its clip therefore never plays: a cued spine authored
+	 * `<LayoutNodeView>` will not render it and its clip therefore never plays: a cued rig authored
 	 * desktop-only would otherwise buy its full length as a wait while off-screen. Omitted ⇒ no
 	 * visibility gating (a headless caller with no layout).
 	 */
@@ -139,7 +139,7 @@ export const cueAnimationDurationMs = (
 					// off plays its clip once and then settles into the resting default (the wait is the
 					// clip), a non-looping cue plays it once and stops (the same), and a looping cue holds
 					// it (one cycle — see the module header). Only the clip that follows differs.
-					consider(resolvers.spineClipMs(node.assetKey, c.animation));
+					consider(resolvers.rigClipMs(node.assetKey, c.animation));
 				}
 				break;
 			}

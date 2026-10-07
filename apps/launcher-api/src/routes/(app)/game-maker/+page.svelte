@@ -360,7 +360,7 @@
 	// Import a bonus from another project of the same client (pots overlay Phase 7).
 	const IMPORT_PARTS: { key: keyof BonusImportParts; label: string }[] = [
 		{ key: 'symbols', label: 'Symbols' },
-		{ key: 'spines', label: 'Spines (shared)' },
+		{ key: 'spines', label: 'Rigs (shared)' },
 		{ key: 'layout', label: 'Screens' },
 		{ key: 'flow', label: 'Flow' },
 		{ key: 'winText', label: 'Win Text' },
@@ -718,19 +718,19 @@
 						'Open Invisible Flow and save to give it the starter flow.',
 				};
 			}
-			const spinesMissing = out?.spinesMissing as
+			const rigsMissing = out?.spinesMissing as
 				| { scene: string[]; symbols: string[] }
 				| undefined;
-			const strandedSpines = [
-				...new Set([...(spinesMissing?.scene ?? []), ...(spinesMissing?.symbols ?? [])]),
+			const strandedRigs = [
+				...new Set([...(rigsMissing?.scene ?? []), ...(rigsMissing?.symbols ?? [])]),
 			];
-			if (strandedSpines.length) {
+			if (strandedRigs.length) {
 				publishNote = {
 					...publishNote,
 					[projectKey]:
 						`${publishNote[projectKey] ? `${publishNote[projectKey]} ` : ''}` +
-						`⚠ ${strandedSpines.length} spine bundle${strandedSpines.length === 1 ? '' : 's'} ` +
-						`resolved to nothing and will be missing in-game: ${strandedSpines.join(', ')}. ` +
+						`⚠ ${strandedRigs.length} rig bundle${strandedRigs.length === 1 ? '' : 's'} ` +
+						`resolved to nothing and will be missing in-game: ${strandedRigs.join(', ')}. ` +
 						'Re-pick the rig in the Scene Editor or Invisible Symbols.',
 				};
 			}
@@ -1707,7 +1707,7 @@
 						What to copy
 						<select bind:value={dupScope}>
 							<option value="setup">Game setup only (no art, sounds or fonts)</option>
-							<option value="full">Everything, including atlases, spines, fonts and sounds</option>
+							<option value="full">Everything, including atlases, rigs, fonts and sounds</option>
 						</select>
 					</label>
 				</div>

@@ -17,7 +17,7 @@ import type { RequestHandler } from './$types';
  * that prompted this feature silently stranded 2,488 objects because nothing ever put
  * that number in front of anyone.
  *
- * Lazy, mirroring `/api/admin/spines`: folding an R2 listing per project into the admin
+ * Lazy, mirroring `/api/admin/rigs`: folding an R2 listing per project into the admin
  * page load would put one full recursive listing per project on every admin page view.
  * Answers 401/403 rather than redirecting, so a fetch gets a status and not login HTML.
  */

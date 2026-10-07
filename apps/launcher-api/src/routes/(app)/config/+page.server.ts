@@ -63,7 +63,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		listComponents({ projectKey }),
 		// The project's editor assets — same read-only source the Scene Editor uses — so the per-mode
 		// "Card graphics" section can offer the SAME visual pickers: an art/region picker for `image`
-		// params (atlas-manifest + sheet frames) and a spine-bundle picker for `spine` params. The R2
+		// params (atlas-manifest + sheet frames) and a rig-bundle picker for `spine` params. The R2
 		// reads are the shared `listProjectAssets` helper; we slim the result to what the pickers need.
 		listProjectAssets(clientKey, projectKey),
 	]);
@@ -127,9 +127,9 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		// The region-picker source for `image` card params — the SAME list the editor, the component
 		// editor and the symbols tool build, so the four writers of scoped frame refs cannot drift.
 		pickSheets: pickSheetsFrom(assets),
-		// The spine-bundle source for `spine` card params (project + shared bundles). `{ name, key,
+		// The rig-bundle source for `spine` card params (project + shared bundles). `{ name, key,
 		// shared }` — `name` is the value a `spine` param stores; `key` is the R2 prefix the animation
-		// dropdown keys its `/api/editor/spine/meta` fetch by.
+		// dropdown keys its `/api/editor/rig/meta` fetch by.
 		spines: assets.spines.map((s) => ({ name: s.name, key: s.key, shared: s.shared })),
 		// Validate server-side too, so the page shows issues on FIRST paint (before any edit fires
 		// the client validator) — a pasted-in config that lies is visible immediately.

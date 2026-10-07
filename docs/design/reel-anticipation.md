@@ -18,7 +18,7 @@ signal-driven), but a much richer one than the upstream SDK's built-in:
   still reachable from the reels not yet stopped.
 - **Self-arming:** activate the moment a possible win can still trigger.
 - **Self-disarming:** deactivate the instant no more qualifying win can be triggered.
-- **Stacking / escalating FX:** each new win-possibility adds a layer — more anticipation spines,
+- **Stacking / escalating FX:** each new win-possibility adds a layer — more anticipation rigs,
   screen FX, and a zoom-in on the reels for suspense.
 - **Tier-gated:** only arm once the _reachable_ win reaches the smallest **big-win tier**; add
   more FX for mega / massive. Ties into the config-authored `winLevels` tiers.
@@ -36,7 +36,7 @@ teasing the 3rd book). The upstream SDK ships only a thin, server-driven, binary
 - `createEnhanceBoardSpin.ts` reads it: from the first anticipated reel onward it sets `noStop`,
   and as each reel lands (`onSpinFinishing`) it arms `reelState.anticipating = true` on the NEXT
   reel.
-- `Anticipations.svelte` / `Anticipation.svelte` render **one fixed spine overlay + one looping
+- `Anticipations.svelte` / `Anticipation.svelte` render **one fixed rig overlay + one looping
   SFX** per anticipating reel. No stacking, no tiers, no zoom, no grey-out, no client calculation.
 - `sequentialReelStop` is the mode template to copy: `enable/disableSequentialReelStop` effects
   (`flowEffects.ts`), v2 vocab palette entries (`engine-flow-v2/src/reference/bookOf.ts`), and
@@ -206,15 +206,15 @@ k=0/1" is suppressed). When `anticipationMode` is off the whole block is skipped
 Driven by an XState presentation machine reacting to level/tier changes ("using the help of the
 state machine"):
 
-- **Spine stack** — N overlays per reel, N = `anticipationLevel`.
+- **Rig stack** — N overlays per reel, N = `anticipationLevel`.
 - **Grey-out** — a `ColorMatrixFilter` desaturate + dim on reels NOT in the anticipating set.
 - **Zoom** — a board-container scale/pan toward the anticipating reels (a `ZoomController`).
 - **Screen FX + tier extras** — mega / massive add layers.
 
 ### 4. Authoring surfaces
 
-- **Symbols SM editor** (`/symbols`) owns the per-reel overlay: which anticipation spine, and the
-  FX-per-tier mapping — exactly as it already owns the win-frame highlight spine.
+- **Symbols SM editor** (`/symbols`) owns the per-reel overlay: which anticipation rig, and the
+  FX-per-tier mapping — exactly as it already owns the win-frame highlight rig.
 - **Flow** (`/flow-v2`) owns the mode: `enableAnticipationMode` / `disableAnticipationMode`
   effects (payload: confidence, tier gate, zoom, grey-out) + v2 vocab palette entries + live
   signals, modelled on `enableSequentialReelStop`.
@@ -253,10 +253,10 @@ authorable from the `/symbols` **Reel anticipation** panel:
    `createEnhanceBoardSpin`, the `Anticipation(s).svelte` server components, the facade emit, and the
    book-type field. Add `anticipationLevel`/`anticipationTier` to `reelState`; the client arming
    policy + `possible`/`guaranteed` switch.
-3. **Presentation** — spine stacking, grey-out filter, zoom controller, tier FX; XState escalation
+3. **Presentation** — rig stacking, grey-out filter, zoom controller, tier FX; XState escalation
    machine.
 4. **Flow mode** — enable/disable effects, vocab palette, signals.
-5. **Symbols SM authoring** — overlay spine + tier-FX config in the `/symbols` doc + bake/pull/register.
+5. **Symbols SM authoring** — overlay rig + tier-FX config in the `/symbols` doc + bake/pull/register.
 6. **Ship** — runtime release + refresh; update `docs/status/engine.md` +
    `docs/status/symbols.md`.
 7. **Screens follow the camera** — let OTHER game-space screens zoom with the reels, not just the

@@ -46,8 +46,8 @@ export type SymbolState = SpinningReelSymbolState | (typeof SYMBOL_STATES)[numbe
  * `blendMode` is how the layer's pixels combine with what is already drawn beneath it. It is
  * honoured for `sprite`/`flipbook`/`fx` ONLY — `engine-layout`'s `canBlendLayerKind()` is the one
  * definition, and `spine` is absent from it because a Pixi blend cannot reach skeleton geometry
- * (`SpinePipe.addRenderable` batches each slot with the SLOT's own blend and never reads
- * `groupBlendMode`). A stored mode on a spine layer is IGNORED rather than honoured, so a doc that
+ * (`RigPipe.addRenderable` batches each slot with the SLOT's own blend and never reads
+ * `groupBlendMode`). A stored mode on a rig layer is IGNORED rather than honoured, so a doc that
  * somehow carries one renders exactly as the game does.
  *
  * `behind` is read only where a layer has something of its own to sit behind — a symbol cell's
@@ -77,7 +77,7 @@ export type SymbolLayerSpec = {
 	dimWithSymbol?: boolean;
 };
 
-/** A single symbol×state binding: the sprite frame or spine animation that renders it.
+/** A single symbol×state binding: the sprite frame or rig animation that renders it.
  * Structural twin of a `SYMBOL_INFO_MAP` cell — authored by the Invisible Symbols State
  * Machine (docs/design/invisible-symbols-state-machine.md). */
 export type SymbolCellInfo = {
@@ -96,15 +96,15 @@ export type SymbolCellInfo = {
 	 * is what a symbol state almost always wants and what a flipbook cell has always done
 	 * (`clip.loop ?? true`).
 	 *
-	 * SPINE cells had no way to say this at all: nothing authored it and the board passed no `loop`,
-	 * so every spine state was a one-shot that froze on its final frame. The give-away was a resting
+	 * RIG cells had no way to say this at all: nothing authored it and the board passed no `loop`,
+	 * so every rig state was a one-shot that froze on its final frame. The give-away was a resting
 	 * symbol that appeared to "play twice and stop" — once on the unmasked animate layer as `land`,
 	 * then again after `SymbolWrap` re-mounted it on the masked layer as `static`.
 	 *
 	 * FLIPBOOK cells could loop, but only per CLIP, so one clip used by two states could not loop in
 	 * one and hold in the other. Setting it here overrides the clip for this state only.
 	 *
-	 * Safe on the states the game AWAITS (`land`, `win`, `explosion`): spine queues `complete` once
+	 * Safe on the states the game AWAITS (`land`, `win`, `explosion`): rig queues `complete` once
 	 * per loop iteration, not only at the end of a non-looping clip, so those still advance on their
 	 * first cycle — they just keep animating while they wait.
 	 */

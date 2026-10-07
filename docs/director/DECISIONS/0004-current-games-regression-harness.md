@@ -61,7 +61,7 @@ A GitHub Actions workflow `current-games.yml`, triggered on every pipeline branc
    - Freeze time:
      - Playwright `clock` with a fixed `Date.now`
      - GSAP ticker stepped manually
-     - spine/particles seeded
+     - rig/particles seeded
    - Wait on a `ready` signal per screen, not on sleeps.
 5. **Key screens:** capture 12–14 per game at a fixed 1280×720 viewport and DPR 1.
    - The list per game type lives in `scripts/current-games/screens/<type>.json` (a pipeline-change

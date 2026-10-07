@@ -383,7 +383,7 @@
 	);
 
 	// --- Settings: engine boot mark ---
-	// Working copy of the GLOBAL first-splash spine. A blank bundle is the CLEAR case, so
+	// Working copy of the GLOBAL first-splash rig. A blank bundle is the CLEAR case, so
 	// the form posts it as-is rather than having a separate reset control.
 	let bootBundle = $state(data.bootSplash.engine?.bundle ?? '');
 	let bootAnimation = $state(data.bootSplash.engine?.animation ?? '');
@@ -416,7 +416,7 @@
 		bootSize = data.bootSplash.engine?.size ?? BOOT_SPLASH_DEFAULT_SIZE;
 	}
 
-	// --- Settings: promote a project spine into the shared library ---
+	// --- Settings: promote a project rig into the shared library ---
 	// `_shared/spines/` has no other writer: every producer (the Rigger especially) writes
 	// project-scoped bundles, so without this the engine mark has nothing to choose from.
 	let promoteProject = $state('');
@@ -432,7 +432,7 @@
 		if (!key) return;
 		promoteBusy = true;
 		try {
-			const res = await fetch(`/api/admin/spines?project=${encodeURIComponent(key)}`);
+			const res = await fetch(`/api/admin/rigs?project=${encodeURIComponent(key)}`);
 			if (!res.ok) {
 				promoteNote = `Could not list bundles (${res.status}).`;
 				return;
@@ -441,7 +441,7 @@
 			promoteBundles = out.bundles ?? [];
 			if (promoteBundles.length === 0) {
 				promoteNote =
-					'No spine bundles listed in this project’s spines/skeletons.json. Open the rig in ' +
+					'No rig bundles listed in this project’s rigs/skeletons.json. Open the rig in ' +
 					'the Rigger and save (or re-sync its atlas) first.';
 			}
 		} catch {
@@ -1728,12 +1728,12 @@
 			<div class="card">
 				<h3>Engine boot mark</h3>
 				<p class="muted hint">
-					The spine that opens <strong>every</strong> game — the engine's own mark, shown before the
+					The rig that opens <strong>every</strong> game — the engine's own mark, shown before the
 					game's splash. This replaced the old vendor logo, so it is admin-owned: a client cannot
-					change it from their project. Pick from the shared spine library (<span class="mono"
+					change it from their project. Pick from the shared rig library (<span class="mono"
 						>_shared/spines/</span
 					>). Rigs are authored per project, so get one in there with
-					<strong>Bring a spine into the shared library</strong> below. A game picks up a change on
+					<strong>Bring a rig into the shared library</strong> below. A game picks up a change on
 					its <strong>next publish</strong>; already-open games keep the mark they booted with.
 					{#if data.bootSplash.engine}
 						<span class="pill on">{data.bootSplash.engine.bundle}</span>
@@ -1744,7 +1744,7 @@
 
 				{#if data.bootSplash.bundles.length === 0}
 					<p class="muted hint">
-						The shared library is empty — use <strong>Bring a spine into the shared library</strong>
+						The shared library is empty — use <strong>Bring a rig into the shared library</strong>
 						below to copy one in from a project, then pick it here.
 					</p>
 				{/if}
@@ -1763,7 +1763,7 @@
 					class="boot-mark"
 				>
 					<label>
-						Spine bundle
+						Rig bundle
 						<select name="bundle" bind:value={bootBundle}>
 							<option value="">— none (skip the engine splash) —</option>
 							{#each data.bootSplash.bundles as b (b.folder)}
@@ -1833,7 +1833,7 @@
 						<span class="muted">Currently saved</span>
 						{#if data.bootSplash.engine}
 							<dl>
-								<dt>Spine</dt>
+								<dt>Rig</dt>
 								<dd class="mono">{data.bootSplash.engine.bundle}</dd>
 								<dt>Animation</dt>
 								<dd class="mono">{data.bootSplash.engine.animation ?? '(first clip)'}</dd>
@@ -1851,13 +1851,13 @@
 					can run past the viewport edges. You'll see the change on a game's next publish.
 					<br />
 					Leave <strong>Animation</strong> blank only if the skeleton's first clip is the right one —
-					a spine left on its setup pose renders empty, which looks like a broken splash rather than an
+					a rig left on its setup pose renders empty, which looks like a broken splash rather than an
 					unset one.
 				</p>
 
 				<hr class="boot-rule" />
 
-				<h4>Bring a spine into the shared library</h4>
+				<h4>Bring a rig into the shared library</h4>
 				<p class="muted hint">
 					Rigs are authored inside a project, so a new mark starts life at
 					<span class="mono">&lt;client&gt;/&lt;project&gt;/spines/</span>. This copies one into
@@ -1872,7 +1872,7 @@
 
 				<form
 					method="POST"
-					action="?/promoteSpine"
+					action="?/promoteRig"
 					use:enhance={() => {
 						return async ({ update }) => await update({ reset: false });
 					}}
@@ -1892,7 +1892,7 @@
 						</select>
 					</label>
 					<label>
-						Spine bundle
+						Rig bundle
 						<select name="bundle" bind:value={promoteBundle} disabled={promoteBundles.length === 0}>
 							<option value="">{promoteBusy ? 'loading…' : '— pick a bundle —'}</option>
 							{#each promoteBundles as b (b.folder)}

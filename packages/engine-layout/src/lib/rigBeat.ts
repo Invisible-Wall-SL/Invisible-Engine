@@ -1,7 +1,7 @@
 /**
  * The BEAT a rig binding fires on — which animation, and which keyframe time within it.
  *
- * A spine event carries its name, its keyframe `time`, and (through the track entry) the animation
+ * A rig event carries its name, its keyframe `time`, and (through the track entry) the animation
  * it belongs to. The baked rig→FX / rig→clip manifests used to carry only the NAME, so every binding
  * sharing a name fired on every keyframe of that name: a flipbook keyed at 0.01s and an effect
  * keyed at 1s (both on the default `event` name) played together at 0.01s, and the first key's

@@ -9,7 +9,7 @@ import type { ComponentDef, KindCapabilityConfig, LayoutNode, Scene } from 'engi
  * the open bus, so `emitComponentSignal('win')` is a no-op — and the emitter broadcast that rides
  * along carries the CATALOG name (`win`), not the event the game actually publishes (`winShow`), so
  * it reaches nobody either. A `fireCue win` would therefore sit in the graph looking wired and do
- * nothing, with no warning. These names are still perfectly good on a scene spine — that is how a
+ * nothing, with no warning. These names are still perfectly good on a scene rig — that is how a
  * character reacts to a real win with no flow at all — they are just not the flow's to fire.
  *
  * Per KIND and ADD-ON: the game registers the Hold and Win family only for a Hold and Win game or
@@ -29,20 +29,20 @@ const gameDrivenSignals = (
  * closed by design (board / win / free-spin / sound / UI — the transcribed `EmitterEvent*` unions),
  * so a flow could address the coded presentation and NOTHING an author placed.
  *
- * A spine placed in the Scene Editor can now carry an AUTHOR-NAMED cue (`SpineCue.signal`), which
+ * A rig placed in the Scene Editor can now carry an AUTHOR-NAMED cue (`RigCue.signal`), which
  * resolves through the open component-signal bus (`emitComponentSignal`) when the flow runtime
  * broadcasts a cue of that name. This module is the launcher-side half of that: it harvests those
  * names off the LayoutDoc and widens the per-project vocabulary with them, so the name an author
- * typed on a spine is a node they can drag out of the palette.
+ * typed on a rig is a node they can drag out of the palette.
  *
  * PER-PROJECT, NOT ENGINE. `standardVocab.ts` stays closed — the widening lives here, exactly like
  * `withProjectSounds` (./soundOptions) widens the sound enums with a project's own uploads.
  */
 
 /**
- * Every author-named cue signal on a scene's CUED nodes — spines (which swap animation) and
+ * Every author-named cue signal on a scene's CUED nodes — rigs (which swap animation) and
  * flipbooks (which swap clip) — sorted + de-duplicated. Both kinds ride the same bus, so the
- * palette must offer both; harvesting only spines would silently leave a flipbook character
+ * palette must offer both; harvesting only rigs would silently leave a flipbook character
  * un-fireable while the editor happily saved its cue.
  *
  * Walks RECURSIVELY: a cued node is very often nested inside a `container` (the only layout node
@@ -103,7 +103,7 @@ export function collectSceneCueNames(
  * inspector, pins and validator all follow the one list for free.
  *
  * De-duplicated against the names already in `vocab.cues` (and against each other), so an author who
- * names a spine cue `winShow` re-uses the engine's decl instead of shadowing it with a second entry.
+ * names a rig cue `winShow` re-uses the engine's decl instead of shadowing it with a second entry.
  *
  * Returns the vocabulary UNCHANGED when the project's scenes name no new cue, so a project without
  * author-named cues keeps the exact object identity the editor had before.

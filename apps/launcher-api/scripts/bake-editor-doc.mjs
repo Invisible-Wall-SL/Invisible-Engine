@@ -207,7 +207,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // Transient statuses worth retrying. A 5xx (esp. a 502 "upstream error") from the
 // launcher's heavy export endpoints is usually the container being OOM-killed /
 // restarted mid-export — the memory-heavy R2 export bursts (full atlas pages +
-// spine bundles) can take the process down, and a single call on a recovered
+// rig bundles) can take the process down, and a single call on a recovered
 // container reliably succeeds. 4xx (401/400) are deterministic — never retried.
 const RETRY_STATUSES = new Set([429, 500, 502, 503, 504]);
 // Spaced to straddle a Railway container restart (seconds to ~30s), so each retry
@@ -299,7 +299,7 @@ async function main() {
 				spines: Array.isArray(art?.spines) ? art.spines : [],
 				// Placed regions no shipped atlas packs — carried so the game warns at boot.
 				missing: Array.isArray(art?.missing) ? art.missing : [],
-				// Placed spine bundles that resolved to nothing — same, for the spine half.
+				// Placed rig bundles that resolved to nothing — same, for the rig half.
 				spinesMissing: Array.isArray(art?.spinesMissing) ? art.spinesMissing : [],
 			};
 			// FATAL, unlike every other dangling report here. A dangling sprite region renders an
@@ -334,16 +334,16 @@ async function main() {
 						'them, or re-pick the frame in the Scene Editor.',
 				);
 			}
-			// The spine half of the same guard. A stranded spine is LOUDER in-game than a blank
-			// sprite (it throws `Spine: key "…" is not found in loadedAssets`) but it shipped
+			// The rig half of the same guard. A stranded rig is LOUDER in-game than a blank
+			// sprite (it throws `rig: key "…" is not found in loadedAssets`) but it shipped
 			// unannounced for want of this line, so name the key and where it points.
-			const spinesMissing = Array.isArray(art?.spinesMissing) ? art.spinesMissing : [];
-			if (spinesMissing.length) {
+			const rigsMissing = Array.isArray(art?.spinesMissing) ? art.spinesMissing : [];
+			if (rigsMissing.length) {
 				console.warn(
-					`⚠ bake-doc: ${spinesMissing.length} placed spine bundle(s) resolved to NOTHING and ` +
-						`will be MISSING in-game: ${spinesMissing.join(', ')}. A bundle under another ` +
+					`⚠ bake-doc: ${rigsMissing.length} placed rig bundle(s) resolved to NOTHING and ` +
+						`will be MISSING in-game: ${rigsMissing.join(', ')}. A bundle under another ` +
 						"project's prefix is not exported into this game — re-pick the rig from this " +
-						'project, or promote it to the shared library (/admin → Spines) and re-pick it.',
+						'project, or promote it to the shared library (/admin → rigs) and re-pick it.',
 				);
 			}
 			const collisions = Array.isArray(art?.collisions) ? art.collisions : [];
@@ -414,7 +414,7 @@ async function main() {
 
 	// Export the symbol→state asset bindings (Invisible Symbols State Machine) into
 	// R2 `deploy/editor-symbols/` (sprite sheets keyed by their own frame names +
-	// verbatim spine bundles) so the deploy mirror that runs next pulls them, and
+	// verbatim rig bundles) so the deploy mirror that runs next pulls them, and
 	// embed the returned `{ map, index }` so the game merges the binding overrides
 	// over its coded `SYMBOL_INFO_MAP` and registers the introduced assets. Without
 	// this a rebound symbol shows in the tool preview but ships its old asset.
@@ -451,9 +451,9 @@ async function main() {
 			}
 			const s = await symRes.json();
 			// The global win-frame highlight override (absent → game keeps its built-in
-			// payframe). `assetKey` is the full R2 spine-bundle prefix, whose bundle is
+			// payframe). `assetKey` is the full R2 rig-bundle prefix, whose bundle is
 			// already in `index.spines` (the exporter added it), so the game loads it the
-			// same way as a per-symbol spine.
+			// same way as a per-symbol rig.
 			const highlight =
 				s?.highlight && typeof s.highlight === 'object' && typeof s.highlight.assetKey === 'string'
 					? {
@@ -471,8 +471,8 @@ async function main() {
 								: {}),
 						}
 					: undefined;
-			// The free-spin board glow (absent → game keeps its coded `reelhouse` spine). Like
-			// `highlight`, `assetKey` is the full R2 spine-bundle prefix already in `index.spines`.
+			// The free-spin board glow (absent → game keeps its coded `reelhouse` rig). Like
+			// `highlight`, `assetKey` is the full R2 rig-bundle prefix already in `index.spines`.
 			// `animations`/`sizeRatios` are sparse overrides — carried through only when present, so
 			// an untouched project ships no `boardGlow` and renders byte-identical.
 			const boardGlow =
@@ -614,9 +614,9 @@ async function main() {
 					? s.symbolSounds
 					: undefined;
 			// The reel-anticipation presentation FX (per-tier escalation + optional overlay `spineKey`).
-			// Pure config apart from the spine (already in `index.spines` if swapped). Rebuilt sparse so an
+			// Pure config apart from the rig (already in `index.spines` if swapped). Rebuilt sparse so an
 			// untouched project ships no `anticipation` and the mode stays byte-identical to Phase 4 — the
-			// engine's `resolveTierFx`/`resolveAnticipationSpineKey` fill every omitted field from the coded
+			// engine's `resolveTierFx`/`resolveAnticipationRigKey` fill every omitted field from the coded
 			// `ANTICIPATION_TIER_FX`. MUST reach BOTH bundle paths (this + the runtime `SymbolExportResult`).
 			const anticipation = (() => {
 				const a = s?.anticipation;
@@ -624,7 +624,7 @@ async function main() {
 				const out = {};
 				if (typeof a.spineKey === 'string' && a.spineKey) out.spineKey = a.spineKey;
 				// GLOBAL authored sound names (one activation sting + one loop). Enumerated here or this
-				// bake path would ship the swapped spine/tiers while silently dropping the sounds — the
+				// bake path would ship the swapped rig/tiers while silently dropping the sounds — the
 				// field-allowlist trap. Unset ⇒ the engine's resolvers fill the coded names (byte-parity).
 				if (typeof a.activationSound === 'string' && a.activationSound)
 					out.activationSound = a.activationSound;
@@ -739,7 +739,7 @@ async function main() {
 			}
 			if (symbols.index.spinesMissing.length) {
 				console.warn(
-					`⚠ bake-doc: ${symbols.index.spinesMissing.length} bound symbol spine bundle(s) resolved ` +
+					`⚠ bake-doc: ${symbols.index.spinesMissing.length} bound symbol rig bundle(s) resolved ` +
 						`to NOTHING and will be MISSING in-game: ${symbols.index.spinesMissing.join(', ')}. ` +
 						'The bundle was renamed/deleted or lives under another project — re-bind the symbol ' +
 						'in Invisible Symbols, or promote the rig to the shared library.',
@@ -1018,16 +1018,16 @@ async function main() {
 		}
 	}
 
-	// Dangling-skeletonKey guard (§8 — the spine analogue of the dangling-assetKey guard above):
-	// a Tier-C (`particleKind:'spine'`) layer references a Spine bundle by `spineParticle.skeletonKey`,
-	// which `/fx` authors as the CANONICAL bundle `folder` (the value the runtime registers the spine
+	// Dangling-skeletonKey guard (§8 — the rig analogue of the dangling-assetKey guard above):
+	// a Tier-C (`particleKind:'spine'`) layer references a rig bundle by `spineParticle.skeletonKey`,
+	// which `/fx` authors as the CANONICAL bundle `folder` (the value the runtime registers the rig
 	// under in `loadedAssets`). That bundle reaches the game's `loadedAssets` only if it's among the
-	// SHIPPED spines — i.e. it was placed in the layout (`editorArt.spines[].key`, already the bundle
+	// SHIPPED rigs — i.e. it was placed in the layout (`editorArt.spines[].key`, already the bundle
 	// folder) or bound to a symbol/highlight (`symbols.index.spines[].key`, a FULL R2 bundle prefix
 	// `<…>/spines/<folder>/`). To compare apples-to-apples we reduce every shipped key to its bundle
-	// folder. A skeletonKey NOT in that set never loads ⇒ the spine particles have no skeleton ⇒ the
-	// effect renders INVISIBLE. FX never re-packs spines, so warn loudly (non-fatal: the author may
-	// wire the spine into the layout/symbols before shipping). No spine particles ⇒ no check.
+	// folder. A skeletonKey NOT in that set never loads ⇒ the rig particles have no skeleton ⇒ the
+	// effect renders INVISIBLE. FX never re-packs rigs, so warn loudly (non-fatal: the author may
+	// wire the rig into the layout/symbols before shipping). No rig particles ⇒ no check.
 	if (effectSkeletonKeys.length > 0) {
 		// `<client>/<project>/spines/<folder>/` → `<folder>`; an already-bare folder key is unchanged.
 		const bundleFolder = (key) => {
@@ -1035,15 +1035,15 @@ async function main() {
 			const m = trimmed.match(/(?:^|\/)spines\/(.+)$/);
 			return m ? m[1] : trimmed;
 		};
-		const shippedSpines = new Set(editorArt.spines.map((s) => bundleFolder(s.key)));
-		for (const s of symbols.index.spines) shippedSpines.add(bundleFolder(s.key));
-		const dangling = effectSkeletonKeys.filter((k) => !shippedSpines.has(k));
+		const shippedRigs = new Set(editorArt.spines.map((s) => bundleFolder(s.key)));
+		for (const s of symbols.index.spines) shippedRigs.add(bundleFolder(s.key));
+		const dangling = effectSkeletonKeys.filter((k) => !shippedRigs.has(k));
 		for (const k of dangling) {
 			console.warn(
 				`⚠ bake-doc: FX effect references spineParticle.skeletonKey "${k}" which is NOT among ` +
-					`the shipped Spine bundles (editor-art spines / symbol spines). The skeleton only ` +
-					`ships if the layout or a symbol ALSO uses it — these spine-clip particles will render ` +
-					'INVISIBLE. Place the Spine in the Scene Editor (or remove the effect) before shipping.',
+					`the shipped rig bundles (editor-art rigs / symbol rigs). The skeleton only ` +
+					`ships if the layout or a symbol ALSO uses it — these rig-clip particles will render ` +
+					'INVISIBLE. Place the rig in the Scene Editor (or remove the effect) before shipping.',
 			);
 		}
 	}

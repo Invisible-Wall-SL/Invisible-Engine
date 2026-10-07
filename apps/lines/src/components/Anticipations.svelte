@@ -20,7 +20,7 @@
 	import Anticipation from './Anticipation.svelte';
 
 	// Reel-anticipation presentation (`docs/design/reel-anticipation.md`, Phase 3): the per-reel overlay
-	// spine STACK, the grey-out of the non-anticipating reels, and the escalating SFX. Rendered INSIDE
+	// rig STACK, the grey-out of the non-anticipating reels, and the escalating SFX. Rendered INSIDE
 	// the `AnticipationCamera`, so all of it zooms with the board. Mounted by `Game.svelte` only while
 	// `stateGame.anticipationMode` is on ⇒ nothing here exists when the mode is off (byte-parity).
 
@@ -33,7 +33,7 @@
 	// Grey out every reel that is NOT actively anticipating while ANY reel is (the settled/losing
 	// reels), so the held reel stands alone. Empty ⇒ no dim (clean clear the instant nothing is active).
 	// Gated on the Flow-authored `anticipationGreyOut` toggle (default on ⇒ Phase 3 behaviour unchanged);
-	// off ⇒ no dim rects render, the spine stack + zoom still play.
+	// off ⇒ no dim rects render, the rig stack + zoom still play.
 	const dimmedReels = $derived(
 		anyActive && context.stateGame.anticipationGreyOut
 			? context.stateGame.board
@@ -91,7 +91,7 @@
 	/>
 {/each}
 
-<!-- Per-reel overlay spine STACK — one per ARMED reel, kept until its `out` finishes. -->
+<!-- Per-reel overlay rig STACK — one per ARMED reel, kept until its `out` finishes. -->
 {#each armed as reelIndex (reelIndex)}
 	<Anticipation reel={context.stateGame.board[reelIndex]} />
 {/each}

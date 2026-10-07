@@ -380,7 +380,7 @@ for (const id of ['freeSpinIntro', 'freeSpinOutro']) {
 	}
 }
 
-// --- 8. The ways seed: same spine, no book mechanic, validates against its OWN vocab -------------
+// --- 8. The ways seed: same rig, no book mechanic, validates against its OWN vocab -------------
 // The point of deriving it rather than hand-writing one: the seed a new project opens on must
 // type-check against the palette that project is authored with, or the canvas opens on errors.
 {
@@ -412,7 +412,7 @@ for (const id of ['freeSpinIntro', 'freeSpinOutro']) {
 		!WAYS_DRIVEN_SEED_DOC.containers.some((c) => c.id === 'specialBook'),
 	);
 
-	// …and nothing ELSE is gone: it must keep the whole shared lifecycle spine and presentation.
+	// …and nothing ELSE is gone: it must keep the whole shared lifecycle rig and presentation.
 	const bookRefs = new Set(BOOK_OF_DRIVEN_SEED_DOC.graph.nodes.map((n) => n.ref).filter(Boolean));
 	const extra = [...waysRefs].filter((r) => !bookRefs.has(r));
 	check('ways seed: introduces no ref book-of lacks', extra.length === 0, extra.join(','));

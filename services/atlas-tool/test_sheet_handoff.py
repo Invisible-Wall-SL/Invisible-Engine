@@ -17,7 +17,7 @@ stamps on every cell, which is the only thing that routes a region to
     geometry-only dict, so `fit_mode` (and prompt/shape_ref/seed) never
     survived `_normalize_converted_region`;
   * it also SYNTHESIZED `orig_w`/`orig_h` (defaulting to w/h). Their mere
-    PRESENCE is what `fit_to_region` reads as `spine_slot`, flipping the
+    PRESENCE is what `fit_to_region` reads as `rig_slot`, flipping the
     default from `contain` to `fill` — stretch to the rect exactly;
   * the raw-TexturePacker branch never had `fit_mode` at all, and the Sheet
     Maker's own `.json` declares `sourceSize` = the full cell, so
@@ -158,12 +158,12 @@ def main() -> int:
           (7, 9, 120, 80))
 
     # A region with NO trim must not acquire one: orig_* presence is what
-    # fit_to_region reads as `spine_slot`, so inventing it selects `fill`.
+    # fit_to_region reads as `rig_slot`, so inventing it selects `fill`.
     untrimmed = ui_server._normalize_converted_region(
         {"name": "t", "x": 0, "y": 0, "w": 100, "h": 50})
     check("no trim in -> no orig_* out",
           ("orig_w" in untrimmed, "orig_h" in untrimmed), (False, False))
-    check("an untrimmed cell is not a spine slot",
+    check("an untrimmed cell is not a rig slot",
           ui_server._placement_mode(untrimmed)["key"], "contain")
 
     # The whole point: Create Atlas over an untouched handoff is a NO-OP.
@@ -180,7 +180,7 @@ def main() -> int:
     # wrong reason if a default ever changes.
     broken = {k: v for k, v in norm.items() if k != "fit_mode"}
     broken["orig_w"], broken["orig_h"] = CELL_W, CELL_H
-    check("without fit_mode a cell reads as a spine slot",
+    check("without fit_mode a cell reads as a rig slot",
           ui_server._placement_mode(broken)["key"], "fill")
     check("...and `fill` stretches the art to the rect",
           ink_size(batch_atlas.fit_to_region(cell.copy(), broken)),
@@ -206,7 +206,7 @@ def main() -> int:
     # Damage route 2: the raw-TexturePacker branch never had fit_mode, and the
     # Sheet Maker's own .json declares an untrimmed sourceSize.
     tp = ui_server._tp_frame_to_region(NAME, sheet_texturepacker_frame())
-    check("a sheet's own .json imports as a spine slot",
+    check("a sheet's own .json imports as a rig slot",
           (("orig_w" in tp), ui_server._placement_mode(tp)["key"]),
           (True, "fill"))
     m2 = imported_manifest([tp])
@@ -238,7 +238,7 @@ def main() -> int:
           (ui_server.repair_sheet_fit_mode(m4),
            "fit_mode" in m4["regions"][0]),
           ([], False))
-    check("...and keeps the spine-slot `fill` default",
+    check("...and keeps the rig-slot `fill` default",
           ui_server._placement_mode(m4["regions"][0])["key"], "fill")
 
     # Safety 3: rotated_regions are repaired as well — they are a separate

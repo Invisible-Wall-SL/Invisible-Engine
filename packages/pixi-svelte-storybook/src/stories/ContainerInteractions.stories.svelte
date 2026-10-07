@@ -5,35 +5,33 @@
 
 	import {
 		Container,
-		SpineProvider,
-		SpineTrack,
+		RigProvider,
+		RigTrack,
 		Rectangle,
 	} from 'pixi-svelte';
 
 	const { Story } = defineMeta({
 		title: "pixi-svelte/Container Interactions",
 		args: {
-			width: 250,
-			x: 300,
-			y: 500,
+			width: 400,
+			x: 400,
+			y: 350,
 			zIndex: 1,
 			anchor: { x: 0, y: 0 },
 		}
 	});
 
 	const assets = {
-		spineBoy: {
+		bigWin: {
 			type: 'spine',
 			src: {
-				skeleton:
-					'https://test-twist-front-2.s3.ap-southeast-2.amazonaws.com/pixi-svelte-package/spine-pixi-examples/spineboy-pro.json',
-				atlas:
-					'https://test-twist-front-2.s3.ap-southeast-2.amazonaws.com/pixi-svelte-package/spine-pixi-examples/spineboy-pma.atlas',
+				skeleton: '/assets/spines/bigwin/mm_bigwin.json',
+				atlas: '/assets/spines/bigwin/big_wins.atlas',
 			},
 		},
 	} as const;
 
-	let track = $state('walk');
+	let track = $state('big_win_idle');
 	let tint = $state(0xffffff);
 </script>
 
@@ -55,12 +53,12 @@
 					cursor="pointer"
 					onclick={() => console.log('click!')}
 					onpointerdown={() => (tint = Math.floor(Math.random() * 16777215))}
-					onpointerenter={() => (track = 'run')}
-					onpointerleave={() => (track = 'walk')}
+					onpointerenter={() => (track = 'mega_win_idle')}
+					onpointerleave={() => (track = 'big_win_idle')}
 				>
-					<SpineProvider key="spineBoy" {...args} {tint}>
-						<SpineTrack trackIndex={0} animationName={track} loop />
-					</SpineProvider>
+					<RigProvider key="bigWin" {...args} {tint}>
+						<RigTrack trackIndex={0} animationName={track} loop />
+					</RigProvider>
 				</Container>
 			</Container>
 		</StoryPixiApp>

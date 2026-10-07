@@ -1,7 +1,7 @@
 # Build your first game
 
 This walks a **lines**, **Book-of** or **ways** reskin from an empty project to a delivered build.
-It is a spine, not a manual. Each step says what you do, why it comes at that point, what usually
+It is a rig, not a manual. Each step says what you do, why it comes at that point, what usually
 goes wrong, and how you know you're done. For every button and field, follow the link to that
 tool's guide. The tool guides are the source of truth, and this page doesn't repeat them.
 
@@ -65,7 +65,7 @@ background, board frame, logo and HUD, and set the reel grid's position and size
 `desktop` first, then adjust `tablet · landscape · portrait`.
 Guide: [invisible-editor.md](../tools/invisible-editor.md#1-pick-or-create-a-screen).
 
-**Why here:** the layout tells you which art you actually need: regions, frames, spines and fonts.
+**Why here:** the layout tells you which art you actually need: regions, frames, rigs and fonts.
 Lay it out with reference or placeholder art now, then swap your own in after step 3. The reel
 grid's cell size scales the whole board; each symbol's size within its cell comes from its art
 ([Symbol size on the reel](../tools/invisible-editor.md#symbol-size-on-the-reel)).
@@ -121,7 +121,7 @@ layout uses them in place of the reference art.
 ## 4. Bind the symbols — Invisible Symbols State Machine
 
 **Do:** open `/symbols`. For each symbol, bind each state (`Static`, `Spin`, `Land`, `Win`,
-`Post-win`, `Explosion`) to a sprite frame, a spine animation or a flipbook clip. Click **Apply**
+`Post-win`, `Explosion`) to a sprite frame, a rig animation or a flipbook clip. Click **Apply**
 in the cell editor, then **Save**. Give every symbol a **Name** and **Plural**. Win Text uses them
 in step 7. Guide: [symbols-state-machine.md](../tools/symbols-state-machine.md#how-to-use-it).
 
@@ -134,9 +134,9 @@ Localization later.
 
 - A symbol is missing from the grid. The grid shows only the symbols **in play** in Game Config,
   so check the next step before you look for a bug.
-- A spine cell left on **(first animation)** plays the wrong clip, or a blank setup pose, when the
+- A rig cell left on **(first animation)** plays the wrong clip, or a blank setup pose, when the
   rig has several animations or none. The banner above the grid lists those cells.
-- You re-exported a spine but the grid shows the old one. Click **↻ Reload from R2**.
+- You re-exported a rig but the grid shows the old one. Click **↻ Reload from R2**.
 
 **Done when:** every in-play symbol reads correctly in every state, the header shows **Saved**,
 and every symbol has a name.

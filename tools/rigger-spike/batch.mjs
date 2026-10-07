@@ -1,12 +1,12 @@
-// Batch round-trip across every spine skeleton in the repo's game assets.
+// Batch round-trip across every rig skeleton in the repo's game assets.
 //   node tools/rigger-spike/batch.mjs
 // Pairs each <dir>/*.json skeleton with an atlas in the same dir (stem-matched,
 // else the lone .atlas) and runs the model round-trip through the official loader.
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
-import { parseSkeleton, serializeSkeleton } from './spineModel.mjs';
-import { RIG_CORE } from './spine.mjs';
+import { parseSkeleton, serializeSkeleton } from './rigModel.mjs';
+import { RIG_CORE } from './rig.mjs';
 
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(RIG_CORE);
 

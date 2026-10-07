@@ -13,7 +13,7 @@
  *
  * The resolver is stubbed, so what is under test is the WALK: which fields carry an atlas ref,
  * which prefix shapes get repaired, and — the half that matters most — what is left strictly alone.
- * A repair that rewrites a text node or a spine bundle name would be far worse than the bug.
+ * A repair that rewrites a text node or a rig bundle name would be far worse than the bug.
  */
 
 import { repairComponentDefsWith, repairLayoutDocWith } from './src/lib/server/atlasRefRepair.ts';
@@ -72,7 +72,7 @@ const doc = {
 					params: {
 						buttonImage: `${SHEET}::T_UI_BuyBack_glow.png`,
 						panelImage: `${ATLAS}::T_Frame`,
-						// A spine param holds a bundle NAME, and a text param holds prose. Neither is a
+						// A rig param holds a bundle NAME, and a text param holds prose. Neither is a
 						// scoped ref, and rewriting either would be a far worse bug than the one this fixes.
 						cardSpine: 'featureCardSpine',
 						title: 'High Noon Spin',
@@ -118,7 +118,7 @@ check(
 	`${MANIFEST}::T_UI_BuyBack_glow.png`,
 );
 check('a correct image param is untouched', inst.params.panelImage, `${ATLAS}::T_Frame`);
-check('a spine bundle name is untouched', inst.params.cardSpine, 'featureCardSpine');
+check('a rig bundle name is untouched', inst.params.cardSpine, 'featureCardSpine');
 check('prose is untouched', inst.params.title, 'High Noon Spin');
 // `a/b::c` contains `::` and its prefix contains `/`, so a looser rule WOULD rewrite it. It only
 // survives because an unresolvable ref comes back unchanged — the resolver is asked, and says no.
@@ -135,7 +135,7 @@ check(
 	`${SHEET}::not a frame`,
 );
 check(
-	'a SPINE assetKey is not an atlas ref',
+	'a RIG assetKey is not an atlas ref',
 	(doc.scenes[0].nodes[3] as { assetKey: string }).assetKey,
 	SHEET,
 );
@@ -159,7 +159,7 @@ await repairComponentDefsWith([def] as never, resolve);
 check('image param default repaired', def.params[0].default, `${MANIFEST}::T_UI_BuyBack_glow.png`);
 check('correct image default untouched', def.params[1].default, `${ATLAS}::T_Frame`);
 // Only `image` params are art refs. A `spine` default is a bundle name, even one shaped like a ref.
-check('spine param default untouched', def.params[2].default, `${SHEET}::looks-scoped`);
+check('rig param default untouched', def.params[2].default, `${SHEET}::looks-scoped`);
 check(
 	'def root sprite repaired',
 	(def.root.children[0] as { assetKey: string }).assetKey,

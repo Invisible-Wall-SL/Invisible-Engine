@@ -3,10 +3,10 @@
  * (`invisible-fx.md` §4.4). Kept here, free of PixiJS/Svelte, so the exact reduction
  * `EffectPlayer.svelte` renders (which layers mount, free vs bone-wrapped, the offset, emit
  * gating) is unit-coverable headlessly in `tools/fx-spike` — the component just maps these
- * decisions onto `<Container>` / `<SpineBoneAttach>` / `<ParticleEmitter>`.
+ * decisions onto `<Container>` / `<RigBoneAttach>` / `<ParticleEmitter>`.
  */
 
-import type { EffectDoc, EmitterLayer, SpineParticleConfig } from './types';
+import type { EffectDoc, EmitterLayer, RigParticleConfig } from './types';
 
 /**
  * How a layer decides WHEN it emits (pure classification of `layer.trigger`):
@@ -39,13 +39,13 @@ export interface LayerEmitPlan {
 export interface LayerPlan {
 	/** The layer's id (`<ParticleEmitter key>` is `art.assetKey`, distinct from this). */
 	key: string;
-	/** Always `true` now — both sprite (Tiers A/B) and spine (Tier C) particle layers render. */
+	/** Always `true` now — both sprite (Tiers A/B) and rig (Tier C) particle layers render. */
 	render: boolean;
-	/** `sprite` (textured particles, the `bindArt`/`key` path) or `spine` (pooled `Spine` particles). */
+	/** `sprite` (textured particles, the `bindArt`/`key` path) or `spine` (pooled `RigView` particles). */
 	particleKind: 'sprite' | 'spine';
-	/** The spine-particle config when `particleKind === 'spine'` (skeleton/clip/loop), else `undefined`. */
-	spineParticle?: SpineParticleConfig;
-	/** `bone` ⇒ wrap in `<SpineBoneAttach boneName=…>`; `free` ⇒ a plain offset `<Container>`. */
+	/** The rig-particle config when `particleKind === 'spine'` (skeleton/clip/loop), else `undefined`. */
+	spineParticle?: RigParticleConfig;
+	/** `bone` ⇒ wrap in `<RigBoneAttach boneName=…>`; `free` ⇒ a plain offset `<Container>`. */
 	mount: 'free' | 'bone';
 	/** The resolved bone name when `mount === 'bone'` (else `undefined`). */
 	bone?: string;
@@ -59,7 +59,7 @@ export interface LayerPlan {
 
 /**
  * Whether a layer renders at runtime. Tier C (`particleKind: 'spine'`) is now NATIVE (Phase 0
- * verdict — a pooled `SpineParticle` behavior, `invisible-fx.md` §5/§7) so BOTH sprite and spine
+ * verdict — a pooled `RigParticle` behavior, `invisible-fx.md` §5/§7) so BOTH sprite and rig
  * layers render. A `spine` layer with no `spineParticle` config (skeleton/clip) can't resolve a
  * skeleton, so it's skipped — the fail-safe analogue of a bone layer with no bone.
  */
@@ -110,12 +110,12 @@ export function planLayer(layer: EmitterLayer): LayerPlan {
 	const offset = layer.placement.offset ?? { x: 0, y: 0 };
 	const onBone = layer.placement.space === 'bone' && !!layer.placement.bone;
 	const trigger = layerTrigger(layer);
-	const isSpine = layer.particleKind === 'spine';
+	const isRig = layer.particleKind === 'spine';
 	return {
 		key: layer.key,
 		render: isLayerRenderable(layer),
-		particleKind: isSpine ? 'spine' : 'sprite',
-		spineParticle: isSpine ? layer.spineParticle : undefined,
+		particleKind: isRig ? 'spine' : 'sprite',
+		spineParticle: isRig ? layer.spineParticle : undefined,
 		mount: onBone ? 'bone' : 'free',
 		bone: onBone ? layer.placement.bone : undefined,
 		offset: { x: offset.x, y: offset.y },

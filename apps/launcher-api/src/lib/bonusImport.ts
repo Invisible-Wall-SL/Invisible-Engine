@@ -10,7 +10,7 @@ export type BonusImportParts = {
 	layout: AddOnPart;
 	flow: AddOnPart;
 	winText: AddOnPart;
-	/** Spine bundles promoted to `_shared/spines/imported/…` so they ship (CLAUDE.md rule 8). */
+	/** Rig bundles promoted to `_shared/spines/imported/…` so they ship (CLAUDE.md rule 8). */
 	spines: AddOnPart;
 };
 

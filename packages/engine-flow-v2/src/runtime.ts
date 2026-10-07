@@ -82,7 +82,7 @@ export interface FlowV2Env {
 	 *  no-op (resolves immediately), so a headless harness never deadlocks. */
 	awaitContainerComplete?(containerId: string): Promise<void>;
 	/** A `showContainer` node's `durationMs` data-out — the wall-clock ms of the container's backing
-	 *  scene's LONGEST animation (max over its spine/effect nodes), so an author can wire it into a
+	 *  scene's LONGEST animation (max over its rig/effect nodes), so an author can wire it into a
 	 *  Delay's `ms` and hold for exactly the screen's animation. The env maps the containerId → its
 	 *  scene → duration; the generic runtime needs no access to the doc's containers. Optional: an env
 	 *  without it (a pure recorder) resolves the pin to `0`, so a headless harness never depends on
@@ -564,7 +564,7 @@ class FlowInterpreter {
 	 * `showContainer.durationMs` that resolved a real animation length) wins. But when the pin CAN'T
 	 * measure — the asset isn't loaded, a clip name doesn't match, the scene has no animated node, or
 	 * an OLDER runtime doesn't know the pin at all — it yields `0`/`NaN`; feeding that straight to the
-	 * timer collapses the hold to 0 and tears the shown screen down the instant it mounts (the "Spine
+	 * timer collapses the hold to 0 and tears the shown screen down the instant it mounts (the "rig
 	 * and FX stopped playing" footgun). So an unmeasurable wire falls back to the node's OWN authored
 	 * literal `ms` (the author's floor). An UNWIRED Delay is unchanged — it already reads that literal.
 	 * Final guard: a non-finite/negative result is `0`.

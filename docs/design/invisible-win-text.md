@@ -48,7 +48,7 @@ symbol × count → template — is the thing that doesn't exist yet. Localizati
 ### 1.2 Win-level tier text is DEAD DATA (found during the build)
 
 `winLevelMap[].text` (`'BIG WIN'` …) is **read by nothing**. The tier words a player sees are
-painted into the big-win **spine art** (`big_win_intro` …); `Win.svelte` draws only the count-up
+painted into the big-win **rig art** (`big_win_intro` …); `Win.svelte` draws only the count-up
 amount over it. So there is no prior literal to reproduce, and seeding `winLevels` with the coded
 words would draw a **second** caption over art that already says it.
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Sprite, SpineProvider, SpineTrack, SpineSlot } from 'pixi-svelte';
+	import { Sprite, RigProvider, RigTrack, RigSlot } from 'pixi-svelte';
 	import { FadeContainer, ResponsiveBitmapText } from 'components-pixi';
 	import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
 	import { stateUrlDerived } from 'state-shared';
@@ -12,14 +12,14 @@
 	type AnimationName = string;
 
 	// The board-relative VISUAL of the free-spin outro (§17 Phase 3): the `FreeSpinAnimation`
-	// frame spine + win/total-win sprites + the count spine (count in its slot, reading the
+	// frame rig + win/total-win sprites + the count rig (count in its slot, reading the
 	// live count-up amount the engine's `FreeSpinOutroDriver` publishes to `freeSpinOutroState`).
 	// `boundToInstance` makes it render at the `freeSpinOutroVisual` instance node's position;
 	// absent (a bare scene bind) ⇒ it self-centres on the board. It holds nothing: the flow's
 	// outro screen owns the dim, the tap and the round-block.
 	const {
 		boundToInstance = false,
-		outroSpine: outroSpineProp = 'fsOutroNumber',
+		outroSpine: outroRigProp = 'fsOutroNumber',
 		outroAnimation: outroAnimationProp = 'intro',
 		idleAnimation: idleAnimationProp = 'idle',
 		slotName: slotNameProp = 'slot_number',
@@ -38,7 +38,7 @@
 		return typeof value === 'string' && value.length > 0 ? value : undefined;
 	};
 
-	const outroSpine = $derived(stringParam('outroSpine') ?? outroSpineProp);
+	const outroRig = $derived(stringParam('outroSpine') ?? outroRigProp);
 	const outroAnimation = $derived(stringParam('outroAnimation') ?? outroAnimationProp);
 	const idleAnimation = $derived(stringParam('idleAnimation') ?? idleAnimationProp);
 	const slotName = $derived(stringParam('slotName') ?? slotNameProp);
@@ -92,8 +92,8 @@
 					/>
 				{/if}
 
-				<SpineProvider key={outroSpine} width={sizes.width * 0.4}>
-					<SpineTrack
+				<RigProvider key={outroRig} width={sizes.width * 0.4}>
+					<RigTrack
 						trackIndex={0}
 						{animationName}
 						loop={animationName === idleAnimation}
@@ -101,7 +101,7 @@
 							complete: () => (animationName = idleAnimation),
 						}}
 					/>
-					<SpineSlot {slotName}>
+					<RigSlot {slotName}>
 						<ResponsiveBitmapText
 							anchor={0.5}
 							style={{
@@ -111,8 +111,8 @@
 							text={bookEventAmountToCurrencyString(countUpAmount)}
 							maxWidth={sizes.width}
 						/>
-					</SpineSlot>
-				</SpineProvider>
+					</RigSlot>
+				</RigProvider>
 
 				<Sprite
 					anchor={{ x: 0.5, y: isBigWin ? -3.2 : -2 }}

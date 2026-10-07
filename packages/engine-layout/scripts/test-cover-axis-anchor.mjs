@@ -134,8 +134,8 @@ for (const [name, target] of [
 		close(right.x + drawnW / 2, TALL.targetWidth) && close(right.y + drawnH / 2, TALL.targetHeight),
 		'anchor 1 puts the art’s right/bottom edge on the window’s right/bottom edge',
 	);
-	// The offset helper (used by the spine cover paths, which place the art themselves) must be
-	// the SAME slide — one formula, so a spine background can't align differently from a sprite.
+	// The offset helper (used by the rig cover paths, which place the art themselves) must be
+	// the SAME slide — one formula, so a rig background can't align differently from a sprite.
 	const off = coverAnchorOffset({ ...base, anchorX: 0, anchorY: 0 });
 	assert(
 		close(off.dx, left.x - TALL.targetWidth / 2) && close(off.dy, left.y - TALL.targetHeight / 2),

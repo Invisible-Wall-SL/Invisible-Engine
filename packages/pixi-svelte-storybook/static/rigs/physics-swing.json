@@ -1,0 +1,40 @@
+{
+	"skeleton": { "x": -137, "y": -237, "width": 274, "height": 274 },
+	"bones": [
+		{ "name": "root" },
+		{ "name": "base", "parent": "root", "y": 300 },
+		{ "name": "arm", "parent": "base", "length": 400, "rotation": -90 },
+		{ "name": "coin", "parent": "arm", "x": 400 }
+	],
+	"slots": [{ "name": "coin", "bone": "coin", "attachment": "t1_coin" }],
+	"physics": [
+		{
+			"name": "swing",
+			"bone": "arm",
+			"rotate": 1,
+			"inertia": 1,
+			"strength": 30,
+			"damping": 0.9,
+			"mass": 1
+		}
+	],
+	"skins": [
+		{
+			"name": "default",
+			"attachments": {
+				"coin": {
+					"t1_coin": { "rotation": 90, "scaleX": 0.3, "scaleY": 0.3, "width": 910, "height": 910 }
+				}
+			}
+		}
+	],
+	"animations": {
+		"sway": {
+			"bones": {
+				"base": {
+					"translate": [{ "x": -250 }, { "time": 0.8, "x": 250 }, { "time": 1.6, "x": -250 }]
+				}
+			}
+		}
+	}
+}

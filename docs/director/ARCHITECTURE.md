@@ -20,7 +20,7 @@ How the two tools plug into the platform. §1 maps what exists today (Phase 0 ex
 - **"New" badge:** none exists today. One has to be added (a `ToolDef` flag plus a card tag).
 - **Shared tool header:** `L/src/lib/ToolTopBar.svelte` (props `current`, `tools`, `clientKey`,
   `projectKey`, `meta`).
-  - Four HTML twins copy `TOOL_ICONS`: `L/static/rigger/view.html`, `L/static/spine/view.html`,
+  - Four HTML twins copy `TOOL_ICONS`: `L/static/rigger/view.html`, `L/static/rig-viewer/view.html`,
     `services/atlas-tool/ui_server.py` and `services/sheet-tool/ui.html`.
   - `scripts/check-toolbar-icons.mjs` enforces that every twin carries every tool's icon.
 - **Route gating:**

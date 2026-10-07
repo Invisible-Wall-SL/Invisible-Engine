@@ -6,9 +6,9 @@ import type { WinLevelData } from 'engine-game';
  * count-up tween) + the round-blocking await, and WRITES the win level + final amount
  * (on the `winUpdate` event), the live tweened `countUpAmount` (per frame, via
  * `WinStatePublisher`) and the coin-fountain emit signal (`coinsEmit`, = `!countUpCompleted`)
- * here. The editor-positioned VISUAL READS them — `winLevelData` picks the big-win spine vs
+ * here. The editor-positioned VISUAL READS them — `winLevelData` picks the big-win rig vs
  * the plain-number path + gates its render, `amount` feeds the authored win-level caption
- * (Invisible Win Text), `countUpAmount` feeds the count text in the spine slot, `coinsEmit`
+ * (Invisible Win Text), `countUpAmount` feeds the count text in the rig slot, `coinsEmit`
  * drives the now-positionable `WinCoins` fountain (emit while the count-up runs). A plain
  * reactive rune in a `.svelte.ts` module; the per-frame write is fine.
  *
@@ -31,7 +31,7 @@ import type { WinLevelData } from 'engine-game';
  * `escalationActive` stays false and the gate concludes exactly as before (byte-identical).
  *
  * `escalationSpeedScale` is the live HOLD-to-fast-forward multiplier (`WinGate`'s
- * `interactionSpeedScale`, 1 when not held). `WinAnimation` applies it as a spine `timeScale` to the
+ * `interactionSpeedScale`, 1 when not held). `WinAnimation` applies it as a rig `timeScale` to the
  * escalating intro/idle tiers, so the tiers VISIBLY ACCELERATE in lockstep with the count-up while the
  * player holds (a smooth ramp), reverting to 1 on release. Only the HOLD drives it (a `tapToSkip` slam
  * stays an instant collapse); 1 whenever hold-to-speed-up is off / un-escalating (byte-identical).

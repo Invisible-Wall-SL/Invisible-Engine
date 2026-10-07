@@ -50,16 +50,16 @@ const sizeRatiosSchema = z.object({
 	height: z.number(),
 });
 
-/** A single default binding — sprite frame or spine animation. Same cell shape
+/** A single default binding — sprite frame or rig animation. Same cell shape
  * as the authored override (`symbolsStorage`'s `symbolCellSchema`), reused here. */
 const defaultCellSchema = z
 	.object({
 		type: z.enum(['sprite', 'spine']),
 		assetKey: z.string().min(1),
 		animationName: z.string().min(1).optional(),
-		/** Tool-only `<folder>/<stem>` spine resolver hint (e.g. `symbols/h1`) for a
+		/** Tool-only `<folder>/<stem>` rig resolver hint (e.g. `symbols/h1`) for a
 		 *  shared-atlas symbol bundle, so the grid can preview the SPECIFIC skeleton of
-		 *  a default spine cell. Display/preview only — never written to a saved override. */
+		 *  a default rig cell. Display/preview only — never written to a saved override. */
 		previewKey: z.string().min(1).optional(),
 		sizeRatios: sizeRatiosSchema,
 	})
@@ -78,7 +78,7 @@ const defaultStatesSchema = z.record(z.enum(SYMBOL_STATES), defaultCellSchema);
 const defaultSymbolsSchema = z.record(z.string().min(1), defaultStatesSchema);
 
 /** The game's built-in global win-frame ("highlight") default — display only, so
- *  the tool can show "current = default (payframe)". Spine-only, same cell shape. */
+ *  the tool can show "current = default (payframe)". Rig-only, same cell shape. */
 const highlightDefaultSchema = z
 	.object({
 		type: z.literal('spine'),

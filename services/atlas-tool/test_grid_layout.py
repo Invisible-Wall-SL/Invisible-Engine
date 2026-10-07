@@ -328,7 +328,7 @@ def test_stale_trim_goes_but_fit_mode_stays() -> None:
     """A grid rect IS the authored cell, never a tight crop, so a trim record on
     it describes a frame this layout does not have -- and a surviving `orig_*`
     is live input: its mere PRESENCE is what `fit_to_region` reads as
-    `spine_slot`, flipping placement to `fill`. `fit_mode` is the opposite case:
+    `rig_slot`, flipping placement to `fill`. `fit_mode` is the opposite case:
     on `pack` it is derived output and gets popped, here it is the author's
     choice (the export's `fit` control) and must survive every re-flow."""
     m = _grid((300, 300), (100, 100), 1)

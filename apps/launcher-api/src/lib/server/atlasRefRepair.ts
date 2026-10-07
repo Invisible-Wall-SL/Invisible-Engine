@@ -150,7 +150,7 @@ export async function repairLayoutDocAtlasRefs(
 
 /**
  * Repair the resolved component defs' atlas refs — their `image`-param DEFAULTS and the sprite
- * nodes inside their roots. Mutates in place, mirroring `resolveSpineKeysForComponentDefs`, the
+ * nodes inside their roots. Mutates in place, mirroring `resolveRigKeysForComponentDefs`, the
  * post-resolve fixup this sits beside at each ship-path caller.
  *
  * Separate from the doc because defs are resolved separately (`loadComponent` has no client key, so

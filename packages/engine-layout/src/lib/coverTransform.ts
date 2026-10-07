@@ -1,6 +1,6 @@
 /**
  * Single source of truth for background cover/contain sizing, shared by the game
- * runtime (`LayoutNodeView`) and the editor preview (`EditorSpineLayer` /
+ * runtime (`LayoutNodeView`) and the editor preview (`EditorRigLayer` /
  * `EditorCanvas`). See `docs/design/invisible-editor.md` §10.2.
  *
  * Unlike `utils-layout`'s `createBackgroundLayout` — which drives the cover off a
@@ -21,8 +21,8 @@
  * has: the art is always drawn from its own centre (pivot 0.5), so the alignment
  * lives in the returned `x`/`y`.
  *
- * Art dimensions: spine art uses `skeleton.data.width/height` (the authored size —
- * the same source the pixi-svelte spine-sizing fix reads); sprite art uses the
+ * Art dimensions: rig art uses `skeleton.data.width/height` (the authored size —
+ * the same source the pixi-svelte rig-sizing fix reads); sprite art uses the
  * texture's natural size.
  */
 
@@ -42,9 +42,9 @@
 export type CoverFit = 'cover' | 'contain' | 'width' | 'height';
 
 export interface CoverInput {
-	/** Authored art width (spine `skeleton.data.width`, sprite natural width). */
+	/** Authored art width (rig `skeleton.data.width`, sprite natural width). */
 	artWidth: number;
-	/** Authored art height (spine `skeleton.data.height`, sprite natural height). */
+	/** Authored art height (rig `skeleton.data.height`, sprite natural height). */
 	artHeight: number;
 	/** Target box width (the canvas / window / frame the art covers). */
 	targetWidth: number;
@@ -132,10 +132,10 @@ export function coverTransform({
 /**
  * The anchor ALIGNMENT alone — how far the fitted art is slid off the target centre
  * ({@link coverTransform}'s `x`/`y` minus that centre). For the cover paths that do NOT
- * position the art themselves (a spine, sized by pixi-svelte's `fit` from its skeleton
+ * position the art themselves (a rig, sized by pixi-svelte's `fit` from its skeleton
  * dims and placed at its own authored spot): they keep their position and ADD this, so a
  * default `0.5` anchor is byte-identical (`0`) and a moved anchor slides the art the same
- * distance it would slide a sprite. One formula, so a spine background and a sprite
+ * distance it would slide a sprite. One formula, so a rig background and a sprite
  * background cannot align differently.
  */
 export function coverAnchorOffset(input: CoverInput): { dx: number; dy: number } {

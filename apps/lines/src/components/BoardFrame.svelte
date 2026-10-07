@@ -5,7 +5,7 @@
 </script>
 
 <script lang="ts">
-	import { SpineProvider, SpineTrack } from 'pixi-svelte';
+	import { RigProvider, RigTrack } from 'pixi-svelte';
 
 	import { getContext } from '../game/context';
 	import { bakedBoardGlow } from '../editor-scenes';
@@ -18,11 +18,11 @@
 	// coded `reelhouse` constants below, so an un-authored game renders byte-identically. The engine
 	// still OWNS the start→idle→exit chaining — the author swaps WHAT plays, not the sequence.
 	const glow = bakedBoardGlow();
-	const SPINE_KEY = glow?.assetKey ?? 'reelhouse';
+	const RIG_KEY = glow?.assetKey ?? 'reelhouse';
 	const START = glow?.animations?.start ?? 'reelhouse_glow_start';
 	const IDLE = glow?.animations?.idle ?? 'reelhouse_glow_idle';
 	const EXIT = glow?.animations?.exit ?? 'reelhouse_glow_exit';
-	const SPINE_SCALE = glow?.sizeRatios ?? { width: 0.62, height: 0.66 };
+	const RIG_SCALE = glow?.sizeRatios ?? { width: 0.62, height: 0.66 };
 
 	// Whether the glow should be LIT, tracked by the always-mounted `<Game>` off the
 	// `boardFrameGlow*` cues. Driven as STATE rather than by subscribing to the cues here: this
@@ -53,19 +53,19 @@
 </script>
 
 {#if animationName}
-	<SpineProvider
+	<RigProvider
 		zIndex={-1}
-		key={SPINE_KEY}
+		key={RIG_KEY}
 		x={context.stateGameDerived.boardLayout().x * POSITION_ADJUSTMENT}
 		y={context.stateGameDerived.boardLayout().y * POSITION_ADJUSTMENT}
 		width={context.stateGameDerived.boardLayout().width *
-			SPINE_SCALE.width *
+			RIG_SCALE.width *
 			context.stateGameDerived.boardLayout().scale}
 		height={context.stateGameDerived.boardLayout().height *
-			SPINE_SCALE.height *
+			RIG_SCALE.height *
 			context.stateGameDerived.boardLayout().scale}
 	>
-		<SpineTrack
+		<RigTrack
 			trackIndex={0}
 			{animationName}
 			{loop}
@@ -85,5 +85,5 @@
 				},
 			}}
 		/>
-	</SpineProvider>
+	</RigProvider>
 {/if}

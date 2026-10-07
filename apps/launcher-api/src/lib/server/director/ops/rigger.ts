@@ -25,7 +25,7 @@ const DIR_RE = new RegExp(DIR);
 const STEM_RE = new RegExp(STEM);
 const NAME = { type: 'string', minLength: 1, maxLength: 200 } as const;
 
-/** Attachment types drawn from an atlas region; Spine reads an absent type as `region`. */
+/** Attachment types drawn from an atlas region; rig reads an absent type as `region`. */
 const REGION_TYPES = new Set(['region', 'mesh', 'linkedmesh']);
 const MAX_RIGS = 100;
 /** Skeleton-shaped files read per listing; past this the list is truncated rather than slow. */
@@ -49,16 +49,15 @@ interface Rig {
 	[k: string]: unknown;
 }
 
-const spines = (ctx: AdapterContext) => {
+const rigBundlesPrefix = (ctx: AdapterContext) => {
 	const { clientKey, projectKey } = projectOf(ctx);
 	return SUB.spines(clientKey, projectKey);
 };
-const folderOf = (spinesPrefix: string, dir: string) =>
-	dir ? `${spinesPrefix}/${dir}` : spinesPrefix;
+const folderOf = (rigsPrefix: string, dir: string) => (dir ? `${rigsPrefix}/${dir}` : rigsPrefix);
 
 /** The rig at `<dir>/<stem>`: its `.irig` when it has one, else its source `.json`. */
-async function loadRig(spinesPrefix: string, dir: string, stem: string) {
-	const folder = folderOf(spinesPrefix, dir);
+async function loadRig(rigsPrefix: string, dir: string, stem: string) {
+	const folder = folderOf(rigsPrefix, dir);
 	for (const ext of ['irig', 'json'] as const) {
 		const got = await getObjectTextWithEtag(`${folder}/${stem}.${ext}`);
 		if (!got) continue;
@@ -79,7 +78,7 @@ async function loadRig(spinesPrefix: string, dir: string, stem: string) {
 	return null;
 }
 
-/** Region names in a libGDX / Spine `.atlas`: each page's header line, then its regions. */
+/** Region names in a libGDX / rig `.atlas`: each page's header line, then its regions. */
 function atlasRegions(text: string): Set<string> {
 	const out = new Set<string>();
 	let pageNext = true;
@@ -100,24 +99,17 @@ function atlasRegions(text: string): Set<string> {
  * The rig's atlas among its folder's `.atlas` files, matched as the skeleton index matches it: same
  * stem, else the folder's first.
  */
-async function loadAtlasRegions(
-	spinesPrefix: string,
-	dir: string,
-	stem: string,
-	atlases: string[],
-) {
+async function loadAtlasRegions(rigsPrefix: string, dir: string, stem: string, atlases: string[]) {
 	const atlas = atlases.find((n) => n.slice(0, -'.atlas'.length) === stem) ?? atlases[0];
-	const text = atlas
-		? await getObjectTextWithEtag(`${folderOf(spinesPrefix, dir)}/${atlas}`)
-		: null;
+	const text = atlas ? await getObjectTextWithEtag(`${folderOf(rigsPrefix, dir)}/${atlas}`) : null;
 	return text ? { atlas, regions: atlasRegions(text.text) } : null;
 }
 
 /** The `.atlas` file names directly in each folder of a `spines/` listing, by folder. */
-function atlasesByDir(spinesPrefix: string, keys: string[]): Map<string, string[]> {
+function atlasesByDir(rigsPrefix: string, keys: string[]): Map<string, string[]> {
 	const out = new Map<string, string[]>();
 	for (const key of keys) {
-		const m = /^(?:(.*)\/)?([^/]+\.atlas)$/i.exec(key.slice(spinesPrefix.length + 1));
+		const m = /^(?:(.*)\/)?([^/]+\.atlas)$/i.exec(key.slice(rigsPrefix.length + 1));
 		if (!m) continue;
 		const dir = m[1] ?? '';
 		out.set(dir, [...(out.get(dir) ?? []), m[2]]);
@@ -125,7 +117,7 @@ function atlasesByDir(spinesPrefix: string, keys: string[]): Map<string, string[
 	return out;
 }
 
-/** The region an attachment draws, as Spine resolves it: `path`, else `name`, else its key. */
+/** The region an attachment draws, as rig resolves it: `path`, else `name`, else its key. */
 const drawnRegion = (a: Attachment, key: string) => a.path ?? a.name ?? key;
 
 const attachmentsOf = (rig: Rig) =>
@@ -162,13 +154,13 @@ export const listRigs = defineOp<
 	tool: 'rigger',
 	name: 'list_rigs',
 	description:
-		"The project's Spine rigs: each one's folder (`dir`) and `stem`, its atlas, its animations, and every skin attachment with the atlas region it draws. Plus the baseEtag to hand back to rigger.rebind_attachments.",
+		"The project's rigs: each one's folder (`dir`) and `stem`, its atlas, its animations, and every skin attachment with the atlas region it draws. Plus the baseEtag to hand back to rigger.rebind_attachments.",
 	inputSchema: { type: 'object', properties: {}, additionalProperties: false },
 	agents: ['animator'],
 	scope: 'project',
 	write: false,
 	handler: async (ctx) => {
-		const prefix = spines(ctx);
+		const prefix = rigBundlesPrefix(ctx);
 		const keys = await listAllKeys(`${prefix}/`);
 		const atlases = atlasesByDir(prefix, keys);
 		const seen = new Map<string, { dir: string; stem: string }>();
@@ -278,7 +270,7 @@ export const rebindAttachments = defineOp<
 	],
 	handler: async (ctx, { dir, stem, rebinds, baseEtag }) => {
 		const { clientKey, projectKey } = projectOf(ctx);
-		const prefix = spines(ctx);
+		const prefix = rigBundlesPrefix(ctx);
 		const loaded = await loadRig(prefix, dir, stem);
 		if (!loaded) throw new AdapterError(404, 'unknown_rig', `No rig "${stem}" in "${dir}".`);
 		const folder = `${folderOf(prefix, dir)}/`;
@@ -319,7 +311,7 @@ export const rebindAttachments = defineOp<
 				unchanged.push({ ...rebind, skin });
 				continue;
 			}
-			// Spine falls back from `path` to `name` to the key: set `path` only where it is needed.
+			// Rig falls back from `path` to `name` to the key: set `path` only where it is needed.
 			if (rebind.region === (found.name ?? rebind.attachment)) delete found.path;
 			else found.path = rebind.region;
 			applied.push({ ...rebind, skin });

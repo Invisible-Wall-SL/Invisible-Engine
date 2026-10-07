@@ -5,8 +5,8 @@
  * It is the value behind Invisible Flow v2's `showContainer.durationMs` OUTPUT pin (wire it into a
  * Delay's `ms` so a beat holds for exactly the screen's animation instead of a guessed literal).
  *
- * Deliberately RESOLVER-INJECTED and asset-free: the layout doc records only NAMES (a spine
- * `assetKey` + clip name, an `effectId`), never durations. Measuring a spine clip needs the loaded
+ * Deliberately RESOLVER-INJECTED and asset-free: the layout doc records only NAMES (a rig
+ * `assetKey` + clip name, an `effectId`), never durations. Measuring a rig clip needs the loaded
  * SkeletonData; measuring an effect needs the baked `EffectDoc` (+ the `emitterSecondsToWallMs`
  * time-scale). Those live game-side, so this module takes them as callbacks and stays a pure
  * tree-walk — testable offline, and correct-once-loaded rather than throwing on an un-loaded asset
@@ -21,9 +21,9 @@ import type { LayoutNode, Scene } from './types';
  * — an undefined result is simply skipped, never treated as `0`.
  */
 export interface SceneDurationResolvers {
-	/** A spine clip's wall-clock ms — `SkeletonData.findAnimation(animation)?.duration × 1000`.
+	/** A rig clip's wall-clock ms — `SkeletonData.findAnimation(animation)?.duration × 1000`.
 	 *  `undefined` when the skeleton isn't loaded or the clip name is unknown. */
-	spineClipMs(assetKey: string, animation: string | undefined): number | undefined;
+	rigClipMs(assetKey: string, animation: string | undefined): number | undefined;
 	/** An FX effect's wall-clock ms from its baked `EffectDoc` (converting emitter-seconds through the
 	 *  runtime time-scale). `undefined` when the effect id doesn't resolve or has no finite duration. */
 	effectMs(effectId: string): number | undefined;
@@ -48,7 +48,7 @@ export interface SceneDurationResolvers {
 	 *  content. `undefined` for an unknown def (skipped). */
 	resolveComponent(defId: string): { root: LayoutNode } | undefined;
 	/** A `bind`ed coded component's wall-clock ms — the animation the game's registered Svelte
-	 *  component plays on mount (e.g. the `Transition` wipe's spine clip). The layout doc records only
+	 *  component plays on mount (e.g. the `Transition` wipe's rig clip). The layout doc records only
 	 *  the bind NAME; the coded knowledge of which clip it plays lives game-side (the declare≠implement
 	 *  seam, mirroring the coded `bookEventHandlerMap`), so the game supplies it here. `undefined` for a
 	 *  bind with no measurable animation (skipped). */
@@ -83,9 +83,9 @@ export const sceneAnimationDurationMs = (
 			case 'spine': {
 				// The clips this node can play: its resting `defaultAnimation` + every signal cue. Take the
 				// longest — the screen isn't "done" until its longest clip finishes.
-				consider(resolvers.spineClipMs(node.assetKey, node.defaultAnimation));
+				consider(resolvers.rigClipMs(node.assetKey, node.defaultAnimation));
 				for (const cue of node.cues ?? [])
-					consider(resolvers.spineClipMs(node.assetKey, cue.animation));
+					consider(resolvers.rigClipMs(node.assetKey, cue.animation));
 				break;
 			}
 			case 'effect':

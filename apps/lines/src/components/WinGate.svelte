@@ -18,7 +18,7 @@
 	// the big-win `CanvasSizeRectangle` dim scrim, the press-to-continue — and it OWNS the
 	// round-blocking await. Publishes the win level + final amount + the live count-up amount + the
 	// coin-fountain emit signal (`coinsEmit`) to `winState` so the positionable VISUAL (`WinVisual`)
-	// renders the spine + count number + the now-authorable `WinCoins` fountain. Stays full-screen
+	// renders the rig + count number + the now-authorable `WinCoins` fountain. Stays full-screen
 	// (`canvas`), never editor-positioned.
 	//
 	// `headless` (design doc §14, the win-overlay twin of the FS-7 outro) — when an authored `bigWin`
@@ -33,7 +33,7 @@
 	 * RUNAWAY GUARD on the final tier's outro — the same discipline `game/symbolBeat.ts` applies to the
 	 * win beat, for the same reason: this wait BLOCKS THE ROUND, so it must never be unbounded.
 	 *
-	 * `concludePresentation` waits for the outro's `complete`, and a spine only reports that when the
+	 * `concludePresentation` waits for the outro's `complete`, and a rig only reports that when the
 	 * bound animation actually plays once — not when its name is absent from the skeleton, and not when
 	 * the clip loops. Either way the overlay sits on screen and the round never ends. `WinAnimation`
 	 * already short-circuits the two authorings it can NAME up front (no outro, or the idle reused as
@@ -133,7 +133,7 @@
 	// tap own the beat — one tap surface, no race. Where it does not, the gate holds as before.
 
 	// Publish the live HOLD multiplier to the escalation chain, so `WinAnimation` speeds up the tier
-	// intro/idle spines in lockstep with the accelerating count-up (a smooth ramp, not a snap). 1 when
+	// intro/idle rigs in lockstep with the accelerating count-up (a smooth ramp, not a snap). 1 when
 	// hold-to-speed-up is off / the coded path / not held ⇒ the escalation runs at normal speed
 	// (byte-identical). A `tapToSkip` slam never raises `interactionSpeedScale`, so it stays an instant
 	// collapse (no ramp). Reset below on `winShow` so a value frozen after a previous win's count-up
@@ -288,7 +288,7 @@
 					console.warn(
 						`[WinGate] the win tier's outro did not report complete within ${ESCALATION_OUTRO_CAP_MS}ms — ` +
 							'concluding anyway. Check that the final tier\'s "outro" names an animation that exists ' +
-							'in its spine and plays once (a looping clip never fires `complete`).',
+							'in its rig and plays once (a looping clip never fires `complete`).',
 					);
 				}
 				resolve();

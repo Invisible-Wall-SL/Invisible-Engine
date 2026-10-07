@@ -32,13 +32,13 @@
 	const PADDING_ROW = -1;
 
 	/**
-	 * The states in which a SPINE symbol draws on the unmasked ANIMATING layer rather than the flat
+	 * The states in which a RIG symbol draws on the unmasked ANIMATING layer rather than the flat
 	 * masked one, so art authored bigger than its cell is not cut off at the window edge.
 	 *
 	 * `clearReel` and `intro` are the cascade's own two, and they are here rather than in a branch of
 	 * their own because WHICH LAYER draws a cell decides which component does — `SymbolWrap` mounts
 	 * on exactly one of the two `BoardContext`s — so a predicate that changed when the cascade took
-	 * the board would re-create every spine symbol on the spot, which is the whole bug this file's
+	 * the board would re-create every rig symbol on the spot, which is the whole bug this file's
 	 * one-cell merge exists to remove (`docs/design/board-cell-continuity.md`).
 	 *
 	 * A game that never cascades never reaches either state, so its layer assignment is unchanged.
@@ -48,7 +48,7 @@
 	 * one of the two `BoardContext`s, so extra art rides whichever layer the base picked; letting a
 	 * layer change the answer would re-create every symbol the moment a layer changed, which is the
 	 * bug this file's one-cell merge exists to remove. The consequence to know while authoring: a
-	 * spine LAYER on a sprite/flipbook-based cell draws on the MASKED layer and is clipped at the
+	 * rig LAYER on a sprite/flipbook-based cell draws on the MASKED layer and is clipped at the
 	 * board window if it overflows its cell, where the same rig bound as the cell's own art would not
 	 * be.
 	 */
