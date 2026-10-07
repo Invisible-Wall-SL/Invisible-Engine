@@ -563,6 +563,34 @@ const validGrid = (grid) => {
 		entryAwards && retriggerAwards && typeof awards.random === 'boolean'
 			? { awards: entryAwards, retrigger: retriggerAwards, random: awards.random }
 			: null;
+	// The Book-of expanding special (game-config's `resolveExpandingSymbol`, in server names): a
+	// candidate per symbol it may be drawn as. Validated WHOLE — a draw table with a hole in it would
+	// deal a different game — so malformed ⇒ dropped ⇒ no special.
+	const candidates = grid.expandingSymbol?.candidates;
+	const expandingSymbol =
+		Array.isArray(candidates) &&
+		candidates.length > 0 &&
+		candidates.every(
+			(c) =>
+				c &&
+				typeof c.symbol === 'string' &&
+				c.symbol.length > 0 &&
+				Number.isFinite(c.weight) &&
+				c.weight > 0 &&
+				Number.isInteger(c.minReels) &&
+				c.minReels >= 1 &&
+				c.minReels <= reels,
+		)
+			? {
+					candidates: candidates.map(({ symbol, weight, minReels }) => ({
+						symbol,
+						weight,
+						minReels,
+					})),
+				}
+			: null;
+	// The in-play scatter is also wild (the Book-of book): it substitutes on lines. Only `true`.
+	const scatterWild = grid.scatterWild === true;
 	// A Hold and Win game's inputs: its block, line symbols and symbol roles/pays. Shape-checked only
 	// as far as the mock needs to stand up; everything inside was normalized by the launcher.
 	const holdAndWinShaped = (hw) =>
@@ -638,6 +666,8 @@ const validGrid = (grid) => {
 		...(freeSpinsOff ? { freeSpins: false } : {}),
 		...(freeSpinsTrigger ? { freeSpinsTrigger } : {}),
 		...(freeSpinsAwards ? { freeSpinsAwards } : {}),
+		...(expandingSymbol ? { expandingSymbol } : {}),
+		...(scatterWild ? { scatterWild: true } : {}),
 	};
 };
 

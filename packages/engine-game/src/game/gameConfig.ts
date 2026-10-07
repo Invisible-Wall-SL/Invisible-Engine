@@ -11,6 +11,7 @@ import {
 	reconcileGridDoc,
 	gridShapeDiffers,
 	type ServerWindow,
+	resolveExpandingSymbol,
 	resolveReelBehaviour,
 	resolveSounds,
 	resolveWinModel,
@@ -934,6 +935,21 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 			: undefined;
 	}
 
+	/**
+	 * Publish the expanding special's thresholds (client symbol → the fewest reels it must cover to
+	 * expand) to the global the RGS FACADE's morph gate reads — the same bridge as
+	 * {@link publishWinLevelsToFacade}, so the reels that morph on screen are the reels the server
+	 * pays (`docs/design/book-feature.md` §3.4). Unset when the project has no
+	 * `freeSpins.expandingSymbol`, which leaves the facade on its captured rule. Called beside it, at
+	 * boot, before the game authenticates.
+	 */
+	function publishExpandMinReelsToFacade(): void {
+		const special = resolveExpandingSymbol(getActiveGameConfig());
+		(globalThis as { __IE_EXPAND_MIN_REELS__?: unknown }).__IE_EXPAND_MIN_REELS__ = special
+			? Object.fromEntries(special.candidates.map((c) => [c.symbol, c.minReels]))
+			: undefined;
+	}
+
 	let warned = false;
 
 	/**
@@ -1016,6 +1032,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		paylineColor,
 		payoutDivisor,
 		publishWinLevelsToFacade,
+		publishExpandMinReelsToFacade,
 		publishWinPresentation,
 		resetGameConfigCache,
 		captureServerGrid,

@@ -2,11 +2,12 @@
  * Offline fixture for a round left OPEN when the game starts. Run it with node:
  *   node --experimental-strip-types --import ./scripts/ts-loader.mjs packages/rgs-translator-eagaming/resume.fixture.ts
  *
- * Drives the REAL facade against the REAL book mock, in the partner's no-auto-collect mode. A
- * "reload" is a fresh import of the facade — its sessions, seq and gid are module state, exactly what
- * a closed tab loses — against a server that still holds the round.
+ * Drives the REAL facade against the REAL book mock, in the partner's no-auto-collect mode, and (7)
+ * against the REAL lines mock dealing the Book of Thermopylae preset. A "reload" is a fresh import of
+ * the facade — its sessions, seq and gid are module state, exactly what a closed tab loses — against
+ * a server that still holds the round.
  *
- * SIX claims:
+ * SEVEN claims:
  *
  *  1. NOTHING OPEN, NOTHING CHANGES. A boot with no open round hands the engine no round.
  *  2. A BASE WIN LEFT UNCOLLECTED IS SHOWN, THEN PAID. The boot replays the round (charging nothing),
@@ -32,6 +33,10 @@
  *     ladder published only once the game mounted), the outro's level came from the facade's coded
  *     ladder and was off the authored one, which froze the outro on "$0.00" until the engine learned
  *     to present such a level on the nearest tier (`engine-game` `winLadder.fixture.ts`).
+ *  7. THE LINES MOCK RESUMES TOO. A Book-of feature bought on the lines mock and cut off between free
+ *     spins is replayed where it was stored, with the same special, played out and collected once —
+ *     what claim 3 holds the book mock to. Before `docs/design/book-feature.md` Phase 3 the lines mock
+ *     never told a reloading client a round was open, and every lines game abandoned it.
  */
 
 import { readFileSync } from 'node:fs';
@@ -40,7 +45,9 @@ import { createServer, type Server } from 'node:http';
 import compiledLinesConfig from '../../apps/lines/src/game/config.ts';
 import { createGameConfig } from '../engine-game/src/game/gameConfig.ts';
 import { normalizeGameConfigDoc, type WinLevelTier } from '../game-config/index.ts';
+import { linesMapping, mapSymbol } from './src/gameMappings.ts';
 import { createMockRgs } from '../../scripts/mock-rgs-server-book.mjs';
+import { createMockRgs as createLinesMock } from '../../scripts/mock-rgs-server.mjs';
 
 type Facade = typeof import('./src/engineFacade.ts');
 type Event = { type: string; amount?: number; winLevel?: number; total?: number };
@@ -522,6 +529,101 @@ console.log('\n6. a resumed retriggered free-spin round ends on its own total an
 		feature.server.close();
 		delete (globalThis as { __IE_WIN_LEVELS__?: unknown }).__IE_WIN_LEVELS__;
 	}
+}
+
+console.log('\n7. the lines mock resumes too: a Book-of feature cut off between free spins');
+{
+	const preset = JSON.parse(
+		readFileSync(
+			new URL('../../scripts/lib/book-of-thermopylae-lines-grid.json', import.meta.url),
+			'utf8',
+		),
+	) as Record<string, unknown>;
+	const lines = createLinesMock({
+		label: 'resume-lines',
+		seed: 'resume-lines',
+		quiet: true,
+		startBalance: START,
+		...preset,
+	});
+	const linesServer: Server = createServer((req, res) =>
+		lines.handle(req, res, new URL(req.url ?? '/', `http://${req.headers.host}`)),
+	);
+	await new Promise<void>((resolve) => linesServer.listen(0, resolve));
+	const linesUrl = `localhost:${(linesServer.address() as { port: number }).port}`;
+	const sid = 'S-lines';
+	const held = () => lines.sessions.get(sid) as MockSession;
+	const send = async (seq: number, gid: string | null, body: unknown) => {
+		const query = `sid=${sid}&seq=${seq}${gid ? `&gid=${gid}` : ''}`;
+		const res = await fetch(`http://${linesUrl}/rgs/engine?${query}`, {
+			method: 'POST',
+			body: JSON.stringify(body),
+		});
+		return (await res.json()) as Awaited<ReturnType<typeof post>>;
+	};
+	// The first tab: asks for the table, buys the feature, sees two free spins, and dies.
+	await send(0, null, [{ action: 'config' }]);
+	const opened = await send(0, null, [
+		{ action: 'bet', context: [1, 1] },
+		{ action: 'play', context: '' },
+	]);
+	const gid = opened.platform.gameRound?.id ?? null;
+	const special = (
+		opened.events.find((e) => e.event === 'pickRandomly')?.context as { item: { state: string } }
+	)?.item.state;
+	const dealt = [opened, await send(2, gid, [{ action: 'play' }]), await send(3, gid, [{ action: 'play' }])]; // prettier-ignore
+	const afterBuy = held().balance;
+	check('the buy charged 100× a 10-line stake', START - afterBuy, 100 * 10);
+	check('the bought feature drew a special', typeof special, 'string');
+
+	const tab = await openTab();
+	const sent: { request: string; board: unknown }[] = [];
+	const realFetch = globalThis.fetch;
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		const body = JSON.parse(String(init?.body ?? '[]')) as { action: string }[];
+		const response = await realFetch(input, init);
+		const { events = [] } = (await response.clone().json()) as typeof opened;
+		sent.push({
+			request: `${new URL(String(input)).searchParams.get('seq')}:${body.map((a) => a.action).join('+')}`,
+			board: events.find((e) => e.event === 'playedSpin')?.context,
+		});
+		return response;
+	}) as typeof fetch;
+	const answer = (await tab.requestAuthenticate({
+		sessionID: sid,
+		rgsUrl: linesUrl,
+		language: 'en',
+	})) as Answer;
+	globalThis.fetch = realFetch;
+	const stored = sent.filter((r) => /^\d+:[a-z]/i.test(r.request) && !r.request.endsWith('config'));
+	check(
+		'the three dealt requests are re-posted where they were stored',
+		stored.slice(0, 3).map((r) => r.request),
+		['0:bet+play', '2:play', '3:play'],
+	);
+	check(
+		'…and answered with the boards already dealt',
+		stored.slice(0, 3).map((r) => r.board),
+		dealt.map((r) => r.events.find((e) => e.event === 'playedSpin')?.context),
+	);
+	const state = (answer.round?.state ?? []) as (Event & { symbol?: string })[];
+	const counters = state.filter((e) => e.type === 'updateFreeSpin');
+	check('the round reaches the engine as ACTIVE', answer.round?.active, true);
+	check(
+		'…with the special it was dealt',
+		state.find((e) => e.type === 'setExpandingSymbol')?.symbol,
+		mapSymbol(linesMapping, special ?? ''),
+	);
+	check(
+		'every spin of it is presented (the base spin + every free spin)',
+		state.filter((e) => e.type === 'reveal').length,
+		1 + (counters.at(-1)?.total ?? 0),
+	);
+	check('the round was played out and collected once', held().round, null);
+	const shown = Math.max(0, ...state.map((e) => e.amount ?? 0));
+	// A shown amount is hundredths of the BASE stake (10 cents), so it reads as tenths of a cent.
+	check('the server paid exactly the win shown, on top of ONE buy', held().balance, afterBuy + shown / 10); // prettier-ignore
+	linesServer.close();
 }
 
 server.close();

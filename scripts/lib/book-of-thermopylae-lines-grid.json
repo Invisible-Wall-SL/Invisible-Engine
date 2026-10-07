@@ -1,0 +1,52 @@
+{
+	"reels": 5,
+	"rows": 3,
+	"paylines": [
+		[1, 1, 1, 1, 1],
+		[0, 0, 0, 0, 0],
+		[2, 2, 2, 2, 2],
+		[0, 1, 2, 1, 0],
+		[2, 1, 0, 1, 2],
+		[0, 0, 1, 2, 2],
+		[2, 2, 1, 0, 0],
+		[1, 2, 2, 2, 1],
+		[1, 0, 0, 0, 1],
+		[1, 0, 1, 2, 1]
+	],
+	"symbols": ["PIC1", "PIC2", "PIC3", "PIC4", "PIC5", "PIC6", "PIC7", "PIC9", "PIC10", "SCAT"],
+	"symbolPaytable": {
+		"PIC1": { "2": 10, "3": 100, "4": 1000, "5": 5000 },
+		"PIC2": { "2": 10, "3": 30, "4": 400, "5": 2000 },
+		"PIC3": { "2": 5, "3": 30, "4": 100, "5": 750 },
+		"PIC4": { "2": 5, "3": 20, "4": 100, "5": 750 },
+		"PIC5": { "3": 5, "4": 50, "5": 150 },
+		"PIC6": { "3": 5, "4": 50, "5": 150 },
+		"PIC7": { "3": 5, "4": 20, "5": 100 },
+		"PIC9": { "3": 5, "4": 20, "5": 100 },
+		"PIC10": { "3": 5, "4": 20, "5": 100 }
+	},
+	"scatterPaytable": { "3": 2, "4": 20, "5": 200 },
+	"betModes": [
+		{ "mode": "base", "cost": 1, "kind": "base" },
+		{ "mode": "bonus", "cost": 100, "kind": "buy" }
+	],
+	"freeSpinsAwards": {
+		"awards": [{ "count": 3, "spins": 10 }],
+		"retrigger": [{ "count": 3, "spins": 10 }],
+		"random": false
+	},
+	"expandingSymbol": {
+		"candidates": [
+			{ "symbol": "PIC1", "weight": 0.09, "minReels": 2 },
+			{ "symbol": "PIC2", "weight": 0.09, "minReels": 3 },
+			{ "symbol": "PIC3", "weight": 0.09, "minReels": 3 },
+			{ "symbol": "PIC4", "weight": 0.095, "minReels": 3 },
+			{ "symbol": "PIC5", "weight": 0.095, "minReels": 3 },
+			{ "symbol": "PIC6", "weight": 0.095, "minReels": 3 },
+			{ "symbol": "PIC9", "weight": 0.11, "minReels": 3 },
+			{ "symbol": "PIC10", "weight": 0.14, "minReels": 3 },
+			{ "symbol": "PIC7", "weight": 0.195, "minReels": 3 }
+		]
+	},
+	"scatterWild": true
+}

@@ -671,32 +671,38 @@ Plan: [hold-and-win.md](../design/hold-and-win.md) §1.3/§5; hub: [hold-and-win
    the "matches" line; edit one price, see the red banner, and see Publish refuse (admin: publish
    anyway). Also click-test a config restore from **History…** (the flow restore was tested; same
    modal).
-3. **Scatter math the mocks still disagree on (owner decision).** The lines mock's placeholder pays
+3. _Closed 2026-10-07:_ the Book-of trigger rate on the lines mock now matches the book mock (see
+   Recent changes).
+4. **An authored `minReels` on a Book-of KIND project** morphs on screen by the authored threshold
+   (the bridge) while the book mock still pays by the captured one (`PIC1` from 2, else 3). Only a
+   project that edits the preset's thresholds before it migrates sees it; the lines mock pays the
+   authored one.
+5. **Scatter math the mocks still disagree on (owner decision).** The lines mock's placeholder pays
    `3:2 4:10 5:100` while the info page's default shows `3:2 4:20 5:200` — undeclared, so no check
    sees it; authoring the scatter row fixes it per project. The book mock DECLARES `3:2 4:20 5:200`
    but pays 0 (its scatter only triggers the feature). Neither is changed here: both are payouts on
    live test games.
-4. **Max win from the server.** The book wire declares `maxWinMp: [10000]`; the info page states the
+6. **Max win from the server.** The book wire declares `maxWinMp: [10000]`; the info page states the
    config's base-mode `max_win` (the remake: 5,000). Since 2026-09-30 the boot compares
    `maxWinMp[0]` with it and warns (never adopts) — so the remake warns until one side changes; what
    later entries cap is still unknown. RTP per bet mode is shown when the operator asks
    (`showBuyBonusPayback` / `showHighChancePayback`) — see [engine.md](engine.md), 2026-09-30.
-5. **A partner scatter under another name.** The mapping names a partner's scatter `S`; a project
+7. **A partner scatter under another name.** The mapping names a partner's scatter `S`; a project
    whose scatter is called something else gets it `skipped` on import and a permanent
    `undeclared`/`unshown` pair in the drift check. Every live config names it `S` today.
 
-6. **Free-spins presentation that still assumes the scatter** (from the 2026-10-07 switch). The
+8. **Free-spins presentation that still assumes the scatter** (from the 2026-10-07 switch). The
    facade's `freeSpinTrigger.positions` come only from a `SCAT` scatter win
    (`engineFacade.ts`, `spinWin` case), so a custom trigger symbol gets no trigger highlight; the
    flow-only "N Scatters award N Free Spins" toast (`flowEffects.ts`) fires only on a zero-pay scatter
    entry, so it never misfires but never names a custom trigger either; `builtinGameModes` still
    lists the `freeSpins` mode on a game with free spins off (the Game modes section shows it).
    Partner servers ignore the block by design; the book mock honours it since 2026-10-07 (below).
-7. **The rules page does not state the free-spins AWARD** (from the 2026-10-07 award tables). It
+9. **The rules page does not state the free-spins AWARD** (from the 2026-10-07 award tables). It
    states the trigger (a FREE SPINS rule when it departs) but not how many spins are awarded or
    added on a retrigger, and so says nothing of a random award range either. The award is read from
    the server at runtime, so the game itself is right; only the copy is silent.
-8. **Free spins OFF does not stop a pots-overlay pot starting them.** A pot whose bonus is
+10. **Free spins OFF does not stop a pots-overlay pot starting them.** A pot whose bonus is
    `freeSpins` still starts the host's free spins on the book mock (`turn.hostFeature`) with the
    section switched off, and the validator says nothing. Either the validator should refuse that
    route while free spins are off, or the mock should refuse it; decide with the pots overlay.
@@ -711,6 +717,47 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 - _None._
 
 ## Recent changes
+
+- 2026-10-07 — **The lines mock deals the expanding symbol** (Phase 3 of
+  [book-feature.md](../design/book-feature.md)). **Mock** (`scripts/mock-rgs-server.mjs`): two new
+  options. `expandingSymbol: { candidates: [{ symbol, weight, minReels }] }` (server names) draws the
+  special by weight when free spins start (scatter trigger, forced, bought), names it as `state` in
+  the bonus snapshots and announces it with `pickRandomly` straight after `enterBonus`, in the book
+  mock's shape (`prob` = the authored weight); on each free spin, covering `minReels` reels, it pays
+  `row[reels] × baseTotal` (`mode: 'scatter'`, every cell of the covered reels), then the other
+  symbols pay their lines on the expanded board without it; `spinStart.symbolsPay.scatter` gains it.
+  Only candidates the game deals are kept; a lines win model only; it never retriggers.
+  `scatterWild: true` makes `SCAT` substitute on lines, leading books included (decision 2), never
+  paying a line of its own, and declares it in `wildSymbols`. **Resume:** a session with an open
+  round now gets `actions` + `resume: true` on its boot `config` (the stored envelopes), so a
+  reloading client replays the round instead of abandoning it — every lines game, not only Book-of;
+  a `config` action is no longer stored over a played position. **Contract** (`mockContract.ts`):
+  the lines branch appends `expandingSymbol` (`resolveExpandingSymbol` through `linesMapping`; an
+  unnamed candidate is dropped and said once) and `scatterWild` (the in-play scatter is also wild),
+  both last and only for a `lines` win model; `projectWild` skips a scatter, so a book no longer
+  makes the mock deal a separate `WILD`. The book contract is unchanged. **Test server:** `validGrid`
+  forwards both, the table validated whole (a `minReels` past the reels drops it). **Engine:** see
+  [engine.md](engine.md) (the `__IE_EXPAND_MIN_REELS__` bridge, `PIC8–10` lines markers); runtime
+  release on merge. **Gates:** `pnpm check:lines-parity` (new, in `check:rgs`) — ten lines-mock
+  configurations' seeded responses pinned to origin/main's digests (ebc2197); `pnpm
+  check:expanding-symbol` (new, in `check:rgs`) — the pickRandomly shape, the expansion pay and the
+  line pass on 3,640 free spins, buy/forced, in-play candidates only, the scatter-wild rule, the
+  facade's engine-event grammar against the book mock's, the morph gate and the bridge, the test
+  server forwarding, and the distributions side by side; `check:resume` §7 (fails with the resume
+  removed); `check:mock-contract` (the preset's contract is pinned as
+  `scripts/lib/book-of-thermopylae-lines-grid.json`, which `check:expanding-symbol` deals). Book
+  parity digests unchanged.
+  **Dealt like the book mock** (coordinator decision: with `scatterWild` the book is dealt at the
+  book mock's 5% a cell, not the lines mock's 4%, and a forced or bought board carries four books;
+  no other game's deal moves). The preset on the lines mock vs the book mock, 2,000 forced features
+  each: the special's draw matches the captured weights on both (worst 1.45 points); it expands on
+  16.8% vs 17.2% of free spins over 3.0 reels, paying 8.0× vs 8.4× the bet per free spin; books
+  retrigger on 3.41% vs 3.44% of free spins and a feature lasts 15.2 vs 15.2 spins; the base game
+  triggers on 3.71% vs 3.65% of 20,000 spins (3.62% expected at 5% a cell). **Where they still
+  differ:** the book's scatter row pays (decision 1; the book mock pays 0), so every forced or
+  bought round's four books pay 20× the bet; books substitute on lines (decision 2);
+  `betOptionsName` is declared, lines are 0-based, no `maxWinMp`; the RNG streams differ, so seeded
+  boards do.
 
 - 2026-10-07 — **The expanding symbol as config** (Phase 2 of
   [book-feature.md](../design/book-feature.md)). **Schema:** `freeSpins.expandingSymbol`

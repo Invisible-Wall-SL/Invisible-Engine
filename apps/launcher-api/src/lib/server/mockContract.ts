@@ -32,9 +32,11 @@ import {
 	freeSpinsTriggerIsDefault,
 	holdAndWinMockInputs,
 	inPlayScatterSymbol,
+	isScatterSymbol,
 	normalizeGameConfigDoc,
 	potsOverlayMockInputs,
 	resolveBetModes,
+	resolveExpandingSymbol,
 	resolveFreeSpins,
 	resolveWinModel,
 	symbolsInPlay,
@@ -116,12 +118,19 @@ function paytableToOccursMap(rows: PaytableRow[]): Record<string, number> {
  * paytable but is never dealt stays wild-less, which is why an authored-but-unused `W` doesn't pay.
  * The lines facade maps the mock's `WILD` to the game symbol `W`, so the in-play wild is expected to
  * be `W`.
+ *
+ * A SCATTER that is also wild (a Book-of book) is not this wild: its `paytable` is its scatter pay,
+ * and it substitutes as `SCAT` (`projectScatterWild`). Taking it here made the mock deal a separate
+ * `WILD` — mapped to `W`, which a book project has no art for — priced at the book's scatter row.
  */
 function projectWild(doc: GameConfigDoc): { paytable: Record<string, number> } | undefined {
 	const inPlay = new Set(symbolsInPlay(doc));
 	const entry = Object.entries(doc.symbols).find(
 		([name, sym]) =>
-			inPlay.has(name) && sym.special_properties?.includes('wild') && sym.paytable?.length,
+			inPlay.has(name) &&
+			sym.special_properties?.includes('wild') &&
+			!isScatterSymbol(sym) &&
+			sym.paytable?.length,
 	);
 	const paytable = entry?.[1].paytable;
 	return paytable ? { paytable: paytableToOccursMap(paytable) } : undefined;
@@ -361,6 +370,39 @@ function projectScatterPaytable(doc: GameConfigDoc): Record<string, number> | un
 }
 
 type Grid = NonNullable<TestServerGameEntry['grid']>;
+
+/** Is the in-play scatter also wild — a Book-of book, which the lines mock substitutes as `SCAT`? */
+function projectScatterWild(doc: GameConfigDoc): boolean {
+	const name = inPlayScatterSymbol(doc.symbols, symbolsInPlay(doc));
+	return Boolean(name && doc.symbols[name].special_properties?.includes('wild'));
+}
+
+/**
+ * The expanding special (`resolveExpandingSymbol`) in SERVER names, for the lines mock to draw,
+ * expand and pay — or `undefined` when the project has none. A candidate the mock has no name for is
+ * left out and said once: the mock could never deal it, so it could never expand.
+ */
+function projectExpandingSymbol(doc: GameConfigDoc, projectKey: string): Grid['expandingSymbol'] {
+	const resolved = resolveExpandingSymbol(doc);
+	if (!resolved) return undefined;
+	const toServer = new Map(
+		Object.entries(linesMapping.symbols).map(([server, client]) => [client, server]),
+	);
+	const unnamed = resolved.candidates.filter((c) => !toServer.has(c.symbol)).map((c) => c.symbol);
+	if (unnamed.length) {
+		warnOnce(
+			`${projectKey}:expandingSymbol:${unnamed.join(',')}`,
+			`[mock-contract] '${projectKey}' may draw ${unnamed.join(', ')} as its expanding symbol, ` +
+				`which the test server's mock has no name for — it is never drawn there.`,
+		);
+	}
+	const candidates = resolved.candidates.flatMap((c) => {
+		const symbol = toServer.get(c.symbol);
+		return symbol ? [{ symbol, weight: c.weight, minReels: c.minReels }] : [];
+	});
+	return candidates.length ? { candidates } : undefined;
+}
+
 type FreeSpinsFields = Pick<Grid, 'freeSpins' | 'freeSpinsTrigger' | 'freeSpinsAwards'>;
 
 /**
@@ -586,6 +628,11 @@ function projectGrid(
 		const betModes = projectBetModes(doc, projectKey);
 		// Last, so a project with free spins on three scatters keeps its grid byte-identical.
 		const freeSpins = projectFreeSpins(doc, projectKey);
+		// The Book-of parts, after everything else for the same reason. A lines game only: the mock
+		// has no expanded-reel rule for another model, and `/config` refuses the block on one.
+		const paysLines = model.type === 'lines';
+		const expandingSymbol = paysLines ? projectExpandingSymbol(doc, projectKey) : undefined;
+		const scatterWild = paysLines && projectScatterWild(doc);
 		return {
 			reels,
 			rows,
@@ -601,6 +648,8 @@ function projectGrid(
 			...(scatterPaytable ? { scatterPaytable } : {}),
 			...(betModes ? { betModes } : {}),
 			...freeSpins,
+			...(expandingSymbol ? { expandingSymbol } : {}),
+			...(scatterWild ? { scatterWild: true } : {}),
 		};
 	} catch {
 		return undefined;

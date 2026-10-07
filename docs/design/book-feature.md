@@ -277,7 +277,12 @@ It also makes the mechanic addable to any lines game. The new options on `create
 **What changes for a book game moving from the book mock to the lines mock.** It is a different
 dealer, so seeded boards differ; the round shape does not.
 
-- The restricted-pool deal draws scatter at 4%, not 5%, and is uniform otherwise.
+- The restricted-pool deal is uniform otherwise. The book itself is dealt at the book mock's 5% a
+  cell (the lines mock's other scatters keep 4%), and a forced or bought board carries four books,
+  as the book mock forces: both keyed on `scatterWild`, so the trigger (about 3.6% of base spins),
+  the retrigger and the feature length match the book mock (coordinator decision, 2026-10-07). With
+  decision 1, those four books pay the scatter row's 4-of (20× the bet) on every forced or bought
+  round.
 - `paylineId` is 0-based. The facade resolves lines by shape, so the client sees no difference.
 - `betOptionsName` is now declared. The table is still `[10, 1000]` for 10 lines and one 100× buy,
   but the client matches the option by name.
@@ -509,6 +514,9 @@ when the census returns zero `bookOf` rows, zero `book` manifest entries and no
 Phase 7 would read as a custom kind, which every surface already treats as lines.
 
 ## 7. Build plan
+
+> Where it stands: Phases 1 and 2 merged (#1114, #1119); Phase 3 (3a–3c) built, see
+> [status/game-config](../status/game-config.md) and [status/engine](../status/engine.md).
 
 **Every phase:**
 

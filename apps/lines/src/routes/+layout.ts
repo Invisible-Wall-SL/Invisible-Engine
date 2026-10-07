@@ -18,7 +18,11 @@ export const trailingSlash = 'ignore';
 import { prepareRuntimeBundle } from '../editor-scenes';
 import { exposeBuildInfo } from '../game/buildInfo';
 import { startErrorTracking } from '../game/errorTracking';
-import { publishWinLevelsToFacade, resetGameConfigCache } from '../game/gameConfig';
+import {
+	publishExpandMinReelsToFacade,
+	publishWinLevelsToFacade,
+	resetGameConfigCache,
+} from '../game/gameConfig';
 
 /**
  * Live runtime (Invisible Game Maker, Phase 0). OPT-IN via `?runtime=1`: fetch the
@@ -35,9 +39,11 @@ export const load = async () => {
 	startErrorTracking();
 	await prepareRuntimeBundle();
 	// Before `<Authenticate>` mounts: a round left open is translated inside `requestAuthenticate`,
-	// and the facade stamps its `winLevel`s from whatever ladder it has been given by then. The memo
-	// is dropped first, since a module may have read the config before the runtime bundle landed.
+	// and the facade stamps its `winLevel`s (and gates a Book-of expansion) from whatever it has been
+	// given by then. The memo is dropped first, since a module may have read the config before the
+	// runtime bundle landed.
 	resetGameConfigCache();
 	publishWinLevelsToFacade();
+	publishExpandMinReelsToFacade();
 	return {};
 };
