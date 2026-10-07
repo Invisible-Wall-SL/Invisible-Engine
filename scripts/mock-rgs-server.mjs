@@ -1298,6 +1298,9 @@ export function createMockRgs(opts = {}) {
 	const STACK_PICS_ALL = ['PIC1', 'PIC2', 'PIC3', 'PIC4'];
 	const stackPicsInPool = STACK_PICS_ALL.filter((s) => LINE_POOL.includes(s));
 	const STACK_PICS = stackPicsInPool.length ? stackPicsInPool : LINE_POOL;
+	// The tall column the stacked deal is built around: WILD, unless the project stated its pool and
+	// deals no wild — then its top stacking symbol, so a W its config marks unused never lands.
+	const STACK_TALL = wild || !allowedSymbols.length ? 'WILD' : STACK_PICS[0];
 
 	/** sid -> { balance, round | null, configSent, betTable? } — `betTable` is the table the session
 	 *  was TOLD about (null for line-config), pinned when its config is sent. See `tableFor`. */
@@ -1381,17 +1384,17 @@ export function createMockRgs(opts = {}) {
 			const rowCount = rowHeights[reel];
 			const column = Array.from({ length: rowCount }, pickSymbol);
 			// Last reel: the whole 5-tall Wild (checked first so a 1- or 2-reel grid still gets a full stack).
-			if (reel === reelCount - 1) return Array.from({ length: rowCount }, () => 'WILD');
+			if (reel === reelCount - 1) return Array.from({ length: rowCount }, () => STACK_TALL);
 			// Reel 0: partial WILD pinned to the TOP edge (rows 0..len-1) ⇒ bottom-of-picture cutoff.
 			if (reel === 0 && rowCount >= 2) {
 				const len = partialWildLen(rowCount);
-				for (let i = 0; i < len; i++) column[i] = 'WILD';
+				for (let i = 0; i < len; i++) column[i] = STACK_TALL;
 				return column;
 			}
 			// Reel 1: partial WILD pinned to the BOTTOM edge (last len rows) ⇒ top-of-picture cutoff.
 			if (reel === 1 && rowCount >= 3) {
 				const len = partialWildLen(rowCount);
-				for (let i = 0; i < len; i++) column[rowCount - len + i] = 'WILD';
+				for (let i = 0; i < len; i++) column[rowCount - len + i] = STACK_TALL;
 				return column;
 			}
 			// Middle reels: an occasional random high-symbol run (partial or full, per its own height).

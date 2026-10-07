@@ -71,6 +71,8 @@
 		"check:symbols-kind-gating": "tsx --tsconfig tsconfig.scripts.json scripts/check-symbols-kind-gating.ts",
 		"precheck:symbols-follow-config": "node scripts/ensure-svelte-kit.mjs",
 		"check:symbols-follow-config": "tsx --tsconfig tsconfig.scripts.json scripts/check-symbols-follow-config.ts",
+		"precheck:unused-symbols-in-game": "node scripts/ensure-svelte-kit.mjs",
+		"check:unused-symbols-in-game": "tsx --tsconfig tsconfig.scripts.json scripts/check-unused-symbols-in-game.ts",
 		"precheck:clear-reel": "node scripts/ensure-svelte-kit.mjs",
 		"check:clear-reel": "tsx --tsconfig tsconfig.scripts.json scripts/check-clear-reel-and-win-explode.ts",
 		"precheck:symbol-layers": "node scripts/ensure-svelte-kit.mjs",

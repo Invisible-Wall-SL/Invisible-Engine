@@ -1085,6 +1085,13 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 
 ## Recent changes
 
+- 2026-10-07 — **A role symbol on no strip is never dealt.** `holdAndWinMockInputs` passed every
+  symbol with a Hold and Win role, so the mock dealt a coin, special, meter or unlock symbol that
+  `/config` badges unused. It now passes only role symbols a strip deals: a special or meter whose
+  symbol is unused simply never lands, and with no coin or jackpot symbol in play the test server
+  deals the base game as lines. Every preset deals all its role symbols, so nothing changes for them
+  (`check:holdandwin` unchanged). Gate: `check:unused-symbols-in-game`.
+
 - 2026-10-03 — **Phase 12c: the done-when rehearsed on the real game, locally** (#1006). All three
   pots pass. The live run on `hw-3pots-sample` is owed (Owner checklist 13).
   - **Why local:** this session's egress blocks `games.invisiblewall.org` and

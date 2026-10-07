@@ -588,6 +588,12 @@ The badges also decide what [Invisible Symbols](symbols-state-machine.md) lists:
 symbol **in play** or a **token** gets a row there to bind its art, and an **unused**
 one does not appear at all. Save here, then reload that page.
 
+They decide the game too: once saved, an **unused** symbol is never dealt by our test
+server (any kind, its Book-of expanding special and Hold and Win coins and specials
+included), never flickers past on the spinning reels and never shows in the book
+shuffle. Until a project saves its config the game plays the engine's built-in lines
+config, as the banner at the top says. A partner's own server deals what its math says.
+
 > The generated spin strips are **cosmetic** — the blur filler the reels cycle
 > through. They are **not** the real weighted math strips (the math team owns those,
 > and they never reach the client). A symbol's presence on a strip is only whether it

@@ -6,7 +6,7 @@
  */
 
 import { isHoldAndWinSymbol, symbolHoldAndWinRoles, type HoldAndWin } from './holdAndWin';
-import { symbolsInPlayForGameType } from './inPlay';
+import { symbolsInPlay, symbolsInPlayForGameType } from './inPlay';
 import type { GameConfigDoc } from './types';
 
 export type HoldAndWinMockSymbol = {
@@ -22,7 +22,8 @@ export type HoldAndWinMockInputs = {
 	/** The base game's line symbols (wild included): in play on the `basegame` strips and carrying
 	 *  no Hold and Win role. */
 	lineSymbols: string[];
-	/** Every line symbol and every symbol with a Hold and Win role. */
+	/** Every line symbol and every symbol with a Hold and Win role that a strip deals — one on no
+	 *  strip is unused (`symbolUses`), so the mock never deals it. */
 	symbols: Record<string, HoldAndWinMockSymbol>;
 };
 
@@ -41,6 +42,7 @@ export function holdAndWinMockInputs(doc: GameConfigDoc): HoldAndWinMockInputs |
 	const block = doc.holdAndWin;
 	if (!block) return undefined;
 	const inBase = new Set(symbolsInPlayForGameType(doc, 'basegame'));
+	const inPlay = new Set(symbolsInPlay(doc));
 	const dictionary = Object.keys(doc.symbols);
 	const plain = dictionary.filter((name) => !isHoldAndWinSymbol(doc.symbols[name]));
 	const dealt = plain.filter((name) => inBase.has(name));
@@ -49,7 +51,7 @@ export function holdAndWinMockInputs(doc: GameConfigDoc): HoldAndWinMockInputs |
 	for (const name of dictionary) {
 		const symbol = doc.symbols[name];
 		const roles = symbolHoldAndWinRoles(symbol);
-		if (!roles.length && !lineSymbols.includes(name)) continue;
+		if (roles.length ? !inPlay.has(name) : !lineSymbols.includes(name)) continue;
 		const paytable = roles.length ? undefined : occursMap(symbol.paytable);
 		symbols[name] = {
 			roles,

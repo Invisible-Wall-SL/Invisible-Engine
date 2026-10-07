@@ -694,6 +694,21 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Recent changes
 
+- 2026-10-07 — **A symbol this page marks unused never reaches the game we host.** The lines mock
+  already dealt only the in-play pool; three paths did not. The **book mock** owned its ten symbols
+  outright, so a Book-of project's unused symbol still landed, could become the expanding special,
+  and was declared in the boot `config` (the client builds its spinning reels from that list): the
+  contract now states the book pool when it leaves a symbol out (`projectLineSymbols` takes the
+  protocol's mapping), the test server passes `grid.symbols` to `createBookMock`, and the mock deals,
+  picks and declares only it — byte-identical, over 1,200 seeded rounds, when every symbol is in
+  play. The lines mock's **stacked-pictures test deal** put a WILD column on every board whatever the
+  config said; it now uses WILD only when a wild is dealt, else the top stacking symbol. The **Hold
+  and Win mock** dealt every role symbol (coin, special, meter, unlock) from the block, strips or not;
+  `holdAndWinMockInputs` now passes only role symbols a strip deals. The never-saved banner now says
+  the game plays the built-in lines config until the first save. Gate:
+  `check:unused-symbols-in-game` (each kind's mock, from `mockContractOfBundle`, over base, forced
+  feature, forced win and big-win rounds; red on each old path). Client surfaces:
+  [status/engine](engine.md).
 - 2026-10-07 — **A pots overlay token is badged token, not unused**, and Invisible Symbols lists
   exactly the symbols this page does not badge unused, for every kind, saved or not (`symbolUses`
   in `src/symbolUse.ts`). The token badge is not a button: putting a token on the reels is a

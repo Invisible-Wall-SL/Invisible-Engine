@@ -647,13 +647,14 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	 * so the pre-spin display uses the game's OWN in-play symbols instead of the sample's.
 	 *
 	 * The strip is cycled when shorter than the window (a short authored strip still fills the column),
-	 * and a game type with no strips falls back to the first dictionary symbol so the board is never
-	 * empty — a blank initial cell renders as nothing, the failure `warnOnGameConfigIssues` guards.
+	 * and a reel with no strip falls back to the first symbol in play (else the first in the dictionary)
+	 * so the board is never empty — a blank initial cell renders as nothing, the failure
+	 * `warnOnGameConfigIssues` guards — and never shows a symbol `/config` marks unused.
 	 */
 	function initialBoard(): RawSymbol[][] {
 		const grid = activeGrid();
 		const strips = paddingReels('basegame');
-		const fallback = Object.keys(getActiveGameConfig().symbols)[0] ?? 'H1';
+		const fallback = getSymbolsInPlay()[0] ?? Object.keys(getActiveGameConfig().symbols)[0] ?? 'H1';
 		return Array.from({ length: grid.reels }, (_unused, reel) => {
 			const strip = strips[reel] ?? [];
 			// `rows + 2` per COLUMN, not per board: the ±1 padding buffers this column's own window,

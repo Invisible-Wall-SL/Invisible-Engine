@@ -95,6 +95,29 @@ const effectivePayTable = (symbolPaytable) =>
 	);
 
 /**
+ * The symbols an instance deals, picks its expanding special from and declares: the project's in-play
+ * pool (`opts.symbols`, SERVER names, kept to the ones this mock knows) — so a symbol its Invisible
+ * Game Config marks unused never lands — else the captured set. A pool naming every symbol is the
+ * captured set, and one naming no paying symbol keeps them all: the lines mock's rules, never a blank
+ * board.
+ */
+const symbolPool = (symbols) => {
+	const named = Array.isArray(symbols) ? SYMBOLS.filter((s) => symbols.includes(s)) : [];
+	const restricted = named.length > 0 && named.length < SYMBOLS.length;
+	const pay = restricted ? PAY_SYMBOLS.filter((s) => named.includes(s)) : [];
+	return {
+		pay: pay.length ? pay : PAY_SYMBOLS,
+		scatter: restricted ? named.includes('SCAT') : true,
+	};
+};
+
+/** Every symbol a pool deals, in the captured order. */
+const dealtSymbols = (pool) => [...pool.pay, ...(pool.scatter ? ['SCAT'] : [])];
+
+/** The line-paying symbols as the capture lists them: the top payer, then the Book, then the rest. */
+const linePaying = (pool) => [pool.pay[0], ...(pool.scatter ? ['SCAT'] : []), ...pool.pay.slice(1)];
+
+/**
  * A payout in whole CENTS, the protocol's only denomination — the lines mock's `payCents`. An
  * authored multiplier may be fractional (`0.4 × 1¢`); rounded, with a one-cent floor so a win the
  * player can see never pays nothing. Inert for the captured integer table.
@@ -134,9 +157,10 @@ function hashStr(s) {
 
 /** Build the boot `config` event faithful to the live Book of Thermopylae wire
  *  shape (availablePayLines + nested paytable {line,scatter}). `payTable` is the instance's
- *  `effectivePayTable`, so the declared line rows are the rows it pays. */
-const buildConfigContext = (payTable) => ({
-	symbols: SYMBOLS,
+ *  `effectivePayTable`, so the declared line rows are the rows it pays; `pool` its `symbolPool`, so
+ *  the declared symbols are the ones it deals. */
+const buildConfigContext = (payTable, pool) => ({
+	symbols: dealtSymbols(pool),
 	availablePayLines: PAYLINES,
 	betOptions: BET_OPTIONS,
 	gameCost: BET_OPTIONS[0],
@@ -144,7 +168,7 @@ const buildConfigContext = (payTable) => ({
 	lineCoinciding: LINE_COINCIDING,
 	maxWinMp: [10000],
 	paytable: {
-		line: PAY_SYMBOLS.map((of) => {
+		line: pool.pay.map((of) => {
 			const counts = Object.keys(payTable[of])
 				.map(Number)
 				.sort((a, b) => a - b);
@@ -153,19 +177,21 @@ const buildConfigContext = (payTable) => ({
 				pay: counts.map((c) => payTable[of][c]),
 			};
 		}),
-		scatter: [
-			{
-				on: { occurs: [3, 4, 5], of: 'SCAT', mode: 'scatter' },
-				pay: [2, 20, 200],
-				trigger: 'feature',
-			},
-		],
+		scatter: pool.scatter
+			? [
+					{
+						on: { occurs: [3, 4, 5], of: 'SCAT', mode: 'scatter' },
+						pay: [2, 20, 200],
+						trigger: 'feature',
+					},
+				]
+			: [],
 	},
 	symbolsPay: {
-		line: ['PIC1', 'SCAT', ...PAY_SYMBOLS.filter((s) => s !== 'PIC1')],
-		scatter: ['SCAT'],
+		line: linePaying(pool),
+		scatter: pool.scatter ? ['SCAT'] : [],
 	},
-	wildSymbols: ['SCAT'],
+	wildSymbols: pool.scatter ? ['SCAT'] : [],
 	window: { reels: 5, rows: 3 },
 });
 
@@ -343,16 +369,19 @@ const bonusSnapshot = (round, extra = {}) => ({
 	...extra,
 });
 
-const spinStartEvent = (round) => ({
+const spinStartEvent = (round, pool) => ({
 	event: 'spinStart',
 	context: {
-		symbols: SYMBOLS,
+		symbols: dealtSymbols(pool),
 		symbolsPay: {
-			line: ['PIC1', 'SCAT', ...PAY_SYMBOLS.filter((s) => s !== 'PIC1')],
+			line: linePaying(pool),
 			// During the bonus the special symbol pays scatter-style too.
-			scatter: round.bonus?.active ? ['SCAT', round.bonus.special] : ['SCAT'],
+			scatter: [
+				...(pool.scatter ? ['SCAT'] : []),
+				...(round.bonus?.active ? [round.bonus.special] : []),
+			],
 		},
-		wildSymbols: ['SCAT'],
+		wildSymbols: pool.scatter ? ['SCAT'] : [],
 		lineAlign: 'left',
 		lineCoinciding: LINE_COINCIDING,
 		gameCost: BET_OPTIONS[0],
@@ -419,10 +448,12 @@ const pathEndsWith = (pathname, route) => {
  * @param {{ startBalance?: number, seed?: string, forceTrigger?: boolean,
  *           bigWin?: boolean, autoCollect?: boolean, label?: string,
  *           symbolPaytable?: Record<string, Record<string, number>>,
+ *           symbols?: string[],
  *           overlay?: (host: object) => object }} [opts]
  *
  * `symbolPaytable` is the project's authored line table in SERVER names (`PIC1`…`TEN`), as the
  * Invisible Test Server receives it in the project's live mock contract (`grid.symbolPaytable`).
+ * `symbols` is the project's in-play pool in the same names (`grid.symbols`) — see `symbolPool`.
  *
  * `overlay` is the seam an add-on deals through (`withPotsOverlay`, `mock-pots-overlay.mjs`): called
  * once with this host's board and its `startFreeSpins` hook, it returns the hooks below. Absent, not
@@ -447,6 +478,7 @@ export function createMockRgs(opts = {}) {
 	const autoCollectAllowed = opts.autoCollect ?? process.env.AUTO_COLLECT !== '0';
 	const label = opts.label ?? 'mock-book';
 	const payTable = effectivePayTable(opts.symbolPaytable);
+	const pool = symbolPool(opts.symbols);
 
 	const sessions = new Map();
 	/** Closed rounds by session + id, so a request re-posted under its `gid` replays after the round closed —
@@ -469,12 +501,14 @@ export function createMockRgs(opts = {}) {
 	};
 	const pickSymbol = () => {
 		const r = nextRand();
-		if (r < 0.05) return 'SCAT';
-		return PAY_SYMBOLS[Math.floor(nextRand() * PAY_SYMBOLS.length)];
+		if (pool.scatter && r < 0.05) return 'SCAT';
+		return pool.pay[Math.floor(nextRand() * pool.pay.length)];
 	};
-	/** Force ≥3 SCAT for a guaranteed trigger (buy / forceTrigger). */
+	/** Force ≥3 SCAT for a guaranteed trigger (buy / forceTrigger) — none when the Book is not in
+	 *  play: such a round still enters the free spins, on the board it was dealt. */
 	const spinReelsWithScatters = (n = 4) => {
 		const reels = Array.from({ length: 5 }, () => Array.from({ length: 3 }, pickSymbol));
+		if (!pool.scatter) return reels;
 		let placed = 0;
 		for (let reel = 0; reel < 5 && placed < n; reel++) {
 			reels[reel][Math.floor(nextRand() * 3)] = 'SCAT';
@@ -483,14 +517,28 @@ export function createMockRgs(opts = {}) {
 		return reels;
 	};
 	const spinReels = () => Array.from({ length: 5 }, () => Array.from({ length: 3 }, pickSymbol));
+	const specialWeights = Object.entries(SPECIAL_WEIGHTS).filter(([sym]) => pool.pay.includes(sym));
 	const pickSpecialSymbol = () => {
-		const total = Object.values(SPECIAL_WEIGHTS).reduce((s, w) => s + w, 0);
+		const total = specialWeights.reduce((s, [, w]) => s + w, 0);
 		let r = nextRand() * total;
-		for (const [sym, w] of Object.entries(SPECIAL_WEIGHTS)) {
+		for (const [sym, w] of specialWeights) {
 			if ((r -= w) <= 0) return sym;
 		}
-		return 'TEN';
+		return pool.pay[pool.pay.length - 1];
 	};
+	/** The forced big win (BIG_WIN): the captured board — PIC1 on the middle line, broken at reel 5 by
+	 *  KING, on TEN — with each symbol the pool lacks swapped for one it has. */
+	const inPool = (symbol, fallback) => (pool.pay.includes(symbol) ? symbol : fallback);
+	const bigTop = inPool('PIC1', pool.pay[0]);
+	const bigFill = inPool('TEN', pool.pay[pool.pay.length - 1]);
+	const bigBreak = inPool('KING', bigFill);
+	const bigWinBoard = [
+		[bigFill, bigTop, bigFill],
+		[bigFill, bigTop, bigFill],
+		[bigFill, bigTop, bigFill],
+		[bigFill, bigTop, bigFill],
+		[bigFill, bigBreak, bigFill],
+	];
 	/** A board drawn from `strips` (one per reel): each reel stops at a random cell, 3 rows deep. */
 	const spinStrips = (strips) =>
 		strips.map((strip) => {
@@ -541,7 +589,7 @@ export function createMockRgs(opts = {}) {
 			events.push({
 				event: 'pickRandomly',
 				context: {
-					items: PAY_SYMBOLS.map((s) => ({ state: s, prob: SPECIAL_WEIGHTS[s] })),
+					items: pool.pay.map((s) => ({ state: s, prob: SPECIAL_WEIGHTS[s] })),
 					state: bonusSnapshot(round, { played: 0, left: spins, playing: 'feature' }),
 					scope: 'enterState',
 					item: { state: special, prob: SPECIAL_WEIGHTS[special] },
@@ -610,7 +658,7 @@ export function createMockRgs(opts = {}) {
 			session.configSent = true;
 			if (overlay) session.potsOverlay = true;
 			else delete session.potsOverlay;
-			const context = buildConfigContext(payTable);
+			const context = buildConfigContext(payTable, pool);
 			const config = {
 				event: 'config',
 				context: overlay ? { ...context, ...overlay.configContext(session) } : context,
@@ -731,7 +779,7 @@ export function createMockRgs(opts = {}) {
 					if (round.bonus?.active) {
 						const reels = round.bonus.strips ? spinStrips(round.bonus.strips) : spinReels();
 						const roundPays = round.bonus.payTable ?? payTable;
-						events.push(spinStartEvent(round));
+						events.push(spinStartEvent(round, pool));
 						// Book mechanic: the chosen special is an expanding symbol. If it
 						// covers enough reels it pays scatter-style (on the reel count, × BASE
 						// stake — adjacency-independent), THEN expands and lets the
@@ -809,9 +857,9 @@ export function createMockRgs(opts = {}) {
 						? spinReelsWithScatters(4)
 						: forcedX !== undefined
 							? boardPayingAtLeast(spinReels(), {
-									symbols: PAY_SYMBOLS,
+									symbols: pool.pay,
 									scatter: 'SCAT',
-									filler: PAY_SYMBOLS[PAY_SYMBOLS.length - 1],
+									filler: pool.pay[pool.pay.length - 1],
 									target: forcedX,
 									multipleOf: (board) =>
 										evaluatePaylines(board, round.betPerLine, payTable).reduce(
@@ -820,15 +868,9 @@ export function createMockRgs(opts = {}) {
 										) / round.baseBet,
 								})
 							: bigWin
-								? [
-										['TEN', 'PIC1', 'TEN'],
-										['TEN', 'PIC1', 'TEN'],
-										['TEN', 'PIC1', 'TEN'],
-										['TEN', 'PIC1', 'TEN'],
-										['TEN', 'KING', 'TEN'],
-									]
+								? bigWinBoard.map((column) => [...column])
 								: spinReels();
-					events.push(spinStartEvent(round));
+					events.push(spinStartEvent(round, pool));
 					const lineWins = evaluatePaylines(reels, round.betPerLine, payTable);
 					const scat = evaluateScatterTrigger(reels);
 					const wins = scat ? [...lineWins, scat.win] : lineWins;

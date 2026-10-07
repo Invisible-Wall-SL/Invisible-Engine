@@ -9,6 +9,8 @@
  *  3. A game type of a reels mode of the project's own (an imported free spins,
  *     `docs/design/pots-overlay.md` §5 A) pads from its AUTHORED strips even then: the server declares
  *     only its own game, so those strips are the only ones that mode's symbols are on.
+ *  4. The initial board fills a reel with no strip from the first symbol IN PLAY, never the first in
+ *     the dictionary — a symbol Invisible Game Config marks unused is never on screen.
  */
 
 import { createGameConfig } from './gameConfig.ts';
@@ -62,6 +64,28 @@ check('the imported mode pads from its authored strips', game.getPaddingReels('f
 ]);
 check('an unknown game type, generated as before', game.getPaddingReels('nope'), generated);
 delete global.__IE_SERVER_CONFIG__;
+
+console.log('\n4. the initial board');
+const short = createGameConfig({
+	bakedConfig: () => null,
+	compiledConfig: {
+		...config,
+		numReels: 2,
+		numRows: [3, 3],
+		paylines: { '1': [1, 1] },
+		// `W` leads the dictionary and is on no strip: unused.
+		symbols: { W: {}, A: {}, B: {}, C: {} },
+		paddingReels: { basegame: [BASE] },
+		modes: [],
+	},
+});
+const board = short.initialBoard();
+check('a reel with a strip is seeded from it', board[0].slice(0, 3), BASE);
+check(
+	'a reel with none takes the first symbol in play, not the unused first in the dictionary',
+	[...new Set(board[1].map((cell) => cell.name))],
+	['A'],
+);
 
 console.log(failures === 0 ? '\nAll padding-reel assertions passed.' : `\n${failures} FAILED`);
 if (failures > 0) throw new Error('padding-reel fixture failed');

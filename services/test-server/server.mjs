@@ -320,7 +320,7 @@ const potsOverlayFallbackWarned = new Set();
  * and says so once, for the reason `makeHoldAndWinMock` gives.
  */
 const makeBookMock = (label, grid, gameKey, runtime, twin) => {
-	const opts = { label, symbolPaytable: grid?.symbolPaytable };
+	const opts = { label, symbolPaytable: grid?.symbolPaytable, symbols: grid?.symbols };
 	if (!grid?.potsOverlay) return createBookMock(opts);
 	try {
 		// Forcing a beat is an authoring tool, as on the Hold and Win mock.
@@ -346,8 +346,8 @@ const makeMock = (protocol, label, grid, gameKey, cascade, runtime, twin = false
 		if (mock) return mock;
 	}
 	// `book` owns its board and paylines; what it reads of the contract is the project's authored line
-	// table, so it pays (and declares) what `/config` set rather than its captured one, and its pots
-	// overlay.
+	// table, so it pays (and declares) what `/config` set rather than its captured one, its in-play
+	// pool, so it never deals a symbol `/config` marks unused, and its pots overlay.
 	if (protocol === 'book') return makeBookMock(label, grid, gameKey, runtime, twin);
 	// `holdAndWin` lands here only when its own mock could not be built (above).
 	// `ways` reuses the lines mock entirely and only swaps how wins are DECIDED — the session, round
@@ -453,7 +453,8 @@ const validGrid = (grid) => {
 	// `symbols` (set at publish from the project's in-play Game Config) is the allowed line-symbol pool
 	// in the mock's SERVER vocabulary (PIC*/SCAT). The mock draws its board ONLY from it, so a symbol the
 	// user marked UNUSED never lands. Accepted only as a non-empty array of strings; absent/malformed ⇒
-	// dropped ⇒ the mock keeps its full default pool. See mock-rgs-server `createMockRgs({ symbols })`.
+	// dropped ⇒ the mock keeps its full default pool. See `createMockRgs({ symbols })` in mock-rgs-server
+	// and mock-rgs-server-book.
 	const symbols =
 		Array.isArray(grid.symbols) &&
 		grid.symbols.every((s) => typeof s === 'string') &&
