@@ -39,6 +39,18 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-07 — **In-game view shows a game mode the way it shows the base game.** Reported: Hold
+  and Win screens appeared only while one of them was selected, then vanished on clicking a base
+  screen (the base game, Jackpot bar, Pots, HUD), so the feature could not be laid out against the
+  rest of the screen. The view keyed the mode off the SELECTED screen; it now takes the mode on
+  screen. A **mode menu** beside 🎮 In-game view (Base game / each mode the doc has screens for,
+  named from Game Config, `resolveGameModes`) keeps that mode's non-beat screens on the canvas
+  whichever screen is edited. Selecting a mode screen switches the menu to its mode; a pick holds
+  until then and is kept with the UI layout (`viewMode`). Beat screens (intro, outro, wheel,
+  jackpot win) still draw only while edited. `engine-layout` `inGameViewSceneIds(scenes, active,
+  mode)` + `viewableModeIds`; `test-resting-scenes.mjs` pins it (the old code fails "editing
+  basegame: respinBoard shows"). ⏳ Type-checked and unit-tested, not browser-verified (no
+  launcher login in the session).
 - 2026-10-05 — **Invisible Director can drive this tool.** Invisible Director's `scene.get_layout` /
   `scene.update_nodes` (`apps/launcher-api/src/lib/server/director/ops/scene.ts`) save through
   `editorStorage.saveDoc`, under `If-Match`, stamping `saved_by` (`tool: 'director'`, the agent, the

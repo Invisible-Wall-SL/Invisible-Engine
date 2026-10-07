@@ -67,11 +67,19 @@ shows: the background, the base game, the HUD and any always-on screen (a Hold a
 project's Jackpot bar and Pots), plus the screen you are editing. Menus, takeovers (buy
 feature, buy confirm, bet menu, auto spin), the loading screen, free-spin and Hold and Win
 feature screens, and screens gated by a visibility source stay off the canvas until you
-click them in the list. Their names show in italics. Selecting a feature screen also draws
-the rest of that feature, without its intro, outro, wheel or jackpot popups. In-game view
-also hides the labelled boxes for component parts that have no art picked (a Feature
-Card's empty panel or spine slot), because the game draws nothing there either. Turn it
-off to draw every screen at once with those boxes. The eye toggles still apply on top.
+click them in the list. Their names show in italics.
+
+When the project has game-mode screens (a Hold and Win feature), a **mode menu** sits next
+to the toggle: **Base game** or the mode (e.g. **Hold and Win**). Pick the mode and the
+canvas draws what the game shows while that mode plays: the base game's screens plus the
+mode's board, counter, total and letters. They stay on the canvas whichever screen you
+click, the same as the base game's screens. The mode's intro, outro, wheel and jackpot
+popups still draw only while you edit them. Clicking a mode screen in the list switches
+the menu to its mode; pick **Base game** to go back. The choice is kept per project.
+
+In-game view also hides the labelled boxes for component parts that have no art picked (a
+Feature Card's empty panel or spine slot), because the game draws nothing there either.
+Turn it off to draw every screen at once with those boxes. The eye toggles still apply on top.
 
 Each screen has a coordinate **space** select: `game` (the main game box),
 `standard` (the HUD box, with optional vertical/horizontal alignment), `canvas`

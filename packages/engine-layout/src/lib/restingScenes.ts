@@ -1,4 +1,4 @@
-import type { SceneRole } from './sceneRole';
+import { modeScenes, type SceneRole } from './sceneRole';
 import type { Scene } from './types';
 
 /**
@@ -51,28 +51,32 @@ export function isShownAtRest(scene: Scene): boolean {
 }
 
 /**
- * The screens to draw when `active` is the one being edited: the idle base game, plus `active`
- * itself, plus — for a mode screen — the rest of its mode's screens that are not beat screens, so
- * editing the respin counter shows it over the respin board and total bar it plays with.
+ * The game modes `scenes` has screens for (`role: 'mode'` with a `modeId`), in doc order — what the
+ * Scene Editor's In-game view can show besides the base game.
+ */
+export function viewableModeIds(scenes: readonly Scene[]): string[] {
+	const ids = new Set<string>();
+	for (const scene of scenes) if (scene.role === 'mode' && scene.modeId) ids.add(scene.modeId);
+	return [...ids];
+}
+
+/**
+ * The screens to draw while the game plays `mode` (absent ⇒ the base game) and `active` is the one
+ * being edited: the idle base game, plus the mode's screens that are not beat screens, plus `active`
+ * itself. A mode's board, counter and total stay on screen for the whole feature, so they draw
+ * whichever screen is being edited, the way the base game's screens do.
  */
 export function inGameViewSceneIds(
 	scenes: readonly Scene[],
 	active: Scene | undefined,
+	mode?: string,
 ): Set<string> {
 	const ids = new Set(scenes.filter(isShownAtRest).map((scene) => scene.id));
-	if (!active) return ids;
-	ids.add(active.id);
-	if (active.role === 'mode' && active.modeId !== undefined) {
-		for (const scene of scenes) {
-			if (
-				scene.role === 'mode' &&
-				scene.modeId === active.modeId &&
-				!TRANSIENT_SCENE_IDS.has(scene.id) &&
-				!scene.visibleSource
-			) {
-				ids.add(scene.id);
-			}
+	if (mode !== undefined) {
+		for (const scene of modeScenes(scenes, mode)) {
+			if (!TRANSIENT_SCENE_IDS.has(scene.id) && !scene.visibleSource) ids.add(scene.id);
 		}
 	}
+	if (active) ids.add(active.id);
 	return ids;
 }
