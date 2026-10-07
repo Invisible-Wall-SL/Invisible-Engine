@@ -23,13 +23,6 @@ import type { TemplateVocabulary } from '../types';
 import { CLUSTER_VOCAB } from './cluster';
 import { INT, list, insertAfter } from './standardVocab';
 
-/**
- * `apps/scatter` `config.symbols` keys. `M` is the multiplier symbol — the one this template adds a
- * mechanic for. Note the runtime does NOT identify it by that name (it tests `RawSymbol.multiplier`),
- * so a project may rename it; the enum is the author's dropdown, not the mechanic's trigger.
- */
-const SCATTER_SYMBOLS = ['H1', 'H2', 'H3', 'H4', 'L1', 'L2', 'L3', 'L4', 'M', 'S', 'W'] as const;
-
 const POSITION_WITH_MULTIPLIER = { t: 'struct' as const, name: 'Position' };
 
 /** The multiplier-collect book event. */
@@ -77,10 +70,6 @@ const COLLECT_CUES: TemplateVocabulary['cues'] = [
 export const SCATTER_VOCAB: TemplateVocabulary = {
 	...CLUSTER_VOCAB,
 	templateId: 'scatter',
-	// Its own symbol set — scatter deals the multiplier symbol cluster never sees.
-	enums: CLUSTER_VOCAB.enums.map((entry) =>
-		entry.name === 'SymbolName' ? { ...entry, values: [...SCATTER_SYMBOLS] } : entry,
-	),
 	// The collect event sits right behind the tumble it belongs to: a step lands the multipliers, then
 	// they collect. Reading the palette top to bottom reads the round in order.
 	events: insertAfter(CLUSTER_VOCAB.events, 'tumbleBoard', COLLECT_EVENTS),

@@ -43,7 +43,8 @@ type TypeRef =
 ```
 
 Structs/enums are **declared by the template** (§7), so `Reel`, `Slot`, `SymbolName` are template
-vocabulary, not built-ins. `assignable(a,b)` = deep-equal `TypeRef`. **[OPEN]** whether `int`→`float`
+vocabulary, not built-ins. `SymbolName` is declared empty: its values are the project's symbols,
+supplied from its Game Config. `assignable(a,b)` = deep-equal `TypeRef`. **[OPEN]** whether `int`→`float`
 and `ms`↔`int` get the one sanctioned implicit widening, or require an explicit cast (I lean: allow
 `ms`↔`int` since `ms` *is* an int; require a cast for everything else, to honor "strict, report errors").
 
@@ -391,7 +392,7 @@ Declared by each template; loaded by the editor; **the type checker's source of 
 interface TemplateVocabulary {
   templateId: string;
   structs: StructDecl[];        // Reel { index:int }, Slot { col:int; row:int }, Win {…}
-  enums: EnumDecl[];            // SymbolName { … }
+  enums: EnumDecl[];            // SymbolName { the project's symbols, from its Game Config }
   events: EventDecl[];          // name + payload pins + category (reveal → { reels: list<Reel> })
   actions: ActionDecl[];        // effects + commands: name + typed params, + category
   cues: CueDecl[];              // aggregated from components (decision #4): what each accepts

@@ -38,6 +38,7 @@
 		type ModeNodePatch,
 	} from './graphOps';
 	import { typeLabel } from './palette';
+	import EnumLiteral from './EnumLiteral.svelte';
 	import { fetchFontCatalog, type EditorFont } from '../editor/fonts.client';
 	import type { FlowDoc } from 'engine-flow-v2';
 
@@ -397,6 +398,11 @@
 	}
 
 	// --- DataSource helpers ----------------------------------------------------
+	/** An enum's values in the composed vocabulary — `SymbolName`'s are the project's symbols. */
+	function enumValues(name: string): readonly string[] {
+		return vocab.enums.find((e) => e.name === name)?.values ?? [];
+	}
+
 	// A sensible default literal for a `TypeRef` (or an untyped fallback), used to seed a fresh
 	// operand / data-in so the editor is never blank.
 	function defaultLiteral(type: TypeRef | undefined): DataSource {
@@ -406,10 +412,8 @@
 				return { kind: 'literal', type: t, value: false };
 			case 'string':
 				return { kind: 'literal', type: t, value: '' };
-			case 'enum': {
-				const decl = vocab.enums.find((e) => e.name === t.name);
-				return { kind: 'literal', type: t, value: decl?.values[0] ?? '' };
-			}
+			case 'enum':
+				return { kind: 'literal', type: t, value: enumValues(t.name)[0] ?? '' };
 			case 'list':
 				// A list of a SCALAR element (float/int/ms/bool/string/enum) is authorable as a
 				// literal (comma-separated in the editor below), seeded EMPTY. A list of structs
@@ -1021,41 +1025,24 @@
 					onchange={(e) => commit({ kind: 'literal', type: lt, value: e.currentTarget.value })}
 				/>
 			{:else if lt.t === 'enum'}
-				<select
-					value={unset ? '' : String(src.value ?? '')}
-					onchange={(e) => commit({ kind: 'literal', type: lt, value: e.currentTarget.value })}
-				>
-					{#if unset}
-						<!-- Without this, the select shows the first member as though it were chosen, and
-						     picking that member fires no change event — so it can never be stored. -->
-						<option value="" disabled>{optional ? '— default —' : '— choose —'}</option>
-					{/if}
-					{#each vocab.enums.find((en) => en.name === lt.name)?.values ?? [] as v (v)}
-						<option value={v}>{v}</option>
-					{/each}
-				</select>
+				<EnumLiteral
+					enumName={lt.name}
+					values={enumValues(lt.name)}
+					value={src.value}
+					{unset}
+					{optional}
+					commit={(value) => commit({ kind: 'literal', type: lt, value })}
+				/>
 			{:else if lt.t === 'list' && lt.of.t === 'enum'}
-				<!-- A list of an ENUM (e.g. `symbols: SymbolName[]`) is PICKED, not typed: one toggle chip
-				     per member. Clicking adds/removes it from the stored array. Empty = the effect default. -->
+				<!-- A list of an ENUM (e.g. `symbols: SymbolName[]`) is PICKED, not typed. -->
 				{@const enumName = lt.of.t === 'enum' ? lt.of.name : ''}
-				{@const enumValues = vocab.enums.find((en) => en.name === enumName)?.values ?? []}
-				{@const selected = Array.isArray(src.value) ? src.value.map(String) : []}
-				<div class="chips">
-					{#each enumValues as v (v)}
-						<button
-							type="button"
-							class="chip"
-							class:on={selected.includes(v)}
-							onclick={() =>
-								commit({
-									kind: 'literal',
-									type: lt,
-									value: selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v],
-								})}>{v}</button
-						>
-					{/each}
-					{#if enumValues.length === 0}<span class="note">no options</span>{/if}
-				</div>
+				<EnumLiteral
+					list
+					{enumName}
+					values={enumValues(enumName)}
+					value={src.value}
+					commit={(value) => commit({ kind: 'literal', type: lt, value })}
+				/>
 			{:else if lt.t === 'list' && lt.of.t !== 'struct' && lt.of.t !== 'list'}
 				<input
 					type="text"
@@ -1461,28 +1448,5 @@
 		right: 5px;
 		padding: 1px 6px;
 		color: #fca5a5;
-	}
-	.chips {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 4px;
-	}
-	.chip {
-		padding: 2px 9px;
-		font-size: 12px;
-		line-height: 1.5;
-		border: 1px solid #2a323d;
-		border-radius: 999px;
-		background: #14181f;
-		color: #cbd5e1;
-		cursor: pointer;
-	}
-	.chip:hover {
-		border-color: #3b475a;
-	}
-	.chip.on {
-		background: #2563eb;
-		border-color: #2563eb;
-		color: #fff;
 	}
 </style>

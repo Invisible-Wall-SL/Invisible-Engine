@@ -66,31 +66,6 @@ const JACKPOT_SOURCE: TypeRef = { t: 'enum', name: 'HoldAndWinJackpotSource' };
 const STICKINESS: TypeRef = { t: 'enum', name: 'Stickiness' };
 const EXPANSION_RULE: TypeRef = { t: 'enum', name: 'ExpansionRule' };
 
-/**
- * The symbols the three presets and the `pots-extra` test fixture deal (`game-config`
- * `holdAndWinPresets.ts`): the line symbols, the coin, the jackpot coin, the specials and the blank.
- */
-const HOLD_AND_WIN_SYMBOLS = [
-	'H1',
-	'H2',
-	'H3',
-	'H4',
-	'L1',
-	'L2',
-	'L3',
-	'L4',
-	'W',
-	'BONUS',
-	'JACKPOT',
-	'BOOST',
-	'COLLECT',
-	'MULTI',
-	'MYSTERY',
-	'ADD',
-	'UPG',
-	'BLANK',
-] as const;
-
 /** `engine-game` `HoldAndWinCause`. */
 export const HOLD_AND_WIN_CAUSES = ['count', 'pattern', 'meter', 'luckySpin', 'randomMetre', 'buy'];
 /** `game-config` `HOLD_AND_WIN_SPECIALS`. */
@@ -973,10 +948,7 @@ export const HOLD_AND_WIN_FRAGMENT: VocabFragment = {
 	values: VALUES,
 };
 
-const standard = standardVocabulary({
-	templateId: 'holdAndWin',
-	symbolNames: HOLD_AND_WIN_SYMBOLS,
-});
+const standard = standardVocabulary({ templateId: 'holdAndWin' });
 const used = <T extends { name: string }>(entries: T[]): T[] =>
 	entries.filter((entry) => !unusedByKind.has(entry.name));
 

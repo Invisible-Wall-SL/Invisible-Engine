@@ -676,7 +676,8 @@ cannot go on the reels: it would land as a symbol, which the validator refuses.)
 The badges also decide what [Invisible Symbols](symbols-state-machine.md) lists: every
 symbol **in play** gets a row there to bind its art, and an **unused** one does not
 appear at all. The overlay's coins get rows too, grouped under **Coins** after the
-symbols. Save here, then reload that page.
+symbols. Save here, then reload that page. The same set fills every symbol dropdown in
+[Invisible Flow](flow.md), in the same order.
 
 They decide the game too: once saved, an **unused** symbol is never dealt by our test
 server (any kind, its Book-of expanding special and Hold and Win coins, specials and
