@@ -1,5 +1,5 @@
 /**
- * Contract check for `createProject` (`projects.ts`) — the one insert behind Game Maker's create,
+ * Contract check for `createProject` (`projects.ts`), and `assignProjectToClient` below — the one insert behind Game Maker's create,
  * Admin › Projects, the desktop launcher's project sync and the duplicate (Game Maker's and the
  * Director's) — on the folder rule of OPEN_QUESTIONS 17:
  *   pnpm --filter launcher-api check:project-create
@@ -8,7 +8,8 @@
  * would read and write the same tree. `createProject` refuses a key whose folder already holds a
  * project under that client, live or soft-deleted, with `ProjectFolderTakenError` naming it; it
  * checks under the per-folder advisory lock (`withProjectKeyLock`), on the lock's transaction, so
- * of two racing aliases exactly one lands.
+ * of two racing aliases exactly one lands. `assignProjectToClient` (Admin's re-assign, the desktop
+ * sync's client change) holds the same lock and refuses moving a project into such a folder.
  *
  * Runs the REAL `projects.ts` and `projectKeyLock.ts` and the SQL they build. Only the database is
  * replaced: `getDb()` is a drizzle `pg-proxy` client over an in-memory `projects` table that takes
@@ -38,6 +39,7 @@ const FOLDER_SELECT =
 	'select "key" from "projects" where (left(regexp_replace(lower("projects"."key"), \'[^a-z0-9]\', \'_\', \'g\'), 60) = $1 and left(regexp_replace(lower(coalesce("projects"."client_key", $2)), \'[^a-z0-9]\', \'_\', \'g\'), 60) = $3) order by "projects"."key" limit $4';
 const LOCK = 'SELECT pg_advisory_xact_lock($1::int, hashtext($2))';
 const INSERT = /^insert into "projects" \("key", "name", "client_key", "game_type",/;
+const MOVE = 'update "projects" set "client_key" = $1 where "projects"."key" = $2';
 
 /** Advisory locks: key → the tail of its wait queue. Off for the control run only. */
 const lockQueue = new Map<string, Promise<void>>();
@@ -50,7 +52,13 @@ let holders = 0;
 const unknown: string[] = [];
 
 let txSeq = 0;
-function connection(tx: { id: number; staged: Row[]; release: (() => void)[] } | null) {
+type Tx = {
+	id: number;
+	staged: Row[];
+	moves: [string, string | null][];
+	release: (() => void)[];
+};
+function connection(tx: Tx | null) {
 	return drizzle(async (text, params) => {
 		await new Promise((r) => setImmediate(r));
 		if (text.startsWith('SET LOCAL lock_timeout')) return { rows: [] };
@@ -77,7 +85,10 @@ function connection(tx: { id: number; staged: Row[]; release: (() => void)[] } |
 		if (!tx && holders > 0) misuse.push(`on the pool while a lock is held: ${text.slice(0, 40)}`);
 		if (text === FOLDER_SELECT) {
 			const [folder, unassigned, client, limit] = params as [string, string, string, number];
-			const visible = [...TABLE.values(), ...(tx?.staged ?? [])];
+			const moved = new Map(tx?.moves ?? []);
+			const visible = [...TABLE.values(), ...(tx?.staged ?? [])].map((r) =>
+				moved.has(r.key) ? { ...r, clientKey: moved.get(r.key)! } : r,
+			);
 			const keys = visible
 				.filter((r) => slugSql(r.key) === folder)
 				.filter((r) => slugSql(r.clientKey ?? unassigned) === client)
@@ -95,6 +106,12 @@ function connection(tx: { id: number; staged: Row[]; release: (() => void)[] } |
 			tx.staged.push({ key, clientKey, deletedAt: null });
 			return { rows: [] };
 		}
+		if (text === MOVE) {
+			if (!tx) throw new Error('fixture: assignProjectToClient moved outside its transaction');
+			const [clientKey, key] = params as [string | null, string];
+			tx.moves.push([key, clientKey]);
+			return { rows: [] };
+		}
 		unknown.push(text);
 		throw new Error(`fixture: unexpected statement ${text}`);
 	});
@@ -102,10 +119,14 @@ function connection(tx: { id: number; staged: Row[]; release: (() => void)[] } |
 
 const pool = Object.assign(connection(null), {
 	transaction: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => {
-		const state = { id: ++txSeq, staged: [] as Row[], release: [] as (() => void)[] };
+		const state: Tx = { id: ++txSeq, staged: [], moves: [], release: [] };
 		try {
 			const out = await fn(connection(state));
 			for (const row of state.staged) TABLE.set(row.key, row);
+			for (const [key, clientKey] of state.moves) {
+				const row = TABLE.get(key);
+				if (row) row.clientKey = clientKey;
+			}
 			return out;
 		} finally {
 			for (const release of state.release) release();
@@ -117,6 +138,7 @@ mock.module(new URL('../src/lib/server/db/index.ts', import.meta.url).href, {
 });
 
 const { createProject } = await import('../src/lib/server/projects.ts');
+const { assignProjectToClient } = await import('../src/lib/server/clients.ts');
 const { ProjectFolderTakenError } = await import('../src/lib/server/projectPaths.ts');
 
 let checks = 0;
@@ -232,6 +254,65 @@ console.log('race');
 		['created', 'created', ['loose-race', 'loose_race']],
 	);
 }
+console.log('re-homing (assignProjectToClient)');
+{
+	const move = async (key: string, client: string | null) => {
+		try {
+			await assignProjectToClient(key, client);
+			return 'moved';
+		} catch (e) {
+			if (!(e instanceof ProjectFolderTakenError)) throw e;
+			return { refused: e.existing, named: e.message.includes(`"${e.existing}"`) };
+		}
+	};
+	const clientOf = (key: string) => TABLE.get(key)?.clientKey;
+	lockKeys.length = 0;
+	check(
+		'moving a project into a client folder a live project holds is refused, naming it',
+		[await move('sunken_temple', 'acme'), clientOf('sunken_temple')],
+		[{ refused: 'sunken-temple', named: true }, 'other'],
+	);
+	await create('old_game', 'other');
+	check(
+		'…and one a soft-deleted project holds',
+		[await move('old_game', 'acme'), clientOf('old_game')],
+		[{ refused: 'old-game', named: true }, 'other'],
+	);
+	check(
+		'…and the unassigned folder (a client cleared to null)',
+		[await move('loose_game', null), clientOf('loose_game')],
+		[{ refused: 'loose-game', named: true }, 'acme'],
+	);
+	check(
+		'a move into a free folder lands, and a move to its own client is a no-op that lands',
+		[
+			await move('sunken_temple', 'third'),
+			clientOf('sunken_temple'),
+			await move('sunken-temple', 'acme'),
+		],
+		['moved', 'third', 'moved'],
+	);
+	check('every move locked its key’s folder (the create between them too)', lockKeys, [
+		'sunken_temple',
+		'old_game',
+		'old_game',
+		'loose_game',
+		'sunken_temple',
+		'sunken_temple',
+	]);
+
+	await create('drift_game', 'other');
+	const [g, h] = await Promise.all([move('drift_game', 'acme'), create('drift-game', 'acme')]);
+	check(
+		'a move racing a create of its alias: exactly one lands',
+		[
+			[g, h].filter((x) => x === 'moved' || x === 'created').length,
+			keysInFolder('drift-game', 'acme').length,
+		],
+		[1, 1],
+	);
+}
+check('every in-lock statement ran on the lock’s transaction (moves too)', misuse, []);
 check('no statement the fixture does not know was sent', unknown, []);
 
 console.log();

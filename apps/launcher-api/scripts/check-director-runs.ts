@@ -717,9 +717,13 @@ console.log('create');
 	// OPEN_QUESTIONS 17: `lines_sample` is free as a key, but its R2 folder is `lines-sample`'s.
 	const alias = await create(OWNER, createBody({ key: 'lines_sample' }));
 	check(
-		'a key whose folder is a project’s under the client is 409, naming the project',
-		[alias.status, alias.body.error, String(alias.body.message).includes('"lines-sample"')],
-		[409, 'key_folder_taken', true],
+		'a key whose folder is a project’s under the client is 409, naming no project',
+		[alias.status, alias.body.error, alias.body.message],
+		[
+			409,
+			'key_folder_taken',
+			"That key's folder is already used by an existing project; choose another key.",
+		],
 	);
 	check(
 		'…asked under the key’s lock, on its transaction, for the run’s client',

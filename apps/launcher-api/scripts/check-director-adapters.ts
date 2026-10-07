@@ -35,7 +35,8 @@
  *  - OPEN_QUESTIONS 17: every `createProject` caller — Admin › Projects, Game Maker's create, the
  *    desktop launcher's project sync and the duplicate — answers a key whose R2 folder is another
  *    project's (live or deleted, same client) with a refusal naming that project, and leaves no
- *    row, scaffold or copy behind. The rule itself is `check-project-create.ts`'s.
+ *    row, scaffold or copy behind; Admin's re-assign and the sync's client change refuse the same
+ *    move and change nothing. The rule itself is `check-project-create.ts`'s.
  */
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -220,6 +221,15 @@ fake('lib/server/games.ts', {
 });
 fake('lib/server/clients.ts', {
 	isValidClientKey: (v: string) => /^[a-z0-9][a-z0-9_-]{0,63}$/.test(v),
+	// The real rule, as `createProject`'s (pinned by `check-project-create.ts`).
+	assignProjectToClient: async (key: string, clientKey: string | null) => {
+		const holder = [...PROJECTS.values()]
+			.filter((p) => p.key !== key && folderOf(p.key, p.clientKey) === folderOf(key, clientKey))
+			.map((p) => p.key)
+			.sort()[0];
+		if (holder) throw new ProjectFolderTakenError(key, holder);
+		PROJECTS.get(key)!.clientKey = clientKey;
+	},
 	clientExists: async (key: string) => CLIENTS.has(key),
 	mayCreateUnderClient: async (userId: string, role: string, clientKey: string | null) =>
 		role === 'admin' ||
@@ -3091,12 +3101,12 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 	);
 
 	const { POST: launcherProjects } = await import(src('routes/api/launcher/projects/+server.ts'));
-	const sync = async (key: string) => {
+	const sync = async (key: string, name = key) => {
 		const res = await launcherProjects({
 			request: new Request('https://app.example/api/launcher/projects', {
 				method: 'POST',
 				headers: { authorization: 'Bearer tok-owner', 'content-type': 'application/json' },
-				body: JSON.stringify({ key, name: key, clientKey: C, profile: {} }),
+				body: JSON.stringify({ key, name, clientKey: C, profile: {} }),
 			}),
 		} as never);
 		return { status: res.status, body: (await res.json()) as { error?: string } };
@@ -3129,6 +3139,38 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		[dup.status, named(dupBody.error, 'folder-game'), PROJECTS.has('folder_game'), copies],
 		[409, true, false, copiesBefore],
 	);
+
+	// Re-homing an existing project is the same move into a folder: `folder_game` under `other`
+	// moved to acme would land beside `folder-game`.
+	PROJECTS.set('folder_game', project('folder_game', { clientKey: 'other' }));
+	const reassign = (clientKey: string) =>
+		formAction(admin.assignProjectClient, 'https://app.example/admin?/assignProjectClient', {
+			projectKey: 'folder_game',
+			clientKey,
+		});
+	const moved = await reassign(C);
+	check(
+		'Admin › moving a project beside its alias is 400 naming it, the client unchanged',
+		[moved.status, named(moved.error, 'folder-game'), PROJECTS.get('folder_game')?.clientKey],
+		[400, true, 'other'],
+	);
+	const resync = await sync('folder_game', 'Renamed');
+	check(
+		'desktop sync › a client change beside an alias is 409 naming it; neither moved nor renamed',
+		[
+			resync.status,
+			named(resync.body.error, 'folder-game'),
+			PROJECTS.get('folder_game')?.clientKey,
+			PROJECTS.get('folder_game')?.name,
+		],
+		[409, true, 'other', 'folder_game'],
+	);
+	check(
+		'Admin › a move into a free folder (unassigned) still lands',
+		[(await reassign('')).status, PROJECTS.get('folder_game')?.clientKey],
+		[200, null],
+	);
+	PROJECTS.delete('folder_game');
 }
 
 console.log(`director-adapters: ${checks - failures}/${checks} checks passed`);

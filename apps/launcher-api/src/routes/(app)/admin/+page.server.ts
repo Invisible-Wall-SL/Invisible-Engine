@@ -797,7 +797,12 @@ export const actions: Actions = {
 			return fail(400, { action: 'assignProjectClient', error: 'Unknown client.' });
 		}
 
-		await assignProjectToClient(projectKey, clientKey);
+		try {
+			await assignProjectToClient(projectKey, clientKey);
+		} catch (e) {
+			if (!(e instanceof ProjectFolderTakenError)) throw e;
+			return fail(400, { action: 'assignProjectClient', error: e.message });
+		}
 		return { action: 'assignProjectClient', ok: 'Project client updated.' };
 	},
 

@@ -2,7 +2,7 @@ import { error, isHttpError } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
 import type { DirectorRun } from '../db/schema';
 import { clientExists, mayCreateUnderClient } from '../clients';
-import { ProjectFolderTakenError, UNASSIGNED_CLIENT, r2Slug } from '../projectPaths';
+import { FOLDER_TAKEN_WORDS, UNASSIGNED_CLIENT, r2Slug } from '../projectPaths';
 import { isValidProjectKey, projectExists, projectInFolder, projectKeyTaken } from '../projects';
 import { getRoleOverrides } from '../roleToolAccess';
 import { requireProjectScope } from '../toolScope';
@@ -81,7 +81,7 @@ export interface DirectorProjectScope {
  * project, so the answer says nothing about which keys exist or who is preparing one — except a
  * creatable key whose R2 folder is already a project's under that client (`sunken_temple` beside
  * `sunken-temple`, live or deleted): its uploads would land in that project's `director/` tree, so
- * it is a 409 naming the project, as Game Maker's create of the same key would be.
+ * it is a 409 — one that does not name the project, which the caller may have no grant on.
  */
 export async function requireDirectorProjectScope(
 	user: User,
@@ -102,7 +102,7 @@ export async function requireDirectorProjectScope(
 	if (!creatable) throw forbidden();
 	const scope = { clientKey: clientKey ?? UNASSIGNED_CLIENT, projectKey, pending: true };
 	const holder = await projectInFolder(r2Slug(projectKey), { client: scope.clientKey });
-	if (holder) throw error(409, new ProjectFolderTakenError(projectKey, holder).message);
+	if (holder) throw error(409, FOLDER_TAKEN_WORDS);
 	const { doc } = await loadMockupsDoc(scope.clientKey, scope.projectKey);
 	if (!pendingDocOwnedBy(doc, user.id)) throw forbidden();
 	return scope;

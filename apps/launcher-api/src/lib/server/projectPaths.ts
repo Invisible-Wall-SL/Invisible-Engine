@@ -32,9 +32,17 @@ export function r2Slug(name: string): string {
 }
 
 /**
- * A new key whose R2 folder (`r2Slug`) is already an existing project's under the same client —
- * `my_game` next to `my-game` — or the same key again. Refused rather than created: the two would
- * read and write one tree. `existing` is the project that holds the folder, live or soft-deleted.
+ * {@link ProjectFolderTakenError} for a caller that may hold no grant on the project using the
+ * folder (Invisible Director's pending keys and run create): it does not name that project.
+ */
+export const FOLDER_TAKEN_WORDS =
+	"That key's folder is already used by an existing project; choose another key.";
+
+/**
+ * A key whose R2 folder (`r2Slug`) is already an existing project's under the same client —
+ * `my_game` next to `my-game` — or the same key again: refused rather than created or moved there
+ * (`createProject`, `assignProjectToClient`), since the two would read and write one tree.
+ * `existing` is the project that holds the folder, live or soft-deleted.
  */
 export class ProjectFolderTakenError extends Error {
 	constructor(

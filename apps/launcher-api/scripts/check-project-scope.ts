@@ -19,7 +19,8 @@
  *
  * The Director's scope gate (`requireDirectorProjectScope`) is pinned here too: a PENDING key —
  * a game the New-game form is about to create — whose R2 folder is already a project's under the
- * same client (`sunken_temple` beside `sunken-temple`, live or deleted) is a 409 naming it, asked
+ * same client (`sunken_temple` beside `sunken-temple`, live or deleted) is a 409 that does not name
+ * it (the caller may hold no grant on it), asked
  * only after the caller is known to be able to create under that client (OPEN_QUESTIONS 17).
  *
  * Runs the REAL module. Only the Postgres boundary is replaced: `projects.ts` by a table of which
@@ -150,6 +151,7 @@ const {
 	sessionProjectScope,
 } = await import('../src/lib/server/toolScope.ts');
 const { requireDirectorProjectScope } = await import('../src/lib/server/director/access.ts');
+const { FOLDER_TAKEN_WORDS } = await import('../src/lib/server/projectPaths.ts');
 
 let checks = 0;
 let failures = 0;
@@ -430,13 +432,9 @@ check(
 	{ clientKey: 'borut', projectKey: 'new-game', pending: true },
 );
 check(
-	"a free key whose folder is a live project's under that client is a 409 naming it",
+	"a free key whose folder is a live project's under that client is a 409 that names no project",
 	await director(borutArtist, 'sunken_temple', 'borut'),
-	{
-		status: 409,
-		message:
-			'"sunken_temple" would share its files with the project "sunken-temple" (both use the folder "sunken_temple"). Pick another key.',
-	},
+	{ status: 409, message: FOLDER_TAKEN_WORDS },
 );
 check('…asked about that folder under the request’s client', folderAsks.at(-1), {
 	folder: 'sunken_temple',
@@ -444,10 +442,8 @@ check('…asked about that folder under the request’s client', folderAsks.at(-
 });
 check(
 	"…and a soft-deleted project's folder is taken too",
-	((await director(borutArtist, 'old_game', 'borut')) as { message?: string }).message?.includes(
-		'"old-game"',
-	),
-	true,
+	await director(borutArtist, 'old_game', 'borut'),
+	{ status: 409, message: FOLDER_TAKEN_WORDS },
 );
 check(
 	'the same slug in another client folder (here: unassigned) is free',

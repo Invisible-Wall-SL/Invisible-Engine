@@ -68,24 +68,30 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     naming the project that holds the folder under that client, live or soft-deleted. Of two racing
     aliases exactly one lands. Each caller answers in its own shape: Game Maker / Admin `fail(400)`,
     desktop sync and duplicate 409, Director `create_from_template` 409 `project_exists`.
+  - **Re-homing:** `assignProjectToClient` (Admin › Projects re-assign, the desktop sync's client
+    change) takes the same lock and refuses moving a project into a client folder another project
+    holds (Admin `fail(400)`, sync 409; the sync now re-assigns before it renames, so a refusal
+    changes nothing).
   - **Director:** `requireDirectorProjectScope` answers a creatable pending key whose folder is a
-    project's under the request's client with **409 naming it** (doc, upload and image routes; the
+    project's under the request's client with a **409 that names no project**
+    (`FOLDER_TAKEN_WORDS`: the caller may hold no grant on it; doc, upload and image routes; the
     New-game form shows it as the key hint). The check runs only after the caller is known to be
-    able to create under that client, so the bare 403 still says nothing to anyone else.
-    `createRun` refuses the same key under its lock, before any run names it (409
-    `key_folder_taken`).
+    able to create under that client, so the bare 403 is unchanged. `createRun` refuses the same
+    key under its lock, before any run names it (409 `key_folder_taken`, same words).
   - `projectInFolder` now returns the holder's key and takes an optional `client` (folder-equal,
     `r2SlugSql` over `coalesce(client_key, 'unassigned')`); without one it is any client, which the
     mockup cleanup keeps. Another client's same-slug key is a different folder and stays allowed.
   - **Existing aliases are untouched.** `pnpm --filter launcher-api list:project-folder-aliases`
     (read-only, one SELECT) lists folders held by more than one project row.
   - Fixtures: new `check:project-create` (the real `createProject` + advisory-lock SQL over a
-    pg-proxy in-memory table: folder rule, deleted holder, client-folder aliasing, the race, and a
-    lock-off control that shows the race), `check:project-scope` (the Director gate's decision
-    table), `check:director-mockups`, `check:director-runs`, `check:director-adapters` (every
+    pg-proxy in-memory table: folder rule, deleted holder, client-folder aliasing, the race, a
+    lock-off control that shows the race, and `assignProjectToClient`'s moves),
+    `check:project-scope` (the Director gate's decision table), `check:director-mockups`, `check:director-runs`, `check:director-adapters` (every
     caller's answer).
-  - **Not covered:** re-assigning an existing project to another client (`assignProjectToClient`,
-    desktop sync's upsert) can still move it beside a same-slug project; it moves no R2 data.
+  - **Not covered:** `deleteClient` — the FK's `ON DELETE SET NULL` moves every project of the
+    client to `unassigned`, where one can land beside a same-slug project. And the reverse
+    direction: a pending `my_game` mockup doc followed by Game Maker creating `my-game` folds that
+    doc into the new project's `director/` tree (existing behaviour, left as is).
 
 - 2026-10-06 — **Invisible Director: pending-key mockup cleanup** (#1069/#1072 follow-up).
   Mockups uploaded under a key that never became a game no longer stay in R2 forever

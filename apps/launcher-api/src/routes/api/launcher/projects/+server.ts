@@ -150,10 +150,15 @@ export const POST: RequestHandler = async ({ request }) => {
 	// Upsert: rename an existing project (+ re-assign its client if it changed), else create.
 	// The kind is seeded on create only — see the note above.
 	if (await projectExists(key)) {
-		await renameProject(key, name);
 		if ((await projectClientKey(key)) !== ownerClientKey) {
-			await assignProjectToClient(key, ownerClientKey);
+			try {
+				await assignProjectToClient(key, ownerClientKey);
+			} catch (e) {
+				if (!(e instanceof ProjectFolderTakenError)) throw e;
+				return json({ error: e.message }, { status: 409, headers: NO_STORE });
+			}
 		}
+		await renameProject(key, name);
 	} else {
 		try {
 			await createProject(key, name, ownerClientKey, gameType || undefined);

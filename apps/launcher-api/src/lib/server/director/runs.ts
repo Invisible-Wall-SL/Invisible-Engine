@@ -21,7 +21,7 @@ import { loadGameConfigDocWithEtag } from '../gameConfigStorage';
 import { selectableGameKinds } from '../gameKinds';
 import { listGamesOwnedByProject } from '../games';
 import { withProjectKeyLock } from '../projectKeyLock';
-import { ProjectFolderTakenError, UNASSIGNED_CLIENT, projectPrefix, r2Slug } from '../projectPaths';
+import { FOLDER_TAKEN_WORDS, UNASSIGNED_CLIENT, projectPrefix, r2Slug } from '../projectPaths';
 import {
 	canAccessProject,
 	isValidProjectKey,
@@ -462,7 +462,7 @@ export async function createRun(user: User, input: CreateRunInput): Promise<Crea
 			db: tx,
 		});
 		if (holder) {
-			throw new RunError(409, 'key_folder_taken', new ProjectFolderTakenError(key, holder).message);
+			throw new RunError(409, 'key_folder_taken', FOLDER_TAKEN_WORDS);
 		}
 		const draft = {
 			id: runId,

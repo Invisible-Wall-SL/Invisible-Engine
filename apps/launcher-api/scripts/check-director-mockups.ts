@@ -16,7 +16,7 @@
  *  - the ownership check is recorded once with who and when; `ownershipRefusal` refuses a run with
  *    mockups and no check, and nothing else;
  *  - the route is gated on the `director` tool and the project named in the request; a free key
- *    whose R2 folder is a project's under the same client (live or deleted) is a 409 naming it, on
+ *    whose R2 folder is a project's under the same client (live or deleted) is a 409 (naming no project), on
  *    the doc, upload and image routes, and writes nothing — another client's folder is free;
  *  - the model copy is at most 1568 px on the long edge with the scale reported; a crop is cut from
  *    the ORIGINAL at the unscaled box; the dominant colours of the reference set equal the committed
@@ -303,7 +303,7 @@ const pixels = await import(src('lib/server/director/mockupPixels.ts'));
 const ops = await import(src('lib/server/director/ops/mockups.ts'));
 const { refusedWriteTarget } = await import(src('lib/server/director/refusals.ts'));
 const { allowedPrefixes, isKeyAllowed } = await import(src('lib/server/toolScope.ts'));
-const { SUB } = await import(src('lib/server/projectPaths.ts'));
+const { FOLDER_TAKEN_WORDS, SUB } = await import(src('lib/server/projectPaths.ts'));
 const { planDuplicate } = await import(src('lib/server/projectDuplicate.ts'));
 const route = await import(src('routes/api/director/mockups/+server.ts'));
 const imageRoute = await import(src('routes/api/director/mockups/image/+server.ts'));
@@ -769,9 +769,9 @@ console.log('route');
 	const aliasWrites = writes.length;
 	const aliasGet = await call('GET', admin, 'sunken_temple&client=acme');
 	check(
-		'GET on a key whose folder is a live project’s is 409 naming it',
-		[aliasGet.status, String(aliasGet.body?.message).includes('"sunken-temple"')],
-		[409, true],
+		'GET on a key whose folder is a live project’s is 409, not naming it',
+		[aliasGet.status, aliasGet.body?.message],
+		[409, FOLDER_TAKEN_WORDS],
 	);
 	check('…asked about that folder under the request’s client', folderReads.at(-1), {
 		folder: 'sunken_temple',
@@ -783,16 +783,16 @@ console.log('route');
 	aliasForm.set('file', new File([basePng], 'alias.png', { type: 'image/png' }));
 	const aliasPost = await call('POST', admin, 'sunken_temple&client=acme', aliasForm);
 	check(
-		'POST upload under the alias is 409 naming the project',
-		[aliasPost.status, String(aliasPost.body?.message).includes('"sunken-temple"')],
-		[409, true],
+		'POST upload under the alias is 409',
+		[aliasPost.status, aliasPost.body?.message],
+		[409, FOLDER_TAKEN_WORDS],
 	);
 	check('…and writes nothing', writes.length, aliasWrites);
 	const deletedAlias = await call('GET', admin, 'deleted_game&client=acme');
 	check(
-		'a key whose folder is a DELETED project’s is 409 naming it',
-		[deletedAlias.status, String(deletedAlias.body?.message).includes('"deleted-game"')],
-		[409, true],
+		'a key whose folder is a DELETED project’s is 409 too',
+		[deletedAlias.status, deletedAlias.body?.message],
+		[409, FOLDER_TAKEN_WORDS],
 	);
 	check(
 		'the same slug under ANOTHER client is another folder: a pending key',
