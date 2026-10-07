@@ -22,7 +22,7 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - **Tool registry + docs** — `roles.ts` is the single registry; the launcher **serves the guides** at authed `/docs/[slug]` (rendered from `docs/tools/*.md`). `/onboarding` walks each role through its tools with a guide link per tool and saves each user's local-tool install paths (`tool_installs`). CLAUDE.md rule 9 keeps a new/renamed tool from shipping doc-less.
 - **Desktop launcher support** — the `.exe` (separate `invisible-launcher` repo) is served over open routes `/api/launcher/download` + `/api/launcher/latest`; it self-updates via the manifest. `/api/launcher/projects` (session-scoped project sync, with a **derived** build profile from the project's game kind when none is stored — `launcherProfile.ts`, `mockProtocol.ts`), `/api/launcher/game-upload` (the publish relay), `register-game`, `deploy-token` and `git-credentials` (`gamePublish`-gated).
 - **Saving together** — every authoring tool saves through `$lib/saveState.svelte.ts` with R2 conditional writes, holds a soft lease (`/api/lease`, `doc_leases`) with a presence banner, and keeps rolling backups of its whole-doc saves (`docBackups.ts`).
-- **DB migrations** — applied by the launcher at boot (`init` hook → `runMigrations()`); `0000`–`0027` are live, `0028_pipeline_merges` ships with Director card 5C, and `/api/health` reports `schema: current`. **`db:push` is banned on prod** — `db:generate` + the boot migrator.
+- **DB migrations** — applied by the launcher at boot (`init` hook → `runMigrations()`); `0000`–`0028` are live, `0029_director_recipes` ships with Director card 8D, and `/api/health` reports `schema: current`. **`db:push` is banned on prod** — `db:generate` + the boot migrator.
 - **UI** — full-bleed home: online tools grouped into **game-making stage sections** (Create / Assets / Build / Files & Reference / Pipeline) plus Games and Local tools, Invisible Wall emblem branding. Stages are the single source `TOOL_STAGES` in `roles.ts`; the top-bar switcher tints each tool icon by its stage accent.
 
 ## Open items / next
@@ -59,6 +59,53 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+- 2026-10-07 — **Invisible Director: the atlas technician** (ADR-0008 card 8D). Inert for a person
+  and for every current game: only a Director run reaches any of it.
+  - **Agent:** `services/director-worker/agents/atlas-technician.md` (Sonnet 5.5, high effort, the
+    18 tools of ADR-0008 Appendix A). `atlas-artist` is narrowed to prompts and curation (adds
+    `gptPrompt`); the coordinator gains `atlas.list_blueprints` and plans the Art plan.
+    `DIRECTOR_AGENTS` gains `atlas-technician`.
+  - **Adapter ops** (`director/ops/atlasSetup.ts`): `list_blueprints` (reviewed image cards from
+    atlas-tool `GET /blueprints`, cached a minute), `set_atlas_pipeline` (`/saveconfig` with only
+    `atlas_pipeline`, the size and the card's per-atlas keys or `bpParams[<id>]`), `set_region_pipeline`
+    and `set_refs` (`/regionadv` then the WHOLE card to `/saveadv`; variant refs copied
+    create-only to `input/refs/director_<atlas>_<region>_<id>.png` — the atlas is in the name, unlike
+    ADR-0008 §4's sketch, so two scratch atlases with the same tag cannot share a copy; crops to
+    `director_<region>_crop_<run>.png`; a `key` ref must be this project's), `duplicate_atlas`, `add_layer` / `remove_layer` (scratch
+    atlases only, i.e. ones this run's `duplicate_atlas` made — read from `director_ops`),
+    `set_output` (refused over a tile this run did not commit: `isRunTile` matches 8B's
+    `refs/useroutput/<region>_<run>_<sha12>.png`), `deploy_atlas` (never a scratch atlas, never a
+    fully-qualified `deploy_path` outside `deploy/`). `queue_variants`, `choose_variant` (now with
+    `lock` and the variant's seed), `pack_sheet` and `comfyui.job_status` move to the technician.
+  - **Queue gate:** `atlas.queue_variants` takes `step` and refuses (`409 no_approved_step`) any
+    region with no APPROVED, not yet rendered recipe step on that atlas at the atlas's own pipeline
+    (or the region's override), generation size, variant count and the step's settings as the
+    atlas/region now hold them; a step counts only on its recipe's own region or a scratch atlas this
+    run made. `choose_variant` with `lock: false` never unpins a pinned region; `art_plan_open` while the owner reviews;
+    `atlas_not_configured` until `set_atlas_pipeline` ran.
+  - **Refusals** (`refusals.ts`): by name `library`, `run_on`, `global_config`, `art_deletion`,
+    `template_rect`, `template_add`; ops raise `RefusalError` (`layers`, `run_on`, `global_config`,
+    `art_deletion`) and the gate answers it like the name refusals; the write guard refuses
+    `_shared/` and `atlas_config.json`.
+  - **Recipes** (`packages/director-costs/src/recipe.ts`, export `director-costs/recipe`): the §5
+    rules in one module the worker validates with and the launcher gate reads. Migration
+    `0029_director_recipes`: `director_regions.recipe_json` / `recipe_rev`, `director_template_recipes`
+    (versioned group defaults, written after an Art plan approval), `director_blueprint_timings`
+    (empty until 8E), and `waiting_on` accepts `art_plan`.
+  - **Worker:** `run.set_recipe` (validated, stored as rev + 1, refused with every reason), the Art
+    plan opened by code when every planned region has a recipe (`plan_ready` in `runState.ts`;
+    `checkpoints_json.artPlan`, default on; off = approved `auto` only when the projection is priced
+    and fits the cap, else the run pauses on the `budget` checkpoint and a resume re-checks), approval writes
+    the template defaults, a revision that changes a pipeline or raises the cost drops its
+    approval, a queued render marks its steps `queued`. The technician's task carries the
+    template's defaults, else the old preset's chain (the fallback until 8C).
+  - **Deploy:** `pnpm --filter director-worker check:idle [--pause]` (the deploy skill runs it).
+  - Tests: `check:director-adapters` 423, `check:director-runs` 411, `check:recipes` 37,
+    `check:run-state`, `check:agents`, `prove:art-plan` 27, `prove:idle` 6 (both in the Director
+    worker workflow).
+  - **Open (8E):** the Art plan's own panel and `recipeEdits`, chain pricing in the estimate,
+    timings from `job_done`. Recipes of regions a later `run.set_plan` drops stay stored and
+    approved (the queue gate does not read the plan). ⏳ Owed: a live pass with a Director token (no signing secret here).
 - 2026-10-07 — **A new key can no longer alias a project's R2 folder** (OPEN_QUESTIONS 17, the
   #1085 follow-up). A project's files live under `r2Slug(client)/r2Slug(key)`, so `my_game` beside
   `my-game` (or `x_y` under client `acme_co` beside `x-y` under `acme-co`) would read and write one

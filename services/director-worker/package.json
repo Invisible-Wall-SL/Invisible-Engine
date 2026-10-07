@@ -3,7 +3,7 @@
 	"version": "0.1.0",
 	"private": true,
 	"type": "module",
-	"description": "Invisible Director worker — drives Director runs (ADR-0001, ADR-0003).",
+	"description": "Invisible Director worker \u2014 drives Director runs (ADR-0001, ADR-0003).",
 	"engines": {
 		"node": ">=22.16.0"
 	},
@@ -19,7 +19,11 @@
 		"check:agent-eval": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/eval/eval.fixture.ts",
 		"prove:turns": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/prove-turns.ts",
 		"prove:breakdown": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/prove-breakdown.ts",
-		"eval:agent": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/agent-eval.ts"
+		"eval:agent": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/agent-eval.ts",
+		"check:recipes": "node --experimental-strip-types --no-warnings=ExperimentalWarning src/recipe.fixture.ts",
+		"prove:art-plan": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/prove-art-plan.ts",
+		"check:idle": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/check-director-idle.ts",
+		"prove:idle": "node --experimental-strip-types --no-warnings=ExperimentalWarning scripts/prove-idle.ts"
 	},
 	"dependencies": {
 		"@anthropic-ai/sdk": "0.128.0",

@@ -9,7 +9,7 @@ import {
 	type DocBase,
 } from '../atlasClient';
 import { JOB_REF, callbackFor, readJobView, runpodUsageOf, startAtlasJobWatch } from '../atlasJobs';
-import { getAtlasJob, insertAtlasJob } from '../store';
+import { doneOpResults, getAtlasJob, insertAtlasJob, runRecipes } from '../store';
 
 /**
  * Atlas Maker adapters (PLAN 2.4). Reads come straight from the project's manifests in R2, the
@@ -26,13 +26,17 @@ export const VARIANT_ID = '^[0-9]{1,8}$';
 /** atlas-tool's variant tiles: a JPEG thumb, or the full PNG. */
 export const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 
-const atlasProp = {
+export const atlasProp = {
 	type: 'string',
 	description: 'The atlas id (its manifest stem).',
 	pattern: ATLAS,
 } as const;
-const regionProp = { type: 'string', description: 'The region name.', pattern: REGION } as const;
-const baseProp = {
+export const regionProp = {
+	type: 'string',
+	description: 'The region name.',
+	pattern: REGION,
+} as const;
+export const baseProp = {
 	type: 'object',
 	description:
 		"The manifest version a write is based on, as atlas.get_region returned it. A person's save since then makes the write a conflict; omit it to base the write on the version read now.",
@@ -44,7 +48,7 @@ const baseProp = {
 	additionalProperties: false,
 } as const satisfies ObjectSchema;
 
-interface ManifestRegion {
+export interface ManifestRegion {
 	name: string;
 	prompt?: string;
 	gpt_prompt?: string;
@@ -59,6 +63,10 @@ interface ManifestRegion {
 	mode?: string;
 	layer_of?: string;
 	pipeline?: string;
+	style_ref?: string;
+	shape_ref?: string;
+	fit_mode?: string;
+	output_override?: string;
 	x?: number;
 	y?: number;
 	w?: number;
@@ -66,7 +74,7 @@ interface ManifestRegion {
 	rotated?: boolean;
 }
 
-interface Manifest {
+export interface Manifest {
 	atlas?: {
 		width?: number;
 		height?: number;
@@ -76,10 +84,17 @@ interface Manifest {
 	};
 	regions?: ManifestRegion[];
 	rotated_regions?: ManifestRegion[];
+	/** Per-atlas settings; `pipeline` only on an atlas a Director run configured (8B). */
+	settings?: Record<string, unknown> & {
+		pipeline?: string;
+		gen_width?: unknown;
+		gen_height?: unknown;
+	};
+	deploy_path?: string;
 	saved_by?: { rev?: string; tool?: string; name?: string; agent?: string; at?: string };
 }
 
-interface LoadedManifest {
+export interface LoadedManifest {
 	atlas: string;
 	key: string;
 	doc: Manifest;
@@ -87,10 +102,10 @@ interface LoadedManifest {
 	regions: (ManifestRegion & { rotated: boolean })[];
 }
 
-const manifestKey = (scope: NonNullable<AdapterContext['scope']>, atlas: string) =>
+export const manifestKey = (scope: NonNullable<AdapterContext['scope']>, atlas: string) =>
 	`${SUB.manifests(scope.clientKey, scope.projectKey)}/${manifestFile(atlas)}`;
 
-async function loadManifest(ctx: AdapterContext, atlas: string): Promise<LoadedManifest> {
+export async function loadManifest(ctx: AdapterContext, atlas: string): Promise<LoadedManifest> {
 	const key = manifestKey(ctx.scope!, atlas);
 	const got = await getObjectTextWithEtag(key);
 	if (!got) throw new AdapterError(404, 'unknown_atlas', `No atlas "${atlas}" in this project.`);
@@ -107,7 +122,7 @@ async function loadManifest(ctx: AdapterContext, atlas: string): Promise<LoadedM
 	return { atlas, key, doc, base: { etag: got.etag ?? '', rev: doc.saved_by?.rev ?? '' }, regions };
 }
 
-function requireRegion(m: LoadedManifest, region: string) {
+export function requireRegion(m: LoadedManifest, region: string) {
 	const found = m.regions.find((r) => r.name === region);
 	if (!found) {
 		throw new AdapterError(404, 'unknown_region', `No region "${region}" in atlas "${m.atlas}".`);
@@ -133,22 +148,31 @@ const regionSummary = (r: LoadedManifest['regions'][number]) => ({
  */
 function cardOf(
 	r: ManifestRegion,
-	change: Partial<{ prompt: string; negative: string; variant: string }>,
+	change: Partial<{
+		prompt: string;
+		negative: string;
+		gptPrompt: string;
+		variant: string;
+		lock: boolean;
+		seed: number | null;
+	}>,
 ) {
 	// `batch_atlas.region_locked`: a manifest written before the explicit flag is locked by a
 	// stored seed or pick, and a card that said otherwise would unpin it and drop the seed.
-	const locked = 'lock' in r ? Boolean(r.lock) : r.seed !== undefined || Boolean(r.variant?.trim());
+	const stored = 'lock' in r ? Boolean(r.lock) : r.seed !== undefined || Boolean(r.variant?.trim());
+	const locked = change.lock ?? stored;
+	const seed = change.seed !== undefined ? change.seed : (r.seed ?? null);
 	return {
 		name: r.name,
 		prompt: change.prompt ?? r.prompt ?? '',
-		gpt_prompt: r.gpt_prompt ?? '',
+		gpt_prompt: change.gptPrompt ?? r.gpt_prompt ?? '',
 		negative: change.negative ?? r.negative ?? '',
 		negative_replace: Boolean(r.negative_replace),
 		positive_replace: Boolean(r.positive_replace),
 		variant: change.variant ?? r.variant ?? '',
 		selected: !r.skip_unless_explicit,
 		lock: locked,
-		seed: locked && r.seed !== undefined ? String(r.seed) : '',
+		seed: locked && seed !== null ? String(seed) : '',
 	};
 }
 
@@ -173,10 +197,125 @@ async function saveCard(
 }
 
 /** The manifest key an atlas write lands on — what the gate's write-target guard checks. */
-const writesManifest = (
+export const writesManifest = (
 	input: { atlas: string },
 	scope: { clientKey: string; projectKey: string },
 ) => [manifestKey(scope, input.atlas)];
+
+/** The atlases this run made with `atlas.duplicate_atlas`: its scratch atlases (ADR-0008 §5). */
+export async function scratchAtlases(ctx: AdapterContext): Promise<Set<string>> {
+	const results = await doneOpResults(ctx.run.id, 'atlas.duplicate_atlas');
+	return new Set(
+		results
+			.map((r) => (r as { atlas?: unknown } | null)?.atlas)
+			.filter((a): a is string => typeof a === 'string'),
+	);
+}
+
+interface RecipeStep {
+	n: number;
+	kind: string;
+	pipeline: string;
+	atlas: string;
+	region: string;
+	genPx: number;
+	variants: number;
+	settings?: { key: string; value: string }[];
+	status?: string;
+}
+interface RecipeRow {
+	region: string;
+	atlas: string;
+	rev: number;
+	approved: { rev: number } | null;
+	steps: RecipeStep[];
+}
+
+/**
+ * The queue gate (ADR-0008 §3, §5): a render runs only for an approved recipe step. Every region
+ * must have one on this atlas with these variants, the pipeline the region renders with (its own
+ * override, else the atlas's, which a Director run always sets) and the atlas's generation size;
+ * `step` must name one of them. While the Art plan is open nothing is approved, so nothing renders.
+ */
+async function requireApprovedSteps(
+	ctx: AdapterContext,
+	m: LoadedManifest,
+	regions: string[],
+	variants: number,
+	step: string,
+) {
+	if (ctx.run.waitingOn === 'art_plan') {
+		throw new AdapterError(
+			409,
+			'art_plan_open',
+			'The Art plan is with the owner: nothing renders until it is approved.',
+		);
+	}
+	const atlasPipe = String(m.doc.settings?.pipeline ?? '').toLowerCase();
+	const genW = Number(m.doc.settings?.gen_width);
+	const genH = Number(m.doc.settings?.gen_height);
+	if (!atlasPipe || !Number.isFinite(genW) || genW !== genH) {
+		throw new AdapterError(
+			409,
+			'atlas_not_configured',
+			`Set "${m.atlas}"'s pipeline and size with atlas.set_atlas_pipeline before rendering.`,
+		);
+	}
+	const recipes = (await runRecipes(ctx.run.id)) as RecipeRow[];
+	const scratch = await scratchAtlases(ctx);
+	// A step renders its recipe's own template region, or a region of a scratch atlas this run made;
+	// a step that names any other atlas is never a licence to render it.
+	const approvedSteps = recipes
+		.filter((r) => r.approved && r.approved.rev === r.rev)
+		.flatMap((r) =>
+			r.steps.filter((s) => (s.atlas === r.atlas ? s.region === r.region : scratch.has(s.atlas))),
+		)
+		// Rendered once: an approved region is never re-sampled (§5); a redo is a new revision.
+		.filter((s) => !s.status || s.status === 'planned' || s.status === 'failed');
+	const settings = (m.doc.settings ?? {}) as Record<string, unknown>;
+	const bpParams = (settings.bpParams ?? {}) as Record<string, Record<string, unknown>>;
+	/** The step's settings as the atlas and region now hold them. */
+	const settingsHold = (s: RecipeStep, r: ManifestRegion) =>
+		(s.settings ?? []).every(({ key, value }) => {
+			const atlasValue = bpParams[s.pipeline]?.[key] ?? settings[key];
+			const regionValue = (r as unknown as Record<string, unknown>)[key];
+			return [atlasValue, regionValue].some((v) => v !== undefined && String(v) === value);
+		});
+	const [stepRegion, stepN] = step.split('#');
+	if (!regions.includes(stepRegion)) {
+		throw new AdapterError(
+			400,
+			'invalid_input',
+			`step ${step} names a region this call does not render.`,
+		);
+	}
+	const problems: string[] = [];
+	for (const name of regions) {
+		const r = requireRegion(m, name);
+		const pipeline = r.pipeline?.trim().toLowerCase() || atlasPipe;
+		const match = approvedSteps.find(
+			(s) =>
+				s.kind !== 'finish' &&
+				s.atlas === m.atlas &&
+				s.region === name &&
+				s.pipeline === pipeline &&
+				s.genPx === genW &&
+				s.variants === variants &&
+				settingsHold(s, r) &&
+				(name !== stepRegion || String(s.n) === stepN),
+		);
+		if (!match) {
+			problems.push(`${name} (${pipeline} ${genW} px ×${variants})`);
+		}
+	}
+	if (problems.length) {
+		throw new AdapterError(
+			409,
+			'no_approved_step',
+			`No approved, not yet rendered recipe step renders ${problems.join(', ')} on "${m.atlas}" with the settings it now holds. Check the atlas setup against the approved recipe, or revise the recipe (run.set_recipe) for the owner.`,
+		);
+	}
+}
 
 export const listRegions = defineOp<
 	{ atlas?: string },
@@ -197,7 +336,7 @@ export const listRegions = defineOp<
 		properties: { atlas: atlasProp },
 		additionalProperties: false,
 	},
-	agents: ['atlas-artist', 'mockup-analyst'],
+	agents: ['atlas-artist', 'atlas-technician', 'mockup-analyst'],
 	scope: 'project',
 	write: false,
 	handler: async (ctx, { atlas }) => {
@@ -224,14 +363,14 @@ export const getRegion = defineOp<{ atlas: string; region: string }, Record<stri
 	tool: 'atlas',
 	name: 'get_region',
 	description:
-		'One region in full: prompt, negative, chosen variant, lock and seed, mode, geometry, and the manifest version (`base`) to hand back to a write.',
+		"One region in full: prompt, negative, chosen variant, lock and seed, mode, layer base, its pipeline override and the atlas's own pipeline and size, style and shape refs, fit mode, committed tile (outputOverride), geometry, and the manifest version (`base`) to hand back to a write.",
 	inputSchema: {
 		type: 'object',
 		properties: { atlas: atlasProp, region: regionProp },
 		required: ['atlas', 'region'],
 		additionalProperties: false,
 	},
-	agents: ['atlas-artist', 'art-director'],
+	agents: ['atlas-artist', 'atlas-technician', 'art-director'],
 	scope: 'project',
 	write: false,
 	handler: async (ctx, { atlas, region }) => {
@@ -243,6 +382,12 @@ export const getRegion = defineOp<{ atlas: string; region: string }, Record<stri
 			gptPrompt: r.gpt_prompt ?? '',
 			seed: r.seed ?? null,
 			pipeline: r.pipeline ?? null,
+			atlasPipeline: m.doc.settings?.pipeline ?? null,
+			genPx: m.doc.settings?.gen_width ?? null,
+			styleRef: r.style_ref ?? null,
+			shapeRef: r.shape_ref ?? null,
+			fitMode: r.fit_mode ?? null,
+			outputOverride: r.output_override ?? null,
 			position: typeof r.x === 'number' && typeof r.y === 'number' ? { x: r.x, y: r.y } : null,
 			savedBy: m.doc.saved_by ?? null,
 			base: m.base,
@@ -251,13 +396,20 @@ export const getRegion = defineOp<{ atlas: string; region: string }, Record<stri
 });
 
 export const setRegionPrompt = defineOp<
-	{ atlas: string; region: string; prompt: string; negative?: string; base?: DocBase },
+	{
+		atlas: string;
+		region: string;
+		prompt: string;
+		negative?: string;
+		gptPrompt?: string;
+		base?: DocBase;
+	},
 	{ atlas: string; region: string; message: string; version: DocBase | null }
 >({
 	tool: 'atlas',
 	name: 'set_region_prompt',
 	description:
-		"Set a region's generation prompt, and optionally its negative. Saved through the Atlas Maker's own save, compare-and-swapped: a conflict means someone saved this atlas since `base` — re-read and retry.",
+		"Set a region's generation prompt, and optionally its negative and (for gpt_image) its edit instruction `gptPrompt`. Saved through the Atlas Maker's own save, compare-and-swapped: a conflict means someone saved this atlas since `base` — re-read and retry.",
 	inputSchema: {
 		type: 'object',
 		properties: {
@@ -265,6 +417,7 @@ export const setRegionPrompt = defineOp<
 			region: regionProp,
 			prompt: { type: 'string', pattern: '\\S', maxLength: 4000 },
 			negative: { type: 'string', maxLength: 2000 },
+			gptPrompt: { type: 'string', maxLength: 4000 },
 			base: baseProp,
 		},
 		required: ['atlas', 'region', 'prompt'],
@@ -274,16 +427,21 @@ export const setRegionPrompt = defineOp<
 	scope: 'project',
 	write: true,
 	writes: writesManifest,
-	handler: async (ctx, { atlas, region, prompt, negative, base }) => {
+	handler: async (ctx, { atlas, region, prompt, negative, gptPrompt, base }) => {
 		const m = await loadManifest(ctx, atlas);
 		const r = requireRegion(m, region);
-		const saved = await saveCard(ctx, m, cardOf(r, { prompt: prompt.trim(), negative }), base);
+		const saved = await saveCard(
+			ctx,
+			m,
+			cardOf(r, { prompt: prompt.trim(), negative, gptPrompt }),
+			base,
+		);
 		return { atlas, region, ...saved };
 	},
 });
 
 export const queueVariants = defineOp<
-	{ atlas: string; regions: string[]; variants: number },
+	{ atlas: string; regions: string[]; variants: number; step: string },
 	{
 		jobRef: string;
 		status: 'queued';
@@ -297,18 +455,23 @@ export const queueVariants = defineOp<
 	tool: 'atlas',
 	name: 'queue_variants',
 	description:
-		'Queue variant renders for regions of one atlas and return a jobRef at once. Never wait or poll for it: the run is told when the job is done.',
+		"Queue variant renders for regions of one atlas and return a jobRef at once, for an APPROVED recipe step: every region must have an approved step on this atlas with this many variants, the atlas's pipeline and size. `step` names one of them as `<region>#<n>`. Never wait or poll for it: the run is told when the job is done.",
 	inputSchema: {
 		type: 'object',
 		properties: {
 			atlas: atlasProp,
 			regions: { type: 'array', items: regionProp, maxItems: 32 },
 			variants: { type: 'integer', minimum: 1, maximum: 8 },
+			step: {
+				type: 'string',
+				description: 'The approved recipe step this render runs, `<region>#<n>`.',
+				pattern: '^[A-Za-z0-9_][A-Za-z0-9_.()-]{0,119}#[0-9]{1,2}$',
+			},
 		},
-		required: ['atlas', 'regions', 'variants'],
+		required: ['atlas', 'regions', 'variants', 'step'],
 		additionalProperties: false,
 	},
-	agents: ['atlas-artist'],
+	agents: ['atlas-technician'],
 	scope: 'project',
 	write: true,
 	// The render's variants, its job records, and the post-hook's machine write to the manifest.
@@ -316,12 +479,13 @@ export const queueVariants = defineOp<
 		const root = projectPrefix(scope.clientKey, scope.projectKey);
 		return [...writesManifest(input, scope), `${root}/batch/`, `${root}/_jobs/still/`];
 	},
-	handler: async (ctx, { atlas, regions, variants }) => {
+	handler: async (ctx, { atlas, regions, variants, step }) => {
 		const names = [...new Set(regions)];
 		if (names.length === 0)
 			throw new AdapterError(400, 'invalid_input', 'Name at least one region.');
 		const m = await loadManifest(ctx, atlas);
 		for (const name of names) requireRegion(m, name);
+		await requireApprovedSteps(ctx, m, names, variants, step);
 		let callback = callbackFor(ctx.run.id);
 		const render = () =>
 			atlasFetch(ctx, {
@@ -386,7 +550,7 @@ export const listVariants = defineOp<
 		required: ['atlas', 'region'],
 		additionalProperties: false,
 	},
-	agents: ['atlas-artist', 'art-director'],
+	agents: ['atlas-artist', 'atlas-technician', 'art-director'],
 	scope: 'project',
 	write: false,
 	handler: async (ctx, { atlas, region }) => {
@@ -460,13 +624,20 @@ export const getVariantImage = defineOp<
 });
 
 export const chooseVariant = defineOp<
-	{ atlas: string; region: string; id: string; base?: DocBase },
-	{ atlas: string; region: string; chosen: string; message: string; version: DocBase | null }
+	{ atlas: string; region: string; id: string; lock: boolean; base?: DocBase },
+	{
+		atlas: string;
+		region: string;
+		chosen: string;
+		locked: boolean;
+		message: string;
+		version: DocBase | null;
+	}
 >({
 	tool: 'atlas',
 	name: 'choose_variant',
 	description:
-		"Make a rendered variant the region's tile. Compare-and-swapped like set_region_prompt: a conflict means someone saved this atlas since `base`.",
+		"Make a rendered variant the region's tile, and lock it (with the variant's seed) or not. The region's other fields are re-sent unchanged. Compare-and-swapped like set_region_prompt: a conflict means someone saved this atlas since `base`.",
 	inputSchema: {
 		type: 'object',
 		properties: {
@@ -477,16 +648,21 @@ export const chooseVariant = defineOp<
 				description: 'A variant id from atlas.list_variants.',
 				pattern: VARIANT_ID,
 			},
+			lock: {
+				type: 'boolean',
+				description:
+					'Pin the pick and its seed so a re-render skips it. false never unpins a region that is pinned now.',
+			},
 			base: baseProp,
 		},
-		required: ['atlas', 'region', 'id'],
+		required: ['atlas', 'region', 'id', 'lock'],
 		additionalProperties: false,
 	},
-	agents: ['atlas-artist'],
+	agents: ['atlas-technician'],
 	scope: 'project',
 	write: true,
 	writes: writesManifest,
-	handler: async (ctx, { atlas, region, id, base }) => {
+	handler: async (ctx, { atlas, region, id, lock, base }) => {
 		const m = await loadManifest(ctx, atlas);
 		const r = requireRegion(m, region);
 		const listed = await atlasFetch(ctx, {
@@ -494,11 +670,17 @@ export const chooseVariant = defineOp<
 			path: `/variants/${encodeURIComponent(region)}`,
 			atlas,
 		});
-		if (!listed.json<{ id: string }[]>().some((v) => v.id === id)) {
+		const picked = listed.json<{ id: string; seed: number | null }[]>().find((v) => v.id === id);
+		if (!picked) {
 			throw new AdapterError(404, 'unknown_variant', `No variant ${id} of "${region}".`);
 		}
-		const saved = await saveCard(ctx, m, cardOf(r, { variant: id }), base);
-		return { atlas, region, chosen: id, ...saved };
+		// A pin someone set stays: `lock: false` never unpins a region that is locked now.
+		const stored =
+			'lock' in r ? Boolean(r.lock) : r.seed !== undefined || Boolean(r.variant?.trim());
+		const keep = lock || stored;
+		const card = cardOf(r, { variant: id, lock: keep, seed: keep ? picked.seed : null });
+		const saved = await saveCard(ctx, m, card, base);
+		return { atlas, region, chosen: id, locked: keep, ...saved };
 	},
 });
 
@@ -516,7 +698,7 @@ export const packSheet = defineOp<
 		required: ['atlas'],
 		additionalProperties: false,
 	},
-	agents: ['atlas-artist'],
+	agents: ['atlas-technician'],
 	scope: 'project',
 	write: true,
 	// The packed layout (machine manifest writes), rebuilt FX layers in batch/, and the page.
@@ -527,6 +709,13 @@ export const packSheet = defineOp<
 	],
 	handler: async (ctx, { atlas }) => {
 		await loadManifest(ctx, atlas);
+		if ((await scratchAtlases(ctx)).has(atlas)) {
+			throw new AdapterError(
+				409,
+				'scratch_atlas',
+				`"${atlas}" is a scratch atlas: it is never packed.`,
+			);
+		}
 		const answer = await atlasFetch(ctx, { method: 'POST', path: '/createatlas', atlas, body: {} });
 		const res = answer.json<{ started: boolean; message: string }>();
 		if (!res.started)
@@ -588,7 +777,7 @@ export const jobStatus = defineOp<{ jobRef: string }, Record<string, unknown>>({
 		required: ['jobRef'],
 		additionalProperties: false,
 	},
-	agents: ['atlas-artist'],
+	agents: ['atlas-technician'],
 	scope: 'project',
 	write: false,
 	handler: async (ctx, { jobRef }) => {

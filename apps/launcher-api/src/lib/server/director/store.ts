@@ -6,6 +6,7 @@ import {
 	directorEvents,
 	directorMessages,
 	directorOps,
+	directorRegions,
 	directorRuns,
 	directorSpend,
 	users,
@@ -21,6 +22,27 @@ import {
  * API (PLAN 4A) — the draft run, the owner's rows, and what the run summary reads. Kept in one
  * module so each fixture can replace the database at a single seam.
  */
+
+/** The run's stored recipes (ADR-0008 §5), as the worker wrote them; the queue gate reads them. */
+export async function runRecipes(runId: string): Promise<unknown[]> {
+	const rows = await getDb()
+		.select({ recipe: directorRegions.recipeJson })
+		.from(directorRegions)
+		.where(and(eq(directorRegions.runId, runId), sql`${directorRegions.recipeJson} is not null`));
+	return rows.map((r) => r.recipe);
+}
+
+/** The stored results of this run's finished calls of `op` (`<tool>.<op>`), oldest first. */
+export async function doneOpResults(runId: string, op: string): Promise<unknown[]> {
+	const rows = await getDb()
+		.select({ result: directorOps.result })
+		.from(directorOps)
+		.where(
+			and(eq(directorOps.runId, runId), eq(directorOps.op, op), eq(directorOps.status, 'done')),
+		)
+		.orderBy(asc(directorOps.createdAt));
+	return rows.map((r) => r.result);
+}
 
 export async function getRun(runId: string): Promise<DirectorRun | null> {
 	const [row] = await getDb().select().from(directorRuns).where(eq(directorRuns.id, runId));

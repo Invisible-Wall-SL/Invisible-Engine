@@ -117,6 +117,19 @@ Works today on `main` / live:
 _Nothing._
 
 ## Recent changes
+- 2026-10-07 — **Director card 8D, atlas-tool side.** A second line behind the launcher's
+  `refusals.ts`: a Director token is refused on `/card/save` (403, before the body is read),
+  `/deleteblueprint`, `/rescanblueprintmodels` and `/taxonomy/save`, even with the publish
+  capability; a person reaches the same code as before (`test_director_safety.py`
+  `test_director_never_writes_the_shared_library`, `…_a_card`, `…_the_taxonomy`). The page's
+  `applyPipe()` first loop now shows the `.cfggrid [data-pipe]` fields for `atlasPipe()` instead of
+  `globalPipe()`; `atlasPipe()` is `ATLAS_PIPE || globalPipe()`, so an atlas no run configured is
+  unchanged (`test_page_js.py` `test_apply_pipe_shows_the_atlas_pipelines_fields` runs the real
+  functions under node). The adapter ops that drive these routes are in `docs/status/launcher.md`
+  (2026-10-07). ⏳ Still owed: the live Director-token pass against a scratch atlas — this
+  session had no `ATLAS_TOOL_SIGNING_SECRET` or launcher access to mint one; run it with the first
+  technician run (list_blueprints → set_atlas_pipeline → duplicate_atlas → set_refs → a refused
+  add_layer on the template).
 - 2026-10-06 — **Director safety changes (ADR-0008 card 8B).** Route changes the Director's
   agents need, each keyed on `act_tool == 'director'` (`is_director`); a person's call and every
   atlas no run configured behave as before.

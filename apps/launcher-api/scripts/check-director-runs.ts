@@ -799,6 +799,7 @@ console.log('create');
 	check('the checkpoints default on', run.checkpoints, {
 		breakdown: true,
 		regionBatch: true,
+		artPlan: true,
 		beforePublish: true,
 	});
 	check(
@@ -1355,6 +1356,7 @@ console.log('summary');
 			'mockup-analyst:working',
 			'art-director:not_started',
 			'atlas-artist:queued',
+			'atlas-technician:not_started',
 			'animator:not_started',
 			'builder:not_started',
 			'qa:not_started',

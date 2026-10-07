@@ -35,13 +35,22 @@ console.log('shipped definitions');
 	const agents = loadAgents(here('agents'), catalog);
 	check(
 		[...agents.keys()].sort().join() ===
-			'animator,art-director,atlas-artist,builder,coordinator,mockup-analyst,qa',
-		'all seven runtime agents load',
+			'animator,art-director,atlas-artist,atlas-technician,builder,coordinator,mockup-analyst,qa',
+		'all eight runtime agents load',
 		` — got ${[...agents.keys()].join()}`,
 	);
 	const qa = agents.get('qa');
 	check(qa?.effort === null, 'qa (Haiku) has no effort');
 	check(agents.get('coordinator')?.effort === 'high', 'coordinator effort is high');
+	const technician = agents.get('atlas-technician');
+	check(
+		technician?.model === 'claude-sonnet-5-5' && technician.effort === 'high',
+		'atlas-technician runs on Sonnet 5.5 at high effort (ADR-0008 §3)',
+	);
+	check(
+		technician?.tools.length === 18,
+		'atlas-technician has the 18 tools of ADR-0008 Appendix A',
+	);
 	check(
 		[...agents.values()].every(
 			(a) => a.systemPrompt.length > 200 && !a.systemPrompt.startsWith('---'),

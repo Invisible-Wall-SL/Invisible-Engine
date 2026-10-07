@@ -48,6 +48,7 @@ prevent.
 from __future__ import annotations
 
 import io
+import json
 import re
 import shutil
 import subprocess
@@ -302,6 +303,60 @@ def test_injected_script_files_parse() -> None:
         check(f"{name} parses", ok, True)
 
 
+def _js_function(page: str, name: str) -> str:
+    """The rendered source of `function name(...){...}`, brace-matched."""
+    at = page.index(f"function {name}(")
+    depth, i = 0, page.index("{", at)
+    while True:
+        depth += {"{": 1, "}": -1}.get(page[i], 0)
+        i += 1
+        if depth == 0:
+            return page[at:i]
+
+
+def _shown_fields(atlas_pipe: str, global_pipe: str) -> list:
+    """Run the page's own applyPipe() under node on a stub Settings grid: the
+    `data-pipe` groups left visible, and the pipe atlasPipe() resolves to."""
+    page = render_page()
+    js = "\n".join([
+        "const BUILTIN_PIPES=['sdxl','flux','gpt_image'];",
+        f"const ATLAS_PIPE={json.dumps(atlas_pipe)};",
+        "const fields=['all','both','sdxl','flux','gpt_image','bp_x'].map(g=>({g,style:{}"
+        ",getAttribute(){return g;}}));",
+        "const document={querySelector:s=>s==='[data-cfg=\"pipeline\"]'"
+        f"?{{value:{json.dumps(global_pipe)}}}:null,",
+        " querySelectorAll:s=>s==='.cfggrid [data-pipe]'?fields:[]};",
+        "function renderBpParams(){} function applyCardPipes(){}",
+        *(_js_function(page, n) for n in
+          ("isBlueprintPipe", "pipeVisible", "globalPipe", "atlasPipe", "applyPipe")),
+        "applyPipe();",
+        "console.log(JSON.stringify([atlasPipe(),"
+        "fields.filter(f=>f.style.display!=='none').map(f=>f.g)]));",
+    ])
+    r = subprocess.run([NODE or "node", "-e", js], capture_output=True, text=True)
+    if r.returncode:
+        _say("       " + r.stderr.strip()[:400])
+        return [None, None]
+    return json.loads(r.stdout)
+
+
+def test_apply_pipe_shows_the_atlas_pipelines_fields() -> None:
+    """ADR-0008 8D: the Settings fields follow the ATLAS's effective pipeline
+    (a Director-set `settings.pipeline`), and an atlas without one is unchanged:
+    atlasPipe() falls back to the global pipeline."""
+    page = render_page()
+    check("applyPipe's field loop reads atlasPipe()",
+          "let p=atlasPipe();" in _js_function(page, "applyPipe"), True)
+    check("an atlas with no pipeline of its own resolves to the global one",
+          _shown_fields("", "flux"), ["flux", ["all", "both", "flux"]])
+    check("...for every global choice",
+          _shown_fields("", "sdxl"), ["sdxl", ["all", "both", "sdxl"]])
+    check("an atlas pipeline wins over the global for the shown fields",
+          _shown_fields("sdxl", "flux"), ["sdxl", ["all", "both", "sdxl"]])
+    check("...a blueprint atlas pipeline shows the blueprint fields",
+          _shown_fields("bp_x", "sdxl"), ["bp_x", ["all", "both"]])
+
+
 if __name__ == "__main__":
     tests = [test_no_escape_python_would_eat_in_any_template]
     if NODE:
@@ -309,7 +364,8 @@ if __name__ == "__main__":
                   test_every_inline_script_parses,
                   test_every_other_template_script_parses,
                   test_the_harness_would_have_caught_the_real_bug,
-                  test_no_lone_backslash_escape_survives_into_the_page]
+                  test_no_lone_backslash_escape_survives_into_the_page,
+                  test_apply_pipe_shows_the_atlas_pipelines_fields]
     else:
         # Loud, not quiet: three of the five layers cannot run without node, and
         # a suite that reports success on a page it never parsed is the exact
