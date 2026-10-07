@@ -2618,10 +2618,8 @@ check(
 	);
 
 	{
-		// ADR-0008 card 8D's transition: the artist's has ended (its render tools are the
-		// technician's); the coordinator's catalogue is accepted named (the new definition) or not
-		// (main's), never more. Both states are built from whichever definition the tree holds, so
-		// this holds before and after the definition PRs land.
+		// ADR-0008 card 8D moved the artist's render tools to the technician and gave the
+		// coordinator the blueprint catalogue; the Agents tab holds both definitions to that.
 		const agentsDir = fileURLToPath(
 			new URL('../../../services/director-worker/agents/', import.meta.url),
 		);
@@ -2657,15 +2655,15 @@ check(
 		);
 		const coordinator = readFileSync(`${agentsDir}coordinator.md`, 'utf8');
 		check(
-			"the coordinator's catalogue: named or not both pass; any other adapter op added is refused",
+			"the coordinator's catalogue: dropping it or adding another adapter op is refused",
 			[
+				verdict('coordinator', coordinator),
 				verdict('coordinator', without(coordinator, ['atlas.list_blueprints'])),
-				verdict('coordinator', withTools(coordinator, ['atlas.list_blueprints'])),
 				verdict('coordinator', withTools(coordinator, ['atlas.set_output'])),
 				agentEdit.validateAgentEdit('atlas-artist', withTools(artist, ['atlas.set_output']), rules)
 					.ok,
 			],
-			[true, true, false, false],
+			[true, false, false, false],
 		);
 	}
 

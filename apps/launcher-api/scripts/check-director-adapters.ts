@@ -358,8 +358,6 @@ const { runAdapterCall } = await import(src('lib/server/director/gate.ts'));
 const {
 	ADAPTER_OPS,
 	buildRegistry,
-	TRANSITION_TOOLS,
-	transitionProblem,
 	opId: opIdOf,
 } = await import(src('lib/server/director/registry.ts'));
 const { GAMEMAKER_OPS } = await import(src('lib/server/director/ops/gamemaker.ts'));
@@ -3666,43 +3664,6 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		tools.set(name, new Set([...list.matchAll(/-\s+(\S+)/g)].map((m) => m[1])));
 	}
 	const models = DIRECTOR_AGENTS.filter((agent: string) => agent !== 'worker');
-	// ADR-0008 card 8D: the coordinator's catalogue is the one transition left (TRANSITION_TOOLS),
-	// accepted named or not until its definition lands.
-	const TRANSITION = new Set(
-		Object.entries(TRANSITION_TOOLS as Record<string, string[]>).flatMap(([agent, ids]) =>
-			ids.map((id) => `${id} ${agent}`),
-		),
-	);
-	check(
-		'the transition allowances are exactly the one card 8D still has (the coordinator)',
-		[...TRANSITION].sort(),
-		['atlas.list_blueprints coordinator'],
-	);
-	check(
-		'each agent names its transition tools all together or none of them',
-		[...tools.entries()]
-			.map(([agent, named]) => transitionProblem(agent, named))
-			.filter((p) => p !== null),
-		[],
-	);
-	// Where each agent's transition ends (the new definition): once main's definition is there, the
-	// launcher cleanup is owed — said loudly, not failed, so the one-file definition PR stays green.
-	const TARGET: Record<string, 'named' | 'not named'> = { coordinator: 'named' };
-	for (const [agent, ids] of Object.entries(TRANSITION_TOOLS as Record<string, string[]>)) {
-		const named = ids.every((id) => tools.get(agent)?.has(id));
-		if ((TARGET[agent] === 'named') === named) {
-			console.log(
-				`\n  ⚠⚠ CLEANUP OWED (ADR-0008 card 8D): ${agent}'s definition has reached its new state; remove its TRANSITION_TOOLS entries${agent === 'atlas-artist' ? ", the artist from the four allow-lists and the artist's pre-8D branch in queue_variants" : ''}.\n`,
-			);
-		}
-	}
-	check(
-		"each transition entry's op serves its agent",
-		[...TRANSITION]
-			.map((entry) => entry.split(' '))
-			.filter(([id, agent]) => !ADAPTER_OPS.get(id)?.agents.includes(agent)),
-		[],
-	);
 	{
 		const workerRecipes: typeof import('../../../services/director-worker/src/recipes.ts') =
 			await import(
@@ -3732,10 +3693,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 	for (const op of ADAPTER_OPS.values()) {
 		const id = opIdOf(op);
 		const listing = models.filter((agent: string) => tools.get(agent)?.has(id));
-		const allowed = op.agents.filter(
-			(agent: string) =>
-				agent !== 'worker' && (tools.get(agent)?.has(id) || !TRANSITION.has(`${id} ${agent}`)),
-		);
+		const allowed = op.agents.filter((agent: string) => agent !== 'worker');
 		check(
 			`${id}: the allow-list matches the agents whose tools: name it`,
 			[...allowed].sort(),

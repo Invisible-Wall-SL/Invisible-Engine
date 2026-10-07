@@ -56,25 +56,6 @@ export function buildRegistry(ops: readonly AdapterOp[]): ReadonlyMap<string, Ad
 	return out;
 }
 
-/**
- * Allow-list entries a definition may name in one of two states only (ADR-0008 card 8D): its code
- * lands before its definitions, one PR each. Until its definition lands the coordinator does not
- * name the catalogue yet. Per agent the set is all or none: the definition as main holds it, or
- * the new one, never a mix. The Agents tab and `check:director-adapters` hold every other entry to
- * the definitions both ways. The coordinator's definition PR is followed by one that empties this.
- */
-export const TRANSITION_TOOLS: Readonly<Record<string, readonly string[]>> = {
-	coordinator: ['atlas.list_blueprints'],
-};
-
-/** Why `named` (a definition's tools) is neither of `agent`'s two states, or null. */
-export function transitionProblem(agent: string, named: ReadonlySet<string>): string | null {
-	const group = TRANSITION_TOOLS[agent] ?? [];
-	const has = group.filter((id) => named.has(id));
-	if (has.length === 0 || has.length === group.length) return null;
-	return `tools: ${agent} names ${has.join(', ')} but not ${group.filter((id) => !named.has(id)).join(', ')}; these go together (the definition as main holds it, or the new one)`;
-}
-
 /** Every Director adapter op. */
 export const ADAPTER_OPS = buildRegistry([
 	...GAMEMAKER_OPS,
