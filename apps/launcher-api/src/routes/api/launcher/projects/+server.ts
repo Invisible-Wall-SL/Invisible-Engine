@@ -10,6 +10,7 @@ import {
 import { selectableGameKinds } from '$lib/server/gameKinds';
 import { requireLauncherPublisher } from '$lib/server/launcherAuth';
 import { launcherProfileFor } from '$lib/server/launcherProfile';
+import { ProjectFolderTakenError } from '$lib/server/projectPaths';
 import {
 	DEFAULT_PROJECT_KEY,
 	accessibleProjectsWithClient,
@@ -154,7 +155,12 @@ export const POST: RequestHandler = async ({ request }) => {
 			await assignProjectToClient(key, ownerClientKey);
 		}
 	} else {
-		await createProject(key, name, ownerClientKey, gameType || undefined);
+		try {
+			await createProject(key, name, ownerClientKey, gameType || undefined);
+		} catch (e) {
+			if (!(e instanceof ProjectFolderTakenError)) throw e;
+			return json({ error: e.message }, { status: 409, headers: NO_STORE });
+		}
 	}
 
 	await setLauncherProfile(key, profile);

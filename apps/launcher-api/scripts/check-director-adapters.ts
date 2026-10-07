@@ -32,6 +32,10 @@
  *    writes nothing; every doc written carries the `saved_by` stamp; and each op's own refusals —
  *    Scene nodes bound to the math, source-only unreviewed strings, a font bake that waits for the
  *    owner, a rig rebind that cannot re-time.
+ *  - OPEN_QUESTIONS 17: every `createProject` caller — Admin › Projects, Game Maker's create, the
+ *    desktop launcher's project sync and the duplicate — answers a key whose R2 folder is another
+ *    project's (live or deleted, same client) with a refusal naming that project, and leaves no
+ *    row, scaffold or copy behind. The rule itself is `check-project-create.ts`'s.
  */
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -143,6 +147,8 @@ fake('lib/server/r2.ts', {
 });
 
 // ── In-memory Postgres tables ─────────────────────────────────────────────────
+const { ProjectFolderTakenError, projectPrefix } = await import(src('lib/server/projectPaths.ts'));
+const folderOf = (key: string, client: string | null) => projectPrefix(client ?? 'unassigned', key);
 type User = NonNullable<App.Locals['user']> & { active: boolean; expiresAt: Date | null };
 const USERS = new Map<string, User>();
 const PROJECTS = new Map<string, Project>();
@@ -190,8 +196,14 @@ fake('lib/server/projects.ts', {
 	storedProjectGameType: async (key: string) => PROJECTS.get(key)?.gameType || null,
 	canAccessProject: async (userId: string, role: string, key: string) =>
 		mayReach(userId, role, key),
+	// The real rule (`check-project-create.ts` pins it): a key whose R2 folder is a project's under
+	// the same client, live or deleted, is refused naming that project.
 	createProject: async (key: string, name: string, clientKey: string | null, gameType?: string) => {
-		if (PROJECTS.has(key)) throw new Error(`duplicate key ${key}`);
+		const holder = [...PROJECTS.values()]
+			.filter((p) => folderOf(p.key, p.clientKey) === folderOf(key, clientKey))
+			.map((p) => p.key)
+			.sort()[0];
+		if (holder) throw new ProjectFolderTakenError(key, holder);
 		PROJECTS.set(key, project(key, { name, clientKey, gameType: gameType ?? null }));
 	},
 	deleteProject: async (key: string) => void PROJECTS.delete(key),
@@ -207,10 +219,20 @@ fake('lib/server/games.ts', {
 	listGamesOwnedByProject: async (key: string) => GAMES.filter((g) => g.projectKey === key),
 });
 fake('lib/server/clients.ts', {
+	isValidClientKey: (v: string) => /^[a-z0-9][a-z0-9_-]{0,63}$/.test(v),
 	clientExists: async (key: string) => CLIENTS.has(key),
 	mayCreateUnderClient: async (userId: string, role: string, clientKey: string | null) =>
 		role === 'admin' ||
 		(clientKey !== null && (CLIENT_GRANTS.get(userId)?.has(clientKey) ?? false)),
+});
+/** Desktop-launcher bearer tokens → their session user. */
+const TOKENS = new Map<string, string>([['tok-owner', 'owner']]);
+fake('lib/server/auth.ts', {
+	SESSION_COOKIE: 'iw_session',
+	validateSession: async (token: string | null) => {
+		const u = token ? USERS.get(TOKENS.get(token) ?? '') : undefined;
+		return u ? { id: u.id, email: u.email, name: u.name, role: u.role } : null;
+	},
 });
 fake('lib/server/roleToolAccess.ts', {
 	getRoleOverrides: async (role: string) => ROLE_OVERRIDES.get(role) ?? {},
@@ -2998,6 +3020,115 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		}
 	}
 	check("every agent's request fits the strict tool-use limits", over, []);
+}
+
+// ── OPEN_QUESTIONS 17: every createProject caller refuses a key aliasing a project's folder ──
+{
+	PROJECTS.set('folder-game', project('folder-game'));
+	PROJECTS.set('gone-game', project('gone-game', { deletedAt: new Date() }));
+	const owner = { id: 'owner', email: 'o@example.com', name: 'o', role: 'admin' as const };
+	const named = (message: unknown, holder: string) =>
+		typeof message === 'string' && message.includes(`"${holder}"`);
+	const form = (fields: Record<string, string>) => {
+		const f = new FormData();
+		for (const [k, v] of Object.entries(fields)) f.set(k, v);
+		return f;
+	};
+	const formAction = async (
+		run: (event: never) => Promise<unknown>,
+		url: string,
+		fields: Record<string, string>,
+	) => {
+		const out = (await run({
+			request: new Request(url, { method: 'POST', body: form(fields) }),
+			locals: { user: owner },
+			cookies: { get: () => undefined },
+		} as never)) as { status?: number; data?: { error?: string } };
+		return { status: out?.status ?? 200, error: out?.data?.error };
+	};
+
+	const { actions: admin } = await import(src('routes/(app)/admin/+page.server.ts'));
+	const adminCreate = (key: string, clientKey = C) =>
+		formAction(admin.createProject, 'https://app.example/admin?/createProject', {
+			key,
+			name: key,
+			clientKey,
+		});
+	const adminAlias = await adminCreate('folder_game');
+	check(
+		'Admin › create of a key aliasing a live project is 400 naming it, no row',
+		[adminAlias.status, named(adminAlias.error, 'folder-game'), PROJECTS.has('folder_game')],
+		[400, true, false],
+	);
+	const adminGone = await adminCreate('gone_game');
+	check(
+		'…and of a key aliasing a soft-deleted one',
+		[adminGone.status, named(adminGone.error, 'gone-game'), PROJECTS.has('gone_game')],
+		[400, true, false],
+	);
+	check(
+		'Admin › the same slug under another client is created',
+		[(await adminCreate('folder_game', 'other')).status, PROJECTS.get('folder_game')?.clientKey],
+		[200, 'other'],
+	);
+	PROJECTS.delete('folder_game');
+
+	const { actions: gameMaker } = await import(src('routes/(app)/game-maker/+page.server.ts'));
+	const gmAlias = await formAction(gameMaker.create, 'https://app.example/game-maker?/create', {
+		key: 'folder_game',
+		name: 'Folder',
+		clientKey: C,
+	});
+	check(
+		'Game Maker › create of an aliasing key is 400 naming the project, no row, no scaffold',
+		[
+			gmAlias.status,
+			named(gmAlias.error, 'folder-game'),
+			PROJECTS.has('folder_game'),
+			keysUnder(`${C}/folder_game/`).length,
+		],
+		[400, true, false, 0],
+	);
+
+	const { POST: launcherProjects } = await import(src('routes/api/launcher/projects/+server.ts'));
+	const sync = async (key: string) => {
+		const res = await launcherProjects({
+			request: new Request('https://app.example/api/launcher/projects', {
+				method: 'POST',
+				headers: { authorization: 'Bearer tok-owner', 'content-type': 'application/json' },
+				body: JSON.stringify({ key, name: key, clientKey: C, profile: {} }),
+			}),
+		} as never);
+		return { status: res.status, body: (await res.json()) as { error?: string } };
+	};
+	const syncAlias = await sync('folder_game');
+	check(
+		'desktop sync › an aliasing key is 409 naming the project, no row',
+		[syncAlias.status, named(syncAlias.body.error, 'folder-game'), PROJECTS.has('folder_game')],
+		[409, true, false],
+	);
+
+	const copiesBefore = copies;
+	const dup = await DUPLICATE({
+		request: new Request('https://app.example/api/game-maker/duplicate', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				source: 'tpl_lines',
+				key: 'folder_game',
+				name: 'Copy',
+				clientKey: C,
+				scope: 'full',
+			}),
+		}),
+		locals: { user: owner },
+	} as never);
+	const dupBody = (await dup.json()) as { error?: string };
+	check(
+		'duplicate › an aliasing key is 409 naming the project, no row, nothing copied',
+		[dup.status, named(dupBody.error, 'folder-game'), PROJECTS.has('folder_game'), copies],
+		[409, true, false, copiesBefore],
+	);
 }
 
 console.log(`director-adapters: ${checks - failures}/${checks} checks passed`);

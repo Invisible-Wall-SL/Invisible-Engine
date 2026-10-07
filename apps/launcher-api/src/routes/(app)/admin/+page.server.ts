@@ -67,7 +67,7 @@ import {
 	softDeleteProject,
 } from '$lib/server/projects';
 import { PurgeUnsafeError, purgeProjectR2 } from '$lib/server/projectPurge';
-import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
+import { ProjectFolderTakenError, UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { selectableGameKinds } from '$lib/server/gameKinds';
 import { scaffoldProject } from '$lib/server/projectScaffold';
 import {
@@ -538,7 +538,14 @@ export const actions: Actions = {
 			return fail(400, { action: 'createProject', error: 'Unknown client.' });
 		}
 
-		await createProject(key, name, clientKey, rawGameType !== '' ? rawGameType : undefined);
+		try {
+			await createProject(key, name, clientKey, rawGameType !== '' ? rawGameType : undefined);
+		} catch (e) {
+			if (e instanceof ProjectFolderTakenError) {
+				return fail(400, { action: 'createProject', error: e.message });
+			}
+			throw e;
+		}
 		await scaffoldProject(clientKey ?? UNASSIGNED_CLIENT, key);
 		return { action: 'createProject', ok: `Created project ${key}.` };
 	},

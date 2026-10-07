@@ -22,8 +22,8 @@ export type LockTx = Parameters<Parameters<Db['transaction']>[0]>[0];
  */
 export type Queryer = Db | LockTx;
 
-/** `r2Slug(column)` in SQL — byte-identical for project keys, which are ASCII by their pattern. */
-export const r2SlugSql = (column: AnyPgColumn): SQL<string> =>
+/** `r2Slug(value)` in SQL — byte-identical for project and client keys, ASCII by their pattern. */
+export const r2SlugSql = (column: AnyPgColumn | SQL): SQL<string> =>
 	sql<string>`left(regexp_replace(lower(${column}), '[^a-z0-9]', '_', 'g'), 60)`;
 
 /**

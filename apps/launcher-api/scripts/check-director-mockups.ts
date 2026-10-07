@@ -15,7 +15,9 @@
  *    CAS-saved, and a lost CAS re-reads and re-applies rather than failing or overwriting;
  *  - the ownership check is recorded once with who and when; `ownershipRefusal` refuses a run with
  *    mockups and no check, and nothing else;
- *  - the route is gated on the `director` tool and the project named in the request;
+ *  - the route is gated on the `director` tool and the project named in the request; a free key
+ *    whose R2 folder is a project's under the same client (live or deleted) is a 409 naming it, on
+ *    the doc, upload and image routes, and writes nothing — another client's folder is free;
  *  - the model copy is at most 1568 px on the long edge with the scale reported; a crop is cut from
  *    the ORIGINAL at the unscaled box; the dominant colours of the reference set equal the committed
  *    ones (the k-means is deterministic);
@@ -176,6 +178,8 @@ const PROJECTS = new Map<string, string | null>([
 	['sunken-temple', 'acme'],
 	['other-game', 'other'],
 ]);
+/** Soft-deleted projects → their client. */
+const DELETED = new Map<string, string | null>([['deleted-game', 'acme']]);
 /** userId → client keys granted (admins reach everything). */
 const GRANTS = new Map<string, Set<string>>([['art', new Set(['acme'])]]);
 fake('lib/server/projects.ts', {
@@ -184,11 +188,23 @@ fake('lib/server/projects.ts', {
 		poolRead('listProjects'),
 		[...PROJECTS.keys()].map((key) => ({ key }))
 	),
-	listDeletedProjects: async () => (poolRead('listDeletedProjects'), [{ key: 'deleted-game' }]),
-	projectInFolder: async (folder: string, db: unknown) => (
-		txRead('projectInFolder', db),
-		[...PROJECTS.keys(), 'deleted-game'].some((key) => slug(key) === folder)
+	listDeletedProjects: async () => (
+		poolRead('listDeletedProjects'),
+		[...DELETED.keys()].map((key) => ({ key }))
 	),
+	projectInFolder: async (
+		folder: string,
+		{ client, db }: { client?: string; db?: unknown } = {},
+	) => {
+		folderReads.push({ folder, client });
+		txRead('projectInFolder', db);
+		const holders = [...PROJECTS, ...DELETED]
+			.filter(([key]) => slug(key) === folder)
+			.filter(([, owner]) => client === undefined || slug(owner ?? 'unassigned') === slug(client))
+			.map(([key]) => key)
+			.sort();
+		return holders[0] ?? null;
+	},
 	canAccessProject: async (userId: string, role: string, key: string) => {
 		if (!PROJECTS.has(key)) return false;
 		if (role === 'admin') return true;
@@ -197,7 +213,7 @@ fake('lib/server/projects.ts', {
 	},
 	projectClientKey: async (key: string) => PROJECTS.get(key) ?? null,
 	projectExists: async (key: string) => PROJECTS.has(key),
-	projectKeyTaken: async (key: string) => PROJECTS.has(key) || key === 'deleted-game',
+	projectKeyTaken: async (key: string) => PROJECTS.has(key) || DELETED.has(key),
 	isValidProjectKey: (value: string) => /^[a-z0-9][a-z0-9_-]{0,63}$/.test(value),
 });
 fake('lib/server/clients.ts', {
@@ -240,6 +256,8 @@ fake('lib/server/director/store.ts', {
 		[...RUN_KEYS].some((key) => slug(key) === folder)
 	),
 });
+/** Every `projectInFolder` question: the folder and the client it was limited to. */
+const folderReads: { folder: string; client: string | undefined }[] = [];
 /** `r2Slug`, which the real lock keys on (the fakes load before `projectPaths.ts` may). */
 const slug = (key: string) =>
 	key
@@ -716,7 +734,10 @@ console.log('route');
 			const res = await handler({ request, url, locals: { user }, cookies, params: {} } as never);
 			return { status: res.status, body: (await res.json()) as Record<string, unknown> };
 		} catch (e) {
-			return { status: status(e), body: null };
+			return {
+				status: status(e),
+				body: isHttpError(e) ? ({ ...e.body } as Record<string, unknown>) : null,
+			};
 		}
 	};
 	const admin = { id: 'adm', email: 'a@x', name: 'Admin', role: 'admin' as const };
@@ -742,6 +763,61 @@ console.log('route');
 		403,
 	);
 	check('GET on a deleted key is 403', (await call('GET', admin, 'deleted-game')).status, 403);
+
+	// OPEN_QUESTIONS 17: a free key whose R2 folder is a project's under the same client would read
+	// and write that project's `director/` tree. It is a 409 that names the project, live or deleted.
+	const aliasWrites = writes.length;
+	const aliasGet = await call('GET', admin, 'sunken_temple&client=acme');
+	check(
+		'GET on a key whose folder is a live project’s is 409 naming it',
+		[aliasGet.status, String(aliasGet.body?.message).includes('"sunken-temple"')],
+		[409, true],
+	);
+	check('…asked about that folder under the request’s client', folderReads.at(-1), {
+		folder: 'sunken_temple',
+		client: 'acme',
+	});
+	const aliasForm = new FormData();
+	aliasForm.set('action', 'upload');
+	aliasForm.set('tag', 'Base game');
+	aliasForm.set('file', new File([basePng], 'alias.png', { type: 'image/png' }));
+	const aliasPost = await call('POST', admin, 'sunken_temple&client=acme', aliasForm);
+	check(
+		'POST upload under the alias is 409 naming the project',
+		[aliasPost.status, String(aliasPost.body?.message).includes('"sunken-temple"')],
+		[409, true],
+	);
+	check('…and writes nothing', writes.length, aliasWrites);
+	const deletedAlias = await call('GET', admin, 'deleted_game&client=acme');
+	check(
+		'a key whose folder is a DELETED project’s is 409 naming it',
+		[deletedAlias.status, String(deletedAlias.body?.message).includes('"deleted-game"')],
+		[409, true],
+	);
+	check(
+		'the same slug under ANOTHER client is another folder: a pending key',
+		[
+			(await call('GET', admin, 'sunken_temple&client=other')).body?.pending,
+			(await call('GET', admin, 'sunken_temple')).body?.pending,
+		],
+		[true, true],
+	);
+	check(
+		'a key that is free and aliases nothing is still pending',
+		(await call('GET', admin, 'sunken-temple-2&client=acme')).body?.pending,
+		true,
+	);
+	check(
+		'a client the caller may not create under stays the silent 403, before any folder check',
+		(
+			await call(
+				'GET',
+				{ id: 'art', email: 'r@x', name: 'Art', role: 'artist' as const },
+				'other_game&client=other',
+			)
+		).status,
+		403,
+	);
 	check('GET on a malformed key is 403', (await call('GET', admin, 'No%20Pe')).status, 403);
 	const ok = await call('GET', admin, P);
 	check(
@@ -848,6 +924,11 @@ console.log('route');
 	};
 	const uploaded = (up.body!.doc as { images: { id: string }[] }).images[0].id;
 	check('image without a session is 401', (await image(null, 'other-game', uploaded)).status, 401);
+	check(
+		'image under a key aliasing a project’s folder is 409',
+		(await image(admin, 'other_game&client=other', uploaded)).status,
+		409,
+	);
 	check('image without the tool is 403', (await image(dev, 'other-game', uploaded)).status, 403);
 	check(
 		'image on an inaccessible project is 403',
@@ -1093,21 +1174,28 @@ console.log('cleanup');
 		{ cleared: false, reason: 'project_exists' },
 	);
 	// R2 folders are slugs: `sunken_temple` is not a project key, but it is the real project's
-	// folder. Emptying it as a pending key, or sweeping it, must clear nothing.
+	// folder. The route refuses it now (above); an image one landed before that, and a direct clear
+	// of the alias, must still clear nothing of the project's.
 	const alias = 'sunken_temple';
 	check('the alias shares the real project’s folder', dir(C, alias), dir(C, P));
-	const aliasUp = await upload(`${alias}&client=acme`);
-	const aliasKeys = keysUnder(dir(C, P));
-	await remove(`${alias}&client=acme`, aliasUp.body.doc.images[0].id);
 	check(
-		'emptying a pending alias of a real project’s folder removes only its own image',
-		keysUnder(dir(C, P)),
-		aliasKeys.filter((key) => !key.endsWith(`${aliasUp.body.doc.images[0].id}.png`)),
+		'the route refuses the alias',
+		await post(`${alias}&client=acme`, new FormData()).catch(status),
+		409,
 	);
+	await mockups.addMockup({
+		client: C,
+		project: alias,
+		bytes: basePng,
+		tag: 'x',
+		styleOnly: false,
+		by,
+	});
+	const aliasKeys = keysUnder(dir(C, P));
 	check(
-		'…and a direct clear of the alias refuses',
-		await cleanup.clearPendingMockups(C, alias, { olderThan: now }),
-		{ cleared: false, reason: 'project_exists' },
+		'…and a direct clear of the alias refuses, removing nothing',
+		[await cleanup.clearPendingMockups(C, alias, { olderThan: now }), keysUnder(dir(C, P))],
+		[{ cleared: false, reason: 'project_exists' }, aliasKeys],
 	);
 	await seed(C, 'slug_run', 20 * DAY);
 	RUN_KEYS.add('slug-run');

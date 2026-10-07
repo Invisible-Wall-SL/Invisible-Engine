@@ -31,6 +31,26 @@ export function r2Slug(name: string): string {
 	);
 }
 
+/**
+ * A new key whose R2 folder (`r2Slug`) is already an existing project's under the same client —
+ * `my_game` next to `my-game` — or the same key again. Refused rather than created: the two would
+ * read and write one tree. `existing` is the project that holds the folder, live or soft-deleted.
+ */
+export class ProjectFolderTakenError extends Error {
+	constructor(
+		readonly key: string,
+		readonly existing: string,
+	) {
+		super(
+			existing === key
+				? `A project with the key "${key}" exists.`
+				: `"${key}" would share its files with the project "${existing}" (both use the folder ` +
+						`"${r2Slug(key)}"). Pick another key.`,
+		);
+		this.name = 'ProjectFolderTakenError';
+	}
+}
+
 /** Root of one project's R2 repository: `<client>/<project>` (no trailing slash). */
 export function projectPrefix(client: string, project: string): string {
 	return `${r2Slug(client)}/${r2Slug(project)}`;

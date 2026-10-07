@@ -21,12 +21,13 @@ import { loadGameConfigDocWithEtag } from '../gameConfigStorage';
 import { selectableGameKinds } from '../gameKinds';
 import { listGamesOwnedByProject } from '../games';
 import { withProjectKeyLock } from '../projectKeyLock';
-import { UNASSIGNED_CLIENT, projectPrefix } from '../projectPaths';
+import { ProjectFolderTakenError, UNASSIGNED_CLIENT, projectPrefix, r2Slug } from '../projectPaths';
 import {
 	canAccessProject,
 	isValidProjectKey,
 	listDirectorTemplateProjects,
 	projectExists,
+	projectInFolder,
 	projectKeyTaken,
 	projectName,
 } from '../projects';
@@ -453,8 +454,16 @@ export async function createRun(user: User, input: CreateRunInput): Promise<Crea
 
 	// The mockups are read and the run that names them inserted under the key's lock: the
 	// pending-mockup cleanup clears a key only under it, after checking no run names the key, so
-	// it can neither delete what this run is starting from nor miss the run.
+	// it can neither delete what this run is starting from nor miss the run. A key whose R2 folder
+	// is already a project's under this client is refused here, before any run names it.
 	const { row, inserted } = await withProjectKeyLock(key, async (tx) => {
+		const holder = await projectInFolder(r2Slug(key), {
+			client: clientKey ?? UNASSIGNED_CLIENT,
+			db: tx,
+		});
+		if (holder) {
+			throw new RunError(409, 'key_folder_taken', new ProjectFolderTakenError(key, holder).message);
+		}
 		const draft = {
 			id: runId,
 			projectKey: key,
