@@ -8,14 +8,14 @@
  *    editor's built-in sample fallback — a call into a function the game won't carry is an error;
  *  - only `error` severity blocks. Warnings and hints are the editor's business.
  *
- * The vocabulary is composed exactly as the editor and the game compose it: the kind's, plus the
- * project's Game Config add-ons (`withAddOns`), plus its sounds and scene cues.
+ * The vocabulary is composed by the editor's own function (`composeFlowV2Vocab`): the kind's, plus
+ * the project's Game Config add-ons (`withAddOns`, as the game composes them), plus its sounds and
+ * scene cues. It passes no symbols, so the gate never judges a symbol literal: `symbol-not-in-play`
+ * is the editor's warning, never a refusal.
  */
 import {
 	containersMissingScene,
-	templateVocabulary,
 	validateFlowDoc,
-	withAddOns,
 	type FlowAddOns,
 	type FlowDoc,
 	type FlowIssue,
@@ -25,8 +25,9 @@ import type { ComponentDef, Scene, SoundsDoc } from 'engine-layout';
 import { flowAddOnsOf, type GameConfigDoc } from 'game-config';
 import { collectContainerTaps } from '$lib/containerTaps';
 import { projectContainerEvents, syncFlowContainers } from '$lib/flowV2Projection';
-import { collectSceneCueNames, withSceneCues } from '$lib/sceneCues';
-import { soundOptionsFor, withProjectSounds } from '$lib/soundOptions';
+import { composeFlowV2Vocab } from '$lib/flowV2Vocab';
+import { collectSceneCueNames } from '$lib/sceneCues';
+import { soundOptionsFor } from '$lib/soundOptions';
 import { listComponents } from './componentStorage';
 import { loadDoc } from './editorStorage';
 import { isAuthoredFlowV2 } from './flowV2Export';
@@ -56,13 +57,11 @@ export function validateFlowV2Against(
 ): FlowIssue[] {
 	const doc = JSON.parse(JSON.stringify(stored)) as FlowDoc;
 	syncFlowContainers(doc, scenes);
-	const vocab = withSceneCues(
-		withProjectSounds(
-			withAddOns(templateVocabulary(doc.templateId), addOns),
-			soundOptionsFor(sounds),
-		),
-		collectSceneCueNames(scenes, components, doc.templateId, addOns),
-	);
+	const vocab = composeFlowV2Vocab(doc.templateId, {
+		addOns,
+		sounds: soundOptionsFor(sounds),
+		sceneCues: collectSceneCueNames(scenes, components, doc.templateId, addOns),
+	});
 	return validateFlowDoc(
 		doc,
 		vocab,

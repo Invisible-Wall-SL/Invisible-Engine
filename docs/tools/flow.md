@@ -256,6 +256,15 @@ palette). It shows the node's derived pins and a kind-specific editor:
   value — number, text, checkbox, or an enum dropdown), or **accessor** (a read-only read
   of `$item` / `$index` / `$engine.<key>` / `$input`). A data-in that is **fed by a wire**
   shows a **wired** tag instead (the wire supplies it).
+- **Symbol dropdowns** — every symbol picker (a symbol data-in, a branch-guard operand typed
+  as a symbol) lists **this project's** symbols from
+  [Invisible Game Config](game-config.md): the symbols **in play** there, then the pots
+  overlay's coins in pot order — the same set [Invisible Symbols](symbols-state-machine.md)
+  shows. A symbol `/config` marks **unused** is not offered. Save `/config`, then reload this
+  page. A node that names a symbol no longer in play keeps it: the dropdown shows it in amber as
+  `W — not in play` with a note, and Validation lists a `symbol-not-in-play` warning. Pick an
+  in-play symbol, or put it back on the reels in Invisible Game Config; nothing changes until
+  you do.
 - **Fire Cue** — a **Wait for this cue to finish** tick. Off, the cue is broadcast and the
   chain runs straight on; on, the chain pauses until the cue finishes. Turn it on when a later
   node undoes what the cue starts (a hide that would erase a win line before its symbols finish
@@ -788,6 +797,10 @@ container either way). In the game it draws nothing, and any step waiting on it 
 so a start-up chain that shows a lost `loading` screen leaves the game on its background forever.
 Restore the screen from the Scene Editor's **History…**, or remove the step. It is a warning, so
 Publish still ships (and lists the screens in a note); the game logs it to the console at boot.
+
+`symbol-not-in-play` (amber) is a symbol the flow names that the project's Game Config no longer
+has in play (taken off the reels in Invisible Game Config). The flow keeps it as authored, so it
+still loads and runs; the warning names the node and the symbol. It never blocks Publish.
 
 ### Preview (deterministic timeline)
 
