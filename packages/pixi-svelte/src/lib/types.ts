@@ -1,5 +1,5 @@
 import type * as PIXI from 'pixi.js';
-import * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
+import * as RIG from 'engine-rig/pixi';
 
 export type PixiPoint = PIXI.PointData | number | undefined;
 
@@ -8,7 +8,7 @@ export type Sizes = {
 	height: number;
 };
 
-export type LoadedSpine = SPINE_PIXI.SkeletonData;
+export type LoadedSpine = RIG.SkeletonData;
 export type LoadedFont = PIXI.BitmapFont;
 export type LoadedSprite = PIXI.Texture;
 export type LoadedSpriteSheet = PIXI.Texture[];
@@ -30,7 +30,7 @@ export type LoadedAsset = LoadedSpine | LoadedSprite | LoadedSpriteSheet | Loade
 export type LoadedAssets = PIXI.Dict<LoadedAsset>;
 
 export type RawAudio = LoadedAudio<string>;
-export type RawSpine = PIXI.Dict<SPINE_PIXI.TextureAtlas | Uint8Array>;
+export type RawSpine = PIXI.Dict<RIG.TextureAtlas | Uint8Array>;
 export type RawSprite = LoadedSprite;
 export type RawSprites = { textures: PIXI.Dict<LoadedSprite> };
 export type RawSpriteSheet = { textures: PIXI.Dict<LoadedSprite> };

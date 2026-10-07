@@ -10,10 +10,10 @@
 //      per vertex at weight 1, world positions unchanged.
 //   node tools/rigger-spike/weights.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './spine.mjs';
 
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics } = await import(
-	SPINE_CORE
+	RIG_CORE
 );
 
 const [, , jsonPath, atlasPath] = process.argv;

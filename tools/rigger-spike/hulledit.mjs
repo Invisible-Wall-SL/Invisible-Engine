@@ -2,19 +2,19 @@
 // consistently to uvs + vertices + triangles + DEFORM timelines, so posed geometry — including a
 // deform animation — is unchanged (each vertex's world position follows it to its new index).
 // This is the load-bearing gate; it also covers the pre-existing latent bug (deform never
-// permuted on vertex removal). Validated by posing through spine-core, not memory.
+// permuted on vertex removal). Validated by posing through engine-rig, not memory.
 //   node tools/rigger-spike/hulledit.mjs
 //
 // The permute helpers below MIRROR reorderDeform + the uvs/vertices/triangles gather in
 //   apps/launcher-api/static/rigger/view.html  (permuteMeshVertices) — keep in sync.
 
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './spine.mjs';
 
 let pass = true;
 const log = (ok, msg) => { console.log((ok ? '  ✅ ' : '  ✗ ') + msg); if (!ok) pass = false; };
 console.log('\n=== Phase 3.6c vertex permutation preserves posed deform ===');
 
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = await import(SPINE_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = await import(RIG_CORE);
 
 const ATLAS = 'page.png\nsize: 64,64\nformat: RGBA8888\nfilter: Linear,Linear\nrepeat: none\nimg\n  rotate: false\n  xy: 0, 0\n  size: 64, 64\n  orig: 64, 64\n  offset: 0, 0\n  index: -1\n';
 function loadData(raw){

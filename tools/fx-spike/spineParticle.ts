@@ -24,7 +24,7 @@
  * LIFECYCLE + COMPOSITION-WITH-THE-EMITTER mechanics ARE, and they are the whole risk. We
  * drive the REAL `@barvynkoa` `Emitter` (it runs in Node — Pixi `Container`/`Sprite`
  * construct without a renderer) and a custom behavior backed by a pool of REAL
- * `@esotericsoftware/spine-core` `Skeleton` + `AnimationState` instances (the un-mangled core,
+ * engine-rig `Skeleton` + `AnimationState` instances (the renderer-free core,
  * so the animation machinery + class names are genuine — the synthetic clip `spin` rotates a
  * bone 0→360° over 1s, a real timeline). The pooled display object is a real Pixi `Container`
  * (what a pixi-v8 `Spine` extends — `Spine extends ViewContainer`).
@@ -50,7 +50,7 @@ import {
 	SkeletonData,
 	SkeletonJson,
 	type AttachmentLoader,
-} from '@esotericsoftware/spine-core';
+} from 'engine-rig';
 
 /**
  * The library's behavior interface (`behaviors/Behaviors`) is type-only and not re-exported
@@ -76,7 +76,7 @@ const assert = (cond: boolean, msg: string): void => {
 };
 
 // ---------------------------------------------------------------------------
-// A real (synthetic) Spine skeleton + clip, via the UN-MANGLED spine-core, so the
+// A real (synthetic) Spine skeleton + clip, via the engine-rig core, so the
 // animation state machine is genuine (not a stub). The `spin` clip rotates a bone
 // 0→360° over 1s — a real, advanceable timeline.
 // ---------------------------------------------------------------------------

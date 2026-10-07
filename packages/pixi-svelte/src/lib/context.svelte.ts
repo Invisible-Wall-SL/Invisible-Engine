@@ -1,6 +1,6 @@
 import type * as PIXI from 'pixi.js';
 import { setContext, getContext, onMount } from 'svelte';
-import * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
+import * as RIG from 'engine-rig/pixi';
 
 import type { App as ContextApp } from './createApp.svelte';
 
@@ -48,11 +48,11 @@ export function getContextParticleParent() {
 
 // Spine context
 const SPINE_NS = '@@pixi_spine';
-export function setContextSpine(value: SPINE_PIXI.Spine) {
+export function setContextSpine(value: RIG.RigView) {
 	setContext(SPINE_NS, value);
 }
 export function getContextSpine() {
-	return getContext(SPINE_NS) as SPINE_PIXI.Spine;
+	return getContext(SPINE_NS) as RIG.RigView;
 }
 
 // Spine LOAD-scale context — the `parser.scale` the host rig's bundle was read with (see

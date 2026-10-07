@@ -5,11 +5,12 @@
 **One-line state:** Built and shipping — bones, meshes, weights, animation (incl. image sequences
 and a dopesheet stretch), localized text art and FX/flipbook event bindings are on `main`, and
 rigs travel the full ship chain. Saves are conditional with 20 restorable versions, and rig edits
-undo/redo. ⏳ The whole tool still owes owner live-verify against real R2.
+undo/redo. Every rig now runs on our own license-free runtime, `packages/engine-rig` (Phase 6,
+2026-10-06). ⏳ The whole tool still owes owner live-verify against real R2.
 
 ## Current state
 
-Online Spine 4.2 skeleton editor at `/rigger` (launcher-native, full-page, `rigger`-gated; static `static/rigger/view.html` + vendored `rigger-fx.js` / `rigger-text.js` bundles, cache-busted by `?v=BUILD_ID`). Reads/writes byte-valid Spine 4.2 JSON under our `.irig` extension, saved to R2 beside the artist's source. The design's build plan is on `main` except the optional Phase 6 license-free renderer (the tool and the games still use the Esoteric runtime):
+Online Spine 4.2 skeleton editor at `/rigger` (launcher-native, full-page, `rigger`-gated; static `static/rigger/view.html` + vendored `rigger-fx.js` / `rigger-text.js` bundles, cache-busted by `?v=BUILD_ID`). Reads/writes byte-valid Spine 4.2 JSON under our `.irig` extension, saved to R2 beside the artist's source. The design's build plan is complete, Phase 6 included: rigs are read, posed and drawn by our own Spine-4.2-compatible runtime, `packages/engine-rig` — `engine-rig/pixi` (`RigView`) in the games, the Scene Editor and FX; `engine-rig/webgl` (vendored as `static/spine/vendor/invisible-rig.js`, rebuilt with `pnpm --filter launcher-api build:invisible-rig`) in the Rigger, the Spine Viewer and the editor. No `@esotericsoftware/*` code ships (`scripts/check-spine-runtime-free.mjs`):
 
 - **Bones** — transform edits, canvas drag, reparent (cycle-safe), rename (rewrites every reference), add/delete (a delete keeps every dependant where the setup pose had it); **IK / transform / path / physics constraints** (add, edit, rename, delete, dopesheet tracks).
 - **Slots / skins** — draw-order reorder (the list reads top = drawn first = furthest back, and says so), region placement, add/rename/delete/duplicate, **✨ Auto FX slots**, multi-skin. An image's **pivot** is its anchor: stored inline as an inert `pivot: [u, v]` on the region attachment (fraction of the UNTRIMMED image), choosing one moves the art so that point sits on the slot position, and rotation/scale turn around it; no bone is created. A leftover `<slot>-pivot` bone from the first design folds back from the panel.
@@ -31,7 +32,9 @@ Online Spine 4.2 skeleton editor at `/rigger` (launcher-native, full-page, `rigg
 - **Libraries** — cross-project rig + animation libraries (Postgres catalog rows); copy/paste or save/load a clip, save/apply/import a whole rig.
 - **Ship chain** — export → `deploy/` → bake → pull → register (owner-confirmed 2026-08-04), plus the `rigFx` / `rigFlipbooks` manifests. A rig plays its bound content wherever it is mounted (`<SpineProvider>`).
 
-The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons). `.skel` binary is view-only. Offline suites live in `tools/rigger-spike/` (they extract the shipped functions from `view.html` and run them against spine-core 4.2, imported through `tools/rigger-spike/spine.mjs`).
+The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against Esoteric's; now against `engine-rig`). `.skel` binary is view-only. Offline suites live in `tools/rigger-spike/` (they extract the shipped functions from `view.html` and run them against `engine-rig`, bundled by `tools/rigger-spike/spine.mjs`).
+
+**Runtime parity gates** (`tools/rig-parity/`, not in check:all — they `npm pack` Esoteric's 4.2.120 runtime into a temp dir as a black-box oracle, never a repo dependency): `parity.mjs` (loaded data, poses, AnimationState, events — every repo rig plus Esoteric's 20 examples as `.json` and `.skel`), `fuzz.mjs` (generated rigs), `render.mjs` (Pixi pixels in Chromium; `--slot-objects` also attaches a marker to every other slot) and `render-webgl.mjs` (the static tools' renderer). Run them on any `engine-rig` change.
 
 ## Open items / next
 
@@ -57,7 +60,7 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
 12. ~~A mesh made from a trimmed image is mapped wrong~~ — fixed 2026-09-30 (Recent changes), with a
     🩹 Repair for meshes saved before; kept so the numbers stay put.
 13. **An image packed at 180° or 270° draws wrong as a region** — upside down, or transposed with
-    atlas pixels beside it — in spine-core 4.2 itself (so in the game too): its
+    atlas pixels beside it — in the Spine 4.2 runtime semantics `engine-rig` reproduces (so in the game too): its
     `RegionAttachment.updateRegion` undoes a 90° pack only; a mesh undoes all four. Only
     `apps/price/…/symbolsSpecial` has such packs (18 regions, from a packer other than Spine's).
     Re-packing without 180 / 270° rotation is the fix; the Rigger could warn on open.
@@ -65,13 +68,45 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons)
 
 ## Blocked (owner / external)
 
-- **Whole-tool live-verify** is owner-driven — the vendored minified runtime has surfaced browser-only bugs the headless spikes (un-mangled spine-core) missed. Specifically owed: a real save / conflict / restore against R2; baked rig text on screen in a game; rig FX slot depth in a published game.
+- **Whole-tool live-verify** is owner-driven — the browser has surfaced bugs the headless spikes missed before. Since Phase 6 also owed: a live look at the Rigger, `/spine`, the editor, `/fx` and a published game on `engine-rig` (the parity gates compare pixels in headless Chromium, not on the live pages).
+- **Legal confirmation of the license-free position** — `engine-rig` is a clean-room implementation of the documented Spine 4.2 format and runtime behaviour, with Esoteric's runtime used only as a test oracle fetched at test time. Counsel should confirm before relying on it commercially. Separately, the pixi-svelte Storybook stories still load Esoteric's `spineboy` example art from a third-party bucket (dev-only, never shipped). Specifically owed: a real save / conflict / restore against R2; baked rig text on screen in a game; rig FX slot depth in a published game.
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON).
 
 ## Recent changes
 
 Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger-history.md).
 
+- 2026-10-06 — **Phase 6: our own Spine runtime, `packages/engine-rig`; no Esoteric code ships.**
+  A clean-room TypeScript runtime for Spine 4.2 data: JSON (`.irig`/`.json`) and binary (`.skel`)
+  readers, the atlas reader, bone world transforms (every inherit mode), IK / transform / path /
+  physics constraints, every timeline, `AnimationState` mixing and events, skins, sequences and
+  clipping. On top: `engine-rig/pixi` (`RigView`, a Pixi 8 container with per-slot meshes, blend
+  modes, two-colour tint, clipping, slot objects, and `Assets` loaders for `.atlas`/`.skel`/`.irig`)
+  and `engine-rig/webgl` (the `spine`-global `SceneRenderer`/`AssetManager` the static pages use).
+  Every consumer moved: pixi-svelte, engine-layout, components-shared, the launcher's FX stage,
+  editor runtime, Rigger and Spine Viewer (`invisible-rig.js` replaces the vendored
+  `spine-webgl-4.1/4.2.js`), `check-builtin-spines`, the fx and rigger spikes.
+  `scripts/check-spine-runtime-free.mjs` replaces `check-spine-version.mjs`; Dependabot's Spine
+  block is gone. Parity against Esoteric's 4.2.120 runtime (`tools/rig-parity/`), 0 failures: data,
+  poses and state on all 153 repo rigs (~80k checks) and Esoteric's 20 examples as JSON and `.skel`;
+  600 fuzzed rigs; Pixi pixels on 138 repo + 112 example frames (worst 0.00%); WebGL pixels on 276
+  repo + 224 example frames (≤ 0.05%). The first current-games run caught slot objects (the
+  counters and win text the game attaches with `addSlotObject`) drawn under their slot's art, never
+  faded with the slot and placed without shear; `RigView` now follows spine-pixi-v8 4.2.120 there
+  too (full bone matrix, slot alpha, drawn after the slot's attachment, clipping masks, placed on
+  update). It also measures like `Spine`: `bounds` is the bounding-box attachments' box when one
+  shows, else every region and mesh unclipped and whatever its alpha, and Pixi's `getLocalBounds`
+  / `width` / hit-testing read that rather than the slot meshes. `render.mjs` now checks `bounds`
+  and `getLocalBounds()` on every frame too, and with `--slot-objects` holds everything at 0.00% on
+  every repo and example frame (the old view failed 67 frames and 51 bounds checks). The second run
+  caught one more: like `Spine`, a `RigView` is not posed until its first `update` (every world
+  transform is zero, so a mounted, not yet played rig draws nothing); posing it in the constructor
+  had shown the `lines` symbol explosion's first frame behind each win. `render.mjs --fresh` holds
+  that, and `--all-animations` renders every animation (596 repo frames, 0.00%). One
+  deliberate viewer change: the Rigger and `/spine` used to
+  pick `spine-webgl-4.1` for a 4.1 export, and now read it as the game always has (4.2 semantics).
+  Only `apps/price/…/symbolsSpecial` notices — its 4.1-only bone `transform` (`onlyTranslation` /
+  `noScale`) is ignored, exactly as in the game.
 - 2026-10-05 — **Invisible Director can drive this tool.** Invisible Director's `rigger.list_rigs` /
   `rigger.rebind_attachments` (`apps/launcher-api/src/lib/server/director/ops/rigger.ts`) save
   through the Rigger's own `writeIrig`, under `If-Match`. A rebind only re-points a region

@@ -48,8 +48,8 @@ care about the filename; only convenience auto-loaders pick the JSON vs binary
 reader by extension, and in our own pipeline we call the loader directly. This buys
 branding/ownership with **zero** compatibility cost:
 
-- **Our editor → Esoteric runtime:** seamless, no conversion.
-- **Our editor → a future Invisible (license-free) renderer:** same bytes (§7 Phase 6).
+- **Our editor → our runtime (`engine-rig`, §7 Phase 6):** same bytes, no conversion.
+- **Our editor → Esoteric's runtime / desktop Spine import:** still the same bytes.
 
 Do **not** fork the format. The instant our format diverges from Spine's we lose
 the free runtime and inherit a permanent round-trip-fidelity burden.
@@ -87,9 +87,10 @@ Esoteric limitation, not ours.
 
 ### 2.4 We target Spine 4.2, version-locked
 
-The schema changes between Spine versions. We pin to **4.2** (the engine's runtime —
-`@esotericsoftware/spine-pixi-v8`, and `static/spine/vendor/spine-webgl-4.2.js`).
-The serializer (§7 Phase 0) is validated against the 4.2 loader, not a guess.
+The schema changes between Spine versions. We pin to **4.2** — the semantics our own runtime, `packages/engine-rig`,
+implements (`engine-rig/pixi` in the games, `static/spine/vendor/invisible-rig.js` in
+the static tools). The serializer (§7 Phase 0) is validated against that 4.2 loader,
+not a guess.
 
 ## 3. What we already have to build on
 
@@ -97,7 +98,7 @@ The `/spine` Invisible Spine Viewer and the editor's spine plumbing are the
 foundation — this tool extends them rather than starting cold:
 
 - **Viewer + runtime** — `apps/launcher-api/static/spine/view.html` +
-  `spine-webgl-4.2.js` (and `-4.1` fallback); `/spine` page +
+  `invisible-rig.js` (built from `packages/engine-rig`); `/spine` page +
   `routes/(app)/spine/{+page.svelte, +page.server.ts, skeletons/+server.ts, file/+server.ts}`.
 - **Spine in the editor** — `routes/(app)/editor/{editorSpine.client.ts,
   spineRuntime.client.ts, EditorSpineLayer.svelte}`, `lib/server/spine.ts`,
@@ -121,8 +122,8 @@ foundation — this tool extends them rather than starting cold:
   used to *render/preview*; edits mutate our document; on save we **serialize our
   document → Spine 4.2 JSON**. Keep a clean boundary: runtime = renderer, our
   document = source of truth while editing.
-- **Rendering:** `spine-webgl-4.2` as the preview renderer initially (and possibly
-  forever). Our document is pushed to a runtime `Skeleton` for live display.
+- **Rendering:** `engine-rig`'s WebGL `SceneRenderer` (the vendored `invisible-rig.js`)
+  is the preview renderer. Our document is pushed to a runtime `Skeleton` for live display.
 - **Writes:** a `rigger`-gated launcher endpoint (`POST /api/rigger/save`) using the
   existing `r2.ts` writers; `assertAllowed` every key against the gate's prefixes.
   Skeleton + sidecar + (when meshes/atlas change) the atlas/page handoff to the
@@ -143,11 +144,12 @@ foundation — this tool extends them rather than starting cold:
    subsystem.
 4. **Animation timeline authoring.** Dopesheet + bezier graph editor + events — the
    bulk of Spine Editor by surface area.
-5. **License.** As long as we render with `spine-*`, we remain under the Esoteric
-   Spine Runtimes License (a valid Spine license is required to use the runtime).
-   Our own format reader/writer is fine (format is documented). Truly license-free
-   rendering needs our own deformer (Phase 6) — **optional**, not required, because
-   §2.1 keeps the format identical either way.
+5. **License.** Rendering with Esoteric's `spine-*` runtimes would keep us under the
+   Spine Runtimes License (a valid Spine license is required to use them). Owner
+   direction (2026-10-06): that is not acceptable, so Phase 6 is **required** — our
+   own clean-room runtime reads, poses and draws every rig, and no `@esotericsoftware/*`
+   code ships in a game or tool. §2.1 keeps the format identical either way. (Counsel
+   should still confirm the clean-room position before relying on it commercially.)
 
 ## 6. The weight-painting subsystem (Phase 4 detail)
 
@@ -173,7 +175,7 @@ the math is done for us. Everything hard is **authoring**:
 | **3 — Mesh editor** | place vertices, auto-triangulate, UV bind, hull/edges | medium-high |
 | **4 — Weights** | auto-weights + brush painting + live deform | **highest** |
 | **5 — Animation** | timeline/dopesheet + bezier curves + events | high |
-| **6 — License-free render (optional)** | our own WebGL LBS deformer; drop the Esoteric runtime dependency | medium |
+| **6 — License-free runtime (required, built 2026-10-06)** | `packages/engine-rig`: our own Spine-4.2-compatible reader (JSON + `.skel`), pose, constraints, physics, AnimationState, clipping, a Pixi 8 `RigView` and a WebGL `SceneRenderer`; every consumer swapped off `@esotericsoftware/*`; parity-gated against Esoteric's runtime by `tools/rig-parity` | medium |
 | **7 — Pipeline wiring** | export → `deploy/` → bake → pull → register (rule 8 / §8) + R2 collaboration UX | medium |
 
 **Phase 0 is a gate, not a formality.** Both spikes must pass before committing to

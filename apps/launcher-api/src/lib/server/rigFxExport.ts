@@ -2,13 +2,13 @@
  * Bake a rig→FX-binding manifest for Invisible FX's "rig-timeline direct FX binding"
  * (`docs/design/invisible-fx.md`). The Rigger stores, on an animation event object,
  * `event.fx = { effectId, bone? }` inside the rig `.irig` (shipped verbatim as `<stem>.json`).
- * spine-pixi discards that custom field at parse time, so the binding cannot be read through the
+ * the runtime reader discards that custom field at parse time, so the binding cannot be read through the
  * runtime event stream — it must be read from the rig data directly and baked into a small manifest,
  * exactly like `bakedEffects()` / `registerEffects()`.
  *
  * This walks the project's rig bundles (from `skeletons.json`), reads each rig's SOURCE skeleton file
  * (JSON — the `event.fx` fields are intact there; they are NOT stripped, this is not parsed by
- * spine-pixi), collects `{ event, animation, time, effectId, bone? }` for every
+ * the runtime), collects `{ event, animation, time, effectId, bone? }` for every
  * `animations[*].events[*]` carrying an `fx.effectId` — one binding per KEYFRAME — grouped under
  * the rig's RUNTIME assetKey.
  *

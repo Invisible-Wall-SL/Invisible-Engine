@@ -4,9 +4,9 @@
 // rects + original sizes). This is what New-rig writes into the spine bundle.
 //   node tools/rigger-spike/synth.mjs <skeleton.atlas>
 import { readFileSync } from 'node:fs';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './spine.mjs';
 
-const { TextureAtlas } = await import(SPINE_CORE);
+const { TextureAtlas } = await import(RIG_CORE);
 
 const atlasPath = process.argv[2];
 const atlasText = readFileSync(atlasPath, 'utf8');

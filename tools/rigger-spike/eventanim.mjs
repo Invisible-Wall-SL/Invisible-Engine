@@ -1,11 +1,11 @@
 // Phase 5.4 spike — prove the EVENT channel the rigger will write loads + FIRES through
-// spine-core. Format: top-level `events:{name:{int,float,string}}` defs + per-anim
+// engine-rig. Format: top-level `events:{name:{int,float,string}}` defs + per-anim
 // `animations[a].events=[{time,name,int?,float?,string?}]`.
 //   node tools/rigger-spike/eventanim.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './spine.mjs';
 
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = await import(SPINE_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = await import(RIG_CORE);
 
 const [, , jsonPath, atlasPath] = process.argv;
 const atlasText = readFileSync(atlasPath, 'utf8');
@@ -43,5 +43,5 @@ if (data) {
 	log(fired2.length === 1 && fired2[0].intValue === 9, `per-key int override fires at 1.0 (${fired2.length ? fired2[0].intValue : '—'})`);
 }
 
-console.log(pass ? '\n✅ PASS — authored event defs + timeline load and fire through spine-core.' : '\n✗ FAIL');
+console.log(pass ? '\n✅ PASS — authored event defs + timeline load and fire through engine-rig.' : '\n✗ FAIL');
 process.exit(pass ? 0 : 1);

@@ -3,7 +3,7 @@
 //   node tools/rigger-spike/path.mjs <skeleton.json> <skeleton.atlas>
 //
 // ============================ EMPIRICAL FINDINGS ============================
-// (validated below against @esotericsoftware/spine-core@4.2.74's SkeletonJson loader,
+// (validated below against the rig runtime's SkeletonJson loader (engine-rig, held to the Spine 4.2 reference),
 //  PathAttachment, PathConstraint(Data), and the three PathConstraint*Timelines — NOT from
 //  memory. Read off SkeletonJson.js: attachment L428-444, constraint L187-219, timeline
 //  L815-868, readTimeline1 L1072, readCurve L1120. Cross-checked vs a REAL rig
@@ -70,9 +70,9 @@
 //   poseAtTime preview reads the live PathConstraint.{position,spacing,mixRotate,mixX,mixY} that
 //   the runtime sets at time t, before updateWorld.
 import { readFileSync } from 'node:fs';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './spine.mjs';
 
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = await import(SPINE_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = await import(RIG_CORE);
 
 const [, , jsonPath, atlasPath] = process.argv;
 const atlasText = readFileSync(atlasPath, 'utf8');

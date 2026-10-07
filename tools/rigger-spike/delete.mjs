@@ -1,6 +1,6 @@
 // Verify the delete cascade headlessly, on the SHIPPED code: every function the delete actions
 // reach is pulled out of view.html (transitively), the rebuild is stubbed with the official
-// spine-core loader, and each delete is asserted to leave a doc that
+// engine-rig loader, and each delete is asserted to leave a doc that
 //  - loads (SkeletonJson resolves every reference by NAME and throws on a missing one — a path
 //    constraint still naming a deleted slot, a timeline or skin list naming a removed constraint),
 //  - removed exactly the constraints that needed the deleted thing, TOLD the author which, and
@@ -18,9 +18,9 @@
 //   node tools/rigger-spike/delete.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './spine.mjs';
 
-const SPINE = await import(SPINE_CORE);
+const SPINE = await import(RIG_CORE);
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, VertexAttachment, RegionAttachment, PointAttachment } = SPINE;
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
@@ -45,7 +45,7 @@ function pull(name) {
 	return html.slice(at, end + (kind === 'const' ? 3 : 2));
 }
 // The UI around a delete: the rebuild is where the real tool would throw, so it LOADS the doc. The
-// bone delete's pose (`posedSetupWorlds`) is the shipped one, on spine-core and the rig's atlas.
+// bone delete's pose (`posedSetupWorlds`) is the shipped one, on engine-rig and the rig's atlas.
 const STUBS = new Set(['rebuildFromRawDoc', 'markDirty', 'selectSlot', 'showNotice', 'renderSlotDetail']);
 // (`posedSetupWorlds` is handed to the bone delete, not called by name, so it is listed here.)
 const ENTRY = ['deleteBone', 'deleteSlot', 'deleteAttachment', 'deleteSkin', 'deleteIkConstraint', 'deleteTransformConstraint', 'deletePathConstraint', 'deletePhysicsConstraint', 'posedSetupWorlds'];

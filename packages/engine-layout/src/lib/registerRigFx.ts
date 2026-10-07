@@ -5,7 +5,7 @@
  * (from `bakedRigFx()`), and `LayoutNodeView` resolves a rig's `assetKey` → its bindings here to
  * mount a `<RiggedEffect>` per binding INSIDE the rig's `<SpineProvider>`.
  *
- * Why a manifest (not read from the event stream): spine-pixi discards the custom `event.fx` field
+ * Why a manifest (not read from the event stream): the runtime reader discards the custom `event.fx` field
  * at parse time, so the binding cannot travel through the rebroadcast bus — it is baked from the rig
  * `.irig`/`.json` directly (see `invisible-fx.md` "rig-timeline direct FX binding").
  *
@@ -32,7 +32,7 @@ import { installRigBoundContent } from './rigBoundContentInstall';
  */
 export type RigFxOverrides = {
 	/**
-	 * Draw the burst at this SLOT's depth in the skeleton's draw order (spine-pixi `addSlotObject`),
+	 * Draw the burst at this SLOT's depth in the skeleton's draw order (RigView `addSlotObject`),
 	 * instead of on top of the whole rig. Absent ⇒ on top, the original behaviour.
 	 *
 	 * Also becomes the burst's HOST when no `bone` is given — a slot is a bone plus a depth, and

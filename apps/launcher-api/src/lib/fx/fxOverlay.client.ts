@@ -1,7 +1,7 @@
 /**
  * Invisible FX — the shared LIVE FX overlay CORE (framework-agnostic).
  *
- * A transparent Pixi `Application` that mounts OVER a raw `spine-webgl` stage and plays authored
+ * A transparent Pixi `Application` that mounts OVER a raw WebGL rig stage and plays authored
  * Invisible FX `EffectDoc`s as live particle bursts, riding a host bone via per-frame `follow()`.
  * It is deliberately plain TS / Pixi-only: the load-bearing logic (`engine-fx`'s
  * `normalizeEffectDoc`/`planLayer`/`bindArt`, the shared art helper `effectEmitter.client.ts`) is

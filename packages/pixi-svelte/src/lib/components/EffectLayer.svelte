@@ -55,7 +55,7 @@
 	 * config's own `emitterLifetime` to govern the burst — we re-arm emit on every event).
 	 */
 	import { onDestroy } from 'svelte';
-	import * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
+	import * as RIG from 'engine-rig/pixi';
 	import type { Texture } from 'pixi.js';
 	import { planLayer } from 'engine-fx';
 	import {
@@ -98,10 +98,10 @@
 			if (plan.particleKind !== 'spine' || !plan.spineParticle) return undefined;
 			const { skeletonKey, animation, loop } = plan.spineParticle;
 			const loaded = context.stateApp.loadedAssets ?? {};
-			let spineData = loaded[skeletonKey] as SPINE_PIXI.SkeletonData | undefined;
+			let spineData = loaded[skeletonKey] as RIG.SkeletonData | undefined;
 			if (!spineData) {
 				const hit = Object.keys(loaded).find((k) => bundleFolderOf(k) === skeletonKey);
-				if (hit) spineData = loaded[hit] as SPINE_PIXI.SkeletonData | undefined;
+				if (hit) spineData = loaded[hit] as RIG.SkeletonData | undefined;
 			}
 			if (!spineData) return undefined;
 			return {

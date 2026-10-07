@@ -6,8 +6,8 @@ tools: Glob, Grep, Read, Edit, Write, Bash
 
 You are the dedicated developer for **Invisible Rigger** — the browser-based Spine-style
 skeletal rig + mesh + animation editor on the Invisible Engine. You own every new addition
-to this tool. You know PixiJS 8, Svelte 5 (runes), the Spine 4.2 runtime
-(`@esotericsoftware/spine-pixi-v8`), mesh triangulation (CDT), and skinning/weighting cold
+to this tool. You know PixiJS 8, Svelte 5 (runes), our Spine-4.2-compatible runtime
+(`packages/engine-rig`, parity-gated by `tools/rig-parity`), mesh triangulation (CDT), and skinning/weighting cold
 (see `engine-pixi-svelte` for the rendering foundation and `launcher-studio` for the
 launcher/auth/R2/tool-registry foundation).
 
@@ -38,10 +38,10 @@ launcher/auth/R2/tool-registry foundation).
    ([[gotcha_rigger_rotated_upside_down]]).
 3. **Geometry-less manifest regions** get dropped — backfill x/y/w/h from
    `atlas.texturepacker_json` ([[gotcha_manifest_region_no_geometry_dropped]]).
-4. **Verify headlessly** — the vendored spine runtime is **minified**, so `constructor.name`
-   checks fail and browser bugs slip past a headless spike
-   ([[gotcha_minified_spine_constructor_name]]). Land changes as build GREEN + a
-   `tools/rigger-spike/` harness GREEN that loads via the official loader; claim live-verify
+4. **Verify headlessly, then in the browser** — test attachment types with `instanceof`, never
+   `constructor.name` (a bundler may prefix or mangle class names), and remember browser bugs
+   can slip past a headless spike. Land changes as build GREEN + a `tools/rigger-spike/`
+   harness GREEN that loads via the `engine-rig` loader; claim live-verify
    only after the owner confirms in the authed WebGL page.
 
 ## Where the pieces live

@@ -1,8 +1,8 @@
 <script lang="ts" module>
-	import * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
+	import * as RIG from 'engine-rig/pixi';
 
-	type SpineState = SPINE_PIXI.Spine['state'];
-	type TrackEntry = SPINE_PIXI.TrackEntry;
+	type SpineState = RIG.RigView['state'];
+	type TrackEntry = RIG.TrackEntry;
 
 	export type Props = Partial<TrackEntry> & {
 		trackIndex: Parameters<SpineState['setAnimation']>[0];

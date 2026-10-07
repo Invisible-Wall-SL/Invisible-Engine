@@ -32,7 +32,7 @@
 </script>
 
 <script lang="ts">
-	import * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
+	import * as RIG from 'engine-rig/pixi';
 
 	import { authoredSpineBox } from 'constants-shared/spine';
 
@@ -61,14 +61,14 @@
 	// prefix), so the load scale is read under the same key `assetLoad` recorded it with.
 	const resolved = $derived.by(() => {
 		const assets = context.stateApp.loadedAssets;
-		const direct = assets?.[key] as SPINE_PIXI.SkeletonData | undefined;
+		const direct = assets?.[key] as RIG.SkeletonData | undefined;
 		if (direct) return { data: direct, assetKey: key };
 		// Editor scene docs store a spine key as its R2 bundle PREFIX
 		// (`<client>/<project>/spines/<bundle>/`) so the editor can preview it from
 		// R2; games register the spine under the plain `<bundle>` key. Fall back to
 		// that so doc-driven spine nodes resolve in-game.
 		const bundle = key.match(/(?:^|\/)spines\/(.+?)\/?$/)?.[1];
-		const data = bundle ? (assets?.[bundle] as SPINE_PIXI.SkeletonData | undefined) : undefined;
+		const data = bundle ? (assets?.[bundle] as RIG.SkeletonData | undefined) : undefined;
 		return data && bundle ? { data, assetKey: bundle } : undefined;
 	});
 	const spineData = $derived(resolved?.data);

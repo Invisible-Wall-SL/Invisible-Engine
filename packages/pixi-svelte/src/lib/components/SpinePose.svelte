@@ -11,7 +11,7 @@
 
 <script lang="ts">
 	import { onDestroy, untrack } from 'svelte';
-	import * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
+	import * as RIG from 'engine-rig/pixi';
 
 	import { getContextSpine } from '../context.svelte';
 	import { applySpineBoneOffset, isIdentityBoneOffset } from '../spineBoneOffset';
@@ -46,7 +46,7 @@
 	};
 
 	/** Where a scrub's events land and are dropped — never dispatched, cleared after each apply. */
-	const droppedEvents: SPINE_PIXI.Event[] = [];
+	const droppedEvents: RIG.Event[] = [];
 	let restores: (() => void)[] = [];
 	const pose = (): void =>
 		untrack(() => {
@@ -68,8 +68,8 @@
 					false,
 					droppedEvents,
 					1,
-					SPINE_PIXI.MixBlend.replace,
-					SPINE_PIXI.MixDirection.mixIn,
+					RIG.MixBlend.replace,
+					RIG.MixDirection.mixIn,
 				);
 				droppedEvents.length = 0;
 			}
@@ -88,11 +88,11 @@
 	const before = spine.beforeUpdateWorldTransforms;
 	const after = spine.afterUpdateWorldTransforms;
 	let active = true;
-	const onBefore = (object: SPINE_PIXI.Spine): void => {
+	const onBefore = (object: RIG.RigView): void => {
 		before(object);
 		if (active) pose();
 	};
-	const onAfter = (object: SPINE_PIXI.Spine): void => {
+	const onAfter = (object: RIG.RigView): void => {
 		unpose();
 		after(object);
 	};

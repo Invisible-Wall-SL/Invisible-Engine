@@ -2,9 +2,9 @@
 //   node tools/rigger-spike/inspect-demo.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
 import { buildInspector } from './inspectModel.mjs';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './spine.mjs';
 
-const spine = await import(SPINE_CORE);
+const spine = await import(RIG_CORE);
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = spine;
 
 const [, , jsonPath, atlasPath] = process.argv;

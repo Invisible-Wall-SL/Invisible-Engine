@@ -14,7 +14,7 @@
  * (`slot`/`bone`), the burst half (`alpha`/`scale`/`delay`/`duration`/`continuous`), and the
  * folder-tolerant key reduction — is shared as code (`bundleFolderOf`), not as a merged type.
  *
- * Same manifest rationale as FX: spine-pixi discards the custom `event.flipbook` field at parse
+ * Same manifest rationale as FX: the runtime reader discards the custom `event.flipbook` field at parse
  * time, so the binding cannot travel through the rebroadcast bus — it is baked from the rig
  * `.irig`/`.json` directly.
  *
@@ -46,7 +46,7 @@ import { installRigBoundContent } from './rigBoundContentInstall';
  */
 export interface RigFlipbookOverrides extends FlipbookPlaybackOverride {
 	/**
-	 * Draw the clip at this SLOT's depth in the skeleton's draw order (spine-pixi `addSlotObject`),
+	 * Draw the clip at this SLOT's depth in the skeleton's draw order (RigView `addSlotObject`),
 	 * instead of on top of the whole rig. Absent ⇒ on top.
 	 *
 	 * Also becomes the clip's HOST when no `bone` is given — a slot is a bone plus a depth, so

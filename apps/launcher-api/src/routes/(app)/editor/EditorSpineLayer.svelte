@@ -462,7 +462,7 @@
 		return bones.length || scrubs.length ? { bones, scrubs } : undefined;
 	}
 
-	/** spine-core `MixBlend.replace` / `MixDirection.mixIn`, as the vendored runtime numbers them. */
+	/** engine-rig `MixBlend.replace` / `MixDirection.mixIn`, as the vendored runtime numbers them. */
 	const MIX_BLEND_REPLACE = 2;
 	const MIX_DIRECTION_IN = 0;
 

@@ -1,7 +1,7 @@
 /**
  * Bake a rig→CLIP-binding manifest — the Invisible Flipbook twin of `rigFxExport.ts`. The Rigger
  * stores, on an animation event object, `event.flipbook = { clipId, bone? }` inside the rig `.irig`
- * (shipped verbatim as `<stem>.json`). spine-pixi discards that custom field at parse time, so the
+ * (shipped verbatim as `<stem>.json`). the runtime reader discards that custom field at parse time, so the
  * binding cannot be read through the runtime event stream — it must be read from the rig data
  * directly and baked into a small manifest, exactly like `rigFx`.
  *

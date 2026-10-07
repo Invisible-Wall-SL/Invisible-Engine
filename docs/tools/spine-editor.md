@@ -48,9 +48,8 @@ you through it:
 
 ## Version & exports
 
-- Target **Spine 4.2** — it's what the engine's runtime
-  (`@esotericsoftware/spine-pixi-v8`) and the Invisible Rigger's `.irig` format
-  expect. Exporting from a mismatched editor version can produce skeletons the
+- Target **Spine 4.2** — it's what the engine's runtime (our own `engine-rig`)
+  and the Invisible Rigger's `.irig` format expect. Exporting from a mismatched editor version can produce skeletons the
   runtime won't load.
 - Exported runtime assets (atlas + skeleton JSON/binary + page PNGs) are what the
   engine and the online tools consume — keep frame/region names stable so atlas

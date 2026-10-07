@@ -4,7 +4,7 @@
 //   node tools/rigger-spike/blendmode.mjs <skeleton.json> <skeleton.atlas>
 //
 // ============================ EMPIRICAL FINDINGS ============================
-// (validated below against @esotericsoftware/spine-core@4.2.74's SkeletonJson loader +
+// (validated below against the rig runtime's SkeletonJson loader (engine-rig, held to the Spine 4.2 reference) +
 //  BlendMode enum + Utils.enumValue — NOT from memory. Read off SkeletonJson.js L118:
 //    data.blendMode = Utils.enumValue(BlendMode, getValue(slotMap, "blend", "normal"));
 //  SlotData.d.ts BlendMode enum L54-59; Utils.js enumValue L296-298.)
@@ -30,9 +30,9 @@
 // ===========================================================================
 
 import { readFileSync } from 'node:fs';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './spine.mjs';
 
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, BlendMode } = await import(SPINE_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, BlendMode } = await import(RIG_CORE);
 
 const [, , jsonPath, atlasPath] = process.argv;
 if (!jsonPath || !atlasPath) {

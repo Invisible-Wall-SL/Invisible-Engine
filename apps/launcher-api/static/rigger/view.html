@@ -899,11 +899,8 @@ let missingArt = [];
 const repairsKept = new Set();
 const repairKey = (r) => JSON.stringify([selected ? selected.skeleton_file : "", r.skin, r.slot, r.name]);
 
-// Attachment type tests that survive the vendored runtime mangling class names
-// (the minified spine-webgl names them `_RegionAttachment`/`_MeshAttachment`, so a
-// `constructor.name === "RegionAttachment"` check fails in the browser even though it
-// passes against the un-mangled core in the headless tests). Prefer instanceof against
-// the runtime's exported class; fall back to a name substring (covers the `_` prefix).
+// Attachment type tests: instanceof against the runtime's exported class, falling back to a
+// class-name substring (which also tolerates a build that prefixes or mangles class names).
 function isRegionAtt(a){
   if (!a) return false;
   if (SPINE && SPINE.RegionAttachment && a instanceof SPINE.RegionAttachment) return true;
@@ -943,16 +940,17 @@ function isLinkedMeshAtt(a){
   return !!(a.getParentMesh ? a.getParentMesh() : a.parentMesh);
 }
 
-// ---- runtime loading (one spine-webgl global at a time) -------------------
-// Reuses the Spine Viewer's vendored runtimes + R2 endpoints (same project spines).
+// ---- runtime loading (the Invisible rig runtime, loaded once) -------------
+// One runtime reads every rig, 4.1 and 4.2 exports alike — the same skeleton code the game runs.
+// `line` (the export's version) is recorded but no longer picks a script.
 function loadRuntime(line){
   return new Promise((resolve, reject) => {
-    if (loadedLine === line && window.spine){ SPINE = window.spine; return resolve(); }
+    if (window.spine){ SPINE = window.spine; loadedLine = line; return resolve(); }
     const s = document.createElement("script");
     const _v = new URLSearchParams(location.search).get("v");
-    s.src = "/spine/vendor/spine-webgl-" + line + ".js" + (_v ? "?v=" + encodeURIComponent(_v) : "");
+    s.src = "/spine/vendor/invisible-rig.js" + (_v ? "?v=" + encodeURIComponent(_v) : "");
     s.onload = () => { SPINE = window.spine; loadedLine = line; resolve(); };
-    s.onerror = () => reject(new Error("Failed to load runtime " + line));
+    s.onerror = () => reject(new Error("Failed to load the rig runtime"));
     document.head.appendChild(s);
   });
 }
@@ -4323,7 +4321,7 @@ function refreshUndoButtons(){
 }
 
 // ---- IK constraints (§18 item 3) ------------------------------------------
-// Validated against spine-core@4.2.74 (tools/rigger-spike/ik.mjs): top-level `ik` array,
+// Validated against engine-rig@4.2.74 (tools/rigger-spike/ik.mjs): top-level `ik` array,
 // each = { name, order, bones:[parent,child]|[bone], target, mix, bendPositive(bool),
 // softness, compress, stretch }. bendPositive serialises as a BOOLEAN (runtime → ±1).
 const ikArr = () => (rawDoc && Array.isArray(rawDoc.ik)) ? rawDoc.ik : null;
@@ -4448,7 +4446,7 @@ function renderIkEditor(){
 }
 
 // ---- transform constraints (§18 item 6) -----------------------------------
-// Validated against spine-core@4.2.74 (tools/rigger-spike/transform.mjs): top-level
+// Validated against engine-rig@4.2.74 (tools/rigger-spike/transform.mjs): top-level
 // `transform` array, each = { name, order, bones:[…constrained], target, mixRotate, mixX,
 // mixY, mixScaleX, mixScaleY, mixShearY (all default 1), rotation, x, y, scaleX, scaleY,
 // shearY (offsets, default 0), relative, local }. The offset JSON keys are the SHORT names
@@ -4587,7 +4585,7 @@ function renderTransformEditor(){
 }
 
 // ---- path constraints (§18 item 7) ----------------------------------------
-// Validated against spine-core@4.2.74 (tools/rigger-spike/path.mjs): top-level `path` array,
+// Validated against engine-rig@4.2.74 (tools/rigger-spike/path.mjs): top-level `path` array,
 // each = { name, order, bones:[…constrained], target:<SLOT with a path attachment>,
 // positionMode:"percent"|"fixed", spacingMode:"length"|"fixed"|"percent"|"proportional",
 // rotateMode:"tangent"|"chain"|"chainScale", position, spacing, rotation, mixRotate, mixX, mixY
@@ -4763,7 +4761,7 @@ function renderPathConstraintEditor(){
 }
 
 // ---- physics constraints (§18 item 8) -------------------------------------
-// Validated against spine-core@4.2.74 (tools/rigger-spike/physics.mjs): top-level `physics`
+// Validated against engine-rig@4.2.74 (tools/rigger-spike/physics.mjs): top-level `physics`
 // array, each = { name, order, bone (SINGLE), x/y/rotate/scaleX/shearX (0..1 amounts, default
 // 0 = off), limit (5000), fps (60 → step=1/fps), inertia (1), strength (100), damping (1),
 // mass (1 → massInverse=1/mass), wind (0), gravity (0), mix (1), *Global bools }. Physics is a
@@ -7436,7 +7434,7 @@ function drawDrawingOverlay(){
 // `vertices` are the cubic-bezier CONTROL POINTS (unweighted: flat [x,y…] in the slot bone's
 // LOCAL space). vertexCount = #control points; #cubic curves = vertexCount/3 (each curve uses
 // 3 new points; a closed path wraps its last curve back to p0). `lengths` holds one per-curve
-// arc length. Validated headless in tools/rigger-spike/path.mjs (22/22 vs spine-core@4.2.74).
+// arc length. Validated headless in tools/rigger-spike/path.mjs (22/22 vs engine-rig@4.2.74).
 // We reuse the mesh draw/edit machinery: drag/click control points in WORLD space, persist
 // them bone-local. The runtime debug renderer's drawPaths is OFF, so we draw the polyline
 // ourselves in drawPathOverlay (mirrors drawDrawingOverlay).
@@ -7693,7 +7691,7 @@ function renderPathAttachmentEditor(det, att){
 
 // =============================================================================
 // §18.9 EXTRA ATTACHMENT TYPES — point / boundingbox / clipping / linkedmesh.
-// Formats validated empirically by tools/rigger-spike/attachments.mjs vs spine-core@4.2.74:
+// Formats validated empirically by tools/rigger-spike/attachments.mjs vs engine-rig@4.2.74:
 //   point       {type:"point", x, y, rotation, color?}             — scalars (NOT a vertex list)
 //   boundingbox {type:"boundingbox", vertexCount, vertices, color?}— unweighted polygon, len 2*vc
 //   clipping    {type:"clipping", end:<slot>, vertexCount, vertices, color?} — polygon mask
@@ -8479,7 +8477,7 @@ function uvPanelNearestVert(p){
 // Spine 4.2 serializes a deform timeline at
 //   animations.<anim>.attachments.<skin>.<slot>.<att>.deform = [{time, offset?, vertices, curve?}, …]
 // where `vertices` is per-component DELTAS (offset 0 + full length in v1). Length + space —
-// validated against spine-core in tools/rigger-spike/deform.mjs:
+// validated against engine-rig in tools/rigger-spike/deform.mjs:
 //   UNWEIGHTED: length = 2*vertexCount, [dx,dy] per vertex in the mesh's (slot-bone) local space.
 //   WEIGHTED:   length = 2*totalInfluences, [dx,dy] per INFLUENCE (influence-walk order, same
 //               order as the packed bones array), each in that influence's bone-local space.
@@ -8569,7 +8567,7 @@ function applyDeformAtTime(att, t){
 
 // Interpolate a deform key list at t honouring the FROM key's `curve` (one easing per key —
 // linear default / "stepped" / bezier in (time,progress) coords). Expands offset+vertices to
-// a full-length delta array. Verified vs spine-core (deform.mjs).
+// a full-length delta array. Verified vs engine-rig (deform.mjs).
 function sampleDeform(keys, t, len){
   const expand = (k) => { const v = new Array(len).fill(0); const off = k.offset || 0, src = k.vertices || []; for (let i = 0; i < src.length; i++) v[off + i] = src[i]; return v; };
   if (!keys.length) return new Array(len).fill(0);
@@ -9910,7 +9908,7 @@ function normalizeKeyTimes(doc){
 }
 
 // Sample a keyframe list at t honouring the FROM key's `curve` (linear default, "stepped",
-// or a bezier array — controls[v*4..] per value index). Verified vs spine-core (curve.mjs).
+// or a bezier array — controls[v*4..] per value index). Verified vs engine-rig (curve.mjs).
 function sampleChannel(keys, t, fields){
   if (!keys || !keys.length) return null;
   if (t <= keys[0].time) return keys[0];
@@ -9928,7 +9926,7 @@ function sampleChannel(keys, t, fields){
 }
 // Pose the live skeleton from animation `name` at time t (over the setup pose). Mirrors
 // the runtime: rotate/translate are offsets from setup, scale is a multiplier. (Verified
-// against spine-core in tools/rigger-spike/anim.mjs.)
+// against engine-rig in tools/rigger-spike/anim.mjs.)
 // `additive` reproduces spine's MixBlend.add: rotate/translate/shear ADD their offset to whatever
 // is already posed, and scale adds its delta from setup — so an additive strip previews on top of
 // the base pose instead of replacing it. Default (false) is the ordinary replace form, byte-identical
@@ -10225,7 +10223,7 @@ function sampleColor(keys, t){
 }
 // Sample an rgba2 keyframe list at t. Each key = {time, light:"rrggbbaa", dark:"rrggbb",
 // curve?}. A single shared key curve drives all 7 channels (0=R 1=G 2=B 3=A 4=R2 5=G2 6=B2)
-// — light → {r,g,b,a}, dark → {r,g,b}. Verified vs spine-core RGBA2Timeline (darkcolor.mjs).
+// — light → {r,g,b,a}, dark → {r,g,b}. Verified vs engine-rig RGBA2Timeline (darkcolor.mjs).
 function sampleColor2(keys, t){
   if (!keys || !keys.length) return null;
   const pick = (k) => ({ light: hexToRGBA(k.light), dark: hexToRGB(k.dark) });
@@ -10456,7 +10454,7 @@ function deformTracksWithKeys(a){
 // ---- sequence timeline (Spine 4.2 image sequences) ------------------------
 // animations.<a>.attachments.<skin>.<slot>.<att>.sequence = [{ time?, mode?, index?, delay? }] —
 // the SAME node deform lives in, so the track plumbing mirrors deform's exactly. Read off
-// spine-core@4.2.74 SkeletonJson (L975) + SequenceTimeline.apply, not from memory:
+// engine-rig@4.2.74 SkeletonJson (L975) + SequenceTimeline.apply, not from memory:
 //   · `time` defaults 0, `mode` defaults "hold", `index` defaults 0.
 //   · `delay` is SECONDS PER SUB-FRAME — `apply` does `index += ((time - before) / delay) | 0`,
 //     so it is the hold time of each image, NOT an offset. A retime that scales key times must
@@ -10852,7 +10850,7 @@ function deleteDeformKeyAt(tr, time){
 // ---- IK constraint timeline (§18 item 3) ----------------------------------
 // animations.<a>.ik.<name> = [{ time, mix, softness?, bendPositive?, compress?, stretch?,
 // curve? }]. We key MIX (the FK→IK reveal); curve eases the mix channel (one bezier).
-// Validated against spine-core@4.2.74 in tools/rigger-spike/ik.mjs.
+// Validated against engine-rig@4.2.74 in tools/rigger-spike/ik.mjs.
 const ikChannelArr = (name) => { const a = animOf(curAnim); return a && a.ik && Array.isArray(a.ik[name]) ? a.ik[name] : null; };
 function ikKeyTimes(name){ const arr = ikChannelArr(name); return arr ? arr.map((k) => roundN(k.time, 4)).sort((a, b) => a - b) : []; }
 // Key the constraint's mix at the playhead. The author sets the value via the IK editor's
