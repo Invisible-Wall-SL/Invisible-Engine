@@ -702,14 +702,15 @@ try {
 			where run_id = ${fresh} and agent = 'atlas-technician' and role = 'user' order by seq limit 1`;
 		const text = (rows[0]?.content ?? []).map((b) => b.text ?? '').join('\n');
 		check(
-			"the technician starts from the profiles' fallback chain",
+			"the technician starts from the profiles' fallback chain, not a template default",
 			[
 				text.includes('fallback (the estimate profiles)'),
 				text.includes('"pipeline": "sdxl"'),
 				text.includes('"genPx": 1024'),
 				text.includes('"variants": 3'),
+				text.includes('template default'),
 			],
-			[true, true, true, true],
+			[true, true, true, true, false],
 		);
 	}
 
