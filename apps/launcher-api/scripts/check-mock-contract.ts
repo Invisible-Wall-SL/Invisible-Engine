@@ -408,6 +408,69 @@ await check("Publish's manifest copy is the published answer for the same bundle
 	eq(mockContractOfBundle('lines', REMAKE_V2, 'remake'), served, 'contract');
 });
 
+console.info('the free-spins rule');
+
+const NO_SYMBOLS = { map: {}, index: {} };
+const linesGrid = (config: GameConfigDoc) =>
+	mockContractOfBundle('lines', { config, symbols: NO_SYMBOLS }, 'fs').grid ?? {};
+const withFreeSpins = (freeSpins: unknown, doc: GameConfigDoc = template('lines')) =>
+	normalizeGameConfigDoc({ ...doc, freeSpins })!;
+
+await check('a lines project that never mentions free spins carries neither field', () => {
+	const grid = linesGrid(template('lines'));
+	eq(['freeSpins' in grid, 'freeSpinsTrigger' in grid], [false, false], 'keys');
+});
+
+await check('free spins OFF rides last as `freeSpins: false`; the rest is unchanged', () => {
+	const plain = linesGrid(template('lines'));
+	const off = linesGrid(withFreeSpins({ enabled: false }));
+	eq([off.freeSpins, Object.keys(off).at(-1)], [false, 'freeSpins'], 'switch');
+	const { freeSpins: _off, ...rest } = off;
+	eq(rest, plain, 'the rest of the grid');
+});
+
+await check('a custom trigger rides in SERVER names; the default scatter×3 sends nothing', () => {
+	eq(
+		linesGrid(withFreeSpins({ triggerSymbol: 'H1', triggerCount: 4 })).freeSpinsTrigger,
+		{ symbol: 'PIC1', count: 4 },
+		'H1 ×4',
+	);
+	eq(
+		linesGrid(withFreeSpins({ triggerCount: 5 })).freeSpinsTrigger,
+		{ symbol: 'SCAT', count: 5 },
+		'the scatter, ×5',
+	);
+	eq('freeSpinsTrigger' in linesGrid(withFreeSpins({ triggerSymbol: 'S' })), false, 'S ×3');
+});
+
+await check(
+	'a trigger the server has no name for is omitted and said once, not swapped for SCAT',
+	() => {
+		const lines = template('lines');
+		const doc = withFreeSpins(
+			{ triggerSymbol: 'X1' },
+			normalizeGameConfigDoc({
+				...lines,
+				symbols: { ...lines.symbols, X1: {} },
+				paddingReels: {
+					...lines.paddingReels,
+					basegame: lines.paddingReels.basegame.map((strip) => [...strip, { name: 'X1' }]),
+				},
+			})!,
+		);
+		const warnings: string[] = [];
+		const realWarn = console.warn;
+		console.warn = (message: string) => warnings.push(message);
+		try {
+			eq('freeSpinsTrigger' in linesGrid(doc), false, 'omitted');
+			linesGrid(doc);
+		} finally {
+			console.warn = realWarn;
+		}
+		eq(warnings.filter((w) => w.includes('X1')).length, 1, 'warned once');
+	},
+);
+
 console.info('the gate');
 
 await check('an unknown source is refused, not silently read as published', async () => {

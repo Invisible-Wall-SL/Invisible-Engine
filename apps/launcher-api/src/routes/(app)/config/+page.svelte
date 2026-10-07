@@ -16,6 +16,8 @@
 		resolveWinModel,
 		resolveCascade,
 		cascadeDefaultFor,
+		resolveFreeSpins,
+		normalizeFreeSpins,
 		DEFAULT_SCATTER_PAYTABLE,
 		describePaytableDrift,
 		coinEntryLabel,
@@ -737,6 +739,42 @@
 			return;
 		}
 		doc.cascade = on;
+	}
+
+	/**
+	 * FREE SPINS — the switch and the trigger. Offered only where the lines-family mock deals the
+	 * feature: a Hold and Win kind has none, and Book-of free spins are the book mechanic, owned by
+	 * its own mock.
+	 *
+	 * Every writer goes through `normalizeFreeSpins` itself rather than mirroring it: choosing a
+	 * default DELETES the field, and the block goes once nothing in it departs — so a game that
+	 * simply has free spins on three scatters stores nothing, and a saved block comes back in the
+	 * same shape. Switching off keeps the trigger fields, so switching back on loses nothing.
+	 */
+	const offersFreeSpins = $derived(capabilities.freeSpins && !capabilities.bookReveal);
+	const freeSpins = $derived(resolveFreeSpins(snapshot));
+	/** The symbol "Scatter (default)" stands for — what an unset trigger symbol resolves to. */
+	const defaultTriggerSymbol = $derived(
+		resolveFreeSpins({ ...snapshot, freeSpins: undefined }).triggerSymbol,
+	);
+	/** The trigger picker's choices: every in-play symbol, plus a stored one that is not (so the
+	 *  select shows what is saved, and the validator says why it cannot work). */
+	const triggerChoices = $derived.by(() => {
+		const stored = doc.freeSpins?.triggerSymbol;
+		return stored && !inPlay.has(stored) ? [...inPlay, stored] : [...inPlay];
+	});
+
+	function writeFreeSpins(change: Record<string, unknown>) {
+		const block = normalizeFreeSpins({ ...doc.freeSpins, ...change });
+		if (block) doc.freeSpins = block;
+		else delete doc.freeSpins;
+	}
+	const setFreeSpinsOn = (on: boolean) => writeFreeSpins({ enabled: on ? undefined : false });
+	const setTriggerSymbol = (symbol: string) => writeFreeSpins({ triggerSymbol: symbol });
+	function setTriggerCount(raw: string) {
+		const count = Number(raw);
+		// A half-typed or impossible count is left alone rather than stored or reset under the cursor.
+		if (Number.isInteger(count) && count >= 1) writeFreeSpins({ triggerCount: count });
 	}
 
 	/**
@@ -1678,6 +1716,12 @@
 			{#each issuesFor('betModePresentation') as issue (issue.path + issue.message)}
 				<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
 			{/each}
+			{#if offersFreeSpins && !freeSpins.enabled}
+				<p class="hint muted-note">
+					Free spins are off for this game (see <strong>Free spins</strong>), so a buy mode has
+					nothing to sell unless the game has a Hold and Win or pots bonus.
+				</p>
+			{/if}
 		</section>
 
 		<AddOnsSection bind:doc {issuesFor} readOnly={lease.readOnly} />
@@ -1933,6 +1977,81 @@
 				<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
 			{/each}
 		</section>
+
+		<!-- Free spins ------------------------------------------------------------->
+		{#if offersFreeSpins}
+			<section>
+				<h2>Free spins</h2>
+				<div class="fields">
+					<label
+						><span>Free spins</span><select
+							value={freeSpins.enabled ? 'on' : 'off'}
+							onchange={(e) => setFreeSpinsOn(e.currentTarget.value === 'on')}
+							disabled={lease.readOnly}
+						>
+							<option value="on">on — the trigger below awards free spins</option>
+							<option value="off">off — no free spins; scatters only pay</option>
+						</select></label
+					>
+					{#if freeSpins.enabled}
+						<label
+							><span>Trigger symbol</span><select
+								value={doc.freeSpins?.triggerSymbol ?? ''}
+								onchange={(e) => setTriggerSymbol(e.currentTarget.value)}
+								disabled={lease.readOnly}
+							>
+								<option value=""
+									>Scatter (default) — {defaultTriggerSymbol ?? 'none on the strips'}</option
+								>
+								{#each triggerChoices as name (name)}
+									<option value={name}
+										>{name}{inPlay.has(name) ? '' : ' (not on the strips)'}</option
+									>
+								{/each}
+							</select></label
+						>
+						<label
+							><span>How many</span><input
+								type="number"
+								min="1"
+								step="1"
+								value={freeSpins.triggerCount}
+								oninput={(e) => setTriggerCount(e.currentTarget.value)}
+								disabled={lease.readOnly}
+							/></label
+						>
+					{/if}
+				</div>
+				<p class="hint">
+					{#if !freeSpins.enabled}
+						<strong>This game has no free spins.</strong> On the Invisible Test Server no spin enters
+						the feature — scatters still land and pay their scatter pay, and to remove them altogether
+						take the scatter symbol off the reel strips. The info page's Scatter rule stops promising
+						free spins.
+					{:else if freeSpins.triggerSymbol}
+						On the Invisible Test Server, <strong
+							>{freeSpins.triggerCount} or more {freeSpins.triggerSymbol}</strong
+						>
+						anywhere on the board award <strong>10 free spins</strong>; +5 when they land again
+						during free spins. The trigger is counted on its own — a scatter keeps paying its
+						scatter pay whatever triggers the feature.
+					{:else}
+						No symbol can trigger free spins: there is no scatter on the reel strips. Choose a
+						trigger symbol, or turn free spins off.
+					{/if}
+				</p>
+				<p class="hint muted-note">
+					Whether free spins happen is decided here and by the game server — the Flow's free-spin
+					chain only presents them. The test server reads this from the game's config, so to try a
+					change save, then reload <strong>Live ↗</strong>; players get it at the next
+					<strong>Publish</strong>. A partner server (Play4Fun) decides its own outcomes, so a game
+					played there must have the same rule in the partner's math.
+				</p>
+				{#each issuesFor('freeSpins') as issue (issue.path + issue.message)}
+					<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
+				{/each}
+			</section>
+		{/if}
 
 		<!-- Reel behaviour --------------------------------------------------------->
 		<section>

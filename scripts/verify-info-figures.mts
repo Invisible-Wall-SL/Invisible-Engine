@@ -12,14 +12,19 @@
 //      is untouched, and an unstated figure leaves the page exactly as it was;
 //   4. the operator's per-mode paybacks (buy / ante "high chance") and money blocks (bet range,
 //      credit value) appear only when their own flag is stated, each after the RTP block;
-//   5. no rules string carries a `{placeholder}`: the i18n resolver compiles a message with no values
+//   5. free spins OFF, or a trigger other than 3 scatters, drops the SCATTER rule's free-spins
+//      promise (a departing trigger also adds a FREE SPINS block, its count and symbol as the
+//      figure), while the default leaves the page byte-identical;
+//   6. no rules string carries a `{placeholder}`: the i18n resolver compiles a message with no values
 //      by BLANKING its placeholders (a first cut shipped "The maximum win is × the total bet" that
 //      way), and every new string is harvested for /localization.
 
 import {
+	UI_INFO_FREE_SPINS_RULE,
 	UI_INFO_OPERATOR_RULES,
 	UI_INFO_RULES,
 	UI_INFO_RTP_RULE,
+	UI_INFO_SCATTER_PAYS_ONLY_BODY,
 	UI_TEXT,
 	collectUiTextStrings,
 	infoRulesWithFigures,
@@ -113,16 +118,45 @@ const doc = (over: Partial<GameConfigDoc> = {}): GameConfigDoc =>
 	check('an operator block needs no RTP to appear', same(infoRulesWithFigures({ creditValue: '€0.01' }).at(-1)?.heading, 'CREDIT VALUE')); // prettier-ignore
 }
 
+// --- 3b. FREE SPINS ------------------------------------------------------------------------------
+{
+	const scatterAt = UI_INFO_RULES.findIndex((r) => r.heading === 'SCATTER');
+	const figures = { rtp: '96.50%', maxWin: '5,000' };
+	check('free spins on (the default) ⇒ the page is unchanged', same(infoRulesWithFigures(figures, { freeSpins: true }), infoRulesWithFigures(figures))); // prettier-ignore
+	check('…and the scatter still promises them', infoRulesWithFigures({})[scatterAt].body === UI_INFO_RULES[scatterAt].body && UI_INFO_RULES[scatterAt].body.includes('Free Spins')); // prettier-ignore
+	const off = infoRulesWithFigures(figures, { freeSpins: false });
+	const on = infoRulesWithFigures(figures);
+	check('free spins OFF ⇒ the SCATTER body pays only', off[scatterAt].body === UI_INFO_SCATTER_PAYS_ONLY_BODY && !off[scatterAt].body.includes('Free Spins'), off[scatterAt].body); // prettier-ignore
+	check('…and every other rule is untouched', same(off.filter((_r, i) => i !== scatterAt), on.filter((_r, i) => i !== scatterAt))); // prettier-ignore
+	check('…with no FREE SPINS block', !off.some((r) => r.heading === UI_INFO_FREE_SPINS_RULE.heading)); // prettier-ignore
+	check('…even if a trigger is passed', same(infoRulesWithFigures(figures, { freeSpins: false, freeSpinsTrigger: { count: 4, symbol: 'H1' } }), off)); // prettier-ignore
+
+	const custom = infoRulesWithFigures(figures, { freeSpinsTrigger: { count: 4, symbol: 'H1' } });
+	check('a departing trigger ⇒ the SCATTER body pays only', custom[scatterAt].body === UI_INFO_SCATTER_PAYS_ONLY_BODY); // prettier-ignore
+	check('…followed by FREE SPINS with the count and symbol as its figure', same(custom[scatterAt + 1], { ...UI_INFO_FREE_SPINS_RULE, figure: { value: '4+ H1' } })); // prettier-ignore
+	check('…and the rest in order, one longer', same([...custom.slice(0, scatterAt), ...custom.slice(scatterAt + 2)], on.filter((_r, i) => i !== scatterAt))); // prettier-ignore
+	const scatter4 = infoRulesWithFigures({}, { freeSpinsTrigger: { count: 4, symbol: 'S', role: 'scatter' } }); // prettier-ignore
+	check('a scatter trigger is named by the translated SCATTER heading', same(scatter4[scatterAt + 1].figure, { value: '4+', unit: 'SCATTER' })); // prettier-ignore
+	const wild5 = infoRulesWithFigures({}, { freeSpinsTrigger: { count: 5, symbol: 'W', role: 'wild' } }); // prettier-ignore
+	check('…a wild one by the WILD heading', same(wild5[scatterAt + 1].figure, { value: '5+', unit: 'WILD' })); // prettier-ignore
+}
+
 // --- 4. TRANSLATION SAFETY + HARVEST -------------------------------------------------------------
 {
 	const operatorRules = Object.values(UI_INFO_OPERATOR_RULES);
-	const strings = [...UI_INFO_RULES, UI_INFO_RTP_RULE, ...operatorRules].flatMap((r) => [r.heading, r.body]); // prettier-ignore
+	const strings = [...UI_INFO_RULES, UI_INFO_RTP_RULE, ...operatorRules, UI_INFO_FREE_SPINS_RULE].flatMap((r) => [r.heading, r.body]).concat(UI_INFO_SCATTER_PAYS_ONLY_BODY); // prettier-ignore
 	check('no rules string carries a {placeholder} the resolver would blank', strings.every((s) => !/[{}]/.test(s))); // prettier-ignore
 	const keys = new Set(collectUiTextStrings().map((s) => s.key));
 	check('the RTP heading and body are harvested', keys.has(UI_INFO_RTP_RULE.heading) && keys.has(UI_INFO_RTP_RULE.body)); // prettier-ignore
 	check('the figure unit is an already-harvested string', keys.has(UI_TEXT.bet));
 	check('every operator block is harvested', operatorRules.every((r) => keys.has(r.heading) && keys.has(r.body))); // prettier-ignore
 	check('every default rule stays harvested', UI_INFO_RULES.every((r) => keys.has(r.heading) && keys.has(r.body))); // prettier-ignore
+	check('the pays-only SCATTER body is harvested', keys.has(UI_INFO_SCATTER_PAYS_ONLY_BODY));
+	check('the FREE SPINS heading and body are harvested', keys.has(UI_INFO_FREE_SPINS_RULE.heading) && keys.has(UI_INFO_FREE_SPINS_RULE.body)); // prettier-ignore
+	check('the figure units are already-harvested headings', keys.has('SCATTER') && keys.has('WILD'));
+	check('the FREE SPINS heading IS the HUD string, so it shares that translation', UI_INFO_FREE_SPINS_RULE.heading === UI_TEXT.freeSpins); // prettier-ignore
+	const fresh = [UI_INFO_FREE_SPINS_RULE.body, UI_INFO_SCATTER_PAYS_ONLY_BODY];
+	check('the new rows are appended — every existing row keeps its place', same(collectUiTextStrings().slice(-fresh.length).map((s) => s.key), fresh)); // prettier-ignore
 }
 
 console.log(failures ? `\n${failures} FAILED` : '\nall passed');

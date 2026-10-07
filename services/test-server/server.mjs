@@ -502,6 +502,21 @@ const validGrid = (grid) => {
 	// declares a `betOptions` table from them and prices `bet [x, M]` by it. See `validBetModes`.
 	const betModes = validBetModes(grid.betModes);
 	if (grid.betModes !== undefined && !betModes) warnDroppedBetModes(grid.betModes);
+	// `freeSpins: false` (the project turned free spins OFF in `/config`) stops the lines mock
+	// entering the feature; scatters still land and pay. Only `false` is forwarded; absent ⇒ on.
+	const freeSpinsOff = grid.freeSpins === false;
+	// The free-spins TRIGGER when it departs from 3+ SCAT: a server symbol name and a count.
+	// Malformed ⇒ dropped ⇒ the mock's own 3+ SCAT rule.
+	const trigger = grid.freeSpinsTrigger;
+	const freeSpinsTrigger =
+		trigger &&
+		typeof trigger === 'object' &&
+		typeof trigger.symbol === 'string' &&
+		trigger.symbol.length > 0 &&
+		Number.isInteger(trigger.count) &&
+		trigger.count >= 1
+			? { symbol: trigger.symbol, count: trigger.count }
+			: null;
 	// A Hold and Win game's inputs: its block, line symbols and symbol roles/pays. Shape-checked only
 	// as far as the mock needs to stand up; everything inside was normalized by the launcher.
 	const holdAndWinShaped = (hw) =>
@@ -574,6 +589,8 @@ const validGrid = (grid) => {
 		...(betModes ? { betModes } : {}),
 		...(holdAndWin ? { holdAndWin } : {}),
 		...(potsOverlay ? { potsOverlay } : {}),
+		...(freeSpinsOff ? { freeSpins: false } : {}),
+		...(freeSpinsTrigger ? { freeSpinsTrigger } : {}),
 	};
 };
 

@@ -1,6 +1,11 @@
 import type { InfoManifest, InfoSymbolIcon } from 'components-ui-pixi';
-import { infoRulesWithFigures } from 'engine-layout';
-import { infoPageFigures } from 'game-config';
+import { infoRulesWithFigures, type InfoRuleOptions } from 'engine-layout';
+import {
+	freeSpinsTriggerIsDefault,
+	infoPageFigures,
+	isScatterSymbol,
+	resolveFreeSpins,
+} from 'game-config';
 import { DEFAULT_DENOM } from 'delivery-profile';
 import { stateConfig, stateI18n, stateOperator } from 'state-shared';
 import { numberToCurrencyString } from 'utils-shared/amount';
@@ -66,24 +71,47 @@ const operatorFigures = (): { betRange?: string; creditValue?: string } => {
 };
 
 /**
+ * What the rules page says about free spins: nothing new for a game on the default 3 scatters, the
+ * scatter's free-spins promise dropped for a game without them, and the project's own trigger
+ * stated for one that departs from it — named by its role where it has one, else by its config id.
+ */
+const freeSpinsRules = (): InfoRuleOptions => {
+	const config = getActiveGameConfig();
+	const freeSpins = resolveFreeSpins(config);
+	if (!freeSpins.enabled) return { freeSpins: false };
+	const symbol = freeSpins.triggerSymbol;
+	if (!symbol || freeSpinsTriggerIsDefault(config)) return {};
+	const entry = config.symbols[symbol];
+	const role = isScatterSymbol(entry)
+		? 'scatter'
+		: entry?.special_properties?.includes('wild')
+			? 'wild'
+			: undefined;
+	return { freeSpinsTrigger: { count: freeSpins.triggerCount, symbol, ...(role ? { role } : {}) } };
+};
+
+/**
  * The rules page with the game's own figures. Each payback appears only where the operator allows
  * it: the RTP on `jurisdiction.displayRTP` (the Play4Fun facade sets it from the embed page's
  * `showTheoreticalPayback`), a bought feature's on `showBuyBonusPayback` — and never while the
  * launch forbids buying one — and the ante's on `showHighChancePayback`.
  */
 const rules = () =>
-	infoRulesWithFigures({
-		...infoPageFigures(
-			getActiveGameConfig(),
-			stateConfig.jurisdiction.displayRTP,
-			(n) => stateI18n.i18n.number(n),
-			{
-				buy: stateOperator.showBuyBonusPayback && !stateConfig.jurisdiction.disabledBuyFeature,
-				ante: stateOperator.showHighChancePayback,
-			},
-		),
-		...operatorFigures(),
-	});
+	infoRulesWithFigures(
+		{
+			...infoPageFigures(
+				getActiveGameConfig(),
+				stateConfig.jurisdiction.displayRTP,
+				(n) => stateI18n.i18n.number(n),
+				{
+					buy: stateOperator.showBuyBonusPayback && !stateConfig.jurisdiction.disabledBuyFeature,
+					ante: stateOperator.showHighChancePayback,
+				},
+			),
+			...operatorFigures(),
+		},
+		freeSpinsRules(),
+	);
 
 // Every config-derived field is an ACCESSOR, for the same reason `symbols` already was: this
 // module is imported at boot, long before the live runtime bundle's async fetch resolves, so a

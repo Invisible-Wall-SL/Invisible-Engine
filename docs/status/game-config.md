@@ -3,8 +3,8 @@
 > Design: [docs/design/invisible-game-config.md](../design/invisible-game-config.md) · Guide: [docs/tools/game-config.md](../tools/game-config.md) · Agent: `.claude/agents/invisible-game-config.md`
 
 **One-line state:** shipped — an authored `/config` doc drives symbols, paytable (scatter pays
-included), paylines, bet modes, grid (stepped too), win model, cascade, reel behaviour and win
-tiers in the game, the mock RGS and the Scene Editor preview. The original five phases were
+included), paylines, bet modes, grid (stepped too), win model, cascade, free spins (on/off + trigger), reel
+behaviour and win tiers in the game, the mock RGS and the Scene Editor preview. The original five phases were
 owner-verified live on 2026-08-04; later panels (paste-capture import, drift banner, History…)
 are build/fixture-verified with the browser click-through listed under open items.
 
@@ -679,6 +679,14 @@ Plan: [hold-and-win.md](../design/hold-and-win.md) §1.3/§5; hub: [hold-and-win
    whose scatter is called something else gets it `skipped` on import and a permanent
    `undeclared`/`unshown` pair in the drift check. Every live config names it `S` today.
 
+6. **Free-spins presentation that still assumes the scatter** (from the 2026-10-07 switch). The
+   facade's `freeSpinTrigger.positions` come only from a `SCAT` scatter win
+   (`engineFacade.ts`, `spinWin` case), so a custom trigger symbol gets no trigger highlight; the
+   flow-only "N Scatters award N Free Spins" toast (`flowEffects.ts`) fires only on a zero-pay scatter
+   entry, so it never misfires but never names a custom trigger either; `builtinGameModes` still
+   lists the `freeSpins` mode on a game with free spins off (the Game modes section shows it). The
+   book mock and partner servers ignore the block by design.
+
 **Not a gap:** `packages/game-spec`'s generator emits const-based `paytable.ts`/`infoManifest.ts`,
 but it is a standalone CLI that `new-game.mjs` does NOT call — the scaffold copies `src/` from an
 existing game (now `apps/lines`, with the accessor-based files), so a new game inherits the authored
@@ -689,6 +697,45 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 - _None._
 
 ## Recent changes
+
+- 2026-10-07 — **Free spins: an on/off switch and a configurable trigger.** A user could not make a
+  game without free spins: the lines-family mock (`scripts/mock-rgs-server.mjs`, also serving ways /
+  cluster / scatter / custom kinds) hardcoded 3+ SCAT, and removing the Flow's free-spin chain only
+  hid the presentation. **Schema:** an optional `doc.freeSpins` block — `enabled?: false`,
+  `triggerSymbol?`, `triggerCount?` (`packages/game-config/src/freeSpins.ts`) — departure-only like
+  `cascade`: absent ⇒ on, 3+ of the in-play scatter; `normalizeFreeSpins` keeps only departures (trigger fields survive
+  `enabled: false`), so every committed default and every authored doc is byte-identical. Read through
+  `resolveFreeSpins` / `freeSpinsTriggerIsDefault`; `DEFAULT_FREE_SPINS_TRIGGER_COUNT` (=
+  `SCATTER_TRIGGER_COUNT`). "Which symbol is the scatter" is now one helper, `inPlayScatterSymbol`
+  (`serverPaytable.ts`), used by `shownPaytable`, the mock contract's scatter pays and the trigger
+  default. **Validator:** off + a buy mode (`buyBonus` or presentation kind `buy`) with no
+  `holdAndWin`/`potsOverlay` block ⇒ error at `freeSpins` naming the modes (the stock lines / ways /
+  scatter templates ship a `bonus` buy, so turning free spins off blocks save until it is removed);
+  while on: a trigger symbol outside the dictionary or off the strips ⇒ error, a count above the
+  board's cells ⇒ error, no trigger symbol and no in-play scatter ⇒ warning (both exempt beside a
+  Hold and Win / pots block). **Mock contract:** the lines-family grid carries `freeSpins: false`, or
+  `freeSpinsTrigger: { symbol, count }` in SERVER names via `linesMapping` — only on a departure, last,
+  so an un-authored grid is byte-identical; a trigger symbol with no server name is omitted with a
+  once-per-project warning (the mock then keeps 3+ SCAT). `testServerManifest.ts` types both; the test
+  server's `validGrid` forwards them shape-checked. **Mock:** off ⇒ no base spin, `FORCE_TRIGGER` or
+  bought round enters the feature, a bought option is refused at `bet` (errorCode 101, nothing
+  charged), scatters still land and pay; the trigger is counted on its own symbol (base + retrigger),
+  apart from the SCAT pay; a forced trigger places `count` copies (wrapping past the reel count) and
+  never writes a symbol the instance does not deal; `spinTrigger` / bonus snapshots name the real
+  trigger. Seeded responses are byte-identical to the old mock for every un-authored configuration
+  (default, forced, `WIN_X`, restricted pool, table + buy, ways, stepped, cascade). **`/config`:** a
+  **Free spins** section under _How wins are decided_ (lines-family kinds only: not Hold and Win, not
+  Book-of) — on/off, **Trigger symbol**, **How many**, the live rule as a hint, its issues inline, and
+  a one-line reminder in Bet modes while off. **Rules page** (`engine-layout` `infoRulesWithFigures`'s
+  new optional `InfoRuleOptions`, fed from `apps/lines` `infoManifest.ts`): default output unchanged;
+  off ⇒ the SCATTER body becomes `UI_INFO_SCATTER_PAYS_ONLY_BODY`; a departing trigger also adds a
+  FREE SPINS rule whose figure carries the count and symbol (`4+ SCATTER`, `4+ H1`); both new strings
+  are harvested for `/localization` (appended; the heading reuses `UI_TEXT.freeSpins`). **Ships:** the
+  rules copy is engine code in the shared runtime, so online games get it only through a **runtime
+  release**; the mock/contract side needs the launcher and the test server deployed. **Verified:**
+  `pnpm check:freespins` (protocol §6–§9 new, plus `freeSpins.fixture.ts`), `check:info-figures`,
+  `check:mock-contract` (+4), `check:rgs`, the game-config fixtures, svelte-check at baseline for
+  launcher-api, lines and engine-layout. Not browser-tested. Follow-ups: open item 6.
 
 - 2026-10-03 — **Imported reels modes** (pots overlay open item 00): `importBonus` takes a source's
   free spins / `reels` mode as a new mode of the project's own (id and game type `_2`-renamed,

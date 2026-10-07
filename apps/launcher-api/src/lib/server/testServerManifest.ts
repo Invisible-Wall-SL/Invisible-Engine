@@ -353,6 +353,14 @@ export interface TestServerGameEntry {
 		 *  a line-config game (`[lines, betPerLine]`, no table), exactly as before. Not sent for `book`,
 		 *  whose mock owns its table. See `projectBetModes`. */
 		betModes?: { mode: string; cost: number; kind: 'base' | 'ante' | 'buy' }[];
+		/** `false` when the project turned free spins OFF in `/config` (lines-family mock only): the
+		 *  mock never enters the feature, and refuses a bought option, while scatters still land and
+		 *  pay. Absent ⇒ free spins on, exactly as before. See `projectFreeSpins`. */
+		freeSpins?: false;
+		/** The free-spins TRIGGER when it departs from 3+ SCAT (lines-family mock only): a SERVER symbol
+		 *  name and the fewest of it, anywhere on the board, that award (and retrigger) the feature.
+		 *  Absent ⇒ 3+ SCAT, exactly as before. See `projectFreeSpins`. */
+		freeSpinsTrigger?: { symbol: string; count: number };
 		/** A `holdAndWin` game's block, line symbols and symbol roles/pays in the project's OWN names
 		 *  (`holdAndWinMockInputs`), which the Hold and Win mock deals from. Present only for that
 		 *  protocol; such a grid carries none of the lines-mock fields above but the board, lines and
