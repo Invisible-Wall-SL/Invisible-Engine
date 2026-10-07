@@ -10,12 +10,11 @@
  * naming why; the check then waits (up to `--wait <s>`, default 120) for the worker to apply the
  * pauses. Exit 0 = nothing running or stopping: deploy. Exit 1 = not idle: do not deploy.
  *
- * `--strict` (card 8C) also counts runs waiting on the owner or paused, and drafts that still hold
- * a preset the old New game screen stored: exit 0 only when there are none. Those are the owner's
- * to finish, stop or delete; the check never touches one.
+ * `--strict` (card 8C) also counts runs waiting on the owner or paused: exit 0 only when there are
+ * none. Those are the owner's to finish or stop; the check never touches one.
  */
 import postgres from 'postgres';
-import { idleVerdict, liveRuns, pauseForDeploy, presetDrafts } from '../src/idle.ts';
+import { idleVerdict, liveRuns, pauseForDeploy } from '../src/idle.ts';
 
 const url = process.env.DATABASE_URL;
 if (!url) {
@@ -40,14 +39,14 @@ try {
 			await new Promise((r) => setTimeout(r, 2000));
 		}
 	}
-	const verdict = idleVerdict(await liveRuns(sql), strict ? await presetDrafts(sql) : []);
+	const verdict = idleVerdict(await liveRuns(sql));
 	const ok = strict ? verdict.quiet : verdict.idle;
 	console.log(JSON.stringify(verdict, null, 2));
 	console.log(
 		ok
 			? `${strict ? 'quiet' : 'idle'}: the deploy may go.`
 			: strict && verdict.idle
-				? 'NOT quiet: the held runs and preset drafts must be finished, stopped or deleted by their owner first.'
+				? 'NOT quiet: the held runs must be finished or stopped by their owner first.'
 				: 'NOT idle: do not deploy yet.',
 	);
 	process.exitCode = ok ? 0 : 1;

@@ -231,7 +231,6 @@ const RUN: DirectorRun = {
 	clientKey: 'acme',
 	templateProjectKey: 'hw-3pots-sample',
 	ownerUserId: 'owner',
-	presetJson: {},
 	startingPointJson: {},
 	checkpointsJson: {},
 	status: 'running',

@@ -137,7 +137,6 @@ const run = (id: string, over: Partial<DirectorRun>): DirectorRun => ({
 	clientKey: 'acme',
 	templateProjectKey: 'hw',
 	ownerUserId: 'owner',
-	presetJson: {},
 	startingPointJson: {},
 	checkpointsJson: {},
 	status: 'running',

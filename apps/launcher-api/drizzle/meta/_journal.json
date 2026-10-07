@@ -211,6 +211,13 @@
       "when": 1791355244643,
       "tag": "0029_director_recipes",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1791369098126,
+      "tag": "0030_director_drop_preset_json",
+      "breakpoints": true
     }
   ]
 }

@@ -11,7 +11,7 @@
 import postgres from 'postgres';
 import { parsePricing } from 'director-costs';
 import { readFileSync } from 'node:fs';
-import { idleVerdict, liveRuns, pauseForDeploy, presetDrafts } from '../src/idle.ts';
+import { idleVerdict, liveRuns, pauseForDeploy } from '../src/idle.ts';
 import { driveRun } from '../src/driver.ts';
 import { claimRun } from '../src/lease.ts';
 
@@ -64,20 +64,10 @@ try {
 			running: [`${tag}-running`],
 			stopping: [],
 			held: [`${tag}-paused`, `${tag}-waiting`],
-			presetDrafts: [],
 			quiet: false,
 		},
 	);
 	check('the strict check is quiet only with no started run unended', idleVerdict([]).quiet, true);
-	await sql`insert into director_runs (id, project_key, template_project_key, owner_user_id, status,
-			step, preset_json)
-		values (${`${tag}-old-draft`}, ${`${tag}-old-draft`}, 'tpl', ${userId}, 'draft', 'breakdown',
-			${sql.json({ blueprint: 'flux', finalPx: 768 })})`;
-	const drafts = (await presetDrafts(sql)).filter((id) => id.startsWith(tag));
-	check('a draft the pre-8C screen stored a preset on is listed; a default draft is not', drafts, [
-		`${tag}-old-draft`,
-	]);
-	check('…and keeps the strict check from going quiet', idleVerdict([], drafts).quiet, false);
 	check(
 		'a stopping run blocks too',
 		idleVerdict([{ id: 's', status: 'stopping', step: 'regions', waiting_on: null }]).idle,

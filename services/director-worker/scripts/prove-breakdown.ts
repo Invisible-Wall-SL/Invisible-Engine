@@ -443,10 +443,6 @@ try {
 	console.log('1. a started run with mockups gets the worker’s breakdown, once');
 	{
 		const runId = await newRun();
-		// A row written before card 8C: its preset is never read again.
-		await sql`update director_runs
-			set preset_json = ${sql.json({ blueprint: 'flux', finalPx: 768, gpu: 'L4' })}
-			where id = ${runId}`;
 		const vision = fakeVision({ answers: { [BASE]: wrongBuy } });
 		const turns = fakeTurnModel([
 			{ content: [say('Planning the style pack from the breakdown.')] },
@@ -456,8 +452,8 @@ try {
 		await drive(runId, deps(turns.transport, vision.transport, gate.launcher));
 		const opening = texts(await messages(runId, 'coordinator'))[0] ?? '';
 		check(
-			"the coordinator's brief names no preset, though the row still holds one",
-			[opening.startsWith('A new Invisible Director run'), /preset|flux/.test(opening)],
+			"the coordinator's brief names no preset",
+			[opening.startsWith('A new Invisible Director run'), /preset/.test(opening)],
 			[true, false],
 		);
 
