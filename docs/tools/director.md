@@ -287,15 +287,20 @@ picture on a reload.
     the project. A later revision that changes a pipeline or where a step runs, costs more on
     today's prices, or would render again a step that has already rendered (a changed setting
     restarts that step and every step after it), needs your approval again.
-  - **A step that keeps failing comes back to you.** Under one approval a failed render is retried
-    twice; if it fails a third time its region's recipe loses its approval, nothing more of it
-    renders, and the Art plan opens again with that region in it ("asks you to approve again a
-    render that kept failing" in Activity) — even with the Art plan checkpoint off. Approving it
-    there gives it two more tries; nothing else does: not an automatic approval, and not
-    **Resume** (a pause names the step, and resuming opens the Art plan for it). If it fails while
-    you have the run paused or another checkpoint open, the Art plan asks once you resume or
-    resolve it. An approval you send from a view that still showed the step approved is refused
-    ("the Art plan changed since you saw it"): look again and approve what is there now.
+  - **A step that keeps failing comes back to you.** A failed render is retried twice; if it fails
+    a third time since you last approved its recipe in the Art plan (a revision, an automatic
+    approval or **Resume** in between does not start the count again), its region's recipe loses
+    its approval, nothing more of it renders, and the Art plan opens again with that region in it
+    ("asks you to approve again a render that kept failing" in Activity; on its row, "H1 failed 3
+    times: approving lets it try 3 more times") — even with the Art plan checkpoint off. Only
+    approving it there lets it try again: not an automatic approval, and not **Resume** (a pause
+    names the step, and resuming opens the Art plan for it). If it fails while you have the run
+    paused or another checkpoint open, Activity says so, and the Art plan asks once you resume or
+    resolve it. The region step does not end while one of its renders is still running; a render
+    queued later, while building, that fails past its retries renders nothing more in this run,
+    and Activity says that too. An approval you send from a view that still showed the step
+    approved is refused ("the Art plan changed since you saw it"): look again and approve what is
+    there now.
   - Outside the checkpoint — while the technician is still planning, after you approve, or with
     the checkpoint off — the same plan shows read-only below the region panel, folded behind one
     line ("Every recipe is approved · show the recipes", or how many still wait for approval).

@@ -99,14 +99,17 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     list (`routes/(app)/director/artPlan.ts`, pure). `atlasFetch` takes an `AtlasCaller` so the
     estimate can read the catalogue with no run.
   - Tests: `check:director-runs` 468 (estimate per chain, unpriced refusals, start refusal, the
-    Art plan actions and edit shapes), `check:director-live` 106 (the fold, the panel's view and
-    edits, drafts, licences, how-made), worker `check:recipes` 90, `prove:art-plan` 78 (stale
-    approval, owner edits incl. a group size edit, a stale and a malformed edit, a failed render
-    queued again, timings measured once, a dropped region, re-approval on one pricing basis, a
-    same-price revision that re-opens a rendered step, an unreachable launcher, the retry cap with
-    the checkpoint on and off, a third failure that also crosses the cap or lands on a stopping, an
-    owner-paused or a cap-paused run or during a region batch, an approval of a card that hid a
-    withdrawal, plans the approval could not name).
+    Art plan actions and edit shapes), `check:director-live` 109 (the fold, the panel's view and
+    edits, drafts, licences, how-made, the regions past their retries), worker `check:recipes` 90,
+    `check:run-state` 1390, `prove:art-plan` 95 (stale approval, owner edits incl. a group size
+    edit, a stale and a malformed edit, a failed render queued again, timings measured once, a
+    dropped region, re-approval on one pricing basis, a same-price revision that re-opens a
+    rendered step, an unreachable launcher, the retry cap with the checkpoint on and off, a third
+    failure that also crosses the cap or lands on a stopping, an owner-paused or a cap-paused run
+    or during a region batch, an approval of a card that hid a withdrawal, plans the approval
+    could not name, the failure count kept through every approval but the owner's at the Art
+    plan, the region step held while a render is in flight, an Art plan that cannot open told to
+    the owner).
   - **After review** (code-reviewer, four blockers reproduced on the real modules):
     - owner edits are validated against the plan with every edit applied (a group size edit no
       longer refuses itself one region at a time), name the revision they were made on, are
@@ -173,6 +176,17 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     checkpoint other than the Art plan resolves, and on every resume, so a failure that landed
     while the run was paused or waiting on a region batch is put to the owner then (a stopping
     run is asked nothing); `ownerOf` reads who an owner row is from.
+  - **Fourth review round (the count survives every approval but the owner's):** a step's
+    failures count from the owner's last approval at the Art plan, and only that approval
+    (`approveArtPlan`) clears them: an automatic approval (of a revision after two failures, or
+    of a region a plan dropped and took back) or the owner's resume past the cap keeps them, so
+    the third failure since still goes to the owner. The region step does not end (`step_done`
+    refused) while a render it queued is in flight (`rendersInFlight`); where the state machine
+    refuses the Art plan (the run paused, another checkpoint open, the build step) the owner gets
+    a note naming what waits for them and when they are asked, never silence; the gate skips a
+    stopping or ended run. Re-opened with the checkpoint on, the Art plan is labelled
+    `retries_spent` too, and the panel names each region past its retries ("H1 failed 3 times:
+    approving lets it try 3 more times": one try and two retries per approval).
   - **Deploy:** atlas-tool's `RUNPOD_ENDPOINT_GPU` must be set and priced, or no Director run can
     start (`docs/INFRA.md`). The worker and the launcher go out together: an old worker drops the
     owner's `recipeEdits`, and an old Live run page sends no `recipeRevs`, so every Art plan

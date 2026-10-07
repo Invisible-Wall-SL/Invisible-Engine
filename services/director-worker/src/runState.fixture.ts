@@ -234,6 +234,26 @@ console.log('optional checkpoints follow the settings');
 	);
 	const r6 = transition(off('paused', 'regions'), { type: 'plan_ready', ownerOnly: true });
 	pass(!r6.ok, '…and only from running, like any plan_ready');
+	const ownerOnly: RunEvent = { type: 'plan_ready', ownerOnly: true };
+	const r7 = transition(off('running', 'build'), ownerOnly);
+	pass(!r7.ok, '…never past the region step: refused from build');
+	const r8 = transition(state('waiting', 'regions', 'region_batch', ALL_OFF), ownerOnly);
+	pass(!r8.ok, '…refused while a region batch waits');
+	const r9 = transition(off('running', 'style_pack'), ownerOnly);
+	pass(
+		r9.ok && key(r9.state) === 'waiting/style_pack@art_plan',
+		'…and opened from the style pack step as from the region step',
+	);
+	const apart = STATES.filter((from) => {
+		const owner = transition({ ...from, checkpoints: ALL_OFF }, ownerOnly);
+		const on = transition(from, { type: 'plan_ready' });
+		return owner.ok !== on.ok || (owner.ok && on.ok && key(owner.state) !== key(on.state));
+	});
+	pass(
+		apart.length === 0,
+		'with the Art plan off, ownerOnly opens it from exactly the states plan_ready does with it on',
+		` — differs from ${apart.map(key).join(', ')}`,
+	);
 	pass(checkpointSettings({}).artPlan, 'the art plan defaults ON');
 	const r3 = transition(off('running', 'build'), { type: 'step_done' });
 	pass(

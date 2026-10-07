@@ -678,7 +678,6 @@ function foldCheckpoint(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 	}
 	if (checkpoint === 'art_plan') {
 		ctx.artPlan = 'open';
-		// Re-opened for a render that kept failing: only the owner approves it again.
 		const ask =
 			str(p.reason, 40) === 'retries_spent'
 				? 'asks you to approve again a render that kept failing.'
