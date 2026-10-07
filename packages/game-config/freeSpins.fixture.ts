@@ -14,6 +14,8 @@
 import { readFileSync } from 'node:fs';
 import {
 	BOOK_FREE_SPINS_DEFAULTS,
+	MAX_FREE_SPINS_PER_ROUND,
+	MIN_FREE_SPINS_TRIGGER_COUNT,
 	DEFAULT_FREE_SPINS_AWARD,
 	DEFAULT_FREE_SPINS_TRIGGER_COUNT,
 	DEFAULT_RETRIGGER_AWARD,
@@ -559,6 +561,62 @@ check(
 		}),
 	).filter((issue) => issue.path !== 'freeSpins'),
 	[],
+);
+
+console.log('\nbounds — every free-spins round ends');
+check('the round cap is 200', MAX_FREE_SPINS_PER_ROUND, 200);
+check('the trigger floor is 3', MIN_FREE_SPINS_TRIGGER_COUNT, 3);
+check(
+	'a trigger count of 2 ⇒ an error (the feature would retrigger itself without end)',
+	issuesAt(doc({ freeSpins: { triggerCount: 2 } }), 'freeSpins.triggerCount'),
+	['error'],
+);
+check(
+	'…and of 1, for a symbol trigger too',
+	issuesAt(doc({ freeSpins: { triggerSymbol: 'H1', triggerCount: 1 } }), 'freeSpins.triggerCount'),
+	['error'],
+);
+check(
+	'…but not while free spins are off',
+	issuesAt(doc({ freeSpins: { enabled: false, triggerCount: 2 } }), 'freeSpins.triggerCount'),
+	[],
+);
+check(
+	'a row awarding more than the round cap ⇒ an error',
+	issuesAt(doc({ freeSpins: { awards: [{ count: 3, spins: 201 }] } }), 'freeSpins.awards'),
+	['error'],
+);
+check(
+	'…and a range topping out past it',
+	issuesAt(
+		doc({
+			freeSpins: { randomAwards: true, retriggerAwards: [{ count: 3, spins: 5, maxSpins: 260 }] },
+		}),
+		'freeSpins.retriggerAwards',
+	),
+	['error'],
+);
+check(
+	'a row at the cap is fine',
+	issuesAt(doc({ freeSpins: { awards: [{ count: 3, spins: 200 }] } }), 'freeSpins.awards'),
+	[],
+);
+check(
+	'more rows than the board has cells ⇒ an error',
+	issuesAt(
+		doc({
+			freeSpins: {
+				awards: Array.from({ length: 16 }, (_unused, i) => ({ count: 3 + i, spins: 10 + i })),
+			},
+		}),
+		'freeSpins.awards',
+	).includes('error'),
+	true,
+);
+check(
+	'the normalizer keeps a row past the cap, so the save is refused rather than the row lost',
+	normalizeFreeSpins({ awards: [{ count: 3, spins: 999 }] }),
+	{ awards: [{ count: 3, spins: 999 }] },
 );
 
 console.log(failures === 0 ? '\nAll free-spins assertions passed.\n' : `\n${failures} FAILED\n`);

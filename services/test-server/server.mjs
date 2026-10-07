@@ -39,7 +39,11 @@ import { readdir, readFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { carrySession, createMockRgs as createLinesMock } from '../../scripts/mock-rgs-server.mjs';
+import {
+	carrySession,
+	createMockRgs as createLinesMock,
+	MAX_ROUND_FREE_SPINS,
+} from '../../scripts/mock-rgs-server.mjs';
 import { createMockRgs as createBookMock } from '../../scripts/mock-rgs-server-book.mjs';
 import { createMockRgs as createHoldAndWinMock } from '../../scripts/mock-rgs-server-holdandwin.mjs';
 import { createPlatformJackpot } from '../../scripts/mock-platform-jackpot.mjs';
@@ -531,20 +535,22 @@ const validGrid = (grid) => {
 	// 10 / +10 on the book mock) or random is on: two tables of `{ count, spins, maxSpins? }` rows and
 	// the random switch. Validated WHOLE, like `betModes` — a table with a hole in it is worse than
 	// the default — so malformed ⇒ the mock's own defaults.
-	const awardRows = (rows) =>
-		Array.isArray(rows) &&
-		rows.length > 0 &&
-		rows.every(
+	// Bounded too: no row awards past a round's cap (`MAX_ROUND_FREE_SPINS`), and a table has no more
+	// rows than the board has cells — the count it could ever land.
+	const spinCount = (n) => Number.isInteger(n) && n >= 1 && n <= MAX_ROUND_FREE_SPINS;
+	const awardRows = (table) =>
+		Array.isArray(table) &&
+		table.length > 0 &&
+		table.length <= reels * rows &&
+		table.every(
 			(row) =>
 				row &&
 				Number.isInteger(row.count) &&
 				row.count >= 1 &&
-				Number.isInteger(row.spins) &&
-				row.spins >= 1 &&
-				(row.maxSpins === undefined ||
-					(Number.isInteger(row.maxSpins) && row.maxSpins >= row.spins)),
+				spinCount(row.spins) &&
+				(row.maxSpins === undefined || (spinCount(row.maxSpins) && row.maxSpins >= row.spins)),
 		)
-			? rows.map(({ count, spins, maxSpins }) => ({
+			? table.map(({ count, spins, maxSpins }) => ({
 					count,
 					spins,
 					...(maxSpins === undefined ? {} : { maxSpins }),

@@ -519,8 +519,9 @@ whether the game has the free-spins feature at all, and what lands it.
   that is not on the strips is listed with _(not on the strips)_ and is an error:
   it is never dealt, so free spins could never trigger.
 - **How many** (only while on) — the fewest trigger symbols, **anywhere on the
-  board**, that award the feature. Default **3**. More than the board has cells is
-  an error.
+  board**, that award the feature. Default **3**, and **3 is the least** allowed:
+  free spins retrigger on the same rule, and at one or two a retrigger would come so
+  often that the feature never ended. More than the board has cells is an error too.
 - **Random amount** (only while on) — _off — each row awards a fixed number_ (the
   default) or _on — a random number between two values_. It applies to both tables
   below.
@@ -531,6 +532,11 @@ Two small tables under the fields set **how many spins** are awarded:
   count. Default: one row, _3+ S → 10_.
 - **Retrigger adds** — the spins added when the trigger lands again during free
   spins, the same way. Default: _3+ S → 5_ (a Book-of game: _3+ S → 10_).
+
+A row may award at most **200** spins (its **To** too), and a table may have no
+more rows than the board has cells — both errors past that. **200** is also the most
+one free-spins round reaches on the Invisible Test Server: a retrigger that would
+pass it awards nothing, so every round ends.
 
 Each row is **Trigger symbols** (an editable count, shown as _3 + S_), **Spins** and,
 with Random amount on, **To** — the top of the range, both ends included. A row
@@ -559,7 +565,8 @@ the trigger but not the award.
 **On a Book-of game.** The section is the same, with two differences. The
 **Trigger symbol** is shown, not picked — _the book — S_ — because a Book-of game
 always triggers on its book; **How many** still sets how many books it takes. And
-the retrigger default is **+10** (what Book of Borut has always dealt), so a
+the retrigger default is **+10** (the captured Book of Thermopylae rule, which the Book of Borut
+remake has always been dealt), so a
 Book-of game you have not touched plays exactly as before; editing the table back
 to _3+ S → 10_ leaves nothing stored. With free spins off, the buy also leaves the
 bet menu, and books still land but pay nothing (a Book-of book pays no scatter
@@ -569,7 +576,7 @@ pay). The expanding special still starts every Book-of free spins round.
 Server — not a natural one, not a forced one. Scatters still land and still pay
 their scatter pay; to remove them altogether, take the scatter symbol off the reel
 strips. The trigger and award settings are kept, so switching back on restores
-them. A
+them. One exception today: a **pots overlay** pot whose bonus is free spins still starts them. A
 **buy** mode now has nothing to sell, so it becomes a **blocking error** —
 _Free spins are off, so the "bonus" buy mode has nothing to buy. Remove it in Bet
 modes._ — and the config cannot be saved until you remove it (the stock templates
@@ -582,6 +589,12 @@ spins off, the **SCATTER** rule drops "3 or more trigger the Free Spins feature"
 With a trigger other than 3 scatters, it drops that sentence too and a **FREE
 SPINS** rule states the trigger (_FREE SPINS — 4+ SCATTER_, or _4+ H1_ for a symbol
 with no scatter/wild role).
+
+**A game played against a partner server** (Play4Fun) is not dealt by these
+settings — the partner's own math decides its free spins. They change only the
+rules page and the Invisible Test Server, so on such a game set them to match the
+partner's rules. The section says so on every project: the launcher cannot tell
+reliably which projects a partner deals.
 
 **The Flow does not switch free spins off.** Removing the free-spin chain in the
 Flow only stops the game _presenting_ the feature — the server still decides to

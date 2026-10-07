@@ -93,7 +93,17 @@
 	/** Each symbol's badge: in play, a pots overlay token, or unused. Invisible Symbols lists exactly
 	 *  the symbols not badged unused — the same `symbolUses`, so the two tools cannot disagree. */
 	const uses = $derived(symbolUses(snapshot));
-	const issues = $derived(validateGameConfigDoc(snapshot));
+	/** A Book-of game: its book is the trigger. The kind is fixed for the page's life. */
+	const bookGame = data.gameType === 'bookOf';
+	/** A Book-of game's trigger symbol is the book (the field is read-only), so a stored one is
+	 *  ignored here and stripped on save — it can never block Save (book-feature.md, decision 9). */
+	const withoutBookTrigger = (config: GameConfigDoc): GameConfigDoc => {
+		if (!bookGame || config.freeSpins?.triggerSymbol === undefined) return config;
+		const { triggerSymbol: _ignored, ...rest } = config.freeSpins;
+		const { freeSpins: _old, ...others } = config;
+		return Object.keys(rest).length ? { ...others, freeSpins: rest } : others;
+	};
+	const issues = $derived(validateGameConfigDoc(withoutBookTrigger(snapshot)));
 	const errors = $derived(issues.filter((i) => i.severity === 'error'));
 	const warnings = $derived(issues.filter((i) => i.severity === 'warning'));
 
@@ -779,7 +789,7 @@
 	 */
 	const offersFreeSpins = $derived(capabilities.freeSpins);
 	/** A Book-of game: its book is the trigger, and its mock deals no other. */
-	const triggerIsBook = $derived(capabilities.bookReveal);
+	const triggerIsBook = $derived(capabilities.bookReveal || bookGame);
 	const freeSpinsDefaults = $derived(freeSpinsDefaultsFor(data.gameType));
 	const freeSpins = $derived(resolveFreeSpins(snapshot, freeSpinsDefaults));
 	/** The symbol "Scatter (default)" stands for — what an unset trigger symbol resolves to. */
@@ -1187,7 +1197,11 @@
 			const res = await fetch(`/api/game-config?project=${encodeURIComponent(data.projectKey)}`, {
 				method: 'PUT',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ doc: $state.snapshot(doc), baseEtag, force }),
+				body: JSON.stringify({
+					doc: withoutBookTrigger($state.snapshot(doc) as GameConfigDoc),
+					baseEtag,
+					force,
+				}),
 			});
 			if (res.status === 409) {
 				const c = (await res.json()) as { message?: string };
@@ -2195,7 +2209,7 @@
 						<label
 							><span>How many</span><input
 								type="number"
-								min="1"
+								min="3"
 								step="1"
 								value={freeSpins.triggerCount}
 								oninput={(e) => setTriggerCount(e.currentTarget.value)}
@@ -2242,8 +2256,14 @@
 					Whether free spins happen is decided here and by the game server — the Flow's free-spin
 					chain only presents them. The test server reads this from the game's config, so to try a
 					change save, then reload <strong>Live ↗</strong>; players get it at the next
-					<strong>Publish</strong>. A partner server (Play4Fun) decides its own outcomes, so a game
-					played there must have the same rule in the partner's math.
+					<strong>Publish</strong>.
+				</p>
+				<p class="hint">
+					<strong>A game played against a partner server</strong> (Play4Fun, e.g. a Book-of game on the
+					partner's Book of Thermopylae) is not dealt by these settings: the partner's own math decides
+					its free spins. Here they change only the game's rules page and the Invisible Test Server —
+					so on such a game, set them to match the partner's rules or the rules page will say something
+					the game does not do.
 				</p>
 				{#each freeSpinsIssues as issue (issue.path + issue.message)}
 					<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>

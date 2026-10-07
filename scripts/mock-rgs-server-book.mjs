@@ -38,7 +38,13 @@ import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
 
 import { createPlatformJackpot } from './mock-platform-jackpot.mjs';
-import { awardTableOf, boardPayingAtLeast, drawAwardFrom, parseWinX } from './mock-rgs-server.mjs';
+import {
+	awardTableOf,
+	boardPayingAtLeast,
+	drawAwardFrom,
+	MAX_ROUND_FREE_SPINS,
+	parseWinX,
+} from './mock-rgs-server.mjs';
 
 // ---------- pure game data (verified from the live config event) ----------
 
@@ -146,9 +152,10 @@ const RETRIGGER_FS = 10;
 /** Fewest books that trigger (and retrigger) the feature when the project states no count. */
 const FS_TRIGGER_MIN = 3;
 /**
- * The most spins an imported reels mode's round may reach through retriggers. Its spins are drawn
- * from its cosmetic padding strips, which can stack scatters far denser than a real reel set — one
- * measured round chained 111 retriggers into the facade's play guard and never ended.
+ * The most spins an imported reels mode's round may reach through retriggers — lower than every
+ * round's `MAX_ROUND_FREE_SPINS`. Its spins are drawn from its cosmetic padding strips, which can
+ * stack scatters far denser than a real reel set — one measured round chained 111 retriggers into the
+ * facade's play guard and never ended.
  */
 const MAX_STRIPS_ROUND_SPINS = 50;
 
@@ -611,7 +618,10 @@ export function createMockRgs(opts = {}) {
 	) => {
 		// A pot's bonus may name no spin count: the host's own award table decides, as for a trigger.
 		// An imported reels mode keeps the plain default — the table is this book's, not the import's.
-		const spins = given ?? (strips ? TOTAL_FS : drawAward(entryAwards, occurs));
+		const spins = Math.min(
+			given ?? (strips ? TOTAL_FS : drawAward(entryAwards, occurs)),
+			MAX_ROUND_FREE_SPINS,
+		);
 		const special = strips ? null : pickSpecialSymbol();
 		round.bonus = {
 			active: true,
@@ -870,8 +880,9 @@ export function createMockRgs(opts = {}) {
 						round.bonus.played += 1;
 						round.bonus.left -= 1;
 						// RETRIGGER: 3+ SCAT (the Book) landing DURING a free spin awards +10
-						// more free spins, added to the remaining count (unlimited chaining, except
-						// an imported reels mode's round: MAX_STRIPS_ROUND_SPINS).
+						// more free spins, added to the remaining count — up to MAX_ROUND_FREE_SPINS
+						// for the round (an imported reels mode: MAX_STRIPS_ROUND_SPINS); one that would
+						// pass it awards nothing.
 						// Only the scatter retriggers — the special expanding symbol never does.
 						// Emitted BEFORE playedBonusSpin so the counter (total = played + left)
 						// already reflects the new total on this spin.
@@ -882,7 +893,9 @@ export function createMockRgs(opts = {}) {
 									? RETRIGGER_FS
 									: drawAward(retriggerAwards, retrig.count)
 								: 0;
-						const capped = round.bonus.strips && round.bonus.total + added > MAX_STRIPS_ROUND_SPINS;
+						const capped =
+							round.bonus.total + added >
+							(round.bonus.strips ? MAX_STRIPS_ROUND_SPINS : MAX_ROUND_FREE_SPINS);
 						if (added > 0 && !capped) {
 							round.bonus.left += added;
 							round.bonus.total += added;

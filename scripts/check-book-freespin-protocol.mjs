@@ -23,6 +23,7 @@ import { parseArgs } from 'node:util';
 import {
 	addPotsOverlay,
 	freeSpinsAwardFor,
+	MAX_FREE_SPINS_PER_ROUND,
 	normalizeGameConfigDoc,
 	potsOverlayMockInputs,
 } from '../packages/game-config/index.ts';
@@ -522,6 +523,45 @@ console.log('\n§8 — the pots overlay composes over the same rule');
 		'free spins off reaches the host under the overlay too (base option only, overlay declared)',
 	);
 	await served.close();
+}
+
+console.log('\n§9 — every round ends: a round never passes the free-spin cap');
+{
+	// `/config` refuses a count below 3; the mock must still end a round that asks for one. At two
+	// books (one free spin in six) and +10 each, a retrigger adds ~1.7 spins per spin played.
+	const { MAX_ROUND_FREE_SPINS } = await import(pathToFileURL(`${dir}/mock-rgs-server.mjs`).href);
+	check(
+		MAX_ROUND_FREE_SPINS === MAX_FREE_SPINS_PER_ROUND,
+		"the mocks' cap is game-config's",
+		` (${MAX_ROUND_FREE_SPINS} / ${MAX_FREE_SPINS_PER_ROUND})`,
+	);
+	const { post, close } = await boot({
+		forceTrigger: true,
+		freeSpinsTrigger: { symbol: 'SCAT', count: 2 },
+		startBalance: 100_000_000,
+	});
+	let hung = 0;
+	let over = 0;
+	let atCap = 0;
+	let badTotals = 0;
+	for (let i = 0; i < 12; i++) {
+		const round = await playRound(post, 'runaway');
+		const f = featureOf(round);
+		const total = f.awarded + f.retriggers.reduce((sum, r) => sum + r.spins, 0);
+		if (round.hung || f.gameEnds !== 1) hung++;
+		if (f.counters.length > MAX_FREE_SPINS_PER_ROUND) over++;
+		if (total + 10 > MAX_FREE_SPINS_PER_ROUND) atCap++;
+		if (f.counters.length !== total || f.counters.at(-1)?.left !== 0) badTotals++;
+	}
+	check(hung === 0, 'every round at a two-book trigger closes', ` (${hung}/12 open)`);
+	check(over === 0, `none plays more than ${MAX_FREE_SPINS_PER_ROUND} free spins`, ` (${over})`);
+	check(atCap > 0, '…and they do reach the cap (the case is real)', ` (${atCap}/12)`);
+	check(
+		badTotals === 0,
+		'the counter still runs down to 0 on the spins awarded',
+		` (${badTotals})`,
+	);
+	await close();
 }
 
 console.log(failed === 0 ? '\nALL CHECKS PASSED' : `\n${failed} CHECK(S) FAILED`);

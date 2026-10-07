@@ -628,7 +628,7 @@ Dependencies:
    Phase 7.
 7. **No "server game" field.** The boot `config` and the delivery profile already say which server
    a game talks to (§2).
-8. **A Book-of game's default retrigger award is +10** (Borut's behaviour today), so nothing changes
+8. **A Book-of game's default retrigger award is +10** (the captured Book of Thermopylae rule, which our Book of Borut remake is dealt today), so nothing changes
    until an author edits it. The lines default stays +5. The default is per kind until Phase 7,
    when the migration writes +10 explicitly into each Book-of config and the per-kind default goes
    with the kind.

@@ -24,6 +24,24 @@ export const DEFAULT_FREE_SPINS_AWARD = 10;
 /** Spins ADDED by a retrigger when the project authors no table. */
 export const DEFAULT_RETRIGGER_AWARD = 5;
 
+/**
+ * The most free spins one round may reach — its entry award plus every retrigger. The Invisible Test
+ * Server's mocks stop a retrigger that would pass it (`MAX_ROUND_FREE_SPINS` in
+ * `scripts/mock-rgs-server.mjs`, held equal by `check:freespins`), so a feature always ends; here it
+ * bounds what an award row may say. A partner server's own math decides its rounds.
+ */
+export const MAX_FREE_SPINS_PER_ROUND = 200;
+
+/**
+ * Fewest trigger symbols a game may ask for. Free spins RETRIGGER on the same rule they trigger on,
+ * and a free spin uses one spin up: a retrigger that adds, on average, a spin or more per spin played
+ * never lets the round end. With books landing about once in twenty cells, two of them on a 5×3
+ * board land on about one free spin in six, so +10 per retrigger adds ~1.7 spins per spin; three land
+ * on about one in thirty. Any symbol lands at least as often as a scatter, so the floor holds for a
+ * symbol trigger too. The mocks' round cap ends such a round anyway; this stops it being authored.
+ */
+export const MIN_FREE_SPINS_TRIGGER_COUNT = 3;
+
 /** What an un-authored award table awards: on entering, and added by a retrigger. */
 export type FreeSpinsDefaults = { award: number; retrigger: number };
 
@@ -74,7 +92,9 @@ const scatterOf = (doc: FreeSpinsDoc): string | undefined =>
 /**
  * One award row, or `undefined` when it cannot award anything: a whole `count` and `spins` of at
  * least 1. `maxSpins` survives only as a real range — a whole number ABOVE `spins`. Equal is no
- * range, and below is a mistake the validator reports from the authored row.
+ * range, and below is a mistake the validator reports from the authored row. A count above
+ * {@link MAX_FREE_SPINS_PER_ROUND} is KEPT, not dropped, so the validator refuses it at save (the
+ * server normalizes before it validates) instead of the row silently vanishing.
  */
 const awardRow = (raw: unknown): FreeSpinsAward | undefined => {
 	if (typeof raw !== 'object' || raw === null) return undefined;
@@ -103,6 +123,11 @@ const resolveAwardTable = (raw: unknown, triggerCount: number, spins: number): F
  * Normalize one award table, or `undefined` when it says nothing the default does not: no usable
  * row, or every row awarding exactly `defaultSpins` with no range. Rows are sorted by count;
  * duplicates are kept for the validator (see `awardRows`).
+ *
+ * The save normalizer uses this for the ENTRY table only. A retrigger table's default depends on the
+ * game's kind (+5, or +10 for a Book-of game) and a config does not carry its kind, so
+ * `normalizeFreeSpins` keeps a retrigger table even when it equals a default; `/config`, which knows
+ * the kind, calls this with the kind's default to drop a table edited back to it.
  */
 export function normalizeAwardTable(
 	raw: unknown,
@@ -231,7 +256,8 @@ export function freeSpinsAwardsAreDefault(
 
 /**
  * Normalize an authored `freeSpins` block, or `undefined` when nothing in it departs from the
- * default. The one exception is the retrigger table, kept whenever it has a usable row (see below). Same invariant as `normalizeCascade`: a config that simply has free spins on three
+ * default — the one exception is the retrigger table, kept whenever it has a usable row (see
+ * below). Same invariant as `normalizeCascade`: a config that simply has free spins on three
  * scatters stores no block and normalizes byte-identically to one written before the block existed.
  *
  * The trigger and award fields survive `enabled: false` on purpose — switching free spins off and
@@ -324,6 +350,13 @@ export const validateFreeSpins = (doc: GameConfigDoc): GameConfigIssue[] => {
 	}
 
 	const cells = resolveGrid(doc).rows.reduce((sum, rows) => sum + rows, 0);
+	if (freeSpins.triggerCount < MIN_FREE_SPINS_TRIGGER_COUNT) {
+		issues.push({
+			severity: 'error',
+			path: 'freeSpins.triggerCount',
+			message: `Free spins trigger on ${freeSpins.triggerCount} ${freeSpins.triggerSymbol ?? 'symbol'}${freeSpins.triggerCount === 1 ? '' : 's'}, which land so often during free spins that they would keep retriggering and the feature would never end. Set How many to ${MIN_FREE_SPINS_TRIGGER_COUNT} or more.`,
+		});
+	}
 	if (freeSpins.triggerCount > cells) {
 		issues.push({
 			severity: 'error',
@@ -333,8 +366,13 @@ export const validateFreeSpins = (doc: GameConfigDoc): GameConfigIssue[] => {
 	}
 
 	issues.push(
-		...validateAwardTable(AWARD_TABLES.awards, doc.freeSpins?.awards, freeSpins),
-		...validateAwardTable(AWARD_TABLES.retriggerAwards, doc.freeSpins?.retriggerAwards, freeSpins),
+		...validateAwardTable(AWARD_TABLES.awards, doc.freeSpins?.awards, freeSpins, cells),
+		...validateAwardTable(
+			AWARD_TABLES.retriggerAwards,
+			doc.freeSpins?.retriggerAwards,
+			freeSpins,
+			cells,
+		),
 	);
 	const ranged = [...freeSpins.awards, ...freeSpins.retriggerAwards].some(
 		(row) => row.maxSpins !== undefined,
@@ -370,10 +408,30 @@ const validateAwardTable = (
 	table: (typeof AWARD_TABLES)[AwardTableKey],
 	authored: FreeSpinsAward[] | undefined,
 	freeSpins: ResolvedFreeSpins,
+	cells: number,
 ): GameConfigIssue[] => {
 	if (!Array.isArray(authored) || !authored.length) return [];
 	const issues: GameConfigIssue[] = [];
 	const path = `freeSpins.${table.key}`;
+	if (authored.length > cells) {
+		issues.push({
+			severity: 'error',
+			path,
+			message: `${table.label} has ${authored.length} rows, but the board only has ${cells} cells, so no more than ${cells} trigger counts can ever land. Remove rows.`,
+		});
+	}
+	for (const row of authored) {
+		const over = [row.spins, row.maxSpins].find(
+			(n) => validCount(n) && n > MAX_FREE_SPINS_PER_ROUND,
+		);
+		if (over !== undefined) {
+			issues.push({
+				severity: 'error',
+				path,
+				message: `${table.label}: the row for ${row.count} awards ${over} spins, more than the ${MAX_FREE_SPINS_PER_ROUND} a free-spins round may reach. Lower it to ${MAX_FREE_SPINS_PER_ROUND} or fewer.`,
+			});
+		}
+	}
 	const rows = freeSpins[table.key];
 	const { triggerCount } = freeSpins;
 
