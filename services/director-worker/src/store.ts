@@ -27,7 +27,6 @@ export interface LiveRun {
 	projectKey: string;
 	clientKey: string | null;
 	templateProjectKey: string;
-	presetJson: unknown;
 	startingPointJson: unknown;
 }
 
@@ -48,7 +47,6 @@ interface RunRow {
 	project_key: string;
 	client_key: string | null;
 	template_project_key: string;
-	preset_json: unknown;
 	starting_point_json: unknown;
 }
 
@@ -64,7 +62,7 @@ export async function withLease<T>(
 	const result = await sql.begin(async (tx) => {
 		const [row] = await tx<RunRow[]>`
 			select id, status, step, waiting_on, checkpoints_json, budget_cap_usd, project_key,
-				client_key, template_project_key, preset_json, starting_point_json
+				client_key, template_project_key, starting_point_json
 			from director_runs
 			where id = ${run.id} and lease_holder = ${run.lease} and lease_until > now()
 			for update`;
@@ -81,7 +79,6 @@ export async function withLease<T>(
 			projectKey: row.project_key,
 			clientKey: row.client_key,
 			templateProjectKey: row.template_project_key,
-			presetJson: row.preset_json,
 			startingPointJson: row.starting_point_json,
 		};
 		return { lost: false as const, value: await fn(tx, live) };

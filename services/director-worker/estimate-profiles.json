@@ -83,5 +83,11 @@
 	},
 	"runpod": {
 		"secondsPerVariantAt1024": [12, 30]
+	},
+	"fallbackRecipe": {
+		"pipeline": "sdxl",
+		"genPx": 1024,
+		"variants": 3,
+		"process": "birefnet"
 	}
 }

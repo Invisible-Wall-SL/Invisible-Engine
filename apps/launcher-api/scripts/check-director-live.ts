@@ -364,7 +364,6 @@ const summary = (over: Partial<RunSummary>): RunSummary =>
 		step: 'regions',
 		waitingOn: null,
 		checkpoints: { breakdown: true, regionBatch: true, beforePublish: true },
-		preset: null,
 		startingPoint: null,
 		projectCreated: true,
 		spend: { claudeUsd: 3.1, runpodUsd: 0.22, totalUsd: 3.32, capUsd: 25, remainingUsd: 21.68 },

@@ -1,16 +1,11 @@
 import { createHash } from 'node:crypto';
 import { DEFAULT_GAME_KIND } from 'constants-shared/gameKinds';
+import { estimateRun, parseEstimateProfiles, type RunEstimate } from 'director-costs';
 import {
-	estimateRun,
-	parseEstimateProfiles,
-	type DirectorPricing,
-	type RunEstimate,
-} from 'director-costs';
-import {
+	fallbackDefaultChain,
 	floorOf,
 	MAX_PLAN_REGIONS,
 	parseStepInput,
-	presetDefaultChain,
 	priceChains,
 	REGION_NAME,
 	STEP_KINDS,
@@ -128,38 +123,7 @@ export class RunError extends Error {
 
 type User = NonNullable<App.Locals['user']>;
 
-// ── Preset and checkpoints ────────────────────────────────────────────────────
-
-/** Render sizes a preset may name, in pixels on the side. */
-export const RESOLUTIONS = [512, 768, 1024, 1536, 2048] as const;
-export const MAX_VARIANTS_PER_REGION = 8;
-const BLUEPRINT_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
-
-/** The art agents' settings (SPEC §1.1 "Preset"), stored on the run as `preset_json`. */
-export interface RunPreset {
-	/** An Atlas Maker blueprint id (`_shared/blueprints/<id>`). */
-	blueprint: string;
-	draftPx: number;
-	finalPx: number;
-	variantsPerRegion: number;
-	/** A GPU named in `pricing.json`, so the estimate and the cap can price its renders. */
-	gpu: string;
-}
-
-/** The built-in blueprint every run can start from; the GPU is pricing.json's first. */
-export const DEFAULT_PRESET: Omit<RunPreset, 'gpu'> = {
-	blueprint: 'sdxl',
-	draftPx: 512,
-	finalPx: 1024,
-	variantsPerRegion: 3,
-};
-
-export const pricedGpus = (pricing: DirectorPricing): string[] =>
-	Object.keys(pricing.runpod.perSecondByGpu);
-
-export function defaultPreset(pricing: DirectorPricing): RunPreset {
-	return { ...DEFAULT_PRESET, gpu: pricedGpus(pricing)[0] ?? '' };
-}
+// ── Checkpoints ───────────────────────────────────────────────────────────────
 
 const bad = (code: string, message: string) => new RunError(400, code, message);
 
@@ -169,46 +133,17 @@ function record(value: unknown): Record<string, unknown> {
 		: {};
 }
 
-function resolution(value: unknown, field: string, fallback: number): number {
-	if (value === undefined) return fallback;
-	if (!(RESOLUTIONS as readonly unknown[]).includes(value)) {
-		throw bad('bad_preset', `${field} is one of ${RESOLUTIONS.join(', ')} px.`);
-	}
-	return value as number;
-}
-
-/** A preset from the request, every field defaulting to `defaultPreset`. */
-export function parsePreset(raw: unknown, pricing: DirectorPricing): RunPreset {
-	const r = record(raw);
-	const base = defaultPreset(pricing);
-	const blueprint = r.blueprint === undefined ? base.blueprint : r.blueprint;
-	if (typeof blueprint !== 'string' || !BLUEPRINT_ID.test(blueprint)) {
-		throw bad('bad_preset', 'The blueprint is an Atlas Maker blueprint id.');
-	}
-	const variants = r.variantsPerRegion === undefined ? base.variantsPerRegion : r.variantsPerRegion;
-	if (
-		typeof variants !== 'number' ||
-		!Number.isInteger(variants) ||
-		variants < 1 ||
-		variants > MAX_VARIANTS_PER_REGION
-	) {
+/**
+ * A request that still sends the retired `preset` key (card 8C) is refused naming it, so a stale
+ * page fails loudly instead of silently dropping the owner's choice.
+ */
+function refuseRetiredPreset(preset: unknown) {
+	if (preset !== undefined) {
 		throw bad(
-			'bad_preset',
-			`Variants per region is a whole number from 1 to ${MAX_VARIANTS_PER_REGION}.`,
+			'bad_request',
+			'"preset" is no longer accepted: the atlas technician plans each region. Reload the page.',
 		);
 	}
-	// Renders bill on atlas-tool's GPU (ADR-0008 §6); a GPU sent here must still be one priced.
-	if (r.gpu !== undefined && (typeof r.gpu !== 'string' || !pricedGpus(pricing).includes(r.gpu))) {
-		throw bad('bad_preset', `The GPU is one of ${pricedGpus(pricing).join(', ')}.`);
-	}
-	const gpu = r.gpu === undefined ? base.gpu : (r.gpu as string);
-	return {
-		blueprint,
-		draftPx: resolution(r.draftPx, 'draftPx', base.draftPx),
-		finalPx: resolution(r.finalPx, 'finalPx', base.finalPx),
-		variantsPerRegion: variants,
-		gpu,
-	};
 }
 
 /** The owner's checkpoint settings as stored (`checkpoints_json`); `before_publish` is never off. */
@@ -342,7 +277,8 @@ export interface CreateRunInput {
 	gameType: unknown;
 	template: unknown;
 	notes: unknown;
-	preset: unknown;
+	/** Retired by card 8C: refused when sent. */
+	preset?: unknown;
 	checkpoints: unknown;
 }
 
@@ -469,6 +405,9 @@ export async function createRun(user: User, input: CreateRunInput): Promise<Crea
 		}
 		return { run: existing, replayed: true };
 	}
+	// After the replay: a tab open across the 8C deploy that resends a create the old build made
+	// gets its run back, while a new create from it is refused.
+	refuseRetiredPreset(input.preset);
 
 	if (await projectExists(key)) throw bad('key_exists', 'A project with that key exists.');
 	if (await projectKeyTaken(key)) {
@@ -479,8 +418,6 @@ export async function createRun(user: User, input: CreateRunInput): Promise<Crea
 	}
 
 	const notes = parseNotes(input.notes);
-	const pricing = (await getDirectorPricing()).pricing;
-	const preset = parsePreset(input.preset, pricing);
 	const checkpoints = parseCheckpoints(input.checkpoints);
 
 	// The mockups are read and the run that names them inserted under the key's lock: the
@@ -501,7 +438,6 @@ export async function createRun(user: User, input: CreateRunInput): Promise<Crea
 			clientKey,
 			templateProjectKey: template.key,
 			ownerUserId: user.id,
-			presetJson: preset,
 			startingPointJson: await startingPointFor(clientKey, key, notes, user),
 			checkpointsJson: checkpoints,
 		};
@@ -700,9 +636,6 @@ export async function performOwnerAction(
 		const { estimate } = await estimateForTemplate(user, {
 			template: run.templateProjectKey,
 			mockups: (sp?.mockups ?? []).filter((m) => !m.styleOnly).length,
-			// The Preset's GPU no longer prices anything (renders bill on atlas-tool's): a GPU since
-			// gone from pricing.json must not refuse the start.
-			preset: presetForEstimate(run.presetJson),
 			checkpoints: run.checkpointsJson ?? undefined,
 		});
 		// Money fails closed (ADR-0006): a run whose cost cannot be estimated does not start.
@@ -763,7 +696,6 @@ export interface RunSummary {
 	step: DirectorRun['step'];
 	waitingOn: DirectorRun['waitingOn'];
 	checkpoints: RunCheckpoints & { beforePublish: true };
-	preset: unknown;
 	startingPoint: unknown;
 	/** False until the template copy made the project (a draft whose create died mid-way). */
 	projectCreated: boolean;
@@ -856,7 +788,6 @@ export async function summarizeRun(run: DirectorRun): Promise<RunSummary> {
 		step: run.step,
 		waitingOn: run.waitingOn,
 		checkpoints: { ...state.checkpoints },
-		preset: run.presetJson,
 		startingPoint: run.startingPointJson,
 		projectCreated: created,
 		r2Prefix: projectPrefix(run.clientKey ?? UNASSIGNED_CLIENT, run.projectKey),
@@ -937,7 +868,8 @@ export interface EstimateRequest {
 	template: unknown;
 	/** Mockups the analyst will read (style references excluded). */
 	mockups: unknown;
-	preset: unknown;
+	/** Retired by card 8C: refused when sent. */
+	preset?: unknown;
 	checkpoints: unknown;
 }
 
@@ -953,7 +885,6 @@ export interface EstimateAnswer {
 	};
 	/** The chain each region group is priced at, and where it came from. */
 	chains: ChainPrice['groups'];
-	preset: RunPreset;
 	checkpoints: RunCheckpoints;
 }
 
@@ -976,21 +907,11 @@ const isDefaultChain = (value: unknown): value is DefaultStep[] =>
 
 const groupKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-/** A stored preset as the estimate reads it: its chain fields, never its GPU. */
-function presetForEstimate(stored: unknown): Record<string, unknown> {
-	const { blueprint, draftPx, finalPx, variantsPerRegion } = record(stored);
-	return Object.fromEntries(
-		Object.entries({ blueprint, draftPx, finalPx, variantsPerRegion }).filter(
-			([, v]) => v !== undefined,
-		),
-	);
-}
-
 /**
  * The chains each atlas of the template may be priced at before a plan exists (ADR-0008 §6): the
  * template's approved defaults of the groups whose recipes ran on that atlas (or of a group named
- * like it), else the fallback the technician is briefed with too (the run preset's shape until
- * card 8C retires it). An atlas several groups shared is priced at its dearest candidate, so the
+ * like it), else the fallback the technician is briefed with too (the estimate profiles'
+ * `fallbackRecipe`). An atlas several groups shared is priced at its dearest candidate, so the
  * estimate errs high: it does not know how the regions split between them.
  */
 export function chainCandidates(
@@ -1037,7 +958,7 @@ export async function estimateForTemplate(
 	}
 	const budgetCapUsd = await getDirectorRunBudget();
 	const pricing = (await getDirectorPricing()).pricing;
-	const preset = parsePreset(raw.preset, pricing);
+	refuseRetiredPreset(raw.preset);
 	const checkpoints = parseCheckpoints(raw.checkpoints);
 	const [summary, defaults, timings, priced] = await Promise.all([
 		loadSummaryContext().then((ctx) => summarizeProject(template, ctx)),
@@ -1068,9 +989,11 @@ export async function estimateForTemplate(
 				: a,
 		);
 	const gpu = priceChains(
-		chainCandidates(summary.regionGroups, defaults, presetDefaultChain(preset)).map((g) =>
-			dearest(g.candidates),
-		),
+		chainCandidates(
+			summary.regionGroups,
+			defaults,
+			fallbackDefaultChain(ESTIMATE_PROFILES.fallbackRecipe),
+		).map((g) => dearest(g.candidates)),
 		cards,
 		facts,
 		fallbackAt1024,
@@ -1100,7 +1023,6 @@ export async function estimateForTemplate(
 			regionGroups: summary.regionGroups,
 		},
 		chains: gpu.groups,
-		preset,
 		checkpoints,
 	};
 }

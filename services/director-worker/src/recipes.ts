@@ -1,13 +1,14 @@
-import { DIRECTOR_RUN_BUDGET_DEFAULT_USD } from 'director-costs';
+import { readFileSync } from 'node:fs';
+import { DIRECTOR_RUN_BUDGET_DEFAULT_USD, parseEstimateProfiles } from 'director-costs';
 import {
 	approvalProblem,
 	basisOf,
 	carryProgress,
 	chainLine,
 	defaultChainOf,
+	fallbackDefaultChain,
 	needsReapproval,
 	parseStepInput,
-	presetDefaultChain,
 	project,
 	RETRIES_PER_APPROVAL,
 	retriesSpent,
@@ -526,24 +527,35 @@ export async function templateDefaults(
 }
 
 /**
+ * The chain a group starts from before its template has an approved one: the estimate profiles'
+ * `fallbackRecipe`, the same file the launcher prices that fallback from. Read once at load, so a
+ * missing or malformed file stops the worker at boot.
+ */
+export const FALLBACK_CHAIN: DefaultStep[] = fallbackDefaultChain(
+	parseEstimateProfiles(
+		JSON.parse(readFileSync(new URL('../estimate-profiles.json', import.meta.url), 'utf8')),
+	).fallbackRecipe,
+);
+const FALLBACK_SOURCE = 'fallback (the estimate profiles)';
+
+/**
  * The defaults the technician starts from, per group the plan names: the template's approved
- * chain, else the old preset's shape (until card 8C retires the preset).
+ * chain, else `FALLBACK_CHAIN`.
  */
 export async function defaultsBrief(db: Db, live: LiveRun): Promise<string> {
 	const plan = await planRegions(db, live.id);
 	const groups = [...new Set(plan.values())];
 	const stored = await templateDefaults(db, live.templateProjectKey);
-	const fallback = presetDefaultChain(live.presetJson as Record<string, unknown> | null);
 	const out = groups.map((group) => {
 		const own = stored.get(group);
 		return own
 			? { group, source: `template default v${own.version}`, chain: own.chain }
-			: { group, source: 'fallback (the run preset)', chain: fallback };
+			: { group, source: FALLBACK_SOURCE, chain: FALLBACK_CHAIN };
 	});
 	return [
 		'Default recipes to start from (adapt them to the cards in atlas.list_blueprints; every recipe is validated before it is stored):',
 		JSON.stringify(
-			out.length ? out : [{ group: '*', source: 'fallback (the run preset)', chain: fallback }],
+			out.length ? out : [{ group: '*', source: FALLBACK_SOURCE, chain: FALLBACK_CHAIN }],
 			null,
 			2,
 		),

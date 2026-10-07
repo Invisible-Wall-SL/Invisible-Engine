@@ -399,7 +399,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		name: 'Invisible Director',
 		barName: 'Director',
 		description:
-			'Pick client, game type, template and preset, describe the style, and agents build the game across these tools while you review.',
+			'Pick client, game type and template, describe the style, and agents build the game across these tools while you review.',
 		kind: 'online',
 		url: '/director',
 		icon: TOOL_ICONS.director,
