@@ -101,8 +101,8 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   - Tests: `check:director-runs` 468 (estimate per chain, unpriced refusals, start refusal, the
     Art plan actions and edit shapes), `check:director-live` 109 (the fold, the panel's view and
     edits, drafts, licences, how-made, the regions past their retries), worker `check:recipes` 90,
-    `check:run-state` 1390, `check:director-adapters` 441 (the job's steps recorded, boot re-arms
-    the watches), `prove:art-plan` 101 (stale approval, owner edits incl. a group size
+    `check:run-state` 1390, `check:director-adapters` 442 (the job's steps recorded, boot re-arms
+    the watches), `prove:art-plan` 102 (stale approval, owner edits incl. a group size
     edit, a stale and a malformed edit, a failed render queued again, timings measured once, a
     dropped region, re-approval on one pricing basis, a same-price revision that re-opens a
     rendered step, an unreachable launcher, the retry cap with the checkpoint on and off, a third
@@ -110,7 +110,8 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     or during a region batch, an approval of a card that hid a withdrawal, plans the approval
     could not name, the failure count kept through every approval but the owner's at the Art
     plan, the region step held while a render is in flight, an Art plan that cannot open told to
-    the owner once, a rendering step that cannot be revised, a replanned step's render counted).
+    the owner once, a rendering step that cannot be revised, a replanned step's render counted, an untracked
+    render holding no step).
   - **After review** (code-reviewer, four blockers reproduced on the real modules):
     - owner edits are validated against the plan with every edit applied (a group size edit no
       longer refuses itself one region at a time), name the revision they were made on, are
@@ -201,11 +202,15 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     (`GateOutcome.told`): the withdrawal note is posted only when it did not, never on a stopping
     run, and a gate note equal to the run's latest worker note is not posted again. The panel's
     retry line shows only on the Art plan the owner can approve.
+  - **Polish round:** a render the launcher could not record (`tracked: false`) leaves its steps
+    planned, and a revision is refused only while the step's render still has a queued
+    `director_atlas_jobs` row; a worker that meets the schema before migration 0030 counts by the
+    steps that still hold the render, as before (SQLSTATE 42703, in a savepoint, logged); the boot
+    re-arm isolates each row and staggers them 2 s apart.
   - **Deploy:** atlas-tool's `RUNPOD_ENDPOINT_GPU` must be set and priced, or no Director run can
     start (`docs/INFRA.md`). The worker and the launcher go out together: an old worker drops the
     owner's `recipeEdits`, and an old Live run page sends no `recipeRevs`, so every Art plan
-    approval is refused. The launcher lands first: its boot applies `0030_director_job_steps`,
-    which the worker's `settleJob` writes to (a worker on the old schema retries every `job_done`, then pauses the run).
+    approval is refused. Deploy the launcher and the worker together; either order is safe.
   - **Open:** the Atlas Maker card editor does not yet show the measured timings (ADR-0008 §2);
     adding a step, or editing one region of a shared row, goes through "Send my changes"; the cap's
     queued-render projection (`projectQueuedGpu`) still uses the run's mean or the seed, not a
