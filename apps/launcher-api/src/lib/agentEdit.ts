@@ -31,6 +31,8 @@ export interface AgentEditRules {
 	fixedAdapterTools: string[];
 	/** Registered adapter ops whose allow-list does not name this agent. */
 	otherAdapterTools: string[];
+	/** Adapter ops in transition (ADR-0008 card 8D): named all together, or none of them. */
+	transitionTools?: string[];
 }
 
 export type AgentEditVerdict =
@@ -77,6 +79,13 @@ export function validateAgentEdit(
 				`tools: ${id} is not served to ${name} (the launcher's adapter allow-list); adding it is a launcher change, not a definition change`,
 			);
 		}
+	}
+	const moving = rules.transitionTools ?? [];
+	const kept = moving.filter((id) => named.has(id));
+	if (kept.length && kept.length !== moving.length) {
+		errors.push(
+			`tools: ${kept.join(', ')} and ${moving.filter((id) => !named.has(id)).join(', ')} go together (the definition as main holds it, or the new one)`,
+		);
 	}
 	if (errors.length) return { ok: false, agent: null, errors };
 	return { ok: true, agent: parsed.agent, errors: [] };
