@@ -815,6 +815,19 @@ def test_listing() -> None:
            "flux_steps" in by["sdxl"]["settingsKeys"]["atlas"]), (True, False))
     check("an agent asking all=1 still gets reviewed only",
           ids(get("/blueprints?all=1", AGENT)), ["clip", "good"])
+    publish("broken", MATTE_GRAPH, {"style_ref": {"node": "1", "field": "image"},
+                                    "output": {"node": "3"}}, MATTE_PARAMS)
+    raw_card("broken", full_card("broken", {**body, "settings": [{"key": "gone"}]},
+                                 status="reviewed"))
+    every = get("/blueprints?all=1", ARTIST).json()["blueprints"]
+    check("a reviewed card that no longer validates carries problems",
+          bool({e["id"]: e for e in every}["broken"]["problems"]), True)
+    served = set(ids(get("/blueprints", AGENT)))
+    check("offered on every all=1 entry is exactly 'an agent is served it'",
+          [(e["id"], e["offered"]) for e in every],
+          [(e["id"], e["id"] in served) for e in every])
+    check("...and the agent list is the offered set", sorted(served),
+          sorted(e["id"] for e in every if e["offered"]))
 
     v = get("/card?id=rough", ARTIST).json()
     check("GET /card: card, version, state and abilities",

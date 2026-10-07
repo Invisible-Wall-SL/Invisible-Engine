@@ -57,6 +57,11 @@
  *                            (`containersMissingScene`): nothing draws for it, and a hold on it never
  *                            releases. A WARNING, so an author mid-edit can still publish; judged only
  *                            when the caller projects the layout's scene ids in.
+ *  - `symbol-not-in-play`  — a `SymbolName` literal (a data-in, a list element or a branch-guard
+ *                            operand) naming a symbol the project's Game Config no longer has in play.
+ *                            Kept as authored, never rewritten. A WARNING, judged only when the
+ *                            vocabulary carries the project's symbols (`withSymbols`): an empty
+ *                            `SymbolName` means they are unknown.
  *
  * GAME MODES (`docs/design/hold-and-win.md` §4.5): `FlowDoc.modes` sections are each validated like
  * the global graph, and an issue found in one carries that section's `mode`. Node ids are unique
@@ -71,6 +76,7 @@ import { containersMissingScene } from './containerScenes';
 import { flowGraphs } from './runtime';
 import { dataSourceType, type PinContext } from './pins';
 import { deriveGraphPins } from './scope';
+import { SYMBOL_ENUM, symbolsOf } from './symbols';
 import { assignable } from './types-check';
 import type {
 	ContainerEventDecl,
@@ -116,7 +122,8 @@ export type FlowIssueCode =
 	| 'tap-without-hold'
 	| 'mode-unset'
 	| 'mode-entry-scope'
-	| 'container-scene-missing';
+	| 'container-scene-missing'
+	| 'symbol-not-in-play';
 
 /** `info` is an authoring HINT: the doc runs, nothing is wrong, but an authored surface is idle. */
 export type FlowIssueSeverity = 'error' | 'warning' | 'info';
@@ -858,6 +865,7 @@ const validateGraph = (
 			validateDataSource(node, pin, src, ctx, scopeItem.get(node.id), owners.get(node.id), issues);
 		}
 	}
+	issues.push(...guardSymbolIssues(nodes, vocab));
 
 	// --- (f) each functionCall's target `requires` is satisfied by the template vocabulary ---
 	for (const node of nodes) {
@@ -930,6 +938,55 @@ const validateGraph = (
 };
 
 // ---------------------------------------------------------------------------
+// `symbol-not-in-play` — a stored symbol the project no longer deals.
+// ---------------------------------------------------------------------------
+
+/** The symbol names a literal of `type` stores: itself for a `SymbolName`, its elements for a list. */
+const symbolNamesIn = (type: TypeRef, value: unknown): string[] => {
+	if (type.t === 'enum')
+		return type.name === SYMBOL_ENUM && typeof value === 'string' ? [value] : [];
+	if (type.t === 'list' && Array.isArray(value)) {
+		return value.flatMap((element) => symbolNamesIn(type.of, element));
+	}
+	return [];
+};
+
+/** One warning per symbol a literal names outside the project's symbols; none while those are
+ *  unknown (an empty `SymbolName`). `where` is the data-in, or the guard operand (`all.0.right`). */
+const symbolNotInPlayIssues = (
+	node: string,
+	where: string,
+	src: DataSource,
+	vocab: TemplateVocabulary,
+): FlowIssue[] => {
+	if (src.kind !== 'literal') return [];
+	const inPlay = symbolsOf(vocab);
+	if (inPlay.length === 0) return [];
+	return symbolNamesIn(src.type, src.value)
+		.filter((name) => !inPlay.includes(name))
+		.map((name) => ({
+			code: 'symbol-not-in-play' as const,
+			severity: 'warning' as const,
+			message: `${node}.${where} names symbol '${name}', which is not in play in this project — kept as authored. Pick an in-play symbol, or put '${name}' back on the reels in Invisible Game Config.`,
+			at: { on: 'pin' as const, node, pin: where },
+		}));
+};
+
+/** {@link symbolNotInPlayIssues} over a `branch` guard's inline operands, which have no pin. */
+const guardSymbolIssues = (nodes: Node[], vocab: TemplateVocabulary): FlowIssue[] =>
+	nodes.flatMap((node) => {
+		if (node.kind !== 'branch') return [];
+		// A stored doc is untyped JSON: a branch saved without a guard must not stop validation.
+		const groups = { all: node.guard?.all ?? [], any: node.guard?.any ?? [] };
+		return Object.entries(groups).flatMap(([group, rows]) =>
+			rows.flatMap((row, i) => [
+				...symbolNotInPlayIssues(node.id, `${group}.${i}.left`, row.left, vocab),
+				...symbolNotInPlayIssues(node.id, `${group}.${i}.right`, row.right, vocab),
+			]),
+		);
+	});
+
+// ---------------------------------------------------------------------------
 // Per-data-in DataSource validation (check e's inner half).
 // ---------------------------------------------------------------------------
 
@@ -972,6 +1029,7 @@ const validateDataSource = (
 				at: { on: 'pin', node: node.id, pin: pin.id },
 			});
 		}
+		issues.push(...symbolNotInPlayIssues(node.id, pin.id, src, ctx.vocab));
 		return;
 	}
 	// accessor — must resolve against the vocab/scope. `$engine.<key>` must be a known collection;

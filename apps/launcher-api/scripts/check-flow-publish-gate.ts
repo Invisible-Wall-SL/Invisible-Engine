@@ -293,7 +293,7 @@ for (const capability of Object.keys(
 		HOLD_AND_WIN_KIND_CAPABILITIES[capability] === holdAndWinCaps[capability],
 	);
 }
-const standard = standardVocabulary({ templateId: 'gate', symbolNames: [] });
+const standard = standardVocabulary({ templateId: 'gate' });
 const standardNames = [
 	...new Set(
 		[...standard.events, ...standard.actions, ...standard.cues, ...standard.values].map(

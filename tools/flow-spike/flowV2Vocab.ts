@@ -23,9 +23,11 @@ import {
 	CLUSTER_VOCAB,
 	SCATTER_VOCAB,
 	WAYS_VOCAB,
+	symbolsOf,
 	templateVocabulary,
 	validateFlowDoc,
 	validateFunctionDef,
+	withSymbols,
 	type FlowDoc,
 	type FunctionDef,
 	type FunctionLibraryDoc,
@@ -274,13 +276,16 @@ const main = () => {
 			bookOnly.join(','),
 		);
 
-		// The symbol dropdown is the one per-type value: ways ships H5 and no L5.
-		const symbols = (v: TemplateVocabulary) =>
-			v.enums.find((e) => e.name === 'SymbolName')?.values ?? [];
+		// No kind declares symbols: the project's Game Config supplies them (`withSymbols`).
 		assert(
-			'ways declares its OWN symbol set (H5, no L5)',
-			symbols(WAYS_VOCAB).includes('H5') && !symbols(WAYS_VOCAB).includes('L5'),
-			symbols(WAYS_VOCAB).join(','),
+			'ways declares no symbols; the project supplies them',
+			symbolsOf(WAYS_VOCAB).length === 0,
+			symbolsOf(WAYS_VOCAB).join(','),
+		);
+		assert(
+			'withSymbols supplies them deduped in order, and no symbols is the vocab itself',
+			JSON.stringify(symbolsOf(withSymbols(WAYS_VOCAB, ['H5', 'W', 'H5']))) ===
+				JSON.stringify(['H5', 'W']) && withSymbols(WAYS_VOCAB, []) === WAYS_VOCAB,
 		);
 
 		// The reason this vocabulary had to exist: an unregistered id silently rides the book-of
@@ -341,11 +346,8 @@ const main = () => {
 				!names(CLUSTER_VOCAB.cues).includes('specialBookReveal'),
 		);
 		assert(
-			'cluster declares its OWN symbol set (no L5, no H5)',
-			(() => {
-				const symbols = CLUSTER_VOCAB.enums.find((e) => e.name === 'SymbolName')?.values ?? [];
-				return !symbols.includes('L5') && !symbols.includes('H5');
-			})(),
+			'cluster declares no symbols; the project supplies them',
+			symbolsOf(CLUSTER_VOCAB).length === 0,
 		);
 		assert(
 			"templateVocabulary('cluster') resolves to the cluster vocab",
@@ -405,12 +407,8 @@ const main = () => {
 				only(CLUSTER_VOCAB.cues, SCATTER_VOCAB.cues).length === 0,
 		);
 		assert(
-			'scatter declares the multiplier symbol M, cluster does not',
-			(() => {
-				const symbolsOf = (v: TemplateVocabulary) =>
-					v.enums.find((e) => e.name === 'SymbolName')?.values ?? [];
-				return symbolsOf(SCATTER_VOCAB).includes('M') && !symbolsOf(CLUSTER_VOCAB).includes('M');
-			})(),
+			'scatter declares no symbols; the project supplies them',
+			symbolsOf(SCATTER_VOCAB).length === 0,
 		);
 		assert(
 			"templateVocabulary('scatter') resolves to the scatter vocab",

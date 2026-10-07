@@ -9,9 +9,9 @@
  *
  * Everything here is transcribed VERBATIM from the reference game's real code, so the vocabulary is
  * honest (never an invented contract):
- *  - **enums** — `GameType` = `paddingReels` keys. `SymbolName` is the ONE per-type value, passed in:
- *    a game's symbol set is a property of its config, not of the runtime (lines ships `L5`, ways
- *    ships `H5`), so it is a parameter rather than a constant.
+ *  - **enums** — `GameType` = `paddingReels` keys. `SymbolName` is declared EMPTY: a game's symbols
+ *    are a property of its Game Config, not of its kind, so the project supplies them
+ *    (`withSymbols`, `symbols.ts`).
  *  - **events** — the `BookEvent` union (`typesBookEvent.ts`); each event node's data-outs are the
  *    author-relevant payload fields. The game dispatches `runFlowEvent(bookEvent.type, bookEvent)`.
  *  - **actions** — the `flowEffect` registry keys (`flowEffects.ts`), each a state mutation / awaited
@@ -35,6 +35,7 @@
 
 import { CAMERA_EFFECT_KINDS } from 'constants-shared/camera';
 
+import { SYMBOL_ENUM } from '../symbols';
 import type { TemplateVocabulary, TypeRef } from '../types';
 import { MUSIC_NAMES, SOUND_EFFECT_NAMES, SOUND_NAMES } from './soundEnums.generated';
 
@@ -45,7 +46,7 @@ import { MUSIC_NAMES, SOUND_EFFECT_NAMES, SOUND_NAMES } from './soundEnums.gener
 export const INT: TypeRef = { t: 'int' };
 const FLOAT: TypeRef = { t: 'float' };
 const STRING: TypeRef = { t: 'string' };
-export const SYMBOL: TypeRef = { t: 'enum', name: 'SymbolName' };
+export const SYMBOL: TypeRef = { t: 'enum', name: SYMBOL_ENUM };
 const GAME_TYPE: TypeRef = { t: 'enum', name: 'GameType' };
 // Sound-cue name enums — a dropdown of the game's REAL sound names in the inspector (vs a free-text
 // literal). Their members are codegen'd from `apps/lines/src/game/sound.ts` into `soundEnums.generated`
@@ -148,18 +149,11 @@ export const STANDARD_CAPABILITY_ENTRIES: Readonly<
 // ---------------------------------------------------------------------------
 
 /**
- * The shared runtime's vocabulary for one game type. `symbolNames` are that type's real
- * `config.symbols` keys — the dropdown an author picks a symbol from.
+ * The shared runtime's vocabulary for one game type.
  *
  * Returns a FRESH object per call, so composing one type's palette can never mutate another's.
  */
-export const standardVocabulary = ({
-	templateId,
-	symbolNames,
-}: {
-	templateId: string;
-	symbolNames: readonly string[];
-}): TemplateVocabulary => ({
+export const standardVocabulary = ({ templateId }: { templateId: string }): TemplateVocabulary => ({
 	templateId,
 
 	// Structs — the payload shapes an author reads a member off (`$item.index`, a Win's fields).
@@ -183,12 +177,10 @@ export const standardVocabulary = ({
 		},
 	],
 
-	// Enums — `SymbolName` = the real `config.symbols` keys; `GameType` = the `paddingReels` keys.
+	// Enums — `SymbolName` = the project's symbols, supplied from its Game Config (`withSymbols`);
+	// `GameType` = the `paddingReels` keys.
 	enums: [
-		{
-			name: 'SymbolName',
-			values: [...symbolNames],
-		},
+		{ name: SYMBOL_ENUM, values: [] },
 		// Plus `respin`, the Hold and Win mode's game type (`game-config` `builtinGameModes`). A project's
 		// own mode sets its own game type, which a guard reads through `$engine.activeMode` instead.
 		{ name: 'GameType', values: ['basegame', 'freegame', 'respin'] },

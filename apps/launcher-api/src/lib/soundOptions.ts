@@ -77,8 +77,8 @@ export const BUILTIN_SOUND_OPTIONS: SoundOptions = {
  * A flow vocabulary whose three sound enums also offer the project's sounds.
  *
  * The enums are ONLY dropdown options — `validate.ts` checks an enum literal with
- * `typeof value === 'string'` and never tests membership — so extending them changes what the
- * inspector lists and nothing else. A graph that already names a project sound was valid before
+ * `typeof value === 'string'` and never tests a sound's membership — so extending them changes
+ * what the inspector lists and nothing else. A graph that already names a project sound was valid before
  * this; it just could not be authored through the UI.
  *
  * Returns the vocabulary UNCHANGED when the project has no sounds, so a project that uploaded

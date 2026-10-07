@@ -16,12 +16,6 @@ import type { TemplateVocabulary } from '../types';
 
 import { SYMBOL, INT, list, insertAfter, insertBefore, standardVocabulary } from './standardVocab';
 
-/**
- * `apps/lines` `config.symbols` keys — the symbol dropdown for a Book-of project. (A ways game
- * ships a different set; see `ways.ts`.)
- */
-const BOOK_OF_SYMBOLS = ['H1', 'H2', 'H3', 'H4', 'L1', 'L2', 'L3', 'L4', 'L5', 'S', 'W'] as const;
-
 /** The book events — the RGS drives the expanding-symbol pick and the column expand. */
 const BOOK_EVENTS: TemplateVocabulary['events'] = [
 	{
@@ -82,7 +76,7 @@ const BOOK_CUES: TemplateVocabulary['cues'] = [
 	{ name: 'specialBookHide', payload: [] },
 ];
 
-const standard = standardVocabulary({ templateId: 'bookOf', symbolNames: BOOK_OF_SYMBOLS });
+const standard = standardVocabulary({ templateId: 'bookOf' });
 
 export const BOOK_OF_VOCAB: TemplateVocabulary = {
 	...standard,

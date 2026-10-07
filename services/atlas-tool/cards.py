@@ -920,10 +920,14 @@ def list_entries(*, kind: str | None, include_all: bool, identity,
                                   builtin_keys=builtin_keys)[1] if card else [])
         # What agents get must be usable as written: a reviewed card that no
         # longer validates (a Settings key removed, a range moved) is withheld.
-        if not include_all and problems:
+        # `offered` is the one rule, also carried on every `all=1` entry so the
+        # launcher's Catalogue tab never re-derives it.
+        offered = status == "reviewed" and not problems
+        if not include_all and not offered:
             continue
         out.append({**info, "status": status, "stale": status == "stale",
-                    "card": card, "cardEtag": docsave.norm_etag(etag), "problems": problems})
+                    "offered": offered, "card": card,
+                    "cardEtag": docsave.norm_etag(etag), "problems": problems})
     return {"gpu": gpu or "", "blueprints": out}
 
 
