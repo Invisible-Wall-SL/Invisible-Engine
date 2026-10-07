@@ -536,6 +536,7 @@ export const queueVariants = defineOp<
 				agent: ctx.agent,
 				atlas,
 				regions: names,
+				steps,
 			});
 			startAtlasJobWatch(ctx, started.jobRef);
 		} catch (e) {

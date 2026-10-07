@@ -1394,12 +1394,14 @@ async function applyEvent(
 			// An ended run has nobody left to tell; its job is only billed.
 			if (TERMINAL_STATUSES.includes(live.state.status)) return;
 			const spent = withdrawn.map((w) => `${w.region} step ${w.steps.join(', ')}`).join('; ');
-			if (withdrawn.length) {
+			// The gate names the step wherever it asks or pauses; the note stands in for it only
+			// when it could not (the plan is incomplete), and a stopping run is told nothing.
+			const told = withdrawn.length > 0 && (await reviewPlanGate(tx, live)).told;
+			if (withdrawn.length && !told && live.state.status !== 'stopping') {
 				await insertEvent(tx, live.id, 'worker', 'activity', {
 					type: 'note',
 					text: `${spent} failed again after ${RETRIES_PER_APPROVAL} retries: its recipe renders nothing more until the plan is approved again.`,
 				});
-				await reviewPlanGate(tx, live);
 			}
 			const to = ctx.agents.has(event.agent) ? event.agent : COORDINATOR;
 			const body = JSON.stringify({ jobRef: p.jobRef, status: p.status, result: p.result });

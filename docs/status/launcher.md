@@ -101,7 +101,8 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   - Tests: `check:director-runs` 468 (estimate per chain, unpriced refusals, start refusal, the
     Art plan actions and edit shapes), `check:director-live` 109 (the fold, the panel's view and
     edits, drafts, licences, how-made, the regions past their retries), worker `check:recipes` 90,
-    `check:run-state` 1390, `prove:art-plan` 95 (stale approval, owner edits incl. a group size
+    `check:run-state` 1390, `check:director-adapters` 441 (the job's steps recorded, boot re-arms
+    the watches), `prove:art-plan` 101 (stale approval, owner edits incl. a group size
     edit, a stale and a malformed edit, a failed render queued again, timings measured once, a
     dropped region, re-approval on one pricing basis, a same-price revision that re-opens a
     rendered step, an unreachable launcher, the retry cap with the checkpoint on and off, a third
@@ -109,7 +110,7 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     or during a region batch, an approval of a card that hid a withdrawal, plans the approval
     could not name, the failure count kept through every approval but the owner's at the Art
     plan, the region step held while a render is in flight, an Art plan that cannot open told to
-    the owner).
+    the owner once, a rendering step that cannot be revised, a replanned step's render counted).
   - **After review** (code-reviewer, four blockers reproduced on the real modules):
     - owner edits are validated against the plan with every edit applied (a group size edit no
       longer refuses itself one region at a time), name the revision they were made on, are
@@ -187,14 +188,29 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     stopping or ended run. Re-opened with the checkpoint on, the Art plan is labelled
     `retries_spent` too, and the panel names each region past its retries ("H1 failed 3 times:
     approving lets it try 3 more times": one try and two retries per approval).
+  - **Fifth review round (a render's failure always counts):** `director_atlas_jobs` gains `steps`
+    (the recipe steps `queue_variants` matched, written with the row) and `steps_settled_at`
+    (migration `0030_director_job_steps`). `settleJob` claims that record once and counts a
+    failed render against its step even when a revision has replanned the step since, or against
+    the recipe's first step when that step is gone (fails closed); a redelivered `job_done`
+    counts nothing again. A technician revision or an owner edit that would replan a step while it
+    renders is refused ("H1 step 1 is rendering; revise it once it settles"). The launcher arms
+    the `/progress` fallback again at boot for every queued render (`resumeAtlasJobWatches`), its
+    12 h window counted from when the render was queued, so a restart over a finishing render no
+    longer holds the region step or a stop. The gate reports whether it told the owner
+    (`GateOutcome.told`): the withdrawal note is posted only when it did not, never on a stopping
+    run, and a gate note equal to the run's latest worker note is not posted again. The panel's
+    retry line shows only on the Art plan the owner can approve.
   - **Deploy:** atlas-tool's `RUNPOD_ENDPOINT_GPU` must be set and priced, or no Director run can
     start (`docs/INFRA.md`). The worker and the launcher go out together: an old worker drops the
     owner's `recipeEdits`, and an old Live run page sends no `recipeRevs`, so every Art plan
-    approval is refused.
+    approval is refused. The launcher lands first: its boot applies `0030_director_job_steps`,
+    which the worker's `settleJob` writes to (a worker on the old schema retries every `job_done`, then pauses the run).
   - **Open:** the Atlas Maker card editor does not yet show the measured timings (ADR-0008 §2);
     adding a step, or editing one region of a shared row, goes through "Send my changes"; the cap's
     queued-render projection (`projectQueuedGpu`) still uses the run's mean or the seed, not a
-    step's card.
+    step's card; `queue_variants` is not limited to the style pack and region steps (a render
+    queued while building that fails past its retries renders nothing more in that run).
 - 2026-10-07 — **Director 8D transition closed.** With all three definitions on main (technician,
   artist, coordinator), `TRANSITION_TOOLS`, `transitionProblem`, the Agents tab's
   `transitionTools` rule and the `CLEANUP OWED` notice are gone: every adapter op's allow-list

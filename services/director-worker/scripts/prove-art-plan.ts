@@ -56,7 +56,9 @@
  *     plan starts them again, and the next re-opening there is labelled `retries_spent`;
  * 21. the region step does not end while one of its renders is in flight;
  * 22. a third failure where the Art plan cannot open (the build step; a region batch waiting with
- *     the checkpoint on) tells the owner in the feed what waits for them and when it is asked.
+ *     the checkpoint on) tells the owner in the feed, once, what waits for them and when it is asked;
+ * 23. a technician revision or an owner edit of a step while it renders is refused, and a render
+ *     whose step was replanned anyway still counts its failure against it, once.
  */
 import type {
 	BetaMessage,
@@ -412,6 +414,14 @@ const lastNote = async (run: string) =>
 				and payload_json->>'type' = 'note'
 			order by id desc limit 1`
 	)[0]?.text ?? '';
+/** How many of the run's worker notes say `text`. */
+const notesSaying = async (run: string, text: string) =>
+	(
+		await sql<{ n: number }[]>`
+			select count(*)::int as n from director_events
+			where run_id = ${run} and agent = 'worker' and kind = 'activity'
+				and payload_json->>'type' = 'note' and payload_json->>'text' like ${`%${text}%`}`
+	)[0].n;
 /** The technician sends H1's recipe again with one more variant: a revision needing approval. */
 async function oneMoreVariant(run: string) {
 	const more = recipeInputOf(await h1Of(run));
@@ -1428,6 +1438,11 @@ try {
 			[(await h1Of(run)).approved, opened.n, (await runRow(run)).status],
 			[null, 0, 'stopped'],
 		);
+		check(
+			'…and the stopping run is told nothing of it',
+			await notesSaying(run, 'failed again after 2 retries'),
+			0,
+		);
 	}
 
 	// ── 16. A pause the owner asked for: their resume approves nothing spent ──
@@ -1774,6 +1789,19 @@ try {
 				'H1 waits for your approval in the Art plan (H1 step 1 failed again after 2 retries). The Art plan cannot open in the build step: it renders nothing more in this run.',
 			],
 		);
+		await message(run, 'atlas-technician', 'H2 again.');
+		await drive(
+			run,
+			deps(
+				fakeModel([{ content: [setRecipe(recipeOf('H2'))] }]).transport,
+				fakeLauncher().launcher,
+			),
+		);
+		check(
+			'…in one note: none beside it for the withdrawal, and a later gate does not say it again',
+			await notesSaying(run, 'H1 step 1 failed again after 2 retries'),
+			1,
+		);
 	}
 	{
 		const run = await plannedRun();
@@ -1802,6 +1830,79 @@ try {
 			[...(await askedAboutH1(run)), (await lastOpen(run))?.reason],
 			[...ASKED_ABOUT_H1, 'retries_spent'],
 		);
+	}
+
+	// ── 23. A render's failure always counts against its step ──────────────────
+	console.log("23. a step stays as it is while it renders, and its render's failure is counted");
+	{
+		const run = await plannedRun({ artPlan: false, cap: 40 });
+		await failH1(run);
+		await failH1(run);
+		await queueStep(run, 'H1');
+		const queued = await h1Of(run);
+		const jobRef = queued.steps[0].jobRef!;
+		// The launcher's record of the render, with the step it runs (`queue_variants`).
+		await sql`insert into director_atlas_jobs (job_ref, run_id, agent, atlas, regions, status, steps)
+			values (${jobRef}, ${run}, 'atlas-technician', 'symbols', ${sql.json(['H1'])}, 'queued',
+				${sql.json([{ recipe: 'H1', n: 1, region: 'H1' }])})`;
+		await oneMoreVariant(run);
+		const [answer] = (await toolResults(run, 'atlas-technician')).slice(-1);
+		check(
+			'a revision of a step while it renders is refused, saying why, and nothing is stored',
+			[
+				Boolean(answer?.is_error),
+				/H1 step 1 is rendering; revise it once it settles/.test(
+					JSON.stringify(answer?.content ?? ''),
+				),
+				(await h1Of(run)).rev,
+			],
+			[true, true, queued.rev],
+		);
+		await sql`update director_runs set status = 'waiting', waiting_on = 'art_plan' where id = ${run}`;
+		const edit = recipeInputOf(queued);
+		edit.steps[0].variants += 1;
+		await event(run, 'owner', 'checkpoint_resolved', {
+			checkpoint: 'art_plan',
+			decision: 'revise',
+			recipeEdits: [{ region: 'H1', rev: queued.rev, steps: edit.steps }],
+			by: { uid: userId },
+		});
+		await drive(run, deps(fakeModel([]).transport, fakeLauncher().launcher));
+		check(
+			"…as is the owner's edit of it",
+			[
+				/H1: step 1 is rendering; edit it once it settles/.test(await lastNote(run)),
+				(await h1Of(run)).rev,
+			],
+			[true, queued.rev],
+		);
+		// However the step came to be replanned, the render it ran still fails that step.
+		const replanned = {
+			...queued,
+			steps: queued.steps.map((st, i) =>
+				i === 0 ? { ...st, status: 'planned', jobRef: undefined } : st,
+			),
+		};
+		await sql`update director_regions set recipe_json = ${sql.json(replanned as never)}
+			where run_id = ${run} and region = 'H1'`;
+		await sql`update director_atlas_jobs set status = 'failed', done_at = now() where job_ref = ${jobRef}`;
+		const failed = {
+			jobRef,
+			status: 'failed',
+			atlas: 'symbols',
+			regions: ['H1'],
+			result: { error: 'OOM' },
+		};
+		await event(run, 'atlas-technician', 'job_done', failed);
+		await drive(run, deps(fakeModel([]).transport, fakeLauncher().launcher));
+		check(
+			'a render whose step was replanned since still counts its failure: the third withdraws the approval',
+			[(await h1Of(run)).failures, (await h1Of(run)).approved],
+			[{ 1: 3 }, null],
+		);
+		await event(run, 'atlas-technician', 'job_done', failed);
+		await drive(run, deps(fakeModel([]).transport, fakeLauncher().launcher));
+		check('…once, however often its job_done is delivered', (await h1Of(run)).failures, { 1: 3 });
 	}
 } finally {
 	await sql`delete from director_template_recipes where template_project_key = ${TEMPLATE}`;

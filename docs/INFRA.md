@@ -198,7 +198,10 @@ naming the cause. On SIGTERM it stops claiming and gives turns in flight 20 s to
   only the launcher new, the old worker drops the owner's Art plan edits (`recipeEdits`); with only
   the worker new, the old Live run page sends no `recipeRevs`, so the worker refuses every Art
   plan approval. A merge that touches both deploys both, minutes apart: check both deploys are up
-  before an owner approves or edits an Art plan.
+  before an owner approves or edits an Art plan. The launcher must be up first when it carries a
+  migration the worker writes to (8E's `0030_director_job_steps`: `settleJob` claims
+  `director_atlas_jobs.steps_settled_at`), or the worker retries every `job_done` until it is,
+  pausing the run after repeated failures.
 
 ### Live run stream (PLAN 3.8, 2026-10-05)
 

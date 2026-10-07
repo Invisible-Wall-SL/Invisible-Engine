@@ -1100,7 +1100,7 @@
 										</li>
 									{/each}
 								</ol>
-								{#if row.spent.length}<p class="row-err spent-line">{spentLine(row)}</p>{/if}
+								{#if editable && row.spent.length}<p class="row-err spent-line">{spentLine(row)}</p>{/if}
 								{#each row.errors as why (why)}<p class="err row-err">{why}</p>{/each}
 							</div>
 						{/each}

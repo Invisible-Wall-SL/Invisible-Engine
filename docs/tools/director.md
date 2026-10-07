@@ -296,11 +296,12 @@ picture on a reload.
     approving it there lets it try again: not an automatic approval, and not **Resume** (a pause
     names the step, and resuming opens the Art plan for it). If it fails while you have the run
     paused or another checkpoint open, Activity says so, and the Art plan asks once you resume or
-    resolve it. The region step does not end while one of its renders is still running; a render
-    queued later, while building, that fails past its retries renders nothing more in this run,
-    and Activity says that too. An approval you send from a view that still showed the step
-    approved is refused ("the Art plan changed since you saw it"): look again and approve what is
-    there now.
+    resolve it. A step that is rendering cannot be revised or edited until its render settles
+    (Activity says "step 1 is rendering"). The region step does not end while one of its renders
+    is still running; a render queued later, while building, that fails past its retries renders
+    nothing more in this run, and Activity says that too. An approval you send from a view that
+    still showed the step approved is refused ("the Art plan changed since you saw it"): look
+    again and approve what is there now.
   - Outside the checkpoint — while the technician is still planning, after you approve, or with
     the checkpoint off — the same plan shows read-only below the region panel, folded behind one
     line ("Every recipe is approved · show the recipes", or how many still wait for approval).
