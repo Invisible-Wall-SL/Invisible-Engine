@@ -519,7 +519,7 @@ let catalogueAnswer: { catalogue: unknown; error: string | null } = {
 };
 const CATALOGUE_READS: { scope: unknown; runId: string }[] = [];
 /** What the worker would say of the next Art plan approval (`approvalProblem`). */
-let approvalRefusal: string | null = null;
+let approvalRefusal: { code: string; reason: string } | null = null;
 const APPROVALS_ASKED: unknown[] = [];
 fake('lib/server/director/artPlan.ts', {
 	pricedCatalogue: async (_user: unknown, scope: unknown, runId: string) => {
@@ -1397,7 +1397,10 @@ console.log('art plan');
 		[200, 'checkpoint_resolved', 'art_plan', revs],
 	);
 	check('…which were checked against the stored plan first', APPROVALS_ASKED.at(-1), revs);
-	approvalRefusal = 'the Art plan changed since you saw it (H1 is at revision 3); review it again';
+	approvalRefusal = {
+		code: 'plan_changed',
+		reason: 'the Art plan changed since you saw it (H1 is at revision 3); review it again',
+	};
 	const stale = await act(OWNER, RUN_ID, {
 		action: 'approve',
 		requestId: requestId(),
@@ -1407,6 +1410,20 @@ console.log('art plan');
 		'a plan changed since it was seen is refused at the button',
 		[stale.status, stale.body.error, String(stale.body.message).includes('revision 3')],
 		[409, 'plan_changed', true],
+	);
+	approvalRefusal = {
+		code: 'catalogue_unreadable',
+		reason: 'The blueprint catalogue could not be read (x). The plan cannot be priced now',
+	};
+	const unreadable = await act(OWNER, RUN_ID, {
+		action: 'approve',
+		requestId: requestId(),
+		recipeRevs: revs,
+	});
+	check(
+		'…a catalogue that cannot be read is refused under its own code, not as a changed plan',
+		[unreadable.status, unreadable.body.error],
+		[409, 'catalogue_unreadable'],
 	);
 	approvalRefusal = null;
 	check('…and writes no row', rowsOf(RUN_ID).length, before + 1);
@@ -1738,6 +1755,13 @@ console.log('estimate');
 			r(est.runpod.usd).low <= r(est.runpod.usd).high &&
 			r(est.runpod.minutes).high >= r(est.runpod.minutes).low,
 		true,
+	);
+	check(
+		"…from the guessed cards' own figures up to the floor the Art plan is approved on",
+		// 25 regions of sdxl 1024 ×3 (12 s) → birefnet (3 s), +15 s delay per image and 120 s + 60 s
+		// of cold start per region; at the floor every image is 600 s + 15 s. At $0.00053 a second.
+		r(est.runpod.usd),
+		{ low: 3.7, high: 34.98 },
 	);
 	check('the total adds up', r(est.total.usd), {
 		low: Math.round((r(est.claude.usd).low + r(est.runpod.usd).low) * 100) / 100,

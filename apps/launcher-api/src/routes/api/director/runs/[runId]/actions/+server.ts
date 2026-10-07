@@ -13,6 +13,12 @@ import type { RequestHandler } from './$types';
  *   { action: 'approve' | 'revise', requestId, checkpoint?, note? }
  *                                                            resolve the open checkpoint; approving
  *                                                            `breakdown` is what lets RunPod work begin
+ *   { action: 'approve', checkpoint: 'art_plan', recipeRevs: { <region>: <rev> }, … }
+ *       the revision of every recipe the owner saw; refused up front, as the worker would, with
+ *       409 `plan_changed`, `plan_incomplete`, `plan_unpriced` or `catalogue_unreadable`
+ *   { action: 'revise', checkpoint: 'art_plan', recipeEdits: [{ region, rev, steps }], … }
+ *       the owner's edited chains, each on the revision it was made on, for the worker to
+ *       validate and store (ADR-0008 §5)
  *   { action: 'message', requestId, text }                   to the coordinator
  *   → 200 { action, eventId, replayed, run: <summary> }
  *

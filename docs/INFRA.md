@@ -193,6 +193,12 @@ naming the cause. On SIGTERM it stops claiming and gives turns in flight 20 s to
   `prove:turns` proves the turn loop there with a fake model, and `prove:breakdown` the worker-run
   mockup breakdown step (the checkpoint opens once, with the code rules' output). All three run in
   the `Director worker` workflow on a `postgres:16` service container.
+- **Deploy with the launcher (card 8E on).** The worker and the launcher read the same
+  `pricing.json` and one Art plan payload, so a change to either goes out to both together. With
+  only the launcher new, the old worker drops the owner's Art plan edits (`recipeEdits`); with only
+  the worker new, the old Live run page sends no `recipeRevs`, so the worker refuses every Art
+  plan approval. A merge that touches both deploys both, minutes apart: check both deploys are up
+  before an owner approves or edits an Art plan.
 
 ### Live run stream (PLAN 3.8, 2026-10-05)
 

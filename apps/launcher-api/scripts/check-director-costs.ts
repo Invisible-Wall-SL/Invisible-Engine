@@ -44,7 +44,7 @@ function selectBuilder(): PromiseLike<unknown[]> & Record<string, unknown> {
 const server = (path: string): string => new URL(`../src/lib/server/${path}`, import.meta.url).href;
 mock.module(server('db/index.ts'), { namedExports: { getDb: () => ({ select: selectBuilder }) } });
 
-const { costOfUsage, costOfRunpodJob, mergePricing, parsePricing } =
+const { costOfUsage, costOfRunpodJob, mergePricing, parsePricing, pricingRate } =
 	await import('../src/lib/server/costs/directorPricing.ts');
 const { FILE_PRICING, getDirectorPricing } =
 	await import('../src/lib/server/costs/pricingConfig.ts');
@@ -114,6 +114,14 @@ test('costOfRunpodJob: execution seconds × the GPU rate; unknown GPU throws', (
 	const [gpu, rate] = Object.entries(FILE_PRICING.runpod.perSecondByGpu)[0];
 	close(costOfRunpodJob(gpu, 120, FILE_PRICING), 120 * rate);
 	assert.throws(() => costOfRunpodJob('TPU v9', 1, FILE_PRICING), /no RunPod price/);
+});
+
+test("pricingRate: the named GPU's $/s, else null (no GPU, no price, never a prototype key)", () => {
+	const [gpu, rate] = Object.entries(FILE_PRICING.runpod.perSecondByGpu)[0];
+	assert.equal(pricingRate(FILE_PRICING, { gpu }), rate);
+	assert.equal(pricingRate(FILE_PRICING, { gpu: 'TPU v9' }), null);
+	assert.equal(pricingRate(FILE_PRICING, { gpu: '' }), null);
+	assert.equal(pricingRate(FILE_PRICING, { gpu: 'toString' }), null);
 });
 
 test('parsePricing / mergePricing reject bad documents and merge partial overrides', () => {

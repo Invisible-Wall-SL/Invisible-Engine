@@ -6,9 +6,10 @@
  *   DATABASE_URL=postgres://…/director_proof pnpm --filter launcher-api db:migrate
  *   DATABASE_URL=postgres://…/director_proof pnpm --filter director-worker prove:art-plan
  *
- * The `atlas-technician` (its real definition once it has landed, else the same tools as a fixture) takes a turn that replays the reference plan
- * (`docs/director/eval/blueprints/expected-art-plan.json`, the reference template's 23 regions)
- * against the fixture catalogue (`catalogue.json`), plus recipes that break the §5 rules on purpose.
+ * The `atlas-technician`, as its definition (`agents/atlas-technician.md`) runs it, takes a turn
+ * that replays the reference plan (`docs/director/eval/blueprints/expected-art-plan.json`, the
+ * reference template's 23 regions) against the fixture catalogue (`catalogue.json`), plus recipes
+ * that break the §5 rules on purpose.
  *
  * Proved:
  *  1. every rule-breaking recipe is answered with its reasons and not stored; the 23 valid ones are
@@ -36,7 +37,12 @@
  * 10. a revision is compared with the approved recipe priced on the same basis: one more variant
  *     loses the approval although the measured delay fell since;
  * 11. a revision at the same price keeps the approval of a recipe that has rendered nothing, and
- *     loses it, re-opening the Art plan, when it re-opens a step that has rendered.
+ *     loses it, re-opening the Art plan, when it re-opens a step that has rendered;
+ * 12. an Art plan approval while the launcher cannot be reached at all is refused, and the owner's
+ *     stop queued behind it is applied rather than held;
+ * 13. a step is queued again at most twice under one approval: its third failure withdraws the
+ *     approval and the gate refuses it; the Art plan re-opens (or, with it off, the run pauses),
+ *     and the owner's approval (or resume) retries it afresh.
  */
 import type {
 	BetaMessage,
@@ -58,7 +64,7 @@ import type { AdapterResult, AdapterSpec, Launcher } from '../src/launcher.ts';
 import { claimRun } from '../src/lease.ts';
 import type { VisionTransport } from '../src/mockups/vision.ts';
 import { toolName, type ModelTransport } from '../src/model.ts';
-import { TECHNICIAN, TECHNICIAN_TOOLS } from '../src/recipes.ts';
+import { TECHNICIAN } from '../src/recipes.ts';
 import { ADAPTER_OPS, KNOWN_TOOLS } from '../src/tools.ts';
 
 const url = process.env.DATABASE_URL;
@@ -210,23 +216,11 @@ const coordinator: AgentDefinition = {
 	outputs: '',
 	systemPrompt: 'You are the coordinator.',
 };
-/**
- * The technician as its definition will run it (ADR-0008 Appendix A), until that definition lands
- * in its own PR; once it has, the proof runs the real one.
- */
-const fixtureTechnician: AgentDefinition = {
-	name: TECHNICIAN,
-	model: 'claude-sonnet-5-5',
-	effort: 'high',
-	role: 'atlas technician',
-	tools: [...TECHNICIAN_TOOLS],
-	inputs: '',
-	outputs: '',
-	systemPrompt: 'You plan and run Atlas Maker.',
-};
+const technician = real.get(TECHNICIAN);
+if (!technician) throw new Error(`proof: agents/ has no ${TECHNICIAN} definition`);
 const AGENTS = new Map<string, AgentDefinition>([
 	['coordinator', coordinator],
-	['atlas-technician', real.get(TECHNICIAN) ?? fixtureTechnician],
+	['atlas-technician', technician],
 ]);
 
 let useSeq = 0;
@@ -611,6 +605,19 @@ try {
 			'a plan the GPU price cannot cost is never approved automatically',
 			[(await runRow(blind)).status, (await recipes(blind)).every((r) => r.approved === null)],
 			['paused', true],
+		);
+		const [pause] = await sql<{ payload: { reason?: string; message?: string } }[]>`
+			select payload_json as payload from director_events
+			where run_id = ${blind} and kind = 'checkpoint_open'`;
+		check(
+			"...and the pause says why in the recipes' own words",
+			[
+				pause?.payload.reason,
+				/cannot be priced[^]*, \w+ and 18 more: the endpoint's GPU has no price\. Fix/.test(
+					pause?.payload.message ?? '',
+				),
+			],
+			['art_plan_unpriced', true],
 		);
 	}
 
@@ -1004,8 +1011,19 @@ try {
 			...b,
 			regions: b.regions.filter((r) => r !== 'Logo'),
 		}));
+		// Two plans the owner's approval could never name are refused first, and nothing changes.
+		const misnamed = batches.map((b, i) =>
+			i === 0 ? { ...b, regions: [...b.regions, 'H1 copy'] } : b,
+		);
+		const crowded = [{ name: 'All', regions: Array.from({ length: 257 }, (_, i) => `R${i}`) }];
 		const model = fakeModel([
-			{ content: [use('run.set_plan', { summary: 'Without the logo.', batches })] },
+			{
+				content: [
+					use('run.set_plan', { summary: 'A misnamed region.', batches: misnamed }),
+					use('run.set_plan', { summary: 'Too many regions.', batches: crowded }),
+					use('run.set_plan', { summary: 'Without the logo.', batches }),
+				],
+			},
 			{ content: [say('Re-planned.')] },
 		]);
 		const plannerAgents = new Map(AGENTS);
@@ -1018,6 +1036,22 @@ try {
 			...deps(model.transport, fakeLauncher().launcher),
 			agents: plannerAgents,
 		});
+		check(
+			'a plan with a name Atlas Maker would refuse, or more regions than an approval names, is refused',
+			(await toolResults(edited, 'coordinator'))
+				.slice(-3)
+				.map((r) => [
+					Boolean(r.is_error),
+					/H1 copy\\?" is not a region name|257 regions, more than the 256/.test(
+						JSON.stringify(r.content ?? ''),
+					),
+				]),
+			[
+				[true, true],
+				[true, true],
+				[false, false],
+			],
+		);
 		const logo = (await recipes(edited)).find((r) => r.region === 'Logo')!;
 		check(
 			'the dropped region keeps its recipe as a record but loses its approval',
@@ -1125,6 +1159,152 @@ try {
 			'...and the Art plan re-opens for it alone',
 			[(await runRow(edited)).waiting_on, (await artPlanOpens(edited)).at(-1)?.payload.regions],
 			['art_plan', ['H1']],
+		);
+	}
+
+	// ── 12. A decision the launcher cannot answer never holds the owner's stop ──
+	console.log(
+		'12. an approval while the launcher is unreachable is refused; the stop behind it lands',
+	);
+	{
+		const cut = await newRun();
+		await message(cut, 'atlas-technician', 'Plan the recipes.');
+		await drive(
+			cut,
+			deps(
+				fakeModel([{ content: expected.recipes.map(setRecipe) }]).transport,
+				fakeLauncher().launcher,
+			),
+		);
+		const seen = Object.fromEntries((await recipes(cut)).map((r) => [r.region, r.rev]));
+		await event(cut, 'owner', 'checkpoint_resolved', {
+			checkpoint: 'art_plan',
+			decision: 'approve',
+			recipeRevs: seen,
+			by: { uid: userId, name: 'owner' },
+		});
+		await event(cut, 'owner', 'owner_request', { action: 'stop' });
+		const reachable = fakeLauncher().launcher;
+		// No answer at all: what `fetch` throws when the launcher cannot be reached.
+		const unreachable: Launcher = {
+			catalog: () => reachable.catalog(),
+			async call(id, body, signal) {
+				if (id === 'atlas.list_blueprints') throw new TypeError('fetch failed');
+				return reachable.call(id, body, signal);
+			},
+		};
+		await drive(cut, deps(fakeModel([]).transport, unreachable));
+		const refusals = await sql<{ payload: { type: string; error: string } }[]>`
+			select payload_json as payload from director_events
+			where run_id = ${cut} and kind = 'error' order by id`;
+		check(
+			'the approval is refused: the plan cannot be priced now',
+			refusals.map((r) => [r.payload.type, /cannot be priced now/.test(r.payload.error)]),
+			[['refused_request', true]],
+		);
+		check(
+			"…and the owner's stop behind it is applied, not held",
+			[
+				(await runRow(cut)).status,
+				(
+					await sql`select count(*)::int as n from director_events
+						where run_id = ${cut} and handled_at is null
+							and kind in ('owner_request', 'checkpoint_resolved')`
+				)[0].n,
+			],
+			['stopped', 0],
+		);
+	}
+
+	// ── 13. Two retries per step per approval ─────────────────────────────────
+	console.log('13. a step fails three times: the third failure withdraws its approval');
+	for (const artPlan of [true, false]) {
+		const label = artPlan ? 'Art plan on' : 'Art plan off';
+		const run = await newRun(artPlan ? {} : { artPlan: false, cap: 40 });
+		await message(run, 'atlas-technician', 'Plan the recipes.');
+		await drive(
+			run,
+			deps(
+				fakeModel([{ content: expected.recipes.map(setRecipe) }]).transport,
+				fakeLauncher().launcher,
+			),
+		);
+		if (artPlan) {
+			const seen = Object.fromEntries((await recipes(run)).map((r) => [r.region, r.rev]));
+			await event(run, 'owner', 'checkpoint_resolved', {
+				checkpoint: 'art_plan',
+				decision: 'approve',
+				recipeRevs: seen,
+				by: { uid: userId, name: 'owner' },
+			});
+			await drive(run, deps(fakeModel([]).transport, fakeLauncher().launcher));
+		}
+		const h1 = async () => (await recipes(run)).find((r) => r.region === 'H1')!;
+		const variants = (await h1()).steps[0].variants;
+		const gate = () => queueGate(run, { atlas: 'symbols', regions: ['H1'], variants });
+		const failOnce = async () => {
+			await message(run, 'atlas-technician', 'Render H1.');
+			const queue = use('atlas.queue_variants', {
+				atlas: 'symbols',
+				regions: ['H1'],
+				variants,
+				step: 'H1#1',
+			});
+			await drive(run, deps(fakeModel([{ content: [queue] }]).transport, fakeLauncher().launcher));
+			await event(run, 'atlas-technician', 'job_done', {
+				jobRef: (await h1()).steps[0].jobRef,
+				status: 'failed',
+				atlas: 'symbols',
+				regions: ['H1'],
+				result: { error: 'OOM' },
+			});
+			await drive(run, deps(fakeModel([]).transport, fakeLauncher().launcher));
+		};
+		await failOnce();
+		await failOnce();
+		const twice = await h1();
+		check(
+			`${label}: two failures, two retries: the step stays queueable under its approval`,
+			[twice.steps[0].status, twice.failures, twice.approved?.rev === twice.rev],
+			['failed', { 1: 2 }, true],
+		);
+		await failOnce();
+		const thrice = await h1();
+		check(
+			`${label}: the third withdraws the approval, and the gate refuses the step`,
+			[thrice.failures, thrice.approved, (await gate()).status],
+			[{ 1: 3 }, null, 409],
+		);
+		if (artPlan) {
+			check('…the Art plan re-opens for it', (await runRow(run)).waiting_on, 'art_plan');
+			const seen = Object.fromEntries((await recipes(run)).map((r) => [r.region, r.rev]));
+			await event(run, 'owner', 'checkpoint_resolved', {
+				checkpoint: 'art_plan',
+				decision: 'approve',
+				recipeRevs: seen,
+				by: { uid: userId, name: 'owner' },
+			});
+		} else {
+			const [last] = await sql<{ payload: { type: string; message: string } }[]>`
+				select payload_json as payload from director_events
+				where run_id = ${run} and kind = 'error' order by id desc limit 1`;
+			check(
+				'…the run pauses for the owner, saying why',
+				[
+					(await runRow(run)).status,
+					last?.payload.type,
+					/H1 step 1 failed again after 2 retries/.test(last?.payload.message ?? ''),
+				],
+				['paused', 'retries_spent', true],
+			);
+			await event(run, 'owner', 'owner_request', { action: 'resume' });
+		}
+		await drive(run, deps(fakeModel([]).transport, fakeLauncher().launcher));
+		const again = await h1();
+		check(
+			`${label}: the owner's ${artPlan ? 'approval' : 'resume'} approves it again, retries afresh`,
+			[again.approved?.by, again.failures, (await gate()).status],
+			[artPlan ? userId : 'auto', undefined, 200],
 		);
 	}
 } finally {

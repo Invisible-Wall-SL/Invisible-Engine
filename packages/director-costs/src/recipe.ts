@@ -132,7 +132,21 @@ export interface StoredRecipe {
 	editedBy?: string;
 	steps: StoredStep[];
 	projected: Projection;
+	/** How often each step (by `n`) has failed since the recipe was last approved. */
+	failures?: Record<string, number>;
 }
+
+/**
+ * Times a failed step is queued again under one approval. Its next failure withdraws the approval,
+ * so the step renders again only once the plan is approved again (fails closed).
+ */
+export const RETRIES_PER_APPROVAL = 2;
+
+/** The steps (`n`) that have failed more often than one approval retries them. */
+export const retriesSpent = (recipe: Pick<StoredRecipe, 'failures'>): number[] =>
+	Object.entries(recipe.failures ?? {})
+		.filter(([, times]) => !(times <= RETRIES_PER_APPROVAL))
+		.map(([n]) => Number(n));
 
 export interface ValidationContext {
 	catalogue: Catalogue;
@@ -161,6 +175,9 @@ const VARIANT_REF =
 	/^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,119}\/[A-Za-z0-9_][A-Za-z0-9_.()-]{0,119}\/[0-9]{1,8}$/;
 /** A region name as Atlas Maker and the crop keys take it; `..` never. */
 export const REGION_NAME = /^(?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9_.()-]{0,119}$/;
+
+/** The most regions one plan may name: every one must fit in the owner's Art plan approval. */
+export const MAX_PLAN_REGIONS = 256;
 const STEP_REF = /^step:([0-9]{1,3})$/;
 const SHEET_KEY =
 	/^(?:[a-z0-9_-]+\/[a-z0-9_-]+\/)?(?:sheets|sheet_src)\/[A-Za-z0-9_./() -]{1,300}$/;
@@ -493,7 +510,9 @@ export function validateRecipe(input: RecipeInput, ctx: ValidationContext): Vali
 	if (shapeErrors.length) return { ok: false, errors: shapeErrors };
 	const steps = parsed.map((p) => (p as { step: StepInput }).step);
 
-	if (!ctx.planRegions.has(input.region)) {
+	if (!REGION_NAME.test(input.region)) {
+		errors.push(`${JSON.stringify(input.region)} is not a region name`);
+	} else if (!ctx.planRegions.has(input.region)) {
 		errors.push(`${input.region} is not a region the run's plan names`);
 	}
 	if (steps.length === 0) errors.push('a recipe has at least one step');
@@ -798,11 +817,16 @@ export interface ChainPrice {
 
 /**
  * The GPU side of the New-game estimate, priced per chain from the reviewed cards and the measured
- * timings (§6): per image, `secondsPerImage`; a step whose pipeline has no reviewed card takes the
- * profiles' `secondsPerVariantAt1024` scaled by pixel count and marks the figure a placeholder.
- * The high end never sits below that fallback for a guessed card, so a guess cannot shrink the
- * range. Fails closed: no GPU, an unpriced GPU, or a credit-billed card leaves `usd` null with
- * the reasons, and the run is not offered.
+ * timings (§6) and counted as the Art plan counts a recipe (`project`): per image,
+ * `secondsPerImage`, and each step's cold start once per region (a default chain names no atlas;
+ * each of its steps renders on an atlas of its own, one (atlas, pipeline) batch per recipe). The
+ * low end prices the cards' own figures; the high end adds the floor a plan is approved on, so a
+ * guessed card is priced at no less than the seed seconds per render there, and the Art plan of
+ * these chains projects the high end. A step whose pipeline has no reviewed card, or whose card has
+ * no seconds for its size, takes the profiles' `secondsPerVariantAt1024` scaled by pixel count as
+ * a placeholder (an Art plan at such a size is unpriced and is never approved). Fails closed: no
+ * GPU, an unpriced GPU, or a credit-billed card leaves `usd` null with the reasons, and the run is
+ * not offered.
  */
 export function priceChains(
 	groups: readonly ChainGroup[],
@@ -811,7 +835,7 @@ export function priceChains(
 		gpu: string;
 		usdPerSecond: number | null;
 		timings?: readonly Timing[];
-		seedDelaySeconds: number;
+		floor: ProjectionFloor;
 	},
 	fallbackAt1024: Span,
 ): ChainPrice {
@@ -822,9 +846,12 @@ export function priceChains(
 	let steps = 0;
 	const total: Span = { low: 0, high: 0 };
 	const rows: ChainPrice['groups'] = [];
+	const cardOnly: ProjectionFloor = {
+		...NO_FLOOR,
+		delaySecondsPerJob: facts.floor.delaySecondsPerJob,
+	};
 	for (const g of groups) {
 		const span: Span = { low: 0, high: 0 };
-		const batches = new Set<string>();
 		for (const step of g.chain) {
 			steps += g.regions;
 			if (step.kind === 'finish') continue;
@@ -839,32 +866,26 @@ export function priceChains(
 				placeholder = true;
 				each = fallback;
 			} else {
-				// The estimate prices the card's own figures (plus the seed delay); the projection a
-				// plan is approved on adds the seed floor for a guessed card.
-				const priced = secondsPerImage(
-					card,
-					step.genPx,
-					timingOf(facts.timings, step.pipeline, step.genPx),
-					{ ...NO_FLOOR, delaySecondsPerJob: facts.seedDelaySeconds },
-				);
-				if (priced === null && card.billing === 'credits') {
+				if (card.billing === 'credits') {
 					unpriced.push(`${g.group}: "${step.pipeline}" bills credits, which cannot be priced yet`);
 					continue;
 				}
-				if (priced === null) {
+				const timing = timingOf(facts.timings, step.pipeline, step.genPx);
+				const low = secondsPerImage(card, step.genPx, timing, cardOnly);
+				const high = secondsPerImage(card, step.genPx, timing, facts.floor);
+				if (low === null || high === null) {
 					placeholder = true;
 					each = fallback;
-				} else if (priced.guess) {
-					placeholder = true;
-					each = { low: priced.seconds, high: Math.max(priced.seconds, fallback.high) };
 				} else {
-					each = { low: priced.seconds, high: priced.seconds };
+					if (high.guess) placeholder = true;
+					// A guess never shrinks the high end below the profiles' fallback either.
+					each = {
+						low: low.seconds,
+						high: high.guess ? Math.max(high.seconds, fallback.high) : high.seconds,
+					};
 				}
-				if (!batches.has(step.pipeline)) {
-					batches.add(step.pipeline);
-					span.low += card.gpu.coldStart;
-					span.high += card.gpu.coldStart;
-				}
+				span.low += card.gpu.coldStart * g.regions;
+				span.high += card.gpu.coldStart * g.regions;
 			}
 			span.low += each.low * images;
 			span.high += each.high * images;
@@ -905,36 +926,55 @@ export function priceChains(
  * went fails it, money failing closed. The worker refuses on this, and the launcher refuses up
  * front with the same words.
  */
+/** Why an Art plan approval cannot stand: a code (the launcher answers 409 with it) and the words. */
+export interface ApprovalProblem {
+	code: 'plan_changed' | 'plan_incomplete' | 'plan_unpriced';
+	reason: string;
+}
+
 export function approvalProblem(
 	recipes: readonly StoredRecipe[],
 	plan: ReadonlySet<string>,
 	seen: unknown,
 	reprice: (recipe: StoredRecipe) => Projection,
-): string | null {
+): ApprovalProblem | null {
+	const changed = (reason: string): ApprovalProblem => ({ code: 'plan_changed', reason });
 	if (typeof seen !== 'object' || seen === null || Array.isArray(seen)) {
-		return 'the approval does not name the recipe revisions it approves';
+		return changed('the approval does not name the recipe revisions it approves');
 	}
-	if (plan.size === 0) return 'the run has no Art plan to approve';
+	if (plan.size === 0) {
+		return { code: 'plan_incomplete', reason: 'the run has no Art plan to approve' };
+	}
 	const revs = seen as Record<string, unknown>;
 	const named = new Set(Object.keys(revs));
 	const planned = recipes.filter((r) => plan.has(r.region));
 	const missing = [...plan].filter((region) => !planned.some((r) => r.region === region));
 	if (missing.length) {
-		return `not every planned region has a recipe yet (${missing.slice(0, 5).join(', ')})`;
+		return {
+			code: 'plan_incomplete',
+			reason: `not every planned region has a recipe yet (${missing.slice(0, 5).join(', ')})`,
+		};
 	}
 	for (const r of planned) {
 		if (revs[r.region] !== r.rev) {
-			return `the Art plan changed since you saw it (${r.region} is at revision ${r.rev}); review it again`;
+			return changed(
+				`the Art plan changed since you saw it (${r.region} is at revision ${r.rev}); review it again`,
+			);
 		}
 		named.delete(r.region);
 		const now = reprice(r);
 		if (now.gpuUsd === null) {
 			const why = (now.unpriced ?? []).join('; ') || 'no price';
-			return `${r.region} cannot be priced (${why}), so the plan cannot be approved`;
+			return {
+				code: 'plan_unpriced',
+				reason: `${r.region} cannot be priced (${why}), so the plan cannot be approved`,
+			};
 		}
 	}
 	if (named.size) {
-		return `the Art plan changed since you saw it (${[...named].slice(0, 5).join(', ')} is not in it now); review it again`;
+		return changed(
+			`the Art plan changed since you saw it (${[...named].slice(0, 5).join(', ')} is not in it now); review it again`,
+		);
 	}
 	return null;
 }
