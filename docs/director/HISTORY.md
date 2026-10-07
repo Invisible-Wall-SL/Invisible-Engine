@@ -15,6 +15,32 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-07 · Phase 5 · coordinator (merges #1082)
+- **Did:** #1082 (Trusted current-games verdict, OPEN_QUESTIONS 5).
+  - The PR's harness run no longer holds `statuses: write`, never posts `current-games`, and runs
+    only for PRs into `main`.
+  - New `current-games-verdict.yml` (`workflow_run`, main's code): verifies the run (harness file,
+    open same-repo PR into `main`, head SHA), re-decides reach with main's `touched.mjs`, fails
+    harness/workflow-editing PRs without reading their report, requires the report's base on
+    `main`, fails a cancelled run unless a newer one will post, reads jobs and `report.json` as
+    data only, and posts the status.
+  - Launcher unchanged apart from comments and the no-report text; its approval is the second
+    poster.
+- **Files:** `.github/workflows/{current-games,current-games-verdict}.yml`,
+  `scripts/current-games/{lib/verdict.mjs,verdict.fixture.mjs}`,
+  `apps/launcher-api/src/lib/server/pipelineReport.ts`, `docs/INFRA.md`, `docs/status/engine.md`,
+  `docs/playtest/current-games.md`.
+- **Branch / PR:** `claude/clever-brahmagupta-c18bt9` → #1082 (squash ab5b4178). Merged after the
+  owner posted `current-games` on its head by hand (the bootstrap route).
+- **Tests:** `verdict.fixture.mjs` (every decision branch and rejection, including the
+  other-branch shared-head attack, harness edits, unreadable diffs, base off `main` or missing,
+  cancelled runs), `check:all` 395/395, launcher `check:pipeline-changes`; CI green. Reviewed
+  three rounds; the first found a PR into another branch could turn `main`'s check green.
+- **Decisions:** ADR-0004 amended (trusted verdict). OPEN_QUESTIONS 5 answered; new 19–21.
+- **Next:** owner: limit the `current-games-verdict` environment to `main`, then add the App
+  secrets, confirm the App posts, then pin the check. The first PR after this merge shows the
+  verdict posting `pending` then its result.
+
 ## 2026-10-06 · Phases 3, 4, 5 follow-ups · coordinator (merges #1085)
 - **Did:** #1085 (Director follow-ups batch).
   - A breakdown answer row is written with its bill, inside a savepoint: a failed answer write
