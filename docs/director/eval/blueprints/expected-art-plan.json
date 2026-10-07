@@ -1,0 +1,1205 @@
+{
+	"note": "The reference template's 23 regions (docs/director/eval/mockups/reference.json) planned against catalogue.json: a recipe per region that passes every ADR-0008 \u00a75 rule. prove:art-plan replays it as the technician's planning turn.",
+	"template": "hw-3pots-sample",
+	"plan": {
+		"summary": "Re-theme the 23 regions group by group.",
+		"batches": [
+			{
+				"name": "Symbols",
+				"regions": ["H1", "H2", "H3", "H4", "L1", "L2", "L3", "L4", "L5", "Wild", "BonusCoin"]
+			},
+			{
+				"name": "Coins & jackpots",
+				"regions": ["MINI", "MINOR", "MAJOR", "GRAND"]
+			},
+			{
+				"name": "Backgrounds",
+				"regions": ["Background"]
+			},
+			{
+				"name": "Reel frame & logo",
+				"regions": ["Logo", "Frame"]
+			},
+			{
+				"name": "UI kit",
+				"regions": ["SpinButton", "BetPanel"]
+			},
+			{
+				"name": "Win banners",
+				"regions": ["BigWinBanner", "MegaWinBanner", "EpicWinBanner"]
+			}
+		]
+	},
+	"recipes": [
+		{
+			"region": "H1",
+			"atlas": "symbols",
+			"group": "Symbols",
+			"steps": [
+				{
+					"n": 1,
+					"kind": "generate",
+					"pipeline": "sdxl",
+					"atlas": "symbols",
+					"region": "H1",
+					"genPx": 1024,
+					"variants": 3,
+					"settings": [
+						{
+							"key": "ksampler_steps",
+							"value": "28"
+						},
+						{
+							"key": "rembg",
+							"value": "on"
+						}
+					],
+					"style": {
+						"source": "mockupCrop",
+						"value": ""
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": "drafts at the final size"
+				},
+				{
+					"n": 2,
+					"kind": "process",
+					"pipeline": "birefnet",
+					"atlas": "symbols_cut",
+					"region": "cut_H1",
+					"genPx": 1024,
+					"variants": 1,
+					"settings": [
+						{
+							"key": "blur",
+							"value": "2"
+						}
+					],
+					"style": {
+						"source": "variant",
+						"value": "step:1"
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": "clean toon edge"
+				},
+				{
+					"n": 3,
+					"kind": "finish",
+					"pipeline": "",
+					"atlas": "symbols",
+					"region": "H1",
+					"genPx": 0,
+					"variants": 0,
+					"settings": [],
+					"style": {
+						"source": "variant",
+						"value": "step:2"
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": ""
+				}
+			]
+		},
+		{
+			"region": "H2",
+			"atlas": "symbols",
+			"group": "Symbols",
+			"steps": [
+				{
+					"n": 1,
+					"kind": "generate",
+					"pipeline": "sdxl",
+					"atlas": "symbols",
+					"region": "H2",
+					"genPx": 1024,
+					"variants": 3,
+					"settings": [
+						{
+							"key": "ksampler_steps",
+							"value": "28"
+						},
+						{
+							"key": "rembg",
+							"value": "on"
+						}
+					],
+					"style": {
+						"source": "mockupCrop",
+						"value": ""
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": "drafts at the final size"
+				},
+				{
+					"n": 2,
+					"kind": "process",
+					"pipeline": "birefnet",
+					"atlas": "symbols_cut",
+					"region": "cut_H2",
+					"genPx": 1024,
+					"variants": 1,
+					"settings": [
+						{
+							"key": "blur",
+							"value": "2"
+						}
+					],
+					"style": {
+						"source": "variant",
+						"value": "step:1"
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": "clean toon edge"
+				},
+				{
+					"n": 3,
+					"kind": "finish",
+					"pipeline": "",
+					"atlas": "symbols",
+					"region": "H2",
+					"genPx": 0,
+					"variants": 0,
+					"settings": [],
+					"style": {
+						"source": "variant",
+						"value": "step:2"
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": ""
+				}
+			]
+		},
+		{
+			"region": "H3",
+			"atlas": "symbols",
+			"group": "Symbols",
+			"steps": [
+				{
+					"n": 1,
+					"kind": "generate",
+					"pipeline": "sdxl",
+					"atlas": "symbols",
+					"region": "H3",
+					"genPx": 1024,
+					"variants": 3,
+					"settings": [
+						{
+							"key": "ksampler_steps",
+							"value": "28"
+						},
+						{
+							"key": "rembg",
+							"value": "on"
+						}
+					],
+					"style": {
+						"source": "mockupCrop",
+						"value": ""
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": "drafts at the final size"
+				},
+				{
+					"n": 2,
+					"kind": "process",
+					"pipeline": "birefnet",
+					"atlas": "symbols_cut",
+					"region": "cut_H3",
+					"genPx": 1024,
+					"variants": 1,
+					"settings": [
+						{
+							"key": "blur",
+							"value": "2"
+						}
+					],
+					"style": {
+						"source": "variant",
+						"value": "step:1"
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": "clean toon edge"
+				},
+				{
+					"n": 3,
+					"kind": "finish",
+					"pipeline": "",
+					"atlas": "symbols",
+					"region": "H3",
+					"genPx": 0,
+					"variants": 0,
+					"settings": [],
+					"style": {
+						"source": "variant",
+						"value": "step:2"
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": ""
+				}
+			]
+		},
+		{
+			"region": "H4",
+			"atlas": "symbols",
+			"group": "Symbols",
+			"steps": [
+				{
+					"n": 1,
+					"kind": "generate",
+					"pipeline": "sdxl",
+					"atlas": "symbols",
+					"region": "H4",
+					"genPx": 1024,
+					"variants": 3,
+					"settings": [
+						{
+							"key": "ksampler_steps",
+							"value": "28"
+						},
+						{
+							"key": "rembg",
+							"value": "on"
+						}
+					],
+					"style": {
+						"source": "mockupCrop",
+						"value": ""
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": "drafts at the final size"
+				},
+				{
+					"n": 2,
+					"kind": "process",
+					"pipeline": "birefnet",
+					"atlas": "symbols_cut",
+					"region": "cut_H4",
+					"genPx": 1024,
+					"variants": 1,
+					"settings": [
+						{
+							"key": "blur",
+							"value": "2"
+						}
+					],
+					"style": {
+						"source": "variant",
+						"value": "step:1"
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": "clean toon edge"
+				},
+				{
+					"n": 3,
+					"kind": "finish",
+					"pipeline": "",
+					"atlas": "symbols",
+					"region": "H4",
+					"genPx": 0,
+					"variants": 0,
+					"settings": [],
+					"style": {
+						"source": "variant",
+						"value": "step:2"
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": ""
+				}
+			]
+		},
+		{
+			"region": "L1",
+			"atlas": "symbols",
+			"group": "Symbols",
+			"steps": [
+				{
+					"n": 1,
+					"kind": "generate",
+					"pipeline": "sdxl",
+					"atlas": "symbols",
+					"region": "L1",
+					"genPx": 1024,
+					"variants": 3,
+					"settings": [
+						{
+							"key": "ksampler_steps",
+							"value": "28"
+						},
+						{
+							"key": "rembg",
+							"value": "on"
+						}
+					],
+					"style": {
+						"source": "mockupCrop",
+						"value": ""
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": "drafts at the final size"
+				},
+				{
+					"n": 2,
+					"kind": "process",
+					"pipeline": "birefnet",
+					"atlas": "symbols_cut",
+					"region": "cut_L1",
+					"genPx": 1024,
+					"variants": 1,
+					"settings": [
+						{
+							"key": "blur",
+							"value": "2"
+						}
+					],
+					"style": {
+						"source": "variant",
+						"value": "step:1"
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": "clean toon edge"
+				},
+				{
+					"n": 3,
+					"kind": "finish",
+					"pipeline": "",
+					"atlas": "symbols",
+					"region": "L1",
+					"genPx": 0,
+					"variants": 0,
+					"settings": [],
+					"style": {
+						"source": "variant",
+						"value": "step:2"
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": ""
+				}
+			]
+		},
+		{
+			"region": "L2",
+			"atlas": "symbols",
+			"group": "Symbols",
+			"steps": [
+				{
+					"n": 1,
+					"kind": "generate",
+					"pipeline": "sdxl",
+					"atlas": "symbols",
+					"region": "L2",
+					"genPx": 1024,
+					"variants": 3,
+					"settings": [
+						{
+							"key": "ksampler_steps",
+							"value": "28"
+						},
+						{
+							"key": "rembg",
+							"value": "on"
+						}
+					],
+					"style": {
+						"source": "mockupCrop",
+						"value": ""
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": "drafts at the final size"
+				},
+				{
+					"n": 2,
+					"kind": "process",
+					"pipeline": "birefnet",
+					"atlas": "symbols_cut",
+					"region": "cut_L2",
+					"genPx": 1024,
+					"variants": 1,
+					"settings": [
+						{
+							"key": "blur",
+							"value": "2"
+						}
+					],
+					"style": {
+						"source": "variant",
+						"value": "step:1"
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": "clean toon edge"
+				},
+				{
+					"n": 3,
+					"kind": "finish",
+					"pipeline": "",
+					"atlas": "symbols",
+					"region": "L2",
+					"genPx": 0,
+					"variants": 0,
+					"settings": [],
+					"style": {
+						"source": "variant",
+						"value": "step:2"
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": ""
+				}
+			]
+		},
+		{
+			"region": "L3",
+			"atlas": "symbols",
+			"group": "Symbols",
+			"steps": [
+				{
+					"n": 1,
+					"kind": "generate",
+					"pipeline": "sdxl",
+					"atlas": "symbols",
+					"region": "L3",
+					"genPx": 1024,
+					"variants": 3,
+					"settings": [
+						{
+							"key": "ksampler_steps",
+							"value": "28"
+						},
+						{
+							"key": "rembg",
+							"value": "on"
+						}
+					],
+					"style": {
+						"source": "mockupCrop",
+						"value": ""
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": "drafts at the final size"
+				},
+				{
+					"n": 2,
+					"kind": "process",
+					"pipeline": "birefnet",
+					"atlas": "symbols_cut",
+					"region": "cut_L3",
+					"genPx": 1024,
+					"variants": 1,
+					"settings": [
+						{
+							"key": "blur",
+							"value": "2"
+						}
+					],
+					"style": {
+						"source": "variant",
+						"value": "step:1"
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": "clean toon edge"
+				},
+				{
+					"n": 3,
+					"kind": "finish",
+					"pipeline": "",
+					"atlas": "symbols",
+					"region": "L3",
+					"genPx": 0,
+					"variants": 0,
+					"settings": [],
+					"style": {
+						"source": "variant",
+						"value": "step:2"
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": ""
+				}
+			]
+		},
+		{
+			"region": "L4",
+			"atlas": "symbols",
+			"group": "Symbols",
+			"steps": [
+				{
+					"n": 1,
+					"kind": "generate",
+					"pipeline": "sdxl",
+					"atlas": "symbols",
+					"region": "L4",
+					"genPx": 1024,
+					"variants": 3,
+					"settings": [
+						{
+							"key": "ksampler_steps",
+							"value": "28"
+						},
+						{
+							"key": "rembg",
+							"value": "on"
+						}
+					],
+					"style": {
+						"source": "mockupCrop",
+						"value": ""
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": "drafts at the final size"
+				},
+				{
+					"n": 2,
+					"kind": "process",
+					"pipeline": "birefnet",
+					"atlas": "symbols_cut",
+					"region": "cut_L4",
+					"genPx": 1024,
+					"variants": 1,
+					"settings": [
+						{
+							"key": "blur",
+							"value": "2"
+						}
+					],
+					"style": {
+						"source": "variant",
+						"value": "step:1"
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": "clean toon edge"
+				},
+				{
+					"n": 3,
+					"kind": "finish",
+					"pipeline": "",
+					"atlas": "symbols",
+					"region": "L4",
+					"genPx": 0,
+					"variants": 0,
+					"settings": [],
+					"style": {
+						"source": "variant",
+						"value": "step:2"
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": ""
+				}
+			]
+		},
+		{
+			"region": "L5",
+			"atlas": "symbols",
+			"group": "Symbols",
+			"steps": [
+				{
+					"n": 1,
+					"kind": "generate",
+					"pipeline": "sdxl",
+					"atlas": "symbols",
+					"region": "L5",
+					"genPx": 1024,
+					"variants": 3,
+					"settings": [
+						{
+							"key": "ksampler_steps",
+							"value": "28"
+						},
+						{
+							"key": "rembg",
+							"value": "on"
+						}
+					],
+					"style": {
+						"source": "mockupCrop",
+						"value": ""
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": "drafts at the final size"
+				},
+				{
+					"n": 2,
+					"kind": "process",
+					"pipeline": "birefnet",
+					"atlas": "symbols_cut",
+					"region": "cut_L5",
+					"genPx": 1024,
+					"variants": 1,
+					"settings": [
+						{
+							"key": "blur",
+							"value": "2"
+						}
+					],
+					"style": {
+						"source": "variant",
+						"value": "step:1"
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": "clean toon edge"
+				},
+				{
+					"n": 3,
+					"kind": "finish",
+					"pipeline": "",
+					"atlas": "symbols",
+					"region": "L5",
+					"genPx": 0,
+					"variants": 0,
+					"settings": [],
+					"style": {
+						"source": "variant",
+						"value": "step:2"
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": ""
+				}
+			]
+		},
+		{
+			"region": "Wild",
+			"atlas": "symbols",
+			"group": "Symbols",
+			"steps": [
+				{
+					"n": 1,
+					"kind": "generate",
+					"pipeline": "sdxl",
+					"atlas": "symbols",
+					"region": "Wild",
+					"genPx": 1024,
+					"variants": 3,
+					"settings": [
+						{
+							"key": "ksampler_steps",
+							"value": "28"
+						},
+						{
+							"key": "rembg",
+							"value": "on"
+						}
+					],
+					"style": {
+						"source": "mockupCrop",
+						"value": ""
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": "drafts at the final size"
+				},
+				{
+					"n": 2,
+					"kind": "process",
+					"pipeline": "birefnet",
+					"atlas": "symbols_cut",
+					"region": "cut_Wild",
+					"genPx": 1024,
+					"variants": 1,
+					"settings": [
+						{
+							"key": "blur",
+							"value": "2"
+						}
+					],
+					"style": {
+						"source": "variant",
+						"value": "step:1"
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": "clean toon edge"
+				},
+				{
+					"n": 3,
+					"kind": "finish",
+					"pipeline": "",
+					"atlas": "symbols",
+					"region": "Wild",
+					"genPx": 0,
+					"variants": 0,
+					"settings": [],
+					"style": {
+						"source": "variant",
+						"value": "step:2"
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": ""
+				}
+			]
+		},
+		{
+			"region": "BonusCoin",
+			"atlas": "symbols",
+			"group": "Symbols",
+			"steps": [
+				{
+					"n": 1,
+					"kind": "generate",
+					"pipeline": "sdxl",
+					"atlas": "symbols",
+					"region": "BonusCoin",
+					"genPx": 1024,
+					"variants": 3,
+					"settings": [
+						{
+							"key": "ksampler_steps",
+							"value": "28"
+						},
+						{
+							"key": "rembg",
+							"value": "on"
+						}
+					],
+					"style": {
+						"source": "mockupCrop",
+						"value": ""
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": "drafts at the final size"
+				},
+				{
+					"n": 2,
+					"kind": "process",
+					"pipeline": "birefnet",
+					"atlas": "symbols_cut",
+					"region": "cut_BonusCoin",
+					"genPx": 1024,
+					"variants": 1,
+					"settings": [
+						{
+							"key": "blur",
+							"value": "2"
+						}
+					],
+					"style": {
+						"source": "variant",
+						"value": "step:1"
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": "clean toon edge"
+				},
+				{
+					"n": 3,
+					"kind": "finish",
+					"pipeline": "",
+					"atlas": "symbols",
+					"region": "BonusCoin",
+					"genPx": 0,
+					"variants": 0,
+					"settings": [],
+					"style": {
+						"source": "variant",
+						"value": "step:2"
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": ""
+				}
+			]
+		},
+		{
+			"region": "Logo",
+			"atlas": "ui",
+			"group": "Reel frame & logo",
+			"steps": [
+				{
+					"n": 1,
+					"kind": "generate",
+					"pipeline": "flux",
+					"atlas": "ui",
+					"region": "Logo",
+					"genPx": 1024,
+					"variants": 2,
+					"settings": [],
+					"style": {
+						"source": "mockupCrop",
+						"value": ""
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": ""
+				}
+			]
+		},
+		{
+			"region": "Frame",
+			"atlas": "ui",
+			"group": "Reel frame & logo",
+			"steps": [
+				{
+					"n": 1,
+					"kind": "generate",
+					"pipeline": "flux",
+					"atlas": "ui",
+					"region": "Frame",
+					"genPx": 1024,
+					"variants": 2,
+					"settings": [],
+					"style": {
+						"source": "mockupCrop",
+						"value": ""
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": ""
+				}
+			]
+		},
+		{
+			"region": "Background",
+			"atlas": "ui",
+			"group": "Backgrounds",
+			"steps": [
+				{
+					"n": 1,
+					"kind": "generate",
+					"pipeline": "flux",
+					"atlas": "ui",
+					"region": "Background",
+					"genPx": 1024,
+					"variants": 2,
+					"settings": [],
+					"style": {
+						"source": "mockupCrop",
+						"value": ""
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": ""
+				}
+			]
+		},
+		{
+			"region": "MINI",
+			"atlas": "ui",
+			"group": "Coins & jackpots",
+			"steps": [
+				{
+					"n": 1,
+					"kind": "generate",
+					"pipeline": "flux",
+					"atlas": "ui",
+					"region": "MINI",
+					"genPx": 1024,
+					"variants": 2,
+					"settings": [],
+					"style": {
+						"source": "mockupCrop",
+						"value": ""
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": ""
+				}
+			]
+		},
+		{
+			"region": "MINOR",
+			"atlas": "ui",
+			"group": "Coins & jackpots",
+			"steps": [
+				{
+					"n": 1,
+					"kind": "generate",
+					"pipeline": "flux",
+					"atlas": "ui",
+					"region": "MINOR",
+					"genPx": 1024,
+					"variants": 2,
+					"settings": [],
+					"style": {
+						"source": "mockupCrop",
+						"value": ""
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": ""
+				}
+			]
+		},
+		{
+			"region": "MAJOR",
+			"atlas": "ui",
+			"group": "Coins & jackpots",
+			"steps": [
+				{
+					"n": 1,
+					"kind": "generate",
+					"pipeline": "flux",
+					"atlas": "ui",
+					"region": "MAJOR",
+					"genPx": 1024,
+					"variants": 2,
+					"settings": [],
+					"style": {
+						"source": "mockupCrop",
+						"value": ""
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": ""
+				}
+			]
+		},
+		{
+			"region": "GRAND",
+			"atlas": "ui",
+			"group": "Coins & jackpots",
+			"steps": [
+				{
+					"n": 1,
+					"kind": "generate",
+					"pipeline": "flux",
+					"atlas": "ui",
+					"region": "GRAND",
+					"genPx": 1024,
+					"variants": 2,
+					"settings": [],
+					"style": {
+						"source": "mockupCrop",
+						"value": ""
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": ""
+				}
+			]
+		},
+		{
+			"region": "SpinButton",
+			"atlas": "ui",
+			"group": "UI kit",
+			"steps": [
+				{
+					"n": 1,
+					"kind": "generate",
+					"pipeline": "flux",
+					"atlas": "ui",
+					"region": "SpinButton",
+					"genPx": 1024,
+					"variants": 2,
+					"settings": [],
+					"style": {
+						"source": "mockupCrop",
+						"value": ""
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": ""
+				}
+			]
+		},
+		{
+			"region": "BetPanel",
+			"atlas": "ui",
+			"group": "UI kit",
+			"steps": [
+				{
+					"n": 1,
+					"kind": "generate",
+					"pipeline": "flux",
+					"atlas": "ui",
+					"region": "BetPanel",
+					"genPx": 1024,
+					"variants": 2,
+					"settings": [],
+					"style": {
+						"source": "mockupCrop",
+						"value": ""
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": ""
+				}
+			]
+		},
+		{
+			"region": "BigWinBanner",
+			"atlas": "ui",
+			"group": "Win banners",
+			"steps": [
+				{
+					"n": 1,
+					"kind": "generate",
+					"pipeline": "flux",
+					"atlas": "ui",
+					"region": "BigWinBanner",
+					"genPx": 1024,
+					"variants": 2,
+					"settings": [],
+					"style": {
+						"source": "mockupCrop",
+						"value": ""
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": ""
+				}
+			]
+		},
+		{
+			"region": "MegaWinBanner",
+			"atlas": "ui",
+			"group": "Win banners",
+			"steps": [
+				{
+					"n": 1,
+					"kind": "generate",
+					"pipeline": "flux",
+					"atlas": "ui",
+					"region": "MegaWinBanner",
+					"genPx": 1024,
+					"variants": 2,
+					"settings": [],
+					"style": {
+						"source": "mockupCrop",
+						"value": ""
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": ""
+				}
+			]
+		},
+		{
+			"region": "EpicWinBanner",
+			"atlas": "ui",
+			"group": "Win banners",
+			"steps": [
+				{
+					"n": 1,
+					"kind": "generate",
+					"pipeline": "flux",
+					"atlas": "ui",
+					"region": "EpicWinBanner",
+					"genPx": 1024,
+					"variants": 2,
+					"settings": [],
+					"style": {
+						"source": "mockupCrop",
+						"value": ""
+					},
+					"shape": {
+						"source": "keep",
+						"value": ""
+					},
+					"note": ""
+				}
+			]
+		}
+	]
+}

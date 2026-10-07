@@ -27,7 +27,11 @@ What must hold:
   5. `/newatlas` and `/duplicateatlas` under a Director token create the atlas
      but leave the project's active atlas (`manifest_path`) where it was; a
      person's still switch to it; a Director POST that names no atlas, and a
-     Director blueprint upload, are refused.
+     Director blueprint upload, are refused;
+  6. a Director token never writes the shared library, a card or the taxonomy
+     (`/deleteblueprint`, `/rescanblueprintmodels`, `/card/save`,
+     `/taxonomy/save`), even holding the publish capability; a person with it
+     still reaches each route's existing code path (card 8D).
 
 ASCII only in the labels (cp1252 console).
 """
@@ -673,6 +677,142 @@ def test_new_and_duplicate_person_unchanged() -> None:
         st, body = s.req("POST", "/duplicateatlas", s.person, {"name": "copy", "prefix": "c"})
         check("a person's /duplicateatlas switches to the copy",
               (body[:1], selected()), ("✓", "atlas_manifest_copy.json"))
+
+
+# --- 6. the shared library, the cards and the taxonomy (card 8D) ------------------
+
+class _Calls:
+    """Stub `obj.name` for the block, recording each call and answering `ret`."""
+
+    def __init__(self, obj, name: str, ret) -> None:
+        self.obj, self.name, self.ret, self.calls = obj, name, ret, []
+        self.real = getattr(obj, name)
+
+    def __call__(self, *a, **k):
+        self.calls.append((a, k))
+        return self.ret
+
+    def __enter__(self):
+        setattr(self.obj, self.name, self)
+        return self
+
+    def __exit__(self, *exc):
+        setattr(self.obj, self.name, self.real)
+
+
+class _Valid:
+    ok, errors, warnings = True, [], []
+
+    def summary(self) -> str:
+        return "ok"
+
+
+def _publisher(s) -> tuple[dict, dict]:
+    """(Director, person) headers that BOTH hold the publish capability."""
+    caps = [launch.PUBLISH_CAP]
+    return ({launch.LAUNCH_HEADER: launch.sign(SIGNING, claims(act=ACT, caps=caps))},
+            {launch.LAUNCH_HEADER: launch.sign(SIGNING, claims(caps=caps))})
+
+
+def test_director_never_writes_the_shared_library() -> None:
+    _seed()
+    with _Bucket() as b, _Server() as s:
+        agent, person = _publisher(s)
+        with _Calls(u.blueprints, "delete_blueprint", {"existed": False, "id": "bp_x"}) as rm:
+            st, ans = s.req("POST", "/deleteblueprint", agent, {"id": "bp_x"})
+            check("a Director /deleteblueprint is refused, even with publish",
+                  (st, ans), (200, "✖ A Director run never writes the blueprint library."))
+            check("...and nothing is deleted", rm.calls, [])
+            st, ans = s.req("POST", "/deleteblueprint", person, {"id": "bp_x"})
+            check("a person's /deleteblueprint still reaches the library",
+                  ([c[0] for c in rm.calls], ans.startswith("⚠")), ([("bp_x",)], True))
+        with _Calls(u.blueprints, "get_blueprint", None) as rd:
+            st, ans = s.req("POST", "/rescanblueprintmodels", agent, {"id": "bp_x"})
+            check("a Director /rescanblueprintmodels is refused, even with publish",
+                  ans, "✖ A Director run never writes the blueprint library.")
+            check("...before the blueprint is even read", rd.calls, [])
+            st, ans = s.req("POST", "/rescanblueprintmodels", person, {"id": "bp_x"})
+            check("a person's /rescanblueprintmodels still reaches the library",
+                  ([c[0] for c in rd.calls], ans.startswith("⚠")), ([("bp_x",)], True))
+        check("no object was written", b.objects, {})
+
+
+def test_director_never_writes_a_card() -> None:
+    _seed()
+    with _Bucket() as b, _Server() as s:
+        agent, person = _publisher(s)
+        body = {"id": "bp_x", "card": {"summary": "x"}, "review": True}
+        with _Calls(u.bp_cards, "save_card", {"ok": True, "version": '"1"'}) as save:
+            st, ans = s.req("POST", "/card/save", agent, body)
+            check("a Director /card/save is refused 403, even with publish",
+                  (st, json.loads(ans)["ok"],
+                   json.loads(ans)["error"].startswith("A Director run never writes a "
+                                                       "blueprint card")),
+                  (403, False, True))
+            check("...before cards.py is reached", save.calls, [])
+            st, ans = s.req("POST", "/card/save", agent, None)
+            check("...whatever the body (refused before it is parsed)", st, 403)
+            st, ans = s.req("POST", "/card/save", person, body)
+            check("a person's /card/save still reaches cards.save_card",
+                  (st, len(save.calls), save.calls[0][0][0] if save.calls else None),
+                  (200, 1, "bp_x"))
+        check("no object was written", b.objects, {})
+
+
+def test_director_never_writes_the_taxonomy() -> None:
+    _seed()
+    with _Bucket() as b, _Server() as s:
+        agent, person = _publisher(s)
+        with _Calls(u.shared_taxonomy, "validate", _Valid()) as val, \
+                _Calls(u.shared_taxonomy, "save", '"2"') as save:
+            st, ans = s.req("POST", "/taxonomy/save", agent, {"text": "a: 1", "etag": '"1"'})
+            check("a Director /taxonomy/save is refused, even with publish",
+                  json.loads(ans),
+                  {"ok": False, "error": "A Director run never writes the shared taxonomy."})
+            check("...before it is validated or saved", (val.calls, save.calls), ([], []))
+            st, ans = s.req("POST", "/taxonomy/save", person, {"text": "a: 1", "etag": '"1"'})
+            check("a person's /taxonomy/save still reaches shared_taxonomy.save",
+                  (json.loads(ans)["ok"], [c[0][0] for c in save.calls]), (True, ["a: 1"]))
+        check("no object was written", b.objects, {})
+
+
+class _Ident:
+    """Just what `is_director` reads."""
+
+    def __init__(self, act_tool: str) -> None:
+        self.act_tool = act_tool
+
+
+def test_director_deploys_only_under_deploy() -> None:
+    root = "acme/slots_one/deploy"
+    for dest, refused in ((f"{root}/sprites/symbols", False), (root, False),
+                          ("acme/slots_one", True), ("acme/slots_one/sprites/x", True),
+                          ("acme/other/deploy/x", True), (f"{root}/../x", True)):
+        check(f"a Director deploy to {dest} is {'refused' if refused else 'allowed'}",
+              bool(u.director_deploy_refusal(_Ident("director"), dest, root)), refused)
+    check("a person is never refused here",
+          u.director_deploy_refusal(_Ident(""), "acme/slots_one/sprites/x", root), "")
+
+    _seed()
+    m = _manifest(SYMBOLS)
+    m["deploy_path"] = "acme/slots_one/sprites/elsewhere"
+    (u.MANIFEST_DIR / SYMBOLS).write_text(json.dumps(m), encoding="utf-8")
+    with _Bucket() as bucket, _Server() as s:
+        before = dict(bucket.objects)
+        st, body = s.req("POST", f"/deployatlas?manifest={SYMBOLS}", s.agent, {})
+        check("a Director /deployatlas to a key outside deploy/ is refused, nothing written",
+              (st, body[:1], "outside" in body or "only under" in body, bucket.objects == before),
+              (200, "✖", True, True))
+        st, body = s.req("POST", f"/deployatlas?manifest={SYMBOLS}", s.person, {})
+        check("...a person's deploy is not refused by that rule", "only under" in body, False)
+
+        m.pop("deploy_path")
+        (u.MANIFEST_DIR / SYMBOLS).write_text(json.dumps(m), encoding="utf-8")
+        bucket.objects["acme/slots_one/asset-map.json"] = json.dumps(
+            {"symbols": {"deploy_path": "acme/slots_one/textures/symbols"}}).encode()
+        bucket.etags["acme/slots_one/asset-map.json"] = '"am"'
+        st, body = s.req("POST", f"/deployatlas?manifest={SYMBOLS}", s.agent, {})
+        check("...and so is an asset-map target outside deploy/", "only under" in body, True)
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ export * from './src/betModes';
 export * from './src/winLevels';
 export * from './src/winModel';
 export * from './src/mechanics';
+export * from './src/freeSpins';
 export * from './src/holdAndWin';
 export * from './src/holdAndWinPresets';
 export * from './src/holdAndWinMock';

@@ -8,6 +8,7 @@
  * names the file and the offender); every malformed shape the strict frontmatter parser meets is
  * refused with a reason rather than half-read.
  */
+import { TECHNICIAN, TECHNICIAN_TOOLS } from './recipes.ts';
 import { fileURLToPath } from 'node:url';
 import { loadAgents, parseAgent, pricedModels, type AgentCatalog } from './agents.ts';
 import { ADAPTER_OPS, KNOWN_TOOLS, WORKER_TOOLS } from './tools.ts';
@@ -33,15 +34,30 @@ const catalog: AgentCatalog = { models: pricedModels(here('pricing.json')), tool
 console.log('shipped definitions');
 {
 	const agents = loadAgents(here('agents'), catalog);
+	const CORE = 'animator,art-director,atlas-artist,builder,coordinator,mockup-analyst,qa'.split(
+		',',
+	);
 	check(
-		[...agents.keys()].sort().join() ===
-			'animator,art-director,atlas-artist,builder,coordinator,mockup-analyst,qa',
-		'all seven runtime agents load',
+		CORE.every((name) => agents.has(name)) &&
+			[...agents.keys()].every((name) => CORE.includes(name) || name === TECHNICIAN),
+		'the seven runtime agents load, and the atlas technician when its definition has landed',
 		` — got ${[...agents.keys()].join()}`,
 	);
 	const qa = agents.get('qa');
 	check(qa?.effort === null, 'qa (Haiku) has no effort');
 	check(agents.get('coordinator')?.effort === 'high', 'coordinator effort is high');
+	// Its definition ships in its own PR after the code (ADR-0008 card 8D; one file per agent-eval).
+	const technician = agents.get(TECHNICIAN);
+	if (technician) {
+		check(
+			technician.model === 'claude-sonnet-5-5' && technician.effort === 'high',
+			'atlas-technician runs on Sonnet 5.5 at high effort (ADR-0008 §3)',
+		);
+		check(
+			technician.tools.join() === TECHNICIAN_TOOLS.join(),
+			'atlas-technician has the 18 tools of ADR-0008 Appendix A',
+		);
+	}
 	check(
 		[...agents.values()].every(
 			(a) => a.systemPrompt.length > 200 && !a.systemPrompt.startsWith('---'),

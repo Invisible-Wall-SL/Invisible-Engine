@@ -1,7 +1,7 @@
 /**
  * The MATH CONTRACT the Invisible Test Server's mock RGS deals a project with — protocol, cascade
- * and grid (dimensions, paylines, in-play symbol pool, wild, cluster/scatter shape) — derived from
- * that project's own Invisible Game Config.
+ * and grid (dimensions, paylines, in-play symbol pool, wild, cluster/scatter shape, free-spins
+ * rule) — derived from that project's own Invisible Game Config.
  *
  * It lives here, apart from `publishGame.ts`, because it is resolved on TWO paths and the two must
  * never disagree:
@@ -26,16 +26,20 @@
  * OUR mock derive its answer from the project instead of from a stale copy of it.
  */
 import {
+	freeSpinsAwardsAreDefault,
+	freeSpinsTriggerIsDefault,
 	holdAndWinMockInputs,
-	isScatterSymbol,
+	inPlayScatterSymbol,
 	normalizeGameConfigDoc,
 	potsOverlayMockInputs,
 	resolveBetModes,
+	resolveFreeSpins,
 	resolveWinModel,
 	symbolsInPlay,
 	type GameConfigDoc,
 	type PaytableRow,
 	type PotsOverlayMockInputs,
+	type ResolvedFreeSpins,
 } from 'game-config';
 import {
 	bookMapping,
@@ -349,12 +353,68 @@ function projectBetModes(
  * as before scatter pays had an authored home. The same symbol `shownPaytable` puts on the info page.
  */
 function projectScatterPaytable(doc: GameConfigDoc): Record<string, number> | undefined {
-	const inPlay = new Set(symbolsInPlay(doc));
-	const name = Object.keys(doc.symbols).find(
-		(id) => inPlay.has(id) && isScatterSymbol(doc.symbols[id]),
-	);
+	const name = inPlayScatterSymbol(doc.symbols, symbolsInPlay(doc));
 	const rows = name ? doc.symbols[name].paytable : undefined;
 	return rows?.length ? paytableToOccursMap(rows) : undefined;
+}
+
+type Grid = NonNullable<TestServerGameEntry['grid']>;
+type FreeSpinsFields = Pick<Grid, 'freeSpins' | 'freeSpinsTrigger' | 'freeSpinsAwards'>;
+
+/**
+ * The project's free-spins rule for the lines-family mock: `freeSpins: false` when it has none;
+ * otherwise a `freeSpinsTrigger` when its trigger departs from 3+ of the scatter and a
+ * `freeSpinsAwards` when its awards depart from 10 / +5 / never random. Nothing at all for a
+ * project that departs from neither, and each field only on its own departure, so an un-authored
+ * project's grid is byte-identical.
+ */
+function projectFreeSpins(doc: GameConfigDoc, projectKey: string): FreeSpinsFields {
+	const freeSpins = resolveFreeSpins(doc);
+	if (!freeSpins.enabled) return { freeSpins: false };
+	const trigger = projectFreeSpinsTrigger(doc, freeSpins, projectKey);
+	// The RESOLVED tables, so a project that authored only one of them still sends the mock both.
+	const awards = freeSpinsAwardsAreDefault(doc)
+		? undefined
+		: {
+				awards: freeSpins.awards,
+				retrigger: freeSpins.retriggerAwards,
+				random: freeSpins.randomAwards,
+			};
+	return {
+		...(trigger ? { freeSpinsTrigger: trigger } : {}),
+		...(awards ? { freeSpinsAwards: awards } : {}),
+	};
+}
+
+/**
+ * The trigger in SERVER vocabulary, or `undefined` when it is the default 3+ scatter.
+ *
+ * The trigger symbol is translated through the SAME `linesMapping` the in-play pool and the
+ * paytable use. A symbol with no server name is NOT replaced by `SCAT`: the field is omitted and
+ * the project is told once — the mock then keeps its own 3+ SCAT rule, which is exactly what this
+ * warning names. (Such a symbol is never dealt by the mock either: `projectLineSymbols` cannot
+ * carry it.)
+ */
+function projectFreeSpinsTrigger(
+	doc: GameConfigDoc,
+	freeSpins: ResolvedFreeSpins,
+	projectKey: string,
+): Grid['freeSpinsTrigger'] {
+	if (!freeSpins.triggerSymbol || freeSpinsTriggerIsDefault(doc)) return undefined;
+	const client = freeSpins.triggerSymbol;
+	const server = Object.keys(linesMapping.symbols).find(
+		(name) => mapSymbol(linesMapping, name) === client,
+	);
+	if (!server) {
+		warnOnce(
+			`${projectKey}:freeSpinsTrigger:${client}`,
+			`[mock-contract] '${projectKey}' triggers free spins on ${client}, which the test server's ` +
+				`mock has no name for — so it keeps its own rule (3 or more scatters). Choose another ` +
+				`trigger symbol in /config.`,
+		);
+		return undefined;
+	}
+	return { symbol: server, count: freeSpins.triggerCount };
 }
 
 /**
@@ -481,6 +541,8 @@ function projectGrid(
 		const symbolPaytable = projectSymbolPaytable(doc, linesMapping);
 		const scatterPaytable = projectScatterPaytable(doc);
 		const betModes = projectBetModes(doc, projectKey);
+		// Last, so a project with free spins on three scatters keeps its grid byte-identical.
+		const freeSpins = projectFreeSpins(doc, projectKey);
 		return {
 			reels,
 			rows,
@@ -495,6 +557,7 @@ function projectGrid(
 			...(symbolPaytable ? { symbolPaytable } : {}),
 			...(scatterPaytable ? { scatterPaytable } : {}),
 			...(betModes ? { betModes } : {}),
+			...freeSpins,
 		};
 	} catch {
 		return undefined;

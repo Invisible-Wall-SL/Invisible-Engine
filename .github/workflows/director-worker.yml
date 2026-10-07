@@ -11,6 +11,8 @@
 #   prove:breakdown  the breakdown step is the worker's (ADR-0005): the checkpoint opens once, with
 #                the code rules' output; unconfirmed ownership never reaches the model; a crash
 #                before the submission re-runs the pass without a second store
+#   prove:art-plan  the technician's recipes are validated by code before they are stored; the Art
+#                plan opens once, approval writes the template defaults, revisions re-open it
 #
 # Not a required check, so it runs only when something it covers changes.
 name: Director worker
@@ -21,6 +23,7 @@ on:
       - 'services/director-worker/**'
       - 'packages/director-costs/**'
       - 'apps/launcher-api/drizzle/**'
+      - 'docs/director/eval/blueprints/**'
       - 'apps/launcher-api/src/lib/server/db/schema.ts'
       - '.github/workflows/director-worker.yml'
   push:
@@ -29,6 +32,7 @@ on:
       - 'services/director-worker/**'
       - 'packages/director-costs/**'
       - 'apps/launcher-api/drizzle/**'
+      - 'docs/director/eval/blueprints/**'
       - 'apps/launcher-api/src/lib/server/db/schema.ts'
       - '.github/workflows/director-worker.yml'
 
@@ -79,3 +83,9 @@ jobs:
 
       - name: prove the breakdown step
         run: pnpm --filter director-worker prove:breakdown
+
+      - name: prove the art plan
+        run: pnpm --filter director-worker prove:art-plan
+
+      - name: prove the idle-deploy check
+        run: pnpm --filter director-worker prove:idle
