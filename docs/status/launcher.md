@@ -103,7 +103,7 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     coordinator's brief names no preset), `prove:idle` 10 (`quiet`, preset drafts).
 
 - 2026-10-07 — **Invisible Director: the Art plan checkpoint, "How this was made" and chain
-  pricing** (ADR-0008 card 8E, stacked on 8D). Inert for a person and for every current game.
+  pricing** (ADR-0008 card 8E, on top of 8D). Inert for a person and for every current game.
   - **Pricing rules** (`packages/director-costs/src/recipe.ts`): one image of a step costs the
     card's seconds at its size, or the measured execution mean when that is higher, plus the
     measured delay (`secondsPerImage`), with the card's cold start once per (atlas, pipeline)
@@ -162,7 +162,7 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     - the before-publish list also covers art a dropped region committed and uses the worse of the
       planned and current licence, and "Approve and hand off" waits for it; the Live run reloads
       recipes on recipe, plan, pick and render rows only.
-  - **Merged with 8D's review fixes** (dc14db2…05f6a06): one pricing rule — a step's image is the
+  - **Reconciled with 8D's review fixes** (#1091): one pricing rule — a step's image is the
     card's seconds or the measured execution mean, never below `seedSecondsPerRender` for a guessed
     card (8D's floor), plus the measured delay or `seedDelaySecondsPerJob` (the slot 8D left at 0
     for 8E), via `floorOf(pricing.runpod)` on both sides; the New game estimate prices card figures
@@ -189,9 +189,11 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     `atlas-technician` but nothing assigns it (`run.assign_task` refuses an agent with no
     definition), the artist keeps `queue_variants` / `choose_variant` / `pack_sheet` /
     `job_status` and renders the pre-8D way (no `step`, no recipe gate; `lock` omitted keeps the
-    pin), and `check:director-adapters` lists these as named transition allowances
-    (`AWAITING_DEFINITION`, `TRANSITION`) — remove them, and the artist's pre-8D branch in
-    `queue_variants`, once the artist's narrowed definition has landed.
+    pin), and the five transition allowances live in `TRANSITION_TOOLS` (`registry.ts`), per agent all or
+    none (main's definition or the new one, never a mix), read by the Agents tab's rules and
+    `check:director-adapters` (with `AWAITING_DEFINITION` for the technician). **Follow-up owed:** once
+    the three definition PRs land, a final small PR empties `TRANSITION_TOOLS`, removes
+    `AWAITING_DEFINITION` and the artist's pre-8D branch in `queue_variants`.
   - **Adapter ops** (`director/ops/atlasSetup.ts`): `list_blueprints` (reviewed image cards from
     atlas-tool `GET /blueprints`, cached a minute), `set_atlas_pipeline` (`/saveconfig` with only
     `atlas_pipeline`, the size and the card's per-atlas keys or `bpParams[<id>]`), `set_region_pipeline`
