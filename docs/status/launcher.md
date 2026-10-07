@@ -59,6 +59,34 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+- 2026-10-07 — **A new key can no longer alias a project's R2 folder** (OPEN_QUESTIONS 17, the
+  #1085 follow-up). A project's files live under `r2Slug(client)/r2Slug(key)`, so `my_game` beside
+  `my-game` (or `x_y` under client `acme_co` beside `x-y` under `acme-co`) would read and write one
+  tree.
+  - **`createProject`** (Game Maker, Admin, desktop sync, duplicate / Director copy) re-checks under
+    `withProjectKeyLock`, on the lock's `tx`, and throws `ProjectFolderTakenError` (`projectPaths.ts`)
+    naming the project that holds the folder under that client, live or soft-deleted. Of two racing
+    aliases exactly one lands. Each caller answers in its own shape: Game Maker / Admin `fail(400)`,
+    desktop sync and duplicate 409, Director `create_from_template` 409 `project_exists`.
+  - **Director:** `requireDirectorProjectScope` answers a creatable pending key whose folder is a
+    project's under the request's client with **409 naming it** (doc, upload and image routes; the
+    New-game form shows it as the key hint). The check runs only after the caller is known to be
+    able to create under that client, so the bare 403 still says nothing to anyone else.
+    `createRun` refuses the same key under its lock, before any run names it (409
+    `key_folder_taken`).
+  - `projectInFolder` now returns the holder's key and takes an optional `client` (folder-equal,
+    `r2SlugSql` over `coalesce(client_key, 'unassigned')`); without one it is any client, which the
+    mockup cleanup keeps. Another client's same-slug key is a different folder and stays allowed.
+  - **Existing aliases are untouched.** `pnpm --filter launcher-api list:project-folder-aliases`
+    (read-only, one SELECT) lists folders held by more than one project row.
+  - Fixtures: new `check:project-create` (the real `createProject` + advisory-lock SQL over a
+    pg-proxy in-memory table: folder rule, deleted holder, client-folder aliasing, the race, and a
+    lock-off control that shows the race), `check:project-scope` (the Director gate's decision
+    table), `check:director-mockups`, `check:director-runs`, `check:director-adapters` (every
+    caller's answer).
+  - **Not covered:** re-assigning an existing project to another client (`assignProjectToClient`,
+    desktop sync's upsert) can still move it beside a same-slug project; it moves no R2 data.
+
 - 2026-10-06 — **Invisible Director: pending-key mockup cleanup** (#1069/#1072 follow-up).
   Mockups uploaded under a key that never became a game no longer stay in R2 forever
   (`director/mockupCleanup.ts`).
@@ -90,10 +118,9 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     (`changed`) a doc that moved since its listing.
   - Fixture: `check:director-mockups` (now 144 checks), plus a `check:director-runs` check that
     every draft insert holds the lock and runs on its `tx`.
-  - **Open:** `requireDirectorProjectScope` accepts a free key whose folder is an existing
-    project's (`sunken_temple` vs `sunken-temple`), so a pending upload can land in that project's
-    `director/` tree. The cleanup refuses to clear such a folder. The scope gate itself is
-    unchanged.
+  - **Open (closed 2026-10-07, above):** `requireDirectorProjectScope` accepted a free key whose
+    folder is an existing project's (`sunken_temple` vs `sunken-temple`). The cleanup refuses to
+    clear such a folder.
 
 - 2026-10-06 — **Invisible Director: the Live run screen** (Director card 4C, PLAN 4.3; over
   #1069, #1067 and #1072).
