@@ -513,9 +513,15 @@ code default, so the dashboard need not set it):
   `CURRENT_GAMES_R2_ENDPOINT`, `CURRENT_GAMES_R2_BUCKET`, `CURRENT_GAMES_R2_ACCESS_KEY_ID`,
   `CURRENT_GAMES_R2_SECRET_ACCESS_KEY`. Deliberately NOT the release's read-write `R2_*`: the harness
   never writes. A missing one fails the run and the `current-games` commit status, naming it. The
-  status is posted through the API, so making it required means adding `current-games` to the `main`
-  ruleset with source **any** (not "GitHub Actions"). How to run and read it:
-  `docs/playtest/current-games.md`.
+  harness itself posts nothing: `.github/workflows/current-games-verdict.yml` (`workflow_run`, main's
+  code) reads the finished run and posts the status — see "Who may post `current-games`" under
+  "Branch ruleset on `main`". How to run and read it: `docs/playtest/current-games.md`.
+- **Current-games verdict (GitHub Actions *environment* secrets, environment
+  `current-games-verdict`):** `CURRENT_GAMES_VERDICT_APP_ID` and
+  `CURRENT_GAMES_VERDICT_APP_PRIVATE_KEY` — the GitHub App the verdict posts `current-games` as.
+  Optional: unset, the verdict posts as GitHub Actions with a warning in its log. Environment secrets,
+  never repository secrets: a repository secret reaches every same-repo PR's workflows. Owner steps
+  below.
 - **Agent eval (GitHub Actions secret, `.github/workflows/agent-eval.yml`):** `ANTHROPIC_API_KEY`
   — the key the evaluation of a runtime-agent definition change spends (Director card 5D, ADR-0007
   "Agents tab"). **The owner must add it** (Settings → Secrets and variables → Actions): a
@@ -1028,6 +1034,93 @@ satisfy the check. Verify afterwards with
 — six names. With no bypass, a direct `git push origin main` is refused: every change lands through
 a PR.
 
+### Who may post `current-games` (owner step after the trusted-verdict PR merges)
+
+`current-games` is required (added 2026-10-06 with source **any**, so far). Two things post it, and
+only these two should count:
+
+1. **The verdict** — `.github/workflows/current-games-verdict.yml`. It runs on `workflow_run` of
+   "Current games", so GitHub always runs **main's** copy of it, never a PR's. It checks the run is
+   `.github/workflows/current-games.yml`, for an open PR **into `main`** from this repository whose
+   head is the run's head SHA (a status belongs to the head commit, which a PR into another branch
+   would share), decides with main's scripts (whether the change can reach a game is recomputed by
+   main's `touched.mjs`), reads the run's artifacts as JSON only, and posts on that head. A PR that
+   edits `.github/workflows/**` or `scripts/current-games/**` gets `failure` ("Edits the harness …
+   merge after review") without its report being read: it wrote that report itself. A report whose
+   base is not on `main` fails; a cancelled run fails unless a newer run on its head will post.
+2. **The launcher's approval** — Invisible Pipeline Changes posts `success` once every changed
+   screen on the head is approved (ADR-0007), as the launcher's GitHub App.
+
+The harness run on the PR (`current-games.yml`, the PR's own copy) no longer has `statuses: write`.
+
+**Why not pin the source to "GitHub Actions" (15368).** Every workflow posts as that app, including a
+workflow file a same-repo PR adds or edits: on `pull_request` a PR's own workflow gets a token with
+whatever `permissions:` it declares, `statuses: write` included. Pinning to 15368 stops personal
+tokens and other apps, but not a PR that adds `on: pull_request` + `gh api …/statuses`. Only an
+identity a PR's workflow cannot reach closes the gap.
+
+**Step 0 — the environment, BEFORE any secret goes in.** Settings → Environments →
+`current-games-verdict` (create it if the verdict's first run has not) → **Deployment branches and
+tags** → *Selected branches and tags* → add `main`, and nothing else. A job naming the environment
+from any other ref (a PR's `refs/pull/N/merge`, a pushed branch) is then refused before it starts,
+so PR code can never reach its secrets; `workflow_run` jobs run on `main`, so the verdict passes.
+Without this rule a same-repo PR could add a workflow naming the environment and read the App key.
+Check it, and do not go on until both answers are exactly these:
+
+```bash
+gh api repos/Invisible-Wall-SL/Invisible-Engine/environments/current-games-verdict \
+  --jq .deployment_branch_policy        # {"custom_branch_policies":true,"protected_branches":false}
+gh api repos/Invisible-Wall-SL/Invisible-Engine/environments/current-games-verdict/deployment-branch-policies \
+  --jq '[.branch_policies[] | .name]'   # ["main"]
+```
+
+**Which App.** A ruleset entry names one source per check (`{context, integration_id}`); whether it
+accepts `current-games` twice with two sources is undocumented.
+
+- **Preferred, if the ruleset accepts two entries:** a **dedicated App** for the verdict with only
+  Commit statuses **write** (and Metadata read), installed on this repository only, and two
+  `current-games` entries — one pinned to it, one to the launcher's App (whose approval post must
+  keep counting). Try adding the second entry in the ruleset UI first; if GitHub refuses it, use the
+  fallback.
+- **Fallback: the launcher's App for both posters.** One entry, pinned to it. Trade-off: that App
+  holds Contents and Pull requests **write**, so its key then also lives in an environment only
+  `main`'s workflows reach — a key that, if it leaked, could push branches and open PRs (never merge
+  past the ruleset).
+
+1. **Secrets in that environment** (never repository secrets: those reach every same-repo PR's
+   workflows): `CURRENT_GAMES_VERDICT_APP_ID` = the chosen App's id;
+   `CURRENT_GAMES_VERDICT_APP_PRIVATE_KEY` = a **new** private key for it (the App → General →
+   Private keys; for the launcher's App keep its Railway key separate, so either can be revoked
+   alone). The verdict mints its token with `permission-statuses: write` only.
+2. **Check it worked:** the next PR's `current-games` status shows the App's avatar and the verdict
+   run ("Current games verdict") ran its "Mint the App's token" step with no "no GitHub App secrets"
+   warning. Until then the status shows GitHub Actions and the run carries that warning.
+3. **Pin the check** — the `current-games` entry (or entries) in the ruleset's
+   `required_status_checks` with the App id(s) (GitHub → Settings → Rules → Rulesets → `main` →
+   Require status checks → `current-games` → source; or in the call above
+   `{"context":"current-games","integration_id":<APP_ID>}`, replacing the source-less entry). Do this
+   only after step 2, or every PR waits on a status nobody can satisfy.
+
+**Merging a PR that edits the harness or a workflow — the PR that adds the verdict included.** Its
+`current-games` is a `failure` ("Edits the harness …: merge after review"), or for the PR that adds
+the verdict never arrives (its harness no longer posts and the verdict is not on `main` yet), and
+Pipeline Changes refuses to approve a workflow edit, so an approval cannot clear it either. After
+reviewing it, the owner posts `success` by hand on that PR's head — the same command every time:
+
+```bash
+gh api repos/Invisible-Wall-SL/Invisible-Engine/statuses/<head-sha> -f state=success \
+  -f context=current-games -f description="owner: trusted-verdict bootstrap"
+```
+
+(For a later harness PR, a description such as `"owner: harness change reviewed"`.) Once the
+required check is pinned to an App, a hand-posted status no longer satisfies it: the owner then
+merges such a PR through the ruleset's bypass, or lifts the check for that one merge.
+
+**What stays open after this:** a PR that edits the harness now fails outright, so the residual is
+code the harness run executes without being the harness — a package's install scripts, the build
+(`vite`/`turbo` config, a workspace package's `postinstall`) — which could still shape the report the
+verdict reads. Review is the guard for that.
+
 **Not required, by decision pending: `agent-eval`** — `.github/workflows/agent-eval.yml` posts it
 as a commit status (through the API, like `current-games`, so it would need source **any**) on an
 `agent-definition` PR's head. Invisible Pipeline Changes already treats a failed or capped eval as
@@ -1078,7 +1171,8 @@ reads pull requests, check runs, workflow runs and the current-games report arti
 change with its head pinned, and opens revert pull requests (a branch, one commit and a PR through the
 Git Data API), as a **GitHub App** the owner created and installed on this repository only. Three env vars, all secrets with no code
 default, set on the **launcher-api** Railway service and nowhere else (no other service, no GitHub
-Actions secret, and never the browser — `apps/launcher-api/src/lib/server/githubApp.ts` turns them
+Actions secret — unless the current-games verdict is set up with this App, then with a SEPARATE key, see "Who may post
+`current-games`" — and never the browser — `apps/launcher-api/src/lib/server/githubApp.ts` turns them
 into short-lived installation tokens server-side and logs neither):
 
 | Var | Where to find it |

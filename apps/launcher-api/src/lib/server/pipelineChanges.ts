@@ -46,7 +46,8 @@ export type { AgentEvalCheck };
  * App (`githubApp.ts`); nothing here pushes, merges or bypasses branch protection.
  */
 
-/** The one required status context: the harness posts it, and so does an approval. */
+/** The one required status context: the verdict workflow posts it from the harness run's
+ *  result (`current-games-verdict.yml`), and so does an approval. */
 export const HARNESS_CONTEXT = 'current-games';
 /** The harness workflow's `name:`, as the Actions API reports a run. */
 export const HARNESS_WORKFLOW = 'Current games';
@@ -56,7 +57,8 @@ export const HARNESS_WORKFLOW_PATH = '.github/workflows/current-games.yml';
 /**
  * What makes the report: a PR that edits any of it runs its own harness on itself, so its report
  * proves nothing and the launcher refuses to approve it (such a change is merged by hand after
- * review). The workflows as a whole, because `pull_request` runs the PR's copy of each.
+ * review). The workflows as a whole, because `pull_request` runs the PR's copy of each (the verdict
+ * workflow runs main's code, but is part of the same judgement).
  */
 export const HARNESS_SOURCES = [/^\.github\/workflows\//, /^scripts\/current-games\//];
 /** Reserved for Director games, which never make a PR; a PR wearing it is not a change. */

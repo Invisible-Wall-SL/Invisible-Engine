@@ -2984,7 +2984,7 @@ check('a bad number is a 400', (await detail(ADMIN, 'x')).status, 400);
 	check(
 		'#16: nothing to approve',
 		d.harness.unapprovable,
-		'No report: this change cannot reach a game, so current-games passed without rendering one.',
+		"No report: this run's own harness found no game the change can reach, so it rendered nothing. The current-games status, decided by main's harness, is the verdict.",
 	);
 }
 {

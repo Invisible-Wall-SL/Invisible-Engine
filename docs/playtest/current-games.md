@@ -3,8 +3,9 @@
 The rule is *never break a current game*. Every pipeline change must show that every live game
 still builds, passes its tests and looks the same as on `main`. This harness is that proof. Spec:
 [ADR-0004](../director/DECISIONS/0004-current-games-regression-harness.md). Code:
-`scripts/current-games/`. CI: `.github/workflows/current-games.yml`, which posts the commit status
-`current-games`.
+`scripts/current-games/`. CI: `.github/workflows/current-games.yml` renders and uploads the report;
+`.github/workflows/current-games-verdict.yml` posts the commit status `current-games` from it
+(see "Who posts the status").
 
 ## What it does
 
@@ -277,11 +278,13 @@ rendered. A run that cannot start (a missing secret, a failed build) fails and n
 
 ## CI
 
-`current-games.yml` runs on every PR and on pushes to non-main branches. It has five jobs:
+`current-games.yml` runs on every PR into `main` and on pushes to non-main branches. It has five jobs and posts
+no status (next section):
 
-1. **`prepare`** posts `pending`, picks the base commit, decides whether the change can reach a
+1. **`prepare`** picks the base commit, decides whether the change can reach a
    game (below) and whether it can alter what a publish bakes (`republish`, see "As republished")
-   and, when it can reach a game, checks the six secrets (a missing one fails the status, named).
+   and, when it can reach a game, checks the six secrets (a missing one fails the job and is named in
+   the status the verdict posts: `prepare` uploads the names as `current-games-prepare`).
    The base is, on a PR, the merge commit's first parent; on a push, the merge-base with main. A
    push to a branch with an open PR stands down, so the PR's run owns the status and the two never
    race. A PR from a fork does not run: it gets no secrets.
@@ -300,7 +303,47 @@ rendered. A run that cannot start (a missing secret, a failed build) fails and n
    so the report names it; a unit with no result at all is its game's error.
 5. **`report`** pairs every shard's units (`--phase compare`), compares, uploads the
    `current-games-report` artifact (and `report.json` alone as `current-games-report-json`, what
-   Invisible Pipeline Changes reads), prints the **digest** to the log and posts the final status.
+   Invisible Pipeline Changes reads), prints the **digest** to the log, and ends with a `Verdict`
+   step that fails the job exactly when the status will be a failure.
+
+**Who posts the status.** The harness runs the pull request's own tree, so nothing it writes can be
+trusted as the answer: it holds no `statuses` permission and calls no statuses API. The required
+status `current-games` is posted by `.github/workflows/current-games-verdict.yml`, a `workflow_run`
+workflow GitHub runs from **main's** copy in the base repository's context, so a PR cannot change what
+decides or what posts. It runs on `requested` (posts `pending`, unless the run already completed) and
+`completed` of a "Current games" run and, before posting anything, checks that the run is
+`current-games.yml` of this repository; for a PR, that it is **into `main`**, open, from this
+repository and still at the run's head commit (a newer commit's run posts its own; a fork gets no
+status; a status belongs to the head commit, so a PR into another branch with the same head must
+never answer for the one into main). A cancelled run fails ("re-run it") unless a newer run on its
+head will post. Whether the change can reach a game is decided again by main's
+`touched.mjs` over commit objects fetched from the PR (nothing is checked out): a run that rendered
+nothing for a change that can reach a game fails ("the run rendered nothing"), and so does a PR whose
+diff edits `.github/workflows/**` or `scripts/current-games/**` ("Edits the harness …: merge after
+review") — it wrote the report it would be judged by, so the report is not read — or whose diff
+cannot be read. Otherwise the status
+is `lib/verdict.mjs`'s `decide` over the jobs of that attempt (the API's, not the PR's), the
+`current-games-report-json` artifact and, after a missing secret, `current-games-prepare`. Both are
+parsed as JSON only; nothing from the PR or an artifact is ever installed, imported or executed (the
+workflow has no `pnpm install` and no `ref:`). The description is the report's summary line cut to
+139 characters and the target is the harness run, as the launcher expects. A PR's report whose base
+commit is not on `main`, or that names none, fails. A push run posts nothing;
+a manual run posts `current-games/self-compare` or `current-games/manual` (its run title says which),
+never `current-games`. The harness's `Verdict` step calls the same `decide`, so the two cannot drift.
+
+**Identity.** With the `CURRENT_GAMES_VERDICT_APP_ID` / `_PRIVATE_KEY` environment secrets the status
+is posted as that GitHub App, which only this workflow holds, so a ruleset can require
+`current-games` from the App. Without them it is posted as GitHub Actions, which any workflow can post
+as: the run says so in a warning. The owner's steps (App, secrets, the `current-games-verdict`
+environment limited to `main`, the ruleset) are in [INFRA](../INFRA.md).
+
+**Dry run.** `current-games-verdict.yml` has a manual trigger (`run_id`, `apply` off by default) that
+prints the decision for any past run and posts nothing. The same from a shell, with
+`GITHUB_REPOSITORY=owner/repo` and `GITHUB_TOKEN` (optional for public reads):
+`node scripts/current-games/lib/verdict.mjs --run <run id> --event completed [--attempt <n>]`; add
+`--post` with `STATUS_TOKEN` to post. `verdict.fixture.mjs` (run by `check:all`) proves every branch:
+the run checks, both phases, each job failure, the report for another commit, the description cut and
+that the two workflows hold what is said above.
 
 **The digest** is every non-pass row's cause, written for a reader who cannot download the artifact:
 the browser's render paths (`chrome://gpu`: WebGL, 2D canvas, compositing), failing gates, each
@@ -314,7 +357,8 @@ no gate results) still writes a report naming why, and the status says so.
 the dispatched ref against itself: its runtime built twice and rendered on separate runners, which
 on main is the main-vs-main measurement. It always renders (there is no change for `touched.mjs` to
 read) and posts the separate status context `current-games/self-compare`, so it never stands in for
-a branch's comparison. A manual run with `self_compare: false` posts `current-games/manual` and can
+a branch's comparison (the verdict reads the context from the run's title, `Current games:
+self-compare`). A manual run with `self_compare: false` posts `current-games/manual` and can
 name a `base` commit to compare against instead of main's merge-base: the seeded proof renders a
 deliberate 1 px change against the commit before it (`base` is ignored on a self-compare). A
 self-compare and a seeded proof on one commit, or two proofs with different bases, do not cancel
@@ -365,8 +409,8 @@ from it through its dependencies (the set `pnpm --filter 'lines...'` selects), t
 files (`package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `turbo.json`, `.npmrc`,
 `tsconfig.base.json`), everything the gates can read (`scripts/`, `services/test-server/`, the
 launcher's `src/lib/data/gameConfig/` defaults) and the workflow itself. Docs (`docs/**`,
-`.claude/**`, `*.md`) are never inputs. When no changed file is an input, the status is posted as
-success at once (`Runtime untouched: no game can differ (N changed files …)`, or `Docs-only change`
+`.claude/**`, `*.md`) are never inputs. When no changed file is an input, the status is posted
+(by the verdict, from main's own diff read) as success at once (`Runtime untouched: no game can differ (N changed files …)`, or `Docs-only change`
 when nothing else changed) with no build, no secrets check and no render: a launcher, atlas-tool or
 director-worker PR passes in seconds. A diff git cannot decide renders everything.
 The diff is read with rename detection off, so a file moved out of the inputs still counts as a

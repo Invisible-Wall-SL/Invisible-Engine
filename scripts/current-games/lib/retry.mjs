@@ -26,8 +26,8 @@ export const WORKFLOW = 'Current games';
  * The jobs of `current-games.yml`: what each `needs`, and the names (prefixes) of the steps that
  * exercise the branch — its BODY. Steps before the body (checkout, pnpm, node, install, the
  * headless shell, artifact downloads) are set-up: a runner lost there tested nothing, while a
- * set-up step that failed is still a failure of its own. `prepare` has no body (it posts a status,
- * picks a base and classifies the diff), so only a lost runner retries it. `retry.fixture.mjs`
+ * set-up step that failed is still a failure of its own. `prepare` has no body (it picks a base and
+ * classifies the diff), so only a lost runner retries it. `retry.fixture.mjs`
  * proves this table matches the workflow file.
  */
 export const JOBS = {
@@ -38,7 +38,7 @@ export const JOBS = {
 	},
 	gates: { needs: ['prepare'], body: ["Run every game type's gates once"] },
 	render: { needs: ['prepare', 'build'], body: ['Render shard '] },
-	report: { needs: ['prepare', 'build', 'gates', 'render'], body: ['Compare', 'Post the status'] },
+	report: { needs: ['prepare', 'build', 'gates', 'render'], body: ['Compare', 'Verdict'] },
 };
 
 /** Conclusions that make a job a failed one for "re-run failed jobs". */
