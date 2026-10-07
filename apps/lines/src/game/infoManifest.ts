@@ -10,7 +10,13 @@ import { DEFAULT_DENOM } from 'delivery-profile';
 import { stateConfig, stateI18n, stateOperator } from 'state-shared';
 import { numberToCurrencyString } from 'utils-shared/amount';
 
-import { getActiveGameConfig, getNumRows, getPaylines, paylineColor } from './gameConfig';
+import {
+	getActiveGameConfig,
+	getNumRows,
+	getPaylines,
+	getSymbolsInPlay,
+	paylineColor,
+} from './gameConfig';
 import { numLines, paytable } from './paytable';
 import { getSymbolInfo } from './utils';
 import { SYMBOL_SIZE } from 'engine-game';
@@ -91,6 +97,18 @@ const freeSpinsRules = (): InfoRuleOptions => {
 };
 
 /**
+ * Whether the game deals a wild: a symbol in play (the server's declared set when it is
+ * authoritative, else the strips) tagged `wild`. A wild kept in the dictionary but on no strip
+ * leaves the WILD rule off the page, as it is never dealt or drawn.
+ */
+const wildInPlay = (): boolean => {
+	const { symbols } = getActiveGameConfig();
+	return getSymbolsInPlay().some(
+		(name) => symbols[name]?.special_properties?.includes('wild') ?? false,
+	);
+};
+
+/**
  * The rules page with the game's own figures. Each payback appears only where the operator allows
  * it: the RTP on `jurisdiction.displayRTP` (the Play4Fun facade sets it from the embed page's
  * `showTheoreticalPayback`), a bought feature's on `showBuyBonusPayback` — and never while the
@@ -110,7 +128,7 @@ const rules = () =>
 			),
 			...operatorFigures(),
 		},
-		freeSpinsRules(),
+		{ ...freeSpinsRules(), wildInPlay: wildInPlay() },
 	);
 
 // Every config-derived field is an ACCESSOR, for the same reason `symbols` already was: this

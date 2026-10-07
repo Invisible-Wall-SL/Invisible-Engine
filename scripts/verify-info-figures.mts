@@ -15,7 +15,9 @@
 //   5. free spins OFF, or a trigger other than 3 scatters, drops the SCATTER rule's free-spins
 //      promise (a departing trigger also adds a FREE SPINS block, its count and symbol as the
 //      figure), while the default leaves the page byte-identical;
-//   6. no rules string carries a `{placeholder}`: the i18n resolver compiles a message with no values
+//   6. a game that deals no wild drops the WILD rule and leaves every other rule as it was, while a
+//      wild in play (or the option unstated) leaves the page byte-identical;
+//   7. no rules string carries a `{placeholder}`: the i18n resolver compiles a message with no values
 //      by BLANKING its placeholders (a first cut shipped "The maximum win is × the total bet" that
 //      way), and every new string is harvested for /localization.
 
@@ -139,6 +141,24 @@ const doc = (over: Partial<GameConfigDoc> = {}): GameConfigDoc =>
 	check('a scatter trigger is named by the translated SCATTER heading', same(scatter4[scatterAt + 1].figure, { value: '4+', unit: 'SCATTER' })); // prettier-ignore
 	const wild5 = infoRulesWithFigures({}, { freeSpinsTrigger: { count: 5, symbol: 'W', role: 'wild' } }); // prettier-ignore
 	check('…a wild one by the WILD heading', same(wild5[scatterAt + 1].figure, { value: '5+', unit: 'WILD' })); // prettier-ignore
+}
+
+// --- 3c. WILD -----------------------------------------------------------------------------------
+{
+	const wildAt = UI_INFO_RULES.findIndex((r) => r.heading === 'WILD');
+	const figures = { rtp: '96.50%', maxWin: '5,000', creditValue: '€0.01' };
+	const on = infoRulesWithFigures(figures);
+	check('a wild in play ⇒ the page is byte-identical', same(infoRulesWithFigures(figures, { wildInPlay: true }), on)); // prettier-ignore
+	check('…and still states the WILD rule', on[wildAt].heading === 'WILD' && on[wildAt].body === UI_INFO_RULES[wildAt].body); // prettier-ignore
+	check('…alongside the free-spins options, unchanged', same(infoRulesWithFigures(figures, { freeSpins: false, wildInPlay: true }), infoRulesWithFigures(figures, { freeSpins: false }))); // prettier-ignore
+	const off = infoRulesWithFigures(figures, { wildInPlay: false });
+	check('no wild in play ⇒ the WILD rule is omitted', !off.some((r) => r.heading === 'WILD'));
+	check('…and every other rule is unchanged, in order', same(off, on.filter((_r, i) => i !== wildAt))); // prettier-ignore
+	const trigger = { count: 4, symbol: 'H1' };
+	const offFs = infoRulesWithFigures(figures, { freeSpinsTrigger: trigger, wildInPlay: false });
+	const onFs = infoRulesWithFigures(figures, { freeSpinsTrigger: trigger });
+	check('…combined with a departing trigger, only the WILD rule goes', same(offFs, onFs.filter((_r, i) => i !== wildAt))); // prettier-ignore
+	check('the defaults keep the WILD rule', UI_INFO_RULES[wildAt]?.heading === 'WILD');
 }
 
 // --- 4. TRANSLATION SAFETY + HARVEST -------------------------------------------------------------
