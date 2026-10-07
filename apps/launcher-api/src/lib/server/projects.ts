@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { PROJECT_KEY_PATTERN } from '$lib/projectKey';
-import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import { getDb } from './db';
 import {
 	clients,
@@ -15,7 +15,7 @@ import type { Role } from '$lib/roles';
 import { DEFAULT_GAME_KIND } from 'constants-shared/gameKinds';
 import { getDeployToken } from './appSettings';
 import { r2SlugSql, withProjectKeyLock, type Queryer } from './projectKeyLock';
-import { UNASSIGNED_CLIENT } from './projectPaths';
+import { ProjectFolderTakenError, UNASSIGNED_CLIENT, r2Slug } from './projectPaths';
 
 /** The default project every user can always reach; null session = this key. */
 export const DEFAULT_PROJECT_KEY = 'cloud';
@@ -82,16 +82,33 @@ export async function projectKeyTaken(key: string): Promise<boolean> {
 }
 
 /**
- * True when ANY row, live or deleted, has a key whose R2 folder is `slug` (`my-game` and `my_game`
- * share one). Run on the lock's `tx` by the pending-mockup cleanup.
+ * The key of a project, live or deleted, whose R2 folder is `slug` (`my-game` and `my_game` share
+ * one), or `null`. With `client`, only a project in that client's folder (`null` client = the
+ * unassigned folder) — the folder a new key under that client would write; without it, any client.
+ * `db` is the lock's `tx` inside {@link withProjectKeyLock}.
  */
-export async function projectInFolder(slug: string, db: Queryer = getDb()): Promise<boolean> {
+export async function projectInFolder(
+	slug: string,
+	{ client, db = getDb() }: { client?: string; db?: Queryer } = {},
+): Promise<string | null> {
+	const inFolder = eq(r2SlugSql(projects.key), slug);
 	const [row] = await db
 		.select({ key: projects.key })
 		.from(projects)
-		.where(eq(r2SlugSql(projects.key), slug))
+		.where(
+			client === undefined
+				? inFolder
+				: and(
+						inFolder,
+						eq(
+							r2SlugSql(sql`coalesce(${projects.clientKey}, ${UNASSIGNED_CLIENT})`),
+							r2Slug(client),
+						),
+					),
+		)
+		.orderBy(projects.key)
 		.limit(1);
-	return Boolean(row);
+	return row?.key ?? null;
 }
 
 /** Owning client key for a project, or `null` when unassigned / unknown. */
@@ -352,6 +369,8 @@ export async function revokeProjectAccess(userId: string, projectKey: string): P
 /**
  * Insert a project row, holding its key ({@link withProjectKeyLock}): the pending-mockup cleanup
  * re-checks "no project" under the same lock, so it never clears a key this insert is claiming.
+ * Throws {@link ProjectFolderTakenError} when a project, live or deleted, already holds the key's
+ * R2 folder under this client — checked under the lock, so of two racing aliases only one lands.
  */
 export async function createProject(
 	key: string,
@@ -360,6 +379,11 @@ export async function createProject(
 	gameType?: string,
 ): Promise<void> {
 	await withProjectKeyLock(key, async (tx) => {
+		const existing = await projectInFolder(r2Slug(key), {
+			client: clientKey ?? UNASSIGNED_CLIENT,
+			db: tx,
+		});
+		if (existing) throw new ProjectFolderTakenError(key, existing);
 		await tx.insert(projects).values({ key, name, clientKey, gameType: gameType ?? null });
 	});
 }
@@ -381,10 +405,7 @@ export async function renameProject(key: string, name: string): Promise<void> {
  */
 export async function softDeleteProject(key: string, when: Date): Promise<string[]> {
 	return getDb().transaction(async (tx) => {
-		const owned = await tx
-			.select({ key: games.key })
-			.from(games)
-			.where(eq(games.projectKey, key));
+		const owned = await tx.select({ key: games.key }).from(games).where(eq(games.projectKey, key));
 		await tx.delete(games).where(eq(games.projectKey, key));
 		await tx
 			.update(sessions)

@@ -15,6 +15,56 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-07 · Phases 3, 5 follow-up · coordinator (merges #1090)
+- **Did:** #1090 (OPEN_QUESTIONS 17). A key can no longer alias an existing project's R2 folder
+  (`r2Slug(client)/r2Slug(key)`, e.g. `sunken_temple` beside `sunken-temple`).
+  - `createProject` and `assignProjectToClient` check under `withProjectKeyLock` on its tx and
+    throw `ProjectFolderTakenError` (live or soft-deleted holder, same client folder); of two
+    racing aliases one lands. Game Maker / Admin fail(400), desktop sync and duplicate 409,
+    `create_from_template` 409 `project_exists`; the sync re-assigns before renaming.
+  - `requireDirectorProjectScope`: a creatable pending alias gets a neutral 409
+    (`FOLDER_TAKEN_WORDS`, never naming the project); `createRun` refuses it under its lock
+    (409 `key_folder_taken`).
+  - `projectInFolder` returns the holder and takes an optional client. Existing aliases are
+    untouched; `list:project-folder-aliases` reports them read-only.
+- **Files:** `apps/launcher-api/src/lib/server/{projects,clients,projectPaths,projectKeyLock,duplicateProject}.ts`,
+  `director/{access,runs,mockupCleanup}.ts`, Game Maker / Admin / `api/launcher/projects` routes;
+  `scripts/check-project-create.ts` (new), `check-project-scope.ts`, `check-director-{mockups,runs,adapters}.ts`,
+  `list-project-folder-aliases.ts`; `lint.yml`; `docs/status/launcher.md`, `docs/tools/director.md`.
+- **Branch / PR:** `claude/nice-bohr-6z0jkj` → #1090 (squash d3caf1b6).
+- **Tests:** check:project-create 22 (race + lock-off control), check:project-scope 49,
+  check:director-mockups 153, check:director-runs 413, check:director-adapters 343; svelte-check at
+  baseline; CI green (current-games posted by the new verdict). Reviewed twice; round one added
+  the client re-assign path and the neutral message.
+- **Decisions:** OPEN_QUESTIONS 17 answered; new 22 (re-homing leftovers), 23 (existing aliases).
+- **Next:** owner runs `list:project-folder-aliases` against production once.
+
+## 2026-10-07 · Phase 5 · coordinator (merges #1082)
+- **Did:** #1082 (Trusted current-games verdict, OPEN_QUESTIONS 5).
+  - The PR's harness run no longer holds `statuses: write`, never posts `current-games`, and runs
+    only for PRs into `main`.
+  - New `current-games-verdict.yml` (`workflow_run`, main's code): verifies the run (harness file,
+    open same-repo PR into `main`, head SHA), re-decides reach with main's `touched.mjs`, fails
+    harness/workflow-editing PRs without reading their report, requires the report's base on
+    `main`, fails a cancelled run unless a newer one will post, reads jobs and `report.json` as
+    data only, and posts the status.
+  - Launcher unchanged apart from comments and the no-report text; its approval is the second
+    poster.
+- **Files:** `.github/workflows/{current-games,current-games-verdict}.yml`,
+  `scripts/current-games/{lib/verdict.mjs,verdict.fixture.mjs}`,
+  `apps/launcher-api/src/lib/server/pipelineReport.ts`, `docs/INFRA.md`, `docs/status/engine.md`,
+  `docs/playtest/current-games.md`.
+- **Branch / PR:** `claude/clever-brahmagupta-c18bt9` → #1082 (squash ab5b4178). Merged after the
+  owner posted `current-games` on its head by hand (the bootstrap route).
+- **Tests:** `verdict.fixture.mjs` (every decision branch and rejection, including the
+  other-branch shared-head attack, harness edits, unreadable diffs, base off `main` or missing,
+  cancelled runs), `check:all` 395/395, launcher `check:pipeline-changes`; CI green. Reviewed
+  three rounds; the first found a PR into another branch could turn `main`'s check green.
+- **Decisions:** ADR-0004 amended (trusted verdict). OPEN_QUESTIONS 5 answered; new 19–21.
+- **Next:** owner: limit the `current-games-verdict` environment to `main`, then add the App
+  secrets, confirm the App posts, then pin the check. The first PR after this merge shows the
+  verdict posting `pending` then its result.
+
 ## 2026-10-06 · Phases 3, 4, 5 follow-ups · coordinator (merges #1085)
 - **Did:** #1085 (Director follow-ups batch).
   - A breakdown answer row is written with its bill, inside a savepoint: a failed answer write

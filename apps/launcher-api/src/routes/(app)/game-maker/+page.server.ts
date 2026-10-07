@@ -25,7 +25,7 @@ import { selectableGameKinds } from '$lib/server/gameKinds';
 import { buildGameProfile } from '$lib/server/gameProfile';
 import { listGames } from '$lib/server/games';
 import { currentPointer } from '$lib/server/publishedRuntime';
-import { UNASSIGNED_CLIENT, editorDocKey } from '$lib/server/projectPaths';
+import { ProjectFolderTakenError, UNASSIGNED_CLIENT, editorDocKey } from '$lib/server/projectPaths';
 import {
 	addOnToolsMissing,
 	applyPotsOverlayAddOn,
@@ -307,7 +307,14 @@ export const actions: Actions = {
 			return fail(403, { action: 'create', error: 'You do not have access to that client.' });
 		}
 
-		await createProject(key, name, clientKey, rawGameType !== '' ? rawGameType : undefined);
+		try {
+			await createProject(key, name, clientKey, rawGameType !== '' ? rawGameType : undefined);
+		} catch (e) {
+			if (e instanceof ProjectFolderTakenError) {
+				return fail(400, { action: 'create', error: e.message });
+			}
+			throw e;
+		}
 		await scaffoldProject(clientKey ?? UNASSIGNED_CLIENT, key, {
 			holdAndWinPreset: rawGameType === 'holdAndWin' ? holdAndWinPreset : undefined,
 		});

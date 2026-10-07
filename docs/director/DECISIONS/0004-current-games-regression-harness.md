@@ -149,3 +149,18 @@ A GitHub Actions workflow `current-games.yml`, triggered on every pipeline branc
   screenshots are deleted once compared; the report keeps changed screens only, for 3 days. CI
   loads Typekit from Adobe (a mirror exists but stays off until the licence is confirmed); jobs
   GitHub never starts are re-run once, never a job that ran and failed.
+- **2026-10-07, approved (trusted verdict, #1082):** the harness (`current-games.yml`) holds no
+  `statuses` permission, posts nothing and runs only for PRs into `main`; it renders and uploads.
+  The `current-games` status is posted by `current-games-verdict.yml`, which `workflow_run` runs
+  from `main`. Before posting it verifies the run is the harness file, for an open same-repo PR
+  into `main`, at the head it posts to. Main's `touched.mjs` decides whether the change can reach
+  a game. A PR that edits `.github/workflows/**` or `scripts/current-games/**` fails without its
+  report being read (it wrote that report), as does a PR whose diff cannot be read; the owner
+  merges such PRs after review by posting `current-games` by hand (or, once the check is pinned to
+  an App, through the ruleset bypass). Otherwise jobs and `report.json` are read as data and
+  decided as before; a report whose base is not on `main`, or that names none, fails. A cancelled
+  run fails unless a newer run on its head will post. Push runs post no status; manual runs post
+  `current-games/self-compare` / `current-games/manual` only. The other poster is the launcher's
+  approval (ADR-0007). After the owner sets up an App through an environment limited to `main`,
+  the required check is pinned to it (docs/INFRA.md). Residual: install/build code a PR changes
+  still runs in its own harness run.
