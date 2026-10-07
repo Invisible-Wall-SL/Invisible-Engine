@@ -124,7 +124,9 @@
 	 * here would be a control that silently does nothing. The rule comes from `engine-layout`
 	 * (the same predicate the engine gates on), never a literal `'S'` copied into this page.
 	 */
-	const lineSymbols = $derived(data.symbols.filter(symbolDrawsWinLine));
+	const lineSymbols = $derived(
+		data.symbols.filter((s) => symbolDrawsWinLine(s) && !data.coins.includes(s)),
+	);
 	const excludedSymbols = $derived(data.symbols.filter((s) => !symbolDrawsWinLine(s)));
 
 	/** Write a sparse nested value, deleting the key when the input is blank so a cleared
@@ -441,6 +443,12 @@
 					anywhere rather than along a line, so the game draws no win line for it and this message
 					would never appear. Use the
 					<em>Info-bar message</em> below for those wins.
+				{/if}
+				{#if data.coins.length}
+					<br />
+					<strong>{data.coins.join(', ')}</strong>
+					{data.coins.length === 1 ? 'is not listed' : 'are not listed'}: a pots overlay drops its
+					coins over a cell, never along a line, so no win line names them.
 				{/if}
 			</p>
 
