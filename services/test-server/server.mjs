@@ -502,6 +502,50 @@ const validGrid = (grid) => {
 	// declares a `betOptions` table from them and prices `bet [x, M]` by it. See `validBetModes`.
 	const betModes = validBetModes(grid.betModes);
 	if (grid.betModes !== undefined && !betModes) warnDroppedBetModes(grid.betModes);
+	// `freeSpins: false` (the project turned free spins OFF in `/config`) stops the lines mock
+	// entering the feature; scatters still land and pay. Only `false` is forwarded; absent ⇒ on.
+	const freeSpinsOff = grid.freeSpins === false;
+	// The free-spins TRIGGER when it departs from 3+ SCAT: a server symbol name and a count.
+	// Malformed ⇒ dropped ⇒ the mock's own 3+ SCAT rule.
+	const trigger = grid.freeSpinsTrigger;
+	const freeSpinsTrigger =
+		trigger &&
+		typeof trigger === 'object' &&
+		typeof trigger.symbol === 'string' &&
+		trigger.symbol.length > 0 &&
+		Number.isInteger(trigger.count) &&
+		trigger.count >= 1
+			? { symbol: trigger.symbol, count: trigger.count }
+			: null;
+	// The free-spins AWARDS when they depart from 10 / +5 / never random: two tables of
+	// `{ count, spins, maxSpins? }` rows and the random switch. Validated WHOLE, like `betModes` —
+	// a table with a hole in it is worse than the default — so malformed ⇒ the mock's 10 / +5.
+	const awardRows = (rows) =>
+		Array.isArray(rows) &&
+		rows.length > 0 &&
+		rows.every(
+			(row) =>
+				row &&
+				Number.isInteger(row.count) &&
+				row.count >= 1 &&
+				Number.isInteger(row.spins) &&
+				row.spins >= 1 &&
+				(row.maxSpins === undefined ||
+					(Number.isInteger(row.maxSpins) && row.maxSpins >= row.spins)),
+		)
+			? rows.map(({ count, spins, maxSpins }) => ({
+					count,
+					spins,
+					...(maxSpins === undefined ? {} : { maxSpins }),
+				}))
+			: null;
+	const awards = grid.freeSpinsAwards;
+	const entryAwards = awards && typeof awards === 'object' ? awardRows(awards.awards) : null;
+	const retriggerAwards = awards && typeof awards === 'object' ? awardRows(awards.retrigger) : null;
+	const freeSpinsAwards =
+		entryAwards && retriggerAwards && typeof awards.random === 'boolean'
+			? { awards: entryAwards, retrigger: retriggerAwards, random: awards.random }
+			: null;
 	// A Hold and Win game's inputs: its block, line symbols and symbol roles/pays. Shape-checked only
 	// as far as the mock needs to stand up; everything inside was normalized by the launcher.
 	const holdAndWinShaped = (hw) =>
@@ -574,6 +618,9 @@ const validGrid = (grid) => {
 		...(betModes ? { betModes } : {}),
 		...(holdAndWin ? { holdAndWin } : {}),
 		...(potsOverlay ? { potsOverlay } : {}),
+		...(freeSpinsOff ? { freeSpins: false } : {}),
+		...(freeSpinsTrigger ? { freeSpinsTrigger } : {}),
+		...(freeSpinsAwards ? { freeSpinsAwards } : {}),
 	};
 };
 

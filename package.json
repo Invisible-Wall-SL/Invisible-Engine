@@ -10,7 +10,7 @@
 		"check:ways": "node scripts/check-ways-evaluator.mjs && node scripts/check-ways-protocol.mjs",
 		"check:cluster": "node scripts/check-cluster-evaluator.mjs",
 		"check:scatter": "node scripts/check-scatter-evaluator.mjs",
-		"check:freespins": "node scripts/check-freespin-protocol.mjs",
+		"check:freespins": "node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-freespin-protocol.mjs && node --experimental-strip-types --import ./scripts/ts-loader.mjs packages/game-config/freeSpins.fixture.ts",
 		"check:holdandwin": "node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-holdandwin-protocol.mjs && node --experimental-strip-types --import ./scripts/ts-loader.mjs packages/rgs-translator-eagaming/holdAndWin.fixture.ts",
 		"check:pots-overlay": "node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-pots-overlay-protocol.mjs && node --experimental-strip-types --import ./scripts/ts-loader.mjs packages/game-config/potsOverlay.fixture.ts && node --experimental-strip-types --import ./scripts/ts-loader.mjs packages/engine-game/src/game/potsOverlay.fixture.ts && node --experimental-strip-types --import ./scripts/ts-loader.mjs packages/rgs-translator-eagaming/potsOverlay.fixture.ts",
 		"check:book-paytable": "node scripts/check-book-paytable.mjs",
