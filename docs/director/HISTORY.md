@@ -15,6 +15,30 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-07 · Phase 8 · coordinator (merges #1097, #1098, #1100, #1102, #1103, #1104)
+- **Did:** finished card 8D after the code (#1091), one agent definition per PR (ADR-0007):
+  - #1097: the five `TRANSITION_TOOLS` allowances made all-or-none per agent and pinned.
+  - #1098: new `atlas-technician` definition (Sonnet 5.5 high, the 18 Appendix A tools).
+  - #1100: `atlas-artist` narrowed to prompts and curation (render tools dropped).
+  - #1102: cleanup — the four render ops serve only the technician; the artist's ungated
+    `queue_variants` path and `AWAITING_DEFINITION` removed (`step` and the recipe gate always
+    required).
+  - #1103: `coordinator` names `atlas.list_blueprints`, has the technician plan every recipe
+    before anything renders, and runs batches as artist prompts → technician renders → art
+    director judges → technician commits.
+  - #1104: transition machinery removed; every op's allow-list matches its definitions both
+    ways again.
+- **Branch / PR:** `claude/sharp-shannon-k1w1xy`, reused one PR at a time (the session could
+  push only that branch).
+- **Tests:** agent-eval on each definition ("no eval set yet, nothing to compare"),
+  check:director-adapters 439–444, check:pipeline-changes 7843; CI and current-games green.
+- **Decisions:** coordinator review of #1097 (re-review of the allowance lists); the artist →
+  cleanup → coordinator order left a short window where Director runs could not render (owner
+  told to start none); a non-failing "cleanup owed" notice rather than a red main.
+- **Next:** 8E (#1093) merges main and is reviewed; then 8C (#1095); then 8F. Owed: the live
+  Director-token pass (needs `ATLAS_TOOL_SIGNING_SECRET`); owner sets `RUNPOD_ENDPOINT_GPU` and
+  sends real RunPod rates (`pricing.json` is still a placeholder).
+
 ## 2026-10-07 · Phase 8 · coordinator (merges #1091)
 - **Did:** #1091 (ADR-0008 card 8D, the code half; inert until its agent definitions land).
   - New Atlas adapter ops: `list_blueprints`, `set_atlas_pipeline`, `set_region_pipeline`,
