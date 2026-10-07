@@ -88,7 +88,7 @@ class LinkedMesh {
 	) {}
 }
 
-/** Reads rig 4.x skeleton JSON (and so `.irig`) into `SkeletonData`. */
+/** Reads Spine-format 4.x skeleton JSON (and so `.irig`) into `SkeletonData`. */
 export class SkeletonJson {
 	/** Multiplies every length and position as it is read. */
 	scale = 1;
