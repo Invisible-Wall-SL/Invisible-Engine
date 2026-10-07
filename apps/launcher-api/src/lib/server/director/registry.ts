@@ -1,5 +1,6 @@
 import { isDirectorAgent, type AdapterOp } from './adapter';
 import { ATLAS_OPS } from './ops/atlas';
+import { ATLAS_SETUP_OPS } from './ops/atlasSetup';
 import { FLIPBOOK_OPS } from './ops/flipbook';
 import { FONTS_OPS } from './ops/fonts';
 import { GAMEMAKER_OPS } from './ops/gamemaker';
@@ -59,6 +60,7 @@ export function buildRegistry(ops: readonly AdapterOp[]): ReadonlyMap<string, Ad
 export const ADAPTER_OPS = buildRegistry([
 	...GAMEMAKER_OPS,
 	...ATLAS_OPS,
+	...ATLAS_SETUP_OPS,
 	...MOCKUP_OPS,
 	...SYMBOLS_OPS,
 	...SCENE_OPS,

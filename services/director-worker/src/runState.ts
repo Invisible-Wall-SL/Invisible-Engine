@@ -7,6 +7,7 @@
  * running ─owner pause / budget cap / refusal / error→ paused ─resume→ running
  * any live ─stop→ stopping ─(in-flight GPU jobs cancelled)→ stopped
  * build done → waiting(before_publish, always) ─approve→ handed_off
+ * style_pack|regions ─plan_ready→ waiting(art_plan, when on) ─approve|revise→ running (same step)
  * ```
  *
  * Checkpoints are opened BY the machine, never requested into it: finishing a gated step (or a region
@@ -30,8 +31,9 @@ export type RunStatus = (typeof RUN_STATUSES)[number];
 export const RUN_STEPS = ['breakdown', 'style_pack', 'regions', 'build', 'handoff'] as const;
 export type RunStep = (typeof RUN_STEPS)[number];
 
-/** `breakdown` is the mockup breakdown, or the style board when the run has no mockups. */
-export const CHECKPOINTS = ['breakdown', 'region_batch', 'before_publish'] as const;
+/** `breakdown` is the mockup breakdown, or the style board when the run has no mockups.
+ *  `art_plan` is the owner's review of the technician's recipes (ADR-0008 §7). */
+export const CHECKPOINTS = ['breakdown', 'art_plan', 'region_batch', 'before_publish'] as const;
 export type Checkpoint = (typeof CHECKPOINTS)[number];
 
 export const TERMINAL_STATUSES: readonly RunStatus[] = ['stopped', 'failed', 'handed_off'];
@@ -40,6 +42,9 @@ export const TERMINAL_STATUSES: readonly RunStatus[] = ['stopped', 'failed', 'ha
 export interface CheckpointSettings {
 	breakdown: boolean;
 	regionBatch: boolean;
+	/** The Art plan (ADR-0008 §7). Off: the plan is stored and shown, and the worker approves it
+	 *  itself once its projection fits the cap. */
+	artPlan: boolean;
 	/** Always true: `checkpointSettings` sets it whatever the stored JSON says. */
 	beforePublish: true;
 }
@@ -50,6 +55,7 @@ export function checkpointSettings(raw: unknown): CheckpointSettings {
 	return {
 		breakdown: record.breakdown !== false,
 		regionBatch: record.regionBatch !== false,
+		artPlan: record.artPlan !== false,
 		beforePublish: true,
 	};
 }
@@ -69,6 +75,9 @@ export type RunEvent =
 	| { type: 'step_done' }
 	/** One batch of regions is drafted and reviewed (only in `regions`). */
 	| { type: 'batch_done' }
+	/** Every region the plan names has a stored recipe that is not approved yet (worker code only,
+	 *  ADR-0008 §7). */
+	| { type: 'plan_ready' }
 	/** The owner resolves the open checkpoint. `revise` sends the step back to work. */
 	| { type: 'resolve'; checkpoint: Checkpoint; decision: 'approve' | 'revise' }
 	/** `refusal`: the model's final answer was a refusal; `error`: the worker cannot go on (a
@@ -85,6 +94,7 @@ export const RUN_EVENT_TYPES: readonly RunEventType[] = [
 	'start',
 	'step_done',
 	'batch_done',
+	'plan_ready',
 	'resolve',
 	'pause',
 	'resume',
@@ -140,6 +150,8 @@ function afterApproval(state: RunState, checkpoint: Checkpoint): RunState {
 	switch (checkpoint) {
 		case 'breakdown':
 			return running(state, 'style_pack');
+		case 'art_plan':
+			return running(state);
 		case 'region_batch':
 			return running(state, 'regions');
 		case 'before_publish':
@@ -148,7 +160,7 @@ function afterApproval(state: RunState, checkpoint: Checkpoint): RunState {
 }
 
 /** The step a `revise` decision sends the run back to. */
-const reviseStep: Record<Checkpoint, RunStep> = {
+const reviseStep: Record<Exclude<Checkpoint, 'art_plan'>, RunStep> = {
 	breakdown: 'breakdown',
 	region_batch: 'regions',
 	before_publish: 'build',
@@ -170,6 +182,12 @@ export function transition(state: RunState, event: RunEvent): TransitionResult {
 			if (state.status !== 'running' || state.step !== 'regions') return illegal(state, event);
 			return ok(state.checkpoints.regionBatch ? waiting(state, 'region_batch') : state);
 
+		case 'plan_ready':
+			if (state.status !== 'running' || (state.step !== 'style_pack' && state.step !== 'regions')) {
+				return illegal(state, event);
+			}
+			return ok(state.checkpoints.artPlan ? waiting(state, 'art_plan') : state);
+
 		case 'resolve':
 			if (state.status !== 'waiting') return illegal(state, event);
 			if (event.checkpoint !== state.waitingOn) {
@@ -178,7 +196,9 @@ export function transition(state: RunState, event: RunEvent): TransitionResult {
 			return ok(
 				event.decision === 'approve'
 					? afterApproval(state, event.checkpoint)
-					: running(state, reviseStep[event.checkpoint]),
+					: event.checkpoint === 'art_plan'
+						? running(state)
+						: running(state, reviseStep[event.checkpoint]),
 			);
 
 		case 'pause':

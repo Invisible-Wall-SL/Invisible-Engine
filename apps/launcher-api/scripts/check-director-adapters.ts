@@ -32,6 +32,11 @@
  *    writes nothing; every doc written carries the `saved_by` stamp; and each op's own refusals —
  *    Scene nodes bound to the math, source-only unreviewed strings, a font bake that waits for the
  *    owner, a rig rebind that cannot re-time.
+ *  - 8D (ADR-0008 §3, §4) the technician's ops against the fake atlas-tool: only reviewed image
+ *    cards are listed; `/saveconfig` carries only atlas keys (run_on and off-card keys refused);
+ *    `/saveadv` gets the whole card; refs are copied create-only; layers only on a scratch atlas
+ *    this run made; `set_output` never over a tile the run did not commit; scratch atlases are
+ *    never packed or deployed; and the queue gate renders only approved recipe steps.
  */
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -127,6 +132,8 @@ fake('lib/server/r2.ts', {
 	},
 	putObjectText: async (key: string, text: string, _type: string, cond?: Cond) =>
 		put(key, text, cond),
+	putObjectBytes: async (key: string, bytes: Uint8Array, _type: string, cond?: Cond) =>
+		put(key, Buffer.from(bytes).toString('latin1'), cond),
 	copyObject: async (from: string, to: string) => {
 		const o = R2.get(from);
 		if (!o) return false;
@@ -155,6 +162,8 @@ const USER_OVERRIDES = new Map<string, Record<string, boolean>>();
 const RUNS = new Map<string, DirectorRun>();
 const OPS = new Map<string, DirectorOp>();
 const ATLAS_JOBS = new Map<string, DirectorAtlasJob>();
+/** runId → its stored recipes (`director_regions.recipe_json`). */
+const RECIPES = new Map<string, unknown[]>();
 
 const project = (key: string, over: Partial<Project> = {}): Project => ({
 	key,
@@ -221,6 +230,11 @@ fake('lib/server/userToolAccess.ts', {
 let claims = 0;
 fake('lib/server/director/store.ts', {
 	getRun: async (id: string) => RUNS.get(id) ?? null,
+	runRecipes: async (id: string) => RECIPES.get(id) ?? [],
+	doneOpResults: async (runId: string, op: string) =>
+		[...OPS.values()]
+			.filter((o) => o.runId === runId && o.op === op && o.status === 'done')
+			.map((o) => o.result),
 	getRunOwner: async (id: string) => {
 		const u = USERS.get(id);
 		if (!u || !u.active || (u.expiresAt && u.expiresAt.getTime() < Date.now())) return null;
@@ -593,6 +607,22 @@ const REFUSED: [string, string, string][] = [
 	['build', 'open_pr', 'merge'],
 	['run', 'approve', 'merge'],
 	['run', 'update_agent', 'agent_definitions'],
+	// ADR-0008 §3 / §8: the technician's refusals, by name.
+	['atlas', 'upload_blueprint', 'library'],
+	['atlas', 'delete_card', 'library'],
+	['atlas', 'save_card', 'library'],
+	['atlas', 'save_taxonomy', 'library'],
+	['blueprints', 'save', 'library'],
+	['atlas', 'set_run_on', 'run_on'],
+	['atlas', 'save_global_style', 'global_config'],
+	['atlas', 'saveconfig', 'global_config'],
+	['atlas', 'delete_variants', 'art_deletion'],
+	['atlas', 'clear_output', 'art_deletion'],
+	['atlas', 'remove_region', 'art_deletion'],
+	['atlas', 'set_region_rect', 'template_rect'],
+	['atlas', 'move_region', 'template_rect'],
+	['atlas', 'add_region', 'template_add'],
+	['atlas', 'new_atlas', 'template_add'],
 ];
 for (const [tool, op, id] of REFUSED) {
 	const res = await call(tool, op, {
@@ -715,6 +745,9 @@ for (const [key, id] of [
 	[`${prefix('plain')}config/`, 'game_config'],
 	[`${prefix('plain')}config/backups/config-20261004.json`, 'game_config'],
 	[`${prefix('plain')}../other/x.json`, 'publish'],
+	['_shared/blueprints/birefnet/card.json', 'library'],
+	['_shared/taxonomy.json', 'library'],
+	[`${prefix('plain')}atlas_config.json`, 'global_config'],
 ] as const) {
 	const res = await direct({
 		runId: 'rw',
@@ -1277,6 +1310,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 				{ name: 'L1', prompt: 'old', seed: 9 },
 			],
 			rotated_regions: [{ name: 'W', prompt: 'a wild', variant: '00001' }],
+			settings: { pipeline: 'sdxl', gen_width: 1024, gen_height: 1024 },
 			saved_by: { rev: 'rev0', tool: 'atlas' },
 		}),
 		etag: etag(),
@@ -1291,6 +1325,147 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		act?: { tool: string; agent: string; run: string };
 	};
 	const seen: { path: string; claims: Claims; manifest: string | null; body: string }[] = [];
+	// The 8D routes (ADR-0008 §4), answered like ui_server.py does.
+	const FIXTURE_CATALOGUE = JSON.parse(
+		readFileSync(
+			fileURLToPath(
+				new URL('../../../docs/director/eval/blueprints/catalogue.json', import.meta.url),
+			),
+			'utf8',
+		),
+	) as { gpu: string; blueprints: Record<string, unknown>[] };
+	let blueprintReads = 0;
+	type Routed = {
+		status: number;
+		type: string;
+		body: string | Buffer;
+		headers?: Record<string, string>;
+	};
+	const text = (body: string): Routed => ({ status: 200, type: 'text/plain', body });
+	// A manifest as the fake reads and edits it.
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	type Doc = Record<string, any>;
+	const manifestOf = (m: string | null) =>
+		`acme/atl/manifests/${m ?? 'atlas_manifest_symbols.json'}`;
+	const editManifest = (m: string | null, edit: (doc: Doc) => void) => {
+		const key = manifestOf(m);
+		const doc = JSON.parse(R2.get(key)!.body);
+		edit(doc);
+		doc.saved_by = { tool: 'director', rev: `rev${R2.size}` };
+		const tag = put(key, JSON.stringify(doc));
+		return {
+			'x-iw-doc-versions': JSON.stringify({
+				[`manifests/${m}`]: { etag: tag, rev: doc.saved_by.rev },
+			}),
+		};
+	};
+	const regionsOf = (doc: Doc) => [...(doc.regions ?? []), ...(doc.rotated_regions ?? [])];
+	function setupRoute(url: URL, raw: string, manifest: string | null): Routed | null {
+		const body = raw ? JSON.parse(raw) : {};
+		switch (url.pathname) {
+			case '/blueprints':
+				blueprintReads++;
+				return {
+					status: 200,
+					type: 'application/json',
+					body: JSON.stringify({
+						gpu: FIXTURE_CATALOGUE.gpu,
+						blueprints: [
+							...FIXTURE_CATALOGUE.blueprints.map((b) => ({ ...b, status: 'reviewed' })),
+							// What an agent must never get, even if the route ever served it.
+							{ id: 'draft_one', kind: 'image', status: 'draft', card: {} },
+							{ id: 'wan', kind: 'video', status: 'reviewed', card: {} },
+						],
+					}),
+				};
+			case '/saveconfig':
+				return {
+					...text('Settings saved (per-atlas overrides + globals)'),
+					headers: editManifest(manifest, (doc) => {
+						doc.settings = { ...doc.settings, pipeline: body.atlas_pipeline };
+						doc.settings.gen_width = Number(body.gen_width);
+						doc.settings.gen_height = Number(body.gen_height);
+					}),
+				};
+			case '/saveadv':
+				return {
+					...text(`Advanced saved for ${body.name} (2 override(s))`),
+					headers: editManifest(manifest, (doc) => {
+						const r = regionsOf(doc).find((x) => x.name === body.name);
+						for (const [k, v] of Object.entries(body.fields)) {
+							if (v === '') delete r[k];
+							else r[k] = v;
+						}
+					}),
+				};
+			case '/duplicateatlas': {
+				const src = JSON.parse(R2.get(manifestOf(manifest))!.body);
+				const key = `acme/atl/manifests/atlas_manifest_${body.name}.json`;
+				if (R2.has(key))
+					return text(`⚠ An atlas '${body.name}' already exists — pick another name.`);
+				R2.set(key, {
+					body: JSON.stringify({
+						...src,
+						regions: regionsOf(src).map((r) => ({ name: `${body.prefix}_${r.name}` })),
+						rotated_regions: [],
+					}),
+					etag: etag(),
+				});
+				return text(`✓ Duplicated into '${body.name}'`);
+			}
+			case '/addlayer':
+				editManifest(manifest, (doc) =>
+					doc.regions.push({ name: `${body.base}_${body.suffix}`, layer_of: body.base }),
+				);
+				return text(`✓ Added layer '${body.base}_${body.suffix}' of '${body.base}'`);
+			case '/addregion':
+				editManifest(manifest, (doc) => doc.regions.push({ name: body.name }));
+				return text(`✓ Added region '${body.name}'.`);
+			case '/setmode':
+				return text(`${body.name}: ${body.mode} mode — set the controls and ⚙ build`);
+			case '/delregion':
+				editManifest(manifest, (doc) => {
+					doc.regions = doc.regions.filter((r: { name: string }) => r.name !== body.name);
+				});
+				return text(`✓ Removed region '${body.name}'.`);
+			case '/setoutput': {
+				const rel = `refs/useroutput/${body.name}_ra_abcdefabcdef.png`;
+				return {
+					...text(`✓ Committed ${rel} as the tile of ${body.name} (not processed).`),
+					headers: editManifest(manifest, (doc) => {
+						regionsOf(doc).find((x) => x.name === body.name).output_override = rel;
+					}),
+				};
+			}
+			case '/deployatlas':
+				return text('✓ Deployed symbols_new.webp → acme/atl/deploy/sprites/symbols.webp');
+		}
+		if (url.pathname.startsWith('/regionadv/')) {
+			const name = decodeURIComponent(url.pathname.slice('/regionadv/'.length));
+			const r = regionsOf(JSON.parse(R2.get(manifestOf(manifest))!.body)).find(
+				(x) => x.name === name,
+			);
+			const keys = [
+				'pipeline',
+				'ipadapter_weight',
+				'checkpoint',
+				'style_ref',
+				'shape_ref',
+				'fit_mode',
+			];
+			return {
+				status: 200,
+				type: 'application/json',
+				body: JSON.stringify({ fields: keys.map((key) => ({ key, value: r?.[key] ?? '' })) }),
+			};
+		}
+		if (url.pathname.startsWith('/vfull/')) {
+			return url.searchParams.get('id') === '00002'
+				? { status: 200, type: 'image/png', body: Buffer.from([0x89, 0x50, 0x4e, 0x47]) }
+				: { status: 200, type: 'image/svg+xml', body: '<svg/>' };
+		}
+		return null;
+	}
 	const progress = new Map<string, Record<string, unknown>>();
 	let busy = false;
 	let refuseCallbacks = false;
@@ -1311,9 +1486,11 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			const claims = JSON.parse(Buffer.from(payload, 'base64url').toString()) as Claims;
 			const manifest = url.searchParams.get('manifest');
 			seen.push({ path: url.pathname, claims, manifest, body: raw });
-			if (manifest !== null && manifest !== 'atlas_manifest_symbols.json') {
+			if (manifest !== null && !R2.has(`acme/atl/manifests/${manifest}`)) {
 				return send(404, 'application/json', '{"error":"unknown manifest"}');
 			}
+			const extra = setupRoute(url, raw, manifest);
+			if (extra) return send(extra.status, extra.type, extra.body, extra.headers ?? {});
 			const doc = JSON.parse(R2.get(MANIFEST)!.body);
 			if (url.pathname.startsWith('/variants/')) {
 				return send(200, 'application/json', '[{"id":"00002","seed":3},{"id":"00001","seed":2}]');
@@ -1410,7 +1587,13 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 	process.env.ATLAS_TOOL_URL = `http://127.0.0.1:${port}`;
 
 	let seqN = 0;
-	const atlas = (op: string, input: unknown, agent = 'atlas-artist', runId = 'ra') =>
+	const TECHNICIAN_OPS = new Set(['queue_variants', 'choose_variant', 'pack_sheet', 'job_status']);
+	const atlas = (
+		op: string,
+		input: unknown,
+		agent = TECHNICIAN_OPS.has(op) ? 'atlas-technician' : 'atlas-artist',
+		runId = 'ra',
+	) =>
 		call(op === 'job_status' ? 'comfyui' : 'atlas', op, {
 			runId,
 			agent,
@@ -1520,9 +1703,9 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		put(MANIFEST, JSON.stringify(human));
 		const chose = await call('atlas', 'choose_variant', {
 			runId: 'ra',
-			agent: 'atlas-artist',
+			agent: 'atlas-technician',
 			opId: 'ra:choose:1',
-			input: { atlas: 'symbols', region: 'W', id: '00002', base: stale },
+			input: { atlas: 'symbols', region: 'W', id: '00002', lock: false, base: stale },
 		});
 		check(
 			"choose_variant over a person's newer save is { error: 'conflict' }",
@@ -1536,9 +1719,9 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		);
 		const retried = await call('atlas', 'choose_variant', {
 			runId: 'ra',
-			agent: 'atlas-artist',
+			agent: 'atlas-technician',
 			opId: 'ra:choose:2',
-			input: { atlas: 'symbols', region: 'W', id: '00002' },
+			input: { atlas: 'symbols', region: 'W', id: '00002', lock: false },
 		});
 		check(
 			're-read and retried, the pick lands',
@@ -1551,7 +1734,8 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		);
 		check(
 			'a variant that was never rendered is a 404',
-			(await atlas('choose_variant', { atlas: 'symbols', region: 'W', id: '00009' })).status,
+			(await atlas('choose_variant', { atlas: 'symbols', region: 'W', id: '00009', lock: false }))
+				.status,
 			404,
 		);
 	}
@@ -1582,14 +1766,84 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		);
 	}
 
+	// The queue gate (ADR-0008 §3, §5): a render needs an approved recipe step.
+	const recipe = (region: string, approved: boolean, variants = 3) => ({
+		rev: 2,
+		region,
+		atlas: 'symbols',
+		group: 'Symbols',
+		approved: approved ? { by: 'owner', at: 'now', rev: 2 } : null,
+		steps: [
+			{ n: 1, kind: 'generate', pipeline: 'sdxl', atlas: 'symbols', region, genPx: 1024, variants },
+		],
+	});
+	{
+		const QUEUE = { atlas: 'symbols', regions: ['H1', 'H2'], variants: 3, step: 'H1#1' };
+		const renders = () => seen.filter((x) => x.path === '/render').length;
+		const before = renders();
+		const none = await atlas('queue_variants', QUEUE);
+		check(
+			'a render with no recipe is refused before atlas-tool',
+			[none.status, none.body.error],
+			[409, 'no_approved_step'],
+		);
+		RECIPES.set('ra', [recipe('H1', true), recipe('H2', false)]);
+		const half = await atlas('queue_variants', QUEUE);
+		check(
+			'...and so is one whose recipe the owner has not approved, naming the region',
+			[half.status, half.body.error, String(half.body.message).includes('H2 (sdxl 1024 px ×3)')],
+			[409, 'no_approved_step', true],
+		);
+		RECIPES.set('ra', [recipe('H1', true), recipe('H2', true, 2)]);
+		check(
+			'...or one whose approved step asks for other variants',
+			(await atlas('queue_variants', QUEUE)).body.error,
+			'no_approved_step',
+		);
+		RECIPES.set('ra', [
+			recipe('H1', true),
+			{ ...recipe('H2', true), approved: { by: 'o', at: 'n', rev: 1 } },
+		]);
+		check(
+			'...or one revised since its approval',
+			(await atlas('queue_variants', QUEUE)).body.error,
+			'no_approved_step',
+		);
+		RECIPES.set('ra', [recipe('H1', true), recipe('H2', true)]);
+		check(
+			'a step naming a region the call does not render is refused',
+			(await atlas('queue_variants', { ...QUEUE, step: 'L1#1' })).status,
+			400,
+		);
+		RUNS.get('ra')!.waitingOn = 'art_plan';
+		check(
+			'nothing renders while the Art plan is open',
+			(await atlas('queue_variants', QUEUE)).body.error,
+			'art_plan_open',
+		);
+		RUNS.get('ra')!.waitingOn = null;
+		const doc = JSON.parse(R2.get(MANIFEST)!.body);
+		const settings = doc.settings;
+		delete doc.settings;
+		R2.set(MANIFEST, { body: JSON.stringify(doc), etag: etag() });
+		check(
+			'an atlas the run has not configured (no atlas pipeline) does not render',
+			(await atlas('queue_variants', QUEUE)).body.error,
+			'atlas_not_configured',
+		);
+		doc.settings = settings;
+		R2.set(MANIFEST, { body: JSON.stringify(doc), etag: etag() });
+		check('...and none of these reached atlas-tool', renders(), before);
+	}
+
 	// queue_variants returns a jobRef at once; the render goes on without it.
 	let jobRef = '';
 	{
 		const queued = await call('atlas', 'queue_variants', {
 			runId: 'ra',
-			agent: 'atlas-artist',
+			agent: 'atlas-technician',
 			opId: 'ra:queue:1',
-			input: { atlas: 'symbols', regions: ['H1', 'H2', 'H1'], variants: 3 },
+			input: { atlas: 'symbols', regions: ['H1', 'H2', 'H1'], variants: 3, step: 'H1#1' },
 		});
 		jobRef = String(queued.body.jobRef);
 		check(
@@ -1615,9 +1869,9 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		);
 		const replay = await call('atlas', 'queue_variants', {
 			runId: 'ra',
-			agent: 'atlas-artist',
+			agent: 'atlas-technician',
 			opId: 'ra:queue:1',
-			input: { atlas: 'symbols', regions: ['H1', 'H2', 'H1'], variants: 3 },
+			input: { atlas: 'symbols', regions: ['H1', 'H2', 'H1'], variants: 3, step: 'H1#1' },
 		});
 		check(
 			'a replayed queue returns the same jobRef and renders nothing new',
@@ -1625,7 +1879,12 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			[true, jobRef, 1],
 		);
 		refuseCallbacks = true;
-		const plain = await atlas('queue_variants', { atlas: 'symbols', regions: ['H2'], variants: 1 });
+		const plain = await atlas('queue_variants', {
+			atlas: 'symbols',
+			regions: ['H2'],
+			variants: 3,
+			step: 'H2#1',
+		});
 		check(
 			'an atlas-tool without the callback secret still renders, settled by the poll',
 			[
@@ -1641,7 +1900,8 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		const refused = await atlas('queue_variants', {
 			atlas: 'symbols',
 			regions: ['H1'],
-			variants: 1,
+			variants: 3,
+			step: 'H1#1',
 		});
 		check('a busy render slot is a 409 busy', [refused.status, refused.body.error], [409, 'busy']);
 		const pack = await atlas('pack_sheet', { atlas: 'symbols' });
@@ -1667,7 +1927,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		});
 		check(
 			"another run's job is not this run's to read",
-			(await atlas('job_status', { jobRef }, 'atlas-artist', 'rb')).status,
+			(await atlas('job_status', { jobRef }, 'atlas-technician', 'rb')).status,
 			404,
 		);
 	}
@@ -1902,6 +2162,388 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		check('the fallback stops once the callback has settled the job', late, null);
 	}
 
+	// ── 8D: the technician's set-up ops (ADR-0008 §4) ──
+	{
+		const setup = await import(src('lib/server/director/ops/atlasSetup.ts'));
+		setup.resetCatalogueCache();
+		const tech = (op: string, input: unknown, opId = `ra:setup:${++seqN}`) =>
+			call('atlas', op, { runId: 'ra', agent: 'atlas-technician', opId, input });
+		const posted = (path: string) => seen.filter((x) => x.path === path);
+		const baseOf = async (atlasId = 'symbols', region = 'H1') =>
+			(await atlas('get_region', { atlas: atlasId, region }, 'atlas-technician')).body.base;
+
+		const listed = await tech('list_blueprints', {});
+		const ids = (listed.body.blueprints as { id: string }[]).map((b) => b.id);
+		check(
+			'list_blueprints serves the reviewed image cards with the endpoint GPU',
+			[listed.status, listed.body.gpu, ids.includes('sdxl'), ids.includes('birefnet')],
+			[200, 'L40S (48 GB)', true, true],
+		);
+		check(
+			'...never a draft card or a video blueprint',
+			[ids.includes('draft_one'), ids.includes('wan')],
+			[false, false],
+		);
+		await tech('list_blueprints', {});
+		check('...and is cached for a minute', blueprintReads, 1);
+		check(
+			'the coordinator may read the catalogue too',
+			(await call('atlas', 'list_blueprints', { runId: 'ra', agent: 'coordinator', input: {} }))
+				.status,
+			200,
+		);
+
+		// set_atlas_pipeline: a positive whitelist of the atlas's own keys.
+		const configs = () => posted('/saveconfig').length;
+		const set = await tech('set_atlas_pipeline', {
+			atlas: 'symbols',
+			pipeline: 'sdxl',
+			genPx: 1024,
+			settings: [{ key: 'ksampler_steps', value: '28' }],
+			base: await baseOf(),
+		});
+		check(
+			'set_atlas_pipeline posts only atlas_pipeline, the size and the card keys, to the named atlas',
+			[
+				set.status,
+				JSON.parse(posted('/saveconfig').at(-1)!.body),
+				posted('/saveconfig').at(-1)!.manifest,
+			],
+			[
+				200,
+				{ atlas_pipeline: 'sdxl', gen_width: '1024', gen_height: '1024', ksampler_steps: '28' },
+				'atlas_manifest_symbols.json',
+			],
+		);
+		const bp = await tech('set_atlas_pipeline', {
+			atlas: 'symbols',
+			pipeline: 'fixture_upscale',
+			genPx: 1024,
+			settings: [{ key: 'scale', value: '2' }],
+			base: await baseOf(),
+		});
+		check(
+			"a blueprint's settings go to bpParams[<id>], typed by the card",
+			[bp.status, JSON.parse(posted('/saveconfig').at(-1)!.body).bpParams],
+			[200, { fixture_upscale: { scale: 2 } }],
+		);
+		const before = configs();
+		const refusedConfig = async (name: string, input: Record<string, unknown>, want: unknown[]) => {
+			const res = await tech('set_atlas_pipeline', {
+				atlas: 'symbols',
+				pipeline: 'sdxl',
+				genPx: 1024,
+				settings: [],
+				base: await baseOf(),
+				...input,
+			});
+			check(name, [res.status, res.body.refusal ?? res.body.error], want);
+		};
+		await refusedConfig(
+			'a /saveconfig carrying run_on is refused as run_on',
+			{ settings: [{ key: 'run_on', value: 'runpod' }] },
+			[403, 'run_on'],
+		);
+		await refusedConfig(
+			'a key off the card (the active atlas) is refused as global_config',
+			{ settings: [{ key: 'manifest_path', value: 'x.json' }] },
+			[403, 'global_config'],
+		);
+		await refusedConfig(
+			'a value outside the card range is refused',
+			{ settings: [{ key: 'ksampler_steps', value: '90' }] },
+			[400, 'bad_setting'],
+		);
+		await refusedConfig(
+			'a per-region key is not an atlas setting',
+			{ settings: [{ key: 'ipadapter_weight', value: '0.4' }] },
+			[400, 'wrong_scope'],
+		);
+		await refusedConfig('a pipeline with no reviewed card is refused', { pipeline: 'draft_one' }, [
+			400,
+			'no_card',
+		]);
+		check('...and none of those reached /saveconfig', configs(), before);
+		await tech('set_atlas_pipeline', {
+			atlas: 'symbols',
+			pipeline: 'sdxl',
+			genPx: 1024,
+			settings: [],
+			base: await baseOf(),
+		});
+
+		// set_region_pipeline and set_refs re-send the whole advanced card.
+		const doc0 = JSON.parse(R2.get(MANIFEST)!.body);
+		doc0.regions[0].style_ref = 'refs/userref_H1.png';
+		doc0.regions[0].checkpoint = 'mine.safetensors';
+		R2.set(MANIFEST, { body: JSON.stringify(doc0), etag: etag() });
+		const reg = await tech('set_region_pipeline', {
+			atlas: 'symbols',
+			region: 'H1',
+			pipeline: '',
+			fitMode: 'contain',
+			settings: [{ key: 'ipadapter_weight', value: '0.5' }],
+			base: await baseOf(),
+		});
+		check(
+			'set_region_pipeline sends every advanced field, only the named ones changed',
+			[reg.status, JSON.parse(posted('/saveadv').at(-1)!.body).fields],
+			[
+				200,
+				{
+					pipeline: '',
+					ipadapter_weight: '0.5',
+					checkpoint: 'mine.safetensors',
+					style_ref: 'refs/userref_H1.png',
+					shape_ref: '',
+					fit_mode: 'contain',
+				},
+			],
+		);
+		check(
+			'a per-atlas key is refused as a region setting',
+			(
+				await tech('set_region_pipeline', {
+					atlas: 'symbols',
+					region: 'H1',
+					pipeline: '',
+					fitMode: '',
+					settings: [{ key: 'ksampler_steps', value: '30' }],
+					base: await baseOf(),
+				})
+			).body.error,
+			'wrong_scope',
+		);
+		const refs = await tech('set_refs', {
+			atlas: 'symbols',
+			region: 'H1',
+			style: { source: 'variant', value: 'symbols/W/00002' },
+			shape: { source: 'keep', value: '' },
+			base: await baseOf(),
+		});
+		check(
+			'set_refs copies a variant into the project refs (create-only) and points style_ref at it',
+			[
+				refs.status,
+				refs.body.styleRef,
+				R2.has('acme/atl/input/refs/director_W_00002.png'),
+				JSON.parse(posted('/saveadv').at(-1)!.body).fields.checkpoint,
+			],
+			[200, 'refs/director_W_00002.png', true, 'mine.safetensors'],
+		);
+		const again = await tech('set_refs', {
+			atlas: 'symbols',
+			region: 'H1',
+			style: { source: 'variant', value: 'symbols/W/00002' },
+			shape: { source: 'clear', value: '' },
+			base: await baseOf(),
+		});
+		check('...a second copy of the same variant finds it there', again.status, 200);
+		check(
+			'a key that is not a Sheet Maker image is refused',
+			(
+				await tech('set_refs', {
+					atlas: 'symbols',
+					region: 'H1',
+					style: { source: 'key', value: 'acme/atl/config/config.json' },
+					shape: { source: 'keep', value: '' },
+					base: await baseOf(),
+				})
+			).body.error,
+			'bad_ref',
+		);
+
+		// Layers only on a scratch atlas this run made.
+		const addLayers = () => posted('/addlayer').length + posted('/addregion').length;
+		const layersBefore = addLayers();
+		const onTemplate = await tech('add_layer', {
+			atlas: 'symbols',
+			base: 'H1',
+			suffix: 'gem',
+			kind: 'ai',
+			mode: '',
+		});
+		check(
+			'add_layer on a template atlas is refused as layers',
+			[onTemplate.status, onTemplate.body.refusal],
+			[403, 'layers'],
+		);
+		const removeTemplate = await tech('remove_layer', {
+			atlas: 'symbols',
+			name: 'H1',
+			base: await baseOf(),
+		});
+		check(
+			'remove_layer on a template atlas is refused as layers',
+			[removeTemplate.status, removeTemplate.body.refusal],
+			[403, 'layers'],
+		);
+		check(
+			'...and neither reached atlas-tool',
+			addLayers() + posted('/delregion').length,
+			layersBefore,
+		);
+
+		const dup = await tech('duplicate_atlas', {
+			atlas: 'symbols',
+			name: 'symbols_cut',
+			tag: 'cut',
+		});
+		check(
+			'duplicate_atlas makes the scratch copy and names its regions',
+			[dup.status, dup.body.atlas, (dup.body.regions as { to: string }[]).map((r) => r.to)],
+			[200, 'symbols_cut', ['cut_H1', 'cut_H2', 'cut_L1', 'cut_W']],
+		);
+		const ai = await tech('add_layer', {
+			atlas: 'symbols_cut',
+			base: 'cut_H1',
+			suffix: 'gem',
+			kind: 'ai',
+			mode: '',
+		});
+		const fx = await tech('add_layer', {
+			atlas: 'symbols_cut',
+			base: 'cut_H1',
+			suffix: '',
+			kind: 'fx',
+			mode: 'glow',
+		});
+		check(
+			'on the scratch atlas an AI layer and an FX layer are added',
+			[ai.status, ai.body.name, fx.status, fx.body.name, posted('/setmode').at(-1)!.manifest],
+			[200, 'cut_H1_gem', 200, 'cut_H1_glow', 'atlas_manifest_symbols_cut.json'],
+		);
+		const cutBase = await baseOf('symbols_cut', 'cut_H1');
+		const notOurs = await tech('remove_layer', {
+			atlas: 'symbols_cut',
+			name: 'cut_H2',
+			base: cutBase,
+		});
+		check(
+			'remove_layer of a region this run did not add is refused as art_deletion',
+			notOurs.body.refusal,
+			'art_deletion',
+		);
+		const removed = await tech('remove_layer', {
+			atlas: 'symbols_cut',
+			name: 'cut_H1_gem',
+			base: cutBase,
+		});
+		check(
+			'...and of its own layer, it is removed',
+			[removed.status, posted('/delregion').length],
+			[200, 1],
+		);
+
+		// Committing a chain's result, packing and deploying.
+		const cutPack = await tech('pack_sheet', { atlas: 'symbols_cut' });
+		check('a scratch atlas is never packed', cutPack.body.error, 'scratch_atlas');
+		check(
+			'...nor deployed',
+			(await tech('deploy_atlas', { atlas: 'symbols_cut' })).body.error,
+			'scratch_atlas',
+		);
+		const toScratch = await tech('set_output', {
+			atlas: 'symbols_cut',
+			region: 'cut_H1',
+			from: { atlas: 'symbols', region: 'W', id: '00002' },
+			base: cutBase,
+		});
+		check('a tile lands only on a template region', toScratch.body.error, 'scratch_atlas');
+		const doc1 = JSON.parse(R2.get(MANIFEST)!.body);
+		doc1.regions[1].output_override = 'refs/useroutput_H2.png';
+		R2.set(MANIFEST, { body: JSON.stringify(doc1), etag: etag() });
+		const outputs = () => posted('/setoutput').length;
+		const persons = await tech('set_output', {
+			atlas: 'symbols',
+			region: 'H2',
+			from: { atlas: 'symbols', region: 'W', id: '00002' },
+			base: await baseOf('symbols', 'H2'),
+		});
+		check(
+			"set_output over a person's committed tile is refused as art_deletion, before atlas-tool",
+			[persons.status, persons.body.refusal, outputs()],
+			[403, 'art_deletion', 0],
+		);
+		const committed = await tech('set_output', {
+			atlas: 'symbols',
+			region: 'H1',
+			from: { atlas: 'symbols', region: 'W', id: '00002' },
+			base: await baseOf(),
+		});
+		check(
+			'set_output commits the variant PNG on the template region',
+			[
+				committed.status,
+				JSON.parse(posted('/setoutput').at(-1)!.body).data,
+				posted('/setoutput').at(-1)!.manifest,
+			],
+			[
+				200,
+				Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('base64'),
+				'atlas_manifest_symbols.json',
+			],
+		);
+		const recommit = await tech('set_output', {
+			atlas: 'symbols',
+			region: 'H1',
+			from: { atlas: 'symbols', region: 'W', id: '00002' },
+			base: await baseOf(),
+		});
+		check('...and the run may replace its own tile', recommit.status, 200);
+		check(
+			'isRunTile recognises only this run’s versioned tile',
+			[
+				setup.isRunTile('refs/useroutput/H1_ra_abcdefabcdef.png', 'H1', 'ra'),
+				setup.isRunTile('refs/useroutput/H1_rb_abcdefabcdef.png', 'H1', 'ra'),
+				setup.isRunTile('refs/useroutput_H1.png', 'H1', 'ra'),
+			],
+			[true, false, false],
+		);
+		const deployed = await tech('deploy_atlas', { atlas: 'symbols' });
+		check(
+			'deploy_atlas deploys a template atlas',
+			[deployed.status, posted('/deployatlas').length],
+			[200, 1],
+		);
+		const doc2 = JSON.parse(R2.get(MANIFEST)!.body);
+		doc2.deploy_path = 'acme/atl/sprites/elsewhere';
+		R2.set(MANIFEST, { body: JSON.stringify(doc2), etag: etag() });
+		check(
+			'...but not to a fully-qualified key outside deploy/',
+			[
+				(await tech('deploy_atlas', { atlas: 'symbols' })).body.error,
+				posted('/deployatlas').length,
+			],
+			['deploy_path', 1],
+		);
+		delete doc2.deploy_path;
+		R2.set(MANIFEST, { body: JSON.stringify(doc2), etag: etag() });
+
+		const locked = await tech('choose_variant', {
+			atlas: 'symbols',
+			region: 'H2',
+			id: '00002',
+			lock: true,
+		});
+		check(
+			"choose_variant with lock pins the pick with the variant's own seed",
+			[
+				locked.status,
+				JSON.parse(posted('/save').at(-1)!.body)[0].lock,
+				JSON.parse(posted('/save').at(-1)!.body)[0].seed,
+			],
+			[200, true, '3'],
+		);
+		check(
+			'every /saveconfig carried only atlas keys (no global, no run_on)',
+			posted('/saveconfig')
+				.flatMap((x) => Object.keys(JSON.parse(x.body)))
+				.filter((k) => !setup.PER_ATLAS_KEYS.has(k) && k !== 'atlas_pipeline' && k !== 'bpParams'),
+			[],
+		);
+	}
+
 	// One disallowed agent per op.
 	const DISALLOWED: [string, string, Record<string, unknown>][] = [
 		['list_regions', 'builder', {}],
@@ -1943,13 +2585,25 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		[],
 	);
 	check(
-		'no atlas-tool route that deploys, publishes or switches the active atlas was called',
-		seen.filter((s) => ['/deployatlas', '/saveconfig', '/uploadblueprint'].includes(s.path)),
-		[],
+		'no atlas-tool route that publishes or writes the library was called, and only deploy_atlas deployed',
+		seen
+			.filter((s) =>
+				[
+					'/uploadblueprint',
+					'/card/save',
+					'/deleteblueprint',
+					'/taxonomy/save',
+					'/deployatlas',
+				].includes(s.path),
+			)
+			.map((s) => `${s.path} ${s.manifest}`),
+		['/deployatlas atlas_manifest_symbols.json'],
 	);
 	check(
-		'every call but /progress named its atlas, so none used the shared active one',
-		seen.filter((s) => s.path !== '/progress' && s.manifest === null).map((s) => s.path),
+		'every call but /progress and /blueprints named its atlas, so none used the shared active one',
+		seen
+			.filter((s) => !['/progress', '/blueprints'].includes(s.path) && s.manifest === null)
+			.map((s) => s.path),
 		[],
 	);
 	check(

@@ -1,7 +1,9 @@
 import type { TransactionSql } from 'postgres';
 import type { BetaContentBlockParam } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import type { ToolSpec } from './model.ts';
+import type { RecipeInput } from 'director-costs/recipe';
 import { ANALYST_AGENT } from './mockups/analyze.ts';
+import { TECHNICIAN, defaultsBrief, setRecipe, type RecipeDeps } from './recipes.ts';
 import { transition, type RunEvent } from './runState.ts';
 import { appendMessage, applyTransition, insertEvent, runSpend, type LiveRun } from './store.ts';
 import type { WORKER_TOOLS } from './tools.ts';
@@ -30,6 +32,9 @@ export interface ToolContext {
 	missingTools: (agent: string) => string[];
 	/** Whether the run has mockups: its breakdown step is then the worker's, not an agent's. */
 	hasMockups: boolean;
+	/** The reviewed cards and GPU price, fetched before the transaction when the turn sets a
+	 *  recipe; undefined otherwise. */
+	recipes?: RecipeDeps;
 }
 
 export interface ToolOutcome {
@@ -52,6 +57,19 @@ const object = (properties: Record<string, unknown>, required: string[], descrip
 	required,
 	additionalProperties: false,
 });
+
+const refChoice = (description: string) =>
+	object(
+		{
+			source: { type: 'string', enum: ['keep', 'clear', 'key', 'variant', 'mockupCrop'] },
+			value: text(
+				'"" for keep, clear and mockupCrop; a sheets/… key; or for a variant step:<n> (the chosen variant of an earlier step) or <atlas>/<region>/<id>.',
+				400,
+			),
+		},
+		['source', 'value'],
+		description,
+	);
 
 const findings = {
 	type: 'array',
@@ -163,6 +181,63 @@ export function workerToolSpecs(agentNames: readonly string[]): Record<WorkerToo
 				'findings',
 			]),
 		},
+		'run.set_recipe': {
+			id: 'run.set_recipe',
+			description:
+				"Store your recipe for one template region: the chain of Atlas Maker steps that makes it. Code validates it against the reviewed cards (pipelines, sizes, variants, settings and their ranges, sources, one size and per-atlas settings per atlas) and answers every problem; nothing invalid is stored. Send the whole recipe each time; it replaces the region's previous one. When every planned region has one, the worker opens the Art plan for the owner.",
+			inputSchema: object(
+				{
+					region: text('The template region the recipe makes.', 120),
+					atlas: text('The template atlas the region is on.', 120),
+					group: text('The plan batch the region is in, as run.set_plan named it.', 120),
+					steps: {
+						type: 'array',
+						description: 'The chain, in order, numbered from 1.',
+						items: object(
+							{
+								n: { type: 'integer', description: 'The step number, 1, 2, 3…' },
+								kind: { type: 'string', enum: ['generate', 'process', 'finish'] },
+								pipeline: text('A reviewed card id; "" on finish.', 120),
+								atlas: text(
+									'The atlas the step renders on (a scratch atlas for process steps).',
+									120,
+								),
+								region: text('The region the step renders.', 120),
+								genPx: { type: 'integer', description: 'Generation size in px; 0 on finish.' },
+								variants: { type: 'integer', description: 'Variants to render; 0 on finish.' },
+								settings: {
+									type: 'array',
+									items: object(
+										{
+											key: text('A setting the card names.', 120),
+											value: text('Its value, as text.', 200),
+										},
+										['key', 'value'],
+									),
+								},
+								style: refChoice('The style reference (style_ref).'),
+								shape: refChoice('The shape reference (shape_ref).'),
+								note: text('Why this step; "" when obvious.', 500),
+							},
+							[
+								'n',
+								'kind',
+								'pipeline',
+								'atlas',
+								'region',
+								'genPx',
+								'variants',
+								'settings',
+								'style',
+								'shape',
+								'note',
+							],
+						),
+					},
+				},
+				['region', 'atlas', 'group', 'steps'],
+			),
+		},
 		'costs.get_run_spend': {
 			id: 'costs.get_run_spend',
 			description: "The run's spend so far, by agent, and its budget cap.",
@@ -251,6 +326,17 @@ export async function runWorkerTool(
 			}
 			return ok({ step: to.step, note: 'No checkpoint is set here; the run moved on.' });
 		}
+		case 'run.set_recipe': {
+			if (!ctx.recipes) return refused('The blueprint catalogue could not be read. Try again.');
+			const outcome = await setRecipe(
+				ctx.tx,
+				ctx.live,
+				ctx.agent,
+				input as unknown as RecipeInput,
+				ctx.recipes,
+			);
+			return outcome.ok ? ok(outcome.value) : refused(outcome.message);
+		}
 		case 'run.assign_task': {
 			const agent = str(input, 'agent');
 			if (agent === 'coordinator' || agent === ctx.agent)
@@ -269,6 +355,9 @@ export async function runWorkerTool(
 			const task: BetaContentBlockParam[] = [
 				{ type: 'text', text: `Task from ${ctx.agent}:\n\n${str(input, 'task')}` },
 			];
+			if (agent === TECHNICIAN) {
+				task.push({ type: 'text', text: await defaultsBrief(ctx.tx, ctx.live) });
+			}
 			await appendMessage(ctx.tx, ctx.live.id, agent, 'user', task);
 			await activity(ctx, id, { type: 'assignment', to: agent, task: str(input, 'task') });
 			return ok({ assigned: agent });

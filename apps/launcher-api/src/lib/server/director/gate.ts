@@ -11,6 +11,7 @@ import { projectKeyTaken } from '../projects';
 import { ConflictError, listObjects } from '../r2';
 import {
 	AdapterError,
+	RefusalError,
 	directorSavedBy,
 	isDirectorAgent,
 	schemaErrors,
@@ -270,6 +271,9 @@ async function execute(
 			return fail(409, 'conflict', 'Someone saved this since it was read. Re-read and retry.', {
 				key: e.key,
 			});
+		}
+		if (e instanceof RefusalError) {
+			return fail(403, 'refused', e.message, { refusal: e.refusal });
 		}
 		if (e instanceof AdapterError) return fail(e.status, e.code, e.message);
 		throw e;

@@ -6457,7 +6457,7 @@ function globalPipe(){{
 // What this atlas renders on: its own pipeline, else the global one.
 function atlasPipe(){{ return ATLAS_PIPE||globalPipe(); }}
 function applyPipe(){{                 // Settings panel (global + per-atlas)
- let p=globalPipe();
+ let p=atlasPipe();
  document.querySelectorAll('.cfggrid [data-pipe]').forEach(l=>{{
   l.style.display=pipeVisible(l.getAttribute('data-pipe'),p)?'':'none';
  }});
@@ -9834,6 +9834,8 @@ class Handler(BaseHTTPRequestHandler):
         write to the global library. Never raises; returns a readable string
         (leading '✓' ⇒ the client reloads). A built-in reference id can't be
         deleted (selecting it keeps the built-in Python path anyway)."""
+        if is_director(getattr(self, "_identity", None)):
+            return "✖ A Director run never writes the blueprint library."
         if not getattr(self, "can_publish", False):
             return ("✖ You're not allowed to delete blueprints. Ask an admin "
                     "for the 'Publish blueprints' permission.")
@@ -9925,6 +9927,10 @@ class Handler(BaseHTTPRequestHandler):
         """`POST /card/save {id, card, review}`. The page's base is its
         `card:<id>` entry in `X-IW-Doc-Bases`; a conflict raises `DocConflict`,
         which `_dispatch` answers 409 for doc-guard.js to ask about."""
+        if is_director(getattr(self, "_identity", None)):
+            self._send_json(403, {"ok": False, "error": "A Director run never writes a "
+                                                        "blueprint card; the owner does."})
+            return
         try:
             payload = json.loads(raw or "{}")
         except ValueError:
@@ -9963,6 +9969,8 @@ class Handler(BaseHTTPRequestHandler):
         in the reply. Gated on `self.can_publish` exactly like upload/delete — it
         writes to the SHARED library. Never raises; returns a readable string
         (leading '✓' ⇒ the client reloads)."""
+        if is_director(getattr(self, "_identity", None)):
+            return "✖ A Director run never writes the blueprint library."
         if not getattr(self, "can_publish", False):
             return ("✖ You're not allowed to edit blueprints. Ask an admin "
                     "for the 'Publish blueprints' permission.")
@@ -11928,6 +11936,8 @@ class Handler(BaseHTTPRequestHandler):
         blueprint. Refuses a taxonomy that would not load: the node's own behaviour is to
         fall back to a much smaller vocabulary and carry on, so this is the last point at
         which a typo is visible to the person who made it."""
+        if is_director(getattr(self, "_identity", None)):
+            return {"ok": False, "error": "A Director run never writes the shared taxonomy."}
         if not getattr(self, "can_publish", False):
             return {"ok": False, "error": "You're not allowed to edit the shared "
                                           "taxonomy. Ask an admin for the 'Publish "

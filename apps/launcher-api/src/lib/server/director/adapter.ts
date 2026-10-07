@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import type { DirectorRun } from '../db/schema';
+import { refusal, type RefusalId } from './refusals';
 
 /**
  * The shape of an Invisible Director tool adapter (ADR-0002): a typed operation with an
@@ -20,6 +21,7 @@ export const DIRECTOR_AGENTS = [
 	'mockup-analyst',
 	'art-director',
 	'atlas-artist',
+	'atlas-technician',
 	'animator',
 	'builder',
 	'qa',
@@ -220,5 +222,17 @@ export class AdapterError extends Error {
 	) {
 		super(message);
 		this.name = 'AdapterError';
+	}
+}
+
+/** A hard refusal an op raises from its input (ADR-0008 §3); the gate answers `refused` with its id. */
+export class RefusalError extends AdapterError {
+	readonly refusal: RefusalId;
+
+	constructor(id: RefusalId, detail = '') {
+		const { message } = refusal(id);
+		super(403, 'refused', detail ? `${message} ${detail}` : message);
+		this.name = 'RefusalError';
+		this.refusal = id;
 	}
 }

@@ -42,7 +42,7 @@ const pass = (ok: boolean, msg: string, extra = '') => {
 };
 
 const ALL_ON = checkpointSettings({});
-const ALL_OFF = checkpointSettings({ breakdown: false, regionBatch: false });
+const ALL_OFF = checkpointSettings({ breakdown: false, regionBatch: false, artPlan: false });
 
 const state = (
 	status: RunStatus,
@@ -57,6 +57,7 @@ const EVENTS: RunEvent[] = [
 	{ type: 'start' },
 	{ type: 'step_done' },
 	{ type: 'batch_done' },
+	{ type: 'plan_ready' },
 	...CHECKPOINTS.flatMap((checkpoint) =>
 		(['approve', 'revise'] as const).map((decision): RunEvent => ({
 			type: 'resolve',
@@ -84,6 +85,9 @@ for (const status of RUN_STATUSES) {
 		if (status === 'waiting') {
 			if (step === 'breakdown') STATES.push(state(status, step, 'breakdown'));
 			if (step === 'regions') STATES.push(state(status, step, 'region_batch'));
+			if (step === 'style_pack' || step === 'regions') {
+				STATES.push(state(status, step, 'art_plan'));
+			}
 			if (step === 'handoff') STATES.push(state(status, step, 'before_publish'));
 		} else if (status === 'handed_off') {
 			if (step === 'handoff') STATES.push(state(status, step));
@@ -103,14 +107,26 @@ const LEGAL: Record<string, Record<string, string>> = {
 	'draft/breakdown': { start: 'running/breakdown' },
 
 	'running/breakdown': { step_done: 'waiting/breakdown@breakdown' },
-	'running/style_pack': { step_done: 'running/regions' },
-	'running/regions': { step_done: 'running/build', batch_done: 'waiting/regions@region_batch' },
+	'running/style_pack': { step_done: 'running/regions', plan_ready: 'waiting/style_pack@art_plan' },
+	'running/regions': {
+		step_done: 'running/build',
+		batch_done: 'waiting/regions@region_batch',
+		plan_ready: 'waiting/regions@art_plan',
+	},
 	'running/build': { step_done: 'waiting/handoff@before_publish' },
 	'running/handoff': {},
 
 	'waiting/breakdown@breakdown': {
 		'resolve:breakdown:approve': 'running/style_pack',
 		'resolve:breakdown:revise': 'running/breakdown',
+	},
+	'waiting/style_pack@art_plan': {
+		'resolve:art_plan:approve': 'running/style_pack',
+		'resolve:art_plan:revise': 'running/style_pack',
+	},
+	'waiting/regions@art_plan': {
+		'resolve:art_plan:approve': 'running/regions',
+		'resolve:art_plan:revise': 'running/regions',
 	},
 	'waiting/regions@region_batch': {
 		'resolve:region_batch:approve': 'running/regions',
@@ -209,6 +225,9 @@ console.log('optional checkpoints follow the settings');
 	pass(r1.ok && key(r1.state) === 'running/style_pack', 'breakdown off → straight to style_pack');
 	const r2 = transition(off('running', 'regions'), { type: 'batch_done' });
 	pass(r2.ok && key(r2.state) === 'running/regions', 'region batch off → keep going');
+	const r4 = transition(off('running', 'style_pack'), { type: 'plan_ready' });
+	pass(r4.ok && key(r4.state) === 'running/style_pack', 'art plan off → keep going');
+	pass(checkpointSettings({}).artPlan, 'the art plan defaults ON');
 	const r3 = transition(off('running', 'build'), { type: 'step_done' });
 	pass(
 		r3.ok && key(r3.state) === 'waiting/handoff@before_publish',

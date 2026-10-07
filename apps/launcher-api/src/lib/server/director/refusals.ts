@@ -7,10 +7,26 @@
  *    pipeline change, or writing an agent definition. The gate refuses a call that NAMES one of
  *    them before it looks at the registry, and the registry refuses to load if anyone ever adds one.
  * 2. **No write lands on a forbidden key**, whatever op asks for it: the locked math contract,
- *    published snapshots, the test server's manifest and bundles, and the agent definitions.
+ *    published snapshots, the test server's manifest and bundles, the agent definitions, the
+ *    shared blueprint library (`_shared/`) and a project's global Atlas Maker config.
+ * 3. **Ops refuse what their input asks for** (ADR-0008 §3): a handler throws `RefusalError` with
+ *    one of these ids — a layer on a template atlas, a global or run-on key, a tile that is not
+ *    this run's to replace — and the gate answers it like the two layers above.
  */
 
-export type RefusalId = 'publish' | 'game_config' | 'roles' | 'merge' | 'agent_definitions';
+export type RefusalId =
+	| 'publish'
+	| 'game_config'
+	| 'roles'
+	| 'merge'
+	| 'agent_definitions'
+	| 'library'
+	| 'layers'
+	| 'template_rect'
+	| 'template_add'
+	| 'global_config'
+	| 'run_on'
+	| 'art_deletion';
 
 export interface Refusal {
 	id: RefusalId;
@@ -25,9 +41,22 @@ const REFUSALS: Record<RefusalId, string> = {
 	merge: 'Agents never merge or write a pipeline change. Merges are approved by a person.',
 	agent_definitions:
 		'Agent definitions change only as a pipeline change, reviewed and merged by a person.',
+	library:
+		'Agents never write the blueprint library, a blueprint card or the shared taxonomy. A card is reviewed by the owner in Atlas Maker.',
+	layers:
+		'Layers are added or removed only on a scratch atlas this run made. A slot the template lacks is a pipeline change the coordinator requests.',
+	template_rect:
+		"Agents never write a region's rect or geometry: those are the packer's and the .atlas file's.",
+	template_add:
+		'Agents never add a region the template does not have. Request a pipeline change through the coordinator.',
+	global_config:
+		"Agents never write the project's global Atlas Maker settings, only an atlas's own whitelisted settings.",
+	run_on: 'Agents never switch "Run generation on". The Director renders only on RunPod.',
+	art_deletion:
+		'Agents never delete or replace art they did not make: variants, committed tiles, regions.',
 };
 
-const refusal = (id: RefusalId): Refusal => ({ id, message: REFUSALS[id] });
+export const refusal = (id: RefusalId): Refusal => ({ id, message: REFUSALS[id] });
 
 /** Tool names that are Game Config, however they are spelled. */
 const GAME_CONFIG_TOOLS = new Set(['config', 'gameconfig', 'game_config', 'game-config']);
@@ -54,6 +83,17 @@ const ROLE_WORDS =
 const MATH_WORDS =
 	/(^|_)(config|gameconfig|math|rtp|paytable|bet|betmode|betmodes|modes?|paylines?|lines|reels?|strips?|gametype|type|features?)(_|$)/;
 const AGENT_WORDS = /(^|_)(agent|agents|agentdef|definition|definitions)(_|$)/;
+/** Tool names that are the shared blueprint library (ADR-0008 §3). */
+const LIBRARY_TOOLS = new Set(['blueprints', 'blueprint', 'library', 'cards', 'card', 'taxonomy']);
+const RUN_ON_WORDS = /(^|_)(run_on|runon|transport)(_|$)/;
+const GLOBAL_WORDS = /(^|_)(global|globals|atlas_config|saveconfig|project_settings)(_|$)/;
+/** Destroying art: a delete-ish verb on an art noun (`remove_layer` is neither). */
+const DELETE_VERBS = /(^|_)(delete|del|clear|remove|purge|wipe|drop)(_|$)/;
+const ART_NOUNS =
+	/(^|_)(variant|variants|output|outputs|region|regions|art|tile|tiles|image|images)(_|$)/;
+const LIBRARY_WORDS = /(^|_)(upload|delete|taxonomy|card|cards)(_|$)/;
+const RECT_WORDS = /(^|_)(rect|rects|geometry|bounds|resize|move|position|layout)(_|$)/;
+const ADD_REGION = /(^|_)(add|new|create)_(region|regions|slot|slots|atlas)(_|$)/;
 
 /** A read op name: these never change anything, so a refused AREA may still be read from. */
 const READ_OP = /^(get|list|read)(_|$)/;
@@ -72,6 +112,12 @@ export function refusedOp(tool: string, op: string): Refusal | null {
 	if (READ_OP.test(o)) return null;
 	if (GAME_CONFIG_TOOLS.has(t) || MATH_WORDS.test(o)) return refusal('game_config');
 	if (AGENT_TOOLS.has(t) || AGENT_WORDS.test(o)) return refusal('agent_definitions');
+	if (RUN_ON_WORDS.test(o)) return refusal('run_on');
+	if (GLOBAL_WORDS.test(o)) return refusal('global_config');
+	if (DELETE_VERBS.test(o) && ART_NOUNS.test(o)) return refusal('art_deletion');
+	if (LIBRARY_TOOLS.has(t) || LIBRARY_WORDS.test(o)) return refusal('library');
+	if (RECT_WORDS.test(o)) return refusal('template_rect');
+	if (ADD_REGION.test(o)) return refusal('template_add');
 	return null;
 }
 
@@ -86,6 +132,11 @@ const FORBIDDEN_TARGETS: { id: RefusalId; test: (key: string) => boolean }[] = [
 	{ id: 'game_config', test: (k) => /^[^/]+\/[^/]+\/config(\/|$)/.test(k) },
 	{ id: 'publish', test: (k) => /(^|\/)published(\/|$)/.test(k) },
 	{ id: 'publish', test: (k) => k === 'test_server' || k.startsWith('test_server/') },
+	{
+		id: 'library',
+		test: (k) => k === '_shared' || k.startsWith('_shared/') || k.includes('/_shared/'),
+	},
+	{ id: 'global_config', test: (k) => /(^|\/)atlas_config\.json$/.test(k) },
 	{
 		id: 'agent_definitions',
 		test: (k) =>

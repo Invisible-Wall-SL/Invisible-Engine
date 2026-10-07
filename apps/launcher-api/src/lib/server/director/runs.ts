@@ -9,7 +9,10 @@ import {
 import { PROJECT_KEY_WORDS } from '$lib/projectKey';
 import { roleHasTool } from '$lib/roles';
 import profilesFile from '../../../../../../services/director-worker/estimate-profiles.json';
-import type { Checkpoint } from '../../../../../../services/director-worker/src/runState';
+import {
+	CHECKPOINTS,
+	type Checkpoint,
+} from '../../../../../../services/director-worker/src/runState';
 import { getDirectorRunBudget } from '../appSettings';
 import { clientExists, mayCreateUnderClient } from '../clients';
 import { getDirectorPricing } from '../costs/pricingConfig';
@@ -493,7 +496,7 @@ export interface OwnerActionOutcome {
 	replayed: boolean;
 }
 
-const CHECKPOINT_IDS: readonly string[] = ['breakdown', 'region_batch', 'before_publish'];
+const CHECKPOINT_IDS: readonly string[] = CHECKPOINTS;
 
 function parseAction(raw: unknown): OwnerActionRequest {
 	const r = record(raw);

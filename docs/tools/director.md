@@ -202,6 +202,11 @@ hands. Everything on it is read from the run's event stream, so it is the same p
   you do, in Game Maker."
 - **Any other checkpoint:** its name and the agents' text, the note, **Approve** / **Send back
   with my note**. This is also the panel for a breakdown the page could not read.
+- **Art plan** (`art_plan`, in the Style pack step, on by default): opens by itself once the atlas
+  technician has a recipe — the chain of Atlas Maker steps — for every region the plan names. Until
+  its own panel ships it shows in the generic panel above: one line per group and chain ("11 ×
+  Symbols: sdxl 1024 ×3 → birefnet → finish"). Nothing renders on RunPod before you approve it; a
+  later change of a pipeline, or one that costs more, brings it back.
 - **Fonts to bake:** as on the breakdown (above).
 - **As they land:** one gallery per place the agents saved an image under the project — **Atlas
   pages**, **Sheets**, **Atlases**, **Symbols**, **Scenes**, **Renders**, **References**,
