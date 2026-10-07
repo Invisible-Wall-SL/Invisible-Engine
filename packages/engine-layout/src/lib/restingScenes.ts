@@ -28,6 +28,9 @@ const TRANSIENT_SCENE_IDS: ReadonlySet<string> = new Set([
 	'autoSpin',
 ]);
 
+/** Of {@link TRANSIENT_SCENE_IDS}, the ones a mode keeps on screen for its whole run, not a beat. */
+const MODE_LONG_LIVED_IDS: ReadonlySet<string> = new Set(['freeSpinCounter']);
+
 /** Roles whose screens mount only when their moment comes (a mode screen while its mode runs). */
 const TRANSIENT_ROLES: ReadonlySet<SceneRole> = new Set([
 	'loading',
@@ -74,7 +77,8 @@ export function inGameViewSceneIds(
 	const ids = new Set(scenes.filter(isShownAtRest).map((scene) => scene.id));
 	if (mode !== undefined) {
 		for (const scene of modeScenes(scenes, mode)) {
-			if (!TRANSIENT_SCENE_IDS.has(scene.id) && !scene.visibleSource) ids.add(scene.id);
+			const beat = TRANSIENT_SCENE_IDS.has(scene.id) && !MODE_LONG_LIVED_IDS.has(scene.id);
+			if (!beat && !scene.visibleSource) ids.add(scene.id);
 		}
 	}
 	if (active) ids.add(active.id);

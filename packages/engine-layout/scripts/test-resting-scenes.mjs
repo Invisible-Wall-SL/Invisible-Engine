@@ -127,6 +127,15 @@ assert.ok(
 	inGameViewSceneIds(holdAndWin, byId('wheel'), MODE).has('wheel'),
 	'the edited beat screen shows',
 );
+const freeSpinMode = [
+	{ id: 'basegame', role: 'basegame', nodes: [] },
+	{ id: 'freeSpinCounter', role: 'mode', modeId: 'freeSpins', nodes: [] },
+	{ id: 'freeSpinIntro', role: 'mode', modeId: 'freeSpins', nodes: [] },
+];
+const inFreeSpins = inGameViewSceneIds(freeSpinMode, freeSpinMode[0], 'freeSpins');
+assert.ok(inFreeSpins.has('freeSpinCounter'), "a mode's counter stays on screen");
+assert.ok(!inFreeSpins.has('freeSpinIntro'), "a mode's intro is a beat");
+
 assert.deepEqual(
 	[...inGameViewSceneIds(holdAndWin, byId('basegame'), 'noSuchMode')].sort(),
 	[...baseOnly].sort(),
