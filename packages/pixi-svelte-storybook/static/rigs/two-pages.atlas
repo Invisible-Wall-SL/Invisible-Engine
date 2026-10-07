@@ -1,0 +1,15 @@
+../assets/spines/symbols/symbols.webp
+size:1032,1032
+filter:Linear,Linear
+scale:0.2
+t1_coin
+bounds:2,179,182,182
+
+../assets/spines/bigwin/big_wins.webp
+size:680,1017
+filter:Linear,Linear
+scale:0.5
+MM_BigWin
+bounds:448,507,308,86
+offsets:114,29,540,150
+rotate:90

@@ -30,9 +30,9 @@
 	 * Invisible FX runtime player (`invisible-fx.md` §4.4). Renders an authored `EffectDoc` in
 	 * a real game: each `EmitterLayer` is mounted by `<EffectLayer>`, which reduces it to a
 	 * `<ParticleEmitter key={art.assetKey} config={layer.config}>` — the exact runtime contract
-	 * the doc reduces to — wrapped in a `<SpineBoneAttach>` when `placement.space === 'bone'`
+	 * the doc reduces to — wrapped in a `<RigBoneAttach>` when `placement.space === 'bone'`
 	 * (the emitter then rides the HOST game's playing rig; the `<EffectPlayer>` must therefore
-	 * sit INSIDE that rig's `<SpineProvider>` for a `bone` layer to resolve), or a plain offset
+	 * sit INSIDE that rig's `<RigProvider>` for a `bone` layer to resolve), or a plain offset
 	 * `<Container>` for a `free` layer.
 	 *
 	 * Art binding is handled inside `<ParticleEmitter>` (it injects the `key` textures into the

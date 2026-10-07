@@ -488,7 +488,7 @@ key's reader, because this list rots the moment someone adds a host-config consu
 **Verified 2026-09-17** against a harness that serves the page at `/partner/` and the game at
 `/cdn/eanew/games/v1.0/BookOfBetOptions/`, i.e. paths that share nothing, so a document-relative URL
 cannot pass by accident: the game renders inside the operator's `<div id="game">` and every asset —
-spines, atlases, bitmap fonts, the audiosprite, the KTX2 transcoder blob — resolves under the CDN
+rigs, atlases, bitmap fonts, the audiosprite, the KTX2 transcoder blob — resolves under the CDN
 path. The only 404s left are the boot-splash index this game has never configured and the RGS the
 harness does not run.
 

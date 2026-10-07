@@ -2,7 +2,7 @@
  * Repro fixture for "the FX bound on the 1s key plays on the 0.01s key with the flipbook".
  *
  * Models the runtime half of a rig binding: the manifest hands `<RiggedEffect>` / `<RiggedFlipbook>`
- * one binding per KEYFRAME (event name + animation + time), the spine `AnimationState` fires each
+ * one binding per KEYFRAME (event name + animation + time), the rig `AnimationState` fires each
  * event with its keyframe time and its track's animation, and `riggedBeatMatches` decides which
  * mounts fire. Two keys of the default `event` name — a clip at 0.01s and an effect at 1s — are
  * driven through it and the fires per mount are asserted.
@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 
 import { riggedBeatMatches, type RiggedBeatBinding } from '../src/lib/riggedBeat.ts';
 
-/** What the spine runtime hands a listener on one keyframe crossing. */
+/** What the rig runtime hands a listener on one keyframe crossing. */
 const fire = (animation: string, time: number, name = 'event') => ({ name, animation, time });
 
 /** A mount per binding, counting its fires — the `runId` bumps of the real components. */

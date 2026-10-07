@@ -140,7 +140,7 @@ themselves.
 ### Phase A3.5 — split `constants.ts`
 
 `apps/lines/src/game/constants.ts` mixed two unrelated things: the engine's **feel knobs** (symbol
-size, spine fill, reel padding, dim tint, the initial symbol state, the spin option presets) and
+size, rig fill, reel padding, dim tint, the initial symbol state, the spin option presets) and
 **this game's content** (its symbol/art bindings, stacked-picture map, scatter-land sounds). Only
 the first half is shared by every game type, so only it moves.
 

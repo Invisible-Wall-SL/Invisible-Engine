@@ -49,7 +49,7 @@ export type SymbolStateName = (typeof SYMBOL_STATES)[number];
  * It is distinct from `explosion`, which is a symbol popping WHERE IT STANDS while the reel keeps
  * it — the Book-of column morph. Upstream bound one skeleton to both beats because each of its games
  * shipped a single `symbols3/explosion`; they are different moments — a symbol being swept off reads
- * under a moving board, a morph pop reads on a resting reel — and the engine's own Spine set carries
+ * under a moving board, a morph pop reads on a resting reel — and the engine's own rig set carries
  * a separate explosion for each, so they are separate bindings here.
  *
  * Unauthored it INHERITS `explosion` (`packages/engine-game/src/game/symbolCell.ts`), which is what keeps a

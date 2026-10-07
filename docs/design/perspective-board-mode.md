@@ -34,7 +34,7 @@ replaces symbols in place: the outgoing ones play out and the incoming ones fall
   cascade that already shipped.
 - **Win dim = per-symbol grey/opacity.** The paying cells stay bright, the rest darken. This is
   already how it works: `SYMBOL_DIM_TINT` (`0x666666`) is passed as `SymbolWrap`'s `tint` and
-  cascades to the sprite/spine/flipbook through Pixi v8 `Container.tint`
+  cascades to the sprite/rig/flipbook through Pixi v8 `Container.tint`
   (`apps/lines/src/components/ReelSymbol.svelte`). It reads a per-cell set, touches **no geometry**,
   and therefore needs no perspective work at all. The rectangular, geometry-matched dim is the
   _anticipation_ grey-out, which is a different feature and stands down with the roll.
@@ -190,8 +190,8 @@ the block has to travel the same override path. Cheap to add, but only if it is 
    `TumbleBoard.svelte`, `MultiplierBoard.svelte`, `BookVfx.svelte`, `WinLine.svelte`,
    `flowEffects.ts`, `anticipationPresentation.ts`. Mechanical: each already asks for a seat, it just
    asks with one argument today.
-3. **`SymbolWrap` gains `scale`**, applied to the container it already renders. Spine symbols
-   contain-fit to `SYMBOL_SIZE × SYMBOL_SPINE_FILL` _inside_ that container, so the row scale
+3. **`SymbolWrap` gains `scale`**, applied to the container it already renders. Rig symbols
+   contain-fit to `SYMBOL_SIZE × SYMBOL_RIG_FILL` _inside_ that container, so the row scale
    multiplies cleanly — verify there is no double-application.
 4. **`BoardMask` height becomes `Σ rowPitchLocal · scale(k)`**. It stays a **rectangle**: in a
    symmetric one-point projection the far edge is a straight horizontal line, and the mask already
@@ -240,7 +240,7 @@ When `swapInPlace` is on, `apps/lines` wires a different set of defaults. Nothin
 
     The seam itself — pop out, then intro in, at the same seat — is a hard cut by construction, and
     an authored style will usually want something to cover it. That is the **Transition** (Invisible
-    Symbols → Transition, added 2026-09-03): one project-global spine / flipbook / FX the cascade
+    Symbols → Transition, added 2026-09-03): one project-global rig / flipbook / FX the cascade
     overlay mounts at every exploding seat `delayMs` after `clearReel` fires, drawn above the
     symbols and torn down on its own completion. It is fire-and-forget on purpose — it never joins the
     beat, so the intro starts exactly when it does without it and a slow effect can cost the round
@@ -278,8 +278,8 @@ explode effects on a win become available. This is a small addition and is liste
    order. Still inert until authored.
 2. **The mode switch.** `swapInPlace`: the drop-in reveal, and the reel behaviours stood down.
 3. **Editor.** Mirror the model in `reelGridGeometry()`, draw trapezoid cells and per-row-scaled seats
-   on the 2D canvas, apply per-seat scale in `EditorSpineLayer`, and add a "Perspective" section to
-   `EditorProperties`. The mirror is load-bearing: a sprite symbol and a spine symbol must land on the
+   on the 2D canvas, apply per-seat scale in `EditorRigLayer`, and add a "Perspective" section to
+   `EditorProperties`. The mirror is load-bearing: a sprite symbol and a rig symbol must land on the
    same seat in the editor as in the game.
 4. **Tiles from the lattice** (optional) + per-tile win highlight.
 5. **Ship.** Nothing new to bake — this is `reelGrid` node data, which already travels the layout doc.

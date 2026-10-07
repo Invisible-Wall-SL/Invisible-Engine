@@ -116,10 +116,10 @@ export const betModeCardIds = (doc: GameConfigDoc): string[] => {
 /**
  * The per-mode {@link BetModePresentation.cardParams} overrides that carry ART — the bake collector's
  * hook for the same reason as {@link betModeCardIds}: a card param can name an editor-art frame or
- * spine bundle (a different panel/icon/spine per card), chosen at RUNTIME in the config, so the static
+ * rig bundle (a different panel/icon/rig per card), chosen at RUNTIME in the config, so the static
  * scene/def walk never sees it. Returns one entry per mode with a non-empty `cardParams`, carrying its
  * assigned `card` id (empty string ⇒ the default `featureCard`, resolved by the caller) and the raw
- * override map. The caller classifies each key by the card def's param KIND (image → atlas, spine →
+ * override map. The caller classifies each key by the card def's param KIND (image → atlas, rig →
  * bundle) — game-config is a leaf that can't resolve component defs. Empty for a config with no card
  * overrides, so a project without them ships byte-identical (parity).
  */

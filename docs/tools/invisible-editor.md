@@ -1,8 +1,8 @@
 # Invisible Scene Editor
 
-Place images, spine, and text onto a game's screens and export a layout the
+Place images, rig, and text onto a game's screens and export a layout the
 engine renders — the layout step between the asset tools (Sheet Maker, Atlas
-Maker, Spine) and the running game.
+Maker, rig) and the running game.
 
 ## What it is
 
@@ -15,7 +15,7 @@ layout.
 
 The editor is **project-centric** — it always works on the project you currently
 have selected in the launcher. It loads that project's saved layout, its asset
-library (atlases, spines, sheets), its components, and (if one exists) the
+library (atlases, rigs, sheets), its components, and (if one exists) the
 template for the project's game type.
 
 - **Where it runs:** the launcher itself, at `/editor` — a real page inside the
@@ -43,7 +43,7 @@ The page is a three-pane layout under a top bar:
   undo/redo (↶ ↷) and the canvas actions.
 - **Right pane** — tabbed **Properties | Library** (plus **Template** in the
   Template editor). Properties edits the current selection, the screen, the Canvas
-  Size and Game Settings; Library holds the elements, the art/spine/sheet library
+  Size and Game Settings; Library holds the elements, the art/rig/sheet library
   and the Components section.
 
 The two side panes are resizable (drag the dividers; widths persist per
@@ -78,7 +78,7 @@ popups still draw only while you edit them. Clicking a mode screen in the list s
 the menu to its mode; pick **Base game** to go back. The choice is kept per project.
 
 In-game view also hides the labelled boxes for component parts that have no art picked (a
-Feature Card's empty panel or spine slot), because the game draws nothing there either.
+Feature Card's empty panel or rig slot), because the game draws nothing there either.
 Turn it off to draw every screen at once with those boxes. The eye toggles still apply on top.
 
 Each screen has a coordinate **space** select: `game` (the main game box),
@@ -301,19 +301,19 @@ Open the **Library** tab. It is grouped into:
   buy-feature cards). A layout may carry as many repeaters as you like.
 - **Atlases** — composed atlas pages and atlas manifests. Manifest entries
   expand to their individual regions, which you drag in one at a time.
-- **Spines** — the project's spine bundles (plus shared `_shared/` bundles,
-  badged "shared" — see [the shared spine library](#the-shared-spine-library)).
-  There is an **Upload spines** action to sync a folder of
-  Spine bundles into the project's storage.
+- **Rigs** — the project's rig bundles (plus shared `_shared/` bundles,
+  badged "shared" — see [the shared rig library](#the-shared-rig-library)).
+  There is an **Upload rigs** action to sync a folder of
+  Rig bundles into the project's storage.
 - **Sheets** — sheet outputs; expand to drag individual regions.
 - **Effects** — the project's authored **Invisible FX** particle effects; drag
   one in to place it at a position in the scene. The editor renders the effect's
-  **live particles** right on the canvas (an overlay, the same way it shows spine
+  **live particles** right on the canvas (an overlay, the same way it shows rig
   rigs live), following pan/zoom — toggle it with the **▶/❚❚ FX** button in the
   toolbar. A ✨ placeholder chip still marks nodes that aren't rendering live yet
   (still loading, or a bone-attached effect). Change which effect a placed node
   references from the Properties panel. There you can also **attach the effect to
-  a rig**: pick a placed Spine node from the "attach to rig" dropdown and the
+  a rig**: pick a placed rig node from the "attach to rig" dropdown and the
   effect rides that rig — a _bone_-placed layer (set in Invisible FX) follows the
   rig's bone, and the rig's timeline events (authored in the Rigger) fire the
   effect on the beat. Left as **free**, the effect just plays at its placed
@@ -335,7 +335,7 @@ Open the **Library** tab. It is grouped into:
   The canvas previews the placement's own direction and mirroring, not just the clip's.
   The clip's sheet ships automatically — no need to place the atlas separately.
   A placed clip can also **swap to another clip when the game or a flow cues it** — see
-  [Plays on signal](#plays-on-signal--a-spine-or-flipbook-that-changes-what-it-plays).
+  [Plays on signal](#plays-on-signal--a-rig-or-flipbook-that-changes-what-it-plays).
 
   On a `background` screen — or with **Fill → Cover / full-screen fill** ticked on a
   `canvas` screen — a clip fills the window edge-to-edge instead of drawing at its
@@ -354,10 +354,10 @@ Open the **Library** tab. It is grouped into:
   > editor calls it out in two places: the node draws a 🎞 chip, and it is counted
   > in the header's **asset issues** pill.
 
-### The shared spine library
+### The shared rig library
 
 Bundles badged **shared** come from `_shared/spines/` — a cross-project library any
-project can place from without owning it, the spine twin of `_shared/sheets/`. It
+project can place from without owning it, the rig twin of `_shared/sheets/`. It
 resolves **project-first**: a project bundle of the same name shadows the shared one, so
 the library can never override work a project owns. Shared bundles travel the export →
 `deploy/` → bake → pull chain exactly like project ones.
@@ -383,7 +383,7 @@ project has something to place before it has commissioned anything:
 | `engine-symbol-m`                                                         | the multiplier set (`2x`…`10x` × `_land` `_static`, `low`/`mid`/`high_multiplier_*`)                          |
 | `engine-symbol-s`                                                         | `scatter_static` `_spin` `_land` `_win`                                                                       |
 | `engine-symbol-w`                                                         | `wild_dynamite` `_static` `_land` `_exploded_static`                                                          |
-| `engine-explosion`                                                        | `explosion` — the Symbols tool's Explosion default ([why](symbols-state-machine.md#the-shared-spine-library)) |
+| `engine-explosion`                                                        | `explosion` — the Symbols tool's Explosion default ([why](symbols-state-machine.md#the-shared-rig-library)) |
 
 **One bundle per skeleton, by design.** Upstream packs several skeletons behind one
 shared atlas (`symbols/` holds h1…l4). The editor addresses a bundle by FOLDER plus an
@@ -395,17 +395,17 @@ dedups identical pages content-addressed, so placing several costs one page, but
 Symbols export does not (see the note in its guide).
 
 The library is **read-only from the tools** — it is curated out-of-band by
-`apps/launcher-api/scripts/seed-shared-engine-spines.mjs`, plus the admin panel's
-"bring a spine into the shared library" promote for the engine boot mark. To make one your
+`apps/launcher-api/scripts/seed-shared-engine-rigs.mjs`, plus the admin panel's
+"bring a rig into the shared library" promote for the engine boot mark. To make one your
 own, place it, then re-author it in the [Rigger](/docs/rigger) under your project.
 
 **Drag any library item onto the canvas** to spawn a node in the active screen.
-The editor renders the real texture (and spine bundles preview as a live
+The editor renders the real texture (and rig bundles preview as a live
 skeleton), so what you see matches what the game will draw.
 
 The **reel board** previews the real symbols too: each cell shows a symbol's
 **Static** binding from the Invisible Symbols State Machine, cycled across the
-grid so the board looks populated. Sprite and spine symbols both draw — a spine
+grid so the board looks populated. Sprite and rig symbols both draw — a rig
 symbol plays its Static animation, sized into the cell exactly as the game sizes
 it. A cell falls back to an amber marker only while its art is still loading, or
 when the binding names art this project can't resolve.
@@ -432,7 +432,7 @@ Other editing affordances:
 
 The right-hand **Properties** panel edits the selected node — its transform
 (`x/y`, anchor, scale, rotation, alpha, zIndex, tint, blend), text content/style for
-text nodes, spine animation/skin for spine nodes (driven by dropdowns when the
+text nodes, rig animation/skin for rig nodes (driven by dropdowns when the
 canvas can read the bundle's animations), background cover (fit / zoom /
 alignment) for cover nodes, and the slot the node fills (when a template is loaded). It also offers
 node actions such as **Convert to reel grid**, **Convert to parametric button**,
@@ -478,24 +478,24 @@ backdrop often has to fall back to Normal over a portrait crop.
 > Text, rects and containers deliberately have no blend control — the editor draws them on
 > surfaces its blend model does not cover, so the preview could not keep the promise.
 >
-> **Neither do spines, and that one is worth knowing.** A blend can't reach skeleton geometry
-> at all — the Spine runtime batches every slot carrying that _slot's_ own blend and never
-> consults the engine's blend setting, so a blend on a spine node would preview in the editor
-> and do nothing in the game. Spine art blends **per slot, in the Rigger**: give each layer its
-> own slot, set the draw order, and pick its blend there. Spine's format offers
+> **Neither do rigs, and that one is worth knowing.** A blend can't reach skeleton geometry
+> at all — the rig runtime batches every slot carrying that _slot's_ own blend and never
+> consults the engine's blend setting, so a blend on a rig node would preview in the editor
+> and do nothing in the game. Rig art blends **per slot, in the Rigger**: give each layer its
+> own slot, set the draw order, and pick its blend there. The rig format offers
 > normal / additive / multiply / screen only — no Overlay or Lighten.
 
-#### Plays on signal — a spine or flipbook that changes what it plays
+#### Plays on signal — a rig or flipbook that changes what it plays
 
-Select a **spine** node and its **Spine** section ends with a **Plays on signal** block;
+Select a **rig** node and its **rig** section ends with a **Plays on signal** block;
 select a **flipbook** node and its **Flipbook** section ends with the same block. This is how
 something you placed on a screen changes what it plays while the game runs: each row pairs a
 **signal** name with what to play, and when Invisible Flow broadcasts a cue of that name, this
-node plays it. A spine swaps **animation**; a flipbook swaps **clip** — which is how a
-character drawn as frame animation, rather than rigged in Spine, reacts to the game at all.
+node plays it. A rig swaps **animation**; a flipbook swaps **clip** — which is how a
+character drawn as frame animation, rather than rigged in rig, reacts to the game at all.
 
 The fields above the block stay the node's _resting_ state — what it plays when no signal has
-fired: a spine's **default animation**, **skin** and **loop**; a flipbook's **clip** and the
+fired: a rig's **default animation**, **skin** and **loop**; a flipbook's **clip** and the
 playback overrides beside it.
 
 Each row is:
@@ -507,7 +507,7 @@ Each row is:
   the pots overlay add-on the pot signals). Those
   need no Flow at all, which is why the **Cues** palette does not offer them. The match is
   exact: a name spelled differently on the two sides never fires.
-- **animation** (spine) — the clip to play. A dropdown of the rig's animations when the editor
+- **animation** (rig) — the clip to play. A dropdown of the rig's animations when the editor
   can read the bundle, a text field when it can't.
 - **clip** (flipbook) — the clip to swap to, picked from the project's clips (each listed with
   its frame count). A clip since deleted or renamed in Invisible Flipbook is listed as
@@ -520,7 +520,7 @@ Each row is:
 it, which is what a "for as long as the reels spin" mode needs. The control itself differs
 between the two kinds, because they have different things to fall back on.
 
-On a **spine** it is a tick box. Ticked, the animation holds. Left unticked, it plays **once**
+On a **rig** it is a tick box. Ticked, the animation holds. Left unticked, it plays **once**
 and the rig settles back into its **default animation** — the intro-then-idle shape.
 
 On a **flipbook** it is a three-way choice, matching the node's own loop control above it:
@@ -547,7 +547,7 @@ plays again — firing a burst twice is asking to see it twice.
 > three differences:
 >
 > - The field suggests the component's own declared signals first.
-> - A one-shot **spine** cue can also **fire a signal on complete** to sequence a sibling. A
+> - A one-shot **rig** cue can also **fire a signal on complete** to sequence a sibling. A
 >   flipbook cue has no complete signal in either editor: a clip reports no finish, it just
 >   stops on its last frame.
 > - A component can be **scoped by** a param (Phase 12a). Its cues then play only on the
@@ -556,7 +556,7 @@ plays again — firing a burst twice is asking to see it twice.
 
 **One component, two placements, different signals.** When you select a placed **component
 instance** — the instance itself, not a node inside it — its properties carry a
-**(this placement)** panel for each cued spine and flipbook the component contains, listing
+**(this placement)** panel for each cued rig and flipbook the component contains, listing
 that node's cues under **Driven by signal**. Type or pick a different signal in a row (any
 engine signal or Flow cue name) and only _this_ copy follows it. Leave the row blank and it
 keeps the component's own. That is how one character component can idle on the base game and
@@ -573,7 +573,7 @@ cue name typed here, or on a node inside a placed component, is offered in Invis
 
 **Bind to value**, at the bottom of Properties, makes an item follow a live game number. It can
 move, scale, rotate, fade or show the item, fill a sprite / flipbook / rect from one edge, hold
-a flipbook frame, scrub a spine animation, or offset a spine bone. On a screen the number is an
+a flipbook frame, scrub a rig animation, or offset a rig bone. On a screen the number is an
 engine value: respins left (÷ the cap), cells held, rows open, collector level, letters lit, the
 jackpots, bet, win and the rest. Drag the binding's **test value** to preview it on the canvas;
 it is never saved. Selection handles and dragging keep the authored position.
@@ -585,7 +585,7 @@ of the instance it sits in. The full reference is in the Component Editor guide 
 #### Background — how a full-bleed cover is fitted, zoomed and aligned
 
 Select a node that covers the window — anything on a `background` screen, or a
-sprite / spine / clip with **Fill → Cover / full-screen fill** ticked on a `canvas`
+sprite / rig / clip with **Fill → Cover / full-screen fill** ticked on a `canvas`
 screen — and the Properties panel shows a **Background** section. The node stops being
 draggable (its transform is computed, not authored); these controls are how you shape it:
 
@@ -633,7 +633,7 @@ cover-fits by that box instead of by whatever rectangle the packer produced.
   to the region's **origin** (its centre), so a centred box has `x = -w/2`.
 - **A box smaller than the art is deliberate.** The art is not cropped to it; it
   overflows. That is how you size a symbol by the part that reads and let a glow or a
-  burst hang outside the reel cell — the sprite answer to a spine rig whose canvas
+  burst hang outside the reel cell — the sprite answer to a rig whose canvas
   covers invisible effects.
 
 > **It edits the ART, not this placement.** The box is stored per
@@ -647,8 +647,8 @@ cover-fits by that box instead of by whatever rectangle the packer produced.
 
 **Symbol size comes from the art.** There is no symbol-size control: every symbol is fitted
 inside its reel cell by its own art, centred, with its aspect ratio kept — a sprite by its
-picture (or its **Art bounds**, above), a flipbook by its clip's bounds box, a spine by the
-rig's Bounds frame (or the skeleton size Spine exported) — so the same picture reads the same
+picture (or its **Art bounds**, above), a flipbook by its clip's bounds box, a rig by the
+rig's Bounds frame (or the skeleton size rig exported) — so the same picture reads the same
 on every board. To change how one symbol fills its cell, change its art: crop it, set its
 **Art bounds**, or set the rig's **Bounds** in Invisible Rigger. Resizing the reel cell itself
 (`cellSize`) scales the grid _and_ the symbols together. (An earlier "Symbol size (× cell)"
@@ -709,8 +709,8 @@ together, so ordinary upright artwork reads as standing on ground.
   anyone wants. The two remain independent of each other: a converging board may
   still roll, and a flat board may swap.
 
-The preview mirrors the game exactly. Both the 2D canvas and the spine layer read
-one shared geometry, so a sprite symbol and a spine symbol land on the same seat;
+The preview mirrors the game exactly. Both the 2D canvas and the rig layer read
+one shared geometry, so a sprite symbol and a rig symbol land on the same seat;
 an offline fixture asserts the editor's seats equal the game's across every grid
 shape. Every existing knob keeps working — reel/row padding, gaps, non-square
 cells, per-cell alignment and per-ratio overrides all still mean what they mean,
@@ -798,7 +798,7 @@ the second pre-game screen, shown after the engine mark (which is set once for
 the whole pipeline in Admin → Settings and is not editable here). It replaced the
 "Add Your Loader" placeholder.
 
-Pick a **Spine** from the project's spine library (shared bundles are offered too,
+Pick a **rig** from the project's rig library (shared bundles are offered too,
 marked `(shared)`), an **Animation**, a **Background**, and a **Size**.
 `— none —` skips the game splash so boot goes straight from the engine mark into
 the game.
@@ -808,7 +808,7 @@ the game.
 every screen the game runs on. Above about `1.6×` it can run past the viewport.
 
 Set the animation explicitly unless the skeleton's _first_ clip is the right one:
-a spine left on its resting/setup pose renders **empty**, which looks like a
+a rig left on its resting/setup pose renders **empty**, which looks like a
 broken splash rather than an unset one.
 
 The splash ships through the project's `deploy/_boot/` tree, so it reaches the
@@ -896,7 +896,7 @@ game on the next **Publish** — the same trip as the rest of your art.
 ## Known limitations / TODOs
 
 - **Animated / book-event-driven content stays coded.** The editor owns static
-  scenery, frames, labels, and intro/outro spine poses. Symbols, win-line draws,
+  scenery, frames, labels, and intro/outro rig poses. Symbols, win-line draws,
   count-ups, and anything derived from runtime state mount via the engine's
   `mount`/`bind` escape hatch — the editor only places their anchor. (The design
   intent is to drive that hatch to zero over time, but it is the current

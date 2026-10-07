@@ -1,4 +1,4 @@
-import type { SpineBoneOffset } from 'pixi-svelte/spineBoneOffset';
+import type { RigBoneOffset } from 'pixi-svelte/rigBoneOffset';
 
 import type {
 	LayoutNode,
@@ -349,7 +349,7 @@ export function boundFrameOutput(
 export type BoundScrub = { animation: string; time: number };
 
 /** Every `animTime` binding with an animation and a value, one per animation (a later binding on
- * the same animation wins), in binding order — the order `<SpinePose>` applies them in. */
+ * the same animation wins), in binding order — the order `<RigPose>` applies them in. */
 export function boundScrubs(
 	bindings: readonly ValueBinding[] | undefined,
 	outputs: readonly (number | undefined)[],
@@ -366,18 +366,18 @@ export function boundScrubs(
 	return [...byAnimation.values()];
 }
 
-/** One bone's combined offset — what `<SpinePose bones>` and the editor preview pose. */
-export type BoundBoneOffset = { bone: string; offset: SpineBoneOffset };
+/** One bone's combined offset — what `<RigPose bones>` and the editor preview pose. */
+export type BoundBoneOffset = { bone: string; offset: RigBoneOffset };
 
 /**
- * Every `bone` binding's output, combined per bone into one {@link SpineBoneOffset} — so two
+ * Every `bone` binding's output, combined per bone into one {@link RigBoneOffset} — so two
  * bindings on one bone (its scale from the level, its rotation from the stage) pose it together.
  */
 export function boundBoneOffsets(
 	bindings: readonly ValueBinding[] | undefined,
 	outputs: readonly (number | undefined)[],
 ): BoundBoneOffset[] {
-	const map = new Map<string, SpineBoneOffset>();
+	const map = new Map<string, RigBoneOffset>();
 	bindings?.forEach((binding, i) => {
 		const out = outputs[i];
 		if (binding.target !== 'bone' || !binding.bone || out === undefined) return;

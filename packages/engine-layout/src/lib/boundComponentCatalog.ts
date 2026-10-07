@@ -12,7 +12,7 @@ import type { ComponentDef, LayoutNode, LayoutType, Scene } from './types';
  *   (these are full-screen/self-positioning coded overlays → `canvas`).
  * - `preview`: the editor-only stand-in art the editor draws in the anchor's
  *   place (the game always ignores `preview` and mounts the real component). The
- *   asset is referenced by a CONVENTION name (`bundle` for a spine, `region` for
+ *   asset is referenced by a CONVENTION name (`bundle` for a rig, `region` for
  *   an atlas frame) that the editor resolves against the active project's assets,
  *   so it works across games WITHOUT a per-game asset list here.
  *
@@ -21,16 +21,16 @@ import type { ComponentDef, LayoutNode, LayoutType, Scene } from './types';
  * follow the convention either renames them or sets `preview.art` explicitly.
  *
  * The asset-naming convention this encodes (the home for documenting it is
- * `docs/conventions/`): the base background spine is `foregroundAnimation`, the
- * big-win spine `bigwin`, the transition spine `transition`, the free-spin intro/
- * outro spines `fsIntro`/`fsOutro`, and the free-spin counter panel frame the
+ * `docs/conventions/`): the base background rig is `foregroundAnimation`, the
+ * big-win rig `bigwin`, the transition rig `transition`, the free-spin intro/
+ * outro rigs `fsIntro`/`fsOutro`, and the free-spin counter panel frame the
  * atlas region `Frame_FSCounter.png`.
  */
 
 /**
  * EDITOR-PREVIEW ONLY: declares that a coded component RIDES a stand-in symbol on a bone of an
  * authored rig, so the Scene Editor can render that symbol tracking the live bone WITHOUT running
- * the game (the runtime already does this via `<SpineBoneAttach>`). Keyed off `bind.component`,
+ * the game (the runtime already does this via `<RigBoneAttach>`). Keyed off `bind.component`,
  * this names the ENCLOSING component-instance param keys the editor reads to build the rider — it
  * stays data-driven (any future bone-riding component declares its own binding here) rather than
  * hardcoding a component id in the editor. All values are plain strings/numbers/booleans resolved
@@ -38,7 +38,7 @@ import type { ComponentDef, LayoutNode, LayoutType, Scene } from './types';
  * layout doc — purely an editor affordance, mirroring {@link BoundComponentPreview}.
  */
 export interface BoneRiderBinding {
-	/** Instance param naming the rig SPINE bundle the bone lives on (e.g. `introSpine`). */
+	/** Instance param naming the rig RIG bundle the bone lives on (e.g. `introSpine`). */
 	spineParam: string;
 	/** Instance param naming the BONE to follow (e.g. `symbolBone`). Empty value ⇒ no rider. */
 	boneParam: string;
@@ -108,11 +108,11 @@ export interface PartSkinBinding {
 
 export interface BoundComponentPreview {
 	kind: 'spine' | 'sprite';
-	/** Convention spine-bundle name (kind `spine`), resolved against project spines. */
+	/** Convention rig-bundle name (kind `spine`), resolved against project rigs. */
 	bundle?: string;
-	/** Fallback spine-bundle names (kind `spine`), tried in order when `bundle` isn't
+	/** Fallback rig-bundle names (kind `spine`), tried in order when `bundle` isn't
 	 * in the project. Encodes common reuse — e.g. a free-spin OUTRO that has no
-	 * dedicated `fsOutro` spine and reuses the INTRO frame (`fsIntro`). */
+	 * dedicated `fsOutro` rig and reuses the INTRO frame (`fsIntro`). */
 	fallbackBundles?: string[];
 	/** Convention atlas-region name (kind `sprite`), resolved against the project manifest. */
 	region?: string;
@@ -204,7 +204,7 @@ export const BOUND_COMPONENT_DEFAULTS: Record<string, BoundComponentDefault> = {
 		},
 	},
 	LoadingScreen: {
-		// The startup splash: the game's `loader` spine (the `title_screen`
+		// The startup splash: the game's `loader` rig (the `title_screen`
 		// animation = the logo) over the progress bar, self-centred in
 		// `<MainContainer>`. Editor-only preview; the game mounts its coded
 		// `LoadingScreen.svelte` regardless.
@@ -235,7 +235,7 @@ export const BOUND_COMPONENT_DEFAULTS: Record<string, BoundComponentDefault> = {
 	},
 	// The board-relative free-spin intro VISUAL (a bare scene bind, or the `game`-space
 	// `freeSpinIntroVisual` componentInstance the owner positions). Previews the `fsIntro` frame
-	// spine at board centre (the def's default node position), so the editor preview matches the
+	// rig at board centre (the def's default node position), so the editor preview matches the
 	// in-game default; dragging the instance moves it.
 	FreeSpinIntroVisual: {
 		space: 'game',
@@ -250,7 +250,7 @@ export const BOUND_COMPONENT_DEFAULTS: Record<string, BoundComponentDefault> = {
 		preview: { kind: 'spine', bundle: 'fsOutro', fallbackBundles: ['fsIntro'] },
 	},
 	// The board-relative VISUAL half of the WIN overlay split (a `game`-space componentInstance the
-	// owner positions), previewed at board centre with the `bigwin` spine — mirroring the coded
+	// owner positions), previewed at board centre with the `bigwin` rig — mirroring the coded
 	// `Win` anchor's own preview so the editor default matches the in-game default.
 	WinVisual: {
 		space: 'game',
@@ -259,21 +259,21 @@ export const BOUND_COMPONENT_DEFAULTS: Record<string, BoundComponentDefault> = {
 	},
 	SpecialBook: {
 		// The expanding-symbol reveal sits on the board centre; its art is the chosen
-		// symbol's spine (state machine), so there's no fixed preview bundle — the editor
+		// symbol's rig (state machine), so there's no fixed preview bundle — the editor
 		// shows a board-centred placeholder until the game runs.
 		space: 'canvas',
 		placement: 'boardCentre',
 	},
 	// The board's chosen book expanding symbol as a POSITIONABLE part (the `expandingSymbol`
 	// def's bind). Placed `game`-space at board centre, mirroring `FreeSpinIntroVisual`; its
-	// art is the chosen symbol's spine (state machine), so there's no fixed preview bundle —
+	// art is the chosen symbol's rig (state machine), so there's no fixed preview bundle —
 	// the editor shows a board-centred placeholder until the game runs.
 	ExpandingSymbol: {
 		space: 'game',
 		placement: 'boardCentre',
 	},
 	// The chosen symbol merged onto a bone of an authored intro rig (the `freeSpinIntroSymbolReveal`
-	// def's bind). Placed `game`-space at board centre; previews the authored intro spine bundle so
+	// def's bind). Placed `game`-space at board centre; previews the authored intro rig bundle so
 	// the rig is visible in the editor, while the ridden symbol art only appears once the game runs.
 	FreeSpinIntroSymbolReveal: {
 		space: 'game',
@@ -331,18 +331,18 @@ export function hostedComponentSpace(def: ComponentDef | undefined): Scene['spac
 }
 
 /**
- * EDITOR-PREVIEW ONLY: the spine bundle NAME a componentInstance should preview its bound
- * spine art from — the VALUE of its def's FIRST `spine`-kind param, read from the instance's
+ * EDITOR-PREVIEW ONLY: the rig bundle NAME a componentInstance should preview its bound
+ * rig art from — the VALUE of its def's FIRST `spine`-kind param, read from the instance's
  * already-resolved params (def defaults ◁ instance overrides). This lets the Scene Editor
  * render the AUTHORED rig (the win overlay's `winSpine`, the free-spin visuals' `introSpine`/
- * `outroSpine`) on the canvas — which publishes its live `SpineMeta`, so the instance's
+ * `outroSpine`) on the canvas — which publishes its live `RigMeta`, so the instance's
  * `spineAnimation`/`spineSlot`/`spineBone` param dropdowns populate for a custom rig instead
  * of degrading to free-text. Discovered generically off `kind:'spine'` (no per-component id),
- * so every def that declares a spine param benefits. Returns `undefined` when the def declares
- * no spine param, or the value isn't a non-empty string — the caller then previews the fixed
+ * so every def that declares a rig param benefits. Returns `undefined` when the def declares
+ * no rig param, or the value isn't a non-empty string — the caller then previews the fixed
  * catalog bundle (parity). Never written to the layout doc; a purely editor affordance.
  */
-export function instancePreviewSpineBundle(
+export function instancePreviewRigBundle(
 	def: ComponentDef,
 	params: Record<string, unknown>,
 ): string | undefined {
@@ -438,7 +438,7 @@ const TILE_PARAMS: EditableParam[] = [
  * component here (+ wire it to read the prop) to make it editor-configurable.
  */
 export const BOUND_COMPONENT_PARAMS: Record<string, EditableParam[]> = {
-	// Free-spin intro VISUAL — swap the coded spine bundle + animation names + the
+	// Free-spin intro VISUAL — swap the coded rig bundle + animation names + the
 	// number slot the count is injected into. The component reads these as $props()
 	// with the coded values as defaults, so an unauthored game renders identically.
 	// NB: a custom `introSpine` bundle MUST expose a slot matching `slotName`, else
@@ -447,22 +447,22 @@ export const BOUND_COMPONENT_PARAMS: Record<string, EditableParam[]> = {
 		{
 			key: 'introSpine',
 			kind: 'string',
-			label: 'Intro spine bundle',
+			label: 'Intro rig bundle',
 			placeholder: 'fsIntroNumber',
 		},
 		{ key: 'introAnimation', kind: 'string', label: 'Intro animation', placeholder: 'intro' },
 		{ key: 'idleAnimation', kind: 'string', label: 'Idle animation', placeholder: 'idle' },
 		{ key: 'slotName', kind: 'string', label: 'Number slot', placeholder: 'slot_number' },
 	],
-	// Free-spin outro VISUAL — same shape as the intro, for the outro spine. A custom
+	// Free-spin outro VISUAL — same shape as the intro, for the outro rig. A custom
 	// `outroSpine` bundle MUST expose a slot matching `slotName`, else the count BitmapText has
 	// nowhere to mount. The engine's headless outro driver emits NO coin fountain; an author who
-	// wants coins places their own (FX / particle / spine), so there are no fountain params here.
+	// wants coins places their own (FX / particle / rig), so there are no fountain params here.
 	FreeSpinOutroVisual: [
 		{
 			key: 'outroSpine',
 			kind: 'string',
-			label: 'Outro spine bundle',
+			label: 'Outro rig bundle',
 			placeholder: 'fsOutroNumber',
 		},
 		{ key: 'outroAnimation', kind: 'string', label: 'Outro animation', placeholder: 'intro' },
@@ -501,12 +501,12 @@ export function getEditableParams(name: string | undefined): EditableParam[] {
 
 /**
  * The render-ready preview art shape both editor draw paths (the 2D canvas and the
- * spine WebGL overlay) already consume — i.e. what a node's `preview.art` is. The
+ * rig WebGL overlay) already consume — i.e. what a node's `preview.art` is. The
  * resolver below produces this from the catalog so the two paths agree on ONE art.
  */
 export interface ResolvedPreviewArt {
 	kind: 'spine' | 'sprite';
-	/** The asset key the draw path resolves: a spine bundle prefix, or the manifest
+	/** The asset key the draw path resolves: a rig bundle prefix, or the manifest
 	 * key that contains the sprite `region`. Empty when a sprite region isn't located
 	 * yet (the caller draws a placeholder until its region index fills in). */
 	assetKey: string;
@@ -517,9 +517,9 @@ export interface ResolvedPreviewArt {
 
 /**
  * Minimal view of a project's assets the resolver needs — kept structural so
- * `engine-layout` doesn't depend on launcher-api's asset types. `spines[].name`
- * is the bundle name (the last path segment of the bundle key); `spines[].key`
- * is the bundle prefix the editor's spine preview loads.
+ * `engine-layout` doesn't depend on launcher-api's asset types. `rigs[].name`
+ * is the bundle name (the last path segment of the bundle key); `rigs[].key`
+ * is the bundle prefix the editor's rig preview loads.
  */
 export interface PreviewAssets {
 	spines: { name: string; key: string }[];
@@ -530,8 +530,8 @@ export interface PreviewAssets {
  *  1. an explicit `node.preview.art` (a per-node override) always wins;
  *  2. else the catalog default for `node.bind.component`, resolved against the
  *     project's `assets`:
- *     - **spine**: the project spine whose bundle name === the catalog `bundle`;
- *       its key becomes the spine `assetKey`.
+ *     - **rig**: the project rig whose bundle name === the catalog `bundle`;
+ *       its key becomes the rig `assetKey`.
  *     - **sprite**: the catalog `region` resolved against `spriteRegionIndex`
  *       (region name → manifest key) — supplied by the caller, which scans the
  *       project manifests lazily. Until the region is located the art is returned
@@ -543,13 +543,13 @@ export function resolveAnchorPreviewArt(
 	node: LayoutNode,
 	assets: PreviewAssets,
 	spriteRegionIndex?: Map<string, string>,
-	/** EDITOR-PREVIEW ONLY: a spine bundle NAME that overrides the catalog `bundle` for
-	 * this node's spine preview — the AUTHORED spine of the enclosing componentInstance
-	 * (its `spine`-kind param value; see {@link instancePreviewSpineBundle}). Tried FIRST,
+	/** EDITOR-PREVIEW ONLY: a rig bundle NAME that overrides the catalog `bundle` for
+	 * this node's rig preview — the AUTHORED rig of the enclosing componentInstance
+	 * (its `spine`-kind param value; see {@link instancePreviewRigBundle}). Tried FIRST,
 	 * then the catalog `bundle` + `fallbackBundles`, so a custom rig (e.g. the win overlay's
 	 * `winSpine`) renders in place of the fixed stand-in; an unset / not-in-project name
 	 * falls back to the catalog default (parity). Ignored for sprite previews. */
-	previewSpineBundle?: string,
+	previewRigBundle?: string,
 	/** The layoutType being previewed. The `fit` that decides this anchor's placement is
 	 *  per-layoutType like every other cover input ({@link NodeOverride.fit}), so without it a
 	 *  ratio that overrides a `contain` anchor to a window-filling fit previews CENTRED while the
@@ -582,7 +582,7 @@ export function resolveAnchorPreviewArt(
 	if (!preview) return undefined;
 	const placement: OverlayPlacement = def?.placement ?? 'centre';
 	if (preview.kind === 'spine') {
-		const bundles = [previewSpineBundle, preview.bundle, ...(preview.fallbackBundles ?? [])].filter(
+		const bundles = [previewRigBundle, preview.bundle, ...(preview.fallbackBundles ?? [])].filter(
 			(b): b is string => !!b,
 		);
 		const match = bundles.map((name) => assets.spines.find((s) => s.name === name)).find((m) => m);

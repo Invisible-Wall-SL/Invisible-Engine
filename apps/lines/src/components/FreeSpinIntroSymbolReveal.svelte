@@ -3,18 +3,18 @@
 
 	import { FadeContainer } from 'components-pixi';
 	import { getComponentParams } from 'engine-layout/svelte';
-	import { Container, SpineBoneAttach, SpineProvider, SpineTrack } from 'pixi-svelte';
+	import { Container, RigBoneAttach, RigProvider, RigTrack } from 'pixi-svelte';
 
 	import Symbol from './Symbol.svelte';
 	import { getContext } from '../game/context';
 	import { stateGame } from '../game/stateGame.svelte';
 	import type { SymbolName, SymbolState } from '../game/types';
 
-	// The chosen book expanding symbol MERGED into an authored intro Spine RIG (the reusable
+	// The chosen book expanding symbol MERGED into an authored intro rig RIG (the reusable
 	// "flip through symbols → land on YOUR symbol" reveal, book-reveal authoring). The
 	// `freeSpinIntroSymbolReveal` builtin def binds this. Unlike the coded `SpecialBook` it does
 	// NOT shuffle standalone symbols — it plays the author-picked rig animation and RIDES the
-	// chosen `stateGame.specialSymbol` on a named BONE of that rig via `<SpineBoneAttach>` (the
+	// chosen `stateGame.specialSymbol` on a named BONE of that rig via `<RigBoneAttach>` (the
 	// symbol banks/scales with the animation). Driven by the SAME awaited `specialBookReveal`
 	// cue as the coded shuffle (fired at `setExpandingSymbol` time, when the symbol is known);
 	// it hands the broadcaster a promise that settles when the rig's intro animation completes,
@@ -22,7 +22,7 @@
 	// book-reveal ownership ⇒ the coded shuffle is suppressed and this replaces it. Position/scale
 	// of the rig come from the instance node.
 	const {
-		introSpine: introSpineProp = 'fsIntro',
+		introSpine: introRigProp = 'fsIntro',
 		introAnimation: introAnimationProp = 'intro',
 		idleAnimation: idleAnimationProp = 'idle',
 		symbolBone: symbolBoneProp = '',
@@ -60,7 +60,7 @@
 		return typeof value === 'boolean' ? value : undefined;
 	};
 
-	const introSpine = $derived(stringParam('introSpine') ?? introSpineProp);
+	const introRig = $derived(stringParam('introSpine') ?? introRigProp);
 	const introAnimation = $derived(stringParam('introAnimation') ?? introAnimationProp);
 	const idleAnimation = $derived(stringParam('idleAnimation') ?? idleAnimationProp);
 	const symbolBone = $derived(stringParam('symbolBone') ?? symbolBoneProp);
@@ -128,18 +128,18 @@
 	onDestroy(() => settleReveal());
 </script>
 
-{#if introSpine}
+{#if introRig}
 	<FadeContainer show={phase !== 'hidden'}>
-		<SpineProvider key={introSpine}>
-			<SpineTrack
+		<RigProvider key={introRig}>
+			<RigTrack
 				trackIndex={0}
 				{animationName}
 				loop={animationName === idleAnimation}
 				listener={{
 					// React ONLY to the INTRO animation completing. Once the reveal hands off to a
-					// LOOPING idle, Spine fires `complete` at the end of every idle cycle. On a second
+					// LOOPING idle, the runtime fires `complete` at the end of every idle cycle. On a second
 					// free-spin feature `play()` flips `phase` to 'intro' synchronously, but the
-					// `<SpineTrack>` effect applies the intro a tick later; a stray idle-loop completion
+					// `<RigTrack>` effect applies the intro a tick later; a stray idle-loop completion
 					// landing in that window would otherwise run the hand-off against an intro that never
 					// played — settling the reveal early and freezing the rig on idle for the rest of the
 					// feature. Gating on the completing animation's name makes each reveal self-contained.
@@ -153,7 +153,7 @@
 				}}
 			/>
 			{#if shownName && symbolBone}
-				<SpineBoneAttach boneName={symbolBone} {offset} {followRotation} {followScale}>
+				<RigBoneAttach boneName={symbolBone} {offset} {followRotation} {followScale}>
 					<Container scale={symbolScale}>
 						<Symbol
 							rawSymbol={{ name: shownName }}
@@ -161,8 +161,8 @@
 							loop={symbolState === 'bookIdle'}
 						/>
 					</Container>
-				</SpineBoneAttach>
+				</RigBoneAttach>
 			{/if}
-		</SpineProvider>
+		</RigProvider>
 	</FadeContainer>
 {/if}

@@ -14,7 +14,7 @@
 		admin: 'You have access to everything — all online tools and local tools.',
 		developer: 'You build the engine and games, and use the pipeline tools.',
 		artist: 'You create and refine game art with the Atlas tools and ComfyUI.',
-		animator: 'You work on Spine skeletons and animations.',
+		animator: 'You work on rig skeletons and animations.',
 		pipelineTester:
 			'You test the pipeline end to end — build a game, walk it through every tool, and report what breaks.',
 		localizationReviewer:

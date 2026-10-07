@@ -5,12 +5,12 @@
 </script>
 
 <script lang="ts">
-	import { Sprite, SpineProvider, SpineTrack } from 'pixi-svelte';
+	import { Sprite, RigProvider, RigTrack } from 'pixi-svelte';
 
 	import { getContext } from '../game/context';
 
 	const context = getContext();
-	const SPINE_SCALE = { width: 0.6, height: 0.6 };
+	const RIG_SCALE = { width: 0.6, height: 0.6 };
 	const SPRITE_SCALE = { width: 1.07, height: 1.19 };
 	const BG_RATIO = 937 / 806;
 	const POSITION_ADJUSTMENT = 1.01;
@@ -32,15 +32,15 @@
 </script>
 
 {#if animationName}
-	<SpineProvider
+	<RigProvider
 		zIndex={-1}
 		key="reelhouse"
 		x={context.stateGameDerived.boardLayout().x * POSITION_ADJUSTMENT}
 		y={context.stateGameDerived.boardLayout().y * POSITION_ADJUSTMENT}
-		width={context.stateGameDerived.boardLayout().width * SPINE_SCALE.width}
-		height={context.stateGameDerived.boardLayout().height * SPINE_SCALE.height}
+		width={context.stateGameDerived.boardLayout().width * RIG_SCALE.width}
+		height={context.stateGameDerived.boardLayout().height * RIG_SCALE.height}
 	>
-		<SpineTrack
+		<RigTrack
 			trackIndex={0}
 			{animationName}
 			{loop}
@@ -60,7 +60,7 @@
 				},
 			}}
 		/>
-	</SpineProvider>
+	</RigProvider>
 {/if}
 
 <Sprite

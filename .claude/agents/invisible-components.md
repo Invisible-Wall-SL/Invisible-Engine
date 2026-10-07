@@ -54,13 +54,13 @@ Mirror the existing built-ins; don't invent a third pattern without reason:
   drags/restyles directly, with `paramBindings` wiring fields (text/region/tint/font)
   to params. Preferred when the render can be expressed statically — most reusable.
   A LIVE number drives such a node through `valueBindings` (transform offsets,
-  show/hide threshold, fill mask, clip frame, spine scrub, spine bone — `valueBindings.ts`,
+  show/hide threshold, fill mask, clip frame, rig scrub, rig bone — `valueBindings.ts`,
   Hold and Win Phase 12b), so a masked fill or a growing bone no longer needs a coded part.
 - **Bound coded parts** (`hudReadout`, `button`, `loadingIntro` bar, the transitions
   and FS visuals): a child carries `bind: { component: '<RegisteredName>' }` mounting
   a small coded part registered via `registerBoundComponents`. Use ONLY when the
   render needs live behaviour the static node model can't express (count-up currency,
-  masked progress fill, interaction state, spine choreography). Pass `boundToInstance:
+  masked progress fill, interaction state, rig choreography). Pass `boundToInstance:
   true` so the coded part renders at the instance's local origin (parity).
   A coded part can be made **skinnable** (Hold and Win 12c: the Pot, the Respin Counter, the
   Jackpot Tile, the Total Win Bar, the Letter Tile, the Wheel, the Cell Tile). It takes a `skin`
@@ -118,7 +118,7 @@ components belong in code (`builtinComponents.ts`), not authored through the UI.
   source of truth; read it before changing the contract.
 
 ## Ship through the full chain (rule 8) — a component isn't done until it ships
-"Shows in the editor" ≠ "ships". A component (and any art/font/spine it needs)
+"Shows in the editor" ≠ "ships". A component (and any art/font/rig it needs)
 travels: **author → export → `deploy/` → bake (embed in the bundle) → pull (mirror
 into `static/assets/`) → register at boot in the game** (`registerComponents` +
 whichever registries the def's params/signals need). A built-in component is in

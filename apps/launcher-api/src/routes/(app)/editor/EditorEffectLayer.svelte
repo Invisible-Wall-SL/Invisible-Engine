@@ -3,7 +3,7 @@
 	 * Scene Editor — the LIVE particle overlay. The 2D canvas can't run a WebGL particle emitter, so a
 	 * placed `kind:'effect'` node otherwise shows only a static ✨ placeholder chip. This overlay mounts
 	 * ONE `PIXI.Application` (transparent, `pointer-events:none`) over the 2D canvas and plays each
-	 * placed effect's authored `EffectDoc` verbatim — mirroring `EditorSpineLayer` (the live spine
+	 * placed effect's authored `EffectDoc` verbatim — mirroring `EditorRigLayer` (the live rig
 	 * overlay) but driving `@barvynkoa/particle-emitter` `Emitter`s (the SAME runtime contract the `/fx`
 	 * tool's `FxStage` and the game's `<EffectPlayer>` reduce to: `bindArt` the layer's art textures →
 	 * `new Emitter(container, config)` → `emitter.update(dtSeconds)`).
@@ -12,8 +12,8 @@
 	 * chip / selection box sits. Both are driven by the SAME `worldTransformOf` (== EditorCanvas's
 	 * `nodeTransform`) result — a `ResolvedTransform` in canvas WORLD coords (pre pan/zoom). A nested
 	 * effect (inside a container / component instance) composes its ancestor chain via the SAME
-	 * `composeWorldMatrix` the spine + text overlays use, so the three layers agree by construction.
-	 * Unlike the spine overlay (whose vendored WebGL camera forces an x-mirror compensation), Pixi is
+	 * `composeWorldMatrix` the rig + text overlays use, so the three layers agree by construction.
+	 * Unlike the rig overlay (whose vendored WebGL camera forces an x-mirror compensation), Pixi is
 	 * natively y-down like the 2D canvas, so we place each node's Container at the raw world transform
 	 * and bake the editor PAN/ZOOM once on the parent `world` Container (`world.position = pan`,
 	 * `world.scale = zoom`) — the identical `world*zoom + pan` mapping the 2D canvas uses.
@@ -41,15 +41,15 @@
 
 	interface Props {
 		/** All doc scenes — the live emitters are driven by these (filtered by
-		 * `sceneFilter`/`hiddenSceneIds`), mirroring `EditorSpineLayer`. */
+		 * `sceneFilter`/`hiddenSceneIds`), mirroring `EditorRigLayer`. */
 		scenes: Scene[];
 		layoutType: LayoutType;
-		/** Active scene frame size (world coords) — carried for parity with the spine
+		/** Active scene frame size (world coords) — carried for parity with the rig
 		 * overlay's nested-transform math (`childLocalTransform` needs the frame for
 		 * `canvas`-space screen anchors). */
 		frameWidth: number;
 		frameHeight: number;
-		/** Editor view transform — kept byte-identical with the 2D canvas + spine overlay. */
+		/** Editor view transform — kept byte-identical with the 2D canvas + rig overlay. */
 		panX: number;
 		panY: number;
 		zoom: number;
@@ -61,10 +61,10 @@
 		 * single-id Set so an effect z-orders with its own scene group). Unset = every non-hidden. */
 		sceneFilter?: Set<string> | null;
 		/** Restrict this layer to a SUBSET of each filtered scene's top-level nodes (nested effects
-		 * follow their top-level ancestor) — see `EditorSpineLayer.nodeFilter`. `null` ⇒ every node
+		 * follow their top-level ancestor) — see `EditorRigLayer.nodeFilter`. `null` ⇒ every node
 		 * (parity). */
 		nodeFilter?: Set<string> | null;
-		/** CSS `mix-blend-mode` for this layer's canvas — see `EditorSpineLayer.blend`. An additive
+		/** CSS `mix-blend-mode` for this layer's canvas — see `EditorRigLayer.blend`. An additive
 		 * emitter blended INSIDE this transparent overlay is a no-op, so the blend rides the element
 		 * and composites against the art beneath, exactly as the game's `<Container blendMode>` does. */
 		blend?: string;
@@ -73,7 +73,7 @@
 		componentMap?: Map<string, ComponentDef>;
 		/** Frames a TOP-LEVEL node into canvas-world coords (EditorCanvas's `nodeTransform`), so a
 		 * nested effect's world transform composes from its ancestor chain identically to the 2D
-		 * canvas + spine overlay + game runtime. */
+		 * canvas + rig overlay + game runtime. */
 		worldTransformOf: (node: LayoutNode, scene: Scene) => ResolvedTransform;
 		/** Reports which effect NODE ids now render a live emitter, so the 2D canvas can drop their
 		 * placeholder chip. Loading / bone-only / empty nodes stay chipped. */
@@ -196,11 +196,11 @@
 		return p;
 	}
 
-	// ---- target collection (mirrors EditorSpineLayer.spineTargets) --------------------------------
+	// ---- target collection (mirrors EditorRigLayer.rigTargets) --------------------------------
 
 	/** Collect every placed effect node (top-level + nested) across the non-hidden / filtered scenes,
-	 * each with its resolved canvas-WORLD transform. Mirrors `EditorSpineLayer.spineTargets` +
-	 * `collectNestedSpines`: framing is applied ONCE at the top-level node (`worldTransformOf`),
+	 * each with its resolved canvas-WORLD transform. Mirrors `EditorRigLayer.rigTargets` +
+	 * `collectNestedRigs`: framing is applied ONCE at the top-level node (`worldTransformOf`),
 	 * descendants compose in pure local space (`childLocalTransform`) via `composeWorldMatrix`. */
 	function effectTargets(): EffectTarget[] {
 		const out: EffectTarget[] = [];
@@ -239,7 +239,7 @@
 	}
 
 	/** Recursively collect effect targets NESTED inside containers / component instances — mirroring
-	 * `EditorSpineLayer.collectNestedSpines`. `chain` is the ancestor path (root-first); each nested
+	 * `EditorRigLayer.collectNestedRigs`. `chain` is the ancestor path (root-first); each nested
 	 * effect's world transform is composed from it via {@link composeWorldMatrix}. */
 	function collectNested(
 		nodes: LayoutNode[],
@@ -266,7 +266,7 @@
 
 	/** Build a target for a nested effect: its world transform composed from the ancestor `chain`
 	 * (top link framed via `worldTransformOf`, descendants pure-local via `childLocalTransform` — the
-	 * SAME rule the 2D canvas + spine overlay + game runtime use), decomposed to x/y + scale +
+	 * SAME rule the 2D canvas + rig overlay + game runtime use), decomposed to x/y + scale +
 	 * rotation. A single-axis flip in the chain (negative scale) is preserved via the determinant. */
 	function nestedTarget(
 		node: Extract<LayoutNode, { kind: 'effect' }>,
@@ -427,7 +427,7 @@
 		}
 
 		for (const layer of doc.layers) {
-			// v1: skip bone-placed layers — they need a live `<SpineProvider>` host the scene overlay
+			// v1: skip bone-placed layers — they need a live `<RigProvider>` host the scene overlay
 			// doesn't have (the runtime mounts those on their host rig). A free layer spawns here.
 			if (layer.placement.space === 'bone') continue;
 			await buildLayer(node, layer, gen);
@@ -463,7 +463,7 @@
 
 	let readyKeys = new Set<string>();
 	/** Publish the set of effect NODE ids that render a live emitter, idempotent (only re-emit when the
-	 * set changes) so the parent's `$state` doesn't loop — mirroring `EditorSpineLayer.publishReady`. */
+	 * set changes) so the parent's `$state` doesn't loop — mirroring `EditorRigLayer.publishReady`. */
 	function publishReady(): void {
 		const next = new Set<string>();
 		for (const [id, node] of liveNodes) if (node.live) next.add(id);
@@ -561,7 +561,7 @@
 	// ---- pan / zoom + play/pause ------------------------------------------------------------------
 
 	/** Bake the editor pan/zoom onto the world container — the identical `world*zoom + pan` mapping the
-	 * 2D canvas + spine overlay use. Each node container is placed in raw canvas-world coords, so
+	 * 2D canvas + rig overlay use. Each node container is placed in raw canvas-world coords, so
 	 * pan/zoom composes once here. */
 	function applyView(): void {
 		if (!world) return;

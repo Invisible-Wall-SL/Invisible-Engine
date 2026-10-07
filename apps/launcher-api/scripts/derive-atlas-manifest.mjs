@@ -31,10 +31,10 @@
 // Scans the game's COMMITTED `static/assets/` tree (git-tracked files only — so
 // stale uncommitted sheets never pollute the map) for deployable sheets:
 //   - TexturePacker sprite sheets (`*.json` with frames+meta) → stem + its dir, and
-//   - Spine pages (`*.atlas`) → the page-image basename + its dir,
+//   - Rig pages (`*.atlas`) → the page-image basename + its dir,
 // builds an asset-map `{ "<stem>": { deploy_path, deploy_basename, kind } }` (kind =
 // "spine" for `.atlas` pages, "sprite" for TexturePacker sheets — Deploy uses it to do a
-// page-only deploy for spine pages so a TP `.json` never clobbers the skeleton), publishes
+// page-only deploy for rig pages so a TP `.json` never clobbers the skeleton), publishes
 // it to R2 `<client>/<project>/asset-map.json`, then backfills deploy_path/_basename on
 // existing R2 manifests whose name matches a map stem. `--manifests-dir` lets the
 // backfill read manifests from a local dir instead of R2 (offline dry-runs).
@@ -148,8 +148,8 @@ function isTexturePackerSheet(json) {
 	return !!frames && typeof frames === 'object' && Object.keys(frames).length > 0;
 }
 
-/** The page-image basename declared on a Spine `.atlas` (its first non-empty line). */
-function spineAtlasPageBasename(atlasText) {
+/** The page-image basename declared on a rig `.atlas` (its first non-empty line). */
+function rigAtlasPageBasename(atlasText) {
 	for (const raw of atlasText.split(/\r?\n/)) {
 		const line = raw.trim();
 		if (line.length > 0) return parsePath(line).name;
@@ -200,7 +200,7 @@ function listAssetFiles(gameRoot, assetsDir) {
  * Scan a game's committed `static/assets/` tree and build the project asset-map:
  * `{ "<stem>": { deploy_path, deploy_basename, kind } }` where `kind` is "spine" for
  * `.atlas` pages and "sprite" for TexturePacker sheets. Indexes TexturePacker sheets
- * (`*.json` with frames+meta) and Spine pages (`*.atlas`). On duplicate stems keeps
+ * (`*.json` with frames+meta) and rig pages (`*.atlas`). On duplicate stems keeps
  * the FIRST and warns. Returns `{ map, indexed, duplicates, source }`.
  * @param {string} gameRoot path to the game repo
  */
@@ -241,12 +241,12 @@ function buildAssetMap(gameRoot) {
 			} catch {
 				continue; // unreadable/non-JSON → not a sheet
 			}
-			if (!isTexturePackerSheet(json)) continue; // skip spine skeletons, fonts, audio…
+			if (!isTexturePackerSheet(json)) continue; // skip rig skeletons, fonts, audio…
 			add(parsePath(rel).name, deployPath, 'tp', rel);
 		} else if (rel.toLowerCase().endsWith('.atlas')) {
 			let stem;
 			try {
-				stem = spineAtlasPageBasename(readFileSync(abs, 'utf8')) || parsePath(rel).name;
+				stem = rigAtlasPageBasename(readFileSync(abs, 'utf8')) || parsePath(rel).name;
 			} catch {
 				stem = parsePath(rel).name;
 			}
@@ -570,8 +570,8 @@ async function mainAll() {
 			`assets indexed${duplicates.length ? `, ${duplicates.length} duplicate stem(s) dropped` : ''}.`,
 	);
 	const tp = indexed.filter((e) => e.kind === 'tp').length;
-	const spine = indexed.filter((e) => e.kind === 'spine').length;
-	console.info(`  ${tp} TexturePacker sheet(s), ${spine} Spine page(s).`);
+	const rig = indexed.filter((e) => e.kind === 'spine').length;
+	console.info(`  ${tp} TexturePacker sheet(s), ${rig} Rig page(s).`);
 
 	// Publish the asset-map (skip on dry-run).
 	if (DRY_RUN) {

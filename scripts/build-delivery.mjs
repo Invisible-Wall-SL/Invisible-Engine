@@ -169,7 +169,7 @@ const DELIVERY_ENV = {
  *  `build-embed.mjs` still runs, and refuses loudly if that build was not an embed build. */
 const skipBuild = flag('--skip-build');
 
-/** Package a build whose baked bundle reports missing art or spines. Off by default: see
+/** Package a build whose baked bundle reports missing art or rigs. Off by default: see
  *  {@link missingAssets}. */
 const allowMissingAssets = flag('--allow-missing-assets');
 
@@ -190,10 +190,10 @@ const missingAssets = () => {
 	const list = (value) => (Array.isArray(value) ? value : []);
 	return [
 		['placed region(s) in no shipped atlas', list(bundle.editorArt?.missing)],
-		['placed spine bundle(s) that resolved to nothing', list(bundle.editorArt?.spinesMissing)],
+		['placed rig bundle(s) that resolved to nothing', list(bundle.editorArt?.spinesMissing)],
 		['bound symbol frame(s) in no shipped atlas', list(bundle.symbols?.index?.missing)],
 		[
-			'bound symbol spine bundle(s) that resolved to nothing',
+			'bound symbol rig bundle(s) that resolved to nothing',
 			list(bundle.symbols?.index?.spinesMissing),
 		],
 	]
@@ -620,7 +620,7 @@ try {
 	// never touches. They are small, but "small" is not the test — a partner's CDN serves whatever
 	// is in the folder, and every file in it is one we are implicitly saying belongs there.
 	//
-	//  - `assets/**/*.ts` — the R2 mirror's bundle manifests (`createAsset({img, rawAtlas, spines})`).
+	//  - `assets/**/*.ts` — the R2 mirror's bundle manifests (`createAsset({img, rawAtlas, rigs})`).
 	//    The build COMPILES them into `bundle.js`; a browser cannot execute a `.ts`, so shipping
 	//    them hands over source that does nothing. 28 of them in a real Borut delivery.
 	//  - `favicon.svg`, `loader.gif` — reachable only from an `index.html` of ours, and a delivery

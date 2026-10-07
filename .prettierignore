@@ -36,10 +36,10 @@ out/
 build-storybook.log
 storybook-static
 
-# spine/atlas json
+# rig/atlas json
 **/src/game/assets/**/*.json
 packages/**/assets/**/*.json
 packages/shared-assets/src/**/*.json
 
 # generated (authoritative output of a generator; --check does a string compare)
-packages/engine-layout/src/lib/builtinSpineMeta.generated.ts
+packages/engine-layout/src/lib/builtinRigMeta.generated.ts

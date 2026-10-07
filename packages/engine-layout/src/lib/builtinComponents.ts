@@ -691,7 +691,7 @@ export const INFO_BAR_DEF: ComponentDef = {
 	],
 };
 
-/** The coded splash logo (`apps/lines` `LoadingScreen.svelte` `SpineProvider key="loader"`
+/** The coded splash logo (`apps/lines` `LoadingScreen.svelte` `RigProvider key="loader"`
  * `width={300}`, animation `title_screen`). */
 const LOADING_LOGO_BUNDLE = 'loader';
 const LOADING_LOGO_ANIMATION = 'title_screen';
@@ -830,7 +830,7 @@ export const LOADING_INTRO_DEF: ComponentDef = {
  * off a direct coded `bind` to an editor-owned `componentInstance`; the proof of the
  * HYBRID pattern the FS intro/outro will follow). A thin wrapper: the root holds ONE
  * `bind` child mounting the coded `Transition`, which KEEPS its proven lifecycle (the
- * `transition` event → play `TransitionAnimation` → spine `complete` → resolve the
+ * `transition` event → play `TransitionAnimation` → rig `complete` → resolve the
  * round-blocking `await broadcastAsync`). What the migration changes is OWNERSHIP OF
  * POSITION: under the `TRANSITION_INSTANCE` flag the coded part renders at its LOCAL
  * origin (see `Transition.svelte` / `TransitionAnimation.svelte`), so the editor node's
@@ -838,7 +838,7 @@ export const LOADING_INTRO_DEF: ComponentDef = {
  * part hardcoding canvas-centre. Placed `canvas`-space centred (`screenAnchor {0.5,0.5}`)
  * to reproduce the coded centre, and the coded part still reads `canvasSizes()` for its
  * height so sizing stays viewport-responsive (no baked size). Animation stays coded (no
- * per-spine cue); the editor owns placement. The intro/outro extend this by also
+ * per-rig cue); the editor owns placement. The intro/outro extend this by also
  * decomposing their count text into a sibling editor-native node.
  */
 export const TRANSITION_DEF: ComponentDef = {
@@ -875,13 +875,13 @@ export const TRANSITION_DEF: ComponentDef = {
 /**
  * The board-relative VISUAL of the free-spin INTRO (§17 Phase 3) — the editor-positioned
  * half of the intro/gate split. Wraps the coded `FreeSpinIntroVisual` (the `FreeSpinAnimation`
- * frame spine + the count spine, count in its slot) as a `bind` child with
+ * frame rig + the count rig, count in its slot) as a `bind` child with
  * `boundToInstance:true`, so the coded part renders at THIS instance's node position
  * instead of self-centring on the board — drag/scale the instance to move the intro art.
  * The dim, the tap and the round-blocking hold belong to the flow's intro screen (its
  * `tapToContinue` + a `showContainer{awaitComplete}`), not to this visual. Placed `game`-space,
  * defaulted to board-centre (the scene node sets `x/y = boardLayout`), so parity holds at
- * the default position. Params forward the spine bundle / animations / slot to the part.
+ * the default position. Params forward the rig bundle / animations / slot to the part.
  */
 export const FREE_SPIN_INTRO_VISUAL_DEF: ComponentDef = {
 	id: 'freeSpinIntroVisual',
@@ -907,7 +907,7 @@ export const FREE_SPIN_INTRO_VISUAL_DEF: ComponentDef = {
 		],
 	},
 	params: [
-		{ key: 'introSpine', kind: 'spine', default: 'fsIntroNumber', label: 'intro spine bundle' },
+		{ key: 'introSpine', kind: 'spine', default: 'fsIntroNumber', label: 'intro rig bundle' },
 		{
 			key: 'introAnimation',
 			kind: 'spineAnimation',
@@ -935,8 +935,8 @@ export const FREE_SPIN_INTRO_VISUAL_DEF: ComponentDef = {
 /**
  * The board-relative VISUAL of the free-spin OUTRO (§17 Phase 3) — the editor-positioned
  * half of the outro/gate split, mirroring {@link FREE_SPIN_INTRO_VISUAL_DEF}. Wraps the
- * coded `FreeSpinOutroVisual` (the `FreeSpinAnimation` frame spine + win sprites + the
- * count spine, count in its slot reading the count-up amount the engine's outro driver
+ * coded `FreeSpinOutroVisual` (the `FreeSpinAnimation` frame rig + win sprites + the
+ * count rig, count in its slot reading the count-up amount the engine's outro driver
  * publishes) as a `bind` child with `boundToInstance:true`. The dim, the tap and the
  * round-blocking hold belong to the flow's outro screen, not to this visual.
  */
@@ -964,7 +964,7 @@ export const FREE_SPIN_OUTRO_VISUAL_DEF: ComponentDef = {
 		],
 	},
 	params: [
-		{ key: 'outroSpine', kind: 'spine', default: 'fsOutroNumber', label: 'outro spine bundle' },
+		{ key: 'outroSpine', kind: 'spine', default: 'fsOutroNumber', label: 'outro rig bundle' },
 		{
 			key: 'outroAnimation',
 			kind: 'spineAnimation',
@@ -992,13 +992,13 @@ export const FREE_SPIN_OUTRO_VISUAL_DEF: ComponentDef = {
 /**
  * The board-relative VISUAL of the WIN overlay (big-win presentation) — the editor-positioned
  * half of the win gate/visual split, mirroring {@link FREE_SPIN_OUTRO_VISUAL_DEF}. Wraps the coded
- * `WinVisual` (the tier spine via `WinAnimation` + the count number in its slot, reading the gate's
+ * `WinVisual` (the tier rig via `WinAnimation` + the count number in its slot, reading the gate's
  * published count-up amount + win level from `winState`) as a `bind` child with
  * `boundToInstance:true`, so the coded part renders at THIS instance's node position instead of
  * self-centring on the board — drag/scale the instance to move the big-win art. The full-screen GATE
  * (dim + count-up driver + WinCoins + press + round-await) stays the coded `canvas` bind `WinGate`.
  *
- * ANIMATION + SPINE + DURATION + SOUND per BIG TIER — the presentation half of the config/component
+ * ANIMATION + RIG + DURATION + SOUND per BIG TIER — the presentation half of the config/component
  * split (`docs/tools/game-config.md`): the `/config` panel owns tier STRUCTURE (count / name /
  * threshold / type / escalation); this component owns per-tier PRESENTATION. The per-tier groups are
  * GENERATED from the active game config's big tiers (keyed by the tier's ALIAS) via
@@ -1007,9 +1007,9 @@ export const FREE_SPIN_OUTRO_VISUAL_DEF: ComponentDef = {
  * {@link DEFAULT_WIN_TIERS} (the coded `winLevelMap`'s big tiers) so an un-authored project renders
  * byte-identically; the editor rebuilds the def from the ACTIVE config's tiers on load.
  *
- * Per tier `<alias>` the group carries: `<alias>Spine` (spine picker), `<alias>Slot` (that spine's
+ * Per tier `<alias>` the group carries: `<alias>rig` (rig picker), `<alias>Slot` (that rig's
  * count slot), `<alias>Intro`/`Idle`/`Outro`
- * (`spineAnimation` dropdowns of the tier's chosen spine — no blind typing), `<alias>Duration` (ms),
+ * (`spineAnimation` dropdowns of the tier's chosen rig — no blind typing), `<alias>Duration` (ms),
  * `<alias>Sfx`, `<alias>Bgm`. Resolution per field, at runtime: the PER-TIER value ?? the SHARED set
  * (`winSpine`/`introAnimation`/`idleAnimation`/`exitAnimation`, all tiers) ?? the config/coded tier's
  * own value (`spineKey`/`animation`/`durationMs`/`sound`). Every per-tier field is empty by default, so
@@ -1036,14 +1036,14 @@ export const DEFAULT_WIN_TIERS: WinTierMeta[] = [
 ];
 
 /**
- * Per-tier presentation params for the `win` component — a spine picker + a count-slot dropdown +
- * intro/idle/outro dropdowns (of that spine's animations) + duration, ONE collapsible
+ * Per-tier presentation params for the `win` component — a rig picker + a count-slot dropdown +
+ * intro/idle/outro dropdowns (of that rig's animations) + duration, ONE collapsible
  * group per tier, keyed by the
  * tier's ALIAS so the runtime resolves each field by `<alias><Field>`. Generated from a big-tier list
  * (the active config's tiers, or {@link DEFAULT_WIN_TIERS} un-authored) so the component's groups mirror
- * the config's tiers. The per-tier `<alias>Spine` carries NO default, so an unset tier spine falls back
+ * the config's tiers. The per-tier `<alias>rig` carries NO default, so an unset tier rig falls back
  * to the config `spineKey` then the shared `winSpine` at runtime (correct precedence); the editor's
- * animation dropdowns fall back to `winSpine`'s animations when the tier spine is unset.
+ * animation dropdowns fall back to `winSpine`'s animations when the tier rig is unset.
  *
  * A tier's SOUNDS are not here. They are authored in Invisible Sound, with the rest of the game's
  * audio and next to the button that plays it. The `<alias>Sfx` / `<alias>Bgm` params a project
@@ -1053,19 +1053,43 @@ export const DEFAULT_WIN_TIERS: WinTierMeta[] = [
  */
 export function winTierPresentationParams(tiers: WinTierMeta[]): ComponentParam[] {
 	return tiers.flatMap(({ alias, name }): ComponentParam[] => {
-		const spineParam = `${alias}Spine`;
+		const rigParam = `${alias}Spine`;
 		return [
-			{ key: spineParam, kind: 'spine', group: name, label: 'spine bundle' },
+			{ key: rigParam, kind: 'spine', group: name, label: 'rig bundle' },
 			// The tier's own COUNT SLOT. A tier that points at its own rig almost never repeats the base
 			// bundle's slot name, and without this there was no way to say so: every tier inherited the
-			// shared `slotName`, so the count silently failed to mount on any tier whose spine lacked it
-			// (`[SpineSlot] no slot "slot_win_count"`). Empty ⇒ the shared `slotName` ⇒ parity. The
-			// dropdown lists the TIER spine's slots, falling back to `winSpine`'s when the tier spine is
+			// shared `slotName`, so the count silently failed to mount on any tier whose rig lacked it
+			// (`[RigSlot] no slot "slot_win_count"`). Empty ⇒ the shared `slotName` ⇒ parity. The
+			// dropdown lists the TIER rig's slots, falling back to `winSpine`'s when the tier rig is
 			// unset — the same resolution the intro/idle/outro dropdowns already use.
-			{ key: `${alias}Slot`, kind: 'spineSlot', spineParam, group: name, label: 'count slot' },
-			{ key: `${alias}Intro`, kind: 'spineAnimation', spineParam, group: name, label: 'intro' },
-			{ key: `${alias}Idle`, kind: 'spineAnimation', spineParam, group: name, label: 'idle' },
-			{ key: `${alias}Outro`, kind: 'spineAnimation', spineParam, group: name, label: 'outro' },
+			{
+				key: `${alias}Slot`,
+				kind: 'spineSlot',
+				spineParam: rigParam,
+				group: name,
+				label: 'count slot',
+			},
+			{
+				key: `${alias}Intro`,
+				kind: 'spineAnimation',
+				spineParam: rigParam,
+				group: name,
+				label: 'intro',
+			},
+			{
+				key: `${alias}Idle`,
+				kind: 'spineAnimation',
+				spineParam: rigParam,
+				group: name,
+				label: 'idle',
+			},
+			{
+				key: `${alias}Outro`,
+				kind: 'spineAnimation',
+				spineParam: rigParam,
+				group: name,
+				label: 'outro',
+			},
 			{ key: `${alias}Duration`, kind: 'number', group: name, label: 'duration (ms)' },
 		];
 	});
@@ -1073,7 +1097,7 @@ export function winTierPresentationParams(tiers: WinTierMeta[]): ComponentParam[
 
 /** The `win` component's base + shared params (everything that is NOT a per-tier group). */
 const WIN_BASE_PARAMS: ComponentParam[] = [
-	{ key: 'winSpine', kind: 'spine', default: 'bigwin', label: 'big-win spine bundle' },
+	{ key: 'winSpine', kind: 'spine', default: 'bigwin', label: 'big-win rig bundle' },
 	{
 		key: 'slotName',
 		kind: 'spineSlot',
@@ -1187,7 +1211,7 @@ export const TAP_TO_CONTINUE_DEF: ComponentDef = {
  *
  * It reuses the PROVEN coded `LoadingBar` bound part (the masked progress fill the static
  * node model can't express, already registered by the game) that {@link LOADING_INTRO_DEF}
- * mounts — but is JUST the bar (no logo/title spine), so it composes freely with whatever
+ * mounts — but is JUST the bar (no logo/title rig), so it composes freely with whatever
  * splash art the author places around it. Same progress-bar geometry/frame/percentage params
  * as the loading-intro splash, defaulted to the coded look. `tapToContinue` / `completeOnLoaded`
  * are the SHARED `overlay` instance params (read by `<ComponentInstance>`); the def only SEEDS
@@ -1285,7 +1309,7 @@ export const LOADING_BAR_DEF: ComponentDef = {
  * the "component authored to do this" half of the pure-hooks book reveal. It renders the chosen
  * `stateGame.specialSymbol` via the coded `ExpandingSymbol` bind (the same `<Symbol>` state-machine
  * render the coded `SpecialBook` uses), WITHOUT the shuffle: the author wraps their own reveal
- * animation + timing around it (their spine cued by the `specialBookReveal`/`specialBookHide`
+ * animation + timing around it (their rig cued by the `specialBookReveal`/`specialBookHide`
  * signals + Flow choreography), while this simply shows the correct landed art at the instance's
  * position. Gated by a `visibleSource` (default `specialBookShow`, true while a symbol is chosen)
  * so it appears only during the reveal. Mirrors {@link FREE_SPIN_INTRO_VISUAL_DEF}: a `bind` child
@@ -1324,18 +1348,18 @@ export const EXPANDING_SYMBOL_DEF: ComponentDef = {
 			default: 'specialBookShow',
 		},
 		// The symbol STATE the `<Symbol>` state machine renders (e.g. `bookIdle` to loop the
-		// idle spine, `bookIntro` for the intro animation, `static` for the resting frame).
+		// idle rig, `bookIntro` for the intro animation, `static` for the resting frame).
 		{ key: 'state', kind: 'string', default: 'bookIdle', label: 'symbol state' },
 		{ key: 'scale', kind: 'number', default: 1, label: 'scale' },
 	],
 };
 
 /**
- * The chosen book EXPANDING SYMBOL merged into an authored intro Spine RIG (book-reveal
+ * The chosen book EXPANDING SYMBOL merged into an authored intro rig RIG (book-reveal
  * authoring) — the reusable "the animation flips through symbols and lands on YOUR symbol"
  * node every book-of game can drop in. Unlike {@link EXPANDING_SYMBOL_DEF} (which just shows the
  * landed art) this plays an author-picked intro rig animation and RIDES the chosen
- * `stateGame.specialSymbol` on a named BONE of that rig via `<SpineBoneAttach>`, so the symbol
+ * `stateGame.specialSymbol` on a named BONE of that rig via `<RigBoneAttach>`, so the symbol
  * banks/scales with the animation. Driven by the SAME `specialBookReveal` cue as the coded
  * shuffle (fired at `setExpandingSymbol` time, when the symbol is known) and returns its
  * completion promise, so the round blocks until the rig's intro animation finishes. Placing an
@@ -1367,7 +1391,7 @@ export const FREE_SPIN_INTRO_SYMBOL_REVEAL_DEF: ComponentDef = {
 		],
 	},
 	params: [
-		{ key: 'introSpine', kind: 'spine', default: 'fsIntro', label: 'reveal spine bundle' },
+		{ key: 'introSpine', kind: 'spine', default: 'fsIntro', label: 'reveal rig bundle' },
 		{
 			key: 'introAnimation',
 			kind: 'spineAnimation',
@@ -1400,7 +1424,7 @@ export const FREE_SPIN_INTRO_SYMBOL_REVEAL_DEF: ComponentDef = {
 		{ key: 'followScale', kind: 'boolean', default: true, label: 'symbol follows bone scale' },
 		{ key: 'symbolScale', kind: 'number', default: 1, label: 'symbol scale' },
 		// The symbol STATE the `<Symbol>` state machine renders on the bone (e.g. `bookIdle` to
-		// loop the idle spine, `static` for the resting frame). The RIG animation provides the
+		// loop the idle rig, `static` for the resting frame). The RIG animation provides the
 		// motion; the symbol provides the identity.
 		{ key: 'symbolState', kind: 'symbolState', default: 'bookIdle', label: 'symbol state' },
 		// EDITOR-PREVIEW ONLY: point the Scene Editor's bone-ridden stand-in at a real symbol
@@ -1422,8 +1446,8 @@ const FEATURE_CARD_PRICE_FILL = INFO_BAR_FILL;
 /** The icon slot + the frame sprite that sits BEHIND it (a touch larger, so it reads as a bezel). */
 const FEATURE_CARD_ICON_SIZE = 120;
 const FEATURE_CARD_ICON_FRAME_SIZE = 150;
-/** The animated spine accent that overlays the icon region — sized to sit over the icon slot. */
-const FEATURE_CARD_SPINE_SIZE = 160;
+/** The animated rig accent that overlays the icon region — sized to sit over the icon slot. */
+const FEATURE_CARD_RIG_SIZE = 160;
 /** The button/ribbon plate that sits BEHIND the button label. */
 const FEATURE_CARD_BUTTON_WIDTH = 200;
 const FEATURE_CARD_BUTTON_HEIGHT = 56;
@@ -1445,11 +1469,11 @@ const FEATURE_CARD_BUTTON_HEIGHT = 56;
  *  - CHROME (pickable art): a `panelImage`+`panelTint` panel, an `iconFrameImage` bezel behind the
  *    icon, an animated `spineKey` accent over the icon, and a `buttonImage` ribbon behind the
  *    button label. EVERY art param is empty by default ⇒ the sprite resolves no texture / the
- *    spine no rig ⇒ the card still renders (text-only, no crash) — byte-safe defaults.
+ *    rig no rig ⇒ the card still renders (text-only, no crash) — byte-safe defaults.
  *  - CONTENT (engine-fed, bound to `engineProvided` params the repeater feeds per item):
  *    `iconKey`/`title`/`description`/`price`/`buttonLabel`.
  *
- * SPINE SLOT: a `kind:'spine'` node binds `assetKey → spineKey` (the spine picker stores the bundle
+ * RIG SLOT: a `kind:'spine'` node binds `assetKey → spineKey` (the rig picker stores the bundle
  * name) plus `defaultAnimation → spineAnimation` and `loop → spineLoop` (the playback param binds
  * `<LayoutNodeView>` resolves). An empty `spineKey` ⇒ no rig resolves ⇒ nothing renders, exactly
  * like an empty image param; picking a rig + animation plays it looped over the icon region.
@@ -1514,7 +1538,7 @@ export const FEATURE_CARD_DEF: ComponentDef = {
 			},
 			{
 				id: 'featureCard-spine',
-				label: 'Spine',
+				label: 'Rig',
 				kind: 'spine',
 				x: FEATURE_CARD_WIDTH * 0.5,
 				y: FEATURE_CARD_HEIGHT * 0.28,
@@ -1524,8 +1548,8 @@ export const FEATURE_CARD_DEF: ComponentDef = {
 				// bind to `spineAnimation`/`spineLoop`. Empty `spineKey` ⇒ no rig resolves ⇒ nothing
 				// renders, exactly like an empty image param — byte-safe.
 				assetKey: '',
-				width: FEATURE_CARD_SPINE_SIZE,
-				height: FEATURE_CARD_SPINE_SIZE,
+				width: FEATURE_CARD_RIG_SIZE,
+				height: FEATURE_CARD_RIG_SIZE,
 				loop: true,
 				paramBindings: {
 					assetKey: 'spineKey',
@@ -1634,18 +1658,18 @@ export const FEATURE_CARD_DEF: ComponentDef = {
 		// Key stays `iconFrameImage` so existing authored `cardParams` keep resolving; only the
 		// author-facing LABEL is renamed to reflect how it's used (the card's primary picture).
 		{ key: 'iconFrameImage', kind: 'image', group: 'Icon', label: 'card main image' },
-		// The optional animated spine accent over the icon: the rig bundle (picker → bundle name),
+		// The optional animated rig accent over the icon: the rig bundle (picker → bundle name),
 		// its animation (dropdown of the picked rig's animations), and whether it loops. Empty
 		// `spineKey` ⇒ no rig renders (parity).
-		{ key: 'spineKey', kind: 'spine', group: 'Spine', label: 'spine bundle' },
+		{ key: 'spineKey', kind: 'spine', group: 'Rig', label: 'rig bundle' },
 		{
 			key: 'spineAnimation',
 			kind: 'spineAnimation',
 			spineParam: 'spineKey',
-			group: 'Spine',
+			group: 'Rig',
 			label: 'animation',
 		},
-		{ key: 'spineLoop', kind: 'boolean', default: true, group: 'Spine', label: 'loop' },
+		{ key: 'spineLoop', kind: 'boolean', default: true, group: 'Rig', label: 'loop' },
 		// The optional plate/ribbon behind the button label (atlas region) + tint. Empty ⇒ no plate
 		// (parity).
 		{ key: 'buttonImage', kind: 'image', group: 'Button', label: 'button/ribbon frame' },

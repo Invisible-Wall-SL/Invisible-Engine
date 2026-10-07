@@ -8,7 +8,7 @@
 //
 //  (a) the OPEN bus — a signal name the game never wired via `registerComponentSignals` is still
 //      subscribable, and `emitComponentSignal` fires it. This is what lets a Flow `fireCue` name
-//      reach a spine cue without a coded registry entry per animation trigger. A REGISTERED name
+//      reach a rig cue without a coded registry entry per animation trigger. A REGISTERED name
 //      must still win, so the two names that are both a vocab cue and a catalog signal
 //      (`specialBookReveal` / `specialBookHide`) cannot double-fire.
 //  (b) `handsOffToIdle` — a cue that explicitly asked to LOOP must keep its loop. The predicate used
@@ -99,7 +99,7 @@ unsubSpin();
 emitComponentSignal('characterSpin');
 assert(spinFires === 2, 'unsubscribe detaches');
 
-// --- 2. Two subscribers on one name (two spines reacting to the same cue) ---
+// --- 2. Two subscribers on one name (two rigs reacting to the same cue) ---
 console.info('\n2. Fan-out — several nodes may name the same signal');
 clearComponentSignals();
 let a = 0;
@@ -211,7 +211,7 @@ assert(
 // A cue carrying BOTH `loop` and `completeSignal` is a contradiction the editor can save (the
 // completeSignal input is hidden when loop is ticked, but `updateCue` never clears the stored value —
 // and before the loop fix, ticking loop on such a cue had no observable effect at all, so a shipped
-// doc may well carry the pair). `completeSignal` must win: `SpineTrack` attaches its completion
+// doc may well carry the pair). `completeSignal` must win: `RigTrack` attaches its completion
 // listener only when `loop` is false, so honouring the loop would silently drop the hand-off — the
 // `hiddenUntilSignal` sibling never reveals, the `tapArmAfterSignal` tap never arms, and a screen held
 // by `showContainer{awaitComplete}` hangs the round forever.
@@ -239,11 +239,11 @@ assert(
 );
 
 // A FLIPBOOK cue rides the same bus and lands in the same per-node map, but names a `clipId`
-// instead of an `animation`. It must never drive the spine hand-off: that branch decides whether
-// to force `loop=false` and hand a spine track back to its resting animation, which is meaningless
+// instead of an `animation`. It must never drive the rig hand-off: that branch decides whether
+// to force `loop=false` and hand a rig track back to its resting animation, which is meaningless
 // for a clip swap — and, since the entry carries no `animation`, "cue animation ≠ default" would
 // otherwise read TRUE (undefined ≠ 'idle') and un-loop a held clip.
-console.info('\n7. A flipbook cue payload never drives the spine hand-off');
+console.info('\n7. A flipbook cue payload never drives the rig hand-off');
 assert(
 	handsOffToIdle({ clipId: 'spin' }, 'idle', false) === false,
 	'a clip-swap cue with no animation hands off nothing',
@@ -254,7 +254,7 @@ assert(
 );
 assert(
 	handsOffToIdle({ animation: '', loop: true }, 'idle', false) === false,
-	'an empty animation is treated the same (a half-authored spine cue drives nothing)',
+	'an empty animation is treated the same (a half-authored rig cue drives nothing)',
 );
 
 // --- 8. Which bus owns a name — the check a caller needs to avoid double-waiting ---

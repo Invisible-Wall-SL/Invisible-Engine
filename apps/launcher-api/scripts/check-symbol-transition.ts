@@ -6,11 +6,11 @@
  *   1. PARITY — `normalizeSymbolsDoc` writes NO `transition` for a doc that has none (byte-identical
  *      to before the field existed), round-trips a set one verbatim, and prunes the one default
  *      (`delayMs: 0`), so the page's dirty signature and the server agree on "unchanged".
- *   2. REJECTION — the `.strict()` + `.refine()` schema refuses a half-authored binding (a spine with
+ *   2. REJECTION — the `.strict()` + `.refine()` schema refuses a half-authored binding (a rig with
  *      no animation, a flipbook with no clip, an fx with no effect), the `sprite` kind, a negative or
  *      fractional delay — the shapes that would otherwise 400 a save silently
  *      (the publish double-fail).
- *   3. SHIPPING — `collectSymbolRefs` puts a spine bound ONLY as the transition into `spineKeys`,
+ *   3. SHIPPING — `collectSymbolRefs` puts a rig bound ONLY as the transition into `rigKeys`,
  *      the set the exporter copies into `deploy/editor-symbols/` and lists in `index.spines`, which
  *      the game registers whole (`bakedSymbolAssets`). Rule 8, asserted rather than assumed.
  *   4. The CLIENT half — `setTransition` / `clearTransition` / `docSignature` mark and unmark dirty,
@@ -86,10 +86,10 @@ const ignores = (label: string, input: unknown, known: unknown): void => {
 	check(`${label} — with a warning`, warned.length > 0, true);
 };
 
-const SPINE = 'acme/splashy/spines/engine-splash/';
-const spine: SymbolTransition = {
+const RIG = 'acme/splashy/spines/engine-splash/';
+const rig: SymbolTransition = {
 	kind: 'spine',
-	assetKey: SPINE,
+	assetKey: RIG,
 	animationName: 'splash',
 	delayMs: 250,
 };
@@ -106,18 +106,18 @@ check('an empty doc writes no transition', 'transition' in empty, false);
 check('…and is byte-identical to the never-authored doc', json(empty), json(emptySymbolsDoc()));
 const untouched = normalizeSymbolsDoc({
 	version: 1,
-	symbols: { H1: { win: { type: 'spine', assetKey: SPINE } } },
+	symbols: { H1: { win: { type: 'spine', assetKey: RIG } } },
 });
 check('a doc that never set one round-trips without the key', 'transition' in untouched, false);
 check(
-	'a spine transition with a delay round-trips verbatim',
-	normalizeSymbolsDoc({ transition: spine }).transition,
-	spine,
+	'a rig transition with a delay round-trips verbatim',
+	normalizeSymbolsDoc({ transition: rig }).transition,
+	rig,
 );
 check(
 	'a delay of 0 is pruned — the default the engine applies when the field is absent',
-	normalizeSymbolsDoc({ transition: { ...spine, delayMs: 0 } }).transition,
-	{ kind: 'spine', assetKey: SPINE, animationName: 'splash' },
+	normalizeSymbolsDoc({ transition: { ...rig, delayMs: 0 } }).transition,
+	{ kind: 'spine', assetKey: RIG, animationName: 'splash' },
 );
 check(
 	'a flipbook transition round-trips (clip + its primary sheet)',
@@ -125,12 +125,12 @@ check(
 	flipbook,
 );
 check('an fx transition round-trips', normalizeSymbolsDoc({ transition: fx }).transition, fx);
-const once = normalizeSymbolsDoc({ transition: spine });
+const once = normalizeSymbolsDoc({ transition: rig });
 check('normalising twice is a fixed point', json(normalizeSymbolsDoc(once)), json(once));
 check('the client kind list is the server enum', TRANSITION_KINDS, ['spine', 'flipbook', 'fx']);
 
 // 2. REJECTION
-rejects('a spine with no animation', { transition: { kind: 'spine', assetKey: SPINE } });
+rejects('a rig with no animation', { transition: { kind: 'spine', assetKey: RIG } });
 rejects('a flipbook with no clip', {
 	transition: { kind: 'flipbook', assetKey: flipbook.assetKey },
 });
@@ -138,37 +138,37 @@ rejects('an fx with no effect', { transition: { kind: 'fx' } });
 rejects('the sprite kind — a frame has no duration', {
 	transition: { kind: 'sprite', assetKey: 'h1.webp' },
 });
-rejects('a negative delay', { transition: { ...spine, delayMs: -1 } });
-rejects('a fractional delay', { transition: { ...spine, delayMs: 12.5 } });
+rejects('a negative delay', { transition: { ...rig, delayMs: -1 } });
+rejects('a fractional delay', { transition: { ...rig, delayMs: 12.5 } });
 ignores(
 	'an unknown key',
-	{ transition: { ...spine, sizeRatios: { width: 1, height: 1 } } },
-	{ transition: spine },
+	{ transition: { ...rig, sizeRatios: { width: 1, height: 1 } } },
+	{ transition: rig },
 );
 
 // 3. SHIPPING
-const onlyHere = collectSymbolRefs(normalizeSymbolsDoc({ transition: spine }));
+const onlyHere = collectSymbolRefs(normalizeSymbolsDoc({ transition: rig }));
 check(
-	'a spine bound ONLY as the transition is in the exported spine set',
-	onlyHere.spineKeys.has(SPINE),
+	'a rig bound ONLY as the transition is in the exported rig set',
+	onlyHere.rigKeys.has(RIG),
 	true,
 );
 check(
 	'…and nothing else was dragged in with it',
-	[onlyHere.frameNames.size, onlyHere.spriteManifests.size, onlyHere.spineKeys.size],
+	[onlyHere.frameNames.size, onlyHere.spriteManifests.size, onlyHere.rigKeys.size],
 	[0, 0, 1],
 );
-check('no transition ⇒ no spine ref', collectSymbolRefs(empty).spineKeys.size, 0);
+check('no transition ⇒ no rig ref', collectSymbolRefs(empty).rigKeys.size, 0);
 const clipOnly = collectSymbolRefs(normalizeSymbolsDoc({ transition: flipbook }));
 check(
 	'a flipbook transition files no frame ref — its clip ships via the editor-art clip walk',
-	[clipOnly.frameNames.size, clipOnly.spriteManifests.size, clipOnly.spineKeys.size],
+	[clipOnly.frameNames.size, clipOnly.spriteManifests.size, clipOnly.rigKeys.size],
 	[0, 0, 0],
 );
 
 // 4. THE CLIENT HALF
 const base: SymbolsDoc = { version: 1, symbols: {} };
-const withTransition = setTransition(base, spine);
+const withTransition = setTransition(base, rig);
 check(
 	'setTransition marks the doc dirty',
 	docSignature(withTransition) !== docSignature(base),
@@ -184,10 +184,10 @@ check(
 	clearTransition(base) === base,
 	true,
 );
-const pruned = normalizeSymbolsDoc({ transition: { ...spine, delayMs: 0 } });
+const pruned = normalizeSymbolsDoc({ transition: { ...rig, delayMs: 0 } });
 check(
 	'a zero-delay draft signs the same as the pruned doc the server hands back',
-	docSignature(setTransition(base, { kind: 'spine', assetKey: SPINE, animationName: 'splash' })),
+	docSignature(setTransition(base, { kind: 'spine', assetKey: RIG, animationName: 'splash' })),
 	docSignature({ ...base, transition: pruned.transition as SymbolTransition }),
 );
 

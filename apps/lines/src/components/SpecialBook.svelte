@@ -59,7 +59,7 @@
 	let phase = $state<Phase>('hidden');
 	let displayName = $state<SymbolName | null>(null);
 	let timer: ReturnType<typeof setTimeout> | null = null;
-	// Resolves once the current reveal (shuffle → land → intro spine) has fully settled.
+	// Resolves once the current reveal (shuffle → land → intro rig) has fully settled.
 	// `shuffle` hands this back as a promise so the `specialBookReveal` broadcaster can
 	// await it — the free spins must not start until the book symbol is chosen AND revealed.
 	let revealResolve: (() => void) | null = null;

@@ -2,18 +2,18 @@
 
 Run: `py services/sheet-tool/rot_convention_check.py`
 
-WHY THIS FILE EXISTS. A rotated atlas region is the ONE place PixiJS and Spine
+WHY THIS FILE EXISTS. A rotated atlas region is the ONE place PixiJS and rig
 disagree, and the disagreement is unfixable in the `.atlas`:
 
   * our packers store a rotated region 90 degrees CLOCKWISE -- the TexturePacker /
     PixiJS convention, which Pixi's Spritesheet parser un-rotates at render time;
-  * Spine's atlas parser wants the OPPOSITE (counter-clockwise), and spine-webgl
+  * The rig atlas parser wants the OPPOSITE (counter-clockwise), and the reference WebGL runtime
     only honours `degrees` 0 and 90 -- 270 falls through to the unrotated branch.
 
 So a CW-packed region renders 180 degrees UPSIDE DOWN in a rig until the launcher
-reorients its page pixels (`reorientRotatedRegionsForSpine`). Both packers already
+reorients its page pixels (`reorientRotatedRegionsForRig`). Both packers already
 agree on CW; what kept going wrong was people believing otherwise. `packer.py`'s
-docstring asserted the Spine convention -- the exact inverse of what the code does --
+docstring asserted the rig convention -- the exact inverse of what the code does --
 for long enough to cause a shipped bug, and the round-trip check that both packers'
 comments cite (`_rot_roundtrip_check.py`) was never actually committed, so there was
 nothing to run and nothing to fail.
@@ -79,7 +79,7 @@ check("arrange(allow_rotation=False) keeps w/h upright", (placed["w"], placed["h
 # The load-bearing assertion. `compose` bakes a rotated region into the page; the
 # stored pixels must equal PIL rotate(-90) of the upright art (CW), i.e. rotating the
 # stored block back by +90 (CCW) recovers the original. If someone flips the packer
-# to satisfy Spine directly, this fails -- and it SHOULD, because the fix belongs in
+# to satisfy rig directly, this fails -- and it SHOULD, because the fix belongs in
 # the launcher's page reorientation, not here (Pixi consumers would regress).
 W, H = 8, 4
 upright = asymmetric_image(W, H)
@@ -110,9 +110,9 @@ check(
     "rotating the stored block back CCW recovers the original",
     list(stored.rotate(90, expand=True).getdata()) == list(upright.getdata()),
 )
-# Guard the inverse explicitly: CCW storage is what Spine wants and what we must NOT do.
+# Guard the inverse explicitly: CCW storage is what rig wants and what we must NOT do.
 check(
-    "stored pixels are NOT the counter-clockwise (Spine) direction",
+    "stored pixels are NOT the counter-clockwise (rig) direction",
     list(stored.getdata()) != list(upright.rotate(90, expand=True).getdata()),
 )
 

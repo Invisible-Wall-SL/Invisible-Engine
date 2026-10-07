@@ -18,7 +18,7 @@
 		type ValueBindingTarget,
 	} from 'engine-layout';
 
-	import type { SpineMeta } from './spineRuntime.client';
+	import type { RigMeta } from './rigRuntime.client';
 	import {
 		clearNodePreview,
 		previewInput,
@@ -38,12 +38,12 @@
 		node: LayoutNode;
 		componentMode: boolean;
 		componentParams: ComponentParam[];
-		/** The spine node's skeleton (bones + animations), for the bone and scrub pickers. */
-		spineMeta?: SpineMeta;
+		/** The rig node's skeleton (bones + animations), for the bone and scrub pickers. */
+		rigMeta?: RigMeta;
 		onChange: () => void;
 	};
 
-	const { node, componentMode, componentParams, spineMeta, onChange }: Props = $props();
+	const { node, componentMode, componentParams, rigMeta, onChange }: Props = $props();
 
 	// A test value belongs to the node being edited: deselecting it (or switching document or
 	// project) drops its preview, so a stale value never poses a node the author is not looking at.
@@ -64,7 +64,7 @@
 		fill: 'Fill (reveal)',
 		frame: 'Clip frame',
 		animTime: 'Scrub animation',
-		bone: 'Spine bone',
+		bone: 'Rig bone',
 	};
 	/** What the OUT range means for a target — the unit the author types. */
 	const OUT_UNITS: Record<ValueBindingTarget, string> = {
@@ -188,10 +188,10 @@
 		}
 		if (target === 'fill') binding.direction = 'right';
 		if (target === 'animTime') {
-			binding.animation = spineMeta?.animations[0] ?? '';
+			binding.animation = rigMeta?.animations[0] ?? '';
 		}
 		if (target === 'bone') {
-			binding.bone = spineMeta?.bones[0] ?? '';
+			binding.bone = rigMeta?.bones[0] ?? '';
 			binding.boneProperty = 'scale';
 		}
 		node.valueBindings = [...bindings, binding];
@@ -232,10 +232,10 @@
 		}
 		if (target === 'fill') b.direction = 'right';
 		if (target === 'animTime') {
-			b.animation = spineMeta?.animations[0] ?? '';
+			b.animation = rigMeta?.animations[0] ?? '';
 		}
 		if (target === 'bone') {
-			b.bone = spineMeta?.bones[0] ?? '';
+			b.bone = rigMeta?.bones[0] ?? '';
 			b.boneProperty = 'scale';
 		}
 		changed();
@@ -451,15 +451,15 @@
 					<div class="row">
 						<label class="field">
 							<span>animation</span>
-							{#if spineMeta?.animations.length}
+							{#if rigMeta?.animations.length}
 								<select
 									value={b.animation ?? ''}
 									onchange={(e) => setText(b, 'animation', e.currentTarget.value)}
 								>
-									{#if b.animation && !spineMeta.animations.includes(b.animation)}
+									{#if b.animation && !rigMeta.animations.includes(b.animation)}
 										<option value={b.animation}>{b.animation} (not in this rig)</option>
 									{/if}
-									{#each spineMeta.animations as name (name)}
+									{#each rigMeta.animations as name (name)}
 										<option value={name}>{name}</option>
 									{/each}
 								</select>
@@ -476,15 +476,15 @@
 					<div class="row">
 						<label class="field">
 							<span>bone</span>
-							{#if spineMeta?.bones.length}
+							{#if rigMeta?.bones.length}
 								<select
 									value={b.bone ?? ''}
 									onchange={(e) => setText(b, 'bone', e.currentTarget.value)}
 								>
-									{#if b.bone && !spineMeta.bones.includes(b.bone)}
+									{#if b.bone && !rigMeta.bones.includes(b.bone)}
 										<option value={b.bone}>{b.bone} (not in this rig)</option>
 									{/if}
-									{#each spineMeta.bones as name (name)}
+									{#each rigMeta.bones as name (name)}
 										<option value={name}>{name}</option>
 									{/each}
 								</select>

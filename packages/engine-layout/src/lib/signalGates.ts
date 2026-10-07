@@ -3,7 +3,7 @@
  *
  * A `componentInstance` tracks a per-instance fire-count per component-scoped signal name (a plain
  * `Record<string, number>`): `enter` fires on the visible edge, a game-registered signal fires when
- * its book event arrives, and a spine one-shot fires its authored {@link SpineCue.completeSignal} the
+ * its book event arrives, and a rig one-shot fires its authored {@link RigCue.completeSignal} the
  * moment it completes. Two authoring gates read that map:
  *  - {@link isNodeRevealed} — a node with `hiddenUntilSignal` renders only after that signal fired.
  *  - {@link isTapArmed}     — a tap-to-continue surface accepts taps only after `tapArmAfterSignal`.
@@ -46,9 +46,9 @@ export function isTapArmed(
 }
 
 /**
- * Should `SpineTrack` attach a completion listener that fires an authored `completeSignal`? Only for
+ * Should `RigTrack` attach a completion listener that fires an authored `completeSignal`? Only for
  * a ONE-SHOT (non-looping) animation with a callback wired — a loop has no single completion, so it
- * would fire every cycle. Pure so the gate is testable without a spine runtime.
+ * would fire every cycle. Pure so the gate is testable without a rig runtime.
  */
 export function wantsCompleteListener(loop: boolean | undefined, hasCallback: boolean): boolean {
 	return hasCallback && !loop;
@@ -56,8 +56,8 @@ export function wantsCompleteListener(loop: boolean | undefined, hasCallback: bo
 
 /** The active cue's playback, as `LayoutNodeView` resolves it. */
 export type ActiveCuePlayback = {
-	/** The animation a SPINE cue plays. Absent on a FLIPBOOK cue, which names a clip instead —
-	 *  such a cue has no spine track to hand off, so the predicate below returns false for it. */
+	/** The animation a RIG cue plays. Absent on a FLIPBOOK cue, which names a clip instead —
+	 *  such a cue has no rig track to hand off, so the predicate below returns false for it. */
 	animation?: string;
 	loop?: boolean;
 	/** Set ⇒ the cue declares a completion hand-off, which makes it a ONE-SHOT by construction
@@ -66,7 +66,7 @@ export type ActiveCuePlayback = {
 };
 
 /**
- * Should an active spine cue play ONCE and then settle back into the resting `defaultAnimation`?
+ * Should an active rig cue play ONCE and then settle back into the resting `defaultAnimation`?
  *
  * TRUE is the free-spin-intro shape: `enter → intro` plays through, then the rig idles. FALSE keeps
  * the cue on the track under its own `loop` flag.
@@ -83,7 +83,7 @@ export type ActiveCuePlayback = {
  *  - there is no distinct resting animation to hand back TO (absent, or the same clip).
  *
  * WHY `completeSignal` OVERRIDES `loop`: a cue carrying one is a one-shot by construction — the
- * field is documented as "ignored for a looping cue" and `SpineTrack` only attaches a completion
+ * field is documented as "ignored for a looping cue" and `RigTrack` only attaches a completion
  * listener when `loop` is false. Honouring `loop` on such a cue would therefore silently drop the
  * hand-off, so a `hiddenUntilSignal` sibling would never reveal and a `tapArmAfterSignal` tap would
  * never arm — and a screen held by `showContainer{awaitComplete}` would hang the round forever.

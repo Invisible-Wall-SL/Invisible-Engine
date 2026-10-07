@@ -26,7 +26,7 @@ export const ENGINE_STORYBOOK_SEGMENT = 'engine';
 /** First path segment namespacing project storybooks (avoids key collisions). */
 export const PROJECT_STORYBOOK_SEGMENT = 'p';
 
-/** Auth + role gate (mirrors `requireSpineAccess`). Returns the non-null user. */
+/** Auth + role gate (mirrors `requireRigAccess`). Returns the non-null user. */
 export async function requireStorybookAccess(
 	locals: App.Locals,
 ): Promise<NonNullable<App.Locals['user']>> {

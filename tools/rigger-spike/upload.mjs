@@ -1,15 +1,15 @@
 // Verify the A3 raw-image-upload path headlessly:
 //  (1) the shelf packer produces non-overlapping rects within the page bounds.
-//  (2) the packed region rects → regionsToSpineAtlas → official TextureAtlas
+//  (2) the packed region rects → regionsToRigAtlas → official TextureAtlas
 //      re-parse: region count + on-page rects round-trip (what the server writes).
 //   node tools/rigger-spike/upload.mjs
 import { fileURLToPath } from 'node:url';
-import { RIG_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
 const { TextureAtlas } = await import(RIG_CORE);
 
-// replicate spine.ts regionsToSpineAtlas
-function regionsToSpineAtlas(pageImage, pw, ph, regions) {
+// replicate rig.ts regionsToRigAtlas
+function regionsToRigAtlas(pageImage, pw, ph, regions) {
 	const out = [pageImage, `size:${Math.round(pw)},${Math.round(ph)}`, 'filter:Linear,Linear'];
 	for (const r of regions) {
 		const w = Math.round(r.w), h = Math.round(r.h);
@@ -56,7 +56,7 @@ log(overlaps === 0, `no overlapping regions (${overlaps})`);
 log(oob === 0, `all regions within page bounds (${oob} out)`);
 
 // (2) regions → atlas → reparse
-const atlasText = regionsToSpineAtlas('page.png', pageW, pageH, regions);
+const atlasText = regionsToRigAtlas('page.png', pageW, pageH, regions);
 let atlas = null;
 try { atlas = new TextureAtlas(atlasText); } catch (e) { log(false, 'loader threw on synth atlas: ' + e.message); }
 if (atlas) {

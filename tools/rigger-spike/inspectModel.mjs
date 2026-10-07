@@ -9,8 +9,8 @@
 // Phase 1 leans on the official runtime for forward-kinematics (setup-pose world
 // transforms); Phase 2+ will compute FK from our own editable document.
 
-export function buildInspector(skeletonData, spine) {
-	const { Skeleton, Physics } = spine;
+export function buildInspector(skeletonData, rig) {
+	const { Skeleton, Physics } = rig;
 	const sk = new Skeleton(skeletonData);
 	sk.setToSetupPose();
 	try {
@@ -98,7 +98,7 @@ export function buildInspector(skeletonData, spine) {
 	return {
 		meta: {
 			name: skeletonData.name || null,
-			spine: skeletonData.version || null,
+			version: skeletonData.version || null,
 			x: round(skeletonData.x),
 			y: round(skeletonData.y),
 			width: round(skeletonData.width),

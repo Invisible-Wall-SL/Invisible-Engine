@@ -47,7 +47,7 @@ const check = (label: string, actual: unknown, expected: unknown): void => {
 	console.log(`FAIL  ${label}\n        expected ${e}\n        actual   ${a}`);
 };
 
-const spine = (assetKey: string): SymbolCell => ({ type: 'spine', assetKey });
+const rig = (assetKey: string): SymbolCell => ({ type: 'spine', assetKey });
 
 /**
  * Run one symbol's state map through BOTH rules, for every state, and assert they agree.
@@ -89,28 +89,28 @@ function parity(label: string, map: Record<string, SymbolCell>, where: 'doc' | '
 }
 
 const FULL: Record<SymbolState, SymbolCell> = {
-	static: spine('x_static'),
-	spin: spine('x_spin'),
-	intro: spine('x_intro'),
-	land: spine('x_land'),
-	win: spine('x_win'),
-	postWinStatic: spine('x_post'),
-	explosion: spine('x_boom'),
-	clearReel: spine('x_tumble_boom'),
-	bookIntro: spine('x_book_intro'),
-	bookIdle: spine('x_book_idle'),
-	stacked: spine('x_stacked'),
-	coinIdle: spine('x_coin_idle'),
-	coinLand: spine('x_coin_land'),
-	coinStick: spine('x_coin_stick'),
-	coinCollect: spine('x_coin_collect'),
-	coinBoost: spine('x_coin_boost'),
-	jackpotReveal: spine('x_jackpot'),
-	mysteryReveal: spine('x_mystery'),
-	flyToMeter: spine('x_fly'),
-	respinsAdd: spine('x_respins_add'),
-	coinUpgrade: spine('x_coin_upgrade'),
-	rowUnlock: spine('x_row_unlock'),
+	static: rig('x_static'),
+	spin: rig('x_spin'),
+	intro: rig('x_intro'),
+	land: rig('x_land'),
+	win: rig('x_win'),
+	postWinStatic: rig('x_post'),
+	explosion: rig('x_boom'),
+	clearReel: rig('x_tumble_boom'),
+	bookIntro: rig('x_book_intro'),
+	bookIdle: rig('x_book_idle'),
+	stacked: rig('x_stacked'),
+	coinIdle: rig('x_coin_idle'),
+	coinLand: rig('x_coin_land'),
+	coinStick: rig('x_coin_stick'),
+	coinCollect: rig('x_coin_collect'),
+	coinBoost: rig('x_coin_boost'),
+	jackpotReveal: rig('x_jackpot'),
+	mysteryReveal: rig('x_mystery'),
+	flyToMeter: rig('x_fly'),
+	respinsAdd: rig('x_respins_add'),
+	coinUpgrade: rig('x_coin_upgrade'),
+	rowUnlock: rig('x_row_unlock'),
 };
 
 // FULL has to stay exhaustive, and only a runtime assertion says so — `tsx` strips the annotation

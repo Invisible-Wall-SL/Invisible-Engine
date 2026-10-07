@@ -68,11 +68,11 @@
   </aside>
 </div>
 
-<script src="/spine/vendor/invisible-rig.js"></script>
+<script src="/rig-viewer/vendor/invisible-rig.js"></script>
 <script type="module">
 import { evaluateActor, clipLocalTime, blendEnvelope } from '/shared/cinematicEval.mjs';
 
-const SPINE = window.spine;
+const RIG = window.invisibleRig;
 const $ = (s) => document.querySelector(s);
 const checks = [];
 const check = (name, state, detail) => {
@@ -107,11 +107,11 @@ function resize() {
 resize();
 const gl = cv.getContext('webgl2', { alpha: false }) || cv.getContext('webgl', { alpha: false });
 check('WebGL context', gl ? 'ok' : 'bad', gl ? (gl instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1') : 'no context');
-const renderer = new SPINE.SceneRenderer(cv, gl);
+const renderer = new RIG.SceneRenderer(cv, gl);
 
 // The vendored bundle is MINIFIED — class names are mangled, so never type-check by
 // `constructor.name` here (a Rigger bug we have already paid for once).
-check('vendored spine runtime loaded', SPINE && SPINE.SceneRenderer ? 'ok' : 'bad', 'window.spine + SceneRenderer');
+check('vendored rig runtime loaded', RIG && RIG.SceneRenderer ? 'ok' : 'bad', 'window.invisibleRig + SceneRenderer');
 
 // ---- load two rigs from DIFFERENT atlas pages ------------------------------
 const FIXTURES = [
@@ -131,7 +131,7 @@ function premultiply(atlas) {
 }
 
 async function loadFixture(fx) {
-	const am = new SPINE.AssetManager(gl, fx.dir);
+	const am = new RIG.AssetManager(gl, fx.dir);
 	am.loadTextureAtlas(fx.atlas);
 	am.loadJson(fx.json);
 	// Poll with setTimeout, NOT requestAnimationFrame: rAF is suspended while the tab is not
@@ -148,8 +148,8 @@ async function loadFixture(fx) {
 	});
 	const atlas = am.require(fx.atlas);
 	premultiply(atlas);
-	const data = new SPINE.SkeletonJson(new SPINE.AtlasAttachmentLoader(atlas)).readSkeletonData(am.require(fx.json));
-	return { data, atlas, skeleton: new SPINE.Skeleton(data) };
+	const data = new RIG.SkeletonJson(new RIG.AtlasAttachmentLoader(atlas)).readSkeletonData(am.require(fx.json));
+	return { data, atlas, skeleton: new RIG.Skeleton(data) };
 }
 
 const actors = [];
@@ -192,17 +192,17 @@ if (actors.length === 2) {
 }
 
 // ---- the shared evaluator, in a browser ------------------------------------
-const spineNs = { MixBlend: SPINE.MixBlend, MixDirection: SPINE.MixDirection, Physics: SPINE.Physics };
+const rigNs = { MixBlend: RIG.MixBlend, MixDirection: RIG.MixDirection, Physics: RIG.Physics };
 const resolveClip = (strip, actor) => (strip.clip && strip.clip.src === 'rig' ? actor.skeletonData.findAnimation(strip.clip.name) : null);
 
 function evaluate(t) {
 	for (const a of actors) {
-		evaluateActor(spineNs, a, t, resolveClip);
+		evaluateActor(rigNs, a, t, resolveClip);
 		const sk = a.skeleton, p = a.place;
 		sk.x = p.x; sk.y = p.y;
 		sk.scaleX = (p.flipX ? -1 : 1) * p.scale; sk.scaleY = p.scale;
 		if (p.rotation) { const r = sk.getRootBone(); if (r) r.rotation += p.rotation; }
-		if (spineNs.Physics && spineNs.Physics.update !== undefined) sk.updateWorldTransform(spineNs.Physics.update);
+		if (rigNs.Physics && rigNs.Physics.update !== undefined) sk.updateWorldTransform(rigNs.Physics.update);
 		else sk.updateWorldTransform();
 	}
 }
@@ -231,7 +231,7 @@ renderChecks();
 // ---- camera ---------------------------------------------------------------
 function fit() {
 	if (!actors.length) return;
-	const off = new SPINE.Vector2(), size = new SPINE.Vector2();
+	const off = new RIG.Vector2(), size = new RIG.Vector2();
 	let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 	for (const a of actors) {
 		a.skeleton.getBounds(off, size, []);

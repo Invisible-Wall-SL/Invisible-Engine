@@ -5,7 +5,7 @@
  * It exists because "the symbol has no art" and "the symbol has no art FOR THIS STATE" are different
  * failures with the same consequence, and only the first was ever handled. A state cell that is
  * missing used to spread as nothing, leaving `type` undefined — and `Symbol.svelte`'s final arm is
- * the SPINE renderer, so an unauthored state fell through to it and handed `SpineProvider` an
+ * the RIG renderer, so an unauthored state fell through to it and handed `RigProvider` an
  * undefined key, which does `key.match(...)`. That is a crash mid-render, which unmounts the board.
  *
  * `explosion` is where this bites, because the cascade is the only thing that asks for it and almost

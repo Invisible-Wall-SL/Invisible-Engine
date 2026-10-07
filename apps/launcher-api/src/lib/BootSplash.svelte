@@ -2,7 +2,7 @@
 	The CRT boot splash — the ONE loading screen a tool shows while it is opening.
 
 	Svelte twin of `services/_shared/iw_common/splash.py` (the Atlas / Sheet Maker
-	splash) and of `static/shared/boot-splash.js` (the static Rigger / Spine apps),
+	splash) and of `static/shared/boot-splash.js` (the static Rigger / rig apps),
 	so every "Invisible …" tool boots the same way whatever stack it is built on.
 	Keep the three visually identical — separate origins/stacks can't share code
 	(same rule as the tool-bar and colour-field twins, see docs/ui-inventory.md).

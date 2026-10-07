@@ -6,10 +6,10 @@
 //
 // Same esbuild-bundle trick as test-signal-gates.mjs: bundle the REAL cover module (`coverTransform`
 // + the canonical `backgroundCoverScale`/`backgroundCoverStretch`/`backgroundFit` readers, no
-// `.svelte`) into one ESM file Node can run. The `isCover` GATE + the sprite/spine cover-input
+// `.svelte`) into one ESM file Node can run. The `isCover` GATE + the sprite/rig cover-input
 // construction below MIRROR the runtime `LayoutNodeView.svelte` (`isCanvasCoverFit` / `isCover` / the
 // `bg` derived) exactly, so this is the offline proof that:
-//  (a) a `coverFit` sprite/spine/flipbook in a `canvas` scene cover-fits identically to a
+//  (a) a `coverFit` sprite/rig/flipbook in a `canvas` scene cover-fits identically to a
 //      `background` node (same `coverTransform` output for identical art / target / cover params);
 //  (b) `coverFit` unset ⇒ the node uses its authored transform, no cover (byte-identical parity);
 //  (c) `background` space still covers regardless of the flag (unchanged);
@@ -76,9 +76,9 @@ const assert = (cond, msg) => {
 const isCover = (space, node) =>
 	space === 'background' || (space === 'canvas' && node.coverFit === true && isCoverFitKind(node));
 
-// ---- runtime mirror: resolve the on-screen transform of a sprite/spine node in a scene ----
+// ---- runtime mirror: resolve the on-screen transform of a sprite/rig node in a scene ----
 // When `isCover`, the runtime replaces the authored transform with a centred true-cover (the `bg`
-// derived for a sprite; the spine takes the same cover via `fit`/`bgSpineBox`, whose scale equals
+// derived for a sprite; the rig takes the same cover via `fit`/`bgRigBox`, whose scale equals
 // `coverTransform` — proven here at the shared-math level). Otherwise it uses x/y + scale verbatim.
 const resolveTransform = (space, node, art, target) => {
 	if (isCover(space, node)) {
@@ -158,7 +158,7 @@ assert(
 );
 assert(eq(bgOn, bgOff), 'the flag does not perturb a background node (parity)');
 
-// ---- (d) SCOPE: the flag only covers sprite/spine — never rect / container / componentInstance ----
+// ---- (d) SCOPE: the flag only covers sprite/rig — never rect / container / componentInstance ----
 for (const kind of ['rect', 'container', 'componentInstance']) {
 	const node = { kind, x: 5, y: 6, coverFit: true };
 	const t = resolveTransform('canvas', node, ART, TARGET);
@@ -180,10 +180,10 @@ for (const kind of ['sprite', 'spine', 'flipbook']) {
 for (const kind of ['rect', 'container', 'componentInstance', 'text', 'effect']) {
 	assert(!isCoverFitKind({ kind }), `${kind} is NOT a cover-fit kind`);
 }
-// The texture-measured subset — a spine covers through its own `fit`, not `bgTexture`.
+// The texture-measured subset — a rig covers through its own `fit`, not `bgTexture`.
 assert(isCoverArtKind({ kind: 'sprite' }), 'sprite covers from its texture (bg path)');
 assert(isCoverArtKind({ kind: 'flipbook' }), 'flipbook covers from its first frame (bg path)');
-assert(!isCoverArtKind({ kind: 'spine' }), 'spine does NOT take the texture cover path');
+assert(!isCoverArtKind({ kind: 'spine' }), 'rig does NOT take the texture cover path');
 
 // ---- extra: fit:'contain' flows through identically too (not just 'cover') ----
 {
@@ -193,29 +193,29 @@ assert(!isCoverArtKind({ kind: 'spine' }), 'spine does NOT take the texture cove
 	assert(eq(canvasT, bgT), "fit:'contain' also matches background exactly");
 }
 
-// ---- runtime mirror: the RESOLVED SPINE POSITION from LayoutNodeView.svelte's <SpineProvider> ----
-// `<SpineProvider>` places the spine's art CENTRE at (x, y). The template resolves:
-//   x = bg ? bg.x : spineCoverCenter ? spineCoverCenter.x : posX
-// `bg` is SPRITE-only (undefined for a spine); `spineCoverCenter` is the canvas centre when the
-// node is a `canvas` `coverFit` spine, else undefined; `posX` is `anchoredPosition` (= authored x/y
-// with no screenAnchor). This is the exact logic that was buggy — a coverFit spine fell to the
+// ---- runtime mirror: the RESOLVED RIG POSITION from LayoutNodeView.svelte's <RigProvider> ----
+// `<RigProvider>` places the rig's art CENTRE at (x, y). The template resolves:
+//   x = bg ? bg.x : rigCoverCenter ? rigCoverCenter.x : posX
+// `bg` is SPRITE-only (undefined for a rig); `rigCoverCenter` is the canvas centre when the
+// node is a `canvas` `coverFit` rig, else undefined; `posX` is `anchoredPosition` (= authored x/y
+// with no screenAnchor). This is the exact logic that was buggy — a coverFit rig fell to the
 // authored x/y and rendered off-centre. `canvas` = the window, so its centre IS the cover centre.
 const CANVAS = { width: 1920, height: 1080 };
-const resolveSpinePosition = (space, node, canvas) => {
-	const spineCoverCenter =
+const resolveRigPosition = (space, node, canvas) => {
+	const rigCoverCenter =
 		space === 'canvas' && node.coverFit === true && node.kind === 'spine'
 			? { x: canvas.width / 2, y: canvas.height / 2 }
-			: undefined; // background spines have none ⇒ fall to posX/posY (parity)
-	// bg is sprite-only ⇒ always undefined for a spine.
-	return spineCoverCenter ?? { x: node.x, y: node.y };
+			: undefined; // background rigs have none ⇒ fall to posX/posY (parity)
+	// bg is sprite-only ⇒ always undefined for a rig.
+	return rigCoverCenter ?? { x: node.x, y: node.y };
 };
 
-// (e) a coverFit spine authored OFF-CENTRE resolves to the CANVAS CENTRE (the bug's fix).
-const offCenterSpine = { kind: 'spine', x: 711, y: 400, coverFit: true };
-const spinePos = resolveSpinePosition('canvas', offCenterSpine, CANVAS);
+// (e) a coverFit rig authored OFF-CENTRE resolves to the CANVAS CENTRE (the bug's fix).
+const offCenterRig = { kind: 'spine', x: 711, y: 400, coverFit: true };
+const rigPos = resolveRigPosition('canvas', offCenterRig, CANVAS);
 assert(
-	spinePos.x === 960 && spinePos.y === 540,
-	'coverFit spine authored at (711,400) resolves to the canvas centre (960,540), NOT its authored x/y',
+	rigPos.x === 960 && rigPos.y === 540,
+	'coverFit rig authored at (711,400) resolves to the canvas centre (960,540), NOT its authored x/y',
 );
 // It matches the CENTRE a sprite cover produces over the same canvas (coverTransform.x/y = centre).
 const spriteCenter = coverTransform({
@@ -225,30 +225,26 @@ const spriteCenter = coverTransform({
 	targetHeight: CANVAS.height,
 });
 assert(
-	spinePos.x === spriteCenter.x && spinePos.y === spriteCenter.y,
-	'coverFit spine centre == the sprite cover centre (runtime == sprite path)',
+	rigPos.x === spriteCenter.x && rigPos.y === spriteCenter.y,
+	'coverFit rig centre == the sprite cover centre (runtime == sprite path)',
 );
-// It matches what a background spine authored AT centre resolves to (editor↔runtime agreement).
-const bgCenteredSpine = resolveSpinePosition(
-	'background',
-	{ kind: 'spine', x: 960, y: 540 },
-	CANVAS,
-);
+// It matches what a background rig authored AT centre resolves to (editor↔runtime agreement).
+const bgCenteredRig = resolveRigPosition('background', { kind: 'spine', x: 960, y: 540 }, CANVAS);
 assert(
-	spinePos.x === bgCenteredSpine.x && spinePos.y === bgCenteredSpine.y,
-	'coverFit spine centre == a background spine authored at centre',
+	rigPos.x === bgCenteredRig.x && rigPos.y === bgCenteredRig.y,
+	'coverFit rig centre == a background rig authored at centre',
 );
-// Parity: coverFit UNSET ⇒ the spine keeps its authored x/y verbatim (byte-identical to today).
-const plainSpinePos = resolveSpinePosition('canvas', { kind: 'spine', x: 711, y: 400 }, CANVAS);
+// Parity: coverFit UNSET ⇒ the rig keeps its authored x/y verbatim (byte-identical to today).
+const plainRigPos = resolveRigPosition('canvas', { kind: 'spine', x: 711, y: 400 }, CANVAS);
 assert(
-	plainSpinePos.x === 711 && plainSpinePos.y === 400,
-	'coverFit UNSET ⇒ spine keeps its authored x/y (parity)',
+	plainRigPos.x === 711 && plainRigPos.y === 400,
+	'coverFit UNSET ⇒ rig keeps its authored x/y (parity)',
 );
-// A background spine is UNCHANGED — still uses its authored position (not force-centred).
-const bgOffSpine = resolveSpinePosition('background', { kind: 'spine', x: 711, y: 400 }, CANVAS);
+// A background rig is UNCHANGED — still uses its authored position (not force-centred).
+const bgOffRig = resolveRigPosition('background', { kind: 'spine', x: 711, y: 400 }, CANVAS);
 assert(
-	bgOffSpine.x === 711 && bgOffSpine.y === 400,
-	'background spine still uses authored x/y (background path untouched)',
+	bgOffRig.x === 711 && bgOffRig.y === 400,
+	'background rig still uses authored x/y (background path untouched)',
 );
 
 if (failures > 0) {

@@ -10,16 +10,16 @@
  *   2. DRAW ORDER + `behind` — the array round-trips in the authored ORDER (it IS the draw order),
  *      and the engine's own split (`Symbol.svelte`'s `behindLayers`/`overLayers`) puts a `behind`
  *      layer under the cell's art and everything else over it, each group keeping its order.
- *   3. A SPINE LAYER'S BLEND IS IGNORED — `canBlendLayerKind` (the ONE definition the tool's control
+ *   3. A RIG LAYER'S BLEND IS IGNORED — `canBlendLayerKind` (the ONE definition the tool's control
  *      and the game's `SymbolLayer.svelte` both read) says no for `spine`, yes for
  *      `sprite`/`flipbook`/`fx`; the client's `reduceLayer` therefore never persists a mode on a
- *      spine layer, and an unknown mode from a newer tool degrades to no blend rather than being
+ *      rig layer, and an unknown mode from a newer tool degrades to no blend rather than being
  *      handed to Pixi (the version-skew rule).
  *   4. REJECTION — the `.strict()` + shared `.refine()` schema refuses a half-authored layer, an
  *      unknown blend mode and more than `SYMBOL_LAYER_MAX` of them: the shapes that
  *      would otherwise 400 a save silently (the publish double-fail).
- *   5. SHIPPING (rule 8) — `collectSymbolRefs` puts a spine bound ONLY as a cell layer into
- *      `spineKeys` and a scoped sprite layer's sheet into `spriteManifests`, INCLUDING on a
+ *   5. SHIPPING (rule 8) — `collectSymbolRefs` puts a rig bound ONLY as a cell layer into
+ *      `rigKeys` and a scoped sprite layer's sheet into `spriteManifests`, INCLUDING on a
  *      `flipbook` cell (whose own `assetKey` short-circuits the walk); and the client's dirty
  *      signature moves when a layer is added, reordered or re-blended.
  *   6. BOTH BUNDLE PATHS — an `fx` layer's effect is neither placed, rig-bound nor event-triggered,
@@ -104,7 +104,7 @@ const ignores = (label: string, input: unknown, known: unknown): void => {
 	check(`${label} — with a warning`, warned.length > 0, true);
 };
 
-const SPINE = 'acme/splashy/spines/glow/';
+const RIG = 'acme/splashy/spines/glow/';
 const SHEET = 'acme/splashy/atlases/atlas_manifest_fx.json';
 const base = { type: 'sprite', assetKey: `${SHEET}::h1.webp` } as const;
 
@@ -113,7 +113,7 @@ const base = { type: 'sprite', assetKey: `${SHEET}::h1.webp` } as const;
 // This is the check that says "turning the feature on costs a project that never uses it nothing".
 const noLayers: unknown = {
 	version: 1,
-	symbols: { H1: { static: base, win: { type: 'spine', assetKey: SPINE, animationName: 'win' } } },
+	symbols: { H1: { static: base, win: { type: 'spine', assetKey: RIG, animationName: 'win' } } },
 };
 check(
 	'parity — a doc with no layers round-trips byte-identically',
@@ -124,7 +124,7 @@ check(
 	{
 		version: 1,
 		symbols: {
-			H1: { static: base, win: { type: 'spine', assetKey: SPINE, animationName: 'win' } },
+			H1: { static: base, win: { type: 'spine', assetKey: RIG, animationName: 'win' } },
 		},
 		updatedAt: undefined,
 	},
@@ -190,9 +190,9 @@ check(
 	authored.length,
 );
 
-// ── 3. A spine layer's blend is IGNORED ──────────────────────────────────────────────────────
+// ── 3. A rig layer's blend is IGNORED ──────────────────────────────────────────────────────
 // Measured in a running game: a Pixi blend never reaches skeleton geometry, so offering the control
-// on a spine layer would be a lie. `canBlendLayerKind` is the ONE definition both halves read.
+// on a rig layer would be a lie. `canBlendLayerKind` is the ONE definition both halves read.
 check('blend — a sprite layer blends', canBlendLayerKind('sprite'), true);
 check('blend — a flipbook layer blends', canBlendLayerKind('flipbook'), true);
 check(
@@ -200,7 +200,7 @@ check(
 	canBlendLayerKind('fx'),
 	true,
 );
-check('blend — a SPINE layer does NOT blend', canBlendLayerKind('spine'), false);
+check('blend — a RIG layer does NOT blend', canBlendLayerKind('spine'), false);
 
 /** The renderer's gate, copied from `SymbolLayer.svelte`: kind first, then a known mode, then
  *  `normal` → `undefined` so `propsSyncEffect` skips the prop entirely (the parity path). */
@@ -209,8 +209,8 @@ const rendered = (layer: BookVfxLayer) =>
 		canBlendLayerKind(layer.kind) && isBlendMode(layer.blendMode) ? layer.blendMode : undefined,
 	);
 check(
-	'blend — a spine layer carrying `multiply` renders UNBLENDED',
-	rendered({ kind: 'spine', assetKey: SPINE, animationName: 'win', blendMode: 'multiply' }),
+	'blend — a rig layer carrying `multiply` renders UNBLENDED',
+	rendered({ kind: 'spine', assetKey: RIG, animationName: 'win', blendMode: 'multiply' }),
 	undefined,
 );
 check(
@@ -234,15 +234,15 @@ check(
 	undefined,
 );
 
-// A spine layer's mode is never PERSISTED either, so the doc cannot claim something the render will
+// A rig layer's mode is never PERSISTED either, so the doc cannot claim something the render will
 // not do. This is the client's `reduceLayer` rule, re-stated here over the same helper it gates on.
 const persistedBlend = (layer: BookVfxLayer) =>
 	layer.blendMode && layer.blendMode !== 'normal' && canBlendLayerKind(layer.kind)
 		? layer.blendMode
 		: undefined;
 check(
-	'blend — the tool never writes a mode onto a spine layer',
-	persistedBlend({ kind: 'spine', assetKey: SPINE, animationName: 'win', blendMode: 'screen' }),
+	'blend — the tool never writes a mode onto a rig layer',
+	persistedBlend({ kind: 'spine', assetKey: RIG, animationName: 'win', blendMode: 'screen' }),
 	undefined,
 );
 check(
@@ -256,10 +256,7 @@ const withLayers = (layers: unknown) => ({
 	version: 1,
 	symbols: { H1: { win: { ...base, layers } } },
 });
-rejects(
-	'rejects a spine layer with no animation',
-	withLayers([{ kind: 'spine', assetKey: SPINE }]),
-);
+rejects('rejects a rig layer with no animation', withLayers([{ kind: 'spine', assetKey: RIG }]));
 rejects('rejects a flipbook layer with no clip', withLayers([{ kind: 'flipbook' }]));
 rejects('rejects an fx layer with no effect', withLayers([{ kind: 'fx' }]));
 rejects('rejects a sprite layer with no frame', withLayers([{ kind: 'sprite' }]));
@@ -307,7 +304,7 @@ rejects(
 );
 
 // ── 5. Shipping (rule 8) + the dirty signature ───────────────────────────────────────────────
-// A spine bound ONLY as a cell layer has to reach `index.spines`, or the art shows in the tool and
+// A rig bound ONLY as a cell layer has to reach `index.spines`, or the art shows in the tool and
 // the game loads nothing under the key. The FLIPBOOK cell is the sharp case: its own `assetKey`
 // short-circuits the cell walk two lines before the layers would have been read.
 const shipping = normalizeSymbolsDoc({
@@ -319,7 +316,7 @@ const shipping = normalizeSymbolsDoc({
 				assetKey: `${SHEET}::primary.webp`,
 				clipId: 'pop',
 				layers: [
-					{ kind: 'spine', assetKey: SPINE, animationName: 'glow' },
+					{ kind: 'spine', assetKey: RIG, animationName: 'glow' },
 					{ kind: 'sprite', assetKey: `${SHEET}::halo.webp` },
 					{ kind: 'fx', effectId: 'sparks' },
 					{ kind: 'flipbook', clipId: 'dust' },
@@ -330,9 +327,9 @@ const shipping = normalizeSymbolsDoc({
 });
 const refs = collectSymbolRefs(shipping);
 check(
-	'ships — a spine bound ONLY as a cell layer reaches `spineKeys` (⇒ `index.spines`)',
-	[...refs.spineKeys],
-	[SPINE],
+	'ships — a rig bound ONLY as a cell layer reaches `rigKeys` (⇒ `index.spines`)',
+	[...refs.rigKeys],
+	[RIG],
 );
 check(
 	'ships — a scoped sprite layer pins its SHEET, even on a flipbook cell whose own key short-circuits the walk',
@@ -351,7 +348,7 @@ const withOne = normalizeSymbolsDoc({
 	symbols: {
 		H1: {
 			static: { ...base, layers: [{ kind: 'sprite', assetKey: `${SHEET}::halo.webp` }] },
-			win: { type: 'spine', assetKey: SPINE, animationName: 'win' },
+			win: { type: 'spine', assetKey: RIG, animationName: 'win' },
 		},
 	},
 }) as SymbolsDoc;
@@ -499,8 +496,8 @@ check(
 	true,
 );
 check(
-	'SymbolLayer: the spine arm never carries a blend (a Pixi blend cannot reach skeleton geometry)',
-	/<SpineProvider[^>]*\{blendMode\}/.test(layerSrc),
+	'SymbolLayer: the rig arm never carries a blend (a Pixi blend cannot reach skeleton geometry)',
+	/<RigProvider[^>]*\{blendMode\}/.test(layerSrc),
 	false,
 );
 
@@ -607,7 +604,7 @@ const noDim = normalizeSymbolsDoc({
 				...base,
 				layers: [
 					{ kind: 'sprite', assetKey: `${SHEET}::glow.webp` },
-					{ kind: 'spine', assetKey: SPINE, animationName: 'glow', behind: true },
+					{ kind: 'spine', assetKey: RIG, animationName: 'glow', behind: true },
 				],
 			},
 		},
@@ -761,7 +758,7 @@ check('dim — there are exactly three tinted containers', tintedBlocks.length, 
 for (const [label, needle] of [
 	['the flipbook arm', '<SymbolFlipbook'],
 	['the sprite arm', '<SymbolSprite'],
-	['the spine arm', '<SymbolSpineMain'],
+	['the rig arm', '<SymbolRigMain'],
 	['the win frame', '<SymbolWinFrame'],
 	['the multiplier stamp', '<BitmapText'],
 	['the coin label', '<CoinLabel'],
@@ -773,7 +770,7 @@ for (const [label, needle] of [
 	);
 }
 // …and the containers are UNCONDITIONAL — a conditional wrapper would remount the art whenever the
-// celebration started or ended, restarting a spine mid-win.
+// celebration started or ended, restarting a rig mid-win.
 check(
 	'dim — the tinted containers are not behind an `{#if}`',
 	/\{#if [^}]*\}\s*<Container tint=\{props\.tint\}>/.test(symbolSrc),

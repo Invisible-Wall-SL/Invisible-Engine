@@ -5,7 +5,7 @@
 //
 // WHAT IT PROVES. The Scene Editor previews the board from `reelGridGeometry()`
 // (`apps/launcher-api/src/routes/(app)/editor/editorCanvas.helpers.ts`) — the ONE definition its 2D
-// canvas and its WebGL spine layer both read. The game seats the same board from `getSymbolSeat()`
+// canvas and its WebGL rig layer both read. The game seats the same board from `getSymbolSeat()`
 // (`packages/engine-game/src/game/gameState.svelte.ts`). If those two disagree, the author is
 // positioning against a lie: a symbol placed in the editor lands somewhere else live. So this
 // fixture holds the editor to two things:
@@ -486,7 +486,7 @@ for (const [gridLabel, over] of GRIDS) {
 				// `farScale + perRow * row` from the same two inputs.
 				same(`${where} :: seat scale`, seat.scale, game.scale);
 				// …and therefore the CELL BOX the editor sizes a symbol into is the box the game
-				// contain-fits its sprite/spine into: the game's cell is `cellW/HLocal` scaled by the
+				// contain-fits its sprite/rig into: the game's cell is `cellW/HLocal` scaled by the
 				// symbol container, which maps to `cellWidth * scale` in layout px.
 				maps(`${where} :: cell w`, seat.w, grid.cellWidth * game.scale);
 				maps(`${where} :: cell h`, seat.h, grid.cellHeight * game.scale);

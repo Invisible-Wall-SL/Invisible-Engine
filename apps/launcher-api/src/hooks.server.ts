@@ -92,7 +92,15 @@ function withBaselineHeaders(response: Response): Response {
 	}
 }
 
+/** The Rig Viewer's former address; old bookmarks and links land on the new one. */
+const LEGACY_RIG_VIEWER = /^\/spine(?=\/|$)/;
+
 export const handle: Handle = async ({ event, resolve }) => {
+	if (LEGACY_RIG_VIEWER.test(event.url.pathname)) {
+		const location =
+			event.url.pathname.replace(LEGACY_RIG_VIEWER, '/rig-viewer') + event.url.search;
+		return new Response(null, { status: 308, headers: { location } });
+	}
 	const token = event.cookies.get(SESSION_COOKIE);
 	event.locals.user = await validateSession(token);
 	const splash = bootSplashTag(event.url.pathname);

@@ -5,7 +5,7 @@
 // region's original world corners (geometry preserved).
 //   node tools/rigger-spike/convertmesh.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
-import { RIG_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics } = await import(RIG_CORE);
 

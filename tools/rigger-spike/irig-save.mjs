@@ -14,7 +14,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { RIG_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 import { ESBUILD } from './esbuild.mjs';
 
 const ROOT = new URL('../../', import.meta.url);
@@ -47,8 +47,8 @@ const stubs = {
 	name: 'stubs',
 	setup(build) {
 		build.onResolve({ filter: /^\.\/r2$/ }, () => ({ path: 'r2', namespace: 'stub' }));
-		build.onResolve({ filter: /^\.\/spineBundleSync$/ }, () => ({ path: 'sync', namespace: 'stub' }));
-		build.onResolve({ filter: /^\.\/spineIndex$/ }, () => ({ path: 'index', namespace: 'stub' }));
+		build.onResolve({ filter: /^\.\/rigBundleSync$/ }, () => ({ path: 'sync', namespace: 'stub' }));
+		build.onResolve({ filter: /^\.\/rigIndex$/ }, () => ({ path: 'index', namespace: 'stub' }));
 		build.onResolve({ filter: /^\$lib\// }, (a) => ({ path: join(APP, 'src/lib', a.path.slice(5) + '.ts') }));
 		build.onLoad({ filter: /.*/, namespace: 'stub' }, (a) => ({
 			contents:

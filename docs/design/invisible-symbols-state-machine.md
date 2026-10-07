@@ -1,11 +1,11 @@
 # Invisible Symbols State Machine — author the symbol→state→asset map (design)
 
 A tool that turns the in-game **Symbol Debug** grid into an editable surface: per symbol,
-per animation state, rebind the cell to a sprite / sprite-sheet animation / spine that
+per animation state, rebind the cell to a sprite / sprite-sheet animation / rig that
 already lives in R2 — and ship those bindings to the game through the standard deploy chain.
 
 Owner-named **Invisible Symbols State Machine** (2026-06-12). Standalone tool page, like
-Atlas / Spine / Font Maker.
+Atlas / rig / Font Maker.
 
 > Build status: see [docs/status/symbols.md](../status/symbols.md); detailed done-log in [docs/history.md](../history.md).
 
@@ -26,8 +26,8 @@ Symbols: `H1…H5`, `L1…L5`, `W`, `S`. States: `static`, `spin`, `land`, `win`
 `postWinStatic`, `explosion`, `clearReel`, plus the gated ones (`intro`, the book states, and the
 Hold and Win states `coinIdle` … `flyToMeter`)
 (`packages/engine-layout/src/lib/symbolStates.ts#SYMBOL_STATES`). Each cell is
-either a **sprite** (`assetKey` = a sheet frame key, e.g. `h1.webp`) or a **spine**
-(`assetKey` = a registered spine bundle + `animationName`).
+either a **sprite** (`assetKey` = a sheet frame key, e.g. `h1.webp`) or a **rig**
+(`assetKey` = a registered rig bundle + `animationName`).
 
 The Symbol Debug overlay
 ([`SymbolDebugOverlay.svelte`](../../packages/components-pixi/src/components/SymbolDebugOverlay.svelte),
@@ -41,14 +41,14 @@ live. This tool is that grid, **editable**, with the result authored to R2 and s
 - **Standalone tool page** (`/symbols` in the launcher), not a panel inside the editor —
   but it REUSES the editor's R2 library picker, doc endpoints, deploy-token plumbing, and
   the `bake-editor-doc.mjs` / `pull-project-assets.mjs` transport.
-- **Spine included in v1.** Most states (`win`/`land`) are spine, so a sprites-only tool is
-  useless. Spine support = a _copy/mirror_ of already-made spine bundles into `deploy/`
-  (see below) — NOT spine authoring.
+- **Rig included in v1.** Most states (`win`/`land`) are rig, so a sprites-only tool is
+  useless. Rig support = a _copy/mirror_ of already-made rig bundles into `deploy/`
+  (see below) — NOT rig authoring.
 
 ### Out of v1
 
 - Payline geometry / which symbols pay on which lines.
-- Creating or editing spine animations (we only reference existing ones).
+- Creating or editing rig animations (we only reference existing ones).
 - Adding/removing symbols or states (the symbol set + 6 states are fixed in v1; the tool
   edits bindings within that fixed grid). NOTE: the **global highlight** below is the one
   global binding now authorable on top of the fixed grid — it is not per-symbol-per-state.
@@ -59,7 +59,7 @@ Symbol render size is **not** a Symbols State Machine concern, and there is no s
 anywhere any more. The earlier `defaultSizeRatios` doc global and the later reel-level size
 field were both removed: each symbol is fitted inside its reel cell by its own art, aspect
 kept. To change how a symbol fills its cell, change the box its art is sized by — **Art
-bounds** for a sprite region, or the **Bounds** box in Invisible Rigger for a spine. See the
+bounds** for a sprite region, or the **Bounds** box in Invisible Rigger for a rig. See the
 guide's ["Symbol size on the reel"](../tools/invisible-editor.md#symbol-size-on-the-reel).
 
 - A per-cell `sizeRatios` left in an older symbols doc is ignored at render. Per-LAYER
@@ -70,8 +70,8 @@ guide's ["Symbol size on the reel"](../tools/invisible-editor.md#symbol-size-on-
 ## Global highlight (win frame) — added 2026-06-17
 
 Separate from the per-symbol `symbols` map, the doc carries ONE optional global binding:
-the **highlight** — the win-frame spine that loops over winning symbols (today the game
-hardcodes a local spine named `payframe`, spine key `anticipation`).
+the **highlight** — the win-frame rig that loops over winning symbols (today the game
+hardcodes a local rig named `payframe`, rig key `anticipation`).
 
 ```jsonc
 {
@@ -85,19 +85,19 @@ hardcodes a local spine named `payframe`, spine key `anticipation`).
 }
 ```
 
-- **Optional + spine-only.** Absent → the game keeps its built-in `payframe`. The tool
+- **Optional + rig-only.** Absent → the game keeps its built-in `payframe`. The tool
   shows the built-in default as a non-editable **Default (payframe)** placeholder (it's a
   LOCAL game asset, not in R2, so it can't be previewed) and lets the user override it
-  with an R2 spine bundle via the SAME spine library picker the grid cells use.
+  with an R2 rig bundle via the SAME rig library picker the grid cells use.
 - **Contract field (end to end):** `highlight?: { type: 'spine'; assetKey; animationName }`
   on `SymbolsDoc` (schema in `symbolsStorage.ts`). The coded default is represented on
   `SymbolDefaults.highlight` (`symbolDefaults.ts` + `lines.json`) for the "current =
   default" display only — never forced into an override.
-- **Export/bake.** `symbolExport.ts` adds the highlight's `assetKey` to the spine bundles
+- **Export/bake.** `symbolExport.ts` adds the highlight's `assetKey` to the rig bundles
   it copies into `deploy/editor-symbols/` (so it's in `index.spines`, keyed by the same
   `assetKey`), and returns a `highlight: { assetKey, animationName }` pointer.
-  `bake-editor-doc.mjs` embeds it at `bundle.symbols.highlight`. The game loads the spine
-  by `assetKey` like any per-symbol spine; an un-overridden project ships no `highlight`
+  `bake-editor-doc.mjs` embeds it at `bundle.symbols.highlight`. The game loads the rig
+  by `assetKey` like any per-symbol rig; an un-overridden project ships no `highlight`
   and renders byte-identical to before.
 
 ## Win-line overlay config — added 2026-06-17, styling added 2026-06-18
@@ -250,7 +250,7 @@ The beat is raced against `TRANSIT_BEAT_CAP_MS` (650 ms), so settling after the 
 the cap too and cut off any pop an artist authored longer than that — truncation, the failure this
 codebase treats as worse than a blown guard because it looks like art. Armed instead, the two ends
 of the race separate on their own: a long pop still reports late, into an already-settled promise,
-and vanishes on its own last frame; one that can never report (no art, a spine animation missing
+and vanishes on its own last frame; one that can never report (no art, a rig animation missing
 from the skeleton) is simply left for the board-wide removal, exactly as before. Owner report on
 Waves/test6, 2026-09-09.
 
@@ -481,7 +481,7 @@ bundle → `BakedBundle.symbols.winExplode` → `bakedWinExplodeEnabled()` → `
 
 **The problem.** How long a paying spin takes is decided entirely by the art: `Board.svelte` holds
 each winning cell for its authored `win` animation and then, under the switch above, for its
-`explosion`. A project whose symbols win on a two-second spine pays that per win, and a cascading one
+`explosion`. A project whose symbols win on a two-second rig pays that per win, and a cascading one
 pays it per tumble — the round reads as a wait before the next spin is released, with nothing in the
 tool to say otherwise short of re-exporting every animation.
 
@@ -497,7 +497,7 @@ ever shortens: a symbol already quicker than the ceiling is untouched.
 
 **Why a new field rather than exposing the cap the beats already have.** `WIN_BEAT_CAP_MS`
 (`apps/lines/src/game/symbolBeat.ts`) is a **runaway guard** — it exists so art that can never report
-`oncomplete` (a state with nothing bound, an unmounted cell, a spine animation missing from the
+`oncomplete` (a state with nothing bound, an unmounted cell, a rig animation missing from the
 skeleton — but NOT a looping one, which reports at the end of every cycle) cannot hang the round, and it is
 deliberately sized above anything a surface plausibly authors, because as that file says, a cap a
 real animation can hit stops being a guard and starts being the timing. Surfacing it would have made
@@ -599,9 +599,9 @@ What is specific to this tool:
   container still and the emitter's owner moving (`ownerPos`), as `<EffectPlayer ownerPos>` does in
   the game — no fourth renderer. The coded trail is a canvas approximation.
 
-## "Spine export" demystified
+## "rig export" demystified
 
-A spine asset is a **bundle of sibling files that travel together**, e.g. for `H1`
+A rig asset is a **bundle of sibling files that travel together**, e.g. for `H1`
 (`apps/lines/src/game/assets.ts`):
 
 ```
@@ -611,13 +611,13 @@ symbols.webp    ← the page image the .atlas references (SHARED)
 ```
 
 Several symbols share one atlas + page (`symbols`=H1–L4, `symbols2`=M+S, `symbols3`=W+
-explosion). These are made by an artist in Spine Editor and already exist in R2 (the
-Invisible Spine Viewer streams them). **We import them as-is.** "Export" = the same humble
+explosion). These are made by an artist in an external rig editor and already exist in R2 (the
+Invisible Rig Viewer streams them). **We import them as-is.** "Export" = the same humble
 copy step `fontExport.ts` does for bitmap fonts: mirror the existing files into the
 project's `deploy/` subtree with their sibling files + names intact, so the build pull drops
 them into `static/assets/` and the game registers them. The ONE new capability vs the
 existing editor-art exporter (which only handles single-file sprite sheets) is gathering the
-multi-file spine bundle (atlas + N skeletons + shared page) and keeping the relative names
+multi-file rig bundle (atlas + N skeletons + shared page) and keeping the relative names
 lined up.
 
 ## The R2 doc (new asset class)
@@ -661,7 +661,7 @@ currently reads `SYMBOL_INFO_MAP[name][state]` straight from the constant. Chang
    doesn't already register:
    - sprite sheet → `{ type:'sprites', src:'assets/editor-symbols/<stem>/<stem>.json', namespace? }`
    - standalone image → `{ type:'sprite', src }`
-   - spine bundle → `{ type:'spine', src:{ atlas, skeleton, scale } }` (paths under
+   - rig bundle → `{ type:'spine', src:{ atlas, skeleton, scale } }` (paths under
      `assets/editor-symbols/…`)
      Spread into `createApp({assets})` in
      [`stateApp.ts`](../../apps/lines/src/game/stateApp.ts) beside `bakedEditorArtAssets()`.
@@ -677,10 +677,10 @@ Per the hard rule (`docs/design/live-assets.md`, CLAUDE.md §8): a new R2 asset 
 done when it travels **export → `deploy/` → bake → pull → register**.
 
 1. **Export (server)** — `apps/launcher-api/src/lib/server/symbolExport.ts#exportEditorSymbols`:
-   read `symbols.json`, resolve each referenced sprite sheet / standalone image / **spine
+   read `symbols.json`, resolve each referenced sprite sheet / standalone image / **rig
    bundle**, copy into `deploy/editor-symbols/<stem>/` (preserving sibling file names so a
-   spine `.atlas`'s page refs + a skeleton's atlas ref resolve), write `index.json` (sprite
-   sheets, images, spine bundles with their atlas/skeleton/scale). Prune stale; idempotent.
+   rig `.atlas`'s page refs + a skeleton's atlas ref resolve), write `index.json` (sprite
+   sheets, images, rig bundles with their atlas/skeleton/scale). Prune stale; idempotent.
 2. **Trigger** — `POST /api/editor/export-symbols?project=<key>&k=<token>` (same deploy-token
    gate as `export-art` / `export-fonts`). `bake-editor-doc.mjs` calls it alongside the
    other exports and embeds the returned `{ map, index }` as `bundle.symbols`.
@@ -696,9 +696,9 @@ done when it travels **export → `deploy/` → bake → pull → register**.
 - Auth gate + client/project selector + tool top bar — REUSE existing launcher helpers
   (run `/reuse-check` before building any of these surfaces).
 - Grid: rows = symbols, columns = the 6 states. Each cell shows a **live preview** of the
-  current binding (sprite frame or spine animation playing), mirroring the debug overlay.
+  current binding (sprite frame or rig animation playing), mirroring the debug overlay.
 - Click a cell → open the **R2 asset library picker** (same component the editor uses) to
-  choose a sprite-sheet frame or a spine bundle; for spine, choose `animationName`; edit
+  choose a sprite-sheet frame or a rig bundle; for rig, choose `animationName`; edit
   `sizeRatios` (numeric, minimal in v1).
 - Save → write `symbols.json` to R2. A "Deploy" affordance can call the export, consistent
   with how the editor triggers art export.
@@ -713,7 +713,7 @@ done when it travels **export → `deploy/` → bake → pull → register**.
 - **S2 — Doc schema + R2 read/write + server.** `symbols.json` schema (Zod, shared),
   project path helper (`projectPaths.ts#symbolsDocKey`), `GET/PUT` doc endpoints.
 - **S3 — Tool page.** `/symbols` grid UI with live previews + library picker + save.
-- **S4 — Export + bake + pull (spine-aware).** `symbolExport.ts`, `export-symbols`
+- **S4 — Export + bake + pull (rig-aware).** `symbolExport.ts`, `export-symbols`
   endpoint, `bake-editor-doc.mjs` wiring, `pull-project-assets.mjs` prune entry.
 - **S5 — Prove end-to-end:** rebind a symbol state online → `pnpm build`
   → republish → new asset/animation shows in the game.
@@ -759,7 +759,7 @@ tool reads it. No hand-maintained per-game JSON.
 ## Seeding a game's symbol assets into R2 (so previews render)
 
 The tool previews ONLY from R2, under the per-project prefixes `listProjectAssets` scans:
-sprites → `sheets/` + `manifests/`, spines → `spines/`. A game's BASE symbol art lives in
+sprites → `sheets/` + `manifests/`, rigs → `spines/`. A game's BASE symbol art lives in
 its repo (`static/assets/…`), not those prefixes, so default cells render as placeholder
 chips until the art is seeded. Two sibling syncs (run from the engine repo with `R2_*` creds):
 
@@ -767,8 +767,8 @@ chips until the art is seeded. Two sibling syncs (run from the engine repo with 
   uploads each TexturePacker sheet folder to `<client>/<project>/sheets/<folder>/`.
   `loadRegionSet` reads the TexturePacker JSON directly + resolves the page beside it, so a
   game's own `symbolsStatic` (frames `h1.png … w.png`) becomes previewable with no re-author.
-- **Spines** — `apps/launcher-api/scripts/r2-sync-spines.mjs <spinesDir> <client> <project>`
-  uploads bundles + writes the `skeletons.json` index. (Spine _default_ cells still render as
+- **Rigs** — `apps/launcher-api/scripts/r2-sync-rigs.mjs <rigsDir> <client> <project>`
+  uploads bundles + writes the `skeletons.json` index. (rig _default_ cells still render as
   chips — the coded map's short keys like `H1` aren't R2 bundle prefixes; only a rebind, which
   stores the full bundle prefix, gets a live preview.)
 
@@ -780,5 +780,5 @@ chips until the art is seeded. Two sibling syncs (run from the engine repo with 
 - **Per-game `getSymbolInfo`** — each `apps/<game>/src/game/utils.ts` has its own copy;
   S1 lands in `apps/lines` first, then mirrors into the other reference games
   (record-every-engine-change rule).
-- **Spine in editor-art convergence** — once spine export exists here, the editor-art
-  exporter's parked spine support (live-assets.md open decision) can share this code.
+- **Rig in editor-art convergence** — once rig export exists here, the editor-art
+  exporter's parked rig support (live-assets.md open decision) can share this code.

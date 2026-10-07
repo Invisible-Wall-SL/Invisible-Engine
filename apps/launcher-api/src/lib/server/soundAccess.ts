@@ -5,7 +5,7 @@ import { getToolOverrides } from './userToolAccess';
 
 /**
  * The entitlement gate every Invisible Sound endpoint shares — the doc route (`/api/sounds`) and
- * the file route (`/api/sounds/file`). Mirrors `spine.ts`'s `requireSpineAccess`: one definition,
+ * the file route (`/api/sounds/file`). Mirrors `rig.ts`'s `requireRigAccess`: one definition,
  * so a second route cannot ship a slightly different gate. Returns the non-null user for
  * `requireProjectScope` (`toolScope.ts`), which resolves `?project=` and refuses a project this
  * user cannot access.

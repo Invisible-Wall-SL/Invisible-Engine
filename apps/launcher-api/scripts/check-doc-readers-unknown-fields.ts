@@ -891,7 +891,7 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 			warns: drops('transition.blendMode'),
 		},
 		{
-			label: 'a non-spine highlight drops the override (the coded payframe plays)',
+			label: 'a non-rig highlight drops the override (the coded payframe plays)',
 			edit: set('highlight.type', 'flipbook'),
 			reads: del('highlight'),
 			warns: drops('highlight.type', 'highlight'),
@@ -903,7 +903,7 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 			warns: drops('highlight.tintMode'),
 		},
 		{
-			label: 'a non-spine board glow drops the override',
+			label: 'a non-rig board glow drops the override',
 			edit: set('boardGlow.type', 'flipbook'),
 			reads: del('boardGlow'),
 			warns: drops('boardGlow.type', 'boardGlow'),
@@ -1052,7 +1052,7 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 				warns: drops('symbols.H1.static.type', 'symbols.H1.static'),
 			},
 			{
-				label: 'a non-spine highlight drops the highlight default',
+				label: 'a non-rig highlight drops the highlight default',
 				edit: set('highlight.type', 'flipbook'),
 				reads: del('highlight'),
 				warns: drops('highlight.type', 'highlight'),

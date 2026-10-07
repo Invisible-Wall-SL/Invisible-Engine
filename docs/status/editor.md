@@ -16,15 +16,15 @@ Shipped capabilities on `main`:
 
 - **Screens** — game + HUD lists (reorder, rename, hide, duplicate, delete); per-screen **space** (`game` / `standard` with left/right/top/bottom alignment / `canvas` / `background` cover-fit); **Always on top**, **Behind the reels** and **Zoom with anticipation** ticks; roles (incl. `betMenu` / `autoSpin`, one `SCENE_ROLE_LABELS` list in `engine-layout/sceneRole.ts`); scaffold from a **game kind** (`lines`, `ways` filled; `bookOf`; `cluster`/`scatter` skeleton-only by decision), **import composed reference**, add-missing-screens, "Save as new game kind", "＋ New bet menu / auto spin screen".
 - **Every authored screen ships.** `extraMountScenes` / `fullReplaceHudScenes` (`engine-layout/genericMountScenes.ts`) mount author screens the game doesn't reserve, and `sceneLayerZIndex` gives every mount path the Screens-list z; under a screen-driving v2 flow every screen mounts through `<FlowV2Mount>`. Flow owns visibility (no "Shows during" gates).
-- **Canvas** — real-texture rendering (live spine skeletons, live FX particles, playing flipbook clips, spine/sprite/flipbook board symbols through one `reelGridGeometry`), zoom/pan/Fit, multi-select, transform handles, snap guides, undo/redo, copy/cut/paste/duplicate. Instances preview through the project's component-defaults sidecar, so the canvas draws what the game draws.
-- **Library placement** — Text / Rect / Reel, atlas pages + regions (per-region drag thumbnails), spines (project + `_shared/spines/`, upload), sheet regions, **Invisible FX** effects, **Invisible Flipbook** clips, components.
-- **Properties** — transform / tint / **blend** (`normal`/`add`/`multiply`/`screen`/`overlay`/`lighten`, not on spine nodes) / text box (width/height, align, auto-fit) / spine anim + slot fill / **Plays on signal** cues on spine and flipbook nodes (free-text signal here, declared signals in `/components`) / **background cover** (fit cover·contain·width·height, cover scale, align) / **Art bounds** for sprite regions / reel-grid overflow, perspective and ground tiles / node actions. Symbol size is not authored anywhere: symbols contain-fit their cell by their own art.
+- **Canvas** — real-texture rendering (live rig skeletons, live FX particles, playing flipbook clips, rig/sprite/flipbook board symbols through one `reelGridGeometry`), zoom/pan/Fit, multi-select, transform handles, snap guides, undo/redo, copy/cut/paste/duplicate. Instances preview through the project's component-defaults sidecar, so the canvas draws what the game draws.
+- **Library placement** — Text / Rect / Reel, atlas pages + regions (per-region drag thumbnails), rigs (project + `_shared/spines/`, upload), sheet regions, **Invisible FX** effects, **Invisible Flipbook** clips, components.
+- **Properties** — transform / tint / **blend** (`normal`/`add`/`multiply`/`screen`/`overlay`/`lighten`, not on rig nodes) / text box (width/height, align, auto-fit) / rig anim + slot fill / **Plays on signal** cues on rig and flipbook nodes (free-text signal here, declared signals in `/components`) / **background cover** (fit cover·contain·width·height, cover scale, align) / **Art bounds** for sprite regions / reel-grid overflow, perspective and ground tiles / node actions. Symbol size is not authored anywhere: symbols contain-fit their cell by their own art.
 - **Device layouts** — per-layoutType overrides of transform, blend, visibility, cover fit/scale, text style and component params; per-layoutType **Canvas Size** (the MAIN box the runtime adopts). The bucket set is an authorable **layout profile** (Game Settings → Layout; pipeline default in Admin → Settings); `DEFAULT_LAYOUT_PROFILE` reproduces the legacy four exactly.
 - **Game Settings** — per-project boot splash (`bootLoader`), layout profile.
 - **Version history** — each save backs up the `scenes.json` it replaces (throttled, newest 20 kept; reference load, Overwrite-with-mine and restore always back up). **History…** opens the shared `$lib/DocHistoryModal.svelte` over `/api/editor/backups`; a restore is ETag-conditional and itself undoable.
 - **Concurrency** — conditional autosave (stale ETag ⇒ 409 ⇒ **Reload theirs / Overwrite with mine**, autosave paused); custom kinds and templates are create-only / ETag-guarded.
 - **Templates** — template-authoring mode (tag `slotId`s, save `editor/templates/<gameType>.json`) + slot/asset-issue warnings on save.
-- **Pipeline** — layout-doc bake + **editor-art export** (`deploy/editor-art/`) travel export→deploy→bake→pull→register; Art bounds ship as TexturePacker trim, component `spine`-param bundles and `_shared/` spines export like placed ones, and art picked only in a per-layoutType param override ships too.
+- **Pipeline** — layout-doc bake + **editor-art export** (`deploy/editor-art/`) travel export→deploy→bake→pull→register; Art bounds ship as TexturePacker trim, component `spine`-param bundles and `_shared/` rigs export like placed ones, and art picked only in a per-layoutType param override ships too.
 
 ## Open items / next
 
@@ -69,14 +69,14 @@ Shipped capabilities on `main`:
   and drops the version pin. Example: a Pot Meter to the game's Pot copy. Detail:
   [hold-and-win](hold-and-win.md).
 
-- 2026-10-03 — **Spine param dropdowns follow the active ratio.** With the canvas on a ratio whose
+- 2026-10-03 — **rig param dropdowns follow the active ratio.** With the canvas on a ratio whose
   override swaps a placed component's rig, a `spineAnimation` / `spineSlot` / `spineBone` param
-  field still listed the BASE rig's names (`primarySpineBundle` / `effectiveSpineBundle` read
+  field still listed the BASE rig's names (`primaryRigBundle` / `effectiveRigBundle` read
   `node.params` only), though its value saves into that ratio's override. They now read
-  `instanceParamValue`, the ratio-aware value the param fields already show. The "Spine (this
-  placement)" fields deliberately stay on the base rig (`instanceSpineBoundName`): what they write
+  `instanceParamValue`, the ratio-aware value the param fields already show. The "rig (this
+  placement)" fields deliberately stay on the base rig (`instanceRigBoundName`): what they write
   (`spineRestOverrides` / `stateAnimationOverrides`) is per-node and plays in every ratio.
-  `scripts/verify-editor-ratio-spine-params.mjs` runs the real resolvers sliced from
+  `scripts/verify-editor-ratio-rig-params.mjs` runs the real resolvers sliced from
   `EditorProperties.svelte`.
 - 2026-10-03 — **Art picked in a per-ratio instance override ships** (rule 8). `collectArtRefs`
   (`editorArtExport.ts`) classified only an instance's base `params` by param kind, never
@@ -91,25 +91,25 @@ Shipped capabilities on `main`:
   latest's. `check:art-scope` part 6 runs the real `exportEditorArt` and `isProjectArtAllowed`
   over an in-memory R2 and proves all of it.
 - 2026-10-02 — **Bind to value** (Hold and Win Phase 12b): the shared Properties panel gains a
-  *Bind to value* section (a number drives a node's transform, visibility, fill, clip frame, spine
-  scrub or bone), and a test-value scrub previews it on the canvas and the text / spine / effect
+  *Bind to value* section (a number drives a node's transform, visibility, fill, clip frame, rig
+  scrub or bone), and a test-value scrub previews it on the canvas and the text / rig / effect
   overlays. `nodeTransform` / `childLocalTransform` take an optional resolver; only the draw paths
   pass the preview's, so drags, hit-tests and selection keep the authored transform. Detail:
   [hold-and-win](hold-and-win.md).
 - 2026-10-02 — **Measured: no project is broken by an old shared-def pin.** No live doc or
   published snapshot pins `featurecard` (the card arrives at latest). `c_kzdbwen7@11` is pinned by
-  `test2`, `test6` and `bookofborutremake`, and its node does still carry Borut's full spine prefix,
-  but the node binds `assetKey` to the `rspinbuttonnewSpine` param (non-empty default), so the static
-  prefix is unreachable (`staticSpineKeyIsReachable`), and every instance sets that param to the
-  project's own spine (`R_spinbutton` in test2, `R_Plus`/`R_Minus`/… in test6), which their
-  published snapshots ship with no stranded-spine warning. The open item that said otherwise is
+  `test2`, `test6` and `bookofborutremake`, and its node does still carry Borut's full rig prefix,
+  but the node binds `assetKey` to the `rspinbuttonnewRig` param (non-empty default), so the static
+  prefix is unreachable (`staticRigKeyIsReachable`), and every instance sets that param to the
+  project's own rig (`R_spinbutton` in test2, `R_Plus`/`R_Minus`/… in test6), which their
+  published snapshots ship with no stranded-rig warning. The open item that said otherwise is
   withdrawn.
 
-- 2026-10-02 — **The shared `featureCard` and spin button draw their spine + font in every
-  project.** The open item "cross-project spine/font/flipbook the editor cannot preview" was
+- 2026-10-02 — **The shared `featureCard` and spin button draw their rig + font in every
+  project.** The open item "cross-project rig/font/flipbook the editor cannot preview" was
   mis-framed: unlike an atlas (which the export copies in), the EXPORT does not ship another
-  project's spine, font or clip either, so a preview allowance would have shown art that never ships
-  (rule 8). Measured on R2: no shared def names a flipbook clip; the latest `featurecard` names spine
+  project's rig, font or clip either, so a preview allowance would have shown art that never ships
+  (rule 8). Measured on R2: no shared def names a flipbook clip; the latest `featurecard` names rig
   `R_BuyBonus` + bitmap font `Tungsten-Bold`, and `c_kzdbwen7` (spin button) names
   `R_SpinButtonNew` — all owned only by `bookofborutremake`, so every other project drew them
   missing in the editor AND the game. Fix = put the art in the shared library, which both chains
@@ -117,11 +117,11 @@ Shipped capabilities on `main`:
   `_shared/fonts/` (+ the library's first `fonts.json`). Two code changes make that land:
   **fonts** — a project's renderable fonts are now its catalog MERGED with the library
   (`loadRenderableFonts`, project wins by id/folder) in the editor, Symbols and the export; before,
-  the library was read only by a project with NO catalog, the spine bug `loadSkeletonIndexWithShared`
+  the library was read only by a project with NO catalog, the rig bug `loadSkeletonIndexWithShared`
   fixed. The Font Maker keeps its project-else-library catalog (where its writes/deletes land).
-  **promote** — `/admin` → promote spine no longer copies `source.json`, which re-linked the
+  **promote** — `/admin` → promote rig no longer copies `source.json`, which re-linked the
   "snapshot" to the authoring project's sheet (a re-pack there would rewrite the shared copy).
-  Fixtures: `check:renderable-fonts`, `check:shared-spine-promote` (mutant-checked). A project picks
+  Fixtures: `check:renderable-fonts`, `check:shared-rig-promote` (mutant-checked). A project picks
   the art up on its next export / publish.
 
 - 2026-10-02 — **A manifest's own fields read R2 only inside its own project (#990 review
@@ -184,7 +184,7 @@ silently dropped on save); **the launcher `vite build` is not a type-check** (ru
   first (unchanged). ⏳ Not browser-verified.
 - 2026-10-01 — **In-game view: the canvas draws what the idle game shows.** Reported on
   `hw-3pots-sample`: every screen drew at once (buy cards, confirm dialog, bet menu over the
-  board), with labelled "Panel" / "spine: Spine" / "Button ribbon" boxes for Feature Card parts
+  board), with labelled "Panel" / "rig: Rig" / "Button ribbon" boxes for Feature Card parts
   that have no art picked. A canvas-toolbar toggle **🎮 In-game view** (on by default, kept per
   project in the editor's UI localStorage) now draws only the screens at rest
   (`engine-layout` `isShownAtRest` / `inGameViewSceneIds`): it drops the transient ids `Game.svelte`
@@ -192,8 +192,8 @@ silently dropped on save); **the launcher `vite build` is not a type-check** (ru
   Hold and Win beat screens, buy feature/confirm, round confirm, bet menu, auto spin), the
   transient roles (incl. every `mode` screen) and `visibleSource`-gated screens. The edited screen
   is always added. For a mode screen, its mode's non-beat screens are added too. The Screens list
-  italicises what it leaves off. In the same view, a NESTED sprite/spine with no art bound
-  (empty region and key, or an empty bound spine key) draws nothing instead of its placeholder,
+  italicises what it leaves off. In the same view, a NESTED sprite/rig with no art bound
+  (empty region and key, or an empty bound rig key) draws nothing instead of its placeholder,
   as in the game. The Component Editor does not pass the prop, so it keeps its placeholders.
   `test-resting-scenes.mjs` pins the at-rest set per kind.
   - **Add missing screens** also fixed: it matched by ROLE, and every Hold and Win feature screen
@@ -201,7 +201,7 @@ silently dropped on save); **the launcher `vite build` is not a type-check** (ru
     never offered. `mode` now matches by id only. Added screens are inserted after their
     predecessor in the kind's own set, not appended (appending put Pots above the HUD).
   - ⏳ Not browser-verified (no launcher login in the session). The placeholders on the HUD
-    readouts (`UI_0005_WidgetBig`) and the buy button (`spine: R_BuyBonus`) are a different thing:
+    readouts (`UI_0005_WidgetBig`) and the buy button (the `R_BuyBonus` rig) are a different thing:
     those are real art references the canvas failed to load. They are not diagnosed — the doc and
     R2 were not readable from the session.
 - 2026-10-01 — **Hold and Win kind** (#951): "New game from kind → holdAndWin" now scaffolds the real Hold and Win screen set (jackpot bar, pots, the `holdAndWin` mode screens, the base-game message host — see [hold-and-win status](hold-and-win.md)), and the Library's **Components** list is filtered by the project's kind (`componentOfferedForKind`): the seven Hold and Win components appear only in a Hold and Win project. Palette only — a placed instance always renders. Other kinds' scene sets are hash-pinned unchanged (`test-hold-and-win-template.mjs`).
@@ -223,8 +223,8 @@ silently dropped on save); **the launcher `vite build` is not a type-check** (ru
 - 2026-09-17 — **The canvas previews instances through the project's component DEFAULTS sidecar.**
   No editor call site supplied `resolveComponentParams`' third layer, so a shared def previewed
   with its own values while the game rendered the project's. `/editor` now loads
-  `listComponentDefaults` and threads it into every instance resolve (spine readiness, drawing,
-  repeaters, selection box, text/spine layers). No sidecar ⇒ `{}` ⇒ parity.
+  `listComponentDefaults` and threads it into every instance resolve (rig readiness, drawing,
+  repeaters, selection box, text/rig layers). No sidecar ⇒ `{}` ⇒ parity.
 - 2026-09-17 — **A `standard` screen can be pinned to the TOP of the window.** `top` had never been
   written for the v-axis. Five surfaces learned it; the trap is `normalizeAlign` in
   `editorStorage.ts`, without which `top` renders locally and is dropped on save. `MainContainer`'s
@@ -236,7 +236,7 @@ silently dropped on save); **the launcher `vite build` is not a type-check** (ru
   per consecutive blend run carrying CSS `mix-blend-mode`, `.wrap` isolated, scene groups without
   `z-index` (blending inside a transparent surface, or across a stacking context, is a no-op).
   Traps, each now guarded by `check:symbol-layers`:
-  (1) **spine can't blend** — `SpinePipe` batches slots with their own blend, so the control is
+  (1) **rig can't blend** — `RigPipe` batches slots with their own blend, so the control is
   withheld via `BLENDABLE_KINDS`/`canBlendKind()` (per-slot blend lives in the Rigger);
   (2) **`overlay`/`lighten` are backdrop-reading filters** — they need our registration AND
   `useBackBuffer: true` in `app.init()`, or `FilterSystem` skips them silently (Pixi logs a warning);
@@ -274,15 +274,15 @@ silently dropped on save); **the launcher `vite build` is not a type-check** (ru
   `scripts/verify-symbol-overflow.mjs`. Engine detail in [engine.md](engine.md).
 - 2026-09-08 — **A background screen frames the same overlay in game as in the editor.** The two
   surfaces measured a background `componentInstance`'s cover box differently (the runtime skipped
-  spine/text/clip children). The editor now bakes the union it previewed into `node.coverBox`
+  rig/text/clip children). The editor now bakes the union it previewed into `node.coverBox`
   (per instance, base bucket only), read first by `LayoutNodeView`. A non-cover node on a
   background screen now uses the shared `anchoredPosition`. By design, cover targets the live
   window in game and the bucket in the editor. Guarded by `tools/bg-scene-spike/coverBox.ts`.
-- 2026-09-03 — **The spine preview loader uses ONE runtime (4.2), loaded once**, captured at load.
-  Per-line loading let two runtimes race for `window.spine` (`physics is undefined`, blank cells).
-  The 4.1 built-ins pose under 4.2 (`scripts/check-builtin-spines.mjs`).
-- 2026-09-02 — **Reel-cell spine previews fit the rig's box where its header puts it**
-  (`measureSpineBounds` via `authoredSpineBox`), matching `<SpineProvider centreBox>`.
+- 2026-09-03 — **The rig preview loader uses ONE runtime (4.2), loaded once**, captured at load.
+  Per-line loading let two runtimes race for `window.invisibleRig` (`physics is undefined`, blank cells).
+  The 4.1 built-ins pose under 4.2 (`scripts/check-builtin-rigs.mjs`).
+- 2026-09-02 — **Reel-cell rig previews fit the rig's box where its header puts it**
+  (`measureRigBounds` via `authoredRigBox`), matching `<RigProvider centreBox>`.
 - 2026-09-02 — **The instance-param panel shows the value the game RUNS**, including a def's
   `defaultInstanceParams` seed (`instanceParamEffective`). The raw read drew "On loaded" unchecked
   while the game ran it.
@@ -304,8 +304,8 @@ silently dropped on save); **the launcher `vite build` is not a type-check** (ru
   on save (`pnpm --filter flipbook-spike run scene-node`).
 - 2026-08-21 — **A `_shared/spines/` bundle previewed and shipped nothing.** `editorArtExport` read
   the shared skeleton index only for projects with no index of their own; it now uses
-  `loadSkeletonIndexWithShared()`. The shared tier carries the engine's 29 Spine bundles, one per
-  skeleton ([guide](../tools/invisible-editor.md#the-shared-spine-library)).
+  `loadSkeletonIndexWithShared()`. The shared tier carries the engine's 29 rig bundles, one per
+  skeleton ([guide](../tools/invisible-editor.md#the-shared-rig-library)).
 - 2026-08-21 — **Perspective board.** "Perspective (advanced)" is SHAPE only (`farScale`,
   `vanishX`); roll-vs-swap behaviour moved to Game Config → Reel behaviour because a `reelGrid` is
   authored per layoutType. `reelGridGeometry()` is the one definition both canvas layers read,
@@ -315,8 +315,8 @@ silently dropped on save); **the launcher `vite build` is not a type-check** (ru
   ways drops `specialBook`). Lines parity: `pnpm --filter bg-scene-spike run waysreference`.
 - 2026-08-20 — **Per-project boot splash** (`GameSettings.bootLoader`); `normalizeGameSettings` is a
   strict whitelist. Detail in [engine.md](engine.md).
-- 2026-08-18 — **Board spine symbols draw on the canvas** through the WebGL layer, contain-fit to
-  the seat; `measureSpineBounds` moved to `editorSpine.client.ts`. Verified live.
+- 2026-08-18 — **Board rig symbols draw on the canvas** through the WebGL layer, contain-fit to
+  the seat; `measureRigBounds` moved to `editorRig.client.ts`. Verified live.
 - 2026-08-17 — **Auto-fit works on a width-only box**, and the text-box params
   (`TEXT_BOX_LAYOUT_*`) are shared by Text Box and Info Bar; `mergeBuiltinCodedParams` retrofits
   saved defs. `isTextBoxInstance` requires a text-only def. Released `4a17ed6a` (#329).
@@ -330,11 +330,11 @@ silently dropped on save); **the launcher `vite build` is not a type-check** (ru
   align inside a box, resize handles change the box (never `scale`), `autoFit` shrinks the font; a
   Text Box component instance's drag writes `boxWidth`/`boxHeight`. `mergeBuiltinCodedParams` also
   unions `paramBindings`, or a frozen saved def shows new params wired to nothing.
-- 2026-07-28 — **Coded builtin spines get animation/slot/bone dropdowns** from the generated
-  `builtinSpineMeta.generated.ts` (`scripts/gen-builtin-spines.mjs`, pre-commit `--check`).
-- 2026-07-23 — **A spine referenced by a component `spine`-kind PARAM ships** (`collectArtRefs`
-  walked only placed spine nodes) and its animation dropdowns populate
-  (`instancePreviewSpineBundle`).
+- 2026-07-28 — **Coded builtin rigs get animation/slot/bone dropdowns** from the generated
+  `builtinRigMeta.generated.ts` (`scripts/gen-builtin-rigs.mjs`, pre-commit `--check`).
+- 2026-07-23 — **A rig referenced by a component `spine`-kind PARAM ships** (`collectArtRefs`
+  walked only placed rig nodes) and its animation dropdowns populate
+  (`instancePreviewRigBundle`).
 - 2026-07-20 — **Built-in UI regions resolve everywhere** via `engine-layout/builtinRegions.ts` and
   the launcher's vendored `static/builtin/sheets/`; the dangling-region export warning no longer
   flags engine-shipped art.

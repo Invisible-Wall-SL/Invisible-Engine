@@ -1,5 +1,5 @@
 /**
- * boot-splash.js — the CRT boot splash for the STATIC tool apps (Rigger, Spine
+ * boot-splash.js — the CRT boot splash for the STATIC tool apps (Rigger, rig
  * Viewer), which are plain HTML/WebGL pages outside the SvelteKit app.
  *
  * Vanilla twin of `src/lib/BootSplash.svelte` (launcher tools) and

@@ -9,7 +9,7 @@ import { getSymbolX, stateGame, stateGameDerived } from './stateGame.svelte';
  * Presentation state for the client-computed reel-anticipation MODE (`docs/design/reel-anticipation.md`,
  * Phase 3 — the escalating tease). Pure, config-agnostic readers over the per-reel arming Phase 2 writes
  * (`reelState.anticipationLevel` / `anticipationTier`); the components (`Anticipations`,
- * `AnticipationCamera`) drive the spine stack, grey-out, zoom and SFX off these. No runes here — every
+ * `AnticipationCamera`) drive the rig stack, grey-out, zoom and SFX off these. No runes here — every
  * function reads the `$state` board directly, so a caller in a reactive context tracks it (same shape as
  * `stateGameDerived`).
  */
@@ -17,11 +17,11 @@ import { getSymbolX, stateGame, stateGameDerived } from './stateGame.svelte';
 export type AnticipationTierFx = {
 	/** Camera zoom scale toward the armed span (gentler at the low tiers, stronger as they climb). */
 	zoom: number;
-	/** Extra scale on the per-reel overlay spine. */
+	/** Extra scale on the per-reel overlay rig. */
 	overlayScale: number;
-	/** Overlay spine alpha. */
+	/** Overlay rig alpha. */
 	overlayAlpha: number;
-	/** MULTIPLY tint on the overlay spine (`0xRRGGBB`) — hotter as the tier climbs. */
+	/** MULTIPLY tint on the overlay rig (`0xRRGGBB`) — hotter as the tier climbs. */
 	overlayTint: number;
 	/** Anticipation LOOP target volume (0..1) — the `sfx_anticipation` (or authored `loopSound`) fade-in
 	 *  target while this tier is the active max. */
@@ -83,14 +83,14 @@ export const codedTierFx = (rank: number, count: number): AnticipationTierFx => 
 	};
 };
 
-/** The coded default overlay spine key — a LOCAL game asset (no R2 bundle prefix). The author can swap
- *  it for an R2 spine bundle via `anticipation.spineKey`; the engine still owns the intro→loop→out
+/** The coded default overlay rig key — a LOCAL game asset (no R2 bundle prefix). The author can swap
+ *  it for an R2 rig bundle via `anticipation.spineKey`; the engine still owns the intro→loop→out
  *  chaining, so a swapped rig must expose those animation names. */
-export const DEFAULT_ANTICIPATION_SPINE_KEY = 'anticipation';
+export const DEFAULT_ANTICIPATION_RIG_KEY = 'anticipation';
 
 /** The coded default overlay animation BASE — the engine appends `_intro`/`_loop`/`_out` to it, so this
  *  resolves to the unnumbered `anticipation_intro/_loop/_out` set the mode has always played. The author
- *  can swap it for another set the spine exposes (e.g. `anticipation3`) via `anticipation.animationSet`;
+ *  can swap it for another set the rig exposes (e.g. `anticipation3`) via `anticipation.animationSet`;
  *  an unset field resolves back to this, so an un-authored project is byte-identical. */
 export const DEFAULT_ANTICIPATION_ANIMATION_BASE = 'anticipation';
 
@@ -135,16 +135,16 @@ export const resolveTierFx = (tier: AnticipationTier | null): AnticipationTierFx
 	};
 };
 
-/** The per-reel overlay spine key = the authored `anticipation.spineKey` ?? the coded
- *  {@link DEFAULT_ANTICIPATION_SPINE_KEY}. The other choke point (alongside {@link resolveTierFx}):
+/** The per-reel overlay rig key = the authored `anticipation.spineKey` ?? the coded
+ *  {@link DEFAULT_ANTICIPATION_RIG_KEY}. The other choke point (alongside {@link resolveTierFx}):
  *  the overlay component reads this rather than hardcoding `'anticipation'`. */
-export const resolveAnticipationSpineKey = (): string =>
-	bakedAnticipation()?.spineKey || DEFAULT_ANTICIPATION_SPINE_KEY;
+export const resolveAnticipationRigKey = (): string =>
+	bakedAnticipation()?.spineKey || DEFAULT_ANTICIPATION_RIG_KEY;
 
 /** The overlay animation BASE = the authored `anticipation.animationSet` ?? the coded
  *  {@link DEFAULT_ANTICIPATION_ANIMATION_BASE}. The overlay component builds its
  *  `${base}_intro`/`_loop`/`_out` names from this rather than hardcoding `anticipation_*`, so an author
- *  can select a differently-sized anticipation the spine exposes; the engine still owns the
+ *  can select a differently-sized anticipation the rig exposes; the engine still owns the
  *  intro→loop→out chaining. */
 export const resolveAnticipationAnimationBase = (): string =>
 	bakedAnticipation()?.animationSet || DEFAULT_ANTICIPATION_ANIMATION_BASE;
@@ -168,7 +168,7 @@ export const resolveLoopSound = (): SoundEffectName =>
 
 /**
  * Reels currently ARMED (`anticipationLevel > 0`). Kept through the reel settle (the level clears only at
- * the next spin / on a slam), so the per-reel overlay spine stays mounted long enough to play its `out`.
+ * the next spin / on a slam), so the per-reel overlay rig stays mounted long enough to play its `out`.
  */
 export const armedReelIndices = (): number[] =>
 	stateGame.board
@@ -253,8 +253,8 @@ export const boardColumnHeight = (): number => {
 /** The board's vertical CENTRE in world space (the container `y`, since its anchor is {0.5, 0.5}). */
 export const boardCenterYWorld = (): number => stateGameDerived.boardLayout().y;
 
-/** The per-reel overlay spine's base box, as a fraction of ONE cell — the original coded beam
- *  proportions (a tall narrow glow, NOT the full column: the grey-out fills the column, the spine is a
+/** The per-reel overlay rig's base box, as a fraction of ONE cell — the original coded beam
+ *  proportions (a tall narrow glow, NOT the full column: the grey-out fills the column, the rig is a
  *  beam over it). THE CODED DEFAULT: the author can override either via `anticipation.overlayWidthCells`
  *  / `overlayHeightCells` (e.g. a full-column ~1×5 box for a 5-tile animation instead of this beam);
  *  `fx.overlayScale` still multiplies on top per tier. */
@@ -275,11 +275,11 @@ const resolveOverlayHeightCells = (): number => {
 	return typeof v === 'number' && v > 0 ? v : DEFAULT_OVERLAY_HEIGHT_CELLS;
 };
 
-/** The overlay spine's world-space WIDTH — the resolved width-in-cells of the live cell width. Unset ⇒
+/** The overlay rig's world-space WIDTH — the resolved width-in-cells of the live cell width. Unset ⇒
  *  `SYMBOL_SIZE · 0.56`, byte-identical to the original overlay (before it followed the board). */
 export const overlayBaseWidth = (): number => reelColumnWidth() * resolveOverlayWidthCells();
 
-/** The overlay spine's world-space HEIGHT — the resolved height-in-cells of the live cell height. Unset
+/** The overlay rig's world-space HEIGHT — the resolved height-in-cells of the live cell height. Unset
  *  ⇒ `SYMBOL_SIZE · 1.6`, byte-identical to the original overlay. Scales with a resized cell instead of
  *  filling the whole column (which doubled the beam on a bigger board). */
 export const overlayBaseHeight = (): number => {

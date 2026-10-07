@@ -1,14 +1,14 @@
-# Free-spin symbol reveal — the chosen book symbol merged into an intro Spine rig
+# Free-spin symbol reveal — the chosen book symbol merged into an intro rig
 
 > Status: BUILT — merged to `main` 2026-07-13 (`d997cae9`) and in the shared runtime; reusable
 > across every Book-of game, and played live on `bookofborutremake` (a second-feature freeze was
 > fixed 2026-07-20 — see [status/engine-history.md](../status/engine-history.md)). A sibling
-> on-node form, `RevealSymbolRider`, rides the symbol on a bone of a spine node placed directly in a
+> on-node form, `RevealSymbolRider`, rides the symbol on a bone of a rig node placed directly in a
 > scene.
 
 ## The ask
 
-During a Book-of free-spins entry the game plays a Spine animation that flips through
+During a Book-of free-spins entry the game plays a rig animation that flips through
 random symbols. We want that animation to **land on the actual chosen book symbol** — the
 special symbol the RGS book selected — by riding it on a **bone** of the intro rig (a
 flipping page, a rising glow), rather than just cross-fading standalone symbol art. And we
@@ -45,9 +45,9 @@ setExpandingSymbol (book event)
         │  (coded SpecialBook is suppressed because the scene has authored content)
         ▼
   FreeSpinIntroSymbolReveal.svelte   (coded bind part, placed in the specialBook scene)
-     • <SpineProvider key={introSpine}>
-         <SpineTrack {introAnimation} then/idle, listener.complete → settle+idle>
-         <SpineBoneAttach boneName={symbolBone} offset followRotation followScale>
+     • <RigProvider key={introSpine}>
+         <RigTrack {introAnimation} then/idle, listener.complete → settle+idle>
+         <RigBoneAttach boneName={symbolBone} offset followRotation followScale>
             <Symbol rawSymbol={{ name: specialSymbol }} state="bookIdle">
      • returns the completion promise → the awaited cue blocks the round until the rig
        intro animation finishes
@@ -55,11 +55,11 @@ setExpandingSymbol (book event)
 
 ## Pieces (all on `main`)
 
-1. **`packages/pixi-svelte` · `SpineBoneAttach.svelte`** — added opt-in `followRotation` /
+1. **`packages/pixi-svelte` · `RigBoneAttach.svelte`** — added opt-in `followRotation` /
    `followScale`. Position path unchanged (existing Invisible FX Tier-B callers unaffected);
    with the flags on, the ridden child also takes the bone's world rotation/scale. Skeleton
    space is CCW / y-up, Pixi CW / y-down → world rotation is negated (same inversion
-   `<SpineBone>` applies to y).
+   `<RigBone>` applies to y).
 
 2. **`packages/engine-layout` · `builtinComponents.ts`** — new
    `FREE_SPIN_INTRO_SYMBOL_REVEAL_DEF` (`id: freeSpinIntroSymbolReveal`, `game`-space
@@ -75,9 +75,9 @@ setExpandingSymbol (book event)
 4. **`packages/engine-layout` · `types.ts`** — new `ComponentParam` kind **`spineBone`**
    (a bundle-scoped bone-name dropdown, mirroring `spineSlot`).
 
-5. **`apps/launcher-api` (editor)** — the bone picker: `EditorSpineMeta` / `SpineMeta` /
-   `SpineSkeletonData` now carry `bones`; parsed from the skeleton JSON (`data.bones`) in
-   `spine.ts`, published from the live skeleton in `EditorSpineLayer.svelte`, and surfaced as
+5. **`apps/launcher-api` (editor)** — the bone picker: `EditorRigMeta` / `RigMeta` /
+   `RigSkeletonData` now carry `bones`; parsed from the skeleton JSON (`data.bones`) in
+   `rig.ts`, published from the live skeleton in `EditorRigLayer.svelte`, and surfaced as
    a dropdown in `EditorProperties.svelte` (the `spineBone` arm reads `meta.bones`).
 
 ## Editor preview — the stand-in symbol rides the bone (Scene Editor)
@@ -95,11 +95,11 @@ declares its own binding here — the editor never hardcodes a component id. Hel
 `boundComponentRidesBone(name)`.
 
 **Where the bone transform is read + how it flows to the 2D canvas.**
-`EditorSpineLayer.svelte` owns the skeleton↔screen mapping (it bakes the editor pan/zoom + an
+`EditorRigLayer.svelte` owns the skeleton↔screen mapping (it bakes the editor pan/zoom + an
 X-mirror into each skeleton), so re-deriving a bone's screen position in the 2D canvas would get the
-mirror wrong. Instead the spine layer resolves the bone where that mapping lives:
+mirror wrong. Instead the rig layer resolves the bone where that mapping lives:
 
-1. When collecting a placed reveal instance, `riderSpineTarget()` emits the rig as a spine target
+1. When collecting a placed reveal instance, `riderRigTarget()` emits the rig as a rig target
    (resolving the bundle from the `introSpine` param, else the catalog default) that auto-plays the
    `introAnimation` **looped** so the bone keeps moving, and carries a `BoneRiderSpec`.
 2. In the render loop, right before the pan/zoom bake, it captures the rig's WORLD transform
@@ -108,12 +108,12 @@ mirror wrong. Instead the spine layer resolves the bone where that mapping lives
    into world coords: `x = sk0.x + bone.worldX·sk0.scaleX + offsetX·|sk0.scaleX|`, `y` likewise;
    `rotation = -bone.getWorldRotationX()·DEG_TO_RAD` (when `followRotation`); `scaleX/Y =
    symbolScale · bone.getWorldScaleX()/Y()` (bone scale only when `followScale`) — the SAME math as
-   the runtime `<SpineBoneAttach>`. `SpineBone` was extended with `getWorldRotationX/ScaleX/ScaleY`.
+   the runtime `<RigBoneAttach>`. `RigBone` was extended with `getWorldRotationX/ScaleX/ScaleY`.
 3. It publishes `{ x, y, rotation, scaleX, scaleY, region }` (editor WORLD coords) into a SHARED,
    non-reactive `Map<hostNodeId, BoneRiderTransform>` — no per-frame `$state` churn. An empty/
    unresolved bone publishes nothing (parity).
 
-`EditorCanvas.svelte` passes that one Map to every per-scene spine layer and runs its OWN rAF
+`EditorCanvas.svelte` passes that one Map to every per-scene rig layer and runs its OWN rAF
 (`drawRiders`, active only while a bone-riding component is present) that reads the Map and draws
 each stand-in symbol on a dedicated `.rider-layer` canvas (z-index 999 — above the scene groups so
 the symbol rides ON TOP of its rig, below the HUD), in the same `setTransform(dpr)·pan·zoom` world

@@ -257,7 +257,7 @@ export type ResolvedWinText = {
  * - `lineMessage.default` ⇒ EMPTY. The win line had no message layer at all, so there is no
  *   prior literal to reproduce; an empty template renders nothing. Author it to turn it on.
  * - `winLevels` ⇒ EMPTY, and deliberately so. `winLevelMap`'s `text` field (`'BIG WIN'`, …) is
- *   DEAD DATA — nothing reads it; the tier words players see are painted into the spine art
+ *   DEAD DATA — nothing reads it; the tier words players see are painted into the rig art
  *   (`big_win_intro` …), and `Win.svelte` draws only the count-up amount. Seeding these with
  *   the coded literals would make every existing game suddenly draw a tier caption OVER art
  *   that already says it. Empty ⇒ nothing drawn ⇒ parity; authoring one opts that game in.

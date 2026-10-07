@@ -6,11 +6,11 @@
 		backgroundCoverAnchor,
 		backgroundCoverScale,
 		backgroundFit,
-		builtinSpineMeta,
+		builtinRigMeta,
 		BLEND_MODE_LABELS,
 		canBlendKind,
 		BLEND_MODES,
-		BUILTIN_SPINE_NAMES,
+		BUILTIN_RIG_NAMES,
 		BUTTON_STATE_PARAMS,
 		BUTTON_VISUAL_STATES,
 		defaultHudText,
@@ -53,9 +53,9 @@
 		type ReelGridPerspective,
 		type ReelSpinProfile,
 		type Scene,
-		type SpineCue,
-		type SpineNode,
-		type SpineRestOverride,
+		type RigCue,
+		type RigNode,
+		type RigRestOverride,
 		type TextStyle,
 	} from 'engine-layout';
 	import { onMount, type Snippet } from 'svelte';
@@ -64,13 +64,13 @@
 	import { DEFAULT_CLIP_FPS, fetchClips, type EditorClip } from './editorFlipbooks.client';
 	import RegionPicker from './RegionPicker.svelte';
 	import { isParamGroupOpen, setParamGroupOpen } from './groupCollapse.client';
-	import type { SpineMeta } from './spineRuntime.client';
+	import type { RigMeta } from './rigRuntime.client';
 
-	/** Minimal structural view of a project spine bundle (mirrors the server-only
-	 * `SpineAsset` — its module can't be imported client-side). `key` is the R2 prefix
-	 * the spine `meta` map is keyed by; `name` is the bundle's short name (the value a
+	/** Minimal structural view of a project rig bundle (mirrors the server-only
+	 * `RigAsset` — its module can't be imported client-side). `key` is the R2 prefix
+	 * the rig `meta` map is keyed by; `name` is the bundle's short name (the value a
 	 * `spine`-kind param stores). */
-	interface SpineOption {
+	interface RigOption {
 		name: string;
 		key: string;
 		shared?: boolean;
@@ -103,13 +103,13 @@
 		onSlotRequiredChange?: (slotId: string, required: boolean) => void;
 		/** The active scene's template slots — offered as the slot dropdown. */
 		sceneSlots?: { slotId: string; name: string; kind: string }[];
-		/** The active scene's placed SPINE nodes (id + label) — offered as the `effect` node's
+		/** The active scene's placed RIG nodes (id + label) — offered as the `effect` node's
 		 * "attach to rig" dropdown (per-rig bone hosting: `EffectNode.hostSpineId`). */
-		sceneSpineNodes?: { id: string; label: string }[];
+		sceneRigNodes?: { id: string; label: string }[];
 		/** Project display name — the HUD game-name default (shown as the placeholder). */
 		projectGameName?: string | null;
 		/** The selected node is a full-bleed background COVER node (§10.3 step 4) — a
-		 * `background`-space sprite/spine, or a `cover`-placement bind anchor. Reveals
+		 * `background`-space sprite/rig, or a `cover`-placement bind anchor. Reveals
 		 * the "Background" section (cover scale + fit). Computed by the page (it knows the
 		 * active scene's space + can resolve the anchor's preview art). */
 		isBackgroundCover?: boolean;
@@ -126,15 +126,15 @@
 		/** Atlas/sheet manifests (`{ key, name }`) whose frames an `image`-kind param
 		 * can pick from — feeds the per-instance region picker. */
 		pickSheets?: { key: string; name: string }[];
-		/** Per-`assetKey` animation + skin + slot name lists for every loaded spine bundle
+		/** Per-`assetKey` animation + skin + slot name lists for every loaded rig bundle
 		 * (from the canvas). A selected `kind:'spine'` node — or a `spine`/`spineAnimation`/
 		 * `spineSlot` component param — looks up its key here to offer dropdowns; an unknown
 		 * key falls back to free-text. */
-		spineMeta?: Map<string, SpineMeta>;
-		/** The project's spine bundles (`{ name, key, shared }`) — feeds the `spine`-kind
+		rigMeta?: Map<string, RigMeta>;
+		/** The project's rig bundles (`{ name, key, shared }`) — feeds the `spine`-kind
 		 * param dropdown and resolves a selected bundle name to the `assetKey` the
-		 * `spineMeta` map is keyed by (for the animation / slot dropdowns). */
-		spines?: SpineOption[];
+		 * `rigMeta` map is keyed by (for the animation / slot dropdowns). */
+		spines?: RigOption[];
 		/** The project's component ids, names and param keys — feeds the `repeater` node's
 		 * `componentId` picker, an instance's component swap and a `component` param's select (the
 		 * same list the scene picker/canvas resolve). */
@@ -173,13 +173,13 @@
 		/** "Remove exposed parameters": un-expose the selected text node — drop its
 		 * author-param bindings + the params they created, restoring the static values. */
 		onUnexposeTextParams?: (node: LayoutNode) => void;
-		/** "Expose spine as param" for the selected spine node: auto-create + bind a
-		 * `spine`-kind param so the spine's SOURCE bundle is per-instance swappable
-		 * (component mode) — the spine analogue of exposing a sprite's image. */
-		onExposeSpineParam?: (node: LayoutNode) => void;
-		/** "Remove exposed spine": un-expose the selected spine node — drop the
+		/** "Expose rig as param" for the selected rig node: auto-create + bind a
+		 * `spine`-kind param so the rig's SOURCE bundle is per-instance swappable
+		 * (component mode) — the rig analogue of exposing a sprite's image. */
+		onExposeRigParam?: (node: LayoutNode) => void;
+		/** "Remove exposed rig": un-expose the selected rig node — drop the
 		 * `assetKey` binding + the param it created, restoring the static bundle. */
-		onUnexposeSpineParam?: (node: LayoutNode) => void;
+		onUnexposeRigParam?: (node: LayoutNode) => void;
 		/** "Expose image as param" for the selected sprite node: auto-create + bind an
 		 * `image`-kind param so the sprite's FRAME is per-instance pickable (component mode). */
 		onExposeImageParam?: (node: LayoutNode) => void;
@@ -221,24 +221,24 @@
 		projectDefaultsActions?: Snippet;
 		/** Set / clear an author param override on the selected instance (scene mode). */
 		onSetInstanceParam?: (key: string, value: unknown) => void;
-		/** EDITOR-PREVIEW ONLY: the author focused (or changed) a spine / spineAnimation param on the
-		 * selected instance — drive the canvas's live spine preview to that bundle + animation so the
+		/** EDITOR-PREVIEW ONLY: the author focused (or changed) a rig / spineAnimation param on the
+		 * selected instance — drive the canvas's live rig preview to that bundle + animation so the
 		 * pick is WYSIWYG (a `spine` param previews its bundle's idle/first animation; a `spineAnimation`
 		 * param previews its sibling bundle playing THAT animation). Null clears the override (the
 		 * preview falls back to the instance's default bundle). Never written to the doc. */
-		onPreviewSpine?: (preview: { bundle?: string; animation?: string } | null) => void;
-		/** Set / clear a per-instance button-state spine-animation override for a spine
+		onPreviewRig?: (preview: { bundle?: string; animation?: string } | null) => void;
+		/** Set / clear a per-instance button-state rig-animation override for a rig
 		 * node (by id) of the selected instance's def (scene mode). Empty `animation`
 		 * clears that state's override (it inherits the def). */
 		onSetInstanceStateAnim?: (nodeId: string, state: ButtonAnimState, animation: string) => void;
 		/** Toggle loop on a per-instance state-animation override (no-op until the state
 		 * has an override animation). */
 		onSetInstanceStateAnimLoop?: (nodeId: string, state: ButtonAnimState, loop: boolean) => void;
-		/** Patch a spine node's per-instance RESTING override (default animation / loop /
+		/** Patch a rig node's per-instance RESTING override (default animation / loop /
 		 * skin) for the selected instance (scene mode). Only the fields present in `patch`
 		 * change; a field set to `undefined`/`''` clears that override (inherits the def). */
-		onSetInstanceSpineRest?: (nodeId: string, patch: Partial<SpineRestOverride>) => void;
-		/** Rebind which engine signal drives a spine node's cue for THIS placement
+		onSetInstanceRigRest?: (nodeId: string, patch: Partial<RigRestOverride>) => void;
+		/** Rebind which engine signal drives a rig node's cue for THIS placement
 		 * (scene mode). `origSignal` = the cue's def signal; `signal` = the replacement
 		 * engine-signal key, or `''`/`undefined` to clear the override (inherit the def). */
 		onSetInstanceCueSignal?: (nodeId: string, origSignal: string, signal: string) => void;
@@ -262,7 +262,7 @@
 		slotMeta = {},
 		onSlotRequiredChange,
 		sceneSlots = [],
-		sceneSpineNodes = [],
+		sceneRigNodes = [],
 		projectGameName = null,
 		isBackgroundCover = false,
 		componentMode = false,
@@ -270,8 +270,8 @@
 		componentSignals = [],
 		instanceComponent = null,
 		pickSheets = [],
-		spineMeta = new Map(),
-		spines = [],
+		rigMeta = new Map(),
+		spines: rigs = [],
 		componentDefs = [],
 		onEditAsComponent,
 		onConvertToReelGrid,
@@ -285,8 +285,8 @@
 		fontParamKeys = new Set(),
 		onExposeTextParams,
 		onUnexposeTextParams,
-		onExposeSpineParam,
-		onUnexposeSpineParam,
+		onExposeRigParam,
+		onUnexposeRigParam,
 		onExposeImageParam,
 		onUnexposeImageParam,
 		onToggleSignal,
@@ -299,10 +299,10 @@
 		projectLabel = null,
 		projectDefaultsActions,
 		onSetInstanceParam,
-		onPreviewSpine,
+		onPreviewRig,
 		onSetInstanceStateAnim,
 		onSetInstanceStateAnimLoop,
-		onSetInstanceSpineRest,
+		onSetInstanceRigRest,
 		onSetInstanceCueSignal,
 		onOpenComponentEditor,
 		onUpdateInstanceToLatest,
@@ -338,16 +338,16 @@
 	const authorParams = $derived((instanceComponent?.params ?? []).filter((p) => !p.engineProvided));
 
 	/** True when the SELECTED INSTANCE's def is an interactive button (declares an
-	 * `action` param) — only then do its spine nodes' button-state animations apply,
+	 * `action` param) — only then do its rig nodes' button-state animations apply,
 	 * so only then is the per-instance state-animation override panel meaningful. */
 	const instanceInteractive = $derived(
 		(instanceComponent?.params ?? []).some((p) => p.key === 'action'),
 	);
-	/** Spine nodes inside the selected instance's def root — each can carry a
+	/** Rig nodes inside the selected instance's def root — each can carry a
 	 * "Plays on button state" map the placement may override per state. */
-	const instanceSpineNodes = $derived.by<SpineNode[]>(() => {
+	const instanceRigNodes = $derived.by<RigNode[]>(() => {
 		if (!instanceComponent) return [];
-		const out: SpineNode[] = [];
+		const out: RigNode[] = [];
 		const walk = (n: LayoutNode): void => {
 			if (n.kind === 'spine') out.push(n);
 			else if (n.kind === 'container') for (const child of n.children) walk(child);
@@ -356,9 +356,9 @@
 		return out;
 	});
 	/** Flipbook nodes inside the selected instance's def root that carry cues — the rebind panel's
-	 * flipbook half. Deliberately NOT folded into `instanceSpineNodes`: that list also drives the
-	 * spine MANIFEST prefetch (`neededSpineKeys`) and the button-state panel, and a clip has
-	 * neither a spine bundle nor interaction states. Filtered to cued nodes because a rebind row
+	 * flipbook half. Deliberately NOT folded into `instanceRigNodes`: that list also drives the
+	 * rig MANIFEST prefetch (`neededRigKeys`) and the button-state panel, and a clip has
+	 * neither a rig bundle nor interaction states. Filtered to cued nodes because a rebind row
 	 * is the only thing this panel offers a flipbook — an un-cued one would render an empty
 	 * heading. */
 	const instanceFlipbookCueNodes = $derived.by<FlipbookNode[]>(() => {
@@ -372,18 +372,18 @@
 		walk(instanceComponent.root);
 		return out;
 	});
-	/** This instance's override animation for (spine node, state), or undefined. */
+	/** This instance's override animation for (rig node, state), or undefined. */
 	function instanceStateAnimOf(nodeId: string, state: ButtonAnimState) {
 		if (node?.kind !== 'componentInstance') return undefined;
 		return node.stateAnimationOverrides?.[nodeId]?.[state];
 	}
-	/** This instance's RESTING override (default animation / loop / skin) for a spine
+	/** This instance's RESTING override (default animation / loop / skin) for a rig
 	 * node, or undefined when the placement inherits the def. */
-	function instanceSpineRestOf(nodeId: string): SpineRestOverride | undefined {
+	function instanceRigRestOf(nodeId: string): RigRestOverride | undefined {
 		if (node?.kind !== 'componentInstance') return undefined;
 		return node.spineRestOverrides?.[nodeId];
 	}
-	/** This instance's signal-rebind for a spine node's cue (by the cue's def signal),
+	/** This instance's signal-rebind for a rig node's cue (by the cue's def signal),
 	 * or undefined when the placement inherits the def signal. */
 	function instanceCueSignalOf(nodeId: string, origSignal: string): string | undefined {
 		if (node?.kind !== 'componentInstance') return undefined;
@@ -433,30 +433,30 @@
 			node.componentVersion < instanceComponent.version,
 	);
 
-	/** Resolve a spine BUNDLE NAME (what a `spine`-kind param stores, e.g. `fsIntroNumber`)
-	 * to the `assetKey` the `spineMeta` map is keyed by. The map's key === `SpineAsset.key`
+	/** Resolve a rig BUNDLE NAME (what a `spine`-kind param stores, e.g. `fsIntroNumber`)
+	 * to the `assetKey` the `rigMeta` map is keyed by. The map's key === `RigAsset.key`
 	 * (the R2 prefix, with a trailing slash), set when the canvas resolves a bundle name →
 	 * `assets.spines.find((s) => s.name === name).key` (see `resolveAnchorPreviewArt`); so
 	 * the lookup is the same `name` match. Returns `''` when no bundle matches. */
-	function resolveSpineAssetKey(bundleName: string | undefined): string {
+	function resolveRigAssetKey(bundleName: string | undefined): string {
 		if (!bundleName) return '';
-		const projectKey = spines.find((s) => s.name === bundleName)?.key;
+		const projectKey = rigs.find((s) => s.name === bundleName)?.key;
 		if (projectKey) return projectKey;
-		// A builtin component's coded DEFAULT spine (e.g. `fsIntroNumber`, `bigwin`) has no
+		// A builtin component's coded DEFAULT rig (e.g. `fsIntroNumber`, `bigwin`) has no
 		// R2 presence, so it isn't in `spines` and the canvas can't render it for live meta.
 		// Its animation/slot/bone names ship with the engine — key them under a synthetic
 		// `builtin:` namespace so the dropdowns resolve instead of degrading to free-text.
-		if (builtinSpineMeta(bundleName)) return `builtin:${bundleName}`;
+		if (builtinRigMeta(bundleName)) return `builtin:${bundleName}`;
 		return '';
 	}
 
-	/** Synthetic-key prefix for engine-shipped coded spine meta (see `resolveSpineAssetKey`). */
-	const BUILTIN_SPINE_KEY = 'builtin:';
+	/** Synthetic-key prefix for engine-shipped coded rig meta (see `resolveRigAssetKey`). */
+	const BUILTIN_RIG_KEY = 'builtin:';
 
 	/** The def's FIRST `spine`-kind param bundle for the selected instance — its override value else
-	 * the param's default (mirrors {@link effectiveSpineBundle}'s tail). The fallback bundle a
-	 * default-less per-tier `<alias>Spine` previews. */
-	function primarySpineBundle(): string | undefined {
+	 * the param's default (mirrors {@link effectiveRigBundle}'s tail). The fallback bundle a
+	 * default-less per-tier `<alias>rig` previews. */
+	function primaryRigBundle(): string | undefined {
 		if (!node || node.kind !== 'componentInstance') return undefined;
 		const primary = instanceComponent?.params?.find((q) => q.kind === 'spine');
 		if (!primary) return undefined;
@@ -467,35 +467,35 @@
 
 	/**
 	 * EDITOR-PREVIEW ONLY: the bundle + animation the canvas should show while the author focuses (or
-	 * changes) spine param `p` on the selected instance — a `spine` param previews its bundle (idle /
+	 * changes) rig param `p` on the selected instance — a `spine` param previews its bundle (idle /
 	 * first animation), a `spineAnimation` param previews its sibling bundle playing THAT animation.
-	 * `value` is the field's current value (empty = inherit the default). Null when `p` isn't a spine
+	 * `value` is the field's current value (empty = inherit the default). Null when `p` isn't a rig
 	 * param, or no bundle resolves. Purely a canvas hint — never written to the doc.
 	 */
-	function spineParamPreview(
+	function rigParamPreview(
 		p: ComponentParam,
 		value: string,
 	): { bundle?: string; animation?: string } | null {
 		if (p.kind === 'spine') {
-			const bundle = value || primarySpineBundle();
+			const bundle = value || primaryRigBundle();
 			return bundle ? { bundle, animation: undefined } : null;
 		}
 		if (p.kind === 'spineAnimation') {
-			const bundle = effectiveSpineBundle(p);
+			const bundle = effectiveRigBundle(p);
 			return bundle ? { bundle, animation: value || undefined } : null;
 		}
 		return null;
 	}
 
-	/** The effective spine bundle a `spineAnimation`/`spineSlot` param reads its options
+	/** The effective rig bundle a `spineAnimation`/`spineSlot` param reads its options
 	 * from: the value of its sibling `spineParam` on the selected instance, falling back to
-	 * that sibling param's DEFAULT from the def (so the dropdown populates before the spine
+	 * that sibling param's DEFAULT from the def (so the dropdown populates before the rig
 	 * param is explicitly set). When the sibling has NO value and NO default (e.g. the win
-	 * overlay's per-tier `<alias>Spine`, deliberately default-less so it falls back to the
+	 * overlay's per-tier `<alias>rig`, deliberately default-less so it falls back to the
 	 * config `spineKey` at runtime), fall back to the def's FIRST `spine`-kind param
 	 * (`winSpine`) so the per-tier animation dropdowns still list the base bundle's animations
 	 * instead of degrading to free text. */
-	function effectiveSpineBundle(p: ComponentParam): string | undefined {
+	function effectiveRigBundle(p: ComponentParam): string | undefined {
 		if (!p.spineParam || !node || node.kind !== 'componentInstance') return undefined;
 		const override = instanceParamValue(node, p.spineParam);
 		if (typeof override === 'string' && override) return override;
@@ -510,16 +510,16 @@
 		return undefined;
 	}
 
-	/** The spine BUNDLE NAME a placed instance's spine node resolves its SOURCE to when that
-	 * node's `assetKey` is exposed (the "Expose spine as param" feature): the instance's own
+	/** The rig BUNDLE NAME a placed instance's rig node resolves its SOURCE to when that
+	 * node's `assetKey` is exposed (the "Expose rig as param" feature): the instance's own
 	 * override value for the bound `spine`-kind param, else that param's def DEFAULT (so the
-	 * dropdowns populate before the param is explicitly set). Undefined when the spine isn't
+	 * dropdowns populate before the param is explicitly set). Undefined when the rig isn't
 	 * exposed / not inside an instance — the caller then keeps the def node's static assetKey.
-	 * Mirrors {@link effectiveSpineBundle} (the sibling-`spineParam` resolver). */
-	function instanceSpineBoundName(sp: SpineNode): string | undefined {
+	 * Mirrors {@link effectiveRigBundle} (the sibling-`spineParam` resolver). */
+	function instanceRigBoundName(sp: RigNode): string | undefined {
 		const paramKey = sp.paramBindings?.['assetKey'];
 		if (!paramKey || !node || node.kind !== 'componentInstance') return undefined;
-		// The BASE value, not the active ratio's: this names the rig the "Spine (this placement)"
+		// The BASE value, not the active ratio's: this names the rig the "rig (this placement)"
 		// fields list, and what they write (`spineRestOverrides` / `stateAnimationOverrides`) is
 		// per-node — the game applies it in every ratio.
 		const override = node.params?.[paramKey];
@@ -528,65 +528,65 @@
 		return typeof sib?.default === 'string' ? sib.default : undefined;
 	}
 
-	/** The `assetKey` a placed instance's spine node ACTUALLY renders — the exposed-source
+	/** The `assetKey` a placed instance's rig node ACTUALLY renders — the exposed-source
 	 * override resolved to its meta key when set, else the def node's static `assetKey`. So the
 	 * resting / skin / per-state animation dropdowns list the animations of the rig THIS
 	 * placement plays, not the component's default rig. */
-	function instanceSpineAssetKey(sp: SpineNode): string {
-		const name = instanceSpineBoundName(sp);
+	function instanceRigAssetKey(sp: RigNode): string {
+		const name = instanceRigBoundName(sp);
 		if (name) {
-			const k = resolveSpineAssetKey(name);
+			const k = resolveRigAssetKey(name);
 			if (k) return k;
 		}
 		return sp.assetKey;
 	}
 
-	/** Per-`assetKey` spine meta read from the skeleton MANIFEST (`/api/editor/spine/meta`)
-	 * — the fallback the spine dropdowns use when the canvas hasn't published LIVE meta for a
+	/** Per-`assetKey` rig meta read from the skeleton MANIFEST (`/api/editor/rig/meta`)
+	 * — the fallback the rig dropdowns use when the canvas hasn't published LIVE meta for a
 	 * bundle. Live meta is only emitted once a bundle renders "ready" on the WebGL layer; a
 	 * marker-only preview (or a GL render that never settles) never gets there, which used to
 	 * drop the panel to a free-text box even though the animation names are knowable. Live
 	 * meta always wins; this only fills the gaps. A `SvelteMap` (not a plain `$state` Map,
 	 * whose `.set()` is NOT reactive) so a fetched bundle re-renders the dropdowns. */
-	const staticSpineMeta = new SvelteMap<string, SpineMeta>();
+	const staticRigMeta = new SvelteMap<string, RigMeta>();
 	/** Bundles already requested (hit OR miss) so the prefetch fires once per assetKey. */
-	const requestedSpineMetaKeys = new Set<string>();
+	const requestedRigMetaKeys = new Set<string>();
 
-	/** Live meta first, then the manifest fallback — the single resolver every spine dropdown
+	/** Live meta first, then the manifest fallback — the single resolver every rig dropdown
 	 * uses so they all populate from whichever source has the names. */
-	function spineMetaFor(key: string | undefined): SpineMeta | undefined {
+	function rigMetaFor(key: string | undefined): RigMeta | undefined {
 		if (!key) return undefined;
-		if (key.startsWith(BUILTIN_SPINE_KEY)) {
-			const m = builtinSpineMeta(key.slice(BUILTIN_SPINE_KEY.length));
-			// `SpineBundleMeta` is a structural subset of `SpineMeta` (same name lists) —
+		if (key.startsWith(BUILTIN_RIG_KEY)) {
+			const m = builtinRigMeta(key.slice(BUILTIN_RIG_KEY.length));
+			// `RigBundleMeta` is a structural subset of `RigMeta` (same name lists) —
 			// the dropdowns only read animations/skins/slots/bones.
 			return m ? { ...m } : undefined;
 		}
-		return spineMeta.get(key) ?? staticSpineMeta.get(key);
+		return rigMeta.get(key) ?? staticRigMeta.get(key);
 	}
 
-	/** assetKeys the selected node's spine panels need names for: a selected spine node, every
-	 * spine inside a selected component instance, and each spine its `spineAnimation`/
+	/** assetKeys the selected node's rig panels need names for: a selected rig node, every
+	 * rig inside a selected component instance, and each rig its `spineAnimation`/
 	 * `spineSlot`/`spineBone` params resolve to. `spineBone` belongs here for the same reason
 	 * as its siblings: without the manifest prefetch a bone dropdown has no names unless the
 	 * canvas happens to publish LIVE meta, and it silently degrades to a free-text box. */
-	const neededSpineKeys = $derived.by<string[]>(() => {
+	const neededRigKeys = $derived.by<string[]>(() => {
 		const keys = new Set<string>();
 		if (node?.kind === 'spine' && node.assetKey) keys.add(node.assetKey);
-		// Use each instance spine's EFFECTIVE key (the exposed-source override, if any) so the
+		// Use each instance rig's EFFECTIVE key (the exposed-source override, if any) so the
 		// dropdowns fetch the chosen rig's animation names, not the def default's.
-		for (const sp of instanceSpineNodes) {
-			const k = instanceSpineAssetKey(sp);
+		for (const sp of instanceRigNodes) {
+			const k = instanceRigAssetKey(sp);
 			if (k) keys.add(k);
 		}
 		// Component mode: the OPEN component's draft params. Scene mode: the SELECTED instance's own
 		// author params (`authorParams` — the ones rendered as `paramField` dropdowns), whose bundle
-		// comes from `effectiveSpineBundle` reading the instance's spine param. Without this scene-mode
+		// comes from `effectiveRigBundle` reading the instance's rig param. Without this scene-mode
 		// prefetch the win overlay's `introAnimation`/`bigIntro`/… fields had no manifest fallback, so
 		// on a custom `winSpine` (no live render either) they silently dropped to a free-text box.
 		for (const p of [...componentParams, ...authorParams]) {
 			if (p.kind === 'spineAnimation' || p.kind === 'spineSlot' || p.kind === 'spineBone') {
-				const k = resolveSpineAssetKey(effectiveSpineBundle(p));
+				const k = resolveRigAssetKey(effectiveRigBundle(p));
 				if (k) keys.add(k);
 			}
 		}
@@ -594,24 +594,24 @@
 	});
 
 	/** Prefetch manifest meta for any needed bundle the canvas hasn't already covered.
-	 * `requestedSpineMetaKeys` dedupes so a re-render never re-requests, and a key that later
+	 * `requestedRigMetaKeys` dedupes so a re-render never re-requests, and a key that later
 	 * gains live meta is simply skipped (the resolver prefers it anyway). */
 	$effect(() => {
-		for (const key of neededSpineKeys) {
-			// A builtin coded spine resolves from the engine registry (`spineMetaFor`) — there's
+		for (const key of neededRigKeys) {
+			// A builtin coded rig resolves from the engine registry (`rigMetaFor`) — there's
 			// no R2 skeleton to fetch, so never hit the endpoint for it.
-			if (key.startsWith(BUILTIN_SPINE_KEY)) continue;
+			if (key.startsWith(BUILTIN_RIG_KEY)) continue;
 			// Skip only when LIVE meta already has names (the resolver prefers it) — a bundle
 			// that rendered "ready" with an empty animation list still needs the manifest.
-			if (spineMeta.get(key)?.animations.length || requestedSpineMetaKeys.has(key)) continue;
-			requestedSpineMetaKeys.add(key);
+			if (rigMeta.get(key)?.animations.length || requestedRigMetaKeys.has(key)) continue;
+			requestedRigMetaKeys.add(key);
 			void (async () => {
 				try {
-					const res = await fetch(`/api/editor/spine/meta?key=${encodeURIComponent(key)}`);
+					const res = await fetch(`/api/editor/rig/meta?key=${encodeURIComponent(key)}`);
 					if (!res.ok) return;
-					const body = (await res.json()) as { found?: boolean } & Partial<SpineMeta>;
+					const body = (await res.json()) as { found?: boolean } & Partial<RigMeta>;
 					if (!body.found) return;
-					staticSpineMeta.set(key, {
+					staticRigMeta.set(key, {
 						animations: body.animations ?? [],
 						skins: body.skins ?? [],
 						slots: body.slots ?? [],
@@ -649,21 +649,21 @@
 	/** True when the selected text node is exposed (component mode) — the static value
 	 * fields + Expose button collapse into a "using exposed parameters" state. */
 	const isTextExposed = $derived(componentMode && exposedTextBindings.length > 0);
-	/** The AUTHOR param the selected spine node binds its SOURCE bundle (`assetKey`) to —
+	/** The AUTHOR param the selected rig node binds its SOURCE bundle (`assetKey`) to —
 	 * i.e. its `paramBindings['assetKey']` pointing at an author (not engine) component
-	 * param. Undefined when the spine isn't exposed. */
-	const exposedSpineParamKey = $derived.by(() => {
+	 * param. Undefined when the rig isn't exposed. */
+	const exposedRigParamKey = $derived.by(() => {
 		if (!node || node.kind !== 'spine') return undefined;
 		const key = node.paramBindings?.['assetKey'];
 		if (!key) return undefined;
 		return componentParams.find((cp) => cp.key === key && cp.author) ? key : undefined;
 	});
-	/** True when the selected spine node's source is exposed (component mode) — the spine
+	/** True when the selected rig node's source is exposed (component mode) — the rig
 	 * source is then set per instance via the bound `spine`-kind param. */
-	const isSpineExposed = $derived(componentMode && !!exposedSpineParamKey);
+	const isRigExposed = $derived(componentMode && !!exposedRigParamKey);
 	/** The AUTHOR param the selected sprite node binds its FRAME (`region`) to — i.e. its
 	 * `paramBindings['region']` pointing at an author (not engine) component param. Undefined
-	 * when the sprite isn't exposed. The sprite twin of {@link exposedSpineParamKey}. */
+	 * when the sprite isn't exposed. The sprite twin of {@link exposedRigParamKey}. */
 	const exposedImageParamKey = $derived.by(() => {
 		if (!node || node.kind !== 'sprite') return undefined;
 		const key = node.paramBindings?.['region'];
@@ -920,7 +920,7 @@
 	}
 
 	// Reveal gate (Invisible Flow — intro-complete sequencing): hide this node until a named
-	// component-scoped signal fires (e.g. a sibling spine's `completeSignal`). Blank ⇒ always
+	// component-scoped signal fires (e.g. a sibling rig's `completeSignal`). Blank ⇒ always
 	// visible (parity).
 	function setHiddenUntilSignal(n: LayoutNode, value: string): void {
 		const trimmed = value.trim();
@@ -971,7 +971,7 @@
 		{ key: 'yOffsetRatio', label: 'y offset (× cell)' },
 	];
 	const ANTICIPATION_STR_FIELDS: { key: keyof AnticipationProfile; label: string }[] = [
-		{ key: 'spineKey', label: 'spine asset' },
+		{ key: 'spineKey', label: 'rig asset' },
 		{ key: 'introAnimation', label: 'intro animation' },
 		{ key: 'loopAnimation', label: 'loop animation' },
 		{ key: 'outAnimation', label: 'out animation' },
@@ -1353,14 +1353,14 @@
 	 * so offering the control there would promise a preview the editor can't keep.
 	 *
 	 * `spine` is deliberately OUT, and it is the non-obvious one. A Pixi blend cannot reach
-	 * skeleton geometry at all: `SpinePipe.addRenderable` pushes every slot straight into the
+	 * skeleton geometry at all: `RigPipe.addRenderable` pushes every slot straight into the
 	 * batcher carrying the SLOT's own blend and never calls `renderPipes.blendMode`, so neither
-	 * `spine.blendMode` nor a blended wrapper container has any effect (`groupBlendMode` is not
-	 * read either). Verified in a running game — `multiply` on a spine node renders pixel-identical
+	 * `rig.blendMode` nor a blended wrapper container has any effect (`groupBlendMode` is not
+	 * read either). Verified in a running game — `multiply` on a rig node renders pixel-identical
 	 * to `normal`, while the editor's overlay happily previewed it via CSS `mix-blend-mode`. That
 	 * divergence is exactly what `blendMode.ts` exists to prevent, so the control goes rather than
-	 * the promise. Spine art blends PER SLOT, authored in the Rigger (normal/additive/multiply/
-	 * screen — Spine's format has no `overlay` or `lighten`).
+	 * the promise. Rig art blends PER SLOT, authored in the Rigger (normal/additive/multiply/
+	 * screen — rig's format has no `overlay` or `lighten`).
 	 */
 	function supportsBlend(n: LayoutNode | null): boolean {
 		return !!n && canBlendKind(n.kind);
@@ -1377,28 +1377,28 @@
 			n.kind === 'flipbook'
 		) {
 			// `as unknown as` — an interface has no implicit index signature, so the direct cast is a
-			// comparability error (the same double-cast `setSpineSize` below already uses).
+			// comparability error (the same double-cast `setRigSize` below already uses).
 			(n as unknown as Record<string, unknown>)[axis] = value;
 		}
 		markDirty();
 	}
 
 	/**
-	 * Spine size box. An explicit width/height fits the skeleton to that box (the engine's
-	 * `spineSizeScale` + the editor preview both honour it), giving deterministic, WYSIWYG
-	 * sizing for a spine whose rig has no authored natural bounds (e.g. a Rigger `.irig`) —
+	 * Rig size box. An explicit width/height fits the skeleton to that box (the engine's
+	 * `rigSizeScale` + the editor preview both honour it), giving deterministic, WYSIWYG
+	 * sizing for a rig whose rig has no authored natural bounds (e.g. a Rigger `.irig`) —
 	 * where bare `scale` drifts between the editor and the game. The engine sizes by
 	 * `width × scale`, so when a base size is set we reset a non-1 base scale to 1 so the
 	 * typed number IS the on-screen size (size is primary, scale stays 1 — the sprite flow).
 	 * A blank field clears that dimension, reverting to scale/natural sizing.
 	 */
-	function setSpineSize(n: LayoutNode, axis: 'width' | 'height', raw: number): void {
+	function setRigSize(n: LayoutNode, axis: 'width' | 'height', raw: number): void {
 		if (n.kind !== 'spine') return;
 		setClearableSize(n, axis, raw);
 	}
 
 	/**
-	 * A flipbook's size box. Same contract as {@link setSpineSize}: an explicit width/height wins,
+	 * A flipbook's size box. Same contract as {@link setRigSize}: an explicit width/height wins,
 	 * and a BLANK field clears the dimension back to the frames' native atlas size — which the
 	 * panel advertises, so `setSpriteSize` alone would be wrong here (it early-returns on NaN, so a
 	 * size once typed could never be taken back).
@@ -1753,7 +1753,7 @@
 	}
 
 	// ---------- per-node cover / full-screen fill (canvas-space, flow-gated) ----------
-	// A sprite/spine/flipbook in a `canvas`-space (flow-gated) scene can opt into true cover-fit
+	// A sprite/rig/flipbook in a `canvas`-space (flow-gated) scene can opt into true cover-fit
 	// (`node.coverFit`) — the SAME cover math a `background` scene applies, but WITHOUT the
 	// always-on persistent mounting, so the flow still shows/hides the screen. Turning it on
 	// reveals the "Background" cover section (scale + fit) via `isBackgroundCover`. Not needed
@@ -1766,8 +1766,8 @@
 		markDirty();
 	}
 
-	// ---------- spine signal cues (§8.5, narrowed) ----------
-	// When the named signal fires, this spine plays the chosen animation. Authored as
+	// ---------- rig signal cues (§8.5, narrowed) ----------
+	// When the named signal fires, this rig plays the chosen animation. Authored as
 	// `node.cues`; the array is reassigned on every edit so Svelte 5 reactivity fires.
 
 	/** Cues are authored in BOTH editors, and the signal name is free text in both (Phase 12a):
@@ -1775,36 +1775,36 @@
 	 * name a Flow `Fire Cue` broadcasts on the open bus — the datalist suggests the component's
 	 * declared signals and the kind's engine ones. What differs is the bus: inside a component a
 	 * finished cue can fire `completeSignal` back on the instance's own bus, and a scoped
-	 * instance hears only its own part's fires. A spine placed straight in a screen has no
+	 * instance hears only its own part's fires. A rig placed straight in a screen has no
 	 * instance bus to fire `completeSignal` on, so that sub-field is hidden there.
 	 * `componentMode` is the discriminator (only `/components` passes it). */
 	const cueSceneMode = $derived(!componentMode);
 
-	function addCue(n: SpineNode): void {
+	function addCue(n: RigNode): void {
 		const first = componentSignals[0]?.key ?? '';
 		n.cues = [...(n.cues ?? []), { signal: first, animation: '', loop: undefined }];
 		markDirty();
 	}
-	function updateCue(n: SpineNode, i: number, patch: Partial<SpineCue>): void {
+	function updateCue(n: RigNode, i: number, patch: Partial<RigCue>): void {
 		const cues = [...(n.cues ?? [])];
 		if (!cues[i]) return;
 		cues[i] = { ...cues[i], ...patch };
 		n.cues = cues;
 		markDirty();
 	}
-	function removeCue(n: SpineNode, i: number): void {
+	function removeCue(n: RigNode, i: number): void {
 		const cues = (n.cues ?? []).filter((_, idx) => idx !== i);
 		n.cues = cues.length ? cues : undefined;
 		markDirty();
 	}
 
-	// ---------- flipbook signal cues (the flipbook twin of the spine cues above) ----------
+	// ---------- flipbook signal cues (the flipbook twin of the rig cues above) ----------
 	// Same authoring model and the same `cueSceneMode` rule for the signal name; the payload
 	// differs — a flipbook cue names the CLIP to swap to, not an animation, so it seeds
 	// `clipId: ''` (blank = skipped by the runtime until an author picks one).
 
-	/** There is deliberately no `completeSignal` twin in EITHER editor mode: a spine one-shot
-	 * reports completion through `SpineTrack`, but `<Flipbook>` exposes no completion hook (a
+	/** There is deliberately no `completeSignal` twin in EITHER editor mode: a rig one-shot
+	 * reports completion through `RigTrack`, but `<Flipbook>` exposes no completion hook (a
 	 * play-once clip just stops on its last frame), so a flipbook cue has nothing to report. */
 	function addFlipbookCue(n: FlipbookNode): void {
 		const first = componentSignals[0]?.key ?? '';
@@ -1824,25 +1824,25 @@
 		markDirty();
 	}
 
-	// ---------- reveal-symbol rider (SpineNode.revealSymbol*) ----------
-	// Ride the game's chosen "reveal" symbol on one of THIS spine's OWN bones — no
+	// ---------- reveal-symbol rider (RigNode.revealSymbol*) ----------
+	// Ride the game's chosen "reveal" symbol on one of THIS rig's OWN bones — no
 	// second rig, no bound component. `revealSymbolBone` is the enable switch: set = on,
 	// cleared = off (parity). The rest are optional tuning with engine defaults (state
 	// 'bookIdle', scale 1, offsets 0, follow* true); we store a field only when it
 	// differs from that default so an untouched node round-trips byte-identical.
-	function setRevealBone(n: SpineNode, bone: string): void {
+	function setRevealBone(n: RigNode, bone: string): void {
 		const trimmed = bone.trim();
 		if (trimmed) n.revealSymbolBone = trimmed;
 		else delete n.revealSymbolBone;
 		markDirty();
 	}
-	function setRevealState(n: SpineNode, state: string): void {
+	function setRevealState(n: RigNode, state: string): void {
 		if (state) n.revealSymbolState = state;
 		else delete n.revealSymbolState;
 		markDirty();
 	}
 	function setRevealNumber(
-		n: SpineNode,
+		n: RigNode,
 		key: 'revealSymbolScale' | 'revealSymbolOffsetX' | 'revealSymbolOffsetY',
 		raw: number,
 	): void {
@@ -1853,7 +1853,7 @@
 	// `revealSymbolFollowRotation` / `revealSymbolFollowScale` default TRUE — store the
 	// flag only when the author turns it OFF so the default stays implicit (sparse doc).
 	function setRevealFollow(
-		n: SpineNode,
+		n: RigNode,
 		key: 'revealSymbolFollowRotation' | 'revealSymbolFollowScale',
 		on: boolean,
 	): void {
@@ -1862,9 +1862,9 @@
 		markDirty();
 	}
 
-	// ---------- button-state spine animations ----------
+	// ---------- button-state rig animations ----------
 	// The INTERACTION analogue of the per-state IMAGE cascade: map each button state to
-	// an animation this spine plays while that state is active (resting = the spine's
+	// an animation this rig plays while that state is active (resting = the rig's
 	// `defaultAnimation`). Authored as `node.stateAnimations`; only meaningful inside an
 	// interactive button component (one declaring an `action` variable). Same cascade as
 	// the state images — an unset state falls back to a neighbour (pressed→hover→selected,
@@ -1875,13 +1875,13 @@
 	type ButtonAnimState = (typeof BUTTON_VISUAL_STATES)[number]['key'];
 
 	/** True when the open component is an interactive button (declares an `action`
-	 * variable) — only then do button-state spine animations apply at runtime. */
+	 * variable) — only then do button-state rig animations apply at runtime. */
 	const isInteractiveComponent = $derived(componentParams.some((p) => p.key === 'action'));
 
-	function stateAnimOf(n: SpineNode, key: ButtonAnimState) {
+	function stateAnimOf(n: RigNode, key: ButtonAnimState) {
 		return n.stateAnimations?.[key];
 	}
-	function setStateAnim(n: SpineNode, key: ButtonAnimState, animation: string): void {
+	function setStateAnim(n: RigNode, key: ButtonAnimState, animation: string): void {
 		const map: ButtonStateAnimations = { ...(n.stateAnimations ?? {}) };
 		const trimmed = animation.trim();
 		if (trimmed) map[key] = { animation: trimmed, loop: map[key]?.loop };
@@ -1889,7 +1889,7 @@
 		n.stateAnimations = Object.keys(map).length ? map : undefined;
 		markDirty();
 	}
-	function setStateAnimLoop(n: SpineNode, key: ButtonAnimState, loop: boolean): void {
+	function setStateAnimLoop(n: RigNode, key: ButtonAnimState, loop: boolean): void {
 		const cur = n.stateAnimations?.[key];
 		if (!cur) return;
 		n.stateAnimations = { ...n.stateAnimations, [key]: { ...cur, loop: loop || undefined } };
@@ -2086,13 +2086,13 @@
 												onSetParamDefault?.(p.key, e.currentTarget.value || undefined)}
 										>
 											<option value="">(none)</option>
-											{#each spines as s (s.key)}
+											{#each rigs as s (s.key)}
 												<option value={s.name}>{s.name}{s.shared ? ' [shared]' : ''}</option>
 											{/each}
-											{#each BUILTIN_SPINE_NAMES.filter((n) => !spines.some((s) => s.name === n)) as n (n)}
+											{#each BUILTIN_RIG_NAMES.filter((n) => !rigs.some((s) => s.name === n)) as n (n)}
 												<option value={n}>{n} [coded]</option>
 											{/each}
-											{#if cur && !spines.some((s) => s.name === cur) && !BUILTIN_SPINE_NAMES.includes(cur)}
+											{#if cur && !rigs.some((s) => s.name === cur) && !BUILTIN_RIG_NAMES.includes(cur)}
 												<option value={cur}>{cur} (custom)</option>
 											{/if}
 										</select>
@@ -2258,7 +2258,7 @@
 		</div>
 		{#if signalRows.length === 0}
 			<p class="muted small">
-				No signals yet — use <strong>+ Add signal</strong> to fire a spine cue on enter / win / big win.
+				No signals yet — use <strong>+ Add signal</strong> to fire a rig cue on enter / win / big win.
 			</p>
 		{:else}
 			<ul class="var-rows">
@@ -2415,13 +2415,13 @@
 								onSetProjectParamDefault?.(p.key, e.currentTarget.value || undefined)}
 						>
 							<option value="">{inheritHint(p)}</option>
-							{#each spines as s (s.key)}
+							{#each rigs as s (s.key)}
 								<option value={s.name}>{s.name}{s.shared ? ' [shared]' : ''}</option>
 							{/each}
-							{#each BUILTIN_SPINE_NAMES.filter((n) => !spines.some((s) => s.name === n)) as n (n)}
+							{#each BUILTIN_RIG_NAMES.filter((n) => !rigs.some((s) => s.name === n)) as n (n)}
 								<option value={n}>{n} [coded]</option>
 							{/each}
-							{#if cur && !spines.some((s) => s.name === cur) && !BUILTIN_SPINE_NAMES.includes(cur)}
+							{#if cur && !rigs.some((s) => s.name === cur) && !BUILTIN_RIG_NAMES.includes(cur)}
 								<option value={cur}>{cur} (custom)</option>
 							{/if}
 						</select>
@@ -2710,10 +2710,10 @@
 							{@const cur = (instanceParamValue(node, p.key) as string) ?? ''}
 							<select
 								value={cur}
-								onfocusin={() => onPreviewSpine?.(spineParamPreview(p, cur))}
+								onfocusin={() => onPreviewRig?.(rigParamPreview(p, cur))}
 								onchange={(e) => {
 									onSetInstanceParam?.(p.key, e.currentTarget.value || undefined);
-									onPreviewSpine?.(spineParamPreview(p, e.currentTarget.value));
+									onPreviewRig?.(rigParamPreview(p, e.currentTarget.value));
 								}}
 							>
 								<option value=""
@@ -2721,23 +2721,23 @@
 										? `(default: ${p.default})`
 										: '(inherit default)'}</option
 								>
-								{#each spines as s (s.key)}
+								{#each rigs as s (s.key)}
 									<option value={s.name}>{s.name}{s.shared ? ' [shared]' : ''}</option>
 								{/each}
 								<!-- Engine-shipped coded bundles (the builtin components' defaults). Listed so a
 								     coded default is a real, pickable option — not a mystery free-text value. A
-								     project spine of the same name wins (dropped from this list to avoid a dupe). -->
-								{#each BUILTIN_SPINE_NAMES.filter((n) => !spines.some((s) => s.name === n)) as n (n)}
+								     project rig of the same name wins (dropped from this list to avoid a dupe). -->
+								{#each BUILTIN_RIG_NAMES.filter((n) => !rigs.some((s) => s.name === n)) as n (n)}
 									<option value={n}>{n} [coded]</option>
 								{/each}
-								{#if cur && !spines.some((s) => s.name === cur) && !BUILTIN_SPINE_NAMES.includes(cur)}
+								{#if cur && !rigs.some((s) => s.name === cur) && !BUILTIN_RIG_NAMES.includes(cur)}
 									<option value={cur}>{cur} (custom)</option>
 								{/if}
 							</select>
 						{:else if p.kind === 'spineAnimation' || p.kind === 'spineSlot' || p.kind === 'spineBone'}
 							{@const cur = (instanceParamValue(node, p.key) as string) ?? ''}
-							{@const bundle = effectiveSpineBundle(p)}
-							{@const meta = spineMetaFor(resolveSpineAssetKey(bundle))}
+							{@const bundle = effectiveRigBundle(p)}
+							{@const meta = rigMetaFor(resolveRigAssetKey(bundle))}
 							{@const opts =
 								p.kind === 'spineSlot'
 									? meta?.slots
@@ -2747,10 +2747,10 @@
 							{#if opts && opts.length > 0}
 								<select
 									value={cur}
-									onfocusin={() => onPreviewSpine?.(spineParamPreview(p, cur))}
+									onfocusin={() => onPreviewRig?.(rigParamPreview(p, cur))}
 									onchange={(e) => {
 										onSetInstanceParam?.(p.key, e.currentTarget.value || undefined);
-										onPreviewSpine?.(spineParamPreview(p, e.currentTarget.value));
+										onPreviewRig?.(rigParamPreview(p, e.currentTarget.value));
 									}}
 								>
 									<option value=""
@@ -2769,7 +2769,7 @@
 								<input
 									type="text"
 									value={cur}
-									onfocusin={() => onPreviewSpine?.(spineParamPreview(p, cur))}
+									onfocusin={() => onPreviewRig?.(rigParamPreview(p, cur))}
 									placeholder={p.default !== undefined ? String(p.default) : ''}
 									oninput={(e) => onSetInstanceParam?.(p.key, e.currentTarget.value)}
 								/>
@@ -2885,18 +2885,18 @@
 						runtime).
 					</p>
 				{/if}
-				{#if instanceSpineNodes.length > 0}
+				{#if instanceRigNodes.length > 0}
 					<details class="param-group" open>
-						<summary>Spine (this placement)</summary>
+						<summary>Rig (this placement)</summary>
 						<p class="muted small">
-							Override what THIS placement's spine plays — its resting animation / loop / skin, the
+							Override what THIS placement's rig plays — its resting animation / loop / skin, the
 							signal each cue plays on (any signal or Flow cue name) and, for an interactive button,
 							the per-state animations. Leave a field on <em>(inherit)</em> (a signal blank) to keep the
 							component's default, so two copies can look different.
 						</p>
-						{#each instanceSpineNodes as sp (sp.id)}
-							{@const meta = spineMetaFor(instanceSpineAssetKey(sp))}
-							{@const rest = instanceSpineRestOf(sp.id)}
+						{#each instanceRigNodes as sp (sp.id)}
+							{@const meta = rigMetaFor(instanceRigAssetKey(sp))}
+							{@const rest = instanceRigRestOf(sp.id)}
 							<div class="state-anim-node">
 								<h5 class="sub-h">{sp.label ?? sp.id}</h5>
 								<div class="bind-grid cue-row">
@@ -2906,7 +2906,7 @@
 											<select
 												value={rest?.defaultAnimation ?? ''}
 												onchange={(e) =>
-													onSetInstanceSpineRest?.(sp.id, {
+													onSetInstanceRigRest?.(sp.id, {
 														defaultAnimation: e.currentTarget.value || undefined,
 														...(e.currentTarget.value ? {} : { loop: undefined }),
 													})}
@@ -2928,7 +2928,7 @@
 													: 'animation name'}
 												value={rest?.defaultAnimation ?? ''}
 												oninput={(e) =>
-													onSetInstanceSpineRest?.(sp.id, {
+													onSetInstanceRigRest?.(sp.id, {
 														defaultAnimation: e.currentTarget.value || undefined,
 													})}
 											/>
@@ -2940,7 +2940,7 @@
 											checked={rest?.loop ?? false}
 											disabled={!rest?.defaultAnimation}
 											onchange={(e) =>
-												onSetInstanceSpineRest?.(sp.id, { loop: e.currentTarget.checked })}
+												onSetInstanceRigRest?.(sp.id, { loop: e.currentTarget.checked })}
 										/>
 										<span>loop</span>
 									</label>
@@ -2952,7 +2952,7 @@
 											<select
 												value={rest?.skin ?? ''}
 												onchange={(e) =>
-													onSetInstanceSpineRest?.(sp.id, {
+													onSetInstanceRigRest?.(sp.id, {
 														skin: e.currentTarget.value || undefined,
 													})}
 											>
@@ -3048,7 +3048,7 @@
 									<div class="bind-grid cue-row">
 										<label class="field">
 											<!-- The clip the cue swaps to names the row, exactly as the animation
-											     names a spine's; the signal itself is the fallback when it is blank. -->
+											     names a rig's; the signal itself is the fallback when it is blank. -->
 											<span>{cue.clipId || cue.signal}</span>
 											<input
 												type="text"
@@ -3173,7 +3173,7 @@
 			</label>
 		</div>
 		<p class="muted small">
-			Keep this node hidden until the named signal fires for the instance — e.g. a sibling spine's
+			Keep this node hidden until the named signal fires for the instance — e.g. a sibling rig's
 			<strong>fire signal on complete</strong>, so the amount / tap appears only after the intro
 			plays. Only inside a component instance. Blank ⇒ always shown.
 		</p>
@@ -3763,35 +3763,35 @@
 			</section>
 		{/if}
 	{:else if node.kind === 'spine'}
-		{@const meta = spineMetaFor(node.assetKey)}
+		{@const meta = rigMetaFor(node.assetKey)}
 		<section>
-			<h3>Spine</h3>
-			{#if isSpineExposed}
+			<h3>Rig</h3>
+			{#if isRigExposed}
 				<p class="muted small">
-					Source exposed — this spine's rig is picked <strong>per instance</strong> via the
-					<strong>{exposedSpineParamKey}</strong> variable (a spine picker in the Component Variables
-					panel + on every placed instance). The bundle below is the default.
+					Source exposed — this rig's bundle is picked <strong>per instance</strong> via the
+					<strong>{exposedRigParamKey}</strong> variable (a rig picker in the Component Variables panel
+					+ on every placed instance). The bundle below is the default.
 				</p>
 				<button
 					type="button"
 					class="ghost-sm"
-					onclick={() => onUnexposeSpineParam?.(node)}
-					title="Drop the binding + the param it created, restoring the fixed spine bundle"
+					onclick={() => onUnexposeRigParam?.(node)}
+					title="Drop the binding + the param it created, restoring the fixed rig bundle"
 				>
-					Remove exposed spine
+					Remove exposed rig
 				</button>
 			{:else if componentMode}
 				<button
 					type="button"
 					class="ghost-sm"
-					onclick={() => onExposeSpineParam?.(node)}
-					title="Create + bind a spine param so each placed instance can swap this spine's rig"
+					onclick={() => onExposeRigParam?.(node)}
+					title="Create + bind a rig param so each placed instance can swap this rig's bundle"
 				>
-					✨ Expose spine as param (per instance)
+					✨ Expose rig as param (per instance)
 				</button>
 				<p class="muted small">
-					One click — makes this spine's <strong>source rig</strong> pickable per instance, so one prefab
-					(e.g. this button) renders a different spine each place it's dropped. The current bundle becomes
+					One click — makes this rig's <strong>source rig</strong> pickable per instance, so one prefab
+					(e.g. this button) renders a different rig each place it's dropped. The current bundle becomes
 					the default.
 				</p>
 			{/if}
@@ -3872,7 +3872,7 @@
 						step="1"
 						placeholder="(scale)"
 						value={t.width ?? ''}
-						oninput={(e) => setSpineSize(node, 'width', e.currentTarget.valueAsNumber)}
+						oninput={(e) => setRigSize(node, 'width', e.currentTarget.valueAsNumber)}
 					/>
 				</label>
 				<label class="field">
@@ -3882,12 +3882,12 @@
 						step="1"
 						placeholder="(scale)"
 						value={t.height ?? ''}
-						oninput={(e) => setSpineSize(node, 'height', e.currentTarget.valueAsNumber)}
+						oninput={(e) => setRigSize(node, 'height', e.currentTarget.valueAsNumber)}
 					/>
 				</label>
 			</div>
 			<p class="muted small">
-				Set an explicit <strong>width × height</strong> to pin the spine's on-screen size — it fits
+				Set an explicit <strong>width × height</strong> to pin the rig's on-screen size — it fits
 				the skeleton to this box so the editor preview matches the game (best for a rig with no
 				natural bounds). Leave blank to size by <strong>scale</strong> instead; setting a size resets
 				scale to 1 so the number is exact.
@@ -3904,7 +3904,7 @@
 					{#if meta?.bones?.length}
 						<select
 							value={node.revealSymbolBone ?? ''}
-							onchange={(e) => setRevealBone(node as SpineNode, e.currentTarget.value)}
+							onchange={(e) => setRevealBone(node as RigNode, e.currentTarget.value)}
 						>
 							<option value="">— off (no rider) —</option>
 							{#if node.revealSymbolBone && !meta.bones.includes(node.revealSymbolBone)}
@@ -3919,7 +3919,7 @@
 							type="text"
 							placeholder="bone name (off when blank)"
 							value={node.revealSymbolBone ?? ''}
-							oninput={(e) => setRevealBone(node as SpineNode, e.currentTarget.value)}
+							oninput={(e) => setRevealBone(node as RigNode, e.currentTarget.value)}
 						/>
 					{/if}
 				</label>
@@ -3930,7 +3930,7 @@
 						<span>symbol state</span>
 						<select
 							value={node.revealSymbolState ?? ''}
-							onchange={(e) => setRevealState(node as SpineNode, e.currentTarget.value)}
+							onchange={(e) => setRevealState(node as RigNode, e.currentTarget.value)}
 						>
 							<option value="">(default: bookIdle)</option>
 							{#each offeredSymbolStates as s (s)}
@@ -3952,7 +3952,7 @@
 							value={node.revealSymbolScale ?? ''}
 							oninput={(e) =>
 								setRevealNumber(
-									node as SpineNode,
+									node as RigNode,
 									'revealSymbolScale',
 									e.currentTarget.valueAsNumber,
 								)}
@@ -3967,7 +3967,7 @@
 							value={node.revealSymbolOffsetX ?? ''}
 							oninput={(e) =>
 								setRevealNumber(
-									node as SpineNode,
+									node as RigNode,
 									'revealSymbolOffsetX',
 									e.currentTarget.valueAsNumber,
 								)}
@@ -3982,7 +3982,7 @@
 							value={node.revealSymbolOffsetY ?? ''}
 							oninput={(e) =>
 								setRevealNumber(
-									node as SpineNode,
+									node as RigNode,
 									'revealSymbolOffsetY',
 									e.currentTarget.valueAsNumber,
 								)}
@@ -3996,7 +3996,7 @@
 							checked={node.revealSymbolFollowRotation ?? true}
 							onchange={(e) =>
 								setRevealFollow(
-									node as SpineNode,
+									node as RigNode,
 									'revealSymbolFollowRotation',
 									e.currentTarget.checked,
 								)}
@@ -4009,7 +4009,7 @@
 							checked={node.revealSymbolFollowScale ?? true}
 							onchange={(e) =>
 								setRevealFollow(
-									node as SpineNode,
+									node as RigNode,
 									'revealSymbolFollowScale',
 									e.currentTarget.checked,
 								)}
@@ -4021,12 +4021,12 @@
 			<h4 class="sub-h">Plays on signal</h4>
 			{#if cueSceneMode}
 				<p class="muted small">
-					When the named signal fires, this spine plays the chosen animation. The name is whatever a
+					When the named signal fires, this rig plays the chosen animation. The name is whatever a
 					Flow <strong>Fire Cue</strong> node broadcasts — it doesn't have to be declared anywhere.
 				</p>
 			{:else}
 				<p class="muted small">
-					When the signal fires, this spine plays the chosen animation. Pick one the game fires from
+					When the signal fires, this rig plays the chosen animation. Pick one the game fires from
 					its own beats, or type any Flow <strong>Fire Cue</strong> name. In a component scoped by a param,
 					a per-pot (per-tier, per-reel) signal plays only for that placement's part.
 				</p>
@@ -4041,7 +4041,7 @@
 							placeholder={cueSceneMode ? 'e.g. characterSpin' : 'e.g. potActivate'}
 							value={cue.signal}
 							oninput={(e) =>
-								updateCue(node as SpineNode, i, { signal: e.currentTarget.value.trim() })}
+								updateCue(node as RigNode, i, { signal: e.currentTarget.value.trim() })}
 						/>
 					</label>
 					<label class="field">
@@ -4050,7 +4050,7 @@
 							<select
 								value={cue.animation}
 								onchange={(e) =>
-									updateCue(node as SpineNode, i, { animation: e.currentTarget.value })}
+									updateCue(node as RigNode, i, { animation: e.currentTarget.value })}
 							>
 								<option value="">(choose animation)</option>
 								{#each meta.animations as anim (anim)}
@@ -4061,8 +4061,7 @@
 							<input
 								type="text"
 								value={cue.animation}
-								oninput={(e) =>
-									updateCue(node as SpineNode, i, { animation: e.currentTarget.value })}
+								oninput={(e) => updateCue(node as RigNode, i, { animation: e.currentTarget.value })}
 							/>
 						{/if}
 					</label>
@@ -4071,7 +4070,7 @@
 							type="checkbox"
 							checked={cue.loop ?? false}
 							onchange={(e) =>
-								updateCue(node as SpineNode, i, {
+								updateCue(node as RigNode, i, {
 									loop: e.currentTarget.checked || undefined,
 								})}
 						/>
@@ -4080,7 +4079,7 @@
 							type="button"
 							class="param-remove"
 							title="Remove cue"
-							onclick={() => removeCue(node as SpineNode, i)}>×</button
+							onclick={() => removeCue(node as RigNode, i)}>×</button
 						>
 					</label>
 					{#if !(cue.loop ?? false) && !cueSceneMode}
@@ -4091,7 +4090,7 @@
 								placeholder="e.g. introDone"
 								value={cue.completeSignal ?? ''}
 								oninput={(e) =>
-									updateCue(node as SpineNode, i, {
+									updateCue(node as RigNode, i, {
 										completeSignal: e.currentTarget.value.trim() || undefined,
 									})}
 							/>
@@ -4099,34 +4098,34 @@
 					{/if}
 				</div>
 			{/each}
-			<button type="button" class="ghost-sm" onclick={() => addCue(node as SpineNode)}>
+			<button type="button" class="ghost-sm" onclick={() => addCue(node as RigNode)}>
 				+ add cue
 			</button>
 			{#if componentMode}
 				<h4 class="sub-h">Plays on button state</h4>
 				{#if isInteractiveComponent}
 					<p class="muted small">
-						Drive this spine by the button's interaction state — pick an animation per state. The
+						Drive this rig by the button's interaction state — pick an animation per state. The
 						button plays it while that state is active and returns to the <strong
 							>default animation</strong
 						> above when none is. Leave a state blank to cascade (pressed → hover → selected).
 					</p>
 					<p class="muted small">
-						<strong>Image at rest, spine on a state?</strong> Leave the
+						<strong>Image at rest, rig on a state?</strong> Leave the
 						<strong>default animation</strong>
-						(above) blank — the spine then stays HIDDEN at rest (your button image shows) and only appears
+						(above) blank — the rig then stays HIDDEN at rest (your button image shows) and only appears
 						while a mapped state plays. For <strong>during the spin</strong>, map
 						<strong>spinning</strong> (not downstate): a spin sets both, and spinning wins.
 					</p>
 					{#each BUTTON_ANIM_STATES as st (st.key)}
-						{@const cur = stateAnimOf(node as SpineNode, st.key)}
+						{@const cur = stateAnimOf(node as RigNode, st.key)}
 						<div class="bind-grid cue-row">
 							<label class="field">
 								<span>{st.label}</span>
 								{#if meta?.animations?.length}
 									<select
 										value={cur?.animation ?? ''}
-										onchange={(e) => setStateAnim(node as SpineNode, st.key, e.currentTarget.value)}
+										onchange={(e) => setStateAnim(node as RigNode, st.key, e.currentTarget.value)}
 									>
 										<option value="">(none)</option>
 										{#each meta.animations as anim (anim)}
@@ -4138,7 +4137,7 @@
 										type="text"
 										placeholder="animation name"
 										value={cur?.animation ?? ''}
-										oninput={(e) => setStateAnim(node as SpineNode, st.key, e.currentTarget.value)}
+										oninput={(e) => setStateAnim(node as RigNode, st.key, e.currentTarget.value)}
 									/>
 								{/if}
 							</label>
@@ -4148,7 +4147,7 @@
 									checked={cur?.loop ?? false}
 									disabled={!cur}
 									onchange={(e) =>
-										setStateAnimLoop(node as SpineNode, st.key, e.currentTarget.checked)}
+										setStateAnimLoop(node as RigNode, st.key, e.currentTarget.checked)}
 								/>
 								<span>loop</span>
 							</label>
@@ -4157,7 +4156,7 @@
 				{:else}
 					<p class="muted small">
 						Add an <strong>action</strong> variable above (which makes this component an interactive button)
-						to drive this spine by hover / press / selected / state.
+						to drive this rig by hover / press / selected / state.
 					</p>
 				{/if}
 			{/if}
@@ -4468,7 +4467,7 @@
 				<summary>Anticipation (advanced)</summary>
 				<p class="muted small">
 					Free-spin "hold" overlay — blank = the game's coded default. Ratios are multiples of one
-					cell; the spine asset + animation names are the spine's track names.
+					cell; the rig asset + animation names are the rig's track names.
 				</p>
 				<div class="spin-grid">
 					{#each ANTICIPATION_NUM_FIELDS as f (f.key)}
@@ -5056,10 +5055,10 @@
 						}}
 					>
 						<option value="">— free (scene placement) —</option>
-						{#if node.hostSpineId && !sceneSpineNodes.some((s) => s.id === node.hostSpineId)}
+						{#if node.hostSpineId && !sceneRigNodes.some((s) => s.id === node.hostSpineId)}
 							<option value={node.hostSpineId}>{node.hostSpineId} (missing)</option>
 						{/if}
-						{#each sceneSpineNodes as s (s.id)}
+						{#each sceneRigNodes as s (s.id)}
 							<option value={s.id}>{s.label}</option>
 						{/each}
 					</select>
@@ -5067,9 +5066,9 @@
 			</div>
 			<p class="muted small">
 				Leave <strong>free</strong> for scene placement (the effect plays at this node's position).
-				Or attach it to a placed <strong>Spine rig</strong> in this scene: the effect then rides
-				that rig — a <em>bone</em>-placed layer (set in Invisible FX) follows the rig's bone, and
-				the rig's timeline events (authored in the Rigger) fire the effect on the beat.
+				Or attach it to a placed <strong>Rig</strong> in this scene: the effect then rides that rig
+				— a <em>bone</em>-placed layer (set in Invisible FX) follows the rig's bone, and the rig's
+				timeline events (authored in the Rigger) fire the effect on the beat.
 			</p>
 		</section>
 	{:else if node.kind === 'flipbook'}
@@ -5417,7 +5416,7 @@
 			{node}
 			{componentMode}
 			{componentParams}
-			spineMeta={node.kind === 'spine' ? spineMetaFor(node.assetKey) : undefined}
+			rigMeta={node.kind === 'spine' ? rigMetaFor(node.assetKey) : undefined}
 			onChange={markDirty}
 		/>
 	{/if}

@@ -10,7 +10,7 @@ cloud storage.
 > including between effects), draw their particle art from a project atlas, tune every
 > emitter knob live — **direction & spread, spin, alpha, scale, speed, gravity, colour and
 > a colour overlay, each with an optional per-particle Min / Max range** — **load a project
-> Spine rig as a backdrop and pin a layer onto one of its bones**, emit **whole Spine clips
+> Rig as a backdrop and pin a layer onto one of its bones**, emit **whole rig clips
 > as the particles** (Tier C), author **when** a layer fires (ambient, or on a game event),
 > and save/reopen the effect. A saved effect travels into a game through the export →
 > `deploy/` → bake → pull → register chain, and a layer set to fire **on event** plays
@@ -121,10 +121,10 @@ that layer; they spawn from the **centre of the canvas**. As soon as you tick a 
 the Inspector, the real texture replaces the dots. The dots are a preview stand-in only —
 they are never written into the saved effect and are never used by a game.
 
-### Load a Spine backdrop (attach to a rig)
+### Load a rig backdrop (attach to a rig)
 
-Above the preview is a **Backdrop** bar. Pick one of the project's Spine rigs (the same
-skeletons the Spine Viewer and Rigger list) to load it into the stage as a playing
+Above the preview is a **Backdrop** bar. Pick one of the project's rigs (the same
+skeletons the Rig Viewer and Rigger list) to load it into the stage as a playing
 backdrop; an **animation** dropdown then lets you choose the clip (it loops), and a
 **skin** dropdown appears when the rig has more than one skin. Choose **— none —** to
 remove the backdrop. The skeleton plays in step with **▶ Play / ❚❚ Pause**.
@@ -140,11 +140,11 @@ With a layer selected, the right **Inspector** edits it:
 
 - **Layer → Name** — rename the layer (its key, shown in the Layers panel).
 - **Particle → Kind** — **Sprite (atlas art)** (the default; the **Art** section below
-  picks the frames) or **Spine clip**, where every particle is a small Spine instance
-  playing a clip. For a Spine clip, pick a **Skeleton** from the project's Spine bundles,
+  picks the frames) or **rig clip**, where every particle is a small rig instance
+  playing a clip. For a rig clip, pick a **Skeleton** from the project's rig bundles,
   then an **Animation**, and tick **Loop each particle's clip** if it should repeat. Keep
-  **Max particles** low for this kind (tens, not hundreds) — a Spine particle is far
-  heavier than a sprite. The option is disabled when the project has no Spine bundles yet.
+  **Max particles** low for this kind (tens, not hundreds) — a rig particle is far
+  heavier than a sprite. The option is disabled when the project has no rig bundles yet.
 - **Art → Atlas** — a dropdown of the project's atlases. Pick one and a checkbox list of
   its **regions** appears below; tick the regions you want as the particle frames. (If
   the project has no usable atlases yet, the panel tells you to make one in the Atlas or
@@ -162,7 +162,7 @@ With a layer selected, the right **Inspector** edits it:
   lives), or untick it for an explicit **Speed (fps)** plus a **Loop while the particle
   lives** toggle (off = the animation holds on its last frame once it has played).
 - **Placement** — where the layer's emitter sits. **Mode** is **Free (scene)** (spawns
-  at the scene origin) or **Bone (rig)** (follows a bone of the loaded Spine backdrop —
+  at the scene origin) or **Bone (rig)** (follows a bone of the loaded rig backdrop —
   enabled only when a backdrop is loaded). In **Bone** mode a **Bone** dropdown lists the
   rig's bones; **Offset X/Y** nudges the spawn point relative to the scene origin (Free)
   or the followed bone (Bone).
@@ -302,7 +302,7 @@ mere save.
 
 - **Live in-game firing needs an owner pixel-verify.** The full author→ship→fire loop is
   wired and headless-tested, but firing a baked effect on an event in a real game (in
-  particular the Spine bone-attach coordinate frame) has not yet been owner-verified on
+  particular the rig bone-attach coordinate frame) has not yet been owner-verified on
   live WebGL pixels.
 - **One atlas per layer.** A layer's frames come from a single atlas; mixing regions
   from different atlases in one layer is not supported — add another layer instead.
@@ -315,7 +315,7 @@ mere save.
 
 - **Design + build plan:** [`../design/invisible-fx.md`](../design/invisible-fx.md) is
   the source of truth (the EffectDoc schema, the three particle tiers, the Phase-0 gate
-  for the spine-as-particle tier, the phased plan, and the deploy→bake→pull→register
+  for the rig-as-particle tier, the phased plan, and the deploy→bake→pull→register
   chain the effect must travel to ship).
 - **The tool page:** `apps/launcher-api/src/routes/(app)/fx/` — `+page.server.ts`
   (SSR off; auth + `fx`-scope gate; streams the project's atlas list via the shared
@@ -328,15 +328,15 @@ mere save.
   Scale / Movement / Colour / Blend sections, and the Backdrop bar above the canvas).
   `FxStage.svelte` is the WebGL stage (own `PIXI.Application` + pan/zoom/
   play-pause + a live `Emitter` per layer, the centre-spawned placeholder dots for an
-  unbound layer, and the Tier-B Spine backdrop — loaded imperatively and ridden per-frame,
-  replicating `SpineBone` for `bone`-placed layers; it also re-appends the emitter
+  unbound layer, and the Tier-B rig backdrop — loaded imperatively and ridden per-frame,
+  replicating `RigBone` for `bone`-placed layers; it also re-appends the emitter
   containers in doc order each rebuild so a layer reorder restacks the preview).
   `fxModel.client.ts` is the pure, rune-free editing model + config/placement/**trigger**
   mutators, the min/max `curveRange`/`setCurveBound` seam, the colour-overlay + rotation-lock
   + flipbook-playback setters, and the layer stack ops (+ the bone-follow coordinate math),
   all harness-covered in `tools/fx-spike` (`variation.ts` for everything min/max-related).
-  `fxSpine.client.ts` loads a project skeleton via the shared `/spine/skeletons` +
-  `/spine/file` endpoints (whose `requireSpineAccess` gate now also accepts the `fx`
+  `fxRig.client.ts` loads a project skeleton via the shared `/rig-viewer/skeletons` +
+  `/rig-viewer/file` endpoints (whose `requireRigAccess` gate now also accepts the `fx`
   tool).
 - **Save endpoint:** `POST /api/fx/save` (`fx`-gated via the shared `gate` helper,
   mirroring `/api/flow/save` and `/api/rigger/save`); R2 read/write in

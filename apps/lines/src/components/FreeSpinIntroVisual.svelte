@@ -9,7 +9,7 @@
 	import { stateUrlDerived } from 'state-shared';
 	import { FadeContainer } from 'components-pixi';
 	import { getComponentParams } from 'engine-layout/svelte';
-	import { BitmapText, SpineProvider, SpineSlot, SpineTrack, Sprite } from 'pixi-svelte';
+	import { BitmapText, RigProvider, RigSlot, RigTrack, Sprite } from 'pixi-svelte';
 
 	import { getContext } from '../game/context';
 	import FreeSpinAnimation from './FreeSpinAnimation.svelte';
@@ -17,7 +17,7 @@
 	type AnimationName = string;
 
 	// The board-relative VISUAL of the free-spin intro (§17 Phase 3): the
-	// `FreeSpinAnimation` frame spine + the count spine with the count in its slot. Usable as
+	// `FreeSpinAnimation` frame rig + the count rig with the count in its slot. Usable as
 	// an editor-positioned `componentInstance` (`freeSpinIntroVisual`): `boundToInstance` (set
 	// on the def's bind child) makes it render at the instance node's position; absent (a bare
 	// scene bind) ⇒ it self-centres on the board. The count value arrives on
@@ -25,7 +25,7 @@
 	// and the round-block (its `tapToContinue` + a `showContainer{awaitComplete}`).
 	const {
 		boundToInstance = false,
-		introSpine: introSpineProp = 'fsIntroNumber',
+		introSpine: introRigProp = 'fsIntroNumber',
 		introAnimation: introAnimationProp = 'intro',
 		idleAnimation: idleAnimationProp = 'idle',
 		slotName: slotNameProp = 'slot_number',
@@ -44,7 +44,7 @@
 		return typeof value === 'string' && value.length > 0 ? value : undefined;
 	};
 
-	const introSpine = $derived(stringParam('introSpine') ?? introSpineProp);
+	const introRig = $derived(stringParam('introSpine') ?? introRigProp);
 	const introAnimation = $derived(stringParam('introAnimation') ?? introAnimationProp);
 	const idleAnimation = $derived(stringParam('idleAnimation') ?? idleAnimationProp);
 	const slotName = $derived(stringParam('slotName') ?? slotNameProp);
@@ -65,7 +65,7 @@
 	});
 </script>
 
-{#if introSpine}
+{#if introRig}
 	<FadeContainer {show}>
 		<FreeSpinAnimation {boundToInstance}>
 			{#snippet children({ sizes })}
@@ -76,8 +76,8 @@
 					key="freespins_{stateUrlDerived.lang()}.png"
 				/>
 
-				<SpineProvider key={introSpine} width={sizes.width * 0.3}>
-					<SpineTrack
+				<RigProvider key={introRig} width={sizes.width * 0.3}>
+					<RigTrack
 						trackIndex={0}
 						{animationName}
 						loop={animationName === idleAnimation}
@@ -85,7 +85,7 @@
 							complete: () => (animationName = idleAnimation),
 						}}
 					/>
-					<SpineSlot {slotName}>
+					<RigSlot {slotName}>
 						<BitmapText
 							anchor={{ x: 0.5, y: 0.5 }}
 							text={freeSpinsFromEvent}
@@ -95,8 +95,8 @@
 								fontWeight: 'bold',
 							}}
 						/>
-					</SpineSlot>
-				</SpineProvider>
+					</RigSlot>
+				</RigProvider>
 
 				<Sprite
 					anchor={{ x: 0.5, y: -3 }}

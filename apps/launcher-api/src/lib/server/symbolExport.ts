@@ -22,13 +22,13 @@
  *                  so the cell's plain frame key resolves directly. Frame names MUST
  *                  be unique across exported sheets (no namespace to disambiguate) —
  *                  cross-sheet collisions are surfaced as a build warning.
- *   spine cell   → `assetKey` is the FULL R2 BUNDLE PREFIX. Copy that bundle's own
+ *   rig cell   → `assetKey` is the FULL R2 BUNDLE PREFIX. Copy that bundle's own
  *                  atlas + skeleton + page files (preserving names so the atlas's
  *                  page refs resolve once mirrored), and add
  *                  `index.spines += { key: <assetKey>, atlas, skeleton, scale: 2 }`.
  *                  A Rigger `.irig` skeleton is shipped under a `.json` name — the
- *                  game's `PIXI.Assets.load` resolves the spine parser by extension
- *                  and `.irig` is unknown to it (bytes are valid Spine JSON).
+ *                  game's `PIXI.Assets.load` resolves the rig parser by extension
+ *                  and `.irig` is unknown to it (bytes are valid rig JSON).
  *
  *   <client>/<project>/deploy/editor-symbols/<stem>/<files…>
  *   <client>/<project>/deploy/editor-symbols/index.json   ← the index the game registers
@@ -44,8 +44,8 @@ import { loadRegionSet, type EditorRegionSet } from './editorRegions';
 import { listProjectAssets } from './projectAssets';
 import { SUB } from './projectPaths';
 import { PAGE_REF_PREFIX, type PageStore } from './pageStore';
-import { exportSpineBundle, loadSkeletonIndexWithShared } from './spine';
-import { SYMBOL_SPINE_LOAD_SCALE } from '$lib/spineScale';
+import { exportRigBundle, loadSkeletonIndexWithShared } from './rig';
+import { SYMBOL_RIG_LOAD_SCALE } from '$lib/rigScale';
 import { copyObject, deleteObjects, listAllKeys, putObjectText } from './r2';
 import {
 	canonicalizeSymbolsDocForExport,
@@ -55,10 +55,10 @@ import {
 } from './symbolsStorage';
 import { isBuiltinRegion, parseScopedFrameRef, scopedFrameRef } from 'engine-layout';
 import { mapWithConcurrency } from './concurrency';
-import { parseSpineBundleKey } from '$lib/spineBundleKey';
+import { parseRigBundleKey } from '$lib/rigBundleKey';
 
 /**
- * How many spine bundles this export copies at once — the symbols twin of
+ * How many rig bundles this export copies at once — the symbols twin of
  * `ART_EXPORT_CONCURRENCY`, and sized the same way: the work is R2 latency per bundle, while the
  * launcher is memory-tight enough to OOM during bake. Kept equal to art's width so the two
  * exporters, which run CONCURRENTLY inside one assemble, cannot together fan out further than
@@ -81,17 +81,17 @@ export interface SymbolSheet {
 	ktx2Json?: string;
 }
 
-/** A spine bundle a symbol binding references. `key` is the binding's full R2
+/** A rig bundle a symbol binding references. `key` is the binding's full R2
  *  BUNDLE-PREFIX `assetKey` (the engine's lookup key). */
-export interface SymbolSpine {
+export interface SymbolRig {
 	key: string;
 	/** Atlas path relative to `deploy/` (= relative to `static/assets/`). */
 	atlas: string;
 	/** Skeleton path relative to `deploy/` (= relative to `static/assets/`). */
 	skeleton: string;
-	/** Spine scale; defaults to 2 (the symbols convention) — emitted explicitly. */
+	/** Rig scale; defaults to 2 (the symbols convention) — emitted explicitly. */
 	scale: number;
-	/** The KTX2 twin `.atlas` (`exportSpineBundle` output) whose page-name lines point at the
+	/** The KTX2 twin `.atlas` (`exportRigBundle` output) whose page-name lines point at the
 	 *  `.ktx2` pages. Written since the page store was wired in, but DECLARED only now — the game
 	 *  could not select what the type did not admit existed, so every symbol rig shipped its page
 	 *  uncompressed while the twin sat unused in the bundle. Absent ⇒ the original `.atlas`. */
@@ -114,7 +114,7 @@ export interface SymbolExportIndex {
 	 *  but the field is present so the shape matches S1's `bakedSymbolAssets()` — `ktx2` included,
 	 *  so a v2 that does emit them inherits the compressed tier rather than re-opening this hole. */
 	images: { key: string; file: string; ktx2?: string }[];
-	spines: SymbolSpine[];
+	spines: SymbolRig[];
 	collisions: SymbolFrameCollision[];
 	/** Sprite-cell frame names a binding references that NO project atlas/sheet
 	 *  packs — so they never reach the game's `loadedAssets` and the symbol renders
@@ -123,9 +123,9 @@ export interface SymbolExportIndex {
 	 *  bound frame is caught at publish instead of silently in-game. An engine BUILT-IN
 	 *  frame (`isBuiltinRegion`) is never listed: the runtime registers those itself. */
 	missing: string[];
-	/** Spine `assetKey`s the symbols doc binds (cells, highlight, board glow, anticipation, rig
+	/** Rig `assetKey`s the symbols doc binds (cells, highlight, board glow, anticipation, rig
 	 *  layers) that name an R2 bundle prefix which resolved to nothing — a bundle since
-	 *  renamed/deleted, or one under another project's prefix. The spine half of `missing`, and
+	 *  renamed/deleted, or one under another project's prefix. The rig half of `missing`, and
 	 *  the twin of `EditorArtIndex.spinesMissing`: the export ships nothing while the doc keeps
 	 *  the prefix as its lookup key, so the symbol is simply absent in-game. */
 	spinesMissing: string[];
@@ -133,8 +133,8 @@ export interface SymbolExportIndex {
 
 /** The global win-frame highlight, passed through to the bundle so the game can
  *  render the authored win frame instead of its built-in `payframe`. Only present
- *  when the author overrode it; `assetKey` is the FULL R2 spine bundle prefix (its
- *  bundle is exported alongside the per-symbol spines, keyed the same way).
+ *  when the author overrode it; `assetKey` is the FULL R2 rig bundle prefix (its
+ *  bundle is exported alongside the per-symbol rigs, keyed the same way).
  *
  *  `tintMode`/`tintColor` are the MULTIPLY tint the frame applies to the symbols it loops over
  *  (`'fixed'` → `tintColor`; `'winLine'` → the paying line's authored colour, resolved in-game).
@@ -148,7 +148,7 @@ export interface SymbolExportHighlight {
 
 /** One stacked symbol's baked config. `height` is how many CELLS tall the tall picture is (the crop
  *  denominator); `art` is the tall picture — its asset ships via the SAME `refs` as a per-cell binding
- *  (spine bundle → `index.spines` / sprite sheet → `index.sheets`), so `art.assetKey` resolves with no
+ *  (rig bundle → `index.spines` / sprite sheet → `index.sheets`), so `art.assetKey` resolves with no
  *  rewriting (exactly like the grid `map` + `highlight`). */
 export interface SymbolExportStackedArt {
 	type: 'sprite' | 'spine' | 'flipbook';
@@ -194,7 +194,7 @@ export interface SymbolExportResult {
 	symbolSounds?: SymbolsDoc['symbolSounds'];
 	/** The authored global highlight override (absent → game uses built-in payframe). */
 	highlight?: SymbolExportHighlight;
-	/** The authored free-spin board glow (absent → game uses its coded `reelhouse` spine).
+	/** The authored free-spin board glow (absent → game uses its coded `reelhouse` rig).
 	 *  Passed through VERBATIM: its bundle rides `index.spines` under the same `assetKey`, so
 	 *  the engine can load it with no rewriting — exactly like `highlight`. */
 	boardGlow?: SymbolsDoc['boardGlow'];
@@ -218,13 +218,13 @@ export interface SymbolExportResult {
 	 *  always was, so an un-switched project's bundle stays byte-identical. */
 	arrivalRelease?: SymbolsDoc['arrivalRelease'];
 	/** The Book-symbol VFX layers (background + foreground), passed through VERBATIM. Each layer's
-	 *  asset rides the same channels as the per-cell bindings: a spine layer's bundle + a sprite
+	 *  asset rides the same channels as the per-cell bindings: a rig layer's bundle + a sprite
 	 *  layer's sheet ship via `refs` into `index.spines`/`index.sheets` under the same key; a flipbook
 	 *  layer's clip ships via the editor-art clip walk (no ref here); an fx layer references an effect
 	 *  the effects export ships (kept reachable at bake). Absent → the game renders no book VFX. */
 	bookVfx?: SymbolsDoc['bookVfx'];
 	/** The explosion → intro transition (one project-global layer + `delayMs`), passed through
-	 *  VERBATIM. Its asset rides the SAME channels as a book-VFX layer: a spine's bundle ships via
+	 *  VERBATIM. Its asset rides the SAME channels as a book-VFX layer: a rig's bundle ships via
 	 *  `refs` into `index.spines` under its own key, a flipbook's clip via the editor-art clip walk, an
 	 *  fx's effect via the effects export (kept reachable at bake). Absent → the intro cuts in the
 	 *  moment the explosion ends, exactly as before the field existed. */
@@ -234,13 +234,13 @@ export interface SymbolExportResult {
 	 *  `winCycle`. Absent → the whole board explodes in one frame, exactly as before the field
 	 *  existed. */
 	tumblePattern?: SymbolsDoc['tumblePattern'];
-	/** The reel-anticipation presentation FX (per-tier escalation + optional overlay spine key),
+	/** The reel-anticipation presentation FX (per-tier escalation + optional overlay rig key),
 	 *  passed through VERBATIM. A swapped `spineKey` bundle rides `index.spines` under the same key
 	 *  (like `boardGlow`); the per-tier FX are pure config (no asset). Absent → the game keeps its
 	 *  coded `codedTierFx` ramp (byte-parity with Phase 4). */
 	anticipation?: SymbolsDoc['anticipation'];
 	/** The stacked-picture reel-mode config (the editable twin of the old coded `STACKED_PICTURE.heights`).
-	 *  Each tall `art` asset already shipped via `refs` (spine bundle → `index.spines` / sprite sheet →
+	 *  Each tall `art` asset already shipped via `refs` (rig bundle → `index.spines` / sprite sheet →
 	 *  `index.sheets`), so this is a verbatim pass-through of `{ name, height, art }` — the engine resolves
 	 *  `art.assetKey` with no rewriting, exactly like the grid `map`. Present ONLY when the master toggle is
 	 *  ON and ≥1 symbol is authored, so a disabled/un-authored project bakes NO `stacked` field (byte-parity). */
@@ -250,7 +250,7 @@ export interface SymbolExportResult {
 	 *  the coded label. */
 	coinLabel?: SymbolsDoc['coinLabel'];
 	/** Hold and Win flights (head / trail / arrival / path / timing per flight kind), passed through
-	 *  VERBATIM. A sprite/spine head ships via `refs` into `index.sheets`/`index.spines` under its own
+	 *  VERBATIM. A sprite/rig head ships via `refs` into `index.sheets`/`index.spines` under its own
 	 *  key, a flipbook head's clip via the editor-art clip walk, a trail/arrival effect via the effects
 	 *  export (kept reachable). Absent → every flight flies the coded glow. */
 	flights?: SymbolsDoc['flights'];
@@ -267,24 +267,24 @@ interface SymbolRefs {
 	 *  ship exactly that sheet and register its frames scoped — two symbols reusing a region name on
 	 *  DISTINCT atlases then resolve to distinct textures. */
 	spriteManifests: Set<string>;
-	/** Spine-cell `assetKey`s (full R2 bundle prefixes). */
-	spineKeys: Set<string>;
+	/** Rig-cell `assetKey`s (full R2 bundle prefixes). */
+	rigKeys: Set<string>;
 }
 
 /** Walk the (sparse) symbol map and split its cells into bare sprite frame names, scoped sprite
- *  atlases, and spine bundle keys. Exported for `scripts/check-symbol-transition.ts`, which proves a
- *  spine bound ONLY as the explosion transition still reaches `index.spines` — the shipping half of
+ *  atlases, and rig bundle keys. Exported for `scripts/check-symbol-transition.ts`, which proves a
+ *  rig bound ONLY as the explosion transition still reaches `index.spines` — the shipping half of
  *  rule 8, asserted offline rather than assumed. */
 export function collectSymbolRefs(doc: SymbolsDoc): SymbolRefs {
 	const refs: SymbolRefs = {
 		frameNames: new Set(),
 		spriteManifests: new Set(),
-		spineKeys: new Set(),
+		rigKeys: new Set(),
 	};
 	for (const states of Object.values(doc.symbols)) {
 		for (const cell of Object.values(states)) {
 			// A cell's own LAYERS first, and BEFORE the `continue`s below: a flipbook cell bails out
-			// two lines down, so a layer authored on one would never have its spine bundle / sprite
+			// two lines down, so a layer authored on one would never have its rig bundle / sprite
 			// sheet shipped — the art would show in the tool and be missing in the game (rule 8).
 			// They are the same kind-tagged object the book VFX and the transition carry, so they
 			// route through the same `addLayerRefs`.
@@ -297,7 +297,7 @@ export function collectSymbolRefs(doc: SymbolsDoc): SymbolRefs {
 			// dangling symbol binding that is not actually broken.
 			if (cell.type === 'flipbook') continue;
 			if (cell.type === 'spine') {
-				refs.spineKeys.add(cell.assetKey);
+				refs.rigKeys.add(cell.assetKey);
 				continue;
 			}
 			// A SCOPED sprite ref (`<manifest>::<region>`) pins its atlas, so ship that exact sheet;
@@ -316,33 +316,33 @@ export function collectSymbolRefs(doc: SymbolsDoc): SymbolRefs {
 			}
 		}
 	}
-	// The global highlight is a spine bundle too — export it like any per-symbol
-	// spine cell so its `index.spines` entry (keyed by the same `assetKey`) ships.
+	// The global highlight is a rig bundle too — export it like any per-symbol
+	// rig cell so its `index.spines` entry (keyed by the same `assetKey`) ships.
 	if (doc.highlight?.type === 'spine' && doc.highlight.assetKey) {
-		refs.spineKeys.add(doc.highlight.assetKey);
+		refs.rigKeys.add(doc.highlight.assetKey);
 	}
 	// So is the free-spin board glow — same reason. Without this the picker would show the rig in
 	// the tool while the game shipped nothing to load under that key (repo rule 8).
 	if (doc.boardGlow?.type === 'spine' && doc.boardGlow.assetKey) {
-		refs.spineKeys.add(doc.boardGlow.assetKey);
+		refs.rigKeys.add(doc.boardGlow.assetKey);
 	}
-	// A swapped reel-anticipation overlay spine (`anticipation.spineKey`, a full R2 bundle prefix) is
-	// also a spine bundle — ship it like `highlight`/`boardGlow` so the game can load it (rule 8). The
-	// coded default `anticipation` spine is a LOCAL game asset and carries no `/`, so it never lands
+	// A swapped reel-anticipation overlay rig (`anticipation.spineKey`, a full R2 bundle prefix) is
+	// also a rig bundle — ship it like `highlight`/`boardGlow` so the game can load it (rule 8). The
+	// coded default `anticipation` rig is a LOCAL game asset and carries no `/`, so it never lands
 	// here (nothing to ship) — only an author-picked R2 bundle does.
 	if (doc.anticipation?.spineKey && doc.anticipation.spineKey.includes('/')) {
-		refs.spineKeys.add(doc.anticipation.spineKey);
+		refs.rigKeys.add(doc.anticipation.spineKey);
 	}
 	// Book-symbol VFX layers and the explosion transition carry the same asset kinds as a per-cell
-	// binding, so route each one's asset through the SAME refs — a spine's bundle + a sprite's sheet
+	// binding, so route each one's asset through the SAME refs — a rig's bundle + a sprite's sheet
 	// must ship or the game loads nothing under the key (rule 8). A flipbook's clip ships via the
 	// editor-art clip walk (like a flipbook cell, skipped here); an fx's effect ships via the effects
-	// export. A spine bound ONLY as the transition reaches `index.spines` through the third line and
+	// export. A rig bound ONLY as the transition reaches `index.spines` through the third line and
 	// no other — `check-symbol-transition.ts` asserts it.
 	addLayerRefs(doc.bookVfx?.background, refs);
 	addLayerRefs(doc.bookVfx?.foreground, refs);
 	addLayerRefs(doc.transition, refs);
-	// Stacked-picture tall art — each stacked symbol's `art` is a sprite/spine/flipbook binding exactly
+	// Stacked-picture tall art — each stacked symbol's `art` is a sprite/rig/flipbook binding exactly
 	// like a grid cell, so route it through the SAME refs or the game would load nothing under the key
 	// (rule 8). Gated the same as the emitted `stacked` field (master toggle on) so a disabled project
 	// ships nothing. A flipbook art's clip rides the editor-art clip walk (skipped here, like a cell).
@@ -352,7 +352,7 @@ export function collectSymbolRefs(doc: SymbolsDoc): SymbolRefs {
 			addCellRefs(s.winArt, refs);
 		}
 	}
-	// A flight's sprite/spine HEAD is the same kind of asset as a layer's — route it through the same
+	// A flight's sprite/rig HEAD is the same kind of asset as a layer's — route it through the same
 	// refs or the head shows in the tool and loads nothing in the game (rule 8). A glow / none head
 	// has no asset; a flipbook head's clip rides the editor-art clip walk.
 	for (const style of Object.values(doc.flights ?? {})) {
@@ -375,14 +375,14 @@ function stackedArt(cell: SymbolCell): SymbolExportStackedArt {
 	return art;
 }
 
-/** Route ONE sprite/spine/flipbook cell's asset into the shared `refs` — the exact split
+/** Route ONE sprite/rig/flipbook cell's asset into the shared `refs` — the exact split
  *  `collectSymbolRefs` applies to a per-cell binding, factored out so the stacked-picture tall art
  *  ships through the identical path. A flipbook art carries no frame of its own (its clip ships via
  *  `editorArtExport`'s clip walk), so it adds nothing here. */
 function addCellRefs(cell: SymbolCell | undefined, refs: SymbolRefs): void {
 	if (!cell?.assetKey || cell.type === 'flipbook') return;
 	if (cell.type === 'spine') {
-		refs.spineKeys.add(cell.assetKey);
+		refs.rigKeys.add(cell.assetKey);
 		return;
 	}
 	const parsed = parseScopedFrameRef(cell.assetKey);
@@ -396,8 +396,8 @@ function addCellRefs(cell: SymbolCell | undefined, refs: SymbolRefs): void {
 
 /** Route one kind-tagged LAYER's asset (a Book-VFX layer, the explosion transition, a symbol cell's
  *  own extra layer) into the shared
- *  `refs` — spine bundle or sprite sheet frame, the same split `collectSymbolRefs` applies to a
- *  per-cell sprite/spine binding. Flipbook + fx layers ship no asset through this exporter (clip art
+ *  `refs` — rig bundle or sprite sheet frame, the same split `collectSymbolRefs` applies to a
+ *  per-cell sprite/rig binding. Flipbook + fx layers ship no asset through this exporter (clip art
  *  via editor-art; effect via the effects export). */
 function addLayerRefs(
 	layer: { kind: 'sprite' | 'spine' | 'flipbook' | 'fx'; assetKey?: string } | undefined,
@@ -405,7 +405,7 @@ function addLayerRefs(
 ): void {
 	if (!layer) return;
 	if (layer.kind === 'spine') {
-		if (layer.assetKey) refs.spineKeys.add(layer.assetKey);
+		if (layer.assetKey) refs.rigKeys.add(layer.assetKey);
 		return;
 	}
 	if (layer.kind === 'sprite' && layer.assetKey) {
@@ -579,7 +579,7 @@ export async function exportEditorSymbols(
 		if (!version) return;
 
 		const stem = claimStem(set.assetKey);
-		// Carry the page's REAL extension, as `editorArtExport` and `spine.ts` do. Defaulting
+		// Carry the page's REAL extension, as `editorArtExport` and `rig.ts` do. Defaulting
 		// anything non-`.webp` to `png` was survivable while the copy stayed inside
 		// `editor-symbols/` — one mislabelled private file. It is not survivable in the SHARED
 		// store: the filename is `<hash>.<ext>`, the content key is ETag+size only, so a `.jpg`
@@ -676,40 +676,40 @@ export async function exportEditorSymbols(
 		}
 	});
 
-	// ── Spine cells: copy each referenced bundle into deploy/ via the shared helper ──
-	// `assetKey` is the full R2 bundle prefix; `exportSpineBundle` copies the bundle's
+	// ── rig cells: copy each referenced bundle into deploy/ via the shared helper ──
+	// `assetKey` is the full R2 bundle prefix; `exportRigBundle` copies the bundle's
 	// own atlas + skeleton + pages (renaming a Rigger `.irig` skeleton to `.json` so
 	// `PIXI.Assets.load` can parse it), preserving page names so the atlas refs resolve
 	// once mirrored. Dedup by assetKey (W.win + W.land share one bundle → copy once).
-	const spines: SymbolSpine[] = [];
-	const spinesMissing: string[] = [];
-	const exportedSpines = new Set<string>();
+	const rigs: SymbolRig[] = [];
+	const rigsMissing: string[] = [];
+	const exportedRigs = new Set<string>();
 	const skeletonIndex = await phase('spines:index', async () =>
-		refs.spineKeys.size > 0 ? loadSkeletonIndexWithShared(clientKey, projectKey) : [],
+		refs.rigKeys.size > 0 ? loadSkeletonIndexWithShared(clientKey, projectKey) : [],
 	);
 
 	// THE symbols exporter's whole cost. Profiled 2026-09-21 on `test6`: this loop was 27.9s of a
 	// 28.4s `symbols`, with every other phase under 100ms — it is R2 latency per bundle, exported
 	// one at a time, exactly as `art`'s loops were before #756.
 	//
-	// PLAN synchronously, in `refs.spineKeys` order, then EXECUTE concurrently. The plan pass is not
+	// PLAN synchronously, in `refs.rigKeys` order, then EXECUTE concurrently. The plan pass is not
 	// ceremony: `claimStem` is a check-then-act on `usedStems`, and although it never awaits (so it
 	// cannot produce a DUPLICATE stem), calling it from concurrent tasks would hand the `_2` suffix
 	// to whichever bundle's R2 read landed first — so two assembles of an unchanged project would
 	// ship the same rig under different filenames. Deciding it up front keeps the name a pure
-	// function of the doc. `exportedSpines` dedup moves up with it for the same reason.
+	// function of the doc. `exportedRigs` dedup moves up with it for the same reason.
 	//
 	// `opts.pageStore` is shared across tasks and safe: `PageStore.ensure` single-flights per source
 	// key (#756), so two rigs on one page copy + KTX2-encode it once between them.
 	await phase('spines:bundles', async () => {
 		const plan: { assetKey: string; stem: string }[] = [];
-		for (const assetKey of refs.spineKeys) {
-			if (exportedSpines.has(assetKey)) continue;
-			exportedSpines.add(assetKey);
+		for (const assetKey of refs.rigKeys) {
+			if (exportedRigs.has(assetKey)) continue;
+			exportedRigs.add(assetKey);
 			plan.push({ assetKey, stem: claimStem(assetKey.replace(/\/$/, '')) });
 		}
 		await mapWithConcurrency(plan, SYMBOL_EXPORT_CONCURRENCY, async ({ assetKey, stem }) => {
-			const result = await exportSpineBundle({
+			const result = await exportRigBundle({
 				clientKey,
 				projectKey,
 				assetKey,
@@ -717,7 +717,7 @@ export async function exportEditorSymbols(
 				subtree: EXPORT_SUBTREE,
 				stem,
 				skeletonIndex,
-				scale: SYMBOL_SPINE_LOAD_SCALE,
+				scale: SYMBOL_RIG_LOAD_SCALE,
 				// Dedup this rig's atlas page into the shared `_pages/` store instead of copying it
 				// under `editor-symbols/<rig>/`. Undefined ⇒ the old per-bundle copy (parity).
 				pageStore: opts?.pageStore,
@@ -725,11 +725,11 @@ export async function exportEditorSymbols(
 			if (!result) {
 				// Only a key that ADDRESSES a bundle is reportable — the same rule the editor-art
 				// guard applies, so a coded key the game registers itself is never a false alarm.
-				if (parseSpineBundleKey(assetKey)) spinesMissing.push(assetKey);
+				if (parseRigBundleKey(assetKey)) rigsMissing.push(assetKey);
 				return;
 			}
 			for (const k of result.written) written.add(k);
-			spines.push(result.entry);
+			rigs.push(result.entry);
 		});
 	});
 
@@ -778,10 +778,10 @@ export async function exportEditorSymbols(
 	const index: SymbolExportIndex = {
 		sheets: [...sheets].sort((a, b) => a.key.localeCompare(b.key)),
 		images: [],
-		spines: [...spines].sort((a, b) => a.key.localeCompare(b.key)),
+		spines: [...rigs].sort((a, b) => a.key.localeCompare(b.key)),
 		collisions,
 		missing,
-		spinesMissing: spinesMissing.sort(),
+		spinesMissing: rigsMissing.sort(),
 	};
 	const indexKey = `${symbolsPrefix}index.json`;
 	await putObjectText(indexKey, JSON.stringify(index, null, '\t'), 'application/json');
@@ -793,8 +793,8 @@ export async function exportEditorSymbols(
 		await deleteObjects(existing.filter((k) => !written.has(k)));
 	});
 
-	// The global highlight override (if any). Its spine bundle was exported in the
-	// loop above (added to `refs.spineKeys`), so it's already in `index.spines` under
+	// The global highlight override (if any). Its rig bundle was exported in the
+	// loop above (added to `refs.rigKeys`), so it's already in `index.spines` under
 	// this same `assetKey`; we only surface the pointer for the bundle's top level.
 	const highlight: SymbolExportHighlight | undefined =
 		doc.highlight?.type === 'spine' && doc.highlight.assetKey
@@ -830,12 +830,12 @@ export async function exportEditorSymbols(
 	// pass-through of the already-pruned field: absent for every project that left it off.
 	const arrivalRelease = doc.arrivalRelease;
 
-	// The free-spin board glow. Like `highlight`, its bundle already shipped via `refs.spineKeys`
+	// The free-spin board glow. Like `highlight`, its bundle already shipped via `refs.rigKeys`
 	// into `index.spines` under this same `assetKey`, so this is just the pointer + its sparse
 	// animation/size overrides, forwarded verbatim.
 	const boardGlow = doc.boardGlow;
 
-	// The Book-symbol VFX layers. Each layer's asset already shipped via `refs` above (spine bundle →
+	// The Book-symbol VFX layers. Each layer's asset already shipped via `refs` above (rig bundle →
 	// `index.spines`, sprite sheet → `index.sheets`, both keyed by the layer's own `assetKey`) or via
 	// a sibling export (flipbook clip / fx effect), so this is a verbatim pass-through of the sparse
 	// authored config, exactly like `boardGlow`. Absent → the game renders no book VFX.
@@ -851,13 +851,13 @@ export async function exportEditorSymbols(
 	// for a project left on "all at once", which is what keeps that project's bundle byte-identical.
 	const tumblePattern = doc.tumblePattern;
 
-	// The reel-anticipation FX. Its optional `spineKey` bundle already shipped via `refs.spineKeys`
+	// The reel-anticipation FX. Its optional `spineKey` bundle already shipped via `refs.rigKeys`
 	// into `index.spines` under this same key (like `boardGlow`); the per-tier FX are pure config, so
 	// this is a verbatim pass-through of the sparse authored doc (alias-keyed per-tier FX). Absent →
 	// the coded `codedTierFx` ramp.
 	const anticipation = doc.anticipation;
 
-	// Hold and Win flights. A sprite/spine head already shipped via `refs` above, a flipbook head's
+	// Hold and Win flights. A sprite/rig head already shipped via `refs` above, a flipbook head's
 	// clip via the editor-art clip walk (`collectPlayedClipIds` reads every `clipId` in this doc), and
 	// a trail/arrival effect via the effects export, kept reachable by `flightEffectIds` in the
 	// runtime bundle and the bake. So this is a verbatim pass-through of the normalized block; absent
@@ -874,7 +874,7 @@ export async function exportEditorSymbols(
 	const symbolSounds =
 		doc.symbolSounds && Object.keys(doc.symbolSounds).length ? doc.symbolSounds : undefined;
 
-	// The stacked-picture config. Each tall `art` asset already shipped via `refs` above (spine bundle →
+	// The stacked-picture config. Each tall `art` asset already shipped via `refs` above (rig bundle →
 	// `index.spines`, sprite sheet → `index.sheets`, both keyed by the art's own `assetKey`), so this is a
 	// verbatim pass-through of `{ name, height, art }` — reduced to the baked contract's art fields (no
 	// `sizeRatios`; height is the crop denominator). Gated on the master toggle AND ≥1 symbol so a
