@@ -80,7 +80,6 @@
 	let catalogue = $state<CatalogueView | null>(null);
 	let catalogueError = $state<string | null>(null);
 	let catalogueLoading = $state(false);
-	let catalogueShown = false;
 	let catalogueSeq = 0;
 	let refreshing = $state(false);
 	let now = $state(Date.now());
@@ -205,7 +204,7 @@
 		}
 	}
 
-	/** Read each time the Catalogue tab is shown, and with every refresh once it has been. */
+	/** Read each time the Catalogue tab is shown, and with every refresh while it is. */
 	async function loadCatalogue(): Promise<void> {
 		const seq = ++catalogueSeq;
 		catalogueLoading = true;
@@ -242,7 +241,7 @@
 				selected === null ? Promise.resolve(true) : loadDetail(selected, detail !== null),
 			];
 			if (historyShown) jobs.push(loadHistory());
-			if (catalogueShown) jobs.push(loadCatalogue());
+			if (tab === 'catalogue') jobs.push(loadCatalogue());
 			if (tab === 'agents') {
 				jobs.push(
 					loadAgentList(),
@@ -285,7 +284,10 @@
 
 	const agentUrl = (name: string): string => `/pipeline?agent=${encodeURIComponent(name)}`;
 
-	/** The address follows the tab that holds a selection; a tab with none leaves it alone. */
+	/**
+	 * The address follows the tab that holds a selection, and the Catalogue tab; leaving the
+	 * Catalogue clears its `?tab=`, and any other tab with no selection leaves the address alone.
+	 */
 	function showTab(id: TabId): void {
 		tab = id;
 		if (id !== 'catalogue' && window.location.search.includes('tab=catalogue')) {
@@ -296,7 +298,6 @@
 			historyShown = true;
 			void loadHistory();
 		} else if (id === 'catalogue') {
-			catalogueShown = true;
 			void loadCatalogue();
 			// A query on this same route: `resolve()` cannot carry one.
 			// eslint-disable-next-line svelte/no-navigation-without-resolve
@@ -366,10 +367,7 @@
 		void loadList();
 		if (selected !== null) void loadDetail(selected, false);
 		if (tab === 'agents') startAgents();
-		if (tab === 'catalogue') {
-			catalogueShown = true;
-			void loadCatalogue();
-		}
+		if (tab === 'catalogue') void loadCatalogue();
 		const timer = setInterval(() => {
 			if (document.visibilityState === 'visible') void refreshAll();
 		}, REFRESH_MS);
@@ -586,7 +584,7 @@
 			aria-labelledby="tab-catalogue"
 			hidden={tab !== 'catalogue'}
 			tabindex="0"
-			class="history"
+			class="catalogue"
 		>
 			<div class="heading">
 				<h1>Catalogue</h1>
@@ -750,7 +748,8 @@
 	}
 
 	.changes,
-	.history {
+	.history,
+	.catalogue {
 		display: flex;
 		flex-direction: column;
 		gap: 16px;

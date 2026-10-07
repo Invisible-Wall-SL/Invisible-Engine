@@ -43,15 +43,21 @@ export async function readCatalogue(
 			signal: AbortSignal.timeout(20_000),
 		});
 	} catch (e) {
-		throw new CatalogueError(503, `Could not reach the Atlas Maker: ${(e as Error).message}`);
+		console.error('[catalogue] atlas-tool unreachable:', e);
+		throw new CatalogueError(503, 'Could not reach the Atlas Maker. Try Refresh in a minute.');
 	}
 	const body: unknown = await res.json().catch(() => null);
 	if (!res.ok) {
-		const why =
-			typeof body === 'object' && body !== null && 'error' in body
-				? String((body as { error: unknown }).error)
-				: `HTTP ${res.status}`;
-		throw new CatalogueError(res.status === 503 ? 503 : 502, `The Atlas Maker answered: ${why}`);
+		console.error(`[catalogue] atlas-tool answered ${res.status}:`, body);
+		throw new CatalogueError(
+			res.status === 503 ? 503 : 502,
+			`The Atlas Maker could not list the blueprints (HTTP ${res.status}).`,
+		);
 	}
-	return toCatalogueView(body);
+	const view = toCatalogueView(body);
+	if (!view) {
+		console.error('[catalogue] atlas-tool answered 200 without a blueprints list:', body);
+		throw new CatalogueError(502, 'The Atlas Maker answered without a blueprint list.');
+	}
+	return view;
 }

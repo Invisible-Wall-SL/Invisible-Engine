@@ -85,6 +85,14 @@
 		</section>
 	{/if}
 
+	{#if view.dropped}
+		<p class="note warn" role="alert">
+			{view.dropped}
+			{plural(view.dropped, 'entry', 'entries')} from the Atlas Maker could not be read and
+			{view.dropped === 1 ? 'is' : 'are'} not shown.
+		</p>
+	{/if}
+
 	{#if !canOpenAtlas}
 		<p class="note">
 			Cards are edited in the Invisible Atlas Maker, which your role cannot open. Ask an admin.
@@ -192,5 +200,8 @@
 		font-size: 12px;
 		line-height: 1.5;
 		color: #80808c;
+	}
+	.note.warn {
+		color: #f5b95c;
 	}
 </style>

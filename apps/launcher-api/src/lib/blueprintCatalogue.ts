@@ -1,8 +1,9 @@
 /**
  * The blueprint catalogue as the Pipeline Changes Catalogue tab shows it: every image pipeline
  * atlas-tool knows (`GET /blueprints?kind=image&all=1`), each with the state of its card. The
- * agents' `atlas.list_blueprints` is the subset `offered` marks — a reviewed card that still
- * matches its graph and still validates, the same rule `cards.list_entries` applies to an agent.
+ * agents' `atlas.list_blueprints` is the subset `offered` marks. atlas-tool computes `offered`
+ * (`cards.list_entries`, the same value it filters an agent's list by) and it is passed through
+ * here, never re-derived.
  *
  * Shared by the endpoint (which maps atlas-tool's answer) and the page (which renders it); no
  * server import, so the check script runs it as is.
@@ -16,7 +17,7 @@ export interface CatalogueRow {
 	name: string;
 	builtin: boolean;
 	status: CardStatus;
-	/** What `atlas.list_blueprints` serves: reviewed, current and valid. */
+	/** What `atlas.list_blueprints` serves, as atlas-tool decides it. */
 	offered: boolean;
 	purpose: string;
 	rev: number | null;
@@ -29,6 +30,8 @@ export interface CatalogueRow {
 export interface CatalogueView {
 	gpu: string;
 	rows: CatalogueRow[];
+	/** Entries atlas-tool listed that are not shaped like one, so not shown. */
+	dropped: number;
 }
 
 /** Blueprint ids as atlas-tool slugs them (`r2_slug`), so a deep link cannot carry anything else. */
@@ -47,17 +50,22 @@ function statusOf(raw: unknown, hasCard: boolean): CardStatus {
 const ORDER: Record<CardStatus, number> = { reviewed: 0, stale: 1, draft: 2, none: 3 };
 
 /**
- * atlas-tool's `/blueprints?all=1` answer → the tab's rows. Offered first, then what needs the
- * owner (stale, draft, no card), built-ins ahead of library blueprints, then by name. Anything
- * not shaped like an entry is dropped rather than guessed at.
+ * atlas-tool's `/blueprints?all=1` answer → the tab's rows, or `null` when the answer has no
+ * `blueprints` list (so a broken answer never reads as an empty catalogue). Offered first, then
+ * what needs the owner (stale, draft, no card), built-ins ahead of library blueprints, then by
+ * name. An entry not shaped like one is not guessed at: it is counted in `dropped`.
  */
-export function toCatalogueView(body: unknown): CatalogueView {
+export function toCatalogueView(body: unknown): CatalogueView | null {
 	const top = record(body);
-	const list = Array.isArray(top?.blueprints) ? top.blueprints : [];
+	if (!top || !Array.isArray(top.blueprints)) return null;
 	const rows: CatalogueRow[] = [];
-	for (const item of list) {
+	let dropped = 0;
+	for (const item of top.blueprints) {
 		const b = record(item);
-		if (!b || !BLUEPRINT_ID.test(text(b.id))) continue;
+		if (!b || !BLUEPRINT_ID.test(text(b.id)) || typeof b.offered !== 'boolean') {
+			dropped++;
+			continue;
+		}
 		if (text(b.kind) && b.kind !== 'image') continue;
 		const card = record(b.card);
 		const status = statusOf(b.status, card !== null);
@@ -67,7 +75,7 @@ export function toCatalogueView(body: unknown): CatalogueView {
 			name: text(b.name) || text(b.id),
 			builtin: b.builtin === true,
 			status,
-			offered: status === 'reviewed' && problems.length === 0,
+			offered: b.offered,
 			purpose: text(card?.purpose),
 			rev: typeof card?.rev === 'number' ? card.rev : null,
 			reviewedBy: text(card?.reviewedBy),
@@ -82,7 +90,7 @@ export function toCatalogueView(body: unknown): CatalogueView {
 			Number(b.builtin) - Number(a.builtin) ||
 			a.name.localeCompare(b.name),
 	);
-	return { gpu: text(top?.gpu), rows };
+	return { gpu: text(top.gpu), rows, dropped };
 }
 
 /** The pill and the one line that says where a row stands with the agents. */

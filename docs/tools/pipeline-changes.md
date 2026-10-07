@@ -1,10 +1,10 @@
 # Invisible Pipeline Changes
 
-> **Early access.** The **Changes**, **Agents**, **History** and **Catalogue** tabs work: every open change, its
-> two checks, the changed screens and their approval, merging a Ready change, rolling a merge back,
-> and Director's runtime-agent definitions with an editor that checks the text as you type and
-> submits an edit as a change with its own evaluation, and the blueprint catalogue Director's agents
-> read. **Discard branch** is not on the page yet.
+> **Early access.** The **Changes**, **Agents**, **History** and **Catalogue** tabs work: every
+> open change, its two checks, the changed screens and their approval, merging a Ready change,
+> rolling a merge back, Director's runtime-agent definitions with an editor that checks the text as
+> you type and submits an edit as a change with its own evaluation, and the blueprint catalogue
+> Director's agents read. **Discard branch** is not on the page yet.
 
 Invisible Pipeline Changes lists every change to tools, engine, templates, blueprints and agent
 definitions, each on its own branch, shows whether it is proven safe, and lets the people allowed
@@ -345,8 +345,8 @@ read the definition, the validation preview and the open changes, and open those
   change Blocked, and **Merge into main** refuses it with that reason.
 
 12. The **Catalogue · N** tab lists every image blueprint (the built-in SDXL, FLUX and GPT-Image,
-    and every image blueprint in the shared library) and whether Director's agents may use it — the
-    list their `atlas.list_blueprints` tool reads, where N is how many are offered. The address
+    and every image blueprint in the shared library) and whether Director's agents may use it —
+    the list their `atlas.list_blueprints` tool reads, where N is how many are offered. The address
     becomes `/pipeline?tab=catalogue`, so the link can be shared. **Offered to agents** comes
     first, then **Not offered**. Each row shows the name, the id, a `built-in` tag, the card's
     purpose, its rev and who reviewed it, and one of:
@@ -357,7 +357,9 @@ read the definition, the validation preview and the open changes, and open those
     - **draft** — a card exists but is not reviewed.
     - **no card** — nothing is offered until a card is added.
 
-    Above the lists: how many pipelines are offered, and the endpoint GPU when one is set.
+    Above the lists: how many pipelines are offered, and the endpoint GPU when one is set. An
+    entry the Atlas Maker sent that could not be read is not shown; a line under the lists counts
+    them. The tab re-reads the list every minute while it is open.
 13. **✎ Edit card** / **＋ Add to catalogue** opens the Invisible Atlas Maker straight on that
     blueprint's card editor (you need the Atlas Maker tool; without it the buttons are hidden and a
     note says so). A blueprint with no card opens prefilled from its graph — inputs, settings and
