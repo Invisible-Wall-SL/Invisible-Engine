@@ -41,6 +41,10 @@ const REGION_NAME = /^[A-Za-z0-9_][A-Za-z0-9_.()-]{0,119}$/;
 const ATLAS_ID = /^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,119}$/;
 const VARIANT_ID = /^[0-9]{1,8}$/;
 const JOB_REF = /^st_[0-9a-f]{16}$/;
+/** A GPU as `pricing.json` names one ("L40S (48 GB)"); anything else is not shown. */
+const GPU_NAME = /^[A-Za-z0-9][A-Za-z0-9 ()._-]{0,39}$/;
+export const isGpuName = (value: unknown): value is string =>
+	typeof value === 'string' && GPU_NAME.test(value);
 
 // ── Steps ─────────────────────────────────────────────────────────────────────
 
@@ -182,6 +186,8 @@ export interface Folded {
 	artPlan: 'none' | 'open' | 'approved' | 'revised';
 	/** The id of the last `recipe` row: the cache version of the run's recipes. */
 	recipesVersion: number;
+	/** The GPU the run's latest render was billed on, as its spend row names it. */
+	gpu: string | null;
 }
 
 // ── Labels ────────────────────────────────────────────────────────────────────
@@ -313,6 +319,7 @@ interface Ctx {
 	refused: Set<number>;
 	artPlan: Folded['artPlan'];
 	recipesVersion: number;
+	gpu: string | null;
 }
 
 const OTHER_GROUP = 'Other regions';
@@ -909,6 +916,7 @@ export function foldEvents(events: readonly RunEvent[], prefix: string): Folded 
 		refused: refusedIds(events),
 		artPlan: 'none',
 		recipesVersion: 0,
+		gpu: null,
 	};
 	for (const event of events) {
 		if (typeof event.id !== 'number' || typeof event.at !== 'string') continue;
@@ -937,6 +945,7 @@ export function foldEvents(events: readonly RunEvent[], prefix: string): Folded 
 				foldJobDone(ctx, event, p);
 				break;
 			case 'spend':
+				if (p.kind === 'runpod' && isGpuName(p.model)) ctx.gpu = p.model;
 				push(
 					ctx,
 					event,
@@ -1013,6 +1022,7 @@ export function foldEvents(events: readonly RunEvent[], prefix: string): Folded 
 		stepStartedAt: ctx.stepStartedAt,
 		artPlan: ctx.artPlan,
 		recipesVersion: ctx.recipesVersion,
+		gpu: ctx.gpu,
 	};
 }
 

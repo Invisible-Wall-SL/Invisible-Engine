@@ -141,9 +141,10 @@ failed, handed off — is the Live run screen.
 
 ## Live run (`/director/<run id>`)
 
-The same page once the breakdown is confirmed (or whenever no breakdown is waiting): the galleries
-fill in as the agents render, each region batch stops for your review, and the run ends in your
-hands. Everything on it is read from the run's event stream, so it is the same picture on a reload.
+The same page once the breakdown is confirmed (or whenever no breakdown is waiting): the Art plan
+and each region batch stop for your review, the galleries fill in as the agents render, and the
+run ends in your hands. Everything on it is read from the run's event stream, so it is the same
+picture on a reload.
 
 - **Header:** the game, its key and the state pill — "Not started", "Agents working · step 3 of 5",
   "Waiting for you · step 3 of 5", "Paused · step 3 of 5", "Stopping", "Stopped", "Failed",
@@ -153,8 +154,8 @@ hands. Everything on it is read from the run's event stream, so it is the same p
   tab, never a publish.
 - **Meters:** **Elapsed** since the run was created; **Claude API** spend; **RunPod `<GPU>`**
   spend with "· n jobs queued" while renders wait on the GPU ("Idle until you confirm" before the
-  first; the label names the Preset's GPU, though renders run, and are billed, on the GPU
-  atlas-tool reports); **Cap** — "$x of $y" with a bar, marked over once the cap is reached. Then
+  first). The label names the GPU renders bill on: the latest render's, else the one atlas-tool
+  reports, never the Preset's. **Cap** — "$x of $y" with a bar, marked over once the cap is reached. Then
   **Pause** and **Stop**, each shown only when the run allows it. Stop asks first — "Stop this
   run? The agents stop after their current call and every queued render is cancelled. The project
   stays as it is." — and the button to confirm is **Stop the run**.
@@ -259,13 +260,14 @@ hands. Everything on it is read from the run's event stream, so it is the same p
     stores them as each region's next revision and brings the plan back for you to approve. If one
     breaks a rule there, none is stored and Activity lists why; a note sent with them goes to the
     coordinator. **Discard edits** drops them.
-  - With no edits, **Send my changes** sends your note (required) to the atlas technician, who
-    revises the plan and brings it back.
+  - With no edits, **Send my changes** sends your note (required) back to the agents: the atlas
+    technician revises the plan and brings it back.
+  - A region a newer coordinator plan leaves out loses its recipe's approval and is listed as
+    "Left out of the plan (never rendered)". A later revision that changes a pipeline or costs
+    more needs your approval again.
   - Outside the checkpoint — while the technician is still planning, after you approve, or with
     the checkpoint off — the same plan shows read-only below the region panel, folded behind one
-    line ("Every recipe is approved · show the recipes"). A region a newer coordinator plan leaves
-    out loses its recipe's approval and is listed as "Left out of the plan (never rendered)". A
-    later revision that changes a pipeline or costs more needs your approval again.
+    line ("Every recipe is approved · show the recipes", or how many still wait for approval).
 - **Fonts to bake:** as on the breakdown (above).
 - **As they land:** one gallery per place the agents saved an image under the project — **Atlas
   pages**, **Sheets**, **Atlases**, **Symbols**, **Scenes**, **Renders**, **References**,

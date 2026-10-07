@@ -1340,6 +1340,34 @@ console.log('batches, atlases and trimming');
 	});
 	const done = foldEvents(rows, PREFIX);
 	check('approving the plan approves it', done.artPlan, 'approved');
+	check('no render billed yet: no GPU named by the run', done.gpu, null);
+	const billed = foldEvents(
+		[
+			...rows,
+			{
+				id: 5,
+				at: 'e',
+				agent: 'atlas-technician',
+				kind: 'spend',
+				tool: null,
+				payload: { kind: 'runpod', model: 'L40S (48 GB)', usd: 0.1, seconds: 180 },
+			},
+			{
+				id: 6,
+				at: 'f',
+				agent: 'atlas-technician',
+				kind: 'spend',
+				tool: null,
+				payload: { kind: 'runpod', model: '<b>x</b>', usd: 0.1 },
+			},
+		],
+		PREFIX,
+	);
+	check(
+		'the meter names the GPU the latest render billed on, never markup',
+		billed.gpu,
+		'L40S (48 GB)',
+	);
 	check('…in the owner’s words', done.feed.at(-1)?.text, 'approved the Art plan.');
 	const summary = {
 		status: 'running',

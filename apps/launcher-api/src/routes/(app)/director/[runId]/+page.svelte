@@ -44,6 +44,7 @@
 		areaLabel,
 		foldEvents,
 		insertEvent,
+		isGpuName,
 		isNews,
 		isRefusedRequest,
 		trimEvents,
@@ -182,14 +183,14 @@
 	const capShare = $derived(
 		run && run.spend.capUsd ? Math.min(1, run.spend.totalUsd / run.spend.capUsd) : 0,
 	);
-	/** The GPU the preset prices renders at, as `pricing.json` names it; shown on the RunPod meter. */
-	const gpuName = $derived(
-		isRecord(run?.preset) &&
-			typeof run.preset.gpu === 'string' &&
-			/^[A-Za-z0-9 _.-]{1,24}$/.test(run.preset.gpu)
-			? run.preset.gpu
-			: '',
-	);
+	/**
+	 * The GPU renders bill on: the one the latest render was billed at, else the one atlas-tool
+	 * reports (ADR-0008 §6), never the Preset's.
+	 */
+	const gpuName = $derived.by(() => {
+		const reported = artPlan?.catalogue?.gpu;
+		return folded.gpu ?? (isGpuName(reported) ? reported : '');
+	});
 	const playDraft = $derived.by(() => {
 		const url = safeGameUrl(run?.game?.url);
 		return url ? asAuthoringLaunch(url) : null;
