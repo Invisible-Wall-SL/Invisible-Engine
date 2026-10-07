@@ -271,8 +271,9 @@ picture on a reload.
     technician revises the plan and brings it back.
   - A region a newer coordinator plan leaves out loses its recipe's approval and is listed under
     "Left out of the plan": its recipe no longer renders, and anything it already made stays in
-    the project. A later revision that changes a pipeline or where a step runs, or costs more on
-    today's prices, needs your approval again.
+    the project. A later revision that changes a pipeline or where a step runs, costs more on
+    today's prices, or would render again a step that has already rendered (a changed setting
+    restarts that step and every step after it), needs your approval again.
   - Outside the checkpoint — while the technician is still planning, after you approve, or with
     the checkpoint off — the same plan shows read-only below the region panel, folded behind one
     line ("Every recipe is approved · show the recipes", or how many still wait for approval).
