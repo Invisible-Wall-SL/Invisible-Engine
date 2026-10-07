@@ -194,10 +194,11 @@
 	 */
 	const symbolNames = $derived(data.symbols);
 	const shownSymbols = $derived(new Set(symbolNames));
-	// The pots overlay's coins (its tokens) are drawn as their own group, after the symbols.
+	// The pots overlay's coins (its tokens) are drawn as their own group, in pot order, after the
+	// symbols.
 	const coinSet = $derived(new Set(data.coins));
 	const symbolRows = $derived(symbolNames.filter((name) => !coinSet.has(name)));
-	const coinRows = $derived(symbolNames.filter((name) => coinSet.has(name)));
+	const coinRows = $derived(data.coins);
 
 	// Whether stacked-picture authoring is on for this project — a per-project master toggle (default
 	// OFF) that both shows the "Stacked pictures" config block below and gates whether the stacked config

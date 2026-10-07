@@ -12,8 +12,10 @@
  * the symbol left in play, the same deal LANDS it on a board (a pick list naming the pool is not
  * enough). The client reads every declared symbol as one `/config` puts in play — through the
  * mapping it detects from that declaration, so a Book-of pool without `ACE`, `KING` and `QUEEN` is
- * still read as a book. Each case's unused config is one `/config` saves; a Hold and Win coin symbol
- * taken off the reels is refused there.
+ * still read as a book (a pots overlay host's too), and draws the respin board's empty cell with the
+ * blank the server declares. Each case's unused config is one `/config` saves; a Hold and Win coin
+ * symbol taken off the reels is refused there, and a config saved before that rule still deals its
+ * coins rather than losing them.
  *
  * The real Invisible Test Server (`services/test-server/server.mjs`, local mode) then deals every
  * case from the same contracts through its own `validGrid` and `makeMock`, so the wiring the in-process
@@ -34,7 +36,9 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
 	HOLD_AND_WIN_PRESETS,
+	addPotsOverlay,
 	gameConfigErrors,
+	holdAndWinBlankSymbol,
 	normalizeGameConfigDoc,
 	symbolUses,
 	type GameConfigDoc,
@@ -45,11 +49,12 @@ import {
 	pickMappingForConfig,
 } from 'rgs-translator-eagaming/game-mappings';
 import { startTestServer } from '../../../scripts/current-games/lib/serve.mjs';
+import { withPotsOverlay } from '../../../scripts/mock-pots-overlay.mjs';
 import { createMockRgs as createBookMock } from '../../../scripts/mock-rgs-server-book.mjs';
 import { createMockRgs as createHoldAndWinMock } from '../../../scripts/mock-rgs-server-holdandwin.mjs';
 import { createMockRgs as createLinesMock } from '../../../scripts/mock-rgs-server.mjs';
 import { readLF } from '../../../scripts/lib/read-lf.mjs';
-import { gameConfigDefaultFor } from '../src/lib/server/gameConfigDefaults.ts';
+import { gameConfigDefaultFor, templateIsBuiltIn } from '../src/lib/server/gameConfigDefaults.ts';
 import { mockContractOfBundle } from '../src/lib/server/mockContract.ts';
 import type { RuntimeBundle } from '../src/lib/server/runtimeBundle.ts';
 import type { MockProtocol } from '../src/lib/server/testServerManifest.ts';
@@ -123,7 +128,7 @@ const namesIn = (value: unknown, out: Set<string>, key = ''): Set<string> => {
 	return out;
 };
 
-type BootConfig = { symbols?: string[]; holdAndWin?: unknown; potsOverlay?: unknown };
+type BootConfig = { symbols?: string[]; holdAndWin?: { blank?: string }; potsOverlay?: unknown };
 
 /** What a run saw: the names the mock DECLARED (its `config` and `spinStart` events — the client
  *  builds its spinning reels from them), the ones it DEALT or picked (every other event), the ones
@@ -244,6 +249,20 @@ const takeOffReels = (doc: GameConfigDoc, name: string): GameConfigDoc => {
 	return saved(next);
 };
 
+/** A symbol renamed in the dictionary and on every strip. */
+const renameSymbol = (doc: GameConfigDoc, from: string, to: string): GameConfigDoc => {
+	const next = structuredClone(doc);
+	next.symbols = Object.fromEntries(
+		Object.entries(next.symbols).map(([name, symbol]) => [name === from ? to : name, symbol]),
+	);
+	for (const type of Object.keys(next.paddingReels)) {
+		next.paddingReels[type] = next.paddingReels[type].map((reel) =>
+			reel.map((cell) => (cell.name === from ? { ...cell, name: to } : cell)),
+		);
+	}
+	return saved(next);
+};
+
 const templateOf = (kind: string): GameConfigDoc => {
 	const template = gameConfigDefaultFor(kind);
 	if (!template) throw new Error(`no template for ${kind}`);
@@ -282,12 +301,16 @@ const mockFor = (c: Case, config: GameConfigDoc) => {
 	return (extra: Record<string, unknown>): Mock => {
 		const common = { label: 'unused-in-game', seed: 'unused-in-game', quiet: true, ...extra };
 		if (c.protocol === 'book') {
-			return createBookMock({
+			const opts = {
 				...common,
 				autoCollect: true,
 				symbolPaytable: grid?.symbolPaytable,
 				symbols: grid?.symbols,
-			});
+			};
+			// A pots overlay rides the book host, as `makeBookMock` composes it.
+			return grid?.potsOverlay
+				? withPotsOverlay(createBookMock, grid.potsOverlay)({ ...opts, allowForce: true })
+				: createBookMock(opts);
 		}
 		if (c.protocol === 'holdAndWin') return createHoldAndWinMock({ ...common, ...grid });
 		return createLinesMock({
@@ -333,6 +356,15 @@ const pots = saved(HOLD_AND_WIN_PRESETS.pots);
 /** The pots preset's meter that MULTI fills. */
 const multiMeter = pots.holdAndWin?.meters?.find((meter) => meter.symbol === 'MULTI')?.id;
 if (!multiMeter) throw new Error('the pots preset has no meter MULTI fills');
+/** A Book-of game with the 3 Pots overlay, its blank renamed so the respin board's empty cell is a
+ *  name of the project's own, and L1–L4 off its strips: only TEN is left of the royals. */
+const bookWithPots = (() => {
+	const added = addPotsOverlay(lines, 'threePots');
+	if (!added.ok) throw new Error(`the threePots overlay: ${added.reason}`);
+	let doc = renameSymbol(added.doc, 'BLANK', 'EMPTY');
+	for (const name of ['L1', 'L2', 'L3', 'L4']) doc = takeOffReels(doc, name);
+	return doc;
+})();
 
 const CASES: Case[] = [
 	{
@@ -402,6 +434,15 @@ const CASES: Case[] = [
 		drive: bookDrive,
 	},
 	{
+		// Unused, no royal is left at all, on a host whose boot also carries a Hold and Win bonus.
+		label: 'bookOf with the 3 Pots overlay · L5 (TEN), with L1–L4 already off',
+		protocol: 'book',
+		config: bookWithPots,
+		unused: 'L5',
+		wire: 'TEN',
+		drive: bookDrive,
+	},
+	{
 		label: 'holdAndWin · MULTI (a special and a meter symbol)',
 		protocol: 'holdAndWin',
 		config: pots,
@@ -439,7 +480,8 @@ const run = async (c: Case, config: GameConfigDoc): Promise<Seen> => {
 	return seen;
 };
 
-/** The client draws every declared symbol as one `/config` puts in play. */
+/** The client draws every declared symbol as one `/config` puts in play, and a respin board's empty
+ *  cell with the blank the server declares (`respinBlank` is `holdAndWinBlankSymbol`). */
 const checkDrawn = (label: string, seen: Seen, config: GameConfigDoc): void => {
 	const uses = symbolUses(config);
 	const strays = drawnAs(seen.boot).filter((name) => uses[name] !== 'inPlay');
@@ -448,6 +490,13 @@ const checkDrawn = (label: string, seen: Seen, config: GameConfigDoc): void => {
 		Boolean(seen.boot?.symbols?.length) && !strays.length,
 		`declared ${JSON.stringify(seen.boot?.symbols)}, drawn as ${JSON.stringify(drawnAs(seen.boot))}`,
 	);
+	if (config.holdAndWin) {
+		check(
+			`${label} · the client's respin blank is the one the server declares`,
+			seen.boot?.holdAndWin?.blank === holdAndWinBlankSymbol(config),
+			`declared ${seen.boot?.holdAndWin?.blank}, the client's ${holdAndWinBlankSymbol(config)}`,
+		);
+	}
 };
 
 /** Each case's two contracts, as the real test server is about to deal them. */
@@ -493,6 +542,43 @@ check(
 			(issue) => issue.path === 'holdAndWin.coins',
 		),
 );
+// …but a config saved before that rule still deals its coins, rather than losing its feature.
+if (coinSymbol) {
+	const legacy: Case = {
+		label: 'holdAndWin · a coin symbol saved off the strips before the rule',
+		protocol: 'holdAndWin',
+		config: pots,
+		unused: coinSymbol,
+		wire: coinSymbol,
+		drive: holdAndWinDrive(),
+	};
+	const seen = await run(legacy, takeOffReels(pots, coinSymbol));
+	check(
+		`${legacy.label} · still lands its coins`,
+		seen.rounds > 20 && seen.landed.has(coinSymbol),
+		`${seen.rounds} rounds`,
+	);
+}
+
+// A blank `/config` marks unused: the server's respin board falls back to `BLANK`, and so does
+// the client's.
+{
+	const blankOff = takeOffReels(bookWithPots, 'EMPTY');
+	const blankCase: Case = {
+		label: 'bookOf with the 3 Pots overlay · its blank EMPTY off the strips',
+		protocol: 'book',
+		config: bookWithPots,
+		unused: 'EMPTY',
+		wire: 'EMPTY',
+		drive: async (make, seen) => playMock(make({}), 25, seen),
+	};
+	check(
+		`${blankCase.label} · /config badges EMPTY unused and saves it`,
+		symbolUses(blankOff).EMPTY === 'unused' && !gameConfigErrors(blankOff).length,
+		JSON.stringify(gameConfigErrors(blankOff)),
+	);
+	checkDrawn(blankCase.label, await run(blankCase, blankOff), blankOff);
+}
 
 // The real test server, dealing every case from the same contracts.
 const tree = mkdtempSync(join(tmpdir(), 'unused-in-game-'));
@@ -506,13 +592,15 @@ try {
 	writeFileSync(join(tree, 'games.json'), JSON.stringify({ games }));
 	const server = await startTestServer(tree, { SEED: 'unused-in-game' });
 	try {
-		for (const { key, c, local, unused } of served) {
+		for (const { key, c, config, local, unused } of served) {
 			const seen = seenNothing();
 			const post: Post = (path, body) =>
 				fetch(`${server.origin}/api/${key}${path}`, {
 					method: 'POST',
 					headers: { 'content-type': 'application/json' },
 					body: JSON.stringify(body),
+					// A hung request fails this gate here, and `finally` stops the server.
+					signal: AbortSignal.timeout(15_000),
 				}).then((res) => res.json() as Promise<Response>);
 			await playRounds(post, 40, seen, (i) =>
 				c.protocol === 'holdAndWin' && i % 3 === 0 ? 'force:trigger' : null,
@@ -524,6 +612,7 @@ try {
 				JSON.stringify(seen.boot?.symbols) === JSON.stringify(local.boot?.symbols),
 				`${JSON.stringify(seen.boot?.symbols)} vs ${JSON.stringify(local.boot?.symbols)}`,
 			);
+			checkDrawn(label, seen, config);
 			if (unused) {
 				check(
 					`${label} · never deals or declares ${c.wire}`,
@@ -538,22 +627,57 @@ try {
 	rmSync(tree, { recursive: true, force: true });
 }
 
-// The game's own surfaces that list symbols rather than read a dealt board — matched over
-// whitespace-collapsed source, so a re-wrap does not break them, and each list must be used.
+// The game's own surfaces that list symbols rather than read a dealt board, and the never-saved
+// banner's claim — pinned over whitespace-free source, so a re-wrap never breaks them.
 const here = fileURLToPath(new URL('.', import.meta.url));
-const appSource = (rel: string) => readLF(`${here}../../lines/src/${rel}`).replace(/\s+/g, ' ');
-const specialBook = appSource('components/SpecialBook.svelte');
+const source = (rel: string) => readLF(`${here}../${rel}`);
+const holds = (text: string, code: string): boolean =>
+	text.replace(/\s+/g, '').includes(code.replace(/\s+/g, ''));
+const specialBook = source('../lines/src/components/SpecialBook.svelte');
 check(
 	'the Book-of shuffle cycles only the symbols in play',
-	specialBook.includes('const inPlay = new Set(getSymbolsInPlay());') &&
-		specialBook.includes('.filter((name) => inPlay.has(name)') &&
-		/= symbolNames\(\);/.test(specialBook),
+	holds(specialBook, 'const inPlay = new Set(getSymbolsInPlay());') &&
+		holds(specialBook, '.filter((name) => inPlay.has(name)') &&
+		holds(specialBook, '= symbolNames();'),
 );
-const debugGrid = appSource('components/debug/SymbolDebugTool.svelte');
 check(
 	'the Symbol Debug grid lists what Invisible Symbols lists',
-	debugGrid.includes('const symbols = symbolsUsed(getActiveGameConfig());') &&
-		debugGrid.includes('<SymbolDebugOverlay {symbols}'),
+	holds(
+		source('../lines/src/components/debug/SymbolDebugTool.svelte'),
+		'const symbols = symbolsUsed(getActiveGameConfig());',
+	) &&
+		holds(
+			source('../lines/src/components/debug/SymbolDebugTool.svelte'),
+			'<SymbolDebugOverlay {symbols}',
+		),
+);
+check(
+	"the respin board's empty cell is holdAndWinBlankSymbol, the server's pick",
+	holds(
+		source('../lines/src/game/stateRespinBoard.svelte.ts'),
+		'export const respinBlank = (): string => holdAndWinBlankSymbol(getActiveGameConfig());',
+	),
+);
+// A never-saved project plays the compiled lines config: the banner says whether that is the
+// template `/config` shows.
+check(
+	'the kinds whose template is the built-in lines config',
+	JSON.stringify(
+		['lines', 'cluster', 'bookOf', 'myCustomKind', 'ways', 'scatter', 'holdAndWin'].map((kind) =>
+			templateIsBuiltIn(kind),
+		),
+	) === JSON.stringify([true, true, true, true, false, false, false]),
+);
+check(
+	'the never-saved banner reads templateIsBuiltIn',
+	holds(
+		source('src/routes/(app)/config/+page.server.ts'),
+		'templateIsBuiltIn: templateIsBuiltIn(gameType),',
+	) &&
+		holds(
+			source('src/routes/(app)/config/+page.svelte'),
+			"{data.templateIsBuiltIn ? 'which is this template' : 'not what this page shows'}",
+		),
 );
 
 console.log(

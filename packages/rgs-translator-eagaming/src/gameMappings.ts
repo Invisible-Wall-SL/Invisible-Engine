@@ -184,7 +184,9 @@ export const pickMappingForConfig = (cfg: {
 	const syms = new Set(cfg.symbols ?? []);
 	if (BOOK_ROYALS.some((name) => syms.has(name))) return bookMapping;
 	if (syms.has('PIC5') || syms.has('PIC6') || syms.has('PIC7')) return linesMapping;
-	return cfg.holdAndWin ? identityMapping : null;
+	// Undecidable, an overlay host's too (a pool with neither a royal nor PIC5-PIC7): its board is
+	// still the host's, so the runtime's own mapping stands, and its bonus names pass through it.
+	return null;
 };
 
 /** Resolve a symbol name through the mapping. Unmapped names pass through. */

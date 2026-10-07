@@ -298,9 +298,12 @@ for (const kind of [...GAME_KINDS, 'myCustomKind']) {
 				overlayTokens.filter((name) => !source.defaults.symbols[name] && rows.has(name)),
 			);
 			check(
-				`${at} · the /symbols coin group is the coins /config lists in their own section`,
-				[page.coins, badged.filter((name) => uses[name] === 'token' && !page.coins.includes(name))],
-				[page.symbols.filter((name) => uses[name] === 'token'), []],
+				`${at} · the /symbols coin group is the overlay's coins, in pot order`,
+				[page.coins, [...page.coins].sort()],
+				[
+					[...new Set(overlayTokens)].filter((name) => uses[name] === 'token'),
+					page.symbols.filter((name) => uses[name] === 'token').sort(),
+				],
 			);
 			check(
 				`${at} · nothing shown depends on whether the config was saved`,
@@ -351,6 +354,27 @@ check(
 	rowsFor('lines', { doc: potsDoc, etag: '"e"' }).filter((name) => tokens.includes(name)),
 	tokens,
 );
+{
+	// Published art that lists the coins backwards does not reorder the Coins group.
+	const committed = symbolDefaultsFor('lines');
+	const anyRow = Object.values(committed.symbols)[0];
+	const backwards: SymbolDefaults = {
+		...committed,
+		symbols: {
+			...committed.symbols,
+			...Object.fromEntries([...tokens].reverse().map((token) => [token, anyRow])),
+		},
+	};
+	check(
+		'a pots overlay · the coin group keeps pot order whatever order published art lists',
+		symbolsPageConfig(
+			'lines',
+			backwards,
+			resolvedGameConfigFrom({ doc: potsDoc, etag: '"e"' }, 'lines'),
+		).coins,
+		tokens,
+	);
+}
 
 // ── 3. the wiring ───────────────────────────────────────────────────────────────────────────────
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -359,16 +383,20 @@ const configServer = read('config/+page.server.ts');
 const configPage = read('config/+page.svelte');
 const symbolsServer = read('symbols/+page.server.ts');
 const symbolsPage = read('symbols/+page.svelte');
+/** Does `source` hold `code`, whitespace aside? A re-wrap never breaks a pin; a change of code does. */
+const holds = (source: string, code: string): boolean =>
+	source.replace(/\s+/g, '').includes(code.replace(/\s+/g, ''));
 check(
 	'/config opens the config through resolveGameConfig',
-	/resolveGameConfig\(/.test(configServer),
+	holds(configServer, 'resolveGameConfig('),
 	true,
 );
 check(
 	'/symbols reads the SAME config: resolveGameConfig, and no loader that skips the template',
 	[
-		/gameTypeLoad\.then\(\(type\) => resolveGameConfig\(clientKey, projectKey, type\)\)/.test(
+		holds(
 			symbolsServer,
+			'gameTypeLoad.then((type) => resolveGameConfig(clientKey, projectKey, type))',
 		),
 		/loadGameConfigDoc/.test(symbolsServer),
 	],
@@ -376,47 +404,49 @@ check(
 );
 check(
 	'/symbols builds everything config-driven with symbolsPageConfig over that resolution',
-	/\.\.\.symbolsPageConfig\(gameType, published \?\? symbolDefaultsFor\(gameType\), config\)/.test(
+	holds(
 		symbolsServer,
+		'...symbolsPageConfig(gameType, published ?? symbolDefaultsFor(gameType), config)',
 	),
 	true,
 );
 check(
 	'/symbols lists data.symbols as they come',
-	/const symbolNames = \$derived\(data\.symbols\);/.test(symbolsPage),
+	holds(symbolsPage, 'const symbolNames = $derived(data.symbols);'),
 	true,
 );
 check(
 	'/symbols lists stacked pictures only for listed symbols',
-	/stackedSymbols\(doc\)\.filter\(\(s\) => shownSymbols\.has\(s\.name\)\)/.test(symbolsPage),
+	holds(symbolsPage, 'stackedSymbols(doc).filter((s) => shownSymbols.has(s.name))'),
 	true,
 );
 check(
 	'/config badges with symbolUses — only the symbols that are not coins',
-	/symbolUses\(snapshot\)/.test(configPage) &&
-		/const reelSymbolNames = \$derived\(symbolNames\.filter\(\(name\) => uses\[name\] !== 'token'\)\);/.test(
+	holds(configPage, 'symbolUses(snapshot)') &&
+		holds(
 			configPage,
+			"const reelSymbolNames = $derived(symbolNames.filter((name) => uses[name] !== 'token'));",
 		) &&
-		/\{#each reelSymbolNames as name \(name\)\}/.test(configPage),
+		holds(configPage, '{#each reelSymbolNames as name (name)}'),
 	true,
 );
 const coinsAt = configPage.indexOf('<h2>Coins</h2>');
 const coinsSection =
 	coinsAt < 0 ? '' : configPage.slice(coinsAt, configPage.indexOf('</section>', coinsAt));
 check(
-	'/config lists the coins in a section of their own, with no in play / unused badge',
-	/const coinNames = \$derived\(symbolNames\.filter\(\(name\) => uses\[name\] === 'token'\)\);/.test(
+	'/config lists the coins in a section of their own, in pot order, with no in play / unused badge',
+	holds(
 		configPage,
+		"const coinNames = $derived(symbolsUsed(snapshot).filter((name) => uses[name] === 'token'",
 	) &&
-		/\{#each coinNames as name \(name\)\}/.test(coinsSection) &&
+		holds(coinsSection, '{#each coinNames as name (name)}') &&
 		!/class="badge/.test(coinsSection),
 	true,
 );
 check(
-	'/symbols draws its coin rows as a group of their own',
-	/const coinRows = \$derived\(symbolNames\.filter\(\(name\) => coinSet\.has\(name\)\)\);/.test(
-		symbolsPage,
-	) && /\{#each coinRows as symbol \(symbol\)\}/.test(symbolsPage),
+	'/symbols draws its coin rows, in pot order, as a group of their own',
+	holds(symbolsPage, 'const coinRows = $derived(data.coins);') &&
+		holds(symbolsPage, '{#each coinRows as symbol (symbol)}'),
 	true,
 );
 

@@ -36,6 +36,7 @@
 		swapStyleUsesColumnStagger,
 		symbolHoldAndWinRoles,
 		symbolsInPlay,
+		symbolsUsed,
 		symbolUses,
 		validateGameConfigDoc,
 		type BetModeKind,
@@ -102,9 +103,12 @@
 		issues.filter((i) => i.path === prefix || i.path.startsWith(`${prefix}.`));
 
 	const symbolNames = $derived(Object.keys(doc.symbols));
-	/** The pots overlay's coins (its tokens) get their own section, unbadged: the overlay decides
-	 *  whether each one is used and which pot it fills. Every other symbol is badged by the strips. */
-	const coinNames = $derived(symbolNames.filter((name) => uses[name] === 'token'));
+	/** The pots overlay's coins (its tokens) get their own section, unbadged and in pot order: the
+	 *  overlay decides whether each one is used and which pot it fills. Every other symbol is badged
+	 *  by the strips. */
+	const coinNames = $derived(
+		symbolsUsed(snapshot).filter((name) => uses[name] === 'token' && symbolNames.includes(name)),
+	);
 	const reelSymbolNames = $derived(symbolNames.filter((name) => uses[name] !== 'token'));
 	const coinPots = $derived(overlayTokenPots(snapshot));
 
@@ -1851,8 +1855,9 @@
 				badge means the symbol appears on a reel strip and so can actually reach the board; a
 				<span class="badge out">unused</span> symbol is defined here but dealt by no strip (a payout
 				no one can win), and Invisible Symbols does not list it. <strong>Click the badge</strong> to
-				put a symbol on the reels or take it off. A pots overlay's coins are not reel symbols: they
-				have their own section, <strong>Coins</strong>, below. Paytable is
+				put a symbol on the reels or take it off.
+				{#if coinNames.length}A pots overlay's coins are not reel symbols: they have their own
+					section, <strong>Coins</strong>, below.{/if} Paytable is
 				<code>count:multiplier</code> pairs, e.g. <code>5:20, 4:10, 3:5</code>. A
 				<strong>scatter</strong>'s paytable is its scatter pay — × the total bet, anywhere on the
 				board; left empty it pays <code>{formatPayRow(DEFAULT_SCATTER_PAYTABLE)}</code>.
@@ -1988,6 +1993,7 @@
 								<th>Coin</th>
 								<th>Fills</th>
 								<th>Special properties</th>
+								<th></th>
 							</tr>
 						</thead>
 						<tbody>
@@ -2002,6 +2008,15 @@
 											oninput={(e) => setProperties(name, e.currentTarget.value)}
 										/></td
 									>
+									<td>
+										{#if doc.symbols[name].paytable?.length}
+											<button
+												class="linkish"
+												title="A pot's coin pays nothing, so its line pays are never paid"
+												onclick={() => clearPaytable(name)}>Drop line pays</button
+											>
+										{/if}
+									</td>
 								</tr>
 							{/each}
 						</tbody>

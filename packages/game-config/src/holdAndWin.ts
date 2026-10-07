@@ -722,6 +722,17 @@ export const symbolsWithRole = (
 		.map(([name]) => name)
 		.sort();
 
+/**
+ * The respin board's empty cell: the first symbol tagged `blank` that a strip deals, else the wire's
+ * literal `BLANK`. It is the mock's own pick (it deals from `holdAndWinMockInputs`, which keeps only
+ * role symbols a strip deals), read off the config the game baked, so the client draws the cell the
+ * server sends — and never a blank `/config` marks unused.
+ */
+export const holdAndWinBlankSymbol = (doc: GameConfigDoc): string => {
+	const inPlay = new Set(symbolsInPlay(doc));
+	return symbolsWithRole(doc, 'blank').find((name) => inPlay.has(name)) ?? 'BLANK';
+};
+
 /** Does the symbol carry any Hold and Win role? Such a symbol pays by its value, never on a line,
  *  so the paytable shows it as the coin value table rather than as pays. */
 export const isHoldAndWinSymbol = (
@@ -845,12 +856,13 @@ export function validateHoldAndWin(doc: GameConfigDoc): GameConfigIssue[] {
 	} else if (!dealt('coin').length && !dealt('jackpot').length) {
 		error('coins', 'No coin or jackpot symbol is on a reel strip, so no coin can ever land.');
 	} else if (!dealt('coin').length && block.coins.some((c) => c.kind === 'cash' && c.weight > 0)) {
-		// The mock would deal it as the jackpot symbol, which the game values at nothing.
+		// A cash coin would land as the jackpot symbol, which the game values at nothing.
+		const coins = tagged('coin');
 		error(
 			'coins',
-			tagged('coin').length
-				? `The coin table has cash coins, but no coin symbol is on a reel strip (${tagged('coin').join(', ')} is unused), so they can never land.`
-				: 'The coin table has cash coins, but no symbol is tagged coin, so they can never land.',
+			coins.length
+				? `The coin table pays cash coins, but no coin symbol is on a reel strip (${coins.join(', ')} ${coins.length > 1 ? 'are' : 'is'} unused) — put one back on the reels.`
+				: 'The coin table pays cash coins, but no symbol is tagged coin — tag one, or take the cash coins out.',
 		);
 	}
 	if (!block.coins.length) error('coins', 'The coin value table is empty.');

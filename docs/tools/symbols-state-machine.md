@@ -1215,7 +1215,7 @@ need to dress them:
 
 - **A Coins group.** Each pot's token (its coin) is listed as a row even though it is never on a
   reel strip (it is drawn over a cell, never dealt): after the symbols, under a **Coins** heading,
-  as `/config` gives the coins a section of their own. Its row head carries a gold
+  in pot order, as `/config` gives the coins a section of their own. Its row head carries a gold
   **token → &lt;pot id&gt;** chip per pot it fills.
 - **Placeholders until you bind art.** The symbols the add-on brings have no art at first. Rather
   than drawing nothing, the game draws a coded disc for each one: a token in its pot's colour with

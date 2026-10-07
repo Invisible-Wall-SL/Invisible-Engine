@@ -3,6 +3,7 @@ import {
 	resolveCascade,
 	resolveReelBehaviour,
 	symbolHoldAndWinRoles,
+	symbolsUsed,
 	symbolUses,
 } from 'game-config';
 import { overlayTokenPots, projectAddOns } from '$lib/addOns';
@@ -26,6 +27,7 @@ export function symbolsPageConfig(
 	const { doc } = config;
 	const grid = symbolGrid(defaults, doc);
 	const uses = doc ? symbolUses(doc) : {};
+	const listed = new Set(grid.symbols);
 	const { addOns, potIds } = projectAddOns(doc);
 	// Each symbol's Hold and Win role(s) from the config's `special_properties` — chips on the grid's
 	// row heads, so the author sees which row is the coin, the collector, the mystery. Only for a kind
@@ -42,9 +44,9 @@ export function symbolsPageConfig(
 		defaults: grid.defaults,
 		// The rows the grid lists, in order — see `symbolGrid`.
 		symbols: grid.symbols,
-		// The rows that are the pots overlay's coins (its tokens) — a group of their own after the
-		// symbols, as `/config` gives them a section of their own.
-		coins: grid.symbols.filter((name) => uses[name] === 'token'),
+		// The rows that are the pots overlay's coins (its tokens), in pot order — a group of their own
+		// after the symbols, as `/config` gives them a section of their own.
+		coins: doc ? symbolsUsed(doc).filter((name) => uses[name] === 'token' && listed.has(name)) : [],
 		// Does this project tumble? Gates the `Clear reel` column, which only means anything to a
 		// cascading game. Resolved (not the raw stored field) so the answer matches the one the game
 		// itself acts on: absent ⇒ the win model's default, so a cluster/scatter project gets the

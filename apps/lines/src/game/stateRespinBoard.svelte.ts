@@ -13,17 +13,11 @@ import {
 	type SymbolState,
 } from 'engine-game';
 import { TERMINAL_SYMBOL_STATES, type ReelGridTileArt } from 'engine-layout';
-import { respinBoardMaxRows, symbolsWithRole } from 'game-config';
+import { holdAndWinBlankSymbol, respinBoardMaxRows } from 'game-config';
 import { stateBet } from 'state-shared';
 
 import { eventEmitter } from './eventEmitter';
-import {
-	activeGrid,
-	boardDimensions,
-	getActiveGameConfig,
-	getPaddingReels,
-	getSymbolsInPlay,
-} from './gameConfig';
+import { activeGrid, boardDimensions, getActiveGameConfig, getPaddingReels } from './gameConfig';
 import { playReelStopSound } from './soundBindings';
 import { cellSymbolLead, stateGameDerived } from './stateGame.svelte';
 import { stateHoldAndWin } from './stateHoldAndWin.svelte';
@@ -162,14 +156,8 @@ let board = $state.raw<RespinBoard | null>(null);
 /** The respin board's reels, or `null` before the first feature built them. */
 export const currentRespinBoard = (): RespinBoard | null => board;
 
-/** The empty cell: the symbol the Game Config tags `blank` that a strip deals, else the wire's
- *  literal `BLANK` — the mock's rule, so one `/config` marks unused is never drawn. */
-export const respinBlank = (): string => {
-	const inPlay = getSymbolsInPlay();
-	return (
-		symbolsWithRole(getActiveGameConfig(), 'blank').find((name) => inPlay.includes(name)) ?? 'BLANK'
-	);
-};
+/** The empty cell, as the server picks it (`holdAndWinBlankSymbol`). */
+export const respinBlank = (): string => holdAndWinBlankSymbol(getActiveGameConfig());
 
 /**
  * The strip a cell of column `reel` rolls through — the config's AUTHORED `respin` strips (every

@@ -731,7 +731,10 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
   **Deploy note:** the test server works the contract out on demand, from a published snapshot too,
   so on deploy every live Book-of or Hold and Win project whose strips leave a symbol out changes its
   deal with no republish — e.g. a Book-of project with `S` off its strips stops triggering free spins
-  naturally (buys and forced triggers still work). Intended; check live Book-of projects' strips.
+  naturally (buys and forced triggers still work), and a Hold and Win game's special or meter symbol
+  off its strips stops landing. Intended; check live Book-of and Hold and Win projects' strips. The
+  one exception: a Hold and Win config with no coin symbol on a strip (now refused at save) keeps
+  dealing its coin and jackpot symbols as before, so it does not lose its coins on deploy.
   Not covered: our test server deals a lines-family or Book-of game only the engine's own symbol
   names, so a project with none of them in play is dealt its default set, as before.
 - 2026-10-07 — **A pots overlay's coins get a section of their own, Coins, with no badge.** They

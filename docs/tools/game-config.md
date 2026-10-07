@@ -75,9 +75,11 @@ before — an un-authored project still runs the compiled template.
   the launcher can't reach — see _Importing from a pasted capture_. Once a capture is
   kept, a line under the buttons reads _Partner reference: captured from <source> on
   <date> — matches_ (or _N rows differ_) with a **Forget it** link.
-- **Coins** — on a project with a pots overlay: the overlay's coins (its pot tokens),
-  each with the pot(s) it fills and its special properties. No **in play** / **unused**
-  badge: the overlay decides whether a coin is used (see _The strips are the gate_ below).
+- **Coins** — on a project with a pots overlay: the overlay's coins (its pot tokens), in
+  pot order, each with the pot(s) it fills and its special properties. No **in play** /
+  **unused** badge: the overlay decides whether a coin is used (see _The strips are the
+  gate_ below). A coin pays nothing, so a line paytable left on one shows **Drop line
+  pays**.
 - **How wins are decided** — the **win model**: whether this game pays by **lines**,
   **ways**, **cluster** or **scatter**, plus that model's own settings (ways: which
   direction and the fewest reels; cluster: fewest cells and how they connect;
@@ -684,9 +686,9 @@ coin symbol off the reels is refused while its coin table pays cash coins. Until
 project saves its config the game plays the engine's built-in lines config, as the
 banner at the top says (for lines, cluster, Book-of and custom kinds that is this
 template). A partner's own server deals what its math says. Our test server deals a
-lines or Book-of game only the engine's own symbol names (`H1`–`H5`, `L1`–`L5`, `S`,
-`W`): a symbol named otherwise is never dealt, and a project with none of those in play
-is dealt its default set.
+lines game only the engine's own symbol names (`H1`–`H5`, `L1`–`L5`, `S`, `W`, `M`) and
+a Book-of game only `H1`–`H4`, `L1`–`L5` and `S`: a symbol named otherwise is never
+dealt, and a project with none of those in play is dealt its default set.
 
 > The generated spin strips are **cosmetic** — the blur filler the reels cycle
 > through. They are **not** the real weighted math strips (the math team owns those,

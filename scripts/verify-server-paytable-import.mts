@@ -28,6 +28,7 @@
 //   8. show what the info page shows: in-play line rows, and the scatter's own or default row.
 
 import {
+	POTS_OVERLAY_WIRE,
 	bookMapping,
 	linesMapping,
 	pickMappingForConfig,
@@ -113,6 +114,14 @@ const rows = (row: Record<number, number>): PaytableRow[] =>
 	// The book mock declares only a project's in-play pool, which can leave out ACE, KING and QUEEN.
 	check('a Book pool without ACE, KING or QUEEN still picks the book mapping', pickMappingForConfig({ symbols: ['PIC1', 'JACK', 'TEN', 'SCAT'] }) === bookMapping); // prettier-ignore
 	check('a lone TEN marks a book server', pickMappingForConfig({ symbols: ['TEN'] }) === bookMapping); // prettier-ignore
+	// An overlay host with no royal left: its Hold and Win bonus is not its board, so the runtime's
+	// own mapping stands rather than identity, which would leave PIC1 and SCAT unmapped.
+	const host = {
+		holdAndWin: { roles: { BONUS: ['coin'] } },
+		potsOverlay: { wire: POTS_OVERLAY_WIRE },
+	};
+	check('an overlay host without royals keeps the runtime mapping', pickMappingForConfig({ ...host, symbols: ['PIC1', 'PIC2', 'PIC3', 'PIC4', 'SCAT'] }) === null); // prettier-ignore
+	check('…and with one, reads as a book', pickMappingForConfig({ ...host, symbols: ['PIC1', 'TEN', 'SCAT'] }) === bookMapping); // prettier-ignore
 
 	const book = toImportedPaytable(readMappedPaytable(BOOK_CONFIG, bookMapping) ?? []);
 	check(

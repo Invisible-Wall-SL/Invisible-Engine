@@ -1093,9 +1093,12 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
   role the feature cannot do without, so `/config` now refuses to save a config with no coin or
   jackpot symbol on a strip, or with cash coins and no coin symbol on one (the mock would deal them
   as the jackpot symbol, which the game values at nothing; this also covers a dictionary that tags
-  no coin at all). The client's respin board draws an empty cell with the blank symbol only while a
-  strip deals it, else the wire's `BLANK`, matching the mock. Every preset deals all its role
-  symbols, so nothing changes for them (`check:holdandwin` unchanged). Gate:
+  no coin at all). A config saved before that rule, with no coin symbol on a strip, keeps dealing
+  its coin and jackpot symbols as it did, rather than losing its coins on deploy. The client's
+  respin board draws its empty cell with `holdAndWinBlankSymbol` — the mock's own pick, read off the
+  baked config: the first blank a strip deals, else `BLANK` — so an unused blank is never drawn and
+  an overlay host's renamed blank still matches what the server sends. Every preset deals all its
+  role symbols, so nothing changes for them (`check:holdandwin` unchanged). Gate:
   `check:unused-symbols-in-game`.
 
 - 2026-10-03 — **Phase 12c: the done-when rehearsed on the real game, locally** (#1006). All three
