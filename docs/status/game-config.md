@@ -22,6 +22,10 @@ are build/fixture-verified with the browser click-through listed under open item
   - `inPlay.ts` — **the gate**: `symbolsInPlay` / `symbolsInPlayForGameType` / `isSymbolInPlay` /
     `symbolFrequencies`, all reading the STRIPS, not the dictionary. One implementation, so the
     `W`-never-lands class of bug has a single place to be right.
+  - `symbolUse.ts` — `symbolUses` / `symbolsUsed`, on top of the gate: each symbol is `inPlay`
+    (dealt), `token` (a pots overlay drops it over a cell) or `unused`. The Symbols table badges
+    with it and Invisible Symbols lists exactly the non-unused symbols
+    (`check:symbols-follow-config`). It never widens the gate: a token is still not dealt.
   - `validate.ts` — `validateGameConfigDoc` / `gameConfigErrors`, severity-tagged and field-pathed.
     Errors block a ship (payline off the grid, strip dealing an undrawable symbol, wrong reel
     count); warnings describe a config that renders but lies (`W` pays but is never dealt).
@@ -690,6 +694,10 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Recent changes
 
+- 2026-10-07 — **A pots overlay token is badged token, not unused**, and Invisible Symbols lists
+  exactly the symbols this page does not badge unused, for every kind, saved or not (`symbolUses`
+  in `src/symbolUse.ts`). The token badge is not a button: putting a token on the reels is a
+  validator error. Detail: [status/symbols](symbols.md).
 - 2026-10-03 — **Imported reels modes** (pots overlay open item 00): `importBonus` takes a source's
   free spins / `reels` mode as a new mode of the project's own (id and game type `_2`-renamed,
   identical symbols shared); `potsOverlayMockInputs.modes` carries its strips and pays. Detail:

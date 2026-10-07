@@ -1,23 +1,21 @@
 import { error, redirect } from '@sveltejs/kit';
 import { kindCapabilities } from 'engine-layout';
-import {
-	resolveCascade,
-	resolveReelBehaviour,
-	symbolHoldAndWinRoles,
-	symbolsInPlay,
-} from 'game-config';
+import { resolveCascade, resolveReelBehaviour, symbolHoldAndWinRoles } from 'game-config';
 import { overlayTokenPots, projectAddOns } from '$lib/addOns';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listClips } from '$lib/server/flipbookStorage';
 import { resolveEditorFonts } from '$lib/server/fonts';
-import { loadGameConfigDoc } from '$lib/server/gameConfigStorage';
-import { resolveBigTiers } from '$lib/server/gameConfigDefaults';
+import { bigTiersOf, resolveGameConfig } from '$lib/server/gameConfigDefaults';
 import { listEffects } from '$lib/server/fxStorage';
 import { listProjectAssets } from '$lib/server/projectAssets';
 import { projectGameType, projectName } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
-import { loadPublishedSymbolDefaults, symbolDefaultsFor } from '$lib/server/symbolDefaults';
+import {
+	loadPublishedSymbolDefaults,
+	symbolDefaultsFor,
+	symbolGrid,
+} from '$lib/server/symbolDefaults';
 import { loadSymbolsDocWithEtag } from '$lib/server/symbolsStorage';
 import { resolveToolScope } from '$lib/server/toolScope';
 import { getToolOverrides } from '$lib/server/userToolAccess';
@@ -49,25 +47,26 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		sessionToken: cookies.get(SESSION_COOKIE),
 		user: locals.user,
 	});
-	const [loaded, assets, gameType, published, configDoc, fonts, clips, effects] = await Promise.all(
-		[
-			loadSymbolsDocWithEtag(clientKey, projectKey),
-			listProjectAssets(clientKey, projectKey),
-			projectGameType(projectKey),
-			loadPublishedSymbolDefaults(clientKey, projectKey),
-			// The LIVE game config — its in-play strips are unioned into the grid below so a symbol just
-			// put in play in Invisible Game Config shows here on reload (the published defaults are baked).
-			loadGameConfigDoc(clientKey, projectKey),
-			resolveEditorFonts(clientKey, projectKey),
-			// Invisible Flipbook clips — the third binding kind a cell can take, alongside a
-			// sprite frame and a spine animation. Rows only (id/name/frame count/primary sheet/
-			// first frame); the clip's full ordered frame list is the /flipbook tool's business.
-			listClips(clientKey, projectKey),
-			// Invisible FX effects (id + name) — the fourth kind a Book-symbol VFX layer can take.
-			// Same list the editor's effect-node picker uses (`/api/editor/effects`).
-			listEffects(clientKey, projectKey),
-		],
-	);
+	const gameTypeLoad = projectGameType(projectKey);
+	const [loaded, assets, gameType, published, config, fonts, clips, effects] = await Promise.all([
+		loadSymbolsDocWithEtag(clientKey, projectKey),
+		listProjectAssets(clientKey, projectKey),
+		gameTypeLoad,
+		loadPublishedSymbolDefaults(clientKey, projectKey),
+		// The config Invisible Game Config opens with — the project's own, else its kind's template —
+		// read LIVE, so this page lists the symbols that page does not badge unused, and lights the
+		// columns and sections from the switches that page shows.
+		gameTypeLoad.then((type) => resolveGameConfig(clientKey, projectKey, type)),
+		resolveEditorFonts(clientKey, projectKey),
+		// Invisible Flipbook clips — the third binding kind a cell can take, alongside a
+		// sprite frame and a spine animation. Rows only (id/name/frame count/primary sheet/
+		// first frame); the clip's full ordered frame list is the /flipbook tool's business.
+		listClips(clientKey, projectKey),
+		// Invisible FX effects (id + name) — the fourth kind a Book-symbol VFX layer can take.
+		// Same list the editor's effect-node picker uses (`/api/editor/effects`).
+		listEffects(clientKey, projectKey),
+	]);
+	const configDoc = config.doc;
 	// Win-amount text is bitmap text, so the font dropdown lists the project's BITMAP
 	// fonts (Font Maker output). The four engine builtins (gold/goldblur/silver/purple)
 	// are hardcoded in each game's Game.svelte rather than in the R2 catalog, so the page
@@ -75,43 +74,14 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	const bitmapFonts = (fonts ?? [])
 		.filter((f) => f.kind === 'bitmap')
 		.map((f) => ({ id: f.id, name: f.name }));
-	// The defaults drive the grid's symbol list, the 6 states, and every cell's
-	// default binding; the doc above is the sparse override on top. Prefer the
-	// project's OWN published `SYMBOL_INFO_MAP` (built from its coded map) so e.g.
-	// Book of Borut shows its symbols; fall back to the committed coded set for an
-	// un-published project (or `apps/lines` dev) resolved by game type.
-	const baseDefaults = published ?? symbolDefaultsFor(gameType);
-	// The published/coded defaults are BAKED at engine-build time, so a symbol the author just put IN
-	// PLAY in Invisible Game Config (e.g. a wild `W`) would not appear in this grid until the next
-	// build — the recurring "I added it but /symbols doesn't update" gap. Union the LIVE config's
-	// in-play set (the strips, the same gate the paytable/roll use) into the grid list; a symbol with
-	// no baked state map gets an empty one (blank, authorable cells). Never REMOVES a baked symbol —
-	// purely additive, so a symbol mid-authoring can't vanish.
-	// A pots overlay's tokens are drawn over a cell, never dealt by a strip, so they join the in-play
-	// list here — rows to bind their art to.
+	// The defaults drive every cell's default binding; the doc above is the sparse override on top.
+	// Prefer the project's OWN published `SYMBOL_INFO_MAP` (built from its coded map) so e.g. Book of
+	// Borut shows its art; fall back to the committed coded set for an un-published project (or
+	// `apps/lines` dev) resolved by game type. Which ROWS show is the config's call, never theirs:
+	// `symbolGrid` lists exactly the symbols /config does not badge unused — hiding a published
+	// symbol the config does not use, adding blank cells for a used one no default covers.
+	const grid = symbolGrid(published ?? symbolDefaultsFor(gameType), configDoc);
 	const { addOns, potIds } = projectAddOns(configDoc);
-	const tokenPots = overlayTokenPots(configDoc);
-	const inPlayNames = configDoc
-		? [...new Set([...symbolsInPlay(configDoc), ...Object.keys(tokenPots)])]
-		: [];
-	const mergedSymbols = { ...baseDefaults.symbols };
-	for (const name of inPlayNames) {
-		if (!mergedSymbols[name]) mergedSymbols[name] = {} as (typeof mergedSymbols)[string];
-	}
-	const defaults = { ...baseDefaults, symbols: mergedSymbols };
-	// Which of those symbols this project actually DEALS — and, since the owner report that /config
-	// saying UNUSED while this page still listed the symbol is a contradiction rather than a nuance,
-	// the list the grid RENDERS. The union above stays one-way, so the DOC never loses a symbol
-	// mid-authoring (its states survive untouched and its row returns the moment it goes back on a
-	// strip); the page simply stops drawing rows the game can never deal. The badge that used to
-	// explain the discrepancy is gone with it.
-	// `null` when there is no config doc to compare against — unknown, so nothing is filtered.
-	const inPlaySymbols = configDoc ? inPlayNames : null;
-	// The project's config-authored BIG-win tiers drive the reel-anticipation panel: ONE FX column per
-	// big tier, keyed by its alias — mirroring the same tiers the game arms (`activeBigTiers`), so the
-	// panel grows/shrinks with `/config` rather than a fixed big/mega/massive triple. Resolved after
-	// the batch since it needs the resolved `gameType`.
-	const bigTiers = await resolveBigTiers(clientKey, projectKey, gameType);
 	// Each symbol's Hold and Win role(s) from the LIVE config's `special_properties` — chips on the
 	// grid's row heads, so the author sees which row is the coin, the collector, the mystery. Only
 	// for a kind with coin symbols; every other kind gets an empty map and renders as before.
@@ -129,7 +99,10 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		clientKey,
 		projectKey,
 		docEtag,
-		bigTiers,
+		// The project's config-authored BIG-win tiers drive the reel-anticipation panel: ONE FX column
+		// per big tier, keyed by its alias — mirroring the same tiers the game arms (`activeBigTiers`),
+		// so the panel grows/shrinks with `/config` rather than a fixed big/mega/massive triple.
+		bigTiers: bigTiersOf(configDoc),
 		projectName: await projectName(projectKey),
 		// The grid gates the two book-only state columns (`bookIntro`/`bookIdle`) on
 		// this — they show only for a kind with the book reveal (`kindCapabilities`).
@@ -162,11 +135,12 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 			};
 		})(),
 		doc,
-		defaults,
-		inPlaySymbols,
+		defaults: grid.defaults,
+		// The rows the grid lists, in order — see `symbolGrid`.
+		symbols: grid.symbols,
 		holdAndWinRoles,
 		// Each pots overlay token → the pots it fills: a chip on its row head. Empty without the block.
-		tokenPots,
+		tokenPots: overlayTokenPots(configDoc),
 		// The add-on blocks the config carries — passed with the kind to `kindCapabilities`, so a
 		// Hold and Win bonus or a pots overlay lights its own parts on any kind.
 		addOns,

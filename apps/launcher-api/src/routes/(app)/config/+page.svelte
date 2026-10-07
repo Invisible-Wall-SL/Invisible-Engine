@@ -30,6 +30,7 @@
 		swapStyleUsesColumnStagger,
 		symbolHoldAndWinRoles,
 		symbolsInPlay,
+		symbolUses,
 		validateGameConfigDoc,
 		type BetModeKind,
 		type GameConfigDoc,
@@ -81,6 +82,9 @@
 	/** THE GATE, live: what the strips actually deal. Every "is X in play?" the page asks reads this,
 	 *  never the dictionary — the one rule the whole tool exists to hold. */
 	const inPlay = $derived(new Set(symbolsInPlay(snapshot)));
+	/** Each symbol's badge: in play, a pots overlay token, or unused. Invisible Symbols lists exactly
+	 *  the symbols not badged unused — the same `symbolUses`, so the two tools cannot disagree. */
+	const uses = $derived(symbolUses(snapshot));
 	const issues = $derived(validateGameConfigDoc(snapshot));
 	const errors = $derived(issues.filter((i) => i.severity === 'error'));
 	const warnings = $derived(issues.filter((i) => i.severity === 'warning'));
@@ -1694,8 +1698,10 @@
 				<span class="badge in">in play</span>
 				badge means the symbol appears on a reel strip and so can actually reach the board; a
 				<span class="badge out">unused</span> symbol is defined here but dealt by no strip (a payout
-				no one can win). <strong>Click the badge</strong> to put a symbol on the reels or take it
-				off. Paytable is <code>count:multiplier</code> pairs, e.g. <code>5:20, 4:10, 3:5</code>. A
+				no one can win), and Invisible Symbols does not list it. <strong>Click the badge</strong> to
+				put a symbol on the reels or take it off. A <span class="badge token">token</span> is a pots
+				overlay's token: dropped over a cell rather than dealt, yet drawn, so not unused. Paytable
+				is <code>count:multiplier</code> pairs, e.g. <code>5:20, 4:10, 3:5</code>. A
 				<strong>scatter</strong>'s paytable is its scatter pay — × the total bet, anywhere on the
 				board; left empty it pays <code>{formatPayRow(DEFAULT_SCATTER_PAYTABLE)}</code>.
 			</p>
@@ -1752,15 +1758,23 @@
 							<tr>
 								<th class="row-head">{name}</th>
 								<td class="center">
-									<button
-										type="button"
-										class="badge toggle {inPlay.has(name) ? 'in' : 'out'}"
-										title={inPlay.has(name)
-											? 'In play — click to take it off the reels'
-											: 'Unused — click to put it on the reels'}
-										onclick={() => toggleInPlay(name)}
-										>{inPlay.has(name) ? 'in play' : 'unused'}</button
-									>
+									{#if uses[name] === 'token'}
+										<span
+											class="badge token"
+											title="A pots overlay token — dropped over a cell, never dealt by a reel. Remove its pot under Add-ons to stop using it."
+											>token</span
+										>
+									{:else}
+										<button
+											type="button"
+											class="badge toggle {inPlay.has(name) ? 'in' : 'out'}"
+											title={inPlay.has(name)
+												? 'In play — click to take it off the reels'
+												: 'Unused — click to put it on the reels'}
+											onclick={() => toggleInPlay(name)}
+											>{inPlay.has(name) ? 'in play' : 'unused'}</button
+										>
+									{/if}
 								</td>
 								<td
 									><input
@@ -2658,6 +2672,10 @@
 	.badge.out {
 		background: #33231a;
 		color: #d39b6f;
+	}
+	.badge.token {
+		background: #231a33;
+		color: #c8a3ff;
 	}
 	/* Clickable in-play badge: toggles the symbol on/off the reel strips. */
 	button.badge.toggle {

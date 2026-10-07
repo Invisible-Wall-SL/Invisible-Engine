@@ -3,6 +3,7 @@ import {
 	HOLD_AND_WIN_SYMBOL_ROLES,
 	holdAndWinIsOverlayBonus,
 	resolveMeters,
+	symbolsUsed,
 	type GameConfigDoc,
 } from 'game-config';
 import { z } from 'zod';
@@ -112,6 +113,34 @@ const FALLBACK_GAME = 'lines';
  */
 export function symbolDefaultsFor(gameType: string | undefined): SymbolDefaults {
 	return DEFAULTS_BY_GAME[gameType ?? FALLBACK_GAME] ?? DEFAULTS_BY_GAME[FALLBACK_GAME];
+}
+
+/**
+ * The grid Invisible Symbols draws: `symbols`, the rows it lists, and `defaults` with an empty entry
+ * for each of them no default covers (blank, authorable cells).
+ *
+ * The rows are exactly the symbols Invisible Game Config does not badge unused (`symbolsUsed`): the
+ * ones a strip deals plus a pots overlay's tokens. `config` must be the doc that page opens with,
+ * `resolveGameConfig`'s, so a project that never saved its config follows its kind's template like
+ * the page does. Defaults order first, then the config's. `null` (no template either) lists every
+ * default.
+ *
+ * Nothing is deleted: a hidden symbol keeps its authored states in the doc, and its row returns
+ * with them the moment the config uses it again.
+ */
+export function symbolGrid(
+	defaults: SymbolDefaults,
+	config: GameConfigDoc | null,
+): { defaults: SymbolDefaults; symbols: string[] } {
+	if (!config) return { defaults, symbols: Object.keys(defaults.symbols) };
+	const used = symbolsUsed(config);
+	const symbols = { ...defaults.symbols };
+	for (const name of used) symbols[name] ??= {};
+	const shown = new Set(used);
+	return {
+		defaults: { ...defaults, symbols },
+		symbols: Object.keys(symbols).filter((name) => shown.has(name)),
+	};
 }
 
 const SEEDED_HOLD_AND_WIN_ROLES = new Set<string>(

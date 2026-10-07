@@ -48,13 +48,17 @@ set) and drops any symbol present in `SYMBOL_INFO_MAP` but not in the config (e.
 A project that published before this filter existed keeps its old full set until it
 **republishes** (any tokened build re-runs `publish:symbols`).
 
-On top of that, the grid renders **only the symbols that are IN PLAY right now** — the ones on a
-reel strip in [Invisible Game Config](game-config.md), read live. A symbol marked **UNUSED** there
-does not appear here at all, because it can never be dealt and art authored for it can never
-render. Nothing is deleted: its authored states stay in the doc untouched, and the row comes back
-with its art intact the moment you put the symbol back on a strip. (A project with no Game Config
-to compare against shows everything.) The one exception is a pots overlay's tokens, which are never
-on a strip but are always listed (see [Pots overlay projects](#pots-overlay-projects)).
+On top of that, **[Invisible Game Config](game-config.md) decides which rows the grid shows**, read
+live (save `/config`, then reload this page). The grid lists exactly the symbols its Symbols table
+does **not** badge **unused**: the **in play** ones (on a reel strip) and a pots overlay's
+**token**s (dropped over a cell, never on a strip, but drawn — see
+[Pots overlay projects](#pots-overlay-projects)). A symbol marked **unused** there does not appear
+here at all, because it can never reach the board and art authored for it can never render; a
+symbol in play that the game's published defaults do not cover gets a row of blank cells to bind.
+This holds for every kind, and for a project that has never saved its config too: it follows the
+template `/config` opens with. Nothing is deleted: a hidden symbol's authored states (and its
+stacked picture) stay in the doc untouched, and its row comes back with its art intact the moment
+you put the symbol back on a strip.
 
 ## How to use it
 

@@ -69,6 +69,8 @@
 		"check:symbol-state-parity": "tsx scripts/check-symbol-state-parity.ts",
 		"precheck:symbols-kind-gating": "node scripts/ensure-svelte-kit.mjs",
 		"check:symbols-kind-gating": "tsx --tsconfig tsconfig.scripts.json scripts/check-symbols-kind-gating.ts",
+		"precheck:symbols-follow-config": "node scripts/ensure-svelte-kit.mjs",
+		"check:symbols-follow-config": "tsx --tsconfig tsconfig.scripts.json scripts/check-symbols-follow-config.ts",
 		"precheck:clear-reel": "node scripts/ensure-svelte-kit.mjs",
 		"check:clear-reel": "tsx --tsconfig tsconfig.scripts.json scripts/check-clear-reel-and-win-explode.ts",
 		"precheck:symbol-layers": "node scripts/ensure-svelte-kit.mjs",

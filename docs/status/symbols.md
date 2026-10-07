@@ -42,10 +42,17 @@ story of each feature is in [symbols-history.md](symbols-history.md) ("Build det
   symbols** / **Overwrite theirs**. **History…** restores any of the 20 newest backups
   (`$lib/DocHistoryModal.svelte`). `/api/editor/symbols` refuses a project the caller cannot
   access. **↻ Reload from R2** drops the spine and region caches (unsaved edits kept).
-- **Defaults** — each game publishes its coded map at build (`publish-symbol-defaults.mjs`),
-  filtered to the in-play symbols; un-published projects fall back to the committed `lines.json`
-  (`holdAndWin.json` for a Hold and Win project: the lines set plus `W` and the 3 Pots specials on
-  placeholder art, `BLANK` unbound).
+- **Rows follow Invisible Game Config** — the grid lists exactly the symbols `/config` does not
+  badge **unused**: on a reel strip, or a pots overlay's token (`game-config` `symbolUses` /
+  `symbolsUsed`, composed by `symbolGrid` in `symbolDefaults.ts`). It reads the config `/config`
+  opens with (`resolveGameConfig`: the project's own, else its kind's template), so a project that
+  never saved its config follows the template like that page does. A used symbol with no default
+  gets blank cells; a hidden symbol keeps its authored states (stacked-picture entry included) and
+  its row returns with them. Every kind × setup is pinned by `check:symbols-follow-config`.
+- **Defaults** — the cells' default art: each game publishes its coded map at build
+  (`publish-symbol-defaults.mjs`), filtered to the in-play symbols; un-published projects fall back
+  to the committed `lines.json` (`holdAndWin.json` for a Hold and Win project: the lines set plus `W`
+  and the 3 Pots specials on placeholder art, `BLANK` unbound). They no longer decide the rows.
 - **Previews** — one shared WebGL stage, one spine runtime (4.2, `check:builtin-spines`), rigs
   fitted to their authored box (`measureSpineBounds` / `authoredSpineBox`), stage geometry from the
   canvas's own box (`symbolStageGeometry.ts`, `check:symbol-stage-geometry`), rig FX and clips on the
@@ -142,6 +149,24 @@ AND `bake-editor-doc.mjs`, or the effect is pruned as an orphan.
   tints, the win dim, layers' blend, the pop, the arrival release, the transition, book VFX).
 
 ## Recent changes
+
+- 2026-10-07 — **`/config` decides the rows, for every kind and setup.** The grid already hid a
+  symbol `/config` badges unused, but only when the project had SAVED its config: a project still
+  on its kind's template filtered nothing, so a never-saved scatter project listed `L4` (unused in
+  its template) and missed `M` (in play), a ways one missed `H5`, and a project whose published
+  defaults predate the in-play filter listed `W` and `H5`. The other contradiction was a pots
+  overlay's tokens: `/config` badged them unused while this page listed them (they need art). Now
+  both pages read one rule, `game-config`'s new `symbolUses` (`inPlay` / `token` / `unused`):
+  `/config` badges a token **token** (no longer offering to put it on the reels, a validator error),
+  and this page lists exactly the non-unused symbols (`symbolGrid`), read from `resolveGameConfig` —
+  the config `/config` opens with — instead of the authored-only loader. The columns and sections
+  that read the config (Clear reel, Intro, the add-ons, the Hold and Win roles and jackpot tiers)
+  follow the same config, so a never-saved scatter project now gets `Clear reel` as its template's
+  cascade says; the big tiers reuse it instead of a second read. Stacked pictures list only shown
+  symbols. Nothing is deleted from the doc. Gate: `check:symbols-follow-config` (every built-in
+  kind and a custom one × never saved / saved / a symbol off or on the reels / dictionary-only /
+  each overlay and Hold and Win preset / an imported bonus × committed, wider and narrower
+  published defaults; 1,642 checks), red on either old behaviour.
 
 - 2026-10-05 — **Invisible Director can drive this tool.** Invisible Director's adapters (PLAN 2.6,
   `apps/launcher-api/src/lib/server/director/ops/`) now read and write this tool's doc

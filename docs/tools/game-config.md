@@ -64,8 +64,9 @@ before — an un-authored project still runs the compiled template.
   jackpots, specials, pots and wheel. See _Hold and Win_ below.
 - **Symbols** — the symbol **dictionary**: properties and paytable per symbol
   (`count:multiplier` pairs, e.g. `5:20, 4:10, 3:5`). Each row carries an
-  **in play** / **unused** badge (see below). A **scatter** symbol's paytable is its
-  scatter pay — × the total bet, anywhere on the board, never a line. Left empty it
+  **in play** / **unused** badge, or **token** for a pots overlay's token (see
+  below). A **scatter** symbol's paytable is its scatter pay — × the total bet,
+  anywhere on the board, never a line. Left empty it
   pays the default `3:2 4:20 5:200`, which the row's paytable box shows as its
   placeholder. **Import paytable from server** fills the paytable from what the
   game's server actually pays — see _Importing the paytable from the server_ below.
@@ -577,6 +578,15 @@ marks it **unused** and warns that its paytable advertises a payout no one can w
 This is the one rule that keeps a game from advertising symbols it never deals. With
 the strips now server-defined, the in-play set — and so the **in play** / **unused**
 badges — reflect the server's declared symbols at runtime.
+
+A pots overlay's token is the one symbol that reaches the board without a strip: it
+drops **over** a cell. Its row says **token** rather than **unused**, and it is not a
+button — putting a token on the reels makes it land as a symbol, which the validator
+refuses. Remove its pot under **Add-ons** to stop using it.
+
+The badges also decide what [Invisible Symbols](symbols-state-machine.md) lists: every
+symbol **in play** or a **token** gets a row there to bind its art, and an **unused**
+one does not appear at all. Save here, then reload that page.
 
 > The generated spin strips are **cosmetic** — the blur filler the reels cycle
 > through. They are **not** the real weighted math strips (the math team owns those,
