@@ -62,6 +62,7 @@
 		licenceList,
 		madeOf,
 		pipelineOptions,
+		pruneDrafts,
 		purposeOf,
 		settingScope,
 		sizeOptions,
@@ -621,6 +622,8 @@
 			if (id !== runId) return;
 			artPlan = answer;
 			artPlanErr = '';
+			// An edit the worker stored, or a revision since, retires its draft; a refused one stays.
+			drafts = pruneDrafts(answer, drafts);
 		} catch (e) {
 			if (id === runId) artPlanErr = describe(e);
 		}
@@ -628,11 +631,21 @@
 
 	// A recipe row, a finished render and a checkpoint all move the recipes: one read after each.
 	const recipesKey = $derived(
-		`${folded.recipesVersion}:${folded.jobs.length}:${folded.jobs.filter((j) => j.status !== 'queued').length}:${run?.waitingOn ?? ''}:${run?.status ?? ''}:${run?.step ?? ''}`,
+		[
+			folded.recipesVersion,
+			folded.planVersion,
+			folded.jobs.length,
+			folded.jobs.filter((j) => j.status !== 'queued').length,
+			run?.waitingOn ?? '',
+			run?.status ?? '',
+			run?.step ?? '',
+		].join(':'),
 	);
+	// The summary is replaced on every refresh: the effect reads only whether there is one.
+	const haveRun = $derived(run !== null);
 	$effect(() => {
 		void recipesKey;
-		if (!run) return;
+		if (!haveRun) return;
 		if (artPlanTimer) clearTimeout(artPlanTimer);
 		artPlanTimer = setTimeout(() => void loadArtPlan(), 300);
 		return () => {
@@ -678,10 +691,7 @@
 			},
 			'Recorded. Your edits are checked and stored, and the Art plan comes back for you to approve.',
 		).then((ok) => {
-			if (ok) {
-				note = '';
-				drafts = new Map();
-			}
+			if (ok) note = '';
 		});
 	const sendPlanNote = () =>
 		act(
@@ -898,12 +908,13 @@
 	{/if}
 {/snippet}
 
-{#snippet confirmButtons(approveLabel: string, reviseLabel: string)}
+{#snippet confirmButtons(approveLabel: string, reviseLabel: string, blocked = '')}
 	<div class="row">
 		<button
 			type="button"
 			class="primary"
-			disabled={acting !== '' || !can('approve')}
+			disabled={acting !== '' || !can('approve') || blocked !== ''}
+			title={blocked}
 			onclick={approve}
 		>
 			{approveLabel}
@@ -1113,12 +1124,14 @@
 			{/if}
 			{#if planView.outside.length}
 				<p class="muted">
-					Left out of the plan (never rendered): {planView.outside.map(regionTitle).join(', ')}.
+					Left out of the plan: {planView.outside.map(regionTitle).join(', ')}. Their recipes no
+					longer render; anything they already made stays in the project.
 				</p>
 			{/if}
 			{#if editable}
 				<label class="field">
-					Your note (optional; with no edits, it goes to the atlas technician)
+					Your note (optional). With edits, the agents read it once you approve the plan; without,
+					it sends the plan back to them
 					<textarea
 						rows="2"
 						bind:value={note}
@@ -1329,7 +1342,7 @@
 					</button>
 					<figcaption>
 						<strong>Finished tile</strong>
-						<span class="chip approved">In the sheet</span>
+						<span class="chip approved">Committed</span>
 					</figcaption>
 				</figure>
 			{/if}
@@ -2115,9 +2128,20 @@
 										No step of this run's recipes ran a licence-flagged blueprint.
 									</p>
 								{:else if artPlanErr}
-									<p class="err">The licence list could not be read: {artPlanErr}</p>
+									<p class="err">
+										The licence list could not be read, so the build cannot be approved yet: {artPlanErr}
+										<button type="button" onclick={() => loadArtPlan()}>Try again</button>
+									</p>
+								{:else}
+									<p class="muted">Reading the licence list…</p>
 								{/if}
-								{@render confirmButtons('Approve and hand off', 'Send back with my note')}
+								{@render confirmButtons(
+									'Approve and hand off',
+									'Send back with my note',
+									artPlan
+										? ''
+										: 'Wait for the licence list: the build is approved only once it is read.',
+								)}
 								<p class="small">
 									Approving ends the run. Director never publishes: you do, in Game Maker.
 								</p>

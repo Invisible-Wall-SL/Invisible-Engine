@@ -10,14 +10,14 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
 	approvalProblem,
+	carryProgress,
 	chainLine,
-	licenceFlags,
 	needsReapproval,
-	planGroups,
 	presetDefaultChain,
 	priceChains,
 	project,
 	recipeInputOf,
+	parseStepInput,
 	removeStep,
 	secondsAt,
 	secondsPerImage,
@@ -62,6 +62,7 @@ for (const recipe of expected.recipes) {
 		planRegions,
 		others: stored,
 		usdPerSecond: USD,
+		seedDelaySeconds: 0,
 	});
 	if (!result.ok) refused.push(`${recipe.region}: ${result.errors.join('; ')}`);
 	else {
@@ -91,7 +92,13 @@ check(
 	'sdxl 1024 ×3 → birefnet → finish',
 );
 
-const ctx: ValidationContext = { catalogue, planRegions, others: stored, usdPerSecond: USD };
+const ctx: ValidationContext = {
+	catalogue,
+	planRegions,
+	others: stored,
+	usdPerSecond: USD,
+	seedDelaySeconds: 0,
+};
 const h1 = expected.recipes.find((r) => r.region === 'H1')!;
 const bg = expected.recipes.find((r) => r.region === 'Background')!;
 const variant = (recipe: RecipeInput, edit: (r: RecipeInput) => void) => {
@@ -306,6 +313,7 @@ check('an empty preset falls back to sdxl 1024 ×3', presetDefaultChain(null)[0]
 
 // Pricing fails closed and measurements only raise a guess (card 8E, ADR-0008 §6).
 const cards = new Map<string, Card>(catalogue.blueprints.map((b) => [b.id, b.card]));
+const basis = { cards, usdPerSecond: USD, seedDelaySeconds: 0 };
 const timing = (pipeline: string, genPx: number, exec: number, delay: number) => ({
 	pipeline,
 	genPx,
@@ -315,49 +323,65 @@ const timing = (pipeline: string, genPx: number, exec: number, delay: number) =>
 });
 check(
 	'an image costs the card seconds plus the measured delay',
-	secondsPerImage(upscale, 1024, timing('fixture_upscale', 1024, 1, 5)),
+	secondsPerImage(upscale, 1024, timing('fixture_upscale', 1024, 1, 5), 99),
 	{ seconds: 11, guess: false },
 );
 check(
 	'a slower measurement raises the guess',
-	secondsPerImage(upscale, 1024, timing('fixture_upscale', 1024, 9, 0))?.seconds,
+	secondsPerImage(upscale, 1024, timing('fixture_upscale', 1024, 9, 0), 99)?.seconds,
 	9,
 );
 check(
 	'with nothing measured the figure is the guess',
-	secondsPerImage({ ...upscale, gpu: { ...upscale.gpu, source: 'guess' } }, 1024, null),
+	secondsPerImage({ ...upscale, gpu: { ...upscale.gpu, source: 'guess' } }, 1024, null, 0),
 	{
 		seconds: 6,
 		guess: true,
 	},
 );
 check(
+	'with nothing measured, the seed delay is priced per image (ADR-0008 §6)',
+	secondsPerImage({ ...upscale, gpu: { ...upscale.gpu, source: 'guess' } }, 1024, null, 15)
+		?.seconds,
+	21,
+);
+check(
+	'…and a measured delay replaces it',
+	secondsPerImage(upscale, 1024, timing('fixture_upscale', 1024, 6, 2), 15)?.seconds,
+	8,
+);
+check(
 	'no card seconds and nothing measured: not priced',
-	secondsPerImage({ ...upscale, gpu: { ...upscale.gpu, secondsPerImage: {} } }, 1024, null),
+	secondsPerImage({ ...upscale, gpu: { ...upscale.gpu, secondsPerImage: {} } }, 1024, null, 15),
 	null,
 );
 check(
 	'a credit-billed card is never priced',
-	secondsPerImage({ ...upscale, billing: 'credits' }, 1024, null),
+	secondsPerImage({ ...upscale, billing: 'credits' }, 1024, null, 15),
 	null,
 );
 const h1Steps = stored.find((r) => r.region === 'H1')!.steps;
 check(
 	'a step whose card is gone leaves the recipe unpriced',
-	project(h1Steps, new Map([...cards].filter(([id]) => id !== 'birefnet')), USD).gpuUsd,
+	project(h1Steps, { ...basis, cards: new Map([...cards].filter(([id]) => id !== 'birefnet')) })
+		.gpuUsd,
 	null,
 );
 check(
 	'…with the reason',
-	project(h1Steps, new Map([...cards].filter(([id]) => id !== 'birefnet')), USD).unpriced?.[0]
-		?.length !== undefined,
+	project(h1Steps, { ...basis, cards: new Map([...cards].filter(([id]) => id !== 'birefnet')) })
+		.unpriced?.[0]?.length !== undefined,
 	true,
 );
-check('an unpriced GPU leaves it unpriced', project(h1Steps, cards, null).gpuUsd, null);
-const measured = project(h1Steps, cards, USD, [timing('sdxl', 1024, 40, 10)]);
+check(
+	'an unpriced GPU leaves it unpriced',
+	project(h1Steps, { ...basis, usdPerSecond: null }).gpuUsd,
+	null,
+);
+const measured = project(h1Steps, { ...basis, timings: [timing('sdxl', 1024, 40, 10)] });
 check(
 	'a measured timing feeds the projection',
-	measured.gpuSeconds > project(h1Steps, cards, USD).gpuSeconds,
+	measured.gpuSeconds > project(h1Steps, basis).gpuSeconds,
 	true,
 );
 check(
@@ -382,19 +406,6 @@ check(
 	],
 );
 check('…and a step that took its image takes what it took', without[1].style, input.steps[1].style);
-check(
-	'the before-publish list names every blocked or conditional step',
-	licenceFlags([stored[0]]).map((f) => [f.n, f.licence]),
-	[
-		[1, 'blocked'],
-		[2, 'conditional'],
-	],
-);
-check(
-	'the plan collapses by group and chain',
-	planGroups(stored).reduce((n, g) => n + g.regions.length, 0),
-	stored.length,
-);
 
 // Chain pricing for the New-game estimate.
 const chain = [
@@ -402,7 +413,7 @@ const chain = [
 	{ kind: 'process' as const, pipeline: 'birefnet', genPx: 1024, variants: 1, settings: [] },
 	{ kind: 'finish' as const, pipeline: '', genPx: 0, variants: 0, settings: [] },
 ];
-const facts = { gpu: 'RTX 4090 (24 GB)', usdPerSecond: USD };
+const facts = { gpu: 'RTX 4090 (24 GB)', usdPerSecond: USD, seedDelaySeconds: 0 };
 const fallback = { low: 12, high: 30 };
 const priced = priceChains(
 	[{ group: 'Symbols', regions: 10, chain, source: 'fallback' }],
@@ -427,7 +438,7 @@ check(
 		const p = priceChains(
 			[{ group: 'Symbols', regions: 1, chain, source: 'fallback' }],
 			cards,
-			{ gpu: '', usdPerSecond: null },
+			{ gpu: '', usdPerSecond: null, seedDelaySeconds: 0 },
 			fallback,
 		);
 		return [p.usd, p.unpriced.length];
@@ -469,10 +480,17 @@ check(
 
 // The owner approves the plan they saw (card 8E).
 const seen = Object.fromEntries(stored.map((r) => [r.region, r.rev]));
-check('an approval of the plan as stored stands', approvalProblem(stored, planRegions, seen), null);
+/** Prices each recipe at its stored figure; `freshly` prices it again now. */
+const stays = (r: StoredRecipe) => r.projected;
+const freshly = (r: StoredRecipe) => project(r.steps, basis);
+check(
+	'an approval of the plan as stored stands',
+	approvalProblem(stored, planRegions, seen, stays),
+	null,
+);
 check(
 	'an approval that names no revisions is refused',
-	approvalProblem(stored, planRegions, undefined)?.includes('revisions'),
+	approvalProblem(stored, planRegions, undefined, stays)?.includes('revisions'),
 	true,
 );
 check(
@@ -481,6 +499,7 @@ check(
 		stored.map((r, i) => (i === 0 ? { ...r, rev: 2 } : r)),
 		planRegions,
 		seen,
+		stays,
 	)?.includes('changed since you saw it'),
 	true,
 );
@@ -490,6 +509,7 @@ check(
 		stored,
 		new Set([...planRegions].filter((x) => x !== stored[0].region)),
 		seen,
+		stays,
 	)?.includes('not in it now'),
 	true,
 );
@@ -499,8 +519,103 @@ check(
 		stored.map((r, i) => (i === 0 ? { ...r, projected: { ...r.projected, gpuUsd: null } } : r)),
 		planRegions,
 		seen,
+		stays,
 	)?.includes('cannot be priced'),
 	true,
+);
+check(
+	'the plan is priced again at approval: a card that lost its review refuses it',
+	approvalProblem(stored, planRegions, seen, (r) =>
+		project(r.steps, { ...basis, cards: new Map([...cards].filter(([id]) => id !== 'birefnet')) }),
+	)?.includes('cannot be priced'),
+	true,
+);
+check(
+	'…and a recipe stored unpriced is approvable once it prices now',
+	approvalProblem(
+		stored.map((r, i) => (i === 0 ? { ...r, projected: { ...r.projected, gpuUsd: null } } : r)),
+		planRegions,
+		seen,
+		freshly,
+	),
+	null,
+);
+check(
+	'a planned region with no recipe refuses the approval',
+	approvalProblem(stored.slice(1), planRegions, seen, stays)?.includes('has a recipe yet'),
+	true,
+);
+
+// A malformed step is a reason, never a throw (an owner's edit comes from outside).
+const malformed = (edit: (step: Record<string, unknown>) => void) => {
+	const copy = structuredClone(h1) as unknown as { steps: Record<string, unknown>[] };
+	edit(copy.steps[0]);
+	try {
+		const result = validateRecipe(copy as unknown as RecipeInput, ctx);
+		return result.ok ? 'passed' : 'refused';
+	} catch {
+		return 'threw';
+	}
+};
+check(
+	'a missing style, a null shape, a number setting value or a null setting is refused, not thrown on',
+	[
+		malformed((st) => delete st.style),
+		malformed((st) => (st.shape = null)),
+		malformed((st) => (st.settings = [{ key: 'ksampler_steps', value: 28 }])),
+		malformed((st) => (st.settings = [null])),
+		malformed((st) => (st.genPx = '1024')),
+	],
+	['refused', 'refused', 'refused', 'refused', 'refused'],
+);
+const extra = parseStepInput({ ...h1.steps[0], jobRef: 'st_0000000000000001', chosen: '7' });
+check(
+	'a step keeps only its own fields: a jobRef or a chosen sent with it is dropped',
+	'step' in extra && !('jobRef' in extra.step) && !('chosen' in extra.step),
+	true,
+);
+
+// What a revision keeps of what the previous one did.
+const progressed = stored[0].steps.map((st, i) =>
+	i === 0
+		? {
+				...st,
+				status: 'chosen' as const,
+				jobRef: 'st_00000000000000a1',
+				rendered: ['1', '2'],
+				chosen: '2',
+			}
+		: i === 1
+			? { ...st, status: 'queued' as const, jobRef: 'st_00000000000000a2' }
+			: st,
+);
+const later = stored[0].steps.map((st, i) => (i === 2 ? { ...st, note: 'changed' } : st));
+check(
+	"an owner's edit keeps the finished and in-flight work of the unchanged leading steps",
+	carryProgress(progressed, later, true).map((st) => [
+		st.status,
+		st.jobRef ?? null,
+		st.chosen ?? null,
+	]),
+	[
+		['chosen', 'st_00000000000000a1', '2'],
+		['queued', 'st_00000000000000a2', null],
+		['planned', null, null],
+	],
+);
+check(
+	"a technician's revision keeps only the render in flight; finished steps are planned again (a redo)",
+	carryProgress(progressed, later, false).map((st) => st.status),
+	['planned', 'queued', 'planned'],
+);
+check(
+	'a step that changed, and every step after it, starts again',
+	carryProgress(
+		progressed,
+		stored[0].steps.map((st, i) => (i === 0 ? { ...st, variants: 2 } : st)),
+		true,
+	).map((st) => st.status),
+	['planned', 'planned', 'planned'],
 );
 
 console.log(`recipes: ${checks - failures}/${checks} checks passed`);

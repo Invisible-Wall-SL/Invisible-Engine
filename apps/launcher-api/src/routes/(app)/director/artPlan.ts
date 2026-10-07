@@ -1,7 +1,6 @@
 import {
 	chainLine,
 	genPxRange,
-	licenceFlags,
 	project,
 	recipeInputOf,
 	removeStep,
@@ -9,6 +8,7 @@ import {
 	validateRecipe,
 	type Card,
 	type CardSetting,
+	type PriceBasis,
 	type StepInput,
 	type StoredRecipe,
 	type StoredStep,
@@ -28,8 +28,14 @@ import type { ArtPlanAnswer } from '$lib/server/director/artPlan';
 export type { ArtPlanAnswer };
 export type PlanRecipe = ArtPlanAnswer['recipes'][number];
 
+/** An owner's edited chain, and the revision of the recipe it was edited from. */
+export interface Draft {
+	rev: number;
+	steps: readonly StepInput[];
+}
+
 /** The owner's edited chains, by region; a region absent here is as the technician planned it. */
-export type Drafts = ReadonlyMap<string, readonly StepInput[]>;
+export type Drafts = ReadonlyMap<string, Draft>;
 
 export interface PlanRow {
 	group: string;
@@ -72,8 +78,8 @@ export interface ArtPlanView {
 	invalid: number;
 	/** What an approval names: the revision of every planned recipe, by region. */
 	recipeRevs: Record<string, number>;
-	/** The edits to send, every edited region's chain whole. */
-	edits: { region: string; steps: StepInput[] }[];
+	/** The edits to send, every edited region's chain whole, with the revision it was edited on. */
+	edits: { region: string; rev: number; steps: StepInput[] }[];
 	/** True when every edited chain passes the rules. */
 	editsValid: boolean;
 }
@@ -110,8 +116,32 @@ const asStored = (recipe: StoredRecipe, steps: readonly StepInput[]): StoredReci
 function editedRecipes(recipes: readonly PlanRecipe[], drafts: Drafts): StoredRecipe[] {
 	return recipes.map((r) => {
 		const draft = drafts.get(r.region);
-		return draft ? asStored(r, draft) : r;
+		return draft ? asStored(r, draft.steps) : r;
 	});
+}
+
+/** What the run's chains are priced on now: the answer's cards, rate, timings and seed delay. */
+export const basisOfAnswer = (answer: ArtPlanAnswer): PriceBasis => ({
+	cards: cardsOf(answer),
+	usdPerSecond: answer.catalogue?.usdPerSecond ?? null,
+	timings: answer.timings,
+	seedDelaySeconds: answer.seedDelaySeconds,
+});
+
+/**
+ * The drafts still worth keeping after the recipes were read again: those made on the revision
+ * each recipe still has and that still change it. An edit the worker stored moved its recipe on,
+ * and a technician's revision since makes a draft stale; one the worker refused stays, to fix.
+ */
+export function pruneDrafts(answer: ArtPlanAnswer, drafts: Drafts): Map<string, Draft> {
+	const out = new Map<string, Draft>();
+	for (const [region, draft] of drafts) {
+		const recipe = answer.recipes.find((r) => r.region === region);
+		if (recipe && recipe.rev === draft.rev && !same(draft.steps, recipeInputOf(recipe).steps)) {
+			out.set(region, draft);
+		}
+	}
+	return out;
 }
 
 interface Outcome {
@@ -125,44 +155,39 @@ interface Outcome {
 }
 
 /**
- * One planned region as the owner sees it now. Every chain is priced again from the cards and the
- * measured timings as they are, so an edited row and an unedited one compare like for like (a
- * stored projection predates the timings measured since). A recipe the worker stored unpriced
- * stays unpriced here whatever a fresh price says: the worker refuses to approve it
- * (`approvalProblem`), and an edit, which stores a fresh projection, is what clears it.
+ * One planned region as the owner sees it now. Every chain is priced again from the cards, the
+ * rate and the timings as they are, so an edited row and an unedited one compare like for like
+ * (a stored projection predates the timings measured since), exactly as the worker prices the
+ * plan again when the owner approves it (`approvalProblem`).
  */
 function outcomeOf(
 	answer: ArtPlanAnswer,
 	recipe: PlanRecipe,
-	draft: readonly StepInput[] | undefined,
+	draft: Draft | undefined,
 	others: readonly StoredRecipe[],
 	plan: ReadonlySet<string>,
-	cards: ReadonlyMap<string, Card>,
+	basis: PriceBasis,
 ): Outcome {
-	const usdPerSecond = answer.catalogue?.usdPerSecond ?? null;
 	if (!answer.catalogue) {
-		if (draft) {
-			const why = answer.catalogueError ?? 'The blueprint catalogue could not be read.';
-			return { errors: [why], unpriced: [], gpuUsd: null, gpuSeconds: 0, placeholder: true };
-		}
+		const why = answer.catalogueError ?? 'The blueprint catalogue could not be read.';
 		return {
-			errors: [],
-			unpriced:
-				recipe.projected.gpuUsd === null ? (recipe.projected.unpriced ?? ['not priced']) : [],
-			gpuUsd: recipe.projected.gpuUsd,
-			gpuSeconds: recipe.projected.gpuSeconds,
-			placeholder: recipe.projected.placeholder,
+			errors: draft ? [why] : [],
+			unpriced: [why],
+			gpuUsd: null,
+			gpuSeconds: 0,
+			placeholder: true,
 		};
 	}
 	if (draft) {
 		const result = validateRecipe(
-			{ region: recipe.region, atlas: recipe.atlas, group: recipe.group, steps: [...draft] },
+			{ region: recipe.region, atlas: recipe.atlas, group: recipe.group, steps: [...draft.steps] },
 			{
 				catalogue: answer.catalogue,
 				planRegions: plan,
 				others,
-				usdPerSecond,
+				usdPerSecond: basis.usdPerSecond,
 				timings: answer.timings,
+				seedDelaySeconds: basis.seedDelaySeconds,
 			},
 		);
 		if (!result.ok) {
@@ -182,22 +207,13 @@ function outcomeOf(
 			placeholder: result.projected.placeholder,
 		};
 	}
-	const fresh = project(recipe.steps, cards, usdPerSecond, answer.timings);
-	const storedUnpriced = recipe.projected.gpuUsd === null;
-	const unpriced = [
-		...(storedUnpriced
-			? [
-					`stored without a price (${(recipe.projected.unpriced ?? []).join('; ') || 'no price'}); edit or re-plan it`,
-				]
-			: []),
-		...(fresh.unpriced ?? []),
-	];
+	const now = project(recipe.steps, basis);
 	return {
 		errors: [],
-		unpriced,
-		gpuUsd: storedUnpriced ? null : fresh.gpuUsd,
-		gpuSeconds: fresh.gpuSeconds,
-		placeholder: fresh.placeholder,
+		unpriced: now.unpriced ?? [],
+		gpuUsd: now.gpuUsd,
+		gpuSeconds: now.gpuSeconds,
+		placeholder: now.placeholder,
 	};
 }
 
@@ -209,7 +225,7 @@ export function artPlanView(answer: ArtPlanAnswer, drafts: Drafts = new Map()): 
 	const have = new Set(planned.map((r) => r.region));
 	const all = editedRecipes(answer.recipes, drafts);
 	const plan = new Set(answer.plan.map((p) => p.region));
-	const cards = cardsOf(answer);
+	const basis = basisOfAnswer(answer);
 	const outcome = new Map<string, Outcome>(
 		planned.map((r) => [
 			r.region,
@@ -219,14 +235,14 @@ export function artPlanView(answer: ArtPlanAnswer, drafts: Drafts = new Map()): 
 				drafts.get(r.region),
 				all.filter((o) => o.region !== r.region),
 				plan,
-				cards,
+				basis,
 			),
 		]),
 	);
 
 	const groups: PlanGroup[] = [];
 	for (const r of planned) {
-		const steps = [...(drafts.get(r.region) ?? recipeInputOf(r).steps)];
+		const steps = [...(drafts.get(r.region)?.steps ?? recipeInputOf(r).steps)];
 		let group = groups.find((g) => g.group === r.group);
 		if (!group) {
 			group = { group: r.group, rows: [], regions: 0, gpuUsd: 0 };
@@ -275,12 +291,12 @@ export function artPlanView(answer: ArtPlanAnswer, drafts: Drafts = new Map()): 
 			: `${regions.slice(0, 3).join(', ')} and ${regions.length - 3} more: ${why}`,
 	);
 	const values = [...outcome.values()];
-	const edits = planned
-		.filter((r) => {
-			const d = drafts.get(r.region);
-			return d !== undefined && !same(d, recipeInputOf(r).steps);
-		})
-		.map((r) => ({ region: r.region, steps: [...drafts.get(r.region)!] }));
+	const edits = planned.flatMap((r) => {
+		const d = drafts.get(r.region);
+		return d && !same(d.steps, recipeInputOf(r).steps)
+			? [{ region: r.region, rev: d.rev, steps: [...d.steps] }]
+			: [];
+	});
 	return {
 		groups,
 		missing: answer.plan.filter((p) => !have.has(p.region)).map((p) => p.region),
@@ -314,19 +330,21 @@ export function editRow(
 	regions: readonly string[],
 	n: number,
 	patch: StepPatch,
-): Map<string, readonly StepInput[]> {
-	const next = new Map<string, readonly StepInput[]>(drafts);
+): Map<string, Draft> {
+	const next = new Map<string, Draft>(drafts);
 	for (const region of regions) {
 		const recipe = answer.recipes.find((r) => r.region === region);
 		if (!recipe) continue;
-		const steps = [...(drafts.get(region) ?? recipeInputOf(recipe).steps)];
+		const draft = drafts.get(region);
+		const rev = draft?.rev ?? recipe.rev;
+		const steps = [...(draft?.steps ?? recipeInputOf(recipe).steps)];
 		if ('remove' in patch) {
-			next.set(region, removeStep(steps, n));
+			next.set(region, { rev, steps: removeStep(steps, n) });
 			continue;
 		}
-		next.set(
-			region,
-			steps.map((s) => {
+		next.set(region, {
+			rev,
+			steps: steps.map((s) => {
 				if (s.n !== n) return s;
 				if ('pipeline' in patch) return { ...s, pipeline: patch.pipeline, settings: [] };
 				if ('genPx' in patch) return { ...s, genPx: patch.genPx };
@@ -335,7 +353,7 @@ export function editRow(
 				const rest = s.settings.filter((x) => x.key !== key);
 				return { ...s, settings: value === '' ? rest : [...rest, { key, value }] };
 			}),
-		);
+		});
 	}
 	return next;
 }
@@ -374,22 +392,42 @@ export const settingScope = (s: CardSetting) => scopeOf(s);
 
 // ── Before publishing, and how a region was made ─────────────────────────────
 
+type Licence = Card['licence'] | '';
+const LICENCE_RANK: Record<Licence, number> = { '': 0, ok: 0, conditional: 1, blocked: 2 };
+const worse = (a: Licence, b: Licence): Licence => (LICENCE_RANK[b] > LICENCE_RANK[a] ? b : a);
+
+/** Whether a step's work reached the project: it rendered, was picked, or committed a tile. */
+const reachedProject = (s: StoredStep) =>
+	s.status === 'done' || s.status === 'chosen' || (s.kind === 'finish' && Boolean(s.chosen));
+
 /**
- * Every planned step whose card's licence is blocked or conditional (ADR-0008 §7), grouped by
- * blueprint and licence so the before-publish list stays readable: each group names every region
- * and step it covers, blocked groups first.
+ * Every step whose blueprint is blocked or conditional for its licence (ADR-0008 §7), for the
+ * before-publish list: the planned recipes' steps, and every step of any recipe whose art reached
+ * the project (a region a later plan dropped keeps the tile it committed). The licence is the
+ * worse of the one the step was planned with and its card's now; a card no longer reviewed counts
+ * as conditional, since nothing vouches for it. Grouped by blueprint and licence, blocked first,
+ * each group naming every region and step.
  */
 export function licenceList(
 	answer: ArtPlanAnswer,
 ): { pipeline: string; licence: 'blocked' | 'conditional'; steps: string[] }[] {
+	const cards = cardsOf(answer);
 	const out: { pipeline: string; licence: 'blocked' | 'conditional'; steps: string[] }[] = [];
-	for (const f of licenceFlags(answer.recipes.filter((r) => r.planned))) {
-		const step = `${f.region} (step ${f.n})`;
-		const found = out.find((g) => g.pipeline === f.pipeline && g.licence === f.licence);
-		if (found) found.steps.push(step);
-		else out.push({ pipeline: f.pipeline, licence: f.licence, steps: [step] });
+	for (const r of answer.recipes) {
+		for (const s of r.steps) {
+			if (s.kind === 'finish' || (!r.planned && !reachedProject(s))) continue;
+			const now: Licence = answer.catalogue
+				? (cards.get(s.pipeline)?.licence ?? 'conditional')
+				: s.licence;
+			const licence = worse(s.licence, now);
+			if (licence !== 'blocked' && licence !== 'conditional') continue;
+			const step = `${r.region} (step ${s.n})`;
+			const found = out.find((g) => g.pipeline === s.pipeline && g.licence === licence);
+			if (found) found.steps.push(step);
+			else out.push({ pipeline: s.pipeline, licence, steps: [step] });
+		}
 	}
-	return out.sort((a, b) => (a.licence === b.licence ? 0 : a.licence === 'blocked' ? -1 : 1));
+	return out.sort((a, b) => LICENCE_RANK[b.licence] - LICENCE_RANK[a.licence]);
 }
 
 const KIND_WORDS: Record<StepInput['kind'], string> = {

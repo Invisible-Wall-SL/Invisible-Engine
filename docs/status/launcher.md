@@ -96,13 +96,35 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     region detail with the finished tile beside the variants, and the before-publish licence
     list (`routes/(app)/director/artPlan.ts`, pure). `atlasFetch` takes an `AtlasCaller` so the
     estimate can read the catalogue with no run.
-  - Tests: `check:director-runs` 458 (estimate per chain, unpriced refusals, start refusal, the
-    Art plan actions), `check:director-live` 98 (the fold, the panel's view and edits, licences,
-    how-made), worker `check:recipes` 63, `prove:art-plan` 39 (stale approval, owner edits,
-    step progress and timings measured once, a dropped region).
+  - Tests: `check:director-runs` 465 (estimate per chain, unpriced refusals, start refusal, the
+    Art plan actions and edit shapes), `check:director-live` 105 (the fold, the panel's view and
+    edits, drafts, licences, how-made), worker `check:recipes` 71, `prove:art-plan` 45 (stale
+    approval, owner edits incl. a group size edit, a stale and a malformed edit, a failed render
+    queued again, timings measured once, a dropped region, re-approval on one pricing basis).
+  - **After review** (code-reviewer, four blockers reproduced on the real modules):
+    - owner edits are validated against the plan with every edit applied (a group size edit no
+      longer refuses itself one region at a time), name the revision they were made on, are
+      parsed strictly by `parseStepInput` on both sides (a malformed step is a reason, never a
+      throw that wedged the run's event queue), and keep what unchanged leading steps rendered
+      (`carryProgress`); a refused edit stays on the page;
+    - a failed step is queued again under its approval and recorded like the first render;
+    - a revision is compared with the approved recipe priced on the SAME basis (re-approval no
+      longer slips through when the timings fell since), and the approval itself prices the plan
+      again (worker and launcher), storing the price it was approved at;
+    - Art plan decisions read the catalogue before the transaction and are refused, not retried,
+      when it cannot be read, so they never hold a later stop;
+    - `pricing.json` gains `runpod.seedDelaySecondsPerJob` (ADR-0008 §6's seed delay, 15 s
+      placeholder); template defaults price the atlases their recipes ran on, at the dearest
+      candidate; a start ignores a Preset GPU since gone from `pricing.json`;
+    - the before-publish list also covers art a dropped region committed and uses the worse of the
+      planned and current licence, and "Approve and hand off" waits for it; the Live run reloads
+      recipes on recipe, plan, pick and render rows only.
+  - **Deploy:** atlas-tool's `RUNPOD_ENDPOINT_GPU` must be set and priced, or no Director run can
+    start (`docs/INFRA.md`).
   - **Open:** the Atlas Maker card editor does not yet show the measured timings (ADR-0008 §2);
-    adding a step from the Art plan panel goes through "Send my changes"; the cap's queued-render
-    projection (`projectQueuedGpu`) still uses the run's mean or the seed, not a step's card.
+    adding a step, or editing one region of a shared row, goes through "Send my changes"; the cap's
+    queued-render projection (`projectQueuedGpu`) still uses the run's mean or the seed, not a
+    step's card.
 - 2026-10-07 — **Invisible Director: the atlas technician** (ADR-0008 card 8D). Inert for a person
   and for every current game: only a Director run reaches any of it.
   - **Agent:** `services/director-worker/agents/atlas-technician.md` (Sonnet 5.5, high effort, the

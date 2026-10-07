@@ -13,12 +13,13 @@
 	"cacheWriteMultiplier": 1.25,
 	"runpod": {
 		"placeholder": true,
-		"note": "PLACEHOLDER — the owner has not confirmed these. Replace them with the serverless endpoint's real $/s per GPU and a measured seedSecondsPerRender, then set placeholder to false.",
+		"note": "PLACEHOLDER — the owner has not confirmed these. Replace them with the serverless endpoint's real $/s per GPU, a measured seedSecondsPerRender and a measured seedDelaySecondsPerJob (the queue delay one image is priced at before its pipeline has a measured one), then set placeholder to false.",
 		"perSecondByGpu": {
 			"RTX 4090 (24 GB)": 0.00031,
 			"L40S (48 GB)": 0.00053,
 			"A100 (80 GB)": 0.00076
 		},
-		"seedSecondsPerRender": 600
+		"seedSecondsPerRender": 600,
+		"seedDelaySecondsPerJob": 15
 	}
 }

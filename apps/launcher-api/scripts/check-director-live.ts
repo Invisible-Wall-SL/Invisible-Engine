@@ -36,6 +36,7 @@ import {
 	artPlanView,
 	editRow,
 	licenceList,
+	pruneDrafts,
 	madeOf,
 	pipelineOptions,
 	sizeOptions,
@@ -1076,6 +1077,7 @@ console.log('batches, atlases and trimming');
 			planRegions: planSet,
 			others: stored,
 			usdPerSecond: USD,
+			seedDelaySeconds: 15,
 		});
 		if (!result.ok) throw new Error(`fixture: ${recipe.region} ${result.errors.join('; ')}`);
 		stored.push({
@@ -1093,6 +1095,7 @@ console.log('batches, atlases and trimming');
 		catalogue: { ...catalogue, usdPerSecond: USD },
 		catalogueError: null,
 		timings: [],
+		seedDelaySeconds: 15,
 	};
 	const view = artPlanView(answer);
 	check(
@@ -1193,13 +1196,24 @@ console.log('batches, atlases and trimming');
 		),
 	});
 	check(
-		'a recipe stored unpriced stays unpriced, whatever a fresh price says',
-		[
-			storedUnpriced.gpuUsd,
-			storedUnpriced.unpriced.length,
-			storedUnpriced.unpriced[0]?.startsWith(stored[0].region),
-		],
-		[null, 1, true],
+		'a recipe stored unpriced shows the price it has now (the approval prices it again too)',
+		[storedUnpriced.gpuUsd === null, storedUnpriced.unpriced],
+		[false, []],
+	);
+	check(
+		'edits name the revision they were made on',
+		edited.edits.every((e) => e.rev === 1),
+		true,
+	);
+	check(
+		'a draft is kept while its recipe still has the revision it was made on',
+		pruneDrafts(answer, drafts).size,
+		row.regions.length,
+	);
+	check(
+		'…and retired once the recipe moved on (the edit stored, or a revision since)',
+		pruneDrafts({ ...answer, recipes: answer.recipes.map((r) => ({ ...r, rev: 2 })) }, drafts).size,
+		0,
 	);
 	check(
 		'every chain is priced again with the measured timings, edited or not',
@@ -1261,6 +1275,44 @@ console.log('batches, atlases and trimming');
 		'…each naming its regions and steps',
 		flags.find((f) => f.pipeline === 'birefnet')?.steps.includes('H1 (step 2)'),
 		true,
+	);
+	const droppedButRendered = licenceList({
+		...answer,
+		recipes: answer.recipes.map((r) =>
+			r.region === 'H1'
+				? {
+						...r,
+						planned: false,
+						steps: r.steps.map((st) =>
+							st.n === 1 ? { ...st, status: 'chosen' as const, chosen: '3' } : st,
+						),
+					}
+				: r,
+		),
+	});
+	check(
+		'a region a later plan dropped still lists the art it made; what it never ran, it does not',
+		[
+			droppedButRendered.some((g) => g.steps.includes('H1 (step 1)')),
+			droppedButRendered.some((g) => g.steps.includes('H1 (step 2)')),
+		],
+		[true, false],
+	);
+	const staleCard = licenceList({
+		...answer,
+		catalogue: {
+			...answer.catalogue!,
+			blueprints: answer.catalogue!.blueprints.filter((b) => b.id !== 'birefnet'),
+		},
+		recipes: answer.recipes.map((r) => ({
+			...r,
+			steps: r.steps.map((st) => ({ ...st, licence: 'ok' as const })),
+		})),
+	});
+	check(
+		'a step whose card is no longer reviewed is listed as conditional, whatever it was planned with',
+		staleCard.find((g) => g.pipeline === 'birefnet')?.licence,
+		'conditional',
 	);
 
 	// How the region was made, as the worker advanced its steps.

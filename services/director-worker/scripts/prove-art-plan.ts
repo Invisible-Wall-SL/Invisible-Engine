@@ -28,7 +28,12 @@
  *  7. a render advances its steps (`queued` → `done` with its variants), the technician's pick
  *     and the committed tile are recorded on the recipe, and the job's measured time is folded
  *     into `director_blueprint_timings` once, however often its `job_done` is delivered;
- *  8. a new plan that leaves a region out takes its recipe's approval away.
+ *  8. a new plan that leaves a region out takes its recipe's approval away;
+ *  9. a revision is compared with the approved recipe priced on the same basis: one more variant
+ *     loses the approval although the measured delay fell since.
+ * Section 6 also proves a group edit of a per-atlas value lands as a whole, an edit made on an
+ * older revision and a malformed one are refused (and the next row still applies); section 7 that
+ * a failed render is queued again under the same approval and recorded like the first.
  */
 import type {
 	BetaMessage,
@@ -592,7 +597,7 @@ try {
 		await event(edited, 'owner', 'checkpoint_resolved', {
 			checkpoint: 'art_plan',
 			decision: 'revise',
-			recipeEdits: [{ region: 'H1', steps: h1.steps }],
+			recipeEdits: [{ region: 'H1', rev: 1, steps: h1.steps }],
 			by: { uid: userId, name: 'owner' },
 		});
 		const quiet = fakeModel([]);
@@ -613,7 +618,7 @@ try {
 		await event(edited, 'owner', 'checkpoint_resolved', {
 			checkpoint: 'art_plan',
 			decision: 'revise',
-			recipeEdits: [{ region: 'H2', steps: broken.steps }],
+			recipeEdits: [{ region: 'H2', rev: 1, steps: broken.steps }],
 			by: { uid: userId, name: 'owner' },
 		});
 		await drive(edited, deps(fakeModel([]).transport, fakeLauncher().launcher));
@@ -630,6 +635,85 @@ try {
 			],
 			[1, true, 'art_plan'],
 		);
+		const lastNote = async () =>
+			(
+				await sql<{ payload: { text?: string } }[]>`
+				select payload_json as payload from director_events
+				where run_id = ${edited} and kind = 'activity' and payload_json->>'type' = 'note'
+				order by id desc limit 1`
+			)[0]?.payload.text ?? '';
+		const revise = (recipeEdits: unknown[]) =>
+			event(edited, 'owner', 'checkpoint_resolved', {
+				checkpoint: 'art_plan',
+				decision: 'revise',
+				recipeEdits,
+				by: { uid: userId, name: 'owner' },
+			});
+
+		// A group edit of a per-atlas value: every Symbols region at 768 px, checked as a whole.
+		const symbols = expected.plan.batches.find((b) => b.name === 'Symbols')!.regions;
+		const byRegion = new Map((await recipes(edited)).map((r) => [r.region, r]));
+		await revise(
+			symbols.map((region) => {
+				const r = byRegion.get(region)!;
+				return {
+					region,
+					rev: r.rev,
+					steps: r.steps.map((st, i) => (i === 0 ? { ...st, genPx: 768 } : st)),
+				};
+			}),
+		);
+		await drive(edited, deps(fakeModel([]).transport, fakeLauncher().launcher));
+		const afterGroup = (await recipes(edited)).filter((r) => symbols.includes(r.region));
+		check(
+			"a group edit of the atlas's size lands on every region at once, not refused one by one",
+			[
+				afterGroup.every((r) => r.steps[0].genPx === 768 && r.editedBy === userId),
+				afterGroup.length,
+			],
+			[true, symbols.length],
+		);
+		check(
+			'...and the step fields the owner sent beyond a step are dropped',
+			afterGroup.every((r) => r.steps.every((st) => st.status === 'planned' && !st.jobRef)),
+			true,
+		);
+
+		// An edit made on an older revision, and a malformed one: refused, never thrown on.
+		const h1Now = (await recipes(edited)).find((r) => r.region === 'H1')!;
+		await revise([{ region: 'H1', rev: h1Now.rev - 1, steps: h1Now.steps }]);
+		await drive(edited, deps(fakeModel([]).transport, fakeLauncher().launcher));
+		check(
+			'an edit made on an older revision is refused: it would overwrite a newer one',
+			[
+				(await recipes(edited)).find((r) => r.region === 'H1')!.rev,
+				/changed since you edited it/.test(await lastNote()),
+			],
+			[h1Now.rev, true],
+		);
+		await revise([
+			{
+				region: 'H1',
+				rev: h1Now.rev,
+				steps: h1Now.steps.map((st, i) =>
+					i === 0 ? { ...st, style: null, settings: [{ key: 'ksampler_steps', value: 28 }] } : st,
+				),
+			},
+		]);
+		await drive(edited, deps(fakeModel([]).transport, fakeLauncher().launcher));
+		check(
+			'a malformed edit is refused with its reason, and the run goes on: the next row applies',
+			[
+				/were not stored[\s\S]*each setting is \{key, value\} as text/.test(await lastNote()),
+				(
+					await sql`select count(*)::int as n from director_events
+						where run_id = ${edited} and handled_at is null
+							and kind in ('owner_request', 'owner_message', 'checkpoint_resolved', 'job_done')`
+				)[0].n,
+			],
+			[true, 0],
+		);
+
 		const seen = Object.fromEntries((await recipes(edited)).map((r) => [r.region, r.rev]));
 		await event(edited, 'owner', 'checkpoint_resolved', {
 			checkpoint: 'art_plan',
@@ -649,10 +733,12 @@ try {
 	console.log('7. a render advances its steps and is measured once');
 	{
 		const h1 = (await recipes(edited)).find((r) => r.region === 'H1')!;
+		const failedRef = 'st_00000000000000e7';
 		const jobRef = 'st_00000000000000e8';
+		let nextRef = failedRef;
 		const scratch = h1.steps[1];
 		const launcher = fakeLauncher(catalogue, {
-			'atlas.queue_variants': () => ({ atlas: h1.atlas, regions: ['H1'], jobRef }),
+			'atlas.queue_variants': () => ({ atlas: h1.atlas, regions: ['H1'], jobRef: nextRef }),
 			'atlas.choose_variant': () => ({
 				atlas: h1.atlas,
 				region: 'H1',
@@ -661,23 +747,47 @@ try {
 			}),
 			'atlas.set_output': () => ({ atlas: h1.atlas, region: 'H1', committed: true }),
 		});
-		const model = fakeModel([
-			{
-				content: [
-					use('atlas.queue_variants', {
-						atlas: h1.atlas,
-						regions: ['H1'],
-						variants: 2,
-						step: 'H1#1',
-					}),
-				],
-			},
-			{ content: [say('Queued.')] },
-		]);
+		const queueH1 = () =>
+			fakeModel([
+				{
+					content: [
+						use('atlas.queue_variants', {
+							atlas: h1.atlas,
+							regions: ['H1'],
+							variants: h1.steps[0].variants,
+							step: 'H1#1',
+						}),
+					],
+				},
+				{ content: [say('Queued.')] },
+			]);
 		await message(edited, 'atlas-technician', 'Render H1.');
-		await drive(edited, deps(model.transport, launcher.launcher));
+		await drive(edited, deps(queueH1().transport, launcher.launcher));
+		await event(edited, 'atlas-technician', 'job_done', {
+			jobRef: failedRef,
+			status: 'failed',
+			atlas: h1.atlas,
+			regions: ['H1'],
+			result: { error: 'OOM' },
+		});
+		await drive(
+			edited,
+			deps(fakeModel([{ content: [say('It failed.')] }]).transport, launcher.launcher),
+		);
+		check(
+			'a failed render fails its step',
+			(await recipes(edited)).find((r) => r.region === 'H1')!.steps[0].status,
+			'failed',
+		);
+		nextRef = jobRef;
+		await message(edited, 'atlas-technician', 'Render H1 again.');
+		await drive(edited, deps(queueH1().transport, launcher.launcher));
 		const queued = (await recipes(edited)).find((r) => r.region === 'H1')!.steps[0];
-		check('a queued render marks its step', [queued.status, queued.jobRef], ['queued', jobRef]);
+		check(
+			'the render queued again under the same approval is recorded like the first',
+			[queued.status, queued.jobRef],
+			['queued', jobRef],
+		);
 		const done = {
 			jobRef,
 			status: 'finished',
@@ -787,6 +897,62 @@ try {
 			(await recipes(edited)).filter((r) => r.region !== 'Logo').every((r) => r.approved !== null),
 			true,
 		);
+	}
+
+	// ── 9. A revision is held to the approved plan on today's prices ──────────
+	console.log('9. a dearer revision loses its approval even when the timings fell since');
+	{
+		const setDelay = (delay: number) =>
+			sql`insert into director_blueprint_timings
+					(pipeline, gen_px, jobs, mean_exec_seconds, mean_delay_seconds)
+				values ('sdxl', 1024, 50, 12, ${delay})
+				on conflict (pipeline, gen_px) do update
+				set jobs = 50, mean_exec_seconds = 12, mean_delay_seconds = ${delay}`;
+		const before = await sql<
+			{ jobs: number; mean_exec_seconds: number; mean_delay_seconds: number }[]
+		>`
+			select jobs, mean_exec_seconds, mean_delay_seconds from director_blueprint_timings
+			where pipeline = 'sdxl' and gen_px = 1024`;
+		await setDelay(60);
+		const held = await newRun();
+		await message(held, 'atlas-technician', 'Plan the recipes.');
+		await drive(
+			held,
+			deps(
+				fakeModel([{ content: expected.recipes.map(setRecipe) }]).transport,
+				fakeLauncher().launcher,
+			),
+		);
+		const seen = Object.fromEntries((await recipes(held)).map((r) => [r.region, r.rev]));
+		await event(held, 'owner', 'checkpoint_resolved', {
+			checkpoint: 'art_plan',
+			decision: 'approve',
+			recipeRevs: seen,
+			by: { uid: userId, name: 'owner' },
+		});
+		await drive(held, deps(fakeModel([]).transport, fakeLauncher().launcher));
+		await setDelay(10);
+		const dearer = recipeOf('H2');
+		dearer.steps[0].variants = dearer.steps[0].variants + 1;
+		await message(held, 'atlas-technician', 'One more H2 variant.');
+		await drive(
+			held,
+			deps(fakeModel([{ content: [setRecipe(dearer)] }]).transport, fakeLauncher().launcher),
+		);
+		const h2 = (await recipes(held)).find((r) => r.region === 'H2')!;
+		check(
+			'one more variant costs more on one pricing basis, so the approval goes',
+			[h2.rev, h2.approved, (await runRow(held)).waiting_on],
+			[2, null, 'art_plan'],
+		);
+		if (before[0]) {
+			await sql`update director_blueprint_timings
+				set jobs = ${before[0].jobs}, mean_exec_seconds = ${before[0].mean_exec_seconds},
+					mean_delay_seconds = ${before[0].mean_delay_seconds}
+				where pipeline = 'sdxl' and gen_px = 1024`;
+		} else {
+			await sql`delete from director_blueprint_timings where pipeline = 'sdxl' and gen_px = 1024`;
+		}
 	}
 } finally {
 	await sql`delete from director_template_recipes where template_project_key = ${TEMPLATE}`;

@@ -84,20 +84,40 @@ export async function blueprintTimings(): Promise<
 		.from(directorBlueprintTimings);
 }
 
-/** A template's latest default chain per region group (`director_template_recipes`). */
+/**
+ * A template's latest default chain per region group (`director_template_recipes`), with the
+ * atlases that group's recipes ran on in the run whose approval wrote it: what lets the New game
+ * estimate price a template atlas at the chain its regions were made with.
+ */
 export async function templateDefaultChains(
 	templateProjectKey: string,
-): Promise<{ group: string; version: number; chain: unknown }[]> {
-	const rows = await getDb()
+): Promise<{ group: string; version: number; chain: unknown; atlases: string[] }[]> {
+	const db = getDb();
+	const rows = await db
 		.selectDistinctOn([directorTemplateRecipes.regionGroup], {
 			group: directorTemplateRecipes.regionGroup,
 			version: directorTemplateRecipes.version,
 			chain: directorTemplateRecipes.chainJson,
+			runId: directorTemplateRecipes.runId,
 		})
 		.from(directorTemplateRecipes)
 		.where(eq(directorTemplateRecipes.templateProjectKey, templateProjectKey))
 		.orderBy(directorTemplateRecipes.regionGroup, desc(directorTemplateRecipes.version));
-	return rows;
+	return Promise.all(
+		rows.map(async ({ runId, ...row }) => {
+			const atlases = await db
+				.selectDistinct({ atlas: sql<string>`${directorRegions.recipeJson}->>'atlas'` })
+				.from(directorRegions)
+				.where(
+					and(
+						eq(directorRegions.runId, runId),
+						eq(directorRegions.regionGroup, row.group),
+						sql`${directorRegions.recipeJson} is not null`,
+					),
+				);
+			return { ...row, atlases: atlases.map((a) => a.atlas).filter(Boolean) };
+		}),
+	);
 }
 
 /** The stored results of this run's finished calls of `op` (`<tool>.<op>`), oldest first. */

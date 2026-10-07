@@ -184,8 +184,10 @@ export interface Folded {
 	stepStartedAt: Partial<Record<RunStep, string>>;
 	/** Where the Art plan checkpoint stands (ADR-0008 §7): never opened, open, approved, sent back. */
 	artPlan: 'none' | 'open' | 'approved' | 'revised';
-	/** The id of the last `recipe` row: the cache version of the run's recipes. */
+	/** The id of the last row that changed a recipe: the cache version of the run's recipes. */
 	recipesVersion: number;
+	/** The id of the coordinator's last plan row: a new plan can take recipes' approval away. */
+	planVersion: number;
 	/** The GPU the run's latest render was billed on, as its spend row names it. */
 	gpu: string | null;
 }
@@ -319,6 +321,7 @@ interface Ctx {
 	refused: Set<number>;
 	artPlan: Folded['artPlan'];
 	recipesVersion: number;
+	planVersion: number;
 	gpu: string | null;
 }
 
@@ -556,6 +559,7 @@ function foldActivity(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 				}
 			}
 			ctx.plan = { summary, batches };
+			ctx.planVersion = event.id;
 			ctx.groupOf.clear();
 			ctx.planAtlases.clear();
 			ctx.groupOrder = [];
@@ -614,6 +618,10 @@ function foldActivity(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 		case 'breakdown_image':
 			// One per mockup per pass, each carrying the model's full answer: noise in the feed.
 			return;
+		case 'recipe_step':
+			// A pick or a committed tile, recorded on the recipe ("How this was made").
+			ctx.recipesVersion = event.id;
+			return push(ctx, event, str(p.text, 400) ?? 'recorded a step of a recipe', 'plain');
 		case 'recipe': {
 			ctx.recipesVersion = event.id;
 			const region = str(p.region, 120) ?? 'a region';
@@ -916,6 +924,7 @@ export function foldEvents(events: readonly RunEvent[], prefix: string): Folded 
 		refused: refusedIds(events),
 		artPlan: 'none',
 		recipesVersion: 0,
+		planVersion: 0,
 		gpu: null,
 	};
 	for (const event of events) {
@@ -1022,6 +1031,7 @@ export function foldEvents(events: readonly RunEvent[], prefix: string): Folded 
 		stepStartedAt: ctx.stepStartedAt,
 		artPlan: ctx.artPlan,
 		recipesVersion: ctx.recipesVersion,
+		planVersion: ctx.planVersion,
 		gpu: ctx.gpu,
 	};
 }
