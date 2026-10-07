@@ -782,12 +782,15 @@ export const carrySession = (session, { keepBetShape }) => ({
  *   symbols?: string[], winModel?: 'lines' | 'ways' | 'cluster' | 'scatter',
  *   betModes?: { mode: string, cost: number, kind: 'base' | 'ante' | 'buy' }[],
  *   cascade?: boolean, cascadeDemo?: boolean, quiet?: boolean, forceTrigger?: boolean,
- *   freeSpins?: false, freeSpinsTrigger?: { symbol: string, count: number } }} [opts]
+ *   freeSpins?: false, freeSpinsTrigger?: { symbol: string, count: number },
+ *   freeSpinsAwards?: { awards: object[], retrigger: object[], random: boolean } }} [opts]
  *   `freeSpins: false` (the project's Game Config turned free spins off) means the feature never
  *   opens: no base spin, forced trigger or bought round enters it, a bought option is refused at
  *   `bet`, and scatters still land and pay their scatter pay. `freeSpinsTrigger` is the project's
  *   trigger when it departs from 3+ SCAT — a SERVER symbol and the fewest of it, anywhere on the
  *   board, that award (and retrigger) the feature; the scatter PAY stays on SCAT either way.
+ *   `freeSpinsAwards` is how many spins it awards — `{ awards, retrigger, random }`, two tables of
+ *   `{ count, spins, maxSpins? }` rows and the random switch — when they depart from 10 / +5.
  *   `betModes` (BASE FIRST) makes this a table game — see `betTable`; absent ⇒ a line-config game.
  *   `symbols` restricts the dealt line pool to the project's in-play symbols in SERVER vocabulary
  *   (PIC* plus SCAT); absent ⇒ the full default pool. `winModel` selects how wins are DECIDED —
@@ -1022,6 +1025,54 @@ export function createMockRgs(opts = {}) {
 	}
 	/** How many trigger symbols a board holds, anywhere on it. */
 	const triggerCount = (reels) => reels.flat().filter((cell) => cell === triggerSymbol).length;
+
+	/**
+	 * HOW MANY free spins the feature awards — the project's tables when it states them
+	 * (`opts.freeSpinsAwards`), else TOTAL_FS on entering and +RETRIGGER_FS on a retrigger, whatever
+	 * the count. A row awards for its own trigger count and up, to the next row; with `random` on, a
+	 * row with a range awards a uniform whole number across it (both ends included).
+	 */
+	const awardTable = (rows, spins) => {
+		const usable = (Array.isArray(rows) ? rows : [])
+			.filter(
+				(row) =>
+					Number.isInteger(row?.count) &&
+					row.count >= 1 &&
+					Number.isInteger(row.spins) &&
+					row.spins >= 1,
+			)
+			.map(({ count, spins: low, maxSpins }) =>
+				Number.isInteger(maxSpins) && maxSpins > low
+					? { count, spins: low, maxSpins }
+					: { count, spins: low },
+			)
+			.sort((a, b) => a.count - b.count);
+		return usable.length ? usable : [{ count: triggerMin, spins }];
+	};
+	const entryAwards = awardTable(opts.freeSpinsAwards?.awards, TOTAL_FS);
+	const retriggerAwards = awardTable(opts.freeSpinsAwards?.retrigger, RETRIGGER_FS);
+	const randomAwards = opts.freeSpinsAwards?.random === true;
+	/**
+	 * The row that awards for `landed` trigger symbols: the largest count at or below it, the first
+	 * of them on a tie. Mirrors `game-config`'s `freeSpinsAwardFor` — this file is plain Node and
+	 * cannot import it — and `check:freespins` holds every award dealt here to that function. A
+	 * landing below every row takes the lowest one: a forced or bought round whose trigger symbol is
+	 * never dealt lands none, and a table starting above the trigger is refused by `/config`.
+	 */
+	const awardRowFor = (table, landed) => {
+		let found = null;
+		for (const row of table) {
+			if (row.count <= landed && (!found || row.count > found.count)) found = row;
+		}
+		return found ?? table[0];
+	};
+	/** The spins `landed` trigger symbols win from `table`. The RNG is drawn ONLY for a real range
+	 *  with random awards on, so a game that authored neither deals the stream it always has. */
+	const drawAward = (table, landed) => {
+		const row = awardRowFor(table, landed);
+		const max = randomAwards ? (row.maxSpins ?? row.spins) : row.spins;
+		return max > row.spins ? row.spins + Math.floor(nextRand() * (max - row.spins + 1)) : row.spins;
+	};
 	/**
 	 * Emit the cascade presentation fixture on every spin — see the note at its emit site.
 	 *
@@ -1747,17 +1798,19 @@ export function createMockRgs(opts = {}) {
 						events.push({ event: 'playedSpin', context: fsReels });
 						pendingRound.bonus.played += 1;
 						pendingRound.bonus.left -= 1;
-						// RETRIGGER: the trigger landing again DURING a free spin awards more spins, added
-						// to the remaining count (chaining without limit). Emitted BEFORE `playedBonusSpin`,
-						// so the counter total the client reads already includes them.
+						// RETRIGGER: the trigger landing again DURING a free spin awards more spins (the
+						// retrigger table's row for how many landed), added to the remaining count (chaining
+						// without limit). Emitted BEFORE `playedBonusSpin`, so the counter total the client
+						// reads already includes them.
 						const fsTriggers = triggerCount(fsReels);
 						if (fsTriggers >= triggerMin) {
-							pendingRound.bonus.left += RETRIGGER_FS;
-							pendingRound.bonus.total += RETRIGGER_FS;
+							const added = drawAward(retriggerAwards, fsTriggers);
+							pendingRound.bonus.left += added;
+							pendingRound.bonus.total += added;
 							events.push({
 								event: 'retrigger',
 								context: {
-									spins: RETRIGGER_FS,
+									spins: added,
 									occurs: fsTriggers,
 									total: pendingRound.bonus.total,
 									left: pendingRound.bonus.left,
@@ -1839,11 +1892,14 @@ export function createMockRgs(opts = {}) {
 					// scatters having paid their scatter pay above.
 					const triggers = triggerCount(reels);
 					if (freeSpinsOn && (triggers >= triggerMin || forceTrigger || bought)) {
-						pendingRound.bonus = { active: true, total: TOTAL_FS, played: 0, left: TOTAL_FS };
+						// The award row for what landed, the board counted as dealt — forced and bought
+						// boards too, so the award matches the trigger the player sees.
+						const awarded = drawAward(entryAwards, triggers);
+						pendingRound.bonus = { active: true, total: awarded, played: 0, left: awarded };
 						events.push({
 							event: 'spinTrigger',
 							context: {
-								spins: [{ prob: 1, spins: TOTAL_FS }],
+								spins: [{ prob: 1, spins: awarded }],
 								occurs: triggers,
 								bonus: 'feature',
 								trigger: spinTriggerRule,
@@ -1852,7 +1908,7 @@ export function createMockRgs(opts = {}) {
 						events.push({ event: 'playedSpin', context: reels });
 						events.push({
 							event: 'enterBonus',
-							context: bonusSnapshot(pendingRound, snapshotTrigger, { played: 0, left: TOTAL_FS }),
+							context: bonusSnapshot(pendingRound, snapshotTrigger, { played: 0, left: awarded }),
 						});
 						// Do NOT credit and do NOT close — the free spins and the collect follow.
 						break;

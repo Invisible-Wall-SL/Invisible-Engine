@@ -1,7 +1,7 @@
 import { resolveGrid } from './grid';
 import { symbolsInPlay, symbolsInPlayFromStrips } from './inPlay';
 import { SCATTER_TRIGGER_COUNT, inPlayScatterSymbol } from './serverPaytable';
-import type { FreeSpinsConfig, GameConfigDoc } from './types';
+import type { FreeSpinsAward, FreeSpinsConfig, GameConfigDoc } from './types';
 import type { GameConfigIssue } from './validate';
 
 /**
@@ -18,12 +18,24 @@ import type { GameConfigIssue } from './validate';
 /** Fewest trigger symbols that award free spins when the project states no count. */
 export const DEFAULT_FREE_SPINS_TRIGGER_COUNT = SCATTER_TRIGGER_COUNT;
 
+/** Spins awarded on entering free spins when the project authors no table. */
+export const DEFAULT_FREE_SPINS_AWARD = 10;
+
+/** Spins ADDED by a retrigger when the project authors no table. */
+export const DEFAULT_RETRIGGER_AWARD = 5;
+
 /** The free-spins rule with every default filled in. */
 export type ResolvedFreeSpins = {
 	enabled: boolean;
 	/** The authored trigger symbol, else the in-play scatter, else `undefined` (nothing can trigger). */
 	triggerSymbol: string | undefined;
 	triggerCount: number;
+	/** Spins awarded on entering, by count — the authored rows sorted by count, else one row at
+	 *  `triggerCount` awarding {@link DEFAULT_FREE_SPINS_AWARD}. */
+	awards: FreeSpinsAward[];
+	/** Spins added by a retrigger, the same way; default {@link DEFAULT_RETRIGGER_AWARD}. */
+	retriggerAwards: FreeSpinsAward[];
+	randomAwards: boolean;
 };
 
 type FreeSpinsDoc = Pick<GameConfigDoc, 'freeSpins' | 'symbols' | 'paddingReels'>;
@@ -36,6 +48,108 @@ const scatterOf = (doc: FreeSpinsDoc): string | undefined =>
 	inPlayScatterSymbol(doc.symbols, symbolsInPlayFromStrips(doc.paddingReels));
 
 /**
+ * One award row, or `undefined` when it cannot award anything: a whole `count` and `spins` of at
+ * least 1. `maxSpins` survives only as a real range — a whole number ABOVE `spins`. Equal is no
+ * range, and below is a mistake the validator reports from the authored row.
+ */
+const awardRow = (raw: unknown): FreeSpinsAward | undefined => {
+	if (typeof raw !== 'object' || raw === null) return undefined;
+	const { count, spins, maxSpins } = raw as Record<string, unknown>;
+	if (!validCount(count) || !validCount(spins)) return undefined;
+	return validCount(maxSpins) && maxSpins > spins ? { count, spins, maxSpins } : { count, spins };
+};
+
+/**
+ * A table's usable rows, sorted by count. The sort is STABLE and a duplicate count is KEPT: two
+ * rows naming one count are a mistake the validator shows the author, not something to settle by
+ * quietly dropping one of them.
+ */
+const awardRows = (raw: unknown): FreeSpinsAward[] =>
+	(Array.isArray(raw) ? raw : [])
+		.map(awardRow)
+		.filter((row): row is FreeSpinsAward => row !== undefined)
+		.sort((a, b) => a.count - b.count);
+
+const resolveAwardTable = (raw: unknown, triggerCount: number, spins: number): FreeSpinsAward[] => {
+	const rows = awardRows(raw);
+	return rows.length ? rows : [{ count: triggerCount, spins }];
+};
+
+/**
+ * Normalize one award table, or `undefined` when it says nothing the default does not: no usable
+ * row, or every row awarding exactly `defaultSpins` with no range. Rows are sorted by count;
+ * duplicates are kept for the validator (see `awardRows`).
+ */
+export function normalizeAwardTable(
+	raw: unknown,
+	defaultSpins: number,
+): FreeSpinsAward[] | undefined {
+	const rows = awardRows(raw);
+	const departs = rows.some((row) => row.spins !== defaultSpins || row.maxSpins !== undefined);
+	return departs ? rows : undefined;
+}
+
+/** The row that awards for `landed` trigger symbols: the largest count at or below it — the first
+ *  of them, should two rows share a count. `undefined` when every row starts above it. */
+const awardRowFor = (
+	table: readonly FreeSpinsAward[],
+	landed: number,
+): FreeSpinsAward | undefined => {
+	let found: FreeSpinsAward | undefined;
+	for (const row of table) {
+		if (row.count <= landed && (!found || row.count > found.count)) found = row;
+	}
+	return found;
+};
+
+/**
+ * How many spins `landed` trigger symbols award from `table`, as `{ min, max }` — equal ends unless
+ * `random` is on and the row has a range. `undefined` when no row applies.
+ *
+ * THE lookup. The `/config` hint and the fixtures read awards through here (the validator through
+ * the row lookup beneath it); the mock (plain Node, so it cannot import this) mirrors it in its own
+ * `awardRowFor`, and `check:freespins` plays the mock and holds every award it deals to this one.
+ */
+export function freeSpinsAwardFor(
+	table: readonly FreeSpinsAward[],
+	landed: number,
+	random: boolean,
+): { min: number; max: number } | undefined {
+	const row = awardRowFor(table, landed);
+	if (!row) return undefined;
+	return { min: row.spins, max: random ? (row.maxSpins ?? row.spins) : row.spins };
+}
+
+/** One part of the award rule as a person reads it: which counts (`3`, `3–4`, `5+`) award how many
+ *  spins (`10`, `1–3`). */
+export type FreeSpinsAwardRange = { counts: string; spins: string };
+
+/**
+ * A RESOLVED award table as the rule a player meets, from `from` trigger symbols up (`from` is the
+ * trigger count — fewer never enter the feature). Only rows that are actually reached appear, each
+ * with the counts it covers; a row that starts below `from` but still covers it reads from `from`.
+ */
+export function describeFreeSpinsAwards(
+	table: readonly FreeSpinsAward[],
+	from: number,
+	random: boolean,
+): FreeSpinsAwardRange[] {
+	return table.flatMap((row, i) => {
+		const start = Math.max(row.count, from);
+		const award = freeSpinsAwardFor(table, start, random);
+		if (!award || awardRowFor(table, start) !== row) return [];
+		const next = table.slice(i + 1).find((later) => later.count > row.count);
+		const counts = !next
+			? `${start}+`
+			: next.count - 1 === start
+				? `${start}`
+				: `${start}–${next.count - 1}`;
+		const spins = award.min === award.max ? `${award.min}` : `${award.min}–${award.max}`;
+		return [{ counts, spins }];
+	});
+}
+
+/**
  * The free-spins rule this game plays. Read it through here rather than touching `doc.freeSpins`,
  * for the same reason `resolveCascade` exists: "absent means the scatter, three of them" would
  * otherwise be re-implemented at each site and eventually mis-implemented at one of them.
@@ -43,10 +157,18 @@ const scatterOf = (doc: FreeSpinsDoc): string | undefined =>
 export function resolveFreeSpins(doc: FreeSpinsDoc | undefined): ResolvedFreeSpins {
 	const symbol = doc?.freeSpins?.triggerSymbol;
 	const count = doc?.freeSpins?.triggerCount;
+	const triggerCount = validCount(count) ? count : DEFAULT_FREE_SPINS_TRIGGER_COUNT;
 	return {
 		enabled: doc?.freeSpins?.enabled !== false,
 		triggerSymbol: validSymbol(symbol) ? symbol : doc ? scatterOf(doc) : undefined,
-		triggerCount: validCount(count) ? count : DEFAULT_FREE_SPINS_TRIGGER_COUNT,
+		triggerCount,
+		awards: resolveAwardTable(doc?.freeSpins?.awards, triggerCount, DEFAULT_FREE_SPINS_AWARD),
+		retriggerAwards: resolveAwardTable(
+			doc?.freeSpins?.retriggerAwards,
+			triggerCount,
+			DEFAULT_RETRIGGER_AWARD,
+		),
+		randomAwards: doc?.freeSpins?.randomAwards === true,
 	};
 }
 
@@ -64,22 +186,42 @@ export function freeSpinsTriggerIsDefault(doc: FreeSpinsDoc | undefined): boolea
 }
 
 /**
+ * Does the AWARD rule depart from the one every game had before it was authorable — 10 spins, +5 on
+ * a retrigger, never random? The mock contract sends the award tables only when it does.
+ */
+export function freeSpinsAwardsAreDefault(doc: FreeSpinsDoc | undefined): boolean {
+	const block = doc?.freeSpins;
+	return (
+		block?.randomAwards !== true &&
+		!normalizeAwardTable(block?.awards, DEFAULT_FREE_SPINS_AWARD) &&
+		!normalizeAwardTable(block?.retriggerAwards, DEFAULT_RETRIGGER_AWARD)
+	);
+}
+
+/**
  * Normalize an authored `freeSpins` block, or `undefined` when nothing in it departs from the
  * default. Same invariant as `normalizeCascade`: a config that simply has free spins on three
  * scatters stores no block and normalizes byte-identically to one written before the block existed.
  *
- * The trigger fields survive `enabled: false` on purpose — switching free spins off and back on
- * must not cost the author the trigger they set up.
+ * The trigger and award fields survive `enabled: false` on purpose — switching free spins off and
+ * back on must not cost the author what they set up. The award tables come out sorted by count:
+ * this runs at save, so a table is put in order then rather than under the author's cursor.
  */
 export function normalizeFreeSpins(raw: unknown): FreeSpinsConfig | undefined {
 	if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined;
-	const { enabled, triggerSymbol, triggerCount } = raw as Record<string, unknown>;
+	const { enabled, triggerSymbol, triggerCount, randomAwards, awards, retriggerAwards } =
+		raw as Record<string, unknown>;
 	const block: FreeSpinsConfig = {};
 	if (enabled === false) block.enabled = false;
 	if (validSymbol(triggerSymbol)) block.triggerSymbol = triggerSymbol;
 	if (validCount(triggerCount) && triggerCount !== DEFAULT_FREE_SPINS_TRIGGER_COUNT) {
 		block.triggerCount = triggerCount;
 	}
+	if (randomAwards === true) block.randomAwards = true;
+	const entry = normalizeAwardTable(awards, DEFAULT_FREE_SPINS_AWARD);
+	if (entry) block.awards = entry;
+	const retrigger = normalizeAwardTable(retriggerAwards, DEFAULT_RETRIGGER_AWARD);
+	if (retrigger) block.retriggerAwards = retrigger;
 	return Object.keys(block).length ? block : undefined;
 }
 
@@ -154,6 +296,89 @@ export const validateFreeSpins = (doc: GameConfigDoc): GameConfigIssue[] => {
 			path: 'freeSpins.triggerCount',
 			message: `Free spins need ${freeSpins.triggerCount} trigger symbols but the board only has ${cells} cells, so they can never trigger.`,
 		});
+	}
+
+	issues.push(
+		...validateAwardTable(AWARD_TABLES.awards, doc.freeSpins?.awards, freeSpins),
+		...validateAwardTable(AWARD_TABLES.retriggerAwards, doc.freeSpins?.retriggerAwards, freeSpins),
+	);
+	const ranged = [...freeSpins.awards, ...freeSpins.retriggerAwards].some(
+		(row) => row.maxSpins !== undefined,
+	);
+	if (freeSpins.randomAwards && !ranged) {
+		issues.push({
+			severity: 'warning',
+			path: 'freeSpins.randomAwards',
+			message:
+				'Random amounts are on but no award row has a range, so every award is still a fixed number. Give a row a "to" value above its spins.',
+		});
+	}
+	return issues;
+};
+
+type AwardTableKey = 'awards' | 'retriggerAwards';
+
+/** How each table names itself to the author (as `/config` labels it), and what its rows serve. */
+const AWARD_TABLES: Record<AwardTableKey, { key: AwardTableKey; label: string; gap: string }> = {
+	awards: { key: 'awards', label: 'Free spins awarded', gap: 'enter free spins' },
+	retriggerAwards: { key: 'retriggerAwards', label: 'Retrigger adds', gap: 'retrigger them' },
+};
+
+/**
+ * One award table against the trigger it serves — only for an AUTHORED table, since the default
+ * one is a single row at the trigger count and cannot be wrong.
+ *
+ * Duplicates and a range whose top is below its bottom are checked on the rows as authored: the
+ * page validates the doc as it is being edited, so both show up and block the save there, before
+ * the canonicalizer could sort or drop anything.
+ */
+const validateAwardTable = (
+	table: (typeof AWARD_TABLES)[AwardTableKey],
+	authored: FreeSpinsAward[] | undefined,
+	freeSpins: ResolvedFreeSpins,
+): GameConfigIssue[] => {
+	if (!Array.isArray(authored) || !authored.length) return [];
+	const issues: GameConfigIssue[] = [];
+	const path = `freeSpins.${table.key}`;
+	const rows = freeSpins[table.key];
+	const { triggerCount } = freeSpins;
+
+	const seen = new Set<number>();
+	for (const count of rows.map((row) => row.count)) {
+		if (seen.has(count)) {
+			issues.push({
+				severity: 'error',
+				path,
+				message: `${table.label} has more than one row for ${count} — give each row its own count.`,
+			});
+		}
+		seen.add(count);
+	}
+	for (const row of authored) {
+		if (validCount(row.maxSpins) && validCount(row.spins) && row.maxSpins < row.spins) {
+			issues.push({
+				severity: 'error',
+				path,
+				message: `${table.label}: the row for ${row.count} runs from ${row.spins} down to ${row.maxSpins} — the "to" value cannot be below the spins.`,
+			});
+		}
+	}
+	if (rows[0].count > triggerCount) {
+		issues.push({
+			severity: 'error',
+			path,
+			message: `${table.label} starts at ${rows[0].count}, but ${triggerCount} trigger symbols already ${table.gap}, so that landing would award nothing. Add a row for ${triggerCount}.`,
+		});
+	}
+	const covering = awardRowFor(rows, triggerCount);
+	for (const row of rows) {
+		if (row.count < triggerCount && row !== covering) {
+			issues.push({
+				severity: 'warning',
+				path,
+				message: `${table.label}: the row for ${row.count} is never used — fewer than ${triggerCount} trigger symbols never ${table.gap}, and the row for ${covering?.count} takes over from there.`,
+			});
+		}
 	}
 	return issues;
 };

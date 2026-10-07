@@ -79,8 +79,8 @@ before — an un-authored project still runs the compiled template.
   scatter: fewest symbols). This is what makes a project a ways game rather than a
   lines one. See _Making a ways game_ below. The same panel carries **Winners
   tumble** — see _Tumbling (cascade)_ below.
-- **Free spins** — whether the game has free spins at all, and what triggers them
-  (which symbol, how many). Shown for lines, ways, cluster, scatter and custom kinds;
+- **Free spins** — whether the game has free spins at all, what triggers them
+  (which symbol, how many) and how many spins they award. Shown for lines, ways, cluster, scatter and custom kinds;
   not for Hold and Win (no free spins) or Book-of (its free spins are the book
   mechanic). See _Free spins_ below.
 - **Reel behaviour** — how a round **arrives** on the board: whether the reels roll
@@ -514,16 +514,46 @@ whether the game has the free-spins feature at all, and what lands it.
 - **How many** (only while on) — the fewest trigger symbols, **anywhere on the
   board**, that award the feature. Default **3**. More than the board has cells is
   an error.
+- **Random amount** (only while on) — _off — each row awards a fixed number_ (the
+  default) or _on — a random number between two values_. It applies to both tables
+  below.
 
-The line under the fields states the rule in force, e.g. _4 or more H1 anywhere on
-the board award 10 free spins; +5 when they land again during free spins_. The
-trigger is counted on its own: a scatter keeps paying its **scatter pay** whatever
-triggers the feature, and a trigger symbol that pays nothing is fine.
+Two small tables under the fields set **how many spins** are awarded:
+
+- **Free spins awarded** — the spins for entering the feature, one row per trigger
+  count. Default: one row, _3+ S → 10_.
+- **Retrigger adds** — the spins added when the trigger lands again during free
+  spins, the same way. Default: _3+ S → 5_.
+
+Each row is **Trigger symbols** (an editable count, shown as _3 + S_), **Spins** and,
+with Random amount on, **To** — the top of the range, both ends included. A row
+awards for its own count **and every count above it, up to the next row**: with rows
+_3 → 1 to 3_ and _4 → 3 to 5_, three scatters award 1–3 spins and four or more award
+3–5. **+ row** adds a row one count above the highest; **×** removes one (removing
+the last row puts the default back). With nothing authored the table shows the
+default row, so you edit from what the game does now; editing it back to the
+default leaves nothing stored. A range is kept while Random amount is off — that row
+then awards its **Spins** — so switching it back on restores the range.
+
+Rows stay where you typed them while you edit; they are put in count order when you
+**Save**. Two rows with the same count are an inline error under the table (and
+Save stays off) rather than one of them being dropped. Also flagged: a table whose
+first row starts above **How many** (that landing would award nothing — an error), a
+row that is never used because a later row below the trigger count takes over (a
+warning), a **To** below its **Spins** (an error), and Random amount on with no row
+that has a range (a warning — the switch does nothing).
+
+The line under the tables states the rule in force, e.g. _3 S award 1–3 free
+spins, 4+ award 3–5; +5 when they land again during free spins_. The trigger is
+counted on its own: a scatter keeps paying its **scatter pay** whatever triggers the
+feature, and a trigger symbol that pays nothing is fine. The info page's rules state
+the trigger but not the award.
 
 **Turning free spins off.** No spin enters the feature on the Invisible Test
 Server — not a natural one, not a forced one. Scatters still land and still pay
 their scatter pay; to remove them altogether, take the scatter symbol off the reel
-strips. The trigger settings are kept, so switching back on restores them. A
+strips. The trigger and award settings are kept, so switching back on restores
+them. A
 **buy** mode now has nothing to sell, so it becomes a **blocking error** —
 _Free spins are off, so the "bonus" buy mode has nothing to buy. Remove it in Bet
 modes._ — and the config cannot be saved until you remove it (the stock templates

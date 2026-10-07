@@ -18,6 +18,10 @@
 		cascadeDefaultFor,
 		resolveFreeSpins,
 		normalizeFreeSpins,
+		normalizeAwardTable,
+		describeFreeSpinsAwards,
+		DEFAULT_FREE_SPINS_AWARD,
+		DEFAULT_RETRIGGER_AWARD,
 		DEFAULT_SCATTER_PAYTABLE,
 		describePaytableDrift,
 		coinEntryLabel,
@@ -34,6 +38,8 @@
 		symbolsInPlay,
 		validateGameConfigDoc,
 		type BetModeKind,
+		type FreeSpinsAward,
+		type FreeSpinsConfig,
 		type GameConfigDoc,
 		type GameConfigIssue,
 		type ImportedPaytable,
@@ -742,14 +748,20 @@
 	}
 
 	/**
-	 * FREE SPINS — the switch and the trigger. Offered only where the lines-family mock deals the
-	 * feature: a Hold and Win kind has none, and Book-of free spins are the book mechanic, owned by
-	 * its own mock.
+	 * FREE SPINS — the switch, the trigger and the awards. Offered only where the lines-family mock
+	 * deals the feature: a Hold and Win kind has none, and Book-of free spins are the book mechanic,
+	 * owned by its own mock.
 	 *
-	 * Every writer goes through `normalizeFreeSpins` itself rather than mirroring it: choosing a
-	 * default DELETES the field, and the block goes once nothing in it departs — so a game that
-	 * simply has free spins on three scatters stores nothing, and a saved block comes back in the
-	 * same shape. Switching off keeps the trigger fields, so switching back on loses nothing.
+	 * The single fields (on/off, trigger symbol and count, random amounts) go through
+	 * `normalizeFreeSpins` itself rather than mirroring it: choosing a default DELETES the field,
+	 * and the block goes once nothing in it departs — so a game that simply has free spins on three
+	 * scatters stores nothing. Switching off keeps everything else, so switching back on loses
+	 * nothing.
+	 *
+	 * The award TABLES are edited in place instead: never sorted or de-duplicated under the cursor.
+	 * The save sorts them (the page takes back the saved doc), and a duplicate count is a validator
+	 * error shown inline first — this page validates the doc as edited, and Save stays off while it
+	 * stands. A table edited back to the default is dropped.
 	 */
 	const offersFreeSpins = $derived(capabilities.freeSpins && !capabilities.bookReveal);
 	const freeSpins = $derived(resolveFreeSpins(snapshot));
@@ -764,18 +776,107 @@
 		return stored && !inPlay.has(stored) ? [...inPlay, stored] : [...inPlay];
 	});
 
-	function writeFreeSpins(change: Record<string, unknown>) {
-		const block = normalizeFreeSpins({ ...doc.freeSpins, ...change });
-		if (block) doc.freeSpins = block;
+	/** Write the block's single fields through the canonicalizer; the award tables ride through
+	 *  exactly as typed. */
+	function writeFreeSpins(change: Partial<FreeSpinsConfig>) {
+		const { awards, retriggerAwards, ...fields } = { ...doc.freeSpins, ...change };
+		const block: FreeSpinsConfig = {
+			...normalizeFreeSpins(fields),
+			...(awards ? { awards } : {}),
+			...(retriggerAwards ? { retriggerAwards } : {}),
+		};
+		if (Object.keys(block).length) doc.freeSpins = block;
 		else delete doc.freeSpins;
 	}
 	const setFreeSpinsOn = (on: boolean) => writeFreeSpins({ enabled: on ? undefined : false });
 	const setTriggerSymbol = (symbol: string) => writeFreeSpins({ triggerSymbol: symbol });
+	const setRandomAwards = (on: boolean) => writeFreeSpins({ randomAwards: on ? true : undefined });
+	/** A whole number of at least 1, or `undefined` for a half-typed or impossible one — which is
+	 *  left alone rather than stored or reset under the cursor. */
+	const wholeNumber = (raw: string): number | undefined => {
+		const n = Number(raw);
+		return raw !== '' && Number.isInteger(n) && n >= 1 ? n : undefined;
+	};
 	function setTriggerCount(raw: string) {
-		const count = Number(raw);
-		// A half-typed or impossible count is left alone rather than stored or reset under the cursor.
-		if (Number.isInteger(count) && count >= 1) writeFreeSpins({ triggerCount: count });
+		const count = wholeNumber(raw);
+		if (count !== undefined) writeFreeSpins({ triggerCount: count });
 	}
+
+	type AwardTableKey = 'awards' | 'retriggerAwards';
+	const AWARD_DEFAULTS: Record<AwardTableKey, number> = {
+		awards: DEFAULT_FREE_SPINS_AWARD,
+		retriggerAwards: DEFAULT_RETRIGGER_AWARD,
+	};
+	const defaultAwardRow = (key: AwardTableKey): FreeSpinsAward => ({
+		count: freeSpins.triggerCount,
+		spins: AWARD_DEFAULTS[key],
+	});
+	/** The rows a table shows: as authored, in the order typed — else the default row at the
+	 *  trigger count, so the author edits from what the game does now. */
+	const awardRowsOf = (key: AwardTableKey): FreeSpinsAward[] =>
+		doc.freeSpins?.[key] ?? [defaultAwardRow(key)];
+	/** Edit one table in place — creating it from the default row on the first edit — and drop it
+	 *  again once it says nothing the default does not. */
+	function editAwards(key: AwardTableKey, edit: (rows: FreeSpinsAward[]) => void) {
+		// Re-read after each assignment: `$state` hands back its proxy on read, not on assignment.
+		if (!doc.freeSpins) doc.freeSpins = {};
+		const block = doc.freeSpins;
+		if (!block[key]) block[key] = [defaultAwardRow(key)];
+		const rows = block[key];
+		edit(rows);
+		if (!normalizeAwardTable($state.snapshot(rows), AWARD_DEFAULTS[key])) delete block[key];
+		if (!Object.keys(block).length) delete doc.freeSpins;
+	}
+	function setAwardField(
+		key: AwardTableKey,
+		index: number,
+		field: 'count' | 'spins' | 'maxSpins',
+		raw: string,
+	) {
+		const n = wholeNumber(raw);
+		if (n === undefined) return;
+		editAwards(key, (rows) => {
+			rows[index][field] = n;
+		});
+	}
+	/** A new row one count above the highest, starting from that row's award. */
+	const addAwardRow = (key: AwardTableKey) =>
+		editAwards(key, (rows) => {
+			const top = rows.reduce((high, row) => (row.count > high.count ? row : high));
+			rows.push({ ...$state.snapshot(top), count: top.count + 1 });
+		});
+	const removeAwardRow = (key: AwardTableKey, index: number) =>
+		editAwards(key, (rows) => rows.splice(index, 1));
+
+	/** The live award rule in words, from the resolved tables through the one lookup
+	 *  (`describeFreeSpinsAwards` → `freeSpinsAwardFor`). */
+	const entryRule = $derived(
+		describeFreeSpinsAwards(freeSpins.awards, freeSpins.triggerCount, freeSpins.randomAwards)
+			.map(({ counts, spins }, i) =>
+				i === 0
+					? `${counts} ${freeSpins.triggerSymbol} award ${spins} free spins`
+					: `${counts} award ${spins}`,
+			)
+			.join(', '),
+	);
+	const retriggerRule = $derived.by(() => {
+		const parts = describeFreeSpinsAwards(
+			freeSpins.retriggerAwards,
+			freeSpins.triggerCount,
+			freeSpins.randomAwards,
+		);
+		return parts.length === 1
+			? `+${parts[0].spins}`
+			: parts.map(({ counts, spins }) => `+${spins} for ${counts}`).join(', ');
+	});
+	/** Everything the section reports except what each table shows under itself. */
+	const freeSpinsIssues = $derived(
+		issuesFor('freeSpins').filter(
+			(issue) =>
+				!issue.path.startsWith('freeSpins.awards') &&
+				!issue.path.startsWith('freeSpins.retriggerAwards'),
+		),
+	);
 
 	/**
 	 * REEL BEHAVIOUR — how a round PRESENTS (roll vs swap in place, the swap style, the per-column
@@ -2020,8 +2121,24 @@
 								disabled={lease.readOnly}
 							/></label
 						>
+						<label
+							><span>Random amount</span><select
+								value={freeSpins.randomAwards ? 'on' : 'off'}
+								onchange={(e) => setRandomAwards(e.currentTarget.value === 'on')}
+								disabled={lease.readOnly}
+							>
+								<option value="off">off — each row awards a fixed number</option>
+								<option value="on">on — a random number between two values</option>
+							</select></label
+						>
 					{/if}
 				</div>
+				{#if freeSpins.enabled}
+					<div class="award-tables">
+						{@render awardTable('awards', 'Free spins awarded', 'Spins')}
+						{@render awardTable('retriggerAwards', 'Retrigger adds', 'Spins added')}
+					</div>
+				{/if}
 				<p class="hint">
 					{#if !freeSpins.enabled}
 						<strong>This game has no free spins.</strong> On the Invisible Test Server no spin enters
@@ -2029,12 +2146,10 @@
 						take the scatter symbol off the reel strips. The info page's Scatter rule stops promising
 						free spins.
 					{:else if freeSpins.triggerSymbol}
-						On the Invisible Test Server, <strong
-							>{freeSpins.triggerCount} or more {freeSpins.triggerSymbol}</strong
-						>
-						anywhere on the board award <strong>10 free spins</strong>; +5 when they land again
-						during free spins. The trigger is counted on its own — a scatter keeps paying its
-						scatter pay whatever triggers the feature.
+						On the Invisible Test Server, anywhere on the board: <strong>{entryRule}</strong>;
+						<strong>{retriggerRule}</strong> when they land again during free spins. A row awards for
+						its count and up, to the next row's. The trigger is counted on its own — a scatter keeps paying
+						its scatter pay whatever triggers the feature.
 					{:else}
 						No symbol can trigger free spins: there is no scatter on the reel strips. Choose a
 						trigger symbol, or turn free spins off.
@@ -2047,11 +2162,86 @@
 					<strong>Publish</strong>. A partner server (Play4Fun) decides its own outcomes, so a game
 					played there must have the same rule in the partner's math.
 				</p>
-				{#each issuesFor('freeSpins') as issue (issue.path + issue.message)}
+				{#each freeSpinsIssues as issue (issue.path + issue.message)}
 					<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
 				{/each}
 			</section>
 		{/if}
+
+		<!-- One free-spins award table: index-keyed rows edited in place, like Hold and Win's value
+		     tables, so a row never moves under the cursor (the save puts them in order). -->
+		{#snippet awardTable(key: AwardTableKey, title: string, spinsLabel: string)}
+			{@const authored = Boolean(doc.freeSpins?.[key])}
+			<div class="award-table">
+				<span class="award-title">{title}</span>
+				<div class="grid-wrap">
+					<table class="grid">
+						<thead>
+							<tr>
+								<th>Trigger symbols</th>
+								<th>{spinsLabel}</th>
+								{#if freeSpins.randomAwards}<th>To</th>{/if}
+								<th></th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each awardRowsOf(key) as row, i (i)}
+								<tr>
+									<td class="award-count"
+										><input
+											type="number"
+											min="1"
+											step="1"
+											value={row.count}
+											oninput={(e) => setAwardField(key, i, 'count', e.currentTarget.value)}
+											disabled={lease.readOnly}
+										/><span>+ {freeSpins.triggerSymbol}</span></td
+									>
+									<td
+										><input
+											type="number"
+											min="1"
+											step="1"
+											value={row.spins}
+											oninput={(e) => setAwardField(key, i, 'spins', e.currentTarget.value)}
+											disabled={lease.readOnly}
+										/></td
+									>
+									{#if freeSpins.randomAwards}
+										<td
+											><input
+												type="number"
+												min="1"
+												step="1"
+												value={row.maxSpins ?? row.spins}
+												oninput={(e) => setAwardField(key, i, 'maxSpins', e.currentTarget.value)}
+												disabled={lease.readOnly}
+											/></td
+										>
+									{/if}
+									<td class="center">
+										{#if authored}
+											<button
+												class="del"
+												title="Remove row"
+												onclick={() => removeAwardRow(key, i)}
+												disabled={lease.readOnly}>×</button
+											>
+										{/if}
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+				<div class="add">
+					<button onclick={() => addAwardRow(key)} disabled={lease.readOnly}>+ row</button>
+				</div>
+				{#each issuesFor(`freeSpins.${key}`) as issue (issue.path + issue.message)}
+					<p class="inline-issue {issue.severity}">{issue.message}</p>
+				{/each}
+			</div>
+		{/snippet}
 
 		<!-- Reel behaviour --------------------------------------------------------->
 		<section>
@@ -3182,6 +3372,31 @@
 	.import-note {
 		margin: 0;
 		font-size: 12px;
+	}
+	.award-tables {
+		display: flex;
+		gap: 24px;
+		flex-wrap: wrap;
+		margin: 16px 0 12px;
+	}
+	.award-title {
+		display: block;
+		margin-bottom: 6px;
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: #8b8b98;
+	}
+	.award-count {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		white-space: nowrap;
+	}
+	.award-count span {
+		font-family: ui-monospace, monospace;
+		font-size: 12px;
+		color: #c8a3ff;
 	}
 	.del {
 		background: none;

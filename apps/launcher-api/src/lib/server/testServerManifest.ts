@@ -23,7 +23,7 @@
  * so a concurrent merge re-reads the winner's entry before writing its own. The
  * standalone script mirrors the same conditional-retry loop.
  */
-import type { HoldAndWinMockInputs, PotsOverlayMockInputs } from 'game-config';
+import type { FreeSpinsAward, HoldAndWinMockInputs, PotsOverlayMockInputs } from 'game-config';
 
 import {
 	ConflictError,
@@ -361,6 +361,15 @@ export interface TestServerGameEntry {
 		 *  name and the fewest of it, anywhere on the board, that award (and retrigger) the feature.
 		 *  Absent ⇒ 3+ SCAT, exactly as before. See `projectFreeSpins`. */
 		freeSpinsTrigger?: { symbol: string; count: number };
+		/** The free-spins AWARDS when they depart from 10 on entering, +5 on a retrigger, never random
+		 *  (lines-family mock only): both tables resolved (rows sorted by count; a row awards for its
+		 *  count and up, to the next row) and the random switch. Absent ⇒ 10 / +5, exactly as before.
+		 *  See `projectFreeSpins`. */
+		freeSpinsAwards?: {
+			awards: FreeSpinsAward[];
+			retrigger: FreeSpinsAward[];
+			random: boolean;
+		};
 		/** A `holdAndWin` game's block, line symbols and symbol roles/pays in the project's OWN names
 		 *  (`holdAndWinMockInputs`), which the Hold and Win mock deals from. Present only for that
 		 *  protocol; such a grid carries none of the lines-mock fields above but the board, lines and

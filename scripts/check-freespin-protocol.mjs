@@ -2,7 +2,12 @@
 // mock instance over HTTP, drive it exactly the way `engineFacade` does, and assert the round
 // lifecycle a client actually receives.
 //
-//   node scripts/check-freespin-protocol.mjs
+//   pnpm check:freespins
+//   — which runs node --experimental-strip-types --import ./scripts/ts-loader.mjs on this file
+//
+// The loader is there because the award sections hold every award the mock deals to
+// `game-config`'s own `freeSpinsAwardFor`: the mock is plain Node and has to mirror that lookup, so
+// this is where the copy and the original are kept in step.
 //
 // Why over HTTP rather than calling the handler: the part that silently breaks is the ROUND, not
 // the board. `gameEnd` emitted one spin early closes the feature mid-way; `gameEnd` never emitted
@@ -11,6 +16,7 @@
 
 import { createServer, request } from 'node:http';
 
+import { freeSpinsAwardFor } from '../packages/game-config/src/freeSpins.ts';
 import { createMockRgs } from './mock-rgs-server.mjs';
 
 let failed = 0;
@@ -440,6 +446,156 @@ console.log('\n§9 — a custom trigger: three scatters no longer open the featu
 	);
 	check(badRetrigger === 0, `a retrigger also needs ${count}+ ${symbol}`, ` (${badRetrigger})`);
 	await close();
+}
+
+/** The feature a round played, read the way the facade reads it: the award off `spinTrigger`, the
+ *  counter off each `playedBonusSpin`, every retrigger's added spins. */
+const featureOf = (round) => {
+	const trigger = ev(round.spins[0], 'spinTrigger')?.context;
+	const counters = round.spins.map((s) => ev(s, 'playedBonusSpin')?.context).filter(Boolean);
+	const retriggers = round.spins
+		.slice(1)
+		.map((s) => ev(s, 'retrigger')?.context)
+		.filter(Boolean);
+	return {
+		landed: trigger?.occurs,
+		awarded: trigger?.spins?.[0]?.spins,
+		entered: ev(round.spins[0], 'enterBonus')?.context?.left,
+		retriggers,
+		counters,
+		gameEnds: round.spins.filter((s) => ev(s, 'gameEnd')).length,
+	};
+};
+
+/** Every award a round dealt, against `freeSpinsAwardFor`, and the round's counter against them:
+ *  as many `playedBonusSpin`s as the entry award plus every retrigger's, ending on left=0. */
+const auditRound = (round, { awards, retrigger, random }) => {
+	const f = featureOf(round);
+	const entry = freeSpinsAwardFor(awards, f.landed, random);
+	const problems = [];
+	if (!entry || f.awarded < entry.min || f.awarded > entry.max) problems.push('entry award');
+	if (f.entered !== f.awarded) problems.push('enterBonus left');
+	for (const r of f.retriggers) {
+		const added = freeSpinsAwardFor(retrigger, r.occurs, random);
+		if (!added || r.spins < added.min || r.spins > added.max) problems.push('retrigger award');
+	}
+	const total = f.awarded + f.retriggers.reduce((sum, r) => sum + r.spins, 0);
+	if (f.counters.length !== total || f.counters.at(-1)?.left !== 0) problems.push('counter');
+	if (f.gameEnds !== 1 || round.hung) problems.push('round end');
+	return { ...f, problems };
+};
+
+/** Play `n` forced rounds under an award rule and audit each. FORCE_TRIGGER puts 3 SCAT on every
+ *  board and the deal adds more on about a third of them, so the 3 and the 4+ rows are both hit. */
+const playAwards = async (freeSpinsAwards, n) => {
+	const { post, close } = await boot({
+		forceTrigger: true,
+		freeSpinsAwards,
+		startBalance: 100_000_000,
+		quiet: true,
+	});
+	const sid = (await post('/wallet/authenticate', { sessionID: 'demo' }))?.sid ?? 'demo';
+	const rounds = [];
+	for (let i = 0; i < n; i++) rounds.push(auditRound(await playRound(post, sid), freeSpinsAwards));
+	await close();
+	return rounds;
+};
+const awardsAt = (rounds, test) =>
+	new Set(rounds.filter((r) => test(r.landed)).map((r) => r.awarded));
+const broken = (rounds) => rounds.filter((r) => r.problems.length).map((r) => r.problems.join('+'));
+
+console.log('\n§10 — a fixed award table: each landed count gets exactly its row');
+{
+	const rule = {
+		awards: [
+			{ count: 3, spins: 7 },
+			{ count: 4, spins: 12 },
+		],
+		retrigger: [{ count: 3, spins: 5 }],
+		random: false,
+	};
+	const rounds = await playAwards(rule, 40);
+	check(
+		broken(rounds).length === 0,
+		'every award, counter and round end checks out',
+		` (${broken(rounds).join(', ') || `${rounds.length} rounds`})`,
+	);
+	check(
+		[...awardsAt(rounds, (n) => n === 3)].join() === '7',
+		'3 landed ⇒ 7 free spins',
+		` (${[...awardsAt(rounds, (n) => n === 3)]})`,
+	);
+	check(
+		[...awardsAt(rounds, (n) => n >= 4)].join() === '12',
+		'4+ landed ⇒ 12 free spins',
+		` (${[...awardsAt(rounds, (n) => n >= 4)]})`,
+	);
+}
+
+console.log("\n§11 — random awards: inside each row's range, and more than one value of it");
+{
+	const rule = {
+		awards: [
+			{ count: 3, spins: 1, maxSpins: 3 },
+			{ count: 4, spins: 3, maxSpins: 5 },
+		],
+		retrigger: [{ count: 3, spins: 5 }],
+		random: true,
+	};
+	const rounds = await playAwards(rule, 80);
+	const three = awardsAt(rounds, (n) => n === 3);
+	const four = awardsAt(rounds, (n) => n >= 4);
+	check(
+		broken(rounds).length === 0,
+		"every award is inside its row's range, counters agree",
+		` (${broken(rounds).join(', ') || `${rounds.length} rounds`})`,
+	);
+	check(three.size > 1, '3 landed ⇒ several values of 1–3', ` (${[...three].sort()})`);
+	check(four.size > 1, '4+ landed ⇒ several values of 3–5', ` (${[...four].sort()})`);
+}
+
+console.log('\n§12 — random switched OFF: a stored range awards exactly its spins');
+{
+	const rule = {
+		awards: [
+			{ count: 3, spins: 1, maxSpins: 3 },
+			{ count: 4, spins: 3, maxSpins: 5 },
+		],
+		retrigger: [{ count: 3, spins: 5 }],
+		random: false,
+	};
+	const rounds = await playAwards(rule, 30);
+	check(
+		broken(rounds).length === 0,
+		'every award, counter and round end checks out',
+		` (${broken(rounds).join(', ') || `${rounds.length} rounds`})`,
+	);
+	check(
+		[...awardsAt(rounds, (n) => n === 3)].join() === '1' &&
+			[...awardsAt(rounds, (n) => n >= 4)].join() === '3',
+		'3 ⇒ 1 and 4+ ⇒ 3, never the top of the range',
+	);
+}
+
+console.log("\n§13 — a retrigger table: a retrigger adds its row's award");
+{
+	const rule = {
+		awards: [{ count: 3, spins: 10 }],
+		retrigger: [
+			{ count: 3, spins: 2 },
+			{ count: 4, spins: 9 },
+		],
+		random: false,
+	};
+	const rounds = await playAwards(rule, 100);
+	const added = rounds.flatMap((r) => r.retriggers.map((t) => t.spins));
+	check(
+		broken(rounds).length === 0,
+		'every retrigger adds its row, the counter runs it down to 0',
+		` (${broken(rounds).join(', ') || `${rounds.length} rounds`})`,
+	);
+	check(added.length > 0, 'retriggers happen', ` (${added.length})`);
+	check(!added.includes(5), 'none of them adds the default 5', ` (${[...new Set(added)]})`);
 }
 
 console.log(failed === 0 ? '\nALL CHECKS PASSED' : `\n${failed} CHECK(S) FAILED`);

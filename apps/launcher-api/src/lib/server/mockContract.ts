@@ -26,6 +26,7 @@
  * OUR mock derive its answer from the project instead of from a stale copy of it.
  */
 import {
+	freeSpinsAwardsAreDefault,
 	freeSpinsTriggerIsDefault,
 	holdAndWinMockInputs,
 	inPlayScatterSymbol,
@@ -38,6 +39,7 @@ import {
 	type GameConfigDoc,
 	type PaytableRow,
 	type PotsOverlayMockInputs,
+	type ResolvedFreeSpins,
 } from 'game-config';
 import {
 	bookMapping,
@@ -350,15 +352,36 @@ function projectScatterPaytable(doc: GameConfigDoc): Record<string, number> | un
 	return rows?.length ? paytableToOccursMap(rows) : undefined;
 }
 
-type FreeSpinsFields = Pick<
-	NonNullable<TestServerGameEntry['grid']>,
-	'freeSpins' | 'freeSpinsTrigger'
->;
+type Grid = NonNullable<TestServerGameEntry['grid']>;
+type FreeSpinsFields = Pick<Grid, 'freeSpins' | 'freeSpinsTrigger' | 'freeSpinsAwards'>;
 
 /**
- * The project's free-spins rule for the lines-family mock: `freeSpins: false` when it has none, a
- * `freeSpinsTrigger` in SERVER vocabulary when its trigger departs from 3+ of the scatter, and
- * nothing at all otherwise — so an un-authored project's grid is byte-identical.
+ * The project's free-spins rule for the lines-family mock: `freeSpins: false` when it has none;
+ * otherwise a `freeSpinsTrigger` when its trigger departs from 3+ of the scatter and a
+ * `freeSpinsAwards` when its awards depart from 10 / +5 / never random. Nothing at all for a
+ * project that departs from neither, and each field only on its own departure, so an un-authored
+ * project's grid is byte-identical.
+ */
+function projectFreeSpins(doc: GameConfigDoc, projectKey: string): FreeSpinsFields {
+	const freeSpins = resolveFreeSpins(doc);
+	if (!freeSpins.enabled) return { freeSpins: false };
+	const trigger = projectFreeSpinsTrigger(doc, freeSpins, projectKey);
+	// The RESOLVED tables, so a project that authored only one of them still sends the mock both.
+	const awards = freeSpinsAwardsAreDefault(doc)
+		? undefined
+		: {
+				awards: freeSpins.awards,
+				retrigger: freeSpins.retriggerAwards,
+				random: freeSpins.randomAwards,
+			};
+	return {
+		...(trigger ? { freeSpinsTrigger: trigger } : {}),
+		...(awards ? { freeSpinsAwards: awards } : {}),
+	};
+}
+
+/**
+ * The trigger in SERVER vocabulary, or `undefined` when it is the default 3+ scatter.
  *
  * The trigger symbol is translated through the SAME `linesMapping` the in-play pool and the
  * paytable use. A symbol with no server name is NOT replaced by `SCAT`: the field is omitted and
@@ -366,10 +389,12 @@ type FreeSpinsFields = Pick<
  * warning names. (Such a symbol is never dealt by the mock either: `projectLineSymbols` cannot
  * carry it.)
  */
-function projectFreeSpins(doc: GameConfigDoc, projectKey: string): FreeSpinsFields {
-	const freeSpins = resolveFreeSpins(doc);
-	if (!freeSpins.enabled) return { freeSpins: false };
-	if (!freeSpins.triggerSymbol || freeSpinsTriggerIsDefault(doc)) return {};
+function projectFreeSpinsTrigger(
+	doc: GameConfigDoc,
+	freeSpins: ResolvedFreeSpins,
+	projectKey: string,
+): Grid['freeSpinsTrigger'] {
+	if (!freeSpins.triggerSymbol || freeSpinsTriggerIsDefault(doc)) return undefined;
 	const client = freeSpins.triggerSymbol;
 	const server = Object.keys(linesMapping.symbols).find(
 		(name) => mapSymbol(linesMapping, name) === client,
@@ -381,9 +406,9 @@ function projectFreeSpins(doc: GameConfigDoc, projectKey: string): FreeSpinsFiel
 				`mock has no name for — so it keeps its own rule (3 or more scatters). Choose another ` +
 				`trigger symbol in /config.`,
 		);
-		return {};
+		return undefined;
 	}
-	return { freeSpinsTrigger: { symbol: server, count: freeSpins.triggerCount } };
+	return { symbol: server, count: freeSpins.triggerCount };
 }
 
 /**

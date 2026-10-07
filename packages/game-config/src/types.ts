@@ -346,6 +346,27 @@ export type FreeSpinsConfig = {
 	triggerSymbol?: string;
 	/** Fewest trigger symbols anywhere on the board that award free spins. Absent ⇒ 3. */
 	triggerCount?: number;
+	/** `true` ⇒ every award row (both tables) gives a uniform random whole number between its
+	 *  `spins` and `maxSpins`. Absent ⇒ each row gives exactly `spins`. Only `true` is stored. */
+	randomAwards?: true;
+	/** Spins awarded on entering the feature, per trigger count. Absent ⇒ 10 for any count. */
+	awards?: FreeSpinsAward[];
+	/** Spins ADDED on a retrigger during free spins, per trigger count. Absent ⇒ 5 for any count. */
+	retriggerAwards?: FreeSpinsAward[];
+};
+
+/**
+ * One row of a free-spins award table. Rows are read by trigger COUNT: a row awards for its own
+ * count and every count above it, up to the next row's.
+ */
+export type FreeSpinsAward = {
+	/** Fewest trigger symbols this row applies to. */
+	count: number;
+	/** Spins awarded. With random awards on, the LOW end of the range. */
+	spins: number;
+	/** With random awards on, the HIGH end (inclusive). Absent ⇒ `spins`. Kept while random awards
+	 *  are off, so switching them back on restores the range. */
+	maxSpins?: number;
 };
 
 /** Every {@link ReelBehaviour.swapStyle} literal, for validation + the tool's picker. */

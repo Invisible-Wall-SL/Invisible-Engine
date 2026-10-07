@@ -443,6 +443,44 @@ await check('a custom trigger rides in SERVER names; the default scatter×3 send
 	eq('freeSpinsTrigger' in linesGrid(withFreeSpins({ triggerSymbol: 'S' })), false, 'S ×3');
 });
 
+await check('awarded spins ride last, only when they depart, with both tables resolved', () => {
+	eq('freeSpinsAwards' in linesGrid(template('lines')), false, 'un-authored');
+	eq(
+		'freeSpinsAwards' in linesGrid(withFreeSpins({ awards: [{ count: 3, spins: 10 }] })),
+		false,
+		'a table that agrees with the default',
+	);
+	const awarded = linesGrid(
+		withFreeSpins({
+			randomAwards: true,
+			awards: [
+				{ count: 4, spins: 3, maxSpins: 5 },
+				{ count: 3, spins: 1, maxSpins: 3 },
+			],
+		}),
+	);
+	eq(Object.keys(awarded).at(-1), 'freeSpinsAwards', 'last');
+	eq(
+		awarded.freeSpinsAwards,
+		{
+			awards: [
+				{ count: 3, spins: 1, maxSpins: 3 },
+				{ count: 4, spins: 3, maxSpins: 5 },
+			],
+			retrigger: [{ count: 3, spins: 5 }],
+			random: true,
+		},
+		'sorted entry table, default retrigger, the switch',
+	);
+	eq(
+		linesGrid(withFreeSpins({ randomAwards: true })).freeSpinsAwards,
+		{ awards: [{ count: 3, spins: 10 }], retrigger: [{ count: 3, spins: 5 }], random: true },
+		'the switch alone departs',
+	);
+	const off = linesGrid(withFreeSpins({ enabled: false, awards: [{ count: 3, spins: 7 }] }));
+	eq([off.freeSpins, 'freeSpinsAwards' in off], [false, false], 'no awards while off');
+});
+
 await check(
 	'a trigger the server has no name for is omitted and said once, not swapped for SCAT',
 	() => {

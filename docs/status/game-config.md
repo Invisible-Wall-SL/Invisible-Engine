@@ -3,10 +3,11 @@
 > Design: [docs/design/invisible-game-config.md](../design/invisible-game-config.md) · Guide: [docs/tools/game-config.md](../tools/game-config.md) · Agent: `.claude/agents/invisible-game-config.md`
 
 **One-line state:** shipped — an authored `/config` doc drives symbols, paytable (scatter pays
-included), paylines, bet modes, grid (stepped too), win model, cascade, free spins (on/off + trigger), reel
-behaviour and win tiers in the game, the mock RGS and the Scene Editor preview. The original five phases were
-owner-verified live on 2026-08-04; later panels (paste-capture import, drift banner, History…)
-are build/fixture-verified with the browser click-through listed under open items.
+included), paylines, bet modes, grid (stepped too), win model, cascade, free spins (on/off,
+trigger, awards), reel behaviour and win tiers in the game, the mock RGS and the Scene Editor
+preview. The original five phases were owner-verified live on 2026-08-04; later panels
+(paste-capture import, drift banner, History…) are build/fixture-verified with the browser
+click-through listed under open items.
 
 ## Current state
 
@@ -686,6 +687,10 @@ Plan: [hold-and-win.md](../design/hold-and-win.md) §1.3/§5; hub: [hold-and-win
    entry, so it never misfires but never names a custom trigger either; `builtinGameModes` still
    lists the `freeSpins` mode on a game with free spins off (the Game modes section shows it). The
    book mock and partner servers ignore the block by design.
+7. **The rules page does not state the free-spins AWARD** (from the 2026-10-07 award tables). It
+   states the trigger (a FREE SPINS rule when it departs) but not how many spins are awarded or
+   added on a retrigger, and so says nothing of a random award range either. The award is read from
+   the server at runtime, so the game itself is right; only the copy is silent.
 
 **Not a gap:** `packages/game-spec`'s generator emits const-based `paytable.ts`/`infoManifest.ts`,
 but it is a standalone CLI that `new-game.mjs` does NOT call — the scaffold copies `src/` from an
@@ -736,6 +741,29 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
   `pnpm check:freespins` (protocol §6–§9 new, plus `freeSpins.fixture.ts`), `check:info-figures`,
   `check:mock-contract` (+4), `check:rgs`, the game-config fixtures, svelte-check at baseline for
   launcher-api, lines and engine-layout. Not browser-tested. Follow-ups: open item 6.
+  **Same day, follow-up — the award is authorable too:** `FreeSpinsConfig` gains `awards` and
+  `retriggerAwards` (rows of `{ count, spins, maxSpins? }`, a row awarding for its count and up to
+  the next row's) and `randomAwards: true` (each row awards a uniform whole number from `spins` to
+  `maxSpins`). Defaults `DEFAULT_FREE_SPINS_AWARD` (10) and `DEFAULT_RETRIGGER_AWARD` (5), the mock's
+  `TOTAL_FS` / `RETRIGGER_FS`. `resolveFreeSpins` returns both tables (default ⇒ one row at the
+  trigger count) and `randomAwards`; `freeSpinsAwardFor(table, landed, random)` → `{ min, max }` is
+  the one lookup (the hint's `describeFreeSpinsAwards` reads through it; the plain-Node mock mirrors
+  it and `check:freespins` holds every award the mock deals to it). `normalizeAwardTable` keeps only
+  a departure (a table where every row awards the default with no range is not stored; `maxSpins`
+  kept only as a real range above `spins`), sorts rows by count, and **keeps duplicate counts**: the
+  page validates the doc as edited and Save stays off on an error, and the server rejects the
+  normalized doc on the same error, so a duplicate is shown, never silently dropped. Validator, while
+  on: a table starting above the trigger count ⇒ error; a row superseded below it ⇒ warning; a
+  duplicate count or a `maxSpins` below `spins` ⇒ error; random on with no range ⇒ warning.
+  **Contract:** `freeSpinsAwards: { awards, retrigger, random }` (resolved tables), only on a
+  departure (`freeSpinsAwardsAreDefault`), appended last; the test server's `validGrid` shape-checks
+  it whole. **Mock:** the entry award is the row for the count on the board as dealt (forced and
+  bought boards included), the retrigger award the row for what landed during the free spin; the RNG
+  is drawn only for a real range with random on, so seeded responses stay byte-identical to `main`'s
+  mock in all nine configurations. **`/config`:** **Random amount** switch, **Free spins awarded**
+  and **Retrigger adds** tables (index-keyed rows edited in place, sorted at save, duplicate counts
+  inline), the hint states the live rule. Verified: `check:freespins` (protocol §10–§13 new, fixture
+  extended), `check:mock-contract` (+1), svelte-check at baseline. Follow-up: open item 7.
 
 - 2026-10-03 — **Imported reels modes** (pots overlay open item 00): `importBonus` takes a source's
   free spins / `reels` mode as a new mode of the project's own (id and game type `_2`-renamed,

@@ -13,8 +13,14 @@
 
 import { readFileSync } from 'node:fs';
 import {
+	DEFAULT_FREE_SPINS_AWARD,
 	DEFAULT_FREE_SPINS_TRIGGER_COUNT,
+	DEFAULT_RETRIGGER_AWARD,
+	describeFreeSpinsAwards,
+	freeSpinsAwardFor,
+	freeSpinsAwardsAreDefault,
 	freeSpinsTriggerIsDefault,
+	normalizeAwardTable,
 	normalizeFreeSpins,
 	resolveFreeSpins,
 	validateFreeSpins,
@@ -62,15 +68,27 @@ const issuesAt = (d: GameConfigDoc, path: string) =>
 
 console.log('\nresolveFreeSpins — absent means "on, three of the scatter"');
 check('default count is 3', DEFAULT_FREE_SPINS_TRIGGER_COUNT, 3);
-check('no doc ⇒ on, no symbol, 3', resolveFreeSpins(undefined), {
+const defaultAwards = (count: number) => ({
+	awards: [{ count, spins: 10 }],
+	retriggerAwards: [{ count, spins: 5 }],
+	randomAwards: false,
+});
+check(
+	'the default awards are 10, +5',
+	[DEFAULT_FREE_SPINS_AWARD, DEFAULT_RETRIGGER_AWARD],
+	[10, 5],
+);
+check('no doc ⇒ on, no symbol, 3, 10 spins, +5', resolveFreeSpins(undefined), {
 	enabled: true,
 	triggerSymbol: undefined,
 	triggerCount: 3,
+	...defaultAwards(3),
 });
 check('un-authored doc ⇒ the in-play scatter', resolveFreeSpins(doc()), {
 	enabled: true,
 	triggerSymbol: 'S',
 	triggerCount: 3,
+	...defaultAwards(3),
 });
 check(
 	'a scatter off the strips is not the trigger',
@@ -85,7 +103,7 @@ check(
 check(
 	'authored trigger wins',
 	resolveFreeSpins(doc({ freeSpins: { triggerSymbol: 'H1', triggerCount: 4 } })),
-	{ enabled: true, triggerSymbol: 'H1', triggerCount: 4 },
+	{ enabled: true, triggerSymbol: 'H1', triggerCount: 4, ...defaultAwards(4) },
 );
 check('the default trigger is the default', freeSpinsTriggerIsDefault(doc()), true);
 check(
@@ -251,6 +269,249 @@ check(
 		}),
 		'freeSpins.triggerSymbol',
 	),
+	[],
+);
+
+console.log('\nfreeSpinsAwardFor — the row with the largest count at or below what landed');
+const ranged = [
+	{ count: 3, spins: 1, maxSpins: 3 },
+	{ count: 4, spins: 3, maxSpins: 5 },
+	{ count: 6, spins: 8 },
+];
+check('below every row ⇒ nothing', freeSpinsAwardFor(ranged, 2, true), undefined);
+check('3 ⇒ 1–3', freeSpinsAwardFor(ranged, 3, true), { min: 1, max: 3 });
+check('5 ⇒ the 4 row, 3–5', freeSpinsAwardFor(ranged, 5, true), { min: 3, max: 5 });
+check('9 ⇒ the 6 row, fixed', freeSpinsAwardFor(ranged, 9, true), { min: 8, max: 8 });
+check('random off ⇒ exactly spins', freeSpinsAwardFor(ranged, 4, false), { min: 3, max: 3 });
+check(
+	'a duplicate count ⇒ the first of them',
+	freeSpinsAwardFor(
+		[
+			{ count: 3, spins: 7 },
+			{ count: 3, spins: 9 },
+		],
+		3,
+		false,
+	),
+	{ min: 7, max: 7 },
+);
+
+console.log('\ndescribeFreeSpinsAwards — the rule as a player meets it');
+check('the default', describeFreeSpinsAwards(resolveFreeSpins(doc()).awards, 3, false), [
+	{ counts: '3+', spins: '10' },
+]);
+check('ranges, with gaps and the last row open-ended', describeFreeSpinsAwards(ranged, 3, true), [
+	{ counts: '3', spins: '1–3' },
+	{ counts: '4–5', spins: '3–5' },
+	{ counts: '6+', spins: '8' },
+]);
+check(
+	'a row below the trigger that still covers it reads from the trigger; one superseded is gone',
+	describeFreeSpinsAwards(
+		[
+			{ count: 1, spins: 2 },
+			{ count: 2, spins: 4 },
+			{ count: 5, spins: 9 },
+		],
+		3,
+		false,
+	),
+	[
+		{ counts: '3–4', spins: '4' },
+		{ counts: '5+', spins: '9' },
+	],
+);
+
+console.log('\naward tables — store ONLY a departure, sorted at save, nothing dropped silently');
+check('absent ⇒ nothing', normalizeAwardTable(undefined, 10), undefined);
+check('the default row ⇒ nothing', normalizeAwardTable([{ count: 3, spins: 10 }], 10), undefined);
+check(
+	'every row at the default, no range ⇒ nothing',
+	normalizeAwardTable(
+		[
+			{ count: 3, spins: 10 },
+			{ count: 5, spins: 10 },
+		],
+		10,
+	),
+	undefined,
+);
+check(
+	'sorted by count; garbage rows dropped',
+	normalizeAwardTable(
+		[{ count: 5, spins: 12 }, { count: 3, spins: 7 }, { count: 0, spins: 4 }, { spins: 2 }, 'x'],
+		10,
+	),
+	[
+		{ count: 3, spins: 7 },
+		{ count: 5, spins: 12 },
+	],
+);
+check(
+	'a range is kept; a no-op or upside-down one is not',
+	normalizeAwardTable(
+		[
+			{ count: 3, spins: 1, maxSpins: 3 },
+			{ count: 4, spins: 5, maxSpins: 5 },
+			{ count: 5, spins: 6, maxSpins: 2 },
+		],
+		10,
+	),
+	[
+		{ count: 3, spins: 1, maxSpins: 3 },
+		{ count: 4, spins: 5 },
+		{ count: 5, spins: 6 },
+	],
+);
+check(
+	'…a range at the default spins still departs',
+	normalizeAwardTable([{ count: 3, spins: 10, maxSpins: 12 }], 10),
+	[{ count: 3, spins: 10, maxSpins: 12 }],
+);
+check(
+	'a duplicate count is KEPT, in authored order, for the validator to show',
+	normalizeAwardTable(
+		[
+			{ count: 4, spins: 9 },
+			{ count: 3, spins: 7 },
+			{ count: 4, spins: 2 },
+		],
+		10,
+	),
+	[
+		{ count: 3, spins: 7 },
+		{ count: 4, spins: 9 },
+		{ count: 4, spins: 2 },
+	],
+);
+check('random true ⇒ kept', normalizeFreeSpins({ randomAwards: true }), { randomAwards: true });
+check(
+	'random false / "yes" ⇒ dropped',
+	[false, 'yes'].map((v) => normalizeFreeSpins({ randomAwards: v })),
+	[undefined, undefined],
+);
+check(
+	'the block keeps its award tables while free spins are off, in canonical key order',
+	normalizeFreeSpins({
+		retriggerAwards: [{ count: 3, spins: 2 }],
+		awards: [{ count: 3, spins: 1, maxSpins: 3 }],
+		randomAwards: true,
+		enabled: false,
+	}),
+	{
+		enabled: false,
+		randomAwards: true,
+		awards: [{ count: 3, spins: 1, maxSpins: 3 }],
+		retriggerAwards: [{ count: 3, spins: 2 }],
+	},
+);
+check(
+	'tables that agree with the default store no block at all',
+	normalizeFreeSpins({
+		awards: [{ count: 3, spins: 10 }],
+		retriggerAwards: [{ count: 3, spins: 5 }],
+	}),
+	undefined,
+);
+const awarded = doc({
+	freeSpins: { randomAwards: true, awards: ranged, retriggerAwards: [{ count: 3, spins: 2 }] },
+});
+check('…and an authored one round-trips', normalizeGameConfigDoc(awarded), awarded);
+check('resolve reads the authored tables', resolveFreeSpins(awarded).awards, ranged);
+check(
+	'…and fills the other with its default at the trigger count',
+	resolveFreeSpins(doc({ freeSpins: { triggerCount: 4, awards: [{ count: 4, spins: 6 }] } }))
+		.retriggerAwards,
+	[{ count: 4, spins: 5 }],
+);
+check(
+	'the award rule departs only when authored',
+	[
+		freeSpinsAwardsAreDefault(doc()),
+		freeSpinsAwardsAreDefault(awarded),
+		freeSpinsAwardsAreDefault(doc({ freeSpins: { randomAwards: true } })),
+	],
+	[true, false, false],
+);
+
+console.log('\nthe validator — award tables (only while free spins are on)');
+const raw = (freeSpins: Record<string, unknown>) => ({ ...doc(), freeSpins }) as GameConfigDoc;
+const messages = (d: GameConfigDoc, path: string) =>
+	validateGameConfigDoc(d)
+		.filter((issue) => issue.path === path)
+		.map((issue) => `${issue.severity}: ${issue.message}`);
+check('an authored, well-formed table is clean', issuesAt(awarded, 'freeSpins.awards'), []);
+check('…and so is the retrigger one', issuesAt(awarded, 'freeSpins.retriggerAwards'), []);
+check(
+	'a table starting above the trigger count ⇒ an error',
+	messages(raw({ awards: [{ count: 4, spins: 6 }] }), 'freeSpins.awards'),
+	[
+		'error: Free spins awarded starts at 4, but 3 trigger symbols already enter free spins, so that landing would award nothing. Add a row for 3.',
+	],
+);
+check(
+	'…the same for the retrigger table',
+	issuesAt(raw({ retriggerAwards: [{ count: 5, spins: 2 }] }), 'freeSpins.retriggerAwards'),
+	['error'],
+);
+check(
+	'a row superseded below the trigger count ⇒ a warning',
+	messages(
+		raw({
+			awards: [
+				{ count: 1, spins: 4 },
+				{ count: 2, spins: 5 },
+				{ count: 4, spins: 6 },
+			],
+		}),
+		'freeSpins.awards',
+	),
+	[
+		'warning: Free spins awarded: the row for 1 is never used — fewer than 3 trigger symbols never enter free spins, and the row for 2 takes over from there.',
+	],
+);
+check(
+	'…but a row below it that still covers it is fine',
+	issuesAt(raw({ awards: [{ count: 2, spins: 4 }] }), 'freeSpins.awards'),
+	[],
+);
+check(
+	'a duplicate count in the table AS EDITED ⇒ an error (before any save could sort it)',
+	messages(
+		raw({
+			awards: [
+				{ count: 3, spins: 7 },
+				{ count: 4, spins: 9 },
+				{ count: 3, spins: 2 },
+			],
+		}),
+		'freeSpins.awards',
+	),
+	['error: Free spins awarded has more than one row for 3 — give each row its own count.'],
+);
+check(
+	'a "to" below the spins ⇒ an error',
+	issuesAt(raw({ awards: [{ count: 3, spins: 6, maxSpins: 2 }] }), 'freeSpins.awards'),
+	['error'],
+);
+check(
+	'random on with no range anywhere ⇒ a warning',
+	issuesAt(raw({ randomAwards: true, awards: [{ count: 3, spins: 7 }] }), 'freeSpins.randomAwards'),
+	['warning'],
+);
+check('…none once a row has one', issuesAt(awarded, 'freeSpins.randomAwards'), []);
+check(
+	'none of it while free spins are off',
+	validateFreeSpins(
+		raw({
+			enabled: false,
+			randomAwards: true,
+			awards: [
+				{ count: 5, spins: 7 },
+				{ count: 5, spins: 2, maxSpins: 1 },
+			],
+		}),
+	).filter((issue) => issue.path !== 'freeSpins'),
 	[],
 );
 
