@@ -58,19 +58,12 @@ export function buildRegistry(ops: readonly AdapterOp[]): ReadonlyMap<string, Ad
 
 /**
  * Allow-list entries a definition may name in one of two states only (ADR-0008 card 8D): its code
- * lands before its three definitions, one PR each. Until they land the artist still names the four
- * ops it gives up to the technician, and the coordinator does not name the catalogue yet. Per
- * agent the set is all or none: the definition as main holds it, or the new one, never a mix. The
- * Agents tab and `check:director-adapters` hold every other entry to the definitions both ways.
- * A final PR empties this once the three definitions have landed.
+ * lands before its definitions, one PR each. Until its definition lands the coordinator does not
+ * name the catalogue yet. Per agent the set is all or none: the definition as main holds it, or
+ * the new one, never a mix. The Agents tab and `check:director-adapters` hold every other entry to
+ * the definitions both ways. The coordinator's definition PR is followed by one that empties this.
  */
 export const TRANSITION_TOOLS: Readonly<Record<string, readonly string[]>> = {
-	'atlas-artist': [
-		'atlas.queue_variants',
-		'atlas.choose_variant',
-		'atlas.pack_sheet',
-		'comfyui.job_status',
-	],
 	coordinator: ['atlas.list_blueprints'],
 };
 
