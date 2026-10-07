@@ -63,7 +63,8 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   the narrowed `atlas-artist.md` on main, `queue_variants`, `choose_variant`, `pack_sheet` and
   `comfyui.job_status` serve only `atlas-technician`; the ungated artist path in `queue_variants`
   is gone (`step` is required again); `TRANSITION_TOOLS` keeps only the coordinator's
-  `atlas.list_blueprints`, dropped after the coordinator's definition lands.
+  `atlas.list_blueprints`, dropped after the coordinator's definition lands; `AWAITING_DEFINITION`
+  is gone (the technician's definition is on main), so every known agent must have a definition.
 
 - 2026-10-07 — **Invisible Director: the atlas technician** (ADR-0008 card 8D). Inert for a person
   and for every current game: only a Director run reaches any of it.

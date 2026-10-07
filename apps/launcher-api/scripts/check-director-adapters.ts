@@ -3666,11 +3666,8 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		tools.set(name, new Set([...list.matchAll(/-\s+(\S+)/g)].map((m) => m[1])));
 	}
 	const models = DIRECTOR_AGENTS.filter((agent: string) => agent !== 'worker');
-	// ADR-0008 card 8D ships its code before its three agent definitions, each its own PR (one file
-	// per agent-eval run). Until they land, these allow-list entries have no definition naming them:
-	// the technician has no definition yet, the artist still names the four ops it gives up, and the
-	// coordinator does not name the catalogue yet. Remove each entry with the PR that lands it.
-	const AWAITING_DEFINITION = new Set(['atlas-technician']);
+	// ADR-0008 card 8D: the coordinator's catalogue is the one transition left (TRANSITION_TOOLS),
+	// accepted named or not until its definition lands.
 	const TRANSITION = new Set(
 		Object.entries(TRANSITION_TOOLS as Record<string, string[]>).flatMap(([agent, ids]) =>
 			ids.map((id) => `${id} ${agent}`),
@@ -3722,9 +3719,9 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		);
 	}
 	check(
-		'every runtime agent definition is a known agent, and every known agent but those awaiting theirs has one',
+		'every runtime agent definition is a known agent, and every known agent has one',
 		[...tools.keys()].sort(),
-		models.filter((agent: string) => tools.has(agent) || !AWAITING_DEFINITION.has(agent)).sort(),
+		[...models].sort(),
 	);
 	const named = [...tools.values()].flatMap((set) => [...set]);
 	check(
@@ -3737,12 +3734,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		const listing = models.filter((agent: string) => tools.get(agent)?.has(id));
 		const allowed = op.agents.filter(
 			(agent: string) =>
-				agent !== 'worker' &&
-				(tools.get(agent)?.has(id) ||
-					!(
-						(AWAITING_DEFINITION.has(agent) && !tools.has(agent)) ||
-						TRANSITION.has(`${id} ${agent}`)
-					)),
+				agent !== 'worker' && (tools.get(agent)?.has(id) || !TRANSITION.has(`${id} ${agent}`)),
 		);
 		check(
 			`${id}: the allow-list matches the agents whose tools: name it`,
