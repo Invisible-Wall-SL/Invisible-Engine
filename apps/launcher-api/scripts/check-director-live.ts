@@ -1070,6 +1070,8 @@ console.log('batches, atlases and trimming');
 	);
 	const planSet = new Set(plan.map((p) => p.region));
 	const USD = 0.00053;
+	/** The worker's floor at pricing.json's prices: a guessed card is priced at the seed. */
+	const FLOOR = { seedSecondsPerImage: 600, delaySecondsPerJob: 15 };
 	const stored: StoredRecipe[] = [];
 	for (const recipe of expected.recipes) {
 		const result = validateRecipe(recipe, {
@@ -1077,7 +1079,7 @@ console.log('batches, atlases and trimming');
 			planRegions: planSet,
 			others: stored,
 			usdPerSecond: USD,
-			seedDelaySeconds: 15,
+			floor: FLOOR,
 		});
 		if (!result.ok) throw new Error(`fixture: ${recipe.region} ${result.errors.join('; ')}`);
 		stored.push({
@@ -1095,7 +1097,7 @@ console.log('batches, atlases and trimming');
 		catalogue: { ...catalogue, usdPerSecond: USD },
 		catalogueError: null,
 		timings: [],
-		seedDelaySeconds: 15,
+		floor: FLOOR,
 	};
 	const view = artPlanView(answer);
 	check(
@@ -1216,11 +1218,11 @@ console.log('batches, atlases and trimming');
 		0,
 	);
 	check(
-		'every chain is priced again with the measured timings, edited or not',
+		'every chain is priced again with the measured timings (a measurement above the seed raises a guessed card), edited or not',
 		(artPlanView({
 			...answer,
 			timings: [
-				{ pipeline: 'sdxl', genPx: 1024, jobs: 9, meanExecSeconds: 40, meanDelaySeconds: 10 },
+				{ pipeline: 'sdxl', genPx: 1024, jobs: 9, meanExecSeconds: 900, meanDelaySeconds: 20 },
 			],
 		}).gpuUsd ?? 0) > (view.gpuUsd ?? 0),
 		true,
@@ -1229,7 +1231,7 @@ console.log('batches, atlases and trimming');
 		'…so fewer variants cost less under the same timings',
 		(() => {
 			const timings = [
-				{ pipeline: 'sdxl', genPx: 1024, jobs: 9, meanExecSeconds: 40, meanDelaySeconds: 10 },
+				{ pipeline: 'sdxl', genPx: 1024, jobs: 9, meanExecSeconds: 900, meanDelaySeconds: 20 },
 			];
 			const measured = { ...answer, timings };
 			return (

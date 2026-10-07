@@ -1,3 +1,4 @@
+import { DIRECTOR_RUN_BUDGET_DEFAULT_USD } from 'director-costs';
 import {
 	approvalProblem,
 	basisOf,
@@ -12,6 +13,7 @@ import {
 	type Catalogue,
 	type DefaultStep,
 	type PriceBasis,
+	type ProjectionFloor,
 	type RecipeInput,
 	type StepInput,
 	type StoredRecipe,
@@ -32,6 +34,28 @@ import { transition } from './runState.ts';
 
 export const TECHNICIAN = 'atlas-technician';
 
+/** The technician's tools (ADR-0008 Appendix A): what its definition names, in this order. */
+export const TECHNICIAN_TOOLS = [
+	'atlas.list_blueprints',
+	'atlas.list_regions',
+	'atlas.get_region',
+	'atlas.set_atlas_pipeline',
+	'atlas.set_region_pipeline',
+	'atlas.set_refs',
+	'atlas.add_layer',
+	'atlas.remove_layer',
+	'atlas.duplicate_atlas',
+	'atlas.queue_variants',
+	'atlas.list_variants',
+	'atlas.choose_variant',
+	'atlas.set_output',
+	'atlas.pack_sheet',
+	'atlas.deploy_atlas',
+	'comfyui.job_status',
+	'run.set_recipe',
+	'run.post_activity',
+] as const;
+
 /** What `run.set_recipe` needs from outside the transaction: the reviewed cards and the GPU price. */
 export interface RecipeDeps {
 	catalogue: Catalogue;
@@ -39,8 +63,8 @@ export interface RecipeDeps {
 	usdPerSecond: number | null;
 	/** Measured GPU time per (pipeline, genPx), `director_blueprint_timings`. */
 	timings: Timing[];
-	/** `pricing.json` `seedDelaySecondsPerJob`: the delay an image is priced at before one is measured. */
-	seedDelaySeconds: number;
+	/** The projection's floor: the seed seconds per render and the seed queue delay per job. */
+	floor: ProjectionFloor;
 }
 
 const contextOf = (
@@ -53,7 +77,7 @@ const contextOf = (
 	others,
 	usdPerSecond: deps.usdPerSecond,
 	timings: deps.timings,
-	seedDelaySeconds: deps.seedDelaySeconds,
+	floor: deps.floor,
 });
 
 /** The pricing basis of the cards, the GPU rate and the measurements as `deps` holds them now. */
@@ -136,8 +160,9 @@ export async function setRecipe(
 		};
 	}
 	const rev = (prev?.rev ?? 0) + 1;
-	// A render in flight stays under its job; finished steps go back to planned (a redo).
-	const steps = prev ? carryProgress(prev.steps, result.steps, false) : result.steps;
+	// A step the revision leaves as it was keeps what already happened to it: a rendered step is
+	// never re-opened by a resend, so it cannot be queued (and paid for) again unseen.
+	const steps = prev ? carryProgress(prev.steps, result.steps) : result.steps;
 	const next = { steps, projected: result.projected };
 	// Compared on one basis: the stored figure predates the timings measured since.
 	const prevNow = prev && { ...prev, projected: project(prev.steps, basisOfDeps(deps)) };
@@ -211,8 +236,18 @@ async function afterRecipe(
 		.filter((r) => plan.has(r.region) && unapproved(r))
 		.sort((a, b) => order.indexOf(a.region) - order.indexOf(b.region));
 	if (pending.length === 0) return 'every recipe is approved';
-	const projectedUsd = pending.reduce((sum, r) => sum + (r.projected.gpuUsd ?? 0), 0);
-	const unpriced = pending.some((r) => r.projected.gpuUsd === null);
+	// What is still to be paid for: every planned recipe with a step not yet rendered, approved
+	// or not (a recipe's whole projection, which over-counts a half-rendered one: fails closed).
+	const toRender = recipes.filter(
+		(r) =>
+			plan.has(r.region) &&
+			(unapproved(r) ||
+				r.steps.some(
+					(s) => s.kind !== 'finish' && (s.status === 'planned' || s.status === 'failed'),
+				)),
+	);
+	const projectedUsd = toRender.reduce((sum, r) => sum + (r.projected.gpuUsd ?? 0), 0);
+	const unpriced = toRender.some((r) => r.projected.gpuUsd === null);
 	if (live.state.checkpoints.artPlan) {
 		const result = transition(live.state, { type: 'plan_ready' });
 		if (!result.ok) return `the Art plan cannot open now: ${result.error}`;
@@ -232,11 +267,11 @@ async function afterRecipe(
 	}
 	// Fails closed (ADR-0006): a plan the cap cannot price, or one over it, pauses for the owner.
 	const spend = await runSpend(tx, live.id);
-	const cap = live.budgetCapUsd;
-	if (unpriced || (cap !== null && spend.totalUsd + projectedUsd > cap)) {
+	const cap = live.budgetCapUsd ?? DIRECTOR_RUN_BUDGET_DEFAULT_USD;
+	if (unpriced || spend.totalUsd + projectedUsd > cap) {
 		const text = unpriced
 			? 'The Art plan cannot be priced: atlas-tool reports no GPU with a price, so it is not approved automatically. Set RUNPOD_ENDPOINT_GPU, or turn the Art plan checkpoint on, and resume.'
-			: `The Art plan projects $${projectedUsd.toFixed(2)} of GPU, more than is left of the $${(cap ?? 0).toFixed(2)} cap. Raise the cap and resume, or ask for a smaller plan.`;
+			: `The Art plan projects $${projectedUsd.toFixed(2)} of GPU, more than is left of the $${cap.toFixed(2)} cap. Raise the cap and resume, or ask for a smaller plan.`;
 		await insertEvent(tx, live.id, 'worker', 'activity', { type: 'note', text });
 		const result = transition(live.state, { type: 'pause', reason: 'budget_cap' });
 		if (
@@ -247,6 +282,7 @@ async function afterRecipe(
 			await insertEvent(tx, live.id, 'worker', 'checkpoint_open', {
 				checkpoint: 'budget',
 				reason: unpriced ? 'art_plan_unpriced' : 'art_plan',
+				message: text,
 				spentUsd: spend.totalUsd,
 				projectedUsd: Math.round(projectedUsd * 10000) / 10000,
 				capUsd: cap,
@@ -359,24 +395,22 @@ export async function defaultsBrief(db: Db, live: LiveRun): Promise<string> {
 	].join('\n');
 }
 
-/** A queued render advances, per region it covers, the first planned (or failed) step there. */
+/**
+ * A queued render advances exactly the recipe steps the launcher's gate matched for it
+ * (`{ recipe, n }`, planned or failed) to `queued`, with its job.
+ */
 export async function markQueued(
 	tx: Db,
 	runId: string,
-	atlas: string,
-	regions: readonly string[],
+	matched: readonly { recipe: string; n: number }[],
 	jobRef: string,
 ) {
-	const want = new Set(regions);
 	for (const recipe of await loadRecipes(tx, runId)) {
+		const ns = new Set(matched.filter((m) => m.recipe === recipe.region).map((m) => m.n));
+		if (ns.size === 0) continue;
 		let changed = false;
 		const steps = recipe.steps.map((s) => {
-			// A failed render is queued again under the same approval, and recorded like the first.
-			const renderable = s.status === 'planned' || s.status === 'failed';
-			if (s.kind === 'finish' || s.atlas !== atlas || !want.has(s.region) || !renderable) {
-				return s;
-			}
-			want.delete(s.region);
+			if (!ns.has(s.n) || (s.status !== 'planned' && s.status !== 'failed')) return s;
 			changed = true;
 			return { ...s, status: 'queued' as const, jobRef };
 		});
@@ -621,7 +655,7 @@ export async function applyRecipeEdits(
 			rev: prev.rev + 1,
 			editedBy: by,
 			approved: null,
-			steps: carryProgress(prev.steps, result.steps, true),
+			steps: carryProgress(prev.steps, result.steps),
 			projected: result.projected,
 		});
 	}

@@ -1,8 +1,10 @@
 import type { DirectorPricing } from 'director-costs';
 import {
 	approvalProblem,
+	floorOf,
 	project,
 	type Card,
+	type ProjectionFloor,
 	type CatalogueEntry,
 	type StoredRecipe,
 	type Timing,
@@ -41,8 +43,8 @@ export interface ArtPlanAnswer {
 	catalogue: ArtPlanCatalogue | null;
 	catalogueError: string | null;
 	timings: Timing[];
-	/** `pricing.json` `seedDelaySecondsPerJob`: the delay an image is priced at before one is measured. */
-	seedDelaySeconds: number;
+	/** What a projection never goes below (`pricing.json`): the seed seconds and the seed delay. */
+	floor: ProjectionFloor;
 }
 
 export const usdPerSecondOf = (pricing: DirectorPricing, gpu: string): number | null =>
@@ -111,7 +113,7 @@ export async function artPlanOf(user: User, run: DirectorRun): Promise<ArtPlanAn
 		catalogue: priced.catalogue,
 		catalogueError: priced.error,
 		timings,
-		seedDelaySeconds: pricing.runpod.seedDelaySecondsPerJob,
+		floor: floorOf(pricing.runpod),
 	};
 }
 
@@ -139,7 +141,7 @@ export async function artPlanApprovalRefusal(
 		cards: new Map<string, Card>(priced.catalogue.blueprints.map((b) => [b.id, b.card])),
 		usdPerSecond: priced.catalogue.usdPerSecond,
 		timings,
-		seedDelaySeconds: pricing.runpod.seedDelaySecondsPerJob,
+		floor: floorOf(pricing.runpod),
 	};
 	return approvalProblem(recipes, new Set(plan.keys()), seen, (r) => project(r.steps, basis));
 }

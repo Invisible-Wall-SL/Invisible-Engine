@@ -120,7 +120,9 @@ _Nothing._
 - 2026-10-07 — **Director card 8D, atlas-tool side.** A second line behind the launcher's
   `refusals.ts`: a Director token is refused on `/card/save` (403, before the body is read),
   `/deleteblueprint`, `/rescanblueprintmodels` and `/taxonomy/save`, even with the publish
-  capability; a person reaches the same code as before (`test_director_safety.py`
+  capability; `/deployatlas` refuses a Director token whose resolved key (manifest
+  `deploy_path` or an asset-map target) is not under `<project>/deploy/`
+  (`director_deploy_refusal`, `test_director_deploys_only_under_deploy`); a person reaches the same code as before (`test_director_safety.py`
   `test_director_never_writes_the_shared_library`, `…_a_card`, `…_the_taxonomy`). The page's
   `applyPipe()` first loop now shows the `.cfggrid [data-pipe]` fields for `atlasPipe()` instead of
   `globalPipe()`; `atlasPipe()` is `ATLAS_PIPE || globalPipe()`, so an atlas no run configured is

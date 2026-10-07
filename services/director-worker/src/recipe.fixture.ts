@@ -9,6 +9,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
+	NO_FLOOR,
 	approvalProblem,
 	carryProgress,
 	chainLine,
@@ -62,7 +63,7 @@ for (const recipe of expected.recipes) {
 		planRegions,
 		others: stored,
 		usdPerSecond: USD,
-		seedDelaySeconds: 0,
+		floor: NO_FLOOR,
 	});
 	if (!result.ok) refused.push(`${recipe.region}: ${result.errors.join('; ')}`);
 	else {
@@ -97,7 +98,7 @@ const ctx: ValidationContext = {
 	planRegions,
 	others: stored,
 	usdPerSecond: USD,
-	seedDelaySeconds: 0,
+	floor: NO_FLOOR,
 };
 const h1 = expected.recipes.find((r) => r.region === 'H1')!;
 const bg = expected.recipes.find((r) => r.region === 'Background')!;
@@ -255,6 +256,36 @@ check(
 	null,
 );
 check('a guessed card marks the projection a placeholder', stored[0].projected.placeholder, true);
+{
+	const cards = new Map(catalogue.blueprints.map((b) => [b.id, b.card]));
+	const up = { ...h1.steps[1], pipeline: 'fixture_upscale', settings: [] };
+	const floor = { seedSecondsPerImage: 600, delaySecondsPerJob: 5 };
+	check(
+		'a measured card is priced by its seconds plus the delay per job, above no floor',
+		project([up], { cards, usdPerSecond: 1, floor }).gpuSeconds,
+		6 + 5 + 30,
+	);
+	check(
+		'a guessed card never projects below the seed seconds per render',
+		project([h1.steps[1]], { cards, usdPerSecond: 1, floor }).gpuSeconds,
+		600 + 5 + 60,
+	);
+	const noSeconds = new Map(cards);
+	noSeconds.set('fixture_upscale', {
+		...cards.get('fixture_upscale')!,
+		gpu: { secondsPerImage: {}, coldStart: 0, source: 'measured' },
+	});
+	check(
+		'a size the card has no seconds for leaves the cost unpriced (fails closed)',
+		project([up], { cards: noSeconds, usdPerSecond: 1, floor }).gpuUsd,
+		null,
+	);
+}
+refusedFor(
+	'a mockup crop is named by a region',
+	variant(h1, (r) => (r.steps[0].style = { source: 'mockupCrop', value: '../x' })),
+	'a mockup crop is named by its region',
+);
 
 // Re-approval (owner decision 9).
 const approved = { ...stored[0], approved: { by: 'owner', at: 'now', rev: 1 } };
@@ -277,6 +308,14 @@ check(
 	needsReapproval(approved, {
 		...approved,
 		steps: approved.steps.map((st, i) => (i === 1 ? { ...st, region: 'cut_H9' } : st)),
+	}),
+	true,
+);
+check(
+	'more variants need re-approval',
+	needsReapproval(approved, {
+		...approved,
+		steps: approved.steps.map((st, i) => (i === 0 ? { ...st, variants: st.variants + 1 } : st)),
 	}),
 	true,
 );
@@ -313,7 +352,7 @@ check('an empty preset falls back to sdxl 1024 ×3', presetDefaultChain(null)[0]
 
 // Pricing fails closed and measurements only raise a guess (card 8E, ADR-0008 §6).
 const cards = new Map<string, Card>(catalogue.blueprints.map((b) => [b.id, b.card]));
-const basis = { cards, usdPerSecond: USD, seedDelaySeconds: 0 };
+const basis = { cards, usdPerSecond: USD, floor: NO_FLOOR };
 const timing = (pipeline: string, genPx: number, exec: number, delay: number) => ({
 	pipeline,
 	genPx,
@@ -323,17 +362,26 @@ const timing = (pipeline: string, genPx: number, exec: number, delay: number) =>
 });
 check(
 	'an image costs the card seconds plus the measured delay',
-	secondsPerImage(upscale, 1024, timing('fixture_upscale', 1024, 1, 5), 99),
+	secondsPerImage(upscale, 1024, timing('fixture_upscale', 1024, 1, 5), {
+		seedSecondsPerImage: 0,
+		delaySecondsPerJob: 99,
+	}),
 	{ seconds: 11, guess: false },
 );
 check(
 	'a slower measurement raises the guess',
-	secondsPerImage(upscale, 1024, timing('fixture_upscale', 1024, 9, 0), 99)?.seconds,
+	secondsPerImage(upscale, 1024, timing('fixture_upscale', 1024, 9, 0), {
+		seedSecondsPerImage: 0,
+		delaySecondsPerJob: 99,
+	})?.seconds,
 	9,
 );
 check(
 	'with nothing measured the figure is the guess',
-	secondsPerImage({ ...upscale, gpu: { ...upscale.gpu, source: 'guess' } }, 1024, null, 0),
+	secondsPerImage({ ...upscale, gpu: { ...upscale.gpu, source: 'guess' } }, 1024, null, {
+		seedSecondsPerImage: 0,
+		delaySecondsPerJob: 0,
+	}),
 	{
 		seconds: 6,
 		guess: true,
@@ -341,23 +389,55 @@ check(
 );
 check(
 	'with nothing measured, the seed delay is priced per image (ADR-0008 §6)',
-	secondsPerImage({ ...upscale, gpu: { ...upscale.gpu, source: 'guess' } }, 1024, null, 15)
-		?.seconds,
+	secondsPerImage({ ...upscale, gpu: { ...upscale.gpu, source: 'guess' } }, 1024, null, {
+		seedSecondsPerImage: 0,
+		delaySecondsPerJob: 15,
+	})?.seconds,
 	21,
 );
 check(
 	'…and a measured delay replaces it',
-	secondsPerImage(upscale, 1024, timing('fixture_upscale', 1024, 6, 2), 15)?.seconds,
+	secondsPerImage(upscale, 1024, timing('fixture_upscale', 1024, 6, 2), {
+		seedSecondsPerImage: 0,
+		delaySecondsPerJob: 15,
+	})?.seconds,
 	8,
 );
 check(
+	'a guessed card never goes below the seed, even with a faster measurement beside it',
+	secondsPerImage(
+		{ ...upscale, gpu: { ...upscale.gpu, source: 'guess' } },
+		1024,
+		timing('fixture_upscale', 1024, 4, 1),
+		{
+			seedSecondsPerImage: 600,
+			delaySecondsPerJob: 15,
+		},
+	)?.seconds,
+	601,
+);
+check(
+	'…while a measured card may: its seconds, raised only by a slower measurement',
+	secondsPerImage(upscale, 1024, timing('fixture_upscale', 1024, 4, 1), {
+		seedSecondsPerImage: 600,
+		delaySecondsPerJob: 15,
+	})?.seconds,
+	7,
+);
+check(
 	'no card seconds and nothing measured: not priced',
-	secondsPerImage({ ...upscale, gpu: { ...upscale.gpu, secondsPerImage: {} } }, 1024, null, 15),
+	secondsPerImage({ ...upscale, gpu: { ...upscale.gpu, secondsPerImage: {} } }, 1024, null, {
+		seedSecondsPerImage: 0,
+		delaySecondsPerJob: 15,
+	}),
 	null,
 );
 check(
 	'a credit-billed card is never priced',
-	secondsPerImage({ ...upscale, billing: 'credits' }, 1024, null, 15),
+	secondsPerImage({ ...upscale, billing: 'credits' }, 1024, null, {
+		seedSecondsPerImage: 0,
+		delaySecondsPerJob: 15,
+	}),
 	null,
 );
 const h1Steps = stored.find((r) => r.region === 'H1')!.steps;
@@ -591,12 +671,8 @@ const progressed = stored[0].steps.map((st, i) =>
 );
 const later = stored[0].steps.map((st, i) => (i === 2 ? { ...st, note: 'changed' } : st));
 check(
-	"an owner's edit keeps the finished and in-flight work of the unchanged leading steps",
-	carryProgress(progressed, later, true).map((st) => [
-		st.status,
-		st.jobRef ?? null,
-		st.chosen ?? null,
-	]),
+	'a revision keeps what its unchanged leading steps did: a rendered step is never re-opened',
+	carryProgress(progressed, later).map((st) => [st.status, st.jobRef ?? null, st.chosen ?? null]),
 	[
 		['chosen', 'st_00000000000000a1', '2'],
 		['queued', 'st_00000000000000a2', null],
@@ -604,16 +680,22 @@ check(
 	],
 );
 check(
-	"a technician's revision keeps only the render in flight; finished steps are planned again (a redo)",
-	carryProgress(progressed, later, false).map((st) => st.status),
-	['planned', 'queued', 'planned'],
+	'a step read back from the database (keys in jsonb order) is still the same work',
+	carryProgress(
+		progressed.map((st) => ({
+			...st,
+			style: { value: st.style.value, source: st.style.source } as typeof st.style,
+			shape: { value: st.shape.value, source: st.shape.source } as typeof st.shape,
+		})),
+		later,
+	).map((st) => st.status),
+	['chosen', 'queued', 'planned'],
 );
 check(
 	'a step that changed, and every step after it, starts again',
 	carryProgress(
 		progressed,
 		stored[0].steps.map((st, i) => (i === 0 ? { ...st, variants: 2 } : st)),
-		true,
 	).map((st) => st.status),
 	['planned', 'planned', 'planned'],
 );

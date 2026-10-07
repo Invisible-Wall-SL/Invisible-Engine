@@ -6,7 +6,7 @@
  *   DATABASE_URL=postgres://…/director_proof pnpm --filter launcher-api db:migrate
  *   DATABASE_URL=postgres://…/director_proof pnpm --filter director-worker prove:art-plan
  *
- * The REAL `atlas-technician` definition takes a turn that replays the reference plan
+ * The `atlas-technician` (its real definition once it has landed, else the same tools as a fixture) takes a turn that replays the reference plan
  * (`docs/director/eval/blueprints/expected-art-plan.json`, the reference template's 23 regions)
  * against the fixture catalogue (`catalogue.json`), plus recipes that break the §5 rules on purpose.
  *
@@ -21,19 +21,20 @@
  *  4. with the checkpoint off the plan is approved `auto` when its projection fits the cap, and is
  *     left unapproved, with a note, when it does not;
  *  5. a later run of the same template briefs the technician with that template default;
- *  6. (card 8E) an approval that does not name the revisions the owner saw is refused and the plan
+ *  6. a step renders once: not twice in a turn, and a resent recipe keeps a rendered step's state;
+ *  7. (card 8E) an approval that does not name the revisions the owner saw is refused and the plan
  *     stays open; the owner's own edits are validated with the same rules, stored as the next
  *     revision with `editedBy` and no approval, and the plan re-opens on them without waking an
- *     agent; an edit that breaks a rule stores nothing and says why;
- *  7. a render advances its steps (`queued` → `done` with its variants), the technician's pick
- *     and the committed tile are recorded on the recipe, and the job's measured time is folded
- *     into `director_blueprint_timings` once, however often its `job_done` is delivered;
- *  8. a new plan that leaves a region out takes its recipe's approval away;
- *  9. a revision is compared with the approved recipe priced on the same basis: one more variant
+ *     agent; an edit that breaks a rule stores nothing and says why; a group edit of a per-atlas
+ *     value lands as a whole; an edit made on an older revision and a malformed one are refused,
+ *     and the next row still applies;
+ *  8. a render advances its steps (`queued` → `done` with its variants; a failed render is queued
+ *     again under the same approval and recorded like the first), the technician's pick and the
+ *     committed tile are recorded on the recipe, and the job's measured time is folded into
+ *     `director_blueprint_timings` once, however often its `job_done` is delivered;
+ *  9. a new plan that leaves a region out takes its recipe's approval away;
+ * 10. a revision is compared with the approved recipe priced on the same basis: one more variant
  *     loses the approval although the measured delay fell since.
- * Section 6 also proves a group edit of a per-atlas value lands as a whole, an edit made on an
- * older revision and a malformed one are refused (and the next row still applies); section 7 that
- * a failed render is queued again under the same approval and recorded like the first.
  */
 import type {
 	BetaMessage,
@@ -50,6 +51,7 @@ import type { AdapterResult, AdapterSpec, Launcher } from '../src/launcher.ts';
 import { claimRun } from '../src/lease.ts';
 import type { VisionTransport } from '../src/mockups/vision.ts';
 import { toolName, type ModelTransport } from '../src/model.ts';
+import { TECHNICIAN, TECHNICIAN_TOOLS } from '../src/recipes.ts';
 import { ADAPTER_OPS, KNOWN_TOOLS } from '../src/tools.ts';
 
 const url = process.env.DATABASE_URL;
@@ -114,6 +116,39 @@ function fakeModel(replies: Reply[]) {
 }
 
 /** Serves every adapter op by name (so no agent is "missing tools") and the catalogue. */
+/**
+ * The launcher's queue gate as it decides (`ops/atlas.ts` `requireApprovedSteps`), over the real
+ * stored recipes: every region needs an approved step on that atlas with those variants that is
+ * not yet rendered (planned or failed). Answers the matched steps, as the launcher does.
+ */
+let jobSeq = 0;
+async function queueGate(runId: string, input: unknown): Promise<AdapterResult> {
+	const q = input as { atlas: string; regions: string[]; variants: number };
+	const rows = await sql<{ recipe_json: StoredRecipe }[]>`
+		select recipe_json from director_regions where run_id = ${runId} and recipe_json is not null`;
+	const steps: { recipe: string; n: number; region: string }[] = [];
+	for (const region of q.regions) {
+		const hit = rows
+			.map((r) => r.recipe_json)
+			.filter((r) => r.approved && r.approved.rev === r.rev)
+			.flatMap((r) => r.steps.map((s) => ({ ...s, recipe: r.region })))
+			.find(
+				(s) =>
+					s.kind !== 'finish' &&
+					s.atlas === q.atlas &&
+					s.region === region &&
+					s.variants === q.variants &&
+					(s.status === 'planned' || s.status === 'failed'),
+			);
+		if (!hit) return { status: 409, body: { error: 'no_approved_step', message: region } };
+		steps.push({ recipe: hit.recipe, n: hit.n, region });
+	}
+	return {
+		status: 200,
+		body: { jobRef: `st_${String(++jobSeq).padStart(16, '0')}`, status: 'queued', steps },
+	};
+}
+
 function fakeLauncher(
 	served: Catalogue = catalogue,
 	answers: Record<string, (input: Record<string, unknown>) => unknown> = {},
@@ -137,6 +172,7 @@ function fakeLauncher(
 		async call(id, body): Promise<AdapterResult> {
 			calls.push(`${body.agent}:${id}`);
 			if (id === 'atlas.list_blueprints') return { status: 200, body: served };
+			if (id === 'atlas.queue_variants') return queueGate(body.runId, body.input);
 			const answer = answers[id];
 			if (answer) return { status: 200, body: answer(body.input as Record<string, unknown>) };
 			return { status: 404, body: { error: 'unknown_op', message: `No adapter ${id}.` } };
@@ -167,9 +203,23 @@ const coordinator: AgentDefinition = {
 	outputs: '',
 	systemPrompt: 'You are the coordinator.',
 };
+/**
+ * The technician as its definition will run it (ADR-0008 Appendix A), until that definition lands
+ * in its own PR; once it has, the proof runs the real one.
+ */
+const fixtureTechnician: AgentDefinition = {
+	name: TECHNICIAN,
+	model: 'claude-sonnet-5-5',
+	effort: 'high',
+	role: 'atlas technician',
+	tools: [...TECHNICIAN_TOOLS],
+	inputs: '',
+	outputs: '',
+	systemPrompt: 'You plan and run Atlas Maker.',
+};
 const AGENTS = new Map<string, AgentDefinition>([
 	['coordinator', coordinator],
-	['atlas-technician', real.get('atlas-technician')!],
+	['atlas-technician', real.get(TECHNICIAN) ?? fixtureTechnician],
 ]);
 
 let useSeq = 0;
@@ -295,7 +345,7 @@ try {
 
 		const offered = (model.requests[0].tools ?? []).map((t) => (t as { name: string }).name);
 		check(
-			'the real technician definition is offered its 18 tools, run.set_recipe among them',
+			'the technician is offered its 18 tools, run.set_recipe among them',
 			[offered.length, offered.includes(toolName('run.set_recipe'))],
 			[18, true],
 		);
@@ -557,6 +607,55 @@ try {
 		);
 	}
 
+	// ── 6. A rendered step is never rendered again ────────────────────────────
+	console.log('6. a step renders once: not twice in a turn, not again after a resend');
+	{
+		const runId6 = await newRun({ artPlan: false, cap: 40 });
+		const queue = (region: string) =>
+			use('atlas.queue_variants', {
+				atlas: 'symbols',
+				regions: [region],
+				variants: 3,
+				step: `${region}#1`,
+			});
+		const model = fakeModel([
+			{ content: expected.recipes.map(setRecipe) },
+			{ content: [queue('H1'), queue('H1'), queue('H2')] },
+			{ content: [setRecipe(recipeOf('H1')), queue('H1')] },
+		]);
+		await message(runId6, 'atlas-technician', 'Plan the recipes.');
+		await drive(runId6, deps(model.transport, fakeLauncher().launcher));
+		const results = (await toolResults(runId6, 'atlas-technician')).slice(23);
+		check(
+			'the plan is approved (auto), then the first queue of H1 renders and the second in the same turn is refused',
+			[
+				(await recipes(runId6)).every((r) => r.approved?.by === 'auto'),
+				results.slice(0, 3).map((r) => Boolean(r.is_error)),
+			],
+			[true, [false, true, false]],
+		);
+		const h1 = (await recipes(runId6)).find((r) => r.region === 'H1')!;
+		check(
+			'only the matched step is marked queued, with its job',
+			h1.steps.map((st) => [st.status, Boolean(st.jobRef)]),
+			[
+				['queued', true],
+				['planned', false],
+				['planned', false],
+			],
+		);
+		check(
+			'resending the same recipe keeps the rendered step queued and the approval',
+			[h1.rev, h1.steps[0].status, h1.approved?.rev === h1.rev],
+			[2, 'queued', true],
+		);
+		check(
+			'...so the queue after the resend is refused: the region is not re-sampled unseen',
+			Boolean(results.at(-1)?.is_error),
+			true,
+		);
+	}
+
 	// ── 5. The next run starts from the template default ──────────────────────
 	console.log('5. a later run of the template briefs the technician with its default');
 	{
@@ -585,8 +684,8 @@ try {
 		);
 	}
 
-	// ── 6. The owner edits the plan ───────────────────────────────────────────
-	console.log('6. the owner edits the Art plan; the worker validates and re-opens it');
+	// ── 7. The owner edits the plan ───────────────────────────────────────────
+	console.log('7. the owner edits the Art plan; the worker validates and re-opens it');
 	const edited = await newRun();
 	{
 		const model = fakeModel([{ content: expected.recipes.map(setRecipe) }]);
@@ -729,16 +828,14 @@ try {
 		);
 	}
 
-	// ── 7. Renders advance the steps; their time is measured ──────────────────
-	console.log('7. a render advances its steps and is measured once');
+	// ── 8. Renders advance the steps; their time is measured ──────────────────
+	console.log('8. a render advances its steps and is measured once');
 	{
 		const h1 = (await recipes(edited)).find((r) => r.region === 'H1')!;
-		const failedRef = 'st_00000000000000e7';
-		const jobRef = 'st_00000000000000e8';
-		let nextRef = failedRef;
 		const scratch = h1.steps[1];
+		// The queue goes through the launcher's gate as it decides (`queueGate`), over the stored
+		// recipes; the pick and the commit are answered as the adapter answers them.
 		const launcher = fakeLauncher(catalogue, {
-			'atlas.queue_variants': () => ({ atlas: h1.atlas, regions: ['H1'], jobRef: nextRef }),
 			'atlas.choose_variant': () => ({
 				atlas: h1.atlas,
 				region: 'H1',
@@ -761,8 +858,10 @@ try {
 				},
 				{ content: [say('Queued.')] },
 			]);
+		const firstStep = async () => (await recipes(edited)).find((r) => r.region === 'H1')!.steps[0];
 		await message(edited, 'atlas-technician', 'Render H1.');
 		await drive(edited, deps(queueH1().transport, launcher.launcher));
+		const failedRef = (await firstStep()).jobRef!;
 		await event(edited, 'atlas-technician', 'job_done', {
 			jobRef: failedRef,
 			status: 'failed',
@@ -774,19 +873,15 @@ try {
 			edited,
 			deps(fakeModel([{ content: [say('It failed.')] }]).transport, launcher.launcher),
 		);
-		check(
-			'a failed render fails its step',
-			(await recipes(edited)).find((r) => r.region === 'H1')!.steps[0].status,
-			'failed',
-		);
-		nextRef = jobRef;
+		check('a failed render fails its step', (await firstStep()).status, 'failed');
 		await message(edited, 'atlas-technician', 'Render H1 again.');
 		await drive(edited, deps(queueH1().transport, launcher.launcher));
-		const queued = (await recipes(edited)).find((r) => r.region === 'H1')!.steps[0];
+		const queued = await firstStep();
+		const jobRef = queued.jobRef!;
 		check(
 			'the render queued again under the same approval is recorded like the first',
-			[queued.status, queued.jobRef],
-			['queued', jobRef],
+			[queued.status, Boolean(jobRef) && jobRef !== failedRef],
+			['queued', true],
 		);
 		const done = {
 			jobRef,
@@ -865,8 +960,8 @@ try {
 		);
 	}
 
-	// ── 8. A plan that drops a region drops its approval ──────────────────────
-	console.log('8. a new plan without a region takes its approval away');
+	// ── 9. A plan that drops a region drops its approval ──────────────────────
+	console.log('9. a new plan without a region takes its approval away');
 	{
 		const batches = expected.plan.batches.map((b) => ({
 			...b,
@@ -899,8 +994,8 @@ try {
 		);
 	}
 
-	// ── 9. A revision is held to the approved plan on today's prices ──────────
-	console.log('9. a dearer revision loses its approval even when the timings fell since');
+	// ── 10. A revision is held to the approved plan on today's prices ──────────
+	console.log('10. a dearer revision loses its approval even when the timings fell since');
 	{
 		const setDelay = (delay: number) =>
 			sql`insert into director_blueprint_timings

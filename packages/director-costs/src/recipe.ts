@@ -144,8 +144,8 @@ export interface ValidationContext {
 	usdPerSecond: number | null;
 	/** Measured GPU time per (pipeline, genPx), from `director_blueprint_timings`. */
 	timings?: readonly Timing[];
-	/** Queue delay per image while nothing is measured (`pricing.json` `seedDelaySecondsPerJob`). */
-	seedDelaySeconds: number;
+	/** What a projection never goes below: the seed seconds and the seed delay (`pricing.json`). */
+	floor: ProjectionFloor;
 }
 
 export type ValidationResult =
@@ -159,6 +159,8 @@ export const GEN_PX_MAX = 2048;
 const SIZE_KEYS = new Set(['gen_width', 'gen_height']);
 const VARIANT_REF =
 	/^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,119}\/[A-Za-z0-9_][A-Za-z0-9_.()-]{0,119}\/[0-9]{1,8}$/;
+/** A region name as Atlas Maker and the crop keys take it; `..` never. */
+export const REGION_NAME = /^(?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9_.()-]{0,119}$/;
 const STEP_REF = /^step:([0-9]{1,3})$/;
 const SHEET_KEY =
 	/^(?:[a-z0-9_-]+\/[a-z0-9_-]+\/)?(?:sheets|sheet_src)\/[A-Za-z0-9_./() -]{1,300}$/;
@@ -211,42 +213,69 @@ export const timingOf = (
 	timings?.find((t) => t.pipeline === pipeline && t.genPx === genPx && t.jobs > 0) ?? null;
 
 /**
+ * What a projection may never go below (ADR-0006, ADR-0008 §6): a card whose seconds are a guess
+ * is priced at no less than the seed seconds per render, and every job adds the queue delay — the
+ * measured one, else this seed.
+ */
+export interface ProjectionFloor {
+	/** `pricing.json` `seedSecondsPerRender`. */
+	seedSecondsPerImage: number;
+	/** `pricing.json` `seedDelaySecondsPerJob`. */
+	delaySecondsPerJob: number;
+}
+
+/** No floor at all: what the New-game estimate prices a card's own figures at. */
+export const NO_FLOOR: ProjectionFloor = { seedSecondsPerImage: 0, delaySecondsPerJob: 0 };
+
+/** The floor at the reviewed prices (`pricing.json` `runpod`): one rule for worker and launcher. */
+export const floorOf = (runpod: {
+	seedSecondsPerRender: number;
+	seedDelaySecondsPerJob: number;
+}): ProjectionFloor => ({
+	seedSecondsPerImage: runpod.seedSecondsPerRender,
+	delaySecondsPerJob: runpod.seedDelaySecondsPerJob,
+});
+
+/**
  * Billed seconds one image of a step costs (ADR-0008 §6): the card's seconds at that size, or the
- * measured execution mean when it is higher, plus the measured queue delay per job, else the seed
- * delay. Never lower than either figure: a measurement only raises a guess, and the owner copies
- * a lower one into the card (`source: measured`) by hand. Null when there is neither a card
- * figure nor a measurement, or the card bills credits: the step cannot be priced.
+ * measured execution mean when it is higher, never below the floor's seed for a card whose seconds
+ * are a guess (only a card with `source: measured` may go below it); plus the measured queue
+ * delay per job, else the floor's. A measurement only raises a guess: the owner copies a lower
+ * one into the card by hand. Null when there is neither a card figure nor a measurement, or the
+ * card bills credits: the step cannot be priced.
  */
 export function secondsPerImage(
 	card: Card,
 	genPx: number,
 	timing: Timing | null,
-	seedDelaySeconds: number,
+	floor: ProjectionFloor,
 ): { seconds: number; guess: boolean } | null {
 	if (card.billing === 'credits') return null;
 	const fromCard = secondsAt(card, genPx);
 	if (fromCard === null && timing === null) return null;
-	const exec = Math.max(fromCard ?? 0, timing?.meanExecSeconds ?? 0);
+	const guess = card.gpu.source !== 'measured';
+	const measuredExec = Math.max(fromCard ?? 0, timing?.meanExecSeconds ?? 0);
+	const exec = guess ? Math.max(measuredExec, floor.seedSecondsPerImage) : measuredExec;
 	return {
-		seconds: exec + (timing ? timing.meanDelaySeconds : seedDelaySeconds),
-		guess: card.gpu.source !== 'measured' && timing === null,
+		seconds: exec + (timing ? timing.meanDelaySeconds : floor.delaySecondsPerJob),
+		guess,
 	};
 }
 
-/** What a projection is priced on: the reviewed cards, the GPU's rate and the measurements. */
+/** What a projection is priced on: the reviewed cards, the GPU's rate, the measurements, the floor. */
 export interface PriceBasis {
 	cards: ReadonlyMap<string, Card>;
 	/** USD per GPU second, or null when the endpoint's GPU has no price. */
 	usdPerSecond: number | null;
 	timings?: readonly Timing[];
-	seedDelaySeconds: number;
+	floor: ProjectionFloor;
 }
 
 export const basisOf = (ctx: ValidationContext): PriceBasis => ({
 	cards: new Map(ctx.catalogue.blueprints.map((b) => [b.id, b.card])),
 	usdPerSecond: ctx.usdPerSecond,
 	timings: ctx.timings,
-	seedDelaySeconds: ctx.seedDelaySeconds,
+	floor: ctx.floor,
 });
 
 /**
@@ -272,7 +301,7 @@ export function project(steps: readonly StepInput[], basis: PriceBasis): Project
 			card,
 			step.genPx,
 			timingOf(basis.timings, step.pipeline, step.genPx),
-			basis.seedDelaySeconds,
+			basis.floor,
 		);
 		if (each === null) {
 			unpriced.push(
@@ -429,7 +458,9 @@ function refProblem(ref: RefChoice, n: number, label: string): string | null {
 				? null
 				: `${label}: a key is a Sheet Maker image (sheets/… or sheet_src/…)`;
 		case 'mockupCrop':
-			return null;
+			return ref.value === '' || REGION_NAME.test(ref.value)
+				? null
+				: `${label}: a mockup crop is named by its region (or "" for this one)`;
 		case 'variant': {
 			const step = STEP_REF.exec(ref.value);
 			if (step) {
@@ -618,6 +649,14 @@ export function needsReapproval(
 	if (chain(prev.steps) !== chain(next.steps)) return true;
 	if (next.projected.gpuUsd === null) return true;
 	if (prev.projected.gpuUsd !== null && next.projected.gpuUsd > prev.projected.gpuUsd) return true;
+	// More renders, or bigger ones, cost more whatever the projection's rounding says.
+	if (
+		next.steps.some(
+			(step, i) => step.variants > prev.steps[i].variants || step.genPx > prev.steps[i].genPx,
+		)
+	) {
+		return true;
+	}
 	return next.projected.gpuSeconds > prev.projected.gpuSeconds;
 }
 
@@ -801,11 +840,13 @@ export function priceChains(
 				placeholder = true;
 				each = fallback;
 			} else {
+				// The estimate prices the card's own figures (plus the seed delay); the projection a
+				// plan is approved on adds the seed floor for a guessed card.
 				const priced = secondsPerImage(
 					card,
 					step.genPx,
 					timingOf(facts.timings, step.pipeline, step.genPx),
-					facts.seedDelaySeconds,
+					{ ...NO_FLOOR, delaySecondsPerJob: facts.seedDelaySeconds },
 				);
 				if (priced === null && card.billing === 'credits') {
 					unpriced.push(`${g.group}: "${step.pipeline}" bills credits, which cannot be priced yet`);
@@ -899,32 +940,39 @@ export function approvalProblem(
 	return null;
 }
 
-/** The fields that say what a step renders, and where: a step that keeps them is the same work. */
-const workOf = (s: StepInput) =>
-	JSON.stringify([
+/**
+ * A step as a canonical text: what it renders, where, and from what — its fields in a fixed order,
+ * never an object's own key order (Postgres `jsonb` stores keys in its own order, so a step read
+ * back never stringifies as it was written). With `withNote`, its note too.
+ */
+export function stepKey(s: StepInput, withNote = false): string {
+	return JSON.stringify([
 		s.kind,
 		s.pipeline,
 		s.atlas,
 		s.region,
 		s.genPx,
 		s.variants,
-		[...s.settings].sort((a, b) => a.key.localeCompare(b.key)),
-		s.style,
-		s.shape,
+		[...s.settings].map((x) => [x.key, x.value]).sort((a, b) => a[0].localeCompare(b[0])),
+		[s.style.source, s.style.value],
+		[s.shape.source, s.shape.value],
+		...(withNote ? [s.n, s.note] : []),
 	]);
+}
+
+/** The fields that say what a step renders, and where: a step that keeps them is the same work. */
+const workOf = (s: StepInput) => stepKey(s);
 
 /**
- * A revision's steps with what the previous revision's steps already did carried over (§5): a
- * render in flight (`queued`) stays queued under its job, so its `job_done` still settles it and is
- * measured, and is never queued a second time. With `keepFinished` (an owner's edit), the finished
- * steps before the first changed one keep their renders and picks too: editing a later step never
- * re-renders an earlier one. Without it (the technician's revision, which is how a region is
- * redone), finished steps go back to `planned`.
+ * A revision's steps with what the previous revision's unchanged leading steps already did (§5):
+ * a step whose work is the same keeps its status, job, renders and pick, so a resend never re-opens
+ * a rendered step (it could be queued and paid for again unseen) and a render in flight stays
+ * under its job, whose `job_done` still settles it. From the first changed step on, every step
+ * starts again: it works from an image that will change.
  */
 export function carryProgress(
 	prev: readonly StoredStep[],
 	next: readonly StoredStep[],
-	keepFinished: boolean,
 ): StoredStep[] {
 	let unchanged = true;
 	return next.map((step, i) => {
@@ -932,15 +980,12 @@ export function carryProgress(
 		unchanged &&= before !== undefined && workOf(before) === workOf(step);
 		if (!unchanged || !before) return step;
 		const { status, jobRef, rendered, chosen } = before;
-		if (status === 'queued' || (keepFinished && status !== 'planned' && status !== 'failed')) {
-			return {
-				...step,
-				status,
-				...(jobRef === undefined ? {} : { jobRef }),
-				...(rendered === undefined ? {} : { rendered }),
-				...(chosen === undefined ? {} : { chosen }),
-			};
-		}
-		return step;
+		return {
+			...step,
+			status,
+			...(jobRef === undefined ? {} : { jobRef }),
+			...(rendered === undefined ? {} : { rendered }),
+			...(chosen === undefined ? {} : { chosen }),
+		};
 	});
 }

@@ -776,6 +776,45 @@ def test_director_never_writes_the_taxonomy() -> None:
         check("no object was written", b.objects, {})
 
 
+class _Ident:
+    """Just what `is_director` reads."""
+
+    def __init__(self, act_tool: str) -> None:
+        self.act_tool = act_tool
+
+
+def test_director_deploys_only_under_deploy() -> None:
+    root = "acme/slots_one/deploy"
+    for dest, refused in ((f"{root}/sprites/symbols", False), (root, False),
+                          ("acme/slots_one", True), ("acme/slots_one/sprites/x", True),
+                          ("acme/other/deploy/x", True), (f"{root}/../x", True)):
+        check(f"a Director deploy to {dest} is {'refused' if refused else 'allowed'}",
+              bool(u.director_deploy_refusal(_Ident("director"), dest, root)), refused)
+    check("a person is never refused here",
+          u.director_deploy_refusal(_Ident(""), "acme/slots_one/sprites/x", root), "")
+
+    _seed()
+    m = _manifest(SYMBOLS)
+    m["deploy_path"] = "acme/slots_one/sprites/elsewhere"
+    (u.MANIFEST_DIR / SYMBOLS).write_text(json.dumps(m), encoding="utf-8")
+    with _Bucket() as bucket, _Server() as s:
+        before = dict(bucket.objects)
+        st, body = s.req("POST", f"/deployatlas?manifest={SYMBOLS}", s.agent, {})
+        check("a Director /deployatlas to a key outside deploy/ is refused, nothing written",
+              (st, body[:1], "outside" in body or "only under" in body, bucket.objects == before),
+              (200, "✖", True, True))
+        st, body = s.req("POST", f"/deployatlas?manifest={SYMBOLS}", s.person, {})
+        check("...a person's deploy is not refused by that rule", "only under" in body, False)
+
+        m.pop("deploy_path")
+        (u.MANIFEST_DIR / SYMBOLS).write_text(json.dumps(m), encoding="utf-8")
+        bucket.objects["acme/slots_one/asset-map.json"] = json.dumps(
+            {"symbols": {"deploy_path": "acme/slots_one/textures/symbols"}}).encode()
+        bucket.etags["acme/slots_one/asset-map.json"] = '"am"'
+        st, body = s.req("POST", f"/deployatlas?manifest={SYMBOLS}", s.agent, {})
+        check("...and so is an asset-map target outside deploy/", "only under" in body, True)
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):

@@ -84,6 +84,7 @@ import {
 	type StoredMessage,
 	type WakingEvent,
 } from './store.ts';
+import { floorOf } from 'director-costs/recipe';
 import {
 	MAX_RECIPE_EDITS,
 	applyRecipeEdits,
@@ -351,7 +352,6 @@ async function settle(
 		status === 'running' && state.step === 'breakdown' ? await runHasMockups(ctx) : false;
 	const results = new Map<string, BetaToolResultBlockParam>();
 	let budgetStop: BudgetFigures | null = null;
-	const queued: { atlas: string; regions: string[]; jobRef: string }[] = [];
 	const chosen: { atlas: string; region: string; id: string }[] = [];
 	const committed: { atlas: string; region: string; from: string }[] = [];
 	const recipes =
@@ -477,14 +477,15 @@ async function settle(
 				});
 			}
 		}
+		// Marked at once, in its own lease-checked write, so a second queue call later in this turn
+		// already finds the step queued and the launcher's gate refuses it. A replayed call returns
+		// the stored result and marks nothing new.
 		if (id === 'atlas.queue_variants' && answer.status === 200) {
-			const job = answer.body as { atlas?: unknown; regions?: unknown; jobRef?: unknown };
-			if (
-				typeof job.atlas === 'string' &&
-				Array.isArray(job.regions) &&
-				typeof job.jobRef === 'string'
-			) {
-				queued.push({ atlas: job.atlas, regions: job.regions.map(String), jobRef: job.jobRef });
+			const job = answer.body as { steps?: unknown; jobRef?: unknown };
+			if (Array.isArray(job.steps) && job.steps.length && typeof job.jobRef === 'string') {
+				const steps = job.steps as { recipe: string; n: number }[];
+				const jobRef = job.jobRef;
+				await withLease(ctx.sql, ctx.run, (tx, live) => markQueued(tx, live.id, steps, jobRef));
 			}
 		}
 		results.set(call.id, resultBlock(call.id, JSON.stringify(answer.body), answer.status !== 200));
@@ -493,7 +494,6 @@ async function settle(
 	await withLease(ctx.sql, ctx.run, async (tx, live) => {
 		// The pause first, so a worker tool later in the turn (a checkpoint request) sees it.
 		if (budgetStop) await pauseForBudget(tx, live, agent.name, budgetStop, 'gpu_submit');
-		for (const job of queued) await markQueued(tx, live.id, job.atlas, job.regions, job.jobRef);
 		for (const pick of chosen) {
 			await markChosen(tx, live.id, agent.name, pick.atlas, pick.region, pick.id);
 		}
@@ -560,7 +560,9 @@ async function recipeDeps(ctx: Ctx): Promise<RecipeDeps | undefined> {
 		catalogue,
 		usdPerSecond: typeof perSecond === 'number' ? perSecond : null,
 		timings: await loadTimings(ctx.sql),
-		seedDelaySeconds: runpod.seedDelaySecondsPerJob,
+		// A guessed card never projects below the seed per render; a job's delay is the measured
+		// one where the timings have it, else this seed.
+		floor: floorOf(runpod),
 	};
 }
 

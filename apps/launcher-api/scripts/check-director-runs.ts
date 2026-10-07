@@ -1917,7 +1917,9 @@ console.log('estimate');
 		[unpricedGpu.total.usd, unpricedGpu.unpriced],
 		[null, ['no GPU']],
 	);
-	// The profiles price each agent at the model its definition names.
+	// The profiles price each agent at the model its definition names. The technician's definition
+	// lands in its own PR (8D's split); until it does, its profile is held to ADR-0008 Appendix A's
+	// model, as `check-director-adapters.ts` holds its tools (`AWAITING_DEFINITION`).
 	const defined: Record<string, string> = {};
 	for (const file of readdirSync(AGENTS_DIR)) {
 		const text = readFileSync(`${AGENTS_DIR}${file}`, 'utf8');
@@ -1925,6 +1927,8 @@ console.log('estimate');
 		const model = /^model:\s*(\S+)/m.exec(text)?.[1];
 		if (name && model) defined[name] = model;
 	}
+	const AWAITING_DEFINITION: Record<string, string> = { 'atlas-technician': 'claude-sonnet-5-5' };
+	for (const [agent, model] of Object.entries(AWAITING_DEFINITION)) defined[agent] ??= model;
 	const profiled = costs.profileModels(profiles);
 	check(
 		'profile models match the agent definitions',

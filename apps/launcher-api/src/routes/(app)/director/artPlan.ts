@@ -5,6 +5,7 @@ import {
 	recipeInputOf,
 	removeStep,
 	scopeOf,
+	stepKey,
 	validateRecipe,
 	type Card,
 	type CardSetting,
@@ -92,20 +93,23 @@ export const cardsOf = (answer: ArtPlanAnswer): Map<string, Card> =>
 export const purposeOf = (answer: ArtPlanAnswer, pipeline: string): string =>
 	answer.catalogue?.blueprints.find((b) => b.id === pipeline)?.card.purpose ?? '';
 
+/** Two chains are the same as the rules see them: field by field, never by key order. */
 const same = (a: readonly StepInput[], b: readonly StepInput[]) =>
-	JSON.stringify(a) === JSON.stringify(b);
+	a.length === b.length && a.every((step, i) => stepKey(step, true) === stepKey(b[i], true));
 
 /** A chain without the atlas and region each step runs on: regions sharing it share one row. */
 const shapeOf = (steps: readonly StepInput[]) =>
-	JSON.stringify(
-		steps.map(({ kind, pipeline, genPx, variants, settings }) => [
-			kind,
-			pipeline,
-			genPx,
-			variants,
-			[...settings].sort((a, b) => a.key.localeCompare(b.key)),
-		]),
-	);
+	steps
+		.map((s) =>
+			JSON.stringify([
+				s.kind,
+				s.pipeline,
+				s.genPx,
+				s.variants,
+				[...s.settings].map((x) => [x.key, x.value]).sort((a, b) => a[0].localeCompare(b[0])),
+			]),
+		)
+		.join('>');
 
 const asStored = (recipe: StoredRecipe, steps: readonly StepInput[]): StoredRecipe => ({
 	...recipe,
@@ -125,7 +129,7 @@ export const basisOfAnswer = (answer: ArtPlanAnswer): PriceBasis => ({
 	cards: cardsOf(answer),
 	usdPerSecond: answer.catalogue?.usdPerSecond ?? null,
 	timings: answer.timings,
-	seedDelaySeconds: answer.seedDelaySeconds,
+	floor: answer.floor,
 });
 
 /**
@@ -187,7 +191,7 @@ function outcomeOf(
 				others,
 				usdPerSecond: basis.usdPerSecond,
 				timings: answer.timings,
-				seedDelaySeconds: basis.seedDelaySeconds,
+				floor: basis.floor,
 			},
 		);
 		if (!result.ok) {

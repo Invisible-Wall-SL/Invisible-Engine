@@ -249,8 +249,10 @@ picture on a reload.
     or conditional. Beside the title, the plan's GPU projection against what is left of the cap
     ("GPU ~$0.62 · $11.40 left of the cap"), amber when it is more than that: the run will then
     pause for you before the render that crosses it. Every chain is priced again from the current
-    cards and the GPU seconds measured so far (a pipeline with no measured queue delay yet is
-    priced at `pricing.json`'s `seedDelaySecondsPerJob` per image).
+    cards and the GPU seconds measured so far. It fails closed: a card whose GPU seconds are a
+    guess is priced at no less than `pricing.json`'s `seedSecondsPerRender` per image, and a
+    pipeline with no measured queue delay yet adds its `seedDelaySecondsPerJob`, so the plan can
+    read well above the New game estimate until real runs are measured.
   - **Edit a row** (an edit applies to every region in it): the pipeline (only reviewed image
     pipelines that fit the step, never one billed in credits; a new pipeline drops the step's
     settings), the size, the variants, a setting under **Settings** within the card's range (left
