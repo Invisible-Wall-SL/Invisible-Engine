@@ -150,7 +150,7 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 	},
 	setExpandingSymbol: async (bookEvent: BookEventOfType<'setExpandingSymbol'>) => {
 		stateGame.specialSymbol = bookEvent.symbol;
-		// Await the reveal (shuffle → land → intro spine) so the next book event — the first
+		// Await the reveal (shuffle → land → intro rig) so the next book event — the first
 		// free-spin `reveal` — only fires once the book symbol has been chosen AND revealed.
 		// UNSKIPPABLE (`unskippablePresentation.ts`): a slam used to release this while the reveal
 		// rig kept playing, so the free spins started underneath a reveal still on screen.
@@ -164,7 +164,7 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		// just landed with 3+ of the special symbol. For each flagged reel, morph
 		// every non-special VISIBLE cell into the special symbol ONE AT A TIME —
 		// re-using the per-symbol land plumbing so each converted cell plays the
-		// special's land spine. Awaited in full so the wins (`winInfo`) that follow
+		// special's land rig. Awaited in full so the wins (`winInfo`) that follow
 		// only animate AFTER the columns finish transforming.
 		const special = bookEvent.symbol;
 		// The fact the win text needs: this spin's wins on `special` are REEL counts, not icon counts.
@@ -173,8 +173,8 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 
 		// Visible rows only: the reveal pads the reel top+bottom by one row, so the
 		// on-screen cells are symbol indices 1..boardDimensions().y. For each cell the
-		// OLD symbol first plays its `explosion` spine (every symbol carries one); once
-		// that completes the cell swaps to the special and plays its `land` spine — so
+		// OLD symbol first plays its `explosion` rig (every symbol carries one); once
+		// that completes the cell swaps to the special and plays its `land` rig — so
 		// it reads as "symbol explodes → book appears". Staggered one cell at a time.
 		for (const reelIndex of bookEvent.reels) {
 			const reel = stateGame.board[reelIndex];
@@ -183,8 +183,8 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 			for (let row = 1; row <= boardDimensions().y && row < symbols.length - 1; row++) {
 				const reelSymbol = symbols[row];
 				if (!reelSymbol || reelSymbol.rawSymbol.name === special) continue;
-				// 1. Explode the existing symbol and wait for the spine to finish. A slammed round
-				//    stops waiting for the spine — the swap below still runs for EVERY cell, so the
+				// 1. Explode the existing symbol and wait for the rig to finish. A slammed round
+				//    stops waiting for the rig — the swap below still runs for EVERY cell, so the
 				//    expanded board still lands at its final state, just instantly.
 				playWildExplodeSound();
 				reelSymbol.symbolState = 'explosion';
@@ -197,7 +197,7 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 				await roundSkip.race(
 					awaitSymbolBeat((resolve) => (reelSymbol.oncomplete = resolve), TRANSIT_BEAT_CAP_MS),
 				);
-				// 2. Swap to the special and play its land spine in the cleared cell.
+				// 2. Swap to the special and play its land rig in the cleared cell.
 				reelSymbol.rawSymbol = { ...reelSymbol.rawSymbol, name: special };
 				reelSymbol.symbolState = 'land';
 				await roundSkip.wait(0.12 * SECOND);

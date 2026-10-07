@@ -100,7 +100,7 @@ const setTotalWinChoreography: ChoreographyNode = effect('setWinBookEventAmount'
 	amount: trigger('amount'),
 });
 
-/** `setExpandingSymbol` — set the special symbol, then await the reveal spine. */
+/** `setExpandingSymbol` — set the special symbol, then await the reveal rig. */
 const setExpandingSymbolChoreography: ChoreographyNode = seq(
 	effect('setSpecialSymbol', { symbol: trigger('symbol') }),
 	broadcastAwait('specialBookReveal', { symbol: trigger('symbol') }),

@@ -17,12 +17,12 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - **Admin panel** — `/admin`, tabbed + full-bleed: users, roles, tools, projects, clients, games, sessions, **costs**, plus **Settings** (deploy token, engine boot mark, ComfyUI pod fleet, …). Login expiry configurable.
 - **Costs** — `/admin` → Costs reads RunPod, Railway, Cloudflare R2 and whichever LLM provider Localization bills at, plus **Anthropic (agents)** (Invisible Director's spend, from the `director_spend` ledger), cached 10 min, with euro figures at the ECB rate and a monthly history per calendar year. See [tools/launcher.md](../tools/launcher.md) §Admin → Costs.
 - **Client → project hierarchy** — accounts get scoped project access; R2 is **isolated per `<client>/<project>/`** (one unified repo per project shared by all tools). Home game cards are scoped to the active project (`games.project_key`; null = global). Projects soft-delete (restore / purge from /admin).
-- **Tool pages** — full-page, never iframes: each route runs an auth+role gate then renders in the launcher or `throw redirect(303,…)` (atlas/sheet with a signed launch token; spine/rigger to a static `view.html`). Shared `$lib/ToolTopBar.svelte` (`.iw-toolbar`) owns the chrome (see unified-tool-bar).
+- **Tool pages** — full-page, never iframes: each route runs an auth+role gate then renders in the launcher or `throw redirect(303,…)` (atlas/sheet with a signed launch token; rig/rigger to a static `view.html`). Shared `$lib/ToolTopBar.svelte` (`.iw-toolbar`) owns the chrome (see unified-tool-bar).
 - **Loading screens** — ONE boot experience across stacks: the CRT boot splash (`$lib/BootSplash.svelte` · `static/shared/boot-splash.js` · `iw_common/splash.py`) covers a tool that is still opening; the dimmed overlay + card (`$lib/BusyOverlay.svelte`) covers loading INSIDE an open tool. See `docs/ui-inventory.md` §12.
 - **Tool registry + docs** — `roles.ts` is the single registry; the launcher **serves the guides** at authed `/docs/[slug]` (rendered from `docs/tools/*.md`). `/onboarding` walks each role through its tools with a guide link per tool and saves each user's local-tool install paths (`tool_installs`). CLAUDE.md rule 9 keeps a new/renamed tool from shipping doc-less.
 - **Desktop launcher support** — the `.exe` (separate `invisible-launcher` repo) is served over open routes `/api/launcher/download` + `/api/launcher/latest`; it self-updates via the manifest. `/api/launcher/projects` (session-scoped project sync, with a **derived** build profile from the project's game kind when none is stored — `launcherProfile.ts`, `mockProtocol.ts`), `/api/launcher/game-upload` (the publish relay), `register-game`, `deploy-token` and `git-credentials` (`gamePublish`-gated).
 - **Saving together** — every authoring tool saves through `$lib/saveState.svelte.ts` with R2 conditional writes, holds a soft lease (`/api/lease`, `doc_leases`) with a presence banner, and keeps rolling backups of its whole-doc saves (`docBackups.ts`).
-- **DB migrations** — applied by the launcher at boot (`init` hook → `runMigrations()`); `0000`–`0028` are live, `0029_director_recipes` ships with Director card 8D, and `/api/health` reports `schema: current`. **`db:push` is banned on prod** — `db:generate` + the boot migrator.
+- **DB migrations** — applied by the launcher at boot (`init` hook → `runMigrations()`); `0000`–`0028` are live, `0029_director_recipes` ships with Director card 8D, `0030_director_job_steps` with 8E and `0031_director_drop_preset_json` with 8F (it drops data), and `/api/health` reports `schema: current`. **`db:push` is banned on prod** — `db:generate` + the boot migrator.
 - **UI** — full-bleed home: online tools grouped into **game-making stage sections** (Create / Assets / Build / Files & Reference / Pipeline) plus Games and Local tools, Invisible Wall emblem branding. Stages are the single source `TOOL_STAGES` in `roles.ts`; the top-bar switcher tints each tool icon by its stage accent.
 
 ## Open items / next
@@ -60,8 +60,10 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 ## Recent changes
 
 - 2026-10-07 — **Invisible Director: `director_runs.preset_json` dropped** (ADR-0008 card 8F,
-  stacked on 8C). Migration `0030_director_drop_preset_json` (`ALTER TABLE … DROP COLUMN`); the
-  schema entry goes with it. No current game is touched.
+  after 8C #1095). Migration `0031_director_drop_preset_json` (`ALTER TABLE … DROP COLUMN`); the
+  schema entry goes with it. No current game is touched. It is `0031`, generated after 8E's
+  `0030_director_job_steps`: the boot migrator applies only journal entries newer than the newest
+  one recorded, so a drop numbered or dated before 8E's would be skipped silently.
   - **What is dropped:** the preset (`blueprint`, `draftPx`, `finalPx`, `variantsPerRegion`, `gpu`)
     of every run created before the 8C deploy; later rows hold `{}`. Nothing has read it since 8C.
   - **Nothing named the column after 8C** except the schema entry, the test fixtures and the 8C
@@ -74,7 +76,7 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     Director. The boot migration drops the column while the previous container may still serve,
     and that build's Drizzle schema names it in every full-row select and insert, so its Director
     routes 500 until the swap.
-  - **Never code-revert 8F (nor 8C after it).** `0030` stays recorded in `__drizzle_migrations`,
+  - **Never code-revert 8F (nor 8C after it).** `0031` stays recorded in `__drizzle_migrations`,
     so the migrator re-adds nothing, `/api/health` stays `schema: current`, and every Director
     route 500s on the missing column. To bring it back, ship a NEW migration:
     `ALTER TABLE "director_runs" ADD COLUMN "preset_json" jsonb DEFAULT '{}'::jsonb NOT NULL;`
@@ -85,10 +87,11 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     `\copy (select id, preset_json from director_runs where preset_json <> '{}'::jsonb) to 'presets.csv' csv header`,
     re-add the column as above, load the CSV into a temp table and
     `update director_runs r set preset_json = p.preset_json from preset_restore p where r.id = p.id`.
-  - Tests: `prove:art-plan` 50 (5b: the fallback chain and no template default, without a stored
-    preset), `prove:breakdown` 80, `prove:idle` 8, `check:director-runs` 468 and every other
-    director gate green; the migration applied to a seeded 0029 database drops the column, keeps
-    the rows, and re-runs as a no-op.
+  - Tests: `prove:art-plan` 103 (5b: the fallback chain and no template default, without a stored
+    preset), `prove:breakdown` 80, `prove:idle` 8, `check:director-runs` 471 and every other
+    director gate green. A database migrated with `main`'s migrations (through 8E's `0030`) and
+    seeded with three runs takes `0031`: the column is gone, the rows stay, and a re-run is a
+    no-op.
 
 - 2026-10-07 — **Invisible Director: the Preset is gone** (ADR-0008 card 8C, stacked on 8D and
   8E). Inert for a person and for every current game; revertable, no migration.
@@ -154,13 +157,20 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     region detail with the finished tile beside the variants, and the before-publish licence
     list (`routes/(app)/director/artPlan.ts`, pure). `atlasFetch` takes an `AtlasCaller` so the
     estimate can read the catalogue with no run.
-  - Tests: `check:director-runs` 467 (estimate per chain, unpriced refusals, start refusal, the
-    Art plan actions and edit shapes), `check:director-live` 105 (the fold, the panel's view and
-    edits, drafts, licences, how-made), worker `check:recipes` 90, `prove:art-plan` 64 (stale
-    approval, owner edits incl. a group size edit, a stale and a malformed edit, a failed render
-    queued again, timings measured once, a dropped region, re-approval on one pricing basis, a
-    same-price revision that re-opens a rendered step, an unreachable launcher, the retry cap with
-    the checkpoint on and off, plans the approval could not name).
+  - Tests: `check:director-runs` 468 (estimate per chain, unpriced refusals, start refusal, the
+    Art plan actions and edit shapes), `check:director-live` 109 (the fold, the panel's view and
+    edits, drafts, licences, how-made, the regions past their retries), worker `check:recipes` 90,
+    `check:run-state` 1390, `check:director-adapters` 442 (the job's steps recorded, boot re-arms
+    the watches), `prove:art-plan` 102 (stale approval, owner edits incl. a group size
+    edit, a stale and a malformed edit, a failed render queued again, timings measured once, a
+    dropped region, re-approval on one pricing basis, a same-price revision that re-opens a
+    rendered step, an unreachable launcher, the retry cap with the checkpoint on and off, a third
+    failure that also crosses the cap or lands on a stopping, an owner-paused or a cap-paused run
+    or during a region batch, an approval of a card that hid a withdrawal, plans the approval
+    could not name, the failure count kept through every approval but the owner's at the Art
+    plan, the region step held while a render is in flight, an Art plan that cannot open told to
+    the owner once, a rendering step that cannot be revised, a replanned step's render counted, an untracked
+    render holding no step).
   - **After review** (code-reviewer, four blockers reproduced on the real modules):
     - owner edits are validated against the plan with every edit applied (a group size edit no
       longer refuses itself one region at a time), name the revision they were made on, are
@@ -213,14 +223,58 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
       409 `plan_changed`, `plan_incomplete`, `plan_unpriced` or `catalogue_unreadable`;
     - `templateDefaultChains` reads the defaults' atlases in one query; `prove-art-plan` runs the
       technician's real definition only (8D's `fixtureTechnician` is gone).
+  - **Second review round:** an approval the owner's resume makes is recorded as the owner's
+    (`approved.by`), never `auto`; a stored plan naming a region with `..` is refused with that
+    name (400 `bad_recipe_revs`, truncated to 120 characters); the adapter's `REGION` (atlas and
+    mockups) and the Live run's fold are `REGION_NAME` too.
+  - **Third review round (one rule for spent retries):** a recipe past its retries is approved
+    again only by the owner at the Art plan, whatever its checkpoint setting — never by the
+    automatic approval and never by a resume. `afterRecipe` approves the other pending recipes as
+    before and opens the Art plan for the spent ones (`plan_ready` with `ownerOnly`, which opens it
+    even with the checkpoint off; `checkpoint_open` `reason: 'retries_spent'`); every pause names
+    them. A withdrawal is a new revision (`rev + 1`), so an approval made on a view that still
+    showed the recipe approved is refused as a changed plan. The plan gate also runs after any
+    checkpoint other than the Art plan resolves, and on every resume, so a failure that landed
+    while the run was paused or waiting on a region batch is put to the owner then (a stopping
+    run is asked nothing); `ownerOf` reads who an owner row is from.
+  - **Fourth review round (the count survives every approval but the owner's):** a step's
+    failures count from the owner's last approval at the Art plan, and only that approval
+    (`approveArtPlan`) clears them: an automatic approval (of a revision after two failures, or
+    of a region a plan dropped and took back) or the owner's resume past the cap keeps them, so
+    the third failure since still goes to the owner. The region step does not end (`step_done`
+    refused) while a render it queued is in flight (`rendersInFlight`); where the state machine
+    refuses the Art plan (the run paused, another checkpoint open, the build step) the owner gets
+    a note naming what waits for them and when they are asked, never silence; the gate skips a
+    stopping or ended run. Re-opened with the checkpoint on, the Art plan is labelled
+    `retries_spent` too, and the panel names each region past its retries ("H1 failed 3 times:
+    approving lets it try 3 more times": one try and two retries per approval).
+  - **Fifth review round (a render's failure always counts):** `director_atlas_jobs` gains `steps`
+    (the recipe steps `queue_variants` matched, written with the row) and `steps_settled_at`
+    (migration `0030_director_job_steps`). `settleJob` claims that record once and counts a
+    failed render against its step even when a revision has replanned the step since, or against
+    the recipe's first step when that step is gone (fails closed); a redelivered `job_done`
+    counts nothing again. A technician revision or an owner edit that would replan a step while it
+    renders is refused ("H1 step 1 is rendering; revise it once it settles"). The launcher arms
+    the `/progress` fallback again at boot for every queued render (`resumeAtlasJobWatches`), its
+    12 h window counted from when the render was queued, so a restart over a finishing render no
+    longer holds the region step or a stop. The gate reports whether it told the owner
+    (`GateOutcome.told`): the withdrawal note is posted only when it did not, never on a stopping
+    run, and a gate note equal to the run's latest worker note is not posted again. The panel's
+    retry line shows only on the Art plan the owner can approve.
+  - **Polish round:** a render the launcher could not record (`tracked: false`) leaves its steps
+    planned, and a revision is refused only while the step's render still has a queued
+    `director_atlas_jobs` row; a worker that meets the schema before migration 0030 counts by the
+    steps that still hold the render, as before (SQLSTATE 42703, in a savepoint, logged); the boot
+    re-arm isolates each row and staggers them 2 s apart.
   - **Deploy:** atlas-tool's `RUNPOD_ENDPOINT_GPU` must be set and priced, or no Director run can
     start (`docs/INFRA.md`). The worker and the launcher go out together: an old worker drops the
     owner's `recipeEdits`, and an old Live run page sends no `recipeRevs`, so every Art plan
-    approval is refused.
+    approval is refused. Deploy the launcher and the worker together; either order is safe.
   - **Open:** the Atlas Maker card editor does not yet show the measured timings (ADR-0008 §2);
     adding a step, or editing one region of a shared row, goes through "Send my changes"; the cap's
     queued-render projection (`projectQueuedGpu`) still uses the run's mean or the seed, not a
-    step's card.
+    step's card; `queue_variants` is not limited to the style pack and region steps (a render
+    queued while building that fails past its retries renders nothing more in that run).
 - 2026-10-07 — **Director 8D transition closed.** With all three definitions on main (technician,
   artist, coordinator), `TRANSITION_TOOLS`, `transitionProblem`, the Agents tab's
   `transitionTools` rule and the `CLEANUP OWED` notice are gone: every adapter op's allow-list
@@ -680,11 +734,11 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     under an open document.
   - Every online tool card links `?project=<the selected project>`, so a tool opens the project
     the dropdown shows. This also covers clicking a card in a side-by-side window before the
-    reload lands. Routes without `resolveToolScope` (`/files`, `/rigger`, `/spine`, `/comfyui`,
+    reload lands. Routes without `resolveToolScope` (`/files`, `/rigger`, `/rig-viewer`, `/comfyui`,
     `/storybook`, `/game-maker`) ignore the param, as before.
   - Guide: [tools/launcher.md § Choosing a project](../tools/launcher.md#choosing-a-project).
     The Duplicate naming half of the report is in [game-maker.md](game-maker.md).
-- 2026-10-02 — **`/admin` → promote spine no longer copies the bundle's `source.json`** into `_shared/spines/`, so a shared bundle is a real snapshot (the sidecar let a re-pack in the authoring project rewrite it). Detail: [editor status](editor.md).
+- 2026-10-02 — **`/admin` → promote rig no longer copies the bundle's `source.json`** into `_shared/spines/`, so a shared bundle is a real snapshot (the sidecar let a re-pack in the authoring project rewrite it). Detail: [editor status](editor.md).
 - 2026-09-30 — **Build uploads client source maps to Sentry when `SENTRY_AUTH_TOKEN` is set** (`vite.config.js` hidden maps → `build` script runs `scripts/sentry-sourcemaps.mjs launcher build`: inject debug IDs, upload for `RAILWAY_GIT_COMMIT_SHA`, delete every `.map`, fail if one is left in `client/_app`). Without the token the build is unchanged. Owner steps: docs/INFRA.md "Readable stack traces — source maps".
 
 ### 2026-10-01 — self-service password change; 12-character minimum
@@ -804,8 +858,8 @@ With desktop launcher v1.0.56 (`invisible-launcher` repo).
   Every `deploy/` writer runs under `runtimeBundleCache.withDeployWrite` (per-project mutex + a
   launcher-wide cap of 2 assembles). Detail in [game-maker.md](game-maker.md).
 
-### 2026-09-28 — asset-pipeline gaps: symbol spines, sounds prune, boot splash in the bake
-- Stranded symbol spines are reported (`SymbolExportIndex.spinesMissing`) at bake, publish and
+### 2026-09-28 — asset-pipeline gaps: symbol rigs, sounds prune, boot splash in the bake
+- Stranded symbol rigs are reported (`SymbolExportIndex.spinesMissing`) at bake, publish and
   boot, and the online publish now shows the author a ⚠ note (`PublishResult.spinesMissing`).
 - `POST /api/editor/export-boot` (deploy-token gate) exports the boot splash, and
   `bake-editor-doc.mjs` calls it before the pull, so desktop/delivery builds ship the current one.
@@ -827,7 +881,7 @@ request named. What exists now:
   client needs that client; `adminPanel` holders who are not admins cannot act on admin accounts;
   a password reset signs the user out everywhere; the DB browser masks `app_settings` values not on
   an allow-list.
-- **Served R2 content** (`/api/editor/asset`, `/api/fonts/asset`, `/spine/file`,
+- **Served R2 content** (`/api/editor/asset`, `/api/fonts/asset`, `/rig-viewer/file`,
   `/api/files/download`) takes its headers from `$lib/server/userContent.ts` (extension allow-list,
   `nosniff`, sandbox CSP, attachment for HTML/SVG/XML); baseline security headers on every dynamic
   response in `hooks.server.ts`; `ADDRESS_HEADER`/`XFF_DEPTH` default in `scripts/start.mjs`; login
@@ -837,7 +891,7 @@ request named. What exists now:
   each was mutation-tested. Verified live on each deploy that every touched route still boots and
   refuses a signed-out caller; the signed-in refusals are open item 5.
 
-### 2026-09-18 — publish capability, native pop-ups, spine guard
+### 2026-09-18 — publish capability, native pop-ups, rig guard
 - **`gamePublish` now actually lets someone publish.** `game-maker/publish` + `publish-all` checked
   `adminPanel`, and `register-game`, `game-upload` and `projects` (POST) compared a literal `'admin'`
   role; all now read `GAME_PUBLISH_CAPABILITY` through `$lib/server/launcherAuth.ts`
@@ -848,9 +902,9 @@ request named. What exists now:
   `beforeNavigate` unsaved-work guards go through `src/lib/unsavedGuard.ts`, which **cancels first
   and re-issues on confirm** (`history.go(delta)` for Back/Forward). `check:native-dialogs` fails on
   a re-introduced call. Out of scope: `static/rigger/cinematic.js` (6 calls, vanilla JS).
-- **A spine the build could not resolve no longer ships in silence.** `EditorArtIndex.spinesMissing`
-  collects every placed spine whose bundle prefix resolved to nothing; the bake, the online publish
-  and game boot all report it (`$lib/spineBundleKey.ts`, `check:spine-bundle-key`). A bundle NAME
+- **A rig the build could not resolve no longer ships in silence.** `EditorArtIndex.spinesMissing`
+  collects every placed rig whose bundle prefix resolved to nothing; the bake, the online publish
+  and game boot all report it (`$lib/rigBundleKey.ts`, `check:rig-bundle-key`). A bundle NAME
   from a `spine`-kind param is still unguarded.
 - Desktop launcher v1.0.54–1.0.55: **📦 Deliver** (a partner-hosted build with ▶ Play it) and a
   publish that backfills engine packages a game repo's `package.json` predates — see

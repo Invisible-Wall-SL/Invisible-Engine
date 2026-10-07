@@ -97,7 +97,7 @@ Python tools that hold no lease, and any future tool that forgets to.
 Every TypeScript write in the launcher **app** funnels through **one module**:
 `src/lib/server/r2.ts` — `putObjectText:109`, `putObjectBytes:124`. Nothing in
 `src/` hand-rolls its own S3 client. (Two footnotes so Phase 1 isn't over-claimed:
-`apps/launcher-api/scripts/r2-sync-spines.mjs:181` writes `skeletons.json`, and
+`apps/launcher-api/scripts/r2-sync-rigs.mjs:181` writes `skeletons.json`, and
 `scripts/seed-game-editor.mjs:215` writes `editorDocKey` — **both with their own
 `@aws-sdk` client, bypassing `r2.ts` entirely**. They are manual dev/ops scripts, not
 runtime paths, so the chokepoint claim holds for the *app*, not for
@@ -187,8 +187,8 @@ delete **together**: the two index blobs, `backfillOnce` + its marker, and the n
 backfill is their last consumer). Don't leave them to rot.
 - **NOT in this phase: `skeletons.json`.** *(Scope corrected 2026-07-16 — an
   earlier draft of this doc lumped it in here; that was a category error.)* It is
-  **derived by LIST**, not RMW (`spineReindex.ts` `reindexProjectSkeletons` →
-  `spineIndex.ts` `scanSkeletonsIndex` → `listAllKeys`), so two concurrent saves each
+  **derived by LIST**, not RMW (`rigReindex.ts` `reindexProjectSkeletons` →
+  `rigIndex.ts` `scanSkeletonsIndex` → `listAllKeys`), so two concurrent saves each
   re-derive from current bucket state and the RMW race does not exist. The one read
   of the prior index carries forward only entries for atlas-less folders whose
   skeleton file still exists, and every writer carries them the same way, so no
@@ -252,7 +252,7 @@ The correctness floor. Contained because of the linchpin above.
 >
 > **Rigger joined 2026-09-28.** The `.irig` save (`/api/rigger/save`) was the one authoring
 > surface still writing unconditionally: it now takes `baseEtag` (read via `GET
-> /api/rigger/save` BEFORE the tab loads the bytes, since the Spine AssetManager hides the
+> /api/rigger/save` BEFORE the tab loads the bytes, since the rig AssetManager hides the
 > response ETag — the order fails toward a spurious prompt, never a silent overwrite) plus
 > `projectKey` (non-forceable `409 scope-mismatch`), answers `409 conflict` carrying the current
 > ETag — the overwrite prompt retries `If-Match` on it rather than dropping the precondition — and
@@ -395,7 +395,7 @@ missed these)*:
   architecture change to buy atomicity nobody needs. Two objects, one guard, no lost
   work.
 - **Do NOT add `If-Match` to build output** — `editorArtExport`, `effectExport`,
-  `flowExport`, `flowV2Export`, `fontExport`, `symbolExport`, `spine.ts:602` all write
+  `flowExport`, `flowV2Export`, `fontExport`, `symbolExport`, `rig.ts:602` all write
   under `deploy/` and are re-derived wholesale on every export; a precondition would
   only make a re-run fail. Same for the `skeletons.json` rebuilds (derived by LIST).
 - `projectScaffold.ts:91` seeds behind an `objectExists` check — a TOCTOU race whose

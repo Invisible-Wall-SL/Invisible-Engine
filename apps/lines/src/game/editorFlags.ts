@@ -25,7 +25,7 @@ export const HUD_BUTTON_INSTANCES = true;
  * `editor-scenes.ts` / `defaultLayout`; the coded part keys off the def, not this flag —
  * `TRANSITION_DEF`'s bind child passes `boundToInstance:true`, so when expanded the coded
  * `Transition` renders at LOCAL origin and THIS node's transform places the wipe. The
- * animation lifecycle (event → play → spine `complete` → resolve the round) is unchanged.
+ * animation lifecycle (event → play → rig `complete` → resolve the round) is unchanged.
  *
  * DEFAULT OFF (parity gate): with this `false`, `apps/lines` renders byte-identically
  * to today — the direct `bind:Transition` self-centres. Flip to `true` to verify the
@@ -38,7 +38,7 @@ export const TRANSITION_INSTANCE = false;
 /**
  * Split the WIN overlay (big-win presentation) into a full-screen coded GATE (dim + count-up
  * driver + WinCoins + press + round-await, stays a `canvas` bind) and an editor-positioned VISUAL
- * (the tier spine + count number as a `game`-space `componentInstance(win)`). Gates the
+ * (the tier rig + count number as a `game`-space `componentInstance(win)`). Gates the
  * `basegameOverlays` Win node shape:
  *   OFF — the single composer `bind:Win` (board-centred), byte-identical to today.
  *   ON  — a `canvas` `bind:WinGate` (the full-screen gate) + a `game`-space

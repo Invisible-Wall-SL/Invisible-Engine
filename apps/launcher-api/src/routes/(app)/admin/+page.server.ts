@@ -19,8 +19,8 @@ import {
 	sessionIdFromToken,
 } from '$lib/server/auth';
 import { getEngineBootSplash, setEngineBootSplash } from '$lib/server/bootSplash';
-import { loadSharedSkeletonIndex } from '$lib/server/spine';
-import { PromoteError, promoteSpineToShared } from '$lib/server/sharedSpinePromote';
+import { loadSharedSkeletonIndex } from '$lib/server/rig';
+import { PromoteError, promoteRigToShared } from '$lib/server/sharedRigPromote';
 import { BUILD_ID } from '$lib/server/buildId';
 import { purgeEverything } from '$lib/server/cfPurge';
 import { getDb } from '$lib/server/db';
@@ -212,13 +212,13 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const globalLayoutProfile = await getGlobalLayoutProfile();
 
 	// The ENGINE boot mark (first pre-game splash, every game). Non-secret. The picker offers the
-	// shared spine library — `_shared/spines/` only, because this mark is deliberately global and
+	// shared rig library — `_shared/spines/` only, because this mark is deliberately global and
 	// must not be satisfiable by a per-project bundle. An empty list means nothing has been
 	// published there yet, which the UI says explicitly rather than rendering an empty dropdown.
 	const bootSplashEngine = await getEngineBootSplash();
 	// The FULL index entry, not just a label: the live preview loads the skeleton client-side
-	// through `/spine/file`, which addresses a bundle by `dir_b64` + the two filenames.
-	const sharedSpineBundles = (await loadSharedSkeletonIndex()).map((e) => ({
+	// through `/rig-viewer/file`, which addresses a bundle by `dir_b64` + the two filenames.
+	const sharedRigBundles = (await loadSharedSkeletonIndex()).map((e) => ({
 		folder: e.folder,
 		name: e.name || e.folder,
 		dir_b64: e.dir_b64,
@@ -288,7 +288,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		},
 		bootSplash: {
 			engine: bootSplashEngine ?? null,
-			bundles: sharedSpineBundles,
+			bundles: sharedRigBundles,
 		},
 		layoutProfile: {
 			// The effective default sent to the editor: the admin-set one, else the coded default.
@@ -1017,40 +1017,40 @@ export const actions: Actions = {
 	},
 
 	/**
-	 * Copy a PROJECT's spine bundle into the shared library so it can be used as the engine boot
+	 * Copy a PROJECT's rig bundle into the shared library so it can be used as the engine boot
 	 * mark (admin-only). Body: `project`, `bundle`.
 	 *
 	 * This is the only writer of `_shared/spines/`. Without it the engine tier is unfillable:
 	 * every producer (the Rigger above all) writes project-scoped bundles, and `_shared/rigs/`
 	 * holds skeleton docs with no atlas or pages — not something a game can load.
 	 */
-	promoteSpine: async ({ request, locals }) => {
+	promoteRig: async ({ request, locals }) => {
 		await requireAdmin(locals);
 		const data = await request.formData();
 		const projectKey = String(data.get('project') ?? '').trim();
 		const bundle = String(data.get('bundle') ?? '').trim();
 		if (!projectKey || !bundle) {
-			return fail(400, { action: 'promoteSpine', error: 'Pick a project and a bundle.' });
+			return fail(400, { action: 'promoteRig', error: 'Pick a project and a bundle.' });
 		}
 		const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
 		try {
-			const { entry, files, replaced } = await promoteSpineToShared(clientKey, projectKey, bundle);
+			const { entry, files, replaced } = await promoteRigToShared(clientKey, projectKey, bundle);
 			return {
-				action: 'promoteSpine',
+				action: 'promoteRig',
 				ok:
 					`${replaced ? 'Replaced' : 'Added'} "${entry.folder}" in the shared library ` +
 					`(${files} files). Pick it above to make it the engine mark.`,
 			};
 		} catch (err) {
 			if (err instanceof PromoteError) {
-				return fail(400, { action: 'promoteSpine', error: err.message });
+				return fail(400, { action: 'promoteRig', error: err.message });
 			}
 			throw err;
 		}
 	},
 
 	/**
-	 * Set (or CLEAR) the global engine boot mark — the spine that opens every game (admin-only).
+	 * Set (or CLEAR) the global engine boot mark — the rig that opens every game (admin-only).
 	 * Submitting a blank `bundle` clears it, which is why there is no separate reset action: an
 	 * unusable ref and an absent one are the same state by contract (`normalizeBootSplashRef`).
 	 *

@@ -26,7 +26,7 @@
 	 * behind the respin board — which draw nothing. A game that never flies anything pays those and an
 	 * idle ticker callback.
 	 *
-	 * AUTHORED LOOK (Invisible Symbols → Flights): a sprite / spine / flipbook head draws through
+	 * AUTHORED LOOK (Invisible Symbols → Flights): a sprite / rig / flipbook head draws through
 	 * `SymbolLayer` — the path a symbol layer takes — sized to a board cell × its `scale`, inside a
 	 * container at the board's scale; a glow head is `FlightView`'s coded glow re-tinted; `none` draws
 	 * no head. A flight that carries a symbol (a pots overlay's token) draws that symbol as its head
@@ -62,7 +62,7 @@
 	const hexTint = (hex: string | undefined): number | undefined =>
 		hex ? parseInt(hex.slice(1), 16) : undefined;
 
-	/** A sprite / spine / flipbook head as the symbol layer that draws it. */
+	/** A sprite / rig / flipbook head as the symbol layer that draws it. */
 	const artLayer = (flight: ActiveFlight): BookVfxLayer | undefined => {
 		if (flight.symbol) return undefined;
 		const head = flight.headStyle;

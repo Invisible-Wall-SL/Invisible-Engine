@@ -4,6 +4,8 @@ import {
 	project,
 	recipeInputOf,
 	removeStep,
+	RETRIES_PER_APPROVAL,
+	retriesSpent,
 	scopeOf,
 	stepKey,
 	validateRecipe,
@@ -52,6 +54,8 @@ export interface PlanRow {
 	gpuUsd: number | null;
 	gpuSeconds: number;
 	placeholder: boolean;
+	/** Regions whose render failed past its retries, with how often: approving retries them. */
+	spent: { region: string; times: number }[];
 }
 
 export interface PlanGroup {
@@ -253,9 +257,13 @@ export function artPlanView(answer: ArtPlanAnswer, drafts: Drafts = new Map()): 
 			groups.push(group);
 		}
 		const o = outcome.get(r.region)!;
+		const spent = retriesSpent(r).length
+			? [{ region: r.region, times: Math.max(...Object.values(r.failures ?? {})) }]
+			: [];
 		const row = group.rows.find((x) => shapeOf(x.steps) === shapeOf(steps));
 		if (row) {
 			row.regions.push(r.region);
+			row.spent.push(...spent);
 			row.errors.push(...o.errors.filter((e) => !row.errors.includes(e)));
 			row.gpuUsd = addUsd(row.gpuUsd, o.gpuUsd);
 			row.gpuSeconds += o.gpuSeconds;
@@ -272,6 +280,7 @@ export function artPlanView(answer: ArtPlanAnswer, drafts: Drafts = new Map()): 
 				gpuUsd: o.gpuUsd,
 				gpuSeconds: o.gpuSeconds,
 				placeholder: o.placeholder,
+				spent,
 			});
 		}
 		group.regions++;
@@ -516,3 +525,9 @@ export function madeOf(answer: ArtPlanAnswer, region: string): MadeOf | null {
 		tile,
 	};
 }
+
+/** "H1 failed 3 times: approving lets it try 3 more times", for regions past their retries. */
+export const spentLine = (row: Pick<PlanRow, 'spent'>): string =>
+	row.spent.length
+		? `${row.spent.map((s) => `${s.region} failed ${s.times} times`).join('; ')}: approving lets ${row.spent.length === 1 ? 'it' : 'each'} try ${RETRIES_PER_APPROVAL + 1} more times.`
+		: '';

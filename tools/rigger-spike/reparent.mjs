@@ -1,10 +1,10 @@
 // Verify the Phase 2.2 reparent contract headlessly: change a bone's parent in the
-// JSON, topologically sort bones (parents before children — Spine's requirement),
+// JSON, topologically sort bones (parents before children — rig's requirement),
 // reload through the official loader, and assert it loads, the new parent took, no
 // bone was lost, and the parent-precedes-child invariant holds.
 //   node tools/rigger-spike/reparent.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
-import { RIG_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(RIG_CORE);
 

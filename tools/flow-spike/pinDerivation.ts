@@ -12,7 +12,7 @@
  *  3. Action pin  ← a button instance `action` param (`registerComponentActions`).
  *  4. Gate pins   ← a `visibleSource` param AND the scene-level `Scene.visibleSource`
  *                   (`registerComponentVisibility`).
- *  5. Signal pin  ← a spine cue's `signal` in the resolved ComponentDef tree
+ *  5. Signal pin  ← a rig cue's `signal` in the resolved ComponentDef tree
  *                   (`registerComponentSignals`).
  *  6. Stable ids  ← every dynamic pin id is `${instanceId}::${role}:${key}`, structural
  *                   ids are `${screenId}::${role}` — id derivation is deterministic, and
@@ -22,7 +22,7 @@
  *
  * It runs against a representative `apps/lines`-shaped LayoutDoc fixture (a base-game
  * screen: a win readout, a spin button, a gated free-spin counter, and a celebration
- * spine with a `win` cue) + the real `deriveScreenPins` from `engine-flow`.
+ * rig with a `win` cue) + the real `deriveScreenPins` from `engine-flow`.
  */
 
 import { deriveScreenPins, pinLabel, type ComponentDefResolver, type FlowPin } from 'engine-flow';
@@ -69,7 +69,7 @@ const freeSpinCounterDef: ComponentDef = {
 	],
 };
 
-// A celebration component whose spine plays a cue on the `win` signal — the signal pin
+// A celebration component whose rig plays a cue on the `win` signal — the signal pin
 // derives from the cue in the DEF's resolved tree, not from an instance param.
 const winCelebrationDef: ComponentDef = {
 	id: 'winCelebration',
@@ -85,7 +85,7 @@ const winCelebrationDef: ComponentDef = {
 		children: [
 			{
 				kind: 'spine',
-				id: 'wc_spine',
+				id: 'wc_rig',
 				x: 0,
 				y: 0,
 				assetKey: 'celebration',
@@ -95,7 +95,7 @@ const winCelebrationDef: ComponentDef = {
 	},
 };
 
-// FS-3: a free-spin lifecycle spine that plays a cue on the free-spin signals — the
+// FS-3: a free-spin lifecycle rig that plays a cue on the free-spin signals — the
 // intro/outro presentation hook. The signal pins derive from these cues exactly as the
 // `win` cue above; the signal NAMES must exist in ENGINE_SIGNAL_CATALOG (the authoring
 // vocabulary) for the editor to offer them.
@@ -113,7 +113,7 @@ const freeSpinLifecycleDef: ComponentDef = {
 		children: [
 			{
 				kind: 'spine',
-				id: 'fsl_spine',
+				id: 'fsl_rig',
 				x: 0,
 				y: 0,
 				assetKey: 'freeSpinLifecycle',
@@ -167,7 +167,7 @@ const baseScene: Scene = {
 			y: 20,
 			componentId: 'freeSpinCounter',
 		},
-		// Signal source: a spine cue inside the resolved def's tree.
+		// Signal source: a rig cue inside the resolved def's tree.
 		{
 			kind: 'componentInstance',
 			id: 'n_celebrate',
@@ -175,7 +175,7 @@ const baseScene: Scene = {
 			y: 0,
 			componentId: 'winCelebration',
 		},
-		// FS-3 signal source: a spine cue on the free-spin lifecycle signals.
+		// FS-3 signal source: a rig cue on the free-spin lifecycle signals.
 		{
 			kind: 'componentInstance',
 			id: 'n_freespin',
@@ -241,7 +241,7 @@ ok('scene-level gate pin (baseGameShow)', !!byId(pins, 'baseGame::gate:baseGameS
 // The free-spin counter also exposes a value pin from its def-default `source`.
 ok('value pin from def default (freeSpins)', !!byId(pins, 'n_fscounter::value:freeSpins'));
 
-// 5. Signal pin (registerComponentSignals — spine cue in the resolved def tree).
+// 5. Signal pin (registerComponentSignals — rig cue in the resolved def tree).
 const signalPin = byId(pins, 'n_celebrate::signal:win');
 ok('signal pin id (instanceId::signal:win)', !!signalPin);
 ok('signal pin role signal', signalPin?.role === 'signal');

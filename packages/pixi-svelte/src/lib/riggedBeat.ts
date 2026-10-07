@@ -1,5 +1,5 @@
 /**
- * Does a fired spine event belong to the BEAT a rig binding was keyed on?
+ * Does a fired rig event belong to the BEAT a rig binding was keyed on?
  *
  * A `<RiggedEffect>` / `<RiggedFlipbook>` is one keyframe's binding. The baked manifest carries
  * that keyframe's `animation` + `time` beside the event name, and the runtime listener gets all
@@ -9,7 +9,7 @@
  * Absent fields on the binding match anything: a manifest baked before the beat existed keeps the
  * name-only behaviour it always had, and nothing re-baked is required for a game to keep running.
  *
- * Extracted (like `shouldApplySpineAnimation`) so the rule is testable without a renderer:
+ * Extracted (like `shouldApplyRigAnimation`) so the rule is testable without a renderer:
  * `node --experimental-strip-types packages/pixi-svelte/fixtures/riggedBeat.fixture.ts`.
  */
 
@@ -19,7 +19,7 @@ export type RiggedBeatBinding = {
 	time?: number;
 };
 
-export type FiredSpineEvent = {
+export type FiredRigEvent = {
 	name: string | undefined;
 	animation: string | undefined;
 	time: number | undefined;
@@ -30,7 +30,7 @@ export type FiredSpineEvent = {
  * key (the Rigger refuses two keys of one event closer than 1e-4). */
 const TIME_EPS = 1e-4;
 
-export function riggedBeatMatches(binding: RiggedBeatBinding, fired: FiredSpineEvent): boolean {
+export function riggedBeatMatches(binding: RiggedBeatBinding, fired: FiredRigEvent): boolean {
 	if (!fired.name || fired.name !== binding.event) return false;
 	if (binding.animation !== undefined && fired.animation !== binding.animation) return false;
 	if (binding.time !== undefined) {

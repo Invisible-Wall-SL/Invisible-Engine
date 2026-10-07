@@ -18,7 +18,7 @@ function blankSkeleton(): Record<string, unknown> {
  * Resolve the `.irig` body to write when creating a new rig. When `rigId` is empty the
  * result is a blank skeleton (existing behavior, unchanged). When supplied it is the
  * deep-cloned `skeleton` of the saved library rig at `_shared/rigs/<id>.json`, with its
- * Spine version forced to 4.2. The applied skeleton's attachment region names are NOT
+ * Rig version forced to 4.2. The applied skeleton's attachment region names are NOT
  * remapped to the new atlas — they intentionally stay as authored and won't resolve
  * until the user re-attaches the new object's art (documented behavior); the bones,
  * animations, and constraints come over intact. Throws 404 when the rig is missing, and 422

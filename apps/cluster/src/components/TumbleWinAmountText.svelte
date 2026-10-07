@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Tween } from 'svelte/motion';
 
-	import { SpineProvider, SpineTrack, SpineSlot } from 'pixi-svelte';
+	import { RigProvider, RigTrack, RigSlot } from 'pixi-svelte';
 	import { ResponsiveBitmapText } from 'components-pixi';
 	import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
 
@@ -30,8 +30,8 @@
 	});
 </script>
 
-<SpineProvider key="tumble_win" width={props.width}>
-	<SpineTrack
+<RigProvider key="tumble_win" width={props.width}>
+	<RigTrack
 		trackIndex={0}
 		{animationName}
 		listener={{
@@ -45,7 +45,7 @@
 			},
 		}}
 	/>
-	<SpineSlot slotName="slot_win">
+	<RigSlot slotName="slot_win">
 		<ResponsiveBitmapText
 			anchor={0.5}
 			style={{
@@ -55,12 +55,12 @@
 			text={bookEventAmountToCurrencyString(amount.current)}
 			maxWidth={props.width}
 		/>
-	</SpineSlot>
-	<!-- <SpineSlot slotName="slot_win_add">
+	</RigSlot>
+	<!-- <RigSlot slotName="slot_win_add">
 		<ResponsiveBitmapText
 			alpha={alphaAmount}
 			text={$formatAmount({ amount: $getRealWin($countUpAmount), numberingSystem: 'latn'})}
 			maxWidth={width}
 		/>
-	</SpineSlot> -->
-</SpineProvider>
+	</RigSlot> -->
+</RigProvider>

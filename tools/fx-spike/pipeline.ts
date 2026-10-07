@@ -51,7 +51,7 @@ const baseConfig = () => ({
 // ---------------------------------------------------------------------------
 
 /** Mirror of `effectExport.ts` `assetKeysOf` — distinct, non-empty SPRITE-layer assetKeys
- *  (a spine layer renders no atlas art, so it is excluded). */
+ *  (a rig layer renders no atlas art, so it is excluded). */
 function assetKeysOf(effect: EffectDoc): string[] {
 	const keys = new Set<string>();
 	for (const layer of effect.layers) {
@@ -124,7 +124,7 @@ function danglingKeys(
 
 /** Mirror of the bake's `bundleFolder`: `<…>/spines/<folder>/` → `<folder>`; a bare folder key is
  *  returned unchanged. The canonical key namespace `/fx` authors `skeletonKey` in (and the runtime
- *  registers an editor-art spine under). Editor-art spine keys are ALREADY this folder; symbol spine
+ *  registers an editor-art rig under). Editor-art rig keys are ALREADY this folder; symbol rig
  *  keys are full R2 prefixes that reduce to it. */
 function bundleFolder(key: string): string {
 	const trimmed = key.endsWith('/') ? key.slice(0, -1) : key;
@@ -133,15 +133,15 @@ function bundleFolder(key: string): string {
 }
 
 /** Mirror of the bake's dangling-skeletonKey guard: referenced skeletonKeys (authored as bundle
- *  folders) NOT among the shipped Spine bundles, every shipped key REDUCED to its bundle folder so
+ *  folders) NOT among the shipped rig bundles, every shipped key REDUCED to its bundle folder so
  *  the comparison is apples-to-apples across the two ship namespaces (editor-art folder keys ∪
  *  symbol full-prefix keys). */
 function danglingSkeletonKeys(
 	referenced: string[],
-	shippedEditorSpineKeys: string[],
-	shippedSymbolSpineKeys: string[],
+	shippedEditorRigKeys: string[],
+	shippedSymbolRigKeys: string[],
 ) {
-	const shipped = new Set([...shippedEditorSpineKeys, ...shippedSymbolSpineKeys].map(bundleFolder));
+	const shipped = new Set([...shippedEditorRigKeys, ...shippedSymbolRigKeys].map(bundleFolder));
 	return referenced.filter((k) => !shipped.has(k));
 }
 
@@ -304,22 +304,22 @@ const asImage = danglingKeys([glowManifest], [sparksManifest], [glowManifest]);
 assert(asImage.length === 0, 'an atlas shipped as a standalone editor-art image also resolves');
 
 // ---------------------------------------------------------------------------
-// 4. TIER C — spine-particle export + the dangling-skeletonKey guard (§8).
+// 4. TIER C — rig-particle export + the dangling-skeletonKey guard (§8).
 // ---------------------------------------------------------------------------
-console.log('fx pipeline — Tier C spine-particle export + dangling-skeletonKey guard');
+console.log('fx pipeline — Tier C rig-particle export + dangling-skeletonKey guard');
 
 // `/fx` authors `skeletonKey` as the CANONICAL bundle FOLDER — the value the runtime registers an
-// editor-art spine under (`editorArt.spines[].key`) and the bake guard compares against. The
+// editor-art rig under (`editorArt.spines[].key`) and the bake guard compares against. The
 // authored key is the bare folder, NOT a full R2 prefix.
 const coinSkeleton = 'coin';
 const wandSkeleton = 'wand';
-// The two SHIPPED-spine namespaces the bake guard reconciles to a folder: editor-art ships the
+// The two SHIPPED-rig namespaces the bake guard reconciles to a folder: editor-art ships the
 // folder verbatim; a symbol cell ships the FULL R2 bundle prefix.
 const coinAsEditorArt = 'coin'; // editorArt.spines[].key (already a folder)
 const coinAsSymbol = 'borut/bookofborut/spines/coin/'; // symbols.index.spines[].key (full prefix)
 
-// A doc mixing a SPRITE layer (atlas art) and a SPINE layer (a pooled-Spine clip). The export
-// must split the referenced classes: the sprite layer's atlas → referencedAssetKeys, the spine
+// A doc mixing a SPRITE layer (atlas art) and a RIG layer (a pooled-rig clip). The export
+// must split the referenced classes: the sprite layer's atlas → referencedAssetKeys, the rig
 // layer's skeleton → referencedSkeletonKeys, with NO cross-contamination.
 const tierC = exportEffects([
 	{
@@ -337,7 +337,7 @@ const tierC = exportEffects([
 				{
 					key: 'coins',
 					config: baseConfig(),
-					// A spine layer still carries an `art` block (schema requires it) but renders no
+					// A rig layer still carries an `art` block (schema requires it) but renders no
 					// atlas art — its skeletonKey, not its art.assetKey, is what must ship.
 					art: { assetKey: '', frames: [] },
 					placement: { space: 'free' },
@@ -355,20 +355,20 @@ assert(
 		coinDoc.layers[1].spineParticle?.skeletonKey === coinSkeleton &&
 		coinDoc.layers[1].spineParticle?.animation === 'spin' &&
 		coinDoc.layers[1].spineParticle?.loop === true,
-	'a spine layer travels with its spineParticle (skeletonKey/animation/loop) intact',
+	'a rig layer travels with its spineParticle (skeletonKey/animation/loop) intact',
 );
 assert(
 	eq(tierC.referencedAssetKeys, [sparksManifest]),
-	'referencedAssetKeys carries ONLY the sprite layer atlas (the spine layer adds no atlas key)',
+	'referencedAssetKeys carries ONLY the sprite layer atlas (the rig layer adds no atlas key)',
 );
 assert(
 	eq(tierC.referencedSkeletonKeys, [coinSkeleton]),
-	'referencedSkeletonKeys carries the spine layer skeletonKey (the new referenced-asset class)',
+	'referencedSkeletonKeys carries the rig layer skeletonKey (the new referenced-asset class)',
 );
 
 // A sprite layer that smuggled a `spineParticle` is normalized away (kind discipline), so it
 // contributes NO skeletonKey — only a true `particleKind:'spine'` layer does.
-const spriteWithSpine = exportEffects([
+const spriteWithRig = exportEffects([
 	{
 		id: 'sneaky',
 		raw: {
@@ -387,17 +387,17 @@ const spriteWithSpine = exportEffects([
 	},
 ]);
 assert(
-	spriteWithSpine.referencedSkeletonKeys.length === 0 &&
-		!('spineParticle' in (spriteWithSpine.effects[0].layers[0] as Record<string, unknown>)),
+	spriteWithRig.referencedSkeletonKeys.length === 0 &&
+		!('spineParticle' in (spriteWithRig.effects[0].layers[0] as Record<string, unknown>)),
 	'a SPRITE layer carrying spineParticle is gated out (no skeletonKey leaks; normalize drops it)',
 );
 
-// Two spine layers sharing a skeleton ⇒ one referenced skeletonKey (deduped).
-const twinSpine = exportEffects([
+// Two rig layers sharing a skeleton ⇒ one referenced skeletonKey (deduped).
+const twinRig = exportEffects([
 	{
-		id: 'twin_spine',
+		id: 'twin_rig',
 		raw: {
-			name: 'Twin Spine',
+			name: 'Twin rig',
 			layers: [
 				{
 					key: 'a',
@@ -420,42 +420,42 @@ const twinSpine = exportEffects([
 	},
 ]);
 assert(
-	eq(twinSpine.referencedSkeletonKeys, [coinSkeleton]),
-	'two spine layers sharing a skeleton ⇒ one referenced skeletonKey (deduped)',
+	eq(twinRig.referencedSkeletonKeys, [coinSkeleton]),
+	'two rig layers sharing a skeleton ⇒ one referenced skeletonKey (deduped)',
 );
 
-// KEY STABILITY: the authored folder key resolves against an editor-art spine shipped under the
+// KEY STABILITY: the authored folder key resolves against an editor-art rig shipped under the
 // SAME folder → no dangling key.
-const spineShipped = danglingSkeletonKeys(tierC.referencedSkeletonKeys, [coinAsEditorArt], []);
+const rigShipped = danglingSkeletonKeys(tierC.referencedSkeletonKeys, [coinAsEditorArt], []);
 assert(
-	spineShipped.length === 0,
-	'an authored folder skeletonKey resolves against an editor-art spine (same folder) ⇒ not dangling',
+	rigShipped.length === 0,
+	'an authored folder skeletonKey resolves against an editor-art rig (same folder) ⇒ not dangling',
 );
 
 // KEY STABILITY across namespaces: the authored folder key ALSO resolves against the SAME skeleton
-// shipped ONLY as a symbol spine (a full R2 prefix) — the guard reduces it to the folder. This is
+// shipped ONLY as a symbol rig (a full R2 prefix) — the guard reduces it to the folder. This is
 // the seam this fix closes: one authored key, both ship paths.
-const spineAsSymbolOnly = danglingSkeletonKeys(tierC.referencedSkeletonKeys, [], [coinAsSymbol]);
+const rigAsSymbolOnly = danglingSkeletonKeys(tierC.referencedSkeletonKeys, [], [coinAsSymbol]);
 assert(
-	spineAsSymbolOnly.length === 0,
-	'an authored folder skeletonKey resolves against a symbol spine (full prefix → same folder) ⇒ not dangling',
+	rigAsSymbolOnly.length === 0,
+	'an authored folder skeletonKey resolves against a symbol rig (full prefix → same folder) ⇒ not dangling',
 );
 
-// The skeleton is NOT shipped (neither editor-art spine nor symbol spine) → still dangling.
-const spineMissing = danglingSkeletonKeys(tierC.referencedSkeletonKeys, [wandSkeleton], []);
+// The skeleton is NOT shipped (neither editor-art rig nor symbol rig) → still dangling.
+const rigMissing = danglingSkeletonKeys(tierC.referencedSkeletonKeys, [wandSkeleton], []);
 assert(
-	eq(spineMissing, [coinSkeleton]),
-	'a skeletonKey NOT among the shipped spines is STILL flagged dangling (would render invisible)',
+	eq(rigMissing, [coinSkeleton]),
+	'a skeletonKey NOT among the shipped rigs is STILL flagged dangling (would render invisible)',
 );
 
 // A DIFFERENT folder shipped (as either namespace) does not falsely satisfy the authored key.
-const spineWrongBundle = danglingSkeletonKeys(
+const rigWrongBundle = danglingSkeletonKeys(
 	tierC.referencedSkeletonKeys,
 	[wandSkeleton],
 	['borut/bookofborut/spines/wand/'],
 );
 assert(
-	eq(spineWrongBundle, [coinSkeleton]),
+	eq(rigWrongBundle, [coinSkeleton]),
 	'shipping a different bundle (either namespace) does not satisfy the authored key',
 );
 

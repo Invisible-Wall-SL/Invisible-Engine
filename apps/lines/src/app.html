@@ -20,7 +20,7 @@
 			(function () {
 				var s = { title: '', phase: '', progress: null, finished: false };
 				// Subscribers waiting for the overlay to clear. The boot-splash SEQUENCE
-				// (engine mark → game mark) uses this so its spine animations play in front of
+				// (engine mark → game mark) uses this so its rig animations play in front of
 				// the player instead of underneath this overlay, which outlives them.
 				var doneCbs = [];
 				function el(id) {

@@ -4,9 +4,9 @@
 	import {
 		anchorToPivot,
 		Container,
-		SpineProvider,
-		SpineSlot,
-		SpineTrack,
+		RigProvider,
+		RigSlot,
+		RigTrack,
 		type Sizes,
 	} from 'pixi-svelte';
 	import { MainContainer } from 'components-layout';
@@ -43,13 +43,13 @@
 		y={context.stateGameDerived.boardLayout().y}
 		pivot={anchorToPivot({ anchor: 0.5, sizes: BACKGROUND_SIZES })}
 	>
-		<SpineProvider
+		<RigProvider
 			key="fsIntro"
 			width={PANEL_SIZES.width}
 			x={PANEL_SIZES.width * 0.5}
 			y={PANEL_SIZES.height * 0.4}
 		>
-			<SpineTrack
+			<RigTrack
 				trackIndex={0}
 				{animationName}
 				loop={animationName === 'idle'}
@@ -57,9 +57,9 @@
 					complete: () => (animationName = 'idle'),
 				}}
 			/>
-			<SpineSlot slotName="slot_text_placeholder">
+			<RigSlot slotName="slot_text_placeholder">
 				{@render props.children({ sizes: BACKGROUND_SIZES })}
-			</SpineSlot>
-		</SpineProvider>
+			</RigSlot>
+		</RigProvider>
 	</Container>
 </MainContainer>

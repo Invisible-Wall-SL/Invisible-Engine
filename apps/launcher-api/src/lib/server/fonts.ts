@@ -20,7 +20,7 @@ const SHARED_FONTS_ROOT = '_shared/fonts';
 /**
  * Resolve a project's font catalog (`fonts.json`) and turn each entry into the
  * editor-gated stream URLs the editor canvas needs to render the real fonts —
- * the font analogue of `resolveEditorSpine` (`spine.ts`). Defensive: a project
+ * the font analogue of `resolveEditorRig` (`rig.ts`). Defensive: a project
  * without a synced catalog returns `null` so the endpoint degrades to "no fonts",
  * never a 500.
  */
@@ -127,7 +127,7 @@ export interface RootedFont {
  * not override (by id or folder). The library is merged, not a fallback for a project with no
  * catalog — a shared component def names a library font by family, and a project with fonts of its
  * own would otherwise draw (and ship) it as the default font. The same reason
- * `loadSkeletonIndexWithShared` exists for spines. `null` when neither catalog exists.
+ * `loadSkeletonIndexWithShared` exists for rigs. `null` when neither catalog exists.
  *
  * The Font Maker keeps {@link resolveFontCatalogRoot}: its catalog view is where a write or delete
  * lands, and a merged list would point a delete of a library font at the project.
@@ -222,7 +222,7 @@ export async function resolveEditorFonts(
 	for (const entry of fonts) {
 		const f = entry.font;
 		// Probe with the descriptor (bitmap) or the first file (web) to pick the
-		// per-project vs shared folder, mirroring the spine bundle resolution.
+		// per-project vs shared folder, mirroring the rig bundle resolution.
 		const probe = f.kind === 'bitmap' ? f.descriptorFile : f.files?.[0]?.file;
 		if (!probe) continue;
 		const prefix = await catalogFontPrefix(clientKey, projectKey, entry, probe);

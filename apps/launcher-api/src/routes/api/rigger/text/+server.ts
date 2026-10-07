@@ -16,7 +16,7 @@ import {
 	precondition,
 	putObjectText,
 } from '$lib/server/r2';
-import { ensureBundleAtlasFresh } from '$lib/server/spineBundleSync';
+import { ensureBundleAtlasFresh } from '$lib/server/rigBundleSync';
 import { gate } from '$lib/server/toolScope';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
@@ -88,7 +88,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	}
 	// The page is what the regions SAMPLE. Trust the client for the rects (it packed them) but
 	// never for the page's existence — a doc pointing at pixels that were never uploaded composes
-	// an atlas whose second page 404s, and a spine runtime fails that opaquely.
+	// an atlas whose second page 404s, and a rig runtime fails that opaquely.
 	if (doc.elements.length && !doc.page) {
 		throw error(400, 'text elements were sent with no packed page');
 	}

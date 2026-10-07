@@ -120,7 +120,7 @@ def _packed(n: int = 3, **atlas) -> dict:
 
 
 def _bound(**atlas) -> dict:
-    """The kind that must NEVER be offered the dropdown: BOUND to a Spine/libGDX
+    """The kind that must NEVER be offered the dropdown: BOUND to a libGDX
     `.atlas`, which is its authoritative region map. The binding is the
     `atlas_file` key -- not the absent `layout`, which it also has."""
     a = {"atlas_file": "symbols.atlas", "width": 2048, "height": 2048}

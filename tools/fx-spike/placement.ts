@@ -1,6 +1,6 @@
 /**
- * Invisible FX — Phase 2 (Tier B, Spine-attach) headless harness for the PURE placement +
- * bone-follow logic (`fxModel.client.ts`). The live Spine pixels + the per-frame
+ * Invisible FX — Phase 2 (Tier B, rig-attach) headless harness for the PURE placement +
+ * bone-follow logic (`fxModel.client.ts`). The live rig pixels + the per-frame
  * `updateOwnerPos` ride are NOT browser-verifiable here (authed WebGL), so — exactly as the
  * sibling tools do — we cover the math the stage's bone-follow stands on OFFLINE, in Node:
  *

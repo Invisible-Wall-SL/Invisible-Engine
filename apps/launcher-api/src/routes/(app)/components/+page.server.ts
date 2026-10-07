@@ -19,7 +19,7 @@ import type { PageServerLoad } from './$types';
 
 /**
  * The Component Editor is a client-only canvas/WebGL app (reuses the editor's
- * pixi-like 2D canvas + spine WebGL preview). SSR is pointless AND fragile here
+ * pixi-like 2D canvas + rig WebGL preview). SSR is pointless AND fragile here
  * for the same reasons the editor disables it — `load` still runs server-side.
  */
 export const ssr = false;

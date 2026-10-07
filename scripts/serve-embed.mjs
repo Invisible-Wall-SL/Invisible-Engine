@@ -126,7 +126,7 @@ const rgsOrigin = resolveRgs(arg('--rgs', ''));
  * `--record <file>`: every build file this server actually SERVES, written on exit.
  *
  * Recorded HERE rather than read out of the browser because the server sees every request
- * whatever made it — howler fetches its own audio, the KTX2 transcoder pulls its wasm, a spine
+ * whatever made it — howler fetches its own audio, the KTX2 transcoder pulls its wasm, a rig
  * atlas pulls its page — and several of those never appear in a Performance entry the way a
  * plain `fetch` does. `scripts/audit-build.mjs --fetched <file>` turns this into the list of
  * files a build ships and never loads.

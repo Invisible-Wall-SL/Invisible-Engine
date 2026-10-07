@@ -301,13 +301,13 @@ unchanged. Its limits:
 
 - The bonus shares the host's grid and symbol dictionary. A `reels` bonus plays on the host's reel
   grid. A respin board, wheel or `none` bonus is free.
-- Art must be exportable from the host. Same-client atlases already are. Spines under another
+- Art must be exportable from the host. Same-client atlases already are. Rigs under another
   project's prefix export nothing, so the import promotes them to `_shared/spines`.
 
 **(B) Live link (not planned).** Playing another project's bundle as-is inside this one needs all
 of the following:
 
-- a second `RuntimeBundle` in the runtime (today a singleton), with namespaced spines;
+- a second `RuntimeBundle` in the runtime (today a singleton), with namespaced rigs;
 - a per-mode config (grid, dictionary, win model);
 - a bake and a delivery that carry two projects;
 - a mixed-protocol round in the RGS.

@@ -6,16 +6,16 @@
 //
 // "Did not move" is only true of a vertex whose influences AGREE. A weighted vertex
 // stores one offset per bone, in that bone's BIND pose; move a bone in setup after
-// binding (Spine's own "Update Bindings" exists for exactly this) and the per-bone
+// binding (rig's own "Update Bindings" exists for exactly this) and the per-bone
 // positions p_i disagree, so the setup position Σ wᵢ·pᵢ depends on the weights. The
-// dab keeps every existing offset (bind pose preserved, as Spine does), so a vertex
+// dab keeps every existing offset (bind pose preserved, as rig does), so a vertex
 // moves by Σ Δwᵢ·pᵢ — 10px on the lines l1–l4 symbols, whose influences disagree by
 // 20px, and 0 on a rig whose influences agree. So the assertion is the exact
 // prediction: after = Σ w'ᵢ·pᵢ, with a NEW influence's pᵢ = the vertex's pre-dab
 // position (the tool binds it where the vertex sits, so adding it moves nothing).
 //   node tools/rigger-spike/brush.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
-import { RIG_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, Vector2 } =
 	await import(RIG_CORE);

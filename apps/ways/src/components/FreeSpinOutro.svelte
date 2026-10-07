@@ -8,7 +8,7 @@
 </script>
 
 <script lang="ts">
-	import { Sprite, SpineProvider, SpineTrack, SpineSlot } from 'pixi-svelte';
+	import { Sprite, RigProvider, RigTrack, RigSlot } from 'pixi-svelte';
 	import { FadeContainer, WinCountUpProvider, ResponsiveBitmapText } from 'components-pixi';
 	import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
 	import { waitForResolve } from 'utils-shared/wait';
@@ -26,9 +26,9 @@
 
 	// Standalone, board-centred free-spin outro overlay (it self-centres via
 	// `FreeSpinAnimation`'s own `<MainContainer>`). Props/defaults reproduce the
-	// hardcodes; the editor can override the spine bundle / animations / slot.
+	// hardcodes; the editor can override the rig bundle / animations / slot.
 	const {
-		outroSpine: outroSpineProp = 'fsOutroNumber',
+		outroSpine: outroRigProp = 'fsOutroNumber',
 		outroAnimation: outroAnimationProp = 'intro',
 		idleAnimation: idleAnimationProp = 'idle',
 		slotName: slotNameProp = 'slot_number',
@@ -46,7 +46,7 @@
 		return typeof value === 'string' && value.length > 0 ? value : undefined;
 	};
 
-	const outroSpine = $derived(stringParam('outroSpine') ?? outroSpineProp);
+	const outroRig = $derived(stringParam('outroSpine') ?? outroRigProp);
 	const outroAnimation = $derived(stringParam('outroAnimation') ?? outroAnimationProp);
 	const idleAnimation = $derived(stringParam('idleAnimation') ?? idleAnimationProp);
 	const slotName = $derived(stringParam('slotName') ?? slotNameProp);
@@ -97,8 +97,8 @@
 							/>
 						{/if}
 
-						<SpineProvider key={outroSpine} width={sizes.width * 0.4}>
-							<SpineTrack
+						<RigProvider key={outroRig} width={sizes.width * 0.4}>
+							<RigTrack
 								trackIndex={0}
 								{animationName}
 								loop={animationName === idleAnimation}
@@ -106,7 +106,7 @@
 									complete: () => (animationName = idleAnimation),
 								}}
 							/>
-							<SpineSlot {slotName}>
+							<RigSlot {slotName}>
 								<ResponsiveBitmapText
 									anchor={0.5}
 									style={{
@@ -116,8 +116,8 @@
 									text={bookEventAmountToCurrencyString(countUpAmount)}
 									maxWidth={sizes.width}
 								/>
-							</SpineSlot>
-						</SpineProvider>
+							</RigSlot>
+						</RigProvider>
 
 						<Sprite
 							anchor={{ x: 0.5, y: isBigWin ? -3.2 : -2 }}

@@ -1,5 +1,5 @@
 import LoaderBase from './src/components/LoaderBase.svelte';
-import LoaderSpine from './src/components/LoaderSpine.svelte';
+import LoaderRig from './src/components/LoaderRig.svelte';
 import BootSplashSequence from './src/components/BootSplashSequence.svelte';
 import OnHotkey from './src/components/OnHotkey.svelte';
 import EnableHotkey from './src/components/EnableHotkey.svelte';
@@ -20,7 +20,7 @@ export * from './src/types';
 
 export {
 	LoaderBase,
-	LoaderSpine,
+	LoaderRig,
 	BootSplashSequence,
 	OnHotkey,
 	EnableHotkey,

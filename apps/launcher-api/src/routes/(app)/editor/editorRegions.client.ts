@@ -76,7 +76,7 @@ const EMPTY_SET = (assetKey: string): RegionSet => ({
  * `static/assets/sprites/<id>/`, registered in its `game/assets.ts`), so they are not in
  * R2 and `/api/editor/regions` cannot resolve them — without this the coded-default art
  * (`progressBar*.png`, `Frame_FSCounter.png`) drew an editor placeholder even though the
- * shipped game renders it fine. Mirrors `editorSpine.client.ts`'s `builtinDescriptor`.
+ * shipped game renders it fine. Mirrors `editorRig.client.ts`'s `builtinDescriptor`.
  *
  * The vendored manifest is authoritative for the rects; `pageKey` is a static path (it
  * starts with `/`), which the page-URL builders pass through verbatim instead of routing

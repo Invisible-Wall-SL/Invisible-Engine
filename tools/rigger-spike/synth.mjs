@@ -1,18 +1,18 @@
 // Verify the Phase A2-fix .atlas synthesis: take a real atlas's regions, synthesise
-// a Spine .atlas via the same logic as spine.ts regionsToSpineAtlas, re-parse it with
+// a rig .atlas via the same logic as rig.ts regionsToRigAtlas, re-parse it with
 // the official TextureAtlas, and assert the regions round-trip (same names + on-page
-// rects + original sizes). This is what New-rig writes into the spine bundle.
+// rects + original sizes). This is what New-rig writes into the rig bundle.
 //   node tools/rigger-spike/synth.mjs <skeleton.atlas>
 import { readFileSync } from 'node:fs';
-import { RIG_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
 const { TextureAtlas } = await import(RIG_CORE);
 
 const atlasPath = process.argv[2];
 const atlasText = readFileSync(atlasPath, 'utf8');
 
-// replicate spine.ts regionsToSpineAtlas
-function regionsToSpineAtlas(pageImage, pw, ph, regions) {
+// replicate rig.ts regionsToRigAtlas
+function regionsToRigAtlas(pageImage, pw, ph, regions) {
 	const out = [pageImage, `size:${Math.round(pw)},${Math.round(ph)}`, 'filter:Linear,Linear'];
 	for (const r of regions) {
 		const w = Math.round(r.w), h = Math.round(r.h);
@@ -34,7 +34,7 @@ console.log(`\n=== A2-fix atlas synthesis round-trip: ${atlasPath} ===`);
 const orig = new TextureAtlas(atlasText);
 const pw = orig.pages[0]?.width || 2048, ph = orig.pages[0]?.height || 2048;
 const regions = reg(orig);
-const synth = regionsToSpineAtlas('page.png', pw, ph, regions);
+const synth = regionsToRigAtlas('page.png', pw, ph, regions);
 let re = null;
 try { re = new TextureAtlas(synth); } catch (e) { log(false, 'official loader threw on the synthesised atlas: ' + e.message); }
 if (re) {

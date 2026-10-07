@@ -17,7 +17,7 @@ import { deleteObjects, listAllObjects, putObjectText } from './r2';
  *
  * A cinematic carries NO art of its own, but it DOES reference rigs. Those rigs are not in the
  * scene doc, so the editor-art export's static walk cannot see them — see {@link cinematicRigNames},
- * which seeds that walk. Without it a cinematic would ship as a document referencing spine bundles
+ * which seeds that walk. Without it a cinematic would ship as a document referencing rig bundles
  * the game never loaded: the classic "renders in the tool, blank in the game" trap rule 8 exists
  * to prevent.
  */
@@ -32,11 +32,11 @@ const isAuthored = (doc: CinematicDoc): boolean =>
 	Array.isArray(doc.stage?.cast) && doc.stage.cast.length > 0;
 
 /**
- * The spine BUNDLE NAMES a set of cinematics reference, for seeding `exportEditorArt`.
+ * The rig BUNDLE NAMES a set of cinematics reference, for seeding `exportEditorArt`.
  *
  * Reads `cast[].rigFolder` — the rig's folder under `<project>/spines/`, which IS the bundle name
  * the game registers. Deliberately NOT `cast[].rigId`: that is a contiguous array position
- * reassigned on every skeleton scan (`spineIndex.ts`), so it identifies nothing stable.
+ * reassigned on every skeleton scan (`rigIndex.ts`), so it identifies nothing stable.
  */
 export function cinematicRigNames(docs: CinematicDoc[]): Set<string> {
 	const out = new Set<string>();

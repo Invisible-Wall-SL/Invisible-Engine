@@ -93,7 +93,7 @@ available.
 
 ### S6 — Symbol states (debug grid)
 - **Do:** open `SymbolDebugOverlay` (`d`); step each symbol through Static/Spin/Land/Win/Post-win.
-- **Expect:** every symbol×state resolves to a sprite/spine (no missing-glyph black screen, no
+- **Expect:** every symbol×state resolves to a sprite/rig (no missing-glyph black screen, no
   placeholder dots); win states inherit the effective win binding. **human-eyes:** per-state art.
 
 ### S7 — A round left open is finished on the next boot (resume)

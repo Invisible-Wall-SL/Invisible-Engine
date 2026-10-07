@@ -49,12 +49,12 @@ import type { SymbolInfoMap, SymbolLayerSpec } from './game/types';
  * front (`foreground`) of the symbol art. Kind-tagged so each renders through the SAME path the
  * game already uses for that asset class:
  * - `sprite`   — `assetKey` is a sheet FRAME key (a single static frame).
- * - `spine`    — `assetKey` is the spine bundle key; `animationName` is the looping animation.
+ * - `spine`    — `assetKey` is the rig bundle key; `animationName` is the looping animation.
  * - `flipbook` — `clipId` is the Invisible Flipbook clip (`assetKey` merely its primary sheet).
  * - `fx`       — `effectId` references a baked Invisible FX effect ({@link bakedEffects}); rides the
  *                FX pipeline, so it introduces NO asset here.
  * `sizeRatios` (× cell, default {1,1}) and `offset` (× cell, default {0,0}) place + scale the layer
- * against the matching cell's live geometry. Any sprite/spine/flipbook asset it introduces travels
+ * against the matching cell's live geometry. Any sprite/rig/flipbook asset it introduces travels
  * via `symbols.index` exactly like a per-cell binding, so {@link bakedBookVfxAssets} registers it.
  *
  * An ALIAS of the engine's {@link SymbolLayerSpec}, not a second declaration of it: a symbol CELL's
@@ -70,7 +70,7 @@ export type BookVfxLayer = SymbolLayerSpec;
  * none) and without fit hints, plus `delayMs`: how long after a seat's `clearReel` starts before
  * this mounts there (absent ⇒ 0). Rendered by the same `SymbolLayer` the book VFX use, played ONCE
  * — so it carries a `blendMode` on the same terms (honoured for `flipbook`/`fx`, ignored on a
- * spine, which cannot blend).
+ * rig, which cannot blend).
  */
 export type SymbolTransition = Pick<
 	SymbolLayerSpec,
@@ -124,15 +124,15 @@ type BakedBundle = {
 		 * before (parity). The asset builder prefers the KTX2 variant unless `?quality=high`. */
 		sheets: { key: string; json: string; ktx2Json?: string }[];
 		images: { key: string; file: string; ktx2?: string }[];
-		/** Spine bundles editor-placed `spine` nodes reference (atlas + skeleton +
+		/** Rig bundles editor-placed `spine` nodes reference (atlas + skeleton +
 		 * shared page). `key` is the node's full `assetKey` (the engine's lookup key);
 		 * `scale` defaults to 2. */
 		spines?: { key: string; atlas: string; skeleton: string; scale?: number; ktx2Atlas?: string }[];
 		/** Placed region names no exported sheet packs — they render blank in-game.
 		 * The dangling-binding guard warns about these at boot (see `warnMissingAssets`). */
 		missing?: string[];
-		/** Placed spine `assetKey`s that resolved to no R2 bundle — typically a rig borrowed
-		 * from ANOTHER project, which this game's export never copies. Same guard, spine half. */
+		/** Placed rig `assetKey`s that resolved to no R2 bundle — typically a rig borrowed
+		 * from ANOTHER project, which this game's export never copies. Same guard, rig half. */
 		spinesMissing?: string[];
 	};
 	/** Fonts (Font Maker output) the project uses, exported to `deploy/editor-fonts/`
@@ -164,7 +164,7 @@ type BakedBundle = {
 	/** Rig-timeline direct FX bindings (`invisible-fx.md` "rig-timeline direct FX binding"). A rig's
 	 * OWN animation events → effects, read from the rig `.irig`/`.json` at bake (the runtime reader discards
 	 * the custom `event.fx` field, so it can't travel the event stream). Keyed by the rig's runtime
-	 * assetKey (its bundle folder — the value `LayoutNodeView` passes to `<SpineProvider key=…>`); the
+	 * assetKey (its bundle folder — the value `LayoutNodeView` passes to `<RigProvider key=…>`); the
 	 * game registers it via `registerRigFx(bakedRigFx())`, and each `<RiggedEffect>` plays its effect
 	 * on the beat of the rig's event. Absent/empty ⇒ `resolveRigFx()` returns [] (parity). */
 	rigFx?: Record<string, RigFxBinding[]>;
@@ -186,14 +186,14 @@ type BakedBundle = {
 	 * carries only the binding. Absent/empty ⇒ `resolveRigFlipbooks()` returns [] (parity). */
 	rigFlipbooks?: Record<string, RigFlipbookBinding[]>;
 	/** Symbol→state asset bindings (Invisible Symbols State Machine output) + the index
-	 * of any sprite sheets / images / spine bundles those bindings introduce, exported to
+	 * of any sprite sheets / images / rig bundles those bindings introduce, exported to
 	 * `deploy/editor-symbols/` and mirrored into `static/assets/` by the deploy pull. The
 	 * `map` is merged over the coded `SYMBOL_INFO_MAP` at first render (`game/symbolMap.ts`);
 	 * the `index` registers the new assets at `createApp`. See
 	 * docs/design/invisible-symbols-state-machine.md. */
 	symbols?: {
 		map: SymbolInfoMap;
-		/** `ktx2Json` (sheets) / `ktx2` (images) / `ktx2Atlas` (spines) are the GPU-compressed
+		/** `ktx2Json` (sheets) / `ktx2` (images) / `ktx2Atlas` (rigs) are the GPU-compressed
 		 * KTX2 variant of the page, emitted beside the WebP/PNG by the symbol export — the same
 		 * fields `editorArt` carries, read by the same tier check. Absent ⇒ the WebP/PNG loads
 		 * as before (parity). */
@@ -204,7 +204,7 @@ type BakedBundle = {
 			sheets: { key: string; json: string; ktx2Json?: string }[];
 			/** Standalone images, registered under the binding's full `assetKey`. */
 			images: { key: string; file: string; ktx2?: string }[];
-			/** Spine bundles (atlas + skeleton, shared page on disk). `key` is the
+			/** Rig bundles (atlas + skeleton, shared page on disk). `key` is the
 			 * binding's `assetKey`; `scale` defaults to 2 (the symbols convention). */
 			spines: {
 				key: string;
@@ -216,7 +216,7 @@ type BakedBundle = {
 			/** Bound sprite-frame names no exported sheet packs — they render blank
 			 * in-game. The dangling-binding guard warns about these at boot. */
 			missing?: string[];
-			/** Bound spine `assetKey`s that resolved to no R2 bundle. Same guard, spine half. */
+			/** Bound rig `assetKey`s that resolved to no R2 bundle. Same guard, rig half. */
 			spinesMissing?: string[];
 		};
 		/** Symbol DISPLAY NAMES (Invisible Symbols State Machine output) — the human word the game
@@ -232,9 +232,9 @@ type BakedBundle = {
 		 * defaults live. Absent → every symbol uses the slots. */
 		symbolSounds?: Record<string, Record<string, string>>;
 		/** Single GLOBAL win-highlight frame (Invisible Symbols State Machine output). `assetKey`
-		 * is the engine spine-asset key the bundle registers — the highlight spine bundle is
+		 * is the engine rig-asset key the bundle registers — the highlight rig bundle is
 		 * exported to `deploy/editor-symbols/` and registered via `index.spines` exactly like the
-		 * per-symbol spine cells, so it is already loadable under its `assetKey`. Absent →
+		 * per-symbol rig cells, so it is already loadable under its `assetKey`. Absent →
 		 * `SymbolWinFrame.svelte` keeps the coded `anticipation`/`payframe` frame. `tintMode`/`tintColor`
 		 * (both optional) are the MULTIPLY tint the frame applies to the symbols it loops over:
 		 * `'fixed'` uses `tintColor`; `'winLine'` uses the paying line's authored colour, resolved at
@@ -246,10 +246,10 @@ type BakedBundle = {
 			tintColor?: string;
 		};
 		/** Free-spin BOARD GLOW (Invisible Symbols State Machine output) — the reel-house
-		 * backdrop spine behind the reels. `assetKey` is the engine spine-asset key the bundle
+		 * backdrop rig behind the reels. `assetKey` is the engine rig-asset key the bundle
 		 * registers: like `highlight`, its bundle is exported to `deploy/editor-symbols/` and
 		 * registered via `index.spines`, so it is already loadable (a Rigger `.irig` skeleton
-		 * ships renamed to `.json` by `exportSpineBundle`, so rigs work here). `animations` and
+		 * ships renamed to `.json` by `exportRigBundle`, so rigs work here). `animations` and
 		 * `sizeRatios` are sparse — each unset field falls through to the coded constant in
 		 * `BoardFrame.svelte`. Absent → `BoardFrame` keeps the coded `reelhouse` glow. */
 		boardGlow?: {
@@ -273,7 +273,7 @@ type BakedBundle = {
 					clipId?: string;
 				};
 				/** The winning variant of the tall picture — drawn while the stack is part of a paying
-				 *  line (typically the spine/flipbook that animates the payout, where `art` is the still
+				 *  line (typically the rig/flipbook that animates the payout, where `art` is the still
 				 *  the stack rests on). Absent → the stack keeps showing `art` through the win. */
 				winArt?: {
 					type: 'sprite' | 'spine' | 'flipbook';
@@ -306,7 +306,7 @@ type BakedBundle = {
 		/** Free-spin BOOK VFX (Invisible Symbols State Machine output): a two-layer effect drawn on
 		 * the book/special symbol during free spins — `background` behind the symbol art,
 		 * `foreground` in front. `components/BookVfx.svelte` renders it per matching cell; any
-		 * sprite/spine/flipbook asset either layer introduces rides `symbols.index` (registered by
+		 * sprite/rig/flipbook asset either layer introduces rides `symbols.index` (registered by
 		 * {@link bakedBookVfxAssets}), an `fx` layer rides {@link bakedEffects}. Absent ⇒ nothing
 		 * renders (parity). See {@link BookVfxLayer}. */
 		bookVfx?: {
@@ -316,7 +316,7 @@ type BakedBundle = {
 		/** The explosion → intro TRANSITION (Invisible Symbols State Machine output): one layer the
 		 * cascade overlay mounts at every exploding seat under the `emerge` swap style, `delayMs` after
 		 * the pop fires, so the explosion's end and the intro's start overlap. `components/TumbleBoard.svelte`
-		 * schedules and tears it down; a spine/flipbook asset rides `symbols.index` (registered by
+		 * schedules and tears it down; a rig/flipbook asset rides `symbols.index` (registered by
 		 * {@link bakedSymbolTransitionAssets}), an `fx` rides {@link bakedEffects}. Absent ⇒ the hard cut,
 		 * byte-identical to before (parity). See {@link SymbolTransition}. */
 		transition?: SymbolTransition;
@@ -328,22 +328,22 @@ type BakedBundle = {
 		tumblePattern?: TumblePatternConfig;
 		/** Hold and Win FLIGHTS (Invisible Symbols State Machine output) — the head, trail, arrival
 		 * effect, route and timing per flight kind. `game/flights.svelte.ts` resolves each `flyTo`
-		 * through `resolveFlightStyle`; a sprite/spine head rides `symbols.index` (registered by
+		 * through `resolveFlightStyle`; a sprite/rig head rides `symbols.index` (registered by
 		 * {@link bakedFlightAssets}), a trail/arrival rides {@link bakedEffects}. Absent ⇒ every flight
 		 * flies the coded glow, byte-identical to before (parity). */
 		flights?: FlightsConfig;
 		/** Reel-anticipation presentation FX (Invisible Symbols State Machine output) — the editable
 		 * twin of the coded FX ramp (`codedTierFx`, `game/anticipationPresentation.ts`). `spineKey`
-		 * optionally swaps the per-reel overlay spine (a full R2 bundle prefix registered via
+		 * optionally swaps the per-reel overlay rig (a full R2 bundle prefix registered via
 		 * `index.spines` like `boardGlow`; the engine still owns the intro→loop→out chaining); `tiers`
 		 * overrides the per-tier escalation FX, keyed by the config big-win tier ALIAS (one entry per
 		 * configured big tier). SPARSE — every field falls through to the coded ramp in
-		 * `resolveTierFx`/`resolveAnticipationSpineKey`, so an absent config is byte-identical.
+		 * `resolveTierFx`/`resolveAnticipationRigKey`, so an absent config is byte-identical.
 		 * `overlayTint` is a `#rrggbb` hex; the reader converts it to `0xRRGGBB`. */
 		anticipation?: {
 			spineKey?: string;
 			/** The overlay animation SET — the base name the engine appends `_intro`/`_loop`/`_out` to
-			 *  (`resolveAnticipationAnimationBase`). Lets the author pick among a spine's
+			 *  (`resolveAnticipationAnimationBase`). Lets the author pick among a rig's
 			 *  differently-sized anticipations (e.g. `anticipation3` → `anticipation3_intro/_loop/_out`).
 			 *  Absent ⇒ the coded `anticipation` set (the unnumbered `anticipation_intro/_loop/_out`),
 			 *  so an un-authored project is byte-identical. */
@@ -549,7 +549,7 @@ export function isRuntimeBundleActive(): boolean {
  * runtime mode (so cross-origin deploy files resolve), else the deploy mirror's own `assets/`
  * ({@link gameAssetsBase}, resolved against the BUNDLE — see there for why not the page). Keeps every registration KEY identical across the two modes —
  * only the resolved `src` URL differs. The runtime form is a PATH, not `?…&rel=`, and deliberately
- * so: a sub-file named inside a parent (a spine atlas page, a bitmap-font page) is loaded RELATIVE
+ * so: a sub-file named inside a parent (a rig atlas page, a bitmap-font page) is loaded RELATIVE
  * to its parent's URL, and the query form would drop the token and project on that resolution. See
  * `/api/editor/runtime`. */
 function srcBase(): string {
@@ -608,10 +608,10 @@ let warnedMissingAssets = false;
 function warnMissingAssets(source: BakedBundle): void {
 	if (warnedMissingAssets) return;
 	const art = source.editorArt?.missing ?? [];
-	const spine = source.editorArt?.spinesMissing ?? [];
+	const rig = source.editorArt?.spinesMissing ?? [];
 	const sym = source.symbols?.index?.missing ?? [];
-	const symSpine = source.symbols?.index?.spinesMissing ?? [];
-	if (art.length === 0 && spine.length === 0 && sym.length === 0 && symSpine.length === 0) return;
+	const symRig = source.symbols?.index?.spinesMissing ?? [];
+	if (art.length === 0 && rig.length === 0 && sym.length === 0 && symRig.length === 0) return;
 	warnedMissingAssets = true;
 	if (art.length) {
 		console.warn(
@@ -619,10 +619,10 @@ function warnMissingAssets(source: BakedBundle): void {
 				`${art.join(', ')}. Re-pack the atlas so it contains them, or re-pick the frame in the editor.`,
 		);
 	}
-	if (spine.length) {
+	if (rig.length) {
 		console.warn(
-			`[invisible] ${spine.length} placed spine bundle(s) shipped with NO files and will be ` +
-				`missing: ${spine.join(', ')}. Either the rig is not in this project at all (a project ` +
+			`[invisible] ${rig.length} placed rig bundle(s) shipped with NO files and will be ` +
+				`missing: ${rig.join(', ')}. Either the rig is not in this project at all (a project ` +
 				"duplicated without its art, a deleted rig), or it lives under another project's " +
 				'prefix, which is not exported into this game. Re-pick it from this project, upload it ' +
 				'here, or promote it to the shared library.',
@@ -634,10 +634,10 @@ function warnMissingAssets(source: BakedBundle): void {
 				`${sym.join(', ')}. Re-pack the atlas so it contains them, or re-bind the symbol.`,
 		);
 	}
-	if (symSpine.length) {
+	if (symRig.length) {
 		console.warn(
-			`[invisible] ${symSpine.length} bound symbol spine bundle(s) shipped with NO files and will ` +
-				`be missing: ${symSpine.join(', ')}. Re-bind the symbol, or promote the rig to the shared library.`,
+			`[invisible] ${symRig.length} bound symbol rig bundle(s) shipped with NO files and will ` +
+				`be missing: ${symRig.join(', ')}. Re-bind the symbol, or promote the rig to the shared library.`,
 		);
 	}
 }
@@ -675,19 +675,19 @@ export function bakedEditorArtAssets(): Record<string, EditorArtAssetEntry> {
 		const imagePath = useKtx2 && image.ktx2 ? image.ktx2 : image.file;
 		out[image.key] = { type: 'sprite', src: `${base}${imagePath}`, preload: true };
 	}
-	// Spine bundles register under the spine node's full assetKey — the value
-	// `LayoutNodeView` passes to `<SpineProvider key=…>`.
-	for (const spine of source.editorArt?.spines ?? []) {
+	// Rig bundles register under the rig node's full assetKey — the value
+	// `LayoutNodeView` passes to `<RigProvider key=…>`.
+	for (const rig of source.editorArt?.spines ?? []) {
 		// On the compressed tier load the KTX2 atlas variant (its page-name lines point at the
-		// `.ktx2` twins; spine's atlas loader loads each page by extension → our KTX2 loader
+		// `.ktx2` twins; rig's atlas loader loads each page by extension → our KTX2 loader
 		// transcodes it). Same region coords, so the skeleton is unchanged. Absent ⇒ original.
-		const atlasPath = useKtx2 && spine.ktx2Atlas ? spine.ktx2Atlas : spine.atlas;
-		out[spine.key] = {
+		const atlasPath = useKtx2 && rig.ktx2Atlas ? rig.ktx2Atlas : rig.atlas;
+		out[rig.key] = {
 			type: 'spine',
 			src: {
 				atlas: `${base}${atlasPath}`,
-				skeleton: `${base}${spine.skeleton}`,
-				scale: spine.scale ?? 2,
+				skeleton: `${base}${rig.skeleton}`,
+				scale: rig.scale ?? 2,
 			},
 			preload: true,
 		};
@@ -698,13 +698,13 @@ export function bakedEditorArtAssets(): Record<string, EditorArtAssetEntry> {
 /**
  * The Invisible FX effects authored for this project (`invisible-fx.md` §4.4). Each `EffectDoc`
  * is played by `<EffectPlayer doc=…>`; its layers reduce to `<ParticleEmitter>` (art bound from
- * `art.assetKey` via the shared `engine-fx` `bindArt`), wrapped in `<SpineBoneAttach>` for a
+ * `art.assetKey` via the shared `engine-fx` `bindArt`), wrapped in `<RigBoneAttach>` for a
  * `bone`-placed layer against the HOST game's playing rig. Mirrors `bakedEditorArtAssets`'s
  * runtime→baked→empty resolution. The full ship chain is wired (export→`deploy/effects/`→bake→
  * pull→embed), so a freshly-baked project returns its authored effects here; empty only when
  * un-baked / a project has no effects (dev parity — the checked-in placeholder has none). A
  * consuming game iterates these and mounts an `<EffectPlayer>` per effect (inside the relevant
- * `<SpineProvider>` when a layer is bone-placed — see `components/Effects.svelte`).
+ * `<RigProvider>` when a layer is bone-placed — see `components/Effects.svelte`).
  */
 export function bakedEffects(): EffectDoc[] {
 	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
@@ -715,8 +715,8 @@ export function bakedEffects(): EffectDoc[] {
 /**
  * The rig-timeline direct FX bindings baked for this project (`invisible-fx.md` "rig-timeline direct
  * FX binding"): a rig's OWN animation events → effects, keyed by the rig's runtime assetKey (its
- * bundle folder — the value a mount passes to `<SpineProvider key=…>`). Registered at boot via
- * `registerRigFx(bakedRigFx())`, which also installs the lookup `<SpineProvider>` reads to mount a
+ * bundle folder — the value a mount passes to `<RigProvider key=…>`). Registered at boot via
+ * `registerRigFx(bakedRigFx())`, which also installs the lookup `<RigProvider>` reads to mount a
  * `<RiggedEffect>` per binding. Mirrors `bakedEffects`'s runtime→baked→empty resolution. Empty when
  * un-baked / no rig has a bound event (dev parity — the checked-in placeholder has none).
  */
@@ -743,7 +743,7 @@ export function bakedFlipbooks(): FlipbookClipEntry[] {
 /**
  * The rig-timeline direct FLIPBOOK bindings baked for this project — the frame-animation twin of
  * {@link bakedRigFx}: a rig's OWN animation events → clips, keyed by the rig's runtime assetKey.
- * Registered at boot via `registerRigFlipbooks(bakedRigFlipbooks())`; `<SpineProvider>` resolves
+ * Registered at boot via `registerRigFlipbooks(bakedRigFlipbooks())`; `<RigProvider>` resolves
  * `resolveRigFlipbooks(assetKey)` to mount a `<RiggedFlipbook>` per binding, for every rig wherever
  * it is mounted. Empty when un-baked / no rig has a bound clip (dev parity).
  */
@@ -802,7 +802,7 @@ export function bakedWinPresentationParams(): Record<string, unknown> | undefine
 /**
  * The effect ids referenced by a rig-timeline FX binding ({@link bakedRigFx}). `components/Effects.svelte`
  * skips these when auto-mounting free effects: a rig-bound effect is already mounted by `<RiggedEffect>`
- * on its HOST rig (by `<SpineProvider>`, so wherever that rig is mounted), firing on that rig's own
+ * on its HOST rig (by `<RigProvider>`, so wherever that rig is mounted), firing on that rig's own
  * event at the bone. Without this exclusion such an effect ALSO auto-mounts as a
  * scene-level ambient `<EffectPlayer>` at the stage origin (0,0) — a phantom burst in the top-left corner.
  * Mirrors {@link placedEffectIds}. Empty when un-baked / no rig has a bound event (parity).
@@ -889,9 +889,9 @@ export function bakedSoundBindings(): SoundBindings | undefined {
 
 /**
  * The GLOBAL win-highlight frame authored in the Invisible Symbols State Machine. When set,
- * `SymbolWinFrame.svelte` draws this spine/animation for the win frame instead of the coded
- * `anticipation`/`payframe`. Its spine bundle rides `symbols.index.spines` (registered like a
- * per-symbol spine cell), so the `assetKey` is already loadable. Mirrors `bakedSymbolMap`'s
+ * `SymbolWinFrame.svelte` draws this rig/animation for the win frame instead of the coded
+ * `anticipation`/`payframe`. Its rig bundle rides `symbols.index.spines` (registered like a
+ * per-symbol rig cell), so the `assetKey` is already loadable. Mirrors `bakedSymbolMap`'s
  * runtime→baked→undefined resolution; undefined → the coded default frame.
  */
 export function bakedHighlight(): BakedBundle['symbols']['highlight'] {
@@ -901,10 +901,10 @@ export function bakedHighlight(): BakedBundle['symbols']['highlight'] {
 }
 
 /**
- * The free-spin BOARD GLOW authored in the Invisible Symbols State Machine — the reel-house spine
- * behind the reels. When set, `BoardFrame.svelte` plays this spine (and any renamed
+ * The free-spin BOARD GLOW authored in the Invisible Symbols State Machine — the reel-house rig
+ * behind the reels. When set, `BoardFrame.svelte` plays this rig (and any renamed
  * start/idle/exit animations + fit ratio) instead of the coded `reelhouse` glow. Its bundle rides
- * `symbols.index.spines` (registered like a per-symbol spine cell), so the `assetKey` is already
+ * `symbols.index.spines` (registered like a per-symbol rig cell), so the `assetKey` is already
  * loadable. Mirrors `bakedHighlight`'s runtime→baked→undefined resolution; undefined → the coded
  * glow, byte-identical to an un-authored game.
  */
@@ -990,10 +990,10 @@ export function bakedFlights(): FlightsConfig | undefined {
 
 /**
  * The reel-anticipation presentation FX authored in the Invisible Symbols State Machine — the
- * per-tier escalation overrides (keyed by config big-tier alias) + optional overlay spine key. When
- * set, `resolveTierFx` / `resolveAnticipationSpineKey` (`game/anticipationPresentation.ts`) merge it
- * over the coded `codedTierFx` ramp; the overlay spine bundle (if swapped) rides `symbols.index.spines`
- * like a per-symbol spine cell. Mirrors `bakedBookVfx`'s runtime→baked→undefined resolution; undefined
+ * per-tier escalation overrides (keyed by config big-tier alias) + optional overlay rig key. When
+ * set, `resolveTierFx` / `resolveAnticipationRigKey` (`game/anticipationPresentation.ts`) merge it
+ * over the coded `codedTierFx` ramp; the overlay rig bundle (if swapped) rides `symbols.index.spines`
+ * like a per-symbol rig cell. Mirrors `bakedBookVfx`'s runtime→baked→undefined resolution; undefined
  * ⇒ the coded ramp, byte-identical to an un-authored game.
  */
 export function bakedAnticipation():
@@ -1005,7 +1005,7 @@ export function bakedAnticipation():
 
 /**
  * The anticipation tease's two CUES, from the sound doc. Separate from {@link bakedAnticipation}
- * because only the sounds moved: the tease's spine, scale, tint and per-tier ramp are still authored
+ * because only the sounds moved: the tease's rig, scale, tint and per-tier ramp are still authored
  * in Invisible Symbols, and splitting the read here is what lets one field move without dragging the
  * other twenty with it. `undefined` on either field ⇒ the symbols doc, then the coded default.
  */
@@ -1299,7 +1299,7 @@ type SymbolAssetEntry =
 	| { type: 'spine'; src: { atlas: string; skeleton: string; scale: number }; preload: boolean };
 
 /**
- * Asset entries for any sprite sheet / image / spine bundle a baked symbol binding
+ * Asset entries for any sprite sheet / image / rig bundle a baked symbol binding
  * introduces (exported to `deploy/editor-symbols/`, mirrored into `static/assets/` by the
  * deploy pull). Spread into `createApp({assets})` beside `bakedEditorArtAssets()` so a
  * rebound symbol resolves WITHOUT a manual `assets.ts` entry. The src is page-relative
@@ -1338,14 +1338,14 @@ export function bakedSymbolAssets(): Record<string, SymbolAssetEntry> {
 		const imagePath = useKtx2 && image.ktx2 ? image.ktx2 : image.file;
 		out[image.key] = { type: 'sprite', src: `${base}${imagePath}`, preload: true };
 	}
-	for (const spine of index.spines ?? []) {
-		const atlasPath = useKtx2 && spine.ktx2Atlas ? spine.ktx2Atlas : spine.atlas;
-		out[spine.key] = {
+	for (const rig of index.spines ?? []) {
+		const atlasPath = useKtx2 && rig.ktx2Atlas ? rig.ktx2Atlas : rig.atlas;
+		out[rig.key] = {
 			type: 'spine',
 			src: {
 				atlas: `${base}${atlasPath}`,
-				skeleton: `${base}${spine.skeleton}`,
-				scale: spine.scale ?? 2,
+				skeleton: `${base}${rig.skeleton}`,
+				scale: rig.scale ?? 2,
 			},
 			preload: true,
 		};
@@ -1354,7 +1354,7 @@ export function bakedSymbolAssets(): Record<string, SymbolAssetEntry> {
 }
 
 /**
- * Asset entries for any sprite sheet / image / spine bundle the free-spin BOOK VFX
+ * Asset entries for any sprite sheet / image / rig bundle the free-spin BOOK VFX
  * ({@link bakedBookVfx}) introduces that `bakedSymbolAssets()` did NOT already register. The
  * bookVfx layers reference the SAME `symbols.index` the per-cell symbol bindings do, and
  * `bakedSymbolAssets()` registers that whole index — so in practice this returns nothing and only
@@ -1368,7 +1368,7 @@ export function bakedBookVfxAssets(): Record<string, SymbolAssetEntry> {
 }
 
 /**
- * The same guarantee for the explosion → intro transition ({@link bakedSymbolTransition}): its spine
+ * The same guarantee for the explosion → intro transition ({@link bakedSymbolTransition}): its rig
  * bundle / clip sheet reaches `symbols.index` through the exporter's `addLayerRefs`, so this too
  * returns nothing in practice. Empty when un-baked / no transition (parity).
  */
@@ -1378,7 +1378,7 @@ export function bakedSymbolTransitionAssets(): Record<string, SymbolAssetEntry> 
 }
 
 /**
- * The same guarantee for the flight HEADS ({@link bakedFlights}): a sprite/spine head reaches
+ * The same guarantee for the flight HEADS ({@link bakedFlights}): a sprite/rig head reaches
  * `symbols.index` through the exporter's `addLayerRefs`, so this too returns nothing in practice.
  * Empty when un-baked / no flights (parity).
  */
@@ -1396,7 +1396,7 @@ export function bakedFlightAssets(): Record<string, SymbolAssetEntry> {
 /** What {@link layerAssets} needs of a kind-tagged layer — a book-VFX layer or the transition. */
 type AssetLayer = { kind: BookVfxLayer['kind']; assetKey?: string };
 
-/** Asset entries for the sprite sheet / image / spine bundle the given layers name that
+/** Asset entries for the sprite sheet / image / rig bundle the given layers name that
  *  `bakedSymbolAssets()` did NOT already register. */
 function layerAssets(
 	layers: readonly (AssetLayer | undefined)[],
@@ -1411,20 +1411,20 @@ function layerAssets(
 	// reintroduce the uncompressed page `bakedSymbolAssets` just avoided.
 	const useKtx2 = preferCompressedTextures();
 
-	// The asset KEYS the layers name directly (`assetKey`). A spine layer's key IS a spine bundle
+	// The asset KEYS the layers name directly (`assetKey`). A rig layer's key IS a rig bundle
 	// key / a standalone image key; a sprite/flipbook layer's key is a sheet FRAME key that lives
 	// inside a sheet (handled below).
 	const keys = new Set<string>();
 	for (const layer of layers) if (layer?.assetKey) keys.add(layer.assetKey);
 
-	for (const spine of index.spines ?? []) {
-		if (!keys.has(spine.key) || spine.key in already || spine.key in out) continue;
-		out[spine.key] = {
+	for (const rig of index.spines ?? []) {
+		if (!keys.has(rig.key) || rig.key in already || rig.key in out) continue;
+		out[rig.key] = {
 			type: 'spine',
 			src: {
-				atlas: `${base}${useKtx2 && spine.ktx2Atlas ? spine.ktx2Atlas : spine.atlas}`,
-				skeleton: `${base}${spine.skeleton}`,
-				scale: spine.scale ?? 2,
+				atlas: `${base}${useKtx2 && rig.ktx2Atlas ? rig.ktx2Atlas : rig.atlas}`,
+				skeleton: `${base}${rig.skeleton}`,
+				scale: rig.scale ?? 2,
 			},
 			preload: true,
 		};
@@ -1529,9 +1529,9 @@ export function registerEditorTextLocalization(messagesMap: MessagesMap): void {
  * basegame (`docs/design/invisible-editor.md` §7.2) — so it round-trips cleanly
  * through `normalizeDoc` and stays in lock-step with `BoardFrame.svelte`.
  *
- * The animated reelhouse glow spine stays coded in `BoardFrame.svelte` by DEFAULT — the
+ * The animated reelhouse glow rig stays coded in `BoardFrame.svelte` by DEFAULT — the
  * `boardGlow` scene ships only its bind anchor, so an un-authored game keeps the coded
- * start→idle→exit chain. Put real art in that scene and the coded spine steps aside
+ * start→idle→exit chain. Put real art in that scene and the coded rig steps aside
  * (`hasAuthoredBoardGlow`); its enter/exit then rides the `boardGlowShow`/`boardGlowHide`
  * component signals. The `basegame` scene draws
  * INSIDE `<MainContainer>`; `basegameOverlays` (the coded `Win` / `Transition`
@@ -1573,11 +1573,11 @@ export function bakedSoundSrcBase(): string {
 }
 
 /**
- * The same prefix for the BOOT SPLASH, which resolves `_boot/boot.json` + its spine bundles
+ * The same prefix for the BOOT SPLASH, which resolves `_boot/boot.json` + its rig bundles
  * out of the deploy tree. Read at layout mount — i.e. AFTER `+layout.ts`'s `load()` has
  * settled the runtime bundle — so runtime mode returns the launcher's absolute base rather
  * than the page-relative default. Both forms preserve file extensions, which `Assets.load`
- * needs to pick a spine parser.
+ * needs to pick a rig parser.
  */
 export function bootSplashAssetBase(): string {
 	return srcBase();
@@ -1615,7 +1615,7 @@ declare global {
 				progress: (pct: number) => void;
 				done: () => void;
 				/** Run `cb` once the overlay has cleared (immediately if it already has). The
-				 *  boot-splash sequence waits on this so its spine marks aren't played beneath
+				 *  boot-splash sequence waits on this so its rig marks aren't played beneath
 				 *  an opaque overlay. */
 				whenDone: (cb: () => void) => void;
 		  }
@@ -1671,7 +1671,7 @@ const RUNTIME_RETRY_MAX_DELAY_MS = 15_000;
  *
  * ⚠️ AND IT ROTTED AGAIN — 2026-09-21, project `test6`, measured over three consecutive fetches:
  * **83.6s / 97.5s / 92.8s**, every one of them HTTP 200 with a complete 193 KB bundle (41 sheets,
- * 9 spines, 13 symbols, `config` present, `art.missing` empty). Nothing was failing upstream this
+ * 9 rigs, 13 symbols, `config` present, `art.missing` empty). Nothing was failing upstream this
  * time — the endpoint simply answers slower than the client was willing to wait, and the old 60s
  * cap inside a 90s budget could not fit even ONE assemble. The game therefore timed out on every
  * boot except the occasional cached ~21s run, which is exactly the "sometimes my runtime release

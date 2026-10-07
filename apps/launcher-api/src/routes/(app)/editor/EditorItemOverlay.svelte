@@ -22,10 +22,10 @@
 		onScale: (node: LayoutNode, factor: number) => void;
 		onForward: (node: LayoutNode) => void;
 		onBack: (node: LayoutNode) => void;
-		/** Whether the selected spine node's preview animation is playing. */
-		spinePlaying?: boolean;
-		/** Toggle the spine preview animation (only wired for `kind: 'spine'`). */
-		onToggleSpinePlay?: (node: LayoutNode) => void;
+		/** Whether the selected rig node's preview animation is playing. */
+		rigPlaying?: boolean;
+		/** Toggle the rig preview animation (only wired for `kind: 'spine'`). */
+		onToggleRigPlay?: (node: LayoutNode) => void;
 	}
 	let {
 		info,
@@ -35,8 +35,8 @@
 		onScale,
 		onForward,
 		onBack,
-		spinePlaying = false,
-		onToggleSpinePlay,
+		rigPlaying = false,
+		onToggleRigPlay,
 	}: Props = $props();
 
 	const node = $derived(info.node);
@@ -44,15 +44,15 @@
 	// The selected anchor's resolved art — an explicit `preview.art` OR the catalog
 	// default resolved by the canvas (catalog anchors carry no baked art).
 	const art = $derived(info.resolvedArt ?? node.preview?.art ?? null);
-	// Spine play toggle applies to real spine nodes AND spine stand-in anchors (e.g.
+	// Rig play toggle applies to real rig nodes AND rig stand-in anchors (e.g.
 	// the animated Background), so both can preview their animation.
-	const isSpine = $derived(node.kind === 'spine' || art?.kind === 'spine');
+	const isRig = $derived(node.kind === 'spine' || art?.kind === 'spine');
 
 	const subtitle = $derived.by(() => {
 		if (node.kind === 'sprite' && node.region)
 			return `${node.region} · ${node.assetKey.split('/').pop()}`;
 		if (node.kind === 'sprite') return node.assetKey.split('/').pop() ?? 'sprite';
-		if (node.kind === 'spine') return `spine · ${node.assetKey.split('/').pop()}`;
+		if (node.kind === 'spine') return `rig · ${node.assetKey.split('/').pop()}`;
 		if (art) return `${art.kind} · ${(art.assetKey || art.region || '').split('/').pop()}`;
 		return node.kind;
 	});
@@ -94,15 +94,15 @@
 	<span class="sub" title={subtitle}>{subtitle}</span>
 	<span class="size">{info.width} × {info.height} px</span>
 
-	{#if isSpine && onToggleSpinePlay}
+	{#if isRig && onToggleRigPlay}
 		<button
 			type="button"
 			class="ic play"
-			class:active={spinePlaying}
-			title={spinePlaying ? 'Pause animation' : 'Play animation'}
-			onclick={() => onToggleSpinePlay(node)}
+			class:active={rigPlaying}
+			title={rigPlaying ? 'Pause animation' : 'Play animation'}
+			onclick={() => onToggleRigPlay(node)}
 		>
-			{spinePlaying ? '❚❚' : '▶'}
+			{rigPlaying ? '❚❚' : '▶'}
 		</button>
 	{/if}
 

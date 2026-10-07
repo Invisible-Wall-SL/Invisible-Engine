@@ -41,7 +41,7 @@
 	// asset is in THIS (lines) bundle, so a button from another project renders its
 	// structure + text + engine-asset parts but may show empty art. Each tile is
 	// isolated in a `<svelte:boundary>`, so a component that references a missing
-	// spine/bitmap-font degrades to a "render failed" tile instead of blanking the
+	// rig/bitmap-font degrades to a "render failed" tile instead of blanking the
 	// gallery.
 
 	// The coded parts authored defs may MOUNT via a `bind` node — register them so the

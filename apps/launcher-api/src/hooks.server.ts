@@ -5,6 +5,7 @@ import { BUILD_ID } from '$lib/server/buildId';
 import { startCostRecorder } from '$lib/server/costs/recorder';
 import { runMigrations } from '$lib/server/db/migrate';
 import { DEPLOY_CORS_HEADERS } from '$lib/server/deployServe';
+import { resumeAtlasJobWatches } from '$lib/server/director/atlasJobs';
 import { captureServerError, initServerErrorTracking } from '$lib/server/errorTracking';
 import { startRunpodIdleWatchdog } from '$lib/server/runpodWatchdog';
 import type { Handle, HandleServerError, ServerInit } from '@sveltejs/kit';
@@ -14,10 +15,12 @@ import type { Handle, HandleServerError, ServerInit } from '@sveltejs/kit';
  * migrations so schema-dependent routes never serve against an old schema, start
  * the ComfyUI R&D pod idle auto-stop watchdog (a no-op when pod control / idle
  * auto-stop isn't configured), and start the Admin → Costs monthly recorder so a
- * month's figure doesn't depend on someone happening to open the page. */
+ * month's figure doesn't depend on someone happening to open the page. The Director's render
+ * watches are armed again for every render still queued. */
 export const init: ServerInit = async () => {
 	await initServerErrorTracking();
 	await runMigrations();
+	resumeAtlasJobWatches().catch((e) => console.error('director atlas jobs: not re-armed:', e));
 	startRunpodIdleWatchdog();
 	startCostRecorder();
 };
@@ -92,7 +95,15 @@ function withBaselineHeaders(response: Response): Response {
 	}
 }
 
+/** The Rig Viewer's former address; old bookmarks and links land on the new one. */
+const LEGACY_RIG_VIEWER = /^\/spine(?=\/|$)/;
+
 export const handle: Handle = async ({ event, resolve }) => {
+	if (LEGACY_RIG_VIEWER.test(event.url.pathname)) {
+		const location =
+			event.url.pathname.replace(LEGACY_RIG_VIEWER, '/rig-viewer') + event.url.search;
+		return new Response(null, { status: 308, headers: { location } });
+	}
 	const token = event.cookies.get(SESSION_COOKIE);
 	event.locals.user = await validateSession(token);
 	const splash = bootSplashTag(event.url.pathname);

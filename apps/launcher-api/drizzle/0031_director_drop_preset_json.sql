@@ -1,0 +1,1 @@
+ALTER TABLE "director_runs" DROP COLUMN "preset_json";

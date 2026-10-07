@@ -5,12 +5,12 @@ import type { FiredSignalCounts } from './signalGates';
 /**
  * Fired-signal context for `componentInstance` expansion (Invisible Flow — intro-complete
  * sequencing). The reveal/arm sibling of `componentSignalContext` (which carries the animation a
- * spine plays): this carries WHICH component-scoped signals have FIRED for the instance, and a
+ * rig plays): this carries WHICH component-scoped signals have FIRED for the instance, and a
  * `fire` callback a descendant can call.
  *
  * `<ComponentInstance>` owns a reactive `counts` map (a `$state` proxy) and bumps a signal's count
  * whenever it fires — `enter` on the visible edge, a game-registered signal when its book event
- * arrives, or a spine one-shot's authored `completeSignal` on completion (the descendant spine calls
+ * arrives, or a rig one-shot's authored `completeSignal` on completion (the descendant rig calls
  * `fire`). Nodes gated by `hiddenUntilSignal` read `counts` to reveal (via {@link isNodeRevealed}),
  * and the instance's own tap surface reads it to arm (`tapArmAfterSignal`). Because `counts` is the
  * instance's own reactive proxy, reads across the component boundary stay reactive.

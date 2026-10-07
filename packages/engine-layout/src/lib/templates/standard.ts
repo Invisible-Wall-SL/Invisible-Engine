@@ -57,7 +57,7 @@ export const standardTemplate = (gameType: string): GameTemplate => ({
 			// the board), which is why it sits here in z order. Engine-owned by default: the coded
 			// `BoardFrame` sizes itself off `boardLayout()` and plays its own start→idle→exit chain
 			// off the `boardFrameGlowShow`/`boardFrameGlowHide` signals, so the editor only anchors
-			// it. Put REAL art in this scene — e.g. a spine component whose cues ride the
+			// it. Put REAL art in this scene — e.g. a rig component whose cues ride the
 			// `boardGlowShow`/`boardGlowHide` signals — and the coded glow steps aside entirely
 			// (`hasAuthoredBoardGlow`), so a game can author its own free-spin backdrop.
 			id: 'boardGlow',

@@ -12,8 +12,8 @@
  *
  * Five rules here are load-bearing:
  *
- *  1. **Both cued kinds are harvested.** A spine cue swaps animation, a flipbook cue swaps clip;
- *     they ride the same bus and differ only in payload field. Harvesting spines alone would leave
+ *  1. **Both cued kinds are harvested.** A rig cue swaps animation, a flipbook cue swaps clip;
+ *     they ride the same bus and differ only in payload field. Harvesting rigs alone would leave
  *     a flipbook character un-fireable while the editor saved its cue — the exact bug this exists
  *     to prevent, because a flipbook character is the common case for non-rigged art.
  *  2. **Nested nodes count.** A cued node usually sits inside a `container`, so a top-level-only
@@ -50,7 +50,7 @@ const eq = (name: string, actual: unknown, expected: unknown): void =>
 		JSON.stringify(actual) === JSON.stringify(expected),
 	);
 
-// One scene exercising every branch at once: a SPINE cue, a FLIPBOOK cue two containers deep, a
+// One scene exercising every branch at once: a RIG cue, a FLIPBOOK cue two containers deep, a
 // game-driven name on each kind, a whitespace-only name, a padded name, a cue-less node, and a
 // duplicate across scenes.
 const scenes = [

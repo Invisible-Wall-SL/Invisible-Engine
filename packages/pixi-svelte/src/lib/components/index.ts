@@ -10,22 +10,20 @@ import SpriteSheet, { type Props as SpriteSheetProps } from './SpriteSheet.svelt
 import Flipbook, { type Props as FlipbookProps, type FlipbookClip } from './Flipbook.svelte';
 import Sprite, { type Props as SpriteProps } from './Sprite.svelte';
 import BaseSprite, { type Props as BaseSpriteProps } from './BaseSprite.svelte';
-import BaseSpineProvider, {
-	type Props as BaseSpineProviderProps,
-} from './BaseSpineProvider.svelte';
-import SpineProvider, { type Props as SpineProviderProps } from './SpineProvider.svelte';
-import SpineEventEmitterProvider, {
-	type Props as SpineEventEmitterProviderProps,
-} from './SpineEventEmitterProvider.svelte';
-import SpineTrack, { type Props as SpineTrackProps } from './SpineTrack.svelte';
-import SpineBone, { type Props as SpineBoneProps } from './SpineBone.svelte';
-import SpineBoneAttach, { type Props as SpineBoneAttachProps } from './SpineBoneAttach.svelte';
-import SpinePose, {
-	type Props as SpinePoseProps,
-	type SpinePoseBone,
-	type SpinePoseScrub,
-} from './SpinePose.svelte';
-import SpineSlot, { type Props as SpineSlotProps } from './SpineSlot.svelte';
+import BaseRigProvider, { type Props as BaseRigProviderProps } from './BaseRigProvider.svelte';
+import RigProvider, { type Props as RigProviderProps } from './RigProvider.svelte';
+import RigEventEmitterProvider, {
+	type Props as RigEventEmitterProviderProps,
+} from './RigEventEmitterProvider.svelte';
+import RigTrack, { type Props as RigTrackProps } from './RigTrack.svelte';
+import RigBone, { type Props as RigBoneProps } from './RigBone.svelte';
+import RigBoneAttach, { type Props as RigBoneAttachProps } from './RigBoneAttach.svelte';
+import RigPose, {
+	type Props as RigPoseProps,
+	type RigPoseBone,
+	type RigPoseScrub,
+} from './RigPose.svelte';
+import RigSlot, { type Props as RigSlotProps } from './RigSlot.svelte';
 import ParticleContainer, {
 	type Props as ParticleContainerProps,
 } from './ParticleContainer.svelte';
@@ -49,14 +47,14 @@ export {
 	Flipbook,
 	Sprite,
 	BaseSprite,
-	BaseSpineProvider,
-	SpineProvider,
-	SpineEventEmitterProvider,
-	SpineTrack,
-	SpineBone,
-	SpineBoneAttach,
-	SpinePose,
-	SpineSlot,
+	BaseRigProvider,
+	RigProvider,
+	RigEventEmitterProvider,
+	RigTrack,
+	RigBone,
+	RigBoneAttach,
+	RigPose,
+	RigSlot,
 	ParticleContainer,
 	Particles,
 	BitmapText,
@@ -79,16 +77,16 @@ export type {
 	FlipbookClip,
 	SpriteProps,
 	BaseSpriteProps,
-	BaseSpineProviderProps,
-	SpineProviderProps,
-	SpineEventEmitterProviderProps,
-	SpineTrackProps,
-	SpineBoneProps,
-	SpineBoneAttachProps,
-	SpinePoseProps,
-	SpinePoseBone,
-	SpinePoseScrub,
-	SpineSlotProps,
+	BaseRigProviderProps,
+	RigProviderProps,
+	RigEventEmitterProviderProps,
+	RigTrackProps,
+	RigBoneProps,
+	RigBoneAttachProps,
+	RigPoseProps,
+	RigPoseBone,
+	RigPoseScrub,
+	RigSlotProps,
 	ParticleContainerProps,
 	ParticlesProps,
 	BitmapTextProps,

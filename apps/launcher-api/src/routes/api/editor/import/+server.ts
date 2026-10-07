@@ -38,7 +38,7 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, {
 		tool: 'editor',
 		forbiddenMessage: 'Your role does not have access to the Invisible Editor.',
-		includeSharedSpines: true,
+		includeSharedRigs: true,
 	});
 
 	const gameType = url.searchParams.get('gameType');

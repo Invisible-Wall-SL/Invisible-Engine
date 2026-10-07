@@ -3,7 +3,7 @@
  *
  * The frame-animation twin of the Rigger's Bounds box. A rig declares
  * `skeleton.{x,y,width,height}` and every consumer contain-fits THAT box rather than the pixels
- * the pose happens to cover, which is why a too-big spine symbol is fixed by tightening the rig
+ * the pose happens to cover, which is why a too-big rig symbol is fixed by tightening the rig
  * and not by a size number. A clip had no such declaration: each frame was fitted on its own
  * trim rect, so a clip whose frames pack to different sizes changes scale as it plays (the
  * "pulsing" `editorRegions.ts` already documents for un-trimmed plist imports), and a clip whose

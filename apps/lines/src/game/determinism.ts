@@ -9,7 +9,7 @@
  * With it, installed from `hooks.client.ts` before any game module evaluates:
  * - **Clock.** `requestAnimationFrame`, `setTimeout`/`setInterval`, `performance.now` and `Date`
  *   read one virtual clock that moves only when the harness steps it, 1/60 s per frame. That covers
- *   the Pixi ticker (and so Spine and the particle emitters, which ride `Ticker.shared`), Svelte's
+ *   the Pixi ticker (and so rig and the particle emitters, which ride `Ticker.shared`), Svelte's
  *   `Tween`/`raf`, and any presentation `Date.now`. GSAP would ride the same rAF + clock; the
  *   runtime does not ship it. CSS and Web Animations (Svelte transitions) are paused, seeked to
  *   the clock and finished at their end.

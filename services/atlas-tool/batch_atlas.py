@@ -783,9 +783,9 @@ _GEOM_KEYS = {"x", "y", "w", "h", "rotated", "bounds", "offsets", "rotate",
 
 
 def region_trim(region: dict) -> tuple[int, int, int, int]:
-    """Spine trim for a region: (off_x, off_y, orig_w, orig_h).
+    """Rig trim for a region: (off_x, off_y, orig_w, orig_h).
 
-    A Spine/libGDX region is the *tight* (transparent border removed) crop of
+    A libGDX region is the *tight* (transparent border removed) crop of
     a larger logical attachment of size orig_w x orig_h; the crop's bottom-
     left sits at (off_x, off_y) from the original's bottom-left (Y-up). The
     skeleton is authored against orig_w x orig_h, so faithful reproduction
@@ -3842,7 +3842,7 @@ def fit_to_region(img: Image.Image, region: dict,
                   layer_place: dict | None = None) -> Image.Image:
     """Place the regenerated element into its packed slot.
 
-    The element is cropped to its ALPHA content (Spine only ever renders the
+    The element is cropped to its ALPHA content (rig only ever renders the
     alpha channel — using the RGBA bbox here wrongly kept the webp page's
     colored-but-transparent gutter, which then got letterbox-inset and made
     trimmed elements render small in-game).
@@ -3853,7 +3853,7 @@ def fit_to_region(img: Image.Image, region: dict,
     scale the glyph down relative to its base and break registration. See
     layer_registration_crop, which builds the box from the BASE's bbox instead.
 
-    For a Spine/.atlas slot the packed (w, h) IS the element's authored
+    For a Spine-format .atlas slot the packed (w, h) IS the element's authored
     footprint (true for EVERY region, trimmed or not — `helmet` is untrimmed
     but still occupies an exact 360x198 slot the rig expects filled), and the
     game's `.atlas` is never rewritten, so the faithful reproduction is to
@@ -3888,7 +3888,7 @@ def fit_to_region(img: Image.Image, region: dict,
     _, _, target_w, target_h = region_box(region)
     # Atlas-bound iff merge_atlas_regions stamped the .atlas trim geometry on
     # it. Trimmed vs untrimmed is irrelevant — any .atlas slot must be filled.
-    spine_slot = "orig_w" in region and "orig_h" in region
+    rig_slot = "orig_w" in region and "orig_h" in region
 
     if img.mode != "RGBA":
         img = img.convert("RGBA")
@@ -3945,7 +3945,7 @@ def fit_to_region(img: Image.Image, region: dict,
 
     # How the element maps into the slot — the element being the alpha crop
     # above, or, under `keep`, the whole canvas. Per-region 'fit_mode' wins; the
-    # default keeps the verified-correct behaviour (Spine slot = fill exactly;
+    # default keeps the verified-correct behaviour (rig slot = fill exactly;
     # legacy cell-grid = contain, == the old pad-to-aspect path). All three are
     # a pure function of the element's SIZE, so under `keep` all three give
     # every frame on one canvas the identical transform:
@@ -3958,7 +3958,7 @@ def fit_to_region(img: Image.Image, region: dict,
     #             the right pick for AI art whose aspect can't match the slot,
     #             e.g. a wide wordmark inside a 1.5:1 GPT image)
     mode = str(region.get("fit_mode", "")).strip().lower() or (
-        "fill" if spine_slot else "contain")
+        "fill" if rig_slot else "contain")
     cw, ch = img.size
     if mode == "fill":
         img = img.resize((target_w, target_h), Image.LANCZOS)
@@ -3980,7 +3980,7 @@ def fit_to_region(img: Image.Image, region: dict,
         # PixiJS convention: pack 90 clockwise so Pixi's Spritesheet parser
         # (frame rect built as (x, y, h, w) + rotate:2 = groupD8 S) un-rotates
         # it back to upright at render time. One convention for ALL rotated
-        # frames (spine-slot and non-spine alike) — proven by the PIL<->Pixi
+        # frames (rig-slot and non-rig alike) — proven by the PIL<->Pixi
         # round-trip in _rot_roundtrip_check.py: PIL rotate(-90) is the unique
         # direction that renders upright under rotate:2. The slicer + editor
         # un-rotate as the exact inverse of this.

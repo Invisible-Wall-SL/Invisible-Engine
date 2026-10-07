@@ -195,8 +195,8 @@ console.log('fx round-trip — absent doc');
 const empty = normalizeEffectDoc(undefined, 'fallback');
 assert(empty.id === 'fallback' && empty.layers.length === 0, 'absent doc ⇒ empty effect');
 
-console.log('fx round-trip — spine-particle gating (Tier C field discipline)');
-const spineLayer = normalizeEffectDoc({
+console.log('fx round-trip — rig-particle gating (Tier C field discipline)');
+const rigLayer = normalizeEffectDoc({
 	id: 's',
 	name: 's',
 	layers: [
@@ -220,16 +220,16 @@ const spineLayer = normalizeEffectDoc({
 	],
 });
 assert(
-	spineLayer.layers[0].particleKind === 'spine' &&
-		eq(spineLayer.layers[0].spineParticle, {
+	rigLayer.layers[0].particleKind === 'spine' &&
+		eq(rigLayer.layers[0].spineParticle, {
 			skeletonKey: 'coin_rig',
 			animation: 'spin',
 			loop: true,
 		}),
-	'spine layer keeps its spineParticle config',
+	'rig layer keeps its spineParticle config',
 );
 assert(
-	spineLayer.layers[1].spineParticle === undefined,
+	rigLayer.layers[1].spineParticle === undefined,
 	'sprite layer drops a stray spineParticle (kind discipline)',
 );
 

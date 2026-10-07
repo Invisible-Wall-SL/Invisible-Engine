@@ -355,7 +355,7 @@
 	 * Upload one file and add its entry.
 	 *
 	 * The bytes go STRAIGHT TO R2 through a presigned URL minted by `/api/sounds/file`, the same way
-	 * the font, spine and flipbook imports upload. Posting the file to the launcher instead — which
+	 * the font, rig and flipbook imports upload. Posting the file to the launcher instead — which
 	 * this did — cannot work: adapter-node truncates a request body at 512 KB, so every sound bigger
 	 * than a short blip failed, and because the body was cut mid-stream the server answered with a
 	 * 400 about multipart parsing that said nothing about size.

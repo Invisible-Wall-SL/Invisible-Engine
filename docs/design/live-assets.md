@@ -21,7 +21,7 @@ This was registered-but-parked work: `unified-project-repo.md` already documents
 **`<C>/<P>/deploy/` is the single game-loadable asset directory.** It mirrors the
 game's `static/assets/` subtree and holds assets in **exactly** the shape the engine
 loads (TexturePacker `frames`+`meta` spritesheet JSON + sibling page image; libGDX
-`.atlas`+skeleton+page for spines). Every game sources its art from here.
+`.atlas`+skeleton+page for rigs). Every game sources its art from here.
 
 ### Naming convention (owner decision 2026-06-04)
 
@@ -43,7 +43,7 @@ folder means renaming on both sides — convention over config, no silent indire
 ### 1. Producer — deploy must emit game-ready spritesheets
 
 Atlas Maker's deploy (`services/atlas-tool/ui_server.py::_deployatlas`) currently writes
-`<basename>.{png,webp,atlas}` where `.atlas` is a Spine/libGDX region map — NOT the
+`<basename>.{png,webp,atlas}` where `.atlas` is a rig/libGDX region map — NOT the
 `frames`+`meta` JSON the game loads. Fix: deploy ALSO writes `<basename>.json` in
 TexturePacker json-hash format, reusing the proven writer
 `services/sheet-tool/atlas_writers.py::write_texturepacker_json` (Sheet Maker already
@@ -89,7 +89,7 @@ DNS-only, so there is no edge copy to purge.)
 - **Project key source for the puller** — env var in the game repo (`PUBLIC_PROJECT_KEY` =
   `borut/bookofborut`) vs a field in the game's `package.json`. Recommend env, mirrors the
   editor-scenes fetch which already keys by project.
-- **Spines/audio/fonts** — same convention applies; v1 can start with sprites/atlas and extend.
+- **Rigs/audio/fonts** — same convention applies; v1 can start with sprites/atlas and extend.
 
 ## Layout-doc bake (build-time freeze) — added 2026-06-09
 
@@ -207,10 +207,10 @@ re-export). One `headObject` HEAD per sheet — no page bytes stream through the
 process, so the memory-flat `copyObject` path is preserved. A changed atlas ships
 at a NEW URL the cache has never seen; the exporter's existing prune drops the old
 version. Runtime + bake share the exporters, so both paths version identically.
-Where the stable-name case stands now: spine atlas **pages** are content-addressed through
+Where the stable-name case stands now: rig atlas **pages** are content-addressed through
 `deploy/_pages/<hash>` (`pageStore.ts`), and **players** never read the live tree at all — they
 boot a published snapshot whose files are served `immutable` under a new id per publish (below).
-What still keeps a stable name is a spine bundle's `.json`/`.atlas` and a Font Maker page inside the
+What still keeps a stable name is a rig bundle's `.json`/`.atlas` and a Font Maker page inside the
 live `deploy/` tree, which only **authoring** boots read, under `max-age=60`; a standalone build
 bakes them in and the test server serves them `no-store`.
 
@@ -253,7 +253,7 @@ The one asset class that CANNOT ride the runtime bundle: the two boot splashes
 (engine mark, then the game's own) paint at frame 0, long before
 `/api/editor/runtime` resolves, so they cannot be told where their own art lives.
 
-`bootSplashExport.ts` therefore mirrors both spine bundles to **fixed** paths and
+`bootSplashExport.ts` therefore mirrors both rig bundles to **fixed** paths and
 writes an index beside them:
 
 ```
@@ -266,12 +266,12 @@ Because the paths are fixed, the splash needs no lookup — it fetches
 `assetBase + '_boot/boot.json'` and follows the entries. `assetBase` is the
 page-relative `assets/` on a baked build and the launcher's **path-form**
 `/api/deploy/f/<token>/<client>/<project>/` in runtime mode; both preserve file
-extensions, which `Assets.load` requires to select a spine parser (the
+extensions, which `Assets.load` requires to select a rig parser (the
 query-form `?rel=` would not — see `gotcha_pixi_assetsload_querystring_url`).
 
 It runs inside `ensureDeployExports`, so Publish and the live assemble share one
-export path, and it reuses `exportSpineBundle` rather than owning any copying of
-its own — a boot logo is an ordinary spine that happens to be read early.
+export path, and it reuses `exportRigBundle` rather than owning any copying of
+its own — a boot logo is an ordinary rig that happens to be read early.
 
 Two constraints it must keep:
 
@@ -283,28 +283,28 @@ Two constraints it must keep:
 Everything fails open: a missing index, a renamed bundle, or a tier that won't
 render skips that splash instead of blocking boot.
 
-## Spines join the dangling-binding guard — added 2026-09-18
+## Rigs join the dangling-binding guard — added 2026-09-18
 
-The 2026-07-03 guard above covers a placed sprite REGION and a flipbook CLIP frame. Spines had
+The 2026-07-03 guard above covers a placed sprite REGION and a flipbook CLIP frame. Rigs had
 none, and they are the one class addressed by a bundle PREFIX rather than a name — which is
 where a reference can point somewhere this project cannot reach:
 
 `bundleFromAssetKey` resolves a bundle in the reading project's `spines/` root or
-`_shared/spines/`, and answers `null` for anything else. `exportSpineBundle` returns `null` on
-that `null`, and the export used to `continue` past it. `resolveSpineKeysForGame` skips on the
+`_shared/spines/`, and answers `null` for anything else. `exportRigBundle` returns `null` on
+that `null`, and the export used to `continue` past it. `resolveRigKeysForGame` skips on the
 SAME condition, so the doc keeps the full foreign prefix as its runtime lookup key: export
-nothing, look up something, and the game throws `Spine: key "…" is not found in loadedAssets`
+nothing, look up something, and the game throws `Rig: key "…" is not found in loadedAssets`
 with nothing said at publish time. (Shared SHEETS have no such gap — a sheet is addressed by
 the full manifest key and read verbatim, per `sharedSheetsPrefix`.)
 
-`EditorArtIndex.spinesMissing` now carries every PLACED spine `assetKey` that names a bundle
+`EditorArtIndex.spinesMissing` now carries every PLACED rig `assetKey` that names a bundle
 prefix and resolved to nothing; `bake-editor-doc.mjs` warns per publish, `warnMissingAssets`
-warns once at boot. `parseSpineBundleKey` (`projectPaths.ts`) is what scopes it: only a real
+warns once at boot. `parseRigBundleKey` (`projectPaths.ts`) is what scopes it: only a real
 bundle ADDRESS is reportable, so a coded/game-bundled key (`bigwin`, `fsIntroNumber`) and a
 bundle NAME supplied by a `spine`-kind param are both excluded — the false-alarm class
 `isBuiltinRegion` prevents for regions.
 
-Reportable is narrower than "unresolved" a second time: `staticSpineKeyIsReachable` drops a
+Reportable is narrower than "unresolved" a second time: `staticRigKeyIsReachable` drops a
 static key the runtime can never request, because `LayoutNodeView` falls back to it only when
 the bound param is empty and `resolveComponentParams` seeds every param from its def default.
 A pinned component snapshot is immutable, so without this a def fixed today would keep warning
@@ -312,11 +312,11 @@ about its frozen past forever.
 
 **The export deliberately does NOT follow a foreign prefix.** Copying another project's bundle
 into this game's `deploy/` would put one client's art in another client's bundle, against
-`r2-client-isolation-and-scaffold.md`, and `sharedSpinePromote`'s "COPY, DON'T REFERENCE" already
+`r2-client-isolation-and-scaffold.md`, and `sharedRigPromote`'s "COPY, DON'T REFERENCE" already
 answers the question: promote the bundle to `_shared/spines/` and bind it there. The authoring
-side closes the loop — `saveComponent` re-points a foreign spine ref at the shared copy when one
+side closes the loop — `saveComponent` re-points a foreign rig ref at the shared copy when one
 exists, clears it when a param supersedes it, and refuses otherwise. It cannot simply refuse:
-nothing in the editor can re-point a spine node's `assetKey` after it is created.
+nothing in the editor can re-point a rig node's `assetKey` after it is created.
 
 ## Published snapshots — the ONLINE chain's own `deploy → bake` step (added 2026-09-29)
 

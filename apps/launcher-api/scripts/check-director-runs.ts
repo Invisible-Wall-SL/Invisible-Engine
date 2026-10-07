@@ -1427,6 +1427,20 @@ console.log('art plan');
 	);
 	approvalRefusal = null;
 	check('…and writes no row', rowsOf(RUN_ID).length, before + 1);
+	const misnamed = await act(OWNER, RUN_ID, {
+		action: 'approve',
+		requestId: requestId(),
+		recipeRevs: { H1: 1, 'old..name': 1 },
+	});
+	check(
+		'an approval of a stored plan naming what is no region says which name, not just "bad"',
+		[
+			misnamed.status,
+			misnamed.body.error,
+			String(misnamed.body.message).includes('"old..name", which is not a region name'),
+		],
+		[400, 'bad_recipe_revs', true],
+	);
 	for (const [label, body, code] of [
 		['revisions on a revise', { action: 'revise', recipeRevs: revs, note: 'x' }, 'bad_recipe_revs'],
 		[
