@@ -2592,6 +2592,35 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			],
 			[200, true, '3'],
 		);
+		const noStep = await tech('queue_variants', { atlas: 'symbols', regions: ['H2'], variants: 3 });
+		check(
+			'the technician must name its recipe step',
+			[noStep.status, noStep.body.error],
+			[400, 'invalid_input'],
+		);
+		RECIPES.set('ra', []);
+		const legacy = await call('atlas', 'queue_variants', {
+			runId: 'ra',
+			agent: 'atlas-artist',
+			opId: 'ra:legacy:1',
+			input: { atlas: 'symbols', regions: ['H2'], variants: 1 },
+		});
+		check(
+			"until its narrowed definition ships, the artist's definition still queues the pre-8D way",
+			[legacy.status, typeof legacy.body.jobRef],
+			[200, 'string'],
+		);
+		const legacyPick = await call('atlas', 'choose_variant', {
+			runId: 'ra',
+			agent: 'atlas-artist',
+			opId: 'ra:legacy:2',
+			input: { atlas: 'symbols', region: 'H2', id: '00002' },
+		});
+		check(
+			"...and picks without `lock`, the region's pin left as it is",
+			[legacyPick.status, legacyPick.body.locked],
+			[200, true],
+		);
 		const unpin = await tech('choose_variant', {
 			atlas: 'symbols',
 			region: 'H2',
@@ -3575,10 +3604,22 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		tools.set(name, new Set([...list.matchAll(/-\s+(\S+)/g)].map((m) => m[1])));
 	}
 	const models = DIRECTOR_AGENTS.filter((agent: string) => agent !== 'worker');
+	// ADR-0008 card 8D ships its code before its three agent definitions, each its own PR (one file
+	// per agent-eval run). Until they land, these allow-list entries have no definition naming them:
+	// the technician has no definition yet, the artist still names the four ops it gives up, and the
+	// coordinator does not name the catalogue yet. Remove each entry with the PR that lands it.
+	const AWAITING_DEFINITION = new Set(['atlas-technician']);
+	const TRANSITION = new Set([
+		'atlas.queue_variants atlas-artist',
+		'atlas.choose_variant atlas-artist',
+		'atlas.pack_sheet atlas-artist',
+		'comfyui.job_status atlas-artist',
+		'atlas.list_blueprints coordinator',
+	]);
 	check(
-		'every runtime agent definition is a known agent',
+		'every runtime agent definition is a known agent, and every known agent but those awaiting theirs has one',
 		[...tools.keys()].sort(),
-		[...models].sort(),
+		models.filter((agent: string) => tools.has(agent) || !AWAITING_DEFINITION.has(agent)).sort(),
 	);
 	const named = [...tools.values()].flatMap((set) => [...set]);
 	check(
@@ -3589,7 +3630,15 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 	for (const op of ADAPTER_OPS.values()) {
 		const id = opIdOf(op);
 		const listing = models.filter((agent: string) => tools.get(agent)?.has(id));
-		const allowed = op.agents.filter((agent: string) => agent !== 'worker');
+		const allowed = op.agents.filter(
+			(agent: string) =>
+				agent !== 'worker' &&
+				(tools.get(agent)?.has(id) ||
+					!(
+						(AWAITING_DEFINITION.has(agent) && !tools.has(agent)) ||
+						TRANSITION.has(`${id} ${agent}`)
+					)),
+		);
 		check(
 			`${id}: the allow-list matches the agents whose tools: name it`,
 			[...allowed].sort(),

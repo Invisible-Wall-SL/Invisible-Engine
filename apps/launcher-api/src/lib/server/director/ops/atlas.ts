@@ -441,7 +441,7 @@ export const setRegionPrompt = defineOp<
 });
 
 export const queueVariants = defineOp<
-	{ atlas: string; regions: string[]; variants: number; step: string },
+	{ atlas: string; regions: string[]; variants: number; step?: string },
 	{
 		jobRef: string;
 		status: 'queued';
@@ -455,7 +455,7 @@ export const queueVariants = defineOp<
 	tool: 'atlas',
 	name: 'queue_variants',
 	description:
-		"Queue variant renders for regions of one atlas and return a jobRef at once, for an APPROVED recipe step: every region must have an approved step on this atlas with this many variants, the atlas's pipeline and size. `step` names one of them as `<region>#<n>`. Never wait or poll for it: the run is told when the job is done.",
+		"Queue variant renders for regions of one atlas and return a jobRef at once, for an APPROVED recipe step: every region must have an approved step on this atlas with this many variants, the atlas's pipeline and size. `step` names one of them as `<region>#<n>` (the technician always sends it). Never wait or poll for it: the run is told when the job is done.",
 	inputSchema: {
 		type: 'object',
 		properties: {
@@ -468,10 +468,11 @@ export const queueVariants = defineOp<
 				pattern: '^[A-Za-z0-9_][A-Za-z0-9_.()-]{0,119}#[0-9]{1,2}$',
 			},
 		},
-		required: ['atlas', 'regions', 'variants', 'step'],
+		required: ['atlas', 'regions', 'variants'],
 		additionalProperties: false,
 	},
-	agents: ['atlas-technician'],
+	// The artist keeps these until its narrowed definition ships (ADR-0008 §3; one PR per agent).
+	agents: ['atlas-artist', 'atlas-technician'],
 	scope: 'project',
 	write: true,
 	// The render's variants, its job records, and the post-hook's machine write to the manifest.
@@ -485,7 +486,12 @@ export const queueVariants = defineOp<
 			throw new AdapterError(400, 'invalid_input', 'Name at least one region.');
 		const m = await loadManifest(ctx, atlas);
 		for (const name of names) requireRegion(m, name);
-		await requireApprovedSteps(ctx, m, names, variants, step);
+		// The technician renders only approved recipe steps. The artist's definition still queues
+		// renders the pre-8D way until its narrowed definition, without the tool, ships.
+		if (ctx.agent !== 'atlas-artist') {
+			if (!step) throw new AdapterError(400, 'invalid_input', 'Name the recipe step (`step`).');
+			await requireApprovedSteps(ctx, m, names, variants, step);
+		}
 		let callback = callbackFor(ctx.run.id);
 		const render = () =>
 			atlasFetch(ctx, {
@@ -624,7 +630,7 @@ export const getVariantImage = defineOp<
 });
 
 export const chooseVariant = defineOp<
-	{ atlas: string; region: string; id: string; lock: boolean; base?: DocBase },
+	{ atlas: string; region: string; id: string; lock?: boolean; base?: DocBase },
 	{
 		atlas: string;
 		region: string;
@@ -651,14 +657,15 @@ export const chooseVariant = defineOp<
 			lock: {
 				type: 'boolean',
 				description:
-					'Pin the pick and its seed so a re-render skips it. false never unpins a region that is pinned now.',
+					'Pin the pick and its seed so a re-render skips it. false never unpins a region that is pinned now; omitted keeps the pin as it is.',
 			},
 			base: baseProp,
 		},
-		required: ['atlas', 'region', 'id', 'lock'],
+		required: ['atlas', 'region', 'id'],
 		additionalProperties: false,
 	},
-	agents: ['atlas-technician'],
+	// The artist keeps these until its narrowed definition ships (ADR-0008 §3; one PR per agent).
+	agents: ['atlas-artist', 'atlas-technician'],
 	scope: 'project',
 	write: true,
 	writes: writesManifest,
@@ -677,8 +684,12 @@ export const chooseVariant = defineOp<
 		// A pin someone set stays: `lock: false` never unpins a region that is locked now.
 		const stored =
 			'lock' in r ? Boolean(r.lock) : r.seed !== undefined || Boolean(r.variant?.trim());
-		const keep = lock || stored;
-		const card = cardOf(r, { variant: id, lock: keep, seed: keep ? picked.seed : null });
+		// Without `lock` the region keeps its pin and seed as they are (the pre-8D card).
+		const keep = lock === undefined ? stored : lock || stored;
+		const card =
+			lock === undefined
+				? cardOf(r, { variant: id })
+				: cardOf(r, { variant: id, lock: keep, seed: keep ? picked.seed : null });
 		const saved = await saveCard(ctx, m, card, base);
 		return { atlas, region, chosen: id, locked: keep, ...saved };
 	},
@@ -698,7 +709,8 @@ export const packSheet = defineOp<
 		required: ['atlas'],
 		additionalProperties: false,
 	},
-	agents: ['atlas-technician'],
+	// The artist keeps these until its narrowed definition ships (ADR-0008 §3; one PR per agent).
+	agents: ['atlas-artist', 'atlas-technician'],
 	scope: 'project',
 	write: true,
 	// The packed layout (machine manifest writes), rebuilt FX layers in batch/, and the page.
@@ -777,7 +789,8 @@ export const jobStatus = defineOp<{ jobRef: string }, Record<string, unknown>>({
 		required: ['jobRef'],
 		additionalProperties: false,
 	},
-	agents: ['atlas-technician'],
+	// The artist keeps these until its narrowed definition ships (ADR-0008 §3; one PR per agent).
+	agents: ['atlas-artist', 'atlas-technician'],
 	scope: 'project',
 	write: false,
 	handler: async (ctx, { jobRef }) => {

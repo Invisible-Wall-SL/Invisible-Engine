@@ -61,10 +61,17 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 - 2026-10-07 — **Invisible Director: the atlas technician** (ADR-0008 card 8D). Inert for a person
   and for every current game: only a Director run reaches any of it.
-  - **Agent:** `services/director-worker/agents/atlas-technician.md` (Sonnet 5.5, high effort, the
-    18 tools of ADR-0008 Appendix A). `atlas-artist` is narrowed to prompts and curation (adds
-    `gptPrompt`); the coordinator gains `atlas.list_blueprints` and plans the Art plan.
-    `DIRECTOR_AGENTS` gains `atlas-technician`.
+  - **Agents:** the code lands first, with NO change under `services/director-worker/agents/`;
+    the three definitions follow as one PR each (agent-eval takes exactly one file): add
+    `atlas-technician.md` (Sonnet 5.5, high, `TECHNICIAN_TOOLS` in `recipes.ts`), narrow
+    `atlas-artist.md` to prompts and curation (`gptPrompt`), extend `coordinator.md`
+    (`atlas.list_blueprints`, the Art plan). Until then the code is inert: `DIRECTOR_AGENTS` knows
+    `atlas-technician` but nothing assigns it (`run.assign_task` refuses an agent with no
+    definition), the artist keeps `queue_variants` / `choose_variant` / `pack_sheet` /
+    `job_status` and renders the pre-8D way (no `step`, no recipe gate; `lock` omitted keeps the
+    pin), and `check:director-adapters` lists these as named transition allowances
+    (`AWAITING_DEFINITION`, `TRANSITION`) — remove them, and the artist's pre-8D branch in
+    `queue_variants`, once the artist's narrowed definition has landed.
   - **Adapter ops** (`director/ops/atlasSetup.ts`): `list_blueprints` (reviewed image cards from
     atlas-tool `GET /blueprints`, cached a minute), `set_atlas_pipeline` (`/saveconfig` with only
     `atlas_pipeline`, the size and the card's per-atlas keys or `bpParams[<id>]`), `set_region_pipeline`
@@ -99,8 +106,10 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     the template defaults, a revision that changes a pipeline or raises the cost drops its
     approval, a queued render marks its steps `queued`. The technician's task carries the
     template's defaults, else the old preset's chain (the fallback until 8C).
-  - **Deploy:** `pnpm --filter director-worker check:idle [--pause]` (the deploy skill runs it).
-  - Tests: `check:director-adapters` 423, `check:director-runs` 411, `check:recipes` 37,
+  - **Deploy:** `pnpm --filter director-worker check:idle [--pause]` (the deploy skill runs it)
+    before the deploy of the artist's narrowed definition (a running artist would wake without
+    `queue_variants`).
+  - Tests: `check:director-adapters` 435, `check:director-runs` 413, `check:recipes` 37,
     `check:run-state`, `check:agents`, `prove:art-plan` 27, `prove:idle` 6 (both in the Director
     worker workflow).
   - **Open (8E):** the Art plan's own panel and `recipeEdits`, chain pricing in the estimate,

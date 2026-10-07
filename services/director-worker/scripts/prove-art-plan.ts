@@ -6,7 +6,7 @@
  *   DATABASE_URL=postgres://…/director_proof pnpm --filter launcher-api db:migrate
  *   DATABASE_URL=postgres://…/director_proof pnpm --filter director-worker prove:art-plan
  *
- * The REAL `atlas-technician` definition takes a turn that replays the reference plan
+ * The `atlas-technician` (its real definition once it has landed, else the same tools as a fixture) takes a turn that replays the reference plan
  * (`docs/director/eval/blueprints/expected-art-plan.json`, the reference template's 23 regions)
  * against the fixture catalogue (`catalogue.json`), plus recipes that break the §5 rules on purpose.
  *
@@ -37,6 +37,7 @@ import type { AdapterResult, AdapterSpec, Launcher } from '../src/launcher.ts';
 import { claimRun } from '../src/lease.ts';
 import type { VisionTransport } from '../src/mockups/vision.ts';
 import { toolName, type ModelTransport } from '../src/model.ts';
+import { TECHNICIAN, TECHNICIAN_TOOLS } from '../src/recipes.ts';
 import { ADAPTER_OPS, KNOWN_TOOLS } from '../src/tools.ts';
 
 const url = process.env.DATABASE_URL;
@@ -149,9 +150,23 @@ const coordinator: AgentDefinition = {
 	outputs: '',
 	systemPrompt: 'You are the coordinator.',
 };
+/**
+ * The technician as its definition will run it (ADR-0008 Appendix A), until that definition lands
+ * in its own PR; once it has, the proof runs the real one.
+ */
+const fixtureTechnician: AgentDefinition = {
+	name: TECHNICIAN,
+	model: 'claude-sonnet-5-5',
+	effort: 'high',
+	role: 'atlas technician',
+	tools: [...TECHNICIAN_TOOLS],
+	inputs: '',
+	outputs: '',
+	systemPrompt: 'You plan and run Atlas Maker.',
+};
 const AGENTS = new Map<string, AgentDefinition>([
 	['coordinator', coordinator],
-	['atlas-technician', real.get('atlas-technician')!],
+	['atlas-technician', real.get(TECHNICIAN) ?? fixtureTechnician],
 ]);
 
 let useSeq = 0;
@@ -277,7 +292,7 @@ try {
 
 		const offered = (model.requests[0].tools ?? []).map((t) => (t as { name: string }).name);
 		check(
-			'the real technician definition is offered its 18 tools, run.set_recipe among them',
+			'the technician is offered its 18 tools, run.set_recipe among them',
 			[offered.length, offered.includes(toolName('run.set_recipe'))],
 			[18, true],
 		);

@@ -22,6 +22,28 @@ import { transition } from './runState.ts';
 
 export const TECHNICIAN = 'atlas-technician';
 
+/** The technician's tools (ADR-0008 Appendix A): what its definition names, in this order. */
+export const TECHNICIAN_TOOLS = [
+	'atlas.list_blueprints',
+	'atlas.list_regions',
+	'atlas.get_region',
+	'atlas.set_atlas_pipeline',
+	'atlas.set_region_pipeline',
+	'atlas.set_refs',
+	'atlas.add_layer',
+	'atlas.remove_layer',
+	'atlas.duplicate_atlas',
+	'atlas.queue_variants',
+	'atlas.list_variants',
+	'atlas.choose_variant',
+	'atlas.set_output',
+	'atlas.pack_sheet',
+	'atlas.deploy_atlas',
+	'comfyui.job_status',
+	'run.set_recipe',
+	'run.post_activity',
+] as const;
+
 /** What `run.set_recipe` needs from outside the transaction: the reviewed cards and the GPU price. */
 export interface RecipeDeps {
 	catalogue: Catalogue;
