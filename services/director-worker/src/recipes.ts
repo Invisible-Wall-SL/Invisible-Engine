@@ -293,10 +293,12 @@ async function afterRecipe(
 		});
 		return 'opened: the owner reviews the Art plan now. End your turn.';
 	}
-	// A resume approves these too, so whatever the pause is for, it names them.
+	// A step past its retries renders again only on the owner's approval at the Art plan,
+	// whatever its setting: no automatic approval and no resume approves it, and a pause names it.
 	const spent = pending.filter((r) => retriesSpent(r).length);
+	const fresh = pending.filter((r) => !retriesSpent(r).length);
 	const retried = spent.length
-		? ` ${spent.map((r) => `${r.region} step ${retriesSpent(r).join(', ')}`).join('; ')} failed again after ${RETRIES_PER_APPROVAL} retries: resuming approves it again, with ${RETRIES_PER_APPROVAL} more tries.`
+		? ` ${failedPastRetries(spent)}: it waits for your approval in the Art plan.`
 		: '';
 	// Fails closed (ADR-0006): a plan the cap cannot price, or one over it, pauses for the owner.
 	const spend = await runSpend(tx, live.id);
@@ -325,25 +327,35 @@ async function afterRecipe(
 		}
 		return 'not approved: the run paused for the owner (the plan is unpriced or crosses the cap)';
 	}
-	if (spent.length && !owner) {
-		// Said only where the run can pause for it: a run stopping is not resumed.
-		const result = transition(live.state, { type: 'pause', reason: 'error' });
-		if (
-			!result.ok ||
-			!(await applyTransition(tx, live.id, live.state, result.state, 'retries spent'))
-		) {
-			return 'not approved: a step failed past its retries (the run cannot pause now)';
-		}
-		live.state = result.state;
-		const text = `${spent.map((r) => `${r.region} step ${retriesSpent(r).join(', ')}`).join('; ')} failed again after ${RETRIES_PER_APPROVAL} retries, so it is not approved automatically. Resume the run to approve it again, or stop it.`;
-		await insertEvent(tx, live.id, 'worker', 'error', { type: 'retries_spent', message: text });
-		return 'not approved: the run paused for the owner (a step failed past its retries)';
+	if (fresh.length) await approve(tx, live.id, fresh, owner ?? 'auto');
+	if (spent.length === 0) {
+		return owner
+			? 'approved: the owner resumed the run'
+			: 'approved automatically (the Art plan checkpoint is off and the projection fits the cap)';
 	}
-	await approve(tx, live.id, pending, owner ?? 'auto');
-	return owner
-		? 'approved: the owner resumed the run'
-		: 'approved automatically (the Art plan checkpoint is off and the projection fits the cap)';
+	const result = transition(live.state, { type: 'plan_ready', ownerOnly: true });
+	if (!result.ok) {
+		return `not approved: ${failedPastRetries(spent)}, and the Art plan cannot open for the owner now (${result.error})`;
+	}
+	if (!(await applyTransition(tx, live.id, live.state, result.state, 'retries spent'))) {
+		return 'the run changed while this turn ran';
+	}
+	const from = live.state.step;
+	live.state = result.state;
+	await insertEvent(tx, live.id, 'worker', 'checkpoint_open', {
+		checkpoint: 'art_plan',
+		step: from,
+		reason: 'retries_spent',
+		summary: `${failedPastRetries(spent)}. Approve to let it try ${RETRIES_PER_APPROVAL} more times.`,
+		regions: spent.map((r) => r.region),
+		projectedGpuUsd: Math.round(projectedUsd * 10000) / 10000,
+	});
+	return 'opened: the owner approves the steps past their retries in the Art plan. End your turn.';
 }
+
+/** "H1 step 1 failed again after 2 retries", for every recipe past its retries. */
+const failedPastRetries = (spent: readonly StoredRecipe[]) =>
+	`${spent.map((r) => `${r.region} step ${retriesSpent(r).join(', ')}`).join('; ')} failed again after ${RETRIES_PER_APPROVAL} retries`;
 
 /** "11 Symbols: sdxl 1024 ×3 → birefnet → finish", one line per (group, chain). */
 export function artPlanSummary(recipes: readonly StoredRecipe[]): string {
@@ -508,9 +520,13 @@ export async function settleJob(
 		if (!changed) continue;
 		const spent = retriesSpent({ failures });
 		const approved = spent.length ? null : recipe.approved;
-		if (recipe.approved && !approved) withdrawn.push({ region: recipe.region, steps: spent });
+		const withdrawing = recipe.approved !== null && approved === null;
+		if (withdrawing) withdrawn.push({ region: recipe.region, steps: spent });
 		await storeRecipe(tx, runId, {
 			...recipe,
+			// A withdrawn approval is a new revision: an approval the owner made on what they saw
+			// before it (the recipe still approved) is refused as a plan changed since.
+			rev: withdrawing ? recipe.rev + 1 : recipe.rev,
 			steps,
 			approved,
 			...(Object.keys(failures).length ? { failures } : {}),

@@ -227,6 +227,13 @@ console.log('optional checkpoints follow the settings');
 	pass(r2.ok && key(r2.state) === 'running/regions', 'region batch off → keep going');
 	const r4 = transition(off('running', 'style_pack'), { type: 'plan_ready' });
 	pass(r4.ok && key(r4.state) === 'running/style_pack', 'art plan off → keep going');
+	const r5 = transition(off('running', 'regions'), { type: 'plan_ready', ownerOnly: true });
+	pass(
+		r5.ok && key(r5.state) === 'waiting/regions@art_plan',
+		'art plan off, but a step past its retries waits: the Art plan opens for the owner',
+	);
+	const r6 = transition(off('paused', 'regions'), { type: 'plan_ready', ownerOnly: true });
+	pass(!r6.ok, '…and only from running, like any plan_ready');
 	pass(checkpointSettings({}).artPlan, 'the art plan defaults ON');
 	const r3 = transition(off('running', 'build'), { type: 'step_done' });
 	pass(

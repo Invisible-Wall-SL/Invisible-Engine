@@ -99,13 +99,14 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     list (`routes/(app)/director/artPlan.ts`, pure). `atlasFetch` takes an `AtlasCaller` so the
     estimate can read the catalogue with no run.
   - Tests: `check:director-runs` 468 (estimate per chain, unpriced refusals, start refusal, the
-    Art plan actions and edit shapes), `check:director-live` 105 (the fold, the panel's view and
-    edits, drafts, licences, how-made), worker `check:recipes` 90, `prove:art-plan` 68 (stale
+    Art plan actions and edit shapes), `check:director-live` 106 (the fold, the panel's view and
+    edits, drafts, licences, how-made), worker `check:recipes` 90, `prove:art-plan` 78 (stale
     approval, owner edits incl. a group size edit, a stale and a malformed edit, a failed render
     queued again, timings measured once, a dropped region, re-approval on one pricing basis, a
     same-price revision that re-opens a rendered step, an unreachable launcher, the retry cap with
-    the checkpoint on and off, a third failure that also crosses the cap, a stopping run, plans
-    the approval could not name).
+    the checkpoint on and off, a third failure that also crosses the cap or lands on a stopping, an
+    owner-paused or a cap-paused run or during a region batch, an approval of a card that hid a
+    withdrawal, plans the approval could not name).
   - **After review** (code-reviewer, four blockers reproduced on the real modules):
     - owner edits are validated against the plan with every edit applied (a group size edit no
       longer refuses itself one region at a time), name the revision they were made on, are
@@ -158,12 +159,20 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
       409 `plan_changed`, `plan_incomplete`, `plan_unpriced` or `catalogue_unreadable`;
     - `templateDefaultChains` reads the defaults' atlases in one query; `prove-art-plan` runs the
       technician's real definition only (8D's `fixtureTechnician` is gone).
-  - **Second review round:** a pause for the cap or an unpriced plan also names any step past its
-    retries, since the owner's resume approves it; an approval the owner's resume makes is
-    recorded as the owner's (`approved.by`), never `auto`; no "Resume…" row is written for a run
-    that cannot pause (stopping); a stored plan naming a region with `..` is refused with that
-    name (400 `bad_recipe_revs`); the adapter's `REGION` and the Live run's fold are
-    `REGION_NAME` too.
+  - **Second review round:** an approval the owner's resume makes is recorded as the owner's
+    (`approved.by`), never `auto`; a stored plan naming a region with `..` is refused with that
+    name (400 `bad_recipe_revs`, truncated to 120 characters); the adapter's `REGION` (atlas and
+    mockups) and the Live run's fold are `REGION_NAME` too.
+  - **Third review round (one rule for spent retries):** a recipe past its retries is approved
+    again only by the owner at the Art plan, whatever its checkpoint setting — never by the
+    automatic approval and never by a resume. `afterRecipe` approves the other pending recipes as
+    before and opens the Art plan for the spent ones (`plan_ready` with `ownerOnly`, which opens it
+    even with the checkpoint off; `checkpoint_open` `reason: 'retries_spent'`); every pause names
+    them. A withdrawal is a new revision (`rev + 1`), so an approval made on a view that still
+    showed the recipe approved is refused as a changed plan. The plan gate also runs after any
+    checkpoint other than the Art plan resolves, and on every resume, so a failure that landed
+    while the run was paused or waiting on a region batch is put to the owner then (a stopping
+    run is asked nothing); `ownerOf` reads who an owner row is from.
   - **Deploy:** atlas-tool's `RUNPOD_ENDPOINT_GPU` must be set and priced, or no Director run can
     start (`docs/INFRA.md`). The worker and the launcher go out together: an old worker drops the
     owner's `recipeEdits`, and an old Live run page sends no `recipeRevs`, so every Art plan

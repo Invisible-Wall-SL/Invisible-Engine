@@ -289,10 +289,13 @@ picture on a reload.
     restarts that step and every step after it), needs your approval again.
   - **A step that keeps failing comes back to you.** Under one approval a failed render is retried
     twice; if it fails a third time its region's recipe loses its approval, nothing more of it
-    renders, and the Art plan opens again with that region in it ("H1 step 1 failed again after 2
-    retries" in Activity). Approving it gives it two more tries. With the Art plan checkpoint off,
-    the run pauses instead, saying which step; **Resume** approves it again, as your approval. A
-    pause for the cap or an unpriced plan names such a step too, since resuming approves it.
+    renders, and the Art plan opens again with that region in it ("asks you to approve again a
+    render that kept failing" in Activity) — even with the Art plan checkpoint off. Approving it
+    there gives it two more tries; nothing else does: not an automatic approval, and not
+    **Resume** (a pause names the step, and resuming opens the Art plan for it). If it fails while
+    you have the run paused or another checkpoint open, the Art plan asks once you resume or
+    resolve it. An approval you send from a view that still showed the step approved is refused
+    ("the Art plan changed since you saw it"): look again and approve what is there now.
   - Outside the checkpoint — while the technician is still planning, after you approve, or with
     the checkpoint off — the same plan shows read-only below the region panel, folded behind one
     line ("Every recipe is approved · show the recipes", or how many still wait for approval).

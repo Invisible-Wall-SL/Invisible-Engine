@@ -1423,6 +1423,31 @@ console.log('batches, atlases and trimming');
 		'L40S (48 GB)',
 	);
 	check('…in the owner’s words', done.feed.at(-1)?.text, 'approved the Art plan.');
+	const again = foldEvents(
+		[
+			...rows,
+			{
+				id: 7,
+				at: 'g',
+				agent: 'worker',
+				kind: 'checkpoint_open',
+				tool: null,
+				payload: {
+					checkpoint: 'art_plan',
+					step: 'regions',
+					reason: 'retries_spent',
+					summary: 'H1 step 1 failed again after 2 retries. Approve to let it try 2 more times.',
+					regions: ['H1'],
+				},
+			},
+		],
+		PREFIX,
+	);
+	check(
+		'a plan re-opened for a render that kept failing says so, and waits on the owner',
+		[again.artPlan, again.feed.at(-1)?.text.startsWith('asks you to approve again a render')],
+		['open', true],
+	);
 	const summary = {
 		status: 'running',
 		step: 'regions',

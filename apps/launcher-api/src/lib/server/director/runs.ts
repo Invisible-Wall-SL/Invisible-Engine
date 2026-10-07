@@ -577,7 +577,7 @@ function parseAction(raw: unknown): OwnerActionRequest {
 		if (misnamed) {
 			throw bad(
 				'bad_recipe_revs',
-				`The plan names ${JSON.stringify(misnamed[0])}, which is not a region name, so it cannot be approved as it stands. Send your changes asking for a plan without it.`,
+				`The plan names ${JSON.stringify(misnamed[0].slice(0, 120))}, which is not a region name, so it cannot be approved as it stands. Send your changes asking for a plan without it.`,
 			);
 		}
 		req.recipeRevs = Object.fromEntries(entries) as Record<string, number>;

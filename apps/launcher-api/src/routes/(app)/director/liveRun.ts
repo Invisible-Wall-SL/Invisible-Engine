@@ -678,12 +678,12 @@ function foldCheckpoint(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 	}
 	if (checkpoint === 'art_plan') {
 		ctx.artPlan = 'open';
-		return push(
-			ctx,
-			event,
-			`asks you to review the Art plan before anything renders.${summary ? ` ${summary}` : ''}`,
-			'checkpoint',
-		);
+		// Re-opened for a render that kept failing: only the owner approves it again.
+		const ask =
+			str(p.reason, 40) === 'retries_spent'
+				? 'asks you to approve again a render that kept failing.'
+				: 'asks you to review the Art plan before anything renders.';
+		return push(ctx, event, `${ask}${summary ? ` ${summary}` : ''}`, 'checkpoint');
 	}
 	if (checkpoint === 'before_publish') {
 		return push(

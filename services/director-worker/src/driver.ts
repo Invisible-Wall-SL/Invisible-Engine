@@ -1278,9 +1278,9 @@ async function applyEvent(
 					live.budgetCapUsd = raised;
 					await setBudgetCap(tx, live.id, raised);
 				}
-				// The owner's resume is their approval of what the plan still waits for.
-				const by = (p.by as { name?: unknown; uid?: unknown } | undefined) ?? {};
-				await reviewPlanGate(tx, live, String(by.uid ?? by.name ?? 'owner'));
+				// The owner's resume is their approval of what the plan still waits for, except a step
+				// past its retries, which the Art plan then asks them about.
+				await reviewPlanGate(tx, live, ownerOf(p));
 				return;
 			}
 			if (action === 'stop') {
@@ -1328,8 +1328,7 @@ async function applyEvent(
 				`owner ${decision}`,
 			);
 			if (error) return refuse(error);
-			const by = (p.by as { name?: unknown; uid?: unknown } | undefined) ?? {};
-			const owner = String(by.uid ?? by.name ?? 'owner');
+			const owner = ownerOf(p);
 			if (approvingPlan && deps) await approveArtPlan(tx, live, owner, deps);
 			if (edits?.length && deps) {
 				// The owner's own edits go back to the owner, not to an agent: stored as the next
@@ -1356,6 +1355,14 @@ async function applyEvent(
 				}
 				return;
 			}
+			// What failed past its retries while another checkpoint was open is put to the owner now,
+			// rather than waiting for the technician's next recipe. Not after an Art plan revise: the
+			// plan goes back to the technician first.
+			if (checkpoint !== 'art_plan') await reviewPlanGate(tx, live);
+			const reopened =
+				checkpoint !== 'art_plan' && live.state.waitingOn === 'art_plan'
+					? ' The Art plan is open again for the owner: a step failed past its retries.'
+					: '';
 			const note = p.note ? `\nTheir note: ${String(p.note)}` : '';
 			const what = decision === 'approve' ? 'approved' : 'asked for revisions at';
 			await appendMessage(
@@ -1364,7 +1371,7 @@ async function applyEvent(
 				COORDINATOR,
 				'user',
 				userText(
-					`The owner ${what} the ${checkpoint} checkpoint. The run is now in the ${live.state.step} step.${note}`,
+					`The owner ${what} the ${checkpoint} checkpoint. The run is now in the ${live.state.step} step.${reopened}${note}`,
 				),
 			);
 			return;
@@ -1413,6 +1420,12 @@ async function applyEvent(
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
 	typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** Who an owner's row came from, as the launcher stamps it (`by`). */
+function ownerOf(p: Record<string, unknown>): string {
+	const by = isRecord(p.by) ? p.by : {};
+	return String(by.uid ?? by.name ?? 'owner');
+}
 
 /**
  * The owner's Art plan edits as the launcher wrote them (`runs.ts` checks the same shape): null
