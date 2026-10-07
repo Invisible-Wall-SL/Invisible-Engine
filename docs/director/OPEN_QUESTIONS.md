@@ -20,11 +20,6 @@ with the default.
 4. **RunPod rates.** `pricing.json`'s RunPod $/s and `seedSecondsPerRender` are placeholders.
    *Suggested default:* the owner sends real rates; until then the cap uses the placeholders.
 
-5. **Required check source ("any", per ADR-0007).** The `current-games` check is mandated by GitHub
-   via ruleset source `any` (2026-10-06, owner setup). A same-repo workflow could post `success`
-   to spoof approval. *Suggested default:* accept for now; a follow-up card scopes source to a
-   trusted `workflow_run` verdict from `main`'s harness, pinning approval to real results.
-
 10. **Agent-eval as a GitHub required check.** Should `agent-eval` block a merge if it fails?
     *Suggested default:* no; the launcher's merge gate reads the evaluation report but does not
     require a passing status, so `pipelineMerge` users can merge anyway. Make it required only if
@@ -63,7 +58,27 @@ with the default.
     the sweep has no dry run, and a generic catalogue font name (e.g. "Serif") drops any unhedged
     gap naming it. *Suggested default:* accept all three (the safe side / owner's own catalogue).
 
+19. **Which App to pin `current-games` to (from #1082).** A dedicated statuses-only App, plus a
+    second entry for the launcher's App if the ruleset accepts the same context twice; otherwise
+    the launcher's App for both. *Suggested default:* try the dedicated App first. Order matters:
+    limit the `current-games-verdict` environment to `main` before adding any secret, and pin the
+    check only after the App is seen posting (docs/INFRA.md).
+
+20. **What the verdict still trusts (from #1082).** Harness and workflow edits now fail outright;
+    install/build code a PR changes (`postinstall`, vite/turbo config) still runs in its own
+    harness run and could shape the report. *Suggested default:* accept; review guards it.
+
+21. **Harness and workflow PRs always need the owner (from #1082).** Every PR that edits
+    `.github/workflows/**` or `scripts/current-games/**` gets `failure` and merges only after the
+    owner posts `current-games` by hand (bypass once pinned). An approval made in the seconds
+    before the verdict posts can be overwritten ("Post approval again" recovers). *Suggested
+    default:* accept both.
+
 ## Answered
+
+- **2026-10-07: required check source (#1082).** #5 closed: only main's verdict workflow (and the
+  launcher's approval) posts `current-games`; pinning the source to an App is the owner's
+  follow-up (19).
 
 - **2026-10-06: follow-ups batch (#1085).**
   - #6 double bill: a re-ask after a failed answer write is unavoidable; it is now always billed
