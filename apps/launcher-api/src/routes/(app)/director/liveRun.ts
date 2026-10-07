@@ -178,6 +178,10 @@ export interface Folded {
 	feed: FeedEntry[];
 	/** When each step was first entered, from the `run_status` rows. */
 	stepStartedAt: Partial<Record<RunStep, string>>;
+	/** Where the Art plan checkpoint stands (ADR-0008 §7): never opened, open, approved, sent back. */
+	artPlan: 'none' | 'open' | 'approved' | 'revised';
+	/** The id of the last `recipe` row: the cache version of the run's recipes. */
+	recipesVersion: number;
 }
 
 // ── Labels ────────────────────────────────────────────────────────────────────
@@ -307,6 +311,8 @@ interface Ctx {
 	openBatch: Set<string> | null;
 	/** Ids of owner rows the worker refused (`refused_request`), collected before the fold. */
 	refused: Set<number>;
+	artPlan: Folded['artPlan'];
+	recipesVersion: number;
 }
 
 const OTHER_GROUP = 'Other regions';
@@ -601,6 +607,19 @@ function foldActivity(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 		case 'breakdown_image':
 			// One per mockup per pass, each carrying the model's full answer: noise in the feed.
 			return;
+		case 'recipe': {
+			ctx.recipesVersion = event.id;
+			const region = str(p.region, 120) ?? 'a region';
+			const chain = str(p.chain, 400) ?? '';
+			const rev = num(p.rev);
+			const by = str(p.editedBy, 120) ? 'stored your edit of' : 'planned';
+			return push(
+				ctx,
+				event,
+				`${by} ${regionTitle(region)}${rev !== null && rev > 1 ? ` (revision ${rev})` : ''}: ${chain}`,
+				'plain',
+			);
+		}
 		default: {
 			if (isBreakdown(p.breakdown)) readBreakdown(ctx, event, p.breakdown);
 			const images = num(p.images);
@@ -643,6 +662,15 @@ function foldCheckpoint(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 		);
 		return push(ctx, event, `asks you to review a region batch. ${summary}`, 'checkpoint');
 	}
+	if (checkpoint === 'art_plan') {
+		ctx.artPlan = 'open';
+		return push(
+			ctx,
+			event,
+			`asks you to review the Art plan before anything renders.${summary ? ` ${summary}` : ''}`,
+			'checkpoint',
+		);
+	}
 	if (checkpoint === 'before_publish') {
 		return push(
 			ctx,
@@ -683,6 +711,9 @@ function foldResolved(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 		}
 		ctx.openBatch = null;
 	}
+	if (!refused && checkpoint === 'art_plan') {
+		ctx.artPlan = decision === 'approve' ? 'approved' : 'revised';
+	}
 	const verb = refused
 		? `asked to ${decision}`
 		: decision === 'approve'
@@ -693,11 +724,13 @@ function foldResolved(ctx: Ctx, event: RunEvent, p: Record<string, unknown>) {
 	const what =
 		checkpoint === 'breakdown'
 			? 'the mockup breakdown'
-			: checkpoint === 'region_batch'
-				? 'the region batch'
-				: checkpoint === 'before_publish'
-					? 'the build'
-					: `the ${checkpoint} checkpoint`;
+			: checkpoint === 'art_plan'
+				? 'the Art plan'
+				: checkpoint === 'region_batch'
+					? 'the region batch'
+					: checkpoint === 'before_publish'
+						? 'the build'
+						: `the ${checkpoint} checkpoint`;
 	push(
 		ctx,
 		event,
@@ -874,6 +907,8 @@ export function foldEvents(events: readonly RunEvent[], prefix: string): Folded 
 		stepStartedAt: {},
 		openBatch: null,
 		refused: refusedIds(events),
+		artPlan: 'none',
+		recipesVersion: 0,
 	};
 	for (const event of events) {
 		if (typeof event.id !== 'number' || typeof event.at !== 'string') continue;
@@ -976,6 +1011,8 @@ export function foldEvents(events: readonly RunEvent[], prefix: string): Folded 
 		plan: ctx.plan,
 		feed: ctx.feed,
 		stepStartedAt: ctx.stepStartedAt,
+		artPlan: ctx.artPlan,
+		recipesVersion: ctx.recipesVersion,
 	};
 }
 
@@ -1026,11 +1063,22 @@ export function stepViews(run: RunSummary, folded: Folded, mockupCount: number):
 						? `${mockupCount} mockup${mockupCount === 1 ? '' : 's'} to read`
 						: 'A style board from your notes';
 				break;
-			case 'style_pack':
+			case 'style_pack': {
 				detail = mockupCount
 					? 'Palette and refs taken from your mockups'
 					: 'Palette and refs from your notes';
+				// The Art plan is a checkpoint inside this step (ADR-0008 §7).
+				const plan =
+					folded.artPlan === 'approved'
+						? 'Art plan ✓'
+						: folded.artPlan === 'open'
+							? 'Art plan waiting'
+							: folded.artPlan === 'revised'
+								? 'Art plan being revised'
+								: '';
+				if (plan) detail = `${detail} · ${plan}`;
 				break;
+			}
 			case 'regions':
 				detail = regionsTotal
 					? `${approved} of ${regionsTotal} approved`

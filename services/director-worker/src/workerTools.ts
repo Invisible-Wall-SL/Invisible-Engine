@@ -3,7 +3,13 @@ import type { BetaContentBlockParam } from '@anthropic-ai/sdk/resources/beta/mes
 import type { ToolSpec } from './model.ts';
 import type { RecipeInput } from 'director-costs/recipe';
 import { ANALYST_AGENT } from './mockups/analyze.ts';
-import { TECHNICIAN, defaultsBrief, setRecipe, type RecipeDeps } from './recipes.ts';
+import {
+	TECHNICIAN,
+	defaultsBrief,
+	forgetUnplanned,
+	setRecipe,
+	type RecipeDeps,
+} from './recipes.ts';
 import { transition, type RunEvent } from './runState.ts';
 import { appendMessage, applyTransition, insertEvent, runSpend, type LiveRun } from './store.ts';
 import type { WORKER_TOOLS } from './tools.ts';
@@ -278,9 +284,17 @@ export async function runWorkerTool(
 			const { status, step, waitingOn } = ctx.live.state;
 			return ok({ ...base, status, step, waitingOn });
 		}
-		case 'run.set_plan':
+		case 'run.set_plan': {
 			await activity(ctx, id, { type: 'plan', summary: input.summary, batches: input.batches });
-			return ok({ recorded: true });
+			const dropped = await forgetUnplanned(ctx.tx, ctx.live.id);
+			if (dropped.length) {
+				await activity(ctx, id, {
+					type: 'note',
+					text: `The new plan leaves out ${dropped.join(', ')}: their approved recipes are no longer approved and render nothing.`,
+				});
+			}
+			return ok({ recorded: true, ...(dropped.length ? { unapproved: dropped } : {}) });
+		}
 		case 'run.post_activity':
 			await activity(ctx, id, { type: 'note', text: str(input, 'text') });
 			return ok({ posted: true });

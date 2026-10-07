@@ -9,11 +9,20 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
+	approvalProblem,
 	chainLine,
+	licenceFlags,
 	needsReapproval,
+	planGroups,
 	presetDefaultChain,
+	priceChains,
+	project,
+	recipeInputOf,
+	removeStep,
 	secondsAt,
+	secondsPerImage,
 	validateRecipe,
+	type Card,
 	type Catalogue,
 	type RecipeInput,
 	type StoredRecipe,
@@ -294,6 +303,205 @@ check('an empty preset falls back to sdxl 1024 ×3', presetDefaultChain(null)[0]
 	variants: 3,
 	settings: [],
 });
+
+// Pricing fails closed and measurements only raise a guess (card 8E, ADR-0008 §6).
+const cards = new Map<string, Card>(catalogue.blueprints.map((b) => [b.id, b.card]));
+const timing = (pipeline: string, genPx: number, exec: number, delay: number) => ({
+	pipeline,
+	genPx,
+	jobs: 4,
+	meanExecSeconds: exec,
+	meanDelaySeconds: delay,
+});
+check(
+	'an image costs the card seconds plus the measured delay',
+	secondsPerImage(upscale, 1024, timing('fixture_upscale', 1024, 1, 5)),
+	{ seconds: 11, guess: false },
+);
+check(
+	'a slower measurement raises the guess',
+	secondsPerImage(upscale, 1024, timing('fixture_upscale', 1024, 9, 0))?.seconds,
+	9,
+);
+check(
+	'with nothing measured the figure is the guess',
+	secondsPerImage({ ...upscale, gpu: { ...upscale.gpu, source: 'guess' } }, 1024, null),
+	{
+		seconds: 6,
+		guess: true,
+	},
+);
+check(
+	'no card seconds and nothing measured: not priced',
+	secondsPerImage({ ...upscale, gpu: { ...upscale.gpu, secondsPerImage: {} } }, 1024, null),
+	null,
+);
+check(
+	'a credit-billed card is never priced',
+	secondsPerImage({ ...upscale, billing: 'credits' }, 1024, null),
+	null,
+);
+const h1Steps = stored.find((r) => r.region === 'H1')!.steps;
+check(
+	'a step whose card is gone leaves the recipe unpriced',
+	project(h1Steps, new Map([...cards].filter(([id]) => id !== 'birefnet')), USD).gpuUsd,
+	null,
+);
+check(
+	'…with the reason',
+	project(h1Steps, new Map([...cards].filter(([id]) => id !== 'birefnet')), USD).unpriced?.[0]
+		?.length !== undefined,
+	true,
+);
+check('an unpriced GPU leaves it unpriced', project(h1Steps, cards, null).gpuUsd, null);
+const measured = project(h1Steps, cards, USD, [timing('sdxl', 1024, 40, 10)]);
+check(
+	'a measured timing feeds the projection',
+	measured.gpuSeconds > project(h1Steps, cards, USD).gpuSeconds,
+	true,
+);
+check(
+	'an approved recipe whose projection becomes unpriced needs re-approval',
+	needsReapproval(approved, {
+		...approved,
+		projected: { ...approved.projected, gpuUsd: null },
+	}),
+	true,
+);
+
+// The Art plan panel's helpers.
+const input = recipeInputOf(stored[0]);
+check('a stored recipe reads back as the input it came from', validateRecipe(input, ctx).ok, true);
+const without = removeStep(input.steps, 2);
+check(
+	'removing a step renumbers the chain',
+	without.map((s) => [s.n, s.kind]),
+	[
+		[1, 'generate'],
+		[2, 'finish'],
+	],
+);
+check('…and a step that took its image takes what it took', without[1].style, input.steps[1].style);
+check(
+	'the before-publish list names every blocked or conditional step',
+	licenceFlags([stored[0]]).map((f) => [f.n, f.licence]),
+	[
+		[1, 'blocked'],
+		[2, 'conditional'],
+	],
+);
+check(
+	'the plan collapses by group and chain',
+	planGroups(stored).reduce((n, g) => n + g.regions.length, 0),
+	stored.length,
+);
+
+// Chain pricing for the New-game estimate.
+const chain = [
+	{ kind: 'generate' as const, pipeline: 'sdxl', genPx: 1024, variants: 3, settings: [] },
+	{ kind: 'process' as const, pipeline: 'birefnet', genPx: 1024, variants: 1, settings: [] },
+	{ kind: 'finish' as const, pipeline: '', genPx: 0, variants: 0, settings: [] },
+];
+const facts = { gpu: 'RTX 4090 (24 GB)', usdPerSecond: USD };
+const fallback = { low: 12, high: 30 };
+const priced = priceChains(
+	[{ group: 'Symbols', regions: 10, chain, source: 'fallback' }],
+	cards,
+	facts,
+	fallback,
+);
+check('a chain is priced', priced.usd !== null && priced.usd.low <= priced.usd.high, true);
+check(
+	'renders, reviewed variants and steps count every region',
+	[priced.renders, priced.reviewedVariants, priced.steps],
+	[40, 30, 30],
+);
+check(
+	'a guessed card never shrinks the high end below the fallback',
+	priced.seconds.high >= 30 * 30,
+	true,
+);
+check(
+	'no GPU named: no price, and why',
+	(() => {
+		const p = priceChains(
+			[{ group: 'Symbols', regions: 1, chain, source: 'fallback' }],
+			cards,
+			{ gpu: '', usdPerSecond: null },
+			fallback,
+		);
+		return [p.usd, p.unpriced.length];
+	})(),
+	[null, 1],
+);
+check(
+	'a credit-billed card leaves the estimate unpriced',
+	priceChains(
+		[{ group: 'Symbols', regions: 1, chain, source: 'fallback' }],
+		new Map(
+			[...cards].map(([id, c]) => [id, id === 'sdxl' ? { ...c, billing: 'credits' as const } : c]),
+		),
+		facts,
+		fallback,
+	).usd,
+	null,
+);
+check(
+	'a pipeline with no reviewed card falls back to the profiles, as a placeholder',
+	(() => {
+		const p = priceChains(
+			[
+				{
+					group: 'Symbols',
+					regions: 1,
+					chain: [{ ...chain[0], pipeline: 'unreviewed' }],
+					source: 'fallback',
+				},
+			],
+			cards,
+			facts,
+			fallback,
+		);
+		return [p.placeholder, p.seconds];
+	})(),
+	[true, { low: 36, high: 90 }],
+);
+
+// The owner approves the plan they saw (card 8E).
+const seen = Object.fromEntries(stored.map((r) => [r.region, r.rev]));
+check('an approval of the plan as stored stands', approvalProblem(stored, planRegions, seen), null);
+check(
+	'an approval that names no revisions is refused',
+	approvalProblem(stored, planRegions, undefined)?.includes('revisions'),
+	true,
+);
+check(
+	'a recipe revised since it was seen refuses the approval',
+	approvalProblem(
+		stored.map((r, i) => (i === 0 ? { ...r, rev: 2 } : r)),
+		planRegions,
+		seen,
+	)?.includes('changed since you saw it'),
+	true,
+);
+check(
+	'a region the plan dropped since refuses it too',
+	approvalProblem(
+		stored,
+		new Set([...planRegions].filter((x) => x !== stored[0].region)),
+		seen,
+	)?.includes('not in it now'),
+	true,
+);
+check(
+	'an unpriced recipe is never approved',
+	approvalProblem(
+		stored.map((r, i) => (i === 0 ? { ...r, projected: { ...r.projected, gpuUsd: null } } : r)),
+		planRegions,
+		seen,
+	)?.includes('cannot be priced'),
+	true,
+);
 
 console.log(`recipes: ${checks - failures}/${checks} checks passed`);
 if (failures) process.exit(1);

@@ -20,7 +20,15 @@
  *     it and re-opens the Art plan;
  *  4. with the checkpoint off the plan is approved `auto` when its projection fits the cap, and is
  *     left unapproved, with a note, when it does not;
- *  5. a later run of the same template briefs the technician with that template default.
+ *  5. a later run of the same template briefs the technician with that template default;
+ *  6. (card 8E) an approval that does not name the revisions the owner saw is refused and the plan
+ *     stays open; the owner's own edits are validated with the same rules, stored as the next
+ *     revision with `editedBy` and no approval, and the plan re-opens on them without waking an
+ *     agent; an edit that breaks a rule stores nothing and says why;
+ *  7. a render advances its steps (`queued` → `done` with its variants), the technician's pick
+ *     and the committed tile are recorded on the recipe, and the job's measured time is folded
+ *     into `director_blueprint_timings` once, however often its `job_done` is delivered;
+ *  8. a new plan that leaves a region out takes its recipe's approval away.
  */
 import type {
 	BetaMessage,
@@ -101,7 +109,10 @@ function fakeModel(replies: Reply[]) {
 }
 
 /** Serves every adapter op by name (so no agent is "missing tools") and the catalogue. */
-function fakeLauncher(served: Catalogue = catalogue) {
+function fakeLauncher(
+	served: Catalogue = catalogue,
+	answers: Record<string, (input: Record<string, unknown>) => unknown> = {},
+) {
 	const calls: string[] = [];
 	const ops = new Map<string, AdapterSpec>(
 		ADAPTER_OPS.map((id) => [
@@ -121,6 +132,8 @@ function fakeLauncher(served: Catalogue = catalogue) {
 		async call(id, body): Promise<AdapterResult> {
 			calls.push(`${body.agent}:${id}`);
 			if (id === 'atlas.list_blueprints') return { status: 200, body: served };
+			const answer = answers[id];
+			if (answer) return { status: 200, body: answer(body.input as Record<string, unknown>) };
 			return { status: 404, body: { error: 'unknown_op', message: `No adapter ${id}.` } };
 		},
 	};
@@ -352,10 +365,33 @@ try {
 	// ── 2. The owner approves ─────────────────────────────────────────────────
 	console.log('2. the owner approves the Art plan');
 	{
+		const before = await recipes(runId);
+		const seen = Object.fromEntries(before.map((r) => [r.region, r.rev]));
+		await event(runId, 'owner', 'checkpoint_resolved', {
+			checkpoint: 'art_plan',
+			decision: 'approve',
+			recipeRevs: { ...seen, H1: 9 },
+			by: { uid: userId, name: 'owner' },
+		});
+		await drive(runId, deps(fakeModel([]).transport, fakeLauncher().launcher));
+		const refusal = await sql<{ payload: { type: string; error: string } }[]>`
+			select payload_json as payload from director_events
+			where run_id = ${runId} and kind = 'error' order by id desc limit 1`;
+		check(
+			'an approval of revisions the owner did not see is refused, and the plan stays open',
+			[
+				refusal[0]?.payload.type,
+				/changed since you saw it/.test(refusal[0]?.payload.error ?? ''),
+				(await runRow(runId)).waiting_on,
+				(await recipes(runId)).every((r) => r.approved === null),
+			],
+			['refused_request', true, 'art_plan', true],
+		);
 		const model = fakeModel([{ content: [say('Assigning the first batch.')] }]);
 		await event(runId, 'owner', 'checkpoint_resolved', {
 			checkpoint: 'art_plan',
 			decision: 'approve',
+			recipeRevs: seen,
 			by: { uid: userId, name: 'owner' },
 		});
 		await drive(runId, deps(model.transport, fakeLauncher().launcher));
@@ -541,6 +577,215 @@ try {
 				text.includes('fallback'),
 			],
 			[true, true, false],
+		);
+	}
+
+	// ── 6. The owner edits the plan ───────────────────────────────────────────
+	console.log('6. the owner edits the Art plan; the worker validates and re-opens it');
+	const edited = await newRun();
+	{
+		const model = fakeModel([{ content: expected.recipes.map(setRecipe) }]);
+		await message(edited, 'atlas-technician', 'Plan the recipes.');
+		await drive(edited, deps(model.transport, fakeLauncher().launcher));
+		const h1 = recipeOf('H1');
+		h1.steps[0].variants = 2;
+		await event(edited, 'owner', 'checkpoint_resolved', {
+			checkpoint: 'art_plan',
+			decision: 'revise',
+			recipeEdits: [{ region: 'H1', steps: h1.steps }],
+			by: { uid: userId, name: 'owner' },
+		});
+		const quiet = fakeModel([]);
+		await drive(edited, deps(quiet.transport, fakeLauncher().launcher));
+		const stored = (await recipes(edited)).find((r) => r.region === 'H1')!;
+		check(
+			'the edit is stored as the next revision, by the owner, unapproved',
+			[stored.rev, stored.editedBy, stored.approved, stored.steps[0].variants],
+			[2, userId, null, 2],
+		);
+		check(
+			'...the plan re-opens on it, and no agent was woken for it',
+			[(await runRow(edited)).waiting_on, (await artPlanOpens(edited)).length, quiet.calls()],
+			['art_plan', 2, 0],
+		);
+		const broken = recipeOf('H2');
+		broken.steps[0].variants = 99;
+		await event(edited, 'owner', 'checkpoint_resolved', {
+			checkpoint: 'art_plan',
+			decision: 'revise',
+			recipeEdits: [{ region: 'H2', steps: broken.steps }],
+			by: { uid: userId, name: 'owner' },
+		});
+		await drive(edited, deps(fakeModel([]).transport, fakeLauncher().launcher));
+		const notes = await sql<{ payload: { text?: string } }[]>`
+			select payload_json as payload from director_events
+			where run_id = ${edited} and kind = 'activity' and payload_json->>'type' = 'note'
+			order by id desc limit 1`;
+		check(
+			'an edit that breaks a rule stores nothing, says why, and the plan stays as it was',
+			[
+				(await recipes(edited)).find((r) => r.region === 'H2')!.rev,
+				/were not stored[\s\S]*at most/.test(notes[0]?.payload.text ?? ''),
+				(await runRow(edited)).waiting_on,
+			],
+			[1, true, 'art_plan'],
+		);
+		const seen = Object.fromEntries((await recipes(edited)).map((r) => [r.region, r.rev]));
+		await event(edited, 'owner', 'checkpoint_resolved', {
+			checkpoint: 'art_plan',
+			decision: 'approve',
+			recipeRevs: seen,
+			by: { uid: userId, name: 'owner' },
+		});
+		await drive(edited, deps(fakeModel([]).transport, fakeLauncher().launcher));
+		check(
+			'the plan as edited is approved',
+			(await recipes(edited)).every((r) => r.approved?.rev === r.rev),
+			true,
+		);
+	}
+
+	// ── 7. Renders advance the steps; their time is measured ──────────────────
+	console.log('7. a render advances its steps and is measured once');
+	{
+		const h1 = (await recipes(edited)).find((r) => r.region === 'H1')!;
+		const jobRef = 'st_00000000000000e8';
+		const scratch = h1.steps[1];
+		const launcher = fakeLauncher(catalogue, {
+			'atlas.queue_variants': () => ({ atlas: h1.atlas, regions: ['H1'], jobRef }),
+			'atlas.choose_variant': () => ({
+				atlas: h1.atlas,
+				region: 'H1',
+				chosen: '00017',
+				locked: true,
+			}),
+			'atlas.set_output': () => ({ atlas: h1.atlas, region: 'H1', committed: true }),
+		});
+		const model = fakeModel([
+			{
+				content: [
+					use('atlas.queue_variants', {
+						atlas: h1.atlas,
+						regions: ['H1'],
+						variants: 2,
+						step: 'H1#1',
+					}),
+				],
+			},
+			{ content: [say('Queued.')] },
+		]);
+		await message(edited, 'atlas-technician', 'Render H1.');
+		await drive(edited, deps(model.transport, launcher.launcher));
+		const queued = (await recipes(edited)).find((r) => r.region === 'H1')!.steps[0];
+		check('a queued render marks its step', [queued.status, queued.jobRef], ['queued', jobRef]);
+		const done = {
+			jobRef,
+			status: 'finished',
+			atlas: h1.atlas,
+			regions: ['H1'],
+			result: {
+				variants: [
+					{ region: 'H1', variant: '00016' },
+					{ region: 'H1', variant: '00017' },
+				],
+				runpod: {
+					gpu: 'L40S (48 GB)',
+					seconds: 50,
+					executionSeconds: 40,
+					delaySeconds: 10,
+					jobs: 2,
+					unreported: 0,
+				},
+			},
+		};
+		const timing = async () =>
+			(
+				await sql<{ jobs: number; mean_exec_seconds: number; mean_delay_seconds: number }[]>`
+				select jobs, mean_exec_seconds, mean_delay_seconds from director_blueprint_timings
+				where pipeline = ${queued.pipeline} and gen_px = ${queued.genPx}`
+			)[0];
+		const prior = await timing();
+		await event(edited, 'atlas-technician', 'job_done', done);
+		await drive(
+			edited,
+			deps(fakeModel([{ content: [say('Rendered.')] }]).transport, launcher.launcher),
+		);
+		const rendered = (await recipes(edited)).find((r) => r.region === 'H1')!.steps[0];
+		check(
+			'the job settles its step with the variants it made',
+			[rendered.status, rendered.rendered],
+			['done', ['00016', '00017']],
+		);
+		const first = await timing();
+		await event(edited, 'atlas-technician', 'job_done', done);
+		await drive(edited, deps(fakeModel([]).transport, launcher.launcher));
+		const again = await timing();
+		const n = prior?.jobs ?? 0;
+		check(
+			'its measured time is folded into the rolling means per job: 20 s execution, 5 s delay',
+			[first?.jobs, first?.mean_exec_seconds, first?.mean_delay_seconds],
+			[
+				n + 2,
+				((prior?.mean_exec_seconds ?? 0) * n + 40) / (n + 2),
+				((prior?.mean_delay_seconds ?? 0) * n + 10) / (n + 2),
+			],
+		);
+		check('...once, however often its job_done is delivered', again, first);
+		const pick = fakeModel([
+			{
+				content: [
+					use('atlas.choose_variant', { atlas: h1.atlas, region: 'H1', id: '00017', lock: true }),
+					use('atlas.set_output', {
+						atlas: h1.atlas,
+						region: 'H1',
+						from: { atlas: scratch.atlas, region: scratch.region, id: '00003' },
+						base: { etag: 'e', rev: '1' },
+					}),
+				],
+			},
+			{ content: [say('Committed.')] },
+		]);
+		await message(edited, 'atlas-technician', 'Pick and commit H1.');
+		await drive(edited, deps(pick.transport, launcher.launcher));
+		const after = (await recipes(edited)).find((r) => r.region === 'H1')!;
+		check(
+			'the pick and the committed tile are on the recipe',
+			[after.steps[0].status, after.steps[0].chosen, after.steps.at(-1)?.chosen],
+			['chosen', '00017', `${scratch.atlas}/${scratch.region}/00003`],
+		);
+	}
+
+	// ── 8. A plan that drops a region drops its approval ──────────────────────
+	console.log('8. a new plan without a region takes its approval away');
+	{
+		const batches = expected.plan.batches.map((b) => ({
+			...b,
+			regions: b.regions.filter((r) => r !== 'Logo'),
+		}));
+		const model = fakeModel([
+			{ content: [use('run.set_plan', { summary: 'Without the logo.', batches })] },
+			{ content: [say('Re-planned.')] },
+		]);
+		const plannerAgents = new Map(AGENTS);
+		plannerAgents.set('coordinator', {
+			...coordinator,
+			tools: [...coordinator.tools, 'run.set_plan'],
+		});
+		await message(edited, 'coordinator', 'Drop the logo.');
+		await drive(edited, {
+			...deps(model.transport, fakeLauncher().launcher),
+			agents: plannerAgents,
+		});
+		const logo = (await recipes(edited)).find((r) => r.region === 'Logo')!;
+		check(
+			'the dropped region keeps its recipe as a record but loses its approval',
+			[logo.rev, logo.approved],
+			[1, null],
+		);
+		check(
+			'...and the others keep theirs',
+			(await recipes(edited)).filter((r) => r.region !== 'Logo').every((r) => r.approved !== null),
+			true,
 		);
 	}
 } finally {

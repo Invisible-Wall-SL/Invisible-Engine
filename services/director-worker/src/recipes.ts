@@ -1,4 +1,5 @@
 import {
+	approvalProblem,
 	chainLine,
 	defaultChainOf,
 	needsReapproval,
@@ -7,7 +8,9 @@ import {
 	type Catalogue,
 	type DefaultStep,
 	type RecipeInput,
+	type StepInput,
 	type StoredRecipe,
+	type Timing,
 } from 'director-costs/recipe';
 import { applyTransition, insertEvent, runSpend, type Db, type LiveRun } from './store.ts';
 import { transition } from './runState.ts';
@@ -27,6 +30,8 @@ export interface RecipeDeps {
 	catalogue: Catalogue;
 	/** USD per second of the endpoint's GPU, or null when it is unpriced. */
 	usdPerSecond: number | null;
+	/** Measured GPU time per (pipeline, genPx), `director_blueprint_timings`. */
+	timings: Timing[];
 }
 
 /** The regions the coordinator's latest `run.set_plan` names, each with its batch (group). */
@@ -102,6 +107,7 @@ export async function setRecipe(
 		planRegions: new Set(plan.keys()),
 		others: recipes,
 		usdPerSecond: deps.usdPerSecond,
+		timings: deps.timings,
 	});
 	if (!result.ok) {
 		return {
@@ -336,4 +342,226 @@ export async function markQueued(
 		});
 		if (changed) await storeRecipe(tx, runId, { ...recipe, steps });
 	}
+}
+
+/** A finished render advances its steps: `done` with the variants it made, or `failed`. */
+export async function settleJob(
+	tx: Db,
+	runId: string,
+	jobRef: string,
+	finished: boolean,
+	variants: readonly { region: string; id: string }[],
+): Promise<{ pipeline: string; genPx: number }[]> {
+	const settled: { pipeline: string; genPx: number }[] = [];
+	for (const recipe of await loadRecipes(tx, runId)) {
+		let changed = false;
+		const steps = recipe.steps.map((s) => {
+			if (s.jobRef !== jobRef || s.status !== 'queued') return s;
+			changed = true;
+			settled.push({ pipeline: s.pipeline, genPx: s.genPx });
+			const rendered = variants.filter((v) => v.region === s.region).map((v) => v.id);
+			return finished && rendered.length
+				? { ...s, status: 'done' as const, rendered }
+				: { ...s, status: 'failed' as const };
+		});
+		if (changed) await storeRecipe(tx, runId, { ...recipe, steps });
+	}
+	return settled;
+}
+
+/**
+ * Fold one job's measured GPU time into the rolling means for its (pipeline, genPx), in one
+ * statement so two jobs landing at once both count. A job whose steps ran more than one pipeline or
+ * size (regions with their own override in one batch) cannot be split honestly and is skipped.
+ */
+export async function recordTiming(
+	tx: Db,
+	steps: readonly { pipeline: string; genPx: number }[],
+	usage: { jobs: number; executionSeconds: number; delaySeconds: number },
+): Promise<boolean> {
+	const keys = new Set(steps.map((s) => `${s.pipeline}\u0000${s.genPx}`));
+	if (keys.size !== 1 || usage.jobs <= 0) return false;
+	const { pipeline, genPx } = steps[0];
+	if (!pipeline || genPx <= 0) return false;
+	const exec = usage.executionSeconds / usage.jobs;
+	const delay = usage.delaySeconds / usage.jobs;
+	await tx`
+		insert into director_blueprint_timings as t
+			(pipeline, gen_px, jobs, mean_exec_seconds, mean_delay_seconds, updated_at)
+		values (${pipeline}, ${genPx}, ${usage.jobs}, ${exec}, ${delay}, now())
+		on conflict (pipeline, gen_px) do update set
+			jobs = t.jobs + excluded.jobs,
+			mean_exec_seconds =
+				(t.mean_exec_seconds * t.jobs + excluded.mean_exec_seconds * excluded.jobs)
+				/ (t.jobs + excluded.jobs),
+			mean_delay_seconds =
+				(t.mean_delay_seconds * t.jobs + excluded.mean_delay_seconds * excluded.jobs)
+				/ (t.jobs + excluded.jobs),
+			updated_at = now()`;
+	return true;
+}
+
+export async function loadTimings(db: Db): Promise<Timing[]> {
+	const rows = await db<
+		{
+			pipeline: string;
+			gen_px: number;
+			jobs: number;
+			mean_exec_seconds: number;
+			mean_delay_seconds: number;
+		}[]
+	>`select pipeline, gen_px, jobs, mean_exec_seconds, mean_delay_seconds from director_blueprint_timings`;
+	return rows.map((r) => ({
+		pipeline: r.pipeline,
+		genPx: r.gen_px,
+		jobs: r.jobs,
+		meanExecSeconds: r.mean_exec_seconds,
+		meanDelaySeconds: r.mean_delay_seconds,
+	}));
+}
+
+/**
+ * The technician chose a variant on a region (`atlas.choose_variant`): the latest rendered step
+ * there records it, for "How this was made".
+ */
+export async function markChosen(tx: Db, runId: string, atlas: string, region: string, id: string) {
+	for (const recipe of await loadRecipes(tx, runId)) {
+		const at = recipe.steps.findLastIndex(
+			(s) =>
+				s.kind !== 'finish' &&
+				s.atlas === atlas &&
+				s.region === region &&
+				(s.status === 'done' || s.status === 'chosen'),
+		);
+		if (at === -1) continue;
+		const steps = recipe.steps.map((s, i) =>
+			i === at ? { ...s, status: 'chosen' as const, chosen: id } : s,
+		);
+		await storeRecipe(tx, runId, { ...recipe, steps });
+	}
+}
+
+/** A chain's result landed on its template region (`atlas.set_output`): the finish step is done. */
+export async function markCommitted(
+	tx: Db,
+	runId: string,
+	atlas: string,
+	region: string,
+	from: string,
+) {
+	for (const recipe of await loadRecipes(tx, runId)) {
+		if (recipe.atlas !== atlas || recipe.region !== region) continue;
+		const steps = recipe.steps.map((s) =>
+			s.kind === 'finish' ? { ...s, status: 'done' as const, chosen: from } : s,
+		);
+		await storeRecipe(tx, runId, { ...recipe, steps });
+	}
+}
+
+/**
+ * A new `run.set_plan` that no longer names a region takes its recipe's approval away: the queue
+ * gate renders only approved steps, so a dropped region cannot render on an old approval. The
+ * recipe stays stored as the run's record; a plan that names the region again re-opens its review.
+ */
+export async function forgetUnplanned(tx: Db, runId: string): Promise<string[]> {
+	const plan = await planRegions(tx, runId);
+	const dropped: string[] = [];
+	for (const recipe of await loadRecipes(tx, runId)) {
+		if (plan.has(recipe.region) || !recipe.approved) continue;
+		dropped.push(recipe.region);
+		await storeRecipe(tx, runId, { ...recipe, approved: null });
+	}
+	return dropped;
+}
+
+/** One owner edit (ADR-0008 §5): the region's whole chain as the Art plan panel left it. */
+export interface RecipeEdit {
+	region: string;
+	steps: StepInput[];
+}
+
+export const MAX_RECIPE_EDITS = 64;
+
+/**
+ * Apply the owner's Art plan edits: each edited recipe is validated with the same rules a
+ * technician's is, against the other recipes as edited, and stored as `rev + 1` with `editedBy`
+ * and no approval, so the plan re-opens for the owner to approve what they now see. All or
+ * nothing: one edit that fails stores none, and every reason comes back.
+ */
+export async function applyRecipeEdits(
+	tx: Db,
+	live: LiveRun,
+	by: string,
+	edits: readonly RecipeEdit[],
+	deps: RecipeDeps,
+): Promise<{ ok: true; regions: string[] } | { ok: false; errors: string[] }> {
+	const plan = await planRegions(tx, live.id);
+	const recipes = await loadRecipes(tx, live.id);
+	const errors: string[] = [];
+	const next = new Map(recipes.map((r) => [r.region, r]));
+	if (edits.length > MAX_RECIPE_EDITS) {
+		return { ok: false, errors: [`at most ${MAX_RECIPE_EDITS} regions per edit`] };
+	}
+	for (const edit of edits) {
+		const prev = next.get(edit.region);
+		if (!prev) {
+			errors.push(`${edit.region}: has no recipe to edit`);
+			continue;
+		}
+		const result = validateRecipe(
+			{ region: prev.region, atlas: prev.atlas, group: prev.group, steps: edit.steps },
+			{
+				catalogue: deps.catalogue,
+				planRegions: new Set(plan.keys()),
+				others: [...next.values()].filter((r) => r.region !== prev.region),
+				usdPerSecond: deps.usdPerSecond,
+				timings: deps.timings,
+			},
+		);
+		if (!result.ok) {
+			errors.push(...result.errors.map((e) => `${edit.region}: ${e}`));
+			continue;
+		}
+		next.set(prev.region, {
+			...prev,
+			rev: prev.rev + 1,
+			editedBy: by,
+			approved: null,
+			steps: result.steps,
+			projected: result.projected,
+		});
+	}
+	if (errors.length) return { ok: false, errors };
+	for (const edit of edits) {
+		const recipe = next.get(edit.region)!;
+		await storeRecipe(tx, live.id, recipe);
+		await insertEvent(
+			tx,
+			live.id,
+			'worker',
+			'activity',
+			{
+				type: 'recipe',
+				region: recipe.region,
+				group: recipe.group,
+				rev: recipe.rev,
+				chain: chainLine(recipe.steps),
+				projected: recipe.projected,
+				approved: false,
+				editedBy: by,
+			},
+			'owner.recipe_edit',
+		);
+	}
+	return { ok: true, regions: edits.map((e) => e.region) };
+}
+
+/** The worker's side of `approvalProblem`: the run's plan and recipes as they are now. */
+export async function artPlanApprovalRefusal(
+	tx: Db,
+	runId: string,
+	seen: unknown,
+): Promise<string | null> {
+	const plan = await planRegions(tx, runId);
+	return approvalProblem(await loadRecipes(tx, runId), new Set(plan.keys()), seen);
 }

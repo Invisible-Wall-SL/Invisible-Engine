@@ -3,12 +3,14 @@ import { getDb } from '../db';
 import { r2SlugSql, type Queryer } from '../projectKeyLock';
 import {
 	directorAtlasJobs,
+	directorBlueprintTimings,
 	directorEvents,
 	directorMessages,
 	directorOps,
 	directorRegions,
 	directorRuns,
 	directorSpend,
+	directorTemplateRecipes,
 	users,
 	type DirectorAtlasJob,
 	type DirectorEvent,
@@ -30,6 +32,72 @@ export async function runRecipes(runId: string): Promise<unknown[]> {
 		.from(directorRegions)
 		.where(and(eq(directorRegions.runId, runId), sql`${directorRegions.recipeJson} is not null`));
 	return rows.map((r) => r.recipe);
+}
+
+/**
+ * The regions the coordinator's latest `run.set_plan` names, in its order, each with its batch:
+ * the same row the worker reads (`recipes.ts` `planRegions`).
+ */
+export async function latestPlanRegions(runId: string): Promise<Map<string, string>> {
+	const [row] = await getDb()
+		.select({ payload: directorEvents.payloadJson })
+		.from(directorEvents)
+		.where(
+			and(
+				eq(directorEvents.runId, runId),
+				eq(directorEvents.kind, 'activity'),
+				sql`${directorEvents.payloadJson}->>'type' = 'plan'`,
+			),
+		)
+		.orderBy(desc(directorEvents.id))
+		.limit(1);
+	const out = new Map<string, string>();
+	const batches = (row?.payload as { batches?: unknown } | undefined)?.batches;
+	for (const batch of Array.isArray(batches) ? batches : []) {
+		const b = batch as { name?: unknown; regions?: unknown };
+		if (!Array.isArray(b.regions)) continue;
+		for (const region of b.regions) {
+			if (typeof region === 'string' && !out.has(region)) out.set(region, String(b.name ?? ''));
+		}
+	}
+	return out;
+}
+
+/** Measured GPU time per (pipeline, genPx), as the worker folds it in from every `job_done`. */
+export async function blueprintTimings(): Promise<
+	{
+		pipeline: string;
+		genPx: number;
+		jobs: number;
+		meanExecSeconds: number;
+		meanDelaySeconds: number;
+	}[]
+> {
+	return getDb()
+		.select({
+			pipeline: directorBlueprintTimings.pipeline,
+			genPx: directorBlueprintTimings.genPx,
+			jobs: directorBlueprintTimings.jobs,
+			meanExecSeconds: directorBlueprintTimings.meanExecSeconds,
+			meanDelaySeconds: directorBlueprintTimings.meanDelaySeconds,
+		})
+		.from(directorBlueprintTimings);
+}
+
+/** A template's latest default chain per region group (`director_template_recipes`). */
+export async function templateDefaultChains(
+	templateProjectKey: string,
+): Promise<{ group: string; version: number; chain: unknown }[]> {
+	const rows = await getDb()
+		.selectDistinctOn([directorTemplateRecipes.regionGroup], {
+			group: directorTemplateRecipes.regionGroup,
+			version: directorTemplateRecipes.version,
+			chain: directorTemplateRecipes.chainJson,
+		})
+		.from(directorTemplateRecipes)
+		.where(eq(directorTemplateRecipes.templateProjectKey, templateProjectKey))
+		.orderBy(directorTemplateRecipes.regionGroup, desc(directorTemplateRecipes.version));
+	return rows;
 }
 
 /** The stored results of this run's finished calls of `op` (`<tool>.<op>`), oldest first. */

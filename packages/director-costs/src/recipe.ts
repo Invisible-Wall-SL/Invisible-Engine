@@ -98,15 +98,22 @@ export interface StoredStep extends StepInput {
 	licence: Card['licence'] | '';
 	status: StepStatus;
 	jobRef?: string;
+	/** The variant ids the step's render produced on its own atlas and region. */
+	rendered?: string[];
+	/** A render step: the variant id chosen on its region. `finish`: the committed variant as
+	 *  `<atlas>/<region>/<id>`. */
 	chosen?: string;
 }
 
 export interface Projection {
 	gpuSeconds: number;
-	/** Null while the endpoint's GPU has no price. */
+	/** Null while it cannot be priced: the endpoint's GPU has no price, or a step has no figure. */
 	gpuUsd: number | null;
-	/** True when a step's card has no seconds for its size, or a card's seconds are a guess. */
+	/** True when a step's seconds are only the card's guess, with nothing measured beside them. */
 	placeholder: boolean;
+	/** Why the projection has no price, one line per reason; empty when it has one. Absent on
+	 *  recipes stored before card 8E, which read as none. */
+	unpriced?: string[];
 }
 
 export interface Approval {
@@ -135,6 +142,8 @@ export interface ValidationContext {
 	others: readonly StoredRecipe[];
 	/** USD per GPU second for `catalogue.gpu`, or null when unpriced. */
 	usdPerSecond: number | null;
+	/** Measured GPU time per (pipeline, genPx), from `director_blueprint_timings`. */
+	timings?: readonly Timing[];
 }
 
 export type ValidationResult =
@@ -180,34 +189,94 @@ export function secondsAt(card: Card, px: number): number | null {
 	return highS;
 }
 
-/** The recipe's projected GPU time and cost, recomputed by code from the cards (§6). */
+/**
+ * Measured GPU time for one (effective pipeline, genPx), per RunPod job (one image): the rolling
+ * means `director_blueprint_timings` holds, written by the worker from every `job_done`.
+ */
+export interface Timing {
+	pipeline: string;
+	genPx: number;
+	jobs: number;
+	meanExecSeconds: number;
+	meanDelaySeconds: number;
+}
+
+export const timingOf = (
+	timings: readonly Timing[] | undefined,
+	pipeline: string,
+	genPx: number,
+): Timing | null =>
+	timings?.find((t) => t.pipeline === pipeline && t.genPx === genPx && t.jobs > 0) ?? null;
+
+/**
+ * Billed seconds one image of a step costs (ADR-0008 §6): the card's seconds at that size, or the
+ * measured execution mean when it is higher, plus the measured queue delay per job. Never lower
+ * than either figure: a measurement only raises a guess, and the owner copies a lower one into
+ * the card (`source: measured`) by hand. Null when there is neither a card figure nor a
+ * measurement, or the card bills credits: the step cannot be priced.
+ */
+export function secondsPerImage(
+	card: Card,
+	genPx: number,
+	timing: Timing | null,
+): { seconds: number; guess: boolean } | null {
+	if (card.billing === 'credits') return null;
+	const fromCard = secondsAt(card, genPx);
+	if (fromCard === null && timing === null) return null;
+	const exec = Math.max(fromCard ?? 0, timing?.meanExecSeconds ?? 0);
+	return {
+		seconds: exec + (timing?.meanDelaySeconds ?? 0),
+		guess: card.gpu.source !== 'measured' && timing === null,
+	};
+}
+
+/**
+ * The recipe's projected GPU time and cost, recomputed by code from the cards and the measured
+ * timings (§6), with the card's cold start once per (atlas, pipeline) batch. Fails closed: a step
+ * whose card is gone or bills credits, or has no figure for its size, leaves the whole recipe
+ * unpriced (`gpuUsd: null`) rather than counting it as nothing.
+ */
 export function project(
 	steps: readonly StepInput[],
 	cards: ReadonlyMap<string, Card>,
 	usdPerSecond: number | null,
+	timings?: readonly Timing[],
 ): Projection {
 	let seconds = 0;
 	let placeholder = false;
+	const unpriced: string[] = [];
 	const batches = new Set<string>();
 	for (const step of steps) {
 		if (step.kind === 'finish') continue;
 		const card = cards.get(step.pipeline);
-		if (!card) continue;
-		const each = secondsAt(card, step.genPx);
-		if (each === null) placeholder = true;
-		if (card.gpu.source !== 'measured') placeholder = true;
-		seconds += (each ?? 0) * step.variants;
+		if (!card) {
+			unpriced.push(`step ${step.n}: "${step.pipeline}" has no reviewed card to price it by`);
+			continue;
+		}
+		const each = secondsPerImage(card, step.genPx, timingOf(timings, step.pipeline, step.genPx));
+		if (each === null) {
+			unpriced.push(
+				card.billing === 'credits'
+					? `step ${step.n}: "${step.pipeline}" bills credits`
+					: `step ${step.n}: "${step.pipeline}" has no GPU seconds for ${step.genPx} px`,
+			);
+			continue;
+		}
+		if (each.guess) placeholder = true;
+		seconds += each.seconds * step.variants;
 		const batch = `${step.atlas}\u0000${step.pipeline}`;
 		if (!batches.has(batch)) {
 			batches.add(batch);
 			seconds += card.gpu.coldStart;
 		}
 	}
+	if (usdPerSecond === null) unpriced.push("the endpoint's GPU has no price");
 	const gpuSeconds = Math.round(seconds * 10) / 10;
 	return {
 		gpuSeconds,
-		gpuUsd: usdPerSecond === null ? null : Math.round(gpuSeconds * usdPerSecond * 10000) / 10000,
+		gpuUsd: unpriced.length ? null : Math.round(gpuSeconds * usdPerSecond! * 10000) / 10000,
 		placeholder,
+		unpriced,
 	};
 }
 
@@ -438,12 +507,16 @@ export function validateRecipe(input: RecipeInput, ctx: ValidationContext): Vali
 			status: 'planned',
 		};
 	});
-	return { ok: true, steps: stored, projected: project(steps, cards, ctx.usdPerSecond) };
+	return {
+		ok: true,
+		steps: stored,
+		projected: project(steps, cards, ctx.usdPerSecond, ctx.timings),
+	};
 }
 
 /**
  * Whether a revision of an approved recipe needs the owner again (ADR-0008 §5, owner decision 9):
- * it changes a pipeline, or raises the projected cost.
+ * it changes a pipeline or where a step runs, raises the projected cost, or leaves it unpriced.
  */
 export function needsReapproval(
 	prev: StoredRecipe | null,
@@ -453,11 +526,15 @@ export function needsReapproval(
 	const chain = (steps: readonly StepInput[]) =>
 		steps.map((s) => `${s.kind}:${s.pipeline}:${s.atlas}/${s.region}`).join('>');
 	if (chain(prev.steps) !== chain(next.steps)) return true;
+	if (next.projected.gpuUsd === null) return true;
+	if (prev.projected.gpuUsd !== null && next.projected.gpuUsd > prev.projected.gpuUsd) return true;
 	return next.projected.gpuSeconds > prev.projected.gpuSeconds;
 }
 
 /** One line per chain, e.g. "sdxl 1024 ×3 → birefnet → finish". */
-export function chainLine(steps: readonly StepInput[]): string {
+export function chainLine(
+	steps: readonly Pick<StepInput, 'kind' | 'pipeline' | 'genPx' | 'variants'>[],
+): string {
 	return steps
 		.map((s) =>
 			s.kind === 'finish'
@@ -506,4 +583,244 @@ export function presetDefaultChain(preset: PresetShape | null | undefined): Defa
 		{ kind: 'process', pipeline: 'birefnet', genPx, variants: 1, settings: [] },
 		{ kind: 'finish', pipeline: '', genPx: 0, variants: 0, settings: [] },
 	];
+}
+
+// ── The Art plan: what the owner reviews and edits (§7) ─────────────────────
+
+/** A stored recipe as `run.set_recipe` would take it again: the input an owner edit starts from. */
+export const recipeInputOf = (r: StoredRecipe): RecipeInput => ({
+	region: r.region,
+	atlas: r.atlas,
+	group: r.group,
+	steps: r.steps.map(
+		({ n, kind, pipeline, atlas, region, genPx, variants, settings, style, shape, note }) => ({
+			n,
+			kind,
+			pipeline,
+			atlas,
+			region,
+			genPx,
+			variants,
+			settings: settings.map((s) => ({ ...s })),
+			style: { ...style },
+			shape: { ...shape },
+			note,
+		}),
+	),
+});
+
+/**
+ * The steps without step `n`, renumbered. A later step that took the removed step's image
+ * (`step:<n>`) takes what the removed step took instead, so the chain stays connected; refs to
+ * later steps move down by one.
+ */
+export function removeStep(steps: readonly StepInput[], n: number): StepInput[] {
+	const gone = steps.find((s) => s.n === n);
+	if (!gone) return steps.map((s) => ({ ...s }));
+	const remap = (ref: RefChoice, fallback: RefChoice): RefChoice => {
+		const m = STEP_REF.exec(ref.source === 'variant' ? ref.value : '');
+		if (!m) return ref;
+		const k = Number(m[1]);
+		if (k === n) return { ...fallback };
+		return k > n ? { source: 'variant', value: `step:${k - 1}` } : ref;
+	};
+	return steps
+		.filter((s) => s.n !== n)
+		.map((s, i) => ({
+			...s,
+			n: i + 1,
+			style: remap(s.style, gone.style),
+			shape: remap(s.shape, gone.shape),
+		}));
+}
+
+/** Every step whose card's licence is not plain `ok`, for the before-publish list (§7). */
+export function licenceFlags(
+	recipes: readonly StoredRecipe[],
+): { region: string; n: number; pipeline: string; licence: 'blocked' | 'conditional' }[] {
+	const out: { region: string; n: number; pipeline: string; licence: 'blocked' | 'conditional' }[] =
+		[];
+	for (const r of recipes) {
+		for (const s of r.steps) {
+			if (s.licence === 'blocked' || s.licence === 'conditional') {
+				out.push({ region: r.region, n: s.n, pipeline: s.pipeline, licence: s.licence });
+			}
+		}
+	}
+	return out;
+}
+
+/** Recipes of one group collapsed by identical chain: "11 Symbols: sdxl 1024 ×3 → birefnet → finish". */
+export function planGroups(
+	recipes: readonly StoredRecipe[],
+): { group: string; chain: string; regions: string[] }[] {
+	const out: { group: string; chain: string; regions: string[] }[] = [];
+	for (const r of recipes) {
+		const chain = chainLine(r.steps);
+		const found = out.find((g) => g.group === r.group && g.chain === chain);
+		if (found) found.regions.push(r.region);
+		else out.push({ group: r.group, chain, regions: [r.region] });
+	}
+	return out;
+}
+
+// ── Chain pricing for the estimate (§6) ─────────────────────────────────────
+
+export interface Span {
+	low: number;
+	high: number;
+}
+
+/** One region group as the estimate prices it: how many regions, and the chain each gets. */
+export interface ChainGroup {
+	group: string;
+	regions: number;
+	chain: readonly DefaultStep[];
+	/** Where the chain came from, for the panel: a template default, or the fallback. */
+	source: string;
+}
+
+export interface ChainPrice {
+	gpu: string;
+	/** Billed GPU seconds over every group, cold starts included. */
+	seconds: Span;
+	/** Null when anything cannot be priced: see `unpriced`. */
+	usd: Span | null;
+	/** Images rendered, every step of every region. */
+	renders: number;
+	/** Images the art director and the owner review: the generate steps' variants. */
+	reviewedVariants: number;
+	/** Recipe steps over every region, finish included (the technician's per-step work). */
+	steps: number;
+	/** True when a figure is a card's guess or the profiles' fallback, not a measurement. */
+	placeholder: boolean;
+	unpriced: string[];
+	groups: { group: string; regions: number; chain: string; source: string; seconds: Span }[];
+}
+
+/**
+ * The GPU side of the New-game estimate, priced per chain from the reviewed cards and the measured
+ * timings (§6): per image, `secondsPerImage`; a step whose pipeline has no reviewed card takes the
+ * profiles' `secondsPerVariantAt1024` scaled by pixel count and marks the figure a placeholder.
+ * The high end never sits below that fallback for a guessed card, so a guess cannot shrink the
+ * range. Fails closed: no GPU, an unpriced GPU, or a credit-billed card leaves `usd` null with
+ * the reasons, and the run is not offered.
+ */
+export function priceChains(
+	groups: readonly ChainGroup[],
+	cards: ReadonlyMap<string, Card>,
+	facts: { gpu: string; usdPerSecond: number | null; timings?: readonly Timing[] },
+	fallbackAt1024: Span,
+): ChainPrice {
+	const unpriced: string[] = [];
+	let placeholder = false;
+	let renders = 0;
+	let reviewedVariants = 0;
+	let steps = 0;
+	const total: Span = { low: 0, high: 0 };
+	const rows: ChainPrice['groups'] = [];
+	for (const g of groups) {
+		const span: Span = { low: 0, high: 0 };
+		const batches = new Set<string>();
+		for (const step of g.chain) {
+			steps += g.regions;
+			if (step.kind === 'finish') continue;
+			const images = step.variants * g.regions;
+			renders += images;
+			if (step.kind === 'generate') reviewedVariants += images;
+			const scaleBy = (step.genPx * step.genPx) / (1024 * 1024);
+			const fallback = { low: fallbackAt1024.low * scaleBy, high: fallbackAt1024.high * scaleBy };
+			const card = cards.get(step.pipeline);
+			let each: Span;
+			if (!card) {
+				placeholder = true;
+				each = fallback;
+			} else {
+				const priced = secondsPerImage(
+					card,
+					step.genPx,
+					timingOf(facts.timings, step.pipeline, step.genPx),
+				);
+				if (priced === null && card.billing === 'credits') {
+					unpriced.push(`${g.group}: "${step.pipeline}" bills credits, which cannot be priced yet`);
+					continue;
+				}
+				if (priced === null) {
+					placeholder = true;
+					each = fallback;
+				} else if (priced.guess) {
+					placeholder = true;
+					each = { low: priced.seconds, high: Math.max(priced.seconds, fallback.high) };
+				} else {
+					each = { low: priced.seconds, high: priced.seconds };
+				}
+				if (!batches.has(step.pipeline)) {
+					batches.add(step.pipeline);
+					span.low += card.gpu.coldStart;
+					span.high += card.gpu.coldStart;
+				}
+			}
+			span.low += each.low * images;
+			span.high += each.high * images;
+		}
+		total.low += span.low;
+		total.high += span.high;
+		rows.push({
+			group: g.group,
+			regions: g.regions,
+			chain: chainLine(g.chain),
+			source: g.source,
+			seconds: span,
+		});
+	}
+	if (!facts.gpu) unpriced.push('atlas-tool reports no RunPod GPU (RUNPOD_ENDPOINT_GPU)');
+	else if (facts.usdPerSecond === null)
+		unpriced.push(`pricing.json has no price for the GPU "${facts.gpu}"`);
+	const rate = facts.usdPerSecond;
+	return {
+		gpu: facts.gpu,
+		seconds: total,
+		usd:
+			unpriced.length || rate === null ? null : { low: total.low * rate, high: total.high * rate },
+		renders,
+		reviewedVariants,
+		steps,
+		placeholder,
+		unpriced,
+		groups: rows,
+	};
+}
+
+/**
+ * Why an owner's Art plan approval cannot stand, or null (§7): the approval names the revision of
+ * every recipe the owner saw (`seen`, region → rev), so a plan that changed since never runs on
+ * it; and a plan that cannot be priced is never approved (money fails closed). The worker refuses
+ * on this, and the launcher refuses up front with the same words.
+ */
+export function approvalProblem(
+	recipes: readonly StoredRecipe[],
+	plan: ReadonlySet<string>,
+	seen: unknown,
+): string | null {
+	if (typeof seen !== 'object' || seen === null || Array.isArray(seen)) {
+		return 'the approval does not name the recipe revisions it approves';
+	}
+	const revs = seen as Record<string, unknown>;
+	const named = new Set(Object.keys(revs));
+	const planned = recipes.filter((r) => plan.has(r.region));
+	if (planned.length === 0) return 'the run has no Art plan to approve';
+	for (const r of planned) {
+		if (revs[r.region] !== r.rev) {
+			return `the Art plan changed since you saw it (${r.region} is at revision ${r.rev}); review it again`;
+		}
+		named.delete(r.region);
+		if (r.projected.gpuUsd === null) {
+			const why = (r.projected.unpriced ?? []).join('; ') || 'no price';
+			return `${r.region} cannot be priced (${why}), so the plan cannot be approved`;
+		}
+	}
+	if (named.size) {
+		return `the Art plan changed since you saw it (${[...named].slice(0, 5).join(', ')} is not in it now); review it again`;
+	}
+	return null;
 }

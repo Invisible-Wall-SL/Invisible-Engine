@@ -53,6 +53,24 @@
 		type RegionView,
 		type VariantRef,
 	} from '../liveRun';
+	import {
+		artPlanView,
+		cardsOf,
+		editRow,
+		editableSettings,
+		licenceList,
+		madeOf,
+		pipelineOptions,
+		purposeOf,
+		settingScope,
+		sizeOptions,
+		variantOptions,
+		type ArtPlanAnswer,
+		type Drafts,
+		type MadeOf,
+		type PlanRow,
+		type StepPatch,
+	} from '../artPlan';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -103,6 +121,7 @@
 	const steps = $derived(run ? stepViews(run, folded, mockupCount) : []);
 	const waitingOnBreakdown = $derived(run?.status === 'waiting' && run.waitingOn === 'breakdown');
 	const waitingOnBatch = $derived(run?.status === 'waiting' && run.waitingOn === 'region_batch');
+	const waitingOnArtPlan = $derived(run?.status === 'waiting' && run.waitingOn === 'art_plan');
 	const waitingOnPublish = $derived(
 		run?.status === 'waiting' && run.waitingOn === 'before_publish',
 	);
@@ -137,7 +156,7 @@
 	/** A checkpoint this page has no panel for: its text and the two buttons. */
 	const waitingOther = $derived(
 		run?.status === 'waiting' &&
-			((!waitingOnBreakdown && !waitingOnBatch && !waitingOnPublish) ||
+			((!waitingOnBreakdown && !waitingOnArtPlan && !waitingOnBatch && !waitingOnPublish) ||
 				breakdownUnreadable ||
 				(waitingOnBreakdown && !breakdown && !styleBoard)),
 	);
@@ -584,6 +603,100 @@
 		if (ok) await act('stop', { action: 'stop' }, 'Recorded. The run is stopping.');
 	}
 
+	// ── The Art plan, how each region was made, and the licences ──────────────
+	let artPlan = $state<ArtPlanAnswer | null>(null);
+	let artPlanErr = $state('');
+	/** The owner's edited chains, by region, until they are sent. */
+	let drafts = $state<Drafts>(new Map());
+	let artPlanTimer: ReturnType<typeof setTimeout> | null = null;
+	let planEl = $state<HTMLElement | null>(null);
+
+	async function loadArtPlan(id = runId) {
+		try {
+			const answer = await api<ArtPlanAnswer>(
+				`/api/director/runs/${encodeURIComponent(id)}/recipes`,
+			);
+			if (id !== runId) return;
+			artPlan = answer;
+			artPlanErr = '';
+		} catch (e) {
+			if (id === runId) artPlanErr = describe(e);
+		}
+	}
+
+	// A recipe row, a finished render and a checkpoint all move the recipes: one read after each.
+	const recipesKey = $derived(
+		`${folded.recipesVersion}:${folded.jobs.filter((j) => j.status !== 'queued').length}:${run?.waitingOn ?? ''}:${run?.status ?? ''}:${run?.step ?? ''}`,
+	);
+	$effect(() => {
+		void recipesKey;
+		if (!run) return;
+		if (artPlanTimer) clearTimeout(artPlanTimer);
+		artPlanTimer = setTimeout(() => void loadArtPlan(), 300);
+		return () => {
+			if (artPlanTimer) clearTimeout(artPlanTimer);
+		};
+	});
+
+	const planView = $derived(artPlan ? artPlanView(artPlan, drafts) : null);
+	const planCards = $derived(artPlan ? cardsOf(artPlan) : new Map());
+	const licences = $derived(artPlan ? licenceList(artPlan) : []);
+	const remainingUsd = $derived(run?.spend.remainingUsd ?? null);
+	const planOverCap = $derived(
+		planView?.gpuUsd != null && remainingUsd !== null && planView.gpuUsd > remainingUsd,
+	);
+
+	function patchRow(row: PlanRow, n: number, patch: StepPatch) {
+		if (!artPlan) return;
+		drafts = editRow(artPlan, drafts, row.regions, n, patch);
+	}
+	const discardEdits = () => (drafts = new Map());
+
+	const approvePlan = () =>
+		act(
+			approveIntent,
+			{
+				action: 'approve',
+				checkpoint: 'art_plan',
+				recipeRevs: planView?.recipeRevs ?? {},
+				...(note.trim() ? { note: note.trim() } : {}),
+			},
+			'Recorded. Rendering starts on this plan as soon as the agents pick it up.',
+		).then((ok) => {
+			if (ok) note = '';
+		});
+	const sendPlanEdits = () =>
+		act(
+			reviseIntent,
+			{
+				action: 'revise',
+				checkpoint: 'art_plan',
+				recipeEdits: planView?.edits ?? [],
+				...(note.trim() ? { note: note.trim() } : {}),
+			},
+			'Recorded. Your edits are checked and stored, and the Art plan comes back for you to approve.',
+		).then((ok) => {
+			if (ok) {
+				note = '';
+				drafts = new Map();
+			}
+		});
+	const sendPlanNote = () =>
+		act(
+			reviseIntent,
+			{ action: 'revise', checkpoint: 'art_plan', note: note.trim() },
+			'Recorded. The atlas technician revises the plan with your note and brings it back.',
+		).then((ok) => {
+			if (ok) note = '';
+		});
+
+	const defaultLabel = (setting: { default?: unknown }) =>
+		setting.default === undefined || setting.default === ''
+			? 'default'
+			: `default ${String(setting.default)}`;
+	const settingValue = (steps: PlanRow['steps'], n: number, key: string) =>
+		steps.find((s) => s.n === n)?.settings.find((x) => x.key === key)?.value ?? '';
+
 	// ── Regions, galleries and the review panel ───────────────────────────────
 	type Filter = 'all' | 'to_review' | 'approved' | 'drafting' | 'rejected' | 'failed';
 	let selectedGroup = $state('');
@@ -803,8 +916,327 @@
 	</div>
 {/snippet}
 
+{#snippet artPlanPanel(editable: boolean)}
+	{#if planView && artPlan}
+		<section class="card review" aria-label="Art plan" bind:this={planEl}>
+			<div class="review-head">
+				<div>
+					<span class="k" class:amber={editable}>
+						{editable ? 'Waiting for you · Art plan' : 'Art plan'}
+					</span>
+					<h2 class="review-title">How each region will be made</h2>
+				</div>
+				<span class="plan-total" class:over={planOverCap}>
+					{planView.gpuUsd === null ? 'GPU not priced' : `GPU ~${usd(planView.gpuUsd)}`}
+					{#if remainingUsd !== null}· {usd(remainingUsd)} left of the cap{/if}
+				</span>
+			</div>
+			{#if editable && checkpointText}<p class="board">{checkpointText}</p>{/if}
+			{#if artPlan.catalogueError}<p class="err">{artPlan.catalogueError}</p>{/if}
+			{#if planView.invalid}
+				<p class="err">
+					{planView.invalid} edited region{planView.invalid === 1 ? ' breaks' : 's break'} a card rule:
+					the red lines under the chains say how.
+				</p>
+			{/if}
+			{#if planView.unpriced.length}
+				<div class="err">
+					This plan cannot be priced, so it cannot be approved:
+					<ul class="reasons">
+						{#each planView.unpriced as why (why)}<li>{why}</li>{/each}
+					</ul>
+				</div>
+			{:else if planOverCap}
+				<p class="warn">
+					The plan's GPU projection is more than is left of the cap: the run will pause for you
+					before the render that crosses it.
+				</p>
+			{/if}
+			{#snippet planGroups()}
+				{#each planView.groups as g (g.group)}
+					<div class="plan-group">
+						<h3>
+							{g.group}
+							<span class="small">
+								{g.regions} region{g.regions === 1 ? '' : 's'} ·
+								{g.gpuUsd === null ? 'not priced' : `~${usd(g.gpuUsd)}`}
+							</span>
+						</h3>
+						{#each g.rows as row (row.regions.join(','))}
+							<div class="plan-row" class:edited={row.edited}>
+								<div class="plan-chain">
+									<strong class="mono">{row.chain}</strong>
+									<span class="small" title={row.regions.join(', ')}>
+										{row.regions.length} × {row.regions.slice(0, 4).map(regionTitle).join(', ')}{row
+											.regions.length > 4
+											? ` and ${row.regions.length - 4} more`
+											: ''}
+										· {row.gpuUsd === null ? 'not priced' : `~${usd(row.gpuUsd)}`}
+										{#if row.placeholder}<span
+												class="chip warn"
+												title="A card's GPU seconds are a guess, with nothing measured yet"
+												>guess</span
+											>{/if}
+										{#if row.edited}<span class="chip feature">Your edit</span>{/if}
+									</span>
+								</div>
+								<ol class="plan-steps">
+									{#each row.steps as step (step.n)}
+										{@const card = planCards.get(step.pipeline)}
+										<li>
+											<span class="chip">{step.kind}</span>
+											{#if step.kind === 'finish'}
+												<span class="small">
+													Commit the chain's image as {step.atlas}/{step.region}
+												</span>
+											{:else if editable}
+												<select
+													aria-label="Pipeline of step {step.n}"
+													value={step.pipeline}
+													onchange={(e) =>
+														patchRow(row, step.n, { pipeline: e.currentTarget.value })}
+												>
+													{#each [...new Set( [step.pipeline, ...pipelineOptions(artPlan, step)] )] as id (id)}
+														<option value={id}>{id}</option>
+													{/each}
+												</select>
+												<select
+													aria-label="Size of step {step.n}"
+													value={step.genPx}
+													onchange={(e) =>
+														patchRow(row, step.n, { genPx: Number(e.currentTarget.value) })}
+												>
+													{#each sizeOptions(card, step.genPx) as px (px)}
+														<option value={px}>{px} px</option>
+													{/each}
+												</select>
+												<select
+													aria-label="Variants of step {step.n}"
+													value={step.variants}
+													onchange={(e) =>
+														patchRow(row, step.n, { variants: Number(e.currentTarget.value) })}
+												>
+													{#each variantOptions(card, step.variants) as v (v)}
+														<option value={v}>×{v}</option>
+													{/each}
+												</select>
+												{#if step.kind === 'process'}
+													<button
+														type="button"
+														class="icon"
+														title="Remove this step"
+														aria-label="Remove step {step.n}"
+														onclick={() => patchRow(row, step.n, { remove: true })}>✕</button
+													>
+												{/if}
+											{:else}
+												<span class="mono small">
+													{step.pipeline} · {step.genPx} px × {step.variants} · {step.atlas}/{step.region}
+												</span>
+											{/if}
+											{#if step.kind !== 'finish'}
+												<span class="small light">{purposeOf(artPlan, step.pipeline)}</span>
+												{#if card?.licence && card.licence !== 'ok'}
+													<span class="chip warn">licence {card.licence}</span>
+												{/if}
+											{/if}
+											{#if editable && step.kind !== 'finish' && editableSettings(card).length}
+												<details class="plan-settings">
+													<summary class="small">Settings</summary>
+													{#each editableSettings(card) as setting (setting.key)}
+														{@const value = settingValue(row.steps, step.n, setting.key)}
+														<label class="small">
+															<span class="mono">{setting.key}</span>
+															<span class="light">
+																({settingScope(setting)}{setting.min !== undefined ||
+																setting.max !== undefined
+																	? ` · ${setting.min ?? '…'}–${setting.max ?? '…'}`
+																	: ''})
+															</span>
+															{#if setting.options?.length}
+																<select
+																	{value}
+																	onchange={(e) =>
+																		patchRow(row, step.n, {
+																			setting: { key: setting.key, value: e.currentTarget.value },
+																		})}
+																>
+																	<option value="">{defaultLabel(setting)}</option>
+																	{#each setting.options as o (String(o))}
+																		<option value={String(o)}>{String(o)}</option>
+																	{/each}
+																</select>
+															{:else}
+																<input
+																	{value}
+																	placeholder={defaultLabel(setting)}
+																	onchange={(e) =>
+																		patchRow(row, step.n, {
+																			setting: {
+																				key: setting.key,
+																				value: e.currentTarget.value.trim(),
+																			},
+																		})}
+																/>
+															{/if}
+														</label>
+													{/each}
+												</details>
+											{/if}
+										</li>
+									{/each}
+								</ol>
+								{#each row.errors as why (why)}<p class="err row-err">{why}</p>{/each}
+							</div>
+						{/each}
+					</div>
+				{/each}
+			{/snippet}
+			{#if editable}
+				{@render planGroups()}
+			{:else}
+				<details class="plan-details">
+					<summary class="small">
+						{planView.pending
+							? `${planView.pending} recipe${planView.pending === 1 ? ' waits' : 's wait'} for approval`
+							: 'Every recipe is approved'} · show the recipes
+					</summary>
+					{@render planGroups()}
+				</details>
+			{/if}
+			{#if planView.missing.length}
+				<p class="muted">
+					Not planned yet: {planView.missing.map(regionTitle).join(', ')}.
+				</p>
+			{/if}
+			{#if planView.outside.length}
+				<p class="muted">
+					Left out of the plan (never rendered): {planView.outside.map(regionTitle).join(', ')}.
+				</p>
+			{/if}
+			{#if editable}
+				<label class="field">
+					Your note (optional; with no edits, it goes to the atlas technician)
+					<textarea
+						rows="2"
+						bind:value={note}
+						disabled={noteLocked}
+						placeholder="e.g. Use flux for the backgrounds, and three variants of each coin."
+					></textarea>
+				</label>
+				<div class="row between">
+					<div class="row">
+						<button
+							type="button"
+							class="primary"
+							disabled={acting !== '' ||
+								!can('approve') ||
+								planView.edits.length > 0 ||
+								planView.gpuUsd === null ||
+								planView.missing.length > 0}
+							title={planView.edits.length
+								? 'Send your edits first: you approve the plan as it is stored.'
+								: ''}
+							onclick={approvePlan}
+						>
+							Looks right, start rendering
+						</button>
+						{#if planView.edits.length}
+							<button
+								type="button"
+								disabled={acting !== '' || !can('revise') || !planView.editsValid}
+								onclick={sendPlanEdits}
+							>
+								Send my edits ({planView.edits.length} region{planView.edits.length === 1
+									? ''
+									: 's'})
+							</button>
+							<button type="button" disabled={acting !== ''} onclick={discardEdits}>
+								Discard edits
+							</button>
+						{:else}
+							<button
+								type="button"
+								disabled={acting !== '' || !can('revise') || !note.trim()}
+								onclick={sendPlanNote}
+							>
+								Send my changes
+							</button>
+						{/if}
+					</div>
+					<span class="small">
+						{planView.gpuSeconds} s of GPU{planView.placeholder ? ', partly a guess' : ''}. Nothing
+						renders until you approve.
+					</span>
+				</div>
+			{/if}
+		</section>
+	{:else if editable}
+		<section class="card review" aria-label="Art plan" bind:this={planEl}>
+			<span class="k amber">Waiting for you · Art plan</span>
+			<h2 class="review-title">How each region will be made</h2>
+			{#if checkpointText}<p class="board">{checkpointText}</p>{/if}
+			<p class={artPlanErr ? 'err' : 'muted'}>{artPlanErr || 'Loading the recipes…'}</p>
+		</section>
+	{/if}
+{/snippet}
+
+{#snippet madeOfCard(name: string, made: MadeOf | null)}
+	{#if made}
+		<details class="made" open={made.tile !== null}>
+			<summary>
+				<strong>How this was made</strong>
+				<span class="small">
+					recipe revision {made.rev}{made.editedBy ? ' · edited by you' : ''}{made.approvedBy
+						? ` · approved${made.approvedBy === 'auto' ? ' automatically' : ''}`
+						: ' · not approved'}
+				</span>
+			</summary>
+			<ol class="made-steps">
+				{#each made.steps as step (step.n)}
+					<li>
+						{#if step.image}
+							{@const src = variantUrl(runId, step.image, 'thumb', folded.recipesVersion)}
+							<button
+								type="button"
+								class="frame small-frame"
+								onclick={() =>
+									step.image &&
+									openImage(
+										variantUrl(runId, step.image, 'full', folded.recipesVersion),
+										`Step ${step.n} · ${regionTitle(name)}`,
+									)}
+							>
+								<img {src} alt="Step {step.n} of {regionTitle(name)}" loading="lazy" />
+							</button>
+						{:else}
+							<span class="frame small-frame empty" aria-hidden="true"></span>
+						{/if}
+						<span class="made-text">
+							<span>{step.n}. {step.line}</span>
+							<span class="small light">
+								{step.status}{step.purpose ? ` · ${step.purpose}` : ''}
+								{#if step.licence === 'blocked' || step.licence === 'conditional'}
+									<span class="chip warn">licence {step.licence}</span>
+								{/if}
+							</span>
+						</span>
+					</li>
+				{/each}
+			</ol>
+			{#if made.tile}
+				<p class="small">
+					The finished tile is the last step's image, committed verbatim to the region and shown
+					beside the variants above.
+				</p>
+			{/if}
+		</details>
+	{/if}
+{/snippet}
+
 {#snippet regionDetail(r: RegionView, reviewing: boolean)}
 	{@const pick = pickOf(r)}
+	{@const made = artPlan ? madeOf(artPlan, r.name) : null}
 	<section class="card review" aria-label="Region {r.name}" bind:this={reviewEl}>
 		<div class="review-head">
 			<div>
@@ -875,6 +1307,30 @@
 					</p>
 				{/if}
 			{/each}
+			{#if made?.tile}
+				{@const tile = made.tile}
+				<figure class="variant finished">
+					<button
+						type="button"
+						class="frame"
+						onclick={() =>
+							openImage(
+								variantUrl(runId, tile, 'full', folded.recipesVersion),
+								`Finished tile · ${regionTitle(r.name)}`,
+							)}
+					>
+						<img
+							src={variantUrl(runId, tile, 'thumb', folded.recipesVersion)}
+							alt="The finished tile of {regionTitle(r.name)}"
+							loading="lazy"
+						/>
+					</button>
+					<figcaption>
+						<strong>Finished tile</strong>
+						<span class="chip approved">In the sheet</span>
+					</figcaption>
+				</figure>
+			{/if}
 		</div>
 		{#if r.error && r.variants.length}
 			<p class="err">{r.error}</p>
@@ -891,6 +1347,7 @@
 				{r.qa.verdict}{r.qa.note ? ` — ${r.qa.note}` : ''}
 			</p>
 		{/if}
+		{@render madeOfCard(r.name, made)}
 		{#if reviewing}
 			<label class="field">
 				Your note (optional for approving, needed to redo)
@@ -1019,6 +1476,20 @@
 						<strong>Waiting for you: check what the agents found in your mockups.</strong>
 						Nothing renders until you confirm.
 					</span>
+				</div>
+			{:else if waitingOnArtPlan}
+				<div class="banner waiting" role="status">
+					<span>
+						<strong>Waiting for you: the Art plan is ready.</strong>
+						See how each region will be made and what it costs. Nothing renders until you approve.
+					</span>
+					<button
+						type="button"
+						class="amber"
+						onclick={() => planEl?.scrollIntoView({ behavior: 'smooth' })}
+					>
+						Review the plan
+					</button>
 				</div>
 			{:else if waitingOnBatch}
 				<div class="banner waiting" role="status">
@@ -1555,7 +2026,9 @@
 							</section>
 						{/if}
 
-						{#if waitingOnBatch}
+						{#if waitingOnArtPlan}
+							{@render artPlanPanel(true)}
+						{:else if waitingOnBatch}
 							{#if region}
 								{@render regionDetail(region, true)}
 							{:else}
@@ -1615,6 +2088,33 @@
 										placeholder="e.g. The win banner overlaps the reels on portrait"
 									></textarea>
 								</label>
+								{#if licences.length}
+									<div class="call amber">
+										<strong>Licence-flagged art in this build</strong>
+										<p>
+											These steps ran a blueprint whose models carry a licence condition or block.
+											Check them before you publish:
+										</p>
+										<ul class="licences">
+											{#each licences as g (`${g.pipeline}:${g.licence}`)}
+												<li>
+													<span>
+														<strong>{g.pipeline}</strong>
+														<span class="chip warn">{g.licence}</span>
+														· {g.steps.length} step{g.steps.length === 1 ? '' : 's'}
+													</span>
+													<span class="small light">{g.steps.join(', ')}</span>
+												</li>
+											{/each}
+										</ul>
+									</div>
+								{:else if artPlan}
+									<p class="small">
+										No step of this run's recipes ran a licence-flagged blueprint.
+									</p>
+								{:else if artPlanErr}
+									<p class="err">The licence list could not be read: {artPlanErr}</p>
+								{/if}
 								{@render confirmButtons('Approve and hand off', 'Send back with my note')}
 								<p class="small">
 									Approving ends the run. Director never publishes: you do, in Game Maker.
@@ -1647,6 +2147,10 @@
 							</section>
 						{:else if region}
 							{@render regionDetail(region, false)}
+						{/if}
+
+						{#if !waitingOnArtPlan && artPlan?.recipes.length}
+							{@render artPlanPanel(false)}
 						{/if}
 
 						{@render fontsCard()}
@@ -2888,5 +3392,150 @@
 		font-size: 12px;
 		color: #9a9aa6;
 		text-align: center;
+	}
+	.plan-total {
+		font-size: 13px;
+		color: #b9b9c6;
+	}
+	.plan-total.over {
+		color: #f0a35b;
+	}
+	.warn {
+		color: #f0a35b;
+	}
+	.plan-details summary {
+		cursor: pointer;
+		margin-top: 8px;
+	}
+	.plan-group h3 {
+		margin: 14px 0 6px;
+		font-size: 14px;
+	}
+	.plan-group h3 .small {
+		font-weight: 400;
+		margin-left: 6px;
+	}
+	.plan-row {
+		border: 1px solid #2a2a36;
+		border-radius: 8px;
+		padding: 10px 12px;
+		margin-bottom: 8px;
+	}
+	.plan-row.edited {
+		border-color: #6b5cd6;
+	}
+	.plan-chain {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+		align-items: baseline;
+		justify-content: space-between;
+	}
+	.plan-steps,
+	.made-steps {
+		margin: 8px 0 0;
+		padding: 0;
+		list-style: none;
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+	.plan-steps li {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		align-items: center;
+	}
+	.plan-steps select {
+		max-width: 100%;
+	}
+	.plan-settings {
+		flex-basis: 100%;
+		margin-left: 8px;
+	}
+	.plan-settings input,
+	.plan-settings select {
+		width: auto;
+		max-width: 180px;
+	}
+	.variant.finished {
+		border-color: #3d8f6e;
+	}
+	.row-err {
+		font-size: 12px;
+		margin: 6px 0 0;
+	}
+	.reasons {
+		margin: 4px 0 0;
+		padding-left: 18px;
+	}
+	.plan-settings label {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		align-items: center;
+		margin: 4px 0;
+	}
+	.made {
+		margin-top: 12px;
+		border-top: 1px solid #2a2a36;
+		padding-top: 10px;
+	}
+	.made summary {
+		cursor: pointer;
+		display: flex;
+		gap: 8px;
+		align-items: baseline;
+		flex-wrap: wrap;
+	}
+	.made-steps li {
+		display: flex;
+		gap: 10px;
+		align-items: center;
+	}
+	.made-text {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+	}
+	.small-frame {
+		width: 56px;
+		height: 56px;
+		flex: none;
+		padding: 0;
+		display: block;
+		background-color: #1d1d26;
+		background-image:
+			linear-gradient(45deg, #2a2a36 25%, transparent 25%),
+			linear-gradient(-45deg, #2a2a36 25%, transparent 25%),
+			linear-gradient(45deg, transparent 75%, #2a2a36 75%),
+			linear-gradient(-45deg, transparent 75%, #2a2a36 75%);
+		background-size: 12px 12px;
+		background-position:
+			0 0,
+			0 6px,
+			6px -6px,
+			-6px 0;
+		border-radius: 6px;
+		overflow: hidden;
+	}
+	.small-frame img {
+		width: 100%;
+		height: 100%;
+		object-fit: contain;
+	}
+	.small-frame.empty {
+		background: #1d1d26;
+	}
+	.licences {
+		margin: 6px 0 0;
+		padding: 0;
+		list-style: none;
+	}
+	.licences li {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		margin-top: 6px;
 	}
 </style>

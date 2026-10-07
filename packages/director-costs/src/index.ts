@@ -299,17 +299,18 @@ export function budgetFromSetting(raw: string | undefined | null): number {
 // ── The New-game estimate ─────────────────────────────────────────────────────
 
 /**
- * The New-game estimate (ADR-0006 "Estimate"): a cost and time RANGE computed before a run starts,
- * from the template's region count, the mockups, the preset and the checkpoints — never from a
- * RunPod or Anthropic call. The per-unit token and GPU profiles live in
+ * The New-game estimate (ADR-0006 "Estimate", ADR-0008 §6): a cost and time RANGE computed before a
+ * run starts, from the template's region count, the mockups, the checkpoints and the GPU side
+ * priced per recipe chain (`director-costs/recipe` `priceChains`, from the reviewed cards and the
+ * measured timings) — never from a RunPod or Anthropic call. The per-unit token profiles live in
  * `services/director-worker/estimate-profiles.json` (a reviewed file beside `pricing.json`;
  * editing it is a pipeline change) and are placeholders until PLAN 6.3 replaces them with figures
- * measured on the pilot. Pure, like the rest of this package: the launcher loads the file and the
- * prices and hands both here.
+ * measured on the pilot. Pure, like the rest of this package: the launcher loads the file, the
+ * prices and the chain price and hands them here.
  *
- * Every token is priced uncached, so the Claude side errs high. The RunPod side scales one
- * variant's seconds at 1024 px by the pixel count of the preset's resolutions and prices them at
- * the preset's GPU, so an unpriced GPU is refused here rather than estimated at nothing.
+ * Every token is priced uncached, so the Claude side errs high. The GPU side fails closed: when
+ * it cannot be priced the estimate has no total (`total.usd` null) and says why, and no run is
+ * offered on it.
  */
 
 export interface Range {
@@ -336,17 +337,33 @@ export interface EstimateProfiles {
 		perMockup: TokenProfile[];
 		/** Once per template region. */
 		perRegion: TokenProfile[];
-		/** Once per rendered draft variant (regions × variants per region). */
+		/** Once per recipe step of every region (the technician's set-up and run of it). */
+		perStep: TokenProfile[];
+		/** Once per reviewed draft variant (the generate steps' variants over every region). */
 		perVariant: TokenProfile[];
 		/** Once per checkpoint the owner reviews. */
 		perCheckpoint: TokenProfile[];
 	};
 	runpod: {
-		/** Seconds one variant takes to render at 1024 × 1024, [low, high]. */
+		/**
+		 * Seconds one image takes at 1024 × 1024, [low, high], for a step whose pipeline has no
+		 * reviewed card (or no figure for its size): the fallback, scaled by pixel count.
+		 */
 		secondsPerVariantAt1024: Range;
-		/** Renders at the final resolution per region, after the pick. */
-		finalRendersPerRegion: number;
 	};
+}
+
+/** The GPU side as `priceChains` answers it. */
+export interface GpuPart {
+	gpu: string;
+	seconds: Range;
+	/** Null when it cannot be priced; `unpriced` says why. */
+	usd: Range | null;
+	renders: number;
+	reviewedVariants: number;
+	steps: number;
+	placeholder: boolean;
+	unpriced: string[];
 }
 
 export interface EstimateInput {
@@ -354,13 +371,8 @@ export interface EstimateInput {
 	regions: number;
 	/** Mockups the analyst reads (style references excluded). */
 	mockups: number;
-	variantsPerRegion: number;
-	/** Pixels on the side of a draft render and of a final render. */
-	draftPx: number;
-	finalPx: number;
-	/** A GPU named in `pricing.runpod.perSecondByGpu`. */
-	gpu: string;
-	checkpoints: { breakdown: boolean; regionBatch: boolean };
+	gpu: GpuPart;
+	checkpoints: { breakdown: boolean; artPlan: boolean; regionBatch: boolean };
 }
 
 export interface RunEstimate {
@@ -373,14 +385,17 @@ export interface RunEstimate {
 	};
 	runpod: {
 		gpu: string;
-		/** True while the GPU rates in `pricing.json` are unconfirmed. */
+		/** True while the GPU rates in `pricing.json` are unconfirmed or a figure is a guess. */
 		placeholder: boolean;
-		draftRenders: number;
-		finalRenders: number;
+		renders: number;
+		reviewedVariants: number;
 		minutes: Range;
-		usd: Range;
+		usd: Range | null;
 	};
-	total: { usd: Range };
+	/** Null when the GPU side cannot be priced: no run is offered on an unknown cost. */
+	total: { usd: Range | null };
+	/** Why the estimate has no total; empty when it has one. */
+	unpriced: string[];
 	/** How many times the run stops for the owner: the enabled checkpoints plus before publishing. */
 	checkpoints: number;
 }
@@ -427,10 +442,6 @@ export function parseEstimateProfiles(raw: unknown): EstimateProfiles {
 	}
 	if (!isRecord(raw.claude)) throw new Error('estimate profiles: claude must be an object');
 	if (!isRecord(raw.runpod)) throw new Error('estimate profiles: runpod must be an object');
-	const finals = raw.runpod.finalRendersPerRegion;
-	if (typeof finals !== 'number' || !Number.isInteger(finals) || finals < 0) {
-		throw new Error('estimate profiles: runpod.finalRendersPerRegion must be a whole number ≥ 0');
-	}
 	return {
 		placeholder: raw.placeholder,
 		note: typeof raw.note === 'string' ? raw.note : undefined,
@@ -438,6 +449,7 @@ export function parseEstimateProfiles(raw: unknown): EstimateProfiles {
 			perRun: profiles(raw.claude.perRun, 'claude.perRun'),
 			perMockup: profiles(raw.claude.perMockup, 'claude.perMockup'),
 			perRegion: profiles(raw.claude.perRegion, 'claude.perRegion'),
+			perStep: profiles(raw.claude.perStep, 'claude.perStep'),
 			perVariant: profiles(raw.claude.perVariant, 'claude.perVariant'),
 			perCheckpoint: profiles(raw.claude.perCheckpoint, 'claude.perCheckpoint'),
 		},
@@ -446,7 +458,6 @@ export function parseEstimateProfiles(raw: unknown): EstimateProfiles {
 				raw.runpod.secondsPerVariantAt1024,
 				'runpod.secondsPerVariantAt1024',
 			),
-			finalRendersPerRegion: finals,
 		},
 	};
 }
@@ -471,7 +482,12 @@ function count(value: number, what: string): number {
 
 /** How many times the run stops for the owner. `before_publish` is always one of them. */
 export function checkpointCount(checkpoints: EstimateInput['checkpoints']): number {
-	return (checkpoints.breakdown ? 1 : 0) + (checkpoints.regionBatch ? 1 : 0) + 1;
+	return (
+		(checkpoints.breakdown ? 1 : 0) +
+		(checkpoints.artPlan ? 1 : 0) +
+		(checkpoints.regionBatch ? 1 : 0) +
+		1
+	);
 }
 
 export function estimateRun(
@@ -481,21 +497,16 @@ export function estimateRun(
 ): RunEstimate {
 	const regions = count(input.regions, 'regions');
 	const mockups = count(input.mockups, 'mockups');
-	const variants = count(input.variantsPerRegion, 'variantsPerRegion');
-	const draftPx = count(input.draftPx, 'draftPx');
-	const finalPx = count(input.finalPx, 'finalPx');
+	const steps = count(input.gpu.steps, 'steps');
+	const variants = count(input.gpu.reviewedVariants, 'reviewedVariants');
 	const checkpoints = checkpointCount(input.checkpoints);
-
-	const gpuRate = Object.hasOwn(pricing.runpod.perSecondByGpu, input.gpu)
-		? pricing.runpod.perSecondByGpu[input.gpu]
-		: undefined;
-	if (gpuRate === undefined) throw new Error(`estimate: no RunPod price for GPU "${input.gpu}"`);
 
 	const units: [TokenProfile[], number][] = [
 		[p.claude.perRun, 1],
 		[p.claude.perMockup, mockups],
 		[p.claude.perRegion, regions],
-		[p.claude.perVariant, regions * variants],
+		[p.claude.perStep, steps],
+		[p.claude.perVariant, variants],
 		[p.claude.perCheckpoint, checkpoints],
 	];
 	const byAgent: Record<string, Range> = {};
@@ -524,18 +535,14 @@ export function estimateRun(
 		byAgent[agent] = { low: cents(byAgent[agent].low), high: cents(byAgent[agent].high) };
 	}
 
-	const pixels = (px: number) => (px * px) / (1024 * 1024);
-	const draftRenders = regions * variants;
-	const finalRenders = regions * p.runpod.finalRendersPerRegion;
-	const seconds = add(
-		scale(p.runpod.secondsPerVariantAt1024, draftRenders * pixels(draftPx)),
-		scale(p.runpod.secondsPerVariantAt1024, finalRenders * pixels(finalPx)),
-	);
-	const gpuUsd = { low: cents(seconds.low * gpuRate), high: cents(seconds.high * gpuRate) };
+	const seconds = input.gpu.seconds;
+	const gpuUsd = input.gpu.usd
+		? { low: cents(input.gpu.usd.low), high: cents(input.gpu.usd.high) }
+		: null;
 	const claudeUsd = { low: cents(usd.low), high: cents(usd.high) };
 
 	return {
-		placeholder: p.placeholder || pricing.runpod.placeholder,
+		placeholder: p.placeholder || pricing.runpod.placeholder || input.gpu.placeholder,
 		note: p.note,
 		claude: {
 			usd: claudeUsd,
@@ -546,16 +553,19 @@ export function estimateRun(
 			},
 		},
 		runpod: {
-			gpu: input.gpu,
-			placeholder: pricing.runpod.placeholder,
-			draftRenders,
-			finalRenders,
+			gpu: input.gpu.gpu,
+			placeholder: pricing.runpod.placeholder || input.gpu.placeholder,
+			renders: input.gpu.renders,
+			reviewedVariants: variants,
 			minutes: { low: Math.round(seconds.low / 60), high: Math.ceil(seconds.high / 60) },
 			usd: gpuUsd,
 		},
 		total: {
-			usd: { low: cents(claudeUsd.low + gpuUsd.low), high: cents(claudeUsd.high + gpuUsd.high) },
+			usd: gpuUsd
+				? { low: cents(claudeUsd.low + gpuUsd.low), high: cents(claudeUsd.high + gpuUsd.high) }
+				: null,
 		},
+		unpriced: [...input.gpu.unpriced],
 		checkpoints,
 	};
 }

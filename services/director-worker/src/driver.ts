@@ -84,7 +84,21 @@ import {
 	type StoredMessage,
 	type WakingEvent,
 } from './store.ts';
-import { approveArtPlan, markQueued, reviewPlanGate, type RecipeDeps } from './recipes.ts';
+import {
+	MAX_RECIPE_EDITS,
+	applyRecipeEdits,
+	approveArtPlan,
+	artPlanApprovalRefusal,
+	loadTimings,
+	markChosen,
+	markCommitted,
+	markQueued,
+	recordTiming,
+	reviewPlanGate,
+	settleJob,
+	type RecipeDeps,
+	type RecipeEdit,
+} from './recipes.ts';
 import { WORKER_TOOLS } from './tools.ts';
 import { runWorkerTool, workerToolSpecs, type WorkerToolId } from './workerTools.ts';
 
@@ -338,6 +352,8 @@ async function settle(
 	const results = new Map<string, BetaToolResultBlockParam>();
 	let budgetStop: BudgetFigures | null = null;
 	const queued: { atlas: string; regions: string[]; jobRef: string }[] = [];
+	const chosen: { atlas: string; region: string; id: string }[] = [];
+	const committed: { atlas: string; region: string; from: string }[] = [];
 	const recipes =
 		status === 'running' &&
 		agent.tools.includes('run.set_recipe') &&
@@ -430,6 +446,37 @@ async function settle(
 		if (unsettled(answer.status, answer.body)) {
 			throw new RetryLater(`${id} answered ${answer.status}`);
 		}
+		if (id === 'atlas.choose_variant' && answer.status === 200) {
+			const pick = answer.body as { atlas?: unknown; region?: unknown; chosen?: unknown };
+			if (
+				typeof pick.atlas === 'string' &&
+				typeof pick.region === 'string' &&
+				typeof pick.chosen === 'string'
+			) {
+				chosen.push({ atlas: pick.atlas, region: pick.region, id: pick.chosen });
+			}
+		}
+		if (id === 'atlas.set_output' && answer.status === 200) {
+			const input = call.input as {
+				atlas?: unknown;
+				region?: unknown;
+				from?: { atlas?: unknown; region?: unknown; id?: unknown };
+			};
+			const from = input.from;
+			if (
+				typeof input.atlas === 'string' &&
+				typeof input.region === 'string' &&
+				typeof from?.atlas === 'string' &&
+				typeof from.region === 'string' &&
+				typeof from.id === 'string'
+			) {
+				committed.push({
+					atlas: input.atlas,
+					region: input.region,
+					from: `${from.atlas}/${from.region}/${from.id}`,
+				});
+			}
+		}
 		if (id === 'atlas.queue_variants' && answer.status === 200) {
 			const job = answer.body as { atlas?: unknown; regions?: unknown; jobRef?: unknown };
 			if (
@@ -447,6 +494,10 @@ async function settle(
 		// The pause first, so a worker tool later in the turn (a checkpoint request) sees it.
 		if (budgetStop) await pauseForBudget(tx, live, agent.name, budgetStop, 'gpu_submit');
 		for (const job of queued) await markQueued(tx, live.id, job.atlas, job.regions, job.jobRef);
+		for (const pick of chosen) await markChosen(tx, live.id, pick.atlas, pick.region, pick.id);
+		for (const tile of committed) {
+			await markCommitted(tx, live.id, tile.atlas, tile.region, tile.from);
+		}
 		const toolCtx = {
 			tx,
 			live,
@@ -500,8 +551,13 @@ async function recipeDeps(ctx: Ctx): Promise<RecipeDeps | undefined> {
 	}
 	if (answer.status !== 200) return undefined;
 	const catalogue = answer.body as RecipeDeps['catalogue'];
-	const perSecond = (await ctx.pricing()).runpod.perSecondByGpu[catalogue.gpu];
-	return { catalogue, usdPerSecond: typeof perSecond === 'number' ? perSecond : null };
+	const rates = (await ctx.pricing()).runpod.perSecondByGpu;
+	const perSecond = Object.hasOwn(rates, catalogue.gpu) ? rates[catalogue.gpu] : undefined;
+	return {
+		catalogue,
+		usdPerSecond: typeof perSecond === 'number' ? perSecond : null,
+		timings: await loadTimings(ctx.sql),
+	};
 }
 
 /**
@@ -1219,6 +1275,22 @@ async function applyEvent(
 				return refuse(`unknown checkpoint decision "${String(decision)}"`);
 			}
 			const checkpoint = p.checkpoint as Checkpoint;
+			// The owner approves the plan they saw: a revision since, or a plan with no price, is
+			// refused before the run moves, and the Art plan stays open.
+			if (
+				checkpoint === 'art_plan' &&
+				decision === 'approve' &&
+				live.state.waitingOn === 'art_plan'
+			) {
+				const why = await artPlanApprovalRefusal(tx, live.id, p.recipeRevs);
+				if (why) return refuse(why);
+			}
+			const edits =
+				checkpoint === 'art_plan' && decision === 'revise' ? recipeEditsOf(p.recipeEdits) : null;
+			if (edits === undefined) return refuse('the recipe edits are not a list of region chains');
+			const deps = edits?.length ? await recipeDeps(ctx) : undefined;
+			if (edits?.length && !deps)
+				return refuse('the blueprint catalogue could not be read; try again');
 			const error = await move(
 				tx,
 				live,
@@ -1226,9 +1298,22 @@ async function applyEvent(
 				`owner ${decision}`,
 			);
 			if (error) return refuse(error);
+			const by = (p.by as { name?: unknown; uid?: unknown } | undefined) ?? {};
+			const owner = String(by.uid ?? by.name ?? 'owner');
 			if (checkpoint === 'art_plan' && decision === 'approve') {
-				const by = (p.by as { name?: unknown; uid?: unknown } | undefined) ?? {};
-				await approveArtPlan(tx, live, String(by.uid ?? by.name ?? 'owner'));
+				await approveArtPlan(tx, live, owner);
+			}
+			if (edits?.length && deps) {
+				// The owner's own edits go back to the owner, not to an agent: stored as the next
+				// revisions and the Art plan re-opened on them, or refused with every reason and the
+				// plan re-opened unchanged.
+				const applied = await applyRecipeEdits(tx, live, owner, edits, deps);
+				const text = applied.ok
+					? `Your Art plan edits to ${applied.regions.join(', ')} are stored; approve the plan as it now stands.`
+					: `Your Art plan edits were not stored:\n- ${applied.errors.join('\n- ')}`;
+				await insertEvent(tx, live.id, 'worker', 'activity', { type: 'note', text });
+				await reviewPlanGate(tx, live);
+				if (!p.note) return;
 			}
 			const note = p.note ? `\nTheir note: ${String(p.note)}` : '';
 			const what = decision === 'approve' ? 'approved' : 'asked for revisions at';
@@ -1244,7 +1329,20 @@ async function applyEvent(
 			return;
 		}
 		case 'job_done': {
-			await billJob(tx, live, event, pricing);
+			const billed = await billJob(tx, live, event, pricing);
+			const result = isRecord(p.result) ? p.result : {};
+			const variants = (Array.isArray(result.variants) ? result.variants : [])
+				.filter(isRecord)
+				.map((v) => ({ region: String(v.region ?? ''), id: String(v.variant ?? v.id ?? '') }))
+				.filter((v) => v.region && v.id);
+			const settled = await settleJob(
+				tx,
+				live.id,
+				String(p.jobRef),
+				p.status === 'finished',
+				variants,
+			);
+			if (billed) await recordTiming(tx, settled, billed);
 			// An ended run has nobody left to tell; its job is only billed.
 			if (TERMINAL_STATUSES.includes(live.state.status)) return;
 			const to = ctx.agents.has(event.agent) ? event.agent : COORDINATOR;
@@ -1259,6 +1357,26 @@ async function applyEvent(
 			return finishStop(tx, live);
 		}
 	}
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+	typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/**
+ * The owner's Art plan edits as the launcher wrote them (`ownerActions.ts` checks the same shape):
+ * null when there are none, undefined when they are not a list of region chains. Each chain is
+ * checked step by step by the recipe rules before anything is stored.
+ */
+function recipeEditsOf(raw: unknown): RecipeEdit[] | null | undefined {
+	if (raw === undefined || raw === null) return null;
+	if (!Array.isArray(raw) || raw.length > MAX_RECIPE_EDITS) return undefined;
+	const edits: RecipeEdit[] = [];
+	for (const e of raw) {
+		if (!isRecord(e) || typeof e.region !== 'string' || !Array.isArray(e.steps)) return undefined;
+		if (!e.steps.every(isRecord)) return undefined;
+		edits.push({ region: e.region, steps: e.steps as unknown as RecipeEdit['steps'] });
+	}
+	return edits;
 }
 
 const finiteCount = (v: unknown): number | null =>
@@ -1281,7 +1399,7 @@ async function billJob(
 	live: LiveRun,
 	event: WakingEvent,
 	pricing: DirectorPricing,
-): Promise<void> {
+): Promise<{ jobs: number; executionSeconds: number; delaySeconds: number } | null> {
 	const raw = (event.payload.result as { runpod?: Record<string, unknown> } | null)?.runpod;
 	const jobRef = String(event.payload.jobRef);
 	const gpu = typeof raw?.gpu === 'string' && raw.gpu ? raw.gpu : null;
@@ -1310,7 +1428,7 @@ async function billJob(
 						: `Render ${jobRef} reports ${seconds} s of GPU time but no GPU to price it by (RUNPOD_ENDPOINT_GPU on atlas-tool), so it does not count toward the cap. GPU submits are blocked until it is set and the run resumed.`,
 			});
 		}
-		return;
+		return null;
 	}
 	const estimate = unreportedSeconds(
 		unreported,
@@ -1329,7 +1447,7 @@ async function billJob(
 			jobRef,
 			message: (error as Error).message,
 		});
-		return;
+		return null;
 	}
 	const bill = async (requestId: string, amount: number, extra: Record<string, unknown>) => {
 		const written = await recordSpend(tx, {
@@ -1351,7 +1469,7 @@ async function billJob(
 		}
 		return written;
 	};
-	if (seconds > 0) await bill(`runpod:${jobRef}`, usd, { seconds });
+	const first = seconds > 0 && (await bill(`runpod:${jobRef}`, usd, { seconds }));
 	if (unreported > 0) {
 		const written = await bill(`runpod:${jobRef}:unreported`, estimateUsd, {
 			estimated: true,
@@ -1369,4 +1487,11 @@ async function billJob(
 			});
 		}
 	}
+	// The measured split (#1064), for the timings: only on the job's first bill, so a redelivered
+	// `job_done` is counted once.
+	const execution = finiteCount(raw?.executionSeconds);
+	const delay = finiteCount(raw?.delaySeconds);
+	return first && execution !== null && delay !== null && jobs > 0
+		? { jobs, executionSeconds: execution, delaySeconds: delay }
+		: null;
 }

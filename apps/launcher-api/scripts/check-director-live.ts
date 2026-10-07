@@ -19,6 +19,22 @@
  *    the tool label and the cost of a spend row; a text is clipped;
  *  - `insertEvent` keeps the rows ascending by id and drops a repeat.
  */
+import { readFileSync } from 'node:fs';
+import {
+	validateRecipe,
+	type Catalogue,
+	type RecipeInput,
+	type StoredRecipe,
+} from 'director-costs/recipe';
+import {
+	artPlanView,
+	editRow,
+	licenceList,
+	madeOf,
+	pipelineOptions,
+	sizeOptions,
+	type ArtPlanAnswer,
+} from '../src/routes/(app)/director/artPlan.ts';
 import type { RunEvent, RunSummary } from '../src/routes/(app)/director/director.client.ts';
 import {
 	foldEvents,
@@ -1032,6 +1048,316 @@ console.log('batches, atlases and trimming');
 	];
 	trimEvents(few, 5);
 	check('under the cap nothing is dropped', few.length, 1);
+}
+
+// ── The Art plan (card 8E) ────────────────────────────────────────────────────
+{
+	const EVAL = new URL('../../../docs/director/eval/blueprints/', import.meta.url);
+	const catalogue = JSON.parse(readFileSync(new URL('catalogue.json', EVAL), 'utf8')) as Catalogue;
+	const expected = JSON.parse(readFileSync(new URL('expected-art-plan.json', EVAL), 'utf8')) as {
+		plan: { batches: { name: string; regions: string[] }[] };
+		recipes: RecipeInput[];
+	};
+	const plan = expected.plan.batches.flatMap((b) =>
+		b.regions.map((region) => ({ region, group: b.name })),
+	);
+	const planSet = new Set(plan.map((p) => p.region));
+	const USD = 0.00053;
+	const stored: StoredRecipe[] = [];
+	for (const recipe of expected.recipes) {
+		const result = validateRecipe(recipe, {
+			catalogue,
+			planRegions: planSet,
+			others: stored,
+			usdPerSecond: USD,
+		});
+		if (!result.ok) throw new Error(`fixture: ${recipe.region} ${result.errors.join('; ')}`);
+		stored.push({
+			...recipe,
+			rev: 1,
+			plannedBy: 'atlas-technician',
+			approved: null,
+			steps: result.steps,
+			projected: result.projected,
+		});
+	}
+	const answer: ArtPlanAnswer = {
+		recipes: stored.map((r) => ({ ...r, planned: true })),
+		plan,
+		catalogue: { ...catalogue, usdPerSecond: USD },
+		catalogueError: null,
+		timings: [],
+	};
+	const view = artPlanView(answer);
+	check(
+		'the plan collapses each group by identical chain',
+		view.groups.reduce((n, g) => n + g.rows.reduce((m, r) => m + r.regions.length, 0), 0),
+		stored.length,
+	);
+	check(
+		'a group with one chain for every region is one row',
+		view.groups.find((g) => g.group === expected.plan.batches[0].name)?.rows.length,
+		1,
+	);
+	check('every recipe waits for the owner', view.pending, stored.length);
+	check(
+		'the approval names every revision seen',
+		Object.keys(view.recipeRevs).length,
+		stored.length,
+	);
+	check(
+		'the projection is the sum of the recipes',
+		view.gpuUsd,
+		Math.round(stored.reduce((n, r) => n + (r.projected.gpuUsd ?? 0), 0) * 10000) / 10000,
+	);
+	check('nothing to send before an edit', [view.edits.length, view.editsValid], [0, true]);
+
+	const row = view.groups[0].rows[0];
+	const first = row.steps[0];
+	const drafts = editRow(answer, new Map(), row.regions, first.n, { variants: 2 });
+	const edited = artPlanView(answer, drafts);
+	check('a row edit applies to every region of the row', edited.edits.length, row.regions.length);
+	check('…and passes the rules', edited.editsValid, true);
+	check('…fewer variants cost less', (edited.gpuUsd ?? Infinity) < (view.gpuUsd ?? 0), true);
+	const tooMany = artPlanView(
+		answer,
+		editRow(answer, new Map(), row.regions, first.n, { variants: 99 }),
+	);
+	check(
+		'an edit outside the card is refused at the field, with the reason',
+		[tooMany.editsValid, tooMany.groups[0].rows[0].errors.some((e) => e.includes('at most'))],
+		[false, true],
+	);
+	check('…and leaves the plan unpriced, so it cannot be approved', tooMany.gpuUsd, null);
+	const same = artPlanView(
+		answer,
+		editRow(answer, new Map(), row.regions, first.n, { variants: first.variants }),
+	);
+	check('an edit back to the plan sends nothing', same.edits.length, 0);
+	check(
+		'a generate step is offered only pipelines that take a prompt',
+		pipelineOptions(answer, first).every(
+			(id) => catalogue.blueprints.find((b) => b.id === id)?.card.inputs.prompt !== 'none',
+		),
+		true,
+	);
+	check(
+		'…and never a credit-billed one',
+		pipelineOptions(answer, first).includes('gpt_image'),
+		false,
+	);
+	check(
+		'sizes stay within the card',
+		sizeOptions(catalogue.blueprints.find((b) => b.id === 'sdxl')?.card, 1024).includes(1024),
+		true,
+	);
+	const removed = artPlanView(answer, editRow(answer, new Map(), row.regions, 2, { remove: true }));
+	check(
+		'removing a step shortens the chain',
+		removed.groups[0].rows[0].steps.length,
+		row.steps.length - 1,
+	);
+
+	const noGpu = artPlanView({
+		...answer,
+		catalogue: { ...answer.catalogue!, usdPerSecond: null },
+	});
+	check(
+		'an unpriced GPU leaves the plan unpriced, in one line for every region',
+		[
+			noGpu.gpuUsd,
+			noGpu.unpriced.length,
+			noGpu.unpriced[0]?.includes(`and ${stored.length - 3} more`),
+		],
+		[null, 1, true],
+	);
+	const storedUnpriced = artPlanView({
+		...answer,
+		recipes: answer.recipes.map((r, i) =>
+			i === 0
+				? {
+						...r,
+						projected: {
+							...r.projected,
+							gpuUsd: null,
+							unpriced: ["the endpoint's GPU has no price"],
+						},
+					}
+				: r,
+		),
+	});
+	check(
+		'a recipe stored unpriced stays unpriced, whatever a fresh price says',
+		[
+			storedUnpriced.gpuUsd,
+			storedUnpriced.unpriced.length,
+			storedUnpriced.unpriced[0]?.startsWith(stored[0].region),
+		],
+		[null, 1, true],
+	);
+	check(
+		'every chain is priced again with the measured timings, edited or not',
+		(artPlanView({
+			...answer,
+			timings: [
+				{ pipeline: 'sdxl', genPx: 1024, jobs: 9, meanExecSeconds: 40, meanDelaySeconds: 10 },
+			],
+		}).gpuUsd ?? 0) > (view.gpuUsd ?? 0),
+		true,
+	);
+	check(
+		'…so fewer variants cost less under the same timings',
+		(() => {
+			const timings = [
+				{ pipeline: 'sdxl', genPx: 1024, jobs: 9, meanExecSeconds: 40, meanDelaySeconds: 10 },
+			];
+			const measured = { ...answer, timings };
+			return (
+				(artPlanView(measured, drafts).gpuUsd ?? Infinity) < (artPlanView(measured).gpuUsd ?? 0)
+			);
+		})(),
+		true,
+	);
+	check(
+		'an edit that breaks a rule counts as invalid, not as unpriced',
+		[tooMany.invalid, tooMany.unpriced],
+		[row.regions.length, []],
+	);
+	const dropped = artPlanView({
+		...answer,
+		recipes: answer.recipes.map((r, i) => (i === 0 ? { ...r, planned: false } : r)),
+	});
+	check(
+		'a recipe the plan dropped is listed apart, and its region as unplanned',
+		[dropped.outside, dropped.missing],
+		[[stored[0].region], [stored[0].region]],
+	);
+
+	const flags = licenceList(answer);
+	check(
+		'before publishing: every blocked or conditional step is listed, grouped by blueprint',
+		[
+			flags.every((f) => f.licence === 'blocked' || f.licence === 'conditional'),
+			flags.reduce((n, f) => n + f.steps.length, 0),
+			flags[0]?.licence,
+		],
+		[
+			true,
+			stored.reduce(
+				(n, r) =>
+					n + r.steps.filter((s) => s.licence === 'blocked' || s.licence === 'conditional').length,
+				0,
+			),
+			'blocked',
+		],
+	);
+	check(
+		'…each naming its regions and steps',
+		flags.find((f) => f.pipeline === 'birefnet')?.steps.includes('H1 (step 2)'),
+		true,
+	);
+
+	// How the region was made, as the worker advanced its steps.
+	const h1 = stored.find((r) => r.region === 'H1')!;
+	const progressed = {
+		...h1,
+		steps: h1.steps.map((st) =>
+			st.kind === 'generate'
+				? { ...st, status: 'chosen' as const, rendered: ['7', '8', '9'], chosen: '8' }
+				: st.kind === 'process'
+					? { ...st, status: 'done' as const, rendered: ['2'] }
+					: {
+							...st,
+							status: 'done' as const,
+							chosen: `${st.atlas === h1.atlas ? h1.steps[1].atlas : st.atlas}/${h1.steps[1].region}/2`,
+						},
+		),
+	};
+	const made = madeOf({ ...answer, recipes: [{ ...progressed, planned: true }] }, 'H1')!;
+	check(
+		'how it was made: each step with the image it left',
+		made.steps.map((st) => st.image?.id ?? null),
+		['8', '2', '2'],
+	);
+	check('…and the finished tile', made.tile, {
+		atlas: h1.steps[1].atlas,
+		region: h1.steps[1].region,
+		id: '2',
+	});
+	check('…each step says what its card is for', made.steps[0].purpose.length > 0, true);
+	check('a region with no recipe has no story', madeOf(answer, 'Nope'), null);
+
+	// The fold: the checkpoint opens, the plan's rows are news, approval ticks the step.
+	const rows: RunEvent[] = [
+		{
+			id: 1,
+			at: 'a',
+			agent: 'atlas-technician',
+			kind: 'activity',
+			tool: 'run.set_recipe',
+			payload: {
+				type: 'recipe',
+				region: 'H1',
+				group: 'Symbols',
+				rev: 1,
+				chain: 'sdxl 1024 ×3 → birefnet → finish',
+			},
+		},
+		{
+			id: 2,
+			at: 'b',
+			agent: 'worker',
+			kind: 'checkpoint_open',
+			tool: null,
+			payload: {
+				checkpoint: 'art_plan',
+				step: 'style_pack',
+				summary: '1 × Symbols: sdxl 1024 ×3 → birefnet → finish',
+			},
+		},
+	];
+	const opened = foldEvents(rows, PREFIX);
+	check('a recipe row is the recipes version', opened.recipesVersion, 1);
+	check('the Art plan opens', opened.artPlan, 'open');
+	check(
+		'the feed says what was planned and that the plan waits',
+		opened.feed.map((f) => f.tone),
+		['plain', 'checkpoint'],
+	);
+	rows.push({
+		id: 3,
+		at: 'c',
+		agent: 'owner',
+		kind: 'checkpoint_resolved',
+		tool: null,
+		payload: { checkpoint: 'art_plan', decision: 'approve', recipeRevs: { H1: 1 } },
+	});
+	const done = foldEvents(rows, PREFIX);
+	check('approving the plan approves it', done.artPlan, 'approved');
+	check('…in the owner’s words', done.feed.at(-1)?.text, 'approved the Art plan.');
+	const summary = {
+		status: 'running',
+		step: 'regions',
+	} as RunSummary;
+	check(
+		'the Style pack step reads Art plan ✓',
+		stepViews(summary, done, 0)
+			.find((st) => st.id === 'style_pack')
+			?.detail.includes('Art plan ✓'),
+		true,
+	);
+	const refusedRows = [
+		...rows,
+		{
+			id: 4,
+			at: 'd',
+			agent: 'worker',
+			kind: 'error',
+			tool: null,
+			payload: { type: 'refused_request', eventId: 3, error: 'changed' },
+		},
+	];
+	check('a refused approval approves nothing', foldEvents(refusedRows, PREFIX).artPlan, 'open');
 }
 
 console.log(`\n${checks} checks, ${failures} failures`);

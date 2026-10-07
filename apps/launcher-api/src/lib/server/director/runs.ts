@@ -6,6 +6,15 @@ import {
 	type DirectorPricing,
 	type RunEstimate,
 } from 'director-costs';
+import {
+	presetDefaultChain,
+	priceChains,
+	STEP_KINDS,
+	type Card,
+	type ChainGroup,
+	type ChainPrice,
+	type DefaultStep,
+} from 'director-costs/recipe';
 import { PROJECT_KEY_WORDS } from '$lib/projectKey';
 import { roleHasTool } from '$lib/roles';
 import profilesFile from '../../../../../../services/director-worker/estimate-profiles.json';
@@ -35,6 +44,7 @@ import {
 	projectName,
 } from '../projects';
 import { DIRECTOR_AGENTS } from './adapter';
+import { artPlanApprovalRefusal, pricedCatalogue } from './artPlan';
 import {
 	MAX_MOCKUPS,
 	loadMockupsDoc,
@@ -59,6 +69,7 @@ import {
 import {
 	agentConversations,
 	appendOwnerEvent,
+	blueprintTimings,
 	deleteDraftRun,
 	findOwnerRequest,
 	getRun,
@@ -69,6 +80,7 @@ import {
 	listRuns,
 	runSpendTotals,
 	setRunConfigEtags,
+	templateDefaultChains,
 	updateDraftStartingPoint,
 } from './store';
 import { loadSummaryContext, summarizeProject, type ProjectSummary } from './templates';
@@ -196,20 +208,30 @@ export function parsePreset(raw: unknown, pricing: DirectorPricing): RunPreset {
 /** The owner's checkpoint settings as stored (`checkpoints_json`); `before_publish` is never off. */
 export interface RunCheckpoints {
 	breakdown: boolean;
+	/** The owner reviews the technician's recipes before any render (ADR-0008 §7). */
+	artPlan: boolean;
 	regionBatch: boolean;
 }
 
-export const DEFAULT_CHECKPOINTS: RunCheckpoints = { breakdown: true, regionBatch: true };
+export const DEFAULT_CHECKPOINTS: RunCheckpoints = {
+	breakdown: true,
+	artPlan: true,
+	regionBatch: true,
+};
 
 export function parseCheckpoints(raw: unknown): RunCheckpoints {
 	const r = record(raw);
-	const flag = (field: 'breakdown' | 'regionBatch'): boolean => {
+	const flag = (field: keyof RunCheckpoints): boolean => {
 		const value = r[field];
 		if (value === undefined) return DEFAULT_CHECKPOINTS[field];
 		if (typeof value !== 'boolean') throw bad('bad_checkpoints', `${field} is true or false.`);
 		return value;
 	};
-	return { breakdown: flag('breakdown'), regionBatch: flag('regionBatch') };
+	return {
+		breakdown: flag('breakdown'),
+		artPlan: flag('artPlan'),
+		regionBatch: flag('regionBatch'),
+	};
 }
 
 // ── Starting point ────────────────────────────────────────────────────────────
@@ -531,6 +553,28 @@ function parseAction(raw: unknown): OwnerActionRequest {
 		}
 		req.text = text;
 	}
+	if (r.recipeRevs !== undefined) {
+		if (req.action !== 'approve') throw bad('bad_recipe_revs', 'Only an approval names revisions.');
+		const revs = record(r.recipeRevs);
+		const entries = Object.entries(revs);
+		if (
+			r.recipeRevs === null ||
+			typeof r.recipeRevs !== 'object' ||
+			Array.isArray(r.recipeRevs) ||
+			entries.length > MAX_PLAN_REGIONS ||
+			!entries.every(
+				([region, rev]) =>
+					RECIPE_REGION.test(region) && typeof rev === 'number' && Number.isInteger(rev) && rev > 0,
+			)
+		) {
+			throw bad('bad_recipe_revs', 'recipeRevs maps each region to the revision you saw.');
+		}
+		req.recipeRevs = Object.fromEntries(entries) as Record<string, number>;
+	}
+	if (r.recipeEdits !== undefined) {
+		if (req.action !== 'revise') throw bad('bad_recipe_edits', 'Only a revision carries edits.');
+		req.recipeEdits = parseRecipeEdits(r.recipeEdits);
+	}
 	if (r.budgetCapUsd !== undefined) {
 		if (req.action !== 'resume') throw bad('bad_cap', 'Only a resume can raise the cap.');
 		if (typeof r.budgetCapUsd !== 'number' || !Number.isFinite(r.budgetCapUsd)) {
@@ -539,6 +583,51 @@ function parseAction(raw: unknown): OwnerActionRequest {
 		req.budgetCapUsd = r.budgetCapUsd;
 	}
 	return req;
+}
+
+/** A region name as the adapter admits it (`ops/atlas.ts` `REGION`). */
+const RECIPE_REGION = /^[A-Za-z0-9_][A-Za-z0-9_.()-]{0,119}$/;
+const MAX_PLAN_REGIONS = 256;
+const MAX_EDITS = 64;
+const MAX_EDIT_STEPS = 8;
+const MAX_EDITS_BYTES = 64 * 1024;
+
+/**
+ * The owner's Art plan edits, checked for SHAPE only: each region's chain whole, as the panel
+ * left it. Whether a chain is allowed is the recipe rules' call, made by the worker against the
+ * reviewed cards when it applies them (`recipes.ts` `applyRecipeEdits`), with every reason sent
+ * back to the owner.
+ */
+function parseRecipeEdits(raw: unknown): { region: string; steps: unknown[] }[] {
+	const refuse = (why: string) => bad('bad_recipe_edits', why);
+	if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_EDITS) {
+		throw refuse(`recipeEdits is a list of 1 to ${MAX_EDITS} region chains.`);
+	}
+	if (JSON.stringify(raw).length > MAX_EDITS_BYTES) throw refuse('The edits are too large.');
+	const seen = new Set<string>();
+	return raw.map((edit) => {
+		const e = record(edit);
+		if (typeof e.region !== 'string' || !RECIPE_REGION.test(e.region) || seen.has(e.region)) {
+			throw refuse('Each edit names one region, once.');
+		}
+		seen.add(e.region);
+		if (!Array.isArray(e.steps) || e.steps.length === 0 || e.steps.length > MAX_EDIT_STEPS) {
+			throw refuse(`A chain has 1 to ${MAX_EDIT_STEPS} steps.`);
+		}
+		const kinds: readonly unknown[] = STEP_KINDS;
+		const steps = e.steps.map((step) => {
+			const st = record(step);
+			if (
+				!kinds.includes(st.kind) ||
+				typeof st.pipeline !== 'string' ||
+				!Array.isArray(st.settings)
+			) {
+				throw refuse('Each step has a kind, a pipeline and its settings.');
+			}
+			return st;
+		});
+		return { region: e.region, steps };
+	});
 }
 
 /**
@@ -584,6 +673,14 @@ export async function performOwnerAction(
 	const refusal = actionRefusal(state, req.action, req.checkpoint ?? state.waitingOn);
 	if (refusal) throw new RunError(409, 'not_allowed', `Refused: ${refusal}.`);
 	if (req.action === 'approve' || req.action === 'revise') req.checkpoint ??= state.waitingOn!;
+	if (req.checkpoint === 'art_plan' && req.action === 'approve') {
+		// The worker refuses the same; asked here first so the owner hears it at the button.
+		const why = await artPlanApprovalRefusal(run.id, req.recipeRevs);
+		if (why) throw new RunError(409, 'plan_changed', `Refused: ${why}.`);
+	}
+	if (req.recipeEdits && req.checkpoint !== 'art_plan') {
+		throw bad('bad_recipe_edits', 'Edits travel only with the Art plan checkpoint.');
+	}
 
 	if (req.action === 'resume' && req.budgetCapUsd !== undefined) {
 		const raised = raisedCap(run.budgetCapUsd, req.budgetCapUsd);
@@ -594,6 +691,21 @@ export async function performOwnerAction(
 	}
 
 	if (req.action === 'start') {
+		const sp = run.startingPointJson as Partial<StartingPoint> | null;
+		const { estimate } = await estimateForTemplate(user, {
+			template: run.templateProjectKey,
+			mockups: (sp?.mockups ?? []).filter((m) => !m.styleOnly).length,
+			preset: run.presetJson ?? undefined,
+			checkpoints: run.checkpointsJson ?? undefined,
+		});
+		// Money fails closed (ADR-0006): a run whose cost cannot be estimated does not start.
+		if (estimate.total.usd === null) {
+			throw new RunError(
+				409,
+				'estimate_unpriced',
+				`Refused: this run's cost cannot be estimated: ${estimate.unpriced.join('; ')}.`,
+			);
+		}
 		if (!(await projectExists(run.projectKey))) {
 			throw new RunError(
 				409,
@@ -832,14 +944,59 @@ export interface EstimateAnswer {
 		regions: number;
 		regionGroups: ProjectSummary['regionGroups'];
 	};
+	/** The chain each region group is priced at, and where it came from. */
+	chains: ChainPrice['groups'];
 	preset: RunPreset;
 	checkpoints: RunCheckpoints;
 }
 
+const isDefaultChain = (value: unknown): value is DefaultStep[] =>
+	Array.isArray(value) &&
+	value.length > 0 &&
+	value.every(
+		(s) =>
+			typeof s === 'object' &&
+			s !== null &&
+			(STEP_KINDS as readonly unknown[]).includes((s as DefaultStep).kind) &&
+			typeof (s as DefaultStep).pipeline === 'string' &&
+			typeof (s as DefaultStep).genPx === 'number' &&
+			typeof (s as DefaultStep).variants === 'number',
+	);
+
+const groupKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, '');
+
 /**
- * The New-game panel's estimate (ADR-0006 "Estimate"): the template's region counts, the mockup
- * count, the preset and the checkpoints through the estimate profiles at the current prices. Reads
- * the template's manifests from R2 and nothing else — no RunPod call, no model call.
+ * The chain each atlas of the template is priced at before a plan exists (ADR-0008 §6): the
+ * template's approved default for the group of that name, else the fallback the technician is
+ * briefed with too (the run's preset shape until card 8C retires it).
+ */
+export function chainGroupsFor(
+	regionGroups: readonly { atlas: string; regions: number }[],
+	defaults: readonly { group: string; version: number; chain: unknown }[],
+	fallback: DefaultStep[],
+): ChainGroup[] {
+	return regionGroups
+		.filter((g) => g.regions > 0)
+		.map((g) => {
+			const own = defaults.find((d) => groupKey(d.group) === groupKey(g.atlas));
+			return own && isDefaultChain(own.chain)
+				? {
+						group: g.atlas,
+						regions: g.regions,
+						chain: own.chain,
+						source: `template default v${own.version}`,
+					}
+				: { group: g.atlas, regions: g.regions, chain: fallback, source: 'fallback' };
+		});
+}
+
+/**
+ * The New-game panel's estimate (ADR-0006 "Estimate", ADR-0008 §6): the template's region
+ * counts, the mockup count and the checkpoints through the estimate profiles at the current
+ * prices, the GPU side priced per chain from the reviewed cards (read from atlas-tool, the one
+ * home of the endpoint's GPU) and the measured timings. Reads the template's manifests and the
+ * catalogue and nothing else — no RunPod call, no model call. Fails closed: when the GPU side
+ * cannot be priced the estimate has no total and lists why, and a run is not started on it.
  */
 export async function estimateForTemplate(
 	user: User,
@@ -854,18 +1011,42 @@ export async function estimateForTemplate(
 	const pricing = (await getDirectorPricing()).pricing;
 	const preset = parsePreset(raw.preset, pricing);
 	const checkpoints = parseCheckpoints(raw.checkpoints);
-	const summary = await summarizeProject(template, await loadSummaryContext());
+	const [summary, defaults, timings, priced] = await Promise.all([
+		loadSummaryContext().then((ctx) => summarizeProject(template, ctx)),
+		templateDefaultChains(template.key),
+		blueprintTimings(),
+		pricedCatalogue(
+			user,
+			{ clientKey: template.clientKey ?? UNASSIGNED_CLIENT, projectKey: template.key },
+			'estimate',
+		),
+	]);
 	const regions = summary.regionGroups.reduce((n, g) => n + g.regions, 0);
+	const cards = new Map<string, Card>(
+		(priced.catalogue?.blueprints ?? []).map((b) => [b.id, b.card]),
+	);
+	const gpu = priceChains(
+		chainGroupsFor(summary.regionGroups, defaults, presetDefaultChain(preset)),
+		cards,
+		{
+			gpu: priced.catalogue?.gpu ?? '',
+			usdPerSecond: priced.catalogue?.usdPerSecond ?? null,
+			timings,
+		},
+		ESTIMATE_PROFILES.runpod.secondsPerVariantAt1024,
+	);
+	if (priced.error) {
+		// Without the catalogue no card prices anything: the GPU side is not known at all.
+		gpu.unpriced = [priced.error];
+		gpu.usd = null;
+	}
 	return {
 		estimate: estimateRun(
 			{
 				regions,
 				// No more can be uploaded, so no more can be analysed.
 				mockups: Math.min(mockups, MAX_MOCKUPS),
-				variantsPerRegion: preset.variantsPerRegion,
-				draftPx: preset.draftPx,
-				finalPx: preset.finalPx,
-				gpu: preset.gpu,
+				gpu,
 				checkpoints,
 			},
 			ESTIMATE_PROFILES,
@@ -878,6 +1059,7 @@ export async function estimateForTemplate(
 			regions,
 			regionGroups: summary.regionGroups,
 		},
+		chains: gpu.groups,
 		preset,
 		checkpoints,
 	};
