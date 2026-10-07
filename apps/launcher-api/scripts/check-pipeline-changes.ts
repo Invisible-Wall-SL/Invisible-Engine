@@ -2617,6 +2617,36 @@ check(
 		true,
 	);
 
+	{
+		// ADR-0008 card 8D's transition: the artist's four moving ops are accepted all named (main's
+		// definition) or none (the narrowed one), never a mix.
+		const artistPath = fileURLToPath(
+			new URL('../../../services/director-worker/agents/atlas-artist.md', import.meta.url),
+		);
+		const artist = readFileSync(artistPath, 'utf8');
+		const rules = agents.agentEditRules('atlas-artist');
+		const without = (text: string, ids: string[]) =>
+			text
+				.split('\n')
+				.filter((line) => !ids.some((id) => line.trim() === `- ${id}`))
+				.join('\n');
+		const moving = [
+			'atlas.queue_variants',
+			'atlas.choose_variant',
+			'atlas.pack_sheet',
+			'comfyui.job_status',
+		];
+		check(
+			"the artist's moving tools: all named, none named, or a mix refused",
+			[
+				agentEdit.validateAgentEdit('atlas-artist', artist, rules).ok,
+				agentEdit.validateAgentEdit('atlas-artist', without(artist, moving), rules).ok,
+				agentEdit.validateAgentEdit('atlas-artist', without(artist, moving.slice(0, 1)), rules).ok,
+			],
+			[true, true, false],
+		);
+	}
+
 	const why = agentEdit.whyProblem;
 	check(
 		'whyProblem: empty, blank, many lines and over 120 characters are refused',

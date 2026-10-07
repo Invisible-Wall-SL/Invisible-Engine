@@ -191,8 +191,8 @@ export function agentEditRules(name: string): AgentEditRules {
 	const fixed: string[] = [];
 	const other: string[] = [];
 	for (const op of ADAPTER_OPS.values()) {
-		// Either way is fine while a transition entry stands (`TRANSITION_TOOLS`).
-		if (TRANSITION_TOOLS.has(`${opId(op)} ${name}`)) continue;
+		// Either state of the group is fine while it stands (`TRANSITION_TOOLS`, all or none).
+		if ((TRANSITION_TOOLS[name] ?? []).includes(opId(op))) continue;
 		((op.agents as readonly string[]).includes(name) ? fixed : other).push(opId(op));
 	}
 	return {
@@ -200,6 +200,7 @@ export function agentEditRules(name: string): AgentEditRules {
 		tools: [...KNOWN_TOOLS],
 		fixedAdapterTools: fixed.sort(),
 		otherAdapterTools: other.sort(),
+		transitionTools: [...(TRANSITION_TOOLS[name] ?? [])],
 	};
 }
 

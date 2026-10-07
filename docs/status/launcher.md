@@ -69,9 +69,11 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     `atlas-technician` but nothing assigns it (`run.assign_task` refuses an agent with no
     definition), the artist keeps `queue_variants` / `choose_variant` / `pack_sheet` /
     `job_status` and renders the pre-8D way (no `step`, no recipe gate; `lock` omitted keeps the
-    pin), and `check:director-adapters` lists these as named transition allowances
-    (`AWAITING_DEFINITION`, `TRANSITION`) — remove them, and the artist's pre-8D branch in
-    `queue_variants`, once the artist's narrowed definition has landed.
+    pin), and the five transition allowances live in `TRANSITION_TOOLS` (`registry.ts`), per agent all or
+    none (main's definition or the new one, never a mix), read by the Agents tab's rules and
+    `check:director-adapters` (with `AWAITING_DEFINITION` for the technician). **Follow-up owed:** once
+    the three definition PRs land, a final small PR empties `TRANSITION_TOOLS`, removes
+    `AWAITING_DEFINITION` and the artist's pre-8D branch in `queue_variants`.
   - **Adapter ops** (`director/ops/atlasSetup.ts`): `list_blueprints` (reviewed image cards from
     atlas-tool `GET /blueprints`, cached a minute), `set_atlas_pipeline` (`/saveconfig` with only
     `atlas_pipeline`, the size and the card's per-atlas keys or `bpParams[<id>]`), `set_region_pipeline`

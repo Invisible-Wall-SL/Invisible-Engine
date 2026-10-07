@@ -359,6 +359,7 @@ const {
 	ADAPTER_OPS,
 	buildRegistry,
 	TRANSITION_TOOLS,
+	transitionProblem,
 	opId: opIdOf,
 } = await import(src('lib/server/director/registry.ts'));
 const { GAMEMAKER_OPS } = await import(src('lib/server/director/ops/gamemaker.ts'));
@@ -3682,7 +3683,30 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 	// the technician has no definition yet, the artist still names the four ops it gives up, and the
 	// coordinator does not name the catalogue yet. Remove each entry with the PR that lands it.
 	const AWAITING_DEFINITION = new Set(['atlas-technician']);
-	const TRANSITION = TRANSITION_TOOLS;
+	const TRANSITION = new Set(
+		Object.entries(TRANSITION_TOOLS as Record<string, string[]>).flatMap(([agent, ids]) =>
+			ids.map((id) => `${id} ${agent}`),
+		),
+	);
+	check('the transition allowances are exactly the five of card 8D', [...TRANSITION].sort(), [
+		'atlas.choose_variant atlas-artist',
+		'atlas.list_blueprints coordinator',
+		'atlas.pack_sheet atlas-artist',
+		'atlas.queue_variants atlas-artist',
+		'comfyui.job_status atlas-artist',
+	]);
+	check(
+		'each agent names its transition tools all together or none of them',
+		[...tools.entries()]
+			.map(([agent, named]) => transitionProblem(agent, named))
+			.filter((p) => p !== null),
+		[],
+	);
+	check(
+		'...and a mix of the two states is refused',
+		transitionProblem('atlas-artist', new Set(['atlas.queue_variants'])) !== null,
+		true,
+	);
 	check(
 		'every runtime agent definition is a known agent, and every known agent but those awaiting theirs has one',
 		[...tools.keys()].sort(),
