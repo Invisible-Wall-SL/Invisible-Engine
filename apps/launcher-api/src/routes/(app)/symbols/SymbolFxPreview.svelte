@@ -1,7 +1,7 @@
 <script lang="ts">
 	/**
 	 * Autoplaying thumbnail of an Invisible FX effect, for the Book-symbol VFX panel's `fx` layer
-	 * (the fourth kind, alongside the sprite/spine/flipbook previews). Fetches the effect's
+	 * (the fourth kind, alongside the sprite/rig/flipbook previews). Fetches the effect's
 	 * `EffectDoc` (`/api/editor/effect?id=…`, `symbols`-gated) and mounts the SAME live particle
 	 * renderer the `/fx` tool uses ({@link FxStage}) — no second emitter implementation. The doc and
 	 * art reads are `fxPreview.client.ts`'s, shared with the flight preview.

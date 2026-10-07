@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { BitmapText } from 'pixi-svelte';
 
-	import SymbolSpine from './SymbolSpine.svelte';
+	import SymbolRig from './SymbolRig.svelte';
 	import SymbolSprite from './SymbolSprite.svelte';
 	import { getSymbolInfo } from '../game/utils';
 	import { getContext } from '../game/context';
@@ -25,7 +25,7 @@
 {#if isSprite}
 	<SymbolSprite {symbolInfo} x={props.x} y={props.y} oncomplete={props.oncomplete} />
 {:else}
-	<SymbolSpine
+	<SymbolRig
 		{symbolInfo}
 		x={props.x}
 		y={props.y}

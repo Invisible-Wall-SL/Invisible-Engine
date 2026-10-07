@@ -33,7 +33,7 @@
 //   4. repair of rigs saved before the fix: a mesh the old Convert / Draw made from a trimmed image,
 //      unweighted or bound to its slot's bone, is offered, and 🩹 Repair makes it draw the region's
 //      pixels; a linked mesh made without its sequence parent's frames gets them. Not offered: the
-//      fixed meshes, a Spine-style whole-image quad, a mesh reshaped since, an untrimmed one, and any
+//      fixed meshes, a plain whole-image quad, a mesh reshaped since, an untrimmed one, and any
 //      mesh of the 153 checked-in rigs;
 //   5. the UV panel draws the image where the mesh's UVs find it (it stretched the ink over the box).
 //
@@ -45,7 +45,7 @@ import { fileURLToPath } from 'node:url';
 import { join, dirname, basename } from 'node:path';
 import vm from 'node:vm';
 import { launchChrome } from './chrome.mjs';
-import { RIG_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
 const ROOT = new URL('../../', import.meta.url);
 const STATIC = fileURLToPath(new URL('apps/launcher-api/static/', ROOT));
@@ -54,7 +54,7 @@ const html = readFileSync(VIEW, 'utf8').replace(/\r\n/g, '\n');
 const clone = (o) => JSON.parse(JSON.stringify(o));
 
 // ---- the two runtimes ------------------------------------------------------------------------
-const vendored = readFileSync(join(STATIC, 'spine/vendor/invisible-rig.js'), 'utf8');
+const vendored = readFileSync(join(STATIC, 'rig-viewer/vendor/invisible-rig.js'), 'utf8');
 const CORE = await import(RIG_CORE);
 
 // ---- the synthetic atlas ---------------------------------------------------------------------
@@ -207,9 +207,9 @@ const sandbox = {
 };
 for (const s of STUBS) sandbox[s] = () => {};
 vm.createContext(sandbox);
-vm.runInContext(vendored + '\n;globalThis.SPINE = spine;', sandbox, { filename: 'invisible-rig.js' });
+vm.runInContext(vendored + '\n;globalThis.RIG = invisibleRig;', sandbox, { filename: 'invisible-rig.js' });
 vm.runInContext(pulled.join('\n'), sandbox, { filename: 'view.html#trimmesh' });
-const SPINE = sandbox.SPINE;
+const RIG = sandbox.RIG;
 const stubTexture = { getImage: () => ({ width: PAGE, height: PAGE }), setFilters() {}, setWraps() {}, dispose() {} };
 function atlasFor(lib) {
 	const a = new lib.TextureAtlas(ATLAS);
@@ -218,7 +218,7 @@ function atlasFor(lib) {
 }
 function open(doc) {
 	asked.length = 0;
-	Object.assign(sandbox, { rawDoc: clone(doc), skeleton: null, __atlas: atlasFor(SPINE), selSlot: null, selBone: null, meshCtx: null });
+	Object.assign(sandbox, { rawDoc: clone(doc), skeleton: null, __atlas: atlasFor(RIG), selSlot: null, selBone: null, meshCtx: null });
 	sandbox.rebuildFromRawDoc(null);
 }
 const act = (fn) => { try { fn(sandbox); return null; } catch (e) { return String((e && e.message) || e); } };
@@ -254,14 +254,14 @@ const draw = (slot) => {
 // ---- a real Chromium, drawing through the vendored rig runtime's WebGL renderer -----------------
 const server = createServer((req, res) => {
 	const p = new URL(req.url, 'http://x').pathname;
-	if (p === '/spine/vendor/invisible-rig.js') { res.writeHead(200, { 'content-type': 'text/javascript' }); return res.end(vendored); }
+	if (p === '/rig-viewer/vendor/invisible-rig.js') { res.writeHead(200, { 'content-type': 'text/javascript' }); return res.end(vendored); }
 	res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-	res.end('<!doctype html><meta charset="utf-8"><script src="/spine/vendor/invisible-rig.js"></script>');
+	res.end('<!doctype html><meta charset="utf-8"><script src="/rig-viewer/vendor/invisible-rig.js"></script>');
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const browser = await launchChrome({ name: 'trimmesh', url: `http://127.0.0.1:${server.address().port}/`, cdpTimeoutMs: 60000 });
 const { evaluate } = browser;
-for (let t0 = Date.now(); !(await evaluate('!!window.spine').catch(() => false)); ) {
+for (let t0 = Date.now(); !(await evaluate('!!window.invisibleRig').catch(() => false)); ) {
 	if (Date.now() - t0 > 20000) throw new Error('the vendored rig runtime never loaded');
 	await new Promise((r) => setTimeout(r, 100));
 }
@@ -276,30 +276,30 @@ function harness(pageB64, atlasText, FRAME, panelSrc) {
 	pageCanvas.getContext('2d').putImageData(new ImageData(bytes, pageCanvas.width, pageCanvas.height), 0, 0);
 	const canvas = document.createElement('canvas');
 	canvas.width = canvas.height = FRAME;
-	const ctx = new spine.ManagedWebGLRenderingContext(canvas, { alpha: true, antialias: false, preserveDrawingBuffer: true, premultipliedAlpha: false });
-	const tex = new spine.GLTexture(ctx, pageCanvas);
-	const renderer = new spine.SceneRenderer(canvas, ctx);
+	const ctx = new invisibleRig.ManagedWebGLRenderingContext(canvas, { alpha: true, antialias: false, preserveDrawingBuffer: true, premultipliedAlpha: false });
+	const tex = new invisibleRig.GLTexture(ctx, pageCanvas);
+	const renderer = new invisibleRig.SceneRenderer(canvas, ctx);
 	const cam = renderer.camera;
 	cam.position.x = cam.position.y = FRAME / 2;
 	cam.viewportWidth = cam.viewportHeight = FRAME;
 	cam.zoom = 1;
-	const atlas = () => { const a = new spine.TextureAtlas(atlasText); for (const p of a.pages) p.setTexture(tex); return a; };
+	const atlas = () => { const a = new invisibleRig.TextureAtlas(atlasText); for (const p of a.pages) p.setTexture(tex); return a; };
 	const b64 = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
 	window.renderJobs = (doc, jobs) => {
-		const data = new spine.SkeletonJson(new spine.AtlasAttachmentLoader(atlas())).readSkeletonData(doc);
+		const data = new invisibleRig.SkeletonJson(new invisibleRig.AtlasAttachmentLoader(atlas())).readSkeletonData(doc);
 		return jobs.map((job) => {
-			const sk = new spine.Skeleton(data);
+			const sk = new invisibleRig.Skeleton(data);
 			sk.setSkinByName('default'); sk.setToSetupPose();
 			for (const slot of sk.slots) {
 				if (slot.data.name !== job.slot) slot.setAttachment(null);
 				else if (job.attachment) slot.setAttachment(sk.getAttachment(slot.data.index, job.attachment));
 			}
 			if (job.anim) {
-				const st = new spine.AnimationState(new spine.AnimationStateData(data));
+				const st = new invisibleRig.AnimationState(new invisibleRig.AnimationStateData(data));
 				st.setAnimation(0, job.anim, false); st.update(0); st.apply(sk);
 			}
 			if (job.frame != null) sk.findSlot(job.slot).sequenceIndex = job.frame;
-			sk.updateWorldTransform(spine.Physics.update);
+			sk.updateWorldTransform(invisibleRig.Physics.update);
 			const gl = ctx.gl;
 			gl.viewport(0, 0, FRAME, FRAME); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
 			renderer.begin(); renderer.drawSkeleton(sk, false); renderer.end();
@@ -504,7 +504,7 @@ for (const s of ['same', 'keyed']) seqMeshes.skins[0].attachments[s].sq_ = clone
 
 // 4. repairing what the old tools saved
 // What the pre-fix ▸ Convert to mesh wrote: the ink's quad, UVs 0..1 across it.
-const baseData = strictLoad(base, SPINE);
+const baseData = strictLoad(base, RIG);
 function oldConvert(doc, c, bind = false) {
 	const v = Array.from(baseData.defaultSkin.getAttachment(baseData.findSlot(c.slot).index, c.im.name).offset);
 	const bone = doc.bones.findIndex((b) => b.name === 'b.' + c.slot);
@@ -512,7 +512,7 @@ function oldConvert(doc, c, bind = false) {
 		vertices: bind ? [0, 1, 2, 3].flatMap((k) => [1, bone, v[k * 2], v[k * 2 + 1], 1]) : v, hull: 4, width: c.im.W, height: c.im.H };
 	return v;
 }
-// Not wrong: a Spine-style whole-image quad (on an ink of the image's aspect, and of another), an
+// Not wrong: a plain whole-image quad (on an ink of the image's aspect, and of another), an
 // old mesh reshaped since, an untrimmed one. Wrong but not told apart from a mesh traced that way
 // on purpose, so left alone: an image scaled unevenly, or evenly on an ink of the image's aspect.
 const NOT_WRONG = ['half.a', 'flat.a', 'tall.c', 'full.a'];
@@ -578,7 +578,7 @@ if (log(!absent.includes('meshRepairs'), 'repair: nothing finds a mesh the old t
 	open(base);
 	for (const c of CASES) draw(c.slot);
 	log(!sandbox.meshRepairs().length, `repair: offered [${sandbox.meshRepairs().map((r) => r.slot)}] on meshes the fixed ✎ Draw mesh made`);
-	// …nor any mesh of a checked-in rig (all Spine-made)
+	// …nor any mesh of a checked-in rig (all rig-made)
 	const rigs = [];
 	const walk = (d) => { for (const n of readdirSync(d)) { if (n === 'node_modules' || n.startsWith('.')) continue; const p = join(d, n); if (statSync(p).isDirectory()) walk(p); else if (n.endsWith('.json') && /[\\/]spines[\\/]/.test(p)) rigs.push(p); } };
 	walk(fileURLToPath(new URL('apps/', ROOT)));
@@ -587,7 +587,7 @@ if (log(!absent.includes('meshRepairs'), 'repair: nothing finds a mesh the old t
 		const dir = dirname(rig), atlases = readdirSync(dir).filter((n) => n.endsWith('.atlas'));
 		let doc; try { doc = JSON.parse(readFileSync(rig, 'utf8')); } catch { continue; }
 		if (!doc.skins || !atlases.length) continue;
-		const atlas = new SPINE.TextureAtlas(atlases.map((a) => readFileSync(join(dir, a), 'utf8')).join('\n\n'));
+		const atlas = new RIG.TextureAtlas(atlases.map((a) => readFileSync(join(dir, a), 'utf8')).join('\n\n'));
 		for (const p of atlas.pages) { p.width ||= 2048; p.height ||= 2048; p.setTexture(stubTexture); }
 		Object.assign(sandbox, { rawDoc: doc, __atlas: atlas, selSlot: null, meshCtx: null });
 		try { sandbox.rebuildFromRawDoc(null); } catch { continue; }

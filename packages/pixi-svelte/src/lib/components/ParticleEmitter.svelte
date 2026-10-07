@@ -23,10 +23,10 @@
 
 	import type { LoadedSpriteSheet } from '../types';
 	import {
-		SPINE_PARTICLE_BEHAVIOR_TYPE,
-		type SpineParticleBehaviorConfig,
+		RIG_PARTICLE_BEHAVIOR_TYPE,
+		type RigParticleBehaviorConfig,
 		type LayerHostLike,
-	} from '../spineParticleBehavior';
+	} from '../rigParticleBehavior';
 
 	export type Props = Partial<Emitter> & {
 		key: string;
@@ -40,15 +40,15 @@
 		 */
 		animated?: boolean;
 		/**
-		 * Tier C (`particleKind: 'spine'`): when present, EACH particle is a pooled `Spine`
+		 * Tier C (`particleKind: 'spine'`): when present, EACH particle is a pooled `RigView`
 		 * instance playing this config's clip instead of a textured sprite. The component
 		 * registers the `spineParticle` behavior and injects this config into the emitter's
-		 * `behaviors` (textureless particles — their art IS the pooled spine view), so the
+		 * `behaviors` (textureless particles — their art IS the pooled rig view), so the
 		 * sprite `bindArt`/`key` path is SKIPPED entirely. Absent ⇒ the sprite path (Tiers A/B),
 		 * byte-identical. Supplies the clip + the runtime-only pieces (the layer host container +
-		 * the pooled-`Spine` factory bound to the resolved `loadedAssets` skeleton).
+		 * the pooled-`RigView` factory bound to the resolved `loadedAssets` skeleton).
 		 */
-		spineParticle?: Omit<SpineParticleBehaviorConfig, 'layerHost'>;
+		spineParticle?: Omit<RigParticleBehaviorConfig, 'layerHost'>;
 		/**
 		 * Explicit per-frame textures for a V3 sprite layer — the layer's `art.frames` already
 		 * resolved (by `EffectLayer`) to the loaded per-frame `Texture`s, in frame order. When
@@ -82,19 +82,19 @@
 
 	/**
 	 * Inject the Tier-C `spineParticle` behavior into a V3 config, returning a NEW config the
-	 * `Emitter` renders by pooling `Spine` instances. Like `bindArt` it clones the config (no art
+	 * `Emitter` renders by pooling `RigView` instances. Like `bindArt` it clones the config (no art
 	 * behavior needed — particles are textureless) and attaches the live runtime objects (the
 	 * factory + layer host) AFTER cloning, so the result must NOT be JSON-cloned again.
 	 */
-	function bindSpineParticle(
+	function bindRigParticle(
 		config: EmitterConfigV3,
-		spineParticle: SpineParticleBehaviorConfig,
+		rigParticle: RigParticleBehaviorConfig,
 	): EmitterConfigV3 {
 		const next: EmitterConfigV3 = JSON.parse(JSON.stringify(config));
-		const behaviors = behaviorsOf(next).filter((b) => b.type !== SPINE_PARTICLE_BEHAVIOR_TYPE);
+		const behaviors = behaviorsOf(next).filter((b) => b.type !== RIG_PARTICLE_BEHAVIOR_TYPE);
 		const entry: BehaviorEntry = {
-			type: SPINE_PARTICLE_BEHAVIOR_TYPE,
-			config: spineParticle as unknown as Record<string, unknown>,
+			type: RIG_PARTICLE_BEHAVIOR_TYPE,
+			config: rigParticle as unknown as Record<string, unknown>,
 		};
 		behaviors.push(entry);
 		(next as { behaviors: BehaviorEntry[] }).behaviors = behaviors;
@@ -131,18 +131,18 @@
 	import { onDestroy, untrack } from 'svelte';
 	import { getContextApp, getContextParent } from '../context.svelte';
 	import { propsSyncEffect } from '../utils.svelte';
-	import { registerSpineParticleBehavior, SpineParticleBehavior } from '../spineParticleBehavior';
+	import { registerRigParticleBehavior, RigParticleBehavior } from '../rigParticleBehavior';
 
 	const props: Props = $props();
 	const context = getContextApp();
 	const parentContext = getContextParent();
 
-	// Tier C: a `spineParticle` layer pools `Spine` instances instead of binding sprite textures.
+	// Tier C: a `spineParticle` layer pools `RigView` instances instead of binding sprite textures.
 	// Register the behavior so the `Emitter` knows the type, then inject the config (with the layer
-	// host container the pooled spine views render into) — SKIPPING the sprite `bindArt`/`key`
+	// host container the pooled rig views render into) — SKIPPING the sprite `bindArt`/`key`
 	// path. Absent ⇒ the sprite path below, byte-identical.
-	const isSpineParticle = !!props.spineParticle;
-	if (isSpineParticle) registerSpineParticleBehavior();
+	const isRigParticle = !!props.spineParticle;
+	if (isRigParticle) registerRigParticleBehavior();
 
 	// A sprite layer binds its authored per-frame `textures` (resolved by `EffectLayer` from
 	// `art.frames`) when supplied; otherwise the whole `loadedAssets[key]` sheet (back-compat).
@@ -150,9 +150,9 @@
 	const spriteTextures = $derived(props.textures ?? sheetTextures);
 	const updatedConfig = $derived(
 		props.spineParticle && props.config && 'behaviors' in props.config
-			? bindSpineParticle(props.config as EmitterConfigV3, {
+			? bindRigParticle(props.config as EmitterConfigV3, {
 					...props.spineParticle,
-					// The pooled spine views ARE real `ContainerChild`s at runtime; the host's
+					// The pooled rig views ARE real `ContainerChild`s at runtime; the host's
 					// `LayerHostLike` surface is intentionally renderer-agnostic (so the pool stays
 					// unit-coverable), so a structural cast bridges the conservative PIXI generic.
 					layerHost: parentContext.parent as unknown as LayerHostLike,
@@ -219,11 +219,11 @@
 	onDestroy(() => {
 		ticker?.remove(tick);
 		emitter.emit = false;
-		// Free the pooled `Spine` instances (pool + live) before the emitter tears down — the
+		// Free the pooled `RigView` instances (pool + live) before the emitter tears down — the
 		// behavior owns skeletons the emitter's own `destroy` never sees.
-		if (isSpineParticle) {
-			const behavior = emitter.getBehavior(SPINE_PARTICLE_BEHAVIOR_TYPE);
-			if (behavior instanceof SpineParticleBehavior) behavior.dispose();
+		if (isRigParticle) {
+			const behavior = emitter.getBehavior(RIG_PARTICLE_BEHAVIOR_TYPE);
+			if (behavior instanceof RigParticleBehavior) behavior.dispose();
 		}
 		emitter.destroy();
 	});

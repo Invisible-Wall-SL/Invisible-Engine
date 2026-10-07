@@ -392,7 +392,7 @@ Models: Wan 2.2 A14B high+low fp8, umT5, Wan 2.1 VAE, two lightx2v LoRAs (all cl
 | Field | Draft value |
 |---|---|
 | Purpose | Animate a still into a short clip whose frames become a Flipbook clip. |
-| When to use | Symbol win animations, coin spins, banner shimmer where the template plays a flipbook clip and no Spine rig covers it (check). **From the Flipbook video session only**: `kind: video` is filtered out of the image listing, and the Flipbook's packer consumes the WEBP. A future animator step, not a technician one. |
+| When to use | Symbol win animations, coin spins, banner shimmer where the template plays a flipbook clip and no rig covers it (check). **From the Flipbook video session only**: `kind: video` is filtered out of the image listing, and the Flipbook's packer consumes the WEBP. A future animator step, not a technician one. |
 | When NOT to use | Rigged or re-timeable animation (Rigger); stills; loops over ~5 s; a clip that must end where it starts (use B7). |
 | Required inputs | `sourceImage` required (the approved tile on alpha); `prompt` required (motion); `negative` optional. |
 | Outputs | One animated WEBP, 81 frames at 16 fps, 320² frames, alpha when `remove_background`. |
@@ -405,7 +405,7 @@ Models: Wan 2.2 A14B high+low fp8, umT5, Wan 2.1 VAE, two lightx2v LoRAs (all cl
 ```json
 { "version": 1, "id": "wan22_i2v_flipbook", "status": "draft", "rev": 1, "graphSha": "1e95138deb12",
   "purpose": "Animate a still into a short clip whose frames become a Flipbook clip.",
-  "whenToUse": ["symbol win loops, coin spins, banner shimmer with no Spine rig (check)", "from the Flipbook video session only"],
+  "whenToUse": ["symbol win loops, coin spins, banner shimmer with no rig (check)", "from the Flipbook video session only"],
   "whenNotToUse": ["rigged animation (Rigger)", "stills", "loops over ~5 s", "clips that must end where they start (wanloopingvideo__3_)"],
   "inputs": {"prompt": "required", "negative": "optional", "reference": "none", "shape": "none",
              "sourceImage": "required", "mask": "none", "layer": "none"},

@@ -5,7 +5,7 @@ example is Book of Borut with the **3 Pots** preset. Tokens and value coins drop
 symbols, tokens fly into red, blue and green pots, and a full pot starts a bonus. Borut keeps its
 lines, its book and its free spins.
 
-It is a spine, not a manual. For every button and field, follow the link to that tool's guide.
+It is a rig, not a manual. For every button and field, follow the link to that tool's guide.
 Why the overlay works this way is in [the pots overlay plan](../design/pots-overlay.md).
 
 Every tool below is a full-page tool in the launcher at `app.invisiblewall.org` and works on the

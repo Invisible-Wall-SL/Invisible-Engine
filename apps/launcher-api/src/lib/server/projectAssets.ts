@@ -15,7 +15,7 @@ export interface AtlasAsset {
 	kind: AtlasKind;
 }
 
-export interface SpineAsset {
+export interface RigAsset {
 	name: string;
 	key: string;
 	kind: 'spine';
@@ -41,7 +41,7 @@ export interface SheetAsset {
 
 export interface ProjectAssets {
 	atlases: AtlasAsset[];
-	spines: SpineAsset[];
+	spines: RigAsset[];
 	sheets: SheetAsset[];
 }
 
@@ -84,7 +84,7 @@ async function listAtlases(client: string, project: string): Promise<AtlasAsset[
 	return out;
 }
 
-async function listSpines(client: string, project: string): Promise<SpineAsset[]> {
+async function listRigs(client: string, project: string): Promise<RigAsset[]> {
 	const projectRoot = `${SUB.spines(client, project)}/`;
 	const sharedRoot = '_shared/spines/';
 
@@ -93,7 +93,7 @@ async function listSpines(client: string, project: string): Promise<SpineAsset[]
 		listObjects(sharedRoot, MAX_PER_KIND),
 	]);
 
-	const out: SpineAsset[] = [];
+	const out: RigAsset[] = [];
 	const seen = new Set<string>();
 	for (const p of project_.prefixes) {
 		const name = bundleName(p, projectRoot);
@@ -123,7 +123,7 @@ async function listSheets(client: string, project: string): Promise<SheetAsset[]
 		listObjects(sharedRoot, MAX_PER_KIND),
 	]);
 
-	// A project sheet SHADOWS a shared one of the same name — same precedence as spines, and the
+	// A project sheet SHADOWS a shared one of the same name — same precedence as rigs, and the
 	// same reason: the library is a fallback, never something that can override work a project owns.
 	const folders: SheetAsset[] = [];
 	const seen = new Set<string>();
@@ -158,10 +158,10 @@ export async function listProjectAssets(
 	clientKey: string,
 	projectKey: string,
 ): Promise<ProjectAssets> {
-	const [atlases, spines, sheets] = await Promise.all([
+	const [atlases, rigs, sheets] = await Promise.all([
 		listAtlases(clientKey, projectKey),
-		listSpines(clientKey, projectKey),
+		listRigs(clientKey, projectKey),
 		listSheets(clientKey, projectKey),
 	]);
-	return { atlases, spines, sheets };
+	return { atlases, spines: rigs, sheets };
 }

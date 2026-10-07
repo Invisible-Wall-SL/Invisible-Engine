@@ -9,7 +9,7 @@
 // the REAL server module (`riggerText.ts` composes the atlas exactly as production does).
 //
 // Why it exists: `view.html` is a 9.7k-line untyped static file (the launcher build never sees
-// it), the spine runtime it loads is MINIFIED, and the panel's whole job is a multi-step round
+// it), the rig runtime it loads is MINIFIED, and the panel's whole job is a multi-step round
 // trip — bake, reload the atlas, then write the skeleton. Every one of those steps fails
 // silently in a way a data-only test cannot observe. The decisive assertion here is that after
 // the round trip the MINIFIED runtime resolves the text regions on the rebuilt skeleton —
@@ -103,7 +103,7 @@ const server = createServer(async (req, res) => {
 	try {
 		if (p === '/') return send(200, MIME['.html'], readFileSync(join(STATIC, 'rigger/view.html')));
 
-		if (p === '/spine/skeletons')
+		if (p === '/rig-viewer/skeletons')
 			return jsonOut({
 				client: 'c',
 				project: 'p',
@@ -124,7 +124,7 @@ const server = createServer(async (req, res) => {
 				],
 			});
 
-		if (p === '/spine/file') {
+		if (p === '/rig-viewer/file') {
 			const name = url.searchParams.get('name') ?? '';
 			if (name === 'anticipation.atlas') return send(200, 'text/plain', composedAtlas());
 			if (name === 'anticipation.json') return send(200, 'application/json', skeletonJson);
@@ -292,7 +292,7 @@ try {
 					' · tool state: ' +
 					JSON.stringify(
 						await evaluate(
-							'({ err: document.getElementById("err").textContent, gl: !!gl, SPINE: !!SPINE, sel: !!selected, webgl: !!document.getElementById("cv").getContext("webgl") })',
+							'({ err: document.getElementById("err").textContent, gl: !!gl, RIG: !!RIG, sel: !!selected, webgl: !!document.getElementById("cv").getContext("webgl") })',
 						).catch((x) => x.message),
 					),
 			);
@@ -403,7 +403,7 @@ try {
 		// atlas and resolved every text region. A stale atlas, a mis-shaped page block or a bad
 		// region name would show up here as a placeholder (missingArt) instead.
 		ok(
-			'the minified spine runtime resolved EVERY text region',
+			'the minified rig runtime resolved EVERY text region',
 			state.missing.length === 0,
 			JSON.stringify(state.missing),
 		);

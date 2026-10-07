@@ -13,13 +13,13 @@
 		data?: { tools?: { id: string; name: string; url: string; handsOff?: boolean }[] };
 	} = $props();
 
-	// Heavy tool routes (FX, Flow, Editor…) ship large JS chunks (PixiJS, Spine,
+	// Heavy tool routes (FX, Flow, Editor…) ship large JS chunks (PixiJS, rig,
 	// particle-emitter) that download AFTER the click but BEFORE the page renders —
 	// so the launcher looks frozen for a few seconds. `navigating.to` is set for that
 	// whole client-side-navigation window, so the CRT boot splash gives instant feedback.
 	//
 	// One loading screen, everywhere: this is the same screen the Python tools
-	// (Atlas / Sheet Maker) and the static apps (Rigger / Spine) boot with — see
+	// (Atlas / Sheet Maker) and the static apps (Rigger / rig) boot with — see
 	// `$lib/BootSplash.svelte`. Loading something INSIDE an already-open tool uses
 	// `<BusyOverlay>` instead.
 	//
@@ -31,7 +31,7 @@
 	// `hooks.server.ts`, lifted from the ROOT `+layout.svelte`) — there is no app running to
 	// mount <BootSplash> at that point.
 	//
-	// A `handsOff` tool (Spine/Rigger's static `view.html`, Atlas/Sheet Maker's Python
+	// A `handsOff` tool (rig/Rigger's static `view.html`, Atlas/Sheet Maker's Python
 	// origin) is NOT splashed here: its route redirects out of the app, SvelteKit finishes
 	// that redirect with a full page load, and the destination document boots the very same
 	// CRT itself — so splashing the hop plays the screen twice, ours and then theirs from

@@ -50,7 +50,7 @@ const SKIP = {
 	'tools/rigger-spike/inspect-demo.mjs': 'a rig dump for reading, not a check',
 };
 
-const spines = (dir, name, atlas = name) => [
+const rigs = (dir, name, atlas = name) => [
 	`apps/lines/static/assets/spines/${dir}/${name}.json`,
 	`apps/lines/static/assets/spines/${dir}/${atlas}.atlas`,
 ];
@@ -58,18 +58,18 @@ const spines = (dir, name, atlas = name) => [
  * The rig every per-rig Rigger spike runs against: regions, a weighted multi-influence mesh, an
  * unweighted mesh and 12 path constraints, so each spike reaches its real path rather than a skip.
  */
-const RIG = spines('anticipation', 'anticipation');
+const RIG = rigs('anticipation', 'anticipation');
 /**
  * What RIG lacks: a sequence timeline and a weighted first mesh (W); an interior fan and 180 linked
  * meshes (S). Every bone of both is deleted too, each delete keeping the setup pose.
  */
 const RIG_EXTRA = {
-	'tools/rigger-spike/sequence.mjs @W': spines('symbols3', 'W', 'symbols3'),
-	'tools/rigger-spike/meshremove.mjs @W': spines('symbols3', 'W', 'symbols3'),
-	'tools/rigger-spike/retriangulate.mjs @S': spines('symbols2', 'S', 'symbols2'),
-	'tools/rigger-spike/linkedmesh.mjs @S': spines('symbols2', 'S', 'symbols2'),
-	'tools/rigger-spike/delete.mjs @W': spines('symbols3', 'W', 'symbols3'),
-	'tools/rigger-spike/delete.mjs @S': spines('symbols2', 'S', 'symbols2'),
+	'tools/rigger-spike/sequence.mjs @W': rigs('symbols3', 'W', 'symbols3'),
+	'tools/rigger-spike/meshremove.mjs @W': rigs('symbols3', 'W', 'symbols3'),
+	'tools/rigger-spike/retriangulate.mjs @S': rigs('symbols2', 'S', 'symbols2'),
+	'tools/rigger-spike/linkedmesh.mjs @S': rigs('symbols2', 'S', 'symbols2'),
+	'tools/rigger-spike/delete.mjs @W': rigs('symbols3', 'W', 'symbols3'),
+	'tools/rigger-spike/delete.mjs @S': rigs('symbols2', 'S', 'symbols2'),
 };
 
 /** Extra arguments for a check that needs an input to have anything to check. */

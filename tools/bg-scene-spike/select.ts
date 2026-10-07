@@ -8,12 +8,12 @@
  *
  * Proves: (1) `apps/lines`' `defaultLayout('lines')` ships NO `space:'background'` scene ⇒
  * empty selection + no suppression ⇒ the coded `<Background>` stays (apps/lines PARITY);
- * (2) the coded id-`background` / `space:'canvas'` spine-anchor scene (bookof reference) is
- * NOT selected and does NOT suppress (the existing coded-spine cover path keeps working);
+ * (2) the coded id-`background` / `space:'canvas'` rig-anchor scene (bookof reference) is
+ * NOT selected and does NOT suppress (the existing coded-rig cover path keeps working);
  * (3) an authored `space:'background'` scene with a real sprite IS selected AND suppresses
  * the coded background; (4) multiple background scenes return in doc order (lowest first);
  * (5) an anchor-only `space:'background'` scene (only a `Background` bind) is selected but
- * does NOT suppress (it has no real content to replace the spine).
+ * does NOT suppress (it has no real content to replace the rig).
  */
 
 // Import the source modules directly (not the `engine-layout` barrel) so tsx resolves
@@ -46,9 +46,9 @@ assert(backgroundScenes(lines.scenes).length === 0, 'no `space:"background"` sce
 assert(!hasAuthoredBackground(lines.scenes), 'no suppression ⇒ coded <Background> stays (parity)');
 
 // ---------------------------------------------------------------------------
-// 2. Coded id-`background` spine anchor (space:'canvas') is NOT a persistent bg.
+// 2. Coded id-`background` rig anchor (space:'canvas') is NOT a persistent bg.
 // ---------------------------------------------------------------------------
-console.log('bg-scene — coded `background`-id / canvas spine anchor is not selected');
+console.log('bg-scene — coded `background`-id / canvas rig anchor is not selected');
 const bookof: LayoutDoc = bookofReferenceLayout();
 const codedBg = bookof.scenes.find((s) => s.id === 'background');
 assert(!!codedBg, 'bookof reference HAS a `background`-id scene');
@@ -113,7 +113,7 @@ const anchorDoc: LayoutDoc = { ...lines, scenes: [anchorOnly, ...lines.scenes] }
 assert(backgroundScenes(anchorDoc.scenes).length === 1, 'anchor-only scene IS selected');
 assert(
 	!hasAuthoredBackground(anchorDoc.scenes),
-	'anchor-only scene does NOT suppress (no real content to replace the spine)',
+	'anchor-only scene does NOT suppress (no real content to replace the rig)',
 );
 
 // ---------------------------------------------------------------------------

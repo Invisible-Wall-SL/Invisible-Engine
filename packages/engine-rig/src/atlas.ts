@@ -105,7 +105,7 @@ function readEntry(line: string | null): string[] | null {
 	return out;
 }
 
-/** The libGDX/Spine text atlas: pages separated by blank lines, each a name line plus
+/** The libGDX/rig text atlas: pages separated by blank lines, each a name line plus
  * `key: values` lines, followed by its regions (a name line plus `key: values` lines). */
 export class TextureAtlas {
 	pages: TextureAtlasPage[] = [];

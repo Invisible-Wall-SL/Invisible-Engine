@@ -10,7 +10,7 @@
 	// `expandingSymbol` builtin def binds this). Unlike the coded `SpecialBook` it does NOT
 	// shuffle — it simply renders the CHOSEN symbol (`stateGame.specialSymbol`) via the same
 	// `<Symbol>` state-machine render path. The author wraps their own reveal animation +
-	// timing around it (their spine cued by the `specialBookReveal` signal + Flow choreography);
+	// timing around it (their rig cued by the `specialBookReveal` signal + Flow choreography);
 	// this only shows the correct art. Position/scale come from the instance node.
 	const {
 		state: stateProp = 'bookIdle',

@@ -595,7 +595,7 @@ CELEBRATIONS with its own — however many big tiers it wants, named, with its o
 thresholds.
 
 This panel owns tier **structure only** — how many big tiers there are, their names,
-thresholds, order, and escalation. Each tier's **presentation** — the spine bundle,
+thresholds, order, and escalation. Each tier's **presentation** — the rig bundle,
 intro / idle / outro animations, duration, and SFX / BGM — is authored on the **Win
 Overlay** component in the Scene Editor, which reads these tiers **by alias** and
 renders one presentation group per tier, so the two stay in sync (see
@@ -614,9 +614,9 @@ Each big tier has:
 - an amount **threshold** — the win as a multiple of the total bet at or above which
   the tier applies. Thresholds ascend down the list.
 
-The spine bundle, animation names and duration are **not** on this panel — set them on
-the Win Overlay component per tier (a spine picker + intro / idle / outro dropdowns of
-that spine's animations + duration). A tier's **sounds** are in
+The rig bundle, animation names and duration are **not** on this panel — set them on
+the Win Overlay component per tier (a rig picker + intro / idle / outro dropdowns of
+that rig's animations + duration). A tier's **sounds** are in
 [Invisible Sound](sound.md) → **Win tiers**.
 
 Reorder tiers with the ↑ / ↓ arrows. **Load default big wins** (shown when empty)
@@ -704,7 +704,7 @@ Each bet mode is one card, read top to bottom as four labelled blocks:
 | **Math**          | Cost × (a multiple of the base bet), RTP, Max win ×, and the **Feature** / **Buy bonus** toggles — the engine config shape the math team ships. |
 | **Menu**          | **Kind**, **Order**, and the **Card** component this mode renders.                                                                              |
 | **Copy**          | **Title**, **Button**, **Bet label**, **Description**, **Dialog**.                                                                              |
-| **Card graphics** | Per-mode overrides of the card component's params, clustered by the group each param declares (Panel · Icon · Spine · Button).                  |
+| **Card graphics** | Per-mode overrides of the card component's params, clustered by the group each param declares (Panel · Icon · rig · Button).                  |
 
 The card is **colour-coded by kind** — a blue rail for `base`, gold for `buy`, teal
 for `ante` — matching the chip this mode gets in the menu preview above, so a card
@@ -725,7 +725,7 @@ mode's cost as tags.
   back to a legible default — the mode's key as its title and a verb matched to
   its kind — so an un-authored mode still renders a working menu.
 - **Card graphics** — override any param the mode's card declares (panel frame and
-  tint, the card's main image, a spine accent, the button/ribbon frame, …). Blank
+  tint, the card's main image, a rig accent, the button/ribbon frame, …). Blank
   inherits the card component's own authored default, so you only set what differs
   between modes.
 

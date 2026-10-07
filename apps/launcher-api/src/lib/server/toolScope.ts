@@ -27,7 +27,7 @@ type ToolId = Parameters<typeof roleHasTool>[1];
 
 export interface ScopeOptions {
 	/** Editor-only: also allow the cross-project `_shared/spines/` bundles. */
-	includeSharedSpines?: boolean;
+	includeSharedRigs?: boolean;
 	/** Editor-only: also allow the cross-project `_shared/fonts/` library. */
 	includeSharedFonts?: boolean;
 	/** Also allow the cross-project `_shared/sheets/` art library (read — see `GateOptions`). */
@@ -43,7 +43,7 @@ export function allowedPrefixes(
 	opts: ScopeOptions = {},
 ): string[] {
 	const prefixes = [`${projectPrefix(clientKey, projectKey)}/`];
-	if (opts.includeSharedSpines) prefixes.push('_shared/spines/');
+	if (opts.includeSharedRigs) prefixes.push('_shared/spines/');
 	if (opts.includeSharedFonts) prefixes.push('_shared/fonts/');
 	if (opts.includeSharedSheets) prefixes.push('_shared/sheets/');
 	if (opts.includeBlueprints) prefixes.push('_shared/blueprints/');
@@ -74,7 +74,7 @@ export interface GateOptions {
 	/** 403 message when the entitlement check fails. */
 	forbiddenMessage: string;
 	/** Pass through to `allowedPrefixes` (editor opts into `spines/_shared/`). */
-	includeSharedSpines?: boolean;
+	includeSharedRigs?: boolean;
 	/** Pass through to `allowedPrefixes` (editor opts into `_shared/fonts/`). */
 	includeSharedFonts?: boolean;
 	/**
@@ -91,7 +91,7 @@ export interface GateOptions {
 export interface ToolScope {
 	clientKey: string;
 	projectKey: string;
-	/** The allow-list for this scope (already honours `includeSharedSpines`). */
+	/** The allow-list for this scope (already honours `includeSharedRigs`). */
 	prefixes: string[];
 }
 
@@ -149,7 +149,7 @@ export async function gate(
 		cookies.get(SESSION_COOKIE),
 	);
 	const prefixes = allowedPrefixes(clientKey, projectKey, {
-		includeSharedSpines: opts.includeSharedSpines,
+		includeSharedRigs: opts.includeSharedRigs,
 		includeSharedFonts: opts.includeSharedFonts,
 		includeSharedSheets: opts.includeSharedSheets,
 		includeBlueprints: opts.includeBlueprints,

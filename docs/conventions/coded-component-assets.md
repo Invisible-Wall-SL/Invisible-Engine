@@ -22,14 +22,14 @@ something else and the editor shows a plain placeholder (or you set
 
 | Coded component (`bind.component`) | Asset kind | Convention name | Editor fit |
 |---|---|---|---|
-| `Background` | spine bundle | `foregroundAnimation` | cover (full-bleed) |
-| `Win` | spine bundle | `bigwin` | contain (centred) |
-| `Transition` | spine bundle | `transition` | contain |
-| `FreeSpinIntro` | spine bundle | `fsIntro` | contain |
-| `FreeSpinOutro` | spine bundle | `fsOutro` | contain |
+| `Background` | rig bundle | `foregroundAnimation` | cover (full-bleed) |
+| `Win` | rig bundle | `bigwin` | contain (centred) |
+| `Transition` | rig bundle | `transition` | contain |
+| `FreeSpinIntro` | rig bundle | `fsIntro` | contain |
+| `FreeSpinOutro` | rig bundle | `fsOutro` | contain |
 | `FreeSpinCounter` | atlas region | `Frame_FSCounter.png` | contain |
 
-- **Spine bundle name** = the folder/bundle the spine is synced under
+- **Rig bundle name** = the folder/bundle the rig is synced under
   (`<client>/<project>/spines/<bundle>/`) — the editor matches the last path
   segment against the convention name.
 - **Atlas region name** = a frame packed in one of the project's atlas/sheet

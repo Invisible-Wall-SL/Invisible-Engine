@@ -19,20 +19,20 @@ import type { SymbolState } from './types';
 export const SYMBOL_SIZE = 120;
 
 /**
- * Fraction of the cell a SPINE (animated) symbol fills — sprite symbols are fine at full
- * contain, but a spine character (badge + figure) reads visually bigger, so we contain its
- * bounds to `SYMBOL_SIZE × this` to bring it down to match the sprite icons. Spine-only:
+ * Fraction of the cell a RIG (animated) symbol fills — sprite symbols are fine at full
+ * contain, but a rig character (badge + figure) reads visually bigger, so we contain its
+ * bounds to `SYMBOL_SIZE × this` to bring it down to match the sprite icons. Rig-only:
  * sprites are untouched. Tune to taste (1 = same as sprites). See
  * `feedback_symbols_size_from_art_no_param`.
  */
-export const SYMBOL_SPINE_FILL = 0.5;
+export const SYMBOL_RIG_FILL = 0.5;
 
 export const REEL_PADDING = 0.53;
 
 /**
  * The tint applied to a NON-winning symbol while the win-celebration dim is on (Invisible Symbols
  * State Machine → `winCycle.dimNonWinning`). A Pixi v8 `Container.tint` multiplies down to every
- * child (sprite / spine / flipbook alike), so `0x666666` darkens a losing symbol to ~40% brightness
+ * child (sprite / rig / flipbook alike), so `0x666666` darkens a losing symbol to ~40% brightness
  * — dark enough to recede behind the lit paying line, bright enough to stay legible. `0xffffff` (the
  * default tint) is the untouched, full-bright symbol.
  */

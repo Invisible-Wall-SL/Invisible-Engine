@@ -17,8 +17,8 @@ export function riggerBundlePrefix(clientKey: string, projectKey: string, dirB64
 		}
 	}
 	if (dir.includes('..')) throw error(403, 'forbidden');
-	const spinesPrefix = SUB.spines(clientKey, projectKey);
-	return dir ? `${spinesPrefix}/${dir}` : spinesPrefix;
+	const rigsPrefix = SUB.spines(clientKey, projectKey);
+	return dir ? `${rigsPrefix}/${dir}` : rigsPrefix;
 }
 
 /** A bundle-relative `.atlas` filename from a request body — single segment, no escapes. */

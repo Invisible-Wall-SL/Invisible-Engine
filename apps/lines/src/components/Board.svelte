@@ -56,7 +56,7 @@
 	/** Authored ground-tile art — `undefined` for every board that has none. See the layer below. */
 	const tileArt = $derived(context.stateGameDerived.boardTileArt());
 
-	/** The win beat a stacked-picture cell holds in place of a per-icon win spine (its `<Symbol>` is
+	/** The win beat a stacked-picture cell holds in place of a per-icon win rig (its `<Symbol>` is
 	 *  never mounted, so there is no `oncomplete` to await). A readable minimum so the win still lands
 	 *  even when a paying line is entirely covered by stacked runs. The Symbols tool's `winHoldMs`
 	 *  overrides it — this beat is also how long an authored WIN picture plays, so a project with a
@@ -146,14 +146,14 @@
 			// awaiting it hangs the whole win presentation — the round's per-win narration stalls on the
 			// first paying line that crosses a stacked run, and the resting win-cycle (no skip token) sticks
 			// on it forever. The stacked-picture mode's win beat is the tall picture itself, not a per-icon
-			// win spine, so a covered cell holds a fixed beat instead of awaiting an animation that can't
+			// win rig, so a covered cell holds a fixed beat instead of awaiting an animation that can't
 			// complete. Off / non-stacked games have an empty coverage set ⇒ every cell awaits as before.
 			//
 			// Stacked coverage is only the case we can name UP FRONT, though. Every OTHER cell awaits an
 			// `oncomplete` that a symbol only reports when its `win` state actually plays something, and
-			// several ordinary authorings never do (no art bound for `win`, a seat out of frame, a spine
+			// several ordinary authorings never do (no art bound for `win`, a seat out of frame, a rig
 			// whose bound animation isn't in the skeleton) — see `awaitSymbolBeat`, which also says why a
-			// LOOPING spine is not on that list despite reading like it should be. Unbounded, one
+			// LOOPING rig is not on that list despite reading like it should be. Unbounded, one
 			// such cell hangs `Promise.all`, and with it `winInfo` and the whole round: the spin button
 			// stays disabled and the game reads as frozen until the player slams. So the wait is RACED
 			// against a cap — a runaway guard sized well above any authored win animation, so authored

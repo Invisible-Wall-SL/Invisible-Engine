@@ -22,19 +22,19 @@ import {
 	projectClientKey,
 	projectName,
 } from '$lib/server/projects';
-import { bundleFromAssetKey } from '$lib/server/spine';
+import { bundleFromAssetKey } from '$lib/server/rig';
 import type { RequestHandler } from './$types';
 
 /**
- * Spine `assetKey`s are stored as the R2 bundle PREFIX
+ * Rig `assetKey`s are stored as the R2 bundle PREFIX
  * (`<client>/<project>/spines/<bundle>/`) because the editor canvas resolves
- * spines straight from R2 by that key. A running GAME, however, registers its
- * spines under the plain `<bundle>` key in its own `assets.ts`. So for the
- * game-facing doc we rewrite each spine node's prefix down to its bundle name;
+ * rigs straight from R2 by that key. A running GAME, however, registers its
+ * rigs under the plain `<bundle>` key in its own `assets.ts`. So for the
+ * game-facing doc we rewrite each rig node's prefix down to its bundle name;
  * the editor's own load path (`+page.server.ts`) is untouched and keeps the
  * prefix it needs. Mutates in place — the doc is freshly parsed per request.
  */
-function rewriteSpineKeys(node: unknown, clientKey: string, projectKey: string): void {
+function rewriteRigKeys(node: unknown, clientKey: string, projectKey: string): void {
 	if (!node || typeof node !== 'object') return;
 	const n = node as { kind?: string; assetKey?: unknown; children?: unknown };
 	if (n.kind === 'spine' && typeof n.assetKey === 'string') {
@@ -42,36 +42,36 @@ function rewriteSpineKeys(node: unknown, clientKey: string, projectKey: string):
 		if (bundle) n.assetKey = bundle;
 	}
 	if (Array.isArray(n.children))
-		for (const c of n.children) rewriteSpineKeys(c, clientKey, projectKey);
+		for (const c of n.children) rewriteRigKeys(c, clientKey, projectKey);
 }
 
-function resolveSpineKeysForGame(doc: unknown, clientKey: string, projectKey: string): void {
+function resolveRigKeysForGame(doc: unknown, clientKey: string, projectKey: string): void {
 	const scenes = (doc as { scenes?: unknown })?.scenes;
 	if (Array.isArray(scenes)) {
 		for (const scene of scenes) {
 			const nodes = (scene as { nodes?: unknown })?.nodes;
 			if (Array.isArray(nodes))
-				for (const node of nodes) rewriteSpineKeys(node, clientKey, projectKey);
+				for (const node of nodes) rewriteRigKeys(node, clientKey, projectKey);
 		}
 	}
 }
 
 /**
- * The component defs a game registers carry their OWN spine nodes (a button's
+ * The component defs a game registers carry their OWN rig nodes (a button's
  * `R_SpinButton`, a free-spin frame, …) — rewrite those `assetKey`s too, exactly as
- * {@link resolveSpineKeysForGame} does for the scene tree. Without this, `LayoutNodeView`
- * hands `<SpineProvider>` the full R2 bundle PREFIX while the game registered the bundle
- * under its bare NAME, so the lookup misses and the placed component's spine never loads.
+ * {@link resolveRigKeysForGame} does for the scene tree. Without this, `LayoutNodeView`
+ * hands `<RigProvider>` the full R2 bundle PREFIX while the game registered the bundle
+ * under its bare NAME, so the lookup misses and the placed component's rig never loads.
  * Must mirror `lib/server/runtimeBundle.ts`.
  */
-function resolveSpineKeysForComponentDefs(
+function resolveRigKeysForComponentDefs(
 	resolved: { defs: Record<string, ComponentDef>; versions: ComponentDef[] } | undefined,
 	clientKey: string,
 	projectKey: string,
 ): void {
 	if (!resolved) return;
-	for (const def of Object.values(resolved.defs)) rewriteSpineKeys(def.root, clientKey, projectKey);
-	for (const def of resolved.versions) rewriteSpineKeys(def.root, clientKey, projectKey);
+	for (const def of Object.values(resolved.defs)) rewriteRigKeys(def.root, clientKey, projectKey);
+	for (const def of resolved.versions) rewriteRigKeys(def.root, clientKey, projectKey);
 }
 
 /**
@@ -153,7 +153,7 @@ export const GET: RequestHandler = async ({ url }) => {
 		// Default the HUD game-name to the project's display name (unless the editor
 		// overrode it), so the game shows the project name without a hard-coded string.
 		applyHudGameNameDefault(doc, await projectName(projectKey));
-		resolveSpineKeysForGame(doc, clientKey, projectKey);
+		resolveRigKeysForGame(doc, clientKey, projectKey);
 		// Per-project component param defaults (§14.2 B4.5) so the game's
 		// `registerComponentDefaults` can apply author-set appearance defaults to
 		// `componentInstance`s (e.g. the HUD readouts). Empty map ⇒ def defaults apply.
@@ -167,9 +167,9 @@ export const GET: RequestHandler = async ({ url }) => {
 			url.searchParams.get('components') === '1'
 				? await resolveReferencedDefs(doc as LayoutDoc, projectKey, storedComponentDefaults)
 				: undefined;
-		// A placed component's OWN spine nodes need the same prefix→bundle-name rewrite as the
-		// scene tree, or their spines never load in the built game (key mismatch).
-		resolveSpineKeysForComponentDefs(resolved, clientKey, projectKey);
+		// A placed component's OWN rig nodes need the same prefix→bundle-name rewrite as the
+		// scene tree, or their rigs never load in the built game (key mismatch).
+		resolveRigKeysForComponentDefs(resolved, clientKey, projectKey);
 		// The atlas-ref twin of that rewrite — `loadDoc` above already repaired the doc's own refs.
 		if (resolved) {
 			await repairComponentDefsAtlasRefs(

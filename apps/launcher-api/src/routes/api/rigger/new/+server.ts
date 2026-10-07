@@ -3,10 +3,10 @@ import { loadRegionSet } from '$lib/server/editorRegions';
 import { resolveRigSkeletonBody } from '$lib/server/riggerNewRig';
 import { SUB } from '$lib/server/projectPaths';
 import { getObjectBytes, putObjectBytes, putObjectText } from '$lib/server/r2';
-import { regionsToSpineAtlas, reorientRotatedRegionsForSpine } from '$lib/server/spine';
-import { bundleRevision } from '$lib/server/spineBundleSync';
-import { releaseClaimOnCaseClash, spineBundleNameTaken } from '$lib/server/spineIndex';
-import { reindexProjectSkeletons, writeSkeletonsIndex } from '$lib/server/spineReindex';
+import { regionsToRigAtlas, reorientRotatedRegionsForRig } from '$lib/server/rig';
+import { bundleRevision } from '$lib/server/rigBundleSync';
+import { releaseClaimOnCaseClash, rigBundleNameTaken } from '$lib/server/rigIndex';
+import { reindexProjectSkeletons, writeSkeletonsIndex } from '$lib/server/rigReindex';
 import { reclaimAbandonedClaims } from '$lib/server/riggerAbandonedClaim';
 import { claimNewIrig } from '$lib/server/riggerIrigWrite';
 import { gate } from '$lib/server/toolScope';
@@ -18,14 +18,14 @@ const basename = (k: string): string => {
 };
 
 /**
- * Create a NEW rig as a self-contained spine bundle under `spines/<name>/`:
- * synthesise a Spine `.atlas` from the chosen manifest's regions, copy the packed
+ * Create a NEW rig as a self-contained rig bundle under `spines/<name>/`:
+ * synthesise a rig `.atlas` from the chosen manifest's regions, copy the packed
  * page image, and write a `.irig`. When `rigId` is supplied the `.irig` body is a saved
  * library rig's skeleton (bones + animations + constraints come over intact; its
  * attachment region names intentionally won't resolve against the new atlas until the
  * user re-attaches this object's art). Otherwise it is a blank skeleton (root bone +
  * default skin). Then reindex so it appears in the skeleton list. This is the
- * Atlas-Maker→Rigger bridge — a fresh project has manifests (post-compose) but no spine
+ * Atlas-Maker→Rigger bridge — a fresh project has manifests (post-compose) but no rig
  * bundles yet. `rigger`-gated.
  *
  * With `noAtlas: true` (and no `manifestKey`) the bundle gets a 1×1 transparent
@@ -41,7 +41,7 @@ const basename = (k: string): string => {
  *
  * It MUST be a byte-valid PNG, and that is not a formality: the page is the rig bundle's only
  * image, so a browser that refuses to decode it fails the whole `Assets.load` of the bundle. The
- * rig is then missing from `loadedAssets`, `<SpineProvider>` renders NOTHING — and with it none of
+ * rig is then missing from `loadedAssets`, `<RigProvider>` renders NOTHING — and with it none of
  * its children, including the `<RiggedEffect>` / `<RiggedFlipbook>` bindings an atlas-less
  * "carrier" rig usually exists to fire. The symbol/node simply vanishes in-game while every
  * authoring surface (which reads the `.irig` and previews clips off the timeline, never through
@@ -71,11 +71,11 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	if (!manifestKey && !noAtlas) throw error(400, 'missing manifestKey');
 	if (!name) throw error(400, 'missing rig name');
 
-	const spinesPrefix = SUB.spines(clientKey, projectKey);
-	const bundle = `${spinesPrefix}/${name}`;
+	const rigsPrefix = SUB.spines(clientKey, projectKey);
+	const bundle = `${rigsPrefix}/${name}`;
 	// A create that died after its claim holds the name from a folder nobody can see; free it.
-	await reclaimAbandonedClaims(clientKey, projectKey, spinesPrefix, name);
-	if (await spineBundleNameTaken(spinesPrefix, name))
+	await reclaimAbandonedClaims(clientKey, projectKey, rigsPrefix, name);
+	if (await rigBundleNameTaken(rigsPrefix, name))
 		throw error(409, `a rig named "${name}" already exists (names are case-insensitive)`);
 
 	const rigId = body && typeof body.rigId === 'string' ? body.rigId : '';
@@ -94,7 +94,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		// source.json — so "⟳ source…" prompts the picker when the user attaches an atlas.
 		pageName = `${name}.png`;
 		pageBody = BLANK_PAGE_PNG;
-		atlasText = regionsToSpineAtlas(pageName, 1, 1, []);
+		atlasText = regionsToRigAtlas(pageName, 1, 1, []);
 	} else {
 		const rs = await loadRegionSet(manifestKey);
 		if (!rs.regions.length) throw error(400, 'that atlas has no regions');
@@ -107,16 +107,16 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		pageName = basename(rs.pageKey);
 		pageContentType = page.contentType;
 		regionCount = rs.regions.length;
-		atlasText = regionsToSpineAtlas(pageName, rs.pageWidth, rs.pageHeight, rs.regions);
-		// Re-orient CW-packed rotated regions to Spine's CCW `rotate:90` convention so they
+		atlasText = regionsToRigAtlas(pageName, rs.pageWidth, rs.pageHeight, rs.regions);
+		// Re-orient CW-packed rotated regions to rig's CCW `rotate:90` convention so they
 		// don't render upside down in the Rigger (no-op when no region is rotated).
-		pageBody = await reorientRotatedRegionsForSpine(page.body, rs.regions);
+		pageBody = await reorientRotatedRegionsForRig(page.body, rs.regions);
 		// Remember the source atlas so a future "⟳ Re-sync atlas" is one click (re-pull
 		// the latest page + re-synth the .atlas after the source is recoloured/edited) AND
 		// so consumers can detect a re-packed sheet: `geometryRevision` is the baseline the
 		// self-healing sync (`ensureBundleAtlasFresh`) compares the live manifest against.
 		// Ignored by the skeleton index (only skeleton/atlas files are indexed) and a
-		// valid `/spine/file` name.
+		// valid `/rig-viewer/file` name.
 		sidecar = JSON.stringify({
 			manifestKey,
 			pageName,
@@ -124,22 +124,22 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		});
 	}
 
-	// The `.irig` goes FIRST and only if absent: `spineBundleNameTaken` above is a read, so two
+	// The `.irig` goes FIRST and only if absent: `rigBundleNameTaken` above is a read, so two
 	// creates of the same name can both pass it. The conditional create is the actual claim — the
 	// loser gets a 409 before it has written a page or an atlas over the winner's. A claim on a
 	// name differing only by case lands on a different key, so it is re-checked by listing.
 	const irigKey = `${bundle}/${name}.irig`;
 	if (!(await claimNewIrig(irigKey, JSON.stringify(skeleton))))
 		throw error(409, `a rig named "${name}" was just created by someone else`);
-	if (await releaseClaimOnCaseClash(spinesPrefix, name, irigKey))
+	if (await releaseClaimOnCaseClash(rigsPrefix, name, irigKey))
 		throw error(409, `a rig named like "${name}" was just created (names are case-insensitive)`);
 	await putObjectBytes(`${bundle}/${pageName}`, pageBody, pageContentType);
 	await putObjectText(`${bundle}/${name}.atlas`, atlasText, 'text/plain; charset=utf-8');
 	if (sidecar) await putObjectText(`${bundle}/source.json`, sidecar, 'application/json');
 
 	await writeSkeletonsIndex(
-		spinesPrefix,
-		(await reindexProjectSkeletons(clientKey, projectKey, spinesPrefix)).index,
+		rigsPrefix,
+		(await reindexProjectSkeletons(clientKey, projectKey, rigsPrefix)).index,
 	);
 
 	return json({

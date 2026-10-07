@@ -139,8 +139,8 @@ export function createSymbolInfo({ symbolMap, drawsPlaceholder }: SymbolInfoDeps
 
 		// WHICH STATE this symbol actually draws. The rule lives in `symbolCell.ts`, import-free so it
 		// can be exercised offline — see the reasoning there. The short version: an unauthored state
-		// used to spread as nothing, and `Symbol.svelte`'s last arm is the SPINE renderer, so it fell
-		// through and handed `SpineProvider` an undefined key. `key.match(...)` then threw mid-render and
+		// used to spread as nothing, and `Symbol.svelte`'s last arm is the RIG renderer, so it fell
+		// through and handed `RigProvider` an undefined key. `key.match(...)` then threw mid-render and
 		// took the board with it. `explosion` is where it bites, because the cascade is the only caller
 		// and a project-only symbol (a multiplier) has no coded cell to inherit.
 		const resolveState = resolveSymbolState(map[rawSymbol.name], state);

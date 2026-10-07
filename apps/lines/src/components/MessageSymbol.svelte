@@ -13,9 +13,9 @@
 	 * segment — the engine layer can't reach `<Symbol>` (game-specific), so the game provides this.
 	 *
 	 * Renders through the SAME `<Symbol>` state-machine path the board uses, so it handles sprite,
-	 * spine AND flipbook symbols identically (the whole point — the high symbols are spines, which a
+	 * rig AND flipbook symbols identically (the whole point — the high symbols are rigs, which a
 	 * plain `<Sprite>` can't draw). `<Symbol>` draws into the board's LIVE cell (a sprite fills it; a
-	 * spine contain-fits `cell × SYMBOL_SPINE_FILL`, the board's sprite↔spine visual match), so a
+	 * rig contain-fits `cell × SYMBOL_RIG_FILL`, the board's sprite↔rig visual match), so a
 	 * uniform `size / cell` scale on the whole output preserves that match and lands both types at
 	 * ~`size` tall — and `size` is the surrounding line of text's height, so an inline symbol that
 	 * ignores the cell is a symbol that doesn't match the words. Dividing by `SYMBOL_SIZE` did just
@@ -23,7 +23,7 @@
 	 * cell drew the symbol at `size × cell / 120`. The `static` (resting) state = a clean icon, no
 	 * win frame.
 	 *
-	 * FROZEN, whatever the symbol is bound to: a flipbook holds frame 0 of its walk, a spine holds
+	 * FROZEN, whatever the symbol is bound to: a flipbook holds frame 0 of its walk, a rig holds
 	 * the pose its animation opens on, a sprite was already still. The toggle asks for a picture of
 	 * the symbol in place of its NAME, and a name does not move: anything animating inside a line of
 	 * text pulls the eye off the sentence it was meant to illustrate, and the toast is on screen for

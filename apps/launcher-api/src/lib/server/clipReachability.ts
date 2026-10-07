@@ -59,7 +59,7 @@ export function collectClipIds(value: unknown, into: Set<string>): void {
  *
  * Sources are every authoring surface that can name a clip: the layout doc, component defs, the
  * symbols doc (a flipbook symbol cell carries `clipId`, and `symbolExport` relies on the art
- * export's clip walk to ship its sheets), FX effects, the flow graph, and RIG BINDINGS — a Spine
+ * export's clip walk to ship its sheets), FX effects, the flow graph, and RIG BINDINGS — a rig
  * rig can play a clip at a beat, which is a `clipId` living in a skeleton rather than in any doc.
  *
  * The rig source was found by running this against a real project before shipping: it reported 6

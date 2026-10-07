@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { Container, Sprite, Flipbook, SpineProvider, SpineTrack, Rectangle } from 'pixi-svelte';
-	import { EDITOR_SPINE_LOAD_SCALE, resolveFlipbook } from 'engine-layout';
+	import { Container, Sprite, Flipbook, RigProvider, RigTrack, Rectangle } from 'pixi-svelte';
+	import { EDITOR_RIG_LOAD_SCALE, resolveFlipbook } from 'engine-layout';
 
 	import { getContext } from '../game/context';
 	import { getSymbolInfo } from '../game/utils';
@@ -8,7 +8,7 @@
 
 	/**
 	 * One tall stacked picture for the stacked-picture reel mode (docs/design/stacked-picture-mode.md).
-	 * Draws the AUTHORED tall art (`run.art` — the Symbols-State-Machine stacked config, sprite / spine /
+	 * Draws the AUTHORED tall art (`run.art` — the Symbols-State-Machine stacked config, sprite / rig /
 	 * flipbook — swapping to `run.winArt` while the stack is part of a paying line) into a box
 	 * `naturalCells` tall, then masks it to `visibleCells` cells at `run.hiddenAbove`
 	 * so a partial stack shows N/M of the picture. Most runs top-align (`hiddenAbove === 0` ⇒ top N/M); a
@@ -18,8 +18,8 @@
 	 *
 	 * Coordinate space: the parent mounts this inside the resting board container, so `run.x` /
 	 * `run.topEdgeY` are the SAME board-local coordinates `BoardBase` uses. The container is centred on
-	 * the full picture; the sprite/flipbook branches anchor at 0.5 (texture centre) while the SPINE
-	 * branch uses `anchor={0}` + `centreBox` (a spine pivots in its LOCAL skeleton frame — see that
+	 * the full picture; the sprite/flipbook branches anchor at 0.5 (texture centre) while the RIG
+	 * branch uses `anchor={0}` + `centreBox` (a rig pivots in its LOCAL skeleton frame — see that
 	 * branch's note); the mask rectangle then reveals only the top `visibleCells` from the box top.
 	 */
 	const { run }: { run: StackedPictureRun } = $props();
@@ -95,28 +95,28 @@
 		<Sprite key={info.assetKey} anchor={0.5} width={boxW} height={boxH} />
 	{:else if info.animationName}
 		<!--
-			`loadScaleBase` cancels the spine LOAD SCALE the reader baked into the geometry but not into
-			`skeleton.data.width/height` — without it a sized spine renders at `box × its_load_scale`
+			`loadScaleBase` cancels the rig LOAD SCALE the reader baked into the geometry but not into
+			`skeleton.data.width/height` — without it a sized rig renders at `box × its_load_scale`
 			(a symbol-loaded rig ⇒ 2× the box). The sprite/flipbook branches above size exactly, so the
-			spine must too: pinned to `EDITOR_SPINE_LOAD_SCALE`, the rig fills exactly `boxW × boxH`
+			rig must too: pinned to `EDITOR_RIG_LOAD_SCALE`, the rig fills exactly `boxW × boxH`
 			regardless of the scale its bundle was read at. Mirrors the WinAnimation / FreeSpin surfaces.
 
-			`anchor={0}` (NOT 0.5, unlike the sprite branch): a spine's pivot lives in its LOCAL skeleton
+			`anchor={0}` (NOT 0.5, unlike the sprite branch): a rig's pivot lives in its LOCAL skeleton
 			frame, not the requested box frame — anchor 0.5 would pivot by `box/2` and mis-centre the art
 			by ≈box/2 (clipping a tall rig at the top, gapping the bottom). `centreBox` then drops the
-			centre of the rig's authored box on the box centre — exactly how `SymbolSpineMain` centres
+			centre of the rig's authored box on the box centre — exactly how `SymbolRigMain` centres
 			every normal symbol, whether or not the skeleton origin happens to sit in that centre.
 		-->
-		<SpineProvider
+		<RigProvider
 			key={info.assetKey}
 			anchor={0}
 			width={boxW}
 			height={boxH}
-			loadScaleBase={EDITOR_SPINE_LOAD_SCALE}
+			loadScaleBase={EDITOR_RIG_LOAD_SCALE}
 			centreBox
 		>
-			<SpineTrack trackIndex={0} animationName={info.animationName} loop />
-		</SpineProvider>
+			<RigTrack trackIndex={0} animationName={info.animationName} loop />
+		</RigProvider>
 	{/if}
 
 	<Rectangle isMask x={-maskW / 2} y={-boxH / 2 + hiddenOffset} width={maskW} height={maskH} />

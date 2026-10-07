@@ -65,8 +65,8 @@ export function soundFileName(id: string, ext: string): string {
  * `BODY_SIZE_LIMIT` (512 KB by default), which is a tenth of one music track — a proxied multipart
  * upload therefore died on every real sound, and because the body was cut mid-stream the failure
  * surfaced as `request.formData()` rejecting, i.e. a 400 "Expected a multipart upload" rather than
- * anything about size. Same reason the font, spine and flipbook imports sign a URL
- * (`fonts/upload-urls`, `editor/spines/upload`, `flipbook/source-url`).
+ * anything about size. Same reason the font, rig and flipbook imports sign a URL
+ * (`fonts/upload-urls`, `editor/rigs/upload`, `flipbook/source-url`).
  *
  * The key holds a freshly minted id, so the URL can only ever create an object — never overwrite
  * one an entry already names. Does NOT touch `sounds.json`: the caller records the entry through

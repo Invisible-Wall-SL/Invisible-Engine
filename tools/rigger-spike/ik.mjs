@@ -1,9 +1,9 @@
-// Phase §18 item 3 spike (GATE) — nail the Spine 4.2 IK CONSTRAINT setup + the IK
+// Phase §18 item 3 spike (GATE) — nail the 4.2-format IK CONSTRAINT setup + the IK
 // animation timeline data model against the official runtime, before any UI is built.
 //   node tools/rigger-spike/ik.mjs <skeleton.json> <skeleton.atlas>
 //
 // ============================ EMPIRICAL FINDINGS ============================
-// (validated below against the rig runtime's SkeletonJson loader (engine-rig, held to the Spine 4.2 reference),
+// (validated below against the rig runtime's SkeletonJson loader (engine-rig, held to the 4.2-format reference),
 //  IkConstraint, and IkConstraintTimeline — NOT from memory. Read off SkeletonJson.js:
 //  setup at L124-148, timeline at L723-758.)
 //
@@ -43,7 +43,7 @@
 //   • Authoring v1: we key MIX (the FK→IK reveal). bend/softness optional. Linear by default,
 //     bezier via the shared curve menu (one easing → mix channel).
 import { readFileSync } from 'node:fs';
-import { RIG_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = await import(RIG_CORE);
 

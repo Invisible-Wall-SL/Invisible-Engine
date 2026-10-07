@@ -212,7 +212,7 @@ hands. Everything on it is read from the run's event stream, so it is the same p
 - **Fonts to bake:** as on the breakdown (above).
 - **As they land:** one gallery per place the agents saved an image under the project — **Atlas
   pages**, **Sheets**, **Atlases**, **Symbols**, **Scenes**, **Renders**, **References**,
-  **Spines**, **Fonts** — newest first, up to 60 each; click one for full size. A region's mockup
+  **Rigs**, **Fonts** — newest first, up to 60 each; click one for full size. A region's mockup
   crop is on its tile and in its review, not here. Until the first image lands, **Your mockups**
   shows the uploads instead: "The galleries fill in as the agents' renders land."
 - **Activity** (right column): the run's rows newest first, grouped under the step they happened

@@ -7,7 +7,7 @@
 //   (a) the pivot is the image's ANCHOR — choosing one moves the ART so that point takes the
 //       pivot's place, while the pivot itself stays put, and no bone or slot is touched;
 //   (b) it PERSISTS: `pivot: [u,v]` rides the attachment through a full round-trip of the official
-//       4.2 loader, which ignores the non-standard key, so the .irig still opens in Spine and the
+//       4.2 loader, which ignores the non-standard key, so the .irig still opens in rig and the
 //       rendered geometry is byte-identical;
 //   (c) it is HONOURED: changing rotation / scaleX / scaleY turns the image about the pivot — the
 //       pivot is the one point of the image that does not move;
@@ -18,7 +18,7 @@
 //   node tools/rigger-spike/pivot.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { RIG_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Vector2, Physics, RegionAttachment } =
 	await import(RIG_CORE);
@@ -79,7 +79,7 @@ function pullOne(name) {
 const shippedOutside = ['applyAttachmentEdit', 'rawDocAttEntry', 'rawDocAttSkin', 'activeSkinName'].map(pullOne).join('\n');
 
 const sandbox = {
-	SPINE: { Vector2, RegionAttachment },
+	RIG: { Vector2, RegionAttachment },
 	isRegionAtt: (x) => x instanceof RegionAttachment,
 	roundN: (v, n) => { const f = Math.pow(10, n); return Math.round(v * f) / f; },
 	markDirty() { sandbox.dirty = true; },

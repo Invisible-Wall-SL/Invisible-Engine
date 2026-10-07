@@ -2,9 +2,9 @@
  * Invisible Flipbook rig-timeline binding registry — the render-time lookup that resolves the CLIPS
  * a placed rig plays directly off its OWN animation events (`event.flipbook = { clipId, bone? }`
  * authored in the Rigger). The exact sibling of {@link registerRigFx}: the game supplies the baked
- * bindings ONCE at boot (from `bakedRigFlipbooks()`), and `LayoutNodeView` / `SymbolSpineMain`
+ * bindings ONCE at boot (from `bakedRigFlipbooks()`), and `LayoutNodeView` / `SymbolRigMain`
  * resolve a rig's `assetKey` → its bindings here to mount a `<RiggedFlipbook>` per binding INSIDE
- * the rig's `<SpineProvider>`.
+ * the rig's `<RigProvider>`.
  *
  * WHY THIS EXISTS BESIDE THE FX ONE, rather than as a third `kind` on it. A binding's overrides are
  * the vocabulary of the thing it plays: an effect has emitters (`speed`, an emission `duration`), a
@@ -85,7 +85,7 @@ export interface RigFlipbookOverrides extends FlipbookPlaybackOverride {
 	continuous?: boolean;
 }
 
-/** One rig→clip binding: on a spine event named `event` — at the {@link RigBeat} it was keyed on —
+/** One rig→clip binding: on a rig event named `event` — at the {@link RigBeat} it was keyed on —
  * (re)play `clipId` from frame 0, hosted on `bone` (or the rig origin when absent), with any
  * authored {@link RigFlipbookOverrides} applied. One binding per KEYFRAME, as for FX. */
 export type RigFlipbookBinding = RigFlipbookOverrides &

@@ -8,15 +8,15 @@
 
 > Build status: see [docs/status/editor.md](../status/editor.md) + [component-editor.md](../status/component-editor.md); detailed done-log in [docs/history.md](../history.md).
 
-The missing layout step in the pipeline. Sheet Maker defines regions, Atlas Maker generates art, Spine packs animations. The editor places those assets across game **screens**, exporting a JSON layout the engine renders. Animation/book-event logic stays in code on top of the static layout.
+The missing layout step in the pipeline. Sheet Maker defines regions, Atlas Maker generates art, rig packs animations. The editor places those assets across game **screens**, exporting a JSON layout the engine renders. Animation/book-event logic stays in code on top of the static layout.
 
 ## 1. What the engine looks like today
 
-Games (`apps/lines`, `apps/cluster`) build their UI as Svelte component trees inside `<App>` (from `pixi-svelte`). Each component places a sprite/spine with explicit props on `pixi-svelte` primitives (`Sprite`, `SpineProvider`, `Container`, `Rectangle`, `Text`, `ParticleEmitter`). See `apps/lines/src/components/Game.svelte`, `Background.svelte`, `BoardFrame.svelte`, `Symbol.svelte`.
+Games (`apps/lines`, `apps/cluster`) build their UI as Svelte component trees inside `<App>` (from `pixi-svelte`). Each component places a sprite/rig with explicit props on `pixi-svelte` primitives (`Sprite`, `RigProvider`, `Container`, `Rectangle`, `Text`, `ParticleEmitter`). See `apps/lines/src/components/Game.svelte`, `Background.svelte`, `BoardFrame.svelte`, `Symbol.svelte`.
 
 Key facts the editor must respect:
 
-- Assets are registered in `apps/<game>/src/game/assets.ts` keyed by string (e.g. `"frame_bg.png"`, `"H1"`). `<Sprite key=…>` and `<SpineProvider key=…>` read `context.stateApp.loadedAssets[key]` (see `packages/pixi-svelte/src/lib/components/Sprite.svelte`, `SpineProvider.svelte`).
+- Assets are registered in `apps/<game>/src/game/assets.ts` keyed by string (e.g. `"frame_bg.png"`, `"H1"`). `<Sprite key=…>` and `<RigProvider key=…>` read `context.stateApp.loadedAssets[key]` (see `packages/pixi-svelte/src/lib/components/Sprite.svelte`, `RigProvider.svelte`).
 - Placement props are bare Pixi: `x, y, width, height, anchor, scale, rotation, alpha, zIndex, tint` — derived from `OverwriteCursor<PIXI.SpriteOptions>` / `PIXI.ContainerOptions`.
 - Responsive layout is `utils-layout/createLayout` — a fixed `mainSizesMap` per `layoutType` (`desktop | tablet | landscape | portrait`) with a single uniform `scale`. Screens are authored in main-layout coordinates inside `<MainContainer>` (`packages/components-layout/src/components/MainContainer.svelte`). Background sprites use a separate `normalBackgroundLayout({scale})` derivation. Children outside `<MainContainer>` (e.g. `Background`, `LoadingScreen`) draw in canvas coords.
 - "Screens" today are not first-class — they are `{#if context.stateGame.gameType === 'basegame'}` / `{showLoadingScreen}` toggles in `Game.svelte`. Per-screen book-event animation lives in dedicated components (`Win.svelte`, `FreeSpinIntro.svelte`, `Transition.svelte`).
@@ -48,7 +48,7 @@ export interface Scene {
 export type LayoutNode =
   | ContainerNode
   | SpriteNode
-  | SpineNode
+  | RigNode
   | TextNode;
 
 interface BaseNode {
@@ -87,9 +87,9 @@ export interface SpriteNode extends BaseNode {
   width?: number; height?: number;
   tint?: number;
 }
-export interface SpineNode extends BaseNode {
+export interface RigNode extends BaseNode {
   kind: 'spine';
-  assetKey: string;        // spine key in assets.ts
+  assetKey: string;        // rig key in assets.ts
   width?: number; height?: number;
   defaultAnimation?: string;
   loop?: boolean;
@@ -105,14 +105,14 @@ Notes:
 
 - Coords are authored once in the base (`desktop`) main-layout space and overridden per layoutType — same model `utils-layout` already uses (uniform scale + per-layoutType `mainSizes`).
 - `bind.component` is the escape hatch: e.g. a node with `bind: { component: 'Win' }` tells the engine to mount the existing animated `Win.svelte` at that transform instead of a static sprite. No editor change needed when devs add new bound components.
-- `assetKey` references `assets.ts` keys — atlas/spine assets exported by Atlas Maker land in `atlas_maker/cloud/<project>` / `sheet_maker/cloud/<project>` and the editor pulls the registry from R2 (see Section 5).
+- `assetKey` references `assets.ts` keys — atlas/rig assets exported by Atlas Maker land in `atlas_maker/cloud/<project>` / `sheet_maker/cloud/<project>` and the editor pulls the registry from R2 (see Section 5).
 
 ## 3. Editor v1 scope
 
 - **Screens**: `loading`, `basegame`, `freegame`, `winIntro`, `winOutro`, `freeSpinIntro`, `freeSpinOutro`, `transition` (matches what `lines`/`cluster` already toggle on).
 - **Node kinds**: `sprite`, `spine` (static pose preview), `container` (group + transform), `text`. No particles in v1 — particles stay coded.
 - **Affordances**: drag, resize handles, rotate handle, anchor presets (9-point), snap-to-grid + snap-to-other-node edges/centres, z-order (bring-forward/send-back), per-layoutType override toggle (you flip into `portrait` mode and the next edit writes an override, never the base), properties panel (`x/y/anchor/scale/rotation/alpha/zIndex/tint/text`), keyboard nudge.
-- **Asset library**: lists atlases + spines for the active project, sourced from R2. Drag-and-drop into the canvas.
+- **Asset library**: lists atlases + rigs for the active project, sourced from R2. Drag-and-drop into the canvas.
 - **Scene switcher** + node tree (outliner) sidebar.
 - **Out of v1**: timeline/animation, particles, hit-tests, in-editor book-event playback (use the live game).
 
@@ -122,23 +122,23 @@ Notes:
 - Project-centric: requires an active project (uses the same project model as Atlas Maker / Localization).
 - Storage: `LayoutDoc` JSON in R2 (`editor/<projectKey>/scenes.json`) with `load`/`save` server functions paralleling `apps/launcher-api/src/lib/server/localization.ts`. Asset list comes from existing R2 listing endpoints under the project's `atlas_maker/cloud/<project>` / `sheet_maker/cloud/<project>` prefixes.
 - Server routes: `GET /api/editor/[project]/doc`, `PUT /api/editor/[project]/doc`, `GET /api/editor/[project]/assets`.
-- Canvas tech: **PixiJS 8**, embedded via a minimal `pixi-svelte` `<App>` in the editor page. Justification: the editor renders the exact textures/atlases the game will render (same atlas slicing, same Spine runtime, same filter/blend behaviour) — using DOM/SVG forces a second renderer and a constant fidelity drift, especially for spine and tinting. Editor chrome (toolbars, sidebars, properties panel) is plain Svelte/HTML on top of the Pixi canvas.
+- Canvas tech: **PixiJS 8**, embedded via a minimal `pixi-svelte` `<App>` in the editor page. Justification: the editor renders the exact textures/atlases the game will render (same atlas slicing, same rig runtime, same filter/blend behaviour) — using DOM/SVG forces a second renderer and a constant fidelity drift, especially for rig and tinting. Editor chrome (toolbars, sidebars, properties panel) is plain Svelte/HTML on top of the Pixi canvas.
 
 ## 5. Engine-side contract
 
 Add one new package, `packages/engine-layout`, exporting:
 
 - The TS types in Section 2.
-- A Svelte component `<LayoutScene scene={Scene} />` that walks `nodes` and emits the matching `pixi-svelte` primitive (`Container`/`Sprite`/`SpineProvider+SpineTrack`/`Text`), resolving per-layoutType overrides via `getContextLayout()` (same `utils-layout` context everything else uses).
+- A Svelte component `<LayoutScene scene={Scene} />` that walks `nodes` and emits the matching `pixi-svelte` primitive (`Container`/`Sprite`/`RigProvider+RigTrack`/`Text`), resolving per-layoutType overrides via `getContextLayout()` (same `utils-layout` context everything else uses).
 - A registry `registerBoundComponents({ Win, FreeSpinIntro, … })` so games declare which `bind.component` names map to which Svelte components.
 
-Game-side migration is one line per screen: replace a hand-coded `<MainContainer><Sprite … /><SpineProvider … /></MainContainer>` block with `<LayoutScene scene={layoutDoc.scenes.find(s => s.id === 'basegame')!} />`. Existing animated components (`Win`, `Transition`, …) keep working via `bind`. No `pixi-svelte` changes required.
+Game-side migration is one line per screen: replace a hand-coded `<MainContainer><Sprite … /><RigProvider … /></MainContainer>` block with `<LayoutScene scene={layoutDoc.scenes.find(s => s.id === 'basegame')!} />`. Existing animated components (`Win`, `Transition`, …) keep working via `bind`. No `pixi-svelte` changes required.
 
-Friction: `<Symbol>`, win-line draws, and anything coordinate-derived from runtime state (`boardLayout()`) stay coded — the editor only owns _static_ scenery + frames + labels + intro/outro spine poses. That's an acceptable v1 boundary.
+Friction: `<Symbol>`, win-line draws, and anything coordinate-derived from runtime state (`boardLayout()`) stay coded — the editor only owns _static_ scenery + frames + labels + intro/outro rig poses. That's an acceptable v1 boundary.
 
 ## 6. Build plan (ordered)
 
-1. `packages/engine-layout` — types + a stub `<LayoutScene>` that renders sprites/containers/text/spine from a hard-coded doc. Smoke in Storybook.
+1. `packages/engine-layout` — types + a stub `<LayoutScene>` that renders sprites/containers/text/rig from a hard-coded doc. Smoke in Storybook.
 2. R2 storage in launcher: `src/lib/server/editor.ts` (load/save/normalize), `src/routes/api/editor/[project]/doc/+server.ts`.
 3. Asset listing endpoint reading from `atlas_maker/cloud/<project>` + `sheet_maker/cloud/<project>` — returns `{ assetKey, kind, thumbUrl }[]`.
 4. Launcher route `/editor` (auth + role gate + project picker). Shell only.
@@ -206,7 +206,7 @@ export interface GameTemplate {
 **Schema change to the existing node types:** add an optional `slotId?: string` to `BaseNode`. A node with a `slotId` is "filling that slot"; a node without one is free scenery (still allowed — slots constrain, they don't forbid). This is purely additive; existing `scenes.json` docs and the `editor-scenes.ts` fixture stay valid.
 
 **Slot kinds:**
-- `sprite` / `spine` / `text` — **artist-owned static scenery**: background, board frame, logo, buy button, free-spin intro pose. The editor places a real `SpriteNode`/`SpineNode`/`TextNode` and the author owns its transform.
+- `sprite` / `spine` / `text` — **artist-owned static scenery**: background, board frame, logo, buy button, free-spin intro pose. The editor places a real `SpriteNode`/`RigNode`/`TextNode` and the author owns its transform.
 - `mount` — **engine-owned**: the editor only places the *anchor* (a `ContainerNode` carrying the `slotId`); at runtime the game fills it via the registry, keyed by `slotId`. This is the typed replacement for today's freeform `bind: { component }` escape hatch. `reelGrid` (filled by `boardLayout()` + symbols) is the canonical example. The `bind` hatch stays for one-offs not worth templating.
 
 **Consumption:** `<LayoutScene>` already walks nodes. It gains: resolve `mount` nodes through the same registry `registerBoundComponents()` uses, keyed by `slotId` (falling back to `bind.component` when present). No new render path.
@@ -300,7 +300,7 @@ Today's gap is purely wiring + enforcement:
 
 ## 8. Addendum — Components (prefabs) + authored behavior (owner direction 2026-06-05)
 
-§1–7 give the editor four tiers: **node** (sprite/spine/text/container) → **scene** (a screen's nodes) → **template** (the typed slots a scene must fill) → the `mount`/`bind` escape hatch for engine-owned content. The missing tier is a **reusable composite between node and scene**: a named object that bundles several nodes (and their mount anchors) into one thing the editor can open, display, place, and reuse. The owner calls these **components**; "Base game overlays" is the canonical example. Today that overlay group is opaque code (`Win.svelte` + `Transition.svelte` mounted via `bind`), so the editor can't show it — making it a component is what lets the editor "display everything," which is the locked-in end-goal (open a project and *see* the real game composed).
+§1–7 give the editor four tiers: **node** (sprite/rig/text/container) → **scene** (a screen's nodes) → **template** (the typed slots a scene must fill) → the `mount`/`bind` escape hatch for engine-owned content. The missing tier is a **reusable composite between node and scene**: a named object that bundles several nodes (and their mount anchors) into one thing the editor can open, display, place, and reuse. The owner calls these **components**; "Base game overlays" is the canonical example. Today that overlay group is opaque code (`Win.svelte` + `Transition.svelte` mounted via `bind`), so the editor can't show it — making it a component is what lets the editor "display everything," which is the locked-in end-goal (open a project and *see* the real game composed).
 
 **Owner decisions (2026-06-05), all the ambitious branch:**
 1. **Core intent = both, one mechanism** — the same `ComponentDef` both *data-fies today's coded pieces* (so they're visible/composable) and *serves as a reusable prefab* across scenes/games.
@@ -373,10 +373,10 @@ Like Template mode (§7.5), component authoring is **not a new surface**: open/c
 
 The owner wants to author behavior **in** the editor. The danger: the overlays it would replace are *book-event-driven* (`Win.svelte` reacts to a `winInfo` event with a real amount, counts up, etc.). We must NOT try to author that data/branching logic as data — that way lies a worse, slower codegen. The line that keeps `declare ≠ implement` intact:
 
-- **The editor authors the *timeline*** (tweens on node props, spine animation playback, particle bursts) and **declares** two things: named **signals** (when to play) and **engine-provided params** (values fed in).
+- **The editor authors the *timeline*** (tweens on node props, rig animation playback, particle bursts) and **declares** two things: named **signals** (when to play) and **engine-provided params** (values fed in).
 - **The engine implements the *triggers and data***: it fires the declared signals (mapping book events → signal once, the same way `registerBoundComponents` maps names → components) and supplies the `engineProvided` param values.
 
-So the editor says *"on the `win` signal, play spine `celebrate` and count a text node up to `winAmount`"*; the engine says *"`win` = the `winInfo` book event, and here is `winAmount`."* Neither side owns both halves.
+So the editor says *"on the `win` signal, play rig `celebrate` and count a text node up to `winAmount`"*; the engine says *"`win` = the `winInfo` book event, and here is `winAmount`."* Neither side owns both halves.
 
 ```ts
 export interface BehaviorTrack {
@@ -389,13 +389,13 @@ export interface TweenStep {
   delay?: number; duration: number; ease?: string;   // seconds / GSAP ease name
   // exactly one of:
   prop?: { name: 'x'|'y'|'alpha'|'scaleX'|'scaleY'|'rotation'|'tint'; from?: number; to: number };
-  spine?: { animation: string; loop?: boolean };
+  rig?: { animation: string; loop?: boolean };
   // bind a text node to an engine-provided param (the one data binding in v1):
   bindParam?: { key: string; countUp?: boolean };    // key must be engineProvided
 }
 ```
 
-**v1 behavior ceiling (a staging line, not the destination):** node-prop tweens + spine playback + signal-triggered tracks + *one* data binding (count-up text from an `engineProvided` param). Anything needing branching, RGS math, or stateful logic is, **for v1**, still a coded `mount`. We are building a small interpreted timeline (GSAP under the hood) first, not a scripting language — but the coded `mount` is scaffolding to be removed, not a permanent boundary (§8.7).
+**v1 behavior ceiling (a staging line, not the destination):** node-prop tweens + rig playback + signal-triggered tracks + *one* data binding (count-up text from an `engineProvided` param). Anything needing branching, RGS math, or stateful logic is, **for v1**, still a coded `mount`. We are building a small interpreted timeline (GSAP under the hood) first, not a scripting language — but the coded `mount` is scaffolding to be removed, not a permanent boundary (§8.7).
 
 ### 8.6 Engine consumption
 
@@ -413,7 +413,7 @@ The game wires book-event → signal + supplies params **once**, via a small reg
 That goal is more reachable than it sounds, but only because the work splits into three layers that are *not* equally hard — and being honest about which is which is the whole plan:
 
 1. **Placement / scenery** (where things sit) — *fully visual already.* Nodes, scenes, templates (§1–7).
-2. **Presentation behavior** (entrance/exit tweens, spine playback, particle bursts, count-ups, reactions to a named signal) — *visual via the timeline/signal model* (§8.5). This is the bulk of what `Win`/`Transition`/intros actually do, and it is tractable as data.
+2. **Presentation behavior** (entrance/exit tweens, rig playback, particle bursts, count-ups, reactions to a named signal) — *visual via the timeline/signal model* (§8.5). This is the bulk of what `Win`/`Transition`/intros actually do, and it is tractable as data.
 3. **Game logic / flow / math** (reel evaluation, win-line geometry, RGS book consumption, the XState game flow) — *the genuinely hard layer.* This is program logic, not layout or animation.
 
 The decisive fact that makes "no escape hatch" realistic: **the math is already external.** The industry model (and ours) puts game math in the Python math SDK, delivered to the frontend as pre-determined "books." So the frontend rarely *computes* — it mostly *presents a pre-computed result*. That collapses most of layer 3 into layer 2 (read book event → drive a timeline). What's genuinely irreducible on the frontend is narrow: the reel/board render loop, win-line geometry, the flow skeleton, RGS plumbing.
@@ -440,10 +440,11 @@ Land 1–5 (composition + reuse, no behavior) and stop to verify online before s
 
 ### 8.9 Open decisions (need owner input)
 
-- **Versioning / migration** — ✅ **DECIDED (owner 2026-06-05): version components, pin-by-default.** Instances pin `componentVersion`; editing a component bumps its version; an instance stays on its pinned version until an explicit per-instance "update to latest." Same model as template versioning (§7.5).
+- **Versioning / migration** — ✅ **DECIDED (owner 2026-06-05): version components, pin-by-default.** Instances pin `componentVersion`; editing a component bumps its version; an instance stays on its pinned version until an explicit per-instance "update to latest." Same model as template versioning (§7.5).
+
 - **Layer-3 fork (the big one)** — ✅ **DECIDED (owner 2026-06-05): route B** (presentation-complete; logic core stays code behind one editor-configured contract) is the v1–v2 destination. Route A (visual-scripting/node-graph) is a later, separately-scoped initiative, not a v1–v2 goal. See §8.7. This anchors build order past step 7: keep extending presentation primitives + retiring mounts; do **not** start a logic node-graph.
 - **Nesting** — components inside components: recommend allow (1–2 levels v1) with a **hard cycle guard** (a component cannot instance itself transitively). Confirm depth.
-- **Behavior ceiling** — confirm the §8.5 line (timeline + spine + one count-up binding; everything stateful stays `mount`). This is the decision most likely to creep.
+- **Behavior ceiling** — confirm the §8.5 line (timeline + rig + one count-up binding; everything stateful stays `mount`). This is the decision most likely to creep.
 - **Signal vocabulary + wiring** — fixed core (`enter`/`exit`/`idle`) + per-game custom signals mapped to book events in **code** (`registerComponentSignals`) for v1; editor only declares names. Confirm engine owns the wiring (vs a data-authored event map later).
 - **Shared vs project precedence** — confirm project component **shadows** shared of the same id (mirrors template R2-over-built-in).
 - **Does a component subsume a template?** — a `ComponentDef` and a `GameTemplate` are both "mini `LayoutDoc` + metadata." Decide whether a template is just a top-level component, or they stay distinct (recommend distinct for now: template = per-scene slot contract, component = reusable instanced object; revisit if they converge).
@@ -462,14 +463,14 @@ Land 1–5 (composition + reuse, no behavior) and stop to verify online before s
 - **Out of scope (v1):** **dynamic coded text** (free-spin counter value, balance/bet/win numbers, count-ups) — the *string* is computed at runtime in coded components and stays coded. Their **font/position** can be made editor-driven later (Phase 4), but not their text content.
 
 ### 9.3 Contract + architecture decisions
-- **Font catalog = single source of truth.** New `FontEntry { name, kind: 'bitmap' | 'web', files }` in `packages/engine-layout` + a per-project `fonts.json` manifest in R2 (`<client>/<project>/fonts/…`, plus a `_shared/fonts/` library — mirror the spine `includeSharedSpines` posture). The catalog drives: the editor's font dropdown, the editor's renderer (which path), the engine's `<Text>`-vs-`<BitmapText>` choice, the game's boot-time font loading, and editor **validation** (warn when a text node references a font the project lacks — mirrors slot/asset warnings).
-- **Editor bitmap rendering = 2D-canvas BMFont blitter (recommended).** Fetch `.xml`+page, parse glyph/kerning table, blit glyph quads with `drawImage` on the existing 2D canvas. Rationale: text already lives on the 2D canvas, no new runtime, controllable metrics. (Alternative considered: route text through a WebGL/PIXI overlay like spine — heavier, only worth it if we need pixel-exact PIXI parity. **Owner decision still open — see 9.5.**)
+- **Font catalog = single source of truth.** New `FontEntry { name, kind: 'bitmap' | 'web', files }` in `packages/engine-layout` + a per-project `fonts.json` manifest in R2 (`<client>/<project>/fonts/…`, plus a `_shared/fonts/` library — mirror the rig `includeSharedRigs` posture). The catalog drives: the editor's font dropdown, the editor's renderer (which path), the engine's `<Text>`-vs-`<BitmapText>` choice, the game's boot-time font loading, and editor **validation** (warn when a text node references a font the project lacks — mirrors slot/asset warnings).
+- **Editor bitmap rendering = 2D-canvas BMFont blitter (recommended).** Fetch `.xml`+page, parse glyph/kerning table, blit glyph quads with `drawImage` on the existing 2D canvas. Rationale: text already lives on the 2D canvas, no new runtime, controllable metrics. (Alternative considered: route text through a WebGL/PIXI overlay like rig — heavier, only worth it if we need pixel-exact PIXI parity. **Owner decision still open — see 9.5.**)
 - **Persistence:** `style.fontFamily` already round-trips via `editorStorage.normalizeDoc`; `node.text` edits already flow to the game for layout text nodes. The new identity (which font + that it's bitmap) is resolved via the catalog by name — no per-node `bitmap` flag needed if the catalog is authoritative.
-- **Server pattern:** clone the spine endpoint — `GET /api/editor/fonts` (gated `gate({tool:'editor'})`, returns the catalog) + reuse `GET /api/editor/asset?key=…` to stream `.xml`/page bytes; resolver in `lib/server/fonts.ts`. Sync via `scripts/r2-sync-fonts.mjs` (clone of `r2-sync-spines.mjs`).
+- **Server pattern:** clone the rig endpoint — `GET /api/editor/fonts` (gated `gate({tool:'editor'})`, returns the catalog) + reuse `GET /api/editor/asset?key=…` to stream `.xml`/page bytes; resolver in `lib/server/fonts.ts`. Sync via `scripts/r2-sync-fonts.mjs` (clone of `r2-sync-rigs.mjs`).
 
 ### 9.4 Build order (phased; editor-only first, engine contract last)
-1. **Phase 0 — contract + fonts into R2 (foundation).** `engine-layout` `FontEntry`/`FontCatalog` in `fontCatalog.ts` (+ `findFont`/`isBitmapFont`); `fonts.json` written by `scripts/r2-sync-fonts.mjs` (BMFont `<info face>`+pages / web-by-ext; `--dry-run` verified on the `lines` fonts); `GET /api/editor/fonts` + `lib/server/fonts.ts` `resolveEditorFonts` (project→`_shared/fonts/` fallback, files via `/api/editor/asset`); `projectPaths` `SUB.fonts`/`fontCatalogKey`/`fontBundlePath`; `toolScope` `includeSharedFonts`. Effort ~M, risk low (spine analogue).
-2. **Phase 1 — editor fidelity (read-only).** **WebGL/PIXI overlay (decided, §9.5).** `EditorTextLayer.svelte` — a transparent raw-PIXI `Application` over the 2D canvas (mirrors `EditorSpineLayer`), rendering each TOP-LEVEL text node as `PIXI.BitmapText` (catalog `kind:'bitmap'`) or `PIXI.Text` (web/system), positioned via the parent's `nodeTransform` → `world*zoom+pan` (one coord source, passed as `worldTransformOf`). `fonts.client.ts` loads bitmap fonts through PIXI `Assets.load` and web fonts via `FontFace`; the bitmap descriptor's relative `<page file>` refs are rewritten to absolute editor-gated URLs by `/api/editor/asset?font=1` (the relativity gotcha). Font loads fold into the existing "Loading assets…" overlay (`fontStarted/fontSettled` → `loadPending`); the overlay reports the node ids it owns (`onReadyIdsChange`) so the 2D canvas skips their `fillText` (no double-draw); "↻ Reload art" drops the catalog + bumps `fontReload`. `pixi.js@8.8.1` added as a launcher dep. **Caveats:** the overlay matches the GAME's pixi-text anchor, NOT the old `fillText` alphabetic baseline (intended); "Reload art" re-fetches the catalog but the per-font client caches don't reset, so a changed font PAGE needs a full reload.  Effort ~M–L, risk med (overlay sync + parity). *After this: you see the real fonts.*
+1. **Phase 0 — contract + fonts into R2 (foundation).** `engine-layout` `FontEntry`/`FontCatalog` in `fontCatalog.ts` (+ `findFont`/`isBitmapFont`); `fonts.json` written by `scripts/r2-sync-fonts.mjs` (BMFont `<info face>`+pages / web-by-ext; `--dry-run` verified on the `lines` fonts); `GET /api/editor/fonts` + `lib/server/fonts.ts` `resolveEditorFonts` (project→`_shared/fonts/` fallback, files via `/api/editor/asset`); `projectPaths` `SUB.fonts`/`fontCatalogKey`/`fontBundlePath`; `toolScope` `includeSharedFonts`. Effort ~M, risk low (rig analogue).
+2. **Phase 1 — editor fidelity (read-only).** **WebGL/PIXI overlay (decided, §9.5).** `EditorTextLayer.svelte` — a transparent raw-PIXI `Application` over the 2D canvas (mirrors `EditorRigLayer`), rendering each TOP-LEVEL text node as `PIXI.BitmapText` (catalog `kind:'bitmap'`) or `PIXI.Text` (web/system), positioned via the parent's `nodeTransform` → `world*zoom+pan` (one coord source, passed as `worldTransformOf`). `fonts.client.ts` loads bitmap fonts through PIXI `Assets.load` and web fonts via `FontFace`; the bitmap descriptor's relative `<page file>` refs are rewritten to absolute editor-gated URLs by `/api/editor/asset?font=1` (the relativity gotcha). Font loads fold into the existing "Loading assets…" overlay (`fontStarted/fontSettled` → `loadPending`); the overlay reports the node ids it owns (`onReadyIdsChange`) so the 2D canvas skips their `fillText` (no double-draw); "↻ Reload art" drops the catalog + bumps `fontReload`. `pixi.js@8.8.1` added as a launcher dep. **Caveats:** the overlay matches the GAME's pixi-text anchor, NOT the old `fillText` alphabetic baseline (intended); "Reload art" re-fetches the catalog but the per-font client caches don't reset, so a changed font PAGE needs a full reload.  Effort ~M–L, risk med (overlay sync + parity). *After this: you see the real fonts.*
 3. **Phase 2 — Properties: edit text + pick font.** `EditorProperties.svelte`: the freeform `fontFamily` input is now a `<select>` populated from `/api/editor/fonts` (via the cached `fetchFontCatalog` in `fonts.client.ts`) — `(game default)` + each catalog font tagged `[bitmap]`/`[web]`, with the current off-catalog family preserved as a `(custom)` option so a pick never drops it; an empty-catalog hint points at the sync script. The `text` textarea (already bound to `node.text`) is kept. For a selected **bitmap** font: the `fill` control relabels to **tint** (the overlay maps `style.fill`→`BitmapText.tint`), a note explains "tint + size only (size scales the baked atlas), weight/style/stroke/shadow don't apply", and the **Stroke + Drop-shadow sections are gated off** (`{#if !isBitmapSelected}`). **Tradeoff:** replacing the freeform input means an arbitrary (non-cataloged) web family can no longer be typed in — sync it into the catalog first. Effort ~M, risk low.
 4. **Phase 3 — engine consumption (makes choices ship; touches the contract).** `LayoutNodeView` renders `<BitmapText>` when the catalog says `kind==='bitmap'`, else `<Text>`; game registers the catalog's fonts in its asset manifest at boot; parity fallback (no change → byte-identical). Parity-gated, per game (`apps/lines`), same discipline as the reskin rollout. Effort ~M–L, risk med (engine contract change).
 5. **Phase 4 — optional.** Browser font upload (drag `.xml`+page → R2, cloud-native, no PowerShell); shared `_shared/fonts/` library; ~~editor-driven fonts for coded HUD text~~ **HUD-text override (owner-chosen, engine+lines+editor)**; per-`layoutType` text style overrides.
@@ -478,7 +479,7 @@ Land 1–5 (composition + reuse, no behavior) and stop to verify online before s
 **Recommended:** land 0→1→2 (faithful, editable preview; editor-only, low risk) and verify online before Phase 3 (the only part that modifies the engine contract).
 
 ### 9.5 Open decisions (need owner input)
-- **Editor render path** — ✅ DECIDED 2026-06-06: **WebGL/PIXI overlay** (owner choice — pixel-exact PIXI parity over the lighter 2D blitter). Phase 1 mirrors the spine overlay (`EditorSpineLayer.svelte`): a transparent layer above the 2D canvas, here a small PIXI app rendering `<BitmapText>`/`<Text>` from the live `/api/editor/fonts` catalog, kept in sync with pan/zoom. ~~2D-canvas BMFont blitter (recommended, self-contained)~~.
+- **Editor render path** — ✅ DECIDED 2026-06-06: **WebGL/PIXI overlay** (owner choice — pixel-exact PIXI parity over the lighter 2D blitter). Phase 1 mirrors the rig overlay (`EditorRigLayer.svelte`): a transparent layer above the 2D canvas, here a small PIXI app rendering `<BitmapText>`/`<Text>` from the live `/api/editor/fonts` catalog, kept in sync with pan/zoom. ~~2D-canvas BMFont blitter (recommended, self-contained)~~.
 - **Dynamic-text fonts** — ✅ DECIDED 2026-06-06: the **semi-static coded HUD text (logo / game-name) IS editor-overridable** (font+size+fill+label) — landed as the Phase 4 HUD-text override above. Truly dynamic numeric values (balance/win/bet, FS counter) stay coded, per 9.2.
 - **Bitmap "change appearance" expectations** — bitmap fonts are baked atlases: tint + scale yes; arbitrary recolor/stroke/shadow no. Confirm that's acceptable, or a font swap (pick a different baked variant, e.g. `gold`→`silver`) is the intended "change appearance" path.
 - **Font discovery for the catalog** — seed `fonts.json` from each game's `assets.ts` `type:'font'` entries (Phase 0 sync), or author it in the editor. Recommend sync-from-game first.
@@ -486,36 +487,36 @@ Land 1–5 (composition + reuse, no behavior) and stop to verify online before s
 ## 10. Addendum — Background sizing + fixed window-reference (full-bleed parity) (owner direction 2026-06-06)
 
 ### 10.1 The two coupled bugs (measured, not guessed)
-Measured from a live game (`[bg-diag]`, window 1639×1301): the engine picked `layoutType: 'tablet'` (almost-square → main box 1000×1000, scale 1.301); the background spine `foregroundAnimation` is authored 3059.92×1501.3.
+Measured from a live game (`[bg-diag]`, window 1639×1301): the engine picked `layoutType: 'tablet'` (almost-square → main box 1000×1000, scale 1.301); the background rig `foregroundAnimation` is authored 3059.92×1501.3.
 1. **Background sized wrong in-game.** The coded `Background.svelte` called `normalBackgroundLayout({ scale: 0.5 })` → background at HALF the canvas. `scale: 1` is the exact cover. The engine's `createBackgroundLayout` (utils-layout) IS the cover helper; the per-game `0.5` was just wrong for this art.
 2. **Editor composites against the ACTIVE scene's frame, not a fixed window.** `+page.svelte` `frameSize` = `mainSizesMap[layoutType]` for `game`-space scenes but `STANDARD_MAIN_SIZES_MAP` for `canvas`/`standard` scenes. So switching the active screen resizes the whole composite (background small on "Base game", big on "Base game overlays"); only fixed game-coord nodes (the reels frame) stay put. This also makes the editor's background never match the full-bleed game.
 
-Root cause is shared: background sizing lives in **two implementations** (engine `createBackgroundLayout` for the game; `EditorSpineLayer.placeArt` cover-to-frame for the editor) AND the editor frames per-active-scene instead of per-viewport.
+Root cause is shared: background sizing lives in **two implementations** (engine `createBackgroundLayout` for the game; `EditorRigLayer.placeArt` cover-to-frame for the editor) AND the editor frames per-active-scene instead of per-viewport.
 
 ### 10.2 Design (single source of truth, fixed window reference)
-- **One cover helper, true cover from art dims.** Generalize/replace the `backgroundRatio`-driven `createBackgroundLayout` with a cover computed from the art's authored size: `scale = max(targetW/artW, targetH/artH) * coverScale` (default `coverScale = 1` = exact cover), centred. Robust regardless of `backgroundRatio` config. Spine art dims come from `skeleton.data.width/height` (the same source the pixi-svelte spine-sizing fix uses); sprite art from natural size. Lives in `utils-layout`/`engine-layout`, used by BOTH renderers.
-- **Game runtime.** Background bind/spine nodes size via the shared cover against the **full canvas** (`canvasSizes()`), reading art dims — so coded `Background.svelte` no longer hardcodes a scale. The cover `scale` + `fit` come from the editor doc node (default exact cover).
+- **One cover helper, true cover from art dims.** Generalize/replace the `backgroundRatio`-driven `createBackgroundLayout` with a cover computed from the art's authored size: `scale = max(targetW/artW, targetH/artH) * coverScale` (default `coverScale = 1` = exact cover), centred. Robust regardless of `backgroundRatio` config. Rig art dims come from `skeleton.data.width/height` (the same source the pixi-svelte rig-sizing fix uses); sprite art from natural size. Lives in `utils-layout`/`engine-layout`, used by BOTH renderers.
+- **Game runtime.** Background bind/rig nodes size via the shared cover against the **full canvas** (`canvasSizes()`), reading art dims — so coded `Background.svelte` no longer hardcodes a scale. The cover `scale` + `fit` come from the editor doc node (default exact cover).
 - **Editor = fixed window reference.** The composite renders every scene against ONE viewport reference per `layoutType` (the game window), NOT the active scene's frame. `game`/`canvas`/`background` spaces all map into that one window the way the engine does at runtime (main box centred + scaled by `mainLayout`; canvas-edges pinned to the window; background cover-fit to the window). Switching the active screen no longer rescales anything, and the background covers the window = matches the full-bleed game per layout type.
 - **Doc-driven.** Background cover `scale` (default 1) + `fit: cover|contain` become node properties editable in Properties; persist via `normalizeNode` pass-through.
 
 ### 10.3 Build order
 1. ~~**Interim game fix.** Book of Borut `Background.svelte` `scale: 0.5 → 1`.~~ — retired.
-2. **Shared cover helper (engine).** `packages/engine-layout/src/lib/coverTransform.ts` — `coverTransform({artWidth,artHeight,targetWidth,targetHeight,coverScale=1,fit})` → `{scale,x,y}` (true cover from authored art dims, centred). Exported from `engine-layout`; used by `EditorCanvas.backgroundTransform` + `EditorSpineLayer` cover.
-3. **Editor fixed window-reference.** `+page.svelte` `frameSize = STANDARD_MAIN_SIZES_MAP[layoutType]` for ALL scenes (the window — its per-type aspect matches the viewport that selects that layoutType + contains the main box). `EditorCanvas.nodeTransform` game-space maps main→window like `<MainContainer>` (origin `mainToWorld`, scale ×`mainScale`); `writeXY`/`writeScale` invert it so drags round-trip to raw main coords; `backgroundTransform` + `EditorSpineLayer` cover the window via `coverTransform` (`coverScale` default 1); the main box is drawn as a centred inner dashed guide. Switching the active screen no longer rescales the composite; background previews full-bleed per layout type. Editor-only (game unaffected).
-4. **Doc-driven cover props.** Cover **scale** + **fit** are now doc-driven + editable in the editor Properties. **Canonical fields:** cover scale = `node.scale.x` (uniform multiplier; `1` = exact edge-to-edge); cover fit = `'cover' | 'contain'` (widened to the four-value `CoverFit` in step 7) read from `node.preview.art.fit` for a `bind` preview-art anchor (the field those anchors already round-trip), else a NEW node-level `BaseNode.fit` for plain `background`-space sprite/spine nodes. Two `engine-layout` readers (`coverTransform.ts`) are the SINGLE source: `backgroundCoverScale(node)` + `backgroundFit(node)`. All THREE editor cover paths now read them — `EditorCanvas.backgroundTransform`, `EditorCanvas.placedArtTransform` (cover branch), `EditorSpineLayer` (`background`-space + `placeArt` cover) — no hardcoded `'cover'`/`1` left. Properties gains a **"Background"** section (cover-scale number input 0.1–4 step 0.05 → uniform `scale`; fit `<select>` → canonical fit field), shown when the page detects the selected node is a background cover node (mirrors `isBackgroundCover`: `background`-space sprite/spine OR a `cover`-placement bind anchor). Cover stays non-draggable; scale is edited via the control. Persistence: `editorStorage.normalizeNode` returns nodes verbatim, so `fit` passes through with no special handling. Step 5 wires the game (engine consumption) next.
+2. **Shared cover helper (engine).** `packages/engine-layout/src/lib/coverTransform.ts` — `coverTransform({artWidth,artHeight,targetWidth,targetHeight,coverScale=1,fit})` → `{scale,x,y}` (true cover from authored art dims, centred). Exported from `engine-layout`; used by `EditorCanvas.backgroundTransform` + `EditorRigLayer` cover.
+3. **Editor fixed window-reference.** `+page.svelte` `frameSize = STANDARD_MAIN_SIZES_MAP[layoutType]` for ALL scenes (the window — its per-type aspect matches the viewport that selects that layoutType + contains the main box). `EditorCanvas.nodeTransform` game-space maps main→window like `<MainContainer>` (origin `mainToWorld`, scale ×`mainScale`); `writeXY`/`writeScale` invert it so drags round-trip to raw main coords; `backgroundTransform` + `EditorRigLayer` cover the window via `coverTransform` (`coverScale` default 1); the main box is drawn as a centred inner dashed guide. Switching the active screen no longer rescales the composite; background previews full-bleed per layout type. Editor-only (game unaffected).
+4. **Doc-driven cover props.** Cover **scale** + **fit** are now doc-driven + editable in the editor Properties. **Canonical fields:** cover scale = `node.scale.x` (uniform multiplier; `1` = exact edge-to-edge); cover fit = `'cover' | 'contain'` (widened to the four-value `CoverFit` in step 7) read from `node.preview.art.fit` for a `bind` preview-art anchor (the field those anchors already round-trip), else a NEW node-level `BaseNode.fit` for plain `background`-space sprite/rig nodes. Two `engine-layout` readers (`coverTransform.ts`) are the SINGLE source: `backgroundCoverScale(node)` + `backgroundFit(node)`. All THREE editor cover paths now read them — `EditorCanvas.backgroundTransform`, `EditorCanvas.placedArtTransform` (cover branch), `EditorRigLayer` (`background`-space + `placeArt` cover) — no hardcoded `'cover'`/`1` left. Properties gains a **"Background"** section (cover-scale number input 0.1–4 step 0.05 → uniform `scale`; fit `<select>` → canonical fit field), shown when the page detects the selected node is a background cover node (mirrors `isBackgroundCover`: `background`-space sprite/rig OR a `cover`-placement bind anchor). Cover stays non-draggable; scale is edited via the control. Persistence: `editorStorage.normalizeNode` returns nodes verbatim, so `fit` passes through with no special handling. Step 5 wires the game (engine consumption) next.
 5. **Engine consumption + per-game rollout.** Background sizing is now doc-driven end-to-end through `LayoutNodeView`, reading the SAME `backgroundCoverScale`/`backgroundFit` canonical readers the editor uses — so editor == game for any authored scale/fit.
-   - **pixi-svelte (`utils.svelte.ts` `spineSizeScale` + `BaseSpineProvider.svelte`):** new additive `fit?: 'cover' | 'contain'` (gains the per-axis `'width'`/`'height'` in step 7). When `fit` is set AND both `width`/`height` are given, the spine sizes by a UNIFORM cover (`max`) / contain (`min`) scale from `skeleton.data` dims instead of the per-axis stretch — true cover, no distortion. `fit` absent = prior behaviour (parity); non-background spines unaffected. `SpineProvider` forwards `fit` through `...baseSpineProps` unchanged.
-   - **engine `LayoutNodeView.svelte`:** a `background`-space **bind** anchor (Borut's `bg`) now receives a `cover={{ scale: backgroundCoverScale(node), fit: backgroundFit(node) }}` prop on `<Bound>` (additive — a component that ignores `cover` renders exactly as today). A `background`-space **sprite/spine NODE** (non-bind) honours the same readers: the sprite `bg` path applies `backgroundFit` (cover sets the fill axis via `normalBackgroundLayout`, contain sets the opposite axis so the art fits INSIDE the canvas) with `backgroundCoverScale` as the multiplier; the spine path feeds the canvas box on both axes (× cover scale) + `fit` to `<SpineProvider>`, getting a true uniform cover from `skeleton.data` (matching `coverTransform`). Default cover scale is now `1` (`scale.x ?? 1`) — the old per-game `0.5` was the bug §10.1 measured.
+   - **pixi-svelte (`utils.svelte.ts` `rigSizeScale` + `BaseRigProvider.svelte`):** new additive `fit?: 'cover' | 'contain'` (gains the per-axis `'width'`/`'height'` in step 7). When `fit` is set AND both `width`/`height` are given, the rig sizes by a UNIFORM cover (`max`) / contain (`min`) scale from `skeleton.data` dims instead of the per-axis stretch — true cover, no distortion. `fit` absent = prior behaviour (parity); non-background rigs unaffected. `RigProvider` forwards `fit` through `...baseRigProps` unchanged.
+   - **engine `LayoutNodeView.svelte`:** a `background`-space **bind** anchor (Borut's `bg`) now receives a `cover={{ scale: backgroundCoverScale(node), fit: backgroundFit(node) }}` prop on `<Bound>` (additive — a component that ignores `cover` renders exactly as today). A `background`-space **sprite/rig NODE** (non-bind) honours the same readers: the sprite `bg` path applies `backgroundFit` (cover sets the fill axis via `normalBackgroundLayout`, contain sets the opposite axis so the art fits INSIDE the canvas) with `backgroundCoverScale` as the multiplier; the rig path feeds the canvas box on both axes (× cover scale) + `fit` to `<RigProvider>`, getting a true uniform cover from `skeleton.data` (matching `coverTransform`). Default cover scale is now `1` (`scale.x ?? 1`) — the old per-game `0.5` was the bug §10.1 measured.
 
 6. **Cover scale ↔ stretch decoupling + coded-Background consumption.** Owner direction: cover scale must be a uniform zoom, and SCALE.X/SCALE.Y a FREE vertical-vs-horizontal stretch — previously they were the SAME field (`backgroundCoverScale = node.scale.x`, and `setCoverScale` wrote both `scale.x`+`scale.y`), so editing cover scale moved the Transform scale and there was no stretch.
    - **Canonical fields changed:** cover scale = NEW dedicated **`BaseNode.coverScale`** (`coverScale ?? 1`, uniform); stretch = `node.scale` (free per-axis, default `{1,1}`) via new reader **`backgroundCoverStretch(node)`**. `coverTransform` now returns `{ scaleX, scaleY, x, y }` = `fitScale · coverScale · stretch{X,Y}`. Persists verbatim through `editorStorage.normalizeNode`. Migration-safe: docs are days old and default `scale` is `{1,1}`, so repurposing `scale` as stretch changes nothing existing.
-   - **All cover paths updated** to consume `scaleX/scaleY` + stretch: editor `EditorCanvas.backgroundTransform`/`placedArtTransform`, `EditorSpineLayer`; engine `LayoutNodeView` (bound `cover` now carries `stretch`; sprite/spine bg fold stretch onto width/height + `scale`). pixi-svelte composes stretch with `fit`: `spine.scale.set(baseX·sizeScale.x, baseY·sizeScale.y)` (`BaseSpineProvider.svelte`) — uniform cover × free stretch, no wrapping container.
+   - **All cover paths updated** to consume `scaleX/scaleY` + stretch: editor `EditorCanvas.backgroundTransform`/`placedArtTransform`, `EditorRigLayer`; engine `LayoutNodeView` (bound `cover` now carries `stretch`; sprite/rig bg fold stretch onto width/height + `scale`). pixi-svelte composes stretch with `fit`: `spine.scale.set(baseX·sizeScale.x, baseY·sizeScale.y)` (`BaseRigProvider.svelte`) — uniform cover × free stretch, no wrapping container.
    - **Coded background is now doc-driven (the real in-game fix).** `apps/lines/src/components/Background.svelte` dropped `normalBackgroundLayout({ scale: 0.5 })` (half-size, ratio-driven) for a true full-bleed cover via pixi-svelte `fit`, accepting a `cover={{ scale, fit, stretch }}` prop (default = exact edge-to-edge cover). `Game.svelte` derives the `background` scene's `bg` node and passes the canonical readers. **Note:** `apps/lines`' fallback doc has no `background` scene → `<Background>` runs its default full-bleed cover.
 
 7. **Per-axis fit + cover alignment, both per layoutType** (owner direction 2026-09-14: *“I would like to be able to specify if I fit using X or Y, overwritable per screen layout … the anchor is not doing anything”*). Two gaps in the step-4/6 model. (a) `cover`/`contain` CHOOSE the fit axis from the aspect ratio, so which axis they pin flips as the window ratio crosses the art's — a backdrop that must always span the window's WIDTH (and be cropped vertically by design) could not be expressed, and neither could “span the width on desktop, the height in portrait”. (b) A cover node's `anchor` was DEAD: every cover path overwrote it with `0.5`, so the crop was always taken from the centre.
-   - **`CoverFit` = `'cover' | 'contain' | 'width' | 'height'`** (`coverTransform.ts`, the canonical union; `BaseNode.fit` + `preview.art.fit` widen to it). `'width'`/`'height'` pin the uniform fit scale to that axis (`sx` / `sy`) instead of `max`/`min`. pixi-svelte's `spineSizeScale`/`BaseSpineProvider` take the same two extra values (spelled as a literal there — pixi-svelte is a dependency OF engine-layout, not the reverse), so a spine cover fits by axis too.
-   - **The anchor becomes the cover ALIGNMENT.** The fit is still computed centred; `coverTransform` then slides the fitted art within the overflow (`anchorX/anchorY`, `0` = left/top edge, `0.5` = centred, `1` = right/bottom — CSS `object-position` semantics), and returns that as its `x`/`y`. Every cover path keeps drawing the art from its own pivot 0.5 and just uses the returned centre, so there is ONE alignment formula. New reader `backgroundCoverAnchor(node, layoutType)`; `coverAnchorOffset()` exposes the slide alone for the two paths that place the art themselves (a cover SPINE, sized by `<SpineProvider>`'s `fit`, and the coded `<Background>`). **Parity:** every editor spawn already writes `anchor {0.5,0.5}` and an absent anchor defaults to it — zero slide, byte-identical to before.
-   - **Per-layoutType overrides.** `NodeOverride` gains `fit` + `coverScale` (the stretch and the alignment already ride the existing per-layout `scale`/`anchor`), and ALL FOUR canonical readers now take the active `layoutType` and resolve that bucket's override before the base: `backgroundCoverScale/Stretch/Anchor/backgroundFit(node, layoutType)`. Every caller passes it (runtime `LayoutNodeView`, `apps/lines` `Game.svelte`, `EditorCanvas` × 2, `EditorSpineLayer` × 2, `EditorProperties`), which also fixes a latent bug: the per-layout `scale` override was silently ignored by the cover stretch. Properties writes fit/cover-scale through the same `ensureOverride` path as the transform fields, with the usual overridden-dot + × reset, and surfaces **align x / align y** next to them (the same `anchor` field the Transform section edits).
+   - **`CoverFit` = `'cover' | 'contain' | 'width' | 'height'`** (`coverTransform.ts`, the canonical union; `BaseNode.fit` + `preview.art.fit` widen to it). `'width'`/`'height'` pin the uniform fit scale to that axis (`sx` / `sy`) instead of `max`/`min`. pixi-svelte's `rigSizeScale`/`BaseRigProvider` take the same two extra values (spelled as a literal there — pixi-svelte is a dependency OF engine-layout, not the reverse), so a rig cover fits by axis too.
+   - **The anchor becomes the cover ALIGNMENT.** The fit is still computed centred; `coverTransform` then slides the fitted art within the overflow (`anchorX/anchorY`, `0` = left/top edge, `0.5` = centred, `1` = right/bottom — CSS `object-position` semantics), and returns that as its `x`/`y`. Every cover path keeps drawing the art from its own pivot 0.5 and just uses the returned centre, so there is ONE alignment formula. New reader `backgroundCoverAnchor(node, layoutType)`; `coverAnchorOffset()` exposes the slide alone for the two paths that place the art themselves (a cover RIG, sized by `<RigProvider>`'s `fit`, and the coded `<Background>`). **Parity:** every editor spawn already writes `anchor {0.5,0.5}` and an absent anchor defaults to it — zero slide, byte-identical to before.
+   - **Per-layoutType overrides.** `NodeOverride` gains `fit` + `coverScale` (the stretch and the alignment already ride the existing per-layout `scale`/`anchor`), and ALL FOUR canonical readers now take the active `layoutType` and resolve that bucket's override before the base: `backgroundCoverScale/Stretch/Anchor/backgroundFit(node, layoutType)`. Every caller passes it (runtime `LayoutNodeView`, `apps/lines` `Game.svelte`, `EditorCanvas` × 2, `EditorRigLayer` × 2, `EditorProperties`), which also fixes a latent bug: the per-layout `scale` override was silently ignored by the cover stretch. Properties writes fit/cover-scale through the same `ensureOverride` path as the transform fields, with the usual overridden-dot + × reset, and surfaces **align x / align y** next to them (the same `anchor` field the Transform section edits).
    - Offline proof: `packages/engine-layout/scripts/test-cover-axis-anchor.mjs` (per-axis fit pins its axis in BOTH orientations where `cover` flips; the anchor aligns without perturbing the fit; `coverAnchorOffset` ≡ the transform's slide; override-wins-for-that-layout-only; preview-art fit still the base fit for a bind anchor).
 
 ### 10.4 Open decisions (need owner input)
@@ -709,15 +710,15 @@ The instinct that "behavior needs its own visual editor" is correct — but the 
 - **Node/flow graph** (Unreal Blueprint / Rive state machine) authors *logic/flow* — branching, conditions, data routing. This is **route A (§8.7), and it stays DEFERRED** (owner re-confirmed 2026-06-09). The overlays do not need it.
 
 Why the overlays are animation, not logic:
-- **Transition** = enter+exit tween (wipe/fade), maybe a spine play.
-- **FS intro/outro** = on-enter: play a spine + reveal text.
-- **Win** = on a `win` signal: play the `celebrate` spine + count a number up to `winAmount`.
+- **Transition** = enter+exit tween (wipe/fade), maybe a rig play.
+- **FS intro/outro** = on-enter: play a rig + reveal text.
+- **Win** = on a `win` signal: play the `celebrate` rig + count a number up to `winAmount`.
 
 Each is "*when signal X fires, run this timeline.*" The *when* (flow) is a **signal** wired to a book event **in code** (`registerComponentSignals`, §8.6) — a one-line map, not an authored graph. Branching that would tempt a node graph (small win vs big win) is just **two signals** (`win`/`bigWin`) wired in code. So neither the animation nor the flow needs route A.
 
 ### 17.1 Altitude — Tier 0 → Tier 1, shared interpreter (owner-chosen 2026-06-09)
 The §8.5 schema (`BehaviorTrack`/`TweenStep`) **already exists** — scoping is about *how much editor surface* sits on top. Build the engine interpreter ONCE (shared by all tiers), then stage the UI:
-- **Tier 0 — signal presets (no canvas).** A node's Properties gains "on `<signal ▾>` → `<preset ▾>` over `<duration>`" with a fixed preset menu (fade / slide / pop / spine-play / count-up). Covers most of `Transition` + FS-intro with zero timeline UI. Ships first; proves signals→animation end-to-end on `Transition` (the §8.8-step-7 first migration).
+- **Tier 0 — signal presets (no canvas).** A node's Properties gains "on `<signal ▾>` → `<preset ▾>` over `<duration>`" with a fixed preset menu (fade / slide / pop / rig-play / count-up). Covers most of `Transition` + FS-intro with zero timeline UI. Ships first; proves signals→animation end-to-end on `Transition` (the §8.8-step-7 first migration).
 - **Tier 1 — the §8.5 timeline editor.** Time axis, one row per child node, draggable keyframe tweens, a per-signal track list, GSAP under the hood. Covers all overlays at the v1 ceiling. **Additive on top of Tier 0** — same interpreter + schema, no rewrite.
 - **Tier 2 — node/flow graph (route A).** DEFERRED. Not on the path for these overlays.
 
@@ -736,14 +737,14 @@ The §8.5 schema (`BehaviorTrack`/`TweenStep`) **already exists** — scoping is
 2. **Signal registry** — `registerComponentSignals`; wire the core signals (`enter`/`exit`/`idle`/`win`/`bigWin`) to Borut's book events. Unused until a track exists ⇒ parity.
 3. **Tier 0 Properties UI** — preset dropdowns that emit a `BehaviorTrack`; author a `Transition` component as the first real one.
 4. **Migrate `Transition`** — convert the coded `mount` → authored component behind a flag; verify on screen; flip; retire the coded path.
-5. **Migrate `Win`** (signal `win` + count-up `bindParam`) and **FS `intro`/`outro`** (enter signal + spine).
+5. **Migrate `Win`** (signal `win` + count-up `bindParam`) and **FS `intro`/`outro`** (enter signal + rig).
 6. **Tier 1 timeline editor** — the track/keyframe panel on top of the same interpreter; only once Tier 0 has proven the loop online.
 
 ### 17.5 The v1 ceiling (the scope-creep line — hold it)
-Tweens + spine playback + **one** count-up binding per the §8.5 ceiling. Anything needing branching, RGS math, or stateful logic stays a coded `mount` for v1. This is the line that keeps the feature a *timeline*, not a slide into building a scripting language. Crossing it = route A, which is deferred.
+Tweens + rig playback + **one** count-up binding per the §8.5 ceiling. Anything needing branching, RGS math, or stateful logic stays a coded `mount` for v1. This is the line that keeps the feature a *timeline*, not a slide into building a scripting language. Crossing it = route A, which is deferred.
 
 ### 17.6 Open sub-decisions (settle when build starts)
-- **Preset catalog (Tier 0)** — the exact fixed list (fade/slide/pop/spine-play/count-up) + their default durations/eases. Curated + code-owned (like `ENGINE_SIGNAL_CATALOG`).
+- **Preset catalog (Tier 0)** — the exact fixed list (fade/slide/pop/rig-play/count-up) + their default durations/eases. Curated + code-owned (like `ENGINE_SIGNAL_CATALOG`).
 - **Signal vocabulary** — confirm the core set (`enter`/`exit`/`idle`/`win`/`bigWin`) + which Borut book events map to each. Per-game custom signals are code-wired for v1 (editor only declares names).
 - **Component versioning** — a behavior edit bumps the `ComponentDef` version; instances stay pinned until "update to latest" (§8.9).
 - **Where the timeline panel lives (Tier 1)** — a new Component-Editor panel vs. an expandable Properties section. Decide when Tier 1 starts.
@@ -1225,7 +1226,7 @@ to background scenes only, NOT the full generic-mount refactor.
   bare `engine-layout` barrel, so the editor + every game share it):
   - `backgroundScenes(scenes)` → the `scene.space === 'background'` scenes **in doc order** (lowest first).
   - `hasAuthoredBackground(scenes)` → true only when one of them carries **real content** (a node that is
-    NOT the coded `Background` bind anchor — counting that anchor would suppress the very spine it mounts).
+    NOT the coded `Background` bind anchor — counting that anchor would suppress the very rig it mounts).
 - The runtime (`apps/lines/Game.svelte`) renders `backgroundScenes(editorDoc.scenes)` as a persistent layer
   inside `<App>`, each wrapped in `<Container zIndex={-10}>` so it sits **behind everything** (below the
   coded background's `-3..-1` and the loading screen) and is mounted **OUTSIDE** the loading `{#if}`, so it
@@ -1236,10 +1237,10 @@ to background scenes only, NOT the full generic-mount refactor.
   already existed (§10); the gap was purely the runtime *mounting* a custom-id scene.
 
 ### 25.2 Suppressing the coded bundled `<Background>`
-When `hasAuthoredBackground(editorDoc.scenes)` is true, the coded `<Background>` spine is gated off
+When `hasAuthoredBackground(editorDoc.scenes)` is true, the coded `<Background>` rig is gated off
 (`{#if !suppressCodedBackground}`) so the authored art REPLACES the reference background. When absent the
 coded `<Background cover={backgroundCover}>` renders exactly as today, and the existing **id-`background` /
-`space:'canvas'`** spine-anchor path (Borut's `bg` node + cover params driving the bundled spine, §10) is
+`space:'canvas'`** rig-anchor path (Borut's `bg` node + cover params driving the bundled rig, §10) is
 untouched — that scene is `space:'canvas'`, so it is never selected as a persistent background and never
 triggers suppression.
 

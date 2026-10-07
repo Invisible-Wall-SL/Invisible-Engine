@@ -10,7 +10,7 @@
  *
  * That has now bitten twice, in two different ways:
  *   - `editor-symbols/` bakes shadowed the real page and rendered regions EMPTY;
- *   - `_boot/` (the boot-splash mirror) holds a page ALREADY reoriented 180° for Spine, so
+ *   - `_boot/` (the boot-splash mirror) holds a page ALREADY reoriented 180° for rig, so
  *     `⟳ Re-sync atlas` re-derived from it and reoriented AGAIN — every rotated region came
  *     back upside down on a rig that had rendered correctly.
  *

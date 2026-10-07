@@ -1,9 +1,9 @@
-// Phase §18 item 7 spike (GATE) — nail the Spine 4.2 PATH ATTACHMENT + PATH CONSTRAINT setup
+// Phase §18 item 7 spike (GATE) — nail the 4.2-format PATH ATTACHMENT + PATH CONSTRAINT setup
 // + the path animation timeline data model against the official runtime, before any UI is built.
 //   node tools/rigger-spike/path.mjs <skeleton.json> <skeleton.atlas>
 //
 // ============================ EMPIRICAL FINDINGS ============================
-// (validated below against the rig runtime's SkeletonJson loader (engine-rig, held to the Spine 4.2 reference),
+// (validated below against the rig runtime's SkeletonJson loader (engine-rig, held to the 4.2-format reference),
 //  PathAttachment, PathConstraint(Data), and the three PathConstraint*Timelines — NOT from
 //  memory. Read off SkeletonJson.js: attachment L428-444, constraint L187-219, timeline
 //  L815-868, readTimeline1 L1072, readCurve L1120. Cross-checked vs a REAL rig
@@ -25,8 +25,9 @@
 //                             //   [boneCount, boneIdx,vx,vy,weight, …] per control point. The
 //                             //   loader picks unweighted iff vertices.length == vertexCount*2.
 //     lengths:       [...],   // REQUIRED — one float PER CUBIC CURVE ⇒ length == vertexCount/3.
-//                             //   Per-curve arc length (px, * skeleton scale). Spine editor bakes
-//                             //   these; we recompute them from the control points on save.
+//                             //   Per-curve arc length (px, * skeleton scale). The desktop
+//                             //   editor bakes these; we recompute them from the control points
+//                             //   on save.
 //     color?:        "RRGGBBAA",  // optional editor display colour (paths aren't textured).
 //   }
 //   computeWorldVertices(slot, 0, vertexCount*2, out, 0, 2) yields the control points in WORLD
@@ -49,7 +50,8 @@
 //   }, …]
 //   ⚠ ENUM STRINGS are case-INSENSITIVE on the first letter: enumValue() does
 //   `name[0].toUpperCase()+name.slice(1)`, so "percent"/"Percent" both → PositionMode.Percent.
-//   Spine editor exports lowercase ("percent","length","tangent","chainScale"); we author lower.
+//   An external rig editor exports lowercase ("percent","length","tangent","chainScale"); we author
+//   lower.
 //   ⚠ path constraints have ONLY mixRotate/mixX/mixY — NO mixScale*/mixShear* (unlike transform).
 //   BEHAVIOUR (verified): a constrained bone is repositioned ONTO the path (world pos changes vs
 //   unconstrained). All mixes 0 ⇒ pose == setup/FK (constraint contributes nothing).
@@ -70,7 +72,7 @@
 //   poseAtTime preview reads the live PathConstraint.{position,spacing,mixRotate,mixX,mixY} that
 //   the runtime sets at time t, before updateWorld.
 import { readFileSync } from 'node:fs';
-import { RIG_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = await import(RIG_CORE);
 
@@ -95,7 +97,7 @@ console.log(`\n=== §18.7 path attachment + path-constraint setup + path timelin
 // in slot-bone-local space, in the FIRST skin, on a real slot. control points run
 // [p0, c0a, c0b, p1, c1a, c1b, p2]. We place them as a gentle S so the spline is non-degenerate.
 // lengths == ceil/floor? NO — vertexCount/3 must be an INTEGER, so vertexCount is a multiple of 3
-// for a CLOSED path and (3*curves+1) for an OPEN path. Spine stores OPEN paths with vertexCount =
+// for a CLOSED path and (3*curves+1) for an OPEN path. Rig stores OPEN paths with vertexCount =
 // 3*curves+1 BUT lengths.length = vertexCount/3 (integer division → floor). Real anticipation rig:
 // vertexCount 18 (=3*6, closed-style packing) lengths 6. We mirror that: use vertexCount that is a
 // multiple of 3 (closed=true OR open with editor's 3*curves+1 → here we use the multiple-of-3 form
@@ -221,7 +223,7 @@ const unconstrained = poseBoneWorld(baseRaw, null, constrainedBone, 0);
 
 // (3) loader builds PathConstraintData with the right defaults + enum parsing
 {
-	const raw = withPc(withPathAttachment(baseRaw, slotName), {}); // att name == slot name (Spine convention)
+	const raw = withPc(withPathAttachment(baseRaw, slotName), {}); // att name == slot name (rig convention)
 	let data = null;
 	try { data = loadData(raw); } catch (e) { log(false, 'loader REJECTED path constraint — ' + e.message); }
 	if (data) {

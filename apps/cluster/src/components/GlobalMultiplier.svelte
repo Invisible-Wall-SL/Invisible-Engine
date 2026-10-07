@@ -11,10 +11,10 @@
 	import {
 		BitmapText,
 		Container,
-		SpineEventEmitterProvider,
-		SpineProvider,
-		SpineSlot,
-		SpineTrack,
+		RigEventEmitterProvider,
+		RigProvider,
+		RigSlot,
+		RigTrack,
 	} from 'pixi-svelte';
 	import { FadeContainer } from 'components-pixi';
 	import { stateBetDerived } from 'state-shared';
@@ -76,8 +76,8 @@
 <FadeContainer {show}>
 	<BoardContainer>
 		<Container {...position} {scale}>
-			<SpineProvider key="globalMultiplier" width={PANEL_WIDTH}>
-				<SpineTrack
+			<RigProvider key="globalMultiplier" width={PANEL_WIDTH}>
+				<RigTrack
 					trackIndex={0}
 					{animationName}
 					timeScale={stateBetDerived.timeScale()}
@@ -87,8 +87,8 @@
 						},
 					}}
 				/>
-				<SpineEventEmitterProvider>
-					<SpineSlot slotName="slot_multi">
+				<RigEventEmitterProvider>
+					<RigSlot slotName="slot_multi">
 						<BitmapText
 							anchor={0.5}
 							text={`${Math.round(previousMultiplier.current)}×`}
@@ -97,8 +97,8 @@
 								fontSize: SYMBOL_SIZE * 5.2,
 							}}
 						/>
-					</SpineSlot>
-					<SpineSlot slotName="slot_multi_next">
+					</RigSlot>
+					<RigSlot slotName="slot_multi_next">
 						<BitmapText
 							anchor={0.5}
 							text={`${multiplier}×`}
@@ -107,9 +107,9 @@
 								fontSize: SYMBOL_SIZE * 5.2,
 							}}
 						/>
-					</SpineSlot>
-				</SpineEventEmitterProvider>
-			</SpineProvider>
+					</RigSlot>
+				</RigEventEmitterProvider>
+			</RigProvider>
 		</Container>
 	</BoardContainer>
 </FadeContainer>

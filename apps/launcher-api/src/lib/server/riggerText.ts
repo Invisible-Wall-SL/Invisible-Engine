@@ -6,14 +6,14 @@ import { createHash } from 'node:crypto';
  *
  * The reframing that makes this work: it is not "text in a rig", it is localized ART in a
  * rig. A string is rasterised to an atlas region ONCE, in the browser, from a single
- * localization KEY; from then on it is an ORDINARY Spine region attachment, so region→mesh
+ * localization KEY; from then on it is an ORDINARY rig region attachment, so region→mesh
  * convert, weights, deform and keyframing all apply with NO new machinery, and the `.irig`
- * stays byte-valid Spine 4.2 (design §2.1) with no sidecar for geometry.
+ * stays byte-valid 4.2-format (design §2.1) with no sidecar for geometry.
  *
  * WHERE THE ART LIVES — and why it ships (rule 8). The rasterised strings are packed onto a
  * SECOND PAGE inside the rig bundle's own `.atlas`, not into the source sheet:
  *
- *  - `exportSpineBundle` already copies EVERY page `atlasPageNames` finds, so a text page
+ *  - `exportRigBundle` already copies EVERY page `atlasPageNames` finds, so a text page
  *    travels the export → `deploy/` → bake → pull → register chain with the rig, for free.
  *    No new asset class, no new export step, nothing stranded at a source prefix.
  *  - Packing into the SOURCE sheet instead would re-pack it, moving every rect, which
@@ -26,7 +26,7 @@ import { createHash } from 'node:crypto';
  *
  * LOCALIZATION = ATTACHMENT SWAP. One region per locale, one attachment per locale in the same
  * slot, named `<elementId>@<locale>`; the game calls `skeleton.setAttachment` for the locale it
- * is running (see `localeAttachmentSuffix`). Standard Spine — no format extension.
+ * is running (see `localeAttachmentSuffix`). Standard rig — no format extension.
  */
 
 /** One rasterised locale variant of a text element: its packed rect + the string it shows. */
@@ -114,7 +114,7 @@ export function emptyRigTextDoc(): RigTextDoc {
 }
 
 /**
- * The atlas region `path` a variant samples. Slashes are ordinary in Spine region names
+ * The atlas region `path` a variant samples. Slashes are ordinary in rig region names
  * (and `atlasRegionNames` classifies lines structurally, not by extension), so the
  * namespaced form keeps text regions from ever colliding with sheet art.
  */
@@ -125,8 +125,8 @@ export function rigTextRegionName(elementId: string, locale: string): string {
 /**
  * The attachment name for a variant. The `@<locale>` suffix is the ONLY thing the game needs
  * to perform the locale swap — no sidecar travels with the `.irig`, so a rig that reaches a
- * game through any path (export, library copy, desktop Spine re-import) carries its own
- * localization wiring in names Spine already round-trips.
+ * game through any path (export, library copy, an external rig editor re-import) carries its own
+ * localization wiring in names rig already round-trips.
  */
 export function rigTextAttachmentName(elementId: string, locale: string): string {
 	return `${elementId}@${locale}`;
@@ -256,7 +256,7 @@ function normalizeStyle(input: unknown): RigTextStyleData {
  * source-sheet block by `ensureBundleAtlasFresh`. Empty string when the rig has no text (so
  * the atlas is byte-identical to a text-less rig's: parity by construction).
  *
- * Emitted in the same grammar as `regionsToSpineAtlas`: a blank separator line, the page
+ * Emitted in the same grammar as `regionsToRigAtlas`: a blank separator line, the page
  * filename, `size:`/`filter:`, then `<region name>` + `bounds:`. Text regions are never
  * trimmed and never rotated (we pack them ourselves, upright), so there is no `offsets:` /
  * `rotate:` line — which also keeps them clear of the CW-vs-CCW rotation trap that bites

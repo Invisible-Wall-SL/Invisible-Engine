@@ -45,7 +45,7 @@ function isSafeName(name: string, ext: string): boolean {
  *
  * The browser PUTs the bytes DIRECTLY to R2 rather than POSTing them here: adapter-node's
  * `BODY_SIZE_LIMIT` is 512 KB and a symbol crop routinely exceeds it, so a proxied upload would
- * 413. Same pattern as the font + spine uploaders.
+ * 413. Same pattern as the font + rig uploaders.
  *
  * The response's `ref` is the value to put in `source_ref` — built HERE, next to the key it
  * mirrors, so the two can never disagree.

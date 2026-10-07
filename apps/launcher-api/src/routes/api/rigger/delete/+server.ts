@@ -1,7 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { SUB } from '$lib/server/projectPaths';
 import { deleteObject, deleteObjects, listAllKeys } from '$lib/server/r2';
-import { reindexProjectSkeletons, writeSkeletonsIndex } from '$lib/server/spineReindex';
+import { reindexProjectSkeletons, writeSkeletonsIndex } from '$lib/server/rigReindex';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
@@ -18,10 +18,10 @@ const isSkeleton = (key: string) => SKELETON_EXT.some((e) => key.toLowerCase().e
  * Deletes ONLY the named skeleton file (never a sibling source `.json`/`.skel` that
  * belongs to another rig). If that leaves a dedicated bundle dir with no skeleton at
  * all (a from-scratch rig = `spines/<name>/<name>.irig` + its `.atlas`/page), the now-
- * orphaned support files in that exact dir are purged too. The spines root is never
+ * orphaned support files in that exact dir are purged too. The rigs root is never
  * purged. Gated by `rigger` access; path-guarded.
  *
- * Body: `{ dir: <base64url bundle dir, '' = spines root>, skeleton_file: <file name> }`.
+ * Body: `{ dir: <base64url bundle dir, '' = rigs root>, skeleton_file: <file name> }`.
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, {
@@ -46,13 +46,13 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	}
 	if (dir.includes('..') || skeletonFile.includes('..') || skeletonFile.includes('/')) throw error(403, 'forbidden');
 
-	const spinesPrefix = SUB.spines(clientKey, projectKey);
-	const bundlePrefix = dir ? `${spinesPrefix}/${dir}` : spinesPrefix;
+	const rigsPrefix = SUB.spines(clientKey, projectKey);
+	const bundlePrefix = dir ? `${rigsPrefix}/${dir}` : rigsPrefix;
 
 	await deleteObject(`${bundlePrefix}/${skeletonFile}`);
 
 	// Purge an orphaned dedicated bundle: only when this is a named sub-dir (never the
-	// spines root) and no skeleton remains in it.
+	// rigs root) and no skeleton remains in it.
 	let purged = 0;
 	if (dir) {
 		const remaining = await listAllKeys(`${bundlePrefix}/`);
@@ -62,8 +62,8 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		}
 	}
 
-	const { index } = await reindexProjectSkeletons(clientKey, projectKey, spinesPrefix);
-	await writeSkeletonsIndex(spinesPrefix, index);
+	const { index } = await reindexProjectSkeletons(clientKey, projectKey, rigsPrefix);
+	await writeSkeletonsIndex(rigsPrefix, index);
 
 	return json({ ok: true, purged, count: index.skeletons.length });
 };

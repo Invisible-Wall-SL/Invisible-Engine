@@ -345,7 +345,7 @@ const FOUR = [
 // ---- 13. an attachment left at the PREVIOUS bake's size ----------------------------------
 // The live failure this pass fixes. The fit rule shrank French from 421px to 246px and re-baked
 // the pixels, but `placeTextAttachments` skipped the attachment that already existed, so the
-// `.irig` still declared the old 421x96 box and Spine scaled the smaller region right back up
+// `.irig` still declared the old 421x96 box and rig scaled the smaller region right back up
 // into it. On screen: unchanged, which is what "the fit never ran" looked like. The pixels are
 // already correct, so clearing this must NOT re-rasterise.
 {

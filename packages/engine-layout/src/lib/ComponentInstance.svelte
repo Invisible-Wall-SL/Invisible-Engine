@@ -5,7 +5,7 @@
 		FlipbookCue,
 		LayoutNode,
 		Scene,
-		SpineCue,
+		RigCue,
 	} from './types';
 
 	import { onDestroy, untrack, type Snippet } from 'svelte';
@@ -66,7 +66,7 @@
 		BUTTON_STATE_IMAGE_KEYS,
 	} from './buttonStateImage';
 	import { setComponentStateAnims } from './componentStateAnimContext';
-	import { setComponentSpineRest } from './componentSpineRestContext';
+	import { setComponentRigRest } from './componentRigRestContext';
 	import { getComponentValueSource, type ValueSource } from './registerComponentValues';
 	import { getInstanceValueSource, type InstanceValueSource } from './registerInstanceValues';
 	import { getFlowValueSource } from './registerFlowValueSource';
@@ -124,9 +124,9 @@
 	// `background` scene is cover-fit as ONE unit by the instance's wrapping container
 	// (`LayoutNodeView` `bgComponent`); its children must therefore render at their raw
 	// LOCAL coords, NOT re-inherit `background` — otherwise each child (a backdrop sprite,
-	// a decorative spine, …) independently cover-fits the WINDOW, so a small spine balloons
-	// to full-screen, sits centred, and renders through the background-cover spine path
-	// instead of as a normal animating spine. `canvas` gives raw x/y + no cover, so the
+	// a decorative rig, …) independently cover-fits the WINDOW, so a small rig balloons
+	// to full-screen, sits centred, and renders through the background-cover rig path
+	// instead of as a normal animating rig. `canvas` gives raw x/y + no cover, so the
 	// children compose inside the cover-scaled container exactly as authored. Any other
 	// space is passed through unchanged (parity — no existing non-background component moves).
 	const childSpace = $derived(space === 'background' ? 'canvas' : space);
@@ -208,7 +208,7 @@
 	// Signal scope (Phase 12a, `docs/design/hold-and-win.md` §8): the part this instance stands for —
 	// the value of the param the def names (`signalScope`: the pot's `meter`, a jackpot tile's
 	// `source`) as a part of its kind (`meter:red`). The instance hears only its own part's fires of
-	// that kind, and hands the scope down, so a spine, a nested instance or an effect inside the red
+	// that kind, and hands the scope down, so a rig, a nested instance or an effect inside the red
 	// pot reacts to the red pot only. No scope of its own ⇒ the enclosing instance's; none at all ⇒
 	// every fire (parity). Read before it is set: `getContext` after `setContext` would return this
 	// instance's own value.
@@ -241,7 +241,7 @@
 	const tapDimAlpha = tapEnabled ? tapDimAlphaOf(staticParams) : 0;
 	// Arm-after-signal (Invisible Flow — intro-complete sequencing): when set, the tap surface stays
 	// inert (not mounted, taps pass through) until this named component-scoped signal has fired for
-	// the instance — e.g. a sibling spine's `completeSignal`, so "tap to continue" is dead until the
+	// the instance — e.g. a sibling rig's `completeSignal`, so "tap to continue" is dead until the
 	// intro finishes. Empty ⇒ armed on mount (parity, today's behaviour). Read off the same static
 	// params as `tapSignal`.
 	const tapArmSignal = tapEnabled ? tapArmAfterSignalOf(staticParams) : '';
@@ -432,16 +432,16 @@
 		});
 	});
 
-	// Engine signal feed (§8.5, narrowed to spine-only): the event analogue of the
+	// Engine signal feed (§8.5, narrowed to rig-only): the event analogue of the
 	// value/action feeds above. Walk `def.root` once at init for `spine` nodes
 	// carrying a non-empty `cues` array and index those cues by signal NAME →
 	// `{ nodeId, animation, loop }[]`. The static set is read at init (like
-	// `staticParams`): a keyed instance never swaps its def, so the spine tree is
+	// `staticParams`): a keyed instance never swaps its def, so the rig tree is
 	// stable. When the game registered a `SignalSource` under a cue's signal, each
-	// fire writes the cue's animation into `signalAnims[nodeId]`; the spine node in
+	// fire writes the cue's animation into `signalAnims[nodeId]`; the rig node in
 	// `def.root` then prefers that override over its static `defaultAnimation` (see
 	// `componentSignalContext` + `LayoutNodeView`). No cues / no registered signal ⇒
-	// nothing is ever written and the spine uses `defaultAnimation` (parity).
+	// nothing is ever written and the rig uses `defaultAnimation` (parity).
 	const signalToTargets = ((): Map<
 		string,
 		{
@@ -464,12 +464,12 @@
 		>();
 		if (!allowed || !def) return map;
 		const walk = (n: LayoutNode): void => {
-			// A FLIPBOOK cue is the clip-swapping twin of a spine cue: same signal, same half-authored
+			// A FLIPBOOK cue is the clip-swapping twin of a rig cue: same signal, same half-authored
 			// guard — it just names a `clipId` instead of an animation, and has no `completeSignal`
 			// (a clip reports no completion). Indexed into the SAME map (keyed by node id, so the two
 			// payload shapes never meet on one entry).
 			//
-			// `cueSignalOverrides` remaps a flipbook cue exactly as it does a spine one — the field is
+			// `cueSignalOverrides` remaps a flipbook cue exactly as it does a rig one — the field is
 			// keyed by NODE id, not by kind — and the editor's "Flipbook (this placement)" panel
 			// authors it, so two placements of one component can react to different moments.
 			if (n.kind === 'flipbook' && n.cues?.length) {
@@ -483,7 +483,7 @@
 				}
 			} else if (n.kind === 'spine' && n.cues?.length) {
 				const rebinds = node.cueSignalOverrides?.[n.id];
-				for (const cue of n.cues as SpineCue[]) {
+				for (const cue of n.cues as RigCue[]) {
 					// Per-instance signal rebinding (flow-driven-game §6 slice 3): this
 					// placement may drive the cue from a DIFFERENT engine signal than the
 					// def named. Remap the cue's original `signal` through the instance's
@@ -516,7 +516,7 @@
 	// Gate-referenced signals (Invisible Flow — intro-complete sequencing / FS-7 outro): the set of
 	// component-scoped signals named by a `hiddenUntilSignal` on ANY node in the def tree, plus the
 	// instance's own `tapArmAfterSignal`. A gate keyed on a GAME-registered signal (e.g. the FS-7
-	// `freeSpinOutroBigWin`) that NO spine cue also references would otherwise never be recorded on the
+	// `freeSpinOutroBigWin`) that NO rig cue also references would otherwise never be recorded on the
 	// per-instance bus — so plain art (a sprite) gated by `hiddenUntilSignal` would stay hidden forever.
 	// Collecting them here lets the subscription `$effect` below also listen on those registered signals
 	// (recording the fire without playing any cue). Empty when no gate is set ⇒ no new subscription
@@ -533,11 +533,11 @@
 		if (tapArmSignal) set.add(tapArmSignal);
 		return set;
 	})();
-	// Button-state-driven spine animations (the interaction analogue of the signal
+	// Button-state-driven rig animations (the interaction analogue of the signal
 	// cues above). Walk `def.root` once at init for `spine` nodes carrying a
 	// `stateAnimations` map; index them by node id. Each interaction-state change then
 	// resolves the cascade (see the `$effect` below) and writes the mapped animation
-	// into `stateAnims[nodeId]`, which the spine prefers over its signal cue + default.
+	// into `stateAnims[nodeId]`, which the rig prefers over its signal cue + default.
 	// No such nodes ⇒ the map is empty and nothing is ever written (parity). Init-stable
 	// like `signalToTargets` (a keyed instance never swaps its def).
 	const stateAnimNodes = ((): Map<string, ButtonStateAnimations> => {
@@ -547,7 +547,7 @@
 			if (n.kind === 'spine') {
 				// Overlay this placement's per-state override (if any) on the def's map —
 				// so two instances of one button can play different state animations
-				// (the spine analogue of a per-instance `imageHover` override). No
+				// (the rig analogue of a per-instance `imageHover` override). No
 				// override ⇒ the def map verbatim (parity).
 				const merged = mergeButtonStateAnimations(
 					n.stateAnimations,
@@ -564,7 +564,7 @@
 
 	let signalAnims = $state<Record<string, ComponentSignalAnim>>({});
 	// A cue is an EVENT delivered as STATE, so every fire must be distinguishable from the last:
-	// re-firing the same cue writes the same animation name, and the spine's value comparison then
+	// re-firing the same cue writes the same animation name, and the rig's value comparison then
 	// reads "already playing" and never replays it (a second free-spin feature in one session left
 	// the rig frozen on its finished track). This monotonic token rides along and forces the
 	// re-apply. Per instance, so two placements of one def can't interfere.
@@ -581,7 +581,7 @@
 		signalFire += 1;
 		for (const t of targets) {
 			// Exactly one of `animation` / `clipId` is set, decided by the cued node's kind when the
-			// target was indexed — a spine reads the first, a flipbook the second.
+			// target was indexed — a rig reads the first, a flipbook the second.
 			signalAnims[t.nodeId] = {
 				animation: t.animation,
 				clipId: t.clipId,
@@ -593,8 +593,8 @@
 	};
 	// Fired-signal bus (Invisible Flow — intro-complete sequencing): a per-instance fire-count per
 	// component-scoped signal name. `enter` bumps it on the visible edge, a game-registered signal
-	// bumps it when its book event arrives, and a spine one-shot's `completeSignal` bumps it on
-	// completion (a descendant spine calls `fireComponentSignal` via context). Nodes gated by
+	// bumps it when its book event arrives, and a rig one-shot's `completeSignal` bumps it on
+	// completion (a descendant rig calls `fireComponentSignal` via context). Nodes gated by
 	// `hiddenUntilSignal` read it to reveal; the tap surface reads it to arm. Reset per fresh mount
 	// (a new `$state({})`), so a re-entered free-spin screen re-hides + re-arms. Provided to the
 	// rendered sub-tree via context (the `$state` proxy, so descendant reads stay reactive).
@@ -642,13 +642,13 @@
 						if (!hears(scope)) return;
 						fireCue(targets);
 						// Also record the fire on the per-instance bus so a `hiddenUntilSignal`/`tapArmAfterSignal`
-						// gate can key on a game signal (e.g. `win`), not only a spine `completeSignal`.
+						// gate can key on a game signal (e.g. `win`), not only a rig `completeSignal`.
 						fireComponentSignal(signalKey);
 					}),
 				);
 			}
 			// Gate-only signals: a `hiddenUntilSignal`/`tapArmAfterSignal` keyed on a registered signal that
-			// NO spine cue references (plain art gated on e.g. `freeSpinOutroBigWin`). Subscribe to RECORD the
+			// NO rig cue references (plain art gated on e.g. `freeSpinOutroBigWin`). Subscribe to RECORD the
 			// fire on the per-instance bus (no cue to play). Skip any already handled above (they record too).
 			for (const signalKey of gateSignals) {
 				if (signalKey === ENTER_SIGNAL) continue; // instance-fired — same reason as above.
@@ -667,7 +667,7 @@
 	);
 
 	// `enter` is a COMPONENT-lifecycle signal the instance fires ITSELF — no game source
-	// maps to it, so the game-registered loop above skips it. It plays each spine's `enter`
+	// maps to it, so the game-registered loop above skips it. It plays each rig's `enter`
 	// cue the moment the component becomes VISIBLE: on mount with the gate open, or when a
 	// gate later OPENS (e.g. an intro animation the instant a gated "Free-spin intro"
 	// screen appears). The gate is EITHER this instance's own `visibleSource` OR the
@@ -691,7 +691,7 @@
 			// spins entered twice in one session), and a value-identical re-write would not replay.
 			fireCue(signalToTargets.get(ENTER_SIGNAL) ?? []);
 			// Record the `enter` fire on the per-instance bus so a `hiddenUntilSignal`/`tapArmAfterSignal`
-			// gate can key on `enter` directly (appear on mount) as well as on a spine `completeSignal`.
+			// gate can key on `enter` directly (appear on mount) as well as on a rig `completeSignal`.
 			fireComponentSignal(ENTER_SIGNAL);
 		}
 		wasVisible = selfVisible;
@@ -872,12 +872,12 @@
 	// Repeater-fed per-item values (§ feature cards / per-card param overrides): a `<Repeater>` (or a
 	// `<ConfirmDialog>` mount binding) injects each item's values directly (title/price/iconKey/… AND
 	// any card-param override like panelImage/spineKey/buttonImage). Define a REACTIVE getter for EVERY
-	// def param whose key is present in `engineValues`, so a bound text/sprite/spine node reads the live
+	// def param whose key is present in `engineValues`, so a bound text/sprite/rig node reads the live
 	// per-item value from the param context — the multi-value sibling of the single `value` feed above.
 	//
 	// The gate is the param KEY's presence in the injected map, NOT the `engineProvided` flag: a per-item
 	// value overrides its param REGARDLESS of whether the def marks it engine-provided, so config
-	// `cardParams` can vary the card's CHROME (a different panel/spine per card) through the one shared
+	// `cardParams` can vary the card's CHROME (a different panel/rig per card) through the one shared
 	// component. A param NOT in the map keeps its authored default (staticParams) — byte-identical to a
 	// plain instance (parity), and the `<ConfirmDialog>` binding (which supplies only its engineProvided
 	// title/message/… keys) resolves exactly as before, since only those keys are `in boundEngineValues`.
@@ -940,18 +940,18 @@
 		}
 		(actions ?? binding?.actions)?.[name]?.();
 	});
-	// Provide the signal-driven spine-anim overrides to the rendered sub-tree (the
-	// `$state` proxy, so a descendant spine's `{@const}` read re-runs on each signal
+	// Provide the signal-driven rig-anim overrides to the rendered sub-tree (the
+	// `$state` proxy, so a descendant rig's `{@const}` read re-runs on each signal
 	// fire — same stable-object discipline as `setComponentParams`). `{}` when the
 	// instance can't expand, so a descendant never reads a stale PARENT instance's map.
 	setComponentSignalAnims(allowed && def ? signalAnims : {});
 
-	// Resolve each state-spine's animation from the LIVE interaction flags and publish
+	// Resolve each state-rig's animation from the LIVE interaction flags and publish
 	// it on the state-anim context (same stable-`$state`-proxy discipline as the signal
-	// map). Only meaningful when THIS instance owns the press (`interactive`): a spine
+	// map). Only meaningful when THIS instance owns the press (`interactive`): a rig
 	// in a non-button component, or with no `stateAnimations`, never gets an entry, so
 	// it falls through to its signal cue / `defaultAnimation` (parity). When the current
-	// state cascades to nothing, the node's entry is cleared so the spine returns to its
+	// state cascades to nothing, the node's entry is cleared so the rig returns to its
 	// resting `defaultAnimation`.
 	let stateAnims = $state<Record<string, { animation: string; loop?: boolean }>>({});
 	$effect(() => {
@@ -970,10 +970,10 @@
 		}
 	});
 	setComponentStateAnims(allowed && def ? stateAnims : {});
-	// Per-instance RESTING spine overrides (default animation / loop / skin) — static
+	// Per-instance RESTING rig overrides (default animation / loop / skin) — static
 	// per placement, so provided once at init (no `$effect`). No overrides ⇒ `{}` ⇒
-	// each spine uses its def values (parity). Read by `<LayoutNodeView>`'s spine block.
-	setComponentSpineRest(allowed && def ? (node.spineRestOverrides ?? {}) : {});
+	// each rig uses its def values (parity). Read by `<LayoutNodeView>`'s rig block.
+	setComponentRigRest(allowed && def ? (node.spineRestOverrides ?? {}) : {});
 
 	// Flow press routing (Invisible Flow v2, §Part 2): consult the registered press resolver AT CALL
 	// TIME (so ownership reflects the LIVE v2 handle regardless of boot timing) — when the flow OWNS

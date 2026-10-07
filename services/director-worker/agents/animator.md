@@ -2,7 +2,7 @@
 name: animator
 model: claude-sonnet-5-5
 effort: medium
-role: Binds approved art to the template's animations — Spine rigs reused from the template, flipbook clips, and each symbol's states in the Symbols State Machine.
+role: Binds approved art to the template's animations — rigs reused from the template, flipbook clips, and each symbol's states in the Symbols State Machine.
 tools:
   - rigger.list_rigs
   - rigger.rebind_attachments

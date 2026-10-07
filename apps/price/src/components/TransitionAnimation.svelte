@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { SpineProvider, SpineTrack } from 'pixi-svelte';
+	import { RigProvider, RigTrack } from 'pixi-svelte';
 	import { getContext } from '../game/context';
 
 	type Props = {
@@ -10,17 +10,17 @@
 	const context = getContext();
 </script>
 
-<SpineProvider
+<RigProvider
 	key="transition"
 	x={context.stateLayoutDerived.canvasSizes().width * 0.5}
 	y={context.stateLayoutDerived.canvasSizes().height * 0.5}
 	height={context.stateLayoutDerived.canvasSizes().height * 1.7}
 >
-	<SpineTrack
+	<RigTrack
 		trackIndex={0}
 		animationName="animation"
 		listener={{
 			complete: props.oncomplete,
 		}}
 	/>
-</SpineProvider>
+</RigProvider>

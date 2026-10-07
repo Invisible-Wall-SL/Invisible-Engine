@@ -17,7 +17,7 @@ import type { PageServerLoad } from './$types';
 
 /**
  * The Invisible Symbols State Machine renders a live preview grid (canvas image
- * thumbs + a WebGL spine preview for the focused cell). Server-rendering that is
+ * thumbs + a WebGL rig preview for the focused cell). Server-rendering that is
  * pointless and fragile — same rationale as the editor/font routes: `load` still
  * runs server-side and its data flows to the client; only the component render is
  * client-only.
@@ -53,7 +53,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		gameTypeLoad.then((type) => resolveGameConfig(clientKey, projectKey, type)),
 		resolveEditorFonts(clientKey, projectKey),
 		// Invisible Flipbook clips — the third binding kind a cell can take, alongside a
-		// sprite frame and a spine animation. Rows only (id/name/frame count/primary sheet/
+		// sprite frame and a rig animation. Rows only (id/name/frame count/primary sheet/
 		// first frame); the clip's full ordered frame list is the /flipbook tool's business.
 		listClips(clientKey, projectKey),
 		// Invisible FX effects (id + name) — the fourth kind a Book-symbol VFX layer can take.

@@ -57,11 +57,11 @@ export interface EditorRegionSet {
  * doing the two things that fix actually needs:
  *
  * 1. **Convert `off_y`.** `_tp_frame_to_region` copies TexturePacker's
- *    `spriteSourceSize.y` raw, which is Y-DOWN from the frame's top. Spine's
+ *    `spriteSourceSize.y` raw, which is Y-DOWN from the frame's top. The atlas
  *    `offsets` offY is Y-UP from the bottom — the rig runtime's mesh UV math does
  *    `v -= (originalHeight - offsetY - height) / textureHeight`. The correct value is
  *    `orig_h - h - sss.y`. Reading the raw field applies a wrong vertical offset.
- * 2. **Migrate existing rigs.** Emitting `offsets:` (see `regionsToSpineAtlas`)
+ * 2. **Migrate existing rigs.** Emitting `offsets:` (see `regionsToRigAtlas`)
  *    re-bases the atlas coordinate space. Every `.irig` bakes geometry in the space
  *    it was authored in — a region attachment's `width`/`height` (`view.html`
  *    `attachRegion`) and a mesh's `uvs` are both relative to `originalWidth`. Turning
@@ -399,8 +399,8 @@ function texturePackerToInvisible(raw: unknown): RawManifest | null {
  * Upright (unrotated) size of a `texturePackerToInvisible` region. `texturePackerToInvisible`
  * copies TexturePacker's `frame.w/h` verbatim, and `frame` is ALWAYS the tight rectangle as it
  * sits ON the packed page — for a rotated frame that rectangle is `(uprightH × uprightW)`, i.e.
- * the axes are already swapped. The Invisible/Spine region convention (`parseRegions`,
- * `regionsToSpineAtlas`) stores `w/h` as the UPRIGHT size and expresses rotation with a separate
+ * the axes are already swapped. The Invisible/rig region convention (`parseRegions`,
+ * `regionsToRigAtlas`) stores `w/h` as the UPRIGHT size and expresses rotation with a separate
  * `rotated`/`rotate:90` flag, so un-swap a rotated frame back to upright here. `frame` is the
  * TRIMMED rect, so this stays trim-agnostic (untrimmed → == the sprite; trimmed → the tight box).
  */

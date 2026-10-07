@@ -38,7 +38,7 @@
 	// rows × the reel's ACTUAL row pitch (the editor reel-grid override's
 	// cellHeight+gapY) — a fixed SYMBOL_SIZE bound lets the bottom padding row's
 	// symbol leak onto the unmasked animate layer when the override pitch is shorter
-	// than SYMBOL_SIZE, the phantom spine "4th row" below the window. Computing it
+	// than SYMBOL_SIZE, the phantom rig "4th row" below the window. Computing it
 	// here as well as in the mask is how the two drift apart the first time one of
 	// them learns about perspective and the other does not.
 	//

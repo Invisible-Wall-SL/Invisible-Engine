@@ -5,8 +5,8 @@
  *
  * Proves the PURE `sceneAnimationDurationMs` calculator (`engine-layout/sceneDuration.ts`) that
  * backs the `showContainer` node's `durationMs` OUTPUT pin:
- *   1. MAX-SELECTION   — a scene's duration is the longest of its animated nodes (spine + effect),
- *                        and a spine node maxes over `defaultAnimation` + every `cues[].animation`.
+ *   1. MAX-SELECTION   — a scene's duration is the longest of its animated nodes (rig + effect),
+ *                        and a rig node maxes over `defaultAnimation` + every `cues[].animation`.
  *   2. EXPANSION       — it descends into `container` children AND expands `componentInstance` defs
  *                        via `resolveComponent`, with a cycle guard (a self-referential def can't hang).
  *   3. EMPTY / MISSES  — an empty scene, and one whose assets don't resolve (un-loaded skeleton /
@@ -37,7 +37,7 @@ const assert = (label: string, ok: boolean, detail?: string) => {
 // Node builders (minimal — only the fields the calculator reads).
 // ---------------------------------------------------------------------------
 
-const spine = (
+const rig = (
 	id: string,
 	assetKey: string,
 	defaultAnimation?: string,
@@ -79,7 +79,7 @@ const makeResolvers = (
 	effects: Record<string, number>, // effectId → ms
 	components: Record<string, LayoutNode>, // defId → root node
 ): SceneDurationResolvers => ({
-	spineClipMs: (assetKey, animation) =>
+	rigClipMs: (assetKey, animation) =>
 		animation === undefined ? undefined : clips[`${assetKey}:${animation}`],
 	effectMs: (effectId) => effects[effectId],
 	resolveComponent: (defId) => (components[defId] ? { root: components[defId] } : undefined),
@@ -92,20 +92,20 @@ const main = () => {
 
 	console.log('1. max-selection:');
 	{
-		// Two spines: hero maxes over its default (500) + cue (900) ⇒ 900; sidekick 300. Scene ⇒ 900.
+		// Two rigs: hero maxes over its default (500) + cue (900) ⇒ 900; sidekick 300. Scene ⇒ 900.
 		const r = makeResolvers({ 'hero:idle': 500, 'hero:win': 900, 'sidekick:idle': 300 }, {}, {});
 		const s = scene('win', [
-			spine('a', 'hero', 'idle', [{ signal: 'win', animation: 'win' }]),
-			spine('b', 'sidekick', 'idle'),
+			rig('a', 'hero', 'idle', [{ signal: 'win', animation: 'win' }]),
+			rig('b', 'sidekick', 'idle'),
 		]);
 		assert(
-			'longest across nodes + a spine maxes over default+cues (900)',
+			'longest across nodes + a rig maxes over default+cues (900)',
 			sceneAnimationDurationMs(s, r) === 900,
 		);
 
 		// An effect can be the longest element.
 		const r2 = makeResolvers({ 'hero:idle': 500 }, { sparkle: 1200 }, {});
-		const s2 = scene('fx', [spine('a', 'hero', 'idle'), effect('e', 'sparkle')]);
+		const s2 = scene('fx', [rig('a', 'hero', 'idle'), effect('e', 'sparkle')]);
 		assert(
 			'an effect node participates in the max (1200)',
 			sceneAnimationDurationMs(s2, r2) === 1200,
@@ -114,14 +114,14 @@ const main = () => {
 
 	console.log('\n2. expansion (container children + componentInstance defs, cycle-guarded):');
 	{
-		// A container nests a spine; a componentInstance's def root nests a longer spine.
+		// A container nests a rig; a componentInstance's def root nests a longer rig.
 		const r = makeResolvers(
 			{ 'hero:idle': 400, 'boss:rage': 1500 },
 			{},
-			{ bossCard: container('def-root', [spine('ds', 'boss', 'rage')]) },
+			{ bossCard: container('def-root', [rig('ds', 'boss', 'rage')]) },
 		);
 		const s = scene('mixed', [
-			container('c', [spine('a', 'hero', 'idle')]),
+			container('c', [rig('a', 'hero', 'idle')]),
 			instance('i', 'bossCard'),
 		]);
 		assert(
@@ -130,9 +130,9 @@ const main = () => {
 		);
 
 		// Cycle guard: a def whose root contains an instance of ITSELF must terminate (and still measure
-		// the reachable spine before the self-reference is skipped).
+		// the reachable rig before the self-reference is skipped).
 		const cyclic: LayoutNode = container('def-root', [
-			spine('self-spine', 'hero', 'idle'),
+			rig('self-rig', 'hero', 'idle'),
 			instance('again', 'loopy'),
 		]);
 		const rc = makeResolvers({ 'hero:idle': 700 }, {}, { loopy: cyclic });
@@ -158,7 +158,7 @@ const main = () => {
 		// Every name is unknown to the resolvers (un-loaded skeleton / un-baked effect / unknown def).
 		const r = makeResolvers({}, {}, {});
 		const s = scene('misses', [
-			spine('a', 'ghost', 'idle'),
+			rig('a', 'ghost', 'idle'),
 			effect('e', 'nope'),
 			instance('i', 'absent'),
 		]);

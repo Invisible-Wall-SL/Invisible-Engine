@@ -164,7 +164,7 @@ function tracksOf(anim) {
 	return out;
 }
 
-// Spine omits `time` on a key at 0 (it is the format default) — every reader in view.html treats it
+// Rig omits `time` on a key at 0 (it is the format default) — every reader in view.html treats it
 // as a number, so normalise the same way `normalizeKeyTimes` does at load.
 function normalizeTimes(node, depth = 0) {
 	if (!node || typeof node !== 'object' || depth > 8) return;

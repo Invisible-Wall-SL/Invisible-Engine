@@ -2,7 +2,7 @@
 Invisible Sheet Maker — web UI (by Invisible Wall SL), cloud re-host.
 
 Pack loose sprite PNGs into one sheet, edit region names + per-region AI fields,
-then export any of: a libGDX/Spine `.atlas`, a TexturePacker JSON, and the
+then export any of: a libGDX/rig `.atlas`, a TexturePacker JSON, and the
 Invisible AI manifest (atlas_manifest_<name>.json) that the Invisible Atlas
 Maker consumes. The authored manifest is also handed off to the cloud Atlas
 Maker (over R2) so it shows up in that tool's manifest list.
@@ -2048,7 +2048,7 @@ def api_browse(path: str, mode: str = "") -> dict:
     """Default ("projects") mode lists the SHARED manifests/ folder in local
     staging (atlas_manifest_*.json from both tools). `mode == "import"` browses
     the ENTIRE project's R2 tree (not just hydrated staging), so the real packed
-    spine sheets under input/originals/spines/<name>/ are reachable; there `path`
+    rig sheets under input/originals/spines/<name>/ are reachable; there `path`
     is a project-RELATIVE R2 prefix and the returned dir/file `path` values are
     project-relative R2 keys that api_load fetches on demand."""
     if mode == "import":
@@ -2089,7 +2089,7 @@ def api_browse(path: str, mode: str = "") -> dict:
 
 def _parse_coords_file(path: Path, raw: bytes | None = None) -> dict:
     """Return {image, width, height, regions:[{name,x,y,w,h,rotated,prompt,shape_ref,seed}]}.
-    Supports our AI manifest, TexturePacker JSON, and libGDX/Spine .atlas.
+    Supports our AI manifest, TexturePacker JSON, and libGDX/rig .atlas.
     `raw` = the JSON bytes already read (the version a load reports), parsed
     instead of re-reading a file another request may have replaced since."""
     suffix = path.suffix.lower()
@@ -2988,11 +2988,11 @@ def _import_plist(fields: dict, files: list) -> dict:
                 # re-rotate art we had just normalised — silently re-importing the one thing
                 # that makes atlases ambiguous.
                 #
-                # A rotated region is the only place PixiJS and Spine disagree: our packers
+                # A rotated region is the only place PixiJS and rig disagree: our packers
                 # store it 90 CW (the TexturePacker/Pixi convention, proven by
-                # atlas-tool/_rot_roundtrip_check.py), while Spine's parser wants CCW, so a
+                # atlas-tool/_rot_roundtrip_check.py), while rig's parser wants CCW, so a
                 # rotated region only renders upright in a rig once its page pixels are
-                # reoriented 180 (`reorientRotatedRegionsForSpine` in the launcher). Nothing
+                # reoriented 180 (`reorientRotatedRegionsForRig` in the launcher). Nothing
                 # rotated means nothing to disagree about.
                 #
                 # This matches the pipeline default everywhere else (`packer.pack` /

@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-symbols-state-machine.md](../design/invisible-symbols-state-machine.md) · Guide: [docs/tools/symbols-state-machine.md](../tools/symbols-state-machine.md) · Agent: [`.claude/agents/invisible-symbols.md`](../../.claude/agents/invisible-symbols.md) · Detail: [symbols-history.md](symbols-history.md)
 
-**One-line state:** Shipped — `/symbols` authors each symbol's per-state art (sprite / spine /
+**One-line state:** Shipped — `/symbols` authors each symbol's per-state art (sprite / rig /
 flipbook, plus blended layers) and the board's win-presentation globals, all travelling the full
 ship chain, with conditional saves and version history. Open: the S5 end-to-end rebind proof, and
 owner visual-verify of most globals on a real board.
@@ -30,18 +30,18 @@ story of each feature is in [symbols-history.md](symbols-history.md) ("Build det
   symbol VFX / Explosion pattern / Transition / Stacked pictures sections for Hold and Win, each
   kept while the doc still authors it. A `coinSymbols` kind shows each row's Hold and Win role
   chips from the live Game Config. Pinned by `check:symbols-kind-gating`.
-- **The cell editor** — Sprite / Spine / Flipbook (`SYMBOL_CELL_TYPES`), a **Loop** toggle (absent
+- **The cell editor** — Sprite / rig / Flipbook (`SYMBOL_CELL_TYPES`), a **Loop** toggle (absent
   means loop, except `explosion` / `clearReel`, which are one-shot by default via
   `symbolStateLoopsByDefault()`), a flipbook walk block (fps / direction / mirror, folded by
   `foldFlipbookPlayback`), and **Layers** — up to 8 extra pictures per cell, each with a blend mode
-  (not on spine layers: a Pixi blend cannot reach skeleton geometry), **behind**, and **Dim with
+  (not on rig layers: a Pixi blend cannot reach skeleton geometry), **behind**, and **Dim with
   symbol**. Layers are drawn at the one choke point (`Symbol.svelte`), never report beat
   completion, and are not composited in any preview. Row heads carry display names
   (`names`, used by Invisible Win Text as `{symbolName}`).
 - **Save** — ETag-conditional; a colleague's newer save raises **Someone else saved these
   symbols** / **Overwrite theirs**. **History…** restores any of the 20 newest backups
   (`$lib/DocHistoryModal.svelte`). `/api/editor/symbols` refuses a project the caller cannot
-  access. **↻ Reload from R2** drops the spine and region caches (unsaved edits kept).
+  access. **↻ Reload from R2** drops the rig and region caches (unsaved edits kept).
 - **Rows follow Invisible Game Config** — the grid lists exactly the symbols `/config` badges
   **in play** (on a reel strip), then, under a **Coins** heading, a pots overlay's coins (its
   tokens: `/config`'s unbadged **Coins** section) in pot order (`game-config` `symbolUses` /
@@ -56,13 +56,13 @@ story of each feature is in [symbols-history.md](symbols-history.md) ("Build det
   (`publish-symbol-defaults.mjs`), filtered to the in-play symbols; un-published projects fall back
   to the committed `lines.json` (`holdAndWin.json` for a Hold and Win project: the lines set plus `W`
   and the 3 Pots specials on placeholder art, `BLANK` unbound). They no longer decide the rows.
-- **Previews** — one shared WebGL stage, one spine runtime (4.2, `check:builtin-spines`), rigs
-  fitted to their authored box (`measureSpineBounds` / `authoredSpineBox`), stage geometry from the
+- **Previews** — one shared WebGL stage, one rig runtime (4.2, `check:builtin-rigs`), rigs
+  fitted to their authored box (`measureRigBounds` / `authoredRigBox`), stage geometry from the
   canvas's own box (`symbolStageGeometry.ts`, `check:symbol-stage-geometry`), rig FX and clips on the
   shared `fxOverlay` (with `autoDensity`), coded built-ins vendored under `static/builtin/spines/`,
   and rig bundles re-derived from their source sheet when it drifts (`ensureBundleAtlasFresh`).
 - **Doc-level globals** — each sparse (absent ⇒ byte-parity), each with a `gameProfile` chip:
-  - `highlight` — the win-frame spine over every winning symbol of any art kind, with a `fixed` or
+  - `highlight` — the win-frame rig over every winning symbol of any art kind, with a `fixed` or
     `winLine` multiply tint; `boardGlow` — the free-spin reel-house glow.
   - `winLine` — the LINE (`enabled`, `useConfigColor`, `fullPayline`, `allAtOnce` + delay) and the
     AMOUNT TEXT (`text.enabled` defaulting to the line's, `placement: 'boardCenter'`, `countUp`,
@@ -75,10 +75,10 @@ story of each feature is in [symbols-history.md](symbols-history.md) ("Build det
     the `WIN_BEAT_CAP_MS` runaway guard), `arrivalRelease` (the round stops awaiting the `emerge`
     intro; authored in the Transition section, deliberately not gated on a bound transition).
   - `tumblePattern` (the order and gap of the explosion waves, one definition in
-    `engine-layout/tumblePattern.ts`) and `transition` (a spine / flipbook / FX bridging each
+    `engine-layout/tumblePattern.ts`) and `transition` (a rig / flipbook / FX bridging each
     seat's explosion to its intro, fire-and-forget).
   - `stackedPictures` — symbols drawn as one tall picture (`art` + `winArt`, height, `winHoldMs`).
-  - `anticipation` — overlay spine + animation set, activation / loop sounds, per-big-tier FX.
+  - `anticipation` — overlay rig + animation set, activation / loop sounds, per-big-tier FX.
   - `bookVfx` (layers behind / in front of the book symbol during free spins), `symbolSounds` (the
     cue one symbol plays entering `land` / `clearReel`), `names`.
   - `coinLabel` (Hold and Win, gated on `kindCapabilities().coinSymbols`) — the value a coin prints:
@@ -87,7 +87,7 @@ story of each feature is in [symbols-history.md](symbols-history.md) ("Build det
     `scripts/lib/bakeCoinLabel.mjs`.
   - `flights` (Hold and Win only, or once authored) — per flight kind (`toTotal`, `toCollector`,
     `boostBeam`, `toMeter`, `toMeter:<id>` for each Game Config meter): the head (built-in glow,
-    re-tinted glow, sprite / spine / flipbook, none), the trail (an Invisible FX effect played as a
+    re-tinted glow, sprite / rig / flipbook, none), the trail (an Invisible FX effect played as a
     moving emitter, or off), the arrival effect, the route (max bend, over-route, avoid win cells,
     padding) and the timing (speed, min / max ms, ease, stagger). One definition for the tool, the
     server and the game: `engine-layout/flightStyle.ts` (`normalizeFlights`, `resolveFlightStyle`:
@@ -98,10 +98,10 @@ story of each feature is in [symbols-history.md](symbols-history.md) ("Build det
     the game's mechanism); the coded trail is a canvas approximation.
 - **Ship chain** — `symbolExport.ts` → `deploy/editor-symbols/` → bake → pull →
   `bakedSymbolMap()` / `bakedSymbolAssets()`. Symbol sheets go through the shared `PageStore` with
-  KTX2 twins, and the game picks the compressed tier like editor art. A bound spine that resolves
+  KTX2 twins, and the game picks the compressed tier like editor art. A bound rig that resolves
   to nothing is reported (`spinesMissing`) at bake, publish, boot and delivery.
 - **Symbol size is not authored anywhere** — each symbol contain-fits its reel cell by its own art;
-  the box is set by Art bounds (sprite) or the Rigger's Bounds (spine).
+  the box is set by Art bounds (sprite) or the Rigger's Bounds (rig).
 
 **Adding a doc global means touching every hand-written list** — the `.strict` Zod schema + sparse
 rebuild in `normalizeSymbolsDoc`, the client type / setter / **`docSignature`** (else Save never
@@ -117,15 +117,15 @@ AND `bake-editor-doc.mjs`, or the effect is pruned as an orphan.
 ## Open items / next
 
 1. **S5 — prove end-to-end.** Keep symbol frame names unique across bound sheets, verify the
-   shared-spine fallback, then rebind a symbol online → tokened rebuild → republish → confirm the
+   shared-rig fallback, then rebind a symbol online → tokened rebuild → republish → confirm the
    new asset/animation in-game.
 2. **Compressed symbol textures on a failing device** — the black-box symbols on an S24 / iPhone 18
    are attributed to raw symbol pages (107 MB vs 66 MB of compressed editor art, measured); the fix
    is built, and a re-bake + runtime release + a look on those devices is owed.
-3. **Preview endpoints are still `editor`-gated** (`/api/editor/regions`, `/api/editor/spine`,
+3. **Preview endpoints are still `editor`-gated** (`/api/editor/regions`, `/api/editor/rig`,
    `/api/editor/asset`) — a user holding only `symbols` gets a 403 on previews. Every default role
    holds both.
-4. **Default-art cells render as placeholder chips until project assets are seeded into R2**; spine
+4. **Default-art cells render as placeholder chips until project assets are seeded into R2**; rig
    _default_ cells stay chips regardless — only a rebind stores a full bundle prefix that previews.
 5. **`bookVfx` + `transition` can carry a `blendMode` / `dimWithSymbol` but no control offers one**
    (they share the layer schema). Adding the two selects is the whole job.
@@ -230,7 +230,7 @@ Detail for every entry is in [symbols-history.md](symbols-history.md).
 
 - 2026-10-01 — **An unknown enum VALUE costs one entry, not the whole doc.** A newer launcher's
   cell `type`, layer `kind`, blend mode, tumble pattern, flight head kind or ease, cash format,
-  `tintMode`, `placement`, non-spine `highlight`/`boardGlow` or `version: 2` failed the parse, so
+  `tintMode`, `placement`, non-rig `highlight`/`boardGlow` or `version: 2` failed the parse, so
   `loadSymbolsDocWithEtag` fell back to the empty doc and the export pruned `deploy/editor-symbols/`
   to match. Now a READ drops the optional field (its default applies) or the smallest entry that
   cannot stand without it (the cell, the layer, the stacked symbol, the block), with one server
@@ -295,7 +295,7 @@ Detail for every entry is in [symbols-history.md](symbols-history.md).
   block is strict in shape and forgiving in value — junk keys and invalid values are dropped and
   numbers clamped by `engine-layout`'s `normalizeFlights`, which the page's `setFlightStyle`, the
   server's `normalizeSymbolsDoc` and `docSignature` all run, so the page never signs a doc the save
-  changes. Ship chain: sprite / spine heads through `collectSymbolRefs` (`bakedFlightAssets()`),
+  changes. Ship chain: sprite / rig heads through `collectSymbolRefs` (`bakedFlightAssets()`),
   flipbook heads through the clip walk, trail / arrival effects added to BOTH reachable-effects
   sets (`flightEffectIds` / `bakedFlightEffectIds`), the block through the exporter, the export
   endpoint, the bake (`scripts/lib/bakeFlights.mjs`) and `bakedFlights()`. The game's `flyTo`
@@ -311,7 +311,7 @@ Detail for every entry is in [symbols-history.md](symbols-history.md).
 - 2026-09-29 — **Docs caught up**: the guide covers the Save conflict prompt and no longer points at the removed reel symbol-size control. Status detail split into [symbols-history.md](symbols-history.md).
 - 2026-09-29 — **Version history** — each save backs up the `symbols.json` it replaces
   (`symbols/backups/`, newest 20); **History…** restores through the normal save path (#847).
-- 2026-09-28 — A bound spine that resolves to nothing is reported, not shipped silently
+- 2026-09-28 — A bound rig that resolves to nothing is reported, not shipped silently
   (`spinesMissing`); a manual Save asks before overwriting a newer save again (#821 — the click
   event had been arriving as `force`; guarded by `check:event-bound-flags`); `/api/editor/symbols`
   refuses an inaccessible project.
@@ -341,7 +341,7 @@ Detail for every entry is in [symbols-history.md](symbols-history.md).
   its own seat's pop; `holdAfterBigWin` was unsaveable (missing from `docSignature`) — now
   `check:win-cycle`.
 - 2026-09-07 — The Highlight draws on sprite and flipbook symbols too (`SymbolWinFrame.svelte`).
-- 2026-09-03 — **Explosion → intro Transition**; spine cells no longer blank on a cold load (one
+- 2026-09-03 — **Explosion → intro Transition**; rig cells no longer blank on a cold load (one
   runtime).
 - 2026-09-02 / 09-01 — Rigs fit their authored box; bound FX / clips no longer drawn mirrored.
 - 2026-08-28 — A flipbook cell can walk its clip differently per state.
@@ -350,10 +350,10 @@ Detail for every entry is in [symbols-history.md](symbols-history.md).
 - 2026-08-25 — Symbol sounds; stacked `winArt` (and `edgeCutoffs` now survive the bake).
 - 2026-08-24 — Line and amount text split, amount can sit mid-board; all win lines at once; engine
   symbol rigs' canvases retightened (the lows had shipped ~38% undersized).
-- 2026-08-21 — `_shared/spines/` carries the engine's 29 Spine bundles (one per skeleton);
+- 2026-08-21 — `_shared/spines/` carries the engine's 29 rig bundles (one per skeleton);
   `loadSkeletonIndexWithShared()` on both the read and export paths; the no-animation banner speaks
   only for 0 or 2+ animations; `Tumble explosion` split from `Explosion`.
-- 2026-08-10 — Stacked pictures: over-height runs tile, spine tall art anchored at 0.
+- 2026-08-10 — Stacked pictures: over-height runs tile, rig tall art anchored at 0.
 - 2026-07-28 → 07-16 — Scatter gets the highlight; book-symbol VFX; full payline / replay text;
   `winCycle` was never saved (the PUT body is now a spread) and was missing from the bake;
   display names; flipbook binding kind; coded defaults preview; board glow swappable.

@@ -6,9 +6,9 @@
 	export type Props = {
 		node: LayoutNode;
 		space?: Scene['space'];
-		/** Per-rig bone hosting: `effect` nodes whose `hostSpineId` names THIS (spine) node — rendered
-		 * INSIDE its `<SpineProvider>` so their bone layers ride this rig's bone. Paired by `LayoutScene`;
-		 * only meaningful when this node is a spine. */
+		/** Per-rig bone hosting: `effect` nodes whose `hostSpineId` names THIS (rig) node — rendered
+		 * INSIDE its `<RigProvider>` so their bone layers ride this rig's bone. Paired by `LayoutScene`;
+		 * only meaningful when this node is a rig. */
 		attachedEffects?: EffectNode[];
 	};
 </script>
@@ -21,10 +21,10 @@
 		Flipbook,
 		Rectangle,
 		Sprite,
-		SpineBoneAttach,
-		SpinePose,
-		SpineProvider,
-		SpineTrack,
+		RigBoneAttach,
+		RigPose,
+		RigProvider,
+		RigTrack,
 		getContextApp,
 	} from 'pixi-svelte';
 	import { getContextLayout } from 'utils-layout';
@@ -61,7 +61,7 @@
 	} from './componentSignalContext';
 	import { getComponentSignal } from './registerComponentSignals';
 	import { getComponentStateAnims } from './componentStateAnimContext';
-	import { getComponentSpineRest } from './componentSpineRestContext';
+	import { getComponentRigRest } from './componentRigRestContext';
 	import { getComponentFiredSignals } from './componentFiredSignalsContext';
 	import { getComponentSignalScope } from './componentSignalScopeContext';
 	import { handsOffToIdle, isNodeRevealed } from './signalGates';
@@ -102,7 +102,7 @@
 	// (byte-identical parity).
 	let instanceTap = $state<Snippet | undefined>(undefined);
 
-	// Signal-driven cue overrides (§8.5) — a spine's animation or a flipbook's clip. `undefined`
+	// Signal-driven cue overrides (§8.5) — a rig's animation or a flipbook's clip. `undefined`
 	// when this node has no `componentInstance` ancestor providing the context; the node then
 	// falls back to `sceneSigAnim` below.
 	const signalAnims = getComponentSignalAnims();
@@ -111,7 +111,7 @@
 	// node was inert (the context was `undefined`, so nothing ever subscribed), which meant a
 	// character dropped on a scene could not react to anything: authoring a cue for it required
 	// first turning it into a component. This subscribes the node's OWN cues and holds the latest
-	// fire, so the same `cues[]` field works in both places, for BOTH cued kinds — a spine swaps
+	// fire, so the same `cues[]` field works in both places, for BOTH cued kinds — a rig swaps
 	// animation, a flipbook swaps clip.
 	//
 	// Deliberately narrower than the instance bus: no `completeSignal` is carried (there is no
@@ -129,7 +129,7 @@
 			if (node.kind !== 'spine' && node.kind !== 'flipbook') return;
 			// Flatten both cue shapes to one subscription list HERE, where `node.kind` still narrows
 			// the cue element type. A half-authored cue drives nothing, and the field that must be
-			// present differs by kind: a spine cue names an `animation`, a flipbook cue a `clipId`.
+			// present differs by kind: a rig cue names an `animation`, a flipbook cue a `clipId`.
 			const subs: { signal: string; payload: ComponentCuePayload; loop?: boolean }[] =
 				node.kind === 'spine'
 					? (node.cues ?? [])
@@ -144,7 +144,7 @@
 				unsubs.push(
 					getComponentSignal(signal).subscribe(() => {
 						// The monotonic token is what makes a REPEAT fire replay: re-firing the same cue
-						// writes the same animation name, and `SpineTrack`'s value comparison would
+						// writes the same animation name, and `RigTrack`'s value comparison would
 						// otherwise read "already playing" and leave a finished one-shot frozen. A
 						// flipbook ignores the token — its textures come off the clip object — which is
 						// why re-firing the clip already playing does not restart it (see `FlipbookCue`).
@@ -158,22 +158,22 @@
 			};
 		}),
 	);
-	// Button-state-driven spine-anim overrides — the interaction sibling of `signalAnims`.
-	// `undefined` for a spine with no interactive `componentInstance` ancestor (parity).
+	// Button-state-driven rig-anim overrides — the interaction sibling of `signalAnims`.
+	// `undefined` for a rig with no interactive `componentInstance` ancestor (parity).
 	const stateAnims = getComponentStateAnims();
-	// Per-instance RESTING spine overrides (default animation / loop / skin), keyed by
-	// node id. `undefined` for a scene-level spine or a placement with no overrides — the
-	// spine then uses its static def values (byte-identical parity).
-	const spineRest = getComponentSpineRest();
+	// Per-instance RESTING rig overrides (default animation / loop / skin), keyed by
+	// node id. `undefined` for a scene-level rig or a placement with no overrides — the
+	// rig then uses its static def values (byte-identical parity).
+	const rigRest = getComponentRigRest();
 	// Fired-signal bus of the owning `componentInstance` (Invisible Flow — intro-complete
 	// sequencing). `undefined` for a top-level scene node with no instance ancestor ⇒ the reveal
-	// gate below stays OPEN and a spine `completeSignal` fires nothing (byte-identical parity).
+	// gate below stays OPEN and a rig `completeSignal` fires nothing (byte-identical parity).
 	const firedSignals = getComponentFiredSignals();
 	// The owning instance's signal scope (Phase 12a): an effect inside the red pot fires its event
 	// layers on the red pot's events only. `undefined` outside a scoped instance ⇒ every event.
 	const signalScope = getComponentSignalScope();
 	// Reveal gate: a node with `hiddenUntilSignal` renders only once that component-scoped signal has
-	// fired for the instance (e.g. show the free-spin amount + tap only AFTER a sibling spine's intro
+	// fired for the instance (e.g. show the free-spin amount + tap only AFTER a sibling rig's intro
 	// completes). Reactive read of the instance's `counts` proxy, so it flips when the signal fires;
 	// re-arms on a fresh mount (a new instance ⇒ empty counts). Unset ⇒ always revealed (parity).
 	const revealed = $derived(
@@ -183,7 +183,7 @@
 	// Value bindings (Phase 12b): numbers that drive this node. The transform targets fold onto the
 	// authored transform here, ONCE, so every branch below — and the bound / container / instance
 	// wrappers — moves, scales, fades and hides with the value. A `visible` binding hides the way
-	// every layout visibility does, by unmounting: shown again, a spine starts its animation and a
+	// every layout visibility does, by unmounting: shown again, a rig starts its animation and a
 	// component fires `enter`. The other targets (fill, frame, scrub, bone) are read where their
 	// branch renders. No bindings ⇒ `bound.outputs` is empty and `foldBoundTransform` hands back the
 	// resolved transform itself (parity).
@@ -261,32 +261,32 @@
 		};
 	});
 
-	// `background`-space sprites/spine cover- or contain-fit the canvas, driven by the
+	// `background`-space sprites/rig cover- or contain-fit the canvas, driven by the
 	// SAME canonical doc readers the editor preview uses (`backgroundCoverScale` =
 	// `scale.x`, default 1 = exact cover; `backgroundFit` = `'cover'`/`'contain'`,
 	// default `'cover'`) so editor == game for any authored scale/fit. Both the sprite
-	// and spine paths now compute a TRUE cover (max/min(targetW/artW, targetH/artH))
+	// and rig paths now compute a TRUE cover (max/min(targetW/artW, targetH/artH))
 	// from the art's natural dimensions via the shared `coverTransform` — exactly what
-	// the editor preview does. The spine path expresses it through `<SpineProvider>`'s
-	// `fit` (which `spineSizeScale` turns into the same uniform cover from
+	// the editor preview does. The rig path expresses it through `<RigProvider>`'s
+	// `fit` (which `rigSizeScale` turns into the same uniform cover from
 	// `skeleton.data` dims); the sprite path reads the loaded texture's natural size
 	// and feeds the per-axis cover scale to the `<Sprite>`. A background skeleton is
 	// authored around its own origin, matching apps/lines `Background.svelte`.
 	const isBackground = $derived(space === 'background');
-	// Per-node cover-fit opt-in (`node.coverFit`) for a sprite/spine/flipbook in a normal
+	// Per-node cover-fit opt-in (`node.coverFit`) for a sprite/rig/flipbook in a normal
 	// `canvas`-space (flow-gated) scene: it runs the SAME cover path as `background`
 	// space (target = the canvas/window, same cover inputs) but the scene stays flow-
 	// gated (NOT a persistent background). `isCover` is the unified trigger every cover
 	// derived below reads, so a `background` scene AND every non-cover node are byte-
-	// identical to before (parity). Scoped to sprite/spine/flipbook — a `componentInstance`
+	// identical to before (parity). Scoped to sprite/rig/flipbook — a `componentInstance`
 	// cover stays `background`-only (see `bgComponent`), matching the editor toggle's scope.
 	const isCanvasCoverFit = $derived(
 		space === 'canvas' && node.coverFit === true && isCoverFitKind(node),
 	);
 	const isCover = $derived(isBackground || isCanvasCoverFit);
 	// Sprite + flipbook: the kinds whose cover is measured from ONE atlas texture, so both take
-	// the identical `bgTexture` → `coverTransform` → `bg` path below. A spine covers through
-	// `bgSpineBox` and a componentInstance through `bgComponent` instead.
+	// the identical `bgTexture` → `coverTransform` → `bg` path below. A rig covers through
+	// `bgRigBox` and a componentInstance through `bgComponent` instead.
 	const isCoverArtNode = $derived(isCoverArtKind(node));
 	// The cover inputs are read per LAYOUT: each honours this bucket's `overrides[layoutType]`
 	// (fit / coverScale / scale / anchor) before the base, so one background can fit on X for
@@ -343,7 +343,7 @@
 		return { x: cover.x, y: cover.y, scale: { x: cover.scaleX, y: cover.scaleY } };
 	});
 
-	// A sized sprite/spine (explicit width/height) carries BOTH `width` and `scale`,
+	// A sized sprite/rig (explicit width/height) carries BOTH `width` and `scale`,
 	// but pixi-svelte's `propsSyncEffect` assigns props in object-key order and
 	// PIXI's `width`/`height` setters overwrite `scale.x`/`scale.y` — so `width`
 	// applied after `scale` silently clobbers any editor resize that wrote `scale`.
@@ -363,43 +363,43 @@
 	);
 	const sizedScale = $derived(hasExplicitSize ? undefined : transform.scale);
 
-	// A background SPINE covers via pixi-svelte's `fit`: feed the full canvas box on
-	// BOTH axes (× the cover multiplier) and the doc fit; `SpineProvider`/`spineSizeScale`
+	// A background RIG covers via pixi-svelte's `fit`: feed the full canvas box on
+	// BOTH axes (× the cover multiplier) and the doc fit; `RigProvider`/`rigSizeScale`
 	// turn that into a UNIFORM cover/contain from `skeleton.data` dims — true cover —
 	// equalling `coverTransform` so the editor preview and the game agree. The free
-	// per-axis stretch rides on the `scale` prop, which `BaseSpineProvider` multiplies
-	// onto the `fit` scale (`spine.scale.set(baseX * sizeScale.x, …)`), so default
+	// per-axis stretch rides on the `scale` prop, which `BaseRigProvider` multiplies
+	// onto the `fit` scale (`rig.scale.set(baseX * sizeScale.x, …)`), so default
 	// stretch {1,1} is byte-identical to before.
-	const bgSpineBox = $derived.by(() => {
+	const bgRigBox = $derived.by(() => {
 		if (!isCover || node.kind !== 'spine') return undefined;
 		const c = layoutContext.stateLayoutDerived.canvasSizes();
 		return { width: c.width * bgCoverScale, height: c.height * bgCoverScale };
 	});
-	const bgSpineScale = $derived(bgSpineBox ? bgStretch : undefined);
-	// The authored dims of a cover SPINE's skeleton, resolved exactly as `<SpineProvider>` does
-	// (direct key, else the `…/spines/<bundle>/` prefix a doc stores). `spineSizeScale` fits the
+	const bgRigScale = $derived(bgRigBox ? bgStretch : undefined);
+	// The authored dims of a cover RIG's skeleton, resolved exactly as `<RigProvider>` does
+	// (direct key, else the `…/spines/<bundle>/` prefix a doc stores). `rigSizeScale` fits the
 	// rig from these same numbers, so measuring them here is what lets the anchor ALIGNMENT below
 	// be computed outside the provider without the two disagreeing about the art's size.
-	const bgSpineData = $derived.by(() => {
+	const bgRigData = $derived.by(() => {
 		if (!isCover || node.kind !== 'spine') return undefined;
 		const assets = appContext.stateApp.loadedAssets;
-		const key = spineAssetKey ?? node.assetKey;
+		const key = rigAssetKey ?? node.assetKey;
 		const read = (k?: string) =>
 			(k ? assets?.[k] : undefined) as { width?: number; height?: number } | undefined;
 		const direct = read(key);
 		if (direct) return direct;
 		return read(key?.match(/(?:^|\/)spines\/(.+?)\/?$/)?.[1]);
 	});
-	// A cover spine is SIZED by `<SpineProvider>`'s `fit` and drawn from its own origin, so the
-	// anchor alignment can't ride in a position the provider computes — it is added to the spine's
+	// A cover rig is SIZED by `<RigProvider>`'s `fit` and drawn from its own origin, so the
+	// anchor alignment can't ride in a position the provider computes — it is added to the rig's
 	// own placement here, from the SAME `coverTransform` the sprite/component covers use. Undefined
 	// (no shift) for a centred anchor or an unmeasured skeleton, so every existing doc is
 	// byte-identical and a not-yet-loaded rig never jumps.
-	const bgSpineOffset = $derived.by(() => {
-		if (!bgSpineBox) return undefined;
+	const bgRigOffset = $derived.by(() => {
+		if (!bgRigBox) return undefined;
 		if (bgAnchor.x === 0.5 && bgAnchor.y === 0.5) return undefined;
-		const artWidth = bgSpineData?.width ?? 0;
-		const artHeight = bgSpineData?.height ?? 0;
+		const artWidth = bgRigData?.width ?? 0;
+		const artHeight = bgRigData?.height ?? 0;
 		if (!(artWidth > 0) || !(artHeight > 0)) return undefined;
 		const c = layoutContext.stateLayoutDerived.canvasSizes();
 		return coverAnchorOffset({
@@ -415,14 +415,14 @@
 			anchorY: bgAnchor.y,
 		});
 	});
-	// A `coverFit` (canvas) spine CENTERS on the canvas — `SpineProvider` places the art
+	// A `coverFit` (canvas) rig CENTERS on the canvas — `RigProvider` places the art
 	// centre at (x, y), so the cover must sit at the canvas centre (the same point the
 	// sprite cover's `coverTransform` returns), NOT the node's authored x/y. Without this a
-	// spine placed anywhere in a flow screen would render its full-canvas fill offset by
+	// rig placed anywhere in a flow screen would render its full-canvas fill offset by
 	// that position (editor centres it via `backgroundTransform`, so the two would disagree).
-	// Background spines are LEFT on `posX`/`posY` (their authored-at-centre convention) —
+	// Background rigs are LEFT on `posX`/`posY` (their authored-at-centre convention) —
 	// `isCanvasCoverFit` is false for them, so this is undefined and the path is byte-identical.
-	const spineCoverCenter = $derived.by(() => {
+	const rigCoverCenter = $derived.by(() => {
 		if (!isCanvasCoverFit || node.kind !== 'spine') return undefined;
 		const c = layoutContext.stateLayoutDerived.canvasSizes();
 		return { x: c.width / 2, y: c.height / 2 };
@@ -466,7 +466,7 @@
 	// A background COMPONENT INSTANCE covers the canvas as ONE composed unit: a
 	// `componentInstance` placed in a `background`-space scene (e.g. a backdrop +
 	// tumbleweed + windmill grouped in one prefab) cover-fits the window exactly like a
-	// plain sprite/spine does, instead of rendering at its authored transform and
+	// plain sprite/rig does, instead of rendering at its authored transform and
 	// letterboxing. The component declares no design size, so we compute the union
 	// bounding box of its `def.root` content (via the shared `componentDesignSize` — the
 	// same union the editor previews), feed it to the SAME `coverTransform`, and place
@@ -481,7 +481,7 @@
 		if (!isBackground || node.kind !== 'componentInstance') return undefined;
 		// The editor's BAKED union (`node.coverBox`) is preferred over the walk below, because
 		// the walk CANNOT see most of what the editor measured: its `intrinsic` sizes only a
-		// sprite, so every spine / text / flipbook / nested-instance child is skipped, and a
+		// sprite, so every rig / text / flipbook / nested-instance child is skipped, and a
 		// component built from those alone measured `null` here and lost its cover entirely.
 		// Baked box absent (a doc not re-saved since the bake shipped) ⇒ the walk, exactly as
 		// before (parity).
@@ -492,7 +492,7 @@
 		const assets = appContext.stateApp.loadedAssets;
 		// Intrinsic size of a leaf child. Sprite: the loaded texture's natural size,
 		// resolved by the SAME scoped→bare region/assetKey precedence a sprite node uses
-		// (`parseScopedFrameRef` + editor-art namespacing). Spine: unmeasurable without a
+		// (`parseScopedFrameRef` + editor-art namespacing). Rig: unmeasurable without a
 		// live skeleton, so `null` (the union is driven by the dominant sprite art — the
 		// full-bleed backdrop). Not-yet-loaded ⇒ `null` (skipped by the walk).
 		const intrinsic = (n: LayoutNode): { w: number; h: number } | null => {
@@ -667,37 +667,37 @@
 			? resolveBoundValue(node.paramBindings, 'tint', componentParams)
 			: undefined,
 	);
-	// Spine param binding (§13.2, the spine analogue of the sprite `assetKey` bind): a
-	// `componentInstance` may drive a spine's SOURCE bundle from a `spine`-kind param, so
-	// one prefab renders a different rig per instance (e.g. a button whose spine background
-	// is swapped per placement). The instance's spine picker stores the bundle NAME (its
-	// last path segment), which `SpineProvider` resolves the same as a bundle key (games
-	// register a spine under that plain name). An unbound spine, an outside-instance spine,
+	// Rig param binding (§13.2, the rig analogue of the sprite `assetKey` bind): a
+	// `componentInstance` may drive a rig's SOURCE bundle from a `spine`-kind param, so
+	// one prefab renders a different rig per instance (e.g. a button whose rig background
+	// is swapped per placement). The instance's rig picker stores the bundle NAME (its
+	// last path segment), which `RigProvider` resolves the same as a bundle key (games
+	// register a rig under that plain name). An unbound rig, an outside-instance rig,
 	// or an unset param (empty) all fall back to the node's static `assetKey` — parity.
-	const boundSpineAssetKey = $derived(
+	const boundRigAssetKey = $derived(
 		node.kind === 'spine'
 			? resolveBoundValue(node.paramBindings, 'assetKey', componentParams)
 			: undefined,
 	);
-	const spineAssetKey = $derived(
-		typeof boundSpineAssetKey === 'string' && boundSpineAssetKey
-			? boundSpineAssetKey
+	const rigAssetKey = $derived(
+		typeof boundRigAssetKey === 'string' && boundRigAssetKey
+			? boundRigAssetKey
 			: node.kind === 'spine'
 				? node.assetKey
 				: undefined,
 	);
-	// Spine ANIMATION + LOOP param binding (the playback siblings of the `assetKey` bind above): a
-	// `componentInstance` may drive a spine node's resting animation / loop from params, so a
+	// Rig ANIMATION + LOOP param binding (the playback siblings of the `assetKey` bind above): a
+	// `componentInstance` may drive a rig node's resting animation / loop from params, so a
 	// prefab plays a per-instance clip on a per-instance rig (e.g. the feature card's `spineKey` +
-	// `spineAnimation`). An unbound field, an outside-instance spine, or an empty/wrong-type param
-	// all fall back to the node's static `defaultAnimation`/`loop` (resolved in the spine block
-	// below alongside the per-instance `spineRest` override) — byte-identical parity.
-	const boundSpineAnimation = $derived(
+	// `spineAnimation`). An unbound field, an outside-instance rig, or an empty/wrong-type param
+	// all fall back to the node's static `defaultAnimation`/`loop` (resolved in the rig block
+	// below alongside the per-instance `rigRest` override) — byte-identical parity.
+	const boundRigAnimation = $derived(
 		node.kind === 'spine'
 			? resolveBoundValue(node.paramBindings, 'defaultAnimation', componentParams)
 			: undefined,
 	);
-	const boundSpineLoop = $derived(
+	const boundRigLoop = $derived(
 		node.kind === 'spine'
 			? resolveBoundValue(node.paramBindings, 'loop', componentParams)
 			: undefined,
@@ -758,10 +758,10 @@
 	 * container, which is what makes a whole particle effect blend as ONE (pixi inherits
 	 * `groupBlendMode` down the subtree) rather than per particle sprite.
 	 *
-	 * NOT the spine branch. A Pixi blend cannot reach skeleton geometry: `SpinePipe.addRenderable`
+	 * NOT the rig branch. A Pixi blend cannot reach skeleton geometry: `RigPipe.addRenderable`
 	 * batches every slot with the SLOT's own blend and never calls `renderPipes.blendMode`, nor
-	 * reads `groupBlendMode` — so `spine.blendMode` and a blended wrapper are both no-ops. Verified
-	 * in a running game (`multiply` pixel-identical to `normal`). Spine art blends per slot,
+	 * reads `groupBlendMode` — so `rig.blendMode` and a blended wrapper are both no-ops. Verified
+	 * in a running game (`multiply` pixel-identical to `normal`). Rig art blends per slot,
 	 * authored in the Rigger; the editor drops the control for `spine` to match.
 	 */
 	const blendMode = $derived(pixiBlendMode(transform.blendMode));
@@ -785,7 +785,7 @@
 	let foldCache: { key: string; clip: ReturnType<typeof resolveFlipbook> } | undefined;
 	const flipbookClip = $derived.by(() => {
 		if (node.kind !== 'flipbook') return undefined;
-		// An active CUE swaps which clip plays (the flipbook twin of a spine cue overriding
+		// An active CUE swaps which clip plays (the flipbook twin of a rig cue overriding
 		// `defaultAnimation`) — from the owning instance's map, else this node's own scene-level
 		// subscription. No cue has fired ⇒ the node's authored `clipId`, byte-identical to before.
 		// A dangling cue `clipId` resolves to nothing, so it falls back to the resting clip rather
@@ -815,7 +815,7 @@
 		// key for a ONE-SHOT and not for a held LOOP:
 		//  - a held loop re-cued mid-feature (free spins fire the spin cue once per SPIN while the
 		//    idle cue fires once per ROUND) must not visibly rewind to frame 0 on every spin;
-		//  - a one-shot burst re-fired is asking to play AGAIN, exactly as a spine cue replays off
+		//  - a one-shot burst re-fired is asking to play AGAIN, exactly as a rig cue replays off
 		//    its own token — without the token it would sit dead on its last frame forever.
 		// `foldFlipbookPlayback` resolves `override.loop ?? clip.loop`, and an unset answer plays as
 		// a loop, so that is the effective test.
@@ -863,7 +863,7 @@
 	/**
 	 * The value-binding outputs one branch each reads (the transform ones are folded above): a `fill`
 	 * reveal masks a sprite / flipbook / rect, a `frame` holds a flipbook on one frame, an `animTime`
-	 * scrub and a `bone` offset ride a spine. All empty for an unbound node (parity).
+	 * scrub and a `bone` offset ride a rig. All empty for an unbound node (parity).
 	 */
 	const fill = $derived(boundFillShare(bindings, bound.outputs));
 	const heldFrame = $derived(boundFrameOutput(bindings, bound.outputs));
@@ -949,14 +949,14 @@
 			alpha/zIndex. The bound component is therefore mounted at the node's
 			placement and MUST render its art at LOCAL origin — do NOT re-apply
 			transform.x/y (that double-positions it). It SHOULD read transform.anchor
-			+ transform.width/height for its own sprite/spine (Containers carry no
+			+ transform.width/height for its own sprite/rig (Containers carry no
 			anchor/size), and leave scale at 1 (the container scales). With the
 			generator's transform == the component's current placement, a no-doc boot
 			renders byte-for-byte as before.
 
 			`cover` is the doc-driven background cover intent (§10.3 step 5): a
 			`background`-space bind anchor (the full-bleed Background) receives the
-			canonical cover `scale` + `fit` so the coded component sizes its spine to
+			canonical cover `scale` + `fit` so the coded component sizes its rig to
 			the canvas via pixi-svelte's `fit` instead of hardcoding a scale. Purely
 			additive — a bound component that ignores `cover` renders exactly as today
 			(parity). The cover scale is applied OUTSIDE this container (against the
@@ -1016,7 +1016,7 @@
 			In a `background`-space scene the instance cover-fits the window as ONE unit:
 			`bgComponent` synthesises a centred cover transform (position + per-axis cover
 			scale) from the component's computed design box, replacing the authored x/y/
-			scale — mirroring the sprite/spine `bg` path. Outside background space, or until
+			scale — mirroring the sprite/rig `bg` path. Outside background space, or until
 			the design box resolves, `bgComponent` is undefined ⇒ the authored transform is
 			used verbatim (byte-identical parity).
 		-->
@@ -1151,7 +1151,7 @@
 	{:else if node.kind === 'spine'}
 		{@const stateAnim = stateAnims?.[node.id]}
 		<!--
-			An owning `componentInstance`'s cue map wins; a spine placed straight in a screen falls
+			An owning `componentInstance`'s cue map wins; a rig placed straight in a screen falls
 			back to its own scene-level subscription (`sceneSigAnim`). Exactly one of the two is ever
 			populated — the effect above no-ops whenever `signalAnims` exists — so this is a fallback,
 			not a merge.
@@ -1159,69 +1159,68 @@
 		{@const sigAnim = signalAnims?.[node.id] ?? sceneSigAnim}
 		{@const override = stateAnim ?? sigAnim}
 		<!--
-			Per-instance RESTING overrides: a placement may swap this spine's resting
+			Per-instance RESTING overrides: a placement may swap this rig's resting
 			animation / loop / skin (its at-rest look) without touching the def. Each
-			falls back to the def node's value, so an un-overridden spine is parity.
+			falls back to the def node's value, so an un-overridden rig is parity.
 		-->
-		{@const rest = spineRest?.[node.id]}
+		{@const rest = rigRest?.[node.id]}
 		<!--
-			Resting animation / loop precedence: a per-instance `spineRest` override (keyed by node
-			id) wins, then a `paramBindings`-driven param (`boundSpineAnimation`/`boundSpineLoop` — a
+			Resting animation / loop precedence: a per-instance `rigRest` override (keyed by node
+			id) wins, then a `paramBindings`-driven param (`boundRigAnimation`/`boundRigLoop` — a
 			prefab picking its clip per instance), then the node's own static value. Empty/wrong-type
-			bound values fall through, so an unbound spine is byte-identical to today (parity).
+			bound values fall through, so an unbound rig is byte-identical to today (parity).
 		-->
 		{@const effDefaultAnimation =
 			rest?.defaultAnimation ??
-			(typeof boundSpineAnimation === 'string' && boundSpineAnimation
-				? boundSpineAnimation
+			(typeof boundRigAnimation === 'string' && boundRigAnimation
+				? boundRigAnimation
 				: node.defaultAnimation)}
-		{@const effLoop =
-			rest?.loop ?? (typeof boundSpineLoop === 'boolean' ? boundSpineLoop : node.loop)}
+		{@const effLoop = rest?.loop ?? (typeof boundRigLoop === 'boolean' ? boundRigLoop : node.loop)}
 		{@const effSkin = rest?.skin ?? node.skin}
 		<!--
-			State-overlay spine: a spine that declares button `stateAnimations` but NO resting
+			State-overlay rig: a rig that declares button `stateAnimations` but NO resting
 			`defaultAnimation` is meant to appear ONLY while a state is active (e.g. an image
-			button that turns into a spine during the spin). Hide it until an override (a state
+			button that turns into a rig during the spin). Hide it until an override (a state
 			animation or a signal cue) gives it something to play; otherwise it would sit on its
-			static bind pose over the button. A spine with a `defaultAnimation`, or one without
-			`stateAnimations` at all (every spine before this feature), is always visible — parity.
+			static bind pose over the button. A rig with a `defaultAnimation`, or one without
+			`stateAnimations` at all (every rig before this feature), is always visible — parity.
 		-->
 		{@const isStateOverlay =
 			!effDefaultAnimation &&
 			!!node.stateAnimations &&
 			Object.keys(node.stateAnimations).length > 0}
-		{@const spineVisible = !isStateOverlay || !!override}
+		{@const rigVisible = !isStateOverlay || !!override}
 		<!--
-			Anchor / placement parity with the editor: the editor preview places a spine's
+			Anchor / placement parity with the editor: the editor preview places a rig's
 			SKELETON ORIGIN at the node position (anchor only frames the selection box, never
-			shifts the art — see `matFromTransform` "Anchor is NOT folded in here" + the spine
-			overlay's `skeleton.x = world.x`). `SpineProvider`'s `anchorToPivot` instead pivots
+			shifts the art — see `matFromTransform` "Anchor is NOT folded in here" + the rig
+			overlay's `skeleton.x = world.x`). `RigProvider`'s `anchorToPivot` instead pivots
 			the art by `anchor·size` (assuming top-left-origin art), which offsets an
-			origin-centred skeleton in-game vs the editor. So for a NON-background spine we pass
+			origin-centred skeleton in-game vs the editor. So for a NON-background rig we pass
 			NO anchor → pivot 0 → origin at the node position, matching the editor exactly.
-			Background spines keep `transform.anchor` (their cover path centres via `coverTransform`
-			and is untouched). Default-anchor (0) spines already resolved to pivot 0, so they're
+			Background rigs keep `transform.anchor` (their cover path centres via `coverTransform`
+			and is untouched). Default-anchor (0) rigs already resolved to pivot 0, so they're
 			byte-identical; only the previously-offset non-zero-anchor case moves into parity.
 		-->
-		<SpineProvider
-			key={spineAssetKey ?? node.assetKey}
-			x={bg ? bg.x : (spineCoverCenter?.x ?? posX) + (bgSpineOffset?.dx ?? 0)}
-			y={bg ? bg.y : (spineCoverCenter?.y ?? posY) + (bgSpineOffset?.dy ?? 0)}
+		<RigProvider
+			key={rigAssetKey ?? node.assetKey}
+			x={bg ? bg.x : (rigCoverCenter?.x ?? posX) + (bgRigOffset?.dx ?? 0)}
+			y={bg ? bg.y : (rigCoverCenter?.y ?? posY) + (bgRigOffset?.dy ?? 0)}
 			anchor={isCover ? transform.anchor : undefined}
-			scale={bgSpineBox ? bgSpineScale : sizedScale}
+			scale={bgRigBox ? bgRigScale : sizedScale}
 			rotation={transform.rotation}
 			alpha={transform.alpha}
 			zIndex={transform.zIndex}
-			width={bgSpineBox ? bgSpineBox.width : sizedWidth}
-			height={bgSpineBox ? bgSpineBox.height : sizedHeight}
-			fit={bgSpineBox ? bgFit : undefined}
+			width={bgRigBox ? bgRigBox.width : sizedWidth}
+			height={bgRigBox ? bgRigBox.height : sizedHeight}
+			fit={bgRigBox ? bgFit : undefined}
 			skin={effSkin}
-			visible={spineVisible}
+			visible={rigVisible}
 			rebroadcastEvents
 		>
 			<!--
 				A button-STATE animation (hover/press/…) wins over a signal cue, which wins
-				over the resting `defaultAnimation` — so a spine button reacts to its state
+				over the resting `defaultAnimation` — so a rig button reacts to its state
 				immediately and returns to rest when the state clears.
 
 				One-shot → idle hand-off (signal cues only): when a NON-LOOPING signal cue is active
@@ -1259,7 +1258,7 @@
 					instance provides the bus. Absent ⇒ no listener (parity).
 				-->
 				{@const completeSignal = stateAnim ? undefined : sigAnim?.completeSignal}
-				<SpineTrack
+				<RigTrack
 					trackIndex={0}
 					animationName={anim}
 					loop={oneShotToIdle ? false : (override?.loop ?? effLoop ?? true)}
@@ -1272,18 +1271,18 @@
 				/>
 			{/if}
 			<!--
-				Value bindings on a spine (Phase 12b): an `animTime` scrub holds an animation at the bound
+				Value bindings on a rig (Phase 12b): an `animTime` scrub holds an animation at the bound
 				share of its length and a `bone` offset poses a bone, both on top of whatever is playing,
-				every frame (`<SpinePose>`). Mounted for the node's life when it binds either, so a value
-				arriving never remounts it; not at all for any other spine (parity).
+				every frame (`<RigPose>`). Mounted for the node's life when it binds either, so a value
+				arriving never remounts it; not at all for any other rig (parity).
 			-->
 			{#if poseBound}
-				<SpinePose {scrubs} bones={boneOffsets} />
+				<RigPose {scrubs} bones={boneOffsets} />
 			{/if}
 			<!--
 				Per-rig bone hosting: effects that attach to THIS rig (`EffectNode.hostSpineId`, paired by
-				`LayoutScene`) mount their `<EffectPlayer>` DIRECTLY inside this `<SpineProvider>` — no extra
-				transform, so a bone layer resolves this rig's bone (`SpineBoneAttach` → `getContextSpine`)
+				`LayoutScene`) mount their `<EffectPlayer>` DIRECTLY inside this `<RigProvider>` — no extra
+				transform, so a bone layer resolves this rig's bone (`RigBoneAttach` → `getContextRig`)
 				and the rig's timeline events (rebroadcast) fire it. The effect rides the rig; its own node
 				transform is intentionally not applied here.
 			-->
@@ -1295,16 +1294,16 @@
 			{/each}
 			<!--
 				Reveal-symbol rider: ride the chosen `stateGame.specialSymbol` on a named bone of THIS
-				rig (`SpineNode.revealSymbolBone`) — the on-node alternative to the rig-spawning
+				rig (`RigNode.revealSymbolBone`) — the on-node alternative to the rig-spawning
 				`freeSpinIntroSymbolReveal` component. Same bone-hosting mechanism as `attachedEffects`
-				above: mount the game's registered `revealSymbolRider` on the bone via `<SpineBoneAttach>`
+				above: mount the game's registered `revealSymbolRider` on the bone via `<RigBoneAttach>`
 				so the symbol banks/scales with the rig. Unset bone, or a game that didn't register the
 				rider ⇒ nothing mounts (parity).
 			-->
 			{#if node.revealSymbolBone}
 				{@const RevealRider = getBoundComponent('revealSymbolRider')}
 				{#if RevealRider}
-					<SpineBoneAttach
+					<RigBoneAttach
 						boneName={node.revealSymbolBone}
 						offset={{ x: node.revealSymbolOffsetX ?? 0, y: node.revealSymbolOffsetY ?? 0 }}
 						followRotation={node.revealSymbolFollowRotation ?? true}
@@ -1314,10 +1313,10 @@
 							state={node.revealSymbolState ?? 'bookIdle'}
 							scale={node.revealSymbolScale ?? 1}
 						/>
-					</SpineBoneAttach>
+					</RigBoneAttach>
 				{/if}
 			{/if}
-		</SpineProvider>
+		</RigProvider>
 	{:else if node.kind === 'text'}
 		{#if numericValue !== undefined}
 			<!--
@@ -1429,7 +1428,7 @@
 			effect plays at the placed position; each layer's own `placement.offset` composes on top.
 			The doc resolves from the boot-registered effects (`registerEffects` ← `bakedEffects()`);
 			a dangling / un-baked id ⇒ undefined ⇒ nothing mounts (never crashes). A `bone`-placed
-			layer has no host <SpineProvider> here, so it falls back to origin+offset (v1: scene-placed
+			layer has no host <RigProvider> here, so it falls back to origin+offset (v1: scene-placed
 			effects are for FREE layers; bone effects mount on their host rig via Effects.svelte).
 		-->
 		{@const effectDoc = resolveEffect(node.effectId)}

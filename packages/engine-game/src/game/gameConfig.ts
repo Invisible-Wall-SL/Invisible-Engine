@@ -714,8 +714,8 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	// ---------------------------------------------------------------------------
 	// Win presentation overlay — per-tier DURATION + SOUND authored on the `win` componentInstance.
 	//
-	// The `win` component owns per-tier presentation (spine / intro-idle-outro / duration / sfx-bgm),
-	// keyed by tier ALIAS (`docs/tools/component-editor.md`). The ANIMATION + SPINE are consumed INSIDE
+	// The `win` component owns per-tier presentation (rig / intro-idle-outro / duration / sfx-bgm),
+	// keyed by tier ALIAS (`docs/tools/component-editor.md`). The ANIMATION + RIG are consumed INSIDE
 	// the win component tree (`WinVisual` reads its live params); DURATION + SOUND are consumed OUTSIDE
 	// it (`WinGate` reads `presentDuration`; `winLevelSoundsPlay` reads `sound`), so those two are bridged
 	// here — the game publishes the win instance's params at boot ({@link publishWinPresentation}, from
@@ -773,7 +773,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	/**
 	 * Overlay the win instance's per-tier DURATION + SOUND onto a resolved tier, keyed by its alias. The
 	 * per-tier value (`<alias>Duration`/`<alias>Sfx`/`<alias>Bgm`) wins; otherwise the config/coded value
-	 * is kept. Animation + spine are NOT overlaid here — `WinVisual` resolves those from its live params.
+	 * is kept. Animation + rig are NOT overlaid here — `WinVisual` resolves those from its live params.
 	 */
 	function withWinPresentation(data: WinLevelData): WinLevelData {
 		const alias = data.alias;

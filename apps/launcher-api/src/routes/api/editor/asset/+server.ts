@@ -21,7 +21,7 @@ export const GET: RequestHandler = async ({ url, locals, cookies, request }) => 
 		tool: 'editor',
 		altTools: ['fx', 'rigger', 'flipbook', 'gameConfig'],
 		forbiddenMessage: 'Your role does not have access to the project assets.',
-		includeSharedSpines: true,
+		includeSharedRigs: true,
 		includeSharedFonts: true,
 		// The shared art library — a sheet bound from `_shared/sheets/` streams its page through here.
 		includeSharedSheets: true,

@@ -40,10 +40,10 @@ export interface EffectExportIndex {
 	 *  effect (§8). Empty when no effect references art. */
 	referencedAssetKeys: string[];
 	/** Every distinct `spineParticle.skeletonKey` a Tier-C (`particleKind:'spine'`) layer
-	 *  references — a NEW referenced-asset class, the spine analogue of `referencedAssetKeys`.
-	 *  The bake checks each against the spine bundles it ships (`editorArt.spines` /
-	 *  `symbols.index.spines`) — a dangling skeletonKey = an invisible spine-particle effect
-	 *  (§8). Empty when no effect uses spine particles. */
+	 *  references — a NEW referenced-asset class, the rig analogue of `referencedAssetKeys`.
+	 *  The bake checks each against the rig bundles it ships (`editorArt.spines` /
+	 *  `symbols.index.spines`) — a dangling skeletonKey = an invisible rig-particle effect
+	 *  (§8). Empty when no effect uses rig particles. */
 	referencedSkeletonKeys: string[];
 }
 
@@ -51,7 +51,7 @@ export interface EffectExportIndex {
 function assetKeysOf(effect: EffectDoc): string[] {
 	const keys = new Set<string>();
 	for (const layer of effect.layers) {
-		if (layer.particleKind === 'spine') continue; // a spine layer renders no atlas art
+		if (layer.particleKind === 'spine') continue; // a rig layer renders no atlas art
 		const k = layer.art?.assetKey;
 		if (typeof k === 'string' && k) keys.add(k);
 	}

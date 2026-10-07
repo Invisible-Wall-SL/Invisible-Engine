@@ -120,7 +120,7 @@ const USAGE =
 	'  --project <projectKey>        bare launcher project key, e.g. bookofborut\n' +
 	'                                (NOT <client>/<project>). Required.\n' +
 	`  --symbols <path>              the game's symbol-map module (default ${DEFAULT_SYMBOLS})\n` +
-	'  --assets <path>               the game asset registry for spine previewKeys\n' +
+	'  --assets <path>               the game asset registry for rig previewKeys\n' +
 	'                                (default <appSrc>/game/assets.ts)\n' +
 	`  --export <name>               named export to read (default ${DEFAULT_EXPORT})\n` +
 	`  --config <path>               FALLBACK game config module, used only when the\n` +
@@ -203,20 +203,20 @@ async function bodySnippet(res) {
 }
 
 /**
- * Attach a `previewKey` to each spine cell, resolved from the game's `assets.ts`
+ * Attach a `previewKey` to each rig cell, resolved from the game's `assets.ts`
  * (the assetKey → { atlas, skeleton } registry). `previewKey` is `<folder>/<stem>`
  * (e.g. `symbols/h1`) — the same shape as a `skeletons.json` entry name — so the
  * launcher can preview the SPECIFIC skeleton of a shared-atlas symbol bundle. The
  * paths in assets.ts are `new URL('../../assets/spines/<folder>/<file>', …).href`,
  * so we read the `spines/<folder>/` segment + the skeleton stem out of the URL.
  */
-async function enrichSpinePreviewKeys(symbols) {
+async function enrichRigPreviewKeys(symbols) {
 	let assetMap;
 	try {
 		const mod = await import(pathToFileURL(assetsPath).href);
 		assetMap = mod?.default ?? mod;
 	} catch {
-		return; // no assets module → leave spine defaults as chips
+		return; // no assets module → leave rig defaults as chips
 	}
 	if (!assetMap || typeof assetMap !== 'object') return;
 
@@ -438,13 +438,13 @@ async function main() {
 
 	// Strip `as const` readonly + clone to a plain JSON-safe object.
 	const symbols = JSON.parse(JSON.stringify(map));
-	// Tool-only enrichment: give each spine cell a `previewKey` (`<folder>/<stem>`,
+	// Tool-only enrichment: give each rig cell a `previewKey` (`<folder>/<stem>`,
 	// e.g. `symbols/h1`) resolved from the game's assets.ts, so the Symbols tool can
-	// preview a DEFAULT spine whose coded `assetKey` (`H1`) is a short engine key, not
-	// an R2 bundle prefix. Best-effort — a missing/odd assets module just leaves spine
+	// preview a DEFAULT rig whose coded `assetKey` (`H1`) is a short engine key, not
+	// an R2 bundle prefix. Best-effort — a missing/odd assets module just leaves rig
 	// defaults as chips (prior behaviour). `previewKey` is display/preview-only; it is
 	// never written into a saved override (applyDraft rebuilds the cell from scratch).
-	await enrichSpinePreviewKeys(symbols);
+	await enrichRigPreviewKeys(symbols);
 	// Restrict to the symbols the game config marks as in-play, so the tool grid
 	// mirrors the built game (drops e.g. an unused H5). Best-effort — see helper.
 	await filterToGameConfig(symbols);

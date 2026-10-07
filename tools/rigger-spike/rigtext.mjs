@@ -4,22 +4,22 @@
 //   node tools/rigger-spike/rigtext.mjs
 //
 // It drives the REAL modules — `apps/launcher-api/src/lib/server/riggerText.ts`,
-// `shelfPack.ts` and `spineBundleSync.ts` (esbuild-bundled against an in-memory R2 and a
+// `shelfPack.ts` and `rigBundleSync.ts` (esbuild-bundled against an in-memory R2 and a
 // fake region set, the `cinematic-storage.mjs` technique) — and validates the composed
 // `.atlas` with the rig runtime's atlas loader (the one the game runs), not with the composer's own parser.
 //
-// WHAT IT CAN AND CANNOT SEE. It proves DATA contracts: that the atlas composes, that spine
+// WHAT IT CAN AND CANNOT SEE. It proves DATA contracts: that the atlas composes, that rig
 // resolves the text regions, that a skeleton referencing them loads as region/mesh/weighted
 // attachments, and that the page travels the ship chain's page enumeration. It CANNOT see
 // anything about rendering: it never rasterises a string (no browser), never uploads, and
 // never draws a pixel. The "does the text look right / is it upside down / does the browser
-// bundle work" half is a LIVE check, and the vendored spine runtime in `/rigger` is minified
+// bundle work" half is a LIVE check, and the vendored rig runtime in `/rigger` is minified
 // (so `constructor.name` checks that pass here can fail there — see the memory note).
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { RIG_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 import { ESBUILD } from './esbuild.mjs';
 
 const ROOT = new URL('../../', import.meta.url);
@@ -60,8 +60,8 @@ await esbuild.build({
 });
 const RT = await import(pathToFileURL(pureOut).href);
 
-// `spineBundleSync` against an in-memory R2 + a fixed region set. `editorRegions` is faked
-// (region LOADING is proved elsewhere and would drag in manifest fixtures); `spine.ts` is the
+// `rigBundleSync` against an in-memory R2 + a fixed region set. `editorRegions` is faked
+// (region LOADING is proved elsewhere and would drag in manifest fixtures); `rig.ts` is the
 // REAL one, so the sheet half of the atlas is composed by production code — only `sharp` is
 // stubbed (it is never called: the fixture has no rotated region, which is the early return).
 const fakeStore = new Map();
@@ -72,7 +72,7 @@ globalThis.__R2__ = {
 const syncOut = join(outdir, 'sync.mjs');
 await esbuild.build({
 	stdin: {
-		contents: `export { ensureBundleAtlasFresh, loadBundleTextDoc } from './server/spineBundleSync.ts';`,
+		contents: `export { ensureBundleAtlasFresh, loadBundleTextDoc } from './server/rigBundleSync.ts';`,
 		resolveDir: LIB,
 		loader: 'ts',
 	},
@@ -168,7 +168,7 @@ const textDoc = (overrides = {}) =>
 		...overrides,
 	});
 
-/** A spine `TextureAtlas` over composed text, with page textures stubbed. */
+/** A rig `TextureAtlas` over composed text, with page textures stubbed. */
 function parseAtlas(atlasText) {
 	const atlas = new TextureAtlas(atlasText);
 	const stub = { getImage: () => ({ width: 1, height: 1 }), setFilters() {}, setWraps() {}, dispose() {} };
@@ -182,7 +182,7 @@ function parseAtlas(atlasText) {
 	return atlas;
 }
 
-/** Replica of `spine.ts atlasPageNames` — the enumeration `exportSpineBundle` ships pages by. */
+/** Replica of `rig.ts atlasPageNames` — the enumeration `exportRigBundle` ships pages by. */
 function atlasPageNames(t) {
 	const out = [];
 	let expectPage = true;
@@ -338,7 +338,7 @@ console.log('\n4. a text variant is an ORDINARY attachment — region, mesh, and
 	}
 
 	// (b) the source locale converted to a MESH (what region→mesh convert writes), with the
-	// other locale a LINKED mesh — Spine's own primitive for "same geometry, different image",
+	// other locale a LINKED mesh — rig's own primitive for "same geometry, different image",
 	// so a deform authored once follows every locale instead of only the one it was drawn on.
 	const meshDoc = {
 		...base,
@@ -462,7 +462,7 @@ console.log('\n5. ensureBundleAtlasFresh — the text page is DERIVED on every s
 	ok('adding text is detected as drift with no sheet change', !!r3?.changed);
 	const withText = fakeStore.get(`${PREFIX}/rig.atlas`).text;
 	ok('…the atlas now has two pages', atlasPageNames(withText).length === 2, atlasPageNames(withText).join());
-	ok('…and spine resolves the text region from it', !!parseAtlas(withText).findRegion('text/title/de'));
+	ok('…and rig resolves the text region from it', !!parseAtlas(withText).findRegion('text/title/de'));
 
 	// (d) A second sync must not append a THIRD page — the block is derived, not accumulated.
 	await SYNC.ensureBundleAtlasFresh('c', 'p', PREFIX, 'rig.atlas', { force: true });

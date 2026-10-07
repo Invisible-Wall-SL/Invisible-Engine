@@ -60,9 +60,9 @@
 		setSpawnRadius,
 		setSpawnRect,
 		setSpawnRing,
-		setSpineParticleAnimation,
-		setSpineParticleLoop,
-		setSpineParticleSkeleton,
+		setRigParticleAnimation,
+		setRigParticleLoop,
+		setRigParticleSkeleton,
 		setTriggerDuration,
 		setTriggerEvent,
 		setTriggerStopEvent,
@@ -78,7 +78,7 @@
 		type SpawnKind,
 		triggerMode,
 	} from './fxModel.client';
-	import { loadFxSpine, type FxSkeletonEntry, type LoadedFxSpine } from './fxSpine.client';
+	import { loadFxRig, type FxSkeletonEntry, type LoadedFxRig } from './fxRig.client';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -388,7 +388,7 @@
 	 * stays the seeder for a cold open of that link; it simply stops being the seeder for a
 	 * switch made inside the tool.
 	 *
-	 * The Spine backdrop is deliberately NOT reset: it is a workspace aid, not part of the
+	 * The rig backdrop is deliberately NOT reset: it is a workspace aid, not part of the
 	 * effect, and pinning a series of effects onto the same rig is the normal way to author
 	 * them. The reload only cleared it as a side effect of destroying the page.
 	 */
@@ -501,29 +501,29 @@
 		return p;
 	}
 
-	// --- spine-particle resolution (Tier C) -------------------------------------
+	// --- rig-particle resolution (Tier C) -------------------------------------
 	// A `particleKind:'spine'` layer's `spineParticle.skeletonKey` is the CANONICAL bundle key —
-	// the skeleton entry's `folder`, which is EXACTLY the key the runtime registers the spine under
+	// the skeleton entry's `folder`, which is EXACTLY the key the runtime registers the rig under
 	// in `loadedAssets` (`editorArt.spines[].key` = `bundleFromAssetKey(...)` = the `folder`) and the
-	// key the bake dangling-`skeletonKey` guard checks. Authoring this same key means a saved spine
-	// effect resolves verbatim in the shipped game (no translation layer). The stage pools `Spine`
-	// instances built from the loaded skeleton; we load + cache it here (reusing `loadFxSpine`, the
-	// SAME loader the backdrop uses — no second skeleton load path) and hand the stage a
-	// `resolveSkeleton`. Only ONE skeleton ships per `folder` (the runtime/editor-art take the first
-	// entry in a bundle), so resolving by `folder` matches what the game will register.
-	const skeletonCache = new Map<string, Promise<LoadedFxSpine | null>>();
+	// key the bake dangling-`skeletonKey` guard checks. Authoring this same key means a saved rig
+	// effect resolves verbatim in the shipped game (no translation layer). The stage pools
+	// `RigView` instances built from the loaded skeleton; we load + cache it here (reusing
+	// `loadFxRig`, the SAME loader the backdrop uses — no second skeleton load path) and hand the
+	// stage a `resolveSkeleton`. Only ONE skeleton ships per `folder` (the runtime/editor-art take
+	// the first entry in a bundle), so resolving by `folder` matches what the game will register.
+	const skeletonCache = new Map<string, Promise<LoadedFxRig | null>>();
 	// Reactive bump so the inspector re-derives the animation list once a skeleton finishes loading.
 	let skeletonMetaVersion = $state(0);
-	const skeletonMeta = new Map<string, LoadedFxSpine>();
+	const skeletonMeta = new Map<string, LoadedFxRig>();
 
-	function resolveSkeleton(skeletonKey: string): Promise<LoadedFxSpine | null> {
+	function resolveSkeleton(skeletonKey: string): Promise<LoadedFxRig | null> {
 		const hit = skeletonCache.get(skeletonKey);
 		if (hit) return hit;
 		const entry = skeletons.find((s) => s.folder === skeletonKey);
-		const p = (async (): Promise<LoadedFxSpine | null> => {
+		const p = (async (): Promise<LoadedFxRig | null> => {
 			if (!entry) return null;
 			try {
-				const loaded = await loadFxSpine(entry);
+				const loaded = await loadFxRig(entry);
 				skeletonMeta.set(skeletonKey, loaded);
 				skeletonMetaVersion++;
 				return loaded;
@@ -535,11 +535,11 @@
 		return p;
 	}
 
-	// The shippable spine-particle skeletons: one per `folder` (the runtime/editor-art ship the
+	// The shippable rig-particle skeletons: one per `folder` (the runtime/editor-art ship the
 	// FIRST skeleton of a bundle, so a `folder` maps to exactly one shippable skeleton). Deduping by
 	// `folder` keeps the picker option values unique AND in the canonical key namespace the layer
 	// saves. A root-level bundle (`folder:''`) can't be a stable lookup key, so it's excluded.
-	const spineParticleSkeletons = $derived.by((): FxSkeletonEntry[] => {
+	const rigParticleSkeletons = $derived.by((): FxSkeletonEntry[] => {
 		const seen = new Set<string>();
 		const out: FxSkeletonEntry[] = [];
 		for (const s of skeletons) {
@@ -550,9 +550,9 @@
 		return out;
 	});
 
-	// The animation clips for the SELECTED layer's spine-particle skeleton (loaded on demand). An
+	// The animation clips for the SELECTED layer's rig-particle skeleton (loaded on demand). An
 	// empty list (not yet loaded / unknown) degrades the Animation control to a free-text input.
-	const spineParticleAnimations = $derived.by((): string[] => {
+	const rigParticleAnimations = $derived.by((): string[] => {
 		void skeletonMetaVersion; // re-derive once a load resolves
 		const key = selected?.spineParticle?.skeletonKey;
 		if (!key) return [];
@@ -605,29 +605,29 @@
 	const mixWeights = $derived(selected ? frameWeightInputs(selected) : []);
 	const mixPercents = $derived(selected ? frameMixPercents(selected) : []);
 
-	// --- Tier B: Spine backdrop -------------------------------------------------
-	// The backdrop is a project Spine rig loaded purely as an authoring aid: play a clip and
+	// --- Tier B: Rig backdrop -------------------------------------------------
+	// The backdrop is a project rig loaded purely as an authoring aid: play a clip and
 	// pin `bone`-placed layers onto its bones. The skeleton list comes from the SAME
-	// `/spine/skeletons` endpoint the Spine Viewer / Rigger use (its gate now also accepts the
-	// `fx` tool). `onSpineMeta` is the stage telling us the loaded rig's clip / skin / bone
+	// `/rig-viewer/skeletons` endpoint the Rig Viewer / Rigger use (its gate now also accepts the
+	// `fx` tool). `onRigMeta` is the stage telling us the loaded rig's clip / skin / bone
 	// lists, which drive the dropdowns below.
 	let skeletons = $state<FxSkeletonEntry[]>([]);
-	let spineKey = $state<string>('');
-	let spineAnimation = $state<string>('');
-	let spineSkin = $state<string>('');
-	let spineMeta = $state<{ animations: string[]; skins: string[]; bones: string[] }>({
+	let rigKey = $state<string>('');
+	let rigAnimation = $state<string>('');
+	let rigSkin = $state<string>('');
+	let rigMeta = $state<{ animations: string[]; skins: string[]; bones: string[] }>({
 		animations: [],
 		skins: [],
 		bones: [],
 	});
 
-	const spineEntry = $derived(
-		skeletons.find((s) => `${s.dir_b64}/${s.skeleton_file}` === spineKey) ?? null,
+	const rigEntry = $derived(
+		skeletons.find((s) => `${s.dir_b64}/${s.skeleton_file}` === rigKey) ?? null,
 	);
 
 	onMount(async () => {
 		try {
-			const res = await fetch('/spine/skeletons');
+			const res = await fetch('/rig-viewer/skeletons');
 			if (!res.ok) return;
 			const d = (await res.json()) as { skeletons?: FxSkeletonEntry[] };
 			skeletons = d.skeletons ?? [];
@@ -637,18 +637,18 @@
 	});
 
 	function selectSkeleton(key: string): void {
-		spineKey = key;
+		rigKey = key;
 		// Reset the clip/skin so the stage doesn't try to play a previous skeleton's clip while
-		// the new rig loads; `onSpineMeta` picks a valid default once it's loaded.
-		spineAnimation = '';
-		spineSkin = '';
+		// the new rig loads; `onRigMeta` picks a valid default once it's loaded.
+		rigAnimation = '';
+		rigSkin = '';
 	}
 
-	function onSpineMeta(meta: { animations: string[]; skins: string[]; bones: string[] }): void {
-		spineMeta = meta;
+	function onRigMeta(meta: { animations: string[]; skins: string[]; bones: string[] }): void {
+		rigMeta = meta;
 		// Default to the first clip so a freshly-picked backdrop animates immediately.
-		if (!meta.animations.includes(spineAnimation)) spineAnimation = meta.animations[0] ?? '';
-		if (spineSkin && !meta.skins.includes(spineSkin)) spineSkin = '';
+		if (!meta.animations.includes(rigAnimation)) rigAnimation = meta.animations[0] ?? '';
+		if (rigSkin && !meta.skins.includes(rigSkin)) rigSkin = '';
 	}
 
 	// --- immutable doc edits ----------------------------------------------------
@@ -1009,8 +1009,8 @@
 			<div class="stagebar">
 				<span class="lbl">Backdrop</span>
 				<select
-					title="Load a project Spine rig as a backdrop (Tier B — pin layers to its bones)"
-					value={spineKey}
+					title="Load a project rig as a backdrop (Tier B — pin layers to its bones)"
+					value={rigKey}
 					onchange={(e) => selectSkeleton((e.currentTarget as HTMLSelectElement).value)}
 				>
 					<option value="">— none —</option>
@@ -1020,24 +1020,24 @@
 						</option>
 					{/each}
 				</select>
-				{#if spineEntry}
+				{#if rigEntry}
 					<select
 						title="Animation clip"
-						value={spineAnimation}
-						onchange={(e) => (spineAnimation = (e.currentTarget as HTMLSelectElement).value)}
+						value={rigAnimation}
+						onchange={(e) => (rigAnimation = (e.currentTarget as HTMLSelectElement).value)}
 					>
-						{#each spineMeta.animations as a (a)}
+						{#each rigMeta.animations as a (a)}
 							<option value={a}>{a}</option>
 						{/each}
 					</select>
-					{#if spineMeta.skins.length > 1}
+					{#if rigMeta.skins.length > 1}
 						<select
 							title="Skin"
-							value={spineSkin}
-							onchange={(e) => (spineSkin = (e.currentTarget as HTMLSelectElement).value)}
+							value={rigSkin}
+							onchange={(e) => (rigSkin = (e.currentTarget as HTMLSelectElement).value)}
 						>
 							<option value="">— default skin —</option>
-							{#each spineMeta.skins as s (s)}
+							{#each rigMeta.skins as s (s)}
 								<option value={s}>{s}</option>
 							{/each}
 						</select>
@@ -1051,10 +1051,10 @@
 					{playing}
 					{resolveArt}
 					{resolveSkeleton}
-					{spineEntry}
-					{spineAnimation}
-					{spineSkin}
-					{onSpineMeta}
+					{rigEntry}
+					{rigAnimation}
+					{rigSkin}
+					{onRigMeta}
 				/>
 			</div>
 		</div>
@@ -1101,14 +1101,14 @@
 								)}
 						>
 							<option value="sprite">Sprite (atlas art)</option>
-							<option value="spine" disabled={skeletons.length === 0}>Spine clip</option>
+							<option value="rig" disabled={skeletons.length === 0}>Rig clip</option>
 						</select>
 					</label>
 					{#if selected.particleKind === 'spine'}
 						{#if skeletons.length === 0}
 							<p class="hint">
-								This project has no Spine bundles yet — make one in the Spine Viewer / Rigger to use
-								spine-clip particles.
+								This project has no rig bundles yet — make one in the Rig Viewer / Rigger to use
+								rig-clip particles.
 							</p>
 						{:else}
 							<label class="row">
@@ -1117,11 +1117,11 @@
 									value={selected.spineParticle?.skeletonKey ?? ''}
 									onchange={(e) =>
 										updateSelected((l) =>
-											setSpineParticleSkeleton(l, (e.currentTarget as HTMLSelectElement).value),
+											setRigParticleSkeleton(l, (e.currentTarget as HTMLSelectElement).value),
 										)}
 								>
 									<option value="">— pick a skeleton —</option>
-									{#each spineParticleSkeletons as s (s.folder)}
+									{#each rigParticleSkeletons as s (s.folder)}
 										<option value={s.folder}>{s.folder}/{s.name}</option>
 									{/each}
 								</select>
@@ -1129,19 +1129,16 @@
 							{#if selected.spineParticle?.skeletonKey}
 								<label class="row">
 									<span>Animation</span>
-									{#if spineParticleAnimations.length > 0}
+									{#if rigParticleAnimations.length > 0}
 										<select
 											value={selected.spineParticle?.animation ?? ''}
 											onchange={(e) =>
 												updateSelected((l) =>
-													setSpineParticleAnimation(
-														l,
-														(e.currentTarget as HTMLSelectElement).value,
-													),
+													setRigParticleAnimation(l, (e.currentTarget as HTMLSelectElement).value),
 												)}
 										>
 											<option value="">— pick a clip —</option>
-											{#each spineParticleAnimations as a (a)}
+											{#each rigParticleAnimations as a (a)}
 												<option value={a}>{a}</option>
 											{/each}
 										</select>
@@ -1152,7 +1149,7 @@
 											value={selected.spineParticle?.animation ?? ''}
 											onchange={(e) =>
 												updateSelected((l) =>
-													setSpineParticleAnimation(l, (e.currentTarget as HTMLInputElement).value),
+													setRigParticleAnimation(l, (e.currentTarget as HTMLInputElement).value),
 												)}
 										/>
 									{/if}
@@ -1163,17 +1160,17 @@
 										checked={selected.spineParticle?.loop ?? false}
 										onchange={(e) =>
 											updateSelected((l) =>
-												setSpineParticleLoop(l, (e.currentTarget as HTMLInputElement).checked),
+												setRigParticleLoop(l, (e.currentTarget as HTMLInputElement).checked),
 											)}
 									/>
 									<span>Loop each particle's clip</span>
 								</label>
 							{/if}
 							<p class="hint">
-								Each particle is a pooled Spine instance playing a clip. Keep <code
+								Each particle is a pooled rig instance playing a clip. Keep <code
 									>Max particles</code
 								>
-								low — a spine particle is far heavier than a sprite (tens, not hundreds).
+								low — a rig particle is far heavier than a sprite (tens, not hundreds).
 							</p>
 						{/if}
 					{/if}
@@ -1322,11 +1319,11 @@
 								)}
 						>
 							<option value="free">Free (scene)</option>
-							<option value="bone" disabled={spineMeta.bones.length === 0}>Bone (rig)</option>
+							<option value="bone" disabled={rigMeta.bones.length === 0}>Bone (rig)</option>
 						</select>
 					</label>
 					{#if selected.placement.space === 'bone'}
-						{#if spineMeta.bones.length === 0}
+						{#if rigMeta.bones.length === 0}
 							<p class="hint">Load a backdrop skeleton to pin this layer to a bone.</p>
 						{:else}
 							<label class="row">
@@ -1339,7 +1336,7 @@
 										)}
 								>
 									<option value="">— pick a bone —</option>
-									{#each spineMeta.bones as b (b)}
+									{#each rigMeta.bones as b (b)}
 										<option value={b}>{b}</option>
 									{/each}
 								</select>

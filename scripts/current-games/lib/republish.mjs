@@ -9,7 +9,7 @@
 //
 // WHICH BAKED DEFS ARE REPLACED. A snapshot carries no provenance: `runtimeBundle.ts` resolves each
 // referenced id through project ◁ shared ◁ built-in and writes the def it found. The bake leaves a
-// built-in's copy byte-equal to the built-in (its spine keys and atlas refs are bare names, which
+// built-in's copy byte-equal to the built-in (its rig keys and atlas refs are bare names, which
 // the post-resolve fixups leave alone), while a saved def goes through `normalizeComponent`, which
 // drops a built-in's `capability`/`defaultInstanceParams` and reorders its fields, and an edit
 // changes its content. So a baked def equal (by content) to the built-in of the same id AS IT WAS

@@ -19,16 +19,16 @@ Shared, in-repo knowledge (NOT personal memory — so the whole team sees it):
 6. **When you finish meaningful work, update the tool's `docs/status/<tool>.md`** (its current-state file) so the next person/session inherits the context — NOT `docs/STATUS.md` (a slim index) and NOT `docs/history.md` (a **frozen archive** — do not append). The status file owns the whole story for its tool: current state, open items, and the dated "Recent changes" detail. Keep the design doc to the *plan*; keep progress in status. One fact, one home — don't restate a fact across design/status/guide/agent (see `docs/status/README.md`).
    **Also touch the two cross-cutting surfaces when — and only when — your work changes them:** `docs/STATUS.md` if a tool crossed planned → built, a roadmap item closed, or an owner blocker cleared; `docs/tools/<slug>.md` if the UI changed (rule 9). These are the surfaces that decay, because per-tool status files get updated faithfully and these don't.
 7. **Always use the agents and skills.** Multi-step or domain work goes through the per-tool subagents in `.claude/agents/` (see the Start-here list) and the registered skills (e.g. `/deploy`, `/code-review`) — don't hand-roll what they already encode. **The plan/state is in the files, not in your memory of a past session:** before acting, read the tool's `docs/status/<tool>.md` (current state) + its `docs/design/*.md` build plan (esp. the numbered plans like `docs/design/invisible-editor.md` §"Build plan"). Find the registered next step there — or in `docs/STATUS.md`'s cross-cutting roadmap — first.
-8. **Any asset class added to R2 that a game needs MUST be wired into the build pipeline — no exceptions.** The editor reads from R2 directly, so "it shows in the editor" does NOT mean it ships. A new R2 asset class (fonts, spines, art, audio, …) is only done when it travels the full chain: **export → `deploy/` → `bake` (embed index in the bundle) → `pull` (mirror into `static/assets/`) → runtime register in the game**. Mirror the existing `editorArtExport.ts` / `fontExport.ts` pattern; never leave an asset stranded at its source R2 prefix. See `docs/design/live-assets.md`.
+8. **Any asset class added to R2 that a game needs MUST be wired into the build pipeline — no exceptions.** The editor reads from R2 directly, so "it shows in the editor" does NOT mean it ships. A new R2 asset class (fonts, rigs, art, audio, …) is only done when it travels the full chain: **export → `deploy/` → `bake` (embed index in the bundle) → `pull` (mirror into `static/assets/`) → runtime register in the game**. Mirror the existing `editorArtExport.ts` / `fontExport.ts` pattern; never leave an asset stranded at its source R2 prefix. See `docs/design/live-assets.md`.
 9. **A new/renamed tool is not done until its doc ships in the SAME change.** When you add, rename, or remove an entry in the launcher registry (`apps/launcher-api/src/lib/roles.ts` — `TOOLS` / `ROLE_TOOLS` / `TOOL_BAR_ORDER` / `TOOL_DOC_SLUG`), you MUST also: (a) write/update `docs/tools/<slug>.md` (slug = `TOOL_DOC_SLUG[id]`), grounded in the real route UI; (b) add/refresh its row in `docs/tools/README.md`; (c) confirm the onboarding "Read the guide" link resolves (`/docs/<slug>` renders it). Use the **`docs-keeper`** subagent to write/audit these. "Shows in the launcher" ≠ "documented". This rule exists because a one-time docs pass once decayed — every tool since shipped doc-less.
 
 ### Branding & naming
-- **Our tools are always named "Invisible …"** — Invisible Atlas Maker, Invisible Spine Viewer, Invisible Test Server, Invisible Sheet Maker, etc. (Third-party products keep their real names: ComfyUI, Spine Editor.)
+- **Our tools are always named "Invisible …"** — Invisible Atlas Maker, Invisible Rig Viewer, Invisible Test Server, Invisible Sheet Maker, etc. (Third-party products keep their real names, e.g. ComfyUI.)
 - **Brand mark:** the Invisible Wall emblem. Source: `C:\Invisible Wall SL\Company Website\Images\` (`iw-emblem.svg` = recolorable vector via `currentColor`, `iw-emblem.png`, `iw-emblem-square.png`, `iw-hero.png`, favicons). In the launcher use the inline `$lib/Emblem.svelte` (an external `<img>` SVG renders `currentColor` black). A copy lives at `apps/launcher-api/static/brand/iw-emblem.svg` and `services/atlas-tool/iw-emblem.svg`. Use these emblems to brand every tool/page.
 
 ## Role
 You are a **Frontend Framework Developer** acting as the technical lead on this project.
-- Expert in **PixiJS 8** (rendering, filters, spine animations, particle emitters, WebGL)
+- Expert in **PixiJS 8** (rendering, filters, rig animations, particle emitters, WebGL)
 - Expert in **Svelte 5** (runes, snippets, SvelteKit 2, reactivity model)
 - You understand the full monorepo architecture and how packages compose together
 
@@ -61,7 +61,7 @@ packages/      → 30 shared libraries
 | Rendering | PixiJS 8 |
 | Svelte↔Pixi bridge | pixi-svelte (internal package) |
 | State machines | XState 5 |
-| Animation | GSAP, Spine 4.2 data via our own runtime (`engine-rig`) |
+| Animation | GSAP, 4.2-format data via our own runtime (`engine-rig`) |
 | Particles | @barvynkoa/particle-emitter |
 | Filters | pixi-filters 6 |
 | Build | Vite 6 + Turbo 2 |
@@ -130,7 +130,7 @@ When you finish meaningful work, write it up per **rule 6**: the detail goes in 
 - Use `new Application()` with `await app.init({...})` (async init — breaking change from v7)
 - `Sprite.from()` is synchronous; prefer asset bundles loaded via `Assets.load()`
 - Filters: import from `pixi-filters` or `pixi.js` — check version compat
-- Spine runtime: our own license-free `engine-rig` (`engine-rig/pixi` → `RigView`; `engine-rig/webgl` for the static tools). Never add an `@esotericsoftware/*` package — `scripts/check-spine-runtime-free.mjs` fails it
+- Rig runtime: our own license-free `engine-rig` (`engine-rig/pixi` → `RigView`; `engine-rig/webgl` for the static tools). Never add an `@esotericsoftware/*` package — `scripts/check-rig-runtime-free.mjs` fails it
 - Avoid deprecated v7 APIs: `PIXI.Loader`, `PIXI.utils`, `PIXI.Container.sortableChildren` (use `sortChildren()`)
 
 ## Where the project stands

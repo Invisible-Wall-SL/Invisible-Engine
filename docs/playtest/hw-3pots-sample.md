@@ -109,14 +109,14 @@ built for the grown board (`holdAndWinReferenceLayout(HOLD_AND_WIN_BOARD, { maxR
 ### S10 — The 12c done-when: a skinned Pot on all three pots (Phase 12c)
 
 The design's done-when (§8): the author skins the Pot with their own bitmap fill and frame, and puts
-a frog spine inside it that plays "celebrate" plus an FX on **Pot — activate** for that pot only,
+a frog rig inside it that plays "celebrate" plus an FX on **Pot — activate** for that pot only,
 its belly bone growing with the pot's level. All three pots, no Flow branch.
 
 - **Author** (needs #1006 on the runtime, and the project's Pots screen — hub Owner checklist 5):
   1. `/components`: type a name, pick the type **Pot Meter (Hold and Win)** and click **Create**.
      Then click **Edit inside Pot ›**.
-  2. Inside the part, drop the frog spine. Give it a cue on **Pot — activate** playing its
-     celebrate animation. Add a **Bind to value**: drives **Spine bone** (its belly bone, **scale**),
+  2. Inside the part, drop the frog rig. Give it a cue on **Pot — activate** playing its
+     celebrate animation. Add a **Bind to value**: drives **rig bone** (its belly bone, **scale**),
      from **Pot level** (under **Pot (this instance's meter)**). **divide by (normalise)** fills in
      with **Pot maximum**. Out 1 → 2.5.
   3. Inside the part, drop the effect. In `/fx`, its layer triggers on the `potsConsume` event,
@@ -147,9 +147,9 @@ its belly bone growing with the pot's level. All three pots, no Flow branch.
   3. `PUBLIC_RGS_TRANSPORT=play4fun pnpm --filter lines dev`, opened with `?runtime=1&k=local`,
      `editorDocBase` = the stub and `rgs_url` = the mock. Force with `GET <mock>/force?sid=<sid>&beat=meter:red`, press
      Space until the mock logs the round's `bet`.
-  4. Read the scene off `globalThis.__PIXI_APP__`: a spine's animation is
+  4. Read the scene off `globalThis.__PIXI_APP__`: a rig's animation is
      `rig.state.getCurrent(0)`. Read a bound bone with `bone.getWorldScaleX()`: the local
-     `scaleX` reads 1, because `SpinePose` undoes its offsets after each world transform.
+     `scaleX` reads 1, because `RigPose` undoes its offsets after each world transform.
 
 ## Known state (2026-10-01)
 

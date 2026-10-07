@@ -2,7 +2,7 @@
  * The BOOT SPLASH contract — the two pre-canvas splash screens a game shows before
  * PixiJS, the asset load, or the runtime bundle exist.
  *
- * Two tiers, deliberately mirroring the spine storage roots they read from
+ * Two tiers, deliberately mirroring the rig storage roots they read from
  * (`resolveBundlePrefix` already falls back project → shared, so one code path
  * serves both):
  *
@@ -38,7 +38,7 @@ export const BOOT_SPLASH_INDEX_FILE = `${BOOT_SPLASH_SUBTREE}/boot.json`;
 
 /**
  * Fallback background for a tier whose ref sets no `background`. Painted IMMEDIATELY —
- * before the spine loads — so boot shows brand colour rather than a white flash. The
+ * before the rig loads — so boot shows brand colour rather than a white flash. The
  * engine default is the Invisible Wall ink; the game default is black (what
  * `LoaderExample` used), so an unconfigured project looks exactly as it does today.
  */
@@ -48,7 +48,7 @@ export const BOOT_SPLASH_DEFAULT_BACKGROUND: Record<BootSplashTier, string> = {
 };
 
 /**
- * Author-set SIZE multiplier applied on top of the automatic fit (see `LoaderSpine`). `1` is the
+ * Author-set SIZE multiplier applied on top of the automatic fit (see `LoaderRig`). `1` is the
  * fit itself — the mark scaled to sit inside a conservative safe box — so this is "a bit bigger /
  * a bit smaller than that", not an absolute size. Kept relative rather than absolute so one value
  * holds across every screen the game runs on.
@@ -71,16 +71,16 @@ export function normalizeBootSplashSize(input: unknown): number | undefined {
 }
 
 /**
- * How long a tier's splash stays up once its spine is ready, in ms. Matches the
+ * How long a tier's splash stays up once its rig is ready, in ms. Matches the
  * 2000ms `FINISH_ONCE_TIMEOUT` the gif loaders used, so the boot rhythm is unchanged.
  */
 export const BOOT_SPLASH_HOLD_MS = 2000;
 
 /**
- * What an author PICKS for one tier: a spine bundle name (NOT a full R2 key — the
+ * What an author PICKS for one tier: a rig bundle name (NOT a full R2 key — the
  * exporter resolves it against the tier's root) plus the animation to play.
  *
- * `animation` is optional but strongly recommended: a spine left on its setup pose with
+ * `animation` is optional but strongly recommended: a rig left on its setup pose with
  * no animation renders EMPTY, which reads as a broken splash rather than an unset one
  * (the same trap the Borut loader logo hit — see `project_generic_loading_screen`). When
  * absent the splash falls back to the skeleton's first animation rather than showing
@@ -89,7 +89,7 @@ export const BOOT_SPLASH_HOLD_MS = 2000;
 export interface BootSplashRef {
 	bundle: string;
 	animation?: string;
-	/** CSS colour painted behind the spine, and during the load before it appears. */
+	/** CSS colour painted behind the rig, and during the load before it appears. */
 	background?: string;
 	/** Multiplier on the automatic fit — see {@link BOOT_SPLASH_DEFAULT_SIZE}. Absent ⇒ `1`. */
 	size?: number;
@@ -99,7 +99,7 @@ export interface BootSplashRef {
 export interface BootSplashEntry {
 	atlas: string;
 	skeleton: string;
-	/** Spine PARSER load scale (skeleton units). Distinct from `size`, which is a display
+	/** Rig PARSER load scale (skeleton units). Distinct from `size`, which is a display
 	 * multiplier applied after the fit — the fit normalizes parser scale away, so a size knob
 	 * could not be expressed through this one. */
 	scale: number;

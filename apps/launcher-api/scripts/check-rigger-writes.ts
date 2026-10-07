@@ -4,8 +4,8 @@
  *   pnpm --filter launcher-api check:rigger-writes
  *
  * Runs the REAL route handlers (`rigger/animations/save`, `rigger/rigs/save`, `rigger/new`,
- * `rigger/upload`, `rigger/delete`, `editor/spines/reindex`) and the real `spineIndex` /
- * `spineReindex` / `riggerIrigWrite` / `riggerLibraryWrite` / `writeGuard`. Only the boundaries are
+ * `rigger/upload`, `rigger/delete`, `editor/rigs/reindex`) and the real `rigIndex` /
+ * `rigReindex` / `riggerIrigWrite` / `riggerLibraryWrite` / `writeGuard`. Only the boundaries are
  * replaced: `r2.ts` becomes an in-memory bucket that honours `If-Match` / `If-None-Match` the way
  * R2 does and can hold a request at a chosen step (so two creates can be interleaved), the session
  * gate becomes a fixed caller whose project comes from the test, the Postgres catalog upserts are
@@ -148,7 +148,7 @@ mock.module(server('riggerLibrary.ts'), {
 });
 
 /** Re-derives `atlasFile` only for a folder that remembers its source — the real rule. */
-mock.module(server('spineBundleSync.ts'), {
+mock.module(server('rigBundleSync.ts'), {
 	namedExports: {
 		ensureBundleAtlasFresh: async (
 			_client: string,
@@ -168,10 +168,10 @@ mock.module(server('editorRegions.ts'), {
 		loadRegionSet: async () => ({ regions: [], pageKey: '', pageWidth: 0, pageHeight: 0 }),
 	},
 });
-mock.module(server('spine.ts'), {
+mock.module(server('rig.ts'), {
 	namedExports: {
-		regionsToSpineAtlas: (page: string, w: number, h: number) => `${page}\nsize: ${w},${h}\n`,
-		reorientRotatedRegionsForSpine: async (body: Uint8Array) => body,
+		regionsToRigAtlas: (page: string, w: number, h: number) => `${page}\nsize: ${w},${h}\n`,
+		reorientRotatedRegionsForRig: async (body: Uint8Array) => body,
 	},
 });
 
@@ -182,7 +182,7 @@ const newRig = await import(`${routes}/rigger/new/+server.ts`);
 const upload = await import(`${routes}/rigger/upload/+server.ts`);
 const del = await import(`${routes}/rigger/delete/+server.ts`);
 const irigSave = await import(`${routes}/rigger/save/+server.ts`);
-const reindex = await import(`${routes}/editor/spines/reindex/+server.ts`);
+const reindex = await import(`${routes}/editor/rigs/reindex/+server.ts`);
 
 let checks = 0;
 let failures = 0;
@@ -329,7 +329,7 @@ const reset = (): void => {
 }
 
 // ── Item 2: no route that rewrites skeletons.json drops an atlas-less rig ────────────────────
-const SPINES = `${CLIENT}/p1/spines`;
+const RIGS = `${CLIENT}/p1/spines`;
 const skel = (name: string): string =>
 	JSON.stringify({ skeleton: { spine: '4.2.40' }, bones: [{ name: 'root' }], slots: [], name });
 const b64 = (s: string): string => Buffer.from(s, 'utf8').toString('base64url');
@@ -352,17 +352,17 @@ const seedStore = (key: string, body: string, ageMs = 0): void => {
 /** A healthy rig A, and an atlas-less rig B with no source to rebuild one — both listed. */
 function seedProject(): void {
 	reset();
-	seedStore(`${SPINES}/A/A.irig`, skel('A'));
-	seedStore(`${SPINES}/A/A.atlas`, 'A.png\nsize: 1,1\n');
-	seedStore(`${SPINES}/A/A.png`, 'png');
-	seedStore(`${SPINES}/B/B.irig`, skel('B'));
-	seedStore(`${SPINES}/B/B.png`, 'png');
+	seedStore(`${RIGS}/A/A.irig`, skel('A'));
+	seedStore(`${RIGS}/A/A.atlas`, 'A.png\nsize: 1,1\n');
+	seedStore(`${RIGS}/A/A.png`, 'png');
+	seedStore(`${RIGS}/B/B.irig`, skel('B'));
+	seedStore(`${RIGS}/B/B.png`, 'png');
 	const skeletons = [entry('A'), entry('B')].map((e, id) => ({ ...e, id }));
-	seedStore(`${SPINES}/skeletons.json`, JSON.stringify({ prefix: SPINES, skeletons }));
+	seedStore(`${RIGS}/skeletons.json`, JSON.stringify({ prefix: RIGS, skeletons }));
 }
 const listed = (): string[] =>
 	(
-		JSON.parse(text(`${SPINES}/skeletons.json`) ?? '{"skeletons":[]}') as {
+		JSON.parse(text(`${RIGS}/skeletons.json`) ?? '{"skeletons":[]}') as {
 			skeletons: { folder: string }[];
 		}
 	).skeletons.map((s) => s.folder);
@@ -379,12 +379,12 @@ const PAGE = Buffer.from('png').toString('base64');
 	);
 
 	seedProject();
-	seedStore(`${SPINES}/E/E.irig`, skel('E'));
-	seedStore(`${SPINES}/E/source.json`, '{"manifestKey":"m"}');
+	seedStore(`${RIGS}/E/E.irig`, skel('E'));
+	seedStore(`${RIGS}/E/source.json`, '{"manifestKey":"m"}');
 	const healed = await call(reindex.POST, {});
 	check(
 		'reindex: an atlas-less rig with a source gets its atlas re-derived and listed',
-		[listed(), healed.body.rederived, bucket.has(`${SPINES}/E/E.atlas`)],
+		[listed(), healed.body.rederived, bucket.has(`${RIGS}/E/E.atlas`)],
 		[['A', 'B', 'E'], 1, true],
 	);
 
@@ -414,12 +414,12 @@ const PAGE = Buffer.from('png').toString('base64');
 	const deletedB = await call(del.POST, { dir: b64('B'), skeleton_file: 'B.irig' });
 	check(
 		'delete: removing the atlas-less rig B itself unlists it and purges its folder',
-		[deletedB.status, listed(), [...bucket.keys()].some((k) => k.startsWith(`${SPINES}/B/`))],
+		[deletedB.status, listed(), [...bucket.keys()].some((k) => k.startsWith(`${RIGS}/B/`))],
 		[200, ['A'], false],
 	);
 
 	seedProject();
-	seedStore(`${SPINES}/B/Other.json`, skel('Other'));
+	seedStore(`${RIGS}/B/Other.json`, skel('Other'));
 	const deletedShared = await call(del.POST, { dir: b64('B'), skeleton_file: 'B.irig' });
 	check(
 		'delete: a rig deleted from a folder another atlas-less skeleton still uses is not resurrected',
@@ -431,7 +431,7 @@ const PAGE = Buffer.from('png').toString('base64');
 // ── A person's `.irig` save is theirs: the stamp a Director rebind left does not ride along ──────
 {
 	seedProject();
-	const key = `${SPINES}/A/A.irig`;
+	const key = `${RIGS}/A/A.irig`;
 	const saved_by = { tool: 'director', agent: 'animator', runId: 'r1', at: 't', rev: 'r' };
 	const res = await call(irigSave.POST, {
 		dir: b64('A'),
@@ -533,7 +533,7 @@ for (const create of creates) {
 	);
 	check(
 		`${create.label} claim-claim-list-release-list: the loser's .irig is gone, the winner's stands`,
-		[bucket.has(`${SPINES}/Hero/Hero.irig`), bucket.has(`${SPINES}/hero/hero.irig`)],
+		[bucket.has(`${RIGS}/Hero/Hero.irig`), bucket.has(`${RIGS}/hero/hero.irig`)],
 		[false, true],
 	);
 	check(`${create.label} claim-claim-list-release-list: only the winner is listed`, listed(), [
@@ -558,12 +558,12 @@ const STALE = 11 * 60_000;
 const backupsOf = (folder: string): string[] =>
 	[...bucket.keys()].filter((k) => k.startsWith(`${CLIENT}/p1/rigger-backups/${b64(folder)}/`));
 const created = (folder: string): boolean =>
-	[`${folder}.irig`, `${folder}.atlas`].every((f) => bucket.has(`${SPINES}/${folder}/${f}`)) &&
-	text(`${SPINES}/${folder}/${folder}.irig`) !== '{}';
+	[`${folder}.irig`, `${folder}.atlas`].every((f) => bucket.has(`${RIGS}/${folder}/${f}`)) &&
+	text(`${RIGS}/${folder}/${folder}.irig`) !== '{}';
 
 for (const create of creates) {
 	seedProject();
-	seedStore(`${SPINES}/Hero/Hero.irig`, skel('orphan'), STALE);
+	seedStore(`${RIGS}/Hero/Hero.irig`, skel('orphan'), STALE);
 	const same = await create.run('Hero', 'solo');
 	check(
 		`${create.label} abandoned: a lone stale claim of the same name is reclaimed and the rig created`,
@@ -577,8 +577,8 @@ for (const create of creates) {
 	);
 
 	seedProject();
-	seedStore(`${SPINES}/HERO/HERO.irig`, skel('orphan'), STALE);
-	seedStore(`${SPINES}/HERO/page.png`, 'png', STALE);
+	seedStore(`${RIGS}/HERO/HERO.irig`, skel('orphan'), STALE);
+	seedStore(`${RIGS}/HERO/page.png`, 'png', STALE);
 	const other = await create.run('hero', 'solo');
 	check(
 		`${create.label} abandoned: a stale claim + its page under another case is removed, the rig created`,
@@ -600,34 +600,34 @@ for (const create of creates) {
 		);
 	};
 	await refused('a claim still young (a create in flight)', () =>
-		seedStore(`${SPINES}/Hero/Hero.irig`, skel('orphan'), 60_000),
+		seedStore(`${RIGS}/Hero/Hero.irig`, skel('orphan'), 60_000),
 	);
 	await refused(
 		'a listed atlas-less rig, however old',
 		() => {
-			seedStore(`${SPINES}/B/B.irig`, skel('B'), STALE);
-			seedStore(`${SPINES}/B/B.png`, 'png', STALE);
+			seedStore(`${RIGS}/B/B.irig`, skel('B'), STALE);
+			seedStore(`${RIGS}/B/B.png`, 'png', STALE);
 		},
 		'b',
 	);
 	await refused('a folder holding an atlas', () => {
-		seedStore(`${SPINES}/Hero/Hero.irig`, skel('orphan'), STALE);
-		seedStore(`${SPINES}/Hero/Hero.atlas`, 'x', STALE);
+		seedStore(`${RIGS}/Hero/Hero.irig`, skel('orphan'), STALE);
+		seedStore(`${RIGS}/Hero/Hero.atlas`, 'x', STALE);
 	});
 	await refused('a folder holding another file', () => {
-		seedStore(`${SPINES}/Hero/Hero.irig`, skel('orphan'), STALE);
-		seedStore(`${SPINES}/Hero/source.json`, '{}', STALE);
+		seedStore(`${RIGS}/Hero/Hero.irig`, skel('orphan'), STALE);
+		seedStore(`${RIGS}/Hero/source.json`, '{}', STALE);
 	});
 	await refused('a folder whose skeleton is not <folder>.irig', () =>
-		seedStore(`${SPINES}/Hero/Other.irig`, skel('orphan'), STALE),
+		seedStore(`${RIGS}/Hero/Other.irig`, skel('orphan'), STALE),
 	);
 	await refused('a folder written to recently', () => {
-		seedStore(`${SPINES}/Hero/Hero.irig`, skel('orphan'), STALE);
-		seedStore(`${SPINES}/Hero/page.png`, 'png', 1000);
+		seedStore(`${RIGS}/Hero/Hero.irig`, skel('orphan'), STALE);
+		seedStore(`${RIGS}/Hero/page.png`, 'png', 1000);
 	});
 	await refused('an unreadable index', () => {
-		seedStore(`${SPINES}/Hero/Hero.irig`, skel('orphan'), STALE);
-		seedStore(`${SPINES}/skeletons.json`, '{not json');
+		seedStore(`${RIGS}/Hero/Hero.irig`, skel('orphan'), STALE);
+		seedStore(`${RIGS}/skeletons.json`, '{not json');
 	});
 }
 
@@ -637,7 +637,7 @@ for (const create of creates) {
 // Either way B must not take over A's claim.
 for (const hold of ['before', 'after'] as const) {
 	seedProject();
-	seedStore(`${SPINES}/Hero/Hero.irig`, skel('orphan'), STALE);
+	seedStore(`${RIGS}/Hero/Hero.irig`, skel('orphan'), STALE);
 	let aClaimed: () => void = () => {};
 	const claimedByA = new Promise<void>((resolve) => {
 		aClaimed = resolve;
@@ -662,7 +662,7 @@ for (const hold of ['before', 'after'] as const) {
 // Both creates read the stale claim before either takes it over: the `If-Match` lets only one win.
 {
 	seedProject();
-	seedStore(`${SPINES}/HERO/HERO.irig`, skel('orphan'), STALE);
+	seedStore(`${RIGS}/HERO/HERO.irig`, skel('orphan'), STALE);
 	const headed = barrier(2);
 	afterHead = async (key) => {
 		if (key.endsWith('/HERO/HERO.irig')) await headed();
