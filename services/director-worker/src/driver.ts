@@ -84,6 +84,7 @@ import {
 	type StoredMessage,
 	type WakingEvent,
 } from './store.ts';
+import { approveArtPlan, markQueued, reviewPlanGate, type RecipeDeps } from './recipes.ts';
 import { WORKER_TOOLS } from './tools.ts';
 import { runWorkerTool, workerToolSpecs, type WorkerToolId } from './workerTools.ts';
 
@@ -336,6 +337,12 @@ async function settle(
 		status === 'running' && state.step === 'breakdown' ? await runHasMockups(ctx) : false;
 	const results = new Map<string, BetaToolResultBlockParam>();
 	let budgetStop: BudgetFigures | null = null;
+	const recipes =
+		status === 'running' &&
+		agent.tools.includes('run.set_recipe') &&
+		calls.some((c) => toolId(c.name) === 'run.set_recipe')
+			? await recipeDeps(ctx)
+			: undefined;
 
 	for (const [index, call] of calls.entries()) {
 		const id = toolId(call.name);
@@ -422,6 +429,17 @@ async function settle(
 		if (unsettled(answer.status, answer.body)) {
 			throw new RetryLater(`${id} answered ${answer.status}`);
 		}
+		// Marked at once, in its own lease-checked write, so a second queue call later in this turn
+		// already finds the step queued and the launcher's gate refuses it. A replayed call returns
+		// the stored result and marks nothing new.
+		if (id === 'atlas.queue_variants' && answer.status === 200) {
+			const job = answer.body as { steps?: unknown; jobRef?: unknown };
+			if (Array.isArray(job.steps) && job.steps.length && typeof job.jobRef === 'string') {
+				const steps = job.steps as { recipe: string; n: number }[];
+				const jobRef = job.jobRef;
+				await withLease(ctx.sql, ctx.run, (tx, live) => markQueued(tx, live.id, steps, jobRef));
+			}
+		}
 		results.set(call.id, resultBlock(call.id, JSON.stringify(answer.body), answer.status !== 200));
 	}
 
@@ -433,6 +451,7 @@ async function settle(
 			live,
 			agent: agent.name,
 			hasMockups,
+			recipes,
 			missingTools: (name: string) => {
 				const other = ctx.agents.get(name);
 				return other ? toolsFor(ctx, other, served).missing : [name];
@@ -463,6 +482,31 @@ async function settle(
 			calls.map((c) => results.get(c.id)!),
 		);
 	});
+}
+
+/**
+ * The reviewed cards and the endpoint GPU's price, read through the launcher (`atlas.list_blueprints`
+ * as the worker) before a turn that sets a recipe; validation runs inside the transaction on them.
+ */
+async function recipeDeps(ctx: Ctx): Promise<RecipeDeps | undefined> {
+	const answer = await ctx.launcher.call(
+		'atlas.list_blueprints',
+		{ runId: ctx.run.id, agent: 'worker', input: {} },
+		ctx.signal,
+	);
+	if (unsettled(answer.status, answer.body)) {
+		throw new RetryLater(`atlas.list_blueprints answered ${answer.status}`);
+	}
+	if (answer.status !== 200) return undefined;
+	const catalogue = answer.body as RecipeDeps['catalogue'];
+	const pricing = await ctx.pricing();
+	const perSecond = pricing.runpod.perSecondByGpu[catalogue.gpu];
+	return {
+		catalogue,
+		usdPerSecond: typeof perSecond === 'number' ? perSecond : null,
+		// The seed is per render; no per-job delay is measured yet (card 8E's timings).
+		floor: { seedSecondsPerImage: pricing.runpod.seedSecondsPerRender, delaySecondsPerJob: 0 },
+	};
 }
 
 /**
@@ -1154,6 +1198,7 @@ async function applyEvent(
 					live.budgetCapUsd = raised;
 					await setBudgetCap(tx, live.id, raised);
 				}
+				await reviewPlanGate(tx, live);
 				return;
 			}
 			if (action === 'stop') {
@@ -1186,6 +1231,10 @@ async function applyEvent(
 				`owner ${decision}`,
 			);
 			if (error) return refuse(error);
+			if (checkpoint === 'art_plan' && decision === 'approve') {
+				const by = (p.by as { name?: unknown; uid?: unknown } | undefined) ?? {};
+				await approveArtPlan(tx, live, String(by.uid ?? by.name ?? 'owner'));
+			}
 			const note = p.note ? `\nTheir note: ${String(p.note)}` : '';
 			const what = decision === 'approve' ? 'approved' : 'asked for revisions at';
 			await appendMessage(

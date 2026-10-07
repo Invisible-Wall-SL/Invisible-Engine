@@ -793,7 +793,8 @@ configured; every other atlas behaves exactly as before:
   ⚙ Global settings → Pipeline control still sets every other atlas, and changing it does nothing
   to this one. 🧩 Atlas settings shows it read-only as **Pipeline · this atlas**, a region's ✎
   advanced popup names it as the pipeline a blank override inherits, and the **Blueprint
-  settings** panel shows and saves the settings of that pipeline. Only a Director run sets or
+  settings** panel shows and saves the settings of that pipeline, and the Settings panel's model
+  fields follow that pipeline too (switching the global control does not change which show). Only a Director run sets or
   clears it: you cannot, and ⧉ Duplicate atlas copies it to the duplicate.
 - **On such an atlas, a region with its own pipeline renders with that pipeline's saved
   settings.** Blueprint settings are saved per atlas and per blueprint. On a run's atlas, a region

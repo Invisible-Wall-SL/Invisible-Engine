@@ -462,7 +462,7 @@ export const directorRuns = pgTable(
 		presetJson: jsonb('preset_json').notNull().default({}),
 		/** Mockups (with screen tags), fidelity, notes and the recorded ownership check. */
 		startingPointJson: jsonb('starting_point_json').notNull().default({}),
-		/** `{ breakdown, regionBatch }`; `before_publish` is not stored because it cannot be off. */
+		/** `{ breakdown, artPlan, regionBatch }`; `before_publish` is not stored because it cannot be off. */
 		checkpointsJson: jsonb('checkpoints_json').notNull().default({}),
 		status: text('status')
 			.$type<
@@ -482,7 +482,9 @@ export const directorRuns = pgTable(
 			.notNull()
 			.default('breakdown'),
 		/** The open checkpoint while `waiting`; null otherwise. */
-		waitingOn: text('waiting_on').$type<'breakdown' | 'region_batch' | 'before_publish'>(),
+		waitingOn: text('waiting_on').$type<
+			'breakdown' | 'art_plan' | 'region_batch' | 'before_publish'
+		>(),
 		/** Null until the run starts, when the worker copies `DIRECTOR_RUN_BUDGET_USD` onto it; a run
 		 *  that somehow has none gets the default. The worker pauses the run before the call or GPU
 		 *  submit that would reach it (ADR-0006). */
@@ -512,7 +514,7 @@ export const directorRuns = pgTable(
 		),
 		check(
 			'director_runs_waiting_on_check',
-			sql`(${table.status} = 'waiting') = (${table.waitingOn} is not null) and (${table.waitingOn} is null or ${table.waitingOn} in ('breakdown', 'region_batch', 'before_publish'))`,
+			sql`(${table.status} = 'waiting') = (${table.waitingOn} is not null) and (${table.waitingOn} is null or ${table.waitingOn} in ('breakdown', 'art_plan', 'region_batch', 'before_publish'))`,
 		),
 		check(
 			'director_runs_lease_check',
@@ -618,6 +620,11 @@ export const directorRegions = pgTable(
 		variantsJson: jsonb('variants_json').notNull().default([]),
 		artDirectorPickJson: jsonb('art_director_pick_json'),
 		ownerNote: text('owner_note'),
+		/** The technician's plan for the region (ADR-0008 §5, `director-costs/recipe`), validated by
+		 *  the worker before it is stored; null until one is planned. Written by the worker only. */
+		recipeJson: jsonb('recipe_json'),
+		/** The stored recipe's revision; 0 = none yet. */
+		recipeRev: integer('recipe_rev').notNull().default(0),
 		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 	},
 	(table) => [
@@ -627,6 +634,48 @@ export const directorRegions = pgTable(
 			sql`${table.status} in ('queued', 'drafting', 'to_review', 'approved', 'rejected')`,
 		),
 	],
+);
+
+/**
+ * A template's default recipe per region group (ADR-0008 §5 "Reuse"): the chain an owner approved
+ * at an Art plan, which the technician starts from on the template's next run. Append-only and
+ * versioned: the worker writes version n + 1 after an approval, naming the run, so reverting is
+ * reading the previous version. Never written into the template project (SPEC rule 2).
+ */
+export const directorTemplateRecipes = pgTable(
+	'director_template_recipes',
+	{
+		templateProjectKey: text('template_project_key').notNull(),
+		regionGroup: text('region_group').notNull(),
+		version: integer('version').notNull(),
+		/** `DefaultStep[]` (`director-costs/recipe`). */
+		chainJson: jsonb('chain_json').notNull(),
+		runId: text('run_id').notNull(),
+		approvedBy: text('approved_by').notNull(),
+		approvedAt: timestamp('approved_at', { withTimezone: true }).notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.templateProjectKey, table.regionGroup, table.version] }),
+	],
+);
+
+/**
+ * Measured GPU time per (effective pipeline id, generation size) (ADR-0008 §2 "Measured GPU
+ * seconds"): a rolling mean of execution and of queue delay per job, for the card editor to show.
+ * Agents read the card, never this table. Written from `job_done` (card 8E).
+ */
+export const directorBlueprintTimings = pgTable(
+	'director_blueprint_timings',
+	{
+		pipeline: text('pipeline').notNull(),
+		genPx: integer('gen_px').notNull(),
+		jobs: integer('jobs').notNull().default(0),
+		meanExecSeconds: doublePrecision('mean_exec_seconds').notNull().default(0),
+		meanDelaySeconds: doublePrecision('mean_delay_seconds').notNull().default(0),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(table) => [primaryKey({ columns: [table.pipeline, table.genPx] })],
 );
 
 /**

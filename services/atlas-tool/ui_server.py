@@ -698,6 +698,22 @@ def director_render_refusal(identity, cfg: dict | None = None) -> str:
             "generation on is 'My computer'. Nothing was started.")
 
 
+def director_deploy_refusal(identity, dest_prefix: str, deploy_root: str) -> str:
+    """Why a Director deploy must not write to `dest_prefix`, or "". A Director
+    run deploys only under the project's `deploy/` (ADR-0008 §4): a manifest
+    `deploy_path` or an asset-map entry naming any other key of the project
+    (or the project root itself) is refused before anything is copied. Nobody
+    else is ever refused here."""
+    if not is_director(identity):
+        return ""
+    dest = str(dest_prefix or "").rstrip("/")
+    root = str(deploy_root or "").rstrip("/")
+    if root and (dest == root or dest.startswith(root + "/")) and ".." not in dest:
+        return ""
+    return (f"✖ A Director run deploys only under {root}/; this atlas would deploy "
+            f"to {dest}. A person sets that target. Nothing was deployed.")
+
+
 def refuse_config_edits(edits: dict, director: bool) -> str:
     """Why a `/saveconfig` must not be applied at all, or "". Checked before
     anything is written, so a refused save changes nothing."""
@@ -6457,7 +6473,7 @@ function globalPipe(){{
 // What this atlas renders on: its own pipeline, else the global one.
 function atlasPipe(){{ return ATLAS_PIPE||globalPipe(); }}
 function applyPipe(){{                 // Settings panel (global + per-atlas)
- let p=globalPipe();
+ let p=atlasPipe();
  document.querySelectorAll('.cfggrid [data-pipe]').forEach(l=>{{
   l.style.display=pipeVisible(l.getAttribute('data-pipe'),p)?'':'none';
  }});
@@ -9834,6 +9850,8 @@ class Handler(BaseHTTPRequestHandler):
         write to the global library. Never raises; returns a readable string
         (leading '✓' ⇒ the client reloads). A built-in reference id can't be
         deleted (selecting it keeps the built-in Python path anyway)."""
+        if is_director(getattr(self, "_identity", None)):
+            return "✖ A Director run never writes the blueprint library."
         if not getattr(self, "can_publish", False):
             return ("✖ You're not allowed to delete blueprints. Ask an admin "
                     "for the 'Publish blueprints' permission.")
@@ -9925,6 +9943,10 @@ class Handler(BaseHTTPRequestHandler):
         """`POST /card/save {id, card, review}`. The page's base is its
         `card:<id>` entry in `X-IW-Doc-Bases`; a conflict raises `DocConflict`,
         which `_dispatch` answers 409 for doc-guard.js to ask about."""
+        if is_director(getattr(self, "_identity", None)):
+            self._send_json(403, {"ok": False, "error": "A Director run never writes a "
+                                                        "blueprint card; the owner does."})
+            return
         try:
             payload = json.loads(raw or "{}")
         except ValueError:
@@ -9963,6 +9985,8 @@ class Handler(BaseHTTPRequestHandler):
         in the reply. Gated on `self.can_publish` exactly like upload/delete — it
         writes to the SHARED library. Never raises; returns a readable string
         (leading '✓' ⇒ the client reloads)."""
+        if is_director(getattr(self, "_identity", None)):
+            return "✖ A Director run never writes the blueprint library."
         if not getattr(self, "can_publish", False):
             return ("✖ You're not allowed to edit blueprints. Ask an admin "
                     "for the 'Publish blueprints' permission.")
@@ -10442,6 +10466,10 @@ class Handler(BaseHTTPRequestHandler):
             dest_prefix = raw  # caller gave a fully-qualified key inside the project
         else:
             dest_prefix = f"{base}/{raw}"  # nest the mirrored subpath under deploy/
+        refused = director_deploy_refusal(getattr(self, "_identity", None),
+                                          dest_prefix, base)
+        if refused:
+            return refused
         # PAGE-ONLY MODE — for a Spine target the deploy destination already holds
         # a `<base>.json` that is the SKELETON (~88 KB) plus a `<base>.atlas`; the
         # normal sprite-sheet path would write a TexturePacker `<base>.json` over
@@ -11928,6 +11956,8 @@ class Handler(BaseHTTPRequestHandler):
         blueprint. Refuses a taxonomy that would not load: the node's own behaviour is to
         fall back to a much smaller vocabulary and carry on, so this is the last point at
         which a typo is visible to the person who made it."""
+        if is_director(getattr(self, "_identity", None)):
+            return {"ok": False, "error": "A Director run never writes the shared taxonomy."}
         if not getattr(self, "can_publish", False):
             return {"ok": False, "error": "You're not allowed to edit the shared "
                                           "taxonomy. Ask an admin for the 'Publish "
