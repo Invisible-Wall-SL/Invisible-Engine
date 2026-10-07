@@ -102,6 +102,39 @@ function fakeModel(replies: Reply[]) {
 }
 
 /** Serves every adapter op by name (so no agent is "missing tools") and the catalogue. */
+/**
+ * The launcher's queue gate as it decides (`ops/atlas.ts` `requireApprovedSteps`), over the real
+ * stored recipes: every region needs an approved step on that atlas with those variants that is
+ * not yet rendered (planned or failed). Answers the matched steps, as the launcher does.
+ */
+let jobSeq = 0;
+async function queueGate(runId: string, input: unknown): Promise<AdapterResult> {
+	const q = input as { atlas: string; regions: string[]; variants: number };
+	const rows = await sql<{ recipe_json: StoredRecipe }[]>`
+		select recipe_json from director_regions where run_id = ${runId} and recipe_json is not null`;
+	const steps: { recipe: string; n: number; region: string }[] = [];
+	for (const region of q.regions) {
+		const hit = rows
+			.map((r) => r.recipe_json)
+			.filter((r) => r.approved && r.approved.rev === r.rev)
+			.flatMap((r) => r.steps.map((s) => ({ ...s, recipe: r.region })))
+			.find(
+				(s) =>
+					s.kind !== 'finish' &&
+					s.atlas === q.atlas &&
+					s.region === region &&
+					s.variants === q.variants &&
+					(s.status === 'planned' || s.status === 'failed'),
+			);
+		if (!hit) return { status: 409, body: { error: 'no_approved_step', message: region } };
+		steps.push({ recipe: hit.recipe, n: hit.n, region });
+	}
+	return {
+		status: 200,
+		body: { jobRef: `st_${String(++jobSeq).padStart(16, '0')}`, status: 'queued', steps },
+	};
+}
+
 function fakeLauncher(served: Catalogue = catalogue) {
 	const calls: string[] = [];
 	const ops = new Map<string, AdapterSpec>(
@@ -122,6 +155,7 @@ function fakeLauncher(served: Catalogue = catalogue) {
 		async call(id, body): Promise<AdapterResult> {
 			calls.push(`${body.agent}:${id}`);
 			if (id === 'atlas.list_blueprints') return { status: 200, body: served };
+			if (id === 'atlas.queue_variants') return queueGate(body.runId, body.input);
 			return { status: 404, body: { error: 'unknown_op', message: `No adapter ${id}.` } };
 		},
 	};
@@ -528,6 +562,55 @@ try {
 			'a plan the GPU price cannot cost is never approved automatically',
 			[(await runRow(blind)).status, (await recipes(blind)).every((r) => r.approved === null)],
 			['paused', true],
+		);
+	}
+
+	// ── 6. A rendered step is never rendered again ────────────────────────────
+	console.log('6. a step renders once: not twice in a turn, not again after a resend');
+	{
+		const runId6 = await newRun({ artPlan: false, cap: 40 });
+		const queue = (region: string) =>
+			use('atlas.queue_variants', {
+				atlas: 'symbols',
+				regions: [region],
+				variants: 3,
+				step: `${region}#1`,
+			});
+		const model = fakeModel([
+			{ content: expected.recipes.map(setRecipe) },
+			{ content: [queue('H1'), queue('H1'), queue('H2')] },
+			{ content: [setRecipe(recipeOf('H1')), queue('H1')] },
+		]);
+		await message(runId6, 'atlas-technician', 'Plan the recipes.');
+		await drive(runId6, deps(model.transport, fakeLauncher().launcher));
+		const results = (await toolResults(runId6, 'atlas-technician')).slice(23);
+		check(
+			'the plan is approved (auto), then the first queue of H1 renders and the second in the same turn is refused',
+			[
+				(await recipes(runId6)).every((r) => r.approved?.by === 'auto'),
+				results.slice(0, 3).map((r) => Boolean(r.is_error)),
+			],
+			[true, [false, true, false]],
+		);
+		const h1 = (await recipes(runId6)).find((r) => r.region === 'H1')!;
+		check(
+			'only the matched step is marked queued, with its job',
+			h1.steps.map((st) => [st.status, Boolean(st.jobRef)]),
+			[
+				['queued', true],
+				['planned', false],
+				['planned', false],
+			],
+		);
+		check(
+			'resending the same recipe keeps the rendered step queued and the approval',
+			[h1.rev, h1.steps[0].status, h1.approved?.rev === h1.rev],
+			[2, 'queued', true],
+		);
+		check(
+			'...so the queue after the resend is refused: the region is not re-sampled unseen',
+			Boolean(results.at(-1)?.is_error),
+			true,
 		);
 	}
 

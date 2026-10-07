@@ -1,3 +1,4 @@
+import { DIRECTOR_RUN_BUDGET_DEFAULT_USD } from 'director-costs';
 import {
 	chainLine,
 	defaultChainOf,
@@ -6,8 +7,10 @@ import {
 	validateRecipe,
 	type Catalogue,
 	type DefaultStep,
+	type ProjectionFloor,
 	type RecipeInput,
 	type StoredRecipe,
+	type StoredStep,
 } from 'director-costs/recipe';
 import { applyTransition, insertEvent, runSpend, type Db, type LiveRun } from './store.ts';
 import { transition } from './runState.ts';
@@ -49,6 +52,8 @@ export interface RecipeDeps {
 	catalogue: Catalogue;
 	/** USD per second of the endpoint's GPU, or null when it is unpriced. */
 	usdPerSecond: number | null;
+	/** The projection's floor: the seed seconds per render and the queue delay per job. */
+	floor: ProjectionFloor;
 }
 
 /** The regions the coordinator's latest `run.set_plan` names, each with its batch (group). */
@@ -124,6 +129,7 @@ export async function setRecipe(
 		planRegions: new Set(plan.keys()),
 		others: recipes,
 		usdPerSecond: deps.usdPerSecond,
+		floor: deps.floor,
 	});
 	if (!result.ok) {
 		return {
@@ -132,7 +138,28 @@ export async function setRecipe(
 		};
 	}
 	const rev = (prev?.rev ?? 0) + 1;
-	const next = { steps: result.steps, projected: result.projected };
+	// A step the revision leaves as it was keeps what already happened to it: a rendered step is
+	// never re-opened by a resend, so it cannot be queued (and paid for) again unseen.
+	const same = (a: StoredStep, b: StoredStep) =>
+		a.n === b.n &&
+		a.kind === b.kind &&
+		a.pipeline === b.pipeline &&
+		a.atlas === b.atlas &&
+		a.region === b.region &&
+		a.genPx === b.genPx &&
+		a.variants === b.variants;
+	const steps = result.steps.map((step) => {
+		const was = prev?.steps.find((p) => same(p, step));
+		return was
+			? {
+					...step,
+					status: was.status,
+					...(was.jobRef ? { jobRef: was.jobRef } : {}),
+					...(was.chosen ? { chosen: was.chosen } : {}),
+				}
+			: step;
+	});
+	const next = { steps, projected: result.projected };
 	const keep = prev?.approved && !needsReapproval(prev, next);
 	const recipe: StoredRecipe = {
 		rev,
@@ -203,8 +230,18 @@ async function afterRecipe(
 		.filter((r) => plan.has(r.region) && unapproved(r))
 		.sort((a, b) => order.indexOf(a.region) - order.indexOf(b.region));
 	if (pending.length === 0) return 'every recipe is approved';
-	const projectedUsd = pending.reduce((sum, r) => sum + (r.projected.gpuUsd ?? 0), 0);
-	const unpriced = pending.some((r) => r.projected.gpuUsd === null);
+	// What is still to be paid for: every planned recipe with a step not yet rendered, approved
+	// or not (a recipe's whole projection, which over-counts a half-rendered one: fails closed).
+	const toRender = recipes.filter(
+		(r) =>
+			plan.has(r.region) &&
+			(unapproved(r) ||
+				r.steps.some(
+					(s) => s.kind !== 'finish' && (s.status === 'planned' || s.status === 'failed'),
+				)),
+	);
+	const projectedUsd = toRender.reduce((sum, r) => sum + (r.projected.gpuUsd ?? 0), 0);
+	const unpriced = toRender.some((r) => r.projected.gpuUsd === null);
 	if (live.state.checkpoints.artPlan) {
 		const result = transition(live.state, { type: 'plan_ready' });
 		if (!result.ok) return `the Art plan cannot open now: ${result.error}`;
@@ -224,11 +261,11 @@ async function afterRecipe(
 	}
 	// Fails closed (ADR-0006): a plan the cap cannot price, or one over it, pauses for the owner.
 	const spend = await runSpend(tx, live.id);
-	const cap = live.budgetCapUsd;
-	if (unpriced || (cap !== null && spend.totalUsd + projectedUsd > cap)) {
+	const cap = live.budgetCapUsd ?? DIRECTOR_RUN_BUDGET_DEFAULT_USD;
+	if (unpriced || spend.totalUsd + projectedUsd > cap) {
 		const text = unpriced
 			? 'The Art plan cannot be priced: atlas-tool reports no GPU with a price, so it is not approved automatically. Set RUNPOD_ENDPOINT_GPU, or turn the Art plan checkpoint on, and resume.'
-			: `The Art plan projects $${projectedUsd.toFixed(2)} of GPU, more than is left of the $${(cap ?? 0).toFixed(2)} cap. Raise the cap and resume, or ask for a smaller plan.`;
+			: `The Art plan projects $${projectedUsd.toFixed(2)} of GPU, more than is left of the $${cap.toFixed(2)} cap. Raise the cap and resume, or ask for a smaller plan.`;
 		await insertEvent(tx, live.id, 'worker', 'activity', { type: 'note', text });
 		const result = transition(live.state, { type: 'pause', reason: 'budget_cap' });
 		if (
@@ -239,6 +276,7 @@ async function afterRecipe(
 			await insertEvent(tx, live.id, 'worker', 'checkpoint_open', {
 				checkpoint: 'budget',
 				reason: unpriced ? 'art_plan_unpriced' : 'art_plan',
+				message: text,
 				spentUsd: spend.totalUsd,
 				projectedUsd: Math.round(projectedUsd * 10000) / 10000,
 				capUsd: cap,
@@ -338,21 +376,22 @@ export async function defaultsBrief(db: Db, live: LiveRun): Promise<string> {
 	].join('\n');
 }
 
-/** A queued render advances, per region it covers, the first planned step there to `queued`. */
+/**
+ * A queued render advances exactly the recipe steps the launcher's gate matched for it
+ * (`{ recipe, n }`, planned or failed) to `queued`, with its job.
+ */
 export async function markQueued(
 	tx: Db,
 	runId: string,
-	atlas: string,
-	regions: readonly string[],
+	matched: readonly { recipe: string; n: number }[],
 	jobRef: string,
 ) {
-	const want = new Set(regions);
 	for (const recipe of await loadRecipes(tx, runId)) {
+		const ns = new Set(matched.filter((m) => m.recipe === recipe.region).map((m) => m.n));
+		if (ns.size === 0) continue;
 		let changed = false;
 		const steps = recipe.steps.map((s) => {
-			if (s.kind === 'finish' || s.atlas !== atlas || !want.has(s.region) || s.status !== 'planned')
-				return s;
-			want.delete(s.region);
+			if (!ns.has(s.n) || (s.status !== 'planned' && s.status !== 'failed')) return s;
 			changed = true;
 			return { ...s, status: 'queued' as const, jobRef };
 		});

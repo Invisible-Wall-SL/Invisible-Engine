@@ -337,7 +337,6 @@ async function settle(
 		status === 'running' && state.step === 'breakdown' ? await runHasMockups(ctx) : false;
 	const results = new Map<string, BetaToolResultBlockParam>();
 	let budgetStop: BudgetFigures | null = null;
-	const queued: { atlas: string; regions: string[]; jobRef: string }[] = [];
 	const recipes =
 		status === 'running' &&
 		agent.tools.includes('run.set_recipe') &&
@@ -430,14 +429,15 @@ async function settle(
 		if (unsettled(answer.status, answer.body)) {
 			throw new RetryLater(`${id} answered ${answer.status}`);
 		}
+		// Marked at once, in its own lease-checked write, so a second queue call later in this turn
+		// already finds the step queued and the launcher's gate refuses it. A replayed call returns
+		// the stored result and marks nothing new.
 		if (id === 'atlas.queue_variants' && answer.status === 200) {
-			const job = answer.body as { atlas?: unknown; regions?: unknown; jobRef?: unknown };
-			if (
-				typeof job.atlas === 'string' &&
-				Array.isArray(job.regions) &&
-				typeof job.jobRef === 'string'
-			) {
-				queued.push({ atlas: job.atlas, regions: job.regions.map(String), jobRef: job.jobRef });
+			const job = answer.body as { steps?: unknown; jobRef?: unknown };
+			if (Array.isArray(job.steps) && job.steps.length && typeof job.jobRef === 'string') {
+				const steps = job.steps as { recipe: string; n: number }[];
+				const jobRef = job.jobRef;
+				await withLease(ctx.sql, ctx.run, (tx, live) => markQueued(tx, live.id, steps, jobRef));
 			}
 		}
 		results.set(call.id, resultBlock(call.id, JSON.stringify(answer.body), answer.status !== 200));
@@ -446,7 +446,6 @@ async function settle(
 	await withLease(ctx.sql, ctx.run, async (tx, live) => {
 		// The pause first, so a worker tool later in the turn (a checkpoint request) sees it.
 		if (budgetStop) await pauseForBudget(tx, live, agent.name, budgetStop, 'gpu_submit');
-		for (const job of queued) await markQueued(tx, live.id, job.atlas, job.regions, job.jobRef);
 		const toolCtx = {
 			tx,
 			live,
@@ -500,8 +499,14 @@ async function recipeDeps(ctx: Ctx): Promise<RecipeDeps | undefined> {
 	}
 	if (answer.status !== 200) return undefined;
 	const catalogue = answer.body as RecipeDeps['catalogue'];
-	const perSecond = (await ctx.pricing()).runpod.perSecondByGpu[catalogue.gpu];
-	return { catalogue, usdPerSecond: typeof perSecond === 'number' ? perSecond : null };
+	const pricing = await ctx.pricing();
+	const perSecond = pricing.runpod.perSecondByGpu[catalogue.gpu];
+	return {
+		catalogue,
+		usdPerSecond: typeof perSecond === 'number' ? perSecond : null,
+		// The seed is per render; no per-job delay is measured yet (card 8E's timings).
+		floor: { seedSecondsPerImage: pricing.runpod.seedSecondsPerRender, delaySecondsPerJob: 0 },
+	};
 }
 
 /**

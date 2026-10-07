@@ -135,6 +135,8 @@ export interface ValidationContext {
 	others: readonly StoredRecipe[];
 	/** USD per GPU second for `catalogue.gpu`, or null when unpriced. */
 	usdPerSecond: number | null;
+	/** The projection's floor; none when omitted. */
+	floor?: ProjectionFloor;
 }
 
 export type ValidationResult =
@@ -148,6 +150,8 @@ export const GEN_PX_MAX = 2048;
 const SIZE_KEYS = new Set(['gen_width', 'gen_height']);
 const VARIANT_REF =
 	/^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,119}\/[A-Za-z0-9_][A-Za-z0-9_.()-]{0,119}\/[0-9]{1,8}$/;
+/** A region name as Atlas Maker and the crop keys take it; `..` never. */
+export const REGION_NAME = /^(?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9_.()-]{0,119}$/;
 const STEP_REF = /^step:([0-9]{1,3})$/;
 const SHEET_KEY =
 	/^(?:[a-z0-9_-]+\/[a-z0-9_-]+\/)?(?:sheets|sheet_src)\/[A-Za-z0-9_./() -]{1,300}$/;
@@ -181,22 +185,40 @@ export function secondsAt(card: Card, px: number): number | null {
 }
 
 /** The recipe's projected GPU time and cost, recomputed by code from the cards (§6). */
+/**
+ * What a projection may never go below (ADR-0006, ADR-0008 §6): a card whose seconds are a guess
+ * is priced at no less than the seed seconds per render, and every job adds the queue delay.
+ */
+export interface ProjectionFloor {
+	seedSecondsPerImage: number;
+	delaySecondsPerJob: number;
+}
+
+/**
+ * The recipe's projected GPU time and cost, recomputed by code from the cards (§6). It fails
+ * closed: a size the card has no seconds for leaves the cost unpriced (`gpuUsd` null), and a
+ * guessed card never projects below the floor.
+ */
 export function project(
 	steps: readonly StepInput[],
 	cards: ReadonlyMap<string, Card>,
 	usdPerSecond: number | null,
+	floor: ProjectionFloor = { seedSecondsPerImage: 0, delaySecondsPerJob: 0 },
 ): Projection {
 	let seconds = 0;
 	let placeholder = false;
+	let unknown = false;
 	const batches = new Set<string>();
 	for (const step of steps) {
 		if (step.kind === 'finish') continue;
 		const card = cards.get(step.pipeline);
 		if (!card) continue;
 		const each = secondsAt(card, step.genPx);
-		if (each === null) placeholder = true;
-		if (card.gpu.source !== 'measured') placeholder = true;
-		seconds += (each ?? 0) * step.variants;
+		if (each === null) unknown = true;
+		const measured = card.gpu.source === 'measured';
+		if (!measured) placeholder = true;
+		const perImage = measured ? (each ?? 0) : Math.max(each ?? 0, floor.seedSecondsPerImage);
+		seconds += (perImage + floor.delaySecondsPerJob) * step.variants;
 		const batch = `${step.atlas}\u0000${step.pipeline}`;
 		if (!batches.has(batch)) {
 			batches.add(batch);
@@ -206,8 +228,11 @@ export function project(
 	const gpuSeconds = Math.round(seconds * 10) / 10;
 	return {
 		gpuSeconds,
-		gpuUsd: usdPerSecond === null ? null : Math.round(gpuSeconds * usdPerSecond * 10000) / 10000,
-		placeholder,
+		gpuUsd:
+			usdPerSecond === null || unknown
+				? null
+				: Math.round(gpuSeconds * usdPerSecond * 10000) / 10000,
+		placeholder: placeholder || unknown,
 	};
 }
 
@@ -271,7 +296,9 @@ function refProblem(ref: RefChoice, n: number, label: string): string | null {
 				? null
 				: `${label}: a key is a Sheet Maker image (sheets/… or sheet_src/…)`;
 		case 'mockupCrop':
-			return null;
+			return ref.value === '' || REGION_NAME.test(ref.value)
+				? null
+				: `${label}: a mockup crop is named by its region (or "" for this one)`;
 		case 'variant': {
 			const step = STEP_REF.exec(ref.value);
 			if (step) {
@@ -438,7 +465,11 @@ export function validateRecipe(input: RecipeInput, ctx: ValidationContext): Vali
 			status: 'planned',
 		};
 	});
-	return { ok: true, steps: stored, projected: project(steps, cards, ctx.usdPerSecond) };
+	return {
+		ok: true,
+		steps: stored,
+		projected: project(steps, cards, ctx.usdPerSecond, ctx.floor),
+	};
 }
 
 /**
@@ -453,6 +484,14 @@ export function needsReapproval(
 	const chain = (steps: readonly StepInput[]) =>
 		steps.map((s) => `${s.kind}:${s.pipeline}:${s.atlas}/${s.region}`).join('>');
 	if (chain(prev.steps) !== chain(next.steps)) return true;
+	// More renders, or bigger ones, cost more whatever the projection's rounding says.
+	if (
+		next.steps.some(
+			(step, i) => step.variants > prev.steps[i].variants || step.genPx > prev.steps[i].genPx,
+		)
+	) {
+		return true;
+	}
 	return next.projected.gpuSeconds > prev.projected.gpuSeconds;
 }
 

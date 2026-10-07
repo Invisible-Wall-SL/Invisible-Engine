@@ -44,6 +44,23 @@ export async function doneOpResults(runId: string, op: string): Promise<unknown[
 	return rows.map((r) => r.result);
 }
 
+/** Like `doneOpResults`, over every run of the project `projectKey`. */
+export async function projectOpResults(projectKey: string, op: string): Promise<unknown[]> {
+	const rows = await getDb()
+		.select({ result: directorOps.result })
+		.from(directorOps)
+		.innerJoin(directorRuns, eq(directorRuns.id, directorOps.runId))
+		.where(
+			and(
+				eq(directorRuns.projectKey, projectKey),
+				eq(directorOps.op, op),
+				eq(directorOps.status, 'done'),
+			),
+		)
+		.orderBy(asc(directorOps.createdAt));
+	return rows.map((r) => r.result);
+}
+
 export async function getRun(runId: string): Promise<DirectorRun | null> {
 	const [row] = await getDb().select().from(directorRuns).where(eq(directorRuns.id, runId));
 	return row ?? null;

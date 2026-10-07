@@ -84,6 +84,17 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     `refs/useroutput/<region>_<run>_<sha12>.png`), `deploy_atlas` (never a scratch atlas, never a
     fully-qualified `deploy_path` outside `deploy/`). `queue_variants`, `choose_variant` (now with
     `lock` and the variant's seed), `pack_sheet` and `comfyui.job_status` move to the technician.
+  - **Rendered once:** a resent recipe keeps the status, job and pick of every step it leaves
+    unchanged (same n, kind, pipeline, atlas, region, size, variants), so a rendered step is never
+    re-opened; the launcher answers the steps its gate matched and the worker marks exactly those
+    `queued` at once, so a second queue in the same turn is refused. Scratch atlases are known
+    across the project's runs (`projectOpResults`): an earlier run's is never packed, deployed or
+    given a tile. Ref copies are `director_<atlas>_<sha12 of atlas/region/id>.png` (crops
+    `director_crop_<sha12>.png`); a crop is named by a region. Projections fail closed: an unknown
+    size is unpriced, a guessed card is priced at no less than `seedSecondsPerRender`, more variants
+    or a bigger size need re-approval, and the cap check counts every recipe still to render,
+    against the default cap when the run has none. atlas-tool refuses a Director deploy whose
+    resolved key (an asset-map target too) is not under `<project>/deploy/`.
   - **Queue gate:** `atlas.queue_variants` takes `step` and refuses (`409 no_approved_step`) any
     region with no APPROVED, not yet rendered recipe step on that atlas at the atlas's own pipeline
     (or the region's override), generation size, variant count and the step's settings as the
@@ -109,12 +120,13 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   - **Deploy:** `pnpm --filter director-worker check:idle [--pause]` (the deploy skill runs it)
     before the deploy of the artist's narrowed definition (a running artist would wake without
     `queue_variants`).
-  - Tests: `check:director-adapters` 435, `check:director-runs` 413, `check:recipes` 37,
-    `check:run-state`, `check:agents`, `prove:art-plan` 27, `prove:idle` 6 (both in the Director
+  - Tests: `check:director-adapters` 439, `check:director-runs` 413, `check:recipes` 42,
+    `check:run-state`, `check:agents`, `prove:art-plan` 31, `prove:idle` 6 (both in the Director
     worker workflow).
   - **Open (8E):** the Art plan's own panel and `recipeEdits`, chain pricing in the estimate,
     timings from `job_done`. Recipes of regions a later `run.set_plan` drops stay stored and
-    approved (the queue gate does not read the plan). ⏳ Owed: a live pass with a Director token (no signing secret here).
+    approved (the queue gate does not read the plan). A revision that needs re-approval during
+    `build` cannot reopen `art_plan` (`plan_ready` is allowed in style_pack and regions only). ⏳ Owed: a live pass with a Director token (no signing secret here).
 
 - 2026-10-07 — **A new key can no longer alias a project's R2 folder** (OPEN_QUESTIONS 17, the
   #1085 follow-up). A project's files live under `r2Slug(client)/r2Slug(key)`, so `my_game` beside

@@ -12,6 +12,7 @@ import {
 	chainLine,
 	needsReapproval,
 	presetDefaultChain,
+	project,
 	secondsAt,
 	validateRecipe,
 	type Catalogue,
@@ -239,6 +240,36 @@ check(
 	null,
 );
 check('a guessed card marks the projection a placeholder', stored[0].projected.placeholder, true);
+{
+	const cards = new Map(catalogue.blueprints.map((b) => [b.id, b.card]));
+	const up = { ...h1.steps[1], pipeline: 'fixture_upscale', settings: [] };
+	const floor = { seedSecondsPerImage: 600, delaySecondsPerJob: 5 };
+	check(
+		'a measured card is priced by its seconds plus the delay per job, above no floor',
+		project([up], cards, 1, floor).gpuSeconds,
+		6 + 5 + 30,
+	);
+	check(
+		'a guessed card never projects below the seed seconds per render',
+		project([h1.steps[1]], cards, 1, floor).gpuSeconds,
+		600 + 5 + 60,
+	);
+	const noSeconds = new Map(cards);
+	noSeconds.set('fixture_upscale', {
+		...cards.get('fixture_upscale')!,
+		gpu: { secondsPerImage: {}, coldStart: 0, source: 'measured' },
+	});
+	check(
+		'a size the card has no seconds for leaves the cost unpriced (fails closed)',
+		project([up], noSeconds, 1, floor).gpuUsd,
+		null,
+	);
+}
+refusedFor(
+	'a mockup crop is named by a region',
+	variant(h1, (r) => (r.steps[0].style = { source: 'mockupCrop', value: '../x' })),
+	'a mockup crop is named by its region',
+);
 
 // Re-approval (owner decision 9).
 const approved = { ...stored[0], approved: { by: 'owner', at: 'now', rev: 1 } };
@@ -261,6 +292,14 @@ check(
 	needsReapproval(approved, {
 		...approved,
 		steps: approved.steps.map((st, i) => (i === 1 ? { ...st, region: 'cut_H9' } : st)),
+	}),
+	true,
+);
+check(
+	'more variants need re-approval',
+	needsReapproval(approved, {
+		...approved,
+		steps: approved.steps.map((st, i) => (i === 0 ? { ...st, variants: st.variants + 1 } : st)),
 	}),
 	true,
 );

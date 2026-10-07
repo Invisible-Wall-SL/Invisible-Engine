@@ -1,4 +1,11 @@
-import type { Card, CardSetting, Catalogue, CatalogueEntry } from 'director-costs/recipe';
+import { createHash } from 'node:crypto';
+import {
+	REGION_NAME,
+	type Card,
+	type CardSetting,
+	type Catalogue,
+	type CatalogueEntry,
+} from 'director-costs/recipe';
 import { projectPrefix } from '../../projectPaths';
 import { ConflictError, getObjectBytes, putObjectBytes } from '../../r2';
 import { cropKey } from '../mockups';
@@ -403,6 +410,9 @@ const VARIANT_REF = new RegExp(
 	`^(${atlasProp.pattern.slice(1, -1)})/(${regionProp.pattern.slice(1, -1)})/(${VARIANT_ID.slice(1, -1)})$`,
 );
 const refName = (part: string) => part.replace(/[^A-Za-z0-9_-]+/g, '-');
+/** A short digest of the parts that name a copy: no two (atlas, region, id) share a file. */
+const refDigest = (...parts: string[]) =>
+	createHash('sha256').update(parts.join('\u0000')).digest('hex').slice(0, 12);
 
 /** The full PNG of a variant, through atlas-tool (`/vfull`). */
 async function variantPng(ctx: AdapterContext, atlas: string, region: string, id: string) {
@@ -469,15 +479,18 @@ async function resolveRef(
 			if (!m)
 				throw new AdapterError(400, 'bad_ref', `${label}: a variant is <atlas>/<region>/<id>.`);
 			const [, atlas, from, id] = m;
-			const rel = `refs/director_${refName(atlas)}_${refName(from)}_${id}.png`;
+			const rel = `refs/director_${refName(atlas)}_${refDigest(atlas, from, id)}.png`;
 			await putOnce(`${root}/input/${rel}`, await variantPng(ctx, atlas, from, id));
 			return rel;
 		}
 		case 'mockupCrop': {
 			const of = ref.value || region;
+			if (!REGION_NAME.test(of)) {
+				throw new AdapterError(400, 'bad_ref', `${label}: a mockup crop is named by its region.`);
+			}
 			const got = await getObjectBytes(cropKey(clientKey, projectKey, ctx.run.id, of));
 			if (!got) throw new AdapterError(404, 'no_crop', `No mockup crop for "${of}" in this run.`);
-			const rel = `refs/director_${refName(of)}_crop_${refName(ctx.run.id)}.png`;
+			const rel = `refs/director_crop_${refDigest(ctx.run.id, of)}.png`;
 			await putOnce(`${root}/input/${rel}`, got.body);
 			return rel;
 		}
@@ -753,7 +766,7 @@ export const setOutput = defineOp<
 		`${projectPrefix(scope.clientKey, scope.projectKey)}/input/refs/useroutput/`,
 	],
 	handler: async (ctx, { atlas, region, from, base }) => {
-		if ((await scratchAtlases(ctx)).has(atlas)) {
+		if ((await scratchAtlases(ctx, 'project')).has(atlas)) {
 			throw new AdapterError(
 				409,
 				'scratch_atlas',
@@ -805,7 +818,7 @@ export const deployAtlas = defineOp<{ atlas: string }, { atlas: string; message:
 		`${projectPrefix(scope.clientKey, scope.projectKey)}/deploy/`,
 	],
 	handler: async (ctx, { atlas }) => {
-		if ((await scratchAtlases(ctx)).has(atlas)) {
+		if ((await scratchAtlases(ctx, 'project')).has(atlas)) {
 			throw new AdapterError(
 				409,
 				'scratch_atlas',
@@ -817,7 +830,12 @@ export const deployAtlas = defineOp<{ atlas: string }, { atlas: string; message:
 			.replace(/\\/g, '/')
 			.replace(/^\/+|\/+$/g, '');
 		const root = projectPrefix(ctx.scope!.clientKey, ctx.scope!.projectKey);
-		if (raw.includes('..') || (raw.startsWith(`${root}/`) && !raw.startsWith(`${root}/deploy/`))) {
+		// atlas-tool re-checks the key it resolves (an asset-map target too) for a Director token.
+		if (
+			raw.includes('..') ||
+			raw === root ||
+			(raw.startsWith(`${root}/`) && !raw.startsWith(`${root}/deploy/`))
+		) {
 			throw new AdapterError(
 				409,
 				'deploy_path',

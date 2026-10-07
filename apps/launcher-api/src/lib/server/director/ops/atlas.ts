@@ -9,7 +9,7 @@ import {
 	type DocBase,
 } from '../atlasClient';
 import { JOB_REF, callbackFor, readJobView, runpodUsageOf, startAtlasJobWatch } from '../atlasJobs';
-import { doneOpResults, getAtlasJob, insertAtlasJob, runRecipes } from '../store';
+import { doneOpResults, getAtlasJob, insertAtlasJob, projectOpResults, runRecipes } from '../store';
 
 /**
  * Atlas Maker adapters (PLAN 2.4). Reads come straight from the project's manifests in R2, the
@@ -203,8 +203,14 @@ export const writesManifest = (
 ) => [manifestKey(scope, input.atlas)];
 
 /** The atlases this run made with `atlas.duplicate_atlas`: its scratch atlases (ADR-0008 §5). */
-export async function scratchAtlases(ctx: AdapterContext): Promise<Set<string>> {
-	const results = await doneOpResults(ctx.run.id, 'atlas.duplicate_atlas');
+export async function scratchAtlases(
+	ctx: AdapterContext,
+	of: 'run' | 'project' = 'run',
+): Promise<Set<string>> {
+	const results =
+		of === 'run'
+			? await doneOpResults(ctx.run.id, 'atlas.duplicate_atlas')
+			: await projectOpResults(ctx.run.projectKey, 'atlas.duplicate_atlas');
 	return new Set(
 		results
 			.map((r) => (r as { atlas?: unknown } | null)?.atlas)
@@ -243,7 +249,7 @@ async function requireApprovedSteps(
 	regions: string[],
 	variants: number,
 	step: string,
-) {
+): Promise<{ recipe: string; n: number; region: string }[]> {
 	if (ctx.run.waitingOn === 'art_plan') {
 		throw new AdapterError(
 			409,
@@ -268,7 +274,9 @@ async function requireApprovedSteps(
 	const approvedSteps = recipes
 		.filter((r) => r.approved && r.approved.rev === r.rev)
 		.flatMap((r) =>
-			r.steps.filter((s) => (s.atlas === r.atlas ? s.region === r.region : scratch.has(s.atlas))),
+			r.steps
+				.filter((s) => (s.atlas === r.atlas ? s.region === r.region : scratch.has(s.atlas)))
+				.map((s) => ({ ...s, recipe: r.region })),
 		)
 		// Rendered once: an approved region is never re-sampled (§5); a redo is a new revision.
 		.filter((s) => !s.status || s.status === 'planned' || s.status === 'failed');
@@ -290,6 +298,7 @@ async function requireApprovedSteps(
 		);
 	}
 	const problems: string[] = [];
+	const matched: { recipe: string; n: number; region: string }[] = [];
 	for (const name of regions) {
 		const r = requireRegion(m, name);
 		const pipeline = r.pipeline?.trim().toLowerCase() || atlasPipe;
@@ -306,6 +315,8 @@ async function requireApprovedSteps(
 		);
 		if (!match) {
 			problems.push(`${name} (${pipeline} ${genW} px ×${variants})`);
+		} else {
+			matched.push({ recipe: match.recipe, n: match.n, region: name });
 		}
 	}
 	if (problems.length) {
@@ -315,6 +326,7 @@ async function requireApprovedSteps(
 			`No approved, not yet rendered recipe step renders ${problems.join(', ')} on "${m.atlas}" with the settings it now holds. Check the atlas setup against the approved recipe, or revise the recipe (run.set_recipe) for the owner.`,
 		);
 	}
+	return matched;
 }
 
 export const listRegions = defineOp<
@@ -450,6 +462,8 @@ export const queueVariants = defineOp<
 		variants: number;
 		callback: boolean;
 		tracked: boolean;
+		/** The approved recipe steps this render runs, for the worker to mark queued. */
+		steps: { recipe: string; n: number; region: string }[];
 	}
 >({
 	tool: 'atlas',
@@ -486,11 +500,12 @@ export const queueVariants = defineOp<
 			throw new AdapterError(400, 'invalid_input', 'Name at least one region.');
 		const m = await loadManifest(ctx, atlas);
 		for (const name of names) requireRegion(m, name);
+		let steps: { recipe: string; n: number; region: string }[] = [];
 		// The technician renders only approved recipe steps. The artist's definition still queues
 		// renders the pre-8D way until its narrowed definition, without the tool, ships.
 		if (ctx.agent !== 'atlas-artist') {
 			if (!step) throw new AdapterError(400, 'invalid_input', 'Name the recipe step (`step`).');
-			await requireApprovedSteps(ctx, m, names, variants, step);
+			steps = await requireApprovedSteps(ctx, m, names, variants, step);
 		}
 		let callback = callbackFor(ctx.run.id);
 		const render = () =>
@@ -539,6 +554,7 @@ export const queueVariants = defineOp<
 			variants,
 			callback: callback !== null,
 			tracked,
+			steps,
 		};
 	},
 });
@@ -721,7 +737,7 @@ export const packSheet = defineOp<
 	],
 	handler: async (ctx, { atlas }) => {
 		await loadManifest(ctx, atlas);
-		if ((await scratchAtlases(ctx)).has(atlas)) {
+		if ((await scratchAtlases(ctx, 'project')).has(atlas)) {
 			throw new AdapterError(
 				409,
 				'scratch_atlas',
