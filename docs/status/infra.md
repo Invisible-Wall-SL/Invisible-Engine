@@ -63,8 +63,9 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   going down passes with a notice to lower it. A crashed run (no `COMPLETED` line) fails.
 - **Dependabot** (`.github/dependabot.yml`): weekly grouped npm / pip / github-actions updates, capped
   open PRs, gated by the same required checks. Its security updates wait on the owner switch
-  (Blocked). The Spine runtimes (`@esotericsoftware/*`) get 4.2.x patches only, and
-  `scripts/check-spine-version.mjs` (check:all) fails a hand bump past 4.2 (2026-10-01 below).
+  (Blocked). There is no rig runtime package to pin any more — rigs run on our own
+  `packages/engine-rig` — and `scripts/check-rig-runtime-free.mjs` (check:all) fails any
+  third-party rig runtime manifest entry, lockfile entry, import or vendored file (2026-10-06 below).
 
 ## Open items / next
 1. **Pin a Railway `/data` persistent volume** on atlas-tool + sheet-tool — the incremental-hydrate
@@ -123,6 +124,10 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-10-06 — **rig runtime gate replaced.** The old version gate (which pinned
+  the third-party runtime packages to 4.2.x) is gone with the packages themselves; the new
+  `scripts/check-rig-runtime-free.mjs` fails any of them coming back, and `.github/dependabot.yml`
+  drops its rig ignore block. Detail: `docs/status/rigger.md` (Phase 6, `engine-rig`).
 - 2026-10-01 — **The runtime release verifier accepts an inlined bundle.** #936's release
   (`lines@e81c0c21ce3f`) went red at "verify the served bundle" after 15 min and opened #940, though
   every game was already serving it. SvelteKit 2.70 deletes the emitted `bundle.<hash>.js` once it
@@ -133,7 +138,7 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   `publish-game-via-portal.mjs` and the desktop `verify_deploy_live()` only match the marker inside
   `index.html`, so they were unaffected. Source maps: open item 7.
 - 2026-10-01 — **Dependabot's 34-package npm group (#929) and TypeScript 5.9.3 (#915) land in one
-  PR.** This is a runtime release: pixi.js 8.8 → 8.21, svelte 5.35 → 5.57, spine-pixi-v8 4.2.74 →
+  PR.** This is a runtime release: pixi.js 8.8 → 8.21, svelte 5.35 → 5.57, the reference Pixi runtime 4.2.74 →
   4.2.120, SvelteKit 2.17 → 2.70, xstate, tsx 4.23, esbuild 0.28 and more. #929 was red for four
   reasons, plus one finding:
   - ESLint: svelte 5.57 no longer emits two a11y warnings, so two `svelte-ignore` comments became
@@ -146,30 +151,30 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   - `tools/flow-spike:slamcounter`: tsx ≥ 4.20 resolves through `module.registerHooks` and
     short-circuits every specifier, so the stub's off-thread `register()` hook never ran
     (ERR_UNKNOWN_FILE_EXTENSION ".svelte"). It now registers in-thread.
-  - `cinematic-pixi`'s source regex broke on spine-pixi-v8's rewritten `autoUpdate` setter. Verdict
+  - `cinematic-pixi`'s source regex broke on the reference Pixi runtime's rewritten `autoUpdate` setter. Verdict
     and the behavioural replacement: [cinematic](cinematic.md). The seven esbuild spikes stopped
     hard-coding `esbuild@0.25.5` ([rigger](rigger.md)).
   - Found in the browser proof: `<Cinematic>` had thrown on every in-game mount since it was written.
     The cause is a pre-existing bug, not the bump ([cinematic](cinematic.md)).
   - Before merge: a local `apps/lines` build played the remake's live data at 60 fps on the headless
     shell, against the book mock with `BIG_WIN=1`. It covered spins, a MEGA WIN, a bought 10-spin
-    round with intro and outro, and the cinematic. Every spine track ran at 1.00× real time, no
+    round with intro and outro, and the cinematic. Every rig track ran at 1.00× real time, no
     update ran twice in a tick, and there were 0 console errors. The 13
     `[Cache] already has key` warnings are also on the live pixi 8.8 build.
-- 2026-10-01 — **Dependabot stops offering Spine 4.3.** The weekly `npm-minor-patch` group (#911)
-  carried `@esotericsoftware/spine-core` + `spine-pixi-v8` 4.2.74 → 4.3.13 among 34 bumps, because
-  semver calls it a minor. For Spine it is a data-format boundary: the runtime must match the editor
+- 2026-10-01 — **Dependabot stops offering 4.3-format.** The weekly `npm-minor-patch` group (#911)
+  carried the reference runtime + the reference Pixi runtime 4.2.74 → 4.3.13 among 34 bumps, because
+  semver calls it a minor. For rig it is a data-format boundary: the runtime must match the editor
   version, and every exported skeleton and the Rigger's `.irig` are 4.2 JSON. CI caught it only
-  because the Rigger spikes hard-coded the `.pnpm/…spine-core@4.2.74` store path
+  because the Rigger spikes hard-coded the reference core runtime's 4.2.74 `.pnpm` store path
   (ERR_MODULE_NOT_FOUND).
-  - `.github/dependabot.yml` ignores `semver-major` and `semver-minor` for `@esotericsoftware/*`
+  - `.github/dependabot.yml` ignores `semver-major` and `semver-minor` for the third-party runtime packages
     (4.2.x patches still come). A 4.3 move is a project: re-export the assets, move the Rigger's
-    format, the vendored `spine-webgl` and the spikes.
-  - New gate `scripts/check-spine-version.mjs` (discovered by check:all): every tracked
-    `package.json`'s `@esotericsoftware/*` spec must be `4.2.x` / `~4.2.x` (a `^` range is refused —
+    format, the vendored reference WebGL runtime and the spikes.
+  - New version gate (discovered by check:all; since replaced by `scripts/check-rig-runtime-free.mjs`): every tracked
+    `package.json`'s third-party runtime spec must be `4.2.x` / `~4.2.x` (a `^` range is refused —
     a fresh lock could resolve 4.3), and every lockfile entry must resolve to 4.2.x. Mutants: a
-    `^4.3.13` spec in pixi-svelte and a `spine-core@4.3.13` lockfile key each fail it, exit 1.
-  - The spikes resolve Spine through one helper, `tools/rigger-spike/spine.mjs` ([rigger](rigger.md)).
+    `^4.3.13` spec in pixi-svelte and a 4.3.13 core-runtime lockfile key each fail it, exit 1.
+  - The spikes resolve rig through one helper, `tools/rigger-spike/rig.mjs` ([rigger](rigger.md)).
   - #911 was asked to `@dependabot recreate` once this landed.
 - 2026-09-30 — **The "no devtools endpoint" flake in the required `check-all (n/3)` jobs is fixed**
   (PR #921).

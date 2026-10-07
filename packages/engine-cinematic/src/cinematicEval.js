@@ -3,9 +3,9 @@
 // This is the module design/invisible-cinematic.md §4.3 calls "one blend engine, not two":
 // the SAME code must drive the `/rigger` cinematic preview and the in-game `<Cinematic>`
 // component. It is therefore written as a portable ES module with NO imports — the caller
-// injects the spine enums + resolved clips (`ctx`), so it runs headless (this spike), in
+// injects the rig enums + resolved clips (`ctx`), so it runs headless (this spike), in
 // `static/rigger/cinematic.js` against the vendored minified runtime, and in the engine
-// against `@esotericsoftware/spine-pixi-v8`, without a fork.
+// against `engine-rig`, without a fork.
 //
 // THERE IS EXACTLY ONE COPY OF THIS FILE and it lives here, under `static/`, because that is the
 // only place all three consumers can reach: the browser loads it as `/shared/cinematicEval.mjs`
@@ -17,7 +17,7 @@
 // ======================= WHAT THE GATE ESTABLISHED (cinematic.mjs) =======================
 //
 // MIX BLEND per strip — the rule that makes layering correct (mirrors how AnimationState
-// treats track 0 vs tracks 1+, read off spine-core AnimationState.applyAnimation):
+// treats track 0 vs tracks 1+, read off engine-rig AnimationState.applyAnimation):
 //   • the FIRST non-additive strip applied to an actor this frame → MixBlend.setup
 //   • every later non-additive strip                              → MixBlend.replace
 //   • an additive strip                                           → MixBlend.add,
@@ -35,7 +35,7 @@
 //
 // A LAYER PASSES THROUGH BEFORE ITS OWN FIRST KEY. Under `MixBlend.replace`, a bone timeline
 // applied at a time earlier than its first keyframe returns WITHOUT touching the property
-// (spine-core `CurveTimeline*.apply`, the `if (time < frames[0])` branch) — while the same
+// (engine-rig `CurveTimeline*.apply`, the `if (time < frames[0])` branch) — while the same
 // timeline under `MixBlend.setup` snaps the property to its setup value. So a partial-body
 // layer leaves properties it has not started keying at whatever the layer below set, instead
 // of punching a setup-pose hole in the stack. That is the behaviour authors want, it falls out
@@ -46,7 +46,7 @@
 // re-applies every active strip from scratch, so scrub(t) === play-to(t) exactly (proved
 // bit-for-bit on real 86- and 73-bone rigs). The two deliberate exceptions:
 //   • CUES are edge-triggered (`cuesCrossed`) — they need lastT and must never re-fire on a
-//     scrub. Clip-internal spine events are suppressed here (lastTime === time ⇒ the runtime
+//     scrub. Clip-internal rig events are suppressed here (lastTime === time ⇒ the runtime
 //     collects no events); the cue track is the authored surface.
 //   • Physics constraints integrate over time; the caller advances them only while playing.
 //
@@ -73,7 +73,7 @@ export function expandBoneMask(skeleton, mask) {
 	const names = new Set(mask?.bones ?? []);
 	if (!mask?.includeChildren) return names;
 	// Walk the (already topologically ordered) bone list once: a bone is in the mask if its
-	// parent is. Spine guarantees parents precede children in `skeleton.bones`.
+	// parent is. Rig guarantees parents precede children in `skeleton.bones`.
 	for (const bone of skeleton.bones) {
 		const parent = bone.parent;
 		if (parent && names.has(parent.data.name)) names.add(bone.data.name);
@@ -238,32 +238,32 @@ const restoreBone = (b, s) => {
 
 /**
  * Apply one clip to a skeleton, optionally restricted to a bone mask.
- * `lastTime === time` deliberately: clip-internal spine events must not fire from the pose
+ * `lastTime === time` deliberately: clip-internal rig events must not fire from the pose
  * path (the cue track is the authored event surface, and re-firing on scrub is the classic bug).
  */
-function applyStrip(spine, skeleton, clip, local, alpha, blend, maskNames) {
+function applyStrip(rig, skeleton, clip, local, alpha, blend, maskNames) {
 	if (!maskNames || maskNames.size === 0) {
-		clip.apply(skeleton, local, local, false, null, alpha, blend, spine.MixDirection.mixIn);
+		clip.apply(skeleton, local, local, false, null, alpha, blend, rig.MixDirection.mixIn);
 		return;
 	}
 	const outside = [];
 	for (const bone of skeleton.bones) {
 		if (!maskNames.has(bone.data.name)) outside.push([bone, boneLocal(bone)]);
 	}
-	clip.apply(skeleton, local, local, false, null, alpha, blend, spine.MixDirection.mixIn);
+	clip.apply(skeleton, local, local, false, null, alpha, blend, rig.MixDirection.mixIn);
 	for (const [bone, snap] of outside) restoreBone(bone, snap);
 }
 
 /**
  * Pose ONE actor at cinematic time `t`. Pure in `t` — see the determinism note in the header.
  *
- * @param spine    the runtime namespace ({ MixBlend, MixDirection, Physics }) — injected so the
- *                 module is identical headless / vendored-minified / spine-pixi-v8.
+ * @param rig    the runtime namespace ({ MixBlend, MixDirection, Physics }) — injected so the
+ *                 module is identical headless / vendored bundle / RigView.
  * @param actor    { skeleton, tracks } — `tracks` are this actor's tracks, any order.
  * @param t        cinematic time in seconds.
  * @param resolveClip (strip, actor) => runtime `Animation` (or null to skip the strip).
  */
-export function evaluateActor(spine, actor, t, resolveClip) {
+export function evaluateActor(rig, actor, t, resolveClip) {
 	const { skeleton } = actor;
 	skeleton.setToSetupPose();
 
@@ -285,12 +285,12 @@ export function evaluateActor(spine, actor, t, resolveClip) {
 
 			const additive = strip.blend === 'add';
 			const blend = additive
-				? spine.MixBlend.add
+				? rig.MixBlend.add
 				: firstApplied
-					? spine.MixBlend.replace
-					: spine.MixBlend.setup;
+					? rig.MixBlend.replace
+					: rig.MixBlend.setup;
 
-			applyStrip(spine, skeleton, clip, m.local, alpha, blend, strip.mask && expandBoneMask(skeleton, strip.mask));
+			applyStrip(rig, skeleton, clip, m.local, alpha, blend, strip.mask && expandBoneMask(skeleton, strip.mask));
 			if (!additive) firstApplied = true;
 		}
 	}
@@ -300,7 +300,7 @@ export function evaluateActor(spine, actor, t, resolveClip) {
 // ---- property / camera channels -------------------------------------------
 //
 // A CHANNEL is a sorted list of `{ time, value, ease }` keys. `ease` belongs to the key on the
-// LEFT of a segment (its outgoing interpolation) — the same convention Spine and every dope
+// LEFT of a segment (its outgoing interpolation) — the same convention rig and every dope
 // sheet uses, so "make this key stepped" affects the segment that leaves it.
 //
 // Outside the keyed range a channel HOLDS its first/last value rather than falling back to the

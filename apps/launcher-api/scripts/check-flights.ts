@@ -10,7 +10,7 @@
  *      unknown ease (the values the normalizer cannot repair).
  *   3. THE CLIENT HALF — `setFlightStyle` + `docSignature` mark and unmark dirty, and a draft signs
  *      the same as the doc the server hands back.
- *   4. SHIPPING — a sprite/spine head reaches the symbols asset refs, a flipbook head's clip the
+ *   4. SHIPPING — a sprite/rig head reaches the symbols asset refs, a flipbook head's clip the
  *      clip walk; the exporter, the export endpoint and the bake all carry the block (the bake by
  *      RUNNING its `lib/bakeFlights.mjs`); the runtime bundle's and the bake's reachable-effects
  *      sources keep the same ids; the game reads it through one accessor and resolves every flight
@@ -232,8 +232,8 @@ rejects('a non-object block', { flights: 'toTotal' });
 		true,
 	);
 	check(
-		'a spine head ships its bundle through the symbols export',
-		refs.spineKeys.has('c/p/spines/star/'),
+		'a rig head ships its bundle through the symbols export',
+		refs.rigKeys.has('c/p/spines/star/'),
 		true,
 	);
 	const clips = new Set<string>();
@@ -241,7 +241,7 @@ rejects('a non-object block', { flights: 'toTotal' });
 	check('a flipbook head is a clip the art export ships', clips.has('clip-gold'), true);
 	check(
 		'no flights ⇒ no extra refs',
-		json([...collectSymbolRefs(emptySymbolsDoc()).spineKeys]),
+		json([...collectSymbolRefs(emptySymbolsDoc()).rigKeys]),
 		json([]),
 	);
 

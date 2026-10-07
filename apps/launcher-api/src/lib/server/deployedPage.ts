@@ -3,7 +3,7 @@ import type { ListedObject } from './r2';
 /**
  * Deploy subtrees that hold pages we DERIVED from another page, and which must never be
  * read back as a source page. `editor-<kind>` is the editor's per-component/per-symbol
- * bakes; `_boot` is the boot-splash mirror (already Spine-reoriented); `_pages` is the
+ * bakes; `_boot` is the boot-splash mirror (already rig-reoriented); `_pages` is the
  * shared content-addressed page store.
  */
 const DERIVED_SUBTREE_RE = /^(?:editor-[^/]+|_boot|_pages)\//;
@@ -15,7 +15,7 @@ const SAME_BATCH_MS = 10_000;
  * Pick the DEPLOYED page image (a listing of `deploy/…`) whose basename stem is
  * in `stems`. `deploy/` is the live-asset source of truth, so a match means the
  * editor shows exactly what the game loads. Shared by the region-sprite resolver
- * (`editorRegions.ts`) and the spine page resolver (`spine.ts`).
+ * (`editorRegions.ts`) and the rig page resolver (`rig.ts`).
  *
  * - EVERY DERIVED BAKE SUBTREE is EXCLUDED — `deploy/editor-<kind>/` (`editor-art`,
  *   `editor-symbols`, …), `deploy/_boot/` and `deploy/_pages/`. These are outputs we
@@ -30,8 +30,8 @@ const SAME_BATCH_MS = 10_000;
  *        `deploy/sprites/S_Game_Reel` page, out-sorted it and were empty at the rect.)
  *
  *     2. DOUBLE-REORIENTED ROTATED REGIONS — `deploy/_boot/<tier>/` holds a COPY of a
- *        spine bundle's page, under the SAME filename, already reoriented 180° for
- *        Spine (`reorientRotatedRegionsForSpine`). It is rewritten on every deploy
+ *        rig bundle's page, under the SAME filename, already reoriented 180° for
+ *        Rig (`reorientRotatedRegionsForRig`). It is rewritten on every deploy
  *        export, so it is always the NEWEST match and wins the ranking. `⟳ Re-sync
  *        atlas` then re-derives the bundle from it and reorients AGAIN, leaving every
  *        rotated region 180° out — a rig that rendered correctly comes back upside

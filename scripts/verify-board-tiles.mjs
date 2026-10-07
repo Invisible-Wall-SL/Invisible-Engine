@@ -616,14 +616,14 @@ const symbolDimmed = compileSlice({
 console.log('5. the rule-8 ship chain: collectArtRefs sees the tile');
 const EXPORT_SRC = read('apps/launcher-api/src/lib/server/editorArtExport.ts');
 // Every stub name is IMPORTED, not faked. `collectArtRefs` asks
-// `staticSpineKeyIsReachable` which of the two spine sets a node's static `assetKey` belongs
+// `staticRigKeyIsReachable` which of the two rig sets a node's static `assetKey` belongs
 // in (#734), and it is free in the slice — a stub would let this fixture pass while the real
 // pair diverged, and leaving it out entirely arms a `ReferenceError` for the first case that
-// places a spine node. `instanceParamMaps` is the same for the first componentInstance. All three
+// places a rig node. `instanceParamMaps` is the same for the first componentInstance. All three
 // modules are dependency-free on purpose so Node can load them.
 const collectArtRefs = compileSlice({
 	what: 'verify-board-tiles / editorArtExport.ts#collectArtRefs',
-	names: ['parseScopedFrameRef', 'staticSpineKeyIsReachable', 'instanceParamMaps'],
+	names: ['parseScopedFrameRef', 'staticRigKeyIsReachable', 'instanceParamMaps'],
 	body: [
 		sliceFunction(EXPORT_SRC, 'isManifestAssetKey', 'editorArtExport.ts'),
 		sliceFunction(EXPORT_SRC, 'isImageAssetKey', 'editorArtExport.ts'),
@@ -634,7 +634,7 @@ const collectArtRefs = compileSlice({
 	].join('\n'),
 })(
 	(await import('../packages/engine-layout/src/lib/editorArtKey.ts')).parseScopedFrameRef,
-	(await import('../apps/launcher-api/src/lib/spineBundleKey.ts')).staticSpineKeyIsReachable,
+	(await import('../apps/launcher-api/src/lib/rigBundleKey.ts')).staticRigKeyIsReachable,
 	(await import('../packages/engine-layout/src/lib/componentParams.ts')).instanceParamMaps,
 );
 
@@ -646,21 +646,21 @@ const refsFor = (nodes, defs = {}) => {
 		usedRegions: [...refs.usedRegions],
 		regionNames: [...refs.regionNames],
 		imageKeys: [...refs.imageKeys],
-		spineKeys: [...refs.spineKeys],
-		spineFallbackKeys: [...refs.spineFallbackKeys],
+		rigKeys: [...refs.rigKeys],
+		rigFallbackKeys: [...refs.rigFallbackKeys],
 	};
 };
 
 {
-	// NOT a tile claim — this is what keeps the `staticSpineKeyIsReachable` stub HONEST. #734 split
-	// the spine branch in two through that call, and it is free in the slice: with no case that
-	// places a spine node, the injected name could be deleted, or quietly replaced by a stub that
+	// NOT a tile claim — this is what keeps the `staticRigKeyIsReachable` stub HONEST. #734 split
+	// the rig branch in two through that call, and it is free in the slice: with no case that
+	// places a rig node, the injected name could be deleted, or quietly replaced by a stub that
 	// always says `true`, and every assertion here would still pass. The two sets it sorts into are
-	// the whole point of the split (only `spineKeys` is reported as stranded), so assert the fork
+	// the whole point of the split (only `rigKeys` is reported as stranded), so assert the fork
 	// both ways.
-	const SPINE = 'invisible_wall/knights/spines/R_Cage_Freespin/';
-	const node = { kind: 'spine', id: 'cage', assetKey: SPINE };
-	deepSame('a scene spine key is reachable, so it reports', refsFor([node]).spineKeys, [SPINE]);
+	const RIG = 'invisible_wall/knights/spines/R_Cage_Freespin/';
+	const node = { kind: 'spine', id: 'cage', assetKey: RIG };
+	deepSame('a scene rig key is reachable, so it reports', refsFor([node]).rigKeys, [RIG]);
 	const bound = {
 		root: {
 			kind: 'container',
@@ -672,10 +672,10 @@ const refsFor = (nodes, defs = {}) => {
 	const refs = refsFor([], { def: bound });
 	deepSame(
 		'…but a key shadowed by a param default is a FALLBACK, never reported',
-		refs.spineKeys,
+		refs.rigKeys,
 		[],
 	);
-	deepSame('…and is still exported', refs.spineFallbackKeys, [SPINE]);
+	deepSame('…and is still exported', refs.rigFallbackKeys, [RIG]);
 }
 
 {
@@ -715,8 +715,8 @@ const refsFor = (nodes, defs = {}) => {
 		usedRegions: [],
 		regionNames: [],
 		imageKeys: [],
-		spineKeys: [],
-		spineFallbackKeys: [],
+		rigKeys: [],
+		rigFallbackKeys: [],
 	});
 }
 {

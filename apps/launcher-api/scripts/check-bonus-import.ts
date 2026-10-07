@@ -4,12 +4,12 @@
  *
  * Runs the REAL `projectBonusImport.ts`, the scaffold, the pots overlay add-on and the doc stores
  * over an in-memory R2; only R2, the project lookup, leases and the bundle cache are stubbed. The
- * source is `hw-classic-sample` as the Game Maker creates it (Classic sticky preset), with a spine
+ * source is `hw-classic-sample` as the Game Maker creates it (Classic sticky preset), with a rig
  * bound in `/symbols`, a Flow section and Win Text authored. What it pins:
  *  - an import into a 3 Pots Book-of host replaces the host's Hold and Win bonus only when asked,
  *    and copies the config, the `/symbols` bindings, the mode's screens, its Flow section and its
  *    Win Text lines, leaving every other part of every doc byte-identical;
- *  - a spine under the source's prefix is promoted to `_shared/spines/imported/…` (files and index
+ *  - a rig under the source's prefix is promoted to `_shared/spines/imported/…` (files and index
  *    entry) and the reference rewritten, so it exports;
  *  - the SOURCE is never written;
  *  - a re-sync picks up an edit made in the source and moves nothing else;
@@ -81,7 +81,7 @@ mock.module(src('lib/server/r2.ts'), {
 		listAllObjects: async (prefix: string) =>
 			sortedKeys(prefix).map((key) => ({ key, size: R2.get(key)!.body.length, lastModified: 1 })),
 		listObjects: async () => ({ keys: [], prefixes: [] }),
-		// Never reached by an import; the spine module's graph imports them.
+		// Never reached by an import; the rig module's graph imports them.
 		getObjectBytes: async (key: string) =>
 			R2.has(key) ? { bytes: Buffer.from(R2.get(key)!.body), etag: R2.get(key)!.etag } : null,
 		putObjectBytes: async () => {
@@ -126,10 +126,10 @@ const ME = 'session-me';
 
 const {
 	applyBonusImport,
-	rewriteSourceSpines,
+	rewriteSourceRigs,
 	mergeImportedScreens,
 	mergeImportedWinText,
-	importedSpineBundle,
+	importedRigBundle,
 } = await import('../src/lib/server/projectBonusImport.ts');
 const { applyPotsOverlayAddOn } = await import('../src/lib/server/projectAddOn.ts');
 const { scaffoldProject } = await import('../src/lib/server/projectScaffold.ts');
@@ -164,15 +164,15 @@ const modeScreens = (layout: LayoutDoc) =>
 
 // ─── the two projects ─────────────────────────────────────────────────────────────────────────
 
-const SPINE_ROOT = SUB.spines(CLIENT, SOURCE);
-const COIN_SPINE = `${SPINE_ROOT}/coin`;
-const SHARED_COIN = `_shared/spines/${importedSpineBundle(HOST, SOURCE, 'coin')}`;
+const RIG_ROOT = SUB.spines(CLIENT, SOURCE);
+const COIN_RIG = `${RIG_ROOT}/coin`;
+const SHARED_COIN = `_shared/spines/${importedRigBundle(HOST, SOURCE, 'coin')}`;
 
-/** `hw-classic-sample` as created in the Game Maker, then authored: a spine on BONUS, a Flow
+/** `hw-classic-sample` as created in the Game Maker, then authored: a rig on BONUS, a Flow
  *  section for the feature, its own jackpot and feature copy. */
 async function makeSource() {
 	await scaffoldProject(CLIENT, SOURCE, { holdAndWinPreset: 'classic' });
-	put(`${SPINE_ROOT}/skeletons.json`, {
+	put(`${RIG_ROOT}/skeletons.json`, {
 		skeletons: [
 			{
 				name: 'coin',
@@ -185,14 +185,14 @@ async function makeSource() {
 			},
 		],
 	});
-	put(`${COIN_SPINE}/coin.json`, '{"skeleton":{}}');
-	put(`${COIN_SPINE}/coin.atlas`, 'coin.png');
-	put(`${COIN_SPINE}/coin.png`, 'PNG');
+	put(`${COIN_RIG}/coin.json`, '{"skeleton":{}}');
+	put(`${COIN_RIG}/coin.atlas`, 'coin.png');
+	put(`${COIN_RIG}/coin.png`, 'PNG');
 	const symbols = storedJson<{ version: 1; symbols: Record<string, unknown> }>(
 		symbolsDocKey(CLIENT, SOURCE),
 	) ?? { version: 1, symbols: {} };
 	symbols.symbols.BONUS = {
-		static: { type: 'spine', assetKey: `${COIN_SPINE}/`, animationName: 'idle' },
+		static: { type: 'spine', assetKey: `${COIN_RIG}/`, animationName: 'idle' },
 	};
 	(symbols as Record<string, unknown>).names = { BONUS: { singular: 'Gold coin' } };
 	put(symbolsDocKey(CLIENT, SOURCE), symbols);
@@ -248,9 +248,9 @@ const run = (opts: Partial<Parameters<typeof applyBonusImport>[2]> = {}) =>
 
 console.log('\n1. pure helpers');
 
-await check('a spine under the source prefix is rewritten to its imported shared bundle', () => {
-	const out = rewriteSourceSpines(
-		{ a: `${COIN_SPINE}/`, b: [`${COIN_SPINE}`], c: `${SUB.spines(CLIENT, HOST)}/own/`, d: 3 },
+await check('a rig under the source prefix is rewritten to its imported shared bundle', () => {
+	const out = rewriteSourceRigs(
+		{ a: `${COIN_RIG}/`, b: [`${COIN_RIG}`], c: `${SUB.spines(CLIENT, HOST)}/own/`, d: 3 },
 		CLIENT,
 		SOURCE,
 		HOST,
@@ -377,7 +377,7 @@ await check(
 		same(
 			symbols.symbols.BONUS?.static?.assetKey,
 			`${SHARED_COIN}/`,
-			'BONUS names the promoted spine',
+			'BONUS names the promoted rig',
 		);
 		same(symbols.names?.BONUS, { singular: 'Gold coin' }, 'its display name came too');
 		same(symbols.symbols.POT_RED, hostBefore.symbols.symbols.POT_RED, 'a token binding is kept');
@@ -388,7 +388,7 @@ await check(
 		const index = storedJson<{ skeletons: { folder: string }[] }>('_shared/spines/skeletons.json');
 		same(
 			index.skeletons.map((e) => e.folder),
-			[importedSpineBundle(HOST, SOURCE, 'coin')],
+			[importedRigBundle(HOST, SOURCE, 'coin')],
 			'the shared index',
 		);
 
@@ -470,7 +470,7 @@ await check('a re-sync picks up a source edit and moves nothing else', async () 
 	assert(out.resynced && !out.replaced, 'not a re-sync');
 	same(
 		Object.fromEntries(Object.entries(out.parts).map(([k, p]) => [k, p.status])),
-		// The spine is promoted again on every run, so a source re-export reaches the copy.
+		// The rig is promoted again on every run, so a source re-export reaches the copy.
 		{ symbols: 'present', layout: 'present', flow: 'present', winText: 'added', spines: 'added' },
 		'parts',
 	);
@@ -543,10 +543,10 @@ await check(
 	},
 );
 
-console.log('\n4. spines and screens');
+console.log('\n4. rigs and screens');
 
-await check('a re-sync carries a spine the source re-exported at the same path', async () => {
-	put(`${COIN_SPINE}/coin.png`, 'PNG v2');
+await check('a re-sync carries a rig the source re-exported at the same path', async () => {
+	put(`${COIN_RIG}/coin.png`, 'PNG v2');
 	const out = await applyBonusImport(CLIENT, HOST, {
 		mode: 'holdAndWin',
 		resync: true,
@@ -557,8 +557,8 @@ await check('a re-sync carries a spine the source re-exported at the same path',
 	same(stored(`${SHARED_COIN}/coin.png`), 'PNG v2', 'the shared copy');
 });
 
-await check('a spine that cannot be promoted keeps its source reference, and says so', async () => {
-	const ghost = `${SPINE_ROOT}/ghost/`;
+await check('a rig that cannot be promoted keeps its source reference, and says so', async () => {
+	const ghost = `${RIG_ROOT}/ghost/`;
 	const symbols = storedJson<{ version: 1; symbols: Record<string, unknown> }>(
 		symbolsDocKey(CLIENT, SOURCE),
 	);
@@ -576,10 +576,7 @@ await check('a spine that cannot be promoted keeps its source reference, and say
 	same(host.symbols.JACKPOT?.static?.assetKey, ghost, 'never a shared key with nothing behind it');
 	same(host.symbols.BONUS?.static?.assetKey, `${SHARED_COIN}/`, 'the promoted one is rewritten');
 	assert(out.parts.spines.note?.includes('ghost'), `no note: ${JSON.stringify(out.parts.spines)}`);
-	assert(
-		!R2.has(`_shared/spines/${importedSpineBundle(HOST, SOURCE, 'ghost')}/`),
-		'a copy appeared',
-	);
+	assert(!R2.has(`_shared/spines/${importedRigBundle(HOST, SOURCE, 'ghost')}/`), 'a copy appeared');
 });
 
 await check(
@@ -701,8 +698,8 @@ await check(
 		);
 		same(
 			symbols.symbols.MUMMY?.static?.assetKey,
-			`_shared/spines/${importedSpineBundle(FS_HOST, BOOK_SOURCE, 'mummy')}/`,
-			'MUMMY bound to its promoted spine',
+			`_shared/spines/${importedRigBundle(FS_HOST, BOOK_SOURCE, 'mummy')}/`,
+			'MUMMY bound to its promoted rig',
 		);
 		assert(
 			symbols.symbols.H1?.static?.assetKey !== 'source-only-H1-art',

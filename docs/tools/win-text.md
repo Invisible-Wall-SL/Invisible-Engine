@@ -62,7 +62,11 @@ row in that tool has a **Name** and a **Plural** box (`H1` → "Banana" / "Banan
 ### The win-line message grid
 
 Rows are your project's symbols, columns are the match counts (**2** to **5
-matching**, then **Any count**).
+matching**, then **Any count**). The rows are the symbols
+[Invisible Symbols](symbols.md) lists: every symbol Invisible Game Config shows **in play**.
+A pots overlay's coins get no row (a coin drops over a cell, never along a line), and neither
+does the scatter. A symbol you take off every reel strip in Game Config loses its
+row here too, but its messages are kept: put it back on a strip and the row returns with them.
 
 A win uses the **most specific** box that has something in it:
 
@@ -120,7 +124,7 @@ printing an empty name — so you never see a blank or a stray `{symbolName}`.
 
 **Show the symbol as an image.** Tick this and the `{symbolName}` in the info-bar
 message is drawn as the symbol's own art, sized to the text, instead of its name. An
-animated symbol (flipbook or spine) is held on its first frame so the sentence stays
+animated symbol (flipbook or rig) is held on its first frame so the sentence stays
 readable, and a symbol with no art falls back to its name.
 
 #### Why expanded wins get their own line

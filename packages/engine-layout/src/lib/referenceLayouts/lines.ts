@@ -194,7 +194,7 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 	// so the scene's `<MainContainer>` scales it; the `componentInstance(win)` is defaulted to
 	// board-centre (its `WinVisual` renders at the node origin under `boundToInstance`), so the ON
 	// default reproduces the OFF board-centred placement. The owner drags to move it. Params default
-	// the shared `bigwin` spine + `slot_win_count` slot (the coded hardcodes), so parity holds.
+	// the shared `bigwin` rig + `slot_win_count` slot (the coded hardcodes), so parity holds.
 	const winVisualScenes: Scene[] = options.winInstance
 		? [
 				{
@@ -373,7 +373,7 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 				// Free-spin board glow: the reel-house backdrop BEHIND the reels. A `game`-space
 				// bind anchor — the coded `BoardFrame` self-shows/animates off the
 				// `boardFrameGlowShow`/`boardFrameGlowHide` signals and sizes itself off the board
-				// layout; the editor only positions it. Drop real art in this scene (a spine
+				// layout; the editor only positions it. Drop real art in this scene (a rig
 				// component whose cues ride `boardGlowShow`/`boardGlowHide`) and the coded glow
 				// steps aside (`hasAuthoredBoardGlow`).
 				id: 'boardGlow',

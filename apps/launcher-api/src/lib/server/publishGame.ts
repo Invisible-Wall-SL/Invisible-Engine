@@ -60,7 +60,7 @@ export interface PublishResult {
 	/** What this publish shipped, flow-wise. `absent` = no stored flow, so the game runs without
 	 *  the flow's screens (free-spin intro/outro); `overridden` = shipped despite validation errors. */
 	flow: FlowPublishCheck['status'] | 'overridden';
-	/** Spine bundles the scene or the symbols doc references that resolved to nothing, so they
+	/** Rig bundles the scene or the symbols doc references that resolved to nothing, so they
 	 *  ship as nothing (`EditorArtIndex.spinesMissing` + `SymbolExportIndex.spinesMissing`).
 	 *  Never blocking — shown next to the publish so the author re-binds them. */
 	spinesMissing: { scene: string[]; symbols: string[] };
@@ -240,27 +240,27 @@ export async function publishGame(
 				`override: ${describeFlowErrors(flowCheck.errors).join(' | ')}`,
 		);
 	}
-	// The stranded-spine report, which this path used to compute and throw away — so the ONLINE
+	// The stranded-rig report, which this path used to compute and throw away — so the ONLINE
 	// publish (the one that shipped the missing free-spin cage) said nothing, and the only warning
 	// was the browser console at boot, right next to the throw it was meant to pre-empt. Logged,
-	// not thrown: a missing spine is visible on screen like a blank sprite, so it warns the way
+	// not thrown: a missing rig is visible on screen like a blank sprite, so it warns the way
 	// the region guard does rather than blocking a publish on legacy data.
-	const spinesMissing = {
+	const rigsMissing = {
 		scene: bundle.editorArt.spinesMissing ?? [],
 		symbols: bundle.symbols.index.spinesMissing ?? [],
 	};
-	if (spinesMissing.scene.length > 0) {
+	if (rigsMissing.scene.length > 0) {
 		console.warn(
-			`[publish] ${projectKey}: ${spinesMissing.scene.length} placed spine bundle(s) resolved to ` +
-				`NOTHING and will be MISSING in-game: ${spinesMissing.scene.join(', ')}. A bundle under ` +
+			`[publish] ${projectKey}: ${rigsMissing.scene.length} placed rig bundle(s) resolved to ` +
+				`NOTHING and will be MISSING in-game: ${rigsMissing.scene.join(', ')}. A bundle under ` +
 				"another project's prefix is not exported into this game — re-pick the rig from this " +
-				'project, or promote it to the shared library (/admin → Spines).',
+				'project, or promote it to the shared library (/admin → rigs).',
 		);
 	}
-	if (spinesMissing.symbols.length > 0) {
+	if (rigsMissing.symbols.length > 0) {
 		console.warn(
-			`[publish] ${projectKey}: ${spinesMissing.symbols.length} bound symbol spine bundle(s) ` +
-				`resolved to NOTHING and will be MISSING in-game: ${spinesMissing.symbols.join(', ')}. ` +
+			`[publish] ${projectKey}: ${rigsMissing.symbols.length} bound symbol rig bundle(s) ` +
+				`resolved to NOTHING and will be MISSING in-game: ${rigsMissing.symbols.join(', ')}. ` +
 				'Re-bind the symbol in Invisible Symbols, or promote the rig to the shared library.',
 		);
 	}
@@ -365,7 +365,7 @@ export async function publishGame(
 		playUrl: url,
 		sounds: soundCheck.licences,
 		flow: flowCheck.status === 'invalid' ? 'overridden' : flowCheck.status,
-		spinesMissing,
+		spinesMissing: rigsMissing,
 		flowScreensMissing: flowScreensMissing(bundle.flowV2, bundle.doc.scenes),
 		holdAndWinConfigMissing,
 		snapshot,

@@ -17,7 +17,7 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - **Admin panel** — `/admin`, tabbed + full-bleed: users, roles, tools, projects, clients, games, sessions, **costs**, plus **Settings** (deploy token, engine boot mark, ComfyUI pod fleet, …). Login expiry configurable.
 - **Costs** — `/admin` → Costs reads RunPod, Railway, Cloudflare R2 and whichever LLM provider Localization bills at, plus **Anthropic (agents)** (Invisible Director's spend, from the `director_spend` ledger), cached 10 min, with euro figures at the ECB rate and a monthly history per calendar year. See [tools/launcher.md](../tools/launcher.md) §Admin → Costs.
 - **Client → project hierarchy** — accounts get scoped project access; R2 is **isolated per `<client>/<project>/`** (one unified repo per project shared by all tools). Home game cards are scoped to the active project (`games.project_key`; null = global). Projects soft-delete (restore / purge from /admin).
-- **Tool pages** — full-page, never iframes: each route runs an auth+role gate then renders in the launcher or `throw redirect(303,…)` (atlas/sheet with a signed launch token; spine/rigger to a static `view.html`). Shared `$lib/ToolTopBar.svelte` (`.iw-toolbar`) owns the chrome (see unified-tool-bar).
+- **Tool pages** — full-page, never iframes: each route runs an auth+role gate then renders in the launcher or `throw redirect(303,…)` (atlas/sheet with a signed launch token; rig/rigger to a static `view.html`). Shared `$lib/ToolTopBar.svelte` (`.iw-toolbar`) owns the chrome (see unified-tool-bar).
 - **Loading screens** — ONE boot experience across stacks: the CRT boot splash (`$lib/BootSplash.svelte` · `static/shared/boot-splash.js` · `iw_common/splash.py`) covers a tool that is still opening; the dimmed overlay + card (`$lib/BusyOverlay.svelte`) covers loading INSIDE an open tool. See `docs/ui-inventory.md` §12.
 - **Tool registry + docs** — `roles.ts` is the single registry; the launcher **serves the guides** at authed `/docs/[slug]` (rendered from `docs/tools/*.md`). `/onboarding` walks each role through its tools with a guide link per tool and saves each user's local-tool install paths (`tool_installs`). CLAUDE.md rule 9 keeps a new/renamed tool from shipping doc-less.
 - **Desktop launcher support** — the `.exe` (separate `invisible-launcher` repo) is served over open routes `/api/launcher/download` + `/api/launcher/latest`; it self-updates via the manifest. `/api/launcher/projects` (session-scoped project sync, with a **derived** build profile from the project's game kind when none is stored — `launcherProfile.ts`, `mockProtocol.ts`), `/api/launcher/game-upload` (the publish relay), `register-game`, `deploy-token` and `git-credentials` (`gamePublish`-gated).
@@ -675,11 +675,11 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     under an open document.
   - Every online tool card links `?project=<the selected project>`, so a tool opens the project
     the dropdown shows. This also covers clicking a card in a side-by-side window before the
-    reload lands. Routes without `resolveToolScope` (`/files`, `/rigger`, `/spine`, `/comfyui`,
+    reload lands. Routes without `resolveToolScope` (`/files`, `/rigger`, `/rig-viewer`, `/comfyui`,
     `/storybook`, `/game-maker`) ignore the param, as before.
   - Guide: [tools/launcher.md § Choosing a project](../tools/launcher.md#choosing-a-project).
     The Duplicate naming half of the report is in [game-maker.md](game-maker.md).
-- 2026-10-02 — **`/admin` → promote spine no longer copies the bundle's `source.json`** into `_shared/spines/`, so a shared bundle is a real snapshot (the sidecar let a re-pack in the authoring project rewrite it). Detail: [editor status](editor.md).
+- 2026-10-02 — **`/admin` → promote rig no longer copies the bundle's `source.json`** into `_shared/spines/`, so a shared bundle is a real snapshot (the sidecar let a re-pack in the authoring project rewrite it). Detail: [editor status](editor.md).
 - 2026-09-30 — **Build uploads client source maps to Sentry when `SENTRY_AUTH_TOKEN` is set** (`vite.config.js` hidden maps → `build` script runs `scripts/sentry-sourcemaps.mjs launcher build`: inject debug IDs, upload for `RAILWAY_GIT_COMMIT_SHA`, delete every `.map`, fail if one is left in `client/_app`). Without the token the build is unchanged. Owner steps: docs/INFRA.md "Readable stack traces — source maps".
 
 ### 2026-10-01 — self-service password change; 12-character minimum
@@ -799,8 +799,8 @@ With desktop launcher v1.0.56 (`invisible-launcher` repo).
   Every `deploy/` writer runs under `runtimeBundleCache.withDeployWrite` (per-project mutex + a
   launcher-wide cap of 2 assembles). Detail in [game-maker.md](game-maker.md).
 
-### 2026-09-28 — asset-pipeline gaps: symbol spines, sounds prune, boot splash in the bake
-- Stranded symbol spines are reported (`SymbolExportIndex.spinesMissing`) at bake, publish and
+### 2026-09-28 — asset-pipeline gaps: symbol rigs, sounds prune, boot splash in the bake
+- Stranded symbol rigs are reported (`SymbolExportIndex.spinesMissing`) at bake, publish and
   boot, and the online publish now shows the author a ⚠ note (`PublishResult.spinesMissing`).
 - `POST /api/editor/export-boot` (deploy-token gate) exports the boot splash, and
   `bake-editor-doc.mjs` calls it before the pull, so desktop/delivery builds ship the current one.
@@ -822,7 +822,7 @@ request named. What exists now:
   client needs that client; `adminPanel` holders who are not admins cannot act on admin accounts;
   a password reset signs the user out everywhere; the DB browser masks `app_settings` values not on
   an allow-list.
-- **Served R2 content** (`/api/editor/asset`, `/api/fonts/asset`, `/spine/file`,
+- **Served R2 content** (`/api/editor/asset`, `/api/fonts/asset`, `/rig-viewer/file`,
   `/api/files/download`) takes its headers from `$lib/server/userContent.ts` (extension allow-list,
   `nosniff`, sandbox CSP, attachment for HTML/SVG/XML); baseline security headers on every dynamic
   response in `hooks.server.ts`; `ADDRESS_HEADER`/`XFF_DEPTH` default in `scripts/start.mjs`; login
@@ -832,7 +832,7 @@ request named. What exists now:
   each was mutation-tested. Verified live on each deploy that every touched route still boots and
   refuses a signed-out caller; the signed-in refusals are open item 5.
 
-### 2026-09-18 — publish capability, native pop-ups, spine guard
+### 2026-09-18 — publish capability, native pop-ups, rig guard
 - **`gamePublish` now actually lets someone publish.** `game-maker/publish` + `publish-all` checked
   `adminPanel`, and `register-game`, `game-upload` and `projects` (POST) compared a literal `'admin'`
   role; all now read `GAME_PUBLISH_CAPABILITY` through `$lib/server/launcherAuth.ts`
@@ -843,9 +843,9 @@ request named. What exists now:
   `beforeNavigate` unsaved-work guards go through `src/lib/unsavedGuard.ts`, which **cancels first
   and re-issues on confirm** (`history.go(delta)` for Back/Forward). `check:native-dialogs` fails on
   a re-introduced call. Out of scope: `static/rigger/cinematic.js` (6 calls, vanilla JS).
-- **A spine the build could not resolve no longer ships in silence.** `EditorArtIndex.spinesMissing`
-  collects every placed spine whose bundle prefix resolved to nothing; the bake, the online publish
-  and game boot all report it (`$lib/spineBundleKey.ts`, `check:spine-bundle-key`). A bundle NAME
+- **A rig the build could not resolve no longer ships in silence.** `EditorArtIndex.spinesMissing`
+  collects every placed rig whose bundle prefix resolved to nothing; the bake, the online publish
+  and game boot all report it (`$lib/rigBundleKey.ts`, `check:rig-bundle-key`). A bundle NAME
   from a `spine`-kind param is still unguarded.
 - Desktop launcher v1.0.54–1.0.55: **📦 Deliver** (a partner-hosted build with ▶ Play it) and a
   publish that backfills engine packages a game repo's `package.json` predates — see

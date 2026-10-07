@@ -15,7 +15,7 @@
 //
 //   (--project defaults to `bookofborut` — the project KEY the editor reads.
 //    NOTE: the doc now also includes the HUD scenes, so re-seeding restores the
-//    board/spine art AND the editable HUD in one go.)
+//    board/rig art AND the editable HUD in one go.)
 //
 // --dry-run prints the converted manifest + scenes.json and skips all uploads.
 // Real upload env: R2_ENDPOINT, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY.
@@ -200,7 +200,7 @@ async function main() {
 
 	// Overlay anchors carry NO baked preview art — the editor resolves each coded
 	// component's stand-in from the shared catalog (by component name) against the
-	// project's R2 assets at render time, so no spine listing is needed here.
+	// project's R2 assets at render time, so no rig listing is needed here.
 	const doc = buildDoc(new Date().toISOString());
 	console.info(
 		`  doc      → ${editorDocKey}  (${doc.scenes.map((s) => `${s.id}:${s.nodes.length}`).join(' ')})`,

@@ -502,8 +502,8 @@ async function dryRun(dir, release, debugId) {
  * server's code is not minified and its frames read fine without them. Maps exist only in a build
  * made with SENTRY_AUTH_TOKEN set (apps/launcher-api/vite.config.js).
  *
- * Only `client/_app` is gated: `client/spine/vendor/*.js` are vendored third-party files that
- * reference an upstream map they never shipped.
+ * Only `client/_app` is gated: `client/rig-viewer/vendor/invisible-rig.js` is our prebuilt rig
+ * runtime, shipped unminified and without a map.
  */
 async function launcher(buildDir, { dryRun: dry }) {
 	const app = join(buildDir, 'client', '_app');

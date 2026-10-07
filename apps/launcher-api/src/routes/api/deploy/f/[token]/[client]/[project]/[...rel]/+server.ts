@@ -10,7 +10,7 @@ import type { RequestHandler } from './$types';
  *
  * Same R2 tree + token gate as the query-form `/api/deploy?project=&k=&rel=`,
  * but the token + project are leading PATH segments so a sub-file named inside a
- * parent (Spine atlas page, spritesheet page, bitmap-font page) resolves
+ * parent (rig atlas page, spritesheet page, bitmap-font page) resolves
  * correctly when the runtime loads it RELATIVE to the parent's URL — see
  * `deployServe.ts`. The runtime's `assetBase` is everything up to and including
  * the trailing `/`, and it appends the deploy-relative path.

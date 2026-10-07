@@ -38,7 +38,7 @@ and `TOOL_DOC_SLUG`. A tool is only fully documented when ALL of these hold:
 - `## Known limitations / TODOs` — real TODOs from source/STATUS/design.
 - Audience = a new team member USING the tool. Prose wrapped ~100 cols. Don't
   dump internal architecture; mention API/storage/security only where a user
-  benefits. Third-party tools (ComfyUI, Spine Editor) keep their real name and a
+  benefits. Third-party tools (ComfyUI, an external rig editor) keep their real name and a
   "documents how it fits our pipeline" note.
 
 ## Workflow

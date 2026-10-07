@@ -12,7 +12,7 @@
  * sprite, the box carries `minX`/`minY` (not just `width`/`height`) — the caller needs
  * them to place the union's CENTRE on the cover target.
  *
- * Leaf intrinsic sizes (sprite texture / spine bounds) are injected via `intrinsic`,
+ * Leaf intrinsic sizes (sprite texture / rig bounds) are injected via `intrinsic`,
  * so this module stays free of the loaded-asset store (runtime) and the WebGL overlay
  * (editor). A child the getter can't size yet (returns `null`, e.g. an unloaded
  * texture) is SKIPPED rather than corrupting the union — the box grows as assets
@@ -40,7 +40,7 @@ export interface ComponentDesignBox {
 
 /**
  * The local-space union box of `def.root.children`. `intrinsic` returns a leaf node's
- * natural draw size (sprite/spine), or `null` when it can't be sized (unloaded). Returns
+ * natural draw size (sprite/rig), or `null` when it can't be sized (unloaded). Returns
  * `null` when the def has no sizable content (empty root, or every child unsizable) — the
  * caller then falls back to a degenerate cover.
  */

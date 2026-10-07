@@ -8,16 +8,16 @@
 	 *   the scene, optionally offset, and emits ambiently (`trigger.on: 'always'`) or on a Flow
 	 *   Broadcast / game event (`trigger.on: 'event'` → `trigger.eventType` on the event bus,
 	 *   the binding `<EffectLayer>` wires).
-	 * - An effect that places ANY layer on a `bone` mounts INSIDE a `<SpineProvider>` so
-	 *   `<SpineBoneAttach>` resolves the bone on the HOST game's playing rig (the Phase-2
+	 * - An effect that places ANY layer on a `bone` mounts INSIDE a `<RigProvider>` so
+	 *   `<RigBoneAttach>` resolves the bone on the HOST game's playing rig (the Phase-2
 	 *   carry-forward). We host bone effects on the always-present foreground rig; a bone name
 	 *   that the rig doesn't carry falls back to origin+offset (never silently vanishes).
 	 *
 	 * Parity: zero baked effects ⇒ nothing mounts ⇒ byte-identical to a game with no FX. This
-	 * is `apps/lines`-local wiring; the engine pieces (`<EffectPlayer>`/`<SpineBoneAttach>`,
+	 * is `apps/lines`-local wiring; the engine pieces (`<EffectPlayer>`/`<RigBoneAttach>`,
 	 * the event-bus trigger) live in `pixi-svelte`/`engine-fx`.
 	 */
-	import { EffectPlayer, SpineProvider } from 'pixi-svelte';
+	import { EffectPlayer, RigProvider } from 'pixi-svelte';
 	import type { EffectDoc } from 'engine-fx';
 
 	import { getContext } from '../game/context';
@@ -31,13 +31,13 @@
 	// unplaced free effect still auto-mount below.
 	const placed = placedEffectIds();
 	// Effects bound to a rig's timeline are mounted by `<RiggedEffect>` on their HOST rig — by
-	// `<SpineProvider>` itself, so it happens wherever that rig is mounted — firing on the rig's own
+	// `<RigProvider>` itself, so it happens wherever that rig is mounted — firing on the rig's own
 	// event at the bone. Skip them here too — otherwise a rig-bound effect whose doc layers are `free`
 	// would ALSO auto-mount as a scene-level ambient emitter at the stage origin (0,0), a phantom
 	// burst in the top-left corner (surfaced once the runtime bundle began shipping `rigFx`).
 	const rigBound = rigFxEffectIds();
 
-	/** Whether any of the effect's layers is pinned to a bone (⇒ needs a host `<SpineProvider>`). */
+	/** Whether any of the effect's layers is pinned to a bone (⇒ needs a host `<RigProvider>`). */
 	const placesOnBone = (doc: EffectDoc): boolean =>
 		doc.layers.some((layer) => layer.placement.space === 'bone' && !!layer.placement.bone);
 
@@ -97,7 +97,7 @@
 		);
 	}
 
-	// The host rig for bone-placed effects — the always-present foreground spine. Sized to the
+	// The host rig for bone-placed effects — the always-present foreground rig. Sized to the
 	// canvas like `Background` so the bone transforms land in the same frame the game draws.
 	const hostRigProps = $derived.by(() => {
 		const canvas = context.stateLayoutDerived.canvasSizes();
@@ -116,9 +116,9 @@
 {/each}
 
 {#if boneEffects.length}
-	<SpineProvider key="foregroundAnimation" {...hostRigProps} rebroadcastEvents>
+	<RigProvider key="foregroundAnimation" {...hostRigProps} rebroadcastEvents>
 		{#each boneEffects as doc (doc.id)}
 			<EffectPlayer {doc} />
 		{/each}
-	</SpineProvider>
+	</RigProvider>
 {/if}

@@ -5,7 +5,7 @@
 Shipped atlas PAGES are WebP/PNG that the browser decodes to **full RGBA in VRAM**: a
 2048×4096 page = 32 MB. The Book of Borut remake holds ~160 MB in just five
 background/UI pages (measured live: `S_Game_Background`, `S_Game_UI`, `S_Game_UI2`,
-`S_Game_UI2_2`, `S_Game_Freespin`), before spine symbol atlases. That exceeds iOS
+`S_Game_UI2_2`, `S_Game_Freespin`), before rig symbol atlases. That exceeds iOS
 Safari's per-tab memory ceiling, so the WebContent process is jettisoned ("A problem
 repeatedly occurred") — the game runs (buttons/sound/flow) but the canvas is dead.
 Desktop and Samsung survive on headroom. (Renderer is already WebGL — PR #169 — this is
@@ -67,15 +67,15 @@ at full resolution**, not a resolution cut — arcade keeps pristine art, iPhone
 KTX2 is encoded **without mipmaps** (a 2D game draws near 1:1; mips add ~33% VRAM + transcode
 cost) — `encodePageToKtx2` takes a `mipmaps` opt, off by default, for a future downscale tier.
 
-## Spine / rig atlases (the dominant VRAM)
+## Rig / rig atlases (the dominant VRAM)
 
-The rig/spine atlas pages — NOT the editor-art sheets — are the bulk (~490 MB in the remake,
-dominated by full-screen backgrounds/UI used as rig atlases). `spine.ts` `exportSpineBundle`
+The rig atlas pages — NOT the editor-art sheets — are the bulk (~490 MB in the remake,
+dominated by full-screen backgrounds/UI used as rig atlases). `rig.ts` `exportRigBundle`
 encodes a `.ktx2` twin of each atlas page and writes a second `.atlas` whose page-name lines
 point at the twins (region coords unchanged — same page dimensions); carried on
-`ExportedSpineEntry.ktx2Atlas`. Spine's own atlas loader loads each page via `loader.load({src})`
-**by extension**, so a `.ktx2` page routes through our KTX2 loader with no spine-runtime change.
-The game swaps `atlas`→`ktx2Atlas` on the compressed tier (`bakedEditorArtAssets` spine loop).
+`ExportedRigEntry.ktx2Atlas`. The rig runtime's own atlas loader loads each page via `loader.load({src})`
+**by extension**, so a `.ktx2` page routes through our KTX2 loader with no rig-runtime change.
+The game swaps `atlas`→`ktx2Atlas` on the compressed tier (`bakedEditorArtAssets` rig loop).
 
 ## Block alignment (the one hard constraint)
 
@@ -111,10 +111,10 @@ the encoder's ~12 Mpix hard cap), then block-aligns it, and returns the encoded 
 alignment); only larger ones shrink — by `targetSize()`, a 4096×8096 cinematic → 2072×4092, and a
 4096×4096 page, over the area cap, → 3316×3316 — **in the pipeline, so no source art is touched**. Callers rescale
 the matching coords by the same factor: `toTexturePackerJson(set, file, sx, sy)` for sheets, and
-`rewriteAtlasForKtx2` for spine (page-aware: rewrites each downscaled page's `size:` line + rescales
+`rewriteAtlasForKtx2` for rig (page-aware: rewrites each downscaled page's `size:` line + rescales
 its region `bounds`/`offsets`/`orig`/… — uniform scale, so rotated regions stay correct; UVs are
 unchanged so art renders at the same size, just lower-res). Verified on the real `R_Cinematic1` rig
-(all coords stay in-bounds). Spine attachment sizes come from the SKELETON, not the atlas, so a
+(all coords stay in-bounds). Rig attachment sizes come from the SKELETON, not the atlas, so a
 downscaled rig page renders at the authored world size regardless — the reason this is safe.
 
 ## Rollout
@@ -129,7 +129,7 @@ downscaled rig page renders at the authored world size regardless — the reason
 
 ## Page dedup (the over-time leak fix)
 
-The rig/spine atlas pages were the dominant VRAM, and worse, each rig carried its OWN copy of
+The rig atlas pages were the dominant VRAM, and worse, each rig carried its OWN copy of
 its page — the same full-screen image (`S_Game_UI2` → R_SpinButtonNew + R_Turbo + R_Auto + the
 sheet) loaded as 3–4 separate 32 MB textures, and MORE loaded as features mounted over play, a
 monotonic climb that OOM-crashed iOS after a while (confirmed live: `managedTextures` grew
@@ -138,7 +138,7 @@ writes each unique page (keyed by source ETag+size) ONCE to `deploy/_pages/<hash
 and every sheet/rig references it by the base-independent relative path `../../_pages/…`
 (verified to resolve through Pixi's `path.normalize` + the spritesheet loader, baked + runtime).
 So a page shared by N rigs + the sheet becomes ONE GPU texture. `editorArtExport.ts` (sheets +
-standalone images), `exportSpineBundle` (rigs, via a shared `pageStore` param) and
+standalone images), `exportRigBundle` (rigs, via a shared `pageStore` param) and
 `symbolExport.ts` (symbol rigs and, since the tier was wired end to end, symbol SHEETS) all dedup
 through the one store the runtime assemble owns. A downscaled shared
 ktx2 page reports its dims so every referencer rescales coords by the SAME factor (composes with

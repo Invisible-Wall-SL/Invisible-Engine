@@ -14,7 +14,7 @@
 	 * particles (compiles + runs, renders nothing). `bindArt` clones the texture-free config,
 	 * THEN attaches the live `Texture` objects, so its result must NOT be JSON-cloned again.
 	 *
-	 * This is the `/spine`-stage fork the design doc calls for, done Svelte-natively (like
+	 * This is the `/rig-viewer`-stage fork the design doc calls for, done Svelte-natively (like
 	 * Flow) instead of a static `view.html`, because the particle library is an npm dep:
 	 * a render loop + pan/zoom (drag + wheel) + play/pause, with the chosen atlas page drawn
 	 * as a faint placement reference behind the particles.
@@ -23,15 +23,15 @@
 	 * (`emitter.init` re-inits cleanly), so the preview always reflects the doc verbatim.
 	 */
 	import { Emitter } from '@barvynkoa/particle-emitter';
-	import type * as SPINE from '@esotericsoftware/spine-pixi-v8';
+	import type * as RIG from 'engine-rig/pixi';
 	import { bindArt, behaviorsOf, emitterDeltaSeconds, type EmitterLayer } from 'engine-fx';
 	import {
-		createPixiSpineBackingFactory,
-		registerSpineParticleBehavior,
-		SpineParticleBehavior,
-		SPINE_PARTICLE_BEHAVIOR_TYPE,
+		createPixiRigBackingFactory,
+		registerRigParticleBehavior,
+		RigParticleBehavior,
+		RIG_PARTICLE_BEHAVIOR_TYPE,
 		type LayerHostLike,
-		type SpineParticleBehaviorConfig,
+		type RigParticleBehaviorConfig,
 	} from 'pixi-svelte';
 	import { Application, Container, Sprite, Texture, type TextureSource } from 'pixi.js';
 	import { framesToTextures, loadPageSource } from '$lib/fx/effectEmitter.client';
@@ -39,17 +39,17 @@
 	import {
 		emitterOwnerLocal,
 		layerFollowsBone,
-		spineParticleReady,
+		rigParticleReady,
 		worldToContainerLocal,
 		type Affine,
 	} from './fxModel.client';
 	import {
 		applyFxSkin,
-		loadFxSpine,
+		loadFxRig,
 		playFxAnimation,
 		type FxSkeletonEntry,
-		type LoadedFxSpine,
-	} from './fxSpine.client';
+		type LoadedFxRig,
+	} from './fxRig.client';
 
 	interface Props {
 		/** The effect's layers — the live emitters mirror these verbatim. */
@@ -65,27 +65,27 @@
 		resolveArt: (assetKey: string) => Promise<ResolvedArt | null>;
 		/**
 		 * Resolve a `spineParticle.skeletonKey` (the project skeleton-entry key) to a loaded
-		 * skeleton, so a `particleKind:'spine'` layer (Tier C) can pool `Spine` instances each
+		 * skeleton, so a `particleKind:'spine'` layer (Tier C) can pool `RigView` instances each
 		 * playing a clip — the SAME `SkeletonData`/factory the runtime `<EffectLayer>` uses. Supplied
-		 * + cached by the page (which owns the `/spine/skeletons` list); the stage stays I/O-free
-		 * beyond the per-skeleton `loadFxSpine`. Returns `null` for an unknown/unloadable key — the
-		 * layer then shows placeholder dots, never crashing.
+		 * + cached by the page (which owns the `/rig-viewer/skeletons` list); the stage stays
+		 * I/O-free beyond the per-skeleton `loadFxRig`. Returns `null` for an unknown/unloadable
+		 * key — the layer then shows placeholder dots, never crashing.
 		 */
-		resolveSkeleton?: (skeletonKey: string) => Promise<LoadedFxSpine | null>;
+		resolveSkeleton?: (skeletonKey: string) => Promise<LoadedFxRig | null>;
 		/**
-		 * The Spine skeleton to load as the Tier-B authoring backdrop, or `null` for none.
-		 * When set, the stage loads it (once), plays `spineAnimation`, applies `spineSkin`,
+		 * The skeleton to load as the Tier-B authoring backdrop, or `null` for none.
+		 * When set, the stage loads it (once), plays `spineAnimation`, applies `rigSkin`,
 		 * and — for any `bone`-placed layer — rides the emitter on the live bone transform.
 		 */
-		spineEntry?: FxSkeletonEntry | null;
+		rigEntry?: FxSkeletonEntry | null;
 		/** The animation clip to play on the backdrop skeleton (looping). */
-		spineAnimation?: string;
+		rigAnimation?: string;
 		/** The skin to apply on the backdrop skeleton (best-effort). */
-		spineSkin?: string;
+		rigSkin?: string;
 		/** Surface the loaded skeleton's animation / skin / bone lists back to the page (for
 		 * the inspector dropdowns). Called once per successful load (or with empty lists on
 		 * unload / failure). */
-		onSpineMeta?: (meta: { animations: string[]; skins: string[]; bones: string[] }) => void;
+		onRigMeta?: (meta: { animations: string[]; skins: string[]; bones: string[] }) => void;
 		/**
 		 * A MOVING OWNER for every free layer, in world units (the stage centre is 0,0) — the trail
 		 * mechanism the game's `<EffectPlayer ownerPos>` uses: the container stays still and the
@@ -112,10 +112,10 @@
 		playing,
 		resolveArt,
 		resolveSkeleton,
-		spineEntry = null,
-		spineAnimation = '',
-		spineSkin = '',
-		onSpineMeta,
+		rigEntry = null,
+		rigAnimation = '',
+		rigSkin = '',
+		onRigMeta,
 		ownerPos,
 		emitting = true,
 		showReference = true,
@@ -125,24 +125,24 @@
 
 	let host: HTMLDivElement | null = $state(null);
 	let app: Application | null = null;
-	/** Flips true once the `Application` has initialised — drives the spine/rebuild effects
+	/** Flips true once the `Application` has initialised — drives the rig/rebuild effects
 	 * to run after async mount (the props can be set before the canvas exists). */
 	let ready = $state(false);
 	/** The pan/zoom world the emitters + reference sprite + backdrop skeleton live in. */
 	let world: Container | null = null;
 	/** The faint atlas reference sprite (last-resolved art's page), behind particles. */
 	let reference: Sprite | null = null;
-	/** The loaded Tier-B backdrop skeleton (or null). The live `Spine` lives in `world`. */
-	let loadedSpine: LoadedFxSpine | null = null;
+	/** The loaded Tier-B backdrop skeleton (or null). The live `RigView` lives in `world`. */
+	let loadedRig: LoadedFxRig | null = null;
 	/** The skeleton-entry key currently loaded — so we only reload when it actually changes. */
-	let loadedSpineKey: string | null = null;
-	/** Generation token for spine loads (a fast backdrop switch can't mount two skeletons). */
-	let spineGen = 0;
+	let loadedRigKey: string | null = null;
+	/** Generation token for rig loads (a fast backdrop switch can't mount two skeletons). */
+	let rigGen = 0;
 	/** Reused point for the per-frame bone-follow (avoid per-frame allocation). */
 	const bonePoint = { x: 0, y: 0 };
 	const DEG_TO_RAD = Math.PI / 180;
 	/** Per-key live emitter + the container it draws into + whether it has bound art (a sprite
-	 * layer with textures OR a spine-particle layer with a bound pool — either spawns visibly). */
+	 * layer with textures OR a rig-particle layer with a bound pool — either spawns visibly). */
 	const live = new Map<string, { emitter: Emitter; container: Container; hasArt: boolean }>();
 	/** Cache of resolved page TextureSources by URL (avoid re-loading the same page). */
 	const sourceCache = new Map<string, TextureSource>();
@@ -153,19 +153,19 @@
 	let rebuilding = false;
 	let rebuildPending = false;
 
-	// Tier C: the pooled-`Spine`-particle behavior must be registered with the library before any
+	// Tier C: the pooled-`RigView`-particle behavior must be registered with the library before any
 	// `Emitter` whose config carries a `spineParticle` entry inits. Idempotent — safe to call here.
-	registerSpineParticleBehavior();
+	registerRigParticleBehavior();
 
 	/**
-	 * Dispose an emitter's Tier-C `Spine` pool (the pooled skeletons the emitter's own `destroy`
+	 * Dispose an emitter's Tier-C `RigView` pool (the pooled skeletons the emitter's own `destroy`
 	 * never sees), THEN tear down the emitter — mirroring `<ParticleEmitter>`'s `onDestroy`. A
 	 * sprite emitter has no such behavior, so this is a no-op for Tiers A/B (parity).
 	 */
 	function disposeEmitter(emitter: Emitter): void {
 		emitter.emit = false;
-		const behavior = emitter.getBehavior(SPINE_PARTICLE_BEHAVIOR_TYPE);
-		if (behavior instanceof SpineParticleBehavior) behavior.dispose();
+		const behavior = emitter.getBehavior(RIG_PARTICLE_BEHAVIOR_TYPE);
+		if (behavior instanceof RigParticleBehavior) behavior.dispose();
 		emitter.destroy();
 	}
 
@@ -186,7 +186,7 @@
 			ready = true;
 			app.ticker.add((ticker) => {
 				if (!playing) return;
-				// The backdrop SKELETON advances in real seconds (a spine clip is wall-clock) …
+				// The backdrop SKELETON advances in real seconds (a rig clip is wall-clock) …
 				const dtSeconds = ticker.deltaMS / 1000;
 				// … but the EMITTERS must advance by the SAME scalar the in-game runtime uses
 				// (`ParticleEmitter.svelte`), or the preview plays FX at a different speed than the
@@ -194,7 +194,7 @@
 				// `engine-fx` `emitterDeltaSeconds` / `DEFAULT_EMIT_SPEED`).
 				const dtEmitter = emitterDeltaSeconds(ticker.deltaMS);
 				// Advance the backdrop skeleton (autoUpdate is off so we gate it on play/pause).
-				loadedSpine?.spine.update(dtSeconds);
+				loadedRig?.view.update(dtSeconds);
 				// Ride bone-placed emitters on the live bone transform, THEN advance them — so a
 				// flame stays welded to the moving torch tip rather than lagging a frame.
 				followBones();
@@ -217,8 +217,8 @@
 			disposed = true;
 			for (const { emitter } of live.values()) disposeEmitter(emitter);
 			live.clear();
-			loadedSpine?.spine.destroy();
-			loadedSpine = null;
+			loadedRig?.view.destroy();
+			loadedRig = null;
 			placeholder?.destroy(true);
 			placeholder = null;
 			app?.destroy(true);
@@ -227,12 +227,12 @@
 	});
 
 	/**
-	 * Replicate `<SpineBone>` IMPERATIVELY: for each `bone`-placed layer, resolve the
+	 * Replicate `<RigBone>` IMPERATIVELY: for each `bone`-placed layer, resolve the
 	 * followed bone's live world position and weld the emitter's spawn (owner) position to it
 	 * + the authored offset, every frame, accounting for the stage pan/zoom.
 	 *
-	 * The coordinate hop (the load-bearing bit `SpineBone` hides): the bone position is in
-	 * SKELETON space; `spine.getBonePosition` + `spine.skeletonToPixiWorldCoordinates` lift it
+	 * The coordinate hop (the load-bearing bit `RigBone` hides): the bone position is in
+	 * SKELETON space; `rig.getBonePosition` + `rig.skeletonToPixiWorldCoordinates` lift it
 	 * to Pixi WORLD coords; the emitter's `updateOwnerPos` is in its CONTAINER's local space
 	 * (which carries the pan/zoom `world` transform). Inverting the emitter container's world
 	 * matrix bridges the two (`emitterOwnerLocal`/`worldToContainerLocal`, harness-covered), so
@@ -240,7 +240,7 @@
 	 * origin + offset.
 	 */
 	function followBones(): void {
-		const spine = loadedSpine?.spine;
+		const rig = loadedRig?.view;
 		const wt = world?.worldTransform;
 		const worldAffine: Affine = wt
 			? { a: wt.a, b: wt.b, c: wt.c, d: wt.d, tx: wt.tx, ty: wt.ty }
@@ -250,27 +250,27 @@
 			if (!entry) continue;
 			const offset = layer.placement.offset ?? { x: 0, y: 0 };
 
-			let bone: SPINE.Bone | null = null;
+			let bone: RIG.Bone | null = null;
 			let boneWorld: { x: number; y: number } | null = null;
-			if (spine && layerFollowsBone(layer)) {
-				const pos = spine.getBonePosition(layer.placement.bone!, bonePoint);
+			if (rig && layerFollowsBone(layer)) {
+				const pos = rig.getBonePosition(layer.placement.bone!, bonePoint);
 				if (pos) {
 					// Mutates `pos` (== bonePoint) from skeleton space into Pixi WORLD coords.
-					spine.skeletonToPixiWorldCoordinates(pos);
+					rig.skeletonToPixiWorldCoordinates(pos);
 					boneWorld = { x: pos.x, y: pos.y };
-					bone = spine.skeleton.findBone(layer.placement.bone!);
+					bone = rig.skeleton.findBone(layer.placement.bone!);
 				}
 			}
 
 			if (boneWorld) {
 				// Fully RIDE the bone (position + rotation + scale), matching the runtime
-				// `<SpineBoneAttach followRotation followScale>`: place the emitter CONTAINER on the
+				// `<RigBoneAttach followRotation followScale>`: place the emitter CONTAINER on the
 				// bone (world → the pan/zoom `world`'s local frame), orient + scale it by the bone's
 				// world transform, and spawn from the container origin — so EXISTING particles ride
 				// the bone too, not just new spawns. Offset is applied in world coords then mapped
-				// (parity with the runtime). The backdrop spine is unscaled/unrotated under `world`,
+				// (parity with the runtime). The backdrop rig is unscaled/unrotated under `world`,
 				// so the bone's world rotation/scale map straight onto the container; skeleton space
-				// is CCW / y-up vs Pixi y-down, so rotation is negated (same inversion `<SpineBone>`).
+				// is CCW / y-up vs Pixi y-down, so rotation is negated (same inversion `<RigBone>`).
 				const p = worldToContainerLocal(worldAffine, {
 					x: boneWorld.x + offset.x,
 					y: boneWorld.y + offset.y,
@@ -299,40 +299,40 @@
 	 * so a fast switch can't leave two skeletons mounted; surfaces the loaded skeleton's
 	 * animation / skin / bone lists to the page for the inspector dropdowns.
 	 */
-	async function syncSpine(): Promise<void> {
+	async function syncRig(): Promise<void> {
 		if (!app || !world) return;
-		const key = spineEntry ? `${spineEntry.dir_b64}/${spineEntry.skeleton_file}` : null;
-		if (key === loadedSpineKey) return; // already loaded (or already none)
-		const gen = ++spineGen;
+		const key = rigEntry ? `${rigEntry.dir_b64}/${rigEntry.skeleton_file}` : null;
+		if (key === loadedRigKey) return; // already loaded (or already none)
+		const gen = ++rigGen;
 
 		// Tear down any prior backdrop.
-		loadedSpine?.spine.destroy();
-		loadedSpine = null;
-		loadedSpineKey = key;
+		loadedRig?.view.destroy();
+		loadedRig = null;
+		loadedRigKey = key;
 
-		if (!spineEntry) {
-			onSpineMeta?.({ animations: [], skins: [], bones: [] });
+		if (!rigEntry) {
+			onRigMeta?.({ animations: [], skins: [], bones: [] });
 			return;
 		}
 		try {
-			const loaded = await loadFxSpine(spineEntry);
-			if (gen !== spineGen || !world) {
-				loaded.spine.destroy();
+			const loaded = await loadFxRig(rigEntry);
+			if (gen !== rigGen || !world) {
+				loaded.view.destroy();
 				return;
 			}
-			loadedSpine = loaded;
+			loadedRig = loaded;
 			// Draw the skeleton behind the particles but in front of the faint atlas reference.
-			world.addChildAt(loaded.spine, reference ? 1 : 0);
-			playFxAnimation(loaded.spine, spineAnimation);
-			applyFxSkin(loaded.spine, spineSkin);
-			loaded.spine.update(0);
-			onSpineMeta?.({
+			world.addChildAt(loaded.view, reference ? 1 : 0);
+			playFxAnimation(loaded.view, rigAnimation);
+			applyFxSkin(loaded.view, rigSkin);
+			loaded.view.update(0);
+			onRigMeta?.({
 				animations: loaded.animations,
 				skins: loaded.skins,
 				bones: loaded.bones,
 			});
 		} catch {
-			if (gen === spineGen) onSpineMeta?.({ animations: [], skins: [], bones: [] });
+			if (gen === rigGen) onRigMeta?.({ animations: [], skins: [], bones: [] });
 		}
 	}
 
@@ -414,13 +414,13 @@
 		await updateReference();
 
 		for (const layer of layers) {
-			// Tier C: a `particleKind:'spine'` layer pools `Spine` instances each playing a clip —
-			// the SAME mechanism `<EffectLayer>` mounts (`bindSpineParticle` → the pooled behavior),
-			// reproduced here imperatively against the stage's own emitter. A half-authored spine
+			// Tier C: a `particleKind:'spine'` layer pools `RigView` instances each playing a clip —
+			// the SAME mechanism `<EffectLayer>` mounts (`bindRigParticle` → the pooled behavior),
+			// reproduced here imperatively against the stage's own emitter. A half-authored rig
 			// layer (no skeleton/clip, or an unloadable one) falls through to the placeholder-dot
 			// sprite path so the preview never crashes or silently vanishes.
 			if (layer.particleKind === 'spine') {
-				await buildSpineLayer(layer, gen);
+				await buildRigLayer(layer, gen);
 				if (gen !== rebuildGen) return;
 				continue;
 			}
@@ -454,7 +454,7 @@
 				entry = { emitter: new Emitter(container, config), container, hasArt: true };
 				live.set(layer.key, entry);
 			} else {
-				// A sprite layer that USED to be a spine layer carries a pool — dispose it before
+				// A sprite layer that USED to be a rig layer carries a pool — dispose it before
 				// re-init so its skeletons don't leak. `disposeEmitter` no-ops for a sprite emitter.
 				disposeEmitterPool(entry.emitter);
 				entry.emitter.init(config);
@@ -467,7 +467,7 @@
 		// order). Emitter containers are only ADDED when first created, so reordering the layers
 		// panel would leave the preview stacked the way the effect was FIRST authored. Re-append
 		// them in doc order every rebuild — `addChild` moves an existing child to the end, and the
-		// non-emitter children (the reference page at index 0, the backdrop spine after it) are
+		// non-emitter children (the reference page at index 0, the backdrop rig after it) are
 		// deliberately kept at the front, so they stay behind the particles.
 		for (const layer of layers) {
 			const entry = live.get(layer.key);
@@ -476,17 +476,17 @@
 	}
 
 	/**
-	 * Build (or rebuild) a Tier-C spine-particle layer's live emitter. Each particle is a pooled
-	 * `Spine` playing the layer's clip; the pool is built from the loaded `SkeletonData`
-	 * (`createPixiSpineBackingFactory`) the page resolves via `resolveSkeleton`. A spine emitter is
+	 * Build (or rebuild) a Tier-C rig-particle layer's live emitter. Each particle is a pooled
+	 * `RigView` playing the layer's clip; the pool is built from the loaded `SkeletonData`
+	 * (`createPixiRigBackingFactory`) the page resolves via `resolveSkeleton`. A rig emitter is
 	 * ALWAYS recreated (not re-`init`ed) on rebuild: a fresh pool must replace any prior one cleanly,
 	 * and disposing the old emitter frees the old pool's skeletons — re-init would otherwise strand
 	 * them parented in the world. An unloadable/half-authored layer renders placeholder dots.
 	 */
-	async function buildSpineLayer(layer: EmitterLayer, gen: number): Promise<void> {
+	async function buildRigLayer(layer: EmitterLayer, gen: number): Promise<void> {
 		if (!world) return;
 		const loaded =
-			spineParticleReady(layer) && resolveSkeleton
+			rigParticleReady(layer) && resolveSkeleton
 				? await resolveSkeleton(layer.spineParticle!.skeletonKey)
 				: null;
 		if (gen !== rebuildGen) return;
@@ -513,14 +513,14 @@
 			return;
 		}
 
-		const spineParticle: SpineParticleBehaviorConfig = {
+		const rigParticle: RigParticleBehaviorConfig = {
 			animation: layer.spineParticle!.animation,
 			loop: layer.spineParticle!.loop ?? false,
 			prewarm: layer.config.maxParticles ?? 0,
 			layerHost: container as unknown as LayerHostLike,
-			createBacking: createPixiSpineBackingFactory(loaded.skeletonData),
+			createBacking: createPixiRigBackingFactory(loaded.skeletonData),
 		};
-		const config = bindSpineParticleConfig(layer.config, spineParticle);
+		const config = bindRigParticleConfig(layer.config, rigParticle);
 		const emitter = new Emitter(container, config);
 		emitter.emit = emitOn;
 		live.set(layer.key, { emitter, container, hasArt: true });
@@ -528,30 +528,30 @@
 
 	/**
 	 * Inject the Tier-C `spineParticle` behavior into a V3 config, returning a NEW config — the
-	 * EXACT shape `<ParticleEmitter>`'s `bindSpineParticle` builds (clone the textureless config,
+	 * EXACT shape `<ParticleEmitter>`'s `bindRigParticle` builds (clone the textureless config,
 	 * replace any prior `spineParticle` entry, attach the live factory + layer host AFTER cloning so
 	 * the result is NOT re-JSON-cloned). Kept here (not pulled from the Svelte component) because
 	 * the stage drives the emitter imperatively.
 	 */
-	function bindSpineParticleConfig(
+	function bindRigParticleConfig(
 		config: EmitterLayer['config'],
-		spineParticle: SpineParticleBehaviorConfig,
+		rigParticle: RigParticleBehaviorConfig,
 	): EmitterLayer['config'] {
 		const next = JSON.parse(JSON.stringify(config)) as EmitterLayer['config'];
-		const behaviors = behaviorsOf(next).filter((b) => b.type !== SPINE_PARTICLE_BEHAVIOR_TYPE);
+		const behaviors = behaviorsOf(next).filter((b) => b.type !== RIG_PARTICLE_BEHAVIOR_TYPE);
 		behaviors.push({
-			type: SPINE_PARTICLE_BEHAVIOR_TYPE,
-			config: spineParticle as unknown as Record<string, unknown>,
+			type: RIG_PARTICLE_BEHAVIOR_TYPE,
+			config: rigParticle as unknown as Record<string, unknown>,
 		});
 		(next as { behaviors: unknown[] }).behaviors = behaviors;
 		return next;
 	}
 
-	/** Dispose only the Tier-C pool of an emitter (not the emitter), so a spine→sprite re-init
+	/** Dispose only the Tier-C pool of an emitter (not the emitter), so a rig→sprite re-init
 	 * doesn't strand the old skeletons. No-op for a sprite emitter. */
 	function disposeEmitterPool(emitter: Emitter): void {
-		const behavior = emitter.getBehavior(SPINE_PARTICLE_BEHAVIOR_TYPE);
-		if (behavior instanceof SpineParticleBehavior) behavior.dispose();
+		const behavior = emitter.getBehavior(RIG_PARTICLE_BEHAVIOR_TYPE);
+		if (behavior instanceof RigParticleBehavior) behavior.dispose();
 	}
 
 	async function updateReference(): Promise<void> {
@@ -598,22 +598,22 @@
 	});
 
 	// Load / unload the Tier-B backdrop skeleton whenever the picked entry changes (the page
-	// drives `spineEntry` from its backdrop picker). `syncSpine` is generation-guarded + keyed,
+	// drives `rigEntry` from its backdrop picker). `syncRig` is generation-guarded + keyed,
 	// so a no-op change returns early and a fast switch can't mount two skeletons.
 	$effect(() => {
-		void (spineEntry ? `${spineEntry.dir_b64}/${spineEntry.skeleton_file}` : null);
-		if (ready) void syncSpine();
+		void (rigEntry ? `${rigEntry.dir_b64}/${rigEntry.skeleton_file}` : null);
+		if (ready) void syncRig();
 	});
 
 	// Re-play the chosen clip / re-apply the chosen skin on an ALREADY-loaded skeleton (a fresh
-	// load applies them in `syncSpine`; these handle the picker changing afterwards).
+	// load applies them in `syncRig`; these handle the picker changing afterwards).
 	$effect(() => {
-		const animation = spineAnimation;
-		if (ready && loadedSpine) playFxAnimation(loadedSpine.spine, animation);
+		const animation = rigAnimation;
+		if (ready && loadedRig) playFxAnimation(loadedRig.view, animation);
 	});
 	$effect(() => {
-		const skin = spineSkin;
-		if (ready && loadedSpine) applyFxSkin(loadedSpine.spine, skin);
+		const skin = rigSkin;
+		if (ready && loadedRig) applyFxSkin(loadedRig.view, skin);
 	});
 
 	// --- pan / zoom -----------------------------------------------------------

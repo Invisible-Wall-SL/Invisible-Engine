@@ -3669,7 +3669,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		{ slot: 'glow', attachment: 'fx', region: 'body' },
 	]);
 	check(
-		"a rebind sets `path` only where Spine needs it: dropped back to the key's own region, set over a `name`",
+		"a rebind sets `path` only where rig needs it: dropped back to the key's own region, set over a `name`",
 		[
 			back.status,
 			stored(IRIG).skins[0].attachments.body.body,

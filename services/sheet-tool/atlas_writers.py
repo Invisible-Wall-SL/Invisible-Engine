@@ -3,7 +3,7 @@ Coordinate-file emitters for the Invisible Sheet Maker.
 
 Three outputs, any combination selectable per export:
 
-  * libGDX / Spine 4.x `.atlas`   — text region map (game engines / Spine)
+  * libGDX / Spine-format 4.x `.atlas` — text region map (game engines / rig runtime)
   * TexturePacker JSON (hash)      — PixiJS / Phaser native loader format
   * Invisible AI manifest          — atlas_manifest_<name>.json, the enriched
                                      map the Invisible Atlas Maker consumes
@@ -21,13 +21,13 @@ from pathlib import Path
 
 
 # ---------------------------------------------------------------------------
-# libGDX / Spine 4.x .atlas
+# libGDX / Spine-format 4.x .atlas
 # ---------------------------------------------------------------------------
 
 def write_libgdx_atlas(path: str | Path, image_name: str,
                        width: int, height: int, regions: list[dict],
                        filter_: str = "Linear,Linear") -> None:
-    """Emit a modern (Spine 4.x) `.atlas`. Mirrors the Atlas Maker's
+    """Emit a modern (4.x) `.atlas`. Mirrors the Atlas Maker's
     atlas_format.write_atlas so a round-trip parses cleanly."""
     out: list[str] = [image_name, f"size:{int(width)},{int(height)}", f"filter:{filter_}"]
     for r in regions:
@@ -133,12 +133,12 @@ def build_manifest(sheet_image: str, width: int, height: int,
             "prompt": r.get("prompt", ""),
             "shape_ref": shape_ref,
             "seed": r.get("seed", ""),
-            # These are CELL-GRID slots, not Spine rigs: the art is centred at
+            # These are CELL-GRID slots, not rigs: the art is centred at
             # its own aspect inside the cell. Mark them `contain` so the Atlas
-            # Maker (which otherwise treats any .atlas-bound region as a Spine
+            # Maker (which otherwise treats any .atlas-bound region as a rig
             # slot and `fill`s = stretches it) scales uniformly without
             # distorting. fit_mode is a creative field, so it survives
-            # merge_atlas_regions and overrides the spine-slot `fill` default.
+            # merge_atlas_regions and overrides the rig-slot `fill` default.
             "fit_mode": "contain",
             # TRIM: where the packed rect sits inside its untrimmed canvas. Off/orig default to
             # no-trim (offset 0, orig == w/h), so a normally-packed sheet is unchanged — only a

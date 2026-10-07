@@ -4,7 +4,7 @@ import { copyObject, deleteObjects, getObjectText, headObject, listAllObjects } 
 /**
  * The Rigger's `.irig` document — its save-time structural check and its ROLLING BACKUPS.
  *
- * `/api/rigger/save` overwrites `<spines>/<dir>/<stem>.irig` in place, and R2 object versioning
+ * `/api/rigger/save` overwrites `<rigs>/<dir>/<stem>.irig` in place, and R2 object versioning
  * is not enabled on the bucket, so before this module a save was the last word: a bad edit, a
  * wrong rig saved over the right one, or an accepted "overwrite theirs" left nothing to go back
  * to. The design mirrors `docBackups.ts` (read it for the full argument); the points that
@@ -120,7 +120,7 @@ export async function pruneIrigBackups(backupsPrefix: string): Promise<string[]>
 }
 
 /**
- * Why `doc` would not load as a Spine 4.2 skeleton, or null when it would.
+ * Why `doc` would not load as a 4.2-format skeleton, or null when it would.
  *
  * Mirrors the references `SkeletonJson.readSkeletonData` resolves by NAME and throws on when one
  * is missing — a parent bone, a slot's bone, a constraint's bones/target, a skin's slot and the
@@ -205,7 +205,7 @@ export function irigDocProblem(doc: unknown): string | null {
 	const findSkin = (name: string) => skins.find((s) => s.name === name);
 	let defaultSkin: Skin | undefined;
 	if (doc.skins) {
-		if (!Array.isArray(doc.skins)) return '"skins" is not a list (Spine 4.x writes an array)';
+		if (!Array.isArray(doc.skins)) return '"skins" is not a list (rig 4.x writes an array)';
 		for (const [i, sk] of doc.skins.entries()) {
 			if (!isRecord(sk) || typeof sk.name !== 'string' || !sk.name) return `skin #${i} has no name`;
 			for (const list of ['bones', ...CONSTRAINT_KINDS] as const) {
@@ -402,7 +402,7 @@ function isMeshType(type: unknown): boolean {
 	return type === 'mesh' || type === 'linkedmesh';
 }
 
-/** The attachment types a deform key can offset: Spine's `VertexAttachment`s. */
+/** The attachment types a deform key can offset: the format's `VertexAttachment`s. */
 const VERTEX_TYPES = new Set(['mesh', 'linkedmesh', 'boundingbox', 'path', 'point', 'clipping']);
 
 /**

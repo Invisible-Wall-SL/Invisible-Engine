@@ -48,6 +48,7 @@ import { normalizeSounds } from './sounds';
 import { resolveGridAlign } from './grid';
 import { normalizeWinModel } from './winModel';
 import { normalizeCascade } from './mechanics';
+import { normalizeFreeSpins } from './freeSpins';
 import { normalizePartnerPaytable } from './serverPaytable';
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -336,8 +337,8 @@ const normalizeWinTier = (raw: unknown): WinLevelTier | undefined => {
 	const tier: WinLevelTier = { alias, name: str(raw.name)?.trim() || alias, threshold, type };
 	const animation = normalizeWinTierAnimation(raw.animation);
 	if (animation) tier.animation = animation;
-	const spineKey = str(raw.spineKey)?.trim();
-	if (spineKey) tier.spineKey = spineKey;
+	const rigKey = str(raw.spineKey)?.trim();
+	if (rigKey) tier.spineKey = rigKey;
 	const sound = normalizeWinTierSound(raw.sound);
 	if (sound) tier.sound = sound;
 	const durationMs = num(raw.durationMs);
@@ -429,6 +430,11 @@ export const normalizeGameConfigDoc = (raw: unknown): GameConfigDoc | undefined 
 	// cluster game that simply tumbles stores nothing and stays byte-identical to a math export.
 	const cascade = normalizeCascade(raw.cascade, winModel?.type ?? 'lines');
 	if (cascade !== undefined) doc.cascade = cascade;
+
+	// Free spins: kept only where the project departs from "on, three of the in-play scatter", so a
+	// game that simply has the feature stores no block.
+	const freeSpins = normalizeFreeSpins(raw.freeSpins);
+	if (freeSpins) doc.freeSpins = freeSpins;
 
 	// Board BEHAVIOUR (roll vs swap-in-place, the clear step, the per-column stagger). Kept only when
 	// something is actually switched on, so a config that leaves the board alone stores no block at

@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { getSymbolBackgroundInfo, getSymbolInfo } from '../game/utils';
 	import type { MultiplierSymbol } from '../game/stateGame.svelte';
-	import SymbolSpineMain from './SymbolSpineMain.svelte';
-	import SymbolSpineBackground from './SymbolSpineBackground.svelte';
+	import SymbolRigMain from './SymbolRigMain.svelte';
+	import SymbolRigBackground from './SymbolRigBackground.svelte';
 
 	type Props = {
 		reelIndex: number;
@@ -26,13 +26,13 @@
 	);
 </script>
 
-<SymbolSpineBackground
+<SymbolRigBackground
 	{symbolBackgroundInfo}
 	x={props.multiplierSymbol.initX}
 	y={props.multiplierSymbol.initY}
 />
 
-<SymbolSpineMain
+<SymbolRigMain
 	{symbolInfo}
 	x={props.multiplierSymbol.symbolX.current}
 	y={props.multiplierSymbol.symbolY.current}

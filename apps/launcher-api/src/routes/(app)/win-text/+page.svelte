@@ -124,7 +124,9 @@
 	 * here would be a control that silently does nothing. The rule comes from `engine-layout`
 	 * (the same predicate the engine gates on), never a literal `'S'` copied into this page.
 	 */
-	const lineSymbols = $derived(data.symbols.filter(symbolDrawsWinLine));
+	const lineSymbols = $derived(
+		data.symbols.filter((s) => symbolDrawsWinLine(s) && !data.coins.includes(s)),
+	);
 	const excludedSymbols = $derived(data.symbols.filter((s) => !symbolDrawsWinLine(s)));
 
 	/** Write a sparse nested value, deleting the key when the input is blank so a cleared
@@ -442,6 +444,12 @@
 					would never appear. Use the
 					<em>Info-bar message</em> below for those wins.
 				{/if}
+				{#if data.coins.length}
+					<br />
+					<strong>{data.coins.join(', ')}</strong>
+					{data.coins.length === 1 ? 'is not listed' : 'are not listed'}: a pots overlay drops its
+					coins over a cell, never along a line, so no win line names them.
+				{/if}
 			</p>
 
 			<div class="grid-wrap">
@@ -607,8 +615,8 @@
 				<span
 					>Show the symbol as an <strong>image</strong> instead of its name — the
 					<code>{'{symbolName}'}</code> in the toast is drawn as the symbol itself, sized to the text.
-					An animated symbol — flipbook or spine — is held on its first frame: the token stands in for
-					a NAME, and something moving inside a sentence pulls the eye off the words. Falls back to the
+					An animated symbol — flipbook or rig — is held on its first frame: the token stands in for a
+					NAME, and something moving inside a sentence pulls the eye off the words. Falls back to the
 					name if a symbol has no art.</span
 				>
 			</label>

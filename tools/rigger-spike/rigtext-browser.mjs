@@ -3,7 +3,7 @@
 //
 //   node tools/rigger-spike/rigtext-browser.mjs
 //
-// `rigtext.mjs` proves the DATA: the atlas composes, spine resolves the regions, the ship chain
+// `rigtext.mjs` proves the DATA: the atlas composes, rig resolves the regions, the ship chain
 // enumerates the page. None of that draws a pixel. This runs the REAL vendored bundle
 // (`static/rigger/vendor/rigger-text.js` — the exact bytes `/rigger` loads) in a REAL Chromium
 // with WebGL, against a fake launcher API serving a REAL shipped bitmap font

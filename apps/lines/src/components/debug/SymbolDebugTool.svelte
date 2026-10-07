@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { SymbolDebugOverlay } from 'components-pixi';
+	import { symbolsUsed } from 'game-config';
 	import { getContextApp } from 'pixi-svelte';
 
-	import { SYMBOL_INFO_MAP } from '../../game/constants';
+	import { getActiveGameConfig } from '../../game/gameConfig';
 	import { getSymbolInfo } from '../../game/utils';
 	import { SYMBOL_STATES, type SymbolName, type SymbolState } from '../../game/types';
 	import Symbol from '../Symbol.svelte';
@@ -10,7 +11,8 @@
 	const app = getContextApp();
 	const loaded = $derived(app.stateApp.loadedAssets);
 
-	const symbols = Object.keys(SYMBOL_INFO_MAP);
+	// The rows Invisible Symbols lists — the symbols the game can show — not every coded symbol.
+	const symbols = symbolsUsed(getActiveGameConfig());
 	const states = [...SYMBOL_STATES];
 
 	const infoOf = (name: string, state: string) =>

@@ -235,7 +235,7 @@ const PROJECT_CHECKS = [
 ];
 const PROJECT_READ_EXEMPT: Record<string, string> = {
 	'admin/project-footprint': 'gated on adminPanel, which spans every project',
-	'admin/spines': 'gated on adminPanel, which spans every project',
+	'admin/rigs': 'gated on adminPanel, which spans every project',
 	'flipbook/clip': 'scoped by the session; ?project= only refuses a tab on a stale project',
 	'flow-v2/backups': 'scoped by the session; ?project= only refuses a tab on a stale project',
 	'fx/effect': 'scoped by the session; ?project= only refuses a tab on a stale project',

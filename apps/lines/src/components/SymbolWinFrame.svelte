@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { SpineProvider, SpineTrack } from 'pixi-svelte';
+	import { RigProvider, RigTrack } from 'pixi-svelte';
 
 	import { SYMBOL_SIZE, hexToTintNumber } from 'engine-game';
 	import { bakedHighlight } from '../editor-scenes';
@@ -8,9 +8,9 @@
 	 * The GLOBAL win-highlight frame authored in the Invisible Symbols State Machine, drawn over a
 	 * winning cell.
 	 *
-	 * It belongs to the SYMBOL, not to one renderer. It used to live inside `SymbolSpine`, so a
+	 * It belongs to the SYMBOL, not to one renderer. It used to live inside `SymbolRig`, so a
 	 * symbol whose Win cell is bound to a flipbook (or a sprite) paid with no frame at all while its
-	 * spine-bound neighbour on the same payline got one — the highlight looked half-broken rather
+	 * rig-bound neighbour on the same payline got one — the highlight looked half-broken rather
 	 * than un-authored. `Symbol.svelte` now owns the decision and draws this over whichever renderer
 	 * the cell resolved to.
 	 */
@@ -40,6 +40,6 @@
 	});
 </script>
 
-<SpineProvider x={props.x} y={props.y} key={frameKey} width={SYMBOL_SIZE * 0.19} tint={frameTint}>
-	<SpineTrack trackIndex={0} animationName={frameAnimation} loop />
-</SpineProvider>
+<RigProvider x={props.x} y={props.y} key={frameKey} width={SYMBOL_SIZE * 0.19} tint={frameTint}>
+	<RigTrack trackIndex={0} animationName={frameAnimation} loop />
+</RigProvider>

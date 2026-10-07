@@ -341,7 +341,7 @@ checkpoint, padding or sampler than the rest of the project.</p>
 {peratlas_tbl}
 
 <h3 id=atlasgeom>Atlas geometry</h3>
-<p>Stored in the manifest's <code>atlas</code> block. When a Spine/libGDX
+<p>Stored in the manifest's <code>atlas</code> block. When a libGDX
 <code>.atlas</code> file is bound here, every region's geometry is read from
 it and the cell-grid fields below are ignored.</p>
 

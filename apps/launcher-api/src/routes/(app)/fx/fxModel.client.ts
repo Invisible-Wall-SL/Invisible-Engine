@@ -21,7 +21,7 @@ import {
 	type EffectDoc,
 	type EmitterConfigV3,
 	type EmitterLayer,
-	type SpineParticleConfig,
+	type RigParticleConfig,
 } from 'engine-fx';
 
 // `bindArt` (+ `ART_BEHAVIOR_TYPES` / `behaviorsOf` / `BehaviorEntry`/`BehaviorConfig`) now
@@ -348,7 +348,7 @@ export function setListEndpoint(
 }
 
 // ---------------------------------------------------------------------------
-// Placement (Tier B — Spine-attach). These mutate a layer's `placement` block
+// Placement (Tier B — rig-attach). These mutate a layer's `placement` block
 // IMMUTABLY (never `config` — placement lives OUTSIDE the verbatim library config).
 // Kept pure so the harness covers the free↔bone gating + the bone-follow math.
 // ---------------------------------------------------------------------------
@@ -404,7 +404,7 @@ export interface Affine {
  * pure arithmetic so the bone-follow math is unit-coverable WITHOUT a PixiJS `Matrix`.
  *
  * This is the load-bearing coordinate hop of Tier B: the followed bone's position resolves
- * to Pixi WORLD coords (via `spine.skeletonToPixiWorldCoordinates`), but the emitter's
+ * to Pixi WORLD coords (via `rig.skeletonToPixiWorldCoordinates`), but the emitter's
  * `updateOwnerPos` is in its own CONTAINER's local space (which carries the stage pan/zoom).
  * Inverting the emitter container's world transform bridges the two, so the FX rides the
  * bone at any pan/zoom. The formula is the standard affine inverse PixiJS's `applyInverse`
@@ -646,15 +646,15 @@ export function triggerMode(layer: EmitterLayer): 'always' | 'event' {
 }
 
 // ---------------------------------------------------------------------------
-// Particle kind (Tier C — spine-clips-AS-particles). These mutate a layer's
+// Particle kind (Tier C — rig-clips-AS-particles). These mutate a layer's
 // `particleKind` + `spineParticle` block IMMUTABLY (never `config`, never `art`/`placement`/
-// `trigger`). `sprite` (Tiers A/B) binds atlas-region textures; `spine` pools `Spine`
+// `trigger`). `sprite` (Tiers A/B) binds atlas-region textures; `spine` pools `RigView`
 // instances each playing a clip (the Phase-0 native verdict). Kept pure so the harness
-// covers the sprite↔spine non-destructive switch + the spine-particle setters.
+// covers the sprite↔rig non-destructive switch + the rig-particle setters.
 // ---------------------------------------------------------------------------
 
 /**
- * Set whether a layer's particles are `sprite` (atlas art) or `spine` (pooled `Spine` clips),
+ * Set whether a layer's particles are `sprite` (atlas art) or `spine` (pooled `RigView` clips),
  * immutably. NON-DESTRUCTIVE: switching to `spine` keeps any prior `spineParticle` (so a toggle
  * back and forth preserves the skeleton/clip/loop), and switching to `sprite` LEAVES the
  * `spineParticle` block in place too (the runtime + `normalizeEffectDoc` both ignore it for a
@@ -673,15 +673,15 @@ export function setParticleKind(layer: EmitterLayer, kind: 'sprite' | 'spine'): 
  * `animation`/`loop`. An empty key clears the binding (the layer stays `spine` but renders nothing
  * — the fail-safe, mirroring an `event` layer with no `eventType`).
  */
-export function setSpineParticleSkeleton(layer: EmitterLayer, skeletonKey: string): EmitterLayer {
+export function setRigParticleSkeleton(layer: EmitterLayer, skeletonKey: string): EmitterLayer {
 	const clean = skeletonKey.trim();
 	const prev = layer.spineParticle;
-	const spineParticle: SpineParticleConfig = {
+	const rigParticle: RigParticleConfig = {
 		skeletonKey: clean,
 		animation: prev?.animation ?? '',
 	};
-	if (prev?.loop !== undefined) spineParticle.loop = prev.loop;
-	return { ...layer, particleKind: 'spine', spineParticle };
+	if (prev?.loop !== undefined) rigParticle.loop = prev.loop;
+	return { ...layer, particleKind: 'spine', spineParticle: rigParticle };
 }
 
 /**
@@ -689,36 +689,36 @@ export function setSpineParticleSkeleton(layer: EmitterLayer, skeletonKey: strin
  * keeps any prior `skeletonKey`/`loop`. An empty clip clears the animation (the layer stays
  * `spine` but pools static poses — never throws).
  */
-export function setSpineParticleAnimation(layer: EmitterLayer, animation: string): EmitterLayer {
+export function setRigParticleAnimation(layer: EmitterLayer, animation: string): EmitterLayer {
 	const prev = layer.spineParticle;
-	const spineParticle: SpineParticleConfig = {
+	const rigParticle: RigParticleConfig = {
 		skeletonKey: prev?.skeletonKey ?? '',
 		animation: animation.trim(),
 	};
-	if (prev?.loop !== undefined) spineParticle.loop = prev.loop;
-	return { ...layer, particleKind: 'spine', spineParticle };
+	if (prev?.loop !== undefined) rigParticle.loop = prev.loop;
+	return { ...layer, particleKind: 'spine', spineParticle: rigParticle };
 }
 
 /**
  * Set whether each particle's clip loops, immutably. Forces `particleKind: 'spine'`; keeps the
  * prior `skeletonKey`/`animation`.
  */
-export function setSpineParticleLoop(layer: EmitterLayer, loop: boolean): EmitterLayer {
+export function setRigParticleLoop(layer: EmitterLayer, loop: boolean): EmitterLayer {
 	const prev = layer.spineParticle;
-	const spineParticle: SpineParticleConfig = {
+	const rigParticle: RigParticleConfig = {
 		skeletonKey: prev?.skeletonKey ?? '',
 		animation: prev?.animation ?? '',
 		loop,
 	};
-	return { ...layer, particleKind: 'spine', spineParticle };
+	return { ...layer, particleKind: 'spine', spineParticle: rigParticle };
 }
 
 /**
  * Whether a `spine`-particle layer is fully bound (a skeleton AND a clip chosen). The stage uses
- * this to decide whether to pool real `Spine` instances or fall through to the placeholder dots —
- * a half-authored spine layer never crashes (the fail-safe analogue of `layerFollowsBone`).
+ * this to decide whether to pool real `RigView` instances or fall through to the placeholder dots —
+ * a half-authored rig layer never crashes (the fail-safe analogue of `layerFollowsBone`).
  */
-export function spineParticleReady(layer: EmitterLayer): boolean {
+export function rigParticleReady(layer: EmitterLayer): boolean {
 	return (
 		layer.particleKind === 'spine' &&
 		!!layer.spineParticle?.skeletonKey?.trim() &&

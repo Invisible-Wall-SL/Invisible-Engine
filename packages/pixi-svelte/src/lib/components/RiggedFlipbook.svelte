@@ -11,17 +11,17 @@
 		 * walk the frames one way while everything else assumed another.
 		 */
 		clip: FlipbookClip;
-		/** The rig's OWN spine event name that fires this clip (the rebroadcast `type`). */
+		/** The rig's OWN rig event name that fires this clip (the rebroadcast `type`). */
 		event: string;
 		/** Animation the bound keyframe lives in. Absent ⇒ fires in any animation (a manifest baked
 		 * before beats existed). */
 		animation?: string;
 		/** The bound keyframe's time, seconds. Absent ⇒ fires on any keyframe of the name. */
 		time?: number;
-		/** Host bone on the rig; absent ⇒ the rig origin. Resolved on the host `<SpineProvider>`. */
+		/** Host bone on the rig; absent ⇒ the rig origin. Resolved on the host `<RigProvider>`. */
 		bone?: string;
 		/**
-		 * Draw the clip at THIS slot's depth in the skeleton draw order (spine-pixi `addSlotObject`),
+		 * Draw the clip at THIS slot's depth in the skeleton draw order (RigView `addSlotObject`),
 		 * instead of on top of the whole rig. An unknown slot name falls back to on-top.
 		 *
 		 * NOT named `slot`: Svelte still reads a `slot` attribute on a component as the legacy slot
@@ -48,7 +48,7 @@
 	/**
 	 * Invisible Flipbook rig-timeline direct binding, runtime half — the frame-animation twin of
 	 * `<RiggedEffect>`. A rig plays a chosen CLIP on the beat of its OWN animation event: when the
-	 * rig's spine event named `event` fires, this (re)plays `clip` from frame 0, hosted on `bone` (or
+	 * rig's animation event named `event` fires, this (re)plays `clip` from frame 0, hosted on `bone` (or
 	 * the rig origin when absent), at `drawSlot`'s depth when one is bound.
 	 *
 	 * It is deliberately the same component shape as `<RiggedEffect>`, because the two solve the same
@@ -60,10 +60,10 @@
 	 *    keyed only by the bare event NAME, so a different rig firing an event of the same name (two
 	 *    board cells showing the same symbol, say) would cross-trigger this clip.
 	 *
-	 * 2. **Rig-transform inheritance.** `SpineProvider` scales + positions the SPINE object
+	 * 2. **Rig-transform inheritance.** `RigProvider` scales + positions the RIG object
 	 *    (contain-fit into the cell) but leaves its child parent context pointing at the OUTER
 	 *    container, so a naively-mounted sprite renders at the board origin at its authored size. We
-	 *    mount under `fbParent`, parented DIRECTLY on the host spine, so the clip inherits the rig's
+	 *    mount under `fbParent`, parented DIRECTLY on the host rig, so the clip inherits the rig's
 	 *    fit-scale, position and pivot — and rides whatever layer the symbol is on.
 	 *
 	 * WHERE IT DRAWS. The clip is anchored on its ORIGIN (`anchor 0.5`), which is the space a clip's
@@ -77,46 +77,42 @@
 	 * play from frame 0), unless `continuous` is set — then the first beat arms it and later beats are
 	 * deaf. `duration` takes it back down after that many ms; without one, a one-shot clip ends itself
 	 * and a looping clip runs until the rig unmounts. Nothing renders before the first fire. No-op
-	 * when there is no host spine in context (never crashes).
+	 * when there is no host rig in context (never crashes).
 	 */
 	import * as PIXI from 'pixi.js';
-	import * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
+	import * as RIG from 'engine-rig/pixi';
 	import { onDestroy } from 'svelte';
 
-	import {
-		getContextSpine,
-		getContextSpineLoadScale,
-		createContextParent,
-	} from '../context.svelte';
+	import { getContextRig, getContextRigLoadScale, createContextParent } from '../context.svelte';
 	import Flipbook from './Flipbook.svelte';
-	import SpineBoneAttach from './SpineBoneAttach.svelte';
+	import RigBoneAttach from './RigBoneAttach.svelte';
 	import { riggedBeatMatches } from '../riggedBeat';
-	import { attachToSlot } from '../spineSlotHost';
+	import { attachToSlot } from '../rigSlotHost';
 
 	const props: Props = $props();
-	const spine = getContextSpine();
+	const rig = getContextRig();
 	// The clip's box is in RIG units (the Rigger and /symbols load every rig at 1); the host bundle may
 	// be read at another load scale, which moves bones and scales attachments but not a Pixi child —
-	// so the clip is scaled by it here. See `setContextSpineLoadScale`.
-	const loadScale = getContextSpineLoadScale();
+	// so the clip is scaled by it here. See `setContextRigLoadScale`.
+	const loadScale = getContextRigLoadScale();
 
-	// The clip renders under this container, which we parent on the host spine so it inherits the
+	// The clip renders under this container, which we parent on the host rig so it inherits the
 	// rig's fit-scale/position/pivot (see doc note 2).
 	const fbParent = new PIXI.Container();
-	// A SLOT binding puts `fbParent` under the slot's shared HOST object instead, which spine drives
-	// at that slot's place in the draw order. Shared, because spine allows ONE object per slot and
+	// A SLOT binding puts `fbParent` under the slot's shared HOST object instead, which rig drives
+	// at that slot's place in the draw order. Shared, because rig allows ONE object per slot and
 	// `addSlotObject` evicts the previous one — and a binding is one keyframe, so the same clip keyed
-	// on one slot in two animations is two mounts (see `spineSlotHost`). Guarded, because
+	// on one slot in two animations is two mounts (see `rigSlotHost`). Guarded, because
 	// `addSlotObject` THROWS on an unknown slot name and a rig re-synced with that slot renamed away
 	// must degrade to the old on-top mount, not crash the game.
 	const slot =
-		props.drawSlot && spine?.skeleton?.findSlot(props.drawSlot) ? props.drawSlot : undefined;
+		props.drawSlot && rig?.skeleton?.findSlot(props.drawSlot) ? props.drawSlot : undefined;
 	const detachSlot =
-		spine && slot ? attachToSlot(spine, slot, fbParent, () => new PIXI.Container()) : undefined;
-	if (!detachSlot) spine?.addChild(fbParent);
+		rig && slot ? attachToSlot(rig, slot, fbParent, () => new PIXI.Container()) : undefined;
+	if (!detachSlot) rig?.addChild(fbParent);
 
 	// `alpha`/`scale` live on a SECOND container, not on `fbParent`: on a slot binding the host above
-	// `fbParent` is spine's (its `updateSlotObject` rewrites position, rotation, scale AND alpha every
+	// `fbParent` is rig's (its `updateSlotObject` rewrites position, rotation, scale AND alpha every
 	// frame from the slot's bone and colour). Nesting keeps one code shape for both mounts, and
 	// on a slotted binding the two compose.
 	const fbLocal = new PIXI.Container();
@@ -127,7 +123,7 @@
 		fbLocal.scale.set((props.scale ?? 1) * loadScale());
 	});
 	onDestroy(() => {
-		// Leave the shared slot host first (the last binding out unregisters it from spine, so a
+		// Leave the shared slot host first (the last binding out unregisters it from rig, so a
 		// destroyed-but-still-registered container is never written to every frame).
 		detachSlot?.();
 		// Shallow, both of them — the clip subtree below is owned by `<Flipbook>`, which tears itself
@@ -183,8 +179,8 @@
 	};
 	onDestroy(clearTimers);
 
-	// Attached at INIT, not from an effect. The sibling `<SpineTrack>` sets the animation and poses
-	// it (`spine.update(0)`) from ITS effect, and sibling effects run in template order — so a
+	// Attached at INIT, not from an effect. The sibling `<RigTrack>` sets the animation and poses
+	// it (`rig.update(0)`) from ITS effect, and sibling effects run in template order — so a
 	// listener attached from an effect here lands AFTER that first apply, and a key at t=0 (fired by
 	// that very pose) was lost. A key at 0.01s only ever worked because the ticker fired it a frame
 	// later. Attaching during init puts the listener on the state before any track is set.
@@ -193,7 +189,7 @@
 	// not the shared rebroadcast bus — otherwise any other rig firing an event of the same name
 	// would cross-trigger this clip. And only on THIS binding's beat: the manifest carries the
 	// keyframe's animation + time beside the name, so two keys of one name are two bindings.
-	const listener: SPINE_PIXI.AnimationStateListener = {
+	const listener: RIG.AnimationStateListener = {
 		event: (entry, ev) => {
 			if (
 				riggedBeatMatches(
@@ -205,19 +201,19 @@
 			}
 		},
 	};
-	spine?.state?.addListener(listener);
-	onDestroy(() => spine?.state?.removeListener(listener));
+	rig?.state?.addListener(listener);
+	onDestroy(() => rig?.state?.removeListener(listener));
 </script>
 
 {#if runId > 0}
 	{#key runId}
 		{#if props.bone}
-			<SpineBoneAttach boneName={props.bone} followRotation followScale rigUnits>
+			<RigBoneAttach boneName={props.bone} followRotation followScale rigUnits>
 				<Flipbook clip={props.clip} anchor={0.5} />
-			</SpineBoneAttach>
+			</RigBoneAttach>
 		{:else}
 			<!-- No bone: the rig origin normally, or the SLOT's own bone when this is a slot binding
-			     (spine drives `fbParent` there, and this mounts inside it). -->
+			     (rig drives `fbParent` there, and this mounts inside it). -->
 			<Flipbook clip={props.clip} anchor={0.5} />
 		{/if}
 	{/key}

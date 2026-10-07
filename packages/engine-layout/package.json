@@ -13,9 +13,9 @@
 	"scripts": {
 		"gen:scenes": "node scripts/gen-scene-sets.mjs",
 		"gen:scenes:check": "node scripts/gen-scene-sets.mjs --check",
-		"gen:builtin-spines": "node scripts/gen-builtin-spines.mjs",
-		"gen:builtin-spines:check": "node scripts/gen-builtin-spines.mjs --check",
-		"build": "node scripts/gen-scene-sets.mjs && node scripts/gen-builtin-spines.mjs && svelte-package",
+		"gen:builtin-rigs": "node scripts/gen-builtin-rigs.mjs",
+		"gen:builtin-rigs:check": "node scripts/gen-builtin-rigs.mjs --check",
+		"build": "node scripts/gen-scene-sets.mjs && node scripts/gen-builtin-rigs.mjs && svelte-package",
 		"format": "prettier --write --ignore-path=../../.prettierignore .",
 		"lint": "eslint \"src\""
 	},
@@ -44,7 +44,7 @@
 		"svelte-check": "4.7.6"
 	},
 	"dependencies": {
-		"@esotericsoftware/spine-pixi-v8": "4.2.120",
+		"engine-rig": "workspace:*",
 		"components-layout": "workspace:*",
 		"constants-shared": "workspace:*",
 		"engine-cinematic": "workspace:*",

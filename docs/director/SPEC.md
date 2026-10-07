@@ -38,7 +38,7 @@ across the existing tools. The owner reviews at checkpoints, then publishes in G
 - **Summary panel:**
   - the agents and their models
   - region counts from the template, by group (Symbols, Coins & jackpots, Backgrounds, Reel frame & logo, UI kit, Win banners)
-  - reused Spine rigs
+  - reused rigs
   - an estimate: Claude API $, RunPod minutes and $, and the number of checkpoints
 - **"Create project & start agents".**
   1. Creates the project exactly as Game Maker does: a `projects` row plus the R2 scaffold under `<client>/<project>/`. It copies the template with the duplicate path (`projectDuplicate.ts`, scope `full`).

@@ -147,14 +147,28 @@ export type PaytableSymbols = Readonly<
 export const DEFAULT_SCATTER_PAYTABLE: PaytableRow[] = [{ '3': 2 }, { '4': 20 }, { '5': 200 }];
 
 /**
- * How many scatters trigger the feature. The config has no field for it, and it is NOT the lowest
- * count of the scatter's pay row: a row may pay from 2 or start at 4 without moving the trigger. It is
- * the count the default row, both mocks and the anticipation tease have always used.
+ * How many scatters trigger the feature BY DEFAULT. It is NOT the lowest count of the scatter's pay
+ * row: a row may pay from 2 or start at 4 without moving the trigger. It is the count the default
+ * row, both mocks and the anticipation tease have always used. A project may author its own count
+ * and symbol in `freeSpins`: read the live rule through `resolveFreeSpins`, never this constant.
  */
 export const SCATTER_TRIGGER_COUNT = 3;
 
 export const isScatterSymbol = (symbol: PaytableSymbols[string] | undefined): boolean =>
 	symbol?.special_properties?.includes('scatter') ?? false;
+
+/**
+ * THE scatter: the first dictionary symbol that is a scatter AND is dealt (`inPlay`, the strip
+ * gate). One answer for every side that asks — the info page's scatter row, the mock's scatter
+ * pays, the free-spins trigger default — so no two of them can pick different scatters.
+ */
+export const inPlayScatterSymbol = (
+	symbols: PaytableSymbols,
+	inPlay: readonly string[],
+): string | undefined => {
+	const dealt = new Set(inPlay);
+	return Object.keys(symbols).find((name) => dealt.has(name) && isScatterSymbol(symbols[name]));
+};
 
 /** A scatter's pays: its authored `paytable`, else {@link DEFAULT_SCATTER_PAYTABLE}. */
 export const scatterPaytableOf = (symbol: PaytableSymbols[string] | undefined): PaytableRow[] =>
@@ -195,7 +209,7 @@ export const shownPaytable = (
 	const lines = names
 		.filter((name) => !isScatterSymbol(symbols[name]) && symbols[name].paytable?.length)
 		.map((name) => toEntry(name, 'line', symbols[name].paytable ?? []));
-	const scatter = names.find((name) => isScatterSymbol(symbols[name]));
+	const scatter = inPlayScatterSymbol(symbols, inPlay);
 	return scatter
 		? [...lines, toEntry(scatter, 'scatter', scatterPaytableOf(symbols[scatter]))]
 		: lines;

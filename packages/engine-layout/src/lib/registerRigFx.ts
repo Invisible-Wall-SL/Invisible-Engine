@@ -3,15 +3,15 @@
  * placed rig plays directly off its OWN animation events (`event.fx = { effectId, bone? }` authored
  * in the Rigger). Mirrors {@link registerEffects}: the game supplies the baked bindings ONCE at boot
  * (from `bakedRigFx()`), and `LayoutNodeView` resolves a rig's `assetKey` → its bindings here to
- * mount a `<RiggedEffect>` per binding INSIDE the rig's `<SpineProvider>`.
+ * mount a `<RiggedEffect>` per binding INSIDE the rig's `<RigProvider>`.
  *
- * Why a manifest (not read from the event stream): spine-pixi discards the custom `event.fx` field
+ * Why a manifest (not read from the event stream): the runtime reader discards the custom `event.fx` field
  * at parse time, so the binding cannot travel through the rebroadcast bus — it is baked from the rig
  * `.irig`/`.json` directly (see `invisible-fx.md` "rig-timeline direct FX binding").
  *
- * The map is keyed by the SAME string `LayoutNodeView` passes as `<SpineProvider key={node.assetKey}>`
+ * The map is keyed by the SAME string `LayoutNodeView` passes as `<RigProvider key={node.assetKey}>`
  * for a placed rig — i.e. the plain bundle NAME (`bundleFromAssetKey` = the `skeletons.json` `folder`),
- * since `resolveSpineKeysForGame` rewrites an editor-placed spine node's `assetKey` down to that name.
+ * since `resolveRigKeysForGame` rewrites an editor-placed rig node's `assetKey` down to that name.
  *
  * Module-scoped, exactly like `registerEffects` — in a pnpm workspace each game bundles its own copy
  * of this package, so the top-level `Map` never leaks across games.
@@ -32,7 +32,7 @@ import { installRigBoundContent } from './rigBoundContentInstall';
  */
 export type RigFxOverrides = {
 	/**
-	 * Draw the burst at this SLOT's depth in the skeleton's draw order (spine-pixi `addSlotObject`),
+	 * Draw the burst at this SLOT's depth in the skeleton's draw order (RigView `addSlotObject`),
 	 * instead of on top of the whole rig. Absent ⇒ on top, the original behaviour.
 	 *
 	 * Also becomes the burst's HOST when no `bone` is given — a slot is a bone plus a depth, and
@@ -69,7 +69,7 @@ export type RigFxOverrides = {
 	continuous?: boolean;
 };
 
-/** One rig→effect binding: on a spine event named `event` — at the {@link RigBeat} it was keyed on —
+/** One rig→effect binding: on a rig event named `event` — at the {@link RigBeat} it was keyed on —
  * (re)play `effectId` from t=0, hosted on `bone` (or the rig origin when absent), with any authored
  * {@link RigFxOverrides} applied. One binding per KEYFRAME: two keys of one event name are two
  * bindings, each firing at its own time with its own settings. */
@@ -145,7 +145,7 @@ const registry = new Map<string, RigFxBinding[]>();
  */
 export function registerRigFx(map: Record<string, RigFxBinding[]>): void {
 	if (!map || typeof map !== 'object') return;
-	// Join this registry to `<SpineProvider>`'s bound-content seam, so EVERY rig plays what the
+	// Join this registry to `<RigProvider>`'s bound-content seam, so EVERY rig plays what the
 	// Rigger bound on its timeline — not just the two mount sites that used to hand-roll the
 	// lookup. Idempotent; see `rigBoundContentInstall.ts`.
 	installRigBoundContent();

@@ -3,12 +3,12 @@ import { setContext, getContext } from 'svelte';
 /**
  * Button-state-anim context for `componentInstance` expansion — the INTERACTION
  * sibling of `componentSignalContext`. `<ComponentInstance>` resolves the current
- * button state (hover / press / selected / disabled / spinning) for every spine node
+ * button state (hover / press / selected / disabled / spinning) for every rig node
  * carrying a `stateAnimations` map and writes the cascaded `{ animation, loop }` into
- * a reactive `nodeId → …` map provided here; the spine node inside `def.root` reads
+ * a reactive `nodeId → …` map provided here; the rig node inside `def.root` reads
  * its own entry via {@link getComponentStateAnims} and prefers it over both the
  * signal-cue override and its static `defaultAnimation`. No provider (a scene-level
- * spine, or a non-interactive component) ⇒ `undefined`, so that spine is
+ * rig, or a non-interactive component) ⇒ `undefined`, so that rig is
  * byte-identical to today — it just uses the signal cue / `defaultAnimation` (parity).
  */
 const NS = '@@engine_layout_component_state_anims';

@@ -92,8 +92,8 @@ differed in only four ways:
   played-out pop) were the same picture — a cell that holds its row but draws nothing — and are now
   one flag. The win beat's "refuse a removed cell" guard and the cascade's "already gone, mark it and
   return" branch read the same field.
-- **Which LAYER draws it.** The reel cell put a spine on the unmasked animating layer only in `land`
-  / `win` / `explosion`; the overlay put EVERY spine there. That difference is itself a remount — a
+- **Which LAYER draws it.** The reel cell put a rig on the unmasked animating layer only in `land`
+  / `win` / `explosion`; the overlay put EVERY rig there. That difference is itself a remount — a
   symbol that changes layer is re-created, because `SymbolWrap` mounts on exactly one of the two
   `BoardContext`s — so one predicate has to hold throughout. It is the reel's, widened to the
   cascade's own two states: `land | win | explosion | clearReel | intro`. A game that never cascades

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import SymbolSpine from './SymbolSpine.svelte';
+	import SymbolRig from './SymbolRig.svelte';
 	import SymbolSprite from './SymbolSprite.svelte';
 	import { getSymbolInfo } from '../game/utils';
 	import type { SymbolState, RawSymbol } from '../game/types';
@@ -24,7 +24,7 @@
 {#if isSprite}
 	<SymbolSprite {symbolInfo} x={props.x} y={props.y} oncomplete={props.oncomplete} />
 {:else}
-	<SymbolSpine
+	<SymbolRig
 		loop={props.loop}
 		{symbolInfo}
 		x={props.x}

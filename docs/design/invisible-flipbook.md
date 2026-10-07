@@ -6,7 +6,7 @@
 > by three consumers: **FX** particles, **Symbols** states, and **Scene Editor** elements.
 > Owner direction 2026-07-20. Related: `live-assets.md` (the asset chain every new class must
 > travel), `invisible-fx.md` (today's only frame-sequence path — locked inside the emitter),
-> `invisible-symbols-state-machine.md` (where Spine is currently the *only* route to an
+> `invisible-symbols-state-machine.md` (where rig is currently the *only* route to an
 > animated symbol), `invisible-editor.md` (the `LayoutNode` union a flipbook must join).
 
 ## Why a tool, not a field
@@ -31,9 +31,9 @@ What does not exist anywhere is the concept of **an ordered, named, timed group 
 | Scene Editor (`SpriteNode`) | Explicitly single-frame: `assetKey` + one `region?`. |
 | Symbols (`symbolCellSchema`) | `type: 'sprite' \| 'spine'` — a `sprite` cell is one frozen frame; `animationName` is meaningful only for `spine`. |
 
-So a `Spin`/`Land`/`Win` symbol state is either a Spine animation or a still image. **Spine is
+So a `Spin`/`Land`/`Win` symbol state is either a rig animation or a still image. **Rig is
 currently the only route to an animated symbol** — which also makes the flipbook the natural
-cheaper fallback for the Tier-C spine-particle perf ceiling already flagged in
+cheaper fallback for the Tier-C rig-particle perf ceiling already flagged in
 `docs/status/fx.md`.
 
 ### Why the clip doc is its own asset class
@@ -137,7 +137,7 @@ anchor lands on the box's centre, and cover-fit measures the box.
 
 **A box SMALLER than the art is legal and load-bearing.** The art overflows rather than being
 cropped — how a symbol is sized by the part that reads while a wide invisible flourish hangs outside
-the cell (the sprite answer to `gotcha_symbol_spine_sized_by_declared_canvas`). Pinned against the
+the cell (the sprite answer to `gotcha_symbol_rig_sized_by_declared_canvas`). Pinned against the
 real pixi build by `pnpm --filter flipbook-spike run pixi-bounds`.
 
 ### The sprite half: `editor/art-bounds.json`

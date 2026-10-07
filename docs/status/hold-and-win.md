@@ -302,22 +302,22 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
     places it — `x`/`y` add px, `rotation` adds degrees clockwise, `scale`/`scaleX`/`scaleY` and
     `alpha` multiply — folded once onto the resolved transform in `<LayoutNodeView>`. `visible`:
     shown while the value is ≥ `threshold` (default 1; `below` inverts); hidden means unmounted,
-    like every layout visibility, so a spine shown again restarts and a component fires `enter`.
+    like every layout visibility, so a rig shown again restarts and a component fires `enter`.
     `fill`: a mask revealing a sprite / flipbook / rect from one edge (not on a cover node; a
     mirrored clip's mask mirrors with it). `frame`: holds a flipbook frame, counted on the clip as
     authored (a frame-bound clip walks forward). `animTime` and `bone` pose through
-    `pixi-svelte`'s `<SpinePose>` on the spine's world-transform hooks, after the animation state:
+    `pixi-svelte`'s `<RigPose>` on the rig's world-transform hooks, after the animation state:
     each scrub applies its animation at the held share of its length (`Animation.apply`, its
     events dropped, so it fires none), then each bone offset is added / multiplied on top and undone
     after the world transform, last first, so an unkeyed channel never compounds
-    (`pixi-svelte/spineBoneOffset`, shared with the editor preview).
+    (`pixi-svelte/rigBoneOffset`, shared with the editor preview).
   - **New sources** (`Game.svelte`): `meter.<id>.stage` and `meter.<id>.full` (1/0; also a visibility
     source), `respinsStart` (the counter's current cap), `cellsHeld` / `cellsTotal`, and `rowsOpen` /
     `rowsMax` on an expanding board. The editor's picker reads `VALUE_BINDING_SOURCE_CATALOG`
     (`needsParam` gates the pot entries to a component with a `meter` param; `of` pre-fills the
     divisor).
   - **Ship chain:** a binding is a node field, so it travels the existing def / doc bake. There is no
-    new R2 asset class, and bones and animations already ship in the spine bundle. Node fields pass
+    new R2 asset class, and bones and animations already ship in the rig bundle. Node fields pass
     `normalizeNode` / `normalizeComponent` untouched.
   - **With 12a** (#1003, landed first): both phases use the one `meterStage(meter, level)` rule —
     12a's stage-up cue and 12b's `meter.<id>.stage` source count stages the same way the coded pot
@@ -367,7 +367,7 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
     absent on a board that never grows (parity). A full board = every cell of `maxRows`.
   - **Fixtures:** `HOLD_AND_WIN_TEST_FIXTURES['pots-expansion-fullrow' | 'pots-expansion-unlock' |
     'pots-expansion-count']`; no preset gains the option.
-- 2026-10-02 — **Owner: Phase 12, authorable feature parts.** The Pot Meter is a hard-coded shape: no bitmap art, no per-pot signals into components (catalog-only cue names; the engine's pot broadcasts never reach spine cues; FX can't filter per pot), and numbers drive only text (no bone, fill, frame or animation binding). Plan, design §8: 12a scoped signals ∥ 12b value bindings → 12c skinnable parts, Pot first. Generic across kinds.
+- 2026-10-02 — **Owner: Phase 12, authorable feature parts.** The Pot Meter is a hard-coded shape: no bitmap art, no per-pot signals into components (catalog-only cue names; the engine's pot broadcasts never reach rig cues; FX can't filter per pot), and numbers drive only text (no bone, fill, frame or animation binding). Plan, design §8: 12a scoped signals ∥ 12b value bindings → 12c skinnable parts, Pot first. Generic across kinds.
 - 2026-10-02 — **Phase 11a: the rules add-respins and upgrade settled** (session "H&W Phase 11a —
   add-respins + upgrade specials"). Each is one fact the mock, the facade, `applyHoldAndWinEvent`
   and the beats share, pinned by `check:holdandwin`:
@@ -436,7 +436,7 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
     Hold and Win symbols' cells from `holdAndWin.json` into `<client>/<project>/symbols/symbols.json`
     (type / assetKey / animationName only; they bind coded game assets, which the exporter leaves alone
     and the game registers itself). `hw-3pots-sample` was seeded that way on 2026-10-01 (BONUS = scatter
-    art, JACKPOT = wild, BOOST/COLLECT/MULTI = the M multiplier spine, MYSTERY = exploded wild —
+    art, JACKPOT = wild, BOOST/COLLECT/MULTI = the M multiplier rig, MYSTERY = exploded wild —
     placeholders). A `blank`-tagged symbol is no longer reported missing (#963): it draws nothing by
     design.
   - **The new states and what plays them** (fallback when unbound in brackets): a respin cell stopping →
@@ -455,7 +455,7 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
     0.5 left the volley < 1 px off the chord. The field is now labelled "Max detour". A real "arc" knob
     (a preferred curve even with nothing in the way) would be a `planFlight` change — not built.
   - **Flight heads are additive glows**, so the authored tint shows as the halo around a white core;
-    a strongly coloured head needs a sprite/spine/flipbook head. No `/fx` trail was authored on the
+    a strongly coloured head needs a sprite/rig/flipbook head. No `/fx` trail was authored on the
     sample (it has no effects), so an authored trail is proven only by the fixtures and the `/symbols`
     preview (`FxStage` `ownerPos`), not live.
   - **pixi-svelte `<BitmapText>` trap (any caller):** pixi's `BitmapText` defaults `fill` to white
@@ -592,7 +592,7 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
   - **Lucky Spin = an explicit one-shot, not faked scatters.** The intro beat arms it; every
     `presentReveal` takes it; the dispatch seam reads it to run that reveal unskippable. The reels
     hold on every reel after the first at level 1 (the lowest big tier's alias); the anticipation
-    OVERLAYS (spine stack, grey-out, camera) still need the project's `anticipationMode`, so a project
+    OVERLAYS (rig stack, grey-out, camera) still need the project's `anticipationMode`, so a project
     without it sees long holds only. In the sample config each armed reel holds ~2 s, so a Lucky Spin
     reveal takes ~8 s — tune `reelPaddingMultiplierAnticipated` if that reads long.
   - **Celebrations without a screen.** `holdAndWinEnd` and a banked `jackpotWin` re-arm the slam
@@ -688,7 +688,7 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
   same-tick flip.
 
 - 2026-10-01 — **Flights: a moving /fx owner does NOT leave a trail today** (read-only measure for
-  step 9; design §4.4 corrected). Every renderer — `/fx` preview, `SpineBoneAttach`, `RiggedEffect`,
+  step 9; design §4.4 corrected). Every renderer — `/fx` preview, `RigBoneAttach`, `RiggedEffect`,
   the symbol `fx` layer, launcher overlays — moves the emitter's container, so particles move
   rigidly. The library trails via `emitter.updateOwnerPos` on a still parent, which no game path
   calls. `flyTo` therefore adds an `ownerPos` getter to `pixi-svelte` `ParticleEmitter.svelte` (and
@@ -934,15 +934,15 @@ Hold and Win beats prints copy.
     real game locally (12c Recent changes, 2026-10-03); the live run is Owner checklist 13.
   - **The Scene Editor cannot scrub a node inside a placed instance** — those nodes are not
     selectable there. Scrub it in the Component Editor.
-  - **Fill covers sprite, flipbook and rect only.** A container or spine fill (mask a whole group)
+  - **Fill covers sprite, flipbook and rect only.** A container or rig fill (mask a whole group)
     is not built.
 
 - **Phase 12a owed:**
-  - **A live check on `hw-3pots-sample`.** Author a component scoped by `meter` with a spine cue on
+  - **A live check on `hw-3pots-sample`.** Author a component scoped by `meter` with a rig cue on
     **Pot — activate** (or an FX on `potFull`), place it on each pot, and confirm only the pot that
     activates plays. Everything up to that point is gate-covered (`check:signal-scope`), but the
     instance filter itself is Svelte and runs only in a browser. The 12c done-when rehearsal ran it
-    in the real game on the local mock (a spine cue and an FX, three pots): only the activated pot
+    in the real game on the local mock (a rig cue and an FX, three pots): only the activated pot
     played. The live run is Owner checklist 13.
   - **Coins are not scoped.** A coin signal has no part a placed component stands for. 12c's Cell
     Tile is a per-cell instance now, but "Coins land" lists several cells, so a per-cell scope would
@@ -1045,7 +1045,7 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
    keep drawing.
 6. **Re-publish `hw-3pots-sample`** so plain player URLs (not just `authoring=1`) get the authored coin
    label, flights and seeded symbol art.
-7. **Real art** — replace the seeded placeholder symbol art (scatter / wild / M spine / exploded
+7. **Real art** — replace the seeded placeholder symbol art (scatter / wild / M rig / exploded
    wild) in `/symbols` for all three samples.
 8. **Older Hold and Win projects** with no symbols doc: `/admin` → **Rescaffold** writes the bindings
    (it never touches an existing symbols doc; bind by hand in `/symbols` if one exists).
@@ -1073,7 +1073,7 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     passes. Needs item 5 first (the project has no Pots screen, and its Book-of flow must show the
     Pots screen at load). Then, as the author, per the playbook's
     [S10](../playtest/hw-3pots-sample.md): create a **Pot Meter (Hold and Win)** copy, put the frog
-    spine and an FX inside its `Pot` part, give the spine a cue on **Pot — activate** and a **Bind to
+    rig and an FX inside its `Pot` part, give the rig a cue on **Pot — activate** and a **Bind to
     value** on its belly bone, pick the fill and frame art, switch the three placed pots to the copy,
     and publish. Hand the forced rounds back to a session, or play them: each `meter:<id>` must play
     only that pot's frog and FX, with no Flow branch. A cloud session needs `games.invisiblewall.org`
@@ -1084,6 +1084,22 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-07 — **A role symbol on no strip is never dealt.** `holdAndWinMockInputs` passed every
+  symbol with a Hold and Win role, so the mock dealt a coin, special, meter or unlock symbol that
+  `/config` badges unused. It now passes only role symbols a strip deals: a special or meter whose
+  symbol is unused never lands, and a forced meter (`force:meter:<id>`, `force:trigger:meter:<id>`)
+  whose symbol is unused is refused like a forced special the game lacks. A coin symbol is the one
+  role the feature cannot do without, so `/config` now refuses to save a config with no coin or
+  jackpot symbol on a strip, or with cash coins and no coin symbol on one (the mock would deal them
+  as the jackpot symbol, which the game values at nothing; this also covers a dictionary that tags
+  no coin at all). A config saved before that rule, with no coin symbol on a strip, keeps dealing
+  its coin and jackpot symbols as it did, rather than losing its coins on deploy. The client's
+  respin board draws its empty cell with `holdAndWinBlankSymbol` — the mock's own pick, read off the
+  baked config: the first blank a strip deals, else `BLANK` — so an unused blank is never drawn and
+  an overlay host's renamed blank still matches what the server sends. Every preset deals all its
+  role symbols, so nothing changes for them (`check:holdandwin` unchanged). Gate:
+  `check:unused-symbols-in-game`.
 
 - 2026-10-03 — **Phase 12c: the done-when rehearsed on the real game, locally** (#1006). All three
   pots pass. The live run on `hw-3pots-sample` is owed (Owner checklist 13).
@@ -1363,7 +1379,7 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     - Part mode resets on inspect / back to latest.
   - **CI fix:** `scripts/verify-pot-meter-mount.mjs` stubs `PotMeter`'s imports. It now hands it
     the real `readPotSkin` from `potSkin.ts`. Before, the package index loaded the build-generated
-    `builtinSpineMeta` and failed on a clean checkout.
+    `builtinRigMeta` and failed on a clean checkout.
   - **Left:** the 12c items in Open items.
 - 2026-10-02 — **Phase 12b: value bindings, through the whole pipeline** (#1005; session "Hold and Win Phase 12b value bindings"; contract in
   Decisions above). Generic: any node in any kind. An unbound node renders byte-identically.
@@ -1371,16 +1387,16 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     (inputs, mapping, folding, fill rect, frame, scrub, bone) and its fixture
     `test-value-bindings.mjs` (81 assertions); `boundValues.svelte.ts` subscribes the sources and
     glides; `<LayoutNodeView>` folds the transform once and adds the fill mask, the held frame and
-    `<SpinePose>`, each branch fixed for the node's life so a value arriving never remounts art.
-  - **`pixi-svelte`:** `<SpinePose>` (scrubs + bone offsets on the spine's world-transform hooks,
-    chained, unlinked on unmount); the `spineBoneOffset` leaf; `AnimatedSprite` / `Flipbook` hold a
+    `<RigPose>`, each branch fixed for the node's life so a value arriving never remounts art.
+  - **`pixi-svelte`:** `<RigPose>` (scrubs + bone offsets on the rig's world-transform hooks,
+    chained, unlinked on unmount); the `rigBoneOffset` leaf; `AnimatedSprite` / `Flipbook` hold a
     `frame`.
   - **Sources (`apps/lines`):** `meter.<id>.stage` / `.full`, `respinsStart`, `cellsHeld` /
     `cellsTotal`, `rowsOpen` / `rowsMax`; the coded pot grows by the shared `meterStage`.
   - **Editors:** a **Bind to value** section in Properties (Scene + Component Editor): target, source
     picker (the component's params, the per-instance pot, Hold and Win, game values, custom), divide
     by, in → out, curve, glide, clamp, the per-target fields, and a **test value** previewed on the
-    canvas and the text / spine / effect overlays. Draw paths only, so a preview is never written
+    canvas and the text / rig / effect overlays. Draw paths only, so a preview is never written
     into the doc.
   - **Guides:** [Component Editor §3b](../tools/component-editor.md#3b-drive-a-node-from-a-number-bind-to-value)
     and the Scene Editor's *Bind to value*.
@@ -1389,7 +1405,7 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     rises, the full badge shows on the full pot only, the H1 rig grows by its `global` bone and
     scrubs `h1`, and holds a steady size over many frames (no compounding). A code review then moved
     the scrub off a track entry (a new entry per change replayed the animation's events onto the game
-    bus) onto `<SpinePose>`, mirrored the fill mask for flipped clips, and fixed the editor preview
+    bus) onto `<RigPose>`, mirrored the fill mask for flipped clips, and fixed the editor preview
     (a scrub no longer leaks onto the shared rig, the effect overlay repaints, a test value clears
     on deselect). `check:svelte` at baseline for engine-layout / pixi-svelte / lines / launcher, lint clean, `check:path-imports` and
     `check:undefined-names` green, the launcher builds. Not verified: the editor section in a browser

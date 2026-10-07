@@ -14,7 +14,7 @@ yet shipped an authored cinematic through a `playCinematic` node.
 - **`/rigger` cinematic mode (Phase 1).** A fourth mode beside Preview / Setup / Animate. Cast a
   rig from the project as an **actor** (the same rig twice = independent instances), place it
   (x / y / scale / rotation / flip), set draw order and visibility, give it a clip, scrub or play
-  the stage. Works with **no rig open** (it boots the spine runtime + GL itself). Code:
+  the stage. Works with **no rig open** (it boots the rig runtime + GL itself). Code:
   `static/rigger/cinematic.js`, plus four hooks in `view.html`. The mode hides the rig-only chrome
   (rig save/export, rig management, anim/skin pickers), so only one Save is on screen. A **Frame**
   picker draws the game canvas box per layout, resolved through `resolveLayoutProfile` (project →
@@ -29,7 +29,7 @@ yet shipped an authored cinematic through a `playCinematic` node.
   `<client>/<project>/deploy/cinematics/<id>.json` (pruning deleted ones), the runtime bundle and
   the offline bake embed them as `cinematics`, and the game reads `bakedCinematics()` /
   `bakedCinematic(id)` (`[]` when un-authored ⇒ parity). A cast rig may appear in no scene, so
-  `exportEditorArt` takes an `extraSpineNames` seed from `cinematicRigNames()`. **Rig identity is
+  `exportEditorArt` takes an `extraRigNames` seed from `cinematicRigNames()`. **Rig identity is
   the FOLDER** (the bundle name), never `SkeletonIndexEntry.id`, which is an array position
   reassigned on every scan.
 - **`packages/engine-cinematic`** — the layered strip evaluator (`clipLocalTime`, `blendEnvelope`,
@@ -37,7 +37,7 @@ yet shipped an authored cinematic through a `playCinematic` node.
   `cineTimeForLocal`). Plain ESM JS + hand-written `.d.ts`, because `/rigger`'s static page fetches
   it over HTTP: `static/shared/cinematicEval.mjs` is a **generated verbatim copy**
   (`node scripts/sync-cinematic-eval.mjs`) and the gate fails if the two differ.
-- **`<Cinematic>` (`engine-layout/svelte`)** — the in-game player: one `<SpineProvider>` per cast
+- **`<Cinematic>` (`engine-layout/svelte`)** — the in-game player: one `<RigProvider>` per cast
   member keyed by rig folder, all driven from ONE clock through the shared evaluator on the Pixi
   ticker (a paused game pauses it). Props: `doc` · `playing` · `startTime` · `loop` · `speed` ·
   `oncomplete`. `CinematicActor.svelte` keeps `autoUpdate` ON (off froze every rig on first mount),
@@ -91,7 +91,7 @@ yet shipped an authored cinematic through a `playCinematic` node.
 | Proof | Result |
 |---|---|
 | `tools/rigger-spike/cinematic.mjs` — gates 1 + 2, channel sampling, cues, visibility, tweak-mode time inverse, evaluator-drift (headless) | **118/118** |
-| `tools/rigger-spike/cinematic-pixi.mjs` — gate 3, the `spine-pixi-v8` pose contract (not rendering — see its header) | **14/14** |
+| `tools/rigger-spike/cinematic-pixi.mjs` — gate 3, the reference Pixi runtime pose contract (not rendering — see its header) | **14/14** |
 | `static/rigger/cinematic-harness.html` — gate 2's WebGL half, in a real browser | **11/11** |
 | `tools/rigger-spike/cinematic-storage.mjs` — storage guards + the export/prune chain (headless) | **28/28** |
 | `tools/rigger-spike/cinematic-flow.mjs` — `playCinematic` against the REAL interpreter + validator | **19/19** |
@@ -147,9 +147,9 @@ yet shipped an authored cinematic through a `playCinematic` node.
   `stateApp.pixiApplication`), so mounting it threw "Cannot read properties of undefined (reading
   'ticker')" and nothing played. svelte-check had reported it from day one (5 × `ts:2339`, with the
   undeclared `oncue` prop), but the errors sat in the ratchet baseline. Both are fixed and the
-  baseline is lowered. Found while proving the spine-pixi-v8 4.2.120 bump (#929).
+  baseline is lowered. Found while proving the reference Pixi runtime 4.2.120 bump (#929).
   - **autoUpdate verdict:** 4.2.120 made the `autoUpdate` setter idempotent and moved it onto a
-    configurable `ticker` (default `Ticker.shared`). A default `Spine` still registers once, and
+    configurable `ticker` (default `Ticker.shared`). A default `RigView` still registers once, and
     `false` still detaches. 4.2.74 used to add a second listener on a repeated `true`, which would
     double-update a rig. `<CinematicActor>` never touches `autoUpdate`, so its contract is unchanged.
     `tools/rigger-spike/cinematic-pixi.mjs` part C now asserts this against the real runtime.
@@ -157,8 +157,8 @@ yet shipped an authored cinematic through a `playCinematic` node.
     60 fps booted the remake's live data. A two-rig probe doc (`R_Cinematic1` Intro → Idle,
     `R_Cinematic2` Tier1_Intro, 6 s) was injected into `/api/editor/runtime` over CDP and started via
     `__IE_FLOW_V2__.playingCinematics`. `oncomplete` fired at 6.012 s for ×1 and 3.032 s for ×2,
-    both rigs re-posed every sample, and it unmounted on completion. Across about 200k spine
-    updates, none ran twice on a tick with dt > 0; the only repeats were `SpineTrack`'s `update(0)`.
+    both rigs re-posed every sample, and it unmounted on completion. Across about 200k rig
+    updates, none ran twice on a tick with dt > 0; the only repeats were `RigTrack`'s `update(0)`.
 
 - 2026-08-19 — **Inline posing** (✎ on a cast row) — the owner's third iteration on "edit my bones
   straight into cinematic"; Tweak Mode had answered with a surface swap onto an empty clip.
@@ -174,13 +174,13 @@ yet shipped an authored cinematic through a `playCinematic` node.
   clip it filters could not be created from the cinematic.
 - 2026-08-18 — **Strip bone masks** — the evaluator had supported them since Phase 0 with no UI.
 - 2026-08-18 — **Tweak Mode** (design §4.4). Three pre-existing crashes fixed on the way:
-  `stripById` walked keys-only tracks; imported Spine JSON omits `time` at 0 (`normalizeKeyTimes`
+  `stripById` walked keys-only tracks; imported rig JSON omits `time` at 0 (`normalizeKeyTimes`
   on load); `getAttachment(null)` throws.
 - 2026-08-18 — **The set is a layer** (`stage.setZ`), so an `fx:` cue can play in front of a rig;
   **a cue can be changed** after it is set (real `<select>`, not a datalist).
 - 2026-08-17 — **Every game app's build was broken** — `engine-layout` imported
-  `@esotericsoftware/spine-pixi-v8` without declaring it; `vite dev` and the launcher (which
-  declares it) stayed green. Declared at the same pin as `pixi-svelte` so there is ONE Spine
+  the reference runtime without declaring it; `vite dev` and the launcher (which
+  declares it) stayed green. Declared at the same pin as `pixi-svelte` so there is ONE rig
   runtime. A package that imports a module must declare it; a green dev server is not evidence the
   games build.
 - 2026-08-17 — **First real game mount: rigs appeared but never moved** — `autoUpdate = false`
@@ -189,7 +189,7 @@ yet shipped an authored cinematic through a `playCinematic` node.
   pickers that re-render when their async lists land, and a 🗑 that says why it declined);
   cinematic mode hides the rig-only chrome; save/open failures surface with status + body.
 - 2026-08-17 — **Phases 0–3 built in one day**: gates 1–3, the Phase 1 mode (an rAF-polled asset
-  wait hangs in a non-painting tab — poll with `setTimeout`; expose `SPINE` as a getter), undo,
+  wait hangs in a non-painting tab — poll with `setTimeout`; expose `RIG` as a getter), undo,
   the sequencer, property/camera/visibility/cue tracks, R2 persistence (the save had posted no
   `projectKey`, making the scope guard dead code), the export chain (the `rigId` → folder identity
   fix), `<Cinematic>`, and `playCinematic`.

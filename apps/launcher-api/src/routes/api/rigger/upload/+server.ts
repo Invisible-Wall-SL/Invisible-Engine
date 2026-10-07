@@ -2,9 +2,9 @@ import { error, json } from '@sveltejs/kit';
 import { resolveRigSkeletonBody } from '$lib/server/riggerNewRig';
 import { SUB } from '$lib/server/projectPaths';
 import { putObjectBytes, putObjectText } from '$lib/server/r2';
-import { regionsToSpineAtlas, type SynthRegion } from '$lib/server/spine';
-import { releaseClaimOnCaseClash, spineBundleNameTaken } from '$lib/server/spineIndex';
-import { reindexProjectSkeletons, writeSkeletonsIndex } from '$lib/server/spineReindex';
+import { regionsToRigAtlas, type SynthRegion } from '$lib/server/rig';
+import { releaseClaimOnCaseClash, rigBundleNameTaken } from '$lib/server/rigIndex';
+import { reindexProjectSkeletons, writeSkeletonsIndex } from '$lib/server/rigReindex';
 import { reclaimAbandonedClaims } from '$lib/server/riggerAbandonedClaim';
 import { claimNewIrig } from '$lib/server/riggerIrigWrite';
 import { gate } from '$lib/server/toolScope';
@@ -15,7 +15,7 @@ const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v)
 /**
  * Create a NEW rig from RAW UPLOADED IMAGES. The browser packs the chosen images
  * onto one page (Canvas) and sends the page PNG + the region rects; this writes the
- * page, a synthesised Spine `.atlas` (`regionsToSpineAtlas`), and a `.irig` into
+ * page, a synthesised rig `.atlas` (`regionsToRigAtlas`), and a `.irig` into
  * `spines/<name>/`, then reindexes. When `rigId` is supplied the `.irig` body is a saved
  * library rig's skeleton (same apply-at-creation hook as `new`); otherwise it is blank.
  * So a rig can be built from brand-new art with no Atlas Maker step. `rigger`-gated.
@@ -60,32 +60,32 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	}
 	if (!pageBytes.length || pageBytes.length > 32 * 1024 * 1024) throw error(400, 'page image empty or too large');
 
-	const spinesPrefix = SUB.spines(clientKey, projectKey);
-	const bundle = `${spinesPrefix}/${name}`;
+	const rigsPrefix = SUB.spines(clientKey, projectKey);
+	const bundle = `${rigsPrefix}/${name}`;
 	// A create that died after its claim holds the name from a folder nobody can see; free it.
-	await reclaimAbandonedClaims(clientKey, projectKey, spinesPrefix, name);
-	if (await spineBundleNameTaken(spinesPrefix, name)) throw error(409, `a rig named "${name}" already exists (names are case-insensitive)`);
+	await reclaimAbandonedClaims(clientKey, projectKey, rigsPrefix, name);
+	if (await rigBundleNameTaken(rigsPrefix, name)) throw error(409, `a rig named "${name}" already exists (names are case-insensitive)`);
 
 	const pageName = `${name}.png`;
-	const atlasText = regionsToSpineAtlas(pageName, pageWidth, pageHeight, regions);
+	const atlasText = regionsToRigAtlas(pageName, pageWidth, pageHeight, regions);
 	const rigId = typeof body.rigId === 'string' ? body.rigId : '';
 	const skeleton = await resolveRigSkeletonBody(rigId);
 
-	// The `.irig` goes FIRST and only if absent: `spineBundleNameTaken` above is a read, so two
+	// The `.irig` goes FIRST and only if absent: `rigBundleNameTaken` above is a read, so two
 	// creates of the same name can both pass it. The conditional create is the actual claim — the
 	// loser gets a 409 before it has written a page or an atlas over the winner's. A claim on a
 	// name differing only by case lands on a different key, so it is re-checked by listing.
 	const irigKey = `${bundle}/${name}.irig`;
 	if (!(await claimNewIrig(irigKey, JSON.stringify(skeleton))))
 		throw error(409, `a rig named "${name}" was just created by someone else`);
-	if (await releaseClaimOnCaseClash(spinesPrefix, name, irigKey))
+	if (await releaseClaimOnCaseClash(rigsPrefix, name, irigKey))
 		throw error(409, `a rig named like "${name}" was just created (names are case-insensitive)`);
 	await putObjectBytes(`${bundle}/${pageName}`, pageBytes, 'image/png');
 	await putObjectText(`${bundle}/${name}.atlas`, atlasText, 'text/plain; charset=utf-8');
 
 	await writeSkeletonsIndex(
-		spinesPrefix,
-		(await reindexProjectSkeletons(clientKey, projectKey, spinesPrefix)).index,
+		rigsPrefix,
+		(await reindexProjectSkeletons(clientKey, projectKey, rigsPrefix)).index,
 	);
 
 	return json({

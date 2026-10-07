@@ -1,5 +1,5 @@
 // Phase 5 spike — prove the bone-keyframe data model the Animate mode will WRITE is
-// byte-valid Spine 4.2 and plays back through the official runtime exactly as our own
+// byte-valid 4.2-format and plays back through the official runtime exactly as our own
 // linear interpolation predicts. Establishes the channel semantics:
 //   rotate.value  = local rotation OFFSET from setup     (bone.rotation = data.rotation + v)
 //   translate.x/y = local translation offset from setup  (bone.x = data.x + x)
@@ -7,9 +7,9 @@
 //   shear.x/y     = local shear OFFSET from setup          (bone.shearX = data.shearX + x)
 //   node tools/rigger-spike/anim.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = await import(SPINE_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = await import(RIG_CORE);
 
 const [, , jsonPath, atlasPath] = process.argv;
 const atlasText = readFileSync(atlasPath, 'utf8');

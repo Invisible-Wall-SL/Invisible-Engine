@@ -1,10 +1,10 @@
 import WebFont from 'webfontloader';
-import type * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
+import type * as RIG from 'engine-rig/pixi';
 
-import { SPINE_FALLBACK_NATURAL_SIZE } from 'constants-shared/spine';
+import { RIG_FALLBACK_NATURAL_SIZE } from 'constants-shared/rig';
 
 import type { PixiPoint, Sizes } from './types';
-import { spineNaturalBounds } from './spineBounds';
+import { rigNaturalBounds } from './rigBounds';
 
 export const REM = 16;
 export const MIN_CLICKABLE_SIZE = 3 * REM; // 44 x 44 is minimum clickable size
@@ -86,38 +86,38 @@ export const preloadFont = () =>
 	});
 
 /**
- * Resolve the uniform scale a `Spine` needs so an explicit `width`/`height` renders at
+ * Resolve the uniform scale a `RigView` needs so an explicit `width`/`height` renders at
  * that size — robust to animation/skin-driven art whose setup pose has no attachments.
  *
- * spine-pixi-v8's own `width`/`height` setters scale relative to the spine's CURRENT
+ * RigView's own `width`/`height` setters scale relative to the rig's CURRENT
  * frame bounds, which are degenerate (0) for art driven by an animation before it has
- * advanced — so the requested size silently does nothing and the spine renders raw
+ * advanced — so the requested size silently does nothing and the rig renders raw
  * (oversized). We instead size against the pose-independent authored bounds
  * (`skeleton.data.width/height`), the same fallback the editor renderer uses. When the
  * data omits a size we fall back to the live setup bounds, then to a synthesis across the
- * animations, and finally to {@link SPINE_FALLBACK_NATURAL_SIZE} — the number the editor's
- * `measureSpineBounds` assumes for the same unmeasurable rig, so the two cannot draw it at
+ * animations, and finally to {@link RIG_FALLBACK_NATURAL_SIZE} — the number the editor's
+ * `measureRigBounds` assumes for the same unmeasurable rig, so the two cannot draw it at
  * two different sizes.
  *
  * Each axis is sized by the dimension given for it; when only one is given it's applied
- * uniformly to both (preserving aspect), mirroring the prior `SpineProvider` behaviour.
+ * uniformly to both (preserving aspect), mirroring the prior `RigProvider` behaviour.
  *
  * `fit` (additive, default unset = prior behaviour): when set AND both `width` and
  * `height` are given, return a UNIFORM scale that covers (`max`) or contains (`min`) the
  * given box against the authored dims — true cover/contain with NO axis stretch — or, for
  * `'width'`/`'height'`, one pinned to THAT axis whatever the box ratio (the per-axis fits
- * an author picks per screen layout). This is how a doc-driven background spine sizes
+ * an author picks per screen layout). This is how a doc-driven background rig sizes
  * against the canvas (see docs/design/invisible-editor.md §10). `fit` is ignored when only
- * one dimension is given (already uniform) or when neither is — so non-background spines
+ * one dimension is given (already uniform) or when neither is — so non-background rigs
  * are unaffected.
  */
-export function spineSizeScale({
-	spine,
+export function rigSizeScale({
+	rig,
 	width,
 	height,
 	fit,
 }: {
-	spine: SPINE_PIXI.Spine;
+	rig: RIG.RigView;
 	width?: number;
 	height?: number;
 	/** Mirrors engine-layout's `CoverFit` (kept a literal here: pixi-svelte is a dependency of
@@ -126,14 +126,14 @@ export function spineSizeScale({
 }): { x: number; y: number } {
 	if (width === undefined && height === undefined) return { x: 1, y: 1 };
 
-	const data = spine.skeleton?.data;
+	const data = rig.skeleton?.data;
 	let naturalWidth = data && data.width > 0 ? data.width : 0;
 	let naturalHeight = data && data.height > 0 ? data.height : 0;
 
 	if (!(naturalWidth > 0) || !(naturalHeight > 0)) {
-		// No authored size — try the live bounds (valid for spines whose setup pose has
+		// No authored size — try the live bounds (valid for rigs whose setup pose has
 		// attachments). Degenerate bounds (animation-driven, not yet advanced) stay 0.
-		const bounds = spine.bounds;
+		const bounds = rig.bounds;
 		if (bounds && bounds.width > 0 && bounds.height > 0) {
 			if (!(naturalWidth > 0)) naturalWidth = bounds.width;
 			if (!(naturalHeight > 0)) naturalHeight = bounds.height;
@@ -141,10 +141,10 @@ export function spineSizeScale({
 	}
 
 	if ((!(naturalWidth > 0) || !(naturalHeight > 0)) && data) {
-		// Still degenerate (a spine exported with no skeleton size AND no setup-pose art):
+		// Still degenerate (a rig exported with no skeleton size AND no setup-pose art):
 		// synthesize the natural size from the animations so an authored width/height can
 		// still size it deterministically (same number the editor uses). Cached per data.
-		const synth = spineNaturalBounds(data);
+		const synth = rigNaturalBounds(data);
 		if (!(naturalWidth > 0) && synth.width > 0) naturalWidth = synth.width;
 		if (!(naturalHeight > 0) && synth.height > 0) naturalHeight = synth.height;
 	}
@@ -153,8 +153,8 @@ export function spineSizeScale({
 	// Returning scale 1 here USED to silently drop the requested size and render the rig raw, while
 	// every editor surface fitted it to a 100×100 box — the same rig at two sizes. Assume the shared
 	// box instead, so the requested width/height still means something and preview matches game.
-	if (!(naturalWidth > 0)) naturalWidth = SPINE_FALLBACK_NATURAL_SIZE;
-	if (!(naturalHeight > 0)) naturalHeight = SPINE_FALLBACK_NATURAL_SIZE;
+	if (!(naturalWidth > 0)) naturalWidth = RIG_FALLBACK_NATURAL_SIZE;
+	if (!(naturalHeight > 0)) naturalHeight = RIG_FALLBACK_NATURAL_SIZE;
 
 	if (width !== undefined && height !== undefined) {
 		if (fit) {

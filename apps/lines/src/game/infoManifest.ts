@@ -1,11 +1,22 @@
 import type { InfoManifest, InfoSymbolIcon } from 'components-ui-pixi';
-import { infoRulesWithFigures } from 'engine-layout';
-import { infoPageFigures } from 'game-config';
+import { infoRulesWithFigures, type InfoRuleOptions } from 'engine-layout';
+import {
+	freeSpinsTriggerIsDefault,
+	infoPageFigures,
+	isScatterSymbol,
+	resolveFreeSpins,
+} from 'game-config';
 import { DEFAULT_DENOM } from 'delivery-profile';
 import { stateConfig, stateI18n, stateOperator } from 'state-shared';
 import { numberToCurrencyString } from 'utils-shared/amount';
 
-import { getActiveGameConfig, getNumRows, getPaylines, paylineColor } from './gameConfig';
+import {
+	getActiveGameConfig,
+	getNumRows,
+	getPaylines,
+	getSymbolsInPlay,
+	paylineColor,
+} from './gameConfig';
 import { numLines, paytable } from './paytable';
 import { getSymbolInfo } from './utils';
 import { SYMBOL_SIZE } from 'engine-game';
@@ -66,24 +77,59 @@ const operatorFigures = (): { betRange?: string; creditValue?: string } => {
 };
 
 /**
+ * What the rules page says about free spins: nothing new for a game on the default 3 scatters, the
+ * scatter's free-spins promise dropped for a game without them, and the project's own trigger
+ * stated for one that departs from it — named by its role where it has one, else by its config id.
+ */
+const freeSpinsRules = (): InfoRuleOptions => {
+	const config = getActiveGameConfig();
+	const freeSpins = resolveFreeSpins(config);
+	if (!freeSpins.enabled) return { freeSpins: false };
+	const symbol = freeSpins.triggerSymbol;
+	if (!symbol || freeSpinsTriggerIsDefault(config)) return {};
+	const entry = config.symbols[symbol];
+	const role = isScatterSymbol(entry)
+		? 'scatter'
+		: entry?.special_properties?.includes('wild')
+			? 'wild'
+			: undefined;
+	return { freeSpinsTrigger: { count: freeSpins.triggerCount, symbol, ...(role ? { role } : {}) } };
+};
+
+/**
+ * Whether the game deals a wild: a symbol in play (the server's declared set when it is
+ * authoritative, else the strips) tagged `wild`. A wild kept in the dictionary but on no strip
+ * leaves the WILD rule off the page, as it is never dealt or drawn.
+ */
+const wildInPlay = (): boolean => {
+	const { symbols } = getActiveGameConfig();
+	return getSymbolsInPlay().some(
+		(name) => symbols[name]?.special_properties?.includes('wild') ?? false,
+	);
+};
+
+/**
  * The rules page with the game's own figures. Each payback appears only where the operator allows
  * it: the RTP on `jurisdiction.displayRTP` (the Play4Fun facade sets it from the embed page's
  * `showTheoreticalPayback`), a bought feature's on `showBuyBonusPayback` — and never while the
  * launch forbids buying one — and the ante's on `showHighChancePayback`.
  */
 const rules = () =>
-	infoRulesWithFigures({
-		...infoPageFigures(
-			getActiveGameConfig(),
-			stateConfig.jurisdiction.displayRTP,
-			(n) => stateI18n.i18n.number(n),
-			{
-				buy: stateOperator.showBuyBonusPayback && !stateConfig.jurisdiction.disabledBuyFeature,
-				ante: stateOperator.showHighChancePayback,
-			},
-		),
-		...operatorFigures(),
-	});
+	infoRulesWithFigures(
+		{
+			...infoPageFigures(
+				getActiveGameConfig(),
+				stateConfig.jurisdiction.displayRTP,
+				(n) => stateI18n.i18n.number(n),
+				{
+					buy: stateOperator.showBuyBonusPayback && !stateConfig.jurisdiction.disabledBuyFeature,
+					ante: stateOperator.showHighChancePayback,
+				},
+			),
+			...operatorFigures(),
+		},
+		{ ...freeSpinsRules(), wildInPlay: wildInPlay() },
+	);
 
 // Every config-derived field is an ACCESSOR, for the same reason `symbols` already was: this
 // module is imported at boot, long before the live runtime bundle's async fetch resolves, so a

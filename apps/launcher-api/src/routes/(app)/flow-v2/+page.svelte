@@ -98,7 +98,7 @@
 	// back unchanged, object identity included.
 	//
 	// The CUE list is widened the same way, with the author-named cue signals harvested off this
-	// project's scene spines (`data.sceneCues`). Unlike the enums this one is load-bearing for
+	// project's scene rigs (`data.sceneCues`). Unlike the enums this one is load-bearing for
 	// validation: `refResolves` requires a `fireCue` ref to BE in `vocab.cues`, so without this a
 	// flow could never fire an asset the author placed. Each name becomes a payload-less CueDecl ⇒
 	// exactly `[exec-in, exec-out]`. No author-named cues ⇒ the vocabulary is returned unchanged.

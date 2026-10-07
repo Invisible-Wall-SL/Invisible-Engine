@@ -291,7 +291,7 @@ const AREA_LABELS: Record<string, string> = {
 	editor: 'Scenes',
 	input: 'References',
 	batch: 'Renders',
-	spines: 'Spines',
+	spines: 'Rigs',
 	fonts: 'Fonts',
 };
 

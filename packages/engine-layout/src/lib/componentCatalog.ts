@@ -666,19 +666,19 @@ const HOLD_AND_WIN_SIGNALS: EngineSignalEntry[] = [
 ];
 
 /**
- * Signals a component's spine can play a cue on. Tick one here, then on a spine node add
+ * Signals a component's rig can play a cue on. Tick one here, then on a rig node add
  * a "Plays on signal" cue (signal → animation). `enter` is fired by the component itself
  * when it becomes visible (mount, or a `visibleSource` gate opening) — the intro-on-appear
  * hook. `win`/`bigWin` are fired by the game's win presentation. `freeSpinStart`/
  * `freeSpinEnd` are fired by the free-spin lifecycle (intro presents / outro presents), so a
- * spine cue on an authored intro/counter/outro screen plays with the mode. (Former
+ * rig cue on an authored intro/counter/outro screen plays with the mode. (Former
  * `exit`/`idle` placeholders were removed — nothing fired them: an instant-hide gate cuts an
  * exit animation and idle had no trigger.)
  *
  * FS-4 (landed): the `freeSpinRetrigger` event + step now exist, so a retrigger screen is
  * authorable (LAYER edge + `extraFs` readout + tap-to-continue). A dedicated `freeSpinRetrigger`
- * SPINE-CUE signal is still a future additive step here (an entry + a `registerComponentSignals`
- * wire + a runtime broadcast) — not needed for the screen itself, only for a spine burst on it.
+ * RIG-CUE signal is still a future additive step here (an entry + a `registerComponentSignals`
+ * wire + a runtime broadcast) — not needed for the screen itself, only for a rig burst on it.
  */
 export const ENGINE_SIGNAL_CATALOG: EngineSignalEntry[] = [
 	{ key: 'enter', label: 'Enter', note: 'Played when the component appears (mount / gate opens).' },
@@ -702,12 +702,12 @@ export const ENGINE_SIGNAL_CATALOG: EngineSignalEntry[] = [
 	{
 		key: 'freeSpinOutroBigWin',
 		label: 'Free-spin outro — big win',
-		note: 'The free-spin outro count-up begins on a BIG win tier. Gate big-win art with "hidden until signal", or play a big-win spine cue.',
+		note: 'The free-spin outro count-up begins on a BIG win tier. Gate big-win art with "hidden until signal", or play a big-win rig cue.',
 	},
 	{
 		key: 'freeSpinOutroSmallWin',
 		label: 'Free-spin outro — small win',
-		note: 'The free-spin outro count-up begins on a non-big (small) win tier. Gate small-win art with "hidden until signal", or play a small-win spine cue.',
+		note: 'The free-spin outro count-up begins on a non-big (small) win tier. Gate small-win art with "hidden until signal", or play a small-win rig cue.',
 	},
 	{
 		key: 'freeSpinOutroCountUpComplete',

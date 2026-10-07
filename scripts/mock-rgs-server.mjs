@@ -244,13 +244,14 @@ const SCATTER_PAY_TABLE = {
 	5: 100, // 5 SCAT → 100× total stake
 };
 
-/** Free-spin feature. A lines game triggers on SCAT count alone — there is no
+/** Free-spin feature. A lines game triggers on a symbol COUNT alone — FS_TRIGGER_MIN+ SCAT unless
+ *  the project states its own rule (`opts.freeSpinsTrigger`) — there is no
  *  book-of expanding special symbol here, so the mock never emits `pickRandomly`
  *  (→ no `setExpandingSymbol` book event). The free spins are otherwise the same
  *  multi-request round the facade already drives off `enterBonus`. */
 const FS_TRIGGER_MIN = 3;
 const TOTAL_FS = 10;
-/** Extra free spins when FS_TRIGGER_MIN+ SCAT land DURING a free spin. */
+/** Extra free spins when the trigger lands again DURING a free spin. */
 const RETRIGGER_FS = 5;
 
 /**
@@ -657,8 +658,9 @@ const evaluateScatters = (reels, totalStake, table = SCATTER_PAY_TABLE) => {
 };
 
 /** Free-spin state snapshot, faithful to the Play4Fun `playedBonusSpin` /
- *  `enterBonus` shape. The facade reads `played` + `left` to drive the counter. */
-const bonusSnapshot = (round, extra = {}) => ({
+ *  `enterBonus` shape. The facade reads `played` + `left` to drive the counter. `trigger` is the
+ *  instance's rule (`{ occurs: [min], of: symbol, … }`): 3+ SCAT unless the project states one. */
+const bonusSnapshot = (round, trigger, extra = {}) => ({
 	prob: 1,
 	additionalPrice: 0,
 	triggers: 1,
@@ -675,12 +677,12 @@ const bonusSnapshot = (round, extra = {}) => ({
 					{
 						spins: round.bonus.left,
 						bonus: 'feature',
-						trigger: { occurs: [FS_TRIGGER_MIN], of: 'SCAT', mode: 'scatter', from: '' },
+						trigger,
 					},
 				]
 			: [],
 	playing: 'feature',
-	trigger: { occurs: [FS_TRIGGER_MIN], of: 'SCAT', mode: 'scatter', from: '' },
+	trigger,
 	...extra,
 });
 
@@ -779,22 +781,35 @@ export const carrySession = (session, { keepBetShape }) => ({
  *   paylines?: number[][], wild?: { paytable: Record<string, number> }, stacked?: boolean,
  *   symbols?: string[], winModel?: 'lines' | 'ways' | 'cluster' | 'scatter',
  *   betModes?: { mode: string, cost: number, kind: 'base' | 'ante' | 'buy' }[],
- *   cascade?: boolean, cascadeDemo?: boolean, quiet?: boolean }} [opts] `betModes` (BASE FIRST) makes
- *   this a table game — see `betTable`; absent ⇒ a line-config game. `symbols` restricts the dealt line
- *   pool to the project's in-play symbols in SERVER vocabulary (PIC* plus SCAT); absent ⇒ the full
- *   default pool. `winModel` selects how wins are DECIDED — everything else (session, seq, round
- *   lifecycle, scatters, free spins, the whole event vocabulary) is identical between the two, which
- *   is exactly why this is one option rather than a forked mock. `cascade` says WHETHER the game
- *   tumbles; `cascadeDemo` says the caller turned it on as a DEMO over a game that has no tumble of
- *   its own, which is the only thing that makes a dead spin tumble (see `nativeCascade`).
+ *   cascade?: boolean, cascadeDemo?: boolean, quiet?: boolean, forceTrigger?: boolean,
+ *   freeSpins?: false, freeSpinsTrigger?: { symbol: string, count: number },
+ *   freeSpinsAwards?: { awards: object[], retrigger: object[], random: boolean } }} [opts]
+ *   `freeSpins: false` (the project's Game Config turned free spins off) means the feature never
+ *   opens: no base spin, forced trigger or bought round enters it, a bought option is refused at
+ *   `bet`, and scatters still land and pay their scatter pay. `freeSpinsTrigger` is the project's
+ *   trigger when it departs from 3+ SCAT — a SERVER symbol and the fewest of it, anywhere on the
+ *   board, that award (and retrigger) the feature; the scatter PAY stays on SCAT either way.
+ *   `freeSpinsAwards` is how many spins it awards — `{ awards, retrigger, random }`, two tables of
+ *   `{ count, spins, maxSpins? }` rows and the random switch — when they depart from 10 / +5.
+ *   `betModes` (BASE FIRST) makes this a table game — see `betTable`; absent ⇒ a line-config game.
+ *   `symbols` restricts the dealt line pool to the project's in-play symbols in SERVER vocabulary
+ *   (PIC* plus SCAT); absent ⇒ the full default pool. `winModel` selects how wins are DECIDED —
+ *   everything else (session, seq, round lifecycle, scatters, free spins, the whole event
+ *   vocabulary) is identical between the two, which is exactly why this is one option rather than
+ *   a forked mock. `cascade` says WHETHER the game tumbles; `cascadeDemo` says the caller turned it
+ *   on as a DEMO over a game that has no tumble of its own, which is the only thing that makes a
+ *   dead spin tumble (see `nativeCascade`).
  */
 export function createMockRgs(opts = {}) {
 	/** Default in Play4Fun's native integer-cents convention (100 = $1.00).
 	 *  10000 = $100 — matches what we observed from the live Hot Fruits server. */
 	const startBalance = Number(opts.startBalance ?? process.env.START_BALANCE ?? 10_000);
 	const seed = opts.seed ?? process.env.SEED;
-	/** FORCE_TRIGGER=1 → every base spin enters the free-spin feature. Testing aid. */
-	const forceTrigger = opts.forceTrigger ?? process.env.FORCE_TRIGGER === '1';
+	/** Does this game have free spins at all? Only the project's explicit `false` turns them off. */
+	const freeSpinsOn = opts.freeSpins !== false;
+	/** FORCE_TRIGGER=1 → every base spin enters the free-spin feature. Testing aid. Inert on a game
+	 *  with no free spins: there is no feature to force, so its rounds deal (and `WIN_X`) as usual. */
+	const forceTrigger = freeSpinsOn && (opts.forceTrigger ?? process.env.FORCE_TRIGGER === '1');
 	const label = opts.label ?? 'mock';
 	/** Silence the per-request line. For gates, which spin hundreds of rounds and bury their own
 	 *  output under it — never for the CLI or the test server, where it is the only trace there is. */
@@ -972,6 +987,92 @@ export function createMockRgs(opts = {}) {
 	const stackedDeal = opts.stacked === true || process.env.STACKED === '1';
 	const winX = parseWinX(opts.winX ?? process.env.WIN_X);
 	let baseSpinsDealt = 0;
+
+	/**
+	 * WHAT TRIGGERS FREE SPINS — the project's rule when it states one (`opts.freeSpinsTrigger`),
+	 * else 3+ SCAT. Counted on its own, apart from the SCAT pay: the scatter keeps paying its scatter
+	 * pay whatever triggers the feature, and a game may trigger on a symbol that pays nothing at all.
+	 */
+	const authoredTrigger = opts.freeSpinsTrigger;
+	const triggerSymbol =
+		typeof authoredTrigger?.symbol === 'string' && authoredTrigger.symbol
+			? authoredTrigger.symbol
+			: 'SCAT';
+	const triggerMin =
+		Number.isInteger(authoredTrigger?.count) && authoredTrigger.count >= 1
+			? authoredTrigger.count
+			: FS_TRIGGER_MIN;
+	/** The `trigger` every bonus snapshot carries: the minimum, and the symbol it counts. */
+	const snapshotTrigger = { occurs: [triggerMin], of: triggerSymbol, mode: 'scatter', from: '' };
+	/** The `trigger` a `spinTrigger` carries. The partner's 3-scatter feature lists the three counts
+	 *  from its minimum (`[3, 4, 5]`); a project's own minimum shifts that window. */
+	const spinTriggerRule = {
+		...snapshotTrigger,
+		occurs: [triggerMin, triggerMin + 1, triggerMin + 2],
+	};
+	/** Can this instance put the trigger symbol on a board? A forced trigger writes only a symbol the
+	 *  deal could have produced — the client has art for those and for nothing else. */
+	const triggerDealt =
+		DEALT_SYMBOLS.includes(triggerSymbol) ||
+		(triggerSymbol === 'WILD' && (Boolean(wild) || stackedDeal));
+	// Honoured anyway — it just never triggers naturally — but never quietly: a feature that cannot
+	// open looks exactly like a broken one from the client side.
+	if (freeSpinsOn && authoredTrigger && !triggerDealt) {
+		console.warn(
+			`[${label}] free spins trigger on ${triggerSymbol}, which this game never deals — ` +
+				'the feature will only open when forced or bought',
+		);
+	}
+	/** How many trigger symbols a board holds, anywhere on it. */
+	const triggerCount = (reels) => reels.flat().filter((cell) => cell === triggerSymbol).length;
+
+	/**
+	 * HOW MANY free spins the feature awards — the project's tables when it states them
+	 * (`opts.freeSpinsAwards`), else TOTAL_FS on entering and +RETRIGGER_FS on a retrigger, whatever
+	 * the count. A row awards for its own trigger count and up, to the next row; with `random` on, a
+	 * row with a range awards a uniform whole number across it (both ends included).
+	 */
+	const awardTable = (rows, spins) => {
+		const usable = (Array.isArray(rows) ? rows : [])
+			.filter(
+				(row) =>
+					Number.isInteger(row?.count) &&
+					row.count >= 1 &&
+					Number.isInteger(row.spins) &&
+					row.spins >= 1,
+			)
+			.map(({ count, spins: low, maxSpins }) =>
+				Number.isInteger(maxSpins) && maxSpins > low
+					? { count, spins: low, maxSpins }
+					: { count, spins: low },
+			)
+			.sort((a, b) => a.count - b.count);
+		return usable.length ? usable : [{ count: triggerMin, spins }];
+	};
+	const entryAwards = awardTable(opts.freeSpinsAwards?.awards, TOTAL_FS);
+	const retriggerAwards = awardTable(opts.freeSpinsAwards?.retrigger, RETRIGGER_FS);
+	const randomAwards = opts.freeSpinsAwards?.random === true;
+	/**
+	 * The row that awards for `landed` trigger symbols: the largest count at or below it, the first
+	 * of them on a tie. Mirrors `game-config`'s `freeSpinsAwardFor` — this file is plain Node and
+	 * cannot import it — and `check:freespins` holds every award dealt here to that function. A
+	 * landing below every row takes the lowest one: a forced or bought round whose trigger symbol is
+	 * never dealt lands none, and a table starting above the trigger is refused by `/config`.
+	 */
+	const awardRowFor = (table, landed) => {
+		let found = null;
+		for (const row of table) {
+			if (row.count <= landed && (!found || row.count > found.count)) found = row;
+		}
+		return found ?? table[0];
+	};
+	/** The spins `landed` trigger symbols win from `table`. The RNG is drawn ONLY for a real range
+	 *  with random awards on, so a game that authored neither deals the stream it always has. */
+	const drawAward = (table, landed) => {
+		const row = awardRowFor(table, landed);
+		const max = randomAwards ? (row.maxSpins ?? row.spins) : row.spins;
+		return max > row.spins ? row.spins + Math.floor(nextRand() * (max - row.spins + 1)) : row.spins;
+	};
 	/**
 	 * Emit the cascade presentation fixture on every spin — see the note at its emit site.
 	 *
@@ -1298,6 +1399,9 @@ export function createMockRgs(opts = {}) {
 	const STACK_PICS_ALL = ['PIC1', 'PIC2', 'PIC3', 'PIC4'];
 	const stackPicsInPool = STACK_PICS_ALL.filter((s) => LINE_POOL.includes(s));
 	const STACK_PICS = stackPicsInPool.length ? stackPicsInPool : LINE_POOL;
+	// The tall column the stacked deal is built around: WILD, unless the project stated its pool and
+	// deals no wild — then its top stacking symbol, so a W its config marks unused never lands.
+	const STACK_TALL = wild || !allowedSymbols.length ? 'WILD' : STACK_PICS[0];
 
 	/** sid -> { balance, round | null, configSent, betTable? } — `betTable` is the table the session
 	 *  was TOLD about (null for line-config), pinned when its config is sent. See `tableFor`. */
@@ -1361,18 +1465,20 @@ export function createMockRgs(opts = {}) {
 
 	/**
 	 * Stacked-picture test deal — engineered to showcase ALL crops every spin (the real math rarely
-	 * lands a partial at a board edge, which is the whole reason this mode exists):
-	 *  • reel 0    → a partial WILD run pinned to the TOP edge ⇒ the engine draws the BOTTOM of the tall
-	 *    Wild with its top running off-screen above (a top cutoff).
-	 *  • reel 1    → a partial WILD run pinned to the BOTTOM edge ⇒ the TOP of the Wild with its bottom
+	 * lands a partial at a board edge, which is the whole reason this mode exists), built around
+	 * `STACK_TALL` (WILD, or the top stacking symbol when the project deals no wild):
+	 *  • reel 0    → a partial run of it pinned to the TOP edge ⇒ the engine draws the BOTTOM of the
+	 *    tall picture with its top running off-screen above (a top cutoff).
+	 *  • reel 1    → a partial run pinned to the BOTTOM edge ⇒ the TOP of the picture with its bottom
 	 *    running off-screen below (a bottom cutoff).
-	 *  • last reel → a full-height WILD column ⇒ the whole picture (contrast).
+	 *  • last reel → a full-height column of it ⇒ the whole picture (contrast).
 	 *  • middle reels → an occasional random high-symbol run for variety.
 	 * WILD is the tallest picture (height ≫ a 2–3 cell run), so a short WILD run is ALWAYS a partial
-	 * regardless of the project's authored heights — the cutoffs are guaranteed, not probabilistic.
+	 * regardless of the project's authored heights — the cutoffs are guaranteed, not probabilistic. A
+	 * stacking symbol in its place is a partial only where its authored height exceeds the run.
 	 * Non-run cells fall back to the normal weighted draw. Only used when `stackedDeal` is on.
 	 */
-	const partialWildLen = (height) =>
+	const partialRunLen = (height) =>
 		Math.max(2, Math.min(height - 1, 2 + Math.floor(nextRand() * 2))); // 2..3, < that column's rows
 	const spinReelsStacked = () =>
 		Array.from({ length: reelCount }, (_ignored, reel) => {
@@ -1380,18 +1486,18 @@ export function createMockRgs(opts = {}) {
 			// the edges of the column the player actually sees. Uniform ⇒ identical to `rowCount`.
 			const rowCount = rowHeights[reel];
 			const column = Array.from({ length: rowCount }, pickSymbol);
-			// Last reel: the whole 5-tall Wild (checked first so a 1- or 2-reel grid still gets a full stack).
-			if (reel === reelCount - 1) return Array.from({ length: rowCount }, () => 'WILD');
-			// Reel 0: partial WILD pinned to the TOP edge (rows 0..len-1) ⇒ bottom-of-picture cutoff.
+			// Last reel: the whole tall picture (checked first so a 1- or 2-reel grid still gets a full stack).
+			if (reel === reelCount - 1) return Array.from({ length: rowCount }, () => STACK_TALL);
+			// Reel 0: a partial run pinned to the TOP edge (rows 0..len-1) ⇒ bottom-of-picture cutoff.
 			if (reel === 0 && rowCount >= 2) {
-				const len = partialWildLen(rowCount);
-				for (let i = 0; i < len; i++) column[i] = 'WILD';
+				const len = partialRunLen(rowCount);
+				for (let i = 0; i < len; i++) column[i] = STACK_TALL;
 				return column;
 			}
-			// Reel 1: partial WILD pinned to the BOTTOM edge (last len rows) ⇒ top-of-picture cutoff.
+			// Reel 1: a partial run pinned to the BOTTOM edge (last len rows) ⇒ top-of-picture cutoff.
 			if (reel === 1 && rowCount >= 3) {
-				const len = partialWildLen(rowCount);
-				for (let i = 0; i < len; i++) column[rowCount - len + i] = 'WILD';
+				const len = partialRunLen(rowCount);
+				for (let i = 0; i < len; i++) column[rowCount - len + i] = STACK_TALL;
 				return column;
 			}
 			// Middle reels: an occasional random high-symbol run (partial or full, per its own height).
@@ -1405,13 +1511,30 @@ export function createMockRgs(opts = {}) {
 			return column;
 		});
 
-	/** Force `n` SCAT onto distinct reels of an ALREADY DEALT board — a guaranteed feature trigger
-	 *  for `FORCE_TRIGGER=1`. Overwrites cells rather than dealing its own grid, so it composes with
-	 *  whichever deal is in play (stacked or normal) and respects a stepped grid's per-column
-	 *  heights. `n` is clamped to the reel count, so a narrow board still triggers. */
-	const forceScatters = (reels, n = FS_TRIGGER_MIN) => {
-		for (let reel = 0; reel < reels.length && reel < n; reel++) {
-			reels[reel][Math.floor(nextRand() * reels[reel].length)] = 'SCAT';
+	/**
+	 * Write `triggerMin` trigger symbols onto an ALREADY DEALT board — a guaranteed feature trigger
+	 * for `FORCE_TRIGGER=1` and a bought round. Overwrites cells rather than dealing its own grid, so
+	 * it composes with whichever deal is in play (stacked or normal) and respects a stepped grid's
+	 * per-column heights.
+	 *
+	 * One per reel, left to right, then round again for a count above the reel count (six on five
+	 * reels), each time onto a cell this call has not written yet — so the count is actually reached,
+	 * up to a full board. The first pass draws exactly what the old one-per-reel loop drew, so a
+	 * 3-scatter trigger deals the board it always has.
+	 */
+	const forceTriggerSymbols = (reels) => {
+		const written = reels.map(() => new Set());
+		const target = Math.min(
+			triggerMin,
+			reels.reduce((cells, column) => cells + column.length, 0),
+		);
+		for (let placed = 0, reel = 0; placed < target; reel = (reel + 1) % reels.length) {
+			const free = reels[reel].map((_cell, row) => row).filter((row) => !written[reel].has(row));
+			if (!free.length) continue;
+			const row = free[Math.floor(nextRand() * free.length)];
+			reels[reel][row] = triggerSymbol;
+			written[reel].add(row);
+			placed += 1;
 		}
 		return reels;
 	};
@@ -1560,13 +1683,17 @@ export function createMockRgs(opts = {}) {
 					const ctx = Array.isArray(a.context) ? a.context : table ? [0, 1] : [5, 1];
 					const option = table ? Number(ctx[0] ?? 0) : 0;
 					const multiplier = table ? Number(ctx[1] ?? 1) : 0;
+					// A bought option on a game with no free spins buys nothing, so it is refused like any
+					// other option the table cannot sell — never charged the buy price for a base spin. Only
+					// a stale contract can still carry one: `/config` refuses to save a buy beside it.
 					if (
 						table &&
 						(!Number.isInteger(option) ||
 							option < 0 ||
 							option >= table.options.length ||
 							!Number.isFinite(multiplier) ||
-							multiplier <= 0)
+							multiplier <= 0 ||
+							(!freeSpinsOn && table.buys[option]))
 					) {
 						return sendJson(req, res, 200, {
 							result: 0,
@@ -1676,27 +1803,36 @@ export function createMockRgs(opts = {}) {
 						events.push({ event: 'playedSpin', context: fsReels });
 						pendingRound.bonus.played += 1;
 						pendingRound.bonus.left -= 1;
-						// RETRIGGER: scatters landing DURING a free spin award more spins, added to the
-						// remaining count (chaining without limit). Emitted BEFORE `playedBonusSpin`, so
-						// the counter total the client reads already includes them.
-						if (fsScat.count >= FS_TRIGGER_MIN) {
-							pendingRound.bonus.left += RETRIGGER_FS;
-							pendingRound.bonus.total += RETRIGGER_FS;
+						// RETRIGGER: the trigger landing again DURING a free spin awards more spins (the
+						// retrigger table's row for how many landed), added to the remaining count (chaining
+						// without limit). Emitted BEFORE `playedBonusSpin`, so the counter total the client
+						// reads already includes them.
+						const fsTriggers = triggerCount(fsReels);
+						if (fsTriggers >= triggerMin) {
+							const added = drawAward(retriggerAwards, fsTriggers);
+							pendingRound.bonus.left += added;
+							pendingRound.bonus.total += added;
 							events.push({
 								event: 'retrigger',
 								context: {
-									spins: RETRIGGER_FS,
-									occurs: fsScat.count,
+									spins: added,
+									occurs: fsTriggers,
 									total: pendingRound.bonus.total,
 									left: pendingRound.bonus.left,
 									bonus: 'feature',
 								},
 							});
 						}
-						events.push({ event: 'playedBonusSpin', context: bonusSnapshot(pendingRound) });
+						events.push({
+							event: 'playedBonusSpin',
+							context: bonusSnapshot(pendingRound, snapshotTrigger),
+						});
 						if (pendingRound.bonus.left <= 0) {
 							pendingRound.bonus.active = false;
-							events.push({ event: 'playedBonusSpins', context: bonusSnapshot(pendingRound) });
+							events.push({
+								event: 'playedBonusSpins',
+								context: bonusSnapshot(pendingRound, snapshotTrigger),
+							});
 							events.push({ event: 'gameEnd', context: { win: pendingRound.win } });
 						}
 						// No cascade on a free spin: the tumble fixture is a BASE-game presentation aid,
@@ -1709,24 +1845,30 @@ export function createMockRgs(opts = {}) {
 					// A round that enters the feature anyway (bought, `FORCE_TRIGGER`) is never forced to pay,
 					// and does not use up a `WIN_X` entry.
 					const forcedX = pendingRound.isBuy || forceTrigger ? undefined : winX[baseSpinsDealt++];
+					// The forced win must not open the feature, so the board it builds holds no trigger
+					// symbol: the trigger's cells are refilled and it is never the symbol that pays. With
+					// the default 3+ SCAT rule that is exactly the scatter-free board it always built.
+					const nonTrigger = LINE_POOL.filter((symbol) => symbol !== triggerSymbol);
+					const forcedPool = nonTrigger.length ? nonTrigger : LINE_POOL;
 					const dealt =
 						forcedX === undefined
 							? shuffled
 							: boardPayingAtLeast(shuffled, {
-									symbols: LINE_POOL,
-									scatter: 'SCAT',
-									filler: LINE_POOL[LINE_POOL.length - 1],
+									symbols: forcedPool,
+									scatter: triggerSymbol,
+									filler: forcedPool[forcedPool.length - 1],
 									target: forcedX,
 									multipleOf: (board) =>
 										evaluatePayWins(board, pendingRound).reduce((sum, w) => sum + w.pay, 0) /
 										pendingRound.baseTotal,
 								});
 					// A bought round enters the feature the way `FORCE_TRIGGER` makes every round enter it:
-					// scatters forced onto the dealt board, so the trigger on screen is the one that fired.
-					// Not on a game with no scatter in play, which has no art for one; that round still
-					// enters the feature below.
+					// the trigger forced onto the dealt board, so the trigger on screen is the one that
+					// fired. Not with a trigger symbol this game never deals, which the client has no art
+					// for; that round still enters the feature below.
 					const bought = pendingRound.isBuy;
-					const reels = forceTrigger || (bought && scatterEnabled) ? forceScatters(dealt) : dealt;
+					const reels =
+						(forceTrigger || bought) && triggerDealt ? forceTriggerSymbols(dealt) : dealt;
 					pendingRound.reels = reels;
 					const lineWins = evaluatePayWins(reels, pendingRound);
 					const scat = evaluateScatters(
@@ -1749,21 +1891,29 @@ export function createMockRgs(opts = {}) {
 					// lines/ways/cluster/scatter kinds, which have no such symbol. The facade drives the
 					// whole bonus off `enterBonus` and treats `setExpandingSymbol` as an optional
 					// handler, so nothing stalls without it.
-					if (scat.count >= FS_TRIGGER_MIN || forceTrigger || bought) {
-						pendingRound.bonus = { active: true, total: TOTAL_FS, played: 0, left: TOTAL_FS };
+					//
+					// Counted on the trigger symbol (SCAT unless the project states its own), and never
+					// on a game with free spins off: its round closes below like any base spin, the
+					// scatters having paid their scatter pay above.
+					const triggers = triggerCount(reels);
+					if (freeSpinsOn && (triggers >= triggerMin || forceTrigger || bought)) {
+						// The award row for what landed, the board counted as dealt — forced and bought
+						// boards too, so the award matches the trigger the player sees.
+						const awarded = drawAward(entryAwards, triggers);
+						pendingRound.bonus = { active: true, total: awarded, played: 0, left: awarded };
 						events.push({
 							event: 'spinTrigger',
 							context: {
-								spins: [{ prob: 1, spins: TOTAL_FS }],
-								occurs: scat.count,
+								spins: [{ prob: 1, spins: awarded }],
+								occurs: triggers,
 								bonus: 'feature',
-								trigger: { occurs: [3, 4, 5], of: 'SCAT', mode: 'scatter', from: '' },
+								trigger: spinTriggerRule,
 							},
 						});
 						events.push({ event: 'playedSpin', context: reels });
 						events.push({
 							event: 'enterBonus',
-							context: bonusSnapshot(pendingRound, { played: 0, left: TOTAL_FS }),
+							context: bonusSnapshot(pendingRound, snapshotTrigger, { played: 0, left: awarded }),
 						});
 						// Do NOT credit and do NOT close — the free spins and the collect follow.
 						break;

@@ -174,7 +174,7 @@ def test_the_unplaced_clear_covers_everything_the_placed_clear_does() -> None:
     It was dormant -- an unplaced region is neither composed nor framed -- but
     it is the trap `_REPACK_CLEARED_KEYS` exists to close: a surviving `orig_*`
     is live INPUT, not a dead field. Its mere presence is what `fit_to_region`
-    reads as `spine_slot`, flipping placement from `contain` to `fill`. So the
+    reads as `rig_slot`, flipping placement from `contain` to `fill`. So the
     superset relation is pinned, not just today's contents."""
     missing = [k for k in u._REPACK_CLEARED_KEYS if k not in u._PACK_GEOM_KEYS]
     check("every key the placed clear removes, the unplaced clear removes too",
@@ -197,7 +197,7 @@ def test_an_unplaced_region_loses_camelcase_trim_too() -> None:
     l1 = _region(m, "L1")
     check("the camelCase trim is gone as well",
           [k for k in ("offX", "offY", "origW", "origH") if k in l1], [])
-    check("...so nothing is left to read as a spine slot and force `fill`",
+    check("...so nothing is left to read as a rig slot and force `fill`",
           "origW" in l1 or "orig_w" in l1, False)
 
 

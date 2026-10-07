@@ -47,15 +47,15 @@
 	 * lifecycle, so an `event`-driven layer can subscribe the event bus and pulse on independently.
 	 *
 	 * The pure `planLayer` (`engine-fx`) decides the mount shape (free vs bone-wrapped, offset,
-	 * spine-particle skip) AND the trigger mode (ambient `always` vs event-bus `event`). This
-	 * component maps that plan onto `<Container>` / `<SpineBoneAttach>` / `<ParticleEmitter>` and
+	 * rig-particle skip) AND the trigger mode (ambient `always` vs event-bus `event`). This
+	 * component maps that plan onto `<Container>` / `<RigBoneAttach>` / `<ParticleEmitter>` and
 	 * — for an `event` layer — subscribes `trigger.eventType` on `utils-event-emitter`'s bus
 	 * (the SAME bus a Flow Broadcast fires, §1/§4.4), pulsing `emit` true on each matching event
 	 * and back to false after `trigger.duration` ms (or, when no duration is set, leaving the
 	 * config's own `emitterLifetime` to govern the burst — we re-arm emit on every event).
 	 */
 	import { onDestroy } from 'svelte';
-	import * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
+	import * as RIG from 'engine-rig/pixi';
 	import type { Texture } from 'pixi.js';
 	import { planLayer } from 'engine-fx';
 	import {
@@ -67,51 +67,49 @@
 
 	import Container from './Container.svelte';
 	import ParticleEmitter from './ParticleEmitter.svelte';
-	import SpineBoneAttach from './SpineBoneAttach.svelte';
+	import RigBoneAttach from './RigBoneAttach.svelte';
 	import { getContextApp } from '../context.svelte';
-	import { createPixiSpineBackingFactory } from '../spineBacking';
-	import type { SpineParticleBehaviorConfig } from '../spineParticleBehavior';
+	import { createPixiRigBackingFactory } from '../rigBacking';
+	import type { RigParticleBehaviorConfig } from '../rigParticleBehavior';
 
 	const props: Props = $props();
 	const context = getContextApp();
 	const plan = $derived(planLayer(props.layer));
 
-	// Tier C: resolve the `spineParticle.skeletonKey` to a loaded `SkeletonData` (a `LoadedSpine`
-	// in `loadedAssets`, the SAME lookup `SpineProvider` does — the skeleton must have travelled
-	// the pipeline like an atlas does, §8) and build the pooled-`Spine` factory the behavior pools.
-	// A `spine` layer whose skeleton isn't loaded yields no config ⇒ `<ParticleEmitter>` falls back
-	// to the (textureless) sprite path and renders nothing, never crashing.
+	// Tier C: resolve the `spineParticle.skeletonKey` to a loaded `SkeletonData` (a `LoadedRig`
+	// in `loadedAssets`, the SAME lookup `RigProvider` does — the skeleton must have travelled
+	// the pipeline like an atlas does, §8) and build the pooled-`RigView` factory the behavior
+	// pools. A `spine` layer whose skeleton isn't loaded yields no config ⇒ `<ParticleEmitter>`
+	// falls back to the (textureless) sprite path and renders nothing, never crashing.
 	//
 	// `/fx` authors `skeletonKey` as the CANONICAL bundle FOLDER — exactly the key an editor-art
-	// spine registers under (`editorArt.spines[].key` = `bundleFromAssetKey()` = the folder). A spine
+	// rig registers under (`editorArt.spines[].key` = `bundleFromAssetKey()` = the folder). A rig
 	// that ships ONLY via a symbol cell instead registers under its FULL R2 bundle prefix
 	// (`<…>/spines/<folder>/`), so as a fallback we match any loaded key whose bundle folder equals
-	// the authored key — making an authored spine effect resolve no matter which path shipped the
+	// the authored key — making an authored rig effect resolve no matter which path shipped the
 	// skeleton, without re-keying the symbol/runtime registration.
 	const bundleFolderOf = (key: string): string => {
 		const trimmed = key.endsWith('/') ? key.slice(0, -1) : key;
 		const m = trimmed.match(/(?:^|\/)spines\/(.+)$/);
 		return m ? m[1] : trimmed;
 	};
-	const spineParticle = $derived.by(
-		(): Omit<SpineParticleBehaviorConfig, 'layerHost'> | undefined => {
-			if (plan.particleKind !== 'spine' || !plan.spineParticle) return undefined;
-			const { skeletonKey, animation, loop } = plan.spineParticle;
-			const loaded = context.stateApp.loadedAssets ?? {};
-			let spineData = loaded[skeletonKey] as SPINE_PIXI.SkeletonData | undefined;
-			if (!spineData) {
-				const hit = Object.keys(loaded).find((k) => bundleFolderOf(k) === skeletonKey);
-				if (hit) spineData = loaded[hit] as SPINE_PIXI.SkeletonData | undefined;
-			}
-			if (!spineData) return undefined;
-			return {
-				animation,
-				loop: loop ?? false,
-				prewarm: props.layer.config.maxParticles ?? 0,
-				createBacking: createPixiSpineBackingFactory(spineData),
-			};
-		},
-	);
+	const rigParticle = $derived.by((): Omit<RigParticleBehaviorConfig, 'layerHost'> | undefined => {
+		if (plan.particleKind !== 'spine' || !plan.spineParticle) return undefined;
+		const { skeletonKey, animation, loop } = plan.spineParticle;
+		const loaded = context.stateApp.loadedAssets ?? {};
+		let rigData = loaded[skeletonKey] as RIG.SkeletonData | undefined;
+		if (!rigData) {
+			const hit = Object.keys(loaded).find((k) => bundleFolderOf(k) === skeletonKey);
+			if (hit) rigData = loaded[hit] as RIG.SkeletonData | undefined;
+		}
+		if (!rigData) return undefined;
+		return {
+			animation,
+			loop: loop ?? false,
+			prewarm: props.layer.config.maxParticles ?? 0,
+			createBacking: createPixiRigBackingFactory(rigData),
+		};
+	});
 
 	// Resolve a SPRITE layer's authored `art.frames` → the loaded per-frame `Texture`s, honoring the
 	// editor-art scoped→bare key precedence (mirrors `LayoutNodeView` / `engine-layout`'s
@@ -238,7 +236,7 @@
 
 {#if plan.render}
 	{#if plan.mount === 'bone' && plan.bone}
-		<SpineBoneAttach boneName={plan.bone} offset={plan.offset} followRotation followScale>
+		<RigBoneAttach boneName={plan.bone} offset={plan.offset} followRotation followScale>
 			<ParticleEmitter
 				key={props.layer.art.assetKey}
 				config={props.layer.config}
@@ -246,11 +244,11 @@
 				flipbook={flipbookPlayback}
 				textures={spriteTextures}
 				weights={spriteWeights}
-				{spineParticle}
+				spineParticle={rigParticle}
 				emit={emitting}
 				emitSpeed={props.emitSpeed}
 			/>
-		</SpineBoneAttach>
+		</RigBoneAttach>
 	{:else}
 		<Container x={plan.offset.x} y={plan.offset.y}>
 			<ParticleEmitter
@@ -260,7 +258,7 @@
 				flipbook={flipbookPlayback}
 				textures={spriteTextures}
 				weights={spriteWeights}
-				{spineParticle}
+				spineParticle={rigParticle}
 				emit={emitting}
 				emitSpeed={props.emitSpeed}
 				ownerPos={props.ownerPos}

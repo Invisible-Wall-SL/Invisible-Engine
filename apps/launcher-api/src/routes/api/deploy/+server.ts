@@ -18,7 +18,7 @@ import type { RequestHandler } from './$types';
  *
  * Single-file serving is shared with the PATH-form route
  * (`/api/deploy/f/<token>/<client>/<project>/<...rel>`) via `deployServe.ts`;
- * the runtime uses the path form because relative sub-file resolution (Spine
+ * the runtime uses the path form because relative sub-file resolution (rig
  * pages etc.) needs the token + project as path segments, not query params.
  */
 const CORS_HEADERS = DEPLOY_CORS_HEADERS;

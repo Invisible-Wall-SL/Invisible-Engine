@@ -2,10 +2,10 @@
 //   node tools/rigger-spike/inspect-demo.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
 import { buildInspector } from './inspectModel.mjs';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
-const spine = await import(SPINE_CORE);
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = spine;
+const rig = await import(RIG_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = rig;
 
 const [, , jsonPath, atlasPath] = process.argv;
 const atlas = new TextureAtlas(readFileSync(atlasPath, 'utf8'));
@@ -13,7 +13,7 @@ const stub = { getImage: () => ({ width: 2048, height: 2048 }), setFilters() {},
 for (const p of atlas.pages) { p.width = 2048; p.height = 2048; try { p.setTexture(stub); } catch { p.texture = stub; } }
 const data = new SkeletonJson(new AtlasAttachmentLoader(atlas)).readSkeletonData(JSON.parse(readFileSync(jsonPath, 'utf8')));
 
-const v = buildInspector(data, spine);
+const v = buildInspector(data, rig);
 
 console.log('meta   :', JSON.stringify(v.meta));
 console.log('counts :', JSON.stringify(v.counts));

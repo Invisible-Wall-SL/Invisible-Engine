@@ -18,17 +18,17 @@
  * `deploy/` → `static/assets/`; the game's `bakedEditorArtAssets()` registers
  * each sheet. Stale `editor-art/` objects from a previous export are pruned.
  *
- * Editor-placed SPINE nodes ride the same chain: each referenced bundle is copied
- * (via the shared `exportSpineBundle`, which also renames a Rigger `.irig` skeleton
- * to `.json`) and listed in `index.spines`, which the game registers as a spine
+ * Editor-placed RIG nodes ride the same chain: each referenced bundle is copied
+ * (via the shared `exportRigBundle`, which also renames a Rigger `.irig` skeleton
+ * to `.json`) and listed in `index.spines`, which the game registers as a rig
  * asset under the node's `assetKey` — the same value `LayoutNodeView` looks up.
  *
- * Spine bundles a componentInstance references through a `spine`-KIND PARAM (the Win
+ * Rig bundles a componentInstance references through a `spine`-KIND PARAM (the Win
  * Overlay's `winSpine`, the free-spin visuals' `introSpine`/`outroSpine`, …) ride the
  * SAME chain — discovered generically off `ComponentParam.kind === 'spine'` (def
- * defaults + instance overrides). A spine param stores the bundle NAME (not a full
+ * defaults + instance overrides). A rig param stores the bundle NAME (not a full
  * assetKey), so its name is reconstructed into a project-rooted assetKey for the shared
- * export path and registered back under the NAME — the exact value `<SpineProvider
+ * export path and registered back under the NAME — the exact value `<RigProvider
  * key={…}>` looks up. A coded/game-bundled default (`bigwin`, `fsIntroNumber`) has no
  * R2 bundle, so it resolves to nothing and is skipped (the game registers it itself).
  */
@@ -41,7 +41,7 @@ import {
 	parseScopedFrameRef,
 	resolveComponentClosure,
 } from 'engine-layout';
-import { EDITOR_SPINE_LOAD_SCALE } from '$lib/spineScale';
+import { EDITOR_RIG_LOAD_SCALE } from '$lib/rigScale';
 import { betModeCardIds, betModeCardParamRefs } from 'game-config';
 import { sheetVersion } from './assetVersion';
 import { repairComponentDefsAtlasRefs } from './atlasRefRepair';
@@ -59,17 +59,17 @@ import { listProjectAssets } from './projectAssets';
 import { SUB } from './projectPaths';
 import {
 	bundleFromAssetKey,
-	exportSpineBundle,
+	exportRigBundle,
 	loadSkeletonIndexWithShared,
-	type ExportedSpineEntry,
-} from './spine';
-import { parseSpineBundleKey, staticSpineKeyIsReachable } from '$lib/spineBundleKey';
+	type ExportedRigEntry,
+} from './rig';
+import { parseRigBundleKey, staticRigKeyIsReachable } from '$lib/rigBundleKey';
 import { deleteObjects, listAllKeys, putObjectText } from './r2';
 import { PageStore, PAGE_REF_PREFIX } from './pageStore';
 import { mapWithConcurrency } from './concurrency';
 
 /**
- * How many sheets / spine bundles this export has in flight at once.
+ * How many sheets / rig bundles this export has in flight at once.
  *
  * Sized against the two things that bound it. UP: the work is pure R2 latency (~4-5 sequential
  * round-trips per sheet), so widening keeps paying until the network saturates. DOWN: the launcher
@@ -117,19 +117,19 @@ export interface EditorArtCollision {
 	used: boolean;
 }
 
-/** A spine bundle an editor-doc `spine` node references. `key` is the node's full
+/** A rig bundle an editor-doc `spine` node references. `key` is the node's full
  * R2 bundle-prefix `assetKey` (the engine's lookup key, as `LayoutNodeView` passes
- * it to `<SpineProvider>`). */
-export type EditorArtSpine = ExportedSpineEntry;
+ * it to `<RigProvider>`). */
+export type EditorArtRig = ExportedRigEntry;
 
 export interface EditorArtIndex {
 	sheets: EditorArtSheet[];
 	images: EditorArtImage[];
-	spines: EditorArtSpine[];
-	/** Spine `assetKey`s the doc PLACES that name an R2 bundle prefix which resolved to
+	spines: EditorArtRig[];
+	/** Rig `assetKey`s the doc PLACES that name an R2 bundle prefix which resolved to
 	 *  nothing — a reference into another project, or a bundle since deleted/renamed. The
-	 *  spine half of the dangling-binding guard: the doc keeps the prefix as its runtime
-	 *  lookup key, so the game throws `Spine: key "…" is not found in loadedAssets` and the
+	 *  rig half of the dangling-binding guard: the doc keeps the prefix as its runtime
+	 *  lookup key, so the game throws `rig: key "…" is not found in loadedAssets` and the
 	 *  art is simply absent. Bare/coded keys (`bigwin`) are excluded — the game registers
 	 *  those itself, so reporting them would be the false alarm `isBuiltinRegion` prevents
 	 *  for regions. */
@@ -166,22 +166,22 @@ function isImageAssetKey(assetKey: unknown): assetKey is string {
 interface ArtRefs {
 	manifestKeys: Set<string>;
 	imageKeys: Set<string>;
-	/** `spine`-node `assetKey`s (full R2 bundle prefixes). A coded spine key (no R2
-	 * bundle) resolves to nothing in `exportSpineBundle` and is skipped there. */
-	spineKeys: Set<string>;
+	/** `spine`-node `assetKey`s (full R2 bundle prefixes). A coded rig key (no R2
+	 * bundle) resolves to nothing in `exportRigBundle` and is skipped there. */
+	rigKeys: Set<string>;
 	/** The same, for a node whose `assetKey` is bound to a param that DECLARES a non-empty
 	 * default — so `LayoutNodeView` never falls back to the static key and it can't be the
 	 * lookup that fails. Still exported (it costs nothing and a resolvable one is a real
 	 * fallback), never REPORTED: `Button_Square`'s pinned v11 snapshot is immutable and still
 	 * carries a foreign prefix on such a node, which would otherwise warn on every publish
-	 * about art no game ever requests. See `staticSpineKeyIsReachable`. */
-	spineFallbackKeys: Set<string>;
+	 * about art no game ever requests. See `staticRigKeyIsReachable`. */
+	rigFallbackKeys: Set<string>;
 	/** Bundle NAMES referenced by `spine`-kind component params (def defaults + instance
 	 * overrides). A param stores the bare bundle name (`EditorProperties` `<option
 	 * value={s.name}>`), not an assetKey, so each is reconstructed into a project-rooted
 	 * assetKey below and registered back under the NAME. A game-bundled name (`bigwin`,
-	 * `fsIntroNumber`) has no R2 bundle and is skipped in `exportSpineBundle`. */
-	spineNames: Set<string>;
+	 * `fsIntroNumber`) has no R2 bundle and is skipped in `exportRigBundle`. */
+	rigNames: Set<string>;
 	/** Region names referenced ONLY by name (image-kind component params) — their
 	 * containing manifest must be found among the project's atlases. */
 	regionNames: Set<string>;
@@ -219,28 +219,28 @@ function collectArtRefs(doc: LayoutDoc, defs: Record<string, ComponentDef>): Art
 	const refs: ArtRefs = {
 		manifestKeys: new Set(),
 		imageKeys: new Set(),
-		spineKeys: new Set(),
-		spineFallbackKeys: new Set(),
-		spineNames: new Set(),
+		rigKeys: new Set(),
+		rigFallbackKeys: new Set(),
+		rigNames: new Set(),
 		regionNames: new Set(),
 		usedRegions: new Set(),
 	};
 	const imageParamKeys = new Map<string, Set<string>>();
-	const spineParamKeys = new Map<string, Set<string>>();
+	const rigParamKeys = new Map<string, Set<string>>();
 	for (const [id, def] of Object.entries(defs)) {
 		const imgKeys = new Set<string>();
-		const spineKeys = new Set<string>();
+		const rigKeys = new Set<string>();
 		for (const p of def.params ?? []) {
 			if (p.kind === 'image') {
 				imgKeys.add(p.key);
 				if (typeof p.default === 'string' && p.default) addImageRef(refs, p.default);
 			} else if (p.kind === 'spine') {
-				spineKeys.add(p.key);
-				if (typeof p.default === 'string' && p.default) refs.spineNames.add(p.default);
+				rigKeys.add(p.key);
+				if (typeof p.default === 'string' && p.default) refs.rigNames.add(p.default);
 			}
 		}
 		imageParamKeys.set(id, imgKeys);
-		spineParamKeys.set(id, spineKeys);
+		rigParamKeys.set(id, rigKeys);
 	}
 
 	const visit = (node: LayoutNode, ownerDef?: ComponentDef): void => {
@@ -258,9 +258,9 @@ function collectArtRefs(doc: LayoutDoc, defs: Record<string, ComponentDef>): Art
 		} else if (node.kind === 'sprite' && !node.region && isImageAssetKey(node.assetKey)) {
 			refs.imageKeys.add(node.assetKey);
 		} else if (node.kind === 'spine' && typeof node.assetKey === 'string' && node.assetKey) {
-			const target = staticSpineKeyIsReachable(node, ownerDef?.params)
-				? refs.spineKeys
-				: refs.spineFallbackKeys;
+			const target = staticRigKeyIsReachable(node, ownerDef?.params)
+				? refs.rigKeys
+				: refs.rigFallbackKeys;
 			target.add(node.assetKey);
 		}
 		// A `reelGrid` node's GROUND TILE art (docs/design/perspective-board-mode.md §"The tiles").
@@ -286,12 +286,12 @@ function collectArtRefs(doc: LayoutDoc, defs: Record<string, ComponentDef>): Art
 					? pinned
 					: node.componentId;
 			const imgKeys = imageParamKeys.get(defKey);
-			const spineKeys = spineParamKeys.get(defKey);
+			const rigKeys = rigParamKeys.get(defKey);
 			for (const params of instanceParamMaps(node)) {
 				for (const [k, v] of Object.entries(params)) {
 					if (typeof v !== 'string' || !v) continue;
 					if (imgKeys?.has(k)) addImageRef(refs, v);
-					else if (spineKeys?.has(k)) refs.spineNames.add(v);
+					else if (rigKeys?.has(k)) refs.rigNames.add(v);
 				}
 			}
 		}
@@ -310,7 +310,7 @@ function collectArtRefs(doc: LayoutDoc, defs: Record<string, ComponentDef>): Art
  *
  * `extraSeedIds` are the config-assigned buy-feature card ids (`betModeCardIds`) — components a bet
  * mode names at RUNTIME, invisible to the static scene walk. Seeding them here means each card's OWN
- * sprite/spine art is discovered and exported to `deploy/editor-art/`, so the shipped card is not a
+ * sprite/rig art is discovered and exported to `deploy/editor-art/`, so the shipped card is not a
  * blank frame. A seed with no def resolves to null and is skipped (the mode falls back to the default
  * `featureCard`, whose art the scene walk already covers). */
 async function resolveReferencedDefs(
@@ -354,7 +354,7 @@ async function resolveReferencedDefs(
 export async function referencedArtRefs(
 	doc: LayoutDoc,
 	projectKey: string,
-): Promise<Pick<ArtRefs, 'manifestKeys' | 'imageKeys' | 'spineKeys' | 'spineFallbackKeys'>> {
+): Promise<Pick<ArtRefs, 'manifestKeys' | 'imageKeys' | 'rigKeys' | 'rigFallbackKeys'>> {
 	return collectArtRefs(doc, await resolveReferencedDefs(doc, projectKey));
 }
 
@@ -457,14 +457,14 @@ export async function exportEditorArt(
 	clientKey: string,
 	projectKey: string,
 	/**
-	 * Extra spine BUNDLE NAMES to ship even though the static scene/def walk never sees them.
+	 * Extra rig BUNDLE NAMES to ship even though the static scene/def walk never sees them.
 	 * Today: the rigs a project's CINEMATICS cast. A cinematic references rigs that may appear in
 	 * no scene at all, so without this seed the doc ships while its rigs do not — the exact
 	 * "renders in the tool, blank in the game" trap rule 8 exists to prevent. Same shape as the
 	 * `cardComponentIds` / FX-atlas seeds below: runtime-chosen refs the walk is blind to.
 	 */
 	opts?: {
-		extraSpineNames?: Iterable<string>;
+		extraRigNames?: Iterable<string>;
 		/**
 		 * Optional per-PHASE timings, folded into the caller's record and surfaced on
 		 * `/api/editor/runtime`'s `Server-Timing` header.
@@ -481,7 +481,7 @@ export async function exportEditorArt(
 		 * writes pages in the same pass.
 		 *
 		 * `exportEditorSymbols` runs in the same `Promise.all` as this function and exports its own
-		 * spine bundles. While it had no store, every symbol rig carried a PRIVATE copy of its atlas
+		 * rig bundles. While it had no store, every symbol rig carried a PRIVATE copy of its atlas
 		 * page: eight symbols sharing `S_Game_Reel` shipped it eight times (12.3 MB of one delivery),
 		 * and pages this export had already deduped into `_pages/` appeared a second time under
 		 * `editor-symbols/`. That is the exact VRAM duplication this store was built to end — it
@@ -516,8 +516,8 @@ export async function exportEditorArt(
 	// never sees them. `loadGameConfigDoc` is null for a never-authored project ⇒ no seeds ⇒ parity.
 	const gameConfig = await phase('config', () => loadGameConfigDoc(clientKey, projectKey));
 	const cardComponentIds = gameConfig ? betModeCardIds(gameConfig) : [];
-	// Per-mode `cardParams` overrides can name art/spine keys on the card component (a different
-	// panel/icon/spine per card), chosen at runtime — so their DEFS must be resolvable to classify each
+	// Per-mode `cardParams` overrides can name art/rig keys on the card component (a different
+	// panel/icon/rig per card), chosen at runtime — so their DEFS must be resolvable to classify each
 	// override key by param KIND. Seed the default `featureCard` too when any mode overrides params
 	// WITHOUT a custom card (its explicit card is already in `cardComponentIds`). Empty ⇒ no extra seed.
 	const cardParamRefs = gameConfig ? betModeCardParamRefs(gameConfig) : [];
@@ -533,10 +533,10 @@ export async function exportEditorArt(
 	);
 	const refs = collectArtRefs(doc, defs);
 
-	// Collect art/spine keys referenced through the config's per-mode `cardParams` overrides — the
+	// Collect art/rig keys referenced through the config's per-mode `cardParams` overrides — the
 	// static scene/def walk in `collectArtRefs` never sees them (the keys are chosen at RUNTIME in the
 	// config). Mirror its component-instance param branch: classify each override key by the resolved
-	// card def's param KIND (image → atlas manifest/region, spine → bundle name). A missing card def or
+	// card def's param KIND (image → atlas manifest/region, rig → bundle name). A missing card def or
 	// an unknown/non-string value is skipped safely, so a mode falling back to the default `featureCard`
 	// (or overriding only a color/text param) ships exactly as before.
 	for (const ref of cardParamRefs) {
@@ -546,13 +546,13 @@ export async function exportEditorArt(
 			const value = ref.cardParams[p.key];
 			if (typeof value !== 'string' || !value) continue;
 			if (p.kind === 'image') addImageRef(refs, value);
-			else if (p.kind === 'spine') refs.spineNames.add(value);
+			else if (p.kind === 'spine') refs.rigNames.add(value);
 		}
 	}
-	// Rigs a cinematic casts (see `opts.extraSpineNames`) — bundle NAMES, the same currency the
+	// Rigs a cinematic casts (see `opts.extraRigNames`) — bundle NAMES, the same currency the
 	// `spine`-kind component-param branch above adds.
-	for (const name of opts?.extraSpineNames ?? []) {
-		if (typeof name === 'string' && name) refs.spineNames.add(name);
+	for (const name of opts?.extraRigNames ?? []) {
+		if (typeof name === 'string' && name) refs.rigNames.add(name);
 	}
 
 	// Reconcile bare region names picked up above into the used-region set (mirrors `collectArtRefs`).
@@ -587,7 +587,7 @@ export async function exportEditorArt(
 				}
 			}
 		} catch {
-			// Effects are additive art — never let them break the sprite/spine export.
+			// Effects are additive art — never let them break the sprite/rig export.
 		}
 	});
 
@@ -656,7 +656,7 @@ export async function exportEditorArt(
 				);
 			}
 		} catch {
-			// Clips are additive art — never let them break the sprite/spine export.
+			// Clips are additive art — never let them break the sprite/rig export.
 		}
 	});
 
@@ -689,7 +689,7 @@ export async function exportEditorArt(
 	// Content-addressed page store: a page shared by several sheets/rigs is copied + KTX2-encoded
 	// ONCE (under `_pages/`) and loads as ONE GPU texture — fixes the rig page-duplication VRAM
 	// leak. Its writes are pruned separately (they live outside `editor-art/`). Shared with the
-	// spine export so rig atlases dedup against the sheets too.
+	// rig export so rig atlases dedup against the sheets too.
 	// The caller's store when this runs beside another exporter, else our own. Either way this
 	// export never prunes `_pages/` — see the prune at the bottom for why that is not ours to do.
 	const pageStore = opts?.pageStore ?? new PageStore(deployPrefix);
@@ -853,43 +853,43 @@ export async function exportEditorArt(
 		}
 	});
 
-	// Spine bundles: copy each referenced bundle into deploy/editor-art/ via the shared
+	// Rig bundles: copy each referenced bundle into deploy/editor-art/ via the shared
 	// helper (atlas + skeleton + pages; a Rigger `.irig` skeleton is shipped as `.json`
 	// so PIXI's loader can parse it). Two reference kinds feed one export path:
 	//   - NODES store the full R2 bundle-prefix `assetKey`;
-	//   - `spine`-kind component PARAMS store the bare bundle NAME (`refs.spineNames`),
+	//   - `spine`-kind component PARAMS store the bare bundle NAME (`refs.rigNames`),
 	//     reconstructed here into a project-rooted assetKey so `bundleFromAssetKey` →
-	//     `resolveBundlePrefix` (inside `exportSpineBundle`) finds the files, whether the
+	//     `resolveBundlePrefix` (inside `exportRigBundle`) finds the files, whether the
 	//     bundle lives in the project or the shared `_shared/spines/` root.
 	// Either way the entry registers under the plain bundle NAME: for a node that is its
-	// `assetKey` rewritten by `resolveSpineKeysForGame` (`runtimeBundle.ts` +
-	// `api/editor/doc`) and handed to `<SpineProvider>` by `LayoutNodeView`; for a param it
-	// is the value stored, the exact key `<SpineProvider key={…}>` looks up (e.g. the win
+	// `assetKey` rewritten by `resolveRigKeysForGame` (`runtimeBundle.ts` +
+	// `api/editor/doc`) and handed to `<RigProvider>` by `LayoutNodeView`; for a param it
+	// is the value stored, the exact key `<RigProvider key={…}>` looks up (e.g. the win
 	// overlay's `winSpine`). A coded/game-bundled key (no R2 bundle — `bigwin`,
 	// `fsIntroNumber`) resolves to nothing and is skipped (the game registers it itself).
-	// Stems share the `usedStems` pool with the sheets so a spine/sheet name clash can't
+	// Stems share the `usedStems` pool with the sheets so a rig/sheet name clash can't
 	// collide.
 	//
-	// `reportable` is what the stranded-spine guard below fires on: ONLY a static `assetKey`
+	// `reportable` is what the stranded-rig guard below fires on: ONLY a static `assetKey`
 	// the runtime can actually look up. A reconstructed NAME is project-rooted by construction,
 	// so a coded/game-bundled one (`bigwin`) would otherwise report as stranded on every
 	// project, and a static key shadowed by a param default is never requested at all — the
 	// same false-alarm class `isBuiltinRegion` exists to prevent for regions.
-	const spines: EditorArtSpine[] = [];
-	const spinesMissing: string[] = [];
-	const spineAssetKeys = [
-		...[...refs.spineKeys].map((assetKey) => ({ assetKey, reportable: true })),
-		...[...refs.spineFallbackKeys].map((assetKey) => ({ assetKey, reportable: false })),
-		...[...refs.spineNames].map((name) => ({
+	const rigs: EditorArtRig[] = [];
+	const rigsMissing: string[] = [];
+	const rigAssetKeys = [
+		...[...refs.rigKeys].map((assetKey) => ({ assetKey, reportable: true })),
+		...[...refs.rigFallbackKeys].map((assetKey) => ({ assetKey, reportable: false })),
+		...[...refs.rigNames].map((name) => ({
 			assetKey: `${SUB.spines(clientKey, projectKey)}/${name}/`,
 			reportable: false,
 		})),
 	];
-	if (spineAssetKeys.length > 0) {
+	if (rigAssetKeys.length > 0) {
 		await phase('spines', async () => {
 			const skeletonIndex = await loadSkeletonIndexWithShared(clientKey, projectKey);
-			const exportedSpines = new Set<string>();
-			const spineStem = (assetKey: string): string => {
+			const exportedRigs = new Set<string>();
+			const rigStem = (assetKey: string): string => {
 				const base = assetKey.replace(/\/$/, '');
 				const tail = base.slice(base.lastIndexOf('/') + 1).replace(/[^a-zA-Z0-9_-]/g, '_');
 				return tail || 'spine';
@@ -898,29 +898,29 @@ export async function exportEditorArt(
 			// stay a pure function of the doc, exactly as for the sheets above. Then EXECUTE the
 			// plan concurrently: each bundle is another run of sequential R2 round-trips (14.1s for
 			// 9 bundles on `test6`, ~1.6s each) that has no reason to wait on its predecessor.
-			const spinePlan: {
+			const rigPlan: {
 				assetKey: string;
 				reportable: boolean;
 				/** `bundleFromAssetKey` answers `null` for a coded key with no R2 bundle. */
 				gameKey: string | null;
 				stem: string;
 			}[] = [];
-			for (const { assetKey, reportable } of spineAssetKeys) {
+			for (const { assetKey, reportable } of rigAssetKeys) {
 				// Dedup by the REGISTRATION key (the bundle NAME) so a bundle referenced by BOTH a
 				// node (full assetKey) and a param (name → synthetic assetKey) exports once; a coded
 				// key with no R2 bundle falls back to its assetKey.
 				const gameKey = bundleFromAssetKey(clientKey, projectKey, assetKey);
 				const dedupKey = gameKey ?? assetKey;
-				if (exportedSpines.has(dedupKey)) continue;
-				exportedSpines.add(dedupKey);
-				let stem = spineStem(assetKey);
-				for (let i = 2; usedStems.has(stem); i++) stem = `${spineStem(assetKey)}_${i}`;
+				if (exportedRigs.has(dedupKey)) continue;
+				exportedRigs.add(dedupKey);
+				let stem = rigStem(assetKey);
+				for (let i = 2; usedStems.has(stem); i++) stem = `${rigStem(assetKey)}_${i}`;
 				usedStems.add(stem);
-				spinePlan.push({ assetKey, reportable, gameKey, stem });
+				rigPlan.push({ assetKey, reportable, gameKey, stem });
 			}
-			await mapWithConcurrency(spinePlan, ART_EXPORT_CONCURRENCY, async (planned) => {
+			await mapWithConcurrency(rigPlan, ART_EXPORT_CONCURRENCY, async (planned) => {
 				const { assetKey, reportable, gameKey, stem } = planned;
-				const result = await exportSpineBundle({
+				const result = await exportRigBundle({
 					clientKey,
 					projectKey,
 					assetKey,
@@ -928,7 +928,7 @@ export async function exportEditorArt(
 					subtree: 'editor-art',
 					stem,
 					skeletonIndex,
-					scale: EDITOR_SPINE_LOAD_SCALE,
+					scale: EDITOR_RIG_LOAD_SCALE,
 					// Share the page store so a rig atlas page that matches a sheet page (or another
 					// rig's) dedups to ONE shared `_pages/` texture instead of a private copy per rig.
 					pageStore,
@@ -938,17 +938,17 @@ export async function exportEditorArt(
 					// reference into another project (`bundleFromAssetKey` only answers for this
 					// project + `_shared/`), or a bundle since deleted/renamed. Either way the
 					// export ships nothing while the doc keeps the prefix as its lookup key, so
-					// the game throws `Spine: key "…" is not found in loadedAssets` and the art is
+					// the game throws `rig: key "…" is not found in loadedAssets` and the art is
 					// simply absent. This used to `continue` in silence — the one asset class with
 					// no dangling guard (rule 8) — so it reached production unannounced.
-					if (reportable && parseSpineBundleKey(assetKey)) spinesMissing.push(assetKey);
+					if (reportable && parseRigBundleKey(assetKey)) rigsMissing.push(assetKey);
 					return;
 				}
 				// Register under the plain bundle NAME — not the full prefix — or the runtime
-				// lookup misses and the spine never loads in the built game.
+				// lookup misses and the rig never loads in the built game.
 				if (gameKey) result.entry.key = gameKey;
 				for (const k of result.written) written.add(k);
-				spines.push(result.entry);
+				rigs.push(result.entry);
 			});
 		});
 	}
@@ -1023,7 +1023,7 @@ export async function exportEditorArt(
 	// two assembles of an unchanged project produced the same 41 sheets in a different order, i.e.
 	// a different 195 KB of JSON every time (measured 2026-09-21, right after the concurrency
 	// landed). Nothing downstream reads the order — the game keys sheets by `editorArt/<json>` and
-	// spines by `key` — but a payload that is never byte-equal to itself defeats the content
+	// rigs by `key` — but a payload that is never byte-equal to itself defeats the content
 	// fingerprint the runtime cache needs next (game-maker item 6), and makes diffing two bundles
 	// noise. Sorting by the unique lookup key is stable no matter which task finished first, and
 	// unlike "preserve input order" it also covers the late `missing`-fallback appends.
@@ -1031,8 +1031,8 @@ export async function exportEditorArt(
 	const index: EditorArtIndex = {
 		sheets: [...sheets].sort((a, b) => a.key.localeCompare(b.key)),
 		images: [...images].sort((a, b) => a.key.localeCompare(b.key)),
-		spines: [...spines].sort((a, b) => a.key.localeCompare(b.key)),
-		spinesMissing: spinesMissing.sort(),
+		spines: [...rigs].sort((a, b) => a.key.localeCompare(b.key)),
+		spinesMissing: rigsMissing.sort(),
 		collisions,
 		missing: danglingRegions,
 		clipMissing,

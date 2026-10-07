@@ -134,9 +134,9 @@ export type BetModePresentation = {
 	 * bet mode WITHOUT a separate component per card. Any param the card DECLARES may be overridden
 	 * (chrome OR content); a param absent from the map keeps the component's authored default (parity).
 	 *
-	 * BAKE/SHIP: a value may be an editor-art frame or spine bundle key (a different panel/icon/spine
+	 * BAKE/SHIP: a value may be an editor-art frame or rig bundle key (a different panel/icon/rig
 	 * per card). Those keys are chosen at RUNTIME, so the static scene/def walk can't see them — the
-	 * bake collector reads THIS field (`betModeCardParamRefs`) and folds each referenced art/spine key
+	 * bake collector reads THIS field (`betModeCardParamRefs`) and folds each referenced art/rig key
 	 * into the export→bake→pull set, exactly as the mode `icon` art travels. Absent ⇒ parity.
 	 */
 	cardParams?: Record<string, string | number | boolean>;
@@ -328,6 +328,47 @@ export type ReelBehaviour = {
 	clearBoard?: boolean;
 };
 
+/**
+ * The FREE-SPINS feature — whether the game has it and what triggers it. An INVISIBLE-ENGINE
+ * extension, not part of the math export.
+ *
+ * The RGS decides when free spins happen, so this states the rule the CLIENT and OUR mock follow;
+ * a partner server keeps its own. Departure-only like {@link GameConfigDoc.cascade}: every field is
+ * optional, absent ⇒ free spins on, triggered by 3 or more of the in-play scatter anywhere on the
+ * board — which is every config authored before this block existed. Read it through
+ * `resolveFreeSpins` rather than directly, so the defaults live in one place.
+ */
+export type FreeSpinsConfig = {
+	/** `false` ⇒ this game has no free spins. Absent ⇒ on. Only `false` is stored. */
+	enabled?: false;
+	/** The config symbol id whose count triggers (and retriggers) the feature. Absent ⇒ the in-play
+	 *  scatter symbol. Kept while `enabled` is `false`, so switching off and on loses nothing. */
+	triggerSymbol?: string;
+	/** Fewest trigger symbols anywhere on the board that award free spins. Absent ⇒ 3. */
+	triggerCount?: number;
+	/** `true` ⇒ every award row (both tables) gives a uniform random whole number between its
+	 *  `spins` and `maxSpins`. Absent ⇒ each row gives exactly `spins`. Only `true` is stored. */
+	randomAwards?: true;
+	/** Spins awarded on entering the feature, per trigger count. Absent ⇒ 10 for any count. */
+	awards?: FreeSpinsAward[];
+	/** Spins ADDED on a retrigger during free spins, per trigger count. Absent ⇒ 5 for any count. */
+	retriggerAwards?: FreeSpinsAward[];
+};
+
+/**
+ * One row of a free-spins award table. Rows are read by trigger COUNT: a row awards for its own
+ * count and every count above it, up to the next row's.
+ */
+export type FreeSpinsAward = {
+	/** Fewest trigger symbols this row applies to. */
+	count: number;
+	/** Spins awarded. With random awards on, the LOW end of the range. */
+	spins: number;
+	/** With random awards on, the HIGH end (inclusive). Absent ⇒ `spins`. Kept while random awards
+	 *  are off, so switching them back on restores the range. */
+	maxSpins?: number;
+};
+
 /** Every {@link ReelBehaviour.swapStyle} literal, for validation + the tool's picker. */
 export const SWAP_STYLES = ['dropIn', 'columnCascade', 'emerge'] as const;
 
@@ -344,11 +385,11 @@ export const WIN_MODEL_TYPES = ['lines', 'ways', 'cluster', 'scatter'] as const;
 
 export type WinModelType = (typeof WIN_MODEL_TYPES)[number];
 
-/** A win tier's celebration bracket. `big` tiers get the full-screen big-win presentation (a spine
+/** A win tier's celebration bracket. `big` tiers get the full-screen big-win presentation (a rig
  *  + count-up); `small`/`medium` present as a plain number. Mirrors the coded `winLevelMap` `type`. */
 export type WinTierType = 'small' | 'medium' | 'big';
 
-/** The spine animation names a big-win tier plays: intro (once) → idle (loops during the count-up) →
+/** The rig animation names a big-win tier plays: intro (once) → idle (loops during the count-up) →
  *  outro (once). Every field required — a half-authored animation set has no meaning. */
 export type WinTierAnimation = {
 	intro: string;
@@ -370,7 +411,7 @@ export type WinTierSound = {
  *
  * `animation` / `spineKey` / `sound` / `durationMs` are optional — a `small`/`medium` tier usually
  * omits `animation` (plain-number presentation), a `big` tier carries it. `spineKey` lets a tier
- * point at its own spine bundle (default: the component's `bigwin`).
+ * point at its own rig bundle (default: the component's `bigwin`).
  */
 export type WinLevelTier = {
 	/** Stable id, matched by `escalateFrom` and by the coded alias-lookup path. */
@@ -381,7 +422,7 @@ export type WinLevelTier = {
 	threshold: number;
 	type: WinTierType;
 	animation?: WinTierAnimation;
-	/** Spine bundle key for this tier's art. Absent ⇒ the big-win component's default bundle. */
+	/** Rig bundle key for this tier's art. Absent ⇒ the big-win component's default bundle. */
 	spineKey?: string;
 	sound?: WinTierSound;
 	/** How long the presentation (and its count-up) holds, in milliseconds. */
@@ -444,6 +485,14 @@ export type GameConfigDoc = {
 	 * Read it through `resolveCascade` rather than directly, so the default lives in one place.
 	 */
 	cascade?: boolean;
+	/**
+	 * OPTIONAL free-spins switch + trigger (see {@link FreeSpinsConfig}). An INVISIBLE-ENGINE
+	 * extension; absent ⇒ free spins on, 3 or more of the in-play scatter trigger them. Stored only
+	 * where it departs from that.
+	 *
+	 * Read it through `resolveFreeSpins` rather than directly, so the defaults live in one place.
+	 */
+	freeSpins?: FreeSpinsConfig;
 	/**
 	 * OPTIONAL board/reel BEHAVIOUR (see {@link ReelBehaviour}) — does a round roll or swap in place,
 	 * does the outgoing board clear first, and do the columns fall staggered. An INVISIBLE-ENGINE

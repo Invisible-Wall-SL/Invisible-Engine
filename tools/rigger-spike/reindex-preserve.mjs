@@ -2,7 +2,7 @@
 //
 //   node tools/rigger-spike/reindex-preserve.mjs
 //
-// Bundles the REAL pure helpers from apps/launcher-api/src/lib/server/spineIndex.ts with
+// Bundles the REAL pure helpers from apps/launcher-api/src/lib/server/rigIndex.ts with
 // esbuild (stubbing the SvelteKit `$env/dynamic/private` virtual module + externalising the
 // AWS SDK, neither of which the pure helpers touch) and drives `reindexSkeletonsPreserving`
 // + `mergePreservingDroppedFolders` through fake, R2-free deps. Proves:
@@ -24,7 +24,7 @@ const SERVER_DIR = fileURLToPath(new URL('apps/launcher-api/src/lib/server/', RO
 
 const esbuild = await import(ESBUILD);
 
-// Stub spineIndex's `./r2` import so esbuild never pulls in the AWS SDK / SvelteKit `$env`
+// Stub rigIndex's `./r2` import so esbuild never pulls in the AWS SDK / SvelteKit `$env`
 // (the pure helpers under test call none of it). The stub throws if ever invoked, which
 // would catch a helper accidentally reaching for R2.
 const stubR2Plugin = {
@@ -41,11 +41,11 @@ const stubR2Plugin = {
 };
 
 const outdir = mkdtempSync(join(tmpdir(), 'rigger-reindex-'));
-const outfile = join(outdir, 'spineIndex.mjs');
+const outfile = join(outdir, 'rigIndex.mjs');
 await esbuild.build({
 	stdin: {
 		contents:
-			"export { reindexSkeletonsPreserving, mergePreservingDroppedFolders } from './spineIndex.ts';",
+			"export { reindexSkeletonsPreserving, mergePreservingDroppedFolders } from './rigIndex.ts';",
 		resolveDir: SERVER_DIR,
 		loader: 'ts',
 	},

@@ -50,7 +50,7 @@ its findings in a **Build refused** dialog. You can override from the dialog, bu
 | --- | --- | --- |
 | **The flow failed validation** | the Invisible Flow graph has errors (e.g. one exec-out wired twice, a missing scene) | Invisible Flow → Validation panel, save, publish again |
 | **The paytable disagrees with the partner's** | the authored paytable no longer matches the one captured from the partner's `/config` | Invisible Game Config → fix or re-import the paytable |
-| **The game references art that will not ship** *(Deliver only)* | placed regions or spines that no shipped atlas contains | re-pick or re-pack them in the editor |
+| **The game references art that will not ship** *(Deliver only)* | placed regions or rigs that no shipped atlas contains | re-pick or re-pack them in the editor |
 
 Override only when you know why the check is wrong for this build. Nothing is published or
 delivered until you confirm. A missing-art override re-packages the build you already have, so it

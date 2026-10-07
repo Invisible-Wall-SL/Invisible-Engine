@@ -519,7 +519,7 @@ Per region it draws three layers (each toggleable), all in page pixels:
 |---|---|---|
 | **Region rect** | blue | the `bounds:` x/y/w/h from the **current** manifest (the `.atlas`-merged geometry the cards use), labelled `name w×h` |
 | **Art alpha bbox** | amber | the art's **actual** opaque bounds, re-measured client-side from the composed page's pixels (`getImageData`, alpha > 0 — the same test PIL's `getbbox()` applies) |
-| **Untrimmed frame** | mint | only for regions carrying `off_x/off_y/orig_w/orig_h`. Drawn in the manifest's own **TexturePacker Y-DOWN-from-top** convention (*not* Spine's Y-up) — as stored, uncorrected |
+| **Untrimmed frame** | mint | only for regions carrying `off_x/off_y/orig_w/orig_h`. Drawn in the manifest's own **TexturePacker Y-DOWN-from-top** convention (*not* rig's Y-up) — as stored, uncorrected |
 
 The inspector gives three **separate** readings per region, deliberately not
 blended — they know different amounts. Read them in this order.
@@ -554,7 +554,7 @@ Read from the manifest (not the pixels): which branch of `fit_to_region` the
 | Mode | Meaning |
 |---|---|
 | **contain (explicit) → sheet parity** | replays `packer.compose` verbatim — a Sheet-Maker cell recomposes byte-identically to its sheet |
-| **fill (spine-slot default)** | crop to the alpha bbox, stretch to the slot exactly |
+| **fill (rig-slot default)** | crop to the alpha bbox, stretch to the slot exactly |
 | **contain (cell-grid default)** | crop to the alpha bbox, uniform-scale to fit, letterbox |
 | **cover (explicit)** / **fill (explicit)** | as set on the region's ⚙ Advanced panel |
 

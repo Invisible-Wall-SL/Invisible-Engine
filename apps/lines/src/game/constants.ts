@@ -1,4 +1,4 @@
-// This game's SYMBOL + ART content: the sprite/spine bindings and the stacked-picture map. The
+// This game's SYMBOL + ART content: the sprite/rig bindings and the stacked-picture map. The
 // engine's shared feel knobs (SYMBOL_SIZE, REEL_PADDING, spin options, …) moved to `engine-game` in
 // Phase A3.5 of docs/design/game-type-templates.md — import those from there, not from here. The
 // scatter-land sound ladder moved to the Invisible Game Config sound SLOTS (`game-config/sounds`),
@@ -64,7 +64,7 @@ const wStatic = { type: 'sprite', assetKey: 'w.png', sizeRatios: { width: 1.12, 
 const wSizeRatios = { width: 1.5 * 0.9, height: SPECIAL_SYMBOL_SIZE * 1.15 };
 const sSizeRatios = { width: 2.5, height: SPECIAL_SYMBOL_SIZE * 2.3 };
 
-// Each symbol's `win` spine binding, hoisted to a named const. The Special-Book
+// Each symbol's `win` rig binding, hoisted to a named const. The Special-Book
 // reveal/idle states (`bookIntro`/`bookIdle`) are NOT coded here: they inherit the
 // symbol's EFFECTIVE win binding at resolve time (see `getSymbolInfo`), so they track
 // any authored win override instead of a frozen copy — unless explicitly bound.

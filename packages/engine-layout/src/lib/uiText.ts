@@ -189,6 +189,22 @@ export const UI_INFO_RULES: UiInfoRule[] = [
 	},
 ];
 
+/**
+ * The SCATTER rule's body on a game whose scatter does NOT trigger free spins — free spins are off,
+ * or something else triggers them. The default body promises "3 or more trigger the Free Spins
+ * feature", which would then be a lie on the rules page.
+ */
+export const UI_INFO_SCATTER_PAYS_ONLY_BODY = 'The Scatter is paid anywhere on the reels.';
+
+/**
+ * The FREE SPINS block, added only when the trigger departs from 3 or more scatters. Its count and
+ * symbol ride in its `figure` (`FREE SPINS — 4+ SCATTER`), never in translatable copy.
+ */
+export const UI_INFO_FREE_SPINS_RULE: UiInfoRule = {
+	heading: 'FREE SPINS',
+	body: 'Landing this many or more anywhere on the reels triggers the Free Spins feature.',
+};
+
 /** The RTP block — shown only where the operator allows it (`displayRTP`), its figure beside it. */
 export const UI_INFO_RTP_RULE: UiInfoRule = {
 	heading: 'RTP',
@@ -229,18 +245,68 @@ export interface InfoRuleFigures {
 }
 
 /**
+ * A free-spins trigger that DEPARTS from 3 or more scatters. Structural, as `engine-layout` does not
+ * depend on `game-config`: the caller resolves it (`resolveFreeSpins`) and passes it in.
+ */
+export interface InfoFreeSpinsTrigger {
+	count: number;
+	/** The config symbol id — printed as-is, unless {@link role} names it by a rule heading. */
+	symbol: string;
+	/** The symbol's role, so it reads as the SCATTER / WILD heading the player already sees above
+	 *  (and that is already translated) rather than as a config id. */
+	role?: 'scatter' | 'wild';
+}
+
+/** How the game's free spins and wild work, for the rules that describe them. Every field defaults
+ *  to the game every rules page described before either was configurable. */
+export interface InfoRuleOptions {
+	/** `false` ⇒ the game has no free spins. Default `true`. */
+	freeSpins?: boolean;
+	/** The trigger, when it is not 3 or more scatters. Absent ⇒ it is. */
+	freeSpinsTrigger?: InfoFreeSpinsTrigger;
+	/** `false` ⇒ no symbol the game deals is a wild, so the WILD rule is dropped. Default `true`. */
+	wildInPlay?: boolean;
+}
+
+/** The FREE SPINS block's figure: `4+` and the symbol. A role-named symbol rides as the translated
+ *  `unit`; a bare config id rides in the never-translated `value`. */
+const freeSpinsFigure = ({ count, symbol, role }: InfoFreeSpinsTrigger): UiInfoRule['figure'] => {
+	const heading = role === 'wild' ? 'WILD' : role === 'scatter' ? 'SCATTER' : undefined;
+	return heading ? { value: `${count}+`, unit: heading } : { value: `${count}+ ${symbol}` };
+};
+
+/**
  * The rules page with the game's figures: the MAX WIN block carries the cap (`5,000× BET`, from
  * strings every game already translates), and the RTP block is added, followed by any block the
  * operator declared. Each figure is optional and already formatted — an absent one leaves the page
  * as it was (`rtp` is absent whenever the operator has not allowed it, and so is every operator
  * block).
+ *
+ * `options` describes the free spins. Left at its defaults (on, 3 or more scatters) the page is
+ * exactly what it always was. A game with none, or one triggered by something else, gets the
+ * SCATTER rule without its free-spins promise; the latter also gains a FREE SPINS block. A game
+ * that deals no wild (`wildInPlay: false`) loses the WILD rule.
  */
-export function infoRulesWithFigures(figures: InfoRuleFigures): UiInfoRule[] {
-	const rules = UI_INFO_RULES.map((rule) =>
-		rule.heading === 'MAX WIN' && figures.maxWin
-			? { ...rule, figure: { value: `${figures.maxWin}×`, unit: UI_TEXT.bet } }
-			: rule,
-	);
+export function infoRulesWithFigures(
+	figures: InfoRuleFigures,
+	options: InfoRuleOptions = {},
+): UiInfoRule[] {
+	const freeSpins = options.freeSpins ?? true;
+	const trigger = freeSpins ? options.freeSpinsTrigger : undefined;
+	const wildInPlay = options.wildInPlay ?? true;
+	const rules = UI_INFO_RULES.flatMap((rule): UiInfoRule[] => {
+		if (rule.heading === 'WILD' && !wildInPlay) return [];
+		if (rule.heading === 'MAX WIN' && figures.maxWin) {
+			return [{ ...rule, figure: { value: `${figures.maxWin}×`, unit: UI_TEXT.bet } }];
+		}
+		if (rule.heading === 'SCATTER' && (!freeSpins || trigger)) {
+			const scatter = { ...rule, body: UI_INFO_SCATTER_PAYS_ONLY_BODY };
+			return trigger
+				? [scatter, { ...UI_INFO_FREE_SPINS_RULE, figure: freeSpinsFigure(trigger) }]
+				: [scatter];
+		}
+		return [rule];
+	});
 	const added: UiInfoRule[] = [];
 	if (figures.rtp) added.push({ ...UI_INFO_RTP_RULE, figure: { value: figures.rtp } });
 	for (const key of Object.keys(
@@ -272,9 +338,11 @@ export function collectUiTextStrings(): UiTextString[] {
 		...UI_INFO_RULES,
 		UI_INFO_RTP_RULE,
 		...Object.values(UI_INFO_OPERATOR_RULES),
+		UI_INFO_FREE_SPINS_RULE,
 	]) {
 		add(rule.heading, 'Info page');
 		add(rule.body, 'Info page');
 	}
+	add(UI_INFO_SCATTER_PAYS_ONLY_BODY, 'Info page');
 	return out;
 }

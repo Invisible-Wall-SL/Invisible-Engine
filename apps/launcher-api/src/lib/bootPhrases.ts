@@ -43,7 +43,7 @@ const TOOL_PHRASES: Record<string, readonly string[]> = {
 		'Snapping coordinate boxes',
 		'Measuring text boxes',
 		'Indexing atlases and sheets',
-		'Binding spine skeletons',
+		'Binding rig skeletons',
 		'Acquiring the edit lease',
 	],
 	flow: [
@@ -64,7 +64,7 @@ const TOOL_PHRASES: Record<string, readonly string[]> = {
 	symbols: [
 		'Loading symbol map',
 		'Wiring symbol states',
-		'Fetching win-frame spines',
+		'Fetching win-frame rigs',
 		'Aligning highlight overlays',
 		'Counting paying symbols',
 	],

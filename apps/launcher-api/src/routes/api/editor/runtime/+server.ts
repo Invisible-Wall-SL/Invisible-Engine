@@ -186,7 +186,7 @@ export const GET: RequestHandler = async ({ url, request }) => {
 		// Absolute PATH prefix the runtime prepends to every deploy-relative asset
 		// path (`json`/`file`/`atlas`/`skeleton` below). MUST be the path form
 		// (`/api/deploy/f/<token>/<client>/<project>/`) — NOT the query form — so a
-		// sub-file named inside a parent (Spine atlas page, spritesheet page, bitmap
+		// sub-file named inside a parent (rig atlas page, spritesheet page, bitmap
 		// font page) resolves correctly when the runtime loads it RELATIVE to the
 		// parent's URL. The token + project survive as leading path segments; the
 		// query form would drop them on relative resolution. Ends with `/` so the

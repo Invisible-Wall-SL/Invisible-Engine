@@ -238,7 +238,7 @@ const BET_TYPE_METHODS_MAP = {
 } as const;
 ```
 
-- Q: From what I see, most of the animated graphics seem to be spine, is their any other alternatives that you know of, besides spine?
+- Q: From what I see, most of the animated graphics seem to be rig, is their any other alternatives that you know of, besides rig?
   - A: Spritesheet animation is a good alternative.
 Check out the example of spritesheet animation here: [SpriteSheet.stories.svelte](https://github.com/Invisible-Wall-SL/Invisible-Engine/blob/main/packages/pixi-svelte-storybook/src/stories/SpriteSheet.stories.svelte)
 
@@ -709,7 +709,7 @@ export const { eventEmitter } = createEventEmitter<EmitterEvent>();
 
 ```
 
-- `apps/lines/src/components/GlobalMultiplier.svelte`: Back to our component file, the intellisense is there. Let is add the code to process the values with a spine animation as well.
+- `apps/lines/src/components/GlobalMultiplier.svelte`: Back to our component file, the intellisense is there. Let is add the code to process the values with a rig animation as well.
 
 <img src="./documentation/emitter_event_intellisense.png" alt="isolated" width="100%"/>
 
@@ -737,17 +737,17 @@ export const { eventEmitter } = createEventEmitter<EmitterEvent>();
   });
 </script>
 
-<SpineProvider key="globalMultiplier" width={PANEL_WIDTH}>
+<RigProvider key="globalMultiplier" width={PANEL_WIDTH}>
   ...
-  <SpineTrack trackIndex={0} {animationName} />
-</SpineProvider>
+  <RigTrack trackIndex={0} {animationName} />
+</RigProvider>
 ```
 
 - <mark>Test it individually</mark> `(MODE_BONUS/bookEvent/updateGlobalMult)`: Run storybook and we should see this a new story "updateGlobalMult" has been added.
 
   - Now click on the `Action` button and we should see the `<GlobalMultiplier />` component animates correctly followed by the "<mark> ⓘ Action is resolved ✅ </mark>" message, otherwise we need to go back to the component and figure out what is wrong until it is resolved.
 
-  - If you find out the component hard to debug, we'd better start creating a new story `COMPONENTS/<GlobalMultiplierSpine>/component`. `<GlobalMultiplierSpine />` component will purely take props and achieve its duty instead of being controlled by emitterEvents. This way it becomes more friendly for testing the component with the storybook controls.
+  - If you find out the component hard to debug, we'd better start creating a new story `COMPONENTS/<GlobalMultiplierRig>/component`. `<GlobalMultiplierRig />` component will purely take props and achieve its duty instead of being controlled by emitterEvents. This way it becomes more friendly for testing the component with the storybook controls.
 
 - <mark>Test it in books</mark> `(MODE_BONUS/book/random)`: Final step is to test it in a book environment by switching to this book story. In a previous step we have updated [apps/lines/src/stories/data/bonus_books.ts](/apps/lines/src/stories/data/bonus_books.ts), so the new bookEvent will appear if we keep hitting the `Action` button in this story.
 

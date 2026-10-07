@@ -7,24 +7,24 @@
  * that plumbing once means the two manifests can never disagree about which rigs exist or how a
  * rig's runtime key is derived.
  *
- * WHY THE RAW JSON. spine-pixi discards custom `event.*` fields at parse time, so a binding cannot
+ * WHY THE RAW JSON. the runtime reader discards custom `event.*` fields at parse time, so a binding cannot
  * be read back through the runtime event stream — it must come from the rig data directly. Only
  * JSON-format skeletons can carry one; a binary `.skel` is skipped fast.
  *
- * CRUX — the key. It MUST equal the string `LayoutNodeView` passes as `<SpineProvider key=…>` for a
- * placed rig, so `resolveRigFx` / `resolveRigFlipbooks` hit. For an editor-placed spine node the
+ * CRUX — the key. It MUST equal the string `LayoutNodeView` passes as `<RigProvider key=…>` for a
+ * placed rig, so `resolveRigFx` / `resolveRigFlipbooks` hit. For an editor-placed rig node the
  * game's doc has that `assetKey` rewritten from the full R2 bundle prefix down to the plain bundle
- * NAME (`resolveSpineKeysForGame` → `bundleFromAssetKey`), which is exactly the `skeletons.json`
- * `folder` — the same value `editorArtExport.ts` sets `result.entry.key` to for an editor-art spine.
+ * NAME (`resolveRigKeysForGame` → `bundleFromAssetKey`), which is exactly the `skeletons.json`
+ * `folder` — the same value `editorArtExport.ts` sets `result.entry.key` to for an editor-art rig.
  */
 import { getObjectText } from './r2';
-import { loadSkeletonIndex, resolveBundlePrefix } from './spine';
+import { loadSkeletonIndex, resolveBundlePrefix } from './rig';
 
-/** One animation event as it sits in the rig JSON, before spine-pixi ever sees it. The custom
+/** One animation event as it sits in the rig JSON, before the runtime ever sees it. The custom
  * binding fields are `unknown` here — each export reads its own through its own clamp. */
 export interface RawRigEvent {
 	name?: unknown;
-	/** Keyframe time (seconds). Spine OMITS it when it is 0, so absent means t=0 — never "no time". */
+	/** Keyframe time (seconds). Rig OMITS it when it is 0, so absent means t=0 — never "no time". */
 	time?: unknown;
 	fx?: unknown;
 	flipbook?: unknown;
@@ -73,7 +73,7 @@ export async function walkRigSkeletons(
 
 /** Every event of every animation, flattened — what a collector iterates. Sorted per-animation is
  * the caller's business (a name-keyed manifest doesn't care; a timeline does). */
-/** One event keyframe with the BEAT it sits on: its animation and its time (Spine omits `time`
+/** One event keyframe with the BEAT it sits on: its animation and its time (rig omits `time`
  * when it is 0, so an absent/non-number time IS t=0). */
 export interface RigBeatEvent {
 	animation: string;

@@ -46,9 +46,9 @@
 	 * height, so the symbol "fits with the rest of the text at the correct size".
 	 *
 	 * The image is drawn by a GAME component, not a `<Sprite>` here, because the high-paying symbols
-	 * are SPINE animations — a `<Sprite key>` can only draw a flat texture, so it rendered the name
+	 * are RIG animations — a `<Sprite key>` can only draw a flat texture, so it rendered the name
 	 * instead. Delegating to the game's `<Symbol>` path (registered under `messageSymbol`) handles
-	 * sprite, spine AND flipbook symbols. A token the resolver doesn't know — or when no game
+	 * sprite, rig AND flipbook symbols. A token the resolver doesn't know — or when no game
 	 * component is registered — renders its sentinel `fallback` (the symbol name) as a text run, so
 	 * the message always reads sensibly.
 	 *
@@ -72,7 +72,7 @@
 	 */
 	const props: Props = $props();
 
-	// The game's inline symbol renderer (sprite/spine/flipbook). Registered at boot; absent ⇒ every
+	// The game's inline symbol renderer (sprite/rig/flipbook). Registered at boot; absent ⇒ every
 	// image token falls back to its name text below (so a game that didn't wire it still reads).
 	const MessageSymbol = getBoundComponent(INLINE_IMAGE_BOUND_COMPONENT);
 

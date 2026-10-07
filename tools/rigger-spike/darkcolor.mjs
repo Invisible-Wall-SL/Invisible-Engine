@@ -1,10 +1,10 @@
-// Phase §18 item 4 spike (GATE) — nail the Spine 4.2 SLOT DARK COLOUR (two-color tinting,
+// Phase §18 item 4 spike (GATE) — nail the 4.2-format SLOT DARK COLOUR (two-color tinting,
 // "tint black", rgba2) setup + animation timeline data model against the official runtime,
 // before any UI is built.
 //   node tools/rigger-spike/darkcolor.mjs <skeleton.json> <skeleton.atlas>
 //
 // ============================ EMPIRICAL FINDINGS ============================
-// (validated below against @esotericsoftware/spine-core@4.2.74's SkeletonJson loader +
+// (validated below against the rig runtime's SkeletonJson loader (engine-rig, held to the 4.2-format reference) +
 //  Color.setFromString + RGBA2Timeline.apply — NOT from memory. Read off SkeletonJson.js
 //  setup L114-116 + rgba2 timeline L591-623; Animation.js RGBA2Timeline L950-1058;
 //  Utils.js Color.setFromString L102-109.)
@@ -41,10 +41,10 @@
 // ===========================================================================
 
 import { readFileSync } from 'node:fs';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } =
-	await import(SPINE_CORE);
+	await import(RIG_CORE);
 
 const [, , jsonPath, atlasPath] = process.argv;
 if (!jsonPath || !atlasPath) {
@@ -168,7 +168,7 @@ console.log(`  slot "${sName}"`);
 
 // (3) BEZIER curve — a shared single key curve drives ALL 7 channels (0=R 1=G 2=B 3=A
 //     4=R2 5=G2 6=B2). `curve` = [cx1,cy1,cx2,cy2] × 7; the cy values are ABSOLUTE value-space
-//     handle y-coords (Spine, not normalized). We animate two ASCENDING channels — light
+//     handle y-coords (rig, not normalized). We animate two ASCENDING channels — light
 //     ALPHA (0→1) and dark R (0→1) — with the same ease-out handles, and assert the runtime's
 //     midpoint sample is clearly pulled off the linear 0.5 by an equal amount on BOTH the
 //     light and the dark channel (so each gets its own per-channel curve).

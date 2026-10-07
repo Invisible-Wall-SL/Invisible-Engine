@@ -116,7 +116,7 @@ console.log('\na symbol or state with no art renders NOTHING — it never takes 
 	check('…at the default size', unknown.sizeRatios, { width: 1, height: 1 });
 
 	// `explosion` is the state that took a live board down: only the cascade asks for it, and a
-	// symbol with nothing to inherit fell through to the SPINE renderer with an undefined key.
+	// symbol with nothing to inherit fell through to the RIG renderer with an undefined key.
 	const exploded = info.getSymbolInfo({ rawSymbol: { name: 'L1' }, state: state('explosion') });
 	check('an unauthored state inherits `static`', exploded.assetKey, 'l1.webp');
 	check('…and is NOT reported as missing', exploded.missingArt, false);

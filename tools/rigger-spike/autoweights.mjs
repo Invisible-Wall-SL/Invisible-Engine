@@ -2,7 +2,7 @@
 //   node tools/rigger-spike/autoweights.mjs
 //
 // The research-grade risk (design §5.2): can a CHEAP auto-weight algorithm produce
-// usable initial weights, given Spine's real one is proprietary?
+// usable initial weights, given rig's real one is proprietary?
 //
 // Objective arbiter: real artist-rigged weighted meshes carry GROUND-TRUTH weights.
 // We run our algorithm on the same mesh (same bone set, same setup-pose geometry)
@@ -12,15 +12,15 @@
 // High agreement ⇒ the auto-weight approximation is viable. Low ⇒ we learn it now.
 //
 // Algorithm under test: per vertex, weight_i = 1 / (dist_to_bone_segment_i^2 + eps),
-// keep top-4 bones (Spine's per-vertex cap), normalise to sum 1. Bone set = the
+// keep top-4 bones (rig's per-vertex cap), normalise to sum 1. Bone set = the
 // bones the artist actually used (isolates WEIGHTING quality from BONE-SELECTION).
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
-const spine = await import(SPINE_CORE);
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics } = spine;
+const rig = await import(RIG_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics } = rig;
 
 const MAX_BONES = 4;
 const EPS = 1e-3;

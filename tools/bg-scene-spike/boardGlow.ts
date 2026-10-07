@@ -1,6 +1,6 @@
 /**
  * Free-spin BOARD-GLOW ownership harness for the PURE selection + suppression logic
- * (`engine-layout/backgroundScenes`). The live WebGL pixels (the pink reelhouse spine behind the
+ * (`engine-layout/backgroundScenes`). The live WebGL pixels (the pink reelhouse rig behind the
  * reels) aren't browser-verifiable here, so — exactly as the sibling `select.ts` does — we cover the
  * contract OFFLINE, in Node:
  *
@@ -9,7 +9,7 @@
  * The gate mirrors `hasAuthoredBackground` / `hasAuthoredBookReveal`: the `boardGlow` scene ships
  * ONLY the coded `BoardFrame` bind anchor, so a stock game keeps its coded glow; real art in that
  * scene flips ownership to the author. The load-bearing subtlety is (3): counting the anchor itself
- * as "authored content" would suppress the very spine the anchor exists to position — the glow would
+ * as "authored content" would suppress the very rig the anchor exists to position — the glow would
  * vanish from every game the moment this shipped. That's the assertion worth having.
  *
  * Proves:
@@ -17,11 +17,11 @@
  *   2. PARITY — that stock scene is anchor-only ⇒ `hasAuthoredBoardGlow` is FALSE ⇒ the coded
  *      `<BoardFrame>` renders unchanged, exactly as before this feature existed.
  *   3. THE TRAP — an anchor-only scene must NOT suppress (see above).
- *   4. Real authored art (a spine node beside the anchor) ⇒ TRUE ⇒ coded glow suppressed.
+ *   4. Real authored art (a rig node beside the anchor) ⇒ TRUE ⇒ coded glow suppressed.
  *   5. A doc with NO `boardGlow` scene at all ⇒ FALSE + `undefined` scene ⇒ nothing mounts, coded
  *      glow renders (parity for un-migrated docs and for other templates).
  *   6. The `boardGlowShow` / `boardGlowHide` signals are in `ENGINE_SIGNAL_CATALOG`, so an authored
- *      spine can actually bind a cue to them (without this the enter/exit is unauthorable).
+ *      rig can actually bind a cue to them (without this the enter/exit is unauthorable).
  */
 
 import { readFileSync } from 'node:fs';
@@ -168,7 +168,7 @@ console.log('\n5. the scene is reserved against the generic overlay mounter:');
 }
 
 // --- 7. the cue signals are bindable in the editor ---
-console.log('\n6. the glow signals are authorable as spine cues:');
+console.log('\n6. the glow signals are authorable as rig cues:');
 for (const key of ['boardGlowShow', 'boardGlowHide']) {
 	assert(
 		`ENGINE_SIGNAL_CATALOG offers \`${key}\``,

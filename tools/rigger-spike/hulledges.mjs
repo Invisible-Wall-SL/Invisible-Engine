@@ -1,7 +1,7 @@
 // Verify Phase 3.6b constraint-edge (mesh `edges`) authoring headlessly:
 //   1. forceConstraintEdge makes a missing diagonal PRESENT without folding the triangulation.
-//   2. hull + edges round-trip byte-for-byte through spine-core (hullLength = hull*2; edges
-//      identical, all even, all < uvs.length) — the desktop-Spine layout contract.
+//   2. hull + edges round-trip byte-for-byte through engine-rig (hullLength = hull*2; edges
+//      identical, all even, all < uvs.length) — the desktop editor's layout contract.
 //   3. parse/serialize/remap edges survive a vertex removal (drop touching, renumber rest).
 //
 // Geometry helpers below MIRROR the pure functions in
@@ -10,7 +10,7 @@
 // which live in one non-module <script> and can't be imported — keep the two in sync.
 //   node tools/rigger-spike/hulledges.mjs
 
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
 let pass = true;
 const log = (ok, msg) => { console.log((ok ? '  ✅ ' : '  ✗ ') + msg); if (!ok) pass = false; };
@@ -127,9 +127,9 @@ const removeOneRemap = (k, count) => { const r = new Array(count); for (let i = 
 	log(forced === false && JSON.stringify(t2) === snapshot, 'collinear vertex on the segment → refused, tris untouched');
 }
 
-// ---- 2. hull + edges round-trip through spine-core -------------------------
+// ---- 2. hull + edges round-trip through engine-rig -------------------------
 {
-	const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(SPINE_CORE);
+	const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(RIG_CORE);
 	// minimal atlas: one 64×64 page with one region "img"
 	const atlasText = 'page.png\nsize: 64,64\nformat: RGBA8888\nfilter: Linear,Linear\nrepeat: none\nimg\n  rotate: false\n  xy: 0, 0\n  size: 64, 64\n  orig: 64, 64\n  offset: 0, 0\n  index: -1\n';
 	const atlas = new TextureAtlas(atlasText);

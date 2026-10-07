@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Rectangle, SpineProvider, SpineTrack } from 'pixi-svelte';
+	import { Rectangle, RigProvider, RigTrack } from 'pixi-svelte';
 	import { FadeContainer } from 'components-pixi';
 	import { SECOND } from 'constants-shared/time';
 
@@ -16,19 +16,19 @@
 <Rectangle {...context.stateLayoutDerived.canvasSizes()} backgroundColor={0x000000} zIndex={-3} />
 
 <FadeContainer show={showBaseBackground} duration={SECOND} zIndex={-2}>
-	<SpineProvider key="foregroundAnimation" {...backgroundProps}>
-		<SpineTrack trackIndex={0} animationName="idle" loop />
-	</SpineProvider>
-	<SpineProvider key="foregroundAnimation" {...backgroundProps}>
-		<SpineTrack trackIndex={0} animationName="dust" loop />
-	</SpineProvider>
+	<RigProvider key="foregroundAnimation" {...backgroundProps}>
+		<RigTrack trackIndex={0} animationName="idle" loop />
+	</RigProvider>
+	<RigProvider key="foregroundAnimation" {...backgroundProps}>
+		<RigTrack trackIndex={0} animationName="dust" loop />
+	</RigProvider>
 </FadeContainer>
 
 <FadeContainer show={showFeatureBackground} duration={SECOND} zIndex={-1}>
-	<SpineProvider key="foregroundFeatureAnimation" {...backgroundProps}>
-		<SpineTrack trackIndex={0} animationName="idle" loop />
-	</SpineProvider>
-	<SpineProvider key="foregroundFeatureAnimation" {...backgroundProps}>
-		<SpineTrack trackIndex={0} animationName="dust" loop />
-	</SpineProvider>
+	<RigProvider key="foregroundFeatureAnimation" {...backgroundProps}>
+		<RigTrack trackIndex={0} animationName="idle" loop />
+	</RigProvider>
+	<RigProvider key="foregroundFeatureAnimation" {...backgroundProps}>
+		<RigTrack trackIndex={0} animationName="dust" loop />
+	</RigProvider>
 </FadeContainer>

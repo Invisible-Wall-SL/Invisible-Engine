@@ -30,13 +30,13 @@ if git diff --cached --name-only | grep -qE '^packages/engine-layout/(src/lib/(r
 	}
 fi
 
-# The builtin spine metadata (packages/engine-layout/src/lib/builtinSpineMeta.generated.ts)
-# is GENERATED from the reference game's coded spine bundles so the Scene Editor can offer
-# animation/slot/bone dropdowns for a builtin component's coded default spine. If a coded
-# spine bundle or the generator/registry is staged, verify the committed file isn't stale.
-if git diff --cached --name-only | grep -qE '^apps/lines/static/assets/spines/|^packages/engine-layout/(scripts/gen-builtin-spines|src/lib/builtinSpineMeta)'; then
-	run_check packages/engine-layout/scripts/gen-builtin-spines.mjs --check || {
-		echo "→ run: pnpm --filter engine-layout gen:builtin-spines  (then: git add packages/engine-layout/src/lib/builtinSpineMeta.generated.ts)"
+# The builtin rig metadata (packages/engine-layout/src/lib/builtinRigMeta.generated.ts)
+# is GENERATED from the reference game's coded rig bundles so the Scene Editor can offer
+# animation/slot/bone dropdowns for a builtin component's coded default rig. If a coded
+# rig bundle or the generator/registry is staged, verify the committed file isn't stale.
+if git diff --cached --name-only | grep -qE '^apps/lines/static/assets/spines/|^packages/engine-layout/(scripts/gen-builtin-rigs|src/lib/builtinRigMeta)'; then
+	run_check packages/engine-layout/scripts/gen-builtin-rigs.mjs --check || {
+		echo "→ run: pnpm --filter engine-layout gen:builtin-rigs  (then: git add packages/engine-layout/src/lib/builtinRigMeta.generated.ts)"
 		exit 1
 	}
 fi

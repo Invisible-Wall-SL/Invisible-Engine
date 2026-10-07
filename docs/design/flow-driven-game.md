@@ -35,7 +35,7 @@
 - **Components are reusable prefabs** (`ComponentDef`) placeable on any screen via a
   `componentInstance` node (`engine-layout/src/lib/types.ts:635`, `registerComponents.ts`).
 - **The four engine registries are wired at runtime** — value (`source`), action
-  (`registerComponentActions`), gate (`visibleSource`), signal (spine cues) — bound at boot
+  (`registerComponentActions`), gate (`visibleSource`), signal (rig cues) — bound at boot
   in `apps/lines/src/components/Game.svelte:274-718`.
 - **Scene Editor**: full screen CRUD + a component palette + per-instance param overrides.
 - **Flow is built end-to-end**: macro graph + choreography editor + interpreter + the full
@@ -208,7 +208,7 @@ regardless of what its def declared.
   already reads these from resolved params unconditionally (`ComponentInstance.svelte:129,
   149,198`); the missing half is the def-independent *authoring surface* + carrying the
   binding on the instance node.
-- **Make signals rebindable per instance** — today a spine `cue` hardcodes `signal:'win'` in
+- **Make signals rebindable per instance** — today a rig `cue` hardcodes `signal:'win'` in
   the def (`types.ts:230`); add an instance-level signal binding so one placement can be
   driven by a different engine signal. `ComponentDef.signals` is currently unused at render
   time — give it a runtime consumer.

@@ -3,6 +3,7 @@ import {
 	HOLD_AND_WIN_SYMBOL_ROLES,
 	holdAndWinIsOverlayBonus,
 	resolveMeters,
+	symbolsUsed,
 	type GameConfigDoc,
 } from 'game-config';
 import { z } from 'zod';
@@ -49,16 +50,16 @@ const sizeRatiosSchema = z.object({
 	height: z.number(),
 });
 
-/** A single default binding — sprite frame or spine animation. Same cell shape
+/** A single default binding — sprite frame or rig animation. Same cell shape
  * as the authored override (`symbolsStorage`'s `symbolCellSchema`), reused here. */
 const defaultCellSchema = z
 	.object({
 		type: z.enum(['sprite', 'spine']),
 		assetKey: z.string().min(1),
 		animationName: z.string().min(1).optional(),
-		/** Tool-only `<folder>/<stem>` spine resolver hint (e.g. `symbols/h1`) for a
+		/** Tool-only `<folder>/<stem>` rig resolver hint (e.g. `symbols/h1`) for a
 		 *  shared-atlas symbol bundle, so the grid can preview the SPECIFIC skeleton of
-		 *  a default spine cell. Display/preview only — never written to a saved override. */
+		 *  a default rig cell. Display/preview only — never written to a saved override. */
 		previewKey: z.string().min(1).optional(),
 		sizeRatios: sizeRatiosSchema,
 	})
@@ -77,7 +78,7 @@ const defaultStatesSchema = z.record(z.enum(SYMBOL_STATES), defaultCellSchema);
 const defaultSymbolsSchema = z.record(z.string().min(1), defaultStatesSchema);
 
 /** The game's built-in global win-frame ("highlight") default — display only, so
- *  the tool can show "current = default (payframe)". Spine-only, same cell shape. */
+ *  the tool can show "current = default (payframe)". Rig-only, same cell shape. */
 const highlightDefaultSchema = z
 	.object({
 		type: z.literal('spine'),
@@ -112,6 +113,34 @@ const FALLBACK_GAME = 'lines';
  */
 export function symbolDefaultsFor(gameType: string | undefined): SymbolDefaults {
 	return DEFAULTS_BY_GAME[gameType ?? FALLBACK_GAME] ?? DEFAULTS_BY_GAME[FALLBACK_GAME];
+}
+
+/**
+ * The grid Invisible Symbols draws: `symbols`, the rows it lists, and `defaults` with an empty entry
+ * for each of them no default covers (blank, authorable cells).
+ *
+ * The rows are exactly the symbols Invisible Game Config does not badge unused (`symbolsUsed`): the
+ * ones a strip deals plus a pots overlay's tokens. `config` must be the doc that page opens with,
+ * `resolveGameConfig`'s, so a project that never saved its config follows its kind's template like
+ * the page does. Defaults order first, then the config's. `null` (no template either) lists every
+ * default.
+ *
+ * Nothing is deleted: a hidden symbol keeps its authored states in the doc, and its row returns
+ * with them the moment the config uses it again.
+ */
+export function symbolGrid(
+	defaults: SymbolDefaults,
+	config: GameConfigDoc | null,
+): { defaults: SymbolDefaults; symbols: string[] } {
+	if (!config) return { defaults, symbols: Object.keys(defaults.symbols) };
+	const used = symbolsUsed(config);
+	const symbols = { ...defaults.symbols };
+	for (const name of used) symbols[name] ??= {};
+	const shown = new Set(used);
+	return {
+		defaults: { ...defaults, symbols },
+		symbols: Object.keys(symbols).filter((name) => shown.has(name)),
+	};
 }
 
 const SEEDED_HOLD_AND_WIN_ROLES = new Set<string>(

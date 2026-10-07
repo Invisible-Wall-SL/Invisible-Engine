@@ -1,9 +1,9 @@
-// Phase §18.1 spike (GATE) — nail the Spine 4.2 DEFORM timeline data model against the
+// Phase §18.1 spike (GATE) — nail the 4.2-format DEFORM timeline data model against the
 // official runtime, on BOTH an unweighted and a weighted mesh, before any UI is built.
 //   node tools/rigger-spike/deform.mjs <skeleton.json> <skeleton.atlas>
 //
 // ============================ EMPIRICAL FINDINGS ============================
-// (validated below against @esotericsoftware/spine-core@4.2.74's SkeletonJson loader,
+// (validated below against the rig runtime's SkeletonJson loader (engine-rig, held to the 4.2-format reference),
 //  DeformTimeline, and VertexAttachment.computeWorldVertices — NOT from memory)
 //
 // SERIALIZED PATH (the crux — it is NOT a top-level `deform` block):
@@ -46,9 +46,9 @@
 //  later). curve is ONE per key (one easing for the whole vertex frame), bezier controls in
 //  absolute (time,value)=(time,progress) coords exactly like the bone channels (curve.mjs).
 import { readFileSync } from 'node:fs';
-import { SPINE_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = await import(SPINE_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = await import(RIG_CORE);
 
 const [, , jsonPath, atlasPath] = process.argv;
 const atlasText = readFileSync(atlasPath, 'utf8');

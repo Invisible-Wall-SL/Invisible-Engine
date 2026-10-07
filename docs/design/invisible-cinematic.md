@@ -86,8 +86,8 @@ Timeline binds tracks to scene objects. Consequences that make this the right ca
   "stage": {
     "sceneId": "cinematic_bonus_intro",
     "cast": [               // timeline binding: actor id → scene node id
-      { "actorId": "borut", "nodeId": "spine_borut" },
-      { "actorId": "book",  "nodeId": "spine_book" }
+      { "actorId": "borut", "nodeId": "rig_borut" },
+      { "actorId": "book",  "nodeId": "rig_book" }
     ]
   },
   "tracks": [
@@ -215,8 +215,8 @@ and travels the full chain from Phase 3, deliberately early:
 Mirror `editorArtExport.ts` / `fontExport.ts` / `flowV2Export.ts`. Game-side:
 
 - `<Cinematic>` — mounts the referenced Scene through `LayoutScene` and drives it with the
-  shared evaluator (§4.3). Its integration contract with `spine-pixi-v8` (`autoUpdate = false`,
-  `state.clearTracks()`, pose in `beforeUpdateWorldTransforms`, `spine.update(dt)` per frame) is
+  shared evaluator (§4.3). Its integration contract with the reference Pixi runtime (`autoUpdate = false`,
+  `state.clearTracks()`, pose in `beforeUpdateWorldTransforms`, `rig.update(dt)` per frame) is
   proved by Phase 0 gate 3 — `tools/rigger-spike/cinematic-pixi.mjs`.
 - **Flow-v2 `playCinematic` node** — `play` exec in, `complete` exec out (so a screen can
   await it), plus the `signal:` cues surfacing as pins and the **wait markers** resolving
@@ -234,7 +234,7 @@ is a separate asset-class build, out of scope here.
 ## 7. Risks, named honestly
 
 1. **Preview ≠ in-game fidelity.** `/rigger` is a vanilla static HTML page on a raw
-   `spine-webgl` stage; the game renders scenes through Svelte/Pixi `LayoutScene`. Spine,
+   the reference WebGL runtime stage; the game renders scenes through Svelte/Pixi `LayoutScene`. Rig,
    sprite and FX actors are within the rigger stage's reach (it already vendors
    `rigger-fx.js`), **text and coded components are not** and will be approximated in
    preview. The in-game player is authoritative. This is a bounded, named cost of
@@ -259,7 +259,7 @@ is a separate asset-class build, out of scope here.
 | Phase | Delivers | Risk |
 |---|---|---|
 | **0 — Gates (headless spikes)** | see below | **make-or-break — do first** |
-| **1 — Set + cast** | cinematic mode shell: pick a Scene as the set, list its nodes as cast, multi-actor stage renders spine + sprite + FX; scrub poses everything | medium |
+| **1 — Set + cast** | cinematic mode shell: pick a Scene as the set, list its nodes as cast, multi-actor stage renders rig + sprite + FX; scrub poses everything | medium |
 | **2 — Sequencer core** | track list, strips (drag / trim / snap-to-fps), loop modes, blend ramps, alpha, layers, property + camera tracks, play / loop region — **+ the undo stack** | high |
 | **3 — Ship chain (rule 8)** | `.icin` export → deploy → bake → pull → register; `<Cinematic>` component; Flow-v2 `playCinematic` node with `complete` | medium |
 | **4 — Tweak Mode** | edit a strip's clip in the animator, in cinematic context | medium |
@@ -272,12 +272,12 @@ is a separate asset-class build, out of scope here.
 
 1. **Layered evaluator determinism** — 2 actors × 2 layers with additive blend, masks and
    a looping strip: prove `scrub(t) === play-to(t)` for every `t` on a grid, against
-   `spine-core`. If evaluation isn't deterministic, scrubbing is a lie.
+   the reference core runtime. If evaluation isn't deterministic, scrubbing is a lie.
 2. **Multi-rig stage** — two skeletons from **different atlases** in one WebGL stage:
    two `AssetManager`s, correct z-order, correct premultiply. This is where the
    single-`skeleton` globals must become an actor array.
-3. **In-game player** — drive a `LayoutScene`'s spine nodes from the same evaluator under
-   `spine-pixi-v8` with its own `AnimationState` bypassed. **If this fails, decision 2 is
+3. **In-game player** — drive a `LayoutScene`'s rig nodes from the same evaluator under
+   the reference Pixi runtime with its own `AnimationState` bypassed. **If this fails, decision 2 is
    wrong** and the fallback is per-actor `AnimationState` scheduling — better learnt in
    week one than in month three.
 
@@ -291,7 +291,7 @@ is a separate asset-class build, out of scope here.
 - **Does the set have to be a saved Scene**, or can a cinematic own an inline scene for
   throwaway sets? (Inline is convenient; a reference keeps one source of truth.)
 - **Flatten-to-`.irig` export** — worth building later as an escape hatch for single-atlas
-  cinematics that a third party wants as a plain spine animation?
+  cinematics that a third party wants as a plain rig animation?
 
 ## 12. Non-rig content: FX, sound and TEXT (owner direction 2026-08-17)
 
@@ -382,9 +382,9 @@ every existing Rigger capability applies unchanged:
 | load it in a cinematic | it is a rig; cast it (already built) |
 
 **Localization = attachment swap.** The slot holds one region per locale; the game picks by
-locale. That is standard Spine (`skeleton.setAttachment`, or a skin per locale) — so the `.irig`
-stays byte-valid with NO sidecar for geometry, and it round-trips to desktop Spine as what it
-genuinely is: a mesh. Strictly more Spine-native than the §12.4 point-attachment proposal.
+locale. That is standard rig (`skeleton.setAttachment`, or a skin per locale) — so the `.irig`
+stays byte-valid with NO sidecar for geometry, and it round-trips to an external rig editor as what it
+genuinely is: a mesh. Strictly more rig-native than the §12.4 point-attachment proposal.
 
 What the pipeline owes it: a **text → region** step (the Font Maker already rasterises strings;
 the Atlas Maker already packs them), producing one region per locale from ONE localization key,
@@ -407,7 +407,7 @@ timeline-event FX, which is a one-shot burst at a moment — both are wanted, an
 different things.
 
 > **Half of this landed 2026-08-27, and it is the half easiest to mistake for the whole.** The
-> one-shot timeline cue can now choose the SLOT it draws at (spine-pixi `addSlotObject`) and carry
+> one-shot timeline cue can now choose the SLOT it draws at (the reference Pixi runtime `addSlotObject`) and carry
 > per-binding opacity / size / delay / duration / speed, so a burst finally has real depth inside
 > the rig. It is still a burst fired by a keyframe. The PERSISTENT emitter described here — always
 > on, keyable like any other slot channel — is still not built. See
@@ -425,11 +425,11 @@ useful on its own.
 ### 12.4 (superseded — kept for the reasoning) Rig-level text: a REAL slot, without breaking the format
 
 The owner asked for text that is *"a real text slot on the rig"* — keyable, parentable,
-transformable like any attachment — having been told that putting non-Spine data in the `.irig`
-would break the byte-valid Spine 4.2 round-trip §2.1 rests on. **Both are achievable**, because
-Spine already has the right primitive:
+transformable like any attachment — having been told that putting non-rig data in the `.irig`
+would break the byte-valid 4.2-format round-trip §2.1 rests on. **Both are achievable**, because
+Rig already has the right primitive:
 
-> A rig text element is a **`point` attachment** (legal Spine 4.2 — a locator with position +
+> A rig text element is a **`point` attachment** (legal 4.2-format — a locator with position +
 > rotation in a slot, parented to a bone; the Rigger already authors these, see §18.9) PLUS an
 > entry in the **sidecar** (`model.irig.meta.json`, §2.2) mapping that point name → its
 > localization key, font and size.
@@ -439,17 +439,17 @@ What this buys:
 - **It is a real slot.** The point lives in a slot, rides a bone, and keys like anything else —
   slot visibility, draw order, and the bone full transform all animate it for free, using the
   dopesheet that already exists. Nothing new in the animation model.
-- **The `.irig` stays byte-valid Spine.** A `point` attachment is standard; the text CONTENT
+- **The `.irig` stays byte-valid rig.** A `point` attachment is standard; the text CONTENT
   lives in the sidecar, which §2.2 already designates for exactly this (keep extras out-of-band).
-  Desktop Spine still imports the skeleton; it simply sees a locator with no text, which is the
+  The desktop editor still imports the skeleton; it simply sees a locator with no text, which is the
   honest degradation.
 - **Localization and fonts come free.** The sidecar stores a KEY, so `/localization` harvests it
   and `<CatalogText>` resolves the font — the §12.2 rule, satisfied.
-- **The runtime seam exists.** `SpineBoneAttach` already mounts content at a bone/point world
+- **The runtime seam exists.** `RigBoneAttach` already mounts content at a bone/point world
   transform; rig FX already computes exactly this transform per frame.
 
-The one real limit to state plainly: **the text does not round-trip to desktop Spine**, because
-Spine has no text attachment to round-trip it INTO. That is a property of the format, not of
+The one real limit to state plainly: **the text does not round-trip to an external rig editor**, because
+Rig has no text attachment to round-trip it INTO. That is a property of the format, not of
 this design — and it is strictly better than the alternative, where the whole skeleton stops
 being loadable by a stock runtime.
 
