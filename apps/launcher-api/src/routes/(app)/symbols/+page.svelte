@@ -182,31 +182,23 @@
 		pingpong: 'ping-pong',
 	};
 
-	// The full set the server hands over: the coded/template defaults, unioned with whatever the live
-	// Game Config puts in play. One-way on purpose — a symbol mid-authoring can never disappear from
-	// the DOC. What the page SHOWS is narrower; see below.
-	const allSymbolNames = $derived(Object.keys(data.defaults.symbols));
 	/**
-	 * The symbols this project actually DEALS, and the only ones this page lists.
+	 * The symbols this page lists: exactly the ones Invisible Game Config does not badge unused — on a
+	 * reel strip, or a pots overlay's token — read from the config that page opens with, the project's
+	 * own or its kind's template (`symbolGrid`). /config is where a symbol's existence is decided; this
+	 * page follows it, for every kind.
 	 *
-	 * "In play" means ON A REEL STRIP in Invisible Game Config — the same gate the paytable, the roll
-	 * and the mock's deal pool all read. A symbol off every strip cannot be dealt, so art authored for
-	 * it can never render; the grid used to list it anyway, badged "not dealt", on the reasoning that
-	 * hiding it would make a symbol vanish mid-authoring. In practice that just made this page
-	 * contradict /config on screen — the owner's report was "I expect UNUSED not to show up here" —
-	 * and the badge explained the contradiction rather than removing it. /config is where a symbol's
-	 * existence is decided; this page follows it.
-	 *
-	 * NOTHING IS DELETED. The hidden symbol keeps its authored states in the doc, untouched: only the
-	 * rendered row list narrows (no save path reads this — saving writes `doc`). Put the symbol back
-	 * on a strip in /config and its row returns with its art intact.
-	 *
-	 * No config doc to compare against ⇒ `inPlaySet` is null ⇒ everything shows, exactly as before.
+	 * NOTHING IS DELETED. A hidden symbol keeps its authored states in the doc, untouched: only the
+	 * rendered rows narrow (no save path reads this — saving writes `doc`). Put the symbol back on a
+	 * strip in /config and its row returns with its art intact.
 	 */
-	const inPlaySet = $derived(data.inPlaySymbols ? new Set(data.inPlaySymbols) : null);
-	const symbolNames = $derived(
-		inPlaySet ? allSymbolNames.filter((name) => inPlaySet.has(name)) : allSymbolNames,
-	);
+	const symbolNames = $derived(data.symbols);
+	const shownSymbols = $derived(new Set(symbolNames));
+	// The pots overlay's coins (its tokens) are drawn as their own group, in pot order, after the
+	// symbols.
+	const coinSet = $derived(new Set(data.coins));
+	const symbolRows = $derived(symbolNames.filter((name) => !coinSet.has(name)));
+	const coinRows = $derived(data.coins);
 
 	// Whether stacked-picture authoring is on for this project — a per-project master toggle (default
 	// OFF) that both shows the "Stacked pictures" config block below and gates whether the stacked config
@@ -217,8 +209,9 @@
 	// The global "edge cut-offs" flag (independent of full-height only): a partial stack at the board's
 	// top/bottom edge renders a cut-off tall picture. Default off.
 	const stackedEdgeCutoffs = $derived(doc.stackedPictures?.edgeCutoffs ?? false);
-	// The authored stacked symbols + a fast membership set for the multi-select.
-	const stackedList = $derived(stackedSymbols(doc));
+	// The authored stacked symbols the grid lists (a hidden symbol's entry stays in the doc, like its
+	// cells) + a fast membership set for the multi-select.
+	const stackedList = $derived(stackedSymbols(doc).filter((s) => shownSymbols.has(s.name)));
 	const stackedSet = $derived(new Set(stackedList.map((s) => s.name)));
 
 	// The state columns the grid renders: the base states, plus the two book-only ones
@@ -5050,7 +5043,7 @@
 							</tr>
 						</thead>
 						<tbody>
-							{#each symbolNames as symbol (symbol)}
+							{#snippet gridRow(symbol: string)}
 								{@const named = doc.names?.[symbol]}
 								<tr>
 									<th class="rowhead">
@@ -5188,7 +5181,23 @@
 										</td>
 									{/each}
 								</tr>
+							{/snippet}
+							{#each symbolRows as symbol (symbol)}
+								{@render gridRow(symbol)}
 							{/each}
+							{#if coinRows.length}
+								<tr class="group">
+									<th colspan={visibleStates.length + 1}>
+										Coins <span class="group-note"
+											>— the pots overlay's tokens: each lands over a cell (Coin land), rests (Coin
+											idle) and flies into its pot (Fly to meter)</span
+										>
+									</th>
+								</tr>
+								{#each coinRows as symbol (symbol)}
+									{@render gridRow(symbol)}
+								{/each}
+							{/if}
 						</tbody>
 					</table>
 				{/if}
@@ -5837,6 +5846,19 @@
 	}
 	.grid th.corner {
 		text-align: left;
+	}
+	.grid tr.group th {
+		text-align: left;
+		color: #c8c8d0;
+		font-size: 15px;
+		font-weight: 700;
+		padding-top: 14px;
+		border-top: 1px solid #23232c;
+	}
+	.group-note {
+		font-size: 12px;
+		font-weight: 400;
+		color: #777;
 	}
 	.grid th.rowhead {
 		text-align: right;

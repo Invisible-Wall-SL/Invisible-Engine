@@ -36,6 +36,8 @@
 		swapStyleUsesColumnStagger,
 		symbolHoldAndWinRoles,
 		symbolsInPlay,
+		symbolsUsed,
+		symbolUses,
 		validateGameConfigDoc,
 		type BetModeKind,
 		type FreeSpinsAward,
@@ -60,7 +62,7 @@
 	import AddOnsSection from './AddOnsSection.svelte';
 	import GameModesSection from './GameModesSection.svelte';
 	import HoldAndWinSection from './HoldAndWinSection.svelte';
-	import { projectAddOns } from '$lib/addOns';
+	import { overlayTokenPots, projectAddOns } from '$lib/addOns';
 	import { askConfirm } from '$lib/dialogs.svelte';
 	import type { PageData } from './$types';
 
@@ -89,6 +91,9 @@
 	/** THE GATE, live: what the strips actually deal. Every "is X in play?" the page asks reads this,
 	 *  never the dictionary — the one rule the whole tool exists to hold. */
 	const inPlay = $derived(new Set(symbolsInPlay(snapshot)));
+	/** Each symbol's badge: in play, a pots overlay token, or unused. Invisible Symbols lists exactly
+	 *  the symbols not badged unused — the same `symbolUses`, so the two tools cannot disagree. */
+	const uses = $derived(symbolUses(snapshot));
 	const issues = $derived(validateGameConfigDoc(snapshot));
 	const errors = $derived(issues.filter((i) => i.severity === 'error'));
 	const warnings = $derived(issues.filter((i) => i.severity === 'warning'));
@@ -98,6 +103,14 @@
 		issues.filter((i) => i.path === prefix || i.path.startsWith(`${prefix}.`));
 
 	const symbolNames = $derived(Object.keys(doc.symbols));
+	/** The pots overlay's coins (its tokens) get their own section, unbadged and in pot order: the
+	 *  overlay decides whether each one is used and which pot it fills. Every other symbol is badged
+	 *  by the strips. */
+	const coinNames = $derived(
+		symbolsUsed(snapshot).filter((name) => uses[name] === 'token' && symbolNames.includes(name)),
+	);
+	const reelSymbolNames = $derived(symbolNames.filter((name) => uses[name] !== 'token'));
+	const coinPots = $derived(overlayTokenPots(snapshot));
 
 	const capabilities = $derived(kindCapabilities(data.gameType, projectAddOns(doc).addOns));
 	const isHoldAndWin = $derived(capabilities.holdAndWin);
@@ -1317,7 +1330,9 @@
 		<div class="banner {source}">
 			{#if source === 'template'}
 				This project has <strong>not authored a config</strong> — you're looking at the
-				<strong>{data.gameType} template default</strong>. Save to make it this project's own.
+				<strong>{data.gameType} template default</strong>. Save to make it this project's own: until
+				then the game plays the engine's built-in lines config,
+				{data.templateIsBuiltIn ? 'which is this template' : 'not what this page shows'}.
 			{:else}
 				Editing this project's <strong>authored config</strong>.
 			{/if}
@@ -1839,8 +1854,11 @@
 				<span class="badge in">in play</span>
 				badge means the symbol appears on a reel strip and so can actually reach the board; a
 				<span class="badge out">unused</span> symbol is defined here but dealt by no strip (a payout
-				no one can win). <strong>Click the badge</strong> to put a symbol on the reels or take it
-				off. Paytable is <code>count:multiplier</code> pairs, e.g. <code>5:20, 4:10, 3:5</code>. A
+				no one can win), and Invisible Symbols does not list it. <strong>Click the badge</strong> to
+				put a symbol on the reels or take it off.
+				{#if coinNames.length}A pots overlay's coins are not reel symbols: they have their own
+					section, <strong>Coins</strong>, below.{/if} Paytable is
+				<code>count:multiplier</code> pairs, e.g. <code>5:20, 4:10, 3:5</code>. A
 				<strong>scatter</strong>'s paytable is its scatter pay — × the total bet, anywhere on the
 				board; left empty it pays <code>{formatPayRow(DEFAULT_SCATTER_PAYTABLE)}</code>.
 			</p>
@@ -1893,18 +1911,18 @@
 						</tr>
 					</thead>
 					<tbody>
-						{#each symbolNames as name (name)}
+						{#each reelSymbolNames as name (name)}
 							<tr>
 								<th class="row-head">{name}</th>
 								<td class="center">
 									<button
 										type="button"
-										class="badge toggle {inPlay.has(name) ? 'in' : 'out'}"
-										title={inPlay.has(name)
+										class="badge toggle {uses[name] === 'inPlay' ? 'in' : 'out'}"
+										title={uses[name] === 'inPlay'
 											? 'In play — click to take it off the reels'
 											: 'Unused — click to put it on the reels'}
 										onclick={() => toggleInPlay(name)}
-										>{inPlay.has(name) ? 'in play' : 'unused'}</button
+										>{uses[name] === 'inPlay' ? 'in play' : 'unused'}</button
 									>
 								</td>
 								<td
@@ -1957,6 +1975,55 @@
 				<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
 			{/each}
 		</section>
+
+		{#if coinNames.length}
+			<!-- Coins ------------------------------------------------------------------>
+			<section>
+				<h2>Coins</h2>
+				<p class="hint">
+					The pots overlay's <strong>coins</strong>: each one drops over a cell and flies into the
+					pot it fills. A coin is never dealt by a reel strip and never pays, and whether it is used
+					— and which pot it fills — is the overlay's to decide, under <strong>Add-ons</strong>, so
+					it carries no in play / unused badge. Its art is bound in Invisible Symbols.
+				</p>
+				<div class="grid-wrap">
+					<table class="grid">
+						<thead>
+							<tr>
+								<th>Coin</th>
+								<th>Fills</th>
+								<th>Special properties</th>
+								<th></th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each coinNames as name (name)}
+								<tr>
+									<th class="row-head">{name}</th>
+									<td>{(coinPots[name] ?? []).join(', ')}</td>
+									<td
+										><input
+											value={(doc.symbols[name].special_properties ?? []).join(', ')}
+											placeholder="meterSpecial"
+											oninput={(e) => setProperties(name, e.currentTarget.value)}
+										/></td
+									>
+									<td>
+										{#if doc.symbols[name].paytable?.length}
+											<button
+												class="linkish"
+												title="A pot's coin pays nothing, so its line pays are never paid"
+												onclick={() => clearPaytable(name)}>Drop line pays</button
+											>
+										{/if}
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			</section>
+		{/if}
 
 		<!-- Win model -------------------------------------------------------------->
 		<section>

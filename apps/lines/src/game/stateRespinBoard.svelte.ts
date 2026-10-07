@@ -13,7 +13,7 @@ import {
 	type SymbolState,
 } from 'engine-game';
 import { TERMINAL_SYMBOL_STATES, type ReelGridTileArt } from 'engine-layout';
-import { respinBoardMaxRows, symbolsWithRole } from 'game-config';
+import { holdAndWinBlankSymbol, respinBoardMaxRows } from 'game-config';
 import { stateBet } from 'state-shared';
 
 import { eventEmitter } from './eventEmitter';
@@ -156,9 +156,8 @@ let board = $state.raw<RespinBoard | null>(null);
 /** The respin board's reels, or `null` before the first feature built them. */
 export const currentRespinBoard = (): RespinBoard | null => board;
 
-/** The empty cell: the symbol the Game Config tags `blank`, else the wire's literal `BLANK`. */
-export const respinBlank = (): string =>
-	symbolsWithRole(getActiveGameConfig(), 'blank')[0] ?? 'BLANK';
+/** The empty cell, as the server picks it (`holdAndWinBlankSymbol`). */
+export const respinBlank = (): string => holdAndWinBlankSymbol(getActiveGameConfig());
 
 /**
  * The strip a cell of column `reel` rolls through — the config's AUTHORED `respin` strips (every

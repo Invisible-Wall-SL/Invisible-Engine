@@ -17,7 +17,7 @@
  * reference — a jackpot name, a reel index, a role no symbol carries — is the validator's to report.
  */
 
-import { symbolsInPlayForGameType } from './inPlay';
+import { symbolsInPlay, symbolsInPlayForGameType } from './inPlay';
 import { BASE_GAME_MODE, HOLD_AND_WIN_MODE, gameModeById, gameTypeForMode } from './modes';
 import type { GameConfigDoc } from './types';
 import type { GameConfigIssue } from './validate';
@@ -722,6 +722,17 @@ export const symbolsWithRole = (
 		.map(([name]) => name)
 		.sort();
 
+/**
+ * The respin board's empty cell: the first symbol tagged `blank` that a strip deals, else the wire's
+ * literal `BLANK`. It is the mock's own pick (it deals from `holdAndWinMockInputs`, which keeps only
+ * role symbols a strip deals), read off the config the game baked, so the client draws the cell the
+ * server sends — and never a blank `/config` marks unused.
+ */
+export const holdAndWinBlankSymbol = (doc: GameConfigDoc): string => {
+	const inPlay = new Set(symbolsInPlay(doc));
+	return symbolsWithRole(doc, 'blank').find((name) => inPlay.has(name)) ?? 'BLANK';
+};
+
 /** Does the symbol carry any Hold and Win role? Such a symbol pays by its value, never on a line,
  *  so the paytable shows it as the coin value table rather than as pays. */
 export const isHoldAndWinSymbol = (
@@ -837,9 +848,22 @@ export function validateHoldAndWin(doc: GameConfigDoc): GameConfigIssue[] {
 		}
 	});
 
-	// Coins
+	// Coins. A symbol on no strip is unused (`symbolUses`) and never dealt, so it carries no coin.
+	const inPlay = new Set(symbolsInPlay(doc));
+	const dealt = (role: HoldAndWinSymbolRole) => tagged(role).filter((name) => inPlay.has(name));
 	if (!tagged('coin').length && !tagged('jackpot').length) {
 		error('coins', 'No symbol is tagged coin or jackpot, so no coin can ever land.');
+	} else if (!dealt('coin').length && !dealt('jackpot').length) {
+		error('coins', 'No coin or jackpot symbol is on a reel strip, so no coin can ever land.');
+	} else if (!dealt('coin').length && block.coins.some((c) => c.kind === 'cash' && c.weight > 0)) {
+		// A cash coin would land as the jackpot symbol, which the game values at nothing.
+		const coins = tagged('coin');
+		error(
+			'coins',
+			coins.length
+				? `The coin table pays cash coins, but no coin symbol is on a reel strip (${coins.join(', ')} ${coins.length > 1 ? 'are' : 'is'} unused) — put one back on the reels.`
+				: 'The coin table pays cash coins, but no symbol is tagged coin — tag one, or take the cash coins out.',
+		);
 	}
 	if (!block.coins.length) error('coins', 'The coin value table is empty.');
 	else if (!block.coins.some((c) => c.weight > 0)) {

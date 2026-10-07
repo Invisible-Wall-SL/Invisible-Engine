@@ -8,6 +8,7 @@ import {
 	gameConfigDefaultFor,
 	gameConfigPresetsFor,
 	resolveGameConfig,
+	templateIsBuiltIn,
 } from '$lib/server/gameConfigDefaults';
 import { listProjectAssets } from '$lib/server/projectAssets';
 import { projectGameType, projectName } from '$lib/server/projects';
@@ -104,6 +105,8 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		source,
 		etag,
 		templateDefault,
+		// Whether a never-saved project already plays that template — the banner says which.
+		templateIsBuiltIn: templateIsBuiltIn(gameType),
 		// A kind with several starting configs (`holdAndWin`: Pots / Classic / Collector) offers each
 		// as a "Reset to preset"; empty for every other kind.
 		presets: gameConfigPresetsFor(gameType),

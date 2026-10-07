@@ -126,21 +126,6 @@ function projectWild(doc: GameConfigDoc): { paytable: Record<string, number> } |
 }
 
 /**
- * The project's IN-PLAY line-symbol pool in the mock's SERVER vocabulary (`PIC*`/`SCAT`), or
- * `undefined` only when it is EMPTY (a misconfig). Keyed off the SAME `symbolsInPlay` gate as the
- * paytable/roll/wild. It is stated even when it equals the default set — the mock recognises that
- * case itself (`sameAsDefaultPool`) and keeps the weighted deal, so the answer no longer depends on
- * a mapping-table size that changes when the table grows.
- *
- * The space mismatch is the reason this lives HERE: `symbolsInPlay` answers in CLIENT symbol names
- * (`H1`, `L1`, `S`, …) but the mock deals SERVER names (`PIC1`, `PIC5`, `SCAT`, …). We translate with
- * the lines facade's own `linesMapping` — keep each server symbol whose mapped client name is in play
- * — so the mock consumes a plain server-space array with ZERO mapping knowledge (no table duplicated
- * into the `.mjs`). `SCAT` rides along only when its client symbol (`S`) is in play. `WILD` is
- * intentionally excluded: the existing `wild` field already governs whether the mock deals a wild.
- * An empty pool (misconfig) ⇒ `undefined` ⇒ the mock keeps its full default (never deals a blank board).
- */
-/**
  * The project's in-play MULTIPLIER symbol, by name, or `undefined`.
  *
  * Gated on `symbolsInPlay` for the same reason `projectWild` is: a symbol that merely sits in
@@ -174,7 +159,28 @@ function projectMultiplier(doc: GameConfigDoc, symbols: SymbolFacts): boolean {
 	return name ? symbols.hasStaticArt(name) : false;
 }
 
-function projectLineSymbols(doc: GameConfigDoc): string[] | undefined {
+/**
+ * The project's IN-PLAY line-symbol pool in the mock's SERVER vocabulary (`PIC*`/`SCAT`), or
+ * `undefined` only when it is EMPTY (a misconfig). Keyed off the SAME `symbolsInPlay` gate as the
+ * paytable/roll/wild. It is stated even when it equals the default set — the mock recognises that
+ * case itself (`sameAsDefaultPool`) and keeps the weighted deal, so the answer no longer depends on
+ * a mapping-table size that changes when the table grows.
+ *
+ * The space mismatch is the reason this lives HERE: `symbolsInPlay` answers in CLIENT symbol names
+ * (`H1`, `L1`, `S`, …) but the mock deals SERVER names (`PIC1`, `PIC5`, `SCAT`, …). We translate with
+ * the protocol's own mapping (`linesMapping`, or `bookMapping` for the book mock) — keep each server
+ * symbol whose mapped client name is in play — so the mock consumes a plain server-space array with
+ * ZERO mapping knowledge (no table duplicated into the `.mjs`). `SCAT` rides along only when its
+ * client symbol (`S`) is in play. `WILD` is intentionally excluded: the existing `wild` field already
+ * governs whether the mock deals a wild.
+ * An empty pool (misconfig) ⇒ `undefined` ⇒ the mock keeps its full default (never deals a blank board).
+ * The BOOK contract states the pool only when it leaves a symbol out, so a book project dealing all
+ * ten keeps the contract it had.
+ */
+function projectLineSymbols(
+	doc: GameConfigDoc,
+	mapping: GameMapping = linesMapping,
+): string[] | undefined {
 	const inPlay = new Set(symbolsInPlay(doc));
 	// `WILD` and `MULT` are excluded because neither is a LINE symbol: each has its own switch
 	// (`wild`, `multiplier`) deciding whether the mock deals it at all. This pool is built from
@@ -182,10 +188,10 @@ function projectLineSymbols(doc: GameConfigDoc): string[] | undefined {
 	// pool unless it is named here — which is exactly how `MULT` started being dealt as an
 	// ordinary board symbol, valueless, on every reveal.
 	const NON_LINE_SERVER_SYMBOLS = new Set(['WILD', 'MULT']);
-	const serverPool = Object.keys(linesMapping.symbols).filter(
+	const serverPool = Object.keys(mapping.symbols).filter(
 		(server) => !NON_LINE_SERVER_SYMBOLS.has(server),
 	);
-	const allowed = serverPool.filter((server) => inPlay.has(mapSymbol(linesMapping, server)));
+	const allowed = serverPool.filter((server) => inPlay.has(mapSymbol(mapping, server)));
 	// STATED ALWAYS, not only when it is a strict subset. The old shortcut ("everything is in play ⇒
 	// omit ⇒ the mock keeps its full default") read as a parity nicety and was actually load-bearing
 	// in the wrong direction: it compared against the MAPPING's size, and the mapping now reaches
@@ -443,9 +449,10 @@ function projectGrid(
 	// deal). `cluster`/`scatter` additionally carry their `minCluster`/`adjacency`/`minCount` shape.
 	//
 	// `book` is the one real exception: it runs `createBookMock`, which owns its own board and
-	// paylines, and reads only `symbolPaytable` and `potsOverlay` — so that is all it gets beyond the
-	// shape the test server's `validGrid` requires. Without the table the book mock paid and DECLARED
-	// its captured table whatever `/config` authored, so the info page and the payouts could disagree.
+	// paylines, and reads only `symbolPaytable`, `symbols` and `potsOverlay` — so that is all it gets
+	// beyond the shape the test server's `validGrid` requires. Without the table the book mock paid and
+	// DECLARED its captured table whatever `/config` authored, so the info page and the payouts could
+	// disagree; without the pool it dealt, and could expand, a symbol `/config` marks unused.
 	try {
 		if (!doc) return undefined;
 		const reels = Math.max(1, Math.round(Number(doc.numReels)));
@@ -465,16 +472,23 @@ function projectGrid(
 		// full-coverage set from the dimensions for its own reveal shape; the evaluator ignores it.
 		if (!Number.isFinite(reels)) return undefined;
 		if (protocol === 'book') {
-			// Neither an authored table nor an overlay ⇒ no grid ⇒ the contract is exactly what it was
-			// before either existed; an overlay goes LAST so a project without one is byte-identical.
+			// Neither an authored table, a narrower pool nor an overlay ⇒ no grid ⇒ the contract is
+			// exactly what it was before any existed; the pool is stated only when it leaves a symbol
+			// out, and an overlay goes LAST, so a project using neither is byte-identical.
 			const symbolPaytable = projectSymbolPaytable(doc, bookMapping);
+			const pool = projectLineSymbols(doc, bookMapping);
+			const symbols =
+				pool && Object.keys(bookMapping.symbols).some((name) => !pool.includes(name))
+					? pool
+					: undefined;
 			const potsOverlay = inServerNames(potsOverlayMockInputs(doc), bookMapping, projectKey);
-			if (!symbolPaytable && !potsOverlay) return undefined;
+			if (!symbolPaytable && !symbols && !potsOverlay) return undefined;
 			return {
 				reels,
 				rows,
 				paylines,
 				...(symbolPaytable ? { symbolPaytable } : {}),
+				...(symbols ? { symbols } : {}),
 				...(potsOverlay ? { potsOverlay } : {}),
 			};
 		}

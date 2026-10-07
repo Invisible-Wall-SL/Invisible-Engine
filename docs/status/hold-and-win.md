@@ -1085,6 +1085,22 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 
 ## Recent changes
 
+- 2026-10-07 — **A role symbol on no strip is never dealt.** `holdAndWinMockInputs` passed every
+  symbol with a Hold and Win role, so the mock dealt a coin, special, meter or unlock symbol that
+  `/config` badges unused. It now passes only role symbols a strip deals: a special or meter whose
+  symbol is unused never lands, and a forced meter (`force:meter:<id>`, `force:trigger:meter:<id>`)
+  whose symbol is unused is refused like a forced special the game lacks. A coin symbol is the one
+  role the feature cannot do without, so `/config` now refuses to save a config with no coin or
+  jackpot symbol on a strip, or with cash coins and no coin symbol on one (the mock would deal them
+  as the jackpot symbol, which the game values at nothing; this also covers a dictionary that tags
+  no coin at all). A config saved before that rule, with no coin symbol on a strip, keeps dealing
+  its coin and jackpot symbols as it did, rather than losing its coins on deploy. The client's
+  respin board draws its empty cell with `holdAndWinBlankSymbol` — the mock's own pick, read off the
+  baked config: the first blank a strip deals, else `BLANK` — so an unused blank is never drawn and
+  an overlay host's renamed blank still matches what the server sends. Every preset deals all its
+  role symbols, so nothing changes for them (`check:holdandwin` unchanged). Gate:
+  `check:unused-symbols-in-game`.
+
 - 2026-10-03 — **Phase 12c: the done-when rehearsed on the real game, locally** (#1006). All three
   pots pass. The live run on `hw-3pots-sample` is owed (Owner checklist 13).
   - **Why local:** this session's egress blocks `games.invisiblewall.org` and

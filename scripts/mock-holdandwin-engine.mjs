@@ -519,8 +519,15 @@ export function createHoldAndWinEngine(opts = {}) {
 					}[cause];
 					if (ok === undefined) errors.push(`${token}: unknown trigger cause "${cause}"`);
 					else if (!ok) errors.push(`${token}: this game has no ${cause} trigger`);
+					const filled =
+						cause === 'meter' ? (meters.find((m) => m.id === meterId) ?? meters[0]) : undefined;
 					if (meterId && !meters.some((m) => m.id === meterId)) {
 						errors.push(`${token}: no meter "${meterId}"`);
+					} else if (filled && !symbols[filled.symbol]) {
+						// Forcing it lands its symbol, which no strip deals (`/config` marks it unused).
+						errors.push(
+							`${token}: the ${filled.id} meter fills from a symbol this game never deals`,
+						);
 					}
 					force.trigger = cause;
 					if (meterId) force.meter = meterId;
