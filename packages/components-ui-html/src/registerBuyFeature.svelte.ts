@@ -72,7 +72,7 @@ export function registerBuyFeature(): void {
 						buttonLabel: mode.text.button,
 						iconKey: mode.assets.icon,
 						// Per-mode card param overrides (config `cardParams`): merged AFTER the engine-provided
-						// fields so a mode can restyle ANY card param (panel/icon frame/button/spine/tint/…) —
+						// fields so a mode can restyle ANY card param (panel/icon frame/button/rig/tint/…) —
 						// the repeater threads each into the card instance's param context, where it wins over
 						// the component's authored default. Spread LAST so an override may also replace an
 						// engine-provided field if the author intends to. Empty/absent ⇒ no overrides (parity).

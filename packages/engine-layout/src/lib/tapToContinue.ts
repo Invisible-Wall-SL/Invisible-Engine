@@ -34,7 +34,7 @@ export const TAP_DIM_COLOR_PARAM = 'tapDimColor';
 export const TAP_DIM_ALPHA_PARAM = 'tapDimAlpha';
 
 /** Param key: ARM the tap surface only AFTER the named component-scoped signal has fired for this
- * instance (e.g. a sibling spine's `completeSignal` — so "tap to continue" is dead until the intro
+ * instance (e.g. a sibling rig's `completeSignal` — so "tap to continue" is dead until the intro
  * finishes). Empty/absent ⇒ armed on mount (parity — today's behaviour); before it fires, taps are
  * ignored (the hit surface is not mounted). */
 export const TAP_ARM_AFTER_SIGNAL_PARAM = 'tapArmAfterSignal';

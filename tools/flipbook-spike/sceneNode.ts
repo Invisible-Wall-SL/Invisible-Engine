@@ -130,7 +130,7 @@ console.log('flipbook scene node — the scene duration walk reaches it');
 		],
 	};
 	const ms = sceneAnimationDurationMs(scene, {
-		spineClipMs: () => undefined,
+		rigClipMs: () => undefined,
 		effectMs: () => undefined,
 		flipbookMs: flipbookCycleMs,
 		resolveComponent: () => undefined,
@@ -139,7 +139,7 @@ console.log('flipbook scene node — the scene duration walk reaches it');
 
 	// The seam is optional — a game that never supplies it must not crash the walk.
 	const noResolver = sceneAnimationDurationMs(scene, {
-		spineClipMs: () => undefined,
+		rigClipMs: () => undefined,
 		effectMs: () => undefined,
 		resolveComponent: () => undefined,
 	});
@@ -148,7 +148,7 @@ console.log('flipbook scene node — the scene duration walk reaches it');
 	const loopingOnly: Scene = { id: 's2', name: 'Ambient', nodes: [node({ clipId: 'flame' })] };
 	assert(
 		sceneAnimationDurationMs(loopingOnly, {
-			spineClipMs: () => undefined,
+			rigClipMs: () => undefined,
 			effectMs: () => undefined,
 			flipbookMs: flipbookCycleMs,
 			resolveComponent: () => undefined,

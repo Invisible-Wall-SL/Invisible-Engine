@@ -13,17 +13,17 @@
  * the rig's RUNTIME assetKey.
  *
  * CRUX — the manifest key. It MUST equal the string `LayoutNodeView` passes as
- * `<SpineProvider key={node.assetKey}>` for a placed rig, so `resolveRigFx(node.assetKey)` hits. For
- * an editor-placed spine node the game's doc has that `assetKey` rewritten from the full R2 bundle
- * prefix down to the plain bundle NAME (`resolveSpineKeysForGame` → `bundleFromAssetKey`), which is
+ * `<RigProvider key={node.assetKey}>` for a placed rig, so `resolveRigFx(node.assetKey)` hits. For
+ * an editor-placed rig node the game's doc has that `assetKey` rewritten from the full R2 bundle
+ * prefix down to the plain bundle NAME (`resolveRigKeysForGame` → `bundleFromAssetKey`), which is
  * exactly the `skeletons.json` `folder`. So the manifest is keyed by the `folder` — the same value
- * `editorArtExport.ts` sets `result.entry.key` to for an editor-art spine.
+ * `editorArtExport.ts` sets `result.entry.key` to for an editor-art rig.
  *
  * Embedded in the baked bundle as `rigFx` (mirrors `effects`); `bake-editor-doc.mjs` triggers this
  * and the game registers it via `registerRigFx(bakedRigFx())`. Absent / no bound events ⇒ `rigFx`
  * stays undefined ⇒ `resolveRigFx()` returns `[]` and nothing new mounts (byte-identical parity).
  *
- * v1: sprite-particle effects only. A spine-particle effect bound ONLY via a rig still needs its
+ * v1: sprite-particle effects only. A rig-particle effect bound ONLY via a rig still needs its
  * skeleton shipped (today skeletons auto-ship only when placed) — that is a deferred follow-up; this
  * bake makes no attempt to auto-ship the referenced effect's own assets (the effect docs + their
  * atlases already travel the FX / editor-art pipeline).
@@ -49,7 +49,7 @@ export type RigFxManifest = Record<string, RigFxBinding[]>;
  * WHAT IDENTIFIES A BINDING: the beat `(animation, time)` plus `(event, effectId, bone, slot)`. The
  * manifest used to be keyed by the event NAME alone, so every binding sharing a name fired on every
  * keyframe of that name (a clip keyed at 0.01s and an effect keyed at 1s played together at 0.01s)
- * and the first key's overrides won for all of them. A spine event carries its keyframe `time`,
+ * and the first key's overrides won for all of them. A rig event carries its keyframe `time`,
  * and the track entry its animation, so `<RiggedEffect>` can match the exact beat — which lets each
  * keyframe keep its OWN overrides too. The only thing still de-duped is a literal duplicate: two
  * keys at one time of one animation binding the same effect at the same place.

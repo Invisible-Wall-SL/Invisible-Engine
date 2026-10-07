@@ -408,7 +408,7 @@ def _build_manifest(name: str, packed: dict, regions: list[dict],
         only camelCase; the snake_case the packer and the composers speak would
         be silently dropped, and the animation would pulse (docstring #1).
       * `fit_mode: "contain"` — an `.atlas`-bound region is otherwise treated as
-        a Spine slot and `fill`ed (stretched) by the Atlas Maker's composer.
+        a rig slot and `fill`ed (stretched) by the Atlas Maker's composer.
 
     What it must NOT carry is `atlas.layout: "pack"`. It used to, and the two
     halves contradicted each other: `pack` means "the Atlas Maker owns this

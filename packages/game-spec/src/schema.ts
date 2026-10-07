@@ -43,7 +43,7 @@ export const SymbolKindSchema = z.enum([
 export const SymbolAssetSchema = z.object({
 	type: z.enum(['sprite', 'spine']),
 	key: z.string(), // resolved from the loaded asset cache (e.g. 'h1.webp', 'M')
-	animation: z.string().optional(), // for spine
+	animation: z.string().optional(), // for rig
 	sizeRatios: z.object({ width: z.number(), height: z.number() }).default({ width: 1, height: 1 }),
 });
 

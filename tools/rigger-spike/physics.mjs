@@ -1,4 +1,4 @@
-// Phase §18 item 8 spike (GATE) — nail the Spine 4.2 PHYSICS CONSTRAINT setup + the physics
+// Phase §18 item 8 spike (GATE) — nail the 4.2-format PHYSICS CONSTRAINT setup + the physics
 // animation timeline data model against the official runtime, before any UI is built.
 //   node tools/rigger-spike/physics.mjs <skeleton.json> <skeleton.atlas>
 //
@@ -7,7 +7,7 @@
 // not exact values.
 //
 // ============================ EMPIRICAL FINDINGS ============================
-// (validated below against the rig runtime's SkeletonJson loader (engine-rig, held to the Spine 4.2 reference),
+// (validated below against the rig runtime's SkeletonJson loader (engine-rig, held to the 4.2-format reference),
 //  PhysicsConstraint(Data), and the eight Physics*Timeline classes — NOT from memory. Read off
 //  SkeletonJson.js: setup at L221-256, timeline at L870-912; readTimeline1 at L1072.)
 //
@@ -76,7 +76,7 @@
 //   • Authoring v1: key the seven sim params (inertia/strength/damping/mass/wind/gravity/mix) +
 //     the reset step at the playhead; linear by default, bezier via the shared curve menu.
 import { readFileSync } from 'node:fs';
-import { RIG_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = await import(RIG_CORE);
 

@@ -4,7 +4,7 @@
 	 * book VFX (`BookVfx.svelte`: looping, two per matching cell) and the explosion → intro
 	 * transition (`TumbleBoard.svelte`: played once at every exploding seat). Each kind renders
 	 * through the SAME component the game already uses for that asset class — `Sprite`,
-	 * `SpineProvider`+`SpineTrack`, `Flipbook`, `EffectPlayer` — so a layer can never look different
+	 * `RigProvider`+`RigTrack`, `Flipbook`, `EffectPlayer` — so a layer can never look different
 	 * here than the symbol path draws it, and the four-kind switch lives in exactly one place.
 	 *
 	 * The box is the LIVE cell (`boardGeometry`) × the layer's optional `sizeRatios`, offset by
@@ -14,7 +14,7 @@
 	 * authored), via a wrapping `<Container>` — the same rule `LayoutNodeView`'s placed effects use.
 	 *
 	 * `once` is the transition's contract: play through ONE time and report `oncomplete`, so the
-	 * caller can unmount. A spine reports its own non-loop `complete`; a flipbook and an FX cannot,
+	 * caller can unmount. A rig reports its own non-loop `complete`; a flipbook and an FX cannot,
 	 * so they are timed off the art — one cycle of the clip's walked frames (the same count
 	 * `SymbolFlipbook` reverts a state on) and the effect's longest emit plus its longest particle
 	 * lifetime (an unbounded effect gets one transit beat of emission). A binding that resolves to
@@ -23,14 +23,7 @@
 	 * Parity: without `once`, every prop that changes behaviour is passed as `undefined`, which
 	 * `pixi-svelte` skips, so the book VFX render exactly as they did before this was factored out.
 	 */
-	import {
-		Container,
-		EffectPlayer,
-		Flipbook,
-		Sprite,
-		SpineProvider,
-		SpineTrack,
-	} from 'pixi-svelte';
+	import { Container, EffectPlayer, Flipbook, Sprite, RigProvider, RigTrack } from 'pixi-svelte';
 	import {
 		canBlendLayerKind,
 		flipbookPlaybackFrameCount,
@@ -92,11 +85,11 @@
 	 * see the note above the markup for why that distinction is load-bearing for `overlay`/`lighten`.
 	 *
 	 * THREE gates, and each one is load-bearing:
-	 *  - `canBlendLayerKind` — a `spine` layer CANNOT blend. `SpinePipe.addRenderable` batches every
+	 *  - `canBlendLayerKind` — a `spine` layer CANNOT blend. `RigPipe.addRenderable` batches every
 	 *    slot with the SLOT's own blend and never calls `renderPipes.blendMode` nor reads
 	 *    `groupBlendMode`, so neither the skeleton's own `blendMode` nor a blended wrapper container
-	 *    does anything (measured: `multiply` on a spine renders pixel-identical to `normal`). The
-	 *    tool hides the control for a spine layer for the same reason; this is the half that makes a
+	 *    does anything (measured: `multiply` on a rig renders pixel-identical to `normal`). The
+	 *    tool hides the control for a rig layer for the same reason; this is the half that makes a
 	 *    doc which somehow carries one render the way the game actually draws it.
 	 *  - `isBlendMode` — VERSION SKEW. The launcher deploys from `main` while a shipped game pins the
 	 *    engine submodule, so a mode added to the tool tomorrow can reach this engine today. An
@@ -182,7 +175,7 @@
 		return ms;
 	});
 
-	// The timed completions. A spine reports its own `complete` through `SpineTrack`; every other
+	// The timed completions. A rig reports its own `complete` through `RigTrack`; every other
 	// arm — and a binding that resolved to nothing — is timed here. Re-armed when the binding changes.
 	$effect(() => {
 		if (!props.once) return;
@@ -221,14 +214,14 @@
 	{#if props.layer.kind === 'sprite' && props.layer.assetKey}
 		<Sprite anchor={0.5} key={props.layer.assetKey} {width} {height} contain {blendMode} />
 	{:else if props.layer.kind === 'spine' && props.layer.assetKey}
-		<SpineProvider key={props.layer.assetKey} anchor={0.5} {width} {height}>
-			<SpineTrack
+		<RigProvider key={props.layer.assetKey} anchor={0.5} {width} {height}>
+			<RigTrack
 				trackIndex={0}
 				animationName={props.layer.animationName ?? ''}
 				loop={!props.once}
 				oncomplete={props.once ? props.oncomplete : undefined}
 			/>
-		</SpineProvider>
+		</RigProvider>
 	{:else if clip}
 		<Flipbook
 			{clip}

@@ -18,10 +18,10 @@
 //   node tools/rigger-spike/delete.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { RIG_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
-const SPINE = await import(RIG_CORE);
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, VertexAttachment, RegionAttachment, PointAttachment } = SPINE;
+const RIG = await import(RIG_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, VertexAttachment, RegionAttachment, PointAttachment } = RIG;
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
 function atlasOf(atlasText) {
@@ -65,7 +65,7 @@ for (const q = [...ENTRY]; q.length; ) {
 }
 const sandbox = {
 	rawDoc: null, skeletonData: null, meshCtx: null, collapsedBones: new Set(),
-	SPINE, skeleton: null, missingArt: [], selected: { atlas_file: 'atlas' }, assetMgr: { require: () => atlasOf(sandbox.__atlas) },
+	RIG, skeleton: null, missingArt: [], selected: { atlas_file: 'atlas' }, assetMgr: { require: () => atlasOf(sandbox.__atlas) },
 	selBone: null, selSlot: null, selIk: null, selTc: null, selPath: null, selPc: null, animsDirty: false,
 	markDirty() {}, selectSlot() {}, renderSlotDetail() {},
 	showNotice(msg) { sandbox.__notices.push(String(msg)); },
@@ -338,7 +338,7 @@ console.log('\n=== delete cascade — synthetic rig (ik · transform · path · 
 log(!!loadData(SYNTH, SYNTH_ATLAS), 'the synthetic rig loads before any delete');
 const del = (fn, ...a) => (s) => s[fn](...a);
 checkDelete('bone ctrl (IK target, in a skin bone list, weights the box)', SYNTH, SYNTH_ATLAS, del('deleteBone', 'ctrl'), { still: 'ctrl', expect: ['ik arm_ik'] });
-checkDelete('bone spine (transform target, weights the body)', SYNTH, SYNTH_ATLAS, del('deleteBone', 'spine'), { still: 'spine', expect: ['transform follow_tc'] });
+checkDelete('bone rig (transform target, weights the body)', SYNTH, SYNTH_ATLAS, del('deleteBone', 'spine'), { still: 'spine', expect: ['transform follow_tc'] });
 checkDelete('bone jiggle (physics bone)', SYNTH, SYNTH_ATLAS, del('deleteBone', 'jiggle'), { still: 'jiggle', expect: ['physics jiggle_phys'] });
 const afterP1 = checkDelete('bone p1 (one of two path bones)', SYNTH, SYNTH_ATLAS, del('deleteBone', 'p1'), { still: 'p1', expect: [] });
 if (afterP1) checkDelete('bone p2 (the path\'s last bone)', afterP1, SYNTH_ATLAS, del('deleteBone', 'p2'), { still: 'p2', expect: ['path tail_path'] });

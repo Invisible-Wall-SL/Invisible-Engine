@@ -4,7 +4,7 @@
 // through the official loader and assert the mesh grew correctly and still poses.
 //   node tools/rigger-spike/meshadd.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
-import { RIG_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, Vector2 } = await import(RIG_CORE);
 

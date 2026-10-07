@@ -54,7 +54,7 @@
 	import EditorElementsPalette from '../editor/EditorElementsPalette.svelte';
 	import EditorOutline from '../editor/EditorOutline.svelte';
 	import EditorProperties from '../editor/EditorProperties.svelte';
-	import type { SpineMeta } from '../editor/spineRuntime.client';
+	import type { RigMeta } from '../editor/rigRuntime.client';
 	import PanelResizers from '../editor/PanelResizers.svelte';
 	import PanelSection from '../editor/PanelSection.svelte';
 	import { CATEGORIES } from '../editor/componentList.client';
@@ -399,9 +399,9 @@
 	 * the primary (last-picked) id the Properties panel reads. */
 	let selectedIds = $state<string[]>([]);
 	const selectedId = $derived(selectedIds.at(-1) ?? null);
-	/** Per-`assetKey` animation + skin lists for every loaded spine bundle, reported by
+	/** Per-`assetKey` animation + skin lists for every loaded rig bundle, reported by
 	 * the canvas's WebGL sublayers — lets the Properties panel offer dropdowns. */
-	let spineMeta = $state<Map<string, SpineMeta>>(new Map());
+	let rigMeta = $state<Map<string, RigMeta>>(new Map());
 	/** Components author in the fixed `desktop` design box — no per-layoutType
 	 * override switcher here (a component is one design; the scene editor owns
 	 * responsive overrides when the instance is placed). */
@@ -1251,18 +1251,18 @@
 	}
 
 	/**
-	 * "Expose spine as param" for a spine node: create ONE `spine`-kind author param and
+	 * "Expose rig as param" for a rig node: create ONE `spine`-kind author param and
 	 * bind the node's SOURCE bundle (`assetKey`) to it, so every placed instance can swap
-	 * this spine's rig from a bundle picker — the spine analogue of {@link exposeTextParams}.
-	 * The default is the spine's current bundle NAME (what the instance picker stores + the
+	 * this rig node's bundle from a bundle picker — the rig analogue of {@link exposeTextParams}.
+	 * The default is the rig's current bundle NAME (what the instance picker stores + the
 	 * runtime resolves), so an un-overridden instance renders exactly what the def shows.
-	 * Idempotent — a spine already exposing its own param is left alone.
+	 * Idempotent — a rig already exposing its own param is left alone.
 	 */
-	function exposeSpineParam(node: LayoutNode): void {
+	function exposeRigParam(node: LayoutNode): void {
 		if (!componentDraft || node.kind !== 'spine') return;
 		const params = componentDraft.params ?? [];
 		// A param is THIS node's own only if bound solely by it — a binding shared with
-		// another node (a duplicated spine carries the original's bindings) must not be stolen.
+		// another node (a duplicated rig carries the original's bindings) must not be stolen.
 		const owners = bindingOwners(componentDraft.root);
 		const ownedByThis = (key: string): boolean => {
 			const set = owners.get(key);
@@ -1280,9 +1280,9 @@
 		const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, '') || 'spine';
 		const keys = new Set(params.map((p) => p.key));
 		let key = `${slug}Spine`;
-		for (let i = 2; keys.has(key); i++) key = `${slug}Spine${i}`;
+		for (let i = 2; keys.has(key); i++) key = `${slug}Rig${i}`;
 		// Default = the current bundle NAME, matched by the node's assetKey against the
-		// project spine list (the same `name` the instance picker + runtime key off).
+		// project rig list (the same `name` the instance picker + runtime key off).
 		const defaultName = data.assets.spines.find((s) => s.key === node.assetKey)?.name;
 		const p: ComponentParam = { key, kind: 'spine', label, author: true };
 		if (defaultName) p.default = defaultName;
@@ -1291,20 +1291,20 @@
 	}
 
 	/**
-	 * Un-expose a spine node: drop its `assetKey` binding + the author param it created,
+	 * Un-expose a rig node: drop its `assetKey` binding + the author param it created,
 	 * restoring the static bundle from the removed param's default. Leaves engine/other
-	 * binds untouched. The inverse of {@link exposeSpineParam}.
+	 * binds untouched. The inverse of {@link exposeRigParam}.
 	 */
-	function unexposeSpineParam(node: LayoutNode): void {
+	function unexposeRigParam(node: LayoutNode): void {
 		if (!componentDraft || node.kind !== 'spine' || !node.paramBindings) return;
 		const params = componentDraft.params ?? [];
 		const key = node.paramBindings['assetKey'];
 		const p = params.find((cp) => cp.key === key);
-		if (!key || !p?.author) return; // not an author-exposed spine bind
+		if (!key || !p?.author) return; // not an author-exposed rig bind
 		const bindings = { ...node.paramBindings };
 		delete bindings['assetKey'];
 		// Restore the static bundle from the param default, resolving the bundle NAME back
-		// to its full key so the fixed spine renders exactly as before exposure.
+		// to its full key so the fixed rig renders exactly as before exposure.
 		if (typeof p.default === 'string' && p.default) {
 			const restored = data.assets.spines.find((s) => s.name === p.default)?.key;
 			if (restored) node.assetKey = restored;
@@ -1317,7 +1317,7 @@
 	/**
 	 * "Expose image as param" for a sprite node: create ONE `image`-kind author param and bind
 	 * the node's FRAME (`region`) to it, so every placed instance picks this sprite's art from
-	 * a region picker — the sprite analogue of {@link exposeSpineParam}, and the one-click form
+	 * a region picker — the sprite analogue of {@link exposeRigParam}, and the one-click form
 	 * of the "Bind to param" dropdowns.
 	 *
 	 * This is the gap that makes a FORKED component's art un-swappable per instance. A def that
@@ -1325,7 +1325,7 @@
 	 * was swapped for a project frame) still surfaces the coded params through
 	 * `mergeBuiltinCodedParams` — but nothing in that def READS them, so the instance control
 	 * appears and does nothing. Binding the sprite is what makes a picker live, and text and
-	 * spine nodes each had a one-click for it while images had only the dropdown.
+	 * rig nodes each had a one-click for it while images had only the dropdown.
 	 *
 	 * The default is the node's current SCOPED frame ref (`<assetKey>::<region>` — what the
 	 * picker stores and `LayoutNodeView` resolves), so an un-overridden instance renders exactly
@@ -1689,10 +1689,10 @@
 								<p class="muted small">
 									A project copy of the built-in <strong>Pot Meter</strong>: the coded pot of the
 									meter its <strong>meter</strong> param names. Click
-									<strong>Edit inside Pot</strong> and drop your own nodes (a spine, an effect,
-									art): they replace the coded drawing, and the pot still follows its level, grows,
-									pulses and catches its flights. Place it on the <strong>Pots</strong> screen in
-									place of the Pot Meter. Listed under <strong>UI</strong>.
+									<strong>Edit inside Pot</strong> and drop your own nodes (a rig, an effect, art):
+									they replace the coded drawing, and the pot still follows its level, grows, pulses
+									and catches its flights. Place it on the <strong>Pots</strong> screen in place of
+									the Pot Meter. Listed under <strong>UI</strong>.
 								</p>
 							{:else if newType === 'respin'}
 								<p class="muted small">
@@ -1870,7 +1870,7 @@
 					projectGameName={null}
 					componentParams={resolvedParams}
 					redrawNonce={editNonce}
-					onSpineMeta={(meta) => (spineMeta = meta)}
+					onRigMeta={(meta) => (rigMeta = meta)}
 				/>
 			{:else}
 				<div class="empty">
@@ -1895,7 +1895,7 @@
 						layoutType={currentLayoutType}
 						componentMode={true}
 						onDirty={() => (editNonce += 1)}
-						{spineMeta}
+						{rigMeta}
 						spines={data.assets.spines}
 						{pickSheets}
 						componentParams={componentDraft.params ?? []}
@@ -1923,8 +1923,8 @@
 						{fontParamKeys}
 						onExposeTextParams={exposeTextParams}
 						onUnexposeTextParams={unexposeTextParams}
-						onExposeSpineParam={exposeSpineParam}
-						onUnexposeSpineParam={unexposeSpineParam}
+						onExposeRigParam={exposeRigParam}
+						onUnexposeRigParam={unexposeRigParam}
 						onExposeImageParam={exposeImageParam}
 						onUnexposeImageParam={unexposeImageParam}
 						onToggleSignal={toggleComponentSignal}

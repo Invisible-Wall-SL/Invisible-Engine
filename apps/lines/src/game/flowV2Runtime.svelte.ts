@@ -265,7 +265,7 @@ export type LinesFlowV2 = {
 	enginePots?: EnginePotsScreen;
 };
 
-/** A structural narrow for a loaded Spine `SkeletonData` — just the `findAnimation` we read, so this
+/** A structural narrow for a loaded rig `SkeletonData` — just the `findAnimation` we read, so this
  *  module needs no `engine-rig` type import to measure a clip's duration. */
 type SkeletonDataLike = { findAnimation(name: string): { duration: number } | null };
 const isSkeletonData = (v: unknown): v is SkeletonDataLike =>
@@ -273,9 +273,9 @@ const isSkeletonData = (v: unknown): v is SkeletonDataLike =>
 	v !== null &&
 	typeof (v as { findAnimation?: unknown }).findAnimation === 'function';
 
-/** The canonical bundle FOLDER of a loaded spine key — the same fallback `EffectLayer` uses so an
+/** The canonical bundle FOLDER of a loaded rig key — the same fallback `EffectLayer` uses so an
  *  authored `assetKey` resolves whether the skeleton shipped under the bare folder or a full R2 prefix. */
-const spineBundleFolderOf = (key: string): string => {
+const rigBundleFolderOf = (key: string): string => {
 	const trimmed = key.endsWith('/') ? key.slice(0, -1) : key;
 	const m = trimmed.match(/(?:^|\/)spines\/(.+)$/);
 	return m ? m[1] : trimmed;
@@ -442,17 +442,17 @@ export const createLinesFlowV2 = (
 	// The `showContainer.durationMs` OUTPUT pin: the shown scene's LONGEST animation in wall-clock ms,
 	// so an author can wire it into a Delay's `ms` and hold for exactly the screen's animation instead
 	// of a guessed literal. Asset-free `sceneAnimationDurationMs` walks the scene; these resolvers turn
-	// the layout doc's NAMES into real durations game-side — a spine clip via the LOADED skeleton
+	// the layout doc's NAMES into real durations game-side — a rig clip via the LOADED skeleton
 	// (`SkeletonData.findAnimation(...).duration`), an effect via its baked doc + the FX time-scale
 	// (`emitterSecondsToWallMs`, the shared 0.00234 emit-speed). Any un-loaded / un-baked / unknown
 	// asset is skipped ⇒ the scene's max, or 0 when nothing is measurable (parity-safe: a Delay fed 0
 	// simply doesn't wait, and a Delay with a literal `ms` is untouched — the wire is opt-in).
-	const spineClipMs = (assetKey: string, animation: string | undefined): number | undefined => {
+	const rigClipMs = (assetKey: string, animation: string | undefined): number | undefined => {
 		if (!animation) return undefined;
 		const loaded = stateApp.loadedAssets ?? {};
 		let data: unknown = loaded[assetKey];
 		if (!isSkeletonData(data)) {
-			const hit = Object.keys(loaded).find((k) => spineBundleFolderOf(k) === assetKey);
+			const hit = Object.keys(loaded).find((k) => rigBundleFolderOf(k) === assetKey);
 			data = hit ? loaded[hit] : undefined;
 		}
 		if (!isSkeletonData(data)) return undefined; // skeleton not loaded yet ⇒ not measurable (skip).
@@ -483,7 +483,7 @@ export const createLinesFlowV2 = (
 		const scene = sceneId ? editorDoc.scenes.find((s) => s.id === sceneId) : undefined;
 		if (!scene) return 0;
 		return sceneAnimationDurationMs(scene, {
-			spineClipMs,
+			rigClipMs,
 			effectMs,
 			// A placed flipbook's beat is `frames / fps` off the boot-registered clip — no asset load
 			// needed, a clip IS its frame list. `flipbookCycleMs` owns the loop rule (a loop has no end,
@@ -498,7 +498,7 @@ export const createLinesFlowV2 = (
 			// bind plays — the same declare≠implement seam as `bookEventHandlerMap`. The `Transition`
 			// wipe plays the preloaded `transition` skeleton's `animation` clip.
 			boundComponentMs: (component) =>
-				component === 'Transition' ? spineClipMs('transition', 'animation') : undefined,
+				component === 'Transition' ? rigClipMs('transition', 'animation') : undefined,
 		});
 	};
 
@@ -522,11 +522,11 @@ export const createLinesFlowV2 = (
 	};
 	const cueAnimationMs = (cue: string): number => {
 		// A name the GAME registered is NOT driven by the open bus — `getComponentSignal` resolves it
-		// against the closed registry — so its cue reaches a spine through the emitter subscription it
+		// against the closed registry — so its cue reaches a rig through the emitter subscription it
 		// always had, on whatever timing that subscriber already has. Measuring it here would CHANGE
 		// that timing for docs that ship today: `specialBookReveal`/`specialBookHide` are the only two
 		// names that are both a fireable vocabulary cue AND a catalog signal, so a project whose scene
-		// also names one on a spine would silently get `max(existing wait, that clip)`. For
+		// also names one on a rig would silently get `max(existing wait, that clip)`. For
 		// `specialBookReveal` that existing wait is real (its subscriber returns the shuffle promise)
 		// and it fires under `setExpandingSymbol`, which is UNSKIPPABLE — so the added wait would not
 		// even be slam-raced. `specialBookHide`'s subscriber is synchronous, so that one stays
@@ -535,7 +535,7 @@ export const createLinesFlowV2 = (
 		// doc changes" literally true. `enter` is instance-fired and takes no bus subscription at all.
 		if (isRegisteredComponentSignal(cue) || cue === ENTER_SIGNAL) return 0;
 		return cueAnimationDurationMs(shownScenes(), cue, {
-			spineClipMs,
+			rigClipMs,
 			// ONE CYCLE even when the cue loops — `flipbookCycleMs` reports nothing for a looping clip
 			// (right for the implicit `showContainer.durationMs` walk, wrong for an explicit per-node
 			// await), so force the override off. See `cueDuration.ts`'s header.
@@ -599,9 +599,9 @@ export const createLinesFlowV2 = (
 		// `broadcastAsync`. Sync subscribers resolve immediately, so fire-and-forget cues are unaffected.
 		broadcast: (cue, payload, opts) => {
 			// The author-named half: fire the cue NAME on the open component-signal bus too, so a
-			// spine whose `cues[]` names it plays its animation. Synchronous, and carrying only the
+			// rig whose `cues[]` names it plays its animation. Synchronous, and carrying only the
 			// node's `scope` pin (a `SignalSource` passes no other payload) — so only the instances
-			// scoped to it react, and a spine it drives can never report back that it finished.
+			// scoped to it react, and a rig it drives can never report back that it finished.
 			emitComponentSignal(cue, eventScope(payload));
 			// …which is exactly why "Wait for this cue to finish" is MEASURED for a scene cue rather
 			// than listened for. Awaiting the emitter alone returned in the same microtask (nothing

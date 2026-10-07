@@ -1,10 +1,10 @@
 // Phase 5.3 spike — prove the keyframe CURVE format (stepped + bezier) the curve UI
 // writes loads through engine-rig and plays exactly as our own evaluator predicts.
-// Spine 4.2: a key's `curve` is "stepped", or an array where for value index v the
+// 4.2-format: a key's `curve` is "stepped", or an array where for value index v the
 // controls are curve[v*4 .. v*4+3] = (cx1,cy1,cx2,cy2) in ABSOLUTE (time,value) coords.
 //   node tools/rigger-spike/curve.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
-import { RIG_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = await import(RIG_CORE);
 

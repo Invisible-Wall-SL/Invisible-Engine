@@ -8,7 +8,7 @@
  * line, a reel snap): the race ends the wait and the picture is already correct.
  *
  * It is WRONG for a presentation whose visual is a TIMELINE nobody cancels — the book / expanding
- * symbol reveal (a spine/`.irig` rig animation) and the free-spin intro. Racing those releases the
+ * symbol reveal (a rig/`.irig` rig animation) and the free-spin intro. Racing those releases the
  * round chain while the rig keeps playing detached, so the next free spin's reels start underneath a
  * reveal that is still on screen. A detached animation is worse than a slow one, so these two run to
  * completion even when the token is tripped (owner direction 2026-07-20).
@@ -19,7 +19,7 @@
  * or v2-flow — and every wait inside it consults {@link inUnskippablePresentation}.
  *
  * THE HANG RULE. Making a wait unskippable is only safe when the promise settles on its OWN — a
- * timer, a spine `complete`, a `Promise.all` of those. A wait that is not guaranteed to settle must
+ * timer, a rig `complete`, a `Promise.all` of those. A wait that is not guaranteed to settle must
  * stay raced: a player PRESS is the classic case — after a slam the spin button is inert and is drawn
  * above the overlay, so it swallows the very tap that would release the hold and the round never
  * completes (the bug fixed in 350b473). {@link RACED_HOLD_CUES} is that exemption, and it applies
@@ -74,7 +74,7 @@ import { luckySpinRevealArmed } from './luckySpin';
 
 /**
  * The book events whose whole presentation is unskippable.
- *  - `setExpandingSymbol` — the book reveal: `SpecialBook`'s shuffle→land→intro spine, or the
+ *  - `setExpandingSymbol` — the book reveal: `SpecialBook`'s shuffle→land→intro rig, or the
  *    authored `FreeSpinIntroSymbolReveal` rig the chosen symbol rides.
  *  - `freeSpinTrigger` — the free-spin intro: the scatter animation, the transition wipe and the
  *    intro screen's own animation/delays.
@@ -200,7 +200,7 @@ export const RACED_HOLD_CUES: ReadonlySet<string> = new Set(['freeSpinOutroCount
  * coded handler (`animateSymbols` → `awaitPresentation`), the v1 flow (`broadcastAsync`) and the v2
  * flow (`broadcast`) all reach it via {@link awaitCue}, so holding here lights the win symbols on a
  * slammed spin in all three without touching `Board.svelte`. The board subscriber still runs
- * DETACHED exactly as it does under the plain race — it sets `win`, awaits its own spine and lands on
+ * DETACHED exactly as it does under the plain race — it sets `win`, awaits its own rig and lands on
  * `postWinStatic` on its own — so nothing here can leave a symbol lit forever.
  */
 export const SLAM_MINIMUM_DISPLAY_CUES: ReadonlySet<string> = new Set(['boardWithAnimateSymbols']);
@@ -220,7 +220,7 @@ export const SLAM_MESSAGE_HOLD_MS = 400;
  * Deliberately a bare `waitForTimeout` and NOT `roundSkip.wait`: the token is already tripped, so the
  * token's own wait would collapse to zero and there would be nothing to display. That also makes it
  * the only kind of hold THE HANG RULE allows to be added under a tripped token — a `setTimeout`
- * settles on its own schedule with no dependency on a subscriber, a spine `complete` or a player
+ * settles on its own schedule with no dependency on a subscriber, a rig `complete` or a player
  * press, i.e. on nothing the slam suppressed.
  */
 export const slamHold = (time: number): Promise<void> => waitForTimeout(time);

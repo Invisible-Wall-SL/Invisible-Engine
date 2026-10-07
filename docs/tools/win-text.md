@@ -120,7 +120,7 @@ printing an empty name — so you never see a blank or a stray `{symbolName}`.
 
 **Show the symbol as an image.** Tick this and the `{symbolName}` in the info-bar
 message is drawn as the symbol's own art, sized to the text, instead of its name. An
-animated symbol (flipbook or spine) is held on its first frame so the sentence stays
+animated symbol (flipbook or rig) is held on its first frame so the sentence stays
 readable, and a symbol with no art falls back to its name.
 
 #### Why expanded wins get their own line

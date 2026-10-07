@@ -8,16 +8,16 @@
  * (`<RiggedEffect>` / `<RiggedFlipbook>`, here in `pixi-svelte`) and the LOOKUP that turns a rig's
  * assetKey into its bindings + their resolved docs (the registries in `engine-layout`).
  *
- * Those halves used to be joined at each MOUNT SITE — `LayoutNodeView`'s spine branch and
- * `SymbolSpineMain` each hand-copied the same ~25-line resolve-and-mount block. So a rig played its
+ * Those halves used to be joined at each MOUNT SITE — `LayoutNodeView`'s rig branch and
+ * `SymbolRigMain` each hand-copied the same ~25-line resolve-and-mount block. So a rig played its
  * bound FX only if it happened to be mounted by one of those two, and every other rig in the engine
  * — the big-win rig (`WinAnimation`), the backdrops (`Background`), transitions, free-spin visuals,
  * anticipation, the board frame, cinematic actors — silently rendered nothing, with no error and no
  * clue at the authoring end, because the binding was baked and correct and simply never read.
  *
- * So the join moves DOWN to `<SpineProvider>`, the one component every rig in the engine goes
+ * So the join moves DOWN to `<RigProvider>`, the one component every rig in the engine goes
  * through. `engine-layout` — which owns the registries and sits ABOVE this package — installs a
- * resolver here; `SpineProvider` asks it for whatever is bound to the rig it just resolved. The
+ * resolver here; `RigProvider` asks it for whatever is bound to the rig it just resolved. The
  * dependency inversion is the same one `registerFxBehaviors(Emitter)` uses to keep `engine-fx`
  * PixiJS-free: the lower package declares the shape and the higher one fills it in.
  *
@@ -59,7 +59,7 @@ Object.freeze(NO_EFFECTS);
 Object.freeze(NO_FLIPBOOKS);
 
 /** The shared "nothing is bound" result. A single frozen instance so the overwhelmingly common
- * case (a rig with no bindings) hands `SpineProvider` a STABLE reference and its `$derived` does
+ * case (a rig with no bindings) hands `RigProvider` a STABLE reference and its `$derived` does
  * not invalidate its `{#each}` blocks on every recompute. */
 export const EMPTY_RIG_BOUND_CONTENT: RigBoundContent = Object.freeze({
 	effects: NO_EFFECTS,

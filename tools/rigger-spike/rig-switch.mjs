@@ -111,9 +111,9 @@ const server = createServer(async (req, res) => {
 	const traced = (body) => body.skeleton?.skeleton?.hash ?? null;
 	try {
 		if (p === '/') return send(200, MIME['.html'], readFileSync(join(STATIC, 'rigger/view.html')));
-		if (p === '/spine/skeletons')
+		if (p === '/rig-viewer/skeletons')
 			return jsonOut({ client: 'c', project: 'p', root: 'c/p/spines', skeletons: ENTRIES });
-		if (p === '/spine/file') {
+		if (p === '/rig-viewer/file') {
 			const name = url.searchParams.get('name') ?? '';
 			const rig = Object.entries(RIGS).find(([n]) => b64(n) === url.searchParams.get('dir'))?.[1];
 			if (rig && name === rig.file) {
@@ -262,10 +262,10 @@ const state = () =>
 	})()`);
 const settle = () =>
 	waitFor('!document.getElementById("loadingOverlay").classList.contains("on")', 30000);
-/** ⤓ Load spine, then a click on the rig's row — the way an author opens one. */
+/** ⤓ Load rig, then a click on the rig's row — the way an author opens one. */
 const clickRig = (name) =>
 	evaluate(`(() => {
-		document.getElementById("loadSpineBtn").click();
+		document.getElementById("loadRigBtn").click();
 		const row = [...document.querySelectorAll("#list .item")]
 			.find((d) => d.querySelector(".nm").textContent === ${q(name)});
 		if (row) row.click();

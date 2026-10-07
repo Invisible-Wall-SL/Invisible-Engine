@@ -33,7 +33,7 @@ Consequences the owner hit in practice:
 - The `<tool>/` top-level segment is **removed**.
 - Each tool's subfolders are remapped onto a shared, asset-typed layout (below).
 - `manifests/` becomes a **single shared folder** both Atlas + Sheet read/write → the Sheet→Atlas copy is retired and issue #1 (Sheet can't see Atlas manifests) dissolves.
-- Cross-project shared spines move under a root `_shared/` area.
+- Cross-project shared rigs move under a root `_shared/` area.
 
 ## 1. Canonical unified schema
 
@@ -52,7 +52,7 @@ Per-project layout (C = client key, P = project key):
 | `<C>/<P>/batch/`             | Atlas Maker            | ComfyUI-generated variants                                      |
 | `<C>/<P>/sheets/<sheet>/`     | Sheet Maker            | packed `<basename>.{png,atlas,json}` (manifest goes to `manifests/`) |
 | `<C>/<P>/deploy/`             | Atlas Maker            | deploy-ready final assets in the game's `static/assets/` shape — **the game asset contract; builds pull from here** (see `docs/design/live-assets.md`) |
-| `<C>/<P>/spines/<bundle>/`    | Spine sync             | spine atlas/png/skeleton per bundle                             |
+| `<C>/<P>/spines/<bundle>/`    | Rig sync             | rig atlas/png/skeleton per bundle                             |
 | `<C>/<P>/localization/strings.json` | Localization     | translated strings                                              |
 | `<C>/<P>/editor/scenes.json` | Editor                 | scene layout doc                                                |
 
@@ -60,7 +60,7 @@ Root-level, **outside** any single project:
 
 | Prefix                  | Notes                                                                |
 | ----------------------- | -------------------------------------------------------------------- |
-| `_shared/spines/<bundle>/` | spine bundles shared across projects (was `spines/_shared/<bundle>/`) |
+| `_shared/spines/<bundle>/` | rig bundles shared across projects (was `spines/_shared/<bundle>/`) |
 | `test_server/<gameKey>/`   | published game bundles + `test_server/games.json` — **unchanged**    |
 
 ### Key semantics
@@ -93,7 +93,7 @@ export const SUB = {
 	localization:(c: string, p: string) => `${projectPrefix(c, p)}/localization`,
 	editor:     (c: string, p: string) => `${projectPrefix(c, p)}/editor`,
 } as const;
-export const sharedSpinesPrefix = (bundle: string) => `_shared/spines/${bundle}`;
+export const sharedRigsPrefix = (bundle: string) => `_shared/spines/${bundle}`;
 ```
 
 ### Python (shared) — [`iw_common/context.py`](../../services/_shared/iw_common/context.py)
@@ -157,15 +157,15 @@ mirroring today's sync/background pattern:
 
 | File | Change |
 | --- | --- |
-| [`projectPaths.ts`](../../apps/launcher-api/src/lib/server/projectPaths.ts) | `projectPrefix(client, project)` (drop tool arg); add `SUB.*` + `sharedSpinesPrefix`. |
+| [`projectPaths.ts`](../../apps/launcher-api/src/lib/server/projectPaths.ts) | `projectPrefix(client, project)` (drop tool arg); add `SUB.*` + `sharedRigsPrefix`. |
 | [`toolScope.ts`](../../apps/launcher-api/src/lib/server/toolScope.ts) | `allowedPrefixes()` returns the single `<C>/<P>/` prefix (+ `_shared/spines/` read). `PROJECT_TOOL_NS` removed. The FTP browser then exposes the whole project tree. |
 | [`projectScaffold.ts`](../../apps/launcher-api/src/lib/server/projectScaffold.ts) | Seed one tree: `<C>/<P>/{atlas_config.json, sheet_config.json, manifests/.keep, refs/.keep, localization/strings.json, editor/scenes.json}`. |
 | [`localization.ts`](../../apps/launcher-api/src/lib/server/localization.ts) | `docKey` → `${SUB.localization(c,p)}/strings.json`. |
 | [`editorStorage.ts`](../../apps/launcher-api/src/lib/server/editorStorage.ts) | scenes key → `${SUB.editor(c,p)}/scenes.json`. |
-| [`spine.ts`](../../apps/launcher-api/src/lib/server/spine.ts) | per-project bundle → `${SUB.spines(c,p)}/<bundle>`; shared fallback → `sharedSpinesPrefix(bundle)`. |
+| [`rig.ts`](../../apps/launcher-api/src/lib/server/rig.ts) | per-project bundle → `${SUB.spines(c,p)}/<bundle>`; shared fallback → `sharedRigsPrefix(bundle)`. |
 | [`projectAssets.ts`](../../apps/launcher-api/src/lib/server/projectAssets.ts) + `editorRegions.ts` | Cross-namespace reads collapse to one tree: `manifests/`, `atlas/`, `sheets/`, `spines/`. **Net simplification.** |
 | [`(app)/{atlas,sheet}/+page.server.ts`](../../apps/launcher-api/src/routes/(app)) | No change to the contract — still redirect with `&client=&project=`. |
-| [`scripts/r2-sync-spines.mjs`](../../apps/launcher-api/scripts/r2-sync-spines.mjs) | Target `${SUB.spines(c,p)}/<bundle>` instead of legacy `spines/hotfruits`. |
+| [`scripts/r2-sync-rigs.mjs`](../../apps/launcher-api/scripts/r2-sync-rigs.mjs) | Target `${SUB.spines(c,p)}/<bundle>` instead of legacy `spines/hotfruits`. |
 | [`seed_r2.py`](../../services/atlas-tool/seed_r2.py) | Write the unified layout. |
 
 ## 5. Migration — copy → verify → retire (idempotent, dry-run default)
@@ -210,7 +210,7 @@ Refuses to run without `--phase=b --i-verified-cutover`.
 3. **Restart** atlas-tool + sheet-tool (they hydrate at boot) — the deploy restart handles this.
 4. **Smoke test** per tool on Borut/HotFruits: Atlas manifest list, Sheet "projects" list now
    shows the **same** manifests; upload/generate/compose/export/deploy round-trips; localization,
-   spine, editor palette.
+   rig, editor palette.
 5. **Phase B retire** — `--phase=b --i-verified-cutover`.
 6. Remove `FEATURE_OLD_PATHS_FALLBACK` from env + code.
 
@@ -238,7 +238,7 @@ the deploy and unset the flag; data is untouched.
 1. **Subfolder names** — Atlas inputs stay at `<C>/<P>/input/` (NOT `refs/` — keeping `input/` means manifest-relative `refs/atlas/<name>` paths stay valid and avoids a `refs/refs/atlas` double-nest). Sheet sprites get their own `<C>/<P>/sheet_src/<sheet>/` (so the Atlas `input/` hydrate never pulls them). `atlas/` + `batch/` sit at the project root.
 2. **Config files** — kept separate (`atlas_config.json` + `sheet_config.json`); zero collision, smaller diff.
 3. **Cross-tool editing** — share `manifests/` now; widen the hydrate to the whole tree later if needed.
-4. **Spines** — folded into `<C>/<P>/spines/` + cross-project `_shared/spines/`. Legacy pre-isolation prefixes (e.g. `spines/hotfruits`) need an explicit `--legacy-spine` map at migration time.
+4. **Rigs** — folded into `<C>/<P>/spines/` + cross-project `_shared/spines/`. Legacy pre-isolation prefixes (e.g. `spines/hotfruits`) need an explicit `--legacy-rig` map at migration time.
 5. **Slug hyphen bug** — fixed as part of this work: a single canonical `r2_slug` (lowercase, non-alphanumerics → `_`, 60-char cap) in `iw_common.context`, the launcher (`r2Slug`), `seed_r2.py` and the migration script — all byte-identical.
 6. **Sequencing** — game-cards (needs DB password) + atlas→game live-assets sync remain parked behind this.
 
@@ -246,7 +246,7 @@ the deploy and unset the flag; data is untouched.
 
 **Code — DONE, builds/compiles clean** (not yet committed/deployed):
 - Python: `iw_common/context.py` (r2_slug + project_prefix), both `cloud_paths.py`, `atlas-tool/{ui_server,batch_atlas}.py`, `sheet-tool/sheet_server.py`, `atlas-tool/seed_r2.py`.
-- Launcher: `projectPaths.ts` (r2Slug + projectPrefix + SUB), `toolScope.ts`, `projectScaffold.ts`, `spine.ts`, `projectAssets.ts`, `editorRegions.ts`, `scripts/r2-sync-spines.mjs`.
+- Launcher: `projectPaths.ts` (r2Slug + projectPrefix + SUB), `toolScope.ts`, `projectScaffold.ts`, `rig.ts`, `projectAssets.ts`, `editorRegions.ts`, `scripts/r2-sync-rigs.mjs`.
 - Migration: `scripts/migrate-r2-unified-repo.py` (dry-run default; `--apply`, `--verify`, `--phase-b --i-verified-cutover`).
 
 **Remaining (needs R2 creds + a deploy window):** run Phase A dry-run → `--apply` → deploy code + restart tools → smoke-test → `--phase-b`. See §6.

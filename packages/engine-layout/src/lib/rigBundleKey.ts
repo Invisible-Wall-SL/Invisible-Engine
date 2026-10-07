@@ -4,7 +4,7 @@
  *
  * Shared by every rig-timeline registry (`registerRigFx`, `registerRigFlipbooks`) because they all
  * face the SAME two callers with two different key shapes: `LayoutNodeView` passes the bare folder
- * (`resolveSpineKeysForGame` already rewrote an editor-placed spine node's `assetKey` down to it),
+ * (`resolveRigKeysForGame` already rewrote an editor-placed rig node's `assetKey` down to it),
  * while a rig shipped through the Symbols State Machine may still carry the FULL R2 bundle prefix
  * (`<client>/<project>/spines/<folder>/`). Same precedent as `EffectLayer`'s `bundleFolderOf` for
  * `skeletonParticle.skeletonKey` (see invisible-fx.md §9).

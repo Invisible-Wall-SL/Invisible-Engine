@@ -4,7 +4,7 @@
 // AnimationState does, what a leftover track does. It has NO PIXI RENDER LOOP, so it cannot
 // prove that a posed skeleton produces a CHANGED FRAME.
 //
-// That gap shipped a real bug: `<CinematicActor>` set `spine.autoUpdate = false` (the obvious
+// That gap shipped a real bug: `<CinematicActor>` set `rig.autoUpdate = false` (the obvious
 // reading of "we drive the pose ourselves"), which stops Pixi running its own update+render pass.
 // Bones moved every frame and nothing was ever re-uploaded — rigs appeared, frozen in setup pose,
 // in the first real game mount. `autoUpdate` must stay ON; an emptied AnimationState is inert
@@ -37,9 +37,9 @@
 //
 // THE INTEGRATION CONTRACT (this is the shape the `<Cinematic>` component must use):
 //
-//   // autoUpdate stays ON (the default): the Spine is registered ONCE on Ticker.shared
-//   spine.state.clearTracks();         // see "leftover tracks" below
-//   spine.beforeUpdateWorldTransforms = () => evaluateActor(SPINE, actor, t, resolveClip);
+//   // autoUpdate stays ON (the default): the rig is registered ONCE on Ticker.shared
+//   rig.state.clearTracks();         // see "leftover tracks" below
+//   rig.beforeUpdateWorldTransforms = () => evaluateActor(RIG, actor, t, resolveClip);
 //   // each tick: update(dt) → state.update → skeleton.update(physics) → OUR HOOK
 //   //   → updateWorldTransform → slot objects → view dirty
 //
@@ -58,7 +58,7 @@
 //
 // LEFTOVER TRACKS ARE NOT A POSE HAZARD BUT ARE AN EVENT HAZARD — because our evaluator opens
 // with `setToSetupPose()`, anything `state.apply` wrote is discarded, so the POSE is safe. But
-// `state.apply` still FIRES THE CLIP'S SPINE EVENTS every frame (proved below), which would
+// `state.apply` still FIRES THE CLIP'S RIG EVENTS every frame (proved below), which would
 // spray phantom FX/sound cues through the game's event bus. `clearTracks()` is mandatory, and
 // the reason is events, not pose — worth knowing when someone later "optimises" it away.
 //
@@ -67,11 +67,11 @@
 
 import { readFileSync } from 'node:fs';
 import { evaluateActor } from '../../packages/engine-cinematic/src/cinematicEval.js';
-import { RIG_CORE, rigPixi } from './spine.mjs';
+import { RIG_CORE, rigPixi } from './rig.mjs';
 
-const SPINE = await import(RIG_CORE);
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, AnimationState, AnimationStateData, MixBlend, MixDirection, Physics } = SPINE;
-const spineNs = { MixBlend, MixDirection, Physics };
+const RIG = await import(RIG_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, AnimationState, AnimationStateData, MixBlend, MixDirection, Physics } = RIG;
+const rigNs = { MixBlend, MixDirection, Physics };
 
 let pass = 0;
 let fail = 0;
@@ -123,7 +123,7 @@ section('A. Behavioural — the evaluator survives RigView\'s update sequence');
 // =========================================================================
 {
 	// The evaluator's pose, standing alone (the reference).
-	evaluateActor(spineNs, actor, 2.4, resolveClip);
+	evaluateActor(rigNs, actor, 2.4, resolveClip);
 	const reference = poseSnapshot(skeleton);
 
 	// Replay `RigView.update(dt)` exactly, with the evaluator installed as
@@ -137,7 +137,7 @@ section('A. Behavioural — the evaluator survives RigView\'s update sequence');
 		skeleton.updateWorldTransform(Physics.update);
 	};
 
-	replayUpdateAndApplyState(1 / 60, 2.4, () => evaluateActor(spineNs, actor, 2.4, resolveClip));
+	replayUpdateAndApplyState(1 / 60, 2.4, () => evaluateActor(rigNs, actor, 2.4, resolveClip));
 	ok('pose survives the full update sequence, bit-for-bit', poseEqual(poseSnapshot(skeleton), reference));
 
 	// An empty AnimationState must not touch the skeleton at all.
@@ -153,10 +153,10 @@ section('A. Behavioural — the evaluator survives RigView\'s update sequence');
 	const dirty = new AnimationState(new AnimationStateData(skeletonData));
 	dirty.setAnimation(0, 'mega_win_idle', true);
 	dirty.update(0.5);
-	replayUpdateAndApplyState(1 / 60, 2.4, () => evaluateActor(spineNs, actor, 2.4, resolveClip));
+	replayUpdateAndApplyState(1 / 60, 2.4, () => evaluateActor(rigNs, actor, 2.4, resolveClip));
 	ok('a leftover AnimationState track cannot corrupt the pose', poseEqual(poseSnapshot(skeleton), reference));
 
-	// … but it DOES keep firing the clip's spine events — the real reason to clearTracks().
+	// … but it DOES keep firing the clip's rig events — the real reason to clearTracks().
 	const heard = [];
 	dirty.addListener({ event: (_entry, ev) => heard.push(ev.data.name) });
 	const evAnim = [...skeletonData.animations].find((a) => a.timelines.some((tl) => tl.constructor.name.includes('Event')));
@@ -184,17 +184,17 @@ section('A. Behavioural — the evaluator survives RigView\'s update sequence');
 	// Determinism holds through the integration too: scrub vs play, via the same sequence.
 	const scrubbed = new Map();
 	for (const t of [3.1, 0.4, 2.0, 1.45, 5.9]) {
-		replayUpdateAndApplyState(0, t, () => evaluateActor(spineNs, actor, t, resolveClip));
+		replayUpdateAndApplyState(0, t, () => evaluateActor(rigNs, actor, t, resolveClip));
 		scrubbed.set(t, poseSnapshot(skeleton));
 	}
 	let drift = 0;
 	for (let t = 0; t <= 6; t += 1 / 60) {
 		const tt = Number(t.toFixed(6));
-		replayUpdateAndApplyState(1 / 60, tt, () => evaluateActor(spineNs, actor, tt, resolveClip));
+		replayUpdateAndApplyState(1 / 60, tt, () => evaluateActor(rigNs, actor, tt, resolveClip));
 		if (scrubbed.has(tt) && !poseEqual(poseSnapshot(skeleton), scrubbed.get(tt))) drift++;
 	}
 	for (const [t, ref] of scrubbed) {
-		replayUpdateAndApplyState(1 / 60, t, () => evaluateActor(spineNs, actor, t, resolveClip));
+		replayUpdateAndApplyState(1 / 60, t, () => evaluateActor(rigNs, actor, t, resolveClip));
 		if (!poseEqual(poseSnapshot(skeleton), ref)) drift++;
 	}
 	ok('scrub === play through the pixi update sequence', drift === 0, `${drift} drifted samples`);
@@ -264,7 +264,7 @@ section('C. Ticker — the real RigView on the real Ticker.shared (what <Cinemat
 
 	view.autoUpdate = false;
 	tick();
-	ok('`autoUpdate = false` detaches it from Ticker.shared (spineBacking, the FX stage)', registered() === 0 && updates === 2, `${registered()} registrations, ${updates} updates`);
+	ok('`autoUpdate = false` detaches it from Ticker.shared (rigBacking, the FX stage)', registered() === 0 && updates === 2, `${registered()} registrations, ${updates} updates`);
 	view.update(1 / 60);
 	ok('`update(dt)` still drives it by hand once detached', updates === 3 && hooks === 3);
 

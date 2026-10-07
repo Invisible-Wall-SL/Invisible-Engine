@@ -163,10 +163,10 @@
   #list { flex:1; min-height:0; overflow:auto; }
   .item { padding:7px 14px; border-bottom:1px solid #2a2e36; cursor:pointer; }
   .item:hover { background:var(--panel2); }
-  /* Load-spine modal (+ animation-library / compatibility modals share .rigModal) */
-  #spineModal, .rigModal { position:fixed; inset:0; z-index:60; display:none; background:rgba(0,0,0,.55);
+  /* Load-rig modal (+ animation-library / compatibility modals share .rigModal) */
+  #rigModal, .rigModal { position:fixed; inset:0; z-index:60; display:none; background:rgba(0,0,0,.55);
     align-items:flex-start; justify-content:center; }
-  #spineModal.open, .rigModal.open { display:flex; }
+  #rigModal.open, .rigModal.open { display:flex; }
   .modal-box { margin-top:8vh; width:min(560px,92vw); max-height:80vh; display:flex; flex-direction:column;
     background:var(--panel); border:1px solid var(--line); border-radius:10px; box-shadow:0 10px 40px rgba(0,0,0,.5);
     padding:12px 14px; }
@@ -348,7 +348,7 @@
 <script>
 // Unified tool bar: render the role-gated switcher the launcher baked into the
 // URL (`?home` = emblem target, `?tools` = [{id,name,url}]). Icon set mirrors
-// roles.ts TOOL_ICONS by id. Keep in sync with $lib/ToolTopBar.svelte + spine view.html.
+// roles.ts TOOL_ICONS by id. Keep in sync with $lib/ToolTopBar.svelte + rig view.html.
 (function () {
   var qp = new URLSearchParams(location.search);
   var home = qp.get('home');
@@ -445,7 +445,7 @@
     <div class="row" id="rowRigManage">
       <div style="display:flex;gap:6px;">
         <button id="newRigBtn" style="flex:1;">＋ New rig</button>
-        <button id="loadSpineBtn" style="flex:1;">⤓ Load spine <span id="count" class="pill"></span></button>
+        <button id="loadRigBtn" style="flex:1;">⤓ Load rig <span id="count" class="pill"></span></button>
       </div>
       <button id="refreshR2Btn" title="Re-read the rig list (and reload the open rig) fresh from R2, bypassing the browser cache" style="margin-top:6px;width:100%;font-size:11px;">↻ Refresh from R2</button>
       <div style="display:flex;gap:6px;margin-top:6px;">
@@ -473,11 +473,11 @@
         <div id="newRigNote" class="pill" style="margin-top:5px;"></div>
       </div>
     </div>
-    <!-- outline: the rig's structure (skeleton list lives in the Load-spine modal) -->
+    <!-- outline: the rig's structure (skeleton list lives in the Load-rig modal) -->
     <div id="outline">
       <div id="insHead">
         <b id="insName">No rig loaded</b>
-        <small id="insSub">＋ New rig or ⤓ Load spine to begin</small>
+        <small id="insSub">＋ New rig or ⤓ Load rig to begin</small>
       </div>
       <details class="sec" id="secBones" open>
         <summary>Bone hierarchy <span class="pill" id="cBones"></span></summary>
@@ -577,7 +577,7 @@
         <button id="delKey" title="Delete the selected bone's key at the playhead">✕ Key</button>
       </div>
       <div class="grp" id="grpRigFile">
-        <button id="exportBtn" title="Download the skeleton as .irig (Spine 4.2 JSON)" disabled>⤓ .irig</button>
+        <button id="exportBtn" title="Download the skeleton as .irig (4.2-format JSON)" disabled>⤓ .irig</button>
         <button id="saveBtn" title="Save to the project in R2 (as a re-openable .irig)" disabled>💾 Save</button>
         <button id="histBtn" title="Earlier saved versions of this rig — restore one" disabled>🕘</button>
       </div>
@@ -596,14 +596,14 @@
     <div id="cineProps" style="display:none;"></div>
   </aside>
 
-  <!-- Load-spine modal: the project's skeleton list -->
-  <div id="spineModal">
+  <!-- Load-rig modal: the project's skeleton list -->
+  <div id="rigModal">
     <div class="modal-box">
       <div class="modal-head">
-        <b>Load a spine <span id="count2" class="pill"></span></b>
+        <b>Load a rig <span id="count2" class="pill"></span></b>
         <span style="flex:1;"></span>
         <button id="rescan" style="padding:1px 8px;font-size:11px;">rescan</button>
-        <button id="spineModalClose" style="padding:1px 8px;">✕</button>
+        <button id="rigModalClose" style="padding:1px 8px;">✕</button>
       </div>
       <input type="text" id="filter" placeholder="filter…" style="margin:0 0 8px;">
       <div id="list"></div>
@@ -749,7 +749,7 @@
 const $ = s => document.querySelector(s);
 function showLoading(msg){ const o = $("#loadingMsg"); if (o) o.textContent = msg || "Loading…"; const ov = $("#loadingOverlay"); if (ov) ov.classList.add("on"); }
 function hideLoading(){ const ov = $("#loadingOverlay"); if (ov) ov.classList.remove("on"); }
-let SPINE = null, loadedLine = null;
+let RIG = null, loadedLine = null;
 let gl, renderer, assetMgr;
 let skeleton, animState, skeletonData, lastFrame = 0;
 let playing = true, looping = true, showBones = true, pma = true, preferPng = true;
@@ -903,17 +903,17 @@ const repairKey = (r) => JSON.stringify([selected ? selected.skeleton_file : "",
 // class-name substring (which also tolerates a build that prefixes or mangles class names).
 function isRegionAtt(a){
   if (!a) return false;
-  if (SPINE && SPINE.RegionAttachment && a instanceof SPINE.RegionAttachment) return true;
+  if (RIG && RIG.RegionAttachment && a instanceof RIG.RegionAttachment) return true;
   return /Region/.test((a.constructor && a.constructor.name) || "");
 }
 function isMeshAtt(a){
   if (!a) return false;
-  if (SPINE && SPINE.MeshAttachment && a instanceof SPINE.MeshAttachment) return true;
+  if (RIG && RIG.MeshAttachment && a instanceof RIG.MeshAttachment) return true;
   return /Mesh/.test((a.constructor && a.constructor.name) || "");
 }
 function isPathAtt(a){
   if (!a) return false;
-  if (SPINE && SPINE.PathAttachment && a instanceof SPINE.PathAttachment) return true;
+  if (RIG && RIG.PathAttachment && a instanceof RIG.PathAttachment) return true;
   return /Path/.test((a.constructor && a.constructor.name) || "");
 }
 // §18.9 extra attachment types. The vendored runtime is MINIFIED so constructor.name is mangled
@@ -922,17 +922,17 @@ function isPathAtt(a){
 // generic mesh path: isLinkedMeshAtt narrows on getParentMesh()/parentMesh.
 function isPointAtt(a){
   if (!a) return false;
-  if (SPINE && SPINE.PointAttachment && a instanceof SPINE.PointAttachment) return true;
+  if (RIG && RIG.PointAttachment && a instanceof RIG.PointAttachment) return true;
   return /Point/.test((a.constructor && a.constructor.name) || "");
 }
 function isBoundingBoxAtt(a){
   if (!a) return false;
-  if (SPINE && SPINE.BoundingBoxAttachment && a instanceof SPINE.BoundingBoxAttachment) return true;
+  if (RIG && RIG.BoundingBoxAttachment && a instanceof RIG.BoundingBoxAttachment) return true;
   return /BoundingBox/.test((a.constructor && a.constructor.name) || "");
 }
 function isClippingAtt(a){
   if (!a) return false;
-  if (SPINE && SPINE.ClippingAttachment && a instanceof SPINE.ClippingAttachment) return true;
+  if (RIG && RIG.ClippingAttachment && a instanceof RIG.ClippingAttachment) return true;
   return /Clipping/.test((a.constructor && a.constructor.name) || "");
 }
 function isLinkedMeshAtt(a){
@@ -945,11 +945,11 @@ function isLinkedMeshAtt(a){
 // `line` (the export's version) is recorded but no longer picks a script.
 function loadRuntime(line){
   return new Promise((resolve, reject) => {
-    if (window.spine){ SPINE = window.spine; loadedLine = line; return resolve(); }
+    if (window.invisibleRig){ RIG = window.invisibleRig; loadedLine = line; return resolve(); }
     const s = document.createElement("script");
     const _v = new URLSearchParams(location.search).get("v");
-    s.src = "/spine/vendor/invisible-rig.js" + (_v ? "?v=" + encodeURIComponent(_v) : "");
-    s.onload = () => { SPINE = window.spine; loadedLine = line; resolve(); };
+    s.src = "/rig-viewer/vendor/invisible-rig.js" + (_v ? "?v=" + encodeURIComponent(_v) : "");
+    s.onload = () => { RIG = window.invisibleRig; loadedLine = line; resolve(); };
     s.onerror = () => reject(new Error("Failed to load the rig runtime"));
     document.head.appendChild(s);
   });
@@ -1043,15 +1043,15 @@ function ensureFxOverlay(bandKey){
 let cineLoading = null, cineFailed = false;
 
 /**
- * The spine runtime + GL context are created lazily by `selectSkeleton`, but cinematic mode is
+ * The rig runtime + GL context are created lazily by `selectSkeleton`, but cinematic mode is
  * reachable with NO rig open — so it must boot them itself or every cast fails with a null
- * `SPINE`. (Found live: casting a rig from a cold /rigger threw "Cannot read properties of null
+ * `RIG`. (Found live: casting a rig from a cold /rigger threw "Cannot read properties of null
  * (reading 'AssetManager')".) `DEFAULT_RUNTIME` matches what a rig entry would ask for; a rig
  * on the 4.1 line still opens normally through `selectSkeleton`'s own reload path.
  */
 const DEFAULT_RUNTIME = "4.2";
 async function ensureStageRuntime(){
-  if (!SPINE) await loadRuntime(loadedLine || DEFAULT_RUNTIME);
+  if (!RIG) await loadRuntime(loadedLine || DEFAULT_RUNTIME);
   if (!gl) initGL();
 }
 
@@ -1079,12 +1079,12 @@ function ensureCinematic(){
 
 /**
  * Everything cinematic.js is allowed to reach — explicit, so it holds no hidden globals.
- * `SPINE` MUST be a getter, not a captured value: the runtime is loaded lazily (loadRuntime),
- * so a bridge built before the first rig opens would freeze `SPINE` at null forever.
+ * `RIG` MUST be a getter, not a captured value: the runtime is loaded lazily (loadRuntime),
+ * so a bridge built before the first rig opens would freeze `RIG` at null forever.
  */
 function cinematicBridge(){
   return {
-    get SPINE(){ return SPINE; },
+    get RIG(){ return RIG; },
     renderer: () => renderer,
     pma: () => pma,
     playSpeed: () => playSpeed,
@@ -1180,8 +1180,8 @@ function cinematicBridge(){
  * case a flatten-to-one-rig bake could never express (design §3 decision 2).
  */
 async function loadRigData(entry){
-  const base = "/spine/file?dir=" + encodeURIComponent(entry.dir_b64) + (preferPng ? "&pp=1" : "") + "&name=";
-  const am = new SPINE.AssetManager(gl, base);
+  const base = "/rig-viewer/file?dir=" + encodeURIComponent(entry.dir_b64) + (preferPng ? "&pp=1" : "") + "&name=";
+  const am = new RIG.AssetManager(gl, base);
   am.loadTextureAtlas(entry.atlas_file);
   if (entry.format === "skel") am.loadBinary(entry.skeleton_file);
   else am.loadJson(entry.skeleton_file);
@@ -1206,8 +1206,8 @@ async function loadRigData(entry){
   try {
     const loader = makeAttachmentLoader(atlas);
     return entry.format === "skel"
-      ? new SPINE.SkeletonBinary(loader).readSkeletonData(new Uint8Array(am.require(entry.skeleton_file)))
-      : new SPINE.SkeletonJson(loader).readSkeletonData(am.require(entry.skeleton_file));
+      ? new RIG.SkeletonBinary(loader).readSkeletonData(new Uint8Array(am.require(entry.skeleton_file)))
+      : new RIG.SkeletonJson(loader).readSkeletonData(am.require(entry.skeleton_file));
   } finally { missingArt = keep; }
 }
 
@@ -1235,10 +1235,10 @@ async function loadRigData(entry){
 async function openRigForTweak(entry){
   if (!entry) return "that rig is not in this project";
   if (selected && selected.dir_b64 === entry.dir_b64 && rawDoc) return null; // already the open rig
-  // A rig on a different spine LINE makes selectSkeleton reload the page — which would drop the
+  // A rig on a different rig LINE makes selectSkeleton reload the page — which would drop the
   // cinematic mid-edit. Refuse with the reason instead of losing the document.
   if (loadedLine && entry.runtime !== loadedLine)
-    return "“" + (entry.name || "that rig") + "” needs the spine " + entry.runtime + " runtime and this page has "
+    return "“" + (entry.name || "that rig") + "” needs the rig " + entry.runtime + " runtime and this page has "
       + loadedLine + " loaded — open it from the rig list first, then tweak";
   if (dirty && !window.confirm("The open rig has unsaved changes.\n\nTweaking “" + (entry.name || "") + "” opens a different rig and discards them. Continue?"))
     return "cancelled — the open rig still has unsaved changes";
@@ -1480,20 +1480,20 @@ function tweakAfter(cineTime, outside){
 // World→screen projection — EXACTLY what #bonemark uses (updateBoneMarker).
 function fxProject(worldX, worldY){
   const cv = $("#cv"), dpr = window.devicePixelRatio || 1;
-  const v = new SPINE.Vector3(worldX, worldY, 0);
+  const v = new RIG.Vector3(worldX, worldY, 0);
   renderer.camera.worldToScreen(v, cv.width, cv.height); // -> device px, y-up
   return { x: v.x / dpr, y: cv.clientHeight - v.y / dpr };
 }
 // Bone → on-screen affine transform (CSS px): origin + the projected images of its local +X/+Y axes,
 // so an effect rides the bone's position + ROTATION + per-axis SCALE (not just its origin), matching
-// the game's <SpineBoneAttach followRotation followScale>. Numerical basis (the camera projection is a
+// the game's <RigBoneAttach followRotation followScale>. Numerical basis (the camera projection is a
 // general zoom/pan/flip): map the bone's world axes (b.a,b.c)/(b.b,b.d) through fxProject and diff.
 // `boneName` falsy ⇒ rig origin (root bone). Guards nulls → null.
 /**
  * Which bone hosts a binding's burst. The explicit `bone` wins; otherwise a SLOT binding is hosted by
  * that slot's own bone (a slot is a bone plus a depth, so "draw it at the head slot" means "at the
  * head"), and a plain binding by the rig origin. Mirrors `<RiggedEffect>`, where the same rule falls
- * out of spine driving the slotted container — stated explicitly here because this stage has to
+ * out of rig driving the slotted container — stated explicitly here because this stage has to
  * compute the projection itself.
  */
 function fxHostBone(fx){
@@ -1549,7 +1549,7 @@ function fxBoneTransform(boneName){
  * between the two modes that preview FX.
  *
  * ANIMATE authors against `curAnim`/`animTime` (the tool's own playhead). PREVIEW plays through the
- * spine runtime instead, so the truth is the track entry: its animation name and its WRAPPED
+ * rig runtime instead, so the truth is the track entry: its animation name and its WRAPPED
  * `trackTime`. Reading the live entry (not `curAnim`) also means a clip changed underneath us — via
  * the Anim picker or a mix — is seen here, and `updateFxPreview` clears the old clip's bursts.
  * Returns null in setup/cinematic, or with no rig open.
@@ -1764,7 +1764,7 @@ function initGL(){
   applyStageBg();
   const cv = $("#cv");
   // `premultipliedAlpha: TRUE` because that is what this canvas actually contains: `premultiplyAtlas`
-  // uploads every page with UNPACK_PREMULTIPLY_ALPHA_WEBGL and `pma` is on, so spine blends
+  // uploads every page with UNPACK_PREMULTIPLY_ALPHA_WEBGL and `pma` is on, so rig blends
   // premultiplied. Declaring `false` told the browser to multiply by alpha a SECOND time when
   // compositing — which was invisible only because the frame buffer was cleared to alpha 1, where
   // premultiplied and straight are identical. It stops being invisible the moment we clear
@@ -1772,8 +1772,8 @@ function initGL(){
   // darkened a half-alpha pixel by 50/255; this one reproduces the opaque render to within rounding).
   gl = cv.getContext("webgl", {alpha:true, premultipliedAlpha:true})
     || cv.getContext("experimental-webgl");
-  renderer = new SPINE.SceneRenderer(cv, gl);
-  assetMgr = new SPINE.AssetManager(gl);
+  renderer = new RIG.SceneRenderer(cv, gl);
+  assetMgr = new RIG.AssetManager(gl);
 }
 
 function resizeCanvas(){
@@ -1786,8 +1786,8 @@ function resizeCanvas(){
 }
 
 function updateWorld(){
-  if (SPINE.Physics && SPINE.Physics.update !== undefined)
-    skeleton.updateWorldTransform(SPINE.Physics.update);
+  if (RIG.Physics && RIG.Physics.update !== undefined)
+    skeleton.updateWorldTransform(RIG.Physics.update);
   else
     skeleton.updateWorldTransform();
 }
@@ -1870,10 +1870,10 @@ async function selectSkeleton(entry){
   rigEtag = undefined; rigProjectKey = curProjectKey;
   closeRig("loading…");
   renderList();
-  closeSpineModal();
+  closeRigModal();
   clearErr();
   showLoading("Loading " + (entry.name || "skeleton") + "…");
-  $("#rt").textContent = "runtime " + entry.runtime + (entry.version ? " · spine " + entry.version : "");
+  $("#rt").textContent = "runtime " + entry.runtime + (entry.version ? " · rig " + entry.version : "");
   try {
     await loadRuntime(entry.runtime);
     if (gen !== rigGen) return false;
@@ -1884,9 +1884,9 @@ async function selectSkeleton(entry){
     // the TAB's (the one whose list the rig was picked from): if the session moved to another project
     // in a different tab, the save answers scope-mismatch instead of writing into that one.
     if (pre){ rigEtag = pre.etag; rigProjectKey = curProjectKey || pre.projectKey; }
-    const base = "/spine/file?dir=" + encodeURIComponent(entry.dir_b64) + (preferPng ? "&pp=1" : "")
+    const base = "/rig-viewer/file?dir=" + encodeURIComponent(entry.dir_b64) + (preferPng ? "&pp=1" : "")
       + "&v=" + Date.now() + "&name=";
-    const am = assetMgr = new SPINE.AssetManager(gl, base);
+    const am = assetMgr = new RIG.AssetManager(gl, base);
     am.loadTextureAtlas(entry.atlas_file);
     if (entry.format === "skel") am.loadBinary(entry.skeleton_file);
     else am.loadJson(entry.skeleton_file);
@@ -1922,8 +1922,8 @@ function waitAssets(am){
   });
 }
 
-// Premultiply straight-alpha pages on upload (mirrors the Spine Viewer; fixes
-// white halos on additive attachments). See spine/view.html for the full why.
+// Premultiply straight-alpha pages on upload (mirrors the Rig Viewer; fixes
+// white halos on additive attachments). See rig/view.html for the full why.
 function premultiplyAtlas(atlas){
   if (!gl || !atlas || !atlas.pages) return;
   atlas.pages.forEach(p => {
@@ -1942,7 +1942,7 @@ function premultiplyAtlas(atlas){
 function placeholderRegion(atlas, path){
   const page = atlas && atlas.pages && atlas.pages[0];
   if (!page) return null; // no page at all → caller leaves region null (atlas-less load)
-  const r = new SPINE.TextureAtlasRegion(page, path);
+  const r = new RIG.TextureAtlasRegion(page, path);
   // The ctor registers the region on page.regions; detach it so placeholders neither
   // accumulate across rebuilds nor become findable (a re-point must still see it missing).
   if (page.regions){ const i = page.regions.indexOf(r); if (i >= 0) page.regions.splice(i, 1); }
@@ -1960,10 +1960,10 @@ function placeholderRegion(atlas, path){
 // (or none) — its attachments resolve later, one re-point at a time. Region/mesh names that
 // DO resolve go through the stock loader unchanged.
 function makeAttachmentLoader(atlas){
-  const base = new SPINE.AtlasAttachmentLoader(atlas);
+  const base = new RIG.AtlasAttachmentLoader(atlas);
   const loader = Object.create(base);
   const found = (path) => !!(atlas.findRegion && atlas.findRegion(path));
-  // A SEQUENCE frame that is missing is worse than a missing image: Spine's own `loadSequence`
+  // A SEQUENCE frame that is missing is worse than a missing image: the runtime's own `loadSequence`
   // THROWS on the first one it cannot find, and the whole rig then fails to open — there is no
   // banner to repair it from, and no way back except hand-editing the JSON. Measured against the
   // official loader (tools/rigger-spike/sequence.mjs): a `count` one too high, an off-by-one
@@ -1991,7 +1991,7 @@ function makeAttachmentLoader(atlas){
   loader.newRegionAttachment = function(skin, name, path, sequence){
     if (sequence == null && !found(path)){
       missingArt.push({ name, path, type: "image" });
-      const att = new SPINE.RegionAttachment(name, path);
+      const att = new RIG.RegionAttachment(name, path);
       const ph = placeholderRegion(atlas, path);
       if (ph) att.region = ph; // the JSON reader calls updateRegion() once size is set
       return att;
@@ -2001,7 +2001,7 @@ function makeAttachmentLoader(atlas){
   loader.newMeshAttachment = function(skin, name, path, sequence){
     if (sequence == null && !found(path)){
       missingArt.push({ name, path, type: "mesh" });
-      const att = new SPINE.MeshAttachment(name, path);
+      const att = new RIG.MeshAttachment(name, path);
       const ph = placeholderRegion(atlas, path);
       if (ph) att.region = ph; // the JSON reader calls updateRegion() once UVs are read
       return att;
@@ -2066,14 +2066,14 @@ function buildSkeleton(entry){
   missingArt = [];
   const loader = makeAttachmentLoader(atlas);
   if (entry.format === "skel"){
-    const bin = new SPINE.SkeletonBinary(loader);
+    const bin = new RIG.SkeletonBinary(loader);
     skeletonData = bin.readSkeletonData(new Uint8Array(assetMgr.require(entry.skeleton_file)));
   } else {
-    const sj = new SPINE.SkeletonJson(loader);
+    const sj = new RIG.SkeletonJson(loader);
     skeletonData = sj.readSkeletonData(assetMgr.require(entry.skeleton_file));
   }
-  skeleton = new SPINE.Skeleton(skeletonData);
-  animState = new SPINE.AnimationState(new SPINE.AnimationStateData(skeletonData));
+  skeleton = new RIG.Skeleton(skeletonData);
+  animState = new RIG.AnimationState(new RIG.AnimationStateData(skeletonData));
 
   const aSel = $("#anim"); aSel.innerHTML = "";
   skeletonData.animations.forEach(a => {
@@ -2138,7 +2138,7 @@ function clearChildren(el){ while (el.firstChild) el.removeChild(el.firstChild);
 function buildInspector(entry){
   if (!skeletonData) return; // nothing built yet (e.g. a failed load) — don't deref it
   $("#insName").textContent = rigLabel(entry);
-  $("#insSub").textContent = "spine " + (entry.version || entry.runtime) + " · "
+  $("#insSub").textContent = "rig " + (entry.version || entry.runtime) + " · "
     + skeletonData.bones.length + " bones";
 
   // ---- bone hierarchy tree ----
@@ -2636,7 +2636,7 @@ function importAnimation(animation, desiredName){
     const nm = uniqueAnimName(desiredName || "animation");
     rawDoc.animations = rawDoc.animations || {};
     rawDoc.animations[nm] = JSON.parse(JSON.stringify(animation));
-    // Every reader in here treats `k.time` as a number, and Spine OMITS it at 0 — the rig load path
+    // Every reader in here treats `k.time` as a number, and rig OMITS it at 0 — the rig load path
     // normalizes for exactly that reason, but a clip arriving from the library or the clipboard
     // skipped it, so a key written that way would compare as NaN (never found, never retimed).
     normalizeKeyTimes({ animations: { [nm]: rawDoc.animations[nm] } });
@@ -2649,7 +2649,7 @@ function importAnimation(animation, desiredName){
   openCompatModal(desiredName || "animation", rep, doImport);
 }
 
-// Compatibility report modal (reuses the Load-spine modal styling): matched vs missing
+// Compatibility report modal (reuses the Load-rig modal styling): matched vs missing
 // bones/slots + Import anyway / Cancel.
 function openCompatModal(name, rep, onConfirm){
   const m = $("#compatModal"); const body = $("#compatBody");
@@ -2965,7 +2965,7 @@ async function resyncAtlas(manifestKey){
     if (!r.ok){ hideLoading(); showErr("Re-sync failed: " + r.status + " " + (await r.text())); return; }
     const j = await r.json();
     if (j && j.needsAtlas){ hideLoading(); openResyncModal(); return; }
-    // Re-select the rig: /spine/file is loaded cache-busted (v=Date.now()), so the
+    // Re-select the rig: /rig-viewer/file is loaded cache-busted (v=Date.now()), so the
     // newly written page shows the recoloured image.
     await selectSkeleton(selected);
   } catch (e){
@@ -3015,7 +3015,7 @@ function renderResyncList(){
 // A localization KEY + a font are rasterised, once per REVIEWED locale, onto a second page of
 // this rig bundle's own .atlas. From that moment the string is an ORDINARY region attachment:
 // region→mesh convert, weights, deform and keyframing all apply with no new machinery, and the
-// .irig stays byte-valid Spine 4.2. Localization is an ATTACHMENT SWAP — one attachment per
+// .irig stays byte-valid 4.2-format. Localization is an ATTACHMENT SWAP — one attachment per
 // locale, named `<id>@<locale>`, in one slot; the game picks by locale at load.
 //
 // The rasteriser itself is NOT here: it needs PIXI (to draw through the SAME BitmapText/Text
@@ -3117,7 +3117,7 @@ function textElementDrift(el){
 
   // Art the SKELETON no longer matches. `width`/`height` on a region attachment is the art's
   // natural size, and it was only ever written when the attachment was first created — so a
-  // re-bake that CHANGES that size left the old box behind and Spine scaled the new region
+  // re-bake that CHANGES that size left the old box behind and rig scaled the new region
   // straight back up into it. That cancelled the fit rule outright: the bake shrank the
   // translation's pixels and the rig stretched them right back, so the button read exactly as
   // wide as before and the fit looked like it had never run.
@@ -3644,7 +3644,7 @@ function placeTextAttachments(element, attachments){
 }
 
 /**
- * Make every non-source locale of a text element follow the source locale's MESH, as a Spine
+ * Make every non-source locale of a text element follow the source locale's MESH, as a rig
  * `linkedmesh` (same vertices / triangles / hull / weights, its own `path`, `deform: true` so
  * one deform timeline drives them all).
  *
@@ -3785,7 +3785,7 @@ function prefixRigNames(src, p){
       an.deform = skinMap;
     }
     if (an.attachments){
-      // Spine 4.2 `attachments` channel: skin → slot → attachment → {deform|sequence}.
+      // 4.2-format `attachments` channel: skin → slot → attachment → {deform|sequence}.
       // Prefix the skin + slot keys (attachment-name keys are within-slot ids, left as-is).
       const skinMap = {};
       for (const skinName of Object.keys(an.attachments)) skinMap[p + skinName] = rekey(an.attachments[skinName] || {});
@@ -4777,7 +4777,7 @@ const hasPhysics = () => !!(skeleton && skeleton.physicsConstraints && skeleton.
 function selectPc(name){ selPc = name; selIk = null; selTc = null; selPath = null; buildInspector(selected); if (animMode) renderTimeline(); }
 
 // Add a physics constraint on the selected bone, driving rotation by default (the most common
-// jiggle channel). Defaults match the runtime so the feel is Spine-native.
+// jiggle channel). Defaults match the runtime so the feel is rig-native.
 function addPhysicsConstraint(){
   if (!rawDoc || selBone == null) return;
   const bone = skeletonData.bones[selBone];
@@ -4979,7 +4979,7 @@ function renameSlot(oldName, newName){
 
 // Rename a skin, rewriting every reference to it: the linked meshes whose parent lives in it and
 // the animations' deform / sequence keys, which SkeletonJson resolves by skin name and throws on.
-// The skin named "default" keeps its name: Spine draws it when no skin is set (how the game mounts
+// The skin named "default" keeps its name: Rig draws it when no skin is set (how the game mounts
 // a rig unless a `skin` prop names one) and falls back to it for every slot another skin leaves
 // empty, so a rig without it draws nothing there.
 function renameSkin(oldName, newName){
@@ -5070,7 +5070,7 @@ function remapWeightedDeform(doc, skinName, slotName, attName, src, oldEntries){
 }
 
 // ---- setup-pose world transforms -------------------------------------------------------------
-// Spine 4.2's Bone.updateWorldTransformWith without the runtime (skeleton at the origin, scale 1),
+// 4.2-format's Bone.updateWorldTransformWith without the runtime (skeleton at the origin, scale 1),
 // so a structural edit can leave everything where the setup pose had it. A world (or any affine
 // map) is { a, b, c, d, x, y }: x' = a·x + b·y + x0, y' = c·x + d·y + y0.
 const DEG = Math.PI / 180;
@@ -5506,12 +5506,12 @@ function posedSetupWorlds(doc){
   const out = new Map(), keep = missingArt; // the loader's gaps are the rebuild's to report
   missingArt = [];
   try {
-    const sd = new SPINE.SkeletonJson(makeAttachmentLoader(assetMgr.require(selected.atlas_file))).readSkeletonData(JSON.parse(JSON.stringify(doc)));
-    const sk = new SPINE.Skeleton(sd);
+    const sd = new RIG.SkeletonJson(makeAttachmentLoader(assetMgr.require(selected.atlas_file))).readSkeletonData(JSON.parse(JSON.stringify(doc)));
+    const sk = new RIG.Skeleton(sd);
     const skin = sd.findSkin(activeSkinName()) || sd.defaultSkin;
     if (skin) sk.setSkin(skin);
     sk.setToSetupPose();
-    sk.updateWorldTransform(SPINE.Physics ? SPINE.Physics.none : undefined);
+    sk.updateWorldTransform(RIG.Physics ? RIG.Physics.none : undefined);
     for (const b of sk.bones) if (b.active) out.set(b.data.name, { a: b.a, b: b.b, c: b.c, d: b.d, x: b.worldX - sk.x, y: b.worldY - sk.y });
   } catch (e) { out.clear(); } finally { missingArt = keep; }
   return out;
@@ -5631,7 +5631,7 @@ function slotSetupImageDefs(slotName){
 // frames `<path><number>` off `path`, so re-pointing it re-aims every frame at a region that does
 // not exist and the rig no longer opens ("Region not found"). Carrying the sequence would need the
 // FX frames as their own numbered run, and the Sheet Maker writes one `<frame>_glow` per frame,
-// which no Spine sequence can name.
+// which no rig sequence can name.
 function fxRepointRefusal(slotName){
   const def = slotSetupImageDefs(slotName).find((d) => d.sequence);
   return def ? "its image is a " + (def.sequence.count || 0) + "-frame sequence, and one FX image can't stand in for its frames" : null;
@@ -5725,7 +5725,7 @@ function deleteAttachment(slotName, attName){
 }
 
 // Every attachment defined on a slot (active skin first, then default) — a slot can
-// hold MANY attachments (Spine allows this; only one shows at a time / swaps in anims).
+// hold MANY attachments (rig allows this; only one shows at a time / swaps in anims).
 function slotAttachmentList(slotName){
   if (!rawDoc) return [];
   const out = [], seen = new Set();
@@ -5804,7 +5804,7 @@ function isRawMeshDef(d){
 // the "import image" action. Creates a region attachment, sized from the atlas.
 //
 // In default it is a new attachment under the region's name and becomes the slot's setup
-// attachment. In any other skin it belongs to that skin ONLY, Spine's way: that skin's override of
+// attachment. In any other skin it belongs to that skin ONLY, rig's way: that skin's override of
 // the name the slot shows (its setup attachment), sampling the region through `path`. The setup
 // attachment stays as it was, so every other skin — default above all, which a game that sets no
 // skin draws — shows exactly what it showed; naming the new image the setup attachment instead left
@@ -5886,7 +5886,7 @@ function attachRegion(regionName){
 // only repoints its `path`. This is how you reuse a mesh/animation on a variant image
 // (_shine / _shadow …) that shares the same boundary: duplicate the slot, then replace
 // its image here rather than delete+add (which would build a fresh region attachment and
-// throw the mesh away). Spine resolves a region attachment's texture from `path` (falling
+// throw the mesh away). Rig resolves a region attachment's texture from `path` (falling
 // back to the attachment name), so setting `path` is all that changes on the wire.
 function replaceAttachmentImage(attName, regionName){
   if (!rawDoc || selSlot == null || !attName || !regionName) return;
@@ -5982,7 +5982,7 @@ async function createNewRig(){
   note.textContent = "creating…";
   showLoading("Creating rig…");
   try {
-    // Server assembles a spine bundle (synth .atlas + page copy + blank .irig). With an
+    // Server assembles a rig bundle (synth .atlas + page copy + blank .irig). With an
     // atlas → its regions are attachable; with no atlas → a 1×1 placeholder page so the
     // rig still loads (attach images later via "source…" / a slot's image dropdown).
     const payload = manifestKey ? { manifestKey, name } : { name, noAtlas: true };
@@ -6285,7 +6285,7 @@ function renderSlotDetail(){
     }
   }
 
-  // attachments on this slot — a slot can hold several (Spine allows it; only one shows
+  // attachments on this slot — a slot can hold several (rig allows it; only one shows
   // at a time). Click one to edit it; 🗑 deletes just that attachment.
   {
     const defs = slotAttachmentList(selSlot);
@@ -6686,7 +6686,7 @@ function renderSlotDetail(){
   if (drawPathMode){
     const info = document.createElement("div");
     info.innerHTML = "drawing a path: click to drop control points (" + pathDrawPts.length + ") · drag a point to nudge it · " +
-      "Spine uses <b>3 points per cubic curve</b> · <b>Enter</b>/Finish commits · <b>Esc</b> cancels";
+      "Rig uses <b>3 points per cubic curve</b> · <b>Enter</b>/Finish commits · <b>Esc</b> cancels";
     info.style.cssText = "margin:8px 0 4px;color:var(--dim);font-size:11px;line-height:1.4;";
     det.appendChild(info);
     const row = document.createElement("div"); row.style.cssText = "display:flex;gap:6px;margin-top:5px;";
@@ -6755,7 +6755,7 @@ function renderSlotDetail(){
     if (extras.children.length) det.appendChild(extras);
   }
 
-  // dark colour (two-color tinting / "tint black", Spine rgba2) — §18.4. Enabling writes
+  // dark colour (two-color tinting / "tint black", rig rgba2) — §18.4. Enabling writes
   // rawDoc.slots[i].dark (default black); clearing removes it. A slot is two-color iff `dark`
   // is present — only then can its colour animate via the rgba2 (light+dark) timeline.
   {
@@ -6764,7 +6764,7 @@ function renderSlotDetail(){
     const wrap = document.createElement("div"); wrap.style.cssText = "margin:10px 0 2px;border-top:1px solid var(--line);padding-top:8px;";
     const hdr = document.createElement("div");
     hdr.textContent = "dark colour (two-tone tint)";
-    hdr.title = "Two-color tinting (Spine rgba2 / 'tint black'): a second colour multiplied into the dark areas. Enable it to author a dark colour in setup and animate light+dark together.";
+    hdr.title = "Two-color tinting (rig rgba2 / 'tint black'): a second colour multiplied into the dark areas. Enable it to author a dark colour in setup and animate light+dark together.";
     hdr.style.cssText = "color:var(--dim);font-size:11px;margin-bottom:4px;";
     wrap.appendChild(hdr);
     const row = document.createElement("label"); row.style.cssText = "display:flex;gap:6px;align-items:center;margin:3px 0;color:var(--dim);font-size:11px;";
@@ -6783,7 +6783,7 @@ function renderSlotDetail(){
     det.appendChild(wrap);
   }
 
-  // blend mode (Spine slot `blend`) — §18.5. Setup-only (Spine has no blend timeline). Writes
+  // blend mode (rig slot `blend`) — §18.5. Setup-only (rig has no blend timeline). Writes
   // rawDoc.slots[i].blend = "additive"|"multiply"|"screen"; Normal removes the field (the loader
   // defaults absent → BlendMode.Normal) so a Normal slot stays byte-identical.
   {
@@ -6791,7 +6791,7 @@ function renderSlotDetail(){
     const wrap = document.createElement("div"); wrap.style.cssText = "margin:10px 0 2px;border-top:1px solid var(--line);padding-top:8px;";
     const hdr = document.createElement("div");
     hdr.textContent = "blend mode";
-    hdr.title = "Spine slot blend mode (additive / multiply / screen). Normal is the default and writes no data. Setup-only — blend mode is not animated by a timeline in Spine.";
+    hdr.title = "Rig slot blend mode (additive / multiply / screen). Normal is the default and writes no data. Setup-only — blend mode is not animated by a timeline in rig.";
     hdr.style.cssText = "color:var(--dim);font-size:11px;margin-bottom:4px;";
     wrap.appendChild(hdr);
     const sel = document.createElement("select");
@@ -6836,7 +6836,7 @@ function applyAttachmentEdit(key, value){
   const att = skeleton.getAttachment(slotIndex, attName);
   if (!isRegionAtt(att)) return;
 
-  // Turning or scaling honours the image's PIVOT: Spine always rotates the quad about its own
+  // Turning or scaling honours the image's PIVOT: Rig always rotates the quad about its own
   // centre and then offsets by x/y, so holding another point still means moving x/y — we just
   // compute the offset that keeps the pivot where it is. A centred pivot cancels to a no-op, so
   // every image that never set one behaves exactly as before.
@@ -6866,13 +6866,13 @@ function applyAttachmentEdit(key, value){
 // the skeleton. Nothing here creates, moves or deletes a bone: a bone is a separate thing you add
 // deliberately, and conflating the two put `<slot>-pivot` bones into people's rigs.
 //
-// Spine has no pivot field of its own: a RegionAttachment builds its quad symmetric about its own
+// Rig has no pivot field of its own: a RegionAttachment builds its quad symmetric about its own
 // centre, rotates THAT by `rotation`, and only then offsets by `x`/`y` — which is why a fresh
 // image turns about its middle. So the pivot is stored on the attachment as `pivot: [u, v]`
 // (across, down; 0..1 of the image; absent = centred) and HONOURED when the placement changes:
 // editing rotation/scaleX/scaleY recomputes x/y so the pivot point stays where it is. The key is
 // non-standard but inert — the official 4.2 loader ignores it and the rendered geometry is
-// byte-identical (proved in tools/rigger-spike/pivot.mjs), so the .irig still opens in Spine.
+// byte-identical (proved in tools/rigger-spike/pivot.mjs), so the .irig still opens in rig.
 //
 // A mesh has no rotation/scale placement — its shape lives in its vertices — so this is a region
 // attachment feature, which is also exactly what "image pivot" means.
@@ -6907,7 +6907,7 @@ function pivotUV(ctx){
 }
 
 // (u,v) → the attachment's own offset from its image centre, BEFORE rotation/scale. v is down and
-// Spine's y is up, hence the flip.
+// The format's y is up, hence the flip.
 function pivotOffset(ctx, uv){
   const att = ctx.att;
   const w = att.width || 0, h = att.height || 0;
@@ -6915,7 +6915,7 @@ function pivotOffset(ctx, uv){
 }
 
 // Where the pivot sits in the BONE's space: the attachment's placement applied to that offset.
-// Spine scales the quad in the attachment's own axes and then rotates, so scale comes first.
+// Rig scales the quad in the attachment's own axes and then rotates, so scale comes first.
 function pivotBonePos(ctx, uv, over){
   const att = ctx.att;
   const rot = (over && over.rotation !== undefined ? over.rotation : att.rotation || 0) * Math.PI / 180;
@@ -6932,7 +6932,7 @@ function pivotBonePos(ctx, uv, over){
 // The pivot in WORLD space, for the canvas handle.
 function pivotWorldPos(ctx, uv){
   const p = pivotBonePos(ctx, uv || pivotUV(ctx));
-  return ctx.bone.localToWorld(new SPINE.Vector2(p.x, p.y));
+  return ctx.bone.localToWorld(new RIG.Vector2(p.x, p.y));
 }
 
 // Set the pivot from a world point, WITHOUT moving the art: invert the placement to recover the
@@ -6942,7 +6942,7 @@ function setPivotWorld(wx, wy){
   const att = ctx.att;
   const w = att.width || 0, h = att.height || 0;
   if (!w || !h) return;
-  const loc = ctx.bone.worldToLocal(new SPINE.Vector2(wx, wy));
+  const loc = ctx.bone.worldToLocal(new RIG.Vector2(wx, wy));
   const rot = (att.rotation || 0) * Math.PI / 180;
   const sx = att.scaleX === undefined ? 1 : att.scaleX;
   const sy = att.scaleY === undefined ? 1 : att.scaleY;
@@ -6963,7 +6963,7 @@ function setPivotUV(u, v){
   const held = pivotBonePos(ctx, pivotUV(ctx)); // where the pivot sits now — this is what holds
   if (Math.abs(u - 0.5) < 1e-6 && Math.abs(v - 0.5) < 1e-6) delete d.pivot; // centred is the default
   else d.pivot = [u, v];
-  // Spine places a region by its CENTRE, so anchoring by another point is an offset on x/y: shift
+  // Rig places a region by its CENTRE, so anchoring by another point is an offset on x/y: shift
   // the placement by however far the new pivot would otherwise have drifted from the old one.
   const moved = pivotBonePos(ctx, [u, v]);
   d.x = roundN((d.x || 0) + held.x - moved.x, 2);
@@ -7026,7 +7026,7 @@ function foldPivotBoneBack(){
 //
 // Every field is resolved against the atlas as you type, and the frame list below shows exactly
 // which regions the declaration names and whether each is there. That readout is not decoration:
-// Spine's loader THROWS on the first frame it cannot find, so a declaration that does not fully
+// The runtime's loader THROWS on the first frame it cannot find, so a declaration that does not fully
 // resolve produces a rig that will not open (see the sequence-timeline section for the measured
 // failure modes). Nothing is written until every frame resolves.
 function renderSlotSequence(det){
@@ -7048,7 +7048,7 @@ function renderSlotSequence(det){
   wrap.style.cssText = "margin:10px 0 2px;border-top:1px solid var(--line);padding-top:8px;";
   const hdr = document.createElement("div");
   hdr.textContent = "▩ image sequence";
-  hdr.title = "A flipbook: several numbered regions in the atlas played as one image. Spine names each frame <path><number> zero-padded, so the numbers must be a contiguous run at one padding.";
+  hdr.title = "A flipbook: several numbered regions in the atlas played as one image. Rig names each frame <path><number> zero-padded, so the numbers must be a contiguous run at one padding.";
   hdr.style.cssText = "color:var(--dim);font-size:11px;margin-bottom:4px;";
   wrap.appendChild(hdr);
   const note = (text, warn) => {
@@ -7103,7 +7103,7 @@ function renderSlotSequence(det){
         const bad = sequenceFrames(basePath, next).filter((f) => !f.ok);
         if (bad.length){
           alert("That would name " + bad.length + " region(s) the atlas does not have — the first is “" + bad[0].name + "”.\n\n"
-            + "Spine refuses to load a sequence with a missing frame, so this is not written.");
+            + "Rig refuses to load a sequence with a missing frame, so this is not written.");
           renderSlotDetail();
           return;
         }
@@ -7114,13 +7114,13 @@ function renderSlotSequence(det){
     return l;
   };
   wrap.appendChild(row("frames", "count", 1, "how many images the flipbook has"));
-  wrap.appendChild(row("first number", "start", 0, "the number on the FIRST region — Spine defaults this to 1, not 0"));
+  wrap.appendChild(row("first number", "start", 0, "the number on the FIRST region — rig defaults this to 1, not 0"));
   wrap.appendChild(row("digits", "digits", 0, "zero-padding width: 2 makes frame 1 read as 01"));
   wrap.appendChild(row("setup frame", "setup", 0, "which image (0-based) the setup pose shows"));
 
   if (missing.length){
     wrap.appendChild(note("⚠ " + missing.length + " of " + frames.length + " frames are not in the atlas — first missing: " + missing[0].name
-      + ". The rig still opens here (missing frames draw as a placeholder) but Spine itself refuses this. Fix the numbers, or re-sync the atlas.", true));
+      + ". The rig still opens here (missing frames draw as a placeholder) but rig itself refuses this. Fix the numbers, or re-sync the atlas.", true));
   } else {
     wrap.appendChild(note("✓ all " + frames.length + " frames resolve: " + frames[0].name + " … " + frames[frames.length - 1].name));
   }
@@ -7241,12 +7241,12 @@ function renderSlotPivot(det){
 // The pivot handle: a crosshair on the image (or under the cursor mid-drag) over a faint outline.
 function drawPivotOverlay(){
   if (!pivotMode || !editMode || !skeleton) return;
-  if (typeof renderer.circle !== "function" || !SPINE.Color) return;
+  if (typeof renderer.circle !== "function" || !RIG.Color) return;
   const ctx = pivotEditable(); if (!ctx) return;
-  const col = new SPINE.Color(1, 0.45, 0.12, 1); // orange — the green circle is the point locator
+  const col = new RIG.Color(1, 0.45, 0.12, 1); // orange — the green circle is the point locator
   const quad = slotArtQuad(ctx);
   if (quad && typeof renderer.line === "function"){
-    const faint = new SPINE.Color(1, 0.45, 0.12, 0.35);
+    const faint = new RIG.Color(1, 0.45, 0.12, 0.35);
     for (let i = 0; i < 4; i++){
       const j = (i + 1) % 4;
       renderer.line(quad[i * 2], quad[i * 2 + 1], quad[j * 2], quad[j * 2 + 1], faint);
@@ -7385,7 +7385,7 @@ function finishDrawMesh(){
   const bone = slot.bone;
   const verts = [], uvs = [], worldFlat = [];
   for (const p of drawPoints){
-    const loc = bone.worldToLocal(new SPINE.Vector2(p.x, p.y));
+    const loc = bone.worldToLocal(new RIG.Vector2(p.x, p.y));
     verts.push(loc.x, loc.y);
     const st = affineUV(corners, p.x, p.y);
     const uv = inkToImageUV(ink, st.u, st.v);
@@ -7413,9 +7413,9 @@ function cancelDrawMesh(){ drawMeshMode = false; drawPoints = []; selDrawPoint =
 
 // Draw the in-progress boundary polygon while drawing a mesh from scratch.
 function drawDrawingOverlay(){
-  if (!editMode || !drawMeshMode || !drawPoints.length || typeof renderer.circle !== "function" || !SPINE.Color) return;
-  const col = new SPINE.Color(0.49, 0.88, 0.75, 1);
-  const selCol = new SPINE.Color(1, 0.85, 0.3, 1); // selected boundary point
+  if (!editMode || !drawMeshMode || !drawPoints.length || typeof renderer.circle !== "function" || !RIG.Color) return;
+  const col = new RIG.Color(0.49, 0.88, 0.75, 1);
+  const selCol = new RIG.Color(1, 0.85, 0.3, 1); // selected boundary point
   const r = renderer.camera.zoom * 4;
   const hasLine = typeof renderer.line === "function";
   for (let i = 0; i < drawPoints.length; i++){
@@ -7498,7 +7498,7 @@ function finishDrawPath(){
   const slotIndex = skeletonData.slots.findIndex((s) => s.name === selSlot);
   const slot = skeleton.slots[slotIndex];
   const bone = slot.bone;
-  // Spine path vertexCount must be a multiple of 3 (control points come in triples per cubic
+  // Rig path vertexCount must be a multiple of 3 (control points come in triples per cubic
   // curve; the last curve of a closed path wraps to p0, an open path's tail curve is dropped).
   // Trim to the largest multiple of 3 ≤ count, min 6 (2 curves) so there's a usable spline.
   let pts = pathDrawPts.slice();
@@ -7507,7 +7507,7 @@ function finishDrawPath(){
   if (vc < 3){ done(); renderSlotDetail(); return; }
   pts = pts.slice(0, vc);
   const localFlat = [];
-  for (const p of pts){ const loc = bone.worldToLocal(new SPINE.Vector2(p.x, p.y)); localFlat.push(roundN(loc.x, 2), roundN(loc.y, 2)); }
+  for (const p of pts){ const loc = bone.worldToLocal(new RIG.Vector2(p.x, p.y)); localFlat.push(roundN(loc.x, 2), roundN(loc.y, 2)); }
   // unique attachment name on this slot (don't clobber an image attachment)
   const existing = new Set(slotAttachmentList(selSlot).map((d) => d.name));
   let attName = "path"; let i = 2; while (existing.has(attName)) attName = "path" + (i++);
@@ -7554,7 +7554,7 @@ function addPathVertex(wx, wy){
   const rd = rawDocPathEntry(); if (!rd || !pathCtx) return;
   const attName = pathCtx.attName; // capture before rebuild nulls pathCtx
   const bone = skeleton.slots[pathCtx.slotIndex].bone;
-  const loc = bone.worldToLocal(new SPINE.Vector2(wx, wy));
+  const loc = bone.worldToLocal(new RIG.Vector2(wx, wy));
   rd.vertices.push(roundN(loc.x, 2), roundN(loc.y, 2));
   rd.vertexCount = rd.vertices.length / 2;
   rd.lengths = recomputePathLengths(rd.vertices, !!rd.closed);
@@ -7612,12 +7612,12 @@ function nearestPathPoint(e){
 // Render the in-progress NEW path polyline + the SELECTED path's control points/spline on canvas.
 function drawPathOverlay(){
   if (!editMode && !animMode) return;
-  if (typeof renderer.circle !== "function" || !SPINE.Color) return;
+  if (typeof renderer.circle !== "function" || !RIG.Color) return;
   const hasLine = typeof renderer.line === "function";
   const r = renderer.camera.zoom * 4;
   // (a) drawing a brand-new path
   if (drawPathMode && pathDrawPts.length){
-    const col = new SPINE.Color(0.55, 0.78, 1, 1), selCol = new SPINE.Color(1, 0.85, 0.3, 1);
+    const col = new RIG.Color(0.55, 0.78, 1, 1), selCol = new RIG.Color(1, 0.85, 0.3, 1);
     for (let i = 0; i < pathDrawPts.length; i++){
       const p = pathDrawPts[i], isNode = i % 3 === 0; // every 3rd point is an on-curve node
       renderer.circle(true, p.x, p.y, (i === selPathPoint ? r * 1.6 : r) * (isNode ? 1.25 : 0.9), i === selPathPoint ? selCol : col, 12);
@@ -7629,7 +7629,7 @@ function drawPathOverlay(){
   if (pathCtx){
     const w = pathWorldVerts(); if (!w) return;
     const att = pathCtx.attachment;
-    const col = new SPINE.Color(0.45, 0.85, 0.7, 1), nodeCol = new SPINE.Color(0.55, 0.78, 1, 1), selCol = new SPINE.Color(1, 0.85, 0.3, 1);
+    const col = new RIG.Color(0.45, 0.85, 0.7, 1), nodeCol = new RIG.Color(0.55, 0.78, 1, 1), selCol = new RIG.Color(1, 0.85, 0.3, 1);
     const n = w.length / 2;
     if (hasLine) for (let i = 1; i < n; i++) renderer.line(w[(i - 1) * 2], w[(i - 1) * 2 + 1], w[i * 2], w[i * 2 + 1], col);
     if (hasLine && att.closed && n > 2) renderer.line(w[(n - 1) * 2], w[(n - 1) * 2 + 1], w[0], w[1], col);
@@ -7659,7 +7659,7 @@ function renderPathAttachmentEditor(det, att){
     w.appendChild(cb); w.appendChild(document.createTextNode(label)); togRow.appendChild(w);
   };
   tog("closed", !!(rd && rd.closed), "Closed loop: the last cubic curve wraps back to the first point.", setPathClosed);
-  tog("constant speed", !(rd && rd.constantSpeed === false), "Even arc-length spacing along the spline (Spine default on).", setPathConstantSpeed);
+  tog("constant speed", !(rd && rd.constantSpeed === false), "Even arc-length spacing along the spline (rig default on).", setPathConstantSpeed);
   det.appendChild(togRow);
 
   // add / remove control points
@@ -7678,13 +7678,13 @@ function renderPathAttachmentEditor(det, att){
 
   const h = document.createElement("div");
   h.innerHTML = pathAddMode
-    ? "click on the canvas to append a point — Spine paths use 3 control points per cubic curve (every 3rd is on-curve)"
+    ? "click on the canvas to append a point — rig paths use 3 control points per cubic curve (every 3rd is on-curve)"
     : "drag a control point to reshape · click to select (then － removes it) · on-curve nodes are larger";
   h.style.cssText = "margin-top:6px;color:var(--dim);font-size:11px;line-height:1.4;"; det.appendChild(h);
 
   if (att.worldVerticesLength / 2 % 3 !== 0){
     const warn = document.createElement("div");
-    warn.textContent = "⚠ control-point count is not a multiple of 3 — Spine derives curves as vertexCount/3, so trailing points are ignored. Add/remove to a multiple of 3.";
+    warn.textContent = "⚠ control-point count is not a multiple of 3 — rig derives curves as vertexCount/3, so trailing points are ignored. Add/remove to a multiple of 3.";
     warn.style.cssText = "margin-top:6px;color:var(--accent2);font-size:11px;line-height:1.4;"; det.appendChild(warn);
   }
 }
@@ -7752,7 +7752,7 @@ function startAddPoint(){
 function setPointWorld(wx, wy){
   const rd = rawDocAttEntry(pointCtx && pointCtx.attName); if (!rd || !pointCtx) return;
   const bone = skeleton.slots[pointCtx.slotIndex].bone;
-  const loc = bone.worldToLocal(new SPINE.Vector2(wx, wy));
+  const loc = bone.worldToLocal(new RIG.Vector2(wx, wy));
   rd.x = roundN(loc.x, 2); rd.y = roundN(loc.y, 2);
   if (pointCtx.attachment){ pointCtx.attachment.x = rd.x; pointCtx.attachment.y = rd.y; }
   markDirty();
@@ -7772,7 +7772,7 @@ function setPointField(key, value){
 function pointWorldPos(){
   if (!pointCtx || !pointCtx.attachment) return null;
   const bone = skeleton.slots[pointCtx.slotIndex].bone;
-  return pointCtx.attachment.computeWorldPosition(bone, new SPINE.Vector2());
+  return pointCtx.attachment.computeWorldPosition(bone, new RIG.Vector2());
 }
 
 // Editor for the selected POINT attachment: x/y/rotation fields + place-on-canvas.
@@ -7809,11 +7809,11 @@ function renderPointAttachmentEditor(det, att){
 // Draw the selected point's locator marker + rotation tick on the canvas.
 function drawPointOverlay(){
   if (!pointCtx) return;
-  if (typeof renderer.circle !== "function" || !SPINE.Color) return;
+  if (typeof renderer.circle !== "function" || !RIG.Color) return;
   const p = pointWorldPos(); if (!p) return;
   const bone = skeleton.slots[pointCtx.slotIndex].bone;
   const r = renderer.camera.zoom * 5;
-  const col = new SPINE.Color(0.38, 0.94, 0, 1); // Spine's point-attachment green
+  const col = new RIG.Color(0.38, 0.94, 0, 1); // the conventional point-attachment green
   renderer.circle(false, p.x, p.y, r, col, 20);
   renderer.circle(true, p.x, p.y, r * 0.3, col, 12);
   if (typeof renderer.line === "function"){ // rotation tick: world rotation as a short ray
@@ -7855,7 +7855,7 @@ function finishDrawPoly(){
   const slotIndex = skeletonData.slots.findIndex((s) => s.name === selSlot);
   const bone = skeleton.slots[slotIndex].bone;
   const localFlat = [];
-  for (const p of polyDrawPts){ const loc = bone.worldToLocal(new SPINE.Vector2(p.x, p.y)); localFlat.push(roundN(loc.x, 2), roundN(loc.y, 2)); }
+  for (const p of polyDrawPts){ const loc = bone.worldToLocal(new RIG.Vector2(p.x, p.y)); localFlat.push(roundN(loc.x, 2), roundN(loc.y, 2)); }
   const vc = polyDrawPts.length;
   const def = (kind === "clipping")
     ? { type: "clipping", end: selSlot, vertexCount: vc, vertices: localFlat, color: "ce3a3aff" }
@@ -7890,7 +7890,7 @@ function addPolyVertex(wx, wy){
   const rd = rawDocAttEntry(polyCtx && polyCtx.attName); if (!rd || !polyCtx) return;
   const attName = polyCtx.attName;
   const bone = skeleton.slots[polyCtx.slotIndex].bone;
-  const loc = bone.worldToLocal(new SPINE.Vector2(wx, wy));
+  const loc = bone.worldToLocal(new RIG.Vector2(wx, wy));
   rd.vertices.push(roundN(loc.x, 2), roundN(loc.y, 2));
   rd.vertexCount = rd.vertices.length / 2;
   reselectAttachment(attName);
@@ -7932,13 +7932,13 @@ function nearestPolyPoint(e){
 // a distinct (red) colour vs boundingbox (green).
 function drawPolyOverlay(){
   if (!editMode && !animMode) return;
-  if (typeof renderer.circle !== "function" || !SPINE.Color) return;
+  if (typeof renderer.circle !== "function" || !RIG.Color) return;
   const hasLine = typeof renderer.line === "function";
   const r = renderer.camera.zoom * 4;
   if (drawPolyMode && polyDrawPts.length){ // (a) drawing a brand-new polygon
     const isClip = polyKind === "clipping";
-    const col = isClip ? new SPINE.Color(0.95, 0.3, 0.3, 1) : new SPINE.Color(0.4, 0.95, 0.1, 1);
-    const selCol = new SPINE.Color(1, 0.85, 0.3, 1);
+    const col = isClip ? new RIG.Color(0.95, 0.3, 0.3, 1) : new RIG.Color(0.4, 0.95, 0.1, 1);
+    const selCol = new RIG.Color(1, 0.85, 0.3, 1);
     for (let i = 0; i < polyDrawPts.length; i++){
       const p = polyDrawPts[i];
       renderer.circle(true, p.x, p.y, i === selPolyPoint ? r * 1.6 : r, i === selPolyPoint ? selCol : col, 12);
@@ -7950,8 +7950,8 @@ function drawPolyOverlay(){
   if (polyCtx){ // (b) the selected polygon attachment
     const w = polyWorldVerts(); if (!w) return;
     const isClip = polyCtx.kind === "clipping";
-    const col = isClip ? new SPINE.Color(0.95, 0.3, 0.3, 1) : new SPINE.Color(0.4, 0.95, 0.1, 1);
-    const selCol = new SPINE.Color(1, 0.85, 0.3, 1);
+    const col = isClip ? new RIG.Color(0.95, 0.3, 0.3, 1) : new RIG.Color(0.4, 0.95, 0.1, 1);
+    const selCol = new RIG.Color(1, 0.85, 0.3, 1);
     const n = w.length / 2;
     if (hasLine) for (let i = 0; i < n; i++){ const j = (i + 1) % n; renderer.line(w[i * 2], w[i * 2 + 1], w[j * 2], w[j * 2 + 1], col); }
     for (let k = 0; k < n; k++) renderer.circle(true, w[k * 2], w[k * 2 + 1], k === selPolyPoint ? r * 1.6 : r, k === selPolyPoint ? selCol : col, 12);
@@ -8088,7 +8088,7 @@ function renderLinkedMeshEditor(det, att){
   pr.appendChild(pl); pr.appendChild(psel); det.appendChild(pr);
   const tg = document.createElement("label");
   tg.style.cssText = "display:flex;align-items:center;gap:4px;margin-top:6px;font-size:11px;color:var(--txt);cursor:pointer;";
-  tg.title = "Inherit deform: the linked mesh follows the SOURCE mesh's deform animation timelines (Spine's 'Inherit Timelines'). Off → it can have its own deform.";
+  tg.title = "Inherit deform: the linked mesh follows the SOURCE mesh's deform animation timelines (rig's 'Inherit Timelines'). Off → it can have its own deform.";
   const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = !(rd && rd.timelines === false); cb.onchange = () => setLinkedMeshInheritTimeline(cb.checked);
   tg.appendChild(cb); tg.appendChild(document.createTextNode("inherit deform (timelines)")); det.appendChild(tg);
 }
@@ -8277,7 +8277,7 @@ function cursorWorld(e){
   try {
     // camera.screenToWorld expects CANVAS-space y (top-down) and flips it internally
     // (y = height - y - 1); pass y directly — pre-flipping here would mirror the result.
-    const v = new SPINE.Vector3(x, y, 0);
+    const v = new RIG.Vector3(x, y, 0);
     renderer.camera.screenToWorld(v, cv.width, cv.height);
     return v;
   } catch { return null; }
@@ -8474,7 +8474,7 @@ function uvPanelNearestVert(p){
 }
 
 // ===== Mesh DEFORM timelines (§18.1) ========================================
-// Spine 4.2 serializes a deform timeline at
+// 4.2-format serializes a deform timeline at
 //   animations.<anim>.attachments.<skin>.<slot>.<att>.deform = [{time, offset?, vertices, curve?}, …]
 // where `vertices` is per-component DELTAS (offset 0 + full length in v1). Length + space —
 // validated against engine-rig in tools/rigger-spike/deform.mjs:
@@ -8585,13 +8585,13 @@ function sampleDeform(keys, t, len){
 // Draw the selected mesh's vertices as handles (world space, via the shape API).
 function drawMeshOverlay(){
   // shown in SETUP (geometry/weights) AND ANIMATE (drag a vertex → keys a deform) modes
-  if ((!editMode && !animMode) || !meshCtx || typeof renderer.circle !== "function" || !SPINE.Color) return;
+  if ((!editMode && !animMode) || !meshCtx || typeof renderer.circle !== "function" || !RIG.Color) return;
   const w = meshWorldVerts();
   if (!w) return;
-  const col = new SPINE.Color(0.36, 0.69, 1, 1);
-  const sel = new SPINE.Color(0.49, 0.88, 0.75, 1);
-  const edge = new SPINE.Color(0.36, 0.69, 1, 0.45);
-  const amber = new SPINE.Color(1, 0.72, 0.2, 1); // Phase 3.6b constraint edges + armed pick
+  const col = new RIG.Color(0.36, 0.69, 1, 1);
+  const sel = new RIG.Color(0.49, 0.88, 0.75, 1);
+  const edge = new RIG.Color(0.36, 0.69, 1, 0.45);
+  const amber = new RIG.Color(1, 0.72, 0.2, 1); // Phase 3.6b constraint edges + armed pick
   // triangulation wireframe
   const tris = meshCtx.attachment.triangles;
   if (tris && typeof renderer.line === "function")
@@ -8610,13 +8610,13 @@ function drawMeshOverlay(){
   // Phase 3.6c: in hull mode, trace the outline loop bright so it's clear which verts are hull
   const hull = meshHullMode && rdM ? Math.min(rdM.hull || 0, w.length / 2) : 0;
   if (hull >= 3 && typeof renderer.line === "function"){
-    const hcol = new SPINE.Color(0.55, 0.95, 0.45, 1);
+    const hcol = new RIG.Color(0.55, 0.95, 0.45, 1);
     for (let i = 0; i < hull; i++){ const j = (i + 1) % hull; renderer.line(w[i * 2], w[i * 2 + 1], w[j * 2], w[j * 2 + 1], hcol); }
   }
   // vertex handles (selected/dragged highlighted; armed edge pick = amber; hull verts ringed green)
   const r = renderer.camera.zoom * 4;
   const heatmap = weightBrush && brushBone != null;
-  const hullVert = new SPINE.Color(0.55, 0.95, 0.45, 1);
+  const hullVert = new RIG.Color(0.55, 0.95, 0.45, 1);
   for (let k = 0; k < w.length / 2; k++){
     const c = k === edgePickFirst ? amber
       : k === selMeshVert || k === meshDragVert ? sel
@@ -8765,9 +8765,9 @@ function cdtTriangulate(w, hull, constraintEdges = [], unforced = null){
 }
 
 // ===== Phase 3.6b: constraint-edge (mesh `edges`) authoring ==================
-// Spine `edges` = flat array of vertexIndex×2 values in PAIRS; each [a,b] is an edge between
+// Rig `edges` = flat array of vertexIndex×2 values in PAIRS; each [a,b] is an edge between
 // vertex a/2 and b/2. Pass-through/unvalidated in the runtime (triangles drive rendering) but
-// a lossless desktop-Spine round-trip contract — and here it doubles as the persisted store
+// a lossless desktop-rig round-trip contract — and here it doubles as the persisted store
 // for author constraint edges that the CDT must honour. Values are always even, < uvs.length.
 
 // rd.edges (×2 flat) → array of [a,b] vertex-index pairs.
@@ -9203,7 +9203,7 @@ function addMeshVertex(Px, Py){
 
   if (!att.bones || !att.bones.length){
     const bone = skeleton.slots[meshCtx.slotIndex].bone;
-    const loc = bone.worldToLocal(new SPINE.Vector2(Px, Py));
+    const loc = bone.worldToLocal(new RIG.Vector2(Px, Py));
     rd.vertices.push(loc.x, loc.y);
   } else {
     const map = new Map();
@@ -9214,7 +9214,7 @@ function addMeshVertex(Px, Py){
     let sum = 0; for (const [, wt] of entries) sum += wt; if (sum <= 0) sum = 1;
     rd.vertices.push(entries.length);
     for (const [boneIdx, wt] of entries){
-      const loc = skeleton.bones[boneIdx].worldToLocal(new SPINE.Vector2(Px, Py));
+      const loc = skeleton.bones[boneIdx].worldToLocal(new RIG.Vector2(Px, Py));
       rd.vertices.push(boneIdx, loc.x, loc.y, wt / sum);
     }
   }
@@ -9278,7 +9278,7 @@ function convertRegionToMeshNow(){
   skinEntry.attachments[selSlot][attName] = mesh;
   // If this is a rig-TEXT element's SOURCE locale, its sibling locales must FOLLOW the new
   // geometry instead of staying flat quads — otherwise switching locale in-game would swap a
-  // deformed, bone-bound mesh for an unrigged region. Spine's own primitive for that is a
+  // deformed, bone-bound mesh for an unrigged region. The format's own primitive for that is a
   // linked mesh, so one mesh (and one deform, and one set of weights) drives every locale.
   const textEl = rigText.elements.find((e) => e.slot === selSlot && (e.id + "@" + e.sourceLocale) === attName);
   if (textEl) syncTextLocaleMeshes(textEl.id);
@@ -9441,7 +9441,7 @@ function addInfluence(k, boneIdx){
   if (!meshCtx || !rawDoc) return;
   const rd = rawDocMeshEntry(); if (!rd) return;
   const w = meshWorldVerts(); if (!w) return;
-  const loc = skeleton.bones[boneIdx].worldToLocal(new SPINE.Vector2(w[k * 2], w[k * 2 + 1]));
+  const loc = skeleton.bones[boneIdx].worldToLocal(new RIG.Vector2(w[k * 2], w[k * 2 + 1]));
   const { influences } = rdVertexAt(rd, k);
   influences.push({ bone: boneIdx, x: loc.x, y: loc.y, weight: 0 }); // 0 weight → vertex doesn't move
   rdSetVertexInfluences(rd, k, influences);
@@ -9538,7 +9538,7 @@ function autoWeightMeshToChainNow(){
     if (sum < 1e-12){ cand = [{ idx: weightBones[0], wgt: 1 }]; sum = 1; }
     nv.push(cand.length);
     for (const c of cand){
-      const loc = skeleton.bones[c.idx].worldToLocal(new SPINE.Vector2(px, py));
+      const loc = skeleton.bones[c.idx].worldToLocal(new RIG.Vector2(px, py));
       nv.push(c.idx, loc.x, loc.y, c.wgt / sum);
     }
   }
@@ -9560,7 +9560,7 @@ function liveVertexWeight(k, boneIdx){
 }
 function heatColor(t){
   t = Math.max(0, Math.min(1, t));
-  return new SPINE.Color(0.2 + 0.8 * t, 0.45 * (1 - t) + 0.25 * t, 1 - 0.85 * t, 1); // blue→red
+  return new RIG.Color(0.2 + 0.8 * t, 0.45 * (1 - t) + 0.25 * t, 1 - 0.85 * t, 1); // blue→red
 }
 
 // One brush dab: push weight toward brushBone for every vertex within the brush
@@ -9581,7 +9581,7 @@ function paintDab(px, py){
     let tj = influences.findIndex((i) => i.bone === brushBone);
     if (tj < 0){
       if (brushSubtract) continue;
-      const loc = skeleton.bones[brushBone].worldToLocal(new SPINE.Vector2(w[k * 2], w[k * 2 + 1]));
+      const loc = skeleton.bones[brushBone].worldToLocal(new RIG.Vector2(w[k * 2], w[k * 2 + 1]));
       influences.push({ bone: brushBone, x: loc.x, y: loc.y, weight: 0 });
       tj = influences.length - 1;
     }
@@ -9839,7 +9839,7 @@ function setWorkLen(name, secs){
 // control times and a sequence `delay` are scaled wherever they appear with the right type, and an
 // object carrying none of them is left alone. That last part is what protects draw order's
 // `offsets: [{slot, offset}]`, an array of plain objects that would otherwise scale into NaN — and
-// guarding the FIELD rather than the key is what makes a t=0 key work, since Spine OMITS `time`
+// guarding the FIELD rather than the key is what makes a t=0 key work, since rig OMITS `time`
 // there (`explosion.json`'s first sequence key is `{mode, delay}`, and a key-level `time` test
 // skipped it along with the delay it owns). Key objects are never recursed into, so `curve` /
 // `vertices` / `triangles` — arrays of numbers — are never walked as key lists.
@@ -9870,7 +9870,7 @@ function stretchAnimation(name, newDur){
   animTime = Math.min(animTime * f, newDur);
   markDirty(); animsDirty = true; syncPlayhead(); refreshAnimCounts(); if (selBone != null) renderBoneDetail();
 }
-// Cubic-bezier value (Spine curve): control points absolute (time,value). Solve X(s)=t.
+// Cubic-bezier value (rig curve): control points absolute (time,value). Solve X(s)=t.
 function bezierValue(t1, v1, cx1, cy1, cx2, cy2, t2, v2, t){
   if (t <= t1) return v1; if (t >= t2) return v2;
   const X = (s) => { const u = 1 - s; return u * u * u * t1 + 3 * u * u * s * cx1 + 3 * u * s * s * cx2 + s * s * s * t2; };
@@ -9879,7 +9879,7 @@ function bezierValue(t1, v1, cx1, cy1, cx2, cy2, t2, v2, t){
   return Y((lo + hi) / 2);
 }
 /**
- * Spine JSON OMITS `time` on a keyframe at 0 — it is the format's default. Every reader in here
+ * Rig JSON OMITS `time` on a keyframe at 0 — it is the format's default. Every reader in here
  * (this sampler, the dopesheet, key drag, `animDuration`) instead treats `k.time` as a number, and
  * a channel whose ONLY key is written that way made `sampleChannel` walk off the end of the array:
  * "Cannot read properties of undefined (reading 'time')", thrown from the animate frame loop, which
@@ -9927,7 +9927,7 @@ function sampleChannel(keys, t, fields){
 // Pose the live skeleton from animation `name` at time t (over the setup pose). Mirrors
 // the runtime: rotate/translate are offsets from setup, scale is a multiplier. (Verified
 // against engine-rig in tools/rigger-spike/anim.mjs.)
-// `additive` reproduces spine's MixBlend.add: rotate/translate/shear ADD their offset to whatever
+// `additive` reproduces rig's MixBlend.add: rotate/translate/shear ADD their offset to whatever
 // is already posed, and scale adds its delta from setup — so an additive strip previews on top of
 // the base pose instead of replacing it. Default (false) is the ordinary replace form, byte-identical
 // to before: every existing caller omits the argument.
@@ -10197,7 +10197,7 @@ function refreshAnimCounts(){ if (skeletonData && selected) renderAnimSection();
 const hexToRGBA = (h) => ({ r: parseInt(h.slice(0, 2), 16) / 255, g: parseInt(h.slice(2, 4), 16) / 255, b: parseInt(h.slice(4, 6), 16) / 255, a: parseInt((h.slice(6, 8) || "ff"), 16) / 255 });
 const hex2 = (v) => Math.max(0, Math.min(255, Math.round(v * 255))).toString(16).padStart(2, "0");
 const rgbaToHex = (c) => hex2(c.r) + hex2(c.g) + hex2(c.b) + hex2(c.a);
-// Dark colour (two-color tinting, Spine `rgba2`) is RGB-only (6 hex, no alpha) — see §18.4
+// Dark colour (two-color tinting, rig `rgba2`) is RGB-only (6 hex, no alpha) — see §18.4
 // spike. (hexToRGB is declared below as a hoisted function decl; reuse it for the dark channel.)
 const rgbToHex = (c) => hex2(c.r) + hex2(c.g) + hex2(c.b);
 // A slot has two-color tinting iff its setup def carries a `dark` hex. Such slots animate
@@ -10451,7 +10451,7 @@ function deformTracksWithKeys(a){
   }
   return out;
 }
-// ---- sequence timeline (Spine 4.2 image sequences) ------------------------
+// ---- sequence timeline (4.2-format image sequences) ------------------------
 // animations.<a>.attachments.<skin>.<slot>.<att>.sequence = [{ time?, mode?, index?, delay? }] —
 // the SAME node deform lives in, so the track plumbing mirrors deform's exactly. Read off
 // engine-rig@4.2.74 SkeletonJson (L975) + SequenceTimeline.apply, not from memory:
@@ -10464,11 +10464,11 @@ function deformTracksWithKeys(a){
 //   · there is NO `curve` — a sequence key is a step. Hence not easable.
 // The ATTACHMENT (in the skin, not the animation) is what makes an image a sequence at all:
 //   attachments.<slot>.<att> = { …, sequence: { count, start = 1, digits = 0, setup = 0 } }
-// Spine names each frame's region `path + (start + i)` zero-padded to `digits`, where `path`
+// Rig names each frame's region `path + (start + i)` zero-padded to `digits`, where `path`
 // defaults to the attachment's own name. `start` is the first NUMBER, not an index; `setup` IS an
 // index (0-based, which image the setup pose shows, clamped to the last).
 //
-// GET THAT DECLARATION WRONG AND THE RIG WILL NOT OPEN. Spine's `loadSequence` throws on the
+// GET THAT DECLARATION WRONG AND THE RIG WILL NOT OPEN. The runtime's `loadSequence` throws on the
 // first frame it cannot find, and unlike a plain image there is no banner to repair it from.
 // Measured against the official loader (tools/rigger-spike/sequence.mjs), on a rig whose frames
 // are `symbexpl_01`…`_13`:
@@ -10507,7 +10507,7 @@ function sequenceFrames(basePath, seq){
 }
 // Find a numbered run of regions in the atlas for `basePath` — and, failing that, for the same
 // path with its own trailing number stripped, so picking frame 1 of a flipbook is enough to offer
-// the whole thing. Spine can only express a CONTIGUOUS run at one zero-padding, so anything else
+// the whole thing. Rig can only express a CONTIGUOUS run at one zero-padding, so anything else
 // returns null rather than a declaration that would half-resolve.
 function detectSequence(basePath){
   const atlas = selected ? assetMgr.require(selected.atlas_file) : null;
@@ -11764,7 +11764,7 @@ function renderEventDetail(){
 // ---- draw-order channel (Phase 5.4): animate slot front/back order ----------
 const drawOrderArr = () => { const a = animOf(curAnim); return a && Array.isArray(a.drawOrder) ? a.drawOrder : null; };
 const drawOrderKeyTimes = () => { const arr = drawOrderArr(); return arr ? arr.map((k) => roundN(k.time, 4)).sort((a, b) => a - b) : []; };
-// Rebuild a draw order (newPos→setupIndex) from Spine `offsets` — mirrors SkeletonJson.
+// Rebuild a draw order (newPos→setupIndex) from rig `offsets` — mirrors SkeletonJson.
 function reconstructDrawOrder(offsets, n){
   const order = new Array(n).fill(-1), unchanged = new Array(Math.max(n - offsets.length, 0));
   let oi = 0, ui = 0;
@@ -11781,7 +11781,7 @@ function resolveDrawOrder(t){
   if (!key || !Array.isArray(key.offsets) || !key.offsets.length) return Array.from({ length: n }, (_, i) => i);
   return reconstructDrawOrder(key.offsets, n);
 }
-// Write a draw-order key: order[drawPos] = setup slot index → minimal Spine offsets.
+// Write a draw-order key: order[drawPos] = setup slot index → minimal rig offsets.
 function keyDrawOrder(time, order){
   if (!rawDoc || !curAnim) return;
   const n = order.length, drawPosOf = new Array(n);
@@ -12467,7 +12467,7 @@ function setKeyCurveField(boneName, ch, vi, time, preset){
   const idx = keys.findIndex((x) => Math.abs(x.time - time) < 1e-4); if (idx < 0) return;
   const a0 = keys[idx];
   if (idx >= keys.length - 1){ markDirty(); animsDirty = true; renderTimeline(); return; } // last key: no outgoing segment
-  if (preset === "stepped"){ a0.curve = "stepped"; markDirty(); animsDirty = true; renderTimeline(); return; } // stepped is whole-key in Spine
+  if (preset === "stepped"){ a0.curve = "stepped"; markDirty(); animsDirty = true; renderTimeline(); return; } // stepped is whole-key in rig
   const b0 = keys[idx + 1], dt = b0.time - a0.time, fields = ch === "rotate" ? ["value"] : ["x", "y"];
   const prev = Array.isArray(a0.curve) ? a0.curve : null;
   const F = { easein: [0.42, 0, 1, 1], easeout: [0, 0, 0.58, 1], easeinout: [0.42, 0, 0.58, 1] }[preset];
@@ -12668,7 +12668,7 @@ function positionPlayhead(){
   if (tl) ph.style.height = tl.scrollHeight + "px";
 }
 
-// Export the (edited) skeleton as `.irig` — byte-valid Spine 4.2 JSON under our
+// Export the (edited) skeleton as `.irig` — byte-valid 4.2-format JSON under our
 // extension. In-place edits to rawDoc are preserved verbatim (incl. animations).
 function exportIrig(){
   if (!rawDoc) return;
@@ -12708,7 +12708,7 @@ function rigDocLoadProblem(doc){
   missingArt = [];
   try {
     const atlas = assetMgr.require(selected.atlas_file);
-    new SPINE.SkeletonJson(makeAttachmentLoader(atlas)).readSkeletonData(JSON.parse(JSON.stringify(doc)));
+    new RIG.SkeletonJson(makeAttachmentLoader(atlas)).readSkeletonData(JSON.parse(JSON.stringify(doc)));
     return null;
   } catch (e){ return String((e && e.message) || e); }
   finally { missingArt = keep; }
@@ -12864,7 +12864,7 @@ function descendantNames(boneName){
   return set;
 }
 
-// Spine requires a bone's parent to be defined BEFORE it in the JSON `bones` array.
+// Rig requires a bone's parent to be defined BEFORE it in the JSON `bones` array.
 // Reorder so every parent precedes its children (stable depth-first from roots).
 function topoSortBones(doc){
   const byName = new Map(doc.bones.map((b) => [b.name, b]));
@@ -12889,10 +12889,10 @@ function rebuildFromRawDoc(selName, skinName){
   const want = skinName || activeSkinName(); // before the skeleton that shows it is replaced
   const atlas = assetMgr.require(selected.atlas_file);
   missingArt = [];
-  const sj = new SPINE.SkeletonJson(makeAttachmentLoader(atlas));
+  const sj = new RIG.SkeletonJson(makeAttachmentLoader(atlas));
   skeletonData = sj.readSkeletonData(JSON.parse(JSON.stringify(rawDoc)));
-  skeleton = new SPINE.Skeleton(skeletonData);
-  animState = new SPINE.AnimationState(new SPINE.AnimationStateData(skeletonData));
+  skeleton = new RIG.Skeleton(skeletonData);
+  animState = new RIG.AnimationState(new RIG.AnimationStateData(skeletonData));
   if (skeletonData.skins.length){
     const def = skeletonData.skins.find((s) => s.name === want)
       || skeletonData.skins.find((s) => s.name === "default") || skeletonData.skins[0];
@@ -12996,10 +12996,10 @@ function gizmoHit(e){
 }
 // Draw the gizmo (rotate ring + move centre) at the selected bone's world origin.
 function drawGizmo(){
-  if (!gizmoActive() || typeof renderer.circle !== "function" || !SPINE.Color) return;
+  if (!gizmoActive() || typeof renderer.circle !== "function" || !RIG.Color) return;
   const c = gizmoCenter(); if (!c) return;
   const G = gizmoGeom();
-  const ring = new SPINE.Color(0.36, 0.66, 1, 0.95), move = new SPINE.Color(1, 0.84, 0.3, 0.95);
+  const ring = new RIG.Color(0.36, 0.66, 1, 0.95), move = new RIG.Color(1, 0.84, 0.3, 0.95);
   renderer.circle(false, c.x, c.y, G.ringR, ring, 48);     // rotate ring
   renderer.circle(true, c.x, c.y, G.centerR, move, 24);    // move handle
   if (gizmoDrag && typeof renderer.line === "function"){   // rotate feedback spoke
@@ -13012,18 +13012,18 @@ let lastGizmoCursor = null;
 // with an arrowhead. Zero-length bones (control/deform handles) show just the dot. The
 // selected bone is highlighted. Replaces the runtime debug renderer's plain red lines.
 function drawBonesOverlay(){
-  if (!skeleton || typeof renderer.circle !== "function" || typeof renderer.line !== "function" || !SPINE.Color) return;
+  if (!skeleton || typeof renderer.circle !== "function" || typeof renderer.line !== "function" || !RIG.Color) return;
   const z = renderer.camera.zoom, s = boneScale;
-  const red = new SPINE.Color(1, 0.28, 0.22, 0.95), green = new SPINE.Color(0.3, 1, 0.4, 0.95);
-  const sel = new SPINE.Color(1, 0.84, 0.25, 1), link = new SPINE.Color(0.6, 0.66, 0.82, 0.38);
+  const red = new RIG.Color(1, 0.28, 0.22, 0.95), green = new RIG.Color(0.3, 1, 0.4, 0.95);
+  const sel = new RIG.Color(1, 0.84, 0.25, 1), link = new RIG.Color(0.6, 0.66, 0.82, 0.38);
   // A strip MASK is otherwise invisible — it changes nothing on screen whenever the masked bones
   // happen to be still, which reads as "the mask did nothing". While tweaking a masked strip, the
   // bones it actually drives are drawn in the accent colour and everything else is dimmed, so the
   // mask is a thing you can see rather than a number in a panel.
   const maskNames = (tweakMode && window.RiggerCinematic && window.RiggerCinematic.tweakMaskNames)
     ? window.RiggerCinematic.tweakMaskNames() : null;
-  const maskLine = new SPINE.Color(0.36, 0.69, 1, 0.95), maskDot = new SPINE.Color(0.36, 0.69, 1, 1);
-  const dimLine = new SPINE.Color(1, 0.28, 0.22, 0.22), dimDot = new SPINE.Color(0.3, 1, 0.4, 0.22);
+  const maskLine = new RIG.Color(0.36, 0.69, 1, 0.95), maskDot = new RIG.Color(0.36, 0.69, 1, 1);
+  const dimLine = new RIG.Color(1, 0.28, 0.22, 0.22), dimDot = new RIG.Color(0.3, 1, 0.4, 0.22);
   // hierarchy connectors: faint line from each bone's parent origin to its own origin
   for (const b of skeleton.bones) if (b.parent) renderer.line(b.parent.worldX, b.parent.worldY, b.worldX, b.worldY, link);
   const hl = z * 9 * s, hw = z * 4.5 * s; // arrowhead length/half-width (scales with the size control)
@@ -13051,7 +13051,7 @@ function updateBoneMarker(){
   try {
     const bw = skeleton.bones[selBone];
     const cv = $("#cv"), dpr = window.devicePixelRatio || 1;
-    const v = new SPINE.Vector3(bw.worldX, bw.worldY, 0);
+    const v = new RIG.Vector3(bw.worldX, bw.worldY, 0);
     renderer.camera.worldToScreen(v, cv.width, cv.height); // -> device px, y-up
     mk.style.left = (v.x / dpr) + "px";
     mk.style.top = (cv.clientHeight - v.y / dpr) + "px";
@@ -13096,7 +13096,7 @@ function fitMesh(){
 
 function fitView(){
   if (!skeleton) return;
-  const off = new SPINE.Vector2(), size = new SPINE.Vector2();
+  const off = new RIG.Vector2(), size = new RIG.Vector2();
   skeleton.getBounds(off, size, []);
   const cam = renderer.camera;
   resizeCanvas();
@@ -13110,16 +13110,16 @@ function fitView(){
 }
 
 // ---- skeleton bounds on export -------------------------------------------
-// A spine exported with no `skeleton.width/height` has no natural size, so in the engine
+// A rig exported with no `skeleton.width/height` has no natural size, so in the engine
 // its pivot pins to the origin (renders top-left) and an authored size can't size it — the
-// free-spin-intro rig hit exactly this. Spine writes those from the setup pose, but a rig
+// free-spin-intro rig hit exactly this. Rig writes those from the setup pose, but a rig
 // whose art is shown only via animation attachment-keys has an EMPTY setup pose (bounds 0).
 // So we union the bounds across the setup pose AND every animation (attachment swaps +
 // transforms via `poseAtTime`), and write the result into `rawDoc.skeleton` before each
-// save — so every exported rig carries proper bounds like a hand-authored spine.
+// save — so every exported rig carries proper bounds like a hand-authored rig.
 function computeRigBounds(){
   if (!skeleton || !skeletonData) return null;
-  const off = new SPINE.Vector2(), size = new SPINE.Vector2();
+  const off = new RIG.Vector2(), size = new RIG.Vector2();
   // One measurement of the CURRENT pose → {x,y,w,h} (y-up) or null when degenerate.
   const measure = () => {
     updateWorld();
@@ -13127,7 +13127,7 @@ function computeRigBounds(){
     return size.x > 0 && size.y > 0 ? { x: off.x, y: off.y, w: size.x, h: size.y } : null;
   };
   try {
-    // Prefer the RESTING (setup) pose — the rig's natural look, so a sized spine matches
+    // Prefer the RESTING (setup) pose — the rig's natural look, so a sized rig matches
     // what's on screen most of the time. Only when the setup pose is EMPTY (art shown
     // solely via animation attachment-keys → bounds 0) do we union across every animation
     // (the prior behaviour) so such a rig still gets a usable natural size.
@@ -13171,7 +13171,7 @@ function computeRigBounds(){
  * A CARRIER rig (only FX / Flipbook timeline bindings, no art of its own) is invisible to
  * `getBounds`: a binding is an EVENT, and the slots hosting one are empty. Such a rig saved with no
  * `skeleton.width/height` at all, which is not a cosmetic gap — with no natural size, every
- * consumer falls back to a guess and the guesses disagree (see `constants-shared/spine`), so the
+ * consumer falls back to a guess and the guesses disagree (see `constants-shared/rig`), so the
  * rig drew at one size in /symbols and another in the game. What it carries is the only real
  * geometry it has, so that is what we measure.
  *
@@ -13219,10 +13219,10 @@ function bindingContentBounds(){
       const b = host ? skeleton.findBone(host) : skeleton.bones[0];
       if (!b) continue;
       const s = (typeof fb.scale === "number" && isFinite(fb.scale) && fb.scale > 0) ? fb.scale : 1;
-      // The box is PIXI space (y DOWN, top-left relative to the clip origin); the rig is spine
+      // The box is PIXI space (y DOWN, top-left relative to the clip origin); the rig is rig
       // space (y UP). Flipping the corner's y BEFORE the bone matrix is what puts an off-centre box
       // on the side it actually draws on, and it is the same composition the game performs — the
-      // rotate-by-`-θ` in `<SpineBoneAttach>` is exactly this flip conjugated through the bone. All
+      // rotate-by-`-θ` in `<RigBoneAttach>` is exactly this flip conjugated through the bone. All
       // four corners, so a rotated bone contributes its true AABB and not an axis-aligned guess.
       for (const cx of [box.x * s, (box.x + box.w) * s]){
         for (const cy of [box.y * s, (box.y + box.h) * s]){
@@ -13280,8 +13280,8 @@ function setRigBoundsRect(r){
   rawDoc.skeleton.iwLockBounds = true; // a hand-set frame; don't auto-overwrite on save
   markDirty();
 }
-/** The frame a rig gets when NOTHING about it is measurable. Mirrors `SPINE_FALLBACK_NATURAL_SIZE`
- * in `constants-shared/spine` — the size every consumer already assumes for an unsized rig — so
+/** The frame a rig gets when NOTHING about it is measurable. Mirrors `RIG_FALLBACK_NATURAL_SIZE`
+ * in `constants-shared/rig` — the size every consumer already assumes for an unsized rig — so
  * seeding the box changes where the author can grab it, never how big the rig suddenly draws. */
 const SEED_BOUNDS_SIZE = 100;
 /**
@@ -13338,8 +13338,8 @@ function applyBoundsDrag(cw){
 function drawBoundsOverlay(){
   if (!showBounds || !rawDoc) return;
   const r = rigBoundsRect(); if (!r) return;
-  if (typeof renderer.line !== "function" || typeof renderer.circle !== "function" || !SPINE.Color) return;
-  const col = new SPINE.Color(0.49, 0.88, 0.75, 0.95); // teal #7ee0c0
+  if (typeof renderer.line !== "function" || typeof renderer.circle !== "function" || !RIG.Color) return;
+  const col = new RIG.Color(0.49, 0.88, 0.75, 0.95); // teal #7ee0c0
   const left = r.x, right = r.x + r.w, bot = r.y, top = r.y + r.h, cx = r.x + r.w / 2, cy = r.y + r.h / 2;
   renderer.line(left, bot, right, bot, col);
   renderer.line(right, bot, right, top, col);
@@ -13503,8 +13503,8 @@ function renderList(){
   $("#count2").textContent = "(" + shown + ")";
   $("#count").textContent = "(" + skeletons.length + ")";
 }
-function openSpineModal(){ $("#spineModal").classList.add("open"); renderList(); const f = $("#filter"); if (f){ f.value = ""; f.focus(); } }
-function closeSpineModal(){ $("#spineModal").classList.remove("open"); }
+function openRigModal(){ $("#rigModal").classList.add("open"); renderList(); const f = $("#filter"); if (f){ f.value = ""; f.focus(); } }
+function closeRigModal(){ $("#rigModal").classList.remove("open"); }
 
 function setActiveProject(client, project){
   if (!project) return;
@@ -13555,7 +13555,7 @@ async function loadSkeletons(refresh){
   $("#count").textContent = "(scanning…)";
   // Always cache-bust (timestamp + no-store): R2's skeletons.json is rewritten on
   // every save/new/upload, so a cached list would hide a just-created rig.
-  const r = await (await fetch("/spine/skeletons?t=" + Date.now() + (refresh ? "&refresh=1" : ""), { cache: "no-store" })).json();
+  const r = await (await fetch("/rig-viewer/skeletons?t=" + Date.now() + (refresh ? "&refresh=1" : ""), { cache: "no-store" })).json();
   setActiveProject(r.client, r.project);
   if (r.error){ showErr(r.error); skeletons = []; renderList(); return; }
   skeletons = r.skeletons || [];
@@ -13653,11 +13653,11 @@ function wire(){
   $("#nextKey").onclick = () => gotoKey(1);
   $("#filter").oninput = renderList;
   $("#rescan").onclick = () => loadSkeletons(true);
-  $("#loadSpineBtn").onclick = openSpineModal;
+  $("#loadRigBtn").onclick = openRigModal;
   $("#refreshR2Btn").onclick = refreshFromR2;
-  $("#spineModalClose").onclick = closeSpineModal;
-  $("#spineModal").onmousedown = (e) => { if (e.target === $("#spineModal")) closeSpineModal(); };
-  window.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#spineModal").classList.contains("open")) closeSpineModal(); });
+  $("#rigModalClose").onclick = closeRigModal;
+  $("#rigModal").onmousedown = (e) => { if (e.target === $("#rigModal")) closeRigModal(); };
+  window.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#rigModal").classList.contains("open")) closeRigModal(); });
   // animation-library modal
   $("#animLibClose").onclick = closeAnimLibrary;
   $("#animLibFilter").oninput = renderAnimLibrary;

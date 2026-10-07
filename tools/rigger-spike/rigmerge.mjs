@@ -1,5 +1,5 @@
 // Phase 5.8 spike — prove the namespaced WHOLE-RIG merge (importRig in view.html) is
-// byte-valid Spine 4.2 and lossless. It runs the SHIPPED transform, pulled out of view.html:
+// byte-valid 4.2-format and lossless. It runs the SHIPPED transform, pulled out of view.html:
 //   prefixRigNames(src, p)  — namespace every internal name + rewrite every ref
 //   mergeRigInto(dst, src)  — drop imported root, re-parent its children onto dst's
 //                             root, append + topo-sort bones, append slots/skins/
@@ -18,7 +18,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
 import vm from 'node:vm';
-import { RIG_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(RIG_CORE);
 
@@ -130,7 +130,7 @@ mergeRigInto(dst, src, attachBone);
 // (documented behavior). To validate the merged STRUCTURE here we feed a combined atlas
 // (dst pages + src pages) so every region name exists and the loader exercises every
 // bone/slot/constraint/anim reference. We prefix the src page lines' region names to
-// match the prefixed attachment `name`/`path` entries the merge produced... but spine
+// match the prefixed attachment `name`/`path` entries the merge produced... but rig
 // attachments key by attachment NAME, not slot — region names inside skins were NOT
 // prefixed by the transform, so the src atlas region names still apply as-is.
 const combinedAtlas = dstPair.atlasText.trimEnd() + '\n\n' + srcPair.atlasText.trimStart();

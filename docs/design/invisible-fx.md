@@ -2,13 +2,13 @@
 
 > An online **particle-effect authoring tool** — tune `@barvynkoa/particle-emitter`
 > configs live in a WebGL preview, draw particle art from project **atlases** (static
-> or animated multi-frame), pin emitters onto a **playing Spine rig**, and (ambitious
-> tier) emit **Spine clips as the particles themselves** — then save an `EffectDoc`
+> or animated multi-frame), pin emitters onto a **playing rig**, and (ambitious
+> tier) emit **rig clips as the particles themselves** — then save an `EffectDoc`
 > that ships through the standard deploy→bake→pull→register chain and is **triggered by
 > Invisible Flow**.
 > Owner direction 2026-06-24. Related: `live-assets.md` (the asset chain every new class
 > must travel), `invisible-flow.md` (the trigger seam — a Broadcast event plays an FX),
-> `invisible-rigger.md` (the sibling tool whose `/spine`-forked WebGL stage + R2 plumbing
+> `invisible-rigger.md` (the sibling tool whose `/rig-viewer`-forked WebGL stage + R2 plumbing
 > this reuses).
 
 ## Direction (2026-07-09): rig-timeline **direct FX binding** — "pick the effect on the keyframe"
@@ -40,7 +40,7 @@ Two findings from the code map (2026-07-09) frame the design:
 1. **A binding stored on the rig ships verbatim.** `POST /api/rigger/save` writes the whole `rawDoc`
    to `<client>/<project>/spines/<bundle>/<stem>.irig`; deploy copies it byte-faithful (renamed
    `.irig`→`.json` for PIXI.Assets). So **custom fields on the rig survive to the runtime.**
-2. **…but spine-pixi discards non-standard event fields at parse time.** `BaseSpineProvider`'s
+2. **…but the reference Pixi runtime discards non-standard event fields at parse time.** `BaseRigProvider`'s
    `rebroadcastEvents` listener only sees `event.data.name` + `int/float/string` — a custom
    `evtObj.effectId` is in the file but NOT in the parsed `AnimationState` event. So the binding
    **cannot be read through the event stream**; it must be read from the rig data directly →
@@ -48,14 +48,14 @@ Two findings from the code map (2026-07-09) frame the design:
 
 Everything else already exists and is reused unchanged: `resolveEffect(id)` (the effects registry —
 **every authored effect already ships**, doc + sprite atlas, regardless of scene placement),
-`attachedEffects` (mounts an `<EffectPlayer>` INSIDE a rig's `<SpineProvider>`), `SpineBoneAttach`
+`attachedEffects` (mounts an `<EffectPlayer>` INSIDE a rig's `<RigProvider>`), `RigBoneAttach`
 (rides a bone), and `rebroadcastEvents` (already enabled on every placed rig).
 
 ### Data model
 A first-class binding on the rig, authored per event key, source of truth = the event object:
 - On an event object: `evtObj.fx = { effectId: string, bone?: string }` (omit ⇒ plain cue event,
   today's behaviour). `bone` defaults to the event author's selected bone (or none = rig origin).
-- The binding is keyed at runtime by the **event NAME** (what the rebroadcast bus carries): "spine
+- The binding is keyed at runtime by the **event NAME** (what the rebroadcast bus carries): "rig
   event named `N` on this rig → play effect `effectId` on `bone`". De-dup by
   `(name, effectId, bone, slot)` across animations at bake.
 
@@ -68,17 +68,17 @@ effect dimmer/slower/deeper without forking the doc.
 
 - **Absent ≠ default.** An unset field stays absent end to end; that is what keeps every rig baked
   before they existed byte-identical. Out-of-range and malformed values are DROPPED, never coerced.
-- **`slot` is DEPTH.** In game `<RiggedEffect>` hands its container to spine-pixi's `addSlotObject`,
+- **`slot` is DEPTH.** In game `<RiggedEffect>` hands its container to the reference Pixi runtime's `addSlotObject`,
   so the burst renders at that slot's place in the draw order instead of over the whole rig; an
   unknown slot name falls back to on-top rather than throwing. With no `bone`, the slot's own bone
-  hosts the burst. `alpha`/`scale` live on a nested container, because spine rewrites the slotted
+  hosts the burst. `alpha`/`scale` live on a nested container, because rig rewrites the slotted
   one's transform and alpha every frame.
 - **`duration` closes a real divergence:** `forceEmit` starts emission and nothing ended it, so a
   continuous effect fired from a keyframe emitted forever in-game while the previews force-stopped
   at ~1.5s. It maps to `<EffectPlayer emitFor>`, and to the preview overlay's hold cap.
 - **A binding is one KEYFRAME (2026-09-02).** The manifest carries the beat — `animation` + `time`
   — beside the event name, and `<RiggedEffect>` matches all three off the fire (the track entry's
-  animation, the spine event's keyframe `time`). Two keys of one name are two bindings that play at
+  animation, the rig event's keyframe `time`). Two keys of one name are two bindings that play at
   their own time with their own numbers. Until then the manifest was keyed by the NAME alone, so an
   effect on the 1s key fired on the 0.01s key beside the flipbook there, and the first key's
   numbers won for both — the Rigger's "another key binds the same effect" warning existed to
@@ -104,29 +104,29 @@ effect dimmer/slower/deeper without forking the doc.
 - **register:** boot calls `registerRigFx(rigFx)`; runtime `resolveRigFx(rigAssetKey)` (mirrors
   `registerEffects`/`resolveEffect`).
 - **effects themselves:** no change — sprite-particle effects ship doc+atlas for every authored
-  effect. **Caveat (deferred):** a Tier-C *spine-particle* effect bound ONLY via a rig still needs
+  effect. **Caveat (deferred):** a Tier-C *rig-particle* effect bound ONLY via a rig still needs
   its skeleton shipped (today skeletons auto-ship only when placed) — v1 supports sprite-particle
-  bound effects; spine-particle needs a follow-up auto-ship path (note it in the UI).
+  bound effects; rig-particle needs a follow-up auto-ship path (note it in the UI).
 
 ### Runtime
-> **Superseded (2026-09-04) — the join lives at `<SpineProvider>`, not at the mount site.** The plan
-> below wired the lookup into the `LayoutNodeView` spine branch, and `SymbolSpineMain` later
+> **Superseded (2026-09-04) — the join lives at `<RigProvider>`, not at the mount site.** The plan
+> below wired the lookup into the `LayoutNodeView` rig branch, and `SymbolRigMain` later
 > hand-copied the same block. That made a binding play only for a rig mounted by one of those two:
 > every other rig in the engine (the big-win rig via `WinAnimation`, backdrops, transitions,
 > free-spin visuals, cinematic actors) silently rendered nothing with the binding baked and correct.
-> `<SpineProvider>` — the one component every rig goes through — now resolves and mounts the bound
+> `<RigProvider>` — the one component every rig goes through — now resolves and mounts the bound
 > content itself, through the `pixi-svelte` `rigBoundContent` seam that `engine-layout` fills in.
 > Both hand-copies are gone. See [status/fx](../status/fx.md) for the detail.
 
-`LayoutNodeView` spine branch, inside the existing `<SpineProvider …>`: for each
+`LayoutNodeView` rig branch, inside the existing `<RigProvider …>`: for each
 `resolveRigFx(node.assetKey)` entry, render a small new **`RiggedEffect`** that plays a bound effect
 on the beat:
 - `RiggedEffect.svelte` (pixi-svelte) — props `{ doc, event, bone? }`. Subscribes the event bus for
   `{type: event}` (the rig's own rebroadcast); on each fire it bumps a `runId` `$state` and renders
-  `{#key runId}` an `<EffectPlayer doc={doc}>`, bone-wrapped in `<SpineBoneAttach boneName={bone}>`
+  `{#key runId}` an `<EffectPlayer doc={doc}>`, bone-wrapped in `<RigBoneAttach boneName={bone}>`
   when `bone` is set (else a plain offset container = rig origin). Re-mount-on-fire = a clean one-shot
-  from t=0 each beat. Reuses `EffectPlayer`/`EffectLayer`/`SpineBoneAttach` **unchanged**;
-  `BaseSpineProvider` stays generic (no FX logic leaks in).
+  from t=0 each beat. Reuses `EffectPlayer`/`EffectLayer`/`RigBoneAttach` **unchanged**;
+  `BaseRigProvider` stays generic (no FX logic leaks in).
 - v1 semantics: **one-shot burst per beat.** Bound effects should be finite (own `emitterLifetime`);
   a continuous effect would run until unmount. A `stopEvent` binding (reusing `EmitterTrigger.
   stopEventType`) is a deferred follow-up.
@@ -140,7 +140,7 @@ The docked **⚡ Event key** panel gains, above the payload:
   `— rig origin —`). Sets `evtObj.fx.bone`.
 - The dope-sheet ⚡ key gets an FX affordance (e.g. a ✨ tint / title suffix) when bound.
 - `setEventKeyField` gains `fx.effectId` / `fx.bone` cases (empty ⇒ delete the field / the whole `fx`
-  when both empty, keeping export clean). A spine-particle effect selection shows a "needs a follow-up
+  when both empty, keeping export clean). A rig-particle effect selection shows a "needs a follow-up
   to ship" hint (deferred caveat above).
 
 ### Phasing
@@ -148,7 +148,7 @@ The docked **⚡ Event key** panel gains, above the payload:
    effect yet (safe, reversible). 2. **Bake manifest + register** (`bake-editor-doc.mjs` /
    `effectExport`-style server + `editor-scenes.ts` `registerRigFx`/`resolveRigFx`). 3. **Runtime
    `RiggedEffect` + `LayoutNodeView` wiring.** 4. Owner live-verify on a published game. Deferred:
-   stop-event, continuous effects, spine-particle bound ship,
+   stop-event, continuous effects, rig-particle bound ship,
    `docs/tools/rigger.md` refresh (docs-keeper).
 
 ### Rigger LIVE FX preview — faithful overlay (2026-07-10, building)
@@ -156,7 +156,7 @@ The docked **⚡ Event key** panel gains, above the payload:
 **Owner direction:** show the bound effect PLAYING in the Rigger stage (not just in-game), on the beat,
 riding the bound bone — so the Rigger is a true FX-authoring surface.
 
-**The catch:** the Rigger stage is **raw `spine-webgl` on a hand-rolled WebGL context** (`view.html`
+**The catch:** the Rigger stage is **the raw reference WebGL runtime on a hand-rolled WebGL context** (`view.html`
 `#cv` / `gl = cv.getContext('webgl')`), NOT Pixi. The engine's whole particle stack is Pixi-based, so
 it can't render into that context. Solution = a **transparent Pixi overlay canvas** on top of `#cv`,
 running the REAL engine emitter, projected onto bones via the stage camera.
@@ -173,7 +173,7 @@ template — self-owned transparent `Application`, per-effect container, per-fra
 
 **Vendored bundle.** Build a standalone IIFE `rigger-fx.js` (pixi.js + `@barvynkoa/particle-emitter` +
 the reused `engine-fx`/art-helper code) → committed at `apps/launcher-api/static/rigger/vendor/`,
-loaded by the Rigger with the SAME `<script>` pattern it already uses for `spine-webgl-*.js`. Exposes
+loaded by the Rigger with the SAME `<script>` pattern it already uses for `invisible-rig.js`. Exposes
 `window.RiggerFx`: `init(hostEl)` (transparent `Application` in `#stage`, a `world` Container, a ticker),
 `playEffect(doc, {x,y}, scale)` (per layer: `framesToTextures`→`bindArt`→`new Emitter(container, config)`,
 force-emit like `forceEmit`; sprite tiers only — skip `particleKind:'spine'`), `followPoint(handle, x, y,
@@ -241,13 +241,12 @@ decision — offline sims bake to flipbooks, runtime particles are authored here
   Any atlas region / sheet frame is already a valid particle. Multi-frame **animated**
   particles are native too (`@barvynkoa/particle-emitter` `animatedSingle` /
   `animatedRandom` art behaviors).
-- **Spine stage + bone-follow are native** — `SpineProvider` / `SpineTrack` /
-  `SpineSlot` / **`SpineBone`** ([SpineBone.svelte](../../packages/pixi-svelte/src/lib/components/SpineBone.svelte))
-  expose a live bone transform; parenting a `ParticleEmitter` under a `SpineBone` makes
-  the FX follow that bone every frame. The spine-attach tier is mostly wiring, not new math.
-- **The `/spine`-forked WebGL stage** — the Rigger proved the pattern: fork the Spine
-  Viewer's render/pan/zoom/scrubber/anim-skin shell, reuse `/spine/skeletons` +
-  `/spine/file`, reuse `loadRegionSet` to list a project's atlases/manifests + region
+- **Rig stage + bone-follow are native** — `RigProvider` / `RigTrack` /
+  `RigSlot` / **`RigBone`** ([RigBone.svelte](../../packages/pixi-svelte/src/lib/components/RigBone.svelte))
+  expose a live bone transform; parenting a `ParticleEmitter` under a `RigBone` makes
+  the FX follow that bone every frame. The rig-attach tier is mostly wiring, not new math.
+- **The `/rig-viewer`-forked WebGL stage** — the Rigger proved the pattern: fork the Rig Viewer's render/pan/zoom/scrubber/anim-skin shell, reuse `/rig-viewer/skeletons` +
+  `/rig-viewer/file`, reuse `loadRegionSet` to list a project's atlases/manifests + region
   names (the Rigger's `/api/rigger/atlases`). Invisible FX is a launcher-native page in
   the same mould.
 - **Flow's trigger vocabulary** — `engine-flow/emitterVocabulary.ts` already models the
@@ -255,7 +254,7 @@ decision — offline sims bake to flipbooks, runtime particles are authored here
 
 ## 4. The save contract — `EffectDoc` (the heart of the tool)
 
-Unlike the Rigger (whose file must be byte-pure Spine because an external runtime eats
+Unlike the Rigger (whose file must be byte-pure rig because an external runtime eats
 it), particle-emitter config has **no proprietary "project file"** ambiguity — so the
 `EffectDoc` is **our own schema that _contains_ `EmitterConfigV3` verbatim** plus the
 wiring the runtime component can't infer (art source, placement, trigger, particle kind).
@@ -282,12 +281,12 @@ EmitterLayer {
   };
   placement: {
     space: 'free' | 'bone';        // free = positioned in the scene; bone = follow a rig bone
-    bone?: string;                 // when space==='bone' → wrap emitter in <SpineBone boneName=…>
+    bone?: string;                 // when space==='bone' → wrap emitter in <RigBone boneName=…>
     offset?: { x: number; y: number };
   };
-  particleKind: 'sprite' | 'spine';// 'spine' = the spine-as-particle tier (Phase 0-gated)
+  particleKind: 'sprite' | 'spine';// 'spine' = the rig-as-particle tier (Phase 0-gated)
   spineParticle?: {                // only when particleKind==='spine'
-    skeletonKey: string;           // a loaded spine bundle
+    skeletonKey: string;           // a loaded rig bundle
     animation: string;             // clip each particle plays
     loop?: boolean;
   };
@@ -310,8 +309,8 @@ A small engine-side player — `bakedEffects()` / `<EffectPlayer doc=…/>`, mir
 1. Ensures each `art.assetKey` is in `loadedAssets` (atlas/sheet already travels the
    pipeline; FX just references it by key).
 2. For each layer, mounts `<ParticleEmitter key={art.assetKey} config={layer.config}>`,
-   wrapped in `<SpineBone boneName=…>` when `placement.space==='bone'`.
-3. For `particleKind: 'spine'`, swaps in the custom `SpineParticle` runtime (Phase 3 / §7).
+   wrapped in `<RigBone boneName=…>` when `placement.space==='bone'`.
+3. For `particleKind: 'spine'`, swaps in the custom `RigParticle` runtime (Phase 3 / §7).
 4. Subscribes the layer to its `trigger.eventType` on the event bus — so **Flow's
    Broadcast node is the fire button**. `on:'always'` emits continuously (ambient FX).
 
@@ -320,14 +319,14 @@ A small engine-side player — `bakedEffects()` / `<EffectPlayer doc=…/>`, mir
 | Tier                                      | What it is                                                                                                                   | Native?                      | Cost             |
 | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ---------------- |
 | **A — atlas / animated-sprite particles** | particle art = atlas regions; >1 frame = flipbook particle                                                                   | ✅ native (`animatedRandom`) | low              |
-| **B — emitter attached to a spine rig**   | load a playing Spine clip as backdrop; pin emitters to bones (flame on a torch, sparkle off a wand tip); FX follows the bone | ✅ native (`SpineBone`)      | low–medium       |
-| **C — Spine clips AS the particles**      | each particle is a pooled Spine skeleton instance playing a clip (a burst of 30 spinning coins)                              | ❌ **no native support**     | **high — gated** |
+| **B — emitter attached to a rig**   | load a playing rig clip as backdrop; pin emitters to bones (flame on a torch, sparkle off a wand tip); FX follows the bone | ✅ native (`RigBone`)      | low–medium       |
+| **C — rig clips AS the particles**      | each particle is a pooled rig skeleton instance playing a clip (a burst of 30 spinning coins)                              | ❌ **no native support**     | **high — gated** |
 
 Tier C is the only one with real risk: `@barvynkoa/particle-emitter` spawns
 sprite/texture particles, not skeletons. It needs a custom particle behavior backed by a
-**pool of `Spine` instances** (allocating a skeleton per particle per frame is a non-
+**pool of `RigView` instances** (allocating a skeleton per particle per frame is a non-
 starter). **Phase 0 decides native-vs-fallback** — and the fallback is elegant and
-already-decided doctrine: **bake the Spine clip to a sprite-sheet flipbook and use Tier
+already-decided doctrine: **bake the rig clip to a sprite-sheet flipbook and use Tier
 A.** So Tier C ships _something_ regardless; the spike only decides _how good_.
 
 ## 6. Architecture (proposed)
@@ -335,31 +334,31 @@ A.** So Tier C ships _something_ regardless; the spike only decides _how good_.
 - **Host:** launcher-native Svelte 5 page **`/fx`** — reuses launcher auth, the
   client→project selector, scope gating, R2 writes (the `/rigger` pattern). No new
   Railway/Python service.
-- **Stage:** fork the `/spine` WebGL viewer shell (render/pan/zoom + a play/pause + the
+- **Stage:** fork the `/rig-viewer` WebGL viewer shell (render/pan/zoom + a play/pause + the
   anim/skin pickers) — the same fork the Rigger did. The FX **delta** is the emitter
   inspector (spawn shape, lifetime, alpha/scale/color/speed/rotation curves, blend),
   the **atlas region picker** (drives `art.frames`), the **layer list**, and a
-  **bone picker** when a spine backdrop is loaded.
+  **bone picker** when a rig backdrop is loaded.
 - **Source of truth while editing = the `EffectDoc`**; the live `Emitter` is rebuilt
   from it on change (the library's `emitter.init(config)` already re-inits cleanly — see
   `ParticleEmitter.svelte` `$effect`). Runtime = preview; doc = truth — same boundary as
   the Rigger.
 - **Writes:** an `fx`-gated `POST /api/fx/save` using the existing `r2.ts` writers +
-  `assertAllowed`, writing `<bundle>/<name>.fx.json` (+ sidecar). Atlas/spine listing
-  reuses the Rigger's `loadRegionSet` + `/spine/skeletons` endpoints — **don't duplicate**.
+  `assertAllowed`, writing `<bundle>/<name>.fx.json` (+ sidecar). Atlas/rig listing
+  reuses the Rigger's `loadRegionSet` + `/rig-viewer/skeletons` endpoints — **don't duplicate**.
 
 ## 7. Build plan (phased — each ships something usable)
 
 | Phase                                      | Delivers                                                                                                                                                                                                                         | Risk                            |
 | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| **0 — Spine-particle spike (Tier C gate)** | prove a pooled-`Spine`-instance custom particle renders + animates + recycles inside (or beside) `@barvynkoa/particle-emitter` at a real particle count, OR confirm the flipbook-bake fallback. **Do before committing Tier C.** | **make-or-break (Tier C only)** |
+| **0 — rig-particle spike (Tier C gate)** | prove a pooled-`RigView`-instance custom particle renders + animates + recycles inside (or beside) `@barvynkoa/particle-emitter` at a real particle count, OR confirm the flipbook-bake fallback. **Do before committing Tier C.** | **make-or-break (Tier C only)** |
 | **1 — Emitter core + atlas art (Tier A)**  | `/fx` page; load a project atlas; pick region(s); live-tune `EmitterConfigV3` in the WebGL preview; static + animated-sprite particles; save `EffectDoc` to R2; reopen                                                           | low                             |
-| **2 — Spine-attach (Tier B)**              | load a Spine clip as backdrop, play it, pin layers to bones via `SpineBone`; offset; preview FX riding the animation                                                                                                             | low–medium                      |
-| **3 — Spine-as-particle (Tier C)**         | per Phase 0: native `SpineParticle` behavior **or** flipbook-bake path; `particleKind:'spine'` authoring                                                                                                                         | high                            |
+| **2 — rig-attach (Tier B)**              | load a rig clip as backdrop, play it, pin layers to bones via `RigBone`; offset; preview FX riding the animation                                                                                                             | low–medium                      |
+| **3 — rig-as-particle (Tier C)**         | per Phase 0: native `RigParticle` behavior **or** flipbook-bake path; `particleKind:'spine'` authoring                                                                                                                         | high                            |
 | **4 — Pipeline + Flow trigger**            | export → `deploy/` → bake (embed effect index) → pull → `bakedEffects()` register; bind `trigger.eventType` to the game's `EmitterVocabulary`; Flow Broadcast fires it                                                           | medium                          |
 
 **Phase 0 is a gate, not a formality** — and _only_ for Tier C. Tiers A and B are native
-(§3) and proceed without it. If the spike shows native Spine particles can't hit an
+(§3) and proceed without it. If the spike shows native rig particles can't hit an
 acceptable count/perf, Tier C ships via the flipbook fallback and we lose nothing else.
 
 ## 8. Pipeline wiring (rule 8 — non-negotiable)
@@ -386,7 +385,7 @@ ship in the SAME change (use `docs-keeper`). Not done here — this is the plan,
 
 ## 9. Open questions (resolve during Phase 0/1)
 
-- **Tier C verdict** — native pooled `SpineParticle` vs flipbook-bake fallback (Phase 0).
+- **Tier C verdict** — native pooled `RigParticle` vs flipbook-bake fallback (Phase 0).
 - **Effect = one emitter or a stack?** Modelled as `layers[]` above (sparks+smoke+glow as
   one named effect) — confirm that's the right grain vs one-file-per-emitter.
 - **Trigger ownership** — does the FX carry its own `trigger`, or is _all_ triggering
@@ -401,5 +400,5 @@ ship in the SAME change (use `docs-keeper`). Not done here — this is the plan,
 
 Default the build to **Opus 4.8** (the `/fx` page, atlas picker, emitter inspector,
 pipeline wiring are well-specified Svelte 5 / PixiJS work). Reserve **Fable 5** for the
-one genuinely hard piece if it bites: the **Tier C `SpineParticle` pooling/perf spike**
+one genuinely hard piece if it bites: the **Tier C `RigParticle` pooling/perf spike**
 (Phase 0). Blanket-Fable would waste tokens — same calculus as the Rigger doc §11.

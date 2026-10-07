@@ -1,29 +1,29 @@
 /**
- * Engine signal-feed registry (§8.5, narrowed to spine-only) — the signal sibling
+ * Engine signal-feed registry (§8.5, narrowed to rig-only) — the signal sibling
  * of the value-feed (`registerComponentValues`) and the action-feed
  * (`registerComponentActions`). Where a value source pushes the latest NUMBER/STRING
  * and an action source carries `onpress` + live flags, a signal source is an EVENT
  * notifier: it fires when something happens in the game (a book event arrives, a
  * win lands, the round ends) with no payload. The engine `<ComponentInstance>`
- * subscribes it and, on each fire, swaps the animation a spine `cue` named for that
+ * subscribes it and, on each fire, swaps the animation a rig `cue` named for that
  * signal plays.
  *
  * Sibling discipline: the game wires book-event → signal ONCE at boot
  * (`registerComponentSignals({ win: source })`), keyed by SIGNAL NAME, not by
- * component — so one spine cue named `'win'` binds to the game's win signal across
+ * component — so one rig cue named `'win'` binds to the game's win signal across
  * every instance. The EDITOR only declares signal NAMES (a `ComponentDef.signals`
- * entry + a `SpineCue.signal`); it never references the game's wiring.
+ * entry + a `RigCue.signal`); it never references the game's wiring.
  *
  * Module-scoped (private to whichever bundled copy of this package the game pulls
  * in — pnpm gives each game its own copy, so no cross-game leakage). Svelte-free:
  * a signal source is just a minimal `subscribe(run)` event contract, so this module
  * is re-exported from the bare `engine-layout` (type-only) entry. A signal nothing
- * ever fires ⇒ the spine falls back to `defaultAnimation` (parity).
+ * ever fires ⇒ the rig falls back to `defaultAnimation` (parity).
  *
  * TWO buses live here. The `registry` is the closed, game-wired half described above.
  * The `open` bus below is the author-named half: a name the game never registered is
  * still subscribable, and the flow runtime fires every `fireCue` name into it — so a
- * cue signal an author types in the Scene Editor reaches the spine with no coded entry.
+ * cue signal an author types in the Scene Editor reaches the rig with no coded entry.
  *
  * SCOPE (Phase 12a, `docs/design/hold-and-win.md` §8): a fire may name the instance of a
  * repeated part it concerns — the pot, the jackpot tier, the letter's reel — and passes that
@@ -54,10 +54,10 @@ const registry = new Map<string, SignalSource>();
 /**
  * The OPEN bus — subscribers for a signal name the game never registered, keyed by name.
  * Where the `registry` above is wired ONCE at boot (a fixed set of engine signals mapped from
- * book events), this is the author-named half: any name a scene's spine `cue` mentions gets a
+ * book events), this is the author-named half: any name a scene's rig `cue` mentions gets a
  * live channel, and {@link emitComponentSignal} fires it. The game's flow runtime emits every
  * `fireCue` name here, so an author can invent `characterSpin` in the Scene Editor, fire it from
- * a Flow `fireCue` node, and have the spine react — WITHOUT a coded `registerComponentSignals`
+ * a Flow `fireCue` node, and have the rig react — WITHOUT a coded `registerComponentSignals`
  * entry per animation trigger.
  *
  * A registered name always WINS (see {@link getComponentSignal}), so the two names that are both
@@ -92,8 +92,8 @@ export function registerComponentSignals(sources: Record<string, SignalSource>):
 /**
  * Fire an OPEN-bus signal by name, scoped when the fire names one (a Flow `fireCue`'s scope
  * pin). A no-op when nothing subscribes that name — which is the common case (the game
- * broadcasts every flow cue through here, and only a handful are named by a spine cue).
- * Iterates a COPY so a subscriber that unsubscribes during the fire (a spine whose cue swaps the
+ * broadcasts every flow cue through here, and only a handful are named by a rig cue).
+ * Iterates a COPY so a subscriber that unsubscribes during the fire (a rig whose cue swaps the
  * mounted tree) can't corrupt the walk. Never touches the registry, so a game-registered signal
  * is unaffected.
  */

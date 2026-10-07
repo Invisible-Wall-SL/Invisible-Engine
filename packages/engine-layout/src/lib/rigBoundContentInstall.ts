@@ -1,9 +1,9 @@
 /**
  * Wire this package's rig-timeline registries into `pixi-svelte`'s {@link setRigBoundContentResolver}
- * seam, so `<SpineProvider>` plays a rig's bound effects + clips for EVERY rig, whatever mounted it.
+ * seam, so `<RigProvider>` plays a rig's bound effects + clips for EVERY rig, whatever mounted it.
  *
  * Why an install call rather than a direct import: `pixi-svelte` sits BELOW this package
- * (`engine-layout` imports it, not the other way), so `SpineProvider` cannot read `resolveRigFx` /
+ * (`engine-layout` imports it, not the other way), so `RigProvider` cannot read `resolveRigFx` /
  * `resolveEffect` itself. The lower package declares the shape, this one fills it in — the same
  * inversion `registerFxBehaviors(Emitter)` uses to keep `engine-fx` PixiJS-free.
  *

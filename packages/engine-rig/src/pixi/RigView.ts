@@ -75,7 +75,7 @@ const slotObjectMatrix = new Matrix();
 
 /** Carries a view's `bounds` into Pixi's measuring, which reads a plain container's children:
  * never drawn, and read only when Pixi asks, so measuring a never-updated view updates it first, as
- * it does spine-pixi's `Spine`. */
+ * the reference Pixi runtime's view does. */
 class BoundsProxy extends Graphics {
 	private key = '';
 
@@ -115,8 +115,8 @@ export class RigView extends Container {
 	private clipper = new SkeletonClipping();
 	private scratch: number[] = [];
 	private drawn: Container[] = [];
-	/** The view measures like spine-pixi's `Spine` (its bounds plus its slot objects), not by its
-	 * clipped, alpha-culled slot meshes, which are left out of measuring. */
+	/** The view measures like the reference Pixi runtime's view (its bounds plus its slot objects),
+	 * not by its clipped, alpha-culled slot meshes, which are left out of measuring. */
 	private measure = new BoundsProxy(() => this.bounds);
 	private boundsScratch = new Float32Array(8);
 	private darkTint: boolean;
@@ -136,8 +136,8 @@ export class RigView extends Container {
 		this.darkTint = darkTint;
 		this._ticker = ticker ?? Ticker.shared;
 		this.autoUpdate = autoUpdate;
-		// No pose until the first `update`, as spine-pixi: every world transform is zero, so a view
-		// shown before it is updated draws nothing.
+		// No pose until the first `update`, as in the reference Pixi runtime: every world transform
+		// is zero, so a view shown before it is updated draws nothing.
 		this.addChild(this.measure);
 		this.onRender = () => this.syncDisplay();
 		this.syncDisplay();
@@ -187,7 +187,7 @@ export class RigView extends Container {
 
 	/** Bounds of the current pose, in this container's local space: the bounding-box attachments'
 	 * box when any is showing, else every region and mesh, unclipped and whatever its alpha (as
-	 * spine-pixi measures). Empty when there is nothing to measure. */
+	 * the reference Pixi runtime measures). Empty when there is nothing to measure. */
 	get bounds(): Bounds {
 		const bounds = new Bounds();
 		if (!this.boundingBoxBounds(bounds)) {

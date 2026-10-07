@@ -7,7 +7,7 @@
 </script>
 
 <script lang="ts">
-	import { BitmapText, SpineProvider, SpineSlot, SpineTrack } from 'pixi-svelte';
+	import { BitmapText, RigProvider, RigSlot, RigTrack } from 'pixi-svelte';
 	import { waitForResolve } from 'utils-shared/wait';
 	import { stateBetDerived } from 'state-shared';
 
@@ -50,13 +50,13 @@
 
 {#if show}
 	<BoardContainer>
-		<SpineProvider
+		<RigProvider
 			x={context.stateGameDerived.boardLayout().width * 0.5}
 			y={context.stateGameDerived.boardLayout().height * 0.5}
 			key="tumble_multiplier"
 			width={context.stateGameDerived.boardLayout().width * 4}
 		>
-			<SpineTrack
+			<RigTrack
 				trackIndex={0}
 				{animationName}
 				timeScale={stateBetDerived.timeScale()}
@@ -64,12 +64,12 @@
 					complete: oncomplete,
 				}}
 			/>
-			<SpineSlot slotName="tumblemultiplier">
+			<RigSlot slotName="tumblemultiplier">
 				{@render multiplierSnippet()}
-			</SpineSlot>
-			<SpineSlot slotName="tumblemultiplier_add">
+			</RigSlot>
+			<RigSlot slotName="tumblemultiplier_add">
 				{@render multiplierSnippet()}
-			</SpineSlot>
-		</SpineProvider>
+			</RigSlot>
+		</RigProvider>
 	</BoardContainer>
 {/if}

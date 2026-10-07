@@ -1,15 +1,15 @@
-// Sequence-timeline spike (GATE) — pin Spine 4.2's `sequence` timeline against the OFFICIAL
+// Sequence-timeline spike (GATE) — pin 4.2-format's `sequence` timeline against the OFFICIAL
 // runtime before trusting the Rigger's new dopesheet track, and prove that a retime which scales
 // key times must scale `delay` with them.
 //   node tools/rigger-spike/sequence.mjs <skeleton.json> <skeleton.atlas>
 //
 // ========================= EMPIRICAL FINDINGS =========================
-// (the Spine 4.2 sequence fields and SequenceTimeline semantics, as the rig runtime implements
+// (the 4.2-format sequence fields and SequenceTimeline semantics, as the rig runtime implements
 //  them — and then EXERCISED below, not taken from memory.)
 //
 // JSON shape — the SAME node deform lives in:
 //   animations.<a>.attachments.<skin>.<slot>.<att>.sequence = [{ time?, mode?, index?, delay? }]
-//     time    default 0   — Spine omits it at 0, like every other timeline
+//     time    default 0   — rig omits it at 0, like every other timeline
 //     mode    default "hold" — hold|once|loop|pingpong|onceReverse|loopReverse|pingpongReverse
 //     index   default 0   — which image of the sequence this key starts on
 //     delay   INHERITS the previous key's value (the loader carries `lastDelay` forward from 0)
@@ -34,10 +34,10 @@
 
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { RIG_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
-const SPINE_NS = await import(RIG_CORE);
-const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, MixBlend, MixDirection } = SPINE_NS;
+const RIG_NS = await import(RIG_CORE);
+const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, MixBlend, MixDirection } = RIG_NS;
 
 const [, , jsonPath, atlasPath] = process.argv;
 if (!jsonPath || !atlasPath) {
@@ -122,7 +122,7 @@ const sandbox = {
 	// The authoring helpers resolve frame names against the LOADED atlas; hand them the real one.
 	selected: { atlas_file: 'atlas' },
 	missingArt: [],
-	SPINE: SPINE_NS,
+	RIG: RIG_NS,
 	assetMgr: { require: () => sandboxAtlas },
 };
 vm.createContext(sandbox);
@@ -199,7 +199,7 @@ if (withSeq.length) log(anyAdvanced, 'at least one animation here really ADVANCE
 
 // ---- C. the Rigger's dopesheet plumbing --------------------------------------------------
 // The editor path reads `k.time` as a number everywhere, which the rig LOAD guarantees by running
-// `normalizeKeyTimes` (Spine omits `time` at 0 — explosion.json's first sequence key does). Run the
+// `normalizeKeyTimes` (rig omits `time` at 0 — explosion.json's first sequence key does). Run the
 // SHIPPED normalizer here so this exercises the doc shape the app actually holds, not the raw file.
 const norm = (d) => { sandbox.normalizeKeyTimes(d); return d; };
 const animName = withSeq.length ? withSeq[0][0] : null;
@@ -343,7 +343,7 @@ if (withSeq.length) {
 			`detectSequence("${oneFrame}") strips the frame number and offers the whole run`);
 		log(sandbox.detectSequence('definitely_not_a_region_') === null, 'detectSequence returns null when there is no numbered run');
 
-		// THE TOLERANT LOADER. Spine throws on a missing frame; the Rigger must still open the rig,
+		// THE TOLERANT LOADER. Rig throws on a missing frame; the Rigger must still open the rig,
 		// or a re-packed atlas leaves it unrepairable in the only tool that could repair it.
 		const held = sandbox.missingArt;
 		sandbox.missingArt = [];
@@ -354,7 +354,7 @@ if (withSeq.length) {
 			for (const p of bad.pages) { p.width = p.width || 2048; p.height = p.height || 2048; try { p.setTexture(stub); } catch { p.texture = stub; } }
 			new SkeletonJson(sandbox.makeAttachmentLoader(bad)).readSkeletonData(setSeq({ count: seq.count + 1 }));
 		} catch { opened = false; }
-		log(opened, 'makeAttachmentLoader OPENS a rig whose sequence names a frame the atlas lacks (Spine alone throws)');
+		log(opened, 'makeAttachmentLoader OPENS a rig whose sequence names a frame the atlas lacks (rig alone throws)');
 		log(sandbox.missingArt.some((m) => m.type === 'sequence frame'), `and reports it as a missing frame (${sandbox.missingArt.length} recorded) so the banner can name it`);
 		sandbox.missingArt = held;
 
@@ -452,7 +452,7 @@ if (withSeq.length) {
 		log(!!k && nodes.length === 1 && nodes[0] === 'default',
 			`active skin "${skin}": the key lands under the skin that DECLARES the sequence (${nodes.join(',') || 'nowhere'})`);
 		log(loadsWith(sandbox.rawDoc, (at) => new AtlasAttachmentLoader(at)) === true,
-			`active skin "${skin}": and the rig still opens in stock Spine`);
+			`active skin "${skin}": and the rig still opens in stock rig`);
 	}
 
 	// The control: writing into a skin that does not declare it really is fatal, and really is
@@ -469,7 +469,7 @@ if (withSeq.length) {
 // ---- F. ✨ AUTO FX on a slot that shows a sequence -----------------------------------------
 // Auto FX duplicates the slot showing `<base>` and re-points the copy at `<base>_glow`. A sequence
 // names its frames `<path><number>`, so re-pointing one re-aims every frame at a region that does
-// not exist, and Spine refuses the rig ("Region not found"). The trigger is a region named like
+// not exist, and rig refuses the rig ("Region not found"). The trigger is a region named like
 // the sequence's `path` with an FX layer beside it; the Sheet Maker's natural output, one
 // `<frame>_glow` per frame, must be reported as the sequence's too. A plain image beside it must
 // still get its FX slot, or the refusal could pass by refusing everything.
@@ -504,7 +504,7 @@ if (withSeq.length) {
 		const doc = sandbox.rawDoc, told = sandbox.__alerts.join('\n'), slotNames = new Set(doc.slots.map((s) => s.name));
 		console.log(`\n  Auto FX: "${decl.slot}" shows the ${seq.count}-frame sequence ${seqPath}…; the atlas also has ${extra.map(([n]) => n).join(', ')}`);
 		const opened = loadsStock(doc);
-		log(opened === true, `the rig still opens in stock Spine after ✨ Auto FX slots (${opened === true ? 'ok' : opened})`);
+		log(opened === true, `the rig still opens in stock rig after ✨ Auto FX slots (${opened === true ? 'ok' : opened})`);
 		log(!slotNames.has(seqPath + '_glow'), `no "${seqPath}_glow" slot was made from the sequence slot`);
 		log(/sequence/.test(told) && told.includes(seqPath + '_glow') && told.includes(decl.slot), 'the author is told that FX layer was skipped because its slot shows a sequence');
 		log(told.includes(frame1 + '_glow') && told.includes('one frame of the sequence on slot'), `and that "${frame1}_glow" is one frame's, not an image no slot shows`);

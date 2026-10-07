@@ -7,8 +7,8 @@
  * the slot/asset warnings). See `docs/design/invisible-editor.md` §9.
  *
  * A project's catalog lives in R2 at `<client>/<project>/fonts/fonts.json`, with a
- * `_shared/fonts/fonts.json` library fallback — mirroring the spine
- * `skeletons.json` / `includeSharedSpines` posture. The sync writes it; the
+ * `_shared/fonts/fonts.json` library fallback — mirroring the rig
+ * `skeletons.json` / `includeSharedRigs` posture. The sync writes it; the
  * `/api/editor/fonts` endpoint serves it (enriched with stream URLs).
  */
 
@@ -38,7 +38,7 @@ export interface FontFile {
 
 /**
  * One entry in a project's `fonts.json`. Files are stored as names relative to
- * `folder` (exactly like spine `skeletons.json`), so the same catalog resolves
+ * `folder` (exactly like rig `skeletons.json`), so the same catalog resolves
  * against either the per-project or the shared `_shared/fonts/` root.
  */
 export interface FontEntry {

@@ -83,7 +83,7 @@ export interface StreamAssetOptions {
  * `max-age=300` kept serving the stale cached page for up to 5 min after a deploy
  * — so a re-authored atlas (new regions / recoloured art) rendered stale in the
  * editor + Symbols State Machine (which crop live from the deployed page at a
- * STABLE url), while the Rigger/Spine Viewer — self-contained `spines/<name>/`
+ * STABLE url), while the Rigger/Rig Viewer — self-contained `spines/<name>/`
  * bundles at their OWN urls — showed the fresh copy. A 304 is safe because the
  * endpoint has already re-run its gate before we get here — caching never
  * bypasses auth, it only saves re-streaming bytes the client already holds.

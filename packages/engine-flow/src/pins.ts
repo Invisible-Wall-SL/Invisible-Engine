@@ -6,7 +6,7 @@
  *   value  ← `registerComponentValues`     (a component-instance `source` param)
  *   action ← `registerComponentActions`    (a button instance `action` param)
  *   gate   ← `registerComponentVisibility` (a `visibleSource` param / scene gate)
- *   signal ← `registerComponentSignals`    (a spine cue's `signal` in the resolved tree)
+ *   signal ← `registerComponentSignals`    (a rig cue's `signal` in the resolved tree)
  *
  * plus the FIXED structural pins every screen node carries (`enter`, `complete`, `active`).
  * This module is pure + Svelte-free (no engine registry calls — it reads the AUTHORED doc,
@@ -24,7 +24,7 @@ import type {
 	ComponentInstanceNode,
 	LayoutNode,
 	Scene,
-	SpineNode,
+	RigNode,
 } from 'engine-layout';
 import type { FlowPin, FlowPinRole } from './types';
 
@@ -60,11 +60,11 @@ const resolveParams = (
 	return out;
 };
 
-/** Collect the spine-cue signal keys declared in a node tree (the def's resolved root). */
+/** Collect the rig-cue signal keys declared in a node tree (the def's resolved root). */
 const collectSignals = (nodes: LayoutNode[], out: Set<string>): void => {
 	for (const node of nodes) {
 		if (node.kind === 'spine') {
-			for (const cue of (node as SpineNode).cues ?? []) out.add(cue.signal);
+			for (const cue of (node as RigNode).cues ?? []) out.add(cue.signal);
 		}
 		const children = (node as { children?: LayoutNode[] }).children;
 		if (Array.isArray(children)) collectSignals(children, out);

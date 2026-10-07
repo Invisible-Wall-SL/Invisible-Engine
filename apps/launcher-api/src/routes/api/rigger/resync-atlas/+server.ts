@@ -1,7 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { SUB } from '$lib/server/projectPaths';
 import { getObjectText } from '$lib/server/r2';
-import { ensureBundleAtlasFresh } from '$lib/server/spineBundleSync';
+import { ensureBundleAtlasFresh } from '$lib/server/rigBundleSync';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
@@ -18,7 +18,7 @@ import type { RequestHandler } from './$types';
  * one click thereafter. `rigger`-gated; path-guarded; does NOT reindex skeletons.json
  * (the skeleton list + atlas filename are unchanged).
  *
- * Body: `{ dir: <base64url bundle dir, '' = spines root>, atlasFile: <.atlas name in
+ * Body: `{ dir: <base64url bundle dir, '' = rigs root>, atlasFile: <.atlas name in
  *          the bundle>, manifestKey?: <override / picked source> }`.
  *
  * Returns `{ ok:false, needsAtlas:true }` (HTTP 200) when no source is known yet, so
@@ -49,8 +49,8 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	}
 	if (dir.includes('..')) throw error(403, 'forbidden');
 
-	const spinesPrefix = SUB.spines(clientKey, projectKey);
-	const bundlePrefix = dir ? `${spinesPrefix}/${dir}` : spinesPrefix;
+	const rigsPrefix = SUB.spines(clientKey, projectKey);
+	const bundlePrefix = dir ? `${rigsPrefix}/${dir}` : rigsPrefix;
 
 	// Resolve the source manifest: body override (the re-pick picker), else the remembered
 	// sidecar — used only to decide the `needsAtlas` prompt. The actual source resolution +

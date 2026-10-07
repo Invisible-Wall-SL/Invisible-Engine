@@ -3,7 +3,7 @@
  *
  *     node scripts/check-page-store-shared.mjs
  *
- * WHY A GUARD AND NOT A TYPE. `pageStore` is an OPTIONAL parameter on `exportSpineBundle`, and it
+ * WHY A GUARD AND NOT A TYPE. `pageStore` is an OPTIONAL parameter on `exportRigBundle`, and it
  * has to be: `bootSplashExport` is deliberately exempt (below). Optional means a new caller that
  * simply does not pass it compiles, ships, and silently writes a private copy of every page it
  * touches — which is exactly what `symbolExport` did. Eight symbols sharing `S_Game_Reel` shipped
@@ -17,7 +17,7 @@
  * Six claims:
  *   1. The orchestrator constructs the store — exactly one, for the whole pass.
  *   2. It passes that store to BOTH parallel exporters that write pages.
- *   3. `symbolExport` forwards it to `exportSpineBundle` AND routes its own SHEET pages through
+ *   3. `symbolExport` forwards it to `exportRigBundle` AND routes its own SHEET pages through
  *      it. The sheet half was the one left behind: symbol sheet pages are the largest textures a
  *      board holds, and without the store they shipped raw and undeduped.
  *   4. NO exporter prunes `_pages/` — not even one that made its own store. A page is stale only
@@ -81,8 +81,8 @@ ok(
 	'without it every symbol rig copies its own atlas page',
 );
 ok(
-	'symbolExport passes it to exportSpineBundle',
-	/exportSpineBundle\(\{[\s\S]*?pageStore[\s\S]*?\}\)/.test(symbols),
+	'symbolExport passes it to exportRigBundle',
+	/exportRigBundle\(\{[\s\S]*?pageStore[\s\S]*?\}\)/.test(symbols),
 );
 ok(
 	'its SHEET pages go through the store too',
@@ -140,8 +140,8 @@ ok(
 console.log('7. no unexempted caller skips the store');
 for (const file of ['editorArtExport.ts', 'symbolExport.ts', 'bootSplashExport.ts']) {
 	const src = read(file);
-	if (!/exportSpineBundle\(/.test(src)) continue;
-	const passes = /exportSpineBundle\(\{[\s\S]*?pageStore[\s\S]*?\}\)/.test(src);
+	if (!/exportRigBundle\(/.test(src)) continue;
+	const passes = /exportRigBundle\(\{[\s\S]*?pageStore[\s\S]*?\}\)/.test(src);
 	ok(
 		`${file} ${EXEMPT.has(file) ? 'is exempt' : 'passes the store'}`,
 		EXEMPT.has(file) ? !passes || true : passes,
@@ -153,22 +153,22 @@ console.log('8. the KTX2 atlas resolves a page the store moved, even without a t
 // Only pages over MIN_ENCODE_PIXELS earn a `.ktx2` twin, so a rig mixing one big page with a small
 // one (a Rigger `rigtext-*.png` is the common case) has to fall back for the small one. Falling
 // back to the ORIGINAL name names a file that sits beside the atlas — which is exactly what the
-// store moved into `_pages/`. It 404s, spine fails the WHOLE bundle, and the WebP atlas rewrites
+// store moved into `_pages/`. It 404s, rig fails the WHOLE bundle, and the WebP atlas rewrites
 // every page so desktop looks perfect: the Buy Feature button and a cinematic went missing on the
 // compressed tier ONLY, the tier that exists for iPhones. Shipped that way from #179 to #778.
-const spineSrc = read('spine.ts');
+const rigSrc = read('rig.ts');
 ok(
 	'rewriteAtlasForKtx2 is given the shared-page map',
-	/function rewriteAtlasForKtx2\(\s*atlasText[\s\S]{0,200}?webpByPage\s*:\s*Map/.test(spineSrc),
+	/function rewriteAtlasForKtx2\(\s*atlasText[\s\S]{0,200}?webpByPage\s*:\s*Map/.test(rigSrc),
 	'without it a page with no twin can only fall back to its original, pre-dedup name',
 );
 ok(
 	'and the call site passes it',
-	/rewriteAtlasForKtx2\(\s*atlasText\s*,\s*ktx2ByPage\s*,\s*webpByPage\s*\)/.test(spineSrc),
+	/rewriteAtlasForKtx2\(\s*atlasText\s*,\s*ktx2ByPage\s*,\s*webpByPage\s*\)/.test(rigSrc),
 );
 ok(
 	'a page with no twin falls back to the shared ref before the original name',
-	/out\.push\(\s*twin\s*\?\s*twin\.name\s*:\s*\(?\s*webpByPage\.get\([^)]*\)\s*\?\?/.test(spineSrc),
+	/out\.push\(\s*twin\s*\?\s*twin\.name\s*:\s*\(?\s*webpByPage\.get\([^)]*\)\s*\?\?/.test(rigSrc),
 	'the fallback order IS the fix: shared `_pages/` ref first, original name only when undeduped',
 );
 

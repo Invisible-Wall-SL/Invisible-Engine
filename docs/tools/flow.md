@@ -13,7 +13,7 @@ events from the RGS (`reveal`, `winInfo`, `freeSpinTrigger`, …), lifecycle sig
 (`load`, `tapToStart`, `idle`), and player **intents** (`spin`, `stop`, `buyBonus`). Each
 event node is an **entry point**: you run an exec chain off it that fires the game's real
 **actions** (state effects and mechanic commands), broadcasts **cues** (presentation
-signals that components — and spines placed on a screen — listen for), waits with
+signals that components — and rigs placed on a screen — listen for), waits with
 **delays**, forks on **branches**, loops with **forEach**, and **shows / hides containers**
 (screens, stacked by an author-assigned z-order).
 
@@ -93,7 +93,7 @@ function library:
   category.
 - **Cues** — presentation signals to broadcast (`boardShow`, `specialBookReveal`,
   `freeSpinIntroShow`, `soundMusic`, …). Adds a **fireCue** node. The list is the engine's
-  own cues **plus every signal name authored on a spine or a flipbook in this project's
+  own cues **plus every signal name authored on a rig or a flipbook in this project's
   screens**, including the ones inside a component placed on them and a placement's own
   signal override. A cue you invented in the Scene Editor or the Component Editor is waiting
   here to be dragged out (see below). The two sound cues — `soundMusic` and `soundOnce` — also take an optional
@@ -114,8 +114,8 @@ function library:
 #### Scene cues — animate a placed character
 
 A character placed in the **Invisible Scene Editor** carries its own **Plays on signal** rows —
-each pairing a signal name with what that node plays. It does **not** have to be a Spine rig: a
-spine cue names an animation, and a placed **Invisible Flipbook** clip takes the same rows,
+each pairing a signal name with what that node plays. It does **not** have to be a rig: a
+rig cue names an animation, and a placed **Invisible Flipbook** clip takes the same rows,
 naming another clip to swap to. Every name used on this project's screens, on either kind, is
 collected into the **Cues** section here, so a name an author invented becomes a node you can
 drag onto the canvas — and one validation accepts as a real reference. Nothing else connects
@@ -124,12 +124,12 @@ the two tools: the names match, or nothing fires.
 The whole recipe, for a character that idles, plays a spin loop while the reels turn, then
 returns to idle:
 
-1. **In the Scene Editor**, select the character — its spine, or its placed flipbook clip — and
-   give it a resting state: a spine's **default animation** set to the idle animation with
+1. **In the Scene Editor**, select the character — its rig, or its placed flipbook clip — and
+   give it a resting state: a rig's **default animation** set to the idle animation with
    **loop** ticked; a flipbook's **clip** set to the idle clip.
 2. In the same panel's **Plays on signal** block, **+ add cue** twice: one row
    `characterSpin` naming the spin animation (or spin clip), one row `characterIdle` naming
-   the idle one. Set both to loop — a tick box on a spine, the **loop** option on a flipbook.
+   the idle one. Set both to loop — a tick box on a rig, the **loop** option on a flipbook.
    (A looping cue holds until another cue replaces it, and a fired cue is never cleared —
    which is why returning to idle is a second cue, not an "off".)
 3. **Here in the Flow**, open the palette's **Cues** section: `characterSpin` and
@@ -156,7 +156,7 @@ character lives on a screen the flow shows, fire its cue *after* the **show**, n
 until the animation the cue starts is done, so the next node does not land on top of it — the
 answer to "why does my second cue fire immediately?". A scene cue has no listener that can
 report back (nothing is subscribed to an invented name but the artwork itself), so the wait is
-**measured**: the longest clip any cued spine or flipbook plays for that signal, on a screen
+**measured**: the longest clip any cued rig or flipbook plays for that signal, on a screen
 this flow is currently showing.
 
 Things that follow from *measured*, each deliberate:
@@ -183,11 +183,11 @@ still fires and the character still animates; only the *waiting* is unavailable 
 
 **An engine cue is not affected by any of this.** A cue the engine already owns
 (`specialBookReveal`, `winShow`, the sounds) waits for its real listeners, exactly as it always
-has, even if one of your screens happens to name the same signal on a spine. The two never
+has, even if one of your screens happens to name the same signal on a rig. The two never
 stack.
 
 The Scene-Editor half — the block's fields, and exactly what **loop** does on each kind — is in
-[the Scene Editor guide](invisible-editor.md#plays-on-signal--a-spine-or-flipbook-that-changes-what-it-plays).
+[the Scene Editor guide](invisible-editor.md#plays-on-signal--a-rig-or-flipbook-that-changes-what-it-plays).
 
 #### Text Message — in-game prompts
 
@@ -907,7 +907,7 @@ The two cue traps (splice in series; fire after the screen shows) are in
   saved, the starter flow `/flow-v2` opens on shows ids its scenes lack and Validation flags them.
   Run **Add missing screens** in the Scene Editor first.
 - **Cues inside a component instance aren't offered.** The **Cues** section collects signal
-  names from spines and flipbooks placed **directly on a screen**; a character that lives
+  names from rigs and flipbooks placed **directly on a screen**; a character that lives
   inside a reusable component instance keeps its cue names in the component's own
   definition, so they never reach this palette. Such a name is only firable from here if it
   is also one of the engine's cues or is used by a node placed directly on a screen —

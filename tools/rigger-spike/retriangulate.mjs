@@ -6,7 +6,7 @@
 // hull carves its notch (a point in the notch is left uncovered).
 //   node tools/rigger-spike/retriangulate.mjs [skeleton.json skeleton.atlas]
 import { readFileSync } from 'node:fs';
-import { RIG_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
 // ---- the EXACT functions ported into view.html ----------------------------
 function pointInPolygon(px, py, poly) {

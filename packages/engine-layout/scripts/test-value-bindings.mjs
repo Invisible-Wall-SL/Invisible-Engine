@@ -42,7 +42,7 @@ const bundled = await esbuild.build({
 			resolveBindingInputs,
 			smoothedValue,
 		} from '../src/lib/valueBindings.ts';
-		export { applySpineBoneOffset, isIdentityBoneOffset } from '../../pixi-svelte/src/lib/spineBoneOffset.ts';`,
+		export { applyRigBoneOffset, isIdentityBoneOffset } from '../../pixi-svelte/src/lib/rigBoneOffset.ts';`,
 		resolveDir: HERE,
 		loader: 'ts',
 		sourcefile: 'test-value-bindings.entry.ts',
@@ -314,7 +314,7 @@ assert(
 assert(boneOffset('arm').y === 4, 'a y offset carries');
 
 const bone = { x: 5, y: 6, rotation: 30, scaleX: 2, scaleY: 1 };
-const restore = mod.applySpineBoneOffset(bone, {
+const restore = mod.applyRigBoneOffset(bone, {
 	x: 1,
 	y: 2,
 	rotation: 10,
@@ -323,7 +323,7 @@ const restore = mod.applySpineBoneOffset(bone, {
 });
 assert(
 	bone.x === 6 && bone.y === 4 && bone.rotation === 20 && bone.scaleX === 3 && bone.scaleY === 3,
-	'a bone offset: x adds, y and rotation invert into spine space, scales multiply',
+	'a bone offset: x adds, y and rotation invert into rig space, scales multiply',
 );
 restore();
 assert(
@@ -338,7 +338,7 @@ assert(!mod.isLiveBinding({ target: 'x' }), 'no input ⇒ not live');
 assert(!mod.isLiveBinding({ target: 'animTime', source: 'a' }), 'a scrub needs an animation');
 assert(!mod.isLiveBinding({ target: 'bone', source: 'a' }), 'a bone binding needs a bone');
 assert(mod.isLiveBinding({ target: 'fill', param: 'level' }), 'a param input is live');
-assert(mod.bindingTargetsForKind('spine').includes('bone'), 'a spine offers the bone target');
+assert(mod.bindingTargetsForKind('spine').includes('bone'), 'a rig offers the bone target');
 assert(!mod.bindingTargetsForKind('text').includes('fill'), 'a text node has no fill');
 assert(
 	mod.bindingTargetsForKind('flipbook').includes('frame'),

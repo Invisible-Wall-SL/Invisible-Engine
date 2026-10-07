@@ -148,7 +148,7 @@
 		crashed on every project that landed a multiplier.
 
 		BOTH layers rather than one, for the same reason the two boards have both: the split IS
-		`animating` (a spine symbol overflows its cell, so it draws unmasked above the mask), and
+		`animating` (a rig symbol overflows its cell, so it draws unmasked above the mask), and
 		`SymbolWrap` renders a symbol on exactly one of them. A single layer would silently hide
 		whichever half of a project's multiplier art it did not match — a quieter bug than the crash.
 	-->

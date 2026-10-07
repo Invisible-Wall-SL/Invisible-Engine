@@ -30,11 +30,11 @@
 		/** Which sheet/atlas keys are expanded — `bind`able so the Scene Editor can
 		 * persist + restore the open set (the Component Editor omits it). */
 		expanded?: Record<string, boolean>;
-		/** Extra controls injected into the Spines section header (the Scene Editor's
-		 * "Upload spines" button + status). Omitted by the Component Editor. */
-		spineActions?: Snippet;
+		/** Extra controls injected into the rigs section header (the Scene Editor's
+		 * "Upload rigs" button + status). Omitted by the Component Editor. */
+		rigActions?: Snippet;
 	}
-	let { assets, expanded = $bindable({}), spineActions }: Props = $props();
+	let { assets, expanded = $bindable({}), rigActions }: Props = $props();
 
 	/** Per-key region set (loaded lazily on first expand; `null` while loading). */
 	let regionSets = $state<Record<string, RegionSet | null>>({});
@@ -62,7 +62,7 @@
 	});
 
 	const atlasCount = $derived(assets.atlases.length);
-	const spineCount = $derived(assets.spines.length);
+	const rigCount = $derived(assets.spines.length);
 	const sheetCount = $derived(assets.sheets.length);
 	const effectCount = $derived(effects?.length ?? 0);
 	const clipCount = $derived(clips?.length ?? 0);
@@ -228,7 +228,7 @@
 	</ul>
 </PanelSection>
 
-<PanelSection id="lib-spines" title="Spines" count={spineCount} actions={spineActions}>
+<PanelSection id="lib-rigs" title="Rigs" count={rigCount} actions={rigActions}>
 	<ul>
 		{#each assets.spines as s (s.key)}
 			<li
@@ -239,11 +239,11 @@
 				ondragstart={(e) => onAssetDragStart(e, s)}
 			>
 				<span class="name">{s.name}</span>
-				<span class="tag">spine</span>
+				<span class="tag">rig</span>
 				{#if s.shared}<span class="badge">shared</span>{/if}
 			</li>
 		{:else}
-			<li class="muted">No spines yet.</li>
+			<li class="muted">No rigs yet.</li>
 		{/each}
 	</ul>
 </PanelSection>

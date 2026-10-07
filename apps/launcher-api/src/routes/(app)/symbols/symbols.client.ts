@@ -213,12 +213,12 @@ export type SymbolCellType = (typeof SYMBOL_CELL_TYPES)[number];
 /** Human labels for the binding-kind selector. */
 export const SYMBOL_CELL_TYPE_LABELS: Record<SymbolCellType, string> = {
 	sprite: 'Sprite',
-	spine: 'Spine',
+	spine: 'Rig',
 	flipbook: 'Flipbook',
 };
 
-/** A single symbol×state binding — a static sprite frame, a spine animation, or an Invisible
- *  Flipbook clip. A `sprite` cell is ONE frozen frame, so before flipbooks Spine was the only
+/** A single symbol×state binding — a static sprite frame, a rig animation, or an Invisible
+ *  Flipbook clip. A `sprite` cell is ONE frozen frame, so before flipbooks rig was the only
  *  way to animate a Spin/Land/Win state. */
 export interface SymbolCell {
 	type: SymbolCellType;
@@ -228,7 +228,7 @@ export interface SymbolCell {
 	 *  otherwise — the authored clip this cell plays. For a flipbook cell `assetKey` holds the
 	 *  clip's PRIMARY sheet manifest key, so the cell is never assetless. */
 	clipId?: string;
-	/** Tool-only spine resolver hint (`<folder>/<stem>`, e.g. `symbols/h1`) on a
+	/** Tool-only rig resolver hint (`<folder>/<stem>`, e.g. `symbols/h1`) on a
 	 *  DEFAULT cell, so the grid previews the specific skeleton of a shared-atlas
 	 *  bundle. Display/preview only — `applyDraft` never copies it into an override. */
 	previewKey?: string;
@@ -275,7 +275,7 @@ export type SymbolStateMap = Partial<Record<SymbolState, SymbolCell>>;
  *  no tint (the symbol renders untinted, byte-identical to before). */
 export type HighlightTintMode = 'fixed' | 'winLine';
 
-/** The global win-frame highlight cell. A spine {@link SymbolCell} plus an optional MULTIPLY tint
+/** The global win-frame highlight cell. A rig {@link SymbolCell} plus an optional MULTIPLY tint
  *  the frame applies to the winning symbols it loops over. Lives ONLY on `doc.highlight` — the
  *  generic per-cell `SymbolCell` grid schema is deliberately untouched. */
 export type HighlightCell = SymbolCell & {
@@ -294,7 +294,7 @@ export type BookVfxKind = (typeof BOOK_VFX_KINDS)[number];
 /** Human labels for the Book-VFX kind toggle. */
 export const BOOK_VFX_KIND_LABELS: Record<BookVfxKind, string> = {
 	sprite: 'Sprite',
-	spine: 'Spine',
+	spine: 'Rig',
 	flipbook: 'Flipbook',
 	fx: 'FX',
 };
@@ -304,7 +304,7 @@ export const BOOK_VFX_SLOTS = ['background', 'foreground'] as const;
 export type BookVfxSlot = (typeof BOOK_VFX_SLOTS)[number];
 
 /** A single Book-symbol VFX layer. Only the field its `kind` needs is set (the server `.refine()`
- *  enforces this): sprite ⇒ `assetKey`, spine ⇒ `assetKey`+`animationName`, flipbook ⇒ `clipId`
+ *  enforces this): sprite ⇒ `assetKey`, rig ⇒ `assetKey`+`animationName`, flipbook ⇒ `clipId`
  *  (`assetKey` optionally its primary sheet), fx ⇒ `effectId`. `sizeRatios`/`offset` are optional
  *  × cell fit hints. Mirrors the server `bookVfxLayerSchema`. */
 export interface BookVfxLayer {
@@ -374,7 +374,7 @@ export interface SymbolTransition {
 	clipId?: string;
 	effectId?: string;
 	/** Same terms as any other layer's {@link BookVfxLayer.blendMode} — the transition renders
-	 *  through the same component, so it blends (flipbook/fx) or does not (spine) for the same
+	 *  through the same component, so it blends (flipbook/fx) or does not (rig) for the same
 	 *  reasons. */
 	blendMode?: BlendMode;
 	delayMs?: number;
@@ -448,7 +448,7 @@ export interface WinLineConfig {
 }
 
 /** One stacked symbol's authored config — the tall picture that fills `height` cells for the
- *  stacked-picture reel mode. `art` is a {@link SymbolCell} (sprite frame / spine bundle+animation /
+ *  stacked-picture reel mode. `art` is a {@link SymbolCell} (sprite frame / rig bundle+animation /
  *  flipbook clip), authored with the SAME picker the grid cells use. The tall picture is the ONLY thing
  *  a stacked symbol renders. Mirrors the server `stackedSymbolSchema`. */
 export interface StackedSymbol {
@@ -457,7 +457,7 @@ export interface StackedSymbol {
 	height: number;
 	art: SymbolCell;
 	/** The WINNING variant of the tall picture — what the stack shows while it is part of a paying line
-	 *  (typically the spine/flipbook that animates the payout, where `art` is a still). Optional and
+	 *  (typically the rig/flipbook that animates the payout, where `art` is a still). Optional and
 	 *  INHERITING: absent ⇒ the stack keeps showing `art` through the win. */
 	winArt?: SymbolCell;
 }
@@ -512,14 +512,14 @@ export interface AnticipationTierFx {
 }
 
 /** The reel-anticipation presentation config — the editable twin of the engine's coded FX ramp.
- *  `spineKey` optionally swaps the per-reel overlay spine (a full R2 bundle prefix, default the coded
- *  `anticipation` spine); `tiers` overrides the per-tier escalation FX, keyed by the config big-win
+ *  `spineKey` optionally swaps the per-reel overlay rig (a full R2 bundle prefix, default the coded
+ *  `anticipation` rig); `tiers` overrides the per-tier escalation FX, keyed by the config big-win
  *  tier ALIAS. Sparse: absent ⇒ the game keeps its coded FX (byte-parity). Mirrors the server
  *  `anticipationSchema`. */
 export interface AnticipationConfig {
 	spineKey?: string;
 	/** The overlay animation SET — the base name the engine appends `_intro`/`_loop`/`_out` to
-	 *  (e.g. `anticipation3` → `anticipation3_intro/_loop/_out`). Lets the author pick among the spine's
+	 *  (e.g. `anticipation3` → `anticipation3_intro/_loop/_out`). Lets the author pick among the rig's
 	 *  differently-sized anticipations. Absent ⇒ the coded unnumbered `anticipation_*` set. */
 	animationSet?: string;
 	/** The per-reel overlay box size, in CELLS (1 = one symbol). The engine scales the chosen animation
@@ -602,13 +602,13 @@ export interface SymbolsDoc {
 	 *  because the doc merges cell-by-cell over the coded map — a cell carrying only a sound would
 	 *  replace the binding and take the state's ART with it. */
 	symbolSounds?: Record<string, Record<string, string>>;
-	/** Global win-frame spine that loops over winning symbols. Absent = the game's
-	 *  built-in default (a local `payframe` spine). Set ONLY when the user overrides
-	 *  it with an R2 spine bundle; never written for the default. Carries an optional
+	/** Global win-frame rig that loops over winning symbols. Absent = the game's
+	 *  built-in default (a local `payframe` rig). Set ONLY when the user overrides
+	 *  it with an R2 rig bundle; never written for the default. Carries an optional
 	 *  MULTIPLY tint (`tintMode`/`tintColor`) applied to the symbols it frames. */
 	highlight?: HighlightCell;
-	/** Global free-spin board-glow spine — the reel-house backdrop behind the reels. Absent =
-	 *  the game's coded `reelhouse` glow. Set ONLY when the user swaps in an R2 spine bundle
+	/** Global free-spin board-glow rig — the reel-house backdrop behind the reels. Absent =
+	 *  the game's coded `reelhouse` glow. Set ONLY when the user swaps in an R2 rig bundle
 	 *  (a Rigger `.irig` rig included); never written for the default. `animations` renames the
 	 *  coded start/idle/exit tracks (the engine still owns the chaining); `sizeRatios` is the
 	 *  swapped asset's own fit ratio against the board box. */
@@ -662,7 +662,7 @@ export interface SymbolsDoc {
 	 *  byte-identical. Passed through verbatim to `bundle.symbols.transition`. */
 	transition?: SymbolTransition;
 	/** Reel-anticipation presentation FX (the escalating tease mode) — the editable twin of the coded
-	 *  `codedTierFx` ramp. Sparse: absent ⇒ the game keeps its coded per-tier FX + overlay spine
+	 *  `codedTierFx` ramp. Sparse: absent ⇒ the game keeps its coded per-tier FX + overlay rig
 	 *  (byte-parity with Phase 4). Passed through verbatim to `bundle.symbols.anticipation`. */
 	anticipation?: AnticipationConfig;
 	/** The cascade EXPLOSION PATTERN — the order the winning seats pop in (`pattern`) and the gap in
@@ -875,11 +875,11 @@ export function setAnticipationTierFx(
 	return withAnticipation(doc, config);
 }
 
-/** Set (or, with an empty/undefined key, clear) the overlay spine bundle. Clearing resets to the
- *  coded `anticipation` spine. New doc. */
-export function setAnticipationSpineKey(doc: SymbolsDoc, spineKey: string | undefined): SymbolsDoc {
+/** Set (or, with an empty/undefined key, clear) the overlay rig bundle. Clearing resets to the
+ *  coded `anticipation` rig. New doc. */
+export function setAnticipationRigKey(doc: SymbolsDoc, rigKey: string | undefined): SymbolsDoc {
 	const config: AnticipationConfig = { ...(doc.anticipation ?? {}) };
-	if (spineKey) config.spineKey = spineKey;
+	if (rigKey) config.spineKey = rigKey;
 	else delete config.spineKey;
 	return withAnticipation(doc, config);
 }
@@ -932,7 +932,7 @@ export function setAnticipationLoopSound(doc: SymbolsDoc, name: string | undefin
 	return withAnticipation(doc, config);
 }
 
-/** Reset ALL anticipation FX (per-tier + overlay spine) to the coded defaults — removes the key. */
+/** Reset ALL anticipation FX (per-tier + overlay rig) to the coded defaults — removes the key. */
 export function clearAnticipation(doc: SymbolsDoc): SymbolsDoc {
 	if (!doc.anticipation) return doc;
 	const next = { ...doc };
@@ -1719,7 +1719,7 @@ export function docSignature(doc: SymbolsDoc): string {
 				delayMs: doc.transition.delayMs ?? null,
 			}
 		: null;
-	// Listed here or an edit to an anticipation tier / the overlay spine never marks the page dirty
+	// Listed here or an edit to an anticipation tier / the overlay rig never marks the page dirty
 	// and Save stays disabled. Tier keys are sorted so the signature is stable.
 	const anticipation = doc.anticipation
 		? {

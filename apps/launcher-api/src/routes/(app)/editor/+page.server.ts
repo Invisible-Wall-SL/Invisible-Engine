@@ -39,7 +39,7 @@ import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
- * The editor is a client-only canvas/WebGL app (pixi-like 2D canvas + a spine
+ * The editor is a client-only canvas/WebGL app (pixi-like 2D canvas + a rig
  * WebGL preview). Server-rendering it is pointless AND fragile — certain saved
  * docs made the SSR render throw a 500 even though the `load` data was fine.
  * Disable SSR: `load` still runs server-side (data flows to the client), only
@@ -158,7 +158,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	const { doc: gameConfigDoc } = await resolveGameConfig(clientKey, projectKey, resolvedGameType);
 	const gridDimensions = gridDimensionsOf(gameConfigDoc);
 	const { addOns, potIds } = projectAddOns(gameConfigDoc);
-	// The `win` component authors its per-tier PRESENTATION (spine/animations/duration/sound) from the
+	// The `win` component authors its per-tier PRESENTATION (rig/animations/duration/sound) from the
 	// config's BIG tiers, keyed by alias — so the component's groups mirror the config. Null when the
 	// project hasn't authored `winLevels` ⇒ the client keeps the built-in default tiers (byte-identical).
 	const winTiers = gameConfigDoc

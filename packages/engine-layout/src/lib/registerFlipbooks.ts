@@ -57,7 +57,7 @@ export function clearFlipbooks(): void {
 const DEFAULT_FPS = 24;
 
 /**
- * How long ONE pass of a registered clip takes, in wall-clock ms — the flipbook analogue of a spine
+ * How long ONE pass of a registered clip takes, in wall-clock ms — the flipbook analogue of a rig
  * animation's `duration`. `loopOverride` is a placement's own `loop` (absent ⇒ the clip's authored
  * value).
  *

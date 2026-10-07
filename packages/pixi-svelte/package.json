@@ -58,10 +58,10 @@
 			"svelte": "./src/lib/rigBoundContent.ts",
 			"default": "./src/lib/rigBoundContent.ts"
 		},
-		"./spineBoneOffset": {
-			"types": "./src/lib/spineBoneOffset.ts",
-			"svelte": "./src/lib/spineBoneOffset.ts",
-			"default": "./src/lib/spineBoneOffset.ts"
+		"./rigBoneOffset": {
+			"types": "./src/lib/rigBoneOffset.ts",
+			"svelte": "./src/lib/rigBoneOffset.ts",
+			"default": "./src/lib/rigBoneOffset.ts"
 		}
 	}
 }

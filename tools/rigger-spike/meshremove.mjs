@@ -4,7 +4,7 @@
 // the mesh is still valid: vertex -1, all triangle indices in range, mesh poses.
 //   node tools/rigger-spike/meshremove.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
-import { RIG_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics } = await import(RIG_CORE);
 

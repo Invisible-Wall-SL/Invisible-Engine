@@ -5,13 +5,13 @@
  *
  * What this pins. Rig-timeline bindings (`event.fx` / `event.flipbook`, authored in the Rigger and
  * baked into the `rigFx` / `rigFlipbooks` manifests) used to be resolved-and-mounted by a ~25-line
- * block hand-copied into `LayoutNodeView`'s spine branch and `SymbolSpineMain`. A rig mounted by
+ * block hand-copied into `LayoutNodeView`'s rig branch and `SymbolRigMain`. A rig mounted by
  * ANY OTHER path — the big-win rig (`WinAnimation`), a backdrop, a transition, a cinematic actor —
  * read the manifest nowhere and silently played nothing, with the binding baked and correct.
  *
- * The join now lives at `<SpineProvider>`, the one component every rig goes through:
+ * The join now lives at `<RigProvider>`, the one component every rig goes through:
  * `engine-layout` installs a resolver into `pixi-svelte`'s `rigBoundContent` seam, and
- * `SpineProvider` mounts whatever it returns. The WebGL half still needs live verify; what IS
+ * `RigProvider` mounts whatever it returns. The WebGL half still needs live verify; what IS
  * verifiable offline is the whole lookup — which is where every failure so far has lived:
  *
  *   1. No resolver installed ⇒ the frozen empty, by IDENTITY (nothing mounts, no churn).

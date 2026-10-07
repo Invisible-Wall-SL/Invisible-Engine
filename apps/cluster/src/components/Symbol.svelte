@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { SpineProvider, SpineTrack } from 'pixi-svelte';
+	import { RigProvider, RigTrack } from 'pixi-svelte';
 
-	import SymbolSpine from './SymbolSpine.svelte';
+	import SymbolRig from './SymbolRig.svelte';
 	import SymbolSprite from './SymbolSprite.svelte';
 	import type { SymbolState, RawSymbol } from '../game/types';
 	import { SYMBOL_SIZE } from '../game/constants';
@@ -30,7 +30,7 @@
 {#if isSprite}
 	<SymbolSprite {symbolInfo} x={props.x} y={props.y} oncomplete={props.oncomplete} />
 {:else}
-	<SymbolSpine
+	<SymbolRig
 		loop={props.loop}
 		{symbolInfo}
 		x={props.x}
@@ -47,7 +47,7 @@
 {/if}
 
 {#if showWinFrame}
-	<SpineProvider x={props.x} y={props.y} key="anticipation" width={SYMBOL_SIZE * 0.19}>
-		<SpineTrack trackIndex={0} animationName="payframe" loop />
-	</SpineProvider>
+	<RigProvider x={props.x} y={props.y} key="anticipation" width={SYMBOL_SIZE * 0.19}>
+		<RigTrack trackIndex={0} animationName="payframe" loop />
+	</RigProvider>
 {/if}

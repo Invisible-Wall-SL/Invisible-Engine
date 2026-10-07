@@ -13,21 +13,21 @@ written — the status file holds the current answer).
   `admin`/`developer`/`artist` by default). Grid = symbols × the six states (`Static`,
   `Spin`, `Land`, `Win`, `Post-win`, `Explosion`), plus `Clear reel` on a project that
   cascades or clears its board and the two book states on a book game. Each cell shows its effective binding
-  (override or coded default): sprite frame thumbnail, a live spine animation on the
+  (override or coded default): sprite frame thumbnail, a live rig animation on the
   shared canvas, or a flipbook clip's first frame. Cell editor toggles
-  **Sprite / Spine / Flipbook**, uses the editor's `RegionPicker` / spine-bundle picker /
+  **Sprite / rig / Flipbook**, uses the editor's `RegionPicker` / rig-bundle picker /
   clip picker; edits are sparse overrides with per-cell reset (↺) + edited badge.
 - **Save** — `PUT /api/editor/symbols` to R2 with dirty tracking.
-- **↻ Reload from R2** — re-fetches spine bundles + previews and re-reads the project's
+- **↻ Reload from R2** — re-fetches rig bundles + previews and re-reads the project's
   bundle list, dropping the per-bundle skeleton/page HTTP cache so a re-rigged (Invisible
   Rigger) or replaced bundle shows its new art + animation names; unsaved edits preserved.
   Now **also clears the module-level region cache** (`clearRegionCache()`) so the SPRITE
   path's rects/page keys re-resolve too — previously a re-authored sheet stayed stale on
   sprite cells (and the Scene Editor, which shares that cache) until a hard page reload.
-- **Regenerated-sheet self-heal (2026-07-21).** Spine cells read geometry through the rig
+- **Regenerated-sheet self-heal (2026-07-21).** Rig cells read geometry through the rig
   bundle's FROZEN `.atlas`, so a re-packed sheet used to show old rects until the rig was
-  manually `⟳ Re-sync`ed. `resolveEditorSpine` now calls `ensureBundleAtlasFresh`
-  (`$lib/server/spineBundleSync.ts`), which re-derives the bundle `.atlas` + page from the
+  manually `⟳ Re-sync`ed. `resolveEditorRig` now calls `ensureBundleAtlasFresh`
+  (`$lib/server/rigBundleSync.ts`), which re-derives the bundle `.atlas` + page from the
   live manifest when a **revision** (geometry hash + page ETag in the bundle's `source.json`)
   drifts — geometry (Sheet-Maker re-pack) AND art (Atlas-Maker recolour) now propagate to
   the grid with no manual step. The same helper runs at bake so the shipped game matches.
@@ -41,7 +41,7 @@ written — the status file holds the current answer).
   `exportEditorSymbols` breaks only once every bound frame name is actually covered, not on
   a running region-count compare, so a frame that lives only in a later atlas
   (`S_Game_Reel`) no longer ships blank.
-- **Live rig-timeline FX preview matching the game** — `SymbolSpineStage` fires an
+- **Live rig-timeline FX preview matching the game** — `SymbolRigStage` fires an
   fx-bound symbol's particle effect on the beat of its animation, riding the bound bone via
   the shared `fxOverlay.client.ts` factory (same core as the Rigger overlay; binding from
   `/api/editor/rig-fx`). The overlay applies the **full bone transform** (position +
@@ -53,8 +53,8 @@ written — the status file holds the current answer).
   `fixed` uses the authored swatch; `winLine` picks up each paying line's colour from the game
   config's `paylineColors` (resolved at win time, so no bake dependency). The `/symbols`
   highlight editor gained a "Tint" mode select + a colour picker (shown for `fixed`). Runtime:
-  a new `tint?: number` prop on pixi-svelte `BaseSpineProvider`/`SpineProvider` applies it via
-  the spine `skeleton.color` (multiply, NOT sprite `.tint`); `SymbolWinFrame.svelte` resolves the
+  a new `tint?: number` prop on pixi-svelte `BaseRigProvider`/`RigProvider` applies it via
+  the rig `skeleton.color` (multiply, NOT sprite `.tint`); `SymbolWinFrame.svelte` resolves the
   number from `tintMode`. The per-win line colour is threaded to the frame through
   `animateSymbols({color})` → `boardWithAnimateSymbols.winLineColor` → the reel cell
   (`utils-slots` `winLineColor`) → `ReelSymbol`/`Symbol` → `SymbolWinFrame` (coded `winInfo`, the
@@ -66,7 +66,7 @@ written — the status file holds the current answer).
   `lines`, and `launcher-api` all build clean. ⏳ owner visual-verify a tinted win frame + a
   `winLine`-tinted frame on a multi-colour-payline config. **Engine change — needs a runtime
   release to reach the remake.**
-- **Doc-level globals** (design §S6): `highlight` (win-frame spine, sparse, drawn over EVERY
+- **Doc-level globals** (design §S6): `highlight` (win-frame rig, sparse, drawn over EVERY
   winning symbol whatever its art is bound to, default = built-in `payframe`) and `winLine` (payline overlay + line/text style, sparse
   config, no asset — TWO switches since 2026-08-24: `enabled` is the line's, `text.enabled`
   the stamped amount's, the latter defaulting to the former). Both travel verbatim through `symbolExport.ts` →
@@ -157,7 +157,7 @@ written — the status file holds the current answer).
   non-winning symbols" in the "Winning symbols after the spin" section). `winCycle.dimNonWinning`:
   from the win celebration until the next spin, every symbol that is NOT part of a paying line is
   drawn darkened (Pixi v8 `Container.tint = 0x666666` on `SymbolWrap`, cascading to the sprite /
-  spine / flipbook child), so the winning line stands out. Driven from
+  rig / flipbook child), so the winning line stands out. Driven from
   `winSymbolCycle.recordWinCycleWins`: a `winInfo` refreshes the lit set to the round's paying
   cells (`refreshWinDim` → `stateGame.winDim`), a `reveal` (the next spin) clears it, so a losing
   spin's board is full-bright. Read by `ReelSymbol` (`stateGame.winDim.active && !cells[reel:row]`).
@@ -165,7 +165,7 @@ written — the status file holds the current answer).
   tool toggle sits outside the replay's `enabled` gate and applies even with the replay off.
   Persists sparsely on the ON state like `showMessage` (default-OFF ⇒ byte-parity: `SYMBOL_DIM_TINT`
   const, `.strict` schema field, sparse sanitize, verbatim through `symbolExport.ts`). Tint cascade
-  verified live in the dev bundle (`_Container.tint` → child `_Spine.groupColor`); ⏳ owner
+  verified live in the dev bundle (`_Container.tint` → child `_Rig.groupColor`); ⏳ owner
   visual-verify on a real winning spin.
 - **Book-symbol VFX** (2026-07-28, default OFF). Doc-level global `bookVfx: { background?, foreground? }`
   — two authored layers drawn behind / in front of the game-selected book symbol
@@ -173,14 +173,14 @@ written — the status file holds the current answer).
   (`kind: 'sprite' | 'spine' | 'flipbook' | 'fx'` + `assetKey`/`animationName`/`clipId`/`effectId`
   - optional `sizeRatios`/`offset` × cell). Authored in the tool's **"Book symbol VFX"** panel
     (between Free-spin board glow and Win lines) — kind toggle + the existing RegionPicker (sprite) /
-    spine bundle+animation / clip select (flipbook) / a new effect `<select>` (fx). Sparse, modelled on
+    rig bundle+animation / clip select (flipbook) / a new effect `<select>` (fx). Sparse, modelled on
     `boardGlow`: absent ⇒ byte-identical. Full chain — `.strict` schema + `.refine` (per-kind required
     field) in `symbolsStorage.ts`, client type/setters/`docSignature`, `symbolExport.ts` (routes each
     layer's asset into the shared `refs`; fx rides `bakedEffects()`), `export-symbols` response (both
     runtime + bake destructure), `bake-editor-doc.mjs` (`bundle.symbols.bookVfx`). Engine side
     (`apps/lines`): `bakedBookVfx()` + `bakedBookVfxAssets()` in `editor-scenes.ts`, `BookVfx.svelte`
     mounted in `Board.svelte` (bg zIndex −1 / fg +1 around each matching cell), each kind rendered by
-    its proven component (Sprite / SpineProvider+SpineTrack / Flipbook / EffectPlayer). **Effect-pruning
+    its proven component (Sprite / RigProvider+RigTrack / Flipbook / EffectPlayer). **Effect-pruning
     gotcha closed:** a bookVfx `fx` effect is a fourth reachability source in BOTH bundle paths — the bake
     path (`bake-editor-doc.mjs` keep-set) AND the runtime path (`pruneUnreachableEffects` gained an
     `extraReachable` param, fed the bookVfx fx effectIds at the `runtimeBundle.ts` call site) — else an
@@ -314,8 +314,8 @@ written — the status file holds the current answer).
   container varies by mount site, so nothing may depend on `sortableChildren`. The win frame and the
   multiplier stamp deliberately stay last.
   **Four constraints held, each measured or reasoned rather than assumed:**
-  (1) **A spine layer CANNOT blend** — `SpinePipe.addRenderable` batches every slot with the SLOT's
-  own blend and never reads `groupBlendMode`, so `multiply` on a spine is pixel-identical to
+  (1) **A rig layer CANNOT blend** — `RigPipe.addRenderable` batches every slot with the SLOT's
+  own blend and never reads `groupBlendMode`, so `multiply` on a rig is pixel-identical to
   `normal`. `engine-layout` gained `canBlendLayerKind()` (the symbol-doc `fx` ⇄ editor `effect`
   translation over `BLENDABLE_KINDS`) as the ONE definition the tool's control and the renderer both
   read; the tool replaces the Blend select with a note pointing at the Rigger's per-slot blend, and
@@ -325,7 +325,7 @@ written — the status file holds the current answer).
   `isUsableCell` to resolve to `static` underneath; a cell with no art draws nothing, layers
   included (`Symbol.svelte`'s `hasArt`, the win-frame rule). (4) **The masked vs unmasked layer is
   still the BASE cell's `type`** — letting a layer vote would re-create every symbol on a layer
-  edit, the one-cell-merge bug; consequence documented in `ReelSymbol.svelte` (an overflowing spine
+  edit, the one-cell-merge bug; consequence documented in `ReelSymbol.svelte` (an overflowing rig
   LAYER clips against the board mask).
   **Ships the full chain (rule 8):** `.strict` Zod + shared `.refine` + `max(8)` + an
   empty-array prune in `normalizeSymbolsDoc` → client `SymbolCell.layers`/`SYMBOL_LAYER_MAX` →
@@ -343,9 +343,9 @@ written — the status file holds the current answer).
   **Preview is deliberately scoped and the tool SAYS so:** the grid draws the base binding only and
   adds a `+N layers` badge (hover = the list); the panel previews each layer ON ITS OWN. Nothing
   composites layers over the symbol and **no blend mode is previewed anywhere** — one shared WebGL
-  canvas serves every spine cell, so a faithful composite is not available, and a lie would be worse
+  canvas serves every rig cell, so a faithful composite is not available, and a lie would be worse
   than the note under the list. Offline gate: `pnpm --filter launcher-api check:symbol-layers`
-  (46 checks — parity/sparsity, draw order + the `behind` split, the spine-blend ignore + version
+  (46 checks — parity/sparsity, draw order + the `behind` split, the rig-blend ignore + version
   skew, 10 rejections, shipping through `collectSymbolRefs`, the dirty signature on add/reorder/
   re-blend, the fx keep-set on both bundle paths over the real `pruneUnreachableEffects`, and the
   scoped-ref repair's layer walk). The repair's ACTUAL rewrite needs an R2 listing, so like the cell
@@ -373,10 +373,10 @@ written — the status file holds the current answer).
   from an ancestor onto every one of its descendants leaves each leaf's `groupColor` identical —
   proven over the real pass — and every piece the wrapper used to reach is still under exactly one
   tinted node. Three decisions behind that shape: the containers are UNCONDITIONAL (wrapping only
-  while dimmed would remount the art each time the celebration started or ended, restarting a spine
+  while dimmed would remount the art each time the celebration started or ended, restarting a rig
   mid-win); the frame and the stamp share the second container because they are contiguous, since the
   over-layers between them may not be re-ordered (array order IS draw order); and the renderers' own
-  tint props are deliberately NOT used — a spine is tinted through `skeleton.color`, a different
+  tint props are deliberately NOT used — a rig is tinted through `skeleton.color`, a different
   mechanism from the container cascade, and parity here is worth more than a saved node.
   Every non-board mount site (cascade, stacked, debug grid, Book expand/reveal riders, message
   symbol) passes NO tint at all, which `propsSyncEffect` skips ⇒ no container property is ever
@@ -454,7 +454,7 @@ delayMs? }` — ONE project-wide animation the cascade overlay mounts at every s
 'emerge'` (the check `bookEventHandlerMap` uses) — a sliding refill has no intro to bridge. Engine:
   `TumbleBoard.svelte` owns a keyed per-seat overlay list on the ANIMATING layer (`zIndex` 1, seat
   x/scale from `getSymbolSeat`, y = the symbol's resting `symbolY`); delay 0 mounts in the same flush
-  as the explosion state, > 0 via a timer; an entry is removed on its own completion (spine non-loop
+  as the explosion state, > 0 via a timer; an entry is removed on its own completion (rig non-loop
   `complete`; flipbook = one walked cycle, the `SymbolFlipbook` rule; FX = `forceEmit` + `emitFor`
   sized off the effect's longest `trigger.duration` / `emitterLifetime` — one transit beat when
   unbounded — plus its longest particle lifetime), with a 4 s leak cap (`WIN_BEAT_CAP_MS`-sized) for an
@@ -467,28 +467,28 @@ delayMs? }` — ONE project-wide animation the cascade overlay mounts at every s
   `layerHasKindField` `.refine()` + `pruneTransition` (a `delayMs` of 0 is dropped) in
   `symbolsStorage.ts` → client `TRANSITION_KINDS` (`satisfies` the book-VFX kinds) /
   `SymbolTransition` / `setTransition` / `clearTransition` / `docSignature` → spread-PUT →
-  `symbolExport.ts` (`addLayerRefs`, generalised from the book-VFX helper, files a transition spine
-  into `refs.spineKeys` ⇒ `index.spines`; `collectSymbolRefs` exported for the check) →
+  `symbolExport.ts` (`addLayerRefs`, generalised from the book-VFX helper, files a transition rig
+  into `refs.rigKeys` ⇒ `index.spines`; `collectSymbolRefs` exported for the check) →
   `export-symbols` response → `bake-editor-doc.mjs` (`bundle.symbols.transition` + the effect keep-set,
   now `symbolDocBound`) and `runtimeBundle.ts` (`symbolDocEffectIds` → `pruneUnreachableEffects`
   `extraReachable`) → `BakedBundle.symbols.transition` → `bakedSymbolTransition()` +
   `bakedSymbolTransitionAssets()` (spread in `stateApp.ts`). `gameProfile` gains an "Explosion
   transition" chip. Tool: a **Transition** section between Free-spin board glow and Book symbol VFX,
   shown for a project that emerges (`data.reelBehaviour.emerge`, resolved server-side like the
-  `Intro` column) or that still carries a saved transition: Spine / Flipbook / FX toggle on the Book-VFX pickers, **Delay (ms)**, `set` badge,
+  `Intro` column) or that still carries a saved transition: Rig / Flipbook / FX toggle on the Book-VFX pickers, **Delay (ms)**, `set` badge,
   ↺ Clear, off-state copy "Off — the intro cuts in the moment the explosion ends"; the Book-VFX thumb
   snippet became the top-level `layerThumb` both use. Offline: `pnpm --filter launcher-api
 check:symbol-transition` — parity (no key when absent, verbatim round-trip, delay-0 pruned, fixed
-  point), rejection (half-authored, `sprite`, bad delay, unknown key), shipping (a spine bound ONLY as
-  the transition lands in `refs.spineKeys`), and the client dirty signature — all over the REAL
+  point), rejection (half-authored, `sprite`, bad delay, unknown key), shipping (a rig bound ONLY as
+  the transition lands in `refs.rigKeys`), and the client dirty signature — all over the REAL
   functions. ⏳ **Owner visual-verify** on an emerging project (auth-gated tool + a cascading/clearing
   board). Needs a runtime release to reach the online games.
 - **Selectable anticipation animation SET** (2026-08-10, default unset ⇒ byte-parity). Adds an
-  **Overlay animation** control to the `/symbols` Reel anticipation panel (between Overlay spine and
-  Activation sound): a dropdown of the resolved overlay spine's COMPLETE sets (a base whose
+  **Overlay animation** control to the `/symbols` Reel anticipation panel (between Overlay rig and
+  Activation sound): a dropdown of the resolved overlay rig's COMPLETE sets (a base whose
   `_intro`/`_loop`/`_out` all exist — e.g. `anticipation1..4`; the unnumbered `anticipation` base is
-  the "Default" option), enumerated via a compact `SymbolSpinePreview` `onAnimations` (same mechanism
-  as highlight/glow); a free-text base input is the fallback when the spine can't be enumerated. Full
+  the "Default" option), enumerated via a compact `SymbolRigPreview` `onAnimations` (same mechanism
+  as highlight/glow); a free-text base input is the fallback when the rig can't be enumerated. Full
   chain: client `symbols.client.ts` (`AnticipationConfig.animationSet` + `pruneAnticipation`
   config-level allowlist + `setAnticipationAnimationSet` + `docSignature`) → `.strict` Zod
   (`anticipationSchema.animationSet` + server `pruneAnticipation` allowlist) → export passes
@@ -497,9 +497,9 @@ check:symbol-transition` — parity (no key when absent, verbatim round-trip, de
   coded `anticipation`, `DEFAULT_ANTICIPATION_ANIMATION_BASE`). `Anticipation.svelte` now tracks a
   `phase` (`intro`→`loop`→`out`) and derives the played name `${base}_${phase}` instead of the
   hardcoded `anticipation_*` triple — un-authored ⇒ base `anticipation`, byte-identical. The dropdown
-  options come from `builtinSpineMeta(spineKey)?.animations` (a pure static read — NO WebGL context: a
-  first attempt used an always-mounted `SymbolSpinePreview` for `onAnimations`, but it lost the browser's
-  ~16-context cap to the page's other previews and rendered "no spine" ⇒ empty list ⇒ text fallback; the
+  options come from `builtinRigMeta(spineKey)?.animations` (a pure static read — NO WebGL context: a
+  first attempt used an always-mounted `SymbolRigPreview` for `onAnimations`, but it lost the browser's
+  ~16-context cap to the page's other previews and rendered "no rig" ⇒ empty list ⇒ text fallback; the
   static meta has none of that fragility). A swapped R2 `spineKey` isn't in the builtin meta ⇒ `[]` ⇒
   free-text base input. **Verified live** in `/symbols` (test2, local dev): dropdown lists
   Default + `anticipation1..4`, selecting `anticipation3` writes `doc.anticipation.animationSet`, flips
@@ -510,7 +510,7 @@ check:symbol-transition` — parity (no key when absent, verbatim round-trip, de
   Sparse doc-global `anticipation: { spineKey?, tiers?: Record<tierAlias, TierFx> }` — the editable
   twin of the engine's coded FX ramp. Each tier is a sparse
   `{ zoom?, overlayScale?, overlayAlpha?, overlayTint? (#rrggbb), soundVolume? }`; `spineKey`
-  optionally swaps the per-reel overlay spine (a full R2 bundle prefix, shipped via `index.spines`
+  optionally swaps the per-reel overlay rig (a full R2 bundle prefix, shipped via `index.spines`
   like `boardGlow` — no new asset class; the engine still owns intro→loop→out). Authored in a
   game-level **Reel anticipation** panel between the win-symbol replay and the grid. Full chain per
   rule 8: `.strict` Zod (`anticipationSchema` + `pruneAnticipation`) → client
@@ -518,7 +518,7 @@ check:symbol-transition` — parity (no key when absent, verbatim round-trip, de
   export refs → `export-symbols` response → `bake-editor-doc.mjs` whitelist →
   `BakedBundle.symbols.anticipation` → `bakedAnticipation()`.
   Engine consumes it at ONE choke point: `anticipationPresentation.ts`' `resolveTierFx` /
-  `resolveAnticipationSpineKey` (authored ?? coded, per-field fall-through), and the three components
+  `resolveAnticipationRigKey` (authored ?? coded, per-field fall-through), and the three components
   (`Anticipation`, `Anticipations`, `AnticipationCamera`) read through them. Un-authored ⇒
   `bakedAnticipation()` undefined ⇒ resolvers return the coded ramp verbatim.
 - **Authorable anticipation SOUNDS + escalating volume ramp** (2026-08-06, default OFF ⇒ loop
@@ -574,12 +574,12 @@ soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `lau
   COLUMN is **removed** — `visibleStatesFor(gameType)` never renders it (the `stacked` member stays
   in engine-layout as an engine fallback; only the tool stopped drawing the column). The block: a
   **multi-select** of symbol names (chips), and per selected symbol a **height** (cells tall, ≥ 1)
-  - an **art picker** (the same side-panel sprite/spine/flipbook picker the grid cells use, reused
+  - an **art picker** (the same side-panel sprite/rig/flipbook picker the grid cells use, reused
     via the shared `draft` machinery — Apply writes the stacked art instead of a grid override) with a
     live preview. Schema `stackedPictures` extended to `{ enabled?, symbols?: [{ name, height, art }] }`
     (`art` = the existing per-cell `symbolCellSchema`); sparse — a disabled/un-authored project
     persists nothing. **Now BAKED** (unlike the old toggle): gated on the master toggle + ≥1 symbol,
-    the exporter ships each tall `art` asset via the SAME `refs` as a per-cell binding (spine →
+    the exporter ships each tall `art` asset via the SAME `refs` as a per-cell binding (rig →
     `index.spines`, sprite → `index.sheets`) and emits
     `bundle.symbols.stacked = { symbols: [{ name, height, art }] }` (art reduced to
     `type/assetKey/animationName?/clipId?`, no `sizeRatios`); `bake-editor-doc.mjs` rebuilds it on a
@@ -588,13 +588,13 @@ soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `lau
     (`StackedSymbol` type + `addStackedSymbol`/`removeStackedSymbol`/`setStackedSymbolHeight`/
     `setStackedSymbolArt`/`docSignature`), `symbolExport.ts` (`addCellRefs` + `stacked` emit),
     `bake-editor-doc.mjs`, `+page.svelte`. Verified offline: Node fixture over the real zod schema
-    proving the schema→normalize→export→bake round-trip + the contract shape (spine + sprite +
+    proving the schema→normalize→export→bake round-trip + the contract shape (rig + sprite +
     flipbook art, sizeRatios stripped, blank-art rejected/pruned, height int≥1, `.strict` reject) and
     a Svelte-5 compile of the page (0 warnings). **Engine still owns the runtime** — this track only
     produces the baked contract; the engine team builds `bundle.symbols.stacked`. Old sparse doc-global
     `{ enabled?: boolean }` superseded (the toggle now also gates the bake).
 - **Full deploy chain** (export → `deploy/editor-symbols/` → bake → pull → register):
-  spine-aware `symbolExport.ts`, `POST /api/editor/export-symbols`, `bake-editor-doc.mjs`
+  rig-aware `symbolExport.ts`, `POST /api/editor/export-symbols`, `bake-editor-doc.mjs`
   wiring, `pull-project-assets.mjs` prune entry, `bakedSymbolMap()` / `bakedSymbolAssets()`.
 
 ## Dated entries
@@ -606,14 +606,14 @@ soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `lau
   `/api/editor/symbols/backups?project=` with this tab's ETag (a stale tab gets a 409), goes
   through `saveSymbolsDoc` (normalised), then reloads. The symbols gate moved to
   `lib/server/symbolsAccess.ts` so both routes share it. Covered by `check:doc-backups`.
-- 2026-09-28 — **A symbol spine that resolves to nothing is now reported instead of shipping as
-  nothing.** `symbolExport.ts` returned in silence when `exportSpineBundle` found no bundle, so a
+- 2026-09-28 — **A symbol rig that resolves to nothing is now reported instead of shipping as
+  nothing.** `symbolExport.ts` returned in silence when `exportRigBundle` found no bundle, so a
   cell, `highlight`, `boardGlow`, `anticipation.spineKey` or rig layer bound to a renamed/deleted
   bundle (or one under another project's prefix) exported nothing while the doc kept the key.
   `SymbolExportIndex.spinesMissing` now carries every such key, filtered by the same
-  `parseSpineBundleKey` rule as `EditorArtIndex.spinesMissing` so a coded key the game registers
+  `parseRigBundleKey` rule as `EditorArtIndex.spinesMissing` so a coded key the game registers
   itself is never a false alarm. Surfaced everywhere the editor-art report is: the CLI bake
-  (`⚠ bake-doc: … bound symbol spine bundle(s) …`), the online publish (server log AND the Game
+  (`⚠ bake-doc: … bound symbol rig bundle(s) …`), the online publish (server log AND the Game
   Maker's post-publish note, via `PublishResult.spinesMissing`), `warnMissingAssets` at game boot,
   and `build-delivery.mjs`, which now refuses a delivery with any of these (see
   [engine status](./engine.md)).
@@ -636,7 +636,7 @@ soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `lau
   `sheet.json` unconditionally while its sibling `bakedEditorArtAssets()` did the
   `preferCompressedTextures()` tier check — so **the `ktx2Atlas` twins the exporter had already
   built, uploaded and shipped sat unused in every bundle** (confirmed by reading the deployed
-  `editor-symbols/index.json`: all 14 spines carry one). The `SymbolSpine` type never declared
+  `editor-symbols/index.json`: all 14 rigs carry one). The `SymbolRig` type never declared
   `ktx2Atlas`, so the game could not select what the type denied existed. This was the registered
   follow-up in [docs/design/gpu-compressed-textures.md](../design/gpu-compressed-textures.md),
   deprioritised on the assumption that symbol pages were "smaller than the rig backgrounds" — the
@@ -893,12 +893,12 @@ scripts/check-win-amount-count-up.ts` (32 assertions over the REAL `setWinLineTe
 
   - **The cause is the default, not the beat.** `symbolCellSchema.loop` is sparse and documents "ABSENT MEANS LOOP", and no cell authors it — so `win`, `land`, `explosion` and `clearReel` all looped. That default is right for a state describing how a symbol IS and wrong for one describing a symbol LEAVING. `engine-layout/symbolStates.ts` now owns the answer (`TERMINAL_SYMBOL_STATES` = `explosion` + `clearReel`, `symbolStateLoopsByDefault()`) and `Symbol.svelte` asks it instead of a flat `?? true`. An explicit authored `loop` still wins in both directions.
   - **Why the cost was the WHOLE budget, not part of it.** `boardExplodeWinSymbols` is ONE concurrent `Promise.all` for the spin, so a single looping winner held the entire pass — every paying spin containing it paid `WIN_BEAT_CAP_MS`, or whatever ceiling the project authored in `winBeat.maxMs`. The cascade's removal beat pays `TRANSIT_BEAT_CAP_MS` on every step for the same reason. This is the same shape as the unbound-`explosion` stall fixed in #666, arriving by the opposite route: there the cell could not report because nothing re-mounted, here because a loop never finishes.
-  - **Why it bit spine and not flipbook.** `SymbolFlipbook` times its `oncomplete` off the clip LENGTH, so a looping clip still completes after one cycle (deliberate — see its docstring). A spine reports only through the runtime's own `complete`, so a looping one has nothing to end the beat.
+  - **Why it bit rig and not flipbook.** `SymbolFlipbook` times its `oncomplete` off the clip LENGTH, so a looping clip still completes after one cycle (deliberate — see its docstring). A rig reports only through the runtime's own `complete`, so a looping one has nothing to end the beat.
   - **`clearReel` is included on purpose.** It is the other half of the same beat, awaited the same way, and unauthored it renders the `explosion` binding itself — so leaving it out would give one project's pop an end and its neighbour's an endless loop depending only on which of the two cells got bound. `win`/`land` are deliberately NOT included: both are states a game may legitimately repeat on a resting board, and re-timing them is what `winBeat.maxMs` exists to let a project do on purpose.
   - **The two Book-of column-morph waits are now BOUNDED** (`bookEventHandlerMap.expandBookColumns` and its flow-v2 twin in `flowEffects.ts`). They awaited this completion through `roundSkip.race(waitForResolve(...))` — released only by a player slam — which a looping explosion hid by firing `complete` every cycle. One-shot gives the cell exactly ONE chance to report, so an unbounded wait there became a real freeze risk; both now race `awaitSymbolBeat(..., TRANSIT_BEAT_CAP_MS)`, the same cap the cascade's removal beat already spends on this very art.
-  - **Verified on this branch**, `apps/lines` + `scripts/mock-rgs-server-book.mjs` with `BIG_WIN=1`, instrumenting raw spine `complete` events against each cell's `symbolState`: the pop fires all 14 winning cells together at `40882ms` with `loop:false, dur 0.53`, and `complete` lands at `41392ms` — **510 ms for the whole pass**, where it previously ran the full 4000 ms budget. **NOT verified:** `pnpm lint` / `svelte-check`. **Engine change — needs a runtime release to reach the online games.**
+  - **Verified on this branch**, `apps/lines` + `scripts/mock-rgs-server-book.mjs` with `BIG_WIN=1`, instrumenting raw rig `complete` events against each cell's `symbolState`: the pop fires all 14 winning cells together at `40882ms` with `loop:false, dur 0.53`, and `complete` lands at `41392ms` — **510 ms for the whole pass**, where it previously ran the full 4000 ms budget. **NOT verified:** `pnpm lint` / `svelte-check`. **Engine change — needs a runtime release to reach the online games.**
   - **Separate from this fix, and worth a decision:** with the pop ON, a paying spin now ends with the winners GONE — measured 14 of 15 cells `removed` on a full-board win, leaving an almost empty board until the next spin. That is #666's "explode and be gone" working as designed, but it is also exactly what the owner reported as the bug. This change only makes the pop take 0.5 s instead of 4; whether the resting board should show the winners in `postWinStatic` instead is a product call that has not been made.
-  - **Noticed in passing, NOT fixed:** the reference `M` spine's `low_multiplier_static` is a **zero-duration looping** animation, so every cell resting on it fires `complete` every frame — ~21,000 callbacks in 20 seconds of play, each walking `ReelSymbol`'s state comparison. Harmless today (the comparisons all miss) but it is a beat-resolution hazard one mis-ordered frame away, and pure waste on the hot path.
+  - **Noticed in passing, NOT fixed:** the reference `M` rig's `low_multiplier_static` is a **zero-duration looping** animation, so every cell resting on it fires `complete` every frame — ~21,000 callbacks in 20 seconds of play, each walking `ReelSymbol`'s state comparison. Harmless today (the comparisons all miss) but it is a beat-resolution hazard one mis-ordered frame away, and pure waste on the hot path.
 
 - 2026-09-15 — **`check:tumble-pattern` was red on every Windows clone, and the trap is the one `check:clear-reel` hit five days earlier.** It reported `1 of 34 FAILED` on any checkout with `core.autocrlf=true` while nothing was wrong: its `read()` handed raw file text to `/\n\t\t\t\ttumblePattern,\n/`, and the whitelist line in `bake-editor-doc.mjs` — present and correct — ends `tumblePattern,\r\n`, so the pattern's TRAILING newline never matched. Exactly 1 of 34 and not more because the sibling assertion on the export endpoint (`/\n\t\t\ttumblePattern,/`) has no trailing `\n` and matched all along: **a LEADING `\n` survives CRLF, a trailing one does not** — which is why this fails in ones and twos rather than obviously, and reads like a real contract breach. Fixed by normalizing in `read()`, copying the helper and its comment verbatim from `check-clear-reel-and-win-explode.ts`, which was given exactly this fix on 2026-09-10 (see that entry below); this file predates it and never picked it up.
 
@@ -907,7 +907,7 @@ scripts/check-win-amount-count-up.ts` (32 assertions over the REAL `setWinLineTe
   - **The helper is load-bearing, proven by breaking it.** Re-measured on 2026-09-18 over the 23 runnable guards: 22 green, the 23rd (`verify-board-tiles`) red on `main` itself and identically so here — it `new Function`s a slice of source that now carries a TypeScript type annotation, which has nothing to do with newlines. With `readLF` stripped of its normalize, **11 of the 22 green guards flip to red** on this CRLF checkout (`check:clear-reel`, `check:tumble-pattern`, `verify-editor-doc-backup`, `verify-reel-grid-geometry`, `verify-stepped-grid`, `verify-swap-in-place-mode`, `verify-symbol-overflow`, `verify-symbol-seat`, `verify-test-server-project-pin`, `verify-tumble-pattern`, `verify-win-explode-pop`); restoring it returns all 23 to byte-identical output. A decorative import would have flipped nothing.
   - **Harness only** — `bake-editor-doc.mjs` and everything it emits untouched, count unchanged at **34**. Mutation-verified that the assertion is still live: deleting the whitelist line from the bake script fails exactly that check, restoring it goes green.
 
-- 2026-09-15 — **An authored ceiling on the win beat, because the only bound on it was a guard that was never meant to be the timing.** Owner report: on `test6` the wait before the next spin is released is long. Measured there — every symbol's `win` is the spine animation `Pull` at **2.00 s** and its `explosion` is `Take` at **0.50 s**, and the project cascades, so a three-tumble winning round narrates three wins and pays ~2.5 s of symbol beats per win on top of the reel spin and the cascade steps. The only thing bounding those beats was `WIN_BEAT_CAP_MS` (4 s), which is explicitly a **runaway guard** for art that can never report `oncomplete` — so the fix is a separate, explicit **shaper**, not an exposed guard: `winBeat.maxMs`, absent by default (today's behaviour byte-for-byte) and, when set, the longest any single win/explosion beat may run.
+- 2026-09-15 — **An authored ceiling on the win beat, because the only bound on it was a guard that was never meant to be the timing.** Owner report: on `test6` the wait before the next spin is released is long. Measured there — every symbol's `win` is the rig animation `Pull` at **2.00 s** and its `explosion` is `Take` at **0.50 s**, and the project cascades, so a three-tumble winning round narrates three wins and pays ~2.5 s of symbol beats per win on top of the reel spin and the cascade steps. The only thing bounding those beats was `WIN_BEAT_CAP_MS` (4 s), which is explicitly a **runaway guard** for art that can never report `oncomplete` — so the fix is a separate, explicit **shaper**, not an exposed guard: `winBeat.maxMs`, absent by default (today's behaviour byte-for-byte) and, when set, the longest any single win/explosion beat may run.
 
   - **Launcher side (this task).** `.strict` Zod (`z.number().int().min(50).max(10000)`) + the sparse rebuild in `normalizeSymbolsDoc`; the `SymbolExportResult` field + verbatim pass-through in `symbolExport.ts`; the `/api/editor/export-symbols` destructure **and** response (the bake reads that response, so omitting either half is the recurring "reach BOTH bundle paths" bug); the client type, `winBeatMaxMs`, `setWinBeatMaxMs` and the **dirty signature** (the link `holdAfterBigWin` once missed, which made a saved switch unsaveable); the bake whitelist's rebuild + its line in the baked `symbols` block; a **Longest win beat (ms)** number input in the "Winning symbols explode" section; and a `gameProfile` chip.
   - **Two decisions worth keeping.** The range is enforced at SAVE rather than clamped at play — a value the engine could not honour is a typo, and a typo that is silently ignored looks exactly like one that was applied to art nobody is watching at build time. And the CLIENT setter rounds + clamps into that same range, because the input hands back whatever was typed and a doc the schema refuses fails the WHOLE save, not just this field (the publish/cell-schema 400 trap). It is committed on `change`, not `input`, so the clamp cannot rewrite "5" to "50" under the cursor on the way to 500.
@@ -969,15 +969,15 @@ scripts/check-win-amount-count-up.ts` (32 assertions over the REAL `setWinLineTe
 - 2026-09-09 — **After a tumble win the authored Transition no longer covered the pop it was bridging.** Owner report on Waves/test6: the board CLEAR looked right, a cascade did not, off the same authored transition. The pattern work had given `scheduleTransition` a `catchUpMs` (`lastDelay − thisDelay`) so every seat's bridge waited out the remaining waves and they all landed together, `delayMs` after the LAST wave — the reasoning being that the intro they bridge (`tumbleBoardAppear`) is one board-wide beat. On the board that put a wave-0 seat's cover a whole spread (up to `TUMBLE_SPREAD_MS_MAX`, 2 s) after its symbol had finished popping. The clear was unaffected and that was the tell: it is fanned out one column per call, so under a column pattern every seat in a call shares a wave and the catch-up was always zero there. The bridge rides its OWN seat's pop again — which is also the contract the tool states ("Delay = ms after the explosion fires"), so an authored delay means what it says on both beats. `verify-tumble-pattern.mjs` now asserts the OFFSET from each seat's own pop (71 checks) and its `scheduleTransition` stub deliberately still applies a fourth argument if one is passed, because the regression lived at the call site — mutation-verified: restoring the catch-up fails 2 of 71.
 - 2026-09-08 — **The "wait for a spin press after a big win" switch could not be saved** on any project that had already authored some OTHER win-cycle setting. `docSignature()` in `symbols.client.ts` — the page's dirty tracker — hand-lists the fields it watches, and `winCycle.holdAfterBigWin` was never added: the toggle moved, the signature did not, `dirty` stayed false and Save stayed disabled. It hid itself for three weeks because on a project with NO `winCycle` at all the whole block flips from `null` to an object, so the toggle looks like it works — it only dies once a delay/replay setting is already authored. The field was correct everywhere else (schema, sparse sanitize, `symbolExport.ts`, the bake whitelist, `bakedWinCycleConfig()`), which is why the earlier chain checks passed it.
   **This is the FOURTH hand-copied-allowlist rot on `winCycle` alone** (the PUT body 2026-07-24, the export response and the bake whitelist 2026-07-27) and nothing type-checks it: `docSignature` reads `doc.winCycle.x`, and a field it simply never mentions is an error nowhere — least of all in a bare `vite build`. So the guard follows `launcher-api/CLAUDE.md`'s rule and DERIVES its field list from `symbolsDocSchema` instead of re-typing it: new `scripts/check-win-cycle.ts` (`pnpm --filter launcher-api check:win-cycle`, 80 checks) asserts the signature's `winCycle` block holds exactly the schema's fields, that each one dirties a doc that ALREADY carries a `winCycle` (in BOTH boolean states — a `|| null` for `?? null` would eat the `false` the default-ON flags persist), that each control round-trips dirty→clean sparsely, that the stored doc signs the same as the draft, and that each default matches the game's. Mutation-verified twice: removing the fix fails 5 of 80, and adding a hypothetical new schema field fails until it is both registered and named — so the next field cannot repeat this.
-- 2026-09-07 — **The Highlight (win frame) only drew on SPINE symbols.** Reported on a live project whose Win cells are flipbook clips: the authored highlight framed its spine-bound symbols and skipped the flipbook ones, so the feature read as half-broken rather than un-authored. The frame was mounted INSIDE `apps/lines/components/SymbolSpine.svelte`, the spine arm of `Symbol.svelte`'s renderer switch, so the sprite and flipbook arms could never draw it. It now lives in its own `SymbolWinFrame.svelte` that `Symbol.svelte` mounts AFTER the switch, over whichever arm won (`SymbolSpine` was left a pure pass-through to `SymbolSpineMain` and is deleted; the tint/`winLineColor` resolution moved verbatim). A symbol with no art bound still draws nothing, frame included. Verified in the running game via the Symbol-overlay debug grid: with a Win cell temporarily bound to a sprite/flipbook the frame was ABSENT before and PRESENT after, spine cells unchanged. **Engine change — needs a runtime release to reach the online games.**
-- 2026-09-03 — **Explosion → intro Transition.** New optional doc-global `transition` (spine / flipbook / fx + `delayMs`). Under the `emerge` swap style the pop and the intro hard-cut at every seat; now an authored animation mounts at the seat `delayMs` after the explosion fires, fire-and-forget (never joins a beat, never extends the round; cut if it outlives the step). Sparse and byte-identical when absent. Ships the full chain (schema → client → export refs → bake + runtime bundle incl. the effect keep-sets → `bakedSymbolTransition()`), `/symbols` gains a **Transition** section shown only for an emerging project, and `BookVfx.svelte`'s four-kind switch moved into the shared `SymbolLayer.svelte`. Plan note in [perspective-board-mode.md](../design/perspective-board-mode.md) §"The mode switch". Offline-verified (`check:symbol-transition`); ⏳ owner visual-verify. Details in the Current-state bullet.
-- 2026-09-03 — **Spine cells no longer come up blank on a cold load.** Reported after the Bounds-box fix deployed: the grid drew every spine cell as its label chip, with `physics is undefined` thrown from `drawCell` every frame; a reload fixed it. The editor's spine loader (`spineRuntime.client.ts`) injected one vendored runtime PER LINE and let "the first to finish" own `window.spine` — a cold /symbols load requests 4.1 (the built-in Highlight/reelhouse previews) and 4.2 (a Rigger rig) at once, both scripts injected, and whichever finished last won, so 4.2 skeletons were posed with the 4.1 runtime's missing `Physics` token and drawn by its `SceneRenderer`. Now ONE runtime (4.2, the line the game runs) loaded once and captured at load; the 4.1 built-ins parse and pose under it (`pnpm --filter launcher-api run check:builtin-spines`). Details in [editor status](editor.md).
-- 2026-09-02 — **The grid and the cell preview fit a rig's box where its header puts it.** `measureSpineBounds` now returns the authored `skeleton.x/y` corner instead of assuming `-w/2, -h/2`, so a Rigger rig whose Bounds frame is not centred on its origin draws AT the frame — the same rule the game now applies via `<SpineProvider centreBox>`, so grid == board again for those rigs. Spine-editor rigs are unchanged. See [rigger status](rigger.md).
+- 2026-09-07 — **The Highlight (win frame) only drew on RIG symbols.** Reported on a live project whose Win cells are flipbook clips: the authored highlight framed its rig-bound symbols and skipped the flipbook ones, so the feature read as half-broken rather than un-authored. The frame was mounted INSIDE `apps/lines/components/SymbolRig.svelte`, the rig arm of `Symbol.svelte`'s renderer switch, so the sprite and flipbook arms could never draw it. It now lives in its own `SymbolWinFrame.svelte` that `Symbol.svelte` mounts AFTER the switch, over whichever arm won (`SymbolRig` was left a pure pass-through to `SymbolRigMain` and is deleted; the tint/`winLineColor` resolution moved verbatim). A symbol with no art bound still draws nothing, frame included. Verified in the running game via the Symbol-overlay debug grid: with a Win cell temporarily bound to a sprite/flipbook the frame was ABSENT before and PRESENT after, rig cells unchanged. **Engine change — needs a runtime release to reach the online games.**
+- 2026-09-03 — **Explosion → intro Transition.** New optional doc-global `transition` (rig / flipbook / fx + `delayMs`). Under the `emerge` swap style the pop and the intro hard-cut at every seat; now an authored animation mounts at the seat `delayMs` after the explosion fires, fire-and-forget (never joins a beat, never extends the round; cut if it outlives the step). Sparse and byte-identical when absent. Ships the full chain (schema → client → export refs → bake + runtime bundle incl. the effect keep-sets → `bakedSymbolTransition()`), `/symbols` gains a **Transition** section shown only for an emerging project, and `BookVfx.svelte`'s four-kind switch moved into the shared `SymbolLayer.svelte`. Plan note in [perspective-board-mode.md](../design/perspective-board-mode.md) §"The mode switch". Offline-verified (`check:symbol-transition`); ⏳ owner visual-verify. Details in the Current-state bullet.
+- 2026-09-03 — **rig cells no longer come up blank on a cold load.** Reported after the Bounds-box fix deployed: the grid drew every rig cell as its label chip, with `physics is undefined` thrown from `drawCell` every frame; a reload fixed it. The editor's rig loader (`rigRuntime.client.ts`) injected one vendored runtime PER LINE and let "the first to finish" own the runtime's window global — a cold /symbols load requests 4.1 (the built-in Highlight/reelhouse previews) and 4.2 (a Rigger rig) at once, both scripts injected, and whichever finished last won, so 4.2 skeletons were posed with the 4.1 runtime's missing `Physics` token and drawn by its `SceneRenderer`. Now ONE runtime (4.2, the line the game runs) loaded once and captured at load; the 4.1 built-ins parse and pose under it (`pnpm --filter launcher-api run check:builtin-rigs`). Details in [editor status](editor.md).
+- 2026-09-02 — **The grid and the cell preview fit a rig's box where its header puts it.** `measureRigBounds` now returns the authored `skeleton.x/y` corner instead of assuming `-w/2, -h/2`, so a Rigger rig whose Bounds frame is not centred on its origin draws AT the frame — the same rule the game now applies via `<RigProvider centreBox>`, so grid == board again for those rigs. An external rig editor rigs are unchanged. See [rigger status](rigger.md).
 - 2026-09-01 — **this stage's bound FX/clips were drawn MIRRORED, and an unsized rig drew at a
   different size here than in the game.** Both are fixed in the shared code this stage reuses, not
   here: `fxBoneTransform` hands the overlay a projected basis whose determinant is negative (the
   camera mirrors x, `drawCell` sets `scaleX/scaleY = -s`), and the overlay used to apply it whole;
-  and `measureSpineBounds`'s last-resort box now agrees with the runtime's. Full story, including
+  and `measureRigBounds`'s last-resort box now agrees with the runtime's. Full story, including
   why a particle burst hid it for a year and a Flipbook clip did not, in
   [status/rigger](rigger.md) (2026-09-01).
 - 2026-08-28 — **a flipbook cell can WALK its clip differently per state** (owner report: reversing an
@@ -1046,27 +1046,27 @@ sync` hook that a fresh worktree was missing (see `docs/status/launcher.md`). Th
     `check:game-config-defaults`, still fails — untouched here, already recorded in
     `docs/status/game-config.md`, and **not** a stale-file refresh: regenerating strips the authored
     `winLevels` block from `lines/ways/scatter.json`. Do not blind-regenerate.
-- 2026-08-27 — **A spine symbol state played once and froze; now every state has an authorable
-  Loop, and looping is the default.** Reported as _"the idle spine I place in the symbol state
+- 2026-08-27 — **A rig symbol state played once and froze; now every state has an authorable
+  Loop, and looping is the default.** Reported as _"the idle rig I place in the symbol state
   machine only plays 2 times, and then it stops."_
   - **Why twice, exactly.** `ReelSymbol` mounted `<Symbol>` with no `loop`, so it reached
-    `SpineTrack` as `undefined` and every spine state was a one-shot that froze on its last frame
+    `RigTrack` as `undefined` and every rig state was a one-shot that froze on its last frame
     (confirmed live in the running game: `loop: false`, `trackTime` 9.35 on a 2s clip). The symbol
     lands as `land` → plays `Idle` once on the board's UNMASKED animate layer; `oncomplete` flips it
     to `static`, which flips `animating`, and `SymbolWrap` shows a symbol only where
     `boardContext.animate === animating` — so it re-mounts on the MASKED layer and plays `Idle` a
     second time. Then it holds. Two plays, one animation, because both states point at `Idle`.
-  - **The real gap:** looping was not authorable anywhere for spine, and for FLIPBOOK it lived on the
+  - **The real gap:** looping was not authorable anywhere for rig, and for FLIPBOOK it lived on the
     CLIP (`clip.loop ?? true`), so one clip used by two states could not repeat in one and hold in the
     other. Sprite cells are a single frame and have nothing to repeat.
   - **Now:** `SymbolCellInfo.loop` (schema, doc, runtime), a **Loop** toggle in the cell editor for
-    spine + flipbook, rendered from ONE snippet so the two editors cannot drift. **ABSENT MEANS
+    rig + flipbook, rendered from ONE snippet so the two editors cannot drift. **ABSENT MEANS
     LOOP** — the doc stays sparse because only a deliberate one-shot is written, and that matches what
     flipbooks have always done. An explicit `loop` prop still wins for the callers that own the
     decision (the Book expand/reveal riders, which loop only `bookIdle`).
-  - **This CHANGES existing games** (owner's call, asked and answered): every spine symbol state that
+  - **This CHANGES existing games** (owner's call, asked and answered): every rig symbol state that
     used to freeze will now repeat until an author ticks Loop off. Verified safe for the states the
-    game AWAITS — spine-core queues `complete` _"if completed a loop iteration or the animation"_, so
+    game AWAITS — the reference core runtime queues `complete` _"if completed a loop iteration or the animation"_, so
     `land`/`win`/`explosion` still advance on their first cycle; they just keep animating while they
     wait. A looping `win` now fires `oncomplete` once per cycle rather than once, which the board's
     state set absorbs.
@@ -1102,7 +1102,7 @@ in the grid (engine draws land)`). Confirmed by stashing. **Fixed 2026-08-27** �
   ratios, **mutation-verified**: shortening the backing width reproduces a 14.2px worst case and
   drifting the mirror axis a 15.0px one; both fail the gate, the fix passes. `drawnScreenX` models
   the BROWSER, and its premise was measured in a live DOM repro before the model was written.
-  Ironically `EditorSpineLayer` — the file this stage's header says it mirrors — always used
+  Ironically `EditorRigLayer` — the file this stage's header says it mirrors — always used
   `canvas.clientWidth`; only this copy drifted.
 
 - 2026-08-27 — **A new `Intro` column — the animation a symbol plays when it APPEARS on its seat — and the `Tumble explosion` gate was wrong.** `Intro` is the authored half of the new `emerge` swap style (`/config` → Reel behaviour): under it nothing falls or slides, so this animation IS the arrival. It could not be folded into `Land`, which is the beat AFTER a movement — the reels fire it at the end of a roll and a cascade at the end of a fall — so a game that authored "rise out of the water" there would also play the rise on every reel stop and every cascade refill. Unauthored it inherits `Land` (`resolveSymbolState`), so a project that switches the style on before binding art gets a board that appears and plays its ordinary landing rather than nothing; the grid mirrors that inheritance and badges the cell, the same contract `Tumble explosion` has with `Explosion`. **The gating fix is the part worth recording:** `Tumble explosion` was shown only for a project that CASCADES, but the state is played by two things, not one — a tumble removing a symbol, and the swap-in-place CLEAR step (`clearOutgoingSymbols`), which a swapping lines game runs on every single round. Such a project was offered no column for the very state it fires and had to reach the binding through `Explosion`'s silent inheritance with nothing saying so. Both gates are resolved server-side now (`resolveCascade` / `resolveReelBehaviour`) and `visibleStatesFor` takes them as a named options object rather than a growing positional tail — the same correction is applied to the per-symbol SOUND states, which live in Invisible Sound since the move (see [sound.md](sound.md)). **Ship chain: nothing owed.** `symbolsStorage` validates states with `z.enum(SYMBOL_STATES)` and `symbolExport` passes the map through verbatim, so adding the member to `engine-layout`'s list carried `intro` the whole way (export → deploy → bake → pull → register) with no pipeline change — checked rather than assumed, per rule 8.
@@ -1135,7 +1135,7 @@ audiosprite key`, sparse at both levels, assetless (the name addresses a region 
   (owner request). The "Stacked pictures" section had a single `art` per symbol, so a stack that was
   paying looked exactly like a stack that was idling. Each stacked entry now carries an optional
   `winArt` beside `art`: `art` is the default/resting picture (usually the still), `winArt` what the
-  stack becomes **while it is part of a paying line** (the spine/flipbook it pays out with). Both are
+  stack becomes **while it is part of a paying line** (the rig/flipbook it pays out with). Both are
   ordinary `SymbolCell` bindings authored with the same picker, so `winArt` ships through the
   identical export→bake→pull→register chain (`bundle.symbols.stacked[].winArt`) and introduces no new
   asset class. The runtime signal is the covered cells' own `symbolState`: `Board.svelte` already sets
@@ -1196,13 +1196,13 @@ audiosprite key`, sparse at both levels, assetless (the name addresses a region 
   about an empty `Tumble explosion` cell.** Three fixes, one report ("why do I get all these
   warnings? I do not see anything wrong").
 
-  - **The warning's claim was two months stale.** It fired on any spine cell left on
+  - **The warning's claim was two months stale.** It fired on any rig cell left on
     `(first animation)` and said the cell "renders blank in-game". That stopped being true when
-    `pixi-svelte`'s `SpineTrack` gained its fallback to `skeletonData.animations[0]` — so a rig
+    `pixi-svelte`'s `RigTrack` gained its fallback to `skeletonData.animations[0]` — so a rig
     carrying ONE animation (`_shared/spines/engine-explosion`, most symbol rigs) plays exactly
     what picking it by hand would. Leaving it unpicked is a supported choice: this tool's own
-    dropdown offers it and `SymbolSpinePreview` honours it. The banner now resolves each
-    candidate bundle's animation COUNT from `/api/editor/spine/meta` and only speaks when the
+    dropdown offers it and `SymbolRigPreview` honours it. The banner now resolves each
+    candidate bundle's animation COUNT from `/api/editor/rig/meta` and only speaks when the
     skeleton does not make the choice for you — **0** (setup pose ⇒ genuinely blank) or **2+**
     (plays whichever the export listed first — the `R_spinbutton`-bound-to-`W` trap the check
     was written for, which is silently WRONG, not blank). A count of 1, and an unresolved one,
@@ -1223,57 +1223,57 @@ check:symbol-state-parity` (`scripts/check-symbol-state-parity.ts`, tsx) runs a 
     override AND from a published default, and asserts they agree — including the one divergence
     that is deliberate (`static` last resort), so it stays a decision rather than becoming drift
     again. It fails 13 assertions against the pre-fix `effectiveCell`.
-  - **A `_shared/` spine could not preview in any real project.** `resolveEditorSpine` read
+  - **A `_shared/` rig could not preview in any real project.** `resolveEditorRig` read
     `loadSkeletonIndex`, which consults the shared index only when the project has NONE of its own
     — and all 5 real projects own one. So a bundle bound from `_shared/spines/` found no entry and
     returned `null`, even though `resolveBundlePrefix` resolves its FILES project-then-shared.
     Switched to `loadSkeletonIndexWithShared`, the same reasoning `symbolExport` /
     `editorArtExport` already apply to the export path (2026-08-21, below); the READ path was left
     behind, which is what made the freshly seeded `engine-explosion` unpreviewable. Also widened
-    `/api/editor/spine/meta`'s `altTools` to include `symbols`, so the animation-count lookup is
+    `/api/editor/rig/meta`'s `altTools` to include `symbols`, so the animation-count lookup is
     reachable for a symbols-only role.
 
-- 2026-08-24 — **The grid's spine cells read smaller than their sprite neighbours: an `0.86` pad the board doesn't have, over four low rigs whose canvas was ~1.6× their art.** Two independent causes, found by measuring every symbol rig headlessly with `@esotericsoftware/spine-core` (setup pose, slots with setup alpha 0 dropped, origin-centred extent — the same method as the 2026-08-21 S/M entry).
-  - **The pad.** `SymbolSpineStage`/`SymbolSpinePreview` fitted the declared canvas × `0.86`; `RegionThumb` (the sprite cell) has no such inset, and neither does the board. It looks like the grid should instead mirror the game's `SYMBOL_SPINE_FILL` (0.5) — it must NOT. `parser.scale` scales skeleton GEOMETRY but `SkeletonJson` copies `data.width/height` through **unscaled** (`SkeletonJson.js` L70–71), so `spineSizeScale` divides by the raw canvas and the baked `SYMBOL_SPINE_LOAD_SCALE` (2) × `SYMBOL_SPINE_FILL` (0.5) nets out to exactly one cell — the "tuned pair" `spineLoadScale.ts` documents. The preview loads at `EDITOR_SPINE_LOAD_SCALE` (1) and fits the same raw canvas, so **the pad was the only divergence between the grid and the board.** Removed from both. Known consequence, previously masked: a win animation peaks at 1.4–1.8× the resting canvas (h1–h5) and the stage has no per-cell clip, so a pop can bleed over neighbouring cells — the same overflow the board has.
+- 2026-08-24 — **The grid's rig cells read smaller than their sprite neighbours: an `0.86` pad the board doesn't have, over four low rigs whose canvas was ~1.6× their art.** Two independent causes, found by measuring every symbol rig headlessly with the reference runtime (setup pose, slots with setup alpha 0 dropped, origin-centred extent — the same method as the 2026-08-21 S/M entry).
+  - **The pad.** `SymbolRigStage`/`SymbolRigPreview` fitted the declared canvas × `0.86`; `RegionThumb` (the sprite cell) has no such inset, and neither does the board. It looks like the grid should instead mirror the game's `SYMBOL_RIG_FILL` (0.5) — it must NOT. `parser.scale` scales skeleton GEOMETRY but `SkeletonJson` copies `data.width/height` through **unscaled** (`SkeletonJson.js` L70–71), so `rigSizeScale` divides by the raw canvas and the baked `SYMBOL_RIG_LOAD_SCALE` (2) × `SYMBOL_RIG_FILL` (0.5) nets out to exactly one cell — the "tuned pair" `rigLoadScale.ts` documents. The preview loads at `EDITOR_RIG_LOAD_SCALE` (1) and fits the same raw canvas, so **the pad was the only divergence between the grid and the board.** Removed from both. Known consequence, previously masked: a win animation peaks at 1.4–1.8× the resting canvas (h1–h5) and the stage has no per-cell clip, so a pop can bleed over neighbouring cells — the same overflow the board has.
   - **The rigs.** Measured art ÷ declared canvas: `h1` 0.998 (the convention), `h2` 0.913, `h3` 0.939, `h4`/`h5` 0.83, `M` 0.84 — but **`l1`–`l4` only 0.61–0.68**, all four declaring 1200×1023 around ~650×640 of art. Because the load-scale pair nets to a full cell, that fraction IS the symbol's on-board size, so the four lows shipped ~38% undersized on the board, not just in the grid. Retightened to the origin-centred resting extent (l1 708×676, l2 660×652, l3 696×738, l4 552×640; `x`/`y` = −w/2, −h/2, rounded up to even so the art can never clip), which lands them at 0.985–0.997. The method is validated by recomputing `h1`: it reproduces its shipped header to within 0.15%. Art untouched — only the four `"skeleton"` header numbers, in all five byte-identical `apps/*` copies.
   - **R2:** the tools resolve `<client>/<project>/spines/symbols/` and `_shared/spines/engine-symbol-l*`, so those 12 authoring copies were rewritten in place (each verified byte-identical to the old engine default first — nothing customized was touched). **Deliberately NOT patched:** `test_server/**` published bundles, `_shared/storybook/**`, and `input/originals/**` — build outputs and source archives, which must come from a republish / Runtime release, not a hand-patch.
   - **Reaching the live games needed NO manual step for most of them** (an earlier revision of this entry claimed it did — wrong). `runtime-release.yml` auto-fires on any push to `main` touching `apps/lines/**` or `packages/**`, so both commits rebuilt and republished `_runtime/lines` within minutes, and every game whose manifest entry has `runtime: "lines"` — including `bookofborutremake` — picked the new canvases up automatically. Verified live: `https://games.invisiblewall.org/bookofborutremake/assets/spines/symbols/h4.json` serves `892x932`. Note this is NOT what the Game Maker **Publish** button does: `publishGame()` is "a DATA + MANIFEST operation … never rebuilds", so it re-exports authored art/docs and re-points the manifest but can never move an asset compiled into the shared bundle.
   - **Still on the old canvases:** the games with their OWN built bundle, which by definition don't use the shared runtime — `bookofborut`, `hotfruits`, `bookofborutremakebuild`, `test1build` (all still 1080×1080 / 1200×1023). Each is built from its own repo with the engine as a submodule, so it picks this up on its next desktop build. The Publish button refuses them too (`hasOwnBuiltBundle` → `PublishBlockedError`), precisely so it can't clobber a real built game.
 - 2026-08-24 (follow-up) — **Finished the retighten: h2–h5 and W.** Retightening only l1–l4 left the highs visibly short in the grid (reported as "still slightly smaller"), because h4/h5 declare 1080² around ~891 of art. Same method, same convention. Perceived size in a square cell (= biggest art dim ÷ biggest canvas dim, what contain-fit actually yields) before → after: h2 0.913→0.940, h3 0.939→0.949, h4 0.829→0.962, h5 0.834→0.968, W 0.507→0.962; l2 also nudged 660→662 (the exact extent rounds just over 660). Every h/l rig now sits in a 0.94–1.00 band against h1’s 0.984.
   - The residual few percent is inherent, not a miss: the canvas must stay **origin-centred** (the skeleton origin is what gets placed at the cell centre), so art that sits off-centre forces headroom on the opposite side. Closing it would mean moving the art, not the header.
-  - **W is safe despite its spine never resting on the board** (its static/spin states are the `w.png` sprite): the rig carries an explicit `wild_dynamite_static` animation measuring 913×913, identical to its setup pose, so the resting extent is not a guess.
+  - **W is safe despite its rig never resting on the board** (its static/spin states are the `w.png` sprite): the rig carries an explicit `wild_dynamite_static` animation measuring 913×913, identical to its setup pose, so the resting extent is not a guess.
   - **Still deliberately untouched.** `M` — every setup-pose slot is fully transparent, so it has no measurable resting art at all; its 666×672 came from posing `low_multiplier_static` in the 2026-08-21 pass and is already correct. `S` — measures 1.196 (art wider than its canvas) BY DESIGN after that same pass; the origin-centred formula would hand it 830×1736 and shrink it to 0.752, so the formula must never be applied blindly to a canvas that was already hand-tuned around an animated spread.
-- 2026-08-21 — **Two engine rigs drew at the wrong size, because a spine symbol is sized by
-  its DECLARED canvas, not by the pixels it shows.** `spineSizeScale` contain-fits
-  `skeleton.data.width/height`; the Scene Editor's `measureSpineBounds` reads the same rect.
+- 2026-08-21 — **Two engine rigs drew at the wrong size, because a rig symbol is sized by
+  its DECLARED canvas, not by the pixels it shows.** `rigSizeScale` contain-fits
+  `skeleton.data.width/height`; the Scene Editor's `measureRigBounds` reads the same rect.
   Upstream's scatter (`symbols2/S`) declared 4078×3307 around a 805×984 resting gem — its
   `rays1..3` bones are scaled ×4 and fully transparent in the setup pose (`color: …00`), yet
   the artist's canvas covers them at full animated spread — so the fit drew the gem at ~30% of
   an H symbol. The multiplier (`symbols2/M`) had the mirror bug: a 400×400 canvas around
   540×567 of `low_multiplier_static`, overflowing its cell by ~40%. Both canvases retightened
   to the origin-centred extent of their RESTING art (S 828×1092, M 666×672), measured with
-  `@esotericsoftware/spine-core` over the visible (alpha > 0) attachments — the convention
+  the reference runtime over the visible (alpha > 0) attachments — the convention
   `h1` already follows. The art is untouched: only the four `"skeleton"` header numbers moved,
   in all five byte-identical `apps/*` copies. Fill ratios now land in the family's band —
   scatter 0.90 of the fitted box (was 0.30), multiplier 0.84 (was 1.42), against h1 0.98 /
   h5 0.83. Note the scatter's `scatter_win` burst measures 2109×2099, so at the corrected size
   it deliberately spills ~2 cells wide — check it against `BoardMask` clipping.
   ⚠️ **Not live yet:** `_shared/spines/engine-symbol-{s,m}` in R2 still carry the old canvas
-  until `node scripts/seed-shared-engine-spines.mjs --only engine-symbol-s` (then `-m`) is
+  until `node scripts/seed-shared-engine-rigs.mjs --only engine-symbol-s` (then `-m`) is
   re-run with R2 credentials, and any project that already exported those bundles needs a
   re-export.
-- 2026-08-21 — **The Symbols grid preview fitted the wrong rect.** `SymbolSpinePreview`
+- 2026-08-21 — **The Symbols grid preview fitted the wrong rect.** `SymbolRigPreview`
   measured live setup-pose `getBounds()` and fell back to the authored canvas only when the
-  export omitted it — the exact inverse of `measureSpineBounds`, the shared helper whose own
+  export omitted it — the exact inverse of `measureRigBounds`, the shared helper whose own
   docstring already claims the Symbols grid as a caller. So any rig whose canvas and resting
   art disagree previewed at a size the board would never show. It now calls
-  `measureSpineBounds`, once per loaded instance (the rect is pose-independent, and
+  `measureRigBounds`, once per loaded instance (the rect is pose-independent, and
   re-measuring each frame would `setToSetupPose()` over the applied animation).
 - 2026-08-21 — **The cascade's explosion is its own binding: `Tumble explosion`.**
   Upstream played ONE `explosion` state at two different moments — the cascade removing a winning
   symbol, and something morphing a symbol in place on a resting reel (the Book-of column expand) —
   because each Stake sample game shipped a single `symbols3/explosion` skeleton. The engine's own
-  Spine set carries more than one (`engine-explosion`, `engine-win-meter-explosion`), and the two
+  Rig set carries more than one (`engine-explosion`, `engine-win-meter-explosion`), and the two
   beats read differently: one pops under a falling board, the other on a board standing still.
   Split them. New state `tumbleExplosion` in the ONE home (`engine-layout/symbolStates`), so the
   Symbols grid, the Scene Editor's `symbolState` dropdown, the Symbol Debug overlay and the doc
@@ -1291,7 +1291,7 @@ check:symbol-state-parity` (`scripts/check-symbol-state-parity.ts`, tsx) runs a 
   for one symbol, rebuild, and confirm the tumble pops with it while the Book-of expand still uses
   `Explosion`.
 
-- 2026-08-21 — **`_shared/spines/` now carries the engine's whole Spine set (29 bundles), not just the boot mark.**
+- 2026-08-21 — **`_shared/spines/` now carries the engine's whole rig set (29 bundles), not just the boot mark.**
   Follow-on to the explosion below, same cause: the shared library seeded sprite SHEETS only, so a
   new project could bind no animation at all. Seeded every skeleton `apps/lines` ships — chrome
   (`engine-loader`, `engine-transition`, `engine-bigwin`, `engine-anticipation`,
@@ -1299,16 +1299,16 @@ check:symbol-state-parity` (`scripts/check-symbol-state-parity.ts`, tsx) runs a 
   `engine-global-multiplier`, `engine-cluster-pay`, `engine-tumble-*`, `engine-win-meter-explosion`)
   and symbols (`engine-symbol-h1`…`l4`, `-m`, `-s`, `-w`). ~16.4MB in R2.
   **Split ONE BUNDLE PER SKELETON, deliberately.** Upstream packs many skeletons behind one shared
-  atlas (`symbols/` holds nine), but a spine cell/node stores a bundle PREFIX plus an animation name
-  — there is no skeleton selector, and `resolveEditorSpine` / `exportSpineBundle` both take the
+  atlas (`symbols/` holds nine), but a rig cell/node stores a bundle PREFIX plus an animation name
+  — there is no skeleton selector, and `resolveEditorRig` / `exportRigBundle` both take the
   folder's FIRST `skeletons.json` entry. Shipping `symbols/` whole would have published nine
   skeletons of which only `h1` could resolve, and binding `h3` would preview wrong AND ship wrong —
   the same silent class of bug as the index gap below. **Known cost, not a surprise:** a split family
   re-copies its atlas page per skeleton, and `symbolExport` does NOT use the content-addressed
   `PageStore` that `editorArtExport` does (its `_pages/` store lives under a different deploy
-  subtree), so binding all nine picture spines ships ~6.6MB where a packed sheet ships ~0.75MB.
+  subtree), so binding all nine picture rigs ships ~6.6MB where a packed sheet ships ~0.75MB.
   Documented in the guide; giving `symbolExport` a page store is a separate job.
-  Seeder: `apps/launcher-api/scripts/seed-shared-engine-spines.mjs` (idempotent, `--dry-run`,
+  Seeder: `apps/launcher-api/scripts/seed-shared-engine-rigs.mjs` (idempotent, `--dry-run`,
   `--only <bundle>`; merges into `skeletons.json` so the boot-mark entry survives). Verified against
   R2 after seeding: 30 prefixes, 30 index entries, exactly one entry per folder, every skeleton +
   atlas + page present and each atlas' page line resolving, boot mark intact, no orphans.
@@ -1318,14 +1318,14 @@ check:symbol-state-parity` (`scripts/check-symbol-state-parity.ts`, tsx) runs a 
   `Explosion` was the only state the shared library offered nothing for — `_shared/sheets/` seeds
   sprite sheets only, and `_shared/spines/` held just the engine boot mark. Since only the cascade
   asks for `explosion` and an unauthored state falls back to `static`, a tumble showed symbols
-  sitting still as they were removed. Seeded the Stake engine's own explosion (13-frame Spine
+  sitting still as they were removed. Seeded the Stake engine's own explosion (13-frame rig
   `sequence` attachment over two slots, the second `additive` — NOT a Flipbook clip, whose single
   ordered frame list cannot carry the second layer) as a shared bundle via
   `apps/launcher-api/scripts/seed-shared-engine-explosion.mjs`, which insert-or-replaces one entry
-  in `_shared/spines/skeletons.json` rather than rewriting it (`r2-sync-spines.mjs` would have
+  in `_shared/spines/skeletons.json` rather than rewriting it (`r2-sync-rigs.mjs` would have
   deleted the boot-mark entry).
   **Fixed the trap it exposed on the way:** `loadSkeletonIndex` reads the shared index only when the
-  project has NONE of its own, but `exportSpineBundle` returns `null` on a missing entry — so for any
+  project has NONE of its own, but `exportRigBundle` returns `null` on a missing entry — so for any
   project that owns a `spines/skeletons.json` (every project that has used the Rigger) a bundle bound
   from `_shared/spines/` previewed in the tool and shipped **nothing, in silence**. `symbolExport.ts`
   and `editorArtExport.ts` now resolve through the new `loadSkeletonIndexWithShared()` (project-first
@@ -1343,16 +1343,16 @@ check:symbol-state-parity` (`scripts/check-symbol-state-parity.ts`, tsx) runs a 
     authored height: an over-height column tiles consecutive M-tall pictures and any remainder shorter
     than M falls through the ordinary partial path (cropped to top k/M, or suppressed by
     `fullHeightOnly`). Capping never touches a genuine partial, which is already shorter than M.
-  - **A spine tall art rendered vertically offset** (#286) — clipped at the top, gapped at the bottom
-    instead of filling the run. `StackedPicture.svelte` mounted the spine with the sprite branch's
-    `anchor={0.5}`, and a spine pivots in its LOCAL skeleton frame, not the requested box frame: anchor
+  - **A rig tall art rendered vertically offset** (#286) — clipped at the top, gapped at the bottom
+    instead of filling the run. `StackedPicture.svelte` mounted the rig with the sprite branch's
+    `anchor={0.5}`, and a rig pivots in its LOCAL skeleton frame, not the requested box frame: anchor
     0.5 pivots by `box/2` and lifts the art by `boxH²/(2·skeleton.height)` (≈107px for a 3-cell Wild).
-    The spine branch uses `anchor={0}`; the sprite/flipbook branches keep `anchor={0.5}` (texture
+    The rig branch uses `anchor={0}`; the sprite/flipbook branches keep `anchor={0.5}` (texture
     centre). **The rule survives, its reasoning has moved on:** this fix leaned on symbol rigs being
-    authored origin-centred, which 2026-09-02's `<SpineProvider centreBox>` replaced with reading the
+    authored origin-centred, which 2026-09-02's `<RigProvider centreBox>` replaced with reading the
     rig's AUTHORED box — so a Rigger rig whose origin is not its bounds centre is placed right too, and
     `StackedPicture` is one of that change's three opt-ins ([rigger status](rigger.md)). The shared
-    `SpineProvider` pivot was deliberately NOT rewritten: that would shift every symbol in every game.
+    `RigProvider` pivot was deliberately NOT rewritten: that would shift every symbol in every game.
     Design: [docs/design/stacked-picture-mode.md](../design/stacked-picture-mode.md).
 - 2026-07-28 — **Scatter now gets the win-highlight frame when it pays.** The `highlight` win frame
   (`bakedHighlight()`) is drawn on any symbol reaching `state === 'win'`, but `Symbol.svelte` was
@@ -1365,7 +1365,7 @@ check:symbol-state-parity` (`scripts/check-symbol-state-parity.ts`, tsx) runs a 
   ⏳ owner visual-verify on a real scatter win.
 
 - 2026-07-28 — **Book-symbol VFX (background + foreground) during free spins.** New sparse doc-global
-  `bookVfx: { background?, foreground? }` on the symbols doc; each layer is sprite/spine/flipbook/fx,
+  `bookVfx: { background?, foreground? }` on the symbols doc; each layer is sprite/rig/flipbook/fx,
   authored in a new "Book symbol VFX" panel and drawn behind / in front of the game-selected book
   symbol (`stateGame.specialSymbol`) on the resting board during free spins only. Full chain end to
   end (tool → export → bake + runtime bundle → engine `BookVfx.svelte`), modelled on `boardGlow`;
@@ -1415,8 +1415,8 @@ check:symbol-state-parity` (`scripts/check-symbol-state-parity.ts`, tsx) runs a 
   `node packages/engine-layout/scripts/test-win-text-symbol-names.mjs`. ⏳ **Owner visual-verify** —
   auth-gated, so the row-head boxes weren't browser-driven.
 
-- 2026-07-20 — **Flipbook is a third binding kind in `/symbols`.** A `sprite` cell is ONE frozen frame, so Spine was previously the only way to animate a Spin/Land/Win state; an Invisible Flipbook clip (ordered, timed atlas frames) is far cheaper and is the fallback for the Tier-C spine-particle perf ceiling in `docs/status/fx.md`. The schema/engine side (`symbolCellSchema.type` widened to `'sprite'|'spine'|'flipbook'` + optional `clipId` + a `.refine()` rejecting a clip-less flipbook cell; `SymbolCellInfo`; `SymbolFlipbook.svelte` + the `Symbol.svelte` dispatch; `collectSymbolRefs` skipping flipbook cells) landed separately — this change is the **authoring UI** against it. `+page.server.ts` now also loads `listClips(clientKey, projectKey)` and returns it as `data.clips`. The cell panel's type toggle is generated from ONE exported runtime value (`SYMBOL_CELL_TYPES` in `symbols.client.ts`) rather than a hand-written pair of buttons — the `COMPONENT_PARAM_KINDS` precedent, because the launcher build transpiles TS without checking it. Picking a clip sets `type`/`clipId`/`assetKey` (the clip's PRIMARY sheet) together, so a flipbook cell is never assetless and every consumer reading `assetKey` keeps working. **Switching kind clears the fields that no longer apply** (`animationName` leaving Spine, `clipId` leaving Flipbook) and `applyDraft` rebuilds the cell field-by-field as a whitelist, so `.strict()` + `.refine()` cannot reject a save the author thinks is valid. With no clips in the project the Flipbook button is disabled with a `/flipbook` pointer instead of an empty select. Previews are STILL first frames, not players — grid cells caption the clip name + frame count (a deleted clip reads `<clipId> (missing)`), and the panel shows a 120px still; N per-cell tickers would cost far more than the one shared spine canvas, and scrub playback belongs to `/flipbook`. ONE storage change: `FlipbookClipRow` gained `assetKey` + `firstFrame`, both read from the JSON `listClips` already parses. Verified: `svelte/compiler` on the page reports **0 warnings** (3 pre-existing dead-CSS selectors removed to get there), `tsc --noEmit` on `launcher-api` is **0 errors**, `pnpm --filter launcher-api build` green, all five `flipbook-spike` fixtures pass, and an offline Node fixture over the REAL `normalizeSymbolsDoc` confirms the flipbook cell round-trips, a clip-less flipbook cell is refused, and `previewKey` is still refused by `.strict()`. ⏳ **Owner visual-verify** — the page is auth-gated so the picker/preview was not browser-driven.
+- 2026-07-20 — **Flipbook is a third binding kind in `/symbols`.** A `sprite` cell is ONE frozen frame, so rig was previously the only way to animate a Spin/Land/Win state; an Invisible Flipbook clip (ordered, timed atlas frames) is far cheaper and is the fallback for the Tier-C rig-particle perf ceiling in `docs/status/fx.md`. The schema/engine side (`symbolCellSchema.type` widened to `'sprite'|'spine'|'flipbook'` + optional `clipId` + a `.refine()` rejecting a clip-less flipbook cell; `SymbolCellInfo`; `SymbolFlipbook.svelte` + the `Symbol.svelte` dispatch; `collectSymbolRefs` skipping flipbook cells) landed separately — this change is the **authoring UI** against it. `+page.server.ts` now also loads `listClips(clientKey, projectKey)` and returns it as `data.clips`. The cell panel's type toggle is generated from ONE exported runtime value (`SYMBOL_CELL_TYPES` in `symbols.client.ts`) rather than a hand-written pair of buttons — the `COMPONENT_PARAM_KINDS` precedent, because the launcher build transpiles TS without checking it. Picking a clip sets `type`/`clipId`/`assetKey` (the clip's PRIMARY sheet) together, so a flipbook cell is never assetless and every consumer reading `assetKey` keeps working. **Switching kind clears the fields that no longer apply** (`animationName` leaving rig, `clipId` leaving Flipbook) and `applyDraft` rebuilds the cell field-by-field as a whitelist, so `.strict()` + `.refine()` cannot reject a save the author thinks is valid. With no clips in the project the Flipbook button is disabled with a `/flipbook` pointer instead of an empty select. Previews are STILL first frames, not players — grid cells caption the clip name + frame count (a deleted clip reads `<clipId> (missing)`), and the panel shows a 120px still; N per-cell tickers would cost far more than the one shared rig canvas, and scrub playback belongs to `/flipbook`. ONE storage change: `FlipbookClipRow` gained `assetKey` + `firstFrame`, both read from the JSON `listClips` already parses. Verified: `svelte/compiler` on the page reports **0 warnings** (3 pre-existing dead-CSS selectors removed to get there), `tsc --noEmit` on `launcher-api` is **0 errors**, `pnpm --filter launcher-api build` green, all five `flipbook-spike` fixtures pass, and an offline Node fixture over the REAL `normalizeSymbolsDoc` confirms the flipbook cell round-trips, a clip-less flipbook cell is refused, and `previewKey` is still refused by `.strict()`. ⏳ **Owner visual-verify** — the page is auth-gated so the picker/preview was not browser-driven.
 
-- 2026-07-20 — **The coded defaults now preview instead of showing a "can't be previewed" placeholder.** Both built-in defaults — the free-spin board glow (`reelhouse`) and the highlight win frame (`anticipation`/`payframe`) — ship as LOCAL game assets, so `/api/editor/spine` (R2-only) could never resolve them and the panels rendered a dashed placeholder unless the project happened to carry a same-named R2 bundle. The launcher now vendors both spines under `apps/launcher-api/static/builtin/spines/` (~965 KB: skeleton `.json` + `.atlas` + `.webp`), and `editorSpine.client.ts` resolves a `builtin:<id>` key by synthesizing the descriptor `/api/editor/spine` would have returned — page names parsed from the atlas's own un-indented image lines, `pma` from the same `^pma: true$` header rule the server index uses, so a built-in renders byte-identically to the R2 path (no premultiply/halo divergence). One shared `resolveBuiltinBundle()` drives BOTH panels and still **prefers a real R2 bundle** when one matches, so a project carrying its own copy is unaffected. The placeholder branch is kept as a defensive fallback (its copy now says the coded default still ships and renders in-game). Verified live via the real loader on the dev launcher: `loadSpineInstance('builtin:reelhouse')` → the three `reelhouse_glow_*` animations + `reelhouse_glow.webp` page; `builtin:anticipation` → 16 animations incl. `payframe`; an unknown builtin id returns `null` (no crash). Note this is a launcher-only asset copy — it does NOT change what a game ships. ⏳ **Owner visual-verify** of the rendered panel (auth-gated, so the WebGL canvas itself wasn't browser-driven).
+- 2026-07-20 — **The coded defaults now preview instead of showing a "can't be previewed" placeholder.** Both built-in defaults — the free-spin board glow (`reelhouse`) and the highlight win frame (`anticipation`/`payframe`) — ship as LOCAL game assets, so `/api/editor/rig` (R2-only) could never resolve them and the panels rendered a dashed placeholder unless the project happened to carry a same-named R2 bundle. The launcher now vendors both rigs under `apps/launcher-api/static/builtin/spines/` (~965 KB: skeleton `.json` + `.atlas` + `.webp`), and `editorRig.client.ts` resolves a `builtin:<id>` key by synthesizing the descriptor `/api/editor/rig` would have returned — page names parsed from the atlas's own un-indented image lines, `pma` from the same `^pma: true$` header rule the server index uses, so a built-in renders byte-identically to the R2 path (no premultiply/halo divergence). One shared `resolveBuiltinBundle()` drives BOTH panels and still **prefers a real R2 bundle** when one matches, so a project carrying its own copy is unaffected. The placeholder branch is kept as a defensive fallback (its copy now says the coded default still ships and renders in-game). Verified live via the real loader on the dev launcher: `loadRigInstance('builtin:reelhouse')` → the three `reelhouse_glow_*` animations + `reelhouse_glow.webp` page; `builtin:anticipation` → 16 animations incl. `payframe`; an unknown builtin id returns `null` (no crash). Note this is a launcher-only asset copy — it does NOT change what a game ships. ⏳ **Owner visual-verify** of the rendered panel (auth-gated, so the WebGL canvas itself wasn't browser-driven).
 
-- 2026-07-16 — **Free-spin board glow is swappable in `/symbols`** (owner-requested: "a session in the symbol state machine where I can change the art/irig used"). New optional doc field `boardGlow: { type:'spine', assetKey, animations?: {start,idle,exit}, sizeRatios? }`, modelled on `highlight` (the existing non-per-symbol global). A **Free-spin board glow** panel sits between Highlight and Win lines, reusing the highlight's bundle `<select>` + `SymbolSpinePreview` (no new picker). `BoardFrame.svelte`'s five hard-coded literals (`key="reelhouse"`, the three `reelhouse_glow_*` names, `SPINE_SCALE`) became sparse reads off a new `bakedBoardGlow()` — each unset field falls through to its coded constant, so an un-authored game is byte-identical. The engine still OWNS the start→idle→exit chaining and the timing (the author swaps WHAT plays, not the sequence). **`.irig` rigs work here for free** — the bundle rides `refs.spineKeys` → `exportSpineBundle`, which already renames a Rigger `.irig` skeleton to `.json` (the PIXI parse-by-extension crash). Threaded the full chain per rule 8: Zod + `normalizeSymbolsDoc` copy → client type/setters/`docSignature`/`saveSymbolsDoc` body → `collectSymbolRefs` + `SymbolExportResult` → `export-symbols` endpoint → `bake-editor-doc.mjs` (defaults + response parse) → `BakedBundle.symbols` → `bakedBoardGlow()` → `BoardFrame`. `pull` needed nothing (reuses `editor-symbols`). Verified offline against the REAL schema + normalizer (10/10: full + art-only-sparse round-trip, parity emits no key, `.strict()` rejects unknown key / non-spine / missing / empty assetKey), **mutation-tested** — dropping the `normalizeSymbolsDoc` copy makes it fail, which is the silent-drop trap this repo has hit before. Both apps build clean. ⏳ **Live-verify pending** — the panel is auth-gated so it wasn't browser-driven; needs a real rig picked + saved + baked + a runtime release.
+- 2026-07-16 — **Free-spin board glow is swappable in `/symbols`** (owner-requested: "a session in the symbol state machine where I can change the art/irig used"). New optional doc field `boardGlow: { type:'spine', assetKey, animations?: {start,idle,exit}, sizeRatios? }`, modelled on `highlight` (the existing non-per-symbol global). A **Free-spin board glow** panel sits between Highlight and Win lines, reusing the highlight's bundle `<select>` + `SymbolRigPreview` (no new picker). `BoardFrame.svelte`'s five hard-coded literals (`key="reelhouse"`, the three `reelhouse_glow_*` names, `RIG_SCALE`) became sparse reads off a new `bakedBoardGlow()` — each unset field falls through to its coded constant, so an un-authored game is byte-identical. The engine still OWNS the start→idle→exit chaining and the timing (the author swaps WHAT plays, not the sequence). **`.irig` rigs work here for free** — the bundle rides `refs.rigKeys` → `exportRigBundle`, which already renames a Rigger `.irig` skeleton to `.json` (the PIXI parse-by-extension crash). Threaded the full chain per rule 8: Zod + `normalizeSymbolsDoc` copy → client type/setters/`docSignature`/`saveSymbolsDoc` body → `collectSymbolRefs` + `SymbolExportResult` → `export-symbols` endpoint → `bake-editor-doc.mjs` (defaults + response parse) → `BakedBundle.symbols` → `bakedBoardGlow()` → `BoardFrame`. `pull` needed nothing (reuses `editor-symbols`). Verified offline against the REAL schema + normalizer (10/10: full + art-only-sparse round-trip, parity emits no key, `.strict()` rejects unknown key / non-rig / missing / empty assetKey), **mutation-tested** — dropping the `normalizeSymbolsDoc` copy makes it fail, which is the silent-drop trap this repo has hit before. Both apps build clean. ⏳ **Live-verify pending** — the panel is auth-gated so it wasn't browser-driven; needs a real rig picked + saved + baked + a runtime release.

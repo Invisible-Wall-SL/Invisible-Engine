@@ -1,5 +1,5 @@
 <script lang="ts" module>
-	/** One tier of a sequential-escalation chain: its spine bundle, count slot, and resolved
+	/** One tier of a sequential-escalation chain: its rig bundle, count slot, and resolved
 	 *  intro/idle/outro names. The single-tier path builds a one-element chain internally. */
 	export type WinAnimationStep = {
 		key: string;
@@ -11,8 +11,8 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 
-	import { SpineProvider, SpineTrack, SpineSlot } from 'pixi-svelte';
-	import { EDITOR_SPINE_LOAD_SCALE } from 'engine-layout';
+	import { RigProvider, RigTrack, RigSlot } from 'pixi-svelte';
+	import { EDITOR_RIG_LOAD_SCALE } from 'engine-layout';
 
 	import { tierHasExit } from '../game/winEscalation';
 
@@ -27,7 +27,7 @@
 			idle: string;
 			outro: string;
 		};
-		/** The big-win spine bundle + the slot the count number is injected into. Configurable so a
+		/** The big-win rig bundle + the slot the count number is injected into. Configurable so a
 		 * game can point the shared `win` component at its own art; the coded defaults reproduce the
 		 * original hardcodes (`bigwin` / `slot_win_count`), so an un-authored game renders identically. */
 		key?: string;
@@ -72,12 +72,12 @@
 		 *  fires on the single-tier path (no outro), so that path is byte-identical. */
 		onOutroComplete?: () => void;
 		/** The live HOLD-to-fast-forward multiplier (the gate's `interactionSpeedScale`, 1 when not held).
-		 *  Applied as a spine `timeScale` to the ESCALATION intro/idle tiers so they accelerate in lockstep
+		 *  Applied as a rig `timeScale` to the ESCALATION intro/idle tiers so they accelerate in lockstep
 		 *  with the count-up while holding (a smooth ramp). Only used while escalating AND the walk is still
 		 *  running (`!countUpComplete`); the outro + the single-tier path always play at 1× (byte-identical). */
 		speedScale?: number;
 		/**
-		 * Explicit display WIDTH for the rig (the spine is fitted to it). The coded/OFF composer
+		 * Explicit display WIDTH for the rig (the rig is fitted to it). The coded/OFF composer
 		 * passes the board width — the historical hardcode. The AUTHORED `win` componentInstance
 		 * passes nothing, so the rig renders at its NATURAL size: the same base the Scene Editor
 		 * previews it at, leaving the instance node's own scale as the single size knob (WYSIWYG).
@@ -120,12 +120,12 @@
 	// `complete` fires and advances the chain to the next tier's intro.
 	const idleLoops = $derived(animationState === 'idle' && isFinalStep);
 
-	// ESCALATION RAMP — while the player holds to fast-forward, run the tier intro/idle spines at the
+	// ESCALATION RAMP — while the player holds to fast-forward, run the tier intro/idle rigs at the
 	// same multiplier as the accelerating count-up (`speedScale`), so the tiers visibly speed up in
 	// lockstep instead of snapping at the end. Applied as the track `timeScale` (synced onto the live
-	// `TrackEntry` by `SpineTrack`'s `propsSyncEffect`). Only while ESCALATING and the walk is still
+	// `TrackEntry` by `RigTrack`'s `propsSyncEffect`). Only while ESCALATING and the walk is still
 	// running: once the count-up completes the collapse plays the OUTRO at 1×, and the single-tier /
-	// non-escalating path is always 1× (= the spine default ⇒ byte-identical). `Math.max(_, 1)` never
+	// non-escalating path is always 1× (= the rig default ⇒ byte-identical). `Math.max(_, 1)` never
 	// slows below normal.
 	const rampTimeScale = $derived(escalating && !countUpComplete ? Math.max(speedScale, 1) : 1);
 
@@ -144,7 +144,7 @@
 	//
 	// On the natural walk we're already on the final tier's looping idle, so this just flips it to the
 	// outro (the old behaviour). On a FAST-FORWARD / TAP-TO-SKIP the count-up can finish while the
-	// chain is still mid-walk (tier 1→2→3): the count-up runs on a SEPARATE clock from the spine idle-
+	// chain is still mid-walk (tier 1→2→3): the count-up runs on a SEPARATE clock from the rig idle-
 	// completes that advance the chain, so `countUpComplete` can latch on a NON-final tier. Rather than
 	// let the chain crawl on (number done, tiers still walking) or get cut off, COLLAPSE straight to the
 	// final tier and play its outro — the player lands on the biggest tier's art as it exits, a clean
@@ -200,7 +200,7 @@
 	/**
 	 * RE-APPLY TOKEN for the track — a value that differs on every walk transition.
 	 *
-	 * `<SpineTrack>` decides whether to (re)start an animation by VALUE (`shouldApplySpineAnimation`:
+	 * `<RigTrack>` decides whether to (re)start an animation by VALUE (`shouldApplyRigAnimation`:
 	 * `animationName !== track.animationName`), which is right for a declarative binding and wrong for
 	 * a WALK, where the next phase can legitimately name the clip that is already playing — a tier
 	 * whose outro is authored to its own idle, or two adjacent tiers sharing a clip. The track then
@@ -217,18 +217,18 @@
 
 <!--
 	`loadScaleBase` on the natural-size (authored) path only: the editor previews EVERY rig at
-	`EDITOR_SPINE_LOAD_SCALE`, while the game reads each bundle at whatever `parser.scale` its
+	`EDITOR_RIG_LOAD_SCALE`, while the game reads each bundle at whatever `parser.scale` its
 	asset index declares (the engine-bundled `bigwin` is 2, an exported editor-art bundle is 1)
-	— and Spine leaves `skeleton.data.width/height` un-scaled, so nothing downstream cancels
+	— and rig leaves `skeleton.data.width/height` un-scaled, so nothing downstream cancels
 	that. Dividing it out is what makes "natural size" mean the same thing on both surfaces. The
 	width-fitted OFF path is deliberately left alone: `parser.scale × width` is its shipped size.
 -->
-<SpineProvider
+<RigProvider
 	{width}
 	key={current.key}
-	loadScaleBase={width === undefined ? EDITOR_SPINE_LOAD_SCALE : undefined}
+	loadScaleBase={width === undefined ? EDITOR_RIG_LOAD_SCALE : undefined}
 >
-	<SpineTrack
+	<RigTrack
 		trackIndex={0}
 		animationName={current.animationMap[animationState]}
 		loop={idleLoops}
@@ -256,7 +256,7 @@
 			},
 		}}
 	/>
-	<SpineSlot slotName={current.slotName}>
+	<RigSlot slotName={current.slotName}>
 		{@render children()}
-	</SpineSlot>
-</SpineProvider>
+	</RigSlot>
+</RigProvider>

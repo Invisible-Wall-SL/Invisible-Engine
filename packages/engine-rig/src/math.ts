@@ -1,5 +1,5 @@
-/** π as the Spine data convention fixes it (single precision). Degree↔radian conversions and
- * angle wrapping use it so a pose lands on exactly the same values every Spine-format runtime
+/** π as the 4.2 data format fixes it (single precision). Degree↔radian conversions and
+ * angle wrapping use it so a pose lands on exactly the same values every runtime of the format
  * computes — it decides, for example, which way a constraint turns toward a bone at exactly 180°. */
 export const PI = 3.1415927;
 export const PI2 = PI * 2;

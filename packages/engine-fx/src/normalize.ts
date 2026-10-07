@@ -22,7 +22,7 @@ import {
 	type EmitterLayer,
 	type EmitterPlacement,
 	type EmitterTrigger,
-	type SpineParticleConfig,
+	type RigParticleConfig,
 } from './types';
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -76,12 +76,12 @@ const normalizePlacement = (raw: unknown): EmitterPlacement => {
 	return placement;
 };
 
-const normalizeSpineParticle = (raw: unknown): SpineParticleConfig | undefined => {
+const normalizeRigParticle = (raw: unknown): RigParticleConfig | undefined => {
 	if (!isObject(raw)) return undefined;
 	const skeletonKey = str(raw.skeletonKey);
 	const animation = str(raw.animation);
 	if (!skeletonKey || !animation) return undefined;
-	const sp: SpineParticleConfig = { skeletonKey, animation };
+	const sp: RigParticleConfig = { skeletonKey, animation };
 	const loop = bool(raw.loop);
 	if (loop !== undefined) sp.loop = loop;
 	return sp;
@@ -117,7 +117,7 @@ const normalizeLayer = (raw: unknown): EmitterLayer | undefined => {
 	// yet — tune the emitter"), so dropping it here would silently destroy the author's work at
 	// save→reopen. Empty art is safe at runtime (`bindArt` with 0 textures just renders nothing) and the
 	// dangling-`assetKey` case is caught LOUDLY at bake (§8), which is the correct ship-time gate — not
-	// this save-time canonicalizer. (A SPINE layer's particle is a pooled `Spine` and legitimately
+	// this save-time canonicalizer. (A RIG layer's particle is a pooled `RigView` and legitimately
 	// carries empty art too.)
 	const art = normalizeArt(raw.art) ?? { assetKey: '', frames: [] };
 
@@ -129,8 +129,8 @@ const normalizeLayer = (raw: unknown): EmitterLayer | undefined => {
 		particleKind,
 	};
 	if (particleKind === 'spine') {
-		const spineParticle = normalizeSpineParticle(raw.spineParticle);
-		if (spineParticle) layer.spineParticle = spineParticle;
+		const rigParticle = normalizeRigParticle(raw.spineParticle);
+		if (rigParticle) layer.spineParticle = rigParticle;
 	}
 	const trigger = normalizeTrigger(raw.trigger);
 	if (trigger) layer.trigger = trigger;

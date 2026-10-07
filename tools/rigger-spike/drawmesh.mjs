@@ -4,7 +4,7 @@
 // loads and whose vertices land where they were drawn.
 //   node tools/rigger-spike/drawmesh.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
-import { RIG_CORE } from './spine.mjs';
+import { RIG_CORE } from './rig.mjs';
 
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, Vector2 } = await import(RIG_CORE);
 

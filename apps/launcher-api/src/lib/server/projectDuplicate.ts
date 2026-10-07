@@ -18,7 +18,7 @@
  * `output_prefix`. A byte copy would leave the duplicate pointing at the SOURCE project's assets:
  * it would look correct in the editor (the art resolves — from the wrong project) and would keep
  * resolving even after the source is edited or deleted. So every `.json` object is re-based through
- * {@link rebaseJsonText} on the way across; non-JSON objects (atlas pages, spine binaries, fonts)
+ * {@link rebaseJsonText} on the way across; non-JSON objects (atlas pages, rig binaries, fonts)
  * are server-side `CopyObject`s and never travel through this process.
  *
  * ## What `setup` vs `full` means
@@ -189,7 +189,7 @@ export async function planDuplicate(
  * Re-base every absolute reference to the source project inside a JSON body.
  *
  * Three substitutions, all of which are real in stored docs:
- *  - the project's R2 prefix (`<client>/<project>/…`) — how symbol cells, flipbook clips, spine
+ *  - the project's R2 prefix (`<client>/<project>/…`) — how symbol cells, flipbook clips, rig
  *    bundles and editor art pin their assets;
  *  - the `editor/<projectKey>/` component root;
  *  - the SELF-NAMING fields that hold the bare project key ({@link SELF_NAMING_FIELDS}).

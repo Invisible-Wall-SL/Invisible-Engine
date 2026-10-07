@@ -17,7 +17,7 @@
  *      existence probe, HEAD or TexturePacker read of another project's key — and a manifest
  *      BORROWED from a sibling project resolves its page in THAT project, not the caller's.
  *   6. Art an author picks ONLY in a per-ratio instance override (`overrides.portrait.params`)
- *      is in the scope AND ships: the REAL `exportEditorArt` writes its sheet and its spine
+ *      is in the scope AND ships: the REAL `exportEditorArt` writes its sheet and its rig
  *      bundle to `deploy/editor-art/`. The editor reads R2 directly, so without this the game
  *      looks the portrait frame up in an atlas that was never exported.
  *
@@ -401,7 +401,7 @@ check(
 );
 check('the pinned instance’s portrait-only sheet ships', !!ships(PINNED_SHEET));
 check(
-	'the spine bundle picked only in the portrait override ships under its name',
+	'the rig bundle picked only in the portrait override ships under its name',
 	index.spines.some((s) => s.key === RIG),
 );
 check(

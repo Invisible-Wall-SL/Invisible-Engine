@@ -61,7 +61,7 @@ const server = createServer((req, res) => {
 	const jsonOut = (v) => send(200, MIME['.json'], JSON.stringify(v));
 	try {
 		if (p === '/') return send(200, MIME['.html'], readFileSync(join(STATIC, 'rigger/view.html')));
-		if (p === '/spine/skeletons')
+		if (p === '/rig-viewer/skeletons')
 			return jsonOut({
 				client: 'c',
 				project: 'p',
@@ -83,7 +83,7 @@ const server = createServer((req, res) => {
 			});
 		// The rig's `.atlas` names `anticipation.webp`, and the tool asks with `pp=1` (prefer PNG),
 		// which the real server answers with the `.png` sibling — the bundle has both.
-		if (p === '/spine/file') {
+		if (p === '/rig-viewer/file') {
 			const name = url.searchParams.get('name') ?? '';
 			if (/^anticipation\.(json|atlas|png|webp)$/.test(name))
 				return send(200, MIME[extname(name)], readFileSync(join(RIG_DIR, name)));
@@ -220,9 +220,9 @@ const drawnBySkin = (slot, reparsed = false) =>
 		const keep = missingArt;
 		try {
 			const sd = ${reparsed}
-				? new SPINE.SkeletonJson(makeAttachmentLoader(assetMgr.require(selected.atlas_file))).readSkeletonData(JSON.parse(JSON.stringify(rawDoc)))
+				? new RIG.SkeletonJson(makeAttachmentLoader(assetMgr.require(selected.atlas_file))).readSkeletonData(JSON.parse(JSON.stringify(rawDoc)))
 				: skeletonData;
-			const si = sd.slots.findIndex((s) => s.name === ${q(slot)}), sk = new SPINE.Skeleton(sd);
+			const si = sd.slots.findIndex((s) => s.name === ${q(slot)}), sk = new RIG.Skeleton(sd);
 			return Object.fromEntries(sd.skins.map((skin) => {
 				sk.setSkin(skin);
 				sk.setSlotsToSetupPose();

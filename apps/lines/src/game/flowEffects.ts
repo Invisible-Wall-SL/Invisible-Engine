@@ -176,7 +176,7 @@ export const winLevelSoundsStop = () => {
 const awaitPresentation = (emitterEvent: Parameters<typeof eventEmitter.broadcastAsync>[0]) =>
 	awaitCue(emitterEvent.type, eventEmitter.broadcastAsync(emitterEvent));
 
-/** The awaited symbol-spine animation — the `winInfo` / `freeSpinTrigger` leaf. `color` (the paying
+/** The awaited symbol-rig animation — the `winInfo` / `freeSpinTrigger` leaf. `color` (the paying
  *  line's authored colour, `#rrggbb`) is threaded onto the lit cells so a `winLine`-tinted highlight
  *  frame glows in that line's colour; absent ⇒ the frame renders untinted (byte-identical). */
 export const animateSymbols = async ({
@@ -1389,7 +1389,7 @@ const effects: Record<string, FlowEffect> = {
 
 	/**
 	 * Book-of column morph (`expandBookColumns`) — the per-cell explode→swap→land sequence,
-	 * lifted verbatim. It awaits each symbol's `oncomplete` spine + a staggered wait, so the whole
+	 * lifted verbatim. It awaits each symbol's `oncomplete` rig + a staggered wait, so the whole
 	 * effect blocks until the columns finish (the wins only animate after) — both skippable.
 	 */
 	expandBookColumns: async (payload) => {
@@ -1608,7 +1608,7 @@ const effects: Record<string, FlowEffect> = {
 	 * `kind` symbols and stops at the first non-matching reel, so feeding the raw `positions` to the
 	 * `boardWithAnimateSymbols` cue lights the non-paying tail (and any scatter the line crosses) too.
 	 * Slices with the SAME `winningPositionsOf` the coded handler + `showWinLine` use, so the lit cells
-	 * always match the traced line. Awaited: the chain blocks until the spines finish, so a following
+	 * always match the traced line. Awaited: the chain blocks until the rigs finish, so a following
 	 * `hideWinLine` clears the line only after the symbols are done.
 	 */
 	animateWinSymbols: async (payload) => {

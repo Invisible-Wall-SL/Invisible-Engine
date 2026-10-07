@@ -241,7 +241,7 @@ def test_the_kept_canvas_reaches_the_deploy_normalizer() -> None:
 
 def test_a_carried_trim_does_not_stretch_the_art_on_compose() -> None:
     """The objection #683 raised against keeping `orig_*`: `fit_to_region`
-    reads its mere PRESENCE as `spine_slot` and flips the default from
+    reads its mere PRESENCE as `rig_slot` and flips the default from
     `contain` to `fill`. Harmless HERE, and worth pinning rather than
     asserting: the rect a re-pack stamps is derived from the art's OWN alpha
     bbox, so the slot's aspect is the art's aspect and fill == contain. Note

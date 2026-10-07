@@ -21,7 +21,7 @@ export const warnMissingAsset = (message: string): void => {
  * reporting it as an error only buries the real missing keys under noise a boot can never clear.
  *
  * Lives here, beside {@link warnMissingAsset}, so the four diagnostics that use it (`Sprite`,
- * `SpineProvider`, `SpriteSheet`, `Particles`) share ONE rule instead of re-deriving it.
+ * `RigProvider`, `SpriteSheet`, `Particles`) share ONE rule instead of re-deriving it.
  */
 export const hasAssetKey = (key: string | undefined): boolean =>
 	typeof key === 'string' && key.length > 0;

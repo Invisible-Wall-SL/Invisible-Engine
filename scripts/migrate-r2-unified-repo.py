@@ -37,7 +37,7 @@ Key remap (C/P slugged with the canonical r2_slug, so `book-of-borut` →
 
 NOTE on legacy spines: a pre-client-isolation prefix like `spines/hotfruits/...`
 (no <client>/<project>) can't be mapped automatically — it's logged as MANUAL and
-skipped. Map it explicitly with --legacy-spine "spines/hotfruits=borut/hotfruits/symbols".
+skipped. Map it explicitly with --legacy-rig "spines/hotfruits=borut/hotfruits/symbols".
 """
 from __future__ import annotations
 
@@ -82,7 +82,7 @@ def _list(cli, bucket: str, prefix: str) -> list[dict]:
     return out
 
 
-def map_key(key: str, legacy_spines: dict[str, str]) -> str | None:
+def map_key(key: str, legacy_rigs: dict[str, str]) -> str | None:
     """Old key -> new key, or None when it can't be mapped (logged MANUAL)."""
     parts = key.split("/")
     if key.endswith("/"):
@@ -125,15 +125,15 @@ def map_key(key: str, legacy_spines: dict[str, str]) -> str | None:
         # Everything else (legacy client-less `spines/<game>/...`) is ambiguous —
         # `spines/<C>/<P>/<bundle>` and `spines/<game>/<bundle>/<sub>` are
         # structurally indistinguishable — so require an EXPLICIT mapping rather
-        # than guess. Match the longest old prefix from --legacy-spine.
+        # than guess. Match the longest old prefix from --legacy-rig.
         best = None
-        for old_pre in legacy_spines:
+        for old_pre in legacy_rigs:
             op = old_pre.rstrip("/") + "/"
             if key.startswith(op) and (best is None or len(op) > len(best)):
                 best = op
         if best is not None:
-            return legacy_spines[best.rstrip("/")].rstrip("/") + "/" + key[len(best):]
-        return None  # unmapped legacy spine — surfaced as MANUAL
+            return legacy_rigs[best.rstrip("/")].rstrip("/") + "/" + key[len(best):]
+        return None  # unmapped legacy rig — surfaced as MANUAL
 
     return None
 
@@ -145,8 +145,8 @@ def main() -> int:
     ap.add_argument("--phase-b", action="store_true", help="Delete the OLD prefixes.")
     ap.add_argument("--i-verified-cutover", action="store_true",
                     help="Required safety flag for --phase-b.")
-    ap.add_argument("--legacy-spine", action="append", default=[],
-                    metavar="OLD=NEW", help="Map a legacy spine prefix, e.g. "
+    ap.add_argument("--legacy-rig", action="append", default=[],
+                    metavar="OLD=NEW", help="Map a legacy rig prefix, e.g. "
                     "spines/hotfruits=borut/hotfruits/symbols. Repeatable.")
     ap.add_argument("--exclude", action="append", default=[], metavar="C/P",
                     help="Skip an old (client/project) entirely — neither copied "
@@ -160,13 +160,13 @@ def main() -> int:
         # old keys are <tool>/<client>/<project>/...; match on raw client/project
         return len(parts) >= 3 and f"{parts[1]}/{parts[2]}" in excludes
 
-    legacy_spines: dict[str, str] = {}
-    for pair in args.legacy_spine:
+    legacy_rigs: dict[str, str] = {}
+    for pair in args.legacy_rig:
         if "=" not in pair:
-            print(f"! bad --legacy-spine (need OLD=NEW): {pair}")
+            print(f"! bad --legacy-rig (need OLD=NEW): {pair}")
             return 2
         old, new = pair.split("=", 1)
-        legacy_spines[old.strip()] = new.strip()
+        legacy_rigs[old.strip()] = new.strip()
 
     cli = _client()
     bucket = os.environ["R2_BUCKET"]
@@ -184,7 +184,7 @@ def main() -> int:
         if _excluded(o["key"]):
             excluded_keys.append(o["key"])
             continue
-        dst = map_key(o["key"], legacy_spines)
+        dst = map_key(o["key"], legacy_rigs)
         if dst is None:
             manual.append(o["key"])
         else:
@@ -244,7 +244,7 @@ def main() -> int:
 
     if manual:
         print(f"\n[migrate] {len(manual)} key(s) need a MANUAL mapping "
-              f"(e.g. legacy spines) — use --legacy-spine:")
+              f"(e.g. legacy rigs) — use --legacy-rig:")
         for k in manual[:50]:
             print(f"    MANUAL  {k}")
         if len(manual) > 50:

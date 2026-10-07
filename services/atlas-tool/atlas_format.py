@@ -1,7 +1,7 @@
 """
-Spine / libGDX `.atlas` adapter.
+libGDX `.atlas` adapter.
 
-A `.atlas` file is an external-tool-generated region map (Spine, TexturePacker,
+A `.atlas` file is an external-tool-generated region map (TexturePacker,
 libGDX). It is the authoritative geometry for an atlas: per-region packed
 rectangle, trim offsets and rotation. This module parses it into the same
 region shape `batch_atlas.py` already consumes, and can write one back out
@@ -9,7 +9,7 @@ region shape `batch_atlas.py` already consumes, and can write one back out
 
 Two on-disk dialects are tolerated:
 
-  modern (Spine 4.x, what HotFruits ships):
+  modern (4.x, what HotFruits ships):
       page.webp
       size:1969,1222
       filter:Linear,Linear
@@ -160,7 +160,7 @@ def is_atlas_file(path: str | Path) -> bool:
 
 
 def write_atlas(path: str | Path, page: dict, regions: list[dict]) -> None:
-    """Emit a modern (Spine 4.x) `.atlas`. Used to synthesize a geometry file
+    """Emit a modern (4.x) `.atlas`. Used to synthesize a geometry file
     for a project that only has a cutting grid ("make an .atlas if needed").
 
     `regions` items use the normalized shape returned by parse_atlas.

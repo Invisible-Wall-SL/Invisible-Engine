@@ -2,7 +2,7 @@ import {
 	MAX_COMPONENT_DEPTH,
 	anchoredPosition,
 	boundComponentRidesBone,
-	instancePreviewSpineBundle,
+	instancePreviewRigBundle,
 	resolveBoundValue,
 	resolveComponentParams,
 	resolveReelGridPerspective,
@@ -120,7 +120,7 @@ export interface NodeBox {
 
 /**
  * A node's measured natural size, optionally carrying its own local anchor. Sprites +
- * spines report just `{ w, h }` (the node's transform anchor frames them). An `effect`
+ * rigs report just `{ w, h }` (the node's transform anchor frames them). An `effect`
  * reports `ax`/`ay` too, because its live particle spread is OFFSET from the node origin
  * (an upward-fanning burst has particles above/left of the origin), so the selection box
  * needs a per-node anchor — not the transform anchor — to enclose the particles. `ax`/`ay`
@@ -160,7 +160,7 @@ export type RepeaterSourceMap = Record<string, RepeaterSourcePreview>;
 /**
  * The natural FOOTPRINT (union box) of a ComponentDef's `root` children, from their raw transform
  * positions + explicit `width`/`height` — so a `repeater` can size each SAMPLE box to the real card
- * (a sprite/rect carries a size; text/spine, which don't, are skipped). Used ONLY for the sample
+ * (a sprite/rect carries a size; text/rig, which don't, are skipped). Used ONLY for the sample
  * grid's item size + the per-box placement offset; `null` when no child declares a size (⇒ the caller
  * keeps the fixed fallback). Approximate by design (ignores nested rotation/scale) — it frames the
  * layout, it is not a render bound.
@@ -311,15 +311,15 @@ export function repeaterBoxes(
 export function nodeBox(
 	node: LayoutNode,
 	t: ResolvedTransform,
-	naturalSize: (node: LayoutNode, instanceSpineBundle?: string) => NaturalSize | null,
+	naturalSize: (node: LayoutNode, instanceRigBundle?: string) => NaturalSize | null,
 	componentMap?: Map<string, ComponentDef>,
 	layoutType?: LayoutType,
-	/** The ENCLOSING componentInstance's AUTHORED preview spine bundle (its first `spine`-kind
-	 * param value; see `instancePreviewSpineBundle`), threaded by {@link componentInstanceContentBox}
-	 * so a nested SPINE bind (the win / free-spin VISUAL) frames its selection box at the AUTHORED
-	 * rig's natural bounds — the SAME size the spine layer renders it at — instead of the generic
-	 * 160×100 chip. Undefined for a top-level node or a non-spine-param instance ⇒ prior box (parity). */
-	instanceSpineBundle?: string,
+	/** The ENCLOSING componentInstance's AUTHORED preview rig bundle (its first `spine`-kind
+	 * param value; see `instancePreviewRigBundle`), threaded by {@link componentInstanceContentBox}
+	 * so a nested RIG bind (the win / free-spin VISUAL) frames its selection box at the AUTHORED
+	 * rig's natural bounds — the SAME size the rig layer renders it at — instead of the generic
+	 * 160×100 chip. Undefined for a top-level node or a non-rig-param instance ⇒ prior box (parity). */
+	instanceRigBundle?: string,
 	/** The config-resolved SAMPLE item count for a `repeater` node (its `source`'s live length —
 	 * e.g. `featureCards` → the non-default bet modes), so the selection rect frames the SAME grid
 	 * {@link repeaterPlaceholderGrid} lays out in the draw. Undefined ⇒ the fixed fallback count. */
@@ -355,23 +355,23 @@ export function nodeBox(
 		);
 		if (content) return content;
 	}
-	// A nested SPINE bind (the win / free-spin VISUAL inside a spine-param componentInstance): frame
-	// the selection box at the AUTHORED rig's natural bounds so it matches what the spine layer draws
-	// (natural size, no fit — see `bindSpineTarget`). Without this the box stayed the generic 160×100
+	// A nested RIG bind (the win / free-spin VISUAL inside a rig-param componentInstance): frame
+	// the selection box at the AUTHORED rig's natural bounds so it matches what the rig layer draws
+	// (natural size, no fit — see `bindRigTarget`). Without this the box stayed the generic 160×100
 	// while the rig rendered huge, so the instance couldn't be sized/placed. Gated on a plain
-	// (non-riding, non-chip, unsized) bind inside a spine-param instance so HUD chips, sized binds and
+	// (non-riding, non-chip, unsized) bind inside a rig-param instance so HUD chips, sized binds and
 	// the bone-riding symbol reveal keep their existing box (parity). The bone-rider selects at its
 	// ridden SYMBOL, not the backdrop rig, so it is excluded here.
 	if (
 		node.bind &&
-		instanceSpineBundle !== undefined &&
+		instanceRigBundle !== undefined &&
 		!boundComponentRidesBone(node.bind.component) &&
 		!node.preview?.art &&
 		!node.preview?.style &&
 		t.width === undefined &&
 		t.height === undefined
 	) {
-		const nat = naturalSize(node, instanceSpineBundle);
+		const nat = naturalSize(node, instanceRigBundle);
 		if (nat && nat.w > 0 && nat.h > 0) return { w: nat.w, h: nat.h, ax, ay };
 	}
 	// A preview-art anchor selects at the RENDERED art's box. The art may be an
@@ -400,7 +400,7 @@ export function nodeBox(
 		return { w, h, ax, ay };
 	}
 	if (node.kind === 'spine') {
-		// Frame the spine at its real setup-pose bounds (reported by the WebGL overlay via
+		// Frame the rig at its real setup-pose bounds (reported by the WebGL overlay via
 		// `naturalSize`), like a sprite — not a fixed 160×100, which leaves the transform
 		// box far smaller than the rendered skeleton.
 		const nat = naturalSize(node);
@@ -490,7 +490,7 @@ export function nodeBox(
  */
 function componentInstanceContentBox(
 	node: Extract<LayoutNode, { kind: 'componentInstance' }>,
-	naturalSize: (node: LayoutNode, instanceSpineBundle?: string) => NaturalSize | null,
+	naturalSize: (node: LayoutNode, instanceRigBundle?: string) => NaturalSize | null,
 	componentMap: Map<string, ComponentDef>,
 	layoutType: LayoutType,
 	depth: number,
@@ -501,11 +501,11 @@ function componentInstanceContentBox(
 	if (!def) return null;
 	if (depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) return null;
 	const childStack = [...stack, def.id];
-	// This instance's AUTHORED preview spine bundle (its first `spine`-kind param value), resolved
-	// EXACTLY like the spine layer's `collectNestedSpines`, so a nested spine bind's box tracks the
-	// authored rig's natural bounds (matching what the spine layer renders). Undefined ⇒ parity.
+	// This instance's AUTHORED preview rig bundle (its first `spine`-kind param value), resolved
+	// EXACTLY like the rig layer's `collectNestedRigs`, so a nested rig bind's box tracks the
+	// authored rig's natural bounds (matching what the rig layer renders). Undefined ⇒ parity.
 	const params = resolveComponentParams(def, node.params, componentDefaults?.[def.id]);
-	const spineBundle = instancePreviewSpineBundle(def, params);
+	const rigBundle = instancePreviewRigBundle(def, params);
 
 	let minX = Infinity;
 	let minY = Infinity;
@@ -539,7 +539,7 @@ function componentInstanceContentBox(
 						naturalSize,
 						componentMap,
 						layoutType,
-						spineBundle,
+						rigBundle,
 						undefined,
 						componentDefaults,
 					))
@@ -549,7 +549,7 @@ function componentInstanceContentBox(
 						naturalSize,
 						componentMap,
 						layoutType,
-						spineBundle,
+						rigBundle,
 						undefined,
 						componentDefaults,
 					);
@@ -633,10 +633,10 @@ export function pointInQuad(p: Vec2, quad: [Vec2, Vec2, Vec2, Vec2]): boolean {
 // ---------- bone-ridden stand-in symbol (Scene Editor preview) ----------
 
 /**
- * A stand-in symbol transform PUBLISHED by {@link '../editor/EditorSpineLayer.svelte'} for a
+ * A stand-in symbol transform PUBLISHED by {@link '../editor/EditorRigLayer.svelte'} for a
  * bone-riding component instance, in editor WORLD coords (pre pan/zoom — the SAME space the 2D
  * canvas's `ctx` draws in, so the box maps to screen via `world*zoom + pan` with no mirror). The
- * spine layer owns the skeleton↔screen mapping (it bakes the X-mirror + pan/zoom into the
+ * rig layer owns the skeleton↔screen mapping (it bakes the X-mirror + pan/zoom into the
  * skeleton), so it resolves the bone here where that mapping lives and hands the 2D canvas a plain
  * world transform. `scaleX`/`scaleY` are the DIMENSIONLESS symbol scale factors (`symbolScale` ×
  * the bone's world scale when `followScale`), which the 2D canvas multiplies by its symbol base
@@ -696,17 +696,17 @@ export function resolveBoneRider(
 	};
 }
 
-/** The rig spine-bundle `assetKey` a bone-rider previews on — resolved from the instance's
- * `spineParam` value against the project's spines (its `name` → bundle `key`). Empty when the
- * param is unset or names no project spine; the caller then falls back to the catalog default. */
+/** The rig-bundle `assetKey` a bone-rider previews on — resolved from the instance's
+ * `spineParam` value against the project's rigs (its `name` → bundle `key`). Empty when the
+ * param is unset or names no project rig; the caller then falls back to the catalog default. */
 export function resolveBoneRiderRigKey(
 	binding: BoneRiderBinding,
 	params: Record<string, unknown>,
-	spines: { name: string; key: string }[],
+	rigs: { name: string; key: string }[],
 ): string {
 	const name = params[binding.spineParam];
 	if (typeof name !== 'string' || !name) return '';
-	return spines.find((s) => s.name === name)?.key ?? '';
+	return rigs.find((s) => s.name === name)?.key ?? '';
 }
 
 /** Axis-aligned screen-space bounding box of 4 world points, expanded by pad. */
@@ -831,8 +831,8 @@ const BOARD_LOCAL_CELL = 120;
 
 /**
  * Resolve a `reelGrid` node's board geometry in its own local space — the ONE definition
- * the editor's 2D board preview and the WebGL spine layer both read, so a sprite symbol and
- * a spine symbol land on the same seat.
+ * the editor's 2D board preview and the WebGL rig layer both read, so a sprite symbol and
+ * a rig symbol land on the same seat.
  *
  * The grid COUNT comes from the Game Config (`dims`, the same source the game sizes off)
  * with the node's own `reels`/`rows` as the fallback. The cell boxes are the reel WINDOW
@@ -845,7 +845,7 @@ const BOARD_LOCAL_CELL = 120;
  * PERSPECTIVE (`docs/design/perspective-board-mode.md`) is mirrored here from the engine's
  * `getSymbolSeat` — see the block inside. It is authored on the node, so it must be resolved in
  * THIS one function: a consumer that re-derived a scale ramp or a vanishing-point contraction in
- * its own drawing code would be a second definition, and the 2D board preview and the WebGL spine
+ * its own drawing code would be a second definition, and the 2D board preview and the WebGL rig
  * layer would stop agreeing on where a symbol sits — the exact drift this helper exists to prevent.
  *
  * Without an authored perspective the function EARLY-RETURNS the flat lattice, expression for

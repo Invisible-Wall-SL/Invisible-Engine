@@ -8,8 +8,8 @@
 	import {
 		BitmapText,
 		Sprite,
-		SpineProvider,
-		SpineTrack,
+		RigProvider,
+		RigTrack,
 		Text,
 	} from 'pixi-svelte';
 
@@ -61,9 +61,9 @@
 				/>
 				<Text text="Hello World" style={{ fill: 0x000000 }} />
 				<Sprite key="logo.png" width={300} height={200} />
-				<SpineProvider width={100} key="guitar">
-					<SpineTrack trackIndex={0} animationName="transition_loop" loop />
-				</SpineProvider>
+				<RigProvider width={100} key="guitar">
+					<RigTrack trackIndex={0} animationName="transition_loop" loop />
+				</RigProvider>
 			</Container>
 		</StoryPixiApp>
 	{/snippet}

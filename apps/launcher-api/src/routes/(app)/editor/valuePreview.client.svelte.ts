@@ -10,7 +10,7 @@ import {
 /**
  * The editor's VALUE-BINDING PREVIEW (Hold and Win Phase 12b): a test input per binding, set by
  * scrubbing in the Properties panel's "Bind to value" section, that the canvas, the text overlay and
- * the spine overlay draw with — so an author sees what the number does before the game ever feeds
+ * the rig overlay draw with — so an author sees what the number does before the game ever feeds
  * it. Editor-only and never saved. A binding with no test value draws as authored, exactly as the
  * game draws a node whose source has not reported yet.
  *

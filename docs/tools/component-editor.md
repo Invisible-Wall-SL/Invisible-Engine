@@ -8,7 +8,7 @@ project's component library.
 ## What it is
 
 A standalone authoring tool for **components** (prefabs): a named tree of layout
-elements — text, containers, atlas regions, spines — that the Scene Editor places
+elements — text, containers, atlas regions, rigs — that the Scene Editor places
 as a single reusable instance. It reuses the Scene Editor's own canvas, outline,
 and properties machinery, so editing a component feels exactly like editing a
 scene — except you are editing one self-contained object in a fixed `desktop`
@@ -91,7 +91,7 @@ With a component open, the layout switches to the familiar three-pane editor:
 
 - **Left** has two tabs:
   - **Library** — drag elements onto the canvas: a **Text** node, a **Rect** fill,
-    atlas pages, **spines**, and sheet/atlas-manifest **regions** (expand
+    atlas pages, **rigs**, and sheet/atlas-manifest **regions** (expand
     a sheet or manifest to see its named regions and drag one in).
   - **Outline** — the open component's node tree; click to select (shift/⌘/ctrl-click
     to multi-select), and rename a node's outline label.
@@ -158,7 +158,7 @@ signals. It has two lists, each with its own add button:
   **Add**. A row marked *per meter*, *per tier* or *per reel* is a scoped signal (see
   **scoped by** below). **×** removes a signal.
 
-  A declared signal is a suggestion, not a requirement. The **signal** field of a spine's or a
+  A declared signal is a suggestion, not a requirement. The **signal** field of a rig's or a
   flipbook's **Plays on signal** cue, a node's **hidden until signal** and a Tap to Continue's
   arming signal are all free text, and they suggest the declared names first. Any name works.
 - **scoped by** … **as a** — the param that says which part of a repeated feature a placement
@@ -166,7 +166,7 @@ signals. It has two lists, each with its own add button:
   named `meter`, `tier` or `reel` fills in the kind for you.
 
   A placement then hears only its own part's signals of that kind. Put the component on the red
-  pot (`meter` = `red`, as a meter), give its frog spine a cue on **Pot — activate**, and it
+  pot (`meter` = `red`, as a meter), give its frog rig a cue on **Pot — activate**, and it
   plays when the red pot activates and stays idle when the blue one does.
 
   Everything inside it is scoped the same way: its cues, its reveal gates, a component nested in
@@ -196,10 +196,10 @@ kind**, which creates the inputs and binds them for you:
   content, font, size and colour, grouped under the node's name.
 - **sprite** — **✨ Expose image as param (per instance)** creates an `image` input bound to
   the frame; the current frame becomes its default.
-- **spine** — **✨ Expose spine as param (per instance)** does the same for the rig.
+- **rig** — **✨ Expose rig as param (per instance)** does the same for the rig.
 
 Each has an undo button — **Remove exposed parameters**, **Remove exposed image**, **Remove
-exposed spine** — that drops the binding and the input it made and restores the fixed
+exposed rig** — that drops the binding and the input it made and restores the fixed
 value. A field bound by hand shows a *"bound to … — static value ignored in instances"*
 note, so you know the placement's value, not the one typed above, is what shows.
 
@@ -225,18 +225,18 @@ binding; a node can carry several. Each binding has these parts:
   - **Opacity** — multiplies the node's alpha.
   - **Show / hide** — shows the node while the number is at or above a **threshold**, or
     below it with **show below instead**. Pot size stage ≥ 2 and pot full ≥ 1 are typical. A
-    hidden node is taken out like any hidden node, so when it shows again a spine starts its
+    hidden node is taken out like any hidden node, so when it shows again a rig starts its
     animation from the top and a component plays its *enter*.
   - **Fill (reveal)** — sprite, flipbook and rect only. Shows the node from one edge
     (**left → right**, **bottom → top**, …): 0 is hidden, 1 is whole. This is how a bar or a
     pot's liquid fills.
   - **Clip frame** — flipbook only. Holds the clip on one frame instead of playing it; the
     frame counts the clip as authored, first frame = 0.
-  - **Scrub animation** — spine only. Holds one of the rig's animations at a point: 0 is its
+  - **Scrub animation** — rig only. Holds one of the rig's animations at a point: 0 is its
     first frame, 1 its last. It sits over whatever the rig is playing (only the parts that
     animation moves are held, so the rest keeps moving), and it fires none of that animation's
     events.
-  - **Spine bone** — spine only. Offsets one **bone**'s scale, rotation or position on top of
+  - **Rig bone** — rig only. Offsets one **bone**'s scale, rotation or position on top of
     whatever the rig is playing.
 - **from** — where the number comes from:
   - **This component's params** — a number or boolean param of the component.
@@ -283,7 +283,7 @@ a text or number box. It is hidden when no project is active, and while you are
 inspecting a historical version (that canvas is a read-only snapshot) — entering an
 inspect drops any unsaved default back to its last saved value, after warning you.
 
-One gap to know about: the **spine animation / slot / bone** and **symbol state**
+One gap to know about: the **rig animation / slot / bone** and **symbol state**
 params fall back to a free-text box here, while the same param on a placed instance
 in the Scene Editor gets a validated dropdown. Type those carefully, or set them per
 instance instead.
@@ -348,19 +348,19 @@ dropdown listing every saved version (the latest is marked). Pick one and click
 (read-only)** pill shows, and Save, Promote and editing are blocked. **← Back to latest**
 returns to the editable current version. Inspecting never changes what is saved.
 
-**Spines from another project are re-pointed on save.** A spine node's rig belongs to the
+**Rigs from another project are re-pointed on save.** A rig node's rig belongs to the
 project it was rigged in, and the build only ever ships rigs from the project being built (or
-from the shared spine library). So if a component holds a rig under a *different* project's
-prefix, that art would be missing in every game — the component would render, the spine simply
-would not be there, and the browser console would say `Spine: key "…" is not found in
+from the shared rig library). So if a component holds a rig under a *different* project's
+prefix, that art would be missing in every game — the component would render, the rig simply
+would not be there, and the browser console would say `Rig: key "…" is not found in
 loadedAssets`. On save the server fixes it for you where it can:
 
-- the same rig is already in the **shared spine library** → the node is re-pointed at it,
+- the same rig is already in the **shared rig library** → the node is re-pointed at it,
   silently, and everything keeps working;
-- the node's rig is driven by a **spine variable** → the stale rig on the node is cleared, since
+- the node's rig is driven by a **rig variable** → the stale rig on the node is cleared, since
   the variable is what actually picks the rig;
 - otherwise the save is **refused**, naming the rig. Ask an admin to promote it in
-  **/admin → Spines**, then save again — the component will then point at the shared copy by
+  **/admin → rigs**, then save again — the component will then point at the shared copy by
   itself. (This also applies to **Promote to shared** below: once shared, a component is
   inherited by every project, so it may not depend on any one project's rigs.)
 
@@ -404,9 +404,9 @@ collapsible group **per tier, keyed by the tier's alias**, so authoring `big` / 
 / `max` in `/config` yields exactly those three presentation groups (an un-authored
 project shows the built-in default tiers). Each group has:
 
-- a **spine bundle** picker (the tier's art);
-- **intro / idle / outro** dropdowns of that spine's animations (no blind typing —
-  when a tier's spine is unset the dropdowns list the base `winSpine` bundle's
+- a **rig bundle** picker (the tier's art);
+- **intro / idle / outro** dropdowns of that rig's animations (no blind typing —
+  when a tier's rig is unset the dropdowns list the base `winSpine` bundle's
   animations);
 - a **duration** (ms) and **sfx** / **bgm** dropdowns of the game's real sounds (BGM lists the
   `bgm_*` music beds, SFX lists the one-shot cues). Empty ⇒ the config/coded sound.
@@ -415,14 +415,14 @@ Above the per-tier groups sit the base params (`winSpine` big-win bundle, count
 `slotName`, coin-fountain toggle) and a shared **Animations (all tiers)** group that
 applies to every tier unless a per-tier group overrides it.
 
-**Live preview:** focusing a tier's spine or intro/idle/outro dropdown previews that bundle
-playing that animation on the canvas (a spine field previews the bundle's idle), so the pick
+**Live preview:** focusing a tier's rig or intro/idle/outro dropdown previews that bundle
+playing that animation on the canvas (a rig field previews the bundle's idle), so the pick
 is WYSIWYG. It's preview-only — nothing is written until you actually change a value.
 
 **Resolution / fallback** (per field): the per-tier value ?? the shared set ?? the
 config/coded tier's own value (`spineKey` / `animation` / `durationMs` / `sound`).
 Every per-tier field is empty by default, so an un-authored Win Overlay renders
-byte-identically to the built-in table. The animation + spine are consumed inside the
+byte-identically to the built-in table. The animation + rig are consumed inside the
 overlay; the duration + sound are bridged to the out-of-tree consumers (the win gate's
 hold time and the win-level sound cues) at boot.
 
@@ -453,7 +453,7 @@ part-full so you can see which way it grows. The labels and the size stages show
 
 **2. Put your own nodes inside the part.** Create a component of type **Pot Meter (Hold and Win)**,
 a copy of the Pot Meter for this project. Click **Edit inside Pot ›** in the editor bar. The canvas,
-Outline and Library now work on the part's own nodes. Drop a spine, an effect, sprites or text
+Outline and Library now work on the part's own nodes. Drop a rig, an effect, sprites or text
 there, at positions relative to the pot's centre. In the game, your nodes replace the coded bar and
 both labels. Any art picked on the instance still draws under them. The part keeps its behaviour:
 
@@ -600,12 +600,12 @@ These reflect the registered editor design (`docs/design/invisible-editor.md`
 §8.5–§8.10) and the current build:
 
 - **The behaviour/timeline layer is not authored here yet.** Numbers can drive a node
-  ([Bind to value](#3b-drive-a-node-from-a-number-bind-to-value)), and a spine or
+  ([Bind to value](#3b-drive-a-node-from-a-number-bind-to-value)), and a rig or
   flipbook can play on a signal. Signal-triggered tweens and particle bursts are
   the next, large phase. The `Component variables` block is purely the *declare*
   half.
 - **The behaviour ceiling is intentionally low (v1).** Even once timelines land,
-  the design caps v1 at node-prop tweens + spine playback + signal-triggered
+  the design caps v1 at node-prop tweens + rig playback + signal-triggered
   tracks + a single count-up data binding. Anything needing branching, RGS math,
   or stateful logic stays a coded `mount` for now (a migration scaffold, not the
   destination).

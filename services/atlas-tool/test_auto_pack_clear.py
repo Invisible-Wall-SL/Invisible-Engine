@@ -29,7 +29,7 @@ to declare `pack` alongside camelCase trim pays for it with nothing to read.
 And a survivor would be live input, not a dead field: the readers on this side
 (`_normalize_converted_region`, `_deployatlas`'s manifest-regions fallback) take
 either spelling, and an `orig_*` that merely EXISTS is what `fit_to_region` reads
-as `spine_slot`, flipping placement from `contain` to `fill`.
+as `rig_slot`, flipping placement from `contain` to `fill`.
 
 The clear has TWO halves, and they are the interesting part of this file:
 `_REPACK_CLEARED_KEYS` for a region the packer PLACED, and `_PACK_GEOM_KEYS`
@@ -142,7 +142,7 @@ def test_the_clear_reaches_a_reader_that_takes_either_spelling() -> None:
     """The point of the clear, stated where it is actually observable: the
     camel-tolerant normalizer must see an UNTRIMMED region. An `orig_*` that
     survives here is not a dead field -- `fit_to_region` reads its presence as
-    `spine_slot` and stretches the art to the rect."""
+    `rig_slot` and stretches the art to the rect."""
     with tempfile.TemporaryDirectory() as td:
         m = _manifest(Path(td))
         u.auto_pack_layout(m)  # note/changed unused here
