@@ -3707,6 +3707,20 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		transitionProblem('atlas-artist', new Set(['atlas.queue_variants'])) !== null,
 		true,
 	);
+	// Where each agent's transition ends (the new definition): once main's definition is there, the
+	// launcher cleanup is owed — said loudly, not failed, so the one-file definition PR stays green.
+	const TARGET: Record<string, 'named' | 'not named'> = {
+		'atlas-artist': 'not named',
+		coordinator: 'named',
+	};
+	for (const [agent, ids] of Object.entries(TRANSITION_TOOLS as Record<string, string[]>)) {
+		const named = ids.every((id) => tools.get(agent)?.has(id));
+		if ((TARGET[agent] === 'named') === named) {
+			console.log(
+				`\n  ⚠⚠ CLEANUP OWED (ADR-0008 card 8D): ${agent}'s definition has reached its new state; remove its TRANSITION_TOOLS entries${agent === 'atlas-artist' ? ", the artist from the four allow-lists and the artist's pre-8D branch in queue_variants" : ''}.\n`,
+			);
+		}
+	}
 	check(
 		"each transition entry's op serves its agent",
 		[...TRANSITION]
