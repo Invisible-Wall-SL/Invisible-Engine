@@ -16,10 +16,11 @@
 
 	import Symbol from './Symbol.svelte';
 	import { getContext } from '../game/context';
+	import { getSymbolsInPlay } from '../game/gameConfig';
 	import { getActiveSymbolInfoMap } from '../game/symbolMap';
 
-	// The chosen expanding symbol is revealed with a slot-machine "shuffle through all
-	// symbols → land on the chosen one" animation, then idles for the rest of the bonus.
+	// The chosen expanding symbol is revealed with a slot-machine "shuffle through the
+	// symbols in play → land on the chosen one" animation, then idles for the rest of the bonus.
 	// Its art + animations come from the symbol state machine (`bookIntro`/`bookIdle`
 	// states), NOT from props — props only tune placement/scale. Self-centred over the
 	// board via `<MainContainer>` + `boardLayout()` (mirrors `FreeSpinAnimation`).
@@ -38,7 +39,13 @@
 
 	const scale = $derived(numberParam('scale') ?? scaleProp);
 
-	const symbolNames = () => Object.keys(getActiveSymbolInfoMap()) as SymbolName[];
+	// Only the symbols the game deals: one Invisible Game Config marks unused never flashes past.
+	const symbolNames = () => {
+		const inPlay = new Set(getSymbolsInPlay());
+		return (Object.keys(getActiveSymbolInfoMap()) as SymbolName[]).filter((name) =>
+			inPlay.has(name),
+		);
+	};
 
 	// Shuffle deceleration: start fast and ease to a stop over a fixed number of frames,
 	// landing on the chosen symbol. The per-frame delay grows geometrically from
@@ -91,7 +98,7 @@
 					phase = 'intro';
 					return;
 				}
-				displayName = names[frame % names.length];
+				displayName = names.length ? names[frame % names.length] : target;
 				const t = frame / SHUFFLE_FRAMES;
 				const delay = SHUFFLE_MIN_DELAY + (SHUFFLE_MAX_DELAY - SHUFFLE_MIN_DELAY) * t * t;
 				frame += 1;

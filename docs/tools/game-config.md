@@ -64,8 +64,10 @@ before — an un-authored project still runs the compiled template.
   jackpots, specials, pots and wheel. See _Hold and Win_ below.
 - **Symbols** — the symbol **dictionary**: properties and paytable per symbol
   (`count:multiplier` pairs, e.g. `5:20, 4:10, 3:5`). Each row carries an
-  **in play** / **unused** badge (see below). A **scatter** symbol's paytable is its
-  scatter pay — × the total bet, anywhere on the board, never a line. Left empty it
+  **in play** / **unused** badge (see _The strips are the gate_ below); a pots
+  overlay's coins are listed apart, under **Coins**. A **scatter** symbol's
+  paytable is its scatter pay — × the total bet, anywhere on the board, never a
+  line. Left empty it
   pays the default `3:2 4:20 5:200`, which the row's paytable box shows as its
   placeholder. **Import paytable from server** fills the paytable from what the
   game's server actually pays — see _Importing the paytable from the server_ below.
@@ -73,6 +75,11 @@ before — an un-authored project still runs the compiled template.
   the launcher can't reach — see _Importing from a pasted capture_. Once a capture is
   kept, a line under the buttons reads _Partner reference: captured from <source> on
   <date> — matches_ (or _N rows differ_) with a **Forget it** link.
+- **Coins** — on a project with a pots overlay: the overlay's coins (its pot tokens), in
+  pot order, each with the pot(s) it fills and its special properties. No **in play** /
+  **unused** badge: the overlay decides whether a coin is used (see _The strips are the
+  gate_ below). A coin pays nothing, so a line paytable left on one shows **Drop line
+  pays**.
 - **How wins are decided** — the **win model**: whether this game pays by **lines**,
   **ways**, **cluster** or **scatter**, plus that model's own settings (ways: which
   direction and the fewest reels; cluster: fewest cells and how they connect;
@@ -659,6 +666,29 @@ marks it **unused** and warns that its paytable advertises a payout no one can w
 This is the one rule that keeps a game from advertising symbols it never deals. With
 the strips now server-defined, the in-play set — and so the **in play** / **unused**
 badges — reflect the server's declared symbols at runtime.
+
+A pots overlay's coin (its pot token) is the one symbol that reaches the board without a
+strip: it drops **over** a cell and flies into its pot. So it is not in the Symbols table
+but in a section of its own, **Coins**, with no badge: whether a coin is used, and which
+pot it fills, is the overlay's call. Add or remove its pot under **Add-ons**. (A coin
+cannot go on the reels: it would land as a symbol, which the validator refuses.)
+
+The badges also decide what [Invisible Symbols](symbols-state-machine.md) lists: every
+symbol **in play** gets a row there to bind its art, and an **unused** one does not
+appear at all. The overlay's coins get rows too, grouped under **Coins** after the
+symbols. Save here, then reload that page.
+
+They decide the game too: once saved, an **unused** symbol is never dealt by our test
+server (any kind, its Book-of expanding special and Hold and Win coins, specials and
+meters included, forced outcomes too), never flickers past on the spinning reels and
+never shows in the book shuffle. A Hold and Win game needs its coins, so taking its
+coin symbol off the reels is refused while its coin table pays cash coins. Until a
+project saves its config the game plays the engine's built-in lines config, as the
+banner at the top says (for lines, cluster, Book-of and custom kinds that is this
+template). A partner's own server deals what its math says. Our test server deals a
+lines game only the engine's own symbol names (`H1`–`H5`, `L1`–`L5`, `S`, `W`, `M`) and
+a Book-of game only `H1`–`H4`, `L1`–`L5` and `S`: a symbol named otherwise is never
+dealt, and a project with none of those in play is dealt its default set.
 
 > The generated spin strips are **cosmetic** — the blur filler the reels cycle
 > through. They are **not** the real weighted math strips (the math team owns those,

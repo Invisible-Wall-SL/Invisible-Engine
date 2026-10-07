@@ -226,9 +226,10 @@ live game.
 
 ## Open decisions
 
-1. **Does the config gate the Symbols SM grid directly?** Phase 4 makes the grid derivable from
-   the authored config instead of `symbolDefaults/*.json`. Cleaner, but it couples two tools —
-   decide when Phase 3 lands and the data is actually there.
+1. **Does the config gate the Symbols SM grid directly?** Decided: yes. The grid's rows are the
+   symbols the config uses (`symbolsUsed`: the strips' plus a pots overlay's tokens), read from the
+   config this tool opens with; the symbol defaults (the game's published `SYMBOL_INFO_MAP`, else
+   `symbolDefaults/*.json`) only supply each row's default art.
 2. **Per bet-mode strips.** `paddingReels` is keyed by game type (`basegame`/`freegame`). A buy-
    bonus mode with its own strips would need a third axis. Not needed today; do not pre-build it.
 3. **Validation against the RGS.** The client could compare its symbol set to the first `reveal`

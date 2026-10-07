@@ -23,6 +23,11 @@ click-through listed under open items.
   - `inPlay.ts` — **the gate**: `symbolsInPlay` / `symbolsInPlayForGameType` / `isSymbolInPlay` /
     `symbolFrequencies`, all reading the STRIPS, not the dictionary. One implementation, so the
     `W`-never-lands class of bug has a single place to be right.
+  - `symbolUse.ts` — `symbolUses` / `symbolsUsed`, on top of the gate: each symbol is `inPlay`
+    (dealt), `token` (a pots overlay drops it over a cell) or `unused`. `/config` badges its
+    Symbols table with it and lists the tokens apart, unbadged, as **Coins**; Invisible Symbols
+    lists exactly the non-unused symbols, the coins as a group of their own
+    (`check:symbols-follow-config`). It never widens the gate: a token is still not dealt.
   - `validate.ts` — `validateGameConfigDoc` / `gameConfigErrors`, severity-tagged and field-pathed.
     Errors block a ship (payline off the grid, strip dealing an undrawable symbol, wrong reel
     count); warnings describe a config that renders but lies (`W` pays but is never dealt).
@@ -703,6 +708,43 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Recent changes
 
+- 2026-10-07 — **A symbol this page marks unused never reaches the game we host.** The lines mock
+  already dealt only the in-play pool; three paths did not. The **book mock** owned its ten symbols
+  outright, so a Book-of project's unused symbol still landed, could become the expanding special,
+  and was declared in the boot `config` (the client builds its spinning reels from that list): the
+  contract now states the book pool when it leaves a symbol out (`projectLineSymbols` takes the
+  protocol's mapping), the test server passes `grid.symbols` to `createBookMock`, and the mock deals,
+  picks and declares only it — byte-identical, over 1,200 seeded rounds, when every symbol is in
+  play. The lines mock's **stacked-pictures test deal** put a WILD column on every board whatever the
+  config said; it now uses WILD only when a wild is dealt, else the top stacking symbol. The **Hold
+  and Win mock** dealt every role symbol (coin, special, meter, unlock) from the block, strips or not;
+  `holdAndWinMockInputs` now passes only role symbols a strip deals, and a forced meter whose symbol
+  is unused is refused. The validator now refuses a Hold and Win config with no coin or jackpot
+  symbol on a strip, or with cash coins and no coin symbol on one (they would land as the jackpot
+  symbol, worth nothing in the game). The never-saved banner now says the game plays the built-in
+  lines config until the first save, and whether that is the template it shows (it is for lines,
+  cluster, Book-of and custom kinds; `templateIsBuiltIn`). Gate: `check:unused-symbols-in-game`
+  (each kind's mock, from `mockContractOfBundle`, over base, forced feature, forced meter, forced
+  win and big-win rounds; non-vacuous only on a symbol a BOARD lands; the client's mapping read over
+  every boot declaration; then the real test server, local mode, dealing every case from the same
+  contracts; red on each old path). Client surfaces: [status/engine](engine.md).
+  **Deploy note:** the test server works the contract out on demand, from a published snapshot too,
+  so on deploy every live Book-of or Hold and Win project whose strips leave a symbol out changes its
+  deal with no republish — e.g. a Book-of project with `S` off its strips stops triggering free spins
+  naturally (buys and forced triggers still work), and a Hold and Win game's special or meter symbol
+  off its strips stops landing. Intended; check live Book-of and Hold and Win projects' strips. The
+  one exception: a Hold and Win config with no coin symbol on a strip (now refused at save) keeps
+  dealing its coin and jackpot symbols as before, so it does not lose its coins on deploy.
+  Not covered: our test server deals a lines-family or Book-of game only the engine's own symbol
+  names, so a project with none of them in play is dealt its default set, as before.
+- 2026-10-07 — **A pots overlay's coins get a section of their own, Coins, with no badge.** They
+  were listed in the Symbols table badged **unused** (or, briefly on this branch, **token**), but a
+  coin (a pot's token) is never on a strip and whether it is used is the overlay's call, so
+  **Coins** lists each with the pot(s) it fills and its special properties, and nothing offers to
+  put it on the reels (a validator error). The Symbols table keeps its **in play** / **unused**
+  badges, and Invisible Symbols lists exactly the symbols it does not badge unused, the coins as a
+  group of their own, for every kind, saved or not (`symbolUses` in `src/symbolUse.ts`). Detail:
+  [status/symbols](symbols.md).
 - 2026-10-07 — **Free spins: an on/off switch and a configurable trigger.** A user could not make a
   game without free spins: the lines-family mock (`scripts/mock-rgs-server.mjs`, also serving ways /
   cluster / scatter / custom kinds) hardcoded 3+ SCAT, and removing the Flow's free-spin chain only
