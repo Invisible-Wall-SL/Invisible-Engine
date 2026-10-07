@@ -358,6 +358,7 @@ const { runAdapterCall } = await import(src('lib/server/director/gate.ts'));
 const {
 	ADAPTER_OPS,
 	buildRegistry,
+	TRANSITION_TOOLS,
 	opId: opIdOf,
 } = await import(src('lib/server/director/registry.ts'));
 const { GAMEMAKER_OPS } = await import(src('lib/server/director/ops/gamemaker.ts'));
@@ -3681,13 +3682,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 	// the technician has no definition yet, the artist still names the four ops it gives up, and the
 	// coordinator does not name the catalogue yet. Remove each entry with the PR that lands it.
 	const AWAITING_DEFINITION = new Set(['atlas-technician']);
-	const TRANSITION = new Set([
-		'atlas.queue_variants atlas-artist',
-		'atlas.choose_variant atlas-artist',
-		'atlas.pack_sheet atlas-artist',
-		'comfyui.job_status atlas-artist',
-		'atlas.list_blueprints coordinator',
-	]);
+	const TRANSITION = TRANSITION_TOOLS;
 	check(
 		'every runtime agent definition is a known agent, and every known agent but those awaiting theirs has one',
 		[...tools.keys()].sort(),
