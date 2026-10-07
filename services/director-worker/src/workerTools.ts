@@ -1,7 +1,7 @@
 import type { TransactionSql } from 'postgres';
 import type { BetaContentBlockParam } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import type { ToolSpec } from './model.ts';
-import type { RecipeInput } from 'director-costs/recipe';
+import { MAX_PLAN_REGIONS, REGION_NAME, type RecipeInput } from 'director-costs/recipe';
 import { ANALYST_AGENT } from './mockups/analyze.ts';
 import {
 	TECHNICIAN,
@@ -285,6 +285,27 @@ export async function runWorkerTool(
 			return ok({ ...base, status, step, waitingOn });
 		}
 		case 'run.set_plan': {
+			// A plan the owner's Art plan approval could not name could never be approved.
+			const batches = Array.isArray(input.batches)
+				? (input.batches as { regions?: unknown }[])
+				: [];
+			const regions = new Set(batches.flatMap((b) => (Array.isArray(b.regions) ? b.regions : [])));
+			const named = [...regions].filter((r) => typeof r !== 'string' || !REGION_NAME.test(r));
+			if (named.length) {
+				const listed = named
+					.slice(0, 10)
+					.map((r) => JSON.stringify(r))
+					.join(', ');
+				const what = named.length === 1 ? 'is not a region name' : 'are not region names';
+				return refused(
+					`Refused: ${listed} ${what} (letters, digits and _ . ( ) -, up to 120 characters, as Atlas Maker names a region). Send the whole plan again.`,
+				);
+			}
+			if (regions.size > MAX_PLAN_REGIONS) {
+				return refused(
+					`Refused: the plan names ${regions.size} regions, more than the ${MAX_PLAN_REGIONS} one Art plan approval can name. Plan fewer.`,
+				);
+			}
 			await activity(ctx, id, { type: 'plan', summary: input.summary, batches: input.batches });
 			const dropped = await forgetUnplanned(ctx.tx, ctx.live.id);
 			if (dropped.length) {

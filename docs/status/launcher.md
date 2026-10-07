@@ -98,12 +98,13 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     region detail with the finished tile beside the variants, and the before-publish licence
     list (`routes/(app)/director/artPlan.ts`, pure). `atlasFetch` takes an `AtlasCaller` so the
     estimate can read the catalogue with no run.
-  - Tests: `check:director-runs` 465 (estimate per chain, unpriced refusals, start refusal, the
+  - Tests: `check:director-runs` 467 (estimate per chain, unpriced refusals, start refusal, the
     Art plan actions and edit shapes), `check:director-live` 105 (the fold, the panel's view and
-    edits, drafts, licences, how-made), worker `check:recipes` 83, `prove:art-plan` 52 (stale
+    edits, drafts, licences, how-made), worker `check:recipes` 90, `prove:art-plan` 64 (stale
     approval, owner edits incl. a group size edit, a stale and a malformed edit, a failed render
     queued again, timings measured once, a dropped region, re-approval on one pricing basis, a
-    same-price revision that re-opens a rendered step).
+    same-price revision that re-opens a rendered step, an unreachable launcher, the retry cap with
+    the checkpoint on and off, plans the approval could not name).
   - **After review** (code-reviewer, four blockers reproduced on the real modules):
     - owner edits are validated against the plan with every edit applied (a group size edit no
       longer refuses itself one region at a time), name the revision they were made on, are
@@ -125,8 +126,9 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   - **Reconciled with 8D's review fixes** (#1091): one pricing rule — a step's image is the
     card's seconds or the measured execution mean, never below `seedSecondsPerRender` for a guessed
     card (8D's floor), plus the measured delay or `seedDelaySecondsPerJob` (the slot 8D left at 0
-    for 8E), via `floorOf(pricing.runpod)` on both sides; the New game estimate prices card figures
-    without the seed floor (its high end already falls back to the profiles). Carrying a step's
+    for 8E), via `floorOf(pricing.runpod)` on both sides; the New game estimate prices the card
+    figures at its low end and that floor at its high end (after the coordinator's review, below).
+    Carrying a step's
     state over is one rule for the technician's revisions and the owner's edits (`carryProgress`):
     an unchanged rendered step is never re-opened (8D's B1), and every step after the first changed
     one starts again, since it worked from an image that will change; a revision that so re-opens a
@@ -135,8 +137,30 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     field (`stepKey`): `jsonb` stores object keys in its own order, so a stringified stored step
     never matched a new one. The technician's estimate profile prices it at its definition's model
     (`atlas-technician.md`, Sonnet 5.5), held to it by `check:director-runs`.
+  - **After the coordinator's review:**
+    - the New game estimate is a range: the cards' own figures at the low end, the floor the Art
+      plan is approved on at the high end (a guessed card at no less than `seedSecondsPerRender`),
+      with cold start once per region and step as `project` counts it, so the high end is what
+      the Art plan of the same chains projects (30 guessed regions: $3.10 to $30.29, was $2.18);
+    - an Art plan decision the launcher cannot answer at all (an unreachable launcher throws) is
+      refused like an unreadable catalogue, never left to hold the owner's later rows, a stop
+      included; only the drive stopping (shutdown, a lost lease) leaves it for the next drive;
+    - **retry cap:** a failed step is queued again at most `RETRIES_PER_APPROVAL` (2) times under
+      one approval (`failures` per step on the recipe, reset by an approval); the third failure
+      withdraws the approval, the Art plan re-opens, or with the checkpoint off the run pauses until
+      the owner resumes (which approves it again);
+    - the auto-approval pause for an unpriced plan says the recipes' own reasons; one rate helper
+      (`director-costs` `pricingRate`) for the worker, the launcher and RunPod billing;
+    - `run.set_plan` refuses a region name or a plan size an approval could not name
+      (`REGION_NAME`, `MAX_PLAN_REGIONS`, now shared with the actions route), and `validateRecipe`
+      refuses a region that is not a region name; an Art plan approval is refused up front with
+      409 `plan_changed`, `plan_incomplete`, `plan_unpriced` or `catalogue_unreadable`;
+    - `templateDefaultChains` reads the defaults' atlases in one query; `prove-art-plan` runs the
+      technician's real definition only (8D's `fixtureTechnician` is gone).
   - **Deploy:** atlas-tool's `RUNPOD_ENDPOINT_GPU` must be set and priced, or no Director run can
-    start (`docs/INFRA.md`).
+    start (`docs/INFRA.md`). The worker and the launcher go out together: an old worker drops the
+    owner's `recipeEdits`, and an old Live run page sends no `recipeRevs`, so every Art plan
+    approval is refused.
   - **Open:** the Atlas Maker card editor does not yet show the measured timings (ADR-0008 §2);
     adding a step, or editing one region of a shared row, goes through "Send my changes"; the cap's
     queued-render projection (`projectQueuedGpu`) still uses the run's mean or the seed, not a

@@ -217,14 +217,21 @@ export function seedRenderUsd(pricing: DirectorPricing): number {
 }
 
 /**
+ * USD per second of the GPU `catalogue` names (atlas-tool's `RUNPOD_ENDPOINT_GPU`), or null when it
+ * names none or `pricing.json` has no price for it: the one rate a render is priced and billed at.
+ */
+export function pricingRate(pricing: DirectorPricing, catalogue: { gpu: string }): number | null {
+	const rates = pricing.runpod.perSecondByGpu;
+	return catalogue.gpu && Object.hasOwn(rates, catalogue.gpu) ? rates[catalogue.gpu] : null;
+}
+
+/**
  * USD cost of a serverless job: its billed seconds × the GPU's $/s. RunPod bills a worker's
  * uptime, cold start included, so the seconds are the job's `executionTime` plus its `delayTime`.
  */
 export function costOfRunpodJob(gpu: string, seconds: number, pricing: DirectorPricing): number {
-	const rate = Object.hasOwn(pricing.runpod.perSecondByGpu, gpu)
-		? pricing.runpod.perSecondByGpu[gpu]
-		: undefined;
-	if (rate === undefined) throw new Error(`pricing: no RunPod price for GPU "${gpu}"`);
+	const rate = pricingRate(pricing, { gpu });
+	if (rate === null) throw new Error(`pricing: no RunPod price for GPU "${gpu}"`);
 	return tokens(seconds, 'seconds') * rate;
 }
 

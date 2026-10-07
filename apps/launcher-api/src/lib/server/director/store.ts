@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, lt, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, lt, lte, or, sql } from 'drizzle-orm';
 import { getDb } from '../db';
 import { r2SlugSql, type Queryer } from '../projectKeyLock';
 import {
@@ -103,21 +103,31 @@ export async function templateDefaultChains(
 		.from(directorTemplateRecipes)
 		.where(eq(directorTemplateRecipes.templateProjectKey, templateProjectKey))
 		.orderBy(directorTemplateRecipes.regionGroup, desc(directorTemplateRecipes.version));
-	return Promise.all(
-		rows.map(async ({ runId, ...row }) => {
-			const atlases = await db
-				.selectDistinct({ atlas: sql<string>`${directorRegions.recipeJson}->>'atlas'` })
-				.from(directorRegions)
-				.where(
-					and(
-						eq(directorRegions.runId, runId),
-						eq(directorRegions.regionGroup, row.group),
-						sql`${directorRegions.recipeJson} is not null`,
+	if (rows.length === 0) return [];
+	// The atlases each default's recipes ran on, for every group in one read.
+	const ran = await db
+		.selectDistinct({
+			runId: directorRegions.runId,
+			group: directorRegions.regionGroup,
+			atlas: sql<string>`${directorRegions.recipeJson}->>'atlas'`,
+		})
+		.from(directorRegions)
+		.where(
+			and(
+				sql`${directorRegions.recipeJson} is not null`,
+				or(
+					...rows.map((r) =>
+						and(eq(directorRegions.runId, r.runId), eq(directorRegions.regionGroup, r.group)),
 					),
-				);
-			return { ...row, atlases: atlases.map((a) => a.atlas).filter(Boolean) };
-		}),
-	);
+				),
+			),
+		);
+	return rows.map(({ runId, ...row }) => ({
+		...row,
+		atlases: ran
+			.filter((a) => a.runId === runId && a.group === row.group && a.atlas)
+			.map((a) => a.atlas),
+	}));
 }
 
 /** The stored results of this run's finished calls of `op` (`<tool>.<op>`), oldest first. */

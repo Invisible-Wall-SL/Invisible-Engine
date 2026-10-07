@@ -81,8 +81,15 @@ The same project setup as Game Maker's "Create a game", plus what the agents nee
    whether it is the fallback or the template's own default ("template default v2", see "How a run
    works"). The bar turns amber when the high end is over the cap: the run would pause there and
    ask you. The figures are placeholders until the pilot measures real runs, and the panel says
-   so: a card whose GPU seconds are a guess is priced up to the profiles' fallback figure at the
-   high end. No RunPod or model call is made for an estimate.
+   so: a card whose GPU seconds are a guess is priced from its own figure at the low end up to
+   `pricing.json`'s `seedSecondsPerRender` per image at the high end, the floor the Art plan is
+   priced at, so the high end is what the Art plan of those chains will show. Cold start counts
+   once per region and step, as the Art plan counts it. No RunPod or model call is made for an
+   estimate.
+   - **A priced estimate does not promise a priced plan.** A chain step whose card has no GPU
+     seconds at all is estimated from the profiles' fallback figure, but the Art plan cannot price
+     that step, so the plan cannot be approved and nothing renders (it fails closed) until the
+     card has its seconds or the technician picks another pipeline.
    - **An estimate with no price blocks the run.** When the GPU side cannot be priced — the
      blueprint catalogue cannot be read from atlas-tool, atlas-tool reports no GPU
      (`RUNPOD_ENDPOINT_GPU`), `pricing.json` has no price for that GPU, or a chain uses a blueprint
@@ -251,8 +258,8 @@ picture on a reload.
     pause for you before the render that crosses it. Every chain is priced again from the current
     cards and the GPU seconds measured so far. It fails closed: a card whose GPU seconds are a
     guess is priced at no less than `pricing.json`'s `seedSecondsPerRender` per image, and a
-    pipeline with no measured queue delay yet adds its `seedDelaySecondsPerJob`, so the plan can
-    read well above the New game estimate until real runs are measured.
+    pipeline with no measured queue delay yet adds its `seedDelaySecondsPerJob`: the same figures
+    as the high end of the New game estimate for the same chains.
   - **Edit a row** (an edit applies to every region in it): the pipeline (only reviewed image
     pipelines that fit the step, never one billed in credits; a new pipeline drops the step's
     settings), the size, the variants, a setting under **Settings** within the card's range (left
@@ -280,6 +287,11 @@ picture on a reload.
     the project. A later revision that changes a pipeline or where a step runs, costs more on
     today's prices, or would render again a step that has already rendered (a changed setting
     restarts that step and every step after it), needs your approval again.
+  - **A step that keeps failing comes back to you.** Under one approval a failed render is retried
+    twice; if it fails a third time its region's recipe loses its approval, nothing more of it
+    renders, and the Art plan opens again with that region in it ("H1 step 1 failed again after 2
+    retries" in Activity). Approving it gives it two more tries. With the Art plan checkpoint off,
+    the run pauses instead, saying which step; **Resume** approves it again.
   - Outside the checkpoint — while the technician is still planning, after you approve, or with
     the checkpoint off — the same plan shows read-only below the region panel, folded behind one
     line ("Every recipe is approved · show the recipes", or how many still wait for approval).
