@@ -2,7 +2,7 @@
 Invisible Sheet Maker — web UI (by Invisible Wall SL), cloud re-host.
 
 Pack loose sprite PNGs into one sheet, edit region names + per-region AI fields,
-then export any of: a libGDX/rig `.atlas`, a TexturePacker JSON, and the
+then export any of: a libGDX/Spine-format `.atlas`, a TexturePacker JSON, and the
 Invisible AI manifest (atlas_manifest_<name>.json) that the Invisible Atlas
 Maker consumes. The authored manifest is also handed off to the cloud Atlas
 Maker (over R2) so it shows up in that tool's manifest list.
@@ -2089,7 +2089,7 @@ def api_browse(path: str, mode: str = "") -> dict:
 
 def _parse_coords_file(path: Path, raw: bytes | None = None) -> dict:
     """Return {image, width, height, regions:[{name,x,y,w,h,rotated,prompt,shape_ref,seed}]}.
-    Supports our AI manifest, TexturePacker JSON, and libGDX/rig .atlas.
+    Supports our AI manifest, TexturePacker JSON, and libGDX/Spine-format .atlas.
     `raw` = the JSON bytes already read (the version a load reports), parsed
     instead of re-reading a file another request may have replaced since."""
     suffix = path.suffix.lower()

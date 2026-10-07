@@ -3853,7 +3853,7 @@ def fit_to_region(img: Image.Image, region: dict,
     scale the glyph down relative to its base and break registration. See
     layer_registration_crop, which builds the box from the BASE's bbox instead.
 
-    For a rig/.atlas slot the packed (w, h) IS the element's authored
+    For a Spine-format .atlas slot the packed (w, h) IS the element's authored
     footprint (true for EVERY region, trimmed or not — `helmet` is untrimmed
     but still occupies an exact 360x198 slot the rig expects filled), and the
     game's `.atlas` is never rewritten, so the faithful reproduction is to

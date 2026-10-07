@@ -482,7 +482,7 @@ ADV_TIPS = {
         "• cover: scale to fill, keep aspect, crop the overflow — never "
         "distorts and always fills; best for AI art whose aspect can't "
         "match the slot (e.g. a wide wordmark inside a square-ish GPT "
-        "image).  Blank = default: fill for rig .atlas slots, contain "
+        "image).  Blank = default: fill for Spine-format .atlas slots, contain "
         "for legacy cell grids.",
     "shape_ref":
         "A silhouette image (this slot's own) fed to ControlNet so the "
@@ -10597,7 +10597,7 @@ class Handler(BaseHTTPRequestHandler):
         elif measured:
             page_pick = measured[0][0]
         # Whatever lost is not uploaded: the loop below must not put a page in
-        # the bucket that this pre-pass just rejected. `.atlas` (rig geometry)
+        # the bucket that this pre-pass just rejected. `.atlas` (Spine-format geometry)
         # and any 0-byte file stay in `sources` — the loop reports those itself.
         rejected = ordered_out + [c for c, _ in measured if c is not page_pick]
         sources = [s for s in sources if s not in rejected]
@@ -10624,7 +10624,7 @@ class Handler(BaseHTTPRequestHandler):
         # `.webp` page is present we ship WebP-only: skip the `.png` page here and
         # delete any stale `.png` sibling from R2 below. The 0-byte guard still
         # falls back to the PNG page if the WebP is missing/broken (never ship a
-        # dead page). `.atlas` (rig geometry) is unaffected and still copied.
+        # dead page). `.atlas` (Spine-format geometry) is unaffected and still copied.
         have_webp_page = any(
             s.suffix.lower() == ".webp" and s.read_bytes() for s in sources)
         for src in sources:
@@ -11794,7 +11794,7 @@ class Handler(BaseHTTPRequestHandler):
                 f'<a href="{html.escape(_rig["viewer_url"], quote=True)}" target="rigviewer" '
                 f'class="btnlink alt" '
                 f'title="Open this skeleton in the Invisible Rig Viewer '
-                f'({html.escape(str(_rig.get("name", "")), quote=True)})">🦴 View in rig</a>'
+                f'({html.escape(str(_rig.get("name", "")), quote=True)})">🦴 View in Rig Viewer</a>'
             )
         # Deep-link state (set by _handle_deeplink before render; defaults so a
         # plain page load is unaffected).

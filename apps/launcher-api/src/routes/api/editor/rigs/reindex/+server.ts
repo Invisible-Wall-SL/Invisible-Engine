@@ -5,7 +5,7 @@ import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
 /**
- * Rebuild `<client>/<project>/rigs/skeletons.json` from whatever is currently in
+ * Rebuild `<client>/<project>/spines/skeletons.json` from whatever is currently in
  * R2 under the project's rigs prefix. This is the FINAL step after the browser
  * has PUT the rig files: the server scans the uploaded objects (reading `.atlas`
  * / skeleton heads back from R2) and writes a byte-compatible index — never the

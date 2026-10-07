@@ -172,7 +172,7 @@ export interface SynthRegion {
 }
 
 /**
- * Synthesise a modern rig 4.x `.atlas` from a manifest's regions, byte-compatible
+ * Synthesise a modern Spine-format 4.x `.atlas` from a manifest's regions, byte-compatible
  * with what the Atlas Maker itself emits (`atlas_format.py` `write_atlas`): page
  * line, `size:`/`filter:`, then per region `<name>` + `bounds:x,y,w,h`, optional
  * `offsets:ox,oy,ow,oh` (only when trimmed), `rotate:90` when rotated. Lets the
