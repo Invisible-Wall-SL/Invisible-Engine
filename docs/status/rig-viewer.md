@@ -18,6 +18,14 @@ Live on `main`, served directly by the launcher (no separate service); assets st
 - None.
 
 ## Recent changes
+- 2026-10-07 — **R2 paths and format names put back where the rename overreached.** The rig
+  rename (#1107) had rewritten some messages and comments to name `rigs/skeletons.json` and
+  `_shared/rigs/skeletons.json`, but bundles and their index still live under `spines/` and
+  `_shared/spines/` (`_shared/rigs/` is the Rigger's separate skeleton-doc library). The promote
+  error, the `/admin` promote note, the seed script, the reindex route and their comments name the
+  real prefixes again; the Atlas Maker and Sheet Maker copy calls the file format a "Spine-format
+  `.atlas`" again, and the Atlas Maker's back-link reads "View in Rig Viewer". No stored value, key,
+  prefix or route changed.
 - 2026-10-07 — **Renamed to Invisible Rig Viewer.** The route is now `/rig-viewer` (the launcher
   308-redirects the old `/spine…` addresses there, query kept), with the static page and its
   endpoints under `static/rig-viewer/` and `/rig-viewer/{skeletons,file}`, and the guide at

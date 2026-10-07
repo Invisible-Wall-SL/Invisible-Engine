@@ -18,7 +18,7 @@
 // now dedup identical pages content-addressed into `_pages/`, so a project binding many engine
 // symbol rigs carries ONE page rather than one per symbol.
 //
-// WHY IT MERGES. `_shared/rigs/skeletons.json` also holds the engine BOOT MARK entry
+// WHY IT MERGES. `_shared/spines/skeletons.json` also holds the engine BOOT MARK entry
 // (`R_InvisibleEngine`), which nothing else can regenerate. `r2-sync-rigs.mjs` rewrites a
 // prefix's index wholesale, so pointing it at `_shared/` would delete it. This
 // insert-or-replaces by `folder`, exactly like `sharedRigPromote.ts`.

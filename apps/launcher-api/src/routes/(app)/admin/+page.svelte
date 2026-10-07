@@ -441,7 +441,7 @@
 			promoteBundles = out.bundles ?? [];
 			if (promoteBundles.length === 0) {
 				promoteNote =
-					'No rig bundles listed in this project’s rigs/skeletons.json. Open the rig in ' +
+					'No rig bundles listed in this project’s spines/skeletons.json. Open the rig in ' +
 					'the Rigger and save (or re-sync its atlas) first.';
 			}
 		} catch {

@@ -78,7 +78,7 @@ async function loadRig(rigsPrefix: string, dir: string, stem: string) {
 	return null;
 }
 
-/** Region names in a libGDX / rig `.atlas`: each page's header line, then its regions. */
+/** Region names in a libGDX / Spine-format `.atlas`: each page's header line, then its regions. */
 function atlasRegions(text: string): Set<string> {
 	const out = new Set<string>();
 	let pageNext = true;

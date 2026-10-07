@@ -74,7 +74,7 @@ export async function promoteRigToShared(
 	const own = (await loadSkeletonIndex(clientKey, projectKey)).find((e) => e.folder === bundle);
 	if (!own) {
 		throw new PromoteError(
-			`'${bundle}' has no entry in this project's rigs/skeletons.json, so it isn't a loadable ` +
+			`'${bundle}' has no entry in this project's spines/skeletons.json, so it isn't a loadable ` +
 				'bundle yet. Open it in the Rigger and save (or re-sync its atlas) first.',
 		);
 	}
@@ -113,7 +113,7 @@ export async function promoteRigToShared(
 }
 
 /**
- * Insert-or-replace one entry in `_shared/rigs/skeletons.json`, keyed by `folder`.
+ * Insert-or-replace one entry in `_shared/spines/skeletons.json`, keyed by `folder`.
  *
  * A conditional read-modify-write: the index is written `If-Match` the ETag it was read with
  * (`If-None-Match` when there is none yet), and a lost race re-reads and retries, so two promotions

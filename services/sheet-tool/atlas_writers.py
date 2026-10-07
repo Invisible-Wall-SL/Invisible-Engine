@@ -3,7 +3,7 @@ Coordinate-file emitters for the Invisible Sheet Maker.
 
 Three outputs, any combination selectable per export:
 
-  * libGDX / rig 4.x `.atlas`   — text region map (game engines / rig)
+  * libGDX / Spine-format 4.x `.atlas` — text region map (game engines / rig runtime)
   * TexturePacker JSON (hash)      — PixiJS / Phaser native loader format
   * Invisible AI manifest          — atlas_manifest_<name>.json, the enriched
                                      map the Invisible Atlas Maker consumes
@@ -21,7 +21,7 @@ from pathlib import Path
 
 
 # ---------------------------------------------------------------------------
-# libGDX / rig 4.x .atlas
+# libGDX / Spine-format 4.x .atlas
 # ---------------------------------------------------------------------------
 
 def write_libgdx_atlas(path: str | Path, image_name: str,
