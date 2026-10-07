@@ -2672,28 +2672,16 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			[noStep.status, noStep.body.error],
 			[400, 'invalid_input'],
 		);
-		RECIPES.set('ra', []);
-		const legacy = await call('atlas', 'queue_variants', {
+		const artistQueue = await call('atlas', 'queue_variants', {
 			runId: 'ra',
 			agent: 'atlas-artist',
 			opId: 'ra:legacy:1',
-			input: { atlas: 'symbols', regions: ['H2'], variants: 1 },
+			input: { atlas: 'symbols', regions: ['H2'], variants: 3, step: 'H2#1' },
 		});
 		check(
-			"until its narrowed definition ships, the artist's definition still queues the pre-8D way",
-			[legacy.status, typeof legacy.body.jobRef],
-			[200, 'string'],
-		);
-		const legacyPick = await call('atlas', 'choose_variant', {
-			runId: 'ra',
-			agent: 'atlas-artist',
-			opId: 'ra:legacy:2',
-			input: { atlas: 'symbols', region: 'H2', id: '00002' },
-		});
-		check(
-			"...and picks without `lock`, the region's pin left as it is",
-			[legacyPick.status, legacyPick.body.locked],
-			[200, true],
+			'the artist no longer queues renders: only the technician does, through the gate',
+			[artistQueue.status, artistQueue.body.error],
+			[403, 'agent_not_allowed'],
 		);
 		const unpin = await tech('choose_variant', {
 			atlas: 'symbols',
@@ -3688,13 +3676,11 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			ids.map((id) => `${id} ${agent}`),
 		),
 	);
-	check('the transition allowances are exactly the five of card 8D', [...TRANSITION].sort(), [
-		'atlas.choose_variant atlas-artist',
-		'atlas.list_blueprints coordinator',
-		'atlas.pack_sheet atlas-artist',
-		'atlas.queue_variants atlas-artist',
-		'comfyui.job_status atlas-artist',
-	]);
+	check(
+		'the transition allowances are exactly the one card 8D still has (the coordinator)',
+		[...TRANSITION].sort(),
+		['atlas.list_blueprints coordinator'],
+	);
 	check(
 		'each agent names its transition tools all together or none of them',
 		[...tools.entries()]
@@ -3702,17 +3688,9 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			.filter((p) => p !== null),
 		[],
 	);
-	check(
-		'...and a mix of the two states is refused',
-		transitionProblem('atlas-artist', new Set(['atlas.queue_variants'])) !== null,
-		true,
-	);
 	// Where each agent's transition ends (the new definition): once main's definition is there, the
 	// launcher cleanup is owed — said loudly, not failed, so the one-file definition PR stays green.
-	const TARGET: Record<string, 'named' | 'not named'> = {
-		'atlas-artist': 'not named',
-		coordinator: 'named',
-	};
+	const TARGET: Record<string, 'named' | 'not named'> = { coordinator: 'named' };
 	for (const [agent, ids] of Object.entries(TRANSITION_TOOLS as Record<string, string[]>)) {
 		const named = ids.every((id) => tools.get(agent)?.has(id));
 		if ((TARGET[agent] === 'named') === named) {

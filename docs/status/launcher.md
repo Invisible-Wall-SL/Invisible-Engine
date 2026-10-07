@@ -59,6 +59,12 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+- 2026-10-07 — **Director 8D cleanup: the artist's render tools are the technician's alone.** With
+  the narrowed `atlas-artist.md` on main, `queue_variants`, `choose_variant`, `pack_sheet` and
+  `comfyui.job_status` serve only `atlas-technician`; the ungated artist path in `queue_variants`
+  is gone (`step` is required again); `TRANSITION_TOOLS` keeps only the coordinator's
+  `atlas.list_blueprints`, dropped after the coordinator's definition lands.
+
 - 2026-10-07 — **Invisible Director: the atlas technician** (ADR-0008 card 8D). Inert for a person
   and for every current game: only a Director run reaches any of it.
   - **Agents:** the code lands first, with NO change under `services/director-worker/agents/`;
