@@ -262,20 +262,13 @@ const userId = `${tag}-owner`;
 const TEMPLATE = `${tag}-tpl`;
 let runSeq = 0;
 
-async function newRun(
-	over: {
-		cap?: number;
-		artPlan?: boolean;
-		template?: string;
-		stalePreset?: Record<string, string | number>;
-	} = {},
-) {
+async function newRun(over: { cap?: number; artPlan?: boolean; template?: string } = {}) {
 	const id = `${tag}-run-${++runSeq}`;
 	const checkpoints = over.artPlan === false ? { artPlan: false } : {};
 	await sql`insert into director_runs (id, project_key, template_project_key, owner_user_id, status,
-			step, budget_cap_usd, checkpoints_json, preset_json)
+			step, budget_cap_usd, checkpoints_json)
 		values (${id}, ${`${id}-p`}, ${over.template ?? TEMPLATE}, ${userId}, 'running', 'style_pack',
-			${over.cap ?? 25}, ${sql.json(checkpoints)}, ${sql.json(over.stalePreset ?? {})})`;
+			${over.cap ?? 25}, ${sql.json(checkpoints)})`;
 	await sql`insert into director_events (run_id, agent, kind, tool, payload_json)
 		values (${id}, 'coordinator', 'activity', 'run.set_plan',
 			${sql.json({ type: 'plan', summary: expected.plan.summary, batches: expected.plan.batches })})`;
@@ -843,12 +836,9 @@ try {
 	}
 
 	// ── 5b. Without a template default, the fallback is the estimate profiles' ─
-	console.log('5b. a template with no default briefs the profiles fallback; preset_json is unread');
+	console.log('5b. a template with no default briefs the profiles fallback');
 	{
-		const fresh = await newRun({
-			template: `${tag}-tpl-new`,
-			stalePreset: { blueprint: 'flux', finalPx: 768, variantsPerRegion: 2 },
-		});
+		const fresh = await newRun({ template: `${tag}-tpl-new` });
 		const model = fakeModel([
 			{
 				content: [use('run.assign_task', { agent: 'atlas-technician', task: 'Plan the recipes.' })],
@@ -863,16 +853,15 @@ try {
 			where run_id = ${fresh} and agent = 'atlas-technician' and role = 'user' order by seq limit 1`;
 		const text = (rows[0]?.content ?? []).map((b) => b.text ?? '').join('\n');
 		check(
-			"the technician starts from the profiles' fallback chain, never the run's stored preset",
+			"the technician starts from the profiles' fallback chain, not a template default",
 			[
 				text.includes('fallback (the estimate profiles)'),
 				text.includes('"pipeline": "sdxl"'),
 				text.includes('"genPx": 1024'),
 				text.includes('"variants": 3'),
-				text.includes('flux'),
-				text.includes('768'),
+				text.includes('template default'),
 			],
-			[true, true, true, true, false, false],
+			[true, true, true, true, false],
 		);
 	}
 

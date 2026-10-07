@@ -22,7 +22,7 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - **Tool registry + docs** — `roles.ts` is the single registry; the launcher **serves the guides** at authed `/docs/[slug]` (rendered from `docs/tools/*.md`). `/onboarding` walks each role through its tools with a guide link per tool and saves each user's local-tool install paths (`tool_installs`). CLAUDE.md rule 9 keeps a new/renamed tool from shipping doc-less.
 - **Desktop launcher support** — the `.exe` (separate `invisible-launcher` repo) is served over open routes `/api/launcher/download` + `/api/launcher/latest`; it self-updates via the manifest. `/api/launcher/projects` (session-scoped project sync, with a **derived** build profile from the project's game kind when none is stored — `launcherProfile.ts`, `mockProtocol.ts`), `/api/launcher/game-upload` (the publish relay), `register-game`, `deploy-token` and `git-credentials` (`gamePublish`-gated).
 - **Saving together** — every authoring tool saves through `$lib/saveState.svelte.ts` with R2 conditional writes, holds a soft lease (`/api/lease`, `doc_leases`) with a presence banner, and keeps rolling backups of its whole-doc saves (`docBackups.ts`).
-- **DB migrations** — applied by the launcher at boot (`init` hook → `runMigrations()`); `0000`–`0028` are live, `0029_director_recipes` ships with Director card 8D, and `/api/health` reports `schema: current`. **`db:push` is banned on prod** — `db:generate` + the boot migrator.
+- **DB migrations** — applied by the launcher at boot (`init` hook → `runMigrations()`); `0000`–`0028` are live, `0029_director_recipes` ships with Director card 8D, `0030_director_job_steps` with 8E and `0031_director_drop_preset_json` with 8F (it drops data), and `/api/health` reports `schema: current`. **`db:push` is banned on prod** — `db:generate` + the boot migrator.
 - **UI** — full-bleed home: online tools grouped into **game-making stage sections** (Create / Assets / Build / Files & Reference / Pipeline) plus Games and Local tools, Invisible Wall emblem branding. Stages are the single source `TOOL_STAGES` in `roles.ts`; the top-bar switcher tints each tool icon by its stage accent.
 
 ## Open items / next
@@ -58,6 +58,40 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+
+- 2026-10-07 — **Invisible Director: `director_runs.preset_json` dropped** (ADR-0008 card 8F,
+  after 8C #1095). Migration `0031_director_drop_preset_json` (`ALTER TABLE … DROP COLUMN`); the
+  schema entry goes with it. No current game is touched. It is `0031`, generated after 8E's
+  `0030_director_job_steps`: the boot migrator applies only journal entries newer than the newest
+  one recorded, so a drop numbered or dated before 8E's would be skipped silently.
+  - **What is dropped:** the preset (`blueprint`, `draftPx`, `finalPx`, `variantsPerRegion`, `gpu`)
+    of every run created before the 8C deploy; later rows hold `{}`. Nothing has read it since 8C.
+  - **Nothing named the column after 8C** except the schema entry, the test fixtures and the 8C
+    idle check's `presetDrafts`; all three are removed. The worker selects named columns only, so
+    the 8C and 8F worker builds both run on either schema.
+  - **`check:idle --strict`** is now "no started run unended" only: the preset-draft list existed
+    for the 8C deploy (run from the 8C build) and its query would fail without the column.
+  - **Deploy:** only once both the launcher and director-worker deploys are at or after 8C (a
+    pre-8C worker reads the column in `withLease`), with `check:idle --strict` quiet and nobody on
+    Director. The boot migration drops the column while the previous container may still serve,
+    and that build's Drizzle schema names it in every full-row select and insert, so its Director
+    routes 500 until the swap.
+  - **Never code-revert 8F (nor 8C after it).** `0031` stays recorded in `__drizzle_migrations`,
+    so the migrator re-adds nothing, `/api/health` stays `schema: current`, and every Director
+    route 500s on the missing column. To bring it back, ship a NEW migration:
+    `ALTER TABLE "director_runs" ADD COLUMN "preset_json" jsonb DEFAULT '{}'::jsonb NOT NULL;`
+  - **Restoring the values:** 8C stops every write, so any `postgres/` backup taken after the 8C
+    deploy and before this one holds the final contents. Restore that dump into a scratch database
+    only ([guides/backups](../guides/backups.md) runbook A step 2; never runbook B, which loses
+    everything after the stamp), export
+    `\copy (select id, preset_json from director_runs where preset_json <> '{}'::jsonb) to 'presets.csv' csv header`,
+    re-add the column as above, load the CSV into a temp table and
+    `update director_runs r set preset_json = p.preset_json from preset_restore p where r.id = p.id`.
+  - Tests: `prove:art-plan` 103 (5b: the fallback chain and no template default, without a stored
+    preset), `prove:breakdown` 80, `prove:idle` 8, `check:director-runs` 471 and every other
+    director gate green. A database migrated with `main`'s migrations (through 8E's `0030`) and
+    seeded with three runs takes `0031`: the column is gone, the rows stay, and a re-run is a
+    no-op.
 
 - 2026-10-07 — **Pipeline Changes: the Catalogue tab.** `/pipeline?tab=catalogue` lists every
   image pipeline atlas-tool knows (`GET /blueprints?kind=image&all=1`, read as the signed-in person

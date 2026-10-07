@@ -835,7 +835,7 @@ console.log('create');
 		],
 	);
 	check(
-		'no preset is written or answered: the column keeps its default (card 8C)',
+		'no preset is written or answered (cards 8C, 8F)',
 		['presetJson' in RUNS.get(run.id)!, 'preset' in run],
 		[false, false],
 	);

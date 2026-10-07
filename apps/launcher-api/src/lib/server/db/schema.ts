@@ -458,8 +458,6 @@ export const directorRuns = pgTable(
 		ownerUserId: text('owner_user_id')
 			.notNull()
 			.references(() => users.id, { onDelete: 'cascade' }),
-		/** Unread and unwritten since ADR-0008 card 8C (inserts take the default); card 8F drops it. */
-		presetJson: jsonb('preset_json').notNull().default({}),
 		/** Mockups (with screen tags), fidelity, notes and the recorded ownership check. */
 		startingPointJson: jsonb('starting_point_json').notNull().default({}),
 		/** `{ breakdown, artPlan, regionBatch }`; `before_publish` is not stored because it cannot be off. */
