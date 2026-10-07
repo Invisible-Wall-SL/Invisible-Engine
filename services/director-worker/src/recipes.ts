@@ -10,6 +10,8 @@ import {
 	needsReapproval,
 	parseStepInput,
 	project,
+	RETRIES_PER_APPROVAL,
+	retriesSpent,
 	validateRecipe,
 	type Catalogue,
 	type DefaultStep,
@@ -176,6 +178,8 @@ export async function setRecipe(
 		group: input.group,
 		plannedBy: agent,
 		approved: keep && prev?.approved ? { ...prev.approved, rev } : null,
+		// Counted since the last approval: a revision is not one.
+		...(prev?.failures ? { failures: prev.failures } : {}),
 		...next,
 	};
 	await storeRecipe(tx, live.id, recipe);
@@ -212,22 +216,45 @@ export async function setRecipe(
 
 const unapproved = (r: StoredRecipe) => !r.approved || r.approved.rev !== r.rev;
 
-/** Re-check the gate after the owner resumes a run (a raised cap may now fit the plan). */
-export async function reviewPlanGate(tx: Db, live: LiveRun): Promise<string> {
+/** "H1: step 2: "flux" has no GPU seconds for 2048 px; …", each reason once with its regions. */
+function unpricedReasons(recipes: readonly StoredRecipe[]): string {
+	const regions = new Map<string, string[]>();
+	for (const r of recipes) {
+		for (const why of r.projected.unpriced ?? ['it has no price']) {
+			regions.set(why, [...(regions.get(why) ?? []), r.region]);
+		}
+	}
+	return [...regions]
+		.map(
+			([why, names]) =>
+				`${names.slice(0, 5).join(', ')}${names.length > 5 ? ` and ${names.length - 5} more` : ''}: ${why}`,
+		)
+		.join('; ');
+}
+
+/**
+ * Re-check the gate: after the owner's edits, a withdrawn approval, or the owner resuming the run
+ * (`byOwner`: a raised cap may now fit the plan, and the resume approves again what failed past
+ * its retries).
+ */
+export async function reviewPlanGate(tx: Db, live: LiveRun, byOwner = false): Promise<string> {
 	const plan = await planRegions(tx, live.id);
 	if (plan.size === 0) return 'no plan';
-	return afterRecipe(tx, live, plan, await loadRecipes(tx, live.id));
+	return afterRecipe(tx, live, plan, await loadRecipes(tx, live.id), byOwner);
 }
 
 /**
  * Once every planned region has a recipe and any is unapproved: open `art_plan` (on by default) or,
- * with it off, approve the plan as `auto` when its projection fits what is left of the cap.
+ * with it off, approve the plan as `auto` when its projection fits what is left of the cap. A
+ * recipe whose failures withdrew its approval is approved automatically only by the owner's
+ * resume (`byOwner`); until then the run pauses for them.
  */
 async function afterRecipe(
 	tx: Db,
 	live: LiveRun,
 	plan: Map<string, string>,
 	recipes: StoredRecipe[],
+	byOwner = false,
 ): Promise<string> {
 	const have = new Set(recipes.map((r) => r.region));
 	const missing = [...plan.keys()].filter((region) => !have.has(region));
@@ -249,7 +276,7 @@ async function afterRecipe(
 				)),
 	);
 	const projectedUsd = toRender.reduce((sum, r) => sum + (r.projected.gpuUsd ?? 0), 0);
-	const unpriced = toRender.some((r) => r.projected.gpuUsd === null);
+	const unpriced = toRender.filter((r) => r.projected.gpuUsd === null);
 	if (live.state.checkpoints.artPlan) {
 		const result = transition(live.state, { type: 'plan_ready' });
 		if (!result.ok) return `the Art plan cannot open now: ${result.error}`;
@@ -270,9 +297,9 @@ async function afterRecipe(
 	// Fails closed (ADR-0006): a plan the cap cannot price, or one over it, pauses for the owner.
 	const spend = await runSpend(tx, live.id);
 	const cap = live.budgetCapUsd ?? DIRECTOR_RUN_BUDGET_DEFAULT_USD;
-	if (unpriced || spend.totalUsd + projectedUsd > cap) {
-		const text = unpriced
-			? 'The Art plan cannot be priced: atlas-tool reports no GPU with a price, so it is not approved automatically. Set RUNPOD_ENDPOINT_GPU, or turn the Art plan checkpoint on, and resume.'
+	if (unpriced.length || spend.totalUsd + projectedUsd > cap) {
+		const text = unpriced.length
+			? `The Art plan cannot be priced, so it is not approved automatically: ${unpricedReasons(unpriced)}. Fix that, or turn the Art plan checkpoint on, and resume.`
 			: `The Art plan projects $${projectedUsd.toFixed(2)} of GPU, more than is left of the $${cap.toFixed(2)} cap. Raise the cap and resume, or ask for a smaller plan.`;
 		await insertEvent(tx, live.id, 'worker', 'activity', { type: 'note', text });
 		const result = transition(live.state, { type: 'pause', reason: 'budget_cap' });
@@ -283,7 +310,7 @@ async function afterRecipe(
 			live.state = result.state;
 			await insertEvent(tx, live.id, 'worker', 'checkpoint_open', {
 				checkpoint: 'budget',
-				reason: unpriced ? 'art_plan_unpriced' : 'art_plan',
+				reason: unpriced.length ? 'art_plan_unpriced' : 'art_plan',
 				message: text,
 				spentUsd: spend.totalUsd,
 				projectedUsd: Math.round(projectedUsd * 10000) / 10000,
@@ -291,6 +318,19 @@ async function afterRecipe(
 			});
 		}
 		return 'not approved: the run paused for the owner (the plan is unpriced or crosses the cap)';
+	}
+	const spent = byOwner ? [] : pending.filter((r) => retriesSpent(r).length);
+	if (spent.length) {
+		const text = `${spent.map((r) => `${r.region} step ${retriesSpent(r).join(', ')}`).join('; ')} failed again after ${RETRIES_PER_APPROVAL} retries, so it is not approved automatically. Resume the run to approve it again, or stop it.`;
+		await insertEvent(tx, live.id, 'worker', 'error', { type: 'retries_spent', message: text });
+		const result = transition(live.state, { type: 'pause', reason: 'error' });
+		if (
+			result.ok &&
+			(await applyTransition(tx, live.id, live.state, result.state, 'retries spent'))
+		) {
+			live.state = result.state;
+		}
+		return 'not approved: the run paused for the owner (a step failed past its retries)';
 	}
 	await approve(tx, live.id, pending, 'auto');
 	return 'approved automatically (the Art plan checkpoint is off and the projection fits the cap)';
@@ -315,9 +355,15 @@ async function approve(
 ) {
 	const at = new Date().toISOString();
 	for (const r of recipes) {
-		// The owner approved the plan as priced now: that figure is what a revision is held to.
+		// The owner approved the plan as priced now: that figure is what a revision is held to. A
+		// new approval retries every step afresh.
 		const projected = basis ? project(r.steps, basis) : r.projected;
-		await storeRecipe(tx, runId, { ...r, projected, approved: { by, at, rev: r.rev } });
+		await storeRecipe(tx, runId, {
+			...r,
+			projected,
+			approved: { by, at, rev: r.rev },
+			failures: undefined,
+		});
 	}
 }
 
@@ -431,29 +477,48 @@ export async function markQueued(
 	}
 }
 
-/** A finished render advances its steps: `done` with the variants it made, or `failed`. */
+/**
+ * A finished render advances its steps: `done` with the variants it made, or `failed`. A failure is
+ * counted against the recipe's approval; past `RETRIES_PER_APPROVAL` retries of a step the
+ * approval is withdrawn (`withdrawn`), so the gate queues none of its steps until it is approved
+ * again.
+ */
 export async function settleJob(
 	tx: Db,
 	runId: string,
 	jobRef: string,
 	finished: boolean,
 	variants: readonly { region: string; id: string }[],
-): Promise<{ pipeline: string; genPx: number }[]> {
+): Promise<{
+	settled: { pipeline: string; genPx: number }[];
+	withdrawn: { region: string; steps: number[] }[];
+}> {
 	const settled: { pipeline: string; genPx: number }[] = [];
+	const withdrawn: { region: string; steps: number[] }[] = [];
 	for (const recipe of await loadRecipes(tx, runId)) {
 		let changed = false;
+		const failures = { ...recipe.failures };
 		const steps = recipe.steps.map((s) => {
 			if (s.jobRef !== jobRef || s.status !== 'queued') return s;
 			changed = true;
 			settled.push({ pipeline: s.pipeline, genPx: s.genPx });
 			const rendered = variants.filter((v) => v.region === s.region).map((v) => v.id);
-			return finished && rendered.length
-				? { ...s, status: 'done' as const, rendered }
-				: { ...s, status: 'failed' as const };
+			if (finished && rendered.length) return { ...s, status: 'done' as const, rendered };
+			failures[s.n] = (failures[s.n] ?? 0) + 1;
+			return { ...s, status: 'failed' as const };
 		});
-		if (changed) await storeRecipe(tx, runId, { ...recipe, steps });
+		if (!changed) continue;
+		const spent = retriesSpent({ failures });
+		const approved = spent.length ? null : recipe.approved;
+		if (recipe.approved && !approved) withdrawn.push({ region: recipe.region, steps: spent });
+		await storeRecipe(tx, runId, {
+			...recipe,
+			steps,
+			approved,
+			...(Object.keys(failures).length ? { failures } : {}),
+		});
 	}
-	return settled;
+	return { settled, withdrawn };
 }
 
 /**
@@ -572,7 +637,8 @@ export async function markCommitted(
 /**
  * A new `run.set_plan` that no longer names a region takes its recipe's approval away: the queue
  * gate renders only approved steps, so a dropped region cannot render on an old approval. The
- * recipe stays stored as the run's record; a plan that names the region again re-opens its review.
+ * recipe stays stored as the run's record; if a later plan names the region again, the recipe
+ * comes back unapproved, and the Art plan re-opens on the next `run.set_recipe`.
  */
 export async function forgetUnplanned(tx: Db, runId: string): Promise<string[]> {
 	const plan = await planRegions(tx, runId);
@@ -708,7 +774,8 @@ export async function artPlanApprovalRefusal(
 ): Promise<string | null> {
 	const plan = await planRegions(tx, runId);
 	const basis = basisOfDeps(deps);
-	return approvalProblem(await loadRecipes(tx, runId), new Set(plan.keys()), seen, (r) =>
+	const problem = approvalProblem(await loadRecipes(tx, runId), new Set(plan.keys()), seen, (r) =>
 		project(r.steps, basis),
 	);
+	return problem?.reason ?? null;
 }

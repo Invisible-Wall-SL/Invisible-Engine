@@ -14,6 +14,7 @@ import {
 	costOfRunpodJob,
 	DIRECTOR_RUN_BUDGET_DEFAULT_USD,
 	DIRECTOR_RUN_BUDGET_KEY,
+	pricingRate,
 	seedRenderUsd,
 	type DirectorPricing,
 } from 'director-costs';
@@ -84,7 +85,7 @@ import {
 	type StoredMessage,
 	type WakingEvent,
 } from './store.ts';
-import { floorOf } from 'director-costs/recipe';
+import { floorOf, RETRIES_PER_APPROVAL } from 'director-costs/recipe';
 import {
 	MAX_RECIPE_EDITS,
 	applyRecipeEdits,
@@ -553,16 +554,14 @@ async function recipeDeps(ctx: Ctx): Promise<RecipeDeps | undefined> {
 	}
 	if (answer.status !== 200) return undefined;
 	const catalogue = answer.body as RecipeDeps['catalogue'];
-	const { runpod } = await ctx.pricing();
-	const rates = runpod.perSecondByGpu;
-	const perSecond = Object.hasOwn(rates, catalogue.gpu) ? rates[catalogue.gpu] : undefined;
+	const pricing = await ctx.pricing();
 	return {
 		catalogue,
-		usdPerSecond: typeof perSecond === 'number' ? perSecond : null,
+		usdPerSecond: pricingRate(pricing, catalogue),
 		timings: await loadTimings(ctx.sql),
 		// A guessed card never projects below the seed per render; a job's delay is the measured
 		// one where the timings have it, else this seed.
-		floor: floorOf(runpod),
+		floor: floorOf(pricing.runpod),
 	};
 }
 
@@ -1192,8 +1191,11 @@ async function recipeDepsOrNull(ctx: Ctx): Promise<RecipeDeps | null> {
 	try {
 		return (await recipeDeps(ctx)) ?? null;
 	} catch (error) {
-		if (error instanceof RetryLater) return null;
-		throw error;
+		// Any failure to read them (an answer saying so, or no answer at all: a launcher that cannot
+		// be reached throws) refuses the decision. Only the drive stopping (shutdown, a lost lease)
+		// is not an answer: the event then waits for the next drive.
+		if (ctx.signal.aborted) throw error;
+		return null;
 	}
 }
 
@@ -1275,7 +1277,7 @@ async function applyEvent(
 					live.budgetCapUsd = raised;
 					await setBudgetCap(tx, live.id, raised);
 				}
-				await reviewPlanGate(tx, live);
+				await reviewPlanGate(tx, live, true);
 				return;
 			}
 			if (action === 'stop') {
@@ -1371,7 +1373,7 @@ async function applyEvent(
 				.filter(isRecord)
 				.map((v) => ({ region: String(v.region ?? ''), id: String(v.variant ?? v.id ?? '') }))
 				.filter((v) => v.region && v.id);
-			const settled = await settleJob(
+			const { settled, withdrawn } = await settleJob(
 				tx,
 				live.id,
 				String(p.jobRef),
@@ -1381,14 +1383,25 @@ async function applyEvent(
 			if (billed) await recordTiming(tx, settled, billed);
 			// An ended run has nobody left to tell; its job is only billed.
 			if (TERMINAL_STATUSES.includes(live.state.status)) return;
+			const spent = withdrawn.map((w) => `${w.region} step ${w.steps.join(', ')}`).join('; ');
+			if (withdrawn.length) {
+				await insertEvent(tx, live.id, 'worker', 'activity', {
+					type: 'note',
+					text: `${spent} failed again after ${RETRIES_PER_APPROVAL} retries: its recipe renders nothing more until the plan is approved again.`,
+				});
+				await reviewPlanGate(tx, live);
+			}
 			const to = ctx.agents.has(event.agent) ? event.agent : COORDINATOR;
 			const body = JSON.stringify({ jobRef: p.jobRef, status: p.status, result: p.result });
+			const held = withdrawn.length
+				? ` ${spent} has used its ${RETRIES_PER_APPROVAL} retries: the owner approves it again before it renders.`
+				: '';
 			await appendMessage(
 				tx,
 				live.id,
 				to,
 				'user',
-				userText(`GPU job ${String(p.jobRef)} (${event.tool ?? 'job'}) finished: ${body}`),
+				userText(`GPU job ${String(p.jobRef)} (${event.tool ?? 'job'}) finished: ${body}${held}`),
 			);
 			return finishStop(tx, live);
 		}

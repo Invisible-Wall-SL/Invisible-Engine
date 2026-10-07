@@ -3,8 +3,11 @@ import { DEFAULT_GAME_KIND } from 'constants-shared/gameKinds';
 import { estimateRun, parseEstimateProfiles, type RunEstimate } from 'director-costs';
 import {
 	fallbackDefaultChain,
+	floorOf,
+	MAX_PLAN_REGIONS,
 	parseStepInput,
 	priceChains,
+	REGION_NAME,
 	STEP_KINDS,
 	type Card,
 	type ChainGroup,
@@ -503,7 +506,7 @@ function parseAction(raw: unknown): OwnerActionRequest {
 			entries.length > MAX_PLAN_REGIONS ||
 			!entries.every(
 				([region, rev]) =>
-					RECIPE_REGION.test(region) && typeof rev === 'number' && Number.isInteger(rev) && rev > 0,
+					REGION_NAME.test(region) && typeof rev === 'number' && Number.isInteger(rev) && rev > 0,
 			)
 		) {
 			throw bad('bad_recipe_revs', 'recipeRevs maps each region to the revision you saw.');
@@ -524,9 +527,6 @@ function parseAction(raw: unknown): OwnerActionRequest {
 	return req;
 }
 
-/** A region name as the adapter admits it (`ops/atlas.ts` `REGION`). */
-const RECIPE_REGION = /^[A-Za-z0-9_][A-Za-z0-9_.()-]{0,119}$/;
-const MAX_PLAN_REGIONS = 256;
 const MAX_EDITS = 64;
 const MAX_EDIT_STEPS = 8;
 const MAX_EDITS_BYTES = 64 * 1024;
@@ -547,7 +547,7 @@ function parseRecipeEdits(raw: unknown): { region: string; rev: number; steps: S
 	const seen = new Set<string>();
 	return raw.map((edit) => {
 		const e = record(edit);
-		if (typeof e.region !== 'string' || !RECIPE_REGION.test(e.region) || seen.has(e.region)) {
+		if (typeof e.region !== 'string' || !REGION_NAME.test(e.region) || seen.has(e.region)) {
 			throw refuse('Each edit names one region, once.');
 		}
 		seen.add(e.region);
@@ -612,7 +612,7 @@ export async function performOwnerAction(
 	if (req.checkpoint === 'art_plan' && req.action === 'approve') {
 		// The worker refuses the same; asked here first so the owner hears it at the button.
 		const why = await artPlanApprovalRefusal(user, run, req.recipeRevs);
-		if (why) throw new RunError(409, 'plan_changed', `Refused: ${why}.`);
+		if (why) throw new RunError(409, why.code, `Refused: ${why.reason}.`);
 	}
 	if (req.recipeEdits && req.checkpoint !== 'art_plan') {
 		throw bad('bad_recipe_edits', 'Edits travel only with the Art plan checkpoint.');
@@ -973,7 +973,7 @@ export async function estimateForTemplate(
 		gpu: priced.catalogue?.gpu ?? '',
 		usdPerSecond: priced.catalogue?.usdPerSecond ?? null,
 		timings,
-		seedDelaySeconds: pricing.runpod.seedDelaySecondsPerJob,
+		floor: floorOf(pricing.runpod),
 	};
 	const fallbackAt1024 = ESTIMATE_PROFILES.runpod.secondsPerVariantAt1024;
 	const dearest = (candidates: ChainGroup[]): ChainGroup =>

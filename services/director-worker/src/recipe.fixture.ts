@@ -13,6 +13,7 @@ import {
 	approvalProblem,
 	carryProgress,
 	chainLine,
+	defaultChainOf,
 	fallbackDefaultChain,
 	needsReapproval,
 	priceChains,
@@ -20,6 +21,7 @@ import {
 	recipeInputOf,
 	parseStepInput,
 	removeStep,
+	retriesSpent,
 	secondsAt,
 	secondsPerImage,
 	validateRecipe,
@@ -121,6 +123,11 @@ const refusedFor = (name: string, recipe: RecipeInput, needle: string, over = {}
 	check(name, why.some((r) => r.includes(needle)) ? needle : why, needle);
 };
 
+refusedFor(
+	'a region named as no Atlas Maker region is (nor the owner could approve) is refused',
+	variant(h1, (r) => (r.region = '../H1')),
+	'"../H1" is not a region name',
+);
 refusedFor(
 	'a pipeline with no card is refused',
 	variant(h1, (r) => (r.steps[0].pipeline = 'nope')),
@@ -524,7 +531,7 @@ const chain = [
 	{ kind: 'process' as const, pipeline: 'birefnet', genPx: 1024, variants: 1, settings: [] },
 	{ kind: 'finish' as const, pipeline: '', genPx: 0, variants: 0, settings: [] },
 ];
-const facts = { gpu: 'RTX 4090 (24 GB)', usdPerSecond: USD, seedDelaySeconds: 0 };
+const facts = { gpu: 'RTX 4090 (24 GB)', usdPerSecond: USD, floor: NO_FLOOR };
 const fallback = { low: 12, high: 30 };
 const priced = priceChains(
 	[{ group: 'Symbols', regions: 10, chain, source: 'fallback' }],
@@ -549,7 +556,7 @@ check(
 		const p = priceChains(
 			[{ group: 'Symbols', regions: 1, chain, source: 'fallback' }],
 			cards,
-			{ gpu: '', usdPerSecond: null, seedDelaySeconds: 0 },
+			{ gpu: '', usdPerSecond: null, floor: NO_FLOOR },
 			fallback,
 		);
 		return [p.usd, p.unpriced.length];
@@ -588,12 +595,81 @@ check(
 	})(),
 	[true, { low: 36, high: 90 }],
 );
+{
+	// The estimate's high end is what the Art plan of the same chains will project.
+	const floor = { seedSecondsPerImage: 600, delaySecondsPerJob: 15 };
+	const h1Recipe = stored.find((r) => r.region === 'H1')!;
+	const ten = priceChains(
+		[{ group: 'Symbols', regions: 10, chain: defaultChainOf(h1Recipe.steps), source: 'fallback' }],
+		cards,
+		{ ...facts, floor },
+		fallback,
+	);
+	check(
+		'a guessed card is a range: its own figures, up to the seed floor the plan is approved on',
+		ten.seconds,
+		// sdxl (12 s, guessed) ×3 and birefnet (3 s, guessed) ×1, +15 s delay each; cold starts
+		// 120 s + 60 s per region.
+		{ low: 10 * (3 * 27 + 18 + 180), high: 10 * (3 * 615 + 615 + 180) },
+	);
+	check(
+		"…the high end being the recipes' own projections, summed: cold start once per region",
+		ten.seconds.high,
+		10 * project(h1Recipe.steps, { cards, usdPerSecond: USD, floor }).gpuSeconds,
+	);
+	// The coordinator's case: 30 regions × sdxl 1024 ×3, the card guessing 30 s with a 60 s cold
+	// start, on an L40S.
+	const thirty = priceChains(
+		[
+			{
+				group: 'Symbols',
+				regions: 30,
+				chain: [{ ...chain[0] }, chain[2]],
+				source: 'fallback',
+			},
+		],
+		new Map([
+			[
+				'sdxl',
+				{
+					...cards.get('sdxl')!,
+					gpu: { ...cards.get('sdxl')!.gpu, secondsPerImage: { 1024: 30 }, coldStart: 60 },
+				},
+			],
+		]),
+		{ gpu: 'L40S (48 GB)', usdPerSecond: 0.00053, floor },
+		fallback,
+	);
+	check(
+		'…so 30 guessed regions estimate $3.10 to $30.29, not $2.18 to $2.18',
+		[thirty.usd!.low.toFixed(2), thirty.usd!.high.toFixed(2)],
+		['3.10', '30.29'],
+	);
+}
 
 // The owner approves the plan they saw (card 8E).
 const seen = Object.fromEntries(stored.map((r) => [r.region, r.rev]));
 /** Prices each recipe at its stored figure; `freshly` prices it again now. */
 const stays = (r: StoredRecipe) => r.projected;
 const freshly = (r: StoredRecipe) => project(r.steps, basis);
+/** The code a refusal answers with, by what it says. */
+const codeOf = (problem: { code: string } | null) => problem?.code ?? null;
+check(
+	'each refusal has its code: changed, incomplete or unpriced',
+	[
+		codeOf(approvalProblem(stored, planRegions, undefined, stays)),
+		codeOf(approvalProblem(stored.slice(1), planRegions, seen, stays)),
+		codeOf(
+			approvalProblem(
+				stored.map((r, i) => (i === 0 ? { ...r, projected: { ...r.projected, gpuUsd: null } } : r)),
+				planRegions,
+				seen,
+				stays,
+			),
+		),
+	],
+	['plan_changed', 'plan_incomplete', 'plan_unpriced'],
+);
 check(
 	'an approval of the plan as stored stands',
 	approvalProblem(stored, planRegions, seen, stays),
@@ -601,7 +677,7 @@ check(
 );
 check(
 	'an approval that names no revisions is refused',
-	approvalProblem(stored, planRegions, undefined, stays)?.includes('revisions'),
+	approvalProblem(stored, planRegions, undefined, stays)?.reason.includes('revisions'),
 	true,
 );
 check(
@@ -611,7 +687,7 @@ check(
 		planRegions,
 		seen,
 		stays,
-	)?.includes('changed since you saw it'),
+	)?.reason.includes('changed since you saw it'),
 	true,
 );
 check(
@@ -621,7 +697,7 @@ check(
 		new Set([...planRegions].filter((x) => x !== stored[0].region)),
 		seen,
 		stays,
-	)?.includes('not in it now'),
+	)?.reason.includes('not in it now'),
 	true,
 );
 check(
@@ -631,14 +707,14 @@ check(
 		planRegions,
 		seen,
 		stays,
-	)?.includes('cannot be priced'),
+	)?.reason.includes('cannot be priced'),
 	true,
 );
 check(
 	'the plan is priced again at approval: a card that lost its review refuses it',
 	approvalProblem(stored, planRegions, seen, (r) =>
 		project(r.steps, { ...basis, cards: new Map([...cards].filter(([id]) => id !== 'birefnet')) }),
-	)?.includes('cannot be priced'),
+	)?.reason.includes('cannot be priced'),
 	true,
 );
 check(
@@ -653,7 +729,7 @@ check(
 );
 check(
 	'a planned region with no recipe refuses the approval',
-	approvalProblem(stored.slice(1), planRegions, seen, stays)?.includes('has a recipe yet'),
+	approvalProblem(stored.slice(1), planRegions, seen, stays)?.reason.includes('has a recipe yet'),
 	true,
 );
 
@@ -768,6 +844,22 @@ check(
 		{ ...approved, steps: revise(failedFirst, 0, 'ksampler_seed') },
 	),
 	false,
+);
+
+// Two retries per step per approval.
+check(
+	'a step that failed twice may be queued again; the third failure spends its retries',
+	[
+		retriesSpent({}),
+		retriesSpent({ failures: { 1: 2 } }),
+		retriesSpent({ failures: { 1: 3, 2: 1 } }),
+	],
+	[[], [], [1]],
+);
+check(
+	'a count that is not a number spends them (fails closed)',
+	retriesSpent({ failures: { 2: 'x' as unknown as number } }),
+	[2],
 );
 
 console.log(`recipes: ${checks - failures}/${checks} checks passed`);

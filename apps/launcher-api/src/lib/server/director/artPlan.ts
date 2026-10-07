@@ -1,8 +1,9 @@
-import type { DirectorPricing } from 'director-costs';
+import { pricingRate } from 'director-costs';
 import {
 	approvalProblem,
 	floorOf,
 	project,
+	type ApprovalProblem,
 	type Card,
 	type ProjectionFloor,
 	type CatalogueEntry,
@@ -47,11 +48,6 @@ export interface ArtPlanAnswer {
 	floor: ProjectionFloor;
 }
 
-export const usdPerSecondOf = (pricing: DirectorPricing, gpu: string): number | null =>
-	gpu && Object.hasOwn(pricing.runpod.perSecondByGpu, gpu)
-		? pricing.runpod.perSecondByGpu[gpu]
-		: null;
-
 /**
  * The reviewed catalogue as `user` may read it for `scope`, priced: through the same cached
  * atlas-tool read the adapter serves to agents (`atlas.list_blueprints`). Null with the reason
@@ -66,7 +62,7 @@ export async function pricedCatalogue(
 		const read = await catalogue({ run: { id: runId }, owner: user, agent: 'worker', scope });
 		const { pricing } = await getDirectorPricing();
 		return {
-			catalogue: { ...read, usdPerSecond: usdPerSecondOf(pricing, read.gpu) },
+			catalogue: { ...read, usdPerSecond: pricingRate(pricing, read) },
 			error: null,
 		};
 	} catch (e) {
@@ -126,7 +122,7 @@ export async function artPlanApprovalRefusal(
 	user: User,
 	run: DirectorRun,
 	seen: unknown,
-): Promise<string | null> {
+): Promise<{ code: ApprovalProblem['code'] | 'catalogue_unreadable'; reason: string } | null> {
 	const [{ recipes, plan }, timings, priced, { pricing }] = await Promise.all([
 		plannedRecipes(run.id),
 		blueprintTimings(),
@@ -135,7 +131,10 @@ export async function artPlanApprovalRefusal(
 	]);
 	if (!priced.catalogue) {
 		const why = priced.error ?? 'The blueprint catalogue could not be read.';
-		return `${why} The plan cannot be priced now, so it cannot be approved`;
+		return {
+			code: 'catalogue_unreadable',
+			reason: `${why} The plan cannot be priced now, so it cannot be approved`,
+		};
 	}
 	const basis = {
 		cards: new Map<string, Card>(priced.catalogue.blueprints.map((b) => [b.id, b.card])),
