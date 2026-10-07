@@ -68,16 +68,20 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   - **Adapter ops** (`director/ops/atlasSetup.ts`): `list_blueprints` (reviewed image cards from
     atlas-tool `GET /blueprints`, cached a minute), `set_atlas_pipeline` (`/saveconfig` with only
     `atlas_pipeline`, the size and the card's per-atlas keys or `bpParams[<id>]`), `set_region_pipeline`
-    and `set_refs` (`/regionadv` then the WHOLE card to `/saveadv`; variant and crop refs copied
-    create-only to `input/refs/director_*`), `duplicate_atlas`, `add_layer` / `remove_layer` (scratch
+    and `set_refs` (`/regionadv` then the WHOLE card to `/saveadv`; variant refs copied
+    create-only to `input/refs/director_<atlas>_<region>_<id>.png` — the atlas is in the name, unlike
+    ADR-0008 §4's sketch, so two scratch atlases with the same tag cannot share a copy; crops to
+    `director_<region>_crop_<run>.png`; a `key` ref must be this project's), `duplicate_atlas`, `add_layer` / `remove_layer` (scratch
     atlases only, i.e. ones this run's `duplicate_atlas` made — read from `director_ops`),
     `set_output` (refused over a tile this run did not commit: `isRunTile` matches 8B's
     `refs/useroutput/<region>_<run>_<sha12>.png`), `deploy_atlas` (never a scratch atlas, never a
     fully-qualified `deploy_path` outside `deploy/`). `queue_variants`, `choose_variant` (now with
     `lock` and the variant's seed), `pack_sheet` and `comfyui.job_status` move to the technician.
   - **Queue gate:** `atlas.queue_variants` takes `step` and refuses (`409 no_approved_step`) any
-    region with no APPROVED recipe step on that atlas at the atlas's own pipeline (or the region's
-    override), generation size and variant count; `art_plan_open` while the owner reviews;
+    region with no APPROVED, not yet rendered recipe step on that atlas at the atlas's own pipeline
+    (or the region's override), generation size, variant count and the step's settings as the
+    atlas/region now hold them; a step counts only on its recipe's own region or a scratch atlas this
+    run made. `choose_variant` with `lock: false` never unpins a pinned region; `art_plan_open` while the owner reviews;
     `atlas_not_configured` until `set_atlas_pipeline` ran.
   - **Refusals** (`refusals.ts`): by name `library`, `run_on`, `global_config`, `art_deletion`,
     `template_rect`, `template_add`; ops raise `RefusalError` (`layers`, `run_on`, `global_config`,
@@ -90,16 +94,18 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     (empty until 8E), and `waiting_on` accepts `art_plan`.
   - **Worker:** `run.set_recipe` (validated, stored as rev + 1, refused with every reason), the Art
     plan opened by code when every planned region has a recipe (`plan_ready` in `runState.ts`;
-    `checkpoints_json.artPlan`, default on; off = approved `auto` within the cap), approval writes
+    `checkpoints_json.artPlan`, default on; off = approved `auto` only when the projection is priced
+    and fits the cap, else the run pauses on the `budget` checkpoint and a resume re-checks), approval writes
     the template defaults, a revision that changes a pipeline or raises the cost drops its
     approval, a queued render marks its steps `queued`. The technician's task carries the
     template's defaults, else the old preset's chain (the fallback until 8C).
   - **Deploy:** `pnpm --filter director-worker check:idle [--pause]` (the deploy skill runs it).
-  - Tests: `check:director-adapters` 419, `check:director-runs` 411, `check:recipes` 34,
-    `check:run-state`, `check:agents`, `prove:art-plan` 24, `prove:idle` 6 (both in the Director
+  - Tests: `check:director-adapters` 423, `check:director-runs` 411, `check:recipes` 37,
+    `check:run-state`, `check:agents`, `prove:art-plan` 27, `prove:idle` 6 (both in the Director
     worker workflow).
   - **Open (8E):** the Art plan's own panel and `recipeEdits`, chain pricing in the estimate,
-    timings from `job_done`. ⏳ Owed: a live pass with a Director token (no signing secret here).
+    timings from `job_done`. Recipes of regions a later `run.set_plan` drops stay stored and
+    approved (the queue gate does not read the plan). ⏳ Owed: a live pass with a Director token (no signing secret here).
 
 - 2026-10-06 — **Invisible Director: pending-key mockup cleanup** (#1069/#1072 follow-up).
   Mockups uploaded under a key that never became a game no longer stay in R2 forever

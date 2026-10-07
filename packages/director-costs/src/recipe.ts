@@ -247,7 +247,10 @@ function atlasFacts(
 	card: Card | undefined,
 	builtin: boolean,
 ): Map<string, string> {
-	const facts = new Map<string, string>([['genPx', String(step.genPx)]]);
+	const facts = new Map<string, string>([
+		['genPx', String(step.genPx)],
+		['pipeline', step.pipeline],
+	]);
 	for (const s of step.settings) {
 		const setting = card?.settings?.find((c) => c.key === s.key);
 		if (!setting || scopeOf(setting) !== 'atlas') continue;
@@ -302,10 +305,16 @@ export function validateRecipe(input: RecipeInput, ctx: ValidationContext): Vali
 	if (steps.length === 0) errors.push('a recipe has at least one step');
 	if (steps.length > 8) errors.push('a recipe has at most 8 steps');
 
+	const templateAtlases = new Set(ctx.others.map((r) => r.atlas));
 	steps.forEach((step, i) => {
 		const at = `step ${i + 1}`;
 		if (step.n !== i + 1) errors.push(`${at}: steps are numbered 1, 2, 3… (got ${step.n})`);
 		const onTemplate = step.atlas === input.atlas;
+		if (step.atlas !== input.atlas && templateAtlases.has(step.atlas)) {
+			errors.push(
+				`${at}: ${step.atlas} is a template atlas of another recipe; a chain leaves its own atlas only for a scratch atlas`,
+			);
+		}
 		if (step.kind === 'finish') {
 			if (step.pipeline !== '') errors.push(`${at}: a finish step has no pipeline`);
 			if (step.genPx !== 0 || step.variants !== 0 || step.settings.length) {
@@ -442,7 +451,7 @@ export function needsReapproval(
 ) {
 	if (!prev?.approved) return true;
 	const chain = (steps: readonly StepInput[]) =>
-		steps.map((s) => `${s.kind}:${s.pipeline}`).join('>');
+		steps.map((s) => `${s.kind}:${s.pipeline}:${s.atlas}/${s.region}`).join('>');
 	if (chain(prev.steps) !== chain(next.steps)) return true;
 	return next.projected.gpuSeconds > prev.projected.gpuSeconds;
 }

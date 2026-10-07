@@ -220,9 +220,12 @@ interface RecipeStep {
 	region: string;
 	genPx: number;
 	variants: number;
+	settings?: { key: string; value: string }[];
+	status?: string;
 }
 interface RecipeRow {
 	region: string;
+	atlas: string;
 	rev: number;
 	approved: { rev: number } | null;
 	steps: RecipeStep[];
@@ -259,9 +262,25 @@ async function requireApprovedSteps(
 		);
 	}
 	const recipes = (await runRecipes(ctx.run.id)) as RecipeRow[];
+	const scratch = await scratchAtlases(ctx);
+	// A step renders its recipe's own template region, or a region of a scratch atlas this run made;
+	// a step that names any other atlas is never a licence to render it.
 	const approvedSteps = recipes
 		.filter((r) => r.approved && r.approved.rev === r.rev)
-		.flatMap((r) => r.steps.map((s) => ({ ...s, owner: r.region })));
+		.flatMap((r) =>
+			r.steps.filter((s) => (s.atlas === r.atlas ? s.region === r.region : scratch.has(s.atlas))),
+		)
+		// Rendered once: an approved region is never re-sampled (§5); a redo is a new revision.
+		.filter((s) => !s.status || s.status === 'planned' || s.status === 'failed');
+	const settings = (m.doc.settings ?? {}) as Record<string, unknown>;
+	const bpParams = (settings.bpParams ?? {}) as Record<string, Record<string, unknown>>;
+	/** The step's settings as the atlas and region now hold them. */
+	const settingsHold = (s: RecipeStep, r: ManifestRegion) =>
+		(s.settings ?? []).every(({ key, value }) => {
+			const atlasValue = bpParams[s.pipeline]?.[key] ?? settings[key];
+			const regionValue = (r as unknown as Record<string, unknown>)[key];
+			return [atlasValue, regionValue].some((v) => v !== undefined && String(v) === value);
+		});
 	const [stepRegion, stepN] = step.split('#');
 	if (!regions.includes(stepRegion)) {
 		throw new AdapterError(
@@ -282,6 +301,7 @@ async function requireApprovedSteps(
 				s.pipeline === pipeline &&
 				s.genPx === genW &&
 				s.variants === variants &&
+				settingsHold(s, r) &&
 				(name !== stepRegion || String(s.n) === stepN),
 		);
 		if (!match) {
@@ -292,7 +312,7 @@ async function requireApprovedSteps(
 		throw new AdapterError(
 			409,
 			'no_approved_step',
-			`No approved recipe step renders ${problems.join(', ')} on "${m.atlas}". Check the atlas setup against the approved recipe, or revise the recipe (run.set_recipe) for the owner.`,
+			`No approved, not yet rendered recipe step renders ${problems.join(', ')} on "${m.atlas}" with the settings it now holds. Check the atlas setup against the approved recipe, or revise the recipe (run.set_recipe) for the owner.`,
 		);
 	}
 }
@@ -628,7 +648,11 @@ export const chooseVariant = defineOp<
 				description: 'A variant id from atlas.list_variants.',
 				pattern: VARIANT_ID,
 			},
-			lock: { type: 'boolean', description: 'Pin the pick and its seed so a re-render skips it.' },
+			lock: {
+				type: 'boolean',
+				description:
+					'Pin the pick and its seed so a re-render skips it. false never unpins a region that is pinned now.',
+			},
 			base: baseProp,
 		},
 		required: ['atlas', 'region', 'id', 'lock'],
@@ -650,9 +674,13 @@ export const chooseVariant = defineOp<
 		if (!picked) {
 			throw new AdapterError(404, 'unknown_variant', `No variant ${id} of "${region}".`);
 		}
-		const card = cardOf(r, { variant: id, lock, seed: lock ? picked.seed : null });
+		// A pin someone set stays: `lock: false` never unpins a region that is locked now.
+		const stored =
+			'lock' in r ? Boolean(r.lock) : r.seed !== undefined || Boolean(r.variant?.trim());
+		const keep = lock || stored;
+		const card = cardOf(r, { variant: id, lock: keep, seed: keep ? picked.seed : null });
 		const saved = await saveCard(ctx, m, card, base);
-		return { atlas, region, chosen: id, locked: lock, ...saved };
+		return { atlas, region, chosen: id, locked: keep, ...saved };
 	},
 });
 

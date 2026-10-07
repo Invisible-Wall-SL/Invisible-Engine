@@ -77,6 +77,9 @@ export async function setRecipe(
 	input: RecipeInput,
 	deps: RecipeDeps,
 ): Promise<SetRecipeOutcome> {
+	if (live.state.status !== 'running') {
+		return { ok: false, message: `Not stored: the run is ${live.state.status}.` };
+	}
 	const plan = await planRegions(tx, live.id);
 	if (plan.size === 0) {
 		return {
@@ -152,6 +155,13 @@ export async function setRecipe(
 
 const unapproved = (r: StoredRecipe) => !r.approved || r.approved.rev !== r.rev;
 
+/** Re-check the gate after the owner resumes a run (a raised cap may now fit the plan). */
+export async function reviewPlanGate(tx: Db, live: LiveRun): Promise<string> {
+	const plan = await planRegions(tx, live.id);
+	if (plan.size === 0) return 'no plan';
+	return afterRecipe(tx, live, plan, await loadRecipes(tx, live.id));
+}
+
 /**
  * Once every planned region has a recipe and any is unapproved: open `art_plan` (on by default) or,
  * with it off, approve the plan as `auto` when its projection fits what is left of the cap.
@@ -172,6 +182,7 @@ async function afterRecipe(
 		.sort((a, b) => order.indexOf(a.region) - order.indexOf(b.region));
 	if (pending.length === 0) return 'every recipe is approved';
 	const projectedUsd = pending.reduce((sum, r) => sum + (r.projected.gpuUsd ?? 0), 0);
+	const unpriced = pending.some((r) => r.projected.gpuUsd === null);
 	if (live.state.checkpoints.artPlan) {
 		const result = transition(live.state, { type: 'plan_ready' });
 		if (!result.ok) return `the Art plan cannot open now: ${result.error}`;
@@ -189,14 +200,29 @@ async function afterRecipe(
 		});
 		return 'opened: the owner reviews the Art plan now. End your turn.';
 	}
+	// Fails closed (ADR-0006): a plan the cap cannot price, or one over it, pauses for the owner.
 	const spend = await runSpend(tx, live.id);
 	const cap = live.budgetCapUsd;
-	if (cap !== null && spend.totalUsd + projectedUsd > cap) {
-		await insertEvent(tx, live.id, 'worker', 'activity', {
-			type: 'note',
-			text: `The Art plan projects $${projectedUsd.toFixed(2)} of GPU, more than is left of the $${cap.toFixed(2)} cap. Nothing renders until the owner raises the cap or the plan shrinks.`,
-		});
-		return 'not approved: the projection crosses the remaining cap';
+	if (unpriced || (cap !== null && spend.totalUsd + projectedUsd > cap)) {
+		const text = unpriced
+			? 'The Art plan cannot be priced: atlas-tool reports no GPU with a price, so it is not approved automatically. Set RUNPOD_ENDPOINT_GPU, or turn the Art plan checkpoint on, and resume.'
+			: `The Art plan projects $${projectedUsd.toFixed(2)} of GPU, more than is left of the $${(cap ?? 0).toFixed(2)} cap. Raise the cap and resume, or ask for a smaller plan.`;
+		await insertEvent(tx, live.id, 'worker', 'activity', { type: 'note', text });
+		const result = transition(live.state, { type: 'pause', reason: 'budget_cap' });
+		if (
+			result.ok &&
+			(await applyTransition(tx, live.id, live.state, result.state, 'art plan over the cap'))
+		) {
+			live.state = result.state;
+			await insertEvent(tx, live.id, 'worker', 'checkpoint_open', {
+				checkpoint: 'budget',
+				reason: unpriced ? 'art_plan_unpriced' : 'art_plan',
+				spentUsd: spend.totalUsd,
+				projectedUsd: Math.round(projectedUsd * 10000) / 10000,
+				capUsd: cap,
+			});
+		}
+		return 'not approved: the run paused for the owner (the plan is unpriced or crosses the cap)';
 	}
 	await approve(tx, live.id, pending, 'auto');
 	return 'approved automatically (the Art plan checkpoint is off and the projection fits the cap)';
@@ -238,11 +264,16 @@ export async function approveArtPlan(tx: Db, live: LiveRun, by: string): Promise
 		const chain = defaultChainOf(r.steps);
 		const had = current.get(group);
 		if (had && JSON.stringify(had.chain) === JSON.stringify(chain)) continue;
+		// The next version computed in SQL; a run of the same template approving at the same moment
+		// takes the other number, and a lost race is skipped rather than failing the approval.
 		await tx`
 			insert into director_template_recipes
 				(template_project_key, region_group, version, chain_json, run_id, approved_by, approved_at)
-			values (${live.templateProjectKey}, ${group}, ${(had?.version ?? 0) + 1},
-				${tx.json(chain as never)}, ${live.id}, ${by}, now())`;
+			select ${live.templateProjectKey}, ${group}, coalesce(max(version), 0) + 1,
+				${tx.json(chain as never)}, ${live.id}, ${by}, now()
+			from director_template_recipes
+			where template_project_key = ${live.templateProjectKey} and region_group = ${group}
+			on conflict do nothing`;
 	}
 	return pending.length;
 }
@@ -285,7 +316,7 @@ export async function defaultsBrief(db: Db, live: LiveRun): Promise<string> {
 	].join('\n');
 }
 
-/** A queued render advances the planned steps it covers to `queued`, with its job. */
+/** A queued render advances, per region it covers, the first planned step there to `queued`. */
 export async function markQueued(
 	tx: Db,
 	runId: string,
@@ -299,6 +330,7 @@ export async function markQueued(
 		const steps = recipe.steps.map((s) => {
 			if (s.kind === 'finish' || s.atlas !== atlas || !want.has(s.region) || s.status !== 'planned')
 				return s;
+			want.delete(s.region);
 			changed = true;
 			return { ...s, status: 'queued' as const, jobRef };
 		});

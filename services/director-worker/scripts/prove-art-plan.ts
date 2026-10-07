@@ -101,7 +101,7 @@ function fakeModel(replies: Reply[]) {
 }
 
 /** Serves every adapter op by name (so no agent is "missing tools") and the catalogue. */
-function fakeLauncher() {
+function fakeLauncher(served: Catalogue = catalogue) {
 	const calls: string[] = [];
 	const ops = new Map<string, AdapterSpec>(
 		ADAPTER_OPS.map((id) => [
@@ -120,7 +120,7 @@ function fakeLauncher() {
 		},
 		async call(id, body): Promise<AdapterResult> {
 			calls.push(`${body.agent}:${id}`);
-			if (id === 'atlas.list_blueprints') return { status: 200, body: catalogue };
+			if (id === 'atlas.list_blueprints') return { status: 200, body: served };
 			return { status: 404, body: { error: 'unknown_op', message: `No adapter ${id}.` } };
 		},
 	};
@@ -407,6 +407,9 @@ try {
 		same.steps[0].note = 'a gentler rim light';
 		const changed = recipeOf('H1');
 		changed.steps[1].pipeline = 'fixture_upscale';
+		// One pipeline per atlas: the upscale runs on its own scratch atlas.
+		changed.steps[1].atlas = 'symbols_up';
+		changed.steps[1].region = 'up_H1';
 		changed.steps[1].settings = [{ key: 'scale', value: '2' }];
 		const model = fakeModel([{ content: [setRecipe(same), setRecipe(changed)] }]);
 		await message(
@@ -480,6 +483,36 @@ try {
 				notes.some((n) => /cap/.test(n.payload.text ?? '')),
 			],
 			[23, true, true],
+		);
+		const budget = await sql<{ payload: Record<string, unknown> }[]>`
+			select payload_json as payload from director_events
+			where run_id = ${tight} and kind = 'checkpoint_open'`;
+		check(
+			'...and the run pauses on the budget checkpoint: it fails closed',
+			[(await runRow(tight)).status, budget.map((b) => [b.payload.checkpoint, b.payload.reason])],
+			['paused', [['budget', 'art_plan']]],
+		);
+		await event(tight, 'owner', 'owner_request', { action: 'resume', budgetCapUsd: 40 });
+		await drive(tight, deps(fakeModel([]).transport, fakeLauncher().launcher));
+		check(
+			'the owner raises the cap and resumes: the plan is approved as auto',
+			[
+				(await runRow(tight)).status,
+				(await recipes(tight)).every((r) => r.approved?.by === 'auto'),
+			],
+			['running', true],
+		);
+
+		const unpricedCatalogue = { ...catalogue, gpu: 'Unknown GPU' };
+		const blind = await newRun({ artPlan: false });
+		const model3 = fakeModel([{ content: expected.recipes.map(setRecipe) }]);
+		const blindGate = fakeLauncher(unpricedCatalogue);
+		await message(blind, 'atlas-technician', 'Plan the recipes.');
+		await drive(blind, deps(model3.transport, blindGate.launcher));
+		check(
+			'a plan the GPU price cannot cost is never approved automatically',
+			[(await runRow(blind)).status, (await recipes(blind)).every((r) => r.approved === null)],
+			['paused', true],
 		);
 	}
 

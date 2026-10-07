@@ -197,6 +197,22 @@ refusedFor(
 	),
 	'already has atlas:rembg on',
 );
+refusedFor(
+	'one pipeline per atlas, across recipes',
+	variant(
+		expected.recipes.find((r) => r.region === 'Logo')!,
+		(r) => (r.steps[0].pipeline = 'sdxl'),
+	),
+	'already has pipeline flux',
+);
+refusedFor(
+	"a step never renders on another recipe's template atlas",
+	variant(h1, (r) => {
+		r.steps[1].atlas = 'ui';
+		r.steps[1].region = 'Logo';
+	}),
+	'is a template atlas of another recipe',
+);
 check(
 	'a region-scope setting may differ between regions',
 	reasons(
@@ -237,6 +253,14 @@ check(
 	needsReapproval(approved, {
 		...approved,
 		steps: approved.steps.map((s, i) => (i === 1 ? { ...s, pipeline: 'fixture_upscale' } : s)),
+	}),
+	true,
+);
+check(
+	'a step moved to another atlas or region needs re-approval',
+	needsReapproval(approved, {
+		...approved,
+		steps: approved.steps.map((st, i) => (i === 1 ? { ...st, region: 'cut_H9' } : st)),
 	}),
 	true,
 );

@@ -84,7 +84,7 @@ import {
 	type StoredMessage,
 	type WakingEvent,
 } from './store.ts';
-import { approveArtPlan, markQueued, type RecipeDeps } from './recipes.ts';
+import { approveArtPlan, markQueued, reviewPlanGate, type RecipeDeps } from './recipes.ts';
 import { WORKER_TOOLS } from './tools.ts';
 import { runWorkerTool, workerToolSpecs, type WorkerToolId } from './workerTools.ts';
 
@@ -1193,6 +1193,7 @@ async function applyEvent(
 					live.budgetCapUsd = raised;
 					await setBudgetCap(tx, live.id, raised);
 				}
+				await reviewPlanGate(tx, live);
 				return;
 			}
 			if (action === 'stop') {

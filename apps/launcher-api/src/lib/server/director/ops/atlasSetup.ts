@@ -186,8 +186,9 @@ type Setting = { key: string; value: string };
 function cardSetting(card: Card, pipeline: string, key: string, scope: 'atlas' | 'region') {
 	if (key === 'run_on') throw new RefusalError('run_on');
 	const setting = card.settings?.find((s) => s.key === key);
-	if (!setting)
-		throw new RefusalError('global_config', `"${pipeline}"'s card names no setting ${key}.`);
+	if (!setting) {
+		throw new AdapterError(400, 'not_on_card', `"${pipeline}"'s card names no setting ${key}.`);
+	}
 	if ((setting.scope ?? 'atlas') !== scope) {
 		throw new AdapterError(
 			400,
@@ -448,21 +449,27 @@ async function resolveRef(
 			return null;
 		case 'clear':
 			return '';
-		case 'key':
-			if (!SHEET_KEY.test(ref.value) || ref.value.includes('..')) {
+		case 'key': {
+			const prefixed = /^[a-z0-9_-]+\/[a-z0-9_-]+\/(sheets|sheet_src)\//.test(ref.value);
+			if (
+				!SHEET_KEY.test(ref.value) ||
+				ref.value.includes('..') ||
+				(prefixed && !ref.value.startsWith(`${root}/`))
+			) {
 				throw new AdapterError(
 					400,
 					'bad_ref',
-					`${label}: a key is a Sheet Maker image (sheets/… or sheet_src/…).`,
+					`${label}: a key is a Sheet Maker image of this project (sheets/… or sheet_src/…).`,
 				);
 			}
 			return ref.value;
+		}
 		case 'variant': {
 			const m = VARIANT_REF.exec(ref.value);
 			if (!m)
 				throw new AdapterError(400, 'bad_ref', `${label}: a variant is <atlas>/<region>/<id>.`);
 			const [, atlas, from, id] = m;
-			const rel = `refs/director_${refName(from)}_${id}.png`;
+			const rel = `refs/director_${refName(atlas)}_${refName(from)}_${id}.png`;
 			await putOnce(`${root}/input/${rel}`, await variantPng(ctx, atlas, from, id));
 			return rel;
 		}

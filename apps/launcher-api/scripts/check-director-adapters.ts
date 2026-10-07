@@ -1809,6 +1809,31 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			(await atlas('queue_variants', QUEUE)).body.error,
 			'no_approved_step',
 		);
+		const h2 = recipe('H2', true);
+		RECIPES.set('ra', [recipe('H1', true), { ...recipe('L1', true), steps: h2.steps }]);
+		check(
+			"a recipe never licenses another template region's render",
+			(await atlas('queue_variants', QUEUE)).body.error,
+			'no_approved_step',
+		);
+		RECIPES.set('ra', [
+			recipe('H1', true),
+			{ ...h2, steps: [{ ...h2.steps[0], status: 'queued' }] },
+		]);
+		check(
+			'an approved step already rendered is not rendered again',
+			(await atlas('queue_variants', QUEUE)).body.error,
+			'no_approved_step',
+		);
+		RECIPES.set('ra', [
+			recipe('H1', true),
+			{ ...h2, steps: [{ ...h2.steps[0], settings: [{ key: 'ksampler_steps', value: '28' }] }] },
+		]);
+		check(
+			'an atlas whose settings differ from the approved step does not render',
+			(await atlas('queue_variants', QUEUE)).body.error,
+			'no_approved_step',
+		);
 		RECIPES.set('ra', [recipe('H1', true), recipe('H2', true)]);
 		check(
 			'a step naming a region the call does not render is refused',
@@ -2245,9 +2270,9 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			[403, 'run_on'],
 		);
 		await refusedConfig(
-			'a key off the card (the active atlas) is refused as global_config',
+			'a key off the card (the active atlas) is refused before atlas-tool',
 			{ settings: [{ key: 'manifest_path', value: 'x.json' }] },
-			[403, 'global_config'],
+			[400, 'not_on_card'],
 		);
 		await refusedConfig(
 			'a value outside the card range is refused',
@@ -2326,10 +2351,10 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			[
 				refs.status,
 				refs.body.styleRef,
-				R2.has('acme/atl/input/refs/director_W_00002.png'),
+				R2.has('acme/atl/input/refs/director_symbols_W_00002.png'),
 				JSON.parse(posted('/saveadv').at(-1)!.body).fields.checkpoint,
 			],
-			[200, 'refs/director_W_00002.png', true, 'mine.safetensors'],
+			[200, 'refs/director_symbols_W_00002.png', true, 'mine.safetensors'],
 		);
 		const again = await tech('set_refs', {
 			atlas: 'symbols',
@@ -2534,6 +2559,17 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 				JSON.parse(posted('/save').at(-1)!.body)[0].seed,
 			],
 			[200, true, '3'],
+		);
+		const unpin = await tech('choose_variant', {
+			atlas: 'symbols',
+			region: 'H2',
+			id: '00002',
+			lock: false,
+		});
+		check(
+			'lock: false never unpins a pinned region',
+			[unpin.status, unpin.body.locked, JSON.parse(posted('/save').at(-1)!.body)[0].lock],
+			[200, true, true],
 		);
 		check(
 			'every /saveconfig carried only atlas keys (no global, no run_on)',

@@ -85,7 +85,7 @@ const MATH_WORDS =
 const AGENT_WORDS = /(^|_)(agent|agents|agentdef|definition|definitions)(_|$)/;
 /** Tool names that are the shared blueprint library (ADR-0008 §3). */
 const LIBRARY_TOOLS = new Set(['blueprints', 'blueprint', 'library', 'cards', 'card', 'taxonomy']);
-const RUN_ON_WORDS = /(^|_)(run_on|runon|transport)(_|$)/;
+const RUN_ON_WORDS = /(^|_)(run_on|runon)(_|$)/;
 const GLOBAL_WORDS = /(^|_)(global|globals|atlas_config|saveconfig|project_settings)(_|$)/;
 /** Destroying art: a delete-ish verb on an art noun (`remove_layer` is neither). */
 const DELETE_VERBS = /(^|_)(delete|del|clear|remove|purge|wipe|drop)(_|$)/;
