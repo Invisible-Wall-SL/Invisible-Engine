@@ -111,6 +111,9 @@ const rows = (row: Record<number, number>): PaytableRow[] =>
 	);
 	check('lines vocabulary picks the lines mapping', pickMappingForConfig(LINES_CONFIG) === linesMapping); // prettier-ignore
 	check('an undecidable vocabulary picks nothing', pickMappingForConfig({ symbols: ['PIC1', 'SCAT'] }) === null); // prettier-ignore
+	// A lines-mock pool may lack PIC5-PIC7 (a Book-of pool without L1, L2 and L5); an extended name marks it.
+	check('a lone extended name (PIC9) marks a lines server', pickMappingForConfig({ symbols: ['PIC1', 'PIC9', 'SCAT'] }) === linesMapping); // prettier-ignore
+	check('…as does PIC8 or PIC10', ['PIC8', 'PIC10'].every((name) => pickMappingForConfig({ symbols: ['PIC1', name] }) === linesMapping)); // prettier-ignore
 	// The book mock declares only a project's in-play pool, which can leave out ACE, KING and QUEEN.
 	check('a Book pool without ACE, KING or QUEEN still picks the book mapping', pickMappingForConfig({ symbols: ['PIC1', 'JACK', 'TEN', 'SCAT'] }) === bookMapping); // prettier-ignore
 	check('a lone TEN marks a book server', pickMappingForConfig({ symbols: ['TEN'] }) === bookMapping); // prettier-ignore

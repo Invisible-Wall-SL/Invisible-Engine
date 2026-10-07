@@ -673,10 +673,12 @@ Plan: [hold-and-win.md](../design/hold-and-win.md) §1.3/§5; hub: [hold-and-win
    modal).
 3. _Closed 2026-10-07:_ the Book-of trigger rate on the lines mock now matches the book mock (see
    Recent changes).
-4. **An authored `minReels` on a Book-of KIND project** morphs on screen by the authored threshold
-   (the bridge) while the book mock still pays by the captured one (`PIC1` from 2, else 3). Only a
-   project that edits the preset's thresholds before it migrates sees it; the lines mock pays the
-   authored one.
+4. **An authored `minReels` reaches only a lines-vocabulary server.** The facade applies the
+   `__IE_EXPAND_MIN_REELS__` bridge only while its active mapping is `linesMapping` (our lines mock,
+   which deals the authored thresholds); a book-vocabulary server — the book mock, the partner —
+   keeps the captured rule (`PIC1` from 2 reels, else 3) on both sides, whatever the config says. So
+   a Book-of KIND project's authored thresholds act nowhere until it migrates to the lines mock, and
+   a partner game's never do: its server decides.
 5. **Scatter math the mocks still disagree on (owner decision).** The lines mock's placeholder pays
    `3:2 4:10 5:100` while the info page's default shows `3:2 4:20 5:200` — undeclared, so no check
    sees it; authoring the scatter row fixes it per project. The book mock DECLARES `3:2 4:20 5:200`
@@ -706,6 +708,10 @@ Plan: [hold-and-win.md](../design/hold-and-win.md) §1.3/§5; hub: [hold-and-win
    `freeSpins` still starts the host's free spins on the book mock (`turn.hostFeature`) with the
    section switched off, and the validator says nothing. Either the validator should refuse that
    route while free spins are off, or the mock should refuse it; decide with the pots overlay.
+11. **No max-win cap on either mock.** Neither the lines mock nor the book mock caps a round at the
+   config's `max_win` (the book mock only declares `maxWinMp`; the lines mock sends `maxWinCap: 0`),
+   so an Invisible Test Server round total — a long Book-of feature especially — is uncapped and
+   must not be read as what a capped real server would pay.
 
 **Not a gap:** `packages/game-spec`'s generator emits const-based `paytable.ts`/`infoManifest.ts`,
 but it is a standalone CLI that `new-game.mjs` does NOT call — the scaffold copies `src/` from an
@@ -751,13 +757,21 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
   book mock's 5% a cell, not the lines mock's 4%, and a forced or bought board carries four books;
   no other game's deal moves). The preset on the lines mock vs the book mock, 2,000 forced features
   each: the special's draw matches the captured weights on both (worst 1.45 points); it expands on
-  16.8% vs 17.2% of free spins over 3.0 reels, paying 8.0× vs 8.4× the bet per free spin; books
+  16.81% vs 17.22% of free spins over 3.0 reels, paying 7.97× vs 8.42× the bet per free spin; books
   retrigger on 3.41% vs 3.44% of free spins and a feature lasts 15.2 vs 15.2 spins; the base game
   triggers on 3.71% vs 3.65% of 20,000 spins (3.62% expected at 5% a cell). **Where they still
   differ:** the book's scatter row pays (decision 1; the book mock pays 0), so every forced or
   bought round's four books pay 20× the bet; books substitute on lines (decision 2);
   `betOptionsName` is declared, lines are 0-based, no `maxWinMp`; the RNG streams differ, so seeded
   boards do.
+  **Review of #1120:** the facade reads the `minReels` bridge only on a lines-vocabulary server, so
+  `expandingSymbol: {}` (which publishes every candidate at 3) no longer hides a paid 2-reel PIC1
+  expansion on the book mock or the partner (`check:expanding-symbol` §7, fails on 47dfc1db). The
+  special is priced per line × every payline (`payoutBaseFor` × lines, the book mock's
+  `betPerLine × NUM_LINES`), not on the staked total, so a line-config game staked on fewer lines
+  than it pays is not underpaid (§3). The test server bounds the draw table (≤ 32 candidates, weight
+  ≤ 1,000,000; §9). `check:resume` §8 resumes a ways feature and a cascade base win on the lines
+  mock; `check:paytable` pins `PIC8`–`PIC10` as lines markers.
 
 - 2026-10-07 — **The expanding symbol as config** (Phase 2 of
   [book-feature.md](../design/book-feature.md)). **Schema:** `freeSpins.expandingSymbol`

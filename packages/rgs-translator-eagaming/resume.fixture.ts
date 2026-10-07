@@ -7,7 +7,7 @@
  * the facade — its sessions, seq and gid are module state, exactly what a closed tab loses — against
  * a server that still holds the round.
  *
- * SEVEN claims:
+ * EIGHT claims:
  *
  *  1. NOTHING OPEN, NOTHING CHANGES. A boot with no open round hands the engine no round.
  *  2. A BASE WIN LEFT UNCOLLECTED IS SHOWN, THEN PAID. The boot replays the round (charging nothing),
@@ -37,6 +37,8 @@
  *     spins is replayed where it was stored, with the same special, played out and collected once —
  *     what claim 3 holds the book mock to. Before `docs/design/book-feature.md` Phase 3 the lines mock
  *     never told a reloading client a round was open, and every lines game abandoned it.
+ *  8. …FOR EVERY MODEL IT DEALS: a ways feature cut off between free spins, and a cascade base win
+ *     left uncollected, tumbles and all, are replayed, presented and collected once.
  */
 
 import { readFileSync } from 'node:fs';
@@ -624,6 +626,103 @@ console.log('\n7. the lines mock resumes too: a Book-of feature cut off between 
 	// A shown amount is hundredths of the BASE stake (10 cents), so it reads as tenths of a cent.
 	check('the server paid exactly the win shown, on top of ONE buy', held().balance, afterBuy + shown / 10); // prettier-ignore
 	linesServer.close();
+}
+
+console.log('\n8. the lines mock resumes every model: a ways feature, a cascade base win');
+{
+	type Raw = Awaited<ReturnType<typeof post>>;
+	/** A lines mock of its own behind a server, with a `send` that posts as a dead tab would. */
+	const serve = async (sid: string, opts: Record<string, unknown>) => {
+		const mock = createLinesMock({ quiet: true, startBalance: START, ...opts });
+		const httpServer: Server = createServer((req, res) =>
+			mock.handle(req, res, new URL(req.url ?? '/', `http://${req.headers.host}`)),
+		);
+		await new Promise<void>((resolve) => httpServer.listen(0, resolve));
+		const url = `localhost:${(httpServer.address() as { port: number }).port}`;
+		const send = async (seq: number, gid: string | null, body: unknown): Promise<Raw> => {
+			const query = `sid=${sid}&seq=${seq}${gid ? `&gid=${gid}` : ''}`;
+			const res = await fetch(`http://${url}/rgs/engine?${query}`, {
+				method: 'POST',
+				body: JSON.stringify(body),
+			});
+			return (await res.json()) as Raw;
+		};
+		await send(0, null, []);
+		return { mock, httpServer, url, send, held: () => mock.sessions.get(sid) as MockSession };
+	};
+	/** Boot a new tab, recording each request it posts and the events each answer carried. */
+	const reload = async (sid: string, url: string) => {
+		const tab = await openTab();
+		const sent: { request: string; events: Raw['events'] }[] = [];
+		const realFetch = globalThis.fetch;
+		globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+			const body = JSON.parse(String(init?.body ?? '[]')) as { action: string }[];
+			const response = await realFetch(input, init);
+			const { events = [] } = (await response.clone().json()) as Raw;
+			sent.push({
+				request: `${new URL(String(input)).searchParams.get('seq')}:${body.map((a) => a.action).join('+')}`,
+				events,
+			});
+			return response;
+		}) as typeof fetch;
+		const answer = (await tab.requestAuthenticate({ sessionID: sid, rgsUrl: url, language: 'en' })) as Answer; // prettier-ignore
+		globalThis.fetch = realFetch;
+		const replays = sent.filter(
+			(r) => /^\d+:[a-z]/i.test(r.request) && !r.request.endsWith('config'),
+		);
+		return { tab, answer, replays };
+	};
+
+	// A ways game's feature, cut off after two free spins.
+	{
+		const sid = 'S-ways';
+		const ways = await serve(sid, { label: 'resume-ways', seed: 'resume-ways', winModel: 'ways', paylines: [], forceTrigger: true }); // prettier-ignore
+		const opened = await ways.send(0, null, [
+			{ action: 'bet', context: [5, 1] },
+			{ action: 'play', context: '' },
+		]);
+		const gid = opened.platform.gameRound?.id ?? null;
+		const dealt = [opened, await ways.send(2, gid, [{ action: 'play' }]), await ways.send(3, gid, [{ action: 'play' }])]; // prettier-ignore
+		const { tab, answer, replays } = await reload(sid, ways.url);
+		check('ways: the dealt requests are re-posted where they were stored', replays.slice(0, 3).map((r) => r.request), ['0:bet+play', '2:play', '3:play']); // prettier-ignore
+		check('ways: …and answered with what was dealt', replays.slice(0, 3).map((r) => r.events), dealt.map((r) => r.events)); // prettier-ignore
+		const state = answer.round?.state ?? [];
+		const counters = state.filter((e) => e.type === 'updateFreeSpin');
+		check('ways: the round reaches the engine as ACTIVE', answer.round?.active, true);
+		check('ways: every spin of it is presented', state.filter((e) => e.type === 'reveal').length, 1 + (counters.at(-1)?.total ?? 0)); // prettier-ignore
+		check('ways: played out and collected once', ways.held().round, null);
+		const end = (await tab.requestEndRound({ sessionID: sid, rgsUrl: ways.url })) as Answer;
+		check('ways: …ending on the server’s wallet', end.balance?.amount, ways.held().balance * ENGINE_PER_CENT); // prettier-ignore
+		ways.httpServer.close();
+	}
+
+	// A cascade (cluster) base win its tab never collected: `play` with a null context leaves a paid
+	// round open, and its tumble chain is part of what was stored.
+	{
+		const sid = 'S-cascade';
+		const tumble = await serve(sid, { label: 'resume-cascade', seed: 'resume-cascade', winModel: 'cluster', reels: 6, rows: 5, paylines: [], cascade: true, cascadeDemo: false, freeSpins: false }); // prettier-ignore
+		let opened: Raw | null = null;
+		for (let i = 0; i < 200 && !opened; i++) {
+			const r = await tumble.send(0, null, [
+				{ action: 'bet', context: [1, 1] },
+				{ action: 'play', context: null },
+			]);
+			if (r.events.some((e) => e.event === 'tumbleStep') && tumble.held().round) opened = r;
+		}
+		check('cascade: a tumbling win is left open', opened !== null, true);
+		if (opened) {
+			const before = tumble.held().balance;
+			const win = (opened.events.find((e) => e.event === 'gameEnd')?.context as { win: number }).win; // prettier-ignore
+			const { tab, answer, replays } = await reload(sid, tumble.url);
+			check('cascade: the round is re-posted where it was stored', replays.map((r) => r.request).slice(0, 1), ['0:bet+play']); // prettier-ignore
+			check('cascade: …and answered with the same tumbles', replays[0]?.events, opened.events);
+			check('cascade: the round reaches the engine as ACTIVE', answer.round?.active, true);
+			const end = (await tab.requestEndRound({ sessionID: sid, rgsUrl: tumble.url })) as Answer;
+			check('cascade: requestEndRound collects it once', [tumble.held().round, tumble.held().balance], [null, before + win]); // prettier-ignore
+			check('cascade: …ending on the server’s wallet', end.balance?.amount, tumble.held().balance * ENGINE_PER_CENT); // prettier-ignore
+		}
+		tumble.httpServer.close();
+	}
 }
 
 server.close();

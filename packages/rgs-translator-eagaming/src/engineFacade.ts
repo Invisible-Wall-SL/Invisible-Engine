@@ -69,6 +69,7 @@ import type {
 	Play4FunResponse,
 } from './types';
 import {
+	linesMapping,
 	mapSymbol,
 	resolveActiveMapping,
 	pickMappingForConfig,
@@ -548,14 +549,19 @@ const BOOK_AMOUNT_MULTIPLIER = 100;
  *  translated — which is a resumed round, inside `requestAuthenticate`. */
 type FacadeWinTier = { level: number; threshold: number; type: 'small' | 'medium' | 'big' };
 
-/** The fewest reels the free-spin special must cover to expand, read from the thresholds the ENGINE
+/** The fewest reels the free-spin special must cover to expand. On a LINES-vocabulary server (our
+ *  lines mock, which deals the project's authored thresholds) it is read from what the ENGINE
  *  published from the project's `freeSpins.expandingSymbol` (`engine-game`'s `gameConfig.ts` →
  *  `publishExpandMinReelsToFacade`), keyed by CLIENT symbol — the same bridge as the win tiers above.
- *  No bridge, or no entry for this symbol (a partner server drawing a symbol the config does not
- *  name), ⇒ the captured Book of Thermopylae rule: `PIC1` from 2 reels, every other from 3. */
+ *  A BOOK-vocabulary server (the partner's, the book mock) pays by its own captured rule whatever the
+ *  config says, so it never reads the bridge; nor does a lines server without one, or a special the
+ *  bridge does not name. Those keep the captured Book of Thermopylae rule: `PIC1` from 2 reels,
+ *  every other from 3. */
 const expandMinReels = (special: string, client: string): number => {
-	const authored = (globalThis as { __IE_EXPAND_MIN_REELS__?: Record<string, number> })
-		.__IE_EXPAND_MIN_REELS__;
+	const authored =
+		activeMapping === linesMapping
+			? (globalThis as { __IE_EXPAND_MIN_REELS__?: Record<string, number> }).__IE_EXPAND_MIN_REELS__
+			: undefined;
 	const minReels = authored?.[client];
 	if (typeof minReels === 'number' && Number.isInteger(minReels) && minReels >= 1) return minReels;
 	return special === 'PIC1' ? 2 : 3;

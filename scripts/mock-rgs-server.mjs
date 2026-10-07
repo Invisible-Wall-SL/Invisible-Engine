@@ -1167,9 +1167,12 @@ export function createMockRgs(opts = {}) {
 	};
 	/**
 	 * The special's own pay on a free spin, or null below its threshold or where its row prices
-	 * nothing at that reel count: on the COUNT of reels it covers, at its line row × the BASE stake —
-	 * the symbol paying that N-of-a-kind on every line at once (`payoutBaseFor` × lines). Positions
-	 * are every cell of every covered reel. Unrounded, like every evaluator; `roundPays` takes it.
+	 * nothing at that reel count: on the COUNT of reels it covers, at its line row × the per-line
+	 * base × every payline — the symbol paying that N-of-a-kind on every line at once, which is what
+	 * the line pass beside it pays per line. On a table game that is the base stake (`betOptions[0]`
+	 * is the line count); on a line-config game it holds even when the client stakes fewer lines than
+	 * the game pays. Positions are every cell of every covered reel. Unrounded, like every evaluator;
+	 * `roundPays` takes it.
 	 */
 	const expandingWin = (reels, special, round) => {
 		const covered = reels.flatMap((reel, index) => (reel.includes(special.symbol) ? [index] : []));
@@ -1181,7 +1184,7 @@ export function createMockRgs(opts = {}) {
 				what: special.symbol,
 				occurs: covered.length,
 				mode: 'scatter',
-				pay: mult * round.baseTotal,
+				pay: mult * payoutBaseFor(round) * paylines.length,
 				mpInfo: { mp: 1, replacements: 0 },
 				mpBonusInfo: null,
 				context: covered.flatMap((reel) => reels[reel].map((_cell, row) => ({ reel, row }))),

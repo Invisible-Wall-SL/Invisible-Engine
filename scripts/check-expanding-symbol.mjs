@@ -235,6 +235,22 @@ console.log('\n3. the buy and the forced trigger');
 		'…and prices the special on the BASE stake, not the buy',
 		` (${specialPays.length} special pays)`,
 	); // prettier-ignore
+	// A line-config game staked on fewer lines than it pays (`[5, 1]` on ten): the special pays its
+	// row on EVERY payline, at the per-line stake, as the line pass beside it does.
+	const lineConfig = linesMock({ seed: 'line-config', forceTrigger: true, betModes: undefined });
+	const lineConfigPays = [];
+	for (let r = 0; r < 20; r++) {
+		const [, ...fs] = await playRound(lineConfig, 'lc');
+		for (const e of fs.flat())
+			if (e.event === 'spinWin' && e.context.mode === 'scatter' && e.context.what !== 'SCAT')
+				lineConfigPays.push(e.context);
+	}
+	check(
+		lineConfigPays.length > 0 &&
+			lineConfigPays.every((w) => w.pay === Math.max(1, Math.round(PRESET.symbolPaytable[w.what][w.occurs] * 1 * PRESET.paylines.length))),
+		'a line-config game prices the special per line × every payline, not on the staked lines',
+		` (${lineConfigPays.length} special pays)`,
+	); // prettier-ignore
 	const forced = linesMock({ seed: 'forced', forceTrigger: true });
 	const [forcedBase] = await playRound(forced, await booted(forced, 'forced'));
 	check(Boolean(ev(forcedBase, 'pickRandomly')), 'a forced trigger draws it');
@@ -386,6 +402,19 @@ console.log('\n7. the facade’s morph gate reads the authored minReels (__IE_EX
 		twoReelMorphs(unnamed) === 0,
 		'a bridge that does not name the special ⇒ today’s gate for it',
 	);
+	// A BOOK-vocabulary server pays by its own captured rule (PIC1 from 2 reels) whatever the config
+	// says, so a bridge — here every candidate at the default 3, what `expandingSymbol: {}` publishes
+	// — must not stop a paid 2-reel PIC1 from morphing.
+	globalThis.__IE_EXPAND_MIN_REELS__ = { H1: 3, L1: 3 };
+	const onBook = await presented(
+		() => bookMock({ seed: 'bridge-book', forceTrigger: true, symbols: ['PIC1', 'ACE', 'SCAT'] }),
+		'b-book',
+		30,
+	);
+	const pic1TwoReels = (rounds, pick) => rounds.flatMap((r) => pick(r)).length;
+	const paidOnTwo = pic1TwoReels(onBook, (r) => r.raw.filter((e) => e.event === 'spinWin' && e.context.what === 'PIC1' && e.context.mode === 'scatter' && e.context.occurs === 2)); // prettier-ignore
+	const morphedOnTwo = pic1TwoReels(onBook, (r) => r.state.filter((e) => e.type === 'expandBookColumns' && e.symbol === 'H1' && e.reels.length === 2)); // prettier-ignore
+	check(paidOnTwo > 0 && morphedOnTwo === paidOnTwo, 'a book server ignores the bridge: PIC1 paid on 2 reels still morphs', ` (${morphedOnTwo}/${paidOnTwo})`); // prettier-ignore
 	delete globalThis.__IE_EXPAND_MIN_REELS__;
 }
 
@@ -473,6 +502,8 @@ console.log('\n9. the Invisible Test Server forwards the block from a manifest e
 	const games = {
 		preset: { name: 'preset', protocol: 'lines', grid: PRESET },
 		malformed: { name: 'malformed', protocol: 'lines', grid: { ...PRESET, expandingSymbol: malformed } },
+		crowded: { name: 'crowded', protocol: 'lines', grid: { ...PRESET, expandingSymbol: { candidates: Array.from({ length: 33 }, () => CANDIDATES[0]) } } },
+		heavy: { name: 'heavy', protocol: 'lines', grid: { ...PRESET, expandingSymbol: { candidates: [{ ...CANDIDATES[0], weight: 1e7 }] } } },
 	}; // prettier-ignore
 	writeFileSync(join(tree, 'games.json'), JSON.stringify({ games }));
 	const server = await startTestServer(tree, { SEED: 'expanding-symbol', FORCE_TRIGGER: '1' });
@@ -493,6 +524,10 @@ console.log('\n9. the Invisible Test Server forwards the block from a manifest e
 		check(JSON.stringify(ev(preset, 'spinStart').context.wildSymbols) === '["SCAT"]', '…and its book as wild'); // prettier-ignore
 		const dropped = await first('malformed');
 		check(ev(dropped, 'enterBonus') && !ev(dropped, 'pickRandomly'), 'a malformed block is dropped whole (minReels past the reels)'); // prettier-ignore
+		for (const key of ['crowded', 'heavy']) {
+			const events = await first(key);
+			check(ev(events, 'enterBonus') && !ev(events, 'pickRandomly'), `…and so is one out of bounds (${key})`); // prettier-ignore
+		}
 	} finally {
 		server.stop();
 		rmSync(tree, { recursive: true, force: true });
