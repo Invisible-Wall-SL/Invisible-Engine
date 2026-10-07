@@ -89,18 +89,12 @@
 		onTemplateChange(templatesOf(kind)[0]?.key ?? '');
 	}
 
-	// ── Preset and checkpoints ────────────────────────────────────────────────
-	let blueprint = $state('sdxl');
-	let draftPx = $state(512);
-	let finalPx = $state(1024);
-	let variantsPerRegion = $state(3);
-	let gpu = $state('');
+	// ── Checkpoints ───────────────────────────────────────────────────────────
 	let cpBreakdown = $state(true);
 	let cpArtPlan = $state(true);
 	let cpRegionBatch = $state(true);
 	let notes = $state('');
 
-	const presetBody = $derived({ blueprint, draftPx, finalPx, variantsPerRegion, gpu });
 	const checkpointsBody = $derived({
 		breakdown: cpBreakdown,
 		artPlan: cpArtPlan,
@@ -257,7 +251,6 @@
 	$effect(() => {
 		const tk = templateKey;
 		const m = analysedMockups;
-		const p = presetBody;
 		const c = checkpointsBody;
 		if (!tk) {
 			estimate = null;
@@ -268,7 +261,7 @@
 			estimating = true;
 			try {
 				const answer = await api<EstimateAnswer>('/api/director/estimate', {
-					json: { template: tk, mockups: m, preset: p, checkpoints: c },
+					json: { template: tk, mockups: m, checkpoints: c },
 				});
 				if (seq !== estimateSeq) return;
 				estimate = answer;
@@ -337,7 +330,6 @@
 			gameType,
 			template: templateKey,
 			notes: notes.trim(),
-			preset: presetBody,
 			checkpoints: checkpointsBody,
 		};
 		const sent = (createPending ??= { requestId: newRequestId(), body });
@@ -353,7 +345,7 @@
 			if (asFirstSent) {
 				sessionStorage.setItem(
 					`director:note:${run.id}`,
-					'The create request was resent as first written: the name, notes, preset and checkpoints are those of the first attempt.',
+					'The create request was resent as first written: the name, notes and checkpoints are those of the first attempt.',
 				);
 			}
 			createStage = 'Starting the agents…';
@@ -394,11 +386,6 @@
 			]);
 			offer = got;
 			runs = mine.runs;
-			blueprint = got.preset.default.blueprint;
-			draftPx = got.preset.default.draftPx;
-			finalPx = got.preset.default.finalPx;
-			variantsPerRegion = got.preset.default.variantsPerRegion;
-			gpu = got.preset.default.gpu;
 			cpBreakdown = got.checkpoints.breakdown;
 			cpArtPlan = got.checkpoints.artPlan;
 			cpRegionBatch = got.checkpoints.regionBatch;
@@ -428,9 +415,9 @@
 				<section class="card" aria-label="Project">
 					<h1>Create a game with agents</h1>
 					<p class="hint">
-						Same project setup as Game Maker. Pick the client and game type, then a template and a
-						preset, and start from design mockups, a style description or both. The agents build it
-						while you review.
+						Same project setup as Game Maker. Pick the client and game type, then a template, and
+						start from design mockups, a style description or both. The agents build it while you
+						review.
 					</p>
 					<div class="grid four">
 						<label>
@@ -540,61 +527,6 @@
 							</div>
 						</div>
 					{/if}
-				</section>
-
-				<section class="card" aria-label="Preset">
-					<h2>Preset</h2>
-					<p class="hint">
-						The chain the atlas technician starts from when this template has no approved default
-						recipe yet. It plans each region from the reviewed blueprint cards, and you approve that
-						plan at the Art plan checkpoint. Renders run, and are priced, on the GPU atlas-tool
-						reports.
-					</p>
-					<div class="grid five">
-						<label>
-							Blueprint
-							<input
-								class="mono"
-								bind:value={blueprint}
-								pattern="[a-z0-9][a-z0-9_\-]{'{'}0,63}"
-								spellcheck="false"
-							/>
-						</label>
-						<label>
-							Drafts
-							<select bind:value={draftPx}>
-								{#each offer?.preset.resolutions ?? [draftPx] as px (px)}
-									<option value={px}>{px} px</option>
-								{/each}
-							</select>
-						</label>
-						<label>
-							Finals
-							<select bind:value={finalPx}>
-								{#each offer?.preset.resolutions ?? [finalPx] as px (px)}
-									<option value={px}>{px} px</option>
-								{/each}
-							</select>
-						</label>
-						<label>
-							Variants per region
-							<input
-								type="number"
-								min="1"
-								max={offer?.preset.maxVariantsPerRegion ?? 8}
-								step="1"
-								bind:value={variantsPerRegion}
-							/>
-						</label>
-						<label>
-							GPU
-							<select bind:value={gpu}>
-								{#each offer?.preset.gpus ?? [gpu] as g (g)}
-									<option value={g}>{g}</option>
-								{/each}
-							</select>
-						</label>
-					</div>
 				</section>
 
 				<section class="card" aria-label="Starting point">
@@ -1013,9 +945,6 @@
 	}
 	.grid.four {
 		grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-	}
-	.grid.five {
-		grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 	}
 	label {
 		display: flex;

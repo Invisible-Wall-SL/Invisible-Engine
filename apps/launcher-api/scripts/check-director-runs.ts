@@ -768,8 +768,16 @@ console.log('create');
 		{ folder: 'lines_sample', client: 'acme', onLockTx: true },
 	);
 	check('no mockups and no notes', await refused({ notes: '' }), [400, 'notes_required']);
-	check('a bad preset', await refused({ preset: { variantsPerRegion: 0 } }), [400, 'bad_preset']);
-	check('an unpriced GPU', await refused({ preset: { gpu: 'Abacus' } }), [400, 'bad_preset']);
+	{
+		const before = RUNS.size;
+		const stale = await create(OWNER, createBody({ preset: { blueprint: 'sdxl' } }));
+		check(
+			'a stale page that still sends a preset is refused, naming the key (card 8C)',
+			[stale.status, stale.body.error, String(stale.body.message).startsWith('"preset"')],
+			[400, 'bad_request', true],
+		);
+		check('…before any run is made', RUNS.size, before);
+	}
 	check('a bad checkpoint flag', await refused({ checkpoints: { breakdown: 'yes' } }), [
 		400,
 		'bad_checkpoints',
@@ -826,13 +834,11 @@ console.log('create');
 			'match',
 		],
 	);
-	check('the preset defaults are stored', run.preset, {
-		blueprint: 'sdxl',
-		draftPx: 512,
-		finalPx: 1024,
-		variantsPerRegion: 3,
-		gpu: 'RTX 4090 (24 GB)',
-	});
+	check(
+		'no preset is written or answered: the column keeps its default (card 8C)',
+		['presetJson' in RUNS.get(run.id)!, 'preset' in run],
+		[false, false],
+	);
 	check('the checkpoints default on', run.checkpoints, {
 		breakdown: true,
 		regionBatch: true,
@@ -857,6 +863,14 @@ console.log('create');
 		[200, true, run.id],
 	);
 	check('…and made nothing new', [RUNS.size, duplicates], [1, 1]);
+	{
+		const stale = await create(OWNER, { ...body, preset: { blueprint: 'sdxl' } });
+		check(
+			'a resend from a tab open across the 8C deploy gets its run back, not the preset refusal',
+			[stale.status, stale.body.replayed, (stale.body.run as { id: string }).id],
+			[200, true, run.id],
+		);
+	}
 	check('another request for the same key is key_exists', await refused({}), [400, 'key_exists']);
 	const other = await create(OWNER, { ...body, template: 'lines-sample', gameType: 'lines' });
 	check(
@@ -1584,9 +1598,22 @@ console.log('estimate');
 	const answer = await call(estimateRoute.POST, {
 		user: OWNER,
 		url: '/api/director/estimate',
-		body: { template: 'hw', mockups: 3, preset: { variantsPerRegion: 3 }, checkpoints: {} },
+		body: { template: 'hw', mockups: 3, checkpoints: {} },
 	});
 	check('the estimate answers', answer.status, 200);
+	check('…with no preset in it', 'preset' in answer.body, false);
+	{
+		const stale = await call(estimateRoute.POST, {
+			user: OWNER,
+			url: '/api/director/estimate',
+			body: { template: 'hw', mockups: 3, preset: { variantsPerRegion: 3 } },
+		});
+		check(
+			'an estimate that still sends a preset is refused, naming the key',
+			[stale.status, stale.body.error, String(stale.body.message).startsWith('"preset"')],
+			[400, 'bad_request', true],
+		);
+	}
 	const est = answer.body.estimate as Record<string, Record<string, unknown>> & {
 		checkpoints: number;
 		placeholder: boolean;
@@ -1858,15 +1885,7 @@ console.log('templates');
 		(hw.body.templates as { key: string }[]).map((t) => t.key),
 		['hw'],
 	);
-	check(
-		'the preset defaults and bounds',
-		[
-			(hw.body.preset as { default: { gpu: string } }).default.gpu,
-			(hw.body.preset as { gpus: string[] }).gpus.length > 0,
-			(hw.body.preset as { maxVariantsPerRegion: number }).maxVariantsPerRegion,
-		],
-		['RTX 4090 (24 GB)', true, 8],
-	);
+	check('no preset is offered (card 8C)', 'preset' in hw.body, false);
 	check(
 		'the game kinds',
 		(hw.body.gameKinds as { id: string }[]).map((k) => k.id),

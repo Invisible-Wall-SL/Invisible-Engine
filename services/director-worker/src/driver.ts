@@ -1206,7 +1206,6 @@ function brief(live: LiveRun): string {
 				project: live.projectKey,
 				client: live.clientKey,
 				template: live.templateProjectKey,
-				preset: live.presetJson,
 				startingPoint: live.startingPointJson,
 				checkpoints: live.state.checkpoints,
 				budgetCapUsd: live.budgetCapUsd,

@@ -10,8 +10,9 @@ import type { RequestHandler } from './$types';
  *   GET  /api/director/runs[?project=<key>[&client=<key>]]   the caller's runs, newest first — inside
  *                                                           one project when named
  *   POST /api/director/runs                                   create a run, in `draft`
- *        { requestId, key, name, clientKey?, gameType?, template, notes?, preset?, checkpoints? }
+ *        { requestId, key, name, clientKey?, gameType?, template, notes?, checkpoints? }
  *        → 200 { run: <summary>, replayed }   (201 on the first answer)
+ *        A body that still sends the retired `preset` is refused 400 `bad_request`.
  *
  * Session-gated on the `director` tool, and a create on Game Maker's too (403
  * `game_maker_required`): it takes the same fields and validation as Game Maker's "Create a

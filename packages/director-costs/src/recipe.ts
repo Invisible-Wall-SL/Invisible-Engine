@@ -562,25 +562,19 @@ export const defaultChainOf = (steps: readonly StepInput[]): DefaultStep[] =>
 		settings,
 	}));
 
-/** The preset a run stored before card 8C, as far as the fallback recipe reads it. */
-export interface PresetShape {
-	blueprint?: unknown;
-	finalPx?: unknown;
-	variantsPerRegion?: unknown;
-}
-
 /**
- * The fallback default recipe until a template has its own (§5, §1 "expand then contract"): the
- * old preset's blueprint at its final size and its variants, then `birefnet`, then finish.
+ * The fallback default chain (§5 "Reuse") from the estimate profiles' `fallbackRecipe`: its
+ * pipeline at its size and variants, then its process step, then finish.
  */
-export function presetDefaultChain(preset: PresetShape | null | undefined): DefaultStep[] {
-	const pipeline =
-		typeof preset?.blueprint === 'string' && preset.blueprint ? preset.blueprint : 'sdxl';
-	const genPx = isNum(preset?.finalPx) ? preset.finalPx : 1024;
-	const variants = isNum(preset?.variantsPerRegion) ? preset.variantsPerRegion : 3;
+export function fallbackDefaultChain(r: {
+	pipeline: string;
+	genPx: number;
+	variants: number;
+	process: string;
+}): DefaultStep[] {
 	return [
-		{ kind: 'generate', pipeline, genPx, variants, settings: [] },
-		{ kind: 'process', pipeline: 'birefnet', genPx, variants: 1, settings: [] },
+		{ kind: 'generate', pipeline: r.pipeline, genPx: r.genPx, variants: r.variants, settings: [] },
+		{ kind: 'process', pipeline: r.process, genPx: r.genPx, variants: 1, settings: [] },
 		{ kind: 'finish', pipeline: '', genPx: 0, variants: 0, settings: [] },
 	];
 }

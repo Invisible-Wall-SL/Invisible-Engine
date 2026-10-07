@@ -15,7 +15,7 @@ tools:
   - gamemaker.get_template
   - atlas.list_blueprints
   - costs.get_run_spend
-inputs: The run record (project, template, preset (the fallback default recipe until card 8C), starting point, checkpoints), the owner's messages, task reports from the other agents, spend so far and the budget cap.
+inputs: The run record (project, template, starting point, checkpoints), the owner's messages, task reports from the other agents, spend so far and the budget cap.
 outputs: The run plan (ordered region batches), task assignments, activity entries, checkpoint requests, questions to the owner, pipeline-change requests.
 ---
 

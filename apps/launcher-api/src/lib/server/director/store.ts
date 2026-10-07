@@ -342,7 +342,6 @@ export interface NewRun {
 	clientKey: string | null;
 	templateProjectKey: string;
 	ownerUserId: string;
-	presetJson: unknown;
 	startingPointJson: unknown;
 	checkpointsJson: unknown;
 }

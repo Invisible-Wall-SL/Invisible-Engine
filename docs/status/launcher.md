@@ -59,6 +59,31 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+- 2026-10-07 — **Invisible Director: the Preset is gone** (ADR-0008 card 8C, stacked on 8D and
+  8E). Inert for a person and for every current game; revertable, no migration.
+  - **New game** loses the Preset card (blueprint, draft/final size, variants, GPU).
+    `/api/director/templates` no longer answers `preset`; a create or estimate body that still
+    sends `preset` is refused `400 bad_request` naming the key, so a stale page fails loudly.
+  - **Nothing reads or writes `director_runs.preset_json`**: the launcher's `runs.ts` (create,
+    estimate, summary, start) and the worker's `store.ts` (`withLease`) and `driver.ts` (the
+    coordinator's brief). New rows take the column's `{}` default; card 8F drops the column.
+  - **The fallback chain** comes from `estimate-profiles.json` `fallbackRecipe`
+    (`sdxl 1024 ×3 → birefnet`, validated by `parseEstimateProfiles`): the estimate prices an atlas
+    with no template default at it, and the worker's `FALLBACK_CHAIN` briefs the technician with
+    the same, labelled "fallback (the estimate profiles)". `presetDefaultChain` is replaced by
+    `fallbackDefaultChain`. The worker image now copies `estimate-profiles.json`.
+  - **Create replay:** the refusal comes after the request-id replay, so a tab open across the
+    deploy that resends a create the old build made gets its run back.
+  - **Deploy:** only when no started run is unended — `check:idle --strict` (new; waiting and
+    paused runs count, and so do drafts still holding a pre-8C preset, which a later start would
+    silently drop). See the deploy skill.
+  - **Open:** the per-run Budget cap input on New game (ADR-0008 §1, owner decision 4) is not
+    built; SPEC §1.1 says so.
+  - Tests: `check:director-runs` 460 (stale `preset` refused on create and estimate, nothing
+    stored or answered; a stale resend is still replayed), `check:recipes` 67, `prove:art-plan` 40 (a stale `preset_json` of
+    flux 768 ×2 is ignored; the brief carries the profiles' chain), `prove:breakdown` 80 (the
+    coordinator's brief names no preset), `prove:idle` 10 (`quiet`, preset drafts).
+
 - 2026-10-07 — **Invisible Director: the Art plan checkpoint, "How this was made" and chain
   pricing** (ADR-0008 card 8E, stacked on 8D). Inert for a person and for every current game.
   - **Pricing rules** (`packages/director-costs/src/recipe.ts`): one image of a step costs the

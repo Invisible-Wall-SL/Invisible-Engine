@@ -47,14 +47,7 @@ The same project setup as Game Maker's "Create a game", plus what the agents nee
    pick, the template's **GAME** and **USING** chips (the same as its Game Maker card) and its
    **LOCKED** items: math contract, paytable, bet modes, paylines, feature rules. The agents never
    change these; a mockup that clashes with one is reported, not worked around.
-3. **Preset.** The Atlas Maker blueprint id (`sdxl` by default), draft and final render sizes,
-   variants per region (1–8) and a GPU. It is only the chain the atlas technician starts from when
-   the template has no approved default recipe yet: the blueprint at the final size with your
-   variants, then `birefnet`, then finish (`sdxl 1024 ×3 → birefnet → finish`). The technician
-   plans each region from the reviewed blueprint cards, and you approve that plan at the **Art
-   plan** checkpoint. Renders run, and are priced, on the GPU atlas-tool reports, not the one
-   picked here.
-4. **Starting point.** Upload design mockups (PNG or JPG, 20 MB each, 12 at most) and tag each with
+3. **Starting point.** Upload design mockups (PNG or JPG, 20 MB each, 12 at most) and tag each with
    the screen it shows: Base game, Hold and Win bonus, Big win, Paytable, … or **Style reference
    only** (palette and mood, never a region). Each card shows the stored file and a tag picker; ×
    removes it. Mockups are stored under the key and client of the game you are about to create,
@@ -68,17 +61,18 @@ The same project setup as Game Maker's "Create a game", plus what the agents nee
      check made before it existed. Once ticked it shows who confirmed.
    - **Notes and style** are optional with mockups and required without: a run with no mockups
      builds a style board from them instead.
-5. **Checkpoints.** Where the agents stop and wait for you: **Mockup breakdown** (recommended),
+4. **Checkpoints.** Where the agents stop and wait for you: **Mockup breakdown** (recommended),
    **Art plan** (recommended: how each region will be made — the Atlas Maker pipelines, sizes and
    variants — and what it costs, before anything renders), **After each region batch**, and
    **Before publishing**, which is always on. The first three start ticked.
-6. **What this run will do** (right): the agents and their models, the template's regions per
+5. **What this run will do** (right): the agents and their models, the template's regions per
    atlas, and the **estimate** — Claude API and RunPod ranges, your reviews, and the total against
    the budget cap a run started now would get (Settings' `DIRECTOR_RUN_BUDGET_USD`). The RunPod
    line is priced per recipe chain, at the GPU atlas-tool reports, from the reviewed blueprint
    cards and the GPU seconds measured on past runs. Each template atlas is listed with the chain it
    was priced at ("12 × symbols" · `sdxl 1024 ×3 → birefnet → finish`); hover the chain to see
-   whether it is the fallback or the template's own default ("template default v2", see "How a run
+   whether it is the fallback (the reviewed `fallbackRecipe` in the estimate profiles) or the
+   template's own default ("template default v2", see "How a run
    works"). The bar turns amber when the high end is over the cap: the run would pause there and
    ask you. The figures are placeholders until the pilot measures real runs, and the panel says
    so: a card whose GPU seconds are a guess is priced up to the profiles' fallback figure at the
@@ -88,13 +82,13 @@ The same project setup as Game Maker's "Create a game", plus what the agents nee
      (`RUNPOD_ENDPOINT_GPU`), `pricing.json` has no price for that GPU, or a chain uses a blueprint
      billed in credits — the total reads **Unknown**, a red line lists why, and **Create project &
      start agents** is disabled. The server refuses to start such a run too.
-7. **Create project & start agents.** Creates the project the way Game Maker does — the template
+6. **Create project & start agents.** Creates the project the way Game Maker does — the template
    copied with "Duplicate · full", the math contract recorded — then starts the run and opens its
    page. Pressing again after a lost connection resends the same request, never a second one
    ("This request is still being created" means the first is still copying; wait a moment). A key
    taken meanwhile says so; so does a missing ownership check, or an estimate that has not arrived
    yet ("Wait for the estimate: a run starts only on a priced estimate.").
-8. **Your runs** (below the form): every run you created, with its state, spend and a link.
+7. **Your runs** (below the form): every run you created, with its state, spend and a link.
 
 ## Mockup breakdown (`/director/<run id>`)
 
@@ -155,7 +149,7 @@ picture on a reload.
 - **Meters:** **Elapsed** since the run was created; **Claude API** spend; **RunPod `<GPU>`**
   spend with "· n jobs queued" while renders wait on the GPU ("Idle until you confirm" before the
   first). The label names the GPU renders bill on: the latest render's, else the one atlas-tool
-  reports, never the Preset's. **Cap** — "$x of $y" with a bar, marked over once the cap is reached. Then
+  reports. **Cap** — "$x of $y" with a bar, marked over once the cap is reached. Then
   **Pause** and **Stop**, each shown only when the run allows it. Stop asks first — "Stop this
   run? The agents stop after their current call and every queued render is cancelled. The project
   stays as it is." — and the button to confirm is **Stop the run**.
@@ -324,8 +318,10 @@ their request is outstanding, so nothing you typed is lost.
 
 ## Known limitations / TODOs
 
-- The Preset card is temporary: ADR-0008 card 8C removes it. Named presets ("Save as preset") are
-  not coming; the default recipes an approved Art plan leaves on the template take their place.
+- There is no Preset and no "Save as preset" (ADR-0008 card 8C removed them): the atlas technician
+  plans each region from the reviewed blueprint cards, starting from the template's approved default
+  recipes, else the fallback chain `sdxl 1024 ×3 → birefnet → finish`, and an approved Art plan
+  leaves its chains on the template as the next run's defaults.
 - The Art plan edits a whole row (every region with that chain), can remove a process step but
   not add one, and projects the GPU spend only, not the Claude spend. To change one region alone or
   add a step, say so in your note and **Send my changes**.

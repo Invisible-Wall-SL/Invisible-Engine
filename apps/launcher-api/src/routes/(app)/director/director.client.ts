@@ -4,7 +4,6 @@ import type {
 	EstimateAnswer,
 	RunCheckpoints,
 	RunListEntry,
-	RunPreset,
 	RunSummary,
 	StartingPoint,
 } from '$lib/server/director/runs';
@@ -71,12 +70,6 @@ export interface TemplatesAnswer {
 	gameKinds: { id: string; name: string }[];
 	clients: { key: string; name: string }[];
 	agents: { agent: string; model: string }[];
-	preset: {
-		default: RunPreset;
-		resolutions: readonly number[];
-		maxVariantsPerRegion: number;
-		gpus: string[];
-	};
 	checkpoints: RunCheckpoints;
 	estimatePlaceholder: boolean;
 }
@@ -105,7 +98,7 @@ export interface RunEvent {
 	payload: Record<string, unknown> | null;
 }
 
-export type { RunPreset, RunCheckpoints, StartingPoint };
+export type { RunCheckpoints, StartingPoint };
 
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);
