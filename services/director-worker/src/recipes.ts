@@ -123,8 +123,8 @@ export type SetRecipeOutcome =
 
 /**
  * `run.set_recipe`: validate, store as `rev + 1`, and open the Art plan once the plan is complete.
- * A revision of an approved recipe keeps its approval only when it changes no pipeline and does not
- * raise the projected cost (owner decision 9).
+ * A revision of an approved recipe keeps its approval only when it changes no pipeline, does not
+ * raise the projected cost (owner decision 9) and re-opens no step that has rendered.
  */
 export async function setRecipe(
 	tx: Db,
@@ -161,8 +161,9 @@ export async function setRecipe(
 		};
 	}
 	const rev = (prev?.rev ?? 0) + 1;
-	// A step the revision leaves as it was keeps what already happened to it: a rendered step is
-	// never re-opened by a resend, so it cannot be queued (and paid for) again unseen.
+	// A step the revision leaves as it was keeps what already happened to it: a resend never
+	// re-opens a rendered step, and a revision that does needs the owner again, so nothing is
+	// queued (and paid for) again unseen.
 	const steps = prev ? carryProgress(prev.steps, result.steps) : result.steps;
 	const next = { steps, projected: result.projected };
 	// Compared on one basis: the stored figure predates the timings measured since.

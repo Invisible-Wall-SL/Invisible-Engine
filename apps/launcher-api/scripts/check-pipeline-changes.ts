@@ -2617,6 +2617,56 @@ check(
 		true,
 	);
 
+	{
+		// ADR-0008 card 8D moved the artist's render tools to the technician and gave the
+		// coordinator the blueprint catalogue; the Agents tab holds both definitions to that.
+		const agentsDir = fileURLToPath(
+			new URL('../../../services/director-worker/agents/', import.meta.url),
+		);
+		const isTool = (line: string, ids: string[]) => ids.some((id) => line.trim() === `- ${id}`);
+		const without = (text: string, ids: string[]) =>
+			text
+				.split('\n')
+				.filter((line) => !isTool(line, ids))
+				.join('\n');
+		const withTools = (text: string, ids: string[]) =>
+			without(text, ids).replace(
+				/^tools:\n/m,
+				`tools:\n${ids.map((id) => `  - ${id}\n`).join('')}`,
+			);
+		const artist = readFileSync(`${agentsDir}atlas-artist.md`, 'utf8');
+		const rules = agents.agentEditRules('atlas-artist');
+		const moving = [
+			'atlas.queue_variants',
+			'atlas.choose_variant',
+			'atlas.pack_sheet',
+			'comfyui.job_status',
+		];
+		const verdict = (name: string, text: string) =>
+			agentEdit.validateAgentEdit(name, text, agents.agentEditRules(name)).ok;
+		check(
+			"the artist's former render tools: refused, named or in part; the narrowed definition passes",
+			[
+				verdict('atlas-artist', withTools(artist, moving)),
+				verdict('atlas-artist', without(artist, moving)),
+				verdict('atlas-artist', withTools(without(artist, moving), moving.slice(1))),
+			],
+			[false, true, false],
+		);
+		const coordinator = readFileSync(`${agentsDir}coordinator.md`, 'utf8');
+		check(
+			"the coordinator's catalogue: dropping it or adding another adapter op is refused",
+			[
+				verdict('coordinator', coordinator),
+				verdict('coordinator', without(coordinator, ['atlas.list_blueprints'])),
+				verdict('coordinator', withTools(coordinator, ['atlas.set_output'])),
+				agentEdit.validateAgentEdit('atlas-artist', withTools(artist, ['atlas.set_output']), rules)
+					.ok,
+			],
+			[true, false, false, false],
+		);
+	}
+
 	const why = agentEdit.whyProblem;
 	check(
 		'whyProblem: empty, blank, many lines and over 120 characters are refused',

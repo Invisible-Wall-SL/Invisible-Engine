@@ -34,7 +34,9 @@
  *     `director_blueprint_timings` once, however often its `job_done` is delivered;
  *  9. a new plan that leaves a region out takes its recipe's approval away;
  * 10. a revision is compared with the approved recipe priced on the same basis: one more variant
- *     loses the approval although the measured delay fell since.
+ *     loses the approval although the measured delay fell since;
+ * 11. a revision at the same price keeps the approval of a recipe that has rendered nothing, and
+ *     loses it, re-opening the Art plan, when it re-opens a step that has rendered.
  */
 import type {
 	BetaMessage,
@@ -42,7 +44,12 @@ import type {
 } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import postgres from 'postgres';
 import { parsePricing } from 'director-costs';
-import type { Catalogue, RecipeInput, StoredRecipe } from 'director-costs/recipe';
+import {
+	recipeInputOf,
+	type Catalogue,
+	type RecipeInput,
+	type StoredRecipe,
+} from 'director-costs/recipe';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { loadAgents, pricedModels, type AgentDefinition } from '../src/agents.ts';
@@ -1089,6 +1096,47 @@ try {
 		} else {
 			await sql`delete from director_blueprint_timings where pipeline = 'sdxl' and gen_px = 1024`;
 		}
+	}
+
+	// ── 11. Re-opening a rendered step needs the owner, whatever it costs ───────
+	console.log(
+		'11. a revision that re-opens a rendered step needs the owner again, at the same price',
+	);
+	{
+		const stored = await recipes(edited);
+		// A region-scoped setting, so the per-atlas rules hold and nothing priced changes.
+		const weighted = (region: string) => {
+			const input = recipeInputOf(stored.find((r) => r.region === region)!);
+			input.steps[0].settings = [
+				...input.steps[0].settings,
+				{ key: 'ipadapter_weight', value: '0.4' },
+			];
+			return input;
+		};
+		const model = fakeModel([
+			{ content: [setRecipe(weighted('H2')), setRecipe(weighted('H1'))] },
+			{ content: [say('Revised.')] },
+		]);
+		await message(edited, 'atlas-technician', 'A touch more style on H1 and H2.');
+		await drive(edited, deps(model.transport, fakeLauncher().launcher));
+		const after = await recipes(edited);
+		const h1 = after.find((r) => r.region === 'H1')!;
+		const h2 = after.find((r) => r.region === 'H2')!;
+		check(
+			'H2 had rendered nothing: its revision keeps the approval',
+			[h2.rev > stored.find((r) => r.region === 'H2')!.rev, h2.approved?.rev === h2.rev],
+			[true, true],
+		);
+		check(
+			'H1 had: its picked and committed steps start again, and the approval goes',
+			[h1.steps.map((st) => st.status), h1.approved],
+			[['planned', 'planned', 'planned'], null],
+		);
+		check(
+			'...and the Art plan re-opens for it alone',
+			[(await runRow(edited)).waiting_on, (await artPlanOpens(edited)).at(-1)?.payload.regions],
+			['art_plan', ['H1']],
+		);
 	}
 } finally {
 	await sql`delete from director_template_recipes where template_project_key = ${TEMPLATE}`;

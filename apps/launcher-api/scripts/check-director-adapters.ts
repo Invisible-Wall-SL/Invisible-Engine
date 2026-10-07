@@ -358,7 +358,6 @@ const { runAdapterCall } = await import(src('lib/server/director/gate.ts'));
 const {
 	ADAPTER_OPS,
 	buildRegistry,
-	TRANSITION_TOOLS,
 	opId: opIdOf,
 } = await import(src('lib/server/director/registry.ts'));
 const { GAMEMAKER_OPS } = await import(src('lib/server/director/ops/gamemaker.ts'));
@@ -2671,28 +2670,16 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 			[noStep.status, noStep.body.error],
 			[400, 'invalid_input'],
 		);
-		RECIPES.set('ra', []);
-		const legacy = await call('atlas', 'queue_variants', {
+		const artistQueue = await call('atlas', 'queue_variants', {
 			runId: 'ra',
 			agent: 'atlas-artist',
 			opId: 'ra:legacy:1',
-			input: { atlas: 'symbols', regions: ['H2'], variants: 1 },
+			input: { atlas: 'symbols', regions: ['H2'], variants: 3, step: 'H2#1' },
 		});
 		check(
-			"until its narrowed definition ships, the artist's definition still queues the pre-8D way",
-			[legacy.status, typeof legacy.body.jobRef],
-			[200, 'string'],
-		);
-		const legacyPick = await call('atlas', 'choose_variant', {
-			runId: 'ra',
-			agent: 'atlas-artist',
-			opId: 'ra:legacy:2',
-			input: { atlas: 'symbols', region: 'H2', id: '00002' },
-		});
-		check(
-			"...and picks without `lock`, the region's pin left as it is",
-			[legacyPick.status, legacyPick.body.locked],
-			[200, true],
+			'the artist no longer queues renders: only the technician does, through the gate',
+			[artistQueue.status, artistQueue.body.error],
+			[403, 'agent_not_allowed'],
 		);
 		const unpin = await tech('choose_variant', {
 			atlas: 'symbols',
@@ -3677,16 +3664,25 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		tools.set(name, new Set([...list.matchAll(/-\s+(\S+)/g)].map((m) => m[1])));
 	}
 	const models = DIRECTOR_AGENTS.filter((agent: string) => agent !== 'worker');
-	// ADR-0008 card 8D ships its code before its three agent definitions, each its own PR (one file
-	// per agent-eval run). Until they land, these allow-list entries have no definition naming them:
-	// the technician has no definition yet, the artist still names the four ops it gives up, and the
-	// coordinator does not name the catalogue yet. Remove each entry with the PR that lands it.
-	const AWAITING_DEFINITION = new Set(['atlas-technician']);
-	const TRANSITION = TRANSITION_TOOLS;
+	{
+		const workerRecipes: typeof import('../../../services/director-worker/src/recipes.ts') =
+			await import(
+				new URL('../../../services/director-worker/src/recipes.ts', import.meta.url).href
+			);
+		const technicianOps = [...ADAPTER_OPS.values()]
+			.filter((op: { agents: readonly string[] }) => op.agents.includes('atlas-technician'))
+			.map(opIdOf)
+			.sort();
+		check(
+			"the technician's allow-list is exactly the adapter ops of TECHNICIAN_TOOLS",
+			technicianOps,
+			workerRecipes.TECHNICIAN_TOOLS.filter((id: string) => ADAPTER_OPS.has(id)).sort(),
+		);
+	}
 	check(
-		'every runtime agent definition is a known agent, and every known agent but those awaiting theirs has one',
+		'every runtime agent definition is a known agent, and every known agent has one',
 		[...tools.keys()].sort(),
-		models.filter((agent: string) => tools.has(agent) || !AWAITING_DEFINITION.has(agent)).sort(),
+		[...models].sort(),
 	);
 	const named = [...tools.values()].flatMap((set) => [...set]);
 	check(
@@ -3697,15 +3693,7 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 	for (const op of ADAPTER_OPS.values()) {
 		const id = opIdOf(op);
 		const listing = models.filter((agent: string) => tools.get(agent)?.has(id));
-		const allowed = op.agents.filter(
-			(agent: string) =>
-				agent !== 'worker' &&
-				(tools.get(agent)?.has(id) ||
-					!(
-						(AWAITING_DEFINITION.has(agent) && !tools.has(agent)) ||
-						TRANSITION.has(`${id} ${agent}`)
-					)),
-		);
+		const allowed = op.agents.filter((agent: string) => agent !== 'worker');
 		check(
 			`${id}: the allow-list matches the agents whose tools: name it`,
 			[...allowed].sort(),

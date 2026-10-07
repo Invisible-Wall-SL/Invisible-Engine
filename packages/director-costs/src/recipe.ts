@@ -241,8 +241,8 @@ export const floorOf = (runpod: {
  * measured execution mean when it is higher, never below the floor's seed for a card whose seconds
  * are a guess (only a card with `source: measured` may go below it); plus the measured queue
  * delay per job, else the floor's. A measurement only raises a guess: the owner copies a lower
- * one into the card by hand. Null when there is neither a card figure nor a measurement, or the
- * card bills credits: the step cannot be priced.
+ * one into the card by hand. Null when the card has no seconds for the size, whatever was
+ * measured, or bills credits: the step cannot be priced.
  */
 export function secondsPerImage(
 	card: Card,
@@ -252,9 +252,9 @@ export function secondsPerImage(
 ): { seconds: number; guess: boolean } | null {
 	if (card.billing === 'credits') return null;
 	const fromCard = secondsAt(card, genPx);
-	if (fromCard === null && timing === null) return null;
+	if (fromCard === null) return null;
 	const guess = card.gpu.source !== 'measured';
-	const measuredExec = Math.max(fromCard ?? 0, timing?.meanExecSeconds ?? 0);
+	const measuredExec = Math.max(fromCard, timing?.meanExecSeconds ?? 0);
 	const exec = guess ? Math.max(measuredExec, floor.seedSecondsPerImage) : measuredExec;
 	return {
 		seconds: exec + (timing ? timing.meanDelaySeconds : floor.delaySecondsPerJob),
@@ -638,6 +638,8 @@ export function validateRecipe(input: RecipeInput, ctx: ValidationContext): Vali
 /**
  * Whether a revision of an approved recipe needs the owner again (ADR-0008 §5, owner decision 9):
  * it changes a pipeline or where a step runs, raises the projected cost, or leaves it unpriced.
+ * It also does when it re-opens a step that has rendered or is rendering (`carryProgress`): that
+ * step would be queued and paid for again on an approval that never priced it twice.
  */
 export function needsReapproval(
 	prev: StoredRecipe | null,
@@ -647,6 +649,9 @@ export function needsReapproval(
 	const chain = (steps: readonly StepInput[]) =>
 		steps.map((s) => `${s.kind}:${s.pipeline}:${s.atlas}/${s.region}`).join('>');
 	if (chain(prev.steps) !== chain(next.steps)) return true;
+	const spent = (s: StoredStep) =>
+		s.status === 'queued' || s.status === 'done' || s.status === 'chosen';
+	if (prev.steps.some((s, i) => spent(s) && next.steps[i]?.status !== s.status)) return true;
 	if (next.projected.gpuUsd === null) return true;
 	if (prev.projected.gpuUsd !== null && next.projected.gpuUsd > prev.projected.gpuUsd) return true;
 	// More renders, or bigger ones, cost more whatever the projection's rounding says.
@@ -960,9 +965,9 @@ const workOf = (s: StepInput) => stepKey(s);
 /**
  * A revision's steps with what the previous revision's unchanged leading steps already did (§5):
  * a step whose work is the same keeps its status, job, renders and pick, so a resend never re-opens
- * a rendered step (it could be queued and paid for again unseen) and a render in flight stays
- * under its job, whose `job_done` still settles it. From the first changed step on, every step
- * starts again: it works from an image that will change.
+ * a rendered step and a render in flight stays under its job, whose `job_done` still settles it.
+ * From the first changed step on, every step starts again: it works from an image that will
+ * change. A revision that re-opens a rendered step so goes back to the owner (`needsReapproval`).
  */
 export function carryProgress(
 	prev: readonly StoredStep[],

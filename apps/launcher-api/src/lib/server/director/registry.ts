@@ -56,21 +56,6 @@ export function buildRegistry(ops: readonly AdapterOp[]): ReadonlyMap<string, Ad
 	return out;
 }
 
-/**
- * Allow-list entries a definition may name or not, as `<op id> <agent>` (ADR-0008 card 8D): its
- * code lands before its three definitions, one PR each, so until they land the artist still names
- * the four ops it gives up to the technician and the coordinator does not name the catalogue yet.
- * The Agents tab accepts a definition either way and `check:director-adapters` holds every other
- * entry to the definitions both ways. Remove each entry once the definition that settles it lands.
- */
-export const TRANSITION_TOOLS: ReadonlySet<string> = new Set([
-	'atlas.queue_variants atlas-artist',
-	'atlas.choose_variant atlas-artist',
-	'atlas.pack_sheet atlas-artist',
-	'comfyui.job_status atlas-artist',
-	'atlas.list_blueprints coordinator',
-]);
-
 /** Every Director adapter op. */
 export const ADAPTER_OPS = buildRegistry([
 	...GAMEMAKER_OPS,
