@@ -48,8 +48,12 @@ The same project setup as Game Maker's "Create a game", plus what the agents nee
    **LOCKED** items: math contract, paytable, bet modes, paylines, feature rules. The agents never
    change these; a mockup that clashes with one is reported, not worked around.
 3. **Preset.** The Atlas Maker blueprint id (`sdxl` by default), draft and final render sizes,
-   variants per region (1–8) and the RunPod GPU the estimate prices renders at. Named presets are
-   not stored yet: these are the run's settings.
+   variants per region (1–8) and a GPU. It is only the chain the atlas technician starts from when
+   the template has no approved default recipe yet: the blueprint at the final size with your
+   variants, then `birefnet`, then finish (`sdxl 1024 ×3 → birefnet → finish`). The technician
+   plans each region from the reviewed blueprint cards, and you approve that plan at the **Art
+   plan** checkpoint. Renders run, and are priced, on the GPU atlas-tool reports, not the one
+   picked here.
 4. **Starting point.** Upload design mockups (PNG or JPG, 20 MB each, 12 at most) and tag each with
    the screen it shows: Base game, Hold and Win bonus, Big win, Paytable, … or **Style reference
    only** (palette and mood, never a region). Each card shows the stored file and a tag picker; ×
@@ -65,18 +69,31 @@ The same project setup as Game Maker's "Create a game", plus what the agents nee
    - **Notes and style** are optional with mockups and required without: a run with no mockups
      builds a style board from them instead.
 5. **Checkpoints.** Where the agents stop and wait for you: **Mockup breakdown** (recommended),
-   **After each region batch**, and **Before publishing**, which is always on.
+   **Art plan** (recommended: how each region will be made — the Atlas Maker pipelines, sizes and
+   variants — and what it costs, before anything renders), **After each region batch**, and
+   **Before publishing**, which is always on. The first three start ticked.
 6. **What this run will do** (right): the agents and their models, the template's regions per
    atlas, and the **estimate** — Claude API and RunPod ranges, your reviews, and the total against
-   the budget cap a run started now would get (Settings' `DIRECTOR_RUN_BUDGET_USD`). The bar turns
-   amber when the high end is over the cap: the run would pause there and ask you. The figures are
-   placeholders until the pilot measures real runs, and the panel says so. No RunPod or model call
-   is made for an estimate.
+   the budget cap a run started now would get (Settings' `DIRECTOR_RUN_BUDGET_USD`). The RunPod
+   line is priced per recipe chain, at the GPU atlas-tool reports, from the reviewed blueprint
+   cards and the GPU seconds measured on past runs. Each template atlas is listed with the chain it
+   was priced at ("12 × symbols" · `sdxl 1024 ×3 → birefnet → finish`); hover the chain to see
+   whether it is the fallback or the template's own default ("template default v2", see "How a run
+   works"). The bar turns amber when the high end is over the cap: the run would pause there and
+   ask you. The figures are placeholders until the pilot measures real runs, and the panel says
+   so: a card whose GPU seconds are a guess is priced up to the profiles' fallback figure at the
+   high end. No RunPod or model call is made for an estimate.
+   - **An estimate with no price blocks the run.** When the GPU side cannot be priced — the
+     blueprint catalogue cannot be read from atlas-tool, atlas-tool reports no GPU
+     (`RUNPOD_ENDPOINT_GPU`), `pricing.json` has no price for that GPU, or a chain uses a blueprint
+     billed in credits — the total reads **Unknown**, a red line lists why, and **Create project &
+     start agents** is disabled. The server refuses to start such a run too.
 7. **Create project & start agents.** Creates the project the way Game Maker does — the template
    copied with "Duplicate · full", the math contract recorded — then starts the run and opens its
    page. Pressing again after a lost connection resends the same request, never a second one
    ("This request is still being created" means the first is still copying; wait a moment). A key
-   taken meanwhile says so; so does a missing ownership check.
+   taken meanwhile says so; so does a missing ownership check, or an estimate that has not arrived
+   yet ("Wait for the estimate: a run starts only on a priced estimate.").
 8. **Your runs** (below the form): every run you created, with its state, spend and a link.
 
 ## Mockup breakdown (`/director/<run id>`)
@@ -105,11 +122,12 @@ anything renders.
   judges every variant against these.
 - **Palette from your mockups:** the swatches the images support; proposed colours the images do
   not support are listed as dropped.
-- **Confirm:** **Looks right, start rendering** approves the checkpoint — the one action that lets
-  RunPod work begin. **Send my changes** sends the analyst back with your note (the note is
-  required for that). A 200 means recorded: the page follows the run's live stream and shows the
-  worker's answer, including a refusal when the run had already moved on ("The worker refused your
-  last request: …"). Pressing again after a lost connection resends the same request.
+- **Confirm:** **Looks right, start rendering** approves the checkpoint. No RunPod work begins
+  before it, nor, with the Art plan checkpoint on, before you approve the Art plan (below).
+  **Send my changes** sends the analyst back with your note (the note is required for that). A 200
+  means recorded: the page follows the run's live stream and shows the worker's answer, including
+  a refusal when the run had already moved on ("The worker refused your last request: …").
+  Pressing again after a lost connection resends the same request.
 - **Latest:** under the banner, the newest row of the run's stream while you are here, with
   "reconnecting" when the stream dropped (the browser reopens it) or "the live stream could not be
   opened; polling every 5 s" when it never opened.
@@ -134,20 +152,23 @@ hands. Everything on it is read from the run's event stream, so it is the same p
   **Play draft ↗** when the project has a game URL. Play draft is the authoring Live link in a new
   tab, never a publish.
 - **Meters:** **Elapsed** since the run was created; **Claude API** spend; **RunPod `<GPU>`**
-  (the preset's GPU) spend with "· n jobs queued" while renders wait on the GPU ("Idle until you
-  confirm" before the first);
-  **Cap** — "$x of $y" with a bar, marked over once the cap is reached. Then **Pause** and
-  **Stop**, each shown only when the run allows it. Stop asks first — "Stop this run? The agents
-  stop after their current call and every queued render is cancelled. The project stays as it is."
-  — and the button to confirm is **Stop the run**.
+  spend with "· n jobs queued" while renders wait on the GPU ("Idle until you confirm" before the
+  first; the label names the Preset's GPU, though renders run, and are billed, on the GPU
+  atlas-tool reports); **Cap** — "$x of $y" with a bar, marked over once the cap is reached. Then
+  **Pause** and **Stop**, each shown only when the run allows it. Stop asks first — "Stop this
+  run? The agents stop after their current call and every queued render is cancelled. The project
+  stays as it is." — and the button to confirm is **Stop the run**.
 - **Steps:** five cards — **1 · Mockup breakdown**, **2 · Style pack**, **3 · Regions**,
   **4 · Build**, **5 · Hand-off**. A done step shows ✓; the current one is outlined in amber. The
   line under each is its figures ("3 mockups · 34 of 39 regions matched", "Palette and refs taken
-  from your mockups", "21 of 39 approved" with a progress bar on Regions, "Scene Editor, Symbols
-  SM, Win Text", "You publish it in Game Maker") or its state in words first: "Waiting for you · …",
-  "Paused · …", "Failed · …", "Stopped · …", and "Not reached · …" on the steps a stopped or
-  failed run never got to. A handed-off run shows all five done.
+  from your mockups · Art plan ✓" (before that, "Art plan waiting" or "Art plan being revised"),
+  "21 of 39 approved" with a progress bar on Regions, "Scene Editor, Symbols SM, Win Text", "You
+  publish it in Game Maker") or its state in words first: "Waiting for you · …", "Paused · …",
+  "Failed · …", "Stopped · …", and "Not reached · …" on the steps a stopped or failed run never
+  got to. A handed-off run shows all five done.
 - **Banner:** one line for the run's state, with the one button that matters there.
+  - Waiting on the Art plan: "Waiting for you: the Art plan is ready. See how each region will be
+    made and what it costs. Nothing renders until you approve." **Review the plan** scrolls to it.
   - Waiting on a region batch: "Waiting for you: 6 regions are ready to review. The agents keep
     working on the rest." **Review 6 now** opens the first region in the review panel.
   - Waiting before publish: "Waiting for you: the draft is built. Play it, then approve to hand it
@@ -187,28 +208,64 @@ hands. Everything on it is read from the run's event stream, so it is the same p
   a tile to open it below.
 - **Region review** (under the tiles while a batch waits): "TO REVIEW · 1 of 6" with ‹ › to step
   through the batch, the region's name, then **Your mockup** (the crop) beside **Variant A**,
-  **Variant B**, **Variant C**… with **Art director's pick** on the one the art director chose.
-  Click any image for full size (click or Escape closes it). Under them, **Art director:** the
-  verdict and its reason, and **QA:** when QA looked at it. **Your note** is optional for approving
-  and needed to redo. **Approve these 6 regions** (or **Approve this region**) approves the whole
-  batch — "Approved art goes into this project's Atlas Maker sheet." **Redo with my note** sends
-  the batch back to the agents with your note. If the batch's renders have not reached the page,
-  the panel shows the coordinator's words and offers **Approve the batch** / **Redo with my note**
-  instead. When no batch is waiting, clicking a tile opens the same panel without the note and
-  buttons.
+  **Variant B**, **Variant C**… with **Art director's pick** on the one the art director chose,
+  then the **Finished tile** ("In the sheet") once the region's chain has committed it. Click any
+  image for full size (click or Escape closes it). Under them, **Art director:** the verdict and
+  its reason, and **QA:** when QA looked at it. **Your note** is optional for approving and needed
+  to redo. **Approve these 6 regions** (or **Approve this region**) approves the whole batch —
+  "Approved art goes into this project's Atlas Maker sheet." **Redo with my note** sends the batch
+  back to the agents with your note. If the batch's renders have not reached the page, the panel
+  shows the coordinator's words and offers **Approve the batch** / **Redo with my note** instead.
+  When no batch is waiting, clicking a tile opens the same panel without the note and buttons.
+- **How this was made** (in the region panel, for a region with a recipe; folded until its tile
+  is committed): the recipe revision, "approved", "approved automatically" or "not approved", and
+  "edited by you" when you edited it. Then one line per step — kind, pipeline, size × variants, the
+  atlas/region it ran on, its settings, status, the card's purpose and licence chip — with the
+  image that step left as a thumbnail; click it for full size.
 - **Before hand-off** (while the run waits before publishing): "The draft is built", the
   coordinator's summary, **Play draft ↗** (or "No game URL is recorded for this project yet, so
   there is nothing to play."), **Open in Game Maker ↗** and **The agents' link ↗** when the
-  checkpoint names one. Your note is optional for approving and needed to send it back. **Approve
-  and hand off** / **Send back with my note**. "Approving ends the run. Director never publishes:
-  you do, in Game Maker."
+  checkpoint names one. Your note is optional for approving and needed to send it back.
+  **Licence-flagged art in this build** lists every step of the plan's recipes whose blueprint
+  card's licence is blocked or conditional, grouped by blueprint (blocked first) and naming each
+  region and step ("H1 (step 2)"), for you to check before you publish; with none, a line says
+  so. **Approve and hand off** / **Send back with my note**. "Approving ends the run. Director
+  never publishes: you do, in Game Maker."
 - **Any other checkpoint:** its name and the agents' text, the note, **Approve** / **Send back
   with my note**. This is also the panel for a breakdown the page could not read.
-- **Art plan** (`art_plan`, in the Style pack step, on by default): opens by itself once the atlas
-  technician has a recipe — the chain of Atlas Maker steps — for every region the plan names. Until
-  its own panel ships it shows in the generic panel above: one line per group and chain ("11 ×
-  Symbols: sdxl 1024 ×3 → birefnet → finish"). Nothing renders on RunPod before you approve it; a
-  later change of a pipeline, or one that costs more, brings it back.
+- **Art plan** (in step 2, Style pack): opens by itself once the atlas technician has a recipe —
+  the chain of Atlas Maker steps — for every region the coordinator's plan names, in place of the
+  region panel: "How each region will be made". Nothing renders on RunPod before you approve it.
+  - **The plan:** the recipes grouped by region group, each group with its region count and price.
+    Regions with the same chain share one row: the chain (`sdxl 1024 ×3 → birefnet → finish`),
+    "11 × H1, H2, H3, H4 and 7 more", the row's price, and a **guess** chip when a card's GPU
+    seconds are a guess with nothing measured yet. Under it, one line per step: kind, pipeline,
+    size and variants, the card's purpose, and a licence chip when the card's licence is blocked
+    or conditional. Beside the title, the plan's GPU projection against what is left of the cap
+    ("GPU ~$0.62 · $11.40 left of the cap"), amber when it is more than that: the run will then
+    pause for you before the render that crosses it. Every chain is priced again from the current
+    cards and the GPU seconds measured so far.
+  - **Edit a row** (an edit applies to every region in it): the pipeline (only reviewed image
+    pipelines that fit the step, never one billed in credits; a new pipeline drops the step's
+    settings), the size, the variants, a setting under **Settings** within the card's range (left
+    empty, the card's default applies), or ✕ to remove a process step. An edited row says **Your
+    edit**. Edits are checked with the same rules the worker uses: a broken rule shows a red line
+    under the chain and blocks sending.
+  - **Looks right, start rendering** approves the plan as you see it. It is disabled while you
+    have unsent edits, while the plan cannot be priced (a red box lists why) and while a planned
+    region has no recipe yet ("Not planned yet: …"). If the plan changed since you saw it, the
+    approval is refused ("the Art plan changed since you saw it") and the plan stays open.
+  - **Send my edits (N regions)** goes to the worker, not to an agent: it checks the edits again,
+    stores them as each region's next revision and brings the plan back for you to approve. If one
+    breaks a rule there, none is stored and Activity lists why; a note sent with them goes to the
+    coordinator. **Discard edits** drops them.
+  - With no edits, **Send my changes** sends your note (required) to the atlas technician, who
+    revises the plan and brings it back.
+  - Outside the checkpoint — while the technician is still planning, after you approve, or with
+    the checkpoint off — the same plan shows read-only below the region panel, folded behind one
+    line ("Every recipe is approved · show the recipes"). A region a newer coordinator plan leaves
+    out loses its recipe's approval and is listed as "Left out of the plan (never rendered)". A
+    later revision that changes a pipeline or costs more needs your approval again.
 - **Fonts to bake:** as on the breakdown (above).
 - **As they land:** one gallery per place the agents saved an image under the project — **Atlas
   pages**, **Sheets**, **Atlases**, **Symbols**, **Scenes**, **Renders**, **References**,
@@ -247,7 +304,14 @@ their request is outstanding, so nothing you typed is lost.
   written. Sending the same action twice (a double click, a retry) records it once. If the run has
   moved on by the time the worker reads an entry, the worker refuses that entry and the page shows
   it.
-- **Nothing renders before you confirm the breakdown.**
+- **Nothing renders before you confirm the breakdown and the Art plan is approved.** With the Art
+  plan checkpoint off, the worker approves the plan itself once its GPU projection fits what is
+  left of the cap (How this was made then says "approved automatically"); a plan it cannot price,
+  or one over the cap, pauses the run at the budget cap instead, and Activity says why.
+- **An Art plan you approve becomes the template's default.** Each region group's chain (its first
+  region's, if they differ) is stored as the template's default recipe for that group: the next
+  run of the same template starts from it, and the New game estimate prices it ("template default
+  v2").
 - **You approve a batch, the art director picks the variant.** Approving a region batch approves
   every region in it; the variant that goes into the project's Atlas Maker sheet is the art
   director's pick unless your note says otherwise. Approving the build before hand-off accepts
@@ -258,7 +322,11 @@ their request is outstanding, so nothing you typed is lost.
 
 ## Known limitations / TODOs
 
-- Named presets ("Save as preset") are not stored yet.
+- The Preset card is temporary: ADR-0008 card 8C removes it. Named presets ("Save as preset") are
+  not coming; the default recipes an approved Art plan leaves on the template take their place.
+- The Art plan edits a whole row (every region with that chain), can remove a process step but
+  not add one, and projects the GPU spend only, not the Claude spend. To change one region alone or
+  add a step, say so in your note and **Send my changes**.
 - A mockup's tag can be changed on its card; its stored name is the upload id, not the file name
   you uploaded.
 - "Skip it" / "Request an FX region" shortcuts for a needs-you element are not actions yet: say it
