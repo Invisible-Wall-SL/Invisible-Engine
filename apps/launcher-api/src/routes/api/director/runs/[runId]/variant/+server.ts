@@ -1,6 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import { requireDirectorAccess, requireOwnedRun } from '$lib/server/director/access';
-import { AdapterError, directorSavedBy } from '$lib/server/director/adapter';
+import { AdapterError, directorSavedBy, type AdapterContext } from '$lib/server/director/adapter';
 import { NO_STORE, answering } from '$lib/server/director/api';
 import { atlasFetch } from '$lib/server/director/atlasClient';
 import { SERVED_IMAGE_TYPES, sniffServedImage } from '$lib/server/director/mockups';
@@ -41,21 +41,19 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 	return answering(async () => {
 		let answer;
 		try {
-			answer = await atlasFetch(
-				{
-					run,
-					owner: user,
-					agent: 'worker',
-					scope: { clientKey: run.clientKey ?? UNASSIGNED_CLIENT, projectKey: run.projectKey },
-					savedBy: directorSavedBy(run, user, 'worker'),
-				},
-				{
-					method: 'GET',
-					path: `/${size === 'full' ? 'vfull' : 'vthumb'}/${encodeURIComponent(region)}`,
-					atlas,
-					query: { id },
-				},
-			);
+			const caller: AdapterContext = {
+				run,
+				owner: user,
+				agent: 'worker',
+				scope: { clientKey: run.clientKey ?? UNASSIGNED_CLIENT, projectKey: run.projectKey },
+				savedBy: directorSavedBy(run, user, 'worker'),
+			};
+			answer = await atlasFetch(caller, {
+				method: 'GET',
+				path: `/${size === 'full' ? 'vfull' : 'vthumb'}/${encodeURIComponent(region)}`,
+				atlas,
+				query: { id },
+			});
 		} catch (e) {
 			if (e instanceof AdapterError) {
 				throw new AdapterError(e.status, e.code, 'The Atlas Maker could not serve this variant.');

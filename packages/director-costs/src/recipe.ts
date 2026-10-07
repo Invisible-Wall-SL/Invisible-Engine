@@ -98,15 +98,22 @@ export interface StoredStep extends StepInput {
 	licence: Card['licence'] | '';
 	status: StepStatus;
 	jobRef?: string;
+	/** The variant ids the step's render produced on its own atlas and region. */
+	rendered?: string[];
+	/** A render step: the variant id chosen on its region. `finish`: the committed variant as
+	 *  `<atlas>/<region>/<id>`. */
 	chosen?: string;
 }
 
 export interface Projection {
 	gpuSeconds: number;
-	/** Null while the endpoint's GPU has no price. */
+	/** Null while it cannot be priced: the endpoint's GPU has no price, or a step has no figure. */
 	gpuUsd: number | null;
-	/** True when a step's card has no seconds for its size, or a card's seconds are a guess. */
+	/** True when a step's seconds are only the card's guess, with nothing measured beside them. */
 	placeholder: boolean;
+	/** Why the projection has no price, one line per reason; empty when it has one. Absent on
+	 *  recipes stored before card 8E, which read as none. */
+	unpriced?: string[];
 }
 
 export interface Approval {
@@ -125,7 +132,25 @@ export interface StoredRecipe {
 	editedBy?: string;
 	steps: StoredStep[];
 	projected: Projection;
+	/**
+	 * How often each step (by `n`) has failed since the owner last approved the recipe at the Art
+	 * plan: no revision and no other approval (automatic, or the owner's resume) resets it.
+	 */
+	failures?: Record<string, number>;
 }
+
+/**
+ * Times a failed step is queued again before the owner must approve it again: its next failure
+ * withdraws the approval, so the step renders again only on the owner's approval at the Art plan
+ * (fails closed), which gives it one try and as many retries again.
+ */
+export const RETRIES_PER_APPROVAL = 2;
+
+/** The steps (`n`) that have failed more often than their retries since that approval. */
+export const retriesSpent = (recipe: Pick<StoredRecipe, 'failures'>): number[] =>
+	Object.entries(recipe.failures ?? {})
+		.filter(([, times]) => !(times <= RETRIES_PER_APPROVAL))
+		.map(([n]) => Number(n));
 
 export interface ValidationContext {
 	catalogue: Catalogue;
@@ -135,8 +160,10 @@ export interface ValidationContext {
 	others: readonly StoredRecipe[];
 	/** USD per GPU second for `catalogue.gpu`, or null when unpriced. */
 	usdPerSecond: number | null;
-	/** The projection's floor; none when omitted. */
-	floor?: ProjectionFloor;
+	/** Measured GPU time per (pipeline, genPx), from `director_blueprint_timings`. */
+	timings?: readonly Timing[];
+	/** What a projection never goes below: the seed seconds and the seed delay (`pricing.json`). */
+	floor: ProjectionFloor;
 }
 
 export type ValidationResult =
@@ -152,6 +179,9 @@ const VARIANT_REF =
 	/^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,119}\/[A-Za-z0-9_][A-Za-z0-9_.()-]{0,119}\/[0-9]{1,8}$/;
 /** A region name as Atlas Maker and the crop keys take it; `..` never. */
 export const REGION_NAME = /^(?!.*\.\.)[A-Za-z0-9_][A-Za-z0-9_.()-]{0,119}$/;
+
+/** The most regions one plan may name: every one must fit in the owner's Art plan approval. */
+export const MAX_PLAN_REGIONS = 256;
 const STEP_REF = /^step:([0-9]{1,3})$/;
 const SHEET_KEY =
 	/^(?:[a-z0-9_-]+\/[a-z0-9_-]+\/)?(?:sheets|sheet_src)\/[A-Za-z0-9_./() -]{1,300}$/;
@@ -184,55 +214,208 @@ export function secondsAt(card: Card, px: number): number | null {
 	return highS;
 }
 
-/** The recipe's projected GPU time and cost, recomputed by code from the cards (§6). */
+/**
+ * Measured GPU time for one (effective pipeline, genPx), per RunPod job (one image): the rolling
+ * means `director_blueprint_timings` holds, written by the worker from every `job_done`.
+ */
+export interface Timing {
+	pipeline: string;
+	genPx: number;
+	jobs: number;
+	meanExecSeconds: number;
+	meanDelaySeconds: number;
+}
+
+export const timingOf = (
+	timings: readonly Timing[] | undefined,
+	pipeline: string,
+	genPx: number,
+): Timing | null =>
+	timings?.find((t) => t.pipeline === pipeline && t.genPx === genPx && t.jobs > 0) ?? null;
+
 /**
  * What a projection may never go below (ADR-0006, ADR-0008 §6): a card whose seconds are a guess
- * is priced at no less than the seed seconds per render, and every job adds the queue delay.
+ * is priced at no less than the seed seconds per render, and every job adds the queue delay — the
+ * measured one, else this seed.
  */
 export interface ProjectionFloor {
+	/** `pricing.json` `seedSecondsPerRender`. */
 	seedSecondsPerImage: number;
+	/** `pricing.json` `seedDelaySecondsPerJob`. */
 	delaySecondsPerJob: number;
 }
 
+/** No floor at all: what the New-game estimate prices a card's own figures at. */
+export const NO_FLOOR: ProjectionFloor = { seedSecondsPerImage: 0, delaySecondsPerJob: 0 };
+
+/** The floor at the reviewed prices (`pricing.json` `runpod`): one rule for worker and launcher. */
+export const floorOf = (runpod: {
+	seedSecondsPerRender: number;
+	seedDelaySecondsPerJob: number;
+}): ProjectionFloor => ({
+	seedSecondsPerImage: runpod.seedSecondsPerRender,
+	delaySecondsPerJob: runpod.seedDelaySecondsPerJob,
+});
+
 /**
- * The recipe's projected GPU time and cost, recomputed by code from the cards (§6). It fails
- * closed: a size the card has no seconds for leaves the cost unpriced (`gpuUsd` null), and a
- * guessed card never projects below the floor.
+ * Billed seconds one image of a step costs (ADR-0008 §6): the card's seconds at that size, or the
+ * measured execution mean when it is higher, never below the floor's seed for a card whose seconds
+ * are a guess (only a card with `source: measured` may go below it); plus the measured queue
+ * delay per job, else the floor's. A measurement only raises a guess: the owner copies a lower
+ * one into the card by hand. Null when the card has no seconds for the size, whatever was
+ * measured, or bills credits: the step cannot be priced.
  */
-export function project(
-	steps: readonly StepInput[],
-	cards: ReadonlyMap<string, Card>,
-	usdPerSecond: number | null,
-	floor: ProjectionFloor = { seedSecondsPerImage: 0, delaySecondsPerJob: 0 },
-): Projection {
+export function secondsPerImage(
+	card: Card,
+	genPx: number,
+	timing: Timing | null,
+	floor: ProjectionFloor,
+): { seconds: number; guess: boolean } | null {
+	if (card.billing === 'credits') return null;
+	const fromCard = secondsAt(card, genPx);
+	if (fromCard === null) return null;
+	const guess = card.gpu.source !== 'measured';
+	const measuredExec = Math.max(fromCard, timing?.meanExecSeconds ?? 0);
+	const exec = guess ? Math.max(measuredExec, floor.seedSecondsPerImage) : measuredExec;
+	return {
+		seconds: exec + (timing ? timing.meanDelaySeconds : floor.delaySecondsPerJob),
+		guess,
+	};
+}
+
+/** What a projection is priced on: the reviewed cards, the GPU's rate, the measurements, the floor. */
+export interface PriceBasis {
+	cards: ReadonlyMap<string, Card>;
+	/** USD per GPU second, or null when the endpoint's GPU has no price. */
+	usdPerSecond: number | null;
+	timings?: readonly Timing[];
+	floor: ProjectionFloor;
+}
+
+export const basisOf = (ctx: ValidationContext): PriceBasis => ({
+	cards: new Map(ctx.catalogue.blueprints.map((b) => [b.id, b.card])),
+	usdPerSecond: ctx.usdPerSecond,
+	timings: ctx.timings,
+	floor: ctx.floor,
+});
+
+/**
+ * The recipe's projected GPU time and cost, recomputed by code from the cards and the measured
+ * timings (§6), with the card's cold start once per (atlas, pipeline) batch. Fails closed: a step
+ * whose card is gone or bills credits, or has no figure for its size, leaves the whole recipe
+ * unpriced (`gpuUsd: null`) rather than counting it as nothing. Two projections compare only on
+ * one basis: re-price the older recipe before comparing (`needsReapproval`).
+ */
+export function project(steps: readonly StepInput[], basis: PriceBasis): Projection {
 	let seconds = 0;
 	let placeholder = false;
-	let unknown = false;
+	const unpriced: string[] = [];
 	const batches = new Set<string>();
 	for (const step of steps) {
 		if (step.kind === 'finish') continue;
-		const card = cards.get(step.pipeline);
-		if (!card) continue;
-		const each = secondsAt(card, step.genPx);
-		if (each === null) unknown = true;
-		const measured = card.gpu.source === 'measured';
-		if (!measured) placeholder = true;
-		const perImage = measured ? (each ?? 0) : Math.max(each ?? 0, floor.seedSecondsPerImage);
-		seconds += (perImage + floor.delaySecondsPerJob) * step.variants;
+		const card = basis.cards.get(step.pipeline);
+		if (!card) {
+			unpriced.push(`step ${step.n}: "${step.pipeline}" has no reviewed card to price it by`);
+			continue;
+		}
+		const each = secondsPerImage(
+			card,
+			step.genPx,
+			timingOf(basis.timings, step.pipeline, step.genPx),
+			basis.floor,
+		);
+		if (each === null) {
+			unpriced.push(
+				card.billing === 'credits'
+					? `step ${step.n}: "${step.pipeline}" bills credits`
+					: `step ${step.n}: "${step.pipeline}" has no GPU seconds for ${step.genPx} px`,
+			);
+			continue;
+		}
+		if (each.guess) placeholder = true;
+		seconds += each.seconds * step.variants;
 		const batch = `${step.atlas}\u0000${step.pipeline}`;
 		if (!batches.has(batch)) {
 			batches.add(batch);
 			seconds += card.gpu.coldStart;
 		}
 	}
+	if (basis.usdPerSecond === null) unpriced.push("the endpoint's GPU has no price");
 	const gpuSeconds = Math.round(seconds * 10) / 10;
 	return {
 		gpuSeconds,
 		gpuUsd:
-			usdPerSecond === null || unknown
+			unpriced.length || basis.usdPerSecond === null
 				? null
-				: Math.round(gpuSeconds * usdPerSecond * 10000) / 10000,
-		placeholder: placeholder || unknown,
+				: Math.round(gpuSeconds * basis.usdPerSecond * 10000) / 10000,
+		placeholder,
+		unpriced,
+	};
+}
+
+// ── The shape of a step ───────────────────────────────────────────────────────
+
+const isText = (v: unknown, max: number): v is string => typeof v === 'string' && v.length <= max;
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+	typeof v === 'object' && v !== null && !Array.isArray(v);
+
+function refOf(raw: unknown): RefChoice | null {
+	if (!isRecord(raw)) return null;
+	if (!(REF_SOURCES as readonly unknown[]).includes(raw.source) || !isText(raw.value, 400)) {
+		return null;
+	}
+	return { source: raw.source as RefSource, value: raw.value };
+}
+
+/**
+ * A step from outside (a model's `run.set_recipe`, an owner's Art plan edit) with exactly the
+ * fields a step has and each of its type, or why not. Whatever else came with it is dropped, so a
+ * stored step never carries a field the rules did not check (a `jobRef`, a `chosen`).
+ */
+export function parseStepInput(raw: unknown): { step: StepInput } | { error: string } {
+	if (!isRecord(raw)) return { error: 'a step is an object' };
+	const { n, kind, pipeline, atlas, region, genPx, variants, settings, note } = raw;
+	if (!Number.isInteger(n)) return { error: 'a step has a whole number n' };
+	const at = `step ${String(n)}`;
+	if (!(STEP_KINDS as readonly unknown[]).includes(kind)) {
+		return { error: `${at}: kind is one of ${STEP_KINDS.join(', ')}` };
+	}
+	if (!isText(pipeline, 64) || !isText(atlas, 120) || !isText(region, 120)) {
+		return { error: `${at}: pipeline, atlas and region are text` };
+	}
+	if (!isNum(genPx) || !isNum(variants)) return { error: `${at}: genPx and variants are numbers` };
+	if (!Array.isArray(settings) || settings.length > 40) {
+		return { error: `${at}: settings is a list of at most 40` };
+	}
+	const pairs: { key: string; value: string }[] = [];
+	for (const item of settings) {
+		if (!isRecord(item) || !isText(item.key, 64) || !isText(item.value, 200)) {
+			return { error: `${at}: each setting is {key, value} as text` };
+		}
+		pairs.push({ key: item.key, value: item.value });
+	}
+	const style = refOf(raw.style);
+	const shape = refOf(raw.shape);
+	if (!style || !shape) {
+		return {
+			error: `${at}: style and shape are {source, value}, source one of ${REF_SOURCES.join(', ')}`,
+		};
+	}
+	if (note !== undefined && !isText(note, 1000)) return { error: `${at}: note is text` };
+	return {
+		step: {
+			n: n as number,
+			kind: kind as StepKind,
+			pipeline,
+			atlas,
+			region,
+			genPx,
+			variants,
+			settings: pairs,
+			style,
+			shape,
+			note: typeof note === 'string' ? note : '',
+		},
 	};
 }
 
@@ -324,9 +507,16 @@ export function validateRecipe(input: RecipeInput, ctx: ValidationContext): Vali
 	const errors: string[] = [];
 	const entries = new Map(ctx.catalogue.blueprints.map((b) => [b.id, b]));
 	const cards = new Map(ctx.catalogue.blueprints.map((b) => [b.id, b.card]));
-	const steps = input.steps ?? [];
+	// The rules read typed fields only: a step of the wrong shape is refused, never thrown on.
+	if (!Array.isArray(input.steps)) return { ok: false, errors: ['steps is a list'] };
+	const parsed = input.steps.map(parseStepInput);
+	const shapeErrors = parsed.flatMap((p) => ('error' in p ? [p.error] : []));
+	if (shapeErrors.length) return { ok: false, errors: shapeErrors };
+	const steps = parsed.map((p) => (p as { step: StepInput }).step);
 
-	if (!ctx.planRegions.has(input.region)) {
+	if (!REGION_NAME.test(input.region)) {
+		errors.push(`${JSON.stringify(input.region)} is not a region name`);
+	} else if (!ctx.planRegions.has(input.region)) {
 		errors.push(`${input.region} is not a region the run's plan names`);
 	}
 	if (steps.length === 0) errors.push('a recipe has at least one step');
@@ -465,16 +655,14 @@ export function validateRecipe(input: RecipeInput, ctx: ValidationContext): Vali
 			status: 'planned',
 		};
 	});
-	return {
-		ok: true,
-		steps: stored,
-		projected: project(steps, cards, ctx.usdPerSecond, ctx.floor),
-	};
+	return { ok: true, steps: stored, projected: project(steps, basisOf(ctx)) };
 }
 
 /**
  * Whether a revision of an approved recipe needs the owner again (ADR-0008 §5, owner decision 9):
- * it changes a pipeline, or raises the projected cost.
+ * it changes a pipeline or where a step runs, raises the projected cost, or leaves it unpriced.
+ * It also does when it re-opens a step that has rendered or is rendering (`carryProgress`): that
+ * step would be queued and paid for again on an approval that never priced it twice.
  */
 export function needsReapproval(
 	prev: StoredRecipe | null,
@@ -484,6 +672,11 @@ export function needsReapproval(
 	const chain = (steps: readonly StepInput[]) =>
 		steps.map((s) => `${s.kind}:${s.pipeline}:${s.atlas}/${s.region}`).join('>');
 	if (chain(prev.steps) !== chain(next.steps)) return true;
+	const spent = (s: StoredStep) =>
+		s.status === 'queued' || s.status === 'done' || s.status === 'chosen';
+	if (prev.steps.some((s, i) => spent(s) && next.steps[i]?.status !== s.status)) return true;
+	if (next.projected.gpuUsd === null) return true;
+	if (prev.projected.gpuUsd !== null && next.projected.gpuUsd > prev.projected.gpuUsd) return true;
 	// More renders, or bigger ones, cost more whatever the projection's rounding says.
 	if (
 		next.steps.some(
@@ -496,7 +689,9 @@ export function needsReapproval(
 }
 
 /** One line per chain, e.g. "sdxl 1024 ×3 → birefnet → finish". */
-export function chainLine(steps: readonly StepInput[]): string {
+export function chainLine(
+	steps: readonly Pick<StepInput, 'kind' | 'pipeline' | 'genPx' | 'variants'>[],
+): string {
 	return steps
 		.map((s) =>
 			s.kind === 'finish'
@@ -545,4 +740,301 @@ export function presetDefaultChain(preset: PresetShape | null | undefined): Defa
 		{ kind: 'process', pipeline: 'birefnet', genPx, variants: 1, settings: [] },
 		{ kind: 'finish', pipeline: '', genPx: 0, variants: 0, settings: [] },
 	];
+}
+
+// ── The Art plan: what the owner reviews and edits (§7) ─────────────────────
+
+/** A stored recipe as `run.set_recipe` would take it again: the input an owner edit starts from. */
+export const recipeInputOf = (r: StoredRecipe): RecipeInput => ({
+	region: r.region,
+	atlas: r.atlas,
+	group: r.group,
+	steps: r.steps.map(
+		({ n, kind, pipeline, atlas, region, genPx, variants, settings, style, shape, note }) => ({
+			n,
+			kind,
+			pipeline,
+			atlas,
+			region,
+			genPx,
+			variants,
+			settings: settings.map((s) => ({ ...s })),
+			style: { ...style },
+			shape: { ...shape },
+			note,
+		}),
+	),
+});
+
+/**
+ * The steps without step `n`, renumbered. A later step that took the removed step's image
+ * (`step:<n>`) takes what the removed step took instead, so the chain stays connected; refs to
+ * later steps move down by one.
+ */
+export function removeStep(steps: readonly StepInput[], n: number): StepInput[] {
+	const gone = steps.find((s) => s.n === n);
+	if (!gone) return steps.map((s) => ({ ...s }));
+	const remap = (ref: RefChoice, fallback: RefChoice): RefChoice => {
+		const m = STEP_REF.exec(ref.source === 'variant' ? ref.value : '');
+		if (!m) return ref;
+		const k = Number(m[1]);
+		if (k === n) return { ...fallback };
+		return k > n ? { source: 'variant', value: `step:${k - 1}` } : ref;
+	};
+	return steps
+		.filter((s) => s.n !== n)
+		.map((s, i) => ({
+			...s,
+			n: i + 1,
+			style: remap(s.style, gone.style),
+			shape: remap(s.shape, gone.shape),
+		}));
+}
+
+// ── Chain pricing for the estimate (§6) ─────────────────────────────────────
+
+export interface Span {
+	low: number;
+	high: number;
+}
+
+/** One region group as the estimate prices it: how many regions, and the chain each gets. */
+export interface ChainGroup {
+	group: string;
+	regions: number;
+	chain: readonly DefaultStep[];
+	/** Where the chain came from, for the panel: a template default, or the fallback. */
+	source: string;
+}
+
+export interface ChainPrice {
+	gpu: string;
+	/** Billed GPU seconds over every group, cold starts included. */
+	seconds: Span;
+	/** Null when anything cannot be priced: see `unpriced`. */
+	usd: Span | null;
+	/** Images rendered, every step of every region. */
+	renders: number;
+	/** Images the art director and the owner review: the generate steps' variants. */
+	reviewedVariants: number;
+	/** Recipe steps over every region, finish included (the technician's per-step work). */
+	steps: number;
+	/** True when a figure is a card's guess or the profiles' fallback, not a measurement. */
+	placeholder: boolean;
+	unpriced: string[];
+	groups: { group: string; regions: number; chain: string; source: string; seconds: Span }[];
+}
+
+/**
+ * The GPU side of the New-game estimate, priced per chain from the reviewed cards and the measured
+ * timings (§6) and counted as the Art plan counts a recipe (`project`): per image,
+ * `secondsPerImage`, and each step's cold start once per region (a default chain names no atlas;
+ * each of its steps renders on an atlas of its own, one (atlas, pipeline) batch per recipe). The
+ * low end prices the cards' own figures; the high end adds the floor a plan is approved on, so a
+ * guessed card is priced at no less than the seed seconds per render there, and the Art plan of
+ * these chains projects the high end. A step whose pipeline has no reviewed card, or whose card has
+ * no seconds for its size, takes the profiles' `secondsPerVariantAt1024` scaled by pixel count as
+ * a placeholder (an Art plan at such a size is unpriced and is never approved). Fails closed: no
+ * GPU, an unpriced GPU, or a credit-billed card leaves `usd` null with the reasons, and the run is
+ * not offered.
+ */
+export function priceChains(
+	groups: readonly ChainGroup[],
+	cards: ReadonlyMap<string, Card>,
+	facts: {
+		gpu: string;
+		usdPerSecond: number | null;
+		timings?: readonly Timing[];
+		floor: ProjectionFloor;
+	},
+	fallbackAt1024: Span,
+): ChainPrice {
+	const unpriced: string[] = [];
+	let placeholder = false;
+	let renders = 0;
+	let reviewedVariants = 0;
+	let steps = 0;
+	const total: Span = { low: 0, high: 0 };
+	const rows: ChainPrice['groups'] = [];
+	const cardOnly: ProjectionFloor = {
+		...NO_FLOOR,
+		delaySecondsPerJob: facts.floor.delaySecondsPerJob,
+	};
+	for (const g of groups) {
+		const span: Span = { low: 0, high: 0 };
+		for (const step of g.chain) {
+			steps += g.regions;
+			if (step.kind === 'finish') continue;
+			const images = step.variants * g.regions;
+			renders += images;
+			if (step.kind === 'generate') reviewedVariants += images;
+			const scaleBy = (step.genPx * step.genPx) / (1024 * 1024);
+			const fallback = { low: fallbackAt1024.low * scaleBy, high: fallbackAt1024.high * scaleBy };
+			const card = cards.get(step.pipeline);
+			let each: Span;
+			if (!card) {
+				placeholder = true;
+				each = fallback;
+			} else {
+				if (card.billing === 'credits') {
+					unpriced.push(`${g.group}: "${step.pipeline}" bills credits, which cannot be priced yet`);
+					continue;
+				}
+				const timing = timingOf(facts.timings, step.pipeline, step.genPx);
+				const low = secondsPerImage(card, step.genPx, timing, cardOnly);
+				const high = secondsPerImage(card, step.genPx, timing, facts.floor);
+				if (low === null || high === null) {
+					placeholder = true;
+					each = fallback;
+				} else {
+					if (high.guess) placeholder = true;
+					// A guess never shrinks the high end below the profiles' fallback either.
+					each = {
+						low: low.seconds,
+						high: high.guess ? Math.max(high.seconds, fallback.high) : high.seconds,
+					};
+				}
+				span.low += card.gpu.coldStart * g.regions;
+				span.high += card.gpu.coldStart * g.regions;
+			}
+			span.low += each.low * images;
+			span.high += each.high * images;
+		}
+		total.low += span.low;
+		total.high += span.high;
+		rows.push({
+			group: g.group,
+			regions: g.regions,
+			chain: chainLine(g.chain),
+			source: g.source,
+			seconds: span,
+		});
+	}
+	if (!facts.gpu) unpriced.push('atlas-tool reports no RunPod GPU (RUNPOD_ENDPOINT_GPU)');
+	else if (facts.usdPerSecond === null)
+		unpriced.push(`pricing.json has no price for the GPU "${facts.gpu}"`);
+	const rate = facts.usdPerSecond;
+	return {
+		gpu: facts.gpu,
+		seconds: total,
+		usd:
+			unpriced.length || rate === null ? null : { low: total.low * rate, high: total.high * rate },
+		renders,
+		reviewedVariants,
+		steps,
+		placeholder,
+		unpriced,
+		groups: rows,
+	};
+}
+
+/** Why an Art plan approval cannot stand: a code (the launcher answers 409 with it) and the words. */
+export interface ApprovalProblem {
+	code: 'plan_changed' | 'plan_incomplete' | 'plan_unpriced';
+	reason: string;
+}
+
+/**
+ * Why an owner's Art plan approval cannot stand, or null (§7): the approval names the revision of
+ * every recipe the owner saw (`seen`, region → rev), so a plan that changed since never runs on
+ * it; every planned region has a recipe; and the plan is priced NOW (`reprice`, on the cards, the
+ * rate and the timings as they are at approval): a card that lost its review or a GPU whose price
+ * went fails it, money failing closed. The worker refuses on this, and the launcher refuses up
+ * front with the same words.
+ */
+export function approvalProblem(
+	recipes: readonly StoredRecipe[],
+	plan: ReadonlySet<string>,
+	seen: unknown,
+	reprice: (recipe: StoredRecipe) => Projection,
+): ApprovalProblem | null {
+	const changed = (reason: string): ApprovalProblem => ({ code: 'plan_changed', reason });
+	if (typeof seen !== 'object' || seen === null || Array.isArray(seen)) {
+		return changed('the approval does not name the recipe revisions it approves');
+	}
+	if (plan.size === 0) {
+		return { code: 'plan_incomplete', reason: 'the run has no Art plan to approve' };
+	}
+	const revs = seen as Record<string, unknown>;
+	const named = new Set(Object.keys(revs));
+	const planned = recipes.filter((r) => plan.has(r.region));
+	const missing = [...plan].filter((region) => !planned.some((r) => r.region === region));
+	if (missing.length) {
+		return {
+			code: 'plan_incomplete',
+			reason: `not every planned region has a recipe yet (${missing.slice(0, 5).join(', ')})`,
+		};
+	}
+	for (const r of planned) {
+		if (revs[r.region] !== r.rev) {
+			return changed(
+				`the Art plan changed since you saw it (${r.region} is at revision ${r.rev}); review it again`,
+			);
+		}
+		named.delete(r.region);
+		const now = reprice(r);
+		if (now.gpuUsd === null) {
+			const why = (now.unpriced ?? []).join('; ') || 'no price';
+			return {
+				code: 'plan_unpriced',
+				reason: `${r.region} cannot be priced (${why}), so the plan cannot be approved`,
+			};
+		}
+	}
+	if (named.size) {
+		return changed(
+			`the Art plan changed since you saw it (${[...named].slice(0, 5).join(', ')} is not in it now); review it again`,
+		);
+	}
+	return null;
+}
+
+/**
+ * A step as a canonical text: what it renders, where, and from what — its fields in a fixed order,
+ * never an object's own key order (Postgres `jsonb` stores keys in its own order, so a step read
+ * back never stringifies as it was written). With `withNote`, its note too.
+ */
+export function stepKey(s: StepInput, withNote = false): string {
+	return JSON.stringify([
+		s.kind,
+		s.pipeline,
+		s.atlas,
+		s.region,
+		s.genPx,
+		s.variants,
+		[...s.settings].map((x) => [x.key, x.value]).sort((a, b) => a[0].localeCompare(b[0])),
+		[s.style.source, s.style.value],
+		[s.shape.source, s.shape.value],
+		...(withNote ? [s.n, s.note] : []),
+	]);
+}
+
+/** The fields that say what a step renders, and where: a step that keeps them is the same work. */
+const workOf = (s: StepInput) => stepKey(s);
+
+/**
+ * A revision's steps with what the previous revision's unchanged leading steps already did (§5):
+ * a step whose work is the same keeps its status, job, renders and pick, so a resend never re-opens
+ * a rendered step and a render in flight stays under its job, whose `job_done` still settles it.
+ * From the first changed step on, every step starts again: it works from an image that will
+ * change. A revision that re-opens a rendered step so goes back to the owner (`needsReapproval`).
+ */
+export function carryProgress(
+	prev: readonly StoredStep[],
+	next: readonly StoredStep[],
+): StoredStep[] {
+	let unchanged = true;
+	return next.map((step, i) => {
+		const before = prev[i];
+		unchanged &&= before !== undefined && workOf(before) === workOf(step);
+		if (!unchanged || !before) return step;
+		const { status, jobRef, rendered, chosen } = before;
+		return {
+			...step,
+			status,
+			...(jobRef === undefined ? {} : { jobRef }),
+			...(rendered === undefined ? {} : { rendered }),
+			...(chosen === undefined ? {} : { chosen }),
+		};
+	});
 }

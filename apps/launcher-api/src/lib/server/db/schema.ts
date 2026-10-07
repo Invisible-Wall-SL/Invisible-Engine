@@ -729,6 +729,13 @@ export const directorAtlasJobs = pgTable(
 		/** The Atlas Maker atlas (manifest stem) the render works on. */
 		atlas: text('atlas').notNull(),
 		regions: jsonb('regions').$type<string[]>().notNull(),
+		/**
+		 * The approved recipe steps the render runs (`queue_variants`' matched steps), so its
+		 * failure counts against them even when a revision has since replanned the step.
+		 */
+		steps: jsonb('steps').$type<{ recipe: string; n: number; region: string }[]>(),
+		/** When the worker counted this render against `steps`: once, however often it is told. */
+		stepsSettledAt: timestamp('steps_settled_at', { withTimezone: true }),
 		status: text('status').$type<'queued' | 'finished' | 'failed' | 'cancelled'>().notNull(),
 		/** What settled it: the callback body, or the `/progress` view the fallback read. */
 		result: jsonb('result'),

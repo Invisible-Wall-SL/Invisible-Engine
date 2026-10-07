@@ -59,6 +59,158 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+- 2026-10-07 — **Invisible Director: the Art plan checkpoint, "How this was made" and chain
+  pricing** (ADR-0008 card 8E, on top of 8D). Inert for a person and for every current game.
+  - **Pricing rules** (`packages/director-costs/src/recipe.ts`): one image of a step costs the
+    card's seconds at its size, or the measured execution mean when that is higher, plus the
+    measured delay (`secondsPerImage`), with the card's cold start once per (atlas, pipeline)
+    batch. Fails closed: a step whose card is gone, has no figure for its size (a measurement
+    never stands in for one) or bills credits leaves the whole recipe unpriced (`gpuUsd: null`,
+    `unpriced` says why), never priced at 0 s. `needsReapproval` also re-approves a revision whose
+    cost is now unpriced or higher in USD, or that re-opens a step that has rendered or is
+    rendering, at any price.
+  - **Estimate** (`runs.ts` `estimateForTemplate`, `priceChains`): the GPU side is priced per chain
+    from the reviewed cards (`GET /blueprints` through the same cached read agents get, at the GPU
+    atlas-tool reports, never the Preset's GPU) and `director_blueprint_timings`; each template
+    atlas takes the template's approved default of that name, else the fallback (the run preset's
+    shape until 8C). No catalogue, no GPU, an unpriced GPU or a credit-billed card leaves no total
+    (`total.usd: null`, `unpriced`); New game disables "Create project & start agents" and the
+    `start` action refuses such a run (409 `estimate_unpriced`). `estimate-profiles.json` gains
+    the technician (`perRun`, new `perStep`) and drops `finalRendersPerRegion`; renders and
+    reviewed variants come from the chains. New game gains the **Art plan** checkpoint toggle.
+  - **Worker** (`recipes.ts`, `driver.ts`): `job_done` settles its steps (`done` with the variants
+    it made, or `failed`) and, on the job's first bill only, folds its execution and delay seconds
+    per job into the rolling means for its (pipeline, genPx) (`recordTiming`; a batch mixing
+    pipelines or sizes is skipped). `choose_variant` / `set_output` record the pick and the
+    committed tile on the recipe. An Art plan approval must name the revision of every planned
+    recipe the owner saw (`recipeRevs`): a changed plan, a region no longer planned, or an
+    unpriced recipe is refused before the run moves (`approvalProblem`, shared with the launcher).
+    A revise may carry `recipeEdits`: validated with the same rules, stored as `rev + 1` with
+    `editedBy` and no approval (all or nothing), and the plan re-opens without waking an agent.
+    `run.set_plan` takes the approval away from recipes of regions it no longer names (the 8D
+    known gap). The recipe projection reads the measured timings too.
+  - **Launcher**: `GET /api/director/runs/[runId]/recipes` (`director/artPlan.ts`: recipes, plan,
+    priced catalogue, timings; an unreadable catalogue answers `catalogue: null` with the reason);
+    the actions route checks `recipeRevs` / `recipeEdits` shapes and refuses a stale approval up
+    front (409 `plan_changed`). The Live run screen gets the Art plan panel (groups collapsed by
+    chain, card purpose and licence per step, price per row against what is left of the cap,
+    edits within the card's ranges checked live with the same rules), "How this was made" in the
+    region detail with the finished tile beside the variants, and the before-publish licence
+    list (`routes/(app)/director/artPlan.ts`, pure). `atlasFetch` takes an `AtlasCaller` so the
+    estimate can read the catalogue with no run.
+  - Tests: `check:director-runs` 468 (estimate per chain, unpriced refusals, start refusal, the
+    Art plan actions and edit shapes), `check:director-live` 109 (the fold, the panel's view and
+    edits, drafts, licences, how-made, the regions past their retries), worker `check:recipes` 90,
+    `check:run-state` 1390, `check:director-adapters` 441 (the job's steps recorded, boot re-arms
+    the watches), `prove:art-plan` 101 (stale approval, owner edits incl. a group size
+    edit, a stale and a malformed edit, a failed render queued again, timings measured once, a
+    dropped region, re-approval on one pricing basis, a same-price revision that re-opens a
+    rendered step, an unreachable launcher, the retry cap with the checkpoint on and off, a third
+    failure that also crosses the cap or lands on a stopping, an owner-paused or a cap-paused run
+    or during a region batch, an approval of a card that hid a withdrawal, plans the approval
+    could not name, the failure count kept through every approval but the owner's at the Art
+    plan, the region step held while a render is in flight, an Art plan that cannot open told to
+    the owner once, a rendering step that cannot be revised, a replanned step's render counted).
+  - **After review** (code-reviewer, four blockers reproduced on the real modules):
+    - owner edits are validated against the plan with every edit applied (a group size edit no
+      longer refuses itself one region at a time), name the revision they were made on, are
+      parsed strictly by `parseStepInput` on both sides (a malformed step is a reason, never a
+      throw that wedged the run's event queue), and keep what unchanged leading steps rendered
+      (`carryProgress`); a refused edit stays on the page;
+    - a failed step is queued again under its approval and recorded like the first render;
+    - a revision is compared with the approved recipe priced on the SAME basis (re-approval no
+      longer slips through when the timings fell since), and the approval itself prices the plan
+      again (worker and launcher), storing the price it was approved at;
+    - Art plan decisions read the catalogue before the transaction and are refused, not retried,
+      when it cannot be read, so they never hold a later stop;
+    - `pricing.json` gains `runpod.seedDelaySecondsPerJob` (ADR-0008 §6's seed delay, 15 s
+      placeholder); template defaults price the atlases their recipes ran on, at the dearest
+      candidate; a start ignores a Preset GPU since gone from `pricing.json`;
+    - the before-publish list also covers art a dropped region committed and uses the worse of the
+      planned and current licence, and "Approve and hand off" waits for it; the Live run reloads
+      recipes on recipe, plan, pick and render rows only.
+  - **Reconciled with 8D's review fixes** (#1091): one pricing rule — a step's image is the
+    card's seconds or the measured execution mean, never below `seedSecondsPerRender` for a guessed
+    card (8D's floor), plus the measured delay or `seedDelaySecondsPerJob` (the slot 8D left at 0
+    for 8E), via `floorOf(pricing.runpod)` on both sides; the New game estimate prices the card
+    figures at its low end and that floor at its high end (after the coordinator's review, below).
+    Carrying a step's
+    state over is one rule for the technician's revisions and the owner's edits (`carryProgress`):
+    an unchanged rendered step is never re-opened (8D's B1), and every step after the first changed
+    one starts again, since it worked from an image that will change; a revision that so re-opens a
+    rendered or in-flight step loses its approval at any price, so nothing is queued and paid for
+    twice unseen (the round-one blocker of 8D's review). Steps are compared field by
+    field (`stepKey`): `jsonb` stores object keys in its own order, so a stringified stored step
+    never matched a new one. The technician's estimate profile prices it at its definition's model
+    (`atlas-technician.md`, Sonnet 5.5), held to it by `check:director-runs`.
+  - **After the coordinator's review:**
+    - the New game estimate is a range: the cards' own figures at the low end, the floor the Art
+      plan is approved on at the high end (a guessed card at no less than `seedSecondsPerRender`),
+      with cold start once per region and step as `project` counts it, so the high end is what
+      the Art plan of the same chains projects (30 guessed regions: $3.10 to $30.29, was $2.18);
+    - an Art plan decision the launcher cannot answer at all (an unreachable launcher throws) is
+      refused like an unreadable catalogue, never left to hold the owner's later rows, a stop
+      included; only the drive stopping (shutdown, a lost lease) leaves it for the next drive;
+    - **retry cap:** a failed step is queued again at most `RETRIES_PER_APPROVAL` (2) times under
+      one approval (`failures` per step on the recipe, reset by an approval); the third failure
+      withdraws the approval, the Art plan re-opens, or with the checkpoint off the run pauses until
+      the owner resumes (which approves it again);
+    - the auto-approval pause for an unpriced plan says the recipes' own reasons; one rate helper
+      (`director-costs` `pricingRate`) for the worker, the launcher and RunPod billing;
+    - `run.set_plan` refuses a region name or a plan size an approval could not name
+      (`REGION_NAME`, `MAX_PLAN_REGIONS`, now shared with the actions route), and `validateRecipe`
+      refuses a region that is not a region name; an Art plan approval is refused up front with
+      409 `plan_changed`, `plan_incomplete`, `plan_unpriced` or `catalogue_unreadable`;
+    - `templateDefaultChains` reads the defaults' atlases in one query; `prove-art-plan` runs the
+      technician's real definition only (8D's `fixtureTechnician` is gone).
+  - **Second review round:** an approval the owner's resume makes is recorded as the owner's
+    (`approved.by`), never `auto`; a stored plan naming a region with `..` is refused with that
+    name (400 `bad_recipe_revs`, truncated to 120 characters); the adapter's `REGION` (atlas and
+    mockups) and the Live run's fold are `REGION_NAME` too.
+  - **Third review round (one rule for spent retries):** a recipe past its retries is approved
+    again only by the owner at the Art plan, whatever its checkpoint setting — never by the
+    automatic approval and never by a resume. `afterRecipe` approves the other pending recipes as
+    before and opens the Art plan for the spent ones (`plan_ready` with `ownerOnly`, which opens it
+    even with the checkpoint off; `checkpoint_open` `reason: 'retries_spent'`); every pause names
+    them. A withdrawal is a new revision (`rev + 1`), so an approval made on a view that still
+    showed the recipe approved is refused as a changed plan. The plan gate also runs after any
+    checkpoint other than the Art plan resolves, and on every resume, so a failure that landed
+    while the run was paused or waiting on a region batch is put to the owner then (a stopping
+    run is asked nothing); `ownerOf` reads who an owner row is from.
+  - **Fourth review round (the count survives every approval but the owner's):** a step's
+    failures count from the owner's last approval at the Art plan, and only that approval
+    (`approveArtPlan`) clears them: an automatic approval (of a revision after two failures, or
+    of a region a plan dropped and took back) or the owner's resume past the cap keeps them, so
+    the third failure since still goes to the owner. The region step does not end (`step_done`
+    refused) while a render it queued is in flight (`rendersInFlight`); where the state machine
+    refuses the Art plan (the run paused, another checkpoint open, the build step) the owner gets
+    a note naming what waits for them and when they are asked, never silence; the gate skips a
+    stopping or ended run. Re-opened with the checkpoint on, the Art plan is labelled
+    `retries_spent` too, and the panel names each region past its retries ("H1 failed 3 times:
+    approving lets it try 3 more times": one try and two retries per approval).
+  - **Fifth review round (a render's failure always counts):** `director_atlas_jobs` gains `steps`
+    (the recipe steps `queue_variants` matched, written with the row) and `steps_settled_at`
+    (migration `0030_director_job_steps`). `settleJob` claims that record once and counts a
+    failed render against its step even when a revision has replanned the step since, or against
+    the recipe's first step when that step is gone (fails closed); a redelivered `job_done`
+    counts nothing again. A technician revision or an owner edit that would replan a step while it
+    renders is refused ("H1 step 1 is rendering; revise it once it settles"). The launcher arms
+    the `/progress` fallback again at boot for every queued render (`resumeAtlasJobWatches`), its
+    12 h window counted from when the render was queued, so a restart over a finishing render no
+    longer holds the region step or a stop. The gate reports whether it told the owner
+    (`GateOutcome.told`): the withdrawal note is posted only when it did not, never on a stopping
+    run, and a gate note equal to the run's latest worker note is not posted again. The panel's
+    retry line shows only on the Art plan the owner can approve.
+  - **Deploy:** atlas-tool's `RUNPOD_ENDPOINT_GPU` must be set and priced, or no Director run can
+    start (`docs/INFRA.md`). The worker and the launcher go out together: an old worker drops the
+    owner's `recipeEdits`, and an old Live run page sends no `recipeRevs`, so every Art plan
+    approval is refused. The launcher lands first: its boot applies `0030_director_job_steps`,
+    which the worker's `settleJob` writes to (a worker on the old schema retries every `job_done`, then pauses the run).
+  - **Open:** the Atlas Maker card editor does not yet show the measured timings (ADR-0008 §2);
+    adding a step, or editing one region of a shared row, goes through "Send my changes"; the cap's
+    queued-render projection (`projectQueuedGpu`) still uses the run's mean or the seed, not a
+    step's card; `queue_variants` is not limited to the style pack and region steps (a render
+    queued while building that fails past its retries renders nothing more in that run).
 - 2026-10-07 — **Director 8D transition closed.** With all three definitions on main (technician,
   artist, coordinator), `TRANSITION_TOOLS`, `transitionProblem`, the Agents tab's
   `transitionTools` rule and the `CLEANUP OWED` notice are gone: every adapter op's allow-list

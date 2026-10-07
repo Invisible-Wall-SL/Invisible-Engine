@@ -264,7 +264,11 @@ export const AGENT_BLURBS: Record<string, { name: string; does: string }> = {
 		does: 'Reads your mockups and maps each element to the template',
 	},
 	'art-director': { name: 'Art director', does: 'Reviews every variant before you see it' },
-	'atlas-artist': { name: 'Atlas artist', does: 'Atlas Maker · ComfyUI' },
+	'atlas-artist': { name: 'Atlas artist', does: 'Prompts and curation, from the style pack' },
+	'atlas-technician': {
+		name: 'Atlas technician',
+		does: 'Plans each region in Atlas Maker · renders on ComfyUI',
+	},
 	animator: { name: 'Animator', does: 'Rigger · Flipbook · Symbols SM' },
 	builder: { name: 'Builder', does: 'Scene Editor · Win Text · Localization' },
 	qa: { name: 'QA', does: 'Sizes, alpha, sheet budget, plays the build' },

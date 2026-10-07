@@ -14,6 +14,7 @@ import {
 	costOfRunpodJob,
 	DIRECTOR_RUN_BUDGET_DEFAULT_USD,
 	DIRECTOR_RUN_BUDGET_KEY,
+	pricingRate,
 	seedRenderUsd,
 	type DirectorPricing,
 } from 'director-costs';
@@ -84,7 +85,22 @@ import {
 	type StoredMessage,
 	type WakingEvent,
 } from './store.ts';
-import { approveArtPlan, markQueued, reviewPlanGate, type RecipeDeps } from './recipes.ts';
+import { floorOf, RETRIES_PER_APPROVAL } from 'director-costs/recipe';
+import {
+	MAX_RECIPE_EDITS,
+	applyRecipeEdits,
+	approveArtPlan,
+	artPlanApprovalRefusal,
+	loadTimings,
+	markChosen,
+	markCommitted,
+	markQueued,
+	recordTiming,
+	reviewPlanGate,
+	settleJob,
+	type RecipeDeps,
+	type RecipeEdit,
+} from './recipes.ts';
 import { WORKER_TOOLS } from './tools.ts';
 import { runWorkerTool, workerToolSpecs, type WorkerToolId } from './workerTools.ts';
 
@@ -337,6 +353,8 @@ async function settle(
 		status === 'running' && state.step === 'breakdown' ? await runHasMockups(ctx) : false;
 	const results = new Map<string, BetaToolResultBlockParam>();
 	let budgetStop: BudgetFigures | null = null;
+	const chosen: { atlas: string; region: string; id: string }[] = [];
+	const committed: { atlas: string; region: string; from: string }[] = [];
 	const recipes =
 		status === 'running' &&
 		agent.tools.includes('run.set_recipe') &&
@@ -429,6 +447,37 @@ async function settle(
 		if (unsettled(answer.status, answer.body)) {
 			throw new RetryLater(`${id} answered ${answer.status}`);
 		}
+		if (id === 'atlas.choose_variant' && answer.status === 200) {
+			const pick = answer.body as { atlas?: unknown; region?: unknown; chosen?: unknown };
+			if (
+				typeof pick.atlas === 'string' &&
+				typeof pick.region === 'string' &&
+				typeof pick.chosen === 'string'
+			) {
+				chosen.push({ atlas: pick.atlas, region: pick.region, id: pick.chosen });
+			}
+		}
+		if (id === 'atlas.set_output' && answer.status === 200) {
+			const input = call.input as {
+				atlas?: unknown;
+				region?: unknown;
+				from?: { atlas?: unknown; region?: unknown; id?: unknown };
+			};
+			const from = input.from;
+			if (
+				typeof input.atlas === 'string' &&
+				typeof input.region === 'string' &&
+				typeof from?.atlas === 'string' &&
+				typeof from.region === 'string' &&
+				typeof from.id === 'string'
+			) {
+				committed.push({
+					atlas: input.atlas,
+					region: input.region,
+					from: `${from.atlas}/${from.region}/${from.id}`,
+				});
+			}
+		}
 		// Marked at once, in its own lease-checked write, so a second queue call later in this turn
 		// already finds the step queued and the launcher's gate refuses it. A replayed call returns
 		// the stored result and marks nothing new.
@@ -446,6 +495,12 @@ async function settle(
 	await withLease(ctx.sql, ctx.run, async (tx, live) => {
 		// The pause first, so a worker tool later in the turn (a checkpoint request) sees it.
 		if (budgetStop) await pauseForBudget(tx, live, agent.name, budgetStop, 'gpu_submit');
+		for (const pick of chosen) {
+			await markChosen(tx, live.id, agent.name, pick.atlas, pick.region, pick.id);
+		}
+		for (const tile of committed) {
+			await markCommitted(tx, live.id, agent.name, tile.atlas, tile.region, tile.from);
+		}
 		const toolCtx = {
 			tx,
 			live,
@@ -500,12 +555,13 @@ async function recipeDeps(ctx: Ctx): Promise<RecipeDeps | undefined> {
 	if (answer.status !== 200) return undefined;
 	const catalogue = answer.body as RecipeDeps['catalogue'];
 	const pricing = await ctx.pricing();
-	const perSecond = pricing.runpod.perSecondByGpu[catalogue.gpu];
 	return {
 		catalogue,
-		usdPerSecond: typeof perSecond === 'number' ? perSecond : null,
-		// The seed is per render; no per-job delay is measured yet (card 8E's timings).
-		floor: { seedSecondsPerImage: pricing.runpod.seedSecondsPerRender, delaySecondsPerJob: 0 },
+		usdPerSecond: pricingRate(pricing, catalogue),
+		timings: await loadTimings(ctx.sql),
+		// A guessed card never projects below the seed per render; a job's delay is the measured
+		// one where the timings have it, else this seed.
+		floor: floorOf(pricing.runpod),
 	};
 }
 
@@ -1113,10 +1169,33 @@ async function handleEvents(ctx: Ctx, { ownerRequestsOnly = false } = {}): Promi
 	if (events.length === 0) return;
 	const pricing = await ctx.pricing();
 	for (const event of events) {
+		// An Art plan decision is priced and validated on the catalogue and the timings, read
+		// before the transaction for the same reason. When they cannot be read the decision is
+		// refused, never retried: a retry would hold every later row of the owner's (a stop
+		// included) behind the launcher.
+		const deps = decidesArtPlan(event) ? await recipeDepsOrNull(ctx) : undefined;
 		await withLease(ctx.sql, ctx.run, async (tx, live) => {
-			await applyEvent(ctx, tx, live, event, pricing);
+			await applyEvent(ctx, tx, live, event, pricing, deps);
 			await markHandled(tx, event.id);
 		});
+	}
+}
+
+const decidesArtPlan = (event: WakingEvent): boolean =>
+	event.kind === 'checkpoint_resolved' &&
+	event.payload.checkpoint === 'art_plan' &&
+	(event.payload.decision === 'approve' ||
+		(event.payload.decision === 'revise' && event.payload.recipeEdits !== undefined));
+
+async function recipeDepsOrNull(ctx: Ctx): Promise<RecipeDeps | null> {
+	try {
+		return (await recipeDeps(ctx)) ?? null;
+	} catch (error) {
+		// Any failure to read them (an answer saying so, or no answer at all: a launcher that cannot
+		// be reached throws) refuses the decision. Only the drive stopping (shutdown, a lost lease)
+		// is not an answer: the event then waits for the next drive.
+		if (ctx.signal.aborted) throw error;
+		return null;
 	}
 }
 
@@ -1162,6 +1241,7 @@ async function applyEvent(
 	live: LiveRun,
 	event: WakingEvent,
 	pricing: DirectorPricing,
+	deps?: RecipeDeps | null,
 ): Promise<void> {
 	const p = event.payload;
 	const refuse = (error: string) =>
@@ -1198,7 +1278,9 @@ async function applyEvent(
 					live.budgetCapUsd = raised;
 					await setBudgetCap(tx, live.id, raised);
 				}
-				await reviewPlanGate(tx, live);
+				// The owner's resume is their approval of what the plan still waits for, except a step
+				// past its retries, which the Art plan then asks them about.
+				await reviewPlanGate(tx, live, ownerOf(p));
 				return;
 			}
 			if (action === 'stop') {
@@ -1224,6 +1306,21 @@ async function applyEvent(
 				return refuse(`unknown checkpoint decision "${String(decision)}"`);
 			}
 			const checkpoint = p.checkpoint as Checkpoint;
+			// The owner approves the plan they saw: a revision since, or a plan with no price, is
+			// refused before the run moves, and the Art plan stays open.
+			const unreadable =
+				'the blueprint catalogue could not be read, so the Art plan cannot be priced now; send it again in a moment';
+			const approvingPlan =
+				checkpoint === 'art_plan' && decision === 'approve' && live.state.waitingOn === 'art_plan';
+			if (approvingPlan) {
+				if (!deps) return refuse(unreadable);
+				const why = await artPlanApprovalRefusal(tx, live.id, p.recipeRevs, deps);
+				if (why) return refuse(why);
+			}
+			const edits =
+				checkpoint === 'art_plan' && decision === 'revise' ? recipeEditsOf(p.recipeEdits) : null;
+			if (edits === undefined) return refuse('the recipe edits are not a list of region chains');
+			if (edits?.length && !deps) return refuse(unreadable);
 			const error = await move(
 				tx,
 				live,
@@ -1231,10 +1328,41 @@ async function applyEvent(
 				`owner ${decision}`,
 			);
 			if (error) return refuse(error);
-			if (checkpoint === 'art_plan' && decision === 'approve') {
-				const by = (p.by as { name?: unknown; uid?: unknown } | undefined) ?? {};
-				await approveArtPlan(tx, live, String(by.uid ?? by.name ?? 'owner'));
+			const owner = ownerOf(p);
+			if (approvingPlan && deps) await approveArtPlan(tx, live, owner, deps);
+			if (edits?.length && deps) {
+				// The owner's own edits go back to the owner, not to an agent: stored as the next
+				// revisions and the Art plan re-opened on them, or refused with every reason and the
+				// plan re-opened unchanged.
+				const applied = await applyRecipeEdits(tx, live, owner, edits, deps);
+				const text = applied.ok
+					? `Your Art plan edits to ${applied.regions.join(', ')} are stored; approve the plan as it now stands.`
+					: `Your Art plan edits were not stored:\n- ${applied.errors.join('\n- ')}`;
+				await insertEvent(tx, live.id, 'worker', 'activity', { type: 'note', text });
+				await reviewPlanGate(tx, live);
+				// A note with the edits is kept for the coordinator, who reads it once the owner
+				// approves the plan: the run waits on the owner until then.
+				if (p.note) {
+					await appendMessage(
+						tx,
+						live.id,
+						COORDINATOR,
+						'user',
+						userText(
+							`The owner edited the Art plan (${applied.ok ? 'stored; it waits for their approval again' : 'not stored'}). Their note: ${String(p.note)}`,
+						),
+					);
+				}
+				return;
 			}
+			// What failed past its retries while another checkpoint was open is put to the owner now,
+			// rather than waiting for the technician's next recipe. Not after an Art plan revise: the
+			// plan goes back to the technician first.
+			if (checkpoint !== 'art_plan') await reviewPlanGate(tx, live);
+			const reopened =
+				checkpoint !== 'art_plan' && live.state.waitingOn === 'art_plan'
+					? ' The Art plan is open again for the owner: a step failed past its retries.'
+					: '';
 			const note = p.note ? `\nTheir note: ${String(p.note)}` : '';
 			const what = decision === 'approve' ? 'approved' : 'asked for revisions at';
 			await appendMessage(
@@ -1243,27 +1371,80 @@ async function applyEvent(
 				COORDINATOR,
 				'user',
 				userText(
-					`The owner ${what} the ${checkpoint} checkpoint. The run is now in the ${live.state.step} step.${note}`,
+					`The owner ${what} the ${checkpoint} checkpoint. The run is now in the ${live.state.step} step.${reopened}${note}`,
 				),
 			);
 			return;
 		}
 		case 'job_done': {
-			await billJob(tx, live, event, pricing);
+			const billed = await billJob(tx, live, event, pricing);
+			const result = isRecord(p.result) ? p.result : {};
+			const variants = (Array.isArray(result.variants) ? result.variants : [])
+				.filter(isRecord)
+				.map((v) => ({ region: String(v.region ?? ''), id: String(v.variant ?? v.id ?? '') }))
+				.filter((v) => v.region && v.id);
+			const { settled, withdrawn } = await settleJob(
+				tx,
+				live.id,
+				String(p.jobRef),
+				p.status === 'finished',
+				variants,
+			);
+			if (billed) await recordTiming(tx, settled, billed);
 			// An ended run has nobody left to tell; its job is only billed.
 			if (TERMINAL_STATUSES.includes(live.state.status)) return;
+			const spent = withdrawn.map((w) => `${w.region} step ${w.steps.join(', ')}`).join('; ');
+			// The gate names the step wherever it asks or pauses; the note stands in for it only
+			// when it could not (the plan is incomplete), and a stopping run is told nothing.
+			const told = withdrawn.length > 0 && (await reviewPlanGate(tx, live)).told;
+			if (withdrawn.length && !told && live.state.status !== 'stopping') {
+				await insertEvent(tx, live.id, 'worker', 'activity', {
+					type: 'note',
+					text: `${spent} failed again after ${RETRIES_PER_APPROVAL} retries: its recipe renders nothing more until the plan is approved again.`,
+				});
+			}
 			const to = ctx.agents.has(event.agent) ? event.agent : COORDINATOR;
 			const body = JSON.stringify({ jobRef: p.jobRef, status: p.status, result: p.result });
+			const held = withdrawn.length
+				? ` ${spent} has used its ${RETRIES_PER_APPROVAL} retries: the owner approves it again before it renders.`
+				: '';
 			await appendMessage(
 				tx,
 				live.id,
 				to,
 				'user',
-				userText(`GPU job ${String(p.jobRef)} (${event.tool ?? 'job'}) finished: ${body}`),
+				userText(`GPU job ${String(p.jobRef)} (${event.tool ?? 'job'}) finished: ${body}${held}`),
 			);
 			return finishStop(tx, live);
 		}
 	}
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+	typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** Who an owner's row came from, as the launcher stamps it (`by`). */
+function ownerOf(p: Record<string, unknown>): string {
+	const by = isRecord(p.by) ? p.by : {};
+	return String(by.uid ?? by.name ?? 'owner');
+}
+
+/**
+ * The owner's Art plan edits as the launcher wrote them (`runs.ts` checks the same shape): null
+ * when there are none, undefined when they are not a list of region chains, each with the
+ * revision it was edited on. Every step is parsed by the recipe rules before anything is stored
+ * (`applyRecipeEdits`), so a malformed one is a reason, never a throw.
+ */
+function recipeEditsOf(raw: unknown): RecipeEdit[] | null | undefined {
+	if (raw === undefined || raw === null) return null;
+	if (!Array.isArray(raw) || raw.length > MAX_RECIPE_EDITS) return undefined;
+	const edits: RecipeEdit[] = [];
+	for (const e of raw) {
+		if (!isRecord(e) || typeof e.region !== 'string' || !Array.isArray(e.steps)) return undefined;
+		if (!Number.isInteger(e.rev) || e.steps.length > 8) return undefined;
+		edits.push({ region: e.region, rev: e.rev as number, steps: e.steps });
+	}
+	return edits;
 }
 
 const finiteCount = (v: unknown): number | null =>
@@ -1286,7 +1467,7 @@ async function billJob(
 	live: LiveRun,
 	event: WakingEvent,
 	pricing: DirectorPricing,
-): Promise<void> {
+): Promise<{ jobs: number; executionSeconds: number; delaySeconds: number } | null> {
 	const raw = (event.payload.result as { runpod?: Record<string, unknown> } | null)?.runpod;
 	const jobRef = String(event.payload.jobRef);
 	const gpu = typeof raw?.gpu === 'string' && raw.gpu ? raw.gpu : null;
@@ -1315,7 +1496,7 @@ async function billJob(
 						: `Render ${jobRef} reports ${seconds} s of GPU time but no GPU to price it by (RUNPOD_ENDPOINT_GPU on atlas-tool), so it does not count toward the cap. GPU submits are blocked until it is set and the run resumed.`,
 			});
 		}
-		return;
+		return null;
 	}
 	const estimate = unreportedSeconds(
 		unreported,
@@ -1334,7 +1515,7 @@ async function billJob(
 			jobRef,
 			message: (error as Error).message,
 		});
-		return;
+		return null;
 	}
 	const bill = async (requestId: string, amount: number, extra: Record<string, unknown>) => {
 		const written = await recordSpend(tx, {
@@ -1356,7 +1537,7 @@ async function billJob(
 		}
 		return written;
 	};
-	if (seconds > 0) await bill(`runpod:${jobRef}`, usd, { seconds });
+	const first = seconds > 0 && (await bill(`runpod:${jobRef}`, usd, { seconds }));
 	if (unreported > 0) {
 		const written = await bill(`runpod:${jobRef}:unreported`, estimateUsd, {
 			estimated: true,
@@ -1374,4 +1555,11 @@ async function billJob(
 			});
 		}
 	}
+	// The measured split (#1064), for the timings: only on the job's first bill, so a redelivered
+	// `job_done` is counted once.
+	const execution = finiteCount(raw?.executionSeconds);
+	const delay = finiteCount(raw?.delaySeconds);
+	return first && execution !== null && delay !== null && jobs > 0
+		? { jobs, executionSeconds: execution, delaySeconds: delay }
+		: null;
 }

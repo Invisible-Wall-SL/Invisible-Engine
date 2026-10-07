@@ -1,11 +1,24 @@
 import type { TransactionSql } from 'postgres';
 import type { BetaContentBlockParam } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import type { ToolSpec } from './model.ts';
-import type { RecipeInput } from 'director-costs/recipe';
+import { MAX_PLAN_REGIONS, REGION_NAME, type RecipeInput } from 'director-costs/recipe';
 import { ANALYST_AGENT } from './mockups/analyze.ts';
-import { TECHNICIAN, defaultsBrief, setRecipe, type RecipeDeps } from './recipes.ts';
+import {
+	TECHNICIAN,
+	defaultsBrief,
+	forgetUnplanned,
+	setRecipe,
+	type RecipeDeps,
+} from './recipes.ts';
 import { transition, type RunEvent } from './runState.ts';
-import { appendMessage, applyTransition, insertEvent, runSpend, type LiveRun } from './store.ts';
+import {
+	appendMessage,
+	applyTransition,
+	insertEvent,
+	rendersInFlight,
+	runSpend,
+	type LiveRun,
+} from './store.ts';
 import type { WORKER_TOOLS } from './tools.ts';
 
 /**
@@ -278,9 +291,38 @@ export async function runWorkerTool(
 			const { status, step, waitingOn } = ctx.live.state;
 			return ok({ ...base, status, step, waitingOn });
 		}
-		case 'run.set_plan':
+		case 'run.set_plan': {
+			// A plan the owner's Art plan approval could not name could never be approved.
+			const batches = Array.isArray(input.batches)
+				? (input.batches as { regions?: unknown }[])
+				: [];
+			const regions = new Set(batches.flatMap((b) => (Array.isArray(b.regions) ? b.regions : [])));
+			const named = [...regions].filter((r) => typeof r !== 'string' || !REGION_NAME.test(r));
+			if (named.length) {
+				const listed = named
+					.slice(0, 10)
+					.map((r) => JSON.stringify(r))
+					.join(', ');
+				const what = named.length === 1 ? 'is not a region name' : 'are not region names';
+				return refused(
+					`Refused: ${listed} ${what} (letters, digits and _ . ( ) -, up to 120 characters, as Atlas Maker names a region). Send the whole plan again.`,
+				);
+			}
+			if (regions.size > MAX_PLAN_REGIONS) {
+				return refused(
+					`Refused: the plan names ${regions.size} regions, more than the ${MAX_PLAN_REGIONS} one Art plan approval can name. Plan fewer.`,
+				);
+			}
 			await activity(ctx, id, { type: 'plan', summary: input.summary, batches: input.batches });
-			return ok({ recorded: true });
+			const dropped = await forgetUnplanned(ctx.tx, ctx.live.id);
+			if (dropped.length) {
+				await activity(ctx, id, {
+					type: 'note',
+					text: `The new plan leaves out ${dropped.join(', ')}: their approved recipes are no longer approved and render nothing.`,
+				});
+			}
+			return ok({ recorded: true, ...(dropped.length ? { unapproved: dropped } : {}) });
+		}
 		case 'run.post_activity':
 			await activity(ctx, id, { type: 'note', text: str(input, 'text') });
 			return ok({ posted: true });
@@ -308,6 +350,17 @@ export async function runWorkerTool(
 			if (kind === 'step_done' && from.step === 'breakdown' && ctx.hasMockups) {
 				return refused(
 					'Refused: this run has mockups, so the worker produces the mockup breakdown itself and opens its checkpoint. You will be told the result.',
+				);
+			}
+			// A render's failures are put to the owner at the Art plan, which opens only up to the
+			// region step: the step ends once nothing it queued can still fail.
+			const inFlight =
+				kind === 'step_done' && from.step === 'regions'
+					? await rendersInFlight(ctx.tx, ctx.live.id)
+					: 0;
+			if (inFlight) {
+				return refused(
+					`Refused: ${inFlight} render${inFlight === 1 ? ' is' : 's are'} still in flight. The region step ends once every render has landed; you are told as each one finishes.`,
 				);
 			}
 			const error = await move(ctx, { type: kind }, `${ctx.agent}: ${kind}`);
