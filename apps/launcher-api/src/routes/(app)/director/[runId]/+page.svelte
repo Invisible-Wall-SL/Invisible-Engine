@@ -626,7 +626,7 @@
 
 	// A recipe row, a finished render and a checkpoint all move the recipes: one read after each.
 	const recipesKey = $derived(
-		`${folded.recipesVersion}:${folded.jobs.filter((j) => j.status !== 'queued').length}:${run?.waitingOn ?? ''}:${run?.status ?? ''}:${run?.step ?? ''}`,
+		`${folded.recipesVersion}:${folded.jobs.length}:${folded.jobs.filter((j) => j.status !== 'queued').length}:${run?.waitingOn ?? ''}:${run?.status ?? ''}:${run?.step ?? ''}`,
 	);
 	$effect(() => {
 		void recipesKey;

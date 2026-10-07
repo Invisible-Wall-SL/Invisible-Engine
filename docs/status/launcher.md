@@ -59,6 +59,50 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+- 2026-10-07 — **Invisible Director: the Art plan checkpoint, "How this was made" and chain
+  pricing** (ADR-0008 card 8E, stacked on 8D). Inert for a person and for every current game.
+  - **Pricing rules** (`packages/director-costs/src/recipe.ts`): one image of a step costs the
+    card's seconds at its size, or the measured execution mean when that is higher, plus the
+    measured delay (`secondsPerImage`), with the card's cold start once per (atlas, pipeline)
+    batch. Fails closed: a step whose card is gone, has no figure for its size or bills credits
+    leaves the whole recipe unpriced (`gpuUsd: null`, `unpriced` says why), never priced at 0 s.
+    `needsReapproval` also re-approves a revision whose cost is now unpriced or higher in USD.
+  - **Estimate** (`runs.ts` `estimateForTemplate`, `priceChains`): the GPU side is priced per chain
+    from the reviewed cards (`GET /blueprints` through the same cached read agents get, at the GPU
+    atlas-tool reports, never the Preset's GPU) and `director_blueprint_timings`; each template
+    atlas takes the template's approved default of that name, else the fallback (the run preset's
+    shape until 8C). No catalogue, no GPU, an unpriced GPU or a credit-billed card leaves no total
+    (`total.usd: null`, `unpriced`); New game disables "Create project & start agents" and the
+    `start` action refuses such a run (409 `estimate_unpriced`). `estimate-profiles.json` gains
+    the technician (`perRun`, new `perStep`) and drops `finalRendersPerRegion`; renders and
+    reviewed variants come from the chains. New game gains the **Art plan** checkpoint toggle.
+  - **Worker** (`recipes.ts`, `driver.ts`): `job_done` settles its steps (`done` with the variants
+    it made, or `failed`) and, on the job's first bill only, folds its execution and delay seconds
+    per job into the rolling means for its (pipeline, genPx) (`recordTiming`; a batch mixing
+    pipelines or sizes is skipped). `choose_variant` / `set_output` record the pick and the
+    committed tile on the recipe. An Art plan approval must name the revision of every planned
+    recipe the owner saw (`recipeRevs`): a changed plan, a region no longer planned, or an
+    unpriced recipe is refused before the run moves (`approvalProblem`, shared with the launcher).
+    A revise may carry `recipeEdits`: validated with the same rules, stored as `rev + 1` with
+    `editedBy` and no approval (all or nothing), and the plan re-opens without waking an agent.
+    `run.set_plan` takes the approval away from recipes of regions it no longer names (the 8D
+    known gap). The recipe projection reads the measured timings too.
+  - **Launcher**: `GET /api/director/runs/[runId]/recipes` (`director/artPlan.ts`: recipes, plan,
+    priced catalogue, timings; an unreadable catalogue answers `catalogue: null` with the reason);
+    the actions route checks `recipeRevs` / `recipeEdits` shapes and refuses a stale approval up
+    front (409 `plan_changed`). The Live run screen gets the Art plan panel (groups collapsed by
+    chain, card purpose and licence per step, price per row against what is left of the cap,
+    edits within the card's ranges checked live with the same rules), "How this was made" in the
+    region detail with the finished tile beside the variants, and the before-publish licence
+    list (`routes/(app)/director/artPlan.ts`, pure). `atlasFetch` takes an `AtlasCaller` so the
+    estimate can read the catalogue with no run.
+  - Tests: `check:director-runs` 458 (estimate per chain, unpriced refusals, start refusal, the
+    Art plan actions), `check:director-live` 98 (the fold, the panel's view and edits, licences,
+    how-made), worker `check:recipes` 63, `prove:art-plan` 39 (stale approval, owner edits,
+    step progress and timings measured once, a dropped region).
+  - **Open:** the Atlas Maker card editor does not yet show the measured timings (ADR-0008 §2);
+    adding a step from the Art plan panel goes through "Send my changes"; the cap's queued-render
+    projection (`projectQueuedGpu`) still uses the run's mean or the seed, not a step's card.
 - 2026-10-07 — **Invisible Director: the atlas technician** (ADR-0008 card 8D). Inert for a person
   and for every current game: only a Director run reaches any of it.
   - **Agent:** `services/director-worker/agents/atlas-technician.md` (Sonnet 5.5, high effort, the

@@ -7,7 +7,8 @@
  * loader, the `director-costs` estimator and the worker's own state machine
  * (`services/director-worker/src/runState.ts`). Replaced at their boundaries: R2 (in memory),
  * the Postgres-backed modules (the Director store, projects, clients, overrides, settings), the
- * duplicate path, the template summary and the font catalog. `fetch` throws for the whole run.
+ * duplicate path, the template summary, the font catalog and the Art plan reads (`artPlan.ts`:
+ * the priced catalogue and the worker's approval rule). `fetch` throws for the whole run.
  *
  * Pinned:
  *  - the ownership refusal blocks both create and start, and neither writes anything then;
@@ -19,7 +20,13 @@
  *  - a replayed request id answers the same event id and writes nothing new; the same id with
  *    another input is refused;
  *  - the estimate makes no RunPod call and no model call, and the profiles price every agent at
- *    the model its definition names;
+ *    the model its definition names; its GPU side is priced per chain (the template's default, else
+ *    the fallback) from the catalogue read for the template as no run, at atlas-tool's GPU; an
+ *    unreadable catalogue, no GPU or an unpriced GPU leaves no total, and a start is then refused
+ *    (409 `estimate_unpriced`);
+ *  - an Art plan approval carries the revisions the owner saw and is refused up front when the
+ *    stored plan changed (409 `plan_changed`); recipe edits travel whole on an `art_plan` revise
+ *    only, and malformed revisions or edits are 400s;
  *  - create derives the run id from the request id, copies the ownership stamp into the starting
  *    point, snapshots the budget cap, and leaves nothing behind when the copy fails;
  *  - font requests list and mark done, once the font is in the catalog;

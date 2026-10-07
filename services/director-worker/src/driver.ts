@@ -1164,12 +1164,22 @@ async function handleEvents(ctx: Ctx, { ownerRequestsOnly = false } = {}): Promi
 	if (events.length === 0) return;
 	const pricing = await ctx.pricing();
 	for (const event of events) {
+		// The owner's Art plan edits are validated against the catalogue and the timings, read
+		// before the transaction for the same reason.
+		const deps = carriesRecipeEdits(event) ? await recipeDeps(ctx) : undefined;
 		await withLease(ctx.sql, ctx.run, async (tx, live) => {
-			await applyEvent(ctx, tx, live, event, pricing);
+			await applyEvent(ctx, tx, live, event, pricing, deps);
 			await markHandled(tx, event.id);
 		});
 	}
 }
+
+const carriesRecipeEdits = (event: WakingEvent): boolean =>
+	event.kind === 'checkpoint_resolved' &&
+	event.payload.checkpoint === 'art_plan' &&
+	event.payload.decision === 'revise' &&
+	Array.isArray(event.payload.recipeEdits) &&
+	event.payload.recipeEdits.length > 0;
 
 async function move(tx: Db, live: LiveRun, event: RunEvent, cause: string): Promise<string | null> {
 	const result = transition(live.state, event);
@@ -1213,6 +1223,7 @@ async function applyEvent(
 	live: LiveRun,
 	event: WakingEvent,
 	pricing: DirectorPricing,
+	deps?: RecipeDeps,
 ): Promise<void> {
 	const p = event.payload;
 	const refuse = (error: string) =>
@@ -1288,9 +1299,9 @@ async function applyEvent(
 			const edits =
 				checkpoint === 'art_plan' && decision === 'revise' ? recipeEditsOf(p.recipeEdits) : null;
 			if (edits === undefined) return refuse('the recipe edits are not a list of region chains');
-			const deps = edits?.length ? await recipeDeps(ctx) : undefined;
-			if (edits?.length && !deps)
+			if (edits?.length && !deps) {
 				return refuse('the blueprint catalogue could not be read; try again');
+			}
 			const error = await move(
 				tx,
 				live,

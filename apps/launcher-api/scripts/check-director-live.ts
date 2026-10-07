@@ -17,7 +17,13 @@
  *  - the images an event names are collected only under the run's project prefix, with no `..`;
  *  - the feed gets one entry per row bar the per-image analysis rows, with the step at the time,
  *    the tool label and the cost of a spend row; a text is clipped;
- *  - `insertEvent` keeps the rows ascending by id and drops a repeat.
+ *  - `insertEvent` keeps the rows ascending by id and drops a repeat;
+ *  - the Art plan (card 8E, `routes/(app)/director/artPlan.ts` over the reference plan in
+ *    `docs/director/eval/blueprints/`): recipes collapse by group and chain; a row edit applies to
+ *    every region of the row and is checked with the recipe rules at the field; every chain is
+ *    priced again with the measured timings; an unpriced GPU, a recipe stored unpriced or a
+ *    broken edit leaves the plan unapprovable; the licence list and "How this was made"; and the
+ *    fold's `art_plan` open / approve / refused rows and the Style pack step's "Art plan ✓".
  */
 import { readFileSync } from 'node:fs';
 import {
