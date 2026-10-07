@@ -2618,32 +2618,53 @@ check(
 	);
 
 	{
-		// ADR-0008 card 8D's transition: the artist's four moving ops are accepted all named (main's
-		// definition) or none (the narrowed one), never a mix.
-		const artistPath = fileURLToPath(
-			new URL('../../../services/director-worker/agents/atlas-artist.md', import.meta.url),
+		// ADR-0008 card 8D's transition: each agent's moving ops are accepted all named (main's
+		// definition) or none (the new one), never a mix. Both states are built from whichever
+		// definition the tree holds, so this holds before and after the definition PRs land.
+		const agentsDir = fileURLToPath(
+			new URL('../../../services/director-worker/agents/', import.meta.url),
 		);
-		const artist = readFileSync(artistPath, 'utf8');
-		const rules = agents.agentEditRules('atlas-artist');
+		const isTool = (line: string, ids: string[]) => ids.some((id) => line.trim() === `- ${id}`);
 		const without = (text: string, ids: string[]) =>
 			text
 				.split('\n')
-				.filter((line) => !ids.some((id) => line.trim() === `- ${id}`))
+				.filter((line) => !isTool(line, ids))
 				.join('\n');
+		const withTools = (text: string, ids: string[]) =>
+			without(text, ids).replace(
+				/^tools:\n/m,
+				`tools:\n${ids.map((id) => `  - ${id}\n`).join('')}`,
+			);
+		const artist = readFileSync(`${agentsDir}atlas-artist.md`, 'utf8');
+		const rules = agents.agentEditRules('atlas-artist');
 		const moving = [
 			'atlas.queue_variants',
 			'atlas.choose_variant',
 			'atlas.pack_sheet',
 			'comfyui.job_status',
 		];
+		const verdict = (name: string, text: string) =>
+			agentEdit.validateAgentEdit(name, text, agents.agentEditRules(name)).ok;
 		check(
 			"the artist's moving tools: all named, none named, or a mix refused",
 			[
-				agentEdit.validateAgentEdit('atlas-artist', artist, rules).ok,
-				agentEdit.validateAgentEdit('atlas-artist', without(artist, moving), rules).ok,
-				agentEdit.validateAgentEdit('atlas-artist', without(artist, moving.slice(0, 1)), rules).ok,
+				verdict('atlas-artist', withTools(artist, moving)),
+				verdict('atlas-artist', without(artist, moving)),
+				verdict('atlas-artist', withTools(without(artist, moving), moving.slice(1))),
 			],
 			[true, true, false],
+		);
+		const coordinator = readFileSync(`${agentsDir}coordinator.md`, 'utf8');
+		check(
+			"the coordinator's catalogue: named or not both pass; any other adapter op added is refused",
+			[
+				verdict('coordinator', without(coordinator, ['atlas.list_blueprints'])),
+				verdict('coordinator', withTools(coordinator, ['atlas.list_blueprints'])),
+				verdict('coordinator', withTools(coordinator, ['atlas.set_output'])),
+				agentEdit.validateAgentEdit('atlas-artist', withTools(artist, ['atlas.set_output']), rules)
+					.ok,
+			],
+			[true, true, false, false],
 		);
 	}
 

@@ -3708,6 +3708,28 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		true,
 	);
 	check(
+		"each transition entry's op serves its agent",
+		[...TRANSITION]
+			.map((entry) => entry.split(' '))
+			.filter(([id, agent]) => !ADAPTER_OPS.get(id)?.agents.includes(agent)),
+		[],
+	);
+	{
+		const workerRecipes: typeof import('../../../services/director-worker/src/recipes.ts') =
+			await import(
+				new URL('../../../services/director-worker/src/recipes.ts', import.meta.url).href
+			);
+		const technicianOps = [...ADAPTER_OPS.values()]
+			.filter((op: { agents: readonly string[] }) => op.agents.includes('atlas-technician'))
+			.map(opIdOf)
+			.sort();
+		check(
+			"the technician's allow-list is exactly the adapter ops of TECHNICIAN_TOOLS",
+			technicianOps,
+			workerRecipes.TECHNICIAN_TOOLS.filter((id: string) => ADAPTER_OPS.has(id)).sort(),
+		);
+	}
+	check(
 		'every runtime agent definition is a known agent, and every known agent but those awaiting theirs has one',
 		[...tools.keys()].sort(),
 		models.filter((agent: string) => tools.has(agent) || !AWAITING_DEFINITION.has(agent)).sort(),
