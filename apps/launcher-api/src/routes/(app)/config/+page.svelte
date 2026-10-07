@@ -788,8 +788,9 @@
 	 * stands. A table edited back to its kind's default is dropped.
 	 */
 	const offersFreeSpins = $derived(capabilities.freeSpins);
-	/** A Book-of game: its book is the trigger, and its mock deals no other. */
-	const triggerIsBook = $derived(capabilities.bookReveal || bookGame);
+	/** A Book-of KIND (not the expanding-symbol feature, which any lines game may have): its book is
+	 *  the trigger, and the book mock deals no other. */
+	const triggerIsBook = bookGame;
 	const freeSpinsDefaults = $derived(freeSpinsDefaultsFor(data.gameType));
 	const freeSpins = $derived(resolveFreeSpins(snapshot, freeSpinsDefaults));
 	/** The symbol "Scatter (default)" stands for — what an unset trigger symbol resolves to. */

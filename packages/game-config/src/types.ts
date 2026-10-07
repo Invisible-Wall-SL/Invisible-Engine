@@ -353,6 +353,22 @@ export type FreeSpinsConfig = {
 	awards?: FreeSpinsAward[];
 	/** Spins ADDED on a retrigger during free spins, per trigger count. Absent ⇒ 5 for any count. */
 	retriggerAwards?: FreeSpinsAward[];
+	/**
+	 * The Book-of EXPANDING SPECIAL (`docs/design/book-feature.md` §3.1): when free spins start, one
+	 * paying symbol is drawn, and on each free spin it expands over every reel it covers once it
+	 * covers enough of them. Present (even `{}`) ⇒ on; absent ⇒ no special. Kept while `enabled` is
+	 * false, like the trigger fields. Read it through `resolveExpandingSymbol`.
+	 */
+	expandingSymbol?: ExpandingSymbolConfig;
+};
+
+/** The expanding special's draw and threshold — see {@link FreeSpinsConfig.expandingSymbol}. */
+export type ExpandingSymbolConfig = {
+	/** Draw weight per symbol id. Absent ⇒ every eligible in-play symbol, equally; present ⇒ only
+	 *  the symbols it names. */
+	weights?: Record<string, number>;
+	/** Fewest reels the special must cover to expand (and pay), per symbol. Absent ⇒ 3. */
+	minReels?: Record<string, number>;
 };
 
 /**

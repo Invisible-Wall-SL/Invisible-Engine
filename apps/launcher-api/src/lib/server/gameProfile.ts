@@ -287,7 +287,8 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 	},
 	{
 		id: 'expandingBook',
-		title: 'The Book-of kind: one special symbol is scatter and expanding wild in the free spins.',
+		title:
+			'The Book-of expanding symbol: one paying symbol, drawn as free spins start, expands over the reels it covers.',
 		text: (ctx) => (capabilitiesOf(ctx).bookReveal ? 'Expanding book symbol' : null),
 	},
 	{

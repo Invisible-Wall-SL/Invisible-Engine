@@ -219,10 +219,12 @@ After the move both read the authored `minReels`:
 
 The captured numbers become data, in the same pattern as `holdAndWinPresets.ts`:
 
-- source `packages/game-config/src/bookOfPresets.ts`;
+- source `packages/game-config/src/bookOfPresets.ts` (`bookOfThermopylaePreset()`, built on call),
+  Phase 2;
 - generated `apps/launcher-api/src/lib/data/gameConfig/lines.bookOfThermopylae.json` through the
-  generator's preset path;
-- offered by `gameConfigPresetsFor('lines')` and `gameConfigSeedFor('lines', 'bookOfThermopylae')`.
+  generator's preset path, and offered by `gameConfigPresetsFor('lines')` (Phase 5a) and
+  `gameConfigSeedFor('lines', 'bookOfThermopylae')` (Phase 5c) — generated when something offers it,
+  so no committed default sits unread.
 
 This is "make a copy of Book of Thermopylae" as one click. The preset holds:
 
@@ -234,8 +236,8 @@ This is "make a copy of Book of Thermopylae" as one click. The preset holds:
 - **Free spins:** `{ retriggerAwards: [{ count: 3, spins: 10 }], expandingSymbol: { weights:
   <SPECIAL_WEIGHTS in client names>, minReels: { H1: 2 } } }`.
 
-A new gate, `check:book-preset`, holds the preset and the book mock's constants equal through
-`bookMapping`. The fixture mock (§4) and the preset then cannot drift.
+A new gate, `check:book-preset`, holds the preset and the book mock's constants (exported as one
+record, `BOOK_OF_THERMOPYLAE`) equal through `bookMapping`. The fixture mock (§4) and the preset then cannot drift.
 
 ## 4. The mock: the lines mock deals the mechanic; the book mock becomes a fixture
 
@@ -540,7 +542,9 @@ server deployed.
 2. **The contract** (M, no consumer change).
    - `freeSpins.expandingSymbol`: types, normalizer, `resolveExpandingSymbol`, the validator rules
      in §3.2, the scatter-wild rule.
-   - The Thermopylae preset and `check:book-preset`.
+   - The Thermopylae preset source and `check:book-preset` (its JSON default comes with 5a).
+   - No authoring UI: the "Expanding symbol" panel is Phase 5a. Until then the block is set through
+     `/config`'s raw JSON, and its issues show in the Free spins section.
    - `KindCapabilityConfig.expandingSymbol` and `bookReveal = kind OR block`.
    - `projectAddOns`.
    - Gates: `expandingSymbol.fixture.ts` (preset is a fixed point with zero issues; absent ⇒ every

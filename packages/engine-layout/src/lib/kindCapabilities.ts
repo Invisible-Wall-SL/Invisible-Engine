@@ -33,13 +33,17 @@ export interface KindCapabilityConfig {
 	holdAndWin?: boolean;
 	/** The project's config carries a `potsOverlay` block (the pots overlay add-on). */
 	potsOverlay?: boolean;
+	/** `resolveExpandingSymbol(doc) !== undefined` — the Book-of expanding special is on
+	 *  (`docs/design/book-feature.md` §3.3). */
+	expandingSymbol?: boolean;
 }
 
 export interface KindCapabilities {
 	/** Free-spin scenes, counter and states. Off for the Hold and Win kind, whose feature is the
 	 *  respins; another kind keeps them with a `holdAndWin` block. */
 	freeSpins: boolean;
-	/** The Book-of special symbol: its reveal/expand beats and the `bookIntro`/`bookIdle` states. */
+	/** The Book-of special symbol: its reveal/expand beats and the `bookIntro`/`bookIdle` states.
+	 *  The config's expanding symbol, or (until the `bookOf` kind is retired) the kind. */
 	bookReveal: boolean;
 	/** Tall stacked-picture symbols. */
 	stackedPictures: boolean;
@@ -84,7 +88,8 @@ export function kindCapabilities(
 	const potsOverlay = !!config.potsOverlay;
 	return {
 		freeSpins: !holdAndWinKind,
-		bookReveal: kind === 'bookOf',
+		// The kind half is the transition shim of `docs/design/book-feature.md`; Phase 7 removes it.
+		bookReveal: kind === 'bookOf' || !!config.expandingSymbol,
 		stackedPictures: !holdAndWinKind,
 		cascade: config.cascade ?? CASCADE_KINDS.has(kind),
 		multiplierCollect: kind === 'scatter',

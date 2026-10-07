@@ -1,12 +1,21 @@
 import type { SceneSetOptions } from 'engine-layout';
-import { flowAddOnsOf, resolveMeters, type GameConfigDoc } from 'game-config';
+import {
+	flowAddOnsOf,
+	resolveExpandingSymbol,
+	resolveMeters,
+	type GameConfigDoc,
+} from 'game-config';
 
-/** The add-on blocks a project's Game Config carries (docs/design/pots-overlay.md §4) — the
+/** The add-on blocks a project's Game Config carries (docs/design/pots-overlay.md §4), and whether
+ *  it has the Book-of expanding special (docs/design/book-feature.md §3.3) — the
  *  `KindCapabilityConfig` flags the kind-gated editor surfaces read. All `false` without a config,
  *  which `kindCapabilities` answers exactly as it does with no config at all. */
-export type ProjectAddOns = { holdAndWin: boolean; potsOverlay: boolean };
+export type ProjectAddOns = { holdAndWin: boolean; potsOverlay: boolean; expandingSymbol: boolean };
 
-type AddOnDoc = Pick<GameConfigDoc, 'holdAndWin' | 'potsOverlay'> | null | undefined;
+type AddOnDoc =
+	| Pick<GameConfigDoc, 'holdAndWin' | 'potsOverlay' | 'freeSpins' | 'symbols' | 'paddingReels'>
+	| null
+	| undefined;
 
 /**
  * The project's add-ons, plus the pot ids its pots screen shows: every resolved meter, the Hold
@@ -19,7 +28,8 @@ export function projectAddOns(doc: AddOnDoc): {
 	potIds: string[] | null;
 } {
 	const { holdAndWin, potsOverlay, meters } = flowAddOnsOf(doc);
-	return { addOns: { holdAndWin, potsOverlay }, potIds: doc ? meters : null };
+	const expandingSymbol = resolveExpandingSymbol(doc ?? undefined) !== undefined;
+	return { addOns: { holdAndWin, potsOverlay, expandingSymbol }, potIds: doc ? meters : null };
 }
 
 /**
@@ -35,7 +45,13 @@ export function sceneSetOptionsFor(gameType: string, doc: AddOnDoc): SceneSetOpt
 		gameType === 'holdAndWin' ? addOns.potsOverlay : addOns.holdAndWin || addOns.potsOverlay;
 	return {
 		...(maxRows ? { maxRows } : {}),
-		...(addOn ? { ...addOns, ...(potIds ? { potIds } : {}) } : {}),
+		...(addOn
+			? {
+					holdAndWin: addOns.holdAndWin,
+					potsOverlay: addOns.potsOverlay,
+					...(potIds ? { potIds } : {}),
+				}
+			: {}),
 	};
 }
 

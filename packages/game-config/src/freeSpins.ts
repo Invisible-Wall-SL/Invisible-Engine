@@ -1,3 +1,4 @@
+import { normalizeExpandingSymbol } from './expandingSymbol';
 import { resolveGrid } from './grid';
 import { symbolsInPlay, symbolsInPlayFromStrips } from './inPlay';
 import { SCATTER_TRIGGER_COUNT, inPlayScatterSymbol } from './serverPaytable';
@@ -266,8 +267,15 @@ export function freeSpinsAwardsAreDefault(
  */
 export function normalizeFreeSpins(raw: unknown): FreeSpinsConfig | undefined {
 	if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined;
-	const { enabled, triggerSymbol, triggerCount, randomAwards, awards, retriggerAwards } =
-		raw as Record<string, unknown>;
+	const {
+		enabled,
+		triggerSymbol,
+		triggerCount,
+		randomAwards,
+		awards,
+		retriggerAwards,
+		expandingSymbol,
+	} = raw as Record<string, unknown>;
 	const block: FreeSpinsConfig = {};
 	if (enabled === false) block.enabled = false;
 	if (validSymbol(triggerSymbol)) block.triggerSymbol = triggerSymbol;
@@ -282,6 +290,9 @@ export function normalizeFreeSpins(raw: unknown): FreeSpinsConfig | undefined {
 	// knows the kind, deletes a table edited back to the kind's default.
 	const retrigger = awardRows(retriggerAwards);
 	if (retrigger.length) block.retriggerAwards = retrigger;
+	// Last: its presence IS the feature, so it survives even as `{}` (`normalizeExpandingSymbol`).
+	const special = normalizeExpandingSymbol(expandingSymbol);
+	if (special) block.expandingSymbol = special;
 	return Object.keys(block).length ? block : undefined;
 }
 
