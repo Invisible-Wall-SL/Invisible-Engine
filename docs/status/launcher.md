@@ -59,6 +59,24 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+- 2026-10-07 — **Invisible Director: `director_runs.preset_json` dropped** (ADR-0008 card 8F,
+  stacked on 8C). Migration `0030_director_drop_preset_json` (`ALTER TABLE … DROP COLUMN`); the
+  schema entry goes with it. Not revertable by a code revert: the stored presets are gone, and a
+  restore comes from the backup (the PR body says how). No current game is touched.
+  - **Nothing named the column after 8C** except the schema entry, the test fixtures and the 8C
+    idle check's `presetDrafts`; all three are removed. The worker selects named columns only, so
+    the 8C and 8F worker builds both run on either schema.
+  - **`check:idle --strict`** is now "no started run unended" only: the preset-draft list existed
+    for the 8C deploy and its query would fail without the column.
+  - **Deploy:** only after 8C is live, with `check:idle --strict` quiet and nobody on Director. The
+    boot migration drops the column while the previous container still serves, and that build's
+    Drizzle schema names it in every full-row select and insert, so its Director routes 500 until
+    the swap.
+  - Tests: `prove:art-plan` 40 (5b keeps the fallback-chain check, without a stored preset),
+    `prove:breakdown` 80, `prove:idle` 8, `check:director-runs` 461 and every other director gate
+    green; the migration applied to a seeded 0029 database drops the column, keeps the rows, and
+    re-runs as a no-op.
+
 - 2026-10-07 — **Invisible Director: the Preset is gone** (ADR-0008 card 8C, stacked on 8D and
   8E). Inert for a person and for every current game; revertable, no migration.
   - **New game** loses the Preset card (blueprint, draft/final size, variants, GPU).
