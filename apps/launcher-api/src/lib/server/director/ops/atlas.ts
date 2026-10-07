@@ -1,3 +1,4 @@
+import { REGION_NAME } from 'director-costs/recipe';
 import { SUB, projectPrefix } from '../../projectPaths';
 import { getObjectTextWithEtag, listAllKeys } from '../../r2';
 import { AdapterError, defineOp, type AdapterContext, type ObjectSchema } from '../adapter';
@@ -20,8 +21,9 @@ import { doneOpResults, getAtlasJob, insertAtlasJob, projectOpResults, runRecipe
  */
 
 export const ATLAS = '^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,119}$';
-// No space: atlas-tool's variant routes take the region from the raw, undecoded path.
-export const REGION = '^[A-Za-z0-9_][A-Za-z0-9_.()-]{0,119}$';
+// No space: atlas-tool's variant routes take the region from the raw, undecoded path. The one
+// region rule the recipes, the plan and the owner's approval keep too (no `..`).
+export const REGION = REGION_NAME.source;
 export const VARIANT_ID = '^[0-9]{1,8}$';
 /** atlas-tool's variant tiles: a JPEG thumb, or the full PNG. */
 export const MAX_IMAGE_BYTES = 6 * 1024 * 1024;

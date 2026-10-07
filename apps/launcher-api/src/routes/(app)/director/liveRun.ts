@@ -8,6 +8,7 @@ import {
 	type RunEvent,
 	type RunSummary,
 } from './director.client';
+import { REGION_NAME } from 'director-costs/recipe';
 
 /**
  * The Live run screen's view of a run (PLAN 4.3, ADR-0003 "Live UI"): the run's event rows folded
@@ -35,8 +36,6 @@ const STEP_IDS: readonly string[] = RUN_STEPS.map((s) => s.id);
 const isStep = (value: unknown): value is RunStep =>
 	typeof value === 'string' && STEP_IDS.includes(value);
 
-/** A region name as `ops/atlas.ts` `REGION` admits it; anything else is not a region. */
-const REGION_NAME = /^[A-Za-z0-9_][A-Za-z0-9_.()-]{0,119}$/;
 /** An atlas id as `ops/atlas.ts` `ATLAS` admits it. */
 const ATLAS_ID = /^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,119}$/;
 const VARIANT_ID = /^[0-9]{1,8}$/;

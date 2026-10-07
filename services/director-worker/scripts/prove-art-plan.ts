@@ -42,7 +42,11 @@
  *     stop queued behind it is applied rather than held;
  * 13. a step is queued again at most twice under one approval: its third failure withdraws the
  *     approval and the gate refuses it; the Art plan re-opens (or, with it off, the run pauses),
- *     and the owner's approval (or resume) retries it afresh.
+ *     and the owner's approval (or resume) retries it afresh, recorded as the owner's;
+ * 14. with the checkpoint off, a third failure whose bill also crosses the cap pauses at the cap,
+ *     and that pause names the spent retries the owner's resume will approve again;
+ * 15. a third failure landing on a run that is stopping withdraws the approval but asks nobody to
+ *     resume, and the stop finishes.
  */
 import type {
 	BetaMessage,
@@ -306,6 +310,31 @@ const toolResults = async (id: string, agent: string) =>
 		select content_json as content from director_messages
 		where run_id = ${id} and agent = ${agent} and role = 'user' order by seq`
 	).flatMap((m) => m.content.filter((b) => b.type === 'tool_result'));
+/** H1 of a run's recipes, as stored. */
+const h1Of = async (run: string) => (await recipes(run)).find((r) => r.region === 'H1')!;
+/** The technician queues H1's first step through the gate. */
+async function queueH1Step(run: string) {
+	await message(run, 'atlas-technician', 'Render H1.');
+	const queue = use('atlas.queue_variants', {
+		atlas: 'symbols',
+		regions: ['H1'],
+		variants: (await h1Of(run)).steps[0].variants,
+		step: 'H1#1',
+	});
+	await drive(run, deps(fakeModel([{ content: [queue] }]).transport, fakeLauncher().launcher));
+}
+/** H1's first step is queued and its render fails (billing `runpod` when given). */
+async function failH1(run: string, runpod?: Record<string, unknown>) {
+	await queueH1Step(run);
+	await event(run, 'atlas-technician', 'job_done', {
+		jobRef: (await h1Of(run)).steps[0].jobRef,
+		status: 'failed',
+		atlas: 'symbols',
+		regions: ['H1'],
+		result: { error: 'OOM', ...(runpod ? { runpod } : {}) },
+	});
+	await drive(run, deps(fakeModel([]).transport, fakeLauncher().launcher));
+}
 const userTexts = async (id: string, agent: string) =>
 	(
 		await sql<{ content: { type: string; text?: string }[] }[]>`
@@ -584,13 +613,17 @@ try {
 			[(await runRow(tight)).status, budget.map((b) => [b.payload.checkpoint, b.payload.reason])],
 			['paused', [['budget', 'art_plan']]],
 		);
-		await event(tight, 'owner', 'owner_request', { action: 'resume', budgetCapUsd: 40 });
+		await event(tight, 'owner', 'owner_request', {
+			action: 'resume',
+			budgetCapUsd: 40,
+			by: { uid: userId, name: 'owner' },
+		});
 		await drive(tight, deps(fakeModel([]).transport, fakeLauncher().launcher));
 		check(
-			'the owner raises the cap and resumes: the plan is approved as auto',
+			'the owner raises the cap and resumes: the plan is approved, by the owner who resumed',
 			[
 				(await runRow(tight)).status,
-				(await recipes(tight)).every((r) => r.approved?.by === 'auto'),
+				(await recipes(tight)).every((r) => r.approved?.by === userId),
 			],
 			['running', true],
 		);
@@ -1209,27 +1242,14 @@ try {
 			});
 			await drive(run, deps(fakeModel([]).transport, fakeLauncher().launcher));
 		}
-		const h1 = async () => (await recipes(run)).find((r) => r.region === 'H1')!;
-		const variants = (await h1()).steps[0].variants;
-		const gate = () => queueGate(run, { atlas: 'symbols', regions: ['H1'], variants });
-		const failOnce = async () => {
-			await message(run, 'atlas-technician', 'Render H1.');
-			const queue = use('atlas.queue_variants', {
+		const h1 = () => h1Of(run);
+		const gate = async () =>
+			queueGate(run, {
 				atlas: 'symbols',
 				regions: ['H1'],
-				variants,
-				step: 'H1#1',
+				variants: (await h1()).steps[0].variants,
 			});
-			await drive(run, deps(fakeModel([{ content: [queue] }]).transport, fakeLauncher().launcher));
-			await event(run, 'atlas-technician', 'job_done', {
-				jobRef: (await h1()).steps[0].jobRef,
-				status: 'failed',
-				atlas: 'symbols',
-				regions: ['H1'],
-				result: { error: 'OOM' },
-			});
-			await drive(run, deps(fakeModel([]).transport, fakeLauncher().launcher));
-		};
+		const failOnce = () => failH1(run);
 		await failOnce();
 		await failOnce();
 		const twice = await h1();
@@ -1267,14 +1287,127 @@ try {
 				],
 				['paused', 'retries_spent', true],
 			);
-			await event(run, 'owner', 'owner_request', { action: 'resume' });
+			await event(run, 'owner', 'owner_request', {
+				action: 'resume',
+				by: { uid: userId, name: 'owner' },
+			});
 		}
 		await drive(run, deps(fakeModel([]).transport, fakeLauncher().launcher));
 		const again = await h1();
 		check(
 			`${label}: the owner's ${artPlan ? 'approval' : 'resume'} approves it again, retries afresh`,
 			[again.approved?.by, again.failures, (await gate()).status],
-			[artPlan ? userId : 'auto', undefined, 200],
+			[userId, undefined, 200],
+		);
+	}
+
+	// ── 14. A resume after a cap pause never approves spent retries unseen ─────
+	console.log('14. a third failure that also crosses the cap: the cap pause names the spent step');
+	{
+		const timingOf = () => sql<
+			{ jobs: number; mean_exec_seconds: number; mean_delay_seconds: number }[]
+		>`
+			select jobs, mean_exec_seconds, mean_delay_seconds from director_blueprint_timings
+			where pipeline = 'sdxl' and gen_px = 1024`;
+		const timingBefore = await timingOf();
+		const run = await newRun({ artPlan: false, cap: 40 });
+		await message(run, 'atlas-technician', 'Plan the recipes.');
+		await drive(
+			run,
+			deps(
+				fakeModel([{ content: expected.recipes.map(setRecipe) }]).transport,
+				fakeLauncher().launcher,
+			),
+		);
+		const h1 = () => h1Of(run);
+		const failOnce = (runpod?: Record<string, unknown>) => failH1(run, runpod);
+		await failOnce();
+		await failOnce();
+		// The third render ran a long time before it failed: its bill alone is over the cap.
+		await failOnce({
+			gpu: 'L40S (48 GB)',
+			seconds: 85_000,
+			executionSeconds: 84_000,
+			delaySeconds: 1_000,
+			jobs: 1,
+			unreported: 0,
+		});
+		const [pause] = await sql<{ payload: { reason?: string; message?: string } }[]>`
+			select payload_json as payload from director_events
+			where run_id = ${run} and kind = 'checkpoint_open' order by id desc limit 1`;
+		check(
+			'the run pauses at the cap, and the pause also names the step past its retries',
+			[
+				(await runRow(run)).status,
+				pause?.payload.reason,
+				/than is left of the \$40\.00 cap[^]*H1 step 1 failed again after 2 retries: resuming approves it again/.test(
+					pause?.payload.message ?? '',
+				),
+			],
+			['paused', 'art_plan', true],
+		);
+		await event(run, 'owner', 'owner_request', {
+			action: 'resume',
+			budgetCapUsd: 200,
+			by: { uid: userId, name: 'owner' },
+		});
+		await drive(run, deps(fakeModel([]).transport, fakeLauncher().launcher));
+		const again = await h1();
+		check(
+			'…so the resume that raises the cap approves it knowingly, as the owner, retries afresh',
+			[(await runRow(run)).status, again.approved?.by, again.failures],
+			['running', userId, undefined],
+		);
+		const [before] = timingBefore;
+		if (before) {
+			await sql`update director_blueprint_timings
+				set jobs = ${before.jobs}, mean_exec_seconds = ${before.mean_exec_seconds},
+					mean_delay_seconds = ${before.mean_delay_seconds}
+				where pipeline = 'sdxl' and gen_px = 1024`;
+		} else {
+			await sql`delete from director_blueprint_timings where pipeline = 'sdxl' and gen_px = 1024`;
+		}
+	}
+
+	// ── 15. A stopping run is never asked to resume ───────────────────────────
+	console.log('15. a third failure on a stopping run: no resume asked, the stop finishes');
+	{
+		const run = await newRun({ artPlan: false, cap: 40 });
+		await message(run, 'atlas-technician', 'Plan the recipes.');
+		await drive(
+			run,
+			deps(
+				fakeModel([{ content: expected.recipes.map(setRecipe) }]).transport,
+				fakeLauncher().launcher,
+			),
+		);
+		await failH1(run);
+		await failH1(run);
+		await queueH1Step(run);
+		// The launcher's record of the render, which keeps the stop waiting on it.
+		const jobRef = (await h1Of(run)).steps[0].jobRef!;
+		await sql`insert into director_atlas_jobs (job_ref, run_id, agent, atlas, regions, status)
+			values (${jobRef}, ${run}, 'atlas-technician', 'symbols', ${sql.json(['H1'])}, 'queued')`;
+		await event(run, 'owner', 'owner_request', { action: 'stop', by: { uid: userId } });
+		await drive(run, deps(fakeModel([]).transport, fakeLauncher().launcher));
+		check('the stop waits on the render in flight', (await runRow(run)).status, 'stopping');
+		await sql`update director_atlas_jobs set status = 'failed', done_at = now()
+			where job_ref = ${jobRef}`;
+		await event(run, 'atlas-technician', 'job_done', {
+			jobRef,
+			status: 'failed',
+			atlas: 'symbols',
+			regions: ['H1'],
+			result: { error: 'OOM' },
+		});
+		await drive(run, deps(fakeModel([]).transport, fakeLauncher().launcher));
+		const [asked] = await sql<{ n: number }[]>`
+			select count(*)::int as n from director_events
+			where run_id = ${run} and kind = 'error' and payload_json->>'type' = 'retries_spent'`;
+		check(
+			'its third failure withdraws the approval, asks nobody to resume, and the stop finishes',
+			[(await h1Of(run)).approved, asked.n, (await runRow(run)).status],
+			[null, 0, 'stopped'],
 		);
 	}
 } finally {

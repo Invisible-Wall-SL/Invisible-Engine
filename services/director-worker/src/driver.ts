@@ -1278,7 +1278,9 @@ async function applyEvent(
 					live.budgetCapUsd = raised;
 					await setBudgetCap(tx, live.id, raised);
 				}
-				await reviewPlanGate(tx, live, true);
+				// The owner's resume is their approval of what the plan still waits for.
+				const by = (p.by as { name?: unknown; uid?: unknown } | undefined) ?? {};
+				await reviewPlanGate(tx, live, String(by.uid ?? by.name ?? 'owner'));
 				return;
 			}
 			if (action === 'stop') {

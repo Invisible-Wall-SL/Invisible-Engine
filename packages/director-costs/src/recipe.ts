@@ -924,6 +924,12 @@ export function priceChains(
 	};
 }
 
+/** Why an Art plan approval cannot stand: a code (the launcher answers 409 with it) and the words. */
+export interface ApprovalProblem {
+	code: 'plan_changed' | 'plan_incomplete' | 'plan_unpriced';
+	reason: string;
+}
+
 /**
  * Why an owner's Art plan approval cannot stand, or null (§7): the approval names the revision of
  * every recipe the owner saw (`seen`, region → rev), so a plan that changed since never runs on
@@ -932,12 +938,6 @@ export function priceChains(
  * went fails it, money failing closed. The worker refuses on this, and the launcher refuses up
  * front with the same words.
  */
-/** Why an Art plan approval cannot stand: a code (the launcher answers 409 with it) and the words. */
-export interface ApprovalProblem {
-	code: 'plan_changed' | 'plan_incomplete' | 'plan_unpriced';
-	reason: string;
-}
-
 export function approvalProblem(
 	recipes: readonly StoredRecipe[],
 	plan: ReadonlySet<string>,

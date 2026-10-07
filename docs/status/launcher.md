@@ -98,13 +98,14 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     region detail with the finished tile beside the variants, and the before-publish licence
     list (`routes/(app)/director/artPlan.ts`, pure). `atlasFetch` takes an `AtlasCaller` so the
     estimate can read the catalogue with no run.
-  - Tests: `check:director-runs` 467 (estimate per chain, unpriced refusals, start refusal, the
+  - Tests: `check:director-runs` 468 (estimate per chain, unpriced refusals, start refusal, the
     Art plan actions and edit shapes), `check:director-live` 105 (the fold, the panel's view and
-    edits, drafts, licences, how-made), worker `check:recipes` 90, `prove:art-plan` 64 (stale
+    edits, drafts, licences, how-made), worker `check:recipes` 90, `prove:art-plan` 68 (stale
     approval, owner edits incl. a group size edit, a stale and a malformed edit, a failed render
     queued again, timings measured once, a dropped region, re-approval on one pricing basis, a
     same-price revision that re-opens a rendered step, an unreachable launcher, the retry cap with
-    the checkpoint on and off, plans the approval could not name).
+    the checkpoint on and off, a third failure that also crosses the cap, a stopping run, plans
+    the approval could not name).
   - **After review** (code-reviewer, four blockers reproduced on the real modules):
     - owner edits are validated against the plan with every edit applied (a group size edit no
       longer refuses itself one region at a time), name the revision they were made on, are
@@ -157,6 +158,12 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
       409 `plan_changed`, `plan_incomplete`, `plan_unpriced` or `catalogue_unreadable`;
     - `templateDefaultChains` reads the defaults' atlases in one query; `prove-art-plan` runs the
       technician's real definition only (8D's `fixtureTechnician` is gone).
+  - **Second review round:** a pause for the cap or an unpriced plan also names any step past its
+    retries, since the owner's resume approves it; an approval the owner's resume makes is
+    recorded as the owner's (`approved.by`), never `auto`; no "Resume…" row is written for a run
+    that cannot pause (stopping); a stored plan naming a region with `..` is refused with that
+    name (400 `bad_recipe_revs`); the adapter's `REGION` and the Live run's fold are
+    `REGION_NAME` too.
   - **Deploy:** atlas-tool's `RUNPOD_ENDPOINT_GPU` must be set and priced, or no Director run can
     start (`docs/INFRA.md`). The worker and the launcher go out together: an old worker drops the
     owner's `recipeEdits`, and an old Live run page sends no `recipeRevs`, so every Art plan

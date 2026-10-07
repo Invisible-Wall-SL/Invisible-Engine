@@ -233,27 +233,27 @@ function unpricedReasons(recipes: readonly StoredRecipe[]): string {
 
 /**
  * Re-check the gate: after the owner's edits, a withdrawn approval, or the owner resuming the run
- * (`byOwner`: a raised cap may now fit the plan, and the resume approves again what failed past
- * its retries).
+ * (`owner`: a raised cap may now fit the plan, and the resume approves again, as that owner, what
+ * failed past its retries).
  */
-export async function reviewPlanGate(tx: Db, live: LiveRun, byOwner = false): Promise<string> {
+export async function reviewPlanGate(tx: Db, live: LiveRun, owner?: string): Promise<string> {
 	const plan = await planRegions(tx, live.id);
 	if (plan.size === 0) return 'no plan';
-	return afterRecipe(tx, live, plan, await loadRecipes(tx, live.id), byOwner);
+	return afterRecipe(tx, live, plan, await loadRecipes(tx, live.id), owner);
 }
 
 /**
  * Once every planned region has a recipe and any is unapproved: open `art_plan` (on by default) or,
- * with it off, approve the plan as `auto` when its projection fits what is left of the cap. A
- * recipe whose failures withdrew its approval is approved automatically only by the owner's
- * resume (`byOwner`); until then the run pauses for them.
+ * with it off, approve the plan as `auto` when its projection fits what is left of the cap, or as
+ * the `owner` whose resume asked. A recipe whose failures withdrew its approval is approved again
+ * only by the owner's resume; until then the run pauses for them, and every pause says so.
  */
 async function afterRecipe(
 	tx: Db,
 	live: LiveRun,
 	plan: Map<string, string>,
 	recipes: StoredRecipe[],
-	byOwner = false,
+	owner?: string,
 ): Promise<string> {
 	const have = new Set(recipes.map((r) => r.region));
 	const missing = [...plan.keys()].filter((region) => !have.has(region));
@@ -293,13 +293,20 @@ async function afterRecipe(
 		});
 		return 'opened: the owner reviews the Art plan now. End your turn.';
 	}
+	// A resume approves these too, so whatever the pause is for, it names them.
+	const spent = pending.filter((r) => retriesSpent(r).length);
+	const retried = spent.length
+		? ` ${spent.map((r) => `${r.region} step ${retriesSpent(r).join(', ')}`).join('; ')} failed again after ${RETRIES_PER_APPROVAL} retries: resuming approves it again, with ${RETRIES_PER_APPROVAL} more tries.`
+		: '';
 	// Fails closed (ADR-0006): a plan the cap cannot price, or one over it, pauses for the owner.
 	const spend = await runSpend(tx, live.id);
 	const cap = live.budgetCapUsd ?? DIRECTOR_RUN_BUDGET_DEFAULT_USD;
 	if (unpriced.length || spend.totalUsd + projectedUsd > cap) {
-		const text = unpriced.length
-			? `The Art plan cannot be priced, so it is not approved automatically: ${unpricedReasons(unpriced)}. Fix that, or turn the Art plan checkpoint on, and resume.`
-			: `The Art plan projects $${projectedUsd.toFixed(2)} of GPU, more than is left of the $${cap.toFixed(2)} cap. Raise the cap and resume, or ask for a smaller plan.`;
+		const text = `${
+			unpriced.length
+				? `The Art plan cannot be priced, so it is not approved automatically: ${unpricedReasons(unpriced)}. Fix that, or turn the Art plan checkpoint on, and resume.`
+				: `The Art plan projects $${projectedUsd.toFixed(2)} of GPU, more than is left of the $${cap.toFixed(2)} cap. Raise the cap and resume, or ask for a smaller plan.`
+		}${retried}`;
 		await insertEvent(tx, live.id, 'worker', 'activity', { type: 'note', text });
 		const result = transition(live.state, { type: 'pause', reason: 'budget_cap' });
 		if (
@@ -318,21 +325,24 @@ async function afterRecipe(
 		}
 		return 'not approved: the run paused for the owner (the plan is unpriced or crosses the cap)';
 	}
-	const spent = byOwner ? [] : pending.filter((r) => retriesSpent(r).length);
-	if (spent.length) {
-		const text = `${spent.map((r) => `${r.region} step ${retriesSpent(r).join(', ')}`).join('; ')} failed again after ${RETRIES_PER_APPROVAL} retries, so it is not approved automatically. Resume the run to approve it again, or stop it.`;
-		await insertEvent(tx, live.id, 'worker', 'error', { type: 'retries_spent', message: text });
+	if (spent.length && !owner) {
+		// Said only where the run can pause for it: a run stopping is not resumed.
 		const result = transition(live.state, { type: 'pause', reason: 'error' });
 		if (
-			result.ok &&
-			(await applyTransition(tx, live.id, live.state, result.state, 'retries spent'))
+			!result.ok ||
+			!(await applyTransition(tx, live.id, live.state, result.state, 'retries spent'))
 		) {
-			live.state = result.state;
+			return 'not approved: a step failed past its retries (the run cannot pause now)';
 		}
+		live.state = result.state;
+		const text = `${spent.map((r) => `${r.region} step ${retriesSpent(r).join(', ')}`).join('; ')} failed again after ${RETRIES_PER_APPROVAL} retries, so it is not approved automatically. Resume the run to approve it again, or stop it.`;
+		await insertEvent(tx, live.id, 'worker', 'error', { type: 'retries_spent', message: text });
 		return 'not approved: the run paused for the owner (a step failed past its retries)';
 	}
-	await approve(tx, live.id, pending, 'auto');
-	return 'approved automatically (the Art plan checkpoint is off and the projection fits the cap)';
+	await approve(tx, live.id, pending, owner ?? 'auto');
+	return owner
+		? 'approved: the owner resumed the run'
+		: 'approved automatically (the Art plan checkpoint is off and the projection fits the cap)';
 }
 
 /** "11 Symbols: sdxl 1024 ×3 → birefnet → finish", one line per (group, chain). */
