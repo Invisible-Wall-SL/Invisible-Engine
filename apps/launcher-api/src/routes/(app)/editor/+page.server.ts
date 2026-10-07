@@ -7,7 +7,13 @@ import {
 	type LayoutDoc,
 } from 'engine-layout';
 import { DEFAULT_GAME_KIND } from 'constants-shared/gameKinds';
-import { resolveBetModes, resolveGrid, resolveWinLevels, type GameConfigDoc } from 'game-config';
+import {
+	resolveBetModes,
+	resolveGameModes,
+	resolveGrid,
+	resolveWinLevels,
+	type GameConfigDoc,
+} from 'game-config';
 import type { RepeaterSourceMap, RepeaterSourcePreview } from './editorCanvas.helpers';
 import {
 	AUTO_SPINS_TEXT_OPTIONS,
@@ -280,6 +286,10 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		// Per-source SAMPLE data for `repeater` placeholders (currently `featureCards` → the config's
 		// non-default bet modes). Empty ⇒ every repeater keeps its fixed fallback sample (parity).
 		repeaterSources,
+		// The names the Game Config gives the project's game modes, for In-game view's mode menu.
+		gameModeLabels: Object.fromEntries(
+			resolveGameModes(gameConfigDoc ?? undefined).map((mode) => [mode.id, mode.label ?? mode.id]),
+		),
 	};
 };
 

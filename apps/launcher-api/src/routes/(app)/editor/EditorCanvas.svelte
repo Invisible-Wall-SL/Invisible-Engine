@@ -248,6 +248,10 @@
 		 * component part with no art bound draws nothing, as in the game, instead of its labelled
 		 * placeholder. Absent (the Component Editor) ⇒ no toggle and placeholders always draw. */
 		gameView?: boolean;
+		/** The game modes In-game view can show besides the base game. Empty ⇒ no mode menu. */
+		viewModes?: { id: string; label: string }[];
+		/** The mode In-game view shows (bindable; `undefined` = the base game). */
+		viewMode?: string;
 		/** The project's display name — the default HUD game-name shown on the canvas
 		 * when the author hasn't typed an override (not written to the doc). */
 		projectGameName?: string | null;
@@ -313,6 +317,8 @@
 		fillRequest = null,
 		hiddenSceneIds = new Set<string>(),
 		gameView = $bindable(),
+		viewModes = [],
+		viewMode = $bindable(),
 		projectGameName = null,
 		componentParams = {},
 		componentDefaults = {},
@@ -5086,6 +5092,21 @@
 				>
 					🎮 In-game view
 				</button>
+				{#if gameView && viewModes.length > 0}
+					<select
+						class="fit"
+						class:on={viewMode !== undefined}
+						value={viewMode ?? ''}
+						onchange={(e) => (viewMode = e.currentTarget.value || undefined)}
+						aria-label="Game mode shown"
+						title="The game mode In-game view shows: the base game, or a mode with every screen it keeps on screen (its board, counter, total), whichever screen you edit. Its intro, outro and popups still draw only while you edit them."
+					>
+						<option value="">Base game</option>
+						{#each viewModes as mode (mode.id)}
+							<option value={mode.id}>{mode.label}</option>
+						{/each}
+					</select>
+				{/if}
 			{/if}
 		</div>
 	</div>
@@ -5243,7 +5264,8 @@
 		   own line, never overlapping the device bar. */
 		margin-left: auto;
 	}
-	.canvas-actions button {
+	.canvas-actions button,
+	.canvas-actions select {
 		pointer-events: auto;
 	}
 	.fit {

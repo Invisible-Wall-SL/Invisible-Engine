@@ -35,6 +35,7 @@
 		defaultBetMenuScene,
 		defaultAutoSpinScene,
 		inGameViewSceneIds,
+		viewableModeIds,
 		type LayoutProfile,
 	} from 'engine-layout';
 	import ColorField from '$lib/ColorField.svelte';
@@ -107,6 +108,10 @@
 	 * edited (`inGameViewSceneIds`), as the game shows them, instead of every menu, takeover and
 	 * feature screen at once. Persisted with the rest of the UI layout. */
 	let gameView = $state(true);
+	/** The game mode In-game view shows (`undefined` = the base game): its screens stay on the
+	 * canvas whichever screen is edited. Editing a mode screen switches to its mode. Persisted with
+	 * the rest of the UI layout. */
+	let viewMode = $state<string | undefined>(undefined);
 	/** Canvas frame sizes per layoutType — `$state` (not `data.doc`) so loading a
 	 * game scene that ships its own `mainSizesMap` resizes the canvas. */
 	let mainSizesMap = $state(structuredClone(data.doc.mainSizesMap));
@@ -357,6 +362,7 @@
 				rightTab?: string;
 				hiddenScenes?: string[];
 				gameView?: boolean;
+				viewMode?: string;
 				libExpanded?: string[];
 			};
 			// Only the always-available right tabs — `template` is mode-gated.
@@ -365,6 +371,7 @@
 				hiddenScenes = new Set(s.hiddenScenes.filter((x): x is string => typeof x === 'string'));
 			}
 			if (typeof s.gameView === 'boolean') gameView = s.gameView;
+			if (typeof s.viewMode === 'string' && !activeSceneModeId) viewMode = s.viewMode;
 			// Restore the expanded Library atlases — <EditorAssetLibrary> hydrates each
 			// open key's regions on mount.
 			if (Array.isArray(s.libExpanded)) {
@@ -382,6 +389,7 @@
 			rightTab,
 			hiddenScenes: [...hiddenScenes],
 			gameView,
+			viewMode,
 			libExpanded: Object.keys(expanded).filter((k) => expanded[k]),
 		});
 		if (!uiLoaded || typeof localStorage === 'undefined') return;
@@ -889,11 +897,35 @@
 		return out;
 	}
 
+	/** The game modes a `mode` screen can name, offered as suggestions — a project may add its own. */
+	const MODE_SUGGESTIONS = builtinGameModes({ holdAndWin: {} as never }).filter(
+		(mode) => mode.id !== BASE_GAME_MODE,
+	);
+
 	const activeScene = $derived(scenes[activeSceneIdx] ?? scenes[0]);
-	/** Screens In-game view leaves off the canvas right now (not on screen at rest, not edited). */
+	/** The modes In-game view can show besides the base game: those the doc has screens for. */
+	const viewModes = $derived(
+		viewableModeIds(scenes).map((id) => ({
+			id,
+			label:
+				data.gameModeLabels[id] ?? MODE_SUGGESTIONS.find((mode) => mode.id === id)?.label ?? id,
+		})),
+	);
+	/** The mode on the canvas — a persisted pick whose screens are gone falls back to the base game. */
+	const shownViewMode = $derived(viewModes.some((m) => m.id === viewMode) ? viewMode : undefined);
+	/** Keyed on strings, not the scene object: a node edit replaces the active scene's object and
+	 * must not undo a "Base game" pick. */
+	const activeSceneId = $derived(activeScene?.id);
+	const activeSceneModeId = $derived(activeScene?.role === 'mode' ? activeScene.modeId : undefined);
+	$effect(() => {
+		void activeSceneId;
+		if (activeSceneModeId) viewMode = activeSceneModeId;
+	});
+	/** Screens In-game view leaves off the canvas right now (not on screen in the shown mode, not
+	 * edited). */
 	const offInGameView = $derived.by(() => {
 		if (!gameView) return new Set<string>();
-		const shown = inGameViewSceneIds(scenes, activeScene);
+		const shown = inGameViewSceneIds(scenes, activeScene, shownViewMode);
 		return new Set(scenes.filter((s) => !shown.has(s.id)).map((s) => s.id));
 	});
 	/** What the canvas hides: the eye toggles plus whatever In-game view leaves off. */
@@ -1118,11 +1150,6 @@
 		scenes = [...scenes];
 		markDirty();
 	}
-
-	/** The game modes a `mode` screen can name, offered as suggestions — a project may add its own. */
-	const MODE_SUGGESTIONS = builtinGameModes({ holdAndWin: {} as never }).filter(
-		(mode) => mode.id !== BASE_GAME_MODE,
-	);
 
 	/** Name the game mode the active `mode` screen belongs to (`Scene.modeId`). `''` clears it. */
 	function setSceneModeId(value: string): void {
@@ -2867,7 +2894,9 @@
 								class:dimmed={hidden}
 								class:off-view={offView && !hidden}
 								title={offView
-									? 'Not on screen in the idle game — In-game view draws it while you edit it. Click to edit · double-click to rename'
+									? s.role === 'mode' && s.modeId && s.modeId !== shownViewMode
+										? 'Belongs to another game mode — pick that mode in the canvas toolbar to keep its screens on the canvas. In-game view also draws it while you edit it. Click to edit · double-click to rename'
+										: 'Not on screen in this view of the game — In-game view draws it while you edit it. Click to edit · double-click to rename'
 									: 'Click to edit · double-click to rename'}
 								onclick={() => selectScene(i)}
 								ondblclick={() => startRenameScene(i)}
@@ -3139,6 +3168,8 @@
 					{fillRequest}
 					hiddenSceneIds={canvasHiddenScenes}
 					bind:gameView
+					{viewModes}
+					bind:viewMode={() => shownViewMode, (mode) => (viewMode = mode)}
 					projectGameName={data.gameName}
 					onRigMeta={(meta) => (rigMeta = meta)}
 					{canUndo}
