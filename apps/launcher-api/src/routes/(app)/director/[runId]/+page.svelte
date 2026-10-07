@@ -66,6 +66,7 @@
 		sizeOptions,
 		variantOptions,
 		type ArtPlanAnswer,
+		type ArtPlanView,
 		type Drafts,
 		type MadeOf,
 		type PlanRow,
@@ -952,8 +953,8 @@
 					before the render that crosses it.
 				</p>
 			{/if}
-			{#snippet planGroups()}
-				{#each planView.groups as g (g.group)}
+			{#snippet planGroups(view: ArtPlanView, plan: ArtPlanAnswer)}
+				{#each view.groups as g (g.group)}
 					<div class="plan-group">
 						<h3>
 							{g.group}
@@ -996,7 +997,7 @@
 													onchange={(e) =>
 														patchRow(row, step.n, { pipeline: e.currentTarget.value })}
 												>
-													{#each [...new Set( [step.pipeline, ...pipelineOptions(artPlan, step)] )] as id (id)}
+													{#each [...new Set( [step.pipeline, ...pipelineOptions(plan, step)] )] as id (id)}
 														<option value={id}>{id}</option>
 													{/each}
 												</select>
@@ -1035,7 +1036,7 @@
 												</span>
 											{/if}
 											{#if step.kind !== 'finish'}
-												<span class="small light">{purposeOf(artPlan, step.pipeline)}</span>
+												<span class="small light">{purposeOf(plan, step.pipeline)}</span>
 												{#if card?.licence && card.licence !== 'ok'}
 													<span class="chip warn">licence {card.licence}</span>
 												{/if}
@@ -1093,7 +1094,7 @@
 				{/each}
 			{/snippet}
 			{#if editable}
-				{@render planGroups()}
+				{@render planGroups(planView, artPlan)}
 			{:else}
 				<details class="plan-details">
 					<summary class="small">
@@ -1101,7 +1102,7 @@
 							? `${planView.pending} recipe${planView.pending === 1 ? ' waits' : 's wait'} for approval`
 							: 'Every recipe is approved'} · show the recipes
 					</summary>
-					{@render planGroups()}
+					{@render planGroups(planView, artPlan)}
 				</details>
 			{/if}
 			{#if planView.missing.length}
