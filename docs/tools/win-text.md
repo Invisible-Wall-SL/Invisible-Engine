@@ -62,7 +62,10 @@ row in that tool has a **Name** and a **Plural** box (`H1` → "Banana" / "Banan
 ### The win-line message grid
 
 Rows are your project's symbols, columns are the match counts (**2** to **5
-matching**, then **Any count**).
+matching**, then **Any count**). The rows are the ones
+[Invisible Symbols](symbols.md) lists: every symbol Invisible Game Config shows **in play**,
+then a pots overlay's coins. A symbol you take off every reel strip in Game Config loses its
+row here too, but its messages are kept: put it back on a strip and the row returns with them.
 
 A win uses the **most specific** box that has something in it:
 

@@ -296,6 +296,15 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
 
 ## Recent changes
 
+- 2026-10-07 — **The grid lists exactly the symbols `/symbols` lists.** The rows were
+  `Object.keys` of the published (or committed) symbol defaults, so a symbol `/config` badges unused
+  still had a row, and a stale publish listed symbols the config no longer has. `+page.server.ts`
+  now takes `symbolGrid(defaults, config.doc).symbols` over the config `resolveGameConfig` already
+  gave it (the project's own, else its kind's template): `symbolsUsed`, in `/symbols`' order. A
+  hidden symbol's `bySymbol` / `byCell` strings stay in the doc (the save prunes blanks only) and
+  return with its row. Gate: `check:symbols-follow-config` now also proves `/win-text`'s rows equal
+  `/symbols`' for every kind × setup × defaults source, that the strings survive, and pins the
+  wiring. Guide: [The win-line message grid](../tools/win-text.md#the-win-line-message-grid).
 - 2026-10-05 — **Invisible Director can drive this tool.** Invisible Director's `wintext.get_doc` /
   `wintext.update_doc` (`apps/launcher-api/src/lib/server/director/ops/wintext.ts`) save through
   `saveWinTextDoc`, under `If-Match`, stamping `saved_by` (`tool: 'director'`, the agent, the run).

@@ -1,7 +1,8 @@
 /**
- * Invisible Game Config decides which symbols Invisible Symbols lists — pinned for every game kind
- * and every setup a project can be in, so a symbol `/config` badges UNUSED never shows a row in
- * `/symbols`, and a symbol it badges in play (or a pots overlay token) always does.
+ * Invisible Game Config decides which symbols Invisible Symbols and Invisible Win Text list — pinned
+ * for every game kind and every setup a project can be in, so a symbol `/config` badges UNUSED never
+ * shows a row in `/symbols` or `/win-text`, and a symbol it badges in play (or a pots overlay token)
+ * always does.
  *
  *   1. THE RULE — `symbolUses` (`game-config`): a strip-dealt symbol is `inPlay`, a pots overlay's
  *      token is `token`, anything else in the dictionary is `unused`; `symbolsUsed` is the set the
@@ -16,12 +17,15 @@
  *      symbols `/config` does not badge unused over that same doc, each with a defaults entry, the
  *      published art kept, tokens in pot order — and nothing it shows depends on whether the config
  *      was saved.
+ *      `/win-text` lists the very same rows in the same order, and a hidden symbol's authored strings
+ *      survive its save, so its row comes back with its text when the symbol returns to a strip.
  *      The pots overlay's coins (its tokens) are a section of their own in `/config`, with no badge,
  *      and the same coins are `/symbols`' coin group.
  *   3. THE WIRING — both pages resolve the config through `resolveGameConfig`, `/symbols` builds its
  *      data with `symbolsPageConfig` and renders its rows and nothing else, its stacked pictures list
  *      only those rows, `/config` badges with `symbolUses` — the symbols only, the coins in their own
- *      unbadged section — and `/symbols` draws its coin rows as a group of their own.
+ *      unbadged section — and `/symbols` draws its coin rows as a group of their own. `/win-text`
+ *      resolves the same config, takes its rows from `symbolGrid` over it and renders those alone.
  *
  * Run:  pnpm --filter launcher-api check:symbols-follow-config
  */
@@ -45,9 +49,15 @@ import { readLF } from '../../../scripts/lib/read-lf.mjs';
 import {
 	gameConfigDefaultFor,
 	resolvedGameConfigFrom,
+	type ResolvedGameConfig,
 } from '../src/lib/server/gameConfigDefaults.ts';
-import { symbolDefaultsFor, type SymbolDefaults } from '../src/lib/server/symbolDefaults.ts';
+import {
+	symbolDefaultsFor,
+	symbolGrid,
+	type SymbolDefaults,
+} from '../src/lib/server/symbolDefaults.ts';
 import { symbolsPageConfig } from '../src/lib/server/symbolsPageConfig.ts';
+import { normalizeWinTextDoc } from '../src/lib/server/winTextStorage.ts';
 
 let failures = 0;
 let checks = 0;
@@ -92,6 +102,10 @@ const unusedOf = (doc: GameConfigDoc): string[] =>
 	Object.entries(symbolUses(doc))
 		.filter(([, use]) => use === 'unused')
 		.map(([name]) => name);
+
+/** `/win-text`'s rows: its load's own expression (section 3 pins it). */
+const winTextRows = (defaults: SymbolDefaults, config: ResolvedGameConfig): string[] =>
+	symbolGrid(defaults, config.doc).symbols;
 
 const templateOf = (kind: string): GameConfigDoc => {
 	const template = gameConfigDefaultFor(kind);
@@ -306,6 +320,11 @@ for (const kind of [...GAME_KINDS, 'myCustomKind']) {
 				],
 			);
 			check(
+				`${at} · /win-text lists exactly the /symbols rows, in order`,
+				winTextRows(source.defaults, config),
+				page.symbols,
+			);
+			check(
 				`${at} · nothing shown depends on whether the config was saved`,
 				symbolsPageConfig(kind, source.defaults, { ...config, source: 'authored' }),
 				symbolsPageConfig(kind, source.defaults, { ...config, source: 'template' }),
@@ -376,6 +395,39 @@ check(
 	);
 }
 
+{
+	// Win Text keeps a hidden symbol's strings: taken off the reels, it loses its row, the save keeps
+	// its text, and putting it back brings the row back with it.
+	const template = templateOf('lines');
+	const [name] = symbolsInPlay(template);
+	const defaults = symbolDefaultsFor('lines');
+	const rows = (doc: GameConfigDoc) =>
+		winTextRows(defaults, resolvedGameConfigFrom({ doc: saved(doc), etag: '"e"' }, 'lines'));
+	const off = takeOffReels(template, name);
+	const authored = {
+		version: 1,
+		lineMessage: { bySymbol: { [name]: 'BIG {symbolName}' }, byCell: { [`${name}:5`]: 'FIVE' } },
+	};
+	check(
+		`lines · ${name} off the reels · no /win-text row, its strings kept on save`,
+		[rows(off).includes(name), normalizeWinTextDoc(authored).lineMessage],
+		[false, authored.lineMessage],
+	);
+	check(
+		`lines · ${name} back on the reels · its /win-text row returns`,
+		rows(putOnReels(off, name)).includes(name),
+		true,
+	);
+	check(
+		'lines never saved, an old unfiltered publish · /win-text hides W and H5',
+		winTextRows(
+			defaultsSources('lines')[1].defaults,
+			resolvedGameConfigFrom(neverSaved, 'lines'),
+		).filter((symbol) => symbol === 'W' || symbol === 'H5'),
+		[],
+	);
+}
+
 // ── 3. the wiring ───────────────────────────────────────────────────────────────────────────────
 const here = fileURLToPath(new URL('.', import.meta.url));
 const read = (path: string): string => readLF(`${here}../src/routes/(app)/${path}`);
@@ -383,6 +435,8 @@ const configServer = read('config/+page.server.ts');
 const configPage = read('config/+page.svelte');
 const symbolsServer = read('symbols/+page.server.ts');
 const symbolsPage = read('symbols/+page.svelte');
+const winTextServer = read('win-text/+page.server.ts');
+const winTextPage = read('win-text/+page.svelte');
 /** Does `source` hold `code`, whitespace aside? A re-wrap never breaks a pin; a change of code does. */
 const holds = (source: string, code: string): boolean =>
 	source.replace(/\s+/g, '').includes(code.replace(/\s+/g, ''));
@@ -447,6 +501,34 @@ check(
 	'/symbols draws its coin rows, in pot order, as a group of their own',
 	holds(symbolsPage, 'const coinRows = $derived(data.coins);') &&
 		holds(symbolsPage, '{#each coinRows as symbol (symbol)}'),
+	true,
+);
+check(
+	'/win-text reads the SAME config: resolveGameConfig, and no loader that skips the template',
+	[
+		holds(winTextServer, 'resolveGameConfig(clientKey, projectKey, gameType)'),
+		/loadGameConfigDoc/.test(winTextServer),
+	],
+	[true, false],
+);
+check(
+	'/win-text takes its rows from symbolGrid over that resolution, never the defaults alone',
+	[
+		holds(
+			winTextServer,
+			'symbols: symbolGrid(published ?? symbolDefaultsFor(gameType), config.doc).symbols,',
+		),
+		/Object\.keys\([^)]*symbols\)/.test(winTextServer),
+	],
+	[true, false],
+);
+check(
+	'/win-text renders data.symbols as they come',
+	holds(winTextPage, 'const lineSymbols = $derived(data.symbols.filter(symbolDrawsWinLine));') &&
+		holds(
+			winTextPage,
+			'const excludedSymbols = $derived(data.symbols.filter((s) => !symbolDrawsWinLine(s)));',
+		),
 	true,
 );
 
