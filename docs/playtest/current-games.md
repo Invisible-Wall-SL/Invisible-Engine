@@ -126,8 +126,10 @@ and `lib/republish.mjs` (the TypeScript half, run under the TS loader).
 ## Screen scripts
 
 `scripts/current-games/screens/<gameType>.json` holds one file per game type: `lines`, `ways`,
-`cluster`, `scatter`, `bookOf` and `holdAndWin`. A custom kind uses its mock protocol's script,
-which is `lines`. Each file has 12–14 screens in scenarios. A scenario is data: the mock env it
+`cluster`, `scatter` and `holdAndWin`. A Book-of game is a lines game and plays `lines.json`, whose
+`pots` scenario runs only for a contract with `grid.potsOverlay` (book-feature Phase 7 folded
+`bookOf.json` in; the stand-ins are `cg-book` and `cg-book-pots`). A custom kind uses its mock
+protocol's script, which is `lines`. Each file has 12–16 screens in scenarios. A scenario is data: the mock env it
 starts with (`SEED`, `FORCE_TRIGGER`, `WIN_X`) and a list of steps. The ops are listed at the top of
 `scripts/current-games/lib/play.mjs`:
 

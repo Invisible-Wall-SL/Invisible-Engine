@@ -39,6 +39,7 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-08 — **Phase 7 (DRAFT) of [book-feature.md](../design/book-feature.md):** the "Load scenes" picker no longer offers a `bookOf` kind; **Book of Borut (reference)** is an import-only reference set whose layout is `lines` (`referenceLoadsAs(setId)`), and the `bookOf` slot template is removed.
 - 2026-10-08 — **The Book-of set loads into a lines project as lines** ([book-feature.md](../design/book-feature.md)
   Phase 5c). `engine-layout`'s `referenceLoadsAs(setKind, projectKind)`: a set that is a reference
   for the project's kind (`bookOf` declares `referenceFor: ['lines']`) loads as the project's own

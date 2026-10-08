@@ -587,19 +587,8 @@ only one): it lands anywhere to trigger free spins and substitutes on lines. To 
 from the captured one, pick **Book of Thermopylae** in the banner's preset menu (a lines project)
 and press **Reset to preset**: 5×3, ten lines, the book `S`, the captured paytable, weights and
 thresholds, +10 on a retrigger and a 100× buy. Game Maker's **Create** offers the same as
-_Lines → Book of Thermopylae_. On a **Book-of** kind project the switch is not offered: its server
-(the book mock) deals the captured special whatever the config says, until the project is moved to
-lines.
-
-**On a Book-of game.** The section is the same, with two differences. The
-**Trigger symbol** is shown, not picked — _the book — S_ — because a Book-of game
-always triggers on its book; **How many** still sets how many books it takes. And
-the retrigger default is **+10** (the captured Book of Thermopylae rule, which the Book of Borut
-remake has always been dealt), so a
-Book-of game you have not touched plays exactly as before; editing the table back
-to _3+ S → 10_ leaves nothing stored. With free spins off, the buy also leaves the
-bet menu, and books still land but pay nothing (a Book-of book pays no scatter
-pay). The expanding special still starts every Book-of free spins round.
+_Lines → Book of Thermopylae_. Every Book-of game is a lines game with this block; there is no
+separate Book-of kind any more.
 
 **Turning free spins off.** No spin enters the feature on the Invisible Test
 Server — not a natural one, not a forced one. Scatters still land and still pay

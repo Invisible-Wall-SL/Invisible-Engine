@@ -947,6 +947,7 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Recent changes
 
+- 2026-10-08 — **Phase 7 (DRAFT) of [book-feature.md](../design/book-feature.md):** the test server deals the overlay only over the lines family (the `book` host is gone with `makeBookMock`); `check:pots-overlay` still runs the book host in-process as the partner-dialect fixture.
 - 2026-10-08 — **The lines mock hosts the overlay** ([book-feature.md](../design/book-feature.md)
   Phase 4). `scripts/mock-rgs-server.mjs` gives `withPotsOverlay` the book mock's seam
   (`refuse`, `beginPlay`, `playOwned`, `takeOver`, `endPlay`, `configContext`, `inBonus`, and a

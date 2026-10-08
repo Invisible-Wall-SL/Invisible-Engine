@@ -16,7 +16,6 @@ import { redactText } from './redact.mjs';
 const HERE = join(import.meta.dirname, '..');
 
 const SCRIPT_FOR_KIND = {
-	bookOf: 'bookOf',
 	holdAndWin: 'holdAndWin',
 	ways: 'ways',
 	cluster: 'cluster',
@@ -26,10 +25,8 @@ export const scriptFor = (gameType) => SCRIPT_FOR_KIND[gameType] ?? 'lines';
 export const loadScript = (name) =>
 	JSON.parse(readFileSync(join(HERE, 'screens', `${name}.json`), 'utf8'));
 
-const protocolFor = (gameType) => {
-	if (gameType === 'bookOf') return 'book';
-	return ['ways', 'cluster', 'scatter', 'holdAndWin'].includes(gameType) ? gameType : 'lines';
-};
+const protocolFor = (gameType) =>
+	['ways', 'cluster', 'scatter', 'holdAndWin'].includes(gameType) ? gameType : 'lines';
 
 /** `grid.potsOverlay.pots.0.id` in a manifest entry; a negative index counts from the end. */
 export const at = (value, path) =>
