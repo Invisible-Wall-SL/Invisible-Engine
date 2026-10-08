@@ -14,10 +14,6 @@
 import { POTS_OVERLAY_WIRE } from './gameMappings';
 import type { HoldAndWinMeterLevel } from './holdAndWin';
 
-/** The engine mode a Hold and Win bonus is — `game-config`'s `HOLD_AND_WIN_MODE`, restated because
- *  this package takes no engine dependency. */
-export const HOLD_AND_WIN_MODE = 'holdAndWin';
-
 /** The `potsOverlay` block of the boot `config` — the fields the translation reads. */
 export type PotsOverlayWireConfig = {
 	wire: number;
@@ -82,32 +78,32 @@ export const readPotsOverlayConfig = (cfg: unknown): PotsOverlayWireConfig | nul
 export const overlayBootLevels = (overlay: PotsOverlayWireConfig): HoldAndWinMeterLevel[] =>
 	overlay.pots.map(({ id, level, max }) => ({ id, level, max }));
 
-/** Where a bonus plays: the respin board, or the host's own reels (its free spins). */
-export type BonusRoute = 'respins' | 'reels';
+/** Where a bonus plays: the respin board of one respin mode, or the host's own reels (its free
+ *  spins). */
+export type BonusRoute = { respins: string } | 'reels';
 
 /**
  * Each event's bonus route, by its index: the route of the bonus the latest `spinTrigger` named
- * (`spinTrigger.bonus` → `overlay.bonuses` → a mode), or undefined before any. A bonus key the
- * block does not list falls back to the Hold and Win block's own key (`config.holdAndWin.bonus`,
- * `respin` by default), so a Hold and Win game that adds an overlay still enters its respins. Any
- * mode other than Hold and Win plays on the reels: the host's free spins, or (Phase 7) a mode the
- * server also announces with `modeEnter`.
+ * (`spinTrigger.bonus` → `overlay.bonuses` → a mode), or undefined before any. A mode the boot
+ * `config` captured respin rules for (`isRespinMode`) plays on the respin board; any other mode on
+ * the reels: the host's free spins, or (Phase 7) a mode the server also announces with `modeEnter`.
+ * A bonus key the block does not list falls back to the respin mode whose own key it is
+ * (`respinModeOfKey`, `config.holdAndWin.bonus`, `respin` by default), so a Hold and Win game that
+ * adds an overlay still enters its respins.
  */
 export const bonusRoutes = (
 	overlay: PotsOverlayWireConfig,
-	holdAndWinBonusKey: string | null,
+	isRespinMode: (mode: string) => boolean,
+	respinModeOfKey: (key: string) => string | undefined,
 	events: readonly { event: string; context?: unknown }[],
 ): (BonusRoute | undefined)[] => {
 	let route: BonusRoute | undefined;
 	return events.map((e) => {
 		if (e.event === 'spinTrigger') {
 			const key = (e.context as { bonus?: unknown } | undefined)?.bonus;
-			const mode = isText(key) ? overlay.bonuses[key] : undefined;
-			const respins =
-				mode !== undefined
-					? mode === HOLD_AND_WIN_MODE
-					: holdAndWinBonusKey !== null && key === holdAndWinBonusKey;
-			route = respins ? 'respins' : 'reels';
+			const named = isText(key) ? overlay.bonuses[key] : undefined;
+			const mode = named !== undefined ? named : isText(key) ? respinModeOfKey(key) : undefined;
+			route = mode !== undefined && isRespinMode(mode) ? { respins: mode } : 'reels';
 		}
 		return route;
 	});
