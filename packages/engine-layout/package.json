@@ -49,7 +49,7 @@
 		"constants-shared": "workspace:*",
 		"engine-cinematic": "workspace:*",
 		"pixi-svelte": "workspace:*",
-		"pixi.js": "8.21.0",
+		"pixi.js": "8.22.0",
 		"svelte": "5.57.1",
 		"utils-event-emitter": "workspace:*",
 		"utils-layout": "workspace:*",
