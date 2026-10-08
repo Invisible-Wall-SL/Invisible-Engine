@@ -5,9 +5,11 @@ import type { LayoutDoc, LayoutType, NodeOverride } from '../types';
 import { hudScenes } from './hud';
 
 /**
- * Placed reference layout for the Book of Borut family (`bookOf`) — the
- * engine-truth "import" of the game's current static layout, so the editor's
- * "Load a game scene" picker can open it already laid out. Kept in lock-step
+ * Placed reference layout for the Book of Borut family — the Book-of look of a LINES game (a
+ * Book-of game is lines plus the expanding symbol, `docs/design/book-feature.md`). A named
+ * reference set, not a kind: the editor imports it and the Game Maker's Book of Thermopylae preset
+ * scaffolds from it. It is the engine-truth "import" of the game's current static layout, so the
+ * editor's "Load a game scene" picker can open it already laid out. Kept in lock-step
  * with the game's own generator (`Book of Borut/src/game/defaultLayout.ts`).
  *
  * Currently covers the board frame (`frame_bg.png` + `frame_edge.png` — frames
@@ -93,7 +95,7 @@ export function bookofReferenceLayout(): LayoutDoc {
 	return {
 		version: 1,
 		projectKey: 'borut',
-		gameType: 'bookOf',
+		gameType: 'lines',
 		mainSizesMap: MAIN_SIZES_MAP,
 		scenes: [
 			{

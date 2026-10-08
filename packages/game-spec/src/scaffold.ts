@@ -47,11 +47,9 @@ const tokens = (spec: GameSpec, ports: { frontend: number; backend: number }): R
 	'{{BACKEND_PORT}}': String(ports.backend),
 });
 
-// Backend mock script + facade game key by game type.
-const backendFor = (spec: GameSpec) =>
-	spec.type === 'bookOf'
-		? { cmd: 'node scripts/mock-rgs-server-book.mjs', game: 'book' }
-		: { cmd: 'node scripts/mock-rgs-server.mjs', game: 'lines' };
+// Backend mock script + facade game key. Every type runs on the lines mock — a Book-of game too
+// (lines plus the expanding symbol); the ways/cluster/scatter evaluators are its options.
+const backendFor = (_spec: GameSpec) => ({ cmd: 'node scripts/mock-rgs-server.mjs', game: 'lines' });
 
 const allocatePorts = (cfg: LauncherConfig): { frontend: number; backend: number } => {
 	const used = new Set<number>();

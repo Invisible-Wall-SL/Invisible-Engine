@@ -77,7 +77,7 @@ check(
 );
 check('is toned as a warning so it stands out', d?.tone === 'warn', String(d?.tone));
 
-for (const kind of ['ways', 'scatter', 'bookOf']) {
+for (const kind of ['ways', 'scatter', 'holdAndWin']) {
 	check(
 		`fires for a stale ${kind} game too`,
 		drift(signals({ gameTypeId: kind, protocol: 'lines' })) !== undefined,
@@ -89,7 +89,8 @@ for (const kind of ['ways', 'scatter', 'bookOf']) {
 }
 
 // 4. the expanding-book chip follows the CONFIG's expanding symbol (book-feature Phase 5b): a lines
-//    project with the block gets it, one without does not, and a Book-of kind keeps it until Phase 7.
+//    project with the block gets it, one without does not, and a stray row of the retired Book-of
+//    kind (book-feature Phase 7) is just a kind without it.
 console.log('\n4. expanding-book chip:');
 const book = normalizeGameConfigDoc(bookOfThermopylaePreset());
 const feature = (s: ReturnType<typeof signals>, id: string) =>
@@ -104,8 +105,8 @@ check(
 	feature(signals({ gameTypeId: 'lines' }), 'expandingBook') === undefined,
 );
 check(
-	'a Book-of kind still does (the shim until Phase 7)',
-	feature(signals({ gameTypeId: 'bookOf' }), 'expandingBook') !== undefined,
+	'a stray bookOf row without the block does not (the kind shim is gone)',
+	feature(signals({ gameTypeId: 'bookOf' }), 'expandingBook') === undefined,
 );
 
 console.log(

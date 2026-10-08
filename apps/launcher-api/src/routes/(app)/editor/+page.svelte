@@ -170,8 +170,8 @@
 	);
 	/** Which built-in game layout to load — bound to the scene-bar picker. */
 	let loadChoice = $state('');
-	/** Kinds the "Import composed reference" group offers (lines + bookOf) — those
-	 * shipping a FILLED, art-bearing reference layout. The import fetch
+	/** Sets the "Import composed reference" group offers (lines, ways, the Book-of reference) —
+	 * those shipping a FILLED, art-bearing reference layout. The import fetch
 	 * (`GET /api/editor/import`) returns the filled doc with its bare board-frame
 	 * names rewritten to THIS project's atlas region, so the frame renders (§19.6). */
 	const importableKinds = listImportableKinds();
@@ -404,7 +404,7 @@
 	let showContentWarnings = $state(false);
 	/** The template currently being viewed/edited — starts as the project's
 	 * resolved template and is swapped by the game-type selector so you can load
-	 * and see any game type's template (e.g. `bookOf`). Drives the slot panel. */
+	 * and see any game type's template (e.g. `holdAndWin`). Drives the slot panel. */
 	let activeTemplate = $state<GameTemplate | undefined>(data.template);
 	/** Required slots of {@link activeTemplate} left unfilled by the current
 	 * scenes (§7.1) — derived live so it tracks both edits and template switches. */
@@ -1238,7 +1238,7 @@
 		if (doc.scenes.length === 0) return;
 		const crossType = Boolean(projectGameType) && gameType !== projectGameType;
 		const hasContent = scenes.some((s) => s.nodes.length > 0);
-		// A cross-type load (e.g. `lines` into a `bookOf` project) is the clobber
+		// A cross-type load (e.g. `lines` into a `ways` project) is the clobber
 		// case: confirm loudly AND suppress autosave afterwards so an edit can't
 		// silently overwrite the project's real, different-type saved doc.
 		const ok = await askConfirm({
@@ -1291,11 +1291,10 @@
 		const sep = choice.indexOf(':');
 		const kind = choice.slice(0, sep);
 		const gameType = choice.slice(sep + 1);
-		// Scaffold reads the full scene set (covers bookOf); import fetches the
-		// project-aware FILLED reference layout (lines + bookOf, §19.6).
-		// A set that is a reference for this project's kind (the Book-of set in a lines project) loads
-		// as the project's own layout, not as a cross-type one.
-		const loadsAs = referenceLoadsAs(gameType, projectGameType);
+		// Scaffold reads the full scene set; import fetches the project-aware FILLED reference
+		// layout (§19.6). A reference set loads as its doc's kind (the Book-of set as lines), so in a
+		// project of that kind it is the project's own layout, not a cross-type one.
+		const loadsAs = referenceLoadsAs(gameType);
 		if (kind === 'scaffold') {
 			const full = getFullSceneSet(gameType, loadsAs === projectGameType ? sceneSetOptions : {});
 			if (full) await adoptScenes(engineOwnedOnly(full), loadsAs);
@@ -1885,7 +1884,7 @@
 	/** True after loading a reference/blank layout whose game type ≠ this project's.
 	 * While set, AUTOSAVE is suppressed so an edit can't silently overwrite the
 	 * project's real (different-type) saved doc — the user must Save or Discard.
-	 * This is the guard against the "Lines layout clobbered my bookOf project" bug. */
+	 * This is the guard against the "Lines layout clobbered my Book of project" bug. */
 	let crossTypeLoaded = $state(false);
 	/** The mismatched game type currently previewed (for the warning copy). */
 	let crossTypeFrom = $state('');

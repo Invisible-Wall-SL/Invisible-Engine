@@ -7,7 +7,7 @@
 //
 //   R2_ENDPOINT=... R2_BUCKET=... R2_ACCESS_KEY_ID=... R2_SECRET_ACCESS_KEY=... \
 //     node apps/launcher-api/scripts/publish-game-bundle.mjs <gameKey> <buildDir> \
-//       [--protocol lines|book|ways|cluster|scatter|holdAndWin] [--name "Display Name"] \
+//       [--protocol lines|ways|cluster|scatter|holdAndWin] [--name "Display Name"] \
 //       [--project <projectKey> --launcher <origin> --read-token <token>] [--table-capable]
 //
 // --table-capable stamps the entry `tableCapable: true`: the build prices a bet-option table, so the
@@ -43,7 +43,7 @@
 //     --project test6 --launcher https://app.invisiblewall.org --read-token <k>
 //
 // The mock protocol selects which mock RGS the test server mounts for the game:
-//   lines = Hot Fruits-style       book = Book-of (buy feature + free spins)
+//   lines = Hot Fruits-style, and every Book-of game (lines plus the expanding symbol)
 //   ways / cluster / scatter = the lines mock with that win evaluator
 // It is only the FALLBACK once --project is given: the test server then reads the protocol (and the
 // grid, symbol pool, cascade and paytable) from the live config, which is the one place they cannot
@@ -64,7 +64,7 @@ const buildDir = positional[1];
 if (!gameKey || !buildDir) {
 	console.error(
 		'Usage: node publish-game-bundle.mjs <gameKey> <buildDir> ' +
-			'[--protocol lines|book|ways|cluster|scatter|holdAndWin] [--name "Display Name"] ' +
+			'[--protocol lines|ways|cluster|scatter|holdAndWin] [--name "Display Name"] ' +
 			'[--project <projectKey> --launcher <origin> --read-token <token>]',
 	);
 	process.exit(1);
@@ -76,11 +76,11 @@ if (!GAME_KEY_RE.test(gameKey)) {
 	process.exit(1);
 }
 
-// Default the mock protocol from the key when not given (book-of games → 'book'). The list matches
+// The mock protocol, `lines` when not given (a Book-of game is a lines game). The list matches
 // `MOCK_PROTOCOLS` in services/test-server/server.mjs — a name this side accepts but that side does
 // not would silently downgrade the game to `lines`, which is the failure this whole flag guards.
-const MOCK_PROTOCOLS = ['lines', 'book', 'ways', 'cluster', 'scatter', 'holdAndWin'];
-const protocol = getFlag('protocol') ?? (/book|borut/.test(gameKey) ? 'book' : 'lines');
+const MOCK_PROTOCOLS = ['lines', 'ways', 'cluster', 'scatter', 'holdAndWin'];
+const protocol = getFlag('protocol') ?? 'lines';
 if (!MOCK_PROTOCOLS.includes(protocol)) {
 	console.error(`--protocol must be one of ${MOCK_PROTOCOLS.join('|')} (got '${protocol}').`);
 	process.exit(1);

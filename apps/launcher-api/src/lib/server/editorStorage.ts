@@ -45,7 +45,7 @@ const NODE_KINDS = new Set<LayoutNode['kind']>(LAYOUT_NODE_KINDS);
  * When the project has NEVER been saved (no object in R2) and a `gameType` is
  * known, the fresh doc's canvas box (`mainSizesMap`) + `gameType` are seeded from
  * that game type's reference layout — so a new project author works against the
- * game's REAL main box (e.g. `bookOf` → 1422×800) instead of the generic
+ * game's REAL main box (e.g. `holdAndWin`'s) instead of the generic
  * `DEFAULT_MAIN_SIZES` (1920×1080), which the runtime never reads. Already-saved
  * docs round-trip byte-identical; only the never-saved default path changes.
  */

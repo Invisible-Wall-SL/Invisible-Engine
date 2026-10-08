@@ -20,7 +20,7 @@
  *  3. SUPERSET-of-default — the exported vocabulary covers every event the bundled
  *     `DEFAULT_EMITTER_VOCABULARY` lists (it is the real union, never a regression), and adds
  *     at least one the hand-transcribed default missed (proving codegen catches drift).
- *  4. RESOLVER fallback — `resolveEmitterVocabulary` returns the lines vocab for `lines`/`bookOf`
+ *  4. RESOLVER fallback — `resolveEmitterVocabulary` returns the lines vocab for `lines`
  *     and the parity-safe `DEFAULT_EMITTER_VOCABULARY` for an unknown/absent gameType (§7).
  */
 
@@ -166,7 +166,10 @@ assert(
 	'typed registry',
 );
 assert(/^\s*'?lines'?:\s*\{/m.test(registrySrc), 'maps gameType "lines"');
-assert(/^\s*'?bookOf'?:\s*\{/m.test(registrySrc), 'maps gameType "bookOf" (Book of Borut)');
+assert(
+	!/^\s*'?bookOf'?:\s*\{/m.test(registrySrc),
+	'no entry for the retired "bookOf" kind (a Book-of game is lines; book-feature Phase 7)',
+);
 assert(
 	/\?\?\s*DEFAULT_EMITTER_VOCABULARY/.test(registrySrc),
 	'resolveEmitterVocabulary falls back to DEFAULT_EMITTER_VOCABULARY (parity-safe, §7)',

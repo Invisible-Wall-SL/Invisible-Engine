@@ -53,7 +53,7 @@ import {
 	type TemplateVocabulary,
 	type TypeRef,
 } from 'engine-flow-v2';
-import { engineOwnedOnly, getFullSceneSet } from 'engine-layout';
+import { BOOK_OF_REFERENCE_SET, engineOwnedOnly, getFullSceneSet } from 'engine-layout';
 import { flowAddOnsOf, symbolsInPlay, symbolsUsed, symbolUses } from 'game-config';
 import { readLF } from '../../../scripts/lib/read-lf.mjs';
 import { composeFlowV2Vocab } from '../src/lib/flowV2Vocab.ts';
@@ -266,7 +266,8 @@ check(
 const SYMBOL: TypeRef = { t: 'enum', name: SYMBOL_ENUM };
 const literal = (type: TypeRef, value: unknown): DataSource => ({ kind: 'literal', type, value });
 const pos = { x: 0, y: 0 };
-const KIND = 'bookOf';
+// A Book-of game: a lines kind on the Book-of reference set.
+const KIND = 'lines';
 const template = templateOf(KIND);
 const STALE = symbolsInPlay(template)[0];
 const action = (id: string, symbol: string): Node => ({
@@ -348,7 +349,7 @@ const STALE_AT = [
 	['symGrouped', 'symbol', undefined],
 	['symModed', 'symbol', 'bonus'],
 ];
-const scenes = engineOwnedOnly(getFullSceneSet(KIND)!).scenes;
+const scenes = engineOwnedOnly(getFullSceneSet(BOOK_OF_REFERENCE_SET)!).scenes;
 const takenOff: Stored = { doc: takeOffReels(template, STALE), etag: '"e"' };
 const inPlay: Stored = { doc: template, etag: '"e"' };
 const unknown: Stored = { doc: null, etag: null };

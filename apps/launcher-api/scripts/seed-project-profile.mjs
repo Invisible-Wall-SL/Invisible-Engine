@@ -17,8 +17,8 @@
 //   PORTAL_EMAIL=you@x PORTAL_PASSWORD=… node apps/launcher-api/scripts/seed-project-profile.mjs \
 //     --key bookofborut --name "Book of Borut" --client borut \
 //     --repo https://github.com/Invisible-Wall-SL/Book-of-Borut.git --branch main \
-//     --protocol book --build-cmd "git submodule update --init --recursive && pnpm install && pnpm build" \
-//     --env PUBLIC_RGS_TRANSPORT=play4fun --env PUBLIC_RGS_GAME=book
+//     --build-cmd "git submodule update --init --recursive && pnpm install && pnpm build" \
+//     --env PUBLIC_RGS_TRANSPORT=play4fun
 //
 //   # Dump the resolved payload without sending it:
 //   … --dry-run
@@ -62,7 +62,11 @@ const name = (args.name || '').trim() || key;
 const client = (args.client || '').trim();
 const repoUrl = (args.repo || '').trim();
 const branch = (args.branch || '').trim();
-const protocol = (args.protocol || 'lines').trim() === 'book' ? 'book' : 'lines';
+// Every game the profile seeds is dealt by the lines mock (a Book-of game is lines plus the
+// expanding symbol); `--protocol` names another of the test server's protocols.
+const PROTOCOLS = ['lines', 'ways', 'cluster', 'scatter', 'holdAndWin'];
+const protocol = (args.protocol || 'lines').trim();
+if (!PROTOCOLS.includes(protocol)) die(`--protocol must be one of ${PROTOCOLS.join('|')}.`);
 const buildCwd = (args['build-cwd'] || '.').trim();
 const buildOut = (args['build-out'] || 'build').trim();
 // `git submodule update --init --recursive` FIRST so the engine submodule is

@@ -167,23 +167,6 @@ export async function setProjectGameType(key: string, gameType: string): Promise
 }
 
 /**
- * Switch a project's kind only while it is still `from` — a compare-and-swap on the row, so a kind
- * someone changed in the meantime is never overwritten. True when it switched.
- */
-export async function switchProjectGameType(
-	key: string,
-	from: string,
-	to: string,
-): Promise<boolean> {
-	const rows = await getDb()
-		.update(projects)
-		.set({ gameType: to })
-		.where(and(eq(projects.key, key), eq(projects.gameType, from)))
-		.returning({ key: projects.key });
-	return rows.length > 0;
-}
-
-/**
  * Mark or unmark a project as an Invisible Director template (Q1). The admin action checks that the
  * project is live and published before marking; unmarking is always allowed.
  */

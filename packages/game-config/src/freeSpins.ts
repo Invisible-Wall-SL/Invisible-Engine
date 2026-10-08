@@ -52,21 +52,6 @@ export const FREE_SPINS_DEFAULTS: FreeSpinsDefaults = {
 	retrigger: DEFAULT_RETRIGGER_AWARD,
 };
 
-/**
- * A Book-of game's defaults: +10 on a retrigger, what the book mock (the captured Book of
- * Thermopylae) has always dealt, so an un-authored Book-of game keeps its deal. Per KIND, because
- * a kind decides which mock deals the game; it goes with the `bookOf` kind
- * (`docs/design/book-feature.md`, decision 8), when the migration writes +10 into each Book-of config.
- */
-export const BOOK_FREE_SPINS_DEFAULTS: FreeSpinsDefaults = {
-	award: DEFAULT_FREE_SPINS_AWARD,
-	retrigger: 10,
-};
-
-/** The award defaults a game of this kind is dealt when its config authors no table. */
-export const freeSpinsDefaultsFor = (gameType: string | undefined): FreeSpinsDefaults =>
-	gameType === 'bookOf' ? BOOK_FREE_SPINS_DEFAULTS : FREE_SPINS_DEFAULTS;
-
 /** The free-spins rule with every default filled in. */
 export type ResolvedFreeSpins = {
 	enabled: boolean;

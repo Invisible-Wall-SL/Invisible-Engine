@@ -29,6 +29,7 @@ import {
 	type FlowDoc,
 } from 'engine-flow-v2';
 import {
+	BOOK_OF_REFERENCE_SET,
 	getFullSceneSet,
 	LAYER_BAND_BASE,
 	LAYER_BAND_BEHIND,
@@ -62,8 +63,12 @@ const scenesOf = (gameType: string, options?: Parameters<typeof getFullSceneSet>
 	if (!doc) throw new Error(`no scene set for ${gameType}`);
 	return doc.scenes;
 };
-const BORUT_SCENES = scenesOf('bookOf', { potsOverlay: true, holdAndWin: true, potIds: POT_IDS });
-const BOOK_SCENES = scenesOf('bookOf');
+const BORUT_SCENES = scenesOf(BOOK_OF_REFERENCE_SET, {
+	potsOverlay: true,
+	holdAndWin: true,
+	potIds: POT_IDS,
+});
+const BOOK_SCENES = scenesOf(BOOK_OF_REFERENCE_SET);
 
 const BOOK_SEED = freshDrivenSeedDoc('bookOf');
 const drives = (doc: FlowDoc): boolean => flowScreenDrivingStatus(doc).drivesScreens;

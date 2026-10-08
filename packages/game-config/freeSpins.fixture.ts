@@ -13,7 +13,6 @@
 
 import { readFileSync } from 'node:fs';
 import {
-	BOOK_FREE_SPINS_DEFAULTS,
 	MAX_FREE_SPINS_PER_ROUND,
 	MIN_FREE_SPINS_TRIGGER_COUNT,
 	DEFAULT_FREE_SPINS_AWARD,
@@ -22,7 +21,6 @@ import {
 	describeFreeSpinsAwards,
 	freeSpinsAwardFor,
 	freeSpinsAwardsAreDefault,
-	freeSpinsDefaultsFor,
 	freeSpinsTriggerIsDefault,
 	normalizeAwardTable,
 	normalizeFreeSpins,
@@ -423,15 +421,11 @@ check(
 	{ retriggerAwards: [{ count: 3, spins: 5 }] },
 );
 
-console.log('\nper-kind defaults — a Book-of game retriggers +10 untold, lines +5');
-check('lines (and any other kind) ⇒ 10 / +5', freeSpinsDefaultsFor('lines'), {
-	award: 10,
-	retrigger: 5,
-});
-check('a custom kind ⇒ 10 / +5', freeSpinsDefaultsFor('myKind'), { award: 10, retrigger: 5 });
-check('bookOf ⇒ 10 / +10', freeSpinsDefaultsFor('bookOf'), { award: 10, retrigger: 10 });
+console.log('\ndefaults given by the caller — +10 on a retrigger instead of +5');
+/** A caller's own defaults (the book mock's dialect: +10 on a retrigger). */
+const BOOK_FREE_SPINS_DEFAULTS = { award: 10, retrigger: 10 };
 check(
-	'resolve with the book defaults ⇒ +10 at the trigger count',
+	'resolve with the given defaults ⇒ +10 at the trigger count',
 	resolveFreeSpins(doc(), BOOK_FREE_SPINS_DEFAULTS).retriggerAwards,
 	[{ count: 3, spins: 10 }],
 );
@@ -441,7 +435,7 @@ check(
 	[{ count: 3, spins: 5 }],
 );
 check(
-	'a +5 retrigger table departs for a Book-of game',
+	'a +5 retrigger table departs from +10 defaults',
 	freeSpinsAwardsAreDefault(
 		doc({ freeSpins: { retriggerAwards: [{ count: 3, spins: 5 }] } }),
 		BOOK_FREE_SPINS_DEFAULTS,
@@ -454,7 +448,7 @@ check(
 	true,
 );
 check(
-	'a +10 retrigger table is the default for a Book-of game',
+	'a +10 retrigger table is the default under +10 defaults',
 	freeSpinsAwardsAreDefault(
 		doc({ freeSpins: { retriggerAwards: [{ count: 3, spins: 10 }] } }),
 		BOOK_FREE_SPINS_DEFAULTS,

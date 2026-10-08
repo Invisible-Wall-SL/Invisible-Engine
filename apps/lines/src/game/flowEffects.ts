@@ -1092,7 +1092,7 @@ export const presentReveal = async ({
 
 	// THE MODE SWITCH. A swap-in-place board has no reel path at all, so the opening board drops in
 	// instead of rolling. Absent `swapInPlace` this is false and the spin below is reached exactly as
-	// it always was — the reel path is untouched, `lines` and `bookOf` still roll.
+	// it always was — the reel path is untouched, a lines game (a Book-of one included) still rolls.
 	if (stateGameDerived.boardSwapsInPlace()) {
 		// The swap STYLE, early-returned rather than generalised. `'dropIn'` — which is what an absent
 		// `swapStyle` resolves to, i.e. every board authored before this existed — reaches the exact

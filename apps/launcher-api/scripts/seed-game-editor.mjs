@@ -2,7 +2,7 @@
 // AND renders the real board-frame art:
 //   1. Converts a TexturePacker (json-hash) atlas → the editor's Invisible
 //      manifest format and uploads manifest + page to `<client>/<project>/manifests/`.
-//   2. Writes `<client>/<project>/editor/scenes.json` — the bookOf scene set, with
+//   2. Writes `<client>/<project>/editor/scenes.json` — the Book-of reference set, with
 //      the board-frame nodes as REGION sprites pointing at that manifest (in-game
 //      identical: <Sprite key="frame_bg.png"> either way) and the responsive
 //      scenery (background, FS counter, intro/outro, Win/Transition) as no-op bind
@@ -21,7 +21,7 @@
 // Real upload env: R2_ENDPOINT, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY.
 import { readFile } from 'node:fs/promises';
 import { basename } from 'node:path';
-// The canonical bookOf scene set — generated from the engine's TS reference
+// The Book-of reference set (a lines layout) — generated from the engine's TS reference
 // layout (`packages/engine-layout/src/lib/referenceLayouts/bookof.ts`) by
 // `engine-layout`'s `gen:scenes`, so the seed and the editor/game share ONE
 // source and can't drift. The seed only overrides `basegame` (its board-frame
@@ -132,7 +132,7 @@ function buildDoc(updatedAt) {
 	return {
 		version: 1,
 		projectKey: r2Slug(PROJECT),
-		gameType: 'bookOf',
+		gameType: 'lines',
 		mainSizesMap: MAIN_SIZES_MAP,
 		scenes: bookofSceneSet.scenes.map((scene) => (scene.id === 'basegame' ? basegame : scene)),
 		updatedAt,

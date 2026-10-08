@@ -49,8 +49,8 @@ const ENGINE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
  * scenes, no symbols registry, no game-config resolver — so seeding a ways game from
  * `apps/ways` would not give you a ways game, it would give you a broken one. `apps/lines`
  * carries the whole engine and ADAPTS: the config states its `winModel`, payline-specific
- * surfaces stand down for a non-lines model, and a Book-of game is `apps/lines` plus a
- * bookOf scene set.
+ * surfaces stand down for a non-lines model, and a Book-of game is `apps/lines` plus the expanding
+ * symbol in its Game Config.
  *
  * Keep in lock-step with `runtimeFor` AND with `config-svelte/appSrc.js`, which is what
  * actually points a game repo's build at `apps/<SEED_APP>/src`. A standalone build and the

@@ -11,8 +11,8 @@ import type { GameTemplate } from '../types';
  * game PAYS: `lines` and `ways` run the identical `_runtime/lines` bundle and mount the identical
  * components, so they differ only in the win model their Game Config declares — which this schema
  * says nothing about. Keeping a per-type copy of the scene list would only let the copies drift.
- * A type whose SCREENS genuinely differ (`bookOf`, which adds a `freegame` screen) declares its
- * own template instead of calling this.
+ * A type whose SCREENS genuinely differ (`holdAndWin`, with its respin screens) declares its own
+ * template instead of calling this.
  *
  * Slot kinds:
  *   - `sprite`/`spine`/`text` — artist-owned static scenery (author owns the

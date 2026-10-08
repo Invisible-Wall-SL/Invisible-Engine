@@ -93,7 +93,6 @@ const KIND_CAPS: Record<string, KindCapabilities> = {
 	ways: { ...LINES_CAPS, winLines: false },
 	cluster: { ...LINES_CAPS, cascade: true, winLines: false },
 	scatter: { ...LINES_CAPS, cascade: true, multiplierCollect: true, winLines: false },
-	bookOf: { ...LINES_CAPS, bookReveal: true },
 	holdAndWin: {
 		...LINES_CAPS,
 		freeSpins: false,
@@ -144,33 +143,34 @@ for (const kind of [...GAME_KINDS, 'myCustomKind', undefined]) {
 		);
 	}
 }
-// The two cases the pots overlay plan names (Book of Borut with each add-on).
-const borutHw = kindCapabilities('bookOf', { holdAndWin: true });
+// The two cases the pots overlay plan names (Book of Borut — lines with the expanding symbol — with
+// each add-on).
+const borutHw = kindCapabilities('lines', { expandingSymbol: true, holdAndWin: true });
 check(
-	'bookOf + holdAndWin block · the feature, its coins and pots',
+	'Borut + holdAndWin block · the feature, its coins and pots',
 	[borutHw.holdAndWin, borutHw.coinSymbols, borutHw.pots, borutHw.potsOverlay],
 	[true, true, true, false],
 );
 check(
-	'bookOf + holdAndWin block · keeps free spins, the book reveal and its VFX',
+	'Borut + holdAndWin block · keeps free spins, the book reveal and its VFX',
 	[borutHw.freeSpins, borutHw.bookReveal, borutHw.bookSymbolVfx, borutHw.stackedPictures],
 	[true, true, true, true],
 );
-const borutPots = kindCapabilities('bookOf', { potsOverlay: true });
+const borutPots = kindCapabilities('lines', { expandingSymbol: true, potsOverlay: true });
 check(
-	'bookOf + potsOverlay block · pots and the overlay, no respin feature or coins',
+	'Borut + potsOverlay block · pots and the overlay, no respin feature or coins',
 	[borutPots.pots, borutPots.potsOverlay, borutPots.holdAndWin, borutPots.coinSymbols],
 	[true, true, false, false],
 );
 check(
-	'bookOf + potsOverlay block · keeps free spins and the book reveal',
+	'Borut + potsOverlay block · keeps free spins and the book reveal',
 	[borutPots.freeSpins, borutPots.bookReveal, borutPots.bookSymbolVfx],
 	[true, true, true],
 );
 
 // The Book-of expanding special as a config block (docs/design/book-feature.md §3.3): it turns the
 // book reveal on for any kind with free spins and moves nothing else; without it every answer above
-// stands, `bookOf` keeping its reveal through the kind until Phase 7.
+// stands, and no kind has the reveal on its own (book-feature Phase 7).
 for (const kind of [...GAME_KINDS, 'myCustomKind', undefined]) {
 	const table = KIND_CAPS[kind ?? ''] ?? LINES_CAPS;
 	check(
@@ -194,7 +194,6 @@ const before = (kind: string, gates: { cascade?: boolean; emerge?: boolean; clea
 	if (gates.emerge) cols.push('intro');
 	cols.push('land', 'win', 'postWinStatic', 'explosion');
 	if (cascade || gates.clears) cols.push('clearReel');
-	if (kind === 'bookOf') cols.push('bookIntro', 'bookIdle');
 	return cols;
 };
 const GATES = [
@@ -234,38 +233,39 @@ check(
 );
 
 // The add-on columns on Book of Borut: the book's, plus the token's or the whole feature's.
-const BOOK_COLS = before('bookOf', {});
+const BOOK_COLS = [...before('lines', {}), 'bookIntro', 'bookIdle'];
+const borut = (addOns: KindCapabilityConfig) => ({ ...addOns, expandingSymbol: true });
 const TOKEN_COLS = ['coinIdle', 'coinLand', 'flyToMeter'];
 check(
-	'bookOf + potsOverlay · book columns plus exactly the token states',
-	visibleStatesFor('bookOf', { potsOverlay: true }),
+	'Borut + potsOverlay · book columns plus exactly the token states',
+	visibleStatesFor('lines', borut({ potsOverlay: true })),
 	[...BOOK_COLS, ...TOKEN_COLS],
 );
 check(
-	'bookOf + potsOverlay · symbolStatesForKind adds exactly the token states',
-	symbolStatesForKind('bookOf', { potsOverlay: true }).filter(
+	'Borut + potsOverlay · symbolStatesForKind adds exactly the token states',
+	symbolStatesForKind('lines', borut({ potsOverlay: true })).filter(
 		(s) => !(HW_STATES_OFF as readonly string[]).includes(s),
 	),
 	TOKEN_COLS,
 );
 check(
-	'bookOf + holdAndWin · book columns plus every Hold and Win one',
-	visibleStatesFor('bookOf', { holdAndWin: true }),
+	'Borut + holdAndWin · book columns plus every Hold and Win one',
+	visibleStatesFor('lines', borut({ holdAndWin: true })),
 	[...BOOK_COLS, ...HOLD_AND_WIN_SYMBOL_STATES],
 );
 check(
-	'bookOf + both · every Hold and Win column, once',
-	visibleStatesFor('bookOf', { holdAndWin: true, potsOverlay: true }),
+	'Borut + both · every Hold and Win column, once',
+	visibleStatesFor('lines', borut({ holdAndWin: true, potsOverlay: true })),
 	[...BOOK_COLS, ...HOLD_AND_WIN_SYMBOL_STATES],
 );
 check(
-	'bookOf + holdAndWin · symbolStatesForKind is every state, with coin symbols',
-	[symbolStatesForKind('bookOf', { holdAndWin: true }), borutHw.coinSymbols],
+	'Borut + holdAndWin · symbolStatesForKind is every state, with coin symbols',
+	[symbolStatesForKind('lines', borut({ holdAndWin: true })), borutHw.coinSymbols],
 	[SYMBOL_STATES, true],
 );
 check(
-	'bookOf + {holdAndWin:false, potsOverlay:false} · columns unchanged',
-	visibleStatesFor('bookOf', { holdAndWin: false, potsOverlay: false }),
+	'Borut + {holdAndWin:false, potsOverlay:false} · columns unchanged',
+	visibleStatesFor('lines', borut({ holdAndWin: false, potsOverlay: false })),
 	BOOK_COLS,
 );
 for (const kind of GAME_KINDS.filter((k) => k !== 'holdAndWin')) {

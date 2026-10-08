@@ -1231,7 +1231,7 @@ export interface LayoutDoc {
 	projectKey: string;
 	/**
 	 * The game type whose {@link GameTemplate} this doc fills (e.g. `'lines'`,
-	 * `'bookOf'`). Persisted so the editor reopens with the right template's slots
+	 * `'holdAndWin'`). Persisted so the editor reopens with the right template's slots
 	 * without a per-session re-pick, and so seeding/validation resolve the same
 	 * template the author chose. Optional + additive — absent docs fall back to the
 	 * project's resolved game type.

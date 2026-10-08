@@ -2,8 +2,8 @@
  * A symbol Invisible Game Config marks UNUSED never reaches the game — pinned for the mock RGS that
  * deals every game we host, kind by kind, from the contract the test server is handed.
  *
- * For each kind's mock — the lines mock (lines, ways, cluster, scatter), the book mock (bookOf) and
- * the Hold and Win mock — a project whose `/config` takes a symbol off every strip gets a contract
+ * For each kind's mock — the lines mock (lines, ways, cluster, scatter, and a Book-of game: lines
+ * with the expanding symbol) and the Hold and Win mock — a project whose `/config` takes a symbol off every strip gets a contract
  * (`mockContractOfBundle`, the derivation a publish freezes and the test server reads) whose mock
  * never deals that symbol, never picks it as the Book's expanding special, never lands it through a
  * forced meter, and never declares it in its boot `config` (the client builds its spinning reels from
@@ -11,8 +11,8 @@
  * stacked pictures on, the stacked test deal are all played. Every case is shown non-vacuous: with
  * the symbol left in play, the same deal LANDS it on a board (a pick list naming the pool is not
  * enough). The client reads every declared symbol as one `/config` puts in play — through the
- * mapping it detects from that declaration, so a Book-of pool without `ACE`, `KING` and `QUEEN` is
- * still read as a book (a pots overlay host's too), and draws the respin board's empty cell with the
+ * mapping it detects from that declaration, so a Book-of pool without `L1`, `L2` and `L3` is still
+ * read as lines, and draws the respin board's empty cell with the
  * blank the server declares. Each case's unused config is one `/config` saves; a Hold and Win coin
  * symbol taken off the reels is refused there, and a config saved before that rule still deals its
  * coins rather than losing them.
@@ -35,6 +35,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+	bookOfThermopylaePreset,
 	HOLD_AND_WIN_PRESETS,
 	addPotsOverlay,
 	gameConfigErrors,
@@ -50,7 +51,6 @@ import {
 } from 'rgs-translator-eagaming/game-mappings';
 import { startTestServer } from '../../../scripts/current-games/lib/serve.mjs';
 import { withPotsOverlay } from '../../../scripts/mock-pots-overlay.mjs';
-import { createMockRgs as createBookMock } from '../../../scripts/mock-rgs-server-book.mjs';
 import { createMockRgs as createHoldAndWinMock } from '../../../scripts/mock-rgs-server-holdandwin.mjs';
 import { createMockRgs as createLinesMock } from '../../../scripts/mock-rgs-server.mjs';
 import { readLF } from '../../../scripts/lib/read-lf.mjs';
@@ -300,18 +300,6 @@ const mockFor = (c: Case, config: GameConfigDoc) => {
 	const { grid } = contractOf(c, config);
 	return (extra: Record<string, unknown>): Mock => {
 		const common = { label: 'unused-in-game', seed: 'unused-in-game', quiet: true, ...extra };
-		if (c.protocol === 'book') {
-			const opts = {
-				...common,
-				autoCollect: true,
-				symbolPaytable: grid?.symbolPaytable,
-				symbols: grid?.symbols,
-			};
-			// A pots overlay rides the book host, as `makeBookMock` composes it.
-			return grid?.potsOverlay
-				? withPotsOverlay(createBookMock, grid.potsOverlay)({ ...opts, allowForce: true })
-				: createBookMock(opts);
-		}
 		if (c.protocol === 'holdAndWin') return createHoldAndWinMock({ ...common, ...grid });
 		const opts = {
 			...common,
@@ -319,7 +307,7 @@ const mockFor = (c: Case, config: GameConfigDoc) => {
 			cascade: false,
 			...grid,
 		};
-		// …and the lines host, since book-feature Phase 4.
+		// A pots overlay rides the lines host (book-feature Phase 4).
 		return grid?.potsOverlay
 			? withPotsOverlay(createLinesMock, grid.potsOverlay)({ ...opts, allowForce: true })
 			: createLinesMock(opts);
@@ -329,13 +317,6 @@ const mockFor = (c: Case, config: GameConfigDoc) => {
 const linesDrive: Drive = async (make, seen) => {
 	await playMock(make({}), 150, seen);
 	await playMock(make({ forceTrigger: true }), 20, seen);
-	await playMock(make({ winX: [5, 20, 60] }), 6, seen);
-};
-
-const bookDrive: Drive = async (make, seen) => {
-	await playMock(make({}), 150, seen);
-	await playMock(make({ forceTrigger: true }), 25, seen);
-	await playMock(make({ bigWin: true }), 2, seen);
 	await playMock(make({ winX: [5, 20, 60] }), 6, seen);
 };
 
@@ -349,6 +330,21 @@ const holdAndWinDrive =
 	};
 
 const lines = templateOf('lines');
+/** A Book-of game: lines with the Book of Thermopylae preset (the expanding symbol on). */
+const thermopylae = saved(bookOfThermopylaePreset());
+/** `/config` refuses a weight on a symbol that can no longer be the special, so taking a weighted
+ *  symbol off the strips also takes its weight (the panel's Remove), as an author's save does. */
+const withoutWeight = (doc: GameConfigDoc, name: string): GameConfigDoc => {
+	const block = doc.freeSpins?.expandingSymbol;
+	if (!block?.weights || !(name in block.weights)) return doc;
+	const out = structuredClone(doc);
+	const special = out.freeSpins!.expandingSymbol!;
+	delete special.weights![name];
+	delete special.minReels?.[name];
+	if (special.minReels && !Object.keys(special.minReels).length) delete special.minReels;
+	return out;
+};
+
 const linesWithWild = (() => {
 	const doc = structuredClone(lines);
 	doc.symbols.W = { ...doc.symbols.W, paytable: [{ '3': 5 }, { '4': 10 }, { '5': 20 }] };
@@ -413,41 +409,35 @@ const CASES: Case[] = [
 		drive: linesDrive,
 	},
 	{
-		label: 'bookOf · L5 (TEN)',
-		protocol: 'book',
-		config: lines,
+		label: 'Book of Thermopylae · L5 (PIC7)',
+		protocol: 'lines',
+		config: thermopylae,
 		unused: 'L5',
-		wire: 'TEN',
-		drive: bookDrive,
+		wire: 'PIC7',
+		drive: linesDrive,
 	},
 	{
-		label: 'bookOf · H1 (PIC1)',
-		protocol: 'book',
-		config: lines,
+		label: 'Book of Thermopylae · H1 (PIC1)',
+		protocol: 'lines',
+		config: thermopylae,
 		unused: 'H1',
 		wire: 'PIC1',
-		drive: bookDrive,
+		drive: linesDrive,
 	},
 	{
-		// Unused, the pool keeps no ACE, KING or QUEEN: the client must still read it as a book.
-		label: 'bookOf · L3 (QUEEN), with L1 and L2 already off',
-		protocol: 'book',
-		config: takeOffReels(takeOffReels(lines, 'L1'), 'L2'),
+		// Unused, the pool keeps no PIC5, PIC6 or PIC9: the client must still read it as lines.
+		label: 'Book of Thermopylae · L3 (PIC9), with L1 and L2 already off',
+		protocol: 'lines',
+		config: ['L1', 'L2'].reduce(
+			(doc, name) => withoutWeight(takeOffReels(doc, name), name),
+			thermopylae,
+		),
 		unused: 'L3',
-		wire: 'QUEEN',
-		drive: bookDrive,
+		wire: 'PIC9',
+		drive: linesDrive,
 	},
 	{
-		// Unused, no royal is left at all, on a host whose boot also carries a Hold and Win bonus.
-		label: 'bookOf with the 3 Pots overlay · L5 (TEN), with L1–L4 already off',
-		protocol: 'book',
-		config: bookWithPots,
-		unused: 'L5',
-		wire: 'TEN',
-		drive: bookDrive,
-	},
-	{
-		// The same game dealt by the lines mock, the overlay over it.
+		// Unused, no low is left at all, on a host whose boot also carries a Hold and Win bonus.
 		label: 'lines with the 3 Pots overlay · L5 (PIC7), with L1–L4 already off',
 		protocol: 'lines',
 		config: bookWithPots,
@@ -517,7 +507,7 @@ const served: Array<{ key: string; c: Case; config: GameConfigDoc; local: Seen; 
 	[];
 
 for (const [index, c] of CASES.entries()) {
-	const unusedConfig = takeOffReels(c.config, c.unused);
+	const unusedConfig = withoutWeight(takeOffReels(c.config, c.unused), c.unused);
 	check(
 		`${c.label} · /config badges ${c.unused} in play, then unused once it is off the strips`,
 		symbolUses(c.config)[c.unused] === 'inPlay' && symbolUses(unusedConfig)[c.unused] === 'unused',
@@ -578,8 +568,8 @@ if (coinSymbol) {
 {
 	const blankOff = takeOffReels(bookWithPots, 'EMPTY');
 	const blankCase: Case = {
-		label: 'bookOf with the 3 Pots overlay · its blank EMPTY off the strips',
-		protocol: 'book',
+		label: 'lines with the 3 Pots overlay · its blank EMPTY off the strips',
+		protocol: 'lines',
 		config: bookWithPots,
 		unused: 'EMPTY',
 		wire: 'EMPTY',
@@ -676,10 +666,10 @@ check(
 check(
 	'the kinds whose template is the built-in lines config',
 	JSON.stringify(
-		['lines', 'cluster', 'bookOf', 'myCustomKind', 'ways', 'scatter', 'holdAndWin'].map((kind) =>
+		['lines', 'cluster', 'myCustomKind', 'ways', 'scatter', 'holdAndWin'].map((kind) =>
 			templateIsBuiltIn(kind),
 		),
-	) === JSON.stringify([true, true, true, true, false, false, false]),
+	) === JSON.stringify([true, true, true, false, false, false]),
 );
 check(
 	'the never-saved banner reads templateIsBuiltIn',

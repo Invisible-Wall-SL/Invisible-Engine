@@ -26,8 +26,6 @@
  * OUR mock derive its answer from the project instead of from a stale copy of it.
  */
 import {
-	BOOK_FREE_SPINS_DEFAULTS,
-	DEFAULT_FREE_SPINS_TRIGGER_COUNT,
 	freeSpinsAwardsAreDefault,
 	freeSpinsTriggerIsDefault,
 	holdAndWinMockInputs,
@@ -45,12 +43,7 @@ import {
 	type PotsOverlayMockInputs,
 	type ResolvedFreeSpins,
 } from 'game-config';
-import {
-	bookMapping,
-	linesMapping,
-	mapSymbol,
-	type GameMapping,
-} from 'rgs-translator-eagaming/game-mappings';
+import { linesMapping, mapSymbol, type GameMapping } from 'rgs-translator-eagaming/game-mappings';
 import { loadGameConfigDoc } from './gameConfigStorage';
 import { protocolFor } from './mockProtocol';
 import { UNASSIGNED_CLIENT } from './projectPaths';
@@ -179,14 +172,12 @@ function projectMultiplier(doc: GameConfigDoc, symbols: SymbolFacts): boolean {
  *
  * The space mismatch is the reason this lives HERE: `symbolsInPlay` answers in CLIENT symbol names
  * (`H1`, `L1`, `S`, …) but the mock deals SERVER names (`PIC1`, `PIC5`, `SCAT`, …). We translate with
- * the protocol's own mapping (`linesMapping`, or `bookMapping` for the book mock) — keep each server
+ * the lines facade's mapping (`linesMapping`) — keep each server
  * symbol whose mapped client name is in play — so the mock consumes a plain server-space array with
  * ZERO mapping knowledge (no table duplicated into the `.mjs`). `SCAT` rides along only when its
  * client symbol (`S`) is in play. `WILD` is intentionally excluded: the existing `wild` field already
  * governs whether the mock deals a wild.
  * An empty pool (misconfig) ⇒ `undefined` ⇒ the mock keeps its full default (never deals a blank board).
- * The BOOK contract states the pool only when it leaves a symbol out, so a book project dealing all
- * ten keeps the contract it had.
  */
 function projectLineSymbols(
 	doc: GameConfigDoc,
@@ -228,9 +219,7 @@ function projectLineSymbols(
  * `WILD` and `SCAT` are both excluded — each is paid by its own pass in the mock (the `wild` field
  * and `evaluateScatters`), and giving the scatter a LINE price row made a scatter run pay twice.
  *
- * In-play gate + client→server translation, same as `projectLineSymbols`. `mapping` is the
- * protocol's vocabulary: `bookMapping` for the book mock (`PIC1`…`PIC4`, `ACE`…`TEN`), the lines
- * facade's table for everything else.
+ * In-play gate + client→server translation, same as `projectLineSymbols`.
  */
 function projectSymbolPaytable(
 	doc: GameConfigDoc,
@@ -260,8 +249,8 @@ function projectSymbolPaytable(
 
 /**
  * The overlay inputs with each imported reels mode's strips and pays in the SERVER's vocabulary — a
- * book host's symbols are `H1`… in its config and `PIC1`… on the wire, and the book mock deals and
- * pays wire names. A name the mapping lacks (a symbol only the imported mode has) passes through, as
+ * host's symbols are `H1`… in its config and `PIC1`… on the wire, and the mock deals and pays wire
+ * names. A name the mapping lacks (a symbol only the imported mode has) passes through, as
  * the facade passes it back — unless it IS a wire name (`PIC1`, `SCAT`…), which the facade would read
  * as the host's symbol: such a mode is left out, so the mock deals it as a stub, and said once.
  */
@@ -431,40 +420,6 @@ function projectFreeSpins(doc: GameConfigDoc, projectKey: string): FreeSpinsFiel
 }
 
 /**
- * The free-spins rule for the BOOK mock — the lines rule in its own terms. A Book-of game always
- * triggers on its book (`docs/design/book-feature.md`, decision 9), so only the COUNT travels, as
- * `SCAT`; an authored trigger symbol is ignored and said once. The award tables travel when they
- * depart from the Book-of defaults (10, +10 on a retrigger), the deal the book mock has always made
- * untold — so a Book-of project that authored nothing sends nothing and is dealt byte-identically.
- */
-function projectBookFreeSpins(doc: GameConfigDoc, projectKey: string): FreeSpinsFields {
-	const freeSpins = resolveFreeSpins(doc, BOOK_FREE_SPINS_DEFAULTS);
-	if (!freeSpins.enabled) return { freeSpins: false };
-	const authored = doc.freeSpins?.triggerSymbol;
-	if (authored && authored !== inPlayScatterSymbol(doc.symbols, symbolsInPlay(doc))) {
-		warnOnce(
-			`${projectKey}:bookTrigger:${authored}`,
-			`[mock-contract] '${projectKey}' is a Book-of game, which always triggers free spins on its ` +
-				`book — the trigger symbol ${authored} is ignored. Clear it in /config.`,
-		);
-	}
-	const count = freeSpins.triggerCount;
-	const awards = freeSpinsAwardsAreDefault(doc, BOOK_FREE_SPINS_DEFAULTS)
-		? undefined
-		: {
-				awards: freeSpins.awards,
-				retrigger: freeSpins.retriggerAwards,
-				random: freeSpins.randomAwards,
-			};
-	return {
-		...(count !== DEFAULT_FREE_SPINS_TRIGGER_COUNT
-			? { freeSpinsTrigger: { symbol: 'SCAT', count } }
-			: {}),
-		...(awards ? { freeSpinsAwards: awards } : {}),
-	};
-}
-
-/**
  * The trigger in SERVER vocabulary, or `undefined` when it is the default 3+ scatter.
  *
  * The trigger symbol is translated through the SAME `linesMapping` the in-play pool and the
@@ -525,13 +480,7 @@ function projectGrid(
 	// is backwards: the board IS what it needs, and without it a ways project silently fell back to
 	// the shared `apps/lines` 5×3 no matter what it authored (the live `test3` drew 8×4 against a 5×3
 	// deal). `cluster`/`scatter` additionally carry their `minCluster`/`adjacency`/`minCount` shape.
-	//
-	// `book` is the one real exception: it runs `createBookMock`, which owns its own board and
-	// paylines, and reads only `symbolPaytable`, `symbols`, `potsOverlay` and the free-spins rule
-	// (`projectBookFreeSpins`) — so that is all it gets beyond the shape the test server's `validGrid`
-	// requires. Without the table the book mock paid and
-	// DECLARED its captured table whatever `/config` authored, so the info page and the payouts could
-	// disagree; without the pool it dealt, and could expand, a symbol `/config` marks unused.
+
 	try {
 		if (!doc) return undefined;
 		const reels = Math.max(1, Math.round(Number(doc.numReels)));
@@ -550,33 +499,6 @@ function projectGrid(
 		// such a project fall back to the shared lines grid and pay line wins. The mock generates a
 		// full-coverage set from the dimensions for its own reveal shape; the evaluator ignores it.
 		if (!Number.isFinite(reels)) return undefined;
-		if (protocol === 'book') {
-			// Neither an authored table, a narrower pool, an overlay nor a free-spins departure ⇒ no grid
-			// ⇒ the contract is exactly what it was before any existed; the pool is stated only when it
-			// leaves a symbol out, and the overlay and free spins go LAST, so a project using none of
-			// them is byte-identical.
-			const symbolPaytable = projectSymbolPaytable(doc, bookMapping);
-			const pool = projectLineSymbols(doc, bookMapping);
-			const symbols =
-				pool && Object.keys(bookMapping.symbols).some((name) => !pool.includes(name))
-					? pool
-					: undefined;
-			const potsOverlay = inServerNames(potsOverlayMockInputs(doc), bookMapping, projectKey);
-			// Last, after the overlay, so a project that departs from none of the free-spins defaults
-			// keeps its grid byte-identical.
-			const freeSpins = projectBookFreeSpins(doc, projectKey);
-			const departs = Object.keys(freeSpins).length > 0;
-			if (!symbolPaytable && !symbols && !potsOverlay && !departs) return undefined;
-			return {
-				reels,
-				rows,
-				paylines,
-				...(symbolPaytable ? { symbolPaytable } : {}),
-				...(symbols ? { symbols } : {}),
-				...(potsOverlay ? { potsOverlay } : {}),
-				...freeSpins,
-			};
-		}
 		if ((protocol === 'lines' || protocol === 'holdAndWin') && !paylines.length) return undefined;
 		// `holdAndWin` runs its own mock, which deals from the block and the project's OWN symbol names
 		// — none of the lines mock's server-vocabulary fields below apply. Its base game pays lines, so
@@ -633,8 +555,8 @@ function projectGrid(
 		const paysLines = model.type === 'lines';
 		const expandingSymbol = paysLines ? projectExpandingSymbol(doc, projectKey) : undefined;
 		const scatterWild = paysLines && projectScatterWild(doc);
-		// The pots overlay composes over the lines mock as over the book mock (book-feature Phase 4),
-		// its imported modes' names in the lines vocabulary. Last, so a project without it is unchanged.
+		// The pots overlay composes over the lines mock (book-feature Phase 4), its imported modes'
+		// names in the lines vocabulary. Last, so a project without it is unchanged.
 		const potsOverlay = inServerNames(potsOverlayMockInputs(doc), linesMapping, projectKey);
 		return {
 			reels,

@@ -216,14 +216,7 @@ export async function engineDeployStatus(runtimeId: string): Promise<EngineDeplo
  * `services/test-server/server.mjs`: a name this side accepts but that side doesn't leaves the game
  * with no mock to talk to.
  */
-export const MOCK_PROTOCOLS = [
-	'lines',
-	'book',
-	'ways',
-	'cluster',
-	'scatter',
-	'holdAndWin',
-] as const;
+export const MOCK_PROTOCOLS = ['lines', 'ways', 'cluster', 'scatter', 'holdAndWin'] as const;
 
 export type MockProtocol = (typeof MOCK_PROTOCOLS)[number];
 

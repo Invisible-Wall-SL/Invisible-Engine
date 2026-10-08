@@ -15,7 +15,7 @@ export const bookOfThermopylae: GameSpec = {
 		client: 'borut',
 		version: '0.0.0',
 	},
-	type: 'bookOf',
+	type: 'lines',
 	grid: { reels: 5, rows: [3, 3, 3, 3, 3] },
 	bet: {
 		modes: [
@@ -49,6 +49,11 @@ export const bookOfThermopylae: GameSpec = {
 		[1, 0, 0, 0, 1],
 		[1, 0, 1, 2, 1],
 	],
+	// The captured special: Book of Thermopylae's weights, H1 expanding from 2 reels.
+	expandingSymbol: {
+		weights: { H1: 0.09, H2: 0.09, H3: 0.09, H4: 0.095, L1: 0.095, L2: 0.095, L3: 0.11, L4: 0.14, L5: 0.195 },
+		minReels: { H1: 2 },
+	},
 	ui: { family: 'default', buyBonus: true, autoSpin: true, turbo: true, gamble: false },
 	theme: { fontFamily: 'proxima-nova', accentColor: 0xffd24a },
 	info: {

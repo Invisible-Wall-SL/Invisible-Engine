@@ -68,9 +68,9 @@ import {
 } from '$lib/server/projects';
 import { PurgeUnsafeError, purgeProjectR2 } from '$lib/server/projectPurge';
 import { ProjectFolderTakenError, UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
-import { offeredGameKinds, RETIRED_GAME_KINDS, selectableGameKinds } from '$lib/server/gameKinds';
+import { selectableGameKinds } from '$lib/server/gameKinds';
 import { scaffoldProject } from '$lib/server/projectScaffold';
-import { applyBookOfMigrationTo, planBookOfMigration } from '$lib/server/bookOfMigration';
+import { bookOfCensus } from '$lib/server/bookOfCensus';
 import {
 	assignProjectToClient,
 	clientAccessFor,
@@ -274,8 +274,6 @@ export const load: PageServerLoad = async ({ locals }) => {
 		clientAccess,
 		games,
 		gameKinds,
-		/** What the kind pickers offer: every kind but a retired one (`bookOf`). */
-		offeredKinds: offeredGameKinds(gameKinds),
 		defaultProjectKey: DEFAULT_PROJECT_KEY,
 		gamesBaseUrl: ENV.GAMES_BASE_URL,
 		// The running deploy id (git SHA / timestamp) so an admin can confirm WHICH build is live —
@@ -526,12 +524,6 @@ export const actions: Actions = {
 		if (rawGameType !== '' && !known.has(rawGameType)) {
 			return fail(400, { action: 'createProject', error: 'Unknown game kind.' });
 		}
-		if (RETIRED_GAME_KINDS.has(rawGameType)) {
-			return fail(400, {
-				action: 'createProject',
-				error: 'A Book-of game is now Lines with the Book of Thermopylae preset (Game Maker).',
-			});
-		}
 		if (await projectExists(key)) {
 			return fail(400, { action: 'createProject', error: 'A project with that key exists.' });
 		}
@@ -560,35 +552,12 @@ export const actions: Actions = {
 	},
 
 	/**
-	 * Book-of migration (`docs/design/book-feature.md` §6, decision 6): the read-only census and
-	 * dry run, then — with the confirm box ticked — the run, ONE project per request (the page loops
-	 * over the plan, so no request waits on more than one republish). Admin-only like Re-scaffold,
-	 * its precedent; it runs here with the launcher's own DB and R2 access, so no credential leaves
-	 * the server. Only the key comes from the browser: the plan is re-derived for it.
+	 * The Book-of census (`docs/design/book-feature.md` §7 Phase 7): read-only proof that no
+	 * project, manifest entry, editor template or pending republish of the retired kind is left.
 	 */
-	bookOfDryRun: async ({ locals }) => {
+	bookOfCensus: async ({ locals }) => {
 		await requireAdmin(locals);
-		const { census, plans } = await planBookOfMigration(ENV.GAMES_BASE_URL);
-		return { action: 'bookOfDryRun' as const, census, plans };
-	},
-
-	bookOfApplyOne: async ({ request, locals, cookies, url }) => {
-		const admin = await requireAdmin(locals);
-		const data = await request.formData();
-		const key = String(data.get('key') ?? '');
-		if (data.get('confirm') !== 'yes') {
-			return fail(400, {
-				action: 'bookOfApplyOne',
-				error: 'Tick the confirm box: this migrates the Book-of projects to Lines.',
-			});
-		}
-		const result = await applyBookOfMigrationTo(key, {
-			gamesBaseUrl: ENV.GAMES_BASE_URL,
-			launcherOrigin: url.origin,
-			sessionId: (await sessionIdFromToken(cookies.get(SESSION_COOKIE))) ?? '',
-			by: admin.email,
-		});
-		return { action: 'bookOfApplyOne' as const, result };
+		return { action: 'bookOfCensus' as const, census: await bookOfCensus() };
 	},
 
 	rescaffoldProject: async ({ request, locals }) => {
@@ -656,12 +625,6 @@ export const actions: Actions = {
 		const known = new Set((await selectableGameKinds()).map((k) => k.id));
 		if (!known.has(gameType)) {
 			return fail(400, { action: 'setProjectGameType', error: 'Unknown game kind.' });
-		}
-		if (RETIRED_GAME_KINDS.has(gameType)) {
-			return fail(400, {
-				action: 'setProjectGameType',
-				error: `${gameType} is no longer offered: a Book-of game is Lines with its Expanding symbol.`,
-			});
 		}
 
 		await setProjectGameType(key, gameType);

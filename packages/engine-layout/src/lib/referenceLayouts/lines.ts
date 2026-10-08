@@ -253,7 +253,7 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 			// reads a `background`-scene `bg` node to drive the coded <Background>
 			// cover; the absence keeps it on its exact-cover default (§10.6). The
 			// `background` slot is still declared in the template + filled by the
-			// bookOf seed/reference, where the background is genuinely doc-driven.
+			// Book-of reference set, where the background is genuinely doc-driven.
 			{
 				id: 'basegame',
 				name: sceneName('basegame'),

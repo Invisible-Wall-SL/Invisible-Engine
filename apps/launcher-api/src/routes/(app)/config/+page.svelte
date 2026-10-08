@@ -22,7 +22,7 @@
 		normalizeFreeSpins,
 		normalizeAwardTable,
 		describeFreeSpinsAwards,
-		freeSpinsDefaultsFor,
+		FREE_SPINS_DEFAULTS,
 		DEFAULT_SCATTER_PAYTABLE,
 		describePaytableDrift,
 		coinEntryLabel,
@@ -96,17 +96,7 @@
 	/** Each symbol's badge: in play, a pots overlay token, or unused. Invisible Symbols lists exactly
 	 *  the symbols not badged unused — the same `symbolUses`, so the two tools cannot disagree. */
 	const uses = $derived(symbolUses(snapshot));
-	/** A Book-of game: its book is the trigger. The kind is fixed for the page's life. */
-	const bookGame = data.gameType === 'bookOf';
-	/** A Book-of game's trigger symbol is the book (the field is read-only), so a stored one is
-	 *  ignored here and stripped on save — it can never block Save (book-feature.md, decision 9). */
-	const withoutBookTrigger = (config: GameConfigDoc): GameConfigDoc => {
-		if (!bookGame || config.freeSpins?.triggerSymbol === undefined) return config;
-		const { triggerSymbol: _ignored, ...rest } = config.freeSpins;
-		const { freeSpins: _old, ...others } = config;
-		return Object.keys(rest).length ? { ...others, freeSpins: rest } : others;
-	};
-	const issues = $derived(validateGameConfigDoc(withoutBookTrigger(snapshot)));
+	const issues = $derived(validateGameConfigDoc(snapshot));
 	const errors = $derived(issues.filter((i) => i.severity === 'error'));
 	const warnings = $derived(issues.filter((i) => i.severity === 'warning'));
 
@@ -774,10 +764,7 @@
 
 	/**
 	 * FREE SPINS — the switch, the trigger and the awards. Offered wherever the mock deals the
-	 * feature: every kind but Hold and Win, which has none. A Book-of game (the book mock) always
-	 * triggers on its book, so its trigger symbol is shown, not picked
-	 * (`docs/design/book-feature.md`, decision 9), and its retrigger awards +10 untold, not +5
-	 * (`freeSpinsDefaultsFor`, decision 8).
+	 * feature: every kind but Hold and Win, which has none.
 	 *
 	 * The single fields (on/off, trigger symbol and count, random amounts) go through
 	 * `normalizeFreeSpins` itself rather than mirroring it: choosing a default DELETES the field,
@@ -791,10 +778,7 @@
 	 * stands. A table edited back to its kind's default is dropped.
 	 */
 	const offersFreeSpins = $derived(capabilities.freeSpins);
-	/** A Book-of KIND (not the expanding-symbol feature, which any lines game may have): its book is
-	 *  the trigger, and the book mock deals no other. */
-	const triggerIsBook = bookGame;
-	const freeSpinsDefaults = $derived(freeSpinsDefaultsFor(data.gameType));
+	const freeSpinsDefaults = FREE_SPINS_DEFAULTS;
 	const freeSpins = $derived(resolveFreeSpins(snapshot, freeSpinsDefaults));
 	/** The symbol "Scatter (default)" stands for — what an unset trigger symbol resolves to. */
 	const defaultTriggerSymbol = $derived(
@@ -917,15 +901,13 @@
 	 * by these weights; on each free spin, once it covers its reel count it expands over those reels
 	 * and pays on every line. Present (even `{}`) ⇒ on.
 	 *
-	 * Offered on a lines win model only (an expanded reel "pays on every line"), and not on a Book-of
-	 * KIND, whose book mock deals its own captured special whatever the block says — that game moves
-	 * to the block when it is migrated.
+	 * Offered on a lines win model only (an expanded reel "pays on every line").
 	 *
 	 * The rows are every symbol that CAN be the special (dealt, a line paytable, no scatter, wild or
 	 * Hold and Win role): the resolver's own candidates with every one weighted 1. A weight of 0
 	 * leaves a symbol out; a reel count at the default is not stored.
 	 */
-	const offersExpandingSymbol = $derived(!bookGame && winModelType === 'lines');
+	const offersExpandingSymbol = $derived(winModelType === 'lines');
 	/** The panel shows its own issues; while it is hidden the section lists them. */
 	const expandingShown = $derived(offersExpandingSymbol && freeSpins.enabled);
 	const expandingBlock = $derived(doc.freeSpins?.expandingSymbol);
@@ -1299,7 +1281,7 @@
 				method: 'PUT',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({
-					doc: withoutBookTrigger($state.snapshot(doc) as GameConfigDoc),
+					doc: $state.snapshot(doc) as GameConfigDoc,
 					baseEtag,
 					force,
 				}),
@@ -2281,32 +2263,22 @@
 						</select></label
 					>
 					{#if freeSpins.enabled}
-						{#if triggerIsBook}
-							<label
-								><span>Trigger symbol</span><input
-									value="the book — {defaultTriggerSymbol ?? 'none on the strips'}"
-									title="A Book-of game always triggers free spins on its book."
-									readonly
-								/></label
+						<label
+							><span>Trigger symbol</span><select
+								value={doc.freeSpins?.triggerSymbol ?? ''}
+								onchange={(e) => setTriggerSymbol(e.currentTarget.value)}
+								disabled={lease.readOnly}
 							>
-						{:else}
-							<label
-								><span>Trigger symbol</span><select
-									value={doc.freeSpins?.triggerSymbol ?? ''}
-									onchange={(e) => setTriggerSymbol(e.currentTarget.value)}
-									disabled={lease.readOnly}
+								<option value=""
+									>Scatter (default) — {defaultTriggerSymbol ?? 'none on the strips'}</option
 								>
-									<option value=""
-										>Scatter (default) — {defaultTriggerSymbol ?? 'none on the strips'}</option
+								{#each triggerChoices as name (name)}
+									<option value={name}
+										>{name}{inPlay.has(name) ? '' : ' (not on the strips)'}</option
 									>
-									{#each triggerChoices as name (name)}
-										<option value={name}
-											>{name}{inPlay.has(name) ? '' : ' (not on the strips)'}</option
-										>
-									{/each}
-								</select></label
-							>
-						{/if}
+								{/each}
+							</select></label
+						>
 						<label
 							><span>How many</span><input
 								type="number"
@@ -2340,12 +2312,10 @@
 				{/if}
 				<p class="hint">
 					{#if !freeSpins.enabled}
-						<strong>This game has no free spins.</strong> On the Invisible Test Server no spin
-						enters the feature{#if triggerIsBook}, and the buy leaves the bet menu — books still
-							land, and pay nothing{:else}
-							— scatters still land and pay their scatter pay{/if}, and to remove them altogether
-						take the scatter symbol off the reel strips. The info page's Scatter rule stops
-						promising free spins.
+						<strong>This game has no free spins.</strong> On the Invisible Test Server no spin enters
+						the feature — scatters still land and pay their scatter pay, and to remove them altogether
+						take the scatter symbol off the reel strips. The info page's Scatter rule stops promising
+						free spins.
 					{:else if freeSpins.triggerSymbol}
 						On the Invisible Test Server, anywhere on the board: <strong>{entryRule}</strong>;
 						<strong>{retriggerRule}</strong> when they land again during free spins. A row awards for

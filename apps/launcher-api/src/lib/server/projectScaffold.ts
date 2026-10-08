@@ -7,7 +7,7 @@
 import { freshDrivenSeedDoc } from 'engine-flow-v2';
 import type { HoldAndWinPresetId } from 'game-config';
 import type { LayoutDoc } from 'engine-layout';
-import { engineOwnedOnly, getFullSceneSet } from 'engine-layout';
+import { BOOK_OF_REFERENCE_SET, engineOwnedOnly, getFullSceneSet } from 'engine-layout';
 import { sceneSetOptionsFor } from '$lib/addOns';
 import { gameConfigSeedFor, type LinesPresetId } from './gameConfigDefaults';
 import { ConflictError, loadGameConfigDocWithEtag, saveGameConfigDoc } from './gameConfigStorage';
@@ -111,7 +111,9 @@ function buildSeeds(
  * Book of Thermopylae starts from the Book-of reference layout (Borut's look, saved as a lines
  * layout), so a new Book-of game opens on the screens a Book-of game has always had.
  */
-const LINES_PRESET_SCENE_SET: Record<LinesPresetId, string> = { bookOfThermopylae: 'bookOf' };
+const LINES_PRESET_SCENE_SET: Record<LinesPresetId, string> = {
+	bookOfThermopylae: BOOK_OF_REFERENCE_SET,
+};
 
 /**
  * Write any missing seed files for `(client, project)` into R2. `holdAndWinPreset` picks which
