@@ -52,8 +52,13 @@
 	let key = $state('');
 	let name = $state('');
 	let clientKey = $state('');
-	let gameType = $state(data.gameKinds[0]?.id ?? 'lines');
+	/** The kinds Create offers: every selectable kind but a retired one (`bookOf` — a Book-of game is
+	 *  Lines with the Book of Thermopylae preset now). Existing projects keep their kind's name. */
+	const createKinds = $derived(data.gameKinds.filter((k) => !k.retired));
+	let gameType = $state(data.gameKinds.find((k) => !k.retired)?.id ?? 'lines');
 	let holdAndWinPreset = $state<HoldAndWinPresetId>(DEFAULT_HOLD_AND_WIN_PRESET);
+	/** A lines game's starting preset, or '' for the lines template. */
+	let linesPreset = $state('');
 	let creating = $state(false);
 	let createMsg = $state('');
 	let createErr = $state('');
@@ -290,7 +295,11 @@
 	/** The overlay presets that add cleanly to the game the Create form would make (`load`). */
 	const createPresets = $derived(
 		data.createOverlayPresets[
-			gameType === 'holdAndWin' ? `holdAndWin:${holdAndWinPreset}` : gameType
+			gameType === 'holdAndWin'
+				? `holdAndWin:${holdAndWinPreset}`
+				: gameType === 'lines' && linesPreset
+					? `lines:${linesPreset}`
+					: gameType
 		] ?? [],
 	);
 	/** The picked overlay preset, or the first offered when the picked one does not fit. */
@@ -927,11 +936,22 @@
 					<label>
 						Game type
 						<select bind:value={gameType}>
-							{#each data.gameKinds as k (k.id)}
+							{#each createKinds as k (k.id)}
 								<option value={k.id}>{k.name}</option>
 							{/each}
 						</select>
 					</label>
+					{#if gameType === 'lines' && data.linesPresets.length}
+						<label>
+							Preset
+							<select bind:value={linesPreset} title="Start from a preset game">
+								<option value="">None — the lines template</option>
+								{#each data.linesPresets as p (p.id)}
+									<option value={p.id}>{p.label}</option>
+								{/each}
+							</select>
+						</label>
+					{/if}
 					{#if gameType === 'holdAndWin'}
 						<label>
 							Preset
@@ -949,6 +969,9 @@
 				<input type="hidden" name="gameType" value={gameType} />
 				{#if gameType === 'holdAndWin'}
 					<input type="hidden" name="holdAndWinPreset" value={holdAndWinPreset} />
+				{/if}
+				{#if gameType === 'lines' && linesPreset}
+					<input type="hidden" name="linesPreset" value={linesPreset} />
 				{/if}
 				<div class="add-on-row">
 					<label class="check">

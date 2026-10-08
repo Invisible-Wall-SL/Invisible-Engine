@@ -935,7 +935,8 @@
 								onchange={(e) => e.currentTarget.form?.requestSubmit()}
 							>
 								<option value="" disabled>— kind —</option>
-								{#each data.gameKinds as gk (gk.id)}
+								<!-- A retired kind is listed only as a project's current value, never offered. -->
+								{#each data.gameKinds.filter((gk) => !gk.retired || gk.id === p.gameType) as gk (gk.id)}
 									<option value={gk.id}>{gk.name}</option>
 								{/each}
 							</select>
@@ -994,7 +995,7 @@
 						{/each}
 					</select>
 					<select name="gameType" title="Game kind">
-						{#each data.gameKinds as gk (gk.id)}
+						{#each data.gameKinds.filter((gk) => !gk.retired) as gk (gk.id)}
 							<option value={gk.id}>{gk.name}</option>
 						{/each}
 					</select>

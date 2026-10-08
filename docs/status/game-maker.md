@@ -64,6 +64,18 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
   Verified offline (`check:project-duplicate`), not live.
 
 ## Recent changes
+- 2026-10-08 — **Book of Thermopylae is Lines plus a preset** ([book-feature.md](../design/book-feature.md)
+  Phase 5c). Create's **Game type** list no longer offers **Book of** (`RETIRED_GAME_KINDS` /
+  `offeredGameKinds` in `gameKinds.ts`; the kind stays listed so its projects keep their name);
+  **Lines** gains a **Preset** dropdown (_None_ / **Book of Thermopylae**). With the preset, the
+  scaffold saves `gameConfigSeedFor('lines', 'bookOfThermopylae')` and lays the screens out from the
+  Book-of reference set as a `lines` layout (`LINES_PRESET_SCENE_SET`); the overlay add-on keys
+  `lines:<preset>`. The create action refuses a retired kind or an unknown lines preset. `/admin`'s
+  create picker drops Book of, and its per-project kind picker shows it only as a project's current
+  value (both actions refuse switching to it). Not changed: the Director's kind picker (filtered by
+  its templates), `/api/launcher/projects` and Director runs, which still accept the kind. Gate:
+  `check:project-scaffold` (the preset seeds config and Book-of scenes on lines only). Not
+  browser-verified.
 - 2026-10-04 — **Duplicate is shared with Invisible Director.** The body of
   `POST /api/game-maker/duplicate` moved, unchanged, into `$lib/server/duplicateProject.ts`, so
   Director's `gamemaker.create_from_template` adapter creates a project exactly as a person's

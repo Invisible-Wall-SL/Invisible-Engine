@@ -68,7 +68,7 @@ import {
 } from '$lib/server/projects';
 import { PurgeUnsafeError, purgeProjectR2 } from '$lib/server/projectPurge';
 import { ProjectFolderTakenError, UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
-import { selectableGameKinds } from '$lib/server/gameKinds';
+import { RETIRED_GAME_KINDS, selectableGameKinds } from '$lib/server/gameKinds';
 import { scaffoldProject } from '$lib/server/projectScaffold';
 import {
 	assignProjectToClient,
@@ -523,6 +523,12 @@ export const actions: Actions = {
 		if (rawGameType !== '' && !known.has(rawGameType)) {
 			return fail(400, { action: 'createProject', error: 'Unknown game kind.' });
 		}
+		if (RETIRED_GAME_KINDS.has(rawGameType)) {
+			return fail(400, {
+				action: 'createProject',
+				error: 'A Book-of game is now Lines with the Book of Thermopylae preset (Game Maker).',
+			});
+		}
 		if (await projectExists(key)) {
 			return fail(400, { action: 'createProject', error: 'A project with that key exists.' });
 		}
@@ -615,6 +621,12 @@ export const actions: Actions = {
 		const known = new Set((await selectableGameKinds()).map((k) => k.id));
 		if (!known.has(gameType)) {
 			return fail(400, { action: 'setProjectGameType', error: 'Unknown game kind.' });
+		}
+		if (RETIRED_GAME_KINDS.has(gameType)) {
+			return fail(400, {
+				action: 'setProjectGameType',
+				error: `${gameType} is no longer offered: a Book-of game is Lines with its Expanding symbol.`,
+			});
 		}
 
 		await setProjectGameType(key, gameType);

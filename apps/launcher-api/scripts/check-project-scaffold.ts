@@ -11,7 +11,9 @@
  *  - the scaffold never overwrites an authored config, and loses a concurrent first save quietly;
  *  - a `holdAndWin` project's symbols doc binds every Hold and Win symbol of its preset (the game
  *    draws only what that doc binds), from the STORED config, so /admin Re-scaffold backfills an
- *    older project; no other kind gets one, and an existing symbols doc is never overwritten.
+ *    older project; no other kind gets one, and an existing symbols doc is never overwritten;
+ *  - a `lines` project created with the Book of Thermopylae preset (book-feature Phase 5c) is seeded
+ *    with the preset and the Book-of reference scenes, as a LINES layout; another kind ignores it.
  */
 import { mock } from 'node:test';
 import {
@@ -89,6 +91,8 @@ const GAME_TYPES: Record<string, string> = {
 	hwSymbolsAuthored: 'holdAndWin',
 	hwSymbolsRace: 'holdAndWin',
 	linesPreset: 'lines',
+	linesBook: 'lines',
+	waysBook: 'ways',
 	linesWithCoins: 'lines',
 	lines: 'lines',
 	ways: 'ways',
@@ -105,7 +109,10 @@ mock.module(src('lib/server/projects.ts'), {
 const { scaffoldProject } = await import('../src/lib/server/projectScaffold.ts');
 const { gameConfigDocKey, symbolsDocKey } = await import('../src/lib/server/projectPaths.ts');
 const { symbolDefaultsFor } = await import('../src/lib/server/symbolDefaults.ts');
-const { gameConfigDefaultFor } = await import('../src/lib/server/gameConfigDefaults.ts');
+const { gameConfigDefaultFor, gameConfigSeedFor } =
+	await import('../src/lib/server/gameConfigDefaults.ts');
+const { editorDocKey } = await import('../src/lib/server/projectPaths.ts');
+const { engineOwnedOnly, getFullSceneSet, referenceLoadsAs } = await import('engine-layout');
 
 const CLIENT = 'invisible_wall';
 let failures = 0;
@@ -254,6 +261,39 @@ await check('an existing symbols doc is never overwritten', async () => {
 	RACE.set(raceKey, theirs);
 	await scaffoldProject(CLIENT, 'hwSymbolsRace');
 	assert(R2.get(raceKey)?.body === theirs, 'the scaffold clobbered a concurrent symbols save');
+});
+
+await check(
+	'Book of Thermopylae: a lines project seeded with the preset and the Book-of scenes',
+	async () => {
+		await scaffoldProject(CLIENT, 'linesBook', { linesPreset: 'bookOfThermopylae' });
+		const { updatedAt: _stamp, ...doc } = storedConfig('linesBook') ?? {};
+		const { updatedAt: _none, ...preset } = gameConfigSeedFor('lines', 'bookOfThermopylae') ?? {};
+		assert(JSON.stringify(doc) === JSON.stringify(preset), 'the seeded config is not the preset');
+		const layout = JSON.parse(R2.get(editorDocKey(CLIENT, 'linesBook'))?.body ?? '{}');
+		const book = engineOwnedOnly(getFullSceneSet('bookOf')!);
+		assert(layout.gameType === 'lines', `the layout is a ${layout.gameType} layout`);
+		assert(
+			JSON.stringify(layout.scenes) === JSON.stringify(book.scenes),
+			'the scenes are not the Book-of reference set',
+		);
+		await scaffoldProject(CLIENT, 'waysBook', { linesPreset: 'bookOfThermopylae' });
+		assert(!R2.has(gameConfigDocKey(CLIENT, 'waysBook')), 'a lines preset seeded a ways project');
+		const ways = JSON.parse(R2.get(editorDocKey(CLIENT, 'waysBook'))?.body ?? '{}');
+		assert(
+			JSON.stringify(ways.scenes) ===
+				JSON.stringify(engineOwnedOnly(getFullSceneSet('ways')!).scenes),
+			'a ways project lost its own scenes',
+		);
+	},
+);
+
+await check('the editor loads the Book-of reference into a lines project as lines', async () => {
+	assert(referenceLoadsAs('bookOf', 'lines') === 'lines', 'Book-of into lines');
+	assert(referenceLoadsAs('bookOf', 'bookOf') === 'bookOf', 'Book-of into a Book-of project');
+	assert(referenceLoadsAs('lines', 'bookOf') === 'lines', 'lines into a Book-of stays cross-type');
+	assert(referenceLoadsAs('bookOf', 'ways') === 'bookOf', 'Book-of into ways stays cross-type');
+	assert(referenceLoadsAs('bookOf', '') === 'bookOf', 'no project kind: the set’s own');
 });
 
 if (failures) {

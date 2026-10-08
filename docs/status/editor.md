@@ -39,6 +39,13 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-08 — **The Book-of set loads into a lines project as lines** ([book-feature.md](../design/book-feature.md)
+  Phase 5c). `engine-layout`'s `referenceLoadsAs(setKind, projectKind)`: a set that is a reference
+  for the project's kind (`bookOf` declares `referenceFor: ['lines']`) loads as the project's own
+  layout, so **＋ Load scenes…** → New Book of / Import composed reference → Book of in a lines project
+  is no longer a cross-type preview (it autosaves, and keeps the lines `gameType`). A Book-of project
+  importing it, or anything else, behaves as before. Gate: `check:project-scaffold`. Not
+  browser-verified.
 - 2026-10-07 — **In-game view shows a game mode the way it shows the base game.** Reported: Hold
   and Win screens appeared only while one of them was selected, then vanished on clicking a base
   screen (the base game, Jackpot bar, Pots, HUD), so the feature could not be laid out against the
