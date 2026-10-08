@@ -30,26 +30,31 @@ const positive = (v: unknown): v is number => typeof v === 'number' && Number.is
 const wholeCount = (v: unknown): v is number =>
 	typeof v === 'number' && Number.isInteger(v) && v >= 1;
 
-/** `entries` kept where `keep` holds for the value, on a non-empty key; `undefined` when none is. */
+/** `entries` kept where `keep` holds for the value, on a non-empty key; `undefined` when none is,
+ *  unless `keepEmpty` — a map whose emptiness itself says something. */
 const keptMap = (
 	raw: unknown,
 	keep: (v: unknown) => v is number,
+	keepEmpty = false,
 ): Record<string, number> | undefined => {
 	if (!isRecord(raw)) return undefined;
 	const out = Object.fromEntries(
 		Object.entries(raw).filter(([key, value]) => key.trim().length > 0 && keep(value)),
 	) as Record<string, number>;
-	return Object.keys(out).length ? out : undefined;
+	return keepEmpty || Object.keys(out).length ? out : undefined;
 };
 
 /**
  * Normalize an authored block. Its PRESENCE is the feature, so any object normalizes to a block
  * (`{}` when nothing in it survives); anything else is `undefined`. Weights that are not positive
- * numbers and thresholds that are not whole numbers of 1 or more are dropped, and so is an empty map.
+ * numbers and thresholds that are not whole numbers of 1 or more are dropped. An empty `minReels`
+ * is dropped (every symbol keeps the default); an empty `weights` is KEPT, because it says what an
+ * absent one does not: no symbol is weighted, so none can be drawn (the validator's error), where
+ * no `weights` at all draws every eligible symbol equally.
  */
 export function normalizeExpandingSymbol(raw: unknown): ExpandingSymbolConfig | undefined {
 	if (!isRecord(raw)) return undefined;
-	const weights = keptMap(raw.weights, positive);
+	const weights = keptMap(raw.weights, positive, true);
 	const minReels = keptMap(raw.minReels, wholeCount);
 	return { ...(weights ? { weights } : {}), ...(minReels ? { minReels } : {}) };
 }

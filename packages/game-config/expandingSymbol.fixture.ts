@@ -121,10 +121,20 @@ check(
 	{ weights: { H1: 2 }, minReels: { H1: 2 } },
 );
 check(
-	'an empty map is dropped',
+	'an empty minReels is dropped; an empty weights map is kept (no symbol weighted)',
 	normalizeExpandingSymbol({ weights: { H1: 0 }, minReels: {} }),
-	{},
+	{ weights: {} },
 );
+{
+	// The author weighted the last symbol to 0: none can be drawn — not "every one, equally".
+	const none = withSpecial({ weights: {} });
+	check('an empty weights map survives the doc normalizer', none.freeSpins?.expandingSymbol, { weights: {} }); // prettier-ignore
+	check('…draws nothing', resolveExpandingSymbol(none)?.candidates, []);
+	check('…and is the "weight at least one" error', issuesAt(none, 'freeSpins.expandingSymbol'), [
+		'error',
+	]);
+	check('no weights at all still draws every eligible symbol', resolveExpandingSymbol(withSpecial({}))?.candidates.length, 3); // prettier-ignore
+}
 check(
 	'the block alone keeps the free-spins block',
 	doc({ freeSpins: { expandingSymbol: {} } }).freeSpins,

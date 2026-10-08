@@ -957,6 +957,7 @@
 		else delete doc.freeSpins;
 	}
 	const setExpandingOn = (on: boolean) => writeExpanding(on ? {} : undefined);
+	const removeExpanding = () => writeExpanding(undefined);
 	/** A weight of 0 or more, or `undefined` for a half-typed one, left alone under the cursor. */
 	const weightOf = (raw: string): number | undefined => {
 		const n = Number(raw);
@@ -965,14 +966,28 @@
 	function setExpandingWeight(symbol: string, raw: string) {
 		const weight = weightOf(raw);
 		if (weight === undefined || !expandingBlock) return;
-		// The first weight typed writes every row's, so the others keep what they had (1 each).
-		const weights = Object.fromEntries(
-			expandingRows
-				.map((row) => [row.symbol, row.symbol === symbol ? weight : row.weight] as const)
-				.filter(([, w]) => w > 0),
+		// Rebuilt from the rows, so the others keep what they had (1 each) and a weight on a symbol
+		// that can no longer be the special goes. Every row back at 1 is the default: no map. Every
+		// row at 0 is an EMPTY map — nothing drawn, which the validator reports — never the absent
+		// map that would draw them all again.
+		const rows = expandingRows.map(
+			(row) => [row.symbol, row.symbol === symbol ? weight : row.weight] as const,
 		);
+		const weights = Object.fromEntries(rows.filter(([, w]) => w > 0));
 		const { weights: _old, ...rest } = $state.snapshot(expandingBlock);
-		writeExpanding({ ...rest, ...(Object.keys(weights).length ? { weights } : {}) });
+		writeExpanding(rows.every(([, w]) => w === 1) ? rest : { ...rest, weights });
+	}
+	/** Weights on symbols that cannot be the special (an error with no row to clear it from). */
+	const staleWeights = $derived(
+		Object.keys(expandingBlock?.weights ?? {}).filter((name) => !expandingEligible.includes(name)),
+	);
+	function removeStaleWeights() {
+		if (!expandingBlock?.weights) return;
+		const { weights, ...rest } = $state.snapshot(expandingBlock);
+		const kept = Object.fromEntries(
+			Object.entries(weights ?? {}).filter(([name]) => expandingEligible.includes(name)),
+		);
+		writeExpanding({ ...rest, weights: kept });
 	}
 	function setExpandingMinReels(symbol: string, raw: string) {
 		const reels = wholeNumber(raw);
@@ -1228,7 +1243,8 @@
 	}
 
 	/** A kind with starting configs of its own (Hold and Win: Pots / Classic / Collector; lines: the
-	 *  Book of Thermopylae) offers each as a whole-doc reset. Nothing saves until Save, but it discards every field, so it asks first. */
+	 *  Book of Thermopylae) offers each as a whole-doc reset. Nothing saves until Save, but it
+	 *  discards every field, so it asks first. */
 	let pickedPreset = $state('');
 	const presetId = $derived(pickedPreset || data.presets[0]?.id || '');
 	async function resetToPreset() {
@@ -2359,6 +2375,21 @@
 			</section>
 		{/if}
 
+		<!-- A stored expanding symbol the panel does not offer here (another win model, a Book-of kind,
+		     a Hold and Win game): it can still be removed, so an error it raises never blocks Save for
+		     good. With free spins merely off it is kept, so switching them on restores it. -->
+		{#if expandingBlock && !(offersExpandingSymbol && offersFreeSpins)}
+			<section>
+				<h2>Expanding symbol</h2>
+				<p class="hint">
+					This config has an expanding symbol (Book-of), which this game cannot use.
+					<button class="linkish" onclick={removeExpanding} disabled={lease.readOnly}
+						>Remove the expanding symbol</button
+					>
+				</p>
+			</section>
+		{/if}
+
 		<!-- The expanding symbol (Book-of): on/off, then a weight and a reel count per symbol it may be. -->
 		{#snippet expandingPanel()}
 			<div class="expanding">
@@ -2432,6 +2463,15 @@
 							paytable, and be no scatter, wild or Hold and Win symbol.
 						</p>
 					{/if}
+				{/if}
+				{#if staleWeights.length}
+					<p class="inline-issue error">
+						{staleWeights.join(', ')}
+						{staleWeights.length === 1 ? 'has' : 'have'} a weight but cannot be the expanding symbol.
+						<button class="linkish" onclick={removeStaleWeights} disabled={lease.readOnly}
+							>Remove {staleWeights.length === 1 ? 'it' : 'them'}</button
+						>
+					</p>
 				{/if}
 				{#each issuesFor('freeSpins.expandingSymbol') as issue (issue.path + issue.message)}
 					<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
