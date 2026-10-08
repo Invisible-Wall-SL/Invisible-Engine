@@ -4,7 +4,7 @@
 > [status/hold-and-win](hold-and-win.md), [status/pots-overlay](pots-overlay.md) · Guide: _per phase_
 > · Agents: per phase — see the design's build plan.
 
-**One-line state:** Phase 1 (config split + migration) is in review as PR #1133. Normalized docs carry the
+**One-line state:** Phase 1 (config split + migration) is in review as PR #1133. Phase 5a (`/config` Bonus modes + Coin overlay) is in review as PR #1136. Normalized docs carry the
 split form plus a legacy compat mirror; no consumer outside game-config reads the split yet. Next:
 Phases 2, 3, 5a and 5b, once Phase 1 is merged.
 
@@ -182,7 +182,7 @@ starts the phase sessions, reviews their PRs and merges them.
       `check:game-config-defaults`, `check:symbols-kind-gating`, `check:flow-publish-gate` and
       `check:launcher-gates` pass.
     - `check:svelte` stays at the launcher-api baseline (48), and lint is clean.
-    - `check:all`: result to follow in the next push.
+    - `check:all`: 412/412.
   - **Done-when, as pinned by the gate:**
     - a lines project adds a Coin overlay and two respin modes with different presets, routes pot
       A → mode 1 and pot B → mode 2, and saves and reloads intact;
