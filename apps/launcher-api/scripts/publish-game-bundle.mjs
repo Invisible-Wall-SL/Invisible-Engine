@@ -8,7 +8,12 @@
 //   R2_ENDPOINT=... R2_BUCKET=... R2_ACCESS_KEY_ID=... R2_SECRET_ACCESS_KEY=... \
 //     node apps/launcher-api/scripts/publish-game-bundle.mjs <gameKey> <buildDir> \
 //       [--protocol lines|book|ways|cluster|scatter|holdAndWin] [--name "Display Name"] \
-//       [--project <projectKey> --launcher <origin> --read-token <token>]
+//       [--project <projectKey> --launcher <origin> --read-token <token>] [--table-capable]
+//
+// --table-capable stamps the entry `tableCapable: true`: the build prices a bet-option table, so the
+// test server sells it the project's buy (`sellableGrid`) and the Book-of migration accepts it. Pass
+// it only for a build made on a current engine (the desktop launcher's ☁ Publish, which advances the
+// engine submodule first, stamps it through register-game); an older hand build keeps line bets.
 //
 // ⚠️ PASS --project (with --launcher + --read-token) FOR ANY GAME AUTHORED IN THE STUDIO.
 // Without them the entry has no pointer back at the project's Invisible Game Config, so the test
@@ -87,6 +92,7 @@ const name = getFlag('name') ?? gameKey;
 const projectKey = getFlag('project');
 const launcherOrigin = getFlag('launcher')?.replace(/\/+$/, '');
 const readToken = getFlag('read-token');
+const tableCapable = args.includes('--table-capable');
 const pointerFlags = [projectKey, launcherOrigin, readToken].filter(Boolean).length;
 if (pointerFlags > 0 && pointerFlags < 3) {
 	console.error(
@@ -222,6 +228,7 @@ for (let attempt = 1; ; attempt++) {
 		...(projectKey ? { projectKey } : {}),
 		...(launcherOrigin ? { docBase: launcherOrigin } : {}),
 		...(readToken ? { readToken } : {}),
+		...(tableCapable ? { tableCapable: true } : {}),
 	};
 	const cond = etag ? { IfMatch: etag } : { IfNoneMatch: '*' };
 	try {

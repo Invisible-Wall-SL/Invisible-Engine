@@ -69,7 +69,15 @@ async function pinToProject(key: string, projectKey: string, docBase: string): P
 			);
 			return { status: 'skipped', error: 'no read token for project' };
 		}
-		const status = await pinTestServerGameToProject(key, { projectKey, docBase, readToken });
+		// `tableCapable`: the desktop launcher builds on the current engine (☁ Publish advances the
+		// submodule first), so the build it just uploaded prices a bet-option table — the stamp that
+		// lets the test server sell its buy (`sellableGrid`) and the Book-of migration go ahead.
+		const status = await pinTestServerGameToProject(key, {
+			projectKey,
+			docBase,
+			readToken,
+			tableCapable: true,
+		});
 		// SAY IT SERVER-SIDE TOO. The desktop launcher does not read this response field today, and a
 		// game whose entry was never found is a game about to deal the wrong board — the exact silence
 		// the project pin exists to end. `already-pinned` is the boring, expected case and stays quiet.

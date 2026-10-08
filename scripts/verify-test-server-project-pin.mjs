@@ -318,7 +318,16 @@ await check('re-publishing a bundle cannot blank a pointer it was not told about
 	);
 	const run = compileSlice({
 		what: 'verify-test-server-project-pin / publish-game-bundle.mjs#manifest entry merge',
-		names: ['manifest', 'gameKey', 'protocol', 'name', 'projectKey', 'launcherOrigin', 'readToken'],
+		names: [
+			'manifest',
+			'gameKey',
+			'protocol',
+			'name',
+			'projectKey',
+			'launcherOrigin',
+			'readToken',
+			'tableCapable',
+		],
 		body: `${merge} return manifest.games[gameKey];`,
 	});
 	// The online Game Maker wrote a full entry; this script is then run with none of the flags.
@@ -335,7 +344,16 @@ await check('re-publishing a bundle cannot blank a pointer it was not told about
 			},
 		},
 	};
-	const entry = run(manifest, 'test6', 'lines', 'Ways on Waves', undefined, undefined, undefined);
+	const entry = run(
+		manifest,
+		'test6',
+		'lines',
+		'Ways on Waves',
+		undefined,
+		undefined,
+		undefined,
+		false,
+	);
 	eq(entry.projectKey, 'test6', 'projectKey survives');
 	eq(entry.docBase, 'https://app.invisiblewall.org', 'docBase survives');
 	eq(entry.readToken, 'tok', 'readToken survives');
@@ -352,7 +370,16 @@ await check('the flags write the pointer the test server reads', () => {
 	);
 	const run = compileSlice({
 		what: 'verify-test-server-project-pin / publish-game-bundle.mjs#manifest entry merge',
-		names: ['manifest', 'gameKey', 'protocol', 'name', 'projectKey', 'launcherOrigin', 'readToken'],
+		names: [
+			'manifest',
+			'gameKey',
+			'protocol',
+			'name',
+			'projectKey',
+			'launcherOrigin',
+			'readToken',
+			'tableCapable',
+		],
 		body: `${merge} return manifest.games[gameKey];`,
 	});
 	const manifest = { games: {} };
@@ -364,8 +391,10 @@ await check('the flags write the pointer the test server reads', () => {
 		'test6',
 		'https://app.invisiblewall.org',
 		'tok',
+		true,
 	);
 	eq(entry.projectKey, 'test6', 'projectKey written');
+	eq(entry.tableCapable, true, '--table-capable stamps the build');
 	eq(entry.docBase, 'https://app.invisiblewall.org', 'docBase written');
 	eq(entry.readToken, 'tok', 'readToken written');
 	eq(entry.protocol, 'ways', 'the ways protocol is accepted at all');

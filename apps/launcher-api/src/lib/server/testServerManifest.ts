@@ -291,6 +291,14 @@ export interface TestServerGameEntry {
 	 *  setting can be tried without the partner. Set by hand on the manifest; no publish writes it and
 	 *  a republish keeps it. Field contract: `docs/reference/play4fun-protocol.md` § Host settings. */
 	hostSettings?: Record<string, unknown>;
+	/** `true` on a DESKTOP build (its own bundle, no `runtime`) built on an engine that prices a
+	 *  bet-option table: the test server then deals its grid's `betModes` table as it does for a
+	 *  runtime game (`sellableGrid`). Stamped by `/api/launcher/register-game` on every desktop
+	 *  publish — the desktop launcher builds on the current engine — and by
+	 *  `publish-game-bundle.mjs --table-capable`. Absent ⇒ an older build: it keeps the line-config
+	 *  game it was built against. The Book-of migration refuses a project with an unstamped build
+	 *  (`docs/design/book-feature.md` §6 step 5). */
+	tableCapable?: true;
 	/** The project's OWN board grid (from its Game Config), so the mock RGS deals THIS project's
 	 *  `numReels`/`numRows`/`paylines` instead of the shared `apps/lines` default — otherwise a project
 	 *  that authored e.g. 5 rows mismatches the client (rolls with 5, settles to fewer). Absent ⇒ the
@@ -488,7 +496,7 @@ export type PinOutcome = 'pinned' | 'already-pinned' | 'no-entry';
  */
 export async function pinTestServerGameToProject(
 	key: string,
-	pin: { projectKey: string; docBase: string; readToken: string },
+	pin: { projectKey: string; docBase: string; readToken: string; tableCapable?: true },
 ): Promise<PinOutcome> {
 	for (let attempt = 1; ; attempt++) {
 		const current = await getObjectTextWithEtag(TEST_SERVER_MANIFEST_KEY);
@@ -505,7 +513,8 @@ export async function pinTestServerGameToProject(
 		if (
 			entry.projectKey === pin.projectKey &&
 			entry.docBase === pin.docBase &&
-			entry.readToken === pin.readToken
+			entry.readToken === pin.readToken &&
+			entry.tableCapable === pin.tableCapable
 		) {
 			return 'already-pinned';
 		}
