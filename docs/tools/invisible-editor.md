@@ -131,7 +131,9 @@ To start from something:
   **Import composed reference** (open a reference game already laid out). Pick
   one and click **Load**. Loading a layout whose game type differs from the
   project's is flagged as a cross-type preview and will not autosave — you must
-  Save (which converts the project) or Discard.
+  Save (which converts the project) or Discard. The **Book of** set is a reference for a
+  **lines** project too: loaded there (scaffold or import) it is the project's own lines layout,
+  not a cross-type one — a Book-of game is lines plus the expanding symbol.
 - **＋ New empty screen**, **＋ New background screen**, **＋ Add / Refresh HUD
   layer**, and **＋ New HUD screen** create screens directly.
 - **＋ New bet menu screen** and **＋ New auto spin screen** seed the two player

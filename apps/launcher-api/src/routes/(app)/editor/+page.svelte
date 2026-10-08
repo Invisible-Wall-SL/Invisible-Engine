@@ -23,6 +23,7 @@
 		isHudScene,
 		listFullSceneSets,
 		listImportableKinds,
+		referenceLoadsAs,
 		mountAnchor,
 		resolveAnchorPreviewArt,
 		DEFAULT_WIN_TIERS,
@@ -1292,9 +1293,12 @@
 		const gameType = choice.slice(sep + 1);
 		// Scaffold reads the full scene set (covers bookOf); import fetches the
 		// project-aware FILLED reference layout (lines + bookOf, §19.6).
+		// A set that is a reference for this project's kind (the Book-of set in a lines project) loads
+		// as the project's own layout, not as a cross-type one.
+		const loadsAs = referenceLoadsAs(gameType, projectGameType);
 		if (kind === 'scaffold') {
-			const full = getFullSceneSet(gameType, gameType === projectGameType ? sceneSetOptions : {});
-			if (full) await adoptScenes(engineOwnedOnly(full), gameType);
+			const full = getFullSceneSet(gameType, loadsAs === projectGameType ? sceneSetOptions : {});
+			if (full) await adoptScenes(engineOwnedOnly(full), loadsAs);
 		} else if (kind === 'kind') {
 			try {
 				const res = await fetch(`/api/editor/kind?id=${encodeURIComponent(gameType)}`);
@@ -1312,7 +1316,7 @@
 				const res = await fetch(`/api/editor/import?gameType=${encodeURIComponent(gameType)}`);
 				if (res.ok) {
 					const doc = (await res.json()) as LayoutDoc;
-					await adoptScenes(doc, gameType);
+					await adoptScenes(doc, loadsAs);
 				} else {
 					lastError = `Couldn't import that reference layout (${res.status}).`;
 				}

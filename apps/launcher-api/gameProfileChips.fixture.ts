@@ -12,6 +12,7 @@
  *     --external:drizzle-orm --external:postgres
  *   node .fixture.run.mjs && rm -f .fixture.run.mjs .env-stub.mjs
  */
+import { bookOfThermopylaePreset, normalizeGameConfigDoc } from 'game-config';
 import { buildGameProfile } from './src/lib/server/gameProfile.ts';
 import { protocolFor } from './src/lib/server/mockProtocol.ts';
 import { SHARED_RUNTIME_ID } from './src/lib/server/testServerManifest.ts';
@@ -86,6 +87,26 @@ for (const kind of ['ways', 'scatter', 'bookOf']) {
 		drift(signals({ gameTypeId: kind, protocol: protocolFor(kind) as never })) === undefined,
 	);
 }
+
+// 4. the expanding-book chip follows the CONFIG's expanding symbol (book-feature Phase 5b): a lines
+//    project with the block gets it, one without does not, and a Book-of kind keeps it until Phase 7.
+console.log('\n4. expanding-book chip:');
+const book = normalizeGameConfigDoc(bookOfThermopylaePreset());
+const feature = (s: ReturnType<typeof signals>, id: string) =>
+	buildGameProfile(s as never).features.find((f) => f.id === id);
+check(
+	'a lines game with the expanding symbol shows it',
+	feature(signals({ gameTypeId: 'lines', config: book, configSource: 'authored' }), 'expandingBook')
+		?.text === 'Expanding book symbol',
+);
+check(
+	'a lines game without it does not',
+	feature(signals({ gameTypeId: 'lines' }), 'expandingBook') === undefined,
+);
+check(
+	'a Book-of kind still does (the shim until Phase 7)',
+	feature(signals({ gameTypeId: 'bookOf' }), 'expandingBook') !== undefined,
+);
 
 console.log(
 	bad === 0 ? '\nPROFILE CHIP FIXTURE: PASSED' : `\nPROFILE CHIP FIXTURE: FAILED (${bad})`,

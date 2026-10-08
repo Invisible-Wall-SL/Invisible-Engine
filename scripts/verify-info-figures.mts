@@ -17,11 +17,14 @@
 //      figure), while the default leaves the page byte-identical;
 //   6. a game that deals no wild drops the WILD rule and leaves every other rule as it was, while a
 //      wild in play (or the option unstated) leaves the page byte-identical;
+//   6b. a game whose free spins draw an expanding symbol gains its block after the free-spins rules
+//      (and only then — off, or no free spins, the page is byte-identical);
 //   7. no rules string carries a `{placeholder}`: the i18n resolver compiles a message with no values
 //      by BLANKING its placeholders (a first cut shipped "The maximum win is × the total bet" that
 //      way), and every new string is harvested for /localization.
 
 import {
+	UI_INFO_EXPANDING_SYMBOL_RULE,
 	UI_INFO_FREE_SPINS_RULE,
 	UI_INFO_OPERATOR_RULES,
 	UI_INFO_RULES,
@@ -161,10 +164,27 @@ const doc = (over: Partial<GameConfigDoc> = {}): GameConfigDoc =>
 	check('the defaults keep the WILD rule', UI_INFO_RULES[wildAt]?.heading === 'WILD');
 }
 
+// --- 3d. EXPANDING SYMBOL ------------------------------------------------------------------------
+{
+	const figures = { rtp: '96.50%', maxWin: '5,000' };
+	const plain = infoRulesWithFigures(figures);
+	const scatterAt = plain.findIndex((r) => r.heading === 'SCATTER');
+	check('expandingSymbol unstated or false ⇒ the page is byte-identical', same(infoRulesWithFigures(figures, { expandingSymbol: false }), plain)); // prettier-ignore
+	const on = infoRulesWithFigures(figures, { expandingSymbol: true });
+	check('on ⇒ its block right after SCATTER, every other rule unchanged', same(on, [...plain.slice(0, scatterAt + 1), UI_INFO_EXPANDING_SYMBOL_RULE, ...plain.slice(scatterAt + 1)])); // prettier-ignore
+	const trigger = { count: 4, symbol: 'H1' };
+	const withTrigger = infoRulesWithFigures(figures, {
+		freeSpinsTrigger: trigger,
+		expandingSymbol: true,
+	});
+	check('…after the FREE SPINS block when the trigger departs', withTrigger[scatterAt + 2]?.heading === UI_INFO_EXPANDING_SYMBOL_RULE.heading && withTrigger[scatterAt + 1]?.heading === UI_INFO_FREE_SPINS_RULE.heading); // prettier-ignore
+	check('no free spins ⇒ no expanding block', same(infoRulesWithFigures(figures, { freeSpins: false, expandingSymbol: true }), infoRulesWithFigures(figures, { freeSpins: false }))); // prettier-ignore
+}
+
 // --- 4. TRANSLATION SAFETY + HARVEST -------------------------------------------------------------
 {
 	const operatorRules = Object.values(UI_INFO_OPERATOR_RULES);
-	const strings = [...UI_INFO_RULES, UI_INFO_RTP_RULE, ...operatorRules, UI_INFO_FREE_SPINS_RULE].flatMap((r) => [r.heading, r.body]).concat(UI_INFO_SCATTER_PAYS_ONLY_BODY); // prettier-ignore
+	const strings = [...UI_INFO_RULES, UI_INFO_RTP_RULE, ...operatorRules, UI_INFO_FREE_SPINS_RULE, UI_INFO_EXPANDING_SYMBOL_RULE].flatMap((r) => [r.heading, r.body]).concat(UI_INFO_SCATTER_PAYS_ONLY_BODY); // prettier-ignore
 	check('no rules string carries a {placeholder} the resolver would blank', strings.every((s) => !/[{}]/.test(s))); // prettier-ignore
 	const keys = new Set(collectUiTextStrings().map((s) => s.key));
 	check('the RTP heading and body are harvested', keys.has(UI_INFO_RTP_RULE.heading) && keys.has(UI_INFO_RTP_RULE.body)); // prettier-ignore
@@ -175,7 +195,8 @@ const doc = (over: Partial<GameConfigDoc> = {}): GameConfigDoc =>
 	check('the FREE SPINS heading and body are harvested', keys.has(UI_INFO_FREE_SPINS_RULE.heading) && keys.has(UI_INFO_FREE_SPINS_RULE.body)); // prettier-ignore
 	check('the figure units are already-harvested headings', keys.has('SCATTER') && keys.has('WILD'));
 	check('the FREE SPINS heading IS the HUD string, so it shares that translation', UI_INFO_FREE_SPINS_RULE.heading === UI_TEXT.freeSpins); // prettier-ignore
-	const fresh = [UI_INFO_FREE_SPINS_RULE.body, UI_INFO_SCATTER_PAYS_ONLY_BODY];
+	check('the EXPANDING SYMBOL heading and body are harvested', keys.has(UI_INFO_EXPANDING_SYMBOL_RULE.heading) && keys.has(UI_INFO_EXPANDING_SYMBOL_RULE.body)); // prettier-ignore
+	const fresh = [UI_INFO_FREE_SPINS_RULE.body, UI_INFO_SCATTER_PAYS_ONLY_BODY, UI_INFO_EXPANDING_SYMBOL_RULE.heading, UI_INFO_EXPANDING_SYMBOL_RULE.body]; // prettier-ignore
 	check('the new rows are appended — every existing row keeps its place', same(collectUiTextStrings().slice(-fresh.length).map((s) => s.key), fresh)); // prettier-ignore
 }
 

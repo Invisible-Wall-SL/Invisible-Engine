@@ -9,7 +9,7 @@ import type { HoldAndWinPresetId } from 'game-config';
 import type { LayoutDoc } from 'engine-layout';
 import { engineOwnedOnly, getFullSceneSet } from 'engine-layout';
 import { sceneSetOptionsFor } from '$lib/addOns';
-import { gameConfigSeedFor } from './gameConfigDefaults';
+import { gameConfigSeedFor, type LinesPresetId } from './gameConfigDefaults';
 import { ConflictError, loadGameConfigDocWithEtag, saveGameConfigDoc } from './gameConfigStorage';
 import { normalizeDoc } from './localization';
 import { loadKind } from './kindStorage';
@@ -107,15 +107,26 @@ function buildSeeds(
 }
 
 /**
+ * The reference scene set a LINES preset scaffolds from, when it is not the lines kind's own: the
+ * Book of Thermopylae starts from the Book-of reference layout (Borut's look, saved as a lines
+ * layout), so a new Book-of game opens on the screens a Book-of game has always had.
+ */
+const LINES_PRESET_SCENE_SET: Record<LinesPresetId, string> = { bookOfThermopylae: 'bookOf' };
+
+/**
  * Write any missing seed files for `(client, project)` into R2. `holdAndWinPreset` picks which
- * preset a `holdAndWin` project's Game Config is seeded from (default: Pots).
+ * preset a `holdAndWin` project's Game Config is seeded from (default: Pots); `linesPreset` seeds a
+ * `lines` project from a lines preset (the Book of Thermopylae) and its scenes from the preset's own
+ * reference set — without one a lines project stays un-authored, as before.
  */
 export async function scaffoldProject(
 	client: string,
 	project: string,
-	opts: { holdAndWinPreset?: HoldAndWinPresetId } = {},
+	opts: { holdAndWinPreset?: HoldAndWinPresetId; linesPreset?: LinesPresetId } = {},
 ): Promise<void> {
 	const gameType = await projectGameType(project);
+	const linesPreset = gameType === 'lines' ? opts.linesPreset : undefined;
+	const sceneSet = (linesPreset && LINES_PRESET_SCENE_SET[linesPreset]) || gameType;
 	// Resolve the reference `LayoutDoc` from the built-in registry first, then the
 	// custom-kind store (§21.6). `loadKind` is async, so resolve here (already async)
 	// and hand the result to the sync `buildSeeds`.
@@ -123,7 +134,7 @@ export async function scaffoldProject(
 	// respin board that expands reserves the grown area, and an add-on merges in its screens.
 	const { doc: stored } = await loadGameConfigDocWithEtag(client, project);
 	const reference =
-		getFullSceneSet(gameType, sceneSetOptionsFor(gameType, stored)) ??
+		getFullSceneSet(sceneSet, sceneSetOptionsFor(gameType, stored)) ??
 		(await loadKind(gameType))?.doc;
 	// The HEAD skips the PUT in the common case; `If-None-Match: *` closes the window between the two,
 	// so an author's first save that lands in it (a re-scaffold of a live project) is never replaced.
@@ -137,7 +148,7 @@ export async function scaffoldProject(
 	}
 	// The kind's default Game Config, written through the config store (validated, backed up,
 	// `If-None-Match: *`) so a concurrent first save in `/config` wins rather than being clobbered.
-	const config = gameConfigSeedFor(gameType, opts.holdAndWinPreset);
+	const config = gameConfigSeedFor(gameType, linesPreset ?? opts.holdAndWinPreset);
 	if (config && !(await objectExists(gameConfigDocKey(client, project)))) {
 		try {
 			await saveGameConfigDoc(client, project, config, null);

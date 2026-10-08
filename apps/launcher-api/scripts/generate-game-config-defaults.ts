@@ -16,7 +16,7 @@
 //   npx tsx scripts/generate-game-config-defaults.ts
 //   npx tsx scripts/generate-game-config-defaults.ts --check      # CI/drift gate, writes nothing
 //   npx tsx scripts/generate-game-config-defaults.ts \
-//     --game-type bookOf --config ../../games/borut/src/game/config.ts
+//     --game-type <kind> --config <path to a game's src/game/config.ts>
 //
 // The drift gate is ALSO asserted offline by `tools/game-config-spike` (it re-derives the doc from
 // the real `apps/lines` config and compares), so drift fails a fixture run even if nobody thinks to
@@ -27,6 +27,7 @@ import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
+	bookOfThermopylaePreset,
 	HOLD_AND_WIN_PRESETS,
 	HOLD_AND_WIN_PRESET_IDS,
 	holdAndWinPresetKey,
@@ -57,9 +58,14 @@ const BUILT_IN: Record<string, string> = {
  * game app, because no app exists per preset and faking one would compile a game nobody runs.
  * Written as `<kind>.<preset>.json`; `gameConfigDefaults.ts` maps the kind to its default preset.
  */
-const PRESETS: Record<string, () => unknown> = Object.fromEntries(
-	HOLD_AND_WIN_PRESET_IDS.map((id) => [holdAndWinPresetKey(id), () => HOLD_AND_WIN_PRESETS[id]]),
-);
+const PRESETS: Record<string, () => unknown> = {
+	...Object.fromEntries(
+		HOLD_AND_WIN_PRESET_IDS.map((id) => [holdAndWinPresetKey(id), () => HOLD_AND_WIN_PRESETS[id]]),
+	),
+	// A LINES preset: the captured Book of Thermopylae, the Book-of mechanic as config
+	// (docs/design/book-feature.md §3.5) — offered by `/config` and Game Maker's Create.
+	'lines.bookOfThermopylae': bookOfThermopylaePreset,
+};
 
 // `cluster` is still NOT registered: its upstream sample config ships
 // `paddingReels: { basegame: '', … }` — empty-string placeholders where the others carry strips.

@@ -711,6 +711,10 @@ Plan: [hold-and-win.md](../design/hold-and-win.md) §1.3/§5; hub: [hold-and-win
    config's `max_win` (the book mock only declares `maxWinMp`; the lines mock sends `maxWinCap: 0`),
    so an Invisible Test Server round total — a long Book-of feature especially — is uncapped and
    must not be read as what a capped real server would pay.
+12. **`POST /api/launcher/projects` still accepts the retired `bookOf` kind, on purpose.** The
+   desktop launcher's ⬆ Setup registers existing desktop Book-of games under their own kind, and the
+   Phase 6 migration of [book-feature.md](../design/book-feature.md) is re-runnable for such a row.
+   Only the pickers stop offering it (Phase 5c). It goes with the kind in Phase 7.
 
 **Not a gap:** `packages/game-spec`'s generator emits const-based `paytable.ts`/`infoManifest.ts`,
 but it is a standalone CLI that `new-game.mjs` does NOT call — the scaffold copies `src/` from an
@@ -722,6 +726,50 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 - _None._
 
 ## Recent changes
+
+- 2026-10-08 — **Phase 5 review fixes** (PR #1126). **Weights:** an empty `freeSpins.expandingSymbol.weights`
+  is now KEPT by `normalizeExpandingSymbol` — it means "no symbol weighted" (nothing drawn, the
+  validator's "weight at least one" error), where an absent map still means "every eligible symbol,
+  equally"; `/config` writes the empty map when the last weight goes to 0 (it used to drop it and
+  turn every symbol back on), drops the map when every weight is back at 1, rebuilds it from the
+  eligible rows only, and offers **Remove** on a weight left on a symbol that can no longer be the
+  special. **Remove control:** a stored block the panel does not offer (another win model, a
+  Book-of kind, a game without the Free spins section) gets an _Expanding symbol_ section with
+  **Remove the expanding symbol**, so its error can always be cleared. **Pickers:** the admin and
+  Game Maker kind lists come from `offeredGameKinds` (server-side). **Create:** a lines preset sent
+  for anything but a Lines game (the default kind included in "Lines") is refused. **API:**
+  `POST /api/launcher/projects` keeps accepting `bookOf` on purpose (open item 12). Gate:
+  `expandingSymbol.fixture.ts` (the empty map kept, draws nothing, is the error). Not
+  browser-verified.
+
+- 2026-10-08 — **The rules page states the expanding symbol** (Phase 5d of
+  [book-feature.md](../design/book-feature.md)): an EXPANDING SYMBOL rule for a game with
+  `freeSpins.expandingSymbol`, harvested for `/localization`; every other game's rules are unchanged.
+  Engine detail: [engine.md](engine.md). Runtime release on merge.
+
+- 2026-10-08 — **The tools follow the expanding-symbol add-on** (Phase 5b of
+  [book-feature.md](../design/book-feature.md)). Already wired by Phase 2 (`projectAddOns` reports
+  `expandingSymbol`; `bookReveal = kind === 'bookOf' || block`), now pinned and documented:
+  `/symbols` (book columns), `/win-text` (the expanded-win line) and the Game Maker **expanding book
+  symbol** chip follow the config's block on any kind. The kind half of the OR is the Phase 7 shim, so
+  an un-migrated Book-of project keeps its columns and chip. **Gates:** `gameProfileChips.fixture.ts`
+  §4 (lines with / without the block, a Book-of kind); `check:symbols-kind-gating` (unchanged).
+  Guides: `symbols-state-machine.md`, `win-text.md`.
+
+- 2026-10-08 — **The Expanding symbol panel and the Book of Thermopylae preset** (Phase 5a of
+  [book-feature.md](../design/book-feature.md)). **`/config`:** on a lines win model with free spins
+  on (not a Book-of KIND, whose book mock deals its own special), the Free spins section ends with an
+  **Expanding symbol** on/off and, on, a row per symbol that can be the special (the resolver's own
+  eligibility, read by resolving the block as `{}`): **Weight** (0 leaves it out; the first edit
+  writes every row's so the rest keep 1), **Chance**, **Expands from** (reels; the default 3 is not
+  stored), the rule in words, and the block's issues inline (shown in the section list while the
+  panel is hidden). **Preset:** `lines.bookOfThermopylae.json` is generated from
+  `bookOfThermopylaePreset()` through the generator's preset path and offered by
+  `gameConfigPresetsFor('lines')`, so every lines project's banner gains _Reset to preset → Book of
+  Thermopylae_ (the confirm now names free spins). `gameConfigSeedFor('lines', 'bookOfThermopylae')`
+  seeds it (5c); `gameConfigSeedFor('lines')` is still `null`. **Gates:** `check:lines-presets` (new);
+  `expandingSymbol.fixture.ts` (the six pinned defaults unchanged; the preset file deals the preset's
+  special); `check:game-config-defaults`. Not browser-verified.
 
 - 2026-10-08 — **The pots overlay over the lines mock** (Phase 4 of
   [book-feature.md](../design/book-feature.md)). **Mock** (`scripts/mock-rgs-server.mjs`): the host

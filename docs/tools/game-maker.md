@@ -52,8 +52,16 @@ overlay add-on.
 2. Pick a **Client** from the dropdown, or leave it **Unassigned**.
 3. Pick a **Game type**. The list is the same union the `/admin` create-project
    action offers — the built-in scene sets (`lines`, `ways`, `cluster`,
-   `scatter`, `bookOf`) plus any author-created custom kinds. The game type seeds
-   the project's starting layout template.
+   `scatter`, `holdAndWin`) plus any author-created custom kinds. The game type seeds
+   the project's starting layout template. **Book of** is no longer a game type of its own (its
+   existing projects keep it until they are moved to lines): a Book-of game is a **Lines** game with
+   the expanding symbol.
+   - **Lines** shows a **Preset** dropdown: _None — the lines template_ (the default) or **Book of
+     Thermopylae** — a copy of the captured Book of Thermopylae: 5×3, ten lines, the book `S` as
+     scatter and wild, the captured paytable, the expanding symbol's weights and thresholds, +10 on a
+     retrigger and a 100× buy. It is saved as the project's own [Game Config](/docs/game-config) and
+     the project's screens are scaffolded from the Book-of reference layout (Borut's look), saved as
+     a lines layout. Change it later in Game Config (Free spins → Expanding symbol).
    - **Hold and Win** shows a **Preset** dropdown: **Pots (3 Pots of Egypt)**, **Classic
      sticky (Grand)** or **Collector streak (Super Hotfire Diamonds)**. The preset is saved as
      the project's own [Game Config](/docs/game-config), so the mock RGS deals the Hold and
@@ -575,9 +583,9 @@ graduate later; its R2 authoring data carries over.
   on the Invisible Test Server (a fake balance per browser tab, resets on
   restart). This is a test/preview surface, not a real-money deploy. See
   [`test-server.md`](test-server.md).
-- **The pots overlay is dealt on Book of hosts only.** The test server's mock deals the overlay
-  over a `book` game; a lines or ways host with the overlay is dealt its own game with no drops yet.
-  A Hold and Win game that adds the overlay is likewise dealt without pots.
+- **The pots overlay is dealt on Book of and lines-family hosts.** The test server's mock deals the
+  overlay over a `book`, `lines`, `ways`, `cluster` or `scatter` game (a stepped board excepted). A
+  Hold and Win game that adds the overlay is still dealt without pots.
 - **Pots overlay on a Hold and Win game:** the project already has its Pots screen, so the add-on
   only appends a Pot Meter for each new pot (`red_2`…) beside the existing ones. Arrange them in the
   [Scene Editor](invisible-editor.md). **Coins only** is not offered there: the game's own Hold and

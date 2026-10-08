@@ -68,7 +68,7 @@ import {
 } from '$lib/server/projects';
 import { PurgeUnsafeError, purgeProjectR2 } from '$lib/server/projectPurge';
 import { ProjectFolderTakenError, UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
-import { selectableGameKinds } from '$lib/server/gameKinds';
+import { offeredGameKinds, RETIRED_GAME_KINDS, selectableGameKinds } from '$lib/server/gameKinds';
 import { scaffoldProject } from '$lib/server/projectScaffold';
 import {
 	assignProjectToClient,
@@ -273,6 +273,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 		clientAccess,
 		games,
 		gameKinds,
+		/** What the kind pickers offer: every kind but a retired one (`bookOf`). */
+		offeredKinds: offeredGameKinds(gameKinds),
 		defaultProjectKey: DEFAULT_PROJECT_KEY,
 		gamesBaseUrl: ENV.GAMES_BASE_URL,
 		// The running deploy id (git SHA / timestamp) so an admin can confirm WHICH build is live —
@@ -523,6 +525,12 @@ export const actions: Actions = {
 		if (rawGameType !== '' && !known.has(rawGameType)) {
 			return fail(400, { action: 'createProject', error: 'Unknown game kind.' });
 		}
+		if (RETIRED_GAME_KINDS.has(rawGameType)) {
+			return fail(400, {
+				action: 'createProject',
+				error: 'A Book-of game is now Lines with the Book of Thermopylae preset (Game Maker).',
+			});
+		}
 		if (await projectExists(key)) {
 			return fail(400, { action: 'createProject', error: 'A project with that key exists.' });
 		}
@@ -615,6 +623,12 @@ export const actions: Actions = {
 		const known = new Set((await selectableGameKinds()).map((k) => k.id));
 		if (!known.has(gameType)) {
 			return fail(400, { action: 'setProjectGameType', error: 'Unknown game kind.' });
+		}
+		if (RETIRED_GAME_KINDS.has(gameType)) {
+			return fail(400, {
+				action: 'setProjectGameType',
+				error: `${gameType} is no longer offered: a Book-of game is Lines with its Expanding symbol.`,
+			});
 		}
 
 		await setProjectGameType(key, gameType);

@@ -58,7 +58,14 @@ export {
  */
 const FULL_SCENE_SOURCES: Record<
 	string,
-	{ name: string; build: (options?: HoldAndWinTemplateOptions) => LayoutDoc; filled?: true }
+	{
+		name: string;
+		build: (options?: HoldAndWinTemplateOptions) => LayoutDoc;
+		filled?: true;
+		/** Other kinds this set is a reference FOR: loaded into one of their projects it is that
+		 *  project's own layout, not another kind's (see {@link referenceLoadsAs}). */
+		referenceFor?: readonly string[];
+	}
 > = {
 	// `filled` kinds ship a board-frame-bearing layout — so "Import composed
 	// reference" (§19.6) is meaningful for them (the filled doc carries art). The
@@ -66,7 +73,14 @@ const FULL_SCENE_SOURCES: Record<
 	// project's atlas region. The non-filled engine-skeleton kinds have no art, so
 	// importing them would equal scaffolding — pointless, hence not importable.
 	lines: { name: 'Lines', build: () => defaultLayout('lines'), filled: true },
-	bookOf: { name: 'Book of', build: () => bookofReferenceLayout(), filled: true },
+	// The Book-of look is a reference for a LINES game too: a Book-of game is lines plus the
+	// expanding symbol (`docs/design/book-feature.md` Phase 5c).
+	bookOf: {
+		name: 'Book of',
+		build: () => bookofReferenceLayout(),
+		filled: true,
+		referenceFor: ['lines'],
+	},
 	// Engine-skeleton kinds (§19.8): no filled `import`, but offered in the
 	// "New game from kind" picker via the scaffold projection.
 	// `ways` is FILLED: it shares the reference art + board geometry with `lines`, so its layout is
@@ -187,6 +201,16 @@ export function getReferenceLayout(gameType: string): LayoutDoc | undefined {
  */
 export function listFullSceneSets(): { gameType: string; name: string }[] {
 	return Object.entries(FULL_SCENE_SOURCES).map(([gameType, { name }]) => ({ gameType, name }));
+}
+
+/**
+ * The game type a reference set loads AS into a project of `projectKind`: the project's own when
+ * the set is its kind or a reference for it (the Book-of set into a lines project), else the set's
+ * own kind — a cross-type load, which the editor confirms and never autosaves.
+ */
+export function referenceLoadsAs(setKind: string, projectKind: string): string {
+	if (!projectKind || setKind === projectKind) return setKind;
+	return FULL_SCENE_SOURCES[setKind]?.referenceFor?.includes(projectKind) ? projectKind : setKind;
 }
 
 /**

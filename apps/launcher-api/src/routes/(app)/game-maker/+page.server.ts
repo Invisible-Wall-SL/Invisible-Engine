@@ -1,4 +1,5 @@
 import { error, fail, redirect } from '@sveltejs/kit';
+import { DEFAULT_GAME_KIND } from 'constants-shared/gameKinds';
 import {
 	HOLD_AND_WIN_PRESET_IDS,
 	POTS_OVERLAY_PRESET_IDS,
@@ -18,10 +19,13 @@ import {
 } from '$lib/server/clients';
 import {
 	gameConfigDefaultFor,
+	gameConfigPresetsFor,
 	gameConfigSeedFor,
+	isLinesPresetId,
+	LINES_PRESET_IDS,
 	resolveGameConfig,
 } from '$lib/server/gameConfigDefaults';
-import { selectableGameKinds } from '$lib/server/gameKinds';
+import { offeredGameKinds, RETIRED_GAME_KINDS, selectableGameKinds } from '$lib/server/gameKinds';
 import { buildGameProfile } from '$lib/server/gameProfile';
 import { listGames } from '$lib/server/games';
 import { currentPointer } from '$lib/server/publishedRuntime';
@@ -78,8 +82,8 @@ async function gate(locals: App.Locals): Promise<NonNullable<App.Locals['user']>
 
 /**
  * The overlay presets the Create form offers, keyed like its pickers: a kind, or
- * `holdAndWin:<preset>` for each Hold and Win preset — what adds cleanly to the config the new game
- * starts from (its seed, else the kind's template, which the add-on resolves to).
+ * `holdAndWin:<preset>` / `lines:<preset>` for each of their presets — what adds cleanly to the
+ * config the new game starts from (its seed, else the kind's template, which the add-on resolves to).
  */
 function createOverlayPresets(kinds: string[]): Record<string, PotsOverlayPresetId[]> {
 	const out: Record<string, PotsOverlayPresetId[]> = {};
@@ -88,6 +92,9 @@ function createOverlayPresets(kinds: string[]): Record<string, PotsOverlayPreset
 	}
 	for (const preset of HOLD_AND_WIN_PRESET_IDS) {
 		out[`holdAndWin:${preset}`] = cleanOverlayPresets(gameConfigSeedFor('holdAndWin', preset));
+	}
+	for (const preset of LINES_PRESET_IDS) {
+		out[`lines:${preset}`] = cleanOverlayPresets(gameConfigSeedFor('lines', preset));
 	}
 	return out;
 }
@@ -251,12 +258,16 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 			.filter((c) => mayTargetClient(role, c.key, clientGrants))
 			.map((c) => ({ key: c.key, name: c.name })),
 		gameKinds,
+		/** The kinds Create offers: every kind but a retired one (`bookOf`). */
+		createKinds: offeredGameKinds(gameKinds),
 		projects,
 		canPurgeCache,
 		// A version shipped past the flow gate goes live again only for the owner role (see the
 		// rollback route), so the page hides that "Make live" from everyone else.
 		isOwner: role === OWNER_ROLE,
 		createOverlayPresets: createOverlayPresets(gameKinds.map((k) => k.id)),
+		/** A lines game may start from a preset: the Book of Thermopylae (book-feature Phase 5c). */
+		linesPresets: gameConfigPresetsFor('lines').map(({ id, label }) => ({ id, label })),
 	};
 };
 
@@ -272,6 +283,7 @@ export const actions: Actions = {
 		const clientKey = rawClient === '' ? null : rawClient;
 		const rawGameType = String(data.get('gameType') ?? '').trim();
 		const rawPreset = String(data.get('holdAndWinPreset') ?? '').trim();
+		const rawLinesPreset = String(data.get('linesPreset') ?? '').trim();
 		const rawOverlay = String(data.get('potsOverlayPreset') ?? '').trim();
 
 		if (!isValidProjectKey(key)) {
@@ -281,6 +293,21 @@ export const actions: Actions = {
 		const known = new Set((await selectableGameKinds()).map((k) => k.id));
 		if (rawGameType !== '' && !known.has(rawGameType)) {
 			return fail(400, { action: 'create', error: 'Unknown game kind.' });
+		}
+		if (RETIRED_GAME_KINDS.has(rawGameType)) {
+			return fail(400, {
+				action: 'create',
+				error: 'A Book-of game is now Lines with the Book of Thermopylae preset.',
+			});
+		}
+		// The kind the project is created as: an empty one is the default kind.
+		const kind = rawGameType !== '' ? rawGameType : DEFAULT_GAME_KIND;
+		const linesPreset = isLinesPresetId(rawLinesPreset) ? rawLinesPreset : undefined;
+		if (rawLinesPreset !== '' && (kind !== 'lines' || !linesPreset)) {
+			return fail(400, {
+				action: 'create',
+				error: kind === 'lines' ? 'Unknown lines preset.' : 'A lines preset needs a Lines game.',
+			});
 		}
 		const holdAndWinPreset = HOLD_AND_WIN_PRESET_IDS.find((id) => id === rawPreset);
 		if (rawGameType === 'holdAndWin' && rawPreset !== '' && !holdAndWinPreset) {
@@ -317,6 +344,7 @@ export const actions: Actions = {
 		}
 		await scaffoldProject(clientKey ?? UNASSIGNED_CLIENT, key, {
 			holdAndWinPreset: rawGameType === 'holdAndWin' ? holdAndWinPreset : undefined,
+			linesPreset,
 		});
 		// The add-on runs on the scaffolded project exactly as the card's "＋ Pots overlay" does, so a
 		// new game and an existing one get the same parts. The game exists by now, so a refusal or a
