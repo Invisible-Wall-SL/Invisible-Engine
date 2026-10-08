@@ -157,7 +157,10 @@ starts the phase sessions, reviews their PRs and merges them.
         `borut-pots-sample`): byte-identical add-ons, scene sets and tiers, and the same add-ons
         with the legacy keys stripped.
     - `check:flow-publish-gate`, `check:symbols-kind-gating`, `check:pots-overlay-add-on`,
-      `check:bonus-import` and `bonusGames.fixture` (its §6 now pins `potsOverlay`) pass. GATES_LINE
+      `check:bonus-import` and `bonusGames.fixture` (its §6 now pins `potsOverlay`) pass.
+    - `check:all` 411/411. `check:holdandwin` 1892/0 and `check:pots-overlay` 112/0, both with
+      `MAIN_DIGESTS` unchanged (byte-identical to main). `check:svelte` is at baseline, and lint,
+      prettier and `check:undefined-names` are clean.
   - **What's left:** Phase 4/5c find a mode's banner screens by `modeId`. 5a replaces the `/config`
     Hold and Win section. 5d covers Win Text and Localization tiers per mode.
 
