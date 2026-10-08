@@ -9,9 +9,11 @@
  *     the scene set seeds both modes' respin screens, tagged with distinct `modeId`s, with no id
  *     shared by two screens or two nodes; `/symbols` lists each mode's own jackpot tiers, the
  *     primary first.
- *  2. The same second mode on a `holdAndWin` kind project: its own set keeps every screen, and only
- *     the second mode's screens are added.
- *  3. A respin mode declared without rules still turns the capability on and seeds its screens.
+ *  2. The same second mode on a `holdAndWin` kind project: its own set keeps every screen, its own
+ *     mode's screens keep the layout they have alone (only the base grid reserves the tallest), and
+ *     only the second mode's screens are added.
+ *  3. A respin mode declared without rules is inert: on a lines or ways project the add-ons, the
+ *     capabilities (so the win model) and the scene set are main's. Rules turn it on.
  *  4. Every doc without a second respin mode is byte-identical to before: the add-ons equal the
  *     legacy block reads, the scene set equals the one the legacy options gave, and the first
  *     mode's jackpot tiers are the legacy block's. Stripping the legacy keys (the compat mirror
@@ -24,6 +26,7 @@ import {
 	kindCapabilities,
 	modeScenes,
 	type LayoutDoc,
+	type Scene,
 	type SceneSetOptions,
 } from 'engine-layout';
 import {
@@ -92,9 +95,35 @@ const nodeIds = (doc: LayoutDoc) => doc.scenes.flatMap((scene) => scene.nodes.ma
 const modeIdsOf = (doc: LayoutDoc) => [
 	...new Set(doc.scenes.flatMap((scene) => (scene.role === 'mode' ? [scene.modeId] : []))),
 ];
+/** Where a set of respin screens draws its locked rows — it moves with the board's `maxRows`. */
+const board = (scenes: Scene[]) =>
+	scenes.flatMap((scene) => scene.nodes).find((node) => node.id.startsWith('locked-rows'))?.y;
 const symbolsPage = (kind: string, doc: GameConfigDoc) =>
 	symbolsPageConfig(kind, symbolDefaultsFor(kind), { doc, source: 'authored', etag: null });
 
+/** What `projectAddOns` gave before Phase 5b: the legacy block reads. */
+const legacyAddOns = (doc: GameConfigDoc | null) => {
+	const { holdAndWin, potsOverlay } = flowAddOnsOf(doc);
+	return { holdAndWin, potsOverlay, expandingSymbol: !!resolveExpandingSymbol(doc ?? undefined) };
+};
+/** What `sceneSetOptionsFor` gave before Phase 5b. */
+const legacyOptions = (kind: string, doc: GameConfigDoc | null): SceneSetOptions => {
+	const addOns = legacyAddOns(doc);
+	const maxRows = doc?.holdAndWin?.expansion?.maxRows;
+	const potIds = projectAddOns(doc).potIds;
+	const addOn =
+		kind === 'holdAndWin' ? addOns.potsOverlay : addOns.holdAndWin || addOns.potsOverlay;
+	return {
+		...(maxRows ? { maxRows } : {}),
+		...(addOn
+			? {
+					holdAndWin: addOns.holdAndWin,
+					potsOverlay: addOns.potsOverlay,
+					...(potIds ? { potIds } : {}),
+				}
+			: {}),
+	};
+};
 const lines = normalize(gameConfigDefaultFor('lines'));
 const linesHw = withOverlay(lines, 'threePots');
 
@@ -110,10 +139,14 @@ const linesHw = withOverlay(lines, 'threePots');
 	);
 
 	const options = sceneSetOptionsFor('lines', two);
-	check('1. two modes · both respin modes, each with its own maxRows', options.respinModes, [
-		{ id: 'holdAndWin' },
-		{ id: SECOND, maxRows: 6 },
-	]);
+	check(
+		'1. two modes · both respin modes, each with its label and own maxRows',
+		options.respinModes,
+		[
+			{ id: 'holdAndWin', label: 'Hold and Win' },
+			{ id: SECOND, label: 'Gold', maxRows: 6 },
+		],
+	);
 	check('1. two modes · the tallest board is reserved', options.maxRows, 6);
 
 	const set = sceneSet('lines', two);
@@ -126,6 +159,11 @@ const linesHw = withOverlay(lines, 'threePots');
 		second.map((scene) => scene.id),
 		primary.map((scene) => `${scene.id}-${SECOND}`),
 	);
+	check(
+		'1. two modes · the second mode is named by its label',
+		second.every((scene) => scene.name.endsWith(' (Gold)')),
+		true,
+	);
 	check('1. two modes · no screen id twice', duplicates(ids(set)), []);
 	check('1. two modes · no node id twice', duplicates(nodeIds(set)), []);
 	check(
@@ -133,8 +171,6 @@ const linesHw = withOverlay(lines, 'threePots');
 		addOnSceneIds('lines', options).filter((id) => second.some((scene) => scene.id === id)).length,
 		second.length,
 	);
-	const board = (scenes: typeof primary) =>
-		scenes.flatMap((scene) => scene.nodes).find((node) => node.id.startsWith('locked-rows'))?.y;
 	check(
 		'1. two modes · each mode is laid out for its own maxRows',
 		board(second) !== board(primary),
@@ -182,58 +218,63 @@ const linesHw = withOverlay(lines, 'threePots');
 		addOnSceneIds('holdAndWin', sceneSetOptionsFor('holdAndWin', two)),
 		modeScenes(set.scenes, SECOND).map((scene) => scene.id),
 	);
+	check(
+		'2. holdAndWin kind · its own mode keeps the layout it has alone',
+		board(modeScenes(set.scenes, 'holdAndWin')),
+		board(modeScenes(sceneSet('holdAndWin', classic).scenes, 'holdAndWin')),
+	);
+	check(
+		'2. holdAndWin kind · ...while the base grid reserves the tallest board',
+		set.scenes.filter((scene) => scene.role !== 'mode'),
+		own.scenes.filter((scene) => scene.role !== 'mode'),
+	);
+	check(
+		'2. holdAndWin kind · the second mode is laid out for its own 6 rows',
+		board(modeScenes(set.scenes, SECOND)),
+		board(modeScenes(own.scenes, 'holdAndWin')),
+	);
 	check('2. holdAndWin kind · no screen id twice', duplicates(ids(set)), []);
 	check('2. holdAndWin kind · no node id twice', duplicates(nodeIds(set)), []);
 }
 
-// ── 3. a respin mode without rules ──────────────────────────────────────────────────────────────
-{
+// ── 3. a respin mode without rules is inert ─────────────────────────────────────────────────────
+for (const kind of ['lines', 'ways']) {
+	const host = normalize(gameConfigDefaultFor(kind));
 	const bare = normalize({
-		...clone(lines),
-		modes: [...(lines.modes ?? []), { ...holdAndWinModeDecl(), id: SECOND, label: 'Gold' }],
+		...clone(host),
+		modes: [...(host.modes ?? []), { ...holdAndWinModeDecl(), id: SECOND, label: 'Gold' }],
 	});
-	const options = sceneSetOptionsFor('lines', bare);
 	check(
-		'3. a rule-less respin mode · the capability is on',
-		projectAddOns(bare).addOns.holdAndWin,
-		true,
+		`3. ${kind} + a rule-less respin mode · main's add-ons`,
+		projectAddOns(bare).addOns,
+		legacyAddOns(bare),
 	);
-	check('3. a rule-less respin mode · its screens are seeded', modeIdsOf(sceneSet('lines', bare)), [
-		SECOND,
-	]);
-	check('3. a rule-less respin mode · no maxRows', options.maxRows, undefined);
 	check(
-		'3. a rule-less respin mode · /symbols offers the fallback tiers',
-		symbolsPage('lines', bare).respinModes,
-		[{ id: SECOND, label: 'Gold', jackpotTiers: [] }],
+		`3. ${kind} + a rule-less respin mode · main's capabilities (the win model too)`,
+		kindCapabilities(kind, projectAddOns(bare).addOns),
+		kindCapabilities(kind, legacyAddOns(bare)),
+	);
+	check(
+		`3. ${kind} + a rule-less respin mode · main's scene set`,
+		sceneSet(kind, bare),
+		getFullSceneSet(kind, legacyOptions(kind, bare)),
+	);
+	check(
+		`3. ${kind} + a rule-less respin mode · no tiers on /symbols`,
+		symbolsPage(kind, bare).respinModes,
+		[],
+	);
+
+	const ruled = withSecondMode(withOverlay(host, 'threePots'));
+	check(
+		`3. ${kind} + respin modes with rules · the respin feature is on`,
+		kindCapabilities(kind, projectAddOns(ruled).addOns).holdAndWin,
+		true,
 	);
 }
 
 // ── 4. every doc without a second respin mode is byte-identical to before ───────────────────────
 {
-	/** What `projectAddOns` gave before Phase 5b: the legacy block reads. */
-	const legacyAddOns = (doc: GameConfigDoc | null) => {
-		const { holdAndWin, potsOverlay } = flowAddOnsOf(doc);
-		return { holdAndWin, potsOverlay, expandingSymbol: !!resolveExpandingSymbol(doc ?? undefined) };
-	};
-	/** What `sceneSetOptionsFor` gave before Phase 5b. */
-	const legacyOptions = (kind: string, doc: GameConfigDoc | null): SceneSetOptions => {
-		const addOns = legacyAddOns(doc);
-		const maxRows = doc?.holdAndWin?.expansion?.maxRows;
-		const potIds = projectAddOns(doc).potIds;
-		const addOn =
-			kind === 'holdAndWin' ? addOns.potsOverlay : addOns.holdAndWin || addOns.potsOverlay;
-		return {
-			...(maxRows ? { maxRows } : {}),
-			...(addOn
-				? {
-						holdAndWin: addOns.holdAndWin,
-						potsOverlay: addOns.potsOverlay,
-						...(potIds ? { potIds } : {}),
-					}
-				: {}),
-		};
-	};
 	const expanding = normalize(clone(HOLD_AND_WIN_PRESETS.pots));
 	expanding.holdAndWin!.expansion = { startRows: 3, maxRows: 6, rule: 'fullRow' };
 	const docs: [string, GameConfigDoc | null][] = [

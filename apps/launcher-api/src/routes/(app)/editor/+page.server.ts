@@ -281,7 +281,11 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		expansionMaxRows: respinMaxRows(respinModes) ?? null,
 		// Every declared respin mode, each with the rows its own board grows to: "Add missing
 		// screens" seeds each one's respin screens, tagged with its id. Empty ⇒ none.
-		respinModes: respinModes.map(({ id, maxRows }) => ({ id, ...(maxRows ? { maxRows } : {}) })),
+		respinModes: respinModes.map(({ id, label, maxRows }) => ({
+			id,
+			label,
+			...(maxRows ? { maxRows } : {}),
+		})),
 		// The config's add-on blocks (pots overlay / a Hold and Win bonus): the palette, the pickers
 		// and the scene set offer their parts. All false without a config ⇒ the kind's own answers.
 		addOns,

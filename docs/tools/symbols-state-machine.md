@@ -1166,8 +1166,8 @@ that is the art to change rather than the text.
 
 A project **with Hold and Win** sees the grid and the page a little differently. That is a project
 whose kind is **Hold and Win**, or a project of any other kind whose
-[Invisible Game Config](game-config.md) declares a respin mode (any mode that plays on the respin
-board) — for example a Book-of game with a Hold and Win bonus. Such a project gets the columns,
+[Invisible Game Config](game-config.md) declares a respin mode with Hold and Win rules (a mode that plays
+on the respin board) — for example a Book-of game with a Hold and Win bonus. Such a project gets the columns,
 role chips, coin value label and flights below on top of everything its own kind already has.
 
 **Eleven more columns** — the respin feature's beats. Each one, left empty, plays what the game

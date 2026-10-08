@@ -42,13 +42,16 @@ export type RespinModeInfo = {
 };
 
 /**
- * Every respin mode the project declares (design bonus-games.md §2.1), read through the split form
- * so a legacy doc lists the mode its block implies. The primary respin mode (the one the legacy
+ * Every respin mode with rules the project declares (design bonus-games.md §2.1), read through the
+ * split form so a legacy doc lists the mode its block implies. A rule-less respin mode is inert
+ * (a warning until `/config` can author it), so no tool shows it. The primary respin mode (the one the legacy
  * `holdAndWin` key mirrors) comes first, then the rest in declaration order.
  */
 export function respinModesOf(doc: AddOnDoc): RespinModeInfo[] {
 	if (!doc) return [];
-	const modes = (bonusSplitOf(doc).modes ?? []).filter((mode) => mode.board === 'respinBoard');
+	const modes = (bonusSplitOf(doc).modes ?? []).filter(
+		(mode) => mode.board === 'respinBoard' && mode.holdAndWin,
+	);
 	const primary = primaryRespinMode(modes);
 	const ordered = primary ? [primary, ...modes.filter((mode) => mode !== primary)] : modes;
 	return ordered.map((mode) => {
@@ -65,11 +68,11 @@ export function respinModesOf(doc: AddOnDoc): RespinModeInfo[] {
 /**
  * The project's add-ons, plus the pot ids its pots screen shows: every resolved meter, the Hold
  * and Win block's first. Both add-ons come from the split form (game-config's
- * `bonusCapabilityInputs`): the respin feature when any declared mode plays on the respin board, the
- * pots overlay when the coin overlay drops tokens. Coin roles follow the respin feature alone
+ * `bonusCapabilityInputs`): the respin feature when a declared respin mode has rules, the pots
+ * overlay when the coin overlay drops tokens. Coin roles follow the respin feature alone
  * (`kindCapabilities().coinSymbols`), so a pots-only host's valueless tokens add none. The meters
- * are read through `flowAddOnsOf`, the one reader Invisible Flow composes from too. `potIds` is null when no config
- * resolves, so the scene set keeps its built-in pots.
+ * are read through `flowAddOnsOf`, the one reader Invisible Flow composes from too. `potIds` is
+ * null when no config resolves, so the scene set keeps its built-in pots.
  */
 export function projectAddOns(doc: AddOnDoc): {
 	addOns: ProjectAddOns;
@@ -106,7 +109,13 @@ export function sceneSetOptionsFor(gameType: string, doc: AddOnDoc): SceneSetOpt
 	return {
 		...(maxRows ? { maxRows } : {}),
 		...(modes.length
-			? { respinModes: modes.map(({ id, maxRows }) => ({ id, ...(maxRows ? { maxRows } : {}) })) }
+			? {
+					respinModes: modes.map(({ id, label, maxRows }) => ({
+						id,
+						label,
+						...(maxRows ? { maxRows } : {}),
+					})),
+				}
 			: {}),
 		...(addOn
 			? {

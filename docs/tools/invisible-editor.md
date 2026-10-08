@@ -149,17 +149,18 @@ To start from something:
   Components list, the pot signals in the pickers, and a **Pots** screen in its screen set; one
   with a Hold and Win bonus also gets the respin parts, the Hold and Win signals and symbol
   states, and the feature's screens. A Hold and Win bonus here means any Game Config mode that
-  plays on the respin board, not only the mode `holdAndWin`.
+  plays on the respin board with Hold and Win rules, not only the mode `holdAndWin`; one declared
+  without rules yet lights nothing.
 - **＋ Add overlay screens (n)** appears on a project of another kind whose add-on screens are
   missing. It adds only those: the **Pots** screen (one Pot Meter per pot in the Game Config),
   plus, with a Hold and Win bonus, the **Jackpot bar** and the feature's screens (not Lucky
   Spin). Each goes in after the screen it follows; existing screens are never replaced or edited.
   Hover it to see which screens it will add.
 - **One screen set per respin mode.** Both buttons add the feature's screens once for every respin
-  mode the Game Config declares, each tagged with that mode. The `holdAndWin` mode keeps the plain
-  screens; another mode's screens (and the nodes on them) get `-<mode id>` on their ids and the mode
-  id after their name, e.g. **Respin board (holdAndWin_2)**. Each set is laid out for its own
-  mode's expanding board, and the base reel grid makes room for the tallest. A Hold and Win
+  mode with rules the Game Config declares, each tagged with that mode. The `holdAndWin` mode keeps the plain
+  screens; another mode's screens (and the nodes on them) get `-<mode id>` on their ids and the mode's
+  name after theirs, e.g. **Respin board (Gold)**. Each set is laid out for its own mode's
+  expanding board, and the base reel grid makes room for the tallest. A Hold and Win
   project already has the `holdAndWin` set, so there only the other respin modes' screens are
   added (and **Add overlay screens** appears for them too).
 
