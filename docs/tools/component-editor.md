@@ -195,7 +195,9 @@ kind**, which creates the inputs and binds them for you:
 - **text** — **✨ Expose text as params (per instance)** creates inputs for the node's
   content, font, size and colour, grouped under the node's name.
 - **sprite** — **✨ Expose image as param (per instance)** creates an `image` input bound to
-  the frame; the current frame becomes its default.
+  the frame; the current frame becomes its default. Tick **Keep image ratio** in the
+  sprite's **Sprite** section and a frame of another shape picked on an instance fits
+  inside the sprite's width × height instead of being stretched to it.
 - **rig** — **✨ Expose rig as param (per instance)** does the same for the rig.
 
 Each has an undo button — **Remove exposed parameters**, **Remove exposed image**, **Remove
@@ -203,12 +205,13 @@ exposed rig** — that drops the binding and the input it made and restores the 
 value. A field bound by hand shows a *"bound to … — static value ignored in instances"*
 note, so you know the placement's value, not the one typed above, is what shows.
 
-**If an instance control does nothing, the node is not bound.** A component that
-replaces a coded part with its own node (say a HUD Readout whose coded background
-tile was swapped for a project frame) still lists the coded params — the engine
-adds them to every saved copy of a built-in — but nothing in *your* copy reads
-them until you bind a node to one. Expose or bind the node and the control comes
-alive.
+**A replaced coded part's params are hidden.** A component that replaces a coded part
+with its own node (say a HUD Readout whose coded background tile was swapped for a
+project frame) still carries the coded params — the engine adds them to every saved
+copy of a built-in — but nothing in *your* copy reads them, so the instance panel and
+**This game's defaults** leave them out (the HUD Readout's **Background** group, for
+one). Bind a node to one of them by hand and it is offered again. **If an instance
+control still does nothing, the node is not bound** — expose or bind it.
 
 ### 3b. Drive a node from a number (Bind to value)
 

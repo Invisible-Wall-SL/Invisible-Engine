@@ -39,6 +39,15 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-08 — **A sprite can keep its image ratio; dead part params are hidden.** Reported after
+  #1142: a project HUD Readout whose Background part was replaced by a sprite (`UI_0005_WidgetBig`,
+  frame exposed per instance) stretched every picked frame to the sprite's fixed box, and its
+  **Background → image** did nothing. New sprite field `keepAspect` (**Keep image ratio** in the
+  Sprite section): the frame fits inside width × height (pixi-svelte `<Sprite contain>` in the
+  game, `keepAspectTransform` in the editor). Unset ⇒ stretch, so every existing game is
+  unchanged. New `engine-layout` `unusedPartParamKeys(root)`: params only a coded part the def no
+  longer contains would read are left out of the instance panel and the Component Editor's game
+  defaults. Not browser-verified.
 - 2026-10-08 — **A HUD Readout's background image keeps its own shape.** Reported: a custom
   background with a different ratio was stretched to the coded 326:73 ticker box on the instance.
   The editor preview always fell back to that box. New `engine-layout` `aspectBox`, used by the
