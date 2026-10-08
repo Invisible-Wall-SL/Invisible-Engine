@@ -1,7 +1,7 @@
 /**
  * THE RUNTIME PLAYS THE ACTIVE RESPIN MODE (`docs/design/bonus-games.md` §2.3, bonus-games Phase 4).
  *
- *   node --experimental-strip-types --import ./scripts/ts-loader.mjs apps/lines/src/game/respinModes.fixture.ts
+ *   pnpm check:respin-modes
  *
  * Real rounds, dealt by Phase 2's REAL two-mode mock and translated by the REAL facade, are walked
  * through the mode stack exactly as the play seam moves it (`modeOpOf`: an entry before its event, an
@@ -19,6 +19,10 @@
  *     rebuilt exactly once per feature.
  *  4. RESUME mid mode 2: the stack the snapshot rebuilds puts mode 2 on top, so the replayed
  *     `holdAndWinState` redraws mode 2's board, with no intro.
+ *  4b. AUTOMATIC vs MANUAL on both modes (`play`, read back through the config): Manual parks on SPIN
+ *     before every respin of that mode (the first after the intro and after a resume too) and
+ *     nowhere else; never under autoplay or space-hold; the intro and outro never park. Auto and
+ *     absent never park.
  *  5. PARITY: for every game with one respin mode (the three presets, the test fixtures, a 3 Pots
  *     host) the runtime reads exactly what it read from `config.holdAndWin`: the same block object,
  *     the same blank, strip, rows, jackpots, meters and screens.
@@ -41,36 +45,37 @@ import {
 	symbolHoldAndWinRoles,
 	type GameConfigDoc,
 	type RespinModeRules,
-} from '../../../../packages/game-config/index.ts';
+} from '../packages/game-config/index.ts';
 import type { Scene } from 'engine-layout';
 import {
 	MODE_EVENT_TYPES,
 	modeOpOf,
 	type ModeOp,
-} from '../../../../packages/engine-game/src/game/modeEvents.ts';
+} from '../packages/engine-game/src/game/modeEvents.ts';
 import {
 	emptyModeStack,
 	enterMode,
 	exitMode,
 	restoreModes,
 	type ModeStackState,
-} from '../../../../packages/engine-game/src/game/modeStack.ts';
-import { withPotsOverlay } from '../../../../scripts/mock-pots-overlay.mjs';
-import { createMockRgs as createLinesMock } from '../../../../scripts/mock-rgs-server.mjs';
+} from '../packages/engine-game/src/game/modeStack.ts';
+import { withPotsOverlay } from './mock-pots-overlay.mjs';
+import { createMockRgs as createLinesMock } from './mock-rgs-server.mjs';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 
 import {
 	jackpotTier,
 	modeSceneBaseId,
 	modeScreenFor,
+	parksBeforeRespin,
 	respinBoardShape,
 	respinModeOnStack,
 	sameRespinBoard,
 	type RespinBoardShape,
-} from './respinModes.ts';
+} from '../apps/lines/src/game/respinModes.ts';
 
 type BookEvent = { type: string; mode?: string; [key: string]: unknown };
-type Facade = typeof import('../../../../packages/rgs-translator-eagaming/src/engineFacade.ts');
+type Facade = typeof import('../packages/rgs-translator-eagaming/src/engineFacade.ts');
 
 let failures = 0;
 let passes = 0;
@@ -88,7 +93,7 @@ const check = (label: string, actual: unknown, expected: unknown): void => {
 const realLog = console.log.bind(console);
 const realWarn = console.warn.bind(console);
 const realError = console.error.bind(console);
-const hush = async <T>(fn: () => T | Promise<T>): Promise<T> => {
+const hush = async <T,>(fn: () => T | Promise<T>): Promise<T> => {
 	console.log = () => {};
 	console.warn = () => {};
 	console.error = () => {};
@@ -291,7 +296,7 @@ const startHost = async (force: string, seed: string) => {
 
 let tabs = 0;
 const openTab = (): Promise<Facade> =>
-	import(`../../../../packages/rgs-translator-eagaming/src/engineFacade.ts?tab=${++tabs}`);
+	import(`../packages/rgs-translator-eagaming/src/engineFacade.ts?tab=${++tabs}`);
 
 const playRound = async (force: string): Promise<BookEvent[]> => {
 	const host = await startHost(force, `runtime-modes-${force}`);
@@ -328,6 +333,8 @@ type Step = {
 	active: RespinModeRules | undefined;
 	board: RespinBoardShape;
 	rebuilt: boolean;
+	/** The respin mode the play seam's hold reads — it runs before the event moves the stack. */
+	before: RespinModeRules | undefined;
 };
 
 /**
@@ -335,7 +342,11 @@ type Step = {
  * exiting one after. At each event, what the runtime would read — and whether the board it would put
  * up had to be rebuilt.
  */
-const walk = (events: readonly BookEvent[], from: ModeStackState = emptyModeStack()): Step[] => {
+const walk = (
+	events: readonly BookEvent[],
+	from: ModeStackState = emptyModeStack(),
+	modes: readonly RespinModeRules[] = MODES,
+): Step[] => {
 	let state = from;
 	let built: (Pick<RespinBoardShape, 'mode' | 'rows'> & { reels: number }) | undefined;
 	const steps: Step[] = [];
@@ -345,13 +356,16 @@ const walk = (events: readonly BookEvent[], from: ModeStackState = emptyModeStac
 				? enterMode(state, op.id, op).state
 				: exitMode(state, op.id, { total: op.total }).state;
 	};
-	for (const event of events) {
-		const op = modeOpOf(event);
-		if (op?.op === 'enter') apply(op);
-		const active = respinModeOnStack(
-			MODES,
+	const onStack = () =>
+		respinModeOnStack(
+			modes,
 			state.stack.map((entry) => entry.id),
 		);
+	for (const event of events) {
+		const before = onStack();
+		const op = modeOpOf(event);
+		if (op?.op === 'enter') apply(op);
+		const active = onStack();
 		const board = respinBoardShape(active, GRID_ROWS);
 		let rebuilt = false;
 		if (SHOWS_BOARD.has(event.type)) {
@@ -359,7 +373,7 @@ const walk = (events: readonly BookEvent[], from: ModeStackState = emptyModeStac
 			rebuilt = !built || !sameRespinBoard(built, wanted);
 			built = wanted;
 		}
-		steps.push({ event, active, board, rebuilt });
+		steps.push({ event, active, board, rebuilt, before });
 		if (op?.op === 'exit') apply(op);
 	}
 	return steps;
@@ -461,6 +475,8 @@ check(
 
 // ---------- 4. resume mid mode 2 ----------
 
+/** What a resume mid mode 2 replays, and the stack it restores — 4b plays it Manual. */
+let resumed2: { events: BookEvent[]; restored: ModeStackState } | undefined;
 {
 	const host = await startHost('force:pot:green', 'runtime-modes-resume');
 	const sid = 'runtime-resume';
@@ -509,7 +525,9 @@ check(
 		.slice(0, at)
 		.filter((e) => e.type === 'holdAndWinState')
 		.pop();
-	const steps = walk(replay ? [replay, ...book.slice(at)] : book.slice(at), restored);
+	const replayed = replay ? [replay, ...book.slice(at)] : book.slice(at);
+	resumed2 = { events: replayed, restored };
+	const steps = walk(replayed, restored);
 	check(
 		'resume: the restored stack puts mode 2 on top, and its replayed snapshot is mode 2’s',
 		[restored.stack.map((e) => e.id), replay?.mode, steps[0]?.active?.mode],
@@ -526,6 +544,82 @@ check(
 		['holdAndWinState', true, KEY_B, false],
 	);
 	verifyFeature('resume, the rest of mode 2', [...steps], B);
+}
+
+// ---------- 4b. Automatic vs Manual, on both modes ----------
+
+/** The host with each respin mode's `play` set, read back through the config. */
+const hostPlaying = (playA?: 'auto' | 'manual', playB?: 'auto' | 'manual') => {
+	const raw = structuredClone(HOST) as GameConfigDoc & Record<string, unknown>;
+	delete raw.holdAndWin;
+	delete raw.potsOverlay;
+	raw.modes = raw.modes?.map((m) => {
+		const play = m.id === MODE_A ? playA : m.id === MODE_B ? playB : undefined;
+		if (!m.holdAndWin) return m;
+		const { play: _was, ...rules } = m.holdAndWin;
+		return { ...m, holdAndWin: play ? { ...rules, play } : rules };
+	});
+	return respinModeRules(normalized(raw));
+};
+
+/** Where the book parks on SPIN: the index of every event it waits before. */
+const parks = (steps: Step[], continuous: boolean) =>
+	steps.flatMap((s, i) => (parksBeforeRespin(s.event.type, s.before?.play, continuous) ? [i] : []));
+const respinsOf = (steps: Step[], mode: string) =>
+	steps.flatMap((s, i) => (s.event.type === 'respinReveal' && s.event.mode === mode ? [i] : []));
+
+{
+	const bothBook = both.map((s) => s.event);
+	const settings = [
+		['auto', 'auto'],
+		['manual', 'auto'],
+		['auto', 'manual'],
+		['manual', 'manual'],
+		[undefined, undefined],
+	] as const;
+	for (const [playA, playB] of settings) {
+		const modes = hostPlaying(playA, playB);
+		const steps = walk(bothBook, emptyModeStack(), modes);
+		const label = `play ${playA ?? 'absent'} / ${playB ?? 'absent'}`;
+		check(
+			`${label}: the config gives each mode its own setting`,
+			modes.map((m) => m.play),
+			[playA ?? 'auto', playB ?? 'auto'],
+		);
+		const want = [
+			...(playA === 'manual' ? respinsOf(steps, MODE_A) : []),
+			...(playB === 'manual' ? respinsOf(steps, MODE_B) : []),
+		];
+		check(
+			`${label}: it parks before every respin of a Manual mode and nowhere else`,
+			parks(steps, false),
+			want,
+		);
+		check(`${label}: …never under autoplay or space-hold`, parks(steps, true), []);
+		check(
+			`${label}: the intro and the outro never park (they stay timed)`,
+			parks(steps, false).every((i) => steps[i].event.type === 'respinReveal'),
+			true,
+		);
+	}
+	if (resumed2) {
+		const steps = walk(resumed2.events, resumed2.restored, hostPlaying(undefined, 'manual'));
+		check(
+			'Manual mode 2, resumed: the snapshot redraws without a park, the next respin parks',
+			[steps[0]?.event.type, parks(steps, false)[0], steps[parks(steps, false)[0]]?.event.type],
+			['holdAndWinState', 1, 'respinReveal'],
+		);
+	}
+	const manualB = walk(
+		green.map((s) => s.event),
+		emptyModeStack(),
+		hostPlaying(undefined, 'manual'),
+	);
+	check(
+		'Manual mode 2 alone: the first respin after the intro parks too',
+		parks(manualB, false)[0],
+		manualB.findIndex((s) => s.event.type === 'respinReveal'),
+	);
 }
 
 // ---------- 5. parity: one respin mode reads what it always read ----------

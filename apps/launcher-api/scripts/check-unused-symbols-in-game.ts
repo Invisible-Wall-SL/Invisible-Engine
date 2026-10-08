@@ -501,7 +501,8 @@ const run = async (c: Case, config: GameConfigDoc): Promise<Seen> => {
 };
 
 /** The client draws every declared symbol as one `/config` puts in play, and a respin board's empty
- *  cell with the blank the server declares (`respinBlank` is `holdAndWinBlankSymbol`). */
+ *  cell with the blank the server declares (`respinBlank` is `holdAndWinBlankSymbol` for a lone
+ *  default respin mode, `respinModeRules`). */
 const checkDrawn = (label: string, seen: Seen, config: GameConfigDoc): void => {
 	const uses = symbolUses(config);
 	const strays = drawnAs(seen.boot).filter((name) => uses[name] !== 'inPlay');
@@ -673,11 +674,15 @@ check(
 		),
 );
 check(
-	"the respin board's empty cell is holdAndWinBlankSymbol, the server's pick",
+	"the respin board's empty cell is the active respin mode's, the server's pick (holdAndWinBlankSymbol for the lone default)",
 	holds(
 		source('../lines/src/game/stateRespinBoard.svelte.ts'),
-		'export const respinBlank = (): string => holdAndWinBlankSymbol(getActiveGameConfig());',
-	),
+		'activeRespinMode()?.blank ?? holdAndWinBlankSymbol(getActiveGameConfig());',
+	) &&
+		holds(
+			source('../../packages/game-config/src/bonusGames.ts'),
+			'blank: loneDefault ? holdAndWinBlankSymbol(doc) : respinModeBlank(doc, entry.decl),',
+		),
 );
 // A never-saved project plays the compiled lines config: the banner says whether that is the
 // template `/config` shows.

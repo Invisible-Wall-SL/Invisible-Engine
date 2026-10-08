@@ -1,10 +1,10 @@
 import type { Scene } from 'engine-layout';
-import type { HoldAndWinJackpot, RespinModeRules } from 'game-config';
+import type { HoldAndWinJackpot, RespinModeRules, RespinPlay } from 'game-config';
 
 /**
  * WHICH RESPIN MODE PLAYS, AND ON WHAT (`docs/design/bonus-games.md` §2.3) — the decisions the
  * runtime makes from the mode stack and the declared respin modes, kept free of runes so the gate
- * (`respinModes.fixture.ts`) drives them with real rounds. The reactive wrappers are
+ * (`scripts/check-respin-modes-runtime.mts`) drives them with real rounds. The reactive wrappers are
  * `activeRespinMode.svelte.ts`, `stateRespinBoard.svelte.ts` and `respinScreens.svelte.ts`.
  */
 
@@ -89,3 +89,16 @@ export const modeScreenFor = (
 				scene.role === 'mode' && scene.modeId === mode && modeSceneBaseId(scene) === screen,
 		)?.id) ||
 	screen;
+
+/**
+ * Does the book park on SPIN before this event? Before each respin of a `manual` respin mode — the
+ * first after the intro and the first after a resume included — unless the player is betting
+ * continuously (autoplay, space-hold), where a park would wait for a press that is never coming: the
+ * guard the free-spin hold applies (`freeSpinHold.ts`). `auto` (and absent) never parks, which is
+ * how every Hold and Win game has always played.
+ */
+export const parksBeforeRespin = (
+	eventType: string,
+	play: RespinPlay | undefined,
+	continuous: boolean,
+): boolean => eventType === 'respinReveal' && play === 'manual' && !continuous;

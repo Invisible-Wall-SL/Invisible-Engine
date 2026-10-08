@@ -26,6 +26,7 @@ import {
 } from './winSymbolCycle';
 import { bakedWinLineConfig } from '../editor-scenes';
 import { clearSpinHold, holdAfterBigWin } from './freeSpinHold';
+import { holdBeforeRespin } from './respinHold';
 import { stateModes } from './stateModes.svelte';
 import { drainHoldAndWinMeters, recordHoldAndWinEvent } from './stateHoldAndWin.svelte';
 import { recordOverlayEvent } from './stateOverlay.svelte';
@@ -73,6 +74,7 @@ export const { playBookEvent, playBookEvents, playBet, convertTorResumableBet } 
 	setPendingScatterAwardFs,
 	holdAfterBigWin,
 	clearSpinHold,
+	holdBeforeEvent: holdBeforeRespin,
 	trackCascadeStep,
 	recordBookEvent: (bookEvent) => {
 		// A hand-built book may leave the respin mode out of these two; a flow reading the `mode` pin

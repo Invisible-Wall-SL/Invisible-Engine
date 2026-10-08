@@ -71,6 +71,13 @@ export type PlayBookDeps<TWins> = {
 	holdAfterBigWin: (bookEvent: BookEvent, bookEvents: BookEvent[]) => Promise<void>;
 	clearSpinHold: () => void;
 
+	/**
+	 * A hold BEFORE an event is presented — a Manual respin mode parks each respin on SPIN. Returns the
+	 * hold to await, or nothing for an event that does not hold, which then costs not even a microtask.
+	 * Optional: a game without it plays exactly as before.
+	 */
+	holdBeforeEvent?: (bookEvent: BookEvent) => Promise<void> | undefined;
+
 	/** The tumble-explosion sound ladder. */
 	trackCascadeStep: (bookEvent: BookEvent) => void;
 
@@ -126,6 +133,7 @@ export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 		setPendingScatterAwardFs,
 		holdAfterBigWin,
 		clearSpinHold,
+		holdBeforeEvent,
 		trackCascadeStep,
 		recordBookEvent,
 		modes,
@@ -322,7 +330,9 @@ export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 		//
 		// The BETWEEN-SPINS HOLD hangs off both branches, after the event's presentation is fully awaited:
 		// a big win mid-feature parks the book on its winning board until the player presses SPIN
-		// (`freeSpinHold.ts`). Off by default ⇒ both branches are byte-identical to before.
+		// (`freeSpinHold.ts`). Off by default ⇒ both branches are byte-identical to before. Its twin
+		// BEFORE an event (`holdBeforeEvent`) parks a Manual respin mode's respin on the same press.
+		// Neither holds ⇒ nothing is awaited.
 		//
 		// THE PER-SPIN POP (Invisible Symbols → "Winning symbols explode") hangs off the TOP of both
 		// branches, for the mirror of the hold's reason: a spin's winners have to blow up while the board
@@ -334,6 +344,8 @@ export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 		if (getFlowInterpreter() || getFlowV2()) {
 			await sequence(bookEvents, async (bookEvent) => {
 				await explodeWinnersBeforeBoardChange(bookEvent);
+				const hold = holdBeforeEvent?.(bookEvent);
+				if (hold) await hold;
 				await playBookEvent(bookEvent, { ...context, bookEvents });
 				await holdAfterBigWin(bookEvent, bookEvents);
 			});
@@ -341,6 +353,8 @@ export function createPlayBook<TWins>(deps: PlayBookDeps<TWins>) {
 		}
 		await sequence(bookEvents, async (bookEvent) => {
 			await explodeWinnersBeforeBoardChange(bookEvent);
+			const hold = holdBeforeEvent?.(bookEvent);
+			if (hold) await hold;
 			await aroundPresentation(bookEvent, () =>
 				coded.playBookEvent(bookEvent, { ...context, bookEvents }),
 			);

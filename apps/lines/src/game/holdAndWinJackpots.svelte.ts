@@ -57,14 +57,10 @@ export const seedHoldAndWinJackpots = (): (() => void) => {
 
 /** Every jackpot tier name any respin mode configures, once each (case-insensitive), in mode order —
  *  what the `jackpot.<tier>` sources registered once at boot cover. */
-export const everyJackpotTier = (): string[] => {
-	const seen = new Set<string>();
-	return everyRespinRules()
+export const everyJackpotTier = (): string[] =>
+	everyRespinRules()
 		.flatMap((rules) => rules.jackpots.map(({ name }) => name))
-		.filter((name) => {
-			const key = name.toLowerCase();
-			if (seen.has(key)) return false;
-			seen.add(key);
-			return true;
-		});
-};
+		.filter(
+			(name, i, names) =>
+				names.findIndex((other) => other.toLowerCase() === name.toLowerCase()) === i,
+		);
