@@ -15,6 +15,23 @@ with a new one. Use this format:
 
 ---
 
+## 2026-10-08 · Phase 1 · regression-guardian (current-games: freeze the mock contracts)
+- **Did:** Fixed the "mock contract changed during the run (test_server/games.json was rewritten)"
+  failures. The plan read the live manifest and pinned each contract by hash. Each render shard then
+  re-read the same live key minutes later, and every launcher publish rewrites it. The plan now
+  freezes the contracts in a sealed `contracts.json` beside `plan.json`, and the renders deal from
+  it. The hash check stays as a safety net.
+- **Files:** `scripts/current-games/{run.mjs,lib/contracts.mjs,contracts.fixture.mjs}`,
+  `docs/playtest/current-games.md`, `docs/status/infra.md`.
+- **Branch / PR:** `claude/tender-volta-ud95sj`.
+- **Tests:** every `scripts/current-games/*.fixture.mjs`. A plan → manifest rewrite → render run on
+  the stand-in fixtures: main's harness fails both games on both sides, the branch passes 2/2 with 0
+  changed screens.
+- **Decisions:** The contracts are sealed (AES-256-GCM, HKDF from the R2 read secret) because the
+  plan artifact is public. No new secret.
+- **Next:** none. As a harness edit, its own `current-games` status is red by design; merge after
+  review.
+
 ## 2026-10-07 · Phase 8 · coordinator (merge #1101 — card 8F)
 - **Did:** Dropped `preset_json` column from `director_runs`. Originally numbered migration 0030;
   regenerated as 0031 after 8E's 0030, so its `when` comes later and drizzle can't skip it. Data
