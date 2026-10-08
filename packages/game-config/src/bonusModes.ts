@@ -117,6 +117,20 @@ export function addRespinMode(
 	return { ok: true, doc: next, renamed };
 }
 
+/**
+ * Give respin mode `id` empty (default) rules, in place of none. It fills the DECLARED mode; it never
+ * declares a sibling (`holdAndWin` or any other) the way a legacy "Start an empty block" would.
+ * Refused when the mode is not a respin mode or already has rules.
+ */
+export function startRespinRules(doc: GameConfigDoc, id: string): AddOnResult {
+	const next = splitFormOf(doc);
+	const mode = next.modes?.find((m) => m.id === id && m.board === 'respinBoard');
+	if (!mode) return { ok: false, reason: `"${id}" is not a respin mode of this project.` };
+	if (mode.holdAndWin) return { ok: false, reason: `"${id}" already has rules.` };
+	mode.holdAndWin = normalizeHoldAndWinGame({});
+	return { ok: true, doc: next, renamed: { symbols: {}, pots: {} } };
+}
+
 /** Every route in `doc`'s overlay that names `from` names `to` instead. In place. */
 function retarget(doc: GameConfigDoc, from: string, to: string): void {
 	if (!doc.coinOverlay) return;

@@ -7,12 +7,12 @@
 		addRespinMode,
 		gameTypeForMode,
 		nextRespinModeId,
-		normalizeHoldAndWinGame,
 		primaryRespinMode,
 		removeRespinMode,
 		renameRespinMode,
 		resolveBonusModes,
 		respinModeIdProblem,
+		startRespinRules,
 		type AddOnResult,
 		type BonusRoute,
 		type GameConfigDoc,
@@ -123,9 +123,7 @@
 	}
 
 	function startRules(id: string) {
-		const mode = doc.modes?.find((m) => m.id === id);
-		const rules = normalizeHoldAndWinGame({});
-		if (mode && rules) mode.holdAndWin = rules;
+		apply(startRespinRules(snapshot(), id));
 	}
 </script>
 

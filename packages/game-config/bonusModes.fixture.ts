@@ -29,6 +29,7 @@ import {
 	removeRespinMode,
 	renameRespinMode,
 	respinModeIdProblem,
+	startRespinRules,
 } from './src/bonusModes.ts';
 import { holdAndWinMockInputs } from './src/holdAndWinMock.ts';
 import { HOLD_AND_WIN_PRESETS, HOLD_AND_WIN_PRESET_IDS } from './src/holdAndWinPresets.ts';
@@ -231,6 +232,28 @@ console.log('\n3. per-mode validation');
 	check('...that a pot starts: an error', issuesAt(normalize(empty), 'modes.bonusB.holdAndWin'), [
 		'error modes.bonusB.holdAndWin',
 	]);
+	const started = ok(startRespinRules(empty, 'bonusB'));
+	check(
+		'"Start empty rules" fills the declared mode and declares no sibling',
+		[
+			started.modes?.map((m) => [m.id, Boolean(m.holdAndWin)]),
+			issuesAt(normalize(started), 'modes.bonusB.holdAndWin').filter((i) =>
+				i.endsWith('modes.bonusB.holdAndWin'),
+			),
+		],
+		[
+			[
+				['holdAndWin', true],
+				['bonusB', true],
+			],
+			[],
+		],
+	);
+	check(
+		'...and is refused on a mode that has rules',
+		startRespinRules(started, 'bonusB').ok,
+		false,
+	);
 }
 
 console.log('\n4. removing a respin mode');
