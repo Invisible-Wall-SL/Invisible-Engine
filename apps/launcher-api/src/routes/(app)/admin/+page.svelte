@@ -46,6 +46,15 @@
 		steps: string[];
 		error?: string;
 	};
+	/** The manifest's desktop builds, those of a Book-of project (the census's rule) first. */
+	const tableCapableRows = $derived(
+		data.ownBundleBuilds.builds
+			.map((b) => ({
+				...b,
+				bookOf: data.projects.find((p) => p.key === (b.projectKey ?? b.key))?.gameType === 'bookOf',
+			}))
+			.sort((a, b) => Number(b.bookOf) - Number(a.bookOf)),
+	);
 	let migrationConfirm = $state(false);
 	let migrationRunning = $state(false);
 	let migrationResults = $state<MigrationResult[]>([]);
@@ -1195,6 +1204,56 @@
 					</ul>
 				</div>
 			{/each}
+		</section>
+
+		<!-- The table-capable stamp on a desktop build's test-server manifest entry (book-feature §6
+		     step 5): what `publish-game-via-portal.mjs --table-capable` sets, without a command line. -->
+		<section id="table-capable">
+			<h2>Desktop builds: table-capable stamp</h2>
+			<p class="muted hint">
+				A desktop build (its own bundle, not the shared runtime) is sold its bet table by the test
+				server only when its manifest entry is stamped table-capable. The Book-of migration blocks a
+				project whose desktop build is not stamped.
+			</p>
+			<p class="warn">
+				Only stamp a build rebuilt on an engine from {data.tableCapableEngine.date} (commit
+				<code>{data.tableCapableEngine.commit}</code>, {data.tableCapableEngine.pr}) or later, or
+				its buy will fail. A later desktop ☁ Publish clears the stamp again (the desktop launcher
+				does not send the claim yet), so rebuild first, then stamp.
+			</p>
+			{#if data.ownBundleBuilds.error}
+				<p class="warn">Could not read the test-server manifest: {data.ownBundleBuilds.error}</p>
+			{/if}
+			{#if form?.action === 'setTableCapable'}
+				{#if 'error' in form && form.error}<p class="warn">{form.error}</p>{/if}
+				{#if 'ok' in form && form.ok}<p class="hint">{form.ok}</p>{/if}
+			{/if}
+			<div class="projects">
+				{#each tableCapableRows as b (b.key)}
+					<div class="project-row">
+						<span class="mono key">{b.key}</span>
+						<span>{b.name}</span>
+						<span class="muted"
+							>{b.protocol} · project {b.projectKey ?? `${b.key} (no pointer)`} · published {b.updatedAt ||
+								'—'}</span
+						>
+						{#if b.bookOf}<span class="pill cap">Book-of project</span>{/if}
+						<span class="pill {b.tableCapable ? 'on' : 'off'}"
+							>{b.tableCapable ? 'table-capable' : 'not stamped'}</span
+						>
+						<form method="POST" action="?/setTableCapable" use:enhance>
+							<input type="hidden" name="key" value={b.key} />
+							<input type="hidden" name="updatedAt" value={b.updatedAt} />
+							<input type="hidden" name="value" value={b.tableCapable ? 'clear' : 'set'} />
+							<button type="submit" class="small {b.tableCapable ? 'danger' : ''}"
+								>{b.tableCapable ? 'Clear stamp' : 'Stamp table-capable'}</button
+							>
+						</form>
+					</div>
+				{:else}
+					<p class="muted">No desktop builds in the test-server manifest.</p>
+				{/each}
+			</div>
 		</section>
 	</div>
 

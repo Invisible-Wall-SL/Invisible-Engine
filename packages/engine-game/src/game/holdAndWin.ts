@@ -114,11 +114,14 @@ export type HoldAndWinEventFields = {
 		amount: number;
 	};
 	randomMetreTrigger: { name: string; cells: HoldAndWinCell[] };
-	holdAndWinTrigger: { mode: 'holdAndWin'; cause: HoldAndWinCause; payload: HoldAndWinEntry };
+	/** `mode` — the respin mode it enters: `holdAndWin`, or another declared respin mode
+	 *  (`holdAndWin_2`). */
+	holdAndWinTrigger: { mode: string; cause: HoldAndWinCause; payload: HoldAndWinEntry };
 	/** `segment` — the prize's place on the wheel. Not `index`: every book event's own `index` is its
 	 *  ordinal in the book, and a payload field of that name would overwrite it. */
 	holdAndWinWheel: { segment: number; prize: HoldAndWinWheelPrize };
-	respinReveal: { cells: HoldAndWinCell[] };
+	/** `mode` — the respin mode it plays in; absent reads as `holdAndWin`. */
+	respinReveal: { cells: HoldAndWinCell[]; mode?: string };
 	coinsLand: { cells: HoldAndWinCell[] };
 	mysteryReveal: {
 		cells: (HoldAndWinCell & { becomes: 'coin' | 'jackpot' | HoldAndWinSpecial })[];
@@ -180,8 +183,8 @@ export type HoldAndWinEventFields = {
 		cell?: Position;
 	};
 	respinUpdate: { left: number; played: number; start: number; reset: boolean };
-	holdAndWinState: { snapshot: HoldAndWinSnapshot };
-	holdAndWinEnd: { mode: 'holdAndWin'; total: number; payload: HoldAndWinTally };
+	holdAndWinState: { snapshot: HoldAndWinSnapshot; mode?: string };
+	holdAndWinEnd: { mode: string; total: number; payload: HoldAndWinTally };
 };
 
 export type HoldAndWinEventType = keyof HoldAndWinEventFields;

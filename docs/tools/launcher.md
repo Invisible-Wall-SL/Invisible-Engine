@@ -150,13 +150,29 @@ expanding symbol), so the Invisible Test Server keeps dealing it the same game.
 
 What blocks a project, before anything is written: someone else has its `/config` or `/editor`
 open; its config or layout does not read; its board is not 5×3; it has no scatter; its free spins
-are switched off (turn them on in `/config`); one of its desktop builds is not marked as able to
-sell bet tables ("rebuild it from the desktop launcher first"); or its republish would be refused
+are switched off (turn them on in `/config`); one of its desktop builds is not stamped
+table-capable (rebuild it, then stamp it — see below); or its republish would be refused
 by a publish check (a draft sound, an invalid flow, a paytable that differs from the partner's) —
 fix what it names and run the dry run again. A desktop build and a partner game's card are never
 republished. A project whose republish is pending stays on the list until it lands. Running it
 again after everything is done changes nothing. The owner's step-by-step runbook is in
 [status/game-config](../status/game-config.md) ("Book-of migration").
+
+**Desktop builds: table-capable stamp** (under the migration) lists every game the Invisible Test
+Server serves from its own bundle (a desktop build), the ones of a Book-of project first, with its
+project, when it was last published and its stamp: **table-capable** or **not stamped**. The test
+server sells a desktop build its bet table (its buy) only when it is stamped, and the migration
+blocks a project whose desktop build is not. **Stamp table-capable** / **Clear stamp** sets or
+clears it, then asks the test server to re-read its list.
+
+- Only stamp a build rebuilt on an engine from 2026-10-08 (commit `f0cba612`, #1120) or later, or
+  its buy will fail. The page says so above the list.
+- **A desktop ☁ Publish clears the stamp again** (the desktop launcher does not claim it yet), so
+  rebuild first, then stamp, and stamp again after every later desktop publish.
+- If the build was published again after the page loaded, the button refuses ("republished since
+  this page loaded"): reload, check it, and stamp again.
+- Run **Census and dry run** again afterwards: the project is no longer blocked by that build.
+- A game served from the shared runtime is not listed; it is sold its table anyway.
 
 ### Admin → Settings → Invisible Director
 

@@ -62,6 +62,8 @@ import {
 import { invalidateRuntimeBundle } from './runtimeBundleCache';
 import { loadTestServerManifest, type TestServerGameEntry } from './testServerManifest';
 
+/** Where the owner stamps a rebuilt desktop build — the `/admin` control, `?/setTableCapable`. */
+export const TABLE_CAPABLE_STAMP_PLACE = '/admin → Projects → Desktop builds: table-capable stamp';
 /** The kind being retired, and the one its projects become. */
 export const BOOK_OF_KIND = 'bookOf';
 const LINES_KIND = 'lines';
@@ -453,10 +455,10 @@ export function planFor(
 		blockers.push(`its kind is '${facts.kind}', not ${BOOK_OF_KIND} or ${LINES_KIND} — left alone`);
 	}
 	// A desktop build re-reads its project's contract and would flip to the lines mock; one built
-	// before bet-option tables would lose its buy (§6 step 5). It must be rebuilt first.
+	// before bet-option tables would lose its buy (§6 step 5). It must be rebuilt, then stamped.
 	for (const build of facts.manifest.filter((m) => m.runtime === null && !m.tableCapable)) {
 		blockers.push(
-			`its desktop build "${build.key}" is not stamped table-capable — rebuild it from the desktop launcher first (☁ Publish)`,
+			`its desktop build "${build.key}" is not stamped table-capable — rebuild it from the desktop launcher (☁ Publish), then stamp it under ${TABLE_CAPABLE_STAMP_PLACE} (or \`publish-game-via-portal.mjs --register-only --table-capable\`)`,
 		);
 	}
 	const skipped: { key: string; why: string }[] = [];

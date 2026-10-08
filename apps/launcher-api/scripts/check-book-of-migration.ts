@@ -4,7 +4,7 @@
  *
  * Runs the REAL `bookOfMigration.ts`, the REAL `publishGame.ts` (its gates, the mock contract it
  * derives and the test-server manifest it writes), the doc stores and the backups over an in-memory
- * R2. Stubbed: R2, the project and game rows, the leases, the snapshot store, the bundle assemble,
+ * R2. Stubbed: R2, the project and game rows, the role overrides, the leases, the snapshot store, the bundle assemble,
  * the sound and flow checks, and the test server's refresh. The estate is the live one in
  * miniature plus the edge cases. What it pins:
  *  - the census and the dry run write nothing;
@@ -17,6 +17,9 @@
  *  - a save that loses its race, and a kind changed meanwhile, are reported and never overwritten;
  *  - a republish that fails after the kind moved is remembered and retried by the next run;
  *  - a run after everything landed is a no-op;
+ *  - the `/admin` table-capable stamp (`?/setTableCapable`, the real action): a non-admin is refused
+ *    and nothing is written, a page older than the build's last publish is a 409, a set unblocks the
+ *    desktop build's project in the dry run and a clear blocks it again;
  *  - the migrated configs ARE the game the lines mock deals as the book mock does: their contract is
  *    the Book of Thermopylae grid `check:expanding-symbol` plays against the book mock (Phase 3).
  */
@@ -44,7 +47,24 @@ class ConflictError extends Error {
 const sortedKeys = (prefix: string) => [...R2.keys()].filter((k) => k.startsWith(prefix)).sort();
 
 const src = (rel: string) => new URL(`../src/${rel}`, import.meta.url).href;
-mock.module(src('lib/server/r2.ts'), {
+/**
+ * `mock.module` with every OTHER runtime export of the module standing in as a loud failure, so a
+ * module that imports more of it (the `/admin` page, below) links, and a call nobody faked says so.
+ */
+function mockAll(rel: string, { namedExports }: { namedExports: Record<string, unknown> }): void {
+	const text = readFileSync(new URL(`../src/${rel}`, import.meta.url), 'utf8');
+	const all: Record<string, unknown> = {};
+	for (const m of text.matchAll(/^export (?:async )?(?:function\*?|class|const|let) (\w+)/gm)) {
+		all[m[1]] = () => {
+			throw new Error(`fixture: ${rel} ${m[1]} is not faked`);
+		};
+	}
+	for (const name of Object.keys(namedExports)) {
+		if (!(name in all)) throw new Error(`fixture: ${rel} has no export ${name}`);
+	}
+	mock.module(src(rel), { namedExports: { ...all, ...namedExports } });
+}
+mockAll('lib/server/r2.ts', {
 	namedExports: {
 		ConflictError,
 		precondition: (base: string | null | undefined) =>
@@ -107,7 +127,7 @@ const KINDS = new Map<string, string>([
 const KIND_WRITES: string[] = [];
 /** A kind someone else sets between the migration's read and its switch. */
 const KIND_RACE = new Map<string, string>();
-mock.module(src('lib/server/projects.ts'), {
+mockAll('lib/server/projects.ts', {
 	namedExports: {
 		listProjects: async () =>
 			[...KINDS].map(([key, gameType]) => ({ key, name: key, gameType, clientKey: CLIENT })),
@@ -148,9 +168,10 @@ const CARDS: Record<string, { key: string; url: string }[]> = {
 	bookofflaky: [{ key: 'bookofflaky', url: testUrl('bookofflaky') }],
 	hotfruits: [{ key: 'hotfruits', url: testUrl('hotfruits') }],
 };
-mock.module(src('lib/server/games.ts'), {
+mockAll('lib/server/games.ts', {
 	namedExports: {
 		listGamesOwnedByProject: async (key: string) => CARDS[key] ?? [],
+		isValidGameKey: (key: string) => /^[a-z0-9][a-z0-9_-]{0,63}$/.test(key),
 		gameExists: async () => true,
 		createGame: async () => undefined,
 		renameGame: async () => undefined,
@@ -168,7 +189,7 @@ const LEASES: (LiveLease & { projectKey: string })[] = [
 		holderName: 'Ana',
 	},
 ];
-mock.module(src('lib/server/lease.ts'), {
+mockAll('lib/server/lease.ts', {
 	namedExports: {
 		liveLeases: async (keys: { toolId: string; docKey: string; projectKey: string }[]) =>
 			LEASES.filter((l) =>
@@ -182,7 +203,7 @@ mock.module(src('lib/server/lease.ts'), {
 /** The snapshot players boot, per project: the config it froze. */
 const SNAPSHOTS = new Map<string, GameConfigDoc | null>();
 let snapshotSeq = 0;
-mock.module(src('lib/server/publishedRuntime.ts'), {
+mockAll('lib/server/publishedRuntime.ts', {
 	namedExports: {
 		currentPointer: async (_client: string, project: string) =>
 			SNAPSHOTS.has(project) ? { version: 1, current: 'live', snapshots: [] } : null,
@@ -203,7 +224,7 @@ mock.module(src('lib/server/publishedRuntime.ts'), {
 /** Projects whose next assemble fails with a non-gate error (R2 down, a timeout). */
 const ASSEMBLE_FAILS = new Set<string>();
 const PUBLISHES: string[] = [];
-mock.module(src('lib/server/runtimeBundle.ts'), {
+mockAll('lib/server/runtimeBundle.ts', {
 	namedExports: {
 		buildRuntimeBundle: async (project: string) => {
 			if (ASSEMBLE_FAILS.delete(project)) throw new Error('R2 timed out while assembling');
@@ -224,7 +245,7 @@ mock.module(src('lib/server/runtimeBundle.ts'), {
 });
 /** Projects with a sound still marked draft — the publish's sound gate refuses them. */
 const DRAFT_SOUNDS: Record<string, string[]> = { bookofpots: ['pot_win'] };
-mock.module(src('lib/server/soundPublishCheck.ts'), {
+mockAll('lib/server/soundPublishCheck.ts', {
 	namedExports: {
 		checkSoundsForPublish: async (_client: string, project: string) => ({
 			unapproved: DRAFT_SOUNDS[project] ?? [],
@@ -232,7 +253,7 @@ mock.module(src('lib/server/soundPublishCheck.ts'), {
 		}),
 	},
 });
-mock.module(src('lib/server/flowV2Validation.ts'), {
+mockAll('lib/server/flowV2Validation.ts', {
 	namedExports: {
 		checkFlowV2ForPublish: async () => ({ status: 'absent' }),
 		checkShippedFlowV2: async () => ({ status: 'absent' }),
@@ -242,13 +263,15 @@ mock.module(src('lib/server/flowV2Validation.ts'), {
 	},
 });
 const INVALIDATED: string[] = [];
-mock.module(src('lib/server/runtimeBundleCache.ts'), {
+mockAll('lib/server/runtimeBundleCache.ts', {
 	namedExports: {
 		invalidateRuntimeBundle: (project: string) => INVALIDATED.push(project),
 		withDeployWrite: async <T>(_project: string, run: () => Promise<T>) => run(),
 	},
 });
-mock.module(src('lib/server/testServerRefresh.ts'), {
+// The /admin gate's role-matrix read: no overrides, so the role's own capabilities decide.
+mockAll('lib/server/roleToolAccess.ts', { namedExports: { getRoleOverrides: async () => ({}) } });
+mockAll('lib/server/testServerRefresh.ts', {
 	namedExports: { postTestServerRefresh: async () => new Response(null, { status: 202 }) },
 });
 
@@ -263,7 +286,8 @@ const {
 	gameConfigDocBackupTarget,
 	gameConfigDocKey,
 } = await import('../src/lib/server/projectPaths.ts');
-const { TEST_SERVER_MANIFEST_KEY } = await import('../src/lib/server/testServerManifest.ts');
+const { listOwnBundleGames, TEST_SERVER_MANIFEST_KEY } =
+	await import('../src/lib/server/testServerManifest.ts');
 
 let failures = 0;
 async function check(name: string, fn: () => void | Promise<void>) {
@@ -508,7 +532,7 @@ await check('the plan: what each project would change, and what blocks it', () =
 	assert(plan('bookofthermopylae').republish.skipped[0].why.startsWith('not a test-server card'), 'partner why'); // prettier-ignore
 	same(
 		plan('bookofborut').blockers,
-		['its desktop build "bookofborut" is not stamped table-capable — rebuild it from the desktop launcher first (☁ Publish)'],
+		['its desktop build "bookofborut" is not stamped table-capable — rebuild it from the desktop launcher (☁ Publish), then stamp it under /admin → Projects → Desktop builds: table-capable stamp (or `publish-game-via-portal.mjs --register-only --table-capable`)'],
 		'the unstamped desktop build blocks',
 	); // prettier-ignore
 	same(plan('bookofborut').republish.games, [], 'a desktop card under the project key is not a republish target'); // prettier-ignore
@@ -650,12 +674,77 @@ await check('a republish that fails after the kind moved is remembered', async (
 
 console.info('re-runs');
 
-// The owner rebuilds bookofborut from the desktop launcher, which stamps it.
-const manifest = stored<{ games: Record<string, Record<string, unknown>> }>(
-	TEST_SERVER_MANIFEST_KEY,
-);
-manifest.games.bookofborut.tableCapable = true;
-put(TEST_SERVER_MANIFEST_KEY, manifest);
+// The owner rebuilds bookofborut from the desktop launcher, then stamps it in /admin
+// (`?/setTableCapable`, the REAL action over the REAL `setTestServerGameTableCapable`).
+const { actions: admin } = await import('../src/routes/(app)/admin/+page.server.ts');
+const OWNER = { id: 'owner', email: 'owner@test', name: 'Owner', role: 'admin' };
+const stampAction = async (
+	fields: Record<string, string>,
+	user: Record<string, string> = OWNER,
+): Promise<{ status: number; error?: string; ok?: string }> => {
+	const body = new FormData();
+	for (const [k, v] of Object.entries(fields)) body.set(k, v);
+	const out = (await admin.setTableCapable({
+		request: new Request('https://app.test/admin?/setTableCapable', { method: 'POST', body }),
+		locals: { user },
+	} as never)) as { status?: number; data?: { error?: string }; ok?: string };
+	return { status: out.status ?? 200, error: out.data?.error, ok: out.ok };
+};
+const borutBlockers = async () =>
+	(await planBookOfMigration(GAMES)).plans.find((p) => p.key === 'bookofborut')!.blockers;
+const listed = (await listOwnBundleGames()).find((b) => b.key === 'bookofborut');
+
+console.info('the /admin table-capable stamp');
+
+await check('the control lists the desktop builds, with their stamp', async () => {
+	same(
+		(await listOwnBundleGames()).map((b) => [b.key, b.projectKey, b.tableCapable]),
+		[['bookofborut', 'bookofborut', false], ['bookofborutremakebuild', 'bookofborutremake', true]],
+		'own-bundle entries only',
+	); // prettier-ignore
+});
+
+await check('a non-admin is refused, and nothing is written', async () => {
+	const before = R2.get(TEST_SERVER_MANIFEST_KEY)!.body;
+	let refused: unknown = null;
+	try {
+		await stampAction(
+			{ key: 'bookofborut', value: 'set', updatedAt: listed!.updatedAt },
+			{ ...OWNER, id: 'dev', role: 'developer' },
+		);
+	} catch (e) {
+		refused = e;
+	}
+	same((refused as { status?: number } | null)?.status, 403, 'a 403');
+	same(R2.get(TEST_SERVER_MANIFEST_KEY)!.body === before, true, 'manifest unchanged');
+});
+
+await check('a stale page (the build republished since) is a 409, not a stamp', async () => {
+	const out = await stampAction({ key: 'bookofborut', value: 'set', updatedAt: '2026-09-01T00:00:00.000Z' }); // prettier-ignore
+	same(out.status, 409, 'conflict');
+	assert(out.error?.includes('republished since this page loaded'), `error: ${out.error}`);
+	same((await borutBlockers()).length, 1, 'still blocked');
+});
+
+await check('set: the dry run shows the project unblocked; clear: blocked again', async () => {
+	const seen = { key: 'bookofborut', updatedAt: listed!.updatedAt };
+	const set = await stampAction({ ...seen, value: 'set' });
+	same(set.status, 200, `stamped (${set.error ?? set.ok})`);
+	assert(set.ok?.startsWith('Stamped "bookofborut" table-capable.'), `ok: ${set.ok}`);
+	same(manifestEntry('bookofborut').protocol, 'book', 'the rest of the entry is untouched');
+	same(await borutBlockers(), [], 'unblocked');
+	same((await stampAction({ ...seen, value: 'set' })).ok, '"bookofborut" was already stamped.', 'idempotent'); // prettier-ignore
+	same((await stampAction({ ...seen, value: 'clear' })).status, 200, 'cleared');
+	same((await borutBlockers()).length, 1, 'blocked again');
+	same((await stampAction({ ...seen, value: 'set' })).status, 200, 'stamped again');
+});
+
+await check('a shared-runtime entry or an unknown game is refused', async () => {
+	same((await stampAction({ key: 'hotfruits', value: 'set', updatedAt: '' })).status, 400, 'runtime'); // prettier-ignore
+	same((await stampAction({ key: 'nosuchgame', value: 'set', updatedAt: '' })).status, 404, 'no entry'); // prettier-ignore
+	same((await stampAction({ key: 'bookofborut', value: 'maybe', updatedAt: '' })).status, 400, 'bad value'); // prettier-ignore
+});
+
 const second = await applyAll();
 
 await check('the next run finishes what lost its race or failed, and the rebuilt build', () => {

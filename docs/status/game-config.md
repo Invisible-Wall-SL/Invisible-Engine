@@ -698,12 +698,15 @@ check-all` shard 3 runs it), over the real `publishGame`.
 **Owner runbook.**
 
 1. **Rebuild and stamp the desktop builds** (`bookofborut`, `bookofborutremakebuild`). ☁ Publish
-   each from the desktop launcher (it advances the engine first). The desktop launcher does not
-   send the table-capable claim yet (Blocked, below), so then stamp each build through the portal:
-   `node apps/launcher-api/scripts/publish-game-via-portal.mjs <gameKey> <buildDir> --project
-   <projectKey> --register-only --table-capable`. Every later desktop ☁ Publish clears the stamp
-   again until the launcher sends it. Until a build is stamped, the dry run blocks its project with
-   "rebuild it from the desktop launcher first".
+   each from the desktop launcher (it advances the engine first; only a build on an engine from
+   2026-10-08, commit `f0cba612` / #1120, or later can be stamped, or its buy fails). The desktop
+   launcher does not send the table-capable claim yet (Blocked, below), so AFTER the rebuild stamp
+   each build in `/admin` → Projects → **Desktop builds: table-capable stamp** → **Stamp
+   table-capable** (the CLI equivalent is `node apps/launcher-api/scripts/publish-game-via-portal.mjs
+   <gameKey> <buildDir> --project <projectKey> --register-only --table-capable`). Every later desktop
+   ☁ Publish clears the stamp again until the launcher sends it, so stamp after the last rebuild.
+   Until a build is stamped, the dry run blocks its project with "not stamped table-capable —
+   rebuild it …, then stamp it under /admin → …".
 2. **Dry run.** `/admin` → Projects → **Census and dry run**. Check each project's facts, its
    changes, its blockers (a gate refusal names what to fix: approve the sound, fix the flow, settle
    the paytable) and what is republished or skipped. Close any open `/config` or `/editor` tab on
@@ -786,10 +789,13 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 - **The desktop launcher does not claim table-capable** (`Invisible_Launcher.py`, a separate app).
   `register-game` stamps a build only when its body carries `tableCapable: true`, and clears the
   stamp otherwise. Until the launcher sends it for builds on an engine from book-feature Phase 3 on,
-  a desktop build is stamped by hand after each ☁ Publish (runbook step 1 above).
+  a desktop build is stamped by hand in `/admin` after each ☁ Publish (runbook step 1 above).
 
 ## Recent changes
 
+- 2026-10-08 — **The table-capable stamp is a `/admin` control** (Phase 6, §6 step 5): runbook step
+  1 needs no command line. Detail in [launcher.md](launcher.md); the dry run's blocker now points
+  at it.
 - 2026-10-08 — **The schema splits bonuses: a coin overlay and declared bonus modes** (Phase 1 of
   [bonus-games.md](../design/bonus-games.md), PR #1133). Detail and gates:
   [status/bonus-games.md](bonus-games.md).
