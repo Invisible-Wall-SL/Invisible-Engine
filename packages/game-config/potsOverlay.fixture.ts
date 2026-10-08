@@ -400,6 +400,13 @@ check(
 	[['error:potsOverlay.pots.0.bonus.mode'], []],
 );
 check(
+	'a pot starting free spins while they are off; fine while they are on',
+	[false, true].map((enabled) =>
+		overlayIssues(edit(free, (d) => (d.freeSpins = { ...d.freeSpins, enabled }))),
+	),
+	[['error:potsOverlay.pots.0.bonus.mode'], []],
+);
+check(
 	'a Hold and Win bonus with no holdAndWin block',
 	overlayIssues(edit(free, (d) => (d.potsOverlay!.pots[0].bonus = { mode: 'holdAndWin' }))),
 	['error:potsOverlay.pots.0.bonus.mode'],
