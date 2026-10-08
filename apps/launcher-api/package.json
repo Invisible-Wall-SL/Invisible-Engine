@@ -104,6 +104,8 @@
 		"check:sound-bindings": "tsx --tsconfig tsconfig.scripts.json scripts/check-sound-bindings.ts",
 		"precheck:sounds-doc": "node scripts/ensure-svelte-kit.mjs",
 		"check:sounds-doc": "tsx --tsconfig tsconfig.scripts.json scripts/check-sounds-doc.ts",
+		"precheck:add-bonus-mode": "node scripts/ensure-svelte-kit.mjs",
+		"check:add-bonus-mode": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-add-bonus-mode.ts",
 		"precheck:bonus-import": "node scripts/ensure-svelte-kit.mjs",
 		"check:bonus-import": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-bonus-import.ts",
 		"precheck:project-duplicate": "node scripts/ensure-svelte-kit.mjs",

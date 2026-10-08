@@ -34,6 +34,7 @@ import {
 	primaryRespinMode,
 	removeRespinMode,
 	triggerHalfFor,
+	undealtRouteWarnings,
 	type AddOnResult,
 	type GameConfigDoc,
 	type RawGameConfig,
@@ -357,6 +358,52 @@ console.log('\n2. a lines project: a coin overlay and two respin modes, pot A â†
 			],
 			'holdAndWin_2',
 		],
+	);
+}
+
+console.log(
+	'\n4. a route the game does not deal warns (bonus-games Phase 6, `undealtRouteWarnings`)',
+);
+{
+	const two = docOf(
+		addRespinMode(
+			normalizeGameConfigDoc(docOf(addPotsOverlay(lines, 'threePots')))!,
+			'holdAndWin_2',
+			'classic',
+		),
+	);
+	const routed = clone(two);
+	routed.coinOverlay = {
+		...routed.coinOverlay!,
+		trigger: {
+			...routed.coinOverlay!.trigger,
+			buy: [{ betMode: 'base', mode: 'holdAndWin_2', guaranteed: [], boostedSpecials: false }],
+		},
+		pots: routed.coinOverlay!.pots!.map((p) =>
+			p.id === 'green' ? { ...p, bonus: { mode: 'holdAndWin_2' } } : p,
+		),
+	};
+	const doc = normalizeGameConfigDoc(routed)!;
+	check(
+		'on a lines game the buy to holdAndWin_2 warns; the pot does not',
+		undealtRouteWarnings(doc, 'lines').map((w) => `${w.severity} ${w.path}`),
+		['warning coinOverlay.trigger.buy.0.mode'],
+	);
+	check('on the Hold and Win kind nothing warns', undealtRouteWarnings(doc, 'holdAndWin'), []);
+	check(
+		'it never blocks a save: no error among the issues',
+		undealtRouteWarnings(doc, 'lines').filter((w) => w.severity === 'error'),
+		[],
+	);
+	check(
+		'every sample warns nothing for its kind',
+		Object.entries(samples).flatMap(([project, raw]) =>
+			undealtRouteWarnings(
+				normalizeGameConfigDoc(raw)!,
+				project.startsWith('hw-') ? 'holdAndWin' : 'bookOf',
+			).map((w) => `${project} ${w.path}`),
+		),
+		[],
 	);
 }
 

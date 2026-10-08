@@ -120,8 +120,8 @@ Nothing is stored until you **Save**.
 
 After saving an overlay change, **reload any open game tab**: a tab keeps the overlay it booted
 with, and the test server goes on dealing it that game until it reloads. Adding one here puts its
-symbols in the config only. Their art is seeded only by Game Maker's **＋ Pots overlay…** (or
-**Pots overlay parts…**); otherwise bind it in Symbols. Until then a token, a coin or a Hold and
+symbols in the config only. Their art is seeded only by Game Maker's **＋ Coin overlay…** (or
+**Coin overlay parts…**); otherwise bind it in Symbols. Until then a token, a coin or a Hold and
 Win special draws a coded placeholder disc.
 
 **Style** — once the project has an overlay, pick how it plays:

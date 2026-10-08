@@ -9,6 +9,7 @@ import { PROJECT_KEY_WORDS } from '$lib/projectKey';
 import { ADMIN_PANEL_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import { mayTargetClient } from '$lib/accessRules';
 import { SESSION_COOKIE, sessionIdFromToken } from '$lib/server/auth';
+import { modeRouteOptions } from '$lib/bonusImport';
 import type { AddOnOutcome } from '$lib/potsOverlayAddOn';
 import { OWNER_ROLE } from '$lib/launcherGates';
 import {
@@ -219,17 +220,12 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 				clientName: p.clientName,
 				gameType: p.gameType,
 				profile,
-				// The card offers "＋ Pots overlay" without one, and "fill in its parts" with one.
+				// The card offers "＋ Coin overlay" without a dropping one, and "fill in its parts" with one.
 				hasPotsOverlay: Boolean(config.doc?.potsOverlay),
 				/** The overlay presets that add cleanly to this game's config. */
 				overlayPresets: cleanOverlayPresets(config.doc),
-				/** The pots a bonus import can route, with the mode each starts now. */
-				pots: (config.doc?.potsOverlay?.pots ?? []).map((pot) => ({
-					id: pot.id,
-					mode: pot.bonus.mode,
-				})),
-				/** Whether the overlay's Hold and Win bonus is there (an import then replaces it). */
-				hasHoldAndWin: Boolean(config.doc?.holdAndWin),
+				/** The routes "Add a bonus mode…" can point at the new mode. */
+				modeRoutes: modeRouteOptions(config.doc, p.gameType),
 				/** Bonuses imported from another project, for "Re-sync". */
 				imports: (config.doc?.imports ?? []).map((i) => ({
 					mode: i.mode,
@@ -360,7 +356,7 @@ export const actions: Actions = {
 			: null;
 		return {
 			action: 'create',
-			ok: `Created project ${key}${addOn?.ok ? ' with the pots overlay' : ''}.`,
+			ok: `Created project ${key}${addOn?.ok ? ' with the coin overlay' : ''}.`,
 			createdKey: key,
 			addOn,
 		};
