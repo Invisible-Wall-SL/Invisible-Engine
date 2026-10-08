@@ -1,4 +1,5 @@
 import { createPlayBook, createSymbolInfo, drainedMeters, isHoldAndWinEvent } from 'engine-game';
+import { HOLD_AND_WIN_MODE } from 'game-config';
 
 import { activeWinLevelData, getActiveGameConfig } from './gameConfig';
 import { symbolMap } from './symbolMap';
@@ -74,6 +75,11 @@ export const { playBookEvent, playBookEvents, playBet, convertTorResumableBet } 
 	clearSpinHold,
 	trackCascadeStep,
 	recordBookEvent: (bookEvent) => {
+		// A hand-built book may leave the respin mode out of these two; a flow reading the `mode` pin
+		// then reads `holdAndWin` (the Flow vocabulary's "absent ⇒ holdAndWin"), never `undefined`.
+		if (bookEvent.type === 'respinReveal' || bookEvent.type === 'holdAndWinState') {
+			bookEvent.mode ??= HOLD_AND_WIN_MODE;
+		}
 		if (isHoldAndWinEvent(bookEvent)) recordHoldAndWinEvent(bookEvent);
 		const drained = drainedMeters(bookEvent);
 		if (drained.length) {

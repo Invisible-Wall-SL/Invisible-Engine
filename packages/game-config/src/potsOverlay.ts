@@ -24,7 +24,7 @@ import {
 	type HoldAndWinSpecial,
 } from './holdAndWin';
 import { symbolsInPlay } from './inPlay';
-import { legacyHoldAndWin, legacyPotsOverlay } from './bonusGames';
+import { legacyPotsOverlay, respinModeBlocks } from './bonusGames';
 import {
 	BASE_GAME_MODE,
 	FREE_SPINS_MODE,
@@ -223,14 +223,17 @@ export type ResolvedMeter = {
 export function resolveMeters(
 	doc: Pick<GameConfigDoc, 'holdAndWin' | 'potsOverlay' | 'coinOverlay' | 'modes'> | undefined,
 ): ResolvedMeter[] {
-	const fromSymbols = ((doc && legacyHoldAndWin(doc))?.meters ?? []).map((m): ResolvedMeter => ({
-		id: m.id,
-		source: 'symbol',
-		symbol: m.symbol,
-		maxLevel: m.maxLevel,
-		sizeStages: [...m.sizeStages],
-		bonus: { mode: HOLD_AND_WIN_MODE, activates: m.activates },
-	}));
+	// Each respin mode's symbol-filled meters, the primary's first, each starting its own mode.
+	const fromSymbols = (doc ? respinModeBlocks(doc) : []).flatMap(({ mode, block }) =>
+		(block.meters ?? []).map((m): ResolvedMeter => ({
+			id: m.id,
+			source: 'symbol',
+			symbol: m.symbol,
+			maxLevel: m.maxLevel,
+			sizeStages: [...m.sizeStages],
+			bonus: { mode, activates: m.activates },
+		})),
+	);
 	const fromOverlay = ((doc && legacyPotsOverlay(doc))?.pots ?? []).map((p): ResolvedMeter => ({
 		id: p.id,
 		source: 'overlay',

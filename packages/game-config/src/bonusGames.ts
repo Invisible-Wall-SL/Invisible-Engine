@@ -26,7 +26,13 @@
  */
 
 import { resolveFreeSpins } from './freeSpins';
-import { normalizeHoldAndWin, symbolsWithRole, type HoldAndWin } from './holdAndWin';
+import {
+	holdAndWinBlankSymbol,
+	normalizeHoldAndWin,
+	symbolsWithRole,
+	type HoldAndWin,
+	type RespinPlay,
+} from './holdAndWin';
 import { joinHoldAndWin, splitHoldAndWin, type HoldAndWinGame } from './holdAndWinGame';
 import {
 	legacyPotsOverlayOf,
@@ -397,6 +403,67 @@ export function respinModeBlank(doc: GameConfigDoc, mode: GameModeDecl): string 
 	if (mode.holdAndWin?.blank) return mode.holdAndWin.blank;
 	const dealt = new Set(symbolsInPlayForGameType(doc, gameTypeForMode(mode)));
 	return symbolsWithRole(doc, 'blank').find((name) => dealt.has(name)) ?? 'BLANK';
+}
+
+/** A respin mode's rules in the legacy block's shape (design §2.3). */
+export type RespinModeBlock = {
+	mode: string;
+	/** Its strip key: the respin board rolls `paddingReels[gameType]`. */
+	gameType: string;
+	/** Its rules joined with the routes that start it. The primary's IS the legacy block
+	 *  ({@link legacyHoldAndWin}), so a game with one respin mode reads what it always read. */
+	block: HoldAndWin;
+	/** Its declaration in the split form. */
+	decl: GameModeDecl & { holdAndWin: HoldAndWinGame };
+};
+
+/** Every respin mode with rules, the primary first ({@link primaryRespinMode}); `[]` without Hold
+ *  and Win. */
+export function respinModeBlocks(doc: BonusDoc): RespinModeBlock[] {
+	const block = legacyHoldAndWin(doc);
+	if (!block) return [];
+	const split = bonusSplitOf(doc);
+	const primary = primaryRespinMode(split.modes);
+	if (!primary) return [];
+	const others = (split.modes ?? []).filter(
+		(m): m is GameModeDecl & { holdAndWin: HoldAndWinGame } => m !== primary && isRespinGame(m),
+	);
+	return [
+		{ mode: primary.id, gameType: gameTypeForMode(primary), block, decl: primary },
+		...others.map((mode) => ({
+			mode: mode.id,
+			gameType: gameTypeForMode(mode),
+			block: joinHoldAndWin(mode.holdAndWin, triggerHalfFor(split.coinOverlay, mode.id)),
+			decl: mode,
+		})),
+	];
+}
+
+/** Is this respin set the lone default — `holdAndWin` on the `respin` strip, alone? Such a game's
+ *  wire and mock inputs are exactly what they were before bonus modes (design §2.2). */
+export const isLoneDefaultRespinSet = (modes: readonly RespinModeBlock[]): boolean =>
+	modes.length === 1 && modes[0].mode === HOLD_AND_WIN_MODE && modes[0].gameType === 'respin';
+
+/** A respin mode as the game plays it: its rules, its empty cell and how its respins are played. */
+export type RespinModeRules = RespinModeBlock & {
+	/** The symbol an empty cell of its board draws, as the mock picks it. */
+	blank: string;
+	play: RespinPlay;
+};
+
+/**
+ * {@link respinModeBlocks} with each mode's blank and play setting. The lone default mode keeps the
+ * blank the whole game deals (`holdAndWinBlankSymbol`), any other set each mode's own
+ * (`respinModeBlank`) — the mock's pick in either case (`holdAndWinMockInputs`).
+ */
+export function respinModeRules(doc: GameConfigDoc): RespinModeRules[] {
+	const modes = respinModeBlocks(doc);
+	const loneDefault = isLoneDefaultRespinSet(modes);
+	return modes.map((entry) => ({
+		...entry,
+		blank: loneDefault ? holdAndWinBlankSymbol(doc) : respinModeBlank(doc, entry.decl),
+		play: entry.block.play ?? 'auto',
+	}));
 }
 
 // ─── validate ─────────────────────────────────────────────────────────────────────────────────

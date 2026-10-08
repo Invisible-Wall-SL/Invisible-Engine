@@ -8,7 +8,7 @@ import {
 import type { WheelPrize } from 'game-config';
 import { roundSkip } from 'utils-shared/skipToken';
 
-import { getActiveGameConfig } from './gameConfig';
+import { activeRespinRules } from './activeRespinMode.svelte';
 
 /**
  * THE PRE-FEATURE WHEEL as this game shows it (design §1.2 Super Hotfire's SUPER WHEEL) — the
@@ -63,7 +63,7 @@ export const wheelSegments = (
 	index: number,
 	prize: HoldAndWinWheelPrize,
 ): { prizes: HoldAndWinWheelPrize[]; index: number } => {
-	const configured = (getActiveGameConfig().holdAndWin?.wheel?.prizes ?? []).map(asEnginePrize);
+	const configured = (activeRespinRules()?.wheel?.prizes ?? []).map(asEnginePrize);
 	const named = configured[index];
 	return named && samePrize(named, prize)
 		? { prizes: configured, index }

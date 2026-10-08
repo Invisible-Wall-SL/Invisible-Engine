@@ -127,6 +127,14 @@ export type HoldAndWinTrigger = {
 };
 
 export const STICKINESS = ['allCoins', 'collectorsOnly'] as const;
+
+/**
+ * How the respins of a feature are played (bonus-games Phase 4): `auto` — back to back with no
+ * input, a tap only slams, as every Hold and Win game has always played; `manual` — the player
+ * presses SPIN for each respin (the free-spin hold, `armSpinHold`). Absent ⇒ `auto`.
+ */
+export const RESPIN_PLAY = ['auto', 'manual'] as const;
+export type RespinPlay = (typeof RESPIN_PLAY)[number];
 export type Stickiness = (typeof STICKINESS)[number];
 
 /** `anyCoin` — only a new coin or jackpot resets the counter; `anySpecial` — any new coin, jackpot
@@ -313,6 +321,8 @@ export type HoldAndWin = {
 	meters?: HoldAndWinMeter[];
 	wheel?: HoldAndWinWheel;
 	expansion?: HoldAndWinExpansion;
+	/** How the respins are played; absent ⇒ `auto` (see {@link RESPIN_PLAY}). */
+	play?: RespinPlay;
 };
 
 // ─── normalize ────────────────────────────────────────────────────────────────────────────────
@@ -700,6 +710,8 @@ export function normalizeHoldAndWin(raw: unknown): HoldAndWin | undefined {
 	}
 	const grows = expansion(raw.expansion);
 	if (grows) out.expansion = grows;
+	const play = oneOf(RESPIN_PLAY, raw.play);
+	if (play) out.play = play;
 	return out;
 }
 

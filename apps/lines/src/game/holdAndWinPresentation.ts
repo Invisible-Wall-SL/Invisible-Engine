@@ -21,6 +21,7 @@ import { roundSkip } from 'utils-shared/skipToken';
 import { scopeOf } from 'utils-event-emitter';
 import { waitForTimeout } from 'utils-shared/wait';
 
+import { activeRespinRules, isPrimaryRespinMode } from './activeRespinMode.svelte';
 import { coinLabelCountMs } from './coinLabel';
 import { eventEmitter } from './eventEmitter';
 import { FLIGHT_TARGET_TOTAL, flyTo } from './flights.svelte';
@@ -843,7 +844,7 @@ export const presentColumnComplete = async (event: Beat<'columnComplete'>) => {
 	lightLetter(event.reel);
 	await playHeldBeat(event.cells, 'coinCollect', { minMs: HIGHLIGHT_MIN_MS });
 	if (!event.cleared) return;
-	const jackpots = getActiveGameConfig().holdAndWin?.jackpots ?? [];
+	const jackpots = activeRespinRules()?.jackpots ?? [];
 	const order = [...event.cells].sort((a, b) => a.row - b.row);
 	const weights = order.map((cell) => {
 		const held = stateRespinBoard.held.find((h) => h.reel === cell.reel && h.row === cell.row);
@@ -1156,7 +1157,10 @@ export const presentHoldAndWinEnd = async (event: Beat<'holdAndWinEnd'>) => {
 	// A Hold and Win GAME's reels rest on the feature's final board. On a pots overlay host the feature
 	// is a bonus, and the base board returns with the host's symbols as the trigger spin left them
 	// (design §3.4): its final board is mostly `blank`, which a host has no art for, so the reels
-	// would read as empty.
-	if (!holdAndWinIsOverlayBonus(getActiveGameConfig())) settleReelsOnHeldCells();
+	// would read as empty. Only the primary respin mode's coins land on the base reels (bonus-games
+	// Phase 2), so another respin mode is a bonus there too.
+	if (!holdAndWinIsOverlayBonus(getActiveGameConfig()) && isPrimaryRespinMode()) {
+		settleReelsOnHeldCells();
+	}
 	hideRespinBoard();
 };
