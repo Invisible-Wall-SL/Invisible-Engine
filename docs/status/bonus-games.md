@@ -314,7 +314,9 @@ starts the phase sessions, reviews their PRs and merges them.
 - 2026-10-08 — **Phase 5c: the Flow v2 vocabulary keyed on the board** (PR #1147,
   `game-config`, `engine-flow-v2`, `/flow-v2`).
   - **What landed:**
-    - `flowAddOnsOf` reads the split form (`bonusCapabilityInputs` + the new `respinModeIds`), so
+    - `flowAddOnsOf` reads the split form (`bonusCapabilityInputs` + the new `respinModeIds`, on
+      `respinModeDecls`: the one "respin modes with rules, primary first" list that
+      `respinModeBlocks` and the launcher's `respinModesOf` now build on too), so
       Flow no longer reads the legacy mirror. It adds `respinModes` (the primary first) only when the
       set is not the lone `holdAndWin`, so every current doc's add-ons are byte-identical.
     - `graftAddOnSteps` ("＋ Add overlay steps") seeds a Hold and Win starter section for EVERY
@@ -327,17 +329,20 @@ starts the phase sessions, reviews their PRs and merges them.
       arrive outside it), and one
       handled there is a new `respin-event-off-board` WARNING (`respinTabIssues`, added by the editor
       and the publish gate). A warning, so nothing that published before is refused.
-    - The `mode` field descriptions read "absent ⇒ the primary respin mode".
+    - The `mode` field descriptions of `respinReveal` and `holdAndWinState` read "absent ⇒ the
+      primary respin mode" (editor text only). They are the one difference in a current doc's
+      vocabulary.
     - **Runtime:** nothing to change. The interpreter hands a signal to `stateModes.active()`'s
       section, the Hold and Win beats read `activeRespinMode()`, and the banners and reserved
       screens find the active mode's copy (Phase 4). The gate pins the mode-2 graph running while
       mode 2 is on the stack.
-  - **Gates:** new `pnpm --filter launcher-api check:flow-bonus-modes` (82 checks): a lines doc with two
+  - **Gates:** new `pnpm --filter launcher-api check:flow-bonus-modes` (88 checks): a lines doc with two
     respin modes (both tabs seeded, distinct node ids, per-mode screens that are all in the scene set,
     publishes clean and warning free, idempotent graft); the runtime predicates per mode; tabs by
-    board; a second mode on the `holdAndWin` kind; and byte-identical add-ons, vocabulary, grafted
-    seed and publish verdict to `main` for 12 current docs (`MAIN_DIGESTS`, the vocabulary hashed
-    with the old `mode` wording). `check:bonus-modes-tools`' "before" baseline now reads the legacy
+    board; a second mode on the `holdAndWin` kind; and byte-identical add-ons, grafted seed and
+    publish verdict to `main` for 12 current docs (`MAIN_DIGESTS`). Their vocabulary is
+    byte-identical except the two reworded descriptions: the gate pins the new wording on exactly
+    those two fields and hashes them as `main` words them. `check:bonus-modes-tools`' "before" baseline now reads the legacy
     keys directly, since `flowAddOnsOf` no longer does.
   - **What's left:** nothing for 5c. Phase 6's "Add a bonus mode…" gets the new mode's Flow tab from
     the graft (or seeds it itself with `holdAndWinModeGraph(prefix, modeId)`).

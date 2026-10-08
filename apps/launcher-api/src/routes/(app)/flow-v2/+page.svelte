@@ -180,6 +180,8 @@
 
 	// The open mode tab's id, or null on the Global tab / in a function body.
 	const activeModeId = $derived(view.kind === 'mode' ? view.modeId : null);
+	// A tab that is not a respin mode's is offered no respin-only event (`vocabForTab`).
+	const tabVocab = $derived(vocabForTab(vocab, activeModeId, data.addOns));
 
 	// If the open function or mode section is deleted (or otherwise vanishes), return to the flow
 	// view so the canvas never edits a dangling graph.
@@ -1889,7 +1891,7 @@
 					</p>
 				{/if}
 				<AddNodePalette
-					vocab={vocabForTab(vocab, activeModeId, data.addOns)}
+					vocab={tabVocab}
 					{library}
 					doc={paletteDoc}
 					onadd={addNodeOfKind}

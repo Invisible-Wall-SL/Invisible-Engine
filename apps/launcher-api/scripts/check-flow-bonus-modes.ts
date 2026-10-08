@@ -18,9 +18,11 @@
  *     graft adds only the second mode's.
  *  5. Every current doc (no config, plain lines, free spins, the `hw-*` presets, an expanding Hold and
  *     Win, the overlay presets on lines and Book-of, `borut-pots-sample`) resolves byte-identical
- *     add-ons, vocabulary, grafted starter flow and publish verdict to `main` before Phase 5c
- *     (`MAIN_DIGESTS`; the vocabulary hashed with the two `mode` descriptions as `main` words them).
- *     Stripping the legacy keys (the compat mirror Phase 7 drops) changes no add-on.
+ *     add-ons, grafted starter flow and publish verdict to `main` before Phase 5c (`MAIN_DIGESTS`).
+ *     Its vocabulary is byte-identical EXCEPT the two reworded `mode` field descriptions
+ *     (`respinReveal`, `holdAndWinState`; editor text only): the new wording is pinned on exactly
+ *     those two fields, and the hash reads them as `main` words them. Stripping the legacy keys (the
+ *     compat mirror Phase 7 drops) changes no add-on.
  *
  * `--print` prints the digests instead of checking them.
  */
@@ -40,6 +42,7 @@ import {
 	type FlowDoc,
 	type FlowIssue,
 	type Graph,
+	type TemplateVocabulary,
 } from 'engine-flow-v2';
 import { engineOwnedOnly, getFullSceneSet, type Scene } from 'engine-layout';
 import {
@@ -303,9 +306,9 @@ check(
 }
 
 // ── 5. every current doc is byte-identical to main ─────────────────────────────────────────────
-/** The two `mode` field descriptions as `main` words them (Phase 5c item 5 rewords them only). */
-const asMain = (text: string): string =>
-	text.replaceAll('absent ⇒ the primary respin mode', 'absent ⇒ `holdAndWin`');
+/** The two `mode` field descriptions' new wording, and `main`'s (Phase 5c rewords those only). */
+const MODE_WORDING = 'absent ⇒ the primary respin mode';
+const asMain = (text: string): string => text.replaceAll(MODE_WORDING, 'absent ⇒ `holdAndWin`');
 const digest = (value: unknown): string =>
 	createHash('sha256')
 		.update(asMain(json(value)))
@@ -386,12 +389,27 @@ const MAIN_DIGESTS: Record<string, string> = {
 };
 
 const printed: Record<string, string> = {};
+/** Where a vocabulary carries the reworded text: `event.field` per description that has it. */
+const rewordedAt = (vocab: TemplateVocabulary): string[] =>
+	vocab.events.flatMap((event) =>
+		event.payload.flatMap((field) =>
+			field.description?.includes(MODE_WORDING) ? [`${event.name}.${field.name}`] : [],
+		),
+	);
+
 for (const [name, kind, doc] of currentDocs()) {
 	const addOns = flowAddOnsOf(doc);
+	const docVocab = withAddOns(templateVocabulary(kind), addOns);
+	if (docVocab.events.some((event) => event.name === 'respinReveal')) {
+		same(`5. ${name} · the new wording is on the two mode fields alone`, rewordedAt(docVocab), [
+			'respinReveal.mode',
+			'holdAndWinState.mode',
+		]);
+	}
 	const seed = graftAddOnSteps(freshDrivenSeedDoc(kind), addOns).doc;
 	const facts = {
 		addOns: digest(addOns),
-		vocab: digest(withAddOns(templateVocabulary(kind), addOns)),
+		vocab: digest(docVocab),
 		seed: digest(seed),
 		verdict: digest(
 			validateFlowV2Against(seed, scenesFor(kind, doc), null, EMPTY_LIBRARY, [], addOns),

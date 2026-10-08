@@ -216,6 +216,8 @@ const OVERLAY_BASE_CHOREO = {
 };
 
 const HOLD_AND_WIN_MODE = 'holdAndWin';
+/** The Hold and Win KIND (`templateId`), whose own vocabulary has the respin feature. */
+const HOLD_AND_WIN_KIND = 'holdAndWin';
 
 /** The respin modes `addOns` declares, the primary first. */
 export const flowRespinModes = (addOns: FlowAddOns | undefined): readonly string[] =>
@@ -259,30 +261,31 @@ export const vocabForTab = (
  * the respin feature (a Hold and Win project, or one with a respin mode).
  */
 export function respinTabIssues(doc: FlowDoc, addOns: FlowAddOns | undefined): FlowIssue[] {
-	if (doc.templateId !== HOLD_AND_WIN_MODE && !addOns?.holdAndWin) return [];
-	return flowGraphs(doc).flatMap(({ modeId, graph }) =>
-		modeId === undefined || isRespinTab(modeId, addOns)
-			? []
-			: RESPIN_FEATURE_EVENTS.filter((event) => graphHandlesSignal(graph, event)).map(
-					(event): FlowIssue => {
-						const own = graph.nodes.find((n) => n.kind === 'event' && n.ref === event);
-						const signals = graph.nodes.find(
-							(n) =>
-								n.kind === 'gameSignals' &&
-								graph.exec.some((e) => e.from.node === n.id && e.from.pin === event),
-						);
-						return {
-							code: 'respin-event-off-board',
-							severity: 'warning',
-							message: `'${event}' fires only while a respin mode is on screen, and the '${modeId}' tab is not a respin mode's — move it to that mode's tab or the global graph`,
-							at: own
-								? { on: 'node', node: own.id }
-								: { on: 'pin', node: signals?.id ?? '', pin: event },
-							mode: modeId,
-						};
-					},
-				),
-	);
+	if (doc.templateId !== HOLD_AND_WIN_KIND && !addOns?.holdAndWin) return [];
+	return flowGraphs(doc).flatMap(({ modeId, graph }) => {
+		if (modeId === undefined || isRespinTab(modeId, addOns)) return [];
+		return RESPIN_FEATURE_EVENTS.flatMap((event): FlowIssue[] => {
+			const own = graph.nodes.find((n) => n.kind === 'event' && n.ref === event);
+			const pin = graph.exec.find(
+				(e) =>
+					e.from.pin === event &&
+					graph.nodes.some((n) => n.id === e.from.node && n.kind === 'gameSignals'),
+			)?.from;
+			const at: FlowIssue['at'] | undefined = own
+				? { on: 'node', node: own.id }
+				: pin && { on: 'pin', node: pin.node, pin: event };
+			if (!at) return [];
+			return [
+				{
+					code: 'respin-event-off-board',
+					severity: 'warning',
+					message: `'${event}' fires only while a respin mode is on screen, and the '${modeId}' tab is not a respin mode's — move it to that mode's tab or the global graph`,
+					at,
+					mode: modeId,
+				},
+			];
+		});
+	});
 }
 
 /** What a graft did: the new doc, and a label per thing it added (empty ⇒ the doc unchanged). */
