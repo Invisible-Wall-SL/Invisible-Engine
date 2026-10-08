@@ -93,7 +93,8 @@ Project (a whole game)
   - `trigger` (count / pattern / buy / luckySpin / randomMetre).
 
   **Every trigger names a mode**: `PotBonus.mode` already does, and `count` / `pattern` /
-  `luckySpin` / `randomMetre` gain `mode`. `BuyTier.mode` already exists.
+  `luckySpin` / `randomMetre` and the symbol-filled meters gain `mode`. A legacy `BuyTier.mode` is
+  the BET mode (the `betModes` key), so a buy route in the overlay is `{ betMode, mode, … }`.
 - **Routing is config, not Flow.** Which mode a trigger starts is math the server deals, so it lives
   in Game Config and the mock/RGS reads it. The Flow editor PRESENTS each mode in its own tab
   (enter, the mode's events, exit), as Phase 4M built.
@@ -106,6 +107,35 @@ Project (a whole game)
   - an existing import record is kept.
 
   A legacy doc and its split form must give the same mock inputs. That is the gate on Phase 1.
+- **Transition (Phases 1–6).** Until every reader has moved to per-mode reads, a normalized doc
+  stores the split form (canonical) AND the legacy `holdAndWin` / `potsOverlay` keys as a
+  **compat mirror** derived from it.
+  - **The mirror shows one respin mode, the PRIMARY.** That is the respin mode `holdAndWin` when it
+    has rules, else the first respin mode with rules. The mirror's `holdAndWin` is that mode's
+    rules joined with the overlay's routes to it and the base-game flags. Its `potsOverlay` is the
+    overlay's pots, drops and timing, present only when something drops.
+  - **Precedence.**
+    - When the input carries a legacy key, the legacy pair is applied over the split form for
+      everything the mirror shows. Everything else of the split form is kept: other modes, routes
+      to them, the style, the base-game coins, and flags for specials the primary does not
+      configure.
+    - When the input carries neither key, the split form stands.
+    - No equality test decides this. Applying a mirror that is unchanged is a no-op, and the
+      fixture pins it.
+    - Normalization cannot tell an edited split form from an edited mirror. So a stale mirror
+      always wins.
+  - **What writers must do.**
+    - **A writer of the split form (Phases 5a and 6) deletes both legacy keys before it saves.**
+    - **Hold and Win is removed only through `removeHoldAndWin(doc)`.** It removes the block, the
+      primary respin mode and the routes to it. Deleting the `holdAndWin` key alone brings the mode
+      back on a doc without a `potsOverlay`, and drops it beside one.
+    - A Hold and Win mode always plays on the respin board. An override's `reels` or `none` board
+      is overruled, so the block is never lost.
+    - An unmigrated writer edits only the legacy keys, and its edit wins.
+    - The game-config writers (`addOns`, `imports`) call `withLegacyPair` first and
+      `syncBonusSplit` last, so their results are already normalize fixed points.
+  - **Readers** in game-config go through `legacyHoldAndWin` / `legacyPotsOverlay`.
+  - **The mirror is dropped in Phase 7**, once no reader is left.
 
 ### 2.2 Wire, mock and facade
 

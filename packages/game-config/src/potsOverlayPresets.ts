@@ -9,9 +9,16 @@
  * The drop chances and weights are PLACEHOLDERS for the mock to generate from, as in every preset.
  */
 
-import type { HoldAndWin } from './holdAndWin';
+import type { HoldAndWin, HoldAndWinSpecial } from './holdAndWin';
+import {
+	joinHoldAndWin,
+	splitHoldAndWin,
+	type BaseGameSpecialFlags,
+	type BaseGameSpecials,
+} from './holdAndWinGame';
 import { HOLD_AND_WIN_PRESETS, type HoldAndWinPresetId } from './holdAndWinPresets';
 import { symbolsInPlayFromStrips } from './inPlay';
+import { legacyHoldAndWin } from './bonusGames';
 import { HOLD_AND_WIN_MODE, gameModeById, gameTypeForMode } from './modes';
 import type { OverlayPot, PotsOverlay } from './potsOverlay';
 import type { GameConfigDoc, GameConfigSymbol, PaddingReels } from './types';
@@ -64,10 +71,11 @@ export function holdAndWinBonus(
 	return bonus;
 }
 
-/** A Hold and Win block's source: a preset, or another project's config (a bonus import). */
+/** A Hold and Win block's source: a preset, or another project's config (a bonus import) — legacy,
+ *  normalized or split form. */
 export type HoldAndWinBonusSource = Pick<
 	GameConfigDoc,
-	'holdAndWin' | 'modes' | 'paddingReels' | 'symbols'
+	'holdAndWin' | 'potsOverlay' | 'coinOverlay' | 'modes' | 'paddingReels' | 'symbols'
 >;
 
 /**
@@ -81,31 +89,31 @@ export function holdAndWinBonusFrom(
 	source: HoldAndWinBonusSource,
 	host: Pick<GameConfigDoc, 'numReels'>,
 ): HoldAndWinBonus & { leftOut: string[] } {
-	if (!source.holdAndWin) throw new Error('The source has no holdAndWin block.');
-	const { meters, ...rest } = source.holdAndWin;
-	const { trigger, specials } = rest;
+	const sourceBlock = legacyHoldAndWin(source);
+	if (!sourceBlock) throw new Error('The source has no holdAndWin block.');
+	const { game, half } = splitHoldAndWin(sourceBlock);
+	const { trigger, meters, baseGame } = half;
 	const leftOut = [
 		...(trigger.pattern ? ['the pattern trigger'] : []),
 		...(trigger.luckySpin ? ['the lucky spin'] : []),
 		...(trigger.randomMetre ? ['the random metre'] : []),
 		...(trigger.buy?.length ? ['buying the feature'] : []),
-		...(specials.collector?.instantCollectInBaseGame ? ["the collector's instant collect"] : []),
-		...(specials.multiplier?.instantCollectInBaseGame ? ["the multiplier's instant collect"] : []),
+		...(baseGame?.collector?.instantCollectInBaseGame ? ["the collector's instant collect"] : []),
+		...(baseGame?.multiplier?.instantCollectInBaseGame ? ["the multiplier's instant collect"] : []),
 		...(meters?.length ? ['the symbol-filled meters'] : []),
 	];
-	const block: HoldAndWin = {
-		...rest,
+	// The respin game whole; of its trigger half, the coin count and what lands in the base game.
+	const lands: BaseGameSpecials = {};
+	for (const [kind, flags] of Object.entries(baseGame ?? {}) as [
+		HoldAndWinSpecial,
+		BaseGameSpecialFlags,
+	][]) {
+		if (flags.landsInBaseGame) lands[kind] = { landsInBaseGame: true };
+	}
+	const block = joinHoldAndWin(game, {
 		trigger: trigger.count ? { count: trigger.count } : {},
-		specials: {
-			...specials,
-			...(specials.collector && {
-				collector: { ...specials.collector, instantCollectInBaseGame: false },
-			}),
-			...(specials.multiplier && {
-				multiplier: { ...specials.multiplier, instantCollectInBaseGame: false },
-			}),
-		},
-	};
+		baseGame: lands,
+	});
 	const from = gameTypeForMode(gameModeById(source, HOLD_AND_WIN_MODE)!);
 	const gameType = gameTypeForMode(gameModeById({ holdAndWin: block }, HOLD_AND_WIN_MODE)!);
 	const own = source.paddingReels[from] ?? [];

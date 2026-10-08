@@ -66,8 +66,7 @@ export const stateModes = createModeController({
  * undeclared mode is never one, so every round without such a mode keeps `freegame`.
  */
 export const freeSpinsGameType = (mode: string | undefined): GameType => {
-	if (!mode || builtinGameModes(getActiveGameConfig()).some((m) => m.id === mode))
-		return 'freegame';
+	if (!mode || builtinGameModes().some((m) => m.id === mode)) return 'freegame';
 	const declared = gameModeById(getActiveGameConfig(), mode);
 	if (declared?.board !== 'reels') return 'freegame';
 	const gameType = gameTypeForMode(declared);

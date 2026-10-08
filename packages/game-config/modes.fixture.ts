@@ -5,10 +5,10 @@
  * Claims:
  *  1. PARITY. A config that never mentions modes resolves to the base game and free spins, free
  *     spins keep the game type `freegame` every mock and facade writes, and every committed default
- *     config normalizes with NO `modes` block — `apps/lines` is the shared runtime, so a default that
- *     leaked into storage would reach every online game.
- *  2. A `holdAndWin` block brings the respin mode with it, on the respin board and the `respin`
- *     padding the Phase 2 presets deal.
+ *     config normalizes with NO `modes` block but its declared respin mode — `apps/lines` is the
+ *     shared runtime, so a default that leaked into storage would reach every online game.
+ *  2. A legacy `holdAndWin` block brings the respin mode with it, on the respin board and the
+ *     `respin` padding the Phase 2 presets deal (bonus-games: declared, not built in).
  *  3. Overrides merge field by field; a field that restates the built-in is not stored; the
  *     project's own modes are kept in authored order; half-typed entries are dropped.
  *  4. `gameType` ↔ mode id round-trips both ways, including `freegame` → `freeSpins`.
@@ -64,7 +64,11 @@ const defaults = readdirSync(DEFAULTS).filter((name: string) => name.endsWith('.
 check('there are committed default configs to check', defaults.length > 0, true);
 for (const name of defaults) {
 	const doc = normalizeGameConfigDoc(JSON.parse(readFileSync(join(DEFAULTS, name), 'utf8')));
-	check(`${name} stores no modes block`, doc && 'modes' in doc, false);
+	check(
+		`${name} stores no modes block but its declared respin mode`,
+		doc?.modes?.map((m) => [m.id, m.board, Boolean(m.holdAndWin)]),
+		name.startsWith('holdAndWin.') ? [['holdAndWin', 'respinBoard', true]] : undefined,
+	);
 	check(
 		`${name} raises no mode issue`,
 		doc && validateGameConfigDoc(doc).filter((i) => i.path.startsWith('modes')),
@@ -80,25 +84,22 @@ check('respin board, respin padding', gameModeById(hw, 'holdAndWin'), {
 	board: 'respinBoard',
 	gameType: 'respin',
 	counter: 'respins',
-	values: ['total', 'respinsLeft'],
 	label: 'Hold and Win',
+	values: ['total', 'respinsLeft'],
 });
 
 console.log('\n3. overrides, own modes, normalization');
-const authored = normalizeGameModes(
-	[
-		{ id: 'freeSpins', board: 'reels', gameType: 'freegame', music: 'fsTheme' },
-		{ id: 'basegame', board: 'reels', label: 'Base game' },
-		{ id: 'wheel', board: 'wheel', hud: 'hud_wheel', values: ['prize', 'prize', ''] },
-		{ id: 'pick', board: 'none' },
-		{ id: 'wheel', board: 'none' },
-		{ id: '', board: 'reels' },
-		{ id: '9lives', board: 'reels' },
-		{ id: 'bogus', board: 'hexagons' },
-		'junk',
-	],
-	{},
-);
+const authored = normalizeGameModes([
+	{ id: 'freeSpins', board: 'reels', gameType: 'freegame', music: 'fsTheme' },
+	{ id: 'basegame', board: 'reels', label: 'Base game' },
+	{ id: 'wheel', board: 'wheel', hud: 'hud_wheel', values: ['prize', 'prize', ''] },
+	{ id: 'pick', board: 'none' },
+	{ id: 'wheel', board: 'none' },
+	{ id: '', board: 'reels' },
+	{ id: '9lives', board: 'reels' },
+	{ id: 'bogus', board: 'hexagons' },
+	'junk',
+]);
 check('restatements dropped, departures kept, own modes in order, junk dropped', authored, [
 	{ id: 'freeSpins', board: 'reels', music: 'fsTheme' },
 	{ id: 'wheel', board: 'wheel', hud: 'hud_wheel', values: ['prize'] },
@@ -120,12 +121,12 @@ check('own modes resolve after the built-ins', ids({ modes: authored }), [
 ]);
 check(
 	'nothing authored is undefined',
-	normalizeGameModes([{ id: 'basegame', board: 'reels' }], {}),
+	normalizeGameModes([{ id: 'basegame', board: 'reels' }]),
 	undefined,
 );
-check('not a list is undefined', normalizeGameModes({ freeSpins: {} }, {}), undefined);
-const once = normalizeGameModes(authored, {});
-check('idempotent', normalizeGameModes(once, {}), once);
+check('not a list is undefined', normalizeGameModes({ freeSpins: {} }), undefined);
+const once = normalizeGameModes(authored);
+check('idempotent', normalizeGameModes(once), once);
 
 console.log('\n4. gameType <-> mode id');
 check('freegame is the free-spins mode', modeIdForGameType({}, 'freegame'), 'freeSpins');
@@ -161,7 +162,7 @@ check(
 	[],
 );
 check('a wheel needs no strips', issuesOf([{ id: 'wheel', board: 'wheel' }]), []);
-check('built-ins list as before', builtinGameModes(undefined).length, 2);
+check('built-ins list as before', builtinGameModes().length, 2);
 
 console.log(failures === 0 ? '\nAll game-mode assertions passed.\n' : `\n${failures} FAILED\n`);
 process.exit(failures === 0 ? 0 : 1);
