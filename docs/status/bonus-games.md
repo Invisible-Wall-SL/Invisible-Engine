@@ -33,7 +33,7 @@ starts the phase sessions, reviews their PRs and merges them.
 | 1 | Contract: config split + migration | merged | Bonus games Phase 1 — config split + migration | #1133 |
 | 2 | Mock: per-mode engines | merged | Bonus games Phase 2: Mock RGS, one Hold and Win engine per respin mode | #1138 |
 | 3 | Facade + wire + event types | in review | Bonus games Phase 3: Facade, wire and event types, per mode | #1139 |
-| 4 | Engine runtime: active-mode rules | not started (needs 3) | — | — |
+| 4 | Engine runtime: active-mode rules | in progress | Bonus games Phase 4: the engine runtime plays the active respin mode | — |
 | 5a | `/config` Bonus modes + Coin overlay | not started (needs 1) | — | — |
 | 5b | Scene Editor + capabilities + `/symbols` | not started (needs 1) | — | — |
 | 5c | Flow v2 vocabulary by board | not started (needs 1, 4) | — | — |
