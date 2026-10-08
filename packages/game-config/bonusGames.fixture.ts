@@ -15,6 +15,11 @@
  *  3. The compat rule: a legacy edit wins; a split edit with the legacy keys deleted wins; a legacy
  *     pair without `holdAndWin` drops the mode; the `potsOverlay` key and `coinOverlay` both read.
  *  4. Two respin modes: both resolve, the mirror shows the primary, a legacy edit keeps the other.
+ *     4b. The precedence rule (design §2.1 "Transition"): normalize∘normalize = normalize on the
+ *     legacy, split and mixed forms of every shape; a legacy-only edit re-splits onto the primary mode
+ *     and the overlay and leaves a second respin mode untouched; an unchanged mirror changes nothing
+ *     (applying it is a no-op, so no equality test is needed); a split edit beside a STALE mirror
+ *     loses, and wins once the legacy keys are deleted. 4c. The primary respin mode is pinned.
  *  5. Validators: a route to a missing or non-respin mode, a respin mode without rules or strips, a
  *     respin mode started inside another, a missing blank — each an error whose path names the mode.
  *  6. `resolveBonusModes` and `bonusCapabilityInputs`.
@@ -399,6 +404,96 @@ const second = (doc: GameConfigDoc): GameConfigDoc => {
 			],
 			'holdAndWin_2',
 		],
+	);
+}
+
+// ─── 4b. the precedence rule ──────────────────────────────────────────────────────────────────
+
+console.log('\n4b. the precedence rule (legacy pair applied when present; design §2.1 Transition)');
+{
+	const two = second(borut);
+	const forms: [string, GameConfigDoc][] = [
+		...HOLD_AND_WIN_PRESET_IDS.map((id): [string, GameConfigDoc] => [id, presets[id]]),
+		...POTS_OVERLAY_PRESET_IDS.map((id): [string, GameConfigDoc] => [id, overlays[id]]),
+		['borut', borut],
+		['imported', importedDoc],
+		['two respin modes', two],
+	];
+	for (const [name, doc] of forms) {
+		const shapes: [string, GameConfigDoc][] = [
+			['legacy', legacyOnly(doc)],
+			['split', splitOnly(doc)],
+			['mixed', doc],
+		];
+		check(
+			`${name}: normalize∘normalize is normalize on the legacy, split and mixed forms`,
+			shapes.map(([, d]) => normalize(normalize(d))),
+			shapes.map(([, d]) => normalize(d)),
+		);
+	}
+
+	// The old HoldAndWinSection path: only the legacy block is edited.
+	const edited = clone(two);
+	edited.holdAndWin!.respins.start = 8;
+	edited.holdAndWin!.trigger.count!.min = 5;
+	const after = normalize(edited);
+	const secondOf = (d: GameConfigDoc) => d.modes?.find((m) => m.id === 'holdAndWin_2');
+	check(
+		'a legacy-only edit re-splits onto the primary mode and the overlay',
+		[after.modes?.[0].holdAndWin?.respins.start, after.coinOverlay?.trigger?.count],
+		[
+			8,
+			{
+				min: 5,
+				roles: ['coin', 'jackpot', 'payer', 'collector', 'coinMultiplier'],
+				mode: 'holdAndWin',
+			},
+		],
+	);
+	check('...and leaves the second respin mode untouched', secondOf(after), secondOf(two));
+
+	// Applying a mirror that is unchanged is a no-op, so no equality test is needed to keep the
+	// split form when nothing legacy moved.
+	check('an unchanged mirror changes nothing (two modes kept whole)', normalize(clone(two)), two);
+
+	// Normalization cannot tell which side was edited: a split edit beside a STALE mirror loses.
+	const stale = clone(presets.classic);
+	stale.modes![0].holdAndWin!.respins.start = 7;
+	check(
+		'a split edit beside a stale mirror: the mirror wins',
+		normalize(stale).holdAndWin?.respins.start,
+		3,
+	);
+	check(
+		'...the same edit with the legacy keys deleted wins',
+		normalize(splitOnly(stale)).holdAndWin?.respins.start,
+		7,
+	);
+}
+
+console.log('\n4c. the primary respin mode');
+{
+	const rules = presets.classic.modes![0].holdAndWin!;
+	const respin = (id: string, withRules = true): GameModeDecl => ({
+		id,
+		board: 'respinBoard',
+		...(withRules ? { holdAndWin: rules } : {}),
+	});
+	check(
+		'`holdAndWin` with rules wins wherever it sits',
+		primaryRespinMode([respin('a'), respin('holdAndWin')])?.id,
+		'holdAndWin',
+	);
+	check(
+		'else the first respin mode with rules',
+		primaryRespinMode([respin('holdAndWin', false), respin('x', false), respin('b'), respin('c')])
+			?.id,
+		'b',
+	);
+	check(
+		'a reels mode or a rule-less respin mode is never one',
+		primaryRespinMode([{ id: 'fs', board: 'reels' }, respin('x', false)]),
+		undefined,
 	);
 }
 

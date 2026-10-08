@@ -52,8 +52,14 @@ starts the phase sessions, reviews their PRs and merges them.
 - 2026-10-08 — **Seams measured** against `main` 72f7a0c. The single-Hold-and-Win assumptions are
   listed in design "What is wrong today".
 
-- 2026-10-08 — **Phase 1: how the split form and the legacy keys live together** (Phase 1
-  session, put to the hub). About 80 files outside game-config read `doc.holdAndWin` /
+- 2026-10-08 — **Phase 1: how the split form and the legacy keys live together.** The Phase 1
+  session proposed this and the hub approved it as option (A). The canonical rules are in design
+  §2.1, "Transition (Phases 1–6)".
+  - No equality test decides which side wins. Applying an unchanged mirror is a no-op, and a stale
+    mirror always wins.
+  - So a split-form writer must delete the legacy keys before it saves.
+  - The mirror is dropped in Phase 7.
+  - `bonusGames.fixture.ts` §4b and §4c pin this. About 80 files outside game-config read `doc.holdAndWin` /
   `doc.potsOverlay` directly. That includes the `.mjs` mocks and `test-server`, which read the
   stored JSON. So a normalized doc stores the split form (`coinOverlay`, and the declared
   `holdAndWin` mode with its `holdAndWin` rules) **and** both legacy keys as a compat mirror derived
