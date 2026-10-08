@@ -437,6 +437,7 @@ function respinModeIssues(
 	doc: GameConfigDoc,
 	view: GameConfigDoc & BonusSplit,
 	id: string,
+	started: boolean,
 ): GameConfigIssue[] {
 	const swap = (mode: string) =>
 		mode === id ? HOLD_AND_WIN_MODE : mode === HOLD_AND_WIN_MODE ? STAND_IN : mode;
@@ -453,11 +454,17 @@ function respinModeIssues(
 		...(potsOverlay ? { potsOverlay } : {}),
 	};
 	const prefix = `modes.${id}.holdAndWin`;
-	return validateHoldAndWin(asPrimary).flatMap((issue) =>
-		issue.path === 'holdAndWin' || issue.path.startsWith('holdAndWin.')
-			? [{ ...issue, path: prefix + issue.path.slice('holdAndWin'.length) }]
-			: [],
-	);
+	return validateHoldAndWin(asPrimary).flatMap((issue): GameConfigIssue[] => {
+		if (issue.path !== 'holdAndWin' && !issue.path.startsWith('holdAndWin.')) return [];
+		const path = prefix + issue.path.slice('holdAndWin'.length);
+		// Nothing starts it: say where to route it. An unstarted mode is inert, so none of its issues
+		// blocks a save — adding a mode, then its rules, then its route never passes through an error.
+		const message =
+			issue.path === 'holdAndWin.trigger' && !started
+				? `Nothing starts "${id}" yet — route a trigger or a pot to "${id}" in Coin overlay.`
+				: issue.message;
+		return [{ ...issue, path, message, ...(started ? {} : { severity: 'warning' as const }) }];
+	});
 }
 
 /**
@@ -476,10 +483,10 @@ export function validateBonusModes(doc: GameConfigDoc): GameConfigIssue[] {
 	for (const mode of resolveGameModes(view)) {
 		if (mode.board !== 'respinBoard') continue;
 		const path = `modes.${mode.id}`;
+		const started = overlayRoutes(overlay).some((route) => route.mode === mode.id);
 		if (!mode.holdAndWin) {
 			// An error only where something starts the mode (Phase 5a: `/config` → Bonus modes gives it
 			// rules in one click); an unstarted one is inert, and a config that saved with it still saves.
-			const started = overlayRoutes(overlay).some((route) => route.mode === mode.id);
 			issues.push({
 				severity: started ? 'error' : 'warning',
 				path: `${path}.holdAndWin`,
@@ -488,7 +495,7 @@ export function validateBonusModes(doc: GameConfigDoc): GameConfigIssue[] {
 					: `The respin mode "${mode.id}" has no Hold and Win rules, so nothing can play it.`,
 			});
 		} else if (mode.id !== primary?.id) {
-			issues.push(...respinModeIssues(doc, view, mode.id));
+			issues.push(...respinModeIssues(doc, view, mode.id, started));
 		}
 		const gameType = gameTypeForMode(mode);
 		if (!doc.paddingReels[gameType]?.length) {
@@ -543,6 +550,15 @@ export function validateBonusModes(doc: GameConfigDoc): GameConfigIssue[] {
 			isPot || route.path === 'trigger.count.mode'
 				? [BASE_GAME_MODE, ...dropping]
 				: [BASE_GAME_MODE];
+		if (target?.board === 'respinBoard' && target.id !== HOLD_AND_WIN_MODE) {
+			// Until the mock (Phase 2) and the game (Phase 4) play each mode by its id, only `holdAndWin`
+			// is played. Phase 4 removes this.
+			issues.push({
+				severity: 'warning',
+				path,
+				message: `It starts "${route.mode}", which the test server and the game don't play yet (bonus-games Phases 2/4): a full pot or trigger here ends with no win.`,
+			});
+		}
 		const host = from.find((m) => gameModeById(view, m)?.board === 'respinBoard');
 		if (target?.board === 'respinBoard' && host) {
 			issues.push({
@@ -552,6 +568,20 @@ export function validateBonusModes(doc: GameConfigDoc): GameConfigIssue[] {
 			});
 		}
 	}
+
+	// The base-game coin table names jackpot tiers of the respin games it starts.
+	const tiers = new Set(
+		(view.modes ?? []).flatMap((m) => (m.holdAndWin?.jackpots ?? []).map((j) => j.name)),
+	);
+	overlay?.coins?.forEach((coin, i) => {
+		if (coin.kind === 'jackpot' && !tiers.has(coin.jackpot)) {
+			issues.push({
+				severity: 'error',
+				path: `coinOverlay.coins.${i}.jackpot`,
+				message: `"${coin.jackpot}" is not a jackpot tier of any respin mode.`,
+			});
+		}
+	});
 
 	// A buy tier routed to another mode than the mirrored one is not the legacy validator's to check.
 	overlay?.trigger?.buy?.forEach((tier, i) => {

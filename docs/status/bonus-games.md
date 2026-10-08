@@ -27,19 +27,19 @@ starts the phase sessions, reviews their PRs and merges them.
 
 ## Phase board
 
-| # | Phase | State | Owner session | PR |
-|---|---|---|---|---|
-| 0 | Plan + hub | in review | Hold and Wins as standalone project | — |
-| 1 | Contract: config split + migration | in review | Bonus games Phase 1 — config split + migration | #1133 |
-| 2 | Mock: per-mode engines | not started (needs 1) | — | — |
-| 3 | Facade + wire + event types | not started (needs 1) | — | — |
-| 4 | Engine runtime: active-mode rules | not started (needs 3) | — | — |
-| 5a | `/config` Bonus modes + Coin overlay | in review | Bonus games Phase 5a — /config Bonus modes + Coin overlay | #1136 |
-| 5b | Scene Editor + capabilities + `/symbols` | not started (needs 1) | — | — |
-| 5c | Flow v2 vocabulary by board | not started (needs 1, 4) | — | — |
-| 5d | Win Text + Localization per mode | not started (needs 1, 4) | — | — |
-| 6 | Game Maker: template + Add a bonus mode… | not started (needs 2–5) | — | — |
-| 7 | Migrate and prove (samples, current-games) | not started (needs 6) | — | — |
+| #   | Phase                                      | State                    | Owner session                                             | PR    |
+| --- | ------------------------------------------ | ------------------------ | --------------------------------------------------------- | ----- |
+| 0   | Plan + hub                                 | in review                | Hold and Wins as standalone project                       | —     |
+| 1   | Contract: config split + migration         | in review                | Bonus games Phase 1 — config split + migration            | #1133 |
+| 2   | Mock: per-mode engines                     | not started (needs 1)    | —                                                         | —     |
+| 3   | Facade + wire + event types                | not started (needs 1)    | —                                                         | —     |
+| 4   | Engine runtime: active-mode rules          | not started (needs 3)    | —                                                         | —     |
+| 5a  | `/config` Bonus modes + Coin overlay       | in review                | Bonus games Phase 5a — /config Bonus modes + Coin overlay | #1136 |
+| 5b  | Scene Editor + capabilities + `/symbols`   | not started (needs 1)    | —                                                         | —     |
+| 5c  | Flow v2 vocabulary by board                | not started (needs 1, 4) | —                                                         | —     |
+| 5d  | Win Text + Localization per mode           | not started (needs 1, 4) | —                                                         | —     |
+| 6   | Game Maker: template + Add a bonus mode…   | not started (needs 2–5)  | —                                                         | —     |
+| 7   | Migrate and prove (samples, current-games) | not started (needs 6)    | —                                                         | —     |
 
 ## Decisions & findings
 
@@ -69,10 +69,10 @@ starts the phase sessions, reviews their PRs and merges them.
   - An import brings the source mode's `blank`.
   - The mirror is dropped in Phase 7.
   - `bonusGames.fixture.ts` §4b and §4c pin this. About 80 files outside game-config read `doc.holdAndWin` /
-  `doc.potsOverlay` directly. That includes the `.mjs` mocks and `test-server`, which read the
-  stored JSON. So a normalized doc stores the split form (`coinOverlay`, and the declared
-  `holdAndWin` mode with its `holdAndWin` rules) **and** both legacy keys as a compat mirror derived
-  from it. The rule (`bonusGames.ts` header):
+    `doc.potsOverlay` directly. That includes the `.mjs` mocks and `test-server`, which read the
+    stored JSON. So a normalized doc stores the split form (`coinOverlay`, and the declared
+    `holdAndWin` mode with its `holdAndWin` rules) **and** both legacy keys as a compat mirror derived
+    from it. The rule (`bonusGames.ts` header):
   - When the input carries a legacy key, the legacy pair wins for everything the mirror shows. That
     is the primary respin mode's rules, the pots, drops and timing, the routes to that mode and the
     base-game flags. Everything else in the split form is kept.
@@ -133,7 +133,9 @@ starts the phase sessions, reviews their PRs and merges them.
 
     `validatePotsOverlay` lets a pot activate a special of any respin mode it starts. All three
     changes only relax errors.
-  - **Severity.** A respin mode without rules is an ERROR only when a route starts it, because
+
+  - **Severity** (superseded in part by the review round in "Recent changes": a non-primary respin
+    mode nothing starts never errors). A respin mode without rules is an ERROR only when a route starts it, because
     Bonus modes fixes that in one click; an unstarted one stays a warning. "No strips" stays a
     warning: `/config` has no strip editor, so it cannot fix it. A project that saved before
     still saves.
@@ -150,6 +152,30 @@ starts the phase sessions, reviews their PRs and merges them.
       dictionary is shared. Mode 1's entries are unchanged.
 
 ## Recent changes
+
+- 2026-10-08 — **Phase 5a: the hub's review round** (PR #1136).
+  - **A respin mode other than `holdAndWin` is said to be unplayed.** Until Phases 2 and 4, the mock
+    and the game play only `holdAndWin`. So a route to another respin mode saves with a WARNING:
+    nothing plays it, and a full pot or trigger there ends with no win. **Phase 4 removes this
+    warning** (`validateBonusModes`). The "played today" chip keys on `holdAndWin`, and every other
+    respin mode's card says "not played yet". Removing `holdAndWin` while another respin mode is left
+    adds a note: rename that one to `holdAndWin`.
+  - **The base-game coin values panel is hidden** until a reader exists. The field stays in the
+    schema. A stored `coinOverlay.coins` jackpot row must name a tier of some respin mode (an
+    error), and renaming a tier in Bonus modes carries those rows along. **Open for Phase 7:** wire
+    `coinOverlay.coins` into the mirror and the mock.
+  - **Adding a mode never blocks a save.** Every issue of a non-primary respin mode that nothing
+    starts is a warning, and its trigger issue reads "route a trigger or a pot to `<id>` in Coin
+    overlay". It shows on the mode's card. The primary keeps today's errors. Empty rules start with
+    one cash coin.
+  - **The page's own shaping is gated.** `config/pageDoc.ts` (`openDoc`, `bodyFor`, `adoptSaved`)
+    is what the page and `check:config-bonus-modes` both call. The control saves the stale doc
+    through `saveGameConfigDoc` and shows the edit lost.
+  - **Nits:**
+    - the unrelated hint reflows are reverted;
+    - `respinModeIdProblem` reads the primary from `doc.modes`;
+    - the Symbols table's coin values come from every respin mode;
+    - the guide points re-tagging at the Scene Editor and Flow.
 
 - 2026-10-08 — **Phase 5a: `/config` Bonus modes + Coin overlay, and a split-form writer** (PR
   #1136).

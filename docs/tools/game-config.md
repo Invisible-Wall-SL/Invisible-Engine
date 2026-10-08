@@ -233,12 +233,9 @@ strips and symbols. Everything else in the config is kept.
 
 ### Base game
 
-What lands in the base game:
+What lands in the base game. A coin landing in the base game shows a value from the coin table of
+the respin mode it starts. The panel shows only when some respin mode configures a special:
 
-- **Own base-game coin values** — unticked, a coin landing in the base game shows a value from the
-  coin table of the respin mode it starts. Tick it to give the base game its own table (it starts
-  as a copy of that one): **Kind** (_cash_, × total bet, or a _jackpot_ tier some respin mode has),
-  **Value** and **Weight**; **+ value** adds a row.
 - **Specials in the base game** — one row per special that some respin mode configures:
   **Lands in the base game**, and for the collector and the multiplier, **… + coin in the base game
   pays at once**.
@@ -280,7 +277,9 @@ What starts each one — a coin count, a pot, a buy, Lucky Spin — is set in _C
 
 **A respin mode's card:**
 
-- **Id** — renaming it carries what starts it along; re-tag its screens and Flow tab. The
+- **Id** — renaming it carries what starts it along. Re-tag its screens (the role _game mode_ in
+  the [Scene Editor](invisible-editor.md), see "Game mode screens") and its tab in
+  [Flow](flow.md#game-modes--one-graph-per-mode). The
   `holdAndWin` id is locked: the game, its screens and its Flow tab know the mode by that name until
   each mode plays on its own (bonus-games Phase 4).
 - Its **respin strips** (the game type they pad from, and how many reels) and what it is **started
@@ -291,13 +290,17 @@ What starts each one — a coin count, a pot, a buy, Lucky Spin — is set in _C
   free spins — or, with free spins off, removed with its drops; a note under the heading says which.
   The rest of the config is kept.
 
-**The game plays one respin mode today.** The card of the mode the game plays carries a chip saying
-so: until each mode plays on its own (bonus-games Phase 4), the game and the test server play only
-that one. The others are authored and validated, and wait.
+**The game plays one respin mode today: `holdAndWin`.** Until each mode plays on its own
+(bonus-games Phases 2 and 4), the game and the test server play only the mode with that id, and its
+card carries a chip saying so. Every other respin mode is authored and validated, and its card says
+it is **not played yet**. A pot or trigger routed to one saves with a warning: today it ends with no
+win. Removing `holdAndWin` while another respin mode is left says to rename that one to
+`holdAndWin`, which **Id** allows.
 
-A respin mode without rules says so, and **Start empty rules** gives it a default set to edit.
-Without rules it is an error only when something starts it (nothing could play it); otherwise a
-warning.
+A respin mode without rules says so, and **Start empty rules** gives it a default set to edit (one
+cash coin). Without rules it is an error only when something starts it (nothing could play it);
+otherwise a warning. A respin mode nothing starts never blocks a save: its issues are warnings, and
+its card says to route a trigger or a pot to it in Coin overlay.
 
 **Add a respin mode** — type an id (left blank it is `holdAndWin`, or `holdAndWin_2`, `_3`… when
 that is taken), pick a preset or **Empty rules (no strips)**, and press **＋ Respin mode**. A preset

@@ -67,8 +67,22 @@
 	/** The validator reports the mirrored mode's rules under `holdAndWin`, every other one's under
 	 *  its own `modes.<id>.holdAndWin`. */
 	const rulesPrefix = (id: string) => (id === primaryId ? 'holdAndWin' : `modes.${id}.holdAndWin`);
-	const cardIssues = (id: string) =>
-		issuesFor(`modes.${id}`).filter((i) => !i.path.startsWith(`${rulesPrefix(id)}.`));
+	/** The card's own issues, and what (not) starts the mode — its rules editor shows the rest. */
+	const cardIssues = (id: string) => [
+		...issuesFor(`modes.${id}`).filter((i) => !i.path.startsWith(`${rulesPrefix(id)}.`)),
+		...issuesFor(`${rulesPrefix(id)}.trigger`),
+	];
+
+	/** A base-game coin names a tier by name; it follows a rename unless another mode keeps the name. */
+	function renameJackpot(id: string, from: string, to: string) {
+		const kept = doc.modes?.some(
+			(m) => m.id !== id && m.holdAndWin?.jackpots.some((j) => j.name === from),
+		);
+		if (kept) return;
+		for (const coin of doc.coinOverlay?.coins ?? []) {
+			if (coin.kind === 'jackpot' && coin.jackpot === from) coin.jackpot = to;
+		}
+	}
 
 	/** Which rules editors are folded shut — local UI state only, never saved. */
 	let folded = $state<Record<string, boolean>>({});
@@ -178,8 +192,11 @@
 				<div class="row tight">
 					<h3>
 						{mode.label ?? mode.id}
-						{#if mode.id === primaryId}<span class="chip"
+						{#if mode.id === HOLD_AND_WIN_MODE}<span class="chip"
 								>played today — the game plays this one until each mode plays on its own</span
+							>{:else}<span class="chip"
+								>not played yet — the test server and the game play only "holdAndWin" until
+								bonus-games Phase 4</span
 							>{/if}
 					</h3>
 					{#if mode.holdAndWin}
@@ -225,6 +242,7 @@
 						prefix={rulesPrefix(mode.id)}
 						{issuesFor}
 						{readOnly}
+						onRenameJackpot={(from, to) => renameJackpot(mode.id, from, to)}
 					/>
 				{/if}
 			</fieldset>

@@ -11,7 +11,6 @@
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import {
 		normalizeGameConfigDoc,
-		splitFormOf,
 		withLegacyPair,
 		resolveBetModes,
 		resolveWinLevels,
@@ -66,6 +65,7 @@
 	import BonusModesSection from './BonusModesSection.svelte';
 	import CoinOverlaySection from './CoinOverlaySection.svelte';
 	import GameModesSection from './GameModesSection.svelte';
+	import { adoptSaved, bodyFor, openDoc } from './pageDoc';
 	import { overlayTokenPots, projectAddOns } from '$lib/addOns';
 	import { askConfirm } from '$lib/dialogs.svelte';
 	import type { PageData } from './$types';
@@ -78,12 +78,12 @@
 	 * shows derives from `game-config`, the SAME package the game resolves with, so the grid can't
 	 * drift from what ships.
 	 *
-	 * It is the SPLIT FORM only (`splitFormOf`, `docs/design/bonus-games.md` §2.1): the coin overlay
+	 * It is the SPLIT FORM only (`./pageDoc`, `docs/design/bonus-games.md` §2.1): the coin overlay
 	 * and the bonus modes are edited, and the legacy `holdAndWin` / `potsOverlay` keys are never held,
 	 * so a save can't be overwritten by a stale mirror. The server regenerates the mirror on save; the
 	 * page's readers see it through `snapshot`.
 	 */
-	const initial = splitFormOf((data.doc ?? data.templateDefault) as GameConfigDoc);
+	const initial = openDoc((data.doc ?? data.templateDefault) as GameConfigDoc);
 	let doc = $state<GameConfigDoc>(structuredClone(initial));
 
 	/** Where the loaded doc came from — the page says so, so "edit yours" vs "adopt the template" is
@@ -141,17 +141,19 @@
 	);
 
 	/** A Hold and Win symbol's read-only value list in the Symbols table: a `coin` shows the cash
-	 *  entries of the coin table, a `jackpot` the jackpot entries — they pay by value, not on a line. */
+	 *  entries of every respin mode's coin table, a `jackpot` the jackpot entries — they pay by value,
+	 *  not on a line. */
 	function holdAndWinValueLabels(name: string): string[] {
 		const roles = symbolHoldAndWinRoles(doc.symbols[name]);
-		const coins = snapshot.holdAndWin?.coins ?? [];
-		return coins
+		const coins = (doc.modes ?? []).flatMap((m) => m.holdAndWin?.coins ?? []);
+		const labels = coins
 			.filter(
 				(c) =>
 					(c.kind === 'cash' && roles.includes('coin')) ||
 					(c.kind === 'jackpot' && roles.includes('jackpot')),
 			)
 			.map(coinEntryLabel);
+		return [...new Set(labels)];
 	}
 	function clearPaytable(name: string) {
 		delete doc.symbols[name].paytable;
@@ -1242,14 +1244,14 @@
 			rawError = 'This does not describe a game — it needs a symbol dictionary and reel strips.';
 			return;
 		}
-		doc = splitFormOf(next);
+		doc = openDoc(next);
 		rawError = null;
 		rawOpen = false;
 	}
 
 	function resetToTemplate() {
 		if (!data.templateDefault) return;
-		doc = splitFormOf(data.templateDefault as GameConfigDoc);
+		doc = openDoc(data.templateDefault as GameConfigDoc);
 	}
 
 	/** A kind with starting configs of its own (Hold and Win: Pots / Classic / Collector; lines: the
@@ -1267,7 +1269,7 @@
 			confirmLabel: 'Reset to preset',
 			danger: true,
 		});
-		if (ok) doc = splitFormOf(preset.doc);
+		if (ok) doc = openDoc(preset.doc);
 	}
 
 	/**
@@ -1309,7 +1311,7 @@
 				method: 'PUT',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({
-					doc: withoutBookTrigger($state.snapshot(doc) as GameConfigDoc),
+					doc: bodyFor(withoutBookTrigger($state.snapshot(doc) as GameConfigDoc)),
 					baseEtag,
 					force,
 				}),
@@ -1333,7 +1335,7 @@
 				return { ok: false, reason: 'error', message: (await res.text()) || `HTTP ${res.status}` };
 			}
 			const saved = (await res.json()) as { doc: GameConfigDoc; etag: string | null };
-			doc = splitFormOf(saved.doc);
+			doc = adoptSaved(saved.doc);
 			baseline = JSON.stringify($state.snapshot(doc));
 			source = 'authored';
 			savedAt = new Date().toLocaleTimeString();
@@ -2110,8 +2112,9 @@
 				<p class="hint">
 					The pots overlay's <strong>coins</strong>: each one drops over a cell and flies into the
 					pot it fills. A coin is never dealt by a reel strip and never pays, and whether it is used
-					— and which pot it fills — is the overlay's to decide, under <strong>Coin overlay</strong>, so
-					it carries no in play / unused badge. Its art is bound in Invisible Symbols.
+					— and which pot it fills — is the overlay's to decide, under
+					<strong>Coin overlay</strong>, so it carries no in play / unused badge. Its art is bound
+					in Invisible Symbols.
 				</p>
 				<div class="grid-wrap">
 					<table class="grid">
@@ -2666,8 +2669,8 @@
 				{:else if swapStyle === 'emerge'}
 					Per <strong>column</strong>, on that column's own beat, ahead of the symbols surfacing
 					there. This is the half of the emerge picture that makes the old board <em>leave</em>
-					rather than simply blink out — without it, a column's old symbols are gone the instant its new
-					ones appear.
+					rather than simply blink out — without it, a column's old symbols are gone the instant its
+					new ones appear.
 				{:else}
 					The whole board clears at once, ahead of the fall. Off, the old board is simply gone when
 					the new one arrives.
@@ -2791,10 +2794,10 @@
 			<p class="hint">
 				The big-win celebrations, in ascending order. Each tier has a <strong>name</strong> and an
 				amount <strong>threshold</strong> (the win as a multiple of the total bet). Its
-				<strong>presentation</strong> — rig bundle, intro/idle/outro animations, duration and sound
-				— is authored on the <strong>Win Overlay</strong> component in the Scene Editor, which reads these
-				tiers by alias so the two stay in sync. Smaller wins are handled automatically and aren't shown
-				here. Leave this empty to keep the game's built-in tiers (byte-identical).
+				<strong>presentation</strong> — rig bundle, intro/idle/outro animations, duration and
+				sound — is authored on the <strong>Win Overlay</strong> component in the Scene Editor, which
+				reads these tiers by alias so the two stay in sync. Smaller wins are handled automatically and
+				aren't shown here. Leave this empty to keep the game's built-in tiers (byte-identical).
 			</p>
 
 			{#if bigResolved.length}
@@ -2809,8 +2812,8 @@
 				<div class="tier-seed">
 					<button type="button" onclick={loadDefaultWinTiers}>Load default big wins</button>
 					<span class="hint"
-						>Seeds the <strong>{data.gameType}</strong> template's tiers so you can rename, trim, or retune
-						them. Or add one below.</span
+						>Seeds the <strong>{data.gameType}</strong> template's tiers so you can rename, trim, or
+						retune them. Or add one below.</span
 					>
 				</div>
 			{/if}

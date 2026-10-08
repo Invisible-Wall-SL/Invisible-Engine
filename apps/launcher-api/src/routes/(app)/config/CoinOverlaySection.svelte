@@ -25,7 +25,6 @@
 		type CoinOverlay,
 		type CoinOverlayStyle,
 		type CoinOverlayTrigger,
-		type CoinValueEntry,
 		type GameConfigDoc,
 		type GameConfigIssue,
 		type HoldAndWinSpecial,
@@ -82,9 +81,6 @@
 	const configuredKinds = $derived(
 		HOLD_AND_WIN_SPECIALS.filter((k) => respinModes.some((m) => m.holdAndWin?.specials[k])),
 	);
-	const jackpotNames = $derived([
-		...new Set(respinModes.flatMap((m) => (m.holdAndWin?.jackpots ?? []).map((j) => j.name))),
-	]);
 	const buyModes = $derived(Object.keys(doc.betModes).filter((k) => doc.betModes[k].buyBonus));
 	const symbolNames = $derived(Object.keys(doc.symbols));
 	const bonusModes = $derived(modes.filter((m) => m.id !== BASE_GAME_MODE));
@@ -382,18 +378,6 @@
 	}
 
 	// ── base game ──────────────────────────────────────────────────────────────────────────────
-	/** Absent ⇒ the coin table of the respin mode the coins start. Owning one starts from it. */
-	function setOwnCoins(overlay: CoinOverlay, on: boolean) {
-		if (on) overlay.coins = structuredClone($state.snapshot(rulesOf(defaultMode)?.coins ?? []));
-		else delete overlay.coins;
-	}
-	function setCoinKind(coins: CoinValueEntry[], i: number, kind: string) {
-		const { weight } = coins[i];
-		coins[i] =
-			kind === 'jackpot'
-				? { kind: 'jackpot', jackpot: jackpotNames[0] ?? '', weight }
-				: { kind: 'cash', value: 1, weight };
-	}
 	/** Sparse, as the normalizer stores it: a flag is present only while it is on. */
 	function setFlag(
 		overlay: CoinOverlay,
@@ -884,74 +868,6 @@
 {#snippet baseGameEditor(overlay: CoinOverlay)}
 	<fieldset class="panel" disabled={readOnly}>
 		<h3>Base game <em>what lands in the base game</em></h3>
-		<label class="check"
-			><input
-				type="checkbox"
-				checked={Boolean(overlay.coins)}
-				onchange={(e) => setOwnCoins(overlay, e.currentTarget.checked)}
-			/><span
-				>Own base-game coin values <em
-					>unticked: a coin shows a value from the coin table of the mode it starts</em
-				></span
-			></label
-		>
-		{#if overlay.coins}
-			{@const coins = overlay.coins}
-			<table class="tbl">
-				<thead><tr><th>Kind</th><th>Value</th><th>Weight</th><th></th></tr></thead>
-				<tbody>
-					{#each coins as c, i (i)}
-						<tr>
-							<td
-								><select
-									value={c.kind}
-									onchange={(e) => setCoinKind(coins, i, e.currentTarget.value)}
-								>
-									<option value="cash">cash (× total bet)</option>
-									<option value="jackpot">jackpot</option>
-								</select></td
-							>
-							<td>
-								{#if c.kind === 'cash'}
-									<input
-										type="number"
-										min="0"
-										step="0.5"
-										value={c.value}
-										oninput={num((n) => n > 0 && (c.value = n))}
-									/>
-								{:else}
-									<select bind:value={c.jackpot}>
-										{#each jackpotNames as name (name)}
-											<option value={name}>{name}</option>
-										{/each}
-										{#if !jackpotNames.includes(c.jackpot)}
-											<option value={c.jackpot}>{c.jackpot || '(none)'} — no mode has it</option>
-										{/if}
-									</select>
-								{/if}
-							</td>
-							<td
-								><input
-									type="number"
-									min="0"
-									step="any"
-									value={c.weight}
-									oninput={num((n) => n >= 0 && (c.weight = n))}
-								/></td
-							>
-							<td
-								><button class="del" title="Remove" onclick={() => coins.splice(i, 1)}>×</button
-								></td
-							>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
-			<button class="small" onclick={() => coins.push({ kind: 'cash', value: 1, weight: 1 })}
-				>+ value</button
-			>
-		{/if}
 		{#if configuredKinds.length}
 			<span class="legend"
 				>Specials in the base game <em>for the specials a respin mode configures</em></span
@@ -1310,7 +1226,9 @@
 		</div>
 	{/if}
 	{#if doc.coinOverlay}
-		{@render baseGameEditor(doc.coinOverlay)}
+		{#if configuredKinds.length || issuesFor('coinOverlay.coins').length}
+			{@render baseGameEditor(doc.coinOverlay)}
+		{/if}
 		{@render triggersEditor(doc.coinOverlay)}
 	{/if}
 </section>

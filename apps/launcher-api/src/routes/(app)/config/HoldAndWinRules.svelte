@@ -49,6 +49,7 @@
 		prefix,
 		issuesFor,
 		readOnly,
+		onRenameJackpot,
 	}: {
 		rules: HoldAndWinGame;
 		/** The live doc, read for the grid and the symbol dictionary. */
@@ -56,6 +57,8 @@
 		prefix: string;
 		issuesFor: (prefix: string) => GameConfigIssue[];
 		readOnly: boolean;
+		/** A tier was renamed: the references outside these rules (the base-game coins) follow. */
+		onRenameJackpot: (from: string, to: string) => void;
 	} = $props();
 
 	type NumberInput = Event & { currentTarget: HTMLInputElement };
@@ -188,6 +191,7 @@
 			if (p.type === 'jackpot' && p.jackpot === old) p.jackpot = next;
 		}
 		for (const rj of hw.expansion?.rowJackpots ?? []) if (rj.jackpot === old) rj.jackpot = next;
+		onRenameJackpot(old, next);
 	}
 	/** A tier turned progressive starts as a pool at its multiplier that nothing grows yet; a tier
 	 *  turned fixed drops its pool, so the saved doc carries no field nothing reads. */

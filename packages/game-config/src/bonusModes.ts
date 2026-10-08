@@ -55,12 +55,18 @@ export function respinModeIdProblem(
 	if (!GAME_MODE_ID.test(id)) return 'Start with a letter; letters, digits, _ and - only.';
 	if (id === current) return undefined;
 	if (resolveGameModes(doc).some((m) => m.id === id)) return `A mode "${id}" already exists.`;
-	const primary = primaryRespinMode(splitFormOf(doc).modes);
+	// A normalized or split doc declares its respin modes; an unnormalized legacy one only has the block.
+	const primary =
+		primaryRespinMode(doc.modes) ?? (doc.holdAndWin ? { id: HOLD_AND_WIN_MODE } : undefined);
 	if (id === HOLD_AND_WIN_MODE && primary && primary.id !== current) {
 		return `"${HOLD_AND_WIN_MODE}" would take over from "${primary.id}" as the Hold and Win the game plays today. Pick another id.`;
 	}
 	return undefined;
 }
+
+/** Default rules with one cash coin, so a new empty game is not refused for an empty coin table. */
+const emptyRules = () =>
+	normalizeHoldAndWinGame({ coins: [{ kind: 'cash', value: 1, weight: 1 }] });
 
 /** The id a new respin mode gets: `holdAndWin` on a project without one, else `holdAndWin_2`, … */
 export function nextRespinModeId(doc: GameConfigDoc): string {
@@ -110,7 +116,7 @@ export function addRespinMode(
 		if (id !== HOLD_AND_WIN_MODE)
 			decl.label = `Hold and Win — ${HOLD_AND_WIN_PRESET_LABELS[preset]}`;
 	} else {
-		decl.holdAndWin = normalizeHoldAndWinGame({});
+		decl.holdAndWin = emptyRules();
 	}
 	const [mode] = normalizeGameModes([decl]) ?? [];
 	next.modes = [...(next.modes ?? []), mode];
@@ -127,7 +133,7 @@ export function startRespinRules(doc: GameConfigDoc, id: string): AddOnResult {
 	const mode = next.modes?.find((m) => m.id === id && m.board === 'respinBoard');
 	if (!mode) return { ok: false, reason: `"${id}" is not a respin mode of this project.` };
 	if (mode.holdAndWin) return { ok: false, reason: `"${id}" already has rules.` };
-	mode.holdAndWin = normalizeHoldAndWinGame({});
+	mode.holdAndWin = emptyRules();
 	return { ok: true, doc: next, renamed: { symbols: {}, pots: {} } };
 }
 
@@ -222,6 +228,13 @@ export function removeRespinMode(doc: GameConfigDoc, id: string): AddOnResult {
 		}
 	}
 	if (!next.modes?.length) delete next.modes;
+	// Until the game plays each mode by its id (bonus-games Phase 4) it plays only `holdAndWin`.
+	const primary = primaryRespinMode(next.modes);
+	if (primary && primary.id !== HOLD_AND_WIN_MODE) {
+		notes.push(
+			`"${primary.id}" is now the project's only played Hold and Win, but the test server and the game play a mode only under the id "${HOLD_AND_WIN_MODE}" until bonus-games Phase 4 — rename it to "${HOLD_AND_WIN_MODE}" in Bonus modes.`,
+		);
+	}
 	const imports = next.imports?.filter((i) => i.mode !== id);
 	if (imports?.length) next.imports = imports;
 	else delete next.imports;

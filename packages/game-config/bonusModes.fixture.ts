@@ -211,10 +211,44 @@ console.log('\n3. per-mode validation');
 	const unstarted = clone(three);
 	const added = docOf(addRespinMode(unstarted, 'holdAndWin_2', 'collector'));
 	check(
-		'a respin mode nothing starts is an error naming it',
-		errors(normalize(added)).filter((p) => p.startsWith('modes.')),
-		['modes.holdAndWin_2.holdAndWin.trigger'],
+		'a respin mode nothing starts saves: its issues are warnings, the trigger one says where to route',
+		[
+			errors(normalize(added)).filter((p) => p.startsWith('modes.')),
+			validateGameConfigDoc(normalize(added)).find(
+				(i) => i.path === 'modes.holdAndWin_2.holdAndWin.trigger',
+			)?.message,
+		],
+		[
+			[],
+			'Nothing starts "holdAndWin_2" yet — route a trigger or a pot to "holdAndWin_2" in Coin overlay.',
+		],
 	);
+	const routed = clone(added);
+	routed.coinOverlay!.pots![1].bonus = { mode: 'holdAndWin_2' };
+	check(
+		'...and once a pot starts it, its rules are judged in full (no error here)',
+		errors(normalize(routed)),
+		[],
+	);
+	check(
+		'a route to a respin mode other than holdAndWin warns that it is not played yet',
+		issuesAt(normalize(routed), 'coinOverlay.pots.1'),
+		['warning coinOverlay.pots.1.bonus.mode'],
+	);
+	const fresh = docOf(addRespinMode(three, 'bonusC'));
+	check(
+		'empty rules carry a coin, so they add no coin-table error',
+		errors(normalize(fresh)).filter((p) => p.includes('bonusC')),
+		[],
+	);
+	const coined = clone(two);
+	coined.coinOverlay!.coins = [
+		{ kind: 'jackpot', jackpot: 'MINI', weight: 1 },
+		{ kind: 'jackpot', jackpot: 'NOPE', weight: 1 },
+	];
+	check('a base-game coin names a jackpot tier of some respin mode', errors(normalize(coined)), [
+		'coinOverlay.coins.1.jackpot',
+	]);
 	check(
 		"mode 1's issues are not repeated under mode 2",
 		issuesAt(normalize(two), 'modes.holdAndWin_2'),
@@ -276,7 +310,21 @@ console.log('\n4. removing a respin mode');
 			undefined,
 		],
 	);
-	check('...said in a note', out.notes?.length, 1);
+	check(
+		'...said in notes: the re-route, and that mode 2 is played only once renamed holdAndWin',
+		[out.notes?.length, out.notes?.[1]?.includes('rename it to "holdAndWin"')],
+		[2, true],
+	);
+	const renamed = ok(renameRespinMode(out, 'holdAndWin_2', 'holdAndWin'));
+	check(
+		'...which renameRespinMode allows, and the routes follow',
+		[
+			renamed.modes?.map((m) => m.id),
+			renamed.coinOverlay?.pots?.find((p) => p.id === 'blue')?.bonus.mode,
+			issuesAt(normalize(renamed), 'coinOverlay'),
+		],
+		[['holdAndWin'], 'holdAndWin', []],
+	);
 	check('...and the doc saves', errors(normalize(out)), []);
 	check('mode 2 is now the mirrored one', Boolean(legacyHoldAndWin(normalize(out))), true);
 
