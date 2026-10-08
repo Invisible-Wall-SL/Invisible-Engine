@@ -164,6 +164,9 @@ const featuresOf = (events) => {
 		const f = out.at(-1);
 		if (!f) continue;
 		if (TAGGED.includes(e.event)) f.tags.push([e.event, e.context.mode]);
+		// The bonus snapshot's own `trigger.mode` names the mode too (the facade reads it).
+		if (['enterBonus', 'playedBonusSpin', 'playedBonusSpins'].includes(e.event))
+			f.tags.push([`${e.event}.trigger`, e.context.trigger?.mode]);
 		if (e.event === 'holdAndWinTrigger') {
 			f.stickiness = e.context.stickiness;
 			f.respins = e.context.respins;
