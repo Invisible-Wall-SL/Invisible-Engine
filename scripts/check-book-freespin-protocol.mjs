@@ -512,17 +512,22 @@ console.log('\n§8 — the pots overlay composes over the same rule');
 	);
 	await close();
 
-	const off = withPotsOverlay(
-		createBookMock,
-		FREE_SPINS_POTS,
-	)({ label: 'book-fs-pots-off', seed: 'book-freespins', freeSpins: false });
-	const served = await serve(off);
-	const cfg = ev(await served.post('/rgs/engine?sid=off&seq=0', []), 'config')?.context;
+	// A pot that starts free spins on a game whose free spins are off is refused at build (and by
+	// `/config`): the host has no feature for it, so the test server deals the plain game.
+	let refused = '';
+	try {
+		withPotsOverlay(
+			createBookMock,
+			FREE_SPINS_POTS,
+		)({ label: 'book-fs-pots-off', seed: 'book-freespins', freeSpins: false });
+	} catch (e) {
+		refused = e.message;
+	}
 	check(
-		JSON.stringify(cfg?.betOptions) === '[10]' && Boolean(cfg?.potsOverlay),
-		'free spins off reaches the host under the overlay too (base option only, overlay declared)',
+		/free spins are off/.test(refused),
+		'free spins off: an overlay whose pot starts them is refused at build',
+		refused ? '' : ' (it built)',
 	);
-	await served.close();
 }
 
 console.log('\n§9 — every round ends: a round never passes the free-spin cap');

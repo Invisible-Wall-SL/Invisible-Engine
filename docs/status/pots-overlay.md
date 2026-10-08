@@ -885,9 +885,10 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
      `freeSpinTrigger` / `modeEnter` decls win over a fragment's (de-duplication keeps the kind's), so
      adding them is an edit to `standardVocab.ts` that every kind's vocabulary picks up.
    - **After Phase 2 (mock):**
-     - Only a `book` host deals the overlay. `lines` / `ways` hosts were not cheap: the lines mock
-       has no seam, and it has a cascade path. A Hold and Win game with an overlay is dealt as its
-       own game without pots. Each needs the same six hooks.
+     - The book and lines mocks both deal the overlay (the lines seam since 2026-10-08, book-feature
+       Phase 4), so a lines, ways, cluster or scatter game with the block gets its pots on the test
+       server; a stepped board refuses it. A Hold and Win game with an overlay is still dealt as its
+       own game without pots.
      - A Hold and Win bonus's progressive tiers stay at their seed on an overlay host: no growth
        per bet and no `jackpotLevels`.
      - The book mock still accepts a second base `play` in a round (its old laxness). The overlay
@@ -945,6 +946,16 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 - **The partner's RGS** for production play (Phase 8). Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-08 — **The lines mock hosts the overlay** ([book-feature.md](../design/book-feature.md)
+  Phase 4). `scripts/mock-rgs-server.mjs` gives `withPotsOverlay` the book mock's seam
+  (`refuse`, `beginPlay`, `playOwned`, `takeOver`, `endPlay`, `configContext`, `inBonus`, and a
+  `startFreeSpins` that draws the expanding special); the contract's lines branch sends `potsOverlay`
+  and the test server composes it over the lines mock. A pot routed to free spins on a game with free
+  spins off is refused by `/config` and at build on both hosts. The overlay reads the base stake as
+  `round.baseBet ?? round.baseTotal`. `check:pots-overlay` runs the protocol check over both hosts
+  (book digests unmoved; a lines run adds the test server dealing it). Detail:
+  [status/game-config](game-config.md).
 
 - 2026-10-03 — **The Pots screen draws under a driven flow that never shows it** (branch
   `fix/pots-screen-driven-flow`). On `borut-pots-sample` the pot drew at the coded spot above the

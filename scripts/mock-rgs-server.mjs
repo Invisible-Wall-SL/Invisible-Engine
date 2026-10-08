@@ -264,11 +264,19 @@ const DEFAULT_EXPAND_MIN_REELS = 3;
  * add more spins than the spin used — one measured round at two books never ended. High enough that
  * a game on its default rule never meets it (a default Book-of round reached 60 in the parity
  * transcripts), so every un-authored deal is unchanged. Award rows are held to it too
- * (`awardTableOf`). An imported reels mode keeps its own, lower limit (the book mock's
- * `MAX_STRIPS_ROUND_SPINS`). game-config's `MAX_FREE_SPINS_PER_ROUND` is the same number
+ * (`awardTableOf`). An imported reels mode keeps its own, lower limit (`MAX_STRIPS_ROUND_SPINS`).
+ * game-config's `MAX_FREE_SPINS_PER_ROUND` is the same number
  * (`/config` refuses a row above it); `check:freespins` holds the two equal.
  */
 export const MAX_ROUND_FREE_SPINS = 200;
+
+/**
+ * The most spins an imported reels mode's round may reach through retriggers — lower than every
+ * round's `MAX_ROUND_FREE_SPINS`. Its spins are drawn from its cosmetic padding strips, which can
+ * stack scatters far denser than a real reel set — one measured round chained 111 retriggers into the
+ * facade's play guard and never ended. Shared by every host of the pots overlay.
+ */
+export const MAX_STRIPS_ROUND_SPINS = 50;
 
 /**
  * HOW MANY free spins the feature awards — the project's tables when it states them
@@ -1296,7 +1304,8 @@ export function createMockRgs(opts = {}) {
 	 */
 	const roundPays = (wins) => wins.map((win) => ({ ...win, pay: payCents(win.pay) }));
 
-	const evaluatePayWins = (board, round) => roundPays(evaluateRawWins(board, round));
+	const evaluatePayWins = (board, round, o = evalOpts) =>
+		roundPays(evaluateRawWins(board, round, o));
 
 	/**
 	 * The stake a paytable multiplier is quoted against — the SERVER side of the client's
@@ -1324,14 +1333,16 @@ export function createMockRgs(opts = {}) {
 		return round.betPerLine;
 	};
 
-	const evaluateRawWins = (board, round) => {
+	/** `o` is the pool and prices a board is scored with: this game's own, unless a pot's imported
+	 *  reels mode deals its free spins (`bonusEvalOpts`). */
+	const evaluateRawWins = (board, round, o = evalOpts) => {
 		const base = payoutBaseFor(round);
-		if (winModel === 'ways') return evaluateWays(board, base, wild, evalOpts);
+		if (winModel === 'ways') return evaluateWays(board, base, wild, o);
 		if (winModel === 'cluster')
-			return evaluateClusters(board, base, wild, { ...clusterOpts, ...evalOpts });
+			return evaluateClusters(board, base, wild, { ...clusterOpts, ...o });
 		if (winModel === 'scatter')
-			return evaluateScatterPays(board, base, wild, { ...scatterPaysOpts, ...evalOpts });
-		return evaluatePaylines(board, base, paylines, wild, evalOpts);
+			return evaluateScatterPays(board, base, wild, { ...scatterPaysOpts, ...o });
+		return evaluatePaylines(board, base, paylines, wild, o);
 	};
 
 	/**
@@ -1670,6 +1681,112 @@ export function createMockRgs(opts = {}) {
 		return reels;
 	};
 
+	/** A board drawn from an imported reels mode's `strips`: each reel stops at a random cell of its
+	 *  strip, as deep as the reel deals. A mode with fewer strips than this board has reels repeats
+	 *  them, so the board is always this game's — its paylines must index every reel. */
+	const spinStrips = (strips) =>
+		Array.from({ length: reelCount }, (_unused, reel) => {
+			const strip = strips[reel % strips.length];
+			const stop = Math.floor(nextRand() * strip.length);
+			return Array.from(
+				{ length: rowHeights[reel] },
+				(_cell, row) => strip[(stop + row) % strip.length],
+			);
+		});
+	/** The pool and prices an imported reels mode's free spins are scored with: its own pays over this
+	 *  game's, and its own symbols in the pool. */
+	const bonusEvalOpts = (bonus) =>
+		bonus?.strips
+			? {
+					...evalOpts,
+					pool: [...new Set([...LINE_POOL, ...bonus.strips.flat()])].filter(
+						(name) => name !== 'SCAT' && name !== 'WILD',
+					),
+					symbolPaytable: { ...(evalOpts.symbolPaytable ?? {}), ...bonus.paytable },
+				}
+			: evalOpts;
+
+	/**
+	 * Enter the free spins — the trigger, a forced or bought round, or a pot of the overlay (its
+	 * `startFreeSpins` hook). The round STAYS OPEN: the free spins and a `collect` follow. `board` (the
+	 * triggering spin's) is sent between the trigger and the entry; `extra` rides on `spinTrigger` (a
+	 * pot's `cause` and `meters`). With the expanding special set, it is drawn here and announced with
+	 * `pickRandomly` right after `enterBonus`, in the book mock's shape (`item.state` is what the facade
+	 * reads; `prob` carries the authored weight).
+	 *
+	 * A REELS MODE of the project's own (a pot's imported free spins) passes its `bonus` key, the
+	 * `strips` its spins are drawn from and the `paytable` of the symbols only it deals. It has no
+	 * expanding special: that is the host game's mechanic, not the imported feature's.
+	 */
+	const startFreeSpins = (
+		events,
+		round,
+		{ occurs, spins: given, board, extra = {}, bonus = 'feature', strips, paytable },
+	) => {
+		const spins = Math.min(
+			given ?? (strips ? TOTAL_FS : drawAward(entryAwards, occurs)),
+			MAX_ROUND_FREE_SPINS,
+		);
+		const special = expanding && !strips ? drawSpecial() : null;
+		round.bonus = {
+			active: true,
+			total: spins,
+			played: 0,
+			left: spins,
+			...(special ? { special } : {}),
+			...(strips ? { key: bonus, strips, paytable: paytable ?? {} } : {}),
+		};
+		events.push({
+			event: 'spinTrigger',
+			context: {
+				spins: [{ prob: 1, spins }],
+				occurs,
+				bonus,
+				trigger: spinTriggerRule,
+				...extra,
+			},
+		});
+		if (board) events.push({ event: 'playedSpin', context: board });
+		const entry = bonusSnapshot(round, snapshotTrigger, { played: 0, left: spins });
+		events.push({ event: 'enterBonus', context: entry });
+		if (special) {
+			events.push({
+				event: 'pickRandomly',
+				context: {
+					items: expanding.candidates.map((c) => ({ state: c.symbol, prob: c.weight })),
+					state: entry,
+					scope: 'enterState',
+					item: { state: special.symbol, prob: special.weight },
+				},
+			});
+		}
+	};
+
+	/**
+	 * The seam an add-on deals through (`withPotsOverlay`, `mock-pots-overlay.mjs`), as the book mock
+	 * gives it: called once with this host's board and its `startFreeSpins` hook, it returns the hooks
+	 * `handleEngine` calls. Absent, not one byte of any answer changes. A session is dealt the add-on
+	 * only while the config it was sent carried it (`session.potsOverlay`, kept across a contract swap
+	 * by `carrySession`) — see the book mock's factory comment for why.
+	 *
+	 * The overlay drops onto a rectangle (`rows` deep on every reel), so a stepped board is refused,
+	 * as is a pot that would start free spins on a game with none.
+	 */
+	const overlay = (() => {
+		if (!opts.overlay) return null;
+		if (isStepped) throw new Error(`[${label}] a pots overlay needs a rectangular board`);
+		return opts.overlay({
+			label,
+			seed,
+			reels: reelCount,
+			rows: rowCount,
+			bonuses: { feature: 'freeSpins' },
+			freeSpinsMode: 'freeSpins',
+			freeSpinsOn,
+			startFreeSpins,
+		});
+	})();
+
 	const handleEngine = async (req, res, url) => {
 		const sid = url.searchParams.get('sid');
 		const seq = Number(url.searchParams.get('seq') ?? 0);
@@ -1701,6 +1818,12 @@ export function createMockRgs(opts = {}) {
 		}
 
 		const events = [];
+		const isConfigCall = actions.length === 1 && actions[0]?.action === 'config';
+		// A session told a different game than this mock deals, and not being re-told now: an open tab
+		// from before a contract swap. It is dealt the plain game until it reloads (see `overlay`).
+		const stale =
+			session.configSent && !isConfigCall && (session.potsOverlay === true) !== Boolean(overlay);
+		const addOn = stale ? null : overlay;
 
 		// Emit the boot `config` event once per session — first response gets it — or again on an
 		// explicit `config` action. Faithful to Play4Fun's wire format (symbols/window/paylines/
@@ -1716,6 +1839,8 @@ export function createMockRgs(opts = {}) {
 		const sendConfig = () => {
 			session.configSent = true;
 			session.betTable = betTable;
+			if (overlay) session.potsOverlay = true;
+			else delete session.potsOverlay;
 			const open = session.round?.stored?.filter(Boolean) ?? [];
 			events.push({
 				event: 'config',
@@ -1767,6 +1892,7 @@ export function createMockRgs(opts = {}) {
 					),
 				},
 			});
+			if (overlay) Object.assign(events.at(-1).context, overlay.configContext(session));
 			if (open.length)
 				Object.assign(events.at(-1), { actions: open.map((s) => s.action), resume: true });
 		};
@@ -1803,6 +1929,17 @@ export function createMockRgs(opts = {}) {
 			const platform = { balance: session.balance };
 			if (session.round) platform.gameRound = { updating: true, id: session.round.id };
 			return sendJson(req, res, 200, { events, platform });
+		}
+
+		// The add-on's forced beats are checked before anything is dealt, so a typo charges nothing.
+		const refused = addOn?.refuse(actions);
+		if (refused) {
+			return sendJson(req, res, 200, {
+				result: 0,
+				error: refused,
+				errorCode: 101,
+				platform: { balance: session.balance },
+			});
 		}
 
 		let pendingRound = session.round; // copy reference; may mutate
@@ -1893,6 +2030,22 @@ export function createMockRgs(opts = {}) {
 							platform: {},
 						});
 					}
+					const turn = addOn?.beginPlay(session, pendingRound, a.context, {
+						mode: pendingRound.bonus?.active ? 'freeSpins' : 'basegame',
+						sid,
+					});
+					if (turn?.refused) {
+						return sendJson(req, res, 200, {
+							result: 0,
+							error: turn.refused,
+							errorCode: 110,
+							platform: {},
+						});
+					}
+					if (turn?.owned) {
+						addOn.playOwned(events, session, pendingRound);
+						break;
+					}
 					// Hoisted into a value rather than pushed inline: a free spin opens with the SAME
 					// event, and the two paths diverge straight after it.
 					const spinStart = {
@@ -1914,7 +2067,13 @@ export function createMockRgs(opts = {}) {
 					// sees `gameEnd`, then `collect`s. So `gameEnd` must NOT be emitted until the last
 					// free spin has played, or the drive loop closes the round mid-feature.
 					if (pendingRound.bonus?.active) {
-						const fsReels = stackedDeal ? spinReelsStacked() : spinReels();
+						const { strips } = pendingRound.bonus;
+						const bonusKey = pendingRound.bonus.key ?? 'feature';
+						const fsReels = strips
+							? spinStrips(strips)
+							: stackedDeal
+								? spinReelsStacked()
+								: spinReels();
 						pendingRound.reels = fsReels;
 						const special = pendingRound.bonus.special;
 						// During the feature the special pays scatter-style too, as the book mock declares it.
@@ -1954,14 +2113,14 @@ export function createMockRgs(opts = {}) {
 										(w) => w.what !== special.symbol,
 									),
 								])
-							: evaluatePayWins(fsReels, pendingRound);
+							: evaluatePayWins(fsReels, pendingRound, bonusEvalOpts(pendingRound.bonus));
 						// The SCAT pay is priced against the WHOLE stake and rounded at the wire — exactly
 						// as the base spin below does it, so the two paths cannot drift apart.
 						if (fsScat.win) fsWins.push(roundPays([fsScat.win])[0]);
 						for (const w of fsWins) {
 							events.push({
 								event: 'bonusWin',
-								context: { bonus: 'feature', pay: w.pay, isSpinWin: true },
+								context: { bonus: bonusKey, pay: w.pay, isSpinWin: true },
 							});
 							events.push({ event: 'spinWin', context: w });
 							// The ALREADY-ROUNDED pay, so the round total is the exact sum of the wins the
@@ -1976,9 +2135,16 @@ export function createMockRgs(opts = {}) {
 						// MAX_ROUND_FREE_SPINS for the round; one that would pass it awards nothing. Emitted
 						// BEFORE `playedBonusSpin`, so the counter total the client reads already includes
 						// them.
+						// An imported reels mode retriggers by the plain default, under its own lower limit.
 						const fsTriggers = triggerCount(fsReels);
-						const added = fsTriggers >= triggerMin ? drawAward(retriggerAwards, fsTriggers) : 0;
-						if (added > 0 && pendingRound.bonus.total + added <= MAX_ROUND_FREE_SPINS) {
+						const added =
+							fsTriggers < triggerMin
+								? 0
+								: strips
+									? RETRIGGER_FS
+									: drawAward(retriggerAwards, fsTriggers);
+						const limit = strips ? MAX_STRIPS_ROUND_SPINS : MAX_ROUND_FREE_SPINS;
+						if (added > 0 && pendingRound.bonus.total + added <= limit) {
 							pendingRound.bonus.left += added;
 							pendingRound.bonus.total += added;
 							events.push({
@@ -1988,7 +2154,7 @@ export function createMockRgs(opts = {}) {
 									occurs: fsTriggers,
 									total: pendingRound.bonus.total,
 									left: pendingRound.bonus.left,
-									bonus: 'feature',
+									bonus: bonusKey,
 								},
 							});
 						}
@@ -2002,7 +2168,9 @@ export function createMockRgs(opts = {}) {
 								event: 'playedBonusSpins',
 								context: bonusSnapshot(pendingRound, snapshotTrigger),
 							});
-							events.push({ event: 'gameEnd', context: { win: pendingRound.win } });
+							// The add-on's bonus waiting behind these free spins starts instead of the end.
+							if (!addOn?.takeOver(events, session, pendingRound))
+								events.push({ event: 'gameEnd', context: { win: pendingRound.win } });
 						}
 						// No cascade on a free spin: the tumble fixture is a BASE-game presentation aid,
 						// and a chain here would overwrite the win the counter is accumulating.
@@ -2013,7 +2181,10 @@ export function createMockRgs(opts = {}) {
 					const shuffled = stackedDeal ? spinReelsStacked() : spinReels();
 					// A round that enters the feature anyway (bought, `FORCE_TRIGGER`) is never forced to pay,
 					// and does not use up a `WIN_X` entry.
-					const forcedX = pendingRound.isBuy || forceTrigger ? undefined : winX[baseSpinsDealt++];
+					// The add-on's `feature` force enters it like `FORCE_TRIGGER`.
+					const hostFeature = freeSpinsOn && turn?.hostFeature === true;
+					const forcedX =
+						pendingRound.isBuy || forceTrigger || hostFeature ? undefined : winX[baseSpinsDealt++];
 					// The forced win must not open the feature, so the board it builds holds no trigger
 					// symbol: the trigger's cells are refilled and it is never the symbol that pays. With
 					// the default 3+ SCAT rule that is exactly the scatter-free board it always built.
@@ -2037,7 +2208,9 @@ export function createMockRgs(opts = {}) {
 					// for; that round still enters the feature below.
 					const bought = pendingRound.isBuy;
 					const reels =
-						(forceTrigger || bought) && triggerDealt ? forceTriggerSymbols(dealt) : dealt;
+						(forceTrigger || bought || hostFeature) && triggerDealt
+							? forceTriggerSymbols(dealt)
+							: dealt;
 					pendingRound.reels = reels;
 					const lineWins = evaluatePayWins(reels, pendingRound);
 					const scat = evaluateScatters(
@@ -2065,48 +2238,15 @@ export function createMockRgs(opts = {}) {
 					// on a game with free spins off: its round closes below like any base spin, the
 					// scatters having paid their scatter pay above.
 					const triggers = triggerCount(reels);
-					if (freeSpinsOn && (triggers >= triggerMin || forceTrigger || bought)) {
+					if (freeSpinsOn && (triggers >= triggerMin || forceTrigger || bought || hostFeature)) {
 						// The award row for what landed, the board counted as dealt — forced and bought
 						// boards too, so the award matches the trigger the player sees.
 						const awarded = drawAward(entryAwards, triggers);
-						// The expanding special, drawn once per feature as the free spins start, so the
-						// entry snapshot names it as the captured one does.
-						const special = expanding ? drawSpecial() : null;
-						pendingRound.bonus = {
-							active: true,
-							total: awarded,
-							played: 0,
-							left: awarded,
-							...(special ? { special } : {}),
-						};
-						events.push({
-							event: 'spinTrigger',
-							context: {
-								spins: [{ prob: 1, spins: awarded }],
-								occurs: triggers,
-								bonus: 'feature',
-								trigger: spinTriggerRule,
-							},
+						startFreeSpins(events, pendingRound, {
+							occurs: triggers,
+							spins: awarded,
+							board: reels,
 						});
-						events.push({ event: 'playedSpin', context: reels });
-						const entry = bonusSnapshot(pendingRound, snapshotTrigger, {
-							played: 0,
-							left: awarded,
-						});
-						events.push({ event: 'enterBonus', context: entry });
-						// Announced in the book mock's shape (`item.state` is what the facade reads).
-						// `prob` carries the authored weight.
-						if (special) {
-							events.push({
-								event: 'pickRandomly',
-								context: {
-									items: expanding.candidates.map((c) => ({ state: c.symbol, prob: c.weight })),
-									state: entry,
-									scope: 'enterState',
-									item: { state: special.symbol, prob: special.weight },
-								},
-							});
-						}
 						// Do NOT credit and do NOT close — the free spins and the collect follow.
 						break;
 					}
@@ -2144,6 +2284,8 @@ export function createMockRgs(opts = {}) {
 						}
 					}
 					pendingRound.win = roundWin;
+					// …unless the add-on starts its bonus on this spin: the round stays open.
+					if (addOn?.takeOver(events, session, pendingRound)) break;
 					events.push({ event: 'gameEnd', context: { win: roundWin } });
 
 					// Round-close rules (from real captures):
@@ -2151,8 +2293,10 @@ export function createMockRgs(opts = {}) {
 					//   - play.context = null: leave round open IFF there's a win to collect.
 					//     If win = 0, the server auto-closes even with null context
 					//     (nothing to collect → no point keeping the round open).
-					const explicitAutoCollect = a.context === '' || a.context === undefined;
-					const zeroWinAutoClose = a.context === null && roundWin === 0;
+					// A forced beat's context is the add-on's; what is left of it is the client's.
+					const context = turn ? turn.context : a.context;
+					const explicitAutoCollect = context === '' || context === undefined;
+					const zeroWinAutoClose = context === null && roundWin === 0;
 					if (explicitAutoCollect || zeroWinAutoClose) {
 						session.balance += roundWin;
 						events.push({ event: 'gameRoundOver', context: { win: roundWin } });
@@ -2192,6 +2336,7 @@ export function createMockRgs(opts = {}) {
 						platform: {},
 					});
 			}
+			if (addOn && a.action === 'play') addOn.endPlay(events, dealtFrom, session, pendingRound);
 			// `config` is not stored, as the partner's is not: it would overwrite the position of an
 			// action the round really played, and a resume would replay the config in its place.
 			if (pendingRound && a.action !== 'config') {

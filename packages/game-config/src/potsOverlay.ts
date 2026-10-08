@@ -26,6 +26,7 @@ import {
 import { symbolsInPlay } from './inPlay';
 import {
 	BASE_GAME_MODE,
+	FREE_SPINS_MODE,
 	GAME_MODE_ID,
 	HOLD_AND_WIN_MODE,
 	gameModeById,
@@ -344,6 +345,11 @@ export function validatePotsOverlay(doc: GameConfigDoc): GameConfigIssue[] {
 			);
 		} else if (!modeIds.has(mode)) {
 			error(`${at}.bonus.mode`, `"${mode}" is not a mode this project has.`);
+		} else if (mode === FREE_SPINS_MODE && doc.freeSpins?.enabled === false) {
+			error(
+				`${at}.bonus.mode`,
+				'A full pot cannot start free spins while free spins are off — switch them on in Free spins, or route the pot to another bonus.',
+			);
 		}
 		if (activates && mode !== HOLD_AND_WIN_MODE) {
 			error(

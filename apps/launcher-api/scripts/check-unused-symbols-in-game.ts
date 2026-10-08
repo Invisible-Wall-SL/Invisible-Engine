@@ -313,12 +313,16 @@ const mockFor = (c: Case, config: GameConfigDoc) => {
 				: createBookMock(opts);
 		}
 		if (c.protocol === 'holdAndWin') return createHoldAndWinMock({ ...common, ...grid });
-		return createLinesMock({
+		const opts = {
 			...common,
 			winModel: c.protocol === 'lines' ? 'lines' : c.protocol,
 			cascade: false,
 			...grid,
-		});
+		};
+		// …and the lines host, since book-feature Phase 4.
+		return grid?.potsOverlay
+			? withPotsOverlay(createLinesMock, grid.potsOverlay)({ ...opts, allowForce: true })
+			: createLinesMock(opts);
 	};
 };
 
@@ -441,6 +445,15 @@ const CASES: Case[] = [
 		unused: 'L5',
 		wire: 'TEN',
 		drive: bookDrive,
+	},
+	{
+		// The same game dealt by the lines mock, the overlay over it.
+		label: 'lines with the 3 Pots overlay · L5 (PIC7), with L1–L4 already off',
+		protocol: 'lines',
+		config: bookWithPots,
+		unused: 'L5',
+		wire: 'PIC7',
+		drive: linesDrive,
 	},
 	{
 		label: 'holdAndWin · MULTI (a special and a meter symbol)',

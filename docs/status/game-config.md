@@ -694,20 +694,19 @@ Plan: [hold-and-win.md](../design/hold-and-win.md) §1.3/§5; hub: [hold-and-win
    `undeclared`/`unshown` pair in the drift check. Every live config names it `S` today.
 
 8. **Free-spins presentation that still assumes the scatter** (from the 2026-10-07 switch). The
-   facade's `freeSpinTrigger.positions` come only from a `SCAT` scatter win
-   (`engineFacade.ts`, `spinWin` case), so a custom trigger symbol gets no trigger highlight; the
-   flow-only "N Scatters award N Free Spins" toast (`flowEffects.ts`) fires only on a zero-pay scatter
-   entry, so it never misfires but never names a custom trigger either; `builtinGameModes` still
-   lists the `freeSpins` mode on a game with free spins off (the Game modes section shows it).
+   trigger HIGHLIGHT follows a custom trigger symbol since 2026-10-08 (the facade reads
+   `spinTrigger.trigger.of` and lights its cells on the triggering board). Left: the "N Scatters
+   award N Free Spins" toasts (`flowEffects.ts`, `bookEventHandlerMap.ts`) still say "Scatters" —
+   the count is right, the noun is not, and naming the symbol needs a player-facing label for it
+   (and its localization), which is not a small change; `builtinGameModes` still lists the
+   `freeSpins` mode on a game with free spins off (the Game modes section shows it).
    Partner servers ignore the block by design; the book mock honours it since 2026-10-07 (below).
 9. **The rules page does not state the free-spins AWARD** (from the 2026-10-07 award tables). It
    states the trigger (a FREE SPINS rule when it departs) but not how many spins are awarded or
    added on a retrigger, and so says nothing of a random award range either. The award is read from
    the server at runtime, so the game itself is right; only the copy is silent.
-10. **Free spins OFF does not stop a pots-overlay pot starting them.** A pot whose bonus is
-   `freeSpins` still starts the host's free spins on the book mock (`turn.hostFeature`) with the
-   section switched off, and the validator says nothing. Either the validator should refuse that
-   route while free spins are off, or the mock should refuse it; decide with the pots overlay.
+10. _Closed 2026-10-08:_ a pot routed to free spins while free spins are off is refused by the
+   validator and by both mock hosts (see Recent changes).
 11. **No max-win cap on either mock.** Neither the lines mock nor the book mock caps a round at the
    config's `max_win` (the book mock only declares `maxWinMp`; the lines mock sends `maxWinCap: 0`),
    so an Invisible Test Server round total — a long Book-of feature especially — is uncapped and
@@ -723,6 +722,29 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 - _None._
 
 ## Recent changes
+
+- 2026-10-08 — **The pots overlay over the lines mock** (Phase 4 of
+  [book-feature.md](../design/book-feature.md)). **Mock** (`scripts/mock-rgs-server.mjs`): the host
+  seam the book mock gives `withPotsOverlay` — an `overlay` option called once with the board and a
+  `startFreeSpins` hook, then `refuse` / `beginPlay` / `playOwned` / `takeOver` / `endPlay` /
+  `configContext` / `inBonus` at the same points of the round, the same per-session pin
+  (`session.potsOverlay`) and stale-tab rule. `startFreeSpins` is the lines trigger's own entry,
+  lifted out: it draws the expanding special when the game has one (Phase 3's weighted pick), and a
+  pot's imported reels mode deals its spins from its own strips (repeated to the board's width) at
+  its own prices, retriggering +5 up to `MAX_STRIPS_ROUND_SPINS` (now exported from the lines mock and
+  imported by the book mock). A stepped board refuses the overlay. **Contract:** the lines branch
+  sends `potsOverlay` last (`inServerNames` through `linesMapping`); the test server composes
+  `withPotsOverlay(createLinesMock, …)` as `makeBookMock` does, falling back to the plain game with a
+  one-time warning. **Free spins off + a pot to free spins** (open item 10): `validatePotsOverlay`
+  errors at `potsOverlay.pots.N.bonus.mode`, and `createPotsOverlay` refuses to build on either host
+  (`host.freeSpinsOn`), so the test server deals the plain game. **Trigger highlight:**
+  `freeSpinTrigger.positions` follow a non-scatter trigger symbol (open item 8, half). **Gates:**
+  `check:pots-overlay` runs `check-pots-overlay-protocol.mjs` over both hosts (`--host lines`, with
+  the Thermopylae special), book digests unmoved; the lines run adds the test server dealing a lines
+  overlay game; `check:freespins` §15 (fails on main); `potsOverlay.fixture.ts` (the off route);
+  `check:mock-contract` (the lines overlay field); `check:unused-symbols-in-game` (the 3 Pots game
+  dealt by the lines host); `check:freespins`' book section now expects the off route refused at
+  build; `check:lines-parity` and every book digest unchanged.
 
 - 2026-10-07 — **The lines mock deals the expanding symbol** (Phase 3 of
   [book-feature.md](../design/book-feature.md)). **Mock** (`scripts/mock-rgs-server.mjs`): two new

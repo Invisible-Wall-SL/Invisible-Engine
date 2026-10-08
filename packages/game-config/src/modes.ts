@@ -25,6 +25,9 @@ export const BASE_GAME_MODE = 'basegame';
 /** The respin feature's id — built in whenever the config carries a `holdAndWin` block. */
 export const HOLD_AND_WIN_MODE = 'holdAndWin';
 
+/** The free-spins feature's id — built in for every kind that can trigger it. */
+export const FREE_SPINS_MODE = 'freeSpins';
+
 export type GameModeDecl = {
 	/** The mode id the engine, the flow and the scenes name it by (`freeSpins`, `holdAndWin`, …). */
 	id: string;
@@ -62,7 +65,7 @@ export function builtinGameModes(
 	const modes: GameModeDecl[] = [
 		{ id: BASE_GAME_MODE, board: 'reels', label: 'Base game' },
 		{
-			id: 'freeSpins',
+			id: FREE_SPINS_MODE,
 			board: 'reels',
 			gameType: 'freegame',
 			counter: 'freeSpins',

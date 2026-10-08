@@ -368,7 +368,7 @@ const makeMock = (protocol, label, grid, gameKey, cascade, runtime, twin = false
 	// an option rather than a third forked mock. See docs/design/game-type-templates.md (Phase D).
 	const winModel = ['ways', 'cluster', 'scatter'].includes(protocol) ? protocol : 'lines';
 	const tumble = cascadeEnabledFor(gameKey, protocol, cascade);
-	return createLinesMock({
+	const opts = {
 		label,
 		winModel,
 		// Explicit boolean either way — an absent value would let the mock fall back to the
@@ -377,7 +377,26 @@ const makeMock = (protocol, label, grid, gameKey, cascade, runtime, twin = false
 		// …and whether it is the game's MECHANIC or the demo override, which only this side knows.
 		cascadeDemo: tumble.demo,
 		...(sellableGrid(grid, runtime) ?? linesGrid ?? {}),
-	});
+	};
+	// The pots overlay composes over the lines mock as over the book mock (`makeBookMock`): with the
+	// project's `potsOverlay` inputs it is the add-on over this game, without them the game exactly. One
+	// that cannot be built deals the plain game and says so once.
+	if (!grid?.potsOverlay) return createLinesMock(opts);
+	try {
+		return withPotsOverlay(
+			createLinesMock,
+			grid.potsOverlay,
+		)({ ...opts, allowForce: twin || !runtime });
+	} catch (e) {
+		if (!potsOverlayFallbackWarned.has(gameKey)) {
+			potsOverlayFallbackWarned.add(gameKey);
+			console.warn(
+				`[test-server] '${gameKey}' has a pots overlay but ${e.message} — dealing its game ` +
+					'with no pots. Check its Game Config potsOverlay block.',
+			);
+		}
+		return createLinesMock(opts);
+	}
 };
 
 /** A runtime release version is an R2 path segment (`_runtime/<id>@<version>/`) read from external

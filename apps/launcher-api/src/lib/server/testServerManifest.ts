@@ -384,8 +384,8 @@ export interface TestServerGameEntry {
 		 *  protocol; such a grid carries none of the lines-mock fields above but the board, lines and
 		 *  `betModes`. */
 		holdAndWin?: HoldAndWinMockInputs;
-		/** A `book` game's pots overlay (`potsOverlayMockInputs`), which the mock deals token drops and
-		 *  pot bonuses from beside the book rounds. Present only when the config has the block. */
+		/** The project's pots overlay (`potsOverlayMockInputs`), which the book or lines mock deals token
+		 *  drops and pot bonuses from beside its own rounds. Present only when the config has the block. */
 		potsOverlay?: PotsOverlayMockInputs;
 	};
 }
