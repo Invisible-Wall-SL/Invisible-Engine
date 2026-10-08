@@ -205,6 +205,15 @@ export const UI_INFO_FREE_SPINS_RULE: UiInfoRule = {
 	body: 'Landing this many or more anywhere on the reels triggers the Free Spins feature.',
 };
 
+/**
+ * The EXPANDING SYMBOL block — the Book-of special — added only for a game whose free spins have
+ * one (Game Config's `freeSpins.expandingSymbol`), right after the free-spins rules.
+ */
+export const UI_INFO_EXPANDING_SYMBOL_RULE: UiInfoRule = {
+	heading: 'EXPANDING SYMBOL',
+	body: 'When Free Spins start, one symbol is chosen at random to be the expanding symbol. During Free Spins, when it lands on enough reels it expands to fill each of them and pays on every line.',
+};
+
 /** The RTP block — shown only where the operator allows it (`displayRTP`), its figure beside it. */
 export const UI_INFO_RTP_RULE: UiInfoRule = {
 	heading: 'RTP',
@@ -266,6 +275,9 @@ export interface InfoRuleOptions {
 	freeSpinsTrigger?: InfoFreeSpinsTrigger;
 	/** `false` ⇒ no symbol the game deals is a wild, so the WILD rule is dropped. Default `true`. */
 	wildInPlay?: boolean;
+	/** `true` ⇒ the free spins draw an expanding symbol (the Book-of special), which gets its own
+	 *  block. Ignored without free spins. Default `false`. */
+	expandingSymbol?: boolean;
 }
 
 /** The FREE SPINS block's figure: `4+` and the symbol. A role-named symbol rides as the translated
@@ -285,7 +297,8 @@ const freeSpinsFigure = ({ count, symbol, role }: InfoFreeSpinsTrigger): UiInfoR
  * `options` describes the free spins. Left at its defaults (on, 3 or more scatters) the page is
  * exactly what it always was. A game with none, or one triggered by something else, gets the
  * SCATTER rule without its free-spins promise; the latter also gains a FREE SPINS block. A game
- * that deals no wild (`wildInPlay: false`) loses the WILD rule.
+ * that deals no wild (`wildInPlay: false`) loses the WILD rule. A game whose free spins draw an
+ * expanding symbol (`expandingSymbol: true`) gains its block after the free-spins rules.
  */
 export function infoRulesWithFigures(
 	figures: InfoRuleFigures,
@@ -294,6 +307,8 @@ export function infoRulesWithFigures(
 	const freeSpins = options.freeSpins ?? true;
 	const trigger = freeSpins ? options.freeSpinsTrigger : undefined;
 	const wildInPlay = options.wildInPlay ?? true;
+	const expanding =
+		freeSpins && options.expandingSymbol === true ? [UI_INFO_EXPANDING_SYMBOL_RULE] : [];
 	const rules = UI_INFO_RULES.flatMap((rule): UiInfoRule[] => {
 		if (rule.heading === 'WILD' && !wildInPlay) return [];
 		if (rule.heading === 'MAX WIN' && figures.maxWin) {
@@ -302,9 +317,10 @@ export function infoRulesWithFigures(
 		if (rule.heading === 'SCATTER' && (!freeSpins || trigger)) {
 			const scatter = { ...rule, body: UI_INFO_SCATTER_PAYS_ONLY_BODY };
 			return trigger
-				? [scatter, { ...UI_INFO_FREE_SPINS_RULE, figure: freeSpinsFigure(trigger) }]
+				? [scatter, { ...UI_INFO_FREE_SPINS_RULE, figure: freeSpinsFigure(trigger) }, ...expanding]
 				: [scatter];
 		}
+		if (rule.heading === 'SCATTER') return [rule, ...expanding];
 		return [rule];
 	});
 	const added: UiInfoRule[] = [];
@@ -344,5 +360,7 @@ export function collectUiTextStrings(): UiTextString[] {
 		add(rule.body, 'Info page');
 	}
 	add(UI_INFO_SCATTER_PAYS_ONLY_BODY, 'Info page');
+	add(UI_INFO_EXPANDING_SYMBOL_RULE.heading, 'Info page');
+	add(UI_INFO_EXPANDING_SYMBOL_RULE.body, 'Info page');
 	return out;
 }

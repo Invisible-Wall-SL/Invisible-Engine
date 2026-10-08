@@ -615,7 +615,10 @@ a buy can buy that instead. The Bet modes section repeats a one-line reminder wh
 free spins are off.
 
 **What the player reads.** The info page's rules follow the setting. With free
-spins off, the **SCATTER** rule drops "3 or more trigger the Free Spins feature".
+spins off, the **SCATTER** rule drops "3 or more trigger the Free Spins feature". With the
+**Expanding symbol** on, an **EXPANDING SYMBOL** rule follows the free-spins rules ("When Free Spins
+start, one symbol is chosen at random to be the expanding symbol…"); its heading and body are
+translated in [Localization](/docs/localization) like the other rules.
 With a trigger other than 3 scatters, it drops that sentence too and a **FREE
 SPINS** rule states the trigger (_FREE SPINS — 4+ SCATTER_, or _4+ H1_ for a symbol
 with no scatter/wild role).

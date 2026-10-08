@@ -723,6 +723,11 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Recent changes
 
+- 2026-10-08 — **The rules page states the expanding symbol** (Phase 5d of
+  [book-feature.md](../design/book-feature.md)): an EXPANDING SYMBOL rule for a game with
+  `freeSpins.expandingSymbol`, harvested for `/localization`; every other game's rules are unchanged.
+  Engine detail: [engine.md](engine.md). Runtime release on merge.
+
 - 2026-10-08 — **The tools follow the expanding-symbol add-on** (Phase 5b of
   [book-feature.md](../design/book-feature.md)). Already wired by Phase 2 (`projectAddOns` reports
   `expandingSymbol`; `bookReveal = kind === 'bookOf' || block`), now pinned and documented:

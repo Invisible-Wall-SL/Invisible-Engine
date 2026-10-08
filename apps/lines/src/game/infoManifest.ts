@@ -4,6 +4,7 @@ import {
 	freeSpinsTriggerIsDefault,
 	infoPageFigures,
 	isScatterSymbol,
+	resolveExpandingSymbol,
 	resolveFreeSpins,
 } from 'game-config';
 import { DEFAULT_DENOM } from 'delivery-profile';
@@ -80,20 +81,25 @@ const operatorFigures = (): { betRange?: string; creditValue?: string } => {
  * What the rules page says about free spins: nothing new for a game on the default 3 scatters, the
  * scatter's free-spins promise dropped for a game without them, and the project's own trigger
  * stated for one that departs from it — named by its role where it has one, else by its config id.
+ * A game whose free spins draw an expanding symbol (`freeSpins.expandingSymbol`) says so too.
  */
 const freeSpinsRules = (): InfoRuleOptions => {
 	const config = getActiveGameConfig();
 	const freeSpins = resolveFreeSpins(config);
 	if (!freeSpins.enabled) return { freeSpins: false };
+	const expanding = resolveExpandingSymbol(config) ? { expandingSymbol: true } : {};
 	const symbol = freeSpins.triggerSymbol;
-	if (!symbol || freeSpinsTriggerIsDefault(config)) return {};
+	if (!symbol || freeSpinsTriggerIsDefault(config)) return expanding;
 	const entry = config.symbols[symbol];
 	const role = isScatterSymbol(entry)
 		? 'scatter'
 		: entry?.special_properties?.includes('wild')
 			? 'wild'
 			: undefined;
-	return { freeSpinsTrigger: { count: freeSpins.triggerCount, symbol, ...(role ? { role } : {}) } };
+	return {
+		freeSpinsTrigger: { count: freeSpins.triggerCount, symbol, ...(role ? { role } : {}) },
+		...expanding,
+	};
 };
 
 /**
