@@ -47,6 +47,7 @@ import {
 } from './modes';
 import { holdAndWinBonusFrom, type HoldAndWinBonusSource } from './potsOverlayPresets';
 import { bonusImportOf, type BonusImport } from './bonusImports';
+import { legacyHoldAndWin, legacyPotsOverlay, syncBonusSplit, withLegacyPair } from './bonusGames';
 import type { GameConfigDoc } from './types';
 
 /** A feature of a source project, as the import picker offers it. */
@@ -126,7 +127,8 @@ export function importBonus(
 	source: HoldAndWinBonusSource,
 	opts: ImportOptions,
 ): ImportResult {
-	if (!target.potsOverlay) {
+	const overlay = legacyPotsOverlay(target);
+	if (!overlay) {
 		return {
 			ok: false,
 			reason: 'Add a pots overlay first: a full pot is what starts an imported bonus.',
@@ -136,18 +138,18 @@ export function importBonus(
 	if (!feature || opts.mode === 'basegame') {
 		return { ok: false, reason: `The source project has no "${opts.mode}" feature.` };
 	}
-	const unknown = opts.pots?.find((id) => !target.potsOverlay!.pots.some((p) => p.id === id));
+	const unknown = opts.pots?.find((id) => !overlay.pots.some((p) => p.id === id));
 	if (unknown) return { ok: false, reason: `This project has no pot "${unknown}".` };
 	if (opts.mode !== HOLD_AND_WIN_MODE) {
 		return feature.board === 'reels'
 			? importReelsMode(target, source, feature, opts)
 			: { ok: false, reason: BOARD_NOT_BUILT };
 	}
-	if (!source.holdAndWin) {
+	if (!legacyHoldAndWin(source)) {
 		return { ok: false, reason: 'The source project has no Hold and Win block.' };
 	}
 
-	const next = structuredClone(target);
+	const next = withLegacyPair(structuredClone(target));
 	const previous = bonusImportOf(next, HOLD_AND_WIN_MODE);
 	// The HUD screen is the host's layout's, so the host's choice outlives a replace.
 	const hostHud = next.modes?.find((m) => m.id === HOLD_AND_WIN_MODE)?.hud;
@@ -207,6 +209,7 @@ export function importBonus(
 	const {
 		gameType: _gameType,
 		hud: _hud,
+		holdAndWin: _rules,
 		...presentation
 	} = authored ?? {
 		id: HOLD_AND_WIN_MODE,
@@ -254,7 +257,7 @@ export function importBonus(
 	next.imports = [...(next.imports ?? []).filter((i) => i.mode !== HOLD_AND_WIN_MODE), record];
 	return {
 		ok: true,
-		doc: next,
+		doc: syncBonusSplit(next),
 		mode: HOLD_AND_WIN_MODE,
 		renamed,
 		symbols: names,
@@ -313,7 +316,7 @@ function importReelsMode(
 			reason: `"${opts.project}"'s ${feature.id} is already imported here as "${already.mode}". Re-sync it instead.`,
 		};
 	}
-	const next = structuredClone(target);
+	const next = withLegacyPair(structuredClone(target));
 	const previous = opts.into ? bonusImportOf(next, opts.into) : undefined;
 	const previousDecl = previous && next.modes?.find((m) => m.id === previous.mode);
 	if (previous) dropUnusedSymbols(next, takeOutImportedReelsMode(next, previous.mode), () => true);
@@ -388,7 +391,7 @@ function importReelsMode(
 	next.imports = [...(next.imports ?? []).filter((i) => i.mode !== mode), record];
 	return {
 		ok: true,
-		doc: next,
+		doc: syncBonusSplit(next),
 		mode,
 		renamed,
 		symbols: owned,

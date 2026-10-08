@@ -12,6 +12,7 @@ import {
 	type HoldAndWin,
 } from './holdAndWin';
 import { symbolsInPlay, symbolsInPlayForGameType } from './inPlay';
+import { legacyHoldAndWin } from './bonusGames';
 import type { GameConfigDoc } from './types';
 
 export type HoldAndWinMockSymbol = {
@@ -44,9 +45,9 @@ const occursMap = (rows: Array<Record<string, number>> | undefined) => {
 	return Object.keys(out).length ? out : undefined;
 };
 
-/** The mock's inputs for a normalized doc, or `undefined` when it has no `holdAndWin` block. */
+/** The mock's inputs for a doc, or `undefined` when it has no Hold and Win (`legacyHoldAndWin`). */
 export function holdAndWinMockInputs(doc: GameConfigDoc): HoldAndWinMockInputs | undefined {
-	const block = doc.holdAndWin;
+	const block = legacyHoldAndWin(doc);
 	if (!block) return undefined;
 	const inBase = new Set(symbolsInPlayForGameType(doc, 'basegame'));
 	const inPlay = new Set(symbolsInPlay(doc));

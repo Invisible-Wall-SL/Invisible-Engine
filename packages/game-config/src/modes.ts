@@ -1,3 +1,4 @@
+import { normalizeHoldAndWinGame, type HoldAndWinGame } from './holdAndWinGame';
 import type { GameConfigDoc } from './types';
 
 /**
@@ -9,10 +10,16 @@ import type { GameConfigDoc } from './types';
  * each one is made of.
  *
  * SPARSE and departure-only, like every other Invisible-Engine block in this config. The modes every
- * game already has are BUILT IN ({@link builtinGameModes}) — `basegame`, `freeSpins`, and
- * `holdAndWin` when the project carries a `holdAndWin` block — so a config that never mentions modes
- * resolves to exactly the two-value world the engine ran before this file existed. `doc.modes` stores
- * an override of a built-in mode or a mode of the project's own, never a restatement of a default.
+ * game already has are BUILT IN ({@link builtinGameModes}) — `basegame` and `freeSpins` — so a config
+ * that never mentions modes resolves to exactly the two-value world the engine ran before this file
+ * existed. `doc.modes` stores an override of a built-in mode or a mode of the project's own, never a
+ * restatement of a default.
+ *
+ * A BONUS MODE is a game of its own (`docs/design/bonus-games.md` §1): a `respinBoard` mode carries
+ * its Hold and Win rules (`holdAndWin`), so a project may have several. A respin mode exists because
+ * it is declared — normalization declares `holdAndWin` for a config that still carries the legacy
+ * `holdAndWin` block (`./bonusGames`), and {@link resolveGameModes} reads such an unnormalized config
+ * the same way.
  */
 
 /** What a mode plays on. `reels` is the shared column-strip board; the rest are their own surfaces. */
@@ -22,7 +29,7 @@ export type GameModeBoard = (typeof GAME_MODE_BOARDS)[number];
 /** The base game's id — the bottom of every mode stack, and the mode a round returns to. */
 export const BASE_GAME_MODE = 'basegame';
 
-/** The respin feature's id — built in whenever the config carries a `holdAndWin` block. */
+/** The id the Hold and Win respin mode a legacy `holdAndWin` block migrates to is declared under. */
 export const HOLD_AND_WIN_MODE = 'holdAndWin';
 
 /** The free-spins feature's id — built in for every kind that can trigger it. */
@@ -53,16 +60,25 @@ export type GameModeDecl = {
 	values?: string[];
 	/** The name the authoring tools show. Absent ⇒ the id. */
 	label?: string;
+	/** A `respinBoard` mode only: the Hold and Win game it plays (`./holdAndWinGame`). */
+	holdAndWin?: HoldAndWinGame;
 };
 
-/**
- * The modes every project has without authoring any. Free spins are built in for every kind that can
- * trigger them; a project whose config carries a `holdAndWin` block also has the respin feature.
- */
-export function builtinGameModes(
-	doc: Pick<GameConfigDoc, 'holdAndWin'> | undefined,
-): GameModeDecl[] {
-	const modes: GameModeDecl[] = [
+/** The Hold and Win mode as the built-in used to declare it — what migration and a new respin mode
+ *  start from. A fresh copy, safe to edit. */
+export const holdAndWinModeDecl = (): GameModeDecl => ({
+	id: HOLD_AND_WIN_MODE,
+	board: 'respinBoard',
+	gameType: 'respin',
+	counter: 'respins',
+	label: 'Hold and Win',
+	values: ['total', 'respinsLeft'],
+});
+
+/** The modes every project has without authoring any: the base game, and free spins for every kind
+ *  that can trigger them. */
+export function builtinGameModes(): GameModeDecl[] {
+	return [
 		{ id: BASE_GAME_MODE, board: 'reels', label: 'Base game' },
 		{
 			id: FREE_SPINS_MODE,
@@ -72,17 +88,20 @@ export function builtinGameModes(
 			label: 'Free spins',
 		},
 	];
-	if (doc?.holdAndWin) {
-		modes.push({
-			id: HOLD_AND_WIN_MODE,
-			board: 'respinBoard',
-			gameType: 'respin',
-			counter: 'respins',
-			values: ['total', 'respinsLeft'],
-			label: 'Hold and Win',
-		});
-	}
-	return modes;
+}
+
+/**
+ * The modes the doc declares. An unnormalized LEGACY config — a `holdAndWin` block and no respin mode
+ * carrying rules — declares its Hold and Win mode implicitly, ahead of its own modes and with any
+ * authored override of it on top, which is exactly where and how the built-in used to resolve.
+ */
+function declaredModes(
+	doc: Pick<GameConfigDoc, 'holdAndWin' | 'modes'> | undefined,
+): GameModeDecl[] {
+	const own = doc?.modes ?? [];
+	if (!doc?.holdAndWin || own.some((m) => m.board === 'respinBoard' && m.holdAndWin)) return own;
+	const at = own.findIndex((m) => m.id === HOLD_AND_WIN_MODE);
+	return [{ ...holdAndWinModeDecl(), ...own[at] }, ...own.filter((_unused, i) => i !== at)];
 }
 
 /**
@@ -93,8 +112,8 @@ export function builtinGameModes(
 export function resolveGameModes(
 	doc: Pick<GameConfigDoc, 'holdAndWin' | 'modes'> | undefined,
 ): GameModeDecl[] {
-	const resolved = builtinGameModes(doc);
-	for (const authored of doc?.modes ?? []) {
+	const resolved = builtinGameModes();
+	for (const authored of declaredModes(doc)) {
 		const at = resolved.findIndex((mode) => mode.id === authored.id);
 		if (at >= 0) resolved[at] = { ...resolved[at], ...authored };
 		else resolved.push(authored);
@@ -113,14 +132,14 @@ export function gameModeById(
 /**
  * The REELS mode of the project's own that plays on `gameType` (an imported free spins,
  * `./imports`), or `undefined`. A built-in mode, a mode that is not on the reels, and a game type a
- * built-in mode already plays on (`basegame`, `freegame`, `respin`) are never one — so a project
+ * built-in mode already plays on (`basegame`, `freegame`) are never one — so a project
  * without such a mode answers `undefined` for every game type, as before it could have one.
  */
 export function ownReelsModeForGameType(
 	doc: Pick<GameConfigDoc, 'holdAndWin' | 'modes'> | undefined,
 	gameType: string,
 ): GameModeDecl | undefined {
-	const builtins = builtinGameModes(doc);
+	const builtins = builtinGameModes();
 	if (builtins.some((mode) => gameTypeForMode(mode) === gameType)) return undefined;
 	return resolveGameModes(doc).find(
 		(mode) =>
@@ -168,12 +187,9 @@ export const GAME_MODE_ID = /^[A-Za-z][A-Za-z0-9_-]*$/;
  * override left with nothing in it disappears, so a config that agrees with the defaults stores no
  * `modes` at all and normalizes byte-identically to one authored before modes existed.
  */
-export function normalizeGameModes(
-	raw: unknown,
-	doc: Pick<GameConfigDoc, 'holdAndWin'> | undefined,
-): GameModeDecl[] | undefined {
+export function normalizeGameModes(raw: unknown): GameModeDecl[] | undefined {
 	if (!Array.isArray(raw)) return undefined;
-	const builtins = builtinGameModes(doc);
+	const builtins = builtinGameModes();
 	const out: GameModeDecl[] = [];
 	const seen = new Set<string>();
 	for (const entry of raw) {
@@ -193,6 +209,8 @@ export function normalizeGameModes(
 			const values = [...new Set(entry.values.map(text).filter((v): v is string => !!v))];
 			if (values.length) mode.values = values;
 		}
+		const rules = board === 'respinBoard' ? normalizeHoldAndWinGame(entry.holdAndWin) : undefined;
+		if (rules) mode.holdAndWin = rules;
 		if (builtin) {
 			const departure = departureFrom(builtin, mode);
 			if (departure) out.push(departure);

@@ -15,7 +15,10 @@
  * feature, which is why `/config` offers a bonus only beside an overlay.
  *
  * Pure: the input is never mutated. The result is NOT normalized, so a half-typed field elsewhere in
- * an editor's live doc survives an add.
+ * an editor's live doc survives an add. Each add-on edits the legacy `holdAndWin` / `potsOverlay` pair
+ * (a doc only in the split form gets it first, {@link withLegacyPair}) and rewrites the split form
+ * from it ({@link syncBonusSplit}, `./bonusGames`), so a result is already the doc normalization
+ * stores.
  */
 
 import {
@@ -42,6 +45,7 @@ import {
 	type PotsOverlay,
 } from './potsOverlay';
 import { holdAndWinBonus, potsOverlayPreset, type PotsOverlayPresetId } from './potsOverlayPresets';
+import { legacyHoldAndWin, legacyPotsOverlay, syncBonusSplit, withLegacyPair } from './bonusGames';
 import type { GameConfigDoc, GameConfigSymbol } from './types';
 
 /** The names an add-on had to change because the project already used them: preset name → name
@@ -114,10 +118,10 @@ const noRenames = (): AddOnRenames => ({ symbols: {}, pots: {} });
  * a project of any kind. Refused when the project already has a block.
  */
 export function addHoldAndWinBonus(doc: GameConfigDoc, id: HoldAndWinPresetId): AddOnResult {
-	const next = structuredClone(doc);
+	const next = withLegacyPair(structuredClone(doc));
 	const renamed = noRenames();
 	const reason = mergeHoldAndWinBonus(next, id, renamed);
-	return reason ? { ok: false, reason } : { ok: true, doc: next, renamed };
+	return reason ? { ok: false, reason } : { ok: true, doc: syncBonusSplit(next), renamed };
 }
 
 /**
@@ -169,10 +173,10 @@ export function addPotsOverlay(
 /** `pots`, when given, is the count the overlay will end with, so the coins-only refusal looks at
  *  that rather than at the preset's own pots. */
 function mergePotsOverlay(doc: GameConfigDoc, id: PotsOverlayPresetId, pots?: number): AddOnResult {
-	if (doc.potsOverlay) {
+	if (legacyPotsOverlay(doc)) {
 		return { ok: false, reason: 'This project already has a pots overlay. Remove it first.' };
 	}
-	const next = structuredClone(doc);
+	const next = withLegacyPair(structuredClone(doc));
 	const renamed = noRenames();
 	const preset = potsOverlayPreset(id);
 	if (preset.holdAndWin && !next.holdAndWin) {
@@ -213,7 +217,7 @@ function mergePotsOverlay(doc: GameConfigDoc, id: PotsOverlayPresetId, pots?: nu
 	if (!holdAndWinIsOverlayBonus(next)) {
 		overlay.drops.table = overlay.drops.table.filter((entry) => 'pot' in entry);
 	}
-	return { ok: true, doc: next, renamed };
+	return { ok: true, doc: syncBonusSplit(next), renamed };
 }
 
 /** A dictionary entry exactly as an add-on creates a token: tagged `meterSpecial`, paying nothing. */
@@ -268,7 +272,7 @@ const potSpecials = (): HoldAndWinSpecial[] => [
  *  special ({@link potSpecials}) no other pot or meter activates. Without a pot to copy, Hold and Win
  *  when the project has a block, else its first bonus mode on the reels. */
 function bonusForNewPot(doc: GameConfigDoc, like: OverlayPot | undefined): PotBonus | undefined {
-	const block = doc.holdAndWin;
+	const block = legacyHoldAndWin(doc);
 	const mode =
 		like?.bonus.mode ??
 		(block
@@ -277,7 +281,7 @@ function bonusForNewPot(doc: GameConfigDoc, like: OverlayPot | undefined): PotBo
 	if (!mode) return undefined;
 	if (mode !== HOLD_AND_WIN_MODE) return { ...like?.bonus, mode };
 	const taken = new Set<HoldAndWinSpecial | undefined>([
-		...(doc.potsOverlay?.pots ?? []).map((p) => p.bonus.activates),
+		...(legacyPotsOverlay(doc)?.pots ?? []).map((p) => p.bonus.activates),
 		...(block?.meters ?? []).map((m) => m.activates),
 	]);
 	const activates = potSpecials().find((s) => block?.specials[s] && !taken.has(s));
@@ -301,24 +305,25 @@ function bonusForNewPot(doc: GameConfigDoc, like: OverlayPot | undefined): PotBo
  * and its last pot's × both ask here.
  */
 export function zeroPotsRefusal(doc: GameConfigDoc): string | undefined {
-	if (!doc.holdAndWin) {
+	const block = legacyHoldAndWin(doc);
+	if (!block) {
 		return 'With no pots the overlay drops only value coins, which start a Hold and Win bonus — add one first, or keep at least one pot.';
 	}
 	if (!holdAndWinIsOverlayBonus(doc)) {
 		return "This game's own Hold and Win is its base game, started by coins landing on its reels, so value coins alone start nothing — it needs at least one pot.";
 	}
-	if (!doc.holdAndWin.trigger.count) {
+	if (!block.trigger.count) {
 		return 'Value coins start this Hold and Win only through its coin count trigger, which it does not set — set one in the Hold and Win section first, or keep at least one pot.';
 	}
 	return undefined;
 }
 
 export function setOverlayPotCount(doc: GameConfigDoc, count: number): AddOnResult {
-	if (!doc.potsOverlay) return { ok: false, reason: 'This project has no pots overlay.' };
+	if (!legacyPotsOverlay(doc)) return { ok: false, reason: 'This project has no pots overlay.' };
 	if (!Number.isInteger(count) || count < 0 || count > MAX_OVERLAY_POTS) {
 		return { ok: false, reason: `An overlay holds 0 to ${MAX_OVERLAY_POTS} pots.` };
 	}
-	const next = structuredClone(doc);
+	const next = withLegacyPair(structuredClone(doc));
 	const overlay = next.potsOverlay!;
 	const renamed = noRenames();
 	const notes: string[] = [];
@@ -376,12 +381,13 @@ export function setOverlayPotCount(doc: GameConfigDoc, count: number): AddOnResu
 			);
 		}
 	}
-	return { ok: true, doc: next, renamed, ...(notes.length ? { notes } : {}) };
+	return { ok: true, doc: syncBonusSplit(next), renamed, ...(notes.length ? { notes } : {}) };
 }
 
 /**
- * Take the Hold and Win BONUS out of `doc` in place: the block, its mode override and its respin
- * strips (unless another mode pads from them), and its record as an imported bonus. Returns the
+ * Take the Hold and Win BONUS out of `doc` in place: the block, its mode and its respin strips
+ * (unless another mode pads from them), and its record as an imported bonus. `doc` carries the legacy
+ * pair ({@link withLegacyPair}), so normalization drops the routes to the mode with it. Returns the
  * symbols those strips dealt, for the caller to drop once nothing deals them
  * ({@link dropUnusedSymbols}).
  */
@@ -452,7 +458,7 @@ export function takeOutImportedReelsMode(doc: GameConfigDoc, mode: string): Set<
  * it was.
  */
 export function removePotsOverlay(doc: GameConfigDoc): GameConfigDoc {
-	const next = structuredClone(doc);
+	const next = withLegacyPair(structuredClone(doc));
 	const overlay = next.potsOverlay;
 	if (!overlay) return next;
 	const tokens = new Set(overlay.pots.map((p) => p.token));
@@ -464,8 +470,11 @@ export function removePotsOverlay(doc: GameConfigDoc): GameConfigDoc {
 		.filter((i) => i.mode !== HOLD_AND_WIN_MODE)
 		.flatMap((i) => [...takeOutImportedReelsMode(next, i.mode)]);
 	delete next.potsOverlay;
+	// Without a Hold and Win of its own the project has no overlay left; with one, normalization keeps
+	// that game's trigger half and drops the pots (`./bonusGames`).
+	if (!next.holdAndWin) delete next.coinOverlay;
 	dropUnusedSymbols(next, tokens, isBareToken);
 	dropUnusedSymbols(next, bonusSymbols, isHoldAndWinSymbol);
 	dropUnusedSymbols(next, reelsSymbols, () => true);
-	return next;
+	return syncBonusSplit(next);
 }

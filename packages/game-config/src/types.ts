@@ -19,6 +19,7 @@
 import type { PartnerPaytable } from './serverPaytable';
 import type { HoldAndWin } from './holdAndWin';
 import type { PotsOverlay } from './potsOverlay';
+import type { CoinOverlay } from './coinOverlay';
 import type { GameSounds } from './sounds';
 import type { GameModeDecl } from './modes';
 import type { BonusImport } from './bonusImports';
@@ -519,22 +520,28 @@ export type GameConfigDoc = {
 	 */
 	reelBehaviour?: ReelBehaviour;
 	/**
-	 * OPTIONAL Hold and Win mechanic (see `./holdAndWin`, `docs/design/hold-and-win.md`). Present on a
-	 * `holdAndWin` project only; its presence is what makes the base-game lines win feed a respin
-	 * feature. Absent ⇒ no feature, byte-identical to every config authored before it existed.
+	 * The COMPAT MIRROR of the legacy Hold and Win block (see `./holdAndWin`, `./bonusGames`): the
+	 * primary respin mode's rules joined with the coin overlay's routes to it, written by
+	 * normalization for the readers that have not moved to per-mode reads yet. A legacy writer may
+	 * still edit it — it wins over the split form it mirrors — and a writer of the split form deletes
+	 * it. Absent ⇒ no Hold and Win mode, byte-identical to every config authored before it existed.
 	 */
 	holdAndWin?: HoldAndWin;
 	/**
-	 * OPTIONAL pots overlay add-on (see `./potsOverlay`, `docs/design/pots-overlay.md`) — tokens dropped
-	 * over any kind's board fill pots, and a full pot starts a bonus mode. Its presence is what makes a
-	 * project an overlay host, and a `holdAndWin` block beside it is the overlay's bonus rather than
-	 * the base game. Absent ⇒ no overlay, byte-identical to every config authored before it existed.
+	 * The COMPAT MIRROR of the legacy pots overlay block (see `./potsOverlay`): the coin overlay's pots,
+	 * drops and timing, present only when something drops. Same rules as {@link holdAndWin}.
 	 */
 	potsOverlay?: PotsOverlay;
 	/**
+	 * OPTIONAL coin overlay (see `./coinOverlay`, `docs/design/bonus-games.md` §2.1) — the option a base
+	 * game switches on: what lands in the base game, the pots, and the triggers, each naming the bonus
+	 * mode it starts. Read the legacy key `potsOverlay` as well when migrating. Absent ⇒ no overlay.
+	 */
+	coinOverlay?: CoinOverlay;
+	/**
 	 * OPTIONAL game MODES (see `./modes`, `docs/design/hold-and-win.md` §4.5) — overrides of the
-	 * built-in modes and the project's own. SPARSE: absent ⇒ the built-ins (`basegame`, `freeSpins`,
-	 * and `holdAndWin` with a `holdAndWin` block). Read it through `resolveGameModes`.
+	 * built-in modes (`basegame`, `freeSpins`) and the project's own, each respin mode carrying its Hold
+	 * and Win game. SPARSE: absent ⇒ the built-ins. Read it through `resolveGameModes`.
 	 */
 	modes?: GameModeDecl[];
 	/**

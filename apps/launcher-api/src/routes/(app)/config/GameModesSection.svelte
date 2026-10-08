@@ -41,7 +41,7 @@
 	};
 	const MODE_ID = /^[A-Za-z][A-Za-z0-9_-]*$/;
 
-	const builtins = $derived(builtinGameModes(doc));
+	const builtins = builtinGameModes();
 	const modes = $derived(resolveGameModes(doc));
 	const blockIssues = $derived(issuesFor('modes'));
 

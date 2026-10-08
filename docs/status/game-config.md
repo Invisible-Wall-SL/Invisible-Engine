@@ -727,6 +727,19 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Recent changes
 
+- 2026-10-08 — **The schema splits bonuses: a coin overlay and declared bonus modes** (Phase 1 of
+  [bonus-games.md](../design/bonus-games.md), PR #PRNUM). Detail and gates:
+  [status/bonus-games.md](bonus-games.md).
+  - **New keys:**
+    - `coinOverlay` holds the legacy `potsOverlay` block plus the trigger half of `holdAndWin`.
+      Every route names the mode it starts.
+    - `GameModeDecl.holdAndWin` holds a respin mode's rules.
+  - `normalize` migrates a legacy `holdAndWin` / `potsOverlay` into the split form and declares
+    the `holdAndWin` mode. It also keeps both legacy keys as a compat mirror until the readers
+    move (design §3 Phases 2–7).
+  - `builtinGameModes()` no longer lists `holdAndWin`.
+  - The committed Hold and Win defaults gain the split keys. Their legacy blocks are unchanged.
+
 - 2026-10-08 — **Phase 5 review fixes** (PR #1126). **Weights:** an empty `freeSpins.expandingSymbol.weights`
   is now KEPT by `normalizeExpandingSymbol` — it means "no symbol weighted" (nothing drawn, the
   validator's "weight at least one" error), where an absent map still means "every eligible symbol,

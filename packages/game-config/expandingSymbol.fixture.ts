@@ -103,7 +103,10 @@ for (const file of files) {
 	const normalized = normalizeGameConfigDoc(
 		JSON.parse(readFileSync(new URL(file, DEFAULTS), 'utf8')),
 	) as GameConfigDoc;
-	check(`${file}: normalizes byte-identically`, digest(normalized), PINNED[file]);
+	// Bonus-games Phase 1 adds the split form (`coinOverlay`, the declared respin mode) beside the
+	// legacy blocks it mirrors byte-identically; everything else is pinned as it was.
+	const { coinOverlay: _overlay, modes: _modes, ...pinned } = normalized;
+	check(`${file}: normalizes byte-identically`, digest(pinned), PINNED[file]);
 	check(`${file}: carries no expanding symbol`, resolveExpandingSymbol(normalized), undefined);
 }
 check('a doc with no free-spins block resolves none', resolveExpandingSymbol(doc()), undefined);
