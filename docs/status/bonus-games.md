@@ -213,7 +213,7 @@ starts the phase sessions, reviews their PRs and merges them.
 
 ## Recent changes
 
-- 2026-10-08 — **Phase 4: the engine runtime plays the active respin mode** (PR #PR4, `apps/lines`,
+- 2026-10-08 — **Phase 4: the engine runtime plays the active respin mode** (branch `claude/bonus-games-phase-4`, `apps/lines`,
   `engine-game` `playBook.ts`, game-config).
   - **What landed:** every single-config read moved onto `activeRespinMode()`:
     - the respin board (its strip, blank, rows and expansion), rebuilt per mode;
@@ -237,7 +237,18 @@ starts the phase sessions, reviews their PRs and merges them.
       Mutations caught: the stack ignored (21 checks fail), no rebuild per mode (1), screens by
       plain id (3), no autoplay guard (3).
     - `bonusGames.fixture.ts` §8 pins `play` and `respinModeRules`.
-    - GATE_NUMBERS
+    - `check:respin-modes` 128/0, and `bonusGames.fixture.ts` passes;
+    - `check:holdandwin` 1892/0 and `check:pots-overlay` 112/0, both with `MAIN_DIGESTS` unchanged;
+    - `check:bonus-modes`, `check:engine-game` 11/11, `check:resume` and `check:freespins` pass;
+    - `check:all` 413/413, `check:svelte` at baseline, and lint and prettier are clean on the
+      changed files;
+    - **local current-games**, main vs branch on the stand-ins `cg-hw-pots`, `cg-hw-classic` and
+      `cg-bookof-pots`: 3 pass, 0 changed screens (Hold and Win, jackpot, pots and free-spins
+      scenarios included);
+    - three source-text gates were updated to the new reads: `check:signal-scope`,
+      `check:unused-symbols-in-game` and `verify-win-explode-pop`.
+    - **Not run here:** the live samples (`hw-*-sample`, `borut-pots-sample`) need R2 and the browser
+      playtester, and this cloud session has neither. CI's Current games renders them.
   - **What's left:** item 7 (removing 5a's "not played yet" warning) waits on #1136.
 
 
